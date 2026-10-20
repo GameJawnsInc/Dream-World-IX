@@ -4,7 +4,8 @@
 2026-10-20; see "Rung 0 result" below). **Rung 1 is DONE** (offline, 2026-10-20; "Rung 1 result"). **Rung 2 is DONE** (offline, 2026-10-20;
 "Rung 2 result"): every gate green on cluster C. **Rung 3 is DONE** (offline, 2026-10-20; "Rung 3 result"): written to a
 scratch folder, B1 green on the bytes, W1 green bar one cliff-corner band step, the render reads as the bay. **Rung 4 is
-CLOSED** (in game, owner-passed, 2026-10-20). **The CLI verb is WIRED** (2026-10-20; "The CLI verb" below). The evidence
+CLOSED** (in game, owner-passed, 2026-10-20). **The CLI verb is WIRED and LIVE, owner-passed** (2026-10-20; "The CLI
+verb" below). The evidence
 is in `RECON.md` (R0, R1 rounds 1-4); this file is the build.
 
 ## What the verb does
@@ -502,6 +503,16 @@ byte-identical redeploy. A read-only ownership check of the live FF9CustomMap-wo
 ledgered) judged all 264 of its files the verb's own.
 
 Not in v1: any coastnav stamp on the kit coast (the verb prints the coupling note).
+
+**Live, owner-passed (2026-10-20).** `world-river --mod-folder FF9CustomMap-world --at 512,128`, run with FF9 closed:
+- 264 files: 132 on Disc1, byte-identical to the rung 4 lab, and the Disc4 mirror with the same bytes.
+- All 12 cells were empty before, so nothing was parked; 264 ledger rows were appended.
+- The manifest (every path with its sha256, plus how to revert) and the pre-deploy ledger are in the MAIN repo's
+  `backups/` (`world-river-deploy.20261020-103431.manifest.txt`).
+
+The owner's playtest passed it. One observation, left open: the two shallow-water triangles where the beach meets the
+river mouth "look a little weird". They lie inside the verbatim cove (G4: every sample exactly home), so they are
+presumably home's own look. They have not been compared with home side by side.
 
 ## Decisions for the owner (answered: the recommendations, 2026-10-19)
 

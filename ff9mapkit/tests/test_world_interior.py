@@ -1464,15 +1464,17 @@ def _geom_sha(bm) -> str:
     return h.hexdigest()
 
 
-def _uaho_mint(tmp_path, monkeypatch, *, pristine):
+def _uaho_mint(tmp_path, monkeypatch, *, pristine, cell_lip=False):
     """The r31 seed-42 bench mint written to disk (the carve is fed DISK-READ f32 bytes --
-    part of the proven identity). ``pristine`` switches e8ca8e0's ring-edge recovery off."""
+    part of the proven identity). ``pristine`` switches e8ca8e0's ring-edge recovery off. The July
+    nets run on the PRE-FIX lip (``cell_lip=False``, the mint those benches were proven on);
+    ``cell_lip=True`` is today's default mint, the cell-clipped lip."""
     from ff9mapkit.world import island as I
     with monkeypatch.context() as mp:
         if pristine:
             mp.setattr(I, "_recover_ring_edges", lambda xz, tri_idx, nring: (tri_idx, 0))
-        built = I.build_landmass(**UAHO_MINT)
-    tag = "pristine" if pristine else "fresh"
+        built = I.build_landmass(**UAHO_MINT, cell_lip=cell_lip)
+    tag = ("pristine" if pristine else "fresh") + ("-lip" if cell_lip else "")
     return {blk: M.write_ff9mesh(bm, tmp_path / f"{tag}_{blk[0]}_{blk[1]}.ff9mesh")
             for blk, bm in built["blocks"].items()}
 
@@ -1618,7 +1620,7 @@ def test_interior_pipeline_reproduces_island_e(tmp_path):
     from ff9mapkit.world.island import build_landmass
 
     built = build_landmass(center=(344, -1152), base_radius=46, seed=55, lobes=3,
-                           stamps="auto")
+                           stamps="auto", cell_lip=False)              # the July input: the pre-fix lip
     res_f = IN.carve_forest(IN.soup_from_blocks(built["blocks"]), center=ISLAND_E_FOREST,
                             donor=(15, 15))
     IN.census_gate(res_f["changed"], probe=(ISLAND_E_FOREST, 37))
@@ -1642,6 +1644,55 @@ def test_interior_pipeline_reproduces_island_e(tmp_path):
             bytes_off.append(blk)
     assert not geom_off, f"island E left the in-game-proven July geometry on {geom_off}"
     assert not bytes_off, f"island E's bytes changed on {bytes_off}"
+
+
+def _world_tri_set(bm, blk):
+    from ff9mapkit.world.extract import block_world_origin
+    ox, oz = block_world_origin(*blk)
+    P, U = bm.chan_arrays[CH_POS], bm.chan_arrays[CH_UV]
+    return {tuple(sorted((P[i][0] + ox, P[i][1], P[i][2] + oz, U[i][0], U[i][1]) for i in t)) for t in bm.tris}
+
+
+def _off_the_lip(diff, rim, reach=6.0):
+    """The tris of ``diff`` lying wholly more than ``reach`` from the island's rim."""
+    rim = np.asarray(rim)
+    return [t for t in diff if min(float(np.hypot(rim[:, 0] - p[0], rim[:, 1] - p[2]).min()) for p in t) > reach]
+
+
+@needs_game
+def test_the_carves_run_on_a_cell_lip_mint(tmp_path, monkeypatch):
+    """THE CELL-CLIPPED LIP (the lip-streak fix) under the three interior verbs: today's default mint keeps the
+    pre-fix interior, so world-forest carves island E's July canopy and world-mountain the Uaho massif at the same
+    placement as on the pre-fix mint, census-clean, and their bytes differ from those carves ONLY at the lip (no tri
+    more than 6u from the rim). world-hill's July centre sits 0.023u inside RIM_CLEAR's limit on the pre-fix mint;
+    the fan's crest-heavy wall tris read 0.04u nearer, so there the verb's own scan places the hill."""
+    from ff9mapkit.world import island as I
+    kw = dict(center=(344, -1152), base_radius=46, seed=55, lobes=3, stamps="auto")
+    old, new = I.build_landmass(**kw, cell_lip=False), I.build_landmass(**kw)
+    quiet = dict(log=lambda *a: None)
+    f_old = IN.carve_forest(IN.soup_from_blocks(old["blocks"]), center=ISLAND_E_FOREST, donor=(15, 15), **quiet)
+    f_new = IN.carve_forest(IN.soup_from_blocks(new["blocks"]), center=ISLAND_E_FOREST, donor=(15, 15), **quiet)
+    IN.census_gate(f_new["changed"], probe=(ISLAND_E_FOREST, 37), **quiet)
+    assert sorted(f_new["changed"]) == sorted(f_old["changed"]) == sorted(ISLAND_E_BLOCKS)
+    diff = set()
+    for blk in ISLAND_E_BLOCKS:
+        diff |= _world_tri_set(f_old["changed"][blk], blk) ^ _world_tri_set(f_new["changed"][blk], blk)
+    assert diff and _off_the_lip(diff, old["rim"]) == []
+    with pytest.raises(ValueError, match="hill footprint at"):
+        IN.build_hill(IN.soup_from_blocks(f_new["changed"]), center=ISLAND_E_HILL, **quiet)
+    h_new = IN.build_hill(IN.soup_from_blocks(f_new["changed"]), near=ISLAND_E_HILL, **quiet)
+    IN.census_gate(h_new["changed"], **quiet)
+    assert h_new["center"] == (352, -1180) and sorted(h_new["changed"]) == [(5, 18)]
+
+    fresh = _uaho_mint(tmp_path, monkeypatch, pristine=False)
+    lip = _uaho_mint(tmp_path, monkeypatch, pristine=False, cell_lip=True)
+    res_a, got_a = _uaho_carve(fresh[(2, 19)], tmp_path / "a.ff9mesh")
+    res_b, got_b = _uaho_carve(lip[(2, 19)], tmp_path / "b.ff9mesh")
+    assert (res_b["center"], res_b["rot"]) == (res_a["center"], res_a["rot"])
+    assert res_b["report"]["patched_holes"] == 0
+    diff = _world_tri_set(_read19(got_a), (2, 19)) ^ _world_tri_set(_read19(got_b), (2, 19))
+    rim = I.build_landmass(**UAHO_MINT, cell_lip=False)["rim"]
+    assert diff and _off_the_lip(diff, rim) == []
 
 
 # ---- the census gate's CUT sea plane (audit rec 4: the dead-gate revival) -------------------------------------------

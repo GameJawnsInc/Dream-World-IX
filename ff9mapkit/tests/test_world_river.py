@@ -359,10 +359,13 @@ def test_j2_refuses_a_wrong_u_origin():
 
 def test_j2_refuses_a_last_segment_across_the_band_wrap():
     """Why THE WRAP GUARD exists: W's stock U sits 4.24u of arc past the band's wrap; a 6u last segment straddles it
-    and rock_uvs window-translates that tri, moving W's U to the strip's far edge."""
+    and rock_uvs window-translates that tri, moving W's U to the strip's far edge. Judged on the pre-fix wall
+    (``cell_lip=False``): THE CELL-CLIPPED LIP cuts a 6u segment at its lattice crossing, and here the cut happens to
+    leave the column's own piece clear of the wrap -- so the defect needs the uncut segment to show, and J2 must
+    still catch it."""
     ol, joins = hand_join(last_seg=6.0)
     with pytest.raises(R.RiverRefused, match="J2: join W"):
-        R.join_gates(R.mint(ol), ol, joins)
+        R.join_gates(R.mint(ol, cell_lip=False), ol, joins)
 
 
 def test_j3_refuses_a_v_row_off_the_stock():
@@ -1224,7 +1227,13 @@ def test_cluster_c_outline_mints_with_both_joins_exact():
     """Rung 1's acceptance on real data (PLAN.md): cluster C's kit arc leaves E north along its home coast and
     arrives at W from the ESE; the custom-outline mint holds both stock columns bit for bit with the U landed, and
     every geometry gate is clean bar the two seaward wall quads at the columns -- inside the fragment's footprint,
-    which rung 2's opening drops."""
+    which rung 2's opening drops. And no lip streak: the pre-fix mint's 12 streaked lip tris (17.53 u^2, the
+    2026-10-20 rung-4 stills) are gone under THE CELL-CLIPPED LIP.
+
+    Re-pinned with the cell-clipped lip: W's column tri leans 72.13 (was 72.04) -- its join segment now carries a
+    lattice cut, dented JOIN_CUT_DENT landward, and the column tri is that segment's last fan piece; and the walk
+    filter drops 3 tris (was 2) -- E's seaward quad carries a cut too, so its steep tri is two coplanar pieces. Every
+    one still sits on a join base, in a seaward quad."""
     _need_install()
     from ff9mapkit.world import island as I
     f = R.fragment(R.CLUSTER_C)
@@ -1235,9 +1244,12 @@ def test_cluster_c_outline_mints_with_both_joins_exact():
     built = R.mint(ol)
     j = R.join_gates(built, ol, f.joins)
     assert j["E"]["du"] < 1e-12 and j["W"]["du"] < 1e-12 and max(j["E"]["dv"], j["W"]["dv"]) < 5e-4
-    assert (j["E"]["slope"], j["W"]["slope"]) == ([78.21], [72.04])
+    assert (j["E"]["slope"], j["W"]["slope"]) == ([78.21], [72.13])
     v = I.verify_landmass(built)
     assert (v["cracks"], v["open_edges"], v["holes"], v["down_facing"], v["grass_over_8u"]) == (0, 0, 0, 0, 0)
+    assert v["lip_streaks"] == 0 and I.lip_streak_tris(built) == []
+    old = I.lip_streak_tris(R.mint(ol, cell_lip=False))
+    assert (len(old), round(sum(a for _r, a, _c, _f in old), 2)) == (12, 17.53)
     gpos, gtris = built["world"]["pos"], built["world"]["tris"]
     steep = []
     for tri in gtris:
@@ -1245,7 +1257,9 @@ def test_cluster_c_outline_mints_with_both_joins_exact():
         n = np.cross(b - a, c - a)
         if n[1] / np.linalg.norm(n) <= 0.1:
             steep.append({tuple(map(float, gpos[k])) for k in tri})
-    assert len(steep) == v["walk_filter_fails"] == 2
+    assert len(steep) == v["walk_filter_fails"] == 3
+    bases = {tuple(map(float, b)) for _c, b in f.joins.values()}
+    assert all(s & bases for s in steep)                       # all in the two seaward quads
     for name in ("E", "W"):                                    # each holds its join column: the seaward quad's tri
         crest, base = (tuple(map(float, p)) for p in f.joins[name])
         assert sum(1 for s in steep if {crest, base} <= s) == 1, name
@@ -1267,15 +1281,20 @@ def _red(comp):
 def test_cluster_c_composes_green_on_open_ocean(cluster_c):
     """Rung 2's acceptance (PLAN.md): cluster C composed onto the open ocean across the world's seam (the only
     open water a 3 x 5-block footprint fits), every gate green: J1-J4, the zip envelope, G1-G6, B1, C1. Inside the
-    footprint the island grounds EXACTLY as home does at every sample."""
+    footprint the island grounds EXACTLY as home does at every sample.
+
+    Re-pinned with the cell-clipped lip (THE LIP-STREAK FIX): the kit's lip is cut at the lattice lines, so it
+    carries more, smaller tris -- 3785 (was 3329), the opening drops 1722 (was 1690: 1621 lawn + 101 wall) and keeps
+    2063 (was 1639) -- and the zip over the finer hole arc lays 440 tris (was 442), max rise 1.40 (was 1.39). Every
+    gate, the G4 census at home included, is exactly as it was."""
     win, f, ol = cluster_c
     assert R.open_ocean_offsets(sorted(R.mint(ol)["blocks"]))[0] == (8, 0)
     comp = R.compose(f, offset=(512.0, 0.0), window=win, ol=ol)
     rep, g = comp.report, comp.report["gates"]
     assert rep["green"] and _red(comp) == []
-    assert rep["opening"] == {"kit_tris": 3329, "dropped": 1690, "dropped_fams": {"main": 1604, "rock": 86},
-                              "kept": 1639}
-    assert (g["zip"]["tris"], g["zip"]["max_edge"], g["zip"]["max_rise"]) == (442, 6.66, 1.39)
+    assert rep["opening"] == {"kit_tris": 3785, "dropped": 1722, "dropped_fams": {"main": 1621, "rock": 101},
+                              "kept": 2063}
+    assert (g["zip"]["tris"], g["zip"]["max_edge"], g["zip"]["max_rise"]) == (440, 6.66, 1.4)
     assert g["G4"]["by"] == {"same": 10098} and (g["G4_kit"]["points"], g["G4_kit"]["miss"]) == (3341, 0)
     assert (g["G1"]["cracks"], g["G3"]["near_miss"], g["G5"]["flipped"]) == (0, 0, 0)
     assert g["G5"]["skipped_carried"] == 201 and g["B1"]["cells"] == 12

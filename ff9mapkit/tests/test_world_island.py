@@ -371,27 +371,31 @@ def test_build_landmass_seed42_concave_dent_is_watertight():
     triangles, and the face between the wall top and the grass shipped MISSING from Block[2][19] -- a
     closed 3-cycle of once-edges at world (143-144, y 3.2, z -1262..-1265.4), far too small for the
     30x30 hole sampler. Ring-edge recovery must flip the notch quad back and the once-edge gate must
-    hold on the exact shipping parameters."""
-    built = I.build_landmass(center=(160.0, -1246.0), base_radius=31.0, seed=42.0, lobes=1, n_patches=0)
-    assert built["ring_edge_flips"] >= 1                 # the notch quad WAS mis-diagonalized
-    assert _once_edge_violations(built) == []
-    rep = I.verify_landmass(built, sea_plane=_synth_plane())
-    assert rep["open_edges"] == 0 and rep["missing_faces"] == 0 and rep["clean"], rep
-    # the centroid of the face that shipped missing must now be covered by a grass triangle
-    px, pz = 143.641, -1263.820
-    gpos, gtris = built["world"]["pos"], built["world"]["tris"]
-    covered = False
-    for tri in gtris:
-        a, b, c = (gpos[v] for v in tri)
-        d = (b[2]-c[2])*(a[0]-c[0]) + (c[0]-b[0])*(a[2]-c[2])
-        if abs(d) < 1e-9:
-            continue
-        w0 = ((b[2]-c[2])*(px-c[0]) + (c[0]-b[0])*(pz-c[2])) / d
-        w1 = ((c[2]-a[2])*(px-c[0]) + (a[0]-c[0])*(pz-c[2])) / d
-        if w0 >= 0 and w1 >= 0 and 1 - w0 - w1 >= 0:
-            covered = True
-            break
-    assert covered
+    hold on the exact shipping parameters. The notch is the PRE-FIX ring's (``cell_lip=False``): THE
+    CELL-CLIPPED LIP cuts that crest at its lattice crossings, and the cut ring's Delaunay already takes
+    the ring edge there -- so the flip is judged on the pre-fix mint, the watertight surface on both."""
+    kw = dict(center=(160.0, -1246.0), base_radius=31.0, seed=42.0, lobes=1, n_patches=0)
+    legacy = I.build_landmass(**kw, cell_lip=False)
+    assert legacy["ring_edge_flips"] >= 1                # the notch quad WAS mis-diagonalized
+    for built in (legacy, I.build_landmass(**kw)):
+        assert _once_edge_violations(built) == []
+        rep = I.verify_landmass(built, sea_plane=_synth_plane())
+        assert rep["open_edges"] == 0 and rep["missing_faces"] == 0 and rep["clean"], rep
+        # the centroid of the face that shipped missing must now be covered by a grass triangle
+        px, pz = 143.641, -1263.820
+        gpos, gtris = built["world"]["pos"], built["world"]["tris"]
+        covered = False
+        for tri in gtris:
+            a, b, c = (gpos[v] for v in tri)
+            d = (b[2]-c[2])*(a[0]-c[0]) + (c[0]-b[0])*(a[2]-c[2])
+            if abs(d) < 1e-9:
+                continue
+            w0 = ((b[2]-c[2])*(px-c[0]) + (c[0]-b[0])*(pz-c[2])) / d
+            w1 = ((c[2]-a[2])*(px-c[0]) + (a[0]-c[0])*(pz-c[2])) / d
+            if w0 >= 0 and w1 >= 0 and 1 - w0 - w1 >= 0:
+                covered = True
+                break
+        assert covered
 
 
 def test_ring_edge_recovery_is_a_noop_on_island_E():
