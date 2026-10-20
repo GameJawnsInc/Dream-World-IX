@@ -93,8 +93,9 @@ desert mountain at 0 deg, 200 deg and x1.5. It is qualified as `desert-peak` (`1
 
 - comp26 and comp10 carry only with the raised ground their rim steps onto at home: an ensemble carry, like the
   horseshoe's falls mouth.
-- The snow massifs (comp9, comp19) need a coarse-rim split (the forest's RIM GRAIN, for the mountain zip) and a
-  level foot respectively; the big three (comp2/3/4) need an island past r111 and their own aperture anatomy.
+- comp9 needs the home ground its rim closes on, an inlet floor, carried with it. Its rim is NOT coarse (section 6,
+  re-examined 2026-10-20). comp19 needs a level foot. The big three (comp2/3/4) need an island past r111 and their
+  own aperture anatomy.
 
 ## 5. The kit: THE HOME-GROUND WARNING
 
@@ -103,3 +104,52 @@ desert mountain at 0 deg, 200 deg and x1.5. It is qualified as `desert-peak` (`1
 lawful, but the foot meets a ground it never meets in stock, which no gate can see. A warning, not a refusal (the
 owner's call). The geometry modules still parse no catalog (the Uaho identity must not acquire a file-parse
 dependency). The desert peak enters the catalog as `desert-peak` (`19,3`).
+
+## 6. comp9 re-examined: the rim is not coarse (`comp9_diagnose.py`, 2026-10-20)
+
+The plan was to let the rim split go down to the 9u edge gate on coarse donors, then re-sweep comp9 on snow. The rim
+was measured first, and the premise failed, so nothing was built.
+
+**Today's kit** (`sweep.py`, comp9 and the control only): Uaho passes 6/6 on grass, and comp9 refuses 0/6 on snow.
+- At 0, 30, 180, 200 and 270 deg, the geometry gate refuses it:
+  - maxEdge is 14.1-17.0u, the zip DP's longest chord (the recorded "15.5u");
+  - zipRise is 3.55u;
+  - zipNyMin is 0.19-0.50, with 2-4 zip tris under the envelope.
+- At 90 deg the hole ring is not degree-2: one odd point.
+
+**The rim grain**:
+
+| donor | rim points | longest edge | p90 | edges over 6u | edges over 9u | steepest rise on one edge |
+|---|---|---|---|---|---|---|
+| uaho | 27 | 5.93 | 5.31 | 0 | 0 | 2.51 |
+| crag | 42 | 5.80 | 4.68 | 0 | 0 | 1.10 |
+| horseshoe | 62 | 5.62 | 5.17 | 0 | 0 | 2.12 |
+| comp20 | 32 | 6.82 | 5.65 | 2 | 0 | 0.50 |
+| desert-peak | 31 | 6.15 | 5.30 | 1 | 0 | 0.95 |
+| **comp9** | 92 | **6.13** | 5.02 | 2 | **0** | **3.57** |
+| comp19 | 58 | 5.66 | 4.81 | 0 | 0 | 4.31 |
+| comp10 | 45 | 6.19 | 5.52 | 2 | 0 | 1.95 |
+| comp26 | 23 | 5.62 | 4.84 | 0 | 0 | 1.95 |
+
+comp9's rim is as fine as every catalogued donor's. Any split cap of 6.13u or more splits nothing. The 15.5u
+"chord" runs from the rim to the bench's hole ring, not along the rim, so no rim split can shorten it.
+
+**What does refuse it:**
+- **An inlet.** Its mouth is 11.44u wide, with 42.7u of rim inside, at (588.6, -85.7). It is the only outside
+  concavity narrower than 12u (rim points under 12u apart, over 40u apart along the rim, midpoint outside the rim
+  polygon). The bench hole is lattice tris plus 2.5u of clearance, and it cannot follow so narrow a mouth.
+  - That the long chords cross this mouth is inferred, not measured: the zip's chords are not instrumented by
+    position.
+- **A pocket at the inlet's back.** Rim edges 75 and 77 climb 3.57u and 3.31u over 3.9u and 2.8u of plan, to the
+  rock at x = 576 (block (8,1)'s side). No home terrain welds across them; the snow of (9,1) touches only their low
+  ends. That is the zipRise of 3.55u.
+- **comp9 is a coastal ridge, not a peak.** It has a long thin east arm (about 9u wide), a south lobe, and the inlet
+  between them. Its foot at home is a snow strip about 10u wide between the rock and the sea: snow (27) across 81
+  rim edges, coastal 58 across 8. See `out/comp9_home.png`.
+
+**The class.** This is comp26's and comp10's refusal in another form: the rim closes on home ground the carry does
+not take. For comp26 and comp10 it is a raised step. For comp9 it is an inlet floor and the face at its back.
+
+The next step is an ensemble that carries that home ground verbatim with the rock, with the rim closed across the
+inlet mouth on lowland (THE CUT-LINE LAW). It is not built, and it is a design choice: it carries snow ground, not
+only rock.
