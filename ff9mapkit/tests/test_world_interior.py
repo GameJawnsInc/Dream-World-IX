@@ -897,6 +897,45 @@ def _bank_pyramid_donor():
     return _bm(tris, name="Block[0][0] Terrain", x=0, y=0)
 
 
+def _pyramid_with_floor(floor_topo, cx=24.0, cz=-24.0, half=4.0):
+    """The rock pyramid plus one notch-floor tri of ``floor_topo`` hung off its north base edge."""
+    pyr = _pyramid_donor(cx=cx, cz=cz, half=half)
+    c00, c10 = (cx - half, 0.0, cz - half), (cx + half, 0.0, cz - half)
+    floor = ((c00, c10, (cx, 0.5, cz - half - 3.0)), float(encode_id(topograph=floor_topo)), _MAIN_U)
+    base = [((tuple(pyr.verts[3 * t]), tuple(pyr.verts[3 * t + 1]), tuple(pyr.verts[3 * t + 2])), MASSIF_DONOR, _MAIN_U)
+            for t in range(len(pyr.verts) // 3)]
+    return _bm(base + [floor], name="Block[0][0] Terrain", x=0, y=0)
+
+
+def test_mountain_blob_alcove_floor_takes_its_declared_topographs(monkeypatch):
+    """THE INLET FLOOR (mountaindonors/INLET.md): an alcove spec's optional 4th element names the floor topographs.
+    The default stays grass (Uaho's), so a snow floor rides only when the spec declares snow."""
+    box = ((20.0, 28.0), (-31.0, -26.0), -0.5)                    # round the floor tri, block (0,0)'s local frame
+    rock = frozenset({49})
+    _patch_donor(monkeypatch, _pyramid_with_floor(27))
+    snow = IN._mountain_blob([(0, 0)], rock_topos=rock, alcove_box=box + ((27,),), log=lambda *a: None)
+    assert len(snow["blob"]) == 5 and sorted(snow["dtopo"][t] for t in snow["blob"]) == [27, 49, 49, 49, 49]
+    # break it: the 3-element (grass) spec must leave a snow floor behind
+    bare = IN._mountain_blob([(0, 0)], rock_topos=rock, alcove_box=box, log=lambda *a: None)
+    assert len(bare["blob"]) == 4
+    # and the default still carries a grass floor exactly as before
+    _patch_donor(monkeypatch, _pyramid_with_floor(0))
+    grass = IN._mountain_blob([(0, 0)], rock_topos=rock, alcove_box=box, log=lambda *a: None)
+    assert len(grass["blob"]) == 5
+
+
+def test_plug_chart_gate_accepts_the_painted_band_or_the_donors_own_rock():
+    """A plug passes inside the July grass band or inside its donor's own rock band (snow rock is painted at
+    cols -1..3 rows 1..5), and is refused outside both -- the gate must still be able to fail."""
+    snow_rock = [(c, r) for c in range(-1, 4) for r in range(1, 6)]
+    assert IN._plug_chart_ok([6, 7], [9, 10, 11])                         # Uaho's plugs, no donor band needed
+    assert IN._plug_chart_ok([6, 7], [9, 10, 11], snow_rock)
+    assert IN._plug_chart_ok([2, 3], [4, 5], snow_rock)                   # comp9's plug in its own snow rock
+    assert not IN._plug_chart_ok([2, 3], [4, 5])                          # ... which the grass band alone refuses
+    assert not IN._plug_chart_ok([2, 3], [8, 9], snow_rock)               # outside both: refused
+    assert not IN._plug_chart_ok([11, 12], [9, 10], snow_rock)
+
+
 def test_carve_mountain_keeps_skipped_bank_idalls_and_the_gate_refuses_a_strip(monkeypatch, tmp_path):
     _patch_donor(monkeypatch, _bank_pyramid_donor())
     res = _carve_pyramid(tmp_path, rock_topos=(49, 62))

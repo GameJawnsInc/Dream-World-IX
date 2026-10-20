@@ -93,9 +93,9 @@ desert mountain at 0 deg, 200 deg and x1.5. It is qualified as `desert-peak` (`1
 
 - comp26 and comp10 carry only with the raised ground their rim steps onto at home: an ensemble carry, like the
   horseshoe's falls mouth.
-- comp9 needs the home ground its rim closes on, an inlet floor, carried with it. Its rim is NOT coarse (section 6,
-  re-examined 2026-10-20). comp19 needs a level foot. The big three (comp2/3/4) need an island past r111 and their
-  own aperture anatomy.
+- comp9: with its inlet floor carried (THE INLET FLOOR, `INLET.md`), it passes offline at 4 of 6 angles on snow and
+  awaits the owner's eye in game. Its rim is NOT coarse (section 6). comp19 needs a level foot. The big three
+  (comp2/3/4) need an island past r111 and their own aperture anatomy.
 
 ## 5. The kit: THE HOME-GROUND WARNING
 
@@ -147,7 +147,7 @@ comp9's rim is as fine as every catalogued donor's. Any split cap of 6.13u or mo
   between them. Its foot at home is a snow strip about 10u wide between the rock and the sea: snow (27) across 81
   rim edges, coastal 58 across 8. See `out/comp9_home.png`.
 
-**The class.** This is comp26's and comp10's refusal in another form: the rim closes on home ground the carry does
+**The class.** (Built and measured since: `INLET.md`.) This is comp26's and comp10's refusal in another form: the rim closes on home ground the carry does
 not take. For comp26 and comp10 it is a raised step. For comp9 it is an inlet floor and the face at its back.
 
 The next step is an ensemble that carries that home ground verbatim with the rock, with the rim closed across the

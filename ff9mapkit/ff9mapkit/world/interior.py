@@ -147,6 +147,7 @@ MTN_APRON_SLOPE = 29.5           # the grass apron's slope envelope (deg)
 # (its out/daguerreo_massif.json "phase"); the aperture-plug chart gate quantizes against
 # it (cols 5-10, rows 6-12 = the painted rock band).
 ROCK_CHART_PHASE = (0.015625, 0.01953125)
+PLUG_CHART_BAND = ((5, 10), (6, 12))  # that band, (cols, rows): GRASS-world rock (Daguerreo); see _plug_chart_ok
 LAWN_LINE_TOL = 0.05             # THE LAWN-LINE SNAP (UAHO-LAWN-LINE-BENCH.md): a carried fringe
 #                                  contact-edge end further than this (tiles) off the painted lawn
 #                                  line snaps onto it -- stock disc 1 seats 2,081 of 2,088 ends ON
@@ -1536,13 +1537,16 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
     # mountain-attached terrain; without it the blob rim oscillates inside the notch and
     # no smooth ground apron can meet it. Carried verbatim; only the Object mesh itself
     # (a separate part) stays behind. The box reads in the FIRST donor block's local frame.
+    # An optional fourth element names the floor's topographs (default grass, 0 -- Uaho's);
+    # a snow massif's inlet floor is 27 (THE INLET FLOOR, mountaindonors/INLET.md).
     if alcove_box is not None:
-        (nx0, nx1), (nz0, nz1), ny_min = alcove_box
+        (nx0, nx1), (nz0, nz1), ny_min = alcove_box[:3]
+        floor_topos = frozenset(alcove_box[3]) if len(alcove_box) > 3 else frozenset({0})
         NBOX = lambda c: nx0 < c[0] < nx1 and nz0 < c[2] < nz1  # noqa: E731
         seeds = []
         for e in once_edges(blob):
             for t in d_edge[e]:
-                if t not in blob and dtopo[t] == 0:        # floor tris only, never canopy
+                if t not in blob and dtopo[t] in floor_topos:   # floor tris only, never canopy
                     c = (dV[dtri[t]] - doff).mean(axis=0)
                     if NBOX(c) and min(dV[i][1] for i in dtri[t]) > ny_min:
                         seeds.append(t)
@@ -1559,7 +1563,7 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
             added += 1
             for a, b in ((0, 1), (1, 2), (2, 0)):
                 for t2 in d_edge[tuple(sorted((kk3(dV[dtri[t][a]]), kk3(dV[dtri[t][b]]))))]:
-                    if t2 not in blob and dtopo[t2] == 0:
+                    if t2 not in blob and dtopo[t2] in floor_topos:
                         st.append(t2)
         log(f"alcove floor carried: {added} tris (verbatim, incl. the cave-floor tiles)")
 
@@ -1704,6 +1708,22 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
                 apertures=apertures, ensemble_apertures=ensemble_apertures,
                 sweep=sweep, oV=oV, oN=oN, otris=otris, c_local=c_local,
                 r_rim=r_rim, ta=ta, tb=tb, dV2=dV2, dN2=dN2, rim2=rim2)
+
+
+def _plug_chart_ok(pcols, prows, own_cells=()) -> bool:
+    """THE PLUG-CHART GATE: an aperture plug continues its collar's rock chart, so its chart columns and rows (at
+    :data:`ROCK_CHART_PHASE`) must sit in painted rock -- the July band :data:`PLUG_CHART_BAND` (grass-world rock,
+    measured on Daguerreo) OR the band the donor's OWN rock occupies, ``own_cells`` = its rock vertices' (col, row).
+    Rock is painted per biome (grass rock cols 6-10 rows 7-11, desert 7-12 / 2-6, snow -1..3 / 1-5), so a snow
+    massif's plug is lawful in snow rock and nowhere in the grass band (mountaindonors/INLET.md, round 2)."""
+    (c0, c1), (r0, r1) = PLUG_CHART_BAND
+    if min(pcols) >= c0 and max(pcols) <= c1 and min(prows) >= r0 and max(prows) <= r1:
+        return True
+    if not own_cells:
+        return False
+    oc = [c for c, _ in own_cells]
+    orow = [r for _, r in own_cells]
+    return min(pcols) >= min(oc) and max(pcols) <= max(oc) and min(prows) >= min(orow) and max(prows) <= max(orow)
 
 
 def _strip_dispatch(idall_f) -> float:
@@ -1971,7 +1991,9 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     :func:`soup_from_blocks`. ``alcove="auto"`` applies :data:`UAHO_ALCOVE` for the Uaho
     donor and nothing for any other; pass ``((x0, x1), (z0, z1), y_min)`` in the FIRST
     donor block's LOCAL frame to hand-tune a new donor (the aperture-plug path needs the
-    donor's own anatomy pass first -- see the studies README).
+    donor's own anatomy pass first -- see the studies README). An optional fourth element
+    names the floor's topographs, default ``(0,)`` (grass): a snow massif's inlet floor is
+    ``(27,)`` (THE INLET FLOOR, ``studies/terrain-malleability/mountaindonors/INLET.md``).
 
     ``ground`` picks the bench's walkable ground family (:data:`grassland.GROUNDS` --
     the byte-measured TRANSLATION LAWS): the plain-ground classification, the zip
@@ -2903,9 +2925,11 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                         for cs, _, _ in plug_parents for c in cs})
         log(f"aperture plugs: {len(plug_parents)} object tris carried as terrain "
             f"(id {plug_id:.0f}, chart cols {pcols} rows {prows})")
-        if not (min(pcols) >= 5 and max(pcols) <= 10
-                and min(prows) >= 6 and max(prows) <= 12):
-            raise ValueError("plug chart left the rock band")
+        own_cells = [(math.floor((dU[i][0] - puA) / 0.0625), math.floor((dU[i][1] - pvA) / 0.03125))
+                     for t in blob if dtopo[t] in ROCK for i in dtri[t]]
+        if not _plug_chart_ok(pcols, prows, own_cells):
+            raise ValueError(f"plug chart left the rock band (plug cols {pcols} rows {prows}: outside the "
+                             f"painted band and outside the donor's own rock)")
     rim_nrm = {}
     for t in blob:
         for k in range(3):
