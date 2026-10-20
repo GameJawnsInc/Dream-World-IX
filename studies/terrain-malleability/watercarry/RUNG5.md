@@ -161,6 +161,39 @@ Seam-aware relief is the open THE SEAM-WRAP rung of the interior verbs, and a wi
 **Also measured:** `--at auto` now finds no free placement on the owner's install. All 56 open-ocean candidates are
 held, (8,-2) by the live river itself.
 
+## The forest after the seam rung (offline, 2026-10-20)
+
+The relief verbs now read and write across the seam (`interior.py`, the island mint lane's approach; tests in
+`test_world_seam_wrap.py`). `seam_forest.py` re-ran the forest on the river island, into scratch folders outside
+the install (`out/seam_forest.json`):
+
+| case | read window | where the canopy stands | result |
+|---|---|---|---|
+| a. near (49,-824), reach 40 (the 5b run) | columns 0, 1 | (36,-820), rim clearance 47.5u | annulus gate: 1 open edge, midpoint (10.84,-829.54) |
+| b. near (49,-824), reach 96 (the default) | columns 23, 0, 1 | (44,-824), rim clearance 38.8u | every geometry gate clean, walk-in worst 2.05 (ceiling 2.34); census MISS in block (0,12) at 4 samples, world about (12-18, -783 to -796) |
+| c. center (36,-820), reach 96 | columns 23, 0, 1 | (36,-820) | annulus gate: the same edge |
+| `[[river]]` + `[[forest]] near = [49, -824]` through `world-fuse` | columns 23, 0, 1 | (44,-824) | as b |
+
+**The crack is not an artifact of the narrow window.** With column 23 read, (36,-820) fails on the same edge. The
+edge is 10.8u east of the seam and is already open on the untouched island, where the kit grass crest meets the
+carried stock bank (topo 62). The forest's annulus gate counts every open edge within 11u of the canopy's outline,
+and unlike the mountain's it does not subtract the edges the island had before the carve.
+
+**What the narrow window did change is the snap.** Without the coast west of x = 0 it overrated (36,-820)'s rim
+clearance. Read whole, the island puts the canopy at (44,-824), and every forest gate passes there. (The snap counted
+39 lawful centres in both runs.)
+
+**The census MISS belongs to the island too.** `census_gate` fails on the untouched blocks (0,12), (0,13) and (1,12)
+at the same points. It checks Terrain over blank parts and a cut sea, while in game the river's Stream and RiverJoint
+parts cover the channel. Even the whole deployed stack misses some points there, the stock-inherited misses that
+`world-river`'s own census subtracts. Every relief verb re-checks every block in its read window, so any relief carve
+whose window takes in those blocks fails, wherever it stands.
+
+So no forest seats on the river island yet, and neither refusal is about the forest. The next step is making both
+gates measure against the island before the carve: census the block's deployed stack and subtract the misses it
+already has, as `world-river` does, and subtract the pre-existing open edges in the forest's annulus gate, as
+`world-mountain`'s gate does. Then re-measure (44,-824).
+
 ## Decisions for the owner
 
 1. **Drop `--source-massif DONOR`** (a catalogued massif at the source) from the plan. Recommendation: yes. It is the
