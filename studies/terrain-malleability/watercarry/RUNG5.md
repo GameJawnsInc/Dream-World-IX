@@ -214,6 +214,48 @@ gates measure against the island before the carve: census the block's deployed s
 already has, as `world-river` does, and subtract the pre-existing open edges in the forest's annulus gate, as
 `world-mountain`'s gate does. Then re-measure (44,-824).
 
+## The gates measure the carve: the forest seats (offline, 2026-10-20)
+
+Both gates now compare the island after the carve with the island before it (`interior.py`):
+
+- **`census_gate(stack=)`** reads every override the block already ships besides its Terrain
+  (`read_deployed_stack`: on the river island Beach1, Object, RiverJoint, Sea1-5, Stream) and runs the same census
+  twice, on the pristine stack (the Terrain as read) and on the edited one. A MISS or stacked sample the pristine
+  stack already has is the island's own and is logged; one the carve adds still refuses. This is `world-river`'s
+  home-miss subtraction (`river.audit_written`). `parts=` keeps its meaning: a block it names ships exactly those
+  ensemble parts, carried or blank (`census_parts` = what `deploy_mountain_parts` writes). All six relief call
+  sites (three CLI verbs, three `world-fuse` rows) pass `stack=`. Without `stack=` the gate is unchanged.
+- **The forest's annulus-crack gate** subtracts the island's own once-edges, counted the same way over the same
+  blocks before the carve. This is how `carve_mountain`'s once-edge gate already worked.
+
+Tests in `test_world_interior.py` ("the gates measure the CARVE, not the island"). Each break-it was checked red by
+mutating the fix: a new hole, a deployed River the ensemble deploy replaces, a new stacked sheet, a kept tri knocked
+out of the annulus, and a CLI call without `stack=` all refuse.
+
+`seam_forest.py` re-run (scratch outside the install, `out/seam_forest.json`):
+
+| case | where the canopy stands | result |
+|---|---|---|
+| a. near (49,-824), reach 40 | (36,-820), rim clearance 47.5u | seats: annulusOnce=0, walk-in worst 2.05 |
+| b. near (49,-824), reach 96 (the default) | (44,-824), rim clearance 38.8u | seats: annulusOnce=0, walk-in worst 2.05 |
+| c. center (36,-820), reach 96 | (36,-820) | seats: annulusOnce=0 (the edge at (10.84,-829.54) is the island's) |
+| `[[river]]` + `[[forest]] near = [49, -824]` through `world-fuse` | as b | both rows clean; the forest writes 8 Terrain files, wrapped labels only (canopy in (0,12) and (0,13)) |
+
+In every case the probe grounds on Terrain topo 37 (y 6.88-6.89), the census finds no new MISS, and it logs 43
+inherited samples: exactly the deployed stack's own 22 / 9 / 12 in blocks (0,12), (0,13), (1,12). The old
+construction still fails those three untouched blocks, which is what the gate no longer judges a carve by.
+
+**Six of the forest's 8 files change no geometry.** Blocks (1,12), (1,13), (23,13), (0,14), (1,14), (23,14) carry the
+river's exact positions, UVs, normals and IDALL; only tangent.w differs (the river writes 0.0, the relief re-emit
+`_assemble` writes `[idall, 0, 0, 1]`). The worldmap shaders do not read tangents, so nothing renders differently,
+but any relief verb on the river island rewrites (and takes ledger ownership of) every block in its window, which by
+its ledger contract `world-river --remove` would then stop on as another command's bytes (R1; not run here). This
+predates the gate rung; keeping each kept tri's source tangent in `_assemble` would let untouched blocks converge
+byte for byte.
+
+Not done: the forest has not been deployed to the live install or seen in game. `world-hill`'s crack gate (once-edges
+within radius + 4 of the hill) is still absolute; it was not part of this measurement.
+
 ## Decisions for the owner
 
 1. **Drop `--source-massif DONOR`** (a catalogued massif at the source) from the plan. Recommendation: yes. It is the

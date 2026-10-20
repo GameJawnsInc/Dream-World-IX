@@ -13,6 +13,9 @@ donors only.
      For each: the read window (unwrapped key -> wrapped file), the snap, the gate line, the census, and on a
      refusal which gate failed and where (the annulus-crack gate's once-edges, by midpoint). Then the same gates on
      the UNTOUCHED island (pristine_checks), to tell the forest's failures from the island's own state.
+     Since the gate rung the census runs as the CLI does: on the block's DEPLOYED stack, subtracting what the
+     pristine stack already misses (`census_gate(stack=)`), and the annulus gate subtracts the island's own
+     open edges; pristine_checks keeps the OLD construction's verdict beside the new one.
   3. The recipe: `[[river]]` + `[[forest]] near = [49, -824]` at the default reach, through `world-fuse` into
      scratch/fuse. Lists the files the forest step wrote (wrapped labels only) and reads the canopy back.
 RUN:  py studies/terrain-malleability/watercarry/seam_forest.py [SCRATCH_DIR]   (-> out/seam_forest.json)
@@ -64,7 +67,8 @@ def forest_case(mod: str, loc: dict, reach: float) -> dict:
         out["window"] = {f"{bx},{by}": f"Block[{M.wrap_block_col(bx)}][{by}]" for bx, by in sorted(blocks)}
         soup = IN.soup_from_blocks(blocks)
         res = IN.carve_forest(soup, donor=IN.FOREST_DONOR, log=lines.append, **loc)
-        IN.census_gate(res["changed"], probe=(res["center"], 37), baseline=blocks, log=lines.append)
+        IN.census_gate(res["changed"], probe=(res["center"], 37), baseline=blocks, log=lines.append,
+                       stack=IN.read_deployed_stack(mod, blocks))
         out.update(ok=True, center=list(res["center"]), report=res["report"],
                    changed=[f"{bx},{by} -> Block[{M.wrap_block_col(bx)}][{by}]" for bx, by in sorted(res["changed"])])
     except ValueError as e:
@@ -82,10 +86,14 @@ def pristine_checks(mod: str, once_at) -> dict:
     from collections import Counter
     from ff9mapkit.world import placement as P
     blocks = IN.read_deployed_blocks(mod, near=NEAR, reach=96.0)
-    out = {"census_gate": {}, "deployed_stack_miss": {}, "edges_at_once_hits": {}}
+    out = {"census_gate": {}, "census_gate_stack": {}, "deployed_stack_miss": {}, "edges_at_once_hits": {}}
+    stack = IN.read_deployed_stack(mod, blocks)
     root = Path(mod) / "FF9_Data" / "WorldMap" / "Disc1" / "0_1"
     for blk in sorted(blocks):
         key = f"{blk[0]},{blk[1]}"
+        said = []
+        IN.census_gate({blk: blocks[blk]}, baseline=blocks, stack=stack, log=said.append)
+        out["census_gate_stack"][key] = said[-1]
         try:
             IN.census_gate({blk: blocks[blk]}, baseline=blocks, log=lambda *a: None)
             out["census_gate"][key] = "clean"
@@ -156,13 +164,12 @@ def main():
     man = C / "FF9_Data" / "WorldMap" / "world_manifest.json"
     entries = json.loads(man.read_text(encoding="utf-8"))["entries"] if man.is_file() else []
     rep["fuse"] = {"steps": [(e["table"], len(e["files"])) for e in entries],
-                   "forest_files": sorted(Path(f).name for e in entries if e["table"] == "forest"
-                                          for f in e["files"]),
+                   "forest_files": sorted(Path(f).as_posix().split("WorldMap/")[-1] for e in entries
+                                          if e["table"].startswith("forest") for f in e["files"]),
                    "dead_labels": sorted(p.name for p in C.rglob("Block[-*")) + sorted(
                        p.name for p in C.rglob("Block[24]*")),
                    "canopy": canopy_cells(C)}
-    if rep["fuse_rc"] != 0:
-        rep["fuse_out"] = buf.getvalue()[-2000:]
+    rep["fuse_out"] = buf.getvalue()[-3000:]
 
     (HERE / "out").mkdir(exist_ok=True)
     (HERE / "out" / "seam_forest.json").write_text(json.dumps(rep, indent=1, default=str), encoding="utf-8")
