@@ -659,6 +659,69 @@ def tape_battles(records, gap: float = STALE_S) -> list:
     return battles
 
 
+def battle_unit_flags(payload) -> list | None:
+    """[ff9mapkit netsync s143] ParseView's unit records of a type-1 payload, as ``[(index, player, ready)]`` (at most 8,
+    as the reader stops; a record that overruns the frame ends the list). None under the head."""
+    head = parse_battle_head(payload)
+    if head is None:
+        return None
+    data, p, out = bytes(payload), BATTLE_HEAD_LEN, []
+    for _ in range(min(head["units"], 8)):
+        if p + 23 > len(data):
+            break
+        info, n = data[p + 1], data[p + 22]
+        if p + 24 + n > len(data):
+            break
+        out.append((data[p], bool(info & 1), bool(info & 4)))
+        p += 24 + n
+    return out
+
+
+def tape_offers(records) -> list:
+    """[ff9mapkit netsync s143] THE HOST'S OFFER on a tape: per host battle (:func:`tape_battles`), the type-1 header's guest
+    mask (the byte every guest-side ownership decision reads -- an s143 host's leader-guarded EffectiveGuestSlots) on every
+    frame from the FIRST one with a player Ready bit on (the command phase: the battle's units are organized, the guard has
+    latched). ``[{n, nonce, map, ready_t, offers: [mask, ...]}]`` (``ready_t`` None: no Ready frame)."""
+    out = []
+    for b in tape_battles(records):
+        row = {"n": b["n"], "nonce": b["nonce"], "map": b["map"], "ready_t": None, "offers": []}
+        for rec, wtype, payload in host_frames(records):
+            if wtype != TYPE_BATTLE or not b["start"] <= rec.t <= b["end"]:
+                continue
+            head = parse_battle_head(payload)
+            if head is None or head["nonce"] != b["nonce"]:
+                continue
+            if row["ready_t"] is None:
+                units = battle_unit_flags(payload) or []
+                if not any(player and ready for _i, player, ready in units):
+                    continue
+                row["ready_t"] = rec.t
+            row["offers"].append(head["guest_slots"])
+        out.append(row)
+    return out
+
+
+def tape_offer_lines(path, want: int) -> tuple:
+    """(ok, lines) for ``offer``: every battle's header offers ``want`` on EVERY frame from its first Ready one on (and has
+    such a frame)."""
+    _header, records, torn = read_tape(path)
+    rows = tape_offers(records)
+    lines = [f"{path}: {len(rows)} host battle(s); want the offer 0x{int(want) & 0x0F:X} from each battle's first Ready "
+             f"frame on" + (f" (torn tail {torn} B)" if torn else "")]
+    ok = bool(rows)
+    for r in rows:
+        seen = sorted(set(r["offers"]))
+        good = r["ready_t"] is not None and seen == [int(want) & 0x0F]
+        ok = ok and good
+        lines.append(f"  battle{r['n']} nonce {r['nonce']} map {r['map']}: "
+                     + (f"no player Ready frame (the host never reached its command phase)" if r["ready_t"] is None else
+                        f"{len(r['offers'])} frame(s) from tape {r['ready_t']:.2f} s offer {[f'0x{m:X}' for m in seen]}")
+                     + ("" if good else "  <-- NOT the want"))
+    if not rows:
+        lines.append("  no host battle (type-1 run) on the tape")
+    return ok, lines
+
+
 def tape_fields(records) -> list:
     """The host's field edges on the tape: ``[(t, field)]`` at each change of its type-0 field."""
     out = []
@@ -2127,19 +2190,22 @@ def tape_dress(records, expect=None) -> dict:
 DRESS_STAGES = {"s139": "dresshost", "s140": "dressself"}
 
 
-def frame_expect(ghost_as, guest_slots: int, rules=None):
+def frame_expect(ghost_as, guest_slots: int, rules=None, leader: int = -1):
     """``payload -> bytes``: each host frame's OWN expected section 8 -- the twin's body for the host's ``ghost_as`` /
     ``guest_slots`` over the party THAT frame carries in its section 1 (its CharId bytes are PLAYER.info.slot_no, the very
     PLAYER.Index the host's LiveSlotChars reads); None when the frame has no readable section 1. [ff9mapkit netsync s140]
     ``rules``: the recording engine's dress rules (:data:`DRESS_STAGES` -> battlewire.dress_rules; None = the live s140
-    table) -- an s139 tape with a CharacterId 8-11 member carried 00 00 FF, an s140 one 6B 00 08 .. CC 00 0B."""
+    table) -- an s139 tape with a CharacterId 8-11 member carried 00 00 FF, an s140 one 6B 00 08 .. CC 00 0B.
+    [ff9mapkit netsync s143] ``leader``: an s143 host's leader (the CharacterId of its controlled field body; -1 = none / an
+    s139-s141 host: the positional rule) -- its HostDress guards the mask over the frame's party first (FieldGuardMask)."""
     R = rules or BW
+    kw = {"leader": int(leader)} if int(leader) >= 0 else {}
 
     def expect(payload):
         party = BW.frame_slot_chars(payload)
         if party is None:
             return None
-        return R.host_dress_section(ghost_as, int(guest_slots), "host", False, party)
+        return R.host_dress_section(ghost_as, int(guest_slots), "host", False, party, **kw)
     return expect
 
 
@@ -2175,10 +2241,14 @@ def _dress_expect(args):
     if args.guest_slots is None:
         raise ValueError("--ghost-as needs --guest-slots (the host's GuestSlots; 0 = a spectator: the moogle under auto)")
     rules = BW.dress_rules(DRESS_STAGES[getattr(args, "stage", None) or "s140"])
+    leader = int(getattr(args, "leader", None) if getattr(args, "leader", None) is not None else -1)
+    if leader >= 0 and rules is not BW:
+        raise ValueError("--leader is an s143 host's (its leader guard); a --stage s139 host has none")
+    kw = {"leader": leader} if leader >= 0 else {}             # [ff9mapkit netsync s143]
     if args.party:
         party = [int(x) for x in args.party.split(",")]
-        return rules.host_dress_section(args.ghost_as, int(args.guest_slots), "host", False, party)
-    return frame_expect(args.ghost_as, int(args.guest_slots), rules)
+        return rules.host_dress_section(args.ghost_as, int(args.guest_slots), "host", False, party, **kw)
+    return frame_expect(args.ghost_as, int(args.guest_slots), rules, leader)
 def tape_home() -> Path:
     """Where the recorded tapes live: COOP_TAPE_DIR, else <the MAIN repo>/.harness-runs/coop-tapes -- the rule
     studies/test-harness/scenarios/_coop_peer_bench.tape_dir() records them by (gitignored, outliving any worktree). The
@@ -2214,6 +2284,21 @@ def resolve_tape(path) -> tuple:
                 if cand.is_file():
                     return cand, tried
     return None, tried
+
+
+def cmd_offer(args) -> int:
+    found, tried = resolve_tape(args.tape)
+    if found is None:
+        print(f"ERROR: no tape {args.tape!r} -- tried {', '.join(str(t) for t in tried)}", file=sys.stderr)
+        return 2
+    try:
+        ok, lines = tape_offer_lines(found, args.want)
+    except (OSError, TapeError, ValueError) as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 2
+    for line in lines:
+        print(line)
+    return 0 if ok else 1
 
 
 def cmd_dress(args) -> int:
@@ -2323,7 +2408,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--stage", choices=tuple(DRESS_STAGES), default="s140",
                    help="[s140] the host engine the tape was RECORDED on (with --ghost-as): s139's rules leave Cinna.."
                         "Beatrix undressed (00 00 FF), s140's dress them (rigs 9-12) -- default s140")
+    p.add_argument("--leader", type=int, default=None, metavar="CHAR",
+                   help="[s143] the host's LEADER (the CharacterId its controlled field body is: 0 = Zidane) -- an s143 "
+                        "host's section 8 names whom its leader guard hands the guest (with --ghost-as auto); omitted = "
+                        "the positional rule (an s139-s141 host)")
     p.set_defaults(func=cmd_dress)
+
+    p = sub.add_parser("offer", help="[s143] the type-1 header's guest mask (the host's offer) on every battle frame from "
+                                     "the first Ready one on")
+    p.add_argument("tape", help="the tape (resolved as `dress` resolves it)")
+    p.add_argument("--want", type=int, required=True, metavar="MASK",
+                   help="the offer every such frame must carry: an s143 host at a seat whose leader sits in the guest's "
+                        "bit offers the MOVED mask (Plant Brain's party, GuestSlots 2: 4); an s141 host the raw one (2)")
+    p.set_defaults(func=cmd_offer)
     return ap
 
 

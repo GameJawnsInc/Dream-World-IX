@@ -15,6 +15,7 @@ stack replays by number:
 | s139 | s128 | the host's dress rule + wire section 8 | ★ deployed, solo-proven + real-wire duo |
 | s140 | s129 | the guest dresses itself (+ rig rows 9-12 for CharacterId 8-11) | ★ deployed, solo-proven + real-wire duo |
 | s141 | s130 | polish: footsteps, held props, the mesh-op drop, lighting | ★ deployed, solo-proven + real-wire duo |
+| s143 | -- | the guest never commands the host's leader (the Plant Brain fix) | ★ deployed, solo-proven + a seat tape |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
 against the live s132 stack (`R3-ACTION-REPLAY-AUDIT.md`, which keeps the OLD patch names). Each round is one DLL build,
@@ -548,3 +549,139 @@ on the wire: both ghosts land on a 98 row that s140 gives too.
 - A first-renderer read finds whatever is parented first. Witness the body by name (mesh0), never by order.
 
 **Next: s142** (the selftest Leave-mid-swirl strand fix, queued since s134).
+
+## s143: the guest never commands the host's leader (2026-10-19)
+
+**The report.** The owner, at Plant Brain: "due to Blank being added mid-fight, the host lost control of Zidane". The
+read-only diagnosis (two skeptics could not refute it): Blank's appear moves nothing. [Netsync] GuestSlots is a party
+POSITION mask, and every battle lane reads its bit n as btl_data index n. Field 257 rebuilds the party [Blank, Zidane,
+Vivi, Steiner] right before Battle(1, 303), so GuestSlots 2 handed the guest ZIDANE for the whole fight. Field 261 then
+leaves [Garnet, Zidane, Vivi, Steiner] for the stretch after the forest; Pandemonium's Amdusias, Abadon and Shell Dragon
+seat the leader the same way.
+
+**The owner's decision.** Positions stay ("by character seems a bit weird since the lineup changes a lot"), but the guest
+never gets the character the host walks as: a bit that lands on the host's LEADER moves to the next occupied position
+after it (wrapping) that is neither the leader nor already owned; none -> it drops. A battle-start line on both screens.
+Other edge cases come from the owner's playtests.
+
+**What it does (the engine half: `memoria-patches/README.md`'s s143 row).**
+- ONE PURE RULE (`NetSyncBattle.LeaderGuard`) read by every host ownership lane in battle (`EffectiveGuestSlots`) and by
+  the host's field dress sites (`FieldGuardMask`, over the RAW party slots, `auto` only). The guest needs no change: it
+  reads the header byte, which now carries the guarded mask.
+- THE LEADER: this machine's own controlled field body, off its genuine model (the rig table, or the census's
+  playable-character variants: Zidane 532 / 203 / 432, Steiner 658, Garnet 202 / 419 -- `dress-census/leader_census.py`).
+  A body that names no character (a chocobo, the gargant, an NPC puppet) KEEPS the last character; the world map latches
+  its walker (Zidane's party, or Dagger's status 2); the title forgets the latch. Only "nothing seen since the title" is
+  no leader, the positional rule.
+- THE LINE: "Partner: Vivi (not Zidane)" on the host's stock battle message window, "You: Vivi" on a live diorama.
+- Lever: `netsync bench leaderguard on|off` (selftest role only).
+
+**The repo half.**
+- Harness: rung `leaderguard` (`NETSYNC_S143_CAPS`, calibrated on `caps_through("dresspolish")`), `State.coop_leader_guard`
+  and the `coop_guard_*` / `coop_peer_guard_*` / `coop_dress_guard_*` accessors, the driver's `bench leaderguard` gate
+  (an s141 agent reads it as `bench 1`), `_coop_battle.R3_PROBES[143]`, `coop_peer.py dress --leader`.
+- battlewire's twins: LeaderGuard, EffectiveGuestSlots, FieldGuardMask, LeaderForGuard / LeaderGuardOnRule, the leader map,
+  GuardCharName and every log line's text; `host_dress_section` and `selftest_dress` take the leader (default none: every
+  pre-s143 caller reads as before). The engine's selftest rows are EVALUATED against them, each family failed by a
+  mutant twin (tests/test_leader_guard.py, tests/test_coop_leader_guard.py).
+- The stand-in models the guard: the field latch, the battle latch over a SEATED party (`battle_seat_party`: InitPlayerData's
+  compaction, Plant Brain's hidden Blank and his appear at the head of the list), every lane, the header, the two lines,
+  the field site. Nine fault levers (`GUARD_FAULTS`), each pinned to exactly its bench rows.
+- The seats: `bench/plantbrain.field.toml` (30607 COOPPBRAIN: RemoveParty x12, then Blank, Zidane, Vivi, Steiner -- field
+  257's order, verified on a kit build's disassembled Main_Init), `bench/forestexit.field.toml` (30608 COOPFOREST:
+  [Garnet, Zidane, Vivi, Steiner]) and `bench/vivibody.field.toml` (30609 COOPVIVI: no party block, its player the kit's
+  Vivi -- the leader-body seat). All three are NEW ids: their first deploy needs a relaunch.
+
+**The bench** (`scenarios/coop_leader_guard.py`, selftest role, GuestSlots 2, every battle from 30602):
+- L10, the leader body (30609): the latch reads Vivi off her body (leader 1, leader_model 8); `selfdress wire 98` +
+  `ghost 2` moves the bit off HER, so the mirror wears Garnet.
+- L7, the negative control on COOPPARTY: nothing moves (field ghost, battle keys, "Partner: Vivi").
+- L8, the forest-exit seat, `battle 67 0`: 0x2 -> 0x4, "Partner: Vivi (not Zidane)", the guest's "You: Vivi".
+- L0 / L6, the Plant Brain seat: the party [10, 0, 1, 3]; `selfdress ghost 2` wears Vivi (8), not Zidane.
+- L1 / L5 / L2 / L9 / L3 / L4, `battle 303 0` (Plant Brain's own script): the keys and the latch line; both lines, the
+  host's judged ON SCREEN (`battle.message`); the host's window opens on Zidane and never on Vivi (from the battle's own
+  first command phase -- a ring gap reads "not reached"); the loopback roster reads [2] and never holds 1, the G3 hold
+  never names 1; a slot-1 `bcmd` refused, a slot-2 one landed (a phase refusal is resent, bounded); Blank's bracketed
+  appear leaves the guard unchanged and his window the host's. LAST, left running.
+- Calibration: on s141 exactly OLD_PREDICTED (P0, P2, L1-L8; L2 / L3 / L6 behaviourally); on s143 under the lever exactly
+  LEVER_PREDICTED (L1, L2, L3, L5, L6, L8, each behaviourally; L0 / L4 / L7 green). Offline the stand-in runs it green,
+  both calibrations exact, each fault exact.
+
+**Re-checked benches** (THE PREMISE CENSUS, tests/test_coop_leader_guard.py): every `guestslots` mask a bench sends, over
+the party it seats. Neutral (the leader at position 0 is never a guest bit): host gates, handback, handback live, end host
+C, start hold, flee/defeat, containment (field and diorama only), coop_self_dress leg G (`ghost 1<<s1` with s1 >= 1, 6, 4,
+and G3a's empty slot), coop_dress_wire G9 (2 / 4 / 0), the host tape (2). RE-KEYED by stage: coop_battle_wait_parity and
+coop_battle_end_host leg G send `guestslots 15` -- on s143 Zidane's bit would drop and his window open on the host, so
+on an engine with `host.guard` they pull `bench leaderguard off` (their premise IS the positional rule) and wait parity's
+W-R wants the release line and `off` false on the re-read. The census counts every send route (`try_ns`, `ns_verb`,
+`g.netsync`, a raw send) and, since the review, the FIELD levers too (`("ghost", ...)`, `_s_send(... "ghost" ...)`,
+`self auto`, G9's phases): a new mask is red until judged, and the dress benches' twins take the engine's leader
+(`_coop_battle.guard_leader`: none before s143 or under the lever), so a mask that seats the leader is predicted as the
+guard moves it. The `self auto` bench stays UNGUARDED in the engine (it models a pre-s143 host): its masks must be the
+guard's no-op over their seats.
+
+**Run recipe** (nothing deployed yet; ask the owner before each step that deploys):
+1. `cal143.example.sh` on the live s141 (`0293cb46ffa176f6`): `DEPLOY=yes` deploys 30607 / 30608 / 30609 and STOPs for
+   the relaunch; run again: the seats' preflight CLEAN, the bench under COOP_CALIBRATE=1 -> S143-CAL green, then STEP 2's
+   seat tape (`COOP_TAPE_SEAT=30607`): `coop_peer.py offer --want 4` and `dress --leader 0` RED on s141, their positional
+   twins green.
+2. Deploy the s143 DLL (`build_memoria.py`, owner's yes), relaunch, then `S143_DLL=<sha16> full143.example.sh` (STEP 6b:
+   the same seat tape on s143 -- the header offers 4 and section 8 names Vivi, the positional twins red).
+
+**The review (2026-10-20; a 5-lens review, two skeptics per finding).** Fixed: the latch now crosses no save (the
+title forgets it) and a world-map load latches the walker (a world-map save loads with no field seen: the guest got
+Zidane there); a body naming no character keeps the leader (Chocobo's Air Garden walks Chocobo Gold into Ozma -- OWNER'S
+NOD PENDING: the design said "none"); Steiner's 658 and Garnet's 202 / 419 are variants too; the guest's line is once per
+host battle by nonce AND seq (a >2 s stall re-showed it) and shows LATE once when the diorama comes up after the host's
+command phase; the latch keys on the units' slot_no too (an AccessMenus party swap re-latches); FieldGuardMaskCore is the
+selftest's subject. The repo half: the guest-side scan sees qualified reads and NetSyncBattle.cs's guest methods, and a
+scan across every stack file pins `NetSyncBattle.GuestSlots` reads to the harness key -- each shown able to fail; the
+bench's line is judged ON SCREEN, the roster and the hold lanes have witnesses, the leader body varies (30609), the
+field-lever census exists, a seat tape puts the header and section 8 on a real wire, the INI gate can fail, the runners
+default WT to their own checkout. NOT fixed: `g6_mask` is no ownership witness (G6 withholds whatever the host's window
+holds, owned or not -- the review's "g6 bit 1 never set" would be red on a correct engine).
+
+**The second round (2026-10-20, two skeptics per finding).** Fixed: the guest's line latch survived a HOST RELAUNCH -- its
+nonce and seq start over, so the new run's battle re-matched the old latch once its climbing seq passed the old one (the
+new line never latched, or an old log-only line showed LATE on the new diorama). GuestLineStep now forgets the latch on
+an earlier seq of the latched nonce (the battle lane is ordered TCP: only a relaunch runs it backwards) and
+NetSyncClient.ResetGuestDedupForEpoch forgets it on a host epoch change; the selftest runs the step over a relaunched and
+a resuming host's sequences and a mutant without the forget must fail (44 rows). The tape recorder: the field-250
+fallback is back OUTSIDE the seat block (COOPPARTY unregistered left the host on New Game's field), and a seat run fails
+closed at REC-SEAT before any ini edit when the seat did not seat its toml's party (a stale seat's `offer --want 4` red
+would read exactly like the s141 calibration); a stand-in smoke runs both paths and each was shown to fail on its mutant.
+
+**Known.** The field reads RAW party slots and the battle COMPACTED btl indices (pre-existing): a party hole at or before
+a guest bit can still make them name different members. The host's line at priority 1 can be replaced by an enemy's
+command title in the same moment, and replace one (it stays in the log and the key; `line_shown` means handed to the
+window). A CLIENT's own battles are guarded too while its ghost of the host keeps the s138 rule (cosmetic: that ghost can
+wear the client's leader). On the selftest role section 8 always ships the pin (GuestSlots 0): the field guard's
+section-8 half is a real host's (the seat tape: `coop_peer.py dress --leader 0` / `offer --want 4`). No solo bench reaches
+a world-map battle after a load, nor a real guest's "You:" line (on time or late): the selftest rows, the stand-in and the
+owner's two-PC playtest.
+
+**Calibrated on s141 first** (the live DLL `0293cb46ffa176f6`, 2026-10-20): the seats' preflight CLEAN (30607 [10, 0, 1,
+3] and 30608 [2, 0, 1, 3] -> effective 0x4, moved 1 -> 2; the 30609 body seat's leader Vivi), coop_leader_guard under
+COOP_CALIBRATE=1 red in exactly OLD_PREDICTED (S143-CAL green), and the s141 host tape on the Plant Brain seat SHOWS THE
+BUG on a real host's wire: the header offers the guest 0x2 (Zidane) and section 8 is `62 00 00` (Zidane) on all 4685
+frames (`offer --want 4` and `dress --leader 0` red, their positional twins green).
+
+**Deployed** 2026-10-20 (`build_memoria.py`, backup `20261020-034912`; Assembly-CSharp `be01339d49f6a87b`; owner
+pre-approved).
+
+**Proven on s143:**
+- coop_leader_guard **19/19** on its first in-game run, Plant Brain's own battle 303 included: the guard {leader 0, raw 2,
+  effective 0x4, moved 1 -> 2, chars [10, 0, 1, 3]}; across 743 live publishes the host's windows opened on Zidane (1)
+  and Steiner (3), NEVER on Vivi (2); a slot-1 `bcmd` refused ('not a guest slot'), a slot-2 one landed; Blank's appear
+  (bracketed: linked at the head) changed nothing in the guard, and his window was the host's; 'Partner: Vivi (not
+  Zidane)' read ON SCREEN off `battle.message`, the guest's 'You: Vivi' at mask 0x4; the field ghost Vivi; the forest-exit
+  seat, the Vivi-bodied leader and the COOPPARTY negative control.
+- Under `bench leaderguard off` exactly LEVER_PREDICTED red, behaviourally (the host loses Zidane again); S143-CAL green.
+- Block A at baseline (S9-C4L unreachable solo); coop_self_dress 65/65 and 54/54 with GhostAs blank; the duo G9 22/22;
+  a fresh host tape (section 8 `08 00 01` on 4833 frames); the Plant Brain seat tape on s143: the header offers **0x4**
+  and section 8 is **`08 00 01` (Vivi)** on all 4855 frames (the positional twins red); the tape legs; the T2 cut legs
+  (+78, +0, +78 ms).
+
+**Next:** the owner's two-PC playtest of the disc-1 Evil Forest (Plant Brain with GuestSlots 2: the guest commands Vivi,
+the host keeps Zidane, both lines show; then the forest exit); other party-order edge cases as the owner reports them.
+s142 (the selftest swirl-strand fix) is still queued.

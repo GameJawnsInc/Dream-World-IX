@@ -274,7 +274,9 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "dressinstr": ("s138", ()),
                        "dresshost": ("s139", ("selfdress",)),
                        "dressself": ("s140", ()),
-                       "dresspolish": ("s141", ())}
+                       "dresspolish": ("s141", ()),
+                       # [ff9mapkit netsync s143] the leader guard: no sub-verb, one `bench` named op (`leaderguard`)
+                       "leaderguard": ("s143", ())}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -303,6 +305,8 @@ NETSYNC_S139_CAPS = frozenset(("dresshost",))
 NETSYNC_S140_CAPS = frozenset(("dressself",))
 #: [ff9mapkit netsync s141] The dress-polish rung (its calibration, s140, is ``caps_through("dressself")``).
 NETSYNC_S141_CAPS = frozenset(("dresspolish",))
+#: [ff9mapkit netsync s143] The leader-guard rung (its calibration, s141, is ``caps_through("dresspolish")``).
+NETSYNC_S143_CAPS = frozenset(("leaderguard",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -378,6 +382,10 @@ NETSYNC_BATTLE_CAP_KEYS = {
     # [ff9mapkit netsync s141] nothing under `netsync.battle` (nor a new `netsync.dress` key): the polish keys sit inside
     # `netsync.dress.self` and `netsync.dress.ghost` (NETSYNC_DRESS_NESTED_KEYS)
     "dresspolish": {},
+    # [ff9mapkit netsync s143] the leader guard: `host.guard` (host's LAST key) and `peer.guard` (right after
+    # `peer.ready_mask`) -- two FIXED sub-objects (battlewire.GUARD_HOST_SENTINELS / GUARD_PEER_SENTINELS); its field
+    # half is `netsync.dress.guard` (NETSYNC_DRESS_CAP_KEYS)
+    "leaderguard": {"host": ("guard",), "peer": ("guard",)},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -785,6 +793,37 @@ POLISH_SELFTEST_FAIL_ROW = ("foot: Zidane's four pair keys x codes 16-19 on ever
 #: Beatrix 45 -- the census's rigs_8_11.json `frames_13`); an s139 stand-in publishes the first nine.
 FAKE_RIG_IDLE_FRAMES = BW.RIG_IDLE_FRAMES
 FAKE_RIG_IDLE_FRAMES_S139 = BW.RIG_IDLE_FRAMES[:BW.RIG_ROW_COUNT_S139]
+#: [ff9mapkit netsync s143] THE LEADER GUARD's FAULT LEVERS (FakeGame.guard_faults): each breaks ONE piece of the guard, so a
+#: test can show the s143 bench's checks red exactly where coop_leader_guard.GUARD_FAULT_REDS says (a value OTHER than the
+#: engine's, never an absent key):
+#:   "keys_raw"       `host.guard` publishes the RAW mask (effective = raw, moved -1) while every lane IS guarded
+#:   "lanes_raw"      the host ownership lanes (the HUD skip, the intake, the roster, G6 / G3, the refusal count) read RAW
+#:                    GuestSlots -- the call sites unconverted; the getter (and the keys and the line it feeds) still right
+#:   "roster_raw"     ONLY BuildRoster's slot loop reads RAW GuestSlots (review s143: one lane left unconverted)
+#:   "hold_raw"       ONLY HostHeldGuestSlot / the G3 hand-back read RAW GuestSlots (`handback.held` names the leader)
+#:   "line_unshown"   the host line reports `line_shown` true but never reaches the battle message (`battle.message`)
+#:   "leader_fixed_zidane"  the latch always reads Zidane, whatever body the host walks as
+#:   "header_raw"     the type-1 header's offer byte carries RAW GuestSlots (the guest -- its line -- reads the positions)
+#:   "line_text"      the host's battle-start line names the RAW mask's members and no move
+#:   "field_raw"      the field dress sites skip FieldGuardMask (the ghost wears the positional member; no `dress.guard`)
+#:   "appear_relatch" a script appear (Blank's code 32) re-latches the battle mask with NO leader (the bit goes back)
+#:   "moves_any"      the rule moves EVERY owned bit to the next member, not only the leader's
+#:   "leader_none"    the field latch never names a leader (every body reads as none: the positional rule)
+#:   "lever_stuck"    the harness release leaves `bench leaderguard off` pulled
+GUARD_FAULTS = ("keys_raw", "lanes_raw", "header_raw", "line_text", "field_raw", "appear_relatch", "moves_any",
+                "leader_none", "lever_stuck", "roster_raw", "hold_raw", "line_unshown", "leader_fixed_zidane")
+#: [ff9mapkit netsync s143] how long the stand-in's battle message window shows a line (BattleMessageTimeTick / 15 at the
+#: default `btl_msg`, rounded): `battle.message` reads it that long
+FAKE_BATTLE_MESSAGE_S = 2.0
+#: [ff9mapkit netsync s143] THE SEATED BATTLE (opt-in: ``FakeGame.battle_seat_party``): a scene's enemies (shapes, not real
+#: stats) and Plant Brain's script -- its `hidden` member (CharacterId: EF_E009's Init hides the linked player whose
+#: B_MEMBER(66) is BLANK / BLANK_ARMOR with code 33 -- unlinked, its btl_data index kept) brought in after the enemy's
+#: `appear_turns`-th turn (code 32: relinked at the HEAD of btl_list, cur.at = max.at, KillAllCommand + InitialBattle).
+FAKE_SCENES = {
+    67: {"enemies": [{"name": "Goblin", "hp": 33, "hp_raw": 33, "level": 1}]},
+    303: {"enemies": [{"name": "Plant Brain", "hp": 9999, "hp_raw": 19999, "level": 10}], "hidden": 10,
+          "appear_turns": 6},
+}
 #: [ff9mapkit netsync s138] The bodies whose prefab carries the hidden Orichalcum overlay `battle_model` BEFORE `bone000`
 #: (a read-only walk of the install's p0data prefabs, R3-FIELD-MODEL-AUDIT.md's stock-01 evidence: 98 Zidane, 509 Amarant)
 #: -- its renderer disabled, its GameObject active, so a first-renderer read finds it first.
@@ -1618,6 +1657,26 @@ class FakeGame:
         self.names: dict[int, str] = {}
         self._name_focus = False
         self.battle_units: list[dict] = []
+        #: [ff9mapkit netsync s143] THE SEATED BATTLE (FAKE_SCENES): off by default (start_battle's fixed units); on, a
+        #: battle seats the party (save_party) the way InitPlayerData does. `battle_chars` = the CharacterId per btl index
+        #: 0-3 (a hidden unit included -- what NetSyncBattle.BattleSlotChars reads); `battle_appears` counts script appears.
+        self.battle_seat_party = False
+        self.battle_chars: list = [-1, -1, -1, -1]
+        self._battle_hidden: dict | None = None
+        self._battle_appear: dict | None = None
+        self.battle_appears = 0
+        #: [ff9mapkit netsync s143] the leader guard's FAULT LEVERS (GUARD_FAULTS)
+        self.guard_faults: set = set()
+        #: [ff9mapkit netsync s143] `netsync.dress.guard` -- the last `auto` resolution at a dress site (FieldGuardMask)
+        self._dress_guard: dict = dict(BW.DRESS_GUARD_SENTINELS)
+        self._dress_guard_last: str | None = None
+        #: [ff9mapkit netsync s143] the CONTROLLED body per field (the latch reads it; default ``player_body``'s model) -- a
+        #: seat whose player is another body (the bench's Vivi seat: {30609: 8}); and the world map's walker status
+        #: (WMUIData.StatusNo: 1 Zidane on foot, 2 Dagger)
+        self.field_player_models: dict = {}
+        self.world_status = 1
+        #: [ff9mapkit netsync s143] the battle message window (`battle.message`): (text, shown until rt) -- the host line only
+        self._battle_msg: tuple | None = None
         self.battle_bonus = {"exp": 0, "gil": 0, "ap": 0, "items": 0}
         self.battle_commands: list[list[int]] = []
         #: Whose command menu is open -- BattleHUD.CurrentPlayerIndex. -1 between turns.
@@ -3801,6 +3860,9 @@ class FakeGame:
             # refuses that scene up front, and an unmodelled block makes that a guard nothing fires.
             "scene_info": {"runaway": self.scene_runaway, "no_gameover": self.scene_no_gameover,
                            "preemptive": False, "back_attack": False},
+            # [ff9mapkit netsync s143] the on-screen battle message (the agent's `message`: the dialog box's label while it
+            # is up) -- the stand-in shows only the leader guard's host line
+            "message": (self._battle_msg[0] if self._battle_msg is not None and self.rt < self._battle_msg[1] else None),
             # ⚠ GATED, exactly as the agent publishes it. `slot_raw` is the ungated value, which
             # during the intro is the PREVIOUS battle's -- and acting on it froze a real fight.
             "turn": {"enabled": self.commands_enabled,
@@ -3895,6 +3957,10 @@ class FakeGame:
         self._race_steps, self._race_due = 0, None
         # ⚠ battle_menu is deliberately NOT cleared here either, for the same reason: a driver that
         # reads the menu without checking its epoch stamp has to be catchable.
+        self._battle_hidden, self._battle_appear = None, None
+        seated = units is None and self.battle_seat_party
+        if seated:
+            units = self._seat_battle(scene)            # [ff9mapkit netsync s143] the party, as InitPlayerData seats it
         self.battle_units = units if units is not None else [
             # hp/hp_max are the LOGICAL values the HUD shows; hp_raw/hp_max_raw are cur.hp/max.hp,
             # what the AI reads as B_MEMBER (36)/(35). The enemy below carries the 10000 offset a
@@ -3911,6 +3977,59 @@ class FakeGame:
              "atb": 3000, "atb_max": 6000, "can_act": True, "alive": True, "targetable": True,
              "level": 9, "status": "0"},
         ]
+        if not seated:
+            # [ff9mapkit netsync s143] fixed units: the CharacterId per btl index off each player's NAME (GuardCharName's)
+            self.battle_chars = [-1, -1, -1, -1]
+            for u in self.battle_units:
+                if u.get("player") and 0 <= int(u["slot"]) < 4 and u.get("name") in BW.GUARD_NAMES:
+                    self.battle_chars[int(u["slot"])] = BW.GUARD_NAMES.index(u["name"])
+
+    def _seat_battle(self, scene: int) -> list:
+        """[ff9mapkit netsync s143] InitPlayerData + the scene's enemies: the OCCUPIED seats of save_party, in order, become
+        btl indices 0.. (an empty seat skipped -- BW.battle_slot_chars), each ``id`` 1 << index; the enemies follow from
+        index 4. The scene's `hidden` member keeps its index (and its CharacterId in ``battle_chars``) but is NOT linked:
+        it is held aside until its appear (:meth:`_step_battle`)."""
+        seats = (list(self.save_party) + [None] * 4)[:4]
+        chars = BW.battle_slot_chars([int(m["char"]) if m else -1 for m in seats])
+        self.battle_chars = list(chars)
+        sc = FAKE_SCENES.get(int(scene), FAKE_SCENES[67])
+        units = []
+        for i, c in enumerate(chars):
+            if c < 0:
+                continue
+            m = next((m for m in seats if m and int(m["char"]) == c), {})
+            u = {"slot": i, "id": 1 << i, "player": True, "name": BW.guard_char_name(c), "hp": 300, "hp_max": 300,
+                 "hp_raw": 300, "hp_max_raw": 300, "mp": 30, "mp_max": 30, "atb": 0, "atb_max": 6000, "can_act": True,
+                 "alive": True, "targetable": True, "level": int(m.get("level", 1)), "status": "0"}
+            if sc.get("hidden") == c:
+                self._battle_hidden = u
+                self._battle_appear = {"turns": 0, "after": int(sc.get("appear_turns", 3))}
+                continue
+            units.append(u)
+        for k, e in enumerate(sc["enemies"]):
+            units.append({"slot": 4 + k, "id": 1 << (4 + k), "player": False, "name": e["name"], "hp": e["hp"],
+                          "hp_max": e["hp"], "hp_raw": e["hp_raw"], "hp_max_raw": e["hp_raw"], "mp": 0, "mp_max": 0,
+                          "atb": 0, "atb_max": 6000, "can_act": True, "alive": True, "targetable": True,
+                          "level": e["level"], "status": "0"})
+        return units
+
+    def _battle_link_hidden(self) -> None:
+        """[ff9mapkit netsync s143] Plant Brain's appear (code 32): the hidden member relinked at the HEAD of btl_list with a
+        full gauge; KillAllCommand (pending commands dropped) and InitialBattle (the HUD's queue and window reset)."""
+        u, self._battle_hidden, self._battle_appear = self._battle_hidden, None, None
+        if u is None:
+            return
+        u["atb"] = u["atb_max"]
+        self.battle_units.insert(0, u)
+        self.battle_pending = []
+        self.battle_turn = -1
+        self._close_battle_cursor()
+        self.battle_ready = []
+        self.battle_done = []
+        self.battle_appears += 1
+        if "appear_relatch" in self.guard_faults:
+            self._nb.guard_force_none = True            # the FAULT: the appear re-latches with no leader
+            self._nb.guard_latched = False
 
     #: What the stand-in's party can do. Shapes and TRAPS, not real FF9 ids: an Ability command
     #: that is a sub-menu rather than a move (type 1), an ability that is learned but not castable
@@ -4157,6 +4276,10 @@ class FakeGame:
                     # [ff9mapkit netsync s133] the enemy's EnemyAtk: its START, the hit, its END on the action lane
                     self._act_command(unit["slot"], BW.CMD_ENEMY_ATK, self.act_enemy_sub, int(victim["id"]), 0,
                                       [(victim, self.enemy_hit)])
+                if self._battle_appear is not None:
+                    self._battle_appear["turns"] += 1   # [ff9mapkit netsync s143] the enemy's turns, toward the appear
+        if self._battle_appear is not None and self._battle_appear["turns"] >= self._battle_appear["after"]:
+            self._battle_link_hidden()                  # [ff9mapkit netsync s143] after the gauge walk: the list is free
 
         # The HUD asks the first ready slot that has not answered -- BattleHUD.UpdatePlayer. [ff9mapkit netsync B4] It skips a
         # GUEST-OWNED slot (IsGuestOwnedSlot: a `guestslots` slot of a selftest own battle -- the loopback guest commands it)
@@ -4421,6 +4544,16 @@ class FakeGame:
             if sub == "bench" and bnop in ("lapse", "handback") and "handback" in self._nb_caps():
                 # [ff9mapkit netsync B4] s110: two NAMED ops of `bench` (an older agent's Arg() reads them as `bench 1`)
                 self._nb_bench_named(bnop, args, arg, int_min, out_of_range)
+                return
+            if sub == "bench" and bnop == "leaderguard" and "leaderguard" in self._nb_caps():
+                # [ff9mapkit netsync s143] the leader guard's lever (an older agent reads it as `bench 1`)
+                lg = args[2].lower() if len(args) > 2 else ""
+                if len(args) != 3 or lg not in ("on", "off"):
+                    raise out_of_range("netsync bench leaderguard", "expected `netsync bench leaderguard on|off`")
+                if not self._nb_role():
+                    raise RuntimeError("netsync bench leaderguard: needs the selftest role (netsync selftest 1)")
+                self._nb.leaderguard_off_lever = lg == "off"
+                self._mlog("[NetSync] " + (BW.LOG_GUARD_OFF if lg == "off" else BW.LOG_GUARD_ON))
                 return
             r3_op = {"intro": "intro", "cfg": "intro", "swirl": "swirl", "waitparity": "waitparity",
                      "ctl": "waitparity", "boot": "starthold", "starthold": "starthold"}.get(bnop)
@@ -4929,6 +5062,14 @@ class FakeGame:
         site_mask = self._dress_site_mask if "clear_publishes_only" in faults else b["mask"]
         kw = dict(me_model=me_model, me_anim=me_anim, party=self._dress_party(), role="selftest", selftest_role=role,
                   enabled=True, empty_mask=b["empty"], rule=b["rule"], wire=b["wire"], wire_anim=b["wire_anim"])
+        if self._lg():
+            # [ff9mapkit netsync s143] FieldGuardMask at the selftest mirror site (`auto` only, never under `rule s138`): the
+            # leader the guard takes, and the resolution `netsync.dress.guard` publishes
+            kw["leader"] = self._dress_guard_note(site_mask if role and site_mask >= 0 else 0,
+                                                  "auto" if role and site_mask >= 0 else self.ini_ghost_as,
+                                                  role and b["rule"] == "s138",
+                                                  BW.live_slot_chars(kw["party"], b["empty"] if role and b["empty"] >= 0
+                                                                     else 0))
         if "ghost_keeps_ini_mode" in faults and role and site_mask >= 0:
             # the `ghost` lever replaced the MASK only: the site keeps the ini's GhostAs as its mode (an `auto` ini reads the
             # same either way -- which is why this fault needs a pass with the ini's GhostAs '')
@@ -4960,6 +5101,24 @@ class FakeGame:
         if "moogle_slides" in faults and site["model"] == BW.MOOGLE_MODEL and site["anim"] in (moog["walk"], moog["run"]):
             site = dict(site, anim=moog["idle"])                            # its walk / run never loaded: the idle
         return site
+
+    def _dress_guard_note(self, mask: int, mode, old_rule: bool, chars) -> int:
+        """[ff9mapkit netsync s143] NetSyncClient.FieldGuardMask's record at a dress site -> the leader the site's twin takes
+        (-1 = the guard skipped: a mode that is not `auto`, the `rule s138` lever, the `field_raw` fault). `auto` writes
+        `netsync.dress.guard` (the leader, the mask in and out, what moved) and one line per change of what moved."""
+        if old_rule or BW.dress_mode(mode) != "auto" or "field_raw" in self.guard_faults:
+            return BW.LEADER_NONE
+        leader = self._lg_leader()
+        eff, (f, to) = BW.field_guard_mask(mode, mask, chars, leader)
+        self._dress_guard = {"leader": leader, "raw": mask & 0x0F, "effective": eff, "moved_from": f, "moved_to": to}
+        if f >= 0:
+            line = BW.guard_field_log(mask, eff, f, to, leader)
+            if line != self._dress_guard_last:
+                self._dress_guard_last = line
+                self._mlog("[NetSync] " + line)
+        else:
+            self._dress_guard_last = None
+        return leader
 
     def _ghost_visibility(self, model: int, kind: str) -> tuple:
         """(rest_mask, shown_mask, hidden) of a ghost wearing ``model`` under the site's mask ``kind`` -- over
@@ -5084,7 +5243,8 @@ class FakeGame:
             self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_DRESS, R.DRESS_SELFTEST_ROWS))
         b = self._dress_bench
         chars = BW.live_slot_chars(self._dress_party(), b["empty"] if self._nb_role() and b["empty"] >= 0 else 0)
-        body = R.host_dress_section(self.ini_ghost_as or "", 0, "selftest", self._nb_role(), chars)
+        body = R.host_dress_section(self.ini_ghost_as or "", 0, "selftest", self._nb_role(), chars,
+                                    **({"leader": self._lg_leader()} if self._lg() else {}))   # [ff9mapkit netsync s143]
         if "section8_swapped" in faults:
             model, char_id = BW.parse_dress_section(body)
             body = BW.swapped_dress_body(model, char_id)
@@ -5099,6 +5259,8 @@ class FakeGame:
             self._self_proof()                          # [ff9mapkit netsync s140] right after the rig idle frames line
         if self._polish_rung():
             self._polish_proof()                        # [ff9mapkit netsync s141] right after the self-dress line
+        if self._lg():                                  # [ff9mapkit netsync s143] right after the dress polish line
+            self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_LEADER_GUARD, BW.LEADER_GUARD_SELFTEST_ROWS))
 
     def _dress_doc(self) -> dict:
         """HarnessAgent.AppendDress (s138): `ghost` (what the ghost WEARS: its sentinels with no ghost) then `party` (the
@@ -5146,6 +5308,8 @@ class FakeGame:
             doc["mirror_party"] = None                           # no host frame is ever parsed here
         if self._self_rung():
             doc["self"] = self._self_doc()                       # [ff9mapkit netsync s140] `dress`'s LAST key
+        if "leaderguard" in self._nb_caps():
+            doc["guard"] = dict(self._dress_guard)               # [ff9mapkit netsync s143] after `self`: FieldGuardMask's record
         return doc
 
     # -- [ff9mapkit netsync s140] THE GUEST'S OWN DRESS (the `dressself` rung) --------------------------------------------
@@ -6149,13 +6313,202 @@ class FakeGame:
 
     def _nb_guest_owned(self, slot: int) -> bool:
         """NetSyncBattle.IsGuestOwnedSlot: a GuestSlots bit, the control lane fresh (MenuStaleMs 2.5 s) -- and, from
-        s101, never inside a diorama while containment is on (G2)."""
+        s101, never inside a diorama while containment is on (G2). [ff9mapkit netsync s143] the bit test reads the leader
+        guard's mask (EffectiveGuestSlots), after the cheap raw gate."""
         nb = self._nb
-        if not self.netsync["enabled"] or not nb.guest_slots or not 0 <= slot < 4 or not nb.guest_slots & (1 << slot):
+        if not self.netsync["enabled"] or not nb.guest_slots or not 0 <= slot < 4 \
+                or not self._nb_lanes_mask() & (1 << slot):
             return False
         if self._nb_active() and self._nb_containment_on():
             return False
         return self.rt - nb.assist_rt < 2.5
+
+    # -- [ff9mapkit netsync s143] THE LEADER GUARD (the `leaderguard` rung) ----------------------------------------------
+    # WHAT IT MODELS (battlewire's twins, the engine's call sites): THE LEADER -- NoteFieldLeader every frame on a field
+    # while netsync is enabled (any role): the controlled body's GENUINE model (``player_body``: a self-dressed body's source)
+    # through BW.leader_char_for_model, one line per change of the character; held across battles. THE BATTLE MASK --
+    # EffectiveGuestSlots: GuestSlots outside an own battle, else BW.leader_guard over ``battle_chars`` (the seated battle's
+    # units, a hidden one included) with LeaderForGuard (none under the `bench leaderguard off` lever, selftest role only),
+    # latched per (GuestSlots, the leader, the battle) with its log line (four a battle); every host ownership lane reads it
+    # (the HUD skip, the intake, the roster, G6 / G3, the refusal count) and the type-1 header's offer byte carries it (the
+    # loopback guest's control and line read the HEADER). THE LINE -- GuardLineTick at the own battle's first command phase
+    # ("Partner: ..." off the units' names, the latch's move; on the HUD on the selftest role) and the loopback's
+    # GuestLineTick ("You: ..." off the header; the log only). THE FIELD -- FieldGuardMask at the selftest mirror site
+    # (`netsync.dress.guard`, its line). The lever and its release line; the proof line. THE FAULT LEVERS (GUARD_FAULTS).
+    # THE LATCH'S OTHER SITES (review s143): the title forgets it, the world map latches its walker (``world_status``: 1
+    # Zidane's party, 2 Dagger), a body naming no character keeps it (BW.next_leader; ``field_player_models`` seats another
+    # body per field), and the host line's `battle.message` (FAKE_BATTLE_MESSAGE_S). WHAT IT CANNOT: a real guest's diorama
+    # line (shown on its HUD, on time or late), LOAD_INITCHR's timing (a stand-in battle is organized at once), the
+    # transport's ghost and section 8 (no peer), a renamed character, a command title displacing the line.
+    def _lg(self) -> bool:
+        return "leaderguard" in self._nb_caps()
+
+    def _lg_leader(self) -> int:
+        """NetSyncBattle.LeaderForGuard: the latched leader, none under the lever (selftest role only) -- and none for the
+        rest of an own battle the `appear_relatch` fault re-latched."""
+        nb = self._nb
+        if nb.guard_force_none and nb.guard_own:
+            return BW.LEADER_NONE
+        return BW.leader_for_guard(nb.leader_char, nb.leaderguard_off_lever, self._nb_role())
+
+    def _nb_note_field_leader(self) -> None:
+        """NetSyncClient.Update's latch site (netsync enabled, any role): the TITLE forgets the leader (ForgetLeader), a
+        FIELD latches the controlled body's genuine model through NextLeader (a body naming no character keeps it), the
+        WORLD MAP its walker (NoteWorldLeader over ``world_status``); a battle holds it."""
+        nb = self._nb
+        if not self.netsync["enabled"]:
+            return
+        if self.ui_state == "Title":
+            if nb.leader_model != -1 or nb.leader_char != BW.LEADER_NONE:
+                nb.leader_model, nb.leader_char = -1, BW.LEADER_NONE
+                self._mlog("[NetSync] " + BW.LOG_LEADER_FORGOTTEN)
+            return
+        if self.battle_active or self.ui_state in ("BattleHUD", "BattleResult"):
+            return
+        if self.ui_state == "WorldHUD":
+            model = BW.world_walker_model(int(self.world_status))
+            if model == 0:
+                return
+        else:
+            if self.field_id <= 0:
+                return
+            model = int(self.field_player_models.get(self.field_id, self.player_body["model"]))
+            if model <= 0:
+                return
+        if model == nb.leader_model:
+            return
+        was = nb.leader_char
+        nb.leader_model = model
+        if "leader_none" in self.guard_faults:
+            nb.leader_char = BW.LEADER_NONE
+        elif "leader_fixed_zidane" in self.guard_faults:
+            nb.leader_char = 0                              # the FAULT: the latch ignores the body
+        else:
+            nb.leader_char = BW.next_leader(was, model)
+        if nb.leader_char != was:
+            self._mlog("[NetSync] " + BW.guard_leader_log(nb.leader_char, model))
+        elif model > 0 and BW.leader_char_for_model(model) < 0:
+            self._mlog("[NetSync] " + BW.guard_leader_log(nb.leader_char, model, changed=False))
+
+    def _nb_guard_rule(self, chars, raw: int, leader: int) -> tuple:
+        if "moves_any" in self.guard_faults and leader >= 0:
+            # the FAULT: every owned bit moves on to the next member (each bit treated as the leader's)
+            eff, f, t = raw, -1, -1
+            for i in range(4):
+                if raw & (1 << i) and 0 <= i < len(chars) and chars[i] >= 0:
+                    e2, f2, t2 = BW.leader_guard(chars, 1 << i, chars[i])
+                    if t2 >= 0:
+                        eff = (eff & ~(1 << i)) | e2
+                        f, t = f2, t2
+            return eff, f, t
+        return BW.leader_guard(chars, raw, leader)
+
+    def _nb_effective(self) -> int:
+        """NetSyncBattle.EffectiveGuestSlots (the getter: the keys, the line and every converted lane read it)."""
+        nb = self._nb
+        raw = int(nb.guest_slots) & 0x0F
+        if not self._lg() or raw == 0 or not nb.guard_own:
+            return raw
+        leader = self._lg_leader()
+        key = (raw, leader, self.battle_epoch)
+        if not nb.guard_latched or nb.guard_key != key:
+            chars = list(self.battle_chars)
+            eff, f, t = self._nb_guard_rule(chars, raw, leader)
+            nb.guard_latched, nb.guard_key = True, key
+            nb.guard_eff, nb.guard_from, nb.guard_to, nb.guard_nonce, nb.guard_chars = eff, f, t, nb.nonce, chars
+            if nb.guard_logs < 4:
+                nb.guard_logs += 1
+                self._mlog("[NetSync] " + BW.guard_latch_line(chars, raw, leader, eff, f, t, nb.nonce,
+                                                              guard_on=not (nb.leaderguard_off_lever and self._nb_role())))
+        return nb.guard_eff
+
+    def _nb_lanes_mask(self) -> int:
+        """The mask the host's ownership LANES read: the guard's (the `lanes_raw` fault: GuestSlots, unconverted)."""
+        if "lanes_raw" in self.guard_faults:
+            return int(self._nb.guest_slots) & 0x0F
+        return self._nb_effective()
+
+    def _nb_roster_mask(self) -> int:
+        """BuildRoster's slot loop: the lanes' mask (the `roster_raw` fault: GuestSlots there ALONE)."""
+        if "roster_raw" in self.guard_faults:
+            return int(self._nb.guest_slots) & 0x0F
+        return self._nb_lanes_mask()
+
+    def _nb_hold_mask(self) -> int:
+        """HostHeldGuestSlot / the G3 hand-back: the lanes' mask (the `hold_raw` fault: GuestSlots there ALONE)."""
+        if "hold_raw" in self.guard_faults:
+            return int(self._nb.guest_slots) & 0x0F
+        return self._nb_lanes_mask()
+
+    def _nb_header_slots(self) -> int:
+        """SampleOwnBattle's type-1 offer byte: EffectiveGuestSlots & 0x0F (the `header_raw` fault: GuestSlots)."""
+        if "header_raw" in self.guard_faults or not self._lg():
+            return int(self._nb.guest_slots) & 0x0F
+        return self._nb_effective() & 0x0F
+
+    def _nb_slot_names(self) -> list:
+        """BattleSlotNames: the display name per btl index 0-3, a hidden member included (None = no member)."""
+        names = [None] * 4
+        for u in list(self.battle_units) + ([self._battle_hidden] if self._battle_hidden else []):
+            if u.get("player") and 0 <= int(u["slot"]) < 4:
+                names[int(u["slot"])] = u.get("name")
+        return names
+
+    def _nb_guard_line_tick(self) -> None:
+        """GuardLineTick: once per own battle, at its first command phase, while GuestSlots is set."""
+        nb = self._nb
+        if not nb.phase_open or nb.guard_line_nonce == nb.nonce or not int(nb.guest_slots) & 0x0F:
+            return
+        nb.guard_line_nonce = nb.nonce
+        raw, eff = int(nb.guest_slots) & 0x0F, self._nb_effective()
+        names = self._nb_slot_names()
+        if "line_text" in self.guard_faults:
+            line = BW.guard_line_text(True, names, raw, -1)
+        else:
+            line = BW.guard_line_text(True, names, eff, nb.guard_from if nb.guard_latched else -1)
+        partner = self._nb_role() or self.rt - nb.lane_rt < BW.STALL_MEMORY_MS / 1000.0
+        nb.guard_line, nb.guard_line_shown = line, bool(partner)
+        if partner and "line_unshown" not in self.guard_faults:
+            self._battle_msg = (line, self.rt + FAKE_BATTLE_MESSAGE_S)   # SetBattleMessage at priority 1: nothing outranks it here
+        self._mlog("[NetSync] " + BW.guard_host_line_log(line, raw, eff, shown=nb.guard_line_shown, partner=partner))
+
+    def _nb_guest_line_tick(self, view: dict | None) -> None:
+        """GuestLineTick(view, hud false): the loopback guest's line, once per host battle, at the first view with a Ready
+        player -- off the HEADER's offer and the wire units' names; the log only. Through GuestLineStep's twin (review s143
+        rwire-1: an earlier seq on the latched nonce -- a relaunched host -- forgets the latch first)."""
+        nb = self._nb
+        if view is None:
+            return
+        players = sum(1 << int(u["slot"]) for u in self.battle_units if u.get("player") and 0 <= int(u["slot"]) < 4)
+        step, nb.you_nonce, nb.you_seq = BW.guest_line_step(view["nonce"], int(view["seq"]), bool(view["ready"] & players),
+                                                            nb.you_nonce, nb.you_seq)
+        if step != BW.GUEST_LINE_NEW:
+            return
+        nb.you_nonce, nb.you_seq = view["nonce"], int(view["seq"])
+        nb.you_mask, nb.you_shown = int(view.get("slots", 0)) & 0x0F, False
+        nb.you_line = BW.guard_line_text(False, self._nb_slot_names(), nb.you_mask, -1)
+        self._mlog("[NetSync] " + BW.guard_guest_line_log(nb.you_line, view["nonce"], nb.you_mask, shown=False,
+                                                          hud=False))
+
+    def _nb_guard_doc(self) -> dict:
+        """[ff9mapkit netsync s143] HarnessAgent.AppendHostGuard -- `netsync.battle.host.guard`: the field latch (`leader`,
+        `leader_model`), GuestSlots and the battle mask NOW (`raw`, `effective` -- equal outside an own battle), the LAST
+        latch (`moved_from` / `moved_to` / `chars` / `nonce`), the lever as the engine reads it (`off`) and the line."""
+        nb = self._nb
+        raw = int(nb.guest_slots) & 0x0F
+        eff = self._nb_effective()
+        f, to = nb.guard_from, nb.guard_to
+        if "keys_raw" in self.guard_faults:
+            eff, f, to = raw, -1, -1                        # the FAULT: the keys report the positions
+        return {"leader": nb.leader_char, "raw": raw, "effective": eff, "moved_from": f, "moved_to": to,
+                "off": not BW.leader_guard_on_rule(nb.leaderguard_off_lever, self._nb_role()), "line": nb.guard_line,
+                "line_shown": nb.guard_line_shown, "leader_model": nb.leader_model, "chars": list(nb.guard_chars),
+                "nonce": nb.guard_nonce}
+
+    def _nb_peer_guard_doc(self) -> dict:
+        """[ff9mapkit netsync s143] HarnessAgent.AppendPeerGuard -- `netsync.battle.peer.guard`: the guest's line."""
+        nb = self._nb
+        return {"nonce": nb.you_nonce, "mask": nb.you_mask, "line": nb.you_line, "shown": nb.you_shown}
 
     def _nb_doc(self) -> dict:
         """HarnessAgent.AppendNetsyncBattle -- the `netsync.battle` block for this stand-in's capabilities, in the agent's
@@ -6170,6 +6523,8 @@ class FakeGame:
                 "loop_cmds": len(nb.loop)}
         pdoc = {"live": peer is not None, "seq": peer["seq"] if peer else -1, "nonce": peer["nonce"] if peer else -1,
                 "caps": peer["caps"] if peer else -1, "ready_mask": peer["ready"] if peer else -1}
+        if "leaderguard" in caps:                       # [ff9mapkit netsync s143] AppendPeerGuard, after `ready_mask`
+            pdoc["guard"] = self._nb_peer_guard_doc()
         menu = {"roster_slots": list(nb.roster_slots) if peer is not None and nb.own_epoch is not None else []}
         if "endblock" in caps:
             host.update(end=None if nb.host_end is None else BW.published_end(nb.host_end, with_flee="fleegil" in caps),
@@ -6206,6 +6561,8 @@ class FakeGame:
             host["start_hold"] = self._nb_hold_doc()
         if "fleegil" in caps:                               # [ff9mapkit netsync R3 s116] the host tap's receipt
             host["flee_gil"] = nb.host_flee_gil
+        if "leaderguard" in caps:                           # [ff9mapkit netsync s143] AppendHostGuard, `host`'s last key
+            host["guard"] = self._nb_guard_doc()
         if "containment" in caps:
             menu.update(r9_refused=nb.r9_refused, r9_total=nb.r9_total, r9_cmd=nb.r9_cmd, r9_site=nb.r9_site,
                         guest_owned=sum(1 << s for s in range(4) if self._nb_guest_owned(s)),
@@ -6378,6 +6735,11 @@ class FakeGame:
         # (the `release_keeps_levers` fault skips it: S138-R's red)
         if "release_keeps_levers" not in self.dress_faults:
             self._dress_release("released with the harness")
+        # [ff9mapkit netsync s143] the leader-guard lever back on, LAST (its line only when it was pulled); the
+        # `lever_stuck` fault leaves it
+        if nb.leaderguard_off_lever and "lever_stuck" not in self.guard_faults:
+            self._mlog("[NetSync] " + BW.LOG_GUARD_RELEASED)
+            nb.leaderguard_off_lever = False
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an
@@ -8219,7 +8581,7 @@ class FakeGame:
         phase open, one count per episode (`refused_report`) and one line per own battle (the end-leave stays quiet)."""
         nb = self._nb
         nb.rpt_refused = True
-        if nb.rpt_refused_counted or not nb.guest_slots or not nb.phase_open:
+        if nb.rpt_refused_counted or not self._nb_lanes_mask() or not nb.phase_open:   # [ff9mapkit netsync s143]
             return
         nb.rpt_refused_counted = True
         nb.refused_report += 1
@@ -8459,9 +8821,10 @@ class FakeGame:
     def _nb_host_held(self) -> int:
         """HostHeldGuestSlot: the GuestSlots slot the host's OWN window holds (CurrentPlayerIndex), PHASE_NORMAL only."""
         nb, s = self._nb, self.battle_turn
-        if not nb.guest_slots or self._battle_phase_now() != BW.PHASE_NORMAL:
+        owned = self._nb_hold_mask()                        # [ff9mapkit netsync s143] the leader guard's mask
+        if not owned or self._battle_phase_now() != BW.PHASE_NORMAL:
             return -1
-        return s if 0 <= s < 4 and nb.guest_slots & (1 << s) else -1
+        return s if 0 <= s < 4 and owned & (1 << s) else -1
 
     def _nb_track_hold(self) -> None:
         """TrackHostHold: a change of the held guest slot -- a hold counts as a capture (the counter counts under the
@@ -8505,7 +8868,7 @@ class FakeGame:
         command ROOT (SetIdle; it stays on ReadyQueue and the HUD skips it); anywhere else the hand-back WAITS (counted and
         noted once per hold)."""
         nb = self._nb
-        if not self._nb_handback_on() or not nb.guest_slots:
+        if not self._nb_handback_on() or not self._nb_hold_mask():    # [ff9mapkit netsync s143]
             return
         slot = self._nb_host_held()
         if slot < 0 or not self._nb_guest_owned(slot):
@@ -8560,6 +8923,8 @@ class FakeGame:
         if "gates" not in caps:
             return
         nb = self._nb
+        if "leaderguard" in caps:
+            self._nb_note_field_leader()                    # [ff9mapkit netsync s143] NoteFieldLeader (NetSyncClient.Update)
         own = (self.battle_active and not self.battle_debug and not self._dio["booted"] and self._nb_role())
         if own:
             if nb.own_epoch != self.battle_epoch:
@@ -8627,6 +8992,8 @@ class FakeGame:
         nb.ctl_null_seen = nb.last_ctl_legacy = False
         if "actstart" in self._nb_caps():
             self._act_lane.battle_start(nb.nonce)           # [ff9mapkit netsync s133] ActBattleStart, after the nonce bump
+        nb.guard_own, nb.guard_latched, nb.guard_logs = True, False, 0   # [ff9mapkit netsync s143] GuardBattleEdge(true)
+        nb.guard_force_none = False
 
     def _nb_own_end(self) -> None:
         """An own battle's falling edge (NoteOwnBattleEnd): the host's "last sample" reads -1, `host.end` null, the lane
@@ -8658,6 +9025,8 @@ class FakeGame:
         nb.remote_seen = -1
         nb.remote_menu = False
         nb.ctl_null_seen = nb.last_ctl_legacy = False
+        nb.guard_own, nb.guard_latched = False, False       # [ff9mapkit netsync s143] GuardBattleEdge(false)
+        nb.you_nonce, nb.you_seq = -1, -1                   # ...and Reset's GuestLineForget (SelfTestPump's falling edge)
 
     # -- [ff9mapkit netsync s133] the host action-start lane ------------------------------------------------------------
     #: The stand-in's describe (btl_vfx.DescribeCommandVfx's kind and number) for ITS command ids (MENU_COMMANDS: shapes,
@@ -8781,6 +9150,8 @@ class FakeGame:
             if open_:
                 nb.phase_open_frame = self.frame
                 nb.roster_lag = -1
+        if "leaderguard" in caps:
+            self._nb_guard_line_tick()                      # [ff9mapkit netsync s143] GuardLineTick, after TrackCommandPhase
         handback = "handback" in caps
         if handback:
             self._nb_track_hold()                           # [ff9mapkit netsync B4] s110 TrackHostHold (beside the phase)
@@ -8788,7 +9159,8 @@ class FakeGame:
             # [ff9mapkit netsync R3 s113/s114] the loopback guest's GuestControl (its depth byte, the s114 report), a lapse
             # (none, or the reserve), then the host's ParseControl of it
             view = nb.peer
-            self._nb_loopback_control(caps, bool(view is not None and view["ready"] & nb.guest_slots))
+            # [ff9mapkit netsync s143] the loopback GUEST decides off the header it read (its `slots`: the host's offer)
+            self._nb_loopback_control(caps, bool(view is not None and view["ready"] & view.get("slots", nb.guest_slots)))
         elif not (handback and self._nb_lapse_tick()):
             nb.assist_rt = nb.lane_rt = self.rt             # the loopback's own control frame stamps the lane every tick
         if handback:                                        # ...a `bench lapse` sends none: ParseControl(null), a STALL
@@ -8802,8 +9174,9 @@ class FakeGame:
         if not gates and self.rt >= nb.roster_next_rt:
             nb.roster_next_rt += 1.0
         if build and menus_ready:
+            owned = self._nb_roster_mask()                  # [ff9mapkit netsync s143] BuildRoster's slot loop
             slots = sorted(u["slot"] for u in self.battle_units
-                           if u.get("player") and 0 <= u["slot"] < 4 and nb.guest_slots & (1 << u["slot"]))
+                           if u.get("player") and 0 <= u["slot"] < 4 and owned & (1 << u["slot"]))
             nb.roster_slots = slots
             if nb.roster_lag < 0 and open_ and nb.phase_open_frame >= 0:
                 nb.roster_lag = self.frame - nb.phase_open_frame
@@ -8856,7 +9229,11 @@ class FakeGame:
                 nb.host_trail_key = BW.append_trail(nb.host_trail, nb.host_trail_key, block)
             else:
                 nb.host_end = None
-        nb.peer = {"seq": nb.wire_seq, "nonce": nb.nonce, "caps": caps_byte, "ready": ready, "end": end}
+        # [ff9mapkit netsync s143] + the header's offer byte (SampleOwnBattle: EffectiveGuestSlots & 0x0F)
+        nb.peer = {"seq": nb.wire_seq, "nonce": nb.nonce, "caps": caps_byte, "ready": ready, "end": end,
+                   "slots": self._nb_header_slots()}
+        if "leaderguard" in caps:
+            self._nb_guest_line_tick(nb.peer)               # GuestLineTick(_peerView, false): the loopback's line
         if "endblock" in caps:
             if nb.peer_nonce != nb.nonce:                   # NotePeer: a new battle nonce restarts the trail
                 nb.peer_nonce = nb.nonce
@@ -8893,6 +9270,7 @@ class FakeGame:
             nb.refused_why = BW.phase_why(phase) if phase != BW.PHASE_NORMAL else BW.MENU_DISABLED_WHY
             return
         if not self._nb_guest_owned(slot):
+            self._mlog(f"[NetSync] peer command for slot {slot} refused (not a guest slot)")
             self._nb_drop(f"slot {slot} is not a guest slot")
             return
         if mask == 0:
@@ -8938,6 +9316,8 @@ class FakeGame:
                           f"has no command slot)")
             return
         nb.cmd_queued += 1
+        if action in (BW.ACT_ATTACK, BW.ACT_INSTANT):       # HandleCommandPayload's landing line (s37)
+            self._mlog(f"[NetSync] peer command: slot {slot} {what} -> mask 0x{mask:02X}")
 
     def _nb_boot(self) -> None:
         """Every diorama Boot: R9's per-boot ledger, the stock menu's per-boot state, the presentation and the exit.
@@ -10811,7 +11191,9 @@ class _BattleLane:
     hand-back (the selftest stall, G6, G3 at the root, the submenu deferral, the lever).
     NOT MODELLED: the wire, timing below a frame, an own battle's victory and result screen (the stand-in's battles end
     at once -- so `endbench cmd` stays "armed", and the HOST's manifest is never captured: `host.manifest` stays null),
-    a live peer's lane or roster (only the selftest loopback and the bench feed), the trance bridge, log lines."""
+    a live peer's lane or roster (only the selftest loopback and the bench feed), the trance bridge, log lines (but the
+    intake's two s37 lines -- a landing, a "not a guest slot" refusal -- and [ff9mapkit netsync s143] the leader guard's:
+    the leader, the latch, the two battle-start lines, the field dress, the lever and its release)."""
 
     def __init__(self):
         # ---- s100: the host command-phase gates (NetSyncBattle statics)
@@ -10986,6 +11368,28 @@ class _BattleLane:
         self.sw_swirls = self.sw_dioramas = self.sw_clamps = 0   # monotonic per process
         # ---- s113: Wait parity
         self.waitparity_off_lever = False           # BenchWaitParityOff
+        self.leaderguard_off_lever = False          # [ff9mapkit netsync s143] BenchLeaderGuardOff
+        # ---- s143: the leader guard (NetSyncBattle statics; the field latch and the published values outlive a battle)
+        self.leader_char = -1                       # _leaderChar (LeaderNone)
+        self.leader_model = -1                      # _leaderModel
+        self.guard_own = False                      # _guardOwnBattle (NoteOwnBattleStart .. NoteOwnBattleEnd)
+        self.guard_latched = False                  # _guardLatched
+        self.guard_key: tuple | None = None         # (GuestSlots, the leader used, the battle)
+        self.guard_eff = 0                          # _guardEff
+        self.guard_from = -1                        # _guardFrom / _guardTo (the last latch's, kept after its battle)
+        self.guard_to = -1
+        self.guard_nonce = -1                       # _guardNonce
+        self.guard_chars = [-1, -1, -1, -1]         # _guardChars
+        self.guard_logs = 0                         # _guardLogs (GuardLogBudget 4 a battle)
+        self.guard_force_none = False               # the `appear_relatch` fault's re-latch with no leader
+        self.guard_line: str | None = None          # _guardLine / _guardLineNonce / _guardLineShown
+        self.guard_line_nonce = -1
+        self.guard_line_shown = False
+        self.you_nonce = -1                         # _youNonce / _youMask / _youLine / _youShown (the guest's line)
+        self.you_mask = -1
+        self.you_line: str | None = None
+        self.you_shown = False
+        self.you_seq = -1                           # _youSeq (GuestLineSameBattle / GuestLineStep)
         self.bench_ctl = -1                         # BenchCtl (-1 = auto)
         self.remote_byte = 0                        # _remoteMenuByte
         self.remote_seen = -1                       # _remoteMenuSeen (-1 = none since a null/malformed frame or a reset)

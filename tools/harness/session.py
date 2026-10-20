@@ -8526,6 +8526,9 @@ class Session:
                  "the R3 start-hold bench (the loopback / feed guest's report)"),
         "starthold": ("coop_start_hold", "netsync.battle.host.start_hold", "s114",
                       "the R3 start-hold calibration lever and bench cap"),
+        # [ff9mapkit netsync s143] the leader guard's lever -- the same hazard (an s141 engine reads it as `bench 1`)
+        "leaderguard": ("coop_leader_guard", "netsync.battle.host.guard", "s143",
+                        "the s143 leader-guard calibration lever (off = the pre-s143 positional rule)"),
     }
     #: [ff9mapkit netsync s133] `actbench <op>` (NetSyncBattle.HarnessActBench), in the engine's order -- the list its
     #: "unknown op" refusal prints -- and the `tape` op's values (`rec|stop|clear|info`, + `dump <from> <count>`, the paged

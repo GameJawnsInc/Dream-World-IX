@@ -1,0 +1,1466 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 61a4441..78ee9fd 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -537,6 +537,622 @@ namespace Memoria.Netsync
+         private static Texture2D _panelBg;
+         private static GUIStyle _panelStyle;
+ 
++        // ============================================================================ the leader guard (s143)
++        // [ff9mapkit netsync s143] THE GUEST NEVER COMMANDS THE HOST'S LEADER (owner decision 2026-10-19, after the Plant Brain report
++        // "the host lost control of Zidane"). [Netsync] GuestSlots stays a party-POSITION mask -- owning "by character" is weird, the
++        // owner said, because the lineup changes a lot -- and every battle lane reads its bit n as btl_data index n. A story party
++        // rebuild can seat the character the host WALKS AS in a guest position: field 257 rebuilds [Blank, Zidane, Vivi, Steiner] right
++        // before Battle(1, 303), so GuestSlots 2 handed the guest ZIDANE for the whole Plant Brain fight; field 261 then leaves [Garnet,
++        // Zidane, Vivi, Steiner] for the stretch after the forest, and Pandemonium's Amdusias / Abadon / Shell Dragon seat it the same way.
++        //   THE RULE (LeaderGuard, pure; LeaderGuardSelfTest pins it, three mutants included): for every owned index whose CharacterId is
++        //     the LEADER, the bit moves to the next occupied index after it (wrapping) that is neither the leader nor already owned; none
++        //     -> the bit DROPS (the guest spectates it). An owned EMPTY (or unreadable) index stays as before.
++        //   THE LEADER (NoteFieldLeader every field frame, NoteWorldLeader on the world map, ForgetLeader at the title; every role): the
++        //     CharacterId of THIS machine's own controlled field body, off its GENUINE model (a self-dressed body's netDressSrc; a host's
++        //     own body is never dressed, s140) -> RigForModel -> RigToChar (rigs 0-7 and 9-12), or a census PLAYABLE-CHARACTER VARIANT
++        //     (PcVariantModels: Zidane's 532 / 203 / 432, Steiner's 658, Garnet's 202 / 419) -> its character. A body that names no
++        //     character (a chocobo, the gargant, an NPC puppet, a kit's custom) KEEPS the character last latched (NextLeader: Chocobo's
++        //     Air Garden walks Chocobo Gold into Ozma with Zidane in the party); NONE means only "no character body seen since the
++        //     title" -- the positional rule exactly. THE WORLD MAP latches its walker (a world-map save loads straight onto it with no
++        //     field seen): the moving actor's status (WMUIData.StatusNo) -- 2 (ff9.k_moveCHRStatus_Dagger) walks as Garnet, every other
++        //     one (Zidane on foot, a chocobo, a ship) is Zidane's party: Zidane (leader_census.json's `world_leader`). THE TITLE forgets
++        //     the latch (every load passes it: a stale field leader never crosses a save). Held across the battle (the field object is
++        //     gone there): a world-map battle takes the world map's walker. [review s143: own-1, field-1, field-2]
++        //   THE BATTLE MASK (EffectiveGuestSlots): the rule over my own battle's player units (btl_data index -> bi.slot_no, ANY
++        //     visibility -- a unit a script hides at boot counts: at Shell Dragon the guest gets hidden Garnet and the host keeps Zidane),
++        //     latched once the players are organized (btl_load_status & LOAD_INITCHR: never a previous battle's units) and re-latched
++        //     when GuestSlots, the leader or the battle (party.battle_no) changes. EVERY host read of GuestSlots for battle OWNERSHIP goes
++        //     through it: IsGuestOwnedSlot (the BattleHUD hooks, the command intake), RemoteMenuOpen and the Wait freeze, G6 / G3, the
++        //     roster cadence and BuildRoster, the type-1 header byte the guest reads, the refusal and Wait-cap lines. Outside my own battle
++        //     (and before its players are organized) it IS GuestSlots. The guest needs no change: its every ownership decision reads that
++        //     header byte, and it maps wire units by character (NetSyncDiorama's LocalIndexForWire).
++        //   THE FIELD MASK (NetSyncClient.FieldGuardMask): the same rule over the RAW party slots at the host's dress sites (HostDress --
++        //     its ghost and section 8 -- and the selftest mirror), so the ghost wears whom the guest commands; a client's s138 rule is
++        //     untouched. (Pre-existing and kept: the field reads RAW party slots, the battle COMPACTED btl indices -- with a party hole
++        //     at or before a guest bit the two can name different members.)
++        //   THE LINE (GuardLineTick / GuestLineTick): at each own battle's first command phase the host's stock battle message names whom
++        //     the guest commands ("Partner: Vivi", "Partner: Vivi (not Zidane)", "Partner: watching (not Zidane)") while a guest lane is
++        //     there, and a guest's diorama shows "You: Vivi" -- the stock non-modal message window (BattleHUD.SetBattleMessage), never a
++        //     prompt; one log line on each side.
++        //   SELFTEST CALIBRATION LEVER (harness `netsync bench leaderguard on|off`; released by HarnessReleaseBench): off = the pre-s143
++        //     positional rule, in battle AND at the field dress sites, on the selftest role only (LeaderGuardOn).
++        // Wire UNCHANGED (v14): the header byte is today's, only its value is guarded. Never throws into the engine.
++        public const Int32 LeaderNone = -1;              // no leader known: the guard is the positional rule exactly
++        // THE PLAYABLE-CHARACTER VARIANT CENSUS (studies/battle-coop/dress-census/leader_census.json `pc_variants`; read-only over the 817
++        // field-script exports' first language block): every main character's body a PLAYER-defining entry (DefinePlayerCharacter)
++        // SetModels outside the rig table, named by its GEO family -- 658 GEO_MAIN_F1_STN (Steiner; 8 fields: 451 452 455 456 609 800
++        // 801 2114), 532 GEO_MAIN_F0_ZDD (Zidane; 7: 401, 1201-1205, 1223), 203 GEO_MAIN_F1_ZDN (Zidane; 150, 153), 432 GEO_MAIN_F2_ZDN
++        // (Zidane; 3009, 3011), 202 GEO_MAIN_F3_GRN (Garnet; 66), 419 GEO_MAIN_F5_GRN (Garnet; 3012). GEO_MAIN_F3/F4/F5_ZDN (668-670)
++        // are worn by no player entry. (Was Zidane's three only -- review s143 field-2.)
++        internal static readonly UInt16[] PcVariantModels = { 658, 532, 203, 432, 202, 419 };
++        internal static readonly Byte[] PcVariantChars = { 3, 0, 0, 0, 2, 2 };
++        internal const Int32 WorldLeaderModel = -3;      // _leaderModel's world-map sentinels (NoteWorldLeader): Zidane's party walks it,
++        internal const Int32 WorldDaggerModel = -4;      // ...Dagger walks it (status 2)
++        private static Int32 _leaderChar = LeaderNone;   // the latched leader (a CharacterId; LeaderNone = no character body since the title)
++        private static Int32 _leaderModel = -1;          // the genuine body model it was read off (-1 = none yet; -3 / -4 the world map)
++        public static Boolean BenchLeaderGuardOff;       // the selftest lever (read only through LeaderGuardOn)
++
++        internal static Boolean LeaderGuardOn
++        {
++            get { return LeaderGuardOnRule(BenchLeaderGuardOff, NetSyncClient.IsSelfTestRole); }
++        }
++
++        // The lever's rule (pure; the selftest pins it): off only while pulled AND on the selftest role -- a lever stranded across an ini
++        // edit can never unguard a real host.
++        internal static Boolean LeaderGuardOnRule(Boolean benchOff, Boolean selfTestRole)
++        {
++            return !(benchOff && selfTestRole);
++        }
++
++        // The leader the guard takes now: the latch, or none under the lever (the positional rule).
++        internal static Int32 LeaderForGuard
++        {
++            get { return LeaderGuardOn ? _leaderChar : LeaderNone; }
++        }
++
++        public static Int32 LeaderChar
++        {
++            get { return _leaderChar; }
++        }
++
++        // THE LEADER of a body model (pure; the selftest pins it): the rig's CharacterId (rigs 0-7 -> 0-7, 9-12 -> 8-11), a census
++        // playable-character variant -> its character, anything else (the moogle's rig 8 included) -> LeaderNone.
++        internal static Int32 LeaderCharForModel(Int32 model)
++        {
++            if (model <= 0 || model > 0xFFFF)
++                return LeaderNone;
++            Int32 rig = NetSyncVisitor.RigForModel((UInt16)model);
++            if (rig >= 0)
++            {
++                Byte c = NetSyncVisitor.RigToChar(rig);
++                return c == NetSyncVisitor.CharNone ? LeaderNone : (Int32)c;
++            }
++            for (Int32 i = 0; i < PcVariantModels.Length; i++)
++                if (PcVariantModels[i] == model)
++                    return PcVariantChars[i];
++            return LeaderNone;
++        }
++
++        // THE LATCH STEP (pure; the selftest pins it): the leader once my controlled body is `model` -- the world map's sentinels ->
++        // Zidane / Garnet; a body naming a character -> that character; any other body -> `prevChar` KEPT (LeaderNone stays none).
++        // [review s143 field-1, own-1]
++        internal static Int32 NextLeader(Int32 prevChar, Int32 model)
++        {
++            if (model == WorldLeaderModel)
++                return (Int32)CharacterId.Zidane;
++            if (model == WorldDaggerModel)
++                return (Int32)CharacterId.Garnet;
++            Int32 c = LeaderCharForModel(model);
++            return c >= 0 ? c : prevChar;
++        }
++
++        // The latch's log line (pure but for its names). `changed` = the CHARACTER changed; else my body named no character and the
++        // leader stayed.
++        internal static String LeaderLogText(Int32 leader, Int32 model, Boolean changed)
++        {
++            if (!changed)
++                return "leader guard: my controlled body's model " + model + " names no character -- the leader stays "
++                       + (leader >= 0 ? GuardCharName(leader) + " (CharacterId " + leader + ")" : "none known (the positional rule)");
++            return "leader guard: the host-side leader is now " + (leader >= 0
++                       ? GuardCharName(leader) + " (CharacterId " + leader + (model == WorldLeaderModel
++                           ? ", the world map: Zidane's party walks it)" : model == WorldDaggerModel ? ", the world map: Dagger walks it)"
++                           : ", my controlled body's model " + model + ")")
++                       : "NONE (my controlled body's model " + model + ")")
++                   + " -- a guest bit landing on it moves to the next member (owner, 2026-10-19)";
++        }
++
++        // NetSyncClient.Update, every frame on a live field (every role): my controlled body's GENUINE model -> the leader (NextLeader:
++        // a body naming no character keeps it). One model compare a frame once latched; a model 0 (a body not set up yet) is skipped; a
++        // change of the CHARACTER logs one line, and so does a body that names none (the leader kept). Never throws.
++        public static void NoteFieldLeader(EventEngine ee)
++        {
++            try
++            {
++                Actor me = ee != null ? ee.GetControlChar() as Actor : null;
++                if (me == null)
++                    return;
++                Int32 model = me.netSelfDress != 0 ? me.netDressSrc : me.model;
++                if (model <= 0 || model == _leaderModel)
++                    return;
++                Int32 was = _leaderChar;
++                _leaderModel = model;
++                _leaderChar = NextLeader(was, model);
++                if (_leaderChar != was || LeaderCharForModel(model) < 0)
++                    Log.Message("[NetSync] " + LeaderLogText(_leaderChar, model, _leaderChar != was));
++            }
++            catch { }
++        }
++
++        // The world map's walker as a latch sentinel (pure; the selftest pins it): the moving actor's status (WMUIData.StatusNo) -- 0 =
++        // none up yet (0: latch nothing), 2 = ff9.k_moveCHRStatus_Dagger (Dagger walks it), any other (Zidane on foot, a chocobo, a
++        // ship) = Zidane's party.
++        internal static Int32 WorldWalkerModel(Int32 status)
++        {
++            return status <= 0 ? 0 : status == 2 ? WorldDaggerModel : WorldLeaderModel;
++        }
++
++        // NetSyncClient.Update, every frame on the world map (gMode 3, every role): its walker -> the leader (review s143 own-1: a
++        // world-map save loads straight here, no field seen). One compare a frame once latched. Never throws.
++        public static void NoteWorldLeader(Int32 status)
++        {
++            Int32 model = WorldWalkerModel(status);
++            if (model == 0 || model == _leaderModel)
++                return;
++            Int32 was = _leaderChar;
++            _leaderModel = model;
++            _leaderChar = NextLeader(was, model);
++            if (_leaderChar != was)
++                Log.Message("[NetSync] " + LeaderLogText(_leaderChar, model, true));
++        }
++
++        // NetSyncClient.Update, every frame at the title (every role): every load passes the title, so the latch never crosses a save --
++        // the next field body or the world map latches afresh. Two compares a frame once forgotten. Never throws.
++        public static void ForgetLeader()
++        {
++            if (_leaderModel == -1 && _leaderChar == LeaderNone)
++                return;
++            _leaderModel = -1;
++            _leaderChar = LeaderNone;
++            Log.Message("[NetSync] " + LogLeaderForgotten);
++        }
++
++        internal const String LogLeaderForgotten = "leader guard: the leader is forgotten at the title (a load starts afresh: the next "
++                                                   + "field body or the world map latches it)";
++
++        // THE RULE (pure). `slotChar[i]` = the CharacterId at index i (0-3; negative = no member there: -1 empty, -2 unreadable),
++        // `ownedMask` the guest's bits (0-3 only). Out: the index the leader's bit left (-1 = none) and the index it went to (-1 = none:
++        // with movedFrom >= 0, the bit DROPPED).
++        internal static Int32 LeaderGuard(Int32[] slotChar, Int32 ownedMask, Int32 leaderChar, out Int32 movedFrom, out Int32 movedTo)
++        {
++            return LeaderGuardCore(slotChar, ownedMask, leaderChar, true, true, out movedFrom, out movedTo);
++        }
++
++        // The rule's body; `wrap` / `skipOwned` exist for the selftest's mutants (production passes true, true).
++        internal static Int32 LeaderGuardCore(Int32[] slotChar, Int32 ownedMask, Int32 leaderChar, Boolean wrap, Boolean skipOwned,
++                                              out Int32 movedFrom, out Int32 movedTo)
++        {
++            movedFrom = -1;
++            movedTo = -1;
++            Int32 raw = ownedMask & 0x0F;
++            Int32 eff = raw;
++            if (leaderChar < 0 || slotChar == null)
++                return eff;                              // no leader known: the positions as they are
++            for (Int32 i = 0; i < 4; i++)
++            {
++                if ((raw & (1 << i)) == 0 || GuardCharAt(slotChar, i) != leaderChar)
++                    continue;
++                eff &= ~(1 << i);                        // the leader's bit leaves it ...
++                movedFrom = i;
++                movedTo = -1;
++                for (Int32 k = 1; k < 4; k++)
++                {
++                    Int32 j = i + k;
++                    if (j >= 4)
++                    {
++                        if (!wrap)
++                            break;
++                        j -= 4;
++                    }
++                    Int32 c = GuardCharAt(slotChar, j);
++                    if (c < 0 || c == leaderChar || (skipOwned && (eff & (1 << j)) != 0))
++                        continue;
++                    eff |= 1 << j;                       // ... for the next member who is neither the leader nor already owned
++                    movedTo = j;
++                    break;
++                }
++            }
++            return eff;
++        }
++
++        private static Int32 GuardCharAt(Int32[] slotChar, Int32 i)
++        {
++            return slotChar != null && i >= 0 && i < slotChar.Length ? slotChar[i] : -1;
++        }
++
++        // The log's names for a CharacterId (the open-source CharacterId enum's names): "-" no member, "?" unreadable, "#id" a custom.
++        private static readonly String[] GuardNames = { "Zidane", "Vivi", "Garnet", "Steiner", "Freya", "Quina", "Eiko", "Amarant",
++                                                        "Cinna", "Marcus", "Blank", "Beatrix" };
++
++        internal static String GuardCharName(Int32 charId)
++        {
++            if (charId == -1)
++                return "-";
++            if (charId < 0)
++                return "?";
++            return charId < GuardNames.Length ? GuardNames[charId] : "#" + charId;
++        }
++
++        // --- the battle latch (EffectiveGuestSlots)
++        private static Boolean _guardOwnBattle;          // NoteOwnBattleStart .. NoteOwnBattleEnd (both pumps): the latch is read inside only
++        private static Boolean _guardLatched;            // the latch below is THIS own battle's
++        private static Int32 _guardRaw = -1;             // ...its key: GuestSlots, the leader it took, party.battle_no
++        private static Int32 _guardLeaderUsed = LeaderNone;
++        private static Int32 _guardBattleNo = Int32.MinValue;
++        private static Int32 _guardSig;                  // ...and the units' signature (BattleSlotSig: a party swap re-latches)
++        private static Int32 _guardEff;                  // ...its answer
++        private static Int32 _guardFrom = -1;            // ...what moved (kept after its battle until the next latch: the harness)
++        private static Int32 _guardTo = -1;
++        private static Int32 _guardNonce = -1;           // ...the own battle (nonce) it belongs to (-1 = none yet)
++        private static readonly Int32[] _guardChars = { -1, -1, -1, -1 };   // ...and the units it read (CharacterId per btl index)
++        private static Int32 _guardLogs;                 // latch lines this own battle (GuardLogBudget)
++        private const Int32 GuardLogBudget = 4;
++
++        // THE BATTLE MASK every host ownership read takes. Cheap (a few field reads once latched); never throws.
++        public static Int32 EffectiveGuestSlots
++        {
++            get
++            {
++                Int32 raw = GuestSlots & 0x0F;
++                if (raw == 0 || !_guardOwnBattle)
++                    return raw;
++                try
++                {
++                    FF9StateBattleSystem btlsys = FF9StateSystem.Battle.FF9Battle;
++                    if (btlsys == null || (btlsys.btl_load_status & global::FF9.ff9btl.LOAD_INITCHR) == 0)
++                    {
++                        _guardLatched = false;           // the players are not organized yet: nothing to guard
++                        return raw;
++                    }
++                    Int32 leader = LeaderForGuard;
++                    Int32 battleNo = FF9StateSystem.Common.FF9.party.battle_no;
++                    Int32 sig = BattleSlotSig(btlsys);
++                    if (!_guardLatched || raw != _guardRaw || leader != _guardLeaderUsed || battleNo != _guardBattleNo || sig != _guardSig)
++                        LatchGuard(btlsys, raw, leader, battleNo, sig);
++                    return _guardEff;
++                }
++                catch
++                {
++                    return raw;
++                }
++            }
++        }
++
++        // The own battle's edges (NoteOwnBattleStart / NoteOwnBattleEnd): the latch is per own battle (its published values stay).
++        private static void GuardBattleEdge(Boolean start)
++        {
++            _guardOwnBattle = start;
++            _guardLatched = false;
++            if (start)
++                _guardLogs = 0;
++        }
++
++        // The own battle's player units as the guard reads them: btl_data index 0-3 -> bi.slot_no (the CharacterId) for a live player
++        // record (btl_id == 1 << index -- InitPlayerData zeroes the unused ones), linked or script-hidden alike; -1 = none; -2 = unreadable.
++        internal static Int32[] BattleSlotChars(FF9StateBattleSystem btlsys)
++        {
++            Int32[] chars = { -1, -1, -1, -1 };
++            for (Int32 i = 0; i < 4; i++)
++            {
++                try
++                {
++                    BTL_DATA d = btlsys.btl_data[i];
++                    if (d != null && d.btl_id == (UInt16)(1 << i) && d.bi.player != 0)
++                        chars[i] = d.bi.slot_no;
++                }
++                catch
++                {
++                    chars[i] = NetSyncVisitor.SlotUnreadable;
++                }
++            }
++            return chars;
++        }
++
++        // The units' signature, the latch's last key (review s143 own-2): the four bi.slot_no bytes as BattleSlotChars reads them (0xFF
++        // no member, 0xFE unreadable) -- Memoria's in-battle party swap ([Battle] AccessMenus > 0: SwapPlayerCharacter re-stamps
++        // bi.slot_no at a fixed btl index) re-latches, so a reserve leader swapped into a guest bit moves it. Four reads; never throws.
++        private static Int32 BattleSlotSig(FF9StateBattleSystem btlsys)
++        {
++            Int32 sig = 0;
++            for (Int32 i = 0; i < 4; i++)
++            {
++                Int32 c;
++                try
++                {
++                    BTL_DATA d = btlsys.btl_data[i];
++                    c = d != null && d.btl_id == (UInt16)(1 << i) && d.bi.player != 0 ? d.bi.slot_no : 0xFF;
++                }
++                catch
++                {
++                    c = 0xFE;
++                }
++                sig |= (c & 0xFF) << (8 * i);
++            }
++            return sig;
++        }
++
++        private static void LatchGuard(FF9StateBattleSystem btlsys, Int32 raw, Int32 leader, Int32 battleNo, Int32 sig)
++        {
++            Int32 eff = raw, from = -1, to = -1;
++            Int32[] chars = null;
++            String fault = null;
++            try
++            {
++                chars = BattleSlotChars(btlsys);
++                eff = LeaderGuard(chars, raw, leader, out from, out to);
++            }
++            catch (Exception err)
++            {
++                eff = raw;
++                from = -1;
++                to = -1;
++                fault = err.GetType().Name;
++            }
++            _guardLatched = true;
++            _guardRaw = raw;
++            _guardLeaderUsed = leader;
++            _guardBattleNo = battleNo;
++            _guardSig = sig;
++            _guardEff = eff;
++            _guardFrom = from;
++            _guardTo = to;
++            _guardNonce = _battleNonce;
++            for (Int32 i = 0; i < 4; i++)
++                _guardChars[i] = chars != null && i < chars.Length ? chars[i] : NetSyncVisitor.SlotUnreadable;
++            if (_guardLogs >= GuardLogBudget)
++                return;
++            _guardLogs++;
++            Log.Message("[NetSync] leader guard: " + GuardLatchText(_guardChars, raw, leader, eff, from, to, fault)
++                        + " (own battle nonce " + _battleNonce + ")");
++        }
++
++        // The latch line's body (pure but for the lever's wording).
++        internal static String GuardLatchText(Int32[] chars, Int32 raw, Int32 leader, Int32 eff, Int32 from, Int32 to, String fault)
++        {
++            StringBuilder sb = new StringBuilder(200);
++            sb.Append("GuestSlots 0x").Append(raw.ToString("X")).Append(" over the battle's units [");
++            for (Int32 i = 0; i < 4; i++)
++                sb.Append(i > 0 ? ", " : "").Append(GuardCharName(GuardCharAt(chars, i)));
++            sb.Append("], leader ").Append(leader >= 0 ? GuardCharName(leader)
++                                           : LeaderGuardOn ? "none known" : "OFF (the `bench leaderguard off` lever: the positional rule)");
++            sb.Append(" -> 0x").Append(eff.ToString("X"));
++            if (fault != null)
++                sb.Append(" -- the unit read threw " + fault + ": the positions as they are");
++            else if (from >= 0 && to >= 0)
++                sb.Append(" -- index ").Append(from).Append(" is the leader: the guest commands ").Append(GuardCharName(GuardCharAt(chars, to)))
++                  .Append(" (index ").Append(to).Append(") instead");
++            else if (from >= 0)
++                sb.Append(" -- index ").Append(from).Append(" is the leader and no other member is free: the bit drops (the guest spectates it)");
++            else
++                sb.Append(" -- unmoved");
++            return sb.ToString();
++        }
++
++        // --- THE LINE
++        // The stock command title's priority: below every stock message (3-4), never over one. At EQUAL priority BattleHUD.
++        // SetBattleMessage replaces what shows (its test is `>`), so the line can replace an on-screen command title and a later title
++        // replaces the line; a higher-priority message holds it in the stock queue, where it can expire unseen. [review s143 own-3]
++        private const Byte GuardLinePriority = 1;
++        private static String _guardLine;                // the host's line this (or the last) own battle; null = none yet
++        private static Int32 _guardLineNonce = -1;       // ...the own battle it belongs to: once per own battle
++        private static Boolean _guardLineShown;          // ...it was HANDED to the battle message window (else the log only) -- see
++                                                         //    GuardLinePriority: the bench judges the on-screen `battle.message`
++        private static Int32 _youNonce = -1;             // the guest's line: the host battle (nonce) it belongs to (-1 = none since a Reset or a host relaunch)
++        private static Int32 _youSeq = -1;               // ...the header seq it latched at (GuestLineSameBattle)
++        private static Int32 _youMask = -1;              // ...the header's mask it read
++        private static String _youLine;                  // ...its text (null = none)
++        private static Boolean _youShown;                // ...it was handed to a live diorama's battle message window (on time or late)
++
++        // THE LINE's text (pure; the selftest pins it). `names[i]` = the display name at index i (null = no member). Host: "Partner: " +
++        // the owned members' names, + " (not <the leader>)" when the guard moved or dropped the leader's bit (movedFrom >= 0); "watching"
++        // when the mask names no member. Guest: "You: " + the same list (it never knows what moved).
++        internal static String GuardLineText(Boolean host, String[] names, Int32 mask, Int32 movedFrom)
++        {
++            StringBuilder sb = new StringBuilder(48);
++            sb.Append(host ? "Partner: " : "You: ");
++            Int32 n = 0;
++            for (Int32 i = 0; i < 4; i++)
++            {
++                if ((mask & (1 << i)) == 0 || names == null || i >= names.Length || String.IsNullOrEmpty(names[i]))
++                    continue;
++                if (n++ > 0)
++                    sb.Append(", ");
++                sb.Append(names[i]);
++            }
++            if (n == 0)
++                sb.Append("watching");
++            if (host && movedFrom >= 0 && names != null && movedFrom < names.Length && !String.IsNullOrEmpty(names[movedFrom]))
++                sb.Append(" (not ").Append(names[movedFrom]).Append(")");
++            return sb.ToString();
++        }
++
++        // The own battle's display names per btl index (the unit's own name -- a renamed character's too); null = no member there.
++        private static String[] BattleSlotNames(FF9StateBattleSystem btlsys)
++        {
++            String[] names = new String[4];
++            for (Int32 i = 0; i < 4; i++)
++            {
++                try
++                {
++                    BTL_DATA d = btlsys.btl_data[i];
++                    if (d == null || d.btl_id != (UInt16)(1 << i) || d.bi.player == 0)
++                        continue;
++                    String name = StripMarkup(new BattleUnit(d).Name);
++                    names[i] = String.IsNullOrEmpty(name) ? GuardCharName(d.bi.slot_no) : name;
++                }
++                catch
++                {
++                    names[i] = null;
++                }
++            }
++            return names;
++        }
++
++        // Both pumps, right after TrackCommandPhase: the host's line, once per own battle at its first command phase, while GuestSlots
++        // is set. On the HUD while a guest's control lane is there (or on the selftest role), else the log only. Never throws.
++        private static void GuardLineTick()
++        {
++            if (!_hostPhaseOpen || _guardLineNonce == _battleNonce || (GuestSlots & 0x0F) == 0)
++                return;
++            _guardLineNonce = _battleNonce;
++            _guardLine = null;
++            _guardLineShown = false;
++            try
++            {
++                Int32 eff = EffectiveGuestSlots;
++                FF9StateBattleSystem btlsys = FF9StateSystem.Battle.FF9Battle;
++                String line = GuardLineText(true, btlsys != null ? BattleSlotNames(btlsys) : null, eff, _guardLatched ? _guardFrom : -1);
++                _guardLine = line;
++                Boolean partner = NetSyncClient.IsSelfTestRole || (Environment.TickCount - _ctlLaneTick) < StallMemoryMs;
++                BattleHUD hud = UIManager.Battle;
++                if (partner && hud != null)
++                {
++                    hud.SetBattleMessage(line, GuardLinePriority);
++                    _guardLineShown = true;
++                }
++                Log.Message("[NetSync] leader guard line (host): \"" + line + "\" -- " + (_guardLineShown
++                            ? "in the battle message window" : partner ? "no battle HUD: the log only" : "no guest lane: the log only")
++                            + " (GuestSlots 0x" + (GuestSlots & 0x0F).ToString("X") + " -> 0x" + eff.ToString("X") + "; once per own battle)");
++            }
++            catch (Exception err)
++            {
++                Log.Message("[NetSync] leader guard line (host) failed (" + err.GetType().Name + ") -- the log only");
++            }
++        }
++
++        // THE GUEST LINE's "same host battle" test (pure; the selftest pins it; review s143 wire-3): the latched nonce AND a header seq at
++        // or after the latched one (the UInt16 forward distance under half the ring) -- a stale lane no longer forgets the line, so a
++        // host that stalls or blips > 2 s inside one battle shows nothing twice. Another nonce, or none latched, is a new battle. ONE
++        // (nonce, seq) pair only: a relaunched host's nonce AND seq start over, so its climbing seq would re-match an old latch the
++        // moment it passed it -- the latch is forgotten first (GuestLineStep's earlier-seq forget; NetSyncClient's host-epoch reset).
++        internal static Boolean GuestLineSameBattle(Int32 nonce, Int32 seq, Int32 youNonce, Int32 youSeq)
++        {
++            return youNonce >= 0 && youSeq >= 0 && nonce == youNonce && ((seq - youSeq) & 0xFFFF) < 0x8000;
++        }
++
++        // [ff9mapkit netsync s143] THE GUEST LINE's step (pure; the selftest runs it over a relaunched host's SEQUENCE and a resuming
++        // one's -- review s143 rwire-1): one view against the latch, which it may FORGET in place. An EARLIER seq on the latched nonce
++        // forgets the latch first: the battle lane is an ordered TCP latest-slot (NetSyncSocket / NetSyncRelay), so a seq that runs
++        // backwards on one nonce can only be a relaunched host whose run restarted its nonce and seq -- kept, the climbing seq would
++        // re-match the old latch from its seq on, the new battle's line would never latch, and an old log-only line would show LATE
++        // on the new diorama. (A guest that reads the host's section 7 forgets it earlier still, on the epoch change.) Then the latched
++        // battle -> GuestLineSame (the late line only); a new battle at its command phase (`ready`) -> GuestLineNew (the caller
++        // latches); else GuestLineWait.
++        internal const Int32 GuestLineWait = 0;
++        internal const Int32 GuestLineSame = 1;
++        internal const Int32 GuestLineNew = 2;
++
++        internal delegate Int32 GuestLineStepRule(Int32 nonce, Int32 seq, Boolean ready, ref Int32 youNonce, ref Int32 youSeq);
++
++        internal static Int32 GuestLineStep(Int32 nonce, Int32 seq, Boolean ready, ref Int32 youNonce, ref Int32 youSeq)
++        {
++            if (youNonce >= 0 && youSeq >= 0 && nonce == youNonce && !GuestLineSameBattle(nonce, seq, youNonce, youSeq))
++            {
++                youNonce = -1;                           // an earlier seq on the latched nonce: a relaunched host
++                youSeq = -1;
++            }
++            if (GuestLineSameBattle(nonce, seq, youNonce, youSeq))
++                return GuestLineSame;
++            return ready ? GuestLineNew : GuestLineWait;
++        }
++
++        // The guest's line: once per host battle (GuestLineSameBattle), at the first view whose player units show a Ready bit (the host's
++        // command phase -- a gated host withholds Ready outside it), from the header's mask and the wire units' names. On a LIVE
++        // diorama's battle message window when `hud` (a real guest's Pump; a diorama still booting makes it wait; one that boots only
++        // AFTER the line was spent on the log shows it late -- GuestLineLate), else the log only (a digit-panel guest; the selftest
++        // loopback, whose host line has the HUD). A mask of 0 (a spectator) logs only. Never throws.
++        private static void GuestLineTick(BattleView view, Boolean hud)
++        {
++            if (view == null)
++                return;
++            try
++            {
++                Boolean phase = false;
++                for (Int32 i = 0; i < view.Units.Count; i++)
++                    if (view.Units[i].IsPlayer && view.Units[i].Ready)
++                        phase = true;
++                // [ff9mapkit netsync s143] the step (review s143 rwire-1): a relaunched host's earlier seq forgets the latch first
++                Int32 step = GuestLineStep(view.Nonce, view.Seq, phase, ref _youNonce, ref _youSeq);
++                if (step == GuestLineSame)
++                {
++                    GuestLineLate(hud);
++                    return;
++                }
++                if (step != GuestLineNew)
++                    return;
++                if (hud && (view.GuestSlots & 0x0F) != 0 && NetSyncDiorama.Booted && !NetSyncDiorama.Active)
++                    return;                              // the diorama is still coming up: the line waits for its battle scene
++                _youNonce = view.Nonce;
++                _youSeq = view.Seq;
++                _youMask = view.GuestSlots & 0x0F;
++                _youShown = false;
++                String[] names = new String[4];
++                for (Int32 i = 0; i < view.Units.Count; i++)
++                {
++                    UnitView u = view.Units[i];
++                    if (u.IsPlayer && u.Index >= 0 && u.Index < 4)
++                        names[u.Index] = u.Name;
++                }
++                _youLine = GuardLineText(false, names, _youMask, -1);
++                BattleHUD bh = UIManager.Battle;
++                if (hud && _youMask != 0 && NetSyncDiorama.Active && bh != null)
++                {
++                    bh.SetBattleMessage(_youLine, GuardLinePriority);
++                    _youShown = true;
++                }
++                Log.Message("[NetSync] leader guard line (guest): \"" + _youLine + "\" -- the host's battle (nonce " + view.Nonce
++                            + ") offers 0x" + _youMask.ToString("X") + "; " + (_youShown ? "in the diorama's battle message window"
++                                : _youMask == 0 ? "a spectator: the log only" : hud ? "no booted diorama: the log only"
++                                : "the selftest loopback: the log only") + " (once per host battle)");
++            }
++            catch (Exception err)
++            {
++                _youNonce = view.Nonce;
++                _youSeq = view.Seq;
++                Log.Message("[NetSync] leader guard line (guest) failed (" + err.GetType().Name + ") -- the log only");
++            }
++        }
++
++        // THE LATE LINE (review s143 wire-2): a real guest whose diorama came up only AFTER the host's first command phase spent its line
++        // on the log (a menu, a dialog or a fade at the host's battle start -- a BUSY report releases the s114 hold --, a fresh connect
++        // mid-battle) shows it ONCE on the diorama's message window as soon as one is live. Int compares until then; never throws.
++        private static void GuestLineLate(Boolean hud)
++        {
++            if (!hud || _youShown || _youMask <= 0 || _youLine == null || !NetSyncDiorama.Active)
++                return;
++            BattleHUD bh = null;
++            try { bh = UIManager.Battle; } catch { }
++            if (bh == null)
++                return;                                  // no battle HUD yet: wait (never claims a line it did not hand over)
++            _youShown = true;                            // one try: a fault never retries per frame
++            try
++            {
++                bh.SetBattleMessage(_youLine, GuardLinePriority);
++                Log.Message("[NetSync] leader guard line (guest): \"" + _youLine + "\" shown late -- the diorama came up after the host's "
++                            + "command phase (nonce " + _youNonce + ")");
++            }
++            catch { }
++        }
++
++        // The guest's line forgotten (Reset: a config change, the selftest's falling edge; NetSyncClient.ResetGuestDedupForEpoch: a host
++        // EPOCH change, a relaunched host -- review s143 rwire-1: its nonces and seq start over; GuestLineStep forgets the same latch in
++        // place on an earlier seq, for a guest that reads no section 7). NOT when the host's battle view runs out (review s143 wire-3:
++        // GuestLineSameBattle tells the same battle resuming from a new one, and the key keeps its nonce beside its line between battles).
++        internal static void GuestLineForget()
++        {
++            _youNonce = -1;
++            _youSeq = -1;
++        }
++
+         // ============================================================================ BattleHUD hooks
+         // Both hooks are read from engine code paths every frame -- they must be CHEAP and can never
+         // throw. When the feature is off they are a couple of integer compares (zero footprint).
+@@ -549,7 +1165,9 @@ namespace Memoria.Netsync
+         // ATB is full at battle start may open locally for its first turn.)
+         public static Boolean IsGuestOwnedSlot(Int32 slot)
+         {
+-            if (!Enabled || GuestSlots == 0 || slot < 0 || slot >= 4 || (GuestSlots & (1 << slot)) == 0)
++            // [ff9mapkit netsync s143] the LEADER GUARD's mask (EffectiveGuestSlots), never the raw position mask -- read after the
++            // cheap gates, so vanilla (Enabled off) and a host without GuestSlots stay a couple of integer compares
++            if (!Enabled || GuestSlots == 0 || slot < 0 || slot >= 4 || (EffectiveGuestSlots & (1 << slot)) == 0)
+                 return false;
+             // [ff9mapkit netsync B4] stage 2 -- G2: "guest-owned" is a HOST concept (a slot a remote player commands in MY
+             // battle). Inside a diorama this machine is the guest and the battle is a picture of the host's, so no slot
+@@ -570,7 +1188,7 @@ namespace Memoria.Netsync
+         {
+             get
+             {
+-                if (!Enabled || GuestSlots == 0 || !_remoteMenuFlag ||
++                if (!Enabled || EffectiveGuestSlots == 0 || !_remoteMenuFlag ||   // [ff9mapkit netsync s143] a guarded-off guest freezes nothing
+                     (Environment.TickCount - _remoteMenuTick) >= MenuStaleMs)
+                     return false;
+                 if (GuestWaitMs > 0 && (Environment.TickCount - _menuOpenSince) > GuestWaitMs)
+@@ -594,7 +1212,7 @@ namespace Memoria.Netsync
+         // The Wait freeze with (capped) or without the GuestWaitMs cap -- NoteWaitCap compares the two. Pure reads; never throws.
+         private static Boolean WaitFreeze(Boolean capped)
+         {
+-            if (!Enabled || GuestSlots == 0 || !_remoteMenuFlag ||
++            if (!Enabled || EffectiveGuestSlots == 0 || !_remoteMenuFlag ||   // [ff9mapkit netsync s143] the leader guard's mask
+                 (Environment.TickCount - _remoteMenuTick) >= MenuStaleMs)
+                 return false;
+             if (!WaitParityOn)
+@@ -685,6 +1303,7 @@ namespace Memoria.Netsync
+             _assistSlot = -1;                      // [ff9mapkit netsync B4] stage 8: the digit panel serves nothing
+             _assistRoster = null;
+             ResetUi();
++            GuestLineForget();                     // [ff9mapkit netsync s143] the guest's battle line re-arms (a new host's nonces start over)
+         }
+ 
+         private static void ResetUi()
+@@ -739,6 +1358,7 @@ namespace Memoria.Netsync
+             _holdHeldMs = -1;
+             _holdLateMs = -1;
+             ActBattleStart();                      // [ff9mapkit netsync s133] the action id books and this battle's lane counters
++            GuardBattleEdge(true);                 // [ff9mapkit netsync s143] the leader guard latches this own battle's units afresh
+         }
+ 
+         // [ff9mapkit netsync R3 s114] NoteOwnBattleStart / NoteOwnBattleEnd (Reset reaches it there): the hold's per-battle state
+@@ -793,6 +1413,7 @@ namespace Memoria.Netsync
+                 ReleaseStartHold(HoldRelEnded, Environment.TickCount);
+             ClearStartHold();
+             _holdNonce = -1;
++            GuardBattleEdge(false);                // [ff9mapkit netsync s143] outside my own battle the guard's mask IS GuestSlots
+         }
+ 
+         // One read of the command phase per pump tick (both pumps). An EDGE returns true and the caller samples
+@@ -1006,13 +1627,14 @@ namespace Memoria.Netsync
+         {
+             try
+             {
+-                if (hud == null || GuestSlots == 0)
++                Int32 owned = EffectiveGuestSlots;   // [ff9mapkit netsync s143] G6 / G3 hold the leader guard's slots, not the raw positions
++                if (hud == null || owned == 0)
+                     return -1;
+                 FF9StateBattleSystem btlsys = FF9StateSystem.Battle.FF9Battle;
+                 if (btlsys == null || btlsys.btl_phase != FF9StateBattleSystem.PHASE_NORMAL)
+                     return -1;
+                 Int32 s = hud.CurrentPlayerIndex;
+-                return s >= 0 && s < 4 && (GuestSlots & (1 << s)) != 0 ? s : -1;
++                return s >= 0 && s < 4 && (owned & (1 << s)) != 0 ? s : -1;
+             }
+             catch
+             {
+@@ -1069,7 +1691,7 @@ namespace Memoria.Netsync
+         // runs whenever the host's window holds a slot the guest owns again. Never throws into the engine.
+         private static void HandBackGuestSlot()
+         {
+-            if (!HandbackOn || GuestSlots == 0)
++            if (!HandbackOn || EffectiveGuestSlots == 0)   // [ff9mapkit netsync s143] the leader guard's mask
+                 return;
+             try
+             {
+@@ -1314,6 +1936,7 @@ namespace Memoria.Netsync
+                         ActWireBattleStart(socket);   // [ff9mapkit netsync s133] the transport's drop baseline (`act.host.wire_dropped`)
+                     }
+                     Boolean phaseEdge = TrackCommandPhase();   // [ff9mapkit netsync B4] stage 1: an edge samples NOW
++                    GuardLineTick();                           // [ff9mapkit netsync s143] the battle-start line, at the first command phase
+                     Boolean endEdge = NetSyncEnd.TrackHostEnd();   // [ff9mapkit netsync B5] stage 4: so does an end-state change
+                     Boolean holdEdge = TrackHostHold();        // [ff9mapkit netsync B4] stage 11: so does a G6 hold change
+                     Boolean startEdge = StartHoldBit != _sampledHoldBit;   // [ff9mapkit netsync R3 s114]: so does header bit 4
+@@ -1328,7 +1951,7 @@ namespace Memoria.Netsync
+                     }
+                     // [ff9mapkit netsync B4] stage 1: the opening edge rebuilds the roster at once (retrying a few
+                     // ticks); otherwise the RosterMs cadence. BuildRoster ships nothing outside the command phase.
+-                    if (GuestSlots != 0 && (_rosterForceTries > 0 || now - _lastRosterTick > RosterMs))
++                    if (EffectiveGuestSlots != 0 && (_rosterForceTries > 0 || now - _lastRosterTick > RosterMs))   // [ff9mapkit netsync s143]
+                     {
+                         _lastRosterTick = now;
+                         Byte[] roster = BuildRoster();
+@@ -1433,6 +2056,7 @@ namespace Memoria.Netsync
+                     // [ff9mapkit netsync R3 s113] the control frame's byte 1 now carries the window's DEPTH (0 shut / 2 root / 3 below
+                     // the root -- GuestMenuByte; it reads the UI state the previous frame left, one frame behind at most).
+                     socket.SetLocalControl(GuestControl(_peerView));
++                    GuestLineTick(_peerView, true);        // [ff9mapkit netsync s143] "You: <whom the host's guard hands me>", once per host battle
+                     Byte[] command = GuestAssistTick(_peerView, _peerRoster);
+                     if (command != null)
+                         socket.SendCommand(command);
+@@ -1507,6 +2131,7 @@ namespace Memoria.Netsync
+                 _wasInBattle = true;
+ 
+                 Boolean phaseEdge = TrackCommandPhase();   // [ff9mapkit netsync B4] stage 1 (as Pump)
++                GuardLineTick();                           // [ff9mapkit netsync s143] (as Pump)
+                 Boolean endEdge = NetSyncEnd.TrackHostEnd();   // [ff9mapkit netsync B5] stage 4 (as Pump)
+                 Boolean holdEdge = TrackHostHold();        // [ff9mapkit netsync B4] stage 11 (as Pump)
+                 Boolean startEdge = StartHoldBit != _sampledHoldBit;   // [ff9mapkit netsync R3 s114] (as Pump)
+@@ -1520,7 +2145,7 @@ namespace Memoria.Netsync
+                     _loopBattle = SampleOwnBattle();       // the "wire": a byte[] round trip, no socket
+                 }
+                 NetSyncEnd.BenchCommandTick();             // [ff9mapkit netsync B5] stage 4: `endbench cmd`, drained below this tick
+-                if (GuestSlots != 0 && (_rosterForceTries > 0 || now - _lastRosterTick > RosterMs))
++                if (EffectiveGuestSlots != 0 && (_rosterForceTries > 0 || now - _lastRosterTick > RosterMs))   // [ff9mapkit netsync s143]
+                 {
+                     _lastRosterTick = now;
+                     _loopRoster = BuildRoster();
+@@ -1560,6 +2185,7 @@ namespace Memoria.Netsync
+                     NoteWaitCap();
+                     HandBackGuestSlot();
+                     StartHoldTick();
++                    GuestLineTick(_peerView, false);       // [ff9mapkit netsync s143] the loopback guest's line: the log and the key only
+                     // [ff9mapkit netsync B4] stage 8: the shared digit-panel decision -- an own battle is never a diorama, so the
+                     // stock menu never owns these slots and it serves the first ready slot, exactly as before
+                     Byte[] command = GuestAssistTick(_peerView, _peerRoster);
+@@ -1609,7 +2235,9 @@ namespace Memoria.Netsync
+                 UInt16 mapNo = 0;
+                 try { mapNo = (UInt16)FF9StateSystem.Common.FF9.btlMapNo; } catch { }
+                 bw.Write(mapNo);
+-                bw.Write((Byte)(GuestSlots & 0x0F));
++                // [ff9mapkit netsync s143] the header's offer is the LEADER GUARD's mask: the guest's every ownership decision reads this
++                // byte (its menus, the digit panel, the stock-menu mirror) and maps wire units by character, so it follows with no change
++                bw.Write((Byte)(EffectiveGuestSlots & 0x0F));
+                 // v8 -- THE DIORAMA BOOT BLOCK. Everything here is STABLE by the first sample:
+                 // InOwnBattle needs btl_list.next, which InitEnemyData links two statements before it
+                 // resolves StartType (SetupBattleEnemy, same synchronous call) -- the pump can never
+@@ -1815,9 +2443,10 @@ namespace Memoria.Netsync
+                     List<Int32> commands = new List<Int32>(16);
+                     List<Int32> abilities = new List<Int32>(192);
+                     List<Int32> items = new List<Int32>(128);
++                    Int32 owned = EffectiveGuestSlots;     // [ff9mapkit netsync s143] the menus of the leader guard's slots
+                     for (Int32 slot = 0; slot < 4; slot++)
+                     {
+-                        if ((GuestSlots & (1 << slot)) == 0)
++                        if ((owned & (1 << slot)) == 0)
+                             continue;
+                         BattleUnit unit = null;
+                         foreach (BattleUnit u in FF9StateSystem.Battle.FF9Battle.EnumerateBattleUnits())
+@@ -4606,7 +5235,7 @@ namespace Memoria.Netsync
+         private static void NoteRefusedReport()
+         {
+             _rptRefused = true;
+-            if (_rptRefusedCounted || GuestSlots == 0 || !_hostPhaseOpen)
++            if (_rptRefusedCounted || EffectiveGuestSlots == 0 || !_hostPhaseOpen)   // [ff9mapkit netsync s143] the leader guard's mask
+                 return;
+             _rptRefusedCounted = true;
+             _rptRefusedCount++;
+@@ -4661,7 +5290,7 @@ namespace Memoria.Netsync
+         // before (review s113-B1). Int compares once spent or while the lane is shut; never throws.
+         private static void NoteWaitCap()
+         {
+-            if ((_waitLogMask & WaitLogCap) != 0 || GuestWaitMs <= 0 || GuestSlots == 0 || !_remoteMenuFlag
++            if ((_waitLogMask & WaitLogCap) != 0 || GuestWaitMs <= 0 || EffectiveGuestSlots == 0 || !_remoteMenuFlag   // [ff9mapkit netsync s143]
+                 || (Environment.TickCount - _remoteMenuTick) >= MenuStaleMs)
+                 return;
+             try
+@@ -5628,6 +6257,302 @@ namespace Memoria.Netsync
+             ActHarnessRelease();                   // [ff9mapkit netsync s133] the action-start lever back on, the action tape emptied
+             NetSyncDiorama.ActBenchRelease();      // [ff9mapkit netsync s134] the action-replay levers back, the bench inbox emptied
+             NetSyncClient.HarnessReleaseDress("released with the harness");   // [ff9mapkit netsync s139] the selfdress levers (ghost, empty, rule, wire) off
++            // [ff9mapkit netsync s143] the leader-guard lever back on (the battle latch re-keys on the leader it takes, so it re-latches)
++            if (BenchLeaderGuardOff)
++                Log.Message("[NetSync] harness: leader guard back ON (released with the harness)");
++            BenchLeaderGuardOff = false;
++        }
++
++        // ============================================================================ harness surface (s143)
++        // [ff9mapkit netsync s143] -- the leader guard's harness keys (`netsync.battle.host.guard`, `netsync.battle.peer.guard`; the field
++        // half is NetSyncClient's `netsync.dress.guard`) and its `netsync bench leaderguard` op. Read-only getters, main thread, never
++        // throw. `leader` / `leader_model` are the latch (live: -1 / -1 none since the title, leader_model -3 the world map);
++        // `raw` / `effective` are read NOW (GuestSlots and the battle mask every host lane takes -- equal outside my own battle);
++        // `moved_from` / `moved_to` / `chars` / `nonce` are the LAST battle latch's (kept after its battle until the next one latches;
++        // -1 / [-1 x 4] = none yet); `off` the lever; `line` the host's battle-start line of this (or the last) own battle (null = none
++        // yet) and `line_shown` whether it was HANDED to the battle message window (GuardLinePriority: a higher-priority message can
++        // hold it unseen -- judge the on-screen `battle.message`). `peer.guard`: the guest's line -- `nonce` (the host battle it belongs
++        // to, kept between battles beside its line; -1 = none since a Reset or a host relaunch), `mask` (the header's mask it read), `line` (null = none)
++        // and `shown` (it was handed to a live diorama's message window, on time or late).
++        public static Int32 HarnessLeaderChar { get { return _leaderChar; } }
++        public static Int32 HarnessLeaderModel { get { return _leaderModel; } }
++        public static Int32 HarnessGuardRaw { get { return GuestSlots & 0x0F; } }
++        public static Int32 HarnessGuardEffective { get { return EffectiveGuestSlots; } }
++        public static Int32 HarnessGuardMovedFrom { get { return _guardFrom; } }
++        public static Int32 HarnessGuardMovedTo { get { return _guardTo; } }
++        public static Boolean HarnessGuardOff { get { return !LeaderGuardOn; } }
++        public static String HarnessGuardLine { get { return _guardLine; } }
++        public static Boolean HarnessGuardLineShown { get { return _guardLineShown; } }
++        public static Int32 HarnessGuardNonce { get { return _guardNonce; } }
++        public static Int32 HarnessYouNonce { get { return _youNonce; } }
++        public static Int32 HarnessYouMask { get { return _youMask; } }
++        public static String HarnessYouLine { get { return _youLine; } }
++        public static Boolean HarnessYouShown { get { return _youShown; } }
++
++        public static List<Int32> HarnessGuardChars()
++        {
++            return new List<Int32>(_guardChars);
++        }
++
++        // `netsync bench leaderguard on|off`: the stage's calibration lever (see BenchLeaderGuardOff -- battle and the field dress sites).
++        // Selftest role only.
++        public static Boolean HarnessBenchLeaderGuard(Boolean on, out String why)
++        {
++            why = null;
++            if (!NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync bench leaderguard: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            BenchLeaderGuardOff = !on;
++            Log.Message("[NetSync] harness: leader guard " + (on ? "ON"
++                        : "OFF -- CALIBRATION: the pre-s143 positional rule (a guest bit may name the host's leader, in battle and at the "
++                          + "field dress sites)"));
++            return true;
++        }
++
++        // ============================================================================ the leader guard's selftest (s143)
++        // [ff9mapkit netsync s143] "leader guard selftest: OK (N rows)" (the selftest proof block, NetSyncClient): THE RULE on the story's
++        // party rebuilds (Plant Brain, the forest exit, COOPPARTY, Pandemonium's Amdusias / Abadon / Shell Dragon, Ice Cavern's solo
++        // stretch -- as raw slots and as btl indices), leader absent / unknown, a non-Zidane leader, multi-bit, dropped, an empty or an
++        // unreadable owned index, bits above 3; THE LEADER MAP (the rig table, the census's playable-character variants, the moogle, a
++        // chocobo, no model); THE LATCH STEP (a body naming no character keeps the leader; the world map is Zidane's -- a world-map
++        // battle after a load); THE GUEST LINE's same-battle test and its step over SEQUENCES (a relaunched host latches its battle, a
++        // resuming one never re-latches); THE LINE's text; THE LEVER's rule; THE FIELD COMPOSITION through
++        // NetSyncClient.FieldGuardMaskCore (the guard, then the s139 host rule -- the moogle when nothing is left; a named mode and no
++        // leader untouched; the client's s138 rule untouched); and the four MUTANTS -- no guard, no wrap, onto an owned bit, no relaunch
++        // forget -- each required to fail its own row. Pure: nothing live is read.
++        internal delegate Int32 LeaderGuardRule(Int32[] slotChar, Int32 ownedMask, Int32 leaderChar, out Int32 movedFrom, out Int32 movedTo);
++
++        internal static Boolean LeaderGuardSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            try
++            {
++                Int32 n;
++                String t = LeaderGuardTable(LeaderGuard, out n);
++                rows += n;
++                if (t != null)
++                    fail = "rule: " + t;
++                // the mutants: each must fail, and at ITS row (a mutant caught elsewhere would mean the table lost its witness)
++                GuardMutantRow(LeaderGuardTable(MutantNoGuard, out n), "Plant Brain", "no guard", ref rows, ref fail);
++                GuardMutantRow(LeaderGuardTable(MutantNoWrap, out n), "Shell Dragon", "no wrap", ref rows, ref fail);
++                GuardMutantRow(LeaderGuardTable(MutantOntoOwned, out n), "multi-bit", "onto an owned bit", ref rows, ref fail);
++                // THE LEADER MAP: the rig table's rows, the census's Zidane variants, the moogle and nothing else
++                GuardRow(LeaderCharForModel(98) == 0 && LeaderCharForModel(8) == 1 && LeaderCharForModel(185) == 2
++                         && LeaderCharForModel(5489) == 3 && LeaderCharForModel(192) == 4 && LeaderCharForModel(273) == 5
++                         && LeaderCharForModel(443) == 6 && LeaderCharForModel(509) == 7,
++                         "leader: the 8 mains' bodies (98 8 185 5489 192 273 443 509) -> CharacterId 0-7", ref rows, ref fail);
++                GuardRow(LeaderCharForModel(107) == 8 && LeaderCharForModel(109) == 9 && LeaderCharForModel(5467) == 10
++                         && LeaderCharForModel(204) == 11,
++                         "leader: Cinna / Marcus / Blank / Beatrix's bodies (107 109 5467 204) -> CharacterId 8-11", ref rows, ref fail);
++                GuardRow(LeaderCharForModel(532) == 0 && LeaderCharForModel(203) == 0 && LeaderCharForModel(432) == 0
++                         && LeaderCharForModel(658) == 3 && LeaderCharForModel(202) == 2 && LeaderCharForModel(419) == 2,
++                         "leader: the census's playable-character variants (532 ZDD, 203 F1_ZDN, 432 F2_ZDN -> Zidane; 658 F1_STN -> "
++                         + "Steiner; 202 F3_GRN, 419 F5_GRN -> Garnet)", ref rows, ref fail);
++                GuardRow(LeaderCharForModel(220) == LeaderNone && LeaderCharForModel(668) == LeaderNone
++                         && LeaderCharForModel(306) == LeaderNone && LeaderCharForModel(615) == LeaderNone
++                         && LeaderCharForModel(0) == LeaderNone && LeaderCharForModel(-1) == LeaderNone
++                         && LeaderCharForModel(0x10000) == LeaderNone,
++                         "leader: the moogle (220), a body no player entry wears (668), an NPC body (306), a chocobo (615) and no model "
++                         + "-> none", ref rows, ref fail);
++                // THE LATCH STEP: a body naming no character keeps the leader; the world map is Zidane's (review s143 field-1, own-1)
++                GuardRow(NextLeader(LeaderNone, 98) == 0 && NextLeader(0, 615) == 0 && NextLeader(0, 306) == 0
++                         && NextLeader(0, 5489) == 3 && NextLeader(3, 658) == 3 && NextLeader(LeaderNone, 615) == LeaderNone,
++                         "latch: 98 -> Zidane; Chocobo Gold (615) and the gargant (306) keep him; 5489 -> Steiner; nothing seen + 615 -> none",
++                         ref rows, ref fail);
++                Int32 wFrom, wTo;
++                Int32 wEff = LeaderGuard(new Int32[] { 2, 0, 1, 3 }, 0x2, NextLeader(LeaderNone, WorldWalkerModel(1)), out wFrom, out wTo);
++                GuardRow(WorldWalkerModel(0) == 0 && WorldWalkerModel(1) == WorldLeaderModel && WorldWalkerModel(3) == WorldLeaderModel
++                         && WorldWalkerModel(10) == WorldLeaderModel && NextLeader(LeaderNone, WorldWalkerModel(2)) == 2
++                         && NextLeader(3, WorldWalkerModel(1)) == 0 && wEff == 0x4 && wFrom == 1 && wTo == 2,
++                         "latch: the world map's walker -- Zidane on foot, a chocobo or a ship is Zidane's party, status 2 Dagger; a "
++                         + "world-map battle after a load (no field seen) over [Garnet, Zidane, Vivi, Steiner] with GuestSlots 2 -> Vivi (0x4)",
++                         ref rows, ref fail);
++                // THE GUEST LINE's same-battle test (review s143 wire-3)
++                GuardRow(GuestLineSameBattle(5, 900, 5, 800) && GuestLineSameBattle(5, 800, 5, 800) && !GuestLineSameBattle(5, 700, 5, 800)
++                         && !GuestLineSameBattle(6, 900, 5, 800) && !GuestLineSameBattle(5, 900, -1, -1)
++                         && GuestLineSameBattle(5, 3, 5, 65530),
++                         "guest line: the same host battle -- a later seq on its nonce, never an earlier one (a restarted host), another "
++                         + "nonce or none latched; the seq's UInt16 wrap", ref rows, ref fail);
++                // THE GUEST LINE over SEQUENCES (review s143 rwire-1): the step, view by view -- a relaunched host must latch its battle
++                // at its first Ready; a stalled host resuming its battle never re-latches; the mutant without the earlier-seq forget
++                // must fail at the relaunch
++                String seqBad = GuestLineSequences(GuestLineStep);
++                GuardRow(seqBad == null, seqBad ?? "guest line sequences", ref rows, ref fail);
++                GuardMutantRow(GuestLineSequences(MutantGuestLineNoForget), "relaunch", "no relaunch forget", ref rows, ref fail);
++                // THE LINE's text
++                String[] pb = { "Blank", "Zidane", "Vivi", "Steiner" };
++                String[] cp = { "Zidane", "Vivi", "Garnet", "Steiner" };
++                GuardRow(GuardLineText(true, pb, 0x4, 1) == "Partner: Vivi (not Zidane)"
++                         && GuardLineText(true, cp, 0x2, -1) == "Partner: Vivi"
++                         && GuardLineText(true, cp, 0x6, 0) == "Partner: Vivi, Garnet (not Zidane)"
++                         && GuardLineText(true, new String[] { "Zidane", null, null, null }, 0x0, 0) == "Partner: watching (not Zidane)"
++                         && GuardLineText(true, new String[] { "Zidane", "Vivi", null, null }, 0x4, -1) == "Partner: watching",
++                         "line: the host's -- moved, unmoved, multi-bit, dropped, an empty index", ref rows, ref fail);
++                GuardRow(GuardLineText(false, pb, 0x4, 1) == "You: Vivi" && GuardLineText(false, pb, 0x0, -1) == "You: watching"
++                         && GuardLineText(false, null, 0x2, -1) == "You: watching",
++                         "line: the guest's -- whom the header offers, never what moved", ref rows, ref fail);
++                // THE LEVER's rule: off only when pulled AND on the selftest role
++                GuardRow(LeaderGuardOnRule(false, false) && LeaderGuardOnRule(false, true) && LeaderGuardOnRule(true, false)
++                         && !LeaderGuardOnRule(true, true),
++                         "lever: `bench leaderguard off` unguards the selftest role only (a host never)", ref rows, ref fail);
++                // THE FIELD COMPOSITION, through the dress sites' own core (NetSyncClient.FieldGuardMaskCore -- review s143 field-5): the
++                // guard over the RAW slots, then the s139 host rule; a named mode and no leader leave the mask; the client's s138 rule is
++                // the raw mask's
++                Int32[] f257 = { 10, 0, 1, 3 };
++                Int32 rig, from, to;
++                UInt16 vivi = NetSyncVisitor.ResolveAuto(NetSyncClient.FieldGuardMaskCore("auto", 0x2, f257, 0, out from, out to), true, f257,
++                                                         out rig);
++                GuardRow(vivi == 8 && rig == 1 && from == 1 && to == 2,
++                         "field: field 257's [Blank, Zidane, Vivi, Steiner] with GuestSlots 2 dresses the ghost as Vivi (8), not Zidane",
++                         ref rows, ref fail);
++                Int32[] solo = { 0, -1, -1, -1 };
++                UInt16 mog = NetSyncVisitor.ResolveAuto(NetSyncClient.FieldGuardMaskCore("auto", 0x1, solo, 0, out from, out to), true, solo,
++                                                        out rig);
++                GuardRow(mog == 220 && rig == 8 && from == 0 && to == -1,
++                         "field: a solo Zidane with GuestSlots 1 drops the bit -- the guest spectates, the moogle (owner D2)", ref rows, ref fail);
++                Int32 named = NetSyncClient.FieldGuardMaskCore("vivi", 0x2, f257, 0, out from, out to);
++                Int32 nFrom = from, nTo = to;
++                Int32 none = NetSyncClient.FieldGuardMaskCore("auto", 0x2, f257, LeaderNone, out from, out to);
++                GuardRow(named == 0x2 && nFrom == -1 && nTo == -1 && none == 0x2 && from == -1 && to == -1,
++                         "field: a named mode (vivi) reads no mask, and no leader (the lever; none since the title) keeps the positions -- "
++                         + "both untouched", ref rows, ref fail);
++                UInt16 s138 = NetSyncVisitor.ResolveDressS138("auto", 0x2, f257, out rig);
++                GuardRow(s138 == 98 && rig == 0,
++                         "field: a client's s138 rule is untouched -- the raw first named slot (Zidane, 98)", ref rows, ref fail);
++            }
++            catch (Exception err)
++            {
++                fail = "threw " + err.GetType().Name + ": " + err.Message;
++            }
++            detail = fail == null ? rows + " rows" : fail;
++            return fail == null;
++        }
++
++        private static void GuardRow(Boolean ok, String what, ref Int32 rows, ref String fail)
++        {
++            rows++;
++            if (!ok && fail == null)
++                fail = what;
++        }
++
++        private static void GuardMutantRow(String failedAt, String wantRow, String mutant, ref Int32 rows, ref String fail)
++        {
++            rows++;
++            if (fail != null)
++                return;
++            if (failedAt == null)
++                fail = "mutant `" + mutant + "` passed every row -- the table cannot catch it";
++            else if (!failedAt.StartsWith(wantRow))
++                fail = "mutant `" + mutant + "` failed at \"" + failedAt + "\", not at its own row (" + wantRow + ")";
++        }
++
++        // THE RULE's table: null when every row holds, else the first failing row's name. `rows` = the rows checked.
++        // Each row: (CharacterId per index, GuestSlots, the leader) -> (the mask, moved_from, moved_to). Ids: 0 Zidane, 1 Vivi,
++        // 2 Garnet, 3 Steiner, 4 Freya, 5 Quina, 7 Amarant, 8 Cinna, 9 Marcus, 10 Blank; -1 empty, -2 unreadable.
++        private static String LeaderGuardTable(LeaderGuardRule rule, out Int32 rows)
++        {
++            Int32 n = 0;
++            String bad = LeaderGuardRows(rule, ref n);
++            rows = n;
++            return bad;
++        }
++
++        private static String LeaderGuardRows(LeaderGuardRule rule, ref Int32 n)
++        {
++            if (!GuardIs(rule, new Int32[] { 10, 0, 1, 3 }, 0x2, 0, 0x4, 1, 2, ref n)) return "Plant Brain: [Blank, Zidane, Vivi, Steiner] 0x2 -> Vivi (1 -> 2)";
++            if (!GuardIs(rule, new Int32[] { 2, 0, 1, 3 }, 0x2, 0, 0x4, 1, 2, ref n)) return "the forest exit: [Garnet, Zidane, Vivi, Steiner] 0x2 -> Vivi (1 -> 2)";
++            if (!GuardIs(rule, new Int32[] { 0, 1, 2, 3 }, 0x2, 0, 0x2, -1, -1, ref n)) return "COOPPARTY: [Zidane, Vivi, Garnet, Steiner] 0x2 -> Vivi, unmoved";
++            if (!GuardIs(rule, new Int32[] { 2, 0, -1, -1 }, 0x2, 0, 0x1, 1, 0, ref n)) return "Shell Dragon: [Garnet, Zidane] 0x2 -> Garnet (1 -> 0, the wrap)";
++            if (!GuardIs(rule, new Int32[] { 7, 4, 0, -1 }, 0x2, 0, 0x2, -1, -1, ref n)) return "Amdusias: [Amarant, Freya, Zidane] 0x2 -> Freya, unmoved";
++            if (!GuardIs(rule, new Int32[] { 7, 4, 0, -1 }, 0x4, 0, 0x1, 2, 0, ref n)) return "Amdusias: [Amarant, Freya, Zidane] 0x4 -> Amarant (2 -> 0, the wrap)";
++            if (!GuardIs(rule, new Int32[] { 0, 3, 5, -1 }, 0x2, 0, 0x2, -1, -1, ref n)) return "Abadon: [Zidane, Steiner, Quina] 0x2 -> Steiner, unmoved";
++            if (!GuardIs(rule, new Int32[] { 0, 3, 5, -1 }, 0x1, 0, 0x2, 0, 1, ref n)) return "Abadon: [Zidane, Steiner, Quina] 0x1 -> Steiner (0 -> 1)";
++            if (!GuardIs(rule, new Int32[] { 0, 1, 2, 3 }, 0x3, 0, 0x6, 0, 2, ref n)) return "multi-bit: [Zidane, Vivi, Garnet, Steiner] 0x3 -> Vivi + Garnet (0 -> 2, past the owned 1)";
++            if (!GuardIs(rule, new Int32[] { 0, 1, 2, 3 }, 0xF, 0, 0xE, 0, -1, ref n)) return "all owned: [Zidane, Vivi, Garnet, Steiner] 0xF -> 0xE (the leader's bit drops)";
++            if (!GuardIs(rule, new Int32[] { 0, 1, -1, -1 }, 0x3, 0, 0x2, 0, -1, ref n)) return "two owned: [Zidane, Vivi] 0x3 -> Vivi (the leader's bit drops)";
++            if (!GuardIs(rule, new Int32[] { 0, -1, -1, -1 }, 0x1, 0, 0x0, 0, -1, ref n)) return "solo: [Zidane] 0x1 -> 0 (the guest spectates)";
++            if (!GuardIs(rule, new Int32[] { -1, 0, -1, -1 }, 0x2, 0, 0x0, 1, -1, ref n)) return "Ice Cavern raw slots: [-, Zidane] 0x2 -> 0 (the guest spectates)";
++            if (!GuardIs(rule, new Int32[] { 0, -1, -1, -1 }, 0x2, 0, 0x2, -1, -1, ref n)) return "Ice Cavern btl indices: [Zidane] 0x2 -> 0x2 (an owned EMPTY index stays)";
++            if (!GuardIs(rule, new Int32[] { 0, 1, -1, -1 }, 0x4, 0, 0x4, -1, -1, ref n)) return "empty: [Zidane, Vivi] 0x4 -> 0x4 (an owned EMPTY index stays)";
++            if (!GuardIs(rule, new Int32[] { -2, 0, 1, -1 }, 0x1, 0, 0x1, -1, -1, ref n)) return "unreadable: [?, Zidane, Vivi] 0x1 -> 0x1 (an UNREADABLE index stays)";
++            if (!GuardIs(rule, new Int32[] { -2, 0, 1, -1 }, 0x2, 0, 0x4, 1, 2, ref n)) return "unreadable: [?, Zidane, Vivi] 0x2 -> Vivi (1 -> 2)";
++            if (!GuardIs(rule, new Int32[] { -2, 0, -1, -1 }, 0x2, 0, 0x0, 1, -1, ref n)) return "unreadable target: [?, Zidane] 0x2 -> 0 (an UNREADABLE slot is never a target)";
++            if (!GuardIs(rule, new Int32[] { 10, 9, 8, -1 }, 0x2, 0, 0x2, -1, -1, ref n)) return "leader absent: [Blank, Marcus, Cinna] 0x2 -> Marcus, unmoved";
++            if (!GuardIs(rule, new Int32[] { 10, 0, 1, 3 }, 0x2, -1, 0x2, -1, -1, ref n)) return "no leader known: [Blank, Zidane, Vivi, Steiner] 0x2 -> Zidane (the positional rule)";
++            if (!GuardIs(rule, new Int32[] { 0, 1, 2, -1 }, 0x2, 1, 0x4, 1, 2, ref n)) return "a Vivi leader: [Zidane, Vivi, Garnet] 0x2 -> Garnet (1 -> 2)";
++            if (!GuardIs(rule, new Int32[] { 10, 0, 1, 3 }, 0x8, 3, 0x1, 3, 0, ref n)) return "a Steiner leader: [Blank, Zidane, Vivi, Steiner] 0x8 -> Blank (3 -> 0, the wrap)";
++            if (!GuardIs(rule, new Int32[] { 0, 1, 2, 3 }, 0x12, 0, 0x2, -1, -1, ref n)) return "bits above 3: [Zidane, Vivi, Garnet, Steiner] 0x12 -> 0x2";
++            if (!GuardIs(rule, new Int32[] { 0, 1, 2, 3 }, 0x0, 0, 0x0, -1, -1, ref n)) return "no guest bits: 0x0 -> 0x0";
++            if (!GuardIs(rule, null, 0x2, 0, 0x2, -1, -1, ref n)) return "no party read: 0x2 -> 0x2 (the positions as they are)";
++            return null;
++        }
++
++        private static Boolean GuardIs(LeaderGuardRule rule, Int32[] chars, Int32 raw, Int32 leader, Int32 wantEff, Int32 wantFrom,
++                                       Int32 wantTo, ref Int32 n)
++        {
++            n++;
++            Int32 from, to;
++            Int32 eff = rule(chars, raw, leader, out from, out to);
++            return eff == wantEff && from == wantFrom && to == wantTo;
++        }
++
++        // THE GUEST LINE's sequences (LeaderGuardSelfTest; [ff9mapkit netsync s143] review s143 rwire-1): null when all hold, else the
++        // first failing one's name. Each latches as GuestLineTick does (a GuestLineNew view becomes the latch).
++        private static String GuestLineSequences(GuestLineStepRule step)
++        {
++            // relaunch: the old run latched (1, 150); the new run's battle 1 climbs from seq 0, its first command phase at seq 180
++            Int32 yn = 1, ys = 150, at = -1;
++            for (Int32 s = 0; s <= 200 && at < 0; s++)
++                if (step(1, s, s >= 180, ref yn, ref ys) == GuestLineNew)
++                {
++                    at = s;
++                    yn = 1;
++                    ys = s;
++                }
++            if (at != 180 || yn != 1 || ys != 180)
++                return "relaunch: the old run latched (1, 150); the new run's battle 1 (seq 0..179 not Ready, 180 Ready) latches at 180";
++            // resume: latched (3, 800); the host stalls and resumes its battle (seq 801..1100, Ready throughout) -- never new
++            yn = 3;
++            ys = 800;
++            for (Int32 s = 801; s <= 1100; s++)
++                if (step(3, s, true, ref yn, ref ys) != GuestLineSame || yn != 3 || ys != 800)
++                    return "resume: latched (3, 800); its own battle resuming (seq 801..1100, Ready) is the same battle";
++            // next: latched (3, 800); the next battle (nonce 4) waits for its first Ready (seq 1210), then latches
++            Int32 first = -1;
++            for (Int32 s = 1200; s <= 1215 && first < 0; s++)
++                if (step(4, s, s >= 1210, ref yn, ref ys) == GuestLineNew)
++                    first = s;
++            if (first != 1210 || yn != 3 || ys != 800)
++                return "next: latched (3, 800); the next battle (nonce 4) is new at its first Ready (seq 1210), the latch untouched until then";
++            return null;
++        }
++
++        private static Int32 MutantGuestLineNoForget(Int32 nonce, Int32 seq, Boolean ready, ref Int32 youNonce, ref Int32 youSeq)
++        {
++            if (GuestLineSameBattle(nonce, seq, youNonce, youSeq))
++                return GuestLineSame;
++            return ready ? GuestLineNew : GuestLineWait;
++        }
++
++        // the mutants (LeaderGuardSelfTest requires each to fail its own row)
++        private static Int32 MutantNoGuard(Int32[] slotChar, Int32 ownedMask, Int32 leaderChar, out Int32 movedFrom, out Int32 movedTo)
++        {
++            movedFrom = -1;
++            movedTo = -1;
++            return ownedMask & 0x0F;
++        }
++
++        private static Int32 MutantNoWrap(Int32[] slotChar, Int32 ownedMask, Int32 leaderChar, out Int32 movedFrom, out Int32 movedTo)
++        {
++            return LeaderGuardCore(slotChar, ownedMask, leaderChar, false, true, out movedFrom, out movedTo);
++        }
++
++        private static Int32 MutantOntoOwned(Int32[] slotChar, Int32 ownedMask, Int32 leaderChar, out Int32 movedFrom, out Int32 movedTo)
++        {
++            return LeaderGuardCore(slotChar, ownedMask, leaderChar, true, false, out movedFrom, out movedTo);
+         }
+ 
+         // ============================================================================ harness surface (R3 s111)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 715444f..e84253c 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -16,6 +16,14 @@ namespace Memoria.Netsync
+     //   GuestSlots  = 0                     EXPERIMENTAL battle co-op (B1): bitmask of MY battle party
+     //                                       slots 0-3 the PEER commands (2 = the second slot). 0 = the
+     //                                       peer just spectates my battles (B0). See NetSyncBattle.
++    //                                       [ff9mapkit netsync s143] OWNER: positions still, but never MY LEADER (the
++    //                                       character my controlled field body is): a bit landing on it moves to the
++    //                                       next member (wrapping), else drops -- in MY OWN battles (every ownership
++    //                                       lane and the header my guest reads) and, on a HOST, for its ghost's dress
++    //                                       and section 8. A CLIENT's ghost of its host keeps the s138 rule over its
++    //                                       own GuestSlots, unguarded -- so where a client's own leader sits in its
++    //                                       bit, its battles hand the host the next member while that ghost wears
++    //                                       the client's leader (cosmetic; the s138 rule stays byte for byte).
+     //   GhostAs     =                       VISITOR MODE: dress the PEER's ghost on MY screen -- "auto"
+     //                                       = as the party member of my first GuestSlots bit; or a
+     //                                       playable name (vivi, dagger, ...); empty = their own model.
+@@ -1342,6 +1350,21 @@ namespace Memoria.Netsync
+             Boolean onField = fld > 0 && ee != null && ee.gMode == 1 && ee.fieldmap != null;
+             Boolean inScope = onField && (_targetField <= 0 || fld == _targetField);
+             _tapFieldMode = ee != null && ee.gMode == 1;   // [ff9mapkit netsync F3.2] S3: the host tap's gMode gate, readable off-thread
++            // [ff9mapkit netsync s143] the leader guard's leader (none of these throws): the TITLE forgets it (every load passes the title:
++            // a stale field leader never crosses a save), a FIELD latches my own controlled body, the WORLD MAP its walker (a world save
++            // loads straight there, no field seen -- Zidane's party, or Dagger's status 2); a battle holds whatever was latched
++            Boolean atTitle = false;
++            try { atTitle = String.Equals(PersistenSingleton<SceneDirector>.Instance.CurrentScene, "Title"); } catch { }
++            if (atTitle)
++                NetSyncBattle.ForgetLeader();
++            else if (onField)
++                NetSyncBattle.NoteFieldLeader(ee);
++            else if (ee != null && ee.gMode == 3)
++            {
++                Int32 walker = 0;
++                try { walker = WMUIData.StatusNo; } catch { }
++                NetSyncBattle.NoteWorldLeader(walker);
++            }
+ 
+             try
+             {
+@@ -1484,6 +1507,10 @@ namespace Memoria.Netsync
+                         Boolean polishOk = NetSyncSelfDress.PolishSelfTest(out polishDetail);
+                         Log.Message("[NetSync] dress polish selftest: "
+                                     + (polishOk ? "OK (" + polishDetail + ")" : "FAIL (" + polishDetail + ")"));
++                        String guardDetail;              // [ff9mapkit netsync s143] the leader guard: the rule, the leader map, the line, the lever, the field composition, the guest line's sequences, four mutants
++                        Boolean guardOk = NetSyncBattle.LeaderGuardSelfTest(out guardDetail);
++                        Log.Message("[NetSync] leader guard selftest: "
++                                    + (guardOk ? "OK (" + guardDetail + ")" : "FAIL (" + guardDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+@@ -1517,8 +1544,13 @@ namespace Memoria.Netsync
+                         if (stOldRule)
+                             stDress = NetSyncVisitor.ResolveDressS138(stMode, stMask, ReadSlotChars(), out stRig);
+                         else
+-                            stDress = NetSyncVisitor.GhostGuard(NetSyncVisitor.ResolveDressRule(stMode, stMask,
+-                                          NetSyncVisitor.MoogleWhenEmpty(_role, IsSelfTestRole), ReadSlotChars(), out stRig), stWire);
++                        {
++                            // [ff9mapkit netsync s143] the leader guard over the RAW party slots first (FieldGuardMask, `auto` only), then the
++                            // s139 host rule on the guarded mask -- one party read for both
++                            Int32[] stChars = ReadSlotChars();
++                            stDress = NetSyncVisitor.GhostGuard(NetSyncVisitor.ResolveDressRule(stMode, FieldGuardMask(stMode, stMask, stChars),
++                                          NetSyncVisitor.MoogleWhenEmpty(_role, IsSelfTestRole), stChars, out stRig), stWire);
++                        }
+                     }
+                     if (stDress == 0)
+                         stRig = -1;
+@@ -3903,6 +3935,7 @@ namespace Memoria.Netsync
+             _talkDeferNonce = -1;            // a deferred start of the old host is gone with it
+             _talkSceneTalk = -1;             // ...and the scene record keyed on its (restarting) talk nonce
+             _talkSceneNonce = -1;
++            NetSyncBattle.GuestLineForget(); // [ff9mapkit netsync s143] ...and the guest's battle line latch (its battle nonce and seq restart)
+             Log.Message("[NetSync] host epoch changed -- talk/intent/event/diorama dedup reset (the host's first new start is not 'already seen')");
+         }
+ 
+@@ -5122,7 +5155,8 @@ namespace Memoria.Netsync
+         // producer, the selftest `selfdress` bench and its proof. HOST-SIDE ONLY: a client's ghost keeps the s138 rule and a client
+         // produces no section 8 (it publishes the keys); vanilla and a solo game (Enabled = 0) never reach any of it.
+ 
+-        // THE HOST'S DRESS: what its guest should wear (no guard -- section 8 carries the dress itself; the ghost guards it). The moogle
++        // THE HOST'S DRESS: what its guest should wear (no GhostGuard -- section 8 carries the dress itself; the ghost site applies
++        // GhostGuard -- but [ff9mapkit netsync s143] the LEADER guard applies to the mask under `auto`, FieldGuardMask). The moogle
+         // predicate is read at call time from the live role. The mode is checked FIRST and the party read only for `auto` (the named
+         // path never reads it): with dressing off this costs nothing per frame, and section 8 still ships 00 00 FF.
+         private static UInt16 HostDress(out Int32 rigIdx)
+@@ -5133,10 +5167,80 @@ namespace Memoria.Netsync
+             String mode = NetSyncVisitor.DressMode(NetSyncVisitor.GhostAs);
+             if (NetSyncVisitor.DressModeOff(mode))
+                 return 0;
+-            return NetSyncVisitor.ResolveDressRule(mode, _guestSlots, NetSyncVisitor.MoogleWhenEmpty(_role, IsSelfTestRole),
+-                                                   mode == "auto" ? ReadSlotChars() : null, out rigIdx);
++            // [ff9mapkit netsync s143] `auto`: the leader guard over the RAW party slots first (FieldGuardMask), then the s139 rule on the
++            // guarded mask -- the ghost and section 8 name whom the guest commands, never the character I walk as
++            Int32[] chars = mode == "auto" ? ReadSlotChars() : null;
++            return NetSyncVisitor.ResolveDressRule(mode, FieldGuardMask(mode, _guestSlots, chars),
++                                                   NetSyncVisitor.MoogleWhenEmpty(_role, IsSelfTestRole), chars, out rigIdx);
++        }
++
++        // [ff9mapkit netsync s143] THE FIELD MASK: the leader guard (NetSyncBattle.LeaderGuard, the battle's rule) over the RAW party slots
++        // at the host's dress sites (HostDress -- the ghost and section 8 -- and the selftest mirror), for `auto` only (a name never reads
++        // a mask), AFTER the rule's own empty-slot skip in effect (an owned EMPTY slot stays owned, so ResolveAuto still skips it) and
++        // BEFORE its moogle rule (a dropped bit leaves the mask 0 -- a spectating guest, the moogle, owner D2, as before). The leader is
++        // the battle lane's field latch (NetSyncBattle.LeaderForGuard: none under the selftest lever -- the positional rule). The last
++        // resolution is `netsync.dress.guard`; a change of what it moved logs one line. Pure but for that record; never throws.
++        private static Int32 _dressGuardLeader = NetSyncBattle.LeaderNone;   // `netsync.dress.guard`: the last `auto` resolution's leader,
++        private static Int32 _dressGuardRaw = -1;                            // ...its mask in (-1 = none yet), out,
++        private static Int32 _dressGuardEff = -1;
++        private static Int32 _dressGuardFrom = -1;                           // ...and the raw slot it moved (-1 = none) and to (-1 = none)
++        private static Int32 _dressGuardTo = -1;
++        private static String _dressGuardLast;                               // the last logged resolution (one line per change)
++
++        // THE FIELD MASK's core (pure; NetSyncBattle.LeaderGuardSelfTest pins it -- review s143 field-5): a mode that is not `auto`
++        // reads no mask (untouched, nothing moved); `auto` the leader guard over the RAW party slots with `leader`.
++        internal static Int32 FieldGuardMaskCore(String mode, Int32 mask, Int32[] slotChar, Int32 leader, out Int32 movedFrom,
++                                                 out Int32 movedTo)
++        {
++            movedFrom = -1;
++            movedTo = -1;
++            if (NetSyncVisitor.DressMode(mode) != "auto")
++                return mask;
++            return NetSyncBattle.LeaderGuard(slotChar, mask, leader, out movedFrom, out movedTo);
+         }
+ 
++        private static Int32 FieldGuardMask(String mode, Int32 mask, Int32[] slotChar)
++        {
++            if (NetSyncVisitor.DressMode(mode) != "auto")
++                return mask;
++            try
++            {
++                Int32 leader = NetSyncBattle.LeaderForGuard;
++                Int32 from, to;
++                Int32 eff = FieldGuardMaskCore(mode, mask, slotChar, leader, out from, out to);
++                _dressGuardLeader = leader;
++                _dressGuardRaw = mask & 0x0F;
++                _dressGuardEff = eff;
++                _dressGuardFrom = from;
++                _dressGuardTo = to;
++                if (from >= 0)
++                {
++                    String what = "GuestSlots 0x" + (mask & 0x0F).ToString("X") + " -> 0x" + eff.ToString("X") + " (party slot " + from
++                                  + " is the leader " + NetSyncBattle.GuardCharName(leader) + (to >= 0 ? "; the ghost dresses as party slot "
++                                  + to + "'s member" : "; no other member is free: the guest spectates") + ")";
++                    if (what != _dressGuardLast)
++                    {
++                        _dressGuardLast = what;
++                        Log.Message("[NetSync] leader guard (field dress): " + what);
++                    }
++                }
++                else
++                    _dressGuardLast = null;
++                return eff;
++            }
++            catch
++            {
++                return mask;
++            }
++        }
++
++        // `netsync.dress.guard` (HarnessAgent.AppendDress): the last `auto` resolution at a host dress site (sentinels until one ran).
++        public static Int32 HarnessDressGuardLeader { get { return _dressGuardLeader; } }
++        public static Int32 HarnessDressGuardRaw { get { return _dressGuardRaw; } }
++        public static Int32 HarnessDressGuardEffective { get { return _dressGuardEff; } }
++        public static Int32 HarnessDressGuardMovedFrom { get { return _dressGuardFrom; } }
++        public static Int32 HarnessDressGuardMovedTo { get { return _dressGuardTo; } }
++
+         // SECTION 8's body, built by this ONE method for BuildStateFrame and the codec proof: [model u16 LE][charId u8]. Never empty and
+         // never throws (a fault reads "no dress", 00 00 FF).
+         internal static Byte[] HostDressSection()
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
+index 7a62c48..70dde75 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncVisitor.cs
+@@ -349,6 +349,11 @@ namespace Memoria.Netsync
+             return slotChar != null && slot >= 0 && slot < slotChar.Length ? slotChar[slot] : SlotUnreadable;
+         }
+ 
++        // [ff9mapkit netsync s143] THE LEADER GUARD on the party path: at the HOST's dress sites (NetSyncClient.HostDress -- the ghost and
++        // section 8 -- and the selftest mirror) `mask` arrives already guarded (NetSyncClient.FieldGuardMask = NetSyncBattle.LeaderGuard
++        // over the same RAW slots): a named slot holding the host's leader has moved to the next free member, an owned EMPTY slot is
++        // still named (this rule's skip below is unchanged) and a dropped bit leaves mask 0 (the moogle rule, owner D2, unchanged). This
++        // rule itself, its table and the client's s138 rule are byte for byte s140's.
+         public static UInt16 ResolveAuto(Int32 mask, Boolean moogleWhenEmpty, Int32[] slotChar, out Int32 rigIdx)
+         {
+             return ResolveAutoCore(mask, moogleWhenEmpty, slotChar, CharToRigMap, out rigIdx);   // [ff9mapkit netsync s140] was the MainRigCount cap
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSelfDress.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSelfDress.cs
+index adcec02..7d48eff 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncSelfDress.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSelfDress.cs
+@@ -28,6 +28,8 @@ namespace Memoria.Netsync
+     //                          encoded through the REAL section-8 encoder (DressSectionBody + NetSyncState.AppendSection) and
+     //                          read back through ArmFromState's real reader; `auto` resolves with the s139 host rule's
+     //                          ResolveAuto on the real party, moogleWhenEmpty from the live role. No spec = no section 8.
++    //                          [ff9mapkit netsync s143] UNGUARDED: `self auto` is the PRE-s143 host rule (no leader guard,
++    //                          which an s143 host's section 8 passes first) -- a bench mask must not name the leader.
+     //   Armed => _arm && Knob  Knob = [Netsync] SelfDress (default 1), a BEHAVIOUR key LoadConfigIfChanged hashes into bsig and
+     //                          writes here, read LIVE. The knob and the exclusion are NOT arm states (amendment 6).
+     //   Clear()                at the exit ramp's FIRE (before ExitMirrorToOwnSave), OnDestroy and ApplyConfigChange.
+@@ -606,6 +608,8 @@ namespace Memoria.Netsync
+         // The selftest role, every field load: the bench spec through the real encoder and reader. `auto` = the s139 host rule's
+         // ResolveAuto on the real party (the `selfdress empty` lever applied by the caller's read), moogleWhenEmpty from the live
+         // role; the mask is `self auto <mask>`'s, else the live GuestSlots (the selftest pin 0: a spectator, the moogle).
++        // [ff9mapkit netsync s143] the PRE-s143 (unguarded) host rule: no leader guard (an s143 host's section 8 is guarded --
++        // NetSyncClient.FieldGuardMask), so a `self auto` mask that names the leader models an s141 host -- a bench must not send one.
+         internal static void ArmBench(Int32 guestSlots, Boolean moogleWhenEmpty, Func<Int32[]> readSlotChars)
+         {
+             try
+@@ -623,7 +627,8 @@ namespace Memoria.Netsync
+ 
+         // The bench spec's section-8 FRAME through the REAL encoders (DressSectionBody + NetSyncState.AppendSection; pure but for
+         // `auto`'s party read): no spec -> null (no section 8, "section absent", as an s137 host); "off" -> 00 00 FF ("model 0");
+-        // "auto" -> ResolveAuto(the mask, else `guestSlots`; moogleWhenEmpty; the party); a name -> ResolveNamed over the whole table.
++        // "auto" -> ResolveAuto(the mask, else `guestSlots`; moogleWhenEmpty; the party) -- [ff9mapkit netsync s143] UNGUARDED (the
++        // pre-s143 host rule; see ArmBench); a name -> ResolveNamed over the whole table.
+         internal static Byte[] BenchFrame(String spec, Int32 autoMask, Int32 guestSlots, Boolean moogleWhenEmpty, Func<Int32[]> readSlotChars)
+         {
+             if (spec == null)
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 3a48e12..16b349a 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -282,6 +282,13 @@ namespace Memoria.Harness
+         // driver checks for `netsync.dress.self.steps` -- absent = an engine whose dressed body walks with Zidane's footstep keys, takes
+         // the default mapconfig row and holds props on Zidane's bone index (an s140 engine answers `selfdress polish` with "unknown op
+         // ... (ghost|empty|rule|wire|clear|self|gate|law)").
++        // [ff9mapkit netsync s143] (the leader guard: the guest never commands the host's leader; owner decision 2026-10-19), also
++        // additive under 5: `netsync.battle.host` gains `guard` as its last key (see AppendHostGuard), `netsync.battle.peer` gains `guard`
++        // after `ready_mask` (the guest's battle-start line; see AppendPeerGuard), `netsync.dress` gains `guard` as its last key (the
++        // field dress sites' resolution; see AppendDressGuard), the selftest proof block gains one line, "leader guard selftest: OK (N
++        // rows)" (NetSyncBattle.LeaderGuardSelfTest), and `netsync bench` gains one named op -- `bench leaderguard on|off` (the
++        // calibration lever: off = the pre-s143 positional rule); no new sub-verb. A driver checks for `netsync.battle.host.guard` --
++        // absent = an engine whose guest may command the host's leader (and which reads `bench leaderguard` as `bench 1`).
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -1348,6 +1355,21 @@ namespace Memoria.Harness
+                                         throw new InvalidOperationException(why ?? "netsync bench swirl refused");
+                                     break;
+                                 }
++                                // [ff9mapkit netsync s143] one more named op (the leader guard):
++                                //   `bench leaderguard on|off`  the calibration lever (off = the pre-s143 positional rule: a guest bit may name the
++                                //       host's leader -- in battle and at the field dress sites).
++                                // Read back: `netsync.battle.host.guard` (`off`, `effective`, `moved_from` / `moved_to`) and `netsync.dress.guard`.
++                                // Released on disarm/fault/reset. CAUTION: an engine before s143 parses it as `bench 1` (the field-gate bench ON):
++                                // probe `netsync.battle.host.guard` first -- absent = do not send it.
++                                if (bnop == "leaderguard")
++                                {
++                                    String lg = s.Args.Length > 2 ? s.Args[2].ToLowerInvariant() : "";
++                                    if (s.Args.Length != 3 || (lg != "on" && lg != "off"))
++                                        throw new ArgumentOutOfRangeException("netsync bench leaderguard", "expected `netsync bench leaderguard on|off`");
++                                    if (!Memoria.Netsync.NetSyncBattle.HarnessBenchLeaderGuard(lg == "on", out why))
++                                        throw new InvalidOperationException(why ?? "netsync bench leaderguard refused");
++                                    break;
++                                }
+                             }
+                             Memoria.Netsync.NetSyncField.BenchGates = Arg(s, 1, 1) != 0;
+                             Memoria.Prime.Log.Message("[NetSync] field-gate bench " + (Memoria.Netsync.NetSyncField.BenchGates ? "ON" : "OFF") + " (harness)");
+@@ -3582,7 +3604,11 @@ namespace Memoria.Harness
+                 // [ff9mapkit netsync s141] `ghost` gains `light_row` (-1) and `light_rgb` (null) at its end, and `self` gains the polish keys
+                 // after `selftest` -- AppendDressPolish's keys at their sentinels (`steps` [], `light_rgb` null, `light_floor` -1,
+                 // `attach_last` a fixed sub-object, `polish` false).
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false}}}");
++                // [ff9mapkit netsync s143] `battle.host` gains `guard` after `flee_gil` (leader -1, raw / effective 0, moved_from / moved_to -1,
++                // off false, line null, line_shown false, leader_model -1, chars [-1 x 4], nonce -1), `battle.peer` gains `guard` after
++                // `ready_mask` (nonce / mask -1, line null, shown false) and `dress` gains `guard` after `self` (all -1) -- the leader guard's
++                // keys (AppendHostGuard, AppendPeerGuard, AppendDressGuard) at their sentinels.
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null}},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1,\"guard\":{\"leader\":-1,\"raw\":0,\"effective\":0,\"moved_from\":-1,\"moved_to\":-1,\"off\":false,\"line\":null,\"line_shown\":false,\"leader_model\":-1,\"chars\":[-1,-1,-1,-1],\"nonce\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"guard\":{\"nonce\":-1,\"mask\":-1,\"line\":null,\"shown\":false},\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false},\"guard\":{\"leader\":-1,\"raw\":-1,\"effective\":-1,\"moved_from\":-1,\"moved_to\":-1}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -3679,6 +3705,26 @@ namespace Memoria.Harness
+             IntList(sb, "mirror_party", Try(() => Memoria.Netsync.NetSyncClient.HarnessDressMirrorParty));                      // [ff9mapkit netsync s139]
+             sb.Append(",");                                                                             // [ff9mapkit netsync s140]
+             AppendDressSelf(sb);                                                                        // [ff9mapkit netsync s140]
++            sb.Append(",");                                                                             // [ff9mapkit netsync s143]
++            AppendDressGuard(sb);                                                                       // [ff9mapkit netsync s143]
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync s143] `netsync.dress.guard` -- THE LEADER GUARD AT THE FIELD DRESS SITES (NetSyncClient.FieldGuardMask): a
++        // FIXED sub-object, `dress`'s LAST key (after `self`), always written whole, in EVERY role, each key through its own Try. The last
++        // `auto` resolution at a host dress site (HostDress -- the ghost and section 8 -- or the selftest mirror): `leader` (the CharacterId
++        // the guard took; -1 = none known or the `bench leaderguard off` lever), `raw` / `effective` (the GuestSlots mask in and out, over
++        // the RAW party slots; -1 = no resolution yet), `moved_from` / `moved_to` (the party slot the leader's bit left and the one it
++        // went to; -1 = none -- moved_from >= 0 with moved_to -1 = the bit dropped, the guest spectates). The catch literal carries the
++        // same keys at their sentinels (all -1).
++        private static void AppendDressGuard(StringBuilder sb)
++        {
++            sb.Append("\"guard\":{");
++            Num(sb, "leader", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessDressGuardLeader, -1L)); sb.Append(",");
++            Num(sb, "raw", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessDressGuardRaw, -1L)); sb.Append(",");
++            Num(sb, "effective", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessDressGuardEffective, -1L)); sb.Append(",");
++            Num(sb, "moved_from", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessDressGuardMovedFrom, -1L)); sb.Append(",");
++            Num(sb, "moved_to", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessDressGuardMovedTo, -1L));
+             sb.Append("}");
+         }
+ 
+@@ -4435,12 +4481,15 @@ namespace Memoria.Harness
+             AppendHostWait(sb); sb.Append(",");                                                      // [ff9mapkit netsync R3 s113]
+             AppendHostStartHold(sb); sb.Append(",");                                                 // [ff9mapkit netsync R3 s114]
+             Num(sb, "flee_gil", Memoria.Netsync.NetSyncEnd.HarnessHostFleeGil);                      // [ff9mapkit netsync R3 s116]
++            sb.Append(",");                                                                          // [ff9mapkit netsync s143]
++            AppendHostGuard(sb);                                                                     // [ff9mapkit netsync s143]
+             sb.Append("},\"peer\":{");
+             Bool(sb, "live", Memoria.Netsync.NetSyncBattle.HarnessPeerLive); sb.Append(",");
+             Num(sb, "seq", Memoria.Netsync.NetSyncBattle.HarnessPeerSeq); sb.Append(",");
+             Num(sb, "nonce", Memoria.Netsync.NetSyncBattle.HarnessPeerNonce); sb.Append(",");
+             Num(sb, "caps", Memoria.Netsync.NetSyncBattle.HarnessPeerCaps); sb.Append(",");
+             Num(sb, "ready_mask", Memoria.Netsync.NetSyncBattle.HarnessPeerReadyMask); sb.Append(",");
++            AppendPeerGuard(sb); sb.Append(",");                                                        // [ff9mapkit netsync s143]
+             AppendPeerEnd(sb); sb.Append(",");                                                          // [ff9mapkit netsync B5] stage 4
+             AppendStrList(sb, "end_trail", Memoria.Netsync.NetSyncEnd.HarnessPeerTrail()); sb.Append(",");
+             Num(sb, "trailer_bad", Memoria.Netsync.NetSyncEnd.HarnessTrailerBad); sb.Append(",");
+@@ -4481,6 +4530,52 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync s143] `netsync.battle.host.guard` -- THE LEADER GUARD (NetSyncBattle "the leader guard"): a FIXED sub-object,
++        // `host`'s LAST key (after `flee_gil`), always written whole, in EVERY role. `leader` (the CharacterId of my own controlled field
++        // body -- the latch: a body naming no character keeps it, the world map is Zidane's, the title forgets it; -1 = none since the
++        // title), `raw` (GuestSlots now), `effective` (the battle mask every host ownership lane reads now: EffectiveGuestSlots -- equal
++        // to `raw` outside my own battle and before its players are organized), `moved_from` / `moved_to` (the LAST battle latch: the btl
++        // index the leader's bit left and the one it went to; -1 = none -- moved_from >= 0 with moved_to -1 = the bit dropped, the guest
++        // spectates it), `off` (the selftest lever `netsync bench leaderguard off`), `line` (the host's battle-start line of this or the
++        // last own battle; null = none yet), then `line_shown` (it was HANDED to the battle message window -- a higher-priority message
++        // can hold it unseen, so the on-screen witness is `battle.message`; false = the log only: no guest lane, or no HUD),
++        // `leader_model` (the genuine body model the leader was read off; -1 = none yet, -3 = the world map), `chars` (the last latch's
++        // units: the CharacterId per btl index 0-3, -1 none, -2 unreadable) and `nonce` (the own battle it belongs to; -1 = none yet).
++        // AppendNetsync's catch line carries the same keys at their sentinels, inside its SECOND literal.
++        private static void AppendHostGuard(StringBuilder sb)
++        {
++            sb.Append("\"guard\":{");
++            Num(sb, "leader", Memoria.Netsync.NetSyncBattle.HarnessLeaderChar); sb.Append(",");
++            Num(sb, "raw", Memoria.Netsync.NetSyncBattle.HarnessGuardRaw); sb.Append(",");
++            Num(sb, "effective", Memoria.Netsync.NetSyncBattle.HarnessGuardEffective); sb.Append(",");
++            Num(sb, "moved_from", Memoria.Netsync.NetSyncBattle.HarnessGuardMovedFrom); sb.Append(",");
++            Num(sb, "moved_to", Memoria.Netsync.NetSyncBattle.HarnessGuardMovedTo); sb.Append(",");
++            Bool(sb, "off", Memoria.Netsync.NetSyncBattle.HarnessGuardOff); sb.Append(",");
++            Str(sb, "line", Memoria.Netsync.NetSyncBattle.HarnessGuardLine); sb.Append(",");
++            Bool(sb, "line_shown", Memoria.Netsync.NetSyncBattle.HarnessGuardLineShown); sb.Append(",");
++            Num(sb, "leader_model", Memoria.Netsync.NetSyncBattle.HarnessLeaderModel); sb.Append(",");
++            AppendIntList(sb, "chars", Memoria.Netsync.NetSyncBattle.HarnessGuardChars()); sb.Append(",");
++            Num(sb, "nonce", Memoria.Netsync.NetSyncBattle.HarnessGuardNonce);
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync s143] `netsync.battle.peer.guard` -- the GUEST's battle-start line (NetSyncBattle.GuestLineTick: once per host
++        // battle -- its nonce and a seq at or after the latched one --, at the first parsed view with a Ready player): a FIXED sub-object
++        // right after `peer.ready_mask`, in EVERY role. `nonce` (the host battle it belongs to, kept between battles beside its line;
++        // -1 = none since a reset), `mask` (the header's guest mask it read: the host's EFFECTIVE mask; -1 = none), `line` ("You: Vivi";
++        // null = none) and `shown` (it was handed to a live diorama's battle message window -- on time, or late once the diorama came up
++        // after the host's command phase; the selftest loopback and a digit-panel guest log only). AppendNetsync's catch line carries the
++        // same keys at their sentinels.
++        private static void AppendPeerGuard(StringBuilder sb)
++        {
++            sb.Append("\"guard\":{");
++            Num(sb, "nonce", Memoria.Netsync.NetSyncBattle.HarnessYouNonce); sb.Append(",");
++            Num(sb, "mask", Memoria.Netsync.NetSyncBattle.HarnessYouMask); sb.Append(",");
++            Str(sb, "line", Memoria.Netsync.NetSyncBattle.HarnessYouLine); sb.Append(",");
++            Bool(sb, "shown", Memoria.Netsync.NetSyncBattle.HarnessYouShown);
++            sb.Append("}");
++        }
++
+         // [ff9mapkit netsync s133] `netsync.battle.act` -- action replay (studies/battle-coop/R3-DESIGN.md 5.1 as amended by
+         // R3-ACTION-REPLAY-AUDIT.md 3.6 and 4.2); s133 publishes its `host` half: MY own battle's action-start lane (NetSyncBattle "the
+         // ACTION START lane"), in EVERY role -- `loop` and `tape` are fed only by the selftest loopback and read zero elsewhere. Per own

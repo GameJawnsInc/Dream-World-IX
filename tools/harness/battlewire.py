@@ -79,6 +79,12 @@ way the engine fabricates its bench end through the real ParseView.
     GhostLpRowRule (the 98-row lighting fallback), PolishOnRule / TrySetPolish (the `polish` lever) -- the stock arithmetic
     their witnesses read (the FF9Snd footstep table, fldmcf's tint), and PolishSelfTest's fixtures, helper tables and
     mutants (the census oracle, studies/battle-coop/dress-census/polish.json).
+  * [ff9mapkit netsync s143] THE LEADER GUARD (the guest never commands the host's leader): LeaderGuard / LeaderGuardCore with
+    the engine selftest's four mutants, the leader map (LeaderCharForModel: the rig table + the census's Zidane variants),
+    EffectiveGuestSlots' gate, FieldGuardMask, LeaderForGuard / LeaderGuardOnRule (the lever), GuardCharName, the battle-start
+    line (GuardLineText) and every log line's text; the field half threads the leader into host_dress_section and the
+    selftest site (default none: every pre-s143 caller reads as before); seat_after / battle_slot_chars (the party ops' and
+    InitPlayerData's arithmetic the s143 bench's oracle folds the seats with); the three blocks' sentinels.
 """
 from __future__ import annotations
 
@@ -7499,7 +7505,10 @@ DRESS_SENTINELS = {"ghost": dict(DRESS_GHOST_SENTINELS), "party": [-1, -1, -1, -
                    "codec": None, "rig_idle_frames": [-1] * 13, "mirror_party": None,
                    # [ff9mapkit netsync s140] `self`, the guest's own dress -- `dress`'s LAST key
                    # [ff9mapkit netsync s141] ...with the polish keys after `selftest` (the LIVE catch line)
-                   "self": {k: _copy_sentinel(v) for k, v in DRESS_SELF_LIVE_SENTINELS.items()}}
+                   "self": {k: _copy_sentinel(v) for k, v in DRESS_SELF_LIVE_SENTINELS.items()},
+                   # [ff9mapkit netsync s143] `guard`, the leader guard at the field dress sites -- `dress`'s LAST key now
+                   # (:data:`DRESS_GUARD_SENTINELS`, its twin below)
+                   "guard": {"leader": -1, "raw": -1, "effective": -1, "moved_from": -1, "moved_to": -1}}
 #: [ff9mapkit netsync s139] Each dress rung's OWN `netsync.dress` keys, frozen at its patch (the stand-in publishes its rungs'
 #: rows; the live catch the union): s138 `ghost` / `party`, s139 `codec` / `rig_idle_frames` / `mirror_party`
 #: (fakegame.NETSYNC_DRESS_CAP_KEYS is the same ladder; a test pins both against the catch lines). [ff9mapkit netsync s140]
@@ -7508,7 +7517,9 @@ DRESS_KEYS_BY_RUNG = {"dressinstr": ("ghost", "party"), "dresshost": ("codec", "
                       "dressself": ("self",),                    # [ff9mapkit netsync s140] `self`, after `mirror_party`
                       # [ff9mapkit netsync s141] no new `netsync.dress` key: the polish keys sit INSIDE `self` and `ghost`
                       # (:data:`DRESS_SELF_KEYS_BY_RUNG`, :data:`DRESS_GHOST_KEYS_BY_RUNG`)
-                      "dresspolish": ()}
+                      "dresspolish": (),
+                      # [ff9mapkit netsync s143] `guard` (a fixed sub-object, :data:`DRESS_GUARD_SENTINELS`), after `self`
+                      "leaderguard": ("guard",)}
 #: [ff9mapkit netsync s138] THE DRESS PROBE LADDER: the key each dress patch is told by (R3-FIELD-MODEL-AUDIT.md 3.1 names
 #: them) -- s138 its own fixed `ghost`, s139 `codec` (appended to `netsync.dress`), s140 `self` (a fixed sub-object), s141
 #: `self.steps` (a key inside it). An engine is the HIGHEST rung whose key it publishes, every rung below present too.
@@ -7877,13 +7888,20 @@ def dress_section_text(body) -> str:
     return f"{body[0]:02X} {body[1]:02X} {body[2]:02X} (model {got[0]}, charId {got[1]})"
 
 
-def host_dress_section(ghost_as, guest_slots: int, role, selftest_role: bool, slot_char) -> bytes:
+def host_dress_section(ghost_as, guest_slots: int, role, selftest_role: bool, slot_char, leader: int = -1) -> bytes:
     """NetSyncClient.HostDressSection's body (Enabled): the s139 rule for the HOST's config -- its GhostAs and GuestSlots
     (the forced selftest pins GuestSlots 0; the `ghost` lever never reaches it, the `empty` lever does: ``slot_char``),
-    never guarded (section 8 carries the dress itself). The mode is read first and the party only for `auto` (HostDress)."""
+    no GhostGuard (section 8 carries the dress itself; the ghost site applies GhostGuard) -- but the s143 LEADER guard
+    applies to the mask under `auto` (below). The mode is read first and the party only for `auto` (HostDress).
+    [ff9mapkit netsync s143] ``leader``: the HOST's leader (the CharacterId its controlled field body is; -1 = none known,
+    or an engine before s143 -- the default, so every pre-s143 caller reads as before): under `auto` the GuestSlots mask
+    goes through the leader guard over the same RAW party slots first (:func:`field_guard_mask`, NetSyncClient.
+    FieldGuardMask), so section 8 names whom the guest commands, never the character the host walks as."""
     mode = dress_mode(ghost_as)
+    chars = slot_char if mode == "auto" else None
+    mask = field_guard_mask(mode, guest_slots, chars, leader)[0] if not dress_mode_off(mode) else guest_slots
     model, rig = (0, -1) if dress_mode_off(mode) else resolve_dress_rule(
-        mode, guest_slots, moogle_when_empty(role, selftest_role), slot_char if mode == "auto" else None)
+        mode, mask, moogle_when_empty(role, selftest_role), chars)
     return dress_section_body(model, dress_char_id(model, rig))
 
 
@@ -8059,7 +8077,7 @@ def visibility_mask(renderers, hidden) -> int:
 # ---- THE SELFTEST DRESS SITE (NetSyncClient's selftest branch, s139): the mirror IS the guest, this machine its host
 def selftest_dress(*, ghost_as, guest_slots: int, me_model: int, me_anim: int, party, role="selftest",
                    selftest_role: bool = True, enabled: bool = True, bench_mask: int = -1, empty_mask: int = -1,
-                   rule=None, wire: int = -1, wire_anim: int = -1) -> dict:
+                   rule=None, wire: int = -1, wire_anim: int = -1, leader: int = -1) -> dict:
     """What the selftest mirror's ghost WEARS and PLAYS this frame (NetSyncClient's selftest dress site, s139, its
     `selfdress` levers read on the selftest role only) -> {"model", "rig", "anim", "mask"}: ``model`` is EnsureGhost's
     model (the dress, else the wire body), ``rig`` its rig (-1 undressed), ``anim`` DriveGhost's clip id, ``mask`` which
@@ -8069,15 +8087,20 @@ def selftest_dress(*, ghost_as, guest_slots: int, me_model: int, me_anim: int, p
     body: it moves with ITS rig's clip for my loco, where it has a rig -- or, with ``wire_anim`` (`wire <model> <anim>`),
     PLAYS that raw clip, its loco byte that clip's class on that body (as a real guest's sender classifies it).
     [ff9mapkit netsync s140] the LIVE engine's site (rows 9-12 in the table: Cinna..Beatrix dress, 107 / 109 / 5467 / 204
-    classify); an s139 engine's is :data:`S139`'s ``selftest_dress``."""
+    classify); an s139 engine's is :data:`S139`'s ``selftest_dress``. [ff9mapkit netsync s143] ``leader``: the leader the
+    site's guard takes (NetSyncBattle.LeaderForGuard -- the CharacterId of my own controlled body; -1 = none known, the
+    `bench leaderguard off` lever, or an engine before s143: the default, so every pre-s143 caller reads as before) -- under
+    the s139 rule (never `rule s138`) and mode `auto` the mask goes through the leader guard over the site's RAW slots first
+    (NetSyncClient.FieldGuardMask, :func:`field_guard_mask`)."""
     return _selftest_dress_in(sys.modules[__name__], ghost_as=ghost_as, guest_slots=guest_slots, me_model=me_model,
                               me_anim=me_anim, party=party, role=role, selftest_role=selftest_role, enabled=enabled,
-                              bench_mask=bench_mask, empty_mask=empty_mask, rule=rule, wire=wire, wire_anim=wire_anim)
+                              bench_mask=bench_mask, empty_mask=empty_mask, rule=rule, wire=wire, wire_anim=wire_anim,
+                              leader=leader)
 
 
 def _selftest_dress_in(R, *, ghost_as, guest_slots: int, me_model: int, me_anim: int, party, role="selftest",
                        selftest_role: bool = True, enabled: bool = True, bench_mask: int = -1, empty_mask: int = -1,
-                       rule=None, wire: int = -1, wire_anim: int = -1) -> dict:
+                       rule=None, wire: int = -1, wire_anim: int = -1, leader: int = -1) -> dict:
     """[ff9mapkit netsync s140] :func:`selftest_dress` over one stage's rules ``R`` (this module = the live engine, or
     :data:`S139`): its rig table, ClassifyLoco / RigForModel / LocoAnim and the host rule ResolveDressRule."""
     bench = bool(selftest_role)
@@ -8096,7 +8119,9 @@ def _selftest_dress_in(R, *, ghost_as, guest_slots: int, me_model: int, me_anim:
         if old_rule:
             dress, rig = resolve_dress_s138(st_mode, st_mask, chars)
         else:
-            m, rig = R.resolve_dress_rule(st_mode, st_mask, moogle_when_empty(role, selftest_role), chars)
+            # [ff9mapkit netsync s143] FieldGuardMask(stMode, stMask, stChars) first -- one party read for both
+            g_mask = field_guard_mask(st_mode, st_mask, chars, leader)[0]
+            m, rig = R.resolve_dress_rule(st_mode, g_mask, moogle_when_empty(role, selftest_role), chars)
             dress = ghost_guard(m, st_wire)
     if dress == 0:
         rig = -1
@@ -9914,3 +9939,379 @@ def mutant_ghost_model(lp_model, lp_dress_src, polish) -> int:
 def mutant_polish_any_role(polish_off, self_test_role) -> bool:
     """MutantPolishAnyRole: a lever that acts on a client too."""
     return not polish_off
+
+
+# =========================================================================== [ff9mapkit netsync s143] THE LEADER GUARD
+# The guest never commands the host's leader (owner decision 2026-10-19, after the Plant Brain report): [Netsync] GuestSlots
+# stays a party-POSITION mask, but a guest bit landing on the LEADER (the CharacterId of the host's own controlled field
+# body) moves to the next occupied index after it (wrapping) that is neither the leader nor already owned; none -> the bit
+# drops. NetSyncBattle.LeaderGuard (the battle mask, EffectiveGuestSlots, over the own battle's btl indices) and
+# NetSyncClient.FieldGuardMask (the host's dress sites, over the RAW party slots) share it. These are its twins, pinned to the
+# engine selftest's own rows by tests/test_leader_guard.py, and the rung's harness sentinels.
+LEADER_NONE = -1
+#: THE PLAYABLE-CHARACTER VARIANT CENSUS (studies/battle-coop/dress-census/leader_census.json `pc_variants`, in its order):
+#: every main character's body a player-defining entry SetModels outside the rig table -- NetSyncBattle.PcVariantModels /
+#: PcVariantChars (review s143 field-2: was Zidane's three only). ZIDANE_VARIANT_MODELS is its Zidane subset (the census's
+#: `zidane_variants`).
+PC_VARIANT_MODELS = (658, 532, 203, 432, 202, 419)
+PC_VARIANT_CHARS = (3, 0, 0, 0, 2, 2)
+ZIDANE_VARIANT_MODELS = tuple(m for m, c in zip(PC_VARIANT_MODELS, PC_VARIANT_CHARS) if c == 0)
+#: NetSyncBattle.WorldLeaderModel / WorldDaggerModel: `leader_model` on the world map (NoteWorldLeader -- review s143 own-1):
+#: Zidane's party walks it (on foot, a chocobo, a ship), or Dagger does (ff9.k_moveCHRStatus_Dagger, status 2)
+WORLD_LEADER_MODEL = -3
+WORLD_DAGGER_MODEL = -4
+#: "leader guard selftest: OK (44 rows)" -- the table's 25 rows, the 4 mutants (the rule's three + the guest line's no relaunch
+#: forget -- review s143 rwire-1), 4 leader-map, 2 latch-step, 2 guest-line (the same-battle test, the step's sequences), 2
+#: line, 1 lever, 4 field rows; 19 of them are `ref rows, ref fail);` calls (the mutants and the GuardRow checks; the table
+#: rows return their names).
+LEADER_GUARD_SELFTEST_ROWS = 44
+LEADER_GUARD_TABLE_ROWS = 25
+LEADER_GUARD_REF_ROWS = 19
+#: `netsync.battle.host.guard` (AppendHostGuard) at the catch line's sentinels -- also its values at rest (no client).
+GUARD_HOST_SENTINELS = {"leader": -1, "raw": 0, "effective": 0, "moved_from": -1, "moved_to": -1, "off": False,
+                        "line": None, "line_shown": False, "leader_model": -1, "chars": [-1, -1, -1, -1], "nonce": -1}
+#: `netsync.battle.peer.guard` (AppendPeerGuard): the guest's battle-start line.
+GUARD_PEER_SENTINELS = {"nonce": -1, "mask": -1, "line": None, "shown": False}
+#: `netsync.dress.guard` (AppendDressGuard): the last `auto` resolution at a host dress site.
+DRESS_GUARD_SENTINELS = {"leader": -1, "raw": -1, "effective": -1, "moved_from": -1, "moved_to": -1}
+
+
+def leader_guard_core(slot_char, owned_mask, leader_char, wrap=True, skip_owned=True) -> tuple:
+    """NetSyncBattle.LeaderGuardCore, statement for statement: (the mask, moved_from, moved_to). ``slot_char[i]`` = the
+    CharacterId at index i (negative = no member: -1 empty, -2 unreadable); ``wrap`` / ``skip_owned`` exist for the mutants."""
+    raw = int(owned_mask) & 0x0F
+    eff, moved_from, moved_to = raw, -1, -1
+    if leader_char < 0 or slot_char is None:
+        return eff, moved_from, moved_to
+
+    def at(i):
+        return slot_char[i] if 0 <= i < len(slot_char) else -1
+
+    for i in range(4):
+        if not raw & (1 << i) or at(i) != leader_char:
+            continue
+        eff &= ~(1 << i)
+        moved_from, moved_to = i, -1
+        for k in range(1, 4):
+            j = i + k
+            if j >= 4:
+                if not wrap:
+                    break
+                j -= 4
+            c = at(j)
+            if c < 0 or c == leader_char or (skip_owned and eff & (1 << j)):
+                continue
+            eff |= 1 << j
+            moved_to = j
+            break
+    return eff, moved_from, moved_to
+
+
+def leader_guard(slot_char, owned_mask, leader_char) -> tuple:
+    """NetSyncBattle.LeaderGuard."""
+    return leader_guard_core(slot_char, owned_mask, leader_char)
+
+
+def mutant_guard_none(slot_char, owned_mask, leader_char) -> tuple:
+    """MutantNoGuard: the positional rule (the pre-s143 engine)."""
+    return int(owned_mask) & 0x0F, -1, -1
+
+
+def mutant_guard_no_wrap(slot_char, owned_mask, leader_char) -> tuple:
+    """MutantNoWrap: the search stops at index 3."""
+    return leader_guard_core(slot_char, owned_mask, leader_char, wrap=False)
+
+
+def mutant_guard_onto_owned(slot_char, owned_mask, leader_char) -> tuple:
+    """MutantOntoOwned: the bit may land on an index the guest already owns."""
+    return leader_guard_core(slot_char, owned_mask, leader_char, skip_owned=False)
+
+
+def leader_char_for_model(model) -> int:
+    """NetSyncBattle.LeaderCharForModel: the rig's CharacterId, a census playable-character variant's character, else
+    LEADER_NONE."""
+    if isinstance(model, bool) or not isinstance(model, int) or model <= 0 or model > 0xFFFF:
+        return LEADER_NONE
+    rig = rig_for_model(model)
+    if rig >= 0:
+        c = rig_to_char(rig)
+        return LEADER_NONE if c == CHAR_NONE else c
+    for m, c in zip(PC_VARIANT_MODELS, PC_VARIANT_CHARS):
+        if m == model:
+            return c
+    return LEADER_NONE
+
+
+def next_leader(prev_char: int, model) -> int:
+    """NetSyncBattle.NextLeader (review s143 field-1 / own-1): the latch once my controlled body is ``model`` -- the world map's
+    sentinel (WORLD_LEADER_MODEL) -> Zidane; a body naming a character -> that character; any other body keeps ``prev_char``
+    (LEADER_NONE stays none)."""
+    if model == WORLD_LEADER_MODEL:
+        return 0
+    if model == WORLD_DAGGER_MODEL:
+        return 2
+    c = leader_char_for_model(model)
+    return c if c >= 0 else prev_char
+
+
+def world_walker_model(status: int) -> int:
+    """NetSyncBattle.WorldWalkerModel: the world map's moving-actor status (WMUIData.StatusNo) -> its latch sentinel: 0 none
+    up yet (latch nothing), 2 Dagger, any other Zidane's party."""
+    return 0 if status <= 0 else WORLD_DAGGER_MODEL if status == 2 else WORLD_LEADER_MODEL
+
+
+def mutant_next_leader_overwrite(prev_char: int, model) -> int:
+    """The pre-review latch (a twin MUTANT): every body overwrites the leader, none for a body naming no character, and no
+    world-map leader."""
+    return leader_char_for_model(model)
+
+
+def guest_line_same_battle(nonce: int, seq: int, you_nonce: int, you_seq: int) -> bool:
+    """NetSyncBattle.GuestLineSameBattle (review s143 wire-3): the latched nonce and a seq at or after the latched one (the
+    UInt16 forward distance under half the ring) -- a restarted host's earlier seq, another nonce or none latched is new."""
+    return you_nonce >= 0 and you_seq >= 0 and nonce == you_nonce and ((int(seq) - int(you_seq)) & 0xFFFF) < 0x8000
+
+
+def mutant_guest_line_nonce_only(nonce: int, seq: int, you_nonce: int, you_seq: int) -> bool:
+    """The pre-review test (a twin MUTANT): the nonce alone -- a restarted host reusing a nonce is never a new battle."""
+    return you_nonce >= 0 and nonce == you_nonce
+
+
+#: NetSyncBattle.GuestLineStep's verdicts (review s143 rwire-1)
+GUEST_LINE_WAIT, GUEST_LINE_SAME, GUEST_LINE_NEW = 0, 1, 2
+
+
+def guest_line_step(nonce: int, seq: int, ready: bool, you_nonce: int, you_seq: int) -> tuple:
+    """NetSyncBattle.GuestLineStep, statement for statement: (verdict, you_nonce, you_seq) -- the latch it may FORGET in place.
+    An EARLIER seq on the latched nonce forgets the latch first (the battle lane is an ordered TCP latest-slot: a seq running
+    backwards on one nonce is a relaunched host, whose climbing seq would otherwise re-match the old latch from its seq on);
+    then the latched battle is SAME (the late line only), a new one at its command phase NEW (the caller latches), else WAIT."""
+    if (you_nonce >= 0 and you_seq >= 0 and nonce == you_nonce
+            and not guest_line_same_battle(nonce, seq, you_nonce, you_seq)):
+        you_nonce, you_seq = -1, -1
+    if guest_line_same_battle(nonce, seq, you_nonce, you_seq):
+        return GUEST_LINE_SAME, you_nonce, you_seq
+    return (GUEST_LINE_NEW if ready else GUEST_LINE_WAIT), you_nonce, you_seq
+
+
+def mutant_guest_line_no_forget(nonce: int, seq: int, ready: bool, you_nonce: int, you_seq: int) -> tuple:
+    """The wire-3 step (a twin MUTANT, the engine's MutantGuestLineNoForget): no earlier-seq forget -- a relaunched host's
+    battle on the latched nonce is never latched once its seq passes the old one."""
+    if guest_line_same_battle(nonce, seq, you_nonce, you_seq):
+        return GUEST_LINE_SAME, you_nonce, you_seq
+    return (GUEST_LINE_NEW if ready else GUEST_LINE_WAIT), you_nonce, you_seq
+
+
+def guest_line_sequences(step=guest_line_step) -> str | None:
+    """NetSyncBattle.GuestLineSequences, statement for statement: None when every sequence holds, else the first failing
+    one's name (each latches as GuestLineTick does: a NEW view becomes the latch)."""
+    yn, ys, at = 1, 150, -1
+    for s in range(0, 201):                          # relaunch: the old run latched (1, 150); the new run's battle 1
+        v, yn, ys = step(1, s, s >= 180, yn, ys)
+        if v == GUEST_LINE_NEW:
+            at, yn, ys = s, 1, s
+            break
+    if at != 180 or yn != 1 or ys != 180:
+        return ("relaunch: the old run latched (1, 150); the new run's battle 1 (seq 0..179 not Ready, 180 Ready) latches "
+                "at 180")
+    yn, ys = 3, 800                                  # resume: its own battle resuming after a stall
+    for s in range(801, 1101):
+        v, yn, ys = step(3, s, True, yn, ys)
+        if v != GUEST_LINE_SAME or yn != 3 or ys != 800:
+            return "resume: latched (3, 800); its own battle resuming (seq 801..1100, Ready) is the same battle"
+    first = -1                                       # next: the next battle (nonce 4), its first Ready at seq 1210
+    for s in range(1200, 1216):
+        v, yn, ys = step(4, s, s >= 1210, yn, ys)
+        if v == GUEST_LINE_NEW:
+            first = s
+            break
+    if first != 1210 or yn != 3 or ys != 800:
+        return ("next: latched (3, 800); the next battle (nonce 4) is new at its first Ready (seq 1210), the latch "
+                "untouched until then")
+    return None
+
+
+def guard_line_text(host, names, mask, moved_from) -> str:
+    """NetSyncBattle.GuardLineText: "Partner: Vivi (not Zidane)" / "You: Vivi" / "...watching"."""
+    picked = [names[i] for i in range(4)
+              if int(mask) & (1 << i) and names is not None and i < len(names) and names[i]]
+    out = ("Partner: " if host else "You: ") + (", ".join(picked) if picked else "watching")
+    if host and moved_from >= 0 and names is not None and moved_from < len(names) and names[moved_from]:
+        out += f" (not {names[moved_from]})"
+    return out
+
+
+# ---- [ff9mapkit netsync s143] THE LEADER GUARD's other twins (the repo half): the lever's rule, the battle mask's gate, the
+# field mask, the log lines' text, the guard's names -- each the engine's statement for statement (tests/test_leader_guard.py
+# pins them to the s143 patch), so a bench computes every expected value off ITS OWN oracle, never the engine's answer.
+#: GuardNames: the open-source CharacterId enum's names (NetSyncBattle.GuardCharName; "-" no member, "?" unreadable, "#id").
+GUARD_NAMES = ("Zidane", "Vivi", "Garnet", "Steiner", "Freya", "Quina", "Eiko", "Amarant", "Cinna", "Marcus", "Blank",
+               "Beatrix")
+#: CharacterOldIndex (the .eb party ops' id space: content.party.CHAR_OLD_INDEX) -> CharacterId (ff9play.CharacterOldIndexToID:
+#: Beatrix 8 -> 11, Cinna 9 -> 8, Marcus 10 -> 9, Blank 11 -> 10).
+OLD_INDEX_TO_ID = {**{i: i for i in range(8)}, 8: 11, 9: 8, 10: 9, 11: 10}
+#: the proof block's line (NetSyncClient: right after the dress polish line), and the harness's lever / release lines
+PROOF_LEADER_GUARD = "leader guard selftest: "
+LOG_GUARD_OFF = ("harness: leader guard OFF -- CALIBRATION: the pre-s143 positional rule (a guest bit may name the host's "
+                 "leader, in battle and at the field dress sites)")
+LOG_GUARD_ON = "harness: leader guard ON"
+LOG_GUARD_RELEASED = "harness: leader guard back ON (released with the harness)"
+LOG_GUARD_LATCH = "leader guard: GuestSlots 0x"          # the battle latch's line (GuardLatchText), + " (own battle nonce N)"
+LOG_GUARD_LINE_HOST = "leader guard line (host): \""
+LOG_GUARD_LINE_GUEST = "leader guard line (guest): \""
+LOG_GUARD_FIELD = "leader guard (field dress): "
+LOG_GUARD_LEADER = "leader guard: the host-side leader is now "
+LOG_GUARD_LEADER_KEPT = "leader guard: my controlled body's model "     # ... names no character -- the leader stays X
+LOG_LEADER_FORGOTTEN = ("leader guard: the leader is forgotten at the title (a load starts afresh: the next field body or the "
+                        "world map latches it)")
+
+
+def guard_char_name(char_id) -> str:
+    """NetSyncBattle.GuardCharName: "-" no member (-1), "?" unreadable (any other negative), the enum name, "#id" past it."""
+    if char_id == -1:
+        return "-"
+    if char_id < 0:
+        return "?"
+    return GUARD_NAMES[char_id] if char_id < len(GUARD_NAMES) else f"#{char_id}"
+
+
+def leader_guard_on_rule(bench_off: bool, selftest_role: bool) -> bool:
+    """NetSyncBattle.LeaderGuardOnRule: the guard is off only while the lever is pulled AND on the selftest role -- a lever
+    stranded across an ini edit can never unguard a real host."""
+    return not (bool(bench_off) and bool(selftest_role))
+
+
+def leader_for_guard(leader_char: int, bench_off: bool, selftest_role: bool) -> int:
+    """NetSyncBattle.LeaderForGuard: the latched leader, or none under the lever (the positional rule)."""
+    return leader_char if leader_guard_on_rule(bench_off, selftest_role) else LEADER_NONE
+
+
+def effective_guest_slots(guest_slots: int, *, own_battle: bool, organized: bool, slot_char, leader: int) -> tuple:
+    """NetSyncBattle.EffectiveGuestSlots -> (the mask, moved_from, moved_to): GuestSlots (0-3) as it is outside my own battle
+    and before its players are organized (btl_load_status & LOAD_INITCHR); inside, the guard over the battle's units
+    (``slot_char``: the CharacterId per btl index, a script-hidden unit included) with ``leader`` (LeaderForGuard)."""
+    raw = int(guest_slots) & 0x0F
+    if raw == 0 or not own_battle or not organized:
+        return raw, -1, -1
+    return leader_guard(slot_char, raw, leader)
+
+
+def field_guard_mask_core(mode, mask: int, slot_char, leader: int) -> tuple:
+    """NetSyncClient.FieldGuardMaskCore (review s143 field-5) -> (the mask, moved_from, moved_to): a mode that is not `auto`
+    reads no mask (untouched, -1 / -1); `auto` the guard over the RAW slots with ``leader``."""
+    if dress_mode(mode) != "auto":
+        return mask, -1, -1
+    return leader_guard(slot_char, mask, leader)
+
+
+def field_guard_mask(mode, mask: int, slot_char, leader: int) -> tuple:
+    """NetSyncClient.FieldGuardMask -> (the mask the s139 rule dresses by, the guard's (moved_from, moved_to) or None when it
+    did not run): a mode that is not `auto` reads no mask and returns it untouched; `auto` the guard over the RAW party
+    slots (an owned EMPTY slot stays owned -- ResolveAuto's skip still applies; a dropped bit leaves 0: the moogle, D2)."""
+    if dress_mode(mode) != "auto":
+        return mask, None
+    eff, f, t = leader_guard(slot_char, mask, leader)
+    return eff, (f, t)
+
+
+def guard_latch_text(chars, raw: int, leader: int, eff: int, moved_from: int, moved_to: int, fault=None, *,
+                     guard_on: bool = True) -> str:
+    """NetSyncBattle.GuardLatchText: the battle latch's line body (the caller appends " (own battle nonce N)")."""
+    def at(i):
+        return chars[i] if chars is not None and 0 <= i < len(chars) else -1
+    out = (f"GuestSlots 0x{raw:X} over the battle's units [" + ", ".join(guard_char_name(at(i)) for i in range(4))
+           + "], leader " + (guard_char_name(leader) if leader >= 0 else "none known" if guard_on
+                             else "OFF (the `bench leaderguard off` lever: the positional rule)")
+           + f" -> 0x{eff:X}")
+    if fault is not None:
+        out += f" -- the unit read threw {fault}: the positions as they are"
+    elif moved_from >= 0 and moved_to >= 0:
+        out += (f" -- index {moved_from} is the leader: the guest commands {guard_char_name(at(moved_to))} "
+                f"(index {moved_to}) instead")
+    elif moved_from >= 0:
+        out += (f" -- index {moved_from} is the leader and no other member is free: the bit drops (the guest spectates "
+                f"it)")
+    else:
+        out += " -- unmoved"
+    return out
+
+
+def guard_latch_line(chars, raw: int, leader: int, eff: int, moved_from: int, moved_to: int, nonce: int, *,
+                     guard_on: bool = True) -> str:
+    """LatchGuard's whole log line (after "[NetSync] ")."""
+    return ("leader guard: " + guard_latch_text(chars, raw, leader, eff, moved_from, moved_to, guard_on=guard_on)
+            + f" (own battle nonce {nonce})")
+
+
+def guard_host_line_log(line: str, raw: int, eff: int, *, shown: bool, partner: bool) -> str:
+    """GuardLineTick's log line (after "[NetSync] ")."""
+    where = ("in the battle message window" if shown else "no battle HUD: the log only" if partner
+             else "no guest lane: the log only")
+    return f"{LOG_GUARD_LINE_HOST}{line}\" -- {where} (GuestSlots 0x{raw & 0x0F:X} -> 0x{eff:X}; once per own battle)"
+
+
+def guard_guest_line_log(line: str, nonce: int, mask: int, *, shown: bool, hud: bool) -> str:
+    """GuestLineTick's log line (after "[NetSync] "): ``hud`` = a real guest's Pump (False = the selftest loopback)."""
+    where = ("in the diorama's battle message window" if shown else "a spectator: the log only" if mask == 0
+             else "no booted diorama: the log only" if hud else "the selftest loopback: the log only")
+    return (f"{LOG_GUARD_LINE_GUEST}{line}\" -- the host's battle (nonce {nonce}) offers 0x{mask:X}; {where} "
+            f"(once per host battle)")
+
+
+def guard_field_log(raw: int, eff: int, moved_from: int, moved_to: int, leader: int) -> str:
+    """FieldGuardMask's log line (after "[NetSync] "), once per change of what moved."""
+    tail = (f"; the ghost dresses as party slot {moved_to}'s member" if moved_to >= 0
+            else "; no other member is free: the guest spectates")
+    return (f"{LOG_GUARD_FIELD}GuestSlots 0x{raw & 0x0F:X} -> 0x{eff:X} (party slot {moved_from} is the leader "
+            f"{guard_char_name(leader)}{tail})")
+
+
+def guard_leader_log(char: int, model: int, changed: bool = True) -> str:
+    """NetSyncBattle.LeaderLogText (after "[NetSync] "): NoteFieldLeader / NoteWorldLeader's line on a change of the latched
+    CHARACTER (``changed``), or NoteFieldLeader's when my body names no character and the leader stays."""
+    if not changed:
+        stays = f"{guard_char_name(char)} (CharacterId {char})" if char >= 0 else "none known (the positional rule)"
+        return f"{LOG_GUARD_LEADER_KEPT}{model} names no character -- the leader stays {stays}"
+    if char >= 0:
+        where = (", the world map: Zidane's party walks it)" if model == WORLD_LEADER_MODEL else
+                 ", the world map: Dagger walks it)" if model == WORLD_DAGGER_MODEL else f", my controlled body's model {model})")
+        who = f"{guard_char_name(char)} (CharacterId {char}{where}"
+    else:
+        who = f"NONE (my controlled body's model {model})"
+    return f"{LOG_GUARD_LEADER}{who} -- a guest bit landing on it moves to the next member (owner, 2026-10-19)"
+
+
+def guard_guest_late_log(line: str, nonce: int) -> str:
+    """GuestLineLate's line (after "[NetSync] "): a real guest's diorama came up after the host's command phase (review s143
+    wire-2)."""
+    return (f"{LOG_GUARD_LINE_GUEST}{line}\" shown late -- the diorama came up after the host's command phase "
+            f"(nonce {nonce})")
+
+
+def seat_after(party, removes=(), adds=()) -> list | None:
+    """(PURE) The party after a Main_Init that runs RemoveParty for each of ``removes`` (CharacterIds: the seat holding it
+    cleared; none seated = a no-op -- EventEngine PARTYDELETE) and then B_PARTYADD for each of ``adds`` (the FIRST EMPTY
+    seat; one already seated is a no-op -- partyadd's partychk; a full party refuses). None when ``party`` is not 4
+    slots. The kit's [party] block emits exactly this order (content.party.party_body: removes first, then adds)."""
+    if not isinstance(party, (list, tuple)) or len(party) != 4:
+        return None
+    out = list(party)
+    for c in removes:
+        k = next((i for i, m in enumerate(out) if m == c), None)
+        if k is not None:
+            out[k] = PARTY_EMPTY
+    for c in adds:
+        if c in out:
+            continue
+        k = next((i for i, m in enumerate(out) if m == PARTY_EMPTY), None)
+        if k is not None:
+            out[k] = c
+    return out
+
+
+def battle_slot_chars(party) -> list:
+    """(PURE) InitPlayerData's compaction: the occupied party seats IN ORDER become btl indices 0.. (an empty seat is
+    skipped) -> the CharacterId per btl index 0-3 (-1 none) -- the units NetSyncBattle.BattleSlotChars reads (a script-hidden
+    unit included: hiding unlinks it, it keeps its btl_data index)."""
+    seated = [c for c in (list(party or ()) + [PARTY_EMPTY] * 4)[:4] if isinstance(c, int) and c >= 0]
+    return (seated + [PARTY_EMPTY] * 4)[:4]

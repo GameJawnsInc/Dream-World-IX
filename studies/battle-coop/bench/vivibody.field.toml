@@ -1,0 +1,30 @@
+# COOPVIVI -- the s143 leader-guard bench's LEADER-BODY SEAT (studies/test-harness/scenarios/coop_leader_guard.py, leg L10).
+#
+# WHY IT EXISTS. The leader guard's leader is the character the host WALKS AS: NetSyncBattle.NoteFieldLeader reads this
+# machine's own controlled field body (its genuine model -> the rig table / the census's playable-character variants). Every
+# other seat walks the kit's own Zidane (model 98), so a bench on them alone cannot tell the real latch from one that always
+# says Zidane (review s143: "the leader body is never varied"). Here the player is the kit's VIVI (model 8, GEO_MAIN_F0_VIV,
+# rig 1 -> CharacterId 1) on COOPPARTY's party [Zidane, Vivi, Garnet, Steiner] (no party block: the seed's party stays),
+# so with `selfdress ghost 2` the guest bit (party slot 1) lands on the LEADER and moves to slot 2: the mirror wears GARNET.
+#
+# Deploy (a NEW id: the first deploy registers it -- one game RELAUNCH). Re-read every mod folder's DictionaryPatch.txt
+# first; 30609 was free in all of them on 2026-10-20 (FF9CustomMap-msgs holds 30601-30606, the s143 seats 30607 / 30608):
+#   py tools/deploy_field.py studies/battle-coop/bench/vivibody.field.toml --id 30609 --mod-folder FF9CustomMap-msgs
+# Offline check:  py -m ff9mapkit lint ../studies/battle-coop/bench/vivibody.field.toml   (from ff9mapkit/)
+
+[field]
+id = 30609
+name = "COOPVIVI"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+# the kit's own player entry re-skinned to Vivi's field body (8 = GEO_MAIN_F0_VIV; its movement clips off the Info Hub join):
+# a free-roam field, no scripted gesture -- the leader guard's latch reads this body
+[player]
+spawn = [0, -1900]
+model = 8

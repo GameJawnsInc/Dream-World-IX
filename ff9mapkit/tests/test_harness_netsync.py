@@ -863,6 +863,21 @@ def _undressed(doc: dict) -> dict:
     return {k: v for k, v in doc.items() if k != "dress"}
 
 
+def _unguarded(doc: dict) -> dict:
+    """[ff9mapkit netsync s143] A `netsync` document without s143's three `guard` blocks (`battle.host.guard`, `battle.peer.guard`,
+    `dress.guard`): the catch line as s141 wrote it -- s143 added those and nothing else."""
+    out = dict(doc)
+    if isinstance(doc.get("battle"), dict):
+        battle = dict(doc["battle"])
+        for sub in ("host", "peer"):
+            if isinstance(battle.get(sub), dict):
+                battle[sub] = {k: v for k, v in battle[sub].items() if k != "guard"}
+        out["battle"] = battle
+    if isinstance(doc.get("dress"), dict):
+        out["dress"] = {k: v for k, v in doc["dress"].items() if k != "guard"}
+    return out
+
+
 def _dress_through(doc: dict, rung: str) -> dict:
     """[ff9mapkit netsync s139] A `netsync` document with only the dress keys of the rungs up to ``rung`` (the dress ladder:
     BW.DRESS_KEYS_BY_RUNG for `netsync.dress`, BW.DRESS_GHOST_KEYS_BY_RUNG inside `ghost`) -- the catch line an engine AT
@@ -871,7 +886,7 @@ def _dress_through(doc: dict, rung: str) -> dict:
     upto = names[:names.index(rung) + 1]
     dress_keys = [k for r in upto for k in BW.DRESS_KEYS_BY_RUNG[r]]
     ghost_keys = [k for r in upto for k in BW.DRESS_GHOST_KEYS_BY_RUNG.get(r, ())]
-    out = dict(doc)
+    out = dict(doc) if "leaderguard" in upto else _unguarded(doc)   # [ff9mapkit netsync s143] its battle half too
     d = {k: v for k, v in doc["dress"].items() if k in dress_keys}
     d["ghost"] = {k: v for k, v in doc["dress"]["ghost"].items() if k in ghost_keys}
     if "rig_idle_frames" in d:                          # [ff9mapkit netsync s140] the rung's own rig-row count (9 on s139)
@@ -1881,7 +1896,9 @@ BATTLE_CONTAINERS = {"end.end_leave": "s105", "end.declined": "s105", "menu.cont
                      # [ff9mapkit netsync s136] fallback A (after `hold`)
                      "act.guest.fallback": "s136",
                      # [ff9mapkit netsync s137] the trance burst timing, the LAST key of `act.guest`
-                     "act.guest.trance": "s137"}
+                     "act.guest.trance": "s137",
+                     # [ff9mapkit netsync s143] the leader guard: `host`'s last key and the guest's line after `peer.ready_mask`
+                     "host.guard": "s143", "peer.guard": "s143"}
 #: The records that may be published null (an accessor reads None for them either way).
 BATTLE_NULLABLE = ("host.end", "peer.end", "menu.captured", "menu.roster", "menu.bench_roster", "menu.pending",
                    "menu.feed", "host.manifest", "host.handback.last", "end.replay.screen", "end.replay.fp",
@@ -2297,7 +2314,8 @@ BATTLE_LEVELS = ["s99", "s100", "s101", "s102", "s103", "s104", "s105", "s106", 
                  "s138",                                      # [ff9mapkit netsync s138] the dress instrument (keys only)
                  "s139",                                      # [ff9mapkit netsync s139] the host dress rule + `selfdress`
                  "s140",                                      # [ff9mapkit netsync s140] the guest dresses itself (`self`)
-                 "s141"]                                      # [ff9mapkit netsync s141] the dress polish (`self.steps`)
+                 "s141",                                      # [ff9mapkit netsync s141] the dress polish (`self.steps`)
+                 "s143"]                                      # [ff9mapkit netsync s143] the leader guard (`host.guard`)
 #: [ff9mapkit netsync s132] the stages that add NO harness key (the agent is the previous stage's; no State accessor
 #: tells them -- s132 changed only an absent SessionGraceMs's default)
 BATTLE_KEYLESS_LEVELS = ("s132",)
@@ -2583,7 +2601,9 @@ def test_state_reads_absent_battle_keys_as_cannot_never_as_nothing():
             # [ff9mapkit netsync s140] the guest dresses itself (`netsync.dress.self`; the `selfdress self|gate|law` ops)
             "coop_dress_self",
             # [ff9mapkit netsync s141] the dress polish (`netsync.dress.self.steps`; the `selfdress polish` op)
-            "coop_dress_polish")
+            "coop_dress_polish",
+            # [ff9mapkit netsync s143] the leader guard (`netsync.battle.host.guard`; the `bench leaderguard` op)
+            "coop_leader_guard")
     keyed = [lv for lv in BATTLE_LEVELS if lv not in BATTLE_KEYLESS_LEVELS]
     assert len(caps) == len(keyed) - 1
     table = State.NETSYNC_BATTLE_ACCESSORS
@@ -5850,8 +5870,11 @@ def test_guest_owns_twins_evaluate_every_s118_control_selftest_row_off_the_stack
     assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s132"))) == \
         BW.CONTROL_SELFTEST_ROWS + BW.ADOPT_SELFTEST_ROWS == 73
     # [ff9mapkit netsync s133] ...and a third (ActionSelfTest, its 30 rows)
-    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncBattle.cs")) == \
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s141"))) == \
         BW.CONTROL_SELFTEST_ROWS + BW.ADOPT_SELFTEST_ROWS + BW.ACTION_SELFTEST_ROWS == 103
+    # [ff9mapkit netsync s143] ...and a fourth (LeaderGuardSelfTest: 19 of its 44 rows are such calls -- test_leader_guard.py)
+    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncBattle.cs")) == \
+        BW.CONTROL_SELFTEST_ROWS + BW.ADOPT_SELFTEST_ROWS + BW.ACTION_SELFTEST_ROWS + BW.LEADER_GUARD_REF_ROWS == 122
     assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s117"))) == \
         BW.CONTROL_SELFTEST_ROWS_S114 == 33
 
@@ -6308,6 +6331,14 @@ def _proof_lines(fake) -> list:
               BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
               BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
               BW.proof_ok(BW.PROOF_TRANCE, 21), BW.proof_ok(BW.PROOF_DRESS, 38), BW.proof_ok(BW.PROOF_SELF_DRESS, 29),
+              BW.proof_ok(BW.PROOF_DRESS_POLISH, 20),
+              # [ff9mapkit netsync s143] the leader guard's line, right after the dress polish line
+              BW.proof_ok(BW.PROOF_LEADER_GUARD, BW.LEADER_GUARD_SELFTEST_ROWS)]),
+    # [ff9mapkit netsync s143] s141 (s143's calibration red): no 'leader guard' line
+    ("s141", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
+              BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
+              BW.proof_ok(BW.PROOF_TRANCE, 21), BW.proof_ok(BW.PROOF_DRESS, 38), BW.proof_ok(BW.PROOF_SELF_DRESS, 29),
               BW.proof_ok(BW.PROOF_DRESS_POLISH, 20)]),
     # [ff9mapkit netsync s141] s140 (s141's calibration red): no 'dress polish' line
     ("s140", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
@@ -6360,7 +6391,8 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
                          "s132": S132_CAPS, "s133": S133_CAPS, "s134": S134_CAPS,
                          "s135": S135_CAPS, "s136": S136_CAPS, "s138": S138_CAPS_,
                          "s139": FG.caps_through("dresshost"),
-                         "s140": FG.caps_through("dressself")}.get(caps) or _caps_at(caps)   # [ff9mapkit netsync s141]
+                         "s140": FG.caps_through("dressself"),
+                         "s141": FG.caps_through("dresspolish")}.get(caps) or _caps_at(caps)   # [ff9mapkit netsync s143]
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)
@@ -6889,7 +6921,7 @@ def test_the_expired_block_is_peers_last_key_at_the_catch_lines_sentinels():
     # s131 wrote the catch line whole; s132 left it alone; [ff9mapkit netsync s133] s133 added `act` after `end` and
     # nothing else -- so the live line is s131's plus that one sub-object; [ff9mapkit netsync s138] plus `dress`, netsync's
     # last key (s138 added that one block and nothing else)
-    live = _undressed(_agent_netsync_nothing()[0])
+    live = _undressed(_unguarded(_agent_netsync_nothing()[0]))   # [ff9mapkit netsync s143] less its guard blocks
     assert _catch_doc_in("s131") == _catch_doc_in("s132") == {**live, "battle": {
         k: v for k, v in live["battle"].items() if k != "act"}}
 
@@ -7560,6 +7592,7 @@ def test_the_act_block_is_the_fifth_sub_object_at_the_catch_lines_sentinels():
     assert _battle_of(nothing)["act"]["host"] == BW.ACT_HOST_SENTINELS
     # s133 wrote the catch line whole; [ff9mapkit netsync s134] s134 added `act.guest` after `act.host` and nothing else
     # [ff9mapkit netsync s138] (and s138 `dress`, netsync's last key: _undressed)
+    nothing = _unguarded(nothing)                                  # [ff9mapkit netsync s143] less its guard blocks
     assert _catch_doc_in("s133") == {**_undressed(nothing), "battle": {**nothing["battle"], "act": {
         "host": BW.ACT_HOST_SENTINELS}}}
     body = " ".join(_act_region("private static void AppendAct(", "// [ff9mapkit netsync B5] stage 5:", "HarnessAgent.cs"))
@@ -8701,6 +8734,7 @@ def test_the_act_guest_block_sits_after_host_at_the_catch_lines_sentinels():
     # [ff9mapkit netsync s136] s136 `act.guest.fallback` and nothing else; [ff9mapkit netsync s137] s137 `act.guest.trance`
     # (the last key) and nothing else
     s134_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k not in ("hold", "fallback", "trance")}
+    nothing = _unguarded(nothing)                                  # [ff9mapkit netsync s143] less its guard blocks
     assert _catch_doc_in("s134") == {**_undressed(nothing), "battle": {**nothing["battle"], "act": {   # [s138] _undressed
         "host": BW.ACT_HOST_SENTINELS, "guest": s134_guest}}}
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s134"))]
@@ -9810,6 +9844,7 @@ def test_the_hold_block_is_act_guests_last_key_at_the_catch_lines_sentinels():
     assert list(_battle_of(nothing)["act"]["guest"])[-4:-2] == ["last", "hold"]
     s135_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k not in ("fallback", "trance")}
     assert list(_battle_of(_catch_doc_in("s135"))["act"]["guest"])[-2:] == ["last", "hold"]   # the last key AT s135
+    nothing = _unguarded(nothing)                                  # [ff9mapkit netsync s143] less its guard blocks
     assert _catch_doc_in("s135") == {**_undressed(nothing), "battle": {**nothing["battle"], "act": {   # s135 wrote it whole
         "host": BW.ACT_HOST_SENTINELS, "guest": s135_guest}}}
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s135"))]
@@ -11831,6 +11866,7 @@ def test_the_fallback_block_is_act_guests_last_key_at_the_catch_lines_sentinels(
     assert list(_battle_of(nothing)["act"]["guest"])[-3:-1] == ["hold", "fallback"]
     s136_guest = {k: v for k, v in BW.ACT_GUEST_SENTINELS.items() if k != "trance"}
     assert list(_battle_of(_catch_doc_in("s136"))["act"]["guest"])[-2:] == ["hold", "fallback"]   # the last key AT s136
+    nothing = _unguarded(nothing)                                  # [ff9mapkit netsync s143] less its guard blocks
     assert _catch_doc_in("s136") == {**_undressed(nothing), "battle": {**nothing["battle"], "act": {   # s136 wrote it whole
         "host": BW.ACT_HOST_SENTINELS, "guest": s136_guest}}}
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s136"))]
@@ -13462,7 +13498,7 @@ def test_the_trance_block_is_act_guests_last_key_at_the_catch_lines_sentinels():
     assert _battle_of(nothing)["act"]["guest"]["trance"] == BW.ACT_GUEST_TRANCE_SENTINELS
     assert list(_battle_of(nothing)["act"]["guest"])[-2:] == ["fallback", "trance"]
     # s137 wrote the catch line whole; [ff9mapkit netsync s138] s138 added `dress` (netsync's last key) and nothing else
-    assert _catch_doc_in("s137") == _undressed(nothing)
+    assert _catch_doc_in("s137") == _undressed(_unguarded(nothing))   # [ff9mapkit netsync s143] less its guard blocks
     new = [t for _h, _k, t in _new_side("HarnessAgent.cs", _patch_bytes("s137"))]
     i = next(k for k, t in enumerate(new) if t.startswith("private static void AppendActGuestTrance("))
     j = next(k for k in range(i, len(new)) if new[k].startswith("// [ff9mapkit netsync B5] stage 5:"))
@@ -14992,7 +15028,9 @@ DRESS_CONTAINERS = {"ghost": "s138",
                     # [ff9mapkit netsync s140] `self` (dress's LAST key) and its `law_off` levers
                     "self": "s140", "self.law_off": "s140",
                     # [ff9mapkit netsync s141] the polish's `attach_last` (a fixed sub-object inside `self`)
-                    "self.attach_last": "s141"}
+                    "self.attach_last": "s141",
+                    # [ff9mapkit netsync s143] the leader guard at the field dress sites (`dress`'s LAST key)
+                    "guard": "s143"}
 #: [ff9mapkit netsync s138] the `netsync.dress` records that may be published null where their accessor reads None (the
 #: BATTLE_NULLABLE twin; a null STRING reads "", so none at s138) -- a later rung's nullable record goes HERE.
 #: [ff9mapkit netsync s139] `ghost.hidden` (null = no ghost) and `mirror_party` (null = no party mirror): nullable LISTS
@@ -15063,7 +15101,7 @@ def test_the_dress_block_is_netsyncs_last_key_at_the_catch_lines_sentinels():
     s138 = _catch_doc_in("s138")
     assert list(s138["dress"]) == list(BW.DRESS_KEYS_BY_RUNG["dressinstr"]) == ["ghost", "party"]
     assert list(s138["dress"]["ghost"]) == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"])
-    assert s138 == _dress_through(nothing, "dressinstr") and _catch_doc_in("s137") == _undressed(nothing)   # s138: whole
+    assert s138 == _dress_through(nothing, "dressinstr") and _catch_doc_in("s137") == _undressed(_unguarded(nothing))   # s138: whole
     body = " ".join(_s138_block("HarnessAgent.cs", "private static void AppendDress(", "private static Int32 PartyIndexOf("))
     names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
     assert names == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"]), names       # s138's own row, frozen
@@ -15320,9 +15358,17 @@ def test_each_dress_rungs_keys_are_ones_its_patch_added():
     assert FG.NETSYNC_TOP_CAP_KEYS["dressinstr"] == ("dress",)
     for rung, keys in FG.NETSYNC_DRESS_CAP_KEYS.items():
         patch = FG.NETSYNC_BATTLE_CAPS[rung][0]
-        was, now = _catch_doc_in(f"s{int(patch[1:]) - 1}"), _catch_doc_in(patch)
-        assert now["battle"] == was["battle"], rung              # nothing under netsync.battle
-        assert FG.NETSYNC_BATTLE_CAP_KEYS[rung] == {} and rung not in FG.NETSYNC_BATTLE_NESTED_KEYS, rung
+        prior = FG.NETSYNC_BATTLE_CAPS[names[names.index(rung) - 1]][0]   # [ff9mapkit netsync s143] s142 is no patch
+        was, now = _catch_doc_in(prior), _catch_doc_in(patch)
+        if rung == "leaderguard":
+            # [ff9mapkit netsync s143] the one BATTLE rung with a dress key: the leader guard's battle half is its
+            # NETSYNC_BATTLE_CAP_KEYS row (`host.guard`, `peer.guard`), its field half `dress.guard` (this law's row)
+            fresh = {s: tuple(k for k in now["battle"][s] if k not in was["battle"].get(s, {})) for s in now["battle"]}
+            assert {s: v for s, v in fresh.items() if v} == FG.NETSYNC_BATTLE_CAP_KEYS[rung], fresh
+            assert rung not in FG.NETSYNC_BATTLE_NESTED_KEYS
+        else:
+            assert now["battle"] == was["battle"], rung              # nothing under netsync.battle
+            assert FG.NETSYNC_BATTLE_CAP_KEYS[rung] == {} and rung not in FG.NETSYNC_BATTLE_NESTED_KEYS, rung
         d_was, d_now = was.get("dress") or {}, _dress_of(now)
         added = tuple(k for k in d_now if k not in d_was)
         assert added == keys, (rung, added)
@@ -17271,7 +17317,9 @@ def test_the_host_dresses_its_guests_ghost_and_the_client_keeps_the_s138_rule():
                  "String mode = NetSyncVisitor.DressMode(NetSyncVisitor.GhostAs);",
                  "return NetSyncVisitor.ResolveDressRule(mode, _guestSlots, NetSyncVisitor.MoogleWhenEmpty(_role, "
                  'IsSelfTestRole), mode == "auto" ? ReadSlotChars() : null, out rigIdx);'):
-        assert frag in client, frag
+        # [ff9mapkit netsync s143] HostDress now guards the mask first (FieldGuardMask): its s139 body is read off s139's prefix
+        assert frag in client or frag in " ".join(net_lines("NetSyncClient.cs", r".", _prefix("s141"))), frag
+    assert "return NetSyncVisitor.ResolveDressRule(mode, FieldGuardMask(mode, _guestSlots, chars)," in client
     # the wire stays v14 and the position frame 37 B: the s139 patch touches neither NetSyncSocket.cs nor NetSyncState.cs /
     # NetSyncParty.cs (the walkers an s117 laptop runs are byte-identical)
     touched = {path.replace("\\", "/").rsplit("/", 1)[-1] for path, _sec in msr.sections(_patch_bytes("s139")) if path}
@@ -18692,7 +18740,8 @@ def test_the_s140_catch_line_closes_dress_with_self_at_its_sentinels():
     nothing = _agent_netsync_nothing()[0]
     s140 = _catch_doc_in("s140")
     assert s140 == _dress_through(nothing, "dressself") and nothing["dress"] == BW.DRESS_SENTINELS
-    assert list(s140["dress"]) == [k for row in BW.DRESS_KEYS_BY_RUNG.values() for k in row] == \
+    assert list(s140["dress"]) == [k for r, row in BW.DRESS_KEYS_BY_RUNG.items() if r in ("dressinstr", "dresshost",
+                                                                                         "dressself") for k in row] == \
         ["ghost", "party", "codec", "rig_idle_frames", "mirror_party", "self"]
     assert s140["dress"]["self"] == BW.DRESS_SELF_SENTINELS and list(s140["dress"]["self"]) == list(BW.DRESS_SELF_KEYS)
     assert _dress_through(nothing, "dresshost") == _catch_doc_in("s139")
@@ -19934,7 +19983,8 @@ def test_an_s139_stand_in_publishes_no_s140_key_and_the_dressself_rung_every_one
             st = g.wait_for(lambda s: s.coop_dress_codec == "ok", timeout=5.0, what="the proof block")
             d = st.netsync_dress
             if has:
-                assert list(d) == ["ghost", "party", "codec", "rig_idle_frames", "mirror_party", "self"]
+                # [ff9mapkit netsync s143] the default stand-in is s143's: `guard` after `self` (dress's LAST key now)
+                assert list(d) == ["ghost", "party", "codec", "rig_idle_frames", "mirror_party", "self", "guard"]
                 assert st.coop_dress_self and st.coop_dress_rig_idle_frames == RIG_IDLE_FRAMES_CENSUS_13
                 # [ff9mapkit netsync s141] the default stand-in is s141's: s140's keys, then the polish keys
                 assert list(d["self"]) == list(BW.DRESS_SELF_KEYS) + list(BW.DRESS_POLISH_KEYS)
@@ -21909,7 +21959,8 @@ def test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self_and_ghost():
     `self.steps`; s141's calibration is the prefix through `dressself`; the capability accessor reads True on s141's catch
     line and False on s140's; the `polish` op's capability key is a key s141 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-1] == "dresspolish" and names[names.index("dressself") + 1] == "dresspolish"
+    # [ff9mapkit netsync s143] ...LAST until s143's `leaderguard` rung joined after it
+    assert names[names.index("dressself") + 1] == "dresspolish" and names[names.index("dresspolish") + 1:] == ["leaderguard"]
     assert FG.NETSYNC_BATTLE_CAPS["dresspolish"] == ("s141", ()) and FG.NETSYNC_S141_CAPS == frozenset(("dresspolish",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresspolish"] == {} and "dresspolish" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     assert FG.NETSYNC_DRESS_CAP_KEYS["dresspolish"] == BW.DRESS_KEYS_BY_RUNG["dresspolish"] == ()
@@ -21946,8 +21997,10 @@ def test_the_s141_catch_line_closes_self_with_the_polish_sentinels():
     AppendDressSelf calls it after `selftest`; `ghost.light_row` reads NetSyncSelfDress.GhostLightRow after `hidden`, then
     `ghost.light_rgb` NetSyncClient.HarnessGhostLightRgb (the tint the re-tint WROTE); light_rgb reads the body's OWN mesh
     renderer (mesh0's, else the first whose nearest FieldMapActor is the body's: never a held prop's); light_floor the
-    FF9FieldCharState.floor fldmcf lit it by; the harness protocol stays 5."""
-    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
+    FF9FieldCharState.floor fldmcf lit it by; the harness protocol stays 5. [ff9mapkit netsync s143] The line AS s141 WROTE IT
+    (its own patch, frozen): s143 appends `dress.guard` after `self` and the battle guards (test_leader_guard.py pins the live
+    line), so the live document is s141's plus exactly those (:func:`_unguarded`)."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', [_patch_bytes("s141")])
     assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
     _a, b = _literals(catch[0])
     esc = lambda d: json.dumps(d, separators=(",", ":")).replace('"', '\\"')     # noqa: E731
@@ -21960,7 +22013,7 @@ def test_the_s141_catch_line_closes_self_with_the_polish_sentinels():
                       '\\"bone_out\\":-1,\\"parent\\":null},\\"polish\\":false}}}'), b[-600:]
     assert "return NetSyncSelfDress.ReadRendererRgb(r);" in " ".join(_stack_text("NetSyncClient.cs"))
     nothing = _agent_netsync_nothing()[0]
-    assert _catch_doc_in("s141") == nothing and nothing["dress"] == BW.DRESS_SENTINELS
+    assert _catch_doc_in("s141") == _unguarded(nothing) and nothing["dress"] == BW.DRESS_SENTINELS
     assert nothing["dress"]["self"] == BW.DRESS_SELF_LIVE_SENTINELS and nothing["dress"]["ghost"] == BW.DRESS_GHOST_SENTINELS
     assert _dress_through(nothing, "dressself") == _catch_doc_in("s140")
     body = _cs_block("HarnessAgent.cs", "private static void AppendDressPolish(StringBuilder sb)", stop="}")

@@ -202,10 +202,12 @@ def cfg_guest_slots(m) -> int:
 
 
 # ================================================================================================ the pure judges
-def phase_bodies(host_party, slots) -> list:
+def phase_bodies(host_party, slots, leader: int = -1) -> list:
     """(PURE) The section-8 body the host ships at each stepped GuestSlots: the twin's (BW.host_dress_section) for GhostAs
-    auto over the host's party."""
-    return [BW.host_dress_section(HOST_GHOST_AS, int(s), "host", False, host_party) for s in slots]
+    auto over the host's party -- [ff9mapkit netsync s143] through the host's leader guard with ``leader`` (the host's
+    published `host.guard`: cb.guard_leader; -1 = an engine before s143, the positional rule)."""
+    kw = {"leader": int(leader)} if int(leader) >= 0 else {}
+    return [BW.host_dress_section(HOST_GHOST_AS, int(s), "host", False, host_party, **kw) for s in slots]
 
 
 def section8_model(body) -> int:
@@ -214,9 +216,9 @@ def section8_model(body) -> int:
     return int(got[0]) if got else 0
 
 
-def phase_dress_models(host_party, slots) -> list:
+def phase_dress_models(host_party, slots, leader: int = -1) -> list:
     """(PURE) [s140] The model an s140 guest dresses itself in at each stepped GuestSlots: its section 8's (the host's)."""
-    return [section8_model(b) for b in phase_bodies(host_party, slots)]
+    return [section8_model(b) for b in phase_bodies(host_party, slots, leader)]
 
 
 def frame_bodies(records) -> list:
@@ -275,7 +277,7 @@ def phase_runs(bodies, wants, *, min_frames: int = MIN_PHASE_FRAMES) -> tuple:
     return ok, detail
 
 
-def judge_tape(records, host_party, slots=(HOST_GUEST_SLOTS,)) -> tuple:
+def judge_tape(records, host_party, slots=(HOST_GUEST_SLOTS,), leader: int = -1) -> tuple:
     """G9a (PURE over the tap's records): coop_peer.tape_dress's structure (section 8 on every host state frame, right
     after section 7 and last, parsed, skipped by the old readers' twins) AND :func:`phase_runs` -- the bodies in tape order
     the twin's for each GuestSlots in ``slots`` (the ones the run stepped, in order) over the host's PUBLISHED party
@@ -283,7 +285,7 @@ def judge_tape(records, host_party, slots=(HOST_GUEST_SLOTS,)) -> tuple:
     if host_party is None:
         return False, f"{_NR}: the host publishes no 4-slot `netsync.dress.party` (an engine before s138)"
     slots = [int(s) for s in slots]
-    wants = phase_bodies(host_party, slots)
+    wants = phase_bodies(host_party, slots, leader)
     d = CP.tape_dress(records, None)
     seq_ok, seq = phase_runs(frame_bodies(records), wants)
     detail = (f"{d['frames']} host state frames, {d['with8']} with section 8 (after 7: {d['after7']}, last: {d['last']}, "
@@ -399,12 +401,15 @@ def rewarp_guest(guest, want_model: int, timeout: float = None, *, fresh_load: b
         st = guest.state
 
 
-def want_host_ghost(host_party, wire_model: int, wire_anim: int, guest_slots: int = HOST_GUEST_SLOTS) -> dict:
+def want_host_ghost(host_party, wire_model: int, wire_anim: int, guest_slots: int = HOST_GUEST_SLOTS,
+                    leader: int = -1) -> dict:
     """(PURE) What THE HOST'S TRANSPORT SITE makes its ghost of the guest wear and play: HostDress (the s139 rule for the
-    host's GhostAs and ``guest_slots`` over its party; moogleWhenEmpty on the host) behind GhostGuard on the guest's wire
-    body, the anim GhostAnim over the guest's loco byte (its sender classifies its own anim on its own model)."""
-    m, rig = BW.resolve_dress_rule(HOST_GHOST_AS, int(guest_slots), BW.moogle_when_empty("host", False),
-                                   BW.live_slot_chars(host_party))
+    host's GhostAs and ``guest_slots`` over its party, [ff9mapkit netsync s143] after the leader guard with ``leader`` --
+    FieldGuardMask, `auto` only; -1 = none; moogleWhenEmpty on the host) behind GhostGuard on the guest's wire body, the anim
+    GhostAnim over the guest's loco byte (its sender classifies its own anim on its own model)."""
+    chars = BW.live_slot_chars(host_party)
+    mask = BW.field_guard_mask(HOST_GHOST_AS, int(guest_slots), chars, int(leader))[0]
+    m, rig = BW.resolve_dress_rule(HOST_GHOST_AS, int(mask), BW.moogle_when_empty("host", False), chars)
     dress = BW.ghost_guard(m, wire_model)
     rig = rig if dress else -1
     loco = BW.classify_loco(wire_model, wire_anim)
@@ -427,6 +432,7 @@ def _host_pick(samples: list, guest_slots: int, hold: int):
 
 
 def judge_host_ghost(samples: list, guest, host_party, models: dict, clips: dict, *, guest_slots: int = HOST_GUEST_SLOTS,
+                     leader: int = -1,
                      hold: int = 2, visibility: bool = False, tree=None, garnet_hair=0, want_dress=None) -> tuple:
     """G9d / G9e / G9f (PURE): on :func:`_host_pick` (the phase's GuestSlots published), the ghost wears
     :func:`want_host_ghost` for the guest's own model and anim at ``guest_slots`` -- its model and rig, the GEO and texture
@@ -453,7 +459,7 @@ def judge_host_ghost(samples: list, guest, host_party, models: dict, clips: dict
                        f"{guest_slots} published (last: guest_slots {cb.path(last, 'netsync.battle.host.guest_slots')!r}, "
                        f"ui {sd._raw(last).get('ui_state')!r})")
     gh = cb.path(pick, "netsync.dress.ghost")
-    want = want_host_ghost(host_party, wire, anim, guest_slots)
+    want = want_host_ghost(host_party, wire, anim, guest_slots, leader)
     facts = models.get(want["model"]) or {}
     if not facts.get("geo") or not facts.get("body"):
         return False, f"{_NR}: no install oracle for model {want['model']}"
@@ -743,8 +749,9 @@ def run_duo(d) -> None:
         check("S139-G9b", *judge_guest_mirror(armed, st, host_party))
         # the offline oracle for every phase's expected dress (the guest's wire body as it is now) and Garnet's prefab
         wire0 = sd._int(sd._player(guest.state).get("model")) or BW.PLAIN_ZIDANE_MODEL
-        want_models = [want_host_ghost(host_party, wire0, 0, s)["model"] for _c, s, _v in PHASES] if host_party else []
-        dresses = phase_dress_models(host_party, [s for _c, s, _v in PHASES]) if host_party else []
+        lead = cb.guard_leader(host.state)                 # [ff9mapkit netsync s143] the host's leader guard (-1 before s143)
+        want_models = [want_host_ghost(host_party, wire0, 0, s, lead)["model"] for _c, s, _v in PHASES] if host_party else []
+        dresses = phase_dress_models(host_party, [s for _c, s, _v in PHASES], lead) if host_party else []
         want_models += [m for m in dresses if m]           # [s140] what the guest wears at each phase
         models, clips, trees, problems = _oracle(Path(host.game_path), want_models, (GARNET_PREFAB,))
         if problems:
@@ -799,7 +806,7 @@ def run_duo(d) -> None:
             gst = guest.state
             reads.append((f"GuestSlots {slots}", gst))
             wants.append(want_dress)
-            check(cid, *judge_host_ghost(samples, gst, host_party, models, clips, guest_slots=slots, visibility=vis,
+            check(cid, *judge_host_ghost(samples, gst, host_party, models, clips, guest_slots=slots, leader=lead, visibility=vis,
                                          tree=trees.get(GARNET_PREFAB), garnet_hair=garnet_hair, want_dress=want_dress))
             prev_dress = want_dress
             if polish:                                     # [s141] on this load's settled publish, then a guest walk
@@ -817,7 +824,7 @@ def run_duo(d) -> None:
         # G9a LAST: the tap now holds every phase the run stepped
         try:
             _h, records, torn = CP.read_tape(d.run_dir / "relay.f9tape")
-            check("S139-G9a", *judge_tape(records, host_party, stepped))
+            check("S139-G9a", *judge_tape(records, host_party, stepped, lead))
             if torn:
                 d.note(f"the tap's tail is torn ({torn} B: the relay still writes) -- the read frames are whole")
         except (OSError, CP.TapeError) as err:

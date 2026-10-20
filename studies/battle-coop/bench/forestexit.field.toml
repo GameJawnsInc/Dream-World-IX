@@ -1,0 +1,33 @@
+# COOPFOREST -- the s143 leader-guard bench's FOREST-EXIT SEAT (studies/test-harness/scenarios/coop_leader_guard.py).
+#
+# WHY IT EXISTS. After Plant Brain the Evil Forest exit (field 261, test2_78.txt:300-339) removes only the XOR of the party
+# it has and the one it wants -- coming from field 257 that is Blank alone, so his seat 0 empties -- and then adds Zidane,
+# Steiner, Vivi, Garnet in that order: three are already seated (no-ops), Garnet takes the empty seat 0. The party reads
+# [Garnet, Zidane, Vivi, Steiner] (CharacterId [2, 0, 1, 3]) for the whole stretch after the forest, and the positional
+# GuestSlots = 2 hands the guest ZIDANE again. This field seats that party directly (every RemoveParty first, then the
+# adds in order -- the same final seats whatever party it starts from), its player the kit's Zidane (model 98). The bench
+# warps here, then to 30602 and starts `battle 67 0` (one Goblin): the second story party the guard must move.
+#
+# Deploy (a NEW id: the first deploy registers it -- one game RELAUNCH). Re-read every mod folder's DictionaryPatch.txt
+# first; 30608 was free in all of them on 2026-10-19:
+#   py tools/deploy_field.py studies/battle-coop/bench/forestexit.field.toml --id 30608 --mod-folder FF9CustomMap-msgs
+# Offline check:  py -m ff9mapkit lint ../studies/battle-coop/bench/forestexit.field.toml   (from ff9mapkit/)
+
+[field]
+id = 30608
+name = "COOPFOREST"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+# Field 261's final seats: every member removed, then Garnet, Zidane, Vivi, Steiner into the first empty seats in order.
+[party]
+remove = ["zidane", "vivi", "garnet", "steiner", "freya", "quina", "eiko", "amarant", "beatrix", "cinna", "marcus", "blank"]
+add = ["garnet", "zidane", "vivi", "steiner"]
