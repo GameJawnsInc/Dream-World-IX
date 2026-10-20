@@ -43,6 +43,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - A new check, `lip_streaks`, counts any streaked triangle a mint makes. Islands already in the game keep their old
   edge until they are minted again.
 
+### Fixed — coast morphs no longer leave streaked grass where they refill the cliff top or a beach's berm
+- `--cliff-headland`, `--cliff-bay`, `--cliff-lobes` and the seaward `--beach-slide` refill the grass they move with
+  new grass, and that refill had the same fault: a grass triangle crossing the grass grid could stretch one line of
+  the texture across itself. Six of the windows `world-morphs` lists as ready to deploy had one such triangle; a
+  sweep over every depth those windows build at, composed lobes included, found 58.
+- The refill is now cut along the grass grid like a minted island's edge. The cliff wall, the moved beach band and
+  the original grass beside the refill are split at the same points without changing how they look, so no gap opens
+  between them. Grass along a map block's edge is never split, because the neighbouring block shares that edge.
+- Every window `world-morphs` lists still builds at the same depths. Morphs already deployed keep their old refill
+  until they are deployed again.
+
 ### Changed — the river carry also refuses map cells another mod already overrides
 - The river carry's cell check now reads the mod folder as well as the original map. If another deploy already
   overrides a target cell, the check fails and names the files. Before, a cell counted as free whenever the original
