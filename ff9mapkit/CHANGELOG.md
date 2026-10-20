@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-render` sees rivers, streams and waterfalls; `--stock` draws what the game binds
+- The offline renderer now draws Stream, River, RiverJoint and Falls, with the textures the engine gives them.
+- `world-render --stock` fills every place without an override with what the game shows there. That means stock land
+  under your edits, open sea around them, and a carried cell's free-riding donor parts, such as a river that came
+  along with a transplant. Before, the renderer drew only your deployed files.
+- Checked against in-game stills of a stock river and waterfall. Default renders are unchanged.
+
+### Fixed — a carried mountain no longer turns skipped stream banks into ground
+- `world-mountain` strips the donor's entrance and camera bits from what it carries. It now keeps the few ID values the
+  game's ground query skips outright (steep stream banks), because there the stripped bits change how the ground walks.
+- A new gate refuses any carry that changes whether the game can stand on a carried triangle. No existing mountain is
+  affected.
+
 ### Added — `world-mountain --spread`: a carried mountain, wider
 - `world-mountain --spread S` (1.0–1.5) carries the massif S times wider in plan about its centre, heights kept: the
   massif twin of `world-forest --spread`. The rock, its rim, the alcove plugs and any falls/river parts all move

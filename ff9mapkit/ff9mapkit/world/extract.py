@@ -417,6 +417,27 @@ def list_coastal_donors(*, disc: int = 1, lod: str = "0_1", game=None, beach_onl
     return out
 
 
+_BLOCK_PARTS: dict = {}
+
+
+def block_parts(*, disc: int = 1, lod: str = "0_1", game=None) -> dict:
+    """``{(x, y): frozenset(lowercase part names)}`` for every block of ``disc``/``lod`` -- the sub-meshes each
+    block's PREFAB carries, read from the bundle containers (memoized per disc/lod/install). A block absent here
+    has no prefab of its own: it is open sea (the engine's SeaBlockPrefab)."""
+    import re
+    key = (disc, lod, str(game))
+    if key not in _BLOCK_PARTS:
+        env = _worldmap_env(disc, game)
+        pat = re.compile(rf"worldmap/disc{disc}/{lod}/r\d+/block\[(\d+)\]\[(\d+)\] ([a-z0-9_]+)(?:\.asset)?$")
+        found: dict = {}
+        for k in env.container:
+            m = pat.search((k or "").lower())
+            if m:
+                found.setdefault((int(m.group(1)), int(m.group(2))), set()).add(m.group(3))
+        _BLOCK_PARTS[key] = {xy: frozenset(ps) for xy, ps in found.items()}
+    return _BLOCK_PARTS[key]
+
+
 def list_blocks(*, disc: int = 1, lod: str = "0_1", game=None) -> list:
     """Every ``(x, y)`` whose terrain mesh exists for ``disc`` (sorted) -- the real grid the engine streams."""
     import re

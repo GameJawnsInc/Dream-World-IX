@@ -31,6 +31,23 @@ import math
 
 #: idall values the engine's triangle filter skips outright
 IDALL_SKIP = {4078, 4088, 2040}
+
+
+def ground_query_skips(idall) -> bool:
+    """True when the engine's ground query skips a triangle with this IDALL whatever its shape (rule 4).
+    Stock uses it on 177 of 480 stream-bank tris (topo 62 at area 15 / 7) -- so a tri's AREA bits can be
+    physics, not only dispatch context (studies/terrain-malleability/watercarry/RECON.md, THE BANK SKIP LAW)."""
+    return int(round(float(idall))) in IDALL_SKIP
+
+
+def skip_parity_gate(pairs, *, label: str) -> dict:
+    """THE BANK SKIP LAW, at the carry: every carried tri must keep its donor's ground-query visibility.
+    ``pairs`` = ``[(donor_idall, carried_idall), ...]``, one per carried tri. A carry that rewrites a
+    skipped IDALL (stripping its area, sealing its topograph) turns a tri the engine never stands on into
+    ground, or the reverse -- a change no geometry gate can see."""
+    flips = [(float(d), float(c)) for d, c in pairs if ground_query_skips(d) != ground_query_skips(c)]
+    return {"gate": f"skip-parity[{label}]", "checked": len(pairs), "flipped": len(flips),
+            "sample": flips[:4], "ok": not flips}
 #: flight-only marker: a passing hit with this idall makes the engine abandon the WHOLE mesh
 VETO = 0x31EE
 WALK_RAY_START = 2.34375

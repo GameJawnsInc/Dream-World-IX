@@ -1632,6 +1632,19 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
                 r_rim=r_rim, ta=ta, tb=tb, dV2=dV2, dN2=dN2, rim2=rim2)
 
 
+def _strip_dispatch(idall_f) -> float:
+    """THE DONOR-DISPATCH STRIP for one carried IDALL: keep the topograph and flags, drop the donor's event
+    and area bits (entrance tiles, the camera place bucket -- meaningless and hazardous on a kit island).
+    EXCEPT an IDALL the engine's ground query skips outright (``placement.IDALL_SKIP``: topo-62 stream
+    banks at area 15 / 7, topo 59 at area 15): there the area IS the physics, and stripping it would turn
+    a tri the engine never stands on into ground (THE BANK SKIP LAW). Those carry no event bits."""
+    from .placement import ground_query_skips
+    if ground_query_skips(idall_f):
+        return float(int(round(float(idall_f))))
+    d = X.decode_id(int(round(idall_f)))
+    return float(X.encode_id(topograph=d["topograph"], flags=d["flags"]))
+
+
 def _plan_spread(V, c, s: float):
     """THE DECLARED ``--spread`` SHAPE: positions ``V`` (N x 3) widened ``s`` times in plan about
     ``c = (x, z)``, heights kept -- what the rock-rigid gate measures a spread carry against."""
@@ -1937,8 +1950,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     # ENTRANCE tile that fires the world .eb), meaningless and hazardous on a custom
     # island. The kit's own synthetic emitters default to area=0/event=0.
     def strip_dispatch(idall_f):
-        d = X.decode_id(int(round(idall_f)))
-        return float(X.encode_id(topograph=d["topograph"], flags=d["flags"]))
+        return _strip_dispatch(idall_f)
 
     # ---- 1. the donor blob ----------------------------------------------------------------
     B = _mountain_blob(donor_blocks, rock_topos=ROCK, alcove_box=alcove_box,
@@ -2934,9 +2946,11 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
 
     ID0 = float(X.encode_id(topograph=g_topo))
     new_parents = []                                       # (corners8, idall, fam)
+    skip_pairs = []                                        # (donor idall, carried idall) per carried tri
     for t in blob:                                         # the mountain, verbatim channels
         tri = dtri[t]
         idall = strip_dispatch(float(dT[tri[0]][0]))
+        skip_pairs.append((float(dT[tri[0]][0]), idall))
         nr = [rot_n(dN2[tri[k]], ROT) for k in range(3)]
         corners = tuple((*carried[t][k], dU[tri[k]][0], dU[tri[k]][1], *nr[k])
                         for k in range(3))
@@ -2944,10 +2958,16 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     for t in sweep:                                        # the footprint sweep, verbatim
         tri = dtri[t]
         idall = strip_dispatch(float(dT[tri[0]][0]))
+        skip_pairs.append((float(dT[tri[0]][0]), idall))
         nr = [rot_n(dN2[tri[k]], ROT) for k in range(3)]
         corners = tuple((*carried[t][k], dU[tri[k]][0], dU[tri[k]][1], *nr[k])
                         for k in range(3))
         new_parents.append((corners, idall, "mountain"))
+    from .placement import skip_parity_gate
+    skip_gate = skip_parity_gate(skip_pairs, label="mountain")
+    if not skip_gate["ok"]:
+        raise ValueError(f"the carry changed the ground-query visibility of {skip_gate['flipped']} donor tri(s) "
+                         f"(THE BANK SKIP LAW; e.g. donor/carried IDALL {skip_gate['sample'][:2]})")
     new_parents.extend(plug_parents)
     # THE FOOT COURSE (the spur-graft class, massif_spur.py in-game proven): inside a
     # window rect the zip emits as synthetic ROCK instead of grass. Harvest r10 exemplar
@@ -3571,6 +3591,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                            max(p[1] for ps in carried.values() for p in ps)), 2),
                        "zip_rise": round(zip_rise, 2), "rock_rigid": round(worst_rig, 4),
                        "rock_height": rh, "spread": SPREAD, "rim_splits": rim_splits,
+                       "skip_parity": {k: skip_gate[k] for k in ("checked", "flipped")},
                        "apron_slope": round(g_worst, 1), "lifted": len(lift_of),
                        "patched_holes": patched_holes,
                        "lawn_snapped": lawn_snap["entries"],

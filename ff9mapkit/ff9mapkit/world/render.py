@@ -49,7 +49,7 @@ from . import mesh as M
 
 __all__ = [
     "RenderSite", "BENCH_VSHORE", "BENCH_VIEWS", "BENCH_CORNER_BBOX",
-    "BLIND_SPOTS", "PARTS", "WATER_TEX", "SKY", "BLANK_WHITE",
+    "BLIND_SPOTS", "PARTS", "WATER_TEX", "SCROLL_TEX", "SKY", "BLANK_WHITE", "effective_prefab",
     "load_batches", "live_path", "tex_for", "sample", "project", "raster",
     "diff", "render_blocks", "render_state", "calibrate", "cmd_flow",
     "face_grads", "flow_records", "views_around", "cells_around",
@@ -58,14 +58,21 @@ __all__ = [
 
 BLIND_SPOTS = (
     "BLIND SPOTS (standing): no uv/caustic animation, no filtering/mip, no "
-    "fog/skybox, no sea-layer transparency blending, no LOD/far-clip, not the "
+    "fog/skybox, no sea-layer transparency blending, no lighting (Falls/Stream are N.L lit in game), "
+    "no LOD/far-clip, not the "
     "in-game camera path. A clean render is a REGRESSION HARNESS, NOT AN "
     "ORACLE -- the owner playtest remains the verdict."
 )
 
-PARTS = ("Terrain", "Object", "Beach1", "Sea1", "Sea2", "Sea3", "Sea4", "Sea5")
+PARTS = ("Terrain", "Object", "Beach1", "Stream", "River", "RiverJoint", "Falls",
+         "Sea1", "Sea2", "Sea3", "Sea4", "Sea5")
+# frame 0 of each WMRenderTextureBank flipbook (WMRenderTextureBank.cs: River 11_128_0_*,
+# RiverJoint 10_0_128_*, the sea and beach banks)
 WATER_TEX = {"Beach1": "11_0_128_0", "Sea1": "10_64_0_0", "Sea2": "10_128_0_0",
-             "Sea3": "10_128_64_0", "Sea4": "10_128_128_0", "Sea5": "11_64_0_0"}
+             "Sea3": "10_128_64_0", "Sea4": "10_128_128_0", "Sea5": "11_64_0_0",
+             "River": "11_128_0_0", "RiverJoint": "10_0_128_0"}
+# the ScrollTexture parts' MaterialDatabase textures (WMBlock.cs: Falls / Stream), at _Offset 0
+SCROLL_TEX = {"Falls": "11_0_192", "Stream": "11_64_192"}
 SKY = (152, 178, 208)
 BLANK_WHITE = (255, 255, 255)                                # alpha-0 sample -> white
 RES = (960, 640)
@@ -149,8 +156,9 @@ def tex_for(part, site: RenderSite, cache: dict | None = None):
     if part in ("Terrain", "Object"):
         img = A.load_atlas(part.lower() if part != "Terrain" else "terrain",
                            game=site.game, source="engine")
-    elif part in WATER_TEX:
-        p = site.water_texdir / f"{WATER_TEX[part]}.png"
+    elif part in WATER_TEX or part in SCROLL_TEX:
+        p = (site.water_texdir / f"{WATER_TEX[part]}.png" if part in WATER_TEX
+             else site.water_texdir.parent / "materials" / f"{SCROLL_TEX[part]}.png")
         if p.is_file():
             img = Image.open(p)
     cache[key] = np.asarray(img.convert("RGBA")) if img is not None else None
@@ -177,9 +185,62 @@ def live_path(site: RenderSite, bx, by, part):
     return root / f"r{by}" / f"Block[{bx}][{by}] {part}.ff9mesh"
 
 
-def load_batches(site: RenderSite, part_src=None):
+SEA_BLOCK_PREFAB = ((12, 0), "sea4f")          # the engine's SeaBlockPrefab: Block[12][0]'s full-cell Sea4
+LAND_DONOR_FALLBACK = (12, 10)                  # a divert with no (or a bad) Donor.txt binds inland Block[12][10]
+
+
+def effective_prefab(site: RenderSite, bx, by):
+    """``(prefab_block or None, reason)`` -- whose prefab the engine binds at cell (bx, by), the s34 rule
+    (``WMWorld.cs:525-573``; ``studies/terrain-malleability/consumption/bind_oracle.py``):
+      * a block with its own prefab (on disc 1/4: the 275 the bundles carry) binds it; a Donor.txt there is dead;
+      * an IsSea cell (no prefab of its own; every cell of a Path D world) WITH a Terrain override diverts to its
+        ``Donor.txt`` block, else to Block[12][10];
+      * an IsSea cell without a Terrain override is open sea: ``None`` (the SeaBlockPrefab, Sea4 only)."""
+    site = site.resolved()
+    asset_disc = site.disc if site.disc in (1, 4) else 1
+    own = X.block_parts(disc=asset_disc, game=site.game)
+    if site.disc in (1, 4) and (bx, by) in own:
+        return (bx, by), "own prefab"
+    if not live_path(site, bx, by, "Terrain").is_file():
+        return None, "SeaBlockPrefab"
+    dt = live_path(site, bx, by, "Terrain").parent / f"Block[{bx}][{by}] Donor.txt"
+    if dt.is_file():
+        try:
+            dx, dy = (int(v) for v in dt.read_text(encoding="utf-8").strip().split(",")[:2])
+            if (dx, dy) in own:
+                return (dx, dy), f"Donor.txt -> {dx},{dy}"
+        except ValueError:
+            pass
+        return LAND_DONOR_FALLBACK, "Donor.txt unreadable -> 12,10"
+    return LAND_DONOR_FALLBACK, "no Donor.txt -> 12,10"
+
+
+def _stock_part(site: RenderSite, bx, by, part):
+    """The BlockMesh the engine binds for ``part`` at a cell with NO override file for it, or None: the
+    effective prefab's own child, at its block-local pose (a diverted cell renders its donor's part there --
+    the free-ride)."""
+    asset_disc = site.disc if site.disc in (1, 4) else 1
+    prefab, _ = effective_prefab(site, bx, by)
+    if prefab is None:
+        if part != "Sea4":
+            return None
+        prefab, child = SEA_BLOCK_PREFAB
+    else:
+        child = part.lower()
+        if child not in X.block_parts(disc=asset_disc, game=site.game).get(prefab, ()):
+            return None
+    try:
+        return X.read_block(prefab[0], prefab[1], disc=asset_disc, part=child, game=site.game)
+    except ValueError:
+        return None
+
+
+def load_batches(site: RenderSite, part_src=None, *, stock: bool = False):
     """[(part, verts Nx3 world, uvs Nx2, tris Mx3)]; ``part_src`` maps
-    (bx,by,part)->Path overriding the live file (walk_sim convention)."""
+    (bx,by,part)->Path overriding the live file (walk_sim convention). ``stock=True`` renders what the
+    ENGINE binds where no override file exists -- the cell's effective prefab part (:func:`effective_prefab`):
+    stock land under the overrides, open sea round them, and the donor's free-riding parts (a carried river
+    that is not an override) -- so the eye sees the game, not only the deployed files."""
     _require_numpy()
     site = site.resolved()
     batches = []
@@ -189,10 +250,15 @@ def load_batches(site: RenderSite, part_src=None):
             p = live_path(site, bx, by, part)
             if part_src is not None:
                 p = part_src.get((bx, by, part), p)
-            if not p.is_file():
+            if p.is_file():
+                bm = M.blockmesh_from_ff9mesh(p, disc=site.disc, x=bx, y=by,
+                                              part=part.lower())
+            elif stock:
+                bm = _stock_part(site, bx, by, part)
+                if bm is None:
+                    continue
+            else:
                 continue
-            bm = M.blockmesh_from_ff9mesh(p, disc=site.disc, x=bx, y=by,
-                                          part=part.lower())
             pos = np.asarray(bm.chan_arrays[X.CH_POS], dtype=np.float64)
             uvc = bm.chan_arrays.get(X.CH_UV)
             uv = np.asarray(uvc, dtype=np.float64)[:, :2] if uvc is not None \
