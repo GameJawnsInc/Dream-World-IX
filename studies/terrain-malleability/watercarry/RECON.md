@@ -30,6 +30,7 @@ lake onto a kit island the way `world-forest` and `world-mountain` carry canopy 
 | `lab_build.py` | PLAN rung 4: cluster C composed at block offset (8,-2) (no live folder holds those cells), written as the lab folder with the mist off (-> out/lab/FF9CustomMap-lab, out/lab/build.json) |
 | `lab_prep.py` | PLAN rung 4: the engine's ground and movement rules over the lab files -- probe heights, the walk and boat stops, the view homes (-> out/lab/prep.json) |
 | `lab_install.py` | PLAN rung 4: `install` puts the lab first in FolderNames (Memoria.ini backed up); `uninstall RUN_DIR` restores the ini byte-exact and moves the lab out |
+| `falls_recon.py` | FALLS.md, reads only: cluster D's falls is Alexandria's, born in the continental highland (no lawful unit); the horseshoe control, the Object welds, the pinned spray (-> out/falls_recon.json, out/falls_plan.png) |
 | `escarpment_recon.py` | RUNG5.md 5c, reads only: the rect scan round the source (0 of 60 close on lowland) and the high component the source is born in (65 blocks, the continent's highland) (-> out/escarpment_recon.json) |
 | `rung5b_identity.py` | RUNG5.md 5b: CLI vs `[[river]]` recipe into scratch folders (264 files byte-identical), the removal owning a fused river, a forest row on the river island (-> out/rung5b.json) |
 | `mouth_compare.py` | The live river's mouth against home, tri for tri, every channel; names the two lifted shallow tris at the beach corners (-> out/mouth_compare.json) |
@@ -367,7 +368,9 @@ It belongs in the kit as a verb (`world-river`?) with its own tests, after a pla
 in-game round: the river animates, the banks and bridge walk as stock, the mouth reads as stock, and the owner's
 eye passes it.
 
-**R2 -- a falls in its mountain (cluster D, or a new massif donor).**
+**R2 -- a falls in its mountain (cluster D, or a new massif donor).** CLOSED (2026-10-20, `FALLS.md`): cluster D is
+Alexandria's falls, and its plateau is the continental highland, so no lawful unit holds it. The horseshoe stays the
+only carriable falls (in game already).
 - **What:** `world-mountain`'s ensemble carry with Stream added to `ENSEMBLE_PARTS` and `Donor.txt` -> (19,11).
 - **But:** cluster D's falls drops from a plateau at 26 to the lowland, and the plateau is not a qualified massif. It
   needs its own anatomy study first (as comp26/comp10 do, `../mountaindonors/NOTES.md`). Parked behind R1.
