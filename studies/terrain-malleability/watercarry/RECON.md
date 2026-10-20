@@ -22,6 +22,7 @@ lake onto a kit island the way `world-forest` and `world-mountain` carry canopy 
 | `seat_dryrun.py` | R1: the ensemble seated verbatim into a minted grass bench -- hole, the ported apron (`--no-apron` to compare), DP zip, gates, failures localized (-> out/seat.json, out/seat_plan.png) |
 | `mouth.py` | R1: the stock mouth -- what its sea edge welds to, the bands round it, the beach arcs it splits (-> out/mouth.json) |
 | `lips.py` | R1: the bay's two rocky lips against the kit island's lip, in the coast laws' terms (-> out/lips.json) |
+| `closure.py` | R1: candidate fragment boundaries, THE COMPONENT CLOSURE and THE MINIMAL FRAGMENT, each boundary classed (-> out/closure.json) |
 
 ## 1. What was already settled (July)
 
@@ -297,19 +298,49 @@ the kit's r90 ring:
   columns, both of which already match the kit's crest. It carries verbatim and joins the kit wall at two columns
   where the profiles agree.
 
-*What R1 still needs.*
-1. **The mouth: the bay as one assembly.** Carry the ~157u bay (both beach arcs, their bands, the river mouth) with the
-   river ensemble, and join it to the kit island's coast at the two rocky lips. The profile question is answered
-   (round 3: the same language, with join columns at the kit's height on both lips). Next rung, offline: a bay-carry
-   dry run. Mint the island with an opening between the two join columns, place the ~200u bay assembly verbatim, snap
-   the two join verts, resample the kit wall's U to both phases, re-band the water with the rim retile, then run every
-   coast gate (crack, grain, weld audit, census, Wang carry) plus the ensemble's own.
-2. **The source:** a `world-mountain` massif seated so its foot meets the source tip, where the channel-marker tri
-   now closes the channel. Composition only.
-- **Accept (unchanged):**
-  - offline: every gate, and R0's visibility gate on every bank;
-  - in game: the stream animates, its banks walk as stock, the bridge carries the player across, the mouth reads as
-    stock, and the owner's eye passes it.
+*Round 4 (offline): is there a fragment that cuts no component? (`closure.py`, plan in `out/bay_plan.png`)*
+- **The shape.** The river comes from the north-east, bends west and runs south to its mouth at the top-left of a
+  large cove. The cove holds a small beached island and opens to deep sea at the south-east. E sits on a headland
+  tip (its wall faces east); W is on the cove's south-west shore.
+- **The landward boundary must cut only lattice ground** (grass, sand). A forest canopy, a rock massif and an Object
+  carry whole or not at all. Convex hulls of the river + cove, grown 6u and 12u, cross 76 / 66u of forest and
+  58 / 135u of rock.
+- **THE COMPONENT CLOSURE** (add every whole forest and Object touching the set) still meets rock for 138u: the three
+  forests here stand at the escarpment's foot.
+- **THE MINIMAL FRAGMENT:** 1,397 tris. It is the river ensemble (parts, banks, source marker, bridge) plus the cove
+  assembly: 879 water and beach tris on the bay side of the W-E chord, 158 lip, sand and beach tris closed along the
+  coast, and the island (59). Forests and the tower are LEFT HOME, not cut: a component beside the fragment is not
+  part of it.
+
+  | boundary class | length | what it is |
+  |---|---|---|
+  | grass | 592.3u | the zip |
+  | water | 143.0u | the knit, all along the chord |
+  | forest | 48.6u | canopies beside the river bank, left home |
+  | lip | 26.4u | 3 edges at the join columns, plus a few back rows mid-bay |
+  | sand | 20.5u | back rows mid-bay |
+  | beach | 9.1u | back rows mid-bay |
+  | rock | 5.7u | the source contact, 110-190u from the joins |
+
+  So the bay carry is lawful in TOPOLOGY. The few mid-bay coastal back-row edges are a set-definition tail, not a
+  component cut.
+
+*What R1 still needs: the composition, which is a kit-feature build, not a study script.*
+1. a mint that takes a custom outline: the kit arc from E round the land to W, closed by the chord;
+2. the opening: drop the mint inside the fragment's footprint, insert the fragment verbatim;
+3. an OPEN-chain zip between the kit lawn's hole arc and the fragment's land boundary, crest E to crest W
+   (`interior._zip_dp` is cyclic);
+4. the two join columns: snap the kit's outline and rim verts onto the stock base and crest, and set the U of the
+   join-adjacent kit wall to the stock u (0.8242 at E, 0.752 at W), with the kit arc resampled to land both phases;
+5. the water along the chord: the fragment's bands against the kit's Sea4, re-banded by the rim retile;
+6. the source: a `world-mountain` massif seated so its foot meets the source tip;
+7. every gate (crack, grain, weld audit, census, Wang carry, skip parity), then a scratch-folder deploy and the
+   offline render (`world-render --stock`).
+
+Each step is authored surface. Built inside a study script, it would be the feature itself, built without a plan.
+It belongs in the kit as a verb (`world-river`?) with its own tests, after a plan the owner signs off. Then one
+in-game round: the river animates, the banks and bridge walk as stock, the mouth reads as stock, and the owner's
+eye passes it.
 
 **R2 -- a falls in its mountain (cluster D, or a new massif donor).**
 - **What:** `world-mountain`'s ensemble carry with Stream added to `ENSEMBLE_PARTS` and `Donor.txt` -> (19,11).
