@@ -1043,6 +1043,14 @@ plugs wear the rock collar's own affine UV chart, gated against the atlas rock b
 * **`--rot DEG`, any angle** — the massif turns about its centre (clockwise seen from above); quarter turns keep
   the exact integer swap (the approved bytes), other angles the same rotation by cos/sin. Rotation about Y keeps
   every UV; the grass stays on its lattice and the zip is minted fresh. In game: Uaho at 0/45/30° (×1.5), owner-passed.
+* **`--spread S` (1.0–1.5), wider in plan** — the whole carry (rock, rim, plugs, any falls/river parts) scaled S
+  times about its centre inside the one donor-to-world map, heights kept, UVs carried; normals take the inverse
+  transpose. With `--rock-height S` too it scales uniformly. The rock-rigid gate measures against the widened
+  shape. THE RIM GRAIN (the forest's law): a rim edge longer than the donor's longest is split along itself (a
+  planar fan, renders the same), so the zip never bridges a coarser rim than the donor's. Offline: 46/48 widened
+  carves over the five donors at four angles; the horseshoe refuses two placements where a widened falls part
+  straddles a block border (a census MISS). The footprint grows S², so mint a bigger island. In game: Uaho at
+  ×1.25, ×1.5 and ×1.5 scaled whole, 57/57, owner-passed. Terrain study lane `studies/terrain-malleability/mountainspread/`.
 * **THE HOME-GROUND WARNING** — every massif donor stands on ONE ground family at home (its rim's feet): Uaho,
   comp20 and the horseshoe on grass, the crag and the desert peak (`--donor 19,3`) on desert. The donor catalog
   (`world/data/donors.toml`, `home_ground`) records it; `world-mountain` and `world-fuse`'s `[[mountain]]` warn

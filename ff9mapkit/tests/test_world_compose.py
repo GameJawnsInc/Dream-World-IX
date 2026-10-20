@@ -198,9 +198,9 @@ def _spy_relief(monkeypatch):
     (["world-forest", "--near", "300,-500"],                       # every default, no donor key
      "forest", {"near": [300, -500]}),
     (["world-mountain", "--center", "300,-500", "--donor", "19,3", "--ground", "desert",
-      "--rot", "200", "--rock-height", "1.5"],
+      "--rot", "200", "--rock-height", "1.5", "--spread", "1.25"],
      "mountain", {"center": [300, -500], "donor": "19,3", "ground": "desert", "rot": 200,
-                  "rock_height": 1.5}),
+                  "rock_height": 1.5, "spread": 1.25}),
     (["world-mountain", "--near", "300,-500", "--donor", "10,5-6", "--reach", "128"],
      "mountain", {"near": [300, -500], "donor": "10,5-6", "reach": 128}),
     (["world-mountain", "--near", "300,-500"],                     # --near scans the four turns

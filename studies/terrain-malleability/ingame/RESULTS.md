@@ -1123,6 +1123,30 @@ The owner judged labelled panels (`mountain_panel_*.png`). **Verdict: "yes".** T
 mountain at 0 deg, at 200 deg and at x1.5. It is qualified in `ff9mapkit/world/data/donors.toml` as `desert-peak`
 (`19,3`, home ground desert).
 
+## Round 20 (2026-10-19, owner's go: "do the mountain size handle next"): a carried mountain, wider, `world-mountain --spread`, 57/57; the owner passes it
+
+Run `20261019-202244-mountain-spread` (the lane: `../mountainspread/NOTES.md`). One grass scratch island (`world-island`,
+r58, blocks (20,0)-(22,2)) carved four ways at one shared centre (1386, -104), 0 deg, donor Uaho: A rigid, B `--spread
+1.25`, C `--spread 1.5`, D `--spread 1.5 --rock-height 1.5`. The lab first in FolderNames with its mist-off
+Environment.txt, reached through bench 6603. This time the install and the byte-exact restore were scripted
+(`lab_install.py`: the ini backed up to the main repo's `backups/`, restored sha efaebbf47c36e752, the lab moved into
+the run dir).
+
+### 35. A carried mountain, wider
+
+All 57 checks passed on the first launch, in 420 s:
+- **P1 holds:** every stage reached the world, and every summit read its variant: 11.7578 / 11.7461 / 11.7539 /
+  15.7266 against 11.7614 / 11.7492 / 11.7546 / 15.7298. The widened carves seat exactly where the rigid one does.
+- **P2 holds:** 48/48 points round the foot read the built ground.
+- **P3 holds:** all 8 walks kept to the built ground. Every sample stood within 0.15 of a built surface that was not
+  rock, and none dipped below y 3.07 (the west walks were blocked at the foot; the east ones passed beside the rock).
+  Round 19's lesson applied: the walk is judged by its trace, not by "blocked".
+- **P4 holds:** every home read 3.199.
+- Stills settled: at most 0.10% of pixels changed between each pair, 60 frames apart.
+
+The owner judged labelled panels (`mountain_panel_*.png`, four sides). **Verdict: "B, C and D all read as stock
+mountains."** `MTN_SPREAD_MAX` stays 1.5, as the forest's.
+
 ## Not run
 
 - The boat "none" phase (see section 9).

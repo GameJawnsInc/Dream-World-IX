@@ -132,7 +132,10 @@ MTN_FOOT_NY_FLOOR = 0.25         # foot-course tris are DELIBERATELY steep rock 
 #                                  topo 49, exempt from the grass zip envelope); below
 #                                  ~75 deg they are slivers, refuse
 MTN_ROCK_RIGID = 0.035           # THE ROCK-RIGID GATE: max carried-edge length drift
-#                                  (against the DECLARED shape: the donor, or its --rock-height map)
+#                                  (against the DECLARED shape: the donor, or its --rock-height /
+#                                  --spread map)
+MTN_SPREAD_MAX = 1.5             # --spread ceiling: the owner passed Uaho widened x1.5, alone and scaled
+#                                  whole, in game (terrain study round 20, mountainspread/)
 MTN_ROCK_HEIGHT_MAX = 2.0        # --rock-height ceiling: the owner passed the Uaho rock stretched
 #                                  x2.0 in game ("2x honestly doesn't look bad", terrain study X1,
 #                                  RESULTS section 30); past it is untested
@@ -1629,6 +1632,135 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
                 r_rim=r_rim, ta=ta, tb=tb, dV2=dV2, dN2=dN2, rim2=rim2)
 
 
+def _plan_spread(V, c, s: float):
+    """THE DECLARED ``--spread`` SHAPE: positions ``V`` (N x 3) widened ``s`` times in plan about
+    ``c = (x, z)``, heights kept -- what the rock-rigid gate measures a spread carry against."""
+    import numpy as np
+    out = np.array(V, dtype=np.float64)
+    out[:, 0] = c[0] + s * (out[:, 0] - c[0])
+    out[:, 2] = c[1] + s * (out[:, 2] - c[1])
+    return out
+
+
+def _mountain_rim_grain(B, s: float, *, log=print):
+    """THE RIM GRAIN, for a widened massif (``world-mountain --spread``; the forest's own law,
+    ``../canopyspread/NOTES.md``): a spread rim edge is ``s`` times its donor length, and the zip that
+    bridges it grows with it (comp20 at x1.5: 10.2u chords against the 9u edge gate). Split every outer
+    rim edge whose WIDENED plan length exceeds the donor's longest rim edge into equal pieces, by
+    splitting the blob tri that owns it -- a planar fan from the opposite corner, position, UV and
+    normal lerped along the edge, so it renders the same -- and the carried rim is never coarser than
+    the donor's. Runs on the donor blob AFTER the de-tilt fit (the fit, and so the look, is unchanged);
+    the new points join the rim ring, so ``--rock-height`` pins them like any rim position.
+
+    An edge a footprint-sweep tri also touches is left whole (splitting it would T-junction the
+    verbatim shingle); if it is too long the edge gate still refuses. Every per-vertex array -- the
+    raw and de-tilted positions and normals, the UVs, and ``dVref`` when given (the rock-rigid gate's
+    declared shape, which a ``--rock-height`` map has already set) -- extends by lerping its OWN two
+    endpoint values, so a split adds nothing a map has not declared. Returns ``(B', splits)``."""
+    import numpy as np
+    dV, dV2, dU = B["dV"], B["dV2"], B["dU"]
+    ref = B.get("dVref")
+    dN, dN2, dT = list(B["dN"]), list(B["dN2"]), list(B["dT"])
+    dtri, dtopo, blob = [list(t) for t in B["dtri"]], list(B["dtopo"]), set(B["blob"])
+    rim = list(B["rim"])
+    n0 = len(rim)
+    elen = [math.hypot(rim[k][0] - rim[(k + 1) % n0][0], rim[k][2] - rim[(k + 1) % n0][2]) for k in range(n0)]
+    L0 = max(elen)
+    sweep_keys = [{kk3(dV[i]) for i in dtri[t]} for t in B["sweep"]]
+    add_V, add_V2, add_U, add_R = [], [], [], []
+    nV = len(dV)
+
+    def pos(i):
+        return dV[i] if i < nV else add_V[i - nV]
+
+    def pos2(i):
+        return dV2[i] if i < nV else add_V2[i - nV]
+
+    def uv(i):
+        return dU[i] if i < nV else add_U[i - nV]
+
+    def rpos(i):
+        return ref[i] if i < nV else add_R[i - nV]
+
+    def lerp_n(n_a, n_b, f):                       # normals: lerped, at the first's length
+        na, nb = np.asarray(n_a, dtype=np.float64), np.asarray(n_b, dtype=np.float64)
+        nm = na + f * (nb - na)
+        return (nm * (float(np.linalg.norm(na)) / (float(np.linalg.norm(nm)) or 1.0))).tolist()
+    out_rim, splits, kept_long = [], 0, 0
+    for k in range(n0):
+        ka, kb = rim[k], rim[(k + 1) % n0]
+        out_rim.append(ka)
+        k_n = math.ceil(elen[k] * s / L0 - 1e-9)
+        if k_n <= 1:
+            continue
+        if any(ka in sk and kb in sk for sk in sweep_keys):
+            kept_long += 1
+            continue
+        owner = None
+        for t in blob:
+            tri = dtri[t]
+            for a in range(3):
+                b = (a + 1) % 3
+                if {kk3(pos(tri[a])), kk3(pos(tri[b]))} == {ka, kb}:
+                    owner = (t, a, b, 3 - a - b)
+                    break
+            if owner:
+                break
+        if owner is None:
+            raise ValueError(f"rim grain: no blob tri owns the rim edge {ka} -- {kb}")
+        t, a, b, c3 = owner
+        tri = dtri[t]
+        ia, ib, ic = tri[a], tri[b], tri[c3]
+        pa, pb = np.asarray(pos(ia), dtype=np.float64), np.asarray(pos(ib), dtype=np.float64)
+        qa, qb = np.asarray(pos2(ia), dtype=np.float64), np.asarray(pos2(ib), dtype=np.float64)
+        ua, ub = np.asarray(uv(ia), dtype=np.float64), np.asarray(uv(ib), dtype=np.float64)
+        chain = [ia]
+        for j in range(1, k_n):
+            f = j / k_n
+            add_V.append(pa + f * (pb - pa))
+            add_V2.append(qa + f * (qb - qa))
+            add_U.append(ua + f * (ub - ua))
+            if ref is not None:
+                ra, rb = np.asarray(rpos(ia), dtype=np.float64), np.asarray(rpos(ib), dtype=np.float64)
+                add_R.append(ra + f * (rb - ra))
+            dN.append(lerp_n(dN[ia], dN[ib], f))
+            dN2.append(lerp_n(dN2[ia], dN2[ib], f))
+            dT.append(list(dT[ia]))
+            chain.append(nV + len(add_V) - 1)
+        chain.append(ib)
+        pieces = [[chain[j], chain[j + 1], ic] for j in range(k_n)]      # a->b order keeps the winding
+        dtri[t] = [None, None, None]
+        for slot, v in ((a, pieces[0][0]), (b, pieces[0][1]), (c3, ic)):
+            dtri[t][slot] = v
+        for pc in pieces[1:]:
+            tri2 = [None, None, None]
+            tri2[a], tri2[b], tri2[c3] = pc
+            dtri.append(tri2)
+            dtopo.append(dtopo[t])
+            blob.add(len(dtri) - 1)
+        mids = [kk3(add_V[i - nV]) for i in chain[1:-1]]
+        same_dir = kk3(pa) == ka
+        out_rim.extend(mids if same_dir else mids[::-1])
+        splits += 1
+    if not splits:
+        return B, 0
+    dV_ = np.vstack([dV, np.array(add_V)])
+    # rim2 stays the donor's: it only seats the massif (the median rim height), and a split must not move the seat
+    B2 = dict(B, dV=dV_, dV2=np.vstack([dV2, np.array(add_V2)]), dU=np.vstack([dU, np.array(add_U)]),
+              dN=dN, dN2=dN2, dT=dT, dtri=dtri, dtopo=dtopo, blob=blob, rim=out_rim, rim_set=set(out_rim))
+    if ref is not None:
+        B2["dVref"] = np.vstack([np.asarray(ref, dtype=np.float64), np.array(add_R)])
+    d_edge = defaultdict(list)
+    for t, idx in enumerate(dtri):
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            d_edge[tuple(sorted((kk3(dV_[idx[a]]), kk3(dV_[idx[b]]))))].append(t)
+    B2["d_edge"] = d_edge
+    log(f"rim grain: {splits} rim edge(s) split to the donor's grain ({L0:.1f}u); rim ring {n0} -> "
+        f"{len(out_rim)} positions" + (f"; {kept_long} long edge(s) left whole beside a sweep shingle"
+                                         if kept_long else ""))
+    return B2, splits
+
+
 def _rock_height_map(B, s: float, *, rock_topos, log=print):
     """THE DECLARED ROCK HEIGHT (``world-mountain --rock-height``; terrain study X1, in-game
     passed to x2.0): stretch the carried rock pure-Y about its pinned rim, UV carried --
@@ -1728,7 +1860,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                    scan_band=None, gblend=MTN_GBLEND, search_radius=10, search_step=2,
                    scan_cutoff=60, ground: str = "grass", disc: int = 1, game=None,
                    max_apron_lift=None, foot_course_rects=None, rock_height: float = 1.0,
-                   rot_deg=None, log=print) -> dict:
+                   rot_deg=None, spread: float = 1.0, log=print) -> dict:
     """Carry a REAL rock massif (largest ``rock_topos`` component + enclosed raised tris
     + optional alcove floor + Object-aperture plugs) verbatim onto the island at
     ``center`` (exact placement, rotation 0) or the best lawful placement scanned around
@@ -1771,6 +1903,14 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     ``rot_deg=0`` is byte-identical to the default ``center`` carry. ``None`` = the four
     quarter turns (scan) / 0 (exact), as before.
 
+    ``spread`` (1.0..:data:`MTN_SPREAD_MAX`) scales the whole carry ``spread`` times wider in
+    plan about the blob centre, heights kept: the massif twin of ``world-forest --spread``.
+    It rides the one donor-to-world map (``rot_pt``: scale, then turn), so the rock, the rim,
+    the plugs and any ensemble part move alike and every weld holds; normals take the
+    inverse transpose (nx/s, ny, nz/s) at their original length; UVs and topographs stay the
+    donor's. The rock-rigid gate measures against the plan-scaled donor (the declared
+    shape). With ``rock_height`` equal to it, the massif scales uniformly. 1.0 = byte-identical.
+
     Returns ``{"changed", "center", "rot", "drop", "report"}``; raises ``ValueError`` on
     any gate."""
     import numpy as np
@@ -1785,6 +1925,10 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         alcove_box = alcove
     SCAN_BAND = (clear + 4.0) if scan_band is None else scan_band
     ROCK = frozenset(rock_topos)
+    SPREAD = float(spread)
+    if not (math.isfinite(SPREAD) and 1.0 <= SPREAD <= MTN_SPREAD_MAX):
+        raise ValueError(f"--spread {spread:g} is outside 1.0..{MTN_SPREAD_MAX:g} (x{MTN_SPREAD_MAX:g} is the "
+                         f"widest massif seen in game: terrain study round 20)")
 
     # THE DONOR-DISPATCH STRIP: a carried IDALL keeps its topograph + flags but drops the
     # donor's event/area bits -- those are DISPATCH CONTEXT (area feeds the overworld
@@ -1799,6 +1943,15 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     # ---- 1. the donor blob ----------------------------------------------------------------
     B = _mountain_blob(donor_blocks, rock_topos=ROCK, alcove_box=alcove_box,
                        disc=disc, game=game, log=log)
+    dVref, rh = B["dV"], None                  # the rock-rigid gate's reference: the donor ...
+    if rock_height != 1.0:                     # ... or its declared --rock-height stretch
+        _V2, _N2, dVref, rh = _rock_height_map(B, float(rock_height), rock_topos=ROCK, log=log)
+        B = dict(B, dV2=_V2, dN2=_N2)
+    rim_splits = 0
+    if SPREAD > 1.0:                           # THE RIM GRAIN: never a rim coarser than the donor's -- AFTER
+        # the height map, so it pins the donor's own rim (X1's map, bit for bit); the new points sit between pins
+        B, rim_splits = _mountain_rim_grain(dict(B, dVref=dVref), SPREAD, log=log)
+        dVref = B["dVref"]
     dV, dU, dN, dT = B["dV"], B["dU"], B["dN"], B["dT"]
     dtri, dtopo, d_edge = B["dtri"], B["dtopo"], B["d_edge"]
     blob, rim, rim_set, apertures = B["blob"], B["rim"], B["rim_set"], B["apertures"]
@@ -1807,9 +1960,11 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     oV, oN, otris = B["oV"], B["oN"], B["otris"]
     c_local, r_rim, ta, tb = B["c_local"], B["r_rim"], B["ta"], B["tb"]
     dV2, dN2, rim2 = B["dV2"], B["dN2"], B["rim2"]
-    dVref, rh = dV, None                       # the rock-rigid gate's reference: the donor ...
-    if rock_height != 1.0:                     # ... or its declared --rock-height stretch
-        dV2, dN2, dVref, rh = _rock_height_map(B, float(rock_height), rock_topos=ROCK, log=log)
+    if SPREAD != 1.0:                          # ... widened in plan by the declared --spread
+        dVref = _plan_spread(dVref, c_local, SPREAD)
+        log(f"spread x{SPREAD:g}: the carry is {SPREAD:g} times wider in plan about its centre "
+            f"(radius {r_rim:.1f} -> {r_rim * SPREAD:.1f}u), heights kept")
+    r_rim = r_rim * SPREAD                     # the PLACED footprint sizes the span (x1.0: unchanged)
 
     def detilt_p(p):
         return (p[0], p[1] - ta * (p[0] - c_local[0]) - tb * (p[2] - c_local[1]), p[2])
@@ -2011,9 +2166,14 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     once0 = {e for e, n in eu0.items() if n == 1}
 
     # ROT counts quarter turns: an int takes the exact swap (the in-game-approved bytes); a
-    # float is a free angle (``rot_deg``), the same rotation by cos/sin -- k = 1 gives (dz, -dx)
+    # float is a free angle (``rot_deg``), the same rotation by cos/sin -- k = 1 gives (dz, -dx).
+    # THE ONE DONOR-TO-WORLD MAP: every carried position (rock, rim, plugs, ensemble parts) and
+    # every placement test goes through here, so ``spread`` scales them all alike -- scale, then
+    # turn -- and x1.0 skips the multiply (the frozen bytes)
     def rot_pt(p, k):
         dx3, dz3 = p[0] - c_local[0], p[2] - c_local[1]
+        if SPREAD != 1.0:
+            dx3, dz3 = dx3 * SPREAD, dz3 * SPREAD
         if isinstance(k, int):
             for _ in range(k):
                 dx3, dz3 = dz3, -dx3
@@ -2024,6 +2184,11 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
 
     def rot_n(n, k):
         nx, nz = n[0], n[2]
+        if SPREAD != 1.0:                      # the inverse transpose of diag(s, 1, s), length kept
+            L0 = math.sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2])
+            mx, my, mz = nx / SPREAD, n[1], nz / SPREAD
+            L1 = math.sqrt(mx * mx + my * my + mz * mz) or 1.0
+            nx, nz, n = mx * L0 / L1, mz * L0 / L1, (n[0], my * L0 / L1, n[2])
         if isinstance(k, int):
             for _ in range(k):
                 nx, nz = nz, -nx
@@ -3192,7 +3357,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                          "gets no rock course)")
     if worst_rig >= MTN_ROCK_RIGID:
         raise ValueError("carried rock deformed beyond the de-tilt affine"
-                         + (f" and its declared x{rock_height:g} height" if rh else ""))
+                         + (f" and its declared x{rock_height:g} height" if rh else "")
+                         + (f" and x{SPREAD:g} spread" if SPREAD != 1.0 else ""))
     if rh:
         _peak = max(p[1] for ps in carried.values() for p in ps)
         if _peak > STOCK_TERRAIN_MAX_Y:
@@ -3404,7 +3570,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                        "peak_y": round(float(
                            max(p[1] for ps in carried.values() for p in ps)), 2),
                        "zip_rise": round(zip_rise, 2), "rock_rigid": round(worst_rig, 4),
-                       "rock_height": rh,
+                       "rock_height": rh, "spread": SPREAD, "rim_splits": rim_splits,
                        "apron_slope": round(g_worst, 1), "lifted": len(lift_of),
                        "patched_holes": patched_holes,
                        "lawn_snapped": lawn_snap["entries"],

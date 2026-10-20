@@ -788,6 +788,87 @@ def test_carve_mountain_rot_deg_turns_the_massif_to_any_angle(monkeypatch, tmp_p
         _carve_pyramid(tmp_path, rot_deg=float("nan"))
 
 
+def _faceted_pyramid_donor(**kw):
+    """The pyramid with each face's stored normal its geometric normal (``_bm`` stores +y)."""
+    bm = _pyramid_donor(**kw)
+    pos, nrm = bm.chan_arrays[CH_POS], bm.chan_arrays[CH_NRM]
+    for tri in bm.tris:
+        a, b, c = (np.asarray(pos[i], dtype=float) for i in tri)
+        n = np.cross(b - a, c - a)
+        for i in tri:
+            nrm[i] = (n / np.linalg.norm(n)).tolist()
+    return bm
+
+
+def _rock_tris(res):
+    """The carried rock tris as (corner positions, corner normals), in emitted order."""
+    bm = res["changed"][(0, 0)]
+    pos, nrm, tan = bm.chan_arrays[CH_POS], bm.chan_arrays[CH_NRM], bm.chan_arrays[CH_TAN]
+    return [([pos[i] for i in t], [nrm[i] for i in t]) for t in bm.tris if tan[t[0]][0] == MASSIF]
+
+
+def test_carve_mountain_spread_widens_the_massif_in_plan_and_keeps_its_heights(monkeypatch, tmp_path):
+    """--spread (the massif twin of world-forest --spread): the pyramid's base corners land at centre +
+    1.5 x their rigid offset, the apex stays put, UVs carried; every rock normal is still its carried face's
+    normal (the inverse transpose of a plan scale is exact on a plane); the rigidity gate measures the carry
+    against the widened shape (drift 0, not the raw donor's 50%)."""
+    _patch_donor(monkeypatch, _faceted_pyramid_donor())
+    rigid = _carve_pyramid(tmp_path)
+    res = _carve_pyramid(tmp_path, spread=1.5)
+    r = res["report"]
+    assert r["spread"] == 1.5 and r["rock_rigid"] < 1e-6
+    assert r["peak_y"] == pytest.approx(3.2 + 4.0, abs=1e-6)
+    # THE RIM GRAIN: each 12u widened base edge (the donor's are 8u) splits in two at its midpoint
+    assert r["rim_splits"] == 4 and len(_rock_tris(res)) == 8
+    base = {(round(p[0] - 26.0, 3), round(p[2] + 26.0, 3)) for ps, _ in _rock_tris(res) for p in ps
+            if p[1] < 3.2 + 1e-6}
+    assert base == {(dx, dz) for dx in (-6.0, 0.0, 6.0) for dz in (-6.0, 0.0, 6.0)} - {(0.0, 0.0)}
+    for ps, ns in _rock_tris(res):
+        a, b, c = (np.asarray(p, dtype=float) for p in ps)
+        face = np.cross(b - a, c - a)
+        face /= np.linalg.norm(face)
+        for n in ns:
+            assert np.linalg.norm(n) == pytest.approx(1.0, abs=1e-9)
+            assert np.allclose(n, face, atol=1e-9)
+    uv = lambda rr: sorted(tuple(u) for u, t4 in zip(rr["changed"][(0, 0)].chan_arrays[CH_UV],  # noqa: E731
+                                                     rr["changed"][(0, 0)].chan_arrays[CH_TAN]) if t4[0] == MASSIF)
+    assert set(uv(res)) == set(uv(rigid))                                 # carried (and lerped on a split edge)
+    assert res["report"]["dropped"] > rigid["report"]["dropped"]          # a wider hole for a wider foot
+
+
+def test_carve_mountain_spread_with_matching_height_is_a_uniform_scale(monkeypatch, tmp_path):
+    """--spread s with --rock-height s: the massif scaled whole about its foot -- every carried rock vertex, shrunk
+    back by s about (centre, bench height), lies on the rigid pyramid's surface, and the apex is s times as tall."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    res = _carve_pyramid(tmp_path, spread=1.5, rock_height=1.5)
+    assert res["report"]["peak_y"] == pytest.approx(3.2 + 6.0, abs=1e-5) and res["report"]["rock_rigid"] < 1e-6
+    for ps, _ in _rock_tris(res):
+        for p in ps:
+            dx, h, dz = (p[0] - 26.0) / 1.5, (p[1] - 3.2) / 1.5, (p[2] + 26.0) / 1.5
+            assert max(abs(dx), abs(dz)) <= 4.0 + 1e-9
+            assert h == pytest.approx(4.0 * (1.0 - max(abs(dx), abs(dz)) / 4.0), abs=1e-6)
+
+
+def test_carve_mountain_spread_one_is_the_rigid_carry_and_refusals(monkeypatch, tmp_path):
+    _patch_donor(monkeypatch, _pyramid_donor())
+    rigid = M.write_ff9mesh(_carve_pyramid(tmp_path)["changed"][(0, 0)], tmp_path / "a.ff9mesh").read_bytes()
+    same = M.write_ff9mesh(_carve_pyramid(tmp_path, spread=1.0)["changed"][(0, 0)],
+                           tmp_path / "b.ff9mesh").read_bytes()
+    assert rigid == same
+    for s in (0.9, IN.MTN_SPREAD_MAX + 0.01, float("nan")):           # past what was seen in game
+        with pytest.raises(ValueError, match=r"outside 1\.0\.\.1\.5"):
+            _carve_pyramid(tmp_path, spread=s)
+
+
+def test_carve_mountain_spread_gate_still_catches_an_undeclared_widening(monkeypatch, tmp_path):
+    """Break-it: if the carry widened the rock but declared the RAW donor as its shape, the rock-rigid gate must
+    refuse -- the declared shape is what licenses the stretch, nothing else."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    monkeypatch.setattr(IN, "_plan_spread", lambda V, c, s: np.array(V, dtype=float))
+    with pytest.raises(ValueError, match="deformed beyond"):
+        _carve_pyramid(tmp_path, spread=1.5)
+
+
 def test_cli_world_mountain_passes_rock_height_and_rot(monkeypatch, capsys):
     from ff9mapkit import cli
     seen = {}
@@ -803,12 +884,12 @@ def test_cli_world_mountain_passes_rock_height_and_rot(monkeypatch, capsys):
     monkeypatch.setattr(IN, "carve_mountain", fake_carve)
     monkeypatch.setattr(IN, "census_gate", lambda *a, **k: None)
     args = cli.build_parser().parse_args(["world-mountain", "--mod-folder", "m", "--center", "0,0",
-                                          "--rock-height", "1.5", "--rot", "30", "--dry-run"])
+                                          "--rock-height", "1.5", "--rot", "30", "--spread", "1.25", "--dry-run"])
     assert cli._cmd_world_mountain(args) == 0
-    assert seen["rock_height"] == 1.5 and seen["rot_deg"] == 30.0
+    assert seen["rock_height"] == 1.5 and seen["rot_deg"] == 30.0 and seen["spread"] == 1.25
     assert "rock height x1.5: 1 rock positions stretched about 4 pinned" in capsys.readouterr().out
     dflt = cli.build_parser().parse_args(["world-mountain", "--mod-folder", "m", "--center", "0,0"])
-    assert dflt.rock_height == 1.0 and dflt.rot is None
+    assert dflt.rock_height == 1.0 and dflt.rot is None and dflt.spread == 1.0
 
 
 def test_carve_mountain_refuses_stacking(monkeypatch, tmp_path):
