@@ -77,10 +77,14 @@ The second run, against the registered rows:
 | donor | x1.0 | x1.25 | x1.5 | x1.5 + height x1.5 | rigidity (x1.0 -> x1.5) | peak |
 |---|---|---|---|---|---|---|
 | uaho | 4/4 | 4/4 | 4/4 | 2/2 | 3.1 -> 2.1% | 12.05 / 16.13 tall |
-| crag | 4/4 | 4/4 | 4/4 | 2/2 | 0.7 -> 0.4% | 22.4 |
-| comp20 | 4/4 | 4/4 | 4/4 | 2/2 | 0.6 -> 0.4% | 21.76 |
-| desert-peak | 4/4 | 4/4 | 4/4 | 2/2 | 1.0 -> 0.7% | 14.5 |
+| crag | 4/4 | 4/4 | 4/4 | 2/2 | 0.7 -> 0.4% | 22.4 / 32.01 tall |
+| comp20 | 4/4 | 4/4 | 4/4 | 2/2 | 0.6 -> 0.4% | 21.76 / 31.0 tall |
+| desert-peak | 4/4 | 4/4 | 4/4 | 2/2 | 1.0 -> 0.7% | 14.48 / 20.11 tall |
 | horseshoe | 3/4 | 3/4 | 3/4 | (refused: --rock-height) | 0.8 -> 0.6% | 30.9 |
+
+Re-run after both leak fixes: the same verdicts, and every widened carve now seats exactly where the rigid one
+does (Uaho 12.05 and the desert peak 14.48 at every spread). The desert peak scaled whole reads 20.11, round 19's
+x1.5-tall variant C to the hundredth: the split adds nothing to the height map.
 
 **Offline renders** (`world-render --around 1386,-104 --ground-y 3.2` over each lab variant, out/lab/render/):
 the overview reads as built (B and C wider and lower, D the same mountain scaled whole), no stray geometry, 0
