@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — the mountain carve can bring a snow massif's inlet floor, and its rock plugs are judged by their own rock
+- `carve_mountain`'s `alcove` spec takes an optional fourth element naming the floor's topographs. The default is
+  grass, so Uaho's alcove reads as before. A snow massif's inlet floor rides with `(27,)`.
+- The aperture-plug check required a plug to sit in the grass-world rock band of the texture atlas. Rock is painted
+  from a different band in each biome, so a plug now also passes inside the band its own donor's rock uses.
+- Every catalogued donor writes the same bytes as before (all 44 files checked). The `world-mountain` command is
+  unchanged. This is study-only for now: comp9, a snow massif, carries offline at 4 of 6 angles
+  (`studies/terrain-malleability/mountaindonors/INLET.md`), and is not yet seen in game or catalogued.
+
 ### Fixed — a hill fits beside the `world-river` island's bank
 - `world-hill`'s check for open seams counted every open seam within its radius + 4 units, including seams the
   island already had. On the river island at 512,128, where the grass edge meets the carried river bank, a hill

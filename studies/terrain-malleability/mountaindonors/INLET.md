@@ -1,6 +1,8 @@
 # The inlet floor: carry comp9's inlet snow with its rock
 
-**Status:** registered before building (2026-10-20). Offline. `inlet_floor.py`.
+**Status:** offline result (2026-10-20). **comp9 carries on a snow bench at 4 of 6 angles (0, 30, 200, 270), and
+round 2's registered bar was 4.** The other two angles refuse only at the placement census, on a near-vertical rock
+face that misses the ground query at home too. Not seen in game, not catalogued. `inlet_floor.py`.
 
 **The problem** (`NOTES.md` section 6, `comp9_diagnose.py`). comp9, a snow massif, refuses 0/6 on a snow bench.
 The cause is not a coarse rim:
@@ -103,3 +105,50 @@ inside the band its own donor's rock occupies (the min-max columns and rows of t
 | R2 | **decisive:** comp9 with the inlet passes at least 4 of the 6 angles | 3 or fewer |
 | R3 | no comp9-with-inlet angle refuses on maxEdge of 9u or more, or zipRise over 2.34u (round 1's I4) | either appears |
 | R4 | rock-rigid deviation of 1% or less on every passing angle (round 1's I5) | above 1% |
+
+## Round 2 result (offline, 2026-10-20)
+
+| # | measured | verdict |
+|---|---|---|
+| R0 | 44/44 catalogued files byte-identical. `test_world_interior.py` and `test_world_donors.py`: 98 passed, the install-gated identity tests included; `test_world_compose.py`: 24 passed. Both new tests fail on the pre-change `interior.py` (the break-it) and pass after | **holds** |
+| R1 | Uaho 6/6 | **holds** |
+| R2 | comp9 with the inlet: **4/6** (0, 30, 200 and 270 pass) | **holds**, at the bar |
+| R3 | at all six angles: maxEdge 7.5-8.7u, zipRise 1.13-1.31u. Without the inlet, maxEdge was 14.1-17.0u and zipRise 3.55u. The inlet was the source of both | **holds** |
+| R4 | rock-rigid 0.3% at every passing angle | **holds** |
+
+**The passing carves:**
+- 403 carried tris: 388 rock, 15 inlet snow, plus the 2 Object tris as plugs.
+- The longest seam span (maxEdge) is 7.5-8.7u, against a limit of 9u.
+- The seam climb (zipRise) is 1.13-1.29u.
+- zipNyMin is 0.91-0.95 at 0, 30 and 270 deg, with 0 tris below the envelope. At 200 deg it is 0.58, with 1 tri below
+  the envelope, inside the gate's allowance of 2.
+- The apron slope is 6.9-9.9 deg.
+- The placement census is clean.
+
+**The two refusals (90 and 180 deg).** Every geometry gate is clean at both. The placement census refuses one sample
+point each, in bench block (21,1):
+- In each case the only tri over the point is a carried rock face with ny 0.093. The engine's ground query skips any
+  tri with ny of 0.1 or less (`WMPhysics.cs`), so the point reads MISS.
+- comp9 has exactly one such face. At home it sits at (591.16, -76.13), y 3.62-8.75, by the inlet mouth's north end,
+  not in the carried floor.
+- **At home, nothing walkable covers it either, so stock has the same MISS.** It stands at the foot of a rock wall,
+  so it acts as wall.
+- Its ny does not change with rotation. Only at 90 and 180 deg does the census grid land in its thin plan footprint.
+
+These are stock geometry the census meets at a new site. The census has no rule for a MISS a carried donor brings
+from home. Adding one would be a gate change, the owner's call ("never explain away a gate finding"), so it was not
+made.
+
+**What it changed in the kit:**
+- `_mountain_blob`'s alcove spec takes an optional floor-topograph element.
+- The plug-chart gate also accepts the donor's own rock band (`_plug_chart_ok`; `PLUG_CHART_BAND` holds the July
+  band).
+- `world-mountain` itself is unchanged: its `alcove="auto"` still means Uaho's box and nothing else.
+
+**What would come next, each the owner's call:**
+1. **The owner's eye in game** on a snow island, as the desert peak had, once the harness is free. That needs a lab
+   script that passes `COMP9_INLET`, like `lab_build.py`.
+2. **If the owner passes it:** catalog comp9 with its alcove, and let `world-mountain` read a catalogued donor's
+   alcove. Today the geometry modules parse no catalog, to protect the Uaho identity, so the CLI would hand the spec
+   in.
+3. **Optionally:** a census rule that tells a donor's own stock MISS from one the carve introduced.
