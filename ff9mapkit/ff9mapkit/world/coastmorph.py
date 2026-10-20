@@ -21,7 +21,9 @@ The laws this module encodes (each byte-measured, then in-game proven):
   by THE MEASURED MURAL GATE (uv-rect reuse >= :data:`MURAL_REUSE_MIN`; topo number never
   decides) and additionally gated by the MAINS DENSITY GATE; a MIXED drop refuses (no single
   fill language). Both lanes share the CRACK GATE (fill once-edges == region boundary
-  segments exactly) and the GRAIN GATE (no edge over 6.6u).
+  segments exactly) and the GRAIN GATE (no edge over 6.6u). Both clip per 4u cell: the
+  grass lane by THE CELL-CLIPPED FILL (:func:`_grass_fill_region`, no tri on a clamped
+  map), the tiled lane by THE TILE-RECT CONTAINMENT LAW.
 * **Water never drags, never clamps** -- moved water verts re-evaluate through the tile's own
   affine (:class:`transplant.SeaBump`); the rebuilt shore ring is a ZIP STRIP (short tris
   outline<->outer-boundary, the real conforming-fan structure), each tri carrying ONE dropped
@@ -39,10 +41,15 @@ from collections import Counter, defaultdict
 from . import grassland as G
 from . import transplant as TR
 from .extract import decode_id, encode_id
-from .island import _delaunay
+from .island import LATTICE_SNAP, _delaunay, _lat_cross, _plane_y, uv_streak
 
 #: the real terrain grain ceiling (max tri edge); longer fill edges read as stretch
 MAX_GRAIN = 6.6
+#: THE CELL-CLIPPED FILL (see :func:`_grass_fill_region`): a lattice crossing this near (plan) a vertex, or an earlier
+#: cut on the same edge, is not cut -- the vertex stands in for it, overhanging the line by at most this, which the
+#: cell's clamp maps (<= 0.04 of a cell, ~2 texels). A cut that near would be a weld-audit near-miss twin. The
+#: island's crest snap, island.LATTICE_SNAP.
+FILL_CUT_SNAP = LATTICE_SNAP
 #: the free-base law's waterline band -- a cliff base edge tops out below this Y
 BASE_Y_MAX = 0.75
 
@@ -399,13 +406,253 @@ def _grass_fill(win, drop_grass, new_crease, ck, cell_quad):
     return _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass)
 
 
+def _frame_axis(a, b):
+    """The axis (0 = x, 2 = z) of the 64u block-border line an edge lies ON, else None."""
+    for ax in (0, 2):
+        g = 64.0 * round(a[ax] / 64.0)
+        if abs(a[ax] - g) < 1e-4 and abs(b[ax] - g) < 1e-4:
+            return ax
+    return None
+
+
+def _edge_cuts(a, b, held=None, frame: bool = True):
+    """THE CELL-CLIPPED FILL, the edge half: the points (in order from ``a``) where the 3D segment ``a -> b`` crosses
+    a 4u lattice line, each exactly on its line, y lerped. Computed from the endpoints in a CANONICAL order
+    (:func:`island._lat_cross`, the whole list too), so the fill tri on one side of an edge and the wall / band /
+    stock tri on the other derive the identical floats. A crossing within :data:`FILL_CUT_SNAP` of an end or of the
+    previous cut is not cut (that vertex stands in for it), nor one on a line an end HOLDS (``held``, see
+    :func:`_held_lines`). An edge ON a block border never cuts (``frame``): the tri across it is the neighbour
+    block's, out of the morph's reach, and a vertex there would crack the weld."""
+    if frame and _frame_axis(a, b) is not None:
+        return []
+    if (a[0], a[2]) > (b[0], b[2]):
+        return _edge_cuts(b, a, held, frame)[::-1]
+    hold = (held.get(_pk(a), set()) | held.get(_pk(b), set())) if held else set()
+    ex, ez = b[0] - a[0], b[2] - a[2]
+    hits = []
+    for axis, other in ((0, 2), (2, 0)):
+        lo, hi = sorted((a[axis], b[axis]))
+        for k in range(math.floor(lo / 4.0), math.floor(hi / 4.0) + 2):
+            g = 4.0 * k
+            if (a[axis] - g) * (b[axis] - g) < 0 and (axis, g) not in hold:
+                q = _lat_cross(a, b, axis, g, other, snap=False)
+                hits.append(((q[0] - a[0]) * ex + (q[2] - a[2]) * ez, q))
+    cuts = []
+    for _s, q in sorted(hits):
+        prev = cuts[-1] if cuts else a
+        if (math.hypot(q[0] - prev[0], q[2] - prev[2]) < FILL_CUT_SNAP
+                or math.hypot(q[0] - b[0], q[2] - b[2]) < FILL_CUT_SNAP):
+            continue
+        cuts.append(q)
+    return cuts
+
+
+def _held_lines(bpts3):
+    """THE CELL-CLIPPED FILL at a block border: a fill-loop edge ON the border cannot be cut (its weld is the
+    neighbour block's), so each lattice line it crosses is HELD by its nearer end -- every edge leaving that vertex
+    takes its crossing of that line at the vertex itself, and the tris round it keep it overhanging the line, as
+    the uncut fill did (fanning the one tri round the border edge instead left a sheared sliver: 20.5 on the
+    (22,12) bay, held 2.3). ``{vertex key: {(axis, g), ...}}``."""
+    held = defaultdict(set)
+    for i in range(len(bpts3)):
+        a, b = bpts3[i], bpts3[(i + 1) % len(bpts3)]
+        fa = _frame_axis(a, b)
+        if fa is None:
+            continue
+        for q in _edge_cuts(a, b, frame=False):
+            near = a if math.hypot(q[0] - a[0], q[2] - a[2]) <= math.hypot(q[0] - b[0], q[2] - b[2]) else b
+            held[_pk(near)].add((2 - fa, q[2 - fa]))
+    return dict(held)
+
+
+def _fill_pieces(tri, held=None):
+    """THE CELL-CLIPPED FILL, the fill half: a fill tri ``((x, y, z) x3)`` as ``[(cell, piece)]``, one or more
+    pieces per 4u cell it covers. A tri inside one cell is returned untouched; any other is cut along its sides at
+    :func:`_edge_cuts` (so it meets its neighbour, and the boundary owner, vertex for vertex) and clipped to each
+    cell (Sutherland-Hodgman, a point ON a line kept on both sides). A clip crossing within :data:`FILL_CUT_SNAP`
+    of the crossed edge's end, or on a line that end holds, IS that end -- on a side that is exactly a crossing
+    :func:`_edge_cuts` declined; any other crossing is inside the tri, y off its plane."""
+    xs = [p[0] for p in tri]
+    zs = [p[2] for p in tri]
+    ci = math.floor(sum(xs) / 3.0 / 4.0)
+    cj = math.floor(sum(zs) / 3.0 / 4.0)
+    if all(4.0 * ci <= x <= 4.0 * ci + 4.0 for x in xs) and all(4.0 * cj <= z <= 4.0 * cj + 4.0 for z in zs):
+        return [((ci, cj), tuple(tri))]
+    held = held or {}
+    poly = []
+    for i in range(3):
+        poly.append(tri[i])
+        poly.extend(_edge_cuts(tri[i], tri[(i + 1) % 3], held))
+
+    def area(a, b, c):
+        return abs((b[0] - a[0]) * (c[2] - a[2]) - (c[0] - a[0]) * (b[2] - a[2]))
+
+    def fan(pl):
+        # from the apex whose worst fan tri is fattest (a collinear run of cut points never fans flat)
+        n = len(pl)
+        h = max(range(n), key=lambda h_: (min(area(pl[h_], pl[(h_ + m) % n], pl[(h_ + m + 1) % n])
+                                              for m in range(1, n - 1)), -h_))
+        return [(pl[h], pl[(h + m) % n], pl[(h + m + 1) % n]) for m in range(1, n - 1)
+                if area(pl[h], pl[(h + m) % n], pl[(h + m + 1) % n]) > 1e-12]
+
+    def half(pl, axis, g, sgn):
+        out = []
+        for k in range(len(pl)):
+            p, q = pl[k], pl[(k + 1) % len(pl)]
+            dp, dq = sgn * (p[axis] - g), sgn * (q[axis] - g)
+            if dp >= 0:
+                out.append(p)
+            if dp * dq < 0:
+                if (axis, g) in held.get(_pk(p), ()):
+                    x = p
+                elif (axis, g) in held.get(_pk(q), ()):
+                    x = q
+                else:
+                    x = _lat_cross(p, q, axis, g, 2 - axis, snap=False)
+                    ep = math.hypot(x[0] - p[0], x[2] - p[2])
+                    eq = math.hypot(x[0] - q[0], x[2] - q[2])
+                    if min(ep, eq) < FILL_CUT_SNAP:
+                        x = p if (ep, (p[0], p[2])) < (eq, (q[0], q[2])) else q
+                    else:
+                        x = (x[0], _plane_y(tri, x[0], x[2]), x[2])
+                out.append(x)
+        ded = [p for k, p in enumerate(out) if p != out[k - 1]] if len(out) > 1 else out
+        return ded
+
+    out = []
+    for i in range(math.floor(min(xs) / 4.0), math.floor(max(xs) / 4.0) + 1):
+        for j in range(math.floor(min(zs) / 4.0), math.floor(max(zs) / 4.0) + 1):
+            pl = poly
+            for axis, g, sgn in ((0, 4.0 * i, 1), (0, 4.0 * i + 4.0, -1), (2, 4.0 * j, 1), (2, 4.0 * j + 4.0, -1)):
+                pl = half(pl, axis, g, sgn)
+                if len(pl) < 3:
+                    break
+            if len(pl) < 3:
+                continue
+            if len(pl) == 3 and set(pl) == set(tri):
+                return [((i, j), tuple(tri))]           # the snaps folded every crossing back: the tri itself
+            out += [((i, j), pc) for pc in fan(pl)]
+    return out
+
+
+def _bary_nrm(tri, nrms, p):
+    """The fill tri's vertex normals interpolated at plan point ``p`` (a clip point), renormalized."""
+    (ax, _, az), (bx, _, bz), (qx, _, qz) = tri
+    d = (bz - qz) * (ax - qx) + (qx - bx) * (az - qz)
+    w0 = ((bz - qz) * (p[0] - qx) + (qx - bx) * (p[2] - qz)) / d
+    w1 = ((qz - az) * (p[0] - qx) + (ax - qx) * (p[2] - qz)) / d
+    n = [w0 * nrms[0][k] + w1 * nrms[1][k] + (1.0 - w0 - w1) * nrms[2][k] for k in range(3)]
+    ln = math.sqrt(n[0] ** 2 + n[1] ** 2 + n[2] ** 2) or 1.0
+    return tuple(c / ln for c in n)
+
+
+def _loop_cuts(bpts3, held=None):
+    """THE CELL-CLIPPED FILL's boundary: every edge of the fill loop ``bpts3`` that :func:`_edge_cuts` cuts, as
+    ``{edge key: (a, b, cuts a -> b)}`` -- the points the tri across it (wall / band / kept stock) must carry too."""
+    out = {}
+    for i in range(len(bpts3)):
+        a, b = bpts3[i], bpts3[(i + 1) % len(bpts3)]
+        cuts = _edge_cuts(a, b, held)
+        if cuts:
+            out[frozenset((_pk(a), _pk(b)))] = (a, b, cuts)
+    return out
+
+
+def _t_split(t3, loop_cuts):
+    """Subdivide one ``(pos, nrm, uv, idall)`` tri at the fill loop's cut points on its sides (``loop_cuts``,
+    :func:`_loop_cuts`): each cut side fans to its opposite vertex, the new vertex lerped along the side (position
+    the shared cut floats, normal + uv lerped). A planar affine subdivision -- the surface, its texture and its
+    shading are the tri's own; only the T-junction is gone. Returns ``(tris, n_sides_cut)``."""
+    tris, n = [list(t3)], 0
+    for i in range(3):
+        a, b = t3[i], t3[(i + 1) % 3]
+        hit = loop_cuts.get(frozenset((_pk(a[0]), _pk(b[0]))))
+        if hit is None:
+            continue
+        n += 1
+        cuts = hit[2] if _pk(hit[0]) == _pk(a[0]) else hit[2][::-1]
+        ka, kb = _pk(a[0]), _pk(b[0])
+        for ti, t in enumerate(tris):
+            ks = [_pk(v[0]) for v in t]
+            m = next((m for m in range(3) if ks[m] == ka and ks[(m + 1) % 3] == kb), None)
+            if m is None:
+                continue
+            o = t[(m + 2) % 3]
+            ex = [b[0][k] - a[0][k] for k in range(3)]
+            el2 = sum(c * c for c in ex) or 1.0
+            chain = [t[m]]
+            for c in cuts:
+                f = sum((c[k] - a[0][k]) * ex[k] for k in range(3)) / el2
+                nr = [a[1][k] + f * (b[1][k] - a[1][k]) for k in range(3)]
+                ln = math.sqrt(sum(q * q for q in nr)) or 1.0
+                chain.append((tuple(c), tuple(q / ln for q in nr),
+                              tuple(a[2][k] + f * (b[2][k] - a[2][k]) for k in range(2)), a[3]))
+            chain.append(t[(m + 1) % 3])
+            tris[ti:ti + 1] = [[chain[s], chain[s + 1], o] for s in range(len(chain) - 1)]
+            break
+    return tris, n
+
+
+def _split_loop_owners(loop_cuts, emitted, kept, frozen_keys=frozenset()):
+    """THE CELL-CLIPPED FILL's other side: every cut fill-loop edge has exactly ONE owner across it -- a tri this
+    morph emits (``emitted``: the rebuilt wall, the translated band) or a kept stock tri (``kept``) -- and that owner
+    is T-split at the same cut points (:func:`_t_split`). Returns ``(emitted', stock_drop, stock_emit)``: the
+    emitted list with its owners split in place, the kept owners to DROP and their splits to EMIT. A cut edge with no
+    owner or two, or a kept owner carrying a vertex another tweak moves (``frozen_keys``), refuses -- a T-junction
+    there would be a crack."""
+    if not loop_cuts:
+        return list(emitted), [], []
+    owned = Counter()
+
+    def edges_of(t3):
+        return [frozenset((_pk(t3[i][0]), _pk(t3[(i + 1) % 3][0]))) for i in range(3)]
+    out_emit = []
+    for t3 in emitted:
+        if any(e in loop_cuts for e in edges_of(t3)):
+            owned.update(e for e in edges_of(t3) if e in loop_cuts)
+            out_emit += _t_split(t3, loop_cuts)[0]
+        else:
+            out_emit.append(t3)
+    stock_drop, stock_emit = [], []
+    for t3 in kept:
+        es = [e for e in edges_of(t3) if e in loop_cuts]
+        if not es:
+            continue
+        if any(_pk(v[0]) in frozen_keys for v in t3):
+            raise ValueError("THE CELL-CLIPPED FILL: a kept tri across the fill boundary carries a moved vertex -- "
+                             "it cannot be T-split in place; move the window")
+        owned.update(es)
+        stock_drop.append(t3)
+        stock_emit += _t_split(t3, loop_cuts)[0]
+    bad = [e for e in loop_cuts if owned[e] != 1]
+    if bad:
+        a, b, _c = loop_cuts[bad[0]]
+        raise ValueError(f"THE CELL-CLIPPED FILL: the fill boundary edge ({a[0]:.2f},{a[2]:.2f})--"
+                         f"({b[0]:.2f},{b[2]:.2f}) has {owned[bad[0]]} owner(s) across it (want 1) -- its lattice "
+                         f"cut would be a T-junction; move the window")
+    return out_emit, stock_drop, stock_emit
+
+
 def _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass):
     """The native lattice grass fill over ONE closed boundary loop ``bpts3`` (3D verts,
     ordered) -- the region-generic core shared by the cliff structural morphs
     (:func:`_grass_fill`) and the beach slide's vacated-strip fill: 4u interior lattice,
     Delaunay, per-cell mains with the avoid-same policy vs ``cell_quad`` (the REAL
     neighbouring tiles' quadrant picks), the CRACK GATE (fill once-edges == the loop
-    exactly) and the GRAIN GATE."""
+    exactly) and the GRAIN GATE.
+
+    THE CELL-CLIPPED FILL (the lip-streak fix, world-island's THE CELL-CLIPPED LIP carried
+    here): a mains UV is its 4u cell's own map CLAMPED to the cell's window, so a fill tri
+    spanning two cells and mapped through its centroid cell collapses when two corners
+    clamp onto one edge -- a rank-1 streak of grass (the scanner's own deploy lines carried
+    6, every one an ear between the moved crease or the slid band chain and a lattice
+    corner; a depth sweep 58). Every fill tri is clipped per cell (:func:`_fill_pieces`),
+    each piece wearing its own cell's map, and the loop is cut at the same lattice
+    crossings (:func:`_loop_cuts`) -- the CALLER T-splits the tri across each cut edge
+    (:func:`_split_loop_owners`). A loop edge on a block border is never cut; its nearer end
+    holds the line instead (:func:`_held_lines`). The cells the uncut fill used keep their
+    picks; a cell only the pieces reach draws after them, under the same policy. The CRACK
+    GATE judges the pieces against the cut loop. Returns ``(fill, loop_cuts)``."""
     poly2 = [(p[0], p[2]) for p in bpts3]
 
     def lattice_interior(clearance):
@@ -448,13 +695,30 @@ def _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass):
     poly_edges = {frozenset((_pk(bpts3[i]), _pk(bpts3[(i + 1) % len(bpts3)])))
                   for i in range(len(bpts3))}
 
+    def pick_quad(cell, fill_quad):
+        avoid = {cell_quad.get((cell[0], cell[1] - 1)),
+                 cell_quad.get((cell[0] - 1, cell[1])),
+                 cell_quad.get((cell[0] + 1, cell[1])),
+                 cell_quad.get((cell[0], cell[1] + 1)),
+                 fill_quad.get((cell[0], cell[1] - 1)),
+                 fill_quad.get((cell[0] - 1, cell[1])),
+                 fill_quad.get((cell[0] + 1, cell[1])),
+                 fill_quad.get((cell[0], cell[1] + 1))}
+        choices = [q for q in ((0, 0), (0, 1), (1, 0), (1, 1)) if q not in avoid] \
+                  or [(0, 0), (0, 1), (1, 0), (1, 1)]
+        h = TR._h01(4.0 * cell[0] + 1.7, 4.0 * cell[1] + 2.3)
+        return choices[int(h * len(choices)) % len(choices)]
+
+    def ori_of(cell):
+        return (0, 90, 180, 270)[int(TR._h01(4.0 * cell[0] + 3.1, 4.0 * cell[1] + 0.9) * 4) % 4]
+
     def build_fill(clearance):
         interior = lattice_interior(clearance)
-        pts3 = list(bpts3) + [(px, idw_y(px, pz) + (TR._h01(px, pz) - 0.5) * 0.4, pz)
-                              for (px, pz) in interior]
+        pts3 = [tuple(p) for p in bpts3] + [(px, idw_y(px, pz) + (TR._h01(px, pz) - 0.5) * 0.4, pz)
+                                            for (px, pz) in interior]
         nrms = [gnrm.get(_pk(p)) or near_nrm(p[0], p[2]) for p in bpts3] \
                + [near_nrm(px, pz) for (px, pz) in interior]
-        emit = []
+        emit, raw = [], []
         fill_quad = {}
         xz = [(p[0], p[2]) for p in pts3]
         for (ia, ib, ic) in sorted(_delaunay(xz)):
@@ -466,27 +730,9 @@ def _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass):
                 continue
             cell = (math.floor(cx / 4.0), math.floor(cz / 4.0))
             if cell not in fill_quad:
-                avoid = {cell_quad.get((cell[0], cell[1] - 1)),
-                         cell_quad.get((cell[0] - 1, cell[1])),
-                         cell_quad.get((cell[0] + 1, cell[1])),
-                         cell_quad.get((cell[0], cell[1] + 1)),
-                         fill_quad.get((cell[0], cell[1] - 1)),
-                         fill_quad.get((cell[0] - 1, cell[1])),
-                         fill_quad.get((cell[0] + 1, cell[1])),
-                         fill_quad.get((cell[0], cell[1] + 1))}
-                choices = [q for q in ((0, 0), (0, 1), (1, 0), (1, 1)) if q not in avoid] \
-                          or [(0, 0), (0, 1), (1, 0), (1, 1)]
-                h = TR._h01(4.0 * cell[0] + 1.7, 4.0 * cell[1] + 2.3)
-                fill_quad[cell] = choices[int(h * len(choices)) % len(choices)]
-            ori = (0, 90, 180, 270)[int(TR._h01(4.0 * cell[0] + 3.1,
-                                                4.0 * cell[1] + 0.9) * 4) % 4]
-            tri = [(p, nr, tuple(G.mains_uv(p[0], p[2], cell, fill_quad[cell], ori)),
-                    idall_grass) for p, nr in zip(tri_pts, tri_nrm)]
-            ux, uz = tri[1][0][0] - tri[0][0][0], tri[1][0][2] - tri[0][0][2]
-            vx, vz = tri[2][0][0] - tri[0][0][0], tri[2][0][2] - tri[0][0][2]
-            if uz * vx - ux * vz <= 0:
-                tri = [tri[0], tri[2], tri[1]]
-            emit.append(tri)
+                fill_quad[cell] = pick_quad(cell, fill_quad)
+            raw.append((tri_pts, tri_nrm))
+            emit.append([(p, nr, None, idall_grass) for p, nr in zip(tri_pts, tri_nrm)])
         # THE CRACK GATE: fill once-edges must equal the region boundary exactly
         fe_count = defaultdict(int)
         for t3 in emit:
@@ -494,14 +740,14 @@ def _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass):
             for i in range(3):
                 fe_count[frozenset((_pk(ps[i]), _pk(ps[(i + 1) % 3])))] += 1
         fill_once = {e for e, c in fe_count.items() if c == 1}
-        return emit, fill_once
+        return emit, fill_once, raw, fill_quad
 
     # THE CLEARANCE LADDER: a wiggly composed boundary can steal Delaunay edges from a
     # too-close interior point (T-junction cracks); retry with wider clearance. 1.4 first
     # keeps the proven single-lobe fills byte-identical.
     grass_emit = None
     for clearance in (1.4, 1.9, 2.4, 2.9):
-        emit, fill_once = build_fill(clearance)
+        emit, fill_once, raw, fill_quad = build_fill(clearance)
         if fill_once == poly_edges:
             grass_emit = emit
             break
@@ -518,7 +764,84 @@ def _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass):
         raise ValueError(f"GRAIN GATE: a grass fill edge is {longest:.1f}u (> {MAX_GRAIN}) -- "
                          f"off the real terrain grain, reads as stretch")
 
-    return grass_emit
+    # THE CELL-CLIPPED FILL: every tri as its per-cell pieces, each on its own cell's map (an
+    # in-cell tri is its uncut self, byte for byte); the cells only the pieces reach pick last
+    held = _held_lines(bpts3)
+    cut = [(tri_pts, tri_nrm, _fill_pieces(tri_pts, held)) for tri_pts, tri_nrm in raw]
+    loop_cuts = _loop_cuts(bpts3, held)
+    # THE FILL WELD PASS (the tiled lane's): cuts of two edges leaving one vertex just clear of
+    # a line land within the weld-audit near-miss class of each other -- canonicalize (an
+    # original vertex wins, then a boundary cut, then lexical order); a piece collapsing drops
+    orig = {p for tri_pts, _n, _ps in cut for p in tri_pts}
+    bcut = {c for _a, _b, cs in loop_cuts.values() for c in cs}
+    gen = sorted({p for _t, _n, ps in cut for _c, pc in ps for p in pc} - orig)
+    weld = {}
+    if gen:
+        buck = defaultdict(list)
+        for p in orig | set(gen):
+            buck[(math.floor(p[0] / 0.05), math.floor(p[2] / 0.05))].append(p)
+        for p in gen:
+            near = [q for dx in (-1, 0, 1) for dz in (-1, 0, 1)
+                    for q in buck.get((math.floor(p[0] / 0.05) + dx, math.floor(p[2] / 0.05) + dz), ())
+                    if q != p and math.dist(p, q) < 0.05]
+            if near:
+                win_ = min(near + [p], key=lambda q: (q not in orig, q not in bcut, q))
+                if win_ != p:
+                    weld[p] = win_
+        for p in list(weld):                             # chains resolve to their final winner
+            while weld[p] in weld:
+                weld[p] = weld[weld[p]]
+        loop_cuts = {e: (a, b, [weld.get(c, c) for c in cs]) for e, (a, b, cs) in loop_cuts.items()}
+    # a piece that overhangs its clip cell (a snap, or a held line's vertex) may map better through
+    # a cell its vertices reach: of those, it wears the one whose map streaks it least (the clip
+    # cell on a tie, so every in-cell piece is untouched)
+    pieces = []
+    for tri_pts, tri_nrm, ps in cut:
+        for c, piece in ps:
+            piece = [weld.get(p, p) for p in piece]
+            if len(set(piece)) == 3:
+                cand = sorted({(math.floor(p[0] / 4.0), math.floor(p[2] / 4.0)) for p in piece} - {c})
+                if not all(4.0 * c[0] <= p[0] <= 4.0 * c[0] + 4.0 and 4.0 * c[1] <= p[2] <= 4.0 * c[1] + 4.0
+                           for p in piece):
+                    cand = [c] + cand
+                else:
+                    cand = [c]
+                pieces.append((tri_pts, tri_nrm, cand, piece))
+    for cell in sorted({c for _t, _n, cand, _p in pieces for c in cand} - set(fill_quad)):
+        fill_quad[cell] = pick_quad(cell, fill_quad)
+
+    def uvs_in(cell, piece):
+        return [tuple(G.mains_uv(p[0], p[2], cell, fill_quad[cell], ori_of(cell))) for p in piece]
+    grass_emit = []
+    for tri_pts, tri_nrm, cand, piece in pieces:
+        nrm_at = dict(zip(tri_pts, tri_nrm))
+        cell = min(cand, key=lambda c_: (uv_streak(piece, uvs_in(c_, piece), ratio=0.0) or 0.0, c_ != cand[0]))
+        tri = [(p, nrm_at.get(p) or _bary_nrm(tri_pts, tri_nrm, p), uv, idall_grass)
+               for p, uv in zip(piece, uvs_in(cell, piece))]
+        ux, uz = tri[1][0][0] - tri[0][0][0], tri[1][0][2] - tri[0][0][2]
+        vx, vz = tri[2][0][0] - tri[0][0][0], tri[2][0][2] - tri[0][0][2]
+        if uz * vx - ux * vz <= 0:
+            tri = [tri[0], tri[2], tri[1]]
+        grass_emit.append(tri)
+    # ... and the CRACK GATE again, the pieces against the CUT loop (each loop edge at its lattice
+    # cuts). Where the weld joined two loop edges' cuts at an acute loop vertex, the stretch they
+    # now share is the two owners' own seam: it counts twice and leaves the fill's boundary.
+    loop_n = Counter()
+    for i in range(len(bpts3)):
+        a, b = bpts3[i], bpts3[(i + 1) % len(bpts3)]
+        hit = loop_cuts.get(frozenset((_pk(a), _pk(b))))
+        chain = [a] + (hit[2] if hit and _pk(hit[0]) == _pk(a) else hit[2][::-1] if hit else []) + [b]
+        loop_n.update(frozenset((_pk(chain[k]), _pk(chain[k + 1]))) for k in range(len(chain) - 1))
+    loop_edges = {e for e, c in loop_n.items() if c % 2}
+    fe_count = defaultdict(int)
+    for t3 in grass_emit:
+        for i in range(3):
+            fe_count[frozenset((_pk(t3[i][0]), _pk(t3[(i + 1) % 3][0])))] += 1
+    fill_once = {e for e, c in fe_count.items() if c == 1}
+    if fill_once != loop_edges or any(c > 2 for c in fe_count.values()):
+        raise ValueError(f"CRACK GATE: the cell-clipped grass fill does not close on the cut region boundary "
+                         f"({len(fill_once - loop_edges)} extra / {len(loop_edges - fill_once)} missing edges)")
+    return grass_emit, loop_cuts
 
 
 #: THE MEASURED MURAL DISCRIMINANT (the morph-envelope study): tiled coast tops measure
@@ -3071,6 +3394,7 @@ def _beach_slide_seaward(donor, start, end, depth, *, disc: int = 1, lod: str = 
             gnrm.setdefault(_pk(v[0]), tuple(v[1]))
     idall_grass = tuple(grass_real[0][0][3])
     fill_emit = []
+    loop_cuts = {}
     i0 = 0
     for i1 in range(1, len(poly)):
         if poly[i1] in ride and i1 < len(poly) - 1:
@@ -3084,9 +3408,19 @@ def _beach_slide_seaward(donor, start, end, depth, *, disc: int = 1, lod: str = 
                 seg_new.append((p[0] + d_[0], p[1] + d_[1], p[2] + d_[2])
                                if d_ else p)
             bpts3 = seg_old + list(reversed(seg_new[1:-1]))
-            fill_emit += _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass)
+            fe, lc = _grass_fill_region(bpts3, gnrm, cell_quad, idall_grass)
+            fill_emit += fe
+            loop_cuts.update(lc)
         if poly[i1] not in ride:
             i0 = i1
+    # THE CELL-CLIPPED FILL's other side: the band's translated edge and the berm's kept edge
+    # T-split at the strip's lattice cuts (a kept berm tri drops and re-emits split)
+    band_drop_ks = {_key_set(t) for t in band_drop}
+    band_emit, stock_drop, stock_emit = _split_loop_owners(
+        loop_cuts, band_emit, [t for t in others["terrain"] if _key_set(t) not in band_drop_ks],
+        frozen_keys=set(keyed))
+    band_drop = band_drop + [list(t) for t in stock_drop]
+    band_emit = band_emit + stock_emit
 
     # --- the gates (the bump's proven set + the slide's own) ---
     def _mvp(p):
@@ -7171,6 +7505,7 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
         tt = max(0.0, min(1.0, ((p[0] - a[0]) * ex + (p[2] - a[2]) * ez) / L2))
         return math.hypot(p[0] - (a[0] + tt * ex), p[2] - (a[2] + tt * ez))
     fill_emit = None
+    fill_cuts = None
     last_err = None
     def _patch_guard(dg):
         # THE PATCH-AVOIDANCE LAW (supersedes the one-session PATCH-WHOLE consumption,
@@ -7225,13 +7560,22 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
                                      "16 hops -- the hole boundary keeps landing on "
                                      "wobbly stock; move the window")
             else:
-                fill_emit = _grass_fill(win, dg, new_crease, ck, cell_quad)
+                fill_emit, fill_cuts = _grass_fill(win, dg, new_crease, ck, cell_quad)
             drop_mains = dg
             break
         except ValueError as e:
             last_err = e
     if fill_emit is None:
         raise last_err
+    # THE CELL-CLIPPED FILL's other side: the grass fill cut its loop at the lattice lines, so
+    # the tri across each cut edge -- a rebuilt wall tri on the crease, a kept stock tri on the
+    # rest of the hole -- T-splits at the same points (a kept one drops and re-emits split)
+    stock_drop, stock_emit = [], []
+    if fill_cuts is not None:
+        dropped = {_key_set(t) for t in drop_wall + drop_mains}
+        wall_emit, stock_drop, stock_emit = _split_loop_owners(
+            fill_cuts, wall_emit, [t for t in win.terr if _key_set(t) not in dropped],
+            frozen_keys={_pk(p) for p in head_moves} | moved_ck | moved_bk | refined_keys)
     # --- the sea ZIP STRIP back to the new outline ---
     loop, pos_of, uv_of, nrm_of = _boundary_loop(drop_sea)
     shore = list(bk)
@@ -7350,7 +7694,7 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
     if min(abs(delta - poly_a), abs(delta + poly_a)) > 1.0:
         raise ValueError("LEDGER: net dropped-emitted sea != the wedge's signed area")
 
-    excl = [_key_set(t) for t in drop_wall + drop_mains + drop_sea]
+    excl = [_key_set(t) for t in drop_wall + drop_mains + stock_drop + drop_sea]
     surv = _count_instances(win, {_pk(p) for p in head_moves}, exclude_sets=excl)
     # in the FREE-resample scheme interior columns are DELETED, not moved: any surviving
     # reference (a non-grass/sea component touching the crease) would be a crack
@@ -7359,8 +7703,8 @@ def _cliff_reshape(donor, start, end, profile, *, size=(1, 1), disc: int = 1,
         raise ValueError(f"{surv_all - surv} surviving tri-vert instance(s) reference "
                          f"deleted window columns -- a component outside the drop sets "
                          f"touches the crease; the drop-don't-drag law cannot hold here")
-    return [TR.DropTris("terrain", drop_wall + drop_mains),
+    return [TR.DropTris("terrain", drop_wall + drop_mains + stock_drop),
             TR.DropTris("sea4", drop_sea),
             TR.VertexDisplace(moves=head_moves, expected=surv),
-            TR.EmitTris("terrain", wall_emit + fill_emit),
+            TR.EmitTris("terrain", wall_emit + fill_emit + stock_emit),
             TR.EmitTris("sea4", sea_ring)]

@@ -29,7 +29,14 @@ END = (508.0, -1113.6796875)
 #: proven headland build -- geometry is deterministic; grass UV quadrant PICKS are
 #: deterministic too (sorted Delaunay iteration) but excluded so an anti-tiling hash-tweak
 #: never masks a geometry regression.
-GOLDEN_HASH = "9ad139e61b888b14"
+#: RE-FROZEN for THE CELL-CLIPPED FILL (the lip-streak fix; in-game proven hash was
+#: 9ad139e61b888b14, the bay's 232a4c1c4dd2b634, the lobes' 1c5dab560c183654). Why they moved,
+#: and only this: each grass fill tri spanning a 4u cell line is clipped per cell, and the tri
+#: across each cut fill-boundary edge (a rebuilt wall tri, or one kept stock tri the headland
+#: drops and re-emits split) T-splits at the same points. Measured old -> new over the three
+#: builds: sea drops + emissions byte-identical; every old terrain tri either byte-identical or
+#: partitioned exactly by the new pieces (plan area to 1e-6, none left over).
+GOLDEN_HASH = "5f4b51fa5f8c3871"
 
 
 def _window():
@@ -62,14 +69,16 @@ def test_headland_golden_build():
     from ff9mapkit.world import coastmorph as CM
     drop_t, drop_s, disp, emit_t, emit_s = CM.cliff_headland(DONOR, START, END, 8.0)
     # the proven scope: 8 wall + 6 grass dropped / 19 sea dropped / zero surviving
-    # moved-vert instances (the DROP-DON'T-DRAG law) / 16 wall + 18 grass + 17 sea emitted
-    assert drop_t.expected == 14 and drop_s.expected == 19
+    # moved-vert instances (the DROP-DON'T-DRAG law) / 16 wall + 18 grass + 17 sea emitted;
+    # the cell-clipped fill adds 1 kept stock tri T-split across the fill boundary and lifts
+    # the terrain emission 34 -> 69 (the grass pieces, the split wall + stock tris)
+    assert drop_t.expected == 15 and drop_s.expected == 19
     assert disp.expected == 0
-    assert len(emit_t.tris) == 34 and len(emit_s.tris) == 17
+    assert len(emit_t.tris) == 69 and len(emit_s.tris) == 17
     # every emitted tri is real geometry (the wall law: never test plan area)
     from ff9mapkit.world.transplant import _tri_area2_3d
     assert all(_tri_area2_3d(t3) > 1e-6 for t3 in emit_t.tris + emit_s.tris)
-    # the golden emission hash (positions; sea incl. uvs) == the in-game-proven build
+    # the golden emission hash (positions; sea incl. uvs) == the in-game-proven build, cell-clipped
     def sig(tris, uv=True):
         return sorted(tuple(round(c, 6) for v in t3 for c in
                             (list(v[0]) + (list(v[2]) if uv else []))) for t3 in tris)
@@ -77,17 +86,19 @@ def test_headland_golden_build():
     assert h[:16] == GOLDEN_HASH
 
 
-#: the bay's proven-build hash (D=6 on the same window; deployed at (12,9) 2026-07-10)
-GOLDEN_BAY_HASH = "232a4c1c4dd2b634"
+#: the bay's proven-build hash (D=6 on the same window; deployed at (12,9) 2026-07-10),
+#: re-frozen for the cell-clipped fill (see GOLDEN_HASH)
+GOLDEN_BAY_HASH = "1aa5f44c1620f4c8"
 
 
 def test_bay_golden_build():
     from ff9mapkit.world import coastmorph as CM
     drop_t, drop_s, disp, emit_t, emit_s = CM.cliff_bay(DONOR, START, END, 6.0)
-    # 8 wall + 15 grass dropped (the crease-footprint extension) / 11 sea / zero survivors
+    # 8 wall + 15 grass dropped (the crease-footprint extension) / 11 sea / zero survivors;
+    # the cell-clipped fill lifts the terrain emission 29 -> 43
     assert drop_t.expected == 23 and drop_s.expected == 11
     assert disp.expected == 0
-    assert len(emit_t.tris) == 29 and len(emit_s.tris) == 15
+    assert len(emit_t.tris) == 43 and len(emit_s.tris) == 15
     def sig(tris, uv=True):
         return sorted(tuple(round(c, 6) for v in t3 for c in
                             (list(v[0]) + (list(v[2]) if uv else []))) for t3 in tris)
@@ -104,10 +115,11 @@ def test_bay_refuses_a_component_reach():
 
 
 #: the composed morph's window (480..508, spanning the REFINED-crease fan gap at 480-484)
-#: and its proven-build hash (deployed at (10,9) 2026-07-10)
+#: and its proven-build hash (deployed at (10,9) 2026-07-10), re-frozen for the cell-clipped
+#: fill (see GOLDEN_HASH)
 LOBES_START = (480.0, -1110.99)
 LOBES_END = (508.0, -1113.6796875)
-GOLDEN_LOBES_HASH = "1c5dab560c183654"
+GOLDEN_LOBES_HASH = "aad519e9ee2a1bb1"
 
 
 def test_lobes_golden_build():
@@ -120,7 +132,7 @@ def test_lobes_golden_build():
         DONOR, LOBES_START, LOBES_END, (3.5, -5.0, 6.5))
     assert drop_t.expected == 39 and drop_s.expected == 23
     assert disp.expected == 0
-    assert len(emit_t.tris) == 47 and len(emit_s.tris) == 23
+    assert len(emit_t.tris) == 91 and len(emit_s.tris) == 23   # 47 before the cell-clipped fill
     def sig(tris, uv=True):
         return sorted(tuple(round(c, 6) for v in t3 for c in
                             (list(v[0]) + (list(v[2]) if uv else []))) for t3 in tris)
@@ -338,7 +350,14 @@ def test_beach_slide_seaward_golden():
     the vacated strip re-fills with 12 NATIVE GRASS tris (_grass_fill_region, the
     headland vocabulary; crack + grain gated). The island gains real grass area --
     TRUE seaward land growth. Deeper rungs refuse on WATER STRAIN at the block frame
-    (the binding law of this window, not the berm the slide freed)."""
+    (the binding law of this window, not the berm the slide freed).
+
+    RE-FROZEN for THE CELL-CLIPPED FILL (the lip-streak fix; the proven ledger was drop 15 /
+    emit 27 = 15 sand + 12 grass, hash 0513432ef7d69bc2): the strip's grass is clipped per
+    4u cell (12 -> 39 pieces), the translated band's tris on the cut strip edge T-split
+    (15 -> 23 sand), and the 4 kept berm tris across it drop and re-emit split (9 grass).
+    The 269 displaced instances are unchanged; the emission re-partitions the old one plus
+    the 4 berm tris exactly (plan area equal to 1e-6)."""
     from ff9mapkit.world import coastmorph as CM
     from ff9mapkit.world.extract import decode_id
     tw = CM.beach_slide(NOSE_SLIDE_DONOR, NOSE_SLIDE_START, NOSE_SLIDE_END, 2.5)
@@ -346,13 +365,13 @@ def test_beach_slide_seaward_golden():
             ("drop", t.expected) if hasattr(t, "keys")
             else ("emit", len(t.tris)) if hasattr(t, "tris")
             else ("displace", t.expected)) for t in tw]
-    assert led == [("terrain", ("drop", 15)), (None, ("displace", 269)),
-                   ("terrain", ("emit", 27))]
-    assert _tweak_hash(tw) == "0513432ef7d69bc2"
+    assert led == [("terrain", ("drop", 19)), (None, ("displace", 269)),
+                   ("terrain", ("emit", 71))]
+    assert _tweak_hash(tw) == "aceb2adbff66981b"
     emit = next(t for t in tw if hasattr(t, "tris"))
     n_sand = sum(1 for t3 in emit.tris
                  if decode_id(int(round(t3[0][3][0])))["topograph"] == 31)
-    assert (n_sand, len(emit.tris) - n_sand) == (15, 12)
+    assert (n_sand, len(emit.tris) - n_sand) == (23, 48)
     # water strain at the frame binds the deeper rung
     with pytest.raises(ValueError, match="STRAIN GATE"):
         CM.beach_slide(NOSE_SLIDE_DONOR, NOSE_SLIDE_START, NOSE_SLIDE_END, 3.0)
