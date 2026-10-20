@@ -39,6 +39,42 @@ second ground) on a carried mass is the one-command ground-retile carry:
 py -m ff9mapkit world-transplant --mod-folder FF9CustomMap-world --ground desert
 ```
 
+## A real river on a new island
+
+`world-river` carries a stock river whole onto open ocean: its banks, its bridge,
+the beached cove it runs into and the island in that cove, every byte as the game
+ships it. A kit island is minted round them, joined at the two cliff columns and
+knitted to the open sea across the cove's mouth. Check first, then deploy:
+
+```bash
+py -m ff9mapkit world-river --mod-folder FF9CustomMap-world --at auto --dry-run
+```
+
+```bash
+py -m ff9mapkit world-river --mod-folder FF9CustomMap-world --at 512,128
+```
+
+`--at` is a translation in world units, with no rotation, and it moves whole 64u
+blocks. `512,128` is the placement played in game; `--at auto` picks the nearest
+open-ocean spot that no folder in the stack already overrides. Write a negative
+offset with `=`, as in `--at=-1024,0`.
+
+The dry run runs every gate, the written-bytes audit included: it writes the island
+to a temporary folder outside the install, audits it there and deletes it. A real
+run deploys exactly those audited bytes through the same ledgered, backed-up write
+as every other world verb, then mirrors them to disc 4. It refuses rather than
+overwrite, and names the gate: `T0`/`T1` (the placement), `B1` (a target cell is
+not open ocean, or a stacked folder already overrides it), `W1` (the water seam),
+and the geometry gates `J1`-`J4` and `G1`-`G6`. To place it somewhere else, deploy
+again at a new `--at`. To redeploy at the same spot, remove the earlier deploy first.
+
+v1 ships one river, `cluster-c`, the lowland river and its cove (`ff9mapkit
+world-donors --class river`). Its source ends in open lawn, and the verb warns and
+prints where: every stock river rises in a mountain. Afterwards refresh the big
+map with `ff9mapkit world-minimap`. To look before the game does, deploy into an
+absolute scratch folder (`--mod-folder C:/path/to/scratch`) and render it with
+`world-render --mod-root` (below).
+
 ## Interior relief on a deployed island
 
 ```bash

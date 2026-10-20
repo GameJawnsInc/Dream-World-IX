@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-river`: carry a real river onto a new island in one command
+- `py -m ff9mapkit world-river --mod-folder FF9CustomMap-world --at 512,128` carries the lowland river, its bridge,
+  its cove and the island in the cove onto open ocean and grows a kit island round them. That placement is the one
+  played in game. `--at auto` finds the nearest open-ocean spot that no mod folder in the stack already overrides.
+- `--dry-run` runs every check, including the check of the written files: it writes the island to a temporary
+  folder outside the game, checks it there, prints the result and deletes the folder. A real run deploys exactly
+  those checked files, with the deploy ledger and backups, and mirrors them to disc 4. On the proven placement the
+  132 files were byte for byte the ones the in-game test used, until the cliff-top fix below changed the kit
+  island's edge.
+- It refuses rather than overwrite, and names the check that failed: a placement off the 4u water grid or not a
+  whole map block, a map cell another mod folder already overrides on disc 1 or disc 4, or a failed geometry or
+  water check.
+- The river's source ends in open lawn, and the command warns and prints where.
+
 ### Fixed — kit islands no longer show a streaked grass band along the top of their cliffs
 - A few grass triangles along every minted cliff's top edge stretched one line of the grass texture across
   themselves, and in game they read as a streaked band along the lip. The islands already in the overworld folder
@@ -23,7 +37,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   overrides a target cell, the check fails and names the files. Before, a cell counted as free whenever the original
   map had open sea there.
 - The carry has now been tested in the game: the river, its bridge, the cove, the beach and the island are walkable
-  and sailable where the kit's own simulation said they would be.
+  and sailable where the kit's own simulation said they would be. The lowland river is now a `qualified` donor in
+  the catalog.
 
 ### Added — `world-render --mod-root`: render a build that never went into the game
 - `world-render --mod-root DIR` reads overworld overrides from any folder laid out like a mod folder. The folder can
@@ -55,7 +70,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   It can also pin chosen cliff-top points exactly, and set where the cliff texture starts along the coast.
 - For the river carry, the kit draws a coastline round the river and its cove. The new island's cliffs meet the
   stock cliffs at two points exactly: the same positions, and texture that lines up across the seam.
-- Islands minted the old way are unchanged, byte for byte; a test checks nine kinds of mint.
+- Islands minted the old way were unchanged by this, byte for byte; a test checks nine kinds of mint (the
+  cliff-top fix above has since changed their edges).
 
 ### Added — a river donor in the catalog: the first piece of `world-river`
 - The donor catalog has a new class, `river`, with one candidate: the lowland river at blocks (16,14)–(17,15), with

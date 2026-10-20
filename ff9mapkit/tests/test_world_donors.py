@@ -106,6 +106,8 @@ def test_donor_literals_pin_to_catalog_rows():
         assert [tuple(b) for b in row["unit_blocks"]] == list(d.unit_blocks)
         joins = {n: list(c) + list(b) for n, c, b in d.joins}
         assert row["join_w"] == joins["W"] and row["join_e"] == joins["E"]
+    # cluster C passed rung 4 in game (every harness check, then the owner's eye on the bay)
+    assert rows[RV.CLUSTER_C.blocks]["status"] == "qualified"
 
     # the qualified massif rects: the four the interior topo-narrowing verified (interior.py's
     # MOUNTAIN_ROCK_TOPOS comment names them) and the desert peak (terrain study, mountaindonors/)

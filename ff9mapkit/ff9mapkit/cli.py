@@ -5642,6 +5642,221 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_river_at(spec: str):
+    """``--at DX,DZ`` -> the world translation (floats), or ``None`` for ``auto``."""
+    if spec.strip().lower() == "auto":
+        return None
+    try:
+        dx, dz = (float(v) for v in spec.split(","))
+    except ValueError:
+        raise ValueError(f"--at wants DX,DZ in world units (e.g. 512,128) or auto, not {spec!r}") from None
+    return dx, dz
+
+
+def _river_cells(cells) -> str:
+    """Wrapped cells grouped by column: ``(23,12-14) (0,11-15)``."""
+    from collections import defaultdict
+    cols = defaultdict(list)
+    for x, y in cells:
+        cols[x].append(y)
+    out = []
+    for x, ys in cols.items():
+        ys = sorted(ys)
+        span = f"{ys[0]}-{ys[-1]}" if len(ys) > 1 and ys[-1] - ys[0] == len(ys) - 1 else ",".join(map(str, ys))
+        out.append(f"({x},{span})")
+    return " ".join(out)
+
+
+def _river_report(comp, stack: dict, folder: str, rep=None, fails=()) -> list:
+    """The gate report rows ``(gate, verdict, detail)``: the composition's (J1-J4, the zip, G1-G6, B1 + the stack
+    read, C1), then -- when the stage was written -- its W1, sea plan and B1 on the bytes."""
+    from pathlib import Path
+    g = comp.report["gates"]
+
+    def v(ok):
+        return "green" if ok else ("RED" if ok is False else "skipped")
+    rows = [("J1-J4 joins", "green", "; ".join(
+        f"{n}: du {j['du']:.1e} dv {j['dv']:.1e} slope {j['slope']} deg" for n, j in sorted(g["J"].items())
+        if isinstance(j, dict) and "du" in j))]
+    z = g["zip"]
+    rows.append(("zip", v(z["ok"]), f"{z['tris']} tris, max edge {z['max_edge']}u (< 9), max rise {z['max_rise']}u, "
+                                    f"{z['fails']} out of envelope"))
+    rows.append(("G1 crack", v(g["G1"]["ok"]), f"{g['G1']['cracks']} crack(s)"
+                 + (f" at {g['G1']['where'][:3]}" if g["G1"]["where"] else "")))
+    rows.append(("G3 weld audit", v(g["G3"]["ok"]), f"{g['G3']['near_miss']} near-miss pair(s) minted"))
+    g4 = g["G4"]
+    rows.append(("G4 census", v(g4.get("ok")), f"{g4.get('points', 0)} samples vs home: {g4.get('by', g4.get('why'))}"))
+    rows.append(("G4 kit ground", v(g["G4_kit"]["ok"]), f"{g['G4_kit']['points']} samples, {g['G4_kit']['miss']} miss"))
+    rows.append(("G5 skip parity", v(g["G5"]["ok"]), f"{g['G5']['flipped']} flipped ({g['G5']['skipped_carried']} "
+                                                    "skipped IDALLs carried)"))
+    rows.append(("G6 water", v(g["G6"].get("ok")), f"river samples moved: {g['G6'].get('river_points_moved', '-')}"))
+    b1 = g["B1"]
+    divert = sorted({tuple(c["divert"]) for c in comp.plan["cells"].values()})
+    rows.append(("B1 binding", v(b1["ok"]), f"{b1['cells']} open-ocean cells, each diverted to prefab "
+                 f"{', '.join(f'({x},{y})' for x, y in divert)}" if b1["ok"] else "; ".join(b1["fails"][:3])))
+    stacked = "; ".join(f"{fo} disc {d}: {len(p)} file(s), e.g. {Path(p[0]).name}" for (fo, d), p in sorted(stack.items()))
+    rows.append(("B1 stack", v(not stack), stacked or f"no folder in the stack overrides these cells ({folder} included)"))
+    rows.append(("C1 budget", v(g["C1"]["ok"]), f"max {g['C1']['max']} tris per part per block (<= 5000)"
+                 if g["C1"]["ok"] else "; ".join(g["C1"]["fails"][:3])))
+    if rep is not None:
+        w1, sp = rep["W1"], rep["sea_plan"]
+        w1_red = [m for gate, m in fails if gate == "W1"]
+        step = (f"; {w1['edges_introduced']} introduced band edge = THE CLIFF-CORNER BAND STEP at "
+                f"{w1['edges_introduced_where']} (owner-passed, rung 4)") if w1["edges_introduced"] and not w1_red else ""
+        rows.append(("W1 knit", "green" if w1["ok"] else ("RED" if w1_red else "understood"),
+                     "; ".join(w1_red) if w1_red else f"{w1['quads']} quad(s) re-banded, seam under "
+                                                      f"{w1['after']['seam']['under']}, contacts 0{step}"))
+        sp_red = [m for gate, m in fails if gate == "sea_plan"]
+        rows.append(("sea plan", "RED" if sp_red else ("warn" if sp["status"] == "warn" else "green"),
+                     "; ".join(sp_red) if sp_red else f"A green, C green ({sp['C_overlap_frac']:.1%} overlap)"
+                     + ("; B warns: the island's interior blocks carry little Sea4 (the island lane's class)"
+                        if not sp["B_ok"] else "")))
+        bb = rep["B1"]
+        rows.append(("B1 bytes", v(bb["ok"]), f"{rep['files']} files over {bb['cells']} cells read back; the written "
+                                              f"stacks miss nowhere home grounds" if bb["ok"] else
+                     "; ".join(bb["fails"][:3])))
+    return rows
+
+
+def _cmd_world_river(args: argparse.Namespace) -> int:
+    """Carry a stock RIVER, its bridge and its cove onto a kit island minted round them (PLAN:
+    studies/terrain-malleability/watercarry/) -- the cluster-C carry proven in game (rung 4, owner-passed). Composes
+    and gates offline, stages the write OUTSIDE the install and audits it there, then promotes exactly the audited
+    bytes into the mod folder through the world write seam (ledger + backups) and mirrors disc 4. Needs the custom
+    engine (s34); re-enter the world."""
+    import os
+    import shutil
+    import tempfile
+
+    from pathlib import Path
+
+    from . import config as _config
+    from .world import discmirror as DM
+    from .world import river as R
+    from .world.terrain import minted_area
+    # THE FOLDER: --mod-folder > $FF9_MOD_FOLDER > this checkout's .ff9deploy.toml pin -- and never the shared field
+    # folder by default: the overworld keeps its own folder because a campaign deploy wipes FF9CustomMap wholesale
+    pinned = _config._read_deploy_config().get("mod_folder")
+    if not (args.mod_folder or os.environ.get("FF9_MOD_FOLDER") or pinned):
+        print("world-river needs a mod folder: pass --mod-folder (the overworld's is FF9CustomMap-world), set "
+              "$FF9_MOD_FOLDER, or pin mod_folder in this checkout's .ff9deploy.toml. It never falls back to the "
+              "shared FF9CustomMap.", file=sys.stderr)
+        return 2
+    folder = _config.resolve_mod_folder(args.mod_folder)
+    if args.donor not in R.RIVER_DONORS:
+        print(f"--donor {args.donor!r} is not a river donor: v1 carries {sorted(R.RIVER_DONORS)} "
+              "(`world-donors --class river`)", file=sys.stderr)
+        return 2
+    donor = R.RIVER_DONORS[args.donor]
+    discs = (donor.disc,) if args.skip_mirror else (donor.disc, 4)
+    try:
+        offset = _parse_river_at(args.at)
+        if offset is not None:
+            R.block_shift(offset)                              # T0 / T1 before the first read
+        win = R.read_window(donor, game=args.game)
+        frag = R.build_fragment(win, donor)
+        ol = R.outline(frag)
+        skipped = []
+        if offset is None:
+            offset, skipped = R.auto_offset(ol, folder, discs=discs, game=args.game)
+        comp = R.compose(frag, offset=offset, window=win, ol=ol, area=args.area, apron=args.apron,
+                         mod_folder=folder, disc=donor.disc, game=args.game)
+        cells = sorted(tuple(int(v) for v in k.split(",")) for k in comp.plan["cells"])
+        stack = R.stack_occupancy(cells, folder, discs=discs, game=args.game)
+    except R.RiverRefused as e:
+        print(f"world-river refused -- {e}", file=sys.stderr)
+        return 2
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    sx, sy = R.block_shift(comp.offset)
+    print(f"world-river: {donor.name} (stock blocks {donor.blocks}) -> {folder}")
+    print(f"  placement --at {comp.offset[0]:g},{comp.offset[1]:g}: block shift ({sx},{sy}), rotation 0, "
+          f"{len(cells)} cells {_river_cells(cells)}")
+    if skipped:
+        print("  auto: the nearest open-ocean shift no stacked folder overrides; passed over "
+              + ", ".join(f"({a},{b}) [{n} file(s)]" for (a, b), n in skipped[:8])
+              + (" ..." if len(skipped) > 8 else ""))
+    fr = frag.report
+    print(f"  fragment: {fr['tris']} stock tris carried verbatim (river unit {fr['unit']}, cove {fr['cove']}, coast "
+          f"{fr['coast']}); island ring {len(ol.ring)} points; apron {'on' if args.apron else 'off'}")
+    _print_minted_area(minted_area(args.area))          # what compose stamped the carried ground with
+    folders = R.stack_folders(args.game)
+    if Path(folder).is_absolute() or folder not in folders:
+        print(f"  NOTE: '{folder}' is not in Memoria.ini [Mod] FolderNames, so the game does not load it yet.")
+    red = [(k, "; ".join(map(str, g["fails"][:4])) if g.get("fails") else f"red at {str(g.get('where'))[:240]}")
+           for k, g in comp.report["gates"].items() if isinstance(g, dict) and g.get("ok") is False]
+    more = {k: p for k, p in stack.items() if k != (folder, donor.disc)}     # compose's B1 names that one
+    if stack:
+        red.append(("B1", "the stack already overrides these cells -- re-site with --at (or --at auto), or remove "
+                          "that deploy first" + (": " + "; ".join(f"{fo} disc {d} ({len(p)} file(s))"
+                                                                  for (fo, d), p in sorted(more.items()))
+                                                 if more else "")))
+    rep, fails = None, []
+    stage_root = Path(tempfile.mkdtemp(prefix="ff9-world-river-"))
+    try:
+        if not red:
+            try:
+                rep = R.write_composition(comp, stage_root / "stage", window=win, donors=R.knit_donors(frag),
+                                          disc=donor.disc, game=args.game)
+            except R.RiverRefused as e:
+                red.append((e.gate, str(e)))
+            else:
+                fails = R.write_verdict(rep, comp, donor)
+                red += fails
+        print("  gates:")
+        for gate, verdict, detail in _river_report(comp, stack, folder, rep, fails):
+            print(f"    {gate:15s} {verdict:10s} {detail}")
+        tx, tz = _river_source_point(frag, comp.offset)
+        print(f"  !! WARNING (decision 3): the river's SOURCE zips to lawn -- its banks close in open grass at world "
+              f"({tx:.0f}, {tz:.0f}). Every stock river rises in a mountain: add one with `world-mountain` at "
+              f"({tx:.0f}, {tz:.0f}) (a composed --source-massif is a later rung).")
+        if red:
+            for gate, msg in red:
+                print(f"world-river refused -- {gate}: {msg.removeprefix(gate + ': ')}", file=sys.stderr)
+            return 2
+        if args.dry_run:
+            print(f"would deploy {rep['files']} files into {folder}"
+                  + ("" if args.skip_mirror else " (+ the disc-4 mirror)") + ". Nothing written.")
+            return 0
+        written = R.promote(stage_root / "stage", folder, disc=donor.disc, game=args.game)
+    except R.RiverRefused as e:
+        print(f"world-river refused -- {e}", file=sys.stderr)
+        return 2
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
+    DM.auto_mirror(written, mod_folder=folder, skip_mirror=args.skip_mirror)
+    bx, bz = _river_bridge_point(frag, comp.offset)
+    print(f"deployed {len(written)} files into {folder} (every file the audited stage's bytes; ledgered). "
+          f"~ -> World -> re-enter the world (a first-time cell needs it), then teleport to the bridge "
+          f"({bx:.0f}, {bz:.0f}).")
+    _world_coupling_note(coastnav=True, minimap=True, encounters=True)
+    return 0
+
+
+def _river_source_point(frag, offset) -> tuple:
+    """Where the river rises (the fragment's ``source`` boundary), in world coords, x wrapped."""
+    from .world import mesh as WM
+    pts = [p for e in frag.boundary.get("source", ()) for p in e] or [p for e in frag.boundary["lawn"] for p in e]
+    x = sum(p[0] for p in pts) / len(pts) + offset[0]
+    z = sum(p[2] for p in pts) / len(pts) + offset[1]
+    return x % (WM.GRID_COLS * 64), z
+
+
+def _river_bridge_point(frag, offset) -> tuple:
+    """The bridge deck (the carried Object), else the fragment's centre, in world coords, x wrapped."""
+    from .world import mesh as WM
+    tris = [t for t in frag.tris if t["part"] == "object"] or frag.tris
+    if not tris:
+        return _river_source_point(frag, offset)
+    x = sum(float(t["P"][:, 0].mean()) for t in tris) / len(tris) + offset[0]
+    z = sum(float(t["P"][:, 2].mean()) for t in tris) / len(tris) + offset[1]
+    return x % (WM.GRID_COLS * 64), z
+
+
 def _cmd_world_mirror(args: argparse.Namespace) -> int:
     """Mirror a mod folder's Disc1 WorldMap overrides into the Disc4 tree (the overworld ships TWO
     asset trees -- disc1 serves discs 1-3, disc4 has its own -- and every s34 lookup is keyed on the
@@ -10433,6 +10648,44 @@ def build_parser() -> argparse.ArgumentParser:
     wmt.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
     wmt.set_defaults(func=_cmd_world_mountain)
+
+    wrv = sub.add_parser("world-river",
+                         help="carry a STOCK RIVER -- its banks, bridge, beached cove and the island in the cove -- "
+                              "verbatim onto a kit island minted round it on open ocean (the cluster-C carry, "
+                              "in-game proven). Offline-gated (joins J1-J4, zip, G1-G6, B1 binding + the folder "
+                              "stack, C1), then staged OUTSIDE the install and audited there (W1 knit, sea plan, B1 on "
+                              "the bytes) before exactly those bytes deploy through the world write seam (ledger + "
+                              "backups) and mirror to disc 4. The source zips to lawn (warned). Needs the custom "
+                              "engine; re-enter the world.")
+    wrv.add_argument("--mod-folder", default=None,
+                     help="the FolderNames mod folder to deploy into (the overworld's is FF9CustomMap-world), or an "
+                          "absolute scratch folder. Default: $FF9_MOD_FOLDER, else this checkout's .ff9deploy.toml "
+                          "pin -- never the shared FF9CustomMap")
+    wrv.add_argument("--at", required=True, metavar="DX,DZ|auto",
+                     help="the TRANSLATION in world units, rotation 0: a whole 64u block shift (T1; T0 refuses one "
+                          "off the 4u water lattice). The in-game-proven placement is 512,128 = block shift (8,-2), "
+                          "across the world's seam. `auto` takes the nearest open-ocean shift no folder in the stack "
+                          "overrides (it finds 512,128 on today's install). A negative DX needs the = form: "
+                          "--at=-1024,0")
+    wrv.add_argument("--donor", default="cluster-c", metavar="NAME",
+                     help="the qualified river donor (`world-donors --class river`). v1 has one: cluster-c (the "
+                          "default), the lowland river at blocks 16-17,14-15")
+    wrv.add_argument("--area", type=int, default=None, metavar="N",
+                     help="the AREA bits 0-63 stamped on the island and the carried ground (decision 1: one camera, "
+                          "encounter zone and place name; the IDALLs the ground query skips keep theirs). Default 14, "
+                          "the safe road, as world-island")
+    wrv.add_argument("--apron", action=argparse.BooleanOptionalAction, default=True,
+                     help="lift/lower the kit lawn toward the stock lowland's own heights round the fragment's land "
+                          "ring (world-mountain's apron, 24u reach). ON by default -- the in-game-proven build ran "
+                          "it; --no-apron seats the fragment on a level kit lawn (gates green offline on cluster C, "
+                          "not yet played)")
+    wrv.add_argument("--dry-run", action="store_true",
+                     help="run EVERY gate, the staged write's W1 / sea plan / B1-on-the-bytes included (staged in a "
+                          "temp folder, then deleted), and deploy nothing")
+    wrv.add_argument("--skip-mirror", action="store_true",
+                     help="don't auto-mirror the written overrides to Disc4 (THE DISC-4 GAP; default: mirror), and "
+                          "don't require the disc-4 cells free")
+    wrv.set_defaults(func=_cmd_world_river)
 
     wdn = sub.add_parser("world-donors",
                          help="print the read-only qualified-donor catalog for the world carry verbs "
