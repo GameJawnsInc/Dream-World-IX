@@ -37,9 +37,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - The kit now cuts the cliff's top edge where it crosses the grass grid and splits the edge grass along the same
   lines, so every grass triangle shows its own square of the texture at full detail. This is how the original map
   builds its cliff tops.
-- Only the edge changes: the rest of the island's grass and its meadow patches stay exactly as before, and
-  `world-forest` and `world-mountain` carve the same places the same way. A hill placed right at the edge clearance
-  can now be a hair too close; let `world-hill` find its spot (`--near`) instead of giving an exact one.
+- Only the edge changes: the rest of the island's grass and its meadow patches stay exactly as before, the cliff
+  rock keeps its own texture, and `world-forest`, `world-hill` and `world-mountain` carve the same places the same
+  way.
 - A new check, `lip_streaks`, counts any streaked triangle a mint makes. Islands already in the game keep their old
   edge until they are minted again.
 
