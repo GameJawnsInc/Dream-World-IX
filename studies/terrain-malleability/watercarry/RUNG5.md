@@ -161,6 +161,26 @@ Seam-aware relief is the open THE SEAM-WRAP rung of the interior verbs, and a wi
 **Also measured:** `--at auto` now finds no free placement on the owner's install. All 56 open-ocean candidates are
 held, (8,-2) by the live river itself.
 
+## 5c result (a recon; reads only) -- the prediction holds: NO
+
+`escarpment_recon.py` asks whether the river's own birthplace could be carried as a slice that closes the way every
+lawful window does: THE CUT-LINE LAW, under which a cut crosses only lowland (land at y <= 6.5), and high relief is
+cut around, never through.
+
+| measurement | result |
+|---|---|
+| A. every rect up to 4x3 blocks holding the source block, scored on the v4 census's per-edge land heights | **0 of 60 pass.** The best, the source block alone, crosses high ground on all four sides: E and N at 29.6, S at 16.6, W at 8.0 |
+| B. the high ground (tris topping 6.5) joined to the 13 high tris within 8u of the source tip | **20,904 tris over 65 blocks**, 147,869 u^2 in plan, x 754-1459, z -1055..-569, peaks at 42.68. It closes inside the read window, so this is its whole extent: the continent's one highland (comp0 and its plateaus). It holds the tower (391 tris) and 83 entrance tiles |
+| C. what the source block's own frame would sever | 155.5u of high ground: N 55u (top 27.5), E 64u (27.4), S 27u (16.5), W 9.5u (7.9) |
+
+**So the smallest lawful slice containing this river's birthplace is the whole 65-block highland.** That is
+about ten times the 6-block bound, and it carries the tower and the plateau's entrances that decision 2 leaves home.
+Anything smaller cuts the escarpment through, and the kit has no wall language at that height to close the cut (the
+coastal join columns work only because the kit's 3.2u wall IS stock's coastal wall). This agrees with THE ISLAND
+COROLLARY: no small sea-ringed landmass carries walkable highland.
+
+**Per decision 3, the lawn source is v1's permanent answer.** 5a's warning already says why. Rung 5 is closed.
+
 ## The forest after the seam rung (offline, 2026-10-20)
 
 The relief verbs now read and write across the seam (`interior.py`, the island mint lane's approach; tests in

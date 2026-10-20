@@ -30,6 +30,7 @@ lake onto a kit island the way `world-forest` and `world-mountain` carry canopy 
 | `lab_build.py` | PLAN rung 4: cluster C composed at block offset (8,-2) (no live folder holds those cells), written as the lab folder with the mist off (-> out/lab/FF9CustomMap-lab, out/lab/build.json) |
 | `lab_prep.py` | PLAN rung 4: the engine's ground and movement rules over the lab files -- probe heights, the walk and boat stops, the view homes (-> out/lab/prep.json) |
 | `lab_install.py` | PLAN rung 4: `install` puts the lab first in FolderNames (Memoria.ini backed up); `uninstall RUN_DIR` restores the ini byte-exact and moves the lab out |
+| `escarpment_recon.py` | RUNG5.md 5c, reads only: the rect scan round the source (0 of 60 close on lowland) and the high component the source is born in (65 blocks, the continent's highland) (-> out/escarpment_recon.json) |
 | `rung5b_identity.py` | RUNG5.md 5b: CLI vs `[[river]]` recipe into scratch folders (264 files byte-identical), the removal owning a fused river, a forest row on the river island (-> out/rung5b.json) |
 | `mouth_compare.py` | The live river's mouth against home, tri for tri, every channel; names the two lifted shallow tris at the beach corners (-> out/mouth_compare.json) |
 | `mouth_session.py` | In game, nothing installed: the live mouth and home's mouth from the same relative spots in one launch (prep -> out/mouth_poses.json) |
