@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import heapq
 import math
+import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
@@ -2055,9 +2056,7 @@ def write_composition(comp: Composition, root, *, window, donors, disc: int = 1,
     ``root`` (outside the install) and B1 read back from the bytes. ``donors`` = the knit's tile vocabulary, the
     carried cove's own blocks first (:func:`knit_variants`); ``window`` = the donor's stock tris (home, for the
     baselines). Returns the report; nothing here touches the game."""
-    shift = (int(round(comp.offset[0] / BLOCK_U)), int(round(-comp.offset[1] / BLOCK_U)))
-    if (shift[0] * BLOCK_U, -shift[1] * BLOCK_U) != tuple(comp.offset):
-        raise RiverRefused("T1", f"rung 3 writes whole-block translations only, not {comp.offset}")
+    shift = block_shift(comp.offset)
     meshes = part_meshes(comp, disc=disc, lod=lod)
     sea4 = kit_sea4(meshes, disc=disc, game=game, lod=lod)
     w1 = knit(meshes, donors=donors, disc=disc, game=game, lod=lod, home_shift=shift)
@@ -2071,4 +2070,155 @@ def write_composition(comp: Composition, root, *, window, donors, disc: int = 1,
             "sea_plan": {k: sp[k] for k in ("A_ok", "A_submerged_tris", "B_ok", "B_max_ratio", "B_violations",
                                             "C_ok", "C_overlap_frac", "status")},
             "B1": b1, "meshes": meshes}
+
+
+# ==== the verb: `world-river` (PLAN.md "What the verb does") ======================================================
+#
+# The CLI composes, stages and promotes: :func:`compose` runs every geometry gate; :func:`write_composition` writes
+# the island to a STAGE outside the install (B0 stays true) and audits it there (W1, the sea plan, B1 on the bytes);
+# :func:`write_verdict` decides; :func:`promote` moves exactly the audited bytes into the mod folder through the kit's
+# one write seam (``mesh.deploy_override`` / ``mesh.deploy_donor_sidecar``: the ledger, the backups, the ownership
+# refusal); the disc-4 mirror runs after, as for every world writer.
+
+#: THE CLIFF-CORNER BAND STEP (rung 3; owner-passed in rung 4): the contradicting sea-band edges a donor's composition
+#: introduces and the owner's eye accepted -- cluster C's at the W join's corner cell, the carried cliff's sea3 against
+#: the kit cliff's Sea4 (the step home ships at its own E headland). Donor frame: (block x, block y, cell i, cell j).
+#: W1 stays strictly red on them; the verb accepts exactly these and refuses any other.
+UNDERSTOOD_EDGES = {"cluster-c": frozenset({(16, 16, 3, 14)})}
+
+
+def block_shift(offset) -> tuple:
+    """A world translation ``(dx, dz)`` -> the whole-block shift ``(sx, sy)`` the writer takes (block x grows with x,
+    block y with -z). T0 refuses one off the 4u water lattice; T1 one on the lattice but not a whole 64u block: the
+    write splits per block and diverts every cell to one prefab, so it moves whole blocks only."""
+    dx, dz = (float(v) for v in offset)
+    if dx % 4.0 or dz % 4.0:
+        raise RiverRefused("T0", f"a translation of ({dx:g}, {dz:g}) leaves the 4u water lattice")
+    sx, sy = int(round(dx / BLOCK_U)), int(round(-dz / BLOCK_U))
+    if (sx * BLOCK_U, -sy * BLOCK_U) != (dx, dz):
+        raise RiverRefused("T1", f"the write moves whole 64u blocks only, not ({dx:g}, {dz:g})")
+    return sx, sy
+
+
+def knit_donors(frag: Fragment) -> list:
+    """The knit's tile vocabulary for :func:`write_composition`, first wins (:func:`knit_variants`): the carried
+    cove's own Sea5 blocks, most first, then every block of the donor window -- the order rung 3 and rung 4 wrote."""
+    own = Counter(t["blk"] for t in frag.tris if t["part"] == "sea5")
+    (bx0, bx1), (by0, by1) = frag.donor.window
+    return [b for b, _ in own.most_common()] + [(x, y) for x in range(bx0, bx1 + 1) for y in range(by0, by1 + 1)]
+
+
+def stack_folders(game=None) -> list:
+    """Memoria.ini's ``FolderNames``, highest priority first; ``[]`` when no install or ini resolves."""
+    from .. import config
+    from ..deploystack import parse_folder_names
+    try:
+        ini = config.find_game_path(game) / "Memoria.ini"
+    except config.ConfigError:
+        return []
+    return parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
+
+
+def stack_occupancy(cells, mod_folder: str, *, discs=(1, 4), game=None, lod: str = "0_1") -> dict:
+    """THE STACK READ (rung 4's lab check, made the verb's): override files already deployed on ``cells`` in
+    ``mod_folder`` AND in every folder ``FolderNames`` stacks, per disc. The engine resolves each part file through
+    the stack on its own, so a cell two folders override renders a mix of two deploys' parts (or one hides the
+    other). ``{(folder, disc): [paths]}``, non-empty entries only; ``cells`` are wrapped labels."""
+    from . import mesh as M_
+    out = {}
+    for fo in [str(mod_folder)] + [f for f in stack_folders(game) if f != str(mod_folder)]:
+        for d in discs:
+            hits = M_.existing_overrides(cells, fo, disc=d, lod=lod, game=game)
+            if hits:
+                out[(fo, d)] = hits
+    return out
+
+
+def auto_offset(ol: Outline, mod_folder: str, *, discs=(1, 4), game=None, limit: int = 64):
+    """``--at auto``: the nearest whole-block shift (:func:`open_ocean_offsets`) whose footprint no stacked folder
+    overrides. The footprint is the minted island's block RECTANGLE, a superset of the cells the write touches, so a
+    pick is free wherever the composition lands (B1 re-checks the exact cells). Returns ``((dx, dz), skipped)``:
+    the world translation and the nearer shifts passed over, each with its occupancy count."""
+    from . import mesh as M_
+    blocks = sorted(mint(ol)["blocks"])
+    bx0, bx1 = min(b[0] for b in blocks), max(b[0] for b in blocks)
+    by0, by1 = min(b[1] for b in blocks), max(b[1] for b in blocks)
+    skipped = []
+    for sx, sy in open_ocean_offsets(blocks, limit=limit, game=game):
+        cells = sorted({(M_.wrap_block_col(x + sx), y + sy) for x in range(bx0, bx1 + 1) for y in range(by0, by1 + 1)})
+        occ = stack_occupancy(cells, mod_folder, discs=discs, game=game)
+        if not occ:
+            return (BLOCK_U * sx + 0.0, -BLOCK_U * sy + 0.0), skipped     # + 0.0: never a -0.0
+        skipped.append(((sx, sy), sum(len(v) for v in occ.values())))
+    raise RiverRefused("B1", f"none of the {len(skipped)} nearest open-ocean placements is free of other deploys "
+                       "in the stack: pick one with --at")
+
+
+def write_verdict(rep: dict, comp: Composition, donor: RiverDonor) -> list:
+    """The verb's verdict on a staged write (:func:`write_composition`'s report): B1 on the bytes; the sea plan's A
+    (no submerged land) and C (the overlap ceiling) -- B only warns, the island lane's continent-scale class; and W1,
+    which may be red on exactly the band edges :data:`UNDERSTOOD_EDGES` names for this donor and nothing else.
+    Returns the failures as ``(gate, message)``; empty = deploy."""
+    out = []
+    if not rep["B1"]["ok"]:
+        out.append(("B1", "the written bytes do not bind: " + "; ".join(rep["B1"]["fails"][:4])))
+    sp = rep["sea_plan"]
+    if not sp["A_ok"]:
+        out.append(("sea_plan", f"{sp['A_submerged_tris']} land tri(s) sit under the sea plane"))
+    if not sp["C_ok"]:
+        out.append(("sea_plan", f"the sea/land overlap is {sp['C_overlap_frac']:.1%}, over the ceiling"))
+    w1 = rep["W1"]
+    shift = block_shift(comp.offset)
+    understood = {(x + shift[0], y + shift[1], i, j) for x, y, i, j in UNDERSTOOD_EDGES.get(donor.name, ())}
+    where = [tuple(e) for e in w1["edges_introduced_where"]]
+    stray = [e for e in where if e not in understood]
+    seam = w1["after"]["seam"]
+    if seam["under"]:
+        out.append(("W1", f"{seam['under']} tile(s) face deep water without their transition"))
+    if w1["after"]["contacts"]:
+        out.append(("W1", f"crop-made sea pairs at tri edges: {w1['after']['contacts']}"))
+    if w1["unpaintable"]:
+        out.append(("W1", f"{len(w1['unpaintable'])} unpaintable sliver(s), e.g. {w1['unpaintable'][:2]}"))
+    if w1["wang"]["incoherent"]:
+        out.append(("W1", f"{w1['wang']['incoherent']} incoherent Wang frame(s)"))
+    if stray or w1["edges_introduced"] > len(where):
+        out.append(("W1", f"{w1['edges_introduced']} contradicting band edge(s) home lacks, not all THE "
+                          f"CLIFF-CORNER BAND STEP: {stray[:4]}"))
+    return out
+
+
+_STAGED = re.compile(r"Block\[(\d+)\]\[(\d+)\] (\w+)\.(ff9mesh|txt)")
+
+
+def promote(stage, mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=None) -> list:
+    """THE PROMOTION: every file :func:`write` staged under ``stage`` (outside the install, B0) deployed into
+    ``mod_folder`` through the kit's one write seam -- :func:`mesh.deploy_override` per part mesh,
+    :func:`mesh.deploy_donor_sidecar` per divert -- so the folder gets the ledger rows, the backups and the
+    ownership refusal every world writer gets. P0 holds it to the audited bytes: before the first write every staged
+    mesh must round-trip through the seam's serializer byte for byte, and after the last every deployed file must
+    equal its staged one. Returns the deployed paths (meshes first, then the diverts), for the disc mirror."""
+    from pathlib import Path
+    from . import mesh as M_
+    stage = Path(stage)
+    meshes, diverts = [], []
+    for f in sorted(p for p in stage.rglob("*") if p.is_file()):
+        m = _STAGED.fullmatch(f.name)
+        if not m:
+            raise RiverRefused("P0", f"the stage holds a file the writer does not write: {f.relative_to(stage)}")
+        x, y, part, ext = int(m[1]), int(m[2]), m[3], m[4]
+        if ext == "txt":
+            diverts.append((f, x, y, tuple(int(v) for v in f.read_text(encoding="utf-8").split(","))))
+            continue
+        bm = M_.blockmesh_from_ff9mesh(f, disc=disc, x=x, y=y, lod=lod, part=part.lower())
+        if M_.ff9mesh_bytes(bm) != f.read_bytes():
+            raise RiverRefused("P0", f"{f.name} does not round-trip through the deploy seam byte for byte")
+        meshes.append((f, bm, part))
+    pairs = [(f, M_.deploy_override(bm, mod_folder=mod_folder, game=game, lod=lod, part=part, disc=disc))
+             for f, bm, part in meshes]
+    pairs += [(f, M_.deploy_donor_sidecar(d[0], d[1], mod_folder=mod_folder, disc=disc, x=x, y=y, lod=lod,
+                                          game=game)) for f, x, y, d in diverts]
+    bad = [Path(dst).name for src, dst in pairs if Path(dst).read_bytes() != src.read_bytes()]
+    if bad:
+        raise RiverRefused("P0", f"{len(bad)} deployed file(s) differ from the audited stage, e.g. {bad[:3]}")
+    return [dst for _, dst in pairs]
 

@@ -3,8 +3,9 @@
 **Status:** signed off as written, with the five recommended answers (2026-10-19). **Rung 0 is DONE** (offline,
 2026-10-20; see "Rung 0 result" below). **Rung 1 is DONE** (offline, 2026-10-20; "Rung 1 result"). **Rung 2 is DONE** (offline, 2026-10-20;
 "Rung 2 result"): every gate green on cluster C. **Rung 3 is DONE** (offline, 2026-10-20; "Rung 3 result"): written to a
-scratch folder, B1 green on the bytes, W1 green bar one cliff-corner band step, the render reads as the bay. The evidence is in
-`RECON.md` (R0, R1 rounds 1-4); this file is the build.
+scratch folder, B1 green on the bytes, W1 green bar one cliff-corner band step, the render reads as the bay. **Rung 4 is
+CLOSED** (in game, owner-passed, 2026-10-20). **The CLI verb is WIRED** (2026-10-20; "The CLI verb" below). The evidence
+is in `RECON.md` (R0, R1 rounds 1-4); this file is the build.
 
 ## What the verb does
 
@@ -22,11 +23,12 @@ Every other surface is stock. Those three seams are the authored surface, and ea
 (THE DEFECT FOLLOWS THE AUTHORSHIP).
 
 ```
-py -m ff9mapkit world-river --mod-folder F --at WX,WZ [--dry-run] [--apron] [--skip-mirror]
+py -m ff9mapkit world-river --mod-folder F --at DX,DZ|auto [--dry-run] [--no-apron] [--skip-mirror] [--area N] [--donor cluster-c]
 ```
 
 `--at` places the fragment by translation only: rotation 0 in v1, the offset a multiple of 4u so every water tile
-stays on the lattice. The whole composition must land on open ocean.
+stays on the lattice (T0), and a whole 64u block (T1: the write splits per block). The whole composition must land on
+open ocean. As wired, the apron is ON by default (`--no-apron` opts out): the in-game-proven build ran it.
 
 ## What is already proven (offline; RECON.md)
 
@@ -417,7 +419,7 @@ Tests:
 ## Rung 4 result (in game) -- CLOSED, owner-passed
 
 **Every registered check passed, the owner's eye on the bay included** ("the bay passes"). Cluster C's catalog row is
-now `qualified`. What v1 still lacks is the CLI verb: the command line at the top of this plan is not wired yet. The lab
+now `qualified`. What v1 still lacked at the close was the CLI verb (now wired: "The CLI verb" below). The lab
 is
 `river.write_composition` verbatim, written by `lab_build.py` with the mist off. `lab_prep.py` predicts every height
 and stop from the engine's ground and movement rules over the lab files (the ray from y + 2.34375, the 8-angle slide,
@@ -459,6 +461,34 @@ water in the near field.
 The harness's own lesson, for the next overworld session: `world_face` measures the heading by WALKING about 30u. On
 a narrow headland the probe slides along the cliff and reads as a camera that will not turn (round 1 lost the foot
 stage that way). Face on the open lawn, then teleport to the start; the camera's yaw survives the teleport.
+
+## The CLI verb (wired, 2026-10-20)
+
+`world-river` runs rung 4's lab recipe as one command (`cli._cmd_world_river`; the helpers are `river.py`'s last
+section). **How it writes into a live folder:** `write_composition` keeps refusing the install (B0), so the verb never
+asks it to. It STAGES: the composition is written to a temp folder outside the install and audited there (W1 after the
+knit, the sea plan, B1 on the bytes). `write_verdict` decides, accepting W1 red only on the donor's owner-passed
+THE CLIFF-CORNER BAND STEP (`UNDERSTOOD_EDGES`, donor frame) and nothing else. Then `promote` moves exactly the staged
+bytes through the kit's one write seam (`mesh.deploy_override` per part mesh, `mesh.deploy_donor_sidecar` per
+divert: the ledger, the backups, the ownership refusal). Every staged mesh must round-trip through the seam's
+serializer first, and every deployed file must equal its staged one after (P0). The disc-4 mirror runs last, as for
+every world writer. `--dry-run` is the same pipeline minus the promotion, so it reports every gate the real run does.
+
+**THE STACK READ.** B1 in `compose` reads only the target folder's disc 1. The verb also reads every folder in
+FolderNames, on disc 1 and on disc 4 unless `--skip-mirror` (lab_build's check). A cell two folders override
+renders a mix of two deploys' parts, so the verb refuses. `--at auto` takes the nearest `open_ocean_offsets` shift
+whose block rectangle the stack leaves free: on today's install it passes over (8,0), (8,-1), (8,1) and (9,0), all
+held by FF9CustomMap-world, and lands on (8,-2), the proven placement.
+
+**Measured, cluster C at `--at 512,128`:**
+- `--dry-run`: every gate green, W1 understood on the band step at (24,14,3,14), the sea plan's B warning, 16.5s.
+- A real run into an absolute scratch folder: the 132 Disc1 files are byte-identical to the rung 4 lab
+  (`lab_build.py`'s `out/lab/FF9CustomMap-lab`, its mist file aside), plus the ledger. `discmirror.mirror` on that
+  folder mirrored all 132 to Disc4, 0 free-ride pins, 0 cells skipped.
+- `--no-apron`: every gate green offline too (zip max rise 2.24u of 2.34). Not played.
+
+Not in v1: an `--allow-overwrite` (B1 refuses the verb's own earlier deploy at the same cells; remove it first) and
+any coastnav stamp on the kit coast (the verb prints the coupling note).
 
 ## Decisions for the owner (answered: the recommendations, 2026-10-19)
 
