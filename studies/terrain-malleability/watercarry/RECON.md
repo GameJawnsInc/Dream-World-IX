@@ -17,6 +17,9 @@ lake onto a kit island the way `world-forest` and `world-mountain` carry canopy 
 |---|---|
 | `census.py` | Every disc-1 block's parts, every water-like part measured, and the Terrain's water topographs (-> out/census.json) |
 | `anatomy.py` | For each water part, how it sits in its ground: hole, welds, height above the Terrain, bank topographs (-> out/anatomy.json) |
+| `still_session.py` | R0: read-only in-game stills of the stock river and falls (the renderer's calibration) |
+| `ensemble.py` | R1: cluster C's river ensemble (parts + welded banks) and its boundary classed LAWN / SEA / ROCK (-> out/ensemble.json) |
+| `seat_dryrun.py` | R1: the ensemble seated verbatim into a minted grass bench -- hole, DP zip, gates, failures localized (-> out/seat.json, out/seat_plan.png) |
 
 ## 1. What was already settled (July)
 
@@ -169,17 +172,73 @@ Cluster C's channel:
     restores the old strip and is refused by name.
   - No existing donor changed a byte: the Uaho identity nets are green.
 
-**R1 -- the coastal river, verbatim (cluster C), on a bench of its own coast.**
-- **What:** the rect that holds the WHOLE system: the source's rock to the west, the channel, the sea mouth at (16,15).
-  That is about 3x2 blocks. It is carried by the region transplant at rot 0 / shift 0, so the river, joint, banks and
-  mouth are stock bytes, already weld-clean.
-- **The only authored surface is the coast on the three land cuts.** Use `cut_census` to place the cut lines as far
-  from the channel as possible; the coast morph verbs close them. The river is never touched.
-- **Accept:**
-  - offline: every gate, and R0's visibility gate holding on every bank;
-  - in game: the stream animates, its banks walk as stock (the probe: a walk at the bank stops as at home, a light-blue
-    chocobo crosses, a yellow one does not), the mouth reads as stock, and the owner's eye passes it.
-- **Cost:** medium-large. The coast closure is the risk, as THE DEFECT FOLLOWS THE AUTHORSHIP predicts.
+**R1 -- the coastal river (cluster C).** The region framing below was CLOSED by the offline round (2026-10-19); the
+ensemble framing replaces it.
+
+*The region carry: closed by THE FUSE LAW.*
+- Cluster C sits on a 97-block landmass: the east Mist Continent, blocks x 11-22, y 8-18 (a block flood-fill of its
+  land).
+- No rect closes on open water. Every candidate rect's perimeter crosses land:
+
+  | rect | perimeter | land crossing |
+  |---|---|---|
+  | 2x2 | 512u | 370u (72%) |
+  | 3x2 | 640u | 425u (66%) |
+  | 4x3 | 896u | 690u (77%) |
+  | 4x4 | 1024u | 788u (77%) |
+  | 6x5 | 1408u | 1112u (79%) |
+
+  That is how much coast each would have to MINT from nothing. The kit has no lawful verb for it: land never knits, and
+  the ladder mint is falsified. `cut_census`'s lawful lines are open-water lines, and there are none round a continent
+  cut. The 2x2 dry run is weld-clean and fails `land-fit` alone (§4).
+
+*The ensemble carry (`ensemble.py`, `seat_dryrun.py`).*
+- **The unit** is the river's own parts (Stream, RiverJoint) plus every topo-62 bank welded to them: 188 tris, none
+  left out, 177 of them on skipped IDALLs. It is CLOSED (0 open edges). Its outer ring, classed by what it welds to at
+  home:
+
+  | boundary | length | what it is | machinery |
+  |---|---|---|---|
+  | LAWN | 373.3u | grass and forest | the canopy carry's |
+  | SEA | 20.6u | the mouth, at about (1035-1050, -986..-994) | none yet |
+  | ROCK | 5.7u | the source, welded to the escarpment's foot at (1128.6, -918) | rock contact |
+
+- **The seat dry run** puts the unit, bytes verbatim, into a minted r90 grass bench. It is shifted, and levelled so the
+  lawn-side rim median sits at the bench's 3.2. Then: the hole along the outer ring + 2.5u, the kit's DP zip on exact
+  floats, and the gates. Plan in `out/seat_plan.png`.
+  - **Pass:**
+    - the hole drops 354 tris, all plain grass, in one ring;
+    - max zip chord 8.25u (< 9);
+    - skip parity holds on every bank;
+    - 686 census points hit stream or joint water through the bank holes.
+  - **Fail, localized to the nearest boundary class:**
+
+    | failure | at the mouth (SEA) | on the lawn |
+    |---|---|---|
+    | zip rise past 2.34 or ny < 0.5 (rise max 3.03, ny min 0.033) | 16 | 9 |
+    | new once-edges | -- | 3 |
+    | introduced census misses (360 donor vs 368 seated) | -- | 8 |
+
+  - **The rim heights explain the lawn ones.** The LAWN rim is level (p10-p90 2.32-3.63 against the bench's 3.2), but
+    12 of 194 rim verts sit more than 1u off: the home lawn falling toward the sea beside the mouth (0.5-2.0), and one
+    4.3 rise at the north bend.
+  - **The mouth sits at sea level (0.17-0.71),** 3u under the lawn. The source's rock contact sits at lawn height
+    (2.9-3.8) and zips cleanly.
+
+*What R1 still needs, in order.*
+1. **The apron.** `world-mountain`'s pure-Y lift of the kept grass toward the rim (`ground_lift`, the weld-safe lift),
+   applied to the ensemble's lawn ring. **Registered prediction:** the lawn-side failures go to 0 (zip rise <= 2.34, no
+   new once-edge, no introduced miss away from the mouth).
+2. **The mouth: a coast splice.** The unit's 20.6u sea edge must meet water. On the bench that means the island's coast
+   ring: the stock mouth assembly (the RiverJoint's sea bands and beach at (16,15)) slid into a minted coast as one
+   assembly (THE SLIDE-THE-ASSEMBLY LAW; beach ends are load-bearing welds). This is the one genuinely new mechanism and
+   THE DEFECT FOLLOWS THE AUTHORSHIP's likely home. It needs its own anatomy pass of the stock mouth first.
+3. **The source:** a `world-mountain` massif seated so its foot meets the source tip (stock: "every river rises in a
+   mountain"). Composition only; the rock contact already zips.
+- **Accept (unchanged):**
+  - offline: every gate, and R0's visibility gate on every bank;
+  - in game: the stream animates, its banks walk as stock (a walk at the bank stops as at home, a light-blue chocobo
+    crosses, a yellow one does not), the mouth reads as stock, and the owner's eye passes it.
 
 **R2 -- a falls in its mountain (cluster D, or a new massif donor).**
 - **What:** `world-mountain`'s ensemble carry with Stream added to `ENSEMBLE_PARTS` and `Donor.txt` -> (19,11).
