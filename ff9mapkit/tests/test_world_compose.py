@@ -274,3 +274,85 @@ def test_a_malformed_tweak_fails_at_the_call_site_by_name(monkeypatch):
                              tweaks=[NotATweak()])
     with pytest.raises(TypeError, match=named):
         TR.morph_in_place("MOD", cell=(1, 1), tweaks=[NotATweak()], dry_run=True)
+
+
+# ---- the [[river]] row (RUNG5.md 5b): world-river's one pipeline, run from a recipe ----------------------------------
+
+def _stub_river(monkeypatch, calls, *, red=()):
+    """``river.deploy`` replaced by a recorder returning the shape the runner reads (the pipeline itself is
+    test_world_river's)."""
+    from types import SimpleNamespace
+    from ff9mapkit.world import river as RV
+
+    def deploy(mod_folder, **kw):
+        calls.append(("river", kw))
+        off = kw["offset"] or (512.0, 128.0)
+        return SimpleNamespace(comp=SimpleNamespace(offset=off), cells=[(23, 12), (0, 11), (1, 11)],
+                               red=list(red), rep={"files": 132}, written=[] if kw["dry_run"] else ["f"] * 132)
+    monkeypatch.setattr(RV, "deploy", deploy)
+
+
+def test_the_river_row_runs_in_the_base_tier_before_relief(monkeypatch, tmp_path, capsys):
+    _pin_game(monkeypatch, tmp_path)
+    calls = []
+    _stub_verbs(monkeypatch, calls)
+    _stub_river(monkeypatch, calls)
+    doc = {"forest": [{"near": [49.0, -824.0]}], "river": [{"at": [512, 128], "apron": False, "area": 3}],
+           "island": [{"cell": [4, 2]}]}
+    out = FU.compose_layout("MOD", doc, dry_run=False)
+    assert [c[0] for c in calls] == ["island", "river", "forest"] and out["clean"] is True
+    kw = calls[1][1]
+    assert (kw["offset"], kw["apron"], kw["area"], kw["dry_run"], kw["skip_mirror"]) == ((512.0, 128.0), False, 3,
+                                                                                         False, False)
+    assert kw["donor"].name == "cluster-c"                                   # the default donor
+    assert "[[river]] cluster-c: at = [512, 128], 3 cells, deployed 132 files" in capsys.readouterr().out
+    assert FU.COMPOSE_TIERS[0] == ("placement", "island", "river")
+
+
+@pytest.mark.parametrize("row, kwargs, error", [
+    ({"at": [512, 128], "rot": 90}, {}, "unknown key(s) ['rot']"),
+    ({}, {}, "[[river]] needs at = [dx, dz]"),
+    ({"at": "auto"}, {}, 'at = "auto" resolves on a dry run only'),
+    ({"at": [512, 128], "donor": "cluster-d"}, {}, "is not a river donor"),
+    ({"at": [512, 128]}, {"target_disc": 4}, "[[river]] writes disc 1 lod 0_1"),
+])
+def test_the_river_row_refuses_by_name(monkeypatch, tmp_path, row, kwargs, error):
+    _pin_game(monkeypatch, tmp_path)
+    calls = []
+    _stub_river(monkeypatch, calls)
+    out = FU.compose_layout("MOD", {"river": [row]}, dry_run=False, **kwargs)
+    g = next(g for g in out["gates"] if g["gate"] == "river #0")
+    assert g["ok"] is False and error in g["error"] and calls == []         # refused before the pipeline ran
+
+
+def test_the_river_row_auto_resolves_on_a_dry_run_and_red_gates_refuse(monkeypatch, tmp_path, capsys):
+    _pin_game(monkeypatch, tmp_path)
+    calls = []
+    _stub_river(monkeypatch, calls)
+    out = FU.compose_layout("MOD", {"river": [{"at": "auto"}]}, dry_run=True)
+    assert out["clean"] is True and calls[0][1]["offset"] is None and calls[0][1]["dry_run"] is True
+    assert "at = [512, 128], 3 cells, would deploy 132 files" in capsys.readouterr().out   # the placement to copy
+    _stub_river(monkeypatch, calls, red=[("B1", "B1: the stack already overrides these cells")])
+    out = FU.compose_layout("MOD", {"river": [{"at": "512,128"}]}, dry_run=False, allow_overwrite=True)
+    g = next(g for g in out["gates"] if g["gate"] == "river #0")
+    assert g["ok"] is False and "world-river refused (at = [512, 128], 3 cells) -- B1: the stack" in g["error"]
+
+
+def test_a_dry_run_names_why_a_relief_row_cannot_read_the_river_island(monkeypatch, tmp_path):
+    """A dry run deploys nothing, so a relief row aimed at the island the same recipe's base tier would mint reads the
+    folder as it is now and fails: the failure says so, by the base step's name."""
+    from ff9mapkit.world import interior as IN
+    _pin_game(monkeypatch, tmp_path)
+    calls = []
+    _stub_verbs(monkeypatch, calls)
+    _stub_river(monkeypatch, calls)
+
+    def no_island(soup, **k):
+        raise ValueError("the forest footprint needs deployed Terrain overrides -- mint a bigger island first")
+    monkeypatch.setattr(IN, "carve_forest", no_island)
+    out = FU.compose_layout("MOD", {"river": [{"at": "auto"}], "forest": [{"near": [49.0, -824.0]}]}, dry_run=True)
+    g = next(g for g in out["gates"] if g["gate"] == "forest #0")
+    assert g["ok"] is False and "mint a bigger island first [dry run: river #0 in this recipe was not deployed" \
+        in g["error"]
+    out = FU.compose_layout("MOD", {"forest": [{"near": [49.0, -824.0]}]}, dry_run=True)
+    assert "[dry run:" not in next(g for g in out["gates"] if g["gate"] == "forest #0")["error"]   # no base, no hint

@@ -5725,13 +5725,10 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
     bytes into the mod folder through the world write seam (ledger + backups) and mirrors disc 4. Needs the custom
     engine (s34); re-enter the world."""
     import os
-    import shutil
-    import tempfile
 
     from pathlib import Path
 
     from . import config as _config
-    from .world import discmirror as DM
     from .world import river as R
     from .world.terrain import minted_area
     # THE FOLDER: --mod-folder > $FF9_MOD_FOLDER > this checkout's .ff9deploy.toml pin -- and never the shared field
@@ -5751,90 +5748,57 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
     discs = (donor.disc,) if args.skip_mirror else (donor.disc, 4)
     if args.remove:
         return _river_remove(args, folder, donor, discs)
-    try:
-        offset = _parse_river_at(args.at)
-        if offset is not None:
-            R.block_shift(offset)                              # T0 / T1 before the first read
-        win = R.read_window(donor, game=args.game)
-        frag = R.build_fragment(win, donor)
-        ol = R.outline(frag)
-        skipped = []
-        if offset is None:
-            offset, skipped = R.auto_offset(ol, folder, discs=discs, game=args.game)
-        comp = R.compose(frag, offset=offset, window=win, ol=ol, area=args.area, apron=args.apron,
-                         mod_folder=folder, disc=donor.disc, game=args.game)
-        cells = sorted(tuple(int(v) for v in k.split(",")) for k in comp.plan["cells"])
-        stack = R.stack_occupancy(cells, folder, discs=discs, game=args.game)
-    except R.RiverRefused as e:
-        print(f"world-river refused -- {e}", file=sys.stderr)
-        return 2
-    except (ValueError, ConfigError, FileNotFoundError) as e:
-        print(str(e), file=sys.stderr)
-        return 2
-    sx, sy = R.block_shift(comp.offset)
-    print(f"world-river: {donor.name} (stock blocks {donor.blocks}) -> {folder}")
-    print(f"  placement --at {comp.offset[0]:g},{comp.offset[1]:g}: block shift ({sx},{sy}), rotation 0, "
-          f"{len(cells)} cells {_river_cells(cells)}")
-    if skipped:
-        print("  auto: the nearest open-ocean shift no stacked folder overrides; passed over "
-              + ", ".join(f"({a},{b}) [{n} file(s)]" for (a, b), n in skipped[:8])
-              + (" ..." if len(skipped) > 8 else ""))
-    fr = frag.report
-    print(f"  fragment: {fr['tris']} stock tris carried verbatim (river unit {fr['unit']}, cove {fr['cove']}, coast "
-          f"{fr['coast']}); island ring {len(ol.ring)} points; apron {'on' if args.apron else 'off'}")
-    _print_minted_area(minted_area(args.area))          # what compose stamped the carried ground with
-    folders = R.stack_folders(args.game)
-    if Path(folder).is_absolute() or folder not in folders:
-        print(f"  NOTE: '{folder}' is not in Memoria.ini [Mod] FolderNames, so the game does not load it yet.")
-    red = [(k, "; ".join(map(str, g["fails"][:4])) if g.get("fails") else f"red at {str(g.get('where'))[:240]}")
-           for k, g in comp.report["gates"].items() if isinstance(g, dict) and g.get("ok") is False]
-    more = {k: p for k, p in stack.items() if k != (folder, donor.disc)}     # compose's B1 names that one
-    if stack:
-        held = ": " + "; ".join(f"{fo} disc {d} ({len(p)} file(s))" for (fo, d), p in sorted(more.items()))
-        own = any(fo == str(folder) for fo, _d in stack)                      # the target folder holds some of it
-        red.append(("B1", "the stack already overrides these cells -- re-site with --at (or --at auto), or take that "
-                          "deploy out first" + (" (this verb's own earlier one: `world-river --remove --at "
-                                                f"{comp.offset[0]:g},{comp.offset[1]:g}`)" if own else "")
-                    + (held if more else "")))
-    rep, fails = None, []
-    stage_root = Path(tempfile.mkdtemp(prefix="ff9-world-river-"))
-    try:
-        if not red:
-            try:
-                rep = R.write_composition(comp, stage_root / "stage", window=win, donors=R.knit_donors(frag),
-                                          disc=donor.disc, game=args.game)
-            except R.RiverRefused as e:
-                red.append((e.gate, str(e)))
-            else:
-                fails = R.write_verdict(rep, comp, donor)
-                red += fails
+
+    def planned(d):
+        comp, cells = d.comp, d.cells
+        sx, sy = R.block_shift(comp.offset)
+        print(f"world-river: {donor.name} (stock blocks {donor.blocks}) -> {folder}")
+        print(f"  placement --at {comp.offset[0]:g},{comp.offset[1]:g}: block shift ({sx},{sy}), rotation 0, "
+              f"{len(cells)} cells {_river_cells(cells)}")
+        if d.skipped:
+            print("  auto: the nearest open-ocean shift no stacked folder overrides; passed over "
+                  + ", ".join(f"({a},{b}) [{n} file(s)]" for (a, b), n in d.skipped[:8])
+                  + (" ..." if len(d.skipped) > 8 else ""))
+        fr = d.frag.report
+        print(f"  fragment: {fr['tris']} stock tris carried verbatim (river unit {fr['unit']}, cove {fr['cove']}, "
+              f"coast {fr['coast']}); island ring {len(d.ol.ring)} points; apron {'on' if args.apron else 'off'}")
+        _print_minted_area(minted_area(args.area))      # what compose stamped the carried ground with
+        if Path(folder).is_absolute() or folder not in R.stack_folders(args.game):
+            print(f"  NOTE: '{folder}' is not in Memoria.ini [Mod] FolderNames, so the game does not load it yet.")
+
+    def gated(d):
         print("  gates:")
-        for gate, verdict, detail in _river_report(comp, stack, folder, rep, fails):
+        for gate, verdict, detail in _river_report(d.comp, d.stack, folder, d.rep, d.fails):
             print(f"    {gate:15s} {verdict:10s} {detail}")
-        tx, tz = _river_source_point(frag, comp.offset)
+        tx, tz = _river_source_point(d.frag, d.comp.offset)
+        # RUNG5.md: the old advice ("add a world-mountain at the source") was the not-born-here form, and it cannot seat
         print(f"  !! WARNING (decision 3): the river's SOURCE zips to lawn -- its banks close in open grass at world "
-              f"({tx:.0f}, {tz:.0f}). Every stock river rises in a mountain: add one with `world-mountain` at "
-              f"({tx:.0f}, {tz:.0f}) (a composed --source-massif is a later rung).")
-        if red:
-            for gate, msg in red:
-                print(f"world-river refused -- {gate}: {msg.removeprefix(gate + ': ')}", file=sys.stderr)
-            return 2
-        if args.dry_run:
-            print(f"would deploy {rep['files']} files into {folder}"
-                  + ("" if args.skip_mirror else " (+ the disc-4 mirror)") + ". Nothing written.")
-            return 0
-        written = R.promote(stage_root / "stage", folder, disc=donor.disc, game=args.game)
+              f"({tx:.0f}, {tz:.0f}). Stock never ends a stream in lawn: every stock river rises at the foot it was "
+              f"born at, and this one's is the continental escarpment, which the kit cannot carry. Do not put a "
+              f"`world-mountain` there: a mountain the river was not born at is not stock's form, and the mountain's "
+              f"seat keeps its rock 6.5u off the banks, so it will not seat. Leave it as lawn: `world-forest` does not "
+              f"seat on this narrow island either (RUNG5.md).")
+    # ONE PIPELINE (RUNG5.md 5b): river.deploy is what world-fuse's [[river]] row runs too; this only prints round it
+    try:
+        d = R.deploy(folder, donor=donor, offset=_parse_river_at(args.at), area=args.area, apron=args.apron,
+                     dry_run=args.dry_run, skip_mirror=args.skip_mirror, game=args.game, on_planned=planned,
+                     on_gated=gated)
     except R.RiverRefused as e:
         print(f"world-river refused -- {e}", file=sys.stderr)
         return 2
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
         return 2
-    finally:
-        shutil.rmtree(stage_root, ignore_errors=True)
-    DM.auto_mirror(written, mod_folder=folder, skip_mirror=args.skip_mirror)
-    bx, bz = _river_bridge_point(frag, comp.offset)
-    print(f"deployed {len(written)} files into {folder} (every file the audited stage's bytes; ledgered). "
+    if d.red:
+        for gate, msg in d.red:
+            print(f"world-river refused -- {gate}: {msg.removeprefix(gate + ': ')}", file=sys.stderr)
+        return 2
+    if args.dry_run:
+        print(f"would deploy {d.rep['files']} files into {folder}"
+              + ("" if args.skip_mirror else " (+ the disc-4 mirror)") + ". Nothing written.")
+        return 0
+    bx, bz = _river_bridge_point(d.frag, d.comp.offset)
+    print(f"deployed {len(d.written)} files into {folder} (every file the audited stage's bytes; ledgered). "
           f"~ -> World -> re-enter the world (a first-time cell needs it), then teleport to the bridge "
           f"({bx:.0f}, {bz:.0f}).")
     _world_coupling_note(coastnav=True, minimap=True, encounters=True)
@@ -10963,7 +10927,9 @@ def build_parser() -> argparse.ArgumentParser:
     wfu.add_argument("layout", help="a .toml of [[placement]] tables: cell=[X,Y] donor=[DX,DY] size=[NX,NY] "
                                     "(optional rot / shift / land_margin / strips / grow_cut / grow_cut_z). "
                                     "COMPOSE tables (audit rec 16, run in fixed tier order regardless of "
-                                    "document position): [[island]] (the world-island mint), [[mountain]]/"
+                                    "document position): [[island]] (the world-island mint), [[river]] "
+                                    "(world-river's carry: donor, at=[DX,DZ] -- \"auto\" on --dry-run only --, "
+                                    "area, apron; the same pipeline, so the same bytes), [[mountain]]/"
                                     "[[forest]]/[[hill]] (interior relief on the DEPLOYED base), [[coastnav]]/"
                                     "[[rim_retile]] (nav stamps). Each table takes its verb's own argument "
                                     "names; unknown keys refuse. The compose writes world_manifest.json "

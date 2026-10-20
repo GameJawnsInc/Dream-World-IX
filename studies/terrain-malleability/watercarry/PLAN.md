@@ -153,7 +153,7 @@ built in from the start.
 | 2 | the composition, offline end to end, no write: opening, open zip, joins, binding plan | every gate green, or each failure localized and understood | a day |
 | 3 | deploy to a scratch folder outside the install + rim retile + `world-render --stock` | W1 and B1 on the written bytes; the render reads as the bay | half a day |
 | 4 | in game, one launch, the lab in and out by `lab_install.py` | registered: the river and stream animate; a walk at a bank stops as at home; the bridge carries the player across; the Blue Narciss sails the cove to the beach; walking the cliff top across both joins never drops; the owner's eye passes the bay | one session |
-| 5 | ~~`--source-massif`~~ and the `world-fuse [[river]]` row -- REPLANNED in `RUNG5.md` (no catalogued massif can stand at this source) | recipe = CLI bytes; the source's own foot as a recon | awaiting sign-off |
+| 5 | ~~`--source-massif`~~ and the `world-fuse [[river]]` row -- REPLANNED in `RUNG5.md` (no catalogued massif can stand at this source) | recipe = CLI bytes; the source's own foot as a recon | 5a + 5b DONE (RUNG5.md); 5c next |
 
 ## Rung 0 result (offline)
 

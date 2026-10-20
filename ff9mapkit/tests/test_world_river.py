@@ -858,7 +858,10 @@ def test_world_river_dry_run_reports_every_gate(tmp_path, monkeypatch, capsys):
         assert any(ln.startswith(f"    {row} ") and " green " in ln for ln in out.splitlines()), row
     assert "W1 knit         understood" in out and "THE CLIFF-CORNER BAND STEP at [(24, 14, 3, 14)]" in out
     assert "sea plan        warn" in out
-    assert "!! WARNING (decision 3): the river's SOURCE zips to lawn" in out and "`world-mountain` at (105, -788)" in out
+    assert "!! WARNING (decision 3): the river's SOURCE zips to lawn" in out and "world (105, -788)" in out
+    # RUNG5.md: the warning must not send the user to a not-born-here mountain that cannot seat
+    assert "Do not put a `world-mountain` there" in out and "`world-mountain` at" not in out
+    assert "Leave it as lawn: `world-forest` does not seat on this narrow island either" in out
     assert "would deploy 132 files into FF9CustomMap-world (+ the disc-4 mirror). Nothing written." in out
     assert [c[0] for c in calls] == ["read", "compose", "stage"]            # staged and audited, never promoted
     kw = calls[1][1]
@@ -1039,6 +1042,57 @@ def test_world_river_remove_takes_its_own_deploy_out_and_the_verb_redeploys(tmp_
     assert _deploy_river(tmp_path, monkeypatch) == before                    # the seam takes it back: no refusal
     assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--remove"]) == 0
     assert _deployed(game) == []
+
+
+def test_world_river_remove_owns_a_river_world_fuse_wrote(tmp_path, monkeypatch, capsys):
+    """RUNG5.md 5b: a [[river]] row runs world-river's pipeline under world-fuse's argv, so without the ledger's
+    pipeline tag `--remove` read every file as another verb's and refused -- the recipe could never be re-run. Under
+    ``mesh.ledger_pipeline`` (what ``river.deploy`` wraps the promotion and the mirror in) the removal owns them."""
+    from ff9mapkit import cli
+    from ff9mapkit.world import mesh as M
+    _river_cli(tmp_path / "game", monkeypatch)
+    game = tmp_path / "game"
+    _deploy_river(tmp_path, monkeypatch, verb="world-fuse")                   # the gap: world-fuse's argv only
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--remove",
+                     "--dry-run"]) == 2
+    assert "R1" in capsys.readouterr().err and len(_deployed(game)) == 24     # foreign, nothing removed
+    for p in (game / "FF9CustomMap-world").rglob("Block*"):                  # a clean slate for the tagged deploy
+        p.unlink()
+    (game / "FF9CustomMap-world" / M.LEDGER_NAME).unlink()
+    with M.ledger_pipeline("world-river", at=[512.0, 128.0], donor="cluster-c"):
+        _deploy_river(tmp_path, monkeypatch, verb="world-fuse")
+    rows = _ledger(game)
+    assert len(rows) == 24 and all(r["pipeline"] == {"verb": "world-river", "at": [512.0, 128.0], "donor": "cluster-c"}
+                                   and M.ledger_verb(r["argv"]) == "world-fuse" for r in rows)
+    assert M._LEDGER_PIPELINE is None                                         # the block restored the outer state
+    assert R._row_verb_shift(rows[0]) == ("world-river", (8, -2))
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--remove",
+                     "--dry-run"]) == 0
+    assert "every one this verb's by the ledger" in capsys.readouterr().out
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "-1024,0", "--remove",
+                     "--dry-run"]) == 2                                       # the tag's placement is the one owned
+    capsys.readouterr()
+
+
+def test_deploy_promotes_and_mirrors_under_the_pipeline_tag(tmp_path, monkeypatch):
+    """``river.deploy`` (the one pipeline the CLI and world-fuse run) tags the promotion AND the disc-4 mirror, and a
+    red gate or a dry run promotes nothing."""
+    from ff9mapkit.world import discmirror as DM, mesh as M
+    calls = _river_cli(tmp_path, monkeypatch)
+    seen = {}
+    monkeypatch.setattr(R, "promote", lambda stage, folder, **kw: seen.update(promote=M._LEDGER_PIPELINE) or ["p"])
+    monkeypatch.setattr(DM, "auto_mirror", lambda written, **kw: seen.update(mirror=M._LEDGER_PIPELINE,
+                                                                             written=list(written)) or {"n": 1})
+    d = R.deploy("FF9CustomMap-world", offset=(512.0, 128.0), game=None)
+    tag = {"verb": "world-river", "at": [512.0, 128.0], "donor": "cluster-c"}
+    assert seen == {"promote": tag, "mirror": tag, "written": ["p"]} and M._LEDGER_PIPELINE is None
+    assert d.red == [] and d.written == ["p"] and d.mirror == {"n": 1} and d.cells == list(RIVER_CELLS[1:]) + [(23, 12)]
+    seen.clear()
+    assert R.deploy("FF9CustomMap-world", offset=(512.0, 128.0), dry_run=True).written == [] and seen == {}
+    _river_cli(tmp_path, monkeypatch, gates={"G5": {"flipped": 3, "skipped_carried": 0, "ok": False, "where": []}})
+    monkeypatch.setattr(R, "promote", lambda *a, **k: seen.update(promote=True))
+    d = R.deploy("FF9CustomMap-world", offset=(512.0, 128.0))
+    assert [g for g, _m in d.red] == ["G5"] and d.rep is None and seen == {}  # refused before the stage
 
 
 def test_world_river_remove_scratch_folder_and_skip_mirror(tmp_path, monkeypatch, capsys):

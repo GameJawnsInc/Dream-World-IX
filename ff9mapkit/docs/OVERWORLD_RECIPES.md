@@ -85,10 +85,33 @@ what would go. Then run the ordinary command again to redeploy.
 
 v1 ships one river, `cluster-c`, the lowland river and its cove (`ff9mapkit
 world-donors --class river`). Its source ends in open lawn, and the verb warns and
-prints where: every stock river rises in a mountain. Afterwards refresh the big
+prints where. In the original map every river rises at the foot of the mountain or
+escarpment it was born at. This one was born at the continent's escarpment, which the
+kit cannot carry. Don't put a `world-mountain` at the source: it is not the original
+map's form, and it will not seat that close to the banks. Leave the lawn as it is: a
+`world-forest` canopy does not fit on this narrow island either. Afterwards refresh the big
 map with `ff9mapkit world-minimap`. To look before the game does, deploy into an
 absolute scratch folder (`--mod-folder C:/path/to/scratch`) and render it with
 `world-render --mod-root` (below).
+
+A river can also be one row of a `world-fuse` recipe. It runs the same pipeline as the
+command, so it writes the same bytes:
+
+```toml
+[[river]]
+donor = "cluster-c"   # the default
+at = [512, 128]       # "auto" only with --dry-run: copy the placement it prints into at
+apron = true          # the default; area = N as --area
+```
+
+The row belongs to the first tier, with `[[island]]`, so a later `[[mountain]]`,
+`[[forest]]` or `[[hill]]` row reads the island it minted. Those relief verbs cannot
+yet read across the world's x seam, where the 512,128 island sits, so keep a relief
+row's `reach` on one side of it. A dry run deploys nothing, so a relief row aimed at
+the river island fails there and says why. A river row never builds over another
+deploy, `--allow-overwrite` or not. To re-run a recipe, take its river out first with
+`world-river --remove --at DX,DZ`: the ledger records that the rows came from
+`world-river`'s pipeline, so the removal owns them although `world-fuse` wrote them.
 
 ## Interior relief on a deployed island
 

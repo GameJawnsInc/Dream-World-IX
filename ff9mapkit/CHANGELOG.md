@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — a river in a `world-fuse` recipe
+- A `[[river]]` row (`donor`, `at`, `area`, `apron`) puts a stock river on a new island as part of a composed world.
+  It runs the same steps as `world-river`, so it writes the same files: checked byte for byte at the in-game
+  placement, all 264 files on both discs.
+- It runs with the island rows, before mountains, forests and hills, so those can then be built on the river island.
+  `at = "auto"` works only on a dry run, so a recipe always lands in the same place when run again.
+- `world-river --remove` can take out a river that a recipe deployed. The deploy ledger now records which command's
+  steps wrote each file, not just which command was typed.
+- A dry run of a recipe now explains why a mountain, forest or hill row cannot find an island that an earlier row
+  of the same recipe would have built.
+
 ### Added — `world-river --remove`: take a river back out, or redeploy it in the same place
 - `py -m ff9mapkit world-river --mod-folder FF9CustomMap-world --at 512,128 --remove` takes out the river deployed
   at that placement, on disc 1 and on the disc-4 mirror. Run the ordinary command again to redeploy it in the same
@@ -28,7 +39,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - It refuses rather than overwrite, and names the check that failed: a placement off the 4u water grid or not a
   whole map block, a map cell another mod folder already overrides on disc 1 or disc 4, or a failed geometry or
   water check.
-- The river's source ends in open lawn, and the command warns and prints where.
+- The river's source ends in open lawn, and the command warns and prints where. The warning used to suggest putting
+  a mountain there with `world-mountain`; it no longer does. A mountain the river was not born at is not how the
+  original map looks, and `world-mountain` cannot seat one that close to the banks anyway. The warning now says to
+  leave the lawn as it is: a `world-forest` canopy does not fit on this narrow island either.
 
 ### Fixed — kit islands no longer show a streaked grass band along the top of their cliffs
 - A few grass triangles along every minted cliff's top edge stretched one line of the grass texture across

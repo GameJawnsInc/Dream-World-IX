@@ -233,7 +233,7 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
 #: The fixed execution order: base mint (placement layouts + synthetic islands) -> interior
 #: relief (reads the DEPLOYED bytes the base tier wrote) -> navigation stamps (reclassify the
 #: deployed water). Within a tier, rows run in document order.
-COMPOSE_TIERS = (("placement", "island"), ("mountain", "forest", "hill"),
+COMPOSE_TIERS = (("placement", "island", "river"), ("mountain", "forest", "hill"),
                  ("coastnav", "rim_retile"))
 COMPOSE_TABLES = tuple(t for tier in COMPOSE_TIERS for t in tier)
 
@@ -357,6 +357,39 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
                           skip_mirror=skip_mirror, target_disc=target_disc,
                           all_sea_target=all_sea_target, allow_overwrite=allow_overwrite, **kw)
 
+    def _river_runner(row):
+        # world-river's ONE pipeline (river.deploy, RUNG5.md 5b), so a recipe writes the CLI's bytes. A base-tier
+        # row: it mints its own island, and a later relief row can target that island (relief reads deployed bytes).
+        from . import river as R
+        _strict_keys("river", row, {"donor", "at", "area", "apron"})
+        name = row.get("donor", "cluster-c")
+        if name not in R.RIVER_DONORS:
+            raise ValueError(f"[[river]] donor {name!r} is not a river donor: {sorted(R.RIVER_DONORS)}")
+        donor = R.RIVER_DONORS[name]
+        if disc != donor.disc or rtarget != donor.disc or lod != "0_1":
+            raise ValueError(f"[[river]] writes disc {donor.disc} lod 0_1 (and the disc-4 mirror), not disc {disc} "
+                             f"-> target {rtarget} lod {lod}")
+        if "at" not in row:
+            raise ValueError('[[river]] needs at = [dx, dz] (world units, whole 64u blocks), or "auto" on a dry run')
+        at = row["at"]
+        offset = None if isinstance(at, str) and at.strip().lower() == "auto" else \
+            tuple(float(v) for v in (at.split(",") if isinstance(at, str) else at))
+        if offset is None and not dry_run:
+            raise ValueError('[[river]] at = "auto" resolves on a dry run only -- a recipe must re-run to the same '
+                             "cells: copy the placement the dry run printed into at")
+        # B1 is never waived here, allow_overwrite or not: a river over another deploy renders a mix of the two.
+        # Re-running a recipe over its own river is `world-river --remove --at DX,DZ` first (the ledger rows carry
+        # the world-river pipeline tag, so the removal owns them though world-fuse wrote them).
+        d = R.deploy(mod_folder, donor=donor, offset=offset, area=row.get("area"),
+                     apron=bool(row.get("apron", True)), dry_run=dry_run, skip_mirror=skip_mirror, game=game)
+        where = f"at = [{d.comp.offset[0]:g}, {d.comp.offset[1]:g}], {len(d.cells)} cells"
+        if d.red:
+            raise ValueError(f"world-river refused ({where}) -- "
+                             + "; ".join(f"{g}: {m.removeprefix(g + ': ')}" for g, m in d.red))
+        print(f"[[river]] {name}: {where}" + (f", would deploy {d.rep['files']} files" if dry_run
+                                              else f", deployed {len(d.written)} files"))
+        return d
+
     def _relief_runner(table, row):
         from . import interior as IN
         pt, exact = _row_point(table, row)
@@ -449,7 +482,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             raise ValueError(f"fuse layout refused: {', '.join(bad)}")
         return out
 
-    runners = {"island": _island_runner, "coastnav": _coastnav_runner,
+    runners = {"island": _island_runner, "river": _river_runner, "coastnav": _coastnav_runner,
                "rim_retile": _rim_runner}
 
     steps = []                                               # (label, table, spec, runner)
@@ -468,6 +501,8 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
     # ---- run in order, attributing written files per step -------------------------------
     entries = []
     aborted = False
+    base = set(COMPOSE_TIERS[0])
+    base_dry = []                                            # base-tier steps a dry run did not deploy
     for (label, table, spec, run) in steps:
         if aborted:
             gates.append({"gate": label, "ok": False,
@@ -480,8 +515,14 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             pre = post
             gates.append({"gate": label, "files": len(changed), "ok": True})
             entries.append({"table": label, "spec": spec, "files": changed})
+            if dry_run and table in base:
+                base_dry.append(label)
         except (ValueError, FileNotFoundError) as e:
-            gates.append({"gate": label, "ok": False, "error": str(e)})
+            msg = str(e)
+            if base_dry and table not in base:              # name WHY a relief row cannot read its island
+                msg += (f" [dry run: {', '.join(base_dry)} in this recipe was not deployed, so this row read the "
+                        "folder as it is now -- deploy the base tier first, or dry-run the relief rows after it]")
+            gates.append({"gate": label, "ok": False, "error": msg})
             if not dry_run:
                 aborted = True
     clean = all(g["ok"] for g in gates)
