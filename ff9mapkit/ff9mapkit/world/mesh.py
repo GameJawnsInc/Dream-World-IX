@@ -625,6 +625,59 @@ def record_ledger_write(dest, *, cell, part: str, write_disc: int, read_disc=Non
         fh.write(json.dumps(entry) + "\n")
 
 
+def record_ledger_removal(mod_root, *, cell, part: str, write_disc: int, removed_sha256: str,
+                          backup=None) -> None:
+    """Ledger a DELETE (``world-river --remove``): the row a later reader needs to know the target is gone on purpose.
+    ``sha256`` is ``None`` -- no bytes live there now -- so the removed sha cannot be read as an ownership claim on
+    whatever lands there next; ``removed_sha256`` and ``backup`` (the parked copy's name) say what went where."""
+    import json
+    from datetime import datetime, timezone
+    from .. import __version__
+    entry = {"cell": [int(cell[0]), int(cell[1])], "part": part, "write_disc": int(write_disc),
+             "read_disc": int(write_disc), "sha256": None, "removed_sha256": removed_sha256,
+             "backup": None if backup is None else Path(backup).name, "op": "remove",
+             "kit": __version__, "utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+             "argv": _DEPLOY_ARGV, "via": "record_ledger_removal"}
+    with open(_ledger_path(Path(mod_root)), "a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry) + "\n")
+
+
+def read_ledger(mod_root) -> list:
+    """Every row of ``<mod_root>/.ff9world.jsonl`` in file order; a torn concurrent line is skipped, a missing
+    ledger is ``[]``."""
+    import json
+    p = _ledger_path(Path(mod_root))
+    if not p.is_file():
+        return []
+    rows = []
+    for line in p.read_text(encoding="utf-8").splitlines():
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(e, dict):
+            rows.append(e)
+    return rows
+
+
+#: the top-level ``ff9mapkit`` options that take a value (``cli.build_parser``; a test pins the two): a recorded argv
+#: may lead with them, so the verb is not simply its first token
+_TOP_VALUE_OPTS = ("--game", "--mod-folder")
+
+
+def ledger_verb(argv):
+    """The verb a ledger row's ``argv`` ran (``set_deploy_argv`` records ``sys.argv[1:]``): its first token that is
+    neither an option nor a top-level option's value. ``None`` when the argv is unrecorded."""
+    it = iter(argv or ())
+    for tok in it:
+        tok = str(tok)
+        if tok in _TOP_VALUE_OPTS:
+            next(it, None)
+        elif not tok.startswith("-"):
+            return tok
+    return None
+
+
 def deploy_override(bm, *, mod_folder: str, game=None, lod: str = "0_1", part: str = "Terrain",
                     disc: int | None = None, backup: bool = True,
                     force_overwrite: bool = False) -> Path:
