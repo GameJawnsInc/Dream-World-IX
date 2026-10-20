@@ -24,6 +24,7 @@ lake onto a kit island the way `world-forest` and `world-mountain` carry canopy 
 | `lips.py` | R1: the bay's two rocky lips against the kit island's lip, in the coast laws' terms (-> out/lips.json) |
 | `closure.py` | R1: candidate fragment boundaries, THE COMPONENT CLOSURE and THE MINIMAL FRAGMENT, each boundary classed (-> out/closure.json) |
 | `fragment_run.py` | PLAN rung 0: the kit's `world/river.py` fragment for cluster C, its F1/F2 gates and a plan (-> out/fragment.json, out/fragment_plan.png) |
+| `outline_run.py` | PLAN rung 1: cluster C's kit outline, its custom-outline mint and the J1-J4 join gates, with plans (-> out/outline.json, out/outline_plan.png, out/outline_join_{E,W}.png) |
 
 ## 1. What was already settled (July)
 

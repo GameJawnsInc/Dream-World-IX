@@ -1,7 +1,8 @@
 # `world-river`: carry a stock river onto a kit island -- the build plan
 
 **Status:** signed off as written, with the five recommended answers (2026-10-19). **Rung 0 is DONE** (offline,
-2026-10-20; see "Rung 0 result" below). The evidence is in `RECON.md` (R0, R1 rounds 1-4); this file is the build.
+2026-10-20; see "Rung 0 result" below). **Rung 1 is DONE** (offline, 2026-10-20; "Rung 1 result"). The evidence is in
+`RECON.md` (R0, R1 rounds 1-4); this file is the build.
 
 ## What the verb does
 
@@ -181,6 +182,79 @@ Tests (`tests/test_world_river.py`): a synthetic cove with an islet straddling t
 forest, a half-cut islet, a lip cut off the columns, a mouth barred by shallows, a boundary through sea1, a leaking
 cove, the joins, and the tether. A mutation run took out F1, F2, the tether, the deep-vertex rule and the join stop
 in turn, and each one turned at least one test red. The install-gated test pins cluster C's numbers.
+
+## Rung 1 result (offline)
+
+**The mint takes an outline.** `island.build_landmass` gains three arguments, all defaulting to the blob mint:
+- `outline=`: a custom coast ring, either winding, its rim inset along each vertex's inward normal;
+- `rim_at=`: crests pinned to exact stock points (fixed in the rim, the wall and the grass);
+- `shore_origin=`: the wall band's arc-length origin.
+
+The V row now goes by the corner's ROLE, not its height (THE WALL V CORNER-ROLE LAW): a crest pinned below 3.2 still
+takes the top row. Every blob corner sits at 0 or 3.2, where role and height give the same float.
+
+**The identity net.** `tests/test_world_mint_outline.py` freezes digests of nine blob mints, taken from the code
+before the change: one lobe, three (island E), two, relief, desert, the big-mint refinement, the seam wrap, the Uaho
+bench and (with an install) a beach mint. All nine are byte-identical. The install-gated Uaho and island-E nets in
+`test_world_interior.py` pass too.
+
+**`river.outline(fragment)` builds the ring.** The ring is the kit ARC plus the seaward boundary.
+1. The island holds the fragment plus a one-sided band, `margin` 16u wide, on the land side of the fragment's land
+   ring, tapered to 0 at the joins.
+2. At each join it also holds a band on the land side of the HOME coast, so the arc leaves each join along the stock
+   lip it replaces. The geometry forces this: the column parts the carried lip from the home one, and a kit wall
+   arriving from any other side would lie over the carried lip. At W this makes a short lobe south of the join.
+3. A morphological closing (radius 24u) fills the inlet the band would leave between the river and the cove (one
+   lowland in stock). It keeps only what lies nearer the land ring than the seaward boundary, so the cove's mouth
+   stays open.
+4. The band's contour (numpy only: an exact separable distance transform, then marching squares) is smoothed and
+   re-spaced to 6u.
+
+**THE U PHASE.**
+- `shore_origin` lands E's stock U (0.82422).
+- An outward bump of the arc's middle, found by bisection, lands the arc's length so W's U is 0.75195 too.
+- **THE WRAP GUARD:** each join's arc segment stays inside the rock strip. rock_uvs window-translates a tri that
+  straddles the band's wrap, so W's last segment is 3.6u, inside its 4.24u margin. A test proves what happens
+  without the guard.
+
+**J1-J4** (`river.join_gates`, on the minted island):
+
+| cluster C | E | W |
+|---|---|---|
+| J1: the column, bit for bit | 1 kit tri | 1 kit tri |
+| J2: U off the stock | 2e-16 | 2e-15 |
+| J3: V off the stock (the kit's 0.893 row vs the stock's 0.89258) | 0.00042 | 0.00042 |
+| J4: slope | 78.2 deg | 72.0 deg |
+
+The island:
+- Mint: 12 blocks, 3,310 tris, 1.5s.
+- Arc: 569.6u, 96 points, 3.3-7.1u segments, at least 9.5u from the land ring away from the joins.
+- `verify_landmass`: 0 cracks, open edges, holes, down-facing tris or over-8u grass edges.
+- **Two tris fail the walk filter: the seaward wall quads at the two columns.** The closing chain's wall meets the
+  pinned crest there. Both lie inside the fragment's footprint, which rung 2's opening drops, and the test pins
+  exactly those two.
+- The shape-language gate is not judged here. The seaward chain is lattice-stepped and dropped, so the arc's own
+  shape is judged in rung 2.
+
+The plans are `out/outline_plan.png` and `out/outline_join_{E,W}.png`, from `outline_run.py`.
+
+What the build settled, beyond the plan:
+- **The crest must stand nearest its own base.** The wall's U comes from the nearest coast vertex
+  (`island.shore_s`), so a crest standing nearer another vertex takes that vertex's arc length. J2 catches it (a
+  test), and cluster C's crests stand 0.65u and 1.07u from their bases.
+- **A lattice-aligned coast is a degenerate Delaunay.** A real donor never sits on the mint's 4u grid; the synthetic
+  fixture is shifted off it.
+- **A 4u lip cell is a ramp, not a cliff** (37-52 deg). J4 refuses it, which is one of the break-its.
+
+Tests:
+- `test_world_river.py`: the synthetic cove's outline (stubs along the home coasts, both phases exact, the whole
+  fragment held), and a hand-built kit-like ring with J1-J4 green.
+- Break-its: J1 0.01u off, J2 a wrong origin, J2 the wrap, J2 the nearest-vertex crest, J3 a V row, J4 a ramp, a
+  missing UV, a band running one way, a join at the strip's edge.
+- `test_world_mint_outline.py`: both windings mint a closed wall; the crest is welded by wall and grass; V goes by
+  role; the origin moves U by the density.
+- Install-gated: cluster C end to end.
+- A mutation run (a non-zero default origin, height-based V, a fixed winding) turned tests red each time.
 
 ## Decisions for the owner (answered: the recommendations, 2026-10-19)
 
