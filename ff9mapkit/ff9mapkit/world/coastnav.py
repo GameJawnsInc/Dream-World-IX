@@ -290,12 +290,20 @@ def _parse_header(data):
 
 def stamp(mod_folder: str, *, disc: int = 1, cells=None, policy: str = "land-anywhere",
           deploy: bool = False, game=None, backup_dir: Path | None = None,
-          mirror_disc: int | None = None, backup: bool = True) -> dict:
+          mirror_disc: int | None = None, backup: bool = True, skip_mirror=False) -> dict:
     """Stamp navigation classes onto every deployed sea override in ``disc``'s namespace.
 
     ``cells`` restricts to an iterable of ``(bx, by)``; default is every cell with a sea override.
-    ``policy`` is one of :data:`POLICIES`. ``mirror_disc`` writes an identical copy to that disc too
-    (the real-disc Disc1/Disc4 parity pair); leave None for a synthetic namespace.
+    ``policy`` is one of :data:`POLICIES`.
+    THE DISC-4 MIRROR: a deploy ends in :func:`~ff9mapkit.world.discmirror.auto_mirror` over the
+    files it rewrote (``summary["written"]``), like every other world-override writer -- without it
+    a restamp that sealed disc 1's cliffs left disc 4 sailable (operators NOTES F6). It copies only
+    cells whose real ground is the same on both discs, and refuses a synthetic namespace (Path D's
+    Disc9) by itself. ``skip_mirror`` opts out (``True``) or defers to the caller's single pass
+    (``discmirror.DEFERRED``, what world-island's emitter passes).
+    ``mirror_disc`` is the older LOCKSTEP pairing, kept for scripts: it restamps an EXISTING copy on
+    that disc in the same pass and refuses when the two copies already differ. Opt-in since the verb
+    was built for Path D's Disc9, not because disc 4's water differs; Disc4 no longer needs it.
     ``backup=False`` skips the pre-write file backups -- for an EMITTER calling this over sea files
     it deployed moments earlier in the same run, where the pre-stamp state is the emitter's own
     output and re-running the emitter reproduces it. Keep the default for standalone stamping.
@@ -313,6 +321,7 @@ def stamp(mod_folder: str, *, disc: int = 1, cells=None, policy: str = "land-any
         backup_dir = base / "backups" / f"coastnav-disc{disc}-{time.strftime('%Y%m%d-%H%M%S')}"
     summary = {"disc": disc, "policy": policy, "deploy": deploy, "cells": [], "totals": {},
                "backup_dir": str(backup_dir) if (deploy and backup) else None}
+    written = []
     from . import extract as W
     for bx, by in todo:
         lows = highs = None
@@ -406,10 +415,12 @@ def stamp(mod_folder: str, *, disc: int = 1, cells=None, policy: str = "land-any
                 # foreign (the rec-16 compose smoke's live find)
                 from . import mesh as M
                 M.record_ledger_write(p, cell=(bx, by), part=part, write_disc=disc)
+                written.append(p)
                 if pm is not None and pm.is_file():
                     pm.write_bytes(bytes(data))
                     M.record_ledger_write(pm, cell=(bx, by), part=part,
                                           write_disc=mirror_disc)
+                    written.append(pm)
             by_cls = {}
             for cls in changed.values():
                 by_cls[cls] = by_cls.get(cls, 0) + 1
@@ -417,4 +428,8 @@ def stamp(mod_folder: str, *, disc: int = 1, cells=None, policy: str = "land-any
             cell_out.append({"part": part, "verts": len(changed), "classes": by_cls})
         if cell_out:
             summary["cells"].append({"block": [bx, by], "parts": cell_out})
+    if deploy:
+        from . import discmirror as DM
+        summary["written"] = [str(p) for p in written]
+        summary["mirror"] = DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary

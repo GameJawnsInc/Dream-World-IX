@@ -146,6 +146,33 @@ def test_a_real_run_stops_at_the_first_failing_step(monkeypatch, tmp_path):
     assert "skipped" in labels["coastnav #0"] and ("coastnav", "land-anywhere") not in calls
 
 
+@pytest.mark.parametrize("skip", [False, True])
+def test_the_nav_rows_hand_the_runs_skip_mirror_to_their_verbs(monkeypatch, tmp_path, skip):
+    """[[coastnav]] and [[rim_retile]] rewrite Disc1 sea in place, and each verb's own auto-mirror carries the bytes
+    to Disc4 -- so the row must pass the run's skip_mirror through. It passed nothing, and the rows never mirrored
+    (operators F6); the verb-level byte checks are test_world_coastnav's and test_world_rimretile's."""
+    _pin_game(monkeypatch, tmp_path)
+    calls = []
+    _stub_verbs(monkeypatch, calls)
+    from ff9mapkit.world import coastnav as CN, rimretile as RR
+    seen = {}
+
+    def stamp(mf, **k):
+        seen["coastnav"] = k
+        return {"cells": [], "totals": {}, "disc": k["disc"], "policy": k["policy"], "backup_dir": None}
+
+    def rim(mf, cells, donors, **k):
+        seen["rim_retile"] = k
+        return {"before": {}, "after": {}, "written": [], "variants": 0, "passes": 0, "quads": 0}
+    monkeypatch.setattr(CN, "stamp", stamp)
+    monkeypatch.setattr(RR, "rim_retile", rim)
+    doc = {"coastnav": [{"cells": [[20, 1]]}], "rim_retile": [{"cells": [[20, 1]], "donor": [7, 17]}]}
+    out = FU.compose_layout("MOD", doc, dry_run=False, skip_mirror=skip)
+    assert out["clean"] is True, out["gates"]
+    assert {t: k.get("skip_mirror", "not passed") for t, k in seen.items()} == {"coastnav": skip, "rim_retile": skip}
+    assert seen["coastnav"]["deploy"] is True and seen["rim_retile"]["apply"] is True
+
+
 def test_backup_files_never_enter_the_manifest(monkeypatch, tmp_path):
     wm = _pin_game(monkeypatch, tmp_path)
     calls = []

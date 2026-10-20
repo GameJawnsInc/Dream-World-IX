@@ -82,13 +82,13 @@ cell absent); `○` when it edits REAL land or can (the gate blocks 189/260 real
 | `world-transplant` | ○ | ○ | ○ | ○ | ● | ○ | ● | ● | ○ | ● | ● | stock | in-game (per flag, sec 4) |
 | `world-transplant --in-place` | ○ | ● | ○ |   |   |   |   | ● |   |   | ○ | stock | in-game |
 | `world-fuse` |   | ○ |   |   | ● |   | ● | ● |   | ● | ● | stock | in-game |
-| `world-rim-retile` |   |   | ● |   |   |   | ○ | ● |   | ○ | ✗ | deployed | in-game |
+| `world-rim-retile` |   |   | ● |   |   |   | ○ | ● |   | ○ | ● | deployed | in-game |
 | `world-island` | ○ | ● | ● | ○ | ● | ○ |   | ○ | ○ | ● | ● | n/a | in-game |
 | `world-hill` | ● |   |   |   |   |   |   |   |   | ○ | ● | deployed | in-game |
 | `world-forest` | ○ | ○ | ○ | ○ |   |   | ● |   |   | ○ | ● | deployed | in-game |
 | `world-mountain` | ● | ○ | ○ | ○ |   |   | ● |   | ○ | ○ | ● | deployed | in-game (R5c look pending) |
 | `world-water` |   |   | ● | ○ | ○ |   |   | ● |   | ● | ● | n/a | in-game |
-| `world-coastnav` |   |   |   | ● |   |   |   | ● |   | ○ | ○ | deployed | in-game |
+| `world-coastnav` |   |   |   | ● |   |   |   | ● |   | ○ | ● | deployed | in-game |
 | `world-entrance` | ○ |   | ○ | ● |   |   |   |   | ● |   | ○ | stacked | in-game |
 | `world-mesh-build` |   |   | ○ | ○ |   |   |   |   | ● |   | ○ | stacked | in-game (terrain lane CLOSED) |
 | `world-mirror` |   |   |   |   |   |   | ○ |   |   |   | ● | stock | in-game |
@@ -157,8 +157,8 @@ forest, hill, coastnav, rim_retile in fixed order); gates rect-overlap, fuse bor
 manifest-drift. THE FUSE LAW (in-game 2026-07-09): land never knits, water knits.
 
 **world-rim-retile** (`rimretile.rim_retile`): repartitions a deployed island's cropped shallow ring using tiles HARVESTED
-byte-exact from the donor's own sea5 terminators; geometry untouched (`repartition_ok`). Reads **deployed**. **Writes in place
-with no Disc-4 mirror** (rimretile.py has no mirror call; F6). Refuses seam-spanning input.
+byte-exact from the donor's own sea5 terminators; geometry untouched (`repartition_ok`). Reads **deployed**. Writes in place,
+then auto-mirrors the written cells to Disc4 (F6, closed; `--skip-mirror`). Refuses seam-spanning input.
 
 **world-island** (`island.build_landmass` + `verify_landmass` + `landmass`): synthetic outline (blob / multi-lobe), faithful ~73
 deg rock wall, real grass tile language, optional `--relief`; per block: Terrain + cut Sea4 + blanked Object/Sea1/2/3/5/Beach1 +
@@ -178,8 +178,8 @@ Sea3/4/5 + blanked Sea1/2 + Donor.txt (15,4). In-game (17/17 shape match). Gate:
 `--target-disc` (water.py:296-305) -> cannot write the Path D namespace.
 
 **world-coastnav** (`coastnav.stamp`): rewrites ONLY the topograph bits of every water tri in deployed Sea1-5 overrides
-(KEEL 56 / BELT 55 / CLIFF 54 / BEACH 53 / open 57); geometry, UV, event, area byte-preserved. Mirror to Disc4 only with
-`--mirror-disc`.
+(KEEL 56 / BELT 55 / CLIFF 54 / BEACH 53 / open 57); geometry, UV, event, area byte-preserved. Auto-mirrors the restamped
+cells to Disc4 (F6, closed; `--skip-mirror`); `--mirror-disc` is the legacy lockstep.
 
 **world-entrance** (`entrance.author_entrance`): event tiles (IDALL), topo-59 footprint hull (exact polygon split), optional
 flatten pad (Y), building Object part, per-language world `.eb` trigger + nameplate band. Reads **stacked** (`--fresh` = stock).
@@ -233,9 +233,14 @@ all real blocks (`disc_mirror_eligible.py`; calibrated: an open-ocean cell passe
 Terrain alone: 81 identical / 179 differ, and 175 of the 179 differ in GEOMETRY (115 by vertex count = re-tessellated; 60 by
 vertices) (`disc_tree_channels.py`; the 4 geometry-identical ones differ in UV (3) or normals (1) only). So a `world-terrain` /
 `--in-place` / `world-retarget` edit on 73% of real land exists on discs 1-3 only, and needs a separate `--disc 4` run
-(auto_mirror skips `src == dst`). Separately **`world-rim-retile` never mirrors** and **`world-coastnav` mirrors only with
+(auto_mirror skips `src == dst`). Separately **`world-rim-retile` never mirrored** and **`world-coastnav` mirrored only with
 `--mirror-disc`** (`writer_gate_census.py`, `operator_matrix.py` X2), so after transplant -> rim-retile -> coastnav the Disc4
-tree keeps the un-retiled, un-stamped sea until a manual `world-mirror`.
+tree kept the un-retiled, un-stamped sea until a manual `world-mirror`. **CLOSED:** both verbs (and their `[[rim_retile]]` /
+`[[coastnav]]` fuse rows) now end in `auto_mirror` over the files they wrote, with `--skip-mirror`. Reproduced first on a
+scratch root (carry (7,17) -> (20,1): rim-retile left Disc4 Sea3/Sea5 behind, coastnav all five Sea parts); after the fix
+Disc4 == Disc1 for all 8 files. `--mirror-disc` was opt-in because the verb was built for Path D's Disc9 (d54be0f7), not because
+disc 4's water differs; auto_mirror refuses a synthetic disc by itself. Tests: `test_world_rimretile.py`,
+`test_world_coastnav.py`, `test_world_compose.py`.
 
 **F7 [measurement] Free-ride exposure.** A Donor.txt cell renders every prefab transform it does not override or blank
 (WMWorld.cs:588-807 + :823). `donor_part_exposure.py`: island / water / transplant lanes have ZERO free-riders for their standard
@@ -310,7 +315,7 @@ curated subset with a proven law. "Absorbed" = a kit module/test names the scrip
 
 1. Remove land / flood land in place: no operator (F11).  2. Retexture a region of REAL land: no operator (F12).
 3. Edit one real block more than once: last-writer-wins (F2).  4. Move water/Object with a Y edit: no operator (F3).
-5. Disc-4 parity for edits on 189/260 real land blocks: manual `--disc 4` runs; rim-retile/coastnav not auto-mirrored (F6).
+5. Disc-4 parity for edits on 189/260 real land blocks: manual `--disc 4` runs (F6; the rim-retile/coastnav half is closed).
 6. Parts no writer can touch: beach2, sea6, stream, volcano*, sea4f, Form2 variants (F7).  7. Seam-spanning transplant/fuse (F8).
 8. Polygon-granularity IDALL from the CLI (F12).  9. Non-grass interior relief (F13).  10. Path D (disc 9) for water/entrance/mesh-build/retarget/deploy (F10).
 

@@ -1481,11 +1481,12 @@ def landmass(mod_folder: str, *, center=None, cell=None, base_radius: float = 24
         if coastnav:
             # backup=False: the pre-stamp state is this very call's own output (re-run to reproduce).
             # The stamp mutates only files already in `written`, so the mirror below carries the
-            # stamped bytes and Disc1/Disc4 parity holds without a second pass.
+            # stamped bytes and Disc1/Disc4 parity holds without a second pass (DEFERRED: the
+            # stamp's own auto-mirror stands down for it).
             from . import coastnav as CN
             summary["coastnav"] = CN.stamp(mod_folder, disc=target,
                                            cells=[tuple(b["block"]) for b in summary["blocks"]],
                                            policy=coastnav_policy, deploy=True, game=game,
-                                           backup=False)
+                                           backup=False, skip_mirror=DM.DEFERRED)
         DM.auto_mirror(written, mod_folder=mod_folder, skip_mirror=skip_mirror)
     return summary

@@ -82,10 +82,10 @@ ROWS = [
         status="IN-GAME (THE FUSE LAW 2026-07-09; compose tiers [[island]]/[[mountain]]/[[forest]]/[[hill]]/[[coastnav]]/[[rim_retile]] smoke-tested)",
         gates="per-placement gates; rect-overlap; fuse border certification (row-by-row open water); existing-overrides; manifest-drift",
         limits="LAND never knits (coastlines are components; only WATER knits); not x-seam aware"),
-    row("world-rim-retile", "editor", dict(T="●", W="●", C="○", S="○", D="✗"), mods=["rimretile"], reads="deployed", auto_mirror=False,
+    row("world-rim-retile", "editor", dict(T="●", W="●", C="○", S="○", D="●"), mods=["rimretile"], reads="deployed", auto_mirror=True,
         status="IN-GAME (isthmus, owner-accepted)",
         gates="repartition_ok (geometry untouched, only shade); seam_report under==0; contradicting-edge + unpaintable-sliver reports",
-        limits="NO Disc-4 mirror (writes in place via record_ledger_write; Disc4 copy stays the un-retiled sea until world-mirror); refuses seam-spanning input; "
+        limits="writes in place via record_ledger_write, then auto-mirrors the written cells to Disc4 (F6 closed; --skip-mirror opts out); refuses seam-spanning input; "
                "a redeploy of the island discards the retile"),
     row("world-island", "editor", dict(A="●", H="●", T="●", S="●", D="●", V="○", P="○", R="○", W="○", O="○"), mods=["island", "grassland"],
         reads="n/a", auto_mirror=True,
@@ -111,10 +111,10 @@ ROWS = [
         status="IN-GAME (2026-07-05/06 marching-band ocean, 17/17 shape match)",
         gates="MOD-OVERWRITE gate over the whole cell list; sea3|sea4 adjacency == 0",
         limits="open-ocean grammar only (Sea3/4/5; Sea1/2 coast-only); shallows are shore-bound copy-only; NO --target-disc (cannot write the Path-D namespace)"),
-    row("world-coastnav", "editor", dict(P="●", W="●", S="○", D="○"), mods=["coastnav"], reads="deployed", auto_mirror=False,
+    row("world-coastnav", "editor", dict(P="●", W="●", S="○", D="●"), mods=["coastnav"], reads="deployed", auto_mirror=True,
         status="IN-GAME (Southern Ring R5d/R5e, Path D bench)",
         gates="topograph bits only (mask 0xFC); geometry/UV/event/area byte-preserved; pre-write backups; ledger record",
-        limits="mirror to Disc4 only with --mirror-disc (not automatic); policy land-anywhere vs cliffs-refuse"),
+        limits="auto-mirrors the restamped cells to Disc4 (F6 closed; --skip-mirror opts out; --mirror-disc is the legacy lockstep); policy land-anywhere vs cliffs-refuse"),
     row("world-entrance", "editor", dict(P="●", O="●", V="○", T="○", D="○"), mods=["entrance"], reads="stacked", auto_mirror=True,
         status="IN-GAME (entrances, buildings, nameplate surgery case 53 / virgin band 61-64)",
         gates="cell-openness note; trigger tiles excluded from footprint; per-language .eb patch; --fresh discard note",
@@ -194,9 +194,9 @@ for f in fails:
 mut = copy.deepcopy(ROWS)
 for r in mut:
     if r["verb"] == "world-rim-retile":
-        r["auto_mirror"] = True
+        r["auto_mirror"] = not r["auto_mirror"]
 tripped = [f for f in checks(mut) if "world-rim-retile" in f and "X2" in f]
-print("X4 break-it (flip rim-retile auto_mirror expectation -> X2 must trip):", "PASS" if tripped else "FAIL")
+print("X4 break-it (invert rim-retile auto_mirror expectation -> X2 must trip):", "PASS" if tripped else "FAIL")
 if not tripped:
     fails.append("X4: the cross-check cannot fail")
 
