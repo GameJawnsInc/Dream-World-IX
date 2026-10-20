@@ -1664,8 +1664,8 @@ def test_the_carves_run_on_a_cell_lip_mint(tmp_path, monkeypatch):
     """THE CELL-CLIPPED LIP (the lip-streak fix) under the three interior verbs: today's default mint keeps the
     pre-fix interior, so world-forest carves island E's July canopy and world-mountain the Uaho massif at the same
     placement as on the pre-fix mint, census-clean, and their bytes differ from those carves ONLY at the lip (no tri
-    more than 6u from the rim). world-hill's July centre sits 0.023u inside RIM_CLEAR's limit on the pre-fix mint;
-    the fan's crest-heavy wall tris read 0.04u nearer, so there the verb's own scan places the hill."""
+    more than 6u from the rim), and world-hill raises island E's July hill at its own centre the same way (its rock
+    clearance 6.023 against RIM_CLEAR 6.0, as on the pre-fix mint)."""
     from ff9mapkit.world import island as I
     kw = dict(center=(344, -1152), base_radius=46, seed=55, lobes=3, stamps="auto")
     old, new = I.build_landmass(**kw, cell_lip=False), I.build_landmass(**kw)
@@ -1678,11 +1678,12 @@ def test_the_carves_run_on_a_cell_lip_mint(tmp_path, monkeypatch):
     for blk in ISLAND_E_BLOCKS:
         diff |= _world_tri_set(f_old["changed"][blk], blk) ^ _world_tri_set(f_new["changed"][blk], blk)
     assert diff and _off_the_lip(diff, old["rim"]) == []
-    with pytest.raises(ValueError, match="hill footprint at"):
-        IN.build_hill(IN.soup_from_blocks(f_new["changed"]), center=ISLAND_E_HILL, **quiet)
-    h_new = IN.build_hill(IN.soup_from_blocks(f_new["changed"]), near=ISLAND_E_HILL, **quiet)
+    h_old = IN.build_hill(IN.soup_from_blocks(f_old["changed"]), center=ISLAND_E_HILL, **quiet)
+    h_new = IN.build_hill(IN.soup_from_blocks(f_new["changed"]), center=ISLAND_E_HILL, **quiet)
     IN.census_gate(h_new["changed"], **quiet)
-    assert h_new["center"] == (352, -1180) and sorted(h_new["changed"]) == [(5, 18)]
+    assert sorted(h_new["changed"]) == sorted(h_old["changed"]) == [(5, 18)]
+    diff = _world_tri_set(h_old["changed"][(5, 18)], (5, 18)) ^ _world_tri_set(h_new["changed"][(5, 18)], (5, 18))
+    assert diff and _off_the_lip(diff, old["rim"]) == []
 
     fresh = _uaho_mint(tmp_path, monkeypatch, pristine=False)
     lip = _uaho_mint(tmp_path, monkeypatch, pristine=False, cell_lip=True)

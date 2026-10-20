@@ -50,14 +50,14 @@ BEACH_MINT = (dict(center=(672.0, -608.0), base_radius=18.0, seed=9.0, beach={"b
               "651c111fe957e448a6256c84ca2bc3780e39c7aef6c4b31a955168daa25436a4")
 #: the same blob mints, DEFAULT path (the cell-clipped lip) -- re-frozen with the lip-streak fix (module docstring)
 CELL_LIP_DIGESTS = {
-    "big-r69": "b8a7087e31f9735bae1c067ca5828ec0567b235f9f5c4e3e4edc88c7ed6075da",
-    "desert": "6a44c45f97632256ce7e944c4462e8303be030d82e6b26bbefa59636472dbb94",
-    "island-E": "5e366437fcfbe45ce0bc5c54a0906bf6ad8c312927f94fce98f9fd0778234101",
-    "lobes2": "12e46c9316c7c160420df98a0fafd2f5017c8faad6bc550a212c34a1009e6fad",
-    "r20-seed5": "4db6ca23431531613159bcbb2ea33bf8c0af4aa82af01c33de8e196a3f2087f4",
-    "relief": "7c4101aea57a7a6871a61c350334786f60299508ee21814f898030db04fc6f05",
-    "seam-wrap": "6b041356913b33fcf46300872189577762502b55df575330cba38130dd37916e",
-    "uaho-bench": "9cfd2ed2da4e2829e53d32b4529d63570559697de036c35e6da1e3d990041b30",
+    "big-r69": "8a19a89372b47509c2c0cca4eade2fa22387705915d001b1bbbd90e3a0af3f34",
+    "desert": "c7f7c5182ca97aa539f2a024995ad0b6b4b739ba1585979f22525c7677a8c817",
+    "island-E": "2b41b3b234495b227e3ec47474bc23f4b96775d8eb53391e628708d438dd3693",
+    "lobes2": "15fca2d0f37e2681a2fce538a69bd4d450e4e97c5adf45a15fa89db1609b9ed4",
+    "r20-seed5": "5bcee48a2423492309140ff5a07e32c45cbaf3273ebe979efcc0a4362d34ac30",
+    "relief": "2ba3333d9bd244091f83491d0b285fe8793a1372ed85ac551fa9b38fead87b8e",
+    "seam-wrap": "fce38ac484377f256c82970064356d4e91c104cd67185241a37433acfc9f0cfb",
+    "uaho-bench": "27699d8068a788bff7bb581728ad0560c91b3eb03657d5cb13203441a7dc9ccb",
 }
 #: blob mints whose PRE-FIX lip streaks: the detector's count on ``cell_lip=False`` (found by a 60-mint sweep)
 STREAKY_MINTS = {
@@ -180,6 +180,83 @@ def test_lip_grass_wears_its_own_cells_map_exactly():
             judged += 1
             assert r == pytest.approx(0.0605 / 0.0303, abs=0.01), (pts, uvv)
     assert judged > 100
+
+
+def test_the_wall_keeps_its_own_rock_texture_through_the_cuts():
+    """THE CREST CUTS on the wall must not re-map the rock (in game 2026-10-20, the first cell-lip build: thin diagonal
+    seams down the rock under every cut lip). A cut has no base vertex of its own, so the wall stays seamless only as
+    its quad's own split cut up in its own plane: per crest segment, every piece holding two crest corners fans from
+    ONE base vertex, and every crest corner it holds lies ON that segment's crest edge -- then each piece wears the
+    very affine rock map the uncut tri did."""
+    built = I.build_landmass(center=(672.0, -608.0), base_radius=40.0, seed=7.0, n_patches=0)
+    assert built["crest_cuts"] > 40
+    gpos, gtris, gmeta = built["world"]["pos"], built["world"]["tris"], built["world"]["meta"]
+    outline, rim, n = built["outline"], built["rim"], len(built["outline"])
+    at = {o: k for k, o in enumerate(outline)}
+
+    def on_edge(c, a, b):
+        ex, ez = b[0] - a[0], b[1] - a[1]
+        cx, cz = c[0] - a[0], c[2] - a[1]
+        return abs(ex * cz - ez * cx) <= 1e-9 * math.hypot(ex, ez) and -1e-12 <= ex * cx + ez * cz <= ex * ex + ez * ez
+
+    fans = {}
+    for tri, (_b, _i, fam, _uv) in zip(gtris, gmeta):
+        pts = [tuple(gpos[v]) for v in tri]
+        base = [p for p in pts if p[1] == 0.0]
+        crest = [p for p in pts if p[1] == 3.2]
+        if fam != "rock" or len(base) != 1 or len(crest) != 2:
+            continue                                         # a switch tri, or a block-border clip piece
+        k = at[(base[0][0], base[0][2])]
+        seg = next((i for i in ((k - 1) % n, k) if all(on_edge(c, rim[i], rim[(i + 1) % n]) for c in crest)), None)
+        assert seg is not None, f"a wall piece's crest corners lie off its crest edge: {crest}"
+        fans.setdefault(seg, set()).add(base[0])
+    assert len(fans) > 50 and all(len(b) == 1 for b in fans.values()), {s: b for s, b in fans.items() if len(b) > 1}
+
+
+@pytest.mark.parametrize("name", ["r40-seed7", "r46-seed1"])
+def test_the_cut_wall_wears_the_uncut_walls_rock(name):
+    """The pieces' UVs are the uncut tri's own map (in game 2026-10-20, the second cell-lip build: a seam where the
+    rock strip wraps -- the uncut tri was window-translated as ONE, its pieces each on their own). Every cell-lip rock
+    tri lying in a pre-fix rock tri's plane wears that tri's affine U at its corners (to 0.003, the visibility line;
+    modulo the strip, whose two ends tile), V on the same rows. A snapped crest moved its tris off plane: not judged."""
+    kw, _n = STREAKY_MINTS[name]
+    old, new = I.build_landmass(**kw, cell_lip=False), I.build_landmass(**kw)
+
+    def rock(b):
+        gpos, gtris, gmeta = b["world"]["pos"], b["world"]["tris"], b["world"]["meta"]
+        return [(np.array([gpos[v] for v in t]), np.array(m[3])) for t, m in zip(gtris, gmeta) if m[2] == "rock"]
+    old_r, new_r = rock(old), rock(new)
+    centres = np.array([P.mean(axis=0) for P, _ in old_r])
+    strip = I.ROCK_U[1] - I.ROCK_U[0]
+
+    def bary(P, q):
+        v0, v1, v2 = P[1] - P[0], P[2] - P[0], q - P[0]
+        d00, d01, d11, d20, d21 = v0 @ v0, v0 @ v1, v1 @ v1, v2 @ v0, v2 @ v1
+        den = d00 * d11 - d01 * d01
+        v, w = (d11 * d20 - d01 * d21) / den, (d00 * d21 - d01 * d20) / den
+        return np.array([1.0 - v - w, v, w])
+    judged, off = 0, []
+    for P, UV in new_r:
+        c = P.mean(axis=0)
+        best = None
+        for k in np.argsort(np.linalg.norm(centres - c, axis=1))[:8]:
+            Q, W = old_r[k]
+            n = np.cross(Q[1] - Q[0], Q[2] - Q[0])
+            if np.linalg.norm(n) < 1e-9 or bary(Q, c).min() < -0.02:
+                continue
+            d = abs((c - Q[0]) @ (n / np.linalg.norm(n)))
+            if best is None or d < best[0]:
+                best = (d, Q, W)
+        if best is None or best[0] > 0.05:
+            continue
+        judged += 1
+        _d, Q, W = best
+        for q, (u, v) in zip(P, UV):
+            b = bary(Q, q)
+            du = abs(float(b @ W[:, 0]) - u) % strip
+            if min(du, strip - du) > 0.003 or abs(float(b @ W[:, 1]) - v) > 0.003:
+                off.append(tuple(np.round(q, 2)))
+    assert judged > 100 and off == [], off[:6]
 
 
 def test_the_crest_is_cut_on_the_lattice_and_the_wall_fans_to_it():

@@ -51,10 +51,14 @@ ROCK_DENSITY = 0.0125                                    # texels/u along the sh
 SEA_PLANE_SOURCE = (12, 0)                               # the game's only full-cell deep Sea4 plane
 DEFAULT_DONOR = (0, 0)                                   # Uaho: a Terrain-carrying donor for the s34 divert
 HIDDEN_PARTS = ("Object", "Sea1", "Sea2", "Sea3", "Sea5", "Beach1")
-#: THE CELL-CLIPPED LIP (the lip-streak fix): a crest vertex this near a 4u lattice line is moved ONTO it, and a cut
-#: this near a lattice corner onto the corner -- stock's crease sits on the lattice lines (1216 of 1540 disc-1 crest
-#: verts), and a vertex just off a line would leave a sliver cell piece the clip cannot map.
+#: THE CELL-CLIPPED LIP (the lip-streak fix): a crest vertex this near a 4u lattice line is moved ONTO it (stock's
+#: crease sits on the lattice lines: 1216 of 1540 disc-1 crest verts), and a grass clip point this near a lattice
+#: corner onto the corner -- a vertex just off a line leaves a sliver cell piece. Crest CUTS are never moved: they
+#: stay on the crest edge, so the wall keeps its own rock texture.
 LATTICE_SNAP = 0.15
+#: a cell-lip wall quad takes its o0-r1 diagonal when the o1-r0 one would lean under this |normal.y| (a kit wall
+#: leans ~0.29; the engine's walk filter drops <= 0.1) and the other leans less
+WALL_LEAN_FLOOR = 0.2
 #: a JOIN segment's cuts (a crest edge ending at a stock-pinned column) sit this far landward along their own line,
 #: so the chain into the column is not plan-collinear: river's open zip fans round the column over these very crest
 #: points, and a collinear triple there is a plan-flat step it must route round -- it folded over the stock wall
@@ -208,29 +212,39 @@ def _lat_cross(a, b, axis: int, g: float, other: int, snap: bool = True):
     return tuple(p)
 
 
-def _lattice_cuts(a, b, corner: bool = True):
+def _lattice_cuts(a, b):
     """THE CELL-CLIPPED LIP, the crest half: the points (in order from ``a``) where the XZ segment ``a -> b`` strictly
-    crosses a 4u lattice line, each exactly on its line (one near a lattice corner on the corner, unless ``corner`` is
-    False: then every cut stays ON the segment, collinear with its ends). The crest's ends
-    are already snapped (:func:`_lat_snap`), so a crest vertex is either on a line or clear of it, and the grass clip
-    (:func:`_cell_clip`) never has to split a crest edge."""
-    cuts, p = [], a
-    while True:
-        best = None
-        for axis in (0, 1):
-            lo, hi = sorted((p[axis], b[axis]))
-            for k in range(math.floor(lo / GRID), math.floor(hi / GRID) + 2):
-                g = GRID * k
-                if (p[axis] - g) * (b[axis] - g) < 0:
-                    t = (g - p[axis]) / (b[axis] - p[axis])
-                    if best is None or t < best[0]:
-                        best = (t, axis, g)
-        if best is None:
-            return cuts
-        _t, axis, g = best
-        x = _lat_cross(p, b, axis, g, 1 - axis, snap=corner)
-        cuts.append(x)
-        p = x
+    crosses a 4u lattice line, each computed from ``a`` and ``b`` themselves and exactly on its line -- so every cut
+    lies ON the crest edge (a crossing through a lattice corner is that corner). The crest's ends are already snapped
+    (:func:`_lat_snap`), so a crest vertex is either on a line or clear of it, and the grass clip (:func:`_cell_clip`)
+    never has to split a crest edge."""
+    hits = []
+    for axis in (0, 1):
+        if a[axis] == b[axis]:
+            continue
+        lo, hi = sorted((a[axis], b[axis]))
+        for k in range(math.floor(lo / GRID), math.floor(hi / GRID) + 2):
+            g = GRID * k
+            if (a[axis] - g) * (b[axis] - g) < 0:
+                hits.append(((g - a[axis]) / (b[axis] - a[axis]), _lat_cross(a, b, axis, g, 1 - axis, snap=False)))
+    cuts = []
+    for _t, q in sorted(hits):
+        if cuts and math.dist(cuts[-1], q) < 1e-9:      # both families at one point: the lattice corner itself
+            cuts[-1] = (GRID * round(q[0] / GRID), GRID * round(q[1] / GRID))
+        else:
+            cuts.append(q)
+    return cuts
+
+
+def _wall_lean(tris) -> float:
+    """The smallest |normal.y| over ``tris`` (1 = level, 0 = vertical)."""
+    worst = 1.0
+    for a, b, c in tris:
+        e1 = [b[q] - a[q] for q in range(3)]
+        e2 = [c[q] - a[q] for q in range(3)]
+        n = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+        worst = min(worst, abs(n[1]) / (math.sqrt(n[0] ** 2 + n[1] ** 2 + n[2] ** 2) or 1.0))
+    return worst
 
 
 def _plane_y(tri, x: float, z: float) -> float:
@@ -490,16 +504,16 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     # mint 12). Stock never does it: its 2481 lip-grass tris on topo-58 crests (disc 1) hold the interior grass's
     # own density, Jacobian aspect p50 2.00 / max 5.8, none collapsed, and its crease carries a vertex where it
     # crosses a lattice line (1216 of its 1540 crest verts sit on one). So the kit cuts each crest edge where it
-    # crosses a lattice line (the grass Delaunay takes the cuts as ring vertices; the wall FANS to them with their
-    # own arc-length U, stock's refined-crease fan verts) and clips every grass tri at the cell lines (THE TILE-RECT
-    # CONTAINMENT LAW's per-cell clip, below): each piece then wears its own cell's map, nothing clamped. The outline
-    # and every base vertex stay. A BEACH mint (THE LADDER MINT, falsified in game and superseded) keeps the old lip
-    # whole: its berm welds to the arc's rim edges, so cutting them would split the berm too.
+    # crosses a lattice line (the grass Delaunay takes the cuts as ring vertices; the wall tri holding that edge is
+    # cut up at them in its own plane, wearing its own rock map -- below) and clips every grass tri at the cell lines
+    # (THE TILE-RECT CONTAINMENT LAW's per-cell clip): each grass piece wears its own cell's map, nothing clamped.
+    # The outline and every base vertex stay. A BEACH mint (THE LADDER MINT, falsified in game and superseded) keeps
+    # the old lip whole: its berm welds to the arc's rim edges, so cutting them would split the berm too.
     crest_cuts = {}
     for i in range(nring if cell_lip else 0):
         j = (i + 1) % nring
         join = bool({i, j} & set(rim_y))
-        cuts = _lattice_cuts(rim[i], rim[j], corner=not join)
+        cuts = _lattice_cuts(rim[i], rim[j])
         if join:
             dented = []
             for (x, z) in cuts:
@@ -713,11 +727,8 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
     rv0, rv1 = ROCK_V[0] + gspec["wall_dv"], ROCK_V[1] + gspec["wall_dv"]
     strip_w = ru1 - ru0
 
-    cut_s = {p: (sk + shore_origin if shore_origin else sk)  # a cut's own arc-length, not its nearest vertex's
-             for cuts in crest_cuts.values() for _t, p, sk in cuts}
-
     def rock_uvs(pts3):
-        s = [cut_s[p] if p in cut_s else shore_s(p[0], p[2]) for p in pts3]
+        s = [shore_s(p[0], p[2]) for p in pts3]
         ref = s[0]
         s = [ref + ((sk - ref + perim / 2.0) % perim) - perim / 2.0 for sk in s]
         ph = [sk * ROCK_DENSITY for sk in s]
@@ -761,34 +772,34 @@ def build_landmass(*, center, base_radius: float = 24.0, seed=None, lobes: int =
             cand_a = (up(o0, o1, r0), up(r0, o1, r1))
             cand_b = (up(o0, o1, r1), up(o0, r1, r0))
             split = cand_a if _min_ny(cand_a) >= _min_ny(cand_b) else cand_b
-        elif i in crest_cuts:
-            # THE CREST FAN: the crest chain r0 -> cuts -> r1 over the one base edge; each sub-edge fans to the base
-            # vertex on its side of the segment's middle, and one tri spans the base at the switch. With no cut this
-            # is exactly the split below: (o0, o1, r0) + (r0, o1, r1).
-            # A corner-snapped cut can leave a short crest sub-edge lying along a lattice line, pointing at a base
-            # vertex; fanned to that vertex it stands near vertical (the engine's walk filter would drop it), so the
-            # switch moves to whichever place leans the fan's worst tri least, the middle rule winning a tie.
-            ts = [0.0] + [t for t, _p, _s in crest_cuts[i]] + [1.0]
-            chain = [r0] + [p for _t, p, _s in crest_cuts[i]] + [r1]
-
-            def _fan(h_):
-                return [up(o0, o1, chain[h_])] + [up(o0 if m < h_ else o1, chain[m], chain[m + 1])
-                                                  for m in range(len(chain) - 1)]
-
-            def _lean(tris_):
-                worst = 1.0
-                for (a_, b_, c_) in tris_:
-                    e1_ = [b_[q] - a_[q] for q in range(3)]
-                    e2_ = [c_[q] - a_[q] for q in range(3)]
-                    gn_ = [e1_[1]*e2_[2]-e1_[2]*e2_[1], e1_[2]*e2_[0]-e1_[0]*e2_[2], e1_[0]*e2_[1]-e1_[1]*e2_[0]]
-                    worst = min(worst, abs(gn_[1]) / (math.sqrt(sum(q*q for q in gn_)) or 1.0))
-                return worst
-            h_mid = next(m for m in range(len(chain) - 1) if ts[m] + ts[m + 1] >= 1.0)
-            # beside a JOIN column the fan is the stock-pinned quad's own split, subdivided (switch at r0: its cuts
-            # are collinear), so the J gates judge the very plane the old wall had
-            h = 0 if {i, j} & set(rim_y) else max(range(len(chain)),
-                                                   key=lambda h_: (round(_lean(_fan(h_)), 9), h_ == h_mid))
-            split = _fan(h)
+        elif cell_lip:
+            # THE CREST CUTS on the wall: the quad split on one diagonal, as before the fix, and the tri that holds
+            # the crest edge cut up along the crest chain r0 -> cuts -> r1, in its own plane (the cuts lie ON the crest
+            # edge) and wearing ITS rock map: each piece's UVs are that uncut tri's, interpolated at the cut, the
+            # strip's window-translate included -- so the wall shows exactly the rock it did. (Mapping each piece on
+            # its own showed in game as seams down the rock: a fan to the other base vertex maps the strip
+            # off-affine, and a piece translated alone at the strip's wrap stops matching its neighbour.) The
+            # diagonal is the quad's o1-r0 (the pre-fix split) unless that tri would stand steeper than
+            # WALL_LEAN_FLOOR where the o0-r1 one leans less: the lattice snap can swing a crest edge over a base
+            # vertex at a corner. Beside a join column it is always o1-r0 -- the J gates judge that very plane.
+            cuts = crest_cuts.get(i, ())
+            chain = [r0] + [p for _t, p, _s in cuts] + [r1]
+            ts = [0.0] + [t for t, _p, _s in cuts] + [1.0]
+            on_o1 = (up(o0, o1, r0), up(r0, o1, r1))
+            on_o0 = (up(o0, o1, r1), up(o0, r0, r1))
+            lean1 = _wall_lean(on_o1)
+            keep, holder = on_o1 if ({i, j} & set(rim_y) or lean1 >= WALL_LEAN_FLOOR
+                                     or lean1 >= _wall_lean(on_o0)) else on_o0
+            hold_uv = dict(zip(holder, rock_uvs(holder)))
+            (ua, va), (ub, vb) = hold_uv[r0], hold_uv[r1]
+            base = next(q for q in holder if q is not r0 and q is not r1)
+            at = {q: (ua + t * (ub - ua), va + t * (vb - va)) for q, t in zip(chain, ts)}
+            at[base] = hold_uv[base]
+            parent.append((tuple((q[0], q[1], q[2], u, v) for q, (u, v) in zip(keep, rock_uvs(keep))), idw, "rock"))
+            for m in range(len(chain) - 1):
+                piece = up(chain[m], base, chain[m + 1])
+                parent.append((tuple((q[0], q[1], q[2], *at[q]) for q in piece), idw, "rock"))
+            continue
         else:
             split = (up(o0, o1, r0), up(r0, o1, r1))
         for tri in split:

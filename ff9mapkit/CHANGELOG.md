@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-river --remove`: take a river back out, or redeploy it in the same place
+- `py -m ff9mapkit world-river --mod-folder FF9CustomMap-world --at 512,128 --remove` takes out the river deployed
+  at that placement, on disc 1 and on the disc-4 mirror. Run the ordinary command again to redeploy it in the same
+  place. Before, the command refused its own earlier deploy there, and the only way back was deleting files by hand.
+- It removes only files the mod folder's deploy ledger says `world-river` wrote there, and only while their bytes
+  are still the ones it wrote. Each file is copied aside as `<name>.bak-<time>` first, and each removal is written
+  to the ledger (`world-ledger` shows it as REMOVED).
+- It is all or nothing. A hand-edited file, a file from another command or another placement, or a file the ledger
+  has no row for stops it with `R1` before anything is deleted. Other mod folders in the stack are never touched.
+  `--dry-run` lists what would go, and `--skip-mirror` leaves disc 4 alone.
+
 ### Added — `world-river`: carry a real river onto a new island in one command
 - `py -m ff9mapkit world-river --mod-folder FF9CustomMap-world --at 512,128` carries the lowland river, its bridge,
   its cove and the island in the cove onto open ocean and grows a kit island round them. That placement is the one
@@ -26,9 +37,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - The kit now cuts the cliff's top edge where it crosses the grass grid and splits the edge grass along the same
   lines, so every grass triangle shows its own square of the texture at full detail. This is how the original map
   builds its cliff tops.
-- Only the edge changes: the rest of the island's grass and its meadow patches stay exactly as before, and
-  `world-forest` and `world-mountain` carve the same places the same way. A hill placed right at the edge clearance
-  can now be a hair too close; let `world-hill` find its spot (`--near`) instead of giving an exact one.
+- Only the edge changes: the rest of the island's grass and its meadow patches stay exactly as before, the cliff
+  rock keeps its own texture, and `world-forest`, `world-hill` and `world-mountain` carve the same places the same
+  way.
 - A new check, `lip_streaks`, counts any streaked triangle a mint makes. Islands already in the game keep their old
   edge until they are minted again.
 
