@@ -5,6 +5,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — a hill fits beside the `world-river` island's bank
+- `world-hill`'s check for open seams counted every open seam within its radius + 4 units, including seams the
+  island already had. On the river island at 512,128, where the grass edge meets the carried river bank, a hill
+  centred at (31,-826) or (30,-824) was refused for 9 or 13 such seams.
+- It now counts only seams the hill opens, as the `world-forest` and `world-mountain` checks do. The island's own
+  open seams are listed, not refused. A seam the hill moves still counts as the hill's, even when it was already
+  open. Checked offline only, not yet in game. Where `world-hill` already worked, it writes the same bytes.
+
 ### Fixed — relief commands no longer rewrite blocks they leave alone
 - `world-forest` and `world-mountain`, and their `[[forest]]` / `[[mountain]]` rows in a `world-fuse` recipe, read
   every block around the spot and write each one back. On land that carries stock pieces, such as the `world-river`

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import numpy as np
 
@@ -1978,6 +1978,77 @@ def test_carve_forest_annulus_gate_still_refuses_a_crack_the_carve_opens(monkeyp
         IN.carve_forest(_annulus_bench(), center=(20.0, -26.0), donor=(15, 15), game=tmp_path,
                         log=lines.append)
     assert any("annulusOnce=3 " in s for s in lines)
+
+
+def _hill_window_once(soup, center, radius):
+    """The island's own once-edges inside a hill's crack window (radius + 4), before any lift."""
+    eu = Counter()
+    for t in soup["tris"]:
+        for a, b in ((0, 1), (1, 2), (2, 0)):
+            eu[tuple(sorted((IN.kk3(soup["pos"][t[a]]), IN.kk3(soup["pos"][t[b]]))))] += 1
+    return [e for e, n in eu.items() if n == 1 and math.hypot((e[0][0] + e[1][0]) / 2 - center[0],
+                                                              (e[0][2] + e[1][2]) / 2 - center[1]) < radius + 4]
+
+
+def test_build_hill_crack_gate_passes_the_islands_own_open_edges():
+    """The hill's crack gate is baseline-subtracted, as the forest's and the mountain's are: the
+    52u grid's own WEST BORDER lies 16u from a r14 hill -- inside the gate's r + 4 window, outside
+    the lift -- like the river island's crest-over-bank edges beside (31,-826) (RUNG5.md "The
+    hill's crack gate"). The island's, not the hill's: the hill seats and the edges are logged."""
+    soup = IN.soup_from_blocks({(0, 0): _mains_grid()})
+    own = _hill_window_once(soup, (16.0, -24.0), 14.0)
+    assert len(own) == 4 and {e[0][0] for e in own} == {0.0}      # the fixture really holds them
+    lines = []
+    res = IN.build_hill(soup, center=(16.0, -24.0), height=3.5, radius=14.0, log=lines.append)
+    assert res["report"]["inherited_once"] == 4
+    assert any(s.startswith("crack gate: 4 once-edge(s)") and "the island's own" in s for s in lines)
+    assert res["report"]["displaced_tris"] > 40
+
+
+def _seamed_grid(y, seam_x=32.0, jitter=0.0004, n=13, cell=4.0):
+    """``_mains_grid`` whose column line ``x = seam_x`` is a NEAR-weld: the tris west of it put
+    that vert at ``seam_x - jitter``, the tris east of it at ``seam_x + jitter``. Both round to the
+    gate's weld key (:data:`IN.kk3`), so the pristine grid is closed; a lift that differs across
+    the 0.0008u gap can round them apart -- a crack the hill itself opens."""
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            x0, x1 = i * cell, (i + 1) * cell
+            z0, z1 = -j * cell, -(j + 1) * cell
+            sx = lambda x: x + (jitter if x == x0 else -jitter) if x == seam_x else x  # noqa: E731
+            tris.append((((sx(x0), y, z0), (sx(x1), y, z0), (sx(x0), y, z1)), GRASS, _MAIN_U))
+            tris.append((((sx(x1), y, z0), (sx(x1), y, z1), (sx(x0), y, z1)), GRASS, _MAIN_U))
+    return _bm(tris)
+
+
+def test_build_hill_crack_gate_still_refuses_a_crack_the_hill_opens():
+    """BREAK-IT: a weld the lift splits is a NEW open edge -- the pristine island had it closed --
+    so it still refuses. The near-weld sits 7u east of the centre, on the flank's steepest ring;
+    the grid's height puts one twin pair's lifted y astride a kk3 rounding boundary. The grid's
+    borders lie 24u+ off, outside the window, so the control seats on the pre-fix gate too."""
+    cx, cz, h, r, jit = 25.0, -24.0, 3.5, 14.0, 0.0004
+    lw = IN.raised_cosine(7.0 - jit, h, r)
+    le = IN.raised_cosine(7.0 + jit, h, r)
+    mid = (lw + le) / 2
+    y = math.floor((3.2 + mid) * 1000) / 1000 + 0.0005 - mid       # the pair's mean lifted y on the boundary
+    soup = IN.soup_from_blocks({(0, 0): _seamed_grid(y, jitter=jit)})
+    assert _hill_window_once(soup, (cx, cz), r) == []               # the island holds no open edge there
+    assert IN.kk3((32.0 - jit, y + lw, -24.0)) != IN.kk3((32.0 + jit, y + le, -24.0))
+    with pytest.raises(ValueError, match="once-edges inside the hill region"):
+        IN.build_hill(soup, center=(cx, cz), height=h, radius=r, log=lambda *a: None)
+    # the control: the same grid with a TRUE weld (no jitter) seats
+    IN.build_hill(IN.soup_from_blocks({(0, 0): _seamed_grid(y, jitter=0.0)}), center=(cx, cz),
+                  height=h, radius=r, log=lambda *a: None)
+
+
+def test_build_hill_crack_gate_judges_an_open_edge_the_lift_moves():
+    """An open edge the LIFT MOVES is the hill's, not the island's: the gate matches the pristine
+    edges by position, so the grid's west border inside a r14 hill centred 12u off it (displaced,
+    an edge open only where the read stops tears from the block it never saw) still refuses."""
+    soup = IN.soup_from_blocks({(0, 0): _mains_grid()})
+    assert _hill_window_once(soup, (12.0, -24.0), 14.0)
+    with pytest.raises(ValueError, match="once-edges inside the hill region"):
+        IN.build_hill(soup, center=(12.0, -24.0), height=3.5, radius=14.0, log=lambda *a: None)
 
 
 # ---- an untouched block CONVERGES: kept tris keep their source tangent (RUNG5.md "The gates measure the carve") --
