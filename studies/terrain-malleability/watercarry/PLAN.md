@@ -487,8 +487,21 @@ held by FF9CustomMap-world, and lands on (8,-2), the proven placement.
   folder mirrored all 132 to Disc4, 0 free-ride pins, 0 cells skipped.
 - `--no-apron`: every gate green offline too (zip max rise 2.24u of 2.34). Not played.
 
-Not in v1: an `--allow-overwrite` (B1 refuses the verb's own earlier deploy at the same cells; remove it first) and
-any coastnav stamp on the kit coast (the verb prints the coupling note).
+**THE REMOVAL (`--remove`, chosen over `--allow-overwrite`).** B1 refuses the verb's own earlier deploy on its cells,
+and it still does. A redeploy is `world-river --remove --at DX,DZ` (the placement the deploy printed), then the
+ordinary run, so the stack read runs again on clean cells. `river.remove_deploy` deletes a file only when the
+folder's ledger says it is this deploy's: the last row for its (disc, cell, part) records its current bytes, and a
+row with those bytes ran `world-river` at this placement. An explicit `--at` naming another shift is another
+deploy's; `--at auto` does not say, and B1 never lets two deploys share a cell. It checks disc 1 and the disc-4
+mirror. It is all or nothing: R1 names every foreign file before the first delete, and R0 refuses empty cells. Each
+file is re-hashed, parked as `.bak-<ts>`, deleted, and ledgered (`op: remove`, `sha256: null`). Other stacked
+folders are never touched. Why not `--allow-overwrite`: it cannot take a river out, it leaves the verb a waiver past
+B1, and it would orphan any cell an earlier kit's composition covered and this one does not. Verified on the real
+data into an absolute scratch folder: deploy, mirror, a foreign disc-4 byte refusing R1, remove (264 files), and a
+byte-identical redeploy. A read-only ownership check of the live FF9CustomMap-world deploy at 512,128 (a CLI run,
+ledgered) judged all 264 of its files the verb's own.
+
+Not in v1: any coastnav stamp on the kit coast (the verb prints the coupling note).
 
 ## Decisions for the owner (answered: the recommendations, 2026-10-19)
 

@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-river --remove`: take a river back out, or redeploy it in the same place
+- `py -m ff9mapkit world-river --mod-folder FF9CustomMap-world --at 512,128 --remove` takes out the river deployed
+  at that placement, on disc 1 and on the disc-4 mirror. Run the ordinary command again to redeploy it in the same
+  place. Before, the command refused its own earlier deploy there, and the only way back was deleting files by hand.
+- It removes only files the mod folder's deploy ledger says `world-river` wrote there, and only while their bytes
+  are still the ones it wrote. Each file is copied aside as `<name>.bak-<time>` first, and each removal is written
+  to the ledger (`world-ledger` shows it as REMOVED).
+- It is all or nothing. A hand-edited file, a file from another command or another placement, or a file the ledger
+  has no row for stops it with `R1` before anything is deleted. Other mod folders in the stack are never touched.
+  `--dry-run` lists what would go, and `--skip-mirror` leaves disc 4 alone.
+
 ### Added — `world-river`: carry a real river onto a new island in one command
 - `py -m ff9mapkit world-river --mod-folder FF9CustomMap-world --at 512,128` carries the lowland river, its bridge,
   its cove and the island in the cove onto open ocean and grows a kit island round them. That placement is the one

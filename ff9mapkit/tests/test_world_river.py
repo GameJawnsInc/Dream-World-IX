@@ -688,6 +688,7 @@ def _game(tmp_path, monkeypatch, folders=()):
     monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
     monkeypatch.setattr(config, "_read_deploy_config", lambda start=None: {})
     monkeypatch.delenv("FF9_MOD_FOLDER", raising=False)
+    tmp_path.mkdir(parents=True, exist_ok=True)
     if folders:
         (tmp_path / "Memoria.ini").write_text("[Mod]\nFolderNames = " + ", ".join(f'"{f}"' for f in folders) + "\n",
                                               encoding="utf-8")
@@ -894,6 +895,7 @@ def test_world_river_refuses_an_occupied_cell(tmp_path, monkeypatch, capsys):
     cap = capsys.readouterr()
     assert "world-river refused -- B1: the stack already overrides these cells" in cap.err
     assert "OTHER disc 4 (1 file(s))" in cap.err and "    B1 stack        RED" in cap.out
+    assert "--remove" not in cap.err                                        # not this verb's: no way out to offer
     assert [c[0] for c in calls] == ["read", "compose"]                     # nothing staged, nothing promoted
     assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--dry-run",
                      "--skip-mirror"]) == 0
@@ -929,6 +931,264 @@ def test_world_river_needs_a_folder_and_a_river_donor(tmp_path, monkeypatch, cap
     capsys.readouterr()
     assert cli.main(["world-river", "--mod-folder", "W", "--donor", "cluster-d", "--at", "512,128"]) == 2
     assert "'cluster-d' is not a river donor" in capsys.readouterr().err
+
+
+# ---- `world-river --remove`: the verb's own deploy taken back out -------------------------------------------------
+
+RIVER_CELLS = ((23, 12), (0, 11), (1, 11))                                   # _river_cli's three cells, wrapped
+_PROMOTE = R.promote                                                          # _river_cli stubs it; a deploy needs the seam
+
+
+def test_ledger_verb_skips_the_top_level_options():
+    """A recorded argv may lead with the top-level `--game PATH` / `--mod-folder NAME`; the pinned option list is the
+    parser's own (a new top-level value option would make every row's verb its value)."""
+    import argparse
+    from ff9mapkit import cli
+    from ff9mapkit.world import mesh as M
+    assert M.ledger_verb(["world-river", "--at", "512,128"]) == "world-river"
+    assert M.ledger_verb(["--game", "D:/ff9", "--mod-folder", "world-island", "world-river"]) == "world-river"
+    assert M.ledger_verb(["--game=D:/ff9", "world-mirror"]) == "world-mirror"
+    assert M.ledger_verb(None) is None and M.ledger_verb(["--version"]) is None
+    top = {s for a in cli.build_parser()._actions if type(a) is argparse._StoreAction for s in a.option_strings}
+    assert top == set(M._TOP_VALUE_OPTS)
+
+
+def test_ledger_shift_reads_the_placement():
+    assert R.ledger_shift(["world-river", "--at", "512,128"]) == (8, -2)
+    assert R.ledger_shift(["world-river", "--at=-1024,0"]) == (-16, 0)
+    assert R.ledger_shift(["world-river", "--at", "1,1", "--at", "512,128"]) == (8, -2)   # the last wins, as argparse
+    for argv in (["world-river", "--at", "auto"], ["world-river", "--at", "513,128"], ["world-river"], None):
+        assert R.ledger_shift(argv) is None
+    assert R._same_shift((8, -2), (-16, -2)) and not R._same_shift((8, -2), (8, -1))   # 24 columns is no shift
+    row = {"argv": ["world-river", "--mod-folder", "C:/scratch/" + "x" * 120, "--at", "512,128"], "utc": "T"}
+    assert R._row_who(row).endswith("--at 512,128` at T") and " ... " in R._row_who(row)  # a long folder hides nothing
+
+
+def _deploy_river(tmp_path, monkeypatch, folder="FF9CustomMap-world", *, at="512,128", cells=RIVER_CELLS,
+                  verb="world-river", mirror=True):
+    """A real deploy of three cells into ``<game>/<folder>``: the writer's files staged outside the install, promoted
+    through the ledgered seam, then mirrored to disc 4 by the real mirror (no stock parts there: open ocean). The
+    ledger rows carry ``verb ... --at at``. Returns ``{disc-relative path: bytes}`` of everything deployed."""
+    from ff9mapkit.world import discmirror as DM, mesh as M
+    game = config.find_game_path(None)
+    monkeypatch.setattr(R.X, "block_parts", lambda **kw: {R.DIVERT_PREFAB: frozenset({"terrain", "sea4", "object"})})
+    monkeypatch.setattr(DM, "_real_parts", lambda disc, lod="0_1", game=None: {})
+    monkeypatch.setattr(M, "_DEPLOY_ARGV", [verb, "--mod-folder", folder, "--at", at])
+    stage = tmp_path / f"stage-{verb}-{at}"
+    R.write({c: {"terrain": _full_cell_land(c)} for c in cells}, stage)
+    _PROMOTE(stage, folder)
+    if mirror:
+        DM.mirror(folder, cells=set(cells), atomic=True, log=lambda *a: None)
+    root = game / folder / "FF9_Data/WorldMap"
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("Block*") if ".bak-" not in p.name}
+
+
+def _deployed(game, folder="FF9CustomMap-world"):
+    root = game / folder / "FF9_Data/WorldMap"
+    return sorted(p.relative_to(root).as_posix() for p in root.rglob("Block*") if ".bak-" not in p.name) \
+        if root.is_dir() else []
+
+
+def _ledger(game, folder="FF9CustomMap-world"):
+    from ff9mapkit.world import mesh as M
+    return M.read_ledger(game / folder)
+
+
+def test_world_river_remove_takes_its_own_deploy_out_and_the_verb_redeploys(tmp_path, monkeypatch, capsys):
+    """The gap this closes: B1 refused the verb's own earlier deploy, so nothing could re-run it. --remove deletes
+    exactly the ledger-owned files (disc 1 and the disc-4 mirror), parks each first, ledgers each; then the ordinary
+    run passes the stack read on the same cells, and a second deploy + remove round-trips."""
+    from ff9mapkit import cli
+    calls = _river_cli(tmp_path / "game", monkeypatch)
+    game = tmp_path / "game"
+    before = _deploy_river(tmp_path, monkeypatch)
+    assert len(before) == 24 and sum(k.startswith("Disc4/") for k in before) == 12   # 4 files x 3 cells x 2 discs
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--dry-run"]) == 2
+    assert "`world-river --remove --at 512,128`" in capsys.readouterr().err  # B1 names the way out
+
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--remove",
+                     "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "3 cells (0,11) (1,11) (23,12) in FF9CustomMap-world, disc(s) 1, 4" in out
+    assert "would remove 24 files (disc 1: 12, disc 4: 12), every one this verb's by the ledger. Nothing removed." in out
+    assert len(_deployed(game)) == 24
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--remove"]) == 0
+    out = capsys.readouterr().out
+    assert "removed 24 files from FF9CustomMap-world (disc 1: 12, disc 4: 12)" in out
+    assert "To redeploy here: world-river --mod-folder FF9CustomMap-world --at 512,128" in out
+    assert _deployed(game) == [] and R.stack_occupancy(list(RIVER_CELLS), "FF9CustomMap-world") == {}
+    baks = sorted((game / "FF9CustomMap-world/FF9_Data/WorldMap").rglob("*.bak-*"))
+    assert len(baks) == 24                                                   # every byte parked, beside itself
+    for b in baks:
+        rel = b.relative_to(game / "FF9CustomMap-world/FF9_Data/WorldMap").as_posix().split(".bak-")[0]
+        assert b.read_bytes() == before[rel], rel
+    gone = [e for e in _ledger(game) if e.get("op") == "remove"]
+    assert len(gone) == 24 and all(e["sha256"] is None and e["argv"][-1] == "--remove" for e in gone)
+    assert {(e["write_disc"], e["part"]) for e in gone} == {(d, p) for d in (1, 4)
+                                                             for p in ("Terrain", "Sea4", "Object", "Donor")}
+    monkeypatch.setattr(cli, "find_game_path", lambda g=None: game)         # bound at import: pin it too
+    assert cli.main(["world-ledger", "--mod-folder", "FF9CustomMap-world"]) == 0
+    assert "kit " in (out := capsys.readouterr().out) and "REMOVED" in out   # the reader names the row for what it is
+
+    calls[:] = []                                                            # the ordinary run, same cells: free now
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--dry-run"]) == 0
+    assert [c[0] for c in calls] == ["read", "compose", "stage"]
+    assert _deploy_river(tmp_path, monkeypatch) == before                    # the seam takes it back: no refusal
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--remove"]) == 0
+    assert _deployed(game) == []
+
+
+def test_world_river_remove_scratch_folder_and_skip_mirror(tmp_path, monkeypatch, capsys):
+    """An absolute scratch folder works as the deploy does; --skip-mirror leaves disc 4 exactly as it is."""
+    from ff9mapkit import cli
+    _river_cli(tmp_path / "game", monkeypatch)
+    scratch = str(tmp_path / "scratch" / "FF9CustomMap-river")
+    _deploy_river(tmp_path, monkeypatch, scratch)
+    assert cli.main(["world-river", "--mod-folder", scratch, "--at", "512,128", "--remove", "--skip-mirror"]) == 0
+    out = capsys.readouterr().out
+    assert "removed 12 files" in out and "disc 4 left as it is (--skip-mirror)" in out
+    assert _deployed(tmp_path / "game", scratch) == sorted(f"Disc4/0_1/r{y}/Block[{x}][{y}] {p}"
+                                                           for x, y in RIVER_CELLS for p in ("Donor.txt",
+                                                           "Object.ff9mesh", "Sea4.ff9mesh", "Terrain.ff9mesh"))
+    assert cli.main(["world-river", "--mod-folder", scratch, "--at", "512,128", "--remove"]) == 0  # the rest
+    assert _deployed(tmp_path / "game", scratch) == []
+
+
+def _remove_refused(cli, capsys, folder="FF9CustomMap-world", *extra, at="512,128"):
+    assert cli.main(["world-river", "--mod-folder", folder, f"--at={at}", "--remove", *extra]) == 2
+    return capsys.readouterr().err
+
+
+def test_world_river_remove_refuses_foreign_bytes_and_removes_nothing(tmp_path, monkeypatch, capsys):
+    """Break-it per ownership refusal (R1): a hand edit, a file no row covers, another verb's last write, another
+    placement's deploy, bytes put back after a removal -- each refuses the WHOLE removal, every file stays."""
+    from ff9mapkit import cli
+    from ff9mapkit.world import mesh as M
+    _river_cli(tmp_path / "game", monkeypatch)
+    game = tmp_path / "game"
+    disc1 = game / "FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1"
+    before = _deploy_river(tmp_path, monkeypatch)
+
+    def unchanged():
+        assert len(_deployed(game)) == 24 and not [e for e in _ledger(game) if e.get("op") == "remove"]
+        assert not list((game / "FF9CustomMap-world").rglob("*.bak-*"))
+
+    sea4 = disc1 / "r11/Block[0][11] Sea4.ff9mesh"                           # 1. a hand edit on disc 1
+    sea4.write_bytes(before["Disc1/0_1/r11/Block[0][11] Sea4.ff9mesh"] + b"\0")
+    err = _remove_refused(cli, capsys)
+    assert err.startswith("world-river refused -- R1: 1 file(s) on the target cells are not this verb's deploy")
+    assert "Disc1 Block[0][11] Sea4.ff9mesh: its bytes are not the last ledgered write" in err
+    sea4.write_bytes(before["Disc1/0_1/r11/Block[0][11] Sea4.ff9mesh"])
+    unchanged()
+
+    d4 = game / "FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r12/Block[23][12] Terrain.ff9mesh"
+    d4.write_bytes(b"F9WM")                                                  # 2. a hand edit on the mirror only
+    assert "Disc4 Block[23][12] Terrain.ff9mesh: its bytes are not the last" in _remove_refused(cli, capsys)
+    d4.write_bytes(before["Disc4/0_1/r12/Block[23][12] Terrain.ff9mesh"])
+    unchanged()
+
+    extra = disc1 / "r11/Block[1][11] Stream.ff9mesh"                        # 3. a file no ledger row covers
+    extra.write_bytes(b"F9WM")
+    assert "Disc1 Block[1][11] Stream.ff9mesh: no ledger row" in _remove_refused(cli, capsys)
+    extra.unlink()
+    unchanged()
+
+    obj = disc1 / "r12/Block[23][12] Object.ff9mesh"                         # 4. another verb's ledgered write
+    monkeypatch.setattr(M, "_DEPLOY_ARGV", ["world-island", "--mod-folder", "FF9CustomMap-world"])
+    obj.write_bytes(before["Disc1/0_1/r12/Block[23][12] Object.ff9mesh"] + b"x")
+    M.record_ledger_write(obj, cell=(23, 12), part="Object", write_disc=1)
+    err = _remove_refused(cli, capsys)
+    assert "R1: 1 file(s)" in err
+    assert "Disc1 Block[23][12] Object.ff9mesh: another deploy's: last written by `world-island --mod-folder" in err
+    unchanged()
+
+
+def test_world_river_remove_refuses_another_placement_and_returned_bytes(tmp_path, monkeypatch, capsys):
+    from ff9mapkit import cli
+    _river_cli(tmp_path / "game", monkeypatch)
+    game = tmp_path / "game"
+    _deploy_river(tmp_path, monkeypatch, at="1024,128")                     # 5. world-river's, another placement
+    err = _remove_refused(cli, capsys)
+    assert "R1: 24 file(s)" in err and "another deploy's: last written by `world-river --mod-folder " \
+                                       "FF9CustomMap-world --at 1024,128`" in err
+    assert len(_deployed(game)) == 24
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "1024,128", "--remove"]) == 0
+    capsys.readouterr()
+
+    before = _deploy_river(tmp_path, monkeypatch, at="auto")                 # auto does not say: B1 is the guard
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--remove"]) == 0
+    capsys.readouterr()
+    bak = next((game / "FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r11").glob("Block[[]0][[]11] Sea4*.bak-*"))
+    back = bak.with_name(bak.name.split(".bak-")[0])                         # 6. a parked copy put back by hand
+    back.write_bytes(bak.read_bytes())
+    assert back.read_bytes() == before["Disc1/0_1/r11/Block[0][11] Sea4.ff9mesh"]
+    err = _remove_refused(cli, capsys)
+    assert "R1: 1 file(s)" in err and "the ledger last REMOVED it; these bytes came back without a row" in err
+    assert back.is_file()
+
+
+def test_world_river_remove_refuses_nothing_auto_and_off_lattice(tmp_path, monkeypatch, capsys):
+    from ff9mapkit import cli
+    calls = _river_cli(tmp_path / "game", monkeypatch)
+    err = _remove_refused(cli, capsys)                                        # 7. nothing deployed there
+    assert err.startswith("world-river refused -- R0: nothing to remove: FF9CustomMap-world holds no override")
+    calls[:] = []
+    assert "needs the placement the deploy printed (--at DX,DZ), not auto" in _remove_refused(cli, capsys, at="auto")
+    assert _remove_refused(cli, capsys, at="513,128").startswith("world-river refused -- T0: ")
+    assert calls == []                                                      # 8./9. refused before the first read
+
+
+def test_world_river_remove_stops_when_a_file_changes_under_it(tmp_path, monkeypatch, capsys):
+    """10. A concurrent write between the ownership read and a delete stops the removal, naming how far it got; the
+    rest stay ours by the ledger, so a re-run finishes the job."""
+    from ff9mapkit import cli
+    from ff9mapkit.world import mesh as M
+    _river_cli(tmp_path / "game", monkeypatch)
+    game = tmp_path / "game"
+    _deploy_river(tmp_path, monkeypatch)
+    victim = game / "FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r12/Block[23][12] Terrain.ff9mesh"
+    ours, real_park = victim.read_bytes(), M.park_backup                     # the victim is the last file reached
+
+    def park(dest):
+        victim.write_bytes(b"F9WM")                                          # another session, mid-removal
+        return real_park(dest)
+    monkeypatch.setattr(M, "park_backup", park)
+    assert "R1: Disc4 Block[23][12] Terrain.ff9mesh changed after the ownership read (another session?): stopped " \
+           "after removing 23 of 24 file(s)" in _remove_refused(cli, capsys)
+    assert _deployed(game) == ["Disc4/0_1/r12/Block[23][12] Terrain.ff9mesh"]
+    monkeypatch.setattr(M, "park_backup", real_park)
+    assert "Disc4 Block[23][12] Terrain.ff9mesh: its bytes are not the last ledgered write" in _remove_refused(
+        cli, capsys)                                                         # the other session's bytes: not ours
+    victim.write_bytes(ours)                                                 # it put them back: the re-run finishes
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--remove"]) == 0
+    assert "removed 1 file from" in capsys.readouterr().out and _deployed(game) == []
+
+
+def test_world_river_remove_leaves_other_stacked_folders_and_the_redeploy_still_refuses_them(tmp_path, monkeypatch,
+                                                                                               capsys):
+    """Only the target folder is touched: a lower folder's override on a target cell stays (named), and the next
+    deploy's stack read refuses it exactly as before. A later `world-mirror` re-copy of our bytes stays ours."""
+    from ff9mapkit import cli
+    from ff9mapkit.world import mesh as M
+    calls = _river_cli(tmp_path / "game", monkeypatch, folders=("FF9CustomMap-world", "OTHER"))
+    game = tmp_path / "game"
+    _deploy_river(tmp_path, monkeypatch)
+    theirs = _override(game, "OTHER", 4, 0, 11, part="Sea4")
+    d4 = game / "FF9CustomMap-world/FF9_Data/WorldMap/Disc4/0_1/r11/Block[1][11] Terrain.ff9mesh"
+    monkeypatch.setattr(M, "_DEPLOY_ARGV", ["world-mirror", "--mod-folder", "FF9CustomMap-world"])
+    M.record_ledger_write(d4, cell=(1, 11), part="Terrain", write_disc=4, read_disc=1)   # a world-mirror re-copy
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--remove"]) == 0
+    out = capsys.readouterr().out
+    assert "removed 24 files" in out
+    assert "NOTE: OTHER disc 4 also overrides these cells (1 file(s)) -- untouched; a redeploy here still refuses " \
+           "B1 on it" in out
+    assert theirs.read_bytes() == b"F9WM" and _deployed(game) == []
+    calls[:] = []
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128"]) == 2
+    err = capsys.readouterr().err
+    assert "world-river refused -- B1: the stack already overrides these cells" in err and "OTHER disc 4 (1 file(s))" \
+        in err
+    assert [c[0] for c in calls] == ["read", "compose"]
 
 
 # ---- cluster C, on the user's install -----------------------------------------------------------------------------

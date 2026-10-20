@@ -5749,6 +5749,8 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
         return 2
     donor = R.RIVER_DONORS[args.donor]
     discs = (donor.disc,) if args.skip_mirror else (donor.disc, 4)
+    if args.remove:
+        return _river_remove(args, folder, donor, discs)
     try:
         offset = _parse_river_at(args.at)
         if offset is not None:
@@ -5788,10 +5790,12 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
            for k, g in comp.report["gates"].items() if isinstance(g, dict) and g.get("ok") is False]
     more = {k: p for k, p in stack.items() if k != (folder, donor.disc)}     # compose's B1 names that one
     if stack:
-        red.append(("B1", "the stack already overrides these cells -- re-site with --at (or --at auto), or remove "
-                          "that deploy first" + (": " + "; ".join(f"{fo} disc {d} ({len(p)} file(s))"
-                                                                  for (fo, d), p in sorted(more.items()))
-                                                 if more else "")))
+        held = ": " + "; ".join(f"{fo} disc {d} ({len(p)} file(s))" for (fo, d), p in sorted(more.items()))
+        own = any(fo == str(folder) for fo, _d in stack)                      # the target folder holds some of it
+        red.append(("B1", "the stack already overrides these cells -- re-site with --at (or --at auto), or take that "
+                          "deploy out first" + (" (this verb's own earlier one: `world-river --remove --at "
+                                                f"{comp.offset[0]:g},{comp.offset[1]:g}`)" if own else "")
+                    + (held if more else "")))
     rep, fails = None, []
     stage_root = Path(tempfile.mkdtemp(prefix="ff9-world-river-"))
     try:
@@ -5834,6 +5838,54 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
           f"~ -> World -> re-enter the world (a first-time cell needs it), then teleport to the bridge "
           f"({bx:.0f}, {bz:.0f}).")
     _world_coupling_note(coastnav=True, minimap=True, encounters=True)
+    return 0
+
+
+def _river_remove(args: argparse.Namespace, folder: str, donor, discs) -> int:
+    """``world-river --remove``: take this verb's deploy at ``--at`` back out of ``folder`` (``river.remove_deploy``).
+    B1 refuses the verb's own earlier deploy on its cells, so a redeploy is this, then the ordinary run. The cells are
+    the ones a deploy there writes (the same composition, minus its census); the ledger decides what is ours."""
+    from collections import Counter
+
+    from .world import river as R
+    try:
+        offset = _parse_river_at(args.at)
+        if offset is None:
+            print("world-river --remove needs the placement the deploy printed (--at DX,DZ), not auto: auto picks a "
+                  "FREE placement, and a deploy is not one", file=sys.stderr)
+            return 2
+        shift = R.block_shift(offset)                         # T0 / T1 before the first read
+        win = R.read_window(donor, game=args.game)
+        frag = R.build_fragment(win, donor)
+        comp = R.compose(frag, offset=offset, ol=R.outline(frag), area=args.area, apron=args.apron,
+                         disc=donor.disc, game=args.game)
+        cells = sorted(tuple(int(v) for v in k.split(",")) for k in comp.plan["cells"])
+        print(f"world-river --remove: {donor.name} at --at {offset[0]:g},{offset[1]:g} (block shift "
+              f"({shift[0]},{shift[1]})), {len(cells)} cells {_river_cells(cells)} in {folder}, disc(s) "
+              f"{', '.join(map(str, discs))}")
+        rep = R.remove_deploy(cells, folder, shift=shift, discs=discs, game=args.game, dry_run=args.dry_run)
+        more = {k: p for k, p in R.stack_occupancy(cells, folder, discs=discs, game=args.game).items()
+                if k[0] != str(folder)}
+    except R.RiverRefused as e:
+        print(f"world-river refused -- {e}", file=sys.stderr)
+        return 2
+    except (ValueError, ConfigError, FileNotFoundError, OSError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    n = len(rep["removed"])
+    nf = f"{n} file{'' if n == 1 else 's'}"
+    by = ", ".join(f"disc {d}: {k}" for d, k in sorted(Counter(f["disc"] for f in rep["removed"]).items()))
+    if args.skip_mirror:
+        print("  disc 4 left as it is (--skip-mirror)")
+    for (fo, d), p in sorted(more.items()):
+        print(f"  NOTE: {fo} disc {d} also overrides these cells ({len(p)} file(s)) -- untouched; a redeploy here "
+              "still refuses B1 on it")
+    if args.dry_run:
+        print(f"would remove {nf} ({by}), every one this verb's by the ledger. Nothing removed.")
+        return 0
+    print(f"removed {nf} from {folder} ({by}), each parked beside itself as <name>.bak-<ts> first and ledgered. "
+          f"~ -> World -> re-enter the world. To redeploy here: world-river --mod-folder {folder} --at "
+          f"{offset[0]:g},{offset[1]:g}")
     return 0
 
 
@@ -6593,7 +6645,8 @@ def _cmd_world_ledger(args: argparse.Namespace) -> int:
           f"{folder}/{WM.LEDGER_NAME}")
     for (d, cell, part), e in sorted(last.items()):
         argv = " ".join(e.get("argv") or []) or "(argv unrecorded)"
-        print(f"  Disc{d} {cell} {part:8s} {e.get('utc')}  kit {e.get('kit')}  {argv[:80]}")
+        gone = "  REMOVED" if e.get("op") == "remove" else ""             # world-river --remove's row
+        print(f"  Disc{d} {cell} {part:8s} {e.get('utc')}  kit {e.get('kit')}{gone}  {argv[:80]}")
     if args.drift:
         known = {e.get("sha256") for e in entries}
         wm_root = mod_root / "FF9_Data" / "WorldMap"
@@ -10684,7 +10737,14 @@ def build_parser() -> argparse.ArgumentParser:
                           "temp folder, then deleted), and deploy nothing")
     wrv.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written overrides to Disc4 (THE DISC-4 GAP; default: mirror), and "
-                          "don't require the disc-4 cells free")
+                          "don't require the disc-4 cells free. With --remove: leave disc 4 as it is")
+    wrv.add_argument("--remove", action="store_true",
+                     help="take this verb's deploy at --at (the placement it printed, never auto) back out of "
+                          "--mod-folder: delete exactly the files the folder's ledger says world-river wrote on those "
+                          "cells, on disc 1 and the disc-4 mirror, each parked as <name>.bak-<ts> first. All or "
+                          "nothing: any other file there (a hand edit, another verb's, another placement's) refuses "
+                          "R1 and nothing is removed. Other stacked folders are never touched. To redeploy at the "
+                          "same cells: --remove, then the ordinary run. With --dry-run it only lists")
     wrv.set_defaults(func=_cmd_world_river)
 
     wdn = sub.add_parser("world-donors",

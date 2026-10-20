@@ -66,7 +66,22 @@ as every other world verb, then mirrors them to disc 4. It refuses rather than
 overwrite, and names the gate: `T0`/`T1` (the placement), `B1` (a target cell is
 not open ocean, or a stacked folder already overrides it), `W1` (the water seam),
 and the geometry gates `J1`-`J4` and `G1`-`G6`. To place it somewhere else, deploy
-again at a new `--at`. To redeploy at the same spot, remove the earlier deploy first.
+again at a new `--at`.
+
+To take a river back out, or to redeploy it at the same spot, remove it first with
+the placement the deploy printed:
+
+```bash
+py -m ff9mapkit world-river --mod-folder FF9CustomMap-world --at 512,128 --remove
+```
+
+`--remove` deletes only files whose bytes the folder's deploy ledger says `world-river`
+wrote on those cells at that placement, on disc 1 and the disc-4 mirror. It parks each
+one beside itself as `<name>.bak-<time>` first. It is all or nothing. A hand edit,
+another verb's file, or another placement's file on those cells refuses `R1`, and
+nothing is removed. Cells that hold nothing refuse `R0`. Other folders in the stack
+are never touched, and the next deploy still refuses them. Add `--dry-run` to list
+what would go. Then run the ordinary command again to redeploy.
 
 v1 ships one river, `cluster-c`, the lowland river and its cove (`ff9mapkit
 world-donors --class river`). Its source ends in open lawn, and the verb warns and
