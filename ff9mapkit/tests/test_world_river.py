@@ -670,6 +670,267 @@ def test_render_reads_a_scratch_root_across_the_seam(tmp_path):
     assert p == tmp_path / "scratch" / "FF9_Data/WorldMap/Disc1/0_1/r3/Block[0][3] Terrain.ff9mesh"
 
 
+# ---- the verb: `world-river` --------------------------------------------------------------------------------------
+
+def test_block_shift_takes_whole_blocks_on_the_lattice():
+    assert R.block_shift((512.0, 128.0)) == (8, -2)                        # rung 4's in-game placement
+    assert R.block_shift((-1024.0, 0.0)) == (-16, 0)
+    with pytest.raises(R.RiverRefused, match=r"T0: a translation of \(513, 128\) leaves the 4u water lattice") as e:
+        R.block_shift((513.0, 128.0))
+    assert e.value.gate == "T0"
+    with pytest.raises(R.RiverRefused, match="T1: the write moves whole 64u blocks only") as e:
+        R.block_shift((516.0, 128.0))                                       # on the lattice, not a whole block
+    assert e.value.gate == "T1"
+
+
+def _game(tmp_path, monkeypatch, folders=()):
+    """A bare install root: Memoria.ini stacking ``folders``, nothing else; no deploy pin, no env folder."""
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+    monkeypatch.setattr(config, "_read_deploy_config", lambda start=None: {})
+    monkeypatch.delenv("FF9_MOD_FOLDER", raising=False)
+    if folders:
+        (tmp_path / "Memoria.ini").write_text("[Mod]\nFolderNames = " + ", ".join(f'"{f}"' for f in folders) + "\n",
+                                              encoding="utf-8")
+    return tmp_path
+
+
+def _override(game, folder, disc, x, y, part="Terrain"):
+    p = game / folder / f"FF9_Data/WorldMap/Disc{disc}/0_1/r{y}/Block[{x}][{y}] {part}.ff9mesh"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"F9WM")
+    return p
+
+
+def test_stack_occupancy_reads_the_target_and_every_stacked_folder(tmp_path, monkeypatch):
+    game = _game(tmp_path, monkeypatch, folders=("HIGH", "LOW"))
+    _override(game, "HIGH", 1, 23, 12)
+    _override(game, "LOW", 4, 0, 11, part="Sea4")
+    _override(game, "LOW", 1, 5, 5)                                          # not a target cell
+    _override(game, "MINE", 1, 0, 11, part="Donor").rename(game / "MINE/FF9_Data/WorldMap/Disc1/0_1/r11/Block[0][11] Donor.txt")
+    occ = R.stack_occupancy([(23, 12), (0, 11)], "MINE")
+    assert sorted(occ) == [("HIGH", 1), ("LOW", 4), ("MINE", 1)]          # the target is read though not stacked
+    assert sorted(R.stack_occupancy([(23, 12), (0, 11)], "MINE", discs=(1,))) == [("HIGH", 1), ("MINE", 1)]
+    assert R.stack_occupancy([(9, 9)], "MINE") == {}
+
+
+def test_auto_offset_takes_the_nearest_free_open_ocean(tmp_path, monkeypatch):
+    game = _game(tmp_path, monkeypatch, folders=("FF9CustomMap-world",))
+    monkeypatch.setattr(R, "mint", lambda ol: {"blocks": [(16, 14), (17, 15)]})
+    monkeypatch.setattr(R, "open_ocean_offsets", lambda blocks, **kw: [(8, 0), (8, -2)])
+    _override(game, "FF9CustomMap-world", 4, 1, 14)                         # (17, 14) shifted (8, 0), wrapped: the
+    assert R.auto_offset(None, "FF9CustomMap-world") == ((512.0, 128.0), [((8, 0), 1)])  # rectangle, not just blocks
+    assert R.auto_offset(None, "FF9CustomMap-world", discs=(1,)) == ((512.0, 0.0), [])   # disc 4 not required
+    _override(game, "FF9CustomMap-world", 1, 0, 12)
+    with pytest.raises(R.RiverRefused, match="B1: none of the 2 nearest open-ocean placements is free"):
+        R.auto_offset(None, "FF9CustomMap-world")
+
+
+def _w1(where=((24, 14, 3, 14),), **kw):
+    rep = {"ok": not where, "quads": 16, "after": {"seam": {"under": 0}, "contacts": {}},
+           "edges_introduced": len(where), "edges_introduced_where": list(where), "unpaintable": [],
+           "wang": {"incoherent": 0}}
+    rep.update(kw)
+    return rep
+
+
+def _staged(**kw):
+    rep = {"files": 132, "W1": _w1(), "B1": {"ok": True, "cells": 12, "fails": []},
+           "sea_plan": {"A_ok": True, "A_submerged_tris": 0, "B_ok": False, "C_ok": True, "C_overlap_frac": 0.0389,
+                        "status": "warn"}}
+    rep.update(kw)
+    return rep
+
+
+def test_write_verdict_accepts_the_cliff_corner_step_and_nothing_else():
+    from types import SimpleNamespace
+    comp = SimpleNamespace(offset=(512.0, 128.0))
+    assert R.write_verdict(_staged(), comp, R.CLUSTER_C) == []               # W1 red on the step only; B warns
+    assert R.write_verdict(_staged(), SimpleNamespace(offset=(512.0, 0.0)), R.CLUSTER_C)[0][0] == "W1"  # moved
+    assert R.write_verdict(_staged(W1=_w1(where=())), comp, R.CLUSTER_C) == []
+    stray = R.write_verdict(_staged(W1=_w1(where=((24, 14, 3, 14), (24, 15, 0, 0)))), comp, R.CLUSTER_C)
+    assert [g for g, _ in stray] == ["W1"] and "(24, 15, 0, 0)" in stray[0][1]
+    unlisted = _w1()
+    unlisted["edges_introduced"] = 9                                        # more than the report lists
+    assert [g for g, _ in R.write_verdict(_staged(W1=unlisted), comp, R.CLUSTER_C)] == ["W1"]
+    other = R.RiverDonor(name="other", blocks="0,0", window=((0, 0), (0, 0)), unit_blocks=(), joins=())
+    assert [g for g, _ in R.write_verdict(_staged(), comp, other)] == ["W1"]   # a step is understood per donor
+    under = _w1()
+    under["after"] = {"seam": {"under": 2}, "contacts": {"sea3|sea4": 1}}
+    assert [g for g, _ in R.write_verdict(_staged(W1=under), comp, R.CLUSTER_C)] == ["W1", "W1"]
+    sea = dict(_staged()["sea_plan"], A_ok=False, A_submerged_tris=3, C_ok=False, C_overlap_frac=0.4)
+    assert [g for g, _ in R.write_verdict(_staged(sea_plan=sea), comp, R.CLUSTER_C)] == ["sea_plan", "sea_plan"]
+    b1 = {"ok": False, "cells": 12, "fails": ["(0,11) Donor.txt does not divert to (16, 15)"]}
+    assert R.write_verdict(_staged(B1=b1), comp, R.CLUSTER_C)[0] == (
+        "B1", "the written bytes do not bind: (0,11) Donor.txt does not divert to (16, 15)")
+
+
+def test_promote_moves_exactly_the_staged_bytes_through_the_seam(tmp_path, monkeypatch):
+    """The stage (outside the install) lands in the mod folder through deploy_override / deploy_donor_sidecar:
+    every file byte for byte, one ledger row each; a file the writer does not write refuses P0 before any write."""
+    import json
+    game = _game(tmp_path / "game", monkeypatch)
+    monkeypatch.setattr(R.X, "block_parts", lambda **kw: {R.DIVERT_PREFAB: frozenset({"terrain", "sea4", "object"})})
+    stage = tmp_path / "stage"
+    staged = R.write({(25, 3): {"terrain": _full_cell_land((25, 3))}}, stage)
+    written = R.promote(stage, "FF9CustomMap-world")
+    assert len(written) == len(staged) == 4
+    for src in staged:
+        dst = game / "FF9CustomMap-world" / src.relative_to(stage)
+        assert dst.read_bytes() == src.read_bytes(), dst.name
+    ledger = [json.loads(s) for s in (game / "FF9CustomMap-world/.ff9world.jsonl").read_text("utf-8").splitlines()]
+    assert sorted(e["part"] for e in ledger) == ["Donor", "Object", "Sea4", "Terrain"]
+    assert {tuple(e["cell"]) for e in ledger} == {(1, 3)}                    # the wrapped label
+    scratch = tmp_path / "scratch" / "FF9CustomMap-river"                    # an absolute folder: outside any install
+    assert len(R.promote(stage, str(scratch))) == 4 and (scratch / ".ff9world.jsonl").is_file()
+    (stage / "notes.txt").write_text("x")
+    with pytest.raises(R.RiverRefused, match="P0: the stage holds a file the writer does not write"):
+        R.promote(stage, "Fresh")
+    assert not (game / "Fresh").exists()
+
+
+def _river_cli(tmp_path, monkeypatch, *, folders=("FF9CustomMap-world",), cells=((23, 12), (0, 11), (1, 11)),
+               gates=None, staged=None):
+    """The CLI with the river calls that read the install replaced by recorded-shape fakes (cluster C's numbers at
+    (8,-2)); the shift, the stack read, the verdict and the report stay real. Returns the call log."""
+    from types import SimpleNamespace
+    _game(tmp_path, monkeypatch, folders=folders)
+    calls = []
+    frag = SimpleNamespace(donor=R.CLUSTER_C, tris=[], report={"tris": 1546, "unit": 330, "cove": 1026, "coast": 141},
+                           boundary={"source": [((1128.5, 2.7, -914.9), (1128.9, 3.2, -917.9))], "lawn": []})
+    ol = SimpleNamespace(ring=[(0.0, 0.0)] * 138)
+    g = {"J": {"E": {"du": 2e-16, "dv": 4e-4, "slope": [78.21]}, "W": {"du": 2e-15, "dv": 4e-4, "slope": [72.04]}},
+         "zip": {"tris": 442, "max_edge": 6.66, "max_rise": 1.39, "fails": 0, "ok": True},
+         "G1": {"cracks": 0, "where": [], "ok": True}, "G3": {"near_miss": 0, "ok": True},
+         "G4": {"points": 10098, "by": {"same": 10098}, "ok": True}, "G4_kit": {"points": 3341, "miss": 0, "ok": True},
+         "G5": {"flipped": 0, "skipped_carried": 201, "ok": True}, "G6": {"river_points_moved": {}, "ok": True},
+         "B1": {"ok": True, "cells": len(cells), "fails": []}, "C1": {"ok": True, "max": 601, "fails": []}}
+    g.update(gates or {})
+
+    def compose(f, **kw):
+        calls.append(("compose", kw))
+        return R.Composition(offset=tuple(float(v) for v in kw["offset"]), tris=[], outline=ol,
+                             plan={"cells": {f"{x},{y}": {"divert": [16, 15]} for x, y in cells}},
+                             report={"gates": g, "area": {"area": 14, "source": "open-sea"}})
+
+    def write_composition(comp, root, **kw):
+        calls.append(("stage", root))
+        assert root.parent.is_dir()                                         # staged in a live temp folder
+        return staged or _staged()
+    monkeypatch.setattr(R, "read_window", lambda donor, game=None: calls.append(("read",)) or [])
+    monkeypatch.setattr(R, "build_fragment", lambda win, donor: frag)
+    monkeypatch.setattr(R, "outline", lambda f: ol)
+    monkeypatch.setattr(R, "compose", compose)
+    monkeypatch.setattr(R, "write_composition", write_composition)
+    monkeypatch.setattr(R, "promote", lambda stage, folder, **kw: calls.append(("promote", folder)) or [])
+    return calls
+
+
+def test_world_river_parses():
+    from ff9mapkit import cli
+    ns = cli.build_parser().parse_args(["world-river", "--at", "512,128"])
+    assert ns.func is cli._cmd_world_river
+    assert (ns.at, ns.donor, ns.mod_folder, ns.area, ns.apron, ns.dry_run, ns.skip_mirror) == (
+        "512,128", "cluster-c", None, None, True, False, False)              # the apron is the proven build's
+    ns = cli.build_parser().parse_args(["world-river", "--mod-folder", "W", "--at", "auto", "--no-apron",
+                                        "--dry-run", "--skip-mirror", "--area", "3", "--donor", "cluster-c"])
+    assert (ns.mod_folder, ns.at, ns.apron, ns.dry_run, ns.skip_mirror, ns.area) == ("W", "auto", False, True, True, 3)
+    assert cli.build_parser().parse_args(["world-river", "--at=-1024,0"]).at == "-1024,0"
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["world-river", "--mod-folder", "W"])  # --at is required
+    assert cli._parse_river_at("auto") is None and cli._parse_river_at(" AUTO ") is None
+    assert cli._parse_river_at("512,128") == (512.0, 128.0)
+    with pytest.raises(ValueError, match="--at wants DX,DZ"):
+        cli._parse_river_at("8,-2,0")
+
+
+def test_world_river_dry_run_reports_every_gate(tmp_path, monkeypatch, capsys):
+    from ff9mapkit import cli
+    calls = _river_cli(tmp_path, monkeypatch)
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "placement --at 512,128: block shift (8,-2), rotation 0, 3 cells (0,11) (1,11) (23,12)" in out
+    for row in ("J1-J4 joins", "zip", "G1 crack", "G3 weld audit", "G4 census", "G4 kit ground", "G5 skip parity",
+                "G6 water", "B1 binding", "B1 stack", "C1 budget", "B1 bytes"):
+        assert any(ln.startswith(f"    {row} ") and " green " in ln for ln in out.splitlines()), row
+    assert "W1 knit         understood" in out and "THE CLIFF-CORNER BAND STEP at [(24, 14, 3, 14)]" in out
+    assert "sea plan        warn" in out
+    assert "!! WARNING (decision 3): the river's SOURCE zips to lawn" in out and "`world-mountain` at (105, -788)" in out
+    assert "would deploy 132 files into FF9CustomMap-world (+ the disc-4 mirror). Nothing written." in out
+    assert [c[0] for c in calls] == ["read", "compose", "stage"]            # staged and audited, never promoted
+    kw = calls[1][1]
+    assert (kw["offset"], kw["apron"], kw["area"], kw["mod_folder"]) == ((512.0, 128.0), True, None,
+                                                                         "FF9CustomMap-world")
+    assert not calls[2][1].parent.exists()                                   # the stage is gone
+    assert not calls[2][1].is_relative_to(tmp_path)                          # and it never sat in the install
+
+
+def test_world_river_deploys_through_the_promotion(tmp_path, monkeypatch, capsys):
+    from ff9mapkit import cli
+    calls = _river_cli(tmp_path, monkeypatch)
+    monkeypatch.setenv("FF9_MOD_FOLDER", "FF9CustomMap-world")               # the env folder resolves
+    assert cli.main(["world-river", "--at", "512,128", "--no-apron"]) == 0
+    assert [c[0] for c in calls] == ["read", "compose", "stage", "promote"]
+    assert calls[1][1]["apron"] is False and calls[3][1] == "FF9CustomMap-world"
+    out = capsys.readouterr().out
+    assert "deployed 0 files into FF9CustomMap-world" in out and "COUPLED, not rebuilt" in out
+
+
+def test_world_river_refuses_off_the_lattice_before_reading(tmp_path, monkeypatch, capsys):
+    from ff9mapkit import cli
+    calls = _river_cli(tmp_path, monkeypatch)
+    for at, gate in (("513,128", "T0"), ("516,128", "T1")):
+        assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", at, "--dry-run"]) == 2
+        assert capsys.readouterr().err.startswith(f"world-river refused -- {gate}: ")
+    assert calls == []
+
+
+def test_world_river_refuses_an_occupied_cell(tmp_path, monkeypatch, capsys):
+    """THE STACK READ through the CLI: a lower folder's disc-4 override on a target cell refuses B1 before the stage
+    is written -- the composition's own B1 reads only the target folder's disc 1. --skip-mirror drops disc 4."""
+    from ff9mapkit import cli
+    calls = _river_cli(tmp_path, monkeypatch, folders=("FF9CustomMap-world", "OTHER"))
+    _override(tmp_path, "OTHER", 4, 0, 11, part="Sea4")
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128"]) == 2
+    cap = capsys.readouterr()
+    assert "world-river refused -- B1: the stack already overrides these cells" in cap.err
+    assert "OTHER disc 4 (1 file(s))" in cap.err and "    B1 stack        RED" in cap.out
+    assert [c[0] for c in calls] == ["read", "compose"]                     # nothing staged, nothing promoted
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--dry-run",
+                     "--skip-mirror"]) == 0
+    _override(tmp_path, "FF9CustomMap-world", 1, 23, 12)                     # the target itself, disc 1
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--skip-mirror"]) == 2
+    assert "FF9CustomMap-world disc 1: 1 file(s)" in capsys.readouterr().out
+
+
+def test_world_river_refuses_a_red_gate_by_name(tmp_path, monkeypatch, capsys):
+    from ff9mapkit import cli
+    calls = _river_cli(tmp_path, monkeypatch, gates={"G5": {"flipped": 177, "skipped_carried": 24, "ok": False,
+                                                           "where": [(1100.0, -950.0)]}})
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128"]) == 2
+    cap = capsys.readouterr()
+    assert "world-river refused -- G5: red at [(1100.0, -950.0)]" in cap.err and "G5 skip parity  RED" in cap.out
+    assert "stage" not in [c[0] for c in calls]
+    calls[:] = []
+    _river_cli(tmp_path, monkeypatch, staged=_staged(W1=_w1(where=((24, 14, 3, 15),))))
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128"]) == 2
+    cap = capsys.readouterr()
+    assert "world-river refused -- W1: 1 contradicting band edge(s) home lacks" in cap.err
+    assert "W1 knit         RED" in cap.out
+
+
+def test_world_river_needs_a_folder_and_a_river_donor(tmp_path, monkeypatch, capsys):
+    from ff9mapkit import cli
+    calls = _river_cli(tmp_path, monkeypatch)
+    assert cli.main(["world-river", "--at", "512,128", "--dry-run"]) == 2   # no flag, env or pin: no shared default
+    assert "It never falls back to the shared FF9CustomMap" in capsys.readouterr().err
+    monkeypatch.setattr(config, "_read_deploy_config", lambda start=None: {"mod_folder": "PINNED"})
+    assert cli.main(["world-river", "--at", "512,128", "--dry-run"]) == 0
+    assert calls[1][1]["mod_folder"] == "PINNED"
+    capsys.readouterr()
+    assert cli.main(["world-river", "--mod-folder", "W", "--donor", "cluster-d", "--at", "512,128"]) == 2
+    assert "'cluster-d' is not a river donor" in capsys.readouterr().err
+
+
 # ---- cluster C, on the user's install -----------------------------------------------------------------------------
 
 def _need_install() -> None:

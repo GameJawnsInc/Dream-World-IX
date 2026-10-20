@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-river`: carry a real river onto a new island in one command
+- `py -m ff9mapkit world-river --mod-folder FF9CustomMap-world --at 512,128` carries the lowland river, its bridge,
+  its cove and the island in the cove onto open ocean and grows a kit island round them. That placement is the one
+  played in game. `--at auto` finds the nearest open-ocean spot that no mod folder in the stack already overrides.
+- `--dry-run` runs every check, including the check of the written files: it writes the island to a temporary
+  folder outside the game, checks it there, prints the result and deletes the folder. A real run deploys exactly
+  those checked files, with the deploy ledger and backups, and mirrors them to disc 4. On the proven placement the
+  132 files are byte for byte the ones the in-game test used.
+- It refuses rather than overwrite, and names the check that failed: a placement off the 4u water grid or not a
+  whole map block, a map cell another mod folder already overrides on disc 1 or disc 4, or a failed geometry or
+  water check.
+- The river's source ends in open lawn, and the command warns and prints where.
+
 ### Changed — the river carry also refuses map cells another mod already overrides
 - The river carry's cell check now reads the mod folder as well as the original map. If another deploy already
   overrides a target cell, the check fails and names the files. Before, a cell counted as free whenever the original
