@@ -36,6 +36,10 @@ COVE = [
     "444444444411114444444444",   # 15
     "444444444444444444444444",   # 16
     "444444444444444444444444",   # 17
+    "444444444444444444444444",   # 18 open sea: room for the seam to keep two cells clear of the islet's shallows
+    "444444444444444444444444",   # 19
+    "444444444444444444444444",   # 20
+    "444444444444444444444444",   # 21
 ]
 TOPO = {"G": 0, "L": 58, "S": 31, "F": 36, "X": 49, "K": 62}
 PART = {"R": "stream", "B": "beach1", "1": "sea1", "2": "sea2", "3": "sea3", "4": "sea4", "5": "sea5"}
@@ -517,6 +521,135 @@ def test_open_ocean_offsets_find_free_water(monkeypatch):
     assert offs and all({((x + dx) % 24, y + dy) for x, y in blocks} <= free for dx, dy in offs)   # columns wrap
 
 
+# ---- rung 3: the written composition's pieces ---------------------------------------------------------------------
+
+def test_seaward_boundary_is_cell_aligned_and_shore_clear():
+    """THE CELL-ALIGNED SEAM: no seam edge splits a 4u cell (the cell-binned retile could not re-band the half).
+    THE SHORE-CLEAR SEAM: away from the joins the seam keeps two cells clear of the islet's shallow ring, where the
+    retile's shore scope would leave it un-knitted."""
+    f = R.build_fragment(grid_tris(COVE), DONOR)
+    S = f.seaward
+    assert all(min(abs(a[0] - b[0]), abs(a[2] - b[2])) < 1e-9 for a, b in zip(S, S[1:]))
+    ring = {(c, r) for r in (11, 12, 13, 14, 15) for c in (10, 11, 12, 13)}           # the islet + its sea1 ring
+    for p in S:
+        if min(math.hypot(p[0] - b[0], p[2] - b[2]) for b in (S[0], S[-1])) <= R.SEAM_JOIN_RELAX:
+            continue
+        ci, cj = math.floor(p[0] / 4.0 + 1e-9), math.floor(-p[2] / 4.0 + 1e-9)
+        assert all(abs(ci - c) >= 2 or abs(cj - r) >= 2 for c, r in ring), p
+
+
+def test_shore_clear_is_what_keeps_the_seam_off_the_ring(monkeypatch):
+    monkeypatch.setattr(R, "SEAM_SHORE_CLEAR", 0)
+    S = R.build_fragment(grid_tris(COVE), DONOR).seaward
+    assert max(p[2] for p in S if p[0] > 30.0 and p[0] < 66.0) > -68.0      # it hugs the ring again
+
+
+def _comp(tris):
+    return R.Composition(offset=(0.0, 0.0), tris=tris, outline=None, plan={})
+
+
+def _tri(part, pts, *, src="stock", tan=None, idall=0):
+    return {"part": part, "P": np.asarray(pts, dtype=float), "uv": np.zeros((3, 2)), "nrm": np.tile([0.0, 1.0, 0.0],
+            (3, 1)), "tan": tan, "idall": idall, "topo": 0, "src": src}
+
+
+def test_part_meshes_are_block_local_and_keep_carried_tangents():
+    stock = _tri("terrain", [[64 * 5 + 1.25, 2.0, -64 * 3 - 1.5], [64 * 5 + 5.25, 2.0, -64 * 3 - 1.5],
+                             [64 * 5 + 1.25, 2.0, -64 * 3 - 5.5]], tan=np.array([[7.0, 0.0, 0.0, 0.0]] * 3), idall=7)
+    kit = _tri("terrain", [[64 * 6 - 2.0, 3.0, -64 * 3 - 2.0], [64 * 6 + 2.0, 3.0, -64 * 3 - 2.0],
+                           [64 * 6 - 2.0, 3.0, -64 * 3 - 6.0]], src="kit", idall=9)
+    m = R.part_meshes(_comp([stock, kit]))
+    assert sorted(m) == [(5, 3), (6, 3)]                                    # the kit tri splits at the border
+    a = m[(5, 3)]["terrain"]
+    assert a.chan_arrays[R.X.CH_POS][0] == [1.25, 2.0, -1.5]               # block-local, the floats exact
+    assert a.chan_arrays[R.X.CH_TAN][0] == [7.0, 0.0, 0.0, 0.0]            # a carried tangent's y/z/w verbatim
+    assert m[(6, 3)]["terrain"].chan_arrays[R.X.CH_TAN][0] == [9.0, 0.0, 0.0, 1.0]   # a kit tri: the lane's own
+
+
+def test_sea_contacts_count_only_the_crop_pairs():
+    sea3 = _blk_part((0, 0), "sea3", [[[0, 0, 0], [4, 0, 0], [0, 0, -4]]])
+    sea4 = _blk_part((0, 0), "sea4", [[[4, 0, 0], [4, 0, -4], [0, 0, -4]]])
+    sea5 = _blk_part((0, 0), "sea5", [[[0, 0, 0], [0, 0, -4], [-4, 0, 0]]])
+    assert R.sea_contacts({(0, 0): {"sea3": sea3, "sea4": sea4, "sea5": sea5}}) == Counter({"sea3|sea4": 1})
+
+
+def _blk_part(blk, part, tris_local):
+    items = [(tuple((p[0] + 64.0 * blk[0], p[1], p[2] - 64.0 * blk[1], 0.0, 0.0, 0.0, 1.0, 0.0) for p in t), 0,
+              (0.0, 0.0, 1.0)) for t in tris_local]
+    return R._blockmesh(items, blk, part)
+
+
+def _plane_cell():
+    """One 4u sea cell, the NW-SE diagonal, block-local, as the (12,0) plane's cells are."""
+    return _blk_part((0, 0), "sea4", [[[0, 0, 0], [4, 0, 0], [4, 0, -4]], [[0, 0, 0], [4, 0, -4], [0, 0, -4]]])
+
+
+def test_kit_sea4_keeps_a_plane_tri_with_open_sea_inside_it():
+    """The E join's case: the kit's wall and the carried water cover all three corners of a plane tri but not its
+    middle -- the corner-only rule cut it and tore a hole in the sea; the covered-tri test keeps it."""
+    L_cover = _blk_part((0, 0), "terrain", [[[-1, 3, 1], [1, 3, 1], [1, 3, -5]],              # a strip x -1..1:
+                                            [[-1, 3, 1], [1, 3, -5], [-1, 3, -5]],            # (0, 0) and (0, -4)
+                                            [[3, 3, -3], [5, 3, -3], [5, 3, -5]],             # a patch: (4, -4)
+                                            [[3, 3, -5], [5, 3, -5], [3, 3, -3]]])
+    meshes = {(0, 0): {"terrain": L_cover}}
+    R.kit_sea4(meshes, plane=_plane_cell())
+    # the SW tri (0,0)-(4,-4)-(0,-4) has every corner under cover and open sea at its centroid: kept, as is the NE
+    # tri (its (4, 0) corner is open) -- the corner-only rule would have cut the SW one and torn a hole
+    assert len(meshes[(0, 0)]["sea4"].tris) == 2
+    full = _blk_part((0, 0), "terrain", [[[-1, 3, 1], [5, 3, 1], [5, 3, -5]], [[-1, 3, 1], [5, 3, -5], [-1, 3, -5]]])
+    meshes = {(0, 0): {"terrain": full}}
+    R.kit_sea4(meshes, plane=_plane_cell())
+    assert len(meshes[(0, 0)]["sea4"].tris) == 0                            # all under land: cut
+
+
+def test_knit_variants_take_each_tile_from_one_block_first_wins(monkeypatch):
+    dialects = {(1, 1): {("t", "r0"): {"a": 1}}, (2, 2): {("t", "r0"): {"a": 2}, ("t", "r90"): {"a": 3}}}
+    monkeypatch.setattr("ff9mapkit.world.rimretile.harvest_variants", lambda donors, **kw: dialects[donors[0]])
+    v, src = R.knit_variants([(1, 1), (2, 2)])
+    assert v == {("t", "r0"): {"a": 1}, ("t", "r90"): {"a": 3}} and src == {("t", "r0"): (1, 1), ("t", "r90"): (2, 2)}
+
+
+def test_write_refuses_the_install(tmp_path, monkeypatch):
+    monkeypatch.setattr("ff9mapkit.config.find_game_path", lambda game=None: tmp_path)
+    monkeypatch.setattr(R.X, "block_parts", lambda **kw: {R.DIVERT_PREFAB: frozenset({"terrain", "sea4"})})
+    with pytest.raises(R.RiverRefused, match="B0: .* is inside the game install"):
+        R.write({}, tmp_path / "FF9CustomMap-world")
+
+
+def _full_cell_land(blk):
+    return _blk_part(blk, "terrain", [[[0, 3, 0], [64, 3, 0], [64, 3, -64]], [[0, 3, 0], [64, 3, -64], [0, 3, -64]]])
+
+
+def test_write_and_read_back_b1(tmp_path, monkeypatch):
+    """A cell past the seam (unwrapped column 25) writes at its wrapped label 1: every prefab part (a blank where
+    nothing is carried), the divert, and the bytes audit clean; then each B1 break-it is caught by name."""
+    monkeypatch.setattr("ff9mapkit.config.find_game_path", lambda game=None: tmp_path / "game")
+    monkeypatch.setattr(R.X, "block_parts", lambda **kw: {R.DIVERT_PREFAB: frozenset({"terrain", "sea4", "object"})})
+    meshes = {(25, 3): {"terrain": _full_cell_land((25, 3))}}
+    root = tmp_path / "scratch"
+    written = R.write(meshes, root)
+    names = sorted(p.name for p in written)
+    assert names == ["Block[1][3] Donor.txt", "Block[1][3] Object.ff9mesh", "Block[1][3] Sea4.ff9mesh",
+                     "Block[1][3] Terrain.ff9mesh"]
+    au = R.audit_written(root, [(25, 3)], meshes=meshes)
+    assert au["ok"] and au["census"]["1,3"]["miss"] == 0, au
+    obj = root / "FF9_Data/WorldMap/Disc1/0_1/r3/Block[1][3] Object.ff9mesh"
+    obj.unlink()                                                            # a free-rider: the prefab's own Object
+    assert any("!= the prefab's parts" in m for m in R.audit_written(root, [(25, 3)])["fails"])
+    R.write(meshes, root)
+    (root / "FF9_Data/WorldMap/Disc1/0_1/r3/Block[1][3] Donor.txt").write_text("12,10")
+    assert any("does not divert" in m for m in R.audit_written(root, [(25, 3)])["fails"])
+
+
+def test_render_reads_a_scratch_root_across_the_seam(tmp_path):
+    from ff9mapkit.world import render as RD
+    site = RD.RenderSite(cells=RD.cells_around(1540.0, -200.0, radius=40.0), disc=1, game=tmp_path,
+                         mod_root=tmp_path / "scratch")
+    assert (24, 3) in site.cells and (23, 3) in site.cells                  # unwrapped columns kept
+    p = RD.live_path(site, 24, 3, "Terrain")
+    assert p == tmp_path / "scratch" / "FF9_Data/WorldMap/Disc1/0_1/r3/Block[0][3] Terrain.ff9mesh"
+
+
 # ---- cluster C, on the user's install -----------------------------------------------------------------------------
 
 def _need_install() -> None:
@@ -538,10 +671,10 @@ def test_cluster_c_fragment_holds_the_whole_island():
     f = R.fragment(R.CLUSTER_C)
     rep = f.report
     assert rep["islands"] == [{"tris": 85, "at": [1087.5, -1054.8]}] and rep["tethered"] == 1
-    assert (rep["tris"], rep["unit"], rep["cove"], rep["coast"], rep["notches"]) == (1547, 330, 1027, 141, 12)
-    assert rep["boundary_len"] == {"lawn": 607.4, "water": 146.0, "join": 6.6, "source": 5.7}
+    assert (rep["tris"], rep["unit"], rep["cove"], rep["coast"], rep["notches"]) == (1546, 330, 1026, 141, 12)
+    assert rep["boundary_len"] == {"lawn": 607.4, "water": 170.4, "join": 6.6, "source": 5.7}
     assert rep["F1"] == {"forest": 0, "rock": 0, "object": 1, "building": 0, "beach": 3, "islands": 1}
-    assert rep["F2"] == {"water_edges": 34} and rep["seaward_len"] == 146.03
+    assert rep["F2"] == {"water_edges": 43} and rep["seaward_len"] == 170.38
     assert f.joins["W"][1] == (1040.0, 0.0, f.joins["W"][1][2]) and abs(f.joins["W"][1][2] + 1083.34) < 0.01
     assert rep["parts"]["object"] == 40 and rep["parts"]["stream"] == 90 and rep["parts"]["riverjoint"] == 11
 
@@ -556,7 +689,7 @@ def test_cluster_c_outline_mints_with_both_joins_exact():
     f = R.fragment(R.CLUSTER_C)
     ol = R.outline(f)
     rep = ol.report
-    assert (rep["first"], rep["last"], rep["arc_points"], rep["ring_points"]) == ("E", "W", 96, 129)
+    assert (rep["first"], rep["last"], rep["arc_points"], rep["ring_points"]) == ("E", "W", 96, 138)
     assert rep["seg_max"] <= 8.0 and rep["arc_to_land_min"] > 8.0 and rep["stub"] == {"E": 6.0, "W": 3.601}
     built = R.mint(ol)
     j = R.join_gates(built, ol, f.joins)
@@ -599,10 +732,10 @@ def test_cluster_c_composes_green_on_open_ocean(cluster_c):
     comp = R.compose(f, offset=(512.0, 0.0), window=win, ol=ol)
     rep, g = comp.report, comp.report["gates"]
     assert rep["green"] and _red(comp) == []
-    assert rep["opening"] == {"kit_tris": 3310, "dropped": 1673, "dropped_fams": {"main": 1605, "rock": 68},
-                              "kept": 1637}
+    assert rep["opening"] == {"kit_tris": 3329, "dropped": 1690, "dropped_fams": {"main": 1604, "rock": 86},
+                              "kept": 1639}
     assert (g["zip"]["tris"], g["zip"]["max_edge"], g["zip"]["max_rise"]) == (442, 6.66, 1.39)
-    assert g["G4"]["by"] == {"same": 10124} and (g["G4_kit"]["points"], g["G4_kit"]["miss"]) == (3342, 0)
+    assert g["G4"]["by"] == {"same": 10098} and (g["G4_kit"]["points"], g["G4_kit"]["miss"]) == (3341, 0)
     assert (g["G1"]["cracks"], g["G3"]["near_miss"], g["G5"]["flipped"]) == (0, 0, 0)
     assert g["G5"]["skipped_carried"] == 201 and g["B1"]["cells"] == 12
     cells = comp.plan["cells"]
@@ -633,3 +766,27 @@ def test_cluster_c_break_its(cluster_c, monkeypatch):
         mp.setattr(R, "_refine_zip", lambda tris, max_edge, rise=R.ZIP_RISE: (list(tris)[1:], 0))
         comp = R.compose(f, offset=(512.0, 0.0), window=win, ol=ol)
     assert "G1" in _red(comp) and comp.report["gates"]["G1"]["cracks"] >= 2
+
+
+
+def test_cluster_c_writes_and_reads_back(cluster_c, tmp_path):
+    """Rung 3's acceptance (PLAN.md): cluster C written to a scratch folder outside the install. B1 on the bytes:
+    every cell diverts to (16,15) with every prefab part, the files round-trip, and the engine's census over the
+    WRITTEN stacks misses nowhere home grounds (98 samples miss at home too: the skipped banks). W1 after THE KNIT:
+    no tile facing deep without its transition, no crop-made sea pair at any tri edge, the frame coherent, nothing
+    unpaintable -- and one contradicting edge home lacks, at the W join's corner (THE CLIFF-CORNER BAND STEP: the
+    carried cliff's sea3 against the kit cliff's sea4, the step home itself ships at cluster C's E headland)."""
+    win, f, ol = cluster_c
+    comp = R.compose(f, offset=(512.0, 0.0), window=win, ol=ol)
+    own = Counter(t["blk"] for t in f.tris if t["part"] == "sea5")
+    (bx0, bx1), (by0, by1) = R.CLUSTER_C.window
+    donors = [b for b, _ in own.most_common()] + [(x, y) for x in range(bx0, bx1 + 1) for y in range(by0, by1 + 1)]
+    rep = R.write_composition(comp, tmp_path / "river_mod", window=win, donors=donors)
+    b1, w1 = rep["B1"], rep["W1"]
+    assert rep["files"] == 132 and b1["ok"] and b1["cells"] == 12
+    assert sum(c["home_miss"] for c in b1["census"].values()) == 98
+    assert w1["after"]["seam"]["under"] == 0 and w1["after"]["contacts"] == {} and w1["wang"]["incoherent"] == 0
+    assert w1["unpaintable"] == [] and w1["home"]["edges"] == 2
+    assert w1["edges_introduced"] == 1 and w1["edges_introduced_where"] == [(24, 16, 3, 14)]
+    sp = rep["sea_plan"]
+    assert sp["A_ok"] and sp["C_ok"] and sp["status"] == "warn"            # B: the island's interior blocks

@@ -69,3 +69,14 @@ Engine-faithful offline stills (UNLIT, NEAREST, alpha-0=white) from derived
 cameras: one top-down, four ~60° close views, four low waterline grazes, one
 overview. A clean render is a regression harness, not an oracle — the blind-spot
 ledger prints with every run.
+
+To render a build that never went into the game, point `--mod-root` at its
+folder (laid out like a mod folder, `FF9_Data/WorldMap/...`), and add `--stock`
+to fill in the real map around it:
+
+```bash
+py -m ff9mapkit world-render --mod-root path/to/build --around 1586,-955 --disc 1 --stock
+```
+
+A site across the world's seam (the edge between columns 23 and 0) renders whole:
+give `--around` a point past x 1536 and the columns beyond wrap to the right files.

@@ -48,6 +48,16 @@ CHANNEL_TOPOS = frozenset((62, 48, 50, 51))               # the banks + the Terr
 LIP, SAND = 58, 31
 FOREST, ROCK, BUILDING = frozenset((36, 37)), frozenset((49, 7)), frozenset((59,))
 JOIN_TOL = 0.05                                           # a donor join point -> its stock vertex
+#: THE CELL-ALIGNED SEAM (rung 3): the seaward boundary runs along lattice edges wherever it can. A diagonal splits a
+#: 4u water cell between the carried band and the kit's Sea4 -- a shallow|deep contact INSIDE one cell, which the
+#: cell-binned rim retile (rimretile.plan_rim) can neither see nor re-band. Measured on cluster C: 10 of 34 edges.
+SEAM_DIAGONAL_COST = 100.0
+#: THE SHORE-CLEAR SEAM (rung 3): the rim retile re-bands a seam cell only AWAY from shore (rimretile.plan_rim's shore
+#: scope: no shallow, beach or land in its 3x3), so the boundary keeps this many 4u cells clear of every shore except
+#: within SEAM_JOIN_RELAX of a join base (on the coast by definition). Measured on cluster C: hugging the island's
+#: shallow ring, 9 sea3|sea4 contacts survived the knit.
+SEAM_SHORE_CLEAR = 2
+SEAM_JOIN_RELAX = 12.0
 
 
 @dataclass(frozen=True)
@@ -357,18 +367,44 @@ def _tether(M: _Mesh, island, mouth):
     return None
 
 
-def seaward_boundary(M: _Mesh, w_base, e_base, forbidden=frozenset()):
+def _shore_cells(M: _Mesh, island) -> set:
+    """The 4u cells of an island and its shallow ring: every non-deep tri (land, beach, sea1/sea2) joined to the
+    island through non-deep tris."""
+    seen, stack = set(island), list(island)
+    while stack:
+        i = stack.pop()
+        for k in M.keys[i]:
+            for j in M.by_vert[k]:
+                if j not in seen and M.tris[j]["part"] not in DEEP and M.tris[j]["part"] not in RIVER_PARTS:
+                    seen.add(j)
+                    stack.append(j)
+    return {(math.floor(c[0] / 4.0), math.floor(c[2] / 4.0)) for i in seen for c in [M.tris[i]["P"].mean(axis=0)]}
+
+
+def seaward_boundary(M: _Mesh, w_base, e_base, forbidden=frozenset(), shore=frozenset()):
     """THE SEAWARD BOUNDARY: the cheapest vertex path W base -> E base along edges with exactly two tris, both deep,
-    through vertices every tri of which is deep (the bases excepted) and none ``forbidden`` (the tethers). F2 refuses
-    when no such route exists -- the mouth is barred by shallows."""
+    through vertices every tri of which is deep (the bases excepted) and none ``forbidden`` (the tethers); a diagonal
+    edge costs :data:`SEAM_DIAGONAL_COST` more (THE CELL-ALIGNED SEAM), and every vertex keeps :data:`SEAM_SHORE_CLEAR`
+    cells clear of the ``shore`` cells away from the joins (THE SHORE-CLEAR SEAM) -- the shores the COMPOSED island
+    will have there: the bay's islands and their shallow rings, never home's land beyond the cove, which the kit's
+    deep sheet replaces. F2 refuses when no such route exists. Returns ``(path, plan length)``."""
+    def shore_clear(k):
+        if min(math.hypot(k[0] - b[0], k[2] - b[2]) for b in (w_base, e_base)) <= SEAM_JOIN_RELAX:
+            return True
+        ci, cj = math.floor(k[0] / 4.0 + 1e-9), math.floor(k[2] / 4.0 + 1e-9)
+        r = SEAM_SHORE_CLEAR
+        return not any((ci + a, cj + b) in shore for a in range(-r, r) for b in range(-r, r))
+
     def ok_vert(k):
         if k in (w_base, e_base):
             return True
-        return k not in forbidden and all(M.tris[j]["part"] in DEEP for j in M.by_vert[k])
+        return k not in forbidden and all(M.tris[j]["part"] in DEEP for j in M.by_vert[k]) and shore_clear(k)
     nbr = defaultdict(list)
     for e, ts in M.by_edge.items():
         if len(ts) == 2 and all(M.tris[j]["part"] in DEEP for j in ts) and ok_vert(e[0]) and ok_vert(e[1]):
             L = math.hypot(e[0][0] - e[1][0], e[0][2] - e[1][2])
+            if abs(e[0][0] - e[1][0]) > 1e-6 and abs(e[0][2] - e[1][2]) > 1e-6:
+                L += SEAM_DIAGONAL_COST                  # THE CELL-ALIGNED SEAM: a diagonal splits a 4u cell
             nbr[e[0]].append((e[1], L))
             nbr[e[1]].append((e[0], L))
     dist, prev, pq = {w_base: 0.0}, {}, [(0.0, w_base)]
@@ -380,7 +416,8 @@ def seaward_boundary(M: _Mesh, w_base, e_base, forbidden=frozenset()):
             path = [k]
             while path[-1] in prev:
                 path.append(prev[path[-1]])
-            return path[::-1], d
+            path = path[::-1]
+            return path, sum(math.hypot(a[0] - b[0], a[2] - b[2]) for a, b in zip(path, path[1:]))
         for n, L in nbr[k]:
             if d + L < dist.get(n, math.inf):
                 dist[n], prev[n] = d + L, k
@@ -542,7 +579,7 @@ def build_fragment(tris, donor: RiverDonor) -> Fragment:
     def side(x, z):
         return (bx - ax) * (z - az) - (bz - az) * (x - ax)
     s_mouth = side(mx, mz)
-    forbidden, tethered = set(), 0
+    forbidden, tethered, shore = set(), 0, set()
     for g in islands.values():
         in_bay = any(side(k[0], k[2]) * s_mouth > 0 and 0 < ((k[0] - ax) * (bx - ax) + (k[2] - az) * (bz - az)) < cl2
                      for i in g for k in M.keys[i])
@@ -552,7 +589,8 @@ def build_fragment(tris, donor: RiverDonor) -> Fragment:
         if corridor:
             forbidden.update(k for i in corridor for k in M.keys[i])
             tethered += 1
-    path, path_len = seaward_boundary(M, w_base, e_base, frozenset(forbidden))
+        shore |= _shore_cells(M, g)
+    path, path_len = seaward_boundary(M, w_base, e_base, frozenset(forbidden), frozenset(shore))
     cut = {_ek(a, b) for a, b in zip(path, path[1:])}
 
     cove = cove_flood(M, mouth, cut)
@@ -1155,6 +1193,7 @@ class Composition:
     outline: Outline
     plan: dict
     report: dict = field(default_factory=dict)
+    footprint: list = field(default_factory=list)
 
 
 def translate(frag: Fragment, offset) -> Fragment:
@@ -1621,7 +1660,7 @@ def compose(frag: Fragment, *, offset=(0.0, 0.0), window=None, ol: Outline | Non
               "zip": {"hole_arc": len(H), "land_arc": len(Rr), "tris": len(zips), "splits": zip_splits},
               "tris": dict(Counter(t["src"] for t in tris)), "gates": gates,
               "green": all(g.get("ok") is not False for k, g in gates.items() if isinstance(g, dict) and k != "J")}
-    return Composition(offset=(dx, dz), tris=tris, outline=tol_, plan=plan, report=report)
+    return Composition(offset=(dx, dz), tris=tris, outline=tol_, plan=plan, report=report, footprint=poly)
 
 
 def binding_plan(tris, *, disc: int = 1, game=None, mod_folder=None) -> dict:
@@ -1665,3 +1704,362 @@ def binding_plan(tris, *, disc: int = 1, game=None, mod_folder=None) -> dict:
             "B1": {"ok": not b1, "fails": b1[:12], "cells": len(cells)},
             "C1": {"ok": not c1, "fails": c1[:12], "max": max((n for c in per.values() for n in c.values()),
                                                                 default=0)}}
+
+
+# ==== rung 3: the composition written (a scratch folder, never the install) ========================================
+#
+# The composed tris become per-block part meshes (block-local, every carried byte verbatim bar the stamp), the island
+# lane's deep Sea4 sheet is cut out under the island AND the fragment (THE SEA4-UNDER-LAND LAW, conservative: a plane
+# tri drops only when all three corners lie under them), and THE KNIT re-bands the seaward seam with the rim retile
+# (rimretile: carry the tiles, do not author them) until the seam is a series of Wang tiles. The blocks keep their
+# UNWRAPPED keys until the write: the retile steps neighbours linearly, and the only open water this footprint fits
+# spans the world seam. Then everything is written under a root OUTSIDE the install, and audited from the bytes.
+
+SEA_PARTS_ALL = ("sea1", "sea2", "sea3", "sea4", "sea5", "beach1")
+#: the crop-made sea pairs stock authors nowhere (transplant.sea_adjacent_lawful; the deep system's sea3|sea4)
+UNLAWFUL_SEA = frozenset({frozenset(p) for p in (("sea3", "sea4"), ("sea1", "sea4"), ("sea2", "sea4"),
+                                                ("sea2", "sea5"))})
+
+
+def _blockmesh(items, blk, part, *, disc: int = 1, lod: str = "0_1"):
+    """``[(corners8, idall, tan_yzw)]`` world-frame -> a block-local BlockMesh, unindexed (the kit's writer shape)."""
+    bx, by = blk
+    pos, nrm, uv, tan, flat, tris = [], [], [], [], [], []
+    for corners, idall, yzw in items:
+        base = len(pos)
+        for c in corners:
+            pos.append([c[0] - BLOCK_U * bx, c[1], c[2] + BLOCK_U * by])
+            uv.append([c[3], c[4]])
+            nrm.append([c[5], c[6], c[7]])
+            tan.append([float(idall), *yzw])
+            flat.append(len(pos) - 1)
+        tris.append([base, base + 1, base + 2])
+    return X.BlockMesh(name=f"Block[{bx}][{by}] {PART_NAME[part]}", disc=disc, x=bx, y=by, lod=lod,
+                       vcount=len(pos), stride=48,
+                       channels={X.CH_POS: (0, 3), X.CH_NRM: (12, 3), X.CH_UV: (24, 2), X.CH_TAN: (32, 4)},
+                       chan_arrays={X.CH_POS: pos, X.CH_NRM: nrm, X.CH_UV: uv, X.CH_TAN: tan},
+                       flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
+BLOCK_U = 64.0
+
+
+def part_meshes(comp: Composition, *, disc: int = 1, lod: str = "0_1") -> dict:
+    """``{(bx, by): {part: BlockMesh}}`` -- the composition split at the 64u borders (every corner channel lerped:
+    ``interior.split_borders8``), block-local, keyed by UNWRAPPED block. A carried tri keeps its tangent's y/z/w; a
+    kit or zip tri writes the island lane's (0, 0, 1)."""
+    from .interior import split_borders8
+    per = defaultdict(lambda: defaultdict(list))
+    for part in sorted({t["part"] for t in comp.tris}):
+        parents = []
+        for t in comp.tris:
+            if t["part"] != part:
+                continue
+            uv = t["uv"] if t["uv"] is not None else np.zeros((3, 2))
+            nr = t["nrm"] if t["nrm"] is not None else np.tile([0.0, 1.0, 0.0], (3, 1))
+            yzw = tuple(float(v) for v in t["tan"][0][1:]) if t.get("tan") is not None else (0.0, 0.0, 1.0)
+            parents.append((tuple((*map(float, t["P"][k]), *map(float, uv[k]), *map(float, nr[k])) for k in range(3)),
+                            int(t["idall"]), yzw))
+        for blk, items in split_borders8(parents).items():
+            per[blk][part].extend(items)
+    return {blk: {p: _blockmesh(items, blk, p, disc=disc, lod=lod) for p, items in parts.items()}
+            for blk, parts in sorted(per.items())}
+
+
+def _empty_part(blk, part, *, disc: int = 1, lod: str = "0_1"):
+    return _blockmesh([], blk, part, disc=disc, lod=lod)
+
+
+def _concat(blk, part, meshes, *, disc: int = 1, lod: str = "0_1"):
+    pos, nrm, uv, tan, flat, tris = [], [], [], [], [], []
+    for bm in meshes:
+        if bm is None:
+            continue
+        for tri in bm.tris:
+            base = len(pos)
+            for k in tri:
+                pos.append(list(bm.chan_arrays[X.CH_POS][k]))
+                nrm.append(list(bm.chan_arrays[X.CH_NRM][k]))
+                uv.append(list(bm.chan_arrays[X.CH_UV][k]))
+                tan.append(list(bm.chan_arrays[X.CH_TAN][k]))
+                flat.append(len(pos) - 1)
+            tris.append([base, base + 1, base + 2])
+    bx, by = blk
+    return X.BlockMesh(name=f"Block[{bx}][{by}] {PART_NAME[part]}", disc=disc, x=bx, y=by, lod=lod,
+                       vcount=len(pos), stride=48,
+                       channels={X.CH_POS: (0, 3), X.CH_NRM: (12, 3), X.CH_UV: (24, 2), X.CH_TAN: (32, 4)},
+                       chan_arrays={X.CH_POS: pos, X.CH_NRM: nrm, X.CH_UV: uv, X.CH_TAN: tan},
+                       flat_index=flat, tris=tris, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
+
+
+def _sub_mesh(bm, tris):
+    import dataclasses as _dc
+    return _dc.replace(bm, tris=[list(t) for t in tris])
+
+
+def kit_sea4(meshes: dict, *, disc: int = 1, game=None, lod: str = "0_1", plane=None) -> dict:
+    """The island lane's deep sheet (the (12,0) plane, hole-patched) on every block, CUT under everything the
+    composition puts there -- the island's land and the fragment's own water and beach -- by THE SEA4-UNDER-LAND
+    LAW's conservative rule (under, everywhere sampled), then joined by the fragment's own carried Sea4. Returns the
+    per-block cut counts."""
+    from .island import _sea_plane, _xz_tri_cover, _xz_inside
+    plane = _sea_plane(disc, game) if plane is None else plane
+    out = {}
+    for blk, parts in meshes.items():
+        under = _concat(blk, "terrain", [bm for p, bm in parts.items()], disc=disc, lod=lod)
+        cover = _xz_tri_cover(under)
+        P = plane.chan_arrays[X.CH_POS]
+        keep = []
+        for tri in plane.tris:
+            a, b, c = ((P[k][0], P[k][2]) for k in tri)
+            # THE COVERED-TRI TEST: the island lane drops a plane tri when its three corners lie under land, which
+            # holds while the cover is convex across the cell. At a join it is not -- the kit's wall and the carried
+            # water meet there round a sliver of open sea -- so the corners AND four interior points must be under
+            pts = [a, b, c] + [((wa * a[0] + wb * b[0] + wc * c[0]), (wa * a[1] + wb * b[1] + wc * c[1]))
+                               for wa, wb, wc in ((1 / 3, 1 / 3, 1 / 3), (0.6, 0.2, 0.2), (0.2, 0.6, 0.2),
+                                                  (0.2, 0.2, 0.6))]
+            if not all(_xz_inside(cover, x, z) for x, z in pts):
+                keep.append(tri)
+        cut = _concat(blk, "sea4", [_sub_mesh(plane, keep)], disc=disc, lod=lod)
+        out[blk] = {"plane": len(plane.tris), "kept": len(cut.tris), "carried": len(parts["sea4"].tris)
+                    if "sea4" in parts else 0}
+        parts["sea4"] = _concat(blk, "sea4", [cut, parts.get("sea4")], disc=disc, lod=lod)
+    return out
+
+
+def sea_contacts(meshes: dict) -> Counter:
+    """Unlawful sea-band contacts (:data:`UNLAWFUL_SEA`) by shared tri EDGE, across parts and blocks -- finer than
+    a 4u-cell shade grid, which cannot see a contact inside one cell."""
+    owner = defaultdict(set)
+    for (bx, by), parts in meshes.items():
+        for p, bm in parts.items():
+            if p not in SEA_PARTS_ALL or bm is None:
+                continue
+            V = bm.chan_arrays[X.CH_POS]
+            for tri in bm.tris:
+                P = [(V[k][0] + BLOCK_U * bx, V[k][1], V[k][2] - BLOCK_U * by) for k in tri]
+                if all(q[1] < -50.0 for q in P):
+                    continue                             # a hidden blank
+                for a, b in ((0, 1), (1, 2), (2, 0)):
+                    owner[_ek(kk3(P[a]), kk3(P[b]))].add(p)
+    out = Counter()
+    for e, ps in owner.items():
+        for a in ps:
+            for b in ps:
+                if a < b and frozenset((a, b)) in UNLAWFUL_SEA:
+                    out[f"{a}|{b}"] += 1
+    return out
+
+
+def knit_variants(donors, *, disc: int = 1, game=None):
+    """The knit's tile vocabulary: :func:`rimretile.harvest_variants` block by block, FIRST WINS, in ``donors``
+    order (put the carried cove's own blocks first). Pooled, it is empty on cluster C's window: stock writes the
+    same Wang tile in two dialects across blocks (a wrap corner at u 0.0 at (13,15), 0.0317 at (13,14)), and the
+    harvest drops a variant whose instances disagree. Per block every instance agrees, so first-wins keeps each
+    tile verbatim from ONE stock block -- the cove's own where it has one. Returns ``(variants, {key: block})``."""
+    from . import rimretile as RT
+    variants, source = {}, {}
+    for blk in donors:
+        for k, m in RT.harvest_variants([tuple(blk)], disc=disc, game=game).items():
+            if k not in variants:
+                variants[k], source[k] = m, tuple(blk)
+    return variants, source
+
+
+def _home_cells(blocks, shift, *, disc: int = 1, game=None) -> dict:
+    """Home's own sea bands at the composition's blocks (``shift`` = the whole-block translation): the knit's
+    baseline -- stock is not perfect either (cluster C's cove: one under tile, two contradicting edges)."""
+    from . import mesh as M_
+    bp = X.block_parts(disc=disc, game=game)
+    out = {}
+    for (bx, by) in blocks:
+        d = (M_.wrap_block_col(bx - shift[0]), by - shift[1])
+        parts = {p: X.read_block(*d, disc=disc, part=p, game=game) for p in SEA_PARTS_ALL if p in bp.get(d, ())}
+        for p in ("sea3", "sea4", "sea5"):
+            parts.setdefault(p, _empty_part(d, p, disc=disc))
+        out[(bx, by)] = parts                          # keyed like the composition: the same relative cells
+    return out
+
+
+def knit(meshes: dict, *, donors, disc: int = 1, game=None, lod: str = "0_1", max_passes: int = 6,
+         home_shift=None) -> dict:
+    """THE KNIT: the rim retile run on the composition's sea bands in memory (unwrapped keys), iterated to its fixed
+    point, then W1 -- the retile's own audits (no tile facing deep without its transition, no two tiles
+    contradicting across an edge, no unpaintable sliver) plus the tri-level contact census. Mutates ``meshes``."""
+    from . import rimretile as RT
+    cells = {}
+    for blk, parts in meshes.items():
+        for p in ("sea3", "sea4", "sea5"):                # apply_rim rebuilds only the bands a block already has
+            parts.setdefault(p, _empty_part(blk, p, disc=disc, lod=lod))
+        cells[blk] = {p: parts[p] for p in SEA_PARTS_ALL if p in parts}
+    variants, source = knit_variants(donors, disc=disc, game=game)
+    if not variants:
+        raise RiverRefused("W1", "no sea5 termination tile could be harvested from the donors")
+    before = {"seam": RT.seam_report(cells), "edges": len(RT.edge_disagreements(cells)),
+              "contacts": dict(sea_contacts(cells))}
+    passes = []
+    for k in range(max_passes):
+        plan = RT.plan_rim(cells)
+        miss = RT.uncovered(plan, variants)
+        if miss:
+            raise RiverRefused("W1", f"deep-set(s) {miss} have no verbatim donor tile (synthesizing one is what "
+                               "produced the checkerboard)",
+                               [(64 * b[0] + 4 * i + 2, -64 * b[1] - 4 * j - 2) for b, cs in plan.items()
+                                for (i, j), (_p, ds) in cs.items() if "".join(sorted(ds)) in miss])
+        post, n = RT.apply_rim(cells, plan, variants, disc=disc, lod=lod)
+        if not RT.repartition_ok(cells, post):
+            raise RiverRefused("W1", "the knit changed geometry: not a pure re-shade")
+        passes.append(n)
+        after = {c: dict(cells[c], **post.get(c, {})) for c in cells}
+        fixed = RT.seam_report(after) == RT.seam_report(cells)
+        cells = after
+        if not n or (fixed and k) or (len(passes) >= 2 and passes[-1] == passes[-2]):
+            break
+    for blk, parts in cells.items():
+        meshes[blk].update(parts)
+    seam = RT.seam_report(cells)
+    edges = RT.edge_disagreements(cells)
+    slivers = RT.unpaintable_slivers(cells)
+    contacts = sea_contacts(meshes)
+    from .transplant import wang_carry_gate
+    wang = wang_carry_gate(cells, list(cells), enforce=True)
+    rep = {"variants": len(variants), "variant_blocks": sorted({tuple(b) for b in source.values()}),
+           "passes": passes, "quads": sum(passes), "before": before,
+           "after": {"seam": seam, "edges": len(edges), "contacts": dict(contacts)},
+           "edges_where": [e[0] for e in edges[:8]], "unpaintable": slivers[:8],
+           "wang": {k: wang[k] for k in ("incoherent", "incoherent_deep", "incoherent_shallow", "detail")}}
+    home_edges = set()
+    if home_shift is not None:
+        hc = _home_cells(list(cells), home_shift, disc=disc, game=game)
+        home_edges = {(e[0], e[1]) for e in RT.edge_disagreements(hc)}
+        rep["home"] = {"seam": RT.seam_report(hc), "edges": len(home_edges), "contacts": dict(sea_contacts(hc))}
+    new_edges = [e for e in edges if (e[0], e[1]) not in home_edges]
+    rep["edges_introduced"] = len(new_edges)
+    rep["edges_introduced_where"] = [e[0] for e in new_edges[:8]]
+    # W1: no tile faces deep without its transition, no unpaintable sliver, no crop-made sea pair at any tri edge,
+    # the frame coherent, and no contradicting edge home does not have itself
+    rep["ok"] = (seam["under"] == 0 and not slivers and not contacts and wang["incoherent"] == 0 and not new_edges)
+    return rep
+
+
+def write(meshes: dict, root, *, disc: int = 1, lod: str = "0_1", game=None) -> list:
+    """Every block's files under ``root`` (a folder laid out as a mod folder: ``FF9_Data/WorldMap/...``), at its
+    WRAPPED label: each emitted part, a hidden blank for every other part the divert prefab carries (else its own
+    would free-ride), and the ``Donor.txt`` divert. ``root`` must lie OUTSIDE the game install -- this rung never
+    writes there."""
+    import dataclasses as _dc
+    from pathlib import Path
+    from .. import config
+    from . import mesh as M_
+    root = Path(root).resolve()
+    try:
+        gp = Path(config.find_game_path(game)).resolve()
+    except Exception:                                    # noqa: BLE001 -- no install: nothing to protect
+        gp = None
+    if gp is not None and (root == gp or gp in root.parents):
+        raise RiverRefused("B0", f"{root} is inside the game install: rung 3 writes only to a scratch folder")
+    host = set(X.block_parts(disc=disc, game=game).get(DIVERT_PREFAB, ()))
+    written = []
+    for (bx, by), parts in sorted(meshes.items()):
+        wbx = M_.wrap_block_col(bx)
+        for p in sorted(host | {"terrain", "sea4"}):
+            bm = parts.get(p)
+            name = f"Block[{wbx}][{by}] {PART_NAME[p]}"
+            if bm is None or not bm.tris:
+                bm = M_.hidden_block_mesh(name=name, disc=disc, x=wbx, y=by, lod=lod)
+            else:
+                bm = _dc.replace(bm, x=wbx, y=by, name=name)
+            path = root / M_.override_relpath(disc, wbx, by, lod, PART_NAME[p])
+            path.parent.mkdir(parents=True, exist_ok=True)
+            M_.write_ff9mesh(bm, path)
+            written.append(path)
+        dt = root / M_.donor_sidecar_relpath(disc, wbx, by, lod)
+        dt.write_bytes(f"{DIVERT_PREFAB[0]},{DIVERT_PREFAB[1]}".encode("utf-8"))
+        written.append(dt)
+    return written
+
+
+def audit_written(root, blocks, *, disc: int = 1, lod: str = "0_1", game=None, meshes=None, home=None) -> dict:
+    """B1 ON THE BYTES, read back from ``root``: every cell diverts to :data:`DIVERT_PREFAB`, carries a file for
+    every part that prefab hosts (nothing free-rides) and none it lacks (an unbound file is a silent no-op), and its
+    Terrain is real; every file round-trips to what was meant to be written; and the engine's ground query over the
+    WRITTEN stack (placement.census, block-local, registration order) misses nowhere in the cell -- except where
+    home misses too at the same relative point (``home = (window_tris, (dx, dz), footprint)``: inside the carried
+    footprint stock's own skipped banks are holes by design, THE BANK SKIP LAW)."""
+    from pathlib import Path
+    from . import mesh as M_
+    from . import placement as P_
+    root = Path(root)
+    host = set(X.block_parts(disc=disc, game=game).get(DIVERT_PREFAB, ()))
+    fails, census = [], {}
+    if home is not None:
+        hml, hidx = _meshlist(home[0])
+        hdx, hdz = home[1]
+        hpoly = np.asarray(home[2], dtype=float)
+    for (bx, by) in sorted(blocks):
+        wbx = M_.wrap_block_col(bx)
+        d = root / M_.donor_sidecar_relpath(disc, wbx, by, lod)
+        if not d.is_file() or d.read_bytes() != f"{DIVERT_PREFAB[0]},{DIVERT_PREFAB[1]}".encode():
+            fails.append(f"({wbx},{by}) Donor.txt does not divert to {DIVERT_PREFAB}")
+        rdir = d.parent
+        files = {f.name[len(f"Block[{wbx}][{by}] "):-len(".ff9mesh")]: f
+                 for f in rdir.glob(f"Block[[]{wbx}[]][[]{by}[]] *.ff9mesh")}
+        want = {PART_NAME[p] for p in host | {"terrain", "sea4"}}
+        if set(files) != want:
+            fails.append(f"({wbx},{by}) files {sorted(files)} != the prefab's parts {sorted(want)}")
+        parts = {}
+        for name, f in files.items():
+            bm = M_.blockmesh_from_ff9mesh(f, disc=disc, x=wbx, y=by, lod=lod, part=name.lower())
+            parts[name] = bm
+            if meshes is not None:
+                src = meshes[(bx, by)].get(name.lower())
+                n_src = len(src.tris) if src is not None and src.tris else 1
+                if len(bm.tris) != n_src:
+                    fails.append(f"({wbx},{by}) {name}: {len(bm.tris)} tris read back, {n_src} meant")
+        t = parts.get("Terrain")
+        if t is None or all(v[1] < -50.0 for v in t.verts):
+            fails.append(f"({wbx},{by}) has no real Terrain: the divert needs one")
+        ml = P_.build_meshlist({n: bm for n, bm in parts.items()})
+        c = P_.census(ml, samples=32, frame="block_local")
+        miss = c["miss"]
+        inherited = 0
+        if home is not None and miss:
+            W_ = np.asarray([(x + BLOCK_U * bx, z - BLOCK_U * by) for x, z in miss])
+            inside = _pip_many(W_, hpoly)
+            keep = []
+            for (x, z), (wx, wz), ins in zip(miss, W_, inside):
+                if ins and P_.place(hml, wx - hdx, wz - hdz, 0.0, sky=True, index=hidx)[1] == "MISS":
+                    inherited += 1
+                else:
+                    keep.append((x, z))
+            miss = keep
+        census[f"{wbx},{by}"] = {"miss": len(miss), "home_miss": inherited, "stacked": len(c["stacked"])}
+        if miss:
+            fails.append(f"({wbx},{by}) the written stack MISSES at {len(miss)} sample(s) home grounds, e.g. "
+                         f"{[(round(x, 1), round(z, 1)) for x, z in miss[:2]]}")
+    return {"ok": not fails, "fails": fails[:16], "cells": len(blocks), "census": census}
+
+
+def write_composition(comp: Composition, root, *, window, donors, disc: int = 1, game=None,
+                      lod: str = "0_1") -> dict:
+    """Rung 3 end to end: the composition's part meshes, the kit's Sea4 cut under it, THE KNIT (W1), the write to
+    ``root`` (outside the install) and B1 read back from the bytes. ``donors`` = the knit's tile vocabulary, the
+    carried cove's own blocks first (:func:`knit_variants`); ``window`` = the donor's stock tris (home, for the
+    baselines). Returns the report; nothing here touches the game."""
+    shift = (int(round(comp.offset[0] / BLOCK_U)), int(round(-comp.offset[1] / BLOCK_U)))
+    if (shift[0] * BLOCK_U, -shift[1] * BLOCK_U) != tuple(comp.offset):
+        raise RiverRefused("T1", f"rung 3 writes whole-block translations only, not {comp.offset}")
+    meshes = part_meshes(comp, disc=disc, lod=lod)
+    sea4 = kit_sea4(meshes, disc=disc, game=game, lod=lod)
+    w1 = knit(meshes, donors=donors, disc=disc, game=game, lod=lod, home_shift=shift)
+    from .texgates import sea_plan_gate
+    sp = sea_plan_gate({b: list(parts.items()) for b, parts in meshes.items()}, list(meshes))
+    written = write(meshes, root, disc=disc, lod=lod, game=game)
+    b1 = audit_written(root, list(meshes), disc=disc, lod=lod, game=game, meshes=meshes,
+                       home=(window, comp.offset, comp.footprint))
+    return {"root": str(root), "files": len(written), "blocks": [list(b) for b in sorted(meshes)],
+            "sea4": {f"{b[0]},{b[1]}": v for b, v in sea4.items()}, "W1": w1,
+            "sea_plan": {k: sp[k] for k in ("A_ok", "A_submerged_tris", "B_ok", "B_max_ratio", "B_violations",
+                                            "C_ok", "C_overlap_frac", "status")},
+            "B1": b1, "meshes": meshes}
+

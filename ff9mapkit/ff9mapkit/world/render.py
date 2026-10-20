@@ -89,7 +89,10 @@ class RenderSite:
     """Where to read deployed block meshes from. ``game=None`` resolves the
     install via ``config.find_game_path``; ``water_texdir=None`` derives the
     Moguri loose worldmap texture dir under it (missing dir -> water parts
-    render magenta, harmless for geometry checks)."""
+    render magenta, harmless for geometry checks). ``mod_root`` reads the overrides from a folder laid out as a
+    mod folder ANYWHERE (a scratch build outside the install), in place of ``game / mod_folder``; stock still reads
+    from the install. Cells may be UNWRAPPED columns (the world is an x-torus): a cell renders at its own unwrapped
+    origin and reads the files and prefab of its wrapped label, so a site across the 23|0 seam renders whole."""
     cells: tuple                                             # ((bx, by), ...)
     disc: int = 9
     mod_folder: str = "FF9CustomMap-world"
@@ -97,6 +100,7 @@ class RenderSite:
     water_texdir: Path | None = None
     parts: tuple = PARTS
     res: tuple = RES
+    mod_root: Path | None = None
 
     def resolved(self) -> "RenderSite":
         game = Path(config.find_game_path(None)) if self.game is None else Path(self.game)
@@ -180,9 +184,10 @@ def sample(tex, u, v):
 # ---------------------------------------------------------------- mesh loading
 def live_path(site: RenderSite, bx, by, part):
     site = site.resolved()
-    root = site.game / site.mod_folder / "FF9_Data" / "WorldMap" / \
-        f"Disc{site.disc}" / "0_1"
-    return root / f"r{by}" / f"Block[{bx}][{by}] {part}.ff9mesh"
+    base = Path(site.mod_root) if site.mod_root is not None else site.game / site.mod_folder
+    root = base / "FF9_Data" / "WorldMap" / f"Disc{site.disc}" / "0_1"
+    wbx = M.wrap_block_col(bx)                               # an unwrapped column reads its wrapped label's file
+    return root / f"r{by}" / f"Block[{wbx}][{by}] {part}.ff9mesh"
 
 
 SEA_BLOCK_PREFAB = ((12, 0), "sea4f")          # the engine's SeaBlockPrefab: Block[12][0]'s full-cell Sea4
@@ -197,6 +202,7 @@ def effective_prefab(site: RenderSite, bx, by):
         ``Donor.txt`` block, else to Block[12][10];
       * an IsSea cell without a Terrain override is open sea: ``None`` (the SeaBlockPrefab, Sea4 only)."""
     site = site.resolved()
+    bx = M.wrap_block_col(bx)                                # the engine knows only wrapped labels
     asset_disc = site.disc if site.disc in (1, 4) else 1
     own = X.block_parts(disc=asset_disc, game=site.game)
     if site.disc in (1, 4) and (bx, by) in own:
@@ -681,11 +687,12 @@ def ground_y_near(batches, wx, wz, radius=8.0, fallback=0.0):
 
 
 def cells_around(wx, wz, radius=96.0):
-    """The block cover of the square [wx-r, wx+r] x [wz-r, wz+r], clamped to
-    the 24x20 grid. Missing block files skip silently at load, so an over-
-    generous cover is free (and buys the sea ring behind distant coast)."""
-    bx_lo = max(0, math.floor((wx - radius) / X.BLOCK_SIZE))
-    bx_hi = min(M.GRID_COLS - 1, math.floor((wx + radius) / X.BLOCK_SIZE))
+    """The block cover of the square [wx-r, wx+r] x [wz-r, wz+r]: rows clamped to the grid, COLUMNS NOT -- the
+    world is an x-torus, so a cover across the 23|0 seam keeps its unwrapped columns and each renders at its own
+    origin from its wrapped label's files (:func:`live_path`). Missing block files skip silently at load, so an
+    over-generous cover is free (and buys the sea ring behind distant coast)."""
+    bx_lo = math.floor((wx - radius) / X.BLOCK_SIZE)
+    bx_hi = math.floor((wx + radius) / X.BLOCK_SIZE)
     by_lo = max(0, math.floor(-(wz + radius) / X.BLOCK_SIZE))
     by_hi = min(M.GRID_ROWS - 1, math.floor(-(wz - radius) / X.BLOCK_SIZE))
     return tuple((bx, by) for by in range(by_lo, by_hi + 1)
