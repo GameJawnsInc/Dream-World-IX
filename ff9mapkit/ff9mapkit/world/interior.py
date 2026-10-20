@@ -1366,15 +1366,33 @@ def build_hill(soup, *, center=None, near=None, height: float = HILL_H,
     if peak_y > PEAK_CAP:
         raise ValueError(f"peak {peak_y:.2f} leaves the lowland band (cap {PEAK_CAP})")
 
-    eu = Counter()
-    for i, tri in enumerate(gtris):
-        if math.hypot(tri_cx[i] - CX, tri_cz[i] - CZ) > radius + 8:
-            continue
-        for a, b in ((0, 1), (1, 2), (2, 0)):
-            eu[tuple(sorted((kk3(gpos2[tri[a]]), kk3(gpos2[tri[b]]))))] += 1
-    inner_once = [e for e, n in eu.items() if n == 1
-                  and math.hypot((e[0][0] + e[1][0]) / 2 - CX,
-                                 (e[0][2] + e[1][2]) / 2 - CZ) < radius + 4]
+    # the crack gate = BASELINE-SUBTRACTED against the PRISTINE island, as carve_forest's and
+    # carve_mountain's once-edge gates are: an edge the island already holds open is its own, not a
+    # crack the hill opened (the river island's grass crest over its carried stock bank, RUNG5.md
+    # "The hill's crack gate"). The same count over the same tris on the positions BEFORE the lift,
+    # matched by key: an open edge the lift MOVES gets a new key and is judged as the hill's (a
+    # T-junction slit widens under a non-linear lift; an edge open only where the read stops tears
+    # from the block it never saw). Before the lift, not after: after it, a weld the lift splits
+    # would be its own baseline and the gate would go blind.
+    in_reach = [i for i in range(len(gtris)) if math.hypot(tri_cx[i] - CX, tri_cz[i] - CZ) <= radius + 8]
+
+    def once_edges(P):
+        eu = Counter()
+        for i in in_reach:
+            tri = gtris[i]
+            for a, b in ((0, 1), (1, 2), (2, 0)):
+                eu[tuple(sorted((kk3(P[tri[a]]), kk3(P[tri[b]]))))] += 1
+        return [e for e, n in eu.items() if n == 1
+                and math.hypot((e[0][0] + e[1][0]) / 2 - CX, (e[0][2] + e[1][2]) / 2 - CZ) < radius + 4]
+    once0 = set(once_edges(gpos))
+    once = once_edges(gpos2)
+    inner_once = [e for e in once if e not in once0]
+    inherited = len(once) - len(inner_once)
+    if inherited:
+        log(f"crack gate: {inherited} once-edge(s) within r+4 the island already holds open, untouched "
+            f"by the lift: the island's own, not judged (e.g. at "
+            + ", ".join(f"({(e[0][0] + e[1][0]) / 2:.2f},{(e[0][2] + e[1][2]) / 2:.2f})"
+                        for e in sorted(e for e in once if e in once0)[:3]) + ")")
     if inner_once:
         raise ValueError(f"{len(inner_once)} once-edges inside the hill region (cracks)")
 
@@ -1405,7 +1423,7 @@ def build_hill(soup, *, center=None, near=None, height: float = HILL_H,
         base += bm.vcount
     return {"changed": changed, "center": (CX, CZ),
             "report": {"displaced_tris": len(touched), "worst_flank": round(worst_slope, 1),
-                       "peak_y": round(peak_y, 2)}}
+                       "peak_y": round(peak_y, 2), "inherited_once": inherited}}
 
 
 # ---- THE MOUNTAIN CARVE -----------------------------------------------------------------------

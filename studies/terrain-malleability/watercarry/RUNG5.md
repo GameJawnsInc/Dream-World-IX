@@ -280,6 +280,39 @@ writes only blocks it displaced, so it needed nothing.
 
 Still not done: the forest has not been deployed to the live install or seen in game.
 
+## The hill's crack gate measures the carve (offline, 2026-10-20)
+
+`build_hill`'s crack gate counted every once-edge within radius + 4 of the centre after the lift, so on the river
+island it refused on the island's own open edges. It now counts the same tris' edges on the positions before the lift
+too, and judges only once-edges that were not open there: the forest's and the mountain's approach. Edges are matched
+by position, so an open edge the lift moves counts as the hill's. A non-linear lift widens a T-junction slit, and an
+edge that is open only because the read stops there would tear from the block it never read. The inherited edges are
+logged and counted in the report (`inherited_once`).
+
+- **Before the fix** (`world-hill --center ... --dry-run` on the river island, pre-fix package): (31,-826) refused with
+  "9 once-edges inside the hill region (cracks)", and (30,-824) with 13. A 2u scan 14-22u from the edge at
+  (10.84,-829.54) found three lawful centres, and all three refused the same way (10, 2 and 9 edges). The lift (r 18)
+  reaches none of those edges. They are the kit grass crest (y 3.09) and the carried topo-62 bank below it, all open
+  on the untouched island.
+- **After** (`seam_hill.py`, scratch outside the install, `out/seam_hill.json`):
+
+| case | where the hill stands | result |
+|---|---|---|
+| a. center (31,-826), 20.5u from the edge | (31,-826) | seats: 161 tris lifted, flank 22.5deg, peak 7.24; 9 inherited edges logged, (10.84,-829.54) among them |
+| b. center (30,-824) | (30,-824) | seats: 13 inherited edges logged, the same 13 the old gate refused on |
+| c. near (49,-824) (the default scan) | (40,-824) | seats with 0 inherited edges, as before the fix |
+| `world-hill --center 31,-826 --dry-run` | (31,-826) | rc 0, all gates clean |
+| `[[river]]` + `[[hill]] center = [31, -826]` through `world-fuse` | (31,-826) | both rows clean; the hill writes 2 Terrain files, Block[0][12] and Block[0][13] |
+
+  In every case the census (deployed stack) finds no new MISS and logs the island's own 31 samples.
+- **Tests** (`test_world_interior.py`, after the forest's annulus tests): the grid's own border inside the window but
+  outside the lift no longer refuses (red on the pre-fix `interior.py`). Two cases still refuse. One is a near-weld
+  the lift splits, a crack the hill opens on a closed grid. The other is an open border the lift moves. Each one goes
+  red under a mutation of the fix: a baseline taken after the lift, the gate removed, a plan-only match, or matching
+  by tri edge instead of position.
+
+Not done: no hill has been deployed to the live install or seen in game on the river island.
+
 ## Decisions for the owner
 
 1. **Drop `--source-massif DONOR`** (a catalogued massif at the source) from the plan. Recommendation: yes. It is the
