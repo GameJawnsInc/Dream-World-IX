@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — `world-render --mod-root`: render a build that never went into the game
+- `world-render --mod-root DIR` reads overworld overrides from any folder laid out like a mod folder. The folder can
+  be a scratch build outside the game, and `--stock` still fills in the real map around it.
+- A render across the world's seam (between columns 23 and 0) now shows the whole site. Before, the columns past
+  the edge were dropped.
+
+### Added — the river carry written out and checked from the files (the fourth piece of `world-river`)
+- The kit can now write the whole river carry to a scratch folder and check the written files:
+  - every map cell points at a map piece that has all its parts, and nothing from that piece shows through
+    unasked;
+  - the game's ground test over the written files finds no hole that the original map does not have.
+- The open sea round the new island is cut away under the island and the river's cove. The cove's water is joined
+  to it with the game's own transition tiles, taken from the original cove, so the shallows fade into the deep
+  instead of stopping at a hard edge.
+
 ### Added — the river composed onto an island, checked end to end (the third piece of `world-river`)
 - The kit can now put the whole river carry together without writing anything: it places the river and its cove
   on open ocean, grows the island round them, and opens a hole in the island where the river goes. It then seams

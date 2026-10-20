@@ -2,7 +2,8 @@
 
 **Status:** signed off as written, with the five recommended answers (2026-10-19). **Rung 0 is DONE** (offline,
 2026-10-20; see "Rung 0 result" below). **Rung 1 is DONE** (offline, 2026-10-20; "Rung 1 result"). **Rung 2 is DONE** (offline, 2026-10-20;
-"Rung 2 result"): every gate green on cluster C. The evidence is in
+"Rung 2 result"): every gate green on cluster C. **Rung 3 is DONE** (offline, 2026-10-20; "Rung 3 result"): written to a
+scratch folder, B1 green on the bytes, W1 green bar one cliff-corner band step, the render reads as the bay. The evidence is in
 `RECON.md` (R0, R1 rounds 1-4); this file is the build.
 
 ## What the verb does
@@ -341,6 +342,77 @@ unnecessary. Without the closure it made things worse, moving one bad sample to 
 case left to answer.
 
 Plans: `out/compose_plan.png`, `out/compose_{E,W,NE,mouth}.png`, from `compose_run.py`.
+
+## Rung 3 result (offline)
+
+`river.write_composition(comp, root, window=, donors=)` writes the whole thing to a folder OUTSIDE the install. It
+refuses a root inside the game (B0). The steps:
+1. **Part meshes.** The composition splits at the 64u borders, block-local. A carried tri keeps its tangent's y/z/w
+   verbatim.
+2. **The kit's Sea4 cut.** The island lane's deep sheet goes on every block, cut under the island AND the
+   fragment's own water.
+3. **THE KNIT.** The rim retile runs on the sea bands in memory, to its fixed point.
+4. **The write.** Every prefab part is written, as a hidden blank where nothing is carried, with the `Donor.txt`
+   divert.
+5. **B1 read back from the bytes.**
+
+`write_run.py` runs it on cluster C, then `world-render --stock` and four seam views.
+
+**What the build had to settle.** Each of these was a gate failing, found and fixed at its cause.
+
+| finding | what it changed |
+|---|---|
+| **THE CELL-ALIGNED SEAM** | 10 of the seaward boundary's 34 edges ran along cell diagonals. Each splits a 4u cell between carried sea3 and kit Sea4, a contact inside one cell that the cell-binned retile can neither see nor re-band. A diagonal now costs 100 more: 0 are left away from the joins. |
+| **THE SHORE-CLEAR SEAM** | The retile re-bands a cell only away from shore (its shore scope). Hugging the island's shallow ring, the seam left 9 sea3/sea4 contacts. It now keeps 2 cells clear of the bay islands' shores, except within 12u of a join base. It counts only the shores the COMPOSED island has there: home's land beyond the cove is not carried, and the kit's deep sheet replaces it. |
+| **THE COVERED-TRI TEST** | The island lane drops a plane tri when its three corners lie under land, which holds while the cover is convex across the cell. At the E join, the kit wall and the carried water cover every corner of a plane tri round a sliver of open sea, and the byte census caught the hole. The corners AND four interior points must now be under. |
+| **TWO WANG DIALECTS** | Pooled over the window, the tile harvest is empty. Stock writes the same Wang tile two ways across blocks (a wrap corner at u 0.0 in one, 0.0317 in another), and the harvest drops any variant whose instances disagree. `knit_variants` harvests block by block, first wins, the cove's own blocks first, so each tile is verbatim from one stock block. |
+| **THE RETILE NEEDS THE BANDS** | `rimretile.apply_rim` rebuilds only the sea bands a block already has, so a block without Sea5 lost its re-banded tris (the repartition gate refused). The knit seeds empty Sea3/Sea5 parts. |
+| **THE SEAM-WRAP RENDER** | The renderer read only mod folders in the install and clamped columns to 0..23, so an island across the seam rendered torn. `world-render --mod-root DIR` reads any folder. Cells keep their unwrapped columns; files and prefabs come from the wrapped label. |
+
+These moved rung 0-2's pinned numbers:
+- the fragment is 1,546 tris;
+- the seam is 170.4u along 43 edges;
+- the ring has 138 points;
+- G4: 10,098 samples, all exactly home.
+
+**W1 on cluster C, after the knit.** 16 quads re-banded over two passes. Home's own baseline is from the same blocks
+in stock.
+
+| | composed | home |
+|---|---|---|
+| tiles facing deep without their transition | 0 | 1 |
+| crop-made sea pairs at any tri edge (sea3/4, sea1/4, sea2/4, sea2/5) | 0 | 0 |
+| contradicting edges | 2 | 2 |
+| wang-carry frame | 0 incoherent | |
+| unpaintable slivers | 0 | |
+
+One of the two contradicting edges is home's own, at the E headland. The other is introduced, at the W join's
+corner cell. This is **THE CLIFF-CORNER BAND STEP**: the carried cliff's sea3 meets the kit cliff's Sea4 across one
+cell edge. It is the same step home ships at its E headland, and from the water it sits under the wall's foot. W1
+stays strictly red on it, localized and understood, for the owner's eye.
+
+The sea-plan gate: A green (no submerged land), C green (3.9% sea/land overlap, ceiling 19%). B warns: the island's
+interior blocks carry almost no Sea4, the continent-scale class the island lane also warns on.
+
+**B1 on the bytes: green.**
+- 132 files over 12 cells, each diverting to (16,15) with a file for every part that prefab hosts.
+- Every file round-trips.
+- The engine's census over the WRITTEN stacks misses nowhere home grounds. 98 samples miss at home too: the skipped
+  banks, THE BANK SKIP LAW.
+
+**The render** (`out/river_render/`: overview, the standard views, `seam_top`, `join_W`, `join_E`, `mouth_in`):
+- **It reads as the bay.** The river and its bridge wind through the kit lawn to the cove's beach. The island stands
+  in the cove, and the shallows grade to deep.
+- **Both joins read as one continuous rock face.**
+- **Two things for the owner's eye.** First, the seam runs along a straight lattice row, so the knitted band edge is
+  straighter than stock's wandering ones. Second, the W corner's band step.
+
+Tests:
+- `test_world_river.py`: the seam cell-aligned and shore-clear, with a break-it; part meshes block-local with
+  tangents kept; the contact census; the covered-tri cut; knit variants first-wins; the write refusing the install;
+  write and read back across the seam with two B1 break-its; the renderer reading a scratch root across the seam.
+- Install-gated: cluster C written and audited.
+- A mutation run turned tests red each time: no diagonal cost, corner-only cut, no wrap, pooled variants.
 
 ## Decisions for the owner (answered: the recommendations, 2026-10-19)
 

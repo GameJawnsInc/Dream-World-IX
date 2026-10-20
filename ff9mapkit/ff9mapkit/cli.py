@@ -6165,10 +6165,11 @@ def _cmd_world_render(args: argparse.Namespace) -> int:
                 return 2
             site = R.RenderSite(cells=R.cells_around(wx, wz, radius=args.radius),
                                 disc=args.disc if args.disc is not None else 9,
-                                mod_folder=args.mod_folder or "FF9CustomMap-world")
+                                mod_folder=args.mod_folder or "FF9CustomMap-world",
+                                mod_root=Path(args.mod_root) if args.mod_root else None)
             batches = R.load_batches(site, stock=args.stock)
             if not batches:
-                print(f"no deployed .ff9mesh under {site.mod_folder} Disc{site.disc} near "
+                print(f"no deployed .ff9mesh under {site.mod_root or site.mod_folder} Disc{site.disc} near "
                       f"({wx:g},{wz:g}) -- nothing to render", file=sys.stderr)
                 return 2
             gy = args.ground_y if args.ground_y is not None else \
@@ -6181,9 +6182,10 @@ def _cmd_world_render(args: argparse.Namespace) -> int:
                 print(f"unknown preset {args.preset!r} (have: {', '.join(sorted(R.PRESETS))})",
                       file=sys.stderr)
                 return 2
-            if args.disc is not None or args.mod_folder:
+            if args.disc is not None or args.mod_folder or args.mod_root:
                 site = _dc.replace(site, disc=args.disc if args.disc is not None else site.disc,
-                                   mod_folder=args.mod_folder or site.mod_folder)
+                                   mod_folder=args.mod_folder or site.mod_folder,
+                                   mod_root=Path(args.mod_root) if args.mod_root else site.mod_root)
             batches = R.load_batches(site, stock=args.stock)
             if not batches:
                 print(f"no deployed .ff9mesh under {site.mod_folder} Disc{site.disc} -- "
@@ -10737,6 +10739,9 @@ def build_parser() -> argparse.ArgumentParser:
     wrd.add_argument("--mod-folder", default=None,
                      help="the FolderNames mod folder whose deployed WorldMap tree to read "
                           "(default FF9CustomMap-world)")
+    wrd.add_argument("--mod-root", default=None, metavar="DIR",
+                     help="read the overrides from DIR (laid out as a mod folder: FF9_Data/WorldMap/...) in place of "
+                          "a mod folder inside the install -- a scratch build that never touched the game")
     wrd.add_argument("--views", default=None,
                      help="comma-separated subset of view names to render (default: all)")
     wrd.add_argument("--stock", action="store_true",
