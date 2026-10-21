@@ -192,8 +192,8 @@ def test_the_kv_key_column_tracks_its_own_font(coop, app):
 
 def test_the_status_warning_carries_its_own_door(coop, app, monkeypatch, tmp_path):
     """'Run Setup & health… first' without a way to run it is a scavenger hunt. The Setup button shows
-    exactly while the status needs it: game missing -> shown; engine without netsync -> shown; healthy
-    s40 machine -> hidden. Both directions pinned via a fake install (never this machine's state)."""
+    exactly while the status needs it: game missing -> shown; engine without netsync or older than
+    the current generation -> shown; current machine -> hidden. Both directions pinned via a fake install (never this machine's state)."""
     from ff9mapkit import config as cfg
 
     # The REAL no-game failure mode: find_game_path RAISES ConfigError (config.py:178/206 -- it never
@@ -220,9 +220,18 @@ def test_the_status_warning_carries_its_own_door(coop, app, monkeypatch, tmp_pat
     coop.refresh_status()
     assert coop.btn_setup.isVisibleTo(coop), "s36 engine (warned to upgrade) -> the door must show"
 
+    # an older-but-playable engine (s40) still reads amber and still shows the door: both players
+    # should run the current bundle, and Setup & health is where it installs
     (managed / "Assembly-CSharp.dll").write_bytes(b"MZ NetSyncClient NetSyncBattle NetSyncDiorama")
     coop.refresh_status()
-    assert not coop.btn_setup.isVisibleTo(coop), "healthy s40 machine -> the door must GO AWAY"
+    assert coop.btn_setup.isVisibleTo(coop), "outdated s40 engine (amber) -> the door must show"
+    assert coop.style_box.isEnabled(), "s37+ keeps the Play-style lanes usable"
+
+    from ff9mapkit import health
+    (managed / "Assembly-CSharp.dll").write_bytes(
+        b"MZ " + b" ".join(g[1] for g in health.NETSYNC_GENERATIONS))
+    coop.refresh_status()
+    assert not coop.btn_setup.isVisibleTo(coop), "current engine -> the door must GO AWAY"
     assert coop.btn_start.isEnabled()
 
 
@@ -230,7 +239,7 @@ def test_the_engine_row_reads_the_shared_health_source(coop, app, monkeypatch, t
     """One source of truth: the Status card's `engine` line is now health.netsync_generation's summary
     verbatim, the SAME derivation Setup's 'Co-op engine' health row reads. Written a known s37 DLL, the
     card's text must EQUAL the helper's -- a coopdoc that reworded the sentence (two copies again) fails
-    this, and the level must track (ok at s37, warn below)."""
+    this, and the level must track (ok on the current generation, warn below)."""
     from ff9mapkit import config as cfg, health
 
     game = tmp_path / "game"
@@ -239,7 +248,8 @@ def test_the_engine_row_reads_the_shared_health_source(coop, app, monkeypatch, t
     (game / "Memoria.ini").write_text("[Netsync]\nEnabled = 0\n", encoding="utf-8")
     monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
 
-    (managed / "Assembly-CSharp.dll").write_bytes(b"MZ NetSyncClient NetSyncBattle")   # s37
+    (managed / "Assembly-CSharp.dll").write_bytes(
+        b"MZ " + b" ".join(g[1] for g in health.NETSYNC_GENERATIONS))                 # current
     coop.refresh_status()
     gen = health.netsync_generation(game)
     assert coop.lbl_engine.text() == gen["summary"], "the card's engine line must be the shared summary"
