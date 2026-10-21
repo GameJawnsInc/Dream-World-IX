@@ -15,6 +15,11 @@ memoria-patches/*.patch -text
 # 6400.fbx): binary, byte-exact — never line-end convert.
 *.fbx -text
 
+# Bash scripts (the battle-coop bench runners, study probes) run under bash, which reads a CR as part of
+# the command. core.autocrlf smudged them to CRLF on checkout and the s144 runner test asserts no CR
+# (test_coop_world_wait.py) -- keep them text, but always check them out LF (2026-10-21).
+*.sh text eol=lf
+
 # Rung 3's registered predictions are sha256-frozen (studies/story-trace/rung3_trace.py P-FROZEN): a session
 # records the sha of the bytes it read, and the analysis refuses a file that no longer matches -- so a checkout
 # that re-CRLFs one fails P-FROZEN with no content changed. The committed LF bytes are the recorded ones
