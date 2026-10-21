@@ -366,6 +366,30 @@ def _dress_prop(path: str, kind, doc: str) -> property:
     return property(get)
 
 
+def _world_prop(path: str, kind, doc: str) -> property:
+    """[ff9mapkit netsync s144] One ``netsync.world`` key (world-map co-op's block, netsync's LAST key) as a read-only
+    :class:`State` property, carrying its dotted path under ``netsync.world`` for its own table
+    (:attr:`State.NETSYNC_WORLD_ACCESSORS`) -- the house reading (absent = None, "this engine cannot"; a null string reads "")."""
+    def get(self):
+        return self._ns_path("world." + path, kind)
+    get.__doc__ = doc
+    get.__name__ = "world_" + path.replace(".", "_")
+    get.world_path = path
+    return property(get)
+
+
+def _follow_prop(key: str, kind, doc: str) -> property:
+    """[ff9mapkit netsync s144] One ``netsync.session.follow`` key (the follow's own state, AppendSessionFollow) as a read-only
+    :class:`State` property, carrying its key for its own table (:attr:`State.NETSYNC_FOLLOW_ACCESSORS` -- never
+    NETSYNC_TOP_ACCESSORS, whose law pins `session`'s FIRST level) -- the house reading (absent = None, "this engine cannot")."""
+    def get(self):
+        return self._ns_path("session.follow." + key, kind)
+    get.__doc__ = doc
+    get.__name__ = "follow_" + key
+    get.follow_key = key
+    return property(get)
+
+
 def _ns_prop(path: str, kind, doc: str) -> property:
     """[ff9mapkit netsync R3 s120/s121] One key of a TOP-LEVEL ``netsync`` block the battle round added (s120's
     ``session``, s121's ``menu_refusal``) as a read-only :class:`State` property, carrying its dotted path under
@@ -517,6 +541,96 @@ class State:
     def on_world(self) -> bool:
         """On the overworld -- as opposed to on a field. See ``Session.wait_world``."""
         return self.ui_state == "WorldHUD"
+
+    # ---- [ff9mapkit netsync s144] the world-map co-op round's observability (additive under 5; absent = None, "this engine
+    # cannot" -- an s143 agent publishes none of them)
+    def _top_int(self, block, key):
+        node = self.raw if block is None else self.raw.get(block)
+        v = node.get(key) if isinstance(node, dict) else None
+        return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+    @property
+    def gmode(self) -> int | None:
+        """s144: EventEngine.gMode (1 field, 2 battle, 3 world; -1 = no engine). It stays 3 through the world -> field load and
+        inside a world-booted diorama -- the strict world test is `netsync.session.follow.on_world`."""
+        return self._top_int(None, "gmode")
+
+    @property
+    def field_entrance(self) -> int | None:
+        """s144: EventState.FieldEntrance (gEventGlobal[2..3]; 9999 = a world-map arrival; -1 = unreadable)."""
+        return self._top_int("field", "entrance")
+
+    @property
+    def world_area(self) -> int | None:
+        """s144: the walker's area id on the live world map (-1 off it / no walker)."""
+        return self._top_int("world", "area")
+
+    @property
+    def world_topo(self) -> int | None:
+        """s144: the walker's topograph (-1 off it / no walker; 52 = no battles there)."""
+        return self._top_int("world", "topo")
+
+    @property
+    def world_move(self) -> bool | None:
+        """s144: w_moveCHRControl_Move (the walker moved this tick); None off the live world map, no walker, or an older
+        engine."""
+        node = self.raw.get("world")
+        v = node.get("move") if isinstance(node, dict) else None
+        return v if isinstance(v, bool) else None
+
+    @property
+    def world_phase(self) -> int | None:
+        """s144: w_framePhase (2 = the world tick runs; -1 off the live world map)."""
+        return self._top_int("world", "phase")
+
+    @property
+    def world_next_mode(self) -> int | None:
+        """s144: FF9World.map.nextMode (3 stays, 1 a field entry, 2 a battle; -1 off the live world map). A driver checks it
+        before a world `battle` (an s143 agent refuses one there: "battle: field only")."""
+        return self._top_int("world", "next_mode")
+
+    # ---- [ff9mapkit netsync s144] `netsync.world`: the freeze, the rejoin, the waiting line (studies/world-coop/S144-DESIGN.md)
+    @property
+    def coop_world_wait(self) -> bool | None:
+        """s144: world-map co-op (``netsync.world.freeze``). False = an engine that leaves a following guest free on the world
+        map (and reads `bench worldfreeze` as `bench 1`); None = no ``netsync`` block."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._ns_path("world.freeze", dict) is not None
+
+    world_freeze = _world_prop("freeze", dict, "s144: the whole ``world.freeze`` block, copied.")
+    world_freeze_on = _world_prop("freeze.on", bool, "s144: the freeze's LIVE verdict (what the movement dispatcher reads; "
+                                                     "false off the world map).")
+    world_freeze_why = _world_prop("freeze.why", str, "s144: 'live' | 'mirroring' | 'bench' -- the SpectatorField term that "
+                                                      "holds it ('' = not frozen).")
+    world_freeze_off = _world_prop("freeze.off", bool, "s144: the `bench worldfreeze off` lever (the selftest role only).")
+    world_freeze_released = _world_prop("freeze.released", bool, "s144: the ~ menu's Release world freeze in force (until the "
+                                                                 "next field load).")
+    world_freeze_edges = _world_prop("freeze.edges", int, "s144: rising edges -- monotonic, read DELTAS.")
+    world_freeze_skips = _world_prop("freeze.skips", int, "s144: movement dispatches skipped (world ticks) -- monotonic.")
+    world_freeze_keys = _world_prop("freeze.keys", int, "s144: control-on world script polls a host-owned key was masked "
+                                                        "from -- monotonic.")
+    world_freeze_map = _world_prop("freeze.map", int, "s144: full-map opens refused (the buzz) -- monotonic.")
+    world_freeze_location = _world_prop("freeze.location", int, "s144: full-map location picks (the autopilot) refused -- "
+                                                                "monotonic.")
+    world_freeze_battles = _world_prop("freeze.battles", int, "s144: the guest's own scripted world battles skipped -- "
+                                                              "monotonic.")
+    world_rejoin = _world_prop("rejoin", dict, "s144: the whole ``world.rejoin`` block, copied.")
+    world_rejoin_latch = _world_prop("rejoin.latch", bool, "s144: the shared world-transition latch ON the live world map (true "
+                                                           "= a world transition in flight).")
+    world_rejoin_arms = _world_prop("rejoin.arms", int, "s144: world rejoins armed -- monotonic, read DELTAS.")
+    world_rejoin_lands = _world_prop("rejoin.lands", int, "s144: arms cleared by the field landing -- monotonic.")
+    world_rejoin_timeouts = _world_prop("rejoin.timeouts", int, "s144: arms dropped by the 5 s timeout -- monotonic.")
+    world_rejoin_redirects = _world_prop("rejoin.redirects", int, "s144: world-script Field() calls redirected to the host's "
+                                                                  "field -- monotonic.")
+    world_rejoin_rearms = _world_prop("rejoin.rearms", int, "s144: F11 / held L3 re-arms on the world map -- monotonic.")
+    world_rejoin_why = _world_prop("rejoin.why", str, "s144: the gate that refused the last world arm ('' = none).")
+    world_rejoin_last = _world_prop("rejoin.last", int, "s144: the last destination armed (-1 = none).")
+    world_waitline = _world_prop("waitline", dict, "s144: the whole ``world.waitline`` block, copied.")
+    world_waitline_line = _world_prop("waitline.line", str, "s144: the waiting line shown -- 'host_world' | 'rejoin' | 'hold' "
+                                                            "| 'host_title' | 'away' ('' = none).")
+    world_waitline_fallback = _world_prop("waitline.fallback", bool, "s144: an old host's debounced field 0 chose it.")
+    world_waitline_away_ms = _world_prop("waitline.away_ms", int, "s144: that debounce's age (-1 = not running).")
 
     @property
     def on_field(self) -> bool:
@@ -904,7 +1018,10 @@ class State:
     # engine cannot" -- an s96/s97 DLL), never 0 / False / [] ("nothing there"). Check :attr:`dialogue_ring` first.
     #: Section 7's host-flags byte (``host_flags``), bit by name: b0 the host's sticky scene, b1 its user control, b2 an
     #: input-taking (non-[NFOC]) line open, b3 on a live field, b4 a non-HUD UI (menu/shop/pause), b5 in battle.
-    HOST_FLAG_BITS = {"scene": 0x01, "control": 0x02, "line": 0x04, "on_field": 0x08, "menu": 0x10, "battle": 0x20}
+    #: [ff9mapkit netsync s144] b6 the host on the live world map, b7 at the title screen (additive under v14: an older host
+    #: never sets them, an older reader ignores them).
+    HOST_FLAG_BITS = {"scene": 0x01, "control": 0x02, "line": 0x04, "on_field": 0x08, "menu": 0x10, "battle": 0x20,
+                      "world": 0x40, "title": 0x80}
 
     @property
     def dialogue_ring(self) -> bool | None:
@@ -2291,13 +2408,37 @@ class State:
     session_ramp_cause = _ns_prop("session.ramp_cause", str, "s120: 'grace' | 'config' | 'unfollow' ('' = none pending).")
     session_overlay = _ns_prop("session.overlay", str, "s120: the status overlay -- 'off' | 'elsewhere' | 'no_code' | "
                                                        "'connecting' | 'waiting' | 'peer_elsewhere' | 'following' | "
-                                                       "'peer_no_field' | 'reconnecting' ('' = none composed yet).")
+                                                       "'peer_no_field' | 'reconnecting' -- [ff9mapkit netsync s144] + "
+                                                       "'host_world' | 'rejoining' | 'world_hold' | 'host_title' | "
+                                                       "'host_away' ('' = none composed yet).")
     session_overlay_detail = _ns_prop("session.overlay_detail", int, "s120: its detail -- the seconds left for "
                                                                      "'reconnecting', 1 = a guest's hop up with no live "
                                                                      "peer for 'connecting', a field id, 0 = no detail; "
                                                                      "-1 = none composed yet.")
     session_ghost = _ns_prop("session.ghost", bool, "s120: the peer's ghost is spawned here.")
     session_ghost_held = _ns_prop("session.ghost_held", bool, "s120: the s56 blip-grace holds it frozen this frame.")
+    # ---- [ff9mapkit netsync s144] `session`'s last two keys: the overlay's WORDS and the follow's own state (world-map co-op)
+    session_overlay_text = _ns_prop("session.overlay_text", str, "s144: the words the status overlay composes for the state its "
+                                                                 "chain asked for ('' = none) -- null under the selftest role "
+                                                                 "(its branch asks only Off): the waiting line's words are "
+                                                                 "observable on a real following client (T2 / the duo).")
+    session_follow = _ns_prop("session.follow", dict, "s144: the follow's own state, copied -- `pending` (a faded field "
+                                                      "follow-warp in flight), `warped_to`, `candidate`, `world_armed` (the "
+                                                      "world rejoin's armed field), `on_world` (the strict onWorld), "
+                                                      "`host_world` / `host_title` (section 7's b6 / b7), `hold` (the "
+                                                      "source-field hold); -1 / false = none.")
+    # ---- [ff9mapkit netsync s144] the follow block, key by key (NETSYNC_FOLLOW_ACCESSORS; -1 / False = none)
+    follow_pending = _follow_prop("pending", int, "s144: a faded FIELD follow-warp in flight (its destination; -1 = none).")
+    follow_warped_to = _follow_prop("warped_to", int, "s144: the follow's same-destination latch (-1 = none).")
+    follow_candidate = _follow_prop("candidate", int, "s144: the host field being debounced (FollowStableMs; -1 = none).")
+    follow_world_armed = _follow_prop("world_armed", int, "s144: the WORLD rejoin's armed destination (-1 = none) -- cleared "
+                                                          "by the landing, the 5 s timeout, F11, a session reset.")
+    follow_on_world = _follow_prop("on_world", bool, "s144: the strict onWorld this Update ran with (gMode 3 AND the WorldMap "
+                                                     "scene) -- the world test a bench gates on, never ui_state alone.")
+    follow_host_world = _follow_prop("host_world", bool, "s144: section 7's b6 as last read -- the host on the world map.")
+    follow_host_title = _follow_prop("host_title", bool, "s144: section 7's b7 as last read -- the host at the title.")
+    follow_hold = _follow_prop("hold", int, "s144: the source-field hold (the field the guest's own WorldMap() left; a rejoin "
+                                            "into it waits up to 15 s) -- -1 = none.")
     # ---- [ff9mapkit netsync R3 s121] THE AUDIBLE MENU REFUSAL (guest side; NetSyncField.RefuseMainMenu): gate a bench's
     # press on ``menu_refusal_now`` == "audible", never on ui_state FieldHUD (under a dialogue window it reads "dialog")
     netsync_menu_refusal = _ns_prop("menu_refusal", dict, "s121: the whole ``menu_refusal`` block, copied.")
@@ -3054,6 +3195,13 @@ State.NETSYNC_TOP_ACCESSORS = {p.fget.ns_path: name for name, p in vars(State).i
 #: dress block's own table (never NETSYNC_TOP_ACCESSORS, whose law pins `session` / `menu_refusal`).
 State.NETSYNC_DRESS_ACCESSORS = {p.fget.dress_path: name for name, p in vars(State).items()
                                  if isinstance(p, property) and hasattr(p.fget, "dress_path")}
+#: [ff9mapkit netsync s144] Every ``netsync.world`` key path (dotted under ``netsync.world``) -> its State accessor -- the world
+#: block's own table (never NETSYNC_TOP_ACCESSORS, whose law pins `session` / `menu_refusal`).
+State.NETSYNC_WORLD_ACCESSORS = {p.fget.world_path: name for name, p in vars(State).items()
+                                 if isinstance(p, property) and hasattr(p.fget, "world_path")}
+#: [ff9mapkit netsync s144] Every ``netsync.session.follow`` key -> its State accessor (the follow block's own table).
+State.NETSYNC_FOLLOW_ACCESSORS = {p.fget.follow_key: name for name, p in vars(State).items()
+                                  if isinstance(p, property) and hasattr(p.fget, "follow_key")}
 #: [ff9mapkit netsync s138] Every ``player`` dress key (OUTSIDE netsync, battlewire.PLAYER_DRESS_KEYS) -> its State accessor.
 State.PLAYER_DRESS_ACCESSORS = {p.fget.pl_key: name for name, p in vars(State).items()
                                 if isinstance(p, property) and hasattr(p.fget, "pl_key")}

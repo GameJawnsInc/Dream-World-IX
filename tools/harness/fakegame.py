@@ -33,6 +33,7 @@ import json
 import math
 import os
 import random
+import re
 import struct
 import threading
 import time
@@ -276,7 +277,33 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        "dressself": ("s140", ()),
                        "dresspolish": ("s141", ()),
                        # [ff9mapkit netsync s143] the leader guard: no sub-verb, one `bench` named op (`leaderguard`)
-                       "leaderguard": ("s143", ())}
+                       "leaderguard": ("s143", ()),
+                       # [ff9mapkit netsync s144] world-map co-op (the freeze, the rejoin, the waiting line): no sub-verb, one
+                       # `bench` named op (`worldfreeze`); `netsync.world` after `dress`, `session` gains `overlay_text` and
+                       # `follow`; top-level `gmode`, `field.entrance`, `world.area/topo/move/phase/next_mode`; the `battle`
+                       # verb on WorldHUD. WHAT THE STAND-IN MODELS (FakeGame's s144 section, each step through battlewire's
+                       # twin): THE FREEZE at the overworld walker's one dispatcher (the walk and the bumpers skipped; asked
+                       # only with control and the full map shut) for SpectatorField -- the selftest role under `bench 1`,
+                       # `story_mirroring`, or the followed client -- with its rising edge over the world tick counter, its ON /
+                       # lifted lines, the key mask at the world dispatchers' polls (Confirm / Cancel / Triangle / Square
+                       # presses; `keys`), WorldHUD's Select cycle with the HUD -> FullMap step refused (`map`; a New Game's
+                       # world lands in HUDNoMiniMap, so its first Select only turns the minimap on), a location tile's Confirm
+                       # (`world_locations`), scripted world battles skipped (`world_script_battle`; `battles`), the lever and
+                       # its release, the ~ release (`release_world_freeze`); THE WORLD TICK (one a frame: w_frameCounter,
+                       # nextMode, the move flag) and THE WORLD BATTLE VERB (its refusals, the one-shot, its drops, the swirl,
+                       # the battle, the return to the world map by prevMode 3); a field's WorldMap() exit (a region's
+                       # `"world"`: the source-field hold on a spectator); THE REJOIN and THE WAITING LINE on a FOLLOWED
+                       # CLIENT (`follow_session` / `host_at` / `host_intent`: the host lane's field, section 7's flags, the
+                       # snapshot's freshness; the serial floor, the intent, every arm gate, the hold, the redirect of a world
+                       # script's Field(), the latch, the 5 s timeout, the landing with the host's snapshot, F11
+                       # `teleport_to_host`, Update's overlay chain with its words and `waitline`). WHAT IT CANNOT: a real
+                       # transport (no section 7 bytes ride a socket here: the followed client reads its host off a dict),
+                       # the FIELD follow-warp (`follow.pending` stays -1; only the world rejoin moves the stand-in's client),
+                       # the session grace (the world chain's `connecting` stands in for a lost peer), the autopilot / vehicle
+                       # inertia reset (no vehicles), the full map's location pick (`location` stays 0), the camera keys'
+                       # raw XInput, and the host side beyond HostDialogFlags (`host_dialog_flags`) and its world MAPJUMP
+                       # intent (`host_field_intent`: the stub transports carry both). Faults: WORLD_FAULTS.
+                       "worldwait": ("s144", ())}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -307,6 +334,8 @@ NETSYNC_S140_CAPS = frozenset(("dressself",))
 NETSYNC_S141_CAPS = frozenset(("dresspolish",))
 #: [ff9mapkit netsync s143] The leader-guard rung (its calibration, s141, is ``caps_through("dresspolish")``).
 NETSYNC_S143_CAPS = frozenset(("leaderguard",))
+#: [ff9mapkit netsync s144] The world-map co-op rung (its calibration, s143, is ``caps_through("leaderguard")``).
+NETSYNC_S144_CAPS = frozenset(("worldwait",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -386,6 +415,9 @@ NETSYNC_BATTLE_CAP_KEYS = {
     # `peer.ready_mask`) -- two FIXED sub-objects (battlewire.GUARD_HOST_SENTINELS / GUARD_PEER_SENTINELS); its field
     # half is `netsync.dress.guard` (NETSYNC_DRESS_CAP_KEYS)
     "leaderguard": {"host": ("guard",), "peer": ("guard",)},
+    # [ff9mapkit netsync s144] nothing under `netsync.battle`: `world` is a TOP-LEVEL netsync block (NETSYNC_TOP_CAP_KEYS) and
+    # `session`'s two keys are NETSYNC_SESSION_KEYS_S144
+    "worldwait": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -405,7 +437,8 @@ NETSYNC_DIORAMA_NESTED_KEYS = {"swirl": {"intro": ("swirl_clamp",)}}
 #: [ff9mapkit netsync R3 s120/s121] The TOP-LEVEL `netsync` blocks a battle capability adds, in the agent's order --
 #: between `diorama` and `battle` (AppendSession, AppendMenuRefusal); [ff9mapkit netsync s138] and `dress` AFTER `battle`
 #: (AppendDress: netsync's LAST key).
-NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",), "dressinstr": ("dress",)}
+NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",), "dressinstr": ("dress",),
+                        "worldwait": ("world",)}                 # [ff9mapkit netsync s144] netsync's LAST key, after `dress`
 #: [ff9mapkit netsync s138] The keys each dress rung adds INSIDE `netsync.dress`, in AppendDress's order (s139 appends
 #: `codec` and `rig_idle_frames`, s140 `self`) -- the dress key law: every one under `netsync.dress`, never `netsync.battle`
 #: (the action-replay audit's 4.3).
@@ -462,9 +495,18 @@ NETSYNC_DIORAMA_LIVE_KEYS = ("latched", "ms", "nonce")
 #: AppendMenuRefusal).
 NETSYNC_DIORAMA_HOLD_KEYS = ("state", "since_ms", "cap_ms", "settle_ms", "holds", "resumes", "gaveup", "last_ms",
                              "peer_alive", "host_field", "terminal", "why")
+#: [ff9mapkit netsync s144] `session`'s two keys at its end (AppendSession: the overlay's words, the follow's own state) -- an
+#: s120-s143 engine's `session` is the prefix before them
+NETSYNC_SESSION_KEYS_S144 = BW.SESSION_KEYS_S144
 NETSYNC_SESSION_KEYS = ("grace_ms", "state", "left_ms", "out_ms", "outages", "resumes", "gaveup", "last_ms", "peer_alive",
                         "seen_live", "mirroring", "ramp_pending", "ramp_cause", "overlay", "overlay_detail", "ghost",
-                        "ghost_held")
+                        "ghost_held") + NETSYNC_SESSION_KEYS_S144
+#: [ff9mapkit netsync s144] `netsync.world` and `session.follow`, in AppendNetsyncWorld's / AppendSessionFollow's order
+NETSYNC_WORLD_KEYS = tuple(BW.WORLD_SENTINELS)
+NETSYNC_WORLD_FREEZE_KEYS = tuple(BW.WORLD_FREEZE_SENTINELS)
+NETSYNC_WORLD_REJOIN_KEYS = tuple(BW.WORLD_REJOIN_SENTINELS)
+NETSYNC_WORLD_WAITLINE_KEYS = tuple(BW.WORLD_WAITLINE_SENTINELS)
+NETSYNC_SESSION_FOLLOW_KEYS = tuple(BW.SESSION_FOLLOW_SENTINELS)
 NETSYNC_MENU_REFUSAL_KEYS = ("now", "count", "lines", "silent", "last_state", "last_field", "age_ms", "muted")
 #: [ff9mapkit netsync s131] `netsync.battle.peer.expired`, in AppendPeerExpired's order (battlewire.PeerLane.doc).
 NETSYNC_PEER_EXPIRED_KEYS = tuple(BW.PEER_EXPIRED_SENTINELS)
@@ -812,6 +854,62 @@ FAKE_RIG_IDLE_FRAMES_S139 = BW.RIG_IDLE_FRAMES[:BW.RIG_ROW_COUNT_S139]
 #:   "lever_stuck"    the harness release leaves `bench leaderguard off` pulled
 GUARD_FAULTS = ("keys_raw", "lanes_raw", "header_raw", "line_text", "field_raw", "appear_relatch", "moves_any",
                 "leader_none", "lever_stuck", "roster_raw", "hold_raw", "line_unshown", "leader_fixed_zidane")
+#: [ff9mapkit netsync s144] THE WORLD MAP's FAULT LEVERS (FakeGame.world_faults): each breaks ONE piece of s144, so a test can
+#: show a check red exactly where it should (tests/test_world_coop_harness.py's WORLD_FAULT_REDS -- a value OTHER than the
+#: engine's, never an absent key):
+#:   "dispatch_ungated"   the dispatcher asks the freeze (`skips` / `edges` count, `on` reads true) but moves the walker anyway
+#:   "keys_unmasked"      the world dispatchers' control-on polls keep s143's F1 mask while frozen (`keys` never counts)
+#:   "keys_counted_s143"  [review] the frozen branch COUNTS (`keys` +1, its line) but returns s143's F1 mask: Cancel (dismount /
+#:                        land) still passes aboard a vehicle -- the F2 Confirm row cannot see it (F1 masks Confirm either way)
+#:   "fullmap_open"       WorldHUD opens the full map while frozen (the HUD -> FullMap step never asks RefuseWorldUi: `map`
+#:                        never counts, the dispatcher stops being asked)
+#:   "lever_ignored"      the freeze rule never reads `bench worldfreeze off` (`off` reads true, the walker stays held)
+#:   "lever_stuck"        the harness release leaves `bench worldfreeze off` pulled
+#:   "bench0_stuck"       the freeze never sees SpectatorField fall: `bench 0` leaves the walker held (the control row)
+#:   "edge_once"          the edge latch reads only "the last dispatch held" and no field load resets it (a later world visit
+#:                        counts no edge)
+#:   "hold_unlatched"     a spectator's own WorldMap() exit never latches the source-field hold (`follow.hold` stays -1)
+#:   "battle_nextmode"    the world battle verb writes nextMode 2 from outside (the world strands: next_mode 2, never a battle)
+#:   "battle_field_return" a world battle ends back on the departed FIELD (prevMode 1), not the world map
+#:   "rejoin_field_recipe" the rejoin arms the FIELD recipe on the world map (`arms` counts; nothing leaves; the 5 s timeout)
+#:   "rejoin_departed"    the follow compares fldMapNo on the world map (s143): the host on the departed field reads arrived
+#:   "rejoin_no_snapshot" the arm skips the fresh-snapshot gate (a stale lane arms; the landing applies no story)
+#:   "rejoin_no_hold"     the arm ignores the source-field hold (the guest is pulled straight back into the field it left)
+#:   "line_s143"          the world guest's overlay chain is absent (s143's `local == null -> off`: a world guest sees nothing)
+#:   "tail_s143"          the field chain keeps s143's bare 'waiting' line while the host is off-field
+#:   "redirect_bounce"    a world script's Field() on a following guest is bounced to fldMapNo (s143's RedirectGuestFieldJump)
+#:   "counters_dark"      the dispatcher holds the walker but never counts (`skips` / `edges` stay: the engine's claim lies)
+#:   "arm_uncounted"      the rejoin arms and lands but never stamps `arms` / `last` (the keys lie)
+#:   "latch_free"         [review] the shared latch reads free whatever its terms (a battle's swirl too) -- the real B2 red. (The
+#:                        latch's nextMode term alone has no in-game red: the tick that writes nextMode 2 also writes mode 2 and
+#:                        attr 0x1000, and the mode term comes first -- only the engine selftest's mutant row pins it.)
+#:   "stale_warpedto"     [review] s143's follow latch: a field follow's same-destination stamp survives the guest's own WMAPJUMP
+#:                        and the world map (no cancel, no WorldFollowLatch) -- the host back on that field never re-arms the rejoin
+#:   "redirect_unfollowed" [review] the redirect rule has no following term: an unfollowed guest still mirroring is redirected
+#:                        into the host's field (and lands there with no snapshot)
+#:   "entrance_unseeded"  [review] the arm seeds no FieldEntrance: a landing whose snapshot went stale carries the world's own
+#:   "pass_entrance_host" [review] a passed world entry keeps no entrance of its own: the landing's apply leaves the host's
+#:   "skip_unconsumed"    [review 2] SkipWorldScriptedBattle consumes no press: the quicksand's skipped Battle(0, 144) continues
+#:                        inline and the dispatcher's location poll re-reads a released guest's Confirm (the default-routed
+#:                        prologue: control off, FieldEntrance 9999, no field -- the strand)
+#:   "redirect_unheld"    [review 2] the redirect rule has no hold term: inside the source-field hold a world script's own
+#:                        Field() is rewritten into the field the guest just left
+#:   "landing_unheld"     [review 2] s144-as-built's landing: the hold ends at EVERY field load and the follow's debounce
+#:                        survives it -- the field follow on a passed landing chases straight back into the field the guest left
+#:   "rejoin_unarmed"     [s144 bench] the follow's WORLD branches are absent (ServiceIntentFollow consumes the host's intent,
+#:                        FollowHostTick fires nothing on the world map): a guest on the world map NEVER arms -- `arms` stays, no
+#:                        rejoining line, it never leaves (the bracket-law D3 must still read red)
+WORLD_FAULTS = ("dispatch_ungated", "keys_unmasked", "keys_counted_s143", "fullmap_open", "lever_ignored", "lever_stuck",
+                "bench0_stuck", "edge_once", "hold_unlatched", "battle_nextmode", "battle_field_return", "rejoin_field_recipe",
+                "rejoin_departed", "rejoin_no_snapshot", "rejoin_no_hold", "line_s143", "tail_s143", "redirect_bounce",
+                "counters_dark", "arm_uncounted", "latch_free", "stale_warpedto", "redirect_unfollowed", "entrance_unseeded",
+                "pass_entrance_host", "skip_unconsumed", "redirect_unheld", "landing_unheld", "rejoin_unarmed")
+#: [ff9mapkit netsync s144 review 2] the stand-in's FIELD follow (opt-in ``FakeGame.coop_field_follow``): StartFollowWarp's fade, in
+#: frames, before ServiceFollowWarp lands the field
+FIELD_FOLLOW_FADE_FRAMES = 12
+#: [ff9mapkit netsync s144 review 2] Memoria.log's writers are serialised (Memoria.Prime.Log is): the stand-in's loop, a stub peer's
+#: thread and a stub transport each append a line, and two Windows append handles racing can clobber each other's line
+_MLOG_LOCK = threading.Lock()
 #: [ff9mapkit netsync s143] how long the stand-in's battle message window shows a line (BattleMessageTimeTick / 15 at the
 #: default `btl_msg`, rounded): `battle.message` reads it that long
 FAKE_BATTLE_MESSAGE_S = 2.0
@@ -887,6 +985,9 @@ def _int32(text) -> int | None:
 #: [ff9mapkit netsync F3.3] Section 7's host flags (NetSyncDialog.Hf*): b0 the sticky scene, b1 control, b2 an
 #: input-taking line open, b3 on a live field, b4 a non-HUD UI, b5 in battle.
 HF_SCENE, HF_CONTROL, HF_LINE, HF_ON_FIELD, HF_MENU, HF_BATTLE = 0x01, 0x02, 0x04, 0x08, 0x10, 0x20
+#: [ff9mapkit netsync s144] ...and b6 / b7 (NetSyncDialog.HfWorld / HfTitle): the host on the live world map, at the title screen
+#: (additive under v14 -- the stand-in's bench host never sets them: it hosts no world map).
+HF_WORLD, HF_TITLE = BW.HF_WORLD, BW.HF_TITLE
 #: [ff9mapkit netsync F3.3] An open window's wflags (NetSyncDialog.Wf*), and the KEY / ADV-CHO kinds.
 WF_CHOICE, WF_COMPLETE, WF_INH = 0x01, 0x02, 0x04
 KIND_ADV, KIND_CHO, KIND_KEY = 0, 1, 2
@@ -1586,6 +1687,92 @@ class FakeGame:
         #: The default is today's pair; the engine's set is :data:`SOFT_RESET_ENGINE_UI` (BattleHUD among them,
         #: BattleResult never). A playing movie swallows the combo whatever this says.
         self.soft_reset_ui: tuple = ("FieldHUD", "WorldHUD")
+        #: [ff9mapkit netsync s144] THE WORLD MAP (the `worldwait` rung; see its NETSYNC_BATTLE_CAPS note). The freeze's statics
+        #: (NetSyncField): the `bench worldfreeze off` lever, the ~ release latch, the edge latch (the last dispatch held, at
+        #: which world tick) and the six counters `netsync.world.freeze` publishes
+        self._wf_off = False
+        self._wf_released = False
+        self._wf_held = False
+        self._wf_counter_at = 0
+        self._wf_n = {"edges": 0, "skips": 0, "keys": 0, "map": 0, "location": 0, "battles": 0}
+        #: [ff9mapkit netsync s144] the world's test seams: the walker's IDALL area / topograph (52 = no battles there), the bee
+        #: scene, location tiles a Confirm enters (``{field: (x, z, r)}``: the dispatcher's MAPJUMP), WorldHUD's full map
+        #: (w_naviMode 2), the world -> field fade and a world battle's swirl (world ticks), the next world tick's OWN
+        #: w_frameMainRoutine result (0 = quiet; a nonzero one only drops an armed world battle: the stand-in starts no
+        #: transition of its own for it), Battle.mapName (None = every scene registered) and ValidateWireBoot's own reason
+        #: (None = the scene boots), ForkSiblingField (``{donor: fork}``), fields this install lacks, the session code / relay
+        #: the overlay's words name, and the fault levers (WORLD_FAULTS)
+        self.world_area = 0
+        self.world_topo = 0
+        self.world_bee = False
+        self.world_locations: dict = {}
+        #: [ff9mapkit netsync s144 bench] WorldHUD.currentState -- "HUD" (the minimap on), "FullMap" (w_naviMode 2) or
+        #: "HUDNoMiniMap" -- and ff9.w_naviMode's saved byte (gEventGlobal[100], byte_gEventGlobal_updateNaviMode). A world load's
+        #: WorldHUD.Show reads its persisted state first -- an open full map entered from a field is ForceCloseFullMap'd (HUD,
+        #: w_naviMode 1) -- else picks HUDNoMiniMap at 0 and HUD at 1, after w_naviSystemConstructor resets a saved 2 to 0
+        #: (#697): so a NEW GAME's world map lands in HUDNoMiniMap (the s144 in-game probe: no minimap on screen after the walk
+        #: out of 6603), and Select cycles HUD -> FullMap -> HUDNoMiniMap -> HUD (WorldHUD.OnKeySelect, :meth:`_world_select`;
+        #: the world load, :meth:`_world_load`). The earlier seam ``world_full_map`` reads / writes the FullMap state.
+        #: ``world_title_ticks``: the arrival title's world ticks after a world load, while enableMapButton is false
+        #: (ff9.w_naviTitleElement) -- Select's HUD -> FullMap and HUDNoMiniMap -> HUD steps do nothing then (FullMap ->
+        #: HUDNoMiniMap needs no button); 0 (the default) models no title. STOCK RUNS THE TITLE ONLY ON THE FOUR STORY SCENE
+        #: POINTERS (w_frameScenePtr 2400 / 5990 / 9605 / 9890 set w_naviTitle; every other world entry leaves it -1 and
+        #: w_naviService never calls the title -- ff9.cs), for its closeTime (~200 world ticks with the defaults): a test that
+        #: sets it is modelling one of those entries, never a scenario-0 New Game's (the bench's), and the stand-in applies it
+        #: after EVERY world load while set.
+        self.world_hud_state = "HUDNoMiniMap"
+        self.world_navi = 0
+        self.world_title_ticks = 0
+        #: [ff9mapkit netsync s144 bench] EmitFieldIntentIfHost's mode-3 branch, the HOST side: a world script's own Field() on a
+        #: non-spectator announces where the host really lands (ForkSiblingField) -- (nonce, field), None before the first. The
+        #: stub transports carry it as section 4 (the duo smoke's Link -> :meth:`host_intent`): the in-game duo's guest armed off
+        #: this intent at once, with no serial debounce.
+        self.host_field_intent = None
+        self.world_exit_frames = 6
+        self.world_swirl_frames = 4
+        self.world_tick_result = 0
+        self.battle_map_names: set | None = None
+        self.world_battle_boot_refusal: str | None = None
+        self.fork_siblings: dict = {}
+        self.unregistered_fields: set = set()
+        self.session_code = ""
+        self.relay_url = "ws://127.0.0.1:49201"
+        self.world_faults: set = set()
+        #: [ff9mapkit netsync s144 bench] THE TRANSPORT's life (NetSyncClient.Update's dial): an enabled client instance with a
+        #: code makes its socket on the first frame the dial gate holds (:meth:`dial_ready`) and keeps it in every scene until a
+        #: transport config change drops it (ApplyConfigChange) -- the T2 smoke's stub peer connects whenever it exists. The
+        #: ini a stub IniGuard wrote waits in ``_ini_pending`` until something reads it: an existing instance's 2 s poll, else
+        #: the next NetSyncClient.Ensure (a field load on every rung, a world load from s144). ``_no_code``: the dial gate held
+        #: with an empty SessionCode (SetOverlay(OvlNoCode): the overlay reads "no_code", no socket).
+        self.dial_socket = False
+        #: [review] test seam: the host's state lane goes stale right after the next world arm (its landing applies nothing)
+        self.coop_stale_after_arm = False
+        #: [review 2] test seam (opt-in; off, every earlier test reads as before): FollowHostTick's FIELD branch -- on FieldHUD the
+        #: host's field held FOLLOW_STABLE_MS, registered and outside the source-field hold that rode onto this field, starts the
+        #: field follow (StartFollowWarp: its fade, FIELD_FOLLOW_FADE_FRAMES) and lands it (a field load). The stand-in otherwise
+        #: models no field follow's landing.
+        self.coop_field_follow = False
+        self._ini_pending: dict | None = None
+        self._ini_sig = None
+        self._no_code = False
+        #: [ff9mapkit netsync s144] Ff9mkDebugMenu.HarnessStatus (`debug_status`): the world battle verb's status lines
+        self.debug_status: str | None = None
+        #: [ff9mapkit netsync s144] the followed client (opt-in: :meth:`follow_session`) -- None = no transport, as ever
+        self.coop_follow: dict | None = None
+        self._registered_cache: set | None = None
+        # the world tick (w_frameCounter, FF9World.map.nextMode, w_moveCHRControl_Move), a field entry / a battle's swirl in
+        # flight, the world battle one-shot, the world a world battle returns to, the last UI seen, EventEngine.gMode
+        self._wt = {"counter": 0, "next_mode": 3, "moved": False, "exit": None, "swirl": None, "arm": None,
+                    "from_world": None, "last_ui": None, "gmode": 0}
+        # the world rejoin (NetSyncClient): the arm, the hold, the latch, the follow's debounce, the counters, the F11 latch
+        self._wj = {"armed": -1, "since": 0.0, "hold": -1, "hold_since": 0.0, "why": None, "last": -1, "latch": False,
+                    "logged": None, "warped_to": -1, "candidate": -1, "cand_since": 0.0, "arms": 0,
+                    "lands": 0, "timeouts": 0, "redirects": 0, "rearms": 0, "tp": None, "pending": -1,
+                    "pass_field": -1, "pass_entrance": 0, "pending_due": None, "field_held_logged": False}
+        # the waiting line (NoteHostWhere's reads, the field-0 debounce, the asked overlay state and its words)
+        self._wl = {"host_world": False, "host_title": False, "away_armed": False, "away_since": 0.0, "away_due": False,
+                    "asked": -1, "detail": 0, "text": None, "line": None, "fallback": False, "keep": False}
+        self._decline_world: dict = {}
         #: H9: True -- ``warp`` refuses unless ui_state is "FieldHUD", as the agent does (Ff9mkDebugMenu.Warp is false
         #: off the field HUD, and HarnessAgent throws "warp refused (not on a field?)"): nothing is written, nothing
         #: moves. False (the default): today's fake, a warp from any state.
@@ -2167,6 +2354,9 @@ class FakeGame:
                 self._drain()
                 self._check_soft_reset()
                 self._step_world()
+                self._step_dial()           # [ff9mapkit netsync s144 bench] the transport's birth (the dial gate)
+                self._step_world_coop()     # [ff9mapkit netsync s144] the world map: the latch, the hold, the rejoin, the line
+                self._step_follow_pair()    # [ff9mapkit netsync s144 bench] the followed client's same-field kick (opt-in)
                 self._step_scene()
                 self._step_machine("agent_last")
                 self._step_battle()
@@ -2358,6 +2548,8 @@ class FakeGame:
             self.field_id = 70
             self.control = True
             self._self_on_load(cold=True)               # [ff9mapkit netsync s140] New Game's field 70 (excluded)
+            self._world_field_load()                    # [ff9mapkit netsync s144] every field load's world half
+            self.world_navi = 0                         # [ff9mapkit netsync s144 bench] gEventGlobal[100] zeroed: no minimap
             # H17: New Game rebuilds every player with its CharacterDefaultName (FF9Play_New, ff9play.cs:131-144): a
             # name an earlier run saved never reaches this one's [STNR] pages (the review, research/o6_design.md 11.7 #2)
             self.names = {}
@@ -2386,6 +2578,7 @@ class FakeGame:
             self.climbing = False              # ...and any climb
             self._frozen_frames = self._frozen_ticks = 0      # ...and any freeze
             self._lock, self._coll = 0.0, 0.0
+            self._world_field_load()           # [ff9mapkit netsync s144] every field load's world half
             self._block(3)
         elif op == "battle":
             brand = False
@@ -2397,10 +2590,16 @@ class FakeGame:
                     raise RuntimeError("expected `battle <scene> [group] [rand|1|0]`, got '" + " ".join(args)
                                        + "'\r\nParameter name: battle")
                 brand = ra != "0"
-            if self.ui_state != "FieldHUD":
-                raise RuntimeError("battle: field only")
-            self.start_battle(num(0, -1), group=num(1, -1), rand=brand)
-            self._block(3)
+            if self._ww() and self.ui_state == "WorldHUD":
+                # [ff9mapkit netsync s144] ON THE WORLD MAP the verb arms a REAL own world battle (Ff9mkDebugMenu.StartWorldBattle:
+                # the native encounter start at the next quiet world tick, :meth:`_world_battle_verb`); s143 refuses it here
+                self._world_battle_verb(num(0, -1), num(1, -1), brand)
+                self._block(2)
+            else:
+                if self.ui_state != "FieldHUD":
+                    raise RuntimeError("battle: field only")
+                self.start_battle(num(0, -1), group=num(1, -1), rand=brand)
+                self._block(3)
         elif op == "battlecmd":
             self._race_end(op)
             if not self.battle_active:
@@ -2418,6 +2617,16 @@ class FakeGame:
             self.field_id = num(0, -1)
             self.ui_state = "FieldHUD"
             self.control = True
+            # [ff9mapkit netsync s144] a FIELD START, as `warp`'s (the s144 bench re-enters 6603 from the world map and walks
+            # out again): the new visit's actor at the field's spawn -- never the world position x 256 the walker left --
+            # the guest's and the dress's field-load halves, no exit or trigger carried in
+            self.player = [0.0, 0.0, 0.0]
+            self._visit += 1
+            self._in_trigger.clear()
+            self._exit = None
+            self._guest.field_load()
+            self._self_on_load(cold=True)
+            self._world_field_load()                    # [ff9mapkit netsync s144] every field load's world half
             self._block(3)
         elif op == "teleport":
             if self.ui_state != "WorldHUD":
@@ -2544,8 +2753,8 @@ class FakeGame:
                 self._fire_contacts()           # CollisionRequest: every tick he has control, moving or not
         if self._plan is None and self.ui_state == "FieldHUD" and self.control:
             self._player_plan()                 # a frame no tick ran on still reads the pad: a coast frame is spent
-        if self.ui_state == "WorldHUD" and self.overworld is not None:
-            self._step_overworld()
+        if self.ui_state == "WorldHUD" and (self.overworld is not None or self._ww()):
+            self._step_overworld()                  # [ff9mapkit netsync s144] the world tick runs with no walking model too
 
     def _step_overworld(self) -> None:
         """One frame on foot on the overworld (see ``overworld``): the bumpers turn the camera, "up" walks
@@ -2554,6 +2763,26 @@ class FakeGame:
         import math
         ow = self.overworld
         if self.world["x"] is None:
+            return
+        # [ff9mapkit netsync s144] ONE WORLD TICK a frame: w_frameCounter, then WMScriptDirector's transitions (a field entry's
+        # fade, a battle's swirl, the world battle one-shot) -- a tick that belongs to one moves nobody (every rung: a world
+        # location's field entry is stock; the battle verb and the freeze are s144's)
+        self._wt["counter"] += 1
+        self._wt["moved"] = False
+        if self._world_tick():
+            return
+        if self.world_full_map:
+            return                                  # w_naviMode 2: the dispatcher is not asked
+        if not self.control:
+            return                                  # [ff9mapkit netsync s144] w_movementControl runs only under GetUserControl (ff9.cs 5185)
+        if self._ww():
+            # THE WORLD FREEZE: ff9.cs's one movement-input dispatcher (w_movementControl), its LAST conjunct (asked only when
+            # the dispatch would run: the full map shut) -- neither the bumpers' camera nor the walk runs, the walker idles in
+            # place, its height kept. The `dispatch_ungated` fault asks it (counted, `on` true) and runs the dispatch anyway.
+            if self._world_freeze_hold() and "dispatch_ungated" not in self.world_faults:
+                self.player = [self.world["x"] * 256.0, getattr(self, "_ow_y", 0.0) * 256.0, self.world["z"] * 256.0]
+                return
+        if ow is None:
             return
         turn = float(ow.get("turn", 2.8125))
         if self._is_held("leftbumper") or self._is_held("l1"):
@@ -2575,6 +2804,7 @@ class FakeGame:
             if blocked is None or not blocked(nx, nz):
                 x, z = nx, nz
                 self.world["x"], self.world["z"] = x, z
+                self._wt["moved"] = True            # [ff9mapkit netsync s144] w_moveCHRControl_Move
                 height = ow.get("height")
                 self._ow_y = float(height(x, z)) if height is not None else 0.0
         y = getattr(self, "_ow_y", 0.0)
@@ -3250,6 +3480,21 @@ class FakeGame:
             self.control = False
             self._coast = None
             return
+        if r.get("world") is not None:
+            # [ff9mapkit netsync s144] a FIELD script's WorldMap(W) exit (WMAPJUMP): ``"world": W`` and ``"world_at": [x, z]``
+            # (where the walker stands on it) -- the switch a fade later lands on WorldHUD (:meth:`_world_exit_from_field`).
+            # Every rung: the exit is STOCK (the s144 bench calibrates its 6603 walk-out on the s143 stand-in too); only the
+            # source-field hold inside it is s144's
+            self.fired.append({"frame": self.frame, "from": self.field_id, "to": None, "world": int(r["world"]),
+                               "executed": len(self.executed)})
+            self.control = False
+            self._coast = None
+            at = tuple(float(v) for v in r.get("world_at", (100.0, 100.0)))
+            self._exit = (self.frame + self.exit_frames, ("world", int(r["world"]), at), (0, 0))
+            self._arrive_control = True
+            if self.exit_frames <= 0 and self._exit_open():
+                self._step_exit_now()
+            return
         if r.get("to") is None:
             return
         self.fired.append({"frame": self.frame, "from": self.field_id, "to": int(r["to"]),
@@ -3279,6 +3524,11 @@ class FakeGame:
         _due, dest, arrive = self._exit
         self._exit = None
         self._walkout = None                       # H16: the field changes under the walk-out
+        if isinstance(dest, tuple):                # [ff9mapkit netsync s144] a WorldMap() exit: the world loads instead
+            if self.overworld is None:
+                self.overworld = {"speed": 2.0, "turn": 2.8125, "cam": 0.0, "lag": 1}
+            self._world_exit_from_field(dest[1], dest[2][0], dest[2][1])
+            return
         self.field_id = dest
         self._visit += 1
         self._guest.field_load()                   # s96: a gateway's load re-arms the panic unlock (to the same field too)
@@ -3291,6 +3541,7 @@ class FakeGame:
         self._coast = None
         self.control = self._arrive_control        # the firing region's ``arrive_control`` (see `regions`)
         self._arrive_control = True
+        self._world_field_load()                   # [ff9mapkit netsync s144] every field load's world half
 
     # -- the in-place turn (memoria-patch s90) ------------------------------------------------------
     # Modelled as the agent's CONTRACT (the s90 DRIVER.md, and where they differ HarnessAgent.cs: BeginTurn,
@@ -3653,6 +3904,8 @@ class FakeGame:
     def _menu_step(self, button: str) -> None:
         if AGENT_CONTROL.get(str(button).lower()) == "menu" and self._menu_key_press():
             return      # [ff9mapkit netsync R3 s121] a mirroring guest's Menu key: s38's refusal (s121: audible on the HUDs)
+        if self.ui_state == "WorldHUD" and (self._ww() or self.world_locations) and self._world_key(button):
+            return      # [ff9mapkit netsync s144] the world map's own keys: the full map, the dispatchers' polls, a location
         if button in GUEST_DIALOG_KEYS and self._guest_suppress():
             return      # s96: UIKeyTrigger swallows a following guest's dialogue keys under the lock (and the cursor holds)
         if button in ("confirm", "ok", "cancel", "back", "b") and self.dialog_inh and self._dialog_open():
@@ -3717,6 +3970,7 @@ class FakeGame:
         px, py, pz = self._pos_before if self.publish_lag is not None and self.publish_lag(self.frame) else self.player
         if not self.has_position:
             px = py = pz = None
+        ww = self._ww()                                 # [ff9mapkit netsync s144] the world map's keys
         doc = {
             "v": PROTOCOL if self.protocol is None else self.protocol, "frame": self.frame, "seq": self.seq, "ack": self.ack,
             "queue": len(self.queue),
@@ -3724,15 +3978,19 @@ class FakeGame:
             "armed": self.armed,
             "shots": self.shots_taken, "timescale": 1.0, "note": self.note,
             "error": self.error, "error_seq": self.error_seq,
-            "debug_status": None,
+            "debug_status": self.debug_status,          # [ff9mapkit netsync s144] Ff9mkDebugMenu.HarnessStatus
             "save_path": str(self.dir / "save" / "SavedData_ww.dat"),
             "save_sandboxed": self.save_sandboxed,
             # [ff9mapkit netsync F3.3] DIO-1: a booted diorama's battle is the debug scene (BattleUI's own recipe)
             "ui_state": self.ui_state, "scene": "BattleMapDebug" if self._dio["booted"] and self.battle_active
                                                  else "FieldMap", "fading": False,
-            "sys_mode": 1, "scenario": self.scenario,
-            "field": {"id": self.field_id, "name": f"FBG_FAKE_{self.field_id}"},
-            "world": dict(self.world),
+            # [ff9mapkit netsync s144] the world map's own mode (FF9StateSystem.mode 3) and, after it, `gmode` (EventEngine.gMode)
+            "sys_mode": 3 if ww and self.ui_state == "WorldHUD" else 1,
+            **({"gmode": self._wt["gmode"]} if ww else {}),
+            "scenario": self.scenario,
+            "field": {"id": self.field_id, "name": f"FBG_FAKE_{self.field_id}",
+                      **({"entrance": self._field_entrance()} if ww else {})},   # [ff9mapkit netsync s144] FieldEntrance
+            "world": {**self.world, **(self._world_live_doc() if ww else {})},   # [ff9mapkit netsync s144] AppendWorldLive
             # floor/tri mirror s83 faithfully, dead values and all: PosObj's battle-entry snapshot
             # reads 0/0 until the session's first battle (State.player_tri_battle_snapshot).
             "player": {"x": px, "y": py, "z": pz,
@@ -4305,6 +4563,9 @@ class FakeGame:
             return
         self.battle_result = result
         self.battle_bonus = {"exp": exp, "gil": gil, "ap": 3, "items": 1}
+        if self._wt["from_world"] is not None and self.battle_active:
+            self._world_battle_end()                # [ff9mapkit netsync s144] prevMode 3: back to the world map
+            return
         if self.battle_exit is not None and self.battle_active:
             # (1) the FADE (btl_scrp.cs:785-799: the result set, SEQ_DEFEATCLOSE_FADEOUT begun) -- fldMapNo still the
             # battle's field, the scene still up, the HUD asking nobody
@@ -4320,6 +4581,7 @@ class FakeGame:
         self.commands_enabled = False
         self.ui_state = "FieldHUD"
         self._guest.field_load()               # s96: the battle's return LOADS the field -- the panic unlock re-arms
+        self._world_field_load()               # [ff9mapkit netsync s144] every field load's world half
 
     def _step_battle_exit(self) -> None:
         """A `battle_exit` end, phase by phase, in the engine's order (research/o3_design.md 0.2 #8): the FADE runs
@@ -4347,6 +4609,7 @@ class FakeGame:
             self.ui_state = "FieldHUD"
             self._guest.field_load()               # s96: the exit field's load re-arms the panic unlock
             self._self_on_load(cold=False)         # [ff9mapkit netsync s140] a battle's return (Main_Reinit: WARM)
+            self._world_field_load()               # [ff9mapkit netsync s144] every field load's world half
             self.control = bool(ex.get("arrive_control", False))
             self._visit += 1                       # a fresh load: a new visit's actor
             self._in_trigger.clear()
@@ -4544,6 +4807,16 @@ class FakeGame:
             if sub == "bench" and bnop in ("lapse", "handback") and "handback" in self._nb_caps():
                 # [ff9mapkit netsync B4] s110: two NAMED ops of `bench` (an older agent's Arg() reads them as `bench 1`)
                 self._nb_bench_named(bnop, args, arg, int_min, out_of_range)
+                return
+            if sub == "bench" and bnop == "worldfreeze" and "worldwait" in self._nb_caps():
+                # [ff9mapkit netsync s144] the world freeze's lever (an older agent reads it as `bench 1`)
+                wf = args[2].lower() if len(args) > 2 else ""
+                if len(args) != 3 or wf not in ("on", "off"):
+                    raise out_of_range("netsync bench worldfreeze", "expected `netsync bench worldfreeze on|off`")
+                if not self._nb_role():
+                    raise RuntimeError(BW.WORLD_FREEZE_BENCH_REFUSAL)
+                self._wf_off = wf == "off"
+                self._mlog("[NetSync] " + (BW.LOG_WORLD_FREEZE_OFF if self._wf_off else BW.LOG_WORLD_FREEZE_ON))
                 return
             if sub == "bench" and bnop == "leaderguard" and "leaderguard" in self._nb_caps():
                 # [ff9mapkit netsync s143] the leader guard's lever (an older agent reads it as `bench 1`)
@@ -4836,6 +5109,8 @@ class FakeGame:
                 doc["battle"] = self._nb_doc()          # [ff9mapkit netsync B4] s100+
             if "dressinstr" in caps:
                 doc["dress"] = self._dress_doc()        # [ff9mapkit netsync s138] netsync's LAST key, after `battle`
+            if "worldwait" in caps:
+                doc["world"] = self._world_doc()        # [ff9mapkit netsync s144] ...and `world` after it, the LAST key
             return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
@@ -4921,12 +5196,29 @@ class FakeGame:
         (`grace_ms`, `mirroring` = :attr:`story_mirroring`) and the selftest role's own overlay ("off", detail 0, from its
         first tick) and ghost (the mirror beside the player on a field in scope)."""
         inst = bool(self.netsync["instance"])
-        return {"grace_ms": self._session_grace_ms(), "state": "none" if inst else None, "left_ms": -1, "out_ms": -1,
-                "outages": 0, "resumes": 0, "gaveup": 0, "last_ms": -1, "peer_alive": False, "seen_live": False,
-                "mirroring": bool(self.story_mirroring), "ramp_pending": False, "ramp_cause": None,
-                "overlay": "off" if inst and self._ovl_composed else None,
-                "overlay_detail": 0 if inst and self._ovl_composed else -1,
-                "ghost": inst and self._nb_role() and self._selftest_in_scope(), "ghost_held": False}
+        doc = {"grace_ms": self._session_grace_ms(), "state": "none" if inst else None, "left_ms": -1, "out_ms": -1,
+               "outages": 0, "resumes": 0, "gaveup": 0, "last_ms": -1, "peer_alive": False, "seen_live": False,
+               "mirroring": bool(self.story_mirroring), "ramp_pending": False, "ramp_cause": None,
+               "overlay": "off" if inst and self._ovl_composed else None,
+               "overlay_detail": 0 if inst and self._ovl_composed else -1,
+               "ghost": inst and self._nb_role() and self._selftest_in_scope(), "ghost_held": False}
+        if self._no_code and self.netsync["role"] == "client" and self.coop_follow is None:
+            doc.update(overlay=BW.overlay_name(BW.OVL_NO_CODE), overlay_detail=0)   # [s144 bench] OvlNoCode (every rung): no socket
+        if "worldwait" in self._nb_caps():
+            # [ff9mapkit netsync s144] AppendSession's last two keys: the overlay's WORDS (the selftest role asks for "off": none)
+            # and the follow's own state; on the followed client (:meth:`follow_session`) the overlay is Update's chain's
+            text = None
+            if self.coop_follow is not None and self.netsync["role"] == "client":
+                wl = self._wl
+                composed = wl["asked"] >= 0
+                doc.update(overlay=BW.overlay_name(wl["asked"]) if composed else None,
+                           overlay_detail=wl["detail"] if composed else -1,
+                           peer_alive=bool(self.coop_follow["valid"] and self.coop_follow["connected"]))
+                text = wl["text"]
+            elif self._no_code and self.netsync["role"] == "client":
+                text = BW.overlay_words(BW.OVL_NO_CODE)           # [s144 bench] OvlNoCode's words (the overlay set above)
+            doc.update(overlay_text=text, follow=self._session_follow_doc())
+        return doc
 
     def _selftest_in_scope(self) -> bool:
         """NetSyncClient.Update's selftest `inScope` (approximated): on a field (gMode 1, its fieldmap up) -- not the
@@ -5261,6 +5553,1014 @@ class FakeGame:
             self._polish_proof()                        # [ff9mapkit netsync s141] right after the self-dress line
         if self._lg():                                  # [ff9mapkit netsync s143] right after the dress polish line
             self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_LEADER_GUARD, BW.LEADER_GUARD_SELFTEST_ROWS))
+        if "worldwait" in self._nb_caps():              # [ff9mapkit netsync s144] right after the leader guard line
+            for head, n in ((BW.PROOF_WORLD_FREEZE, BW.WORLD_FREEZE_SELFTEST_ROWS),
+                            (BW.PROOF_WORLD_REJOIN, BW.WORLD_REJOIN_SELFTEST_ROWS),
+                            (BW.PROOF_OVERLAY_TEXT, BW.OVERLAY_TEXT_SELFTEST_ROWS)):
+                self._mlog("[NetSync] " + BW.proof_ok(head, n))
+
+    # -- [ff9mapkit netsync s144] WORLD-MAP CO-OP (the `worldwait` rung; see NETSYNC_BATTLE_CAPS for what it models) ----------
+    # The engine's pieces, each through battlewire's twin of its pure step: THE FREEZE (NetSyncField.WorldFreezeNow / Hold /
+    # Lift at the world's movement dispatcher, the key mask at the world dispatchers' polls, WorldHUD's two refusals, the
+    # spectator's own scripted world battles, the lever, the ~ release), THE WORLD TICK (w_frameCounter, nextMode, the
+    # walker's move flag; the world battle verb's one-shot; the world's own field entry with its fade), THE REJOIN on a
+    # FOLLOWED CLIENT (:meth:`follow_session`: the host lane's reads, the intent, the serial floor, the gates, the hold, the
+    # redirect, the latch, the timeout, the landing with the host's snapshot), THE WAITING LINE (Update's overlay chain:
+    # BW.guest_overlay_chain, the words, `waitline`). Faults: WORLD_FAULTS.
+    def _ww(self) -> bool:
+        return "worldwait" in self._nb_caps()
+
+    def _world_strict(self) -> bool:
+        """NetSyncClient.IsOnWorldNow as the stand-in reads it -- THE STRICT onWorld (gMode 3 AND the WorldMap scene): its
+        overworld HUD. A world battle's scene is BattleHUD here and a world -> field load lands FieldHUD, so gMode's lies
+        (it stays 3 through both) never reach it."""
+        return self.ui_state == "WorldHUD"
+
+    def _field_registered(self, fid) -> bool:
+        """EventEngineUtils.eventIDToFBGID.ContainsKey: a stock field (10-3100) or a FieldScene the install's DictionaryPatch
+        files register -- less ``unregistered_fields`` (a test's field this install lacks)."""
+        try:
+            fid = int(fid)
+        except (TypeError, ValueError):
+            return False
+        if fid in self.unregistered_fields:
+            return False
+        if 10 <= fid <= 3100:
+            return True
+        if self._registered_cache is None:
+            ids = set()
+            for p in self.game_path.glob("*/DictionaryPatch.txt"):
+                try:
+                    ids.update(int(m) for m in re.findall(r"^FieldScene (\d+)", p.read_text(encoding="utf-8"), re.M))
+                except OSError:
+                    pass
+            self._registered_cache = ids
+        return fid in self._registered_cache
+
+    def _live_followed(self) -> bool:
+        """NetSyncClient.IsLiveFollowedSession: a FollowHost client, connected, its position lane valid (the stand-in's
+        followed client, :meth:`follow_session`)."""
+        ns, cf = self.netsync, self.coop_follow
+        return bool(cf is not None and ns["enabled"] and ns["role"] == "client" and cf["valid"] and cf["connected"]
+                    and not cf.get("ramp"))
+
+    def _spectator(self) -> bool:
+        """NetSyncField.SpectatorField: a live followed session, the armed mirror (``story_mirroring``), or the selftest role
+        under `bench 1`."""
+        return bool(self._live_followed() or self.story_mirroring or (self._nb_role() and self.netsync["bench"]))
+
+    def _world_freeze_now(self) -> bool:
+        """NetSyncField.WorldFreezeNow: SpectatorField first, then the rule (BW.world_freeze_rule) over the lever, the role, the
+        ~ release and the bee scene. Faults: `lever_ignored` drops the lever's input; `bench0_stuck` holds a verdict that
+        held (SpectatorField's fall never read)."""
+        if not self._ww():
+            return False
+        spectator = self._spectator() or ("bench0_stuck" in self.world_faults and self._wf_held)
+        if not spectator:
+            return False
+        bench_off = self._wf_off and "lever_ignored" not in self.world_faults
+        return BW.world_freeze_rule(True, bench_off, self._nb_role(), self._wf_released, bool(self.world_bee))
+
+    def _world_frozen(self) -> bool:
+        """HarnessWorldFreezeOn: the live verdict while the WorldMap scene is the loaded level (false off it by construction)."""
+        return self._world_strict() and self._world_freeze_now()
+
+    def _world_freeze_why(self):
+        """HarnessWorldFreezeWhy: SpectatorField's term that holds it (BW.world_freeze_why_term), None when not frozen."""
+        if not self._world_frozen():
+            return None
+        return BW.world_freeze_why_term(self._live_followed(), bool(self.story_mirroring),
+                                        bool(self._nb_role() and self.netsync["bench"]))
+
+    def _world_freeze_hold(self) -> bool:
+        """NetSyncField.WorldFreezeHold, asked LAST at the dispatcher (only when the dispatch would run: the full map shut):
+        the skip, the rising edge over the world tick counter (BW.world_freeze_edge_step -- a world load
+        restarts the counter; the `edge_once` fault reads only the held latch) with its ON line, the fall with its lift line."""
+        if not self._world_freeze_now():
+            if self._wf_held or self._wf_released:
+                self._world_freeze_lift()
+            return False
+        counter = self._wt["counter"]
+        edge = (not self._wf_held) if "edge_once" in self.world_faults else \
+            BW.world_freeze_edge_step(self._wf_held, self._wf_counter_at, counter)
+        self._wf_held, self._wf_counter_at = True, counter
+        dark = "counters_dark" in self.world_faults
+        self._wf_n["skips"] += 0 if dark else 1
+        if edge:
+            self._wf_n["edges"] += 0 if dark else 1
+            self._mlog("[NetSync] " + BW.log_world_freeze_on(self._world_freeze_why(), self.world["id"]))
+        return True
+
+    def _world_freeze_lift(self) -> None:
+        """NetSyncField.NoteWorldFreezeLift: a release whose session is gone ends; the fall's line names why."""
+        spectator = self._spectator()
+        if self._wf_released and not spectator:
+            self._wf_released = False
+            self._mlog("[NetSync] " + BW.LOG_WORLD_FREEZE_RELEASE_ENDED)
+        if not self._wf_held:
+            return
+        self._wf_held = False
+        why = BW.world_freeze_lift_why(spectator, self._wf_off, self._nb_role(), self._wf_released, bool(self.world_bee))
+        self._mlog("[NetSync] " + BW.log_world_freeze_lifted(self.world["id"], why))
+
+    def _world_decline(self, what: str, latch: str | None = None) -> None:
+        """NetSyncField.DeclineOnceHere on the world map: one line per class per world map."""
+        key, wld = latch or what, self.world["id"]
+        if self._decline_world.get(key) == wld:
+            return
+        self._decline_world[key] = wld
+        self._mlog("[NetSync] " + BW.decline_line(what, f"world map {wld}"))
+
+    @property
+    def world_full_map(self) -> bool:
+        """[ff9mapkit netsync s144] WorldHUD's full map is open (w_naviMode 2): ``world_hud_state`` "FullMap"."""
+        return self.world_hud_state == "FullMap"
+
+    @world_full_map.setter
+    def world_full_map(self, value) -> None:
+        if value:
+            self.world_hud_state, self.world_navi = "FullMap", 2
+        elif self.world_hud_state == "FullMap":
+            self.world_hud_state, self.world_navi = "HUDNoMiniMap", 0
+
+    def _world_map_button(self) -> bool:
+        """WorldHUD.enableMapButton: false while the arrival title runs (``world_title_ticks`` world ticks after a world load;
+        stock runs that title only on the four story scene pointers -- see ``world_title_ticks``)."""
+        return int(self.world_title_ticks or 0) <= 0 or self._wt["counter"] >= int(self.world_title_ticks)
+
+    def _world_select(self, ww: bool) -> None:
+        """[ff9mapkit netsync s144 bench] WorldHUD.OnKeySelect's STOCK CYCLE (WorldHUD.cs 227-282), in its order: HUD with the map
+        button on -> FullMap, unless RefuseWorldUi refuses it (the world freeze: `map` +1, the buzz, one line per world map --
+        asked LAST, so ONLY at this step; the `fullmap_open` fault skips it) and the HUD stays; FullMap -> HUDNoMiniMap (the
+        stock close, frozen or not, no button needed); HUDNoMiniMap with the map button on -> HUD (the minimap on, never
+        refused). Each step saves w_naviMode (0 / 1 / 2). A New Game's world map lands in HUDNoMiniMap, so its FIRST Select only
+        turns the minimap on -- the s144 probe (select 1: `map` 0, select 2: `map` 1). The stand-in keeps its earlier gate: no
+        step but the close without control."""
+        st = self.world_hud_state
+        if st == "FullMap":
+            self.world_hud_state, self.world_navi = "HUDNoMiniMap", 0
+            return
+        if not self.control or not self._world_map_button():
+            return
+        if st == "HUD":
+            if ww and self._world_freeze_now() and "fullmap_open" not in self.world_faults:
+                self._wf_n["map"] += 1
+                self._world_decline(BW.WORLD_UI_DECLINE_MAP)
+            else:
+                self.world_hud_state, self.world_navi = "FullMap", 2
+        elif st == "HUDNoMiniMap":
+            self.world_hud_state, self.world_navi = "HUD", 1
+
+    def _world_key(self, button: str) -> bool:
+        """A key on WorldHUD (the `worldwait` rung), before the stand-in's own menu handling: Select runs WorldHUD.OnKeySelect's
+        stock cycle (:meth:`_world_select`: HUD -> FullMap -> HUDNoMiniMap -> HUD; the HUD -> FullMap step refused while frozen
+        -- RefuseWorldUi: `map` +1, the buzz, one line; the `fullmap_open` fault skips it) -- and Confirm / Cancel / Triangle /
+        Square reach the world dispatcher's CONTROL-ON poll through
+        FilterScriptButtons: a frozen spectator loses every host-owned key (`keys` +1 when the poll would have taken one; the
+        `keys_unmasked` fault keeps s143's F1 mask), any other spectator F1's Confirm / Special / Select. A Confirm that
+        survives on a ``world_locations`` tile is the dispatcher's MAPJUMP into it. True = handled (Triangle falls through
+        to the stand-in's main-menu key). An engine before s144 (no `worldwait`): the full map and the location as stock,
+        a spectator's poll through s143's F1 mask only. [review] Cancel never closes the full map (WorldHUD.OnKeyCancel's only
+        branch needs currentState != FullMap; held, it only hides the map's content) -- only a second Select does; a RELEASED
+        guest (the ~ menu) gets Confirm back (BW.released_world_script_keys); a Cancel that survives the mask aboard a vehicle
+        (``world['vehicle']`` = gEventGlobal[190] nonzero) dismounts -- the stand-in's model of the dispatchers' vehicle polls
+        (the in-game vehicle leg is the owner's)."""
+        ctl = AGENT_CONTROL.get(str(button).lower())
+        ww = self._ww()
+        if ctl == "select":
+            self._world_select(ww)
+            return True
+        if ctl == "cancel" and self.world_full_map:
+            return True                                # stock: Cancel on the full map closes nothing
+        if ctl not in ("confirm", "cancel", "menu", "special") or not self.control or self.world_full_map:
+            return False
+        keys = CONTROL_BITS[ctl]
+        if self._spectator():
+            frozen = ww and self._world_freeze_now()
+            if frozen and "keys_unmasked" not in self.world_faults:
+                if keys & BW.WORLD_POLL_READ_MASK & BW.HOST_OWNED_KEYS:
+                    self._wf_n["keys"] += 1
+                    self._world_decline(BW.WORLD_POLL_DECLINE)
+                keys = BW.control_on_script_keys(keys, "keys_counted_s143" not in self.world_faults)
+            elif ww and self._wf_released and not frozen:
+                if keys & BW.EV_SPECIAL:
+                    self._world_decline(BW.POLL_DECLINE_PICKUP)
+                keys = BW.released_world_script_keys(keys)
+            else:
+                if keys & (BW.EV_CONFIRM | BW.EV_SPECIAL) and ww:
+                    self._world_decline(BW.POLL_DECLINE_PICKUP)       # (s143's DeclineOnce named the departed field)
+                keys = BW.control_on_script_keys(keys, False)
+        if keys & BW.EV_CANCEL and int(self.world.get("vehicle") or 0) != 0:
+            self.world["vehicle"] = 0                  # the dispatcher's vehicle poll: off the chocobo / ship / airship
+        if keys & BW.EV_CONFIRM and int(self.world_area) == 52:
+            # [review 2] THE QUICKSAND (WORLD03 / WORLD09's dispatchers): its battle check polls Confirm with NO usercontrol term,
+            # then Battle(0, 144). A spectator's skip returns 0 and the script runs on INLINE into the location poll (`usercontrol
+            # && KEYON(Confirm)`: DisableMove / DisableMenu, a fade, FieldEntrance 9999, the area switch -- area 52 is its DEFAULT,
+            # past the EnableMove: no field, control off). SkipWorldScriptedBattle consumes the tick's press first
+            # (BW.world_skip_key_on; the `skip_unconsumed` fault leaves it).
+            if self.world_script_battle(144):
+                return True                            # no spectator: the fight starts (stock)
+            if "skip_unconsumed" not in self.world_faults:
+                keys = BW.world_skip_key_on(keys)
+            if keys & BW.EV_CONFIRM and self.control:
+                self.control = False                   # the prologue: DisableMove (the strand -- no EnableMove on the default)
+                self.story_bytes[2:4] = bytes((9999 & 0xFF, 9999 >> 8))   # Global.Int16[2] = 9999
+            return True
+        if keys & BW.EV_CONFIRM:
+            dest = self._world_location_at()
+            if dest is not None:
+                self._world_mapjump(dest)
+        return ctl != "menu"
+
+    def _world_location_at(self):
+        """The ``world_locations`` tile the walker stands on (a field id), or None."""
+        x, z = self.world["x"], self.world["z"]
+        if x is None:
+            return None
+        for fid, (tx, tz, r) in self.world_locations.items():
+            if (float(x) - float(tx)) ** 2 + (float(z) - float(tz)) ** 2 <= float(r) ** 2:
+                return int(fid)
+        return None
+
+    def _world_mapjump(self, dest: int) -> int:
+        """A world script's own Field(dest) (a location's MAPJUMP, an event world's): on a SPECTATOR guest
+        RedirectGuestFieldJump's mode-3 branch first (decision 6: BW.world_redirect_step -- never fldMapNo; the
+        `redirect_bounce` fault keeps s143's bounce to it), then WMScriptDirector case 4 -- nextMode 1, the shutdown, the
+        fade (``world_exit_frames``) and the field. Returns the field it heads for."""
+        to = int(dest)
+        if self._spectator():
+            host = self._last_host_field()
+            wld = self.world["id"]
+            if not self._ww() or "redirect_bounce" in self.world_faults:
+                to = to if to in (self.field_id, host) else self.field_id
+            else:
+                registered = host > 0 and host != 65535 and self._field_registered(host)
+                following = self._live_followed() or "redirect_unfollowed" in self.world_faults
+                land = self.fork_siblings.get(to, to)
+                held = self._hold_holds_for(host) and "redirect_unheld" not in self.world_faults   # [review 2] HoldHoldsFor(host)
+                to, code = BW.world_redirect_step(to, land, host, registered, self._host_snapshot(), following, held)
+                if BW.pass_keeps_own_entrance(code) and "pass_entrance_host" not in self.world_faults:
+                    self._wj["pass_field"], self._wj["pass_entrance"] = int(land), self._field_entrance() & 0xFFFF
+                if code == BW.REDIR_TO_HOST:
+                    self._seed_host_entrance()
+                    self._wj["redirects"] += 1
+                    self._mlog("[NetSync] " + BW.log_world_redirect(dest, to, wld))
+                else:
+                    self._mlog("[NetSync] " + BW.log_world_pass(dest, wld, code, host))
+        elif self._ww():
+            # [ff9mapkit netsync s144 bench] EmitFieldIntentIfHost's mode-3 branch: the host announces ForkSiblingField(dest)
+            n = ((self.host_field_intent or (0, 0))[0] + 1) & 0xFF
+            self.host_field_intent = (n, int(self.fork_siblings.get(to, to)))
+        self._world_exit_to(to)
+        return to
+
+    def _world_exit_to(self, dest: int) -> None:
+        """The world's own field entry (case 4 / StartWorldFollowWarp's levers): nextMode 1 and the shutdown armed now, the
+        field ``world_exit_frames`` world ticks later (ff9ShutdownStateWorldMap's Replace and its fade)."""
+        self._wt["next_mode"] = 1
+        self._wt["exit"] = (self.frame + max(1, int(self.world_exit_frames)), int(dest))
+
+    def _world_enter_field(self, dest: int) -> None:
+        """ff9ShutdownStateWorldMap case 1 + the field's load: ForkSiblingField's landing (``fork_siblings``), FieldHUD with
+        control, a fresh visit -- then every field load's s144 half (:meth:`_world_field_load`)."""
+        land = int(self.fork_siblings.get(int(dest), int(dest)))
+        self.field_id = land
+        self.ui_state = "FieldHUD"
+        self.control = True
+        self.player = [0.0, 0.0, 0.0]
+        self._visit += 1
+        self._in_trigger.clear()
+        self._exit = None
+        self._guest.field_load()
+        self._self_on_load(cold=True)
+        self._world_field_load()
+
+    def _world_load(self, prev_ui=None) -> None:
+        """A world scene's load (WMScriptDirector.HonoAwake, the world constructors, ff9InitStateWorldMap): w_frameCounter from
+        0, nextMode 3, no exit or swirl in flight, and WorldHUD's state as Show picks it -- ``prev_ui`` is the UI state the
+        world was entered FROM (UIManager.PreviousState at ff9.cs's ChangeUIState(WorldHUD))."""
+        wt = self._wt
+        wt.update(counter=0, next_mode=3, moved=False, exit=None, swirl=None)
+        # [ff9mapkit netsync s144 bench] WorldHUD.Show reads its PERSISTED currentState first (an instance field of the
+        # persistent UIManager scene: nothing resets it on hide): an open full map entered from a FIELD is ForceCloseFullMap'd
+        # -- HUD, w_naviMode 1, saved (WorldHUD.cs 32-37, 528-536); entered from anything else it stays open (Show's other
+        # branch -- no stand-in path reaches it: the battle verb and the main menu refuse under the full map). Otherwise
+        # w_naviSystemConstructor first (a saved 2 reloads as 0: #697 -- a save made with the map open, loaded cold), then
+        # Show by w_naviMode: 0 HUDNoMiniMap (a New Game's), 1 HUD.
+        if self.world_hud_state == "FullMap":
+            if prev_ui == "FieldHUD":
+                self.world_hud_state, self.world_navi = "HUD", 1
+        else:
+            if self.world_navi >= 2:
+                self.world_navi = 0
+            self.world_hud_state = "HUD" if self.world_navi == 1 else "HUDNoMiniMap"
+        if self._ww():
+            self._ensure_ini()                         # [ff9mapkit netsync s144] WMScriptDirector.HonoAwake's Ensure
+            if "edge_once" not in self.world_faults:
+                self._wf_held = False                  # OnWorldLoadWorldFreeze: the edge latch, and a release, end here
+            if self._wf_released:
+                self._wf_released = False
+                self._mlog("[NetSync] " + BW.LOG_WORLD_FREEZE_REARMED_WORLD)
+
+    def _world_field_load(self) -> None:
+        """Every field load before Main_Init (ApplyStoryBeforeEvents, every role) on the `worldwait` rung:
+        OnFieldLoadWorldFreeze (the edge latch forgets the world visit -- the `edge_once` fault keeps it --, a release ends
+        with its line), NoteWorldLanding (the hold ends; an armed rejoin lands: `lands` +1, its line, the same-destination
+        latch freed) and, on the followed client with a FRESH host snapshot, the snapshot applied: FieldEntrance the host's
+        (``coop_follow['entrance']``), the state mirror armed (``story_mirroring``)."""
+        if not self._ww():
+            return
+        if "edge_once" not in self.world_faults:
+            self._wf_held = False
+        if self._wf_released:
+            self._wf_released = False
+            self._mlog("[NetSync] " + BW.LOG_WORLD_FREEZE_REARMED)
+        wj, fld = self._wj, self.field_id
+        wj["logged"] = None
+        unheld = "landing_unheld" in self.world_faults           # [review 2] s144-as-built's landing
+        if not unheld:
+            wj["candidate"] = BW.landing_follow_candidate(self._wt["gmode"] == 3, wj["candidate"])
+        if wj["hold"] >= 0:
+            if BW.world_hold_carries(wj["hold"], fld) and not unheld:
+                self._mlog("[NetSync] " + BW.log_world_hold_rides(wj["hold"], fld))
+            else:
+                self._mlog("[NetSync] " + BW.log_world_hold_ended(wj["hold"], fld))
+                wj["hold"] = -1
+        if wj["armed"] >= 0:
+            wj["lands"] += 1
+            self._mlog("[NetSync] " + BW.log_world_rejoin_landed(fld, wj["armed"], int((self.rt - wj["since"]) * 1000)))
+            if wj["warped_to"] == wj["armed"]:
+                wj["warped_to"] = -1
+            wj["armed"] = -1
+        cf = self.coop_follow
+        if cf is not None and self.netsync["role"] == "client" and cf["fresh"] and not cf.get("ramp"):
+            self._apply_host_story()                    # [ff9mapkit netsync s144 bench] the snapshot (opt-in ``story``)
+            if cf.get("entrance") is not None:
+                v = int(cf["entrance"]) & 0xFFFF
+                self.story_bytes[2:4] = bytes((v & 0xFF, v >> 8))
+            self.story_mirroring = True
+            if BW.pass_entrance_restores(wj["pass_field"], fld):     # [review] RestorePassEntrance
+                own, host = wj["pass_entrance"], self._field_entrance() & 0xFFFF
+                self.story_bytes[2:4] = bytes((own & 0xFF, own >> 8))
+                self._mlog("[NetSync] " + BW.log_pass_entrance_kept(fld, own, host))
+        wj["pass_field"] = -1
+
+    def _world_exit_from_field(self, wld: int, x: float, z: float) -> None:
+        """A FIELD script's WorldMap(W) (WMAPJUMP): on a SPECTATOR guest NoteGuestWorldJump latches THE SOURCE-FIELD HOLD on
+        the field it leaves (decision 4; the `hold_unlatched` fault skips it); then the world loads at (x, z) -- fldMapNo
+        keeps the departed field (no world code writes it)."""
+        src = self.field_id
+        ns = self.netsync
+        if (self._ww() and self._spectator() and ns["enabled"] and ns["instance"] and src > 0
+                and "hold_unlatched" not in self.world_faults):
+            self._wj["hold"], self._wj["hold_since"] = src, self.rt
+            self._wj["field_held_logged"] = False
+            self._mlog("[NetSync] " + BW.log_world_hold_latched(src, wld))
+        wj = self._wj
+        if (self._ww() and self._spectator() and src > 0 and (wj["pending"] >= 0 or wj["warped_to"] >= 0)
+                and "stale_warpedto" not in self.world_faults):
+            self._mlog("[NetSync] " + BW.log_follow_cancelled(wj["pending"] if wj["pending"] >= 0 else wj["warped_to"], src))
+            wj["pending"], wj["warped_to"] = -1, -1
+        prev, self.ui_state = self.ui_state, "WorldHUD"
+        self.world.update(id=int(wld), x=float(x), z=float(z))
+        self.control = True
+        self._world_load(prev)
+        self._wt["last_ui"] = "WorldHUD"
+
+    def enter_world(self, wld: int = 9011, x: float = 100.0, z: float = 100.0, *, from_field: bool = False,
+                    entrance: int | None = None) -> None:
+        """[ff9mapkit netsync s144] Test convenience: stand the party on world map ``wld`` at (x, z) -- a world load, or (with
+        ``from_field``) the field script's own WorldMap() exit from the current field (:meth:`_world_exit_from_field`: the
+        source-field hold on a spectator). [review] ``entrance``: the FieldEntrance the world leaves in gEventGlobal[2..3] (the
+        exit field's region key, or a world script's sentinel) -- what a landing with no host snapshot would carry."""
+        if self.overworld is None:
+            self.overworld = {"speed": 2.0, "turn": 2.8125, "cam": 0.0, "lag": 1}
+        if entrance is not None:
+            v = int(entrance) & 0xFFFF
+            self.story_bytes[2:4] = bytes((v & 0xFF, v >> 8))
+        if from_field:
+            self._world_exit_from_field(wld, x, z)
+            return
+        prev, self.ui_state = self.ui_state, "WorldHUD"
+        self.world.update(id=int(wld), x=float(x), z=float(z))
+        self._world_load(prev)
+        self._wt["last_ui"] = "WorldHUD"
+
+    def _world_tick(self) -> bool:
+        """WMScriptDirector.HonoUpdate20FPS's transitions for one world tick: a field entry in flight (its fade, then the
+        field), a world battle's swirl (then the battle), the `battle_nextmode` fault's strand (a tick that STARTS with
+        nextMode 2 never Replaces), else the armed one-shot (TakePendingWorldBattle) with this tick's own result
+        (``world_tick_result``: 0 = quiet). True = the tick belongs to a transition (no movement dispatch)."""
+        wt = self._wt
+        if wt["exit"] is not None:
+            due, dest = wt["exit"]
+            if self.frame >= due:
+                wt["exit"] = None
+                self._world_enter_field(dest)
+            return True
+        if wt["swirl"] is not None:
+            due, scene, group, rand = wt["swirl"]
+            if self.frame >= due:
+                wt["swirl"] = None
+                wt["from_world"] = {"id": self.world["id"], "x": self.world["x"], "z": self.world["z"]}
+                self.start_battle(scene, group=group, rand=rand)
+            return True
+        if wt["next_mode"] == 2:
+            return True
+        result, self.world_tick_result = int(self.world_tick_result or 0), 0
+        return self._world_battle_take(result)
+
+    def _world_battle_refusal(self, scene: int, group: int, deep: bool):
+        """Ff9mkDebugMenu.WorldBattleRefusal over the stand-in (BW.world_battle_refusal): the world's own state, the walker
+        (``world['vehicle']`` = gEventGlobal[190], the travel mode; ``world_topo``), the scene registry
+        (``battle_map_names``; None = every scene) and ValidateWireBoot's own reason (``world_battle_boot_refusal``)."""
+        return BW.world_battle_refusal(
+            world_hud=self.ui_state == "WorldHUD", sys_mode=3 if self.ui_state == "WorldHUD" else 1, bee=bool(self.world_bee),
+            scene=int(scene), group=int(group), fading=False, attr=0x1000 if self._wt["exit"] is not None else 0,
+            next_mode=self._wt["next_mode"], full_map=self.world_full_map, walker=self.world["x"] is not None,
+            control=self.control, travel=int(self.world.get("vehicle") or 0), topo=int(self.world_topo),
+            registered=self.battle_map_names is None or int(scene) in self.battle_map_names,
+            boot_why=self.world_battle_boot_refusal, deep=deep)
+
+    def _world_battle_verb(self, scene: int, group: int, rand: bool) -> None:
+        """`battle <scene> [group] [rand]` on WorldHUD (HarnessAgent -> Ff9mkDebugMenu.StartWorldBattle): a second arm and every
+        WorldBattleRefusal throw with the menu's status; else the ONE-SHOT is armed for the next quiet world tick and
+        `debug_status` says so. The `battle_nextmode` fault writes nextMode 2 from outside instead (the world strands)."""
+        wt = self._wt
+        if wt["arm"] is not None:
+            self.debug_status = BW.world_battle_armed_refusal(wt["arm"]["scene"])
+            raise RuntimeError(self.debug_status)
+        why = self._world_battle_refusal(scene, group, True)
+        if why is not None:
+            self.debug_status = "world battle: " + why
+            raise RuntimeError(self.debug_status)
+        self.debug_status = BW.world_battle_arm_status(scene, group, rand)
+        if "battle_nextmode" in self.world_faults:
+            wt["next_mode"] = 2
+            return
+        wt["arm"] = {"scene": int(scene), "group": int(group), "rand": bool(rand), "rt": self.rt, "counter": wt["counter"]}
+
+    def _world_battle_take(self, result: int) -> bool:
+        """TakePendingWorldBattle / FireWorldBattle: the first world tick that reaches the one-shot consumes it -- dropped (its
+        status and line) when the world's own result came first, when stale (> WORLD_BATTLE_ARM_MS, or an earlier world
+        load), or when the cheap re-check refuses; else the encounter's writes, the started status and line, and case 3:
+        nextMode 2 and the swirl (``world_swirl_frames``) into the battle."""
+        wt = self._wt
+        arm = wt["arm"]
+        if arm is None:
+            return False
+        wt["arm"] = None
+        scene, group, rand = arm["scene"], arm["group"], arm["rand"]
+        age = int(round((self.rt - arm["rt"]) * 1000))
+        if result != 0:
+            why = BW.world_battle_own_result(result)
+        elif age < 0 or age > BW.WORLD_BATTLE_ARM_MS or wt["counter"] < arm["counter"]:
+            why = BW.world_battle_stale(age)
+        else:
+            why = self._world_battle_refusal(scene, group, False)
+        if why is not None:
+            self.debug_status = BW.world_battle_dropped(scene, why)
+            self._mlog("[NetSync] " + self.debug_status)
+            return False
+        self.debug_status = BW.world_battle_started(scene, group, rand, self.world["id"])
+        self._mlog("[NetSync] " + self.debug_status)
+        wt["next_mode"] = 2
+        wt["swirl"] = (self.frame + max(0, int(self.world_swirl_frames)), scene, group, rand)
+        return True
+
+    def _world_battle_end(self) -> None:
+        """A world battle's end (BattleResultUI.Hide by prevMode 3): back to the WorldMap -- a world load, the walker where the
+        battle took it (the warm return). The `battle_field_return` fault goes back by prevMode 1 instead (FieldHUD on the
+        field the party left)."""
+        w, self._wt["from_world"] = self._wt["from_world"], None
+        self.battle_active = False
+        self._close_battle_cursor()
+        self.commands_enabled = False
+        if "battle_field_return" in self.world_faults:
+            self.ui_state = "FieldHUD"
+            self._guest.field_load()
+            self._world_field_load()
+            return
+        prev, self.ui_state = self.ui_state, "WorldHUD"
+        self.world.update(id=w["id"], x=w["x"], z=w["z"])
+        self._world_load(prev)
+        self._wt["last_ui"] = "WorldHUD"
+
+    def world_script_battle(self, scene: int, op: str = "ENCOUNT") -> bool:
+        """[ff9mapkit netsync s144] Test seam: a world script's own scripted battle (ENCOUNT / ENCOUNT2 on gMode 3 -- Ragtime Mouse,
+        WORLD03's quicksand) on the stand-in's world map. On a SPECTATOR guest SkipWorldScriptedBattle skips it (`battles`
+        +1, one line per class per world map) -> False; else the battle starts from the world map -> True."""
+        if self._ww() and self._spectator():
+            self._wf_n["battles"] += 1
+            self._world_decline(BW.world_scripted_battle_decline(op, int(scene)), "scripted world battle")
+            return False
+        self._wt["from_world"] = {"id": self.world["id"], "x": self.world["x"], "z": self.world["z"]}
+        self.start_battle(int(scene))
+        return True
+
+    # ---- the followed client (opt-in) ------------------------------------------------------------------------------------
+    def follow_session(self, host_field: int = 0, *, flags: int = -1, fresh: bool = True, valid: bool = True,
+                       connected: bool = True, entrance: int | None = None, battle: bool = False, story=None,
+                       pair_kick: bool = False) -> None:
+        """[ff9mapkit netsync s144] Test seam: make the stand-in a LIVE FOLLOWED CLIENT (role client, FollowHost on -- what a
+        Memoria.ini [Netsync] Role=client / FollowHost=1 joiner is), its host seen on the wire: ``host_field`` (the position
+        lane's field: 0 = off-field, 65535 the relay's sentinel), ``flags`` (section 7's flags byte: -1 = no section, a
+        pre-ring host; HF_WORLD / HF_TITLE are s144's), ``fresh`` (a host state frame inside StaleMs: the snapshot the arm
+        and the landing need), ``valid`` / ``connected`` (the lane and the socket: both = IsLiveFollowedSession), ``entrance``
+        (the FieldEntrance the host's snapshot carries), ``battle`` (the host's battle lane live: PeerBattleLive). The
+        stand-in models no transport: :meth:`host_at` moves the host, :meth:`host_intent` sends its MAPJUMP intent.
+        [ff9mapkit netsync s144 bench] Two opt-ins the coop_world_wait.py T2 smoke reads (both off by default, so every earlier
+        test reads as before): ``story`` -- the host's section-0 snapshot (2048 bytes, or ``{byte: value}``): ApplyStoryTo
+        copies it (all but 2032-2041, the netsync cells) at a field load the follow lands -- a world rejoin's, or the kick
+        below -- and the state mirror's first arm logs "state-mirror ARMED"; ``pair_kick`` -- the s56 SAME-FIELD KICK on a
+        FIELD (every rung: it predates s144): the host's lane on THIS field with a fresh snapshot -> "paired on the host's
+        field (F) -- reloading it once so the state mirror arms", the snapshot applied, the mirror armed, once a session."""
+        ns = self.netsync
+        ns.update(enabled=True, role="client", instance=True, selftest=False, forced=False)
+        self.coop_follow = {"field": int(host_field), "flags": int(flags), "fresh": bool(fresh), "valid": bool(valid),
+                            "connected": bool(connected), "entrance": entrance, "battle": bool(battle), "intent": None,
+                            "intent_seen": None, "nonce": 0, "story": story, "pair_kick": bool(pair_kick),
+                            "paired": False}
+
+    def dial_ready(self) -> bool:
+        """[ff9mapkit netsync s144 bench] NetSyncClient's DIAL GATE as the stand-in reads it: an enabled client instance, and the
+        scene the dial runs on -- a FIELD on every rung (``!onField`` returned before s144), or s144's live world HUD too
+        (decision 9: either player can Continue a world-map save; WMScriptDirector.HonoAwake Ensures the client). It gates only
+        the transport's BIRTH (:meth:`_step_dial`): once made, ``dial_socket`` lives in every scene -- the T2 smoke's stub peer
+        connects whenever it exists (review: a field-born socket connected from the world HUD on s143 too)."""
+        ns = self.netsync
+        if not (ns["enabled"] and ns["instance"] and ns["role"] == "client"):
+            return False
+        return self.ui_state == "FieldHUD" or (self._ww() and self.ui_state == "WorldHUD")
+
+    def _apply_host_story(self) -> None:
+        """ApplyStoryTo over the stand-in (the followed client's ``story`` opt-in): the host's section 0 into
+        ``story_bytes`` but 2032-2041 (the netsync cells); the mirror's first arm logs its line. No ``story``: the mirror
+        arms silently, as the s144 harness core modelled it."""
+        cf = self.coop_follow
+        snap = cf.get("story") if cf is not None else None
+        was = bool(self.story_mirroring)
+        if snap is not None:
+            items = snap.items() if isinstance(snap, dict) else enumerate(bytes(snap))
+            for i, v in items:
+                i = int(i)
+                if 0 <= i < len(self.story_bytes) and not 2032 <= i <= 2041:
+                    self.story_bytes[i] = int(v) & 0xFF
+        self.story_mirroring = True
+        if snap is not None and not was:
+            self._mlog("[NetSync] state-mirror ARMED -- this guest's fields now stage the HOST's story")
+
+    def _step_follow_pair(self) -> None:
+        """[ff9mapkit netsync s144 bench] The followed client's s56 SAME-FIELD KICK (opt-in ``pair_kick``; every rung): on a
+        field the host's lane stands on, a fresh snapshot pairs the guest ONCE a session -- its line, then the snapshot."""
+        cf = self.coop_follow
+        if cf is None or not cf.get("pair_kick") or cf.get("paired") or self.netsync["role"] != "client":
+            return
+        if not (cf["valid"] and cf["connected"] and cf["fresh"]) or self.ui_state != "FieldHUD":
+            return
+        if int(cf["field"]) != self.field_id or self.field_id <= 0:
+            return
+        cf["paired"] = True
+        self._mlog(f"[NetSync] paired on the host's field ({self.field_id}) -- reloading it once so the state mirror arms")
+        self._apply_host_story()
+
+    def host_at(self, field: int | None = None, **kw) -> None:
+        """[ff9mapkit netsync s144] Test seam: the followed client's host moves (any of :meth:`follow_session`'s keys)."""
+        cf = self.coop_follow
+        if cf is None:
+            raise RuntimeError("host_at: no followed session (follow_session first)")
+        if field is not None:
+            cf["field"] = int(field)
+        for k, v in kw.items():
+            if k not in cf:
+                raise KeyError(k)
+            cf[k] = v
+
+    def host_intent(self, dest: int) -> None:
+        """[ff9mapkit netsync s144] Test seam: the host's MAPJUMP intent for ``dest`` (section 4: a new nonce)."""
+        cf = self.coop_follow
+        cf["nonce"] = (cf["nonce"] + 1) & 0xFF
+        cf["intent"] = (cf["nonce"], int(dest))
+
+    def unfollow(self) -> None:
+        """[ff9mapkit netsync s144] Test seam: the followed session ends (FollowHost off / the peer gone past the grace) --
+        and its exit ramp's own-save reload with it, at once: the state mirror disarms (``story_mirroring`` False)."""
+        self.coop_follow = None
+        self.story_mirroring = False
+        self.netsync.update(enabled=False, role="host", instance=True)
+
+    def _last_host_field(self) -> int:
+        """NetSyncClient.LastHostField: the position lane's field when valid, -1 otherwise (and in every non-client role)."""
+        cf = self.coop_follow
+        if cf is None or self.netsync["role"] != "client" or not cf["valid"]:
+            return -1
+        return int(cf["field"])
+
+    def _host_snapshot(self) -> bool:
+        """`_socket.GetRemoteState() != null`: a fresh host state frame on the wire."""
+        cf = self.coop_follow
+        return bool(cf is not None and self.netsync["role"] == "client" and cf["fresh"])
+
+    def _world_sys_mode(self) -> int:
+        """FF9StateSystem.mode as the stand-in's world tick leaves it: the tick that consumes a battle (case 3) runs the encount
+        service and ff9ShutdownStateWorldMap case 2 at once -- mode 2 through the swirl; a field entry's (case 4 / the rejoin's
+        levers) case 1 -- mode 1 through its fade; 3 on the live world map, else 1."""
+        wt = self._wt
+        if wt["swirl"] is not None:
+            return 2
+        if wt["exit"] is not None:
+            return 1
+        return 3 if self._world_strict() else 1
+
+    def _world_latch_why(self):
+        """NetSyncClient.WorldTransitionWhy over the stand-in: BW.world_latch_step -- the strict onWorld, the world's mode
+        (:meth:`_world_sys_mode`), the shutdown bit a swirl or an exit raised (0x1000), nextMode, a booted diorama, the rejoin's own
+        arm. The `latch_free` fault reads it free whatever."""
+        if "latch_free" in self.world_faults:
+            return None
+        live = self._world_strict()
+        wt = self._wt
+        attr = 0x1000 if (wt["exit"] is not None or wt["swirl"] is not None) else 0
+        return BW.world_latch_step(live, self._world_sys_mode(), attr, wt["next_mode"], False, bool(self._dio["booted"]), False,
+                                   self._wj["armed"] >= 0)
+
+    def _world_arm_why(self, dest: int):
+        """WorldArmWhy: BW.world_arm_refusal over the live inputs (the hold through BW.world_hold_step), recorded as `why`, one
+        line per (destination, reason). Faults: `rejoin_no_snapshot` reads a snapshot always, `rejoin_no_hold` no hold."""
+        wj, wl = self._wj, self._wl
+        held = self._hold_holds_for(dest)
+        if "rejoin_no_hold" in self.world_faults:
+            held = False
+        snapshot = self._host_snapshot() or "rejoin_no_snapshot" in self.world_faults
+        on = self._world_strict()
+        why = BW.world_arm_refusal(on, self._world_sys_mode(), False, bool((self.coop_follow or {}).get("ramp")), snapshot,
+                                   self._field_registered(dest), int(self.world["id"]) in BW.EVENT_WORLD_MAPS, self.control,
+                                   self.world_full_map, held, self._world_latch_why())
+        wj["why"] = why
+        if why is not None:
+            key = f"{dest}: {why}"
+            if key != wj["logged"]:
+                wj["logged"] = key
+                self._mlog("[NetSync] " + BW.log_world_rejoin_waits(dest, why))
+        return why
+
+    def _hold_holds_for(self, dest: int) -> bool:
+        """[review 2] NetSyncClient.HoldHoldsFor: the source-field hold holds for ``dest`` (BW.world_hold_step's HOLD_HOLDS) -- the one
+        read the world arm, the redirect and the field follow ask."""
+        wj = self._wj
+        held_ms = int((self.rt - wj["hold_since"]) * 1000) if wj["hold"] >= 0 else 0
+        return BW.world_hold_step(wj["hold"], held_ms, self._last_host_field(), self._wl["host_world"], dest) == BW.HOLD_HOLDS
+
+    def _field_follow_fire(self, dest: int) -> None:
+        """[review 2] FollowHostTick's FIELD branch (the opt-in ``coop_field_follow``): FieldHUD, a registered field, then the hold
+        that rode onto this field (one line per latched hold) -- else StartFollowWarp: the fade, the same-destination latch."""
+        wj = self._wj
+        if self.ui_state != "FieldHUD" or self.field_id <= 0 or not self._field_registered(dest):
+            return
+        if self._hold_holds_for(dest):
+            if not wj["field_held_logged"]:
+                wj["field_held_logged"] = True
+                self._mlog("[NetSync] " + BW.log_field_follow_held(dest, self.field_id))
+            return
+        wj.update(pending=int(dest), pending_due=self.frame + FIELD_FOLLOW_FADE_FRAMES, warped_to=int(dest))
+        self._mlog(f"[NetSync] following the peer to field {int(dest)}")
+
+    def _field_follow_land(self, dest: int) -> None:
+        """[review 2] ServiceFollowWarp's second half (the opt-in field follow): the field load -- every field load's s144 half
+        with it (:meth:`_world_field_load`: the landing, the snapshot)."""
+        self._wj.update(pending=-1, pending_due=None)
+        self.field_id = int(dest)
+        self.ui_state = "FieldHUD"
+        self.control = True
+        self.player = [0.0, 0.0, 0.0]
+        self._visit += 1
+        self._in_trigger.clear()
+        self._exit = None
+        self._guest.field_load()
+        self._self_on_load(cold=True)
+        self._world_field_load()
+
+    def _world_follow_fire(self, dest: int, intent: bool) -> bool:
+        """WorldFollowFire: the gates, then StartWorldFollowWarp (the world's own field entry: `arms` +1, `world_armed`,
+        `last`) and its line. The `rejoin_field_recipe` fault arms the FIELD recipe instead: counted, a no-op on the world map."""
+        if self._world_arm_why(dest) is not None:
+            return False
+        wj = self._wj
+        self._seed_host_entrance()
+        wj.update(warped_to=int(dest), armed=int(dest), since=self.rt, why=None, logged=None)
+        if "arm_uncounted" not in self.world_faults:
+            wj["last"] = int(dest)
+            wj["arms"] += 1
+        if "rejoin_field_recipe" not in self.world_faults:
+            self._world_exit_to(dest)
+        self._mlog("[NetSync] " + BW.log_world_rejoining(dest, self.world["id"], intent))
+        if self.coop_stale_after_arm and self.coop_follow is not None:
+            self.coop_stale_after_arm = False
+            self.coop_follow["fresh"] = False          # [review] the lane goes stale between the arm and its landing
+        return True
+
+    def _seed_host_entrance(self) -> None:
+        """[review] SeedHostEntrance: the arm's / the redirect's FieldEntrance from the same fresh snapshot the gate read (the
+        followed client's ``entrance``); the `entrance_unseeded` fault seeds nothing."""
+        cf = self.coop_follow
+        if "entrance_unseeded" in self.world_faults or cf is None or not cf["fresh"] or cf.get("entrance") is None:
+            return
+        v = int(cf["entrance"]) & 0xFFFF
+        self.story_bytes[2:4] = bytes((v & 0xFF, v >> 8))
+
+    def field_follow_stamp(self, dest: int, *, pending: bool = True) -> None:
+        """[review] Test seam: a FIELD follow to ``dest`` started on this field (StartFollowWarp: `pending` in its fade, the
+        same-destination latch stamped) -- the stand-in models no field follow's landing, only the stamp its own WMAPJUMP must
+        cancel and the world map must not keep."""
+        self._wj["warped_to"] = int(dest)
+        self._wj["pending"] = int(dest) if pending else -1
+
+    def unfollow_ramp(self) -> None:
+        """[review] Test seam: the guest UNFOLLOWS mid-mirror (ApplyBehaviorChange: FollowHost off with the mirror up) -- the
+        exit ramp pending, the transport and the host's lane kept, SpectatorField still true through IsMirroringStory, the
+        landing's apply skipped (!_followHost). The stand-in models no ramp's own-save reload."""
+        if self.coop_follow is not None:
+            self.coop_follow["ramp"] = True
+
+    def teleport_to_host(self) -> None:
+        """[ff9mapkit netsync s144] Test seam: F11 / held L3 (UIKeyTrigger -> RequestTeleportToHost: no harness verb reaches it)
+        on the world map -- TeleportToHostWorld: declined on the selftest role and without a live followed session; else
+        the hold cleared, then the lane's declines (BW.tp_world_decline); else `rearms` +1, the arm and the debounce
+        cleared (the next serial tick arms through every gate) and its line."""
+        if not self._ww() or self.ui_state != "WorldHUD":
+            return
+        wj = self._wj
+        if self._nb_role():
+            self._tp_world_decline(BW.TP_WORLD_SELFTEST)
+            return
+        if not self._live_followed():
+            self._tp_world_decline(BW.TP_WORLD_NOT_LIVE)
+            return
+        held, wj["hold"] = wj["hold"] >= 0, -1
+        cf = self.coop_follow
+        host = int(cf["field"])
+        why = BW.tp_world_decline(cf["valid"], host, self._field_registered(host), held)
+        if why is not None:
+            self._tp_world_decline(why)
+            return
+        wj["rearms"] += 1
+        wj.update(armed=-1, warped_to=-1, candidate=host, cand_since=self.rt - BW.FOLLOW_STABLE_MS / 1000.0, logged=None,
+                  tp=None)
+        self._mlog("[NetSync] " + BW.log_teleport_world(host, self.world["id"]))
+
+    def _tp_world_decline(self, reason: str) -> None:
+        if self._wj["tp"] == reason:
+            return
+        self._wj["tp"] = reason
+        self._mlog("[NetSync] " + BW.log_teleport_declined(reason))
+
+    def release_world_freeze(self, source: str = "~ menu"):
+        """[ff9mapkit netsync s144] Test seam: the ~ menu's "Co-op: release world freeze" row (rendered only in a live followed
+        session; no harness verb reaches it) -- NetSyncField.ReleaseWorldFreeze. None = released (its line), else the
+        refusal (BW.world_freeze_release_refusal; the menu logs it)."""
+        why = BW.world_freeze_release_refusal(self._live_followed(), self._world_strict(), self._world_freeze_now(),
+                                              self._wf_released)
+        if why is not None:
+            self._mlog("[NetSync] " + BW.log_release_refused(why))
+            return why
+        self._wf_released = True
+        self._mlog("[NetSync] " + BW.log_world_freeze_released(source, self.world["id"]))
+        return None
+
+    def _step_world_coop(self) -> None:
+        """[ff9mapkit netsync s144] The world map's per-frame half (NetSyncClient.Update, every role): a world load's edge (a
+        test that sets ui_state lands one here too), gMode, the strict onWorld and the latch, the hold's release and the
+        arm's timeout -- then, on the followed client, the transport branch: NoteHostWhere (b6 / b7, an old host's field-0
+        clock), ServiceIntentFollow's world branch, FollowHostTick (the serial floor) and the overlay chain."""
+        wt, wj = self._wt, self._wj
+        ui = self.ui_state
+        # EventEngine.gMode, tracked on EVERY rung (the stub transports' HostDialogFlags read it: host_dialog_flags); published
+        # only from s144 (`gmode`). A menu runs no StartEvents: gMode stays.
+        if ui == "WorldHUD":
+            wt["gmode"] = 3
+        elif self.battle_active:
+            wt["gmode"] = 2
+        elif ui in ("MainMenu", "Pause"):
+            pass
+        elif ui != "Title" and self.field_id > 0:
+            wt["gmode"] = 1
+        if not self._ww():
+            return
+        if ui == "WorldHUD" and wt["last_ui"] != "WorldHUD":
+            self._world_load(wt["last_ui"])
+        if ui == "Title":
+            wt.update(arm=None, swirl=None, exit=None, from_world=None)
+        wt["last_ui"] = ui
+        ns = self.netsync
+        if not (ns["enabled"] and ns["instance"]):
+            return
+        on_world = self._world_strict()
+        if wj["hold"] >= 0:
+            v = BW.world_hold_step(wj["hold"], int((self.rt - wj["hold_since"]) * 1000), self._last_host_field(),
+                                   self._wl["host_world"], -1)
+            if v in (BW.HOLD_EXPIRED, BW.HOLD_HOST_LEFT):
+                self._mlog("[NetSync] " + BW.log_world_hold_released(wj["hold"], v == BW.HOLD_EXPIRED))
+                wj["hold"] = -1
+        if wj["armed"] >= 0 and BW.world_arm_timed_out(wj["armed"], int((self.rt - wj["since"]) * 1000), on_world):
+            dest = wj["armed"]
+            wj.update(armed=-1, warped_to=-1)
+            wj["timeouts"] += 1
+            self._mlog("[NetSync] " + BW.log_world_rejoin_timeout(dest, self.world["id"], self._world_latch_why()))
+        if self.coop_follow is None or ns["role"] != "client":
+            return
+        self._client_tick(on_world)
+
+    def _client_tick(self, on_world: bool) -> None:
+        cf, wj, wl = self.coop_follow, self._wj, self._wl
+        valid = bool(cf["valid"])
+        host = int(cf["field"]) if valid else -1
+        fld = self.field_id
+        follow_fld = fld if "rejoin_departed" in self.world_faults else BW.follow_field_for(on_world, fld)
+        flags = int(cf["flags"]) if cf["flags"] is not None else -1
+        wl["host_world"] = valid and BW.host_where_read(flags, BW.HF_WORLD)
+        wl["host_title"] = valid and BW.host_where_read(flags, BW.HF_TITLE)
+        away = BW.wait_away_condition(valid, host, flags, bool(cf["battle"]))
+        if not away:
+            wl["away_armed"] = False
+        elif not wl["away_armed"]:
+            wl["away_armed"], wl["away_since"] = True, self.rt
+        age = int((self.rt - wl["away_since"]) * 1000) if wl["away_armed"] else 0
+        wl["away_due"] = BW.wait_away_due(away, wl["away_armed"], age)
+        wl["keep"] = BW.wait_keep_window(valid, host, flags, bool(cf["battle"]))
+        # ServiceIntentFollow (a fresh state frame carries section 4; the world branch: an unregistered field declines once,
+        # a refused gate DEFERS -- the nonce unmarked)
+        intent = cf["intent"]
+        if self._host_snapshot() and intent is not None and intent[0] != cf["intent_seen"]:
+            nonce, dest = intent
+            if dest <= 0 or dest == follow_fld or dest == 16000:
+                cf["intent_seen"] = nonce
+            elif on_world:
+                if "rejoin_unarmed" in self.world_faults:
+                    cf["intent_seen"] = nonce                # [s144 bench] no world branch: the intent consumed, nothing armed
+                elif not self._field_registered(dest):
+                    cf["intent_seen"] = nonce
+                    self._mlog("[NetSync] " + BW.log_world_intent_unregistered(dest))
+                elif self._world_follow_fire(dest, True):
+                    cf["intent_seen"] = nonce
+        # FollowHostTick (the serial floor; the stand-in models no FIELD follow-warp's landing): the pending guard, then THE
+        # FOLLOW LATCH on the world map (BW.world_follow_latch -- the `stale_warpedto` fault keeps s143's)
+        follow = wj["pending"] < 0
+        if not follow and on_world:
+            dest, wj["pending"] = wj["pending"], -1         # the deferred half: s144 drops it (mode 3), s143 fires it as a no-op
+            if "stale_warpedto" not in self.world_faults:
+                self._mlog("[NetSync] " + BW.log_follow_warp_dropped(dest))
+        elif (not follow and self.coop_field_follow and wj["pending_due"] is not None
+              and self.frame >= wj["pending_due"]):
+            self._field_follow_land(wj["pending"])         # [review 2] the opt-in field follow lands (ServiceFollowWarp)
+            fld = self.field_id
+        if follow and "stale_warpedto" not in self.world_faults:
+            latch = BW.world_follow_latch(on_world, wj["armed"], wj["warped_to"])
+            if latch != wj["warped_to"]:
+                self._mlog("[NetSync] " + BW.log_follow_latch_dropped(wj["warped_to"], self.world["id"]))
+                wj["warped_to"] = latch
+        if not follow:
+            pass
+        elif not valid or host <= 0 or host == 65535:
+            wj["candidate"] = -1
+        elif host == follow_fld:
+            wj["candidate"], wj["warped_to"] = -1, -1
+        elif host != wj["warped_to"]:
+            if host != wj["candidate"]:
+                wj["candidate"], wj["cand_since"] = host, self.rt
+            elif (self.rt - wj["cand_since"]) * 1000 >= BW.FOLLOW_STABLE_MS:
+                if on_world:
+                    if "rejoin_unarmed" not in self.world_faults:
+                        self._world_follow_fire(host, False)
+                elif self.coop_field_follow and not cf.get("ramp"):
+                    self._field_follow_fire(host)          # [review 2] the opt-in FIELD follow, hold-gated
+        # THE OVERLAY CHAIN (Update's not-paired branch; the world chain ahead of `local == null`, the field chain's tail)
+        lost = not (valid and cf["connected"])
+        world_chain = on_world and "line_s143" not in self.world_faults
+        tail = "tail_s143" not in self.world_faults
+        local = (not on_world) and self.ui_state == "FieldHUD" and fld > 0
+        state, detail = BW.guest_overlay_chain(
+            on_world=world_chain, wait_on=True, local=local, on_field=local, in_scope=True, peer_lost=lost,
+            connected=bool(cf["connected"]), host_valid=valid, host_field=host, my_field=fld, follow_host=True,
+            host_registered=self._field_registered(host), battle_live=bool(cf["battle"]),
+            host_world=wl["host_world"] and (tail or on_world), host_title=wl["host_title"] and (tail or on_world),
+            away_due=wl["away_due"] and (tail or on_world), world_armed=wj["armed"], hold_field=wj["hold"],
+            current=wl["asked"], keep_window=wl["keep"] and (tail or on_world))
+        if state != BW.OVL_KEEP:
+            text = BW.overlay_words(state, detail, role="client", code=self.session_code, relay_url=self.relay_url,
+                                    follow_host=True, mirroring=bool(self.story_mirroring))
+            wl.update(asked=state, detail=detail, text=text, line=BW.wait_line_name(state),
+                      fallback=state == BW.OVL_HOST_AWAY)
+
+    def host_dialog_flags(self) -> int:
+        """[ff9mapkit netsync s144 bench] HostDialogFlags as the stand-in, a HOST, would send it -- what the T2 recorder's and the
+        duo's stub transports carry: b1 user control, b3 a live field (gMode 1 on a field -- a field menu keeps it), b4 a UI other
+        than FieldHUD, b5 a battle (gMode 2) and, on the `worldwait` rung, b6 the strict onWorld (gMode 3 on the world scene:
+        its HUD, its main menu) and b7 the title. b0 / b2 (a scene, a line) are the dialogue lock's: the world stubs set none."""
+        ui, g = self.ui_state, self._wt["gmode"]
+        battle = bool(self.battle_active) or ui in ("BattleHUD", "BattleResult")
+        f = HF_CONTROL if self.control else 0
+        if ui != "FieldHUD":
+            f |= HF_MENU
+        if battle:
+            f |= HF_BATTLE
+        elif g == 1 and self.field_id > 0 and ui != "Title":
+            f |= HF_ON_FIELD
+        if self._ww():
+            f |= BW.host_where_bits(not battle and g == 3 and ui not in ("Title", "FieldHUD"), ui == "Title")
+        return f
+
+    def host_lane_field(self) -> int:
+        """[ff9mapkit netsync s144 bench] the stand-in host's position lane: its field while it stands on one (gMode 1, a menu
+        included -- the controlled actor is there), else 0."""
+        battle = bool(self.battle_active) or self.ui_state in ("BattleHUD", "BattleResult")
+        if not battle and self._wt["gmode"] == 1 and self.field_id > 0 and self.ui_state != "Title":
+            return int(self.field_id)
+        return 0
+
+    def apply_ini(self, values: dict) -> None:
+        """[ff9mapkit netsync s144 bench] Memoria.ini's [Netsync] written (the T2 smoke's stub IniGuard): an existing client
+        instance's 2 s poll reads it at once (it runs even disabled); with no instance nothing reads it until the next
+        NetSyncClient.Ensure -- a field load (:meth:`_self_on_load`) on every rung, a world load from s144."""
+        self._ini_pending = dict(values)
+        if self.netsync["instance"]:
+            self._ensure_ini()
+
+    def _ensure_ini(self) -> None:
+        """NetSyncClient.Ensure / the poll over a pending ini: nothing is created while disabled; a TRANSPORT change (enabled,
+        role, relay, code) drops the socket (ApplyConfigChange: Update redials); the engine's config line."""
+        v = self._ini_pending
+        if v is None:
+            return
+        self._ini_pending = None
+        enabled = str(v.get("Enabled", "0")).strip() == "1"
+        if not self.netsync["instance"] and not enabled:
+            return
+        role = str(v.get("Role", "selftest")).strip().lower()
+        code, relay = str(v.get("SessionCode", "")), str(v.get("RelayUrl", ""))
+        sig = (enabled, role, relay, code)
+        transport, self._ini_sig = sig != self._ini_sig, sig
+        self.netsync.update(enabled=enabled, role=role, instance=True, selftest=False, forced=False)
+        self.session_code, self.relay_url = code, relay
+        if transport:
+            self.dial_socket, self._no_code = False, False
+        self._mlog(f"[NetSync] config enabled={enabled} role={role} field={v.get('TargetField', '0')}"
+                   + (" followHost=1" if str(v.get("FollowHost", "0")) == "1" else "") + f" relay={relay} code={code}")
+
+    def _step_dial(self) -> None:
+        """NetSyncClient.Update's dial: the socket is born on the first frame the dial gate holds with a code; with none the
+        overlay reads "no_code" (OvlNoCode) and nothing dials."""
+        ns = self.netsync
+        if self.dial_socket or not self.dial_ready():
+            return
+        if not (ns["role"] == "client" and self._ini_sig is not None):
+            return                                  # a test's follow_session models its own transport
+        if self.relay_url and not self.session_code:
+            self._no_code = True
+            return
+        self.dial_socket, self._no_code = True, False
+
+    def _world_update_on(self) -> bool:
+        """The strict onWorld as NetSyncClient.Update writes it this frame (`_followOnWorld`; `_worldLatch` is it AND the latch):
+        only an enabled client instance runs that Update -- every role."""
+        ns = self.netsync
+        return bool(ns["enabled"] and ns["instance"]) and self._world_strict()
+
+    def _session_follow_doc(self) -> dict:
+        """HarnessAgent.AppendSessionFollow: the field follow's three (`pending`: a field follow stamped in its fade --
+        :meth:`field_follow_stamp`; the stand-in models no field follow's landing), the world rejoin's, the host's b6 / b7, the
+        hold."""
+        wj, wl = self._wj, self._wl
+        return {"pending": wj["pending"], "warped_to": wj["warped_to"], "candidate": wj["candidate"], "world_armed": wj["armed"],
+                "on_world": self._world_update_on(), "host_world": bool(wl["host_world"]),
+                "host_title": bool(wl["host_title"]), "hold": wj["hold"]}
+
+    def _world_doc(self) -> dict:
+        """HarnessAgent.AppendNetsyncWorld: `freeze` (the live verdict, its why term, the lever, the release latch, the six
+        counters), `rejoin` (this Update's latch ON the live world map, the five counters, the last refusal, the last
+        destination) and `waitline` (the asked overlay's waiting line, an old host's fallback, its debounce's age)."""
+        wj, wl = self._wj, self._wl
+        freeze = dict(BW.WORLD_FREEZE_SENTINELS, on=self._world_frozen(), why=self._world_freeze_why(), off=self._wf_off,
+                      released=self._wf_released, **self._wf_n)
+        rejoin = {"latch": self._world_update_on() and self._world_latch_why() is not None, "arms": wj["arms"], "lands": wj["lands"], "timeouts": wj["timeouts"],
+                  "redirects": wj["redirects"], "rearms": wj["rearms"], "why": wj["why"], "last": wj["last"]}
+        away_ms = int((self.rt - wl["away_since"]) * 1000) if wl["away_armed"] else -1
+        waitline = {"line": wl["line"], "fallback": bool(wl["fallback"]), "away_ms": away_ms}
+        return {"freeze": freeze, "rejoin": rejoin, "waitline": waitline}
+
+    def _world_live_doc(self) -> dict:
+        """HarnessAgent.AppendWorldLive (after `vehicle`): `area` / `topo` / `move` with a controlled walker on the live world
+        map (``world_area`` / ``world_topo`` -- the stand-in's IDALL; `move` the last world tick moved him), `phase` 2 and
+        `next_mode` while the WorldMap scene is the loaded level; off it -1 / -1 / null / -1 / -1."""
+        live = self._world_strict()
+        walker = live and self.world["x"] is not None
+        return {"area": int(self.world_area) if walker else -1, "topo": int(self.world_topo) if walker else -1,
+                "move": bool(self._wt["moved"]) if walker else None, "phase": 2 if live else -1,
+                "next_mode": int(self._wt["next_mode"]) if live else -1}
+
+    def _field_entrance(self) -> int:
+        """EventState.FieldEntrance: gEventGlobal[2..3] as Int16 (the stand-in's ``story_bytes``)."""
+        v = self.story_bytes[2] | (self.story_bytes[3] << 8)
+        return v - 0x10000 if v & 0x8000 else v
 
     def _dress_doc(self) -> dict:
         """HarnessAgent.AppendDress (s138): `ghost` (what the ghost WEARS: its sentinels with no ghost) then `party` (the
@@ -5413,6 +6713,7 @@ class FakeGame:
         role's bench spec; a client's skipped apply; a host disarmed silently), then -- a COLD load -- every 98 SetModel in
         Main_Init order through the dress order, or -- a WARM return -- the controlled body keeps its dress and AttachDress
         re-runs (updateModelsToBeAdded). The bench field's conductor state resets with the load."""
+        self._ensure_ini()                          # [ff9mapkit netsync s144 bench] HonoluluFieldMain.HonoAwake's Ensure (every rung)
         if not self._self_rung():
             return
         self._self_load_has_dress = False
@@ -6210,11 +7511,12 @@ class FakeGame:
         modelled R3 bench reads: the selftest proof block's R3 lines, the hand-back lines (s110 / s118) and s121's line --
         [ff9mapkit netsync s133] and the host action-start lane's (battlewire.ActHostLane.lines: the battle's summary, the
         `actbench` lever and tape lines, their release)."""
-        stamp = time.strftime("%d.%m.%Y %H:%M:%S")
-        path = self.memoria_log
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "ab") as f:
-            f.write(f"{stamp} |M| {msg}\r\n".encode("utf-8"))
+        with _MLOG_LOCK:
+            stamp = time.strftime("%d.%m.%Y %H:%M:%S")
+            path = self.memoria_log
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "ab") as f:
+                f.write(f"{stamp} |M| {msg}\r\n".encode("utf-8"))
 
     def _step_selftest_proof(self) -> None:
         """[ff9mapkit netsync R3] NetSyncClient's selftest branch, the two pieces the round reads: every tick composes the
@@ -6740,6 +8042,11 @@ class FakeGame:
         if nb.leaderguard_off_lever and "lever_stuck" not in self.guard_faults:
             self._mlog("[NetSync] " + BW.LOG_GUARD_RELEASED)
             nb.leaderguard_off_lever = False
+        # [ff9mapkit netsync s144] NetSyncField.HarnessReleaseWorldFreeze, right after it: the world-freeze lever back on, its line
+        # only when it was pulled (the `lever_stuck` world fault leaves it)
+        if self._wf_off and "lever_stuck" not in self.world_faults:
+            self._mlog("[NetSync] " + BW.LOG_WORLD_FREEZE_RELEASED)
+            self._wf_off = False
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an
@@ -10467,6 +11774,7 @@ class FakeGame:
                  last_return_field=fld)
         self._guest.field_load()                  # a field load re-arms the panic unlock
         self._self_on_load(cold=not warm)         # [ff9mapkit netsync s140] W1: a warm return keeps the dress
+        self._world_field_load()                  # [ff9mapkit netsync s144] every field load's world half
         if not warm:
             x, z = self.field_spawn.get(fld, (0.0, 0.0))
             self.player = [float(x), self.player[1], float(z)]

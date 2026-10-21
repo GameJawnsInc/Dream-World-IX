@@ -1915,7 +1915,9 @@ SESSION_LOG_MAX = 20                     # outage/resume line pairs per link, th
 EXIT_RAMP_DEBOUNCE_S117_MS = 3000        # the link-loss ramp's debounce BEFORE s120 (ExitRampDebounceMs, removed)
 #: `netsync.session.overlay`'s vocabulary (NetSyncClient.OverlayName; null = none composed yet)
 OVERLAY_NAMES = ("off", "elsewhere", "no_code", "connecting", "waiting", "peer_elsewhere", "following", "peer_no_field",
-                 "reconnecting")
+                 "reconnecting",
+                 # [ff9mapkit netsync s144] the waiting line (decision 7): an engine before s144 never names these five
+                 "host_world", "rejoining", "world_hold", "host_title", "host_away")
 
 
 def session_grace_step(peer_alive_: bool, seen: bool, out_ms: int, grace_ms: int) -> int:
@@ -10315,3 +10317,870 @@ def battle_slot_chars(party) -> list:
     unit included: hiding unlinks it, it keeps its btl_data index)."""
     seated = [c for c in (list(party or ()) + [PARTY_EMPTY] * 4)[:4] if isinstance(c, int) and c >= 0]
     return (seated + [PARTY_EMPTY] * 4)[:4]
+
+
+# =========================================================================== [ff9mapkit netsync s144] WORLD-MAP CO-OP
+# Wait, then rejoin (studies/world-coop/S144-DESIGN.md; the patch memoria-patches/s144-netsync-world-wait.patch): on the world map
+# the HOST drives. A following guest there is FROZEN (NetSyncField's world freeze: the one movement-input dispatcher skipped, the
+# host-owned script keys masked, the full map and its autopilot refused, its own scripted world battles skipped), REJOINS the
+# host's next field through the world's own field entry (NetSyncClient's world rejoin, behind THE SHARED WORLD-TRANSITION LATCH)
+# and reads THE WAITING LINE (section 7's b6 HfWorld / b7 HfTitle, the status overlay). These are the rung's harness constants --
+# the proof lines and their row counts, the overlay's new names, the section-7 bits, the keys' sentinels -- and the PURE steps'
+# twins, statement for statement, pinned to the engine's own selftest rows by tests/test_world_coop.py, so a bench computes every
+# expected value off ITS OWN oracle, never the engine's answer.
+
+# ---- the proof block's three s144 lines (NetSyncClient's, right after the leader guard line, in this order)
+PROOF_WORLD_FREEZE = "world freeze selftest: "      # NetSyncField.WorldFreezeSelfTest (piece B)
+PROOF_WORLD_REJOIN = "world rejoin selftest: "      # NetSyncClient.WorldRejoinSelfTest (piece C)
+PROOF_OVERLAY_TEXT = "overlay text selftest: "      # NetSyncClient.OverlayTextSelfTest (piece D)
+WORLD_FREEZE_SELFTEST_ROWS = 42
+WORLD_REJOIN_SELFTEST_ROWS = 70
+OVERLAY_TEXT_SELFTEST_ROWS = 50
+
+# ---- section 7's two new flag bits (NetSyncDialog.HfWorld / HfTitle): additive under wire v14 -- an older reader masks single bits
+HF_WORLD = 0x40                                     # b6 the host on the live world map (gMode 3 on the WorldMap scene)
+HF_TITLE = 0x80                                     # b7 the host at the title screen
+HF_OLD_SIX = 0x3F                                   # b0-b5: scene, control, line, on-field, menu, battle
+HF_ON_FIELD, HF_MENU, HF_BATTLE, HF_CONTROL = 0x08, 0x10, 0x20, 0x02
+#: section 7's flags byte, bit by name (channel.State.HOST_FLAG_BITS' order; b6 / b7 are s144's)
+HOST_FLAG_NAMES = ("scene", "control", "line", "on_field", "menu", "battle", "world", "title")
+
+
+def host_flag_names(flags) -> tuple:
+    """The names of the set bits of section 7's flags byte (None / -1 = no section: none)."""
+    f = -1 if flags is None else int(flags)
+    return tuple(n for i, n in enumerate(HOST_FLAG_NAMES) if f >= 0 and f & (1 << i))
+
+# ---- the keys' sentinels (HarnessAgent: AppendSessionFollow, AppendNetsyncWorld; the catch literal carries the same)
+SESSION_FOLLOW_SENTINELS = {"pending": -1, "warped_to": -1, "candidate": -1, "world_armed": -1, "on_world": False,
+                            "host_world": False, "host_title": False, "hold": -1}
+WORLD_FREEZE_SENTINELS = {"on": False, "why": None, "off": False, "released": False, "edges": 0, "skips": 0, "keys": 0,
+                          "map": 0, "location": 0, "battles": 0}
+WORLD_REJOIN_SENTINELS = {"latch": False, "arms": 0, "lands": 0, "timeouts": 0, "redirects": 0, "rearms": 0, "why": None,
+                          "last": -1}
+WORLD_WAITLINE_SENTINELS = {"line": None, "fallback": False, "away_ms": -1}
+WORLD_SENTINELS = {"freeze": dict(WORLD_FREEZE_SENTINELS), "rejoin": dict(WORLD_REJOIN_SENTINELS),
+                   "waitline": dict(WORLD_WAITLINE_SENTINELS)}
+#: the session block's two s144 keys, after `ghost_held` (the prefix law: s143's tuple is a prefix of s144's)
+SESSION_KEYS_S144 = ("overlay_text", "follow")
+#: the world block's freeze `why` vocabulary (NetSyncField.WorldFreezeWhy*: SpectatorField's terms, in its order)
+WORLD_FREEZE_WHYS = ("live", "mirroring", "bench")
+
+# ---- the calibration lever (`netsync bench worldfreeze on|off`, the selftest role only) and its lines
+WORLD_FREEZE_BENCH_REFUSAL = "netsync bench worldfreeze: needs the selftest role (netsync selftest 1)"
+LOG_WORLD_FREEZE_ON = "harness: world freeze ON"
+LOG_WORLD_FREEZE_OFF = ("harness: world freeze OFF -- CALIBRATION: the pre-s144 world map (a following guest walks and opens "
+                        "the full map; F1 still masks Confirm / Special / Select, so no location entry -- that is `bench 0`)")
+LOG_WORLD_FREEZE_RELEASED = "harness: world freeze back ON (released with the harness)"
+
+# ---- EventInput's bits the freeze's key mask reads (Global/Event/EventInput.cs) and NetSyncField.HostOwnedKeys
+EV_SELECT, EV_START, EV_UP, EV_LEFT, EV_L1, EV_R1 = 0x1, 0x8, 0x10, 0x80, 0x400, 0x800
+EV_TRIANGLE, EV_CIRCLE, EV_CROSS, EV_SQUARE = 0x1000, 0x2000, 0x4000, 0x8000
+EV_CANCEL, EV_CONFIRM, EV_MENU_CONTROL, EV_SPECIAL = 0x10000, 0x20000, 0x40000, 0x80000
+EV_RIGHT_TRIGGER, EV_MENU, EV_NAVI_CONTROL = 0x800000, 0x1000000, 0x2000000
+HOST_OWNED_KEYS = (EV_SELECT | EV_TRIANGLE | EV_CIRCLE | EV_CROSS | EV_SQUARE | EV_CANCEL | EV_CONFIRM | EV_MENU_CONTROL
+                   | EV_SPECIAL | EV_MENU)
+
+
+# ---- THE FREEZE (NetSyncField, piece B)
+#: WorldFreezeTable: the rule's 32 rows as a mask (bit i = spectator | benchOff << 1 | selfTestRole << 2 | released << 3 |
+#: beeScene << 4) -- only rows 1, 3 and 5 freeze
+WORLD_FREEZE_TABLE = 0x2A
+
+
+def world_freeze_rule(spectator, bench_off, selftest_role, released, bee_scene) -> bool:
+    """NetSyncField.WorldFreezeRule: a spectator (SpectatorField), never the bee scene, never under the ~ release, and the lever
+    lifts it on the selftest role only."""
+    return bool(spectator and not bee_scene and not released and not (bench_off and selftest_role))
+
+
+def world_freeze_rule_mask(rule=None) -> int:
+    """NetSyncField.WorldFreezeRuleMask: the rule over its 32 input combinations, as a mask."""
+    rule = rule or world_freeze_rule
+    mask = 0
+    for i in range(32):
+        if rule(bool(i & 1), bool(i & 2), bool(i & 4), bool(i & 8), bool(i & 16)):
+            mask |= 1 << i
+    return mask
+
+
+def world_freeze_why_term(live, mirroring, bench):
+    """NetSyncField.WorldFreezeWhyTerm: SpectatorField's terms in its order; None = none holds."""
+    return "live" if live else "mirroring" if mirroring else "bench" if bench else None
+
+
+def world_freeze_lift_why(spectator, bench_off, selftest_role, released, bee_scene):
+    """NetSyncField.WorldFreezeLiftWhy: why the freeze does not hold, in the rule's order; None = it holds."""
+    if not spectator:
+        return "no spectator session (unfollowed, the peer lost past the grace, or the exit ramp)"
+    if bee_scene:
+        return "the bee scene"
+    if released:
+        return "released from the ~ menu until the next field or world load"
+    if bench_off and selftest_role:
+        return "the `bench worldfreeze off` lever"
+    return None
+
+
+def world_freeze_edge_step(was_held, last_counter, counter) -> bool:
+    """NetSyncField.WorldFreezeEdgeStep: a held dispatch is an edge when the last was not held, or the world counter went back."""
+    return (not was_held) or counter < last_counter
+
+
+def control_on_script_keys(keys, world_frozen) -> int:
+    """NetSyncField.ControlOnScriptKeys: FilterScriptButtons' control-ON mask -- every host-owned key while frozen, else F1's
+    Confirm / Special / Select."""
+    if world_frozen:
+        return int(keys) & ~HOST_OWNED_KEYS & 0xFFFFFFFF
+    return int(keys) & ~(EV_CONFIRM | EV_SPECIAL | EV_SELECT) & 0xFFFFFFFF
+
+
+def released_world_script_keys(keys) -> int:
+    """NetSyncField.ReleasedWorldScriptKeys: a RELEASED guest's control-on world poll (the ~ menu, decision 8) -- Confirm back (a
+    location's entry, a vehicle's boarding), Special / Select still F1's."""
+    return int(keys) & ~(EV_SPECIAL | EV_SELECT) & 0xFFFFFFFF
+
+
+def world_skip_key_on(key_on) -> int:
+    """NetSyncField.WorldSkipKeyOn: a key tick's edges after a skipped world battle (SkipWorldScriptedBattle consumes the press
+    that started it -- the script continues inline into the dispatcher's location poll): every host-owned key dropped, the
+    guest's own directions, bumpers, triggers and Start kept."""
+    return int(key_on) & ~HOST_OWNED_KEYS & 0xFFFFFFFF
+
+
+def world_freeze_release_refusal(live_followed, on_world, frozen, released):
+    """NetSyncField.WorldFreezeReleaseRefusal (the ~ menu's Release world freeze); None = allowed."""
+    if released:
+        return "already released (until the next field or world load)"
+    if not live_followed:
+        return "a live followed session only"
+    if not on_world:
+        return "world map only"
+    if not frozen:
+        return "the world freeze does not hold here"
+    return None
+
+
+def world_freeze_bench_refusal(selftest_role):
+    """NetSyncField.WorldFreezeBenchRefusal."""
+    return None if selftest_role else WORLD_FREEZE_BENCH_REFUSAL
+
+
+# ---- THE WORLD REJOIN (NetSyncClient, piece C)
+WORLD_ARM_TIMEOUT_MS = 5000                         # NetSyncClient.WorldArmTimeoutMs
+WORLD_HOLD_MS = 15000                               # NetSyncClient.WorldHoldMs (decision 4)
+WORLD_MAP_SCENE = "WorldMap"                        # SceneDirector.WorldMapSceneName
+HOLD_NONE, HOLD_HOLDS, HOLD_EXPIRED, HOLD_HOST_LEFT, HOLD_OTHER = 0, 1, 2, 3, 4
+REDIR_PASS_HOST, REDIR_TO_HOST, REDIR_PASS_OFF_FIELD, REDIR_PASS_UNREGISTERED, REDIR_PASS_NO_SNAPSHOT = 0, 1, 2, 3, 4
+REDIR_PASS_NOT_FOLLOWING = 5                         # the session is ending: unfollowed (a mirror still up) or its exit ramp pending
+REDIR_PASS_HELD = 6                                  # the source-field hold: the host still on the field the guest just left
+EVENT_WORLD_MAPS = (9001, 9004, 9006, 9012)         # ff9.IsEventWorldMap
+
+
+def on_world_rule(g_mode, scene) -> bool:
+    """NetSyncClient.OnWorldRule: THE STRICT onWorld -- gMode 3 AND the WorldMap scene (gMode alone lies through the world ->
+    field load and inside a world-booted diorama)."""
+    return g_mode == 3 and scene == WORLD_MAP_SCENE
+
+
+def follow_field_for(on_world, fld) -> int:
+    """NetSyncClient.FollowFieldFor: none on the world map (fldMapNo there is the field the guest LEFT)."""
+    return -1 if on_world else int(fld)
+
+
+def world_arm_refusal(world_hud, sys_mode, fading, ramp_pending, snapshot, registered, event_world, control, full_map, held,
+                      latch_why):
+    """NetSyncClient.WorldArmRefusal: the rejoin arm's eleven gates in order; None = arm now."""
+    if not world_hud:
+        return "the world HUD is not up"
+    if sys_mode != 3:
+        return f"not in world mode ({sys_mode})"
+    if fading:
+        return "a fade is in flight"
+    if ramp_pending:
+        return "the session's exit ramp is pending"
+    if not snapshot:
+        return "no fresh host snapshot on the wire"
+    if not registered:
+        return "the host's field is not on this install"
+    if event_world:
+        return "an event world map plays its own cutscene"
+    if not control:
+        return "a world script holds control"
+    if full_map:
+        return "the full map is open"
+    if held:
+        return f"the source-field hold (your own exit from it, under {WORLD_HOLD_MS // 1000} s ago)"
+    if latch_why is not None:
+        return f"a world transition is in flight ({latch_why})"
+    return None
+
+
+def world_arm_arms(rule=None) -> tuple:
+    """NetSyncClient.WorldArmArms: (how many of the 2048 gate combinations the rule arms on, the last one) -- bit k set = gate k
+    CLEAR."""
+    rule = rule or world_arm_refusal
+    n, at = 0, -1
+    for i in range(2048):
+        if rule(bool(i & 1), 3 if i & 2 else 1, not i & 4, not i & 8, bool(i & 16), bool(i & 32), not i & 64,
+                bool(i & 128), not i & 256, not i & 512, None if i & 1024 else "busy") is None:
+            n, at = n + 1, i
+    return n, at
+
+
+def world_hold_step(hold_field, held_ms, host_field, host_world, dest) -> int:
+    """NetSyncClient.WorldHoldStep: THE SOURCE-FIELD HOLD (decision 4)."""
+    if hold_field < 0:
+        return HOLD_NONE
+    if held_ms >= WORLD_HOLD_MS:
+        return HOLD_EXPIRED
+    if (host_field > 0 and host_field != 65535 and host_field != hold_field) or host_world:
+        return HOLD_HOST_LEFT
+    return HOLD_HOLDS if dest == hold_field else HOLD_OTHER
+
+
+def world_redirect_step(dest, dest_fork, host_field, host_registered, snapshot, following, held=False) -> tuple:
+    """NetSyncClient.WorldRedirectStep: (the destination a world script's Field() takes on a following guest, the code) --
+    never the departed field (decision 6), never into the host's field for a session that is ending (``following`` =
+    IsLiveFollowedSession and no exit ramp pending: the landing applies the host's snapshot exactly then), and never back into
+    the field the guest just left inside its source-field hold (``held`` = HoldHoldsFor(the host's field): decision 4 binds this
+    rejoin too -- the world's own jump passes, REDIR_PASS_HELD)."""
+    if not following:
+        return dest, REDIR_PASS_NOT_FOLLOWING
+    if host_field <= 0 or host_field == 65535:
+        return dest, REDIR_PASS_OFF_FIELD
+    if dest == host_field or dest_fork == host_field:
+        return dest, REDIR_PASS_HOST
+    if not host_registered:
+        return dest, REDIR_PASS_UNREGISTERED
+    if not snapshot:
+        return dest, REDIR_PASS_NO_SNAPSHOT
+    if held:
+        return dest, REDIR_PASS_HELD
+    return host_field, REDIR_TO_HOST
+
+
+def world_hold_carries(hold_field, landed) -> bool:
+    """NetSyncClient.WorldHoldCarries: THE HOLD AT A FIELD LANDING -- it rides a landing on any field but the held one (a world
+    script's own Field() that passed under it), so the field follow there waits it out too; a landing on the held field ends it."""
+    return hold_field >= 0 and landed != hold_field
+
+
+def landing_follow_candidate(from_world, candidate) -> int:
+    """NetSyncClient.LandingFollowCandidate: a load off the world map (gMode still 3 at the hook) restarts the field follow's
+    debounce (-1); a field -> field load keeps it (s143)."""
+    return -1 if from_world else int(candidate)
+
+
+def world_latch_step(live_world, sys_mode, sys_attr, next_mode, fading, booted, return_in_flight, rejoin_armed):
+    """NetSyncClient.WorldLatchStep: THE SHARED WORLD-TRANSITION LATCH, term by term; None = free."""
+    if not live_world:
+        return "not on the live world map"
+    if sys_mode != 3:
+        return f"the world is handing over (mode {sys_mode})"
+    if int(sys_attr) & 0x3001:
+        return f"a world shutdown is armed (attr 0x{int(sys_attr) & 0x3001:04X})"
+    if next_mode == 1:
+        return "a field entry is pending (nextMode 1)"
+    if next_mode == 2:
+        return "a battle is starting (nextMode 2)"
+    if fading:
+        return "a fade is in flight"
+    if booted:
+        return "a diorama is booted"
+    if return_in_flight:
+        return "a battle return is in flight"
+    if rejoin_armed:
+        return "the world rejoin is armed"
+    return None
+
+
+def world_latch_frees(rule=None) -> tuple:
+    """NetSyncClient.WorldLatchFrees: (how many of the 256 term combinations leave the latch free, the last one)."""
+    rule = rule or world_latch_step
+    n, at = 0, -1
+    for i in range(256):
+        if rule(bool(i & 1), 3 if i & 2 else 1, 0 if i & 4 else 0x1000, 3 if i & 8 else 1, not i & 16, not i & 32,
+                not i & 64, not i & 128) is None:
+            n, at = n + 1, i
+    return n, at
+
+
+def world_arm_timed_out(armed, age_ms, on_world) -> bool:
+    """NetSyncClient.WorldArmTimedOut."""
+    return armed >= 0 and bool(on_world) and age_ms > WORLD_ARM_TIMEOUT_MS
+
+
+def ramp_world_settled(event_world, control) -> bool:
+    """NetSyncClient.RampWorldSettled: a free-roam world map at once, an event world only with control on."""
+    return (not event_world) or bool(control)
+
+
+def world_follow_latch(on_world, world_armed, warped_to) -> int:
+    """NetSyncClient.WorldFollowLatch: on the world map only the world arm owns the follow's same-destination latch -- with none
+    armed a field follow's stamp (one that can no longer land) drops (-1)."""
+    return -1 if on_world and world_armed < 0 else int(warped_to)
+
+
+def host_entrance_of(state):
+    """NetSyncClient.HostEntranceOf: the host's own FieldEntrance (section 0's bytes 2..3, little-endian) off a state payload;
+    None = no story section (nothing to seed)."""
+    story = old_try_read_section(state, SECTION_STORY) if state else None
+    if story is None or len(story) < 4:
+        return None
+    return story[2] | (story[3] << 8)
+
+
+def pass_keeps_own_entrance(code) -> bool:
+    """NetSyncClient.PassKeepsOwnEntrance: a PASSED world entry keeps the guest's own FieldEntrance (the host off-field, its field
+    unregistered, no snapshot, the session ending, the source-field hold); the host's own field and a redirect take the host's."""
+    return code in (REDIR_PASS_OFF_FIELD, REDIR_PASS_UNREGISTERED, REDIR_PASS_NO_SNAPSHOT, REDIR_PASS_NOT_FOLLOWING,
+                    REDIR_PASS_HELD)
+
+
+def pass_entrance_restores(stash_field, fld) -> bool:
+    """NetSyncClient.PassEntranceRestores: the own entrance comes back only on the field the pass lands on."""
+    return stash_field > 0 and stash_field == fld
+
+
+# ---- THE WAITING LINE (NetSyncClient, piece D; decisions 5 and 7)
+WAIT_AWAY_MS = 3000                                 # NetSyncClient.WaitAwayMs: an old host's field 0 debounce
+#: the overlay states (NetSyncClient.Ovl*) and OverlayName's vocabulary for them
+OVL_OFF, OVL_ELSEWHERE, OVL_NO_CODE, OVL_CONNECTING, OVL_WAITING = 0, 1, 2, 3, 4
+OVL_PEER_ELSEWHERE, OVL_FOLLOWING, OVL_PEER_NO_FIELD, OVL_RECONNECTING = 5, 6, 7, 8
+OVL_HOST_WORLD, OVL_REJOINING, OVL_WORLD_HOLD, OVL_HOST_TITLE, OVL_HOST_AWAY = 9, 10, 11, 12, 13
+OVL_KEEP = -2
+OVERLAY_NAMES_S144 = ("host_world", "rejoining", "world_hold", "host_title", "host_away")
+#: `netsync.world.waitline.line`'s vocabulary (NetSyncClient.WaitLineName), by state
+WAITLINE_NAMES = {OVL_HOST_WORLD: "host_world", OVL_REJOINING: "rejoin", OVL_WORLD_HOLD: "hold",
+                  OVL_HOST_TITLE: "host_title", OVL_HOST_AWAY: "away"}
+#: decision 7's sentences, verbatim inside the overlay's words (WaitLineText)
+WAIT_TEXT_HOST_WORLD = "FF9 co-op: Your partner is on the world map.\nYou'll rejoin them at their next stop."
+WAIT_TEXT_HOST_TITLE = "FF9 co-op: Your partner is at the title screen."
+WAIT_TEXT_HOST_AWAY = "FF9 co-op: Your partner is away."
+
+
+def host_where_bits(on_world, at_title) -> int:
+    """NetSyncClient.HostWhereBits: the host's b6 / b7 from where it stands (HostDialogFlags)."""
+    return (HF_WORLD if on_world else 0) | (HF_TITLE if at_title else 0)
+
+
+def host_where_read(host_flags, bit) -> bool:
+    """NetSyncClient.HostWhereRead: one bit off section 7's flags byte (-1 = no section on the lane: no bit)."""
+    return host_flags is not None and host_flags >= 0 and bool(host_flags & bit)
+
+
+def wait_away_condition(host_valid, host_field, host_flags, battle_live) -> bool:
+    """NetSyncClient.WaitAwayCondition: an old host's fallback clock runs while it reads field 0 (or the relay's 65535) with
+    none of b3 / b5 / b6 / b7 and no battle live; b4 never stops it."""
+    if not host_valid or battle_live or (host_field != 0 and host_field != 65535):
+        return False
+    f = 0 if host_flags is None or host_flags < 0 else int(host_flags)
+    return not f & (HF_ON_FIELD | HF_BATTLE | HF_WORLD | HF_TITLE)
+
+
+def wait_away_due(condition, armed, age_ms) -> bool:
+    """NetSyncClient.WaitAwayDue: the fallback shows once its condition has held WAIT_AWAY_MS."""
+    return bool(condition and armed and age_ms >= WAIT_AWAY_MS)
+
+
+def wait_line_tail(host_world, host_title, away_due, otherwise) -> int:
+    """NetSyncClient.WaitLineTail: b6, then b7, then the debounced field 0 -- the tail both chains share (decision 5)."""
+    if host_world:
+        return OVL_HOST_WORLD
+    if host_title:
+        return OVL_HOST_TITLE
+    if away_due:
+        return OVL_HOST_AWAY
+    return otherwise
+
+
+def wait_keep_window(host_valid, host_field, host_flags, battle_live) -> bool:
+    """NetSyncClient.WaitKeepWindow: THE KEEP WINDOW both chains keep their waiting line through -- the lane at field 0 / 65535,
+    either inside the old host's debounce (no b3 / b5 / b6 / b7: a door, a swirl) or a battle starting (b5 with no live battle lane
+    yet); b3 at lane 0 (a live field the lane cannot place) is none."""
+    if not host_valid or (host_field != 0 and host_field != 65535):
+        return False
+    if wait_away_condition(host_valid, host_field, host_flags, battle_live):
+        return True
+    return host_where_read(host_flags, HF_BATTLE) and not battle_live
+
+
+def field_wait_sticky(state) -> bool:
+    """NetSyncClient.FieldWaitSticky: the lines the field chain's tail chose itself (b6, b7, an old host's away)."""
+    return state in (OVL_HOST_WORLD, OVL_HOST_TITLE, OVL_HOST_AWAY)
+
+
+def field_wait_tail(host_world, host_title, away_due, keep_window, current) -> int:
+    """NetSyncClient.FieldWaitTail: the shared tail, keeping the field's own line through the keep window (OVL_KEEP: SetOverlay
+    is not called), else s143's bare waiting line."""
+    return wait_line_tail(host_world, host_title, away_due,
+                          OVL_KEEP if keep_window and field_wait_sticky(current) else OVL_WAITING)
+
+
+def world_wait_sticky(state) -> bool:
+    """NetSyncClient.WorldWaitSticky: the world chain's own lines (kept through a bare field 0 inside the debounce)."""
+    return state in (OVL_HOST_WORLD, OVL_REJOINING, OVL_WORLD_HOLD, OVL_HOST_TITLE, OVL_HOST_AWAY, OVL_PEER_NO_FIELD)
+
+
+def world_guest_overlay(peer_lost, armed, host_field, host_registered, hold_field, battle_live, host_world, host_title,
+                        away_due, keep_window, current) -> int:
+    """NetSyncClient.WorldGuestOverlay: THE WORLD CHAIN, a following guest's overlay on the live world map, in its order (its own
+    line kept only inside the keep window)."""
+    if peer_lost:
+        return OVL_CONNECTING
+    if armed >= 0:
+        return OVL_REJOINING
+    if host_field > 0 and host_field != 65535:
+        if not host_registered:
+            return OVL_PEER_NO_FIELD
+        return OVL_WORLD_HOLD if hold_field >= 0 and host_field == hold_field else OVL_REJOINING
+    if battle_live:
+        return OVL_OFF
+    return wait_line_tail(host_world, host_title, away_due, OVL_KEEP if keep_window and world_wait_sticky(current) else OVL_OFF)
+
+
+def world_guest_detail(state, armed, host_field) -> int:
+    """NetSyncClient.WorldGuestDetail: the field a world-chain state names (an armed destination first)."""
+    if state == OVL_REJOINING:
+        return armed if armed >= 0 else host_field
+    if state in (OVL_PEER_NO_FIELD, OVL_WORLD_HOLD):
+        return host_field
+    return 0
+
+
+def wait_line_text(state, detail=0):
+    """NetSyncClient.WaitLineText: the waiting line's words (decision 7's sentences, verbatim); None for another state."""
+    if state == OVL_HOST_WORLD:
+        return WAIT_TEXT_HOST_WORLD
+    if state == OVL_REJOINING:
+        return f"FF9 co-op: Rejoining your partner at field {detail}..."
+    if state == OVL_WORLD_HOLD:
+        return (f"FF9 co-op: Your partner is still on field {detail}, the one you just left.\n"
+                f"Rejoining them there in up to {WORLD_HOLD_MS // 1000} s, or at their next stop.")
+    if state == OVL_HOST_TITLE:
+        return WAIT_TEXT_HOST_TITLE
+    if state == OVL_HOST_AWAY:
+        return WAIT_TEXT_HOST_AWAY
+    return None
+
+
+def wait_line_name(state):
+    """NetSyncClient.WaitLineName: `netsync.world.waitline.line` (None for a state that is no waiting line)."""
+    return WAITLINE_NAMES.get(state)
+
+
+#: THE WORLD CHAIN's scenario table (NetSyncClient.WorldChainMisses): (peer_lost, armed, host_field, registered, hold_field,
+#: battle_live, host_world, host_title, away_due, keep_window, current) -> the state each must read
+WORLD_CHAIN_SCENARIOS = (
+    ((True, -1, 0, False, -1, False, True, False, False, False, OVL_OFF), OVL_CONNECTING),
+    ((False, 300, 301, False, -1, False, False, False, False, False, OVL_OFF), OVL_REJOINING),
+    ((False, -1, 300, True, -1, False, False, False, False, False, OVL_HOST_WORLD), OVL_REJOINING),
+    ((False, -1, 300, False, -1, False, False, False, False, False, OVL_OFF), OVL_PEER_NO_FIELD),
+    ((False, -1, 300, True, 300, False, False, False, False, False, OVL_OFF), OVL_WORLD_HOLD),
+    ((False, -1, 0, False, 300, True, False, False, True, False, OVL_HOST_WORLD), OVL_OFF),
+    ((False, -1, 0, False, -1, False, True, False, False, False, OVL_OFF), OVL_HOST_WORLD),
+    ((False, -1, 0, False, -1, False, False, True, False, False, OVL_OFF), OVL_HOST_TITLE),
+    ((False, -1, 0, False, -1, False, False, False, True, False, OVL_OFF), OVL_HOST_AWAY),
+    ((False, -1, 0, False, -1, False, False, False, False, True, OVL_REJOINING), OVL_KEEP),
+    ((False, -1, 0, False, -1, False, False, False, False, True, OVL_RECONNECTING), OVL_OFF),
+    ((False, -1, 65535, False, -1, False, True, False, False, False, OVL_OFF), OVL_HOST_WORLD),
+    ((False, -1, 0, False, -1, False, False, False, False, False, OVL_HOST_WORLD), OVL_OFF),
+)
+
+
+# ---- the guest's read of section 7's flags (NetSyncClient.HostFlagReads: ServiceDialogAuthority's every classification)
+HR_SCENE, HR_ON_FIELD, HR_BATTLE, HR_LINE, HR_MENU, HR_CONTROL = 1, 2, 4, 8, 16, 32
+HF_SCENE, HF_LINE = 0x01, 0x04
+
+
+def host_flag_reads(hf) -> int:
+    """NetSyncClient.HostFlagReads: the six single-bit reads the guest makes of the host's flags byte, packed (HR_*)."""
+    f = int(hf) & 0xFF
+    return ((HR_SCENE if f & HF_SCENE else 0) | (HR_ON_FIELD if f & HF_ON_FIELD else 0) | (HR_BATTLE if f & HF_BATTLE else 0)
+            | (HR_LINE if f & HF_LINE else 0) | (HR_MENU if f & HF_MENU else 0) | (HR_CONTROL if f & HF_CONTROL else 0))
+
+
+def flag_reads_blind(rule=None) -> bool:
+    """NetSyncClient.FlagReadsBlind: every one of the 256 flags bytes reads exactly as its low six bits through ``rule``."""
+    rule = rule or host_flag_reads
+    return all(rule(f) == rule(f & 0x3F) for f in range(256))
+
+
+def world_chain_misses(rule=None) -> int:
+    """NetSyncClient.WorldChainMisses: how many of the world chain's scenarios a rule reads wrong (the real chain: none)."""
+    rule = rule or world_guest_overlay
+    return sum(1 for args, want in WORLD_CHAIN_SCENARIOS if rule(*args) != want)
+
+
+# ---- section 7's codec twin, header + an empty open set and ring (NetSyncDialog.HostRing.BuildSection / TryParseHostSection's
+# header half): what a waiting-line bench builds and an old reader parses -- the flags byte at [5], copied unvalidated
+DIALOG_SECTION_FMT = 1
+DIALOG_HEADER_LEN = 12
+
+
+def dialog_section(epoch, heartbeat, flags, scene_nonce=0, scene_field=0, head_seq=0) -> bytes:
+    """HostRing.BuildSection with no open window and an empty ring: [fmt][epoch u16][heartbeat u16][flags][sceneNonce]
+    [sceneField u16][headSeq u16][openN 0][ringN 0], little-endian."""
+    f = max(0, int(scene_field))
+    return bytes([DIALOG_SECTION_FMT, epoch & 0xFF, (epoch >> 8) & 0xFF, heartbeat & 0xFF, (heartbeat >> 8) & 0xFF, flags & 0xFF,
+                  scene_nonce & 0xFF, f & 0xFF, (f >> 8) & 0xFF, head_seq & 0xFF, (head_seq >> 8) & 0xFF, 0, 0])
+
+
+def parse_dialog_section(body):
+    """TryParseHostSection's header and counts: None when refused (truncated, an unknown fmt, an open set over 4, a ring over
+    32, a body shorter than its counts promise); else {epoch, heartbeat, flags, scene_nonce, scene_field, head_seq, open_n,
+    ring_n} -- the flags byte as it came."""
+    b = bytes(body or b"")
+    if len(b) < DIALOG_HEADER_LEN or b[0] != DIALOG_SECTION_FMT:
+        return None
+    open_n = b[11]
+    if open_n > 4 or len(b) < DIALOG_HEADER_LEN + 6 * open_n + 1:
+        return None
+    ring_n = b[DIALOG_HEADER_LEN + 6 * open_n]
+    if ring_n > 32 or len(b) < DIALOG_HEADER_LEN + 6 * open_n + 1 + 12 * ring_n:
+        return None
+    r16 = lambda o: b[o] | (b[o + 1] << 8)                               # noqa: E731
+    return {"epoch": r16(1), "heartbeat": r16(3), "flags": b[5], "scene_nonce": b[6], "scene_field": r16(7),
+            "head_seq": r16(9), "open_n": open_n, "ring_n": ring_n}
+
+
+# =========================================================================== [ff9mapkit netsync s144] THE HARNESS CORE's twins
+# What the pure twins above leave to the CALL SITES, for the stand-in's world model (fakegame's `worldwait` rung) and a bench's own
+# oracle: the follow's debounce, the world dispatchers' poll mask, the overlay's WORDS for every state (SetOverlay's switch), the
+# guest overlay CHAIN as Update runs it (the world chain ahead of `local == null`, the field chain's tail), the world battle verb's
+# refusals and status lines (Ff9mkDebugMenu.StartWorldBattle / WorldBattleRefusal / FireWorldBattle) and the log lines the world
+# freeze and the world rejoin write. Every literal here is pinned against the live patch stack (tests/test_world_coop_harness.py:
+# each rendering must decompose into the engine's own string literals), so a bench never judges against words the engine never says.
+FOLLOW_STABLE_MS = 1200                              # NetSyncClient.FollowStableMs: the host's field must hold this long
+WORLD_BATTLE_ARM_MS = 3000                           # Ff9mkDebugMenu.WorldBattleArmMs: an armed one-shot older than this is stale
+SESSION_CODE_NONE = "(no code)"                      # SetOverlay's `code` with an empty SessionCode
+#: the free-roam world dispatchers' control-on polls (NetSyncField's key-mask note): Confirm, Cancel, Special, Menu, Navi and RT
+WORLD_POLL_READ_MASK = EV_CONFIRM | EV_CANCEL | EV_SPECIAL | EV_MENU | EV_NAVI_CONTROL | EV_RIGHT_TRIGGER
+
+
+def overlay_name(state):
+    """NetSyncClient.OverlayName: the published `netsync.session.overlay` for a state (None = none composed / unknown)."""
+    return OVERLAY_NAMES[state] if isinstance(state, int) and 0 <= state < len(OVERLAY_NAMES) else None
+
+
+def overlay_words(state, detail=0, *, role="client", code="", relay_url="", peer="", port=0, follow_host=True,
+                  mirroring=False, target_field=0):
+    """NetSyncClient.SetOverlay's switch -- the WORDS a state composes (`netsync.session.overlay_text`: the composed words of the
+    ASKED state; null under the selftest role, whose Update branch asks only OvlOff -- the waiting line's words are witnessed only
+    on a following client, T2 or the duo); None for OvlOff and any state the switch does not name. The waiting line's five are
+    :func:`wait_line_text`'s."""
+    c = code if code else SESSION_CODE_NONE
+    if state == OVL_ELSEWHERE:
+        return ("FF9 co-op is ON (" + ("hosting, code " + c if role == "host" else "joining " + c)
+                + ")\nmeet your friend:  ~ menu > Warp to field > " + str(target_field))
+    if state == OVL_NO_CODE:
+        return ("FF9 co-op: SessionCode is EMPTY -- nothing to join.\n"
+                "Get the host's code, then run:  ff9mapkit coop join <code>")
+    if state == OVL_CONNECTING:
+        if detail != 0 and relay_url:
+            return ("FF9 co-op: the bridge is up -- waiting for the host's game (code " + c + ")\n"
+                    "if this never clears, check the host is in:  ff9mapkit coop host")
+        if detail != 0:
+            return "FF9 co-op: linked to " + str(peer) + ":" + str(port) + " -- waiting for the host's game to answer"
+        if relay_url:
+            return ("FF9 co-op: connecting to the relay...\n"
+                    "If this never clears, the bridge isn't running:  ff9mapkit coop "
+                    + ("host" if role == "host" else "join " + c) + "  (" + relay_url + ")")
+        if role == "host":
+            return ("FF9 co-op: waiting for the other player to connect\n"
+                    "(direct LAN -- they join your IP, port " + str(port) + ")")
+        return "FF9 co-op: connecting to " + str(peer) + ":" + str(port) + " (direct LAN)..."
+    if state == OVL_WAITING:
+        return "FF9 co-op: connected -- waiting for your friend to arrive on this screen\nsession code:  " + c
+    if state == OVL_PEER_ELSEWHERE:
+        return ("FF9 co-op: your friend is on another screen (field " + str(detail) + ")\n"
+                + ("following them there..." if follow_host else "stand on the same screen to see each other"))
+    if state == OVL_FOLLOWING:
+        return "FF9 co-op: following your friend to field " + str(detail) + "..."
+    if state == OVL_PEER_NO_FIELD:
+        return ("FF9 co-op: your friend is on field " + str(detail) + ", which this install doesn't have\n"
+                "(a custom field needs its mod on BOTH machines)")
+    if state == OVL_RECONNECTING:
+        return ("FF9 co-op: the host's game went silent -- reconnecting (" + str(detail) + " s left)\n"
+                + ("the session waits for it; if it doesn't return, your own save reloads" if mirroring
+                   else "the session waits for it"))
+    return wait_line_text(state, detail)
+
+
+def guest_overlay_chain(*, grace=False, grace_left=0, on_world=False, wait_on=False, local=True, on_field=True,
+                        in_scope=True, peer_lost=False, connected=True, follow_pending=-1, host_valid=False, host_field=-1,
+                        my_field=-1, follow_host=False, host_registered=True, battle_live=False, host_world=False,
+                        host_title=False, away_due=False, world_armed=-1, hold_field=-1, current=OVL_OFF, keep_window=False,
+                        role="client"):
+    """NetSyncClient.Update's overlay chain on a CLIENT, in its order -> (state, detail); state OVL_KEEP = the world chain leaves
+    its own line on screen (SetOverlay is not called). The PAIRED branch first (the peer on THIS screen: the ghost is the
+    status), then the not-paired chain: the session grace's countdown; [s144] THE WORLD GUEST's chain (a following guest on the
+    live world map, :func:`world_guest_overlay`) ahead of s143's `local == null`; the peer lost; a field follow-warp in flight; the
+    host on a field this install lacks; the host on another screen; a battle live; and [s144] THE TAIL (b6 / b7 / an old host's
+    debounced field 0) in place of the bare waiting line -- both chains keep their own line through the keep window
+    (``keep_window``: WaitKeepWindow). `wait_on` = WaitLineOn (a following client); `peer_lost` its PEER-ALIVE read;
+    `connected` the socket's IsConnected (the connecting line's detail on a client). [s144] ``role`` "host": a HOST on the live
+    world map with no peer reads its connecting line (detail 0), ahead of `local == null`."""
+    if local and host_valid and host_field == my_field and host_field > 0:
+        return OVL_OFF, 0
+    if grace:
+        return OVL_RECONNECTING, int(grace_left)
+    if on_world and wait_on:
+        s = world_guest_overlay(peer_lost, world_armed, host_field if host_valid else -1,
+                                host_valid and host_field > 0 and host_field != 65535 and host_registered, hold_field,
+                                battle_live, host_world, host_title, away_due, keep_window, current)
+        if s == OVL_KEEP:
+            return OVL_KEEP, 0
+        if s == OVL_CONNECTING:
+            return s, 1 if connected else 0
+        return s, world_guest_detail(s, world_armed, host_field if host_valid else -1)
+    if on_world and role == "host" and peer_lost:
+        return OVL_CONNECTING, 0
+    if not local:
+        return (OVL_ELSEWHERE if on_field and not in_scope else OVL_OFF), 0
+    if peer_lost:
+        return OVL_CONNECTING, 1 if connected else 0
+    if follow_pending >= 0:
+        return OVL_FOLLOWING, follow_pending
+    if host_valid and host_field > 0 and host_field != my_field and follow_host and not host_registered:
+        return OVL_PEER_NO_FIELD, host_field
+    if host_valid and host_field > 0 and host_field != my_field:
+        return OVL_PEER_ELSEWHERE, host_field
+    if battle_live:
+        return OVL_OFF, 0
+    return field_wait_tail(wait_on and host_world, wait_on and host_title, wait_on and away_due, wait_on and keep_window,
+                           current), 0
+
+
+# ---- the world battle verb (Ff9mkDebugMenu, piece A): its refusals, its status lines, its drops
+def world_battle_refusal(*, world_hud=True, sys_mode=3, bee=False, scene=0, group=-1, fading=False, attr=0, next_mode=3,
+                         events_off=False, phase=2, block_ready=True, full_map=False, walker=True, control=True, travel=0,
+                         topo=0, registered=True, boot_why=None, deep=True):
+    """Ff9mkDebugMenu.WorldBattleRefusal: why a world battle may not start now (None = it may), in the engine's order. `deep`
+    (the arm only) adds the scene checks that read the install: Battle.mapName and NetSyncDiorama.ValidateWireBoot (`boot_why`,
+    its own reason). The verb throws "world battle: " + the reason."""
+    if not world_hud:
+        return "world map only"
+    if sys_mode != 3:
+        return f"not in world mode ({sys_mode})"
+    if bee:
+        return "the bee scene has no battles"
+    if scene < 0 or scene > 32767:
+        return f"scene {scene} is outside 0..32767"
+    if group < -1 or group > 127:
+        return f"group {group} is outside -1..127"
+    if fading:
+        return "a fade is in flight"
+    if int(attr) & 0x3001 or next_mode != 3:
+        return f"a world transition is pending (attr 0x{int(attr) & 0x3001:04X}, nextMode {next_mode})"
+    if events_off:
+        return "the world tick is paused (events off)"
+    if phase != 2 or not block_ready:
+        return "the world is still loading"
+    if full_map:
+        return "the full map is open"
+    if not walker:
+        return "no controlled actor"
+    if not control:
+        return "no user control (a world script holds it)"
+    if travel != 0:
+        return f"on foot only (travel mode {travel})"
+    if topo == 52:
+        return "the walker stands on topograph 52 (no battles there)"
+    if deep:
+        if not registered:
+            return f"scene {scene} is not registered (Battle.mapName)"
+        if boot_why is not None:
+            return boot_why
+    return None
+
+
+def _world_battle_what(scene, group, rand):
+    return (f" group {group}" if group >= 0 else " (random group)") + (" as a random encounter" if rand else "")
+
+
+def world_battle_arm_status(scene, group, rand):
+    """StartWorldBattle's success status (`debug_status`) -- the one-shot armed for the next quiet world tick."""
+    return f"starting world battle {scene}" + _world_battle_what(scene, group, rand) + " at the next world tick ..."
+
+
+def world_battle_armed_refusal(scene):
+    """StartWorldBattle's refusal of a second arm."""
+    return f"world battle: battle {scene} is already armed for the next world tick"
+
+
+def world_battle_started(scene, group, rand, wld):
+    """FireWorldBattle's status and Log.Message ("[NetSync] " + it) at the consuming world tick."""
+    return f"world battle {scene}" + _world_battle_what(scene, group, rand) + f" started from world map {wld}"
+
+
+def world_battle_dropped(scene, why):
+    """FireWorldBattle's drop (status and Log.Message): the world's own result first, stale, or a re-check refusal."""
+    return f"world battle {scene}: dropped at its tick -- {why}"
+
+
+def world_battle_own_result(result):
+    return f"the world's own tick result {result} came first"
+
+
+def world_battle_stale(age_ms):
+    return f"stale (armed {age_ms} ms ago, or on an earlier world load)"
+
+
+# ---- the world freeze's lines (NetSyncField, piece B; Log.Message adds "[NetSync] ")
+WORLD_POLL_DECLINE = "world script button-poll (travel, vehicle, location)"
+POLL_DECLINE_PICKUP = "script button-poll (pickup/loot)"
+POLL_DECLINE_ATE = "script button-poll (ATE menu)"
+WORLD_UI_DECLINE_MAP = "full map"
+WORLD_UI_DECLINE_LOCATION = "full-map navigation (airship autopilot)"
+LOG_WORLD_FREEZE_RELEASE_ENDED = "world freeze release ended with its session"
+LOG_WORLD_FREEZE_REARMED = "world freeze re-armed (field load)"
+LOG_WORLD_FREEZE_REARMED_WORLD = "world freeze re-armed (world load)"
+
+
+def decline_line(what, where):
+    """NetSyncField.DeclineOnceAt / DeclineOnceHere's line: `where` = "field <fldMapNo>" or "world map <wldMapNo>"."""
+    return f"{what} suppressed (following guest) on {where}"
+
+
+def world_scripted_battle_decline(op, scene):
+    """SkipWorldScriptedBattle's line class detail ("ENCOUNT" / "ENCOUNT2")."""
+    return f"scripted world battle ({op}, scene {scene})"
+
+
+def log_world_freeze_on(why, wld, autopilot=False):
+    """NetSyncField.WorldFreezeEdge's line, once per rising edge."""
+    return (f"world freeze ON ({why or '?'}) on world map {wld}: travel input held -- the host drives; the guest rejoins at "
+            f"their next stop" + (" (the airship autopilot cancelled)" if autopilot else ""))
+
+
+def log_world_freeze_lifted(wld, why):
+    """NetSyncField.NoteWorldFreezeLift's line, once per fall (why = WorldFreezeLiftWhy's)."""
+    return f"world freeze lifted on world map {wld}: {why or 'unknown'}"
+
+
+def log_world_freeze_released(source, wld):
+    """NetSyncField.ReleaseWorldFreeze's line (the ~ menu's Release world freeze)."""
+    return (f"world freeze RELEASED ({source or '?'}) on world map {wld} until the next field or world load: the guest walks, "
+            f"rides and enters locations on its own (an entry goes to the host's field when they stand on one; its own "
+            f"encounters stay suppressed)")
+
+
+def log_release_refused(why):
+    """Ff9mkDebugMenu.ReleaseWorldFreezeFromMenu's refusal line."""
+    return f"release world freeze refused: {why}"
+
+
+# ---- the world rejoin's lines (NetSyncClient, piece C)
+def log_world_rejoin_waits(dest, why):
+    return f"world rejoin to field {dest} waits: {why}"
+
+
+def log_world_rejoining(dest, wld, intent=False):
+    return (("intent: " if intent else "") + f"rejoining the peer at field {dest} from world map {wld}"
+            + (" (parallel)" if intent else "") + " -- the host's snapshot applies at the load")
+
+
+def log_world_rejoin_landed(fld, armed, ms):
+    return f"world rejoin landed on field {fld}" + (f" (armed for {armed})" if fld != armed else "") + f" after {ms} ms"
+
+
+def log_world_rejoin_timeout(dest, wld, why):
+    return (f"world rejoin to field {dest} did not land in {WORLD_ARM_TIMEOUT_MS // 1000} s (still on world map {wld}; "
+            f"{why or 'no world transition in flight'}) -- re-arming the follow")
+
+
+def log_world_hold_latched(src, wld):
+    return (f"world-map exit from field {src} to world map {wld} (following guest): a rejoin into field {src} holds up to "
+            f"{WORLD_HOLD_MS // 1000} s, or until the host leaves it")
+
+
+def log_world_hold_released(src, expired):
+    return f"world rejoin hold on field {src} released: " + (f"{WORLD_HOLD_MS // 1000} s passed" if expired
+                                                             else "the host left it")
+
+
+def log_world_hold_ended(src, fld):
+    return f"world rejoin hold on field {src} ended (field {fld} loads)"
+
+
+def log_world_hold_rides(src, fld):
+    """NoteWorldLanding's line: the hold rides a landing on another field (WorldHoldCarries)."""
+    return (f"world rejoin hold on field {src} rides onto field {fld} (the world's own entry passed under it: the field follow "
+            f"waits it out too)")
+
+
+def log_field_follow_held(dest, fld):
+    """NoteFieldFollowHeld's line (FollowHostTick's field branch, once per latched hold)."""
+    return (f"the field follow to field {dest} waits on field {fld}: the source-field hold (your own exit from it, under "
+            f"{WORLD_HOLD_MS // 1000} s ago) -- it ends when the host leaves it")
+
+
+def log_world_redirect(dest, to, wld):
+    return (f"world script Field({dest}) redirected to the host's field {to} on world map {wld} (following guest: an instant "
+            f"rejoin through the world's own entry)")
+
+
+def log_world_pass(dest, wld, code, host):
+    why = ("the host's own field" if code == REDIR_PASS_HOST
+           else f"the host's field {host} is not on this install" if code == REDIR_PASS_UNREGISTERED
+           else "no fresh host snapshot on the wire" if code == REDIR_PASS_NO_SNAPSHOT
+           else "the session is ending (unfollowed, or its exit ramp pending)" if code == REDIR_PASS_NOT_FOLLOWING
+           else f"the source-field hold (the host is still on field {host}, the one you just left)" if code == REDIR_PASS_HELD
+           else "the host is off-field")
+    return f"world script Field({dest}) passes on world map {wld} (following guest): {why}"
+
+
+def log_follow_cancelled(dest, src):
+    """NoteGuestWorldJump's line: a field follow still in its fade (or stamped, never landed) cancelled by the guest's own WMAPJUMP."""
+    return f"the field follow to field {dest} is cancelled: field {src} leaves for the world map first (the world rejoin takes over)"
+
+
+def log_follow_warp_dropped(dest):
+    """ServiceFollowWarp's line: the deferred half dropped on the world map."""
+    return (f"follow-warp to field {dest} dropped: the field left for the world map inside its fade (the world rejoin takes "
+            f"over)")
+
+
+def log_follow_latch_dropped(field, wld):
+    """FollowHostTick's line: a field follow's stale same-destination latch dropped on the world map (WorldFollowLatch)."""
+    return (f"a field follow's latch on field {field} dropped on world map {wld}: only the world rejoin owns it there (that "
+            f"follow can no longer land)")
+
+
+def log_pass_entrance_kept(fld, own, host):
+    """RestorePassEntrance's line: a passed world entry's own FieldEntrance put back over the host snapshot's."""
+    return (f"world entry into field {fld} keeps its own entrance {own} over the host snapshot's {host} (the world script's "
+            f"Field() passed: decision 6)")
+
+
+def log_world_intent_unregistered(dest):
+    return f"intent: the peer's field ({dest}) is not on this install -- staying on the world map"
+
+
+def log_teleport_world(field, wld):
+    return (f"teleport-to-host: rejoining the peer at field {field} from world map {wld} (the hold and the debounce "
+            f"cleared)")
+
+
+def log_teleport_declined(reason):
+    """NetSyncClient.TpDecline's line (latched on the reason)."""
+    return f"teleport-to-host declined: {reason}"
+
+
+TP_WORLD_SELFTEST = "the world rejoin needs a live host (the selftest role has none on the wire)"
+TP_WORLD_NOT_LIVE = "no live followed session"
+
+
+def tp_world_decline(valid, host_field, registered, held):
+    """TeleportToHostWorld's declines past the role and session gates, in its order (None = it re-arms)."""
+    cleared = " (the hold is cleared)" if held else ""
+    if not valid:
+        return "the peer's position lane is stale" + cleared
+    if host_field <= 0 or host_field == 65535:
+        return ("the host is not on a field (the world map, a battle, a menu or the title) -- you rejoin at their next stop"
+                + cleared)
+    if not registered:
+        return f"the host's field ({host_field}) is not on this install" + cleared
+    return None

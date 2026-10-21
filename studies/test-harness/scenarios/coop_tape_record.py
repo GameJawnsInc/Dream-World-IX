@@ -83,6 +83,19 @@ record a `-seat` tape whose `offer --want 4` red looks exactly like the predicte
 not, then warps to field 250 if it is not there (COOPPARTY unregistered leaves the host on the New-Game field: review s143
 rfield-1).
 
+THE WORLD VARIANT ([ff9mapkit netsync s144] COOP_TAPE_WORLD=1): a HOST-ON-WORLD tape for coop_world_wait.py's T2 world-wait
+leg. The host stands on 6603 FARSHORE (the kit's FF9CustomMap-world landing: re-read its registration first) instead of 250
+for COOP_TAPE_PRE_S (25 here) s -- the replay's pairing and the mirror's arm --, walks out of its door the proven way
+(coop_world_wait.walk_out: calibrate_axes with the door quad a hazard, walk_to inside it, wait_world: world 9011 at the
+landing (68, -444)) and STAYS on the world map COOP_TAPE_WORLD_S (90) s, encounters off, no battle -- then the peer is
+stopped. Its checks: REC-P0 / P1 / P2 / M as ever, REC-WX the walk out landed on 9011, REC-WS the host stayed on the world
+map (WorldHUD on every read, the battle epoch unmoved), REC-T, and the world facts REC-WF1 (the host on 6603 >= 10 s before
+its exit), REC-WF2 (the story lane with the marker), REC-WF3 (off-field >= 60 s with section 7 riding) --
+_coop_peer_bench.world_tape_facts --, REC-INI. The tape is named `-world-`, lands in its OWN dir (COOP_TAPE_DIR; default
+<main repo>/.harness-runs/coop-tapes/world) and moves only that dir's latest-world.json, NEVER latest.json. The recorder is
+the instrument: its b6 is not one of its checks -- `py tools/harness/coop_peer.py where <tape> --want world` (an s144 host)
+or `--want none` (an s143 host: the calibration) is the tape's verdict, run by cal144 / full144.
+
 THE HAND RECORDING (a world-map victory for coop_cut_hold's s120-world leg, which a field-250 tape cannot carry): with the
 desktop's [Netsync] set to the host values above by hand, run
     py tools/harness/coop_peer.py serve-guest --report live --tap <tape>.f9tape
@@ -117,9 +130,14 @@ HarnessError = cb.HarnessError
 
 FIELD = pb.BENCH_FIELD
 SCENE = pb.BENCH_SCENE
-PORT = pb.env_int("COOP_PEER_PORT", pb.DEFAULT_PORT)
+#: [ff9mapkit netsync s144] THE WORLD VARIANT (see its paragraph): the host on 6603, then out on the world map -- on a
+#: PRIVATE port (pb.WORLD_PORT: the s144 legs never bind the owner's 49201; this run writes its own RelayUrl)
+WORLD_TAPE = pb.env_flag("COOP_TAPE_WORLD")
+PORT = pb.env_int("COOP_PEER_PORT", pb.WORLD_PORT if WORLD_TAPE else pb.DEFAULT_PORT)
 CODE = pb.BENCH_CODE
-PRE_S = pb.env_float("COOP_TAPE_PRE_S", 70.0)
+WORLD_FIELD = pb.WORLD_TAPE_FIELD
+WORLD_S = pb.env_float("COOP_TAPE_WORLD_S", 90.0)
+PRE_S = pb.env_float("COOP_TAPE_PRE_S", 25.0 if WORLD_TAPE else 70.0)
 FIGHT_S = pb.env_float("COOP_TAPE_FIGHT_S", 40.0)
 POST_S = pb.env_float("COOP_TAPE_POST_S", 30.0)
 GUEST_SLOTS = pb.env_int("COOP_TAPE_GUEST_SLOTS", 2)
@@ -157,8 +175,26 @@ SEAT_CATALOG = {
 }
 
 
-def _catalog(seat: int) -> dict:
-    """The run's checks: CATALOG, plus REC-SEAT on a seat run."""
+#: [ff9mapkit netsync s144] the WORLD variant's checks (COOP_TAPE_WORLD=1): the battle facts give way to the world's
+WORLD_CATALOG = {
+    **{k: CATALOG[k] for k in ("REC-P0", "REC-P1", "REC-P2", "REC-M")},
+    "REC-WX": f"the host walked out of {WORLD_FIELD} onto world 9011 at the landing (coop_world_wait.walk_out: the proven "
+              "route)",
+    "REC-WS": f"the host stayed on the world map COOP_TAPE_WORLD_S ({WORLD_S:g}) s: WorldHUD on every read, the battle epoch "
+              "unmoved (encounters off)",
+    "REC-T": CATALOG["REC-T"],
+    "REC-WF1": f"WF1 PAIR: the host on {WORLD_FIELD} >= 10 s before its world exit, no battle there (the replay's pairing)",
+    "REC-WF2": "WF2 STORY: type-5 story frames from the first seconds, carrying the marker",
+    "REC-WF3": "WF3 WORLD: the host off-field >= 60 s after its exit, section 7 riding its state frames (the waiting line's "
+               "input; its b6 is `coop_peer.py where`'s verdict, not the recorder's)",
+    "REC-INI": CATALOG["REC-INI"],
+}
+
+
+def _catalog(seat: int, world: bool | None = None) -> dict:
+    """The run's checks: CATALOG, plus REC-SEAT on a seat run; [s144] WORLD_CATALOG on a world run."""
+    if WORLD_TAPE if world is None else world:
+        return dict(WORLD_CATALOG)
     return {**CATALOG, **SEAT_CATALOG} if seat else dict(CATALOG)
 
 HOST_VALUES = {"Enabled": "1", "Role": "host", "RelayUrl": f"ws://127.0.0.1:{PORT}", "SessionCode": CODE,
@@ -249,7 +285,7 @@ def _config_applied(lines, role: str) -> list:
 
 def run(g, field: int = FIELD):
     led = cb.Ledger(g, _catalog(SEAT), finals=("REC-INI",))
-    ctx = _Ctx(field)
+    ctx = _Ctx(WORLD_FIELD if WORLD_TAPE else field)       # [ff9mapkit netsync s144] the world tape's host stands on 6603
     try:
         _run(g, led, ctx)
     except HarnessError as err:
@@ -280,6 +316,13 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
     if SEAT not in SEATS:
         led.close(f"COOP_TAPE_SEAT={SEAT} is not a party seat ({sorted(k for k in SEATS if k)}) -- nothing was edited")
         return
+    if SEAT and WORLD_TAPE:
+        led.close("COOP_TAPE_SEAT and COOP_TAPE_WORLD are separate variants -- nothing was edited")
+        return
+    if WORLD_TAPE and PORT == pb.OWNER_PORT:
+        led.check("REC-P0", False, f"COOP_PEER_PORT={PORT} is the owner's bridge port: the world variant never binds it")
+        led.close("the bench port is the owner's -- nothing was edited")
+        return
     free, why = pb.port_free(PORT)
     if not free:
         led.check("REC-P0", False, why)
@@ -299,6 +342,8 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
     led.check("REC-M", pb.marker_value(st) == pb.MARKER_VALUE,
               f"byte {pb.MARKER_BYTE} reads {pb.marker_value(st)!r} on field {st.field_id}")
     ctx.stage = pb.engine_stage(st)
+    if WORLD_TAPE and cb.has(st, cb.R3_PROBES[144]):
+        ctx.stage = 144                     # [ff9mapkit netsync s144] a world tape is named by the host's s144 (b6) stage
     ctx.host_s118 = pb.has(st, "netsync.battle.host.handback.refused_report")
     g.note(f"the engine reads as s{ctx.stage or '<117'} (guest ladder){'; s118 host keys present' if ctx.host_s118 else ''}"
            f"; {cb.stage_note(st)}")
@@ -321,9 +366,10 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
         return
     # 3. the peer
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    tdir = pb.tape_dir()
+    tdir = pb.world_tape_dir() if WORLD_TAPE else pb.tape_dir()          # [ff9mapkit netsync s144] a world tape's own home
     tdir.mkdir(parents=True, exist_ok=True)
-    ctx.tape = tdir / f"{stamp}-host{ctx.field}{f'-seat{SEAT}' if SEAT else ''}-s{ctx.stage or 0}.f9tape"
+    ctx.tape = tdir / (f"{stamp}-host{ctx.field}{f'-seat{SEAT}' if SEAT else ''}{'-world' if WORLD_TAPE else ''}"
+                       f"-s{ctx.stage or 0}.f9tape")
     rd = _run_dir(g)
     ctx.peer = pb.PeerProc("serve-guest", ["--port", PORT, "--report", "live", "--tap", ctx.tape, "--status", "5"],
                            log_path=rd / "coop_peer-serve-guest.log", out_path=rd / "coop_peer-serve-guest.out")
@@ -342,6 +388,9 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
               f"peer: {conn[1] if conn else 'no HOST connection'}; engine: {pb.show(relay)}")
     if conn is None:
         led.close("the host game never dialled the peer")
+        return
+    if WORLD_TAPE:                          # [ff9mapkit netsync s144] the world variant: out on the world map, no battle
+        _world(g, led, ctx, conn)
         return
     # 4. the free roam, the battle, the post-battle roam
     _hold_until(ctx, conn[0], PRE_S)
@@ -512,3 +561,67 @@ def _facts(g, led: cb.Ledger, ctx: _Ctx) -> None:
         g.note(f"tape: {ctx.tape} ({size / 1e6:.1f} MB) -- latest.json points at it (coop_cut_hold.py's default)")
     else:
         g.note(f"tape: {ctx.tape} -- a fact is MISSING, so latest.json was NOT moved to it")
+
+
+# ---------------------------------------------------------------------------------------- [ff9mapkit netsync s144] the world
+def _world(g, led: cb.Ledger, ctx: _Ctx, conn) -> None:
+    """THE WORLD VARIANT's middle: PRE_S on 6603, the proven walk out (coop_world_wait.walk_out), WORLD_S on the world map
+    -- every read on WorldHUD, the battle epoch unmoved --, the peer stopped, then the world facts."""
+    import coop_world_wait as cw                       # beside this file (the scenario dir is on sys.path)
+    _hold_until(ctx, conn[0], PRE_S)
+    ok, why, st = cw.walk_out(g)
+    led.check("REC-WX", ok, why)
+    if ok:
+        epoch0 = st.battle_epoch
+        end = time.time() + WORLD_S
+        reads, off = 0, []
+        while time.time() < end and ctx.peer.alive():
+            s = g.state
+            reads += 1
+            if s.ui_state != "WorldHUD" or s.battle_epoch != epoch0:
+                off.append((s.ui_state, s.field_id, s.battle_epoch))
+            ctx.peer.lines()
+            time.sleep(0.5)
+        led.check("REC-WS", reads > 0 and not off, f"{reads} read(s) over {WORLD_S:g} s on world {st.world_id}: "
+                  + (f"LEFT the world map {off[:3]}" if off else "WorldHUD throughout, no battle"))
+    else:
+        led.unreached(("REC-WS",), f"the host never reached the world map (REC-WX): {why[:160]}")
+    g.note(f"coop_peer serve-guest: {ctx.peer.stop()}")
+    _world_facts(g, led, ctx)
+
+
+def _world_facts(g, led: cb.Ledger, ctx: _Ctx) -> None:
+    """REC-T and the world facts (REC-WF1-3) off the closed tape; latest-world.json in the world dir when all three hold
+    (NEVER latest.json); the tape's b6 noted (its verdict is `coop_peer.py where`'s)."""
+    summary = ctx.peer.first(pb.PEER["tape_summary"])
+    try:
+        cp = pb.coop_peer_module()
+        header, records, torn = cp.read_tape(ctx.tape)
+    except Exception as err:                 # noqa: BLE001 -- the reason goes into the checks
+        led.check("REC-T", False, f"the tape does not read back: {err}")
+        led.unreached(("REC-WF1", "REC-WF2", "REC-WF3"), "the tape does not read back")
+        return
+    size = ctx.tape.stat().st_size
+    led.check("REC-T", summary is not None and not torn and "stopped cleanly" in (ctx.peer.how_ended or ""),
+              f"{summary[1] if summary else 'no tape line (the peer did not close it itself)'}; {ctx.peer.how_ended}; "
+              f"{len(records)} record(s), {size / 1e6:.1f} MB, torn tail {torn} B")
+    facts = pb.world_tape_facts(records, cp, field=ctx.field)
+    for k in ("w1", "w2", "w3"):
+        led.check(f"REC-WF{k[1]}", facts[k]["ok"], facts[k]["why"])
+    g.note(f"THE WORLD FACTS of {ctx.tape.name}: exit at tape {facts['exit_t']}, {facts['world_s']} s off-field; the host's "
+           f"b6: {facts['b6']} (where: {facts['where']})")
+    plan = pb.plan_world_leg("world-wait", facts)
+    g.note("  leg world-wait: " + ("the whole tape" if plan["ok"] else "CANNOT -- " + plan["why"]))
+    try:
+        (_run_dir(g) / "tape-info.txt").write_text("\n".join(cp.tape_info(ctx.tape)) + "\n", encoding="utf-8")
+    except Exception as err:                 # noqa: BLE001 -- a convenience copy only
+        g.note(f"tape-info.txt not written: {err}")
+    if all(facts[k]["ok"] for k in ("w1", "w2", "w3")):
+        ptr = ctx.tape.parent / pb.WORLD_POINTER
+        ptr.write_text(json.dumps({"tape": str(ctx.tape), "stage": ctx.stage, "recorded": header.get("started"),
+                                   "field": ctx.field, "b6": facts["b6"], "world_s": facts["world_s"],
+                                   "facts": {k: facts[k]["why"] for k in ("w1", "w2", "w3")}}, indent=1),
+                       encoding="utf-8")
+        g.note(f"tape: {ctx.tape} ({size / 1e6:.1f} MB) -- {pb.WORLD_POINTER} points at it (latest.json untouched)")
+    else:
+        g.note(f"tape: {ctx.tape} -- a world fact is MISSING, so {pb.WORLD_POINTER} was NOT moved to it")

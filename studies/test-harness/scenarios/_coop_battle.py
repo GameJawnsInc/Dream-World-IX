@@ -148,6 +148,9 @@ R3_PROBES = {
     # [ff9mapkit netsync s143] the leader guard (the `bench leaderguard` op -- the s110 hazard again: an older agent reads it
     # as `bench 1`) -- keyed on `netsync.battle.host.guard` (host's last key; s140 / s141 are told by battlewire.DRESS_PROBES)
     143: "netsync.battle.host.guard",
+    # [ff9mapkit netsync s144] world-map co-op (the `bench worldfreeze` op -- the s110 hazard again: an s143 agent reads it as
+    # `bench 1`) -- keyed on `netsync.world.freeze` (netsync's LAST key's first block; `rejoin` / `waitline` ride beside it)
+    144: "netsync.world.freeze",
 }
 
 

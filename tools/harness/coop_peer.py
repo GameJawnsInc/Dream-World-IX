@@ -37,6 +37,9 @@ benched as the host OR as the guest:
                      4-7 with section 8 stripped. Exit 0 when every frame holds, 1 when one does not, 2 on a bad tape.
                      A relative tape path missing from the cwd is looked up under the MAIN repo, then by name in the
                      tape home (COOP_TAPE_DIR, else <main repo>/.harness-runs/coop-tapes): a worktree has no tapes.
+  where              [ff9mapkit netsync s144] WHERE AN OFF-FIELD HOST SAYS IT STANDS: section 7's b6 world / b7 title on
+                     every HOST type-5 frame, against the host's position-lane field (``--want world|title|none|any``;
+                     none = an s143-or-older host, whose tape parses exactly as before). Exit 0 / 1 / 2 as ``dress``.
 
 THE TAPE (``.f9tape``) -- stdlib, binary, append-only, crash-tolerant (a torn tail is reported, never fatal):
   ``F9TAPE01`` | u32 LE header length | UTF-8 JSON header | records ``[t f64 LE][dir u8][len u32 LE][payload]``.
@@ -239,6 +242,13 @@ def describe_frame(wtype: int, payload) -> str:
                     f"mask 0x{c['mask']:04X} cursor {c['cursor']}")
     elif wtype == TYPE_ACTION:
         return f"{name} {BW.action_text(payload)}"            # [ff9mapkit netsync s133]
+    elif wtype == TYPE_STATE:
+        # [ff9mapkit netsync s144] the host's section 7 flags byte, by name (b6 world / b7 title are s144's; an older host never
+        # sets them, and a frame without section 7 -- a guest's, a pre-ring host's -- reads as before)
+        view = BW.parse_dialog_section(BW.old_try_read_section(payload, BW.SECTION_DIALOG) or b"")
+        if view is not None:
+            names = ",".join(BW.host_flag_names(view["flags"])) or "none"
+            return f"{name} {len(bytes(payload or b''))} B; section 7 flags 0x{view['flags']:02X} ({names})"
     return f"{name} {len(bytes(payload or b''))} B"
 
 
@@ -2185,6 +2195,118 @@ def tape_dress(records, expect=None) -> dict:
     return out
 
 
+# ======================================================================================== [ff9mapkit netsync s144] b6 / b7
+def tape_where(records) -> dict:
+    """Section 7's b6 HfWorld / b7 HfTitle on a tape's HOST type-5 frames (PURE over the records) -- WHERE AN OFF-FIELD HOST
+    SAYS IT STANDS (studies/world-coop/S144-DESIGN.md decision 7): each frame's flags byte through TryParseHostSection's twin
+    (battlewire.parse_dialog_section: it copies the byte unvalidated), against the host's field off the LAST position frame
+    before it. ``frames`` / ``with7`` / ``refused`` (a section 7 the parser rejects); ``world`` / ``title`` (frames with the
+    bit) and how many of those the host's position lane put ON a real field (``world_on_field`` / ``title_on_field`` -- an
+    s144 host never says "world" there: b6 is its strict onWorld); ``off_field`` (frames while the lane reads field 0 /
+    65535) and how many said where (``off_field_said``); ``parity_diff`` (PARSER-TWIN PARITY: frames whose body parses
+    differently through battlewire's twin with b6 / b7 masked off -- a codec check of the twin, which reads the flags byte
+    unvalidated, NOT the old guest's reader: that one's claim is its single-bit reads, pinned against the live stack by
+    tests/test_world_coop.py and the engine's own 'overlay text selftest'); ``first_world`` / ``first_title`` (the tape second
+    each first shows); ``stage`` ("s144" when a bit ever rides, else an s143-or-older host -- an old tape parses exactly as
+    before)."""
+    out = {"frames": 0, "with7": 0, "refused": 0, "world": 0, "title": 0, "world_on_field": 0, "title_on_field": 0,
+           "off_field": 0, "off_field_said": 0, "parity_diff": 0, "first_world": None, "first_title": None}
+    field = None
+    for r, wtype, payload in host_frames(records):
+        if wtype == TYPE_POS:
+            p = parse_pos_payload(payload)
+            if p is not None:
+                field = p["field"]
+            continue
+        if wtype != TYPE_STATE:
+            continue
+        out["frames"] += 1
+        body = BW.old_try_read_section(payload, BW.SECTION_DIALOG)
+        if body is None:
+            continue
+        out["with7"] += 1
+        view = BW.parse_dialog_section(body)
+        if view is None:
+            out["refused"] += 1
+            continue
+        f = view["flags"]
+        old = BW.parse_dialog_section(bytes(body[:5]) + bytes([f & BW.HF_OLD_SIX]) + bytes(body[6:]))
+        if old is None or {k: v for k, v in old.items() if k != "flags"} != {k: v for k, v in view.items() if k != "flags"} \
+                or old["flags"] != f & BW.HF_OLD_SIX:
+            out["parity_diff"] += 1
+        on_field = field is not None and 0 < field < FIELD_SENTINEL
+        if f & BW.HF_WORLD:
+            out["world"] += 1
+            out["world_on_field"] += on_field
+            if out["first_world"] is None:
+                out["first_world"] = round(r.t, 3)
+        if f & BW.HF_TITLE:
+            out["title"] += 1
+            out["title_on_field"] += on_field
+            if out["first_title"] is None:
+                out["first_title"] = round(r.t, 3)
+        if field is not None and not on_field:
+            out["off_field"] += 1
+            out["off_field_said"] += bool(f & (BW.HF_WORLD | BW.HF_TITLE))
+    out["stage"] = "s144" if out["world"] or out["title"] else "s143-or-older (no b6 / b7)"
+    return out
+
+
+#: `where --want`: what the tape's host must have said (the verdict's own rule over tape_where's counts)
+WHERE_WANTS = ("world", "title", "none", "any")
+
+
+def where_ok(d: dict, want: str) -> bool:
+    """`where`'s verdict: ``world`` / ``title`` -- the bit rode at least one frame and never one the host's lane put on a
+    real field; ``none`` -- an s143-or-older host's tape (section 7 rode, no b6 / b7: the calibration); ``any`` -- the tape
+    parsed. Every verdict needs host state frames and no refused section (the parser-twin parity count is reported, never
+    judged: it cannot fail -- the twin copies the flags byte unvalidated)."""
+    if not d["frames"] or d["refused"]:
+        return False
+    if want == "world":
+        return d["world"] > 0 and d["world_on_field"] == 0
+    if want == "title":
+        return d["title"] > 0 and d["title_on_field"] == 0
+    if want == "none":
+        return d["with7"] > 0 and d["world"] == d["title"] == 0
+    return want == "any"
+
+
+def tape_where_lines(path, want: str = "any") -> tuple:
+    """(ok, the ``where`` report's lines) for a tape file."""
+    if want not in WHERE_WANTS:
+        raise ValueError(f"--want is one of {WHERE_WANTS}, not {want!r}")
+    header, records, torn = read_tape(path)
+    d = tape_where(records)
+    ok = where_ok(d, want)
+    lines = [f"tape {path}",
+             f"host type-5 frames: {d['frames']}; with section 7: {d['with7']} (refused: {d['refused']})"
+             + (f"; TORN tail {torn} B" if torn else ""),
+             f"b6 world: {d['world']} frame(s) (on a real field: {d['world_on_field']}; first at {d['first_world']}); "
+             f"b7 title: {d['title']} (on a real field: {d['title_on_field']}; first at {d['first_title']})",
+             f"while the host's lane reads field 0 / 65535: {d['off_field']} frame(s), {d['off_field_said']} saying where",
+             f"parser-twin parity (the body with b6 / b7 masked off): {d['with7'] - d['refused'] - d['parity_diff']} "
+             f"identical, {d['parity_diff']} different (a codec check, not the old guest's reader)",
+             f"the recording host: {d['stage']}",
+             f"VERDICT (--want {want}): " + ("OK" if ok else "FAIL")]
+    return ok, lines
+
+
+def cmd_where(args) -> int:
+    found, tried = resolve_tape(args.tape)
+    if found is None:
+        print(f"ERROR: no tape {args.tape!r} -- tried {', '.join(str(t) for t in tried)}", file=sys.stderr)
+        return 2
+    try:
+        ok, lines = tape_where_lines(found, args.want)
+    except (OSError, TapeError, ValueError) as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 2
+    for line in lines:
+        print(line)
+    return 0 if ok else 1
+
+
 #: [ff9mapkit netsync s140] `dress --stage`: the host engine a tape was RECORDED on -> the dress rules its producer ran
 #: (battlewire.dress_rules: s139's frozen rules -- Cinna..Beatrix undressed, 00 00 FF -- or the live s140 table, rows 9-12)
 DRESS_STAGES = {"s139": "dresshost", "s140": "dressself"}
@@ -2421,6 +2543,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="the offer every such frame must carry: an s143 host at a seat whose leader sits in the guest's "
                         "bit offers the MOVED mask (Plant Brain's party, GuestSlots 2: 4); an s141 host the raw one (2)")
     p.set_defaults(func=cmd_offer)
+
+    p = sub.add_parser("where", help="[s144] section 7's b6 world / b7 title on a tape's host state frames (where an "
+                                     "off-field host says it stands), the old readers unmoved")
+    p.add_argument("tape", help="the tape (resolved as `dress` resolves it)")
+    p.add_argument("--want", choices=WHERE_WANTS, default="any",
+                   help="world / title: the bit rode, never on a real field; none: an s143-or-older host (the "
+                        "calibration); any: report only")
+    p.set_defaults(func=cmd_where)
     return ap
 
 
