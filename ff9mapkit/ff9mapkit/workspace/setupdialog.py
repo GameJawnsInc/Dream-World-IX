@@ -209,7 +209,7 @@ class SetupHealthDialog(QDialog):
                 self, "Install engine patches",
                 "Install the patched Memoria DLLs into your game (x64 + x86 Managed)?\n\n"
                 "The live DLLs are backed up first (dwix-engine-backups/<timestamp>/) — reversible. "
-                "Needed only for FORKED fields; novel fields run on stock Memoria.",
+                "Needed for FORKED fields and for co-op; novel fields run on stock Memoria.",
         ) != QMessageBox.StandardButton.Yes:
             return
         self._run([sys.executable, "-m", "ff9mapkit", "setup", "--install-engine", f], "Engine install")

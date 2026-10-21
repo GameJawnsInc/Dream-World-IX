@@ -82,29 +82,56 @@ def _write_engine(tmp_path, blob: bytes):
 
 
 def test_netsync_generation_boundaries(tmp_path):
-    """The ONE derivation Setup and the Co-op card share: the s36/s37/s40 markers -> booleans + a
-    summary + a level. warn below s37 (the Play-style floor); ok at s37 and s40. Each marker string
-    must appear in its own summary -- a no-op that returned a fixed string fails the marker asserts."""
-    cases = {
-        b"": (False, False, False, "warn", "MISSING"),
-        b"...NetSyncClient...": (True, False, False, "warn", "(s36)"),
-        b"...NetSyncClient NetSyncBattle...": (True, True, False, "ok", "(s37)"),
-        b"...NetSyncClient NetSyncBattle NetSyncDiorama...": (True, True, True, "ok", "(s40)"),
-    }
-    for blob, (net, s37, s40, level, needle) in cases.items():
-        game = _write_engine(tmp_path / needle.strip("()"), blob)
+    """The ONE derivation Setup and the Co-op card share: the generation markers -> booleans + a
+    summary + a level. s37 stays the Play-style floor boolean; the level is ok ONLY on the current
+    generation, and an older one names the next feature it lacks. Every prefix of the ladder is
+    walked, so a no-op that returned a fixed string fails the per-generation asserts."""
+    gens = health.NETSYNC_GENERATIONS
+    game = _write_engine(tmp_path / "none", b"MZ stock")
+    gen = health.netsync_generation(game)
+    assert (gen["netsync"], gen["s37"], gen["current"], gen["level"]) == (False, False, False, "warn")
+    assert "MISSING" in gen["summary"]
+    for n in range(1, len(gens) + 1):
+        have = gens[:n]
+        game = _write_engine(tmp_path / have[-1][0], b"MZ " + b" ".join(g[1] for g in have))
         gen = health.netsync_generation(game)
-        assert (gen["netsync"], gen["s37"], gen["s40"]) == (net, s37, s40)
-        assert gen["level"] == level and needle in gen["summary"]
+        names = {g[0] for g in have}
+        assert gen["generation"] == have[-1][0] and have[-1][0] in gen["summary"]
+        assert (gen["netsync"], gen["s37"], gen["s40"]) == (True, "s37" in names, "s40" in names)
+        if n == len(gens):
+            assert gen["current"] and gen["level"] == "ok" and "up to date" in gen["summary"]
+        else:
+            assert not gen["current"] and gen["level"] == "warn"
+            assert gens[n][0] in gen["summary"] and gens[n][2] in gen["summary"]
     # a None install (no game) never raises and reads as no netsync
     assert health.netsync_generation(None)["level"] == "warn"
+
+
+def test_netsync_markers_are_unique_to_their_patch():
+    """Each generation marker must be DECLARED first by its own patch (a type or method an earlier
+    patch already declares would date the engine wrong). Declarations, not mentions: s22's debug menu
+    was re-captured after netsync and USES NetSyncClient. Reads the patch stack, never the install."""
+    import re
+    from pathlib import Path
+    stack = Path(__file__).resolve().parents[2] / "memoria-patches"
+    if not stack.is_dir():
+        pytest.skip("memoria-patches/ not beside this checkout")
+    texts = {int(m.group(1)): p.read_text(encoding="utf-8", errors="replace")
+             for p in stack.glob("s*.patch") if (m := re.match(r"s(\d+)-", p.name))}
+    for gen, marker, _what in health.NETSYNC_GENERATIONS:
+        name = re.escape(marker.decode())
+        decl = re.compile(rf"^\+.*(\b(class|struct)\s+{name}\b"
+                          rf"|\b(static|public|private|internal)\b[^=;(]*\b{name}\s*\()", re.M)
+        declared = sorted(n for n, t in texts.items() if decl.search(t))
+        assert declared and declared[0] == int(gen[1:]), \
+            f"{marker!r} first declared by s{declared[0] if declared else '?'}, not {gen}"
 
 
 def test_health_report_has_co_op_engine_row_from_shared_source(tmp_path, monkeypatch):
     """Setup's report gains the engine-generation triage row, sourced from netsync_generation -- the
     SAME helper the Co-op status card reads. Its value/level must equal the helper's, so the two
     surfaces render one fact (a hardcoded row would drift from the helper and fail this)."""
-    game = _write_engine(tmp_path, b"...NetSyncClient NetSyncBattle...")   # s37
+    game = _write_engine(tmp_path, b"MZ " + b" ".join(g[1] for g in health.NETSYNC_GENERATIONS))
     monkeypatch.setattr(config, "find_game_path", lambda explicit=None: game)
     row = next(r for r in health.health_report() if r["label"] == "Co-op engine")
     gen = health.netsync_generation(game)

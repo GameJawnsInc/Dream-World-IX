@@ -196,9 +196,10 @@ def _fake_install(state: str) -> Path:
     game = Path(tempfile.gettempdir()) / "ff9_gui_snap" / f"game_{state}"
     managed = game / "x64" / "FF9_Data" / "Managed"
     managed.mkdir(parents=True, exist_ok=True)
+    from ff9mapkit import health as _health
+    current = b" ".join(g[1] for g in _health.NETSYNC_GENERATIONS)     # ready/live = the CURRENT engine
     marker = {"stock": b"", "s36": b"NetSyncClient", "s37": b"NetSyncClient NetSyncBattle",
-              "ready": b"NetSyncClient NetSyncBattle NetSyncDiorama",
-              "live": b"NetSyncClient NetSyncBattle NetSyncDiorama"}
+              "ready": current, "live": current}
     (managed / "Assembly-CSharp.dll").write_bytes(b"MZfake" + marker[state])   # KeyError on an unknown
     #                                              state -- fabricating a fake machine silently is worse
     ini = ("[Netsync]\nEnabled = 1\nRole = host\nSessionCode = ff9-a1b2c3d4\n"

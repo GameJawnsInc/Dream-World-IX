@@ -1,7 +1,9 @@
 """Co-op ghost-sync setup -- one command per player.
 
 The multiplayer "ghost sync" (engine patch s36) lets two players see each
-other walk a shared field. Getting there used to mean hand-editing
+other walk a shared field; later netsync patches add following the host,
+battle co-op and world-map co-op (the generations: health.NETSYNC_GENERATIONS).
+Getting there used to mean hand-editing
 ``Memoria.ini``, deploying a co-op room, digging a session code out of a log,
 and running the TLS bridge in its own console. This module folds all of that
 into one command per side:
@@ -39,7 +41,7 @@ each is only written when its flag is given, so re-runs never clobber hand tunin
 (The battle diorama -- a following guest's screen boots the host's battles
 live -- is always on since the s42 engine; the old ``--diorama`` knob is gone.
 The text spectate panel remains as the automatic fallback whenever a diorama
-can't boot, and F6 "Leave diorama" opts out of any single fight.)
+can't boot, and the ~ debug menu's "Leave diorama" opts out of any single fight.)
 
 Co-op works EVERYWHERE by default: ghosts appear on any screen both players
 share (``--field N`` restricts it to one field). What ``host``/``join`` do:
@@ -97,8 +99,8 @@ _CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 _CODE_RE = re.compile(r"(?i:ff9-)?[A-Za-z0-9]{1,32}")   # everything validate_code() accepts
 
 # The playable names the engine's visitor mode can dress a ghost as (NetSyncVisitor.NameToRig,
-# s37) -- the 8 mains with proven field rigs; dagger/salamander are aliases. Anyone else
-# (Cinna/Marcus/Blank/Beatrix/customs) has no proven rig row, so the engine refuses = undressed.
+# s37) -- the 8 mains with proven field rigs; dagger/salamander are aliases. Until s140 anyone else
+# had no proven rig row (the engine refused = undressed); customs still do. The s139/s140 rows follow.
 # [ff9mapkit netsync s139] + "moogle" (rig row 8, GEO_NPC_F0_MOG): the same moogle the host's
 # `auto` rule shows for a spectator or an empty puppet slot. It dresses the HOST's ghost of its
 # guest only -- a client keeps the s138 rule and leaves the host's ghost undressed (the host is

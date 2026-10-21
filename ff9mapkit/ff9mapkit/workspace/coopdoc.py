@@ -91,9 +91,9 @@ class CoopDoc(QWidget):
 
         crown, _ = widgets.nameplate(
             "", "Co-op",
-            "Two-player co-op: you and a friend each see the other's ghost walk a shared field, and — if "
-            "you grant it in Advanced options below — they command party members in your battles. Every "
-            "save stays your own.")
+            "Two-player co-op: you and a friend see each other on any field you share. A joining "
+            "friend can follow you between screens and watch your battles live, and — if you grant it "
+            "in Advanced options below — command party members in them. Every save stays your own.")
         v.addWidget(crown)
         if self._on_build is not None:                  # quiet cross-link: deploy the shared mod on Build & Deploy
             xlink = QLabel('Deploy the same mod → <a href="build">Build & Deploy</a>')
@@ -162,9 +162,12 @@ class CoopDoc(QWidget):
 
         lan_row = QHBoxLayout()
         self.rb_relay = QRadioButton("Internet (relay)")
-        self.rb_relay.setToolTip("Works from anywhere; the session is bridged through a relay.")
+        self.rb_relay.setToolTip("Works from anywhere: this app bridges the game to the shared relay "
+                                 "server, so keep it open while you play.")
         self.rb_lan = QRadioButton("Direct LAN")
-        self.rb_lan.setToolTip("Same WiFi only, no relay.")
+        self.rb_lan.setToolTip("Both PCs on the same local network: the games connect directly, with "
+                               "no relay and no bridge. The joining side types the host's LAN IP; "
+                               "allow FF9 through the firewall on both PCs.")
         self.rb_relay.setChecked(True)
         self.rb_relay.toggled.connect(self._render_role)
         self.lan_ip = QLineEdit()
@@ -219,13 +222,15 @@ class CoopDoc(QWidget):
         pv.addLayout(wait_row)
 
         ghost_row = QHBoxLayout()
-        ghost_lbl = QLabel("Their ghost appears on my screen as:")
-        ghost_lbl.setToolTip("Visitor mode. Hosting: what your guest appears as on BOTH screens (an s140+ "
-                             "guest wears it itself unless its own [Netsync] SelfDress=0). Joining: dresses only "
-                             "your view of the host (the 8 mains) -- normally leave it at \"Their own model\": "
-                             "you already wear the host's pick, so the same pick on both machines shows you two "
-                             "of that character. Auto picks whoever they command in battle (needs a battle slot "
-                             "above).")
+        # "My friend appears as", not "...on my screen": since s140 the HOST's pick dresses the guest
+        # on BOTH screens, so the old label was wrong for the side that uses it most.
+        ghost_lbl = QLabel("My friend appears as:")
+        ghost_lbl.setToolTip("Visitor outfit. Hosting: what your friend appears as on BOTH screens (their "
+                             "game wears it too, unless their [Netsync] SelfDress = 0). Auto = the first party "
+                             "member they command in battle, or a moogle while they only spectate. Joining: "
+                             "this dresses only your view of the host (the 8 mains), so normally leave it at "
+                             "\"Their own model\": you already wear the host's pick, and the same pick on both "
+                             "machines shows you two of that character.")
         self.combo_ghost = QComboBox()
         # Item labels are capped at minimumContentsLength characters (fenced) -- the CLOSED box renders
         # the selected item at the box's width and Qt HARD-CLIPS it, no ellipsis: the round-9 snaps
@@ -269,8 +274,8 @@ class CoopDoc(QWidget):
         # in a capped caption beneath it -- and carries the consequence into the accessible description, so
         # a screen reader still reads what it used to say.
         # (The "Boot into the host's battles (diorama)" checkbox lived here until s42: the knob is
-        # gone from the engine -- a following guest's screen always boots the host's battles, F6
-        # "Leave diorama" opts out per fight, and the text panel auto-falls-back when a boot can't
+        # gone from the engine -- a following guest's screen always boots the host's battles, the ~
+        # menu's "Leave diorama" opts out per fight, and the text panel auto-falls-back when a boot can't
         # happen. Its ini toggle was also the trigger of the config-teardown defect.)
         self.cb_follow = QCheckBox("Follow the host between screens")
         widgets.option(self.cb_follow,
@@ -320,8 +325,8 @@ class CoopDoc(QWidget):
         self.btn_start.setObjectName("accent")
         self.btn_start.clicked.connect(self.start_coop)
         self.btn_stop = _pad(QPushButton("Stop bridge"))
-        self.btn_stop.setToolTip("Stops the local relay — co-op stays configured in Memoria.ini; "
-                                 "press Start co-op to reconnect.")
+        self.btn_stop.setToolTip("Stops this app's bridge to the relay — co-op stays configured in "
+                                 "Memoria.ini; press Start co-op to reconnect.")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_bridge)
         self.btn_off = _pad(QPushButton("Disable co-op"))
@@ -350,7 +355,7 @@ class CoopDoc(QWidget):
         # already fixed (widgets.caption caps at ~74ch).
         from .. import coop
         hint = widgets.caption(
-            f"Start co-op, keep this app open, then launch FF9 and stand on the same screen as your friend — ghosts appear on any field you two share (guaranteed meeting spot: ~ → Warp to field → {coop.COOP_FIELD}). The in-game overlay shows the code, pairing state, and which field your friend is on.")
+            f"Start co-op, keep this app open, then launch FF9 — ghosts appear on any field you two share, and a joiner with Follow on is pulled to the host's. Both of you should run the same engine bundle (see the engine row above). Guaranteed meeting spot: ~ → Warp to field → {coop.COOP_FIELD}. The in-game overlay shows the code, pairing state, and which field your friend is on.")
         v.addWidget(hint)
         v.addStretch(1)
         scroll.setWidget(inner)
@@ -399,18 +404,19 @@ class CoopDoc(QWidget):
         self.lbl_game.setText(str(self._game))
         widgets.set_state(self.lbl_game, "")
         # The engine generation, from the SHARED derivation (health.netsync_generation) -- the same
-        # source Setup's "Co-op engine" health row reads, so the two can never disagree on the
-        # s36/s37 boundary. The boolean below still drives the door / Play-style gates. (The diorama
-        # is always-on for a follower since the s42 engine; its old s40 gate/knob is gone kit-wide.)
+        # source Setup's "Co-op engine" health row reads, so the two can never disagree. It is amber
+        # below the CURRENT generation; s37 stays the Play-style floor. (The diorama is always-on for
+        # a follower since the s42 engine; its old s40 gate/knob is gone kit-wide.)
         gen = health.netsync_generation(self._game)
         has_s37 = gen["s37"]
+        warn = gen["level"] != "ok"
         self.lbl_engine.setText(gen["summary"])
-        widgets.set_state(self.lbl_engine, "" if gen["level"] == "ok" else "warn")
-        # The door keys on the SAME predicate as the amber state one line up (not has_s37). Its first
-        # cut keyed on `not has_netsync`, so an s36 machine got a warning naming the newer engine with
-        # the door to that exact remedy hidden -- the scavenger hunt back for one engine generation
-        # (review finding). Setup & health owns the remedy either way ("Install engine patches…").
-        self.btn_setup.setVisible(self._on_setup is not None and not has_s37)
+        widgets.set_state(self.lbl_engine, "warn" if warn else "")
+        # The door keys on the SAME predicate as the amber state one line up. Its first cut keyed on
+        # `not has_netsync`, so an s36 machine got a warning naming the newer engine with the door to
+        # that exact remedy hidden -- the scavenger hunt back for one engine generation (review
+        # finding). Setup & health owns the remedy either way ("Install engine patches…").
+        self.btn_setup.setVisible(self._on_setup is not None and warn)
         self.style_box.setEnabled(has_s37)
         folder = coop.find_registered_field(self._game, coop.COOP_FIELD)
         self.lbl_room.setText(f"field {coop.COOP_FIELD} registered ({folder})"
@@ -554,8 +560,9 @@ class CoopDoc(QWidget):
 
         started = self._run(argv, cwd=self.kit, subject="Co-op setup",
                             ok_headline="Co-op setup — done",
-                            ok_next=("send your code, then launch FF9 -> ~ -> Warp -> 30003"
-                                     if hosting else "launch FF9 -> ~ -> Warp -> 30003"),
+                            ok_next=("send your code, then launch FF9 (meeting spot: ~ → Warp to "
+                                     f"field → {coop.COOP_FIELD})" if hosting else
+                                     f"launch FF9 (meeting spot: ~ → Warp to field → {coop.COOP_FIELD})"),
                             fail_hint="See the Output panel (is the game path configured?).",
                             on_finished=done)
         if not started:

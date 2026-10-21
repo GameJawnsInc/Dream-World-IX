@@ -27,14 +27,32 @@ def find_game() -> tuple:
         return None, str(e)
 
 
+# The co-op engine generations a player can tell apart, OLDEST first: (patch, a type or method name that
+# patch adds to Assembly-CSharp's metadata, what a player gets from it). Each marker is checked unique
+# to its patch in memoria-patches/ and present in the deployed s144 DLL. The LAST row is "current":
+# when a user-facing netsync patch ships (s145, battles from the world map, is next), append its row
+# and every older install reads amber with the feature it lacks named.
+NETSYNC_GENERATIONS = (
+    ("s36", b"NetSyncClient", "ghost sync"),
+    ("s37", b"NetSyncBattle", "battle co-op and visitor outfits"),
+    ("s40", b"NetSyncDiorama", "the battle diorama"),
+    ("s44", b"NetSyncField", "following the host between fields"),
+    ("s134", b"ActDecideBox", "attack and spell animations on the guest's screen"),
+    ("s140", b"NetSyncSelfDress", "the guest wearing its outfit on its own screen"),
+    ("s143", b"GuardCharAt", "the guard that keeps your leader yours"),
+    ("s144", b"HostWhereBits", "world-map co-op"),
+)
+
+
 def netsync_generation(game) -> dict:
     """Which co-op ENGINE GENERATION the installed Assembly-CSharp.dll is -- the one derivation the
-    Co-op status card (coopdoc) and Setup's health row now SHARE. Both probed the DLL independently
-    before: two copies of the s36/s37/s40 marker knowledge, two chances to drift on the boundary.
+    Co-op status card (coopdoc) and Setup's health row SHARE, so the two can never disagree.
 
     Never raises (like every probe here): an absent/unreadable DLL reads as no netsync. Returns
-    ``{"netsync", "s37", "s40": bool, "summary": str, "level": "ok"|"warn"}`` -- warn below s37, which
-    is the floor the Play-style lanes need.
+    ``{"netsync", "s37", "s40", "current": bool, "generation": str, "summary": str, "level"}``.
+    ``s37`` stays the Play-style floor (the gate on those widgets); ``level`` is ``"ok"`` only on the
+    CURRENT generation -- both players should run the same bundle, and an older one lacks named
+    features, so it reads amber with the update named rather than passing silently.
     """
     blob = b""
     if game is not None:
@@ -43,16 +61,21 @@ def netsync_generation(game) -> dict:
             blob = dll.read_bytes() if dll.is_file() else b""
         except OSError:
             blob = b""
-    netsync = b"NetSyncClient" in blob        # s36: the ghost-sync client
-    s37 = b"NetSyncBattle" in blob            # s37: battle co-op + visitor mode (shipped together)
-    s40 = b"NetSyncDiorama" in blob           # s40: the battle diorama
-    summary = ("netsync + battle co-op + diorama (s40) present" if s40 else
-               "netsync + battle/visitor co-op (s37) — the battle diorama needs the newer s40 engine"
-               if s37 else
-               "netsync (s36) present — Play style needs the newer s37 engine" if netsync else
-               "netsync MISSING — install the Dream World IX custom engine first")
-    return {"netsync": netsync, "s37": s37, "s40": s40, "summary": summary,
-            "level": "ok" if s37 else "warn"}
+    have = [g for g in NETSYNC_GENERATIONS if g[1] in blob]
+    newest = have[-1][0] if have else ""
+    current = newest == NETSYNC_GENERATIONS[-1][0]
+    if not have:
+        summary = "co-op engine MISSING — install the Dream World IX engine bundle first"
+    elif current:
+        summary = f"co-op engine {newest} — up to date ({NETSYNC_GENERATIONS[-1][2]})"
+    else:
+        nxt = NETSYNC_GENERATIONS[[g[0] for g in NETSYNC_GENERATIONS].index(newest) + 1]
+        summary = (f"co-op engine {newest} — older than the current bundle; "
+                   f"{nxt[2]} needs {nxt[0]} or newer")
+    names = {g[0] for g in have}
+    return {"netsync": bool(have), "s37": "s37" in names, "s40": "s40" in names,
+            "current": current, "generation": newest, "summary": summary,
+            "level": "ok" if current else "warn"}
 
 
 def health_report(game=None, mod_folder=None, *, start=None) -> list:
