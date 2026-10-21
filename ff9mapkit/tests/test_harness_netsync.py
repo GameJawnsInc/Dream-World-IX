@@ -21557,9 +21557,22 @@ def test_the_s140_oracle_reads_the_install_as_the_census_says():
 
 
 _SS_SMOKE = _SD_CHILD_HEAD + r"""
-import pathlib, tempfile
+import pathlib, tempfile, time
 from harness import Session, battlewire as BW, fakegame as FG
+from harness import channel as CH
 from harness.fakegame import FakeGame
+# THE DRIVER'S LAST READ (the J handshake below): every state the Session reads goes through Channel.state -- patched in
+# this throwaway child only
+READ = {"frame": None}
+_channel_state = CH.Channel.state
+def _channel_state_read(self, *a, **kw):
+    st = _channel_state(self, *a, **kw)
+    if st is not None:
+        READ["frame"] = st.frame
+    return st
+CH.Channel.state = _channel_state_read
+#: how long one J frame waits for the driver's read of the last publish (a bound, never a wait the run relies on)
+J_READ_WAIT_S = 2.0
 from ff9mapkit._modeldb import MODELS
 from ff9mapkit._animdb_all import ANIMATIONS
 sf = sd.sdf
@@ -21657,6 +21670,28 @@ for name, run in doc["runs"].items():
     sd.bench_preflight = lambda g, pf=pf: (bool(pf[0]), pf[1])
     fake = FakeGame(t, ticks="mean", render_fps=60.0)
     fake.fps = 240
+    # THE J HANDSHAKE. J's green jump is 3 stand-in frames (PREJUMP 2 + the landing 1: J_JUMP0/1 on the source clip's 8),
+    # and X3 is read off the publishes the scenario's 4 ms poll SAW: the jump slot in them (~12 ms of wall clock at the
+    # loop's 240 fps), and the landing from the first sample showing J_LAND to the first showing J_END. A loaded host's
+    # poll misses the jump whole -- "0 jump-slot publishes [] ... the landing 0.00 s", X3 still green (no alias publish is
+    # judged on the landing alone) and this smoke's "(2557, 8)" red: the s140-legs flake -- or reads J_END late, and the
+    # one-frame landing reads as many (0.67 s seen, X3 red). Slowing the jump to the field tick (~100 ms) was measured NOT
+    # enough at 2x oversubscription, so from J's trigger to the frame after its DONE, each frame waits (bounded) until the
+    # driver has READ the last publish: every J publish is sampled, under any load. What the frames publish, and the
+    # virtual clock X3's landing reads, are unchanged (studies/workflow-perf/GATE-PROFILE.md: measured under load, broken
+    # on purpose).
+    READ["frame"] = None
+    _step_self_dress, after_j = fake._step_self_dress, {"held": False}
+    def _step_read_each(fake=fake, _step=_step_self_dress, after_j=after_j):
+        c = fake._self_cond
+        in_j = c is not None and c["name"] == "j"
+        if in_j or after_j["held"]:
+            end = time.monotonic() + J_READ_WAIT_S
+            while (READ["frame"] is None or READ["frame"] < fake.publish_frame) and time.monotonic() < end:
+                time.sleep(0.001)
+        _step()
+        after_j["held"] = in_j and fake._self_cond is None          # J ended this frame: its J_END publish is read next
+    fake._step_self_dress = _step_read_each
     fake.ini_ghost_as = ga
     if run.get("caps"):
         fake.netsync_caps = FG.caps_through(run["caps"])
