@@ -42,14 +42,30 @@ SOLO (COOP_WORLD_LEG=solo, the default; the selftest role, `netsync bench 1`):
          walk out, the ON line once.
   F2     Confirm on the Ice Cavern tile (teleported onto it; the prompt's frames waited) stays WorldHUD for STAY_S, never
          field 300; freeze.keys +1 or more; the world-poll decline line once.
-  F3     THE FULL MAP: Select is refused -- freeze.map +1, 'full map suppressed (following guest) on world map 9011' once,
-         and the dispatcher is still asked after it (skips advance across MAP_S: w_naviMode 2 would stop it); then Cancel
-         does nothing (still WorldHUD, the walker where it stood). Triangle is NOT pressed: on foot it reaches no world
-         poll, and the selftest role's main menu is s121's refusal (keyed on IsMirroringStory, which the bench is not) --
-         it would open (piece B's open issue). A map that DID open (no `map` count, or the dispatcher stopped being asked:
-         s143, the lever, a fault) is closed after the judged window by a second Select -- stock WorldHUD never closes the
-         full map on Cancel (OnKeyCancel's only branch needs currentState != FullMap; held, Cancel only hides its content)
-         -- and the bench waits for the dispatcher to be asked again before F6.
+  F3     THE FULL MAP, driven through WorldHUD.OnKeySelect's STOCK CYCLE: HUD -> FullMap -> HUDNoMiniMap -> HUD, the s144
+         refusal on the HUD -> FullMap step ALONE (behind enableMapButton, false while the arrival title runs). No HUD
+         state is published (and the engine is not to grow one), and a New Game's world map lands in HUDNoMiniMap (the
+         s144 probe, 2026-10-21: no minimap on screen; its first Select read `map` +0 -- the minimap came on, stock). So the
+         bench presses Select, and ONCE MORE only when `map` did not count and that press did not witnessably open the map
+         (under a holding freeze the dispatcher still asked: skips advanced; unfrozen or keyless nothing witnesses an open
+         map, and the stock reading stands -- the first Select turned the minimap on). Judged after at most two presses:
+         freeze.map +1 or more, 'full map suppressed (following guest) on world map 9011' once (a per-process latch), the
+         dispatcher still asked through EVERY press window (skips advance: w_naviMode 2 would stop it -- the map never
+         opened); then Cancel does nothing (still WorldHUD, the walker where it stood). Triangle is NOT pressed: on foot it
+         reaches no world poll, and the selftest role's main menu is s121's refusal (keyed on IsMirroringStory, which the
+         bench is not) -- it would open (piece B's open issue). THE CLOSE, whatever state the presses ended in, and never
+         Cancel (stock WorldHUD never closes the full map on Cancel: OnKeyCancel's only branch needs currentState !=
+         FullMap; held, Cancel only hides its content): a witness reads the map shut -- frozen, skips advancing; unfrozen
+         or keyless, a short walk from the landing that MOVES (a full map takes the walker's input) -- else one more Select
+         (FullMap -> HUDNoMiniMap) and read again, at most two (three Selects are the cycle's identity: a witness that never
+         reads shut would leave an open map open); a DARK witness (no reading) gets one blind Select at most. Unfrozen from
+         HUDNoMiniMap (s143, the lever) the two presses went HUD, then FullMap: the close's one Select shuts it. F3 is
+         recorded AFTER the close, its detail carrying the close's trail (on s143, with no key to count, that trail is the
+         behavioural evidence: the map opened). THE DRIVE ASSUMES NO ARRIVAL TITLE: the bench's world entry is a scenario-0
+         New Game's, where w_naviTitle stays -1 (the title runs only on w_frameScenePtr 2400 / 5990 / 9605 / 9890, ff9.cs);
+         on a story-state world entry the title's dead map button (enableMapButton false for its closeTime, ~200 world ticks
+         with the defaults; s1's F3 Select came ~176 world ticks after the edge, inside it) would swallow press 1 and read a
+         correct engine 'map +0' -- such a run must wait ~200 world ticks after the edge first.
   F6     THE EDGE: world_warp 6603 (a field load) and the walk out again -> edges +1 and the walker held again.
   F4     THE LEVER: `bench worldfreeze off` -> the walk moves > HELD_U, freeze.on false / off true; Confirm on the tile
          still stays WorldHUD and freeze.keys does not move (F1's spectator mask takes Confirm either way -- piece C's
@@ -143,26 +159,36 @@ stage -- both roots junction one Managed, so the duo cannot mix DLLs):
       the world map, the hold released by the host's b6.
   D3  the host enters the Ice Cavern (the tile, Confirm) -> the guest rejoins from the world map: FieldHUD 300 within
       REJOIN_S, rejoin.arms / lands +1, 'rejoining the peer at field 300 from world map 9011' and 'world rejoin landed on
-      field 300' logged, mirroring.
+      field 300' logged, mirroring. The guest is sampled from the host's Confirm on (beside the host's own entry poll).
+      THE BRACKET LAW (a sampled witness's origin is a bracket; never depend on a sub-sample window): the host's MAPJUMP
+      intent arms the guest AT ONCE (no 1.2 s serial debounce -- s144's first duo: one WorldHUD sample, then FieldHUD 300 on
+      the rest), so its 'rejoining' overlay is required only when a sample actually fell inside the armed window on the
+      world map (follow.world_armed >= 0 on WorldHUD) -- and then among THOSE samples (WorldGuestOverlay shows 'rejoining'
+      off the host's lane alone, before any arm: a pre-arm sample is no witness of it); otherwise the arm is judged by the
+      engine's rejoining line, `arms` and the landing, the detail saying 'overlay window shorter than a sample'. T2's
+      RJ-ARM (the serial path, where the overlay IS sampled) keeps the strict read over every sample.
 
 CALIBRATION -- a check that cannot fail is not a check.
   * SOLO on s143 (the live DLL at writing, Assembly-CSharp be01339d49f6a87b) with COOP_CALIBRATE=1: no `netsync.world`, so
     the lever is never sent (the driver's NETSYNC_BENCH_OPS gate: an s143 agent reads `bench worldfreeze` as `bench 1`).
     Red, exactly (OLD_PREDICTED): P0, P1 (the lever's keys absent), F0 (no hold), F1 (the walker WALKS), F1K, F2 (no
-    keys count), F3 (the full map opens), F6, F4 (the lever cannot be sent), B1 (the driver refuses; 'battle: field
-    only'), B2, B3. GREEN: INI, OR, S0, ROUTE (the route is the instrument), F5 (the control), R.
+    keys count), F3 (no keys: `map` never counts -- and the two presses open the full map, HUD then FullMap; the close
+    shuts it), F6, F4 (the lever cannot be sent), B1 (the driver refuses; 'battle: field only'), B2, B3. GREEN: INI, OR,
+    S0, ROUTE (the route is the instrument), F5 (the control), R.
   * SOLO on s144 with COOP_CALIBRATE=1: `bench worldfreeze off` pulled at P1 and held through F6. Red, exactly
     (LEVER_PREDICTED), each the pre-s144 world map: F1 (the walker walks), F1K, F2 (Confirm still stays -- F1's mask --
-    but keys never counts), F3 (the full map opens; the bench closes it), F6. GREEN: F0 (the hold keys on
-    SpectatorField, not the lever), F4, F5, B1-B3 (the verb is not co-op gated), R.
+    but keys never counts), F3 (`map` never counts: the two presses go HUD, then the full map OPENS -- the close
+    shuts it), F6. GREEN: F0 (the hold keys on SpectatorField, not the lever), F4, F5, B1-B3 (the verb is not co-op
+    gated), R.
   * T2 on an s143 GUEST (COOP_CALIBRATE=1 adds <LEG>-CAL): rejoin -- exactly RJ-DIAL, RJ-ARM, RJ-LAND, RJ-MIRROR (the
     guest never dials off a field: its client is never Ensured on the world map, or its code is read there with no dial
     gate to take it -- it stays on the world map); wait -- exactly WT-FIELD (s143's bare 'waiting'), WT-FROZEN (it
     walks), WT-WORLD (no line). The instrument rows (T2-*, RJ-PARK, RJ-I, WT-I) are never predicted red. The rejoin has
     no lever: its calibration is the s143 DLL alone.
   * DUO on s143 (COOP_CALIBRATE=1): exactly D1, D2, D3 (D-CAL).
-  * OFFLINE: the stand-in (tools/harness/fakegame.py, rung `worldwait`) models the freeze, the rejoin and the line, and
-    its FAULT LEVERS (FakeGame.world_faults); ff9mapkit/tests/test_coop_world_wait.py smokes every leg against it (the T2
+  * OFFLINE: the stand-in (tools/harness/fakegame.py, rung `worldwait`) models the freeze, the rejoin and the line,
+    WorldHUD's stock Select cycle (a New Game's world lands in HUDNoMiniMap) and the host's MAPJUMP intent, and its FAULT
+    LEVERS (FakeGame.world_faults); ff9mapkit/tests/test_coop_world_wait.py smokes every leg against it (the T2
     legs through a stub peer that connects whenever the stand-in's TRANSPORT exists -- FakeGame.dial_socket, born where its
     dial gate FakeGame.dial_ready held and kept in every scene; a stub ini that only a client's poll or the next Ensure
     reads) and turns each fault red in exactly its *_FAULT_REDS rows -- never read <LEG>-CAL offline: the engine is the
@@ -315,9 +341,11 @@ SOLO_CHECKS = {
                 "+1 since the walk out, the ON line once",
     "S144-F2": "Confirm on the Ice Cavern tile stays WorldHUD (never field 300) for STAY_S; freeze.keys +1 or more; the "
                "world-poll decline line once",
-    "S144-F3": "THE FULL MAP: Select refused -- freeze.map +1, 'full map suppressed (following guest) on world map 9011' "
-               "once, the dispatcher still asked after it (skips advance); Cancel then does nothing (WorldHUD, the walker "
-               "where it stood); a map that opened is closed after the window by a second Select (never Cancel)",
+    "S144-F3": "THE FULL MAP through the stock Select cycle (a New Game's world lands in HUDNoMiniMap: Select once more when "
+               "`map` did not count and the map did not open): within two presses freeze.map +1, 'full map suppressed "
+               "(following guest) on world map 9011' once, the dispatcher still asked through every press (skips advance); "
+               "Cancel then does nothing (WorldHUD, the walker where it stood); the close leaves the map shut by Select "
+               "(never Cancel)",
     "S144-F6": "THE EDGE: world_warp 6603 (a field load) and the walk out again -> edges +1 and the walker held again",
     "S144-F4": "THE LEVER: `bench worldfreeze off` -> the walk moves > HELD_U, freeze.on false / off true; Confirm on the "
                "tile still stays WorldHUD (F1's spectator mask) and freeze.keys does not move",
@@ -371,7 +399,8 @@ SOLO_FAULT_REDS = {
     "hold_unlatched": ("S144-F0",),
     "battle_nextmode": ("S144-B1", "S144-B3"),         # the world strands in nextMode 2 (the swirl's latch still busy)
     "battle_field_return": ("S144-B3",),
-    "counters_dark": ("S144-F1K", "S144-F3", "S144-F6"),   # held, but the counts lie (F3's dispatcher read is `skips`)
+    "counters_dark": ("S144-F1K", "S144-F3", "S144-F6"),   # held, but the counts lie (F3's dispatcher read is `skips`:
+    #                                                        a dark one reads as a map that opened -- no second press)
     # the shared latch reads free: the swirl's busy latch is the real B2 red. (Its nextMode term ALONE has no in-game red --
     # the consuming tick writes mode 2 and attr 0x1000 with nextMode 2, and the mode term comes first -- so no fault models
     # it: the engine selftest's mutant row is its only pin.)
@@ -427,7 +456,8 @@ T2_PREDICTED = {"rejoin": ("S144-RJ-DIAL", "S144-RJ-ARM", "S144-RJ-LAND", "S144-
 T2_FAULT_REDS = {
     "rejoin": {"rejoin_field_recipe": ("S144-RJ-LAND", "S144-RJ-MIRROR"),   # armed (counted, the line), never lands
                "arm_uncounted": ("S144-RJ-ARM",),
-               "line_s143": ("S144-RJ-ARM",)},                              # the world guest's chain absent: no line
+               "line_s143": ("S144-RJ-ARM",),                               # the world guest's chain absent: no line
+               "rejoin_unarmed": ("S144-RJ-ARM", "S144-RJ-LAND", "S144-RJ-MIRROR")},   # never armed: it stays on the world
     "wait": {"tail_s143": ("S144-WT-FIELD",),
              "line_s143": ("S144-WT-WORLD",),
              "dispatch_ungated": ("S144-WT-FROZEN",),
@@ -460,12 +490,16 @@ DUO_CHECKS = {
     "S144-D2": "the guest walks out too -> FROZEN on world 9011 (`hold up` < HELD_U; freeze.on, why live / mirroring), the "
                "line on the world map, the hold released by the host's b6",
     "S144-D3": "the host enters the Ice Cavern (the tile, Confirm) -> the guest REJOINS from the world map: FieldHUD 300 "
-               "within REJOIN_S, rejoin.arms and lands +1, the rejoining and landed lines, mirroring",
+               "within REJOIN_S, rejoin.arms and lands +1, the rejoining and landed lines, mirroring; the 'rejoining' "
+               "overlay only where a sample fell inside the armed window (THE BRACKET LAW)",
 }
 DUO_PREDICTED = ("S144-D1", "S144-D2", "S144-D3")          # a GUEST before s144 (the duo cannot mix DLLs: both are)
+#: (the stand-in duo's guest is sampled inside its armed window -- its world exit is long: line_s143's D3 red is the
+#: overlay's; tests/test_coop_world_wait.py also runs it under a sampler that misses the window, THE BRACKET LAW's shape)
 DUO_FAULT_REDS = {"tail_s143": ("S144-D1",), "dispatch_ungated": ("S144-D2",), "line_s143": ("S144-D2", "S144-D3"),
                   "hold_unlatched": ("S144-D2",), "counters_dark": ("S144-D2",),
-                  "rejoin_field_recipe": ("S144-D3",), "arm_uncounted": ("S144-D3",)}
+                  "rejoin_field_recipe": ("S144-D3",), "arm_uncounted": ("S144-D3",),
+                  "rejoin_unarmed": ("S144-D3",)}                 # never armed: no line, `arms` +0, never lands
 #: duo.py's CLI calls ``d.pair(**PAIR)``: both games New Game onto 6603 (the host first), the roles from their own inis
 PAIR = {"field": FARSHORE}
 
@@ -768,25 +802,58 @@ def judge_confirm(samples, k0, k1, lines, *, wld: int = WORLD, want_keys: bool =
     return s_ok and dk >= 1 and n == 1, f"{s_why}; keys {k0} -> {k1} (want +1 or more); the poll line {n}x"
 
 
-def judge_map(st0, window, after, lines, *, wld: int = WORLD) -> tuple:
-    """F3 (PURE): over ``window`` (Select's MAP_S, before the Cancel): map +1 or more, its line once (``lines``: the process's
-    log -- RefuseWorldUi's line latches per world map per process), the dispatcher still
-    asked (skips advance >= SKIPS_MIN / 2 there: an open full map's w_naviMode 2 stops it -- the one read of the map's
-    state the agent publishes); over ``after`` (the Cancel's): still WorldHUD; across both the walker where it stood."""
-    if not window or not cb.has(st0, PROBE):
-        return False, "not reached: no sample" if not window else f"absent: no `{PROBE}`"
+def window_skips(window):
+    """(PURE) `freeze.skips` across one press window, its FIRST sample to its last (None without the keys) -- read after
+    the press, never from the settle before it: the ticks between the press and the key's handling are the dispatcher's
+    whatever the press then does (the stand-in's press blocks 4 frames first; in game a tick or two)."""
+    return _delta(window[0], window[-1], "freeze.skips") if window else None
+
+
+def select_again(st0, window) -> bool:
+    """F3's drive (PURE): press Select a SECOND time after the first press's ``window``? Only when `map` did not count and the
+    press did not witnessably open the map: under a holding freeze (freeze.on on the window's last sample) the dispatcher
+    still asked over the window (:func:`window_skips` +SKIPS_MIN / 2 or more -- an open full map's w_naviMode 2 stops it);
+    unfrozen, or on an engine without the keys, nothing witnesses an open map and WorldHUD's stock cycle reads the first
+    Select as the minimap's (a New Game's world lands in HUDNoMiniMap: the s144 probe). Never a third: the judge's window
+    is two presses."""
+    if not window:
+        return False
     last = window[-1]
-    dm, ds = _delta(st0, last, "freeze.map"), _delta(st0, last, "freeze.skips")
+    if not cb.has(st0, PROBE) or not cb.has(last, PROBE):
+        return True
+    if (_delta(st0, last, "freeze.map") or 0) >= 1:
+        return False
+    if _w(last, "freeze.on") is True:
+        return (window_skips(window) or 0) >= SKIPS_MIN // 2
+    return True
+
+
+def judge_map(st0, presses, after, lines, *, wld: int = WORLD) -> tuple:
+    """F3 (PURE) over ``presses`` -- one window of samples per Select (MAP_S each, at most two: :func:`select_again`), from
+    ``st0`` (the settled state before the first): map +1 or more by the last sample, its line once (``lines``: the
+    process's log -- RefuseWorldUi's line latches per world map per process), the dispatcher still asked through EVERY
+    press window (:func:`window_skips` >= SKIPS_MIN / 2 in each: an open full map's w_naviMode 2 stops it -- the one read
+    of the map's state the agent publishes: the map never opened); over ``after`` (the Cancel's): still WorldHUD; across
+    all of them the walker where it stood."""
+    presses = [list(w) for w in (presses or [])]
+    if not presses or not all(presses):
+        return False, "not reached: no sample after a Select"
+    if not cb.has(st0, PROBE):
+        return False, f"absent: no `{PROBE}`"
+    dm = _delta(st0, presses[-1][-1], "freeze.map")
+    ds = [window_skips(w) for w in presses]
+    stalled = [i + 1 for i, d in enumerate(ds) if (d or 0) < SKIPS_MIN // 2]
     n = cb.count(lines, _bw().decline_line(_bw().WORLD_UI_DECLINE_MAP, f"world map {wld}"))
     x0 = world_xz(st0)
-    both = list(window) + list(after)
-    moved = max((dist(world_xz(s), x0) for s in both if world_xz(s)[0] is not None and x0[0] is not None), default=None)
-    s_ok = all(s.ui_state == "WorldHUD" for s in both)
-    asked = (ds or 0) >= SKIPS_MIN // 2
-    ok = (dm or 0) >= 1 and n == 1 and asked and s_ok and moved is not None and moved < HELD_U
-    return ok, (f"map +{dm}; the full-map line {n}x; skips +{ds} over Select's {len(window)} sample(s) ("
-                + ("the dispatcher still asked: the map shut" if asked else
-                   "the dispatcher NOT asked under a holding freeze: the map opened, or the freeze lifted")
+    every = [s for w in presses for s in w] + list(after)
+    moved = max((dist(world_xz(s), x0) for s in every if world_xz(s)[0] is not None and x0[0] is not None), default=None)
+    s_ok = all(s.ui_state == "WorldHUD" for s in every)
+    ok = ((dm or 0) >= 1 and n == 1 and not stalled and len(presses) <= 2 and s_ok and moved is not None
+          and moved < HELD_U)
+    return ok, (f"{len(presses)} Select press(es): map +{dm}" + ("" if (dm or 0) >= 1 else " (the refusal never counted)")
+                + f"; the full-map line {n}x; skips +{ds} per press ("
+                + ("the dispatcher still asked through every press: the map shut" if not stalled else
+                   f"the dispatcher NOT asked after press {stalled[0]}: the map opened, or the freeze lifted")
                 + f"); all WorldHUD through the Cancel {s_ok}; moved {moved}")
 
 
@@ -871,21 +938,42 @@ def judge_frozen(st, moved, advanced, base) -> tuple:
     return ok, f"{w_why}; freeze on {fz.get('on')!r} why {fz.get('why')!r}; skips +{ds}"
 
 
-def judge_rejoin_arm(samples, base, lines, *, field: int, wld: int = WORLD) -> tuple:
-    """RJ-ARM / D3's arm (PURE): arms +1 or more and last ``field`` (on the last sample), a sample with overlay 'rejoining'
-    detail ``field`` and the words, the rejoining line logged."""
+def in_armed_window(s) -> bool:
+    """(PURE) A sample INSIDE the world arm's window: on WorldHUD with follow.world_armed >= 0 (armed, not yet faded out)."""
+    armed = _num(_f(s, "world_armed"))
+    return s is not None and s.ui_state == "WorldHUD" and armed is not None and armed >= 0
+
+
+def judge_rejoin_arm(samples, base, lines, *, field: int, wld: int = WORLD, bracket: bool = False) -> tuple:
+    """RJ-ARM / D3's arm (PURE): arms +1 or more and last ``field`` (on the last sample), the rejoining line logged, and a
+    sample with overlay 'rejoining' detail ``field`` and the words.
+    ``bracket`` (D3 -- THE BRACKET LAW: a sampled witness's origin is a bracket; never depend on a sub-sample window): the
+    host's MAPJUMP intent arms the guest at once, so the arm-to-fade window can be shorter than one sample. The overlay is
+    then required only when a sample actually fell INSIDE the armed window (:func:`in_armed_window`) -- and AMONG those
+    samples (WorldGuestOverlay shows 'rejoining' off the host's lane alone, before any arm: a pre-arm sample is no witness of
+    the arm); with none, the arm is judged by the engine's rejoining line, `arms` / `last` and the landing (a FieldHUD sample
+    on ``field``), the detail saying 'overlay window shorter than a sample'. RJ-ARM (the serial path, where the overlay is
+    sampled) keeps the strict read over every sample: ``bracket`` False."""
     R = _bw()
     if not samples or not cb.has(samples[-1], "netsync.world.rejoin"):
         return False, "absent: no `netsync.world.rejoin`" if samples else "not reached: no sample"
     last = samples[-1]
     da = _delta(base, last, "rejoin.arms")
     words = R.wait_line_text(R.OVL_REJOINING, field)
+    inside = [s for s in samples if in_armed_window(s)]
     shown = any(_s(s, "overlay") == "rejoining" and _s(s, "overlay_detail") == field and _s(s, "overlay_text") == words
-                for s in samples)
+                for s in (inside if bracket else samples))
     n = cb.count(lines, f"rejoining the peer at field {field} from world map {wld}")
-    ok = (da or 0) >= 1 and _w(last, "rejoin.last") == field and shown and n >= 1
-    return ok, (f"arms +{da}, last {_w(last, 'rejoin.last')!r} (want {field}); the overlay 'rejoining' {field} with "
-                f"{words!r} {'shown' if shown else 'NOT shown'}; the rejoining line {n}x")
+    if bracket and not inside:
+        landed = any(s.ui_state == "FieldHUD" and s.field_id == field for s in samples)
+        seen, why = landed, (f"the overlay not judged: overlay window shorter than a sample (no sample on WorldHUD with "
+                             f"follow.world_armed >= 0 among {len(samples)}) -- the arm read off its line, `arms` and the "
+                             f"landing ({'FieldHUD ' + str(field) + ' sampled' if landed else 'NEVER on FieldHUD ' + str(field)})")
+    else:
+        seen, why = shown, (f"the overlay 'rejoining' {field} with {words!r} {'shown' if shown else 'NOT shown'}"
+                            + (f" among the {len(inside)} sample(s) inside the armed window" if bracket else ""))
+    ok = (da or 0) >= 1 and _w(last, "rejoin.last") == field and seen and n >= 1
+    return ok, f"arms +{da}, last {_w(last, 'rejoin.last')!r} (want {field}); {why}; the rejoining line {n}x"
 
 
 def judge_rejoin_land(samples, base, lines, *, field: int) -> tuple:
@@ -923,6 +1011,22 @@ def judge_mirror(before, after, lines, *, field: int) -> tuple:
 # ================================================================================================ the moves
 def _poll(g, pred, timeout: float, what: str):
     return cb.poll(g, pred, timeout, what)
+
+
+def _sampler(g, out: list):
+    """A callable that appends ``g``'s publish to ``out`` when its frame is new (a read that fails is skipped) -- D3 samples
+    the guest from the host's Confirm on, inside the host's own entry poll."""
+    seen = [None]
+
+    def take():
+        try:
+            st = g.state
+        except HarnessError:
+            return
+        if st is not None and st.frame != seen[0]:
+            seen[0] = st.frame
+            out.append(st)
+    return take
 
 
 def walk_out(g, *, tries: int = 3, before_walk=None) -> tuple:
@@ -1126,18 +1230,35 @@ def _leg_freeze(g, led: cb.Ledger, ctx: dict, base, at: int) -> None:
                       f"(ui {g.state.ui_state!r}, field {g.state.field_id}) -- the freeze did not hold the entry")
         _back_to_world_after_entry(g)
     else:
-        # F3 the full map
+        # F3 the full map, through WorldHUD's stock Select cycle (a New Game's world lands in HUDNoMiniMap). Judged first,
+        # RECORDED after the close: the close's trail is F3's behavioural evidence where no key can count (s143: the map
+        # opened, the close shut it)
+        f3 = (False, "not reached: F3 ended before its judgement")
         try:
-            st0 = teleport_settle(g, FS_LANDING)
-            g.press("select")
-            samples, _ = cb.watch(g, lambda s: False, MAP_S)
-            g.press("cancel")                              # stock: Cancel closes no full map (frozen: nothing at all)
-            after, _ = cb.watch(g, lambda s: False, 1.0)
-            led.check("S144-F3", *judge_map(st0, samples, after, cb.log_lines(g)))  # the latch: once a process
+            try:
+                st0 = teleport_settle(g, FS_LANDING)
+                presses = []
+                for _k in range(2):
+                    g.press("select")
+                    window, _ = cb.watch(g, lambda s: False, MAP_S)
+                    presses.append(window)
+                    if not select_again(st0, window):
+                        break
+                g.note(f"F3: {len(presses)} Select press(es) (a second only when `map` did not count and the map did not "
+                       "witnessably open: the first then turned the minimap on)")
+                g.press("cancel")                          # stock: Cancel closes no full map (frozen: nothing at all)
+                after, _ = cb.watch(g, lambda s: False, 1.0)
+                f3 = judge_map(st0, presses, after, cb.log_lines(g))   # the latch: once a process
+            except HarnessError as err:
+                f3 = (False, f"not reached: {str(err)[:240]}")
+        finally:
             if CLOSE_MAP:
-                close_opened_map(g, st0, samples)
-        except HarnessError as err:
-            led.check("S144-F3", False, f"not reached: {str(err)[:240]}")
+                try:
+                    f3 = (f3[0], f"{f3[1]} -- THE CLOSE: {close_opened_map(g)}")
+                except HarnessError as err:
+                    g.note(f"F3: the close raised: {str(err)[:200]}")
+                    f3 = (f3[0], f"{f3[1]} -- THE CLOSE raised: {str(err)[:160]}")
+        led.check("S144-F3", *f3)
         # F6 a second world load
         st_b = g.state
         ok, why, _st = _reach_world_again(g)
@@ -1206,34 +1327,71 @@ def _leg_control(g, led: cb.Ledger, ctx: dict) -> None:
         led.check("S144-F5", False, f"not reached: {str(err)[:240]}")
 
 
-def map_opened(st0, window) -> bool:
-    """(PURE) Did F3's Select OPEN the full map? An engine without the keys (s143): it does (no refusal there); else when
-    `map` never counted over the window, or the dispatcher stopped being asked (skips stalled: w_naviMode 2)."""
-    if not window or not cb.has(st0, PROBE):
-        return True
-    last = window[-1]
-    dm, ds = _delta(st0, last, "freeze.map"), _delta(st0, last, "freeze.skips")
-    return (dm or 0) < 1 or (ds or 0) < SKIPS_MIN // 2
+CLOSE_SHUT_SKIPS = 4     # the close's frozen witness: the dispatcher asked this many ticks (w_naviMode 2 would stop it)
+CLOSE_SHUT_S = 1.5       # ...within this long
+#: the close's Selects, at most. A witness that reads truly needs ONE (its first "open" is FullMap, one Select is
+#: HUDNoMiniMap); the second is the retry of a press that went unhandled. Never three: three Selects are the stock cycle's
+#: IDENTITY (FullMap -> HUDNoMiniMap -> HUD -> FullMap), so a witness that never reads shut would leave an open map open --
+#: from FullMap, two Selects end shut (HUDNoMiniMap, then HUD) whatever the witness reads.
+CLOSE_PRESSES = 2
 
 
-def close_opened_map(g, st0, window) -> None:
-    """After F3's judged window: a full map that opened (map_opened) is closed by a SECOND Select -- the only stock close
-    (WorldHUD.OnKeySelect's FullMap branch; Cancel never closes it) -- then the dispatcher is confirmed asked again (skips
-    advancing) before F6. A map the freeze kept shut is left alone: another Select would only be refused (and counted)."""
-    if not map_opened(st0, window):
-        return
-    g.press("select")
-    g.wait_frames(20)
-    a = g.state
-    if not cb.has(a, PROBE):
-        g.note("F3: the opened full map closed with a second Select (no keys to confirm it on this engine)")
-        return
-    if _w(a, "freeze.on") is not True:
-        g.note("F3: the opened full map closed with a second Select (unfrozen: no `skips` count can confirm it)")
-        return
-    st = _poll(g, lambda s: (_delta(a, s, "freeze.skips") or 0) >= 4, 3.0, "the dispatcher asked again")
-    g.note("F3: the opened full map closed with a second Select -- " + ("the dispatcher is asked again" if st is not None
-                                                                         else "the dispatcher still NOT asked"))
+def map_shut(g) -> tuple:
+    """Is the full map SHUT now? (shut, why) -- a witness the engine does not compute for it (no HUD state is published):
+    under a holding freeze (freeze.on) the dispatcher is still asked (skips +CLOSE_SHUT_SKIPS within CLOSE_SHUT_S: an open
+    full map's w_naviMode 2 stops it); unfrozen or keyless, a short walk from the landing MOVES the walker (> HELD_U: a full
+    map takes the walker's input and stops the dispatch). Off the world map there is nothing to close. ``shut`` is None
+    when the witness is DARK -- no reading at all (frozen with `freeze.skips` unreadable; the walker's world x/z
+    unreadable): never read as open."""
+    st = g.state
+    if st.ui_state != "WorldHUD":
+        return True, f"off the world map ({st.ui_state})"
+    if cb.has(st, PROBE) and _w(st, "freeze.on") is True:
+        if _num(_w(st, "freeze.skips")) is None:
+            return None, "frozen: skips UNREADABLE (the witness dark)"
+        hit = _poll(g, lambda s: (_delta(st, s, "freeze.skips") or 0) >= CLOSE_SHUT_SKIPS, CLOSE_SHUT_S,
+                    "the dispatcher asked")
+        return hit is not None, "frozen: skips " + ("advance" if hit is not None else "STALLED")
+    teleport_settle(g, FS_LANDING)
+    moved, adv, _st = hold_walk(g, EDGE_FRAMES)
+    if moved is None:
+        return None, f"unfrozen: a {EDGE_FRAMES}-frame walk from the landing read nothing (the witness dark)"
+    return moved > HELD_U, f"unfrozen: a {EDGE_FRAMES}-frame walk from the landing moved {moved:.2f}u"
+
+
+def close_opened_map(g) -> str:
+    """After F3, WHATEVER state its presses ended in: read :func:`map_shut`; while it reads open, one more Select -- the only
+    stock close (WorldHUD.OnKeySelect's FullMap -> HUDNoMiniMap; Cancel never closes it) -- and read again, at most
+    CLOSE_PRESSES. A DARK witness (no reading) gets one blind Select at most, then the close stops: the bench's likeliest
+    open end is FullMap (unfrozen from a New Game's HUDNoMiniMap, two presses), which one Select shuts, and frozen a press
+    from the HUD is only refused (one more counted refusal). A map the freeze kept shut costs no press (another Select
+    would only be refused, and counted). Unfrozen from HUDNoMiniMap (s143, the lever) F3's two presses went HUD, then
+    FullMap: the first read stalls, one Select shuts it. Returns the trail (noted, and F3's detail carries it); a map not
+    witnessed shut says so -- the rows after it (F6 on) may run under an open full map."""
+    trail, reads, pressed = [], [], 0
+    while True:
+        shut, why = map_shut(g)
+        trail.append(why)
+        reads.append(shut)
+        if shut or pressed >= CLOSE_PRESSES or (shut is None and pressed >= 1):
+            break
+        g.press("select")
+        g.wait_frames(20)
+        pressed += 1
+    if shut and pressed:
+        verdict = (f"the map had OPENED: shut by {pressed} Select(s)" if reads[0] is False
+                   else f"shut after {pressed} blind Select(s) (the first read dark)")
+    elif shut:
+        verdict = "the map was shut"
+    elif shut is None:
+        verdict = (f"the map's state UNKNOWN after {pressed} blind Select(s) (the witness dark) -- the rows after F3 may run "
+                   "under an open full map")
+    else:
+        verdict = (f"the map NOT witnessed shut after {pressed} Select(s) -- the rows after F3 may run under an open full "
+                   "map (or the witness stalls for another reason)")
+    out = f"{pressed} Select press(es); " + " -> ".join(trail) + f": {verdict}"
+    g.note("F3's close: " + out)
+    return out
 
 
 def _back_to_world_after_entry(g) -> None:
@@ -1849,11 +2007,15 @@ def run_duo(d) -> None:
         # D3: the host enters the Ice Cavern; the guest rejoins from the world map
         gbase = guest.state
         gat = cb.mark(guest)
+        early = []                                         # the guest's publishes from the host's Confirm on
+        take = _sampler(guest, early)
         try:
             teleport_settle(host, ICE_TILE)
             host.wait_frames(PROMPT_FRAMES)
             host.press("confirm")
-            hst = _poll(host, lambda s: s.ui_state == "FieldHUD" and s.field_id == ICE_CAVERN, FIELD_S, "the host on 300")
+            take()
+            hst = _poll(host, lambda s: (take(), s.ui_state == "FieldHUD" and s.field_id == ICE_CAVERN)[1], FIELD_S,
+                        "the host on 300")
         except HarnessError as err:
             hst = None
             d.note(f"the host's entry raised: {str(err)[:200]}")
@@ -1863,8 +2025,10 @@ def run_duo(d) -> None:
             return
         samples, _hit = cb.watch(guest, lambda s: s.ui_state == "FieldHUD" and s.field_id == ICE_CAVERN, REJOIN_S)
         samples += cb.hold_for(guest, 1.5)
+        seen = {s.frame for s in samples}
+        samples = [s for s in early if s.frame not in seen] + samples
         glines = cb.new(guest, gat)
-        a_ok, a_why = judge_rejoin_arm(samples, gbase, glines, field=ICE_CAVERN)
+        a_ok, a_why = judge_rejoin_arm(samples, gbase, glines, field=ICE_CAVERN, bracket=True)   # THE BRACKET LAW
         n_ok, n_why = judge_rejoin_land(samples, gbase, glines, field=ICE_CAVERN)
         mir = _s(samples[-1], "mirroring") if samples else None
         check("S144-D3", a_ok and n_ok and mir is True, f"ARM {a_why}; LAND {n_why}; mirroring {mir!r}")

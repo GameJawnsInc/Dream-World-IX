@@ -176,3 +176,56 @@ The guest's diorama boots from WorldHUD behind the shared latch, and its Leave r
 (`Replace("WorldMap")` when the boot was on the world map). The pre-swirl block gets a world shape (`SetCenterPosition(1)`, no
 double song suspend, `prevMode = 3`). The watcher treats `HfWorld` as the host-back over-signal. Before building, observe one
 cold world reload aboard a vehicle (the ~ menu's world reload) to decide between cold-first and the warm world prime.
+
+## Build and proof
+
+- **Built** by a recon workflow (5 read-only lanes plus a critic) and a build workflow:
+  - 4 engine stages, then the harness core and the bench;
+  - two review rounds with two skeptics per finding.
+
+  The patch has 12 files, +2521/-35, 70 hunks. `diag` reads 41 of 41. The compile has 0 errors (the 186 baseline
+  warnings).
+- **Calibrated on s143 first** (`be01339d49f6a87b`). Every leg failed exactly its predicted set:
+  - the solo bench: 12 reds, S144-CAL green;
+  - the T2 rejoin leg: 4 reds;
+  - an s143 host-on-world tape: `where --want none`;
+  - the T2 wait leg: 3 reds;
+  - the duo: D1-D3. An s143 guest walked 6 units on the world map.
+- **Deployed** 2026-10-20 (backup `20261020-234518`; Assembly-CSharp `be9abacbd7b11d64`; the owner said yes).
+- **Proven on s144:**
+  - **The solo bench, 18/18 on two runs:**
+    - the freeze, judged on the walker's x/z;
+    - the Ice Cavern tile's Confirm held;
+    - the full map refused;
+    - the edge on a second world load;
+    - the lever and the control;
+    - the world battle verb and its return to the world map.
+
+    Under `bench worldfreeze off` it is red in exactly LEVER_PREDICTED.
+  - **The T2 legs:**
+    - rejoin 11/11: a real client on the world map rejoins field 250 off the field-250 tape, with the state mirror armed;
+    - wait 8/8 on an s144 world tape (`host_world`);
+    - wait 8/8 on the s143 tape (the old-host fallback);
+    - the s144 tape carries b6 (`where --want world`).
+  - **The duo, 16/16:**
+    - the guest left on 6603 shows the line;
+    - the guest walks out too and is frozen (0.00 units);
+    - when the host enters the Ice Cavern, the guest rejoins field 300 from the world map.
+  - **The regression:**
+    - block A at baseline: wait parity 12/12 on a rerun, S9-C4L unreachable solo;
+    - coop_leader_guard 19/19;
+    - coop_self_dress 65/65 and 54/54;
+    - the duo G9 22/22;
+    - the tape legs and the T2 cut legs.
+  - **The domain tests:** 2739 passed in one full run after the bench fix.
+- **Two bench defects found in game,** fixed and re-proven. The engine was right in both cases.
+  - **F3 pressed Select once.** A New Game's world map lands with the minimap off, and stock's Select cycle is
+    HUD -> full map -> no minimap -> HUD, so the first press only turned the minimap on. A probe showed the second
+    and later presses each refused and counted. F3 now drives the stock cycle.
+  - **D3 required the "Rejoining ..." overlay on a sample.** The host's MAPJUMP intent arms the guest at once, so the
+    window is shorter than a sample. D3 now follows the bracket law.
+- **Known:** one of four starts of the world battle verb froze the game in the battle load, after the swirl. It is a
+  harness-only path, and the freeze was inactive. The other three starts, two of them reruns, were clean. Watch for it.
+- **Next:**
+  - s145, battles from the world map: first observe a cold world reload aboard a vehicle;
+  - the owner's two-PC check of the world map: walk out together, the line, the frozen guest, the rejoin at a town.

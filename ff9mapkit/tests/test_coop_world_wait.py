@@ -280,9 +280,31 @@ def solo(run):
             calls.append(1)
             return (False, "stub: the way back failed", g.state) if len(calls) == 1 else real(g)
         cw._reach_world_again = once
-    with session(t, f) as g:
-        cw.run(g)
-        return rows_of(list(g.checks))
+    real_walk, real_press, real_close = cw.walk_out, Session.press, cw.close_opened_map
+    trace = {"selects": [], "after_close": []}
+    if run.get("hud_on"):                                  # a save whose w_naviMode is 1: the FIRST walk out lands in HUD
+        walks = []
+        def walk(g, **kw):
+            if not walks:
+                f.world_navi = 1
+            walks.append(1)
+            return real_walk(g, **kw)
+        cw.walk_out = walk
+    def press(self, button, *a, **k):                      # THE STAND-IN's HUD at every Select the bench sends (the test's
+        if str(button).lower() == "select":                # read: the engine publishes none)
+            trace["selects"].append(f.world_hud_state)
+        return real_press(self, button, *a, **k)
+    def close(g):
+        out = real_close(g)                                # the trail: F3's detail carries it
+        trace["after_close"].append(f.world_hud_state)
+        return out
+    Session.press, cw.close_opened_map = press, close
+    try:
+        with session(t, f) as g:
+            cw.run(g)
+            return dict(rows_of(list(g.checks)), trace=trace)
+    finally:
+        cw.walk_out, Session.press, cw.close_opened_map = real_walk, real_press, real_close
 
 def t2(run):
     leg = run["leg"]
@@ -343,15 +365,39 @@ def t2(run):
 
 class Link(threading.Thread):
     """The stub TRANSPORT of the duo: the host stand-in's place -- its field, or 0 off a field with section 7's flags as
-    HostDialogFlags says them (b6 only from an s144 host on its world HUD) -- onto the guest's followed-client seams."""
+    HostDialogFlags says them (b6 only from an s144 host on its world HUD) -- onto the guest's followed-client seams, and
+    the host's world MAPJUMP intent (FakeGame.host_field_intent, section 4) once per nonce: the in-game duo's guest armed
+    off it at once, with no serial debounce."""
     def __init__(self, host, guest):
         super().__init__(daemon=True)
         self.h, self.g, self.halt = host, guest, threading.Event()
     def run(self):
+        sent = None
         while not self.halt.is_set():
             h = self.h
             self.g.host_at(h.host_lane_field(), flags=h.host_dialog_flags(), story=bytes(h.story_bytes))
+            it = h.host_field_intent
+            if it is not None and it != sent:
+                sent = it
+                self.g.host_intent(it[1])
             time.sleep(0.02)
+
+class Coarse:
+    """THE BRACKET LAW's in-game shape: a guest sampler SLOWER than the arm -- a read that lands INSIDE the armed window
+    (WorldHUD, follow.world_armed >= 0) answers the last publish before it (a frame already read, so every watch skips it).
+    s144's first duo: the host's MAPJUMP intent armed the guest at once and its fade was shorter than one sample."""
+    def __init__(self, g):
+        self._g, self._last = g, None
+    def __getattr__(self, name):
+        return getattr(self._g, name)
+    @property
+    def state(self):
+        s = self._g.state
+        armed = (((s.netsync or {}).get("session") or {}).get("follow") or {}).get("world_armed")
+        if s.ui_state == "WorldHUD" and isinstance(armed, int) and armed >= 0 and self._last is not None:
+            return self._last
+        self._last = s
+        return s
 
 class StubDuo:
     def __init__(self, host, guest):
@@ -365,25 +411,38 @@ class StubDuo:
 def duo(run):
     th, tg = root(), root()
     fh, fgst = fake_for(th, run), fake_for(tg, run)
+    # the world -> field fade, in frames: long -- 0.4 s of wall time at 600 fps (4 s of the stand-in's 60 fps game clock, inside
+    # WORLD_ARM_TIMEOUT_MS: a longer fade times the arm out and its landing goes uncounted) -- so the guest's samplers land
+    # INSIDE its armed window and the overlay is judged (line_s143's D3 red), and the host's intent always reaches the guest
+    # before the host's lane says 300 (no serial debounce to read 'rejoining' off); `coarse` stands in for the in-game
+    # sampler that missed the window
+    fh.world_exit_frames = fgst.world_exit_frames = int(run.get("exit_frames", 240))
     cw.cb.CALIBRATE = bool(run.get("cal"))
+    real_arm = cw.judge_rejoin_arm
+    if run.get("strict_d3"):                               # D3 judged as before THE BRACKET LAW (the overlay always required)
+        cw.judge_rejoin_arm = lambda *a, bracket=False, **k: real_arm(*a, **k)
     gh, gg = session(th, fh), session(tg, fgst)
-    with gh, gg:
-        for g in (gh, gg):
-            g.newgame(settle=0)
-            g.warp(cw.FARSHORE)
-        fh.story_bytes[pb.MARKER_BYTE] = pb.MARKER_VALUE
-        fgst.follow_session(cw.FARSHORE, flags=BW.HF_ON_FIELD | BW.HF_CONTROL, fresh=True, story=bytes(fh.story_bytes),
-                            pair_kick=True)
-        link = Link(fh, fgst)
-        link.start()
-        gg.wait_for(lambda s: (s.netsync or {}).get("session", {}).get("mirroring") is True, timeout=5, what="paired")
-        d = StubDuo(gh, gg)
-        try:
-            cw.run_duo(d)
-        finally:
-            link.halt.set()
-        return {"red": sorted(c for c, ok, _d in d.rows if not ok), "all": [c for c, _ok, _d in d.rows],
-                "detail": {c: dd for c, _ok, dd in d.rows}, "strict": d.strict}
+    try:
+        with gh, gg:
+            for g in (gh, gg):
+                g.newgame(settle=0)
+                g.warp(cw.FARSHORE)
+            fh.story_bytes[pb.MARKER_BYTE] = pb.MARKER_VALUE
+            fgst.follow_session(cw.FARSHORE, flags=BW.HF_ON_FIELD | BW.HF_CONTROL, fresh=True,
+                                story=bytes(fh.story_bytes), pair_kick=True)
+            link = Link(fh, fgst)
+            link.start()
+            gg.wait_for(lambda s: (s.netsync or {}).get("session", {}).get("mirroring") is True, timeout=5, what="paired")
+            d = StubDuo(gh, Coarse(gg) if run.get("coarse") else gg)
+            try:
+                cw.run_duo(d)
+            finally:
+                link.halt.set()
+            return {"red": sorted(c for c, ok, _d in d.rows if not ok), "all": [c for c, _ok, _d in d.rows],
+                    "detail": {c: dd for c, _ok, dd in d.rows}, "strict": d.strict, "lands": fgst._wj["lands"],
+                    "intent": fh.host_field_intent}
+    finally:
+        cw.judge_rejoin_arm = real_arm
 
 def rec(run):
     t = root()
@@ -555,6 +614,50 @@ def test_the_solo_leg_is_green_on_the_s144_stand_in():
     assert "the map shut" in d["S144-F3"] and "ENTRY FieldHUD 300" in d["S144-F5"]
     assert "world battle 67 group 0 as a random encounter started from world map 9011" in d["S144-B1"]
     assert "the release line 1x" in d["S144-R"] and "freeze.off False" in d["S144-R"]
+    # THE STOCK CYCLE (the s144 probe): the world landed in HUDNoMiniMap -- press 1 turned the minimap on, press 2 was the
+    # refused HUD -> FullMap step; the close then read the map shut and pressed nothing (the stand-in's HUD per Select)
+    assert d["S144-F3"].startswith("2 Select press(es): map +1;"), d["S144-F3"]
+    assert "THE CLOSE: 0 Select press(es); frozen: skips advance: the map was shut" in d["S144-F3"], d["S144-F3"]
+    assert r["trace"] == {"selects": ["HUDNoMiniMap", "HUD"], "after_close": ["HUD"]}, r["trace"]
+
+
+def test_f3_judges_a_world_that_landed_in_the_hud_after_one_press():
+    """A save whose w_naviMode is 1 lands its world map in HUD: the FIRST Select is the refused step -- one press, green, and
+    no second Select (it would only be refused again, and counted)."""
+    r = _run("solo", hud_on=True)
+    assert r["red"] == [], {c: r["detail"][c] for c in r["red"]}
+    assert r["detail"]["S144-F3"].startswith("1 Select press(es): map +1;"), r["detail"]["S144-F3"]
+    assert r["trace"] == {"selects": ["HUD"], "after_close": ["HUD"]}, r["trace"]
+
+
+def test_f3_drives_the_stock_cycle_and_its_close_leaves_the_map_shut_whatever_the_state():
+    """F3's red stays BEHAVIOURAL and the close leaves the HUD shut, whatever state the presses ended in (never Cancel):
+    `fullmap_open` (frozen, never refused) -- press 2 OPENS the map, the dispatcher stops, one close Select shuts it;
+    `counters_dark` (a dark `skips` reads as a map that opened) -- no second press, `map` +0, the close's TWO refused
+    Selects (CLOSE_PRESSES: never the cycle's three) leave the HUD; the s143 stand-in and the lever (unfrozen, no witness
+    of an open map) -- two presses go HUD then FullMap, `map` never counts, and the close's walk witness stalls -> one
+    Select -> HUDNoMiniMap. F3 is recorded after the close and carries its trail: on s143 (no key can count) the red names
+    the behaviour -- the map OPENED and the close shut it."""
+    r = _child({"runs": {"open": {"kind": "solo", "faults": ["fullmap_open"]},
+                         "dark": {"kind": "solo", "faults": ["counters_dark"]},
+                         "s143": {"kind": "solo", "caps": "leaderguard", "cal": True},
+                         "lever": {"kind": "solo", "cal": True}}})
+    o = r["open"]
+    assert "S144-F3" in o["red"] and "the dispatcher NOT asked after press 2" in o["detail"]["S144-F3"], o["detail"]["S144-F3"]
+    assert o["trace"] == {"selects": ["HUDNoMiniMap", "HUD", "FullMap"], "after_close": ["HUDNoMiniMap"]}, o["trace"]
+    dk = r["dark"]
+    assert dk["detail"]["S144-F3"].startswith("1 Select press(es): map +0 (the refusal never counted)"), dk["detail"]
+    assert dk["trace"] == {"selects": ["HUDNoMiniMap", "HUD", "HUD"], "after_close": ["HUD"]}, dk["trace"]
+    assert "THE CLOSE: 2 Select press(es)" in dk["detail"]["S144-F3"] and "NOT witnessed shut" in dk["detail"]["S144-F3"]
+    for name in ("s143", "lever"):
+        x = r[name]
+        assert "S144-F3" in x["red"] and x["trace"] == {"selects": ["HUDNoMiniMap", "HUD", "FullMap"],
+                                                        "after_close": ["HUDNoMiniMap"]}, (name, x["trace"])
+        assert "THE CLOSE: 1 Select press(es)" in x["detail"]["S144-F3"], (name, x["detail"]["S144-F3"])
+        assert "the map had OPENED: shut by 1 Select(s)" in x["detail"]["S144-F3"], (name, x["detail"]["S144-F3"])
+    assert r["lever"]["detail"]["S144-F3"].startswith("2 Select press(es): map +0 (the refusal never counted)")
+    assert r["s143"]["detail"]["S144-F3"].startswith("absent:")
+    assert "THE CLOSE: 1 Select press(es)" in o["detail"]["S144-F3"], o["detail"]["S144-F3"]
 
 
 def test_the_solo_leg_calibrates_on_s143_and_under_the_lever(tables):
@@ -589,9 +692,16 @@ def test_the_bench_closes_a_full_map_that_opened_with_select_never_cancel():
     green ONLY because the bench closed the map with a second Select; without that close they read red (the walker cannot
     walk with w_naviMode 2)."""
     r = _child({"runs": {"close": {"kind": "solo", "faults": ["fullmap_open"], "f6_fail": True},
-                         "open": {"kind": "solo", "faults": ["fullmap_open"], "f6_fail": True, "close_map": False}}})
+                         "open": {"kind": "solo", "faults": ["fullmap_open"], "f6_fail": True, "close_map": False},
+                         # [the stock cycle] the LEVER (unfrozen: the close's witness is a walk) opens it too -- press 1 HUD,
+                         # press 2 FullMap -- and only the close's Select keeps F4 / F5 (and the calibration) green
+                         "lever": {"kind": "solo", "cal": True, "f6_fail": True},
+                         "lever_open": {"kind": "solo", "cal": True, "f6_fail": True, "close_map": False}}})
     assert r["close"]["red"] == ["S144-F3", "S144-F6"], r["close"]["red"]
     assert r["open"]["red"] == ["S144-F3", "S144-F4", "S144-F5", "S144-F6"], r["open"]["red"]
+    lever = ["S144-F1", "S144-F1K", "S144-F2", "S144-F3", "S144-F6"]
+    assert r["lever"]["red"] == lever, r["lever"]["red"]
+    assert r["lever_open"]["red"] == sorted(lever + ["S144-F4", "S144-F5", "S144-CAL"]), r["lever_open"]["red"]
 
 
 def test_the_instrument_rows_go_red_on_their_own_wrong_shapes():
@@ -720,13 +830,39 @@ def test_the_duo_leg_is_green_on_s144_and_calibrates_on_s143(tables):
     assert new["red"] == [] and new["all"] == ["S144-D0", "S144-D1", "S144-D2", "S144-D3"], new
     assert new["strict"] is True                                         # strict mode restored
     assert "'host_world'" in new["detail"]["S144-D1"] and "FieldHUD 300 on" in new["detail"]["S144-D3"]
+    # the host's MAPJUMP intent rode the Link (as in game) and the guest was sampled INSIDE its armed window: the overlay judged
+    assert new["intent"] == [1, 300] and "sample(s) inside the armed window" in new["detail"]["S144-D3"], new["detail"]
+    assert "'rejoining' 300" in new["detail"]["S144-D3"] and "shown" in new["detail"]["S144-D3"]
     assert s143["red"] == sorted(tables["duo_pred"]) and "S144-D-CAL" in s143["all"], s143["red"]
+
+
+def test_d3_keeps_the_bracket_law_under_a_sampler_that_misses_the_arm():
+    """S144-D3 in game (s144's first duo): the host's MAPJUMP intent armed the guest at once, and the arm-to-fade window was
+    shorter than one sample -- every row of the rejoin held but 'the overlay NOT shown'. Reproduced here with a sampler that
+    never reads inside the armed window (Coarse): the STRICT judge (the overlay always required) reds it exactly as in game;
+    THE BRACKET LAW greens it, saying 'overlay window shorter than a sample', on the engine's line, `arms` and the landing --
+    and still reds a guest that NEVER arms (`rejoin_unarmed`: no line, `arms` +0, never on 300). Its cost, named: with no
+    sample inside, the world chain's absence (`line_s143`) is D2's red alone (the fine-sampled run reds D3 too)."""
+    r = _child({"runs": {"coarse": {"kind": "duo", "coarse": True},
+                         "strict": {"kind": "duo", "coarse": True, "strict_d3": True},
+                         "never": {"kind": "duo", "coarse": True, "faults": ["rejoin_unarmed"]},
+                         "line": {"kind": "duo", "coarse": True, "faults": ["line_s143"]}}})
+    c = r["coarse"]
+    assert c["red"] == [], {k: c["detail"][k] for k in c["red"]}
+    assert "overlay window shorter than a sample" in c["detail"]["S144-D3"] and c["lands"] == 1, c["detail"]["S144-D3"]
+    s = r["strict"]
+    assert s["red"] == ["S144-D3"] and "NOT shown" in s["detail"]["S144-D3"], s["detail"]["S144-D3"]
+    assert "lands +1" in s["detail"]["S144-D3"] and "the rejoining line 1x" in s["detail"]["S144-D3"]   # all else held
+    n = r["never"]
+    assert n["red"] == ["S144-D3"] and "arms +0" in n["detail"]["S144-D3"], n["detail"]["S144-D3"]
+    assert "the rejoining line 0x" in n["detail"]["S144-D3"] and n["lands"] == 0
+    assert r["line"]["red"] == ["S144-D2"], r["line"]["red"]
 
 
 @pytest.mark.parametrize("fault", sorted(set(FG.WORLD_FAULTS) & {"tail_s143", "dispatch_ungated", "line_s143",
                                                                    "hold_unlatched", "counters_dark",
                                                                    "rejoin_field_recipe", "arm_uncounted",
-                                                                   "rejoin_departed", "keys_unmasked"}))
+                                                                   "rejoin_departed", "keys_unmasked", "rejoin_unarmed"}))
 def test_each_world_fault_turns_exactly_its_duo_rows_red(tables, fault):
     want = sorted(tables["duo_faults"].get(fault, ()))
     r = _run("duo", faults=[fault])
@@ -815,12 +951,107 @@ out["confirm"] = [cw.judge_confirm(stay, 0, 1, poll)[0], cw.judge_confirm(stay, 
                   cw.judge_confirm(stay, 0, 1, [])[0], cw.judge_confirm(stay, None, None, poll)[0],
                   cw.judge_confirm(stay, 2, 2, (), want_keys=False)[0], cw.judge_confirm(stay, 2, 3, (), want_keys=False)[0]]
 m0 = st(freeze={"map": 0, "skips": 100})
-win = [st(freeze={"map": 1, "skips": 104 + i}) for i in range(3)]
+win = [st(freeze={"map": 1, "skips": 104 + 4 * i}) for i in range(3)]
 ml = L(BW.decline_line(BW.WORLD_UI_DECLINE_MAP, "world map 9011"))
-out["map"] = [cw.judge_map(m0, win, [st()], ml)[0], cw.judge_map(m0, [st(freeze={"map": 0, "skips": 110})], [], ml)[0],
-              cw.judge_map(m0, [st(freeze={"map": 1, "skips": 101})], [], ml)[0], cw.judge_map(m0, win, [], [])[0],
-              cw.judge_map(m0, win, [st(ui="FieldHUD")], ml)[0], cw.judge_map(m0, win, [st(x=80.0)], ml)[0],
-              cw.judge_map(m0, [], [], ml)[1][:12]]
+# [the stock cycle] press 1 from HUDNoMiniMap turned the minimap on (map +0, the dispatcher asked), press 2 refused
+mini = [st(freeze={"map": 0, "skips": 110 + 4 * i}) for i in range(3)]
+ref2 = [st(freeze={"map": 1, "skips": 124 + 4 * i}) for i in range(3)]
+open2 = [st(freeze={"map": 0, "skips": 124 + min(i, 1)}) for i in range(3)]   # press 2 OPENED it: +1 (the key's tick), then none
+out["map"] = [cw.judge_map(m0, [win], [st()], ml)[0], cw.judge_map(m0, [[st(freeze={"map": 0, "skips": 110})]], [], ml)[0],
+              cw.judge_map(m0, [[st(freeze={"map": 1, "skips": 101})]], [], ml)[0], cw.judge_map(m0, [win], [], [])[0],
+              cw.judge_map(m0, [win], [st(ui="FieldHUD")], ml)[0], cw.judge_map(m0, [win], [st(x=80.0)], ml)[0],
+              cw.judge_map(m0, [], [], ml)[1][:12],
+              cw.judge_map(m0, [mini, ref2], [st()], ml)[0],                   # two presses, the second refused: green
+              cw.judge_map(m0, [mini, open2], [st()], ml)[0],                  # the second opened the map
+              cw.judge_map(m0, [mini, mini], [st()], ml)[0],                   # two presses, never refused
+              cw.judge_map(m0, [mini, ref2, ref2], [st()], ml)[0],             # a third press: outside the drive
+              cw.judge_map(m0, [mini, ref2], [st()], ml + ml)[0],              # the line twice (the latch broke)
+              cw.judge_map(m0, [mini, []], [st()], ml)[1][:12],
+              cw.judge_map(st(), [mini], [], ml)[1][:7],                       # an engine without the keys
+              "the dispatcher NOT asked after press 2" in cw.judge_map(m0, [mini, open2], [], ml)[1],
+              "map +0 (the refusal never counted)" in cw.judge_map(m0, [mini, mini], [], ml)[1]]
+# F3's drive: a second Select only when `map` did not count and the map did not witnessably open
+fz = lambda **k: st(freeze=dict({"on": True}, **k))
+out["again"] = [cw.select_again(m0, [fz(map=0, skips=104), fz(map=0, skips=110)]),   # frozen, asked: the minimap came on
+                cw.select_again(m0, [fz(map=1, skips=104), fz(map=1, skips=110)]),   # refused: done
+                cw.select_again(m0, [fz(map=0, skips=104), fz(map=0, skips=105)]),   # frozen, the dispatcher stopped: opened
+                cw.select_again(m0, [st(freeze={"on": False, "map": 0, "skips": 100})]),   # unfrozen: no witness, stock
+                cw.select_again(st(), [st()]),                         # no keys (s143): stock
+                cw.select_again(m0, []),
+                # the settle-to-press ticks never count as "asked": the skips before the window are the press latency's
+                cw.select_again(st(freeze={"map": 0, "skips": 90}), [fz(map=0, skips=100), fz(map=0, skips=100)])]
+# THE BRACKET LAW (D3): the overlay judged only when a sample fell inside the armed window
+w_in = st(rejoin={"arms": 3, "last": 300}, follow={"world_armed": 300},
+          session={"overlay": "rejoining", "overlay_detail": 300, "overlay_text": BW.wait_line_text(BW.OVL_REJOINING, 300)})
+w_in_dark = st(rejoin={"arms": 3, "last": 300}, follow={"world_armed": 300}, session={"overlay": "off"})
+w_pre = st(rejoin={"arms": 2, "last": -1}, follow={"world_armed": -1}, session={"overlay": "host_world"})
+f_land = st(ui="FieldHUD", field=300, rejoin={"arms": 3, "last": 300, "lands": 2}, follow={"world_armed": -1})
+f_none = st(ui="WorldHUD", rejoin={"arms": 2, "last": -1, "lands": 1}, follow={"world_armed": -1})
+rb3 = st(rejoin={"arms": 2, "lands": 1})
+rl3 = L(BW.log_world_rejoining(300, 9011, True), BW.log_world_rejoin_landed(300, 300, 900))
+out["bracket"] = [cw.judge_rejoin_arm([w_pre, f_land], rb3, rl3, field=300, bracket=True)[0],      # no sample inside: green
+                  "overlay window shorter than a sample" in cw.judge_rejoin_arm([w_pre, f_land], rb3, rl3, field=300,
+                                                                                bracket=True)[1],
+                  cw.judge_rejoin_arm([w_pre, f_land], rb3, rl3, field=300)[0],                     # strict: red (in game)
+                  cw.judge_rejoin_arm([w_pre, w_in_dark, f_land], rb3, rl3, field=300, bracket=True)[0],   # inside, unshown
+                  cw.judge_rejoin_arm([w_pre, w_in, f_land], rb3, rl3, field=300, bracket=True)[0],        # inside, shown
+                  cw.judge_rejoin_arm([w_pre, f_none], rb3, [], field=300, bracket=True)[0],               # never armed
+                  cw.judge_rejoin_arm([w_pre, f_land], rb3, [], field=300, bracket=True)[0],               # no line
+                  cw.judge_rejoin_arm([w_pre, f_land], st(rejoin={"arms": 3, "lands": 1}), rl3, field=300,
+                                      bracket=True)[0],                                                     # arms +0
+                  cw.judge_rejoin_arm([w_pre, st(rejoin={"arms": 3, "last": 300}, follow={"world_armed": -1})], rb3, rl3,
+                                      field=300, bracket=True)[0],                                          # never landed
+                  cw.in_armed_window(w_in), cw.in_armed_window(w_pre), cw.in_armed_window(f_land),
+                  cw.in_armed_window(st(ui="FieldHUD", follow={"world_armed": 300}))]
+# [review N4] the overlay is required AMONG the samples inside the window: a pre-arm 'rejoining' (WorldGuestOverlay shows it
+# off the host's lane alone) never stands in for an inside sample that showed something else; RJ-ARM's strict read (bracket
+# off) still takes any sample
+w_pre_shown = st(rejoin={"arms": 2, "last": -1}, follow={"world_armed": -1},
+                 session={"overlay": "rejoining", "overlay_detail": 300,
+                          "overlay_text": BW.wait_line_text(BW.OVL_REJOINING, 300)})
+out["bracket_scope"] = [cw.judge_rejoin_arm([w_pre_shown, w_in_dark, f_land], rb3, rl3, field=300, bracket=True)[0],
+                        cw.judge_rejoin_arm([w_pre_shown, w_in_dark, f_land], rb3, rl3, field=300)[0],
+                        cw.judge_rejoin_arm([w_pre_shown, w_in, f_land], rb3, rl3, field=300, bracket=True)[0]]
+# THE CLOSE (review N2): a scripted witness against WorldHUD's stock cycle, unfrozen -- the close never presses three times
+# (the cycle's identity), and a DARK witness (no reading) gets one blind Select at most
+CYCLE = {"HUD": "FullMap", "FullMap": "HUDNoMiniMap", "HUDNoMiniMap": "HUD"}
+class CloseG:
+    def __init__(self, hud):
+        self.hud, self.presses, self.notes = hud, 0, []
+    def press(self, button):
+        assert button == "select", button
+        self.presses += 1
+        self.hud = CYCLE[self.hud]
+    def wait_frames(self, n):
+        pass
+    def note(self, msg):
+        self.notes.append(msg)
+def close_with(hud, witness):
+    """witness(g, i) -> shut True / False / None (dark) at the i-th read"""
+    g, reads = CloseG(hud), [0]
+    def shut(_g):
+        i = reads[0]
+        reads[0] += 1
+        v = witness(g, i)
+        return v, {True: "read shut", False: "read open", None: "read nothing (the witness dark)"}[v]
+    real, cw.map_shut = cw.map_shut, shut
+    try:
+        trail = cw.close_opened_map(g)
+    finally:
+        cw.map_shut = real
+    return [g.presses, g.hud, trail]
+true_w = lambda g, i: g.hud != "FullMap"
+out["close"] = [close_with("FullMap", true_w)[:2],                         # a true witness: one Select shuts it
+                close_with("HUD", true_w)[:2],                             # shut: no press
+                close_with("FullMap", lambda g, i: False)[:2],             # STUCK (reads open forever): two, never three --
+                close_with("HUDNoMiniMap", lambda g, i: None)[:2],         # DARK: one blind Select, then the close stops
+                close_with("FullMap", lambda g, i: None)[:2],              # ... which shuts the likeliest open end
+                close_with("FullMap", lambda g, i: None if i == 0 else g.hud != "FullMap")[:2],   # dark, then shut
+                "the map had OPENED: shut by 1 Select(s)" in close_with("FullMap", true_w)[2],
+                "UNKNOWN after 1 blind Select(s)" in close_with("FullMap", lambda g, i: None)[2],
+                "NOT witnessed shut after 2 Select(s)" in close_with("FullMap", lambda g, i: False)[2],
+                "shut after 1 blind Select(s)" in close_with("FullMap", lambda g, i: None if i == 0 else g.hud != "FullMap")[2],
+                "the map was shut" in close_with("HUD", true_w)[2], cw.CLOSE_PRESSES]
 out["edge"] = [cw.judge_edge(st(freeze={"edges": 1}), st(freeze={"edges": 2}), 0.0, 20)[0],
                cw.judge_edge(st(freeze={"edges": 1}), st(freeze={"edges": 1}), 0.0, 20)[0],
                cw.judge_edge(st(freeze={"edges": 1}), st(freeze={"edges": 2}), 9.0, 20)[0]]
@@ -941,7 +1172,23 @@ def test_the_judges_go_red_on_each_wrong_shape():
     assert o["walk"] == [True, False, False, True, False, "not reached:"]
     assert o["keys"] == [True, False, False, False, False, False]
     assert o["confirm"] == [True, False, False, False, False, True, False]
-    assert o["map"] == [True, False, False, False, False, False, "not reached:"]
+    # one press refused / no count / the dispatcher stopped / no line / left the world map / the walker moved / no sample;
+    # [the stock cycle] minimap-then-refused / the second opened / never refused / three presses / the line twice / an empty
+    # window / no keys / the stalled press named / the count's absence named
+    assert o["map"] == [True, False, False, False, False, False, "not reached:", True, False, False, False, False,
+                        "not reached:", "absent:", True, True]
+    assert o["again"] == [True, False, False, True, True, False, False]
+    # no sample inside -> judged by the line + arms + landing (green, named); the strict read of the same samples: red (the
+    # in-game D3); inside unshown -> red; inside shown -> green; never armed / no line / arms +0 / never landed -> red
+    assert o["bracket"] == [True, True, False, False, True, False, False, False, False, True, False, False, False]
+    # [review N4] inside-window scope: a pre-arm 'rejoining' never greens an inside sample that showed another overlay
+    # (bracket), the strict RJ-ARM read still takes any sample, and an inside 'rejoining' greens it
+    assert o["bracket_scope"] == [False, True, True]
+    # [review N2] THE CLOSE against the stock cycle: a true witness -- one Select from FullMap, none when shut; a STUCK
+    # witness -- two Selects from FullMap end in the HUD (three would be the cycle's identity: FullMap again); a DARK
+    # witness -- one blind Select, then stop; the trail names each outcome
+    assert o["close"] == [[1, "HUDNoMiniMap"], [0, "HUD"], [2, "HUD"], [1, "HUD"], [1, "HUDNoMiniMap"], [1, "HUDNoMiniMap"],
+                          True, True, True, True, True, 2]
     assert o["edge"] == [True, False, False]
     assert o["lever"] == [True, False, False, False]
     assert o["battle"] == [True, False, False, False, False]

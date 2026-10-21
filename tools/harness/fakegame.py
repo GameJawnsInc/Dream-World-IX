@@ -286,7 +286,8 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # only with control and the full map shut) for SpectatorField -- the selftest role under `bench 1`,
                        # `story_mirroring`, or the followed client -- with its rising edge over the world tick counter, its ON /
                        # lifted lines, the key mask at the world dispatchers' polls (Confirm / Cancel / Triangle / Square
-                       # presses; `keys`), WorldHUD's full map refused (Select; `map`), a location tile's Confirm
+                       # presses; `keys`), WorldHUD's Select cycle with the HUD -> FullMap step refused (`map`; a New Game's
+                       # world lands in HUDNoMiniMap, so its first Select only turns the minimap on), a location tile's Confirm
                        # (`world_locations`), scripted world battles skipped (`world_script_battle`; `battles`), the lever and
                        # its release, the ~ release (`release_world_freeze`); THE WORLD TICK (one a frame: w_frameCounter,
                        # nextMode, the move flag) and THE WORLD BATTLE VERB (its refusals, the one-shot, its drops, the swirl,
@@ -300,7 +301,8 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # the FIELD follow-warp (`follow.pending` stays -1; only the world rejoin moves the stand-in's client),
                        # the session grace (the world chain's `connecting` stands in for a lost peer), the autopilot / vehicle
                        # inertia reset (no vehicles), the full map's location pick (`location` stays 0), the camera keys'
-                       # raw XInput, and the host side (no b6 / b7 emitted: the stand-in hosts no world map). Faults: WORLD_FAULTS.
+                       # raw XInput, and the host side beyond HostDialogFlags (`host_dialog_flags`) and its world MAPJUMP
+                       # intent (`host_field_intent`: the stub transports carry both). Faults: WORLD_FAULTS.
                        "worldwait": ("s144", ())}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
@@ -859,7 +861,8 @@ GUARD_FAULTS = ("keys_raw", "lanes_raw", "header_raw", "line_text", "field_raw",
 #:   "keys_unmasked"      the world dispatchers' control-on polls keep s143's F1 mask while frozen (`keys` never counts)
 #:   "keys_counted_s143"  [review] the frozen branch COUNTS (`keys` +1, its line) but returns s143's F1 mask: Cancel (dismount /
 #:                        land) still passes aboard a vehicle -- the F2 Confirm row cannot see it (F1 masks Confirm either way)
-#:   "fullmap_open"       WorldHUD opens the full map while frozen (`map` never counts)
+#:   "fullmap_open"       WorldHUD opens the full map while frozen (the HUD -> FullMap step never asks RefuseWorldUi: `map`
+#:                        never counts, the dispatcher stops being asked)
 #:   "lever_ignored"      the freeze rule never reads `bench worldfreeze off` (`off` reads true, the walker stays held)
 #:   "lever_stuck"        the harness release leaves `bench worldfreeze off` pulled
 #:   "bench0_stuck"       the freeze never sees SpectatorField fall: `bench 0` leaves the walker held (the control row)
@@ -893,11 +896,14 @@ GUARD_FAULTS = ("keys_raw", "lanes_raw", "header_raw", "line_text", "field_raw",
 #:                        Field() is rewritten into the field the guest just left
 #:   "landing_unheld"     [review 2] s144-as-built's landing: the hold ends at EVERY field load and the follow's debounce
 #:                        survives it -- the field follow on a passed landing chases straight back into the field the guest left
+#:   "rejoin_unarmed"     [s144 bench] the follow's WORLD branches are absent (ServiceIntentFollow consumes the host's intent,
+#:                        FollowHostTick fires nothing on the world map): a guest on the world map NEVER arms -- `arms` stays, no
+#:                        rejoining line, it never leaves (the bracket-law D3 must still read red)
 WORLD_FAULTS = ("dispatch_ungated", "keys_unmasked", "keys_counted_s143", "fullmap_open", "lever_ignored", "lever_stuck",
                 "bench0_stuck", "edge_once", "hold_unlatched", "battle_nextmode", "battle_field_return", "rejoin_field_recipe",
                 "rejoin_departed", "rejoin_no_snapshot", "rejoin_no_hold", "line_s143", "tail_s143", "redirect_bounce",
                 "counters_dark", "arm_uncounted", "latch_free", "stale_warpedto", "redirect_unfollowed", "entrance_unseeded",
-                "pass_entrance_host", "skip_unconsumed", "redirect_unheld", "landing_unheld")
+                "pass_entrance_host", "skip_unconsumed", "redirect_unheld", "landing_unheld", "rejoin_unarmed")
 #: [ff9mapkit netsync s144 review 2] the stand-in's FIELD follow (opt-in ``FakeGame.coop_field_follow``): StartFollowWarp's fade, in
 #: frames, before ServiceFollowWarp lands the field
 FIELD_FOLLOW_FADE_FRAMES = 12
@@ -1700,7 +1706,28 @@ class FakeGame:
         self.world_topo = 0
         self.world_bee = False
         self.world_locations: dict = {}
-        self.world_full_map = False
+        #: [ff9mapkit netsync s144 bench] WorldHUD.currentState -- "HUD" (the minimap on), "FullMap" (w_naviMode 2) or
+        #: "HUDNoMiniMap" -- and ff9.w_naviMode's saved byte (gEventGlobal[100], byte_gEventGlobal_updateNaviMode). A world load's
+        #: WorldHUD.Show reads its persisted state first -- an open full map entered from a field is ForceCloseFullMap'd (HUD,
+        #: w_naviMode 1) -- else picks HUDNoMiniMap at 0 and HUD at 1, after w_naviSystemConstructor resets a saved 2 to 0
+        #: (#697): so a NEW GAME's world map lands in HUDNoMiniMap (the s144 in-game probe: no minimap on screen after the walk
+        #: out of 6603), and Select cycles HUD -> FullMap -> HUDNoMiniMap -> HUD (WorldHUD.OnKeySelect, :meth:`_world_select`;
+        #: the world load, :meth:`_world_load`). The earlier seam ``world_full_map`` reads / writes the FullMap state.
+        #: ``world_title_ticks``: the arrival title's world ticks after a world load, while enableMapButton is false
+        #: (ff9.w_naviTitleElement) -- Select's HUD -> FullMap and HUDNoMiniMap -> HUD steps do nothing then (FullMap ->
+        #: HUDNoMiniMap needs no button); 0 (the default) models no title. STOCK RUNS THE TITLE ONLY ON THE FOUR STORY SCENE
+        #: POINTERS (w_frameScenePtr 2400 / 5990 / 9605 / 9890 set w_naviTitle; every other world entry leaves it -1 and
+        #: w_naviService never calls the title -- ff9.cs), for its closeTime (~200 world ticks with the defaults): a test that
+        #: sets it is modelling one of those entries, never a scenario-0 New Game's (the bench's), and the stand-in applies it
+        #: after EVERY world load while set.
+        self.world_hud_state = "HUDNoMiniMap"
+        self.world_navi = 0
+        self.world_title_ticks = 0
+        #: [ff9mapkit netsync s144 bench] EmitFieldIntentIfHost's mode-3 branch, the HOST side: a world script's own Field() on a
+        #: non-spectator announces where the host really lands (ForkSiblingField) -- (nonce, field), None before the first. The
+        #: stub transports carry it as section 4 (the duo smoke's Link -> :meth:`host_intent`): the in-game duo's guest armed off
+        #: this intent at once, with no serial debounce.
+        self.host_field_intent = None
         self.world_exit_frames = 6
         self.world_swirl_frames = 4
         self.world_tick_result = 0
@@ -2522,6 +2549,7 @@ class FakeGame:
             self.control = True
             self._self_on_load(cold=True)               # [ff9mapkit netsync s140] New Game's field 70 (excluded)
             self._world_field_load()                    # [ff9mapkit netsync s144] every field load's world half
+            self.world_navi = 0                         # [ff9mapkit netsync s144 bench] gEventGlobal[100] zeroed: no minimap
             # H17: New Game rebuilds every player with its CharacterDefaultName (FF9Play_New, ff9play.cs:131-144): a
             # name an earlier run saved never reaches this one's [STNR] pages (the review, research/o6_design.md 11.7 #2)
             self.names = {}
@@ -5643,10 +5671,51 @@ class FakeGame:
         self._decline_world[key] = wld
         self._mlog("[NetSync] " + BW.decline_line(what, f"world map {wld}"))
 
+    @property
+    def world_full_map(self) -> bool:
+        """[ff9mapkit netsync s144] WorldHUD's full map is open (w_naviMode 2): ``world_hud_state`` "FullMap"."""
+        return self.world_hud_state == "FullMap"
+
+    @world_full_map.setter
+    def world_full_map(self, value) -> None:
+        if value:
+            self.world_hud_state, self.world_navi = "FullMap", 2
+        elif self.world_hud_state == "FullMap":
+            self.world_hud_state, self.world_navi = "HUDNoMiniMap", 0
+
+    def _world_map_button(self) -> bool:
+        """WorldHUD.enableMapButton: false while the arrival title runs (``world_title_ticks`` world ticks after a world load;
+        stock runs that title only on the four story scene pointers -- see ``world_title_ticks``)."""
+        return int(self.world_title_ticks or 0) <= 0 or self._wt["counter"] >= int(self.world_title_ticks)
+
+    def _world_select(self, ww: bool) -> None:
+        """[ff9mapkit netsync s144 bench] WorldHUD.OnKeySelect's STOCK CYCLE (WorldHUD.cs 227-282), in its order: HUD with the map
+        button on -> FullMap, unless RefuseWorldUi refuses it (the world freeze: `map` +1, the buzz, one line per world map --
+        asked LAST, so ONLY at this step; the `fullmap_open` fault skips it) and the HUD stays; FullMap -> HUDNoMiniMap (the
+        stock close, frozen or not, no button needed); HUDNoMiniMap with the map button on -> HUD (the minimap on, never
+        refused). Each step saves w_naviMode (0 / 1 / 2). A New Game's world map lands in HUDNoMiniMap, so its FIRST Select only
+        turns the minimap on -- the s144 probe (select 1: `map` 0, select 2: `map` 1). The stand-in keeps its earlier gate: no
+        step but the close without control."""
+        st = self.world_hud_state
+        if st == "FullMap":
+            self.world_hud_state, self.world_navi = "HUDNoMiniMap", 0
+            return
+        if not self.control or not self._world_map_button():
+            return
+        if st == "HUD":
+            if ww and self._world_freeze_now() and "fullmap_open" not in self.world_faults:
+                self._wf_n["map"] += 1
+                self._world_decline(BW.WORLD_UI_DECLINE_MAP)
+            else:
+                self.world_hud_state, self.world_navi = "FullMap", 2
+        elif st == "HUDNoMiniMap":
+            self.world_hud_state, self.world_navi = "HUD", 1
+
     def _world_key(self, button: str) -> bool:
-        """A key on WorldHUD (the `worldwait` rung), before the stand-in's own menu handling: Select opens / closes the full
-        map -- WorldHUD.OnKeySelect, refused while frozen (RefuseWorldUi: `map` +1, the buzz, one line; the `fullmap_open`
-        fault skips it) -- and Confirm / Cancel / Triangle / Square reach the world dispatcher's CONTROL-ON poll through
+        """A key on WorldHUD (the `worldwait` rung), before the stand-in's own menu handling: Select runs WorldHUD.OnKeySelect's
+        stock cycle (:meth:`_world_select`: HUD -> FullMap -> HUDNoMiniMap -> HUD; the HUD -> FullMap step refused while frozen
+        -- RefuseWorldUi: `map` +1, the buzz, one line; the `fullmap_open` fault skips it) -- and Confirm / Cancel / Triangle /
+        Square reach the world dispatcher's CONTROL-ON poll through
         FilterScriptButtons: a frozen spectator loses every host-owned key (`keys` +1 when the poll would have taken one; the
         `keys_unmasked` fault keeps s143's F1 mask), any other spectator F1's Confirm / Special / Select. A Confirm that
         survives on a ``world_locations`` tile is the dispatcher's MAPJUMP into it. True = handled (Triangle falls through
@@ -5659,13 +5728,7 @@ class FakeGame:
         ctl = AGENT_CONTROL.get(str(button).lower())
         ww = self._ww()
         if ctl == "select":
-            if self.world_full_map:
-                self.world_full_map = False            # an open full map closes the stock way (Select again), frozen or not
-            elif ww and self._world_freeze_now() and "fullmap_open" not in self.world_faults:
-                self._wf_n["map"] += 1
-                self._world_decline(BW.WORLD_UI_DECLINE_MAP)
-            elif self.control:
-                self.world_full_map = True
+            self._world_select(ww)
             return True
         if ctl == "cancel" and self.world_full_map:
             return True                                # stock: Cancel on the full map closes nothing
@@ -5744,6 +5807,10 @@ class FakeGame:
                     self._mlog("[NetSync] " + BW.log_world_redirect(dest, to, wld))
                 else:
                     self._mlog("[NetSync] " + BW.log_world_pass(dest, wld, code, host))
+        elif self._ww():
+            # [ff9mapkit netsync s144 bench] EmitFieldIntentIfHost's mode-3 branch: the host announces ForkSiblingField(dest)
+            n = ((self.host_field_intent or (0, 0))[0] + 1) & 0xFF
+            self.host_field_intent = (n, int(self.fork_siblings.get(to, to)))
         self._world_exit_to(to)
         return to
 
@@ -5768,12 +5835,25 @@ class FakeGame:
         self._self_on_load(cold=True)
         self._world_field_load()
 
-    def _world_load(self) -> None:
+    def _world_load(self, prev_ui=None) -> None:
         """A world scene's load (WMScriptDirector.HonoAwake, the world constructors, ff9InitStateWorldMap): w_frameCounter from
-        0, nextMode 3, no exit or swirl in flight, the full map shut."""
+        0, nextMode 3, no exit or swirl in flight, and WorldHUD's state as Show picks it -- ``prev_ui`` is the UI state the
+        world was entered FROM (UIManager.PreviousState at ff9.cs's ChangeUIState(WorldHUD))."""
         wt = self._wt
         wt.update(counter=0, next_mode=3, moved=False, exit=None, swirl=None)
-        self.world_full_map = False
+        # [ff9mapkit netsync s144 bench] WorldHUD.Show reads its PERSISTED currentState first (an instance field of the
+        # persistent UIManager scene: nothing resets it on hide): an open full map entered from a FIELD is ForceCloseFullMap'd
+        # -- HUD, w_naviMode 1, saved (WorldHUD.cs 32-37, 528-536); entered from anything else it stays open (Show's other
+        # branch -- no stand-in path reaches it: the battle verb and the main menu refuse under the full map). Otherwise
+        # w_naviSystemConstructor first (a saved 2 reloads as 0: #697 -- a save made with the map open, loaded cold), then
+        # Show by w_naviMode: 0 HUDNoMiniMap (a New Game's), 1 HUD.
+        if self.world_hud_state == "FullMap":
+            if prev_ui == "FieldHUD":
+                self.world_hud_state, self.world_navi = "HUD", 1
+        else:
+            if self.world_navi >= 2:
+                self.world_navi = 0
+            self.world_hud_state = "HUD" if self.world_navi == 1 else "HUDNoMiniMap"
         if self._ww():
             self._ensure_ini()                         # [ff9mapkit netsync s144] WMScriptDirector.HonoAwake's Ensure
             if "edge_once" not in self.world_faults:
@@ -5841,10 +5921,10 @@ class FakeGame:
                 and "stale_warpedto" not in self.world_faults):
             self._mlog("[NetSync] " + BW.log_follow_cancelled(wj["pending"] if wj["pending"] >= 0 else wj["warped_to"], src))
             wj["pending"], wj["warped_to"] = -1, -1
-        self.ui_state = "WorldHUD"
+        prev, self.ui_state = self.ui_state, "WorldHUD"
         self.world.update(id=int(wld), x=float(x), z=float(z))
         self.control = True
-        self._world_load()
+        self._world_load(prev)
         self._wt["last_ui"] = "WorldHUD"
 
     def enter_world(self, wld: int = 9011, x: float = 100.0, z: float = 100.0, *, from_field: bool = False,
@@ -5861,9 +5941,9 @@ class FakeGame:
         if from_field:
             self._world_exit_from_field(wld, x, z)
             return
-        self.ui_state = "WorldHUD"
+        prev, self.ui_state = self.ui_state, "WorldHUD"
         self.world.update(id=int(wld), x=float(x), z=float(z))
-        self._world_load()
+        self._world_load(prev)
         self._wt["last_ui"] = "WorldHUD"
 
     def _world_tick(self) -> bool:
@@ -5961,9 +6041,9 @@ class FakeGame:
             self._guest.field_load()
             self._world_field_load()
             return
-        self.ui_state = "WorldHUD"
+        prev, self.ui_state = self.ui_state, "WorldHUD"
         self.world.update(id=w["id"], x=w["x"], z=w["z"])
-        self._world_load()
+        self._world_load(prev)
         self._wt["last_ui"] = "WorldHUD"
 
     def world_script_battle(self, scene: int, op: str = "ENCOUNT") -> bool:
@@ -6267,7 +6347,7 @@ class FakeGame:
         if not self._ww():
             return
         if ui == "WorldHUD" and wt["last_ui"] != "WorldHUD":
-            self._world_load()
+            self._world_load(wt["last_ui"])
         if ui == "Title":
             wt.update(arm=None, swirl=None, exit=None, from_world=None)
         wt["last_ui"] = ui
@@ -6315,7 +6395,9 @@ class FakeGame:
             if dest <= 0 or dest == follow_fld or dest == 16000:
                 cf["intent_seen"] = nonce
             elif on_world:
-                if not self._field_registered(dest):
+                if "rejoin_unarmed" in self.world_faults:
+                    cf["intent_seen"] = nonce                # [s144 bench] no world branch: the intent consumed, nothing armed
+                elif not self._field_registered(dest):
                     cf["intent_seen"] = nonce
                     self._mlog("[NetSync] " + BW.log_world_intent_unregistered(dest))
                 elif self._world_follow_fire(dest, True):
@@ -6347,7 +6429,8 @@ class FakeGame:
                 wj["candidate"], wj["cand_since"] = host, self.rt
             elif (self.rt - wj["cand_since"]) * 1000 >= BW.FOLLOW_STABLE_MS:
                 if on_world:
-                    self._world_follow_fire(host, False)
+                    if "rejoin_unarmed" not in self.world_faults:
+                        self._world_follow_fire(host, False)
                 elif self.coop_field_follow and not cf.get("ramp"):
                     self._field_follow_fire(host)          # [review 2] the opt-in FIELD follow, hold-gated
         # THE OVERLAY CHAIN (Update's not-paired branch; the world chain ahead of `local == null`, the field chain's tail)

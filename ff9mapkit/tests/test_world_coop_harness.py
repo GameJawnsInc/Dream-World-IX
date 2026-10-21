@@ -434,17 +434,25 @@ def _solo(g, fake) -> dict:
     led.row("F2V-VEHICLE", f2v)
 
     def f3():
+        """WorldHUD's STOCK Select cycle: a New Game's world map lands in HUDNoMiniMap, so the first Select only turns the
+        minimap on; the HUD -> FullMap step is the one the freeze refuses -- at most two presses, stopping once `map` counts."""
         m0 = _w(g.state, "freeze.map", 0)
-        g.send("press select")
-        g.wait_frames(6)
-        st = g.state
-        ok = _w(st, "freeze.map", 0) == m0 + 1 and BW.decline_line(BW.WORLD_UI_DECLINE_MAP, "world map 9011") in _log(fake)
-        g.send("press cancel")                       # stock: Cancel closes no full map (frozen: nothing at all)
-        g.wait_frames(6)
-        if _w(st, "freeze.map", 0) == m0:            # the map OPENED (a fault, the lever, s143): a second Select closes it
+        presses = 0
+        for _ in range(2):
             g.send("press select")
             g.wait_frames(6)
-        return ok, f"map {m0}->{_w(st, 'freeze.map')}"
+            presses += 1
+            if _w(g.state, "freeze.map", 0) != m0:
+                break
+        st = g.state
+        ok = (_w(st, "freeze.map", 0) == m0 + 1
+              and _log(fake).count(BW.decline_line(BW.WORLD_UI_DECLINE_MAP, "world map 9011")) == 1)
+        g.send("press cancel")                       # stock: Cancel closes no full map (frozen: nothing at all)
+        g.wait_frames(6)
+        if fake.world_full_map:                      # the map OPENED (a fault, the lever, s143): a Select closes it (the
+            g.send("press select")                   # stand-in's own state read: the test's cleanup, never its verdict)
+            g.wait_frames(6)
+        return ok, f"{presses} press(es): map {m0}->{_w(st, 'freeze.map')}"
     led.row("F3-MAP", f3)
 
     def f6():
@@ -799,6 +807,9 @@ WORLD_FAULT_REDS = {
     "skip_unconsumed": ("J-QUICK",),                   # [review 2] the location poll re-reads the press: control off, 9999
     "redirect_unheld": ("J-HELDPASS",),                # [review 2] the world script's Field() rewritten back into 300
     "landing_unheld": ("J-HELDPASS",),                 # [review 2] the hold ends at the landing: the field follow chases 300
+    # [s144 bench] the follow's world branches absent: a guest on the world map never arms (the overlay still names the
+    # host's field -- J-OVL reads the world chain, not the arm), so nothing that needs the rejoin lands
+    "rejoin_unarmed": ("J-ARM", "J-LAND", "J-HOLD", "J-STALE", "J-F11", "J-LATCH", "J-SEED"),
 }
 #: the s143 stand-in (the calibration engine): every row reads red but the control (bench 0 walks and Confirm enters a
 #: location on every engine)
@@ -853,6 +864,66 @@ def test_the_lever_reads_exactly_lever_predicted_red(tmp_path):
         rows = _solo(g, fake)
     red = sorted(n for n, (ok, _d) in rows.items() if not ok)
     assert red == sorted(LEVER_PREDICTED), {n: rows[n][1] for n in set(red) ^ set(LEVER_PREDICTED)}
+
+
+def test_the_stand_ins_worldhud_runs_the_stock_select_cycle(tmp_path):
+    """[s144 bench] the in-game probe (2026-10-21): after a New Game's walk out the world HUD is HUDNoMiniMap (no minimap on
+    screen: WorldHUD.Show by w_naviMode 0), and WorldHUD.OnKeySelect cycles HUD -> FullMap -> HUDNoMiniMap -> HUD with the
+    s144 refusal on the HUD -> FullMap step ALONE. Frozen: select 1 turns the minimap on (`map` 0), selects 2-4 are refused
+    (`map` 1, 2, 3; one line), the HUD stays. Unfrozen: select 1 opens the full map (the dispatcher stops), select 2 shuts it
+    to HUDNoMiniMap, `map` unmoved. w_naviMode persists across a world load (1 -> HUD); an open full map left for a field
+    comes back ForceCloseFullMap'd (HUD, 1), from anything else it stays open (WorldHUD.Show reads its persisted state
+    first); a saved 2 alone reloads as 0 (#697); a New Game zeroes it; the arrival title's dead map button takes no step and
+    asks no refusal (the close needs no button)."""
+    f = _fake(_game(tmp_path))
+    f.ui_state = "Title"
+    f._execute(["newgame"])
+    f.story_mirroring = True                                     # SpectatorField (the mirror): frozen on the world map
+    f.enter_world(9011, 100.0, 100.0)
+    assert f.world_hud_state == "HUDNoMiniMap" and f._world_frozen()
+    seq = []
+    for _ in range(4):
+        f._world_key("select")
+        seq.append((f.world_hud_state, f._wf_n["map"]))
+    assert seq == [("HUD", 0), ("HUD", 1), ("HUD", 2), ("HUD", 3)], seq
+    assert _log(f).count(BW.decline_line(BW.WORLD_UI_DECLINE_MAP, "world map 9011")) == 1
+    f.story_mirroring = False                                    # unfrozen (the lever's world map, or no co-op at all)
+    f._world_key("select")
+    assert f.world_full_map and f.world_navi == 2 and f._wf_n["map"] == 3
+    f._world_key("cancel")                                       # stock: Cancel never closes the full map
+    assert f.world_full_map
+    f._world_key("select")
+    assert f.world_hud_state == "HUDNoMiniMap" and f.world_navi == 0 and f._wf_n["map"] == 3
+    f._world_key("select")                                       # the minimap back on: HUD, saved as 1 ...
+    f.enter_world(9011, 100.0, 100.0)
+    assert f.world_hud_state == "HUD"                            # ... and a world load lands there
+    f._world_key("select")
+    assert f.world_full_map
+    f.ui_state, f.field_id = "FieldHUD", 6603                    # left the world with the full map OPEN, then back from a
+    f.enter_world(9011, 100.0, 100.0)                            # field: WorldHUD.Show's persisted FullMap is ForceCloseFullMap'd
+    assert f.world_hud_state == "HUD" and f.world_navi == 1      # -- HUD, w_naviMode 1 (WorldHUD.cs 32-37, 528-536)
+    f._world_key("select")                                       # open again, then a world load from anything but a field:
+    assert f.world_full_map                                      # Show's other branch keeps it open
+    f._world_load("BattleHUD")
+    assert f.world_full_map and f.world_navi == 2
+    f._world_key("select")
+    assert f.world_hud_state == "HUDNoMiniMap" and f.world_navi == 0
+    f.world_navi = 2                                             # a save made with the map open, loaded cold: the HUD state
+    f.ui_state, f.field_id = "FieldHUD", 6603                    # not FullMap, w_naviMode 2 -> #697 reads it as 0
+    f.enter_world(9011, 100.0, 100.0)
+    assert f.world_hud_state == "HUDNoMiniMap" and f.world_navi == 0
+    f.world_title_ticks = 50                                     # the arrival title (a story scene pointer's): the map button dead
+    f.story_mirroring = True
+    f.world_navi = 1
+    f.enter_world(9011, 100.0, 100.0)
+    f._world_key("select")
+    assert f.world_hud_state == "HUD" and f._wf_n["map"] == 3    # no step, no refusal asked
+    f._wt["counter"] = 50                                        # the title closed
+    f._world_key("select")
+    assert f.world_hud_state == "HUD" and f._wf_n["map"] == 4    # refused
+    f.ui_state = "Title"
+    f._execute(["newgame"])
+    assert f.world_navi == 0                                     # gEventGlobal[100] zeroed
 
 
 # ------------------------------------------------------------------------------------------------ the driver
