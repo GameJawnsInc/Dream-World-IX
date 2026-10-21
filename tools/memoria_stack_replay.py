@@ -110,6 +110,14 @@ DEFAULT_FILES = [
     "Assembly-CSharp/Global/fldmcf.cs",
     "Assembly-CSharp/Global/ff9/Snd/FF9Snd.cs",
     "Assembly-CSharp/Global/Honolulu/HonoluluFieldMain.cs",
+    # [ff9mapkit netsync s144] world-map co-op's sites not yet listed -- NetSyncDialog.cs (section 7's b6 / b7), ff9.cs (the world
+    # freeze at the one movement-input dispatcher), WorldHUD.cs (the full map and its autopilot refused) and WMScriptDirector.cs (the
+    # world battle verb's one-shot and the world-scene Ensure: the FIRST netsync patch to touch it) -- so a stale or mixed hunk in
+    # any of them cannot pass diag
+    "Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs",
+    "Assembly-CSharp/Global/ff9/ff9.cs",
+    "Assembly-CSharp/Global/World/WorldHUD.cs",
+    "Assembly-CSharp/Global/WM/WMScriptDirector.cs",
 ]
 
 # Same-number ties, pinned explicitly.

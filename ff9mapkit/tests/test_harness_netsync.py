@@ -857,16 +857,28 @@ def _catch_doc_in(stem: str) -> dict:
     return json.loads("{" + unescape(a + _f3_retired_text() + b) + "}")["netsync"]
 
 
+def _unworlded(doc: dict) -> dict:
+    """[ff9mapkit netsync s144] A `netsync` document without s144's keys -- `world` (netsync's LAST key, after `dress`) and
+    `session`'s last two, `overlay_text` and `follow`: the catch line as s143 wrote it -- s144 added those and nothing else.
+    Every older shape below (_undressed, _unguarded, _dress_through) starts from it."""
+    out = {k: v for k, v in doc.items() if k != "world"}
+    if isinstance(doc.get("session"), dict):
+        out["session"] = {k: v for k, v in doc["session"].items() if k not in BW.SESSION_KEYS_S144}
+    return out
+
+
 def _undressed(doc: dict) -> dict:
     """[ff9mapkit netsync s138] A `netsync` document without s138's `dress` (netsync's LAST key, after `battle`): the live
-    catch line as s131-s137 wrote it -- s138 added that one block and nothing else."""
-    return {k: v for k, v in doc.items() if k != "dress"}
+    catch line as s131-s137 wrote it -- s138 added that one block and nothing else. [ff9mapkit netsync s144] (and without
+    s144's keys: _unworlded)"""
+    return {k: v for k, v in _unworlded(doc).items() if k != "dress"}
 
 
 def _unguarded(doc: dict) -> dict:
     """[ff9mapkit netsync s143] A `netsync` document without s143's three `guard` blocks (`battle.host.guard`, `battle.peer.guard`,
-    `dress.guard`): the catch line as s141 wrote it -- s143 added those and nothing else."""
-    out = dict(doc)
+    `dress.guard`): the catch line as s141 wrote it -- s143 added those and nothing else. [ff9mapkit netsync s144] (and
+    without s144's keys: _unworlded)"""
+    out = _unworlded(doc)
     if isinstance(doc.get("battle"), dict):
         battle = dict(doc["battle"])
         for sub in ("host", "peer"):
@@ -886,7 +898,7 @@ def _dress_through(doc: dict, rung: str) -> dict:
     upto = names[:names.index(rung) + 1]
     dress_keys = [k for r in upto for k in BW.DRESS_KEYS_BY_RUNG[r]]
     ghost_keys = [k for r in upto for k in BW.DRESS_GHOST_KEYS_BY_RUNG.get(r, ())]
-    out = dict(doc) if "leaderguard" in upto else _unguarded(doc)   # [ff9mapkit netsync s143] its battle half too
+    out = _unworlded(doc) if "leaderguard" in upto else _unguarded(doc)   # [ff9mapkit netsync s143] its battle half too
     d = {k: v for k, v in doc["dress"].items() if k in dress_keys}
     d["ghost"] = {k: v for k, v in doc["dress"]["ghost"].items() if k in ghost_keys}
     if "rig_idle_frames" in d:                          # [ff9mapkit netsync s140] the rung's own rig-row count (9 on s139)
@@ -2008,7 +2020,11 @@ def _leaves_paths(battle: dict) -> set:
 def _key_is_the_patchs(key: str, cap: str) -> bool:
     """[ff9mapkit netsync R3] A capability key (dotted from `netsync.`) is one the capability ``cap`` ADDED: a
     `netsync.battle.<sub>.<leaf>` sub-level key, a key inside an older fixed sub-object (FG.NETSYNC_BATTLE_NESTED_KEYS),
-    a whole new block below one of those, or a `netsync.diorama` key / nested key."""
+    a whole new block below one of those, or a `netsync.diorama` key / nested key. [ff9mapkit netsync s144] ...or a key
+    inside a TOP-LEVEL `netsync` block the capability added (FG.NETSYNC_TOP_CAP_KEYS: s144's `world`)."""
+    top = key[len("netsync."):].split(".", 1)[0] if key.startswith("netsync.") else None
+    if top is not None and top != "battle" and top in FG.NETSYNC_TOP_CAP_KEYS.get(cap, ()):
+        return True
     if key.startswith("netsync.diorama."):
         rest = key[len("netsync.diorama."):].split(".")
         if len(rest) == 1:
@@ -2121,7 +2137,10 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert top[top.index("diorama"):top.index("battle") + 1] == ["diorama", "session", "menu_refusal", "battle"], top
     # [ff9mapkit netsync s138] `dress` is netsync's LAST key, after `battle` (R3-FIELD-MODEL-AUDIT.md 3.1), its keys the dress
     # rungs' (ghost, party) and `ghost` a fixed sub-object in AppendDress's order
-    assert top[top.index("battle"):] == ["battle", "dress"], top
+    # [ff9mapkit netsync s144] ...through s143 (its catch line, frozen); s144's `world` follows it, netsync's new LAST key
+    s143_top = list(_catch_doc_in("s143"))
+    assert s143_top[s143_top.index("battle"):] == ["battle", "dress"], s143_top
+    assert top[top.index("battle"):] == ["battle", "dress", "world"], top
     assert tuple(prev_doc["dress"]) == tuple(k for keys in FG.NETSYNC_DRESS_CAP_KEYS.values() for k in keys)
     assert tuple(prev_doc["dress"]["ghost"]) == FG.NETSYNC_DRESS_GHOST_KEYS == tuple(BW.DRESS_GHOST_SENTINELS)
     # ...the LIVE union, which is every dress rung's FROZEN row in ladder order (a probe / stand-in reads its rung's row)
@@ -6333,7 +6352,17 @@ def _proof_lines(fake) -> list:
               BW.proof_ok(BW.PROOF_TRANCE, 21), BW.proof_ok(BW.PROOF_DRESS, 38), BW.proof_ok(BW.PROOF_SELF_DRESS, 29),
               BW.proof_ok(BW.PROOF_DRESS_POLISH, 20),
               # [ff9mapkit netsync s143] the leader guard's line, right after the dress polish line
-              BW.proof_ok(BW.PROOF_LEADER_GUARD, BW.LEADER_GUARD_SELFTEST_ROWS)]),
+              BW.proof_ok(BW.PROOF_LEADER_GUARD, BW.LEADER_GUARD_SELFTEST_ROWS),
+              # [ff9mapkit netsync s144] world-map co-op's three, right after the leader guard line
+              BW.proof_ok(BW.PROOF_WORLD_FREEZE, BW.WORLD_FREEZE_SELFTEST_ROWS),
+              BW.proof_ok(BW.PROOF_WORLD_REJOIN, BW.WORLD_REJOIN_SELFTEST_ROWS),
+              BW.proof_ok(BW.PROOF_OVERLAY_TEXT, BW.OVERLAY_TEXT_SELFTEST_ROWS)]),
+    # [ff9mapkit netsync s144] s143 (s144's calibration red): no world freeze / world rejoin / overlay text line
+    ("s143", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
+              BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
+              BW.proof_ok(BW.PROOF_TRANCE, 21), BW.proof_ok(BW.PROOF_DRESS, 38), BW.proof_ok(BW.PROOF_SELF_DRESS, 29),
+              BW.proof_ok(BW.PROOF_DRESS_POLISH, 20), BW.proof_ok(BW.PROOF_LEADER_GUARD, BW.LEADER_GUARD_SELFTEST_ROWS)]),
     # [ff9mapkit netsync s143] s141 (s143's calibration red): no 'leader guard' line
     ("s141", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
@@ -15097,7 +15126,9 @@ def test_the_dress_block_is_netsyncs_last_key_at_the_catch_lines_sentinels():
                       '\\"rig\\":-1,\\"playing\\":false,\\"body\\":null},\\"party\\":[-1,-1,-1,-1]}}'), b[-240:]
     assert "dress" not in a
     nothing = _agent_netsync_nothing()[0]
-    assert list(nothing)[-2:] == ["battle", "dress"] and nothing["dress"] == BW.DRESS_SENTINELS
+    # [ff9mapkit netsync s144] `dress` is the last key through s143 (frozen); the live line closes with s144's `world` after it
+    assert list(_catch_doc_in("s143"))[-2:] == ["battle", "dress"]
+    assert list(nothing)[-3:] == ["battle", "dress", "world"] and nothing["dress"] == BW.DRESS_SENTINELS
     s138 = _catch_doc_in("s138")
     assert list(s138["dress"]) == list(BW.DRESS_KEYS_BY_RUNG["dressinstr"]) == ["ghost", "party"]
     assert list(s138["dress"]["ghost"]) == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"])
@@ -15503,7 +15534,11 @@ def test_a_fresh_stand_in_publishes_the_agents_dress_block(game):
     nothing = _agent_netsync_nothing()[0]
     fake = FakeGame(game)
     doc = fake._netsync_doc()
-    assert list(doc)[-1] == "dress" and list(doc["dress"]) == list(nothing["dress"])
+    # [ff9mapkit netsync s144] the last key through s143 (that stand-in, frozen); from s144 `world` follows it
+    old = FakeGame(game)
+    old.netsync_caps = FG.caps_through("leaderguard")
+    assert list(old._netsync_doc())[-1] == "dress"
+    assert list(doc)[-2:] == ["dress", "world"] and list(doc["dress"]) == list(nothing["dress"])
     assert doc["dress"]["ghost"] == nothing["dress"]["ghost"] == BW.DRESS_GHOST_SENTINELS
     # the default stand-in carries every dress rung: the union of their frozen rows, in ladder order
     assert list(doc["dress"]["ghost"]) == [k for row in BW.DRESS_GHOST_KEYS_BY_RUNG.values() for k in row]
@@ -21959,8 +21994,10 @@ def test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self_and_ghost():
     `self.steps`; s141's calibration is the prefix through `dressself`; the capability accessor reads True on s141's catch
     line and False on s140's; the `polish` op's capability key is a key s141 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    # [ff9mapkit netsync s143] ...LAST until s143's `leaderguard` rung joined after it
-    assert names[names.index("dressself") + 1] == "dresspolish" and names[names.index("dresspolish") + 1:] == ["leaderguard"]
+    # [ff9mapkit netsync s143] ...LAST until s143's `leaderguard` rung joined after it; [ff9mapkit netsync s144] and s144's
+    # `worldwait` after that
+    assert names[names.index("dressself") + 1] == "dresspolish" and names[names.index("dresspolish") + 1:] == ["leaderguard",
+                                                                                                             "worldwait"]
     assert FG.NETSYNC_BATTLE_CAPS["dresspolish"] == ("s141", ()) and FG.NETSYNC_S141_CAPS == frozenset(("dresspolish",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresspolish"] == {} and "dresspolish" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     assert FG.NETSYNC_DRESS_CAP_KEYS["dresspolish"] == BW.DRESS_KEYS_BY_RUNG["dresspolish"] == ()

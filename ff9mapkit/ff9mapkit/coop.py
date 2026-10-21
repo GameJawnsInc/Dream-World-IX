@@ -33,6 +33,8 @@ each is only written when its flag is given, so re-runs never clobber hand tunin
                            the guest two of that character        -> GhostAs
     --follow-host on       guest side: auto-warp to the host's field; your own
                            random encounters pause while paired   -> FollowHost
+                           -- on the world map the host drives: you wait there
+                           and rejoin their next field (engine s144)
 
 (The battle diorama -- a following guest's screen boots the host's battles
 live -- is always on since the s42 engine; the old ``--diorama`` knob is gone.

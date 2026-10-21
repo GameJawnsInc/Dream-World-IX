@@ -51,6 +51,10 @@ What lives here, and why once:
     ~(2000 - tail) ms late. So a hold is judged against the SAME run's outage plus THAT cut's tail -- never a nominal
     window (s119's 6 s cut sat 9 ms inside the tail-0 class: its old 3000-5500 window was green by placement luck).
     The tail comes off the tape at ``--blackhole-at`` (a T2 leg) or off the relay tap around a live cut (P5).
+  * [ff9mapkit netsync s144] THE WORLD LEGS (coop_world_wait.py's T2 legs): :func:`world_tape_facts` (a host-on-world tape's
+    three facts and its b6 verdict, coop_peer.tape_where), :func:`plan_world_leg` (world-rejoin off the field-250 tape,
+    world-wait off a world tape), the world tape's own home (:func:`world_tape_dir`, :data:`WORLD_POINTER` -- never the
+    default home's latest.json) and :func:`synthetic_world_tape` for the self-check's rows.
 
 Knobs (environment): COOP_PEER_PORT (default 49201, the game's RelayUrl port), COOP_TAPE (a tape path), COOP_TAPE_DIR
 (where tapes land; default <main repo>/.harness-runs/coop-tapes), COOP_BACKUP_DIR (where the Memoria.ini backups land;
@@ -414,6 +418,31 @@ class IniGuard:
             raise OSError(f"{self.ini} does not read back as the edit")
         return (f"{self.ini} [Netsync] set {self.values} ({'; '.join(self.changes) or 'already so'}); backups: "
                 + (", ".join(str(b) for b in self.backups) or "none (there was no file)"))
+
+    def update(self, values: dict) -> str:
+        """[ff9mapkit netsync s144 bench] A SECOND edit on top of the applied one (the T2 rejoin leg's code, set on the world map):
+        ``values`` merged into the [Netsync] keys, written over the bench's own edit, read back -- the backups and the ORIGINAL
+        stay the first apply's, so ``restore`` still puts the owner's file back byte-exact. Raises like ``apply`` (and refuses
+        before an apply: there would be no original to restore)."""
+        if not self.applied or self.edited is None:
+            raise RuntimeError("IniGuard.update before apply: no backup, no original")
+        now = self.ini.read_bytes() if self.ini.exists() else b""
+        if now != self.edited:
+            raise RuntimeError(f"{self.ini} changed under the bench since its edit -- not editing again")
+        self.values.update(values)
+        bom = b"\xef\xbb\xbf" if now.startswith(b"\xef\xbb\xbf") else b""
+        text = now[len(bom):].decode("utf-8", "surrogateescape")
+        new_text, changes = ini_edit(text, values)
+        view = ini_read(new_text)
+        bad = {k: view.get((INI_SECTION, k)) for k, v in values.items() if view.get((INI_SECTION, k)) != str(v)}
+        if bad:
+            raise RuntimeError(f"the edited [Netsync] would not read back as written: {bad}")
+        self.edited = bom + new_text.encode("utf-8", "surrogateescape")
+        self.changes += changes
+        _write_atomic(self.ini, self.edited)
+        if self.ini.read_bytes() != self.edited:
+            raise OSError(f"{self.ini} does not read back as the edit")
+        return f"{self.ini} [Netsync] updated {values} ({'; '.join(changes) or 'already so'})"
 
     def restore(self) -> tuple:
         if not self.applied:
@@ -1478,6 +1507,189 @@ def write_cal(tape: Path, ok: bool, *, stage: int, detail: str, facts: dict | No
     return p
 
 
+# ======================================================================================== [s144] the world legs
+# [ff9mapkit netsync s144] coop_world_wait.py's two T2 legs (studies/world-coop/S144-DESIGN.md "The bench"):
+#   world-rejoin  the desktop GUEST stands on its own world map (9011) when the EXISTING field-250 host tape starts: an
+#                 s144 guest dials from the world HUD (decision 9) and rejoins the host's field through the world's own
+#                 field entry (decision 3); an s143 guest never dials off a field and stays on the world map.
+#   world-wait    an s144-recorded HOST-ON-WORLD tape (coop_tape_record.py COOP_TAPE_WORLD=1: the host on 6603, then out
+#                 on the world map >= WAIT_NEED_S): the guest left on 6603 shows the waiting line (decision 5), walks out
+#                 too, is frozen there (decision 1) and shows the same line (decision 7).
+#: the host-on-world tape's field (the kit's FARSHORE, FF9CustomMap-world: its door is the proven field -> world exit)
+WORLD_TAPE_FIELD = 6603
+#: the owner's production bridge port (the game's default RelayUrl): the s144 legs NEVER bind it -- they write their own
+#: RelayUrl, so a private port serves (duo.OWNER_PORT's law)
+OWNER_PORT = 49201
+#: the s144 legs' private bench port (COOP_PEER_PORT overrides; 49201 is refused)
+WORLD_PORT = 49231
+#: a world tape's pointer in its OWN dir (never the default home's latest.json, which coop_cut_hold's legs read)
+WORLD_POINTER = "latest-world.json"
+#: world-rejoin: the replay STOPS this long after its first host frame -- the dial, the 1.2 s serial floor, the world exit's
+#: fade, the landing and the mirror's line fit with room; the field-250 tape's battle starts ~70 s in (it must not run)
+REJOIN_SPAN_S = 45.0
+#: ...and the host's first field must hold at least this long before the tape's battle (or its end)
+REJOIN_NEED_S = 30.0
+#: world-wait: the host's first field at least this long before its world exit (the pairing and the mirror's arm)
+WORLD_PAIR_MIN_S = 10.0
+#: ...and the host OFF-FIELD this long after it: the line on the field (+ the old-host debounce), the guest's own walk out
+#: (calibrate + walk_to + the world's load), the freeze and the line on the world map, all inside it
+WAIT_NEED_S = 60.0
+
+
+def world_tape_dir() -> Path:
+    """[ff9mapkit netsync s144] COOP_TAPE_DIR, else <the MAIN repo>/.harness-runs/coop-tapes/world -- a world tape's own home,
+    so its pointer (:data:`WORLD_POINTER`) never moves coop_cut_hold's latest.json."""
+    env = os.environ.get("COOP_TAPE_DIR", "").strip()
+    return Path(env).expanduser().resolve() if env else main_repo() / ".harness-runs" / "coop-tapes" / "world"
+
+
+def latest_world_tape() -> Path | None:
+    """[ff9mapkit netsync s144] COOP_TAPE (absolute, as :func:`latest_tape`), else the world dir's pointer, else its newest
+    ``*-world-*.f9tape``."""
+    env = os.environ.get("COOP_TAPE", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    d = world_tape_dir()
+    try:
+        p = Path(json.loads((d / WORLD_POINTER).read_text(encoding="utf-8"))["tape"])
+        if p.exists():
+            return p
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    tapes = sorted(d.glob("*-world-*.f9tape"), key=lambda p: p.stat().st_mtime) if d.is_dir() else []
+    return tapes[-1] if tapes else None
+
+
+def world_tape_facts(records, cp, *, field: int = WORLD_TAPE_FIELD, marker=(MARKER_BYTE, MARKER_VALUE)) -> dict:
+    """[ff9mapkit netsync s144] THE WORLD TAPE's three facts (each ``wN`` = {ok, why}) and its anchors, off the host frames
+    (PURE over the records):
+      w1 PAIR   the host's FIRST field is ``field``, held >= WORLD_PAIR_MIN_S before its first off-field frame (the guest
+                pairs there: the same-field kick), no battle in that stretch
+      w2 STORY  type-5 story frames (2048 B section 0) within 3 s of the first position, the marker in them
+      w3 WORLD  the host off-field (the position lane's 0) >= WAIT_NEED_S from that exit, section 7 riding its state frames
+    and ``b6`` -- coop_peer.tape_where's verdict: does the host SAY "world map" (an s144 host's b6), or is it an s143-or-older
+    host (none: the guest's waiting line is then the old-host fallback, 'host_away')."""
+    frames = cp.host_frames(records)
+    out = {"records": len(records), "host_frames": len(frames), "start": None, "exit_t": None, "back_t": None,
+           "world_s": 0.0, "field": None, "b6": False, "where": None}
+    pos = [(r.t, cp.parse_pos_payload(p)) for r, w, p in frames if w == cp.TYPE_POS]
+    pos = [(t, d["field"]) for t, d in pos if d is not None]
+    if not frames or not pos:
+        for k in ("w1", "w2", "w3"):
+            out[k] = {"ok": False, "why": "the tape holds no host position frame"}
+        return out
+    t0, f0 = pos[0]
+    t_last = frames[-1][0].t
+    out.update(start=t0, field=f0)
+    exit_t = next((t for t, f in pos if t > t0 and f == 0), None)
+    back_t = next((t for t, f in pos if exit_t is not None and t > exit_t and 0 < f < 65535), None)
+    world_s = ((back_t if back_t is not None else t_last) - exit_t) if exit_t is not None else 0.0
+    battles = [b for b in cp.tape_battles(records) if exit_t is None or b["start"] < exit_t]
+    out.update(exit_t=exit_t, back_t=back_t, world_s=round(world_s, 2))
+    field_s = (exit_t - t0) if exit_t is not None else None
+    ok1 = f0 == field and field_s is not None and field_s >= WORLD_PAIR_MIN_S and not battles
+    out["w1"] = {"ok": ok1, "why": (f"the host's first field is {f0}, not {field}" if f0 != field else
+                                    "the host never leaves its field (no off-field position frame)" if exit_t is None else
+                                    f"a battle runs on {f0} before the world exit (tape {battles[0]['start']:.2f} s)"
+                                    if battles else
+                                    f"only {field_s:.1f} s on {f0} before the world exit (the pairing needs "
+                                    f">= {WORLD_PAIR_MIN_S:g})" if field_s < WORLD_PAIR_MIN_S else
+                                    f"the host on {f0} from tape {t0:.2f} s, out to the world map at {exit_t:.2f} s "
+                                    f"({field_s:.1f} s)")}
+    story, t5 = None, None
+    for r, w, p in frames:
+        if w == cp.TYPE_STATE:
+            sec = state_sections(p)
+            if 0 in sec:
+                story, t5 = sec[0], r.t
+                break
+    mval = story[marker[0]] if story is not None and marker is not None and len(story) > marker[0] else None
+    ok2 = story is not None and len(story) == 2048 and t5 <= t0 + 3.0 and mval == (marker or (None, None))[1]
+    out["w2"] = {"ok": ok2, "marker": mval, "why": ("no type-5 frame with a story section" if story is None else
+                                                    f"the story section is {len(story)} B, not 2048" if len(story) != 2048
+                                                    else f"the first story frame is at tape {t5:.2f} s, > 3 s in"
+                                                    if t5 > t0 + 3.0 else
+                                                    f"story byte {marker[0]} reads {mval!r}, not the marker"
+                                                    if not ok2 else
+                                                    f"story frames from tape {t5:.2f} s, byte {marker[0]} = 0x{mval:02X}")}
+    where = cp.tape_where(records)
+    out["where"] = {k: where.get(k) for k in ("frames", "with7", "world", "title", "world_on_field", "off_field",
+                                               "off_field_said", "stage", "first_world")}
+    out["b6"] = bool(cp.where_ok(where, "world"))
+    said = where.get("with7", 0) > 0
+    ok3 = exit_t is not None and world_s >= WAIT_NEED_S and said
+    out["w3"] = {"ok": ok3, "why": ("no world exit on the tape" if exit_t is None else
+                                    f"the host is off-field {world_s:.1f} s, under {WAIT_NEED_S:g} (record with a longer "
+                                    "COOP_TAPE_WORLD_S)" if world_s < WAIT_NEED_S else
+                                    "no section 7 on the host's state frames (a pre-ring host)" if not said else
+                                    f"the host off-field {world_s:.1f} s from tape {exit_t:.2f} s; section 7 on "
+                                    f"{where['with7']} frame(s); " + ("b6 rides (an s144 host: 'host_world')" if out["b6"]
+                                                                     else "no b6 (an s143-or-older host: 'host_away')"))}
+    return out
+
+
+def plan_world_leg(leg: str, facts: dict) -> dict:
+    """[ff9mapkit netsync s144] A world leg's replay plan in TAPE seconds: ``{leg, ok, why, stop_at, field, expect}``.
+    ``world-rejoin`` reads :func:`tape_facts` (the field-250 tape): the host's first field real and held >= REJOIN_NEED_S
+    before its battle, the story lane (F2), the replay stopped REJOIN_SPAN_S in (before any battle). ``world-wait`` reads
+    :func:`world_tape_facts`: w1-w3, the whole tape (the replay holds at its end), ``expect`` the host's b6 (the line the
+    guest must show) and its world exit."""
+    plan = {"leg": leg, "ok": False, "why": "", "stop_at": None, "field": None, "expect": {}, "bh": None}
+    start = facts.get("start")
+    if start is None:
+        plan["why"] = "the tape holds no host frame"
+        return plan
+    if leg == "world-rejoin":
+        f1, f2 = facts.get("f1") or {}, facts.get("f2") or {}
+        fld, t0 = f1.get("field"), f1.get("t")
+        b = facts.get("battle")
+        end = b["start"] if b else facts.get("end")
+        held = (end - t0) if (end is not None and t0 is not None) else None
+        real = fld is not None and 0 < fld < 65535
+        ok = real and held is not None and held >= REJOIN_NEED_S and bool(f2.get("ok"))
+        stop = min(start + REJOIN_SPAN_S, (b["start"] - 5.0) if b else (facts.get("end") or start + REJOIN_SPAN_S))
+        plan.update(ok=ok, stop_at=stop, field=fld, expect={"field": fld},
+                    why="" if ok else ("the host's first field is not a real field" if not real else
+                                       f"the host holds field {fld} only {held or 0:.1f} s before its battle (needs "
+                                       f">= {REJOIN_NEED_S:g})" if held is None or held < REJOIN_NEED_S else
+                                       f"F2 {f2.get('why')}"))
+        return plan
+    if leg == "world-wait":
+        bad = [f"{k} {facts[k]['why']}" for k in ("w1", "w2", "w3") if not facts.get(k, {}).get("ok")]
+        plan.update(ok=not bad, field=facts.get("field"), why="; ".join(bad),
+                    expect={"b6": bool(facts.get("b6")), "exit_t": facts.get("exit_t"), "world_s": facts.get("world_s")})
+        return plan
+    plan["why"] = f"unknown world leg {leg!r}"
+    return plan
+
+
+def synthetic_world_tape(cp, *, field_s: float = 25.0, world_s: float = 90.0, field: int = WORLD_TAPE_FIELD,
+                         b6: bool = True, back: int | None = None) -> list:
+    """[ff9mapkit netsync s144] An in-memory HOST-ON-WORLD tape shaped like coop_tape_record.py's COOP_TAPE_WORLD one (10 Hz):
+    the host on ``field`` (section 7: b3 on-field + b1 control) with the story marker, then off-field ``world_s`` -- the
+    position lane's 0, section 7 b6 + b4 + b1 (an s144 host on its world HUD) or, ``b6`` False, b4 + b1 alone (an s143
+    host) -- and, ``back``, on that field again for 5 s."""
+    import harness.battlewire as BW          # noqa: E402 -- tools/ on sys.path (coop_peer_module put it there)
+    R = cp.Record
+    story = bytearray(2048)
+    story[MARKER_BYTE] = MARKER_VALUE
+
+    def state(flags, fld):
+        sec0 = bytes([0, 0x00, 0x08]) + bytes(story)                    # section 0: [id][len u16 LE][2048 B]
+        return cp.build_frame(cp.TYPE_STATE, BW.append_section(sec0, BW.SECTION_DIALOG,
+                                                               BW.dialog_section(0x0144, 7, flags, 0, fld)))
+
+    recs, t = [], 1.0
+    on_field = BW.HF_ON_FIELD | BW.HF_CONTROL
+    world = (BW.HF_WORLD if b6 else 0) | BW.HF_MENU | BW.HF_CONTROL
+    for fld, flags, span in ((field, on_field, field_s), (0, world, world_s)) + (((back, on_field, 5.0),) if back else ()):
+        end = t + span
+        while t < end:
+            recs += [R(t, 0, cp.build_pos_frame(fld, model=1, pos=(900.0, 0.0, -1400.0))), R(t, 0, state(flags, fld))]
+            t += 0.1
+    return recs
+
+
 # ======================================================================================== the self-check (no game)
 def synthetic_tape(cp, *, pre_s: float = 70.0, fight_s: float = 40.0, post_s: float = 30.0, field: int = BENCH_FIELD,
                    nonce: int = 3, scene: int = BENCH_SCENE, resend: int = 1) -> list:
@@ -1748,6 +1960,7 @@ def _self_rows() -> list:
     row(canon_leg("s120-world") == "span" and canon_leg("") == "cal" and canon_leg("nope") is None
         and canon_leg("s131") == "readopt", "legs: aliases")
     rows.extend(_tail_rows(cp, f, plans))
+    rows.extend(_world_rows(cp, f))                     # [ff9mapkit netsync s144] the world legs' facts and plans
     return rows
 
 
@@ -1834,6 +2047,70 @@ def _tail_rows(cp, f: dict, plans: dict) -> list:
     row(not both and hold_rule(None, 4000, 0.0)[0] is False and readopt_reproduced(2000, 4000, 33.3)[0] is False,
         f"hold rule: the post-fix window and the re-adopt window never overlap at a tail >= 66 ({both[:3]}); a missing "
         "figure is never ok; a tail-33 cut is no re-adopt-class verdict")
+    return rows
+
+
+def _world_rows(cp, f: dict) -> list:
+    """[ff9mapkit netsync s144] THE WORLD LEGS' facts and plans on synthetic tapes (no file): every row runs. ``f`` = the field
+    tape's facts (:func:`synthetic_tape`)."""
+    rows = []
+
+    def row(ok, what):
+        rows.append((bool(ok), what))
+
+    rp = plan_world_leg("world-rejoin", f)
+    row(rp["ok"] and rp["field"] == BENCH_FIELD and rp["stop_at"] == f["start"] + REJOIN_SPAN_S
+        and rp["stop_at"] < f["battle"]["start"] - 5.0 + 1e-9,
+        f"world plans: world-rejoin fits the field-250 tape -- field {rp['field']}, the replay stopped at tape "
+        f"{rp['stop_at']} (its battle at {f['battle']['start']:.2f}) ({rp['why'] or 'ok'})")
+    short = tape_facts(synthetic_tape(cp, pre_s=20.0), cp)
+    rs = plan_world_leg("world-rejoin", short)
+    row(not rs["ok"] and "only" in rs["why"] and rs["stop_at"] <= short["battle"]["start"] - 5.0 + 1e-9,
+        f"world plans: a host on its field 19 s before the battle refuses world-rejoin ({rs['why']})")
+    new = world_tape_facts(synthetic_world_tape(cp), cp)
+    old = world_tape_facts(synthetic_world_tape(cp, b6=False), cp)
+    row(all(new[k]["ok"] for k in ("w1", "w2", "w3")) and new["b6"] is True and new["field"] == WORLD_TAPE_FIELD
+        and abs(new["exit_t"] - 26.0) < 0.15 and new["world_s"] >= 89.0,
+        "world facts: an s144 host-on-world tape -- " + " | ".join(f"{k}:{new[k]['why']}" for k in ("w1", "w2", "w3")))
+    row(all(old[k]["ok"] for k in ("w1", "w2", "w3")) and old["b6"] is False and "host_away" in old["w3"]["why"],
+        f"world facts: the same walk with no b6 (an s143 host) reads b6 False -- the old-host fallback ({old['w3']['why']})")
+    pw, po = plan_world_leg("world-wait", new), plan_world_leg("world-wait", old)
+    row(pw["ok"] and pw["expect"]["b6"] is True and po["ok"] and po["expect"]["b6"] is False
+        and pw["stop_at"] is None and pw["field"] == WORLD_TAPE_FIELD,
+        "world plans: world-wait fits both, the whole tape, its line keyed by the tape's b6")
+    brief = world_tape_facts(synthetic_world_tape(cp, world_s=30.0), cp)
+    other = world_tape_facts(synthetic_world_tape(cp, field=BENCH_FIELD), cp)
+    quick = world_tape_facts(synthetic_world_tape(cp, field_s=5.0), cp)
+    row(not brief["w3"]["ok"] and "COOP_TAPE_WORLD_S" in brief["w3"]["why"] and not plan_world_leg("world-wait", brief)["ok"]
+        and not other["w1"]["ok"] and f"not {WORLD_TAPE_FIELD}" in other["w1"]["why"]
+        and not quick["w1"]["ok"] and "only" in quick["w1"]["why"],
+        f"world facts: a 30 s world stay, a tape on another field and a 4 s field stretch each refuse ({brief['w3']['why']} | "
+        f"{other['w1']['why']} | {quick['w1']['why']})")
+    back = world_tape_facts(synthetic_world_tape(cp, back=WORLD_TAPE_FIELD), cp)
+    no5 = [r for r in synthetic_world_tape(cp) if not (r.dir == 0 and r.payload[2:3] == bytes([cp.TYPE_STATE]))]
+    n5 = world_tape_facts(no5, cp)
+    row(back["back_t"] is not None and abs(back["world_s"] - 90.0) < 0.2 and not n5["w2"]["ok"] and not n5["w3"]["ok"],
+        f"world facts: the host back on its field ends the world span ({back['world_s']} s); no type-5 -> w2 and w3 missing")
+    held = {k: os.environ.get(k) for k in ("COOP_TAPE", "COOP_TAPE_DIR")}
+    try:
+        os.environ.pop("COOP_TAPE", None)
+        os.environ["COOP_TAPE_DIR"] = os.path.join("tapes", "w")
+        wd = world_tape_dir()
+        os.environ["COOP_TAPE"] = os.path.join("tapes", "x-world-s144.f9tape")
+        lw = latest_world_tape()
+    finally:
+        for k, v in held.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    dflt = world_tape_dir()
+    row(wd == (Path.cwd() / "tapes" / "w").resolve() and lw == (Path.cwd() / "tapes" / "x-world-s144.f9tape").resolve()
+        and (held["COOP_TAPE_DIR"] is not None or dflt.name == "world") and WORLD_POINTER != "latest.json",
+        f"world tapes: COOP_TAPE_DIR / COOP_TAPE resolve against this cwd; the default home is coop-tapes/world ({dflt}); "
+        f"its pointer {WORLD_POINTER} never latest.json")
+    row(plan_world_leg("nope", f)["ok"] is False and "unknown world leg" in plan_world_leg("nope", f)["why"],
+        "world plans: an unknown leg refuses")
     return rows
 
 

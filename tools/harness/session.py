@@ -7520,12 +7520,40 @@ class Session:
             raise HarnessError(
                 f"start_battle needs a field to leave FROM (ui_state={st.ui_state!r}); the engine "
                 f"routes the transition by the FIELD's nextMode."
+                + (" On the world map use world_battle() (memoria-patch s144)." if st.ui_state == "WorldHUD" else "")
             )
         if rand and not st.coop_intro_mirror:
             raise HarnessError(
                 "start_battle(rand=True): the deployed engine publishes no `netsync.diorama.intro` -- `battle <scene> "
                 "<group> rand` is the R3 intro-mirror bench (memoria-patch s111); an engine before it ignores the third "
                 "argument and boots a NON-random battle. Not sent. Rebuild the DLL, or update the driver.")
+        before = st.battle_epoch
+        self.send(f"battle {int(scene)} {int(group)}" + (" rand" if rand else ""))
+        return self.wait_battle(timeout=timeout, after_epoch=before)
+
+    def world_battle(self, scene: int, *, group: int = -1, rand: bool = False, timeout: float = 60.0) -> State:
+        """[ff9mapkit netsync s144] Boot a REAL own battle from the WORLD MAP and wait until it is actually running: ``battle
+        <scene> <group> [rand]`` on WorldHUD, which an s144 agent routes to Ff9mkDebugMenu.StartWorldBattle -- a one-shot the
+        next QUIET world tick consumes through the native world encounter start (WMScriptDirector's case 3: the swirl, mode
+        2, prevMode 3), so the battle can END and returns to the world map (the warm return). ``rand`` = a random encounter
+        (isRandomEncounter / isEncount, the roll's pair). The engine refuses with a reason (thrown, and in `debug_status`):
+        not on foot, no user control, topograph 52, an unregistered scene or group, a transition pending, the full map
+        open, a second arm.
+
+        ⚠ AN s143 ENGINE refuses `battle` on the world map outright ("battle: field only"), so the driver probes
+        `world.next_mode` (s144's world block) first -- absent = Not sent. The epoch anchors the wait exactly as
+        :meth:`start_battle`'s does; :meth:`wait_world` then waits for the return (check ``world_id`` / ``world_x`` /
+        ``world_z`` against the values before: the warm return keeps them)."""
+        st = self.state
+        if st.ui_state != "WorldHUD":
+            raise HarnessError(
+                f"world_battle starts a battle FROM the world map (ui_state={st.ui_state!r}); on a field use "
+                f"start_battle().")
+        if st.world_next_mode is None:
+            raise HarnessError(
+                "world_battle: the deployed engine publishes no `world.next_mode` -- a battle from the world map is the "
+                "s144 harness verb (memoria-patch s144); an engine before it refuses `battle` there ('battle: field only'). "
+                "Not sent. Rebuild the DLL, or update the driver.")
         before = st.battle_epoch
         self.send(f"battle {int(scene)} {int(group)}" + (" rand" if rand else ""))
         return self.wait_battle(timeout=timeout, after_epoch=before)
@@ -8529,6 +8557,9 @@ class Session:
         # [ff9mapkit netsync s143] the leader guard's lever -- the same hazard (an s141 engine reads it as `bench 1`)
         "leaderguard": ("coop_leader_guard", "netsync.battle.host.guard", "s143",
                         "the s143 leader-guard calibration lever (off = the pre-s143 positional rule)"),
+        # [ff9mapkit netsync s144] the world freeze's lever -- the same hazard (an s143 engine reads it as `bench 1`)
+        "worldfreeze": ("coop_world_wait", "netsync.world.freeze", "s144",
+                        "the s144 world-freeze calibration lever (off = the pre-s144 world map)"),
     }
     #: [ff9mapkit netsync s133] `actbench <op>` (NetSyncBattle.HarnessActBench), in the engine's order -- the list its
     #: "unknown op" refusal prints -- and the `tape` op's values (`rec|stop|clear|info`, + `dump <from> <count>`, the paged

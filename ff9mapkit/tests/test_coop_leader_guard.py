@@ -87,7 +87,9 @@ def _seated(g, seat: int):
 # ------------------------------------------------------------------------------------------------ the rung and the driver
 def test_the_leaderguard_rung_is_s143s_after_dresspolish_and_calibrates_on_s141():
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-1] == "leaderguard" and names[names.index("dresspolish") + 1] == "leaderguard"
+    # [ff9mapkit netsync s144] the LAST rung through s143 (s144's `worldwait` follows it: test_world_coop.py)
+    assert [n for n in names if int(FG.NETSYNC_BATTLE_CAPS[n][0][1:]) <= 143][-1] == "leaderguard"
+    assert names[names.index("dresspolish") + 1] == "leaderguard"
     assert FG.NETSYNC_BATTLE_CAPS["leaderguard"] == ("s143", ()) and FG.NETSYNC_S143_CAPS == frozenset(("leaderguard",))
     assert "leaderguard" not in FG.caps_through("dresspolish") and "dresspolish" in FG.caps_through("dresspolish")
     assert FG.NETSYNC_BATTLE_CAP_KEYS["leaderguard"] == {"host": ("guard",), "peer": ("guard",)}

@@ -76,6 +76,28 @@ def _first_failure(rule) -> str | None:
     return None
 
 
+def _upto(stem: str) -> list:
+    """[ff9mapkit netsync s144] The live stack's patch bytes up to and including ``stem`` (the agent AT that patch)."""
+    out = []
+    for name in msr.stack():
+        if name in msr.DEAD:
+            continue
+        out.append((msr.PATCHES / name).read_bytes())
+        if name.startswith(stem + "-"):
+            return out
+    raise AssertionError(f"no live patch {stem}")
+
+
+_CATCH = r'outer\.Append\("\\"netsync\\":\{\\"enabled'
+
+
+def _catch_line(patches=None) -> str:
+    """The agent's catch literal (AppendNetsync's), unescaped -- the live stack's, or ``patches``'."""
+    lines = net_lines("HarnessAgent.cs", _CATCH, patches)
+    assert len(lines) == 1, lines
+    return lines[0].replace('\\"', '"')
+
+
 def _stack(file_name: str) -> list:
     return net_lines(file_name, r".")
 
@@ -440,7 +462,10 @@ def test_the_keys_are_additive_with_their_sentinels_and_the_lever_is_released():
     assert ('"flee_gil":-1,"guard":{"leader":-1,"raw":0,"effective":0,"moved_from":-1,"moved_to":-1,"off":false,"line":null,'
             '"line_shown":false,"leader_model":-1,"chars":[-1,-1,-1,-1],"nonce":-1}},"peer":{') in lit
     assert '"ready_mask":-1,"guard":{"nonce":-1,"mask":-1,"line":null,"shown":false},"end":null' in lit
-    assert lit.endswith('"polish":false},"guard":{"leader":-1,"raw":-1,"effective":-1,"moved_from":-1,"moved_to":-1}}}");')
+    # [ff9mapkit netsync s144] the END is s143's own (frozen): s144 appends `world` after `dress`, netsync's new last key
+    assert _catch_line(_upto("s143")).endswith(
+        '"polish":false},"guard":{"leader":-1,"raw":-1,"effective":-1,"moved_from":-1,"moved_to":-1}}}");')
+    assert '"polish":false},"guard":{"leader":-1,"raw":-1,"effective":-1,"moved_from":-1,"moved_to":-1}},"world":{' in lit
     agent_all = " ".join(_stack("HarnessAgent.cs"))
     for key in ("leader", "raw", "effective", "moved_from", "moved_to", "off", "line", "line_shown", "leader_model", "nonce"):
         assert f'"{key}", Memoria.Netsync.NetSyncBattle.Harness' in agent_all, key
@@ -476,7 +501,9 @@ def test_battlewires_tables_are_the_engines():
     esc = lambda d: json.dumps(d, separators=(",", ":"))                 # noqa: E731
     assert f'"flee_gil":-1,"guard":{esc(BW.GUARD_HOST_SENTINELS)}}},"peer":{{' in lit
     assert f'"ready_mask":-1,"guard":{esc(BW.GUARD_PEER_SENTINELS)},"end":null' in lit
-    assert lit.endswith(f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}}}}");')
+    # [ff9mapkit netsync s144] s143's line ENDS with dress's guard (frozen); the live one carries it right before s144's `world`
+    assert _catch_line(_upto("s143")).endswith(f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}}}}");')
+    assert f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}},"world":{esc(BW.WORLD_SENTINELS)}}}");' in lit
     assert BW.DRESS_SENTINELS["guard"] == BW.DRESS_GUARD_SENTINELS and list(BW.DRESS_SENTINELS)[-1] == "guard"
 
 
