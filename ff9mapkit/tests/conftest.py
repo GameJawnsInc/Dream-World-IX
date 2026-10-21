@@ -2,11 +2,27 @@
 
 The per-user config store (prefs.json, update_check.json) is isolated one level UP, by the autouse
 ``_isolate_user_config`` in ``ff9mapkit/conftest.py`` -- it guards the one seam every config file resolves
-through and covers ``blender/tests/`` too. What lives here is Qt-only: ``qt_drain``, whose users (and
-whose parked-widget keep-alive) are all in this tree.
+through and covers ``blender/tests/`` too. What lives here: ``qt_drain``, whose users (and whose parked-widget
+keep-alive) are all in this tree, and the ``slow_leg`` marker (its registry: ``_slow_leg.py``).
 """
 
 import pytest
+
+from ._slow_leg import MARKER_HELP, is_slow_leg
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", MARKER_HELP)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config, items):
+    """Mark the slow legs (``_slow_leg.py``) at collection -- tryfirst, so the mark is on every item BEFORE pytest's own
+    ``-m`` deselection reads it (after it, ``-m "not slow_leg"`` would keep everything and say nothing)."""
+    for item in items:
+        name = getattr(item, "originalname", None) or item.name.split("[")[0]
+        if is_slow_leg(item.path.name, name, getattr(item, "fixturenames", ())):
+            item.add_marker(pytest.mark.slow_leg)
 
 
 @pytest.fixture()
