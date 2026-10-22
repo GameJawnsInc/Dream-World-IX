@@ -87,3 +87,28 @@ geometry from a defect the carve made, and changing that is the owner's call.
   harness + panels. If the owner passes it, catalogue it like the snow ridge (`alcove` + `alcove_floor = [38]`).
 - **comp10** waits on a gate decision: whether a donor's own stock down-facing (or ground-query-missing) tris are
   lawful in a carry.
+
+## Round 2: a stock near-vertical down face is lawful in a carry (registered before building; owner's go: option 1)
+
+**The census** (`downface_census.py`). Disc 1 ships 83,937 Terrain tris; **233 face down**. The histogram has NO
+quiet band: 81 below ny -0.5 (building undersides, topo 59, and a rock arch roof at (13,3), topo 49, ny -0.997), 46 in
+[-0.5, -0.2), 25 in [-0.2, -0.1), 16 in [-0.1, -0.05), 10 in [-0.05, -0.02), and **55 in [-0.02, 0)**: near-vertical
+walls, comp10's two among them. So the threshold is not read off a gap; it is a "near vertical" line, kept narrow.
+
+**The rule.** The mountain gate's down count skips a new tri only if ALL hold:
+- it is a verbatim carried donor tri (the blob or the footprint sweep: `fam == "mountain"`), its carried corner
+  positions unchanged by any later pass;
+- it faced down AT HOME too (the raw stock normal, before de-tilt) -- a tri the carry FLIPPED is never exempt;
+- it is near-vertical at home and as carried: ny >= -0.02 (`MTN_STOCK_DOWN_NY`, about 1.15 deg past vertical).
+Each exempted tri is logged by name. Every other down face still refuses, stock or not.
+
+| # | prediction | falsified if |
+|---|---|---|
+| D1 | the 44 catalogued carve files are byte-identical (the gate writes nothing) | any differs |
+| D2 | break-its, as tests: a carve-made down tri, a stock down tri steeper than -0.02, and a tri that faces UP at home but down as carried are each still refused | any passes |
+| D3 | **decisive:** comp10 with its canopy (`step_carry.py`, r65 grass bench) passes at least 4 of 6 angles | 3 or fewer |
+| D4 | at every angle comp10's exemption log names exactly its 2 stock tris (1 rock, 1 canopy wall) and no other | a count differs |
+| D5 | comp10 bare still refuses 0/6, now on the step (zipNyMin), its rock down tri exempted | any angle passes, or another gate refuses first |
+
+**Known risk, no call made:** comp10 with its canopy read rock-rigid 1.7% in round 1 (the gate allows 3.5%; round 1's
+T5 asked 1%). If D3 holds, T5 will not, and the rigidity is reported, not explained away.
