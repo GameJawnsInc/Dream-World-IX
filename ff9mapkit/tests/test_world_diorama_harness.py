@@ -642,7 +642,7 @@ def test_the_stand_in_logs_the_proof_lines_by_stage(tmp_path):
     new = heads(None)
     i = new.index(BW.proof_ok(BW.PROOF_LEADER_GUARD, BW.LEADER_GUARD_SELFTEST_ROWS))
     assert new[i + 1:i + 6] == [BW.proof_ok(BW.PROOF_WORLD_FREEZE, 46), BW.proof_ok(BW.PROOF_WORLD_REJOIN, 70),
-                                BW.proof_ok(BW.PROOF_OVERLAY_TEXT, 50), BW.proof_ok(BW.PROOF_WORLD_DIORAMA, 86),
+                                BW.proof_ok(BW.PROOF_OVERLAY_TEXT, 50), BW.proof_ok(BW.PROOF_WORLD_DIORAMA, 98),   # fix4: 86 -> 98
                                 BW.proof_ok(BW.PROOF_WORLD_WATCHER, 59)]
     old = heads(FG.caps_through("worldwait"))
     j = old.index(BW.proof_ok(BW.PROOF_LEADER_GUARD, BW.LEADER_GUARD_SELFTEST_ROWS))
@@ -999,3 +999,121 @@ def test_a_frozen_guest_on_topograph_52_declines_never_holds_the_host(tmp_path):
         st = g.state
         fake.host_at(0, battle=False)
         assert "topograph 52" in (_dio(st, "visit_decline") or "") and _dio(st, "declines") == d0 + 1 and not _d(st, "booted")
+
+
+# ------------------------------------------------------------------------------------------------ [fix4] the passive prompts
+#: the client leg's spot (``_client``'s `_to_world`) as a location tile: the world script's two passive prompts stand open there
+TILE = (120.0, 80.0)
+
+
+def _prompt_setup(prompts=True, faults=()):
+    def setup(fake):
+        fake.world_locations = {300: (TILE[0], TILE[1], 2.0)}
+        fake.world_prompts = prompts
+        fake.world_prompt_faults = set(faults)
+    return setup
+
+
+#: [fix4] the client leg on a location tile under the old rule (`prompts_busy`: Dialogs.Visible counts the two prompts): EXACTLY
+#: the rows a world boot feeds read red -- the boot, the leave and the follow judged inside it, the released round trip; the
+#: vehicle decline (a durable row, ahead of the dialogue's) stays green
+PROMPT_BUSY_REDS = ("WC-BOOT", "WC-FOLLOW", "WC-LEAVE", "WC-RELEASE")
+
+
+def test_the_stand_in_publishes_the_world_prompts_and_its_verdict_reads_them_passive(tmp_path):
+    """[fix4] On a location tile with the prompts modelled the stand-in publishes the engine's `dialog` block (the "?" and "Enter
+    with [CROSS]", [NFOC], in order) and its world verdict reads them as NO dialogue -- through the engine's rule, window by
+    window: a talk beside them, a choice (a script-polled one too) and the `prompts_busy` lever read busy; the model off publishes
+    nothing and reads nothing, the lever then idle."""
+    game = _game(tmp_path)
+    fake = _fake(game)
+    _prompt_setup()(fake)
+    with _session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(250)
+        fake.follow_session(250, flags=BW.HF_ON_FIELD | BW.HF_CONTROL, entrance=11)
+        g.wait_frames(4)
+        fake.host_at(0, flags=BW.HF_WORLD | BW.HF_MENU | BW.HF_CONTROL)
+        _to_world(g, fake, 9011, *TILE)
+        g.wait_frames(10)
+        dlg = g.state.raw["dialog"]
+        assert dlg == {"open": True, "count": 2, "texts": list(BW.WORLD_PROMPT_TEXTS), "phrase_raw": list(BW.WORLD_PROMPT_RAW),
+                       "choice": None}, dlg
+        assert all("[NFOC]" in r for r in dlg["phrase_raw"])
+        assert fake._wdio_windows() == [BW.WORLD_PROMPT_WINDOW] * 2 and fake._wdio_in()["dialogs"] is False
+        assert fake._wdio_verdict() == (None, False)
+        fake.world_prompts = False                                       # the model off: the stand-in publishes none
+        g.wait_frames(4)
+        assert g.state.raw["dialog"]["open"] is False and g.state.raw["dialog"]["count"] == 0
+    # window by window, on a stand-in that is not running (no loop ever sees the test's windows)
+    f = _fake(_game(tmp_path / "still"))
+    _prompt_setup()(f)
+    f.ui_state, f.world["id"], f.world["x"], f.world["z"] = "WorldHUD", 9011, TILE[0], TILE[1]
+    assert f._wdio_windows() == [BW.WORLD_PROMPT_WINDOW] * 2 and f._wdio_dialogs_busy() is False
+    f.texts, f.raw_texts = ["a talk"], ["a talk"]                    # a focus-taking line beside them: busy
+    assert f._wdio_dialogs_busy() is True
+    f.dialog_inh = True                                              # ...an [NFOC] line, no choice: passive
+    assert f._wdio_dialogs_busy() is False
+    f.offer(["Yes", "No"])                                           # ...a choice, a script-polled one too: busy
+    assert f._wdio_dialogs_busy() is True
+    f.texts, f.raw_texts, f.choice, f.dialog_inh = [], [], None, False
+    f.world_full_map = True                                          # the full map shut them (WorldHUD.OnKeySelect: CloseAll)
+    assert f._wdio_windows() == []
+    f.world_full_map = False
+    f.world_prompt_faults = {"prompts_busy"}                         # the old rule: busy
+    assert f._wdio_dialogs_busy() is True
+    f.world_prompts = False                                          # the model off: no window, the lever idle
+    assert f._wdio_windows() == [] and f._wdio_dialogs_busy() is False
+
+
+def test_a_frozen_guest_under_the_prompts_boots_and_the_old_rule_waits_out_the_fight(tmp_path):
+    """[fix4] THE IN-GAME T2 / DUO FAILURE, on the stand-in: a followed guest frozen on a location tile, under the world script's
+    two [NFOC] prompts, boots the host's battle from the world map (warm, world 9011) -- and under `prompts_busy` (s145 as
+    captured: Dialogs.Visible) it never boots: the wait 'a dialogue window is open' logged once for the fight, never a decline."""
+    out = {}
+    for name, faults in (("fixed", ()), ("old", ("prompts_busy",))):
+        game = _game(tmp_path / name)
+        fake = _fake(game)
+        _prompt_setup(faults=faults)(fake)
+        with _session(game, fake) as g:
+            g.newgame(settle=0)
+            g.warp(250)
+            fake.follow_session(250, flags=BW.HF_ON_FIELD | BW.HF_CONTROL, entrance=11)
+            g.wait_frames(4)
+            fake.host_at(0, flags=BW.HF_WORLD | BW.HF_MENU | BW.HF_CONTROL)
+            _to_world(g, fake, 9011, *TILE)
+            g.wait_frames(10)
+            d0 = _dio(g.state, "declines", 0)
+            fake.host_at(0, battle=True, battle_nonce=1, flags=BW.HF_BATTLE | BW.HF_MENU)
+            try:
+                st = g.wait_for(lambda s: s.ui_state == "BattleHUD" and _d(s, "booted"), timeout=4.0, what="the boot")
+            except HarnessError:
+                st = g.state
+            out[name] = dict(booted=bool(_d(st, "booted")), world=_dio(st, "booted_world"), boot=_dio(st, "boot"),
+                             wait=_dio(st, "wait_why"), declines=_dio(st, "declines", 0) - d0, ui=st.ui_state,
+                             waits=_log(fake).count(BW.log_world_waits(9011, "a dialogue window is open", 1)))
+    fixed, old = out["fixed"], out["old"]
+    assert fixed == dict(booted=True, world=True, boot="warm", wait=None, declines=0, ui="BattleHUD", waits=0), fixed
+    assert old == dict(booted=False, world=False, boot=None, wait="a dialogue window is open", declines=0, ui="WorldHUD",
+                       waits=1), old
+
+
+def test_the_client_leg_on_a_location_tile_is_green_and_the_old_rule_reds_exactly_its_boot_rows(tmp_path):
+    """[fix4] EVERY ROW CAN FAIL: the followed-client leg with its spot a location tile under the two prompts is green on the
+    fixed rule (and with the model off, the default bench's shape); the `prompts_busy` lever reds EXACTLY PROMPT_BUSY_REDS --
+    every row a world boot feeds -- and the lever with the model off reds nothing (it only reads the prompts)."""
+    client = tuple(r for r in ROWS if r.startswith("WC-"))
+    for name, setup, want in (("fixed", _prompt_setup(), ()),
+                              ("old", _prompt_setup(faults=("prompts_busy",)), PROMPT_BUSY_REDS),
+                              ("idle", _prompt_setup(prompts=False, faults=("prompts_busy",)), ())):
+        rows = _bench(tmp_path / name, legs=("client",), setup=setup)
+        assert tuple(rows) == client, (name, list(rows))
+        red = tuple(sorted(n for n, (ok, _d) in rows.items() if not ok))
+        assert red == tuple(sorted(want)), (name, {n: rows[n][1] for n in set(red) ^ set(want)})
+
+
+def test_the_prompt_lever_is_registered_and_documented():
+    assert FG.WORLD_PROMPT_FAULTS == ("prompts_busy",) and not set(FG.WORLD_PROMPT_FAULTS) & set(FG.WORLD_DIO_FAULTS)
+    src = (REPO / "tools" / "harness" / "fakegame.py").read_text(encoding="utf-8")
+    assert all(f'#:   "{f}"' in src for f in FG.WORLD_PROMPT_FAULTS)
+    assert BW.world_windows_busy([BW.WORLD_PROMPT_WINDOW] * 2) is False and BW.world_windows_busy(None) is True

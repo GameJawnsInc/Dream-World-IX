@@ -27,7 +27,7 @@ SOLO (COOP_WB_LEG=solo, the default; the selftest role -- it never runs the watc
   setup  INI (read-only: [Netsync] Enabled 0 or absent; the runners' selftest_block.sh flips it, byte-exact restore) -> OR -> S0
          (newgame, the COOPPARTY seed, 6603, encounters off, the forced selftest role) -> P0 (the s145 keys and proof lines:
          `netsync.world.dio` in AppendWorldDio's order, `world` = freeze/rejoin/waitline/dio, `prev_mode`, the six world witness
-         keys; 'world diorama selftest: OK (86 rows)', 'world watcher selftest: OK (59 rows)', 'world freeze selftest: OK (46
+         keys; 'world diorama selftest: OK (98 rows)', 'world watcher selftest: OK (59 rows)', 'world freeze selftest: OK (46
          rows)', 'diorama watcher selftest: OK (32 rows)'; none FAIL) -> P1 (`netsync bench 0` and the lever at rest: dio.lever
          'on'; COOP_CALIBRATE=1 on s145 pulls `bench worldwarm off` here, its OFF line once) -> ROUTE (the walk out) -> A.
   A      THE INSTRUMENT, snapshot A: unfrozen (`bench 0`) the walker walks OFF the landing (`hold up` WALK_OFF_FRAMES, at most
@@ -48,8 +48,20 @@ SOLO (COOP_WB_LEG=solo, the default; the selftest role -- it never runs the watc
          'warm' with last_return_field -1; the world RELOADED (world.ticks restarted below the pre-boot read); never FieldHUD
          between the leave and the return; 'diorama LEAVE requested -> WorldMap (world 9011, mode 3)' once and the warm RETURN line
          of OUR prime once (through ': the guest stands where it stood at boot'; never the 'did NOT prime' Warning), no cold one.
-  PLACE  the settled return stands within RETURN_TOL of A and >= LANDING_MIN from the landing (never the Main_Init spawn).
-  CAM    world.cam_rot within CAM_TOL of A's and cam_upper A's (prevMode 3 kept the camera).
+  PLACE  the settled return stands within RETURN_TOL of A and >= LANDING_MIN from the landing (never the Main_Init spawn) -- the
+         owner-facing "where it stood"; on the world map it cannot tell warm from cold (a Main_Init load keeps the place too: WC).
+  CAM    (fix5, the cam probe) the camera KEPT, judged by what STOCK does: every world load re-arms the on-foot follow
+         (w_movementSystemConstructor: LR false, CamRemain 4096, RotTrue the fresh WMActor's yaw 0 -- ff9.cs:4406, 4412-4414,
+         4588), and from w_blockReady (the tick after kframeEventStartLoop) w_movementHumanCamOperation (ff9.cs:6447-6471) swings
+         the camera toward world yaw 0 until CamRemain is spent: in game EVERY stock world battle return moved 1.6-6.4 deg within
+         ~16 world ticks, the s145 diorama return exactly so (8 of 8 within 0.001 deg of the twin, stock_world_follow) -- so
+         "settled within CAM_TOL of A" was red on STOCK. Two witnesses: (a) THE KEPT CAMERA -- the return's earliest world-live
+         sample, read at world tick <= kframeEventStartLoop (before the follow arms; it lands with the battle HUD still up, so it
+         is taken from the leave's samples), reads A's cam_rot within CAM_TOL (prevMode 1 would have zeroed it: ff9.cs:2607) --
+         'not observed' named when no such sample was caught, never green by default; (b) THE SETTLED CAMERA is a point of
+         stock's own follow from A (A, or after k of its calls) within FOLLOW_TOL -- (fix-r1) read at world tick >=
+         FOLLOW_DONE_TICK (16) only its settle passes (the follow done: 8 of 8 in game), an unread tick is red. cam_upper A's.
+         An A within CAM_TOL of world yaw 0 is named NOT DISCRIMINATING (A requires >= CAM_TURN_MIN from it).
   MAP    the MAP-var digest (world.mapvar, 160 hex digits) A's exactly (the reinit branch restored ctx0) and world.battle_prob BY
          VALUE: Main_Reinit's own write, the oracle's (231 on WORLD11) -- never A's (A follows a Main_Init load: 365).
   MODE   the live travel mode (world.ctl) 0 -- on foot -- as at A.
@@ -80,10 +92,12 @@ SOLO (COOP_WB_LEG=solo, the default; the selftest role -- it never runs the watc
   LEVER  `bench worldwarm off` (its OFF line) -> the boot declines: refused, never booted, declines +1, decline_durable, the twin's
          CALIBRATION why, no reload; `bench worldwarm on` after.
   WC     THE COLD REFERENCE, LAST (`bench worldwarm cold`): the boot reads 'cold' (its cold primed line), the return re-enters
-         through Main_Init: last_return 'cold' and world.battle_prob Main_Init's value (the oracle's 365) -- and PLACE's and MAP's
-         own judges read that return RED (Main_Init's placement, not A; its encounter rate, not Main_Reinit's): the rows that
-         judge a warm return CAN fail. (Where Main_Init puts the walker is reported,
-         never required -- the stand-in's spawn is the landing.)
+         through Main_Init: last_return 'cold' and world.battle_prob Main_Init's value (the oracle's 365) -- and MAP's own judge
+         reads that return RED through battle_prob (Main_Init's encounter rate, not Main_Reinit's): the rows that judge a warm
+         return CAN fail. (fix5) RE-KEYED BY WHAT THE ENGINE DOES: in game the cold return stood 0.00u from A and read A's MAP
+         digest -- on the world map the walker's place survives a Main_Init load, and A itself follows one -- so only battle_prob
+         told it from a warm one (365 against 231). PLACE's reading of the cold return is recorded as information, never
+         required (fix-r1: the stand-in keeps the place too, by default); PLACE stays the owner-facing "where it stood".
   R      the lever pulled once more, then `reset`: the role released and 'world warm gate back ON (released with the harness)'
          once; re-read WITH the role: dio.lever 'on'. (Before s145: the role released.)
   SWIRL  the instrument (below): no leg start hung in the swirl.
@@ -105,6 +119,17 @@ and tools/harness/coop_peer.py `replay-host` replays the whole tape, holding at 
                  booted from the world (dio.booted_world, boot_world 9011, boot 'warm'); THE REPORT on the wire, decoded by the
                  peer itself -- BOOTING then LIVE ('guest control: ... boot BOOTING' then '... boot LIVE', both naming THIS
                  battle's nonce) -- beside the guest's own 'diorama LIVE ... (host battle nonce N, booted from wire nonce N)' line.
+                 (fix5) THE REPORT IS JUDGED UP TO THE GUEST's LEAVE, never past it (leave_cut: the write time of its LAST
+                 booted sample): no NONE / DECLINED / BUSY before it. The engine stamps the skip nonce at the teardown of a
+                 settled leave (NetSyncClient.cs:2086 / :2097) and GuestBootState then reads DECLINED for as long as the host's
+                 battle stays on the wire -- in game (the held leg) the peer decoded that DECLINED after the last booted sample
+                 and BEFORE the first world sample, so the return's first sample could not be the cut. (fix-r1) The cut is the
+                 last booted sample before the return's first WORLD-LIVE one (a `booted` flicker is no leave; no return, no cut),
+                 and a leave earlier than the host's terminal on the wire less LEAVE_TERM_SLACK_S (leave_bound) is MID-FIGHT:
+                 every word judged, the leave named. And two witnesses the verdict does not compute, on the dialog block: the
+                 boot came UNDER the world script's two passive [NFOC] prompts (the last world sample before it shows exactly
+                 BW.WORLD_PROMPT_RAW: fix4's subject -- s145 as built waited out the fight there), and no window stands over its
+                 swirl or battle (stock's scene load closes them: 0 on every such in-game sample).
          WB-PLAY its stock menu served: the peer reads the guest's control byte 2 (root) or 3 (deep) while LIVE on this battle,
                  and the guest logged 'stock menu: the ready mirror is SERVING' since the boot.
          WB-RET  it leaves on `terminal` (the end-leave) or `host_world` (b6, decision 9) -- never `stall_cap`; back on WorldHUD
@@ -141,15 +166,20 @@ and tools/harness/coop_peer.py `replay-host` replays the whole tape, holding at 
                   any sample, and (fix2, fix3) every sample ON THE WORLD MAP by witnesses the engine does not compute, beside its
                   `booted` claim: ui_state WorldHUD, the stage scene no swirl or battle (a world boot's swirl writes no UI state --
                   it reads WorldHUD on SwirlScene) and world.ticks live (-1: the WorldMap level gone); world.ticks monotonic (no
-                  reload); 'diorama declined on world map 9011: ...' exactly once. THE WINDOW (decline_window): from the battle
-                  on the wire to the host's entry into 300 on the wire, UNCUT -- the follow waits FollowStableMs past that entry
-                  (fix3-r2: the host's intent fast path is the one unbenched caveat, see decline_window), so a FieldHUD inside it
-                  is the guest LEAVING the world map (red, its field named); only with no entry anchor is
-                  it cut at a FieldHUD on 300 (the rejoin: that load's own trailing samples spared). A game quiet on SwirlScene
-                  there is SWIRL-HANG whatever the claim says. Then `vehicle 0`. (Before s145 the `vehicle` verb is never sent:
-                  red, predicted.) A host battle that reached the wire before the guest was ABOARD -- anchored at or before the
-                  state read once `vehicle 1` returned, or a `vehicle 1` refused with that boot on the next sample -- is the
-                  instrument's: WD-I red, WD-DECL 'not reached: the instrument', never judged (the on-foot guest rightly boots
+                  reload); 'diorama declined on world map 9011: ...' exactly once. THE WINDOW (decline_window, fix5): from the
+                  battle on the wire to the host's entry into 300 on the wire, BOUNDED BY THE HOST's FIGHT on the wire (the
+                  battle's anchor + the plan's fight length): a FieldHUD before the fight's end is the guest LEAVING the world
+                  map mid-fight (red, its field named); a FieldHUD on 300 at or after it is the rejoin -- cut there, its load's
+                  own trailing samples spared -- whether or not the entry anchor has landed (in game the rejoin came through the
+                  host's MAPJUMP intent, EventEngine.DoEventCode.cs ~1040 -> ServiceIntentFollow, no debounce, BEFORE the host's
+                  field reached the wire). (fix-r1) The rejoin's bound is THE HOST's OWN TRANSITION (rejoin_bound: the tape's
+                  recorded section-4 intent naming 300 -- else its entry -- less INTENT_SLACK_S, never before the fight's end):
+                  a 300 load in the ~35 s stay before it is no rejoin the host caused, red. The watch stops on the entry anchor
+                  or on a FieldHUD past that bound. A game quiet
+                  on SwirlScene there is SWIRL-HANG whatever the claim says. Then `vehicle 0`. (Before s145 the `vehicle` verb
+                  is never sent: red, predicted.) A host battle that reached the wire before the guest was ABOARD -- anchored at
+                  or before the state read once `vehicle 1` returned, or a `vehicle 1` refused with that boot on the next sample --
+                  is the instrument's: WD-I red, WD-DECL 'not reached: the instrument', never judged (the on-foot guest rightly boots
                   it; and no `vehicle 0` then -- a dismount mid-fight would boot it unwatched).
   COMMON T2-TAPE (the tape reads back and the plan fits), T2-PEER (port free, the owner's bridge DOWN, the config line, the guest
          connected, the replay started), T2-SAVE (final: AutoSaveOnlyAtMoogle off; no title fallback), T2-INI (final: Memoria.ini
@@ -203,6 +233,15 @@ CALIBRATION -- a check that cannot fail is not a check.
     MUSIC is judged through each leg's own call site, each WORLD_MUSIC_FAULTS lever red in exactly its MUSIC_FAULT_REDS rows (the
     held leg's boot_song_live named not discriminating inside the fade); the duo's host start hold is the engine's
     StartHoldStep (battlewire.start_hold_step) on the stand-in's opening, its guest's world boot swirling and loading first.
+    (fix5) The test child models more of the engine on the stand-in, read in the clone: ON by default, stock's on-foot camera
+    follow after a battle return (CAM) and the settled leave's skip stamp in the guest's report; OPT-IN (each pins its in-game
+    shape through the leg's own call site): the report lane's StaleMs past the host's last battle frame (the DECLINED decoded
+    past the guest's leave), the host's MAPJUMP intent ahead of its field (the decline leg's rejoin before the entry anchor).
+    (fix-r1) ON by default too: the cold world load keeping the walker's place (WC; boot_cold no longer reds PLACE), the world
+    script's two passive prompts on the Ice Cavern tile (FakeGame.world_prompts: WB-BOOT / DB's 'under the prompts'), and
+    stock's prevMode-1 ARRIVAL camera (ff9.cs:4576-4586: snapped to the walker's Main_Init facing, 9.84 deg off 6603 -- A's
+    camera then discriminates a reset on the T2 and duo legs: prevmode_unset reds WB-RET / HF-RET / DR) with Main_Init's follow
+    toward that facing (a cold return's camera: CAM red under boot_cold, as the in-game cold reference's -33.385 read).
 
 PRECONDITIONS -- THE OPERATOR'S JOB (the bench edits no ini but the T2 legs' guarded [Netsync] keys, deploys nothing): the DLL
 under test deployed; controllers OFF and nobody at the keyboard (THE UNATTENDED LAW: every walk, Confirm, boot and battle is harness
@@ -276,6 +315,25 @@ ROUTE_TOL = cw.ROUTE_TOL           # the cold reference lands within this of the
 CAM_FRAMES = 20                    # A: `hold leftbumper` this long turns the world camera
 CAM_TURN_MIN = 5.0                 # ...by at least this many degrees (the camera witness discriminates)
 CAM_TOL = 1.0                      # a kept camera reads A's rotation within this
+#: [fix5 -- the cam probe] STOCK's ON-FOOT CAMERA FOLLOW after every world load (ff9.cs w_movementHumanCamOperation, :6447-6471,
+#: armed by w_movementSystemConstructor :4406 / :4412-4414 and w_movementChrConstructor :4588): a settled return reads stock's own
+#: follow from A within FOLLOW_TOL (8 of 8 measured in game -- 4 stock world battles, 4 s145 diorama returns -- within 0.001 deg).
+#: ff9.cn1 / cn3 / cn4 (ff9.cs:404-407), and w_movementCamRemain: 4096 at the load, -512 a call while the walker stands
+FOLLOW_TOL = 0.05
+FOLLOW_CN1, FOLLOW_CN3, FOLLOW_CN4 = 32.0, 54.6875, 256.0
+FOLLOW_REMAIN, FOLLOW_DECAY = 4096.0, 512.0
+#: [fix-r1 -- g-camera-1] the world tick by which stock's follow has spent CamRemain: every in-game read at tick >= 16 was the
+#: settle (8 of 8: the cam probe's T0-T3 at 16/17, the solo bench's returns at 16/17); a read before it may sit mid-follow (the
+#: held leg's recorded tail: tick 7, after 1 call)
+FOLLOW_DONE_TICK = 16
+#: [fix-r1 -- g-bench-report-leave-unbounded] a guest's settled leave can come no earlier than the host's terminal (or, with no
+#: terminal on the tape, the end of its battle) on the wire, less this much of WALL slack (the replay's and the decode's jitter);
+#: an earlier leave is MID-FIGHT -- every report word is judged and the leave named
+LEAVE_TERM_SLACK_S = 5.0
+#: [fix-r1 -- g-bench-decline-window-stay] the host's MAPJUMP intent for 300 (section 4, EventEngine.DoEventCode.cs ~1040) arms the
+#: following guest's rejoin with no debounce; it leads the host's own entry by its load (in game 0.63 tape-s: 211.20 -> 211.83).
+#: A rejoin into 300 earlier than the intent's wall time less this WALL slack is no rejoin the host caused
+INTENT_SLACK_S = 5.0
 BOOT_S = 30.0                      # the boot verb -> the diorama up (BattleHUD, booted)
 LEAVE_S = 45.0                     # `dioleave` -> the first world frame
 SETTLE_S = 15.0                    # ...-> the walker settled with control
@@ -286,6 +344,8 @@ STOPCURRENT_FADE_MS = 500
 DECLINE_S = 2.0                    # a refused boot's watch: no boot, no reload
 QUIET_S = 5.0                      # a game silent this long on SwirlScene is SWIRL-HANG (the instrument)
 POLL_S = 0.1
+#: [fix-r1] a row's recorded detail (cb.Ledger width; the duo's check): the RET rows now carry CAM's tick, MUSIC and WINDOWS
+DETAIL_W = 1600
 
 # ------------------------------------------------------------------------------------------------ T2 / duo
 PORT = pb.env_int("COOP_PEER_PORT", pb.WORLD_PORT)        # a PRIVATE port: 49201 (the owner's bridge) is refused
@@ -325,7 +385,7 @@ SOLO_CHECKS = {
                "world script 9011 loads)",
     "S145-S0": "newgame -> (the COOPPARTY seed) -> 6603 -> encounters off -> the forced selftest role",
     "S145-P0": f"the engine publishes `{PROBE}` (AppendWorldDio's keys in order; `world` = freeze/rejoin/waitline/dio; `prev_mode`; "
-               "the six world witness keys) and logged 'world diorama selftest: OK (86 rows)', 'world watcher selftest: OK (59 "
+               "the six world witness keys) and logged 'world diorama selftest: OK (98 rows)', 'world watcher selftest: OK (59 "
                "rows)', 'world freeze selftest: OK (46 rows)', 'diorama watcher selftest: OK (32 rows)' -- none FAIL",
     "S145-ROUTE": f"the walk out of {FARSHORE} lands on WorldHUD, world {WORLD}, within {cw.ROUTE_TOL:g}u of the landing "
                   f"{FS_LANDING} (the instrument)",
@@ -342,7 +402,11 @@ SOLO_CHECKS = {
                 "restarted), never FieldHUD, the leave line and OUR prime's warm RETURN line once (never 'did NOT prime'), no "
                 "cold one",
     "S145-PLACE": f"the settled return within {RETURN_TOL:g}u of A and >= {LANDING_MIN:g}u from the landing",
-    "S145-CAM": f"world.cam_rot within {CAM_TOL:g} deg of A's and cam_upper A's (prevMode 3 kept the camera)",
+    "S145-CAM": f"the camera KEPT (prevMode 3), judged by what stock does: the return's earliest world-live sample (world tick <= "
+                f"{BW.WORLD_START_LOOP}, before the follow arms) reads A's cam_rot within {CAM_TOL:g} deg ('not observed' named "
+                f"when no such sample was caught), and the settled cam_rot is stock's own on-foot follow from A (ff9.cs:6447-6471, "
+                f"toward world yaw 0) within {FOLLOW_TOL:g} deg -- read at world tick >= {FOLLOW_DONE_TICK}, its SETTLE only (an "
+                f"unread tick red); cam_upper A's",
     "S145-MAP": "the MAP-var digest (world.mapvar) A's exactly and world.battle_prob BY VALUE: Main_Reinit's own write (the "
                 "oracle's: 231 on WORLD11) -- never A's (A follows a Main_Init load)",
     "S145-MODE": "the live travel mode (world.ctl) 0 -- on foot -- as at A",
@@ -363,7 +427,8 @@ SOLO_CHECKS = {
     "S145-LEVER": "`bench worldwarm off` (its OFF line) -> the boot declines: refused, never booted, declines +1, durable, the "
                   "twin's CALIBRATION why, no reload",
     "S145-WC": "THE COLD REFERENCE, last (`bench worldwarm cold`): boot 'cold', the return 'cold', battle_prob Main_Init's (the "
-               "oracle's) -- and PLACE's and MAP's own judges read that return RED: the warm rows CAN fail",
+               "oracle's) -- and MAP's own judge reads that return RED through battle_prob: the warm rows CAN fail. PLACE's "
+               "reading is recorded, never required (on the world map a Main_Init load keeps the walker's place)",
     "S145-R": "`reset` (the lever pulled just before it) releases the role and the lever ('world warm gate back ON (released "
               "with the harness)' once); re-read WITH the role: dio.lever 'on' (before s145: the role released)",
     "S145-SWIRL": "the instrument: no boot or battle start hung in the swirl (SWIRL-HANG: the logs archived, a frame grabbed, the "
@@ -401,8 +466,10 @@ LEVER_PREDICTED = ("S145-BOOT", "S145-AUDIO", "S145-RET", "S145-PLACE", "S145-CA
 #: the stand-in's FAULT LEVERS (fakegame.WORLD_DIO_FAULTS) -> exactly the SOLO rows each turns red (tests pin it); a fault that
 #: breaks only the followed client (the watcher) reds no solo row
 SOLO_FAULT_REDS = {
-    "boot_cold": ("S145-BOOT", "S145-RET", "S145-PLACE", "S145-MAP", "S145-SILENT", "S145-RESET"),   # a cold reload: the spawn,
-                                                                                                    # Main_Init's rate
+    # [fix-r1] a cold reload: Main_Init's rate (MAP) and Main_Init's camera follow (toward its facing, 9.84 deg: in game the cold
+    # reference settled -33.385, 1.26 deg off the warm follow's -34.64) -- never PLACE: the walker's place survives a Main_Init
+    # load (in game 0.00u from A; the stand-in models it, test_coop_world_battle's _cold_keeps_place)
+    "boot_cold": ("S145-BOOT", "S145-RET", "S145-CAM", "S145-MAP", "S145-SILENT", "S145-RESET"),
     "leave_fieldmap": ("S145-RET", "S145-PLACE", "S145-CAM", "S145-MAP", "S145-MODE", "S145-MUSIC", "S145-FROZEN",
                        "S145-SILENT", "S145-RESET", "S145-WC"),                       # s144's Replace("FieldMap"): the field
     "prevmode_unset": ("S145-BOOT", "S145-CAM"),                                      # the return's camera reset (prevMode 1)
@@ -431,13 +498,16 @@ T2_CHECKS = {
         "S145-WB-I": "the instrument: paired on 6603 and ARMED before the host's world exit; the guest walks out, FROZEN, onto "
                      "the Ice Cavern tile, snapshot A -- before the host's battle reaches the wire",
         "S145-WB-BOOT": "from the battle's first frame never FieldHUD; the diorama booted from the world (booted_world, boot_world "
-                        "9011, boot 'warm'); the peer decodes the guest's report BOOTING then LIVE on THIS battle; the guest's "
-                        "'diorama LIVE' line",
+                        "9011, boot 'warm') UNDER the world script's two passive prompts (its last world sample before the boot "
+                        "shows exactly them) and no window over its swirl or battle; the peer decodes the guest's report BOOTING "
+                        "then LIVE on THIS battle up to the guest's leave, a leave no earlier than the host's terminal on the wire "
+                        "(no NONE / DECLINED / BUSY before it); the guest's 'diorama LIVE' line",
         "S145-WB-PLAY": "its stock menu served: the peer reads control byte 2 / 3 while LIVE on this battle; 'ready mirror is "
                         "SERVING' logged since the boot",
         "S145-WB-RET": "the leave on `terminal` or `host_world` (never `stall_cap`); WorldHUD 9011 within RETURN_TOL of A, counted "
                        "warm on its own load, the world reloaded, still frozen; battle_prob Main_Reinit's (the oracle's), the MAP "
-                       "digest and the camera A's, MUSIC on the sound instances",
+                       "digest A's and the camera kept (CAM's judge: A's on the first world ticks, then stock's follow from it), "
+                       "MUSIC on the sound instances, and no window over the return but the world's own prompts",
         "S145-WB-300": "the host's entry: the guest rejoins 300 (FieldHUD 300, lands +1, the landed line) and no second return "
                        "is counted there (diorama / dio returns unmoved, last_return_field never 300)",
         "S145-WB-SWIRL": "the instrument: the guest's boot never hung in the swirl (SWIRL-HANG: logs, a frame, the leg stopped)",
@@ -447,10 +517,13 @@ T2_CHECKS = {
                      "WorldHUD 9011, follow.hold 6603 and its line once, freeze.on -- and at the battle's first frame still on "
                      "the world map inside the hold",
         "S145-HF-BOOT": "the host's FIELD battle boots the guest's diorama from WorldHUD: never FieldHUD; booted from the world, "
-                        "warm; the peer decodes BOOTING then LIVE on THIS battle; the guest's 'diorama LIVE' line",
+                        "warm, no window over its swirl or battle; the peer decodes BOOTING then LIVE on THIS battle up to the "
+                        "guest's leave, a leave no earlier than the host's terminal on the wire (no NONE / DECLINED / BUSY before "
+                        "it); the guest's 'diorama LIVE' line",
         "S145-HF-RET": "the leave on `terminal` or `host_field` (never `stall_cap`); back at A on WorldHUD, counted warm on its "
                        "own load, still frozen; battle_prob Main_Reinit's (the oracle's: the witness that tells warm from cold "
-                       "here, A being the landing), the MAP digest and the camera A's, MUSIC on the sound instances",
+                       "here, A being the landing), the MAP digest A's and the camera kept (CAM's judge), MUSIC on the sound "
+                       "instances, no window over the return but the world's own prompts",
         "S145-HF-REJOIN": "decision 10: after the return the rejoin RESUMES -- FieldHUD 6603 (lands +1, the landed line) and no "
                           "second return counted there (diorama / dio returns unmoved, last_return_field never 6603)",
         "S145-HF-SWIRL": "the instrument: the guest's boot never hung in the swirl",
@@ -462,9 +535,11 @@ T2_CHECKS = {
         "S145-WD-DECL": "aboard (`vehicle 1` after WD-I) the host's battle DECLINES on the watcher: the peer decodes no BOOTING "
                         "and no DECLINED on its nonce (every report NONE); dio.visit_decline the twin's vehicle line; declines +1 "
                         "exactly once, durable; never booted, every sample on the world map (WorldHUD, no swirl / battle stage, "
-                        "world.ticks live) up to the host's entry; world.ticks monotonic (no reload); the 'diorama declined on "
+                        "world.ticks live) up to the host's entry or the rejoin into 300 past its fight (a FieldHUD before the "
+                        "fight's end: the guest LEFT); world.ticks monotonic (no reload); the 'diorama declined on "
                         "world map 9011' line exactly once; then `vehicle 0` (a battle on the wire before the guest was aboard: "
-                        "the instrument's)",
+                        "the instrument's) -- fix-r1: the rejoin into 300 cut only at or past the host's own transition on the "
+                        "wire (its MAPJUMP intent less INTENT_SLACK_S, never before its fight's end)",
         "S145-WD-SWIRL": "the instrument: nothing hung in the swirl (no boot is expected)",
     },
 }
@@ -475,15 +550,17 @@ T2_PREDICTED = {"battle": ("S145-WB-BOOT", "S145-WB-PLAY", "S145-WB-RET"),
                 "decline": ("S145-WD-DECL",)}                      # (no `vehicle` verb before s145: never sent)
 #: the stand-in faults -> exactly the T2 rows each turns red (the stub peer's smoke; tests pin it)
 T2_FAULT_REDS = {
-    "battle": {"boot_cold": ("S145-WB-BOOT", "S145-WB-RET"),                  # a cold boot, its return at the spawn
+    "battle": {"boot_cold": ("S145-WB-BOOT", "S145-WB-RET"),                  # a cold boot: Main_Init's rate on its return
                "leave_fieldmap": ("S145-WB-RET", "S145-WB-300"),               # s144's Replace("FieldMap"): no world return
                "return_uncounted": ("S145-WB-RET", "S145-WB-300"),             # counted at the next FIELD load: 300's
                "refreeze_lost": ("S145-WB-RET",),                              # free after the fight
-               "hostworld_blind": ("S145-WB-RET",)},                           # s144's watch step: it leaves at the stall cap
+               "hostworld_blind": ("S145-WB-RET",),                            # s144's watch step: it leaves at the stall cap
+               "prevmode_unset": ("S145-WB-RET",)},                            # [fix-r1] the return's camera reset: CAM
     "held": {"boot_cold": ("S145-HF-BOOT", "S145-HF-RET"),
              "leave_fieldmap": ("S145-HF-RET", "S145-HF-REJOIN"),
              "return_uncounted": ("S145-HF-RET", "S145-HF-REJOIN"),           # ...counted at 6603's load: a second return
-             "refreeze_lost": ("S145-HF-RET",)},
+             "refreeze_lost": ("S145-HF-RET",),
+             "prevmode_unset": ("S145-HF-RET",)},                             # [fix-r1] the return's camera reset: CAM
     "decline": {"decline_unprojected": ("S145-WD-DECL",)},           # the projection skipped: aboard, it boots (BOOTING first)
     # (`follow_departed` reds nothing here: the host's return onto the departed field read "arrived" inside the diorama only
     # clears a candidate the world map re-reads after the return -- the stand-in's WC-FOLLOW, the intent path, is its pin)
@@ -509,12 +586,14 @@ DUO_CHECKS = {
     "S145-D1": "coop_world_wait's D1: the host walks out of 6603 -> the guest LEFT on 6603 stays there and shows the line",
     "S145-D2": "coop_world_wait's D2: the guest walks out too -> FROZEN on 9011, the line there, the hold released by b6",
     "S145-DB": "the host's `battle 67 0 rand` on WorldHUD: the guest boots from WorldHUD (never FieldHUD; booted_world, warm) "
+               "UNDER the world's two passive prompts on the Ice Cavern tile, no window over its swirl or battle, "
                "and the HOST's start hold reads its report BOOTING then LIVE on its own nonce (nothing between); the opening's "
                "decision why 'booting' (never late), release 'live', late_ms -1; released.live +1 and every other reason +0, "
                "holds armed +1, one own battle (battle.epoch +1)",
     "S145-DP": "the guest plays: its 'ready mirror is SERVING' line and the host decodes its control byte 2 / 3 on the battle",
     "S145-DR": "the host wins: the guest left on `terminal` / `host_world` (never `stall_cap`), WARM at A on 9011 (counted on its "
-               "own load), still frozen; battle_prob Main_Reinit's, the MAP digest and the camera A's, MUSIC on the sound instances",
+               "own load), still frozen; battle_prob Main_Reinit's, the MAP digest A's and the camera kept (CAM's judge), MUSIC on "
+               "the sound instances, no window over the return but the world's own prompts",
     "S145-D3": "coop_world_wait's D3: the host enters the Ice Cavern -> the guest rejoins 300 (THE BRACKET LAW) and no second "
                "return is counted there",
     "S145-D-SWIRL": "the instrument: neither game's battle start hung in the swirl",
@@ -524,7 +603,8 @@ DUO_PREDICTED = ("S145-DB", "S145-DP", "S145-DR")          # a GUEST before s145
 #: the stand-in faults -> exactly the duo rows each turns red (the stub link's smoke; tests pin it)
 DUO_FAULT_REDS = {"boot_cold": ("S145-DB", "S145-DR"), "leave_fieldmap": ("S145-DR", "S145-D3"),
                   "hostworld_blind": ("S145-DR",), "return_uncounted": ("S145-DR", "S145-D3"),
-                  "refreeze_lost": ("S145-DR",)}
+                  "refreeze_lost": ("S145-DR",),
+                  "prevmode_unset": ("S145-DR",)}                  # [fix-r1] the return's camera reset: DR's CAM term
 #: [fix3 -- v-raudio-1-1] the stand-in's SOUND faults (fakegame.WORLD_MUSIC_FAULTS, its sound instances on: FakeGame.world_music)
 #: -> exactly the rows each turns red, by leg (tests pin each through that leg's OWN MUSIC call site, song_quiet's re-read
 #: included): BeforeWorldEvents' stop removed leaves the Leave-latched battle song playing over the restored world song; the
@@ -719,8 +799,12 @@ def judge_a(arr, a, away, moved, advanced) -> tuple:
         mv = a.world_mapvar
         live = (isinstance(mv, str) and len(mv) == 2 * BW.MAPVAR_BYTES and (a.world_battle_prob or -1) >= 0
                 and (a.world_ticks or -1) >= 0 and a.world_ctl == 0)
-        ok = ok and turned is not None and turned >= CAM_TURN_MIN and live
-        why += (f"; the camera turned {turned if turned is None else round(turned, 2)} deg (want >= {CAM_TURN_MIN:g}); "
+        # [fix-r1 -- g-camera-3] ...and A's camera >= CAM_TURN_MIN from world yaw 0: the follow's target and the prevMode-1 zero
+        # (ff9.cs:4588, :2607) -- an A within CAM_TOL of it leaves CAM unable to tell a kept camera from a reset one
+        off0 = None if r0 is None else ang(r0, 0.0)
+        ok = ok and turned is not None and turned >= CAM_TURN_MIN and off0 is not None and off0 >= CAM_TURN_MIN and live
+        why += (f"; the camera turned {turned if turned is None else round(turned, 2)} deg (want >= {CAM_TURN_MIN:g}), "
+                f"{off0 if off0 is None else round(off0, 2)} deg from world yaw 0 (want >= {CAM_TURN_MIN:g}); "
                 f"witnesses live {live} (ctl {a.world_ctl}, battle_prob {a.world_battle_prob}, ticks {a.world_ticks}); the "
                 f"walk {'CHANGED' if arr is not None and arr.world_mapvar != mv else 'did NOT change'} the MAP digest")
     return ok, why
@@ -793,14 +877,101 @@ def judge_place(st, a) -> tuple:
                                                      f"{dl:.1f}u from the landing (want >= {LANDING_MIN:g})")
 
 
-def judge_camera(st, a) -> tuple:
-    """CAM (PURE): cam_rot within CAM_TOL of A's (the angle's shortest way) and cam_upper A's."""
+def ang(a, b) -> float:
+    """(PURE) the angle between two yaws, the shortest way, in degrees."""
+    return abs(((float(a) - float(b)) + 180.0) % 360.0 - 180.0)
+
+
+def stock_world_follow(cam, heading: float = 0.0) -> list:
+    """(PURE, fix5 -- the cam probe) THE TWIN of stock's on-foot camera follow after a world load: ``[A, after call 1, ...]`` until
+    CamRemain is spent (7 moving calls). w_movementSystemConstructor seeds it on EVERY world load -- w_moveCHRControl_LR false
+    (ff9.cs:4406), RotTrue 0 (:4412), w_movementCamRemain 4096 (:4414) -- and w_movementChrConstructor sets RotTrue to the
+    control actor's wmActor.rot[1] (:4588): the freshly built WMActor's yaw, 0 on a battle return (Main_Reinit issues no facing
+    op), so ``heading`` 0. Each call of w_movementHumanCamOperation (ff9.cs:6447-6471): the camera brought within 180 of RotTrue,
+    d = 0.75 (RotTrue - cam); CamRemain -= 512 (the walker stands: XZSpeed 0); cam += d / clamp(|d|, cn3, cn4) * ((180 - |d|) *
+    cn1 + 2048) * 2 * CamRemain / 4096 / 4096; cam %= 360 (C#'s sign-keeping remainder). rotationMax's dead band (cn5) is 0 here:
+    measured -- the twin fits 8 of 8 in-game returns within 0.001 deg, its walker-heading variant fits none."""
+    out = [float(cam)]
+    c, remain = float(cam), FOLLOW_REMAIN
+    while remain > 0.0:
+        cur = math.fmod(c, 360.0)
+        ch = math.fmod(float(heading), 360.0)
+        if cur - ch >= 180.0:
+            cur -= 360.0
+        if cur - ch < -180.0:
+            cur += 360.0
+        d = (float(heading) - cur) * 0.75
+        remain = max(0.0, remain - FOLLOW_DECAY)
+        cn2 = min(max(abs(d), FOLLOW_CN3), FOLLOW_CN4)
+        speed = ((180.0 - abs(d)) * FOLLOW_CN1 + 2048.0) * 2.0 * remain / 4096.0
+        c = math.fmod(c + (d / cn2) * speed / 4096.0, 360.0)
+        if remain > 0.0:
+            out.append(c)
+    return out
+
+
+def world_live(s) -> bool:
+    """(PURE) the sample's world block is live: cam_rot read and world.ticks >= 0 (HarnessAgent's gate: the WorldMap level loaded)."""
+    t = _num(_top(s, "ticks")) if s is not None else None
+    return s is not None and s.world_cam_rot is not None and t is not None and t >= 0
+
+
+def kept_camera(samples):
+    """(PURE, fix5) THE KEPT CAMERA's witness, ``(sample | None, why)``: the return's EARLIEST world-live sample -- the first after
+    the diorama's last booted one -- when it was read at world tick <= kframeEventStartLoop (BW.WORLD_START_LOOP): before w_blockReady
+    arms the follow, so prevMode 3's camera reads A's exactly there (in game it lands with the battle HUD still up: BattleHUD /
+    BattleResult at ticks 0-4). A first world-live sample past that tick, or none, is 'not observed' -- never green by default."""
+    samples = [s for s in (samples or []) if s is not None]
+    last = max((i for i, s in enumerate(samples) if _d(s, "booted")), default=-1)
+    first = next((s for s in samples[last + 1:] if world_live(s)), None)
+    if first is None:
+        return None, "no world-live sample of the return was caught"
+    t = _num(_top(first, "ticks"))
+    if t > BW.WORLD_START_LOOP:
+        return None, f"the return's first world-live sample was read at world tick {t} (> {BW.WORLD_START_LOOP}: the follow armed)"
+    return first, ""
+
+
+def judge_camera(st, a, samples=None) -> tuple:
+    """CAM (PURE; fix5 -- the cam probe: RE-KEYED BY WHAT STOCK DOES). The pre-fix5 rule (the settled cam_rot within CAM_TOL of A's)
+    read STOCK red: every stock world battle return swings the camera 1.6-6.4 deg toward world yaw 0 within ~16 world ticks
+    (:func:`stock_world_follow`), so two witnesses: (a) THE KEPT CAMERA -- :func:`kept_camera` over ``samples`` (the leave's, the
+    return's first world sample among them) reads A's cam_rot within CAM_TOL and A's cam_upper (a prevMode-1 load zeroes it,
+    ff9.cs:2607, then snaps it to the walker, :4586); 'not observed' is named and the row judges on (b) alone; (b) THE SETTLED
+    CAMERA ``st`` is a point of stock's own follow from A (A itself, or after k of its calls: a settled read caught mid-follow, as
+    the held leg's recorded tail is) within FOLLOW_TOL. cam_upper A's. The pre-fix5 reading is reported beside it.
+    [fix-r1 -- g-camera-1] (b) READS THE SETTLED SAMPLE's WORLD TICK: at or past FOLLOW_DONE_TICK the follow has run all its
+    calls (8 of 8 in game), so only its SETTLE passes there -- an earlier point (A itself, a mid-follow one) is a follow that never
+    ran or a lost camera that happens to land on the path (a copy one load stale settles on A); before it any point of the path
+    passes (the held leg's tail at tick 7: after 1 call). An unread tick is named and red, never green by default. [g-camera-3]
+    A within CAM_TOL of world yaw 0 (the follow's target, the prevMode-1 zero) is named NOT DISCRIMINATING: a kept camera and a
+    reset one read alike there."""
     r, ra = st.world_cam_rot, a.world_cam_rot
     if r is None or ra is None:
         return False, f"absent: cam_rot {ra!r} -> {r!r}"
-    d = abs(((r - ra) + 180.0) % 360.0 - 180.0)
-    return d <= CAM_TOL and st.world_cam_upper == a.world_cam_upper, (f"cam_rot {ra} -> {r} ({d:.2f} deg), cam_upper "
-                                                                       f"{a.world_cam_upper} -> {st.world_cam_upper}")
+    path = stock_world_follow(ra)
+    t = _num(_top(st, "ticks"))
+    done = t is not None and t >= FOLLOW_DONE_TICK
+    k = (len(path) - 1) if done else min(range(len(path)), key=lambda i: ang(r, path[i]))
+    dk = ang(r, path[k])
+    upper_ok = st.world_cam_upper == a.world_cam_upper
+    kept, why = kept_camera(samples)
+    if kept is None:
+        kept_ok, kept_txt = True, f"the kept camera NOT OBSERVED ({why}): judged on stock's follow alone"
+    else:
+        kd = ang(kept.world_cam_rot, ra)
+        kept_ok = kd <= CAM_TOL and kept.world_cam_upper == a.world_cam_upper
+        kept_txt = (f"the kept camera {kept.world_cam_rot} at world tick {_num(_top(kept, 'ticks'))} ({kd:.3f} deg from A's, want "
+                    f"<= {CAM_TOL:g}; cam_upper {kept.world_cam_upper})")
+    at = ("the settled read's world tick UNREAD (the follow's progress unknown)" if t is None else
+          f"read at world tick {t} (>= {FOLLOW_DONE_TICK}: the follow done, only its settle passes)" if done else
+          f"read at world tick {t} (< {FOLLOW_DONE_TICK}: any point of the follow)")
+    disc = ("" if ang(ra, 0.0) > CAM_TOL else
+            f" -- NOT DISCRIMINATING: A's camera {ra} is within {CAM_TOL:g} deg of world yaw 0, where a reset one reads alike")
+    ok = t is not None and dk <= FOLLOW_TOL and upper_ok and kept_ok
+    return ok, (f"{kept_txt}; settled cam_rot {ra} -> {r} {at}: stock's follow from A after {k} of its {len(path) - 1} calls "
+                f"reads {path[k]:.3f} ({dk:.3f} deg, want <= {FOLLOW_TOL:g}; its settle {path[-1]:.3f}); the pre-fix5 reading "
+                f"{ang(r, ra):.2f} deg from A; cam_upper {a.world_cam_upper} -> {st.world_cam_upper}{disc}")
 
 
 def judge_mapvar(st, a, probs=None) -> tuple:
@@ -935,24 +1106,32 @@ def judge_decline(st0, st, samples, refusal, want_why) -> tuple:
 
 def judge_cold(booted_st, st, a, probs=None) -> tuple:
     """WC (PURE): THE WARM ROWS CAN FAIL -- the boot read 'cold', the return 'cold' (Main_Init) with world.battle_prob Main_Init's
-    own value (fix1: ``probs['init']``, the oracle's -- the positive cold witness), and the warm rows' OWN judges read it RED:
-    PLACE (:func:`judge_place`: the Main_Init placement, not A) and MAP (:func:`judge_mapvar`: Main_Init's encounter rate, not
-    Main_Reinit's). Where Main_Init put the walker is reported (the stand-in's spawn is the landing), never required."""
+    own value (fix1: ``probs['init']``, the oracle's -- the positive cold witness), and MAP's OWN judge (:func:`judge_mapvar`) reads
+    that return RED through battle_prob (Main_Init's encounter rate, never Main_Reinit's). [fix5] RE-KEYED BY WHAT THE ENGINE DOES:
+    on the world map a Main_Init load keeps the walker's place (in game the cold return stood 0.00u from A), and A itself follows a
+    Main_Init load (its MAP digest the cold return's too), so only battle_prob tells cold from warm there -- PLACE's reading of the
+    cold return (:func:`judge_place`) is recorded as information, never required (pre-fix5 WC required it red: red in game on
+    a correct engine). Where Main_Init put the walker is reported."""
     if booted_st is None or st is None:
         return False, "not reached: the cold boot or its return failed"
     p = world_xz(st)
     if p[0] is None:
         return False, f"no world position after the cold return (ui {st.ui_state})"
-    if not probs or probs.get("init") is None:
-        return False, "no encounter-rate oracle (S145-OR's battle_prob) -- the cold reference unjudged"
+    if not probs or probs.get("init") is None or probs.get("reinit") is None or probs["init"] == probs["reinit"]:
+        # [fix-r1 -- g-bench-wc-reinit-oracle] both values, and different: with Main_Reinit's unread (or equal) MAP's red would be
+        # its 'no oracle' red and the by-value term would compare against None -- WC green without showing battle_prob can fail
+        return False, (f"the encounter-rate oracle cannot tell Main_Init from Main_Reinit ({probs!r}) -- the cold reference "
+                       "unjudged")
     pl_ok, pl_why = judge_place(st, a)
     mv_ok, mv_why = judge_mapvar(st, a, probs)
-    ok = (_dio(booted_st, "boot") == "cold" and _dio(st, "last_return") == "cold" and not pl_ok and not mv_ok
-          and st.world_mapvar is not None and st.world_battle_prob == probs["init"])
+    by_prob = st.world_battle_prob == probs["init"] and st.world_battle_prob != probs["reinit"]
+    ok = (_dio(booted_st, "boot") == "cold" and _dio(st, "last_return") == "cold" and not mv_ok and by_prob
+          and st.world_mapvar is not None)
     return ok, (f"boot {_dio(booted_st, 'boot')!r}, last_return {_dio(st, 'last_return')!r}, battle_prob "
-                f"{st.world_battle_prob} (want Main_Init's {probs['init']}); PLACE reads it "
-                f"{'GREEN (cannot fail)' if pl_ok else 'red'} ({pl_why}); MAP reads it {'GREEN (cannot fail)' if mv_ok else 'red'} "
-                f"({mv_why}); {dist(p, FS_LANDING):.1f}u from the landing")
+                f"{st.world_battle_prob} (want Main_Init's {probs['init']}); MAP reads it "
+                f"{'GREEN (cannot fail)' if mv_ok else 'red'} ({mv_why}); PLACE reads it {'green' if pl_ok else 'red'} -- "
+                f"recorded, never required: a Main_Init load keeps the world place ({pl_why}); {dist(p, FS_LANDING):.1f}u from "
+                "the landing")
 
 
 # ---- T2 / duo: the peer's decode of the guest's control frames, the leave's why
@@ -975,17 +1154,103 @@ def peer_reports(lines, nonce, after=None) -> list:
     return out
 
 
-def judge_report(reports) -> tuple:
-    """(PURE) the guest's report on THIS battle, as the peer decoded it: its FIRST word BOOTING (the LOOSE gMode 3 watches from
-    WorldHUD: a guest that reads NONE first -- s144's field-only watching, the strict onWorld -- left the host's start hold
-    unarmed at its opening), then LIVE later; never DECLINED (a world refusal reports NONE, never DECLINED: decision 3), and no
-    NONE before the LIVE."""
-    boots = [b for _t, _m, b in reports]
+#: [fix5] the report words that, before the guest's leave, mean the boot did not hold: NONE (not watching), DECLINED (the skip
+#: nonce), BUSY (the UI not free) -- StartHoldStep releases a held start hold 'declined' on each (NetSyncBattle.cs, its doc: "released
+#: by LIVE, by NONE/DECLINED/BUSY") and judge_host_hold reads the same words (HOLD_BREAK_WORDS) on the host's own decode
+REPORT_BREAK_WORDS = ("NONE", "DECLINED", "BUSY")
+
+
+def leave_cut(stamped):
+    """(PURE, fix5) THE GUEST's LEAVE on the bench clock, over its ``stamped`` [(ts, state)]: the WRITE time (State.mtime -- the state
+    file's, as the agent wrote it; else the bench's read stamp ``ts``) of the LAST sample of the run of booted samples
+    (`netsync.diorama.booted`) that starts at the first world-booted one -- the last instant the diorama is witnessed up. None
+    when nothing world-booted. The engine's teardown (NetSyncDiorama.ForceDisarm, the battle scene's OnDestroy) follows that
+    write, and the skip stamp of a settled leave follows the teardown (NetSyncClient.cs:2086 'watcher-leave settled' / :2097
+    'leave noted'), so every report the leave caused is decoded past this cut. In game (the held leg) the peer decoded that
+    DECLINED 0.55 s after the last booted sample's write and 31 ms BEFORE the first world sample's: the return's first sample is
+    no cut. [fix-r1 -- g-bench-leave-cut-claim-only] ANCHORED ON THE RETURN, a witness the engine does not compute beside its claim:
+    the cut is the last booted sample BEFORE the first world-live sample (:func:`world_live`: the WorldMap level loaded, world.ticks
+    >= 0; no `booted` claim) after the boot -- a `booted` flicker (a sample missing the block, a false mid-fight) with no world
+    sample after it is no leave; and no world-live return at all is None (every word judged)."""
+    stamped = list(stamped or [])
+    i0 = next((i for i, (_ts, s) in enumerate(stamped) if booted_world(s)), None)
+    if i0 is None:
+        return None
+    j = next((i for i in range(i0 + 1, len(stamped)) if world_live(stamped[i][1]) and not _d(stamped[i][1], "booted")), None)
+    if j is None:
+        return None
+    last = max(i for i in range(i0, j) if i == i0 or _d(stamped[i][1], "booted"))
+    ts, s = stamped[last]
+    return _dt.datetime.fromtimestamp(s.mtime) if s.mtime is not None else ts
+
+
+def tape_wall(bt, t_tape, t_battle, speed=None):
+    """(PURE) the wall time a tape time ``t_tape`` reaches the wire, the battle's own anchor ``bt`` at ``t_battle`` (replay-host
+    replays in real time at REPLAY_SPEED); None when any is unread."""
+    if bt is None or t_tape is None or t_battle is None:
+        return None
+    return bt + _dt.timedelta(seconds=(float(t_tape) - float(t_battle)) / float(speed or REPLAY_SPEED))
+
+
+def leave_bound(bt, exp, speed=None):
+    """(PURE, fix-r1 -- g-bench-report-leave-unbounded) THE EARLIEST LAWFUL LEAVE of the guest's world diorama on the bench clock:
+    the host's terminal on the wire (``exp['t_term']``: a terminal leave follows the victory's end-leave; host_world / host_field
+    come later still), else its battle's end, less LEAVE_TERM_SLACK_S. None when the plan carries no battle timing (the T2-TAPE
+    gate refuses such a plan): no bound, never a degenerate one at ``bt``."""
+    exp = exp or {}
+    start = exp.get("battle_start")
+    end = exp.get("t_term") if exp.get("t_term") is not None else exp.get("battle_end")
+    if start is None or end is None or float(end) <= float(start):
+        return None
+    w = tape_wall(bt, end, start, speed)
+    return None if w is None else w - _dt.timedelta(seconds=LEAVE_TERM_SLACK_S)
+
+
+def rejoin_bound(bt, exp, speed=None):
+    """(PURE, fix-r1 -- g-bench-decline-window-stay) THE EARLIEST LAWFUL REJOIN into the host's next field on the bench clock: the
+    host's own transition on the wire -- its recorded MAPJUMP intent (``exp['intent_t']``, section 4 naming the field; else its
+    entry ``exp['enter_t']``) less INTENT_SLACK_S -- and never before its fight's end (the battle's anchor + the plan's fight
+    length). Falls back to the fight's end alone when the plan names no transition; None when it carries no battle timing (no
+    bound: decline_window keeps an anchored window uncut)."""
+    exp = exp or {}
+    start, end = exp.get("battle_start"), exp.get("battle_end")
+    if bt is None or start is None or end is None or float(end) <= float(start):
+        return None
+    fight_end = tape_wall(bt, end, start, speed)
+    due = exp.get("intent_t") if exp.get("intent_t") is not None else exp.get("enter_t")
+    w = tape_wall(bt, due, start, speed)
+    return fight_end if w is None else max(fight_end, w - _dt.timedelta(seconds=INTENT_SLACK_S))
+
+
+def judge_report(reports, leave=None, bound=None) -> tuple:
+    """(PURE) the guest's report on THIS battle, as the peer decoded it, UP TO THE GUEST's LEAVE (fix5: ``leave``, :func:`leave_cut`;
+    None = nothing booted, every report judged): its FIRST word BOOTING (the LOOSE gMode 3 watches from WorldHUD: a guest that
+    reads NONE first -- s144's field-only watching, the strict onWorld -- left the host's start hold unarmed at its opening), then
+    LIVE later, and no NONE / DECLINED / BUSY before the leave (REPORT_BREAK_WORDS: each releases a held start hold; a world
+    refusal reports NONE, never DECLINED: decision 3). [fix5] NEVER PAST THE LEAVE: a settled leave stamps the skip nonce at the
+    teardown (NetSyncClient.cs:2086 / :2097) and GuestBootState then reads DECLINED (NetSyncBattle.cs, 'the skip nonce is this one
+    -> DECLINED (... a settled leave ...)') while the host's battle stays on the wire -- the leave's word, not the boot's; the
+    pre-fix5 rule ('never DECLINED' over the whole battle) read the in-game held leg's correct ['BOOTING', 'LIVE', 'LIVE', 'LIVE',
+    'DECLINED'] red. The words past the leave are reported, never judged.
+    [fix-r1 -- g-bench-report-leave-unbounded] THE LEAVE IS BOUNDED BY THE HOST's FIGHT on the wire (``bound``:
+    :func:`leave_bound`, the host's terminal less LEAVE_TERM_SLACK_S): a leave before it is the guest's diorama gone MID-FIGHT
+    (its allowed why notwithstanding: a stale b6, an early terminal) -- no cut is applied, every word is judged and the leave is
+    named; a leave at or past it cuts as above. ``bound`` None (no timing): the cut alone, as fix5."""
+    early = leave is not None and bound is not None and leave < bound
+    cut_at = None if early else leave
+    judged = [r for r in reports if cut_at is None or r[0] <= cut_at]
+    past = [b for t, _m, b in reports if cut_at is not None and t > cut_at]
+    boots = [b for _t, _m, b in judged]
     live_at = boots.index("LIVE") if "LIVE" in boots else -1
-    ok = (bool(boots) and boots[0] == "BOOTING" and live_at > 0 and "DECLINED" not in boots
-          and "NONE" not in boots[:live_at])
-    return ok, (f"the peer decoded {boots[:8] or 'NO report on this battle'} (want BOOTING first, then LIVE; never DECLINED, "
-                "no NONE before the LIVE)")
+    broke = [b for b in boots if b in REPORT_BREAK_WORDS]
+    ok = bool(boots) and boots[0] == "BOOTING" and live_at > 0 and not broke and not early
+    hms = lambda t: f"{t:%H:%M:%S}.{t.microsecond // 1000:03d}"   # noqa: E731
+    cut = ("" if leave is None else
+           f"; the guest LEFT MID-FIGHT at {hms(leave)} (the host's fight runs to {hms(bound)} on the wire, less "
+           f"{LEAVE_TERM_SLACK_S:g} s): every word judged" if early else
+           f" up to the guest's leave ({hms(leave)}); past it {past[:4] or 'nothing'} (the settled leave's own word: not judged)")
+    return ok, (f"the peer decoded {boots[:8] or 'NO report on this battle'}{cut} (want BOOTING first, then LIVE; no NONE / "
+                "DECLINED / BUSY before the leave)")
 
 
 def judge_play(reports, lines) -> tuple:
@@ -1060,8 +1325,9 @@ def judge_guest_return(first, settled, a, r0, d0, why, whys, moved, advanced, sa
     RETURN_TOL of A; still frozen ('live' / 'mirroring': the walk witness -- or, ``keys_only`` (the held leg, whose rejoin follows:
     no walk there), freeze.on on ``settled``); never FieldHUD across ``samples``. [fix1] ...and the witnesses the engine does not
     compute, on ``settled``: world.battle_prob Main_Reinit's (``probs``, the oracle's: position-free -- on HF-RET, where A is the
-    landing and the cold spawn alike, the one that tells warm from cold), the MAP digest A's and the camera A's
-    (:func:`judge_camera`), and :func:`judge_music` over A, ``booted`` (the world-booted sample) and the return -- [fix3-r2]
+    landing and the cold spawn alike, the one that tells warm from cold), the MAP digest A's and the camera kept
+    (:func:`judge_camera` over ``samples`` and ``first``, fix5: A's on the return's first world ticks, then stock's own follow from
+    it), and :func:`judge_music` over A, ``booted`` (the world-booted sample) and the return -- [fix3-r2]
     ``keys_only``: its boot_song_live term judged only when ``settled`` is STOPCURRENT_FADE_MS past ``first`` on the wall
     (:func:`held_live_unjudged`), else named not discriminating (the instance, the slot and the bookkeeping still judged)."""
     if first is None or settled is None:
@@ -1080,18 +1346,88 @@ def judge_guest_return(first, settled, a, r0, d0, why, whys, moved, advanced, sa
         f_ok, f_why = judge_frozen_back(settled, moved, advanced, a, whys=("live", "mirroring"))
     p_ok = bool(probs) and probs.get("reinit") is not None and settled.world_battle_prob == probs["reinit"]
     mv_ok = settled.world_mapvar is not None and settled.world_mapvar == a.world_mapvar
-    c_ok, c_why = judge_camera(settled, a)
+    c_ok, c_why = judge_camera(settled, a, [*samples, first])        # [fix5] the kept camera: the return's first world ticks
     m_ok, m_why = judge_music(settled, a, booted, live_unjudged=held_live_unjudged(first, settled) if keys_only else None)
+    w_ok, w_why = judge_return_windows(settled, a)                   # [fix-r1] the return leaves what stock's reinit leaves
     ok = (why in whys and _dio(first, "returns") == (r0 or 0) + 1 and _dio(first, "last_return") == "warm"
           and _dio(first, "last_world") == WORLD and _d(first, "returns") == (d0 or 0) + 1 and reloaded
-          and d is not None and d <= RETURN_TOL and f_ok and not field and p_ok and mv_ok and c_ok and m_ok)
+          and d is not None and d <= RETURN_TOL and f_ok and not field and p_ok and mv_ok and c_ok and m_ok and w_ok)
     want_p = (probs or {}).get("reinit")
     return ok, (f"left on {why!r} (want one of {list(whys)}); first world sample: dio returns {r0}->{_dio(first, 'returns')!r} "
                 f"last {_dio(first, 'last_return')!r} on {_dio(first, 'last_world')!r}, diorama returns {d0}->"
                 f"{_d(first, 'returns')!r}; ticks {ta}->{t1} ({'reloaded' if reloaded else 'NO reload'}); "
                 f"{d if d is None else round(d, 2)}u from A; FieldHUD {field[:3] or 'never'}; STILL FROZEN {f_why}; battle_prob "
                 f"{a.world_battle_prob}->{settled.world_battle_prob} (want Main_Reinit's {want_p if want_p is not None else '-- NO ORACLE'})"
-                f"; MAP digest {'= A' if mv_ok else 'NOT A'}; CAM {c_why}; MUSIC {m_why}")
+                f"; MAP digest {'= A' if mv_ok else 'NOT A'}; CAM {c_why}; MUSIC {m_why}; WINDOWS {w_why}")
+
+
+# ---- [fix-r1 -- g-prompts-no-witness] the world script's passive prompts, on the dialog block HarnessAgent publishes (every active
+# window in the list's order: `dialog.count`, `dialog.phrase_raw`) -- witnesses the engine's verdict does not compute
+def dialog_raw(s):
+    """(PURE) the sample's open windows' raw phrases (`dialog.phrase_raw`), [] when none is open; None when the block is unread."""
+    d = cb.raw(s).get("dialog") if s is not None else None
+    if not isinstance(d, dict):
+        return None
+    raw = d.get("phrase_raw")
+    return [str(x) for x in raw] if isinstance(raw, list) else []
+
+
+def dialog_count(s):
+    """(PURE) `dialog.count` (the open windows), None when the block or the count is unread."""
+    d = cb.raw(s).get("dialog") if s is not None else None
+    c = d.get("count") if isinstance(d, dict) else None
+    return c if isinstance(c, int) and not isinstance(c, bool) else None
+
+
+def prompts_up(s) -> bool:
+    """(PURE) exactly the world script's two passive [NFOC] prompts stand open (BW.WORLD_PROMPT_RAW: the "?" and "Enter with
+    [CROSS]" of an entrance tile, as the in-game T2 and duo guests published them on every WorldHUD sample there)."""
+    return dialog_raw(s) == list(BW.WORLD_PROMPT_RAW)
+
+
+def map_byte(s, i: int = 24):
+    """(PURE) one MAP var byte off the world.mapvar digest (byte 24: WORLD11's location latch -- 0x64 off a tile, the tile's
+    consumed location on it), as two hex digits; None when unread."""
+    mv = _top(s, "mapvar") if s is not None else None
+    return mv[2 * i:2 * i + 2] if isinstance(mv, str) and len(mv) >= 2 * i + 2 else None
+
+
+def world_before_boot(samples):
+    """(PURE) the guest's LAST sample on the live world map (:func:`off_world` None, no `booted` claim) before the first sample that
+    witnesses its boot (:func:`boot_witnessed`) -- the world it booted FROM; None when none was read."""
+    samples = [s for s in (samples or []) if s is not None]
+    i0 = next((i for i, s in enumerate(samples) if boot_witnessed(s) or booted_world(s)), len(samples))
+    return next((s for s in reversed(samples[:i0]) if off_world(s) is None and not _d(s, "booted")), None)
+
+
+def windows_over_battle(samples) -> list:
+    """(PURE) [(frame, what)] of every sample on the boot's stage -- the scene a swirl or battle (:data:`OFF_WORLD_SCENES`) or the
+    battle HUD -- with a window open (`dialog.count` > 0) or its dialog block unread: stock's scene load closes every window
+    (UIManager.OnLevelWasLoaded: Dialogs.CloseAll -- in game 0 on every such sample of the solo and held legs)."""
+    out = []
+    for s in samples or []:
+        if s is None or not (s.scene in OFF_WORLD_SCENES or s.ui_state == "BattleHUD"):
+            continue
+        n = dialog_count(s)
+        if n is None or n > 0:
+            out.append((cb.raw(s).get("frame"), f"{s.ui_state}/{s.scene}: {'UNREAD' if n is None else f'{n} window(s)'}"))
+    return out
+
+
+def judge_return_windows(settled, a) -> tuple:
+    """(PURE, fix-r1) THE RETURN LEAVES WHAT STOCK's REINIT LEAVES: the settled return shows no window but the world script's own
+    passive prompts (every open window's raw phrase one of BW.WORLD_PROMPT_RAW) -- nothing left over the world map from the
+    battle or the boot. Recorded beside A's, never required: whether the prompts stand open again (WORLD11's Main_Loop resets
+    MAP var 24 to 100 on its first pass after the reinit and the tile handler re-latches them -- world11.dis [872]-[897], [1169];
+    no in-game warm return on a tile has been read yet) and MAP byte 24. Red when the dialog block is unread."""
+    raw = dialog_raw(settled)
+    if raw is None:
+        return False, "the dialog block UNREAD on the settled return"
+    foreign = [r for r in raw if r not in BW.WORLD_PROMPT_RAW]
+    up = "the world prompts" if prompts_up(settled) else "none" if not raw else f"{len(raw)}"
+    up_a = "the world prompts" if prompts_up(a) else "none" if not dialog_raw(a) else f"{dialog_count(a)}"
+    return not foreign, (f"{up} (A: {up_a}); Map[24] {map_byte(a)} -> {map_byte(settled)}"
+                         + (f"; FOREIGN {foreign[:2]}" if foreign else ""))
 
 
 #: [fix3] the stage scenes a world-map sample never shows: a boot's swirl (SwirlScene) or its battle (BattleMap, BattleMapDebug) --
@@ -1123,26 +1459,39 @@ def rejoin_load(s) -> bool:
 
 
 def decline_window(stamped, bt, enter, now=None, *, field: int = ICE_CAVERN, not_before=None) -> tuple:
-    """(PURE, fix3) WD-DECL's judged window, ``(samples, rejoined)``, over the guest's ``stamped`` [(ts, state)] from the host's
-    battle on the wire (``bt``). With the host's entry into ``field`` ANCHORED (``enter``: the peer's own ms-stamped line) the
-    window is [bt, enter] UNCUT -- the follow starts only once the host's field has held FollowStableMs (1200 ms) and faded, so no
-    rejoin can land inside it: a FieldHUD there is the guest LEAVING the world map before the host's entry (decision 3: a declined
-    guest stays frozen), judged red. With NO anchor (the instrument missed that line) the window runs to ``now`` and is cut at the
-    first FieldHUD on ``field`` -- the follow's own target, the only FieldHUD that can be the rejoin (``rejoined``: the judge spares
-    that load's own trailing samples); a FieldHUD on any other field stays in the judged window. [fix3-r2] ONE UNBENCHED CAVEAT: the
-    serial follow waits FollowStableMs, but the host's gMode-3 MAPJUMP also emits a transition intent naming 300 before its own
-    load (EventEngine.DoEventCode.cs:1040), and ServiceIntentFollow (NetSyncClient.cs:5351, no debounce) fires the world rejoin
-    on it -- a guest that loads 300 faster than the host's field reaches the wire would read red here (never a false green;
-    the peer logs no intent line to end the window on). [fix3b] ``not_before`` (the host's fight end on the wire): unanchored, a
-    FieldHUD on ``field`` BEFORE it is no rejoin -- the host is still fighting -- and stays in the judged window (red)."""
+    """(PURE, fix3; fix5) WD-DECL's judged window, ``(samples, rejoined)``, over the guest's ``stamped`` [(ts, state)] from the host's
+    battle on the wire (``bt``) to the host's entry into ``field`` on the wire (``enter``: the peer's own ms-stamped line), or to
+    ``now`` when that anchor never landed. [fix5] BOUNDED BY THE HOST's FIGHT ON THE WIRE (``not_before``: the battle's anchor + the
+    plan's fight length): a FieldHUD before the fight's end is the guest LEAVING the world map mid-fight (decision 3: a declined
+    guest stays frozen) and stays in the judged window (red, its field named); the first FieldHUD on ``field`` -- the follow's own
+    target -- at or after it is the REJOIN: the window is cut there (``rejoined``: the judge spares that load's own trailing
+    samples) WHETHER OR NOT THE ENTRY ANCHOR HAS LANDED. The rejoin can land before the host's entry reaches the wire: the host's
+    gMode-3 MAPJUMP emits a transition intent naming 300 before its own load (EventEngine.DoEventCode.cs ~1040) and
+    ServiceIntentFollow (NetSyncClient.cs:5351) fires the world rejoin on it with no debounce -- in game (the decline leg) the guest
+    landed on 300 ~135 ms before the host's field 300 reached the wire, 35 s after the fight's end, and fix3b's window (uncut to
+    the entry) read that rejoin as 'LEFT the world map before the host's entry: field [300]'. A FieldHUD on any other field stays
+    in the window wherever it falls. With no fight bound (``not_before`` None) an anchored window stays uncut (fix3's rule) and an
+    unanchored one is cut at the first FieldHUD on ``field``. [fix-r1 -- g-bench-decline-window-stay] ``not_before`` is THE HOST's
+    OWN TRANSITION on the wire (:func:`rejoin_bound`: its recorded MAPJUMP intent less INTENT_SLACK_S, never before the fight's
+    end), no longer the fight's end alone: the post-fight stay (~35 s in game) is judged -- a 300 load there that the host's
+    intent did not cause (a frozen guest's own world-script Field(), RedirectGuestWorldFieldJump's pass-off with the host on the
+    world map) is the guest LEAVING, red."""
     end = enter if enter is not None else now
     stamped = [(ts, s) for ts, s in stamped if ts >= bt and (end is None or ts <= end)]
     since = [s for _, s in stamped]
-    if enter is not None:
+    if enter is not None and not_before is None:
         return since, False
     cut = next((i for i, (ts, s) in enumerate(stamped) if s.ui_state == "FieldHUD" and s.field_id == field
                 and (not_before is None or ts >= not_before)), None)
     return (since, False) if cut is None else (since[:cut], True)
+
+
+def decline_watch_done(anchored: bool, s, ts, bound) -> bool:
+    """(PURE, fix5) _t2_decline's watch ends on the host's entry anchor, or on a FieldHUD sample stamped at or after ``bound`` (fix-r1:
+    :func:`rejoin_bound`, the host's own transition on the wire -- the rejoin, or a leave past it, which the window then judges); a
+    FieldHUD before it (a mid-fight or mid-stay leave) never ends the watch: the window runs on and judges it."""
+    return bool(anchored) or (s is not None and s.ui_state == "FieldHUD" and bound is not None and ts is not None
+                              and ts >= bound)
 
 
 def boot_witnessed(s) -> bool:
@@ -1168,8 +1517,9 @@ def judge_watch_decline(st0, samples, reports, lines, nonce, want_why, *, rejoin
     EVERY sample ON THE LIVE WORLD MAP (:func:`off_world`: ui_state, the stage scene, the world tick -- witnesses the engine does not
     compute, beside its `booted` claim; a boot still up at the window's end leaves only pre-boot world ticks, which read
     monotonic, and a boot still in its SWIRL reads WorldHUD with ticks -1). A FieldHUD inside the window is the guest LEAVING the
-    world map (its field named). ``rejoined``: the window was cut at the rejoin's FieldHUD (no entry anchor), so a TRAILING run of
-    that load's own samples (:func:`rejoin_load`) is spared -- never a swirl, a battle, a booted or a mid-window sample."""
+    world map (its field named). ``rejoined``: the window was cut at the rejoin's FieldHUD on 300 at or past the host's own
+    transition (:func:`decline_window`, anchored or not), so a TRAILING run of that load's own samples (:func:`rejoin_load`) is
+    spared -- never a swirl, a battle, a booted or a mid-window sample."""
     if st0 is None or not samples:
         return False, "not reached: no samples through the host's battle"
     last = samples[-1]
@@ -1179,7 +1529,8 @@ def judge_watch_decline(st0, samples, reports, lines, nonce, want_why, *, rejoin
             judged.pop()
     off = [(cb.raw(s).get("frame"), w) for s in judged if (w := off_world(s)) is not None]
     left = sorted({s.field_id for s in judged if s.ui_state == "FieldHUD"})
-    left_txt = f"; LEFT the world map before the host's entry: field {left}" if left else ""
+    left_txt = (f"; LEFT the world map (300 before the host's transition into it, or another field): field {left}" if left
+                else "")
     boots = [b for _t, _m, b in reports]
     visit = sorted({_dio(s, "visit_decline") for s in samples} - {None, ""})
     d0, d1 = _dio(st0, "declines"), _dio(last, "declines")
@@ -1202,22 +1553,38 @@ def boot_window(samples) -> list:
     return list(samples) if last is None else list(samples[:last + 1])
 
 
-def judge_guest_boot(samples, booted_st, reports, lines, nonce) -> tuple:
+def judge_guest_boot(samples, booted_st, reports, lines, nonce, *, leave=None, bound=None, under=None,
+                     prompts: bool = False) -> tuple:
     """WB-BOOT / HF-BOOT / DB's guest half (PURE): ``samples`` (from the battle on the wire to the diorama's end) never FieldHUD;
-    ``booted_st`` the world diorama (booted_world, boot_world WORLD, boot 'warm'); the peer's ``reports`` BOOTING then LIVE; the
-    guest's 'diorama LIVE ... (host battle nonce N, booted from wire nonce N)' line in ``lines``."""
+    ``booted_st`` the world diorama (booted_world, boot_world WORLD, boot 'warm'); the peer's ``reports`` BOOTING then LIVE up to the
+    guest's ``leave`` (fix5: :func:`judge_report`, never past it -- fix-r1: and never a leave before ``bound``, the host's fight);
+    the guest's 'diorama LIVE ... (host battle nonce N, booted from wire nonce N)' line in ``lines``.
+    [fix-r1 -- g-prompts-no-witness] two witnesses the verdict does not compute, on the dialog block: NO WINDOW OVER THE BATTLE
+    (:func:`windows_over_battle` over ``samples``: the boot's swirl and battle samples show none -- stock's scene load closes them);
+    and, ``prompts`` (the guest parked on an entrance tile: the T2 battle leg, the duo), the boot came UNDER THE PROMPTS -- ``under``
+    (:func:`world_before_boot`, the last world sample before it) shows exactly BW.WORLD_PROMPT_RAW: fix4's subject (s145 as built
+    waited out every fight there), witnessed rather than inferred from the tile's position."""
     field = [(cb.raw(s).get("frame"), s.field_id) for s in samples if s.ui_state == "FieldHUD"]
     claim = (booted_st is not None and booted_world(booted_st) and _dio(booted_st, "boot_world") == WORLD
              and _dio(booted_st, "boot") == "warm")
-    r_ok, r_why = judge_report(reports) if reports is not None else (True, "the report judged on the host (the duo)")
+    r_ok, r_why = (judge_report(reports, leave, bound) if reports is not None
+                   else (True, "the report judged on the host (the duo)"))
     live = [m for m in (ln.split("|", 2)[-1].strip() if "|" in ln else ln for ln in lines)
             if (h := pb.MATCHERS["live"].search(m)) and h.group(2) == h.group(3)
             and (nonce is None or h.group(2) == str(nonce))]
     uis = sorted({s.ui_state for s in samples})
-    ok = not field and claim and r_ok and bool(live)
+    over = windows_over_battle(samples)
+    u_raw = dialog_raw(under)
+    u_ok = prompts_up(under) if prompts else True
+    u_txt = ("NO world sample before the boot" if under is None else
+             f"the dialog block UNREAD on {cb.raw(under).get('frame')}" if u_raw is None else
+             f"{'the world prompts' if prompts_up(under) else (str(len(u_raw)) + ' other window(s)' if u_raw else 'no window')}"
+             f" on frame {cb.raw(under).get('frame')}")
+    ok = not field and claim and r_ok and bool(live) and not over and u_ok
     return ok, (f"ui over {len(samples)} sample(s) {uis}; FieldHUD {field[:3] or 'never'}; the world diorama "
                 f"{'booted warm on ' + str(_dio(booted_st, 'boot_world')) if claim else 'NEVER booted (it stayed on the world map)'};"
-                f" {r_why}; 'diorama LIVE' on nonce {nonce} {len(live)}x")
+                f" {r_why}; booted from {u_txt}{' (want the world prompts)' if prompts else ''}; windows over the battle "
+                f"{over[:2] or 'none'}; 'diorama LIVE' on nonce {nonce} {len(live)}x")
 
 
 def judge_rejoin_300(samples, after_ret, lines, *, field: int = ICE_CAVERN) -> tuple:
@@ -1459,7 +1826,7 @@ def world_leave(g, *, where: str = "the leave") -> tuple:
 def run(g, field: int | None = None):
     leg = LEG
     if leg is None:
-        led = cb.Ledger(g, {"T2-TAPE": T2_COMMON["T2-TAPE"]})
+        led = cb.Ledger(g, {"T2-TAPE": T2_COMMON["T2-TAPE"]}, width=DETAIL_W)
         led.check("T2-TAPE", False, f"COOP_WB_LEG={_RAW_LEG!r} is no leg: one of {LEGS}")
         return
     if field is not None and field != FARSHORE:
@@ -1473,7 +1840,7 @@ def run(g, field: int | None = None):
 # ---------------------------------------------------------------------------------------------- SOLO
 def _run_solo(g) -> None:
     calibrate = cb.CALIBRATE
-    led = cb.Ledger(g, solo_catalog(calibrate), finals=("S145-R", "S145-SWIRL", "S145-CAL"))
+    led = cb.Ledger(g, solo_catalog(calibrate), finals=("S145-R", "S145-SWIRL", "S145-CAL"), width=DETAIL_W)
     ctx = {"calibrate": calibrate, "stage": None, "a": None, "arr": None, "lever_row": False, "hung": None}
     try:
         _solo(g, led, ctx)
@@ -1632,7 +1999,7 @@ def _leg_round_trip(g, led: cb.Ledger, ctx: dict) -> None:
         led.unreached(RETURN_ROWS, f"the return landed on {settled.ui_state} (RET)")
         return
     led.check("S145-PLACE", *judge_place(settled, a))
-    led.check("S145-CAM", *judge_camera(settled, a))
+    led.check("S145-CAM", *judge_camera(settled, a, lsamples))        # [fix5] the leave's samples hold the kept camera
     led.check("S145-MAP", *judge_mapvar(settled, a, ctx.get("probs")))
     led.check("S145-MODE", *judge_mode(settled, a))
     led.check("S145-MUSIC", *judge_music(settled, a, booted))
@@ -1855,7 +2222,9 @@ def plan_held_leg(facts: dict) -> dict:
     b = facts.get("battle") or {}
     return {"ok": not bad, "why": "; ".join(bad), "field": HELD_FIELD, "stop_at": None,
             "expect": {"nonce": b.get("nonce"), "scene": b.get("map"), "battle_start": b.get("start"),
-                       "battle_end": b.get("end"), "leave_whys": ("terminal", "host_field")}}
+                       "battle_end": b.get("end"), "leave_whys": ("terminal", "host_field"),
+                       # [fix-r1] the host's terminal (F4): HF-BOOT's leave bound (leave_bound)
+                       "t_term": (facts.get("f4") or {}).get("t_term")}}
 
 
 class _T2:
@@ -1880,7 +2249,7 @@ class _T2:
 def _run_t2(g, leg: str) -> None:
     calibrate = cb.CALIBRATE
     p = T2_PFX[leg]
-    led = cb.Ledger(g, t2_catalog(leg, calibrate), finals=("T2-SAVE", "T2-INI", f"{p}-SWIRL", f"{p}-CAL"))
+    led = cb.Ledger(g, t2_catalog(leg, calibrate), finals=("T2-SAVE", "T2-INI", f"{p}-SWIRL", f"{p}-CAL"), width=DETAIL_W)
     ctx = _T2()
     try:
         _t2(g, led, ctx, leg)
@@ -2300,7 +2669,12 @@ def _t2_battle(g, led: cb.Ledger, ctx: _T2, leg: str, p: str) -> None:
         since = since[:cut]
     lines = _msgs(ctx, bt)
     reports = peer_reports(ctx.peer.lines(), nonce, bt)
-    led.check(f"{p}-BOOT", *judge_guest_boot(boot_window(since), booted_st, reports, lines, nonce))
+    leave = leave_cut([(ts, s) for ts, s in ctx.samples if bt <= ts <= end])    # [fix5] the report judged up to the leave
+    # [fix-r1] ...a leave no earlier than the host's terminal on the wire (leave_bound); and the world it booted from: under the
+    # prompts on the Ice Cavern tile (the battle leg; the held leg's A is the landing, no tile)
+    under = world_before_boot([s for ts, s in ctx.samples if ts <= end])
+    led.check(f"{p}-BOOT", *judge_guest_boot(boot_window(since), booted_st, reports, lines, nonce, leave=leave,
+                                             bound=leave_bound(bt, exp), under=under, prompts=leg == "battle"))
     if leg == "battle":
         led.check(f"{p}-PLAY", *(judge_play(reports, lines) if booted_st is not None else
                                  (False, f"not reached: no world diorama ({judge_report(reports)[1]})")))
@@ -2378,16 +2752,24 @@ def _t2_decline(g, led: cb.Ledger, ctx: _T2, p: str) -> None:
         return
     _state_every(g, 1)                                    # (a boot -- the red -- would write every swirl frame)
     fight_s = max(0.0, float((exp.get("battle_end") or 0.0) - (exp.get("battle_start") or 0.0))) / REPLAY_SPEED
-    # [fix3b] watch until the host's ENTRY reaches the wire -- never stop at the guest's own first FieldHUD: a guest that leaves
-    # the world map mid-fight (decision 3 forbids it) lands long before that entry, so stopping on it left the window unanchored
-    # and the 300 cut forgave it (green). Anchored, the FieldHUD sits inside [bt, enter] and is judged.
-    _until(g, ctx, lambda s: "enter" in ctx.anchors, fight_s + ENTER_WAIT_S)
+    # [fix-r1 -- g-bench-decline-window-stay, -timing-degenerate] the rejoin's bound is the host's own transition on the wire (its
+    # recorded MAPJUMP intent less INTENT_SLACK_S, never before its fight's end) -- None with no battle timing in the plan, never a
+    # degenerate bound at the battle's anchor (decline_window then keeps an anchored window uncut)
+    bound = rejoin_bound(bt, exp)
+    # [fix3b] never stop at the guest's own first FieldHUD: a guest that leaves the world map mid-fight (decision 3 forbids it) lands
+    # long before the host's entry, and the window must judge it. [fix5] ...but stop on a FieldHUD past the host's transition on the
+    # wire: the rejoin into 300 can land before the entry anchor (the host's MAPJUMP intent: decline_window)
+    _until(g, ctx, lambda s: decline_watch_done("enter" in ctx.anchors, s, ctx.samples[-1][0], bound),
+           fight_s + ENTER_WAIT_S)
     hang_check(g, "the decline's watch")                  # [fix3] whatever the claim says: a swirl stall with `booted` unset
     _state_every(g, 2)                                    # reads WorldHUD on SwirlScene (it does nothing unless quiet there)
-    since, rejoined = decline_window(ctx.samples, bt, ctx.anchors.get("enter"), _dt.datetime.now(),
-                                     not_before=bt + _dt.timedelta(seconds=fight_s))
-    led.check(row, *judge_watch_decline(st0, since, peer_reports(ctx.peer.lines(), nonce, bt), _msgs(ctx, bt), nonce, want,
-                                        rejoined=rejoined))
+    enter = ctx.anchors.get("enter")
+    since, rejoined = decline_window(ctx.samples, bt, enter, _dt.datetime.now(), not_before=bound)
+    ok, why = judge_watch_decline(st0, since, peer_reports(ctx.peer.lines(), nonce, bt), _msgs(ctx, bt), nonce, want,
+                                  rejoined=rejoined)
+    bnd = "no bound (no battle timing)" if bound is None else f"{bound:%H:%M:%S}.{bound.microsecond // 1000:03d}"
+    led.check(row, ok, f"{why}; [fix5] the window {'cut at the rejoin into 300 past the host transition' if rejoined else 'uncut'}"
+                       f" (bound {bnd}), the host's entry {'on the wire' if enter is not None else 'NOT yet on the wire'}")
     try:
         g.vehicle(0)
     except HarnessError as err:
@@ -2479,12 +2861,12 @@ def run_duo(d) -> None:
         done.add(cid)
         if not ok:
             failed.append(cid)
-        d.check(bool(ok), f"{cid}: {DUO_CHECKS.get(cid, cid)}", str(detail)[:900], cid=cid)
+        d.check(bool(ok), f"{cid}: {DUO_CHECKS.get(cid, cid)}", str(detail)[:DETAIL_W], cid=cid)
 
     def rest(why):
         for cid in DUO_ORDER:
             if cid != "S145-D-SWIRL" and cid not in done:
-                check(cid, False, f"not reached: {why}"[:900])
+                check(cid, False, f"not reached: {why}"[:DETAIL_W])
 
     try:
         _duo(d, check, rest)
@@ -2602,7 +2984,9 @@ def _duo(d, check, rest) -> None:
     except HarnessError:
         h_end = None
     hb_ok, hb_why = judge_host_hold(hrec, nonce, before=h0, after=h_end)
-    gb_ok, gb_why = judge_guest_boot(boot_window(gsamples), booted_st, None, glines, nonce)
+    # [fix-r1 -- g-prompts-duo-unpinned] the duo guest stood on the Ice Cavern tile (A) under the prompts: its boot witnessed there
+    gb_ok, gb_why = judge_guest_boot(boot_window(gsamples), booted_st, None, glines, nonce, under=world_before_boot([a, *gsamples]),
+                                     prompts=True)
     check("S145-DB", gb_ok and hb_ok, f"GUEST {gb_why}; HOST {hb_why}")
     if booted_st is None:
         why = "no world diorama on the guest (DB): it stayed on the world map -- the digit panel"

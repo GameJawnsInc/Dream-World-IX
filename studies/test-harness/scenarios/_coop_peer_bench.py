@@ -1686,7 +1686,9 @@ def plan_world_leg(leg: str, facts: dict) -> dict:
                             "leave_whys": WB_LEAVE_WHYS,
                             # [ff9mapkit netsync s145 bench] the host's entry after the stay (WB-300's rejoin; None = none)
                             "rejoin_field": (facts.get("enter") or {}).get("field"),
-                            "enter_t": (facts.get("enter") or {}).get("t")})
+                            "enter_t": (facts.get("enter") or {}).get("t"),
+                            # [ff9mapkit netsync s145 fix-r1] the host's own MAPJUMP intent for that field (section 4)
+                            "intent_t": (facts.get("intent") or {}).get("t")})
         return plan
     plan["why"] = f"unknown world leg {leg!r}"
     return plan
@@ -1789,11 +1791,12 @@ def world_battle_tape_facts(records, cp, *, field: int = WORLD_TAPE_FIELD, marke
                   before any field -- [s145 bench] and a field after that stay is only the Ice Cavern (WB_ENTER_FIELD), entered
                   once and stood on >= WB_ENTER_NEED_S (the rejoin coop_world_battle.py's WB-300 reads; no entry at all is fine)
     plus ``exit_t``, ``battle`` (its segment: start / end / nonce / map), ``t_term``, ``dwell_s``, ``after_s`` (the stay: the
-    battle's end to the entry, or to the tape's end) and ``enter`` ({field, t, on_s} of the host's entry after the stay; None)."""
+    battle's end to the entry, or to the tape's end) and ``enter`` ({field, t, on_s} of the host's entry after the stay; None) --
+    [fix-r1] and ``intent`` ({field, t}: the host's recorded MAPJUMP intent naming that field, section 4; None)."""
     base = world_tape_facts(records, cp, field=field, marker=marker)
     out = {"records": base["records"], "host_frames": base["host_frames"], "start": base["start"], "exit_t": base["exit_t"],
            "field": base["field"], "battle": None, "t_term": None, "dwell_s": None, "after_s": None, "b6": base["b6"],
-           "enter": None, "wb1": dict(base["w1"]), "wb2": dict(base["w2"])}
+           "enter": None, "intent": None, "wb1": dict(base["w1"]), "wb2": dict(base["w2"])}
     where = cp.tape_where(records)
     seg = next((b for b in where.get("battles") or [] if b["world"]), None)
     facts = tape_facts(records, cp, field=field, marker=marker) if base["start"] is not None else None
@@ -1842,6 +1845,14 @@ def world_battle_tape_facts(records, cp, *, field: int = WORLD_TAPE_FIELD, marke
     if enter is not None:
         on_s = t_last - enter[0]
         out["enter"] = {"field": enter[1], "t": enter[0], "on_s": round(on_s, 2)}
+        # [ff9mapkit netsync s145 fix-r1] the host's MAPJUMP intent for that field (section 4: [destField u16 LE][nonce u8], at its
+        # transition commit before its own load -- EventEngine.DoEventCode.cs ~1040): the first one after the battle, or None
+        for r, w, p in cp.host_frames(records):
+            if w == cp.TYPE_STATE and seg["end"] < r.t <= enter[0]:
+                b4 = state_sections(p).get(cp.BW.SECTION_INTENT)
+                if b4 is not None and len(b4) >= 2 and (b4[0] | (b4[1] << 8)) == enter[1]:
+                    out["intent"] = {"field": enter[1], "t": r.t}
+                    break
         if enter[1] != WB_ENTER_FIELD or len(real_after) > 1:
             enter_bad = (f"the host enters {[f for _t, f in real_after]} after the battle -- a world-battle tape may enter only "
                          f"the Ice Cavern ({WB_ENTER_FIELD}), once (COOP_TAPE_WB_ENTER), after its stay")

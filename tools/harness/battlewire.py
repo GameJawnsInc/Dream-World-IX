@@ -11216,7 +11216,8 @@ def tp_world_decline(valid, host_field, registered, held):
 # lines whose rows s145 grows (THE STAGE LAW: a bench reads the count of the engine's OWN stage -- never one number for both)
 PROOF_WORLD_DIORAMA = "world diorama selftest: "    # NetSyncDiorama.WorldDioramaSelfTest (E1)
 PROOF_WORLD_WATCHER = "world watcher selftest: "    # NetSyncClient.WorldWatchSelfTest (E3)
-WORLD_DIORAMA_SELFTEST_ROWS = 86                    # fix1: + the leave's three rows and its mutant (WorldLeaveStays)
+WORLD_DIORAMA_SELFTEST_ROWS = 98                    # fix1: + the leave's three rows and its mutant (WorldLeaveStays); fix4: + the
+                                                    #       passive prompts' eight rows and their four mutants (WorldWindowBusy)
 WORLD_WATCHER_SELFTEST_ROWS = 59                    # fix1: + the pending-return follow row and its mutant, the ramp's closed-bracket
                                                     #       settle row and its resuming-blind mutant
 WATCH_SELFTEST_ROWS_S145 = 32                       # DioramaWatchSelfTest: s119's 24 + the eight host_world rows
@@ -11426,6 +11427,35 @@ def world_durable_mask(verdict=None) -> int:
         if why is not None and durable:
             mask |= 1 << i
     return mask
+
+
+# ---- [fix4] THE WORLD's PASSIVE PROMPTS (NetSyncDiorama.WorldWindowBusy / WorldWindowsBusy / WorldDialogsBusy: the verdict's
+# Dialogs input). Every exit from a stock location lands the walker on its entrance tile, where the world script's loop keeps two
+# [NFOC] windows open (the in-game T2 and duo guests, both on the Ice Cavern tile, published them on every WorldHUD sample; the
+# 6603 landing is no entrance tile: 0 windows) -- Dialogs.Visible counted them, so as captured the guest waited out every fight
+# there. A window is busy unless it is a script line, input-inhibited ([NFOC] / [TIME]), no choice and
+# fully shown; an unreadable list is busy.
+#: the two prompts as HarnessAgent publishes them (`dialog.phrase_raw` / `dialog.texts`, in the engine's list order)
+WORLD_PROMPT_RAW = ("[STRT=22,1][TAIL=UPC][NFOC][CENT=0]  ?  ",
+                    "[STRT=74,1][TAIL=LOL][NANI][NFOC][IMME]Enter with [CBTN=CROSS][MOBI=260]")
+WORLD_PROMPT_TEXTS = ("  ?  ", "Enter with ")
+#: one prompt as the rule reads it: (script line, input-inhibited, a choice, fully shown)
+WORLD_PROMPT_WINDOW = (True, True, False, True)
+
+
+def world_window_busy(script, inh, choice, shown) -> bool:
+    """NetSyncDiorama.WorldWindowBusy: one window a world encounter could not start under -- not a script line (a UI dialog), not
+    input-inhibited (it takes focus), a choice (a script-polled one too) or not fully shown (its tags maybe unparsed)."""
+    return not script or not inh or bool(choice) or not shown
+
+
+def world_windows_busy(wins, rule=None) -> bool:
+    """NetSyncDiorama.WorldWindowsBusy: any window busy by ``rule`` (world_window_busy -- read at call time, so a drifted twin is
+    the one the fold runs) -- ``wins`` a list of (script, inh, choice, shown); None (an unreadable list) is busy."""
+    if wins is None:
+        return True
+    rule = rule or world_window_busy
+    return any(bool(rule(*w)) for w in wins)
 
 
 # ---- RETURNISOURS, kind-aware (NetSyncDiorama.ReturnIsOurs / ReturnLoadStep)

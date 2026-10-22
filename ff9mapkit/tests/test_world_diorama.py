@@ -11,7 +11,7 @@ stood; it never takes a cold world reload (a warm refusal is no boot). Pinned he
     table field by field, the kinds, the lever, the over-signal's why, the report's constants, the release lifetime; the harness
     keys (the dio block's sentinels in the catch literal, AppendWorldDio's order, `prev_mode` after `gmode`, the six witness keys
     after `next_mode`) and every accessor reading its sentinel.
-  * THE THREE SELFTESTS, row by row: every WdioRow (86, the loop's 34 included) / WWatchRow (59, the report table's 15 and the
+  * THE THREE SELFTESTS, row by row: every WdioRow (98, the loop's 34 included) / WWatchRow (59, the report table's 15 and the
     projection loop's 17 included) / the freeze line's 46 FreezeRow the engine's proof block runs has a twin check here that holds
     on battlewire's twins -- an engine row without a twin, or a twin without an engine row, is red; each count is the proof line's.
   * EVERY CHECK CAN FAIL: each pure twin, drifted by one line in memory, turns at least one of those engine rows red.
@@ -421,6 +421,32 @@ WDIO_ROWS = {
         and not E.world_leave_stays(False, None)),
     "mutant: the boot-director-only stay Replaces from a live WorldMap the boot returned to (a cold world reload, each release retry)": lambda: (
         not (lambda alive, scene: alive)(False, "WorldMap") and E.world_leave_stays(False, "WorldMap")),
+    # [fix4] THE PASSIVE PROMPTS (WorldWindowBusy / WorldWindowsBusy: the verdict's Dialogs input)
+    "prompts: the entrance tile's two [NFOC] prompts are no dialogue -- the guest boots there, warm": lambda: (
+        not E.world_windows_busy([E.WORLD_PROMPT_WINDOW] * 2, E.world_window_busy)
+        and _verdict(dialogs=E.world_windows_busy([E.WORLD_PROMPT_WINDOW] * 2, E.world_window_busy)) == (None, False)),
+    "prompts: no window is no dialogue": lambda: not E.world_windows_busy([], E.world_window_busy),
+    "prompts: a focus-taking line (a talk, no [NFOC]) is busy": lambda: E.world_window_busy(True, False, False, True),
+    "prompts: a choice is busy, an input-inhibited (script-polled) one too": lambda: E.world_window_busy(True, True, True, True),
+    "prompts: a UI dialog (the full map's navigate prompt, a menu popup) is busy, [NFOC] or not": lambda: (
+        E.world_window_busy(False, True, False, True) and E.world_window_busy(False, False, False, True)),
+    "prompts: a window not fully shown (opening or closing: its tags maybe unparsed) is busy": lambda: (
+        E.world_window_busy(True, True, False, False)),
+    "prompts: a talk beside the two prompts refuses at the dialogue row, a quiet wait": lambda: (
+        E.world_windows_busy([E.WORLD_PROMPT_WINDOW, (True, False, False, True), E.WORLD_PROMPT_WINDOW], E.world_window_busy)
+        and _row(dialogs=E.world_windows_busy([E.WORLD_PROMPT_WINDOW, (True, False, False, True), E.WORLD_PROMPT_WINDOW],
+                                              E.world_window_busy))[1] == E.WORLD_ROW_DIALOG
+        and _verdict(dialogs=True)[0] is not None and not _verdict(dialogs=True)[1]),
+    "prompts: an unreadable window list is busy": lambda: E.world_windows_busy(None, E.world_window_busy),
+    "mutant: Dialogs.Visible reads the entrance tile's prompts busy -- the guest every field exit lands there waits out the fight": lambda: (
+        E.world_windows_busy([E.WORLD_PROMPT_WINDOW] * 2, lambda sl, ih, ch, sh: True)
+        and not E.world_windows_busy([E.WORLD_PROMPT_WINDOW] * 2, E.world_window_busy)),
+    "mutant: an [NFOC]-only rule boots under a script-polled choice": lambda: (
+        not (lambda sl, ih, ch, sh: not ih)(True, True, True, True) and E.world_window_busy(True, True, True, True)),
+    "mutant: a script-blind rule boots under an [NFOC] UI dialog": lambda: (
+        not (lambda sl, ih, ch, sh: not ih or ch or not sh)(False, True, False, True) and E.world_window_busy(False, True, False, True)),
+    "mutant: a shown-blind rule boots under a window still opening (its choice not yet parsed)": lambda: (
+        not (lambda sl, ih, ch, sh: not sl or not ih or ch)(True, True, False, False) and E.world_window_busy(True, True, False, False)),
 }
 
 
@@ -437,7 +463,7 @@ def _wdio_loop_rows() -> dict:
 
 
 def _wdio_rows_in_order() -> dict:
-    """All 86 rows in the engine's order: the two literal rows before the loop, the loop's 34, then the 50 after it."""
+    """All 98 rows in the engine's order: the two literal rows before the loop, the loop's 34, then the 62 after it."""
     lit = list(WDIO_ROWS.items())
     return dict(lit[:2] + list(_wdio_loop_rows().items()) + lit[2:])
 
@@ -448,7 +474,7 @@ def test_every_world_diorama_selftest_row_has_a_twin_that_holds():
     # the loop body's two rows run once per row (17 x 2); every other statement once
     assert _helper_calls("NetSyncDiorama.cs", "internal static Boolean WorldDioramaSelfTest(", "WdioRow") == len(names) + 2
     rows = _wdio_rows_in_order()
-    assert len(rows) == BW.WORLD_DIORAMA_SELFTEST_ROWS == 86
+    assert len(rows) == BW.WORLD_DIORAMA_SELFTEST_ROWS == 98
     code = " ".join(_code(t) for t in _block("NetSyncDiorama.cs", "internal static Boolean WorldDioramaSelfTest(", "catch (Exception err)"))
     assert 'WdioRow(WorldWarmRow(dq[i], -1, out r) != null && r == i, "row " + i + " (" + WorldRowNames[i] + "): its disqualifier alone refuses there"' in code
     assert 'WdioRow(WorldWarmRow(dq[i], i, out r) == null && r == -1, "mutant: without row " + i + " (" + WorldRowNames[i] + ") its disqualifier boots"' in code
@@ -618,7 +644,7 @@ def test_the_proof_block_logs_the_two_lines_after_the_overlay_text_line_and_the_
     block = " ".join(net_lines("NetSyncClient.cs", r"WorldDioramaSelfTest\(out wdioDetail\)|WorldWatchSelfTest\(out wwatchDetail\)"))
     assert "NetSyncDiorama.WorldDioramaSelfTest(out wdioDetail)" in block and "WorldWatchSelfTest(out wwatchDetail)" in block
     assert BW.watch_selftest_rows(145) == 32 and BW.watch_selftest_rows(144) == BW.watch_selftest_rows(119) == 24
-    assert BW.proof_ok(BW.PROOF_WORLD_DIORAMA, 86) == "world diorama selftest: OK (86 rows)"
+    assert BW.proof_ok(BW.PROOF_WORLD_DIORAMA, 98) == "world diorama selftest: OK (98 rows)"
 
 
 # ------------------------------------------------------------------------------------------------ every check can fail
@@ -627,7 +653,8 @@ _O = {name: getattr(BW, name) for name in (
     "world_warm_bench_refusal", "world_warm_lever_name", "return_is_ours", "return_is_ours_field", "return_load_step",
     "world_durable_in", "world_decline_why", "boot_watching", "world_ui_free", "ramp_world_safe", "follow_field_for_dio",
     "diorama_watch_step", "world_freeze_release_ends_at", "world_report_at", "world_warm_disqualifiers",
-    "world_leave_stays", "ramp_world_settled_closed")}                  # fix1
+    "world_leave_stays", "ramp_world_settled_closed",                   # fix1
+    "world_window_busy", "world_windows_busy")}                         # fix4
 
 
 def _drop_row(n):
@@ -664,6 +691,11 @@ TWIN_MUTANTS = [
     ("wwatch", "world_report_at", lambda c, w=None, u=None, s=False: _O["world_report_at"](dict(c, fading=False), w, u, s)),
     ("wdio", "world_warm_disqualifiers", lambda: [dict(w, topograph=3) if i == BW.WORLD_ROW_TOPOGRAPH else w
                                                   for i, w in enumerate(_O["world_warm_disqualifiers"]())]),
+    ("wdio", "world_window_busy", lambda sl, ih, ch, sh: True),                                       # [fix4] Dialogs.Visible
+    ("wdio", "world_window_busy", lambda sl, ih, ch, sh: not ih),                                     # [fix4] [NFOC] only
+    ("wdio", "world_window_busy", lambda sl, ih, ch, sh: not ih or ch or not sh),                     # [fix-r1] script-blind
+    ("wdio", "world_window_busy", lambda sl, ih, ch, sh: not sl or not ih or ch),                     # [fix-r1] shown-blind
+    ("wdio", "world_windows_busy", lambda wins, rule=None: False if wins is None else _O["world_windows_busy"](wins, rule)),
 ]
 
 
@@ -834,7 +866,65 @@ FIX1_PINS = (
      "a Leave on a live world map disarms in place"),
     ("NetSyncDiorama.cs", "try { world = world || Application.loadedLevelName == SceneDirector.WorldMapSceneName; }",
      "a boot on the WorldMap scene goes through the world verdict"),
+    # [fix4] THE PASSIVE PROMPTS: ReadWorldWarm's Dialogs input is the live list through the selftested rule
+    ("NetSyncDiorama.cs", "w.Dialogs = WorldDialogsBusy(ui);", "the world verdict reads the passive prompts as no dialogue"),
+    ("NetSyncDiorama.cs", "wins[k] = new WorldWindow(NetSyncDialog.IsLockable(dlg), dlg.FlagButtonInh, shown && dlg.HasChoices, shown);",
+     "each live window projected: a script line, [NFOC], a choice read on a shown window, shown"),
+    ("NetSyncDiorama.cs", "Boolean shown = dlg.CurrentState == Dialog.State.CompleteAnimation;", "shown = fully shown"),
+    ("NetSyncDiorama.cs", "return WorldWindowsBusy(wins, WorldWindowBusy);", "the live list runs the selftested rule"),
+    # [fix-r1 -- g-prompts-no-witness] the watcher's dialogue-row wait names the window behind it, by the verdict's own rule
+    ("NetSyncClient.cs", "String which = String.Equals(why, NetSyncDiorama.WorldWhyDialog) ? "
+                         "NetSyncDiorama.WorldDialogsBusyWhich(PersistenSingleton<UIManager>.Instance) : null;",
+     "the dialogue row's wait names its window (once per reason, beside the line)"),
+    ("NetSyncDiorama.cs", "if (WorldWindowBusy(script, inh, choice, shown))", "the window named by the verdict's own rule"),
+    ("NetSyncDiorama.cs", 'internal const String WorldWhyDialog = "a dialogue window is open";', "the dialogue row's why, named"),
 )
+
+
+def test_the_dialogue_rows_wait_names_its_window_and_its_why_is_the_verdicts():
+    """[fix-r1 -- g-prompts-no-witness] If a redeployed T2 or duo guest still waits on the world map, the log says WHICH window held
+    the dialogue row: WorldBootRefused's wait line (unchanged: the bench greps its why) is followed, once per reason, by the busy
+    window WorldDialogsBusyWhich names through WorldWindowBusy itself. The const it keys on IS the world verdict's dialogue-row why
+    (a renamed literal at WorldRowDialog would silence the line: read red), and the line's text stays the bench's."""
+    dio = [_code(t) for _h, _k, t in _new_side("NetSyncDiorama.cs")]
+    i = dio.index("row = WorldRowDialog;")
+    assert dio[i + 1] == "if (skip != row && w.Dialogs)" and dio[i + 2] == 'return "a dialogue window is open";', dio[i:i + 3]
+    const = next(c for c in dio if c.startswith("internal const String WorldWhyDialog = "))
+    assert const.split(" = ", 1)[1].rstrip(";") == dio[i + 2][len("return "):].rstrip(";")
+    drift = [c.replace('"a dialogue window is open"', '"a window is open"') if c.startswith("return") else c for c in dio[i:i + 3]]
+    assert drift[2][len("return "):].rstrip(";") != const.split(" = ", 1)[1].rstrip(";")   # the pin can fail
+    client = [c for c in (_code(t) for _h, _k, t in _new_side("NetSyncClient.cs")) if c]       # (comment-only lines dropped)
+    k = next(n for n, c in enumerate(client) if c.startswith("String which = String.Equals(why, NetSyncDiorama.WorldWhyDialog)"))
+    assert client[k - 1] == '+ "; retried each second, logged once per reason)");' and client[k + 1] == "if (which != null)", \
+        client[k - 1:k + 3]
+    assert client[k + 2].startswith('Log.Message("[NetSync] diorama world wait: the dialogue row\'s window -- " + which'), client[k + 2]
+    which = " ".join(_code(t) for t in _block("NetSyncDiorama.cs", "internal static String WorldDialogsBusyWhich(UIManager ui)",
+                                               "catch (Exception err)"))
+    assert "Boolean shown = dlg.CurrentState == Dialog.State.CompleteAnimation;" in which and "return null;" in which
+    assert "Boolean choice = shown && dlg.HasChoices;" in which and "NetSyncDialog.IsLockable(dlg)" in which
+
+
+def test_the_world_dialogue_input_is_the_prompt_rule_and_the_field_verdict_keeps_visible():
+    """[fix4] The world verdict's Dialogs input is WorldDialogsBusy (the passive prompts are no dialogue) at its ONE live site,
+    ReadWorldWarm -- s145's own Dialogs.Visible read is gone from the patch's code -- while the FIELD verdict (F3.3's WarmVerdict
+    call) keeps Dialogs.Visible byte for byte: exactly one code line of the live stack reads it, and the s145 patch adds or removes
+    none. Each check reads red on a copy that restores the old line."""
+    dio = [t for _h, _k, t in _new_side("NetSyncDiorama.cs")]
+    code = [_code(t) for t in dio]
+    assert not [c for c in code if "ui.Dialogs.Visible" in c], [c for c in code if "ui.Dialogs.Visible" in c]
+    # every write of the input: Free()'s `false`, ReadWorldWarm's fail-closed `true` and the live rule -- nothing else
+    assert sorted(c for c in code if c.startswith("w.Dialogs = ")) == [
+        "w.Dialogs = WorldDialogsBusy(ui);", "w.Dialogs = false;", "w.Dialogs = true;"]
+    old = [("w.Dialogs = ui == null || ui.Dialogs == null || ui.Dialogs.Visible;" if c == "w.Dialogs = WorldDialogsBusy(ui);" else c)
+           for c in code]
+    assert [c for c in old if "ui.Dialogs.Visible" in c]                 # the pin can fail: the pre-fix4 line reads red
+    field = [t for t in net_lines("NetSyncDiorama.cs", r"Dialogs\.Visible") if "ui.Dialogs.Visible" in _code(t)]
+    assert field == ["ui == null || ui.Dialogs == null || ui.Dialogs.Visible,   // unreadable = busy"], field
+    assert not [t for t in net_lines("NetSyncDiorama.cs", r"Dialogs\.Visible", [_patch()]) if "ui.Dialogs.Visible" in _code(t)]
+    # the selftest's prompt rows run the live rule and the old rule as their mutant
+    st = " ".join(_code(t) for t in _block("NetSyncDiorama.cs", "internal static Boolean WorldDioramaSelfTest(", "catch (Exception err)"))
+    assert "Func<Boolean, Boolean, Boolean, Boolean, Boolean> rule = WorldWindowBusy;" in st
+    assert "Func<Boolean, Boolean, Boolean, Boolean, Boolean> visible = (sl, ih, ch, sh) => true;" in st
 
 
 def test_the_overload_trap_is_closed_each_step_has_one_name():

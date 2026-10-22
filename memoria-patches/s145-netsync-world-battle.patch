@@ -1,5 +1,5 @@
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
-index 8fe8b1e..1611cbf 100644
+index 8fe8b1e..939fa37 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDiorama.cs
 @@ -760,6 +760,39 @@ namespace Memoria.Netsync
@@ -249,11 +249,11 @@ index 8fe8b1e..1611cbf 100644
 +            // load of the other kind logs the mismatch, counted there once
 +            Int32 step = ReturnLoadStep(_returnPending, _bootWorld ? KindWorld : KindField, gMode);
 +            if (step == ReturnLoadNone)
-+                return;
+                 return;
 +            if (gMode == KindWorld)
 +            {
 +                NoteWorldReturn(step == ReturnLoadMismatch, reinit, reinitCalled);   // [ff9mapkit netsync s145] its own count and lines
-                 return;
++                return;
 +            }
              _returnPending = false;
 +            if (step == ReturnLoadMismatch)                 // [ff9mapkit netsync s145] a world boot's return on a FIELD load
@@ -268,7 +268,7 @@ index 8fe8b1e..1611cbf 100644
                  if (reinit && !reinitCalled)
                      Log.Error("[NetSync] diorama RETURN (reinit-missing) -> field " + fld + " took the reinit branch but NO "
                                + "Main_Reinit was called (no entry-0 tag 10, or entry 0 busy at level 0) -- every object stays "
-@@ -1475,6 +1584,919 @@ namespace Memoria.Netsync
+@@ -1475,6 +1584,1062 @@ namespace Memoria.Netsync
              _returnExpectWarm = false;
          }
  
@@ -488,7 +488,7 @@ index 8fe8b1e..1611cbf 100644
 +            public String LatchWhy;     // the shared world-transition latch, read with booted = FALSE (WorldLatchNoBoot); null = free
 +            public Boolean FullMap;     // ff9.w_naviMode == 2
 +            public Int32 Topograph;     // the walker's topograph (stock cancels every battle on 52)
-+            public Boolean Dialogs;     // a dialogue window is open (unreadable = busy)
++            public Boolean Dialogs;     // a window no world encounter starts under is open (WorldDialogsBusy: the passive prompts are none; unreadable = busy)
 +            public Boolean Control;     // raw usercontrol (EventEngine.GetUserControl)
 +            public Boolean Player;      // a controlled actor (not the move dummy)
 +
@@ -621,6 +621,114 @@ index 8fe8b1e..1611cbf 100644
 +            return NetSyncClient.WorldLatchStep(liveWorld, sysMode, sysAttr, nextMode, fading, false, returnInFlight, rejoinArmed);
 +        }
 +
++        // [ff9mapkit netsync s145] fix4: THE WORLD's PASSIVE PROMPTS -- the verdict's Dialogs input. Every exit from a stock location
++        // lands the walker on its entrance tile, where the world script's own loop keeps two windows open (WORLD11 entry 1 func 1: WindowAsync(6, 4, 2) /
++        // (6, 4, 1) / (7, 16, 40)): the "?" over the walker and "Enter with [CROSS]", both [NFOC] -- DialogBoxSymbols sets FlagButtonInh,
++        // so they take no input (Dialog.OnKeyConfirm's `!ignoreInputFlag`; DialogManager.IsDialogNeedControl reads false; EventInput's
++        // PC Confirm goes to the world script). Stock starts its random encounter under them (ProcessEncount: usercontrol and a move,
++        // no dialogue term), its swirl waits 9 frames instead of 2 for any visible window (SceneDirector._Swirl), and the scene load
++        // closes them (UIManager.OnLevelWasLoaded: Dialogs.CloseAll) -- the boot's own Replace takes that same road, so the boot leaves
++        // them exactly as stock does. Dialogs.Visible counted them: a guest on an entrance tile waited out every fight. A window is BUSY
++        // unless it is a script line (NetSyncDialog.IsLockable: never a UI dialog), input-inhibited, no choice (a script-polled one
++        // too) and fully shown (its tags parsed: an opening or closing window waits); an unreadable list is busy. A world event's talk
++        // takes focus (busy) or runs with control off (the control row). The FIELD verdict keeps Dialogs.Visible.
++        internal static Boolean WorldWindowBusy(Boolean scriptLine, Boolean inputInhibited, Boolean choice, Boolean shown)
++        {
++            return !scriptLine || !inputInhibited || choice || !shown;
++        }
++
++        // One window as WorldWindowBusy reads it (the selftest's tables, and the live list's projection).
++        internal struct WorldWindow
++        {
++            public Boolean Script;      // a script line (NetSyncDialog.IsLockable)
++            public Boolean Inh;         // input-inhibited ([NFOC] / [TIME]: FlagButtonInh)
++            public Boolean Choice;      // a choice (HasChoices, read on a shown window only)
++            public Boolean Shown;       // fully shown (Dialog.State.CompleteAnimation)
++
++            internal WorldWindow(Boolean script, Boolean inh, Boolean choice, Boolean shown)
++            {
++                Script = script;
++                Inh = inh;
++                Choice = choice;
++                Shown = shown;
++            }
++        }
++
++        // PURE: busy when any window is busy by `rule` (WorldWindowBusy in production; the selftest's mutants swap it); null (an
++        // unreadable list) is busy.
++        internal static Boolean WorldWindowsBusy(WorldWindow[] wins, Func<Boolean, Boolean, Boolean, Boolean, Boolean> rule)
++        {
++            if (wins == null)
++                return true;
++            for (Int32 k = 0; k < wins.Length; k++)
++                if (rule(wins[k].Script, wins[k].Inh, wins[k].Choice, wins[k].Shown))
++                    return true;
++            return false;
++        }
++
++        // The live window list as the rule reads it: a choice is read on a shown window only (its parse has run; HasChoices then parses
++        // nothing). Never throws: an unreadable manager, list or window is busy.
++        internal static Boolean WorldDialogsBusy(UIManager ui)
++        {
++            try
++            {
++                DialogManager dm = ui != null ? ui.Dialogs : null;
++                List<Dialog> list = dm != null ? dm.ActiveDialogList : null;
++                if (list == null)
++                    return true;
++                WorldWindow[] wins = new WorldWindow[list.Count];
++                for (Int32 k = 0; k < wins.Length; k++)
++                {
++                    Dialog dlg = list[k];
++                    if (ReferenceEquals(dlg, null))
++                        return true;
++                    Boolean shown = dlg.CurrentState == Dialog.State.CompleteAnimation;
++                    wins[k] = new WorldWindow(NetSyncDialog.IsLockable(dlg), dlg.FlagButtonInh, shown && dlg.HasChoices, shown);
++                }
++                return WorldWindowsBusy(wins, WorldWindowBusy);
++            }
++            catch
++            {
++                return true;
++            }
++        }
++
++        // [ff9mapkit netsync s145] fix-r1: the world verdict's dialogue-row why (WarmVerdict's world twin returns it at WorldRowDialog);
++        // the watcher's wait line names the window behind it.
++        internal const String WorldWhyDialog = "a dialogue window is open";
++
++        // [ff9mapkit netsync s145] fix-r1: WHICH WINDOW holds the dialogue row -- the first one WorldWindowBusy reads busy (its list
++        // index, Id, TextId, state and the rule's four terms), for the watcher's wait line; null when none is busy. A diagnostic only
++        // (the verdict reads WorldDialogsBusy). Never throws: an unreadable manager, list or window is named.
++        internal static String WorldDialogsBusyWhich(UIManager ui)
++        {
++            try
++            {
++                DialogManager dm = ui != null ? ui.Dialogs : null;
++                List<Dialog> list = dm != null ? dm.ActiveDialogList : null;
++                if (list == null)
++                    return "the window list is unreadable";
++                for (Int32 k = 0; k < list.Count; k++)
++                {
++                    Dialog dlg = list[k];
++                    if (ReferenceEquals(dlg, null))
++                        return "window " + k + " of " + list.Count + " is null";
++                    Boolean shown = dlg.CurrentState == Dialog.State.CompleteAnimation;
++                    Boolean script = NetSyncDialog.IsLockable(dlg);
++                    Boolean inh = dlg.FlagButtonInh;
++                    Boolean choice = shown && dlg.HasChoices;
++                    if (WorldWindowBusy(script, inh, choice, shown))
++                        return "window " + k + " of " + list.Count + ": id " + dlg.Id + ", text " + dlg.TextId + ", state " + dlg.CurrentState
++                               + " (script line " + script + ", input-inhibited " + inh + ", choice " + choice + ", shown " + shown + ")";
++                }
++                return null;
++            }
++            catch (Exception err)
++            {
++                return "unreadable (" + err.GetType().Name + ")";
++            }
++        }
++
 +        // The verdict's inputs over the live engine. Never throws: an unreadable engine fails CLOSED (the first row refuses). A few list
 +        // walks (entry 0, the bracket, GetIP): read it at a boot attempt, never on every frame of a quiet world.
 +        internal static WorldWarmIn ReadWorldWarm()
@@ -672,7 +780,7 @@ index 8fe8b1e..1611cbf 100644
 +                    try { w.Topograph = ff9.m_GetIDTopograph(ff9.m_moveActorID); }
 +                    catch { w.Player = false; }   // a walker whose status row is unreadable is no controlled actor
 +                }
-+                w.Dialogs = ui == null || ui.Dialogs == null || ui.Dialogs.Visible;   // unreadable = busy
++                w.Dialogs = WorldDialogsBusy(ui);   // [ff9mapkit netsync s145] fix4: the world's passive prompts are no dialogue (unreadable = busy)
 +                w.SysMode = sys.mode;             // last: a throw above leaves -1, so the first row refuses
 +            }
 +            catch { w.SysMode = -1; }
@@ -993,6 +1101,8 @@ index 8fe8b1e..1611cbf 100644
 +        // undo a world copy at its own load), and THE RETURN's consumption (ReturnLoadStep, and s144's gMode-1-only rule's mutant).
 +        // [ff9mapkit netsync s145] fix1: ...and THE LEAVE's stay (WorldLeaveStays: a live WorldMap stays, SwirlScene / BattleMapDebug
 +        // Replace -- and the boot-director rule alone, its mutant). Pure: touches no live state. (DioramaWatchStep's host_world rows belong to NetSyncClient's watcher selftest.)
++        // [ff9mapkit netsync s145] fix4: ...and THE PASSIVE PROMPTS (WorldWindowBusy: the entrance tile's two [NFOC] prompts boot, a
++        // talk, a choice, a UI dialog, a half-shown window and an unreadable list stay busy -- and Dialogs.Visible, its mutant).
 +        private static WorldWarmIn[] WorldWarmDisqualifiers()
 +        {
 +            WorldWarmIn[] dq = new WorldWarmIn[WorldRows];
@@ -1167,6 +1277,39 @@ index 8fe8b1e..1611cbf 100644
 +                Func<Boolean, String, Boolean> directorOnly = (alive, scene) => alive;
 +                WdioRow(!directorOnly(false, "WorldMap") && WorldLeaveStays(false, "WorldMap"),
 +                        "mutant: the boot-director-only stay Replaces from a live WorldMap the boot returned to (a cold world reload, each release retry)", ref n, ref bad);
++                // [ff9mapkit netsync s145] fix4: THE PASSIVE PROMPTS (WorldWindowBusy / WorldWindowsBusy: the verdict's Dialogs input)
++                WorldWindow prompt = new WorldWindow(true, true, false, true);    // the "?" / "Enter with [CROSS]": [NFOC] script lines, shown
++                WorldWindow[] tile = { prompt, prompt };
++                Func<Boolean, Boolean, Boolean, Boolean, Boolean> rule = WorldWindowBusy;
++                x = free;
++                x.Dialogs = WorldWindowsBusy(tile, rule);
++                WdioRow(!x.Dialogs && WorldWarmVerdict(x, out d) == null,
++                        "prompts: the entrance tile's two [NFOC] prompts are no dialogue -- the guest boots there, warm", ref n, ref bad);
++                WdioRow(!WorldWindowsBusy(new WorldWindow[0], rule), "prompts: no window is no dialogue", ref n, ref bad);
++                WdioRow(rule(true, false, false, true), "prompts: a focus-taking line (a talk, no [NFOC]) is busy", ref n, ref bad);
++                WdioRow(rule(true, true, true, true), "prompts: a choice is busy, an input-inhibited (script-polled) one too", ref n, ref bad);
++                WdioRow(rule(false, true, false, true) && rule(false, false, false, true),
++                        "prompts: a UI dialog (the full map's navigate prompt, a menu popup) is busy, [NFOC] or not", ref n, ref bad);
++                WdioRow(rule(true, true, false, false), "prompts: a window not fully shown (opening or closing: its tags maybe unparsed) is busy",
++                        ref n, ref bad);
++                x = free;
++                x.Dialogs = WorldWindowsBusy(new WorldWindow[] { prompt, new WorldWindow(true, false, false, true), prompt }, rule);
++                WdioRow(x.Dialogs && WorldWarmRow(x, -1, out r) != null && r == WorldRowDialog && WorldWarmVerdict(x, out d) != null && !d,
++                        "prompts: a talk beside the two prompts refuses at the dialogue row, a quiet wait", ref n, ref bad);
++                WdioRow(WorldWindowsBusy(null, rule), "prompts: an unreadable window list is busy", ref n, ref bad);
++                Func<Boolean, Boolean, Boolean, Boolean, Boolean> visible = (sl, ih, ch, sh) => true;
++                WdioRow(WorldWindowsBusy(tile, visible) && !WorldWindowsBusy(tile, rule),
++                        "mutant: Dialogs.Visible reads the entrance tile's prompts busy -- the guest every field exit lands there waits out the fight",
++                        ref n, ref bad);
++                Func<Boolean, Boolean, Boolean, Boolean, Boolean> nfocOnly = (sl, ih, ch, sh) => !ih;
++                WdioRow(!nfocOnly(true, true, true, true) && rule(true, true, true, true),
++                        "mutant: an [NFOC]-only rule boots under a script-polled choice", ref n, ref bad);
++                Func<Boolean, Boolean, Boolean, Boolean, Boolean> scriptBlind = (sl, ih, ch, sh) => !ih || ch || !sh;
++                WdioRow(!scriptBlind(false, true, false, true) && rule(false, true, false, true),
++                        "mutant: a script-blind rule boots under an [NFOC] UI dialog", ref n, ref bad);
++                Func<Boolean, Boolean, Boolean, Boolean, Boolean> shownBlind = (sl, ih, ch, sh) => !sl || !ih || ch;
++                WdioRow(!shownBlind(true, true, false, false) && rule(true, true, false, false),
++                        "mutant: a shown-blind rule boots under a window still opening (its choice not yet parsed)", ref n, ref bad);
 +            }
 +            catch (Exception err)
 +            {
@@ -1189,7 +1332,7 @@ index 8fe8b1e..1611cbf 100644
          // THE PARTY BRACKET (rung 2.5) -- the net that must exist BEFORE B3.2's apply writes anything.
          //
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-index 38ea53c..588de66 100644
+index 38ea53c..0a4b540 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 @@ -579,6 +579,15 @@ namespace Memoria.Netsync
@@ -1637,7 +1780,7 @@ index 38ea53c..588de66 100644
  
          // ---------------------------------------------------------------- THE SESSION GRACE ([ff9mapkit netsync R3 s120])
          /// <summary>[ff9mapkit netsync R3 s120] THE SESSION'S STEP (SessionTick; the truth table is SessionGraceSelfTest). `peerAlive` =
-@@ -2900,214 +3016,720 @@ namespace Memoria.Netsync
+@@ -2900,214 +3016,724 @@ namespace Memoria.Netsync
          internal static Boolean SessionGraceSelfTest(out String detail)
          {
              Int32 rows = 0;
@@ -2041,6 +2184,10 @@ index 38ea53c..588de66 100644
 +                _worldBootWaitWhy = why;
 +                Log.Message("[NetSync] diorama waits on world map " + FF9StateSystem.Common.FF9.wldMapNo + ": " + why + " (nonce " + nonce
 +                            + "; retried each second, logged once per reason)");
++                // [ff9mapkit netsync s145] fix-r1: the dialogue row names the window that holds it, beside the line (its why unchanged)
++                String which = String.Equals(why, NetSyncDiorama.WorldWhyDialog) ? NetSyncDiorama.WorldDialogsBusyWhich(PersistenSingleton<UIManager>.Instance) : null;
++                if (which != null)
++                    Log.Message("[NetSync] diorama world wait: the dialogue row's window -- " + which + " (nonce " + nonce + ")");
 +            }
 +            return true;
 +        }
@@ -2378,7 +2525,7 @@ index 38ea53c..588de66 100644
                  if (!EventEngineUtils.eventIDToFBGID.ContainsKey(rs.Field))
                      return;                // not on this install -- the overlay explains (OvlPeerNoField)
                  if (HoldHoldsFor(rs.Field))
-@@ -3183,6 +3805,16 @@ namespace Memoria.Netsync
+@@ -3183,6 +3809,16 @@ namespace Memoria.Netsync
              return onWorld ? -1 : fld;
          }
  
@@ -2395,7 +2542,7 @@ index 38ea53c..588de66 100644
          /// <summary>[ff9mapkit netsync s144] (pure) THE ARM's gates, in order; null = arm now. `sysMode` = FF9StateSystem.mode,
          /// `rampPending` = the session's exit ramp, `snapshot` = a fresh host state frame on the wire (GetRemoteState() != null),
          /// `control` = RAW usercontrol (EventEngine.GetUserControl), `fullMap` = the full map open (ff9.w_naviMode 2: a WorldHUD
-@@ -3361,6 +3993,15 @@ namespace Memoria.Netsync
+@@ -3361,6 +3997,15 @@ namespace Memoria.Netsync
          /// (BattleReturnInFlight) only once they are all clear. Static and instance-free on purpose: NetSyncDiorama gates on it too.</summary>
          internal static String WorldTransitionWhy()
          {
@@ -2411,7 +2558,7 @@ index 38ea53c..588de66 100644
              try
              {
                  EventEngine ee = PersistenSingleton<EventEngine>.Instance;
-@@ -3372,7 +4013,10 @@ namespace Memoria.Netsync
+@@ -3372,7 +4017,10 @@ namespace Memoria.Netsync
                  Boolean armed = i != null && i._worldFollowArmed >= 0;
                  String why = WorldLatchStep(live, sys.mode, sys.attr, nextMode, fading, NetSyncDiorama.Booted, false, armed);
                  if (why == null && NetSyncDiorama.BattleReturnInFlight(ee))
@@ -2422,7 +2569,7 @@ index 38ea53c..588de66 100644
                  return why;
              }
              catch
-@@ -3401,6 +4045,17 @@ namespace Memoria.Netsync
+@@ -3401,6 +4049,17 @@ namespace Memoria.Netsync
              return !eventWorld || control;
          }
  
@@ -2440,7 +2587,7 @@ index 38ea53c..588de66 100644
          // The arm's gates over the live state; records the verdict for the harness (`netsync.world.rejoin.why`) and logs each new
          // refusal once per destination (every gate logs, latched). Never throws (a read failure refuses).
          private String WorldArmWhy(Int32 dest)
-@@ -4459,6 +5114,7 @@ namespace Memoria.Netsync
+@@ -4459,6 +5118,7 @@ namespace Memoria.Netsync
              _waitAwayArmed = false;          // [ff9mapkit netsync s144]
              _waitAwayDue = false;            // [ff9mapkit netsync s144]
              _waitKeep = false;               // [ff9mapkit netsync s144]
@@ -2448,7 +2595,7 @@ index 38ea53c..588de66 100644
          }
  
          // HOST, main thread: emit a transition intent at the MAPJUMP commit point (and the debug-menu
-@@ -5308,6 +5964,7 @@ namespace Memoria.Netsync
+@@ -5308,6 +5968,7 @@ namespace Memoria.Netsync
              _dioramaSeenNonce = -1;
              _dioramaBootFailNonce = -1;      // [ff9mapkit netsync R3 s114] ...and the failed-boot count (its nonce restarts too)
              _dioramaBootFails = 0;
@@ -2456,7 +2603,7 @@ index 38ea53c..588de66 100644
              _talkDeferNonce = -1;            // a deferred start of the old host is gone with it
              _talkSceneTalk = -1;             // ...and the scene record keyed on its (restarting) talk nonce
              _talkSceneNonce = -1;
-@@ -6505,6 +7162,10 @@ namespace Memoria.Netsync
+@@ -6505,6 +7166,10 @@ namespace Memoria.Netsync
          public static Boolean HarnessHostWorld { get { NetSyncClient i = _instance; return i != null && i._hostWorld; } }
          public static Boolean HarnessHostTitle { get { NetSyncClient i = _instance; return i != null && i._hostTitle; } }
          public static Int32 HarnessFollowHold { get { NetSyncClient i = _instance; return i == null ? -1 : i._worldHoldField; } }

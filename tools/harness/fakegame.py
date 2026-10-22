@@ -989,6 +989,15 @@ FAKE_SONG_STOPCURRENT_FADE_S = 0.5
 #:   "latch_before_settle"  the pre-fix2 LeaveFrom order: the witness latches the instance BEFORE the settle shuts it, so the settle's
 #:                          own 2 s fade reads 'left playing' on a correct return (raudio-1's false red)
 WORLD_MUSIC_FAULTS = ("bwe_stop_missing", "latch_before_settle")
+#: [ff9mapkit netsync s145 fix4] THE WORLD SCRIPT's PASSIVE PROMPTS (opt-in, ``FakeGame.world_prompts``): a walker on a
+#: ``world_locations`` tile, on WorldHUD with the full map shut, stands under the world script's two [NFOC] windows -- the "?" and
+#: "Enter with [CROSS]", published in `dialog` as HarnessAgent does (BW.WORLD_PROMPT_RAW / WORLD_PROMPT_TEXTS) and read by the world
+#: verdict's Dialogs input through the engine's rule (BW.world_windows_busy: passive, the guest boots there). Their fault lever
+#: (``FakeGame.world_prompt_faults``; the model off, it does nothing):
+#:   "prompts_busy"         s145-as-captured's Dialogs.Visible: any open window is busy -- a guest frozen on a location tile waits
+#:                          out the whole fight (the in-game T2 / duo failure: "a dialogue window is open", then the late join
+#:                          DECLINED)
+WORLD_PROMPT_FAULTS = ("prompts_busy",)
 #: [ff9mapkit netsync s145] the world's Main_Init spawn (a cold return lands here): 9011's is the FARSHORE landing
 FAKE_WORLD_SPAWN = {9011: (68.0, -444.0)}
 #: [ff9mapkit netsync s145] the stand-in's stall cap on a booted wire diorama whose lane went stale with the peer alive (frames)
@@ -1875,6 +1884,11 @@ class FakeGame:
         #: WORLD_MUSIC_FAULTS levers.
         self.world_music = None
         self.world_music_faults: set = set()
+        #: [ff9mapkit netsync s145 fix4] THE WORLD SCRIPT's PASSIVE PROMPTS (opt-in: False, the default, opens none -- every earlier
+        #: run reads as before): True -- a walker on a ``world_locations`` tile on WorldHUD (the full map shut) stands under the two
+        #: [NFOC] prompts. ``world_prompt_faults``: the WORLD_PROMPT_FAULTS levers.
+        self.world_prompts = False
+        self.world_prompt_faults: set = set()
         #: [fix3-r2] the sound model's stop fades on the WALL clock (opt-in: False, the default, keeps them on the virtual clock --
         #: every earlier run reads as before): a stop's end is stamped time.time() + its fade and `boot_song_live` compares against
         #: time.time(), as SaXAudio fades in real time and the bench's re-reads (coop_world_battle.song_quiet) are wall-clock
@@ -4140,10 +4154,11 @@ class FakeGame:
                        "dir": 0, "floor": 0, "tri": 0, "control": self.control},
             "input": {"key_up": self._is_held("up"), "key_confirm": self._is_held("confirm"),
                       "move_key": bool(held), "dash_inh": int(self.dash_inhibit), "axis_x": 0.0, "axis_y": 0.0},
-            "dialog": {"open": bool(self.texts) or self.choice is not None,
-                       "count": len(self.texts),
-                       "texts": self.texts, "phrase_raw": self.raw_texts or self.texts,
-                       "choice": self.choice},
+            "dialog": ({"open": bool(self.texts) or self.choice is not None,
+                        "count": len(self.texts),
+                        "texts": self.texts, "phrase_raw": self.raw_texts or self.texts,
+                        "choice": self.choice} if not self._world_prompts_open()
+                       else self._dialog_doc_with_prompts()),        # [ff9mapkit netsync s145 fix4] + the world's two prompts
             "menu": dict(self.menu),
             "battle": self._battle_doc(),
             "flags": {str(b): self._watched_bit(b) for b in self.watch},
@@ -5965,6 +5980,14 @@ class FakeGame:
                 return int(fid)
         return None
 
+    def _dialog_doc_with_prompts(self) -> dict:
+        """[ff9mapkit netsync s145 fix4] HarnessAgent's `dialog` block with the world script's two passive prompts open: every
+        active window in the list's order (the stand-in's own window first, then the "?" and "Enter with [CROSS]"), as the in-game
+        T2 and duo guests published them."""
+        texts = list(self.texts) + list(BW.WORLD_PROMPT_TEXTS)
+        raw = list(self.raw_texts or self.texts) + list(BW.WORLD_PROMPT_RAW)
+        return {"open": True, "count": len(texts), "texts": texts, "phrase_raw": raw, "choice": self.choice}
+
     def _world_mapjump(self, dest: int) -> int:
         """A world script's own Field(dest) (a location's MAPJUMP, an event world's): on a SPECTATOR guest
         RedirectGuestFieldJump's mode-3 branch first (decision 6: BW.world_redirect_step -- never fldMapNo; the
@@ -6295,8 +6318,37 @@ class FakeGame:
             world_hud=self.ui_state == "WorldHUD", bee_scene=bool(self.world_bee), travel_mode=self._world_ctl(), world=wld,
             ctx0_inited=3 if live else 1, ctx0_lastmap=(wld & 0xFFFF) if live else -1, ctx1_inited=0,
             has_reinit=wld not in BW.EVENT_WORLD_MAPS and wld not in self.world_no_reinit, main_level=7, resuming=False,
-            latch_why=latch, full_map=bool(self.world_full_map), topograph=int(self.world_topo), dialogs=self._dialog_open(),
+            latch_why=latch, full_map=bool(self.world_full_map), topograph=int(self.world_topo),
+            dialogs=self._wdio_dialogs_busy(),                   # [fix4] WorldDialogsBusy: the passive prompts are no dialogue
             control=bool(self.control), player=self.world.get("x") is not None)
+
+    def _world_prompts_open(self) -> bool:
+        """[ff9mapkit netsync s145 fix4] the world script's two passive prompts (opt-in ``world_prompts``) stand open: the walker on
+        a ``world_locations`` tile, on WorldHUD with the full map shut (WorldHUD.OnKeySelect's full map closes every window).
+        [ff9mapkit netsync s145 fix-r1] ...and not inside a world boot's swirl: the SwirlScene load closes every window
+        (UIManager.OnLevelWasLoaded: Dialogs.CloseAll -- in game 0 windows on every swirl / battle sample), and its samples read
+        WorldHUD (nothing on the swirl path writes the UI state)."""
+        return (bool(self.world_prompts) and self.ui_state == "WorldHUD" and not self.world_full_map
+                and self._wdio_swirl is None and self._world_location_at() is not None)
+
+    def _wdio_windows(self) -> list:
+        """The stand-in's open windows as NetSyncDiorama.WorldDialogsBusy reads them -- (script line, input-inhibited, a choice,
+        fully shown): its one dialogue window (a script line; ``dialog_inh`` its [NFOC]; no typewriter: shown the frame it opens),
+        then the world script's two passive prompts."""
+        wins = []
+        if self._dialog_open():
+            wins.append((True, bool(self.dialog_inh), self.choice is not None, True))
+        if self._world_prompts_open():
+            wins += [BW.WORLD_PROMPT_WINDOW, BW.WORLD_PROMPT_WINDOW]
+        return wins
+
+    def _wdio_dialogs_busy(self) -> bool:
+        """[ff9mapkit netsync s145 fix4] the world verdict's Dialogs input (NetSyncDiorama.WorldDialogsBusy through BW's twin); the
+        `prompts_busy` lever (WORLD_PROMPT_FAULTS) reads s145-as-captured's Dialogs.Visible -- any open window busy."""
+        wins = self._wdio_windows()
+        if "prompts_busy" in self.world_prompt_faults:
+            return bool(wins)
+        return BW.world_windows_busy(wins)
 
     def _wdio_verdict(self) -> tuple:
         """WorldWarmWhyNow: (why, durable) -- the `vehicle_boots` fault runs the verdict without its vehicle row."""
