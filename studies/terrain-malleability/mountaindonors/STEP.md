@@ -1,6 +1,9 @@
 # The raised step: carry comp26's and comp10's canopy with their rock
 
-**Status:** registered 2026-10-22, before the decisive sweep. Offline only.
+**Status:** offline result 2026-10-22. **comp26 carries with its canopy at 4 of 6 angles** (0, 90, 200, 270); bare it
+is still 0/6 on the step. **comp10 stays parked:** 0/6 with or without its canopy, refused on two STOCK tris that face
+down by a hair. Registered first (commit 7f293dd4); T2 and T3 are falsified as written, for the reasons below.
+`step_carry.py`.
 
 **The problem** (`NOTES.md` section 2). comp26 (a desert massif, blocks 14-15,3) and comp10 (a grass massif,
 14-15,14) refuse 0/6 on a flat bench of their own ground. Each rim has an edge of ~zero plan length rising 1.95u, so
@@ -54,3 +57,33 @@ grass), radius = the carried blob's rim radius + 28 (the canopy widens the blob)
 **What follows:**
 - **If T3 holds:** each passing donor becomes an in-game round (harness + panels), queued behind s145.
 - **If T3 fails:** the refusal names the next blocker; the donor stays parked.
+
+## Result (offline, 2026-10-22)
+
+| # | measured | verdict |
+|---|---|---|
+| T1 | Uaho 6/6 | **holds** |
+| T2 | comp26: the spec carries exactly its 62 topo-38 canopy tris, no step left on the rim, steepest rim edge 1.08u (was 1.95). comp10: the spec adds exactly its 64 topo-37 canopy tris, no step left, steepest edge 1.645u; but the blob's non-rock count is 108, because 44 topo-10 tris of its summit plateau (y 25.6-28.2, enclosed by rock) are already in the BARE blob | comp26 **holds**; comp10 **falsified as written** (the instrument counted the whole blob's non-rock tris, not what the spec adds) -- what the spec adds holds |
+| T3 | comp26 with its canopy **4/6** on desert; comp10 with its canopy **0/6** on grass | **falsified** (it needed both) |
+| T4 | no canopy carve refuses on zipNyMin (0.93-0.96 everywhere) | **holds** |
+| T5 | comp26 rock-rigid 0.26% on every passing angle | **holds** (comp10 never passed; its rigidity reads 1.7% with the canopy, 0.4% bare) |
+| T6 | comp26 bare 0/6, every refusal the step (rise 1.95, ny 0.00). comp10 bare 0/6, but on the geometry gate (down=1), with the step behind it (zipNyMin 0.01, rise 2.41) | comp26 **holds**; comp10 **falsified as written** |
+
+**comp26's two refusals (30 and 180 deg)** are the zip's longest chord, 9.3u and 9.7u against the 9u ceiling. Every
+other gate is clean there (down 0, near-miss 0, annulus 0, zipNyMin 0.93-0.96).
+
+**comp26's passing carves:** 139 rock + 62 canopy tris, peak 9.8u, zip rise 1.10u, rigid 0.26%, apron 2.5-4.2 deg, a
+r51 desert bench.
+
+**comp10's blocker: two stock tris that face down.** In the donor blob, a canopy wall tri (topo 37, ny -0.007) and a
+rock tri (topo 49, ny -0.003) lean down by a hair: near-vertical walls in the shipping data. De-tilt does not change
+them. The rock one is in the bare blob too (down=1); the canopy adds the other (down=2). This is comp9's class (a
+stock rock face with ny 0.093 that misses the ground query at home): the gate cannot tell a donor's own stock
+geometry from a defect the carve made, and changing that is the owner's call.
+
+**What follows:**
+- **comp26** becomes an in-game round when the harness is free: a desert island at the round-19 site (r55 desert,
+  (1380, -100), blocks (20,0)-(22,2), which holds the r51 bench), carved at 0, 90, 200 or 270 with the canopy spec,
+  harness + panels. If the owner passes it, catalogue it like the snow ridge (`alcove` + `alcove_floor = [38]`).
+- **comp10** waits on a gate decision: whether a donor's own stock down-facing (or ground-query-missing) tris are
+  lawful in a carry.
