@@ -167,6 +167,45 @@ The probe counted stalls over repeated world battle starts on s144, with no DLL 
 - The probe and its driver are in the session scratchpad (`probe145/`); the rows are
   `.harness-runs/s145/swirl/results.jsonl` in the main repo.
 
+## Build and proof (2026-10-21 / 22)
+
+**The build** ran as one workflow: the engine in three pieces (E12 the pure core + boot / leave / seam, E3 the watcher and the
+report, H the harness + the ~ menu + the capture), the repo harness and the bench, a 4-lens review (a skeptic per finding: 15
+survived), fix1, a re-review (4 survived) and fix2. That run died on a usage limit while fix2's full gate was running; fix2 had
+finished every edit, so the recovery was its gate (3017 passed) and a read-only check of its four fixes, which raised 7 bench
+findings -> fix3 (two rounds; 3028 passed). Every capture gate held throughout: compile 0 errors at the 186-warning baseline,
+`apply --check` / `patch -F0` / reverse-apply clean, diag 42 of 42.
+
+**Calibrated on s144 first** (`cal145`): the world-battle tape (17/17) and the held tape (13/13) recorded on the live s144 host,
+then every leg exactly its predicted red set (S145-CAL, WB-CAL, WD-CAL, HF-CAL, D-CAL green). The runners' SWIRL-HANG retry had
+to be re-keyed first: it matched the GREEN swirl row's own catalog text and re-ran clean legs.
+
+**Deploy 1** (`519a98cf2ff222c9`, through fix3; backup `20261022-081117`) proved the warm world return on a real wire (the held
+leg: back at A, battle_prob 365 -> 231, the MAP digest, the music) and found:
+- THE ENGINE DEFECT: the world verdict counted the world map's passive prompts -- the location nameplate and 'Enter with
+  [CROSS]', open as [NFOC] windows on every entrance tile -- as 'a dialogue window is open', so the real-wire guest (T2, the duo:
+  both on the Ice Cavern tile) waited out the whole fight and declined the late join. fix4: a window is busy unless it is a
+  script line, input-inhibited, choiceless and fully shown; a talk, a choice, a UI dialog, a half-shown window or an unreadable
+  manager still refuses; the field verdict untouched. Stock starts its world encounters under those prompts and the swirl's
+  level load closes them (UIManager.OnLevelWasLoaded), the road the s145 boot already takes. Selftest 86 -> 98 rows.
+- THE CAMERA'S SWING IS STOCK'S: an in-game A/B probe ran 4 stock world battles -- every return reads A's camera exactly on its
+  first world frame, then the on-foot follow (ff9.cs:6447-6471) swings it toward yaw 0; a pure twin matches all 4 stock returns
+  and all 4 s145 returns to 0.001 deg. S145-CAM now judges the kept camera on the first world sample plus stock's own follow.
+- Bench re-keys by what the engine does: the cold reference keeps the place on the world map (only battle_prob tells warm from
+  cold); the report is judged up to the guest's own leave (its DECLINED after a settled leave is the engine's); the decline
+  window is bounded by the host's fight (the MAPJUMP intent rejoins 300 before the entry's line reaches the wire).
+
+**Deploy 2** (`f7d55c19d6c1c8d4`, fix4; backup `20261022-162337`): the solo bench 23/23, the lever exact, T2 decline 7/7, T2 held
+9/9, the regression green. Three last bench judges (fix6, no engine change): a prompt on the swirl's first frames is stock's
+(_Swirl waits 9 frames under a visible dialog), WB-300 reads from the earliest lawful rejoin, and the duo's host defends until it
+decodes the guest's menu (an Attack-only host won in 8 s, before the guest's slot came Ready). Re-run: T2 battle 10/10 and its
+calibration 11/11, the duo 20/20. Domain tests 3048 passed.
+
+**Still open** (recorded, none blocking): HF-RET never judges boot_song_live (its tail stops at the first world sample); the
+duo's song_quiet re-read and its live-first lane have no stand-in witness; coop_cut_hold's s120-world needs the hand-recorded
+world-victory tape; the race (the host into the Ice Cavern within 2 s of its victory) and a real vehicle round trip are the
+owner's two-PC checks.
+
 ## Known limits (s145)
 
 - The guest's world map takes none of the host's post-battle story writes (the s144 limit); scripted host world battles

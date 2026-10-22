@@ -36,7 +36,9 @@ each is only written when its flag is given, so re-runs never clobber hand tunin
     --follow-host on       guest side: auto-warp to the host's field; your own
                            random encounters pause while paired   -> FollowHost
                            -- on the world map the host drives: you wait there
-                           and rejoin their next field (engine s144)
+                           and rejoin their next field (engine s144); their
+                           battles there boot on your screen too and return
+                           you where you stood (engine s145)
 
 (The battle diorama -- a following guest's screen boots the host's battles
 live -- is always on since the s42 engine; the old ``--diorama`` knob is gone.

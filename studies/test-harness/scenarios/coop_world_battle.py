@@ -1400,13 +1400,29 @@ def world_before_boot(samples):
     return next((s for s in reversed(samples[:i0]) if off_world(s) is None and not _d(s, "booted")), None)
 
 
+def swirl_prompts_closing(s) -> bool:
+    """(PURE, fix6) a SWIRL sample (scene SwirlScene, not the battle HUD) whose open windows are only the world script's passive
+    prompts (each raw phrase one of BW.WORLD_PROMPT_RAW; one may already be gone). Stock's own: SceneDirector._Swirl waits 9 frames
+    instead of 2 while Dialogs.Visible, LoadLevel('SwirlScene') sets the scene at once, and the level load's
+    UIManager.OnLevelWasLoaded closes every window -- in game (s145-fix4) one prompt read on the first SwirlScene samples of the T2
+    battle leg (frames 8460 / 8471) and the duo (3832, 3834) under the Ice Cavern tile's prompts, none on any battle sample."""
+    if s is None or s.scene != "SwirlScene" or s.ui_state == "BattleHUD":
+        return False
+    n, raw = dialog_count(s), dialog_raw(s)
+    return bool(n) and raw is not None and len(raw) == n and all(r in BW.WORLD_PROMPT_RAW for r in raw)
+
+
 def windows_over_battle(samples) -> list:
     """(PURE) [(frame, what)] of every sample on the boot's stage -- the scene a swirl or battle (:data:`OFF_WORLD_SCENES`) or the
     battle HUD -- with a window open (`dialog.count` > 0) or its dialog block unread: stock's scene load closes every window
-    (UIManager.OnLevelWasLoaded: Dialogs.CloseAll -- in game 0 on every such sample of the solo and held legs)."""
+    (UIManager.OnLevelWasLoaded: Dialogs.CloseAll -- in game 0 on every such sample of the solo and held legs). [fix6] EXCEPT the
+    swirl's own frames under an entrance tile's prompts (:func:`swirl_prompts_closing`: stock's _Swirl holds them into the level
+    load); a foreign window over the swirl, or any window over the battle, still counts."""
     out = []
     for s in samples or []:
         if s is None or not (s.scene in OFF_WORLD_SCENES or s.ui_state == "BattleHUD"):
+            continue
+        if swirl_prompts_closing(s):
             continue
         n = dialog_count(s)
         if n is None or n > 0:
@@ -1587,6 +1603,17 @@ def judge_guest_boot(samples, booted_st, reports, lines, nonce, *, leave=None, b
                 f"{over[:2] or 'none'}; 'diorama LIVE' on nonce {nonce} {len(live)}x")
 
 
+def rejoin_from(enter, bound):
+    """(PURE, fix6) WB-300's window start: the host's entry on the wire, or the earliest lawful rejoin (:func:`rejoin_bound`: the
+    host's own transition less INTENT_SLACK_S, never before its fight's end) when that is earlier -- the guest's rejoin rides the
+    host's MAPJUMP intent (EventEngine.DoEventCode.cs ~1040 -> ServiceIntentFollow, no debounce), which leads the entry's field
+    line: in game (s145-fix4, the battle leg's calibration run) 'world rejoin landed on field 300' was stamped 16:33:51, before the
+    entry anchor, and a window from the anchor read it 0x."""
+    if enter is None:
+        return bound
+    return bound if bound is not None and bound < enter else enter
+
+
 def judge_rejoin_300(samples, after_ret, lines, *, field: int = ICE_CAVERN) -> tuple:
     """WB-300 / D3's tail (PURE): a FieldHUD ``field`` sample, rejoin.lands +1 since ``after_ret`` (the state after the world
     return) and the landed line; NO second return: netsync.diorama.returns and dio.returns as ``after_ret``, last_return_field
@@ -1676,6 +1703,19 @@ def judge_host_hold(host_samples, nonce=None, *, before=None, after=None) -> tup
                 f"release {release!r} late_ms {late!r} (want 'booting' / 'live' / -1{note}); released {rel} (want live +1, every "
                 f"other +0); holds armed +{armed if armed is not None else ' UNREAD'} (want 1); own battles "
                 f"+{battles if battles is not None else ' UNREAD'} (want 1)")
+
+
+#: [fix6] DP's fight: the host DEFENDS until it decodes the guest's control byte 2 / 3 (the guest's slot Ready, its stock menu up),
+#: then attacks -- in game (s145-fix4) an Attack-only host won 8 s after the hold released, before the guest's slot came Ready, and
+#: DP read 'host.wait.menu [-1, 0]' on a guest whose SERVING line was logged. A guest window at the ROOT never freezes the host's
+#: Wait gauges (s113 wait parity: only a deep window does), so the unanswered root keeps the fight running. Capped: past it, attack.
+DP_WAIT_S = 45.0
+
+
+def dp_command(seen_menu: bool, elapsed_s: float, cap_s: float = DP_WAIT_S) -> str:
+    """(PURE, fix6) the duo host's command at its prompt: 'Defend' until the guest's stock menu is decoded (``seen_menu``) or the
+    cap is spent, then 'Attack'."""
+    return "Attack" if seen_menu or elapsed_s >= cap_s else "Defend"
 
 
 def judge_host_menu(host_samples) -> tuple:
@@ -2785,7 +2825,8 @@ def _t2_rejoin(g, led: cb.Ledger, ctx: _T2, p: str, leg: str) -> None:
             led.check(f"{p}-300", False, f"not reached: the host's entry into {ICE_CAVERN} never reached the wire within "
                                          f"{ENTER_WAIT_S:g} s")
             return
-        t0, field, cid = ctx.anchors["enter"], ICE_CAVERN, f"{p}-300"
+        t0, field, cid = rejoin_from(ctx.anchors["enter"], rejoin_bound(ctx.anchors.get("battle"), ctx.plan.get("expect") or {})), \
+            ICE_CAVERN, f"{p}-300"                         # [fix6] the intent fast path: never from the entry alone
     else:
         t0, field, cid = ctx.anchors["battle"], FARSHORE, f"{p}-REJOIN"
     _until(g, ctx, lambda s: s.ui_state == "FieldHUD" and s.field_id == field, REJOIN_S)
@@ -2961,13 +3002,15 @@ def _duo(d, check, rest) -> None:
         tap = None
     nonce = _host_nonce(hsamples)
     hrec = list(hsamples)
+    t_fight = time.time()
 
     def policy(s, slot):
         try:
             hrec.append(host.state)                       # the host's decode of the guest's control frame, each prompt
         except HarnessError:
             pass
-        return {"command": "Attack"}
+        seen = any(_num(cb.path(x, "netsync.battle.host.wait.menu")) in (BW.CTL_ROOT, BW.CTL_DEEP) for x in hrec)
+        return {"command": dp_command(seen, time.time() - t_fight)}        # [fix6] the fight lasts until the guest's menu
     try:
         host.fight(policy=policy, timeout=FIGHT_S, finish=True)
         host.wait_world(timeout=RETURN_S)

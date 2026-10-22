@@ -282,7 +282,8 @@ class CoopDoc(QWidget):
                        "Joining side: my game auto-warps to their field, my random encounters pause, "
                        "and when the host fights my screen boots the same battle live (render-only — "
                        "my own save is never touched). On the world map the host drives: I wait there "
-                       "and rejoin their next stop (engine s144).",
+                       "and rejoin their next stop (engine s144); their battles there boot on my screen "
+                       "too and return me where I stood (engine s145).",
                        pv)
 
         apply_row = QHBoxLayout()

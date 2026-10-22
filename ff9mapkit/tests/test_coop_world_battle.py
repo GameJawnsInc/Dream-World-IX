@@ -1705,6 +1705,10 @@ out["hhold_late"] = wb.judge_host_hold([H("booting"), H("live")], 8, before=H0, 
 out["hhold_unread"] = wb.judge_host_hold([H("booting"), H("live", rel=NO_ENDED)], 8, before=H0)[1]
 out["hhold_live"] = wb.judge_host_hold([H("live", why="live", release=None, count=4, rel=REL())], 8, before=H0)[1]
 out["hhold_ok"] = wb.judge_host_hold([H("booting"), H("live")], 8, before=H0)[1]
+out["dpcmd"] = [wb.dp_command(False, 0.0), wb.dp_command(True, 0.0), wb.dp_command(False, wb.DP_WAIT_S),        # [fix6]
+                wb.dp_command(False, wb.DP_WAIT_S - 0.1)]
+out["rfrom"] = [wb.rejoin_from(T(30), T(25)) == T(25), wb.rejoin_from(T(30), T(35)) == T(30),                    # [fix6]
+                wb.rejoin_from(T(30), None) == T(30), wb.rejoin_from(None, T(25)) == T(25)]
 out["hmenu"] = [wb.judge_host_menu([st(wait_menu=0), st(wait_menu=2)])[0], wb.judge_host_menu([st(wait_menu=0)])[0],
                 wb.judge_host_menu([st(wait_menu=3)])[0], wb.judge_host_menu([st()])[0]]
 out["hang"] = [wb.is_swirl_hang("SwirlScene", 6.0), wb.is_swirl_hang("SwirlScene", 0.5), wb.is_swirl_hang("WorldMap", 60.0),
@@ -1991,7 +1995,14 @@ out["gboot_r1"] = [wb.judge_guest_boot([gb], gb, good_r, live, 5, under=pr_w, pr
                    wb.judge_guest_boot([gb], gb, good_r, live, 5, under=st(), prompts=False)[0],      # held: recorded, green
                    wb.judge_guest_boot([gb, st(ui="BattleHUD", d={"booted": True}, dlg=["[STRT=40,1]  x  "])], gb, good_r, live,
                                        5, under=pr_w, prompts=True)[0],                               # a window over the battle
-                   wb.judge_guest_boot([sw_p, gb], gb, good_r, live, 5, under=pr_w, prompts=True)[0],   # the prompts over the swirl
+                   wb.judge_guest_boot([sw_p, gb], gb, good_r, live, 5, under=pr_w, prompts=True)[0],   # [fix6] the prompts over the
+                   #                                                       swirl: stock's _Swirl holds them into the level load -- green
+                   wb.judge_guest_boot([st(scene="SwirlScene", wit={"ticks": -1}, d={"booted": True}, dlg=PR[:1]), gb], gb, good_r,
+                                       live, 5, under=pr_w, prompts=True)[0],          # [fix6] one prompt left (the in-game shape): green
+                   wb.judge_guest_boot([st(scene="SwirlScene", wit={"ticks": -1}, d={"booted": True}, dlg=["[STRT=40,1]  x  "]), gb],
+                                       gb, good_r, live, 5, under=pr_w, prompts=True)[0],   # [fix6] a FOREIGN window over the swirl: red
+                   wb.judge_guest_boot([gb, st(ui="BattleHUD", d={"booted": True}, dlg=PR)], gb, good_r, live, 5, under=pr_w,
+                                       prompts=True)[0],                               # [fix6] the prompts over the BATTLE: red
                    wb.judge_guest_boot([gb, st(ui="BattleHUD", d={"booted": True}, dlg=None)], gb, good_r, live, 5, under=pr_w,
                                        prompts=True)[0]]                                                  # unread on the stage
 out["gboot_r1_why"] = [wb.judge_guest_boot([gb], gb, good_r, live, 5, under=pr_w, prompts=True)[1],
@@ -2093,6 +2104,10 @@ def test_the_judges_go_red_on_each_wrong_shape():
     assert ("why 'booting' release 'live' late_ms -1" in o["hhold_ok"] and "live +1" in o["hhold_ok"]
             and "holds armed +1" in o["hhold_ok"] and "own battles +1" in o["hhold_ok"]), o["hhold_ok"]
     assert o["hmenu"] == [True, False, True, False]
+    # [fix6] DP's host defends until the guest's menu is decoded (or the cap), then attacks; WB-300 starts at the earlier of the
+    # host's entry and the earliest lawful rejoin (the intent fast path lands before the entry's line)
+    assert o["dpcmd"] == ["Defend", "Attack", "Attack", "Defend"], o["dpcmd"]
+    assert o["rfrom"] == [True, True, True, True], o["rfrom"]
     assert o["hang"] == [True, False, False, False, True]
     assert o["held"] == [True, False, False, False, False, True]
     assert o["stage"][0] == 145 and o["stage"][1] < 145 and o["stage"][2] < 145
@@ -2156,8 +2171,9 @@ def test_the_judges_go_red_on_each_wrong_shape():
     assert o["dwin_r1"] == [True, True, False, True, True, True, True, True, False, False, True], o["dwin_r1"]
     assert "field [300]" in o["dwin_r1_why"] and "LEFT the world map" in o["dwin_r1_why"], o["dwin_r1_why"]
     # g-prompts-no-witness (a) + (b): booted under the prompts green; no prompts / no world sample / unread red where wanted, the
-    # held leg's recorded only; a window over the battle, the prompts over the swirl, an unread stage sample red
-    assert o["gboot_r1"] == [True, False, False, False, True, False, False, False], o["gboot_r1"]
+    # held leg's recorded only; a window over the battle, an unread stage sample red; [fix6] the prompts over the swirl GREEN (stock's
+    # _Swirl, the in-game shape: one prompt left on its first frames), a foreign window over it and the prompts over the battle red
+    assert o["gboot_r1"] == [True, False, False, False, True, False, True, True, False, False, False], o["gboot_r1"]
     assert "booted from the world prompts on frame" in o["gboot_r1_why"][0] and "windows over the battle none" in \
         o["gboot_r1_why"][0], o["gboot_r1_why"][0]
     assert "booted from no window on frame" in o["gboot_r1_why"][1] and "(want the world prompts)" in o["gboot_r1_why"][1]
