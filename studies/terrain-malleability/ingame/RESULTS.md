@@ -1147,7 +1147,7 @@ All 57 checks passed on the first launch, in 420 s:
 The owner judged labelled panels (`mountain_panel_*.png`, four sides). **Verdict: "B, C and D all read as stock
 mountains."** `MTN_SPREAD_MAX` stays 1.5, as the forest's.
 
-## Round 21 (2026-10-22, owner's go: "set up round 21: the comp9 snow massif with its inlet floor"): a snow massif, comp9 with its inlet floor, 58/58; one defect, the plug across an atlas gutter
+## Round 21 (2026-10-22, owner's go: "set up round 21: the comp9 snow massif with its inlet floor"): a snow massif, comp9 with its inlet floor, 58/58; the plug-gutter defect found and fixed
 
 Run `20261022-112304-snow-massif` (the lane: `../snowmassif/NOTES.md`). The offline bench could not be deployed (no 4x4
 open window on disc 1; r94 spills into real (21,3); a large one-lobe outline fails the shape gate), so the lab is a
@@ -1170,7 +1170,11 @@ edge, passed on a rerun with no change):
 panel shows it; an offline top render reproduces it). It is not a hole: the two plug tris (the Object plate carried
 into the pocket) take UVs across a pure-white 1-texel gutter line in the Moguri atlas (v 0.200-0.202). Neither
 `_plug_chart_ok` (the donor's whole rock UV box) nor the mountain atlas gate (transparent AND dark only) can see it.
-Not fixed yet. Owner's verdict on the look: pending.
+**FIXED and re-run** (e04d2184; `20261022-115102-snow-massif-fix`): a plug UV axis that overshoots its collar's UV box
+by more than the chart's own fit residual is clamped into it (Uaho's in-noise overshoot kept: 44/44 catalogued files
+byte-identical), and the atlas gate now refuses white-gutter texels (0 stock Terrain tris sample one). 58/58 on the
+first launch, every reading as before; the near-white pixels in each inlet still went 86 / 90 / 88 -> 0. Owner's verdict
+on the look: pending.
 
 ## Not run
 

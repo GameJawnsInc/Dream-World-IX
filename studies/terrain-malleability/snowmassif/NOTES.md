@@ -1,8 +1,9 @@
 # comp9 in game: a snow massif carried with its inlet floor (round 21)
 
-**Status:** in game, 2026-10-22. 58/58 harness checks on the second launch. One visual defect found, by the owner and
-by an offline render: a white sliver at the back of the inlet, the carried Object plate's plug painted across a
-pure-white atlas gutter. Not fixed yet; the owner's verdict on the look is pending.
+**Status:** in game, 2026-10-22. 58/58 harness checks. The first run found a white sliver at the back of the inlet (the
+owner saw it; an offline render reproduced it): the carried Object plate's plug painted across a pure-white atlas
+gutter. FIXED (e04d2184, section "The fix" below) and re-run in game: 58/58 on the first launch, the sliver gone. The
+owner's verdict on the look is pending.
 
 The lane follows `../mountaindonors/INLET.md` (offline, 4/6 angles). Round record: `../ingame/RESULTS.md` section 36.
 
@@ -66,11 +67,37 @@ Stills settled (at most 0.12% of pixels changed, 60 frames apart).
   - `_plug_chart_ok` (INLET.md round 2) accepts a plug inside the donor rock's min-max UV box, and comp9's box spans
     the gutter. The box is looser than any one tile.
   - `_atlas_gate_mountain` flags only texels that are transparent AND dark. A white gutter is opaque and bright.
-- **Candidate fixes (not built):** keep a plug's UVs inside the tile its collar occupies (no crossing a gutter row or
-  column); and/or let the atlas gate refuse pure-white gutter texels, calibrated against the catalogued carves (Uaho's
-  plugs must still pass, and snow is near-white, so the line is 255).
+- **The vanilla atlas** has no white line, but it changes paint at the same v 0.200 ((164,172,189) below, (222,230,222)
+  above), so on a vanilla install the same plug would show a wrong-paint sliver. The fix therefore cannot key on Moguri.
+
+## The fix (e04d2184, owner's go)
+
+- **THE COLLAR-TILE CLAMP** (`carve_mountain`'s plug chart). A plug UV axis that leaves its collar group's UV box by
+  MORE than the chart's own p90 fit residual on that axis is clamped into the box.
+  - A plain clamp into the box was tried first and REFUSED by the identity check: Uaho's plug also overshoots its
+    collar box (u 3.5 px, v 8 px) and its catalogued bytes moved. Uaho's overshoot sits inside its fit's noise
+    (residual 15 / 10 px), so it is not an extrapolation and is kept. comp9's v overshoot is 27 px against a 9 px
+    residual: clamped.
+  - Two other lines were measured and rejected: no fixed tolerance works (the gutter is 0.002 above comp9's collar,
+    the size of Uaho's harmless overshoot), and "inside the donor's own rock UV coverage" fails both donors (a plug sits
+    in an Object hole in UV space too).
+  - The plug log line names the raw plug UV range against the collar box.
+- **THE GUTTER RULE** (`_atlas_gate_mountain`): a new tri may not sample a texel with every RGB >= 250
+  (`ATLAS_GUTTER_WHITE`). `gutter_census.py` calibrates it: 0 of disc 1's ~84k stock Terrain tris sample one at the
+  gate's sampler (the Object-part hits it prints are another atlas and do not count); the old lab plug samples 2 and 5.
+- **Checks:** the 44 catalogued carve files byte-identical (uaho, crag, horseshoe, comp20, desert-peak); two new tests
+  (a fake-atlas gate test with its break-it; an install-gated comp9 carve showing the raw overshoot and the clamp), both
+  failing on the old `interior.py`; interior + donors + compose 126 passed; discmirror_auto, disc_split, mint_outline,
+  placement_order, river, seam_wrap 190 passed. The rebuilt lab differs from the first only in 2 UV rows of block
+  (21,1) (max 0.0066), and the offline top render shows no sliver.
+
+## The rerun (`20261022-115102-snow-massif-fix`)
+
+58/58 on the first launch, in 389 s. Every reading matches the first run (summits 19.7656 / 19.7344 / 19.7656, 36/36
+ring, 6/6 walks, inlet floor 2.8320, walks in 18.35 / 18.72 / 18.79u). The near-white pixels in the upper half of each
+inlet still, 86 / 90 / 88 before, are 0 / 0 / 0.
 
 ## Scripts
 
-`site_probe.py`, `grid_probe.py`, `lab_build.py`, `lab_prep.py`, `lab_install.py`, `lab_session.py`, `lab_post.py`.
+`site_probe.py`, `grid_probe.py`, `gutter_census.py`, `lab_build.py`, `lab_prep.py`, `lab_install.py`, `lab_session.py`, `lab_post.py`.
 The install and restore are round 20's (ini restored sha efaebbf47c36e752; the lab moved into the run dir).
