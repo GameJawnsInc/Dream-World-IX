@@ -147,6 +147,8 @@ MTN_APRON_SLOPE = 29.5           # the grass apron's slope envelope (deg)
 # (its out/daguerreo_massif.json "phase"); the aperture-plug chart gate quantizes against
 # it (cols 5-10, rows 6-12 = the painted rock band).
 ROCK_CHART_PHASE = (0.015625, 0.01953125)
+ATLAS_GUTTER_WHITE = 250         # the Moguri terrain atlas's gutter lines are pure white; no stock Terrain tri
+#                                  samples a texel this white (snowmassif/gutter_census.py) -- _atlas_gate_mountain
 PLUG_CHART_BAND = ((5, 10), (6, 12))  # that band, (cols, rows): GRASS-world rock (Daguerreo); see _plug_chart_ok
 LAWN_LINE_TOL = 0.05             # THE LAWN-LINE SNAP (UAHO-LAWN-LINE-BENCH.md): a carried fringe
 #                                  contact-edge end further than this (tiles) off the painted lawn
@@ -2906,9 +2908,28 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         log(f"plug chart: collar {len(collar)} tris, biggest continuous group {len(cg)}, "
             f"affine residual p90 u{res_u:.0f} v{res_v:.0f} px")
 
+        # THE COLLAR-TILE CLAMP (snowmassif/NOTES.md, round 21): the affine chart extrapolates past the collar into
+        # whatever the atlas paints next -- comp9's plug reached v 0.2038 while its collar stops at 0.1973, and the
+        # atlas changes tile at v 0.200 (Moguri: a pure-white gutter line, a white sliver in game; vanilla: another
+        # paint). The collar group is one painted patch, so a plug UV axis that leaves the collar's UV box by MORE
+        # than the chart's own p90 fit residual on that axis is clamped into the box; an overshoot inside the fit's
+        # noise is not an extrapolation and is kept (Uaho's: u 3.5 / v 8 px against residuals of 15 / 10 px, so its
+        # in-game bytes do not move; comp9's v overshoot is 27 px against 9).
+        cu_lo, cu_hi = min(ru_), max(ru_)
+        cv_lo, cv_hi = min(rv_), max(rv_)
+        tol_u, tol_v = res_u / 2048, res_v / 4096
+        clamped = [0]
+        raw_uv = []
+
         def plug_uv(p):
             v4 = np.array([p[0], p[1], p[2], 1.0])
-            return float(v4 @ cu_), float(v4 @ cv_)
+            uu, vv = float(v4 @ cu_), float(v4 @ cv_)
+            raw_uv.append((uu, vv))
+            cu2 = min(max(uu, cu_lo), cu_hi) if not cu_lo - tol_u <= uu <= cu_hi + tol_u else uu
+            cv2 = min(max(vv, cv_lo), cv_hi) if not cv_lo - tol_v <= vv <= cv_hi + tol_v else vv
+            if (cu2, cv2) != (uu, vv):
+                clamped[0] += 1
+            return cu2, cv2
 
         for tri in otris:
             corners = []
@@ -2924,7 +2945,11 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         prows = sorted({math.floor((c[4] - pvA) / 0.03125)
                         for cs, _, _ in plug_parents for c in cs})
         log(f"aperture plugs: {len(plug_parents)} object tris carried as terrain "
-            f"(id {plug_id:.0f}, chart cols {pcols} rows {prows})")
+            f"(id {plug_id:.0f}, chart cols {pcols} rows {prows})"
+            + f"; raw plug uv u {min(u for u, _ in raw_uv):.4f}..{max(u for u, _ in raw_uv):.4f} "
+              f"v {min(v for _, v in raw_uv):.4f}..{max(v for _, v in raw_uv):.4f} vs the collar box "
+              f"u {cu_lo:.4f}..{cu_hi:.4f} v {cv_lo:.4f}..{cv_hi:.4f}"
+            + (f"; {clamped[0]} plug uv corner(s) clamped into the collar's uv box" if clamped[0] else ""))
         own_cells = [(math.floor((dU[i][0] - puA) / 0.0625), math.floor((dU[i][1] - pvA) / 0.03125))
                      for t in blob if dtopo[t] in ROCK for i in dtri[t]]
         if not _plug_chart_ok(pcols, prows, own_cells):
@@ -3858,9 +3883,12 @@ def _atlas_gate_mountain(new_parents, *, game=None, log=print):
     """The Moguri-atlas alpha gate (the study's section 7 gate, minus the eye renders):
     every new tri's interior must sample painted texels -- blank = transparent AND dark
     (Moguri paints some in-tile edge strips with alpha 0 that an alpha-ignored opaque
-    shader renders fine; true gutter garbage is transparent AND near-black). Skips with a
-    log line when the Moguri worldmap atlas isn't installed -- it is a texture-source
-    check, not a geometry gate."""
+    shader renders fine; true gutter garbage is transparent AND near-black) -- and none may
+    sample a pure-WHITE gutter texel (every RGB >= :data:`ATLAS_GUTTER_WHITE`): the 1-texel
+    lines between the atlas's painted regions, which render as a white sliver (round 21's
+    comp9 plug). Calibrated by snowmassif/gutter_census.py: 0 of disc 1's stock Terrain tris
+    sample one at this sampler. Skips with a log line when the Moguri worldmap atlas isn't
+    installed -- it is a texture-source check, not a geometry gate."""
     from .. import config
     gp = Path(config.find_game_path(game))
     mog = gp / "MoguriMain" / "StreamingAssets" / "assets" / "resources" / "worldmap" / \
@@ -3886,9 +3914,9 @@ def _atlas_gate_mountain(new_parents, *, game=None, log=print):
             a4[0] += r * wg; a4[1] += g2 * wg; a4[2] += b2 * wg; a4[3] += al * wg
         return a4[3], (int(a4[0]), int(a4[1]), int(a4[2]))
 
-    blank = 0
+    blank = gutter = 0
     for corners, _, fam in new_parents:
-        nb = 0
+        nb = nw = 0
         for ii in range(11):
             for jj in range(11 - ii):
                 w0, w1 = ii / 10.0, jj / 10.0
@@ -3900,14 +3928,23 @@ def _atlas_gate_mountain(new_parents, *, game=None, log=print):
                 aa_, rgb_ = at_b(u_, v_)
                 if aa_ < 24 and sum(rgb_) < 90:
                     nb += 1
+                elif min(rgb_) >= ATLAS_GUTTER_WHITE:
+                    nw += 1
         if nb:
             blank += 1
             log(f"  BLANK {fam} nb={nb} uv "
                 f"{[(round(c[3], 4), round(c[4], 4)) for c in corners]} "
                 f"at ({corners[0][0]:.1f},{corners[0][2]:.1f})")
-    log(f"atlas gate: transparent-sampling tris = {blank} (want 0)")
+        if nw:
+            gutter += 1
+            log(f"  GUTTER {fam} white={nw} uv "
+                f"{[(round(c[3], 4), round(c[4], 4)) for c in corners]} "
+                f"at ({corners[0][0]:.1f},{corners[0][2]:.1f})")
+    log(f"atlas gate: transparent-sampling tris = {blank}, white-gutter tris = {gutter} (want 0 and 0)")
     if blank:
         raise ValueError(f"{blank} new tri(s) sample transparent atlas texels")
+    if gutter:
+        raise ValueError(f"{gutter} new tri(s) sample the atlas's white gutter texels (a white sliver in game)")
 
 
 # ---- census + deploy ------------------------------------------------------------------------

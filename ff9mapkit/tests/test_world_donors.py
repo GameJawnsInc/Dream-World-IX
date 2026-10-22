@@ -111,7 +111,8 @@ def test_donor_literals_pin_to_catalog_rows():
 
     # the qualified massif rects: the four the interior topo-narrowing verified (interior.py's
     # MOUNTAIN_ROCK_TOPOS comment names them) and the desert peak (terrain study, mountaindonors/)
-    for blocks in ("0,0", "10,5-6", "5-6,15-16", "12,16-17", "19,3"):
+    # and the snow ridge (comp9: mountaindonors/INLET.md + snowmassif/, owner-passed in game)
+    for blocks in ("0,0", "10,5-6", "5-6,15-16", "12,16-17", "19,3", "8-10,0-1"):
         assert rows[blocks]["class"] == "massif" and rows[blocks]["status"] == "qualified"
 
 
@@ -131,6 +132,12 @@ def test_catalog_rows_are_well_formed():
         if r["class"] == "massif":
             from ff9mapkit.world.grassland import GROUNDS
             assert r.get("home_ground") in GROUNDS, r
+            # an alcove is a 5-number box (x0 < x1, z0 < z1); its floor, when named, is whole topographs
+            if "alcove" in r:
+                x0, x1, z0, z1, _ = r["alcove"]
+                assert len(r["alcove"]) == 5 and x0 < x1 and z0 < z1, r
+            assert all(isinstance(t, int) for t in r.get("alcove_floor", [])), r
+            assert "alcove_floor" not in r or "alcove" in r, r
         # every river names its read window (holding its blocks and unit blocks) and both join columns
         if r["class"] == "river":
             window = set(cli._parse_block_rect(r["window"]))
@@ -180,3 +187,35 @@ def test_world_donors_verb_prints_the_table(capsys):
     assert args.func(args) == 0
     out = capsys.readouterr().out
     assert "uaho" in out and "beach-island" not in out
+
+
+# ---- the catalogued alcove (the snow ridge, comp9's inlet floor) -----------------------------------------------------
+
+def test_catalog_alcove_is_the_carves_spec():
+    """donors.catalog_alcove hands carve_mountain the row's alcove: Uaho's equals the frozen literal (so the CLI's
+    hand-in carves Uaho's identity bytes), the snow ridge adds its snow floor, a donor without one is None."""
+    from ff9mapkit.world import interior as IN
+    from ff9mapkit.world.donors import catalog_alcove, spec_blocks
+    assert catalog_alcove([(0, 0)]) == IN.UAHO_ALCOVE
+    ridge = catalog_alcove(sorted(spec_blocks("8-10,0-1")))
+    assert ridge == ((65.0, 77.5), (-100.0, -79.5), 3.0, (27,))
+    assert catalog_alcove(list(reversed(sorted(spec_blocks("8-10,0-1"))))) == ridge     # a rect is a set
+    assert catalog_alcove([(19, 3)]) is None and catalog_alcove([(10, 5)]) is None
+    # the drift pin: the spec round 21 proved in game (tests/test_world_interior.py's COMP9_INLET)
+    from tests.test_world_interior import COMP9_INLET
+    assert ridge == COMP9_INLET
+
+
+def test_world_mountain_hands_the_catalogued_alcove_to_the_carve(monkeypatch):
+    """Drop the alcove= in _cmd_world_mountain and this goes red."""
+    from ff9mapkit.world import interior as IN
+    seen = []
+    monkeypatch.setattr(IN, "read_deployed_blocks", lambda *a, **k: {})
+    monkeypatch.setattr(IN, "soup_from_blocks", lambda blocks: object())
+    monkeypatch.setattr(IN, "carve_mountain",
+                        lambda soup, **k: seen.append(k.get("alcove")) or (_ for _ in ()).throw(ValueError("stub")))
+    for donor in ("8-10,0-1", "0,0", "19,3"):
+        args = cli.build_parser().parse_args(["world-mountain", "--mod-folder", "X", "--near", "100,-100",
+                                              "--donor", donor, "--dry-run"])
+        assert args.func(args) == 2
+    assert seen == [((65.0, 77.5), (-100.0, -79.5), 3.0, (27,)), IN.UAHO_ALCOVE, "auto"]

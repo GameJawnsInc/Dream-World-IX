@@ -5583,10 +5583,11 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
     try:
         (wx, wz), exact = _parse_world_point(args)
         donor_blocks = _parse_block_rect(args.donor)
-        from .world.donors import home_ground_note
+        from .world.donors import catalog_alcove, home_ground_note
         note = home_ground_note(donor_blocks, args.ground)
         if note:
             print(note)
+        alcove = catalog_alcove(donor_blocks) or "auto"    # a catalogued donor's cave/inlet floor rides with its rock
         blocks = IN.read_deployed_blocks(args.mod_folder, near=(wx, wz), reach=args.reach,
                                          disc=args.disc, game=args.game,
                                          target_disc=args.target_disc)
@@ -5605,7 +5606,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
                                 foot_course_rects=fc_rects, rock_height=args.rock_height,
                                 rot_deg=args.rot, spread=args.spread,
                                 center=(wx, wz) if exact else None,
-                                near=None if exact else (wx, wz), donor=donor_blocks,
+                                near=None if exact else (wx, wz), donor=donor_blocks, alcove=alcove,
                                 ground=args.ground, disc=args.disc, game=args.game)
         # parts= (audit rec 11): census the REAL carried ensemble overrides, not hidden
         # blanks -- Object registers ahead of Terrain, so omitting it hid a defect class.

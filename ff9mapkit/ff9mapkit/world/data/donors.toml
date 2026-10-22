@@ -5,7 +5,10 @@
 # `status`: qualified (shipped-verb proven) / candidate (scan output awaiting a human) /
 # disqualified. `aperture`: none / object / ensemble (a falls-river MOUTH covered by the
 # Object+Falls+River+RiverJoint carry). `alcove` (massifs only): the hand-measured flat
-# cave-floor box [x0, x1, z0, z1, y_min] in the donor block's world frame. `home_ground` (massifs
+# cave-floor box [x0, x1, z0, z1, y_min] in the FIRST donor block's local frame (world x - 64*bx;
+# for a row-0 block z is unchanged), and `alcove_floor` the floor's topographs (default [0], grass).
+# world-mountain and world-fuse hand a row's alcove to the carve (donors.catalog_alcove); a donor with
+# no alcove carries none. `home_ground` (massifs
 # only): the ground family its rim stands on at home, measured from the stock bytes (terrain study,
 # mountaindonors/) -- world-mountain warns when --ground differs (world/donors.home_ground_note).
 # River rows (world-river, world/river.py) add `window` (the stock read, a rect spec), `unit_blocks`
@@ -69,6 +72,18 @@ home_ground = "desert"
 status = "qualified"
 anatomy_study = "studies/terrain-malleability/mountaindonors/ (census.py comp23; sweep.py 6/6 angles on a desert bench; in game: ingame/RESULTS.md section 34, 34/37, owner-passed)"
 note = "139 rock tris (all topo 49), radius 26.1u, peak 12.5u over its rim; a desert coast at home. Carry onto a desert island: world-island --ground desert, world-mountain --donor 19,3 --ground desert."
+
+[[donor]]
+name = "snow-ridge"
+blocks = "8-10,0-1"
+class = "massif"
+aperture = "object"
+alcove = [65.0, 77.5, -100.0, -79.5, 3.0]
+alcove_floor = [27]
+home_ground = "snow"
+status = "qualified"
+anatomy_study = "studies/terrain-malleability/mountaindonors/ (census.py comp9; INLET.md: the inlet floor, 4/6 angles offline) + snowmassif/ (in game: ingame/RESULTS.md section 36, 58/58 twice, owner-passed)"
+note = "comp9, a coastal snow ridge with an inlet: 388 rock tris + 15 inlet snow + a 2-tri Object plate carried as a plug; radius 65.3u, peak 20.4u. The alcove carries the inlet floor (snow) so the rim closes across its 11.4u mouth. Needs a big snow island: world-island --ground snow --radius 88 --lobes 2 (a one-lobe island this size fails the shape gate), then world-mountain --donor 8-10,0-1 --ground snow. Some placements refuse on one near-vertical stock rock face (ny 0.093) that misses the ground query at home too: try another --near."
 
 [[donor]]
 name = "forest-blob"

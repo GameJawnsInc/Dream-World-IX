@@ -427,11 +427,12 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         else:                                                # mountain
             extra = {"ground": row["ground"]} if "ground" in row else {}
             donor = _parse_block_rect(row.get("donor", [IN.MOUNTAIN_DONOR]))
-            from .donors import home_ground_note
+            from .donors import catalog_alcove, home_ground_note
             note = home_ground_note(donor, row.get("ground", "grass"))
             if note:
                 print(note)
             res = IN.carve_mountain(soup, donor=donor, disc=disc, game=game,
+                                    alcove=catalog_alcove(donor) or "auto",
                                     rock_height=float(row.get("rock_height", 1.0)),
                                     spread=float(row.get("spread", 1.0)),
                                     rot_deg=rot, **loc, **extra)

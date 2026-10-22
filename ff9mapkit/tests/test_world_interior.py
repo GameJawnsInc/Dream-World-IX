@@ -936,6 +936,39 @@ def test_plug_chart_gate_accepts_the_painted_band_or_the_donors_own_rock():
     assert not IN._plug_chart_ok([11, 12], [9, 10], snow_rock)
 
 
+def test_atlas_gate_refuses_a_white_gutter_texel(monkeypatch, tmp_path):
+    """THE GUTTER RULE (snowmassif/NOTES.md, round 21): the Moguri atlas splits its painted regions with 1-texel
+    pure-white lines; a new tri sampling one renders a white sliver. The gate refused only transparent-and-dark
+    texels, so comp9's plug passed it. A 64x64 fake atlas, grey with one white band: a tri across the band is
+    refused by name, the same tri moved off it passes (the rule must not fire on painted texels)."""
+    from PIL import Image
+    from ff9mapkit import config
+    tex = tmp_path / "MoguriMain" / "StreamingAssets" / "assets" / "resources" / "worldmap" / "textures"
+    tex.mkdir(parents=True)
+    im = Image.new("RGBA", (64, 64), (150, 166, 179, 255))
+    for x in range(64):
+        for y in range(30, 35):                                         # v ~0.46-0.53, a band as thick for its
+            im.putpixel((x, y), (255, 255, 255, 255))                   # sampler as Moguri's ~11-texel line
+    im.save(tex / "res(1_24)_terrain.png")
+    monkeypatch.setattr(config, "find_game_path", lambda game=None: tmp_path)
+
+    def tri(v0):
+        return (((0.0, 0.0, 0.0, 0.30, v0, 0, 1, 0), (1.0, 0.0, 0.0, 0.40, v0, 0, 1, 0),
+                 (0.0, 0.0, 1.0, 0.35, v0 + 0.06, 0, 1, 0)), MASSIF, "plug")
+    with pytest.raises(ValueError, match="white gutter"):
+        IN._atlas_gate_mountain([tri(0.46)], log=lambda *a: None)       # spans v 0.46-0.52 across the row
+    IN._atlas_gate_mountain([tri(0.20)], log=lambda *a: None)           # painted texels only: passes
+    # break it: the pre-round-21 gate (transparent AND dark only) lets the gutter tri through
+    with monkeypatch.context() as mp:
+        mp.setattr(IN, "ATLAS_GUTTER_WHITE", 256)
+        IN._atlas_gate_mountain([tri(0.46)], log=lambda *a: None)
+
+
+# comp9 (a snow massif) with its inlet floor -- mountaindonors/INLET.md; the round-21 lab's spec
+COMP9_BLOCKS = [(8, 0), (8, 1), (9, 0), (9, 1), (10, 0)]
+COMP9_INLET = ((65.0, 77.5), (-100.0, -79.5), 3.0, (27,))
+
+
 def test_carve_mountain_keeps_skipped_bank_idalls_and_the_gate_refuses_a_strip(monkeypatch, tmp_path):
     _patch_donor(monkeypatch, _bank_pyramid_donor())
     res = _carve_pyramid(tmp_path, rock_topos=(49, 62))
@@ -2564,3 +2597,34 @@ def test_carve_mountain_foot_course_steepen(monkeypatch, tmp_path):
     # TOP, barely moves -- the face steepens
     assert base_radius(res0) - base_radius(res1) > 1.2
     assert res1["report"]["peak_y"] == pytest.approx(res0["report"]["peak_y"], abs=1e-6)
+
+
+@needs_game
+def test_carve_mountain_clamps_comp9s_plug_into_its_collar_tile(tmp_path):
+    """THE COLLAR-TILE CLAMP (snowmassif/NOTES.md, round 21): comp9's plug chart extrapolates to v 0.2038, past its
+    collar (v <= 0.1973) and across the atlas's tile line at 0.200 -- the white sliver the owner saw. The carve
+    clamps that overshoot (27 px against a 9 px fit residual) into the collar's uv box, and its plugs then sample
+    no gutter texel. Uaho's plug overshoot sits inside its fit's noise and is kept: the identity nets above pin it.
+    The raw overshoot is asserted too, so the clamp is shown to have had work to do."""
+    from ff9mapkit.world.island import build_landmass
+    for seed in (42.0, 7.0, 11.0):                     # mountaindonors/sweep.py's bench: r94 snow at (1380, -100)
+        try:
+            built = build_landmass(center=(1380.0, -100.0), base_radius=94.0, seed=seed, lobes=1, n_patches=0,
+                                   ground="snow")
+            break
+        except Exception:                              # noqa: BLE001 -- a mint that trips its own shape gates
+            continue
+    blocks = {blk: M.blockmesh_from_ff9mesh(M.write_ff9mesh(bm, tmp_path / f"b_{blk[0]}_{blk[1]}.ff9mesh"), disc=1,
+                                            x=blk[0], y=blk[1], part="terrain")
+              for blk, bm in built["blocks"].items()}
+    lines = []
+    res = IN.carve_mountain(IN.soup_from_blocks(blocks), near=(1380.0, -100.0), donor=COMP9_BLOCKS, rot_deg=0,
+                            ground="snow", alcove=COMP9_INLET, log=lines.append)
+    plug_line = next(str(s) for s in lines if str(s).startswith("aperture plugs:"))
+    m = re.search(r"raw plug uv u \S+ v ([\d.]+)\.\.([\d.]+) vs the collar box u \S+ v ([\d.]+)\.\.([\d.]+)",
+                  plug_line)
+    raw_hi, box_hi = float(m.group(2)), float(m.group(4))
+    assert raw_hi > box_hi + 0.004, plug_line                            # the chart does overshoot (27 px)
+    assert "clamped into the collar's uv box" in plug_line
+    assert res["report"]["plugs"] == 2
+    assert any("white-gutter tris = 0" in str(s) for s in lines) or any("atlas gate SKIPPED" in str(s) for s in lines)
