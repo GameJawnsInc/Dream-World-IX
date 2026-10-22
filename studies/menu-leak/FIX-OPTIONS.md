@@ -4,16 +4,30 @@ This expands the "Fix options" section of [`FINDINGS.md`](FINDINGS.md) into what
 Nothing here is applied. The facts below were checked against the shared clone `C:\gd\FFIX\Memoria` (base
 `6b8bb2d5`, `origin/main` fetched up to `ac44a41f`) and the live install.
 
-## Status: A1 is built but not installed
+## Status: A1 is installed and the leak is gone by measurement; the listening pass is still open
 
 - `py tools/build_saxaudio.py` builds both arches from the pinned `5b49756c` through `git archive`, so the shared
   clone is never checked out. The output goes to `build/saxaudio/5b49756ce04e/out/` in the main repo. x64 sha256
   is `6e369399132dd2fc…` and x86 is `57d13987e811c7dd…`. Both match the live July DLLs exactly: the same 55
   exports and the same import list (CRT plus system `xaudio2_9.dll`).
-- **It is held, not installed.** The harness belongs to the s145 run, and swapping `Plugins/SaXAudio.dll`
-  would change that run's conditions. Once s145 finishes, run `py tools/build_saxaudio.py --install --label
-  pre-saxaudio-fix` with FF9 closed, relaunch, and run `se_soak.py`. Undo with `--restore`.
-- Bundle and installer plumbing (step 3) and A2 have not started.
+- **Installed in the shared install on 2026-10-22** with `--install --label pre-saxaudio-fix`. The July DLLs are
+  backed up as `backups/SaXAudio.{x64,x86}.dll.pre-saxaudio-fix.20261022-194827`. Undo with
+  `py tools/build_saxaudio.py --restore`.
+- **`se_soak.py` on SEBENCH 30488** (`data/20261022-194840-se_soak-saxaudio-fix.soak.jsonl`):
+
+  | DLL | first 10 s (warm-up) | 10 s → 120 s | Script's summary |
+  |---|---|---|---|
+  | July 2025 (`data/20261010-173935-se_soak`) | +7.9 MB | **+78.3 MB = 0.71 MB/s** | 0.718 MB/s |
+  | Upstream `5b49756c` | +6.9 MB | **+0.3 MB = 0.003 MB/s** | 0.06 MB/s |
+
+  The script's summary averages in the one-off warm-up step that both runs share (the bench loading its bank).
+  The steady-state slope is the real comparison: about 250 times lower, well under the 0.05 MB/s bar. The run
+  logged `[SaXAudio] Initialized`, with no exceptions in `Memoria.log` or `output_log.txt`.
+- **Still open:**
+  - The owner's listening pass. The harness can't hear, so flat memory alone doesn't prove the sound effects
+    still play.
+  - `bench_soak.py`'s choice-versus-plain comparison.
+  - Bundle and installer plumbing (step 3), and A2.
 
 ## What we found while mapping it
 
