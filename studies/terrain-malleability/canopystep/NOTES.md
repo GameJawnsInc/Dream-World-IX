@@ -1,7 +1,7 @@
 # comp26 in game: a desert massif carried with its walled canopy
 
-**Status:** READY, NOT RUN (2026-10-22). Built and prepped offline while the harness serves s145; the round runs when
-it is free. Offline result: `../mountaindonors/STEP.md` (comp26 carries with its canopy at 4 of 6 angles).
+**Status:** in game, 2026-10-22 (round 22, `ingame/RESULTS.md` section 37): **77/77 on the first launch**, every
+prediction held. The owner's verdict on the look is pending. Offline result: `../mountaindonors/STEP.md`.
 
 ## What the round asks
 
@@ -55,3 +55,21 @@ py studies/terrain-malleability/canopystep/lab_post.py <run dir>
 - Install refuses while FF9 runs or another lab is in the install; the ini backup goes to the main repo's `backups/`.
 - If the owner passes it: catalogue it like the snow ridge (`blocks = "14-15,3"`, `alcove` = the spec's box and
   y_min, `alcove_floor = [38]`, `home_ground = "desert"`), and the CLI carries it with no further change.
+
+## The run (`20261022-125735-canopy-step`)
+
+77/77 on the first launch, in 502 s; the ini restored byte-exact (sha efaebbf47c36e752), the lab moved into the run dir.
+
+| # | measured | verdict |
+|---|---|---|
+| P1 | summits 9.3750 / 9.3203 / 9.3672 / 9.3203 against 9.3815 / 9.3237 / 9.3710 / 9.3237 | holds |
+| P2 | 48/48 ring points round the carried blob, the canopy's wall foot included | holds |
+| P3 | 8/8 view walks on built ground, 0 samples off a surface or on rock | holds |
+| P4 | every view and canopy home | holds |
+| P5 | 20/20 canopy points read their surface less 1.171875 (to about 0.004); each walk in climbed onto the canopy (12-14 samples on it) and crossed it to the rock, 29.8-30.5u (need about 18u), min y 3.19 | holds |
+
+Stills settled (at most 0.11% of pixels changed, 60 frames apart). Near-white pixels below the horizon across all 20
+stills: 1 (a sea glint in C-south), so no gutter sliver: the round-21 fix holds on a second donor.
+
+**The first deliberate canopy carry works as canopy:** the party sinks into it exactly as into stock forest, and walks
+across it to the rock. The panels (`mountain_panel_*.png`) show the scrub canopy against the rock at every angle.
