@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — a desert crag with its scrub canopy: `world-mountain --donor 14-15,3`
+- comp26, a small desert crag, is now a catalogued massif donor (`desert-scrub`). At home its rock rises from a walled
+  scrub canopy, and carrying the rock alone left a vertical step the seam could not close. Its catalogue entry now
+  carries the whole canopy, walls and all, as the mountain's floor, so rock and canopy stand on one level foot.
+- Proven in game (77/77 checks at 0, 90, 200 and 270 degrees) and passed by the owner's eye. The party sinks into the
+  carried canopy exactly as into stock forest and walks across it to the rock.
+- No code change was needed: the catalogue entry's floor names the canopy, and `world-mountain` / `world-fuse` hand
+  it to the carve. Mint `world-island --ground desert --radius 55`, then `world-mountain --donor 14-15,3 --ground desert`.
+
 ### Added — a snow mountain: `world-mountain --donor 8-10,0-1` carries comp9 with its inlet floor
 - comp9, a coastal snow ridge, is now a catalogued massif donor (`snow-ridge` in `world-donors --class massif`). It
   carries its rock, a 2-triangle rock plate, and the snow floor of its inlet, so the rim closes across the inlet's

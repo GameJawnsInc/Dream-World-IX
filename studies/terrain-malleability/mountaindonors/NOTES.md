@@ -91,10 +91,11 @@ desert mountain at 0 deg, 200 deg and x1.5. It is qualified as `desert-peak` (`1
 
 ## Open
 
-- comp26 and comp10 carry only with the raised ground their rim steps onto at home: an ensemble carry, like the
-  horseshoe's falls mouth.
-- comp9: with its inlet floor carried (THE INLET FLOOR, `INLET.md`), it passes offline at 4 of 6 angles on snow and
-  awaits the owner's eye in game. Its rim is NOT coarse (section 6). comp19 needs a level foot. The big three
+- comp26 and comp10: the raised ground their rims step onto is a walled forest canopy (`STEP.md`). Carried as the
+  alcove floor, comp26 passes offline at 4 of 6 angles (in-game round queued); comp10 refuses on two stock tris that
+  face down by a hair, a gate decision for the owner.
+- comp9: with its inlet floor carried (THE INLET FLOOR, `INLET.md`), passed in game and catalogued as `snow-ridge`
+  (`../snowmassif/NOTES.md`). Its rim is NOT coarse (section 6). comp19 needs a level foot. The big three
   (comp2/3/4) need an island past r111 and their own aperture anatomy.
 
 ## 5. The kit: THE HOME-GROUND WARNING

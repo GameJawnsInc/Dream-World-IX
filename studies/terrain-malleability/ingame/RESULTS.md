@@ -1176,6 +1176,26 @@ byte-identical), and the atlas gate now refuses white-gutter texels (0 stock Ter
 first launch, every reading as before; the near-white pixels in each inlet still went 86 / 90 / 88 -> 0. Owner's verdict
 on the look: pending.
 
+## Round 22 (2026-10-22, owner's go: "go for it"): a desert massif with its canopy, comp26, 77/77
+
+Run `20261022-125735-canopy-step` (the lane: `../canopystep/NOTES.md`; the offline result: `../mountaindonors/STEP.md`).
+comp26's rim steps onto a walled scrub canopy (topo 38) at home; carried as the alcove floor, rock and canopy stand on
+a level foot. Round 19's desert island (r55 at (1380, -100), blocks (20,0)-(22,2)), carved four ways from its centre
+by the CLI's own steps with the canopy spec handed in: A rot 0, B 90, C 200, D 270. The lab first in FolderNames with
+its mist-off Environment.txt, reached through bench 6603; ini restored byte-exact.
+
+### 37. A desert massif with its canopy
+
+All 77 checks passed on the first launch, in 502 s:
+- **P1 holds:** summits within 0.006 of their peaks.
+- **P2 holds:** 48/48 ring points round the whole carried blob, the canopy's wall foot included.
+- **P3 holds:** 8/8 view walks on the built ground, never on rock.
+- **P4 holds:** every home read its height.
+- **P5 holds (new, the canopy):** 20/20 canopy points read their surface less the 1.171875 sink, and each walk in
+  climbed onto the canopy and crossed it to the rock (29.8-30.5u).
+
+No white sliver in any still (one near-white pixel, a sea glint). Owner's verdict on the look: pending.
+
 ## Not run
 
 - The boat "none" phase (see section 9).
