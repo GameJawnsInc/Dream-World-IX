@@ -27,6 +27,7 @@ Every scenario-touching test runs in a CHILD process: a scenario puts its own di
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -1750,7 +1751,24 @@ def test_the_s145_runners_name_every_step():
         assert "controllers OFF and nobody at the keyboard" in text and "THE UNATTENDED LAW" in text
         assert "deploy_field.py" not in text and "build_memoria" not in text and "49201" in text
         assert 'grep -qE "^FieldScene 6603 " "$G/FF9CustomMap-world/DictionaryPatch.txt"' in text
-        assert 'if grep -q "SWIRL-HANG" "$out"; then' in text and "re-running the leg ONCE" in text
+        assert 'if grep -qE "$HANG_RE" "$out"; then' in text and "re-running the leg ONCE" in text
+        assert 'grep -q "SWIRL-HANG"' not in text                    # [fix3b] the bare word: a GREEN row says it
+        hang_re = re.compile(re.search(r"^HANG_RE='([^']+)'$", text, re.M).group(1))
+        # [fix3b] THE RETRY KEYS ON THE HANG, never the word: cal145's first run re-ran every clean leg (and set its first
+        # output aside) because a green SWIRL row's catalog text names SWIRL-HANG; a real hang's row and every later row match
+        for green in [ln for ln in (SCENARIOS / "coop_world_battle.py").read_text(encoding="utf-8").splitlines()
+                      if "SWIRL-HANG" in ln and re.search(r'"S145-[A-Z0-9-]*SWIRL"', ln)] + [
+                "[harness]   PASS  S145-SWIRL: the instrument: no boot or battle start hung in the swirl (SWIRL-HANG: the logs "
+                "archived, a frame grabbed, the leg stopped -- never an engine verdict; the runner retries the leg once)  [no boot "
+                "or battle start hung in the swirl]",
+                "[harness]   PASS  S145-WB-SWIRL: the instrument: the guest's boot never hung in the swirl (SWIRL-HANG: logs, a "
+                "frame, the leg stopped)  [the guest's boot never hung in the swirl]"]:
+            assert not hang_re.search(green), green
+        for hung in ("  FAIL  S145-SWIRL: the instrument: ...  [SWIRL-HANG at the BOOT row: the game went quiet on SwirlScene]",
+                     "  FAIL  S145-WB-BOOT: ...  [not reached: SWIRL-HANG -- the instrument; retry the leg]",
+                     "[duo] FAIL  S145-D-SWIRL ...  [SWIRL-HANG -- the instrument (the runner retries the duo once): SWIRL-HANG at "
+                     "the host's battle start: the game went quiet]"):
+            assert hang_re.search(hung), hung
     assert 'if [ "$DLL" != be9abacbd7b11d64 ]; then' in cal
     for frag in ("env COOP_TAPE_WORLD_BATTLE=1 COOP_TAPE_DIR=", "--want world-battle", "(want 0: b6 before and after the battle)",
                  "env COOP_PEER_PORT=49231 COOP_TAPE_PRE_S=100 COOP_TAPE_DIR=", "coop_tape_record.py --field 6603",

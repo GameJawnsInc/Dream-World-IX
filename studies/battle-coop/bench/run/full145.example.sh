@@ -45,11 +45,14 @@ W143=/c/gd/Dream-World-IX/.harness-runs/coop-tapes/world-s143
 SCN=studies/test-harness/scenarios
 cd "$WT" || { echo "STOP: WT=$WT is missing -- point WT= at your checkout"; exit 1; }
 mkdir -p "$OUT/s1" "$OUT/s2" "$OUT/t" "$OUT/a" "$OUT/w" "$OUT/c"
+# a real hang prints "SWIRL-HANG at <where>" (the SwirlHang row) or "not reached: SWIRL-HANG" -- never the bare word, which a
+# GREEN <PFX>-SWIRL row's catalog text carries too (cal145's first run re-ran every clean leg on it)
+HANG_RE='SWIRL-HANG at |not reached: SWIRL-HANG'
 # run_leg <out.txt> <command...>: run it; on SWIRL-HANG (the instrument) keep that output beside and re-run the leg ONCE
 run_leg() {
   local out="$1"; shift
   "$@" > "$out" 2>&1
-  if grep -q "SWIRL-HANG" "$out"; then
+  if grep -qE "$HANG_RE" "$out"; then
     echo "SWIRL-HANG in $out (the instrument: its logs and a frame are in the run dir) -- re-running the leg ONCE"
     mv "$out" "${out%.txt}.swirl-hang.txt"
     "$@" > "$out" 2>&1
@@ -59,7 +62,7 @@ run_leg() {
 block_leg() {
   local dir="$1" spec="$2" label="${2%%:*}"
   bash "$SB" "$dir" "$spec"
-  if grep -q "SWIRL-HANG" "$dir/$label.txt"; then
+  if grep -qE "$HANG_RE" "$dir/$label.txt"; then
     echo "SWIRL-HANG in $dir/$label.txt (the instrument) -- re-running it ONCE"
     mv "$dir/$label.txt" "$dir/$label.swirl-hang.txt"
     bash "$SB" "$dir" "$spec"

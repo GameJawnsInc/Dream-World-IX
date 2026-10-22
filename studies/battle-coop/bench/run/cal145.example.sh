@@ -40,11 +40,14 @@ HFDIR=/c/gd/Dream-World-IX/.harness-runs/coop-tapes/held-6603
 SCN=studies/test-harness/scenarios
 cd "$WT" || { echo "STOP: WT=$WT is missing -- point WT= at your checkout"; exit 1; }
 mkdir -p "$OUT/c144" "$WBDIR" "$HFDIR"
+# a real hang prints "SWIRL-HANG at <where>" (the SwirlHang row) or "not reached: SWIRL-HANG" -- never the bare word, which a
+# GREEN <PFX>-SWIRL row's catalog text carries too (cal145's first run re-ran every clean leg on it)
+HANG_RE='SWIRL-HANG at |not reached: SWIRL-HANG'
 # run_leg <out.txt> <command...>: run it; on SWIRL-HANG (the instrument) keep that output beside and re-run the leg ONCE
 run_leg() {
   local out="$1"; shift
   "$@" > "$out" 2>&1
-  if grep -q "SWIRL-HANG" "$out"; then
+  if grep -qE "$HANG_RE" "$out"; then
     echo "SWIRL-HANG in $out (the instrument: its logs and a frame are in the run dir) -- re-running the leg ONCE"
     mv "$out" "${out%.txt}.swirl-hang.txt"
     "$@" > "$out" 2>&1
@@ -87,7 +90,7 @@ HFTAPE=$(ls -t "$HFDIR"/*-host6603-*.f9tape 2>/dev/null | head -1)
 echo "held tape: $HFTAPE"
 echo "######## STEP 3: the solo bench under COOP_CALIBRATE=1 on s144 (want S145-CAL green: exactly OLD_PREDICTED red) $(date +%T)"
 bash "$SB" "$OUT/c144" "worldbattle_cal144:6603:coop_world_battle:COOP_CALIBRATE=1"
-if grep -q "SWIRL-HANG" "$OUT/c144/worldbattle_cal144.txt"; then
+if grep -qE "$HANG_RE" "$OUT/c144/worldbattle_cal144.txt"; then
   echo "SWIRL-HANG in the solo bench (the instrument) -- re-running it ONCE"
   mv "$OUT/c144/worldbattle_cal144.txt" "$OUT/c144/worldbattle_cal144.swirl-hang.txt"
   bash "$SB" "$OUT/c144" "worldbattle_cal144:6603:coop_world_battle:COOP_CALIBRATE=1"
