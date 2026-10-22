@@ -40,6 +40,8 @@ benched as the host OR as the guest:
   where              [ff9mapkit netsync s144] WHERE AN OFF-FIELD HOST SAYS IT STANDS: section 7's b6 world / b7 title on
                      every HOST type-5 frame, against the host's position-lane field (``--want world|title|none|any``;
                      none = an s143-or-older host, whose tape parses exactly as before). Exit 0 / 1 / 2 as ``dress``.
+                     [ff9mapkit netsync s145] ...and each host BATTLE's segment: where the host said it stood before and
+                     after it (``--want world-battle``: a world-map battle, b6 on both sides -- the s145 T2 tape's).
 
 THE TAPE (``.f9tape``) -- stdlib, binary, append-only, crash-tolerant (a torn tail is reported, never fatal):
   ``F9TAPE01`` | u32 LE header length | UTF-8 JSON header | records ``[t f64 LE][dir u8][len u32 LE][payload]``.
@@ -2249,11 +2251,80 @@ def tape_where(records) -> dict:
             out["off_field"] += 1
             out["off_field_said"] += bool(f & (BW.HF_WORLD | BW.HF_TITLE))
     out["stage"] = "s144" if out["world"] or out["title"] else "s143-or-older (no b6 / b7)"
+    out.update(tape_battle_where(records))          # [ff9mapkit netsync s145] the battle segments
     return out
 
 
-#: `where --want`: what the tape's host must have said (the verdict's own rule over tape_where's counts)
-WHERE_WANTS = ("world", "title", "none", "any")
+def _said(flags) -> str | None:
+    """Where one section-7 flags byte says the host stands: 'world' (b6) | 'title' (b7) | 'battle' (b5) | 'field' (b3) |
+    'other' (none of them); None = no readable section 7."""
+    if flags is None:
+        return None
+    if flags & BW.HF_WORLD:
+        return "world"
+    if flags & BW.HF_TITLE:
+        return "title"
+    if flags & BW.HF_BATTLE:
+        return "battle"
+    if flags & BW.HF_ON_FIELD:
+        return "field"
+    return "other"
+
+
+#: [ff9mapkit netsync s145 fix1] THE PLACE AROUND A BATTLE: the host's state frames ADJACENT to its type-1 run never carry it -- a
+#: real host tape reads the swirl ('other', ~1 s: SwirlScene, no b3 / b6) and the gMode-2 lead ('battle', b4 + b5, ~0.15 s) before
+#: the first type-1 frame, and the result tail ('battle', b5) plus, from the world map, its ~4.4 s load ('other') after the last.
+#: So the place is read past them: the LAST place frame within WHERE_BEFORE_S before the battle, the FIRST within WHERE_AFTER_S
+#: after it (a place = 'world' / 'field' / 'title').
+WHERE_BEFORE_S = 5.0
+WHERE_AFTER_S = 10.0
+WHERE_PLACES = ("world", "field", "title")
+
+
+def tape_battle_where(records) -> dict:
+    """[ff9mapkit netsync s145] THE BATTLE SEGMENTS (PURE over the records): each host battle on the tape (:func:`tape_battles`)
+    with WHERE the host says it stood around it -- section 7's place ('world' / 'title' / 'field') on the LAST host state frame
+    that says one within WHERE_BEFORE_S before the battle's first type-1 frame (``said_before``) and on the FIRST within
+    WHERE_AFTER_S after its last (``said_after``) -- never the adjacent frame, which is the swirl / the gMode-2 lead / the result
+    tail / the world's load ('other' / 'battle') on every real tape; None = no place said there (or no section 7) -- the
+    position lane's field then (``field_before`` / ``field_after``), and ``world`` -- a WORLD-MAP BATTLE: b6 on both sides (an
+    s144+ host on its world HUD before the swirl and back on it after the victory; the field lane 0 both times).
+    ``world_battles`` counts them; ``first_world_battle`` is the first one's index (None = none). The s145 T2 tape
+    (coop_tape_record.py COOP_TAPE_WORLD_BATTLE=1) carries exactly one; a field tape's battle reads 'field' before and after."""
+    raw = tape_battles(records)
+    segs = [{"n": b["n"], "nonce": b["nonce"], "map": b["map"], "start": round(b["start"], 3), "end": round(b["end"], 3),
+             "said_before": None, "said_after": None, "field_before": None, "field_after": None, "world": False}
+            for b in raw]
+    field, flags_seen = None, None
+    for r, wtype, payload in host_frames(records):
+        if wtype == TYPE_POS:
+            p = parse_pos_payload(payload)
+            if p is not None:
+                field = p["field"]
+            continue
+        if wtype != TYPE_STATE:
+            continue
+        body = BW.old_try_read_section(payload, BW.SECTION_DIALOG)
+        view = BW.parse_dialog_section(body) if body is not None else None
+        flags_seen = view["flags"] if view is not None else None
+        said = _said(flags_seen)
+        if said not in WHERE_PLACES:                 # [s145 fix1] the swirl, the lead, the tail, a load: no place
+            continue
+        for sg, b in zip(segs, raw):                # the RAW record times (the rounded ones are for the report)
+            if r.t < b["start"]:
+                if b["start"] - r.t <= WHERE_BEFORE_S:
+                    sg["said_before"], sg["field_before"] = said, field
+            elif r.t > b["end"] and sg["said_after"] is None and r.t - b["end"] <= WHERE_AFTER_S:
+                sg["said_after"], sg["field_after"] = said, field
+    for sg in segs:
+        sg["world"] = sg["said_before"] == "world" and sg["said_after"] == "world"
+    worlds = [sg["n"] for sg in segs if sg["world"]]
+    return {"battles": segs, "world_battles": len(worlds), "first_world_battle": worlds[0] if worlds else None}
+
+
+#: `where --want`: what the tape's host must have said (the verdict's own rule over tape_where's counts) -- [ff9mapkit netsync
+#: s145] + `world-battle`: a world-map battle on the tape (b6 before and after it), b6 never on a real field
+WHERE_WANTS = ("world", "title", "none", "any", "world-battle")
 
 
 def where_ok(d: dict, want: str) -> bool:
@@ -2269,6 +2340,8 @@ def where_ok(d: dict, want: str) -> bool:
         return d["title"] > 0 and d["title_on_field"] == 0
     if want == "none":
         return d["with7"] > 0 and d["world"] == d["title"] == 0
+    if want == "world-battle":                      # [ff9mapkit netsync s145]
+        return d.get("world_battles", 0) > 0 and d["world_on_field"] == 0
     return want == "any"
 
 
@@ -2288,7 +2361,13 @@ def tape_where_lines(path, want: str = "any") -> tuple:
              f"parser-twin parity (the body with b6 / b7 masked off): {d['with7'] - d['refused'] - d['parity_diff']} "
              f"identical, {d['parity_diff']} different (a codec check, not the old guest's reader)",
              f"the recording host: {d['stage']}",
-             f"VERDICT (--want {want}): " + ("OK" if ok else "FAIL")]
+             # [ff9mapkit netsync s145] the battle segments: where the host said it stood around each battle
+             f"battles: {len(d.get('battles') or [])}; world-map battles (b6 before and after): {d.get('world_battles', 0)}"]
+    for sg in d.get("battles") or []:
+        lines.append(f"  battle {sg['n']} (nonce {sg['nonce']}, map {sg['map']}) tape {sg['start']:.2f}-{sg['end']:.2f} s: "
+                     f"before {sg['said_before']} (field {sg['field_before']}), after {sg['said_after']} (field "
+                     f"{sg['field_after']}){' -- A WORLD-MAP BATTLE' if sg['world'] else ''}")
+    lines.append(f"VERDICT (--want {want}): " + ("OK" if ok else "FAIL"))
     return ok, lines
 
 
@@ -2549,7 +2628,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("tape", help="the tape (resolved as `dress` resolves it)")
     p.add_argument("--want", choices=WHERE_WANTS, default="any",
                    help="world / title: the bit rode, never on a real field; none: an s143-or-older host (the "
-                        "calibration); any: report only")
+                        "calibration); any: report only; [s145] world-battle: a world-map battle (b6 before and after it)")
     p.set_defaults(func=cmd_where)
     return ap
 

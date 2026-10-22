@@ -39,7 +39,8 @@ as `recon145.json`. The sites below are its settled answers; the build re-finds 
 3. **A decline keeps s144.** A declined guest stays frozen, sees the digit panel during the fight and the waiting line
    after it, and reports NONE (never DECLINED), so its slots keep s144's digit-panel ownership and `dioramaSeen` never
    rises. Durable refusals are properties of the world visit (an event world without tag 10, a travel mode other than on
-   foot, the bee scene): they set `watching = false` before any nonce is seen. Transient refusals (a transition in flight,
+   foot, the bee scene, topograph 52 -- a frozen guest cannot step off that cell, so as a wait it held the host's start every
+   fight): they set `watching = false` before any nonce is seen, and each declined fight logs one line and counts once. Transient refusals (a transition in flight,
    a dialogue, control off, a reinit bracket still open, the full map) are quiet waits retried the next frame, inside the
    ordinary late-join rules. The watcher runs the pure verdict BEFORE `BootFromWire`, so a refusal is never counted as a boot
    failure (`NoteBootFail` would flip the report to DECLINED).
@@ -74,7 +75,8 @@ as `recon145.json`. The sites below are its settled answers; the build re-finds 
    host is back", beside `hostField > 0`, so a world battle whose terminal latch was missed leaves at the settle instead of
    the 8 s stall cap.
 10. **After the return** the guest is frozen again from the first world frame (the s144 rising edge), and the rejoin
-    resumes. While a world-booted diorama is up, the follow compares against no field (`followFld = -1`). The ~ "Release
+    resumes. While a world-booted diorama is up, and until its world return has loaded, the follow compares against no field
+    (`followFld = -1`). The ~ "Release
     world freeze" survives a world battle round trip: it ends at the next FIELD load, as S144-DESIGN decision 8 says (the s144
     code ended it at any world load; fixed here).
 11. **The swirl.** The diorama's swirl clamp (`[Netsync] DioramaSwirlFrames`, default 0) applies unchanged: the stage-0 probe

@@ -151,6 +151,10 @@ R3_PROBES = {
     # [ff9mapkit netsync s144] world-map co-op (the `bench worldfreeze` op -- the s110 hazard again: an s143 agent reads it as
     # `bench 1`) -- keyed on `netsync.world.freeze` (netsync's LAST key's first block; `rejoin` / `waitline` ride beside it)
     144: "netsync.world.freeze",
+    # [ff9mapkit netsync s145] battles from the world map (the `bench worldwarm` op and the `vehicle` verb -- the s110 hazard again:
+    # an s144 agent reads `bench worldwarm` as `bench 1`, answers `vehicle` "unknown op", and refuses a world `dioboot` "from a live
+    # field only") -- keyed on `netsync.world.dio` (`world`'s last block, after `waitline`)
+    145: "netsync.world.dio",
 }
 
 

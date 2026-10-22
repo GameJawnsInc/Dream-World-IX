@@ -303,7 +303,33 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # inertia reset (no vehicles), the full map's location pick (`location` stays 0), the camera keys'
                        # raw XInput, and the host side beyond HostDialogFlags (`host_dialog_flags`) and its world MAPJUMP
                        # intent (`host_field_intent`: the stub transports carry both). Faults: WORLD_FAULTS.
-                       "worldwait": ("s144", ())}
+                       "worldwait": ("s144", ()),
+                       # [ff9mapkit netsync s145] battles from the world map (studies/world-coop/S145-DESIGN.md): no sub-verb, one
+                       # `bench` named op (`worldwarm`) and one top-level verb (`vehicle`); `netsync.world.dio` after `waitline`,
+                       # the top-level `prev_mode` after `gmode`, the world block's six witnesses after `next_mode`; `dioboot`
+                       # from a live world map; the proof block's two lines after the overlay text line (and the freeze line's
+                       # 46 rows, the watcher line's 32). WHAT THE STAND-IN MODELS (FakeGame's s145 section, each step through
+                       # battlewire's twin): THE WORLD VERDICT over the stand-in's world (BW.world_warm_verdict: the lever, the
+                       # bee scene, the LIVE travel mode `world.ctl`, an event world's missing tag 10, the latch read with booted
+                       # false, the full map, topograph 52, a dialogue, control) -- a refusal boots nothing and counts a decline;
+                       # THE WORLD BOOT (`dioboot` on WorldHUD, and the FOLLOWED CLIENT's watcher on the host's battle lane:
+                       # `follow_session(battle=True)` / `host_at(battle=...)`): prevMode 3, gMode stays 3, the copy (the
+                       # boot-time snapshot: x / z, the camera, the MAP vars, battle_prob); THE LEAVE back to the WorldMap and
+                       # THE WARM RETURN (a world load through the reinit branch: every witness as it stood; the freeze re-armed
+                       # from the first world frame) -- or, under the lever's `cold`, the cold reference (Main_Init's spawn and
+                       # MAP vars); the over-signal (the host back on the world map: b6 -> `host_world`), the follow field inside
+                       # a world diorama, THE VEHICLE VERB (SetVehicle's allow-list, never the force toggle), the release's
+                       # lifetime (a world load keeps it, the title ends it). The stand-in's world: the MAP vars Main_Init
+                       # writes (FAKE_WORLD_MAPVAR_INIT) and the walker's first move changes (the area script:
+                       # FAKE_WORLD_MAPVAR_WALKED -- an approximation: it lets the digest discriminate on the stand-in), and
+                       # battle_prob as stock's op 26 writes it (fix1): Main_Init's value on every Main_Init load, Main_Reinit's
+                       # on every reinit-branch load (FAKE_WORLD_BATTLE_PROB_INIT / _REINIT; WORLD11's 365 / 231) -- an ff9
+                       # static the copy never carries, the walk never writes; the camera yaw `overworld['cam']`
+                       # and upper counter `world_cam_upper` (a world load with prevMode 1 zeroes both). WHAT IT CANNOT: the
+                       # audio lanes (no sound: only the field block's cosmetic failure line, a fault), the report byte over a
+                       # transport (the start hold's guest half), the settle clock of the over-signal (a stale lane with the
+                       # peer alive leaves at once), the swirl, a real Main_Reinit. Faults: WORLD_DIO_FAULTS.
+                       "worlddio": ("s145", ())}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -336,6 +362,8 @@ NETSYNC_S141_CAPS = frozenset(("dresspolish",))
 NETSYNC_S143_CAPS = frozenset(("leaderguard",))
 #: [ff9mapkit netsync s144] The world-map co-op rung (its calibration, s143, is ``caps_through("leaderguard")``).
 NETSYNC_S144_CAPS = frozenset(("worldwait",))
+#: [ff9mapkit netsync s145] The world-diorama rung (its calibration, s144, is ``caps_through("worldwait")``).
+NETSYNC_S145_CAPS = frozenset(("worlddio",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -418,6 +446,8 @@ NETSYNC_BATTLE_CAP_KEYS = {
     # [ff9mapkit netsync s144] nothing under `netsync.battle`: `world` is a TOP-LEVEL netsync block (NETSYNC_TOP_CAP_KEYS) and
     # `session`'s two keys are NETSYNC_SESSION_KEYS_S144
     "worldwait": {},
+    # [ff9mapkit netsync s145] nothing under `netsync.battle` either: `dio` is `netsync.world`'s last block (NETSYNC_WORLD_KEYS_BY_RUNG)
+    "worlddio": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -439,6 +469,9 @@ NETSYNC_DIORAMA_NESTED_KEYS = {"swirl": {"intro": ("swirl_clamp",)}}
 #: (AppendDress: netsync's LAST key).
 NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",), "dressinstr": ("dress",),
                         "worldwait": ("world",)}                 # [ff9mapkit netsync s144] netsync's LAST key, after `dress`
+#: [ff9mapkit netsync s145] The blocks a capability adds INSIDE an older TOP-LEVEL `netsync` block, by that block: s145's `dio`,
+#: `netsync.world`'s last (AppendWorldDio, after `waitline`)
+NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)}}
 #: [ff9mapkit netsync s138] The keys each dress rung adds INSIDE `netsync.dress`, in AppendDress's order (s139 appends
 #: `codec` and `rig_idle_frames`, s140 `self`) -- the dress key law: every one under `netsync.dress`, never `netsync.battle`
 #: (the action-replay audit's 4.3).
@@ -503,6 +536,9 @@ NETSYNC_SESSION_KEYS = ("grace_ms", "state", "left_ms", "out_ms", "outages", "re
                         "ghost_held") + NETSYNC_SESSION_KEYS_S144
 #: [ff9mapkit netsync s144] `netsync.world` and `session.follow`, in AppendNetsyncWorld's / AppendSessionFollow's order
 NETSYNC_WORLD_KEYS = tuple(BW.WORLD_SENTINELS)
+#: [ff9mapkit netsync s145] `netsync.world`'s blocks by rung (the prefix law: s144's three, then s145's `dio`)
+NETSYNC_WORLD_KEYS_BY_RUNG = {"worldwait": tuple(BW.WORLD_SENTINELS_S144), "worlddio": tuple(BW.WORLD_SENTINELS)}
+NETSYNC_WORLD_DIO_KEYS = tuple(BW.WORLD_DIO_SENTINELS)
 NETSYNC_WORLD_FREEZE_KEYS = tuple(BW.WORLD_FREEZE_SENTINELS)
 NETSYNC_WORLD_REJOIN_KEYS = tuple(BW.WORLD_REJOIN_SENTINELS)
 NETSYNC_WORLD_WAITLINE_KEYS = tuple(BW.WORLD_WAITLINE_SENTINELS)
@@ -904,6 +940,57 @@ WORLD_FAULTS = ("dispatch_ungated", "keys_unmasked", "keys_counted_s143", "fullm
                 "rejoin_departed", "rejoin_no_snapshot", "rejoin_no_hold", "line_s143", "tail_s143", "redirect_bounce",
                 "counters_dark", "arm_uncounted", "latch_free", "stale_warpedto", "redirect_unfollowed", "entrance_unseeded",
                 "pass_entrance_host", "skip_unconsumed", "redirect_unheld", "landing_unheld", "rejoin_unarmed")
+#: [ff9mapkit netsync s145] THE WORLD DIORAMA's FAULT LEVERS (FakeGame.world_dio_faults): each breaks ONE piece of s145, so a test
+#: can show a check red exactly where it should (tests/test_world_diorama_harness.py's DIO_FAULT_REDS -- a value OTHER than the
+#: engine's, never an absent key):
+#:   "boot_cold"          the world prime takes no copy (the s144 field prime's fallback): the boot reads cold and its return
+#:                        re-enters through Main_Init -- the spawn, the MAP vars zeroed (a cold world reload)
+#:   "leave_fieldmap"     LeaveFrom keeps s144's Replace("FieldMap"): a world boot lands the guest cold on the field it last left
+#:   "prevmode_unset"     the world shape never writes prevMode 3: the return's world load resets the camera (prevMode 1)
+#:   "audio_field_block"  a world boot runs the FIELD pre-swirl block (keyed on the copy, not the boot-time world latch): its
+#:                        SFX_Rush.SetCenterPosition(0) throws -- the cosmetic "pre-swirl audio replicate failed" line
+#:   "vehicle_boots"      the verdict's vehicle row is gone: a guest aboard boots (and returns aboard: unexercised in stock)
+#:   "lever_ignored_warm" the verdict never reads `bench worldwarm` (off and cold both boot warm)
+#:   "warm_lever_stuck"   the harness release leaves `bench worldwarm` pulled
+#:   "decline_reload"     a refused world boot reloads the world map (a cold reload: w_frameCounter restarts, Main_Init's MAP vars)
+#:   "return_uncounted"   s144's consume rule: a world return is never counted on its own load (it waits for a field load)
+#:   "refreeze_lost"      the warm return never re-arms the freeze: the guest walks free on the world map after the fight
+#:   "hostworld_blind"    s144's watch step (b6 never read): a host back on the world map leaves only at the stall cap
+#:   "follow_departed"    s144's follow field inside a world-booted diorama: the host on the departed field reads "arrived"
+#:   "decline_unprojected" the watcher has no durable projection: a guest aboard tries each fight and Boot's backstop refuses
+#:                        it -- "REFUSED" lines, a decline counted per attempt, the visit never read as declined
+#:   "release_world_end"  s144's release lifetime: a world load (the warm return) ends the ~ release
+#:   "proof_fail"         the proof block's 'world diorama selftest' reads FAIL (the engine's own rows disagreeing with it)
+WORLD_DIO_FAULTS = ("boot_cold", "leave_fieldmap", "prevmode_unset", "audio_field_block", "vehicle_boots", "lever_ignored_warm",
+                    "warm_lever_stuck", "decline_reload", "return_uncounted", "refreeze_lost", "hostworld_blind",
+                    "follow_departed", "decline_unprojected", "release_world_end", "proof_fail")
+#: [ff9mapkit netsync s145] the stand-in's world map MAP vars: what Main_Init writes (a world load that is not the reinit branch)
+#: and what the walker's FIRST move changes (the area script; an approximation that lets the digest discriminate) -- so a cold
+#: return (Main_Init again, the walker frozen) differs from the warm copy wherever the guest walked before it froze
+FAKE_WORLD_MAPVAR_INIT = {24: 0x01, 27: 0x02, 28: 0x03}
+FAKE_WORLD_MAPVAR_WALKED = {26: 0x01, 35: 0x04}
+#: [ff9mapkit netsync s145 fix1] w_frameEventBattleProb as stock writes it -- ONLY by world script op 26 (ff9.cs case 26): WORLD11's
+#: Main_Init (entry 0, tag 0) writes 365, its Main_Reinit (tag 10) 231. So every Main_Init load reads INIT and every reinit-branch
+#: load (a stock world battle's return, and the diorama's warm one) REINIT; the copy never carries it (an ff9 static, not the event
+#: context) and the walk writes none. The bench's oracle reads the real values off the world script (coop_world_battle.read_oracle).
+FAKE_WORLD_BATTLE_PROB_INIT = 365
+FAKE_WORLD_BATTLE_PROB_REINIT = 231
+#: [ff9mapkit netsync s145 fix2] THE STAND-IN'S SOUND INSTANCES (opt-in, ``FakeGame.world_music``): SaXAudio's stop fades as the
+#: engine issues them -- the settle's StopCurrentSong(120) (battle.ff9ShutdownStateBattleResult; ConvertTickToMillisec: 120 x 1000 /
+#: 60 = 2000 ms) and FF9SOUND_SONG_STOPCURRENT's floor (AllSoundDispatchPlayer.MINIMUM_SONG_FADE_MS, 500) -- a stopping voice keeps
+#: IsExist 1 and IsPaused 0 until its fade ends
+FAKE_SONG_SETTLE_FADE_S = 2.0
+FAKE_SONG_STOPCURRENT_FADE_S = 0.5
+#: the sound model's fault levers (``FakeGame.world_music_faults``; the model off, they do nothing):
+#:   "bwe_stop_missing"     BeforeWorldEvents' battle-song stop removed (StopBattleSongOverSuspendedField): a song still current at
+#:                          the world return plays on under the restored world song -- the hazard `boot_song_live` exists for
+#:   "latch_before_settle"  the pre-fix2 LeaveFrom order: the witness latches the instance BEFORE the settle shuts it, so the settle's
+#:                          own 2 s fade reads 'left playing' on a correct return (raudio-1's false red)
+WORLD_MUSIC_FAULTS = ("bwe_stop_missing", "latch_before_settle")
+#: [ff9mapkit netsync s145] the world's Main_Init spawn (a cold return lands here): 9011's is the FARSHORE landing
+FAKE_WORLD_SPAWN = {9011: (68.0, -444.0)}
+#: [ff9mapkit netsync s145] the stand-in's stall cap on a booted wire diorama whose lane went stale with the peer alive (frames)
+FAKE_DIO_STALL_FRAMES = 120
 #: [ff9mapkit netsync s144 review 2] the stand-in's FIELD follow (opt-in ``FakeGame.coop_field_follow``): StartFollowWarp's fade, in
 #: frames, before ServiceFollowWarp lands the field
 FIELD_FOLLOW_FADE_FRAMES = 12
@@ -1773,6 +1860,37 @@ class FakeGame:
         self._wl = {"host_world": False, "host_title": False, "away_armed": False, "away_since": 0.0, "away_due": False,
                     "asked": -1, "detail": 0, "text": None, "line": None, "fallback": False, "keep": False}
         self._decline_world: dict = {}
+        #: [ff9mapkit netsync s145] BATTLES FROM THE WORLD MAP (the `worlddio` rung; see its NETSYNC_BATTLE_CAPS note). The test seams:
+        #: the fault levers (WORLD_DIO_FAULTS), the world camera's upper counter (the yaw is ``overworld['cam']``), a LIVE travel mode
+        #: that disagrees with gEventGlobal[190] (``world_ctl_override``: a TransportControls row; None = the byte), world maps whose
+        #: entry 0 has no tag 10 beyond the event worlds (``world_no_reinit``), the Main_Init spawns (``world_spawn``)
+        self.world_dio_faults: set = set()
+        #: [ff9mapkit netsync s145 fix2] THE SOUND INSTANCES (opt-in): None (the default) -- the stand-in plays no music and fix1's
+        #: witnesses idle (suspend_song / song_sid -1, boot_song_live false); ``(world song, battle song)`` -- every world load plays
+        #: the world song (a new instance) or restores the suspend slot (its OWN instance unpaused), a WORLD boot suspends it and
+        #: plays the battle song under a new instance (`silent`: none), the battle lane's song changes mint or stop instances, and the
+        #: Leave latches the current instance AFTER its settle (`netsync.world.dio.boot_song_live`). ``world_music_faults``: the
+        #: WORLD_MUSIC_FAULTS levers.
+        self.world_music = None
+        self.world_music_faults: set = set()
+        self._wsnd = self._wsnd_fresh()
+        self.world_cam_upper = 0
+        self.world_ctl_override = None
+        self.world_no_reinit: set = set()
+        self.world_spawn: dict = dict(FAKE_WORLD_SPAWN)
+        #: [ff9mapkit netsync s145] FF9StateSystem.prevMode as the stand-in keeps it (1 = left a field, 3 = left the world)
+        self._prev_mode = 0
+        #: [ff9mapkit netsync s145] the world's MAP vars / encounter rate / the area script's first-move latch, and NetSyncDiorama's
+        #: world half: the lever, the boot (from the world? its world, its prime, the prevMode it replaced, the copy), the
+        #: observables `netsync.world.dio` publishes, the watcher's per-fight latches, the next world load's reinit copy
+        self._wmap = bytearray(BW.MAPVAR_BYTES)
+        self._wprob = FAKE_WORLD_BATTLE_PROB_INIT
+        self._walked = False
+        self._wdx = {"lever": BW.WORLD_WARM_ON, "world_boot": False, "boot_world": -1, "boot": None, "prev_at_boot": -1,
+                     "snap": None, "declines": 0, "decline_why": None, "decline_durable": False, "visit_decline": None,
+                     "wait_why": None, "returns": 0, "last_return": None, "last_world": -1, "by_wire": False,
+                     "wire_nonce": -1, "seen_nonce": -1, "decl_nonce": -1, "decl_why": None, "wait_nonce": -1,
+                     "hold_why": None, "stale_frames": 0, "pending_count": None, "unfrozen": False}
         #: H9: True -- ``warp`` refuses unless ui_state is "FieldHUD", as the agent does (Ff9mkDebugMenu.Warp is false
         #: off the field HUD, and HarnessAgent throws "warp refused (not on a field?)"): nothing is written, nothing
         #: moves. False (the default): today's fake, a warp from any state.
@@ -2356,6 +2474,7 @@ class FakeGame:
                 self._step_world()
                 self._step_dial()           # [ff9mapkit netsync s144 bench] the transport's birth (the dial gate)
                 self._step_world_coop()     # [ff9mapkit netsync s144] the world map: the latch, the hold, the rejoin, the line
+                self._step_world_dio()      # [ff9mapkit netsync s145] the followed client's world diorama watcher
                 self._step_follow_pair()    # [ff9mapkit netsync s144 bench] the followed client's same-field kick (opt-in)
                 self._step_scene()
                 self._step_machine("agent_last")
@@ -2693,6 +2812,11 @@ class FakeGame:
         elif op == "netsync":
             self._netsync(args)
             self._block(2)
+        elif op == "vehicle" and self._wdio():
+            # [ff9mapkit netsync s145] `vehicle <mode>` (Ff9mkDebugMenu.HarnessVehicle -> SetVehicle(mode, force: false)); an s144
+            # agent answers "unknown op 'vehicle'" (the else below)
+            self._wdio_vehicle(args)
+            self._block(2)
         elif op == "quit":
             self._story_stop()                 # the trace's last rows land before the window closes
             self.returncode = 0
@@ -2805,6 +2929,8 @@ class FakeGame:
                 x, z = nx, nz
                 self.world["x"], self.world["z"] = x, z
                 self._wt["moved"] = True            # [ff9mapkit netsync s144] w_moveCHRControl_Move
+                if self._wdio() and not self._walked:
+                    self._wdio_walked()             # [ff9mapkit netsync s145] the area script's first-move writes
                 height = ow.get("height")
                 self._ow_y = float(height(x, z)) if height is not None else 0.0
         y = getattr(self, "_ow_y", 0.0)
@@ -3987,6 +4113,7 @@ class FakeGame:
             # [ff9mapkit netsync s144] the world map's own mode (FF9StateSystem.mode 3) and, after it, `gmode` (EventEngine.gMode)
             "sys_mode": 3 if ww and self.ui_state == "WorldHUD" else 1,
             **({"gmode": self._wt["gmode"]} if ww else {}),
+            **({"prev_mode": self._prev_mode} if self._wdio() else {}),   # [ff9mapkit netsync s145] FF9StateSystem.prevMode
             "scenario": self.scenario,
             "field": {"id": self.field_id, "name": f"FBG_FAKE_{self.field_id}",
                       **({"entrance": self._field_entrance()} if ww else {})},   # [ff9mapkit netsync s144] FieldEntrance
@@ -4818,6 +4945,16 @@ class FakeGame:
                 self._wf_off = wf == "off"
                 self._mlog("[NetSync] " + (BW.LOG_WORLD_FREEZE_OFF if self._wf_off else BW.LOG_WORLD_FREEZE_ON))
                 return
+            if sub == "bench" and bnop == "worldwarm" and self._wdio():
+                # [ff9mapkit netsync s145] the world warm gate's lever (an older agent reads it as `bench 1`): the raw value (or "" on
+                # a wrong arity) to HarnessBenchWorldWarm, whose one refusal text answers both a bad value and a bad role
+                lever = BW.parse_world_warm_lever(args[2] if len(args) == 3 else "")
+                why = BW.world_warm_bench_refusal(self._nb_role(), lever)
+                if why is not None:
+                    raise RuntimeError(why)
+                self._wdx["lever"] = lever
+                self._mlog("[NetSync] " + BW.log_world_warm_lever(lever))
+                return
             if sub == "bench" and bnop == "leaderguard" and "leaderguard" in self._nb_caps():
                 # [ff9mapkit netsync s143] the leader guard's lever (an older agent reads it as `bench 1`)
                 lg = args[2].lower() if len(args) > 2 else ""
@@ -4946,15 +5083,23 @@ class FakeGame:
                 raise RuntimeError("netsync dioboot: needs the selftest role (netsync selftest 1)")
             if self._dio["booted"]:
                 raise RuntimeError("netsync dioboot: a diorama is already booted")
-            if not self._live_field():
-                raise RuntimeError("netsync dioboot: boots from a live field only (the ~ menu offers it nowhere else)")
+            # [ff9mapkit netsync s145] ...or a LIVE WORLD MAP (the strict onWorld) on WorldHUD with the shared latch free; any other
+            # scene keeps s144's refusal text. Boot's own warm verdict is the backstop (a refusal: `refused` below, a decline counted)
+            dio_world = not self._live_field() and self._wdio() and self._world_strict()
+            if not self._live_field() and not dio_world:
+                raise RuntimeError(BW.DIOBOOT_FIELD_ONLY)
+            if dio_world:
+                why = BW.dioboot_world_refusal(self.ui_state, self._world_latch_why())
+                if why is not None:
+                    raise RuntimeError(why)
             scene = arg(1, -1)
             if scene < 0 or scene not in self.battle_scenes:
                 raise out_of_range("netsync dioboot", "needs a battle scene id registered on this install")
-            wire, rand, wire_bench = -1, False, False
+            wire, rand, wire_bench, silent = -1, False, False, False
             if "intro" in self._nb_caps():
                 # [ff9mapkit netsync R3 s111] `dioboot <scene> [pattern] [wire] [skip|play|own] [rand]` (the agent's dioTok:
                 # the tokens start at args[2] when it is not an integer, else at args[3]); an older agent ignores them
+                # [ff9mapkit netsync s145 fix1] ...and `silent` (s145: the wire bench's host-silent song, 0xFFFE)
                 tok = 2 if len(args) > 2 and arg(2, int_min) == int_min else 3
                 for k in range(tok, len(args)):
                     dt = args[k].lower()
@@ -4964,9 +5109,16 @@ class FakeGame:
                         rand = True
                     elif dt == "wire":
                         wire_bench = True
+                    elif dt == "silent" and self._wdio():
+                        silent = True
+                    elif self._wdio():
+                        raise out_of_range("netsync dioboot", "expected `netsync dioboot <scene> [pattern] [wire [silent]] "
+                                           f"[skip|play|own] [rand]`, got '{args[k]}'")
                     else:
                         raise out_of_range("netsync dioboot", "expected `netsync dioboot <scene> [pattern] [wire] "
                                            f"[skip|play|own] [rand]`, got '{args[k]}'")
+                if silent and not wire_bench:
+                    raise out_of_range("netsync dioboot", "`silent` is the wire bench's host-silent song: add `wire`")
                 if wire_bench:
                     if rand:
                         raise out_of_range("netsync dioboot", "`wire` boots the wire bench, whose header is always a "
@@ -4975,7 +5127,7 @@ class FakeGame:
                     # its header is a random encounter
                     flags = 0x01 | (0 if wire < 0 else BW.CAP_INTRO_MIRROR | (BW.FLAG_INTRO_SKIPPED if wire == 1 else 0))
                     wire, rand = BW.wire_intro(flags), True
-            self._dio_boot(scene, wire_intro=wire, rand=rand)
+            self._dio_boot(scene, wire_intro=wire, rand=rand, silent=silent)   # [ff9mapkit netsync s145 fix2] + silent
             if not self._dio["booted"]:
                 raise RuntimeError("netsync dioboot: refused (Memoria.log names why: [NetSync] diorama boot REFUSED)")
             self._dio_by_harness = True
@@ -5185,9 +5337,12 @@ class FakeGame:
         null, the counters 0 -- and only the two LIVE reads move: `cap_ms` (DioramaHoldCapMs: s119's 8000, from s120 the
         session grace) and `settle_ms`."""
         grace = self._session_grace_ms() if "grace" in self._nb_caps() else None
-        return {"state": None, "since_ms": -1, "cap_ms": BW.hold_cap_ms(grace), "settle_ms": BW.DIORAMA_SETTLE_MS,
-                "holds": 0, "resumes": 0, "gaveup": 0, "last_ms": -1, "peer_alive": False, "host_field": -1,
-                "terminal": False, "why": None}
+        doc = {"state": None, "since_ms": -1, "cap_ms": BW.hold_cap_ms(grace), "settle_ms": BW.DIORAMA_SETTLE_MS,
+               "holds": 0, "resumes": 0, "gaveup": 0, "last_ms": -1, "peer_alive": False, "host_field": -1,
+               "terminal": False, "why": None}
+        if self._wdio() and self._wdx["hold_why"]:
+            doc.update(state="leave_final", why=self._wdx["hold_why"])   # [ff9mapkit netsync s145] the world watcher's leave
+        return doc
 
     def _session_doc(self) -> dict:
         """[ff9mapkit netsync R3 s120] AppendSession. The outage clock runs only on a GUEST with a transport (SessionTick
@@ -5554,10 +5709,18 @@ class FakeGame:
         if self._lg():                                  # [ff9mapkit netsync s143] right after the dress polish line
             self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_LEADER_GUARD, BW.LEADER_GUARD_SELFTEST_ROWS))
         if "worldwait" in self._nb_caps():              # [ff9mapkit netsync s144] right after the leader guard line
-            for head, n in ((BW.PROOF_WORLD_FREEZE, BW.WORLD_FREEZE_SELFTEST_ROWS),
+            stage = 145 if self._wdio() else 144          # [ff9mapkit netsync s145] the freeze line's rows by stage (42 / 46)
+            for head, n in ((BW.PROOF_WORLD_FREEZE, BW.world_freeze_selftest_rows(stage)),
                             (BW.PROOF_WORLD_REJOIN, BW.WORLD_REJOIN_SELFTEST_ROWS),
                             (BW.PROOF_OVERLAY_TEXT, BW.OVERLAY_TEXT_SELFTEST_ROWS)):
                 self._mlog("[NetSync] " + BW.proof_ok(head, n))
+        if self._wdio():                                # [ff9mapkit netsync s145] right after the overlay text line
+            if "proof_fail" in self.world_dio_faults:   # the engine's own proof failing (a twin drifted from it)
+                self._mlog("[NetSync] " + BW.PROOF_WORLD_DIORAMA + "FAIL (row 'the free row (on foot on world 9011, WorldHUD, "
+                           "nothing in flight) boots warm' failed (1 rows run))")
+            else:
+                self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_WORLD_DIORAMA, BW.WORLD_DIORAMA_SELFTEST_ROWS))
+            self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_WORLD_WATCHER, BW.WORLD_WATCHER_SELFTEST_ROWS))
 
     # -- [ff9mapkit netsync s144] WORLD-MAP CO-OP (the `worldwait` rung; see NETSYNC_BATTLE_CAPS for what it models) ----------
     # The engine's pieces, each through battlewire's twin of its pure step: THE FREEZE (NetSyncField.WorldFreezeNow / Hold /
@@ -5615,6 +5778,8 @@ class FakeGame:
         held (SpectatorField's fall never read)."""
         if not self._ww():
             return False
+        if self._wdx["unfrozen"]:
+            return False                    # [ff9mapkit netsync s145] the `refreeze_lost` fault: no freeze after a world return
         spectator = self._spectator() or ("bench0_stuck" in self.world_faults and self._wf_held)
         if not spectator:
             return False
@@ -5660,7 +5825,8 @@ class FakeGame:
         if not self._wf_held:
             return
         self._wf_held = False
-        why = BW.world_freeze_lift_why(spectator, self._wf_off, self._nb_role(), self._wf_released, bool(self.world_bee))
+        lift = BW.world_freeze_lift_why if self._wdio() else BW.world_freeze_lift_why_s144   # [ff9mapkit netsync s145] by stage
+        why = lift(spectator, self._wf_off, self._nb_role(), self._wf_released, bool(self.world_bee))
         self._mlog("[NetSync] " + BW.log_world_freeze_lifted(self.world["id"], why))
 
     def _world_decline(self, what: str, latch: str | None = None) -> None:
@@ -5835,12 +6001,18 @@ class FakeGame:
         self._self_on_load(cold=True)
         self._world_field_load()
 
-    def _world_load(self, prev_ui=None) -> None:
+    def _world_load(self, prev_ui=None, reinit=None, camera=True) -> None:
         """A world scene's load (WMScriptDirector.HonoAwake, the world constructors, ff9InitStateWorldMap): w_frameCounter from
         0, nextMode 3, no exit or swirl in flight, and WorldHUD's state as Show picks it -- ``prev_ui`` is the UI state the
-        world was entered FROM (UIManager.PreviousState at ff9.cs's ChangeUIState(WorldHUD))."""
+        world was entered FROM (UIManager.PreviousState at ff9.cs's ChangeUIState(WorldHUD)). [ff9mapkit netsync s145] On the
+        `worlddio` rung the event context too: ``reinit`` = the battle-return copy StartEvents' reinit branch restores
+        (``"stock"``: a stock world battle's own; a dict: the diorama's boot-time copy) -- else Main_Init's MAP vars and encounter
+        rate; and the camera constructor zeroes the yaw and the upper counter when prevMode is 1 -- on the loads the stand-in
+        itself drives (``camera`` False: a test that set ui_state WorldHUD by hand keeps the camera it set up)."""
         wt = self._wt
         wt.update(counter=0, next_mode=3, moved=False, exit=None, swirl=None)
+        if self._wdio():
+            self._wdio_world_load(reinit, camera)
         # [ff9mapkit netsync s144 bench] WorldHUD.Show reads its PERSISTED currentState first (an instance field of the
         # persistent UIManager scene: nothing resets it on hide): an open full map entered from a FIELD is ForceCloseFullMap'd
         # -- HUD, w_naviMode 1, saved (WorldHUD.cs 32-37, 528-536); entered from anything else it stays open (Show's other
@@ -5858,7 +6030,9 @@ class FakeGame:
             self._ensure_ini()                         # [ff9mapkit netsync s144] WMScriptDirector.HonoAwake's Ensure
             if "edge_once" not in self.world_faults:
                 self._wf_held = False                  # OnWorldLoadWorldFreeze: the edge latch, and a release, end here
-            if self._wf_released:
+            # [ff9mapkit netsync s145] ...a release SURVIVES a world load from s145 (decision 10: the field load and the title end
+            # it); s144 ended it here (the `release_world_end` fault keeps s144's lifetime)
+            if self._wf_released and (not self._wdio() or "release_world_end" in self.world_dio_faults):
                 self._wf_released = False
                 self._mlog("[NetSync] " + BW.LOG_WORLD_FREEZE_REARMED_WORLD)
 
@@ -5870,6 +6044,8 @@ class FakeGame:
         (``coop_follow['entrance']``), the state mirror armed (``story_mirroring``)."""
         if not self._ww():
             return
+        if self._wdio():
+            self._wdio_field_load()                 # [ff9mapkit netsync s145] prevMode, a pending world return, the refreeze
         if "edge_once" not in self.world_faults:
             self._wf_held = False
         if self._wf_released:
@@ -5924,6 +6100,7 @@ class FakeGame:
         prev, self.ui_state = self.ui_state, "WorldHUD"
         self.world.update(id=int(wld), x=float(x), z=float(z))
         self.control = True
+        self._prev_mode = 1                         # [ff9mapkit netsync s145] the field's shutdown
         self._world_load(prev)
         self._wt["last_ui"] = "WorldHUD"
 
@@ -5943,6 +6120,7 @@ class FakeGame:
             return
         prev, self.ui_state = self.ui_state, "WorldHUD"
         self.world.update(id=int(wld), x=float(x), z=float(z))
+        self._prev_mode = 1                         # [ff9mapkit netsync s145] a world load not from a battle
         self._world_load(prev)
         self._wt["last_ui"] = "WorldHUD"
 
@@ -6026,6 +6204,7 @@ class FakeGame:
         self._mlog("[NetSync] " + self.debug_status)
         wt["next_mode"] = 2
         wt["swirl"] = (self.frame + max(0, int(self.world_swirl_frames)), scene, group, rand)
+        self._prev_mode = 3                         # [ff9mapkit netsync s145] ff9ShutdownStateWorldMap case 2
         return True
 
     def _world_battle_end(self) -> None:
@@ -6043,7 +6222,7 @@ class FakeGame:
             return
         prev, self.ui_state = self.ui_state, "WorldHUD"
         self.world.update(id=w["id"], x=w["x"], z=w["z"])
-        self._world_load(prev)
+        self._world_load(prev, reinit="stock")     # [ff9mapkit netsync s145] the reinit branch: the world's context as it stood
         self._wt["last_ui"] = "WorldHUD"
 
     def world_script_battle(self, scene: int, op: str = "ENCOUNT") -> bool:
@@ -6057,6 +6236,433 @@ class FakeGame:
         self._wt["from_world"] = {"id": self.world["id"], "x": self.world["x"], "z": self.world["z"]}
         self.start_battle(int(scene))
         return True
+
+    # -- [ff9mapkit netsync s145] BATTLES FROM THE WORLD MAP (the `worlddio` rung; see NETSYNC_BATTLE_CAPS for what it models) ------
+    # NetSyncDiorama's world half and NetSyncClient's world watcher over the stand-in, each step through battlewire's twin: THE
+    # VERDICT (BW.world_warm_row over ReadWorldWarm's inputs), the prime and the world shape (prevMode 3, the boot-time copy), the
+    # leave to the WorldMap and THE WARM RETURN (the reinit branch restores the copy: x / z, the MAP vars, battle_prob; prevMode 3
+    # keeps the camera), the cold lever, THE VEHICLE VERB, THE WATCHER on a followed client (the durable projection, the quiet
+    # waits, the pre-verdict, the over-signals), the follow field inside a world diorama. Faults: WORLD_DIO_FAULTS.
+    def _wdio(self) -> bool:
+        return "worlddio" in self._nb_caps()
+
+    def _wdio_booted_world(self) -> bool:
+        """NetSyncDiorama.BootedFromWorld: a world-booted diorama is up."""
+        return bool(self._dio["booted"]) and bool(self._wdx["world_boot"])
+
+    def _world_ctl(self) -> int:
+        """w_moveCHRControl_No, THE LIVE TRAVEL MODE: SetVehicle writes gEventGlobal[190] (``world['vehicle']``) and
+        w_movementChange re-reads it; ``world_ctl_override`` (a test seam: a TransportControls row that disagrees) wins."""
+        if self.world_ctl_override is not None:
+            return int(self.world_ctl_override)
+        return int(self.world.get("vehicle") or 0)
+
+    def _wdio_lever(self) -> int:
+        """NetSyncDiorama.WorldWarmLeverNow: the bench's lever on the selftest role only (`on` everywhere else)."""
+        return BW.world_warm_lever_for(self._nb_role(), self._wdx["lever"])
+
+    def _wdio_in(self) -> dict:
+        """NetSyncDiorama.ReadWorldWarm over the stand-in (BW.world_warm_in): the strict onWorld (its HUD) is the live world
+        scene; ctx0 is this world's while it is up; entry 0 has tag 10 off the event worlds (and ``world_no_reinit``); the latch
+        read with booted FALSE. The `lever_ignored_warm` fault reads the lever `on`."""
+        live = self._world_strict()
+        wld = int(self.world["id"]) if self.world.get("id") is not None else -1
+        wt = self._wt
+        attr = 0x1000 if (wt["exit"] is not None or wt["swirl"] is not None) else 0
+        latch = BW.world_latch_no_boot(live, self._world_sys_mode(), attr, wt["next_mode"], False, False, self._wj["armed"] >= 0)
+        lever = BW.WORLD_WARM_ON if "lever_ignored_warm" in self.world_dio_faults else self._wdio_lever()
+        return BW.world_warm_in(
+            lever=lever, sys_mode=self._world_sys_mode(), g_mode=3 if live else int(wt["gmode"]), world_scene=live,
+            world_hud=self.ui_state == "WorldHUD", bee_scene=bool(self.world_bee), travel_mode=self._world_ctl(), world=wld,
+            ctx0_inited=3 if live else 1, ctx0_lastmap=(wld & 0xFFFF) if live else -1, ctx1_inited=0,
+            has_reinit=wld not in BW.EVENT_WORLD_MAPS and wld not in self.world_no_reinit, main_level=7, resuming=False,
+            latch_why=latch, full_map=bool(self.world_full_map), topograph=int(self.world_topo), dialogs=self._dialog_open(),
+            control=bool(self.control), player=self.world.get("x") is not None)
+
+    def _wdio_verdict(self) -> tuple:
+        """WorldWarmWhyNow: (why, durable) -- the `vehicle_boots` fault runs the verdict without its vehicle row."""
+        skip = BW.WORLD_ROW_VEHICLE if "vehicle_boots" in self.world_dio_faults else -1
+        why, row = BW.world_warm_row(self._wdio_in(), skip)
+        return why, why is not None and BW.world_row_durable(row)
+
+    def _wdio_decline(self, why, durable) -> None:
+        """NetSyncDiorama.NoteWorldDecline."""
+        wx = self._wdx
+        wx["declines"] += 1
+        wx["decline_why"], wx["decline_durable"] = why, bool(durable)
+
+    def _wdio_prime(self) -> None:
+        """PrimeWarmWorld + the world shape's prevMode: COPY ONLY (the boot-time snapshot the reinit branch restores) -- or, under
+        `bench worldwarm cold` (the `boot_cold` fault too), no copy. prevMode 3 (the `prevmode_unset` fault never writes it)."""
+        d, wx, faults = self._dio, self._wdx, self.world_dio_faults
+        wld = int(self.world["id"])
+        lever = BW.WORLD_WARM_ON if "lever_ignored_warm" in faults else self._wdio_lever()
+        wx.update(world_boot=True, boot_world=wld, hold_why=None, stale_frames=0)
+        if "prevmode_unset" in faults:
+            wx["prev_at_boot"] = -1
+        else:
+            wx["prev_at_boot"] = self._prev_mode
+            self._prev_mode = 3
+        d["boot_field"] = -1
+        if lever == BW.WORLD_WARM_COLD or "boot_cold" in faults:
+            why = BW.LOG_WORLD_COLD_WHY if lever == BW.WORLD_WARM_COLD else "no warm copy (the field prime's fallback)"
+            wx.update(boot="cold", snap=None)
+            d.update(boot="cold", boot_why=why, primed=False, boot_x=None, boot_z=None)
+            self._mlog("[NetSync] " + BW.log_world_cold_primed(wld))
+        else:
+            x, z = float(self.world["x"]), float(self.world["z"])
+            wx.update(boot="warm", snap={"id": wld, "x": x, "z": z, "mapvar": bytes(self._wmap), "walked": bool(self._walked)})
+            d.update(boot="warm", boot_why=None, primed=True, boot_x=round(x * 256.0, 3), boot_z=round(z * 256.0, 3))
+            self._mlog("[NetSync] " + BW.log_world_warm_primed(wld, x * 256.0, z * 256.0))
+        if "audio_field_block" in faults:
+            # the FIELD pre-swirl block on a world boot: SFX_Rush.SetCenterPosition(0) dereferences the absent fieldmap
+            self._mlog("[NetSync] " + BW.LOG_PRESWIRL_AUDIO_FAILED + " (cosmetic): NullReferenceException")
+
+    def _wdio_world_load(self, reinit, camera: bool = True) -> None:
+        """ff9InitStateWorldMap's event context, then w_cameraSystemConstructor: the reinit branch restores the battle-return copy
+        (``"stock"``: a stock world battle's own -- the context as it stood; a dict: the diorama's boot-time copy), any other load
+        runs Main_Init (its MAP vars and encounter rate; the area script's first-move latch reset); prevMode 1 zeroes the camera."""
+        if reinit == "stock":
+            self._wprob = FAKE_WORLD_BATTLE_PROB_REINIT          # [fix1] Main_Reinit's own op-26 write
+        elif isinstance(reinit, dict):
+            self._wmap[:] = bytes(reinit["mapvar"])
+            self._wprob = FAKE_WORLD_BATTLE_PROB_REINIT          # [fix1] Main_Reinit's write -- never the copy's (no copy carries it)
+            self._walked = bool(reinit["walked"])
+        else:
+            self._wmap[:] = bytes(BW.MAPVAR_BYTES)
+            for k, v in FAKE_WORLD_MAPVAR_INIT.items():
+                self._wmap[k] = v
+            self._wprob = FAKE_WORLD_BATTLE_PROB_INIT
+            self._walked = False
+        if self._prev_mode == 1 and camera:
+            if self.overworld is not None:
+                self.overworld["cam"] = 0.0
+            self.world_cam_upper = 0
+        self._wsnd_world_song()                                # [ff9mapkit netsync s145 fix2] w_frameMapConstructor's w_musicPlay
+
+    def _wdio_walked(self) -> None:
+        """The world's area script on the walker's FIRST move after a Main_Init: its MAP-var writes (the stand-in's approximation;
+        fix1: never the encounter rate -- only op 26, in Main_Init / Main_Reinit, writes it)."""
+        self._walked = True
+        for k, v in FAKE_WORLD_MAPVAR_WALKED.items():
+            self._wmap[k] = v
+
+    def _wdio_count_return(self, branch: str, wld: int) -> None:
+        """NoteFieldEventsStart's world half (NoteWorldReturn): the return counted on its OWN world load."""
+        d, wx = self._dio, self._wdx
+        d.update(returns=d["returns"] + 1, last_return=branch, last_return_field=-1)
+        wx.update(returns=wx["returns"] + 1, last_return=branch, last_world=int(wld))
+
+    def _wdio_return(self) -> None:
+        """A WORLD boot's teardown (ForceDisarm, EndWorldBoot) and its return: LeaveFrom's Replace("WorldMap", FadeOutToBlack) --
+        a world load through the reinit branch (WARM: the copy restored, the guest where it stood, prevMode 3 keeps the camera),
+        or Main_Init (COLD: the spawn, the MAP vars Main_Init writes). Control comes back with Main_Reinit (inside HonoAwake), and
+        the freeze holds again from the first world frame (the world load's rising edge). Faults: `leave_fieldmap` (s144's
+        Replace("FieldMap")), `return_uncounted` (s144's consume rule), `refreeze_lost`."""
+        d, wx, faults = self._dio, self._wdx, self.world_dio_faults
+        warm = bool(d["primed"])
+        wld, snap = int(wx["boot_world"]), wx["snap"]
+        self._wsnd_sync()                            # [ff9mapkit netsync s145 fix2] the battle lane's last song change
+        self._nb_teardown()
+        self.battle_active = False
+        self.battle_debug = False
+        self.commands_enabled = False
+        self._close_battle_cursor()
+        wx.update(world_boot=False, prev_at_boot=-1, snap=None, by_wire=False)
+        d.update(booted=False, primed=False)
+        self._visit += 1
+        self._in_trigger.clear()
+        if "leave_fieldmap" in faults:
+            fld = self.field_id                      # fldMapNo: the field the guest last left for the world map
+            self.ui_state = "FieldHUD"
+            d.update(returns=d["returns"] + 1, last_return="cold", last_return_field=fld)
+            self._guest.field_load()
+            self._self_on_load(cold=True)
+            self._world_field_load()
+            x, z = self.field_spawn.get(fld, (0.0, 0.0))
+            self.player = [float(x), self.player[1], float(z)]
+            self.control = True
+            return
+        prev, self.ui_state = self.ui_state, "WorldHUD"
+        if warm and snap is not None:
+            self.world.update(id=snap["id"], x=snap["x"], z=snap["z"])
+        else:
+            sx, sz = self.world_spawn.get(wld, (100.0, 100.0))
+            self.world.update(id=wld, x=float(sx), z=float(sz))
+        self._wsnd_before_world_events()             # [ff9mapkit netsync s145 fix2] ff9InitStateWorldMap's BeforeWorldEvents
+        self._world_load(prev, reinit=snap if warm else None)
+        self._wt["last_ui"] = "WorldHUD"
+        self._wt["gmode"] = 3
+        self.control = True
+        if "refreeze_lost" in faults:
+            wx["unfrozen"] = True
+        branch = "warm" if warm else "cold"
+        if "return_uncounted" in faults:
+            wx["pending_count"] = branch             # s144: consumed by the next FIELD load (counted there, as a field's)
+        else:
+            self._wdio_count_return(branch, wld)
+        x, z = self.world["x"], self.world["z"]
+        self._mlog("[NetSync] " + (BW.log_world_return_warm(wld, x * 256.0, z * 256.0) if warm
+                                   else BW.log_world_return_cold_calibration(wld)))
+
+    def _wdio_field_load(self) -> None:
+        """Every field load on the `worlddio` rung: prevMode (3 from the world map, 1 from a field), s144's consume rule's late
+        count (the `return_uncounted` fault), and the refreeze latch the fault left."""
+        self._prev_mode = 3 if self._wt["gmode"] == 3 else 1
+        wx, d = self._wdx, self._dio
+        wx["unfrozen"] = False
+        if wx["pending_count"] is not None:
+            d.update(returns=d["returns"] + 1, last_return="cold", last_return_field=self.field_id)
+            wx["pending_count"] = None
+
+    def _wdio_witness_doc(self, live: bool) -> dict:
+        """AppendWorldWarmWitness: the camera, the live travel mode, the encounter rate, the world tick and the MAP-var digest --
+        behind the live-scene gate (cam_rot / mapvar null off it, the rest -1)."""
+        ow = self.overworld or {}
+        return {"cam_rot": round(float(ow.get("cam", 0.0)), 3) if live else None,
+                "cam_upper": int(self.world_cam_upper) if live else -1, "ctl": self._world_ctl() if live else -1,
+                "battle_prob": int(self._wprob) if live else -1, "ticks": int(self._wt["counter"]) if live else -1,
+                "mapvar": BW.mapvar_hex(self._wmap) if live else None}
+
+    def _wdio_doc(self) -> dict:
+        """AppendWorldDio: the engine's claims (BW.WORLD_DIO_SENTINELS' keys, in its order)."""
+        wx = self._wdx
+        bw, lw = int(wx["boot_world"]), int(wx["last_world"])
+        return {"booted_world": self._wdio_booted_world(), "boot_world": bw, "boot": wx["boot"] if bw >= 0 else None,
+                "prev_mode_at_boot": int(wx["prev_at_boot"]), "lever": BW.world_warm_lever_name(self._wdio_lever()),
+                "declines": int(wx["declines"]), "decline_why": wx["decline_why"], "decline_durable": bool(wx["decline_durable"]),
+                "visit_decline": wx["visit_decline"], "wait_why": wx["wait_why"], "returns": int(wx["returns"]),
+                "last_return": wx["last_return"] if lw >= 0 else None, "last_world": lw, "resuming": False,
+                **self._wsnd_doc()}          # [fix2] the sound model's trio (off: the stand-in plays no music, fix1's witnesses idle)
+
+    def _wdio_vehicle(self, args: list) -> None:
+        """`vehicle <mode>` (HarnessAgent -> Ff9mkDebugMenu.HarnessVehicle -> SetVehicle(mode, force: false)): the argument check,
+        then HarnessVehicleRefusal and SetVehicle's own refusals (BW.vehicle_status) -- each thrown as the status line; applied,
+        gEventGlobal[190] and the live travel mode take the mode."""
+        mode = None
+        if len(args) == 1:
+            try:
+                mode = int(str(args[0]).strip())
+            except ValueError:
+                mode = None
+        if mode is None or mode < 0:
+            raise RuntimeError(f"{BW.vehicle_usage(args)}\r\nParameter name: vehicle")
+        hud = self.ui_state == "WorldHUD"
+        ok, status = BW.vehicle_status(mode, int(self.world.get("id") or -1), world_hud=hud,
+                                       sys_mode=self._world_sys_mode() if hud else 1, bee=bool(self.world_bee),
+                                       loaded=True, latch_why=self._world_latch_why() if hud else None)
+        self.debug_status = status
+        if not ok:
+            raise RuntimeError(status)
+        self.world["vehicle"] = mode
+
+    def _wdio_watch_decline(self, nonce: int, why: str) -> None:
+        """NoteWatcherWorldDecline: once per fight AND reason (the engine's (nonce, why) latch) -- NetSyncDiorama's decline count and
+        one line; a decline is no wait (wait_why cleared). Never the skip nonce."""
+        wx = self._wdx
+        if wx["decl_nonce"] == nonce and wx["decl_why"] == why:
+            return
+        wx["decl_nonce"], wx["decl_why"], wx["wait_why"] = nonce, why, None
+        self._wdio_decline(why, True)
+        self._mlog("[NetSync] " + BW.log_world_declined(self.world["id"], why, nonce))
+
+    def _wdio_epoch_reset(self, epoch: int) -> None:
+        """[ff9mapkit netsync s145 fix1] ResetGuestDedupForEpoch's world half (ResetWorldWatchDedup) and its diorama seen nonce: a
+        relaunched host restarts its battle nonces, so the watcher's per-fight latches forget the old session's."""
+        wx = self._wdx
+        wx.update(epoch_seen=int(epoch), decl_nonce=-1, decl_why=None, wait_nonce=-1, wait_why=None, seen_nonce=-1)
+
+    # ---- [ff9mapkit netsync s145 fix2] THE SOUND INSTANCES (opt-in: ``world_music``) -- what fix1's music witnesses read
+    @staticmethod
+    def _wsnd_fresh() -> dict:
+        """The voices (sid -> song, its stop's end ``stop_rt`` / frame, paused), the current song and instance (currentMusicID and
+        its SoundID), the suspend slot (GetSuspendSongID and its instance) and NetSyncDiorama._leaveSongSid."""
+        return {"voices": {}, "next": 100, "cur": -1, "cur_sid": -1, "slot": -1, "slot_sid": -1, "leave_sid": -1}
+
+    def _wsnd_on(self) -> bool:
+        return self.world_music is not None and self._wdio()
+
+    def _wsnd_play(self, song: int) -> None:
+        """FF9SOUND_SONG_PLAY: a NEW instance, current."""
+        s = self._wsnd
+        sid = s["next"]
+        s["next"] += 1
+        s["voices"][sid] = {"song": int(song), "stop_rt": None, "stop_frame": None, "paused": False}
+        s["cur"], s["cur_sid"] = int(song), sid
+
+    def _wsnd_stop_current(self, fade_s: float) -> None:
+        """StopCurrentSong / FF9SOUND_SONG_STOPCURRENT: the current instance stops over ``fade_s`` (IsExist 1, IsPaused 0 until it
+        ends), currentMusicID -1 at once."""
+        s = self._wsnd
+        v = s["voices"].get(s["cur_sid"])
+        if v is not None and v["stop_rt"] is None:
+            v["stop_rt"], v["stop_frame"] = self.rt + float(fade_s), self.frame
+        s["cur"], s["cur_sid"] = -1, -1
+
+    def _wsnd_world_song(self) -> None:
+        """w_frameMapConstructor's w_musicPlay on every world load: the suspend slot restored (FF9SOUND_SONG_RESTORE: its OWN instance
+        unpaused and current -- it never stops the current song), else the world song plays (a new instance) unless it already does."""
+        if not self._wsnd_on():
+            return
+        s = self._wsnd
+        if s["slot"] >= 0:
+            v = s["voices"].get(s["slot_sid"])
+            if v is not None:
+                v["paused"] = False
+            s["cur"], s["cur_sid"] = s["slot"], s["slot_sid"]
+            s["slot"], s["slot_sid"] = -1, -1
+        elif s["cur"] != int(self.world_music[0]):
+            if s["cur"] >= 0:
+                self._wsnd_stop_current(FAKE_SONG_STOPCURRENT_FADE_S)
+            self._wsnd_play(self.world_music[0])
+
+    def _wsnd_boot(self, silent: bool) -> None:
+        """A WORLD boot's audio (the pre-swirl block, then the battle): FF9SOUND_SONG_SUSPEND -- the world song's instance paused, the
+        slot it -- and the battle song under a new instance (``silent``: none, the 0xFFFE lane); the battle lane's song reads it."""
+        if not self._wsnd_on():
+            return
+        s = self._wsnd
+        if s["cur"] >= 0:
+            v = s["voices"].get(s["cur_sid"])
+            if v is not None:
+                v["paused"] = True
+            s["slot"], s["slot_sid"] = s["cur"], s["cur_sid"]
+            s["cur"], s["cur_sid"] = -1, -1
+        if not silent:
+            self._wsnd_play(self.world_music[1])
+        self._nb.music = s["cur"]
+
+    def _wsnd_sync(self) -> None:
+        """While a WORLD diorama is up, the battle lane's song changes reach the instances: a new song (the victory / defeat tail's)
+        mints one (the old stops at the STOPCURRENT floor); -1 (the settle's or the replay hide tail's shut) is StopCurrentSong(120)'s
+        2 s fade."""
+        if not (self._wsnd_on() and self._dio["booted"] and self._wdx["world_boot"]):
+            return
+        s, want = self._wsnd, int(self._nb.music)
+        if want == s["cur"]:
+            return
+        if want < 0:
+            self._wsnd_stop_current(FAKE_SONG_SETTLE_FADE_S)
+        else:
+            if s["cur"] >= 0:
+                self._wsnd_stop_current(FAKE_SONG_STOPCURRENT_FADE_S)
+            self._wsnd_play(want)
+
+    def _wsnd_latch(self) -> None:
+        """LeaveFrom's witness latch, a world boot only (`_leaveSongSid = MusicSoundIdNow()`)."""
+        if self._wsnd_on():
+            self._wsnd_sync()
+            self._wsnd["leave_sid"] = self._wsnd["cur_sid"]
+
+    def _wsnd_before_world_events(self) -> None:
+        """BeforeWorldEvents on the world boot's return (StopBattleSongOverSuspendedField): a song current over the suspend slot stops
+        (FF9SOUND_SONG_STOPCURRENT, its 500 ms floor) -- the `bwe_stop_missing` fault skips it."""
+        if not self._wsnd_on():
+            return
+        s = self._wsnd
+        if s["slot"] != -1 and s["cur"] != -1 and s["cur"] != s["slot"] and "bwe_stop_missing" not in self.world_music_faults:
+            self._wsnd_stop_current(FAKE_SONG_STOPCURRENT_FADE_S)
+
+    def _wsnd_doc(self) -> dict:
+        """`netsync.world.dio`'s music trio: suspend_song (the slot), song_sid (MusicSoundIdNow) and boot_song_live
+        (HarnessBootSongLive: the latched instance exists, unpaused, and is not the current one) -- idle unless the model runs."""
+        if not self._wsnd_on():
+            return {"suspend_song": -1, "song_sid": -1, "boot_song_live": False}
+        self._wsnd_sync()
+        s = self._wsnd
+        sid = s["leave_sid"]
+        v = s["voices"].get(sid)
+        live = (sid >= 0 and sid != s["cur_sid"] and v is not None and (v["stop_rt"] is None or self.rt < v["stop_rt"])
+                and not v["paused"])
+        return {"suspend_song": s["slot"], "song_sid": s["cur_sid"], "boot_song_live": bool(live)}
+
+    def _wsnd_music(self, nb_music: int) -> int:
+        """`netsync.battle.end.music` (GetCurrentMusicId): the model's current song while it runs, else the battle lane's."""
+        if not self._wsnd_on():
+            return nb_music
+        self._wsnd_sync()
+        return self._wsnd["cur"]
+
+    def _wdio_watch_leave(self, why: str) -> None:
+        """The booted wire diorama's LEAVE_FINAL (DioramaWatchStep's why, `netsync.diorama.hold.why`)."""
+        self._wdx["hold_why"] = why
+        self._mlog(f"[NetSync] diorama watcher: {BW.WATCH_WHY_TEXT_HOST_WORLD if why == 'host_world' else why} -- leaving "
+                   f"(nonce {self._wdx['wire_nonce']}; logged once per boot)")
+        self._dio_leave()
+
+    def _step_world_dio(self) -> None:
+        """[ff9mapkit netsync s145] NetSyncClient's world watcher on the FOLLOWED CLIENT (:meth:`follow_session`; the host's battle
+        lane is ``coop_follow['battle']``, its nonce ``battle_nonce``, its scene ``battle_scene``): THE PROJECTION once a frame
+        (`visit_decline`: the world visit's durable decline -- watching false, NONE); not booted, on the strict world: the quiet
+        waits (the live latch, the full map, the bee scene), the visit's decline (one line and one count per fight), WorldHUD,
+        the warm pre-verdict (a transient refusal waits, one line per fight and reason), then the boot (Boot's backstop re-reads
+        the verdict); booted on the wire: live on its nonce holds, a new nonce leaves, a stale lane leaves on the host on a real
+        field (host_field) or back on the world map (b6: host_world -- the `hostworld_blind` fault ignores it) or, the peer alive
+        and silent, at the stand-in's stall cap. The FIELD watcher is not modelled (a field guest's boot stays the selftest
+        `dioboot`'s)."""
+        if not self._wdio():
+            return
+        cf, ns, wx, d, faults = self.coop_follow, self.netsync, self._wdx, self._dio, self.world_dio_faults
+        if cf is None or ns["role"] != "client" or not (ns["enabled"] and ns["instance"]):
+            wx["visit_decline"] = None
+            return
+        world_side = int(self._wt["gmode"]) == 3
+        wx["visit_decline"] = (BW.world_decline_why(self._wdio_in())
+                               if world_side and not self._wdio_booted_world() and "decline_unprojected" not in faults else None)
+        alive = bool(cf["valid"] and cf["connected"])
+        lane = alive and bool(cf.get("battle"))
+        nonce = int(cf.get("battle_nonce") or 1)
+        if int(cf.get("epoch") or 0) != int(wx.get("epoch_seen") or 0):
+            self._wdio_epoch_reset(int(cf.get("epoch") or 0))   # [ff9mapkit netsync s145 fix1] ResetGuestDedupForEpoch's world half
+        if d["booted"]:
+            if not wx["by_wire"] or self._dio_leave_at is not None:
+                return
+            if lane and nonce == wx["wire_nonce"]:
+                wx["stale_frames"] = 0
+                return
+            if lane:
+                self._wdio_watch_leave("new_nonce")
+                return
+            host = int(cf["field"]) if cf["valid"] else -1
+            flags = int(cf["flags"]) if cf["flags"] is not None else -1
+            if alive and 0 < host != BW.NO_FIELD:
+                self._wdio_watch_leave("host_field")
+            elif alive and BW.host_where_read(flags, BW.HF_WORLD) and "hostworld_blind" not in faults:
+                self._wdio_watch_leave("host_world")
+            else:
+                wx["stale_frames"] += 1
+                if alive and wx["stale_frames"] > FAKE_DIO_STALL_FRAMES:
+                    self._wdio_watch_leave("stall_cap")
+            return
+        if not lane:
+            wx["wait_why"] = None                    # [s145 fix1] the host's fight is over: no transient wait stands
+            return
+        if nonce == wx["seen_nonce"] or not self._world_strict():
+            return
+        # [s145 fix1] the bee scene is no quiet wait: the projection declines it (one line, one count per fight)
+        if self._world_latch_why() is not None or self.world_full_map:
+            return
+        if wx["visit_decline"] is not None:
+            self._wdio_watch_decline(nonce, wx["visit_decline"])
+            return
+        if self.ui_state != "WorldHUD":
+            return
+        if "decline_unprojected" not in faults:
+            why, durable = self._wdio_verdict()
+            if why is not None:
+                if durable:
+                    self._wdio_watch_decline(nonce, why)
+                elif not durable and (wx["wait_nonce"] != nonce or wx["wait_why"] != why):
+                    wx["wait_nonce"], wx["wait_why"] = nonce, why
+                    self._mlog("[NetSync] " + BW.log_world_waits(self.world["id"], why, nonce))
+                return
+        if self.frame - int(wx.get("try_frame", -10 ** 9)) < int(self.fps):
+            return                                   # the watcher's 1 s attempt cadence
+        wx["try_frame"] = self.frame
+        wx["wait_why"] = None
+        self._dio_boot(int(cf.get("battle_scene") or 67), rand=True)
+        if d["booted"]:
+            wx.update(by_wire=True, wire_nonce=nonce, seen_nonce=nonce, stale_frames=0, hold_why=None)
 
     # ---- the followed client (opt-in) ------------------------------------------------------------------------------------
     def follow_session(self, host_field: int = 0, *, flags: int = -1, fresh: bool = True, valid: bool = True,
@@ -6079,7 +6685,9 @@ class FakeGame:
         ns.update(enabled=True, role="client", instance=True, selftest=False, forced=False)
         self.coop_follow = {"field": int(host_field), "flags": int(flags), "fresh": bool(fresh), "valid": bool(valid),
                             "connected": bool(connected), "entrance": entrance, "battle": bool(battle), "intent": None,
+                            "battle_nonce": 1, "battle_scene": 67,          # [ff9mapkit netsync s145] the lane's nonce, scene
                             "intent_seen": None, "nonce": 0, "story": story, "pair_kick": bool(pair_kick),
+                            "epoch": 0,                      # [ff9mapkit netsync s145 fix1] the host's epoch (a relaunch: host_at(epoch=))
                             "paired": False}
 
     def dial_ready(self) -> bool:
@@ -6318,13 +6926,14 @@ class FakeGame:
         """[ff9mapkit netsync s144] Test seam: the ~ menu's "Co-op: release world freeze" row (rendered only in a live followed
         session; no harness verb reaches it) -- NetSyncField.ReleaseWorldFreeze. None = released (its line), else the
         refusal (BW.world_freeze_release_refusal; the menu logs it)."""
-        why = BW.world_freeze_release_refusal(self._live_followed(), self._world_strict(), self._world_freeze_now(),
-                                              self._wf_released)
+        refusal = BW.world_freeze_release_refusal if self._wdio() else BW.world_freeze_release_refusal_s144   # [s145] by stage
+        why = refusal(self._live_followed(), self._world_strict(), self._world_freeze_now(), self._wf_released)
         if why is not None:
             self._mlog("[NetSync] " + BW.log_release_refused(why))
             return why
         self._wf_released = True
-        self._mlog("[NetSync] " + BW.log_world_freeze_released(source, self.world["id"]))
+        said = BW.log_world_freeze_released if self._wdio() else BW.log_world_freeze_released_s144   # [ff9mapkit netsync s145]
+        self._mlog("[NetSync] " + said(source, self.world["id"]))
         return None
 
     def _step_world_coop(self) -> None:
@@ -6338,6 +6947,8 @@ class FakeGame:
         # only from s144 (`gmode`). A menu runs no StartEvents: gMode stays.
         if ui == "WorldHUD":
             wt["gmode"] = 3
+        elif self.battle_active and self._wdio() and self._dio["booted"] and self.battle_debug:
+            pass                                    # [ff9mapkit netsync s145] isDebug: no StartEvents -- gMode stays (3 from the world)
         elif self.battle_active:
             wt["gmode"] = 2
         elif ui in ("MainMenu", "Pause"):
@@ -6347,9 +6958,12 @@ class FakeGame:
         if not self._ww():
             return
         if ui == "WorldHUD" and wt["last_ui"] != "WorldHUD":
-            self._world_load(wt["last_ui"])
+            self._world_load(wt["last_ui"], camera=False)   # [ff9mapkit netsync s145] a hand-set ui_state: its camera kept
         if ui == "Title":
             wt.update(arm=None, swirl=None, exit=None, from_world=None)
+            if self._wdio() and self._wf_released and self.netsync["enabled"] and "release_world_end" not in self.world_dio_faults:
+                self._wf_released = False             # [ff9mapkit netsync s145] OnTitleWorldFreeze: a release never crosses a save
+                self._mlog("[NetSync] " + BW.LOG_WORLD_FREEZE_REARMED_TITLE)
         wt["last_ui"] = ui
         ns = self.netsync
         if not (ns["enabled"] and ns["instance"]):
@@ -6376,6 +6990,10 @@ class FakeGame:
         host = int(cf["field"]) if valid else -1
         fld = self.field_id
         follow_fld = fld if "rejoin_departed" in self.world_faults else BW.follow_field_for(on_world, fld)
+        if self._wdio() and "follow_departed" not in self.world_dio_faults and "rejoin_departed" not in self.world_faults:
+            # [ff9mapkit netsync s145] decision 10 (fix1: the four-input rule -- the stand-in's world return is ONE call, its teardown and
+            # its world load together, so no return-pending frame exists to model: that input reads False here)
+            follow_fld = BW.follow_field_for_dio(on_world, self._wdio_booted_world(), False, fld)
         flags = int(cf["flags"]) if cf["flags"] is not None else -1
         wl["host_world"] = valid and BW.host_where_read(flags, BW.HF_WORLD)
         wl["host_title"] = valid and BW.host_where_read(flags, BW.HF_TITLE)
@@ -6545,7 +7163,10 @@ class FakeGame:
                   "redirects": wj["redirects"], "rearms": wj["rearms"], "why": wj["why"], "last": wj["last"]}
         away_ms = int((self.rt - wl["away_since"]) * 1000) if wl["away_armed"] else -1
         waitline = {"line": wl["line"], "fallback": bool(wl["fallback"]), "away_ms": away_ms}
-        return {"freeze": freeze, "rejoin": rejoin, "waitline": waitline}
+        doc = {"freeze": freeze, "rejoin": rejoin, "waitline": waitline}
+        if self._wdio():
+            doc["dio"] = self._wdio_doc()             # [ff9mapkit netsync s145] AppendWorldDio: `world`'s last block
+        return doc
 
     def _world_live_doc(self) -> dict:
         """HarnessAgent.AppendWorldLive (after `vehicle`): `area` / `topo` / `move` with a controlled walker on the live world
@@ -6553,9 +7174,12 @@ class FakeGame:
         `next_mode` while the WorldMap scene is the loaded level; off it -1 / -1 / null / -1 / -1."""
         live = self._world_strict()
         walker = live and self.world["x"] is not None
-        return {"area": int(self.world_area) if walker else -1, "topo": int(self.world_topo) if walker else -1,
-                "move": bool(self._wt["moved"]) if walker else None, "phase": 2 if live else -1,
-                "next_mode": int(self._wt["next_mode"]) if live else -1}
+        doc = {"area": int(self.world_area) if walker else -1, "topo": int(self.world_topo) if walker else -1,
+               "move": bool(self._wt["moved"]) if walker else None, "phase": 2 if live else -1,
+               "next_mode": int(self._wt["next_mode"]) if live else -1}
+        if self._wdio():
+            doc.update(self._wdio_witness_doc(live))  # [ff9mapkit netsync s145] AppendWorldWarmWitness, after `next_mode`
+        return doc
 
     def _field_entrance(self) -> int:
         """EventState.FieldEntrance: gEventGlobal[2..3] as Int16 (the stand-in's ``story_bytes``)."""
@@ -7541,7 +8165,7 @@ class FakeGame:
             rows.append((BW.PROOF_CONTROL,
                          BW.CONTROL_SELFTEST_ROWS if "ownreport" in caps else BW.CONTROL_SELFTEST_ROWS_S114))
         if "holdpeer" in caps:
-            rows.append((BW.PROOF_WATCH, BW.WATCH_SELFTEST_ROWS))
+            rows.append((BW.PROOF_WATCH, BW.watch_selftest_rows(145 if self._wdio() else 119)))   # [ff9mapkit netsync s145] 24 / 32
         if "grace" in caps:
             rows.append((BW.PROOF_GRACE, BW.GRACE_SELFTEST_ROWS))
         if "menurefusal" in caps:
@@ -7920,7 +8544,7 @@ class FakeGame:
                    "r8_hits": nb.r8_hits, "r8_first_ms": nb.r8_first_ms, "w1_armed": nb.w1_armed,
                    "watchdog": nb.watchdog, "blocker": nb.blocker, "why": nb.why, "faulted": nb.faulted,
                    "hud_reasserts": nb.hud_reasserts, "guest_mode": BW.GUEST_MODE_NAMES[self._nb_guest_mode()],
-                   "ach_held": nb.ach_held, "ach_enemy_no": self.ach_enemy_no, "music": nb.music,
+                   "ach_held": nb.ach_held, "ach_enemy_no": self.ach_enemy_no, "music": self._wsnd_music(nb.music),
                    "btl_flag": nb.btl_flag}
             if "exit" in caps:
                 end["exit_mode"] = "off" if self._nb_exit_mode() == BW.EXIT_MODE_OFF else "on"
@@ -8047,6 +8671,11 @@ class FakeGame:
         if self._wf_off and "lever_stuck" not in self.world_faults:
             self._mlog("[NetSync] " + BW.LOG_WORLD_FREEZE_RELEASED)
             self._wf_off = False
+        # [ff9mapkit netsync s145] NetSyncDiorama.HarnessReleaseWorldWarm, right after it: the world warm lever back on, its line only
+        # when it was pulled (the `warm_lever_stuck` fault leaves it)
+        if self._wdx["lever"] != BW.WORLD_WARM_ON and "warm_lever_stuck" not in self.world_dio_faults:
+            self._mlog("[NetSync] " + BW.LOG_WORLD_WARM_RELEASED)
+            self._wdx["lever"] = BW.WORLD_WARM_ON
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an
@@ -11699,7 +12328,7 @@ class FakeGame:
             return "no controlled actor"
         return None
 
-    def _dio_boot(self, scene: int, *, wire_intro: int = -1, rand: bool = False) -> None:
+    def _dio_boot(self, scene: int, *, wire_intro: int = -1, rand: bool = False, silent: bool = False) -> None:
         """NetSyncDiorama.Boot: (a refusal, :attr:`dio_boot_refusal`, leaves every observable alone) PrimeWarmReturn --
         WARM only when free-standing, the actor's position kept -- then the Replace into the debug battle, which never
         ends by itself (isDebug). [ff9mapkit netsync R3 s111] ``wire_intro`` (1 skip, 0 play, -1 own) is the boot's
@@ -11707,18 +12336,35 @@ class FakeGame:
         recorded (its OWN length, clamped by DioramaSwirlFrames)."""
         if self.dio_boot_refusal is not None:
             return
+        # [ff9mapkit netsync s145] THE WORLD BRANCH (a boot whose return is the world map): the warm verdict BEFORE Arm -- a refusal
+        # boots nothing (a decline counted, its line); a pass primes the copy (PrimeWarmWorld) and writes the world shape
+        world = self._wdio() and self._world_strict()
+        if world:
+            why, durable = self._wdio_verdict()
+            if why is not None:
+                self._wdio_decline(why, durable)
+                self._mlog("[NetSync] " + BW.log_world_boot_refused(why, durable))
+                if "decline_reload" in self.world_dio_faults:
+                    self._world_load("WorldHUD")              # the fault: a refusal that reloads the world (a cold reload)
+                return
         # [ff9mapkit netsync F3.3] Boot's `_leaveTick = TickCount - 3600000` (after every refusal): a fresh boot
         # invalidates any old leave intent, so a `dioleave` in THIS boot's swirl is deferred even if the previous
         # diorama's Leave was under 5 s ago, and a release re-requests the Leave at once
         self._dio_leave_rt = self.rt - 3600.0
-        why = self._warm_verdict()
         d = self._dio
-        d["boot_field"] = self.field_id
-        if why is None:
-            d.update(boot="warm", boot_why=None, primed=True, boot_x=round(self.player[0], 3),
-                     boot_z=round(self.player[2], 3))
+        if world:
+            self._wdio_prime()                                 # [ff9mapkit netsync s145] copy only (warm), or the cold lever
         else:
-            d.update(boot="cold", boot_why=why, primed=False, boot_x=None, boot_z=None)
+            self._wdx["world_boot"] = False                    # [ff9mapkit netsync s145] a field boot
+            if self._wdio():
+                self._wdx["boot_world"] = -1
+            why = self._warm_verdict()
+            d["boot_field"] = self.field_id
+            if why is None:
+                d.update(boot="warm", boot_why=None, primed=True, boot_x=round(self.player[0], 3),
+                         boot_z=round(self.player[2], 3))
+            else:
+                d.update(boot="cold", boot_why=why, primed=False, boot_x=None, boot_z=None)
         d["booted"] = True
         self._dio_boot_frame = self.frame
         self._dio_resume_until = None
@@ -11727,6 +12373,9 @@ class FakeGame:
         self._beats, self._beat_phase = [], None
         self.control = False
         self._nb_boot()                                   # [ff9mapkit netsync B4] the battle lane's per-boot state
+        self._wsnd["leave_sid"] = -1                      # [ff9mapkit netsync s145 fix2] Boot's `_leaveSongSid = -1` (every boot)
+        if world:
+            self._wsnd_boot(silent)                       # ...and a WORLD boot's audio (the sound model, opt-in)
         self._nb.d_wire = wire_intro if "intro" in self._nb_caps() and wire_intro in (0, 1) else -1
         if "swirl" in self._nb_caps():
             self._nb_record_swirl(True)                   # [ff9mapkit netsync R3 s112] SFX_Rush's constructor, booted
@@ -11751,15 +12400,25 @@ class FakeGame:
             # a deferred Leave aborts nothing)
             self._act_guest.abort_all("leave", booted=True, ctx=self._act_guest_ctx())
             self._act_flush()
+        early = self._wdx["world_boot"] and "latch_before_settle" in self.world_music_faults
+        if early:
+            self._wsnd_latch()                              # [fix2] the fault: the pre-fix2 order, before the settle shuts the song
         self._nb_settle(via)
+        if self._wdx["world_boot"] and not early:
+            self._wsnd_latch()                              # [ff9mapkit netsync s145 fix2] LeaveFrom: the latch AFTER the settle
         self._dio_leave_rt = self.rt
         if self._dio_leave_at is None:
             self._dio_leave_at = self.frame + self.dio_leave_frames
+            if self._wdx["world_boot"] and "leave_fieldmap" not in self.world_dio_faults:
+                self._mlog("[NetSync] " + BW.log_world_leave(self._wdx["boot_world"]))   # [ff9mapkit netsync s145]
 
     def _dio_return(self) -> None:
         """The teardown lands on the boot field: BeforeFieldEvents consumes a primed copy, and StartEvents takes the
         reinit branch (WARM: Main_Reinit, every actor where it stood) or Main_Init (COLD: the arrival placement).
         `returns` bumps here, before the actors are placed; control comes back when the entry script finishes."""
+        if self._wdx["world_boot"]:
+            self._wdio_return()                   # [ff9mapkit netsync s145] a WORLD boot goes back to the WorldMap
+            return
         d = self._dio
         warm = d["primed"]
         fld = d["boot_field"]

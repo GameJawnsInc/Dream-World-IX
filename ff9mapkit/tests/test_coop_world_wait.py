@@ -873,8 +873,11 @@ def test_each_world_fault_turns_exactly_its_duo_rows_red(tables, fault):
 def test_the_world_recorder_tapes_the_host_and_its_b6_is_the_engines(tables):
     """COOP_TAPE_WORLD=1 on the stand-in: newgame -> 6603 -> the walk out -> WORLD_S on the world map, every REC row green,
     the tape named `-world-` in its own dir with latest-world.json (never latest.json), on the PRIVATE port; its b6 (the
-    stub serve-guest tapes the stand-in host's own states) reads `where --want world` on s144 and `--want none` on s143."""
-    r = _child({"runs": {"s144": {"kind": "rec", "env": {"COOP_TAPE_WORLD": "1"}},
+    stub serve-guest tapes the stand-in host's own states) reads `where --want world` on s144 and `--want none` on s143.
+    [ff9mapkit netsync s145] BY STAGE: the s144 run is the s144 stand-in (the ladder through `worldwait`); the default
+    stand-in is s145 now, and a world tape is named by the host's own stage -- `-s145` there (the wire it records is s144's)."""
+    r = _child({"runs": {"s144": {"kind": "rec", "caps": "worldwait", "env": {"COOP_TAPE_WORLD": "1"}},
+                         "s145": {"kind": "rec", "env": {"COOP_TAPE_WORLD": "1"}},
                          "s143": {"kind": "rec", "caps": "leaderguard", "env": {"COOP_TAPE_WORLD": "1"}}}})
     for name, x in r.items():
         assert x["red"] == [], (name, {c: x["detail"][c] for c in x["red"]})
@@ -882,6 +885,7 @@ def test_the_world_recorder_tapes_the_host_and_its_b6_is_the_engines(tables):
         assert len(x["tapes"]) == 1 and "-host6603-world-" in x["tapes"][0] and x["pointer"] and not x["latest"]
         assert x["port"] == 49231
     assert r["s144"]["where"] == {"world": True, "none": False} and r["s144"]["tapes"][0].endswith("-s144.f9tape")
+    assert r["s145"]["where"] == {"world": True, "none": False} and r["s145"]["tapes"][0].endswith("-s145.f9tape")
     assert r["s143"]["where"] == {"world": False, "none": True}
 
 

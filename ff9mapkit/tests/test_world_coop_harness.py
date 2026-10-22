@@ -183,7 +183,9 @@ SAID = [
     ("NetSyncField.cs", _L(BW.log_world_freeze_released("~ menu", _W)), "~ menu", _W),
     ("NetSyncField.cs", _L(BW.LOG_WORLD_FREEZE_RELEASE_ENDED)),
     ("NetSyncField.cs", _L(BW.LOG_WORLD_FREEZE_REARMED)),
-    ("NetSyncField.cs", _L(BW.LOG_WORLD_FREEZE_REARMED_WORLD)),
+    # [ff9mapkit netsync s145] the world load's re-arm line is s144's (a world load keeps a release from s145: the s144 stack says
+    # it, the live one no longer -- tests/test_world_diorama.py); the TITLE's is the live one's
+    ("NetSyncField.cs", _L(BW.LOG_WORLD_FREEZE_REARMED_TITLE)),
     ("NetSyncField.cs", _L(BW.LOG_WORLD_FREEZE_OFF)),
     ("NetSyncField.cs", _L(BW.decline_line("what", f"world map {_W}")), "what", _W),        # DeclineOnceHere's world line
     ("NetSyncField.cs", BW.WORLD_POLL_DECLINE),
@@ -1018,9 +1020,11 @@ def test_the_follow_accessors_are_the_agents_follow_keys():
 
 def test_the_stand_in_publishes_the_world_keys_on_s144_and_none_on_s143(tmp_path):
     """Top-level `gmode`, `field.entrance` and the world block's live keys (in the agent's order, after `vehicle`) on the s144
-    stand-in -- -1 / null off the world map -- and none of them on s143's; `debug_status` the verb's."""
+    stand-in -- -1 / null off the world map -- and none of them on s143's; `debug_status` the verb's. [ff9mapkit netsync s145]
+    The s144 stand-in is the ladder through `worldwait` (s145 appends six witness keys after `next_mode`:
+    tests/test_world_diorama_harness.py)."""
     game = _game(tmp_path)
-    fake = _fake(game)
+    fake = _fake(game, caps=FG.caps_through("worldwait"))
     with _session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(250)
@@ -1113,9 +1117,11 @@ def test_the_release_frees_a_followed_guest_until_the_next_field_load(tmp_path):
     the frozen world map it frees the walker (`released`, its line) until the next field load (the re-armed line, frozen
     again); a second release is refused; the guest's own scripted world battle stays skipped while released (the ENCOUNT
     gate keys on SpectatorField alone: `battles`, one line per world map); unfollowing lifts the freeze with its reason and
+    [ff9mapkit netsync s145] -- ON THE s144 STAND-IN (the ladder through `worldwait`): s144 ended a release at a world load too;
+    s145 keeps it there and ends it at the title (tests/test_world_diorama_harness.py pins that stage) --
     the next scripted battle runs."""
     game = _game(tmp_path)
-    fake = _fake(game)
+    fake = _fake(game, caps=FG.caps_through("worldwait"))      # [ff9mapkit netsync s145] the s144 stage
     with _session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(250)
@@ -1132,7 +1138,7 @@ def test_the_release_frees_a_followed_guest_until_the_next_field_load(tmp_path):
         assert fake.world_script_battle(941) is False and fake.world_script_battle(942, "ENCOUNT2") is False
         st = g.wait_for(lambda s: s.world_freeze_battles == 2, timeout=4.0, what="the skipped battles")
         log = _log(fake)
-        assert _L(BW.log_world_freeze_released("~ menu", 9011)) in log
+        assert _L(BW.log_world_freeze_released_s144("~ menu", 9011)) in log      # [ff9mapkit netsync s145] the s144 stage's words
         assert log.count("suppressed (following guest) on world map 9011") >= 1
         assert log.count(BW.decline_line(BW.world_scripted_battle_decline("ENCOUNT", 941), "world map 9011")) == 1
         assert BW.world_scripted_battle_decline("ENCOUNT2", 942) not in log        # one line per class per world map

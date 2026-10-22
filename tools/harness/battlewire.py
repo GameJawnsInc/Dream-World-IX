@@ -1834,10 +1834,12 @@ HANDBACK_LOG_BUDGET = 8                  # hand-back lines per own battle (NetSy
 WATCH_NOTHING, WATCH_HOLD, WATCH_LEAVE_FINAL = 0, 1, 2
 WATCH_WHY_NONE, WATCH_WHY_NEW_NONCE, WATCH_WHY_TERMINAL, WATCH_WHY_HOST_FIELD, WATCH_WHY_HOLD_CAP = 0, 1, 2, 3, 4
 WATCH_WHY_STALL_CAP = 5                  # [ff9mapkit netsync R3 s120] the peer alive, its battle lane silent past the stall cap
+WATCH_WHY_HOST_WORLD = 6                 # [ff9mapkit netsync s145] the peer alive and back on the WORLD MAP (section 7's b6)
 #: `netsync.diorama.hold.state` / `.why` (WatchStateName / WatchWhyName; null = none)
 WATCH_STATE_NAMES = {WATCH_NOTHING: "nothing", WATCH_HOLD: "hold", WATCH_LEAVE_FINAL: "leave_final"}
 WATCH_WHY_NAMES = {WATCH_WHY_NEW_NONCE: "new_nonce", WATCH_WHY_TERMINAL: "terminal", WATCH_WHY_HOST_FIELD: "host_field",
-                   WATCH_WHY_HOLD_CAP: "cap", WATCH_WHY_STALL_CAP: "stall_cap"}
+                   WATCH_WHY_HOLD_CAP: "cap", WATCH_WHY_STALL_CAP: "stall_cap",
+                   WATCH_WHY_HOST_WORLD: "host_world"}                  # [ff9mapkit netsync s145]
 DIORAMA_SETTLE_MS = 500                  # the unbroken peer-alive run an over-verdict needs (and when a hold is COUNTED)
 DIORAMA_HOLD_CAP_S119_MS = 8000          # s119's cap (the s56 DioramaBlipHoldMs); from s120 the cap IS the session grace
 DIORAMA_STALL_CAP_MS = 8000              # s120's stall cap: a peer ALIVE that says nothing keeps s119's bound
@@ -1848,7 +1850,7 @@ NO_FIELD = 65535                         # a position lane's "no field" (never a
 WATCH_TEST_NONCE, WATCH_TEST_SETTLE, WATCH_TEST_CAP = 0x41, 500, 8000
 
 
-def diorama_watch_step(live: bool, nonce: int, booted_nonce: int, peer_alive_: bool, host_field: int,
+def diorama_watch_step(live: bool, nonce: int, booted_nonce: int, peer_alive_: bool, host_field: int, host_world: bool,
                        terminal_latched: bool, stale_ms: int, alive_ms: int, settle_ms: int, cap_ms: int,
                        stall_cap_ms: int, leave_why: int) -> tuple[int, int]:
     """NetSyncClient.DioramaWatchStep -> ``(verdict, why)``: THE WATCHER'S STEP for a booted wire diorama. Live: the same
@@ -1856,7 +1858,10 @@ def diorama_watch_step(live: bool, nonce: int, booted_nonce: int, peer_alive_: b
     with the peer alive for ``settle_ms`` AND (the end latched terminal, or the host on a real field -- neither 0 nor
     65535); past ``cap_ms`` of staleness LEAVE_FINAL (cap); [s120] then, the peer alive for the settle and saying nothing,
     past ``stall_cap_ms`` LEAVE_FINAL (stall_cap) -- tested after the cap, so a stall cap at or above it changes nothing;
-    every other stale frame HOLDS (frozen at the last applied state, no Leave). ``why`` is WATCH_WHY_NONE unless leaving."""
+    every other stale frame HOLDS (frozen at the last applied state, no Leave). ``why`` is WATCH_WHY_NONE unless leaving.
+    [ff9mapkit netsync s145] ``host_world`` = section 7's b6 as the guest last read it: the peer alive for the settle and BACK ON
+    THE WORLD MAP is over too (host_world) -- asked after the real field, behind the same settle. The s119 / s120 tables (b6 clear)
+    call :func:`diorama_watch_step_b6_clear`, the engine's private 13-arg overload (s144's step)."""
     if live:
         return (WATCH_NOTHING, WATCH_WHY_NONE) if nonce == booted_nonce else (WATCH_LEAVE_FINAL, WATCH_WHY_NEW_NONCE)
     if leave_why != WATCH_WHY_NONE:
@@ -1867,6 +1872,8 @@ def diorama_watch_step(live: bool, nonce: int, booted_nonce: int, peer_alive_: b
             return WATCH_LEAVE_FINAL, WATCH_WHY_TERMINAL
         if host_field > 0 and host_field != NO_FIELD:
             return WATCH_LEAVE_FINAL, WATCH_WHY_HOST_FIELD
+        if host_world:
+            return WATCH_LEAVE_FINAL, WATCH_WHY_HOST_WORLD                    # [ff9mapkit netsync s145]
     if stale_ms > cap_ms:
         return WATCH_LEAVE_FINAL, WATCH_WHY_HOLD_CAP
     if settled and stale_ms > stall_cap_ms:
@@ -2089,6 +2096,7 @@ CS_CLIENT_CONSTANTS = {
     "WatchWhyNone": WATCH_WHY_NONE, "WatchWhyNewNonce": WATCH_WHY_NEW_NONCE, "WatchWhyTerminal": WATCH_WHY_TERMINAL,
     "WatchWhyHostField": WATCH_WHY_HOST_FIELD, "WatchWhyHoldCap": WATCH_WHY_HOLD_CAP,
     "WatchWhyStallCap": WATCH_WHY_STALL_CAP, "DioramaSettleMs": DIORAMA_SETTLE_MS,
+    "WatchWhyHostWorld": WATCH_WHY_HOST_WORLD,                           # [ff9mapkit netsync s145]
     "DioramaStallCapMs": DIORAMA_STALL_CAP_MS, "DioramaHoldLogMax": DIORAMA_HOLD_LOG_MAX,
     "WatchTestNonce": WATCH_TEST_NONCE, "WatchTestSettle": WATCH_TEST_SETTLE, "WatchTestCap": WATCH_TEST_CAP,
     "SessionGraceDefaultMs": SESSION_GRACE_DEFAULT_MS, "SessionGraceMinMs": SESSION_GRACE_MIN_MS,
@@ -10359,8 +10367,10 @@ WORLD_FREEZE_SENTINELS = {"on": False, "why": None, "off": False, "released": Fa
 WORLD_REJOIN_SENTINELS = {"latch": False, "arms": 0, "lands": 0, "timeouts": 0, "redirects": 0, "rearms": 0, "why": None,
                           "last": -1}
 WORLD_WAITLINE_SENTINELS = {"line": None, "fallback": False, "away_ms": -1}
-WORLD_SENTINELS = {"freeze": dict(WORLD_FREEZE_SENTINELS), "rejoin": dict(WORLD_REJOIN_SENTINELS),
-                   "waitline": dict(WORLD_WAITLINE_SENTINELS)}
+#: an s144 engine's `netsync.world` (frozen); [ff9mapkit netsync s145] the LIVE block, WORLD_SENTINELS, adds `dio` after `waitline`
+#: (the s145 section below)
+WORLD_SENTINELS_S144 = {"freeze": dict(WORLD_FREEZE_SENTINELS), "rejoin": dict(WORLD_REJOIN_SENTINELS),
+                        "waitline": dict(WORLD_WAITLINE_SENTINELS)}
 #: the session block's two s144 keys, after `ghost_held` (the prefix law: s143's tuple is a prefix of s144's)
 SESSION_KEYS_S144 = ("overlay_text", "follow")
 #: the world block's freeze `why` vocabulary (NetSyncField.WorldFreezeWhy*: SpectatorField's terms, in its order)
@@ -10409,6 +10419,10 @@ def world_freeze_why_term(live, mirroring, bench):
     return "live" if live else "mirroring" if mirroring else "bench" if bench else None
 
 
+#: [ff9mapkit netsync s145] the release's lift reason (decision 10: until the next field load -- s144 said "or world load")
+RELEASE_LIFT_WHY = "released from the ~ menu until the next field load"
+
+
 def world_freeze_lift_why(spectator, bench_off, selftest_role, released, bee_scene):
     """NetSyncField.WorldFreezeLiftWhy: why the freeze does not hold, in the rule's order; None = it holds."""
     if not spectator:
@@ -10416,7 +10430,7 @@ def world_freeze_lift_why(spectator, bench_off, selftest_role, released, bee_sce
     if bee_scene:
         return "the bee scene"
     if released:
-        return "released from the ~ menu until the next field or world load"
+        return RELEASE_LIFT_WHY                    # [ff9mapkit netsync s145] a world load keeps it (s144: world_freeze_lift_why_s144)
     if bench_off and selftest_role:
         return "the `bench worldfreeze off` lever"
     return None
@@ -10451,7 +10465,7 @@ def world_skip_key_on(key_on) -> int:
 def world_freeze_release_refusal(live_followed, on_world, frozen, released):
     """NetSyncField.WorldFreezeReleaseRefusal (the ~ menu's Release world freeze); None = allowed."""
     if released:
-        return "already released (until the next field or world load)"
+        return "already released (until the next field load)"   # [ff9mapkit netsync s145] (s144: world_freeze_release_refusal_s144)
     if not live_followed:
         return "a live followed session only"
     if not on_world:
@@ -11036,6 +11050,7 @@ WORLD_UI_DECLINE_MAP = "full map"
 WORLD_UI_DECLINE_LOCATION = "full-map navigation (airship autopilot)"
 LOG_WORLD_FREEZE_RELEASE_ENDED = "world freeze release ended with its session"
 LOG_WORLD_FREEZE_REARMED = "world freeze re-armed (field load)"
+#: s144 only: [ff9mapkit netsync s145] a world load keeps a release (LOG_WORLD_FREEZE_REARMED_TITLE ends it at the title)
 LOG_WORLD_FREEZE_REARMED_WORLD = "world freeze re-armed (world load)"
 
 
@@ -11062,7 +11077,8 @@ def log_world_freeze_lifted(wld, why):
 
 def log_world_freeze_released(source, wld):
     """NetSyncField.ReleaseWorldFreeze's line (the ~ menu's Release world freeze)."""
-    return (f"world freeze RELEASED ({source or '?'}) on world map {wld} until the next field or world load: the guest walks, "
+    # [ff9mapkit netsync s145] "until the next field load" (decision 10; s144's words: log_world_freeze_released_s144)
+    return (f"world freeze RELEASED ({source or '?'}) on world map {wld} until the next field load: the guest walks, "
             f"rides and enters locations on its own (an entry goes to the host's field when they stand on one; its own "
             f"encounters stay suppressed)")
 
@@ -11184,3 +11200,522 @@ def tp_world_decline(valid, host_field, registered, held):
     if not registered:
         return f"the host's field ({host_field}) is not on this install" + cleared
     return None
+
+
+# =========================================================================== [ff9mapkit netsync s145] BATTLES FROM THE WORLD MAP
+# studies/world-coop/S145-DESIGN.md; the patch memoria-patches/s145-netsync-world-battle.patch. A following guest frozen on the world
+# map (s144) boots its battle diorama there when the host fights, and comes back to the world map WARM, where it stood; it NEVER takes
+# a cold world reload (a warm refusal is no boot). These are the rung's harness constants -- the proof lines and their row counts,
+# the new keys' sentinels, the lever, the `vehicle` verb's words -- and the PURE steps' twins, statement for statement: NetSyncDiorama's
+# world verdict (WorldWarmRow / WorldWarmVerdict, its 17 rows and their durable class), the latch read with booted FALSE, the lever,
+# the kind-aware ReturnIsOurs and ReturnLoadStep (E1); NetSyncClient's projection, report and ramp rules and the host_world
+# over-signal (E3); NetSyncField's release lifetime. tests/test_world_diorama.py evaluates every row the engine's own selftests run
+# against these twins (and a mutant of each must miss), so a bench computes every expected value off ITS OWN oracle.
+
+# ---- the proof block's two s145 lines (NetSyncClient's, right after the overlay text line, in this order) and the two s144-era
+# lines whose rows s145 grows (THE STAGE LAW: a bench reads the count of the engine's OWN stage -- never one number for both)
+PROOF_WORLD_DIORAMA = "world diorama selftest: "    # NetSyncDiorama.WorldDioramaSelfTest (E1)
+PROOF_WORLD_WATCHER = "world watcher selftest: "    # NetSyncClient.WorldWatchSelfTest (E3)
+WORLD_DIORAMA_SELFTEST_ROWS = 86                    # fix1: + the leave's three rows and its mutant (WorldLeaveStays)
+WORLD_WATCHER_SELFTEST_ROWS = 59                    # fix1: + the pending-return follow row and its mutant, the ramp's closed-bracket
+                                                    #       settle row and its resuming-blind mutant
+WATCH_SELFTEST_ROWS_S145 = 32                       # DioramaWatchSelfTest: s119's 24 + the eight host_world rows
+WORLD_FREEZE_SELFTEST_ROWS_S145 = 46                # WorldFreezeSelfTest: s144's 42 + the four release-lifetime rows
+
+
+def watch_selftest_rows(stage: int) -> int:
+    """'diorama watcher selftest' rows at an engine of ``stage`` (s119-s144: 24; s145: 32)."""
+    return WATCH_SELFTEST_ROWS_S145 if int(stage or 0) >= 145 else WATCH_SELFTEST_ROWS
+
+
+def world_freeze_selftest_rows(stage: int) -> int:
+    """'world freeze selftest' rows at an engine of ``stage`` (s144: 42; s145: 46)."""
+    return WORLD_FREEZE_SELFTEST_ROWS_S145 if int(stage or 0) >= 145 else WORLD_FREEZE_SELFTEST_ROWS
+
+
+# ---- the keys' sentinels (HarnessAgent: AppendWorldDio -- `netsync.world`'s LAST key, after `waitline`; the catch literal carries
+# the same) and the world block's six witness keys (AppendWorldWarmWitness: after `next_mode`, behind the live-scene gate)
+WORLD_DIO_SENTINELS = {"booted_world": False, "boot_world": -1, "boot": None, "prev_mode_at_boot": -1, "lever": None,
+                       "declines": 0, "decline_why": None, "decline_durable": False, "visit_decline": None, "wait_why": None,
+                       "returns": 0, "last_return": None, "last_world": -1, "resuming": False, "suspend_song": -1,
+                       "song_sid": -1, "boot_song_live": False}          # fix1: the music-instance witnesses (audio-1)
+#: the live `netsync.world` block (s145: + `dio`); an s144 engine's is WORLD_SENTINELS_S144 (the prefix law)
+WORLD_SENTINELS = {**{k: dict(v) for k, v in WORLD_SENTINELS_S144.items()}, "dio": dict(WORLD_DIO_SENTINELS)}
+#: the top-level `world` block's witness keys off the live WorldMap scene (cam_rot / mapvar null, the rest -1)
+WORLD_WITNESS_SENTINELS = {"cam_rot": None, "cam_upper": -1, "ctl": -1, "battle_prob": -1, "ticks": -1, "mapvar": None}
+#: ...and that block's s144 live keys they follow (AppendWorldLive's order)
+WORLD_LIVE_KEYS_S144 = ("area", "topo", "move", "phase", "next_mode")
+MAPVAR_BYTES = 80                                   # EventContext.mapvar: 80 bytes -> 160 lowercase hex digits
+WORLD_CAM_UPPER_MAX = 4096                          # w_cameraSysDataCamera.upperCounter's clamp
+
+
+def mapvar_hex(mapvar) -> str | None:
+    """HarnessAgent.MapVarHex: the 80 MAP bytes as 160 lowercase hex digits (None = no context)."""
+    if mapvar is None:
+        return None
+    return "".join(f"{int(b) & 0xFF:02x}" for b in mapvar)
+
+
+# ---- THE LEVER (`netsync bench worldwarm off|cold|on`, the selftest role only; released on every harness release)
+WORLD_WARM_ON, WORLD_WARM_OFF, WORLD_WARM_COLD = 0, 1, 2
+WORLD_WARM_COLD_WORLD = 9011                        # the cold reference boots on the benign WORLD11 only
+WORLD_WARM_EXPECTED = "netsync bench worldwarm: expected off|cold|on"
+WORLD_WARM_BENCH_REFUSAL = "netsync bench worldwarm: needs the selftest role (netsync selftest 1)"
+LOG_WORLD_WARM_OFF = ("harness: world warm gate OFF -- CALIBRATION: every world boot declines (the guest stays frozen on the world "
+                      "map; no boot)")
+LOG_WORLD_WARM_COLD = (f"harness: world warm gate COLD -- THE COLD REFERENCE: a world boot primes no copy, on foot on world "
+                       f"{WORLD_WARM_COLD_WORLD} only (its return re-enters through Main_Init)")
+LOG_WORLD_WARM_ON = "harness: world warm gate ON (the verdict decides; a world return is warm only)"
+LOG_WORLD_WARM_RELEASED = "harness: world warm gate back ON (released with the harness)"
+
+
+def world_warm_lever_for(selftest_role, bench) -> int:
+    """NetSyncDiorama.WorldWarmLeverFor: the lever in force -- the bench's on the selftest role only (garbage reads on)."""
+    return int(bench) if selftest_role and int(bench) in (WORLD_WARM_OFF, WORLD_WARM_COLD) else WORLD_WARM_ON
+
+
+def world_warm_lever_name(lever) -> str:
+    """NetSyncDiorama.WorldWarmLeverName (`netsync.world.dio.lever`)."""
+    return "off" if lever == WORLD_WARM_OFF else "cold" if lever == WORLD_WARM_COLD else "on"
+
+
+def parse_world_warm_lever(value) -> int:
+    """NetSyncDiorama.ParseWorldWarmLever: off|cold|on (trimmed, any case); -1 = anything else."""
+    return {"on": WORLD_WARM_ON, "off": WORLD_WARM_OFF, "cold": WORLD_WARM_COLD}.get(str(value or "").strip().lower(), -1)
+
+
+def world_warm_bench_refusal(selftest_role, lever):
+    """NetSyncDiorama.WorldWarmBenchRefusal: a bad value first, then the role; None = set it."""
+    if lever < 0:
+        return WORLD_WARM_EXPECTED
+    return None if selftest_role else WORLD_WARM_BENCH_REFUSAL
+
+
+def log_world_warm_lever(lever) -> str:
+    """HarnessBenchWorldWarm's line for the lever just set."""
+    return LOG_WORLD_WARM_OFF if lever == WORLD_WARM_OFF else LOG_WORLD_WARM_COLD if lever == WORLD_WARM_COLD else \
+        LOG_WORLD_WARM_ON
+
+
+# ---- THE VERDICT (NetSyncDiorama.WorldWarmRow / WorldWarmVerdict; its input struct WorldWarmIn as a dict)
+WORLD_ROW_LIVE, WORLD_ROW_HUD, WORLD_ROW_LEVER_OFF, WORLD_ROW_BEE, WORLD_ROW_VEHICLE = 0, 1, 2, 3, 4
+WORLD_ROW_CTX0, WORLD_ROW_CTX1, WORLD_ROW_REINIT, WORLD_ROW_LEVEL, WORLD_ROW_RESUMING = 5, 6, 7, 8, 9
+WORLD_ROW_LATCH, WORLD_ROW_FULL_MAP, WORLD_ROW_TOPOGRAPH, WORLD_ROW_DIALOG, WORLD_ROW_CONTROL = 10, 11, 12, 13, 14
+WORLD_ROW_PLAYER, WORLD_ROW_COLD_WORLD, WORLD_ROWS = 15, 16, 17
+#: THE DURABLE ROWS (decision 3): the lever off, the bee scene, a vehicle, a foreign context, no Main_Reinit, topograph 52 (fix1: a
+#: FROZEN guest cannot step off the cell, so as a wait it held the host's start every fight), the cold reference off 9011 -- a
+#: property of the world visit (the guest declines the fight, reports NONE); every other row is a quiet, transient wait
+WORLD_DURABLE_ROWS = ((1 << WORLD_ROW_LEVER_OFF) | (1 << WORLD_ROW_BEE) | (1 << WORLD_ROW_VEHICLE) | (1 << WORLD_ROW_CTX0)
+                      | (1 << WORLD_ROW_REINIT) | (1 << WORLD_ROW_TOPOGRAPH) | (1 << WORLD_ROW_COLD_WORLD))
+#: NetSyncDiorama.WorldRowNames (the selftest's row labels), in row order
+WORLD_ROW_NAMES = ("the live world map", "WorldHUD", "the lever off", "the bee scene", "a vehicle", "ctx0 is this world's",
+                   "ctx1 free", "tag 10", "entry 0 above level 0", "no reinit bracket", "the latch free", "the full map",
+                   "topograph 52", "a dialogue", "control on", "a controlled actor", "the cold reference on 9011")
+#: WorldWarmIn's fields (snake_case, the struct's order) and Free(): on foot on world 9011, WorldHUD, nothing in flight
+WORLD_WARM_FREE = {"lever": WORLD_WARM_ON, "sys_mode": 3, "g_mode": 3, "world_scene": True, "world_hud": True, "bee_scene": False,
+                   "travel_mode": 0, "world": WORLD_WARM_COLD_WORLD, "ctx0_inited": 3, "ctx0_lastmap": WORLD_WARM_COLD_WORLD,
+                   "ctx1_inited": 0, "has_reinit": True, "main_level": 7, "resuming": False, "latch_why": None,
+                   "full_map": False, "topograph": 3, "dialogs": False, "control": True, "player": True}
+#: the C# field name of each input (WorldWarmIn's own spelling), for the selftest's `x.Field = v;` statements
+WORLD_WARM_CS_FIELDS = {"Lever": "lever", "SysMode": "sys_mode", "GMode": "g_mode", "WorldScene": "world_scene",
+                        "WorldHud": "world_hud", "BeeScene": "bee_scene", "TravelMode": "travel_mode", "World": "world",
+                        "Ctx0Inited": "ctx0_inited", "Ctx0Lastmap": "ctx0_lastmap", "Ctx1Inited": "ctx1_inited",
+                        "HasReinit": "has_reinit", "MainLevel": "main_level", "Resuming": "resuming", "LatchWhy": "latch_why",
+                        "FullMap": "full_map", "Topograph": "topograph", "Dialogs": "dialogs", "Control": "control",
+                        "Player": "player"}
+
+
+def world_warm_in(**kw) -> dict:
+    """WorldWarmIn.Free() with ``kw`` over it (an unknown input is a KeyError: the twin's inputs are the struct's)."""
+    w = dict(WORLD_WARM_FREE)
+    for k, v in kw.items():
+        if k not in w:
+            raise KeyError(k)
+        w[k] = v
+    return w
+
+
+def world_row_durable(row) -> bool:
+    """NetSyncDiorama.WorldRowDurable: the row is in the durable class (a row outside the table never is)."""
+    return 0 <= int(row) < WORLD_ROWS and bool(WORLD_DURABLE_ROWS & (1 << int(row)))
+
+
+def world_warm_row(w, skip: int = -1) -> tuple:
+    """NetSyncDiorama.WorldWarmRow -> ``(why, row)``: the verdict's rows cheapest first, ``skip`` one of them (-1 in production;
+    the selftest's mutants skip one each). ``row`` = the refusing row (-1 = none), ``why`` its one-line reason (None = boots)."""
+    w = world_warm_in(**w)
+    rows = (
+        (WORLD_ROW_LIVE, lambda: w["sys_mode"] != 3 or w["g_mode"] != 3 or not w["world_scene"],
+         lambda: f"not on the live world map (mode {w['sys_mode']}, gMode {w['g_mode']}"
+                 + ("" if w["world_scene"] else ", another scene") + ")"),
+        (WORLD_ROW_HUD, lambda: not w["world_hud"], lambda: "a menu or transition is up (not WorldHUD)"),
+        (WORLD_ROW_LEVER_OFF, lambda: w["lever"] == WORLD_WARM_OFF,
+         lambda: "CALIBRATION: `netsync bench worldwarm off` -- the warm gate refuses every world boot"),
+        (WORLD_ROW_BEE, lambda: bool(w["bee_scene"]), lambda: "the bee scene"),
+        (WORLD_ROW_VEHICLE, lambda: w["travel_mode"] != 0,
+         lambda: f"aboard a vehicle (travel mode {w['travel_mode']}) -- stock never returns a world battle aboard one"),
+        (WORLD_ROW_CTX0, lambda: w["ctx0_inited"] != 3 or w["ctx0_lastmap"] != (int(w["world"]) & 0xFFFF),
+         lambda: f"the event context is not world {w['world']}'s"),
+        (WORLD_ROW_CTX1, lambda: w["ctx1_inited"] != 0, lambda: "the engine's own battle-return slot is in use"),
+        (WORLD_ROW_REINIT, lambda: not w["has_reinit"],
+         lambda: f"world {w['world']} has no Main_Reinit (entry-0 tag 10: an event world) -- a reinit return would leave every "
+                 f"object suspended"),
+        (WORLD_ROW_LEVEL, lambda: w["main_level"] <= 0,
+         lambda: "the world's entry script is running at level 0 -- Main_Reinit could not be requested"),
+        (WORLD_ROW_RESUMING, lambda: bool(w["resuming"]),
+         lambda: "the world is still resuming from a battle (objects suspended)"),
+        (WORLD_ROW_LATCH, lambda: w["latch_why"] is not None, lambda: f"a world transition is in flight ({w['latch_why']})"),
+        (WORLD_ROW_FULL_MAP, lambda: bool(w["full_map"]), lambda: "the full map is open"),
+        (WORLD_ROW_TOPOGRAPH, lambda: w["topograph"] == 52,
+         lambda: "the walker stands on topograph 52 (stock starts no battle there)"),
+        (WORLD_ROW_DIALOG, lambda: bool(w["dialogs"]), lambda: "a dialogue window is open"),
+        (WORLD_ROW_CONTROL, lambda: not w["control"], lambda: "player control is off (a world script holds it)"),
+        (WORLD_ROW_PLAYER, lambda: not w["player"], lambda: "no controlled actor"),
+        (WORLD_ROW_COLD_WORLD, lambda: w["lever"] == WORLD_WARM_COLD and w["world"] != WORLD_WARM_COLD_WORLD,
+         lambda: f"the cold reference (`netsync bench worldwarm cold`) boots on world {WORLD_WARM_COLD_WORLD} only"),
+    )
+    for row, refuses, why in rows:
+        if skip != row and refuses():
+            return why(), row
+    return None, -1
+
+
+def world_warm_verdict(w) -> tuple:
+    """NetSyncDiorama.WorldWarmVerdict -> ``(why, durable)``: None = a world boot may go, warm; ``durable`` = the refusal is a
+    property of this world visit (decline the fight: report NONE) rather than a wait."""
+    why, row = world_warm_row(w)
+    return why, why is not None and world_row_durable(row)
+
+
+def world_latch_no_boot(live_world, sys_mode, sys_attr, next_mode, fading, return_in_flight, rejoin_armed):
+    """NetSyncDiorama.WorldLatchNoBoot: THE SHARED LATCH read with booted = FALSE (inside Boot its own _booted would refuse every
+    world boot); every other term as WorldTransitionWhy reads it."""
+    return world_latch_step(live_world, sys_mode, sys_attr, next_mode, fading, False, return_in_flight, rejoin_armed)
+
+
+def world_warm_disqualifiers() -> list:
+    """NetSyncDiorama.WorldWarmDisqualifiers (and NetSyncClient's WorldWatchDisqualifiers, its copy): each row's disqualifier
+    alone over Free()."""
+    dq = [world_warm_in() for _ in range(WORLD_ROWS)]
+    dq[WORLD_ROW_LIVE]["g_mode"] = 1
+    dq[WORLD_ROW_HUD]["world_hud"] = False
+    dq[WORLD_ROW_LEVER_OFF]["lever"] = WORLD_WARM_OFF
+    dq[WORLD_ROW_BEE]["bee_scene"] = True
+    dq[WORLD_ROW_VEHICLE]["travel_mode"] = 6
+    dq[WORLD_ROW_CTX0]["ctx0_lastmap"] = 9002
+    dq[WORLD_ROW_CTX1]["ctx1_inited"] = 3
+    dq[WORLD_ROW_REINIT]["has_reinit"] = False
+    dq[WORLD_ROW_LEVEL]["main_level"] = 0
+    dq[WORLD_ROW_RESUMING]["resuming"] = True
+    dq[WORLD_ROW_LATCH]["latch_why"] = "a fade is in flight"
+    dq[WORLD_ROW_FULL_MAP]["full_map"] = True
+    dq[WORLD_ROW_TOPOGRAPH]["topograph"] = 52
+    dq[WORLD_ROW_DIALOG]["dialogs"] = True
+    dq[WORLD_ROW_CONTROL]["control"] = False
+    dq[WORLD_ROW_PLAYER]["player"] = False
+    dq[WORLD_ROW_COLD_WORLD].update(lever=WORLD_WARM_COLD, world=9002, ctx0_lastmap=9002)
+    return dq
+
+
+def world_durable_mask(verdict=None) -> int:
+    """The rows whose disqualifier alone the verdict refuses DURABLY (the selftest's ``durableSeen``; the engine's own is 0x110BC)."""
+    verdict = verdict or world_warm_verdict
+    mask = 0
+    for i, w in enumerate(world_warm_disqualifiers()):
+        why, durable = verdict(w)
+        if why is not None and durable:
+            mask |= 1 << i
+    return mask
+
+
+# ---- RETURNISOURS, kind-aware (NetSyncDiorama.ReturnIsOurs / ReturnLoadStep)
+KIND_NONE, KIND_FIELD, KIND_WORLD = 0, 1, 3         # a copy's (and a load's) kind IS the consuming load's gMode
+RETURN_LOAD_NONE, RETURN_LOAD_OURS, RETURN_LOAD_MISMATCH = 0, 1, 2
+
+
+def return_is_ours(return_pending, kind, warm_id, load_kind, load_id, sys_mode) -> bool:
+    """NetSyncDiorama.ReturnIsOurs (6 args): THE STALE-COPY LAW in both directions -- a copy is consumed only by a load of its own
+    kind (field: mode 1; world: mode 3), on its own id, with a return pending."""
+    return bool(return_pending) and kind != KIND_NONE and kind == load_kind and warm_id == load_id and sys_mode == kind
+
+
+def return_is_ours_field(return_pending, warm_field, fld, sys_mode) -> bool:
+    """NetSyncDiorama.ReturnIsOurs (4 args): F3.3's field rows of the kind-aware test (identical truth)."""
+    return return_is_ours(return_pending, KIND_FIELD, warm_field, KIND_FIELD, fld, sys_mode)
+
+
+def return_load_step(return_pending, return_kind, g_mode) -> int:
+    """NetSyncDiorama.ReturnLoadStep: what a StartEvents of ``g_mode`` does to a pending return -- none (nothing pending, or a
+    battle's load), ours (counted here), or a mismatch (counted here with a warning: never on a later load)."""
+    if not return_pending or g_mode not in (KIND_FIELD, KIND_WORLD):
+        return RETURN_LOAD_NONE
+    return RETURN_LOAD_OURS if g_mode == return_kind else RETURN_LOAD_MISMATCH
+
+
+# ---- THE WORLD WATCHER (NetSyncClient, E3): the projection, the report, the follow field, the ramp's bound, the over-signal
+WORLD_START_LOOP = 4                                # ff9.kframeEventStartLoop: WorldHUD arrives at this world tick
+WATCH_WHY_TEXT_HOST_WORLD = "the host's fight is over (the peer is alive and back on the world map)"   # WatchWhyText(6)
+#: the durable rows' inputs (the projection copies exactly these onto Free(); fix1: + the topograph)
+WORLD_DURABLE_INPUTS = ("lever", "bee_scene", "travel_mode", "world", "ctx0_inited", "ctx0_lastmap", "has_reinit", "topograph")
+
+
+def world_durable_in(w) -> dict:
+    """NetSyncClient.WorldDurableIn: the verdict's DURABLE rows' inputs over Free() -- only a durable row can refuse it."""
+    return world_warm_in(**{k: w[k] for k in WORLD_DURABLE_INPUTS})
+
+
+def world_decline_why(w):
+    """NetSyncClient.WorldDeclineWhy: THE WORLD VISIT's durable decline (the verdict over the projection); None = none."""
+    why, durable = world_warm_verdict(world_durable_in(w))
+    return why if durable else None
+
+
+def boot_watching(client, follow_host, field_mode, world_side, may_boot, world_decline) -> bool:
+    """NetSyncClient.BootWatching: the report's `watching` -- a following client that may boot, on a field (gMode 1: s114) or on
+    the LOOSE world side (gMode 3) with no durable decline; false reads NONE."""
+    return bool(client and follow_host and may_boot and (field_mode or (world_side and world_decline is None)))
+
+
+def world_ui_free(world_hud, full_map, on_world, world_counter, start_loop=WORLD_START_LOOP) -> bool:
+    """NetSyncClient.WorldUiFree: WorldHUD with the full map shut, else only the construct frames before WorldHUD."""
+    if world_hud:
+        return not full_map
+    return bool(on_world) and int(world_counter) <= int(start_loop)
+
+
+def ramp_world_safe(live_world, latch_why, resuming_only) -> bool:
+    """NetSyncClient.RampWorldSafe: the live world map with the latch free (s144), or busy on a battle return's reinit bracket
+    ALONE (safe but never settled: ExitRampSettleMaxMs bounds it)."""
+    return bool(live_world) and (latch_why is None or bool(resuming_only))
+
+
+def follow_field_for_dio(on_world, world_booted, world_return_pending, fld) -> int:
+    """NetSyncClient.FollowFieldForDio (fix1: its own name, four inputs): none on the world map, none inside a world-booted
+    diorama (fldMapNo there is still the field the guest left), and none while that diorama's return is still pending (the teardown
+    cleared _booted before the world loaded); a field-booted diorama keeps fldMapNo."""
+    return follow_field_for(bool(on_world) or bool(world_booted) or bool(world_return_pending), fld)
+
+
+def ramp_world_settled_closed(event_world, control, resuming) -> bool:
+    """NetSyncClient.RampWorldSettledClosed (fix1): the exit ramp's world settle WITH the reinit bracket -- never settled while it
+    is open (``resuming``), else s144's :func:`ramp_world_settled`."""
+    return not resuming and ramp_world_settled(event_world, control)
+
+
+def world_leave_stays(boot_still_alive, scene) -> bool:
+    """NetSyncDiorama.WorldLeaveStays (fix1): a world boot's Leave stays on the world map (ForceDisarm in place, no Replace)
+    while its own WorldMap is alive OR whenever ``scene`` is the live WorldMap (the boot already returned: a Replace there reloads
+    the world COLD); from SwirlScene / BattleMapDebug it Replaces."""
+    return bool(boot_still_alive) or scene == "WorldMap"
+
+
+def diorama_watch_step_b6_clear(live, nonce, booted_nonce, peer_alive_, host_field, terminal_latched, stale_ms, alive_ms,
+                                settle_ms, cap_ms, stall_cap_ms, leave_why) -> tuple:
+    """NetSyncClient.DioramaWatchStepB6Clear (fix1: its own name, never an overload of the production step): the step with
+    section 7's b6 CLEAR -- the s119 / s120 tables' form, and by construction s144's step (the b6-blind mutant DioramaWatchSelfTest
+    pins)."""
+    return diorama_watch_step(live, nonce, booted_nonce, peer_alive_, host_field, False, terminal_latched, stale_ms, alive_ms,
+                              settle_ms, cap_ms, stall_cap_ms, leave_why)
+
+
+def world_report_at(case: dict, watch_rule=None, ui_rule=None, decline_as_skip: bool = False) -> int:
+    """NetSyncClient.WorldReportAt: one WReportCase through NoteBootWatch's composition -> GuestBootState's byte. ``watch_rule``
+    = (field, world, on_world, decline) -> watching, ``ui_rule`` = (world_hud, full_map, on_world, counter) -> uiFree on the
+    world side; ``decline_as_skip`` = the mutant that stamps a durable decline as the skip nonce."""
+    watch_rule = watch_rule or (lambda f, w, o, d: boot_watching(True, True, f, w, True, d))
+    ui_rule = ui_rule or (lambda h, m, o, k: world_ui_free(h, m, o, k, WORLD_START_LOOP))
+    c = case
+    watching = watch_rule(c["field"], c["world"], c["on_world"], None if decline_as_skip else c["decline"])
+    ui_free = False
+    if watching:
+        ui_free = bool(c["fading"])
+        if not ui_free:
+            ui_free = (c["ui"] == WREPORT_UI_FIELD) if c["field"] else \
+                ui_rule(c["ui"] == WREPORT_UI_WORLD, c["full_map"], c["on_world"], c["counter"])
+    skip = WREPORT_NONCE if decline_as_skip and c["decline"] is not None else c["skip"]
+    return guest_boot_state(WREPORT_NONCE, watching, ui_free, skip, c["booted"], c["booted_nonce"], c["live"])
+
+
+WREPORT_NONCE = 0x41                                # NetSyncClient.WTestNonce
+WREPORT_UI_FIELD, WREPORT_UI_WORLD, WREPORT_UI_OTHER = 0, 1, 2
+#: WReportCase's fields, in WCase's argument order (name first, want last)
+WREPORT_FIELDS = ("name", "field", "world", "on_world", "decline", "fading", "ui", "full_map", "counter", "booted",
+                  "booted_nonce", "live", "skip", "want")
+
+
+# ---- THE RELEASE's LIFETIME (NetSyncField.WorldFreezeReleaseEndsAt, decision 10): a field load and the title end it, a world load
+# keeps it (a world battle round trip -- the diorama's warm return -- no longer re-freezes a released guest)
+RELEASE_AT_FIELD, RELEASE_AT_WORLD, RELEASE_AT_TITLE = 0, 1, 2
+LOG_WORLD_FREEZE_REARMED_TITLE = "world freeze re-armed (the title: a release never crosses a save)"
+
+
+def world_freeze_release_ends_at(at) -> bool:
+    """NetSyncField.WorldFreezeReleaseEndsAt (s145): a field load and the title end a ~ release; a world load keeps it."""
+    return at in (RELEASE_AT_FIELD, RELEASE_AT_TITLE)
+
+
+def world_freeze_release_ends_at_s144(at) -> bool:
+    """s144's lifetime (the mutant the s145 selftest pins): any field or world load ended it, the title did not."""
+    return at in (RELEASE_AT_FIELD, RELEASE_AT_WORLD)
+
+
+# ---- the s144 words s145 rewrote (THE STAGE LAW: the s144 stand-in rung and an s144 engine say these; the live twins above say
+# s145's). tests/test_world_diorama.py pins both to their own stack.
+def world_freeze_lift_why_s144(spectator, bench_off, selftest_role, released, bee_scene):
+    """s144's NetSyncField.WorldFreezeLiftWhy (the release said 'until the next field or world load')."""
+    why = world_freeze_lift_why(spectator, bench_off, selftest_role, released, bee_scene)
+    return "released from the ~ menu until the next field or world load" if why == RELEASE_LIFT_WHY else why
+
+
+def world_freeze_release_refusal_s144(live_followed, on_world, frozen, released):
+    """s144's NetSyncField.WorldFreezeReleaseRefusal."""
+    if released:
+        return "already released (until the next field or world load)"
+    return world_freeze_release_refusal(live_followed, on_world, frozen, released)
+
+
+def log_world_freeze_released_s144(source, wld):
+    """s144's ReleaseWorldFreeze line."""
+    return log_world_freeze_released(source, wld).replace(" until the next field load: ", " until the next field or world load: ", 1)
+
+
+# ---- THE BOOT / THE RETURN's lines (NetSyncDiorama, E2) and the watcher's (NetSyncClient, E3)
+def boot_pos_text(x, z) -> str:
+    """NetSyncDiorama.BootPosText: '(x, z)' in C#'s "0.#" (one decimal at most, half away from zero; PosObj.pos: the world's
+    RealPosition x 256)."""
+    import decimal
+
+    def f(v):
+        d = decimal.Decimal(repr(float(v))).quantize(decimal.Decimal("0.1"), rounding=decimal.ROUND_HALF_UP)
+        s = f"{d:f}"
+        return s[:-2] if s.endswith(".0") else s
+    return f"({f(x)}, {f(z)})"
+
+
+def log_world_boot_refused(why, durable) -> str:
+    """Boot's backstop refusal (Log.Warning; `dioboot` then throws `refused`)."""
+    return (f"diorama boot REFUSED on the world map: {why}{' (for this world visit)' if durable else ''} -- a world return is warm "
+            f"only: no boot, you stay on the world map")
+
+
+def log_world_warm_primed(wld, x, z) -> str:
+    return (f"diorama boot: WARM world return primed -- world {wld}, player at {boot_pos_text(x, z)}; the return resumes it through "
+            f"Main_Reinit, in place")
+
+
+LOG_WORLD_COLD_WHY = "CALIBRATION: the cold reference (`netsync bench worldwarm cold`) -- no copy"
+
+
+def log_world_cold_primed(wld) -> str:
+    return f"diorama boot: COLD world return ({LOG_WORLD_COLD_WHY}) -- the return re-enters world {wld} through Main_Init"
+
+
+def log_world_leave(wld, mode=3) -> str:
+    return f"diorama LEAVE requested -> WorldMap (world {wld}, mode {mode})"
+
+
+def log_world_return_warm(wld, x, z) -> str:
+    return (f"diorama RETURN (warm) -> world {wld} resumed through Main_Reinit: the guest stands where it stood at boot (player at "
+            f"{boot_pos_text(x, z)})")
+
+
+def log_world_return_warm_prefix(wld) -> str:
+    """(fix1) :func:`log_world_return_warm` up to the player's position: the warm line OUR prime produced -- the engine's other
+    'RETURN (warm)' line (a copy this diorama did NOT prime) shares only the text before the colon."""
+    return f"diorama RETURN (warm) -> world {wld} resumed through Main_Reinit: the guest stands where it stood at boot"
+
+
+#: (fix1) NoteWorldReturn's Warning for a warm return through a battle-return copy this diorama did NOT prime (the engine's slot)
+LOG_WORLD_RETURN_UNPRIMED = "copy this diorama did NOT prime"
+
+
+def log_world_return_cold_calibration(wld) -> str:
+    return f"diorama RETURN (cold) -> world {wld} re-entered through Main_Init ({LOG_WORLD_COLD_WHY})"
+
+
+def log_world_declined(wld, why, nonce) -> str:
+    """NoteWatcherWorldDecline's line (once per fight and reason; never the skip nonce, no 'REFUSED')."""
+    return (f"diorama declined on world map {wld}: {why} (for this world visit) -- the host's battle (nonce {nonce}) stays on the "
+            f"spectate panel: a world return is warm only (no boot, never a cold world reload)")
+
+
+def log_world_waits(wld, why, nonce) -> str:
+    """WorldBootRefused's transient line (once per fight and reason)."""
+    return f"diorama waits on world map {wld}: {why} (nonce {nonce}; retried each second, logged once per reason)"
+
+
+LOG_PRESWIRL_AUDIO_FAILED = "diorama pre-swirl audio replicate failed"   # the field's and the world's grep-able text
+#: (fix1, audio-4) BootWorldShape's SFX_Rush.SetCenterPosition(1) failure: a wrong swirl centre (its own text, not the line above)
+LOG_SWIRL_CENTRE_WORLD_FAILED = "diorama swirl centre (world) failed"
+#: (fix1) LeaveFrom's disarm-in-place line (WorldLeaveStays): a Leave on a live world map never reloads it
+LOG_WORLD_LEAVE_IN_PLACE = "-- disarming in place, no world reload"
+
+
+# ---- `netsync dioboot` on the world map (HarnessAgent, piece H): s144's refusal text kept for any other scene
+DIOBOOT_FIELD_ONLY = "netsync dioboot: boots from a live field only (the ~ menu offers it nowhere else)"
+DIOBOOT_REFUSED = "netsync dioboot: refused (Memoria.log names why: [NetSync] diorama boot REFUSED)"
+
+
+def dioboot_world_refusal(ui_state, latch_why):
+    """The world gate of `netsync dioboot` (after the scene gate): WorldHUD, then the shared latch free; None = Boot runs (its own
+    pre-Arm warm verdict is the backstop: a refusal there is DIOBOOT_REFUSED)."""
+    if ui_state != "WorldHUD":
+        return (f"netsync dioboot: the world map is not on WorldHUD (ui_state {ui_state or 'unreadable'}) -- a world boot starts "
+                f"from WorldHUD only")
+    if latch_why is not None:
+        return (f"netsync dioboot: a world transition is in flight ({latch_why}) -- a world boot needs the shared world-transition "
+                f"latch free")
+    return None
+
+
+# ---- `vehicle <mode>` (HarnessAgent -> Ff9mkDebugMenu.HarnessVehicle -> SetVehicle(mode, force: false)) -- never the force toggle
+VEHICLE_ALL_MODES, VEHICLE_FOOT_ONLY = 0x3FF, 0x001
+#: Ff9mkDebugMenu.VehicleAllowByWorld: WORLD02 / 10 / 11 every mode 0-9; any other world state on foot only
+VEHICLE_ALLOW_BY_WORLD = {9002: VEHICLE_ALL_MODES, 9010: VEHICLE_ALL_MODES, 9011: VEHICLE_ALL_MODES}
+VEHICLE_NAMES = {0: "(on foot)", 1: "(chocobo - plains)", 2: "(chocobo - mountain)", 3: "(chocobo - mountain)",
+                 4: "(chocobo - mountain)", 5: "(chocobo - all terrain)", 6: "(gold chocobo - flying)",
+                 7: "(Blue Narciss - boat)", 8: "(Hilda Garde III - airship)", 9: "(Invincible - airship)",
+                 10: "(row 10 - unused all-terrain)", 11: "(row 11 - unused empty)"}
+VEHICLE_ROWS = 12                                   # w_moveCHRControl's stock physics rows
+
+
+def vehicle_name(mode) -> str:
+    return VEHICLE_NAMES.get(int(mode), "(?)")
+
+
+def vehicle_usage(args) -> str:
+    """The `vehicle` verb's argument refusal (ArgumentOutOfRangeException's message)."""
+    return (f"expected `vehicle <mode>` (0 on foot, 1-6 chocobo, 7 boat, 8-9 airship), got '{' '.join(str(a) for a in args)}'")
+
+
+def vehicle_allowed(mode, wld) -> bool:
+    """Ff9mkDebugMenu.VehicleAllowed: 0..9 and the world state's mask."""
+    return 0 <= int(mode) <= 9 and bool(VEHICLE_ALLOW_BY_WORLD.get(int(wld), VEHICLE_FOOT_ONLY) & (1 << int(mode)))
+
+
+def harness_vehicle_refusal(world_hud, sys_mode, bee, loaded, latch_why):
+    """Ff9mkDebugMenu.HarnessVehicleRefusal (before SetVehicle's own): None = SetVehicle runs."""
+    if not world_hud:
+        return "overworld only"
+    if sys_mode != 3:
+        return f"not in world mode ({sys_mode})"
+    if bee:
+        return "the bee scene has no vehicles"
+    if not loaded:
+        return "the world is still loading"
+    if latch_why is not None:
+        return f"a world transition is in flight ({latch_why})"
+    return None
+
+
+def vehicle_status(mode, wld, *, world_hud=True, sys_mode=3, bee=False, loaded=True, latch_why=None, rows=VEHICLE_ROWS):
+    """The `vehicle` verb's outcome as Ff9mkDebugMenu.HarnessStatus words: ``(applied, status)``."""
+    why = harness_vehicle_refusal(world_hud, sys_mode, bee, loaded, latch_why)
+    if why is not None:
+        return False, "vehicle swap: " + why
+    if not vehicle_allowed(mode, wld):
+        return False, (f"mode {mode} {vehicle_name(mode)} isn't handled by world state {wld} \u2014 would crash. Use gold-chocobo "
+                       f"flight (6) where offered.")
+    if int(mode) >= int(rows):
+        return False, f"mode {mode}: no physics row (w_moveCHRControl has {rows} rows)"
+    return True, f"movement mode -> {mode}  {vehicle_name(mode)}   (close the menu and move)"

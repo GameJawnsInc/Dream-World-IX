@@ -68,6 +68,33 @@ LEGS = {
         "test_the_world_recorder_tapes_the_host_and_its_b6_is_the_engines",
         "test_the_rejoin_legs_old_order_dials_on_the_field_and_reads_red",
     ),
+    # s145: the stand-in's world-diorama bench (harness core): the solo + followed-client legs, their faults and calibrations
+    "test_world_diorama_harness.py": (
+        "test_the_stand_in_bench_is_green_on_s145",
+        "test_each_world_dio_fault_turns_exactly_its_rows_red",
+        "test_the_s144_stand_in_reads_exactly_old_predicted_red",
+        "test_the_lever_reads_exactly_lever_predicted_red",
+        "test_the_control_row_can_fail",
+    ),
+    # s145: coop_world_battle.py's solo / T2 (battle, held) / duo legs, their faults, calibrations and the SWIRL-HANG instrument
+    "test_coop_world_battle.py": (
+        "test_the_solo_leg_is_green_on_the_s145_stand_in",
+        "test_the_solo_leg_calibrates_on_s144_and_under_the_lever",
+        "test_each_world_dio_fault_turns_exactly_its_solo_rows_red",
+        "test_the_instrument_rows_go_red_on_their_own_wrong_shapes",
+        "test_a_swirl_hang_is_an_instrument_row_never_an_engine_verdict",
+        "test_the_battle_leg_is_green_on_s145_and_calibrates_on_s144",
+        "test_each_world_dio_fault_turns_exactly_its_battle_rows_red",
+        "test_the_report_and_the_menu_rows_can_fail_where_the_stand_in_cannot",
+        "test_the_held_leg_is_green_on_s145_and_calibrates_on_s144",
+        "test_each_world_dio_fault_turns_exactly_its_held_rows_red",
+        "test_a_held_walk_that_misses_the_hold_window_is_the_instruments",
+        "test_the_t2_legs_refuse_before_any_edit",
+        "test_the_duo_leg_is_green_on_s145_and_calibrates_on_s144",
+        "test_each_world_dio_fault_turns_exactly_its_duo_rows_red",
+        "test_the_decline_leg_declines_on_s145_calibrates_on_s144_and_reds_unprojected",   # [fix1] the T2 decline leg
+        "test_a_battle_on_the_wire_before_the_guest_boarded_is_the_instruments_never_wd_decl",   # [fix2] its aboard guard
+    ),
 }
 
 #: test_harness.py's story-trace drives and rehearsals, O4 to O8 (the rungs with a rehearsal), when they take ``game``

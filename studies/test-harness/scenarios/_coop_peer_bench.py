@@ -55,6 +55,11 @@ What lives here, and why once:
     three facts and its b6 verdict, coop_peer.tape_where), :func:`plan_world_leg` (world-rejoin off the field-250 tape,
     world-wait off a world tape), the world tape's own home (:func:`world_tape_dir`, :data:`WORLD_POINTER` -- never the
     default home's latest.json) and :func:`synthetic_world_tape` for the self-check's rows.
+  * [ff9mapkit netsync s145] THE WORLD-BATTLE LEG (coop_world_battle.py's T2 leg): :func:`world_battle_tape_facts` (wb1-wb5:
+    the pairing, the story, the DWELL, a world-map battle, the stay after it -- coop_peer.tape_battle_where's segments),
+    :func:`plan_world_leg` ``world-battle`` (a dwell too short refuses), its own home (:func:`world_battle_tape_dir`,
+    :data:`WORLD_BATTLE_POINTER`), :func:`synthetic_world_battle_tape`; and :func:`span_why`, the s120-world span's verdict
+    by the guest's stage (stall_cap before s145, host_world from it on a tape whose host says b6).
 
 Knobs (environment): COOP_PEER_PORT (default 49201, the game's RelayUrl port), COOP_TAPE (a tape path), COOP_TAPE_DIR
 (where tapes land; default <main repo>/.harness-runs/coop-tapes), COOP_BACKUP_DIR (where the Memoria.ini backups land;
@@ -1133,6 +1138,10 @@ def tape_facts(records, cp, *, field: int | None = BENCH_FIELD, marker=(MARKER_B
                            f"{cp.BW.kind_name(term['kind'])} from tape {t_term:.2f} s (result {term['result']}), "
                            f"result-hide at {t_hide:.2f} s, the host back on field {f0} at {t_back:.2f} s; "
                            f"{after_span:.1f} s of host frames after the battle")}
+    # [ff9mapkit netsync s145] does the host SAY it is back on the world map after the battle (section 7's b6 on its first state
+    # frame after it: an s144+ host)? -- the s120-world span's verdict on an s145 guest (span_why)
+    seg = next((sg for sg in cp.tape_battle_where(records)["battles"] if sg["nonce"] == b["nonce"]), None)
+    facts["after_b6"] = bool(seg is not None and seg["said_after"] == "world")
     return facts
 
 
@@ -1388,7 +1397,11 @@ def plan_leg(leg: str, facts: dict, grace_s: float = GRACE_DEFAULT_S, *, world: 
         if dur >= grace_s - 2.0:
             plan["why"] = f"the span cut ({dur:.1f} s) does not fit inside the {grace_s:g} s grace"
             return plan
-        plan["expect"] = {"why": "stall_cap" if after == 0 else "host_field", "after_field": after}
+        # [ff9mapkit netsync s145] the verdict BY THE GUEST'S STAGE (span_why): s145 reads section 7's b6 as "the host is back" --
+        # a world victory whose host says b6 after it leaves at the settle as host_world there; stall_cap before s145
+        plan["expect"] = {"why": "stall_cap" if after == 0 else "host_field",
+                          "why_s145": ("host_world" if facts.get("after_b6") else "stall_cap") if after == 0 else "host_field",
+                          "after_field": after}
         plan.update(ok=facts["f3"]["ok"], bh=(at_, dur), why="" if facts["f3"]["ok"] else facts["f3"]["why"],
                     tail_ms=tail_of(at_))
         return plan
@@ -1659,6 +1672,22 @@ def plan_world_leg(leg: str, facts: dict) -> dict:
         plan.update(ok=not bad, field=facts.get("field"), why="; ".join(bad),
                     expect={"b6": bool(facts.get("b6")), "exit_t": facts.get("exit_t"), "world_s": facts.get("world_s")})
         return plan
+    if leg == "world-battle":
+        # [ff9mapkit netsync s145] reads :func:`world_battle_tape_facts`: wb1-wb5 (a dwell too short for the guest to pair, walk
+        # out and settle refuses: wb3), the whole tape (the replay holds at its end); ``expect`` the world battle's anchors and
+        # the guest's admissible over-verdicts (WB_LEAVE_WHYS -- never stall_cap)
+        bad = [f"{k} {(facts.get(k) or {}).get('why', 'missing (not a world-battle tape: world_battle_tape_facts)')}"
+               for k in ("wb1", "wb2", "wb3", "wb4", "wb5") if not (facts.get(k) or {}).get("ok")]
+        b = facts.get("battle") or {}
+        plan.update(ok=not bad, field=facts.get("field"), why="; ".join(bad),
+                    expect={"b6": bool(facts.get("b6")), "exit_t": facts.get("exit_t"), "dwell_s": facts.get("dwell_s"),
+                            "battle_start": b.get("start"), "battle_end": b.get("end"), "t_term": facts.get("t_term"),
+                            "nonce": b.get("nonce"), "scene": b.get("map"), "after_s": facts.get("after_s"),
+                            "leave_whys": WB_LEAVE_WHYS,
+                            # [ff9mapkit netsync s145 bench] the host's entry after the stay (WB-300's rejoin; None = none)
+                            "rejoin_field": (facts.get("enter") or {}).get("field"),
+                            "enter_t": (facts.get("enter") or {}).get("t")})
+        return plan
     plan["why"] = f"unknown world leg {leg!r}"
     return plan
 
@@ -1690,19 +1719,328 @@ def synthetic_world_tape(cp, *, field_s: float = 25.0, world_s: float = 90.0, fi
     return recs
 
 
+# ======================================================================================== [s145] the world-battle leg
+# [ff9mapkit netsync s145] coop_world_battle.py's T2 leg (studies/world-coop/S145-DESIGN.md "The bench"): an s144-or-later HOST tape
+# (coop_tape_record.py COOP_TAPE_WORLD_BATTLE=1: the host on 6603, out on the world map, a DWELL, then `battle 67 0 rand` on
+# WorldHUD, won, then a stay on the world map). The guest left on 6603 pairs there, walks out too and settles frozen inside the
+# dwell, then replays the host's world battle: an s145 guest boots its diorama from WorldHUD (BOOTING then LIVE), leaves on
+# `terminal` or `host_world` (never `stall_cap`) and returns warm at its spot, still frozen; an s144 guest stays WorldHUD and
+# reports NONE (the digit panel). The tape needs only s144 host features (the world battle verb, b6): it is recorded on the
+# deployed s144 host.
+#: the host OFF-FIELD at least this long between its world exit and its world battle's first type-1 frame: the guest's line on
+#: 6603 (+ the old-host debounce), its own walk out (calibrate + walk_to + the world's load), the freeze, the bench's own setup
+#: on the world map (the tile teleport, the camera turn, snapshot A) -- s144's WAIT_NEED_S (60 s) plus its 15 s of setup
+WB_DWELL_NEED_S = 75.0
+#: ...the battle LIVE at least this long (its first frame to the terminal end): the guest's boot (the swirl, the scene load),
+#: its LIVE latch and a served stock menu all inside it
+WB_LIVE_NEED_S = 15.0
+#: ...and the host back on the world map (b6) at least this long after the battle: the guest's settle, leave, warm return and
+#: the post-return witnesses (the place, the camera, the MAP digest, still frozen)
+WB_AFTER_NEED_S = 25.0
+#: the guest's admissible over-verdicts on a world battle (decision 9: the terminal latch, or the host back on the world map --
+#: section 7's b6 -- never the 8 s stall cap)
+WB_LEAVE_WHYS = ("terminal", "host_world")
+#: a world-battle tape's pointer in its OWN dir (never latest.json, never latest-world.json)
+WORLD_BATTLE_POINTER = "latest-world-battle.json"
+#: [ff9mapkit netsync s145 bench] THE REJOIN AFTER THE STAY (coop_world_battle.py's WB-300): after its stay on the world map the
+#: recorder's host enters the stock Ice Cavern (field 300, its world tile's Confirm -- coop_tape_record COOP_TAPE_WB_ENTER, on by
+#: default) and stands there at least this long, so the replayed guest rejoins 300 from the world map (s144's rejoin) after its
+#: warm world return -- and the leg can read that no second return is counted there. The only field a world-battle tape may enter
+#: after its battle; a tape with no entry still plans (``expect.rejoin_field`` None: the leg's WB-300 cannot run on it)
+WB_ENTER_FIELD = 300
+WB_ENTER_NEED_S = 8.0
+
+
+def world_battle_tape_dir() -> Path:
+    """[ff9mapkit netsync s145] COOP_TAPE_DIR, else <the MAIN repo>/.harness-runs/coop-tapes/world-battle -- a world-battle tape's
+    own home, so its pointer (:data:`WORLD_BATTLE_POINTER`) never moves coop_cut_hold's or the world-wait leg's."""
+    env = os.environ.get("COOP_TAPE_DIR", "").strip()
+    return Path(env).expanduser().resolve() if env else main_repo() / ".harness-runs" / "coop-tapes" / "world-battle"
+
+
+def latest_world_battle_tape() -> Path | None:
+    """[ff9mapkit netsync s145] COOP_TAPE (absolute), else the world-battle dir's pointer, else its newest
+    ``*-world-battle-*.f9tape``."""
+    env = os.environ.get("COOP_TAPE", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    d = world_battle_tape_dir()
+    try:
+        p = Path(json.loads((d / WORLD_BATTLE_POINTER).read_text(encoding="utf-8"))["tape"])
+        if p.exists():
+            return p
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    tapes = sorted(d.glob("*-world-battle-*.f9tape"), key=lambda p: p.stat().st_mtime) if d.is_dir() else []
+    return tapes[-1] if tapes else None
+
+
+def world_battle_tape_facts(records, cp, *, field: int = WORLD_TAPE_FIELD, marker=(MARKER_BYTE, MARKER_VALUE)) -> dict:
+    """[ff9mapkit netsync s145] THE WORLD-BATTLE TAPE's five facts (each ``wbN`` = {ok, why}) and its anchors (PURE over the
+    records):
+      wb1 PAIR    world_tape_facts' w1: the host's first field is ``field`` (6603), held >= WORLD_PAIR_MIN_S before its world
+                  exit, no battle there
+      wb2 STORY   w2: the story lane with the marker
+      wb3 DWELL   the host off-field from its exit to its world battle >= WB_DWELL_NEED_S, section 7 riding with b6 (an s144+
+                  host on its world HUD) -- the guest pairs, walks out and settles inside it
+      wb4 BATTLE  a WORLD-MAP battle (coop_peer.tape_battle_where: b6 before and after it) published as F3 reads it (one nonce,
+                  command-phase-gated caps), LIVE >= WB_LIVE_NEED_S with the seq advancing and a player Ready (F4's reads)
+      wb5 AFTER   its end terminal and the result screen at Hide, then the host back on the world map (b6) >= WB_AFTER_NEED_S
+                  before any field -- [s145 bench] and a field after that stay is only the Ice Cavern (WB_ENTER_FIELD), entered
+                  once and stood on >= WB_ENTER_NEED_S (the rejoin coop_world_battle.py's WB-300 reads; no entry at all is fine)
+    plus ``exit_t``, ``battle`` (its segment: start / end / nonce / map), ``t_term``, ``dwell_s``, ``after_s`` (the stay: the
+    battle's end to the entry, or to the tape's end) and ``enter`` ({field, t, on_s} of the host's entry after the stay; None)."""
+    base = world_tape_facts(records, cp, field=field, marker=marker)
+    out = {"records": base["records"], "host_frames": base["host_frames"], "start": base["start"], "exit_t": base["exit_t"],
+           "field": base["field"], "battle": None, "t_term": None, "dwell_s": None, "after_s": None, "b6": base["b6"],
+           "enter": None, "wb1": dict(base["w1"]), "wb2": dict(base["w2"])}
+    where = cp.tape_where(records)
+    seg = next((b for b in where.get("battles") or [] if b["world"]), None)
+    facts = tape_facts(records, cp, field=field, marker=marker) if base["start"] is not None else None
+    exit_t = base["exit_t"]
+    if seg is None or exit_t is None or facts is None:
+        why = ("no world exit on the tape" if exit_t is None else
+               f"no world-map battle on the tape (battles: {[(b['said_before'], b['said_after']) for b in where.get('battles') or []]})")
+        for k in ("wb3", "wb4", "wb5"):
+            out[k] = {"ok": False, "why": why}
+        return out
+    out["battle"] = {k: seg[k] for k in ("n", "nonce", "map", "start", "end")}
+    dwell = seg["start"] - exit_t
+    out["dwell_s"] = round(dwell, 2)
+    first_said = (facts.get("battle") or {}).get("nonce") == seg["nonce"]
+    ok3 = dwell >= WB_DWELL_NEED_S and base["b6"]
+    out["wb3"] = {"ok": ok3, "why": (f"the host off-field only {dwell:.1f} s before its world battle (the guest's pairing, walk "
+                                     f"out and setup need >= {WB_DWELL_NEED_S:g}: record with a longer COOP_TAPE_WB_DWELL_S)"
+                                     if dwell < WB_DWELL_NEED_S else
+                                     "no b6 on the host's state frames (an s143-or-older host: no world battle verb either)"
+                                     if not base["b6"] else
+                                     f"the host on the world map {dwell:.1f} s from tape {exit_t:.2f} s before its battle at "
+                                     f"{seg['start']:.2f} s, b6 riding")}
+    f3, f4, f5 = facts["f3"], facts["f4"], facts["f5"]
+    t_term = f4.get("t_term")
+    out["t_term"] = t_term
+    live = ((t_term if t_term is not None else seg["end"]) - seg["start"])
+    advanced = f4.get("seq") is not None and f4["seq"][0] != f4["seq"][1]
+    ok4 = first_said and bool(f3["ok"]) and advanced and f4.get("ready_t") is not None and live >= WB_LIVE_NEED_S
+    out["wb4"] = {"ok": ok4, "why": ("the world-map battle is not the tape's first (the facts read the first)" if not first_said else
+                                     f"F3 {f3['why']}" if not f3["ok"] else
+                                     "the battle seq never advanced" if not advanced else
+                                     "no player Ready bit on the wire" if f4.get("ready_t") is None else
+                                     f"only {live:.1f} s of live fight (the guest's boot, LIVE and menu need >= "
+                                     f"{WB_LIVE_NEED_S:g}: COOP_TAPE_WB_FIGHT_S)" if live < WB_LIVE_NEED_S else
+                                     f"a world-map battle (b6 before and after), nonce {seg['nonce']} scene {seg['map']}, "
+                                     f"{live:.1f} s live from tape {seg['start']:.2f} s")}
+    after = [(t, f) for t, f in (facts.get("fields") or []) if t > seg["end"]]
+    t_last = max((r.t for r in records if r.dir == 0), default=seg["end"])
+    # [ff9mapkit netsync s145 bench] the stay runs from the battle's end to the host's first real field after it (its entry into
+    # the Ice Cavern: WB-300's rejoin) or to the tape's end; any other field, a second one, or too short a stand on it refuses
+    real_after = [(t, f) for t, f in after if 0 < f < 65535]
+    enter = real_after[0] if real_after else None
+    after_s = (enter[0] if enter is not None else t_last) - seg["end"]
+    out["after_s"] = round(after_s, 2)
+    enter_bad = None
+    if enter is not None:
+        on_s = t_last - enter[0]
+        out["enter"] = {"field": enter[1], "t": enter[0], "on_s": round(on_s, 2)}
+        if enter[1] != WB_ENTER_FIELD or len(real_after) > 1:
+            enter_bad = (f"the host enters {[f for _t, f in real_after]} after the battle -- a world-battle tape may enter only "
+                         f"the Ice Cavern ({WB_ENTER_FIELD}), once (COOP_TAPE_WB_ENTER), after its stay")
+        elif on_s < WB_ENTER_NEED_S:
+            enter_bad = (f"the host stands on {enter[1]} only {on_s:.1f} s at the tape's end (the guest's rejoin needs >= "
+                         f"{WB_ENTER_NEED_S:g}: COOP_TAPE_WB_ENTER_S)")
+    term_ok = t_term is not None and f5.get("hide_t") is not None
+    ok5 = term_ok and seg["said_after"] == "world" and enter_bad is None and after_s >= WB_AFTER_NEED_S
+    out["wb5"] = {"ok": ok5, "why": ("the end block never read terminal, or the result screen never reached Hide"
+                                     if not term_ok else
+                                     f"after the battle the host says {seg['said_after']!r}, not the world map (b6)"
+                                     if seg["said_after"] != "world" else
+                                     f"only {after_s:.1f} s of host frames on the world map after the battle (needs >= "
+                                     f"{WB_AFTER_NEED_S:g} before any field: COOP_TAPE_WB_POST_S)" if after_s < WB_AFTER_NEED_S
+                                     else enter_bad if enter_bad is not None else
+                                     f"terminal from tape {t_term:.2f} s, result-hide at {f5['hide_t']:.2f} s, the host on the "
+                                     f"world map {after_s:.1f} s after"
+                                     + (f", then on field {enter[1]} from tape {enter[0]:.2f} s ({out['enter']['on_s']:.1f} s)"
+                                        if enter is not None else "; no field after it (no rejoin to read)"))}
+    return out
+
+
+#: [ff9mapkit netsync s145 fix1] the synthetic tapes' real shape around a battle (coop_peer.tape_battle_where's comment): the swirl
+#: and the gMode-2 lead before the first type-1 frame, the world's load after the result tail (SHORTENED: a real one is ~4.4 s,
+#: inside WHERE_AFTER_S; a few frames carry the shape, and the stand-in's diorama stall cap -- 120 frames at 600 fps -- stays
+#: clear of it)
+SYNTH_SWIRL_S = 1.0
+SYNTH_LEAD_S = 0.2
+SYNTH_LOAD_S = 0.3
+
+
+def synthetic_world_battle_tape(cp, *, field_s: float = 25.0, dwell_s: float = 90.0, fight_s: float = 25.0,
+                                post_s: float = 30.0, b6: bool = True, field: int = WORLD_TAPE_FIELD, nonce: int = 5,
+                                scene: int = BENCH_SCENE, guest_ready: bool = False, enter_s: float = 0.0,
+                                enter_field: int = WB_ENTER_FIELD) -> list:
+    """[ff9mapkit netsync s145] An in-memory WORLD-BATTLE host tape shaped like coop_tape_record.py's COOP_TAPE_WORLD_BATTLE one
+    (10 Hz): the host on ``field`` with the story marker, off-field ``dwell_s`` on its world HUD (b6 + b4 + b1; ``b6`` False =
+    b4 + b1 alone), a world battle (fighting ``fight_s`` with a player Ready, then victory -> the result screen to Hide; b5 on
+    its state frames), then ``post_s`` back on the world HUD. [ff9mapkit netsync s145 fix1] THE REAL SHAPE around the battle (every
+    recorded host tape's): the last SYNTH_SWIRL_S of the dwell is the swirl (b1 alone: 'other') and SYNTH_LEAD_S the gMode-2
+    lead (b4 + b5: 'battle') before the first type-1 frame; after the last one the result tail (b5 alone) and SYNTH_LOAD_S of
+    the world's load ('other') before the world HUD -- so a reader of the ADJACENT frame never sees the place. [ff9mapkit netsync s145 bench] ``guest_ready`` adds the guest's
+    slot (btl index 1, in the head's guest slots 2) as a player Ready from 4 s into the fight, as the recorder's COOPPARTY party
+    puts Vivi there (the replayed guest's stock menu serves it); ``enter_s`` > 0 ends the tape with the host on ``enter_field``
+    that long after the stay (COOP_TAPE_WB_ENTER: the rejoin WB-300 reads)."""
+    import harness.battlewire as BW          # noqa: E402 -- tools/ on sys.path (coop_peer_module put it there)
+    R = cp.Record
+    story = bytearray(2048)
+    story[MARKER_BYTE] = MARKER_VALUE
+
+    def state(flags, fld):
+        sec0 = bytes([0, 0x00, 0x08]) + bytes(story)
+        return cp.build_frame(cp.TYPE_STATE, BW.append_section(sec0, BW.SECTION_DIALOG,
+                                                               BW.dialog_section(0x0145, 7, flags, 0, fld)))
+
+    roster = ((0, True, b"Zidane"), (1, True, b"Vivi"), (4, False, b"Goblin")) if guest_ready else \
+        ((0, True, b"Zidane"), (4, False, b"Goblin"))
+
+    def battle_frame(phase, seq_, result, ui, res, ready, guest=False):
+        head = struct.pack("<HHBBBBBHB", seq_ & 0xFFFF, scene, 2, 0, 0, 0x03, nonce, 7, len(roster))
+        units = b""
+        for idx, player, name in roster:
+            rdy = (ready and player and idx != 1) or (guest and idx == 1)
+            info = (1 if player else 0) | 2 | (4 if rdy else 0)
+            units += (bytes([idx, info]) + struct.pack("<IIIIHH", 100, 100, 10, 10, 0, 100) + bytes([len(name)]) + name
+                      + b"\x00")
+        block = cp.BW.make_block(phase, 0, result, ui=ui, state=res)
+        return cp.build_frame(cp.TYPE_BATTLE, head + units + cp.BW.encode_trailer(block))
+
+    recs, t, seq = [], 1.0, 0
+    on_field = BW.HF_ON_FIELD | BW.HF_CONTROL
+    world = (BW.HF_WORLD if b6 else 0) | BW.HF_MENU | BW.HF_CONTROL
+    in_battle = BW.HF_BATTLE | BW.HF_MENU
+    swirl_s, lead_s = min(SYNTH_SWIRL_S, dwell_s / 2.0), min(SYNTH_LEAD_S, dwell_s / 4.0)
+    for fld, flags, span in ((field, on_field, field_s), (0, world, dwell_s - swirl_s - lead_s),
+                             (0, BW.HF_CONTROL, swirl_s), (0, in_battle, lead_s)):      # [s145 fix1] the swirl, the lead
+        end = t + span
+        while t < end:
+            recs += [R(t, 0, cp.build_pos_frame(fld, model=1, pos=(900.0, 0.0, -1400.0))), R(t, 0, state(flags, fld))]
+            t += 0.1
+    b0 = t
+    while t < b0 + fight_s:
+        seq += 1
+        recs += [R(t, 0, cp.build_pos_frame(0)), R(t, 0, battle_frame(4, seq, 0, 0, 0, t > b0 + 3.0, t > b0 + 4.0)),
+                 R(t, 0, state(in_battle, 0))]
+        t += 0.1
+    for phase, result, ui, res, n in ((5, 0, 0, 0, 10), (6, 1, 0, 0, 20), (6, 1, 1, 0, 30), (6, 1, 1, 7, 5)):
+        for _ in range(n):
+            seq += 1
+            recs += [R(t, 0, cp.build_pos_frame(0)), R(t, 0, battle_frame(phase, seq, result, ui, res, False)),
+                     R(t, 0, state(in_battle, 0))]
+            t += 0.1
+    recs.append(R(t, 0, state(BW.HF_BATTLE, 0)))             # [s145 fix1] the result tail (b5 alone) on the last frame's heels
+    t += 0.1
+    end = t + SYNTH_LOAD_S
+    while t < end:                                           # [s145 fix1] the world's load: no place said
+        recs += [R(t, 0, cp.build_pos_frame(0)), R(t, 0, state(BW.HF_CONTROL, 0))]
+        t += 0.1
+    end = t + post_s
+    while t < end:
+        recs += [R(t, 0, cp.build_pos_frame(0, model=1, pos=(900.0, 0.0, -1400.0))), R(t, 0, state(world, 0))]
+        t += 0.1
+    if enter_s > 0:                                          # [ff9mapkit netsync s145 bench] the entry after the stay
+        end = t + enter_s
+        while t < end:
+            recs += [R(t, 0, cp.build_pos_frame(enter_field, model=1, pos=(0.0, 0.0, 0.0))), R(t, 0, state(on_field,
+                                                                                                         enter_field))]
+            t += 0.1
+    return recs
+
+
+def span_why(plan: dict, stage: int):
+    """[ff9mapkit netsync s145] THE SPAN's expected over-verdict BY THE GUEST'S STAGE (the stage law): a world-map victory on a tape
+    whose host says b6 after it leaves at the settle as `host_world` on an s145 guest (section 7's b6 is its over-signal), and at
+    the 8 s stall cap (`stall_cap`) before s145 -- a field victory is `host_field` on both. None = the plan names none."""
+    exp = (plan or {}).get("expect") or {}
+    if int(stage or 0) >= 145 and exp.get("why_s145") is not None:
+        return exp.get("why_s145")
+    return exp.get("why")
+
+
+def _world_battle_rows(cp) -> list:
+    """[ff9mapkit netsync s145] THE WORLD-BATTLE LEG's facts and plan on synthetic tapes (no file), and the span's stage-keyed
+    verdict: every row runs, each refusal pinned by its own short tape (every check can fail)."""
+    rows = []
+
+    def row(ok, what):
+        rows.append((bool(ok), what))
+
+    good = world_battle_tape_facts(synthetic_world_battle_tape(cp), cp)
+    row(all(good[k]["ok"] for k in ("wb1", "wb2", "wb3", "wb4", "wb5")) and good["battle"]["map"] == BENCH_SCENE
+        and good["dwell_s"] >= WB_DWELL_NEED_S and good["after_s"] >= WB_AFTER_NEED_S,
+        "world-battle facts: the synthetic tape -- " + " | ".join(f"{k}:{good[k]['why']}" for k in
+                                                                ("wb1", "wb2", "wb3", "wb4", "wb5")))
+    gp = plan_world_leg("world-battle", good)
+    row(gp["ok"] and gp["expect"]["leave_whys"] == WB_LEAVE_WHYS and gp["expect"]["battle_start"] == good["battle"]["start"]
+        and gp["stop_at"] is None and gp["field"] == WORLD_TAPE_FIELD,
+        f"world-battle plan: the whole tape, leave on {WB_LEAVE_WHYS} ({gp['why'] or 'ok'})")
+    short = world_battle_tape_facts(synthetic_world_battle_tape(cp, dwell_s=40.0), cp)
+    sp = plan_world_leg("world-battle", short)
+    row(not sp["ok"] and not short["wb3"]["ok"] and "COOP_TAPE_WB_DWELL_S" in sp["why"],
+        f"world-battle plan: a 40 s dwell refuses ({short['wb3']['why']})")
+    quick = world_battle_tape_facts(synthetic_world_battle_tape(cp, fight_s=6.0), cp)
+    brief = world_battle_tape_facts(synthetic_world_battle_tape(cp, post_s=8.0), cp)
+    old = world_battle_tape_facts(synthetic_world_battle_tape(cp, b6=False), cp)
+    row(not quick["wb4"]["ok"] and "COOP_TAPE_WB_FIGHT_S" in quick["wb4"]["why"]
+        and not brief["wb5"]["ok"] and "COOP_TAPE_WB_POST_S" in brief["wb5"]["why"]
+        and not old["wb3"]["ok"] and not plan_world_leg("world-battle", old)["ok"],
+        f"world-battle facts: a 6 s fight, an 8 s stay after it and a host with no b6 each refuse ({quick['wb4']['why']} | "
+        f"{brief['wb5']['why']} | {old['wb3']['why']})")
+    plain = world_tape_facts(synthetic_world_tape(cp), cp)
+    row(not plan_world_leg("world-battle", plain)["ok"],
+        "world-battle plan: a world-WAIT tape (no battle) refuses")
+    wd = cp.tape_where(synthetic_world_battle_tape(cp))
+    row(wd["world_battles"] == 1 and wd["battles"][0]["said_before"] == wd["battles"][0]["said_after"] == "world"
+        and cp.where_ok(wd, "world-battle") and not cp.where_ok(cp.tape_where(synthetic_world_tape(cp)), "world-battle"),
+        "where: the battle segment says world before and after; a world-wait tape has no world battle")
+    fw = {"expect": {"why": "stall_cap", "why_s145": "host_world", "after_field": 0}}
+    ff = {"expect": {"why": "host_field", "why_s145": "host_field", "after_field": 250}}
+    row(span_why(fw, 144) == "stall_cap" and span_why(fw, 145) == "host_world" and span_why(ff, 145) == "host_field"
+        and span_why({"expect": {"why": "stall_cap"}}, 145) == "stall_cap",
+        "span: a world victory's verdict is stall_cap before s145 and host_world from it (a tape with no b6 stays stall_cap)")
+    held = os.environ.get("COOP_TAPE_DIR")
+    try:
+        os.environ.pop("COOP_TAPE_DIR", None)
+        dflt = world_battle_tape_dir()
+    finally:
+        if held is not None:
+            os.environ["COOP_TAPE_DIR"] = held
+    row(dflt.name == "world-battle" and WORLD_BATTLE_POINTER not in ("latest.json", WORLD_POINTER),
+        f"world-battle tapes: the default home is coop-tapes/world-battle ({dflt}); its pointer {WORLD_BATTLE_POINTER}")
+    return rows
+
+
 # ======================================================================================== the self-check (no game)
 def synthetic_tape(cp, *, pre_s: float = 70.0, fight_s: float = 40.0, post_s: float = 30.0, field: int = BENCH_FIELD,
-                   nonce: int = 3, scene: int = BENCH_SCENE, resend: int = 1) -> list:
+                   nonce: int = 3, scene: int = BENCH_SCENE, resend: int = 1, sec7: bool = False) -> list:
     """An in-memory host tape shaped like coop_tape_record.py's (10 Hz, not 30 -- the facts read edges, not rates):
     free roam on ``field`` with the story marker, a battle (fighting, a player Ready, then victory-pending -> victory ->
     the result screen to Hide), the host back on ``field``. [ff9mapkit netsync s131] ``resend`` = how many times each
     fighting seq goes out, one write tick (33 ms) apart -- the sticky slot's repeats a cut's tail is made of (1 = every
-    tail 0; 3 = the last third of each 100 ms seq reads tail 66)."""
+    tail 0; 3 = the last third of each 100 ms seq reads tail 66). [ff9mapkit netsync s145 fix1] ``sec7`` (opt-in: every older
+    caller's tape is unchanged) adds section 7 to the state frames in a real field host's shape: b1 + b3 on the field, the
+    swirl (b1 alone) and the gMode-2 lead (b4 + b5) before the first type-1 frame, the battle's own state frames (b4 + b5), the
+    result tail (b5) after its last, then the field again."""
+    import harness.battlewire as BW          # noqa: E402 -- tools/ on sys.path (coop_peer_module put it there)
     R = cp.Record
     recs = []
     story = bytearray(2048)
     story[MARKER_BYTE] = MARKER_VALUE
-    state = bytes([0, 0x00, 0x08]) + bytes(story)
+    plain = bytes([0, 0x00, 0x08]) + bytes(story)
+
+    def st7(flags, fld):
+        if not sec7:
+            return cp.build_frame(cp.TYPE_STATE, plain)
+        return cp.build_frame(cp.TYPE_STATE, BW.append_section(plain, BW.SECTION_DIALOG,
+                                                               BW.dialog_section(0x0145, 7, flags, 0, fld)))
+    on_field = BW.HF_ON_FIELD | BW.HF_CONTROL
+    state = cp.build_frame(cp.TYPE_STATE, plain)
     t, seq = 1.0, 0
 
     def pos(f):
@@ -1718,24 +2056,38 @@ def synthetic_tape(cp, *, pre_s: float = 70.0, fight_s: float = 40.0, post_s: fl
         block = cp.BW.make_block(phase, 0, result, ui=ui, state=res)
         return cp.build_frame(cp.TYPE_BATTLE, head + units + cp.BW.encode_trailer(block))
 
-    while t < pre_s:
-        recs += [R(t, 0, pos(field)), R(t, 0, cp.build_frame(cp.TYPE_STATE, state))]
-        t += 0.1
+    if not sec7:
+        while t < pre_s:
+            recs += [R(t, 0, pos(field)), R(t, 0, state)]
+            t += 0.1
+    else:                                                    # [s145 fix1] the field, then the swirl and the lead
+        for fld, flags, until in ((field, on_field, pre_s - SYNTH_SWIRL_S - SYNTH_LEAD_S), (field, BW.HF_CONTROL,
+                                                                                           pre_s - SYNTH_LEAD_S),
+                                  (0, BW.HF_BATTLE | BW.HF_MENU, pre_s)):
+            while t < until:
+                recs += [R(t, 0, pos(fld)), R(t, 0, st7(flags, fld))]
+                t += 0.1
     b0 = t
     while t < b0 + fight_s:
         seq += 1
         frame = battle_frame(4, seq, 0, 0, 0, t > b0 + 3.0)
         recs += [R(t, 0, pos(0)), R(t, 0, frame)] + [R(t + k * 0.033, 0, frame) for k in range(1, resend)]
+        if sec7:
+            recs.append(R(t, 0, st7(BW.HF_BATTLE | BW.HF_MENU, 0)))
         t += 0.1
     for phase, result, ui, res, n in ((5, 0, 0, 0, 10), (6, 1, 0, 0, 20), (6, 1, 1, 0, 30), (6, 1, 1, 7, 5)):
         for _ in range(n):
             seq += 1
             recs += [R(t, 0, pos(0)), R(t, 0, battle_frame(phase, seq, result, ui, res, False))]
+            if sec7:
+                recs.append(R(t, 0, st7(BW.HF_BATTLE | BW.HF_MENU, 0)))
             t += 0.1
+    if sec7:
+        recs.append(R(t, 0, st7(BW.HF_BATTLE, 0)))           # [s145 fix1] the result tail (b5 alone)
     t += 0.5
     end = t + post_s
     while t < end:
-        recs += [R(t, 0, pos(field)), R(t, 0, cp.build_frame(cp.TYPE_STATE, state))]
+        recs += [R(t, 0, pos(field)), R(t, 0, st7(on_field, field) if sec7 else state)]
         t += 0.1
     return recs
 
@@ -1961,6 +2313,7 @@ def _self_rows() -> list:
         and canon_leg("s131") == "readopt", "legs: aliases")
     rows.extend(_tail_rows(cp, f, plans))
     rows.extend(_world_rows(cp, f))                     # [ff9mapkit netsync s144] the world legs' facts and plans
+    rows.extend(_world_battle_rows(cp))                 # [ff9mapkit netsync s145] the world-battle leg's facts and plan
     return rows
 
 

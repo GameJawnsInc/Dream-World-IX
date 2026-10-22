@@ -632,6 +632,98 @@ class State:
     world_waitline_fallback = _world_prop("waitline.fallback", bool, "s144: an old host's debounced field 0 chose it.")
     world_waitline_away_ms = _world_prop("waitline.away_ms", int, "s144: that debounce's age (-1 = not running).")
 
+    # ---- [ff9mapkit netsync s145] BATTLES FROM THE WORLD MAP (studies/world-coop/S145-DESIGN.md; additive under 5 -- absent = None,
+    # "this engine cannot": an s144 agent publishes none of them). The engine's claims sit in `netsync.world.dio`; the witnesses it
+    # does not compute in the top-level `prev_mode` and the world block's six live keys -- judge them beside the claim.
+    @property
+    def coop_world_dio(self) -> bool | None:
+        """s145: battles from the world map (``netsync.world.dio``). False = an engine that boots no diorama off a field (it refuses
+        a world `dioboot` with "boots from a live field only", reads `bench worldwarm` as `bench 1` and answers `vehicle` with
+        "unknown op"); None = no ``netsync`` block."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._ns_path("world.dio", dict) is not None
+
+    @property
+    def prev_mode(self) -> int | None:
+        """s145: FF9StateSystem.prevMode (1 field / 2 battle / 3 world; -1 = unreadable) -- what the world's camera and walker
+        constructors read at a world load (prevMode 1 resets the camera): stock's world battle writes 3, and so does a world-booted
+        diorama (`world_dio_prev_mode_at_boot` is what it replaced)."""
+        return self._top_int(None, "prev_mode")
+
+    @property
+    def world_cam_rot(self) -> float | None:
+        """s145: w_cameraSysDataCamera.rotation (degrees) on the live world map; None off it (or an older engine)."""
+        node = self.raw.get("world")
+        v = node.get("cam_rot") if isinstance(node, dict) else None
+        return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+    @property
+    def world_cam_upper(self) -> int | None:
+        """s145: the world camera's upperCounter (0..4096; -1 off the live world map)."""
+        return self._top_int("world", "cam_upper")
+
+    @property
+    def world_ctl(self) -> int | None:
+        """s145: w_moveCHRControl_No, the LIVE travel mode (0 on foot; -1 off the live world map) -- the warm verdict's vehicle
+        row reads it, never the data (`world.vehicle` is gEventGlobal[190])."""
+        return self._top_int("world", "ctl")
+
+    @property
+    def world_battle_prob(self) -> int | None:
+        """s145: w_frameEventBattleProb, the encounter rate the world's own script set (-1 off it) -- a position-free warm / cold
+        witness (Main_Init sets it afresh)."""
+        return self._top_int("world", "battle_prob")
+
+    @property
+    def world_ticks(self) -> int | None:
+        """s145: w_frameCounter (0 at every world load: a drop proves a reload, a monotonic run proves none; -1 off it)."""
+        return self._top_int("world", "ticks")
+
+    @property
+    def world_mapvar(self) -> str | None:
+        """s145: THE MAP-VAR DIGEST -- the live event context's 80 MAP bytes as 160 lowercase hex digits (StartEvents zeroes them
+        at every load; only the reinit branch restores the copy). None off the live world map or on an older engine."""
+        node = self.raw.get("world")
+        v = node.get("mapvar") if isinstance(node, dict) else None
+        return v if isinstance(v, str) else None
+
+    world_dio = _world_prop("dio", dict, "s145: the whole ``world.dio`` block, copied.")
+    world_dio_booted_world = _world_prop("dio.booted_world", bool, "s145: a WORLD-booted diorama is up (BootedFromWorld).")
+    world_dio_boot_world = _world_prop("dio.boot_world", int, "s145: the world map the last boot was from (-1 = a field boot).")
+    world_dio_boot = _world_prop("dio.boot", str, "s145: that boot's prime -- 'warm' | 'cold' (the lever's cold reference only; "
+                                                  "'' = the last boot was not a world one).")
+    world_dio_prev_mode_at_boot = _world_prop("dio.prev_mode_at_boot", int, "s145: the prevMode the world shape replaced with 3 "
+                                                                            "(-1 = none written, or given back).")
+    world_dio_lever = _world_prop("dio.lever", str, "s145: the `bench worldwarm` lever IN FORCE -- 'on' | 'off' | 'cold' ('on' off "
+                                                    "the selftest role, whatever was set).")
+    world_dio_declines = _world_prop("dio.declines", int, "s145: world boots refused (Boot's backstop + the watcher's declines) -- "
+                                                          "monotonic, read DELTAS.")
+    world_dio_decline_why = _world_prop("dio.decline_why", str, "s145: the last refusal's line ('' = none yet).")
+    world_dio_decline_durable = _world_prop("dio.decline_durable", bool, "s145: ...and its class (true = for the whole world "
+                                                                         "visit: the guest reports NONE).")
+    world_dio_visit_decline = _world_prop("dio.visit_decline", str, "s145: the world visit's durable decline as the watcher last "
+                                                                    "read it ('' = none: the report watches).")
+    world_dio_wait_why = _world_prop("dio.wait_why", str, "s145: the warm pre-verdict's last transient wait in the current fight "
+                                                          "('' = none: cleared when an attempt passes, at a durable decline and "
+                                                          "when the host's battle lane goes stale -- fix1).")
+    world_dio_returns = _world_prop("dio.returns", int, "s145: returns that landed on a world map (world returns ONLY) -- "
+                                                        "monotonic.")
+    world_dio_last_return = _world_prop("dio.last_return", str, "s145: the last world return's branch -- 'warm' | 'cold' | "
+                                                                "'reinit-missing' ('' = the last return was a field one).")
+    world_dio_last_world = _world_prop("dio.last_world", int, "s145: the world map the last return landed on (-1 = a field).")
+    world_dio_resuming = _world_prop("dio.resuming", bool, "s145: a battle-return bracket open on the LIVE world map (expected "
+                                                           "false from the first published frame: Main_Reinit closes it).")
+    world_dio_suspend_song = _world_prop("dio.suspend_song", int, "s145: the dispatch player's suspended song (-1 = none) -- judge "
+                                                                  "it on a BOOTED sample (A's song there); the restore clears it.")
+    world_dio_song_sid = _world_prop("dio.song_sid", int, "s145 fix1: the current music's sound INSTANCE (-1 = none): a warm "
+                                                          "resume keeps A's, a restart mints a new one.")
+    world_dio_boot_song_live = _world_prop("dio.boot_song_live", bool, "s145 fix1: the instance current after the last world "
+                                                                       "boot's Leave settle (fix2: a song the settle shut is never "
+                                                                       "latched) still plays unpaused beside a different current one "
+                                                                       "(a battle song left over the restored world song) -- read "
+                                                                       "past BeforeWorldEvents' 500 ms stop fade.")
+
     @property
     def on_field(self) -> bool:
         return self.ui_state == "FieldHUD"

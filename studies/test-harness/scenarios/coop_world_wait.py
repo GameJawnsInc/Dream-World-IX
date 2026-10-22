@@ -330,7 +330,8 @@ SOLO_CHECKS = {
     "S144-S0": "newgame -> (the COOPPARTY seed) -> 6603 -> encounters off -> the forced selftest role",
     "S144-P0": f"the engine publishes `{PROBE}` and the s144 blocks (netsync.world freeze / rejoin / waitline and "
                "session.follow in the agent's key order, session.overlay_text) and logged the three proof lines OK -- "
-               "'world freeze selftest' (42 rows), 'world rejoin selftest' (70), 'overlay text selftest' (50) -- none FAIL",
+               "'world freeze selftest' (42 rows; 46 on an s145 engine), 'world rejoin selftest' (70), 'overlay text "
+               "selftest' (50) -- none FAIL",
     "S144-ROUTE": f"the walk out of {FARSHORE} lands on WorldHUD, world {WORLD}, within {ROUTE_TOL:g}u of the landing "
                   f"{FS_LANDING} (the instrument)",
     "S144-F0": f"THE SOURCE-FIELD HOLD: the spectator's own WorldMap() exit latched it -- follow.hold {FARSHORE} and "
@@ -711,18 +712,23 @@ def stage_of(x) -> int:
 
 
 def judge_probe(st, lines) -> tuple:
-    """P0 (PURE): the s144 blocks in the agent's key order and the three proof lines OK, none FAIL."""
+    """P0 (PURE): the s144 blocks in the agent's key order and the three proof lines OK, none FAIL. [ff9mapkit netsync s145]
+    BY THE ENGINE'S STAGE (never one answer for both): an s145 engine (`netsync.world.dio`, cb.R3_PROBES[145]) publishes
+    `world`'s fourth block after `waitline` and logs the freeze line with 46 rows (its four release-lifetime rows) -- the s144
+    blocks are then the prefix of its `world` and 46 the count; an s144 engine's are exactly the three and 42."""
     R = _bw()
     if not cb.has(st, PROBE):
         return False, f"absent: no `{PROBE}` -- an engine before s144"
+    s145 = cb.has(st, cb.R3_PROBES[145])
+    want = R.WORLD_SENTINELS if s145 else R.WORLD_SENTINELS_S144
     world = cb.path(st, "netsync.world") or {}
     follow = cb.path(st, "netsync.session.follow")
-    keys_ok = (list(world) == list(R.WORLD_SENTINELS)
-               and all(list(world.get(k) or {}) == list(R.WORLD_SENTINELS[k]) for k in R.WORLD_SENTINELS)
+    keys_ok = (list(world) == list(want)
+               and all(list(world.get(k) or {}) == list(want[k]) for k in want)
                and isinstance(follow, dict) and list(follow) == list(R.SESSION_FOLLOW_SENTINELS)
                and cb.has(st, "netsync.session.overlay_text"))
-    proofs = [(R.PROOF_WORLD_FREEZE, R.WORLD_FREEZE_SELFTEST_ROWS), (R.PROOF_WORLD_REJOIN, R.WORLD_REJOIN_SELFTEST_ROWS),
-              (R.PROOF_OVERLAY_TEXT, R.OVERLAY_TEXT_SELFTEST_ROWS)]
+    proofs = [(R.PROOF_WORLD_FREEZE, R.world_freeze_selftest_rows(145 if s145 else 144)),
+              (R.PROOF_WORLD_REJOIN, R.WORLD_REJOIN_SELFTEST_ROWS), (R.PROOF_OVERLAY_TEXT, R.OVERLAY_TEXT_SELFTEST_ROWS)]
     seen = {head: cb.count(lines, f"{head}OK ({n} rows)") for head, n in proofs}
     fails = {head: cb.count(lines, head + "FAIL") for head, _n in proofs}
     ok = keys_ok and all(v >= 1 for v in seen.values()) and not any(fails.values())

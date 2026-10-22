@@ -7558,6 +7558,31 @@ class Session:
         self.send(f"battle {int(scene)} {int(group)}" + (" rand" if rand else ""))
         return self.wait_battle(timeout=timeout, after_epoch=before)
 
+    def vehicle(self, mode: int, *, timeout: float = 10.0) -> State:
+        """[ff9mapkit netsync s145] ``vehicle <mode>`` -- the ~ World tab's vehicle swap (Ff9mkDebugMenu.HarnessVehicle ->
+        SetVehicle(mode, force: false)): it honours VehicleAllowByWorld (WORLD02 / 10 / 11 every mode 0-9, any other world state
+        on foot only) and NEVER the menu's force toggle; refused off a settled WorldHUD, in the bee scene, while the world loads and
+        while the shared world-transition latch is busy (a battle return included: wait for ``world_dio_resuming`` False). Every
+        refusal comes back as the step's error, in the menu's status words (battlewire.vehicle_status). The bench's use: put a
+        frozen guest ABOARD, so a world battle DECLINES (S145-DESIGN.md decision 4). Waits for ``world_ctl`` (the LIVE travel mode)
+        to read ``mode`` and returns that state.
+
+        ⚠ THE s110 HAZARD: an s144 engine has no `vehicle` verb ("unknown op 'vehicle'"), so the driver probes
+        ``netsync.world.dio`` (s145's block) first -- absent = Not sent."""
+        st = self.state
+        if not st.coop_world_dio:
+            raise HarnessError(
+                "vehicle: the deployed engine publishes no `netsync.world.dio` -- `vehicle <mode>` is the s145 harness verb "
+                "(memoria-patch s145, battles from the world map); an engine before it answers \"unknown op 'vehicle'\". Not "
+                "sent. Rebuild the DLL, or update the driver.")
+        mode = int(mode)
+        if st.ui_state != "WorldHUD":
+            raise HarnessError(f"vehicle is an OVERWORLD verb and the game is on ui_state={st.ui_state!r} (the engine refuses "
+                               f"it: 'vehicle swap: overworld only').")
+        self.send(f"vehicle {mode}")
+        return self.wait_for(lambda s: s.world_ctl == mode, timeout=timeout,
+                             what=f"the live travel mode (world.ctl) to read {mode}")
+
     def wait_battle(self, *, timeout: float = 60.0, after_epoch: int | None = None) -> State:
         """Wait until a battle is genuinely up.
 
@@ -8560,6 +8585,10 @@ class Session:
         # [ff9mapkit netsync s144] the world freeze's lever -- the same hazard (an s143 engine reads it as `bench 1`)
         "worldfreeze": ("coop_world_wait", "netsync.world.freeze", "s144",
                         "the s144 world-freeze calibration lever (off = the pre-s144 world map)"),
+        # [ff9mapkit netsync s145] the world warm gate's lever -- the same hazard (an s144 engine reads it as `bench 1`)
+        "worldwarm": ("coop_world_dio", "netsync.world.dio", "s145",
+                      "the s145 world warm-return calibration lever (off = every world boot declines, cold = the cold "
+                      "reference)"),
     }
     #: [ff9mapkit netsync s133] `actbench <op>` (NetSyncBattle.HarnessActBench), in the engine's order -- the list its
     #: "unknown op" refusal prints -- and the `tape` op's values (`rec|stop|clear|info`, + `dump <from> <count>`, the paged
@@ -8669,7 +8698,7 @@ class Session:
     NETSYNC_ACTBENCH_TRANCE_USAGE = {"trancegrace": "netsync actbench trancegrace: expected `trancegrace on|off`"}
     #: [ff9mapkit netsync R3 s111] `dioboot <scene> [pattern]`'s trailing tokens (`[wire] [skip|play|own] [rand]`): an
     #: engine before s111 IGNORES them (a manual boot with the guest's own intro) -- a silent wrong action, never sent.
-    NETSYNC_DIOBOOT_TOKENS = ("wire", "skip", "play", "own", "rand")
+    NETSYNC_DIOBOOT_TOKENS = ("wire", "skip", "play", "own", "rand", "silent")   # [ff9mapkit netsync s145 fix1] + silent
 
     def netsync(self, sub: str, *args, timeout: float = 20.0) -> State:
         """Drive the co-op client's solo benches -- the ~ menu's IMGUI buttons, as verbs.
@@ -8955,6 +8984,14 @@ class Session:
             why = self._selfdress_refusal(st, args)
             if why is not None:
                 raise HarnessError(why)
+        elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
+            # [ff9mapkit netsync s145] THE WORLD DIOBOOT: a diorama boots from a live world map from s145 on (warm only: the engine's
+            # pre-Arm verdict refuses anything a stock world battle could not return warm from). An s144 engine refuses it after
+            # the step ("boots from a live field only") -- harmless, but the driver names the patch before sending
+            raise HarnessError(
+                "netsync dioboot: the deployed engine publishes no `netsync.world.dio` -- a diorama boot from the WORLD MAP is "
+                "memoria-patch s145 (battles from the world map); an engine before it refuses it (\"boots from a live field "
+                "only\"). Not sent. Rebuild the DLL, or boot from a field.")
         elif sub == "dioboot" and len(args) > 1:
             # [ff9mapkit netsync R3 s111] the trailing tokens start at args[1] when it is not an integer (no pattern), else
             # at args[2] -- the agent's own `dioTok`; an older engine boots WITHOUT them, so refuse before the step
@@ -8968,6 +9005,12 @@ class Session:
                     f"netsync dioboot: the deployed engine publishes no `netsync.diorama.intro` -- the tokens "
                     f"{' '.join(str(a) for a in tokens)!r} are the R3 intro-mirror bench (memoria-patch s111); an engine "
                     f"before it boots WITHOUT them (its own intro). Not sent. Rebuild the DLL, or update the driver.")
+            if any(str(a).strip().lower() == "silent" for a in tokens) and not st.coop_world_dio:
+                # [ff9mapkit netsync s145 fix1] `silent` (the wire bench's host-silent song) is s145's: an older agent refuses the
+                # token after the step ("expected ..."); the driver names the patch before sending
+                raise HarnessError(
+                    "netsync dioboot: the deployed engine publishes no `netsync.world.dio` -- the `silent` token (the wire "
+                    "bench's host-silent song, 0xFFFE) is memoria-patch s145; an engine before it refuses it. Not sent.")
         elif sub == "bench" and args and str(args[0]).strip().lower() in self.NETSYNC_BENCH_OPS:
             # [ff9mapkit netsync B4] s110: a named op of the F1 `bench` verb -- probe its key FIRST: an older agent's
             # Arg() fallback reads `bench lapse` / `bench handback` as `bench 1` (the field-gate bench ON), so the step
