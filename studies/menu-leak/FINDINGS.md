@@ -57,6 +57,8 @@ pooling them, and releases bus effects. Their note reports going from about 4 MB
 
 ## Fix options (not applied: none is small, and each changes the shared install)
 
+> Expanded into a concrete plan, with the costs checked, in [`FIX-OPTIONS.md`](FIX-OPTIONS.md).
+
 1. **Backport upstream.** Build `SaXAudio.dll` from Memoria's in-repo `SaXAudio/` project at `b39389de` or later
    (#1391 `d9a3f2cc` follows up), and port the C# half of #1388 (`SdLibAPIWithSaXAudio.cs`, `SoundPlayer.cs`
    stale-SoundID handling). Also check that `AudioEffectManager.ApplyPresetOnSound` still works with the lazy chain.
