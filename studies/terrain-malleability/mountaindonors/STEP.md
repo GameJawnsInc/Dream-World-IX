@@ -72,7 +72,7 @@ grass), radius = the carried blob's rim radius + 28 (the canopy widens the blob)
 **comp26's two refusals (30 and 180 deg)** are the zip's longest chord, 9.3u and 9.7u against the 9u ceiling. Every
 other gate is clean there (down 0, near-miss 0, annulus 0, zipNyMin 0.93-0.96).
 
-**comp26's passing carves:** 139 rock + 62 canopy tris, peak 9.8u, zip rise 1.10u, rigid 0.26%, apron 2.5-4.2 deg, a
+**comp26's passing carves:** 77 rock + 62 canopy tris (139 in all), peak 9.8u, zip rise 1.10u, rigid 0.26%, apron 2.5-4.2 deg, a
 r51 desert bench.
 
 **comp10's blocker: two stock tris that face down.** In the donor blob, a canopy wall tri (topo 37, ny -0.007) and a
