@@ -111,8 +111,9 @@ def test_donor_literals_pin_to_catalog_rows():
 
     # the qualified massif rects: the four the interior topo-narrowing verified (interior.py's
     # MOUNTAIN_ROCK_TOPOS comment names them) and the desert peak (terrain study, mountaindonors/)
-    # and the snow ridge (comp9: mountaindonors/INLET.md + snowmassif/, owner-passed in game)
-    for blocks in ("0,0", "10,5-6", "5-6,15-16", "12,16-17", "19,3", "8-10,0-1"):
+    # and the snow ridge (comp9: mountaindonors/INLET.md + snowmassif/) and the desert scrub crag (comp26:
+    # mountaindonors/STEP.md + canopystep/), both owner-passed in game
+    for blocks in ("0,0", "10,5-6", "5-6,15-16", "12,16-17", "19,3", "8-10,0-1", "14-15,3"):
         assert rows[blocks]["class"] == "massif" and rows[blocks]["status"] == "qualified"
 
 
@@ -201,6 +202,8 @@ def test_catalog_alcove_is_the_carves_spec():
     assert ridge == ((65.0, 77.5), (-100.0, -79.5), 3.0, (27,))
     assert catalog_alcove(list(reversed(sorted(spec_blocks("8-10,0-1"))))) == ridge     # a rect is a set
     assert catalog_alcove([(19, 3)]) is None and catalog_alcove([(10, 5)]) is None
+    # the desert scrub crag: its walled topo-38 canopy rides as the floor (STEP.md's registered rule, round 22's spec)
+    assert catalog_alcove(sorted(spec_blocks("14-15,3"))) == ((67.5, 92.422), (-48.445, -30.078), 3.73, (38,))
     # the drift pin: the spec round 21 proved in game (tests/test_world_interior.py's COMP9_INLET)
     from tests.test_world_interior import COMP9_INLET
     assert ridge == COMP9_INLET

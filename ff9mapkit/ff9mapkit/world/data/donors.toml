@@ -86,6 +86,18 @@ anatomy_study = "studies/terrain-malleability/mountaindonors/ (census.py comp9; 
 note = "comp9, a coastal snow ridge with an inlet: 388 rock tris + 15 inlet snow + a 2-tri Object plate carried as a plug; radius 65.3u, peak 20.4u. The alcove carries the inlet floor (snow) so the rim closes across its 11.4u mouth. Needs a big snow island: world-island --ground snow --radius 88 --lobes 2 (a one-lobe island this size fails the shape gate), then world-mountain --donor 8-10,0-1 --ground snow. Some placements refuse on one near-vertical stock rock face (ny 0.093) that misses the ground query at home too: try another --near."
 
 [[donor]]
+name = "desert-scrub"
+blocks = "14-15,3"
+class = "massif"
+aperture = "none"
+alcove = [67.5, 92.422, -48.445, -30.078, 3.73]
+alcove_floor = [38]
+home_ground = "desert"
+status = "qualified"
+anatomy_study = "studies/terrain-malleability/mountaindonors/ (census.py comp26; STEP.md: the canopy step, 4/6 angles offline) + canopystep/ (in game: ingame/RESULTS.md section 37, 77/77, owner-passed)"
+note = "comp26, a small desert crag with a walled scrub canopy (topo 38) against its side: 77 rock + 62 canopy tris, peak 9.75u. At home its rim steps onto the canopy, so the canopy rides as the alcove floor, walls and all, and rock and canopy stand on one level foot; the party sinks into the carried canopy as into stock forest. world-island --ground desert --radius 55, then world-mountain --donor 14-15,3 --ground desert. 30 and 180 deg refuse on a long zip chord at some placements: try another --near or angle."
+
+[[donor]]
 name = "forest-blob"
 blocks = "15,15"
 class = "canopy"

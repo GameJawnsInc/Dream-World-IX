@@ -1540,7 +1540,8 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
     # no smooth ground apron can meet it. Carried verbatim; only the Object mesh itself
     # (a separate part) stays behind. The box reads in the FIRST donor block's local frame.
     # An optional fourth element names the floor's topographs (default grass, 0 -- Uaho's);
-    # a snow massif's inlet floor is 27 (THE INLET FLOOR, mountaindonors/INLET.md).
+    # a snow massif's inlet floor is 27 (THE INLET FLOOR, mountaindonors/INLET.md); a desert crag's walled
+    # scrub canopy is 38, carried whole with its walls so rock and canopy stand on one foot (THE CANOPY STEP, STEP.md).
     if alcove_box is not None:
         (nx0, nx1), (nz0, nz1), ny_min = alcove_box[:3]
         floor_topos = frozenset(alcove_box[3]) if len(alcove_box) > 3 else frozenset({0})
@@ -1548,7 +1549,7 @@ def _mountain_blob(donor_blocks, *, rock_topos, alcove_box, disc=1, game=None, l
         seeds = []
         for e in once_edges(blob):
             for t in d_edge[e]:
-                if t not in blob and dtopo[t] in floor_topos:   # floor tris only, never canopy
+                if t not in blob and dtopo[t] in floor_topos:   # floor tris only (canopy only when named: STEP.md)
                     c = (dV[dtri[t]] - doff).mean(axis=0)
                     if NBOX(c) and min(dV[i][1] for i in dtri[t]) > ny_min:
                         seeds.append(t)
