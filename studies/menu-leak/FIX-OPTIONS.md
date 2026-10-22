@@ -4,6 +4,17 @@ This expands the "Fix options" section of [`FINDINGS.md`](FINDINGS.md) into what
 Nothing here is applied. The facts below were checked against the shared clone `C:\gd\FFIX\Memoria` (base
 `6b8bb2d5`, `origin/main` fetched up to `ac44a41f`) and the live install.
 
+## Status: A1 is built but not installed
+
+- `py tools/build_saxaudio.py` builds both arches from the pinned `5b49756c` through `git archive`, so the shared
+  clone is never checked out. The output goes to `build/saxaudio/5b49756ce04e/out/` in the main repo. x64 sha256
+  is `6e369399132dd2fc…` and x86 is `57d13987e811c7dd…`. Both match the live July DLLs exactly: the same 55
+  exports and the same import list (CRT plus system `xaudio2_9.dll`).
+- **It is held, not installed.** The harness belongs to the s145 run, and swapping `Plugins/SaXAudio.dll`
+  would change that run's conditions. Once s145 finishes, run `py tools/build_saxaudio.py --install --label
+  pre-saxaudio-fix` with FF9 closed, relaunch, and run `se_soak.py`. Undo with `--restore`.
+- Bundle and installer plumbing (step 3) and A2 have not started.
+
 ## What we found while mapping it
 
 - **Upstream fixed the leak in four commits after our base, not one.** All are missing from `6b8bb2d5`:
