@@ -112,3 +112,24 @@ Each exempted tri is logged by name. Every other down face still refuses, stock 
 
 **Known risk, no call made:** comp10 with its canopy read rock-rigid 1.7% in round 1 (the gate allows 3.5%; round 1's
 T5 asked 1%). If D3 holds, T5 will not, and the rigidity is reported, not explained away.
+
+## Round 2 result (offline, 2026-10-22)
+
+| # | measured | verdict |
+|---|---|---|
+| D1 | the 44 catalogued carve files byte-identical | **holds** |
+| D2 | `test_down_gate_keeps_only_stock_near_vertical_down_faces`: a carve-made (zip) flip, a steep stock overhang (ny -0.30), a tri up at home and flipped by the carry, and a near-vertical stock tri the carry steepened to -0.05 each still count; with no stock keys the old count returns (the break-it) | **holds** |
+| D3 | comp10 with its canopy **6/6** on the r65 grass bench: zip rise 1.45, zipNyMin 0.92-0.96, maxEdge 7.7-8.2, every other sub-gate clean | **holds** |
+| D4 | at every angle the gate kept exactly the two registered tris (home ny -0.0074, the canopy wall; -0.0030, the rock) | **holds** |
+| D5 | comp10 bare 0/6, every refusal the step (zipNyMin 0.01, rise 2.27-2.44), its one rock tri kept | **holds** |
+
+Round 1's T5 (rock-rigid at most 1%) does not hold for comp10: **1.7%** at every angle with the canopy (0.4% bare),
+inside the gate's 3.5%. The canopy's feet change the rim plane the de-tilt fits, so the rock is sheared a little more.
+Reported, not explained away; the owner's eye in game is the judge.
+
+**The kit change** (`interior.py`): `MTN_STOCK_DOWN_NY = 0.02`, `_stock_down_keys`, `_count_down`; the gate line names
+each kept tri and adds "(+N stock near-vertical exempt)". World domain 333 passed.
+
+**What follows:** comp10 becomes an in-game round (a grass island holding the r65 bench; carves with the canopy spec
+of `step_carry.canopy_spec` for blocks 14-16,14). comp9's 90/180-degree refusals are a different gate (the placement
+census reads MISS on a ny-0.093 stock face) and are not touched by this rule.

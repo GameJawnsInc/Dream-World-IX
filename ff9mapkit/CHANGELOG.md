@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — the mountain carve keeps a donor's own near-vertical walls
+- The carve refuses any new triangle that faces down, because on the world map that usually means a flipped triangle:
+  a see-through hole, and ground the party cannot stand on. But the shipping map itself has near-vertical walls that
+  lean past vertical by a fraction of a degree (55 of disc 1's 83,937 ground triangles), and a carried mountain brings
+  its own along. comp10, a grass massif, was refused for two of them.
+- A carried triangle is now kept when it was copied unchanged from the donor, already faced down at home, and leans
+  past vertical by no more than ny -0.02 (about 1.15 degrees). Each one kept is named in the log. Anything the carve
+  flips, and any steeper overhang, is still refused.
+- Every catalogued donor writes the same bytes as before. comp10 now carries offline at all 6 test angles (with its
+  forest canopy); it is not yet seen in game or catalogued.
+
 ### Added — a desert crag with its scrub canopy: `world-mountain --donor 14-15,3`
 - comp26, a small desert crag, is now a catalogued massif donor (`desert-scrub`). At home its rock rises from a walled
   scrub canopy, and carrying the rock alone left a vertical step the seam could not close. Its catalogue entry now
