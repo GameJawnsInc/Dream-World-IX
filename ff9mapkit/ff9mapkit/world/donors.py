@@ -3,8 +3,9 @@
 ``data/donors.toml`` is the ONE human-readable statement of which real blocks are qualified
 donors for the world pillar's carry verbs -- the fact used to live only in CLAUDE.md
 section 8, a 1200-line study README, and code comments, where it contradicted itself.
-Read by exactly one consumer (the ``world-donors`` CLI verb); the geometry modules keep
-their frozen literals, and ``tests/test_world_donors.py`` pins each literal to a row here.
+Read by the CLI (the ``world-donors`` verb, the home-ground warning, and a massif's alcove for ``world-mountain`` /
+``world-fuse``); the geometry modules keep their frozen literals and never parse it, and
+``tests/test_world_donors.py`` pins each literal to a row here.
 """
 from __future__ import annotations
 
@@ -41,6 +42,22 @@ def row_for_blocks(blocks, *, klass: str = "massif"):
         if r.get("class") == klass and spec_blocks(r["blocks"]) == want:
             return r
     return None
+
+
+def catalog_alcove(blocks):
+    """The catalogued massif's alcove as ``carve_mountain(alcove=)`` takes it -- ``((x0, x1), (z0, z1), y_min)``, plus
+    the floor topographs as a 4th element when the row names ``alcove_floor`` -- else ``None`` (not a catalogued massif,
+    or one without an alcove: the caller keeps ``"auto"``). Uaho's row equals ``interior.UAHO_ALCOVE`` (the drift
+    test pins it), so handing it in carves the same bytes as ``"auto"``."""
+    r = row_for_blocks(blocks)
+    box = r.get("alcove") if r else None
+    if not box:
+        return None
+    x0, x1, z0, z1, ymin = (float(v) for v in box)
+    spec = ((x0, x1), (z0, z1), ymin)
+    if r.get("alcove_floor"):
+        spec += (tuple(int(t) for t in r["alcove_floor"]),)
+    return spec
 
 
 def home_ground_note(blocks, ground: str):

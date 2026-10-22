@@ -383,3 +383,19 @@ def test_a_dry_run_names_why_a_relief_row_cannot_read_the_river_island(monkeypat
         in g["error"]
     out = FU.compose_layout("MOD", {"forest": [{"near": [49.0, -824.0]}]}, dry_run=True)
     assert "[dry run:" not in next(g for g in out["gates"] if g["gate"] == "forest #0")["error"]   # no base, no hint
+
+
+def test_mountain_row_hands_the_catalogued_alcove_to_the_carve(monkeypatch, tmp_path):
+    """A catalogued massif's alcove rides with its rock in world-fuse as in world-mountain (donors.catalog_alcove):
+    the snow ridge (comp9) carries its snow inlet floor; a donor with no catalogued alcove keeps "auto". Drop the
+    alcove= in fuse.py and this goes red."""
+    from ff9mapkit.world import interior as IN
+    _pin_game(monkeypatch, tmp_path)
+    calls, seen = [], []
+    _stub_verbs(monkeypatch, calls)
+    monkeypatch.setattr(IN, "carve_mountain", lambda soup, **k: seen.append(k.get("alcove"))
+                        or {"changed": {}, "center": (0, 0), "report": {}})
+    doc = {"mountain": [{"near": [10.0, -10.0], "donor": "8-10,0-1", "ground": "snow"},
+                        {"near": [10.0, -10.0], "donor": "19,3", "ground": "desert"}]}
+    FU.compose_layout("MOD", doc, dry_run=True)
+    assert seen == [((65.0, 77.5), (-100.0, -79.5), 3.0, (27,)), "auto"]

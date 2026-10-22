@@ -5,14 +5,32 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — a snow mountain: `world-mountain --donor 8-10,0-1` carries comp9 with its inlet floor
+- comp9, a coastal snow ridge, is now a catalogued massif donor (`snow-ridge` in `world-donors --class massif`). It
+  carries its rock, a 2-triangle rock plate, and the snow floor of its inlet, so the rim closes across the inlet's
+  mouth. Proven in game twice (58/58 checks each) at 0, 200 and 270 degrees, and passed by the owner's eye.
+- `world-mountain` and `world-fuse` now hand a catalogued donor's alcove (a cave or inlet floor) to the carve. Uaho's
+  alcove is the same as before, and donors without one carry none, so every other donor writes the same bytes.
+- The ridge is large: mint `world-island --ground snow --radius 88 --lobes 2` (a one-lobe island this big fails the
+  coastline shape check), then `world-mountain --donor 8-10,0-1 --ground snow`. Some placements refuse on one
+  near-vertical stock rock face; try another `--near`.
+
+### Fixed — no white sliver where a mountain's rock plate is carried
+- A carried rock plate takes its texture from the rock around it. For comp9 it reached past that rock into the next
+  painted patch of the atlas: a pure-white gutter line on the Moguri atlas, which showed in game as a white
+  triangle at the back of the inlet. A plate now stays inside its surrounding rock's patch. Uaho's plates were
+  already inside it, so they are unchanged (every catalogued donor writes the same bytes).
+- The mountain carve's texture check now also refuses triangles that sample those white gutter texels. No stock
+  ground triangle on disc 1 does.
+
 ### Changed — the mountain carve can bring a snow massif's inlet floor, and its rock plugs are judged by their own rock
 - `carve_mountain`'s `alcove` spec takes an optional fourth element naming the floor's topographs. The default is
   grass, so Uaho's alcove reads as before. A snow massif's inlet floor rides with `(27,)`.
 - The aperture-plug check required a plug to sit in the grass-world rock band of the texture atlas. Rock is painted
   from a different band in each biome, so a plug now also passes inside the band its own donor's rock uses.
-- Every catalogued donor writes the same bytes as before (all 44 files checked). The `world-mountain` command is
-  unchanged. This is study-only for now: comp9, a snow massif, carries offline at 4 of 6 angles
-  (`studies/terrain-malleability/mountaindonors/INLET.md`), and is not yet seen in game or catalogued.
+- Every catalogued donor writes the same bytes as before (all 44 files checked). comp9, the snow massif this was
+  built for (`studies/terrain-malleability/mountaindonors/INLET.md`), has since been proven in game and catalogued:
+  see "a snow mountain" above.
 
 ### Fixed — `world-rim-retile` and `world-coastnav` now copy their changes to disc 4
 - Every other world-override command copies what it writes to the disc-4 tree, so a custom island also exists on
