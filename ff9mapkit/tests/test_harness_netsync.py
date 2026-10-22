@@ -2025,6 +2025,11 @@ def _key_is_the_patchs(key: str, cap: str) -> bool:
     top = key[len("netsync."):].split(".", 1)[0] if key.startswith("netsync.") else None
     if top is not None and top != "battle" and top in FG.NETSYNC_TOP_CAP_KEYS.get(cap, ()):
         return True
+    # [ff9mapkit netsync s145] ...or a block the capability added INSIDE an older top-level one (FG.NETSYNC_TOP_NESTED_KEYS:
+    # s145's `world.dio`, inside s144's `world`)
+    rest = key[len("netsync."):].split(".") if key.startswith("netsync.") else []
+    if len(rest) >= 2 and rest[1] in FG.NETSYNC_TOP_NESTED_KEYS.get(cap, {}).get(rest[0], ()):
+        return True
     if key.startswith("netsync.diorama."):
         rest = key[len("netsync.diorama."):].split(".")
         if len(rest) == 1:
@@ -4720,17 +4725,33 @@ def test_an_r3_argument_refusal_has_the_engines_whole_shape(game, param, args):
 
 def test_dioboot_and_battle_refuse_a_bad_token_in_the_agents_shape(game):
     """s111's spliced refusals: `dioboot`'s unknown token (after the scene check), `wire rand`, and `battle`'s third
-    argument -- each the agent's literals around the token."""
-    tok = net_lines("HarnessAgent.cs", r'expected `netsync dioboot <scene> \[pattern\] \[wire\] \[skip\|play\|own\] \[rand\]`, got')
+    argument -- each the agent's literals around the token. [ff9mapkit netsync s145 fix1] THE STAGE LAW: s145's agent names its
+    `silent` token in the usage (`[wire [silent]]`); s111's words are the s144 stack's -- each stage's fake says its own."""
+    old_pat = r'expected `netsync dioboot <scene> \[pattern\] \[wire\] \[skip\|play\|own\] \[rand\]`, got'
+    tok = net_lines("HarnessAgent.cs", r'expected `netsync dioboot <scene> \[pattern\] \[wire \[silent\]\] \[skip\|play\|own\] '
+                                       r'\[rand\]`, got')
+    tok144 = net_lines("HarnessAgent.cs", old_pat, _prefix("s144"))
     wire = net_lines("HarnessAgent.cs", r"`wire` boots the wire bench, whose header is always a random encounter")
     bat = net_lines("HarnessAgent.cs", r'expected `battle <scene> \[group\] \[rand\|1\|0\]`, got')
-    assert len(tok) == 1 and len(wire) == 1 and len(bat) == 1, (tok, wire, bat)
+    assert len(tok) == 1 and len(tok144) == 1 and len(wire) == 1 and len(bat) == 1, (tok, tok144, wire, bat)
+    assert not net_lines("HarnessAgent.cs", old_pat)                  # s111's words are gone from the live agent
+    old = _on_field(FakeGame(game))
+    old.netsync_caps = FG.caps_through("worldwait")
+    old.field_id = FIELD
+    _selftest(old)
+    with pytest.raises(RuntimeError) as err:
+        old._netsync(["dioboot", "67", "0", "later"])
+    assert str(err.value) == f"{_literals(tok144[0])[1]}later'\r\nParameter name: netsync dioboot"
     fake = _on_field(FakeGame(game))
     fake.field_id = FIELD
     _selftest(fake)
     with pytest.raises(RuntimeError) as err:
         fake._netsync(["dioboot", "67", "0", "later"])
     assert str(err.value) == f"{_literals(tok[0])[1]}later'\r\nParameter name: netsync dioboot"
+    with pytest.raises(RuntimeError) as err:                        # `silent` rides the wire bench only (s145)
+        fake._netsync(["dioboot", "67", "0", "silent"])
+    assert "`silent` is the wire bench's host-silent song: add `wire`" in str(err.value)
+    assert net_lines("HarnessAgent.cs", r"`silent` is the wire bench's host-silent song: add `wire`")
     with pytest.raises(RuntimeError) as err:
         fake._netsync(["dioboot", "67", "wire", "rand"])
     assert str(err.value) == f"{_literals(wire[0])[1]}\r\nParameter name: netsync dioboot"
@@ -5958,11 +5979,14 @@ def _watch_ns() -> dict:
     head = " ".join(_cs_block("NetSyncClient.cs", "private static Int32 WatchAt(", "}"))
     params = re.search(r"WatchAt\((.*?)\)\s*\{", head).group(1)
     names = [p.split()[-1] for p in params.split(",") if not p.split()[0] == "out"]
-    call = re.search(r"return DioramaWatchStep\((.*), out why\);", head).group(1)
+    # [ff9mapkit netsync s145 fix1] WatchAt returns the b6-clear step by its own name (DioramaWatchStepB6Clear) on the live stack
+    call = re.search(r"return DioramaWatchStep(?:B6Clear)?\((.*), out why\);", head).group(1)
     args = [a.strip() for a in call.split(",")]
 
     def watch_step(*a):                                               # DioramaWatchStep(.., out w)
-        v, why = BW.diorama_watch_step(*a)
+        # [ff9mapkit netsync s145] the engine's two overloads by arity: 13 (+ out) = the production step with section 7's b6
+        # (`hostWorld`), 12 (+ out) = the private b6-clear one (the s119 / s120 tables' form, s144's step)
+        v, why = (BW.diorama_watch_step_b6_clear if len(a) == 12 else BW.diorama_watch_step)(*a)
         ns["w"] = why
         return v
 
@@ -5970,11 +5994,27 @@ def _watch_ns() -> dict:
         env = dict(BW.CS_CLIENT_CONSTANTS, **dict(zip(names, vals)))
         return watch_step(*[eval(_cs_expr(x), env) for x in args])     # noqa: S307
 
+    # [ff9mapkit netsync s145] WatchAtW (WatchAt with section 7's b6), built from ITS OWN body the same way -- s145's stack only
+    try:
+        head_w = " ".join(_cs_block("NetSyncClient.cs", "private static Int32 WatchAtW(", "}"))
+    except AssertionError:
+        head_w = None
+    if head_w is not None:
+        names_w = [p.split()[-1] for p in re.search(r"WatchAtW\((.*?)\)\s*\{", head_w).group(1).split(",")
+                   if not p.split()[0] == "out"]
+        args_w = [a.strip() for a in re.search(r"return DioramaWatchStep\((.*), out why\);", head_w).group(1).split(",")]
+
+        def watch_at_w(*vals):                                        # WatchAtW(.., out w)
+            env = dict(BW.CS_CLIENT_CONSTANTS, **dict(zip(names_w, vals)))
+            return watch_step(*[eval(_cs_expr(x), env) for x in args_w])   # noqa: S307
+        ns["WatchAtW"] = watch_at_w
+
     def parse(raw):                                                   # ParseSessionGrace(raw, out note)
         v, ns["note"] = BW.parse_session_grace(raw)
         return v
 
-    ns.update(DioramaWatchStep=watch_step, WatchAt=watch_at, SessionGraceStep=BW.session_grace_step,
+    # [ff9mapkit netsync s145 fix1] ...and the b6-clear step's own name (the s119 / s120 rows call it: 12 args + out)
+    ns.update(DioramaWatchStep=watch_step, DioramaWatchStepB6Clear=watch_step, WatchAt=watch_at, SessionGraceStep=BW.session_grace_step,
               SessionRampArms=BW.session_ramp_arms, ParseSessionGrace=parse)
     return ns
 
@@ -5983,11 +6023,16 @@ def test_diorama_watch_step_evaluates_every_watcher_selftest_row_off_the_stack()
     """DioramaWatchStep's twin against DioramaWatchSelfTest's OWN rows, EVALUATED in order through WatchAt (itself read off
     the stack: from s120 it passes the stall cap = the cap, so the s119 rows read as before) -- sitting A's cut holds,
     the cap's boundary, the stalled lane, the genuinely-over pair and its fences, the settle, a decided leave, live
-    wins, and the four sequences: 24 rows, the proof line's count."""
+    wins, and the four sequences: 24 rows, the proof line's count. [ff9mapkit netsync s145] ...and s145's eight host_world rows
+    (section 7's b6 through WatchAtW, itself read off the stack; the last one s144's b6-blind step as the mutant): 32 rows on
+    the live stack -- the s119-s144 prefix ran 24 (test_session_grace_twins_evaluate_every_grace_selftest_row_off_the_stack
+    counts both stages)."""
     names = _run_cs_rows(_cs_program(_cs_block("NetSyncClient.cs", "internal static Boolean DioramaWatchSelfTest(")),
                          _watch_ns())
-    assert len(names) == BW.WATCH_SELFTEST_ROWS == 24, names
+    assert len(names) == BW.WATCH_SELFTEST_ROWS_S145 == BW.watch_selftest_rows(145) == 32, names
     assert names[3] == "sitting A: a cut holds" and len(set(names)) == len(names)
+    assert names[BW.WATCH_SELFTEST_ROWS] == "b6 while live: the same fight goes on (live wins)" and \
+        names[-1] == "mutant: s144's step (b6 never read) holds a host back on the world map to the stall cap", names[24:]
 
 
 def test_the_sitting_a_row_left_on_s56_and_holds_on_s119():
@@ -6002,7 +6047,7 @@ def test_the_sitting_a_row_left_on_s56_and_holds_on_s119():
     s, c119, grace = BW.DIORAMA_SETTLE_MS, BW.hold_cap_ms(None), BW.hold_cap_ms(BW.SESSION_GRACE_DEFAULT_MS)
     assert (c119, grace) == (8000, 40000)                              # [ff9mapkit netsync s132] the default grace
     for cap in (c119, grace):
-        step = lambda stale: BW.diorama_watch_step(False, 0, n, alive, -1, False, stale, 0, s, cap,    # noqa: E731
+        step = lambda stale: BW.diorama_watch_step_b6_clear(False, 0, n, alive, -1, False, stale, 0, s, cap,    # noqa: E731
                                                    BW.DIORAMA_STALL_CAP_MS, BW.WATCH_WHY_NONE)
         assert step(0) == (BW.WATCH_HOLD, BW.WATCH_WHY_NONE) and step(6000) == (BW.WATCH_HOLD, BW.WATCH_WHY_NONE)
         assert step(cap) == (BW.WATCH_HOLD, BW.WATCH_WHY_NONE)
@@ -6011,7 +6056,7 @@ def test_the_sitting_a_row_left_on_s56_and_holds_on_s119():
     assert BW.s56_watch_step(False, 0, n, False, 8000) == BW.WATCH_HOLD
     assert BW.s56_watch_step(False, 0, n, False, 8001) == BW.WATCH_LEAVE_FINAL
     assert BW.s56_watch_step(True, n, n, True, 0) == BW.WATCH_NOTHING and BW.s56_watch_step(True, 7, n, True, 0) == 2
-    assert BW.diorama_watch_step(False, 0, n, True, 250, False, s, s, s, grace, BW.DIORAMA_STALL_CAP_MS, 0) == \
+    assert BW.diorama_watch_step_b6_clear(False, 0, n, True, 250, False, s, s, s, grace, BW.DIORAMA_STALL_CAP_MS, 0) == \
         (BW.WATCH_LEAVE_FINAL, BW.WATCH_WHY_HOST_FIELD)
     # the s56 lines are gone from the live stack, the s119 predicate replaced them (read off the s119 patch)
     assert net_lines("NetSyncClient.cs", re.escape("Boolean transportUp = _socket != null && _socket.IsConnected;"),
@@ -6042,8 +6087,11 @@ def test_session_grace_twins_evaluate_every_grace_selftest_row_off_the_stack():
     # s139] the two of s119 / s120 and DressSelfTest's 29 (s138's file had only the two)
     assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncClient.cs", r".", _prefix("s138"))) == \
         BW.WATCH_SELFTEST_ROWS + BW.GRACE_SELFTEST_ROWS
-    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncClient.cs")) == \
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncClient.cs", r".", _prefix("s144"))) == \
         BW.WATCH_SELFTEST_ROWS + BW.GRACE_SELFTEST_ROWS + BW.DRESS_SELFTEST_ROWS
+    # [ff9mapkit netsync s145] ...and the watcher's eight host_world rows on the live stack (the s145 stage: 32, not 24)
+    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncClient.cs")) == \
+        BW.watch_selftest_rows(145) + BW.GRACE_SELFTEST_ROWS + BW.DRESS_SELFTEST_ROWS
 
 
 def test_the_session_grace_twins_hold_the_bench_legs():
@@ -6148,7 +6196,8 @@ def test_the_sitting_a_constants_and_names_are_the_stacks():
             else:                                           # (a declaration whose comment carries a `;`)
                 assert any(re.search(rf"\b{name} = {value}[,;]", ln) for ln in _stack_text(file_name)), (name, value)
     groups = {"state": ("WatchNothing", "WatchHold", "WatchLeaveFinal"),
-              "why": ("WatchWhyNewNonce", "WatchWhyTerminal", "WatchWhyHostField", "WatchWhyHoldCap", "WatchWhyStallCap"),
+              "why": ("WatchWhyNewNonce", "WatchWhyTerminal", "WatchWhyHostField", "WatchWhyHoldCap", "WatchWhyStallCap",
+                      "WatchWhyHostWorld"),                   # [ff9mapkit netsync s145] the host back on the world map (b6)
               "session": ("SessionNone", "SessionLive", "SessionGrace", "SessionEnded"),
               "ramp": ("RampCauseGrace", "RampCauseConfig", "RampCauseUnfollow")}
     for table, group in ((BW.WATCH_STATE_NAMES, "state"), (BW.WATCH_WHY_NAMES, "why"),
@@ -6346,7 +6395,10 @@ def _proof_lines(fake) -> list:
 
 
 @pytest.mark.parametrize("caps,want", [
-    ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+    # [ff9mapkit netsync s145] THE LIVE STAND-IN IS s145: the watcher line's 32 rows (its eight host_world rows), the freeze
+    # line's 46, and the two world-diorama lines after the overlay text line
+    ("live", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, BW.watch_selftest_rows(145)),
+              BW.proof_ok(BW.PROOF_GRACE, 31),
               BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
               BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
               BW.proof_ok(BW.PROOF_TRANCE, 21), BW.proof_ok(BW.PROOF_DRESS, 38), BW.proof_ok(BW.PROOF_SELF_DRESS, 29),
@@ -6354,6 +6406,19 @@ def _proof_lines(fake) -> list:
               # [ff9mapkit netsync s143] the leader guard's line, right after the dress polish line
               BW.proof_ok(BW.PROOF_LEADER_GUARD, BW.LEADER_GUARD_SELFTEST_ROWS),
               # [ff9mapkit netsync s144] world-map co-op's three, right after the leader guard line
+              BW.proof_ok(BW.PROOF_WORLD_FREEZE, BW.world_freeze_selftest_rows(145)),
+              BW.proof_ok(BW.PROOF_WORLD_REJOIN, BW.WORLD_REJOIN_SELFTEST_ROWS),
+              BW.proof_ok(BW.PROOF_OVERLAY_TEXT, BW.OVERLAY_TEXT_SELFTEST_ROWS),
+              # [ff9mapkit netsync s145] battles from the world map's two, right after the overlay text line
+              BW.proof_ok(BW.PROOF_WORLD_DIORAMA, BW.WORLD_DIORAMA_SELFTEST_ROWS),
+              BW.proof_ok(BW.PROOF_WORLD_WATCHER, BW.WORLD_WATCHER_SELFTEST_ROWS)]),
+    # [ff9mapkit netsync s145] s144 (s145's calibration red): the watcher line's 24 rows, the freeze line's 42, no world-diorama
+    # lines
+    ("s144", [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, 24), BW.proof_ok(BW.PROOF_GRACE, 31),
+              BW.proof_ok(BW.PROOF_MENU, 14), BW.proof_ok(BW.PROOF_ADOPT, 20), BW.proof_ok(BW.PROOF_ACTION, 30),
+              BW.proof_ok(BW.PROOF_REPLAY, 34), BW.proof_ok(BW.PROOF_HOLD, 28), BW.proof_ok(BW.PROOF_FALLBACK, 30),
+              BW.proof_ok(BW.PROOF_TRANCE, 21), BW.proof_ok(BW.PROOF_DRESS, 38), BW.proof_ok(BW.PROOF_SELF_DRESS, 29),
+              BW.proof_ok(BW.PROOF_DRESS_POLISH, 20), BW.proof_ok(BW.PROOF_LEADER_GUARD, BW.LEADER_GUARD_SELFTEST_ROWS),
               BW.proof_ok(BW.PROOF_WORLD_FREEZE, BW.WORLD_FREEZE_SELFTEST_ROWS),
               BW.proof_ok(BW.PROOF_WORLD_REJOIN, BW.WORLD_REJOIN_SELFTEST_ROWS),
               BW.proof_ok(BW.PROOF_OVERLAY_TEXT, BW.OVERLAY_TEXT_SELFTEST_ROWS)]),
@@ -6866,7 +6931,8 @@ def test_the_peer_lane_model_holds_the_bench_expectations():
     settle, cap, grace = BW.DIORAMA_SETTLE_MS, BW.DIORAMA_STALL_CAP_MS, BW.SESSION_GRACE_DEFAULT_MS
 
     def watch(stale_ms):        # the stalled host: peer alive (its writer re-sends), still in its battle (field 0)
-        return BW.diorama_watch_step(False, 0, n, True, 0, False, stale_ms, settle, settle, grace, cap, BW.WATCH_WHY_NONE)
+        return BW.diorama_watch_step_b6_clear(False, 0, n, True, 0, False, stale_ms, settle, settle, grace, cap,
+                                              BW.WATCH_WHY_NONE)                      # [ff9mapkit netsync s145] b6 clear
     assert watch(cap) == (BW.WATCH_HOLD, BW.WATCH_WHY_NONE)
     assert watch(cap + 1) == (BW.WATCH_LEAVE_FINAL, BW.WATCH_WHY_STALL_CAP)
     stale = [i for i, x in enumerate(flags) if not x and i > 0]
@@ -10777,7 +10843,9 @@ def test_the_r3_benches_predicted_reds_are_their_docstrings_and_their_own_checks
     # ...and the ONE call site (run()'s calibration verdict; no stand-in drives this scenario) hands it the plan's verdict
     src = (SCENARIOS / "coop_cut_hold.py").read_text(encoding="utf-8")
     assert re.findall(r"= _predicted\(([^)]*)\)", src) == ["leg, ctx.stage, tail, why"], re.findall(r"_predicted\(.*", src)
-    assert 'why = ((ctx.plan or {}).get("expect") or {}).get("why")' in src
+    # [ff9mapkit netsync s145] ...the plan's verdict BY THE GUEST'S STAGE: a world victory whose host says b6 is host_world on an
+    # s145 guest, stall_cap before it (span_why; tests/test_world_diorama_harness.py pins both)
+    assert "why = pb.span_why(ctx.plan, ctx.stage)" in src
     # [ff9mapkit netsync s131] whatever legs the table grows: on the s131 engine a leg predicts at most its own <P>-RED (the
     # s117-defect reproduction, red on every fixed engine) and nothing maybe -- every G/K check passes only with s131
     for leg, body in cut.items():
@@ -22030,9 +22098,10 @@ def test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self_and_ghost():
     line and False on s140's; the `polish` op's capability key is a key s141 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
     # [ff9mapkit netsync s143] ...LAST until s143's `leaderguard` rung joined after it; [ff9mapkit netsync s144] and s144's
-    # `worldwait` after that
+    # `worldwait` after that; [ff9mapkit netsync s145] and s145's `worlddio` after that
     assert names[names.index("dressself") + 1] == "dresspolish" and names[names.index("dresspolish") + 1:] == ["leaderguard",
-                                                                                                             "worldwait"]
+                                                                                                             "worldwait",
+                                                                                                             "worlddio"]
     assert FG.NETSYNC_BATTLE_CAPS["dresspolish"] == ("s141", ()) and FG.NETSYNC_S141_CAPS == frozenset(("dresspolish",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresspolish"] == {} and "dresspolish" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     assert FG.NETSYNC_DRESS_CAP_KEYS["dresspolish"] == BW.DRESS_KEYS_BY_RUNG["dresspolish"] == ()

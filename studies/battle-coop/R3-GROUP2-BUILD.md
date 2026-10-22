@@ -17,6 +17,7 @@ stack replays by number:
 | s141 | s130 | polish: footsteps, held props, the mesh-op drop, lighting | ★ deployed, solo-proven + real-wire duo |
 | s143 | -- | the guest never commands the host's leader (the Plant Brain fix) | ★ deployed, solo-proven + a seat tape |
 | s144 | -- | world-map co-op: wait then rejoin (`studies/world-coop/S144-DESIGN.md`) | ★ deployed, solo + T2 + duo proven |
+| s145 | -- | world-map co-op: battles from the world map, warm return (`studies/world-coop/S145-DESIGN.md`) | ★ deployed, solo + T2 + duo proven |
 
 Order (owner decision): action replay first, then the field model. Before any building, a 7-lane audit checked the design
 against the live s132 stack (`R3-ACTION-REPLAY-AUDIT.md`, which keeps the OLD patch names). Each round is one DLL build,

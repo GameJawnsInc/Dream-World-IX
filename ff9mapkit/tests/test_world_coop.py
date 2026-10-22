@@ -196,6 +196,10 @@ def test_the_twins_constants_are_the_engines():
     esc = lambda d: json.dumps(d, separators=(",", ":"))                 # noqa: E731
     assert f'"ghost_held":false,"overlay_text":null,"follow":{esc(BW.SESSION_FOLLOW_SENTINELS)}}},"menu_refusal"' in lit
     assert lit.endswith(f'"world":{esc(BW.WORLD_SENTINELS)}}}");')
+    # [ff9mapkit netsync s145] the s144 patch's own line ends with ITS three blocks (frozen); the live block adds s145's `dio`
+    upto = [(msr.PATCHES / n).read_bytes() for n in msr.stack()[:msr.stack().index(PATCH) + 1] if n not in msr.DEAD]
+    old = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', upto)[0].replace('\\"', '"')
+    assert old.endswith(f'"world":{esc(BW.WORLD_SENTINELS_S144)}}}");') and list(BW.WORLD_SENTINELS)[:3] == list(BW.WORLD_SENTINELS_S144)
 
 
 # ------------------------------------------------------------------------------------------------ THE FREEZE's rows
@@ -922,7 +926,9 @@ def test_the_driver_never_sends_bench_worldfreeze_to_an_s143_engine(tmp_path):
 
 
 def test_the_stand_in_logs_the_three_proof_lines_after_the_leader_guard_line(tmp_path):
-    fake = _stand_in(tmp_path)
+    """[ff9mapkit netsync s145] on the s144 stand-in (the ladder through `worldwait`): s145 grows the freeze line to 46 rows and
+    appends two lines after the overlay text one (tests/test_world_diorama_harness.py pins that stage)."""
+    fake = _stand_in(tmp_path, FG.caps_through("worldwait"))
     logged = []
     fake._mlog = logged.append
     fake._dress_proof()

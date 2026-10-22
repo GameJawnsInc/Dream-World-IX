@@ -118,6 +118,10 @@ DEFAULT_FILES = [
     "Assembly-CSharp/Global/ff9/ff9.cs",
     "Assembly-CSharp/Global/World/WorldHUD.cs",
     "Assembly-CSharp/Global/WM/WMScriptDirector.cs",
+    # [ff9mapkit netsync s145] battles from the world map's stock site not yet listed -- AllSoundDispatchPlayer.cs (the harness's music
+    # INSTANCE witness, NetSyncMusicSoundId: the FIRST netsync patch to touch it; s65's fork gate touched it before) -- so a stale or
+    # mixed hunk in it cannot pass diag
+    "Assembly-CSharp/Global/AllSoundDispatchPlayer.cs",
 ]
 
 # Same-number ties, pinned explicitly.

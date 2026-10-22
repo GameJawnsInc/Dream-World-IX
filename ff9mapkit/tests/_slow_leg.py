@@ -68,6 +68,47 @@ LEGS = {
         "test_the_world_recorder_tapes_the_host_and_its_b6_is_the_engines",
         "test_the_rejoin_legs_old_order_dials_on_the_field_and_reads_red",
     ),
+    # s145: the stand-in's world-diorama bench (harness core): the solo + followed-client legs, their faults and calibrations
+    "test_world_diorama_harness.py": (
+        "test_the_stand_in_bench_is_green_on_s145",
+        "test_each_world_dio_fault_turns_exactly_its_rows_red",
+        "test_the_s144_stand_in_reads_exactly_old_predicted_red",
+        "test_the_lever_reads_exactly_lever_predicted_red",
+        "test_the_control_row_can_fail",
+    ),
+    # s145: coop_world_battle.py's solo / T2 (battle, held) / duo legs, their faults, calibrations and the SWIRL-HANG instrument
+    "test_coop_world_battle.py": (
+        "test_the_solo_leg_is_green_on_the_s145_stand_in",
+        "test_the_solo_leg_calibrates_on_s144_and_under_the_lever",
+        "test_each_world_dio_fault_turns_exactly_its_solo_rows_red",
+        "test_the_instrument_rows_go_red_on_their_own_wrong_shapes",
+        "test_a_swirl_hang_is_an_instrument_row_never_an_engine_verdict",
+        "test_the_battle_leg_is_green_on_s145_and_calibrates_on_s144",
+        "test_each_world_dio_fault_turns_exactly_its_battle_rows_red",
+        "test_the_report_and_the_menu_rows_can_fail_where_the_stand_in_cannot",
+        "test_the_held_leg_is_green_on_s145_and_calibrates_on_s144",
+        "test_each_world_dio_fault_turns_exactly_its_held_rows_red",
+        "test_a_held_walk_that_misses_the_hold_window_is_the_instruments",
+        "test_the_t2_legs_refuse_before_any_edit",
+        "test_the_duo_leg_is_green_on_s145_and_calibrates_on_s144",
+        "test_each_world_dio_fault_turns_exactly_its_duo_rows_red",
+        "test_the_decline_leg_declines_on_s145_calibrates_on_s144_and_reds_unprojected",   # [fix1] the T2 decline leg
+        "test_a_battle_on_the_wire_before_the_guest_boarded_is_the_instruments_never_wd_decl",   # [fix2] its aboard guard
+        "test_the_hosts_start_hold_reds_db_through_the_host_half_alone",                # [fix3] the duo's engine start hold
+        "test_music_is_judged_on_the_sound_instances_through_each_legs_own_call_site",  # [fix3] MUSIC through each call site
+        "test_a_read_back_that_lands_after_the_battle_is_the_instruments_by_the_comparison",   # [fix3] the guard's comparison
+        "test_a_swirl_the_claim_does_not_see_reds_wd_decl_or_is_a_swirl_hang",          # [fix3] the swirl witness, the hang
+        "test_a_guest_that_leaves_the_world_map_mid_fight_reds_wd_decl_through_its_window",   # [fix3-r2] the window's call site
+        "test_a_guest_that_leaves_onto_the_ice_cavern_mid_fight_reds_wd_decl",               # [fix3b] the 300 leave
+        "test_the_battle_leg_boots_under_the_prompts_and_the_old_rule_reds_exactly_the_in_game_rows",   # [fix4] the prompts
+        "test_the_cold_reference_keeps_its_place_and_wc_judges_it_through_battle_prob",     # [fix5] WC's re-key
+        "test_the_report_past_the_guests_own_leave_is_never_judged",                         # [fix5] the report's leave cut
+        "test_the_decline_legs_rejoin_ahead_of_the_hosts_entry_is_the_rejoin_never_a_leave",  # [fix5] the fight-bound window
+        "test_the_duo_boots_under_the_prompts_and_the_old_rule_reds_exactly_the_in_game_duo_rows",   # [fix-r1] the duo's prompts
+        "test_the_prompt_and_window_witnesses_go_red_on_their_own_wrong_shapes",              # [fix-r1] the dialog witnesses
+        "test_a_world_diorama_that_leaves_mid_fight_on_an_allowed_why_reds_its_boot_row",     # [fix-r1] the leave's bound
+        "test_a_cold_return_at_the_spawn_still_reds_place",                                   # [fix-r1] PLACE can fail
+    ),
 }
 
 #: test_harness.py's story-trace drives and rehearsals, O4 to O8 (the rungs with a rehearsal), when they take ``game``
