@@ -884,6 +884,12 @@ def test_the_production_lines_are_pinned_and_each_pin_can_fail():
     assert -1 not in i and i == sorted(i), i
     assert sum(_code(t) == "_leaveSongSid = MusicSoundIdNow();" for t in dio) == 1   # ...exactly once (no pre-settle latch left)
     latch = next(t for t in dio if _code(t) == "_leaveSongSid = MusicSoundIdNow();")
+    # [fix3 -- v-raudio-1-3] ...and WORLD-only: the line right above it is its `if (_bootWorld)` guard (a field leave latching a field
+    # battle song into the WORLD witness `netsync.world.dio.boot_song_live` would drift the key's meaning) -- a copy without it is red
+    j = dio.index(latch)
+    assert _code(dio[j - 1]) == "if (_bootWorld)", dio[j - 3:j + 1]
+    unguarded = dio[:j - 1] + dio[j:]
+    assert _code(unguarded[unguarded.index(latch) - 1]) != "if (_bootWorld)"
     mut = [t for t in dio if t is not latch]
     k = next(n for n, t in enumerate(mut) if _code(t) == "SettleForReturn(via);")
     mut = mut[:k] + [latch] + mut[k:]                                  # the pre-fix2 order: the latch right before the settle

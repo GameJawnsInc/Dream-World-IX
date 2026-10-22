@@ -936,9 +936,44 @@ def test_the_leave_latches_the_battle_song_after_its_settle_and_reads_a_song_lef
     assert mid["settled"][0] is False and _dio(mid["ret"], "boot_song_live") is False and mid["music"][0], mid["music"]
     left = _music_trip(tmp_path / "left", finished=False, faults=["bwe_stop_missing"])
     assert _dio(left["ret"], "boot_song_live") is True and not left["music"][0], left["music"]
+    # [fix3 -- v-raudio-1-2] each sound fault reds ONLY its own lane: after a settle that shut the song BeforeWorldEvents has nothing
+    # to stop (the fix's own premise -- `bwe_stop_missing` on the finished lane reads green), and a mid-fight Leave settles nothing
+    # (the latch's order is moot there -- `latch_before_settle` on the mid lane reads green)
+    fin_bwe = _music_trip(tmp_path / "fin_bwe", finished=True, faults=["bwe_stop_missing"])
+    assert fin_bwe["settled"] == (True, True) and fin_bwe["inside"], (fin_bwe["settled"], fin_bwe["inside"])
+    assert _dio(fin_bwe["ret"], "boot_song_live") is False and fin_bwe["music"][0], fin_bwe["music"]
+    mid_early = _music_trip(tmp_path / "mid_early", finished=False, faults=["latch_before_settle"])
+    assert mid_early["settled"][0] is False, mid_early["settled"]
+    assert _dio(mid_early["ret"], "boot_song_live") is False and mid_early["music"][0], mid_early["music"]
     # the model off (the default): the stand-in plays no music -- fix1's witnesses idle, as every other stand-in run reads them
     assert _fake(_game(tmp_path / "idle"))._wsnd_doc() == {"suspend_song": -1, "song_sid": -1, "boot_song_live": False}
     assert set(FG.WORLD_MUSIC_FAULTS) == {"bwe_stop_missing", "latch_before_settle"}
+
+
+def test_the_sound_models_wall_fades_end_on_the_wall_whatever_the_frame_clock(tmp_path, monkeypatch):
+    """[fix3-r2] v-raudio-1-1-fade-scale-premise-wrong: ``world_music_wall`` puts the sound model's stop fades on the WALL clock, as
+    SaXAudio runs them (SdSoundSystem_SoundCtrl_Stop -> SaXAudio.Stop(soundID, ms / 1000f): a native real-time fade) -- a
+    Leave-latched instance stopped at BeforeWorldEvents' 500 ms floor reads boot_song_live true until 500 ms of WALL time pass,
+    however far the virtual clock runs (the stand-in's runs ~5x the wall at fps=600, never a fixed ratio); off (the default) the
+    fade ends on the virtual clock, as every earlier run reads it."""
+    import time
+    fade = 2.0                                                # a fade long enough that no box reads past it by accident
+    for wall in (True, False):
+        fake = _fake(_game(tmp_path / f"wall{int(wall)}"))
+        fake.world_music, fake.world_music_wall = (12, 40), wall
+        monkeypatch.setattr(fake, "_wdio", lambda: True)      # the worlddio rung on (the model needs it), nothing running
+        fake._wsnd_play(40)
+        fake._wsnd["leave_sid"] = fake._wsnd["cur_sid"]       # LeaveFrom's latch: the battle song's instance
+        t_stop = time.time()
+        fake._wsnd_stop_current(fade)
+        assert fake._wsnd_doc()["boot_song_live"] is True     # inside its fade on either clock
+        fake.rt += 10.0 * fade                                # far past it on the virtual clock, no wall time
+        assert fake._wsnd_doc()["boot_song_live"] is wall, wall   # the wall fade still sounding; the virtual one long over
+        assert time.time() - t_stop < fade                    # (read inside the wall fade: the check above meant it)
+        if wall:
+            while time.time() - t_stop < fade + 0.05:
+                time.sleep(0.05)
+            assert fake._wsnd_doc()["boot_song_live"] is False   # past the fade on the WALL: over
 
 
 def test_a_frozen_guest_on_topograph_52_declines_never_holds_the_host(tmp_path):

@@ -94,6 +94,12 @@ LEGS = {
         "test_each_world_dio_fault_turns_exactly_its_duo_rows_red",
         "test_the_decline_leg_declines_on_s145_calibrates_on_s144_and_reds_unprojected",   # [fix1] the T2 decline leg
         "test_a_battle_on_the_wire_before_the_guest_boarded_is_the_instruments_never_wd_decl",   # [fix2] its aboard guard
+        "test_the_hosts_start_hold_reds_db_through_the_host_half_alone",                # [fix3] the duo's engine start hold
+        "test_music_is_judged_on_the_sound_instances_through_each_legs_own_call_site",  # [fix3] MUSIC through each call site
+        "test_a_read_back_that_lands_after_the_battle_is_the_instruments_by_the_comparison",   # [fix3] the guard's comparison
+        "test_a_swirl_the_claim_does_not_see_reds_wd_decl_or_is_a_swirl_hang",          # [fix3] the swirl witness, the hang
+        "test_a_guest_that_leaves_the_world_map_mid_fight_reds_wd_decl_through_its_window",   # [fix3-r2] the window's call site
+        "test_a_guest_that_leaves_onto_the_ice_cavern_mid_fight_reds_wd_decl",               # [fix3b] the 300 leave
     ),
 }
 

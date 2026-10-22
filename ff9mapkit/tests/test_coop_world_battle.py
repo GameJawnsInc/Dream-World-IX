@@ -13,7 +13,9 @@ tests/test_world_diorama.py pins the engine's pure steps and tests/test_world_di
     twins (battlewire.boot_watching / world_ui_free / guest_boot_state: THE REPORT) -- and logs the two lines the stand-in does not
     write ('diorama LIVE ...', 'the ready mirror is SERVING'); the duo on two stand-ins joined by a stub LINK that carries the
     host's battle lane and, for the HOST stand-in (whose start hold the stand-in models on the selftest loopback only), presents
-    the guest's report to the host's `start_hold` / `wait.menu` keys the same way (a HostView over the host's state).
+    the guest's report to the host's `start_hold` / `wait.menu` keys the same way (a HostView over the host's state) -- [fix3]
+    through the ENGINE's StartHoldStep (battlewire.start_hold_step) on the host's command-phase opening, the guest's world boot
+    swirling and loading first (FakeGame.world_dio_boot_frames) as in-game.
   * EVERY CHECK CAN FAIL: each fault lever (FG.WORLD_DIO_FAULTS) turns EXACTLY its *_FAULT_REDS rows red, leg by leg; the stub's
     own knobs red the report and menu rows the stand-in cannot (an s144 report rule, no LIVE latch, the menu never served); the
     instrument rows (INI, OR, ROUTE, A, the T2 rows) go red on their own wrong shapes; and SWIRL-HANG -- a game quiet on SwirlScene
@@ -25,8 +27,10 @@ Every scenario-touching test runs in a CHILD process: a scenario puts its own di
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -94,10 +98,30 @@ def fake_for(t, run):
     f.world_swirl_frames, f.world_exit_frames = 40, 40
     f.atb_gain, f.enemy_hit, f.cmd_resolve_frames = 60, 1, 45
     f.world_dio_faults = set(run.get("faults", ()))
+    if run.get("music"):
+        # [fix3 -- v-raudio-1-1] the stand-in's SOUND INSTANCES (opt-in: FakeGame.world_music = (world song, battle song)) and
+        # their fault levers (FG.WORLD_MUSIC_FAULTS): S145-MUSIC / the RET rows' MUSIC judged discriminating through the bench's
+        # own call sites (song_quiet's re-read included), never only by the pure judges
+        f.world_music = tuple(int(x) for x in run["music"])
+        f.world_music_faults = set(run.get("music_faults", ()))
+        # [fix3-r2] the stop fades on the WALL clock, at the engine's lengths (SaXAudio fades in real time; song_quiet and the
+        # settled read are wall-clock reads) -- the stand-in's virtual clock runs ~5x the wall here, never a fixed ratio
+        f.world_music_wall = True
     if run.get("hang"):
         _hang_at(f, run["hang"])
+    if run.get("slow_ms"):
+        _slow_loop(f, float(run["slow_ms"]))
     FAKES.append(f)
     return f
+
+def _slow_loop(f, ms):
+    """[fix3-r2] A LOADED BOX: every stand-in frame costs ``ms`` more wall time -- its virtual clock runs slower against the wall
+    (as on a busy -n worker, or the duo's two fakes in one process), which must never move a verdict judged on the wall."""
+    frame_once = f._frame_once
+    def slowed():
+        frame_once()
+        time.sleep(ms / 1000.0)
+    f._frame_once = slowed
 
 def _hang_at(f, where):
     """THE SWIRL HANG on the stand-in: right after a world boot (`boot`), or inside the host's world battle swirl (`battle`: before
@@ -120,8 +144,55 @@ def _hang_at(f, where):
             p = f.dir / "state.json"
             d = json.loads(p.read_text(encoding="utf-8"))
             d["scene"], d["ui_state"] = "SwirlScene", None
-            p.write_text(json.dumps(d), encoding="utf-8")
+            FG._publish_atomic(p, json.dumps(d))           # [fix3b] atomic, as the fake publishes: no EMPTY read
             f._stop.set()
+    f._publish = pub
+
+def _swirl_after_decline(f, hang):
+    """[fix3] THE SWIRL A CLAIM DOES NOT SEE, on the stand-in: 300 frames after the guest has declined the host's battle (dio.declines
+    counted, its line logged, its report NONE -- the decline itself honest), every publish becomes a WORLD BOOT's SWIRL with netsync's
+    `booted` claim UNSET: ui_state WorldHUD (nothing on the swirl path writes UIManager.State: SceneDirector._Swirl, UIManager's
+    SwirlScene branch), scene SwirlScene, the WorldMap level gone (HarnessAgent's live gate: the world witness block off -- ticks,
+    battle_prob, ctl, cam_upper -1, cam_rot / mapvar null), diorama.booted and dio.booted_world false -- a boot still in its swirl
+    at the window's end; or (``hang``) ONE such publish and the game goes quiet (the 1-in-26 stall)."""
+    publish = f._publish
+    at = {"frame": None}
+    def pub(force=False):
+        if at["frame"] is None and int(f._wdx.get("declines") or 0) >= 1:
+            at["frame"] = f.frame
+        publish(force)
+        if at["frame"] is not None and f.frame - at["frame"] >= 300 and f.publish_frame == f.frame:
+            p = f.dir / "state.json"
+            d = json.loads(p.read_text(encoding="utf-8"))
+            d["scene"], d["ui_state"] = "SwirlScene", "WorldHUD"
+            d.setdefault("world", {}).update(ticks=-1, battle_prob=-1, ctl=-1, cam_upper=-1, cam_rot=None, mapvar=None, area=-1,
+                                              topo=-1, phase=-1, next_mode=-1, move=None)
+            ns = d.setdefault("netsync", {})
+            ns.setdefault("diorama", {})["booted"] = False
+            ns.setdefault("world", {}).setdefault("dio", {})["booted_world"] = False
+            FG._publish_atomic(p, json.dumps(d))           # [fix3b] atomic, as the fake publishes: no EMPTY read
+            if hang:
+                f._stop.set()
+    f._publish = pub
+
+def _leave_after_decline(f, fid, after):
+    """[fix3-r2] A GUEST THAT LEAVES THE WORLD MAP MID-FIGHT, on the stand-in: ``after`` frames past its counted decline (dio.declines
+    +1, its line logged, its report NONE -- the decline itself honest), every publish reads it on field ``fid`` -- FieldHUD on
+    FieldMap, the WorldMap level gone (world.ticks -1) -- while the host's fight is still on the wire, before its entry into 300:
+    the shape decision 3 forbids ('a declined guest stays frozen'), which WD-DECL's window must judge, never cut away."""
+    publish = f._publish
+    at = {"frame": None}
+    def pub(force=False):
+        if at["frame"] is None and int(f._wdx.get("declines") or 0) >= 1:
+            at["frame"] = f.frame
+        publish(force)
+        if at["frame"] is not None and f.frame - at["frame"] >= after and f.publish_frame == f.frame:
+            p = f.dir / "state.json"
+            d = json.loads(p.read_text(encoding="utf-8"))
+            d["ui_state"], d["scene"] = "FieldHUD", "FieldMap"
+            d["field"] = dict(d.get("field") or {}, id=int(fid), name=f"FBG_FAKE_{int(fid)}")
+            d.setdefault("world", {})["ticks"] = -1
+            FG._publish_atomic(p, json.dumps(d))           # [fix3b] atomic, as the fake publishes: no EMPTY read
     f._publish = pub
 
 def session(t, f):
@@ -131,7 +202,8 @@ def session(t, f):
     return g
 
 def rows_of(checks):
-    rows = [(r["what"].split(":")[0], bool(r["ok"]), r["detail"][:600]) for r in checks]
+    # [fix3-r2] 1200: the RET rows' MUSIC terms sit past 600 characters (their whole detail is what the tests read)
+    rows = [(r["what"].split(":")[0], bool(r["ok"]), r["detail"][:1200]) for r in checks]
     return {"red": sorted(c for c, ok, _d in rows if not ok), "all": [c for c, _ok, _d in rows],
             "detail": {c: d for c, _ok, d in rows}}
 
@@ -332,6 +404,7 @@ def solo(run):
             if run.get("hang"):
                 f.returncode = 0                           # the session's kill: the hung game is gone
             out["shots"] = list(SHOTS)
+            out["music_wall"] = bool(f.world_music_wall)          # [fix3-r2] the sound model's fades ran on the wall
             out["archived"] = sorted(p.name for p in pathlib.Path(wb._run_dir(g)).glob("*swirl-hang*"))
             return out
     finally:
@@ -360,6 +433,10 @@ def t2(run):
     else:
         os.environ["COOP_TAPE"] = str(t / "nope.f9tape")
     f = fake_for(t, run)
+    if run.get("decline_swirl"):
+        _swirl_after_decline(f, run["decline_swirl"] == "hang")
+    if run.get("leave_world"):
+        _leave_after_decline(f, int(run["leave_world"]), int(run.get("leave_after", 300)))
     cb.CALIBRATE = bool(run.get("cal"))
     wb.LEG = leg
     hold_ms, lead = BW.WORLD_HOLD_MS, wb.HELD_LEAD_S
@@ -376,6 +453,21 @@ def t2(run):
                 time.sleep(0.3)
             return real_vehicle(self, mode, *a, **k)
         Session.vehicle = vehicle
+    if run.get("board_slow"):
+        # [fix3] the aboard guard's COMPARISON: the real `vehicle 1` boards at once (the guest aboard BEFORE the battle -- it
+        # declines it), but the verb's read-back returns only once the stub has put the host's battle on the wire: the battle anchor
+        # then sits before the aboard stamp (the state read after the verb) -- the instrument's by the comparison alone, never the
+        # refusal branch
+        def vehicle(self, mode, *a, **k):
+            out = real_vehicle(self, mode, *a, **k)
+            if int(mode) == 1:
+                end = time.time() + 90.0
+                while time.time() < end and not (StubReplay.last is not None
+                                                  and StubReplay.last.first(pb.PEER["tape_nonce"]) is not None):
+                    time.sleep(0.05)
+                time.sleep(0.3)
+            return out
+        Session.vehicle = vehicle
     if leg == "held":
         # the stand-in's clock runs 10x the wall at 600 fps: its 15 s hold is 1.5 s of wall time -- scaled so the timed walk's
         # window (the battle inside the hold, the hold over before the host's return) has the shape the in-game one has
@@ -385,35 +477,92 @@ def t2(run):
         with session(t, f) as g:
             wb.run(g)
             out = rows_of(list(g.checks))
-            if run.get("hang"):
+            if run.get("hang") or run.get("decline_swirl") == "hang":
                 f.returncode = 0
             out["shots"] = list(SHOTS)
+            out["music_wall"] = bool(f.world_music_wall)          # [fix3-r2] the sound model's fades ran on the wall
             return out
     finally:
         BW.WORLD_HOLD_MS, wb.HELD_LEAD_S = hold_ms, lead
         Session.vehicle = real_vehicle
 
 # ---- the duo: two stand-ins, a stub LINK
+#: NetSyncBattle.NotArmedWhy's short key for a fresh report on this nonce (rptThis), as fakegame._nb_not_armed_why keeps it
+NOT_ARMED_WHY = {BW.BOOT_LIVE: "live", BW.BOOT_DECLINED: "declined", BW.BOOT_BUSY: "busy", BW.BOOT_NONE: "none",
+                 BW.BOOT_BOOTING: "link"}
+
 class Link(threading.Thread):
     """The stub TRANSPORT of the duo: the host stand-in's place (its field, section 7's flags as HostDialogFlags says them) and
     its BATTLE LANE (an own battle: live, nonce = its epoch, scene) onto the guest's followed-client seams, its MAPJUMP intent
     once per nonce; and back, the guest's report and menu byte (GuestModel) -- what the HOST's start hold and wait parity read
-    (HostView presents them: the stand-in models the host's hold on the selftest loopback only)."""
+    (HostView presents them: the stand-in models the host's hold on the selftest loopback only).
+    [fix3] THE HOST's START HOLD IS THE ENGINE's, never a stub rule: StartHoldTick each tick through the kit's faithful port
+    (battlewire.start_hold_step) on the host stand-in's virtual clock, its opening HostCommandPhaseOpen (btl_phase PHASE_NORMAL and
+    the command menu enabled: the host's commands_enabled), the guest's report on this nonce its input (fresh: the stub frames one
+    every tick); NoteStartHold's why / count / late_ms, ReleaseStartHold's per-reason counters, name and held length, and
+    NoteOwnBattleEnd's 'ended' -- the intro follows the report, the opening decides once, a BOOTING within LateArmMs arms late, a
+    late window passed is silent, and why / release / held_ms / late_ms stay readable after the battle until the next one starts
+    (NetSyncBattle.cs NoteOwnBattleStart / NoteOwnBattleEnd). ``rule``: the guest model's (GuestModel), or a HOST-HALF lever on
+    the report the host decodes (the guest's own diorama untouched): 'none_at_opening' (NONE on the host's opening tick alone --
+    the intro primed on BOOTING, not armed at the opening, the guest's BOOTING after it arms LATE; published as the guest's real
+    word, a one-frame NONE the host's samples miss) or 'none_mid_hold' (one NONE while the hold holds: released 'declined')."""
+    HOST_RULES = ("none_at_opening", "none_mid_hold")
     def __init__(self, host, guest, rule=""):
         super().__init__(daemon=True)
-        self.h, self.g, self.halt = host, guest, threading.Event()
-        self.model = GuestModel(guest, rule)
-        self.hold = {"nonce": -1, "seq": [], "menu": 0, "release": None}
-        self.released = {k: 0 for k in FG.NETSYNC_BATTLE_RELEASED_KEYS}   # [fix2] per reason, monotonic per process
-    def _release(self):
-        """[fix2] StartHoldStep as the stub keeps it: armed only by a BOOTING first word on its battle; LIVE releases it 'live', a
-        NONE / DECLINED / BUSY 'declined' -- once per battle, into the per-process counters the host publishes."""
-        h = self.hold
-        seq = h["seq"]
-        if h["release"] is not None or not seq or seq[0] != "booting" or seq[-1] == "booting":
-            return
-        h["release"] = "live" if seq[-1] == "live" else "declined"
-        self.released[h["release"]] += 1
+        self.h, self.g, self.halt, self.rule = host, guest, threading.Event(), rule
+        self.model = GuestModel(guest, "" if rule in self.HOST_RULES else rule)
+        self.lock = threading.Lock()
+        self.hs = None                                    # this own battle's StartHoldState (None between own battles)
+        self.mid_done = False
+        self.pub = {"nonce": -1, "why": None, "release": None, "held_ms": -1, "late_ms": -1, "count": 0,
+                    "guest": {"nonce": -1, "boot_name": None}}
+        self.menu = 0
+        self.released = {k: 0 for k in FG.NETSYNC_BATTLE_RELEASED_KEYS}   # per reason, monotonic per process
+    def _battle_start(self, nonce):
+        """NoteOwnBattleStart: a fresh hold for this nonce; its observables start clean (kept after the last battle until now)."""
+        self.hs, self.mid_done = BW.new_hold_state(), False
+        self.pub.update(nonce=nonce, why=None, release=None, held_ms=-1, late_ms=-1)
+    def _battle_end(self, now):
+        """NoteOwnBattleEnd: a hold still holding ends with its battle ('ended'); the nonce -1, the rest kept."""
+        hs = self.hs
+        if hs["armed"] and not hs["released"]:
+            self._release(BW.HOLD_REL_ENDED, now - hs["since_tick"] if hs["started"] else 0)
+        self.hs = None
+        self.pub["nonce"] = -1
+    def _release(self, ev, held_ms):
+        """ReleaseStartHold: final, counted per reason, its name and the held length."""
+        self.hs["released"] = True
+        key = BW.HOLD_RELEASED_KEYS.get(ev)
+        if key is not None:
+            self.released[key] += 1
+        self.pub["release"], self.pub["held_ms"] = BW.HOLD_RELEASE_NAMES[ev], max(0, int(held_ms))
+    def _hold_tick(self, nonce, boot, now, opening):
+        """StartHoldTick: one StartHoldStep on the report the host decodes, then NoteStartHold's counters and reasons."""
+        hs = self.hs
+        word = shown = boot
+        if self.rule == "none_at_opening" and opening and not hs["open_seen"]:
+            # [fix3-r2] NONE on the OPENING tick ALONE (the step marks it seen): the intro primed on the guest's BOOTING, the opening
+            # decides NotArmed, the BOOTING after it arms LATE -- and `shown` keeps the guest's real word: a one-frame NONE the
+            # host's every-2-frame samples miss, so the decoded sequence reads ['booting', 'live'] and the opening's decision
+            # (why 'late') is the ONLY witness
+            word = BW.BOOT_NONE
+        elif self.rule == "none_mid_hold" and hs["armed"] and not hs["released"] and not self.mid_done:
+            word = shown = BW.BOOT_NONE
+            self.mid_done = True
+        held = now - hs["since_tick"] if hs["armed"] and not hs["released"] and hs["started"] else 0
+        cap = int(self.h.ini_start_hold_ms)
+        ev = BW.start_hold_step(hs, now, cap > 0, cap, opening, True, word, False, False)
+        if ev == BW.HOLD_ARMED:
+            self.pub["count"] += 1
+            self.pub["why"] = "booting"
+        elif ev == BW.HOLD_LATE_ARMED:
+            self.pub["count"] += 1
+            self.pub["why"], self.pub["late_ms"] = "late", hs["late_ms"]
+        elif ev == BW.HOLD_NOT_ARMED:
+            self.pub["why"] = NOT_ARMED_WHY.get(word, "unknown")
+        elif ev in BW.HOLD_RELEASE_NAMES:
+            self._release(ev, held)
+        self.pub["guest"] = {"nonce": nonce, "boot_name": BW.boot_name(shown)}
     def run(self):
         sent = None
         while not self.halt.is_set():
@@ -428,16 +577,20 @@ class Link(threading.Thread):
             if it is not None and it != sent:
                 sent = it
                 self.g.host_intent(it[1])
-            if battle:
-                ready = any(u.get("player") and u.get("slot") == 1 for u in (h.battle_units or []))
-                menu, boot = self.model.frame(nonce, ready)
-                if self.hold["nonce"] != nonce:
-                    self.hold = {"nonce": nonce, "seq": [], "menu": 0, "release": None}
-                name = BW.boot_name(boot)
-                if not self.hold["seq"] or self.hold["seq"][-1] != name:
-                    self.hold["seq"].append(name)
-                    self._release()
-                self.hold["menu"] = menu
+            now = int(h.rt * 1000)
+            with self.lock:
+                if battle:
+                    ready = any(u.get("player") and u.get("slot") == 1 for u in (h.battle_units or []))
+                    menu, boot = self.model.frame(nonce, ready)
+                    if self.hs is None or self.pub["nonce"] != nonce:
+                        if self.hs is not None:
+                            self._battle_end(now)
+                        self._battle_start(nonce)
+                    opening = bool(h.commands_enabled) and h._battle_phase_now() == BW.PHASE_NORMAL
+                    self._hold_tick(nonce, boot, now, opening)
+                    self.menu = menu
+                elif self.hs is not None:
+                    self._battle_end(now)
             time.sleep(0.02)
 
 class HostView:
@@ -449,33 +602,42 @@ class HostView:
     @property
     def state(self):
         s = self._g.state
-        h = self._link.hold
+        link = self._link
+        with link.lock:
+            hold = json.loads(json.dumps(link.pub))
+            hold["released"] = dict(link.released)        # always published, as the engine's block
+            menu = link.menu
         raw = json.loads(json.dumps(s.raw))
         host = raw.setdefault("netsync", {}).setdefault("battle", {}).setdefault("host", {})
         if s.in_battle or s.ui_state == "BattleHUD":
-            boot = h["seq"][-1] if h["seq"] else None
-            host["start_hold"] = {"nonce": h["nonce"], "why": h["seq"][0] if h["seq"] else "", "release": h.get("release"),
-                                  "guest": {"nonce": h["nonce"], "boot_name": boot}}
-            host.setdefault("wait", {})["menu"] = h["menu"]
-        else:
-            host["start_hold"] = {"nonce": -1, "why": "", "release": h.get("release"),
-                                  "guest": {"nonce": -1, "boot_name": None}}
-        host["start_hold"]["released"] = dict(self._link.released)        # [fix2] always published, as the engine's block
+            host.setdefault("wait", {})["menu"] = menu
+        host["start_hold"] = hold                         # [fix3] the engine's keys, why / release / late_ms kept after the battle
         return State(raw, read_at=s.read_at, mtime=s.mtime)        # (its age kept: a hung host reads as one)
 
 class StubDuo:
     def __init__(self, host, guest):
         self.host, self.guest, self.strict, self.rows, self.notes = host, guest, True, [], []
     def check(self, ok, what, detail="", *, role=None, cid=None):
-        self.rows.append((cid, bool(ok), str(detail)[:600]))
+        self.rows.append((cid, bool(ok), str(detail)[:1200]))         # [fix3-r2] as rows_of: DR's MUSIC past 600
         return bool(ok)
     def note(self, msg):
         self.notes.append(msg)
+
+#: [fix3] the duo GUEST's world boot: its swirl and battle-scene load (FakeGame.world_dio_boot_frames, 1.5 s of the virtual clock)
+#: -- in-game the guest boots only once the host's battle lane is on the wire (the host's InitBattle, at the start of ITS intro), and
+#: then swirls and loads before its own (mirrored) intro, so its report is still BOOTING at the host's opening: the engine's start
+#: hold arms there. With no load modelled the stand-in guest's command phase raced the host's opening frame for frame.
+DUO_GUEST_BOOT_FRAMES = 90
 
 def duo(run):
     th, tg = root(), root()
     fh, fgst = fake_for(th, run), fake_for(tg, run)
     fh.world_exit_frames = fgst.world_exit_frames = int(run.get("exit_frames", 240))
+    fgst.world_dio_boot_frames = int(run.get("guest_boot_frames", DUO_GUEST_BOOT_FRAMES))
+    if run.get("host_intro_frames"):
+        # [fix3-r2] the HOST's opening camera lengthened (skipped or not): its opening lands well after the guest's command phase
+        # BY CONSTRUCTION, never by the two stand-in threads' wall pace racing frame for frame
+        fh.battle_intro_frames = fh.battle_intro_skip_frames = int(run["host_intro_frames"])
     cb.CALIBRATE = bool(run.get("cal"))
     gh, gg = session(th, fh), session(tg, fgst)
     with gh, gg:
@@ -496,7 +658,8 @@ def duo(run):
         if run.get("hang"):
             fh.returncode = fgst.returncode = 0
         return {"red": sorted(c for c, ok, _d in d.rows if not ok), "all": [c for c, _ok, _d in d.rows],
-                "detail": {c: dd for c, _ok, dd in d.rows}, "strict": d.strict, "notes": d.notes[-6:]}
+                "detail": {c: dd for c, _ok, dd in d.rows}, "strict": d.strict, "notes": d.notes[-6:],
+                "music_wall": bool(fh.world_music_wall and fgst.world_music_wall)}   # [fix3-r2] both fades on the wall
 
 kinds = {"solo": solo, "t2": t2, "duo": duo}
 results = {name: kinds[run["kind"]](run) for name, run in doc.get("runs", {}).items()}
@@ -507,9 +670,17 @@ print(json.dumps(results))
 def _child(payload, *, timeout: float = 900.0) -> dict:
     env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    out = subprocess.run([sys.executable, "-X", "utf8", "-c", _CHILD, str(SCENARIOS), str(REPO / "tools"),
-                          str(REPO / "ff9mapkit")], env=env, input=json.dumps(payload), capture_output=True, text=True,
-                         timeout=timeout)
+    # [fix3] the child script runs from a file in a private temp dir (it outgrew Windows' 32 767-character command line; the run
+    # document stays on stdin) -- a dir of its own, so its sys.path[0] holds nothing but the script
+    work = tempfile.mkdtemp(prefix="coop_world_battle_child_")
+    try:
+        script = pathlib.Path(work) / "child.py"
+        script.write_text(_CHILD, encoding="utf-8")
+        out = subprocess.run([sys.executable, "-X", "utf8", str(script), str(SCENARIOS), str(REPO / "tools"),
+                              str(REPO / "ff9mapkit")], env=env, input=json.dumps(payload), capture_output=True, text=True,
+                             timeout=timeout)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     assert out.returncode == 0, out.stderr[-4000:]
     return json.loads(out.stdout.strip().splitlines()[-1])
 
@@ -541,6 +712,7 @@ print(json.dumps({
     "t2_faults": {leg: {k: list(v) for k, v in d.items()} for leg, d in wb.T2_FAULT_REDS.items()},
     "duo": list(wb.DUO_CHECKS), "duo_order": list(wb.DUO_ORDER), "duo_pred": list(wb.DUO_PREDICTED),
     "duo_faults": {k: list(v) for k, v in wb.DUO_FAULT_REDS.items()},
+    "music_faults": {leg: {k: list(v) for k, v in d.items()} for leg, d in wb.MUSIC_FAULT_REDS.items()},
     "consts": {"PROBE": wb.PROBE, "LEGS": list(wb.LEGS), "LEG": wb.LEG, "PORT": wb.PORT, "DIO_SCENE": wb.DIO_SCENE,
                "SCENE": wb.SCENE, "GROUP": wb.GROUP, "WORLD": wb.WORLD, "FARSHORE": wb.FARSHORE, "ICE": wb.ICE_CAVERN,
                "HELD_FIELD": wb.HELD_FIELD, "A_AWAY_MIN": wb.A_AWAY_MIN, "RETURN_TOL": wb.RETURN_TOL,
@@ -581,6 +753,16 @@ def test_the_tables_are_the_docstring_and_each_others(tables):
                         *((t["t2_faults"][leg], set(t["t2"][leg])) for leg in ("battle", "held", "decline"))):
         assert set(faults) <= set(FG.WORLD_DIO_FAULTS), set(faults) - set(FG.WORLD_DIO_FAULTS)
         assert all(set(rows) <= cat for rows in faults.values()), faults
+    # [fix3] the sound faults: the stand-in's own levers, each leg's MUSIC-judging row (bwe_stop_missing reds exactly it)
+    music_cat = {"solo": solo, "battle": set(t["t2"]["battle"]), "held": set(t["t2"]["held"]), "duo": set(t["duo"])}
+    assert set(t["music_faults"]) == set(music_cat)
+    for leg, faults in t["music_faults"].items():
+        assert set(faults) <= set(FG.WORLD_MUSIC_FAULTS) and "bwe_stop_missing" in faults, (leg, faults)
+        assert all(set(rows) <= music_cat[leg] for rows in faults.values()), (leg, faults)
+    assert t["music_faults"]["solo"] == {"bwe_stop_missing": ["S145-MUSIC"], "latch_before_settle": []}
+    # [fix3-r2] the held leg's boot_song_live is not discriminating inside the fade its rejoin leaves in: the stop's removal reds
+    # nothing there (the music test pins that its detail SAYS so)
+    assert t["music_faults"]["held"] == {"bwe_stop_missing": []}
     covered = {r for rows in t["solo_faults"].values() for r in rows}
     assert covered == set(t["world_rows"]) | {"S145-P0", "S145-R"}, covered ^ (set(t["world_rows"]) | {"S145-P0", "S145-R"})
     for leg in ("battle", "held", "decline"):
@@ -829,10 +1011,79 @@ def test_the_duo_leg_is_green_on_s145_and_calibrates_on_s144(tables):
     assert new["red"] == [] and new["all"] == DUO_ALL and new["strict"] is True, new
     d = new["detail"]
     assert "['booting', 'live']" in d["S145-DB"] and "the world diorama booted warm on 9011" in d["S145-DB"]
+    # [fix3] the HOST's hold is the engine's StartHoldStep: armed AT its opening, released by the guest's LIVE, once
+    assert "why 'booting' release 'live' late_ms -1" in d["S145-DB"] and "released live +1 declined +0" in d["S145-DB"], d["S145-DB"]
     assert "the guest's SERVING line 1x" in d["S145-DP"] and "left on 'host_world'" in d["S145-DR"]
     assert "NO SECOND RETURN" in d["S145-D3"] and "diorama returns 1->1" in d["S145-D3"]
     assert old["red"] == sorted(tables["duo_pred"]) and "S145-D-CAL" in old["all"], old["red"]
     assert "['none']" in old["detail"]["S145-DB"]
+
+
+def test_the_hosts_start_hold_reds_db_through_the_host_half_alone():
+    """v-rharness-duo-host-hold-none-first-stub-not-starthold (fix3): the duo's host hold is the ENGINE's (battlewire.start_hold_step
+    on the host's command-phase opening, the guest's world boot swirling and loading first), so its own lanes red S145-DB with the
+    GUEST half green -- [fix3-r2] the report BOOTING through the intro (the hold primed), NONE on the host's opening tick ALONE (a
+    frame its samples miss: the decoded sequence reads ['booting', 'live'], nothing between) arms LATE (why 'late': the counters
+    read live +1, exactly as an on-time arm -- the opening's decision is the only witness); one NONE while it holds releases it
+    'declined' (declined +1); and a guest LIVE before the host's opening -- by construction: no boot lag, the host's opening camera
+    300 frames -- is NotArmed 'live' (nothing counted -- a timing red, named so)."""
+    r = _child({"runs": {"late": {"kind": "duo", "rule": "none_at_opening"},
+                         "mid": {"kind": "duo", "rule": "none_mid_hold"},
+                         "live_first": {"kind": "duo", "guest_boot_frames": 0, "host_intro_frames": 300}}})
+    for name, x in r.items():
+        d = x["detail"]["S145-DB"]
+        assert x["red"] == ["S145-DB"], (name, x["red"], d)
+        assert "FieldHUD never; the world diorama booted warm on 9011" in d and " 1x; HOST " in d, (name, d)   # the guest half
+    late, mid, first = (r[k]["detail"]["S145-DB"] for k in ("late", "mid", "live_first"))
+    assert "why 'late'" in late and "armed LATE" in late and "released live +1 declined +0" in late, late
+    assert "read the guest ['booting', 'live'] (want" in late and "broke on" not in late, late   # the decision ALONE reds it
+    assert "release 'declined'" in mid and "declined +1" in mid and "broke on ['none']" in mid, mid
+    assert "why 'live'" in first and "timing red on hardware" in first and "released live +0" in first, first
+
+
+#: [fix3-r2] HF-RET's MUSIC on the held leg's stand-in: its rejoin leaves the world map inside BeforeWorldEvents' fade
+HELD_INSIDE_FADE = "not discriminating: the rejoin left the world map inside BeforeWorldEvents' 500 ms fade ("
+
+
+@pytest.mark.parametrize("leg", ("solo", "battle", "held", "duo"))
+def test_music_is_judged_on_the_sound_instances_through_each_legs_own_call_site(tables, leg):
+    """v-raudio-1-1 (fix3): with the stand-in's sound instances ON (world song 12, battle song 40; [fix3-r2] their stop fades on
+    the WALL clock at the engine's lengths, as SaXAudio runs them -- FakeGame.world_music_wall) MUSIC is judged through each leg's
+    own call site -- the solo's world_leave, T2's settled return, the duo's DR -- song_quiet's re-read included (a correct return's
+    Leave-latched battle song fades out past the settled read): green with A's own instance resumed and nothing left playing; and
+    each sound fault reds exactly its MUSIC_FAULT_REDS rows -- BeforeWorldEvents' stop removed leaves the battle song playing over
+    the world song; the pre-fix2 latch order reds nothing on the solo leg (a mid-fight leave: no settle shut the song).
+    [fix3-r2] THE HELD LEG (HF-RET, its recorded tail never re-read): its rejoin leaves the world map inside BeforeWorldEvents' 500
+    ms fade, where a correct return and a song left playing both read boot_song_live true -- so that term is named NOT
+    DISCRIMINATING there, on the correct return and under `bwe_stop_missing` alike (never a green that claims to have judged it),
+    while the instance, the slot and the bookkeeping stay judged."""
+    kind = {"solo": "solo", "battle": "t2", "held": "t2", "duo": "duo"}[leg]
+    base = dict(kind=kind, music=[12, 40], **({"leg": leg} if kind == "t2" else {}))
+    faults = tables["music_faults"][leg]
+    # [fix3-r2] solo also on a LOADED box (every stand-in frame +10 ms: its virtual clock ~1.4x the wall, not ~5x): the fades are
+    # the wall's, so a correct return still reads green -- fix3's x10-scaled virtual fades stretched past song_quiet's window there
+    slow = {"slow": dict(base, slow_ms=10)} if leg == "solo" else {}
+    r = _child({"runs": {"green": dict(base), **{f: dict(base, music_faults=[f]) for f in faults}, **slow},
+                **({"speed": HELD_SPEED} if leg == "held" else {})})
+    row = {"solo": "S145-MUSIC", "battle": "S145-WB-RET", "held": "S145-HF-RET", "duo": "S145-DR"}[leg]
+    g = r["green"]
+    assert g["red"] == [], {c: g["detail"][c] for c in g["red"]}
+    assert all(x["music_wall"] is True for x in r.values()), {k: x["music_wall"] for k, x in r.items()}   # the wall fades ran
+    assert "song A 12 / booted 40 (its slot 12" in g["detail"][row] and "instance A 100 -> 100" in g["detail"][row], g["detail"][row]
+    if leg == "held":
+        for name in ("green", "bwe_stop_missing"):           # a correct return and a song left playing read alike: unjudged
+            assert "still playing True -- " + HELD_INSIDE_FADE in r[name]["detail"][row], (name, r[name]["detail"][row])
+    else:
+        d = g["detail"][row]
+        assert "not discriminating" not in d and "still playing False (want False)" in d, d
+        assert "a Leave-latched instance still playing True (want False)" in r["bwe_stop_missing"]["detail"][row]
+    if leg == "solo":
+        assert "the silent lane: song A 12 / booted -1 (its slot 12" in g["detail"]["S145-SILENT"], g["detail"]["S145-SILENT"]
+        m = r["slow"]["detail"]["S145-MUSIC"]
+        assert "S145-MUSIC" not in r["slow"]["red"] and "song A 12 / booted 40 (its slot 12" in m, (r["slow"]["red"], m)
+        assert "still playing False (want False)" in m, m                    # judged on the loaded box, and green
+    for f, rows in faults.items():
+        assert r[f]["red"] == sorted(rows), (f, r[f]["red"], {c: r[f]["detail"][c] for c in r[f]["red"]})
 
 
 @pytest.mark.parametrize("fault", FG.WORLD_DIO_FAULTS)
@@ -857,7 +1108,7 @@ _n = [0]
 MV = "00" * 80
 MV2 = "00" * 26 + "01" + "00" * 53
 def st(ui="WorldHUD", x=158.0, z=-444.0, world=9011, field=6603, dio=None, d=None, wit=None, freeze=None, gmode=3, prev=1,
-       music=-1, follow=None, rejoin=None, hold=None, wait_menu=None, dio_block=True):
+       music=-1, follow=None, rejoin=None, hold=None, wait_menu=None, dio_block=True, scene=None, epoch=None):
     _n[0] += 1
     w = {"id": world, "x": x, "z": z, "next_mode": 3, "cam_rot": 56.25, "cam_upper": 0, "ctl": 0, "battle_prob": 231,
          "ticks": 400, "mapvar": MV}
@@ -875,8 +1126,12 @@ def st(ui="WorldHUD", x=158.0, z=-444.0, world=9011, field=6603, dio=None, d=Non
         ns["battle"]["host"]["start_hold"] = hold
     if wait_menu is not None:
         ns["battle"]["host"]["wait"] = {"menu": wait_menu}
-    return State({"frame": _n[0], "ui_state": ui, "gmode": gmode, "prev_mode": prev, "field": {"id": field}, "world": w,
-                  "netsync": ns})
+    doc = {"frame": _n[0], "ui_state": ui, "gmode": gmode, "prev_mode": prev, "field": {"id": field}, "world": w, "netsync": ns}
+    if scene is not None:
+        doc["scene"] = scene                               # [fix3] the stage scene (HarnessAgent: the loaded level)
+    if epoch is not None:
+        doc["battle"] = {"epoch": epoch}                   # [fix3] party.battle_no
+    return State(doc)
 L = lambda *msgs: ["21.10.2026 12:00:00 |M| [NetSync] " + m for m in msgs]
 PROBS = {"init": 365, "reinit": 231}                       # the encounter-rate oracle (WORLD11's op-26 writes)
 music_of = wb.music
@@ -1084,6 +1339,32 @@ out["gret"] = [gr(gfirst, gset, ga, 0, 0, "host_world", WH, 0.0, 40, [])[0],
                   st(x=1197.37, z=-796.7, music=12, wit={"ticks": 300}, dio={"returns": 0, "song_sid": 7, "suspend_song": -1},
                      d={"returns": 0}, freeze={"on": True, "why": "live", "edges": 1}),
                   0, 0, "host_world", WH, 0.0, 40, [], booted=mbt)[0]]
+# [fix3-r2] THE HELD LEG's MUSIC GUARD (HF-RET, keys_only): boot_song_live judged only STOPCURRENT_FADE_MS (500 ms) past the first
+# world sample ON THE WALL (State.mtime, else read_at -- never a published rt); inside that fade the term is named not
+# discriminating and every other MUSIC term stays judged; the legs song_quiet re-reads (keys_only False) judge it at once
+at = lambda s, t, rd=0.05, mt=True: State(s.raw, read_at=t + rd, mtime=t if mt else None)   # noqa: E731 -- written at t
+ga_m = st(x=1197.37, z=-796.7, music=12, wit={"ticks": 300}, dio={"returns": 0, "song_sid": 7, "suspend_song": -1},
+          d={"returns": 0}, freeze={"on": True, "why": "live", "edges": 1})
+def hset(live, **k):
+    return st(x=1197.37, z=-796.7, music=12, dio=dict({"song_sid": 7, "suspend_song": -1, "boot_song_live": live}, **k),
+              freeze={"on": True, "why": "live", "edges": 2})
+F0 = at(gfirst, 100.0)
+HW = ("terminal", "host_field")
+hg = lambda s, booted=mbt: wb.judge_guest_return(F0, s, ga_m, 0, 0, "host_field", HW, None, None, [], keys_only=True,   # noqa: E731
+                                                 probs=PROBS, booted=booted)
+out["heldmusic"] = [hg(at(hset(True), 100.0))[0],                       # inside the fade (0 ms): a correct return sounding -- green
+                    hg(at(hset(True), 100.45))[0],                      # 450 ms: still inside -- green
+                    hg(at(hset(True), 100.6))[0],                       # 600 ms past: a song LEFT playing -- red
+                    hg(at(hset(False), 100.6))[0],                      # 600 ms past, quiet -- green, judged
+                    hg(at(hset(True, song_sid=11), 100.0))[0],          # inside the fade, restarted from the top -- red (judged)
+                    hg(at(hset(True), 100.0), booted=st(ui="BattleHUD", music=40, dio={"suspend_song": -1}))[0],   # slot wiped: red
+                    hg(State(hset(True).raw, read_at=100.7, mtime=100.1))[0],   # written 100 ms past (read 650 ms late): inside
+                    hg(at(hset(True), 100.6, mt=False))[0],             # no write times: the read times (600 ms) -- judged, red
+                    wb.judge_guest_return(F0, at(hset(True), 100.0), ga_m, 0, 0, "host_world", WH, 0.0, 40, [], probs=PROBS,
+                                          booted=mbt)[0],               # not keys_only (song_quiet's legs): judged at once, red
+                    wb.wall_gap_ms(F0, at(hset(True), 100.6)), wb.wall_gap_ms(F0, at(hset(True), 100.6, rd=0.9)),
+                    wb.wall_gap_ms(None, F0), wb.held_live_unjudged(F0, at(hset(True), 100.5))]
+out["heldmusic_why"] = [hg(at(hset(True), 100.0))[1], hg(at(hset(True), 100.6))[1]]
 gb = st(ui="BattleHUD", dio={"booted_world": True, "boot_world": 9011, "boot": "warm"}, d={"booted": True})
 live = L("diorama LIVE 1200 ms after the boot (host battle nonce 5, booted from wire nonce 5) -- the start-hold report for this "
          "battle now reads LIVE")
@@ -1110,10 +1391,21 @@ out["r300"] = [wb.judge_rejoin_300([st(), on300], base, landed)[0],
                wb.judge_rejoin_300([st(ui="FieldHUD", field=6603, rejoin={"lands": 3}, d={"returns": 1}, dio={"returns": 1})],
                                    base, L(BW.log_world_rejoin_landed(6603, 6603, 900)), field=6603)[0]]
 REL = lambda **k: dict({"live": 2, "declined": 0, "link": 0, "oldguest": 0, "cap": 0, "ended": 0}, **k)
-H = lambda b, n=8, g=8, rel=None: st(ui="BattleHUD", hold={"nonce": n, "why": "booting", "released": rel or REL(live=3),
-                                                           "guest": {"nonce": g, "boot_name": b}})
-H0 = st(hold={"nonce": -1, "why": "", "released": REL(), "guest": {"nonce": -1, "boot_name": None}})   # before the verb: live 2
+# [fix3] the engine's whole start_hold block: the opening's decision (why / release / late_ms, kept after the battle until the next
+# starts), holds armed (count), the per-reason releases; and battle.epoch (party.battle_no). H's end state is an on-time arm
+# released by LIVE: count 5, epoch 12, live 3 -- each +1 over H0, read before the verb (the LAST battle's decision still kept)
+H = lambda b, n=8, g=8, rel=None, why="booting", release="live", late=-1, count=5, epoch=12: st(  # noqa: E731
+    ui="BattleHUD", epoch=epoch, hold={"nonce": n, "why": why, "release": release, "late_ms": late, "count": count,
+                                       "released": rel or REL(live=3), "guest": {"nonce": g, "boot_name": b}})
+H0 = st(epoch=11, hold={"nonce": -1, "why": "booting", "release": "live", "late_ms": -1, "count": 4, "released": REL(),
+                        "guest": {"nonce": 5, "boot_name": "live"}})   # before the verb: live 2, 4 armed, epoch 11
+AFT = lambda **k: st(epoch=k.pop("epoch", 12), hold=dict({"nonce": -1, "why": "booting", "release": "live", "late_ms": -1,  # noqa
+                                                          "count": 5, "released": REL(live=3),
+                                                          "guest": {"nonce": 8, "boot_name": "live"}}, **k))
 hh = lambda samples, n=8, **k: wb.judge_host_hold(samples, n, **dict({"before": H0}, **k))[0]   # noqa: E731
+NO_ENDED = {k: v for k, v in REL(live=3).items() if k != "ended"}
+LATE = [H("booting", why=None, release=None), H("none", why="none", release=None, count=4),
+        H("booting", why="late", release=None, late=420), H("live", why="late", late=420)]
 out["hhold"] = [hh([H("booting"), H("booting"), H("live")]), hh([H("live")]),
                 hh([H("booting"), H("live", g=7)]), hh([H("none")]),
                 hh([H("booting"), H("live")], None), hh([H("booting"), H("live")], 9),
@@ -1124,9 +1416,29 @@ out["hhold"] = [hh([H("booting"), H("booting"), H("live")]), hh([H("live")]),
                 hh([H("booting"), H("live", rel=REL(declined=1))]),
                 wb.judge_host_hold([H("booting"), H("live")], 8)[0],
                 hh([H("booting"), H("live", rel=REL(live=4))]),
-                hh([H("booting"), H("live", rel=REL(live=2))], after=st(hold={"released": REL(live=3)})),
-                hh([H("booting"), H("live")], after=st(hold={"released": REL(live=3, cap=1)}))]
+                hh([H("booting"), H("live", rel=REL(live=2))], after=AFT()),
+                hh([H("booting"), H("live")], after=AFT(released=REL(live=3, cap=1))),
+                # fix3 -- THE OPENING's DECISION: the late arm's whole lane (NONE at the opening, BOOTING within 1000 ms, LIVE:
+                # live +1 like an on-time arm) / the late arm on the end state ALONE (sequence and counters green) / a NONE
+                # between BOOTING and LIVE ALONE (the end state on time) / NEVER MOVED: a clean booting-live sequence with every
+                # release +0 (the LatePassed and NotArmed('live') lanes) / a released block without 'ended' (UNREAD) / no arm
+                # counted / a second own battle in the window / the guest LIVE before the opening (NotArmed('live'), nothing
+                # counted) / release not 'live' ALONE / late_ms set ALONE
+                hh(LATE),
+                hh([H("booting"), H("live")], after=AFT(why="late", late_ms=420)),
+                hh([H("booting"), H("none"), H("booting"), H("live")]),
+                hh([H("booting", rel=REL()), H("live", rel=REL())]),
+                hh([H("booting"), H("live", rel=NO_ENDED)]),
+                hh([H("booting"), H("live", count=4)]),
+                hh([H("booting"), H("live", epoch=13)]),
+                hh([H("live", why=None, release=None, count=4, rel=REL()), H("live", why="live", release=None, count=4, rel=REL())]),
+                hh([H("booting"), H("live", release="declined")]),
+                hh([H("booting"), H("live", late=0)])]
 out["hhold_why"] = wb.judge_host_hold([H("booting"), H("live", rel=REL(declined=1))], 8, before=H0)[1]
+out["hhold_late"] = wb.judge_host_hold([H("booting"), H("live")], 8, before=H0, after=AFT(why="late", late_ms=420))[1]
+out["hhold_unread"] = wb.judge_host_hold([H("booting"), H("live", rel=NO_ENDED)], 8, before=H0)[1]
+out["hhold_live"] = wb.judge_host_hold([H("live", why="live", release=None, count=4, rel=REL())], 8, before=H0)[1]
+out["hhold_ok"] = wb.judge_host_hold([H("booting"), H("live")], 8, before=H0)[1]
 out["hmenu"] = [wb.judge_host_menu([st(wait_menu=0), st(wait_menu=2)])[0], wb.judge_host_menu([st(wait_menu=0)])[0],
                 wb.judge_host_menu([st(wait_menu=3)])[0], wb.judge_host_menu([st()])[0]]
 out["hang"] = [wb.is_swirl_hang("SwirlScene", 6.0), wb.is_swirl_hang("SwirlScene", 0.5), wb.is_swirl_hang("WorldMap", 60.0),
@@ -1193,6 +1505,53 @@ out["wdecl"] = [wb.judge_watch_decline(w0, wmid + [wlast], NONE3, dline, 5, VWHY
                     "declines": 3, "decline_durable": True, "visit_decline": VWHY})], NONE3, dline, 5, VWHY, rejoined=True)[0],
                 wb.judge_watch_decline(w0, wmid + [wlast, st(ui="BattleHUD", wit={"ticks": 141}, dio={
                     "declines": 3, "decline_durable": True, "visit_decline": VWHY})], NONE3, dline, 5, VWHY, rejoined=True)[0]]
+# [fix3] the swirl and the world tick: a world boot's swirl reads WorldHUD (no UI state written) on SwirlScene with the WorldMap
+# level gone (ticks -1) -- every witness beside the claim; the rejoin's own load (WorldHUD, the field level loading: ticks -1, no
+# swirl / battle stage) spared ONLY trailing a cut window; a FieldHUD inside an anchored window is the guest leaving the world map
+WD = dict(declines=3, decline_durable=True, visit_decline=VWHY)
+sw = st(scene="SwirlScene", wit={"ticks": -1}, dio=WD)                         # the swirl, the claim unset (booted False)
+load = st(scene="FieldMap", wit={"ticks": -1}, dio=WD)                         # a world -> field load's own sample
+jw = lambda samples, **k: wb.judge_watch_decline(w0, samples, NONE3, dline, 5, VWHY, **k)   # noqa: E731
+out["wdecl3"] = [jw(wmid + [wlast, sw, sw, sw])[0],                          # a boot still in its swirl at the window's end
+                 jw(wmid + [sw, sw, wlast])[0],                               # ...mid-window
+                 jw(wmid + [st(wit={"ticks": -1}, dio=WD), wlast])[0],        # the WorldMap level gone alone (no stage read)
+                 jw(wmid + [st(scene="BattleMapDebug", wit={"ticks": 120}, dio=WD), wlast])[0],   # a battle stage alone
+                 jw(wmid + [wlast, load], rejoined=True)[0],                  # the rejoin's own load, trailing a cut: spared
+                 jw(wmid + [wlast, load])[0],                                 # ...the same, the window not cut: red
+                 jw(wmid + [load, wlast], rejoined=True)[0],                  # a load-shaped sample MID-window: never spared
+                 jw(wmid + [wlast, sw], rejoined=True)[0],                    # a trailing swirl: never spared
+                 jw(wmid + [st(ui="FieldHUD", field=6603, wit={"ticks": -1}, dio=WD), wlast])[0],   # left the world map
+                 jw(wmid + [st(wit={"ticks": None}, dio=WD), wlast])[0]]      # an unread tick is no verdict: green
+out["wdecl3_why"] = [jw(wmid + [wlast, sw, sw])[1], jw(wmid + [st(ui="FieldHUD", field=6603, wit={"ticks": -1}, dio=WD), wlast])[1]]
+out["offworld"] = [wb.off_world(st()), wb.off_world(st(ui="BattleHUD")), wb.off_world(st(scene="SwirlScene", wit={"ticks": -1})),
+                   wb.off_world(st(wit={"ticks": -1})), wb.off_world(st(ui="FieldHUD", field=6603)),
+                   wb.off_world(st(wit={"ticks": None})), wb.off_world(st(ui=None))]
+# [fix3] the decline's window: anchored -> [bt, enter] UNCUT (a FieldHUD inside is judged); unanchored -> cut only at a FieldHUD on
+# 300 (the follow's target: rejoined); a FieldHUD on any other field stays in
+fh66, fh300 = st(ui="FieldHUD", field=6603, wit={"ticks": -1}, dio=WD), st(ui="FieldHUD", field=300, wit={"ticks": -1}, dio=WD)
+def stamp(ss, t0=10):
+    return [(T(t0 + i), s) for i, s in enumerate(ss)]
+def dw(ss, enter, bt=T(10), nb=None):
+    since, rejoined = wb.decline_window(stamp(ss), bt, enter, T(59), not_before=nb)
+    return [len(since), rejoined, [s.field_id for s in since if s.ui_state == "FieldHUD"]]
+out["dwin"] = [dw([wlast, fh66, wlast, fh300, wlast], T(13)),                  # anchored at fh300: uncut, both FieldHUDs in
+               dw([wlast, fh66, wlast, fh300, wlast], None),                   # unanchored: cut at 300, 6603 stays
+               dw([wlast, fh66, wlast], None),                                 # unanchored, no 300: whole, not rejoined
+               dw([wlast, fh66, wlast, fh300], T(13), bt=T(11)),               # from bt on
+               dw([wlast, fh300, wlast, fh300, wlast], None, nb=T(13))]        # [fix3b] a 300 before the fight's end stays in
+def jdw(ss, enter, nb=None):
+    since, rejoined = wb.decline_window(stamp(ss), T(10), enter, T(59), not_before=nb)
+    return jw(since, rejoined=rejoined)[0]
+out["dwin_judged"] = [jdw(wmid + [wlast, fh66, wlast], T(15)),                # a FieldHUD on 6603 inside an anchored window: red
+                      jdw(wmid + [wlast, load, fh300], None),                 # unanchored: cut at 300, its load spared: green
+                      jdw(wmid + [wlast, load, fh300], T(15)),                # anchored past it: the FieldHUD judged, red
+                      jdw(wmid + [wlast, fh66, wlast, fh300], None),          # unanchored: 6603 before the cut stays red
+                      jdw(wmid + [wlast, load, fh300], None, nb=T(59))]       # [fix3b] a 300 while the host still fights: red
+booted_b = st(ui="BattleHUD", d={"booted": True})
+out["aboard"] = [wb.aboard_refusal_instrument(True, booted_b), wb.aboard_refusal_instrument(True, sw),
+                 wb.aboard_refusal_instrument(True, st()), wb.aboard_refusal_instrument(False, booted_b),
+                 wb.aboard_refusal_instrument(True, st(ui="FieldHUD")), wb.aboard_refusal_instrument(True, None),
+                 wb.aboard_refusal_instrument(True, st(d={"booted": True}))]
 print(json.dumps(out))
 '''
 
@@ -1234,18 +1593,48 @@ def test_the_judges_go_red_on_each_wrong_shape():
     assert o["why"] == ["host_world", "stall_cap", "terminal", "host_world", "stall_cap", None]
     assert o["gret"] == [True, True, False, False, False, False, False, False, True, False, False,
                          False, False, False, False, False]          # fix1: Main_Init's rate / no oracle / MAP / CAM / MUSIC
+    # fix3-r2 (the held leg's MUSIC guard): inside BeforeWorldEvents' fade on the wall, boot_song_live unjudged (green, named) while
+    # the instance and the slot stay judged; past it judged both ways; write times over read times; song_quiet's legs judge at once
+    assert o["heldmusic"] == [True, True, False, True, False, False, True, False, False, 600, 600, None, None], o["heldmusic"]
+    assert ("still playing True -- not discriminating: the rejoin left the world map inside BeforeWorldEvents' 500 ms fade (0 ms past "
+            "the first world sample)") in o["heldmusic_why"][0], o["heldmusic_why"][0]
+    assert "still playing True (want False)" in o["heldmusic_why"][1], o["heldmusic_why"][1]
     assert o["silent"] == [True, False, False, False, False, False]  # warm silent lane / cold / a field / not at A / restarted / none
     # NONE only + one line + one count green; BOOTING / DECLINED / no report / +2 / not durable / a boot / a reload / no line / two
     # lines / no visit decline red
     # fix2: + a BattleHUD sample not claimed booted red; a trailing non-WorldHUD sample red, spared as the rejoin's own load (cut at
     # its FieldHUD), a trailing BattleHUD never spared
-    assert o["wdecl"] == [True, False, False, False, False, False, False, False, False, False, False, False, False, True, False]
+    # fix3: a trailing 'Pause' is the pause menu, never a load (UIManager writes no other state between WorldHUD and FieldHUD): red
+    assert o["wdecl"] == [True, False, False, False, False, False, False, False, False, False, False, False, False, False, False]
+    # fix3 (swirl-blind): a swirl at the window's end / mid-window / the WorldMap level gone alone / a battle stage alone -- red;
+    # the rejoin's own load spared only trailing a CUT window (not cut: red; mid-window: red); a trailing swirl never spared; a
+    # FieldHUD inside: red; an unread tick: green
+    assert o["wdecl3"] == [False, False, False, False, True, False, False, False, False, True], o["wdecl3"]
+    assert "WorldHUD on SwirlScene" in o["wdecl3_why"][0], o["wdecl3_why"][0]
+    assert "LEFT the world map before the host's entry: field [6603]" in o["wdecl3_why"][1], o["wdecl3_why"][1]
+    assert o["offworld"] == [None, "BattleHUD", "WorldHUD on SwirlScene", "WorldHUD, the WorldMap level gone (ticks -1)",
+                             "FieldHUD 6603", None, "None"], o["offworld"]
+    # fix3 (cut-not-rejoin): anchored -> uncut; unanchored -> cut at 300 only (rejoined); bt bounds it
+    assert o["dwin"] == [[4, False, [6603, 300]], [3, True, [6603]], [3, False, [6603]], [3, False, [6603, 300]],
+                         [3, True, [300]]], o["dwin"]
+    assert o["dwin_judged"] == [False, True, False, False, False], o["dwin_judged"]
+    # fix3 (the aboard guard's attribution): the instrument's only when the battle is anchored AND the refusal's sample shows the
+    # boot (claim, battle HUD, or a swirl / battle stage); a refusal with no boot, or no anchor, is the engine's
+    assert o["aboard"] == [True, True, False, False, False, False, True], o["aboard"]
     assert o["gboot"] == [True, False, False, False, False, False, True, False]
     assert o["r300"] == [True, False, False, False, False, False, True]
     # fix2: + NONE first / declined +1 / counters unread / live +2 red; the after-fight read carries the verdict (green), and
     # a cap release there red
-    assert o["hhold"] == [True, False, False, False, True, False, False, False, False, False, True, False]
+    # fix3: + the late arm's lane / the late arm alone on the end state / a NONE between alone / never moved / no 'ended' / no arm
+    # counted / two own battles / LIVE before the opening / release not live / late_ms set -- each red ALONE (its own clause)
+    assert o["hhold"] == [True, False, False, False, True, False, False, False, False, False, True, False,
+                          False, False, False, False, False, False, False, False, False, False], o["hhold"]
     assert "declined +1" in o["hhold_why"] and "live +0" in o["hhold_why"], o["hhold_why"]
+    assert "why 'late'" in o["hhold_late"] and "armed LATE, +420 ms" in o["hhold_late"] and "live +1" in o["hhold_late"]
+    assert "UNREAD" in o["hhold_unread"], o["hhold_unread"]
+    assert "why 'live'" in o["hhold_live"] and "timing red on hardware" in o["hhold_live"], o["hhold_live"]
+    assert ("why 'booting' release 'live' late_ms -1" in o["hhold_ok"] and "live +1" in o["hhold_ok"]
+            and "holds armed +1" in o["hhold_ok"] and "own battles +1" in o["hhold_ok"]), o["hhold_ok"]
     assert o["hmenu"] == [True, False, True, False]
     assert o["hang"] == [True, False, False, False, True]
     assert o["held"] == [True, False, False, False, False, True]
@@ -1424,7 +1813,68 @@ def test_a_battle_on_the_wire_before_the_guest_boarded_is_the_instruments_never_
     d = r["detail"]["S145-WD-DECL"]
     assert "S145-WD-DECL" in r["red"] and d.startswith("not reached: the instrument"), d
     assert "before the guest was aboard" in d, d
-    assert not {"T2-TAPE", "T2-PEER", "S145-WD-I"} & set(r["red"]), {c: r["detail"][c] for c in r["red"]}
+    # [fix3] the REFUSAL branch (its `vehicle 1` text, never the comparison's stamps), and the instrument row red with it (as the
+    # held leg reads a missed window): exactly WD-DECL and WD-I
+    assert "`vehicle 1`" in d and ", aboard " not in d, d
+    assert r["red"] == ["S145-WD-DECL", "S145-WD-I"], {c: r["detail"][c] for c in r["red"]}
+    assert "before the guest was aboard" in r["detail"]["S145-WD-I"], r["detail"]["S145-WD-I"]
+
+
+def test_a_read_back_that_lands_after_the_battle_is_the_instruments_by_the_comparison():
+    """v-rharness-decline-leg-no-aboard-guard-comparison-unpinned (fix3): the real `vehicle 1` boards at once (the guest declines
+    the battle aboard), but the verb's read-back returns only after the stub put the host's battle on the wire -- the battle anchor
+    sits before the aboard stamp (st0's own read, the judge's baseline): the instrument's by the COMPARISON alone (its battle /
+    aboard stamps, never the refusal's text), WD-I red with it -- never the judged red ('declines 1->1') a baseline read after the
+    decline would give."""
+    r = _run("t2", leg="decline", board_slow=True)
+    d = r["detail"]["S145-WD-DECL"]
+    assert r["red"] == ["S145-WD-DECL", "S145-WD-I"], {c: r["detail"][c] for c in r["red"]}
+    assert d.startswith("not reached: the instrument") and "battle " in d and ", aboard " in d and "`vehicle 1`" not in d, d
+    assert "before the guest was aboard" in r["detail"]["S145-WD-I"], r["detail"]["S145-WD-I"]
+
+
+@pytest.mark.parametrize("how", ("slow", "hang"))
+def test_a_swirl_the_claim_does_not_see_reds_wd_decl_or_is_a_swirl_hang(how):
+    """v-rharness-wd-decl-no-ui-witness-swirl-blind (fix3): after an honest decline the guest's face becomes a world boot's SWIRL
+    with netsync's `booted` claim UNSET (WorldHUD -- nothing on the swirl path writes the UI state -- on SwirlScene, the WorldMap
+    level gone: world.ticks -1). Still in its swirl at the window's end (`slow`): WD-DECL red on the swirl witness alone (every
+    other term green: NONE, the decline counted once, its line, no claim, monotonic live ticks). Quiet there (`hang`): SWIRL-HANG
+    whatever the claim says -- WD-SWIRL red, WD-DECL 'not reached: SWIRL-HANG' (the claim-gated check let it pass green)."""
+    r = _run("t2", leg="decline", decline_swirl=how)
+    d = r["detail"]["S145-WD-DECL"]
+    if how == "slow":
+        assert r["red"] == ["S145-WD-DECL"], {c: r["detail"][c] for c in r["red"]}
+        assert "WorldHUD on SwirlScene" in d and "the peer decoded ['NONE']" in d and "declines 0->1" in d, d
+        assert "booted on no sample" in d and "(monotonic)" in d and "the declined line 1x" in d, d
+    else:
+        assert r["red"] == ["S145-WD-DECL", "S145-WD-SWIRL"], {c: r["detail"][c] for c in r["red"]}
+        assert "SWIRL-HANG at the decline's watch" in r["detail"]["S145-WD-SWIRL"], r["detail"]["S145-WD-SWIRL"]
+        assert d.startswith("not reached: SWIRL-HANG"), d
+
+
+def test_a_guest_that_leaves_the_world_map_mid_fight_reds_wd_decl_through_its_window():
+    """c3-v-rharness-wd-decl-no-ui-witness-cut-not-rejoin-callsite-unpinned (fix3-r2): the REAL call site -- _t2_decline's window
+    through decline_window -- driven on the stand-in. After an HONEST decline (the report NONE, the decline counted once, its line)
+    the guest LEAVES the world map onto 6603 while the host's fight is still on the wire, before its entry into 300 (decision 3: a
+    declined guest stays frozen): that FieldHUD is judged inside WD-DECL's window -- red, its field named -- never cut away as a
+    rejoin (fix2's inline cut at any FieldHUD read this run green: 'off the world map on no sample')."""
+    r = _run("t2", leg="decline", leave_world=6603)
+    d = r["detail"]["S145-WD-DECL"]
+    assert r["red"] == ["S145-WD-DECL"], {c: r["detail"][c] for c in r["red"]}
+    assert "LEFT the world map before the host's entry: field [6603]" in d and "FieldHUD 6603" in d, d
+    assert "the peer decoded ['NONE']" in d and "declines 0->1" in d and "the declined line 1x" in d, d   # the decline honest
+
+
+def test_a_guest_that_leaves_onto_the_ice_cavern_mid_fight_reds_wd_decl():
+    """...-cut-not-rejoin-callsite-unpinned-ice-cavern-leave-green (fix3b): the same mid-fight leave, onto 300 itself -- the Ice
+    Cavern tile every T2 leg parks the guest on, and the follow's own target. The watch used to stop at the guest's first
+    FieldHUD, long before the host's entry reached the wire, so the window went unanchored and the 300 cut spared the leave as a
+    'rejoin' (green). Now the watch runs to the host's entry and the FieldHUD is judged inside [bt, enter]: red, its field named."""
+    r = _run("t2", leg="decline", leave_world=300)
+    d = r["detail"]["S145-WD-DECL"]
+    assert r["red"] == ["S145-WD-DECL"], {c: r["detail"][c] for c in r["red"]}
+    assert "LEFT the world map before the host's entry: field [300]" in d and "FieldHUD 300" in d, d
+    assert "the peer decoded ['NONE']" in d and "declines 0->1" in d and "the declined line 1x" in d, d   # the decline honest
 
 
 # ------------------------------------------------------------------------------------------------ fix1: the tape's place around a battle

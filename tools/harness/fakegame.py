@@ -978,7 +978,9 @@ FAKE_WORLD_BATTLE_PROB_REINIT = 231
 #: [ff9mapkit netsync s145 fix2] THE STAND-IN'S SOUND INSTANCES (opt-in, ``FakeGame.world_music``): SaXAudio's stop fades as the
 #: engine issues them -- the settle's StopCurrentSong(120) (battle.ff9ShutdownStateBattleResult; ConvertTickToMillisec: 120 x 1000 /
 #: 60 = 2000 ms) and FF9SOUND_SONG_STOPCURRENT's floor (AllSoundDispatchPlayer.MINIMUM_SONG_FADE_MS, 500) -- a stopping voice keeps
-#: IsExist 1 and IsPaused 0 until its fade ends
+#: IsExist 1 and IsPaused 0 until its fade ends. The fades run on the virtual clock by default; ``FakeGame.world_music_wall`` puts
+#: them on the WALL clock, as SaXAudio runs them (SdSoundSystem_SoundCtrl_Stop -> SaXAudio.Stop(soundID, ms / 1000f): a native fade
+#: in real time, whatever the frame clock -- [fix3-r2] the stand-in's virtual clock runs ~5x the wall at fps=600, not a fixed ratio)
 FAKE_SONG_SETTLE_FADE_S = 2.0
 FAKE_SONG_STOPCURRENT_FADE_S = 0.5
 #: the sound model's fault levers (``FakeGame.world_music_faults``; the model off, they do nothing):
@@ -1873,7 +1875,20 @@ class FakeGame:
         #: WORLD_MUSIC_FAULTS levers.
         self.world_music = None
         self.world_music_faults: set = set()
+        #: [fix3-r2] the sound model's stop fades on the WALL clock (opt-in: False, the default, keeps them on the virtual clock --
+        #: every earlier run reads as before): a stop's end is stamped time.time() + its fade and `boot_song_live` compares against
+        #: time.time(), as SaXAudio fades in real time and the bench's re-reads (coop_world_battle.song_quiet) are wall-clock
+        self.world_music_wall = False
         self._wsnd = self._wsnd_fresh()
+        #: [ff9mapkit netsync s145 fix3] A WORLD boot's swirl and battle-scene load, in frames (opt-in: 0, the default, stands the
+        #: boot's battle at once -- every earlier run reads as before). NetSyncDiorama.BootWorldShape's SceneDirector.Replace(BattleMap,
+        #: SwirlInBlack): Boot sets _booted BEFORE the Replace (the claim, and the report BOOTING, hold through it), and nothing on
+        #: the swirl path writes UIManager.State (SceneDirector._Swirl; UIManager's SwirlScene branch sets only UnityScene) -- so
+        #: ui_state stays WorldHUD while the loaded level is SwirlScene (`scene`) and the WorldMap level is gone (HarnessAgent's live
+        #: gate: the world witness block off, world.ticks -1; the strict onWorld false); a Leave inside it is deferred (the boot's
+        #: swirl defers it). The battle stands when it ends.
+        self.world_dio_boot_frames = 0
+        self._wdio_swirl = None
         self.world_cam_upper = 0
         self.world_ctl_override = None
         self.world_no_reinit: set = set()
@@ -4108,7 +4123,8 @@ class FakeGame:
             "save_path": str(self.dir / "save" / "SavedData_ww.dat"),
             "save_sandboxed": self.save_sandboxed,
             # [ff9mapkit netsync F3.3] DIO-1: a booted diorama's battle is the debug scene (BattleUI's own recipe)
-            "ui_state": self.ui_state, "scene": "BattleMapDebug" if self._dio["booted"] and self.battle_active
+            "ui_state": self.ui_state, "scene": "SwirlScene" if self._wdio_swirl is not None    # [s145 fix3] a world boot's swirl
+                                                 else "BattleMapDebug" if self._dio["booted"] and self.battle_active
                                                  else "FieldMap", "fading": False,
             # [ff9mapkit netsync s144] the world map's own mode (FF9StateSystem.mode 3) and, after it, `gmode` (EventEngine.gMode)
             "sys_mode": 3 if ww and self.ui_state == "WorldHUD" else 1,
@@ -5736,8 +5752,9 @@ class FakeGame:
     def _world_strict(self) -> bool:
         """NetSyncClient.IsOnWorldNow as the stand-in reads it -- THE STRICT onWorld (gMode 3 AND the WorldMap scene): its
         overworld HUD. A world battle's scene is BattleHUD here and a world -> field load lands FieldHUD, so gMode's lies
-        (it stays 3 through both) never reach it."""
-        return self.ui_state == "WorldHUD"
+        (it stays 3 through both) never reach it. [ff9mapkit netsync s145 fix3] ...nor a world boot's swirl (opt-in,
+        ``world_dio_boot_frames``): WorldHUD still, but SwirlScene is the loaded level."""
+        return self.ui_state == "WorldHUD" and self._wdio_swirl is None
 
     def _field_registered(self, fid) -> bool:
         """EventEngineUtils.eventIDToFBGID.ContainsKey: a stock field (10-3100) or a FieldScene the install's DictionaryPatch
@@ -6130,6 +6147,8 @@ class FakeGame:
         nextMode 2 never Replaces), else the armed one-shot (TakePendingWorldBattle) with this tick's own result
         (``world_tick_result``: 0 = quiet). True = the tick belongs to a transition (no movement dispatch)."""
         wt = self._wt
+        if self._wdio_swirl is not None:
+            return True                                     # [ff9mapkit netsync s145 fix3] a world boot's swirl: nobody moves
         if wt["exit"] is not None:
             due, dest = wt["exit"]
             if self.frame >= due:
@@ -6362,6 +6381,7 @@ class FakeGame:
         d, wx, faults = self._dio, self._wdx, self.world_dio_faults
         warm = bool(d["primed"])
         wld, snap = int(wx["boot_world"]), wx["snap"]
+        self._wdio_swirl = None                      # [ff9mapkit netsync s145 fix3] (a teardown inside the swirl: no battle stands)
         self._wsnd_sync()                            # [ff9mapkit netsync s145 fix2] the battle lane's last song change
         self._nb_teardown()
         self.battle_active = False
@@ -6475,8 +6495,8 @@ class FakeGame:
     # ---- [ff9mapkit netsync s145 fix2] THE SOUND INSTANCES (opt-in: ``world_music``) -- what fix1's music witnesses read
     @staticmethod
     def _wsnd_fresh() -> dict:
-        """The voices (sid -> song, its stop's end ``stop_rt`` / frame, paused), the current song and instance (currentMusicID and
-        its SoundID), the suspend slot (GetSuspendSongID and its instance) and NetSyncDiorama._leaveSongSid."""
+        """The voices (sid -> song, its stop's end ``stop_rt`` / ``stop_wall`` / frame, paused), the current song and instance
+        (currentMusicID and its SoundID), the suspend slot (GetSuspendSongID and its instance) and NetSyncDiorama._leaveSongSid."""
         return {"voices": {}, "next": 100, "cur": -1, "cur_sid": -1, "slot": -1, "slot_sid": -1, "leave_sid": -1}
 
     def _wsnd_on(self) -> bool:
@@ -6497,7 +6517,17 @@ class FakeGame:
         v = s["voices"].get(s["cur_sid"])
         if v is not None and v["stop_rt"] is None:
             v["stop_rt"], v["stop_frame"] = self.rt + float(fade_s), self.frame
+            # [fix3-r2] ``world_music_wall``: the fade's end on the wall clock (SaXAudio's real-time fade)
+            v["stop_wall"] = time.time() + float(fade_s) if self.world_music_wall else None
         s["cur"], s["cur_sid"] = -1, -1
+
+    def _wsnd_fading(self, v: dict) -> bool:
+        """A voice still sounding: never stopped, or inside its stop's fade -- on the wall clock when the stop was stamped there
+        (``world_music_wall``), else on the virtual clock."""
+        if v["stop_rt"] is None:
+            return True
+        wall = v.get("stop_wall")
+        return time.time() < wall if wall is not None else self.rt < v["stop_rt"]
 
     def _wsnd_world_song(self) -> None:
         """w_frameMapConstructor's w_musicPlay on every world load: the suspend slot restored (FF9SOUND_SONG_RESTORE: its OWN instance
@@ -6572,8 +6602,7 @@ class FakeGame:
         s = self._wsnd
         sid = s["leave_sid"]
         v = s["voices"].get(sid)
-        live = (sid >= 0 and sid != s["cur_sid"] and v is not None and (v["stop_rt"] is None or self.rt < v["stop_rt"])
-                and not v["paused"])
+        live = sid >= 0 and sid != s["cur_sid"] and v is not None and self._wsnd_fading(v) and not v["paused"]
         return {"suspend_song": s["slot"], "song_sid": s["cur_sid"], "boot_song_live": bool(live)}
 
     def _wsnd_music(self, nb_music: int) -> int:
@@ -12379,8 +12408,12 @@ class FakeGame:
         self._nb.d_wire = wire_intro if "intro" in self._nb_caps() and wire_intro in (0, 1) else -1
         if "swirl" in self._nb_caps():
             self._nb_record_swirl(True)                   # [ff9mapkit netsync R3 s112] SFX_Rush's constructor, booted
-        self.start_battle(scene, debug=True, rand=rand,
-                          units=None if self.dio_units is None else [dict(u) for u in self.dio_units])
+        units = None if self.dio_units is None else [dict(u) for u in self.dio_units]
+        if world and int(self.world_dio_boot_frames) > 0:
+            # [ff9mapkit netsync s145 fix3] the world shape's swirl + battle-scene load (opt-in): the battle stands when it ends
+            self._wdio_swirl = (self.frame + int(self.world_dio_boot_frames), int(scene), bool(rand), units)
+            return
+        self.start_battle(scene, debug=True, rand=rand, units=units)
 
     def _dio_leave_recently(self) -> bool:
         """NetSyncDiorama.LeaveRequestedRecently: a Leave issued its Replace in the last 5 s."""
@@ -12390,8 +12423,8 @@ class FakeGame:
         """NetSyncDiorama.Leave -- request-only: deferred (nothing issued) while the boot's swirl is still in flight;
         else the teardown lands :attr:`dio_leave_frames` later (a Leave already in flight is not re-issued).
         [ff9mapkit netsync B5] LeaveFrom(via): past its fade check, the return settle runs (s105, once per boot)."""
-        if not self._dio["booted"] or self.frame - self._dio_boot_frame < self.dio_swirl_frames:
-            return
+        if not self._dio["booted"] or self.frame - self._dio_boot_frame < self.dio_swirl_frames or self._wdio_swirl is not None:
+            return                                          # ([s145 fix3] a world boot's swirl defers it too)
         if "replay" in self._nb_caps():                     # [ff9mapkit netsync B5] s109 (design 5.4 step 2)
             self._nb_replay_abort("the host left its battle and the replay did not reach Hide within "
                                   f"{BW.REPLAY_EXIT_WAIT_MS} ms" if via == "end-leave" else "a leave of the diorama")
@@ -12447,6 +12480,11 @@ class FakeGame:
         """A requested Leave's teardown landing, the return's entry script running out (control back), and
         HarnessAgent.ServiceHarnessDiorama: forget the diorama once it is down, finish a deferred release, and until
         then re-request the Leave once a second."""
+        if self._wdio_swirl is not None and self.frame >= self._wdio_swirl[0]:
+            _due, scene, rand, units = self._wdio_swirl     # [ff9mapkit netsync s145 fix3] the world boot's swirl ends: the battle
+            self._wdio_swirl = None
+            if self._dio["booted"]:
+                self.start_battle(scene, debug=True, rand=rand, units=units)
         if self._dio_leave_at is not None and self.frame >= self._dio_leave_at:
             self._dio_leave_at = None
             if self._dio["booted"]:
