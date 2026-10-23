@@ -131,6 +131,47 @@ def test_panel_says_it_needs_opengl_offscreen_and_builds_no_gl_widget(app):
     assert panel.view is None                                # never a GL view that could only paint its clear colour
 
 
+def test_a_lowered_floor_reaches_the_view_and_the_status_page_leaves_the_stack(app, monkeypatch):
+    """set_view_floor (a carry card's room, worlddoc.CARD_VIEW_FLOOR) lands on the view and on its host, before or
+    after the view exists. And once the view is up the status page leaves the stack: a stacked layout's height for
+    width is its tallest page's, and the hidden page's wrapped teach line otherwise outranks the floor (the card under
+    the view was squeezed instead). No GL offscreen, so a plain widget stands in for the view."""
+    from PySide6.QtCore import Signal
+    from PySide6.QtWidgets import QWidget
+
+    class StubView(QWidget):
+        gl_failed, picked = Signal(str), Signal(object)
+        ghost_moved, ghost_dropped = Signal(float, float), Signal(float, float)
+
+        def __init__(self):
+            super().__init__()
+            self.setMinimumSize(240, V.MIN_VIEW_H)
+
+        def set_scene(self, *_a):
+            pass
+
+        def focus(self, *_a):
+            pass
+
+        def set_overlays(self, *_a):
+            pass
+
+        def set_ghost(self, *_a):
+            pass
+    monkeypatch.setattr(V, "WorldView3D", StubView)
+    panel = V.WorldView3DPanel(pick_palette("mist"))
+    assert panel._host.hasHeightForWidth()                   # anti-vacuity: the status page's wrap is there to lose
+    panel.set_view_floor(48)                                 # before the view exists
+    panel._finish(object(), object(), None)
+    assert panel.view.minimumHeight() == 48 and panel._host.minimumHeight() == 48
+    assert panel._stack.indexOf(panel._status) < 0 and panel._stack.currentWidget() is panel.view
+    assert not panel._host.hasHeightForWidth()
+    panel.set_view_floor(None)
+    assert panel.view.minimumHeight() == V.MIN_VIEW_H and panel._host.minimumHeight() == 0
+    panel._show_message("The 3D view needs OpenGL", "a later message")   # a fresh status page goes back in
+    assert panel._stack.currentWidget() is panel._status and "needs OpenGL" in panel.status_text()
+
+
 def test_world_tab_builds_no_3d_page_until_asked_and_the_toggle_names_its_target(app, tmp_path):
     from ff9mapkit.workspace.worlddoc import WorldDoc
     doc = WorldDoc(pick_palette("mist"), game_path_fn=lambda: tmp_path)

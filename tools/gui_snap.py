@@ -547,6 +547,13 @@ def _mountain_seams():
 
     class Scripted:
         def start(self, argv, cwd, done):
+            if "world-promote" in argv:                      # rung C4, as in the forest's runner
+                v = {"ok": True, "op": "revert" if "--revert" in argv else "promote", "folder": "FF9CustomMap-world",
+                     "cells": [[18, 17]], "promoted": ["FF9_Data/WorldMap/Disc1/0_1/r17/Block[18][17] Terrain.ff9mesh"],
+                     "error": None}
+                Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+                done(0, "")
+                return
             c = [float(v) for v in argv[argv.index("--center") + 1].split(",")]
             ok = abs(c[0] - MOUNTAIN_SPOTS["pass"][0]) < 1 and abs(c[1] - MOUNTAIN_SPOTS["pass"][1]) < 1
             v = {"ok": ok, "dry_run": "--dry-run" in argv, "center": c, "blocks": [[18, 17], [19, 17]], "written": [],
@@ -569,7 +576,10 @@ def _mountain_seams():
 
 def _snap_world_mountain(ctx: _Ctx, win) -> None:
     """Rung C2: the mountain tool on the pinned 3D page -- a ghost that passes every gate, one a gate refuses (its
-    mark drawn where), and one the footprint preview refuses (it reaches the summit's rock) before any job runs."""
+    mark drawn where), and one the footprint preview refuses (it reaches the summit's rock) before any job runs.
+    Then ``-accepted`` (the view draws the draft, so the bar's caption is at its longest) and ``-promoted`` (an
+    edit in the draft, then Promote: the card at its tallest, the handles' row and the promote row) -- the two
+    states that must still fit a 1280x850 window at 150%."""
     import shutil as _sh
     from ff9mapkit.workspace import worldview3d as V
     doc = win.world_doc
@@ -582,29 +592,51 @@ def _snap_world_mountain(ctx: _Ctx, win) -> None:
     try:
         doc.set_view_mode("3d", sync=True)
         mt = doc.open_mountain(sync=True)
+        mt._on_reload = lambda x, z: None                # the dev checkout's Show in game, offered
+        mt._ask = lambda title, text: True               # the confirm dialogs, answered
         view = doc._view3d.view
-        for name, key in (("", "pass"), ("-refused", "refused"), ("-warn", "warn")):
+        for name, key in (("", "pass"), ("-refused", "refused"), ("-warn", "warn"), ("-accepted", "pass"),
+                          ("-promoted", "pass")):
             x, z = MOUNTAIN_SPOTS[key]
             mt.place(x, z, 0.0)
             mt._timer.stop()
             mt._check()
+            if name == "-accepted":
+                mt.accept_btn.click()
+                _settle_view(doc)
+                view = doc._view3d.view
+            if name == "-promoted":
+                _promote_pinned(doc, mt, "FF9_Data/WorldMap/Disc1/0_1/r17/Block[18][17] Terrain.ff9mesh")
+                view = doc._view3d.view
             if view is not None:
                 gy = mt._ix.ground_y(x, z) or 0.0
                 view.focus(x, z, dist=80.0, y=gy)
                 view.camera.yaw, view.camera.pitch = 20.0, 38.0
                 view.update()
             _settle(12)
-            _grab(ctx, f"world-3d-mountain{name}", win)
-        # rung C3: accepted, the recipe bar says what the draft holds and offers Undo
-        x, z = MOUNTAIN_SPOTS["pass"]
-        mt.place(x, z, 0.0)
-        mt._timer.stop()
-        mt._check()
-        mt.accept_btn.click()
-        _settle(12)
-        _grab(ctx, "world-3d-mountain-accepted", win)
+            _grab(ctx, f"world-3d-mountain{name}", win)  # -accepted is rung C3's too: the recipe bar holds the step
     finally:
         V.load_scene = orig
+
+
+def _promote_pinned(doc, tool, rel) -> None:
+    """Accept the passing ghost, put an edit in the draft at ``rel``, then Promote (the scripted runner answers)."""
+    tool.accept_btn.click()
+    p = tool.draft() / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"pinned edit")
+    tool._refresh_draft_label()
+    tool.promote_btn.click()
+    tool._show_draft_info(tool.draft(), set(), [], {"utc": "pinned"})   # the real promote rebases the draft
+    _settle_view(doc)
+
+
+def _settle_view(doc) -> None:
+    """Wait out the 3D view's reload after an Accept or a Promote (a worker)."""
+    for _ in range(200):
+        if not doc._view3d._busy:
+            break
+        _settle(1)
 
 
 def _snap_forest_states(ctx: _Ctx, win, doc) -> None:
@@ -616,19 +648,8 @@ def _snap_forest_states(ctx: _Ctx, win, doc) -> None:
         ft.place(x, z, 0.0)
         ft._timer.stop()
         ft._check()
-        if name == "-promoted":                          # accept, an edit in the draft, then Promote
-            ft.accept_btn.click()
-            rel = "FF9_Data/WorldMap/Disc1/0_1/r18/Block[19][18] Terrain.ff9mesh"
-            p = ft.draft() / rel
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_bytes(b"pinned edit")
-            ft._refresh_draft_label()
-            ft.promote_btn.click()
-            ft._show_draft_info(ft.draft(), set(), [], {"utc": "pinned"})   # the real promote rebases the draft
-            for _ in range(200):                         # the view's reload after the promote (a worker)
-                if not doc._view3d._busy:
-                    break
-                _settle(1)
+        if name == "-promoted":
+            _promote_pinned(doc, ft, "FF9_Data/WorldMap/Disc1/0_1/r18/Block[19][18] Terrain.ff9mesh")
             view = doc._view3d.view
         if view is not None:
             gy = ft._ix.ground_y(x, z) or 0.0

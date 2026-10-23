@@ -101,6 +101,7 @@ class CarryTool(QWidget):
     _extra_rows = ()
     CHECK_TIME = "about seven seconds"                   # a passing world-forest dry run, measured (C1)
     _bg_done = Signal(str, int, object, object)          # (what, serial, result, error) from a worker thread
+    opened = Signal(bool)                                # the card opened (True) or was put away (False)
 
     def __init__(self, pal, panel, *, game_fn, source_fn, on_changed=None, runner=None, drafts_root=None,
                  ask=None, outline_fn=None, soup_fn=None, sync=False, on_reload=None):
@@ -157,7 +158,7 @@ class CarryTool(QWidget):
         self.verdict_lbl.setWordWrap(True)
         self.verdict_lbl.setAccessibleName(f"{self.TITLE} verdict")
         card.addWidget(self.verdict_lbl)
-        brow = QHBoxLayout()
+        brow = self.accept_row = QHBoxLayout()
         brow.setSpacing(8)
         self.accept_btn = QPushButton("Accept into draft")
         self.accept_btn.setObjectName("accent")
@@ -170,12 +171,24 @@ class CarryTool(QWidget):
         self.copy_btn.setToolTip(f"Copy the {self.VERB} command Accept runs, to run it by hand.")
         self.copy_btn.clicked.connect(self._copy_command)
         brow.addWidget(self.copy_btn)
+        self.discard_btn = QPushButton("Discard draft")
+        self.discard_btn.setProperty("role", "quiet")
+        self.discard_btn.setToolTip("Delete the draft and everything accepted into it.")
+        self.discard_btn.clicked.connect(self._discard)
+        brow.addWidget(self.discard_btn)
+        brow.addStretch(1)
+        card.addLayout(brow)
+        # The draft line, then rung C4's actions beside it: the draft into the live folder (world-promote: refuses
+        # over another deploy's bytes, backs up and ledgers each write, mirrors disc 4, snapshots first so Revert is
+        # exact), then the game follows. Two rows, because one row of Accept, Copy, the draft line, Promote, Revert,
+        # Show and Discard floored the window at 1348px at 150%; and the line wraps here beside at most three
+        # buttons, not squeezed between five (three lines at 150%, clipped in a 1280x850 window).
+        brow = self.draft_row = QHBoxLayout()
+        brow.setSpacing(8)
         self.draft_lbl = widgets.role_label("", "caption")
         self.draft_lbl.setWordWrap(True)
         self.draft_lbl.setAccessibleName("Draft")
         brow.addWidget(self.draft_lbl, 1)
-        # rung C4: the draft into the live folder (world-promote: refuses over another deploy's bytes, backs up and
-        # ledgers each write, mirrors disc 4, snapshots first so Revert is exact), then the game follows
         self.promote_btn = QPushButton("Promote")
         self.promote_btn.setToolTip("Write the draft's edits into the live mod folder (world-promote): each file is "
                                     "backed up first, the disc-4 mirror runs, and Revert promote puts them back.")
@@ -193,11 +206,6 @@ class CarryTool(QWidget):
                                  "and back) and put the party at the edit. The game must be on the world map, on foot.")
         self.show_btn.clicked.connect(self._show_in_game)
         brow.addWidget(self.show_btn)
-        self.discard_btn = QPushButton("Discard draft")
-        self.discard_btn.setProperty("role", "quiet")
-        self.discard_btn.setToolTip("Delete the draft and everything accepted into it.")
-        self.discard_btn.clicked.connect(self._discard)
-        brow.addWidget(self.discard_btn)
         card.addLayout(brow)
         self._say(f"Click the map where the {self.NOUN} goes. Drag its ghost to move it.", "")
         self._sync_buttons()
@@ -258,6 +266,7 @@ class CarryTool(QWidget):
     # -- lifecycle --
     def open_tool(self):
         self.show()
+        self.opened.emit(True)
         self._ix = self._ix_for = None                   # the other tool may have written the draft meanwhile
         self._refresh_draft_label()
         self._load_soup()
@@ -271,6 +280,7 @@ class CarryTool(QWidget):
         self.panel.set_overlays([])
         self.panel.set_ghost(None)
         self.hide()
+        self.opened.emit(False)
 
     def handles(self):
         """The handles as the command spells them: the stale guard every verdict is matched against."""
