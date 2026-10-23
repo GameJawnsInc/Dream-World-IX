@@ -70,7 +70,7 @@ def _world_files(root: Path) -> dict:
     return {p.relative_to(root).as_posix(): p.read_bytes() for p in (root / "FF9_Data" / "WorldMap").rglob("*.ff9mesh")}
 
 
-def _drive_tool(drafts: Path) -> dict:
+def _drive_tool(drafts: Path, spot=SPOT, donor=DONOR) -> dict:
     """The forest tool, placed and accepted the way a click does, against the real install (offscreen: the tool
     needs no GL; its jobs are real world-forest subprocesses)."""
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -90,7 +90,7 @@ def _drive_tool(drafts: Path) -> dict:
     runner.start = start
     tool = ForestTool(pal, WorldView3DPanel(pal), game_fn=lambda: GAME, source_fn=lambda: GAME / SOURCE,
                       runner=runner, drafts_root=drafts)
-    tool.donor_box.setCurrentIndex(tool.donor_box.findData("{},{}".format(*DONOR)))
+    tool.donor_box.setCurrentIndex(tool.donor_box.findData("{},{}".format(*donor)))
     tool.open_tool()
 
     def pump(until, sec):
@@ -101,8 +101,8 @@ def _drive_tool(drafts: Path) -> dict:
                 return True
             time.sleep(0.02)
         return False
-    assert pump(lambda: tool._ix is not None and DONOR in tool._outlines, 120), "the tool never read the island"
-    tool.place(*SPOT, 3.2)
+    assert pump(lambda: tool._ix is not None and tuple(donor) in tool._outlines, 120), "the tool never read the island"
+    tool.place(*spot, 3.2)
     t0 = time.time()
     assert pump(lambda: tool._current_verdict() is not None, 180), tool.verdict_lbl.text()
     t_check = time.time() - t0

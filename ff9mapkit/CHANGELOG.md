@@ -5,6 +5,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — promote a World tab draft into the game
+- The forest card's draft row has "Promote": after a confirm it writes the draft's edits into the live mod folder.
+  Each file is backed up first, the disc-4 mirror runs, and the blocks are snapshotted so "Revert promote" puts the
+  folder back exactly; the edits then stay in the draft. Promote refuses, writing nothing, when a file it would write
+  changed in the folder since the draft was made (another deploy wrote it).
+- `ff9mapkit world-promote <draft>` is the command behind it (`--revert`, `--dry-run`, `--report-json`).
+- In a development checkout, "Show in game" makes the running game re-read the world map (a quick trip through a
+  bench field and back, no relaunch and no engine change) and puts the party at the edit (`tools/world_reload.py`).
+  Tested in game: the party stood on the promoted forest at the predicted height after the reload, and on the old
+  grass again after a revert; about 13 seconds from Promote to the edit on screen.
+
 ### Added — place a forest from the World tab's 3D view
 - In the 3D view, "Add forest" opens a card under the map. Click where the forest goes and a ghost of the canopy
   stands there; drag it to move it, and set its angle, its spread (up to ×1.5, the widest judged in game) and which
@@ -15,8 +26,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   refused.
 - "Accept into draft" runs the same `world-forest` command into a draft: a copy of the folder's world files kept
   outside the game folder, which the game does not load. The view then draws the draft in place of its folder.
-  "Copy command" copies the command, and "Discard draft" deletes the draft. Writing a draft into the live folder
-  comes later.
+  "Copy command" copies the command, and "Discard draft" deletes the draft.
 - The tab runs the command itself, so a forest placed in the tab writes exactly the bytes the same command typed by
   hand writes (checked on a real island, 1,531 files identical). Tested in game with the draft loaded: the party
   stood on the new canopy at the predicted height, within 0.003 units.

@@ -85,13 +85,14 @@ class QProcessRunner:
 class ForestTool(QWidget):
     """The forest card under the 3D view. ``panel`` is the World tab's :class:`WorldView3DPanel`; ``source_fn()``
     the mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the view after an Accept
-    or a discard. ``runner``, ``drafts_root``, ``ask``, ``outline_fn(donor)``, ``soup_fn(folder)`` (an island
-    :class:`SoupIndex`) and ``sync`` (background reads inline) are the test and snap seams."""
+    or a discard. ``on_reload(x, z)`` (dev checkout: the shell's world reload) makes the running game re-read the
+    world after a Promote. ``runner``, ``drafts_root``, ``ask``, ``outline_fn(donor)``, ``soup_fn(folder)`` (an
+    island :class:`SoupIndex`) and ``sync`` (background reads inline) are the test and snap seams."""
 
     _bg_done = Signal(str, int, object, object)          # (what, serial, result, error) from a worker thread
 
     def __init__(self, pal, panel, *, game_fn, source_fn, on_changed=None, runner=None, drafts_root=None,
-                 ask=None, outline_fn=None, soup_fn=None, sync=False):
+                 ask=None, outline_fn=None, soup_fn=None, sync=False, on_reload=None):
         super().__init__()
         from ..world import forestedit as FE
         from ..world import interior as IN
@@ -103,6 +104,9 @@ class ForestTool(QWidget):
         self._outline_fn = outline_fn or (lambda donor: FE.outline(donor, game=self._game_fn()))
         self._soup_fn = soup_fn or self._read_soup
         self._sync = sync
+        self._on_reload = on_reload
+        self._last_center = None                         # the last accepted forest's centre: where Show in game goes
+        self._draft_state = (0, None)                    # (edited disc-1 blocks, the last unreverted promote)
         self._bg_done.connect(self._on_bg)
         self._serial = 0
         self.center = None                               # (x, z) on the editor's grid, or None until a click
@@ -187,6 +191,25 @@ class ForestTool(QWidget):
         self.draft_lbl.setWordWrap(True)
         self.draft_lbl.setAccessibleName("Draft")
         brow.addWidget(self.draft_lbl, 1)
+        # rung C4: the draft into the live folder (world-promote: refuses over another deploy's bytes, backs up and
+        # ledgers each write, mirrors disc 4, snapshots first so Revert is exact), then the game follows
+        self.promote_btn = QPushButton("Promote")
+        self.promote_btn.setToolTip("Write the draft's edits into the live mod folder (world-promote): each file is "
+                                    "backed up first, the disc-4 mirror runs, and Revert promote puts them back.")
+        self.promote_btn.clicked.connect(self._promote)
+        brow.addWidget(self.promote_btn)
+        self.revert_btn = QPushButton("Revert promote")
+        self.revert_btn.setProperty("role", "quiet")
+        self.revert_btn.setToolTip("Put the live folder back exactly as it was before the last promote "
+                                   "(world-promote --revert). The edits stay in the draft.")
+        self.revert_btn.clicked.connect(self._revert)
+        brow.addWidget(self.revert_btn)
+        self.show_btn = QPushButton("Show in game")
+        self.show_btn.setProperty("role", "quiet")
+        self.show_btn.setToolTip("Make the running game re-read the world map (a quick trip through a bench field "
+                                 "and back) and put the party at the edit. The game must be on the world map, on foot.")
+        self.show_btn.clicked.connect(self._show_in_game)
+        brow.addWidget(self.show_btn)
         self.discard_btn = QPushButton("Discard draft")
         self.discard_btn.setProperty("role", "quiet")
         self.discard_btn.setToolTip("Delete the draft and everything accepted into it.")
@@ -398,7 +421,8 @@ class ForestTool(QWidget):
             ref = v.get("refused") or {}
             gate = GATE_WORDS.get(ref.get("gate"), "a gate")
             detail = f" ({ref['detail']})" if ref.get("detail") else ""
-            self._say(f"Refused by {gate}{detail}: {ref.get('message', '')}. The marks show where.", "error")
+            marks = " The marks show where." if ref.get("where") else ""
+            self._say(f"Refused by {gate}{detail}: {ref.get('message', '')}.{marks}", "error")
             return
         pv = self._preview
         if pv is not None and not pv["ok"]:
@@ -419,8 +443,15 @@ class ForestTool(QWidget):
         v = self._current_verdict()
         self.accept_btn.setEnabled(self._job is None and v is not None and v["ok"] and bool(v.get("dry_run")))
         self.copy_btn.setEnabled(self.center is not None)
-        self.discard_btn.setVisible(self.draft() is not None)
+        has_draft = self.draft() is not None
+        edited, last = self._draft_state if has_draft else (0, None)
+        self.discard_btn.setVisible(has_draft)
         self.discard_btn.setEnabled(self._job is None)
+        self.promote_btn.setVisible(has_draft and edited > 0)
+        self.promote_btn.setEnabled(self._job is None)
+        self.revert_btn.setVisible(last is not None)
+        self.revert_btn.setEnabled(self._job is None)
+        self.show_btn.setVisible(self._on_reload is not None and self._show_target() is not None)
 
     def _refresh_draft_label(self):
         """The draft line. Its counts walk both trees (about half a second), so a worker reads them."""
@@ -433,12 +464,14 @@ class ForestTool(QWidget):
         else:
             self.draft_lbl.setText(f"Draft of {src}. The game does not load it.")
             self._bg("draftinfo", lambda: (d, {(bx, by) for disc, bx, by in D.edited_blocks(d) if disc == 1},
-                                           D.stale(d)))
+                                           D.stale(d), D.last_promote(d)))
         self._sync_buttons()
 
-    def _show_draft_info(self, d, blocks, stale):
+    def _show_draft_info(self, d, blocks, stale, last=None):
         if d != self.draft():
             return
+        self._draft_state = (len(blocks), last)
+        self._sync_buttons()
         src, n = self.source().name, len(blocks)
         self.draft_lbl.setText(f"Draft of {src}: {n} block{'s' if n != 1 else ''} edited. The game does not "
                                "load it." + (f" ⚠ {src} changed since the draft was made ({len(stale)} files)."
@@ -505,6 +538,8 @@ class ForestTool(QWidget):
         self._redraw()
 
     def _accepted(self, v):
+        if v.get("center"):
+            self._last_center = tuple(v["center"])
         n = len(v.get("written") or [])                  # the blocks whose bytes changed (the read window is wider)
         self.center = self._ghost = None
         self._verdict = None
@@ -528,6 +563,76 @@ class ForestTool(QWidget):
                                                self.donor(), spread=self.spread.value(), rot_deg=self.angle.value(),
                                                dry_run=False)
         QGuiApplication.clipboard().setText(subprocess.list2cmdline(argv))
+
+    # -- promote and the game follows (rung C4; the CLI is the oracle here too: world-promote) --
+    def _promote(self):
+        from ..world import draft as D
+        d = self.draft()
+        if d is None or self._job is not None:
+            return
+        n = self._draft_state[0]
+        if not self._ask("Promote the draft?", f"Write the draft's {n} edited block{'s' if n != 1 else ''} into "
+                         f"{self.source().name} in the game folder? Each file is backed up first and the disc-4 "
+                         "mirror runs; Revert promote puts the folder back exactly. The game shows it on its next "
+                         "world load."):
+            return
+        self._run_promote(d, revert=False)
+
+    def _revert(self):
+        d = self.draft()
+        if d is None or self._job is not None:
+            return
+        if not self._ask("Revert the promote?", f"Put {self.source().name} back exactly as it was before the last "
+                         "promote? The edits stay in the draft."):
+            return
+        self._run_promote(d, revert=True)
+
+    def _run_promote(self, d, *, revert):
+        report = Path(tempfile.mkdtemp(prefix="ff9_promote_")) / "verdict.json"
+        argv = [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn()), "world-promote", str(d),
+                "--report-json", str(report)] + (["--revert"] if revert else [])
+        kind = "revert" if revert else "promote"
+        self._job = (kind, None)
+        self._say(("Reverting the promote in " if revert else "Promoting the draft into ") + f"{self.source().name}…",
+                  "")
+        self._sync_buttons()
+        self._runner.start(argv, kit_cwd(), lambda code, text: self._promote_done(kind, report, code, text))
+
+    def _promote_done(self, kind, report, code, text):
+        if self._job != (kind, None):
+            return
+        self._job = None
+        v = self.FE.read_verdict(report) or {"ok": False, "error": ([ln for ln in text.splitlines() if ln.strip()][-1:]
+                                                                    or [f"exit code {code}"])[0]}
+        src = self.source().name
+        if not v.get("ok"):
+            self._say(f"The {kind} did not run: {v.get('error')}", "error")
+            self._sync_buttons()
+            return
+        cells = v.get("cells") or []
+        if self._last_center is None and cells:
+            bx, by = cells[0]
+            self._last_center = (64.0 * bx + 32.0, -(64.0 * by + 32.0))
+        follow = " Show in game makes the running game re-read it." if self._on_reload is not None else             " The game shows it on its next world load."
+        if kind == "promote":
+            self._say(f"Promoted into {src}: {len(cells)} block{'s' if len(cells) != 1 else ''}, each file backed "
+                      f"up, disc 4 mirrored.{follow}", "ok")
+        else:
+            self._say(f"Reverted: {src} is exactly as it was before the promote; the edit is still in the draft."
+                      f"{follow}", "ok")
+        self._ix = self._ix_for = None                   # the live folder (and the draft) moved: read them again
+        self._refresh_draft_label()
+        self._load_soup()
+        if self._on_changed is not None:                 # promoted: the game's stack has it; reverted: only the draft
+            self._on_changed(None if kind == "promote" else self.draft())
+
+    def _show_target(self):
+        return self._last_center
+
+    def _show_in_game(self):
+        t = self._show_target()
+        if t is not None and self._on_reload is not None:
+            self._on_reload(*t)
 
     def _ask_dialog(self, title, text):
         return QMessageBox.question(self, title, text) == QMessageBox.StandardButton.Yes

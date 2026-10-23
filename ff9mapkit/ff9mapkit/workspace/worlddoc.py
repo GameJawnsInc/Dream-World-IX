@@ -446,7 +446,7 @@ class WorldDoc(QWidget):
     _point_done = Signal(object, object, object)   # (the pick it answers, point_info | None, error | None)
 
     def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None, on_teleport=None,
-                 drafts_root=None, forest_runner=None, forest_seams=None):
+                 drafts_root=None, forest_runner=None, forest_seams=None, on_reload=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -466,6 +466,7 @@ class WorldDoc(QWidget):
         self._drafts_root = drafts_root            # None -> world.draft.drafts_dir() (tests pin a tmp dir)
         self._forest_runner = forest_runner        # None -> the tool's QProcess runner (tests inject one)
         self._forest_seams = forest_seams or {}    # ForestTool's outline_fn / soup_fn / sync (tests, gui_snap)
+        self._on_reload = on_reload                # (x, z) -> None: the shell's dev-checkout world reload, or None
         self._point_done.connect(self._finish_point)
         self._busy = False
         self._guide_state = ("scan", "")
@@ -877,7 +878,7 @@ class WorldDoc(QWidget):
             self._forest = ForestTool(self.pal, self._view3d, game_fn=lambda: self._game,
                                       source_fn=lambda: self._census.root, on_changed=self._draft_changed,
                                       runner=self._forest_runner, drafts_root=self._drafts_root,
-                                      **self._forest_seams)
+                                      on_reload=self._on_reload, **self._forest_seams)
             self._forest_slot.addWidget(self._forest)
             self._view3d.ghost_moved.connect(self._forest.drag_to)
             self._view3d.ghost_dropped.connect(self._forest.drop_at)

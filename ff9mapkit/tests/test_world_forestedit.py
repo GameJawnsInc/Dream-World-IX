@@ -282,3 +282,129 @@ def test_report_json_carries_the_verdict_beside_the_unchanged_text(monkeypatch, 
     assert v["ok"] is True and v["dry_run"] is True and v["center"] == [26.0, -26.0]
     assert v["report"]["blob_tris"] == 50 and v["blocks"] == [[0, 0]] and v["written"] == []
     assert src.is_dir()
+
+
+# ---------------------------------------------------------------- promote and revert (rung C4)
+T1 = "FF9_Data/WorldMap/Disc1/0_1/r0/Block[0][0] Terrain.ff9mesh"
+T4 = "FF9_Data/WorldMap/Disc4/0_1/r0/Block[0][0] Terrain.ff9mesh"
+S4 = "FF9_Data/WorldMap/Disc4/0_1/r0/Block[0][0] Sea4.ff9mesh"
+
+
+def _tree(root: Path) -> dict:
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in (root / "FF9_Data").rglob("*") if p.is_file()}
+
+
+def _fake_mirror(monkeypatch):
+    """The disc-4 mirror needs the install's bundles; here it copies each written disc-1 file to disc 4 (and adds a
+    Sea4 there), as a mirror writes through the deploy seam, so promote and revert are judged on both discs."""
+    from ff9mapkit.world import discmirror as DM
+    calls = []
+
+    def mirror(written, *, mod_folder, log=print, **_k):
+        calls.append(mod_folder)
+        for p in written:
+            p = Path(p)
+            d4 = Path(str(p).replace("Disc1", "Disc4"))
+            d4.parent.mkdir(parents=True, exist_ok=True)
+            if d4.exists():
+                M.park_backup(d4)
+            d4.write_bytes(p.read_bytes())
+            (d4.parent / d4.name.replace("Terrain", "Sea4")).write_bytes(b"sea for " + p.read_bytes()[:8])
+    monkeypatch.setattr(DM, "auto_mirror", mirror)
+    return calls
+
+
+def _edited_draft(tmp_path):
+    game = _game(tmp_path)
+    src = _mod(game, "Src", ((0, 0), (1, 0)))
+    tree4 = src / "FF9_Data" / "WorldMap" / "Disc4" / "0_1" / "r0"
+    tree4.mkdir(parents=True)
+    (tree4 / "Block[0][0] Terrain.ff9mesh").write_bytes((src / T1).read_bytes())
+    d = D.ensure_draft(src, game=game, root=tmp_path / "drafts")
+    (d / T1).write_bytes(b"the forest")
+    return game, src, d
+
+
+def test_promote_writes_the_edits_mirrors_and_leaves_the_draft_level(monkeypatch, tmp_path):
+    calls = _fake_mirror(monkeypatch)
+    game, src, d = _edited_draft(tmp_path)
+    untouched = (src / "FF9_Data/WorldMap/Disc1/0_1/r0/Block[1][0] Terrain.ff9mesh").read_bytes()
+    rec = D.promote(d, game=game, log=lambda *a: None)
+    assert (src / T1).read_bytes() == b"the forest" and (src / T4).read_bytes() == b"the forest"
+    assert calls == ["Src"]                                # mirrored in the LIVE folder, by name
+    assert rec["promoted"] == [T1] and rec["cells"] == [[0, 0]]
+    assert set(rec["after"]) == {T1, T4, S4} and set(rec["before"]) == {T1, T4}
+    assert (src / "FF9_Data/WorldMap/Disc1/0_1/r1".replace("r1", "r0") / "Block[1][0] Terrain.ff9mesh").read_bytes() \
+        == untouched                                       # another block is never touched
+    assert list((src / "FF9_Data/WorldMap/Disc1/0_1/r0").glob("Block[[]0[]][[]0[]] Terrain.ff9mesh.bak-*"))
+    led = [json.loads(ln) for ln in (src / ".ff9world.jsonl").read_text().splitlines()]
+    assert led[-1]["cell"] == [0, 0] and led[-1]["pipeline"]["verb"] == "world-promote"
+    assert D.edits(d) == [] and D.stale(d) == []           # the draft equals the live folder again
+    assert (d / S4).read_bytes() == (src / S4).read_bytes()
+    assert D.last_promote(d)["utc"] == rec["utc"]
+
+
+def test_revert_puts_every_file_back_byte_for_byte_and_keeps_the_edit_in_the_draft(monkeypatch, tmp_path):
+    _fake_mirror(monkeypatch)
+    game, src, d = _edited_draft(tmp_path)
+    before = {k: v for k, v in _tree(src).items() if ".bak-" not in k}
+    D.promote(d, game=game, log=lambda *a: None)
+    D.revert(d, game=game, log=lambda *a: None)
+    after = {k: v for k, v in _tree(src).items() if ".bak-" not in k}
+    assert after == before                                 # S4, which the promote created, is gone again
+    assert D.edits(d) == [T1] and (d / T1).read_bytes() == b"the forest"
+    assert D.stale(d) == [] and D.last_promote(d) is None
+    with pytest.raises(ValueError, match="no promote to revert"):
+        D.revert(d, game=game)
+    D.promote(d, game=game, log=lambda *a: None)           # and it promotes again from there
+    assert (src / T1).read_bytes() == b"the forest"
+
+
+def test_promote_refuses_over_another_deploy_and_writes_nothing(monkeypatch, tmp_path):
+    _fake_mirror(monkeypatch)
+    game, src, d = _edited_draft(tmp_path)
+    (src / T1).write_bytes(b"another session's island")
+    before = _tree(src)
+    with pytest.raises(ValueError, match="changed in Src since the draft was made"):
+        D.promote(d, game=game)
+    assert _tree(src) == before and not (d / D.PROMOTES).exists()
+
+
+def test_revert_refuses_when_a_later_deploy_wrote_the_blocks(monkeypatch, tmp_path):
+    _fake_mirror(monkeypatch)
+    game, src, d = _edited_draft(tmp_path)
+    D.promote(d, game=game, log=lambda *a: None)
+    (src / T4).write_bytes(b"a later mirror")
+    with pytest.raises(ValueError, match="changed after the promote"):
+        D.revert(d, game=game)
+    assert (src / T1).read_bytes() == b"the forest"
+
+
+def test_promote_refuses_an_empty_draft_and_a_source_outside_the_install(monkeypatch, tmp_path):
+    _fake_mirror(monkeypatch)
+    game, src, d = _edited_draft(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    with pytest.raises(ValueError, match="not a folder of the install"):
+        D.promote(d, game=other)
+    (d / T1).write_bytes((src / T1).read_bytes())
+    with pytest.raises(ValueError, match="no edits to promote"):
+        D.promote(d, game=game)
+
+
+def test_world_promote_cli_reports_and_dry_runs(monkeypatch, tmp_path, capsys):
+    from ff9mapkit import cli
+    _fake_mirror(monkeypatch)
+    game, src, d = _edited_draft(tmp_path)
+    rep = tmp_path / "p.json"
+    before = _tree(src)
+    assert cli.main(["--game", str(game), "world-promote", str(d), "--dry-run", "--report-json", str(rep)]) == 0
+    assert _tree(src) == before and json.loads(rep.read_text())["promoted"] == [T1]
+    assert cli.main(["--game", str(game), "world-promote", str(d), "--report-json", str(rep)]) == 0
+    v = json.loads(rep.read_text())
+    assert v["ok"] and v["op"] == "promote" and v["cells"] == [[0, 0]] and (src / T1).read_bytes() == b"the forest"
+    assert "promoted 1 file(s) at block(s) (0,0) in Src" in capsys.readouterr().out
+    assert cli.main(["--game", str(game), "world-promote", str(d), "--revert", "--report-json", str(rep)]) == 0
+    assert json.loads(rep.read_text())["op"] == "revert" and (src / T1).read_bytes() != b"the forest"
+    assert cli.main(["--game", str(game), "world-promote", str(d), "--revert", "--report-json", str(rep)]) == 2
+    assert "no promote to revert" in json.loads(rep.read_text())["error"]

@@ -81,6 +81,7 @@ from .widgets import (PlaceholderListWidget, install_wheel_guard, nameplate,
 KIT = Path(__file__).resolve().parents[2]          # the kit root (holds pyproject) -> `-m ff9mapkit` cwd
 REPO = KIT.parent                                  # the repo root (holds tools/, apps/, .ff9deploy.toml)
 WORLD_TELEPORT = REPO / "tools" / "world_teleport.py"   # dev checkout only: the World tab's harness teleport
+WORLD_RELOAD = REPO / "tools" / "world_reload.py"       # ...and its reload (the game re-reads the world, rung C4)
 _LAYOUT_VERSION = 2                                # bump when saveState()'s object graph changes (2 = no docks)
 _THUMB_QUIET_MS = 600                              # thumb workers stay paused this long after an open settles
 _THUMB_QUIET_STARTUP_MS = 3000                     # the CONSTRUCTION hold's grace: main()'s show()/
@@ -1792,7 +1793,8 @@ class Workspace(QMainWindow):
         # (islands / mountains / water carries / donors / the Disc4 mirror). Scans ONLY on the user's
         # own Scan click -- construction and tab-show touch no filesystem (the startup-spend law).
         self.world_doc = WorldDoc(self.pal, on_setup=self._open_setup, scale=self._text_scale,
-                                  on_teleport=self._world_teleport if WORLD_TELEPORT.is_file() else None)
+                                  on_teleport=self._world_teleport if WORLD_TELEPORT.is_file() else None,
+                                  on_reload=self._world_reload if WORLD_RELOAD.is_file() else None)
         self.tabs.addTab(self.world_doc, "World")
         # rung A of the Behavior GUI (studies/behavior-trees/GUI-VISION.md): a READ-ONLY render of
         # the open field's [behavior] block. The shell PUSHES the parsed open doc (tab show / tree
@@ -9329,6 +9331,15 @@ class Workspace(QMainWindow):
                             ok_headline="Teleported — the party stands at the picked point",
                             fail_hint="The game must be running and on the world map; see the Output panel."):
             self.statusBar().showMessage("Another job is running — teleport after it finishes.", 4000)
+
+    def _world_reload(self, x, z):
+        """The forest card's "Show in game" after a Promote: the running game re-reads the world map's files (a round
+        trip through bench field 6603) and the party lands at the edit. Dev checkout only, like the teleport."""
+        if not self.run_job([sys.executable, str(WORLD_RELOAD), f"{x:.2f}", f"{z:.2f}"], cwd=REPO,
+                            subject=f"Reload the world in the game, then go to x {x:.2f}, z {z:.2f}",
+                            ok_headline="The game re-read the world map — the party stands at the edit",
+                            fail_hint="The game must be running, on the world map, on foot; see the Output panel."):
+            self.statusBar().showMessage("Another job is running — show it in game after it finishes.", 4000)
 
     def run_cli_lint(self):
         if self.campaign_path is None:

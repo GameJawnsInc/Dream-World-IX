@@ -1,7 +1,7 @@
 # Overworld visual editor: feasibility and plan
 
-**Status:** UNPARKED 2026-10-23 (owner: "let's start planning towards the GUI terrain editor"); A0, A1, the stack and
-C1 built, see Progress.
+**Status:** UNPARKED 2026-10-23 (owner: "let's start planning towards the GUI terrain editor"); A0, A1, the stack, C1
+and C4 built, see Progress.
 The replan below supersedes the rung order further down; the recon sections stay as the evidence. Original status
 (2026-10-13): recon only. The owner asked whether the kit is on a path to a visual editor that adjusts the overworld
 in real time under the laws the terrain studies have proven. The answer is yes, with one design call. The owner
@@ -98,6 +98,12 @@ alone.
   the editor's draft and the hand-typed command's are byte-identical (hermetic, and 1,531 files on the real island).
   In game, the draft first in FolderNames: 4/4 heights within 0.003u, the canopy 1.36-1.72u from the no-lab height.
   Measured: an exact-centre carve takes 7 s cold, so judging on release needs no warm worker (B3 deferred).
+- **C4 BUILT + IN-GAME PROVEN (2026-10-23)** -> [`C4.md`](C4.md). Promote writes a draft's edits into the live folder
+  (`world-promote`: refuses over another deploy's bytes, backs up and ledgers every write, mirrors disc 4, snapshots the
+  edited blocks so `--revert` is byte-exact); Show in game (`tools/world_reload.py`) makes the running game re-read the
+  world through bench 6603 and lands the party on the edit. In game: before 3.000 (grass), promoted without a reload
+  3.000 (the game keeps its world), reloaded 4.719 (canopy, predicted 4.720), reverted 3.000; the live folder ended
+  byte-identical. Promote to visible: about 13 s with NO DLL, so the DLL rung is not needed.
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,
