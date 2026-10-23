@@ -274,7 +274,7 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 
 # --------------------------------------------------------------------------------------- world states
-WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest")
+WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain")
 # "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
 # surface that depends on the developer's machine cannot be a pinned review state.
 WORLD_EXTRA_STATES = ("3d-live",)
@@ -509,6 +509,96 @@ def _snap_world_forest(ctx: _Ctx, win) -> None:
         V.load_scene = orig
 
 
+MOUNTAIN_SPOTS = {"pass": (1214.0, -1132.0), "refused": (1196.0, -1214.0), "warn": (1246.0, -1166.0)}
+
+
+def _mountain_seams():
+    """The pinned mountain tool: an invented craggy cone (12u rim, 14u tall), the synthetic island as its soup
+    (each tri in its own block, so the span law reads real blocks), and a scripted runner that answers like
+    world-mountain (passes at the "pass" spot, an apron refusal with a mark anywhere else)."""
+    import math
+    import numpy as np
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world import mountainedit as ME
+    from ff9mapkit.world.extract import encode_id
+    n = 18
+    rim = np.array([((12.0 + 1.6 * math.sin(3 * a)) * math.cos(a), 0.0, (12.0 + 1.6 * math.sin(3 * a)) * math.sin(a))
+                    for a in np.linspace(0, 2 * math.pi, n + 1)[:-1]])
+    mid = rim * 0.55 + (0.0, 7.5, 0.0)
+    top = np.array([1.5, 14.0, -1.0])
+    tris = []
+    for k in range(n):
+        a, b, c, d = rim[k], rim[(k + 1) % n], mid[k], mid[(k + 1) % n]
+        tris += [[a, b, d], [a, d, c], [c, d, top]]
+    outline = ME.MassifOutline("0,0", np.array(tris), rim, 13.6, height_ok=True, home_ground="grass")
+    verts, _uvs, tri_ix = _synthetic_island()
+    u = (G.FAM_REGION["main"][0] + G.FAM_REGION["main"][2]) / 2.0
+    meta, coast, blocks = [], [], set()
+    for t in tri_ix:
+        rock = verts[t][:, 1].max() > 22.0
+        c = verts[t].mean(axis=0)
+        blk = (int(math.floor(c[0] / 64.0)), int(math.floor(-c[2] / 64.0)))
+        blocks.add(blk)
+        meta.append((blk, float(encode_id(topograph=58 if rock else 0)), "rock" if rock else "main", [(u, 0.8)] * 3))
+        if rock:
+            coast += [(float(verts[i][0]), float(verts[i][2])) for i in t]
+    ix = ME.SoupIndex({"pos": verts.tolist(), "tris": tri_ix.tolist(), "meta": meta, "coast": coast,
+                       "blocks": {b: None for b in blocks}})
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            c = [float(v) for v in argv[argv.index("--center") + 1].split(",")]
+            ok = abs(c[0] - MOUNTAIN_SPOTS["pass"][0]) < 1 and abs(c[1] - MOUNTAIN_SPOTS["pass"][1]) < 1
+            v = {"ok": ok, "dry_run": "--dry-run" in argv, "center": c, "blocks": [[18, 17], [19, 17]], "written": [],
+                 "ground": "grass", "note": None,
+                 "report": {"blob_tris": 54, "plugs": 0, "dropped": 118, "zip_tris": 61, "peak_y": 16.8,
+                            "rock_rigid": 0.021, "teleport": [c[0] - 18.0, c[1]]} if ok else None,
+                 "refused": None if ok else {
+                     "gate": "apron", "detail": "31.6 deg > 29.5", "where": [[c[0] - 6.0, c[1] + 13.5]],
+                     "message": "the ground apron exceeds the grass slope envelope"}}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0 if ok else 2, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    return {"outline_fn": lambda donor: outline, "soup_fn": lambda folder: ix, "sync": True}, Scripted()
+
+
+def _snap_world_mountain(ctx: _Ctx, win) -> None:
+    """Rung C2: the mountain tool on the pinned 3D page -- a ghost that passes every gate, one a gate refuses (its
+    mark drawn where), and one the footprint preview refuses (it reaches the summit's rock) before any job runs."""
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    doc = win.world_doc
+    seams, runner = _mountain_seams()
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._mountain_runner, doc._mountain_seams = drafts, runner, seams
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        mt = doc.open_mountain(sync=True)
+        view = doc._view3d.view
+        for name, key in (("", "pass"), ("-refused", "refused"), ("-warn", "warn")):
+            x, z = MOUNTAIN_SPOTS[key]
+            mt.place(x, z, 0.0)
+            mt._timer.stop()
+            mt._check()
+            if view is not None:
+                gy = mt._ix.ground_y(x, z) or 0.0
+                view.focus(x, z, dist=80.0, y=gy)
+                view.camera.yaw, view.camera.pitch = 20.0, 38.0
+                view.update()
+            _settle(12)
+            _grab(ctx, f"world-3d-mountain{name}", win)
+    finally:
+        V.load_scene = orig
+
+
 def _snap_forest_states(ctx: _Ctx, win, doc) -> None:
     ft, view = doc._forest, doc._view3d.view
     ft._on_reload = lambda x, z: None                    # the dev checkout's Show in game, offered
@@ -613,6 +703,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             return
         if state == "3d-forest":
             _snap_world_forest(ctx, win)
+            _close(win)
+            return
+        if state == "3d-mountain":
+            _snap_world_mountain(ctx, win)
             _close(win)
             return
         _settle()
