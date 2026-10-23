@@ -608,7 +608,7 @@ scenery must be re-authored *together*.
   src (704,256)`, tier-r `CALLBACK-OPS.md` addendum 10), so a repaint there is rewritten from
   `x704_y256` every frame the blit runs and could never show, whatever the readers do. Independently,
   the plugin run headless on ef407 executed 252 DR_MOVE blits into (704,384) from (704,256) over
-  native frames 85–228. Had the cast run on `x704_y384` and shown nothing, the null would have been
+  native frames 85–211 (`headless/README.md` HX5). Had the cast run on `x704_y384` and shown nothing, the null would have been
   charged to `linear-add-v1`: a second mechanism producing the exact silent failure this cast exists
   to rule out. The kit now refuses that row by name (`acknowledge_scroll_blit_destination`).
   **Paint the SOURCE.** `x704_y256` is editable and gains one arriving reader of its own; op 144 copies

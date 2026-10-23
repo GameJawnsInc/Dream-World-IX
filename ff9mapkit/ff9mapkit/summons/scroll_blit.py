@@ -22,8 +22,8 @@ as seven loose integers, so it yields PER-CELL verdicts -- and it was never in t
 THE MEASUREMENT (tier-r ADDENDUM 10, ``drmove_cells.py``): **59 containers, 167 sites, 0 excluded**
 (every period folded -- a complete static picture), against 198 editable scenery cells: **20 containers
 / 88 cells are DESTINATIONS** and 19 / 82 are SOURCES. Independently, running the plugin headless on
-ef407 executed **252 DR_MOVE blits into (704,384) from (704,256) over native frames 85-228** -- the
-static site is the one that runs.
+ef407 executed **252 DR_MOVE blits into (704,384) from (704,256) over native frames 85-211** -- the
+static site is the one that runs (``studies/custom-summons/headless/``, its census row for ef407).
 
 WHAT IT DOES NOT ESTABLISH -- and why the refusal has a key: **reachability per cast.** A blit rewrites
 its band only while it runs, and ef211's own cast ladder, read against this table after the fact, has
@@ -318,7 +318,7 @@ MEASUREMENT = (
 #: the one container on which a static site has been seen to EXECUTE.
 EF407_EXECUTED = (
     "ON ef407 THE STATIC SITE IS THE ONE THAT RUNS: the plugin, run headless, executed 252 DR_MOVE "
-    "blits into (704,384) from (704,256) over native frames 85-228")
+    "blits into (704,384) from (704,256) over native frames 85-211")
 
 #: what the table does not establish -- the reason the refusal has a key at all -- with the in-game
 #: record on BOTH sides of it, because a caveat that quotes only the evidence for its own refusal is
@@ -330,8 +330,10 @@ REACHABILITY = (
     "REACHABILITY IS NOT ESTABLISHED PER CAST: these are static call sites and a blit rewrites its "
     "band only while it runs.  ef211's cast ladder has it both ways -- the ink and punch wheels on "
     "(704,256), a FULL destination fed from (704,384), were both INVISIBLE while stripes on "
-    "(704,384) banded the dome on screen, but cast 2b's bold wheel, wholly inside the (576,368) "
-    "band, still eroded the vortex smoke at burst peak, so that blit is not running in that phase")
+    "(704,384) banded the dome on screen (headless, that blit runs over frames 235-284, exactly the "
+    "frames the 8bpp page sampling (704,256) draws), but cast 2b's bold wheel, wholly inside the "
+    "(576,368) band, still eroded the vortex smoke at burst peak, so that blit (headless frames "
+    "47-157) is not running in that phase")
 
 #: what saying :data:`ACK_KEY` means, printed on every build that uses it.
 ACK_WARNING = (
