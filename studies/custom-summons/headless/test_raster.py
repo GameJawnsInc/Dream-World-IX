@@ -230,6 +230,27 @@ def test_15bpp_routing_blur_vs_generated():
     assert r.texture_for(high).kind == R.KIND_GENERATED
 
 
+def test_the_tracker_sees_a_copy_the_decode_missed_and_the_sibling_write_that_refreshes_it():
+    """An 8bpp page keyed at x640 sampling column 704: a DR_MOVE into (704,256) after the decode is a
+    STALE read (ClearKey drops only the write's own column); one into column 640 first refreshes it."""
+    mesh = ft4(0, 0, 16, 16, tp=tpage(tx=10, ty=1, tp=1), uv=(130, 0, 146, 16))
+    mv = lambda x: (0xE7, body(0xE7000000, (x << 16) | 384, (64 << 16) | 128, (x << 16) | 256), 0)  # noqa: E731
+
+    def tracked(copies):
+        r, st = renderer(), R.Stats()
+        r.cache.track()
+        for f, prims in enumerate(([mesh], copies + [mesh], copies + [mesh]), 1):
+            r.render(builder().build(prims)[0], f, False, st)
+        assert len(st.stale) == 1
+        return next(iter(st.stale.values()))
+
+    alone = tracked([mv(704)])
+    assert alone["stale_reads"] == 2 and dict(alone["stale_cells"]) == {"x704_y256": 2}
+    assert dict(alone["stale_kinds"]) == {"DR_MOVE": 2} and alone["page"] == "x640_y256@8"
+    sibling = tracked([mv(640), mv(704)])
+    assert sibling["stale_reads"] == 0 and sibling["copy_reads"] == 2, "ef407's shape: the 640 roll refreshes"
+
+
 def test_watch_charges_each_pixel_to_the_cell_it_read():
     """An 8bpp page keyed at x640 reads column 704 for u >= 128; ``watch`` maps the two on screen."""
     page = tpage(tx=10, ty=1, tp=1)

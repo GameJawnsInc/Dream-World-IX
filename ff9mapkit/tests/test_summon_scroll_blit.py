@@ -216,6 +216,74 @@ def test_the_report_never_reads_clean_on_a_destination_and_the_class_says_what_i
     assert "StoreImage" in RP.program_class(211)[1] and "SCROLL BLITS" in RP.program_class(211)[1]
 
 
+# ---------------------------------------------------------------- (4b) the refresh law
+STALE = SB.RefreshRead(verdict="READ_STALE", stale_reads=32, reads=32, pages=("x640_y256@8",))
+FROZEN = SB.RefreshRead(verdict="MIXED", stale_reads=16, reads=17, pages=("x640_y256@8",))
+
+
+def _refresh(monkeypatch, read):
+    monkeypatch.setitem(SB.REFRESH, (999,) + FULL.dst + FULL.size, read)
+
+
+def test_the_refresh_table_is_the_census_and_closes_over_the_site_table():
+    assert (SB.REFRESH_FRESH, SB.REFRESH_MIXED, SB.REFRESH_STALE) == (103, 9, 3)
+    assert SB.REFRESH_PAIRS == sum(len(bs) for bs in SB.SCROLL_BLITS.values()) == 115
+    ef499 = [b for b in SB.blits(499) if b.dst == (512, 256)][0]
+    assert ef499.refresh.verdict == "READ_STALE" and ef499.refresh.pages == ("x448_y256@8",)
+    assert [b.refresh for b in SB.blits(407)] == [None, None], \
+        "ef407's copy is refreshed by its own column-640 roll -- the gain-half cast was seen"
+    # every READ_STALE pair is a band in a LATER column of the multi-column page that samples it
+    for (ef, x, y, w, h), r in SB.REFRESH.items():
+        if r.verdict == "READ_STALE":
+            assert all(x // 64 * 64 > int(pg.split("_")[0][1:]) for pg in r.pages), (ef, x, r.pages)
+    assert "x448_y256@8" in ef499.refresh.describe() and "32 of 32" in ef499.refresh.describe()
+
+
+def test_a_destination_on_a_stale_pair_still_refuses_and_says_the_premise_inverts(tmp_path, blits,
+                                                                                monkeypatch):
+    blits(FULL)
+    _refresh(monkeypatch, STALE)
+    blob = build_scenery_container()
+    p = _cell(blob, 704, 384)
+    src = _edit(tmp_path, blob, p)
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, [_row(p, src)]), "?", blob=blob)
+    msg = str(e.value)
+    assert msg.startswith("SCROLL-BLIT DESTINATION, cell.s0.x704_y384:"), "headless is not a cast"
+    assert "INVERTS THE PREMISE" in msg and "DOES show" in msg and "x640_y256@8" in msg
+    b = RP.build(_spec_dict(blob, [_row(p, src, **{SB.ACK_KEY: True})]), "?", blob=blob)
+    note = "  ".join(b.enabled[0].hazard_notes)
+    assert "SCROLL-BLIT DESTINATION, acknowledged" in note and "INVERTS THE PREMISE" in note
+    man = RP.export_art(blob, 999, tmp_path / "art", overlays=False)
+    rec = {e["name"]: e["scroll_blit"] for e in man["scenery"]}
+    assert "INVERTS THE PREMISE" in rec["cell.s0.x704_y384"]["destination"][0]["refresh"]
+    sc = (tmp_path / "art" / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    row = sc.split('name = "cell.s0.x704_y384"')[1].split("[[reskin.texel]]")[0]
+    assert "INVERTS THE PREMISE" in row, "the scaffold says it before anyone paints"
+
+
+@pytest.mark.parametrize("read, says, never", [
+    (STALE, "does NOT appear at (704,384)", "ALSO appears"),
+    (FROZEN, "FROZEN at one phase", "ALSO appears"),
+    (None, "ALSO appears at (704,384), scrolling", "FROZEN"),
+])
+def test_a_source_disclosure_follows_the_measured_refresh(tmp_path, blits, monkeypatch, read, says,
+                                                          never):
+    blits(FULL)
+    if read is not None:
+        _refresh(monkeypatch, read)
+    blob = build_scenery_container()
+    p = _cell(blob, 704, 256)
+    b = RP.build(_spec_dict(blob, [_row(p, _edit(tmp_path, blob, p))]), "?", blob=blob)
+    note = "  ".join(b.enabled[0].hazard_notes)
+    assert "SCROLL-BLIT SOURCE (a disclosure, not a refusal)" in note
+    assert says in note and never not in note
+    RP.export_art(blob, 999, tmp_path / "art", overlays=False)
+    sc = (tmp_path / "art" / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    row = sc.split('name = "cell.s0.x704_y256"')[1].split("[[reskin.texel]]")[0]
+    assert says in " ".join(row.replace("#", " ").split()), "the scaffold says the same before painting"
+
+
 # ---------------------------------------------------------------- (5) the corpus case
 @needs_corpus
 def test_ef407s_named_cast_cell_refuses_and_names_the_source(tmp_path):

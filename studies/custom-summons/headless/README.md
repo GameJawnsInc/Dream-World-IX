@@ -123,6 +123,7 @@ before it's a statement about the container.**
 py -I raster.py run --ef 227 --frames 82,150,300 --scale 2      # PNGs + visible cells (SCRATCH)
 py -I raster.py diff --ef 211 --b <edited container> --frames 230-290 --out <SCRATCH dir>
 py -I raster.py routes --jobs 6                                 # every container: where each key reads from
+py -I stale_census.py [--only 499] [--control]                  # every container: is each copy ever SEEN?
 py -I raster.py calibrate --ef 227 --log <s48 probe log> [--offset 19]   # in-game f vs headless f+19
 py -I rx_gates.py [--battery]                                    # RX0-RX3 (+ RX4, the owner-verdict battery)
 ```
@@ -184,6 +185,17 @@ reaching the screen only as speckle on saturated ice (≤ 8.6% of pixels, f214�
   real ones are **Stop's (448,256)** and **Carbuncle's (576,256) in all four gem variants (ef177 / ef493–495),
   frames 181–211**, read from VRAM before ef177 first renders into the target at f265. Those are the only
   places a 15bpp repaint can reach the screen as painted.
+- ★ **THE REFRESH LAW: a VRAM copy can run every frame and never reach the screen.** Memoria refreshes a
+  decoded page only for a write whose origin is in its own column, so a copy into an 8bpp page's second
+  column changes VRAM and leaves the decode as it was. `run(track=True)` stamps every write and decode
+  and charges each read of a texel written after its decode; `stale_census.py` ran it over all 372
+  containers (0 errors). Of the 115 op-144 rect pairs: **103 read fresh, 9 MIXED** (refreshed once,
+  then frozen, or stale on some readers), **3 READ_STALE** (ef131/ef250 (704,384), ef499 (512,256)) --
+  every bad one a band in a page's later column. No LoadImage/MoveImage write is ever read stale. The
+  falsifier: ef407 with column 640's ClearKey suppressed reads (704,384) stale. And the inversion: ef499's
+  `x512_y256`, which the kit refused as a destination, repainted offline with the key, shows on 23 frames
+  (up to 25,347 px) -- the stale decode keeps it. The kit now carries the table
+  (`scroll_blit.REFRESH`, gate S8) and says so in its refusal and disclosures.
 - ★ **AN EDIT PRE-RUN: ef407's gained cell reaches the screen and scrolls**
   (`tier-w/ef407_gain_prerun.py`). Bars painted into `x704_y256`, a cell the U2 adoption licenses with no
   bound reader, change 110 of 146 frames (f75–192); 99.9 % of the changed pixels come through the op-144
@@ -269,4 +281,5 @@ tests: code plus counts, with zero Square Enix bytes.
 | `test_sfx_host.py` | 23 tests; one is install-gated and says why it skips |
 | `raster.py` | the managed-renderer port: run / diff / routes / calibrate |
 | `rx_gates.py` | the calibration gates RX0–RX4 |
-| `test_raster.py` | 26 tests on synthetic primitives and the gate scoring; one is install-gated |
+| `stale_census.py` | the refresh census: every copy joined to the reads that see it, with its falsifier |
+| `test_raster.py` | 27 tests on synthetic primitives and the gate scoring; one is install-gated |

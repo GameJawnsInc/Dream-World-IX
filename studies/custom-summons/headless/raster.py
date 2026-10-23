@@ -192,6 +192,11 @@ def _rgba_of(px: np.ndarray) -> np.ndarray:
     return out
 
 
+#: the VRAM writes the tracker stamps: SFXRender DR_MOVE (op 144's scroll blits), and the two host callbacks
+WRITE_DR_MOVE, WRITE_LOAD, WRITE_MOVE = 1, 2, 3
+WRITE_NAMES = {WRITE_DR_MOVE: "DR_MOVE", WRITE_LOAD: "LoadImage", WRITE_MOVE: "MoveImage"}
+
+
 class TextureCache:
     """PSXTextureMgr.list: SST_MAX_TEXTURE keyed 256x256 decodes, generated on first use at render time.
 
@@ -204,6 +209,24 @@ class TextureCache:
         self.entries: Dict[int, Tuple[int, int, np.ndarray]] = {}     # key -> (tx, ty, rgba float [256,256,4])
         self.generated = 0
         self.full = 0
+        #: THE WRITE-ORDER TRACKER (``track()``, off by default): the stamp and kind of the last write to
+        #: every VRAM halfword, and the stamp each decode was made at.  A read whose sampled texels carry
+        #: a newer stamp than its decode shows an image OLDER than VRAM -- ClearKey missed the write.
+        self.seq = 0
+        self.wstamp: Optional[np.ndarray] = None
+        self.wkind: Optional[np.ndarray] = None
+        self.decoded_at: Dict[int, int] = {}
+
+    def track(self) -> None:
+        self.wstamp = np.zeros(self.vram.shape, np.int64)
+        self.wkind = np.zeros(self.vram.shape, np.uint8)
+
+    def stamp(self, x: int, y: int, w: int, h: int, kind: int) -> None:
+        if self.wstamp is None or w <= 0 or h <= 0:
+            return
+        self.seq += 1
+        self.wstamp[y:y + h, x:x + w] = self.seq
+        self.wkind[y:y + h, x:x + w] = kind
 
     def clear_key(self, x: int, y: int) -> None:
         tx, ty = x >> 6, y >> 8
@@ -222,6 +245,7 @@ class TextureCache:
         tx, ty, tp = (key >> 16) & 0xF, (key >> 20) & 1, (key >> 21) & 3
         rgba = self.decode(tp, ty, tx, clut_y, clut_x).astype(np.float32) / 255.0
         self.entries[key] = (tx, ty, rgba)
+        self.decoded_at[key] = self.seq
         self.generated += 1
         return rgba
 
@@ -586,6 +610,8 @@ class Stats:
         #: screen pixels some fragment sampling that cell changed, so a diff can be charged to a cell
         self.watch: set = set()
         self.watch_masks: Dict[str, np.ndarray] = {}
+        #: mesh key -> what the write-order tracker saw it read (``run(track=True)``); see ``stale_reads``
+        self.stale: Dict[str, dict] = {}
 
     def route(self, key: int, kind: str, frame: int) -> None:
         tx, ty, tp = (key >> 16) & 0xF, (key >> 20) & 1, (key >> 21) & 3
@@ -681,6 +707,8 @@ class Renderer:
                 src = self.texture_for(m) if is_texture(m.key) else None
                 if stats is not None and is_texture(m.key):
                     stats.route(m.key, src.kind if src else "NULL", frame)
+                    if src is not None and src.kind == KIND_IMAGE and self.cache.wstamp is not None:
+                        self.stale_reads(m, stats, frame)
                 if is_texture(m.key) and src is None:
                     if stats is not None and draw:
                         stats.mesh_rows.append(self._row(frame, i, m, None, 0, 0, rt))
@@ -693,6 +721,62 @@ class Renderer:
         if screen is not None:
             self.prev_screen = screen.color.copy()
         return screen
+
+    def stale_reads(self, m: Mesh, stats: Stats, frame: int) -> None:
+        """Charge this read of ``m.key``'s decode against the write-order tracker, triangle by triangle:
+        a triangle whose UV box holds a texel written AFTER the decode is a STALE read (the screen shows
+        what the texel held before that write).  Also counted: reads of texels a COPY wrote (DR_MOVE or
+        MoveImage), stale or not, so "never read" and "read fresh" stay apart."""
+        if not m.tris or not m.uv:
+            return
+        key, c = m.key, self.cache
+        tx, ty, tp = (key >> 16) & 0xF, (key >> 20) & 1, (key >> 21) & 3
+        div = {0: 4, 1: 2}.get(tp, 1)
+        X0, Y0, W = tx * 64, ty * 256, 256 // div
+        ws, wk = c.wstamp[Y0:Y0 + 256, X0:X0 + W], c.wkind[Y0:Y0 + 256, X0:X0 + W]
+        uv = np.clip(np.asarray(m.uv, np.float64), 0, 255)[np.asarray(m.tris, np.int64)]   # (T, 3, 2)
+        u0 = (np.floor(uv[:, :, 0].min(1)).astype(np.int64) // div).clip(0, ws.shape[1] - 1)
+        u1 = (np.floor(uv[:, :, 0].max(1)).astype(np.int64) // div).clip(0, ws.shape[1] - 1)
+        v0 = np.floor(uv[:, :, 1].min(1)).astype(np.int64).clip(0, ws.shape[0] - 1)
+        v1 = np.floor(uv[:, :, 1].max(1)).astype(np.int64).clip(0, ws.shape[0] - 1)
+
+        def hits(mask):
+            I = np.zeros((mask.shape[0] + 1, mask.shape[1] + 1), np.int64)
+            I[1:, 1:] = mask.cumsum(0).cumsum(1)
+            return (I[v1 + 1, u1 + 1] - I[v0, u1 + 1] - I[v1 + 1, u0] + I[v0, u0]) > 0
+
+        def covered(sel):
+            out = np.zeros(ws.shape, bool)
+            for a, b, cc, d in zip(v0[sel], v1[sel], u0[sel], u1[sel]):
+                out[a:b + 1, cc:d + 1] = True
+            return out
+
+        def count_cells(name, mask):
+            ys, xs = np.nonzero(mask)
+            for cid in np.unique((ys // 128) * 16 + xs // 64):
+                rec[name]["x%d_y%d" % (X0 + int(cid % 16) * 64, Y0 + int(cid // 16) * 128)] += 1
+
+        copied = (wk == WRITE_DR_MOVE) | (wk == WRITE_MOVE)
+        newer = ws > c.decoded_at.get(key, 0)
+        t_copy, t_stale = hits(copied), hits(newer)
+        if not t_copy.any() and not t_stale.any():
+            return
+        rec = stats.stale.setdefault("%08X" % key, {
+            "page": "x%d_y%d@%d" % (X0, Y0, {0: 4, 1: 8}.get(tp, 15)), "copy_reads": 0, "stale_reads": 0,
+            "stale_kinds": Counter(), "copy_frames": [frame, frame], "stale_frames": None,
+            "copy_cells": Counter(), "stale_cells": Counter()})
+        if t_copy.any():
+            rec["copy_reads"] += 1
+            rec["copy_frames"][1] = frame
+            count_cells("copy_cells", covered(t_copy) & copied)
+        if t_stale.any():
+            rec["stale_reads"] += 1
+            sf = rec["stale_frames"]
+            rec["stale_frames"] = [frame, frame] if sf is None else [sf[0], frame]
+            area = covered(t_stale) & newer
+            for k in np.unique(wk[area]):
+                rec["stale_kinds"][WRITE_NAMES.get(int(k), str(int(k)))] += 1
+            count_cells("stale_cells", area)
 
     @staticmethod
     def _row(frame, i, m: Mesh, src, cov, vis, rt) -> dict:
@@ -712,6 +796,7 @@ class Renderer:
             if min(d, s) < 0 or max(d, s) + rw > flat.size:
                 raise RasterFault("IndexOutOfRange in MoveImage (%d,%d)->(%d,%d)" % (rx, ry, x, y))
             flat[d:d + rw] = flat[s:s + rw].copy()
+        self.cache.stamp(x, y, rw, rh, WRITE_DR_MOVE)
         self.cache.clear_key(x, y)
 
     # ---- SFXMesh.GetTexture
@@ -932,8 +1017,11 @@ class RasterHost(H.Host):
             self.bg_capture = struct.unpack("<7i", self._get(p, 28))
         r = super()._dispatch(full, a0, a1, a2, a3, p)
         if code == 100:
+            self.cache.stamp(a0, a1, a2, a3, WRITE_LOAD)
             self.cache.clear_key(a0, a1)
         elif code == 102:
+            sx, sy, w, h, _, _ = self.vram_ops[-1][2]
+            self.cache.stamp(a0, a1, w, h, WRITE_MOVE)
             self.cache.clear_key(a0, a1)
         return r
 
@@ -954,14 +1042,19 @@ def parse_frames(spec: Optional[str]) -> Optional[set]:
 
 
 def run(bin_dir: Path, blob: bytes, effnum: int, *, frames: Optional[set] = None, scale: int = 1,
-        max_frames: int = 8000, on_frame=None, keep_prims: bool = False, watch: Iterable[str] = ()) -> dict:
+        max_frames: int = 8000, on_frame=None, keep_prims: bool = False, watch: Iterable[str] = (),
+        track: bool = False) -> dict:
     """Play ``blob`` through the plugin and render it. ``frames`` = the frames to draw (None = every one).
 
     ``on_frame(frame, screen_target_or_None, cmds, stats)`` is called after each frame. ``watch`` names
-    cells (``"x704_y384@8"``) whose screen footprint ``stats.watch_masks`` holds for each drawn frame."""
+    cells (``"x704_y384@8"``) whose screen footprint ``stats.watch_masks`` holds for each drawn frame.
+    ``track`` arms the write-order tracker: ``stats.stale`` then says, per mesh key, which reads showed
+    a decode older than a write to the texels they sample (``Renderer.stale_reads``)."""
     H._install_no_dialog(bin_dir)
     dll = C.CDLL(str(bin_dir / H.PLUGIN))
     host = RasterHost(effnum, mode="rework")
+    if track:
+        host.cache.track()
     CB = C.CFUNCTYPE(C.c_int32, C.c_int32, C.c_int32, C.c_int32, C.c_int32, C.c_int32, C.c_void_p)
     cb = CB(host.callback)
     dll.SFX_InitSystem.argtypes = [CB]

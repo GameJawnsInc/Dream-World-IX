@@ -1,4 +1,4 @@
-r"""THE SCROLL-BLIT FOLD-IN -- `py scroll_blit_gates.py` prints S1..S6 with PASS/FAIL.
+r"""THE SCROLL-BLIT FOLD-IN -- `py scroll_blit_gates.py` prints S1..S8 with PASS/FAIL.
 
 tier-r's DR_MOVE check (`tier-r/drmove_cells.py`, `CALLBACK-OPS.md` addendum 10) found that HLE op 144
 -- a VRAM scroll blit -- rewrites 88 editable scenery cells in 20 containers every frame it runs, so a
@@ -35,6 +35,13 @@ S7  THE EXECUTED-BLIT CROSS-CHECK.  The headless host's census (`headless/sfx_ho
     the table does NOT hold must be exactly the pinned OPEN GAP -- so the gap cannot grow silently.
     The census is a cross-check and never the refusal's authority: the host stands actors at the
     origin with no battle camera, so a cell it never saw is "not observed", not "safe".
+S8  THE REFRESH LAW.  `headless/stale_census.py` (SCRATCH `headless/raster/stale/stale.json`) charged
+    every read of a copied band against the raster's write-order tracker; the shipped
+    `scroll_blit.REFRESH` must equal it pair for pair (verdict, stale reads, reads, reading pages), the
+    counts must close (103 fresh / 9 mixed / 3 stale, none unread, none unrun, 372 containers, no
+    error), the FALSIFIER must have fired (ef407 with column 640's ClearKey suppressed reads (704,384)
+    stale), no LoadImage/MoveImage write may be read stale, and the one editable cell on a stale pair
+    -- ef499 `x512_y256` -- must refuse saying the premise inverts.
 
 Reads `C:\gd\SCRATCH\summon-format` ONLY (S7 its `headless/census.json`) -- no install read, no
 deploy, no install write, no commit.
@@ -385,6 +392,48 @@ def s7_executed_crosscheck() -> None:
     chk("S7 the open gap is exactly the pinned one", sorted(gap), sorted(KNOWN_GAP))
 
 
+STALE_CENSUS = os.path.join(CORPUS, "headless", "raster", "stale", "stale.json")
+
+
+def s8_refresh() -> None:
+    if not os.path.isfile(STALE_CENSUS):
+        _FAILS.append("S8: no refresh census at %s -- run studies/custom-summons/headless/stale_census.py"
+                      % STALE_CENSUS)
+        return
+    with open(STALE_CENSUS, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    measured = {}
+    for r in doc["sites"]:
+        if r["verdict"] in ("READ_STALE", "MIXED"):
+            pages = tuple(sorted({rd.split(" ", 1)[1] for rd in r["readers"]}))
+            measured[(r["effect"],) + tuple(r["dst"])] = (r["verdict"], r["stale_cell_reads"],
+                                                         r["cell_reads"], pages)
+    kit = {k: (v.verdict, v.stale_reads, v.reads, tuple(sorted(v.pages))) for k, v in SB.REFRESH.items()}
+    counts = {v: sum(1 for r in doc["sites"] if r["verdict"] == v)
+              for v in ("READ_FRESH", "MIXED", "READ_STALE", "NOT_READ", "NO_RUN")}
+    print("   census: %d containers, %d errors, rect pairs %s" % (doc["containers"], len(doc["errors"]),
+                                                               counts))
+    chk("S8 the refresh table == the census, pair for pair", kit, measured)
+    chk("S8 the verdict counts close", counts,
+        {"READ_FRESH": SB.REFRESH_FRESH, "MIXED": SB.REFRESH_MIXED, "READ_STALE": SB.REFRESH_STALE,
+         "NOT_READ": 0, "NO_RUN": 0})
+    chk("S8 the census covered the corpus with no error", (doc["containers"], doc["errors"]), (372, []))
+    site = [b for b in SB.blits(407) if b.dst == (704, 384)][0].describe()
+    print("   falsifier (ef407, column 640's ClearKey suppressed): %s" % doc["control"].get(site))
+    chk("S8 THE FALSIFIER fired: (704,384) reads stale without the sibling roll",
+        doc["control"].get(site), "READ_STALE")
+    chk("S8 no LoadImage/MoveImage write is ever read stale", doc["other_stale"], [])
+    blob = _load(499)
+    page = _page(blob, 499, "cell.s0.x512_y256")
+    chk("S8 ef499 x512_y256 sits on the READ_STALE pair",
+        [b.refresh.verdict if b.refresh else None for b in page.hazards.scroll_dst], ["READ_STALE"])
+    raw = blob[page.page_offset:page.page_offset + page.page_bytes]
+    art = _png(blob, page, _bump_halfwords(blob, page, raw, lambda c, r: True), "all")
+    fired, msg = _refuses(RP.build, _spec(blob, 499, _row(page, art)), "?", blob=blob)
+    chk("S8 ...and its refusal stands, saying the premise inverts",
+        fired and "INVERTS THE PREMISE" in msg and "x448_y256@8" in msg, True)
+
+
 GATES = [
     ("S1", "THE RE-DERIVATION PIN -- every site re-parsed and compared", s1_rederive),
     ("S2", "THE CORPUS VERDICT -- the kit's join == the instrument's, == the pins", s2_two_instruments),
@@ -394,6 +443,8 @@ GATES = [
     ("S6", "PROVENANCE -- coordinates and counts, never a stock byte", s6_provenance),
     ("S7", "THE EXECUTED-BLIT CROSS-CHECK -- 88/88 run headless; the open gap pinned",
      s7_executed_crosscheck),
+    ("S8", "THE REFRESH LAW -- the measured stale/frozen pairs == the kit's table; falsifier fired",
+     s8_refresh),
 ]
 
 

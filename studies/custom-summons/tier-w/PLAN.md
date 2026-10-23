@@ -676,6 +676,15 @@ scenery must be re-authored *together*.
   text), `Actions.csv` = `a6bc2de3…` rows 192–195, 30301 unregistered and 30300 kept; `DictionaryPatch`
   holds the same 242 lines, reordered (30300's lines re-appended by the surgical revert). The minted
   Models/Animations trees stay on disk unregistered — inert, as `deploy_field` documents.
+  **★ FOLLOW-UP — THE REFRESH LAW, FOLDED INTO THE KIT.** The cast's hidden dependency generalised:
+  `headless/stale_census.py` (raster's write-order tracker, all 372 containers, falsifier fired) found
+  103 of the 115 op-144 rect pairs read fresh, 9 MIXED (frozen after one decode) and 3 READ_STALE, every
+  bad one a band in the later column of the page that reads it. On today's edit surface no stale pair
+  has an editable SOURCE, so no "ALSO appears" disclosure was false; the one editable cell on a stale
+  pair is ef499's DESTINATION `x512_y256`, and its refusal's premise inverts — repainted offline with
+  the key it shows on 23 frames, because the stale decode keeps it. `scroll_blit.REFRESH` carries the
+  table, `repaint` says it in the refusal, the acknowledged note, the source disclosure and the
+  scaffold, and `scroll_blit_gates.py` S8 re-derives it. The refusal keeps its key: headless is not a cast.
   **(2) SHOULD THE GAIN HALF BE DECLINABLE?** Today `texel_page` / `export_art` / `build` hard-code
   `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface, so an author who distrusts
   `linear-add-v1` on THEIR container cannot ask for the pre-adoption reading. Recovery is EXACT at the

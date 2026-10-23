@@ -43,6 +43,26 @@ THE JOIN, AND ITS TWO DELIBERATE COARSENESSES
   fit VRAM at all (ef022, ef095, ef222, ef418). Those name no source cell, and a remedy says so rather
   than naming one (:attr:`ScrollBlit.src_in_vram`).
 
+THE REFRESH LAW -- A COPY CAN RUN AND STILL NOT REACH THE SCREEN
+-----------------------------------------------------------------
+Memoria decodes a texture page once and keeps the decode until ``PSXTextureMgr.ClearKey`` drops it,
+and ClearKey drops only the pages whose ORIGIN column is the write's origin column. An 8bpp page spans
+two 64-halfword columns (a 15bpp page four), so a copy into a page's SECOND column changes VRAM and
+leaves the decode the screen samples as it was -- unless something else writes the first column. The
+headless raster's write-order tracker (``studies/custom-summons/headless/stale_census.py``) ran all 372
+containers and joined every read of a copied band to this table (:data:`REFRESH`): of the 115 distinct
+rect pairs, **103 read fresh, 9 MIXED** (refreshed once, then stale: the band shows FROZEN at one phase,
+or stale on some readers and fresh on others) **and 3 READ_STALE** (no read of the copied band is ever
+of a decode newer than the copy). Every non-fresh pair is a band in the second column of the page that
+reads it. Its falsifier: ef407 with column 640's ClearKey suppressed turns (704,384) READ_STALE -- the
+gain-half cast was seen in game only because ef407's other roll writes column 640 every frame.
+Two consequences the lane states rather than hides: on a non-fresh pair a SOURCE paint does not scroll
+through the destination (and on a stale one never reaches it), and on a READ_STALE pair the destination
+refusal's premise inverts -- the screen keeps what the band held when its page was first decoded, before
+any copy, so a repaint THERE shows, held still. The one editable cell this touches, ef499's
+``cell.s0.x512_y256``, was repainted offline with the key: the raster shows it on 23 frames, up to 25,347
+pixels a frame. Headless is not a cast: the refusal keeps its key and says what was measured.
+
 WHY THIS IS A CACHED CONSTANT, AND WHAT PINS IT
 -----------------------------------------------
 The derivation needs tier-r's disassembler and annotator over the container's id-3 program images --
@@ -69,6 +89,8 @@ __all__ = [
     "ScrollBlit", "SCROLL_BLITS", "blits", "cell_hits", "cell_of", "cells_under",
     "rewritten_halfwords",
     "ACK_KEY", "MECHANISM", "MEASUREMENT", "EF407_EXECUTED", "REACHABILITY", "ACK_WARNING",
+    "RefreshRead", "REFRESH", "REFRESH_PAIRS", "REFRESH_FRESH", "REFRESH_MIXED", "REFRESH_STALE",
+    "REFRESH_LAW",
 ]
 
 #: every op-144 call site in the corpus, and the containers they sit in -- asserted below.
@@ -250,6 +272,12 @@ class ScrollBlit:
         x0 = self.src[0] + (band[0] - self.dst[0])
         return (x0, self.src[1], band[2], self.size[1])
 
+    @property
+    def refresh(self) -> Optional["RefreshRead"]:
+        """The measured refresh verdict for this pair, or None where every read of the copy was fresh
+        (:data:`REFRESH`)."""
+        return REFRESH.get((self.effect, self.dst[0], self.dst[1], self.size[0], self.size[1]))
+
     def describe(self) -> str:
         return ("op 144 dst (%d,%d) %dx%d <- src (%d,%d)%s, %d site(s) in chunk %s"
                 % (self.dst[0], self.dst[1], self.size[0], self.size[1], self.src[0], self.src[1],
@@ -299,6 +327,53 @@ def rewritten_halfwords(dst: Tuple[ScrollBlit, ...], cell: Tuple[int, int]) -> F
                 out.update(row + x - cell[0] for x in range(o[0], o[0] + o[2]))
     return frozenset(out)
 
+
+@dataclass(frozen=True)
+class RefreshRead:
+    """What the headless refresh census measured for one rect pair whose copy is NOT always seen."""
+    verdict: str                                     # "READ_STALE" or "MIXED"
+    stale_reads: int                                 # reads of the copied band from a decode older than the copy
+    reads: int                                       # every read of the copied band
+    pages: Tuple[str, ...]                           # the pages that read it, "x448_y256@8"
+
+    def describe(self) -> str:
+        return ("%s: %d of %d reads of the copied band were of a decode older than the copy, through "
+                "%s -- the page%s that sample%s it %s keyed at another column, and Memoria refreshes a "
+                "decode only for a write whose origin lies in its own column (headless refresh census)"
+                % (self.verdict, self.stale_reads, self.reads, " / ".join(self.pages),
+                   "" if len(self.pages) == 1 else "s", "s" if len(self.pages) == 1 else "",
+                   "is" if len(self.pages) == 1 else "are"))
+
+
+# ``(effect, dst x, dst y, width, period, verdict, stale reads, reads, reader pages)`` -- every rect pair
+# whose copy is not always seen, from ``stale_census.py`` over all 372 containers.  Re-derived and
+# asserted by ``scroll_blit_gates.py`` S8; the 103 fresh pairs are the complement.
+_REFRESH_ROWS = (
+    (6, 576, 384, 64, 128, "MIXED", 16, 17, ("x512_y256@8",)),
+    (62, 576, 384, 64, 128, "MIXED", 16, 17, ("x512_y256@8",)),
+    (125, 512, 256, 32, 128, "MIXED", 176, 201, ("x448_y256@8", "x512_y256@4")),
+    (131, 608, 256, 32, 240, "MIXED", 116, 118, ("x512_y256@8",)),
+    (131, 704, 384, 64, 64, "READ_STALE", 64, 64, ("x640_y256@8",)),
+    (218, 576, 384, 64, 128, "MIXED", 16, 17, ("x512_y256@8",)),
+    (223, 512, 256, 32, 128, "MIXED", 74, 201, ("x448_y256@8", "x512_y256@4")),
+    (225, 640, 256, 32, 128, "MIXED", 107, 108, ("x576_y256@8",)),
+    (250, 704, 384, 64, 64, "READ_STALE", 59, 59, ("x640_y256@8",)),
+    (418, 576, 256, 48, 128, "MIXED", 29, 30, ("x512_y256@8",)),
+    (429, 512, 256, 32, 64, "MIXED", 69, 70, ("x448_y256@8",)),
+    (499, 512, 256, 64, 128, "READ_STALE", 32, 32, ("x448_y256@8",)),
+)
+REFRESH: Dict[Tuple[int, int, int, int, int], RefreshRead] = {
+    (ef, x, y, w, h): RefreshRead(verdict=v, stale_reads=st, reads=n, pages=pg)
+    for ef, x, y, w, h, v, st, n, pg in _REFRESH_ROWS}
+REFRESH_PAIRS = 115
+REFRESH_FRESH, REFRESH_MIXED, REFRESH_STALE = 103, 9, 3
+
+#: the refresh law in the one sentence a disclosure quotes.
+REFRESH_LAW = (
+    "Memoria refreshes a decoded texture page only for a write whose origin lies in the page's own "
+    "column, so a copy into an 8bpp page's second column can run every frame and never reach the "
+    "screen; over the 115 op-144 rect pairs %d read fresh, %d MIXED, %d READ_STALE"
+    % (REFRESH_FRESH, REFRESH_MIXED, REFRESH_STALE))
 
 #: THE SPEC KEY.  Literal-boolean-only, like every other acknowledgement in this lane.
 ACK_KEY = "acknowledge_scroll_blit_destination"
@@ -359,6 +434,12 @@ assert sum(b.sites for bs in SCROLL_BLITS.values() for b in bs) == SITES
 #: shipped the op's naming on (167/167 against 46.0% on the control population).
 assert all(b.size[0] > 0 and b.dst[0] + b.size[0] <= VRAM_W and b.dst[1] + b.size[1] <= VRAM_H
            for bs in SCROLL_BLITS.values() for b in bs)
+#: the refresh table names real pairs only, and its counts close over the whole table.
+assert sum(len(bs) for bs in SCROLL_BLITS.values()) == REFRESH_PAIRS
+assert all(any((b.effect,) + b.dst + b.size == k for b in SCROLL_BLITS.get(k[0], ())) for k in REFRESH)
+assert sum(r.verdict == "MIXED" for r in REFRESH.values()) == REFRESH_MIXED
+assert sum(r.verdict == "READ_STALE" for r in REFRESH.values()) == REFRESH_STALE
+assert REFRESH_PAIRS - len(REFRESH) == REFRESH_FRESH
 #: ...and the four sites whose folded SOURCE does not fit, named so a fifth cannot appear silently.
 assert sorted({b.effect for bs in SCROLL_BLITS.values() for b in bs
                if not b.src_in_vram}) == [22, 95, 222, 418]

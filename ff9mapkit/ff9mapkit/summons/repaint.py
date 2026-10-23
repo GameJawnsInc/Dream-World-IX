@@ -4129,12 +4129,14 @@ def _scroll_blit_record(hz: "CellHazards", cell: Tuple[int, int]) -> dict:
     return {
         "destination": [{"dst": list(b.dst), "size": list(b.size), "src": list(b.src),
                          "sites": b.sites, "chunks": list(b.chunks),
-                         "band": list(b.dest_overlap(cell)), "remedy": r}
+                         "band": list(b.dest_overlap(cell)), "remedy": r,
+                         "refresh": _refresh_on_destination(b) or None}
                         for b, r in zip(hz.scroll_dst,
                                         hz.scroll_remedy or ("",) * len(hz.scroll_dst))],
         "rewritten_halfwords": len(hz.scroll_rewritten),
         "source": [{"dst": list(b.dst), "size": list(b.size), "src": list(b.src),
-                    "sites": b.sites, "band": list(b.source_overlap(cell))}
+                    "sites": b.sites, "band": list(b.source_overlap(cell)),
+                    "shows": _refresh_on_source(b)}
                    for b in hz.scroll_src],
     }
 
@@ -4632,12 +4634,15 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
             L.append("#   `%s = true` (the key above) lifts it if you judge the blit does not run"
                      % SB.ACK_KEY)
             L.append("#   in your cast -- reachability per cast is not established.")
+            if d.get("refresh"):
+                L += _wrap_comment(d["refresh"], "#   ")
         for d in sbr.get("source", ()):
             L.append("# SCROLL-BLIT SOURCE: op 144 copies VRAM (%d,%d) %dx%d of this cell into"
                      % tuple(d["band"]))
-            L.append("#   (%d,%d) %dx%d every frame it runs -- what you paint there ALSO appears there,"
+            L.append("#   (%d,%d) %dx%d every frame it runs -- a disclosure, not a refusal:"
                      % (d["dst"][0], d["dst"][1], d["size"][0], d["size"][1]))
-            L.append("#   scrolling vertically with wraparound.  A disclosure, not a refusal.")
+            L += _wrap_comment(d.get("shows") or "what you paint there ALSO appears there, scrolling "
+                               "vertically with wraparound", "#   ")
         if len(e["writers"]) > 1:
             L += ["# CO-TRANSFORM: %d writers upload this VRAM cell.  Name EVERY one with its own"
                   % len(e["writers"]),
@@ -5391,6 +5396,33 @@ def _vram_rect(r: "SB.Rect") -> str:
     return "VRAM (%d,%d) %dx%d" % r
 
 
+def _refresh_on_destination(b: "SB.ScrollBlit") -> str:
+    """The measured sentence a DESTINATION verdict carries when its copy is not always seen, or ''."""
+    rf = b.refresh
+    if rf is None:
+        return ""
+    if rf.verdict == "READ_STALE":
+        return ("MEASURED ON THIS PAIR, AND IT INVERTS THE PREMISE: %s.  So the screen keeps what this "
+                "band held when its page was first decoded, before any copy -- a repaint here DOES "
+                "show, held still rather than scrolled.  On this band the key is the expected path "
+                "(%s)" % (rf.describe(), SB.REFRESH_LAW))
+    return ("MEASURED ON THIS PAIR: %s -- on those readers the band shows frozen at the phase of its "
+            "decode (%s)" % (rf.describe(), SB.REFRESH_LAW))
+
+
+def _refresh_on_source(b: "SB.ScrollBlit") -> str:
+    """Where a SOURCE paint shows, given the pair's measured refresh verdict."""
+    rf = b.refresh
+    if rf is None:
+        return ("so what you paint there ALSO appears at (%d,%d), scrolling vertically with "
+                "wraparound" % b.dst)
+    if rf.verdict == "READ_STALE":
+        return ("but it does NOT appear at (%d,%d): %s.  This cell's own readers are the only way "
+                "your paint reaches the screen" % (b.dst[0], b.dst[1], rf.describe()))
+    return ("but at (%d,%d) it shows FROZEN at one phase, or not at all on the stale readers, rather "
+            "than scrolling: %s" % (b.dst[0], b.dst[1], rf.describe()))
+
+
 def _gate_scroll_blit(t: "TexelTarget") -> List[str]:
     """**THE SCROLL-BLIT GATE** -- refuse an edit whose texels an op-144 band REWRITES; disclose a
     source.  Runs after the art read, because the predicate is about THIS edit's changed texels.
@@ -5409,6 +5441,11 @@ def _gate_scroll_blit(t: "TexelTarget") -> List[str]:
 
     A SOURCE hit never refuses: the edit is READ and propagated, so it shows -- in the destination
     band too, scrolling. That is disclosed, never merged with the destination verdict.
+
+    **THE REFRESH LAW** (:data:`~ff9mapkit.summons.scroll_blit.REFRESH`) qualifies both: where the
+    measured census found the destination's readers sampling a decode older than the copy, a source
+    paint does not scroll there (and on a READ_STALE pair never reaches it), and a destination repaint
+    is what stays on screen. The refusal keeps its key and says what was measured.
     """
     hz = t.page.hazards
     if not t.enabled or hz is None or not (hz.scroll_dst or hz.scroll_src):
@@ -5433,31 +5470,34 @@ def _gate_scroll_blit(t: "TexelTarget") -> List[str]:
                          "there (%d of this cell's halfwords are rewritten)"
                          % (what, len(hz.scroll_rewritten)))
         else:
-            lost.append((n, what, remedy))
+            lost.append((n, what, remedy, b))
+    measured = [m for m in (_refresh_on_destination(b) for _n, _w, _r, b in lost) if m]
     if lost and not t.ack_scroll_blit:
         raise RepaintError(
             "SCROLL-BLIT DESTINATION, %s: %s.  %s.  Those texels are byte-correct on disk, deploy "
             "and verify -- and are rewritten every frame the blit runs, so while it runs they never "
             "reach the screen and the null gets charged to whatever else this cast was testing.  "
-            "REMEDY: %s.  %s.  %s.  %s.  If you judge this blit is not running when your cell is "
+            "REMEDY: %s.  %s.  %s.  %s.  %sIf you judge this blit is not running when your cell is "
             "drawn, say `%s = true` on this row -- an acknowledgement is stated, never inferred."
             % (t.name,
                "; ".join("%d of this edit's %d changed halfword(s) lie in %s" % (n, len(changed), w)
-                         for n, w, _r in lost),
+                         for n, w, _r, _b in lost),
                SB.MECHANISM,
-               "; ".join(r for _n, _w, r in lost) or "no source cell could be named",
-               SB.EF407_EXECUTED, SB.MEASUREMENT, SB.REACHABILITY, SB.ACK_KEY))
-    for n, what, _remedy in lost:
+               "; ".join(r for _n, _w, r, _b in lost) or "no source cell could be named",
+               SB.EF407_EXECUTED, SB.MEASUREMENT, SB.REACHABILITY,
+               "".join(m + ".  " for m in measured), SB.ACK_KEY))
+    for n, what, _remedy, b in lost:
+        m = _refresh_on_destination(b)
         notes.append("SCROLL-BLIT DESTINATION, acknowledged: %d of this edit's %d changed "
-                     "halfword(s) lie in %s.  %s" % (n, len(changed), what, SB.ACK_WARNING))
+                     "halfword(s) lie in %s.  %s%s" % (n, len(changed), what, SB.ACK_WARNING,
+                                                      ("  " + m) if m else ""))
     for b in hz.scroll_src:
         band = b.source_overlap(cell)
         notes.append("SCROLL-BLIT SOURCE (a disclosure, not a refusal): %s %s %s of this cell every "
                      "frame and writes it into %s -- %d of this edit's changed halfword(s) are in "
-                     "that band, so what you paint there ALSO appears at (%d,%d), scrolling "
-                     "vertically with wraparound"
+                     "that band, %s"
                      % (b.describe(), "READS", _vram_rect(band), _vram_rect(b.dst_rect),
-                        _inside(band), b.dst[0], b.dst[1]))
+                        _inside(band), _refresh_on_source(b)))
     return notes
 
 

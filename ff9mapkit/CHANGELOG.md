@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `summon-reskin`'s scroll-copy notes follow what the screen actually sees
+- Memoria refreshes a decoded texture only when a write starts in that texture's own column, so an effect's
+  per-frame scroll copy into the second column of an 8bpp page can run and never reach the screen. Measured over
+  all 372 effects: of the 115 copies, 103 are always seen, 9 freeze at one frame, and 3 are never seen.
+- On a copy that freezes or is never seen, painting its source no longer promises "it also appears there,
+  scrolling": the build note and the export scaffold say what happens instead.
+- On a copy that is never seen, the refusal to repaint its destination keeps its key but no longer says the paint
+  can't show: the screen keeps what that band held before the copy, so a repaint there does show, held still.
+  The one editable cell this affects is ef499's `cell.s0.x512_y256`.
+
 ### Changed — one handle table for the relief verbs
 - `world-forest`, `world-mountain` and `world-hill` declare their shape flags once (`ff9mapkit/world/handles.py`):
   the command line, `world-fuse`'s `[[forest]]`/`[[mountain]]`/`[[hill]]` rows and the World tab's cards all read the
