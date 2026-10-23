@@ -446,7 +446,8 @@ class WorldDoc(QWidget):
     _point_done = Signal(object, object, object)   # (the pick it answers, point_info | None, error | None)
 
     def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None, on_teleport=None,
-                 drafts_root=None, forest_runner=None, forest_seams=None, on_reload=None):
+                 drafts_root=None, forest_runner=None, forest_seams=None, on_reload=None,
+                 mountain_runner=None, mountain_seams=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -466,6 +467,9 @@ class WorldDoc(QWidget):
         self._drafts_root = drafts_root            # None -> world.draft.drafts_dir() (tests pin a tmp dir)
         self._forest_runner = forest_runner        # None -> the tool's QProcess runner (tests inject one)
         self._forest_seams = forest_seams or {}    # ForestTool's outline_fn / soup_fn / sync (tests, gui_snap)
+        self._mountain = None                      # the mountain tool (rung C2): built on the first Mountain click
+        self._mountain_runner = mountain_runner    # ...and its seams, as the forest's
+        self._mountain_seams = mountain_seams or {}
         self._on_reload = on_reload                # (x, z) -> None: the shell's dev-checkout world reload, or None
         self._point_done.connect(self._finish_point)
         self._busy = False
@@ -572,6 +576,14 @@ class WorldDoc(QWidget):
                                    "draft the game does not load.")
         self.forest_btn.clicked.connect(lambda: self.open_forest())
         self.forest_btn.hide()
+        # ...and the mountain tool (rung C2): a real rock massif through world-mountain, into the same draft
+        self.mountain_btn = QPushButton("Add mountain")
+        self.mountain_btn.setProperty("role", "quiet")
+        self.mountain_btn.setToolTip("Place a real stock rock massif on a deployed island: click where it goes, "
+                                     "drag, turn, spread and heighten it; every world-mountain gate judges it, and "
+                                     "Accept writes it to a draft the game does not load.")
+        self.mountain_btn.clicked.connect(lambda: self.open_mountain())
+        self.mountain_btn.hide()
         head.addWidget(self.view3d_btn)
         v.addLayout(head)
         self.canvas = AtlasCanvas(self.pal, on_select=self._on_select,
@@ -582,7 +594,7 @@ class WorldDoc(QWidget):
         views_host = QWidget()
         views_host.setLayout(self._views)
         v.addWidget(views_host, 1)
-        self._forest_slot = QVBoxLayout()          # the forest card's place: under the view, over the strip
+        self._forest_slot = QVBoxLayout()          # the carry cards' place: under the view, over the strip
         self._forest_slot.setContentsMargins(0, 0, 0, 0)
         v.addLayout(self._forest_slot)
         self._legend_host = QWidget()
@@ -718,8 +730,8 @@ class WorldDoc(QWidget):
             self._fill_legend()                    # the swatch pixmaps are palette-baked at build time
         if self._view3d is not None:
             self._view3d.retheme(pal)
-        if self._forest is not None:
-            self._forest.retheme(pal)
+        for tool in self._carry_tools():
+            tool.retheme(pal)
         if self._stack.currentWidget() is self._guide_page:
             self._show_guide(*self._guide_state)   # rebuild: the glyph pixmap is palette-tinted
 
@@ -806,8 +818,9 @@ class WorldDoc(QWidget):
             self.summary_lbl.setText(" · ".join(bits))
         self._on_select(self._selected)            # re-derive the strip: the block may have changed
         #                                            class (deployed <-> empty) across the rescan
-        if self._forest is not None and not self._forest.isHidden():
-            self._forest.close_tool()              # its folder may have changed under it
+        for tool in self._carry_tools():
+            if not tool.isHidden():
+                tool.close_tool()                  # its folder may have changed under it
         self._sync_draw_box()
         if self._mode3d:                           # a rescan (or a new folder) re-reads the 3D page too
             self._load_view3d()
@@ -867,22 +880,42 @@ class WorldDoc(QWidget):
                 self.draw_box.setCurrentIndex(0)
             self.draw_box.removeItem(ix)
 
-    def open_forest(self, *, sync=False):
-        """The Forest button: the 3D view first (the tool works on it), then the forest card under it."""
+    def _carry_tools(self):
+        return [t for t in (self._forest, self._mountain) if t is not None]
+
+    def _open_carry(self, which, *, sync=False):
+        """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
+        ghost's drag goes to the open one."""
         if self._census is None:
-            return
+            return None
         if not self._mode3d:
             self._on_view3d(True, sync=sync)
-        if self._forest is None:
-            from .worldforest import ForestTool
-            self._forest = ForestTool(self.pal, self._view3d, game_fn=lambda: self._game,
-                                      source_fn=lambda: self._census.root, on_changed=self._draft_changed,
-                                      runner=self._forest_runner, drafts_root=self._drafts_root,
-                                      on_reload=self._on_reload, **self._forest_seams)
-            self._forest_slot.addWidget(self._forest)
-            self._view3d.ghost_moved.connect(self._forest.drag_to)
-            self._view3d.ghost_dropped.connect(self._forest.drop_at)
-        self._forest.open_tool()
+        tool = getattr(self, f"_{which}")
+        if tool is None:
+            if which == "forest":
+                from .worldforest import ForestTool as Tool
+            else:
+                from .worldmountain import MountainTool as Tool
+            tool = Tool(self.pal, self._view3d, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
+                        on_changed=self._draft_changed, runner=getattr(self, f"_{which}_runner"),
+                        drafts_root=self._drafts_root, on_reload=self._on_reload, **getattr(self, f"_{which}_seams"))
+            setattr(self, f"_{which}", tool)
+            self._forest_slot.addWidget(tool)
+            self._view3d.ghost_moved.connect(lambda x, z, t=tool: t.drag_to(x, z) if not t.isHidden() else None)
+            self._view3d.ghost_dropped.connect(lambda x, z, t=tool: t.drop_at(x, z) if not t.isHidden() else None)
+        for other in self._carry_tools():
+            if other is not tool and not other.isHidden():
+                other.close_tool()
+        tool.open_tool()
+        return tool
+
+    def open_forest(self, *, sync=False):
+        """The Forest button."""
+        return self._open_carry("forest", sync=sync)
+
+    def open_mountain(self, *, sync=False):
+        """The Mountain button."""
+        return self._open_carry("mountain", sync=sync)
 
     def _draft_changed(self, draft):
         """An Accept wrote the draft (or a discard removed it): draw it, or go back to the game's stack."""
@@ -901,8 +934,10 @@ class WorldDoc(QWidget):
         self._label_view_btn()
         self.draw_box.setVisible(bool(on))
         self.forest_btn.setVisible(bool(on))
-        if not on and self._forest is not None:
-            self._forest.close_tool()
+        self.mountain_btn.setVisible(bool(on))
+        if not on:
+            for tool in self._carry_tools():
+                tool.close_tool()
         if not on:
             self._views.setCurrentWidget(self.canvas)
             self._legend_host.show()
@@ -911,7 +946,8 @@ class WorldDoc(QWidget):
             from .worldview3d import WorldView3DPanel
             self._view3d = WorldView3DPanel(self.pal, scale=self._scale)
             self._view3d.picked.connect(self._on_pick)
-            self._view3d.add_control(self.forest_btn)
+            self._view3d.add_control(self.mountain_btn)  # each control goes in front: these read draws, forest,
+            self._view3d.add_control(self.forest_btn)    # mountain
             self._view3d.add_control(self.draw_box)
             self._views.addWidget(self._view3d)
             self._load_view3d(sync=sync)
@@ -960,8 +996,9 @@ class WorldDoc(QWidget):
             self._set_chip("", "info")
             return
         (x, y, z), _part = hit
-        if place and self._forest is not None and not self._forest.isHidden():
-            self._forest.place(x, z, y)            # the tool is open: a click puts the forest there
+        for tool in self._carry_tools() if place else ():
+            if not tool.isHidden():
+                tool.place(x, z, y)                # a tool is open: a click puts its shape there
         from ..world import frames
         key = frames.world_to_block(*frames.wrap_world_xz(x, z))
         self.canvas.select(key)                    # -> _on_select: the block strip, and the point cleared

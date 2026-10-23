@@ -1,5 +1,12 @@
 # Custom Summons — feasibility study
 
+> **Instrument: the headless effect host** — `headless/` runs `FF9SpecialEffectPlugin.dll` outside the
+> game against a callback transcribed from SFXRework's `BattleCallbackDummy`. It reproduces the archived
+> in-game Bahamut cast frame for frame (`hx_gates.py` 8/8: every H install, creature f82, last frame
+> f561, the native view matrix exact on 97.5% of f128–528). All 372 containers run to completion
+> (census in SCRATCH). Check a native-layer question with it before arming a probe or asking for a cast:
+> see `headless/README.md`.
+
 > **Status: RUNGS 1-7 ★ ALL IN-GAME PROVEN 2026-07-21, ONE SESSION — PAUSED at 7/9 (user's call).**
 > The whole mechanism ladder is closed: the borrowed cinematic → the hot loop → the fresh-id
 > private copy (+ the first minted audio in a summon) → damage-beat control → the first-ever

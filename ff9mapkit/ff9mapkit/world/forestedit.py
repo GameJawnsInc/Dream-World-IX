@@ -103,6 +103,7 @@ class SoupIndex:
         pos = np.asarray(soup["pos"], dtype=np.float64)
         tris = np.asarray(soup["tris"], dtype=np.int64)
         self.pos, self.tris = pos, tris
+        self._meta = soup["meta"]                                                 # (block, idall, fam, uvs) per tri
         self.corner = pos[tris][..., [0, 2]] if len(tris) else np.zeros((0, 3, 2))   # (n, 3, 2)
         self.cent = np.array(IN._tri_centroids(soup), dtype=np.float64).reshape(-1, 2)  # the gate's own floats
         self.grass = np.array([m[2] == "main" and decode_id(int(round(m[1])))["topograph"] == 0

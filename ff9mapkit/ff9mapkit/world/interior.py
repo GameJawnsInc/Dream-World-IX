@@ -503,6 +503,22 @@ def ground_words(fam: str, topo: int) -> str:
             "rock": "coast rock (topograph 58)"}.get(fam, f"topograph {topo}")
 
 
+def massif_ground_words(topo: int, ground: str) -> str:
+    """A bench tri the massif footprint may not reach, in words: a ``ground`` tile off the mains (a stamp), another
+    ground family, forest, coast rock, or a bare topograph."""
+    if topo == G.GROUNDS[ground]["topo"]:
+        return f"a stamped {ground} tile"
+    if topo in (37, 58):
+        return ground_words("forest" if topo == 37 else "rock", topo)
+    name = next((n for n, g in G.GROUNDS.items() if g["topo"] == topo), None)
+    return f"{name} ground (topograph {topo})" if name else f"topograph {topo}"
+
+
+def _block_mid(b):
+    """The world ``(x, z)`` at the middle of block ``b``: where a refusal about a whole block is drawn."""
+    return (BLOCK * b[0] + BLOCK / 2, -(BLOCK * b[1] + BLOCK / 2))
+
+
 def forest_footprint_lawful(soup, tri_c, poly, why=None):
     """THE FOREST FOOTPRINT LAW (``carve_forest``'s placement test): every island tri in or within
     :data:`SCAN_BAND` of the rim polygon ``poly`` is plain-grass mains with no corner within :data:`RIM_MARGIN`
@@ -2226,9 +2242,11 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         core = rect(half)
         missing = [b for b in core if b not in soup["blocks"]]
         if missing:
-            raise ValueError(f"the massif footprint around ({CX:.0f},{CZ:.0f}) needs "
-                             f"deployed Terrain overrides on blocks {sorted(core)}, but "
-                             f"{sorted(missing)} have none -- mint a bigger island first")
+            raise CarveRefused("blocks", f"the massif footprint around ({CX:.0f},{CZ:.0f}) needs "
+                               f"deployed Terrain overrides on blocks {sorted(core)}, but "
+                               f"{sorted(missing)} have none -- mint a bigger island first",
+                               [_block_mid(b) for b in sorted(missing)],
+                               detail=f"{len(missing)} block{'s' if len(missing) != 1 else ''} with no island")
         wide = rect(r_rim + gblend + 2.0)
         span = sorted(set(core) | {b for b in wide if b in soup["blocks"]})
         log(f"multi-block span {span}: the blob (radius {r_rim:.1f}u) needs "
@@ -2239,9 +2257,11 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         span_rect = span
     missing = [b for b in span if b not in soup["blocks"]]
     if missing:
-        raise ValueError(f"the massif footprint around ({CX:.0f},{CZ:.0f}) needs deployed "
-                         f"Terrain overrides on blocks {sorted(span)}, but "
-                         f"{sorted(missing)} have none -- mint a bigger island first")
+        raise CarveRefused("blocks", f"the massif footprint around ({CX:.0f},{CZ:.0f}) needs deployed "
+                           f"Terrain overrides on blocks {sorted(span)}, but "
+                           f"{sorted(missing)} have none -- mint a bigger island first",
+                           [_block_mid(b) for b in sorted(missing)],
+                           detail=f"{len(missing)} block{'s' if len(missing) != 1 else ''} with no island")
     span = sorted(span)
     span_set = set(span)
     SPX0, SPX1 = (BLOCK * min(b[0] for b in span_rect),
@@ -2423,10 +2443,12 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         return not (pp[:, 0].min() < SPX0 + SCAN_BAND + 2 or pp[:, 0].max() > SPX1 - SCAN_BAND - 2
                     or pp[:, 1].min() < SPZ0 + SCAN_BAND + 2 or pp[:, 1].max() > SPZ1 - SCAN_BAND - 2)
 
-    def band_clean(ROT, gx, gz):
-        """Exact: no non-plain tri inside or near the placed rim polygon's band."""
+    def band_offenders(ROT, gx, gz, limit=None):
+        """Exact: the non-plain tris inside or near the placed rim polygon's band (their indices, at most
+        ``limit``). ``world.mountainedit.footprint_preview`` is this, vectorised (and fenced against it)."""
         DXc, DZc = gx - c_local[0], gz - c_local[1]
         rp = [(p[0] + DXc, p[2] + DZc) for p in (rot_pt(q, ROT) for q in rim)]
+        out = []
         for tdx, tri in enumerate(gtris):
             if plain[tdx]:
                 continue
@@ -2434,17 +2456,28 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             if pip(cx2, cz2, rp) or near_poly(cx2, cz2, rp, SCAN_BAND) or any(
                     pip(gpos[i][0], gpos[i][2], rp) or
                     near_poly(gpos[i][0], gpos[i][2], rp, SCAN_BAND) for i in tri):
-                return False
-        return True
+                out.append(tdx)
+                if limit is not None and len(out) >= limit:
+                    break
+        return out
+
+    def band_clean(ROT, gx, gz):
+        return not band_offenders(ROT, gx, gz, limit=1)
 
     if center is not None:
         ROT, TX, TZ = (0 if ROT0 is None else ROT0), CX, CZ
         if not in_span(ROT, TX, TZ):
-            raise ValueError(f"massif at ({TX:.0f},{TZ:.0f}) leaves block span "
-                             f"{span} (the working band must stay on covered ground)")
-        if not band_clean(ROT, TX, TZ):
-            raise ValueError(f"massif footprint at ({TX:.0f},{TZ:.0f}) is not clear "
-                             f"plain-grass mains (band {SCAN_BAND}u)")
+            m = SCAN_BAND + 2
+            rp = [(p[0] + TX - c_local[0], p[2] + TZ - c_local[1]) for p in (rot_pt(q, ROT) for q in rim)]
+            raise CarveRefused("span", f"massif at ({TX:.0f},{TZ:.0f}) leaves block span "
+                               f"{span} (the working band must stay on covered ground)",
+                               [(x, z) for x, z in rp if not (SPX0 + m <= x <= SPX1 - m and SPZ0 + m <= z <= SPZ1 - m)],
+                               detail="its rim comes too near the edge of the deployed blocks")
+        bad = band_offenders(ROT, TX, TZ, limit=12)
+        if bad:
+            raise CarveRefused("footprint", f"massif footprint at ({TX:.0f},{TZ:.0f}) is not clear "
+                               f"plain-grass mains (band {SCAN_BAND}u)", [tri_c[t] for t in bad],
+                               detail=f"it reaches {massif_ground_words(gtopo[bad[0]], ground)}")
         pp = (np.array([(p[0], p[2]) for p in (rot_pt(q, ROT) for q in rim)])
               + np.array([TX - c_local[0], TZ - c_local[1]]))
         dmin = math.inf if interior else float(np.sqrt(((nonplain_c[:, None, :] - pp[None, :, :]) ** 2)
@@ -2505,7 +2538,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                if not pip(gpos[i][0], gpos[i][2], rim_poly)
                and near_poly(gpos[i][0], gpos[i][2], rim_poly, clear + 3.0)]
     if not near_ys:
-        raise ValueError("no plain-grass ground around the rim to anchor against")
+        raise CarveRefused("footprint", "no plain-grass ground around the rim to anchor against", [(TX, TZ)])
     ground_med = float(np.median(near_ys))
     DY = ground_med - rim_med
 
@@ -2848,8 +2881,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     fams = Counter(gtopo[t] for t in drop)
     log(f"bench tris dropped: {len(drop)} (topos {dict(fams)})")
     if set(fams) != {g_topo}:
-        raise ValueError(f"hole reaches non-ground island tris (topos {dict(fams)}, "
-                         f"ground topo {g_topo})")
+        raise CarveRefused("hole", f"hole reaches non-ground island tris (topos {dict(fams)}, "
+                           f"ground topo {g_topo})", [tri_c[t] for t in sorted(drop) if gtopo[t] != g_topo][:12])
 
     eu2 = Counter()
     for tdx, tri in enumerate(gtris):
@@ -3333,6 +3366,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     fc_n = 0
     fc_ny_min = 1.0
     zip_rise = 0.0
+    zip_rise_at = None                     # where the steepest grass zip tri is (a refusal draws it)
     zip_ny_min = 1.0
     zip_ny_low = 0
     for tri3 in zip_tris:
@@ -3377,8 +3411,9 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             # rise gated on the GRASS zip only: the engine-step ceiling protects
             # walkable grass; a foot-course toe deliberately spans the face's rise
             # in one course (its own fc_ny floor gates the winding)
-            zip_rise = max(zip_rise,
-                           float(max(p[1] for p in tri3) - min(p[1] for p in tri3)))
+            _rise = float(max(p[1] for p in tri3) - min(p[1] for p in tri3))
+            if _rise > zip_rise:
+                zip_rise, zip_rise_at = _rise, (sum(float(p[0]) for p in tri3) / 3, sum(float(p[2]) for p in tri3) / 3)
         order = tri3 if nrm[1] > 0 else (tri3[0], tri3[2], tri3[1])
         if is_foot:
             # r10 tile band -- fringe edge pinned at the hole (lawn) verts (the
@@ -3441,16 +3476,18 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     for corners, idall, fam in new_parents:
         for p in corners:
             if not (SPX0 + 0.5 < p[0] < SPX1 - 0.5 and SPZ0 + 0.5 < p[2] < SPZ1 - 0.5):
-                raise ValueError(f"{fam} leaves block span {span}: {p[:3]}")
+                raise CarveRefused("span", f"{fam} leaves block span {span}: {p[:3]}", [(p[0], p[2])])
     down, stock_down = _count_down(new_parents, _stock_down_keys(list(blob) + list(sweep), dV, dtri, carried),
                                    log=log)
-    maxe = 0.0
+    maxe, maxe_at = 0.0, None
     for corners, _, fam in new_parents:
         a, b, c = (np.asarray(p[:3]) for p in corners)
         if fam not in ("zip", "foot"):
             continue                                       # verbatim rock/plug edges are stock-given
         for pq in ((a, b), (b, c), (c, a)):
-            maxe = max(maxe, float(np.linalg.norm(pq[0] - pq[1])))
+            _e = float(np.linalg.norm(pq[0] - pq[1]))
+            if _e > maxe:
+                maxe, maxe_at = _e, (float(pq[0][0] + pq[1][0]) / 2, float(pq[0][2] + pq[1][2]) / 2)
     ring_pts = np.array([list(p) for p in hole_ord] + [list(rimw(p)) for p in rim_ord])
     nm = 0
     for a_ in range(len(ring_pts)):
@@ -3462,8 +3499,9 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     # welds hold); every span block re-emits
     new_by_block = split_borders8(new_parents)
     if not set(new_by_block) <= set(span):
-        raise ValueError(f"carve leaks outside the span blocks: "
-                         f"{sorted(set(new_by_block) - set(span))}")
+        raise CarveRefused("leak", f"carve leaks outside the span blocks: "
+                           f"{sorted(set(new_by_block) - set(span))}",
+                           [_block_mid(b) for b in sorted(set(new_by_block) - set(span))])
     changed = {}
     for blk in span:
         sbx, sby = blk
@@ -3568,14 +3606,16 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             if d0 > 0.05:
                 worst_rig = max(worst_rig,
                                 abs(math.dist(carried[t][a], carried[t][b]) / d0 - 1.0))
-    g_worst = 0.0                                          # the apron slope envelope
+    g_worst, g_worst_at = 0.0, None                        # the apron slope envelope
     for tdx, tri in enumerate(gtris):
         if tdx in drop or not plain[tdx]:
             continue
         a, b, c3 = (np.array(gpos[i]) for i in tri)
         fn = np.cross(b - a, c3 - a)
         L = float(np.linalg.norm(fn)) or 1.0
-        g_worst = max(g_worst, math.degrees(math.acos(max(-1, min(1, abs(fn[1]) / L)))))
+        _sl = math.degrees(math.acos(max(-1, min(1, abs(fn[1]) / L))))
+        if _sl > g_worst:
+            g_worst, g_worst_at = _sl, tri_c[tdx]
     log(f"gates: down={down}" + (f" (+{stock_down} stock near-vertical exempt)" if stock_down else "")
         + f" maxEdge={maxe:.1f} nearMiss={nm // 2} "
         f"annulusOnce={len(inner_once)} zipRise={zip_rise:.2f} zipNyMin={zip_ny_min:.2f} "
@@ -3583,13 +3623,20 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         + (f"footCourse={fc_n} fcNyMin={fc_ny_min:.2f} " if fc_n else "")
         + f"rockRigid={worst_rig * 100:.1f}% apronSlope={g_worst:.1f}deg")
     if down or nm or inner_once or maxe >= MTN_MAX_EDGE:
-        raise ValueError("mountain geometry gate failed (down/near-miss/annulus-crack/edge)")
+        raise CarveRefused("geometry", "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+                           [((e[0][0] + e[1][0]) / 2, (e[0][2] + e[1][2]) / 2) for e in inner_once[:12]]
+                           + ([maxe_at] if maxe >= MTN_MAX_EDGE and maxe_at else []),
+                           detail=", ".join(w for w, on in ((f"{down} down face(s)", down),
+                                                            (f"{nm // 2} near miss(es)", nm),
+                                                            (f"{len(inner_once)} crack edge(s)", inner_once),
+                                                            (f"an edge of {maxe:.1f}u", maxe >= MTN_MAX_EDGE)) if on))
     if zip_rise > MTN_ZIP_RISE or zip_ny_min < MTN_ZIP_NY_FLOOR \
             or zip_ny_low > MTN_ZIP_BANK_MAX:
-        raise ValueError(f"zip steeper than the grass envelope (rise {zip_rise:.2f}, "
-                         f"ny min {zip_ny_min:.2f} < floor {MTN_ZIP_NY_FLOOR}, or "
-                         f"{zip_ny_low} banks below {MTN_ZIP_NY_MIN} > "
-                         f"{MTN_ZIP_BANK_MAX} allowed)")
+        raise CarveRefused("zip", f"zip steeper than the grass envelope (rise {zip_rise:.2f}, "
+                           f"ny min {zip_ny_min:.2f} < floor {MTN_ZIP_NY_FLOOR}, or "
+                           f"{zip_ny_low} banks below {MTN_ZIP_NY_MIN} > "
+                           f"{MTN_ZIP_BANK_MAX} allowed)",
+                           [zip_rise_at] if zip_rise > MTN_ZIP_RISE and zip_rise_at else [])
     if fc_n and fc_ny_min < MTN_FOOT_NY_FLOOR:
         raise ValueError(f"foot-course tri steeper than the sliver floor "
                          f"(ny {fc_ny_min:.2f} < {MTN_FOOT_NY_FLOOR})")
@@ -3600,17 +3647,19 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                          "(THE PROFILE LAW relief gate: a mountain that does not rise "
                          "gets no rock course)")
     if worst_rig >= MTN_ROCK_RIGID:
-        raise ValueError("carried rock deformed beyond the de-tilt affine"
+        raise CarveRefused("rigid", "carried rock deformed beyond the de-tilt affine"
                          + (f" and its declared x{rock_height:g} height" if rh else "")
                          + (f" and x{SPREAD:g} spread" if SPREAD != 1.0 else ""))
     if rh:
         _peak = max(p[1] for ps in carried.values() for p in ps)
         if _peak > STOCK_TERRAIN_MAX_Y:
-            raise ValueError(f"--rock-height x{rock_height:g} lifts the peak to y {_peak:.2f}, above stock's "
-                             f"tallest terrain ({STOCK_TERRAIN_MAX_Y}): a flying airship (42.1875) would sit "
-                             f"inside the rock. Use a lower --rock-height")
+            _pk = max((p for ps in carried.values() for p in ps), key=lambda p: p[1])
+            raise CarveRefused("peak", f"--rock-height x{rock_height:g} lifts the peak to y {_peak:.2f}, above stock's "
+                               f"tallest terrain ({STOCK_TERRAIN_MAX_Y}): a flying airship (42.1875) would sit "
+                               f"inside the rock. Use a lower --rock-height", [(_pk[0], _pk[2])])
     if g_worst > MTN_APRON_SLOPE:
-        raise ValueError("the ground apron exceeds the grass slope envelope")
+        raise CarveRefused("apron", "the ground apron exceeds the grass slope envelope",
+                           [g_worst_at] if g_worst_at else [], detail=f"{g_worst:.1f} deg > {MTN_APRON_SLOPE}")
 
     # placement probes on the assembled meshes: the blob centre must ground on carried
     # rock, and the grass just outside the rim must still ground as plain grass
@@ -3641,7 +3690,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     gy, nm_, _, tp = P.place(_wml, ppx, ppz)
     log(f"carried peak grounds: y={gy:.2f} {nm_} topo {tp}")
     if nm_ != "Terrain" or tp not in ROCK:
-        raise ValueError(f"carried peak grounds on {nm_} topo {tp}, want carried rock")
+        raise CarveRefused("probe", f"carried peak grounds on {nm_} topo {tp}, want carried rock", [(ppx, ppz)])
     r_out = max(math.hypot(px - TX, pz - TZ) for (px, pz) in rim_poly) + 4.0
     _probe_pt = (TX - r_out, TZ)
     if fc_rects:
@@ -3662,8 +3711,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         gy2, nm2, _, tp2 = P.place(_wml, _probe_pt[0], _probe_pt[1])
         log(f"ground probe outside the rim: y={gy2:.2f} {nm2} topo {tp2}")
         if nm2 != "Terrain" or tp2 != g_topo:
-            raise ValueError(f"outside-rim ground probe grounds on {nm2} topo {tp2}, "
-                             f"want plain ground topo {g_topo}")
+            raise CarveRefused("probe", f"outside-rim ground probe grounds on {nm2} topo {tp2}, "
+                               f"want plain ground topo {g_topo}", [_probe_pt])
 
     _atlas_gate_mountain(new_parents, game=game, log=log)
 
