@@ -523,6 +523,9 @@ class PlaceDoc(QWidget):
         self.field_label.setText("no field")
         self._sync_cam_box(1)
         self._sync_modes()
+        # the constructor ends HERE, so this is the clusters' first sync: without it both tools'
+        # controls showed until a field was fed, and their sum (~1140px) became the window floor
+        self._sync_tool_clusters()
         self._refresh("Open a field (a fork of a real room) and come back — or fork one on the "
                       "Import tab.")
 
