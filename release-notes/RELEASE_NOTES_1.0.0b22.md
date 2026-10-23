@@ -1,4 +1,4 @@
-# Dream World IX 1.0.0b21 — play the story together, and a world map that changes with it
+# Dream World IX 1.0.0b22 — play the story together, and a world map that changes with it
 
 **Dream World IX** is a modding toolkit for the [Memoria engine](https://github.com/Albeoris/Memoria) (Steam/GOG FF9).
 
@@ -12,7 +12,7 @@ This update moves co-op from experimental to beta, improves some overworld tools
 - **Cutscenes and dialogues sync.** When the host talks to an NPC or uses a save moogle, the scene plays on the guest's screen, and the guest's game follows the host's dialogue and copies their choices.
 - **The guest fights from FF9's real battle menu** and sees the victory and reward screens. A dropped connection no longer throws the guest out of the fight: the guest waits up to 40 seconds and resumes the same battle.
 - **The guest sees the real attack and spell animations.** Set **They appear as** to **Auto** in the host's Co-op tab and the guest also looks like the party member they command, on both screens — footsteps, held props and lighting included.
-- **Both players need the b21 engine bundle.** A b19 game and a b21 game refuse to pair.
+- **Both players need the b22 engine bundle.** A b19 game and a b22 game refuse to pair.
 
 Known issues: one unexplained host freeze at a battle start; a following guest has no main menu (by design); after a scripted story battle the guest's lines can run ahead of the host's; monsters that resize themselves in battle show at normal size on the guest. Report issues on the repo, in discord, or to my twitter @GameJawnsInc.
 
@@ -48,7 +48,7 @@ Known issues: one unexplained host freeze at a battle start; a following guest h
 
 ## Engine bundle
 
-**Rebuilt this release:** `dwix-custom-memoria-1.0.0b21.zip`, a from-source build of the full patch stack on the same pinned Memoria base. New since b19: co-op (protocol v14), a fix for stock Memoria leaking memory on every sound effect (the bundle now also replaces `SaXAudio.dll`), story-switching overworld cells, a fix for the `~` warp dragging a countdown along, and a fix for a stock Memoria bug that flooded the log during the New Game opening. An early Journal menu, the in-game test harness and the story-write recorder ride along, all off unless you switch them on; co-op stays off until `[Netsync]` is configured.
+**Rebuilt this release:** `dwix-custom-memoria-1.0.0b22.zip`, a from-source build of the full patch stack on the same pinned Memoria base. New since b19: co-op (protocol v14), a fix for stock Memoria leaking memory on every sound effect (the bundle now also replaces `SaXAudio.dll`), story-switching overworld cells, a fix for the `~` warp dragging a countdown along, and a fix for a stock Memoria bug that flooded the log during the New Game opening. An early Journal menu, the in-game test harness and the story-write recorder ride along, all off unless you switch them on; co-op stays off until `[Netsync]` is configured.
 
 **Do you need it?** A **novel** field needs no engine patch. Forks, the overworld mesh verbs and co-op need the bundle. Anyone can rebuild it from `memoria-patches/` ([ENGINE.md](https://github.com/GameJawnsInc/Dream-World-IX/blob/master/ff9mapkit/docs/ENGINE.md)).
 
