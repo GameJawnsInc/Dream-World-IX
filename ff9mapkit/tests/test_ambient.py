@@ -1,8 +1,9 @@
 """THE AMBIENT CLEAR (``content/ambient.py``) -- every synthesized Main_Init restores stock's report/clear tail,
 minus the window, at stock's position, and nothing else moves.
 
-The claims are pinned on BUILD OUTPUT, never on bytes the test made itself: nine real builds (the seven bundled
-examples that build from templates alone, a gen-hub hub, an ``ff9mapkit new`` scaffold), each run through
+The claims are pinned on BUILD OUTPUT, never on bytes the test made itself: nine real builds (seven bundled examples
+-- six from templates alone, thirteenth-character also off the install --, a gen-hub hub, an ``ff9mapkit new``
+scaffold), each run through
 ``tests/_ebengine`` (what Main_Init leaves in ``Byte[13]``/``Byte[14]``) and ``eb/cfg.FuncFlow`` (no path skips
 the tail). The TAIL constant itself is pinned against stock's own bytes (the blank's prologue, and field 1357's
 tail read from the install).
@@ -34,7 +35,8 @@ from ._ebengine import Engine
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 FIX = Path(__file__).parent / "fixtures"
 
-# The seven bundled examples that build from templates alone (their tomls name no cache, .bgx or fbx).
+# The seven bundled examples whose tomls name no cache, .bgx or fbx. Six build from templates alone; thirteenth-character
+# also reads the install (NEEDS_INSTALL below).
 EXAMPLE_TOMLS = {
     "vivi-hut": "vivi-hut/hut_int.field.toml",
     "SHOWCASE": "SHOWCASE/showcase.field.toml",
@@ -64,6 +66,15 @@ def _game_ready() -> bool:
         return True
     except Exception:
         return False
+
+
+# thirteenth-character's [[playable]] custom_battle_model mints its donor's battle GEO off the install's
+# CharacterParameters / BattleParameters CSVs (build._resolve_playable_battle): with no install the build raises a
+# BuildError BEFORE it reads the blank, so the conftest's missing-template skip never sees it -- the param skips itself.
+NEEDS_INSTALL = {"thirteenth-character"}
+BUILD_PARAMS = [pytest.param(k, marks=pytest.mark.skipif(not _game_ready(), reason="needs the FF9 install + UnityPy "
+                                                         "(a [[playable]] custom battle model reads the install's CSVs)"))
+                if k in NEEDS_INSTALL else k for k in BUILDS]
 
 
 def _main(b: bytes):
@@ -160,7 +171,7 @@ def _exits(body: bytes, n: int) -> dict:
     return out
 
 
-@pytest.mark.parametrize("key", BUILDS)
+@pytest.mark.parametrize("key", BUILD_PARAMS)
 def test_amb1_every_exit_clears(built, key):
     """T-AMB-1: whatever Byte[13]/Byte[14] arrive with (0/1/2/3/9), the synthesized Main_Init leaves 0 -- all 7
     languages. Unfixed, an arriving 2 or 9 leaves 9. (Blind to windows: the Engine no-ops them -- T-AMB-2 (iii).)
@@ -186,7 +197,7 @@ def _hits(b: bytes, blk) -> list:
     return out
 
 
-@pytest.mark.parametrize("key", BUILDS)
+@pytest.mark.parametrize("key", BUILD_PARAMS)
 def test_amb2_stock_position_and_shape(built, key):
     """T-AMB-2: the TAIL sits where stock's tail sits, has stock's shape minus the window, and no path skips it."""
     for lang, b in built(key).items():

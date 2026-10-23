@@ -83,14 +83,15 @@ An earlier bundle member, **`s35`** (an overlay-texture decode cache), has been 
 cache served stale art decodes for the whole session, and removing it means background-art edits now
 hot-reload in-game (**~ → Reload field**). Current bundles do not carry it.
 
-None of the above are fork-fidelity patches, and only the fidelity wraps are upstream candidates.
+None of the above are fork-fidelity patches; like the rest of the stack, they are maintained locally
+and ship in the dwix engine bundle.
 The authoritative per-patch inventory — which patches are live, in what order, and which are dead
 history — is [`memoria-patches/README.md`](../../memoria-patches/README.md).
 
 The full per-behavior breakdown — stock, patch-restored, or genuinely engine-blocked — is in
 [`FORK_FIDELITY.md`](FORK_FIDELITY.md) and [`FORK_IDGATE_MAP.md`](FORK_IDGATE_MAP.md) (the per-site
 verification ledger); the per-file history and status of every patch in `memoria-patches/` (what each
-file covers and folds, live vs dev-tool vs superseded vs upstream) is in
+file covers and folds, live vs dev-tool vs superseded vs not bundled) is in
 [`memoria-patches/README.md`](../../memoria-patches/README.md).
 
 ## Installing the custom engine
@@ -107,13 +108,17 @@ get it:
 1. **Windows installer / `ff9mapkit setup` (easiest).** The installer's "engine patches" task
    installs the bundled `dwix-custom-memoria-<version>.zip`; equivalently, run
    `ff9mapkit setup --install-engine <that-zip>`. Both back up the original DLLs automatically
-   before overwriting.
+   before overwriting, to `<FF9>\dwix-engine-backups\<timestamp>\`.
 2. **Pre-built bundle (manual).** Download `dwix-custom-memoria-<version>.zip` from the project's
    GitHub **Releases** and follow its `INSTALL.txt`: back up your `x64\FF9_Data\Managed\` and
    `x86\FF9_Data\Managed\` DLLs, then copy the bundle's three managed DLLs (`Assembly-CSharp.dll`
    + the matched `Memoria.Prime.dll` / `UnityEngine.UI.dll`) into **both** folders, overwriting.
+   Since b20 the bundle also carries `Plugins\x64\SaXAudio.dll` and `Plugins\x86\SaXAudio.dll`,
+   Memoria's audio plugin built unchanged from upstream's leak fix (Memoria `5b49756c`): stock's
+   July-2025 build leaks about 0.7 MB per sound effect. Each goes into its own arch's
+   `FF9_Data\Plugins\` (back up the stock one first; x64 and x86 are not interchangeable).
    The bundle is a compiled, **MIT-licensed** Memoria build (© Albeoris) plus the Dream World IX
-   patches, and ships **zero** game data. It's pinned to a specific Memoria base — if you run a much
+   patches and SaXAudio (MIT, © SamsamTS), and ships **zero** game data. It's pinned to a specific Memoria base — if you run a much
    newer Memoria and hit crashes, use option 3.
 3. **Build from source (version-robust).** Apply the live patch series from
    [`memoria-patches/`](../../memoria-patches/) (its README maps every file — which patches are
@@ -122,16 +127,16 @@ get it:
    VS MSBuild; this matches whatever Memoria version you build against. The build replaces your
    install's `Assembly-CSharp.dll`.
 
-The clean long-term fix is **upstreaming** the fidelity wraps (`s23`–`s33` and the later
-fork-fidelity gates) into Memoria (they're small and
-`EffectiveFieldId`-gated, so stock-game behavior is untouched) — then no custom engine is needed for
-forked fields. `s34` is a different case — a new capability rather than an identity-safe fidelity
-wrap — so whether it belongs upstream is a separate decision.
+The fidelity wraps (`s23`–`s33` and the later fork-fidelity gates) are small and
+`EffectiveFieldId`-gated, so stock-game behavior is untouched. They are maintained locally in
+`memoria-patches/` and ship as the dwix engine bundle, which is why a forked field needs that bundle
+rather than stock Memoria. `s34` is a different case — a new capability rather than an identity-safe
+fidelity wrap — and ships in the same bundle.
 
 ## Optional engine polish (not required)
 
 One small possible Memoria improvement would make the experience smoother; it is **not** needed
-for a field to work, and the project isn't actively upstreaming it:
+for a field to work, and the project does not patch it:
 
 - **FieldCreatorScene PNG-path fix** (Memoria PR #1433, left as-is): the in-editor scene export writes overlay PNGs to the
   game root instead of the field folder, which black-screens the editor. (This kit's CLI

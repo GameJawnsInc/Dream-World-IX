@@ -82,7 +82,10 @@ reason when the tape cannot carry it):
                N, after a M ms hold ...)' [s131] its M by THE HOLD RULE's leave-ended form; a WORLD-MAP tape
                (COOP_CUT_LEG=s120-world requires one): the stall-cap line 'still silent after 8s with the peer alive on
                field 0 ...' (it prints no hold ms: no rule) -- then 'diorama LEAVE requested', 'watcher-leave settled
-               (nonce N)' and a RETURN; K netsync.diorama.hold.why == "host_field" | "stall_cap".
+               (nonce N)' and a RETURN; K netsync.diorama.hold.why == "host_field" | "stall_cap" -- [ff9mapkit netsync s145]
+               BY THE GUEST'S STAGE: an s145 guest reads section 7's b6 as "the host is back", so a world victory on a tape whose
+               host says b6 after it reads "host_world" there ('the host's fight is over (the peer is alive and back on the
+               world map)'); stall_cap before s145 (_coop_peer_bench.span_why).
   s121         the replay STOPS 25 s after its start (free roam only; --at-end hold: the host then goes silent). I paired/
                ARMED, the guest playable on FieldHUD. G0 before the press netsync.menu_refusal.now == "audible" (the press is
                gated on it when the key exists, never on ui_state); G1 press 1: menu_refusal.count +1, lines +1, last_state
@@ -336,7 +339,8 @@ LEG_CHECKS = {
                    "(the peer is alive and back on field F)', its 'after a M ms hold' by THE HOLD RULE's leave-ended form "
                    "against the same run's outage, at most one no-lane menu close; stall_cap: 'still silent after 8s with "
                    "the peer alive on field 0'), then LEAVE, 'watcher-leave settled (nonce N)' and a RETURN",
-        "SPAN-K": "netsync.diorama.hold.why reads the expected reason ('host_field' | 'stall_cap')",
+        "SPAN-K": "netsync.diorama.hold.why reads the expected reason ('host_field' | 'stall_cap'; [s145] 'host_world' on an s145 "
+                  "guest replaying a world victory whose host says b6)",
     },
     "s121": {                                                # [ff9mapkit netsync R3 s121]
         "S121-I":"the instrument before the presses: paired and ARMED logged, the guest playable on FieldHUD",
@@ -468,7 +472,7 @@ def run(g, field: int | None = None):
         if CALIBRATE and LEG is not None:
             ctx.stage = max(ctx.stage, _stage_now(g))       # the keys never vanish: the later read can only add one
             tail = (ctx.plan or {}).get("tail_ms")          # [ff9mapkit netsync s131] the table is the tail's
-            why = ((ctx.plan or {}).get("expect") or {}).get("why")    # [ff9mapkit netsync s131 fix] span: the verdict
+            why = pb.span_why(ctx.plan, ctx.stage)          # [ff9mapkit netsync s131 fix] span: the verdict -- [s145] by stage
             reds, maybe = _predicted(leg, ctx.stage, tail, why)
             if HOLD_CHECK.get(leg):
                 g.note(f"{PFX[leg]}-CAL: this cut's tail {tail} ms " + (
@@ -1121,7 +1125,9 @@ def _leg_s120_roam(g, led: cb.Ledger, ctx: _Ctx) -> None:
 
 def _leg_span(g, led: cb.Ledger, ctx: _Ctx) -> None:
     p, N = "SPAN", ctx.nonce
-    want = ctx.plan["expect"].get("why")
+    # [ff9mapkit netsync s145] BY THE GUEST'S STAGE (pb.span_why): a world victory whose host says b6 after it leaves at the settle
+    # as host_world on an s145 guest (section 7's b6 is its over-signal); stall_cap before s145
+    want = pb.span_why(ctx.plan, ctx.stage)
     a, e, dur = _cut_anchors(g, ctx, timeout=_span_s(ctx) + 60.0)
     if a is None or e is None:
         led.unreached(list(LEG_CHECKS["span"]), f"the replay never reached its blackhole edges ({ctx.peer.tail(3)})")
@@ -1137,9 +1143,9 @@ def _leg_span(g, led: cb.Ledger, ctx: _Ctx) -> None:
     if want == "stall_cap":
         verdict = pb.hits(lines, "hold_stall_cap", after=e, pred=lambda m: int(m.group(2)) == 0)
     else:
-        verdict = pb.hits(lines, "watcher_why", after=e,
-                          pred=lambda m: m.group(1) == "the host's fight is over (the peer is alive and back on field "
-                                                       f"{ctx.plan['expect'].get('after_field')})")
+        said = ("the host's fight is over (the peer is alive and back on the world map)" if want == "host_world" else  # s145
+                f"the host's fight is over (the peer is alive and back on field {ctx.plan['expect'].get('after_field')})")
+        verdict = pb.hits(lines, "watcher_why", after=e, pred=lambda m: m.group(1) == said)
     v_ok = bool(verdict) and pb.in_window(verdict[0][0], a, *W["span_leave"])
     lv = pb.hits(lines, "leave", after=verdict[0][0]) if verdict else []
     ws = pb.hits(lines, "watcher_settled", after=verdict[0][0], pred=lambda m: int(m.group(1)) == N) if verdict else []

@@ -16,6 +16,113 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - Every catalogued donor writes the same bytes as before. comp10 now carries offline at all 6 test angles (with its
   forest canopy); it is not yet seen in game or catalogued.
 
+## [1.0.0b22] - 2026-10-23 — Play the story together, and a world map that changes with it
+
+> Re-cut of the never-published 1.0.0b20 and 1.0.0b21: their tags' CI runs failed on the bare Ubuntu box (no FF9
+> install, no Qt) and nothing shipped under either. Same content, plus the portability fixes listed under Fixed below.
+
+### Fixed — what the release CI's Linux runs of this release caught
+- `world-entrance --fresh`'s discard warning no longer crashes when no FF9 install is found; it has nothing to
+  warn about, like its sibling check.
+- The in-game test harness on Linux and macOS: a dead run's lock is now recognised as dead (every process used to
+  read as alive there), and creating a test instance says plainly that it needs Windows instead of failing on a
+  missing `cmd`.
+- Tests that need the FF9 install, the extracted templates or Windows now skip with a reason on a machine without
+  them. The overworld mint checks compare exact bytes only where the C math library matches the one they were
+  pinned on, and compare shape and values at a 1e-6 tolerance everywhere else.
+- The world-map co-op duo bench no longer gives up on its host's fight while the host is still waiting, by design,
+  for the guest's battle menu: the wait is timed, so the 120-turn "cannot win" cap no longer counts those turns.
+
+### Fixed — the sound-effect memory leak: the engine bundle ships a leak-fixed `SaXAudio.dll`
+- Stock Memoria's audio plugin (its July-2025 `SaXAudio.dll`) leaked about 0.7 MB of memory per sound effect
+  played, so menu-heavy and battle-heavy sessions grew without bound. The b22 engine bundle carries
+  `SaXAudio.dll` built unchanged from Memoria's own upstream fix (commit `5b49756c`, MIT) for both x64 and x86.
+  Measured on a sound-effect bench, memory growth fell from 0.71 MB/s to 0.003 MB/s, and repeated choice
+  menus no longer grow either. The plugin's interface is identical to stock, so nothing else changes.
+- `ff9mapkit setup --install-engine` (and the Windows installer's engine task) now installs a bundle's
+  `Plugins/<arch>/SaXAudio.dll` into each arch's `FF9_Data/Plugins`, backing up the stock one to
+  `dwix-engine-backups/<timestamp>/<arch>/Plugins/` first. A bundle that carries the plugin for only one arch
+  is refused before anything is written; an older managed-only bundle still installs as before.
+- For developers: `tools/build_saxaudio.py` builds the plugin from the pinned upstream source and installs or
+  restores it on a dev install behind the same backup and SHA checks as `build_memoria.py`.
+
+### Added — co-op: the guest follows the host's conversations (custom engine s84–s85, s95–s99)
+- When the host talks to an NPC or uses a save moogle, a following guest sees the same scene on their own screen,
+  and only the host's presses turn the pages and pick the choices (s84 lockstep, s85 talk relay, s96 the host
+  decides). Scenes that wait on a button press rather than a text window, such as a save moogle's menu, answer to
+  the host's press too (s99).
+- Co-op no longer snaps or pins the guest to the host when a conversation starts; the guest stays where they
+  stand (s95).
+- A guest who watched the host's battle returns to the field where they stood, the way a normal random battle
+  returns, instead of re-entering the room (s97).
+- The host's dialogue presses ride on every state update, so a lost packet heals instead of dropping a line
+  (s98). This moves co-op to protocol v14: both players need the b22 engine bundle, and mismatched engines
+  refuse to pair.
+
+### Added — co-op: the guest fights from FF9's real battle menu (custom engine s100–s121, s131–s137, s143)
+- Inside the host's battle the guest gets the stock command, ability, item and target menus for the party
+  members they command, filled from the host's party: its commands, learned abilities, MP and items (s100–s102,
+  s106–s107; `[Netsync] GuestStockMenu`). The host checks every guest command, and the guest can never act for
+  the host's own party members (s100–s101).
+- The guest sees the battle open the way the host's did, the victory poses and camera, the host's reward screen
+  (it moves when the host's does, and nothing is written to the guest's save), running away with the host's
+  "dropped gil" figure, and defeat; the guest leaves the battle with the host (s103–s105, s108–s109, s111,
+  s115–s117).
+- The guest sees the real attack, spell, item and enemy animations. Damage numbers, flinches and deaths wait for
+  each animation's hit, and trance changes at the right moment; an action with no animation to replay falls
+  back to one stock clip (s133–s137).
+- Timing is fair to both players: in Wait mode the host's gauges freeze only while the guest is in a submenu, as
+  for a local player (s113); the host holds its gauges while the guest's screen is still loading the battle
+  (s114); and a party member the host's menu took while the guest stalled is handed back once the guest is live
+  again (s110, s118).
+- A dropped connection no longer throws the guest out of the fight: the session waits for the host for up to
+  `[Netsync] SessionGraceMs` (default and maximum 40 seconds) and resumes the same battle (s119–s120, s131–s132).
+- The guest never commands the character the host walks as: when the story puts the host's leader in one of the
+  guest's party positions, the guest gets the next member instead (s143).
+- A following guest still has no main menu, but pressing for it now plays the refusal sound (s121).
+
+### Added — co-op: the guest appears as the party member they command (custom engine s139–s141)
+- With `ff9mapkit coop host --ghost-as auto`, the guest appears as the first party member they command, on both
+  screens: the guest's own game now dresses its player from the host's pick, with footsteps, held props and
+  lighting (s139–s141). A guest who only spectates appears as a moogle.
+- Blank, Marcus, Cinna and Beatrix now appear in their own models, and `--ghost-as` also takes `moogle`,
+  `cinna`, `marcus`, `blank` and `beatrix`.
+- `--ghost-as` is now the host's setting; a joining guest normally leaves it `off` (a guest's own
+  `[Netsync] SelfDress=0` keeps their own model).
+
+### Added — co-op on the world map (custom engine s144, s145)
+- On the world map the host drives: a following guest waits where they stand and rejoins the host at the next
+  field the host enters (s144). The `~` debug menu's "Co-op: release world freeze" lets the guest walk again
+  until the next load.
+- When the host fights on the world map, the battle plays on the guest's screen too, and the guest returns to
+  the world map where they stood (s145).
+
+### Changed — `ff9mapkit coop` and the Workspace Co-op tab follow the new co-op engine
+- **The Co-op tab is redesigned around playing the story together.** It asks first whether this PC is the
+  host (who plays their own save) or the guest (whose game follows along), then how the two PCs connect, and
+  shows only that side's settings. The host sets which party positions their friend commands, what the friend
+  appears as, and how long a guest turn may pause the gauges. The guest gets no settings, just what following
+  means: pulled along between screens, conversations in step, battles from FF9's own menu, no saving while
+  paired. A PC already in a session opens on its real role, and the old meeting-room status and the separate
+  "play style" card are gone.
+- **A host can no longer be set to follow its guest.** The tab used to offer "Follow the host" to both sides,
+  and a host that ticked it chased its following guest between two screens every few seconds. Joining now
+  always follows and hosting never does, and `coop host --follow-host on` is refused with an explanation.
+- `coop host|join` help, `coop show` and the Co-op tab describe the new behaviour (the world map, the leader
+  rule, who `--ghost-as` dresses), and the tab's outfit list gains the moogle and the four new models. The Co-op
+  and Setup engine rows turn amber when the installed engine is older than the current co-op engine.
+- The co-op bridge now time-stamps its lines and keeps one log per run under
+  `%LOCALAPPDATA%\ff9mapkit\bridge-logs\` (`--bridge-log FILE`). A game that stops sending for 10 seconds
+  (`--hang-after`) is logged, and `--hang-dump` (off by default; a dump is 1–3 GB) also saves a memory dump of
+  the hung game for a bug report.
+
+### Added — an early in-game Journal menu, off by default (custom engine s81, s82, s150)
+- The engine bundle carries an early Journal that takes Folklore's seat in the main menu (s81), with a Story
+  tab: a "Now" banner naming the current main-story objective and the list of story sections, unreached ones
+  shown as "????" (s82).
+- It is not finished, so it ships off: the main menu stays stock unless you set `[Journal] Enabled=1` in
+  `Memoria.ini` (s150). The kit's journal catalog and `ff9mapkit journal` are unaffected.
+
 ### Added — a desert crag with its scrub canopy: `world-mountain --donor 14-15,3`
 - comp26, a small desert crag, is now a catalogued massif donor (`desert-scrub`). At home its rock rises from a walled
   scrub canopy, and carrying the rock alone left a vertical step the seam could not close. Its catalogue entry now

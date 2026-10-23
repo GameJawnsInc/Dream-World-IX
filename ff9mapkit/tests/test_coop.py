@@ -494,14 +494,22 @@ def test_coop_host_forces_follow_host_off(game, monkeypatch):
     assert coop.read_ini_key(text, "Netsync", "Enabled") == "1"
 
 
-def test_coop_host_explicit_follow_host_overrides(game, monkeypatch):
-    # --follow-host on stays honored: the explicit style write lands AFTER the role-branch force
+def test_coop_host_refuses_an_explicit_follow_host(game, monkeypatch):
+    # --follow-host on a HOST is refused before anything is written. It used to be honored ("if ever
+    # explicitly wanted"), but the engine's follow tick has no role check: in the b20 smoke test a host
+    # ticked to follow and its following guest bounced between fields 250 and 350 every few seconds.
     monkeypatch.setattr(coop, "_copy_clipboard", lambda _text: False)
+    before = (game / "Memoria.ini").read_text(encoding="utf-8")
+    lines = []
     rc = coop.run(_cli_args(action="host", game=str(game), lan="", no_room=True, follow_host="on"),
-                  out=lambda *_: None)
-    assert rc == 0
-    text = (game / "Memoria.ini").read_text(encoding="utf-8")
-    assert coop.read_ini_key(text, "Netsync", "FollowHost") == "1"
+                  out=lines.append)
+    assert rc == 2
+    assert any("joining side" in ln for ln in lines), lines
+    assert (game / "Memoria.ini").read_text(encoding="utf-8") == before, "nothing may be written"
+    with pytest.raises(ValueError):
+        coop.playstyle_updates(follow_host=True, role="host")
+    assert coop.playstyle_updates(follow_host=False, role="host") == {"FollowHost": "0"}
+    assert coop.playstyle_updates(follow_host=True, role="client") == {"FollowHost": "1"}
 
 
 def test_coop_join_with_a_ghost_pick_warns_the_guest_already_wears_the_hosts(game, monkeypatch):

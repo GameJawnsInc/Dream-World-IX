@@ -228,6 +228,9 @@ def make_junction(link, target) -> None:
         import _winapi
         _winapi.CreateJunction(str(target), str(link))
     except (ImportError, AttributeError, OSError) as err:
+        if os.name != "nt":                          # no _winapi and no cmd/mklink: an instance root is Windows-only
+            raise InstanceError(f"could not create the junction {link} -> {target}: NTFS junctions need "
+                                f"Windows ({err})") from err
         import subprocess
         r = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True, text=True)
         if r.returncode != 0:

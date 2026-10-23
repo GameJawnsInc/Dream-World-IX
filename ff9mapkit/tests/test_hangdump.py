@@ -687,18 +687,21 @@ ROWS = [
     (5, "127.0.0.1", 50123, "127.0.0.1", 49201, 777),     # the GAME's end -- the one we want
     (5, "10.0.0.5", 50123, "1.2.3.4", 443, 999),          # same port number, unrelated connection
 ]
+# The game's image as THIS OS spells it (C:\G\x64\FF9.exe on Windows, QueryFullProcessImageNameW's form): the resolver
+# takes its basename with os.path, so a backslashed literal would be one whole path component on POSIX.
+IMAGE = os.path.join(os.path.abspath(os.sep), "G", "x64", "FF9.exe")
 
 
 def test_resolve_by_loopback_port_owner():
     p = H.resolve_game_process(50123, 49201, rows=ROWS, procs=[(777, "FF9.exe")],
-                               image_of=lambda pid: r"C:\G\x64\FF9.exe")
-    assert (p.pid, p.image, p.exe) == (777, r"C:\G\x64\FF9.exe", "FF9.exe")
+                               image_of=lambda pid: IMAGE)
+    assert (p.pid, p.image, p.exe) == (777, IMAGE, "FF9.exe")
     assert "loopback port 50123" in p.how
 
 
 def test_resolve_falls_back_to_the_single_running_game():
     p = H.resolve_game_process(50999, 49201, rows=ROWS, procs=[(5, "explorer.exe"), (888, "ff9.EXE")],
-                               image_of=lambda pid: r"C:\G\x64\FF9.exe")
+                               image_of=lambda pid: IMAGE)
     assert p.pid == 888 and "only running FF9.exe" in p.how
 
 

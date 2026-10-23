@@ -29,9 +29,9 @@ def find_game() -> tuple:
 
 # The co-op engine generations a player can tell apart, OLDEST first: (patch, a type or method name that
 # patch adds to Assembly-CSharp's metadata, what a player gets from it). Each marker is checked unique
-# to its patch in memoria-patches/ and present in the deployed s144 DLL. The LAST row is "current":
-# when a user-facing netsync patch ships (s145, battles from the world map, is next), append its row
-# and every older install reads amber with the feature it lacks named.
+# to its patch in memoria-patches/ and present in the deployed s145 DLL. The LAST row is "current":
+# when a user-facing netsync patch ships, append its row and every older install reads amber with
+# the feature it lacks named.
 NETSYNC_GENERATIONS = (
     ("s36", b"NetSyncClient", "ghost sync"),
     ("s37", b"NetSyncBattle", "battle co-op and visitor outfits"),
@@ -41,6 +41,7 @@ NETSYNC_GENERATIONS = (
     ("s140", b"NetSyncSelfDress", "the guest wearing its outfit on its own screen"),
     ("s143", b"GuardCharAt", "the guard that keeps your leader yours"),
     ("s144", b"HostWhereBits", "world-map co-op"),
+    ("s145", b"BeforeWorldEvents", "battles from the world map"),
 )
 
 

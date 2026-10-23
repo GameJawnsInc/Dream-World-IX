@@ -269,9 +269,10 @@ def _cmd_setup(args: argparse.Namespace) -> int:
         try:
             rep = memoria.install_engine_bundle(game, zp, stamp=stamp)
             print(f"  backed up {len(rep['backed_up'])} DLL(s) -> {rep['backup_root']}")
-            print(f"  installed {len(rep['installed'])} DLL(s) into x64 + x86 Managed. Relaunch FF9 to load it.")
+            print(f"  installed {len(rep['installed'])} DLL(s) into x64 + x86 Managed (and Plugins, when the bundle\n"
+                  "  carries the audio fix). Relaunch FF9 to load it.")
             print("  NOTE: a later Memoria update / re-patch OVERWRITES these -- just re-run this to reapply.")
-            print("  (Undo: copy the backed-up DLLs back over the Managed ones.)")
+            print("  (Undo: copy the backed-up DLLs back to the same place under x64/x86 FF9_Data.)")
         except Exception as e:                           # noqa: BLE001
             print(f"  engine install failed: {e}", file=sys.stderr)
             return 1

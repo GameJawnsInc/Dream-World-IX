@@ -36,7 +36,9 @@ each is only written when its flag is given, so re-runs never clobber hand tunin
     --follow-host on       guest side: auto-warp to the host's field; your own
                            random encounters pause while paired   -> FollowHost
                            -- on the world map the host drives: you wait there
-                           and rejoin their next field (engine s144)
+                           and rejoin their next field (engine s144); their
+                           battles there boot on your screen too and return
+                           you where you stood (engine s145)
 
 (The battle diorama -- a following guest's screen boots the host's battles
 live -- is always on since the s42 engine; the old ``--diorama`` knob is gone.
@@ -154,12 +156,24 @@ def parse_ghost_as(name: str) -> str:
                      + ", ".join(n for n in GHOST_NAMES))
 
 
+HOST_FOLLOW_REFUSED = ("follow-host is for the joining side: a host never follows its guest (the engine "
+                       "follows regardless of role, so a following host and its following guest chase each "
+                       "other between screens)")
+
+
 def playstyle_updates(guest_slots: str | None = None, guest_wait: int | None = None,
-                      ghost_as: str | None = None, follow_host: bool | None = None) -> dict:
+                      ghost_as: str | None = None, follow_host: bool | None = None,
+                      *, role: str | None = None) -> dict:
     """The ``[Netsync]`` play-style updates for whichever knobs were actually given (None = leave
     the ini alone -- a re-run must not clobber hand-tuned values). ``guest_wait`` is SECONDS
     (0 = no cap); the ini key is milliseconds. (The ``Diorama`` knob was REMOVED with the s42
-    engine -- the diorama is always-on for a follower; a stray ini line is silently ignored.)"""
+    engine -- the diorama is always-on for a follower; a stray ini line is silently ignored.)
+
+    ``role="host"`` refuses ``follow_host=True`` (ValueError). The engine's follow tick has no role
+    check, so this is the one place both the CLI and the Workspace pass through: the b20 smoke test
+    had a host ticked to follow, and host and guest bounced between two fields every few seconds."""
+    if follow_host and role == "host":
+        raise ValueError(HOST_FOLLOW_REFUSED)
     updates: dict = {}
     if guest_slots is not None:
         updates["GuestSlots"] = str(parse_guest_slots(guest_slots))
@@ -642,7 +656,8 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
         style = playstyle_updates(getattr(args, "guest_slots", None),
                                   getattr(args, "guest_wait", None),
                                   getattr(args, "ghost_as", None),
-                                  None if follow is None else follow == "on")
+                                  None if follow is None else follow == "on",
+                                  role="host" if role == "host" else "client")
         if code:                      # empty/None = none given (host mints, LAN join needs none)
             validate_code(code)
         if getattr(args, "hang_after", None) is not None:      # a bad --hang-after fails HERE, not
@@ -684,12 +699,12 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
             updates["PeerAddress"] = lan
     else:
         updates["RelayUrl"] = f"ws://127.0.0.1:{args.port}"
+    updates.update(style)
     if role == "host":
         updates["FollowHost"] = "0"                  # a host never follows its guest -- FollowHost fires
-                                                     # regardless of role, so a stale selftest value would
-                                                     # drag the host to the guest's field (--follow-host still
-                                                     # overrides via `style` below if ever explicitly wanted)
-    updates.update(style)
+                                                     # regardless of role, so a stale value would drag the
+                                                     # host to the guest's field (playstyle_updates already
+                                                     # refused an explicit --follow-host on)
     write_netsync(game, updates, out=out)
     if "GuestSlots" in style:
         out("  battle: your friend commands party slot(s) "
@@ -727,9 +742,12 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
         out(f"  joining session {code}")
     if target:
         out(f"  then: launch FF9 -> ~ -> Warp to field -> {target}   (both players)")
+    elif role == "host":
+        out("  then: launch FF9 and load your save -- a following guest is pulled to whatever screen you are on")
     else:
-        out("  then: launch FF9 and stand on the SAME screen as your friend -- ghosts appear anywhere "
-            f"you two share a field (guaranteed spot: ~ -> Warp -> {COOP_FIELD})")
+        out("  then: launch FF9 and load any save -- with follow-host on, your game jumps to the host's screen "
+            "once you pair (your own save is never touched); without it, you see each other on a shared "
+            f"screen (always-shared spot: ~ -> Warp -> {COOP_FIELD})")
     if lan is not None:
         # Windows' generic "Allow access" prompt ticks Private AND Public by default; clicking
         # through it on a cafe/hotel/campus network exposes the co-op listener to that whole

@@ -49,12 +49,14 @@ except ImportError:  # pragma: no cover
 # list DELIBERATELY, one review at a time -- an allowlist cannot rot open.
 # "cutscene" joined with the doc-tab redesign: its surfaces render the GLEN fixture owned by
 # tests/test_cutscenedoc.py -- kit-authored, zero Square-Enix pixels.
-ALLOWED_FAMILIES = {"tab", "home", "form", "dlg", "script", "console", "drift", "cutscene"}
+# "coop" joined with the co-op tutorial (17): gui_snap's coop:<state> fake installs, all text, no
+# art -- and the adapter below pins the one painted machine path (the fake install's temp dir).
+ALLOWED_FAMILIES = {"tab", "home", "form", "dlg", "script", "console", "drift", "cutscene", "coop"}
 # Families the in-process adapter can open (window in hand -> annotations + pins work). The rest
 # run black-box through their gui_snap function and cannot carry annotations. Dialog widgets are
 # addressed by LABEL (a11y name or rendered text -- dialogs hold no attr paths), the same handle
 # gui_snap's _child_named drives them by.
-ADAPTER_FAMILIES = {"tab", "home", "dlg"}
+ADAPTER_FAMILIES = {"tab", "home", "dlg", "coop"}
 
 THEME_PAIR = {"light": "light", "dark": "mist"}   # the committed pair; the site swaps by theme
 
@@ -99,7 +101,11 @@ def _load_gui_snap():
 def _resolve_widget(win, path: str):
     w = win
     for part in path.split("."):
-        w = getattr(w, part, None)
+        # a numeric part indexes a list attribute (coop_doc.cb_slots.1 = the position-2 checkbox)
+        if part.isdigit() and isinstance(w, (list, tuple)):
+            w = w[int(part)] if int(part) < len(w) else None
+        else:
+            w = getattr(w, part, None)
         if w is None:
             raise AssertionError(
                 f"widget path {path!r} no longer resolves on this surface -- the UI moved; "
@@ -147,6 +153,17 @@ def render_shot(gs, name: str, shot: dict, theme: str, out_dir: Path) -> dict:
                                    if state in ("veteran", "open") else None)
                 win._refresh_home_status()
                 gs._settle(12)
+                meta.update(_pin_grab(gs, win, shot, png, QPoint))
+        elif fam == "coop":
+            # gui_snap's pinned fake install for this co-op state -- never this machine's real
+            # [Netsync] (tab:coop is pinned-only for exactly that reason)
+            with gs._pin_setup_state(game=True, templates=True), gs._pin_coop_state(state):
+                win = gs._make_win(ctx)
+                doc = win.coop_doc
+                doc._poll.stop()                  # the 2 s bridge poll: nothing to notice in a grab
+                doc.refresh_status()
+                win.tabs.setCurrentWidget(doc)
+                gs._settle(6)
                 meta.update(_pin_grab(gs, win, shot, png, QPoint))
         else:                                     # tab:<name>
             win = gs._make_win(ctx)
@@ -280,8 +297,17 @@ def _pin_grab(gs, win, shot: dict, png: Path, QPoint) -> dict:
             w = _resolve_widget(win, pin["widget"])
             # COSMETIC only: block signals so a pinned text can never re-drive the surface's state
             # (build_deploy.path's textChanged would re-aim the whole tab at the fake path).
+            # `checked` ticks a box and `data` picks a combo item, for a figure that shows a
+            # setting the tutorial asks for (the co-op host's party position and outfit).
             w.blockSignals(True)
-            w.setText(pin["text"])
+            if "checked" in pin:
+                w.setChecked(bool(pin["checked"]))
+            elif "data" in pin:
+                idx = w.findData(pin["data"])
+                assert idx >= 0, f"pin {pin['widget']}: no item with data {pin['data']!r}"
+                w.setCurrentIndex(idx)
+            else:
+                w.setText(pin["text"])
             w.blockSignals(False)
         gs._settle()
         notes = []

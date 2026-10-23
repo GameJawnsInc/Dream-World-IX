@@ -151,6 +151,10 @@ R3_PROBES = {
     # [ff9mapkit netsync s144] world-map co-op (the `bench worldfreeze` op -- the s110 hazard again: an s143 agent reads it as
     # `bench 1`) -- keyed on `netsync.world.freeze` (netsync's LAST key's first block; `rejoin` / `waitline` ride beside it)
     144: "netsync.world.freeze",
+    # [ff9mapkit netsync s145] battles from the world map (the `bench worldwarm` op and the `vehicle` verb -- the s110 hazard again:
+    # an s144 agent reads `bench worldwarm` as `bench 1`, answers `vehicle` "unknown op", and refuses a world `dioboot` "from a live
+    # field only") -- keyed on `netsync.world.dio` (`world`'s last block, after `waitline`)
+    145: "netsync.world.dio",
 }
 
 
@@ -188,8 +192,10 @@ class Ledger:
     """The run's checks, declared up front. ``check`` records one; ``unreached`` records the named ones FAILED with a
     reason; ``close`` fails whatever was never recorded. Ids are the stable handles the calibration judge reads."""
 
-    def __init__(self, g, catalog: dict, *, finals=()):
+    def __init__(self, g, catalog: dict, *, finals=(), width: int = 900):
         self.g = g
+        #: a recorded detail's length (900: every bench's own; a bench whose rows carry more names its own -- s145 fix-r1)
+        self.width = int(width)
         self.catalog = dict(catalog)
         self.done: dict = {}
         #: checks judged in the scenario's `finally` (the release, a whole-run invariant): an early ``close`` leaves them
@@ -205,12 +211,12 @@ class Ledger:
             ok = ok and self.done[cid]
             self.g.note(f"{cid} re-recorded ({'ok' if ok else 'FAIL'})")
         self.done[cid] = ok
-        return self.g.check(ok, f"{cid}: {self.catalog[cid]}", str(detail)[:900])
+        return self.g.check(ok, f"{cid}: {self.catalog[cid]}", str(detail)[:self.width])
 
     def unreached(self, cids, why: str) -> None:
         for cid in cids:
             if cid in self.catalog and cid not in self.done:
-                self.check(cid, False, f"not reached: {why}"[:900])
+                self.check(cid, False, f"not reached: {why}"[:self.width])
 
     def pending(self, prefix: str = "") -> list:
         return [c for c in self.catalog if c.startswith(prefix) and c not in self.done]

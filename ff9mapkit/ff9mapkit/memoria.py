@@ -7,7 +7,7 @@ in this module touches ``Memoria.ini``. The only game-mutating operation is the 
 
 A **novel** field runs on stock Memoria; only a **forked** field needs the Dream World IX engine bundle
 (the s23-s33 fork-fidelity patch suite, shipped as ``dwix-custom-memoria-*.zip``: three patched managed
-DLLs). The bundle is a separate release asset, never redistributed by the toolkit itself.
+DLLs, plus since b20 the leak-fixed native SaXAudio.dll). The bundle is a separate release asset, never redistributed by the toolkit itself.
 """
 from __future__ import annotations
 
@@ -23,6 +23,13 @@ from . import fsutil
 # The three managed DLLs the Dream World IX engine bundle replaces (a patched Memoria build).
 ENGINE_DLLS = ("Assembly-CSharp.dll", "Memoria.Prime.dll", "UnityEngine.UI.dll")
 
+# The native plugins a bundle MAY also carry, per arch, under ``Plugins/<arch>/<name>`` in the zip. Since
+# b20 that is Memoria's SaXAudio.dll built from upstream's leak-fixed source (tools/build_saxaudio.py):
+# stock's July-2025 build leaks ~0.7 MB per sound effect. Optional, so an older managed-only bundle
+# still installs; they land in ``<arch>/FF9_Data/Plugins``, next to Managed.
+ENGINE_PLUGINS = ("SaXAudio.dll",)
+PLUGIN_ARCHES = ("x64", "x86")
+
 # The Memoria base commit the shipped engine bundle is built against (for the install-time notice).
 # Memoria stamps no commit hash into its DLLs (Assembly-CSharp is AssemblyVersion("1.1.*") -> a
 # build-DATE-derived FileVersion; Memoria.Prime is hardcoded 1.0.0.0), so we can't read the user's
@@ -36,8 +43,8 @@ BASE_COMMIT = "6b8bb2d5"
 BASE_COMMIT_DATE = date(2025, 7, 13)
 
 # How far an installed engine's compile date may drift from BASE_COMMIT_DATE before we mention that the
-# prebuilt bundle may not be a clean match. Rough, advisory: the bundle replaces only the 3 MANAGED DLLs,
-# never Memoria's native side, so a big drift is a real (if not certain) mismatch risk -- see docs/ENGINE.md
+# prebuilt bundle may not be a clean match. Rough, advisory: the bundle replaces the 3 MANAGED DLLs and
+# the SaXAudio plugin, never the rest of Memoria's native side, so a big drift is a real (if not certain) mismatch risk -- see docs/ENGINE.md
 # ("pinned to a specific Memoria base -- if you run a much newer Memoria and hit crashes, build from source").
 STALE_WARNING_DAYS = 180
 
@@ -212,9 +219,32 @@ def bundle_dll_members(zip_path) -> dict:
     return found
 
 
+def bundle_plugin_members(zip_path) -> dict:
+    """Map ``(arch, plugin)`` to its member path for each :data:`ENGINE_PLUGINS` the bundle carries at
+    ``Plugins/<arch>/<plugin>`` (optionally nested in a folder, like the DLLs). Empty for a managed-only
+    bundle. Raises ``ValueError`` when a plugin is present for one arch but not the other -- installing
+    it into a single arch would leave x64 and x86 playing different audio engines."""
+    with zipfile.ZipFile(zip_path) as z:
+        names = [n.replace("\\", "/") for n in z.namelist()]
+    found: dict[tuple[str, str], str] = {}
+    for plugin in ENGINE_PLUGINS:
+        for arch in PLUGIN_ARCHES:
+            tail = f"plugins/{arch}/{plugin}".lower()
+            cand = [n for n in names if n.lower() == tail or n.lower().endswith("/" + tail)]
+            if cand:
+                found[(arch, plugin)] = cand[0]
+        arches = [a for a in PLUGIN_ARCHES if (a, plugin) in found]
+        if arches and len(arches) != len(PLUGIN_ARCHES):
+            raise ValueError(f"{Path(zip_path).name} carries {plugin} for {', '.join(arches)} only -- "
+                             f"a bundle must ship it for every arch ({', '.join(PLUGIN_ARCHES)}).")
+    return found
+
+
 def install_engine_bundle(game, zip_path, *, stamp: str) -> dict:
     """Install the Dream World IX engine bundle (the 3 patched managed DLLs) into BOTH the x64 and x86
     ``FF9_Data/Managed`` dirs, backing up the originals first to ``<game>/dwix-engine-backups/<stamp>/``.
+    A bundle that carries native plugins (:func:`bundle_plugin_members`) also installs each into
+    ``<arch>/FF9_Data/Plugins``, backed up to ``<stamp>/<arch>/Plugins/``.
 
     Fully reversible (copy the backed-up DLLs back) and does NOT touch ``Memoria.ini``. Requires Memoria to
     be installed already (this swaps Memoria's managed DLLs for the patched build). Returns a report dict
@@ -226,22 +256,29 @@ def install_engine_bundle(game, zip_path, *, stamp: str) -> dict:
             "Memoria isn't installed in this FF9 folder (no Memoria.ini + Managed Assembly-CSharp.dll). "
             "Install Memoria first, then re-run with --install-engine.")
     members = bundle_dll_members(zip_path)              # validates the bundle before touching the game
+    plugins = bundle_plugin_members(zip_path)
     backup_root = game / "dwix-engine-backups" / stamp
     report: dict = {"backup_root": backup_root, "backed_up": [], "installed": []}
+
+    def _swap(z, member, dst, bdir):
+        if dst.is_file():                              # back up the original before overwriting
+            bdir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(dst, bdir / dst.name)
+            report["backed_up"].append(str(bdir / dst.name))
+        with z.open(member) as src:                     # a DLL is a few MB -- fine to hold whole so the
+            data = src.read()                           # write-out below can go through the atomic tmp+replace
+        fsutil.atomic_write_bytes(dst, data)             # path (a live DLL must never be observed truncated)
+        report["installed"].append(str(dst))
+
     with zipfile.ZipFile(zip_path) as z:
         for mgd in managed_dirs(game):
             if not mgd.is_dir():
                 continue
             arch = mgd.parent.parent.name              # "x64" / "x86"
             for dll, member in members.items():
-                dst = mgd / dll
-                if dst.is_file():                      # back up the original before overwriting
-                    bdir = backup_root / arch
-                    bdir.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(dst, bdir / dll)
-                    report["backed_up"].append(str(bdir / dll))
-                with z.open(member) as src:             # a managed DLL is a few MB -- fine to hold whole so the
-                    data = src.read()                   # write-out below can go through the atomic tmp+replace
-                fsutil.atomic_write_bytes(dst, data)     # path (a live DLL must never be observed truncated)
-                report["installed"].append(str(dst))
+                _swap(z, member, mgd / dll, backup_root / arch)
+            plug = mgd.parent / "Plugins"
+            for (parch, plugin), member in plugins.items():
+                if parch == arch and plug.is_dir():
+                    _swap(z, member, plug / plugin, backup_root / arch / "Plugins")
     return report

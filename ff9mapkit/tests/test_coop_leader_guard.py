@@ -648,6 +648,11 @@ def test_seat_want_is_the_twins_story():
 
 # ------------------------------------------------------------------------------------------------ the seats and the oracle
 def _build(tmp_path, *tomls) -> pathlib.Path:
+    # the build runs in a CHILD, so a missing blank is a red returncode the conftest's FileNotFoundError -> skip never sees:
+    # gate it here (the seats are novel fields -- the templates are all they read, never the install)
+    from ff9mapkit import provision
+    if not provision.templates_present():
+        pytest.skip("base templates not extracted (run `ff9mapkit extract-templates`)")
     out = tmp_path / "FF9CustomMap-msgs"
     r = subprocess.run([sys.executable, "-X", "utf8", "-m", "ff9mapkit", "build", *[str(t) for t in tomls], "--out",
                         str(out)], cwd=str(REPO / "ff9mapkit"), capture_output=True, text=True, timeout=300)

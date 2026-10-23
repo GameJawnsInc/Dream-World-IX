@@ -225,7 +225,7 @@ def test_the_status_warning_carries_its_own_door(coop, app, monkeypatch, tmp_pat
     (managed / "Assembly-CSharp.dll").write_bytes(b"MZ NetSyncClient NetSyncBattle NetSyncDiorama")
     coop.refresh_status()
     assert coop.btn_setup.isVisibleTo(coop), "outdated s40 engine (amber) -> the door must show"
-    assert coop.style_box.isEnabled(), "s37+ keeps the Play-style lanes usable"
+    assert coop.host_box.isEnabled(), "s37+ keeps the host's battle settings usable"
 
     from ff9mapkit import health
     (managed / "Assembly-CSharp.dll").write_bytes(
@@ -262,39 +262,104 @@ def test_the_engine_row_reads_the_shared_health_source(coop, app, monkeypatch, t
     assert gen["level"] == "warn" and coop.lbl_engine.property("state") == "warn"
 
 
-def test_advanced_drawer_comes_back_for_a_non_default_play_style(coop, app):
-    """THE COMES-BACK RULE. The Play-style card is folded into a collapsed Advanced drawer -- but a knob
-    that was configured on this machine must not hide from the person who set it. _load_playstyle re-opens
-    the drawer whenever the ini carries a non-default GuestSlots / GhostAs / FollowHost, and only then.
-
-    Both directions are the law: a default ini leaves a collapsed drawer collapsed (so an 'always expand'
-    implementation fails the first half), and each non-default key ALONE re-opens it (so a no-op auto-expand
-    fails the second half). Reads only the passed ini text -- no game, no prefs."""
-    drawer = coop.style_drawer
-
-    def loads_open(ini):
-        drawer.toggle_button.setChecked(False)      # start collapsed -- the rule only ever opens
-        coop._load_playstyle(ini)
-        _settle(app)
-        return drawer.toggle_button.isChecked()
-
+def test_each_side_sees_only_its_own_settings(coop, app):
+    """THE ROLE LAW, visible half. The first Co-op tab showed one shared play-style card to both sides, and a
+    host could tick 'follow the host' -- which in the b20 smoke test sent host and guest chasing each other
+    between two fields. Now the host sees its battle settings and no follow control at all; the guest sees
+    no knobs, only what following means. Both directions: a page that shows both cards fails the first
+    half, a page that never swaps fails the second."""
     try:
-        assert not loads_open("[Netsync]\n"), "an all-default ini must leave the drawer collapsed"
-        assert not loads_open(
-            "[Netsync]\nGuestSlots = 0\nGhostAs = off\nFollowHost = 0\nGuestWaitMs = 30000\n"
-        ), "explicit-default values must still leave it collapsed"
-        # Wait is NOT a signal (it has a non-empty engine default) -- a non-default wait alone
-        # must not trip the rule.
-        assert not loads_open("[Netsync]\nGuestWaitMs = 5000\n"), (
-            "wait is not a comes-back signal -- it must not open the drawer")
-        # Each real signal, alone, re-opens it.
-        assert loads_open("[Netsync]\nGuestSlots = 1\n"), "a granted battle slot must re-open the drawer"
-        assert loads_open("[Netsync]\nGhostAs = vivi\n"), "a visitor outfit must re-open the drawer"
-        assert loads_open("[Netsync]\nFollowHost = 1\n"), "follow-host must re-open the drawer"
-    finally:
-        drawer.toggle_button.setChecked(False)
-        coop._load_playstyle("[Netsync]\n")         # leave the shared doc at its default state
+        coop.rb_host.setChecked(True)
         _settle(app)
+        assert coop.host_box.isVisibleTo(coop) and not coop.guest_box.isVisibleTo(coop)
+        assert coop.btn_start.text() == "Start hosting"
+        coop.rb_join.setChecked(True)
+        _settle(app)
+        assert coop.guest_box.isVisibleTo(coop) and not coop.host_box.isVisibleTo(coop)
+        assert coop.btn_start.text() == "Join game"
+        assert not hasattr(coop, "cb_follow"), "following is the guest's role, not a checkbox either side can tick"
+    finally:
+        coop.rb_host.setChecked(True)
+        _settle(app)
+
+
+def test_join_always_follows_and_the_host_never_does(coop, app, monkeypatch, tmp_path):
+    """THE ROLE LAW, written half: what Start actually hands the CLI. Join passes --follow-host on and
+    --ghost-as off (a guest-side outfit only re-dresses its view of the host); Host passes --follow-host off
+    and its battle settings. Read from the argv the subprocess would get -- not from a widget."""
+    from ff9mapkit import config as cfg
+    from ff9mapkit.editor import jobs as J
+
+    game = tmp_path / "game"
+    managed = game / "x64" / "FF9_Data" / "Managed"
+    managed.mkdir(parents=True)
+    from ff9mapkit import health
+    (managed / "Assembly-CSharp.dll").write_bytes(b"MZ " + b" ".join(g[1] for g in health.NETSYNC_GENERATIONS))
+    (game / "Memoria.ini").write_text("[Netsync]\nEnabled = 0\n", encoding="utf-8")
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+    seen = []
+    monkeypatch.setattr(coop, "_run", lambda argv, **kw: seen.append(argv) or True)
+
+    def flag(argv, name):
+        return argv[argv.index(name) + 1] if name in argv else None
+    try:
+        coop.refresh_status()
+        coop.rb_relay.setChecked(True)
+        coop.rb_host.setChecked(True)
+        for i, cb in enumerate(coop.cb_slots):
+            cb.setChecked(i == 2)
+        coop.start_coop()
+        host = seen[-1]
+        assert J.coop_setup_argv("host")[:5] == host[:5]
+        assert flag(host, "--follow-host") == "off" and flag(host, "--guest-slots") == "3"
+
+        coop.rb_join.setChecked(True)
+        coop.code.setText("ff9-ABCD1234")
+        coop.start_coop()
+        join = seen[-1]
+        assert flag(join, "--follow-host") == "on" and flag(join, "--ghost-as") == "off"
+        assert "--guest-slots" not in join, "a guest has no battle settings to write"
+
+        # Apply on the host side writes FollowHost = 0 next to the battle keys, never 1
+        coop.rb_host.setChecked(True)
+        coop.apply_playstyle()
+        from ff9mapkit import coop as kit
+        text = (game / "Memoria.ini").read_text(encoding="utf-8")
+        assert kit.read_ini_key(text, "Netsync", "FollowHost") == "0"
+        assert kit.read_ini_key(text, "Netsync", "GuestSlots") == "4"
+    finally:
+        coop.rb_host.setChecked(True)
+        coop.code.clear()
+        widgets.set_state(coop.lbl_session, "")
+
+
+def test_a_live_session_shows_this_pcs_real_role(coop, app, monkeypatch, tmp_path):
+    """A guest PC opening the tab must not find 'Host' selected: an enabled [Netsync] sets the role and the
+    transport from the ini, and seeds the code the guest joined with. A switched-off ini leaves the user's
+    own picks alone (otherwise every Refresh would undo a choice they had not started yet)."""
+    from ff9mapkit import config as cfg
+
+    game = tmp_path / "game"
+    game.mkdir()
+    ini = game / "Memoria.ini"
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+    try:
+        coop.rb_host.setChecked(True)
+        coop.code.clear()
+        ini.write_text("[Netsync]\nEnabled = 1\nRole = client\nSessionCode = ff9-ABCD1234\n"
+                       "RelayUrl = ws://127.0.0.1:49201\n", encoding="utf-8")
+        coop.refresh_status()
+        assert coop.rb_join.isChecked() and coop.rb_relay.isChecked()
+        assert coop.code.text() == "ff9-ABCD1234"
+        assert "guest" in coop.lbl_session.text()
+
+        coop.rb_host.setChecked(True)                 # the user's own pick, co-op switched off
+        ini.write_text("[Netsync]\nEnabled = 0\nRole = client\n", encoding="utf-8")
+        coop.refresh_status()
+        assert coop.rb_host.isChecked(), "a switched-off ini must not flip the user's pick"
+    finally:
+        coop.rb_host.setChecked(True)
+        coop.code.clear()
 
 
 def test_host_start_survives_an_unusable_stored_session_code(coop, app, monkeypatch, tmp_path):
@@ -322,7 +387,7 @@ def test_host_start_survives_an_unusable_stored_session_code(coop, app, monkeypa
         coop.start_coop()
         assert seen, "Host Start bailed on a code that came from the ini, not from the user"
         assert "my session" not in seen[0], "the unusable stored code was still passed to the CLI"
-        assert coop.lbl_config.property("state") != "warn"
+        assert coop.lbl_session.property("state") != "warn"
 
         # ...and the flip side: a guest's own bad paste must still be refused before any subprocess,
         # because THERE the code is the user's paste -- the ini-splice fence stays hard on that path
@@ -331,8 +396,8 @@ def test_host_start_survives_an_unusable_stored_session_code(coop, app, monkeypa
         coop.code.setText("ff9-AAAA0000\nGuestSlots = 15")
         coop.start_coop()
         assert not seen, "a poisoned paste must not reach the CLI on the join path"
-        assert coop.lbl_config.property("state") == "warn"
+        assert coop.lbl_session.property("state") == "warn"
     finally:
         coop.rb_host.setChecked(True)
         coop.code.clear()
-        widgets.set_state(coop.lbl_config, "")
+        widgets.set_state(coop.lbl_session, "")

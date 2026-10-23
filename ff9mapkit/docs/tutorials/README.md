@@ -52,12 +52,12 @@ Workspace GUI tutorial (07) covers the journey flow visually.
 | 14 | [Recolour and reframe a stock summon](14-summon-reskin-rescore.md) | Edit a stock summon's palette and camera in place, no new model (`summon-reskin` / `summon-rescore`) | none — stock Memoria, offline scaffold + a live install |
 | 15 | [A new playable character](15-playable-character.md) | Recruit a genuinely new party member (`[[playable]]`) — own name, stats, model, command menu; zero DLL | a repo checkout for the deploy scripts |
 | 16 | [A custom continent on the overworld](16-custom-continent.md) | Deploy the proven four-island archipelago, walk it, iterate with the ~1s reload loop | the engine bundle |
+| 17 | [Play FF9 together: co-op](17-coop.md) | Two PCs, one story: host a session in the Workspace, a friend joins and follows your screens and battles | the engine bundle on both PCs |
 
 Pillars without a tutorial yet (reference docs instead):
 
 - **Coast/beach/cliff morphing and overworld entrances** (the deep half of the `world-*` surface; tutorial 16 covers deploying and iterating on a continent) — [OVERWORLD_RECIPES.md](../OVERWORLD_RECIPES.md) · [OVERWORLD_ENGINE.md](../OVERWORLD_ENGINE.md)
 - **Custom music / SFX** (`audio-import`, `music-list`, `sfx-list`) — [S5 §2 — Field music](s5-cutscene-and-music.md#2-field-music) · [FEATURES.md §Audio & video](../FEATURES.md#audio--video)
-- **Two-player co-op** (experimental; `coop host` / `coop join`) — [FEATURES.md §Multiplayer](../FEATURES.md#multiplayer-experimental), `ff9mapkit coop -h`
 - **Items / equipment / saves** (`items-*`, `save-edit`, `[[item_text]]`) — [SETUP.md §7](../../../SETUP.md#7-cli-command-reference)
 - **Custom overworld** (continents, islands, relief, offline renders, the ~1s reload loop) — [OVERWORLD_RECIPES.md](../OVERWORLD_RECIPES.md)
 - **SPS field particles** — [SPS.md](../SPS.md) · **ATEs** — [ATE_SYSTEM.md](../ATE_SYSTEM.md)

@@ -18,7 +18,7 @@
 ; Memoria is absent). If you DON'T copy it, the task is harmless -- no zip ships, no engine install runs.
 
 #define MyAppName "Dream World IX"
-#define MyAppVersion "1.0.0b19"
+#define MyAppVersion "1.0.0b22"
 #define MyAppPublisher "GameJawnsInc"
 #define MyAppURL "https://github.com/GameJawnsInc/Dream-World-IX"
 
@@ -75,7 +75,7 @@ Source: "bootstrap.ps1"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\ff9mapkit\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 ; Bundled only if you generated it before compiling (see header).
 Source: "THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
-; The engine bundle (3 patched managed DLLs). Bundled only if you copied it in as dwix-engine.zip
+; The engine bundle (3 patched managed DLLs + the leak-fixed SaXAudio.dll per arch). Bundled only if you copied it in as dwix-engine.zip
 ; (see header); the "engine" task + bootstrap only act on it when it's actually present.
 Source: "dwix-engine.zip"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 ; The app icon for the Start-Menu shortcut (same .ico as SetupIconFile + the Qt window icon).

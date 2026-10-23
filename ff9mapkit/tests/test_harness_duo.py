@@ -154,6 +154,7 @@ def test_role_values_put_the_guest_on_role_client_and_the_right_port(duo_env):
     assert all(v["SessionCode"] == "ff9-DUOTEST1" for v in map(d.role_values, D.ROLES))
 
 
+@needs_junctions
 def test_a_scenarios_role_extra_rides_its_roles_ini_and_never_the_duos_own_keys(duo_env):
     """[ff9mapkit netsync s139] ``pair(role_extra=...)`` (coop_dress_wire.py's host GhostAs / GuestSlots): a scenario's own
     [Netsync] keys join THAT role's values on top of ROLE_VALUES; the keys the duo owns (Role, RelayUrl, SessionCode) are
@@ -173,6 +174,7 @@ def test_a_scenarios_role_extra_rides_its_roles_ini_and_never_the_duos_own_keys(
     assert not d.ini_backups
 
 
+@needs_junctions
 def test_a_live_netsync_edit_rewrites_the_roles_ini_and_waits_for_the_engines_echo(duo_env, tmp_path):
     """[ff9mapkit netsync s139] ``Duo.set_netsync`` (coop_dress_wire.py steps the host's GuestSlots 2 -> 4 -> 0 on a live
     pair): the edit folds into the role's scenario keys and the role's WHOLE [Netsync] is rewritten -- the same Role,

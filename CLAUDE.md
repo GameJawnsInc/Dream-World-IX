@@ -170,7 +170,7 @@ Revert a field: `tools/scroll_out/revert_deploy.py` or `revert_deploy_<id>.py`.
   the user's own install (`ff9mapkit extract-templates`). Documented exceptions: FLAG_LORE's ≤110-char
   excerpts + the owner-granted `release/` demo (FROZEN; `test_provenance_tripwire.py` enforces both the
   gate and the freeze) — `ff9mapkit/docs/PROVENANCE.md`.
-- **Versions:** kit `1.0.0b19`, Blender add-on `0.9.30`. (b18 was tagged but never published — its CI caught 3 portability bugs; b19 is the fixed re-cut.)
+- **Versions:** kit `1.0.0b22`, Blender add-on `0.9.30`. (b20 and b21 were tagged but never published — release CI caught Linux-only failures; b22 is the fixed re-cut.)
 
 ---
 
@@ -297,7 +297,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Narrative-state ENGINE — ★★ rungs 0-2 + the chain/HUB lane PROVEN: New Game → hub pick → derived mid-story boot played the whole Dali morning and handed off to the real game at the zone edge → `studies/narrative-state/PLAN.md`
 - Co-op dialogue — ★★ F3.2 no warp + lock TWO-MACHINE PROVEN; F3.3 warm battle return + v14 ring + key relay TWO-MACHINE PROVEN (s97-s99) → `studies/field-coop/F1-BUILD.md`
 - Battle co-op (menu, start sync, Wait, flee/defeat, cut hold, replay, guest model, leader guard) — ★★ s133-s143 built, s133-s135 owner-confirmed; next s142 → `studies/battle-coop/R3-GROUP2-BUILD.md`
-- World-map co-op (the host drives; a following guest waits frozen, rejoins the next field, pairs from world saves) — ★ s144 built + duo-proven; next s145 → `studies/world-coop/S144-DESIGN.md`
+- World-map co-op (the host drives; the frozen guest rejoins the next field and boots their battles warm) — ★★ s144 + s145 deployed, solo/T2/duo proven → `studies/world-coop/S145-DESIGN.md`
 - Fort Condor fit (rung 5) — data-table substrate proven on bench 30415; awaiting owner ratification
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
@@ -317,7 +317,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Story-write trace (s88) — ★★ rungs 0-4, F5, F5b/F5c, O1-O8 PROVEN: Dali's hub lane and the opening up to real 55 match stock key for key; next O9 → `studies/story-trace/PLAN.md`
 - `.eb` source round-trip — ★★ rungs 1-4+6-7 DONE, playtest-confirmed (source-edited chest at slot 30810 gave the edited reward in-game): annotated `eb-src`/`eb-asm` + `--against` splice edits + the 9753-binary gate → `studies/eb-roundtrip/PLAN.md`
 
-**Latest release:** kit **1.0.0b19** (tag pushed, CI green, PyPI live; engine bundle rebuilt s22-s79, first full-stack replay).
+**Latest release:** kit **1.0.0b22** (tag pushed, CI green, PyPI live; engine bundle rebuilt s22-s150 + the leak-fixed SaXAudio).
 
 ---
 

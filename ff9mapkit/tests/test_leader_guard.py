@@ -504,6 +504,8 @@ def test_battlewires_tables_are_the_engines():
     # [ff9mapkit netsync s144] s143's line ENDS with dress's guard (frozen); the live one carries it right before s144's `world`
     assert _catch_line(_upto("s143")).endswith(f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}}}}");')
     assert f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}},"world":{esc(BW.WORLD_SENTINELS)}}}");' in lit
+    # [ff9mapkit netsync s145] ...an s144 engine's `world` block is the three s144 blocks (frozen); s145's live one adds `dio`
+    assert _catch_line(_upto("s144")).endswith(f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}},"world":{esc(BW.WORLD_SENTINELS_S144)}}}");')
     assert BW.DRESS_SENTINELS["guard"] == BW.DRESS_GUARD_SENTINELS and list(BW.DRESS_SENTINELS)[-1] == "guard"
 
 
