@@ -4046,7 +4046,9 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, bas
             under = baseline.get(blk, bm) if baseline is not None else bm
             by_name = {"Object": hid("Object"), "Terrain": _wrap_label(bm, "Terrain"), "Sea1": hid("Sea1"),
                        "Sea2": hid("Sea2"), "Sea3": hid("Sea3"),
-                       "Sea4": _cut_plane(plane, bx, by, frozenset(), under, label_x=wbx),
+                       # the census's sea MODEL keeps the corner rule: a hole the carve punched in the land
+                       # loses the sea beneath it and reads MISS (an area cut would keep that sea, hiding it)
+                       "Sea4": _cut_plane(plane, bx, by, frozenset(), under, label_x=wbx, rule="corners"),
                        "Sea5": hid("Sea5")}
             by_name.update((p_, _wrap_label(m_, p_)) for p_, m_ in ((parts or {}).get(blk) or {}).items())
             meshlist = P.build_meshlist(by_name)

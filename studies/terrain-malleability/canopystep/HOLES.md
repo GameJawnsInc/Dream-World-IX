@@ -44,3 +44,24 @@ accepts ("a one-triangle fringe at the waterline survives the conservative cut")
 **Known risk, no call made:** the kept fringe lies partly under the wall, so a boat may nose a little further into a
 cove's corner before the wall stops it (the fringe the law accepts). The coast-nav stamp re-classes waterline tris for
 vehicles; the harness boat drive is the in-game check, not this offline round.
+
+## Result (offline, 2026-10-23)
+
+| # | measured | verdict |
+|---|---|---|
+| H1 | the three lab islands re-minted: 0 / 0 / 0 uncovered points (were 9 / 3 / 0) -- `hole_fringe_check.py` | **holds** |
+| H2 | `hole_census.py`, 20 lawful mints of 32 configs (grass and desert, r40/55/66 at (1380,-96) and r84 at (1408,-96), 1-2 lobes, seeds 42/7): **8 had holes before** (8, 8, 3, 18 points each on grass, the same on desert), **0 after**; none gained any | **holds** |
+| H3 | on round 23's island the fix newly keeps 3 Sea4 tris, all 3 reaching past the land on an independent 231-point sample grid; 0 kept tris wholly under land | **holds** |
+| H4 | only Sea4 files change: 14 of them, all in mints with a concave corner (one r84 mint changed with 0 -> 0 scanned holes: a sliver under the scan's 0.25u grid). No Terrain file changes; the identity nets pass | **holds** |
+| H5 | `test_cut_keeps_a_tri_whose_corners_are_under_land_but_whose_middle_is_not`: an L-shaped land keeps the cove tri, the old rule (patched back in) tears the hole, a tri wholly under land is still cut | **holds** |
+
+**A second finding on the way: the census's sea MODEL must keep the corner rule.** The first world-domain run went red
+on two `census_gate` tests (`..._detects_holes_even_without_baseline`, `..._stack_passes_the_islands_own_misses...`).
+`interior.census_gate` re-cuts the sea plane to model what lies under the land, and its job is to make a hole the
+carve punched read MISS: under the area rule a hole enclosed by land keeps its sea and the hole hides. So `_cut_plane`
+takes `rule=` -- `"area"` for every deployed Sea4 (the mint and its beach path), `"corners"` for the census model. The
+census paths that read the DEPLOYED Sea4 (`stack=`, the mountain and forest CLIs) need neither: they read the bytes.
+Rerun after the split: the mint bytes are identical to the first fix (`hole_census_after2.json` == `after.json`).
+
+**What follows:** an in-game look at a re-minted island's cove corner (stills + `hole_scan`), when the harness is free.
+Every kit island deployed before this fix keeps its holes until it is re-minted; `hole_scan.py <mod folder>` finds them.

@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — no sky showing through the sea at a cove's inner corner on `world-island` islands
+- An island with a concave bend in its coast (a cove or notch) showed small sky-coloured wedges in the water at the
+  inner corner, below the cliff wall. The mint removes the deep-sea sheet under the land so boats cannot sail through
+  it, and it judged "under land" by a triangle's three corners. At a cove's inner corner all three corners of a
+  sea triangle can sit under the two walls while its middle is open water, so that water was removed too.
+- A sea triangle is now removed only when its whole area lies under land. In a sweep of 20 test islands, 8 had these
+  holes before the fix and none after; only the sea files of islands with a concave corner change, never the land.
+- Islands deployed before this fix keep their holes until they are minted again.
+
 ### Changed — the mountain carve keeps a donor's own near-vertical walls
 - The carve refuses any new triangle that faces down, because on the world map that usually means a flipped triangle:
   a see-through hole, and ground the party cannot stand on. But the shipping map itself has near-vertical walls that
