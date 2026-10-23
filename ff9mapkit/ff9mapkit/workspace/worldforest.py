@@ -94,10 +94,16 @@ class CarryTool(QWidget):
 
     A subclass names its shape (``TITLE``, ``NOUN``, ``PART``, ``VERB``, ``GATES``) and supplies the parts that
     differ: ``_edit_module``, ``_build_handles``, ``donor``, ``_cmd``, ``_shape``, ``_preview_at``, ``_pass_text``
-    and ``_preview_text``."""
+    and ``_preview_text``.
+
+    A card whose verb has a handle table (``world/handles.py``, rung B2) names it in ``HANDLE_TABLE`` and maps every
+    handle on the table's gui surface in ``HANDLES``: to the widget attribute that sets it, or to the rule (prose)
+    that does. Its spins stop where the table says (:meth:`_fit`); the fence holds the map to the table."""
 
     TITLE, NOUN, PART, VERB = "Shape", "shape", "shape", "world-?"
     GATES = GATE_WORDS
+    HANDLE_TABLE = None                                  # the verb's table in world/handles.py, when it has one
+    HANDLES = {}                                         # handle -> the widget attribute, or the rule, that sets it
     _extra_rows = ()
     CHECK_TIME = "about seven seconds"                   # a passing world-forest dry run, measured (C1)
     _bg_done = Signal(str, int, object, object)          # (what, serial, result, error) from a worker thread
@@ -209,6 +215,23 @@ class CarryTool(QWidget):
         card.addLayout(brow)
         self._say(f"Click the map where the {self.NOUN} goes. Drag its ghost to move it.", "")
         self._sync_buttons()
+
+    # -- the handle table --
+    def _handle(self, name):
+        from ..world import handles as HD
+        return HD.handle(self.HANDLE_TABLE, name)
+
+    def _fit(self, spin, name):
+        """Set ``spin``'s stops to the handle's range in the table (an angle wraps: its top is its bottom again), and
+        return the top (the verb's ceiling, for the tooltip)."""
+        h = self._handle(name)
+        lo, top = h.range()
+        if h.wraps:
+            spin.setRange(int(lo), int(top) - 1)
+            spin.setWrapping(True)
+        else:
+            spin.setRange(lo, top)
+        return top
 
     # -- what a subclass supplies --
     def _edit_module(self):
@@ -744,13 +767,14 @@ class ForestTool(CarryTool):
     """The forest card (rung C1): a qualified canopy, its angle and its spread, judged by ``world-forest``."""
 
     TITLE, NOUN, PART, VERB = "Forest", "forest", "canopy", "world-forest"
+    HANDLE_TABLE = "forest"
+    HANDLES = {"center": "the click (and the drag)", "donor": "donor_box", "rot": "angle", "spread": "spread"}
 
     def _edit_module(self):
         from ..world import forestedit
         return forestedit
 
     def _build_handles(self, row):
-        from ..world import interior as IN
         FE = self.FE
         self.donor_box = QComboBox()
         self.donor_box.setAccessibleName("Canopy donor")
@@ -763,8 +787,7 @@ class ForestTool(CarryTool):
         row.addWidget(self.donor_box)
         row.addWidget(widgets.role_label("Angle", "caption"))
         self.angle = QSpinBox()
-        self.angle.setRange(0, 359)
-        self.angle.setWrapping(True)
+        self._fit(self.angle, "rot")
         self.angle.setSingleStep(5)
         self.angle.setSuffix("°")
         self.angle.setAccessibleName("Forest angle")
@@ -773,13 +796,13 @@ class ForestTool(CarryTool):
         row.addWidget(self.angle)
         row.addWidget(widgets.role_label("Spread", "caption"))
         self.spread = QDoubleSpinBox()
-        self.spread.setRange(1.0, IN.FOREST_SPREAD_MAX)    # the law's ceiling is the handle's stop
+        top = self._fit(self.spread, "spread")             # the law's ceiling is the handle's stop
         self.spread.setSingleStep(FE.SPREAD_STEP)
         self.spread.setDecimals(2)
         self.spread.setSuffix("×")
         self.spread.setAccessibleName("Forest spread")
         self.spread.setToolTip(f"Widen the canopy in plan, heights kept (world-forest --spread). It stops at "
-                               f"×{IN.FOREST_SPREAD_MAX:g}, the widest judged in game.")
+                               f"×{top:g}, the widest judged in game.")
         self.spread.valueChanged.connect(lambda _v: self._handles_changed())
         row.addWidget(self.spread)
 

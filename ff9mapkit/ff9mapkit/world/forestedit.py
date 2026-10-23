@@ -33,9 +33,11 @@ def canopy_donors() -> list:
     canopy the catalogue has not qualified). Each row gains ``donor``: the ``(bx, by)`` ``--donor`` names, the
     rect's first block (the block whose blob the reader gathers whole)."""
     from .donors import load_donors, spec_blocks
+    from .handles import handle
+    cls = handle("forest", "donor").catalogue
     out = []
     for r in load_donors():
-        if r.get("class") == "canopy" and r.get("status") == "qualified":
+        if r.get("class") == cls and r.get("status") == "qualified":
             out.append({**r, "donor": min(spec_blocks(r["blocks"]))})
     return out
 

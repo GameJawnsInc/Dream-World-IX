@@ -8801,6 +8801,7 @@ def _not_yet(phase: str):
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from .world import handles as handles_table
     p = argparse.ArgumentParser(prog="ff9mapkit", description="Author custom FF9 field maps.")
     p.add_argument("--version", action="version", version=f"ff9mapkit {__version__}")
     p.add_argument("--game", default=None, help="path to the FF9 install (overrides $FF9_GAME_PATH and config)")
@@ -10712,26 +10713,7 @@ def build_parser() -> argparse.ArgumentParser:
                               "perimeter walk-in simulation (takes a few minutes) + the placement census. "
                               "Needs the custom engine; re-enter the world.")
     wfo.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
-    _ftg = wfo.add_mutually_exclusive_group(required=True)
-    _ftg.add_argument("--center", metavar="WX,WZ", help="EXACT blob centre in world coords (gated, no scan)")
-    _ftg.add_argument("--near", metavar="WX,WZ",
-                      help="scan a ~80u window around this point for the best lawful plain-grass placement")
-    wfo.add_argument("--donor", default="15,15", metavar="BX,BY",
-                     help="real block whose canopy to carry: the largest topo-37 blob touching it whose rim meets "
-                          "only grass, gathered whole across block borders (default 15,15, the July donor; "
-                          "`world-donors --class canopy` lists the census-qualified ones). A blob that meets rock "
-                          "or other ground refuses: carried alone it would leave an open, unwalled edge.")
-    wfo.add_argument("--spread", type=float, default=1.0, metavar="S",
-                     help="scale the canopy S times wider in plan (1.0-1.5) about its centre, heights, UVs "
-                          "and topographs carried: a bigger forest from the same donor, its curtains still "
-                          "vertical. The step law and the walk-in gate judge the result as usual. In-game kept to "
-                          "x1.5 (terrain study X3). Default 1.0 = the verbatim carry.")
-    wfo.add_argument("--rot", type=float, default=None, metavar="DEG",
-                     help="turn the canopy to ANY angle about its centre (degrees, clockwise seen from above, "
-                          "as world-mountain --rot); its texture turns with it, the grass stays on its grid "
-                          "and the zip round the rim is minted fresh and gated. Default 0.")
-    wfo.add_argument("--reach", type=float, default=96.0,
-                     help="deployed-block load window around the point in units (default 96)")
+    handles_table.add_arguments(wfo, "forest")   # the verb's handles (world/handles.py)
     wfo.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wfo.add_argument("--target-disc", type=int, default=None,
                      help="work in THIS disc's override namespace instead of --disc's. Like world-terrain, "
@@ -10768,14 +10750,7 @@ def build_parser() -> argparse.ArgumentParser:
                               "the in-game-proven grass-hill language (slope p99 28.6 deg, lowland-band peak "
                               "cap, local normal re-smooth). Needs the custom engine; re-enter the world.")
     whl.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
-    _htg = whl.add_mutually_exclusive_group(required=True)
-    _htg.add_argument("--center", metavar="WX,WZ", help="EXACT hill centre in world coords (gated, no scan)")
-    _htg.add_argument("--near", metavar="WX,WZ",
-                      help="scan a ~112u window around this point for the best lawful pure-mains placement")
-    whl.add_argument("--height", type=float, default=4.2,
-                     help="prominence in units (default 4.2; the real language is 3.5-5.2)")
-    whl.add_argument("--radius", type=float, default=18.0,
-                     help="footprint radius in units (default 18; the real language is 20-26u diameter runs)")
+    handles_table.add_arguments(whl, "hill")   # the verb's handles (world/handles.py)
     whl.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     whl.add_argument("--target-disc", type=int, default=None,
                      help="work in THIS disc's override namespace instead of --disc's. Like world-terrain, "
@@ -10793,66 +10768,7 @@ def build_parser() -> argparse.ArgumentParser:
                               "annulus). Gated by ROCK-RIGID + the weld-safe lift + the zip envelope + "
                               "placement probes + the census. Needs the custom engine; re-enter the world.")
     wmt.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
-    _mtg = wmt.add_mutually_exclusive_group(required=True)
-    _mtg.add_argument("--center", metavar="WX,WZ",
-                      help="EXACT massif centre in world coords, rotation 0 (gated, no scan)")
-    _mtg.add_argument("--near", metavar="WX,WZ",
-                      help="scan a ~20u window around this point for the best lawful plain-grass placement "
-                           "(exact 90-deg rotations as fallbacks)")
-    wmt.add_argument("--donor", default="0,0", metavar="BX[,-BX1],BY[-BY1]",
-                     help="real block(s) whose rock massif to carry: one block (default 0,0 = Uaho) or a "
-                          "rect for a massif that straddles a border (the target sizes itself to a "
-                          "multi-block span automatically). The qualified-donor catalog is "
-                          "`ff9mapkit world-donors --class massif`; a NEW donor needs its own anatomy "
-                          "pass first (studies/overworld-topography/README.md).")
-    wmt.add_argument("--max-apron-lift", type=float, default=None, metavar="U",
-                     help="cap the grass apron's rise toward a high donor foot at U units; outer-rim "
-                          "columns still higher CONFORM DOWN (the carried bottom wall row stretches, uv "
-                          "kept -- THE WALL V CORNER-ROLE LAW) so flat host ground meets the wall at the "
-                          "crease instead of minting a grass knoll against mid-wall (the R4 west-seam "
-                          "defect). DOWN-only; aperture/ensemble columns exempt. Default: no cap (the "
-                          "frozen identity baselines' behavior).")
-    wmt.add_argument("--foot-course", action="append", default=None,
-                     metavar="X0,Z0,X1,Z1[,PULL[,TOP]]",
-                     help="world rect (repeatable) where the massif gets a synthetic ROCK "
-                          "FOOT COURSE instead of a grass apron: rim nodes inside the rect "
-                          "leave the apron field (the lawn stays flat), the hole hugs the "
-                          "rim (THE PROFILE LAW: the toe CONTINUES the face's own slope "
-                          "instead of skirting), and the zip annulus there emits as blocked "
-                          "topo-49 r10-tile rock, fringe pinned at the lawn line -- except "
-                          "where the rim sits at lawn height (the mountain has ended: grass, "
-                          "never rock paint on flat ground). Optional "
-                          "PULL steepens the carried flank inside the rect: horizontal pull "
-                          "toward the massif centre in units, full at lawn height fading to "
-                          "zero at TOP (default lawn+12) -- for a donor face that is "
-                          "low-angle because its home context hides it.")
-    wmt.add_argument("--rot", type=float, default=None, metavar="DEG",
-                     help="turn the massif to ANY angle about its centre (degrees, clockwise seen from above): "
-                          "exact with --center, the only angle --near scans. The rock's texture turns with it "
-                          "unchanged; the grass stays on its grid and the foot seam is minted fresh and gated. "
-                          "Default: --near tries the four quarter turns, --center uses 0.")
-    wmt.add_argument("--rock-height", type=float, default=1.0, metavar="S",
-                     help="stretch the carried rock S times taller (1.0-2.0) about its rim, UV carried: the "
-                          "rim, the welds to any floor or ledge and the aperture plugs stay put, so the apron "
-                          "and zip are unchanged. In-game passed to x2.0 on Uaho (terrain study X1). Refused "
-                          "for a massif with loose geometry on its face (the horseshoe's falls/river mouth) "
-                          "and for a peak above stock's tallest terrain (42.68). Default 1.0 = the rigid carry.")
-    wmt.add_argument("--spread", type=float, default=1.0, metavar="S",
-                     help="carry the massif S times wider in plan (1.0-1.5) about its centre, heights kept: the "
-                          "rock, its rim, plugs and any falls/river parts move alike, UVs carried, and every gate "
-                          "judges the result. With --rock-height S as well it scales uniformly. Needs a bigger "
-                          "island: the footprint grows S squared. In-game passed to x1.5 on Uaho, alone and scaled whole "
-                          "(terrain study round 20). Default 1.0 = the rigid carry.")
-    wmt.add_argument("--gblend", type=float, default=None, metavar="U",
-                     help="ground-apron blend reach in units (default 12.0, the proven hill-at-scale "
-                          "value): how far out from the rigid rim the grass apron spreads its rise. "
-                          "Wider = a broader, gentler bank into the foot (a high donor foot over flat "
-                          "host lawn wants ~20-26 so the rise reads as a foothill, not a knoll).")
-    wmt.add_argument("--reach", type=float, default=96.0,
-                     help="deployed-block load window around the point in units (default 96)")
-    wmt.add_argument("--ground", choices=_ground_choices(), default="grass",
-                     help="the bench island's ground family: the zip annulus + plain-ground checks speak "
-                          "it (match the island's world-island --ground)")
+    handles_table.add_arguments(wmt, "mountain")   # the verb's handles (world/handles.py)
     wmt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wmt.add_argument("--target-disc", type=int, default=None,
                      help="work in THIS disc's override namespace instead of --disc's. Like world-terrain, "

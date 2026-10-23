@@ -5,6 +5,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — one handle table for the relief verbs
+- `world-forest`, `world-mountain` and `world-hill` declare their shape flags once (`ff9mapkit/world/handles.py`):
+  the command line, `world-fuse`'s `[[forest]]`/`[[mountain]]`/`[[hill]]` rows and the World tab's cards all read the
+  same table, so a flag, a row key and a card's limits can no longer drift apart. The flags themselves are unchanged.
+
 ### Added — carry a coast from the World tab
 - "Carry a coast" (in "Edit the map"): pick one of the qualified coastal blocks and a quarter turn, click an
   open-ocean cell, and the block's own land stands there; `world-transplant` checks it (and the ghost moves by the

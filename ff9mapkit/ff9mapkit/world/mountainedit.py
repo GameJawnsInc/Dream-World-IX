@@ -43,8 +43,10 @@ def massif_donors() -> list:
     """The qualified massif rows of ``donors.toml``, the donor picker's whole list. Each row gains ``donor``: the
     ``--donor`` spelling (the row's own rect spec)."""
     from .donors import load_donors
+    from .handles import handle
+    cls = handle("mountain", "donor").catalogue
     return [{**r, "donor": r["blocks"]} for r in load_donors()
-            if r.get("class") == "massif" and r.get("status") == "qualified"]
+            if r.get("class") == cls and r.get("status") == "qualified"]
 
 
 @dataclass
