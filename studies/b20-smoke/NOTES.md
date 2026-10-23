@@ -19,6 +19,22 @@ are in `logs/`.
   slot 3 save 3 and slot 5 save 1 are real fields and load.
 - Stock Memoria behaves the same for any save made on a mod field that has since been removed.
 
+## 3. On a world-map battle, the guest's monsters looked smaller — OPEN, not obvious
+
+- Reported after the first sitting. No log covers it: the host's Memoria.log is still the 21:16 one, so the
+  battle ran in a session whose log was not kept, and the guest's log is on the laptop.
+- Enemy size is not fixed per model. Defaults are 4096 (`btl_init.cs:194/362`); an enemy's battle AI script can
+  set its own size at load (`btl_scrp.cs` member 55: during PHASE_ENTER it becomes `geo_scale_default`).
+- Ruled out:
+  - **The guest skipping that script.** The diorama gates only member 37 (change next field) in `btl_scrp`; the
+    load-time size write runs on the guest as on the host.
+  - **The replay shrinking units.** `NetSyncDiorama.Replay.cs` snapshots `geo_scale_*` before a replayed action
+    and restores the same values after, so it puts back what was there.
+  - **A mod patch.** No BattlePatch line in the host's mod folders touches size or scale.
+- Next discriminants, cheapest first: is the whole scene smaller (a camera difference) or only the monsters? Do
+  field battles show it, or only world-map ones? Which enemies, and where on the world map? And the guest's
+  `Memoria.log` from the laptop, archived before its next launch overwrites it.
+
 ## 2. The host followed its guest: a 250 <-> 350 ping-pong — a real co-op bug
 
 - 21:02:31: the Workspace's "Apply play style" wrote `FollowHost=1` on the HOST (`followHost=1 role=host`).
