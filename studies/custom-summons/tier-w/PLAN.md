@@ -658,6 +658,18 @@ scenery must be re-authored *together*.
   then 30301's own revert restores the CSVs, registrations and scripts DLL). Found at staging: the
   install had NEITHER bench's rows 196-204 live — a field-30300 (rung 3) deploy at 15:42 the same day
   had written rows 192-195 fresh — so the 30301 deploy sits on top of it and its revert returns there.
+  **★★ CAST-CONFIRMED — THE GAIN HALF'S SILENT-FAILURE MODE IS CLOSED ON ef407.** Owner, cast of row 205
+  with the zebra mark: **"bands are in."** That alone is the verdict, because the only other route to
+  the screen — the one reader arriving on (704,256) itself — draws on two isolated frames offline, so
+  bands through the burst can only arrive through the copy at (704,384), i.e. through readers the kit
+  credits to this cell by `linear-add-v1` alone. The archived probe log
+  (`…\repaint-w6b\capture-logs\sfxmeshprobe.ef407-gain-zebra.2026-10-23.log`) agrees mechanically: the
+  in-game timeline runs **19 frames ahead** of the headless one (Odin's offset again), and at that offset
+  **121 of 121** in-game frames' DR_MOVE commands equal the headless ones move for move (0 at any other
+  offset); the (704,384) copy ran in-game f66–172 (headless f85–191) and the band's readers
+  (`00BABDC0`) drew after it on 104 of those frames. `raster.py calibrate --offset 19`: RX2 12/12 on the
+  input-matched frames — 108 frames differ in their INPUT, the real battle's camera and targets not being
+  the headless stage's. Still open on this item: nothing; the install still holds the cast (revert above).
   **(2) SHOULD THE GAIN HALF BE DECLINABLE?** Today `texel_page` / `export_art` / `build` hard-code
   `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface, so an author who distrusts
   `linear-add-v1` on THEIR container cannot ask for the pre-adoption reading. Recovery is EXACT at the

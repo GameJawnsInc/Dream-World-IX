@@ -123,7 +123,7 @@ before it's a statement about the container.**
 py -I raster.py run --ef 227 --frames 82,150,300 --scale 2      # PNGs + visible cells (SCRATCH)
 py -I raster.py diff --ef 211 --b <edited container> --frames 230-290 --out <SCRATCH dir>
 py -I raster.py routes --jobs 6                                 # every container: where each key reads from
-py -I raster.py calibrate --ef 227 --log <s48 probe log>
+py -I raster.py calibrate --ef 227 --log <s48 probe log> [--offset 19]   # in-game f vs headless f+19
 py -I rx_gates.py [--battery]                                    # RX0-RX3 (+ RX4, the owner-verdict battery)
 ```
 
@@ -189,8 +189,10 @@ reaching the screen only as speckle on saturated ice (≤ 8.6% of pixels, f214�
   bound reader, change 110 of 146 frames (f75–192); 99.9 % of the changed pixels come through the op-144
   copy at (704,384), and on the ice spire (a footprint that holds still) they climb about 2 px a frame.
   The copy is visible only because a SECOND roll writes column 640: the readers' 8bpp decode is keyed at
-  x640, and a write whose origin is in column 704 alone would leave it stale. The owner cast is now a
-  confirmation with a pictured prediction (`tier-w/PLAN.md`, owner item 1).
+  x640, and a write whose origin is in column 704 alone would leave it stale. **Cast-confirmed**: with
+  the mark made legible (zebra bands; the first bars were measurable but invisible to the eye) the owner
+  saw the bands, and the archived log runs 19 frames ahead of headless, where all 121 frames' DR_MOVEs
+  match move for move (`calibrate --offset 19`; `tier-w/PLAN.md`, owner item 1).
 - **The binding census over-counts drawable cells, and the reason is now mechanical:** a cell can be bound
   and uploaded yet unreachable because a blit overwrites it before any read ((704,256) on Phoenix), or
   because its depth routes to the render target (the 15bpp class).
