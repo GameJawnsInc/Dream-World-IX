@@ -104,7 +104,7 @@ alone.
   world through bench 6603 and lands the party on the edit. In game: before 3.000 (grass), promoted without a reload
   3.000 (the game keeps its world), reloaded 4.719 (canopy, predicted 4.720), reverted 3.000; the live folder ended
   byte-identical. Promote to visible: about 13 s with NO DLL, so the DLL rung is not needed.
-- **C2 BUILT + IN-GAME PROVEN (2026-10-23), owner walk pending** -> [`C2.md`](C2.md). Add mountain beside Add forest:
+- **C2 BUILT + IN-GAME PROVEN + OWNER-PASSED (2026-10-23: "walked it without issue")** -> [`C2.md`](C2.md). Add mountain beside Add forest:
   the seven qualified massifs, angle, spread and rock height within the law's ceilings (height held at x1 for the
   horseshoe), a home-ground chip that warns off the donor's home ground, the island's own `--ground`. The placement
   laws preview live (60/60 against the carve on the real island, 4 ms); B1 for every mountain gate; `world-mountain
