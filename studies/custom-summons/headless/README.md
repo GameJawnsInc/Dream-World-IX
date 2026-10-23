@@ -7,8 +7,9 @@ summon slot, VRAM uploads/readbacks/blits, sound cues and damage points. It does
 in seconds, with no game window and no owner cast.
 
 Everything Tiers R and W learned by reading the DLL, or by arming an in-game probe and asking the owner
-to cast, this host can answer by *running* the plugin. It's an oracle for the native layer. It's not a
-renderer: primitives are data, not pixels.
+to cast, this host can answer by *running* the plugin. It's an oracle for the native layer; its
+primitives are data. `raster.py` then draws them the way Memoria's managed renderer does, so "does this
+reach the screen?" has an offline answer too (see *Pixels*).
 
 ```bash
 py -I sfx_host.py stage                                   # copy the install's plugin into the SCRATCH cache
@@ -107,20 +108,95 @@ before it's a statement about the container.**
 - **The native plugin emits on-screen 15bpp-sampling primitives.** ef429's (448,256/384) and ef251's
   x512 column are examples, matching their registered tpages (e.g. 0x138, the "tpage 312"). So the
   ghost-layer observation (*every 15bpp-attributed cell probed was never drawn, or drawn at another
-  depth*) is not the plugin declining to draw them. If they never show in game, the loss is downstream,
-  in Memoria's open-source managed renderer or in blending/transparent texels. **This is a lead, not a
-  finding.** ef251 also emits a small 4bpp group on x512 (y256), which would fit the cast's indexed read.
+  depth*) is not the plugin declining to draw them. ⛳ **Resolved downstream by `raster.py`:** Memoria
+  reads those pages from its render target, not VRAM (see *Pixels* below).
 - **ef094, ef154 and ef237 hold a live summon slot when run alone** (posed bones, sane node 0, 61/39/61
   frames), although they carry no creature package. R1 read them as drawing a creature another effect
   registered. Run in isolation they set up a skeleton themselves; whether anything is drawn from it is
   not established.
 
+## Pixels: the managed-renderer port (`raster.py`)
+
+```bash
+py -I raster.py run --ef 227 --frames 82,150,300 --scale 2      # PNGs + visible cells (SCRATCH)
+py -I raster.py diff --ef 211 --b <edited container> --frames 230-290 --out <SCRATCH dir>
+py -I raster.py routes --jobs 6                                 # every container: where each key reads from
+py -I raster.py calibrate --ef 227 --log <s48 probe log>
+py -I rx_gates.py [--battery]                                    # RX0-RX3 (+ RX4, the owner-verdict battery)
+```
+
+`sfx_host.py` says what the plugin *emitted*. `raster.py` ports, line for line, what Memoria then does
+with it: `SFXRender.Add`/`GetMesh`/`PushCommandBuffer` (one batched mesh per *mesh key*, re-ordered by
+blend family per `SFX.playParam`, not by the ordering table), the `SFXKey` encoding (bugs included),
+`PSXTextureMgr`'s 50-entry texture cache and its `ClearKey` refresh rule, `PSXTexture`'s decode, and the
+six `SFX_OPA/ADD/SUB_G[T]` shaders' D3D9 programs (vertex colour clamped, `abr` 0/1/3 as ADD at alpha
+63/127/31, `abr` 2 as reverse-subtract, a depth buffer keyed on OT depth). It drives the plugin itself
+(`RasterHost` subclasses the host; `sfx_host.py` is untouched), writes a 320×220 PNG per frame, and counts
+per VRAM cell the fragments that **changed** the screen. `diff` renders two containers in separate
+processes and diffs them frame by frame: offline "does my edit reach the screen?".
+
+### Calibration (`rx_gates.py`)
+
+Ground truth is in-game data already in SCRATCH: the s48 probe logs (every primitive the game got from
+`SFX_GetPrim`, and every mesh Memoria built from them, per frame) and the W6b verdict casts (an edited
+container, cast, judged on screen by the owner).
+
+| Gate | Checks | Result |
+|---|---|---|
+| RX0 | the staged plugin is the pinned build | ⟨RX0⟩ |
+| RX1 | input: on frames where the game and the host emitted the same prim sequence, first vertices agree | ⟨RX1⟩ |
+| RX2 | batching: on those frames, the port reproduces the in-game command buffer (index, key, triangles) | ⟨RX2⟩ |
+| RX3 | falsifier: Bahamut under the wrong render order must fail RX2 | ⟨RX3⟩ |
+| RX4 | pixels: 16 owner-verdict casts, edited container vs its pre-state, drawn vs not drawn | ⟨RX4⟩ |
+
+RX4's cases: the Phoenix ladder (1a/1b wheels into (704,256) never seen; 1c–1f and the dome drawn),
+Odin's channel-A cast A, ef446 cast B, ef251 cast 15 and its x512 probe, and ef429's census probe and
+three cover probes (never seen). Appearance matches where it was checked: **ef446's cyan `0x7FE0` bands
+come out as hatched salmon/orange** (the 8bpp two-tone read the owner described), and **the dome bands are
+clean bright yellow, first reaching the screen on f235**, the scroll blit's first frame. ef251's depth
+signature (the owner's 4-cycle stripe) was not assessed. The Shiva U1 cast is reported, not gated (its own
+verdict says U1 is not answered): the port has the marks sampled (x640_y256's visible fragments −21%) but
+reaching the screen only as speckle on saturated ice (≤ 8.6% of pixels, f214–277), never as bands.
+
+### Findings
+
+- ★ **THE 15bpp GHOST LAYER, EXPLAINED.** Memoria never reads a 15bpp page at x ≥ 384 from VRAM once the
+  cast has drawn into its `DR_AREA` render target (`PSXTextureMgr.isCreateGenTexture`, never reset during a
+  cast): every such page samples the 512×256 target (VRAM x 384–895, y 256–511) instead, and a 15bpp page
+  below x 384 is always the BLUR texture (the previous frame's screen). The target holds what the program
+  *rendered* into it with indexed primitives. So a 15bpp repaint at x ≥ 384 in a target-using effect can
+  never reach the screen (ef429's three covers), and the "15bpp" surface shows its indexed source instead
+  (ef446's salmon, ef251's indexed read). `routes` lists, for all 372 containers, whether the effect uses
+  the target (⟨ROUTES⟩) and where every key reads from.
+- **The binding census over-counts drawable cells, and the reason is now mechanical:** a cell can be bound
+  and uploaded yet unreachable because a blit overwrites it before any read ((704,256) on Phoenix), or
+  because its depth routes to the render target (the 15bpp class).
+- **Memoria's renderer is not a PSX GPU, and the differences matter to a painter.** `abr` 0 (average)
+  renders as B + 0.5F; an effect's colour strength comes from `SFX.playParam` (C1 effects draw modulated
+  texels at half the PSX brightness); a decoded texture is refreshed only when a VRAM write's *origin* lies
+  in its own 64×256 page, so a write into the second column of an 8bpp page, or a CLUT upload, leaves the
+  old decode on screen; at most 50 textures per cast and 64 meshes per frame, beyond which Memoria throws.
+- **OPEN, a host finding: the opening diverges.** Every headless cast opens with a caster-side particle
+  burst (G4 + sprites, ~f5–44) and opening camera installs that no in-game capture contains (Bahamut,
+  Odin, Goblin Punch). Ruled out: the request flags, the SFXRework set-up/catch-up drive, a real battle
+  camera (raw17 plunge), start type, camera index, auto/fixed camera, actor placement, the caster's
+  slot/serial, and state left by an earlier cast. Bahamut's timeline from f58 is unaffected (RX1/RX2 run
+  there); **Odin's in-game timeline runs ~19 frames ahead of the headless one**, so a frame number from a
+  headless run is not a cast frame until it has been aligned against a capture.
+
+### Limits
+
+No 3D battle scene (the screen starts black and SFX depth-tests against nothing), no battle-ground capture
+(`BACKGROUND` textures render transparent), the screenshot effects (Slow, Silent Voice, Devour, Detect,
+Necron's death) are not ported, no widescreen, no `.seq` prevented/recoloured meshes, one render per SFX
+frame, and the blur texture is the previous *headless* frame. Rasterisation follows D3D9 (pixel centres,
+top-left fill rule, an 8-bit backbuffer) but is not a bit-exact GPU.
+
 ## Limits
 
-- **Primitives, not pixels.** Rasterising them is `SFXRender`/`PSXTextureMgr`'s job, which is open-source
-  C#, but this host does not port it. "Sampled" means a primitive the plugin emitted reads that VRAM
-  cell; `on_screen` means its screen box meets the 320×240 PSX framebuffer. Neither proves a visible
-  pixel.
+- **`sfx_host.py` emits primitives, not pixels.** "Sampled" means a primitive the plugin emitted reads that
+  VRAM cell; `on_screen` means its screen box meets the 320×240 PSX framebuffer. Neither proves a visible
+  pixel: `raster.py` (above) is the step that does, with its own limits.
 - **The actors stand at the origin.** Bahamut's camera is position-independent (a `FixedCameraEffects`
   member), but an effect anchored to units will emit at different screen positions than in a real
   battle. Timing matched on the one calibrated cast; positions are not calibrated.
@@ -154,8 +230,10 @@ tests: code plus counts, with zero Square Enix bytes.
 - **A real lint for native containers.** The native-slot lane was deferred behind an unrecoverable hang;
   here a hang is just a timeout.
 - **HLE op tracing.** Hook the interpreter's dispatch inside this process to log every op call per frame.
-- **Pixels.** Port enough of `SFXRender` to rasterise a frame, and close the loop between "sampled" and
-  "visible".
+- **A kit guard from `routes`.** `summon-reskin` can refuse (or disclose) a 15bpp repaint at x ≥ 384 in an
+  effect that renders into the `DR_AREA` target, and name the indexed source page to paint instead.
+- **The opening divergence.** Find what the game gives the plugin that suppresses the caster burst; until
+  then, align a headless frame against a capture before quoting it as a cast frame.
 
 ## Files
 
@@ -164,3 +242,6 @@ tests: code plus counts, with zero Square Enix bytes.
 | `sfx_host.py` | the host, the child-process runner, the census, the CLI |
 | `hx_gates.py` | the calibration gates HX0–HX6 |
 | `test_sfx_host.py` | 23 tests; one is install-gated and says why it skips |
+| `raster.py` | the managed-renderer port: run / diff / routes / calibrate |
+| `rx_gates.py` | the calibration gates RX0–RX4 |
+| `test_raster.py` | 24 tests on synthetic primitives; one is install-gated |
