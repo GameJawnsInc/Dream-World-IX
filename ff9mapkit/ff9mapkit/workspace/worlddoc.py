@@ -43,6 +43,7 @@ _ZOOM_MIN, _ZOOM_MAX = 0.3, 4.0                   # a 24x20 chart never needs th
 _GRID_ALPHA = 90                                  # the graticule: present, sub-informational (70 was
 #                                                   invisible on the light palette -- snap-measured)
 _KIND_ALPHA = {"land": 165, "water": 120, "stub": 90}
+CARD_VIEW_FLOOR = 32                              # the 3D view's floor while a carry card is open (px)
 
 
 def _fmt_bytes(n: int) -> str:
@@ -673,6 +674,7 @@ class WorldDoc(QWidget):
         brow.addWidget(self.teleport_btn)
         sh.addLayout(brow)
         v.addWidget(strip)
+        self._strip = strip
         return page
 
     def _fill_legend(self):
@@ -834,7 +836,10 @@ class WorldDoc(QWidget):
 
     # -- the 3D page --
     def _render_site(self):
-        """``(RenderSite, caption)`` for the 3D page: the game's FolderNames stack, or this folder over stock."""
+        """``(RenderSite, caption)`` for the 3D page: the game's FolderNames stack, or this folder over stock. Sets
+        ``_caption_plain`` when the caption only restates the stack the draw box names (no warning in it): only then
+        may an open carry card fold it away."""
+        self._caption_plain = False
         from ..world import mesh as M
         from ..world import render as R
         cells = tuple((bx, by) for by in range(M.GRID_ROWS) for bx in range(M.GRID_COLS))
@@ -851,6 +856,7 @@ class WorldDoc(QWidget):
             names = [p.name for p in stack]
             roots = [draft if p.name == here else p for p in stack] if here in names else [draft] + list(stack)
             order = " › ".join((f"the draft of {here}" if p == draft else p.name) for p in roots)
+            self._caption_plain = True
             return (R.RenderSite(cells=cells, disc=1, game=self._game, stack=tuple(roots)),
                     f"Drawn with your draft in place of {here}: {order} › stock. The game does not load the draft.")
         if mode == "folder":
@@ -866,6 +872,8 @@ class WorldDoc(QWidget):
         if here not in names:
             cap += (f". ⚠ {here} is not in FolderNames, so the game does not load it and neither does this "
                     "view; choose Only this folder to see it.")
+        else:
+            self._caption_plain = True
         return R.RenderSite(cells=cells, disc=1, game=self._game, stack=stack), cap
 
     def _draft(self):
@@ -908,6 +916,7 @@ class WorldDoc(QWidget):
                         drafts_root=self._drafts_root, on_reload=self._on_reload, **getattr(self, f"_{which}_seams"))
             setattr(self, f"_{which}", tool)
             self._forest_slot.addWidget(tool)
+            tool.opened.connect(lambda _on: self._sync_card_room())
             self._view3d.ghost_moved.connect(lambda x, z, t=tool: t.drag_to(x, z) if not t.isHidden() else None)
             self._view3d.ghost_dropped.connect(lambda x, z, t=tool: t.drop_at(x, z) if not t.isHidden() else None)
         for other in self._carry_tools():
@@ -915,6 +924,19 @@ class WorldDoc(QWidget):
                 other.close_tool()
         tool.open_tool()
         return tool
+
+    def _sync_card_room(self):
+        """While a carry card is open the page makes room for it: card and strip together floored the page at 931px
+        tall at 150% (984 with the mountain's second row), so in a 1280x850 window the card's verdict and draft line
+        were clipped. The block strip goes (a click places the shape, and the card speaks for it), the 3D view's
+        floor drops to ``CARD_VIEW_FLOOR`` so the view gives way before the card's words do, and a PLAIN caption
+        folds (the draw box names the stack and the card's draft line names the draft; a caption carrying a warning
+        stays). The room is for the recipe bar above the cards too (rung C3). Close restores all three."""
+        open_ = any(not t.isHidden() for t in self._carry_tools())
+        self._strip.setVisible(not open_)
+        if self._view3d is not None:
+            self._view3d.set_view_floor(CARD_VIEW_FLOOR if open_ else None)
+            self._view3d.fold_caption(open_ and getattr(self, "_caption_plain", False))
 
     def open_forest(self, *, sync=False):
         """The Forest button."""
@@ -998,6 +1020,7 @@ class WorldDoc(QWidget):
             return
         site, caption = self._render_site()
         self._view3d.set_caption(caption)
+        self._sync_card_room()                     # a plain caption folds while a card is open, a warning never
         self._view3d.load(site, sync=sync)
         self._focus_view3d()
 
