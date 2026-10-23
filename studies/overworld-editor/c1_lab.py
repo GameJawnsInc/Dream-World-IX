@@ -3,7 +3,13 @@
     py studies/overworld-editor/c1_lab.py build      # the tool places + accepts the forest; identity; predictions
     py studies/overworld-editor/c1_lab.py run        # install the lab, reach the world, teleport, quit, uninstall
     py studies/overworld-editor/c1_lab.py install    # (owner playtest) the lab in, FolderNames first; nothing else
+    py studies/overworld-editor/c1_lab.py front      # (owner playtest) put an installed lab first again
     py studies/overworld-editor/c1_lab.py uninstall  # ...and out again: the ini restored byte-exact
+
+THE LAUNCHER REWRITES THE ORDER. Memoria's launcher writes BOTH `FolderNames` and `Priorities` from its mod list, and
+a folder missing from `Priorities` is a new mod it APPENDS LAST -- on both lines. A lab put first in FolderNames
+alone therefore loads LAST when the game is started from the launcher (owner playtest 2026-10-23: no forest; the
+harness, which starts the game without the launcher, kept the order). The lab goes first on both lines.
 
 THE EDITOR'S PATH, NOT A REPLAY OF IT. `build` drives the real ForestTool (workspace/worldforest.py) against the real
 install with its real runner: the ghost is placed at SPOT with DONOR, the tool's Check runs `world-forest --dry-run`
@@ -198,16 +204,43 @@ def install():
     m = re.search(rb'^(\s*FolderNames\s*=\s*)(.+)$', raw, re.M)
     if not m or LAB.encode() in m.group(2):
         raise SystemExit(f"FolderNames missing or already holds the lab: {m and m.group(2)!r}")
+    if LAB.encode() in raw:
+        raise SystemExit(f"Memoria.ini already names {LAB}: not touching it")
     stamp = time.strftime("%Y%m%d-%H%M%S")
     MAIN_BACKUPS.mkdir(parents=True, exist_ok=True)
     bak = MAIN_BACKUPS / f"Memoria.ini.{stamp}.c1-lab"
     shutil.copyfile(INI, bak)
     assert sha(bak) == sha(INI)
     shutil.copytree(OUT / LAB, GAME / LAB)
-    INI.write_bytes(raw[:m.start(2)] + f'"{LAB}", '.encode() + raw[m.start(2):])
+    INI.write_bytes(_lab_first(raw))
     STATE.write_text(json.dumps({"backup": str(bak), "ini_sha": sha(bak), "installed_at": stamp}, indent=1),
                      encoding="utf-8")
     print(f"installed {LAB} first in FolderNames; ini backed up to {bak}")
+
+
+def _lab_first(raw: bytes) -> bytes:
+    """``raw`` with the lab first on BOTH the FolderNames and Priorities lines (any copy of it elsewhere removed)."""
+    out = raw
+    for key in (b"FolderNames", b"Priorities"):
+        m = re.search(rb'^(\s*' + key + rb'\s*=\s*)([^\r\n]+)', out, re.M)
+        if not m:
+            if key == b"FolderNames":
+                raise SystemExit("Memoria.ini has no FolderNames line")
+            continue
+        names = [n for n in re.findall(rb'"([^"]*)"', m.group(2)) if n != LAB.encode()]
+        line = b", ".join(b'"' + n + b'"' for n in [LAB.encode()] + names)
+        out = out[:m.start(2)] + line + out[m.end(2):]
+    return out
+
+
+def front():
+    """An installed lab that the launcher moved last: put it first again on both lines (the backup is kept)."""
+    if _game_running():
+        raise SystemExit("FF9 is running: close it (and the launcher) first")
+    if not STATE.is_file() or not (GAME / LAB).exists():
+        raise SystemExit("the lab is not installed")
+    INI.write_bytes(_lab_first(INI.read_bytes()))
+    print([ln for ln in INI.read_text(encoding="utf-8").splitlines() if re.match(r"\s*(FolderNames|Priorities)", ln)])
 
 
 def uninstall(run_dir: Path):
@@ -288,6 +321,8 @@ if __name__ == "__main__":
         run()
     elif cmd == ["install"]:
         install()
+    elif cmd == ["front"]:
+        front()
     elif cmd == ["uninstall"]:
         uninstall(REPO / ".harness-runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-c1-playtest")
     else:
