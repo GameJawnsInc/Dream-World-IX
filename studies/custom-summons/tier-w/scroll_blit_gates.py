@@ -23,8 +23,10 @@ S5  THE ef211 CAST RECORD, READ BOTH WAYS.  The study's own cast specs, rebuilt 
     art: the ink and punch wheels on `(704,256)` -- both INVISIBLE in game -- lie wholly in a FULL
     destination and refuse; the dome bands on `(704,384)` -- which showed -- are their SOURCE and build;
     the pool wheel on `(640,256)` -- which showed -- is PARTLY in a band; and cast 2b's bold wheel on
-    `(576,384)` lies WHOLLY in a band and still showed -- the counter-witness that makes the key
-    necessary.  With the key, each rebuilds the exact bytes it was cast with: the key moves no byte.
+    `(576,384)` lies WHOLLY in a band and refuses.  (It was once read as having shown -- a
+    counter-witness; the game's own capture runs that blit ahead of every draw of its page, so it did
+    not -- `scroll_blit.REACHABILITY`.)  With the key, each rebuilds the exact bytes it was cast with:
+    the key moves no byte.
 S6  PROVENANCE.  `scroll_blit.py` carries coordinates and counts only -- no bytes constant, no hex
     run, no integer outside the VRAM/coordinate range.
 S7  THE EXECUTED-BLIT CROSS-CHECK.  The headless host's census (`headless/sfx_host.py`, SCRATCH only:
@@ -275,7 +277,7 @@ def s4_partial_band() -> None:
 #: cast's own SCRATCH build manifest (`patched_sha256`), never typed from memory.
 CASTS = (("phoenix_field.toml", "cell.s0.x704_y256", "full", "ef211"),           # invisible
          ("phoenix_field_punch.toml", "cell.s0.x704_y256", "full", "ef211-punch"),  # invisible
-         ("phoenix_field_cast2.toml", "cell.s0.x576_y384", "in-band", "ef211-cast2"),  # SHOWED
+         ("phoenix_field_cast2.toml", "cell.s0.x576_y384", "in-band", "ef211-cast2"),  # stock at every draw
          ("phoenix_field_cast3.toml", "cell.s0.x640_y256", "partial", "ef211-pool"),  # showed
          ("phoenix_dome.toml", "cell.s0.x704_y384", "source", None))               # showed
 

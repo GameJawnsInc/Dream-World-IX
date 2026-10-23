@@ -1077,3 +1077,4 @@ refusal has a key:
   null is confounded as evidence for BINDING-IS-NOT-A-DRAW (the law's other vehicles are untouched).
 * Cast 2b's bold wheel on `(576,384)` lies wholly inside the band `dst (576,368) 28x112 <- (604,368)`
   and still eroded the vortex smoke at burst peak: that blit is not running in that phase.
+  **CORRECTED (later): it is.** The ladder capture runs that blit ahead of every draw of its page (f47-157); 2b rendered as stock (see `scroll_blit.py` `REACHABILITY`).

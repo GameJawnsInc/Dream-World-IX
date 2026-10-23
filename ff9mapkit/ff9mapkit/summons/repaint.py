@@ -271,8 +271,9 @@ sites). The program-VRAM lists above never held it, so this lane used to call ef
   measurement and the remedy -- the cell the band is copied FROM (:func:`_gate_scroll_blit`). The unit
   is the texel: a band can cover part of a cell, and an edit that stays out of it builds and says so;
 * ``acknowledge_scroll_blit_destination = true`` (literal boolean) lifts it, because reachability per
-  cast is not established -- ef211's own cast ladder has a null on one destination and a visible edit
-  inside another (:data:`~ff9mapkit.summons.scroll_blit.REACHABILITY`);
+  cast is not established -- the sites are static and say nothing of when a cast draws a cell, though
+  every in-game check on ef211's cast ladder so far sides with the refusal
+  (:data:`~ff9mapkit.summons.scroll_blit.REACHABILITY`);
 * a SOURCE hit never refuses: the edit is read and propagated, and the build discloses where to;
 * export and the scaffold state both directions on the row before anyone paints, and export delta is
   0 -- no picture is withheld.

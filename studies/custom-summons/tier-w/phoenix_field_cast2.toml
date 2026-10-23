@@ -52,5 +52,7 @@ palette_from = "pal.s0.x208_y244.e16"
 # it -- yet this cast (2b, the bold wheel) RENDERED: the vortex smoke eroded at burst peak.  So it is
 # the in-game COUNTER-WITNESS to the kit's scroll-blit refusal: that blit is not running in that
 # phase, which is exactly why the refusal has a key.  Said so the record rebuilds.
+# CORRECTED (later): not a counter-witness -- the game's capture runs that blit ahead of every draw of
+# the page (f47-157), so 2b rendered as stock (scroll_blit.py REACHABILITY).  The key still rebuilds the sha.
 acknowledge_scroll_blit_destination = true
 note = "CAST 2: the wheel as dark gaps in the emergence-vortex smoke -- lower-half addressing + the 4bpp nibble codec + the shape verdict, one cast"

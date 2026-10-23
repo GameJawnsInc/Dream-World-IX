@@ -3259,8 +3259,9 @@ def test_ef211s_CAST_2_lower_half_builds_and_its_UPPER_half_is_a_DISCLOSURE_not_
     assert (low.bpp, low.page_offset) == (4, 0x25678) and low.hazards.names == ("lower-half",)
     src = _write_cell_png(tmp_path, blob, low, _bump_cell(low, _page_at(blob, low)))
     # Both halves of column 576 sit under op-144 SCROLL-BLIT bands (`dst (576,256)/(576,368) 28x112`,
-    # fed from x 604), so a whole-cell bump changes texels in them and needs the key -- which is the
-    # honest key here: cast 2b's wheel lay wholly in that band and still showed at burst peak.
+    # fed from x 604), so a whole-cell bump changes texels in them and needs the key.  (Not a reachable
+    # band: the game's own capture runs that blit on every frame the page is drawn, so cast 2b's wheel,
+    # wholly inside it, never reached the screen -- the key here only lets the fixture build.)
     b = RP.build({"reskin": {"effect": 211, "expect_sha256": hashlib.sha256(blob).hexdigest(),
                              "texel": [_row(low, src, expect_bpp=4, expect_cell=[576, 384],
                                             **{RP.ACK_SCROLL_BLIT: True})]}},
