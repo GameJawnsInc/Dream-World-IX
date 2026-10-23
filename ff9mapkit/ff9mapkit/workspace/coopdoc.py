@@ -112,7 +112,7 @@ class CoopDoc(QWidget):
             "", "Co-op",
             "Play FF9's story together on two PCs. The host plays their own save, and the guest's game "
             "follows along: the same screens, the same conversations, the same battles. The guest's own "
-            "save is never touched. Experimental.")
+            "save is never touched. Beta.")
         v.addWidget(crown)
         if self._on_build is not None:                  # quiet cross-link: both PCs need the same mods
             xlink = QLabel('Both PCs need the same mods → <a href="build">Build & Deploy</a>')
