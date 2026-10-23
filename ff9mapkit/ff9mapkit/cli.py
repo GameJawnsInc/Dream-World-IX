@@ -11030,10 +11030,13 @@ def build_parser() -> argparse.ArgumentParser:
                                     "COMPOSE tables (audit rec 16, run in fixed tier order regardless of "
                                     "document position): [[island]] (the world-island mint), [[river]] "
                                     "(world-river's carry: donor, at=[DX,DZ] -- \"auto\" on --dry-run only --, "
-                                    "area, apron; the same pipeline, so the same bytes), [[mountain]]/"
-                                    "[[forest]]/[[hill]] (interior relief on the DEPLOYED base), [[coastnav]]/"
-                                    "[[rim_retile]] (nav stamps). Each table takes its verb's own argument "
-                                    "names; unknown keys refuse. The compose writes world_manifest.json "
+                                    "area, apron; the same pipeline, so the same bytes), [[sink]] (world-sink: "
+                                    "at=[WX,WZ], cluster, allow_entrances, fresh; with its disc-4 replay), "
+                                    "[[mountain]]/[[forest]]/[[hill]] (interior relief on the DEPLOYED base), "
+                                    "[[coastnav]]/[[rim_retile]] (nav stamps). Each table takes its verb's own "
+                                    "argument names; unknown keys refuse. Inside a tier, rows with step = N run "
+                                    "first, in step order (the World tab's saved recipes carry it). The compose "
+                                    "writes world_manifest.json "
                                     "beside the deploys and REFUSES over manifest-diverged files without "
                                     "--allow-overwrite")
     wfu.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")

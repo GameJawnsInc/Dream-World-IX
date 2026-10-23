@@ -233,9 +233,29 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
 #: The fixed execution order: base mint (placement layouts + synthetic islands) -> interior
 #: relief (reads the DEPLOYED bytes the base tier wrote) -> navigation stamps (reclassify the
 #: deployed water). Within a tier, rows run in document order.
-COMPOSE_TIERS = (("placement", "island", "river"), ("mountain", "forest", "hill"),
+COMPOSE_TIERS = (("placement", "island", "river", "sink"), ("mountain", "forest", "hill"),
                  ("coastnav", "rim_retile"))
 COMPOSE_TABLES = tuple(t for tier in COMPOSE_TIERS for t in tier)
+
+
+def ordered_rows(doc: dict) -> list:
+    """Every compose row of ``doc`` as ``(table, index, row)`` in the order :func:`compose_layout` runs them: tier by
+    tier; inside a tier, rows carrying ``step = N`` first in step order (the World tab's recipe records the order its
+    edits were made in, which TOML's per-table arrays cannot), then the rest in table and document order. The
+    ``[[placement]]`` rows are not included (they run as one fused step)."""
+    out = []
+    for tier in COMPOSE_TIERS:
+        rows = []
+        for t_ix, table in enumerate(tier):
+            if table == "placement":
+                continue
+            for i, row in enumerate(doc.get(table, ())):
+                step = row.get("step")
+                if step is not None and (isinstance(step, bool) or not isinstance(step, int)):
+                    raise ValueError(f"[[{table}]] #{i}: step must be a whole number, not {step!r}")
+                rows.append(((0, step, 0, 0) if step is not None else (1, 0, t_ix, i), table, i, row))
+        out += [(table, i, row) for _k, table, i, row in sorted(rows, key=lambda r: r[0])]
+    return out
 
 _MANIFEST_NAME = "world_manifest.json"
 _SKIP_MARKERS = (".bak-", ".prerim")         # write-seam backups, never composition output
@@ -474,6 +494,28 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             raise ValueError(f"rim-retile refused: {rep['refused']}")
         return rep
 
+    def _sink_runner(row):
+        # world-sink's own call, with the CLI's disc-4 REPLAY (where disc 4's blocks differ, the same sink runs again
+        # on disc 4's own island), so a [[sink]] row writes the bytes `world-sink` writes
+        from . import discmirror as DM
+        from . import transplant as TR
+        _strict_keys("sink", row, {"at", "cluster", "allow_entrances", "fresh"})
+        if "at" not in row:
+            raise ValueError("[[sink]] needs at = [wx, wz] (a point on the island)")
+        at = tuple(float(v) for v in row["at"])
+        kw = dict(game=game, dry_run=dry_run, fresh=bool(row.get("fresh", False)), allow_overwrite=allow_overwrite,
+                  allow_entrances=bool(row.get("allow_entrances", False)), cluster=bool(row.get("cluster", False)))
+
+        def replay(d):
+            s4 = TR.sink(mod_folder, at, disc=d, skip_mirror=DM.REPLAY, replay=replay, **kw)
+            if not s4["clean"]:
+                raise ValueError(f"world-sink --disc {d} refused the same island")
+        s = TR.sink(mod_folder, at, disc=disc, skip_mirror=skip_mirror, replay=replay, **kw)
+        if not s["clean"]:
+            bad = sorted({g.get("gate", "?") for r in s["per_block"].values() for g in r["gates"] if not g.get("ok")})
+            raise ValueError(f"world-sink refused the island at ({at[0]:g}, {at[1]:g}): {', '.join(bad) or 'not clean'}")
+        return s
+
     def _placement_runner(_row):
         out = fuse_layout(mod_folder, list(placements), disc=disc, lod=lod, game=game,
                           allow_overwrite=allow_overwrite, dry_run=dry_run,
@@ -484,21 +526,16 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             raise ValueError(f"fuse layout refused: {', '.join(bad)}")
         return out
 
-    runners = {"island": _island_runner, "river": _river_runner, "coastnav": _coastnav_runner,
-               "rim_retile": _rim_runner}
+    runners = {"island": _island_runner, "river": _river_runner, "sink": _sink_runner,
+               "coastnav": _coastnav_runner, "rim_retile": _rim_runner}
 
     steps = []                                               # (label, table, spec, runner)
-    for tier in COMPOSE_TIERS:
-        for table in tier:
-            if table == "placement":
-                if placements:
-                    steps.append(("placement[]", table, {"count": len(placements)},
-                                  _placement_runner))
-                continue
-            for i, row in enumerate(doc.get(table, ())):
-                run = (runners[table] if table in runners
-                       else (lambda row, table=table: _relief_runner(table, row)))
-                steps.append((f"{table} #{i}", table, dict(row), run))
+    if placements:                                           # tier 0's first step, as before
+        steps.append(("placement[]", "placement", {"count": len(placements)}, _placement_runner))
+    for table, i, row in ordered_rows(doc):
+        run = (runners[table] if table in runners
+               else (lambda row, table=table: _relief_runner(table, row)))
+        steps.append((f"{table} #{i}", table, {k: v for k, v in row.items() if k != "step"}, run))
 
     # ---- run in order, attributing written files per step -------------------------------
     entries = []

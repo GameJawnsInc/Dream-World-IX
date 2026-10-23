@@ -278,6 +278,19 @@ class CarryTool(QWidget):
             return None
         return tuple(self._cmd("-", dry_run=False))
 
+    def row(self) -> dict:
+        """The recipe row Accept records (rung C3): parsed from the very command it runs."""
+        from ..world import recipe as RC
+        return RC.row_for(self._cmd("-", dry_run=False))
+
+    def island_changed(self):
+        """The draft moved under the tool (an undo, a redo, an opened recipe): read the island and the draft again."""
+        self._ix = self._ix_for = None
+        self._verdict = None
+        self._refresh_draft_label()
+        if not self.isHidden():
+            self._load_soup()
+
     # -- background reads --
     def _bg(self, what, fn):
         self._serial += 1
@@ -523,6 +536,11 @@ class CarryTool(QWidget):
         if key is None:
             self._job = None
             return
+        if kind == "accept":                             # rung C3: the step's cells, snapshotted before it writes
+            from ..world import draft as D
+            from ..world import recipe as RC
+            v = self._current_verdict() or {}
+            D.begin_step(draft, [tuple(b) for b in v.get("blocks") or []] or RC.row_cells(self.row()))
         report = Path(tempfile.mkdtemp(prefix=f"ff9_{self.NOUN}_")) / "verdict.json"
         self._job = (kind, key)
         self._say(f"Checking every gate ({self.CHECK_TIME})…" if kind == "check"
@@ -540,6 +558,15 @@ class CarryTool(QWidget):
             last = [ln for ln in text.splitlines() if ln.strip()][-1:] or [f"exit code {code}"]
             v = {"ok": False, "dry_run": kind == "check",
                  "refused": {"gate": "error", "message": f"the job ended without a verdict: {last[0]}", "where": []}}
+        if kind == "accept":                             # the step goes into the recipe, or back out of the draft
+            from ..world import draft as D
+            from ..world import recipe as RC
+            d = self.draft()
+            if v["ok"]:
+                row = RC.row_for(list(key))           # the handles the job ran with, not the current ones
+                D.commit_step(d, row, RC.label(row))
+            else:
+                D.abort_step(d)
         self._verdict = (key, v)
         if kind == "accept" and v["ok"]:
             self._accepted(v)
