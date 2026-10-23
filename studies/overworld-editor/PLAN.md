@@ -123,8 +123,13 @@ alone.
   precomputed verdict previews; Accept is world-sink on disc 1 then disc 4 (THE DRAFT'S DISC-4 HALF: a draft cannot
   mirror, so it makes the replay's own call). I1 identical over 1,541 files. In game: the island's land 4.691 before,
   gone after the promote and reload (the party in open water there; the control unchanged). Found: promote failed
-  onto cells the live folder had nothing at (fixed, recovered); a party stands 0.586 under a Sea3 surface. Next in
-  C5: river placement, coast morphs, island and transplant.
+  onto cells the live folder had nothing at (fixed, recovered); a party stands 0.586 under a Sea3 surface.
+- **C5, second verb: COAST MORPHS BUILT + IN GAME (2026-10-23)** -> [`C5.md`](C5.md). "Shape a coast": a click picks
+  the lawful window (world-morphs' catalog, cached per block), only its lawful verbs, the depth stops at its ceiling;
+  world-transplant --in-place judges it; Accept on disc 1 then disc 4; a `[[morph]]` world-fuse table. I1 identical
+  over 1,545 files, and on real bytes card == hand == recipe. In game: the cliff face at 1.543 became land at 4.219
+  (predicted 4.219). River placement deferred: all 56 open-ocean shifts that fit it are FF9CustomMap-world's already.
+  Next in C5: island and transplant.
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,

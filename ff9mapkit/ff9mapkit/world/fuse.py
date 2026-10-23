@@ -233,7 +233,7 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
 #: The fixed execution order: base mint (placement layouts + synthetic islands) -> interior
 #: relief (reads the DEPLOYED bytes the base tier wrote) -> navigation stamps (reclassify the
 #: deployed water). Within a tier, rows run in document order.
-COMPOSE_TIERS = (("placement", "island", "river", "sink"), ("mountain", "forest", "hill"),
+COMPOSE_TIERS = (("placement", "island", "river", "sink", "morph"), ("mountain", "forest", "hill"),
                  ("coastnav", "rim_retile"))
 COMPOSE_TABLES = tuple(t for tier in COMPOSE_TIERS for t in tier)
 
@@ -525,6 +525,32 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             print(f"[[sink]] disc 4 (the draft's own step): {'sunk' if ok4 else 'refused, disc 4 keeps its island'}")
         return s
 
+    def _morph_runner(row):
+        # `world-transplant --in-place` itself (its tweak builders, its gates and its disc-4 replay): the row is that
+        # command's own arguments, parsed by the CLI's parser, so a recipe writes the bytes the command writes
+        from .. import cli
+        from .coastedit import VERBS, command
+        from .sinkedit import is_draft
+        _strict_keys("morph", row, {"cell", "verb", "window", "depth", "allow_entrances"})
+        if row.get("verb") not in VERBS:
+            raise ValueError(f"[[morph]] verb must be one of {list(VERBS)}, not {row.get('verb')!r}")
+        (x0, z0), (x1, z1) = row["window"]
+        spec_str = f"{float(x0):.4f},{float(z0):.4f}:{float(x1):.4f},{float(z1):.4f}:{float(row['depth']):g}"
+        ent = bool(row.get("allow_entrances", False))
+        calls = [command(mod_folder, row["cell"], row["verb"], spec_str, skip_mirror=skip_mirror, allow_entrances=ent,
+                         dry_run=dry_run)]
+        if not dry_run and not skip_mirror and is_draft(mod_folder, game):
+            # A DRAFT CANNOT MIRROR: its disc-4 half is the replay's own call (world.coastedit), as the tab makes it
+            calls.append(command(mod_folder, row["cell"], row["verb"], spec_str, disc=4, skip_mirror=True,
+                                 allow_entrances=ent, dry_run=False))
+        for k, argv in enumerate(calls):
+            ns = cli.build_parser().parse_args((["--game", str(game)] if game is not None else []) + argv)
+            code = cli._cmd_world_transplant(ns)
+            if code != 0 and k == 0:
+                raise ValueError(f"world-transplant --in-place --{row['verb']} refused at cell {tuple(row['cell'])}")
+            if code != 0:
+                print("[[morph]] disc 4 (the draft's own step): refused, disc 4 keeps its own coast")
+
     def _placement_runner(_row):
         out = fuse_layout(mod_folder, list(placements), disc=disc, lod=lod, game=game,
                           allow_overwrite=allow_overwrite, dry_run=dry_run,
@@ -535,7 +561,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             raise ValueError(f"fuse layout refused: {', '.join(bad)}")
         return out
 
-    runners = {"island": _island_runner, "river": _river_runner, "sink": _sink_runner,
+    runners = {"island": _island_runner, "river": _river_runner, "sink": _sink_runner, "morph": _morph_runner,
                "coastnav": _coastnav_runner, "rim_retile": _rim_runner}
 
     steps = []                                               # (label, table, spec, runner)

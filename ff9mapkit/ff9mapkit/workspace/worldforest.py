@@ -242,6 +242,17 @@ class CarryTool(QWidget):
         """``(text, state)`` for a preview the cheap laws refuse."""
         raise NotImplementedError
 
+    def _accept_calls(self, draft, report, report4):
+        """Accept's commands (after ``python -m ff9mapkit``), run in order: one call by default. A verb whose disc-4
+        step is a REPLAY (the sink, the coast morphs) adds the replay's own call, which a draft cannot make itself
+        (``world.sinkedit``: THE DRAFT'S DISC-4 HALF); the first call's verdict is the step's."""
+        return [self._cmd(draft, dry_run=False, report=report)]
+
+    def _step_cells(self, verdict):
+        """The cells an Accept may write (the history snapshots them first): the dry run's own blocks."""
+        from ..world import recipe as RC
+        return [tuple(b) for b in (verdict or {}).get("blocks") or []] or RC.row_cells(self.row())
+
     def _show_point(self, v):
         """Where Show in game puts the party after this accepted verdict (the shape's centre)."""
         return tuple(v["center"]) if v.get("center") else None
@@ -546,18 +557,35 @@ class CarryTool(QWidget):
         if key is None:
             self._job = None
             return
+        tmp = Path(tempfile.mkdtemp(prefix=f"ff9_{self.NOUN}_"))
+        report = tmp / "verdict.json"
         if kind == "accept":                             # rung C3: the step's cells, snapshotted before it writes
             from ..world import draft as D
-            from ..world import recipe as RC
-            v = self._current_verdict() or {}
-            D.begin_step(draft, [tuple(b) for b in v.get("blocks") or []] or RC.row_cells(self.row()))
-        report = Path(tempfile.mkdtemp(prefix=f"ff9_{self.NOUN}_")) / "verdict.json"
+            D.begin_step(draft, self._step_cells(self._current_verdict()))
+            calls = self._accept_calls(draft, report, tmp / "verdict4.json")
+        else:
+            calls = [self._cmd(draft, dry_run=True, report=report)]
         self._job = (kind, key)
+        self._disc4 = None
         self._say(f"Checking every gate ({self.CHECK_TIME})…" if kind == "check"
-                  else f"Writing the {self.NOUN} into the draft of {self.source().name}…", "")
+                  else f"Writing the {self.NOUN} into the draft of {self.source().name}"
+                       + (", disc 1 then disc 4…" if len(calls) > 1 else "…"), "")
         self._sync_buttons()
-        self._runner.start(self.argv(kind, draft, report), kit_cwd(),
-                           lambda code, text: self._job_done(kind, key, report, code, text))
+        pre = [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn())]
+
+        def step(k, code, text):
+            if self._job != (kind, key):
+                return
+            if k == 0 and len(calls) > 1:                # the first call's verdict decides; the rest follow it
+                v = self.FE.read_verdict(report)
+                if v is not None and v.get("ok"):
+                    self._runner.start(pre + calls[1], kit_cwd(), lambda c, t: step(1, c, t))
+                    return
+            if k == 1:
+                self._disc4 = bool((self.FE.read_verdict(tmp / "verdict4.json") or {}).get("ok"))
+                code = 0
+            self._job_done(kind, key, report, code, text)
+        self._runner.start(pre + calls[0], kit_cwd(), lambda code, text: step(0, code, text))
 
     def _job_done(self, kind, key, report, code, text):
         if self._job != (kind, key):
@@ -584,6 +612,7 @@ class CarryTool(QWidget):
         self._redraw()
 
     def _accepted(self, v):
+        disc4 = getattr(self, "_disc4", None)
         pt = self._show_point(v)
         if pt is not None:
             self._last_center = pt
@@ -599,7 +628,9 @@ class CarryTool(QWidget):
         self.panel.set_ghost(None)
         self._refresh_draft_label()
         self._say(f"In the draft: {n} block{'s' if n != 1 else ''} written. The view now draws the draft in place "
-                  f"of {self.source().name}. Click to place another {self.NOUN}.", "ok")
+                  f"of {self.source().name}. Click to place another {self.NOUN}."
+                  + (" Disc 4 refused the same edit, so disc 4 keeps its own ground there (as the verb's replay "
+                     "would)." if disc4 is False else ""), "warn" if disc4 is False else "ok")
         self._load_soup()
         if self._on_changed is not None:
             self._on_changed(self.draft())
