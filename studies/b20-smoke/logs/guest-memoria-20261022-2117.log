@@ -1,0 +1,366 @@
+22.10.2026 21:08:45 |M| [WindowManager] Moving window to (157,51) with size (1606,929) on monitor 0
+22.10.2026 21:08:46 |M| [SteamSdkWrapper] Initialized: True
+22.10.2026 21:08:46 |M| [KeyBinding] Succesfully parsed movement key bindings (W, A, S, D)
+22.10.2026 21:08:46 |M| [KeyBinding] Succesfully parsed pause key bindings (Backspace)
+22.10.2026 21:08:46 |M| [KeyBinding] Succesfully parsed help key bindings (Alpha1)
+22.10.2026 21:08:47 |M| [FontInterceptor] Dynamic font initialization.
+22.10.2026 21:08:47 |M| [FontInterceptor] Initialize new font: [Names: {Alexandria, Garnet}, Size: 24]
+22.10.2026 21:08:47 |M| [Initialization] Memoria version: 2026-10-22
+22.10.2026 21:08:47 |M| [Initialization] OS version: Microsoft Windows NT 10.0.26200.0
+22.10.2026 21:08:47 |M| [Initialization] Mods: 'FF9CustomMap' 'MoguriVideo' 'MoguriMain' 'FF9Coop' 
+22.10.2026 21:08:47 |W| [DataPatchers] ForkDonorPatch: donor field 2301 is forked by both 4003 and 30110 -> remap DISABLED (ambiguous); an event-battle/scripted-boss after-warp from either fork will LEAK to real field 2301. Deploy only one fork of donor 2301 at a time.
+22.10.2026 21:08:47 |M| [DataPatchers] Initialized
+22.10.2026 21:08:47 |M| [FontInterceptor] Loading font [Original: Alexandria (UnityEngine.Font)]
+22.10.2026 21:08:47 |M| [SaXAudio] Initialized
+22.10.2026 21:08:49 |M| [UIRoot] Changing a clip region of the UI root.
+22.10.2026 21:08:49 |M| [WindowProc] Windows procedure registered
+22.10.2026 21:08:49 |M| [GameLoopManager] RaiseStartEvent
+22.10.2026 21:08:51 |M| Updating text localization [English(US)]
+22.10.2026 21:08:51 |M| InitializeItemText
+22.10.2026 21:08:51 |M| InitializeImportantItemText
+22.10.2026 21:08:51 |M| InitializeAbilityText
+22.10.2026 21:08:51 |M| InitializeCommandText
+22.10.2026 21:08:51 |M| InitializeLocationText
+22.10.2026 21:08:51 |M| InitializeEtcText
+22.10.2026 21:08:51 |M| InitializeCharacterNamesText
+22.10.2026 21:08:51 |M| Total text update time: 0.3s
+22.10.2026 21:08:51 |M| [AudioResourceExporter] Pass through {Configuration.Export.Audio = 0}.
+22.10.2026 21:08:52 |M| [SteamSdkWrapper] Request stats: False
+22.10.2026 21:08:55 |M| [NetSync] config enabled=True role=host field=0 followHost=1 relay=ws://127.0.0.1:49201 code=ff9-0CA62LRC
+22.10.2026 21:08:56 |M| [NetSync] leader guard: the host-side leader is now Zidane (CharacterId 0, my controlled body's model 98) -- a guest bit landing on it moves to the next member (owner, 2026-10-19)
+22.10.2026 21:08:56 |M| [NetSync] relay connected ws://127.0.0.1:49201/sess/ff9-0CA62LRC?role=host
+22.10.2026 21:08:56 |M| [ControllerWatcher] Couldn't connect device
+22.10.2026 21:09:09 |M| [NetSync] config enabled=True role=client field=0 followHost=1 relay=ws://127.0.0.1:49201 code=ff9-0CA62LRC
+22.10.2026 21:09:09 |M| [NetSync] config change applied live (role=client, relay)
+22.10.2026 21:09:09 |M| [NetSync] relay disconnected; retrying (read threw (IOException: Read failure))
+22.10.2026 21:09:09 |M| [NetSync] link blip: encounter suppression held (grace)
+22.10.2026 21:09:09 |M| [NetSync] relay connected ws://127.0.0.1:49201/sess/ff9-0CA62LRC?role=guest
+22.10.2026 21:09:10 |M| [NetSync] dialogue lock: session on -- lines open from now are the host's to drive
+22.10.2026 21:09:11 |M| [NetSync] following the peer to field 350
+22.10.2026 21:09:12 |M| [NetSync] state-mirror ARMED -- this guest's fields now stage the HOST's story
+22.10.2026 21:09:12 |M| [NetSync] self-dress ARMED (host): section 8 model 8 charId 1 -> rig 1 (GEO_MAIN_F0_VIV)
+22.10.2026 21:09:12 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:12 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:09:14 |M| [NetSync] following the peer to field 250
+22.10.2026 21:09:15 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:15 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:09:16 |M| [NetSync] following the peer to field 350
+22.10.2026 21:09:17 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:18 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:09:19 |M| [NetSync] following the peer to field 250
+22.10.2026 21:09:20 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:20 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:09:21 |M| [NetSync] following the peer to field 350
+22.10.2026 21:09:23 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:23 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:09:24 |M| [NetSync] following the peer to field 250
+22.10.2026 21:09:25 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:25 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:09:27 |M| [NetSync] following the peer to field 350
+22.10.2026 21:09:28 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:28 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:09:29 |M| [NetSync] following the peer to field 250
+22.10.2026 21:09:30 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:30 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:09:30 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 250 (ui=FieldHUD)
+22.10.2026 21:09:32 |M| [NetSync] following the peer to field 350
+22.10.2026 21:09:33 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:33 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:09:34 |M| [NetSync] following the peer to field 250
+22.10.2026 21:09:35 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:36 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:09:36 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 250 (ui=FieldHUD)
+22.10.2026 21:09:37 |M| [NetSync] following the peer to field 350
+22.10.2026 21:09:38 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:39 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:09:39 |M| [NetSync] following the peer to field 250
+22.10.2026 21:09:41 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:41 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:09:41 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 250 (ui=FieldHUD)
+22.10.2026 21:09:42 |M| [NetSync] following the peer to field 350
+22.10.2026 21:09:44 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:44 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:09:45 |M| [NetSync] following the peer to field 250
+22.10.2026 21:09:46 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:46 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:09:46 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 250 (ui=FieldHUD)
+22.10.2026 21:09:48 |M| [NetSync] following the peer to field 350
+22.10.2026 21:09:49 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:49 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:09:50 |M| [NetSync] following the peer to field 250
+22.10.2026 21:09:51 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:51 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:09:51 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 250 (ui=FieldHUD)
+22.10.2026 21:09:53 |M| [NetSync] following the peer to field 350
+22.10.2026 21:09:54 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:54 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:09:55 |M| [NetSync] following the peer to field 250
+22.10.2026 21:09:56 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:56 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:09:56 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 250 (ui=FieldHUD)
+22.10.2026 21:09:58 |M| [NetSync] following the peer to field 350
+22.10.2026 21:09:59 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:09:59 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:10:00 |M| [NetSync] following the peer to field 250
+22.10.2026 21:10:02 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:10:02 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:10:02 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 250 (ui=FieldHUD)
+22.10.2026 21:10:03 |M| [NetSync] following the peer to field 350
+22.10.2026 21:10:04 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:10:05 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:10:06 |M| [NetSync] following the peer to field 250
+22.10.2026 21:10:07 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:10:07 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:10:07 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 250 (ui=FieldHUD)
+22.10.2026 21:10:08 |M| [NetSync] following the peer to field 350
+22.10.2026 21:10:10 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:10:10 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:10:11 |M| [NetSync] following the peer to field 250
+22.10.2026 21:10:12 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:10:12 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:10:12 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 250 (ui=FieldHUD)
+22.10.2026 21:10:14 |M| [NetSync] following the peer to field 350
+22.10.2026 21:10:15 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:10:15 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:10:16 |M| [NetSync] following the peer to field 250
+22.10.2026 21:10:17 |M| [NetSync] self-dress: field 250 uid 10 sid 10: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:10:17 |M| Map: 250 | Scenario counter: 7200
+22.10.2026 21:10:17 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 250 (ui=FieldHUD)
+22.10.2026 21:10:19 |M| [NetSync] session: the host went silent (the hop is up: a cut or a stall upstream) -- holding the session for up to 40 s, reconnecting (the story mirror stays armed, saving stays off); outages=1
+22.10.2026 21:10:22 |M| [NetSync] dialogue lock released -- the link has read dead for 3 s
+22.10.2026 21:10:22 |M| [NetSync] dialogue lock: session off -- every line is local
+22.10.2026 21:10:36 |M| [NetSync] session: the host is back after 16375 ms -- inside the 40 s grace, the session continues (no exit ramp; still mirroring); the dialogue lock lapsed during it -- lines opened meanwhile were local, and the host's story re-applies at the next field load; resumes=1
+22.10.2026 21:10:36 |M| [NetSync] dialogue lock: session on -- lines open from now are the host's to drive
+22.10.2026 21:10:36 |M| [NetSync] dialogue ring: host epoch 51272 -> 17289 (the host restarted its session) -- inbox cleared, baseline at host seq 0 (nothing before it replays)
+22.10.2026 21:10:36 |M| [NetSync] host epoch changed -- talk/intent/event/diorama dedup reset (the host's first new start is not 'already seen')
+22.10.2026 21:10:37 |M| [NetSync] following the peer to field 350
+22.10.2026 21:10:38 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:10:38 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:10:38 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 350 (ui=FieldHUD)
+22.10.2026 21:10:54 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 350 (ui=FieldHUD)
+22.10.2026 21:11:01 |M| [NetSync] talk relay: started obj 15 (tag 3) on my copy of field 350
+22.10.2026 21:11:01 |M| [NetSync] host in a dialogue scene (nonce 1) -- staying in place
+22.10.2026 21:11:01 |M| [NetSync] dialogue lock: win 6 text 524 opened locked (the host drives it)
+22.10.2026 21:11:02 |M| [NetSync] dialogue: host seq 1 queued (field 350 win 6 text 524 kind 0 page 1 closes)
+22.10.2026 21:11:02 |M| [NetSync] dialogue: win 6 text 524 closed (host seq 1)
+22.10.2026 21:11:03 |M| [NetSync] dialogue lock: win 6 text 525 opened locked (the host drives it)
+22.10.2026 21:11:03 |M| [NetSync] dialogue: host seq 2 queued (field 350 win 6 text 525 kind 0 page 1 closes)
+22.10.2026 21:11:04 |M| [NetSync] dialogue: win 6 text 525 closed (host seq 2)
+22.10.2026 21:11:05 |M| [NetSync] dialogue lock: win 6 text 526 opened locked (the host drives it)
+22.10.2026 21:11:07 |M| [NetSync] dialogue: host seq 3 queued (field 350 win 6 text 526 kind 0 page 1 closes)
+22.10.2026 21:11:07 |M| [NetSync] dialogue: win 6 text 526 closed (host seq 3)
+22.10.2026 21:11:08 |M| [NetSync] dialogue lock: win 6 text 527 opened locked (the host drives it)
+22.10.2026 21:11:09 |M| [NetSync] dialogue: host seq 4 queued (field 350 win 6 text 527 kind 0 page 1 closes)
+22.10.2026 21:11:10 |M| [NetSync] dialogue: win 6 text 527 closed (host seq 4)
+22.10.2026 21:11:10 |M| [NetSync] dialogue: host seq 5 queued (field 350 win 6 text 528 kind 0 page 1 closes)
+22.10.2026 21:11:10 |M| [NetSync] dialogue lock: win 6 text 528 opened locked (the host drives it)
+22.10.2026 21:11:10 |M| [NetSync] talk relay: start 2 (obj 15) deferred -- my copy of a talk/scene still holds control
+22.10.2026 21:11:10 |M| [NetSync] host in a dialogue scene (nonce 2) -- staying in place
+22.10.2026 21:11:10 |M| [NetSync] dialogue: win 6 text 528 closed (host seq 5)
+22.10.2026 21:11:11 |M| [NetSync] talk relay: started obj 15 (tag 3) on my copy of field 350
+22.10.2026 21:11:11 |M| [NetSync] dialogue: host seq 6 queued (field 350 win 6 text 529 kind 0 page 1 closes)
+22.10.2026 21:11:11 |M| [NetSync] dialogue lock: win 6 text 529 opened locked (the host drives it)
+22.10.2026 21:11:11 |M| [NetSync] dialogue: win 6 text 529 closed (host seq 6)
+22.10.2026 21:11:17 |M| [NetSync] talk relay: started obj 8 (tag 3) on my copy of field 350
+22.10.2026 21:11:17 |M| [NetSync] host in a dialogue scene (nonce 3) -- staying in place
+22.10.2026 21:11:18 |M| [NetSync] dialogue lock: win 6 text 521 opened locked (the host drives it)
+22.10.2026 21:11:19 |M| [NetSync] dialogue: host seq 7 queued (field 350 win 6 text 521 kind 0 page 1 closes)
+22.10.2026 21:11:19 |M| [NetSync] dialogue: win 6 text 521 closed (host seq 7)
+22.10.2026 21:11:22 |M| [NetSync] intent: following the peer to field 356 (parallel)
+22.10.2026 21:11:23 |M| [NetSync] self-dress: field 356 uid 16 sid 16: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:11:23 |M| Map: 356 | Scenario counter: 7200
+22.10.2026 21:11:23 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 356 (ui=FieldHUD)
+22.10.2026 21:11:27 |M| [NetSync] intent: following the peer to field 353 (parallel)
+22.10.2026 21:11:28 |M| [NetSync] self-dress: field 353 uid 16 sid 16: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:11:28 |M| Map: 353 | Scenario counter: 7200
+22.10.2026 21:11:28 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 353 (ui=FieldHUD)
+22.10.2026 21:11:30 |M| [NetSync] host in a dialogue scene (nonce 4) -- staying in place
+22.10.2026 21:11:30 |M| [NetSync] dialogue lock: win 2 text 512 opened locked (the host drives it)
+22.10.2026 21:11:37 |M| [NetSync] dialogue: host seq 8 queued (field 353 win 2 text 512 kind 1 choice 1 closes)
+22.10.2026 21:11:37 |M| [NetSync] dialogue: win 2 text 512 closed (host seq 8, choice 1)
+22.10.2026 21:11:38 |M| [NetSync] intent: following the peer to field 356 (parallel)
+22.10.2026 21:11:38 |M| [NetSync] gateway (bounced to a reload) suppressed (following guest) on field 353
+22.10.2026 21:11:38 |M| [NetSync] self-dress: field 353 uid 16 sid 16: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:11:38 |M| Map: 353 | Scenario counter: 7200
+22.10.2026 21:11:39 |M| [NetSync] self-dress: field 356 uid 16 sid 16: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:11:39 |M| Map: 356 | Scenario counter: 7200
+22.10.2026 21:11:39 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 356 (ui=FieldHUD)
+22.10.2026 21:11:42 |M| [NetSync] intent: following the peer to field 353 (parallel)
+22.10.2026 21:11:43 |M| [NetSync] self-dress: field 353 uid 16 sid 16: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:11:43 |M| Map: 353 | Scenario counter: 7200
+22.10.2026 21:11:43 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 353 (ui=FieldHUD)
+22.10.2026 21:11:44 |M| [NetSync] host in a dialogue scene (nonce 5) -- staying in place
+22.10.2026 21:11:45 |M| [NetSync] dialogue lock: win 2 text 512 opened locked (the host drives it)
+22.10.2026 21:11:46 |M| [NetSync] dialogue: host seq 9 queued (field 353 win 2 text 512 kind 1 choice 0 closes)
+22.10.2026 21:11:46 |M| [NetSync] dialogue: win 2 text 512 closed (host seq 9, choice 0)
+22.10.2026 21:11:47 |M| [NetSync] dialogue lock: win 0 text 514 opened locked (the host drives it)
+22.10.2026 21:11:50 |M| [NetSync] dialogue: host seq 10 queued (field 353 win 0 text 514 kind 1 choice 0 closes)
+22.10.2026 21:11:50 |M| [NetSync] dialogue: win 0 text 514 closed (host seq 10, choice 0)
+22.10.2026 21:11:51 |M| [NetSync] dialogue lock: win 6 text 519 opened locked (the host drives it)
+22.10.2026 21:11:52 |M| [NetSync] dialogue: host seq 11 queued (field 353 win 6 text 519 kind 0 page 1 closes)
+22.10.2026 21:11:52 |M| [NetSync] dialogue: win 6 text 519 closed (host seq 11)
+22.10.2026 21:11:52 |M| [NetSync] dialogue lock: win 7 text 52 opened locked (the host drives it)
+22.10.2026 21:11:53 |M| [NetSync] dialogue: host seq 12 queued (field 353 win 7 text 52 kind 0 page 1 closes)
+22.10.2026 21:11:53 |M| [NetSync] dialogue: win 7 text 52 closed (host seq 12)
+22.10.2026 21:11:53 |M| [NetSync] dialogue lock: win 0 text 514 opened locked (the host drives it)
+22.10.2026 21:11:54 |M| [NetSync] dialogue: host seq 13 queued (field 353 win 0 text 514 kind 1 choice 1 closes)
+22.10.2026 21:11:54 |M| [NetSync] dialogue: win 0 text 514 closed (host seq 13, choice 1)
+22.10.2026 21:11:56 |M| [NetSync] dialogue lock: win 6 text 520 opened locked (the host drives it)
+22.10.2026 21:11:58 |M| [NetSync] dialogue lock: win 2 text 516 opened locked (the host drives it)
+22.10.2026 21:11:59 |M| [NetSync] intent: following the peer to field 356 (parallel)
+22.10.2026 21:11:59 |M| [NetSync] self-dress: field 353 uid 16 sid 16: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:11:59 |M| Map: 353 | Scenario counter: 7200
+22.10.2026 21:11:59 |M| [NetSync] dialogue lock: win 6 text 520 opened locked (the host drives it)
+22.10.2026 21:11:59 |M| [NetSync] dialogue: win 6 text 520 closed by its own script/timer
+22.10.2026 21:12:00 |M| [NetSync] self-dress: field 356 uid 16 sid 16: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:12:00 |M| Map: 356 | Scenario counter: 7200
+22.10.2026 21:12:00 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 356 (ui=FieldHUD)
+22.10.2026 21:12:06 |M| [NetSync] intent: following the peer to field 357 (parallel)
+22.10.2026 21:12:07 |M| [NetSync] self-dress: field 357 uid 14 sid 14: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:12:07 |M| Map: 357 | Scenario counter: 7200
+22.10.2026 21:12:07 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 357 (ui=FieldHUD)
+22.10.2026 21:12:16 |M| [NetSync] host in a dialogue scene (nonce 7) -- staying in place
+22.10.2026 21:12:18 |M| [NetSync] dialogue: host seq 14 queued (field 357 win 7 text 52 kind 0 page 1 closes)
+22.10.2026 21:12:26 |M| [NetSync] intent: following the peer to field 356 (parallel)
+22.10.2026 21:12:27 |M| [NetSync] dialogue: host seq 14 (win 7 text 52) dropped -- it is for field 357
+22.10.2026 21:12:27 |M| [NetSync] self-dress: field 356 uid 16 sid 16: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:12:27 |M| Map: 356 | Scenario counter: 7200
+22.10.2026 21:12:27 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 356 (ui=FieldHUD)
+22.10.2026 21:12:29 |M| [NetSync] intent: following the peer to field 357 (parallel)
+22.10.2026 21:12:30 |M| [NetSync] self-dress: field 357 uid 14 sid 14: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:12:30 |M| Map: 357 | Scenario counter: 7200
+22.10.2026 21:12:30 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 357 (ui=FieldHUD)
+22.10.2026 21:12:31 |M| [NetSync] intent: following the peer to field 356 (parallel)
+22.10.2026 21:12:32 |M| [NetSync] self-dress: field 356 uid 16 sid 16: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:12:32 |M| Map: 356 | Scenario counter: 7200
+22.10.2026 21:12:32 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 356 (ui=FieldHUD)
+22.10.2026 21:12:39 |M| [NetSync] script button-poll (pickup/loot) suppressed (following guest) on field 356
+22.10.2026 21:12:39 |M| [NetSync] chest/quad interaction suppressed (following guest) on field 356
+22.10.2026 21:12:48 |M| [NetSync] teleport-to-host: snapped to the host on field 356
+22.10.2026 21:12:52 |M| [NetSync] talk relay: started obj 12 (tag 3) on my copy of field 356
+22.10.2026 21:12:52 |M| [NetSync] host in a dialogue scene (nonce 9) -- staying in place
+22.10.2026 21:12:53 |M| [NetSync] dialogue lock: win 2 text 466 opened locked (the host drives it)
+22.10.2026 21:12:53 |M| [NetSync] dialogue: host seq 15 queued (field 356 win 2 text 466 kind 0 page 1 closes)
+22.10.2026 21:12:54 |M| [NetSync] dialogue: win 2 text 466 closed (host seq 15)
+22.10.2026 21:12:54 |M| [NetSync] dialogue lock: win 2 text 467 opened locked (the host drives it)
+22.10.2026 21:12:54 |M| [NetSync] dialogue: host seq 16 queued (field 356 win 2 text 467 kind 0 page 1 closes)
+22.10.2026 21:12:55 |M| [NetSync] dialogue: win 2 text 467 closed (host seq 16)
+22.10.2026 21:12:57 |M| [NetSync] intent: following the peer to field 350 (parallel)
+22.10.2026 21:12:59 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:12:59 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:12:59 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 350 (ui=FieldHUD)
+22.10.2026 21:13:01 |M| [NetSync] intent: following the peer to field 355 (parallel)
+22.10.2026 21:13:03 |M| [NetSync] self-dress: field 355 uid 18 sid 18: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:13:03 |M| Map: 355 | Scenario counter: 7200
+22.10.2026 21:13:03 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 355 (ui=FieldHUD)
+22.10.2026 21:13:05 |M| [NetSync] talk relay: started obj 16 (tag 3) on my copy of field 355
+22.10.2026 21:13:05 |M| [NetSync] host in a dialogue scene (nonce 11) -- staying in place
+22.10.2026 21:13:06 |M| [NetSync] dialogue lock: win 6 text 502 opened locked (the host drives it)
+22.10.2026 21:13:06 |M| [NetSync] dialogue: host seq 17 queued (field 355 win 6 text 502 kind 0 page 1 closes)
+22.10.2026 21:13:07 |M| [NetSync] dialogue: win 6 text 502 closed (host seq 17)
+22.10.2026 21:13:07 |M| [NetSync] dialogue lock: win 6 text 503 opened locked (the host drives it)
+22.10.2026 21:13:08 |M| [NetSync] dialogue: host seq 18 queued (field 355 win 6 text 503 kind 0 page 1 closes)
+22.10.2026 21:13:08 |M| [NetSync] dialogue: win 6 text 503 closed (host seq 18)
+22.10.2026 21:13:09 |M| [NetSync] dialogue lock: win 6 text 504 opened locked (the host drives it)
+22.10.2026 21:13:13 |M| [NetSync] dialogue: host seq 19 queued (field 355 win 6 text 504 kind 1 choice 0 closes)
+22.10.2026 21:13:13 |M| [NetSync] dialogue: win 6 text 504 closed (host seq 19, choice 0)
+22.10.2026 21:13:13 |M| [NetSync] script menu suppressed (following guest) on field 355
+22.10.2026 21:13:20 |M| [NetSync] intent: following the peer to field 350 (parallel)
+22.10.2026 21:13:22 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:13:22 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:13:22 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 350 (ui=FieldHUD)
+22.10.2026 21:13:28 |M| [NetSync] intent: following the peer to field 450 (parallel)
+22.10.2026 21:13:29 |M| [NetSync] gateway (bounced to a reload) suppressed (following guest) on field 350
+22.10.2026 21:13:29 |M| [NetSync] self-dress: field 350 uid 33 sid 33: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:13:29 |M| Map: 350 | Scenario counter: 7200
+22.10.2026 21:13:30 |M| [NetSync] self-dress: field 450 uid 21 sid 21: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:13:30 |M| Map: 450 | Scenario counter: 7200
+22.10.2026 21:13:30 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 450 (ui=FieldHUD)
+22.10.2026 21:13:51 |M| [NetSync] start hold report: host battle nonce 1 -> BOOTING -- my diorama of it is booting or in its intro (the host holds its gauges)
+22.10.2026 21:13:51 |M| [NetSync] diorama BOOT scene=245 pattern=4 start=BTL_START_NORMAL_ATTACK rand intro=skip(host) swirl=5 clamp=0
+22.10.2026 21:13:51 |M| [NetSync] diorama boot: COLD return (field 450 has no Main_Reinit (entry-0 tag 10) -- a reinit return would leave every object suspended) -- the return re-enters field 450 through Main_Init
+22.10.2026 21:13:51 |M| [NetSync] diorama wire boot stamped nonce=1
+22.10.2026 21:13:51 |M| [NetSync] diorama swirl 0 frames (own 5, clamped by DioramaSwirlFrames 0) -- real battles keep their own
+22.10.2026 21:13:51 |M| [NetSync] diorama swirl done after 313 ms (0 frames)
+22.10.2026 21:13:51 |M| [NetSync] diorama seated the host's party: 4 slot(s)
+22.10.2026 21:13:53 |M| [NetSync] diorama reconcile live: 6 wire unit(s) driving the scene
+22.10.2026 21:13:53 |M| [NetSync] diorama reached its command phase 2360 ms after the boot (intro skip(host), swirl 0 frames (own 5, clamped by DioramaSwirlFrames 0))
+22.10.2026 21:13:53 |M| [NetSync] diorama LIVE 2360 ms after the boot (host battle nonce 1, booted from wire nonce 1) -- the start-hold report for this battle now reads LIVE
+22.10.2026 21:13:53 |M| [NetSync] stock menu: the ready mirror is SERVING -- the host's Ready bits open the stock command menu for the guest's slots (the digit panel only for a stranded slot; logged once per boot)
+22.10.2026 21:13:53 |M| [NetSync] start hold report: host battle nonce 1 -> LIVE -- my diorama of it reached its command phase (the host's gauges may run)
+22.10.2026 21:13:56 |M| [NetSync] action replay: started id 1 slot 4 (enemy) cmd 47 sub 3 kind 2 num 3 tar 0x04 host speed 5 -- presentation only (the short-circuit owns every hit)
+22.10.2026 21:13:56 |M| [NetSync] leader guard line (guest): "You: Vivi" -- the host's battle (nonce 1) offers 0x2; in the diorama's battle message window (once per host battle)
+22.10.2026 21:13:56 |M| [NetSync] action replay: started id 2 slot 5 (enemy) cmd 47 sub 4 kind 2 num 4 tar 0x08 host speed 5 -- presentation only (the short-circuit owns every hit)
+22.10.2026 21:13:57 |M| [NetSync] stock menu: wire slot 1 Ready -> local slot 1 is on the stock ReadyQueue; the stock command menu opens for it (logged once per boot per slot)
+22.10.2026 21:13:57 |M| [NetSync] stock menu: local slot 1 menu Change (Change) drawn GREYED -- Change is outside the v1 command scope (B4.2) (owner decision 2; logged once per boot)
+22.10.2026 21:13:57 |M| [NetSync] stock menu: local slot 1 menu AccessMenu (AccessMenu) drawn GREYED -- AccessMenu (the in-battle main menu) is outside the v1 command scope (owner decision 2; logged once per boot)
+22.10.2026 21:13:57 |M| [NetSync] stock menu: the menu roster changed (generation 1) with local slot 1's menu up -- repainted under MuteActiveSound (logged once per boot per slot)
+22.10.2026 21:13:59 |M| [NetSync] action replay hold: held impact of id 1 on wire slot 2 released via late after 0 ms of battle time (lag -1250 ms: the replay's hit came first)
+22.10.2026 21:14:01 |M| [NetSync] stock menu: captured SendCommand -- local slot 1 Attack -> v1 frame [01 01 00 00 00 00 10 00 00] = slot 1 Attack menu 0 id 0 mask 0x10 cursor 0; forwarded, never enqueued locally (captures=1)
+22.10.2026 21:14:01 |M| [NetSync] stock menu: local slot 1 (wire 1) -- the forwarded command was ACCEPTED (the host's Ready bit fell after 141 ms); the slot left the stock queues (logged once per boot per slot)
+22.10.2026 21:14:02 |M| [NetSync] action replay: started id 3 slot 1 (player) cmd 1 sub 176 kind 3 num 102 tar 0x10 host speed 5 -- presentation only (the short-circuit owns every hit)
+22.10.2026 21:14:03 |M| [NetSync] action replay hold: held impact of id 2 on wire slot 3 released via late after 0 ms of battle time (lag -1344 ms: the replay's hit came first)
+22.10.2026 21:14:03 |M| [NetSync] action replay: started id 4 slot 2 (player) cmd 1 sub 176 kind 3 num 112 tar 0x10 host speed 5 -- further starts this boot are counted, not logged
+22.10.2026 21:14:03 |M| [NetSync] action replay hold: held impact of id 3 on wire slot 4 released via late after 0 ms of battle time (lag -484 ms: the replay's hit came first)
+22.10.2026 21:14:05 |M| [NetSync] action replay hold: held impact of id 4 on wire slot 4 released via late after 0 ms of battle time (lag -1188 ms: the replay's hit came first)
+22.10.2026 21:14:15 |M| [NetSync] action replay hold: held impact of id 5 on wire slot 0 released via late after 0 ms of battle time (lag -125 ms: the replay's hit came first)
+22.10.2026 21:14:17 |M| [NetSync] action replay hold: held impact of id 6 on wire slot 0 released via late after 0 ms of battle time (lag -891 ms: the replay's hit came first)
+22.10.2026 21:14:23 |M| [NetSync] stock menu: captured SendCommand -- local slot 1 BlackMagic -> v1 frame [01 01 02 02 1A 00 04 00 00] = slot 1 Ability menu 2 id 26 mask 0x04 cursor 0; forwarded, never enqueued locally (captures=2)
+22.10.2026 21:14:29 |M| [NetSync] action replay hold: held impact of id 7 on wire slot 2 released via late after 0 ms of battle time (lag -1437 ms: the replay's hit came first)
+22.10.2026 21:14:31 |M| [NetSync] action replay hold: held impact of id 9 on wire slot 5 released via late after 0 ms of battle time (lag -766 ms: the replay's hit came first)
+22.10.2026 21:14:34 |M| [NetSync] action replay hold: held impact of id 8 on wire slot 1 released via late after 0 ms of battle time (lag -907 ms: the replay's hit came first)
+22.10.2026 21:14:39 |M| [NetSync] battle end block (peer, nonce 1): fighting ui 0 -> victory-pending (phase 5 seq 0 result 0; ui 0, res -, flags 0x00, pose 0x0F)
+22.10.2026 21:14:39 |M| [NetSync] stock menu: closed all (end injected) -- 0 slot(s) drained
+22.10.2026 21:14:39 |M| [NetSync] diorama END: injected PHASE_MENU_OFF + SEQ_MENU_OFF_VICTORY_WITH_ENEMY (the stock tail: fanfare 5, win poses, victory camera) for the host's victory-pending (phase 5 seq 0 result 0, ui 0, nonce 1) -- the stock menu closed, the HUD hidden; ManageBattleEnd answers R8 from here (nothing writes rewards)
+22.10.2026 21:14:39 |M| [NetSync] diorama replay-wait: the result-screen replay waits -- the guest's own victory presentation is not done yet (no R8 hit: its fade is still running) (logged once per boot per reason)
+22.10.2026 21:14:39 |M| [NetSync] battle end block (peer, nonce 1): victory-pending ui 0 -> victory (phase 6 seq 0 result 1; ui 0, res -, flags 0x00, pose 0x0F)
+22.10.2026 21:14:42 |M| [NetSync] diorama R8: ManageBattleEnd refused (phase 6 seq 2, result 1, 3828 ms after the injection) -- the guest's own end presentation is DONE; it holds here writing nothing (no end-battle achievement, no DEFEAT->GAMEOVER rewrite, no party writeback) until the host's exit (r8_hits counts each refusal: the Byte btl_fade_time wraps at the WAIT seq, so 33 of every 256 frames skip the call -- read it as non-decreasing, rising over a window of seconds)
+22.10.2026 21:14:42 |M| [NetSync] diorama replay-wait: the result-screen replay waits -- the host is not on its result screen (ui != 1) (logged once per boot per reason)
+22.10.2026 21:14:44 |M| [NetSync] battle result manifest (peer, nonce 1): held rows 4 [0:c0 lv22 +36xp +2ap] [1:c1 lv24 +36xp +2ap] [2:c4 lv17 +36xp +1ap] [3:c7 lv22 +24xp +2ap learns 1]; exp 24, ap 1, gil +248 (held 27492), items 1, card none, learns 1 -- stored for the result-screen replay (rx=1)
+22.10.2026 21:14:44 |M| [NetSync] battle end block (peer, nonce 1): victory ui 0 -> victory (phase 6 seq 2 result 1; ui 1, res 0L, flags 0x02, pose 0x0F)
+22.10.2026 21:14:44 |M| [NetSync] diorama REPLAY ARMED -- the host's result screen (state 0, nonce 1) with its manifest (rows 4 [0:c0 lv22 +36xp +2ap] [1:c1 lv24 +36xp +2ap] [2:c4 lv17 +36xp +1ap] [3:c7 lv22 +24xp +2ap learns 1]; exp 24, ap 1, gil +248 (held 27492), items 1, card none; valid rows 0xF of seated 0xF), 5218 ms after the injection (R8 28) -- the stock HUD hides and the stock result screen opens WRITE-NOTHING on the host's numbers
+22.10.2026 21:14:44 |M| [NetSync] result replay: OPENED the stock result screen write-nothing on the host's manifest (rows 4 [0:c0 lv22 +36xp +2ap] [1:c1 lv24 +36xp +2ap] [2:c4 lv17 +36xp +1ap] [3:c7 lv22 +24xp +2ap learns 1]; exp 24, ap 1, gil +248 (held 27492), items 1, card none; valid rows 0xF) at state 0 -- it steps when the HOST's result state steps; the guest's own Confirm is inert, its Quit and Pause stay local (fingerprint 0x896005579F250DCC)
+22.10.2026 21:14:47 |M| [NetSync] result replay: step 1 -- local state 0 -> 1 (the host reads 1)
+22.10.2026 21:14:48 |M| [NetSync] result replay: step 2 -- local state 2 -> 2 (the host reads 2, Loading)
+22.10.2026 21:14:48 |M| [NetSync] result replay: items -- the host fit everything; nothing added to the guest's bag, no card collected
+22.10.2026 21:14:48 |M| [NetSync] result replay: step 3 -- local state 3 -> 5 (the host reads 5)
+22.10.2026 21:14:49 |M| [NetSync] result replay: step 4 -- local state 5 -> 6 (the host reads 6)
+22.10.2026 21:14:49 |M| [NetSync] diorama END: the host left its battle (result-hide: the host's victory (phase 6 seq 2 result 1, ui 1, res 7L, nonce 1); presented here: victory) -- the guest follows it out (the end-leave: Leave at 1 Hz, never into a fade)
+22.10.2026 21:14:49 |M| [NetSync] diorama END: the host left its battle with the result-screen replay still up -- the end-leave waits up to 5000 ms for it to reach Hide (its own hide tail)
+22.10.2026 21:14:49 |M| [NetSync] result replay: step 5 -- local state 6 -> 7 (the host reads 7)
+22.10.2026 21:14:49 |M| [NetSync] result replay: CLOSED (its own hide tail: FadeInEx(256) + the song shutdown; the diorama's Leave returns the guest) -- steps 5, trail [0>1 2>2L 3>5 5>6 6>7], local confirms swallowed 0, writes 0
+22.10.2026 21:14:49 |M| [NetSync] diorama END: the end-leave's wait for the replay ended after 62 ms -- the replay closed through its own hide tail
+22.10.2026 21:14:49 |M| [NetSync] diorama END: end-leave attempt 1, 62 ms after the host's result-hide -- Leave() follows
+22.10.2026 21:14:49 |M| [NetSync] diorama END: leaving a finished fight (end-leave; the host's victory, result 1, ui 1) -- the replay's own hide tail already shut the songs (stage 10): nothing shut down twice; the teardown stamps btl_result 1 unless the host's latest block says otherwise by then
+22.10.2026 21:14:49 |M| [NetSync] diorama LEAVE requested -> FieldMap (mode 1)
+22.10.2026 21:14:49 |M| [NetSync] action replay: boot summary (teardown) -- 9 START(s) received, 9 started, 0 declined (0 stale, 0 backlog, 0 noop, 0 superseded), 9 ended, 0 aborted (0 faulted), 9 hit(s), 4 swing(s) skipped; calc_while_booted=0
+22.10.2026 21:14:49 |M| [NetSync] diorama END: return settled at the teardown -- btl_result 1 -> 1 (the host's 1)
+22.10.2026 21:14:49 |M| [NetSync] diorama torn down -- state restored, isDebug cleared; r9_refused=0
+22.10.2026 21:14:49 |M| [NetSync] diorama leave noted (nonce 1) -- the watcher won't re-boot this battle
+22.10.2026 21:14:50 |M| [NetSync] diorama RETURN (cold) -> field 450 re-entered through Main_Init (field 450 has no Main_Reinit (entry-0 tag 10) -- a reinit return would leave every object suspended)
+22.10.2026 21:14:50 |M| [NetSync] self-dress: field 450 uid 21 sid 21: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:14:50 |M| Map: 450 | Scenario counter: 7200
+22.10.2026 21:14:51 |M| [NetSync] battle lane: the host's last frame (nonce 1, seq 386) ran out of freshness and the transport served it again -- not re-adopted: a repeat is never news, the lane stays stale until a new frame (a fight's end, a cut or a stalled host); refused=1
+22.10.2026 21:14:56 |M| [NetSync] gateway (bounced to a reload) suppressed (following guest) on field 450
+22.10.2026 21:14:57 |M| [NetSync] self-dress: field 450 uid 21 sid 21: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:14:57 |M| Map: 450 | Scenario counter: 7200
+22.10.2026 21:15:03 |M| [NetSync] intent: following the peer to field 312 (parallel)
+22.10.2026 21:15:05 |M| [NetSync] self-dress: field 312 uid 5 sid 5: Zidane (98) -> GEO_MAIN_F0_VIV (model 8, rig 1, eye -244) [host]
+22.10.2026 21:15:05 |M| Map: 312 | Scenario counter: 7200
+22.10.2026 21:15:05 |M| [NetSync] ghost spawned as GEO_MAIN_F0_ZDN on field 312 (ui=FieldHUD)
+22.10.2026 21:15:12 |M| [NetSync] dialogue lock: win 0 text 206 opened locked (the host drives it)
+22.10.2026 21:15:12 |M| [NetSync] dialogue orphan: win 0 text 206 is not on the host's screen (host idle 6s) -- closing it at reading pace
+22.10.2026 21:15:12 |M| [NetSync] host in a dialogue scene (nonce 12) -- staying in place
+22.10.2026 21:15:12 |M| [NetSync] dialogue orphan: win 0 text 206 held -- the host has it open
+22.10.2026 21:15:13 |M| [NetSync] dialogue: host seq 20 queued (field 312 win 0 text 206 kind 0 page 1 closes)
+22.10.2026 21:15:13 |M| [NetSync] dialogue: win 0 text 206 closed (host seq 20)
+22.10.2026 21:15:13 |M| [NetSync] dialogue lock: win 0 text 207 opened locked (the host drives it)
+22.10.2026 21:15:14 |M| [NetSync] dialogue: host seq 21 queued (field 312 win 0 text 207 kind 0 page 1 closes)
+22.10.2026 21:15:14 |M| [NetSync] dialogue: win 0 text 207 closed (host seq 21)
+22.10.2026 21:16:45 |M| [NetSync] world-map exit from field 312 to world map 9003 (following guest): a rejoin into field 312 holds up to 15 s, or until the host leaves it
+22.10.2026 21:16:49 |M| [NetSync] world freeze ON (live) on world map 9003: travel input held -- the host drives; the guest rejoins at their next stop
+22.10.2026 21:16:59 |M| [NetSync] session: the host went silent (the hop is up: a cut or a stall upstream) -- holding the session for up to 40 s, reconnecting (the story mirror stays armed, saving stays off); outages=2
+22.10.2026 21:17:00 |M| [NetSync] world rejoin hold on field 312 released: 15 s passed
+22.10.2026 21:17:02 |M| [GameLoopManager] RaiseQuitEvent
+22.10.2026 21:17:02 |M| [NetSync] relay disconnected; retrying (read threw (IOException: Read failure))
+22.10.2026 21:17:02 |M| [NetSync] self-dress arm cleared (teardown) -- a dressed body stays dressed until its next SetModel (the teardown law)

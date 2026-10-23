@@ -19,21 +19,27 @@ are in `logs/`.
   slot 3 save 3 and slot 5 save 1 are real fields and load.
 - Stock Memoria behaves the same for any save made on a mod field that has since been removed.
 
-## 3. On a world-map battle, the guest's monsters looked smaller — OPEN, not obvious
+## 3. The guest's spiders were half size — ROOT CAUSE FOUND; the fix needs an engine round (kept for b20)
 
-- Reported after the first sitting. No log covers it: the host's Memoria.log is still the 21:16 one, so the
-  battle ran in a session whose log was not kept, and the guest's log is on the laptop.
-- Enemy size is not fixed per model. Defaults are 4096 (`btl_init.cs:194/362`); an enemy's battle AI script can
-  set its own size at load (`btl_scrp.cs` member 55: during PHASE_ENTER it becomes `geo_scale_default`).
-- Ruled out:
-  - **The guest skipping that script.** The diorama gates only member 37 (change next field) in `btl_scrp`; the
-    load-time size write runs on the guest as on the host.
-  - **The replay shrinking units.** `NetSyncDiorama.Replay.cs` snapshots `geo_scale_*` before a replayed action
-    and restores the same values after, so it puts back what was there.
-  - **A mod patch.** No BattlePatch line in the host's mod folders touches size or scale.
-- Next discriminants, cheapest first: is the whole scene smaller (a camera difference) or only the monsters? Do
-  field battles show it, or only world-map ones? Which enemies, and where on the world map? And the guest's
-  `Memoria.log` from the laptop, archived before its next launch overwrites it.
+- Owner: only the monsters (not the camera), Carve Spiders outside Dali, the only fight of the sitting. The
+  guest's log (`logs/guest-memoria-20261022-2117.log`) puts it at 21:13:51 on **field 450 (Dali/Field)**, not the
+  world map: `diorama BOOT scene=245 pattern=4`. Scene 245 is `BSC_WM_0104`, a world-map formation (Python + Carve
+  Spider) that field 450 reuses.
+- Enemy size is not fixed per model. It defaults to 4096 (`btl_init.cs:194/362`), and the scene's battle AI script
+  resizes its enemies: each type's Main (tag 1) loops until `B_SYSVAR[40] & 8` (`btl_load_status` LOAD_INITNPC,
+  set at `btl_init.cs:96`), then writes member 55. **Carve Spider -> 8192 (2x), Python -> 5120.** Their Reaction
+  functions also resize them (2560/5120, 4096/8192).
+- **The guest never runs battle scripts at all.** The diorama boots with `FF9StateSystem.Battle.isDebug` on, and
+  every `EventEngine.ServiceEvents()` call in a battle is gated `!isDebug` (`battle.cs:73/178`,
+  `HonoluluBattleMain.cs:744`). So the guest's spiders stay at 4096: half the host's.
+- The earlier "ruled out" was wrong about the first item: the size write does not run on the guest. The other two
+  hold (the replay restores snapshot values; no mod patch touches size).
+- Class, not one scene: any enemy whose AI script sets its own size, at load or in a Reaction, is wrong on the
+  guest. The wire carries no `geo_scale`, so no guest-side switch can fix it.
+- Fix shape (an engine round, its own patch): the host ships each enemy's `geo_scale_x/y/z` in its battle frames,
+  and the guest applies it with `geo.geoScaleSetXYZ` when it differs (the Replay snapshot must then restore the
+  wire value, not a stale pre-replay one). That is a wire change, so a protocol bump, a rebuilt bundle and a
+  two-PC retest.
 
 ## 2. The host followed its guest: a 250 <-> 350 ping-pong — a real co-op bug
 
