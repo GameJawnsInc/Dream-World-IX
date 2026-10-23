@@ -14,6 +14,36 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - A GOG or updated plugin that differs from the Steam release is refused the same way. The known builds are listed
   in one place, `ff9mapkit/sfxplugin.py`.
 
+### Added — the World tab's recipe: undo, redo, save and open
+- A "Recipe" bar above the forest and mountain cards lists the draft's edits as a `world-fuse` recipe: each Accept is
+  one `[[forest]]` or `[[mountain]]` row, built from the very command it ran.
+- Undo and Redo walk the edits, restoring each one's files exactly (no carve re-runs). An edit already promoted into
+  the game is not undone here: Revert promote first.
+- "Save recipe…" writes the rows as a TOML file; `ff9mapkit world-fuse <recipe> --mod-folder <folder>` composes it to
+  the same bytes (checked on a real island: 1,531 files identical). "Open recipe…" composes a recipe into a fresh
+  draft, one row at a time, so each row can be undone.
+- `world-fuse` rows may carry `step = N`, which keeps the order edits were made in (a recipe without steps composes as
+  before), and a `[[sink]]` row runs `world-sink` with its disc-4 replay.
+- The mountain card's placement check now also refuses a rim over open sea inside a deployed block, as the carve does.
+
+### Added — place a mountain from the World tab's 3D view
+- "Add mountain" sits beside "Add forest" in the 3D view and works the same way: click where the massif goes, drag
+  its ghost, and set which of the seven qualified stock massifs to carry, its angle, its spread (up to ×1.5) and its
+  rock height (up to ×2.0, held at ×1 for a massif with falls on its face). The ghost stretches as the carve does.
+- A chip names the ground the massif stands on at home and the ground under the ghost, and warns when they differ:
+  the carry is lawful there, but its foot meets a ground it never meets in stock. The command speaks the island's
+  own ground (`--ground`).
+- While you move it, the placement rules are checked at once (the island blocks its span needs, the edge of those
+  blocks, anything but plain ground under its rim, the peak cap) and match `world-mountain`'s own on 60 of 60 spots
+  of a real island. When you let go the tab runs `world-mountain --dry-run`; Accept writes it into the same draft
+  the forest uses, and Promote takes it into the game.
+- A mountain placed in the tab writes exactly the bytes the same command typed by hand writes (on a real island:
+  1,719 files identical). Tested in game, promoted and reloaded: the party stood on the carried rock at the
+  predicted height (15.523 against 15.521), and beside it on the apron (2.867 against 2.868).
+- `world-mountain --report-json PATH` writes the verdict as JSON, and its refusals now say where they fail (the
+  footprint, the span, the missing blocks, the hole, the geometry, the zip, the apron, the peak, the probes), with
+  the printed text unchanged.
+
 ### Added — promote a World tab draft into the game
 - The forest card's draft row has "Promote": after a confirm it writes the draft's edits into the live mod folder.
   Each file is backed up first, the disc-4 mirror runs, and the blocks are snapshotted so "Revert promote" puts the

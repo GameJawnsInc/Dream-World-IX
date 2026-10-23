@@ -1,13 +1,16 @@
-"""The World tab's forest tool (overworld editor rung C1): place a real canopy on a deployed island in the 3D view.
+"""The World tab's carry tools (overworld editor rungs C1 and C2): place a real stock shape on a deployed island in
+the 3D view. :class:`ForestTool` carries a canopy (``world-forest``); :class:`worldmountain.MountainTool` a rock
+massif (``world-mountain``). Both are :class:`CarryTool`, which holds everything the two share.
 
-You click the map where the forest goes, drag its ghost, turn it and spread it; the footprint law previews while you
-move, and when you let go the tool runs ``world-forest --dry-run`` and draws its verdict where the gates refuse.
+You click the map where the shape goes, drag its ghost, turn it and size it; the cheap laws preview while you
+move, and when you let go the tool runs the verb with ``--dry-run`` and draws its verdict where the gates refuse.
 Accept runs the same command without ``--dry-run`` against a DRAFT (``world.draft``: the folder's world files copied
 out of the install), and the view then draws the draft in place of the folder. The game never sees a draft until
-its edits are promoted (a later rung).
+its edits are promoted (rung C4: Promote, Revert promote, Show in game).
 
-THE CLI STAYS THE ORACLE: the tool never carves in the Workspace's process. Every judgement is the command
-``world.forestedit.command`` builds, run as a subprocess (the runner seam), and its ``--report-json`` verdict.
+THE CLI STAYS THE ORACLE: a tool never carves in the Workspace's process. Every judgement is the command the
+tool's edit module builds (``world.forestedit.command`` / ``world.mountainedit.command``), run as a subprocess
+(the runner seam), and its ``--report-json`` verdict.
 """
 from __future__ import annotations
 
@@ -82,21 +85,28 @@ class QProcessRunner:
         return self.proc is not None
 
 
-class ForestTool(QWidget):
-    """The forest card under the 3D view. ``panel`` is the World tab's :class:`WorldView3DPanel`; ``source_fn()``
-    the mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the view after an Accept
+class CarryTool(QWidget):
+    """A carry card under the 3D view. ``panel`` is the World tab's :class:`WorldView3DPanel`; ``source_fn()`` the
+    mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the view after an Accept
     or a discard. ``on_reload(x, z)`` (dev checkout: the shell's world reload) makes the running game re-read the
     world after a Promote. ``runner``, ``drafts_root``, ``ask``, ``outline_fn(donor)``, ``soup_fn(folder)`` (an
-    island :class:`SoupIndex`) and ``sync`` (background reads inline) are the test and snap seams."""
+    island ``SoupIndex``) and ``sync`` (background reads inline) are the test and snap seams.
 
+    A subclass names its shape (``TITLE``, ``NOUN``, ``PART``, ``VERB``, ``GATES``) and supplies the parts that
+    differ: ``_edit_module``, ``_build_handles``, ``donor``, ``_cmd``, ``_shape``, ``_preview_at``, ``_pass_text``
+    and ``_preview_text``."""
+
+    TITLE, NOUN, PART, VERB = "Shape", "shape", "shape", "world-?"
+    GATES = GATE_WORDS
+    _extra_rows = ()
+    CHECK_TIME = "about seven seconds"                   # a passing world-forest dry run, measured (C1)
     _bg_done = Signal(str, int, object, object)          # (what, serial, result, error) from a worker thread
 
     def __init__(self, pal, panel, *, game_fn, source_fn, on_changed=None, runner=None, drafts_root=None,
                  ask=None, outline_fn=None, soup_fn=None, sync=False, on_reload=None):
         super().__init__()
-        from ..world import forestedit as FE
-        from ..world import interior as IN
-        self.FE, self.pal, self.panel = FE, pal, panel
+        self.FE = FE = self._edit_module()
+        self.pal, self.panel = pal, panel
         self._game_fn, self._source_fn, self._on_changed = game_fn, source_fn, on_changed
         self._runner = runner or QProcessRunner()
         self._drafts_root = drafts_root
@@ -105,16 +115,16 @@ class ForestTool(QWidget):
         self._soup_fn = soup_fn or self._read_soup
         self._sync = sync
         self._on_reload = on_reload
-        self._last_center = None                         # the last accepted forest's centre: where Show in game goes
+        self._last_center = None                         # where Show in game goes (the last accepted shape)
         self._draft_state = (0, None)                    # (edited disc-1 blocks, the last unreverted promote)
         self._bg_done.connect(self._on_bg)
         self._serial = 0
         self.center = None                               # (x, z) on the editor's grid, or None until a click
         self._pick_y = 0.0
-        self._outlines = {}                              # donor -> Outline (a stock read, once per donor)
+        self._outlines = {}                              # donor -> outline (a stock read, once per donor)
         self._ix = None                                  # the island soup the preview reads (SoupIndex)
         self._ix_for = None                              # the folder it was read from
-        self._preview = None                             # the last footprint_preview
+        self._preview = None                             # the last preview
         self._ghost = None                               # (tris, rim) of the drawn ghost
         self._verdict = None                             # (handles key, verdict dict) of the last finished job
         self._job = None                                 # ("check" | "accept", key) while one runs
@@ -131,60 +141,33 @@ class ForestTool(QWidget):
         card.setSpacing(6)
         row = QHBoxLayout()
         row.setSpacing(8)
-        row.addWidget(widgets.role_label("Forest", "cardtitle"))
-        self.donor_box = QComboBox()
-        self.donor_box.setAccessibleName("Canopy donor")
-        self.donor_box.setToolTip("Which stock canopy to carry, whole. Only canopies the donor catalogue has "
-                                  "qualified (grass all round, walled all round) are listed.")
-        for r in FE.canopy_donors():
-            self.donor_box.addItem(f"{r['name']} ({r['blocks']})", "{},{}".format(*r["donor"]))   # str: findData
-            self.donor_box.setItemData(self.donor_box.count() - 1, r.get("note", ""), 3)   # Qt.ToolTipRole
-        self.donor_box.currentIndexChanged.connect(lambda _ix: self._handles_changed())
-        row.addWidget(self.donor_box)
-        row.addWidget(widgets.role_label("Angle", "caption"))
-        self.angle = QSpinBox()
-        self.angle.setRange(0, 359)
-        self.angle.setWrapping(True)
-        self.angle.setSingleStep(5)
-        self.angle.setSuffix("°")
-        self.angle.setAccessibleName("Forest angle")
-        self.angle.setToolTip("Turn the canopy about its centre, clockwise seen from above (world-forest --rot).")
-        self.angle.valueChanged.connect(lambda _v: self._handles_changed())
-        row.addWidget(self.angle)
-        row.addWidget(widgets.role_label("Spread", "caption"))
-        self.spread = QDoubleSpinBox()
-        self.spread.setRange(1.0, IN.FOREST_SPREAD_MAX)    # the law's ceiling is the handle's stop
-        self.spread.setSingleStep(FE.SPREAD_STEP)
-        self.spread.setDecimals(2)
-        self.spread.setSuffix("×")
-        self.spread.setAccessibleName("Forest spread")
-        self.spread.setToolTip(f"Widen the canopy in plan, heights kept (world-forest --spread). It stops at "
-                               f"×{IN.FOREST_SPREAD_MAX:g}, the widest judged in game.")
-        self.spread.valueChanged.connect(lambda _v: self._handles_changed())
-        row.addWidget(self.spread)
+        row.addWidget(widgets.role_label(self.TITLE, "cardtitle"))
+        self._build_handles(row)
         row.addStretch(1)
         self.close_btn = QPushButton("Close")
         self.close_btn.setProperty("role", "quiet")
-        self.close_btn.setToolTip("Put the forest tool away (the draft keeps what you accepted).")
+        self.close_btn.setToolTip(f"Put the {self.NOUN} tool away (the draft keeps what you accepted).")
         self.close_btn.clicked.connect(self.close_tool)
         row.addWidget(self.close_btn)
         card.addLayout(row)
+        for extra in self._extra_rows:                   # handles that would widen the first row past the window
+            card.addLayout(extra)
         self.verdict_lbl = QLabel()
         self.verdict_lbl.setProperty("role", "banner")
         self.verdict_lbl.setWordWrap(True)
-        self.verdict_lbl.setAccessibleName("Forest verdict")
+        self.verdict_lbl.setAccessibleName(f"{self.TITLE} verdict")
         card.addWidget(self.verdict_lbl)
         brow = QHBoxLayout()
         brow.setSpacing(8)
         self.accept_btn = QPushButton("Accept into draft")
         self.accept_btn.setObjectName("accent")
-        self.accept_btn.setToolTip("Write this forest into the draft (world-forest without --dry-run, against the "
-                                   "draft folder). The install is not touched.")
+        self.accept_btn.setToolTip(f"Write this {self.NOUN} into the draft ({self.VERB} without --dry-run, against "
+                                   "the draft folder). The install is not touched.")
         self.accept_btn.clicked.connect(self._accept)
         brow.addWidget(self.accept_btn)
         self.copy_btn = QPushButton("Copy command")
         self.copy_btn.setProperty("role", "quiet")
-        self.copy_btn.setToolTip("Copy the world-forest command Accept runs, to run it by hand.")
+        self.copy_btn.setToolTip(f"Copy the {self.VERB} command Accept runs, to run it by hand.")
         self.copy_btn.clicked.connect(self._copy_command)
         brow.addWidget(self.copy_btn)
         self.draft_lbl = widgets.role_label("", "caption")
@@ -216,8 +199,47 @@ class ForestTool(QWidget):
         self.discard_btn.clicked.connect(self._discard)
         brow.addWidget(self.discard_btn)
         card.addLayout(brow)
-        self._say("Click the map where the forest goes. Drag its ghost to move it.", "")
+        self._say(f"Click the map where the {self.NOUN} goes. Drag its ghost to move it.", "")
         self._sync_buttons()
+
+    # -- what a subclass supplies --
+    def _edit_module(self):
+        raise NotImplementedError
+
+    def _build_handles(self, row):
+        """Add the shape's handles to the card's first row (a donor picker, an angle, its sizes); a second row goes
+        in ``self._extra_rows``."""
+        raise NotImplementedError
+
+    def donor(self):
+        raise NotImplementedError
+
+    def _cmd(self, target, *, dry_run, report=None) -> list:
+        """The verb's argv (after ``python -m ff9mapkit``) for the current handles against ``target``."""
+        raise NotImplementedError
+
+    def _shape(self, ol, ground_y):
+        """The ghost ``(tris, rim)`` at the current handles, its rim seated on ``ground_y``."""
+        raise NotImplementedError
+
+    def _preview_at(self, ol, rim):
+        """The cheap laws for the placed ghost: ``{"ok", "where", "why", ...}``."""
+        raise NotImplementedError
+
+    def _pass_text(self, v, where):
+        """``(text, state)`` for a passing dry run."""
+        raise NotImplementedError
+
+    def _preview_text(self, pv):
+        """``(text, state)`` for a preview the cheap laws refuse."""
+        raise NotImplementedError
+
+    def _show_point(self, v):
+        """Where Show in game puts the party after this accepted verdict (the shape's centre)."""
+        return tuple(v["center"]) if v.get("center") else None
+
+    def _outline_loaded(self, donor, ol):
+        """A donor's outline arrived (a subclass may set a handle from it)."""
 
     # -- the folders --
     def source(self) -> Path:
@@ -230,12 +252,13 @@ class ForestTool(QWidget):
         return p if D.read_meta(p) is not None else None
 
     def target(self) -> Path:
-        """Where the forest is judged and written: the draft once it exists, else the source (read only)."""
+        """Where the shape is judged and written: the draft once it exists, else the source (read only)."""
         return self.draft() or self.source()
 
     # -- lifecycle --
     def open_tool(self):
         self.show()
+        self._ix = self._ix_for = None                   # the other tool may have written the draft meanwhile
         self._refresh_draft_label()
         self._load_soup()
         self._load_outline(self.donor())
@@ -249,17 +272,24 @@ class ForestTool(QWidget):
         self.panel.set_ghost(None)
         self.hide()
 
-    def donor(self):
-        """The picked donor block ``(bx, by)`` (the combo holds it as the ``--donor`` spelling: PySide's findData
-        does not match tuple data reliably)."""
-        return tuple(int(v) for v in str(self.donor_box.currentData()).split(","))
-
     def handles(self):
         """The handles as the command spells them: the stale guard every verdict is matched against."""
         if self.center is None:
             return None
-        return tuple(self.FE.command("-", self.center, self.donor(), spread=self.spread.value(),
-                                     rot_deg=self.angle.value(), dry_run=False))
+        return tuple(self._cmd("-", dry_run=False))
+
+    def row(self) -> dict:
+        """The recipe row Accept records (rung C3): parsed from the very command it runs."""
+        from ..world import recipe as RC
+        return RC.row_for(self._cmd("-", dry_run=False))
+
+    def island_changed(self):
+        """The draft moved under the tool (an undo, a redo, an opened recipe): read the island and the draft again."""
+        self._ix = self._ix_for = None
+        self._verdict = None
+        self._refresh_draft_label()
+        if not self.isHidden():
+            self._load_soup()
 
     # -- background reads --
     def _bg(self, what, fn):
@@ -299,6 +329,7 @@ class ForestTool(QWidget):
 
     def _load_outline(self, donor):
         if donor in self._outlines:
+            self._outline_loaded(donor, self._outlines[donor])
             return
         self._bg("outline", lambda: (donor, self._outline_fn(donor)))
 
@@ -308,7 +339,7 @@ class ForestTool(QWidget):
                 self._ix, self._ix_for = None, None
                 self._say(f"The island could not be read: {err}", "error")
             elif what == "outline":
-                self._say(f"The canopy could not be read: {err}", "error")
+                self._say(f"The {self.PART} could not be read: {err}", "error")
             elif what == "draft":
                 self._job = None
                 self._say(f"The draft could not be made: {err}", "error")
@@ -319,6 +350,8 @@ class ForestTool(QWidget):
         elif what == "outline":
             donor, ol = result
             self._outlines[donor] = ol
+            if donor == self.donor():
+                self._outline_loaded(donor, ol)
         elif what == "draftinfo":
             self._show_draft_info(*result)
             return
@@ -367,16 +400,15 @@ class ForestTool(QWidget):
         ol = self._outlines.get(self.donor())
         if self.center is None or ol is None or self._ix is None:
             if self.center is not None:
-                self._say("Reading the canopy and the island…", "")
+                self._say(f"Reading the {self.PART} and the island…", "")
             self._sync_buttons()
             return
-        _t0, rim0 = self.FE.placed(ol, self.center, spread=self.spread.value(), rot_deg=self.angle.value())
+        _t0, rim0 = self._shape(ol, 0.0)
         ys = [y for y in (self._ix.ground_y(x, z) for x, _y, z in rim0) if y is not None]
         gy = float(np.median(ys)) if ys else self._pick_y
-        tris, rim = self.FE.placed(ol, self.center, spread=self.spread.value(), rot_deg=self.angle.value(),
-                                   ground_y=gy)
+        tris, rim = self._shape(ol, gy)
         self._ghost = (tris, rim)
-        self._preview = self.FE.footprint_preview(self._ix, rim[:, [0, 2]])
+        self._preview = self._preview_at(ol, rim)
         verdict = self._current_verdict()
         if verdict is not None:
             kind = "good" if verdict["ok"] else "bad"
@@ -411,27 +443,18 @@ class ForestTool(QWidget):
         where = f"at x {x:g}, z {z:g}"
         if v is not None:
             if v["ok"]:
-                r = v.get("report") or {}
                 if v.get("dry_run"):
-                    self._say(f"Passes every gate {where}: {r.get('blob_tris')} canopy triangles, "
-                              f"{r.get('dropped')} island triangles carved, {r.get('zip_tris')} in the grass zip; "
-                              f"wall rise {r.get('wall_rise')} (the ceiling is 2.34). Accept writes it to the draft.",
-                              "ok")
+                    self._say(*self._pass_text(v, where))
                 return
             ref = v.get("refused") or {}
-            gate = GATE_WORDS.get(ref.get("gate"), "a gate")
+            gate = self.GATES.get(ref.get("gate"), "a gate")
             detail = f" ({ref['detail']})" if ref.get("detail") else ""
             marks = " The marks show where." if ref.get("where") else ""
             self._say(f"Refused by {gate}{detail}: {ref.get('message', '')}.{marks}", "error")
             return
         pv = self._preview
         if pv is not None and not pv["ok"]:
-            if pv["why"] == "no island here":
-                self._say(f"Not on an island in {self.target().name}: the forest carries onto deployed kit "
-                          "islands only.", "warn")
-            else:
-                self._say(f"Not here: the footprint reaches {pv['why']}. A forest needs open grass under its "
-                          "whole rim, clear of the coast.", "warn")
+            self._say(*self._preview_text(pv))
             return
         self._say(f"Footprint lawful {where}. Checking every gate when you let go…", "")
 
@@ -505,19 +528,23 @@ class ForestTool(QWidget):
 
     def argv(self, kind, draft, report):
         game = self._game_fn()
-        return [sys.executable, "-m", "ff9mapkit", "--game", str(game)] + self.FE.command(
-            draft, self.center, self.donor(), spread=self.spread.value(), rot_deg=self.angle.value(),
-            dry_run=kind == "check", report=report)
+        return [sys.executable, "-m", "ff9mapkit", "--game", str(game)] + self._cmd(
+            draft, dry_run=kind == "check", report=report)
 
     def _run_job(self, kind, draft):
         key = self.handles()
         if key is None:
             self._job = None
             return
-        report = Path(tempfile.mkdtemp(prefix="ff9_forest_")) / "verdict.json"
+        if kind == "accept":                             # rung C3: the step's cells, snapshotted before it writes
+            from ..world import draft as D
+            from ..world import recipe as RC
+            v = self._current_verdict() or {}
+            D.begin_step(draft, [tuple(b) for b in v.get("blocks") or []] or RC.row_cells(self.row()))
+        report = Path(tempfile.mkdtemp(prefix=f"ff9_{self.NOUN}_")) / "verdict.json"
         self._job = (kind, key)
-        self._say("Checking every gate (about seven seconds)…" if kind == "check"
-                  else f"Writing the forest into the draft of {self.source().name}…", "")
+        self._say(f"Checking every gate ({self.CHECK_TIME})…" if kind == "check"
+                  else f"Writing the {self.NOUN} into the draft of {self.source().name}…", "")
         self._sync_buttons()
         self._runner.start(self.argv(kind, draft, report), kit_cwd(),
                            lambda code, text: self._job_done(kind, key, report, code, text))
@@ -531,6 +558,15 @@ class ForestTool(QWidget):
             last = [ln for ln in text.splitlines() if ln.strip()][-1:] or [f"exit code {code}"]
             v = {"ok": False, "dry_run": kind == "check",
                  "refused": {"gate": "error", "message": f"the job ended without a verdict: {last[0]}", "where": []}}
+        if kind == "accept":                             # the step goes into the recipe, or back out of the draft
+            from ..world import draft as D
+            from ..world import recipe as RC
+            d = self.draft()
+            if v["ok"]:
+                row = RC.row_for(list(key))           # the handles the job ran with, not the current ones
+                D.commit_step(d, row, RC.label(row))
+            else:
+                D.abort_step(d)
         self._verdict = (key, v)
         if kind == "accept" and v["ok"]:
             self._accepted(v)
@@ -538,8 +574,9 @@ class ForestTool(QWidget):
         self._redraw()
 
     def _accepted(self, v):
-        if v.get("center"):
-            self._last_center = tuple(v["center"])
+        pt = self._show_point(v)
+        if pt is not None:
+            self._last_center = pt
         n = len(v.get("written") or [])                  # the blocks whose bytes changed (the read window is wider)
         self.center = self._ghost = None
         self._verdict = None
@@ -548,7 +585,7 @@ class ForestTool(QWidget):
         self.panel.set_ghost(None)
         self._refresh_draft_label()
         self._say(f"In the draft: {n} block{'s' if n != 1 else ''} written. The view now draws the draft in place "
-                  f"of {self.source().name}. Click to place another forest.", "ok")
+                  f"of {self.source().name}. Click to place another {self.NOUN}.", "ok")
         self._load_soup()
         if self._on_changed is not None:
             self._on_changed(self.draft())
@@ -559,14 +596,11 @@ class ForestTool(QWidget):
         if self.center is None:
             return
         from ..world import draft as D
-        argv = ["ff9mapkit"] + self.FE.command(D.draft_path(self.source(), root=self._drafts_root), self.center,
-                                               self.donor(), spread=self.spread.value(), rot_deg=self.angle.value(),
-                                               dry_run=False)
+        argv = ["ff9mapkit"] + self._cmd(D.draft_path(self.source(), root=self._drafts_root), dry_run=False)
         QGuiApplication.clipboard().setText(subprocess.list2cmdline(argv))
 
     # -- promote and the game follows (rung C4; the CLI is the oracle here too: world-promote) --
     def _promote(self):
-        from ..world import draft as D
         d = self.draft()
         if d is None or self._job is not None:
             return
@@ -613,7 +647,8 @@ class ForestTool(QWidget):
         if self._last_center is None and cells:
             bx, by = cells[0]
             self._last_center = (64.0 * bx + 32.0, -(64.0 * by + 32.0))
-        follow = " Show in game makes the running game re-read it." if self._on_reload is not None else             " The game shows it on its next world load."
+        follow = " Show in game makes the running game re-read it." if self._on_reload is not None else \
+            " The game shows it on its next world load."
         if kind == "promote":
             self._say(f"Promoted into {src}: {len(cells)} block{'s' if len(cells) != 1 else ''}, each file backed "
                       f"up, disc 4 mirrored.{follow}", "ok")
@@ -651,10 +686,83 @@ class ForestTool(QWidget):
         self._verdict = None
         self._refresh_draft_label()
         self._load_soup()
-        self._say("Draft discarded. Click the map where the forest goes.", "")
+        self._say(f"Draft discarded. Click the map where the {self.NOUN} goes.", "")
         if self._on_changed is not None:
             self._on_changed(None)
 
     def retheme(self, pal):
         self.pal = pal
         self._redraw()
+
+
+class ForestTool(CarryTool):
+    """The forest card (rung C1): a qualified canopy, its angle and its spread, judged by ``world-forest``."""
+
+    TITLE, NOUN, PART, VERB = "Forest", "forest", "canopy", "world-forest"
+
+    def _edit_module(self):
+        from ..world import forestedit
+        return forestedit
+
+    def _build_handles(self, row):
+        from ..world import interior as IN
+        FE = self.FE
+        self.donor_box = QComboBox()
+        self.donor_box.setAccessibleName("Canopy donor")
+        self.donor_box.setToolTip("Which stock canopy to carry, whole. Only canopies the donor catalogue has "
+                                  "qualified (grass all round, walled all round) are listed.")
+        for r in FE.canopy_donors():
+            self.donor_box.addItem(f"{r['name']} ({r['blocks']})", "{},{}".format(*r["donor"]))   # str: findData
+            self.donor_box.setItemData(self.donor_box.count() - 1, r.get("note", ""), 3)   # Qt.ToolTipRole
+        self.donor_box.currentIndexChanged.connect(lambda _ix: self._handles_changed())
+        row.addWidget(self.donor_box)
+        row.addWidget(widgets.role_label("Angle", "caption"))
+        self.angle = QSpinBox()
+        self.angle.setRange(0, 359)
+        self.angle.setWrapping(True)
+        self.angle.setSingleStep(5)
+        self.angle.setSuffix("°")
+        self.angle.setAccessibleName("Forest angle")
+        self.angle.setToolTip("Turn the canopy about its centre, clockwise seen from above (world-forest --rot).")
+        self.angle.valueChanged.connect(lambda _v: self._handles_changed())
+        row.addWidget(self.angle)
+        row.addWidget(widgets.role_label("Spread", "caption"))
+        self.spread = QDoubleSpinBox()
+        self.spread.setRange(1.0, IN.FOREST_SPREAD_MAX)    # the law's ceiling is the handle's stop
+        self.spread.setSingleStep(FE.SPREAD_STEP)
+        self.spread.setDecimals(2)
+        self.spread.setSuffix("×")
+        self.spread.setAccessibleName("Forest spread")
+        self.spread.setToolTip(f"Widen the canopy in plan, heights kept (world-forest --spread). It stops at "
+                               f"×{IN.FOREST_SPREAD_MAX:g}, the widest judged in game.")
+        self.spread.valueChanged.connect(lambda _v: self._handles_changed())
+        row.addWidget(self.spread)
+
+    def donor(self):
+        """The picked donor block ``(bx, by)`` (the combo holds it as the ``--donor`` spelling: PySide's findData
+        does not match tuple data reliably)."""
+        return tuple(int(v) for v in str(self.donor_box.currentData()).split(","))
+
+    def _cmd(self, target, *, dry_run, report=None):
+        return self.FE.command(target, self.center, self.donor(), spread=self.spread.value(),
+                               rot_deg=self.angle.value(), dry_run=dry_run, report=report)
+
+    def _shape(self, ol, ground_y):
+        return self.FE.placed(ol, self.center, spread=self.spread.value(), rot_deg=self.angle.value(),
+                              ground_y=ground_y)
+
+    def _preview_at(self, ol, rim):
+        return self.FE.footprint_preview(self._ix, rim[:, [0, 2]])
+
+    def _pass_text(self, v, where):
+        r = v.get("report") or {}
+        return (f"Passes every gate {where}: {r.get('blob_tris')} canopy triangles, {r.get('dropped')} island "
+                f"triangles carved, {r.get('zip_tris')} in the grass zip; wall rise {r.get('wall_rise')} (the "
+                "ceiling is 2.34). Accept writes it to the draft.", "ok")
+
+    def _preview_text(self, pv):
+        if pv["why"] == "no island here":
+            return (f"Not on an island in {self.target().name}: the forest carries onto deployed kit islands only.",
+                    "warn")
+        return (f"Not here: the footprint reaches {pv['why']}. A forest needs open grass under its whole rim, clear "
+                "of the coast.", "warn")
