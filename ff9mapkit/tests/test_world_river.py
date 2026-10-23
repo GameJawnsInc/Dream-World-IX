@@ -1069,7 +1069,8 @@ def test_world_river_remove_owns_a_river_world_fuse_wrote(tmp_path, monkeypatch,
     assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "512,128", "--remove",
                      "--dry-run"]) == 0
     assert "every one this verb's by the ledger" in capsys.readouterr().out
-    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at", "-1024,0", "--remove",
+    # the = form, as --at's help says: argparse before 3.14 reads a bare "-1024,0" as an option, not a value
+    assert cli.main(["world-river", "--mod-folder", "FF9CustomMap-world", "--at=-1024,0", "--remove",
                      "--dry-run"]) == 2                                       # the tag's placement is the one owned
     capsys.readouterr()
 

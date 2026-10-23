@@ -311,13 +311,18 @@ def test_fresh_discard_note_names_the_bytes_fresh_throws_away(tmp_path):
     assert "DISCARDING the 2 deployed override(s)" in note["fresh_warning"]
 
 
-def test_fresh_discard_note_is_scoped_to_what_fresh_actually_rereads(tmp_path):
+def test_fresh_discard_note_is_scoped_to_what_fresh_actually_rereads(tmp_path, monkeypatch):
     """A ``Donor.txt`` or a sea layer at the same cell survives ``--fresh`` untouched, so claiming it
     is discarded would be a false alarm -- and a false alarm is how a real one stops being read."""
     _deployed(tmp_path, cell=(17, 12), names=("Donor.txt", "Sea4.ff9mesh"))
     assert EN.fresh_discard_note(MOD, 17, 12, game=tmp_path) == {}
     _deployed(tmp_path, cell=(17, 12), names=("Terrain.ff9mesh.bak-20260101-000000",))
     assert EN.fresh_discard_note(MOD, 17, 12, game=tmp_path) == {}          # backups are not content
+
+    def no_install(_game=None):
+        # a missing --game falls through to auto-detect, which finds a dev box's real install; a bare box raises
+        raise config.ConfigError("no FF9 install resolves (stub)")
+    monkeypatch.setattr(config, "find_game_path", no_install)
     assert EN.fresh_discard_note(MOD, 17, 12, game=tmp_path / "nope") == {}  # no install: nothing to say
 
 

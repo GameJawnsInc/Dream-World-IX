@@ -1260,6 +1260,17 @@ def test_the_oracle_reads_a_kit_built_6603_and_names_each_moved_target(tmp_path)
     """A kit-built 6603 with the landing's door (its WorldMap() cascade holds 9011), stacked by FolderNames: CLEAN, the event
     name off the DictionaryPatch line's EVENT column. Then each target moved: a world dispatcher override with no Field(300)
     (WORLD11 swapped for 6603's own script), a block (18,12) override, 6603's script gone -- each named, never green."""
+    # the build runs in a CHILD, so what it lacks is a red returncode the conftest's FileNotFoundError -> skip never sees:
+    # gate it here. It reads the blank (the templates) AND the install: the worldmap [[gateway]] carries the exit cascade
+    # verbatim off the install's event bundle (content/worldexit.cascade_bytes -- real bytes, never shipped)
+    from ff9mapkit import provision
+    if not provision.templates_present():
+        pytest.skip("base templates not extracted (run `ff9mapkit extract-templates`)")
+    try:
+        from ff9mapkit.extract import EventBundle
+        EventBundle()
+    except Exception as err:                              # noqa: BLE001 - no install / no UnityPy: either way, no cascade
+        pytest.skip(f"needs the FF9 install + UnityPy (a worldmap [[gateway]]'s exit cascade): {type(err).__name__}")
     game = tmp_path / "game"
     game.mkdir()
     toml = tmp_path / "farshore.field.toml"

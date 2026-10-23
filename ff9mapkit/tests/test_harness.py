@@ -9794,6 +9794,8 @@ def test_battle_act_refuses_a_submenu_as_the_target_cursor(game):
         g.stop()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="pins the kernel32 OpenProcess / ERROR_ACCESS_DENIED probe: off Windows "
+                                             "ctypes has no set_last_error and pid_alive asks kill(pid, 0) instead")
 def test_pid_alive_reads_access_denied_as_alive(monkeypatch):
     """OpenProcess failing with ERROR_ACCESS_DENIED means the process EXISTS and is not ours to open.
     Read through the plain `ctypes.windll.kernel32`, `ctypes.get_last_error()` is always 0, so the
@@ -9818,6 +9820,30 @@ def test_pid_alive_reads_access_denied_as_alive(monkeypatch):
     monkeypatch.setattr(channel, "_K32", None)
     assert channel.pid_alive(os.getpid()) is True
     assert channel.pid_alive(4000000) is False
+
+
+def test_pid_alive_off_windows_asks_signal_0():
+    """POSIX has no kernel32: ``ctypes.WinDLL`` is missing, and the probe read that as "cannot tell", so EVERY pid was
+    alive there and a dead run's arm was never adopted (test_a_stale_arm_from_a_dead_pid_is_adopted, red on the Linux
+    runner). Off Windows the probe is ``kill(pid, 0)``, which delivers nothing: ESRCH is dead, EPERM a live process that
+    is not ours -- the POSIX face of ERROR_ACCESS_DENIED. The stubbed half runs everywhere (the real ``os.kill`` never
+    on Windows, where it TERMINATES). Break: drop pid_alive's ``os.name`` branch, and the dead pid reads alive on POSIX."""
+    import errno
+    from harness import channel
+
+    def kill(exc):
+        def probe(pid, sig):
+            assert sig == 0, "a liveness probe never sends a real signal"
+            if exc is not None:
+                raise exc
+        return probe
+
+    assert channel._pid_alive_posix(424242, kill(None)) is True
+    assert channel._pid_alive_posix(424242, kill(PermissionError(errno.EPERM, "not ours"))) is True
+    assert channel._pid_alive_posix(424242, kill(ProcessLookupError(errno.ESRCH, "no such process"))) is False
+    if os.name != "nt":
+        assert channel.pid_alive(os.getpid()) is True
+        assert channel.pid_alive(0x7FFFFFF0) is False              # past every POSIX pid_max: no process has it
 
 
 def test_flee_does_not_call_a_wipe_an_escape(game):
@@ -17842,8 +17868,8 @@ def test_o4_drive_paced_tracks_the_closing_prompt_beside_its_successor(game):
     LEFT / RIGHT hit, 30 after the rest), and every one 25 and 21 -- a hit later than the reaction re-arms in its own
     tick, the closing prompt listed beside its successor. Exactly 49 instances, every evidence "closed", the zone's
     judge None, raw inside [79, 99]: the run informative. Each is :func:`_o4_run_informative`'s run (a read-gap VOID
-    alone re-run). Break: track instances on D without ``closing`` (the closing DBTN reopens as a phantom instance:
-    V17)."""
+    alone re-run). The overlap itself is asserted at 25 and 21, where the knob makes it (below). Break: track instances
+    on D without ``closing`` (the closing DBTN reopens as a phantom instance: V17)."""
     pol = {"policy": "paced", "raw_floor": ..., "j_cap": 40, "pace": {"target_ticks": 22, "lead_ticks": 2,
                                                                      "raw_band": [79, 99]}}
     for reaction in (None, 25, 21):
@@ -17855,7 +17881,16 @@ def test_o4_drive_paced_tracks_the_closing_prompt_beside_its_successor(game):
         rows = out["prompts"]
         assert len(rows) == 49 and {r["evidence"] for r in rows} == {"closed"}, \
             (reaction, [(r["n"], r["evidence"]) for r in rows])
-        assert any(r["gone_kind"] == "dbtn" for r in rows), (reaction, "premise: a prompt closed beside its successor")
+        # The premise is the KNOB's only at 25 and 21. A hit's window lists for ~3 ticks of close tween after it, and
+        # the successor arms at max(j, reaction): the two overlap iff reaction - j <= 3. The pace presses no earlier
+        # than j 21 (due at 20 ticks), so 21 overlaps on every pass and 25 from j 22. At the defaults (28 / 30) only a
+        # press as late as j 25 after a LEFT / RIGHT hit overlaps -- the HOST's press latency, not the test's: the
+        # Windows dev box presses at j 24-26 and lists a few; the Linux CI runner listed none, every other assertion
+        # here holding -- reproduced by pressing 3 ticks earlier (lead_ticks 5: j 21-23, zero "dbtn" rows at the
+        # defaults, 30-48 of the 49 at 25 and 21).
+        if reaction is not None:
+            assert any(r["gone_kind"] == "dbtn" for r in rows), \
+                (reaction, "premise: a prompt closed beside its successor")
 
 
 def test_o4_drive_entered_on_a_prompt_bounds_instance_one_from_the_ring(game):
