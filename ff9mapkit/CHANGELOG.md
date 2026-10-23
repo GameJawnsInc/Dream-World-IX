@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — shape a coast from the World tab
+- "Shape a coast" in the 3D view: click near a real island's cliff or beach, and the lawful window there is drawn.
+  Only the morphs that pass there are offered (push a cliff out, a headland, a bay; move, reshape or slide a beach),
+  and the depth stops at the deepest the window takes. `world-transplant --in-place` checks it, and Accept writes it to
+  the draft on disc 1 and on disc 4. A block already edited in the draft or the mod stack is not offered.
+- `world-fuse` has a `[[morph]]` table (cell, verb, window, depth), so a coast morph is a recipe row like the others.
+- `world-transplant --report-json PATH` writes an in-place morph's verdict as JSON.
+- Tested in game: a cliff pushed out 2.5 units; the party stood on the new land at the predicted height (4.219).
+
 ### Added — sink an island from the World tab
 - "Sink an island" in the 3D view: click a real island and its outline shows where the sea will close; its verdict
   shows at once (sunk whole, its land only, or with the islands its water joins; an island with an entrance needs

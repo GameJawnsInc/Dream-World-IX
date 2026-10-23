@@ -198,5 +198,5 @@ def test_a_disc4_refusal_keeps_disc4_s_island_and_says_so(world, monkeypatch, tm
     tool._check()
     tool.accept_btn.click()
     assert len(run.argvs) == 3 and "--disc" in run.argvs[2]
-    assert tool.verdict_lbl.property("state") == "warn" and "disc 4 keeps its island" in tool.verdict_lbl.text()
+    assert tool.verdict_lbl.property("state") == "warn" and "disc 4 keeps its own ground" in tool.verdict_lbl.text()
     assert D.history(tool.draft())["cursor"] == 1

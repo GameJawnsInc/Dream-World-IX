@@ -16,7 +16,7 @@ import math
 import tomllib
 
 #: The tables the editor writes (the rest of a recipe it composes and lists, but does not edit).
-EDITOR_TABLES = ("forest", "mountain", "sink")
+EDITOR_TABLES = ("forest", "mountain", "sink", "morph")
 
 HEADER = ("# Dream World IX overworld recipe, written by the World tab.\n"
           "# Compose it onto a mod folder with:  ff9mapkit world-fuse <this file> --mod-folder <folder>\n")
@@ -38,6 +38,20 @@ def row_for(argv) -> dict:
         if a.cluster:
             row["cluster"] = True
         if a.allow_entrances:
+            row["allow_entrances"] = True
+        return row
+    if verb == "world-transplant":
+        from .coastedit import VERBS
+        flags = [v for v in VERBS if getattr(a, v.replace("-", "_"), None)]
+        if not a.in_place or len(flags) != 1 or a.cell != a.donor:
+            raise ValueError("a [[morph]] row is one coast morph in place (--in-place, one verb, --cell = --donor)")
+        if a.disc != 1 or a.skip_mirror or a.fresh:
+            raise ValueError("a [[morph]] row is the disc-1 morph with its own disc-4 step (no --disc, "
+                             "--skip-mirror, --fresh)")
+        s0, s1, sd = getattr(a, flags[0].replace("-", "_")).split(":")
+        row = {"table": "morph", "cell": [int(v) for v in a.cell.split(",")], "verb": flags[0],
+               "window": [[float(v) for v in s0.split(",")], [float(v) for v in s1.split(",")]], "depth": float(sd)}
+        if getattr(a, "allow_entrances", False):
             row["allow_entrances"] = True
         return row
     if verb not in ("world-forest", "world-mountain"):
@@ -68,6 +82,9 @@ def label(row: dict) -> str:
     """A row in words, for the history list and the Undo button: ``mountain uaho at 190, -1228``."""
     table = row.get("table", "?")
     name = row.get("donor")
+    if table == "morph":
+        c = row.get("cell") or (0, 0)
+        return f"{row.get('verb', 'morph')} {_num(row.get('depth', 0))} at block ({c[0]}, {c[1]})"
     if table == "sink":
         at = row.get("at") or (0, 0)
         return f"sink the island at {_num(at[0])}, {_num(at[1])}" + (" (and its cluster)" if row.get("cluster") else "")

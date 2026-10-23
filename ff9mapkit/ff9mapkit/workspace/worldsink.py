@@ -12,14 +12,10 @@ would stand in the water.
 """
 from __future__ import annotations
 
-import sys
-import tempfile
-from pathlib import Path
-
 from PySide6.QtWidgets import QCheckBox
 
 from . import widgets
-from .worldforest import GATE_WORDS, CarryTool, kit_cwd
+from .worldforest import GATE_WORDS, CarryTool
 
 SINK_GATES = {**GATE_WORDS, "frame": "the frame gate", "stitch": "the stitch gate", "entrance": "the entrance gate",
               "coverage": "the coverage gate"}
@@ -120,46 +116,15 @@ class SinkTool(CarryTool):
         return f"Not here: {pv['why']}.", "warn"
 
     # -- Accept: disc 1, then disc 4 (the draft's own disc-4 step) --
-    def _run_job(self, kind, draft):
-        if kind != "accept":
-            return super()._run_job(kind, draft)
+    def _accept_calls(self, draft, report, report4):
+        return self.FE.commands(draft, self.center, cluster=self.cluster.isChecked(),
+                                allow_entrances=self.entrances.isChecked(), report=report, report4=report4)
+
+    def _step_cells(self, verdict):
         from ..world import draft as D
-        key = self.handles()
-        if key is None:
-            self._job = None
-            return
-        D.begin_step(draft, D.all_cells())               # the disc-4 island's blocks are not known in advance
-        tmp = Path(tempfile.mkdtemp(prefix="ff9_sink_"))
-        report, report4 = tmp / "verdict.json", tmp / "verdict4.json"
-        one, four = self.FE.commands(draft, self.center, cluster=self.cluster.isChecked(),
-                                     allow_entrances=self.entrances.isChecked(), report=report, report4=report4)
-        game = self._game_fn()
-        pre = [sys.executable, "-m", "ff9mapkit", "--game", str(game)]
-        self._job = (kind, key)
-        self._say(f"Sinking the island in the draft of {self.source().name}, disc 1 then disc 4…", "")
-        self._sync_buttons()
-
-        def disc4_done(code, text):
-            v4 = self.FE.read_verdict(report4) or {}
-            self._disc4 = bool(v4.get("ok"))
-            self._job_done(kind, key, report, 0, text)
-
-        def disc1_done(code, text):
-            if self._job != (kind, key):
-                return
-            v = self.FE.read_verdict(report)
-            if v is None or not v.get("ok"):
-                self._job_done(kind, key, report, code, text)
-                return
-            self._runner.start(pre + four, kit_cwd(), disc4_done)
-        self._disc4 = None
-        self._runner.start(pre + one, kit_cwd(), disc1_done)
+        return D.all_cells()                             # the disc-4 island's blocks are not known in advance
 
     def _accepted(self, v):
-        disc4 = getattr(self, "_disc4", None)
         super()._accepted(v)
         self._row_sel = None
         self._say_island()
-        if disc4 is False:
-            self._say(self.verdict_lbl.text() + " Disc 4 refused the same sink, so disc 4 keeps its island (as "
-                      "world-sink's replay would).", "warn")

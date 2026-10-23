@@ -274,7 +274,7 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 
 # --------------------------------------------------------------------------------------- world states
-WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-sink")
+WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-sink", "3d-coast")
 # "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
 # surface that depends on the developer's machine cannot be a pinned review state.
 WORLD_EXTRA_STATES = ("3d-live",)
@@ -693,6 +693,61 @@ def _snap_world_sink(ctx: _Ctx, win) -> None:
         V.load_scene = orig
 
 
+def _snap_world_coast(ctx: _Ctx, win) -> None:
+    """Rung C5: the coast card on the pinned 3D page -- a cliff window picked (its run is the ghost, the verb picker
+    offers only the lawful morph, the depth stops at its ceiling) that passes. Invented window over the synthetic
+    island."""
+    import math
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    seams, _runner = _mountain_seams()
+    run = [[1248.0 + 84.0 * math.cos(a), -1184.0 + 64.0 * math.sin(a)] for a in
+           [math.radians(d) for d in range(200, 251, 5)]]
+    window = {"kind": "cliff", "cell": [18, 17], "L": 74.0, "n": len(run), "run": run, "start": run[0],
+              "end": run[-1], "probes": {"cliff-bump": {"depth": 2.5, "binding": None, "window": [run[0], run[-1]]},
+                                         "cliff-headland": {"depth": None, "binding": "D=8: a painted-mural family",
+                                                            "window": None}}}
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "cell": [18, 17], "blocks": [[18, 17]], "written": [],
+                 "gates": [{"gate": g, "ok": True} for g in ("frame", "stitch", "entrance", "bounds", "census")],
+                 "refused": None}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._coast_runner = drafts, Scripted()
+    doc._coast_seams = {"outline_fn": lambda cell: [] if cell == "-" else [window], "soup_fn": seams["soup_fn"],
+                        "stack_fn": lambda: [], "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        ct = doc.open_coast(sync=True)
+        ct._edited = lambda cell: []                     # the fake install overrides this block; the pass is the subject
+        x, z = run[5]
+        ct.place(x + 1.0, z - 1.0, 2.0)
+        ct._timer.stop()
+        ct._check()
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(x, z, dist=120.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 200.0, 40.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-coast", win)
+    finally:
+        V.load_scene = orig
+
+
 def _snap_forest_states(ctx: _Ctx, win, doc) -> None:
     ft, view = doc._forest, doc._view3d.view
     ft._on_reload = lambda x, z: None                    # the dev checkout's Show in game, offered
@@ -794,6 +849,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             return
         if state == "3d-sink":
             _snap_world_sink(ctx, win)
+            _close(win)
+            return
+        if state == "3d-coast":
+            _snap_world_coast(ctx, win)
             _close(win)
             return
         _settle()

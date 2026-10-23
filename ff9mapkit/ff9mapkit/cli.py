@@ -5039,6 +5039,32 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
     return 0
 
 
+def _morph_report_json(args, *, summary=None, refused=None) -> None:
+    """``world-transplant --in-place --report-json``: the morph's verdict as data, beside the unchanged printed text.
+    A refusal names its failing gates; where they fail is the cell (its middle), the coast card's mark."""
+    path = getattr(args, "report_json", None)
+    if not path:
+        return
+    import json
+    from pathlib import Path
+    bx, by = (int(v) for v in str(args.cell).split(","))
+    mid = [64.0 * bx + 32.0, -(64.0 * by + 32.0)]
+    out = {"ok": False, "dry_run": bool(args.dry_run), "disc": args.disc, "cell": [bx, by], "blocks": [[bx, by]],
+           "gates": [], "written": [], "refused": None}
+    if summary is not None:
+        bad = [g for g in summary.get("gates", ()) if not g.get("ok")]
+        out.update(ok=bool(summary.get("clean")), gates=summary.get("gates", []),
+                   written=[str(p) for p in summary.get("deployed", ())], touched=summary.get("touched"))
+        if bad:
+            out["refused"] = {"gate": bad[0].get("gate", "error"), "detail": "", "where": [mid],
+                              "message": "NOT CLEAN -- deploy refused: " + ", ".join(g.get("gate", "?") for g in bad)}
+    if refused is not None:
+        out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused), "detail": "",
+                          "where": [list(p) for p in getattr(refused, "where", [])] or [mid]}
+    Path(path).write_text(json.dumps(out, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
+                          encoding="utf-8")
+
+
 def _cmd_world_transplant(args: argparse.Namespace) -> int:
     """VERBATIM island transplant: carry a complete real coastal block -- land + beach + the full Wang'd
     ocean, every sub-mesh -- to a custom ocean cell, with a 0-mod-4 in-cell shift + 90-degree rotation,
@@ -5207,7 +5233,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             # there -- every morph rebuilt from disc 4's own bytes, through the same gates -- instead of a copy
             def replay(d):
                 sys.stdout.flush()
-                ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": DM.REPLAY})
+                ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": DM.REPLAY, "report_json": None})
                 if _cmd_world_transplant(ns) != 0:
                     raise ValueError(f"world-transplant --in-place --disc {d} refused the same morph (see above)")
             summary = TR.morph_in_place(args.mod_folder, cell=(bx, by), tweaks=list(tweaks),
@@ -5237,8 +5263,10 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 summary = TR.transplant_region(args.mod_folder, size=(snx, sny), **kw)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _morph_report_json(args, refused=e)
         return 2
     if summary["op"] == "morph-in-place":
+        _morph_report_json(args, summary=summary)
         print(f"IN-PLACE morph: real cell {tuple(summary['cell'])} "
               f"(touched parts: {', '.join(summary['touched'])})")
         _print_stack_notes(summary)
@@ -10476,6 +10504,10 @@ def build_parser() -> argparse.ArgumentParser:
     wtp.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wtp.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    wtp.add_argument("--report-json", metavar="PATH", default=None,
+                     help="with --in-place: also write the morph's verdict as JSON to PATH -- ok, the cell, every "
+                          "gate, the files written, and on a refusal the failing gates (the World tab's coast card "
+                          "reads it). The printed text is unchanged.")
     wtp.set_defaults(func=_cmd_world_transplant)
 
     wsk = sub.add_parser("world-sink",
