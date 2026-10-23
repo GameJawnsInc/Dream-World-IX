@@ -27,8 +27,15 @@ S5  THE ef211 CAST RECORD, READ BOTH WAYS.  The study's own cast specs, rebuilt 
     necessary.  With the key, each rebuilds the exact bytes it was cast with: the key moves no byte.
 S6  PROVENANCE.  `scroll_blit.py` carries coordinates and counts only -- no bytes constant, no hex
     run, no integer outside the VRAM/coordinate range.
+S7  THE EXECUTED-BLIT CROSS-CHECK.  The headless host's census (`headless/sfx_host.py`, SCRATCH only:
+    the blits the user's own plugin actually EXECUTES) against the static table.  Every static
+    destination cell on the edit surface must be observed executing, and the executed destinations
+    the table does NOT hold must be exactly the pinned OPEN GAP -- so the gap cannot grow silently.
+    The census is a cross-check and never the refusal's authority: the host stands actors at the
+    origin with no battle camera, so a cell it never saw is "not observed", not "safe".
 
-Reads `C:\gd\SCRATCH\summon-format` ONLY -- no install read, no deploy, no install write, no commit.
+Reads `C:\gd\SCRATCH\summon-format` ONLY (S7 its `headless/census.json`) -- no install read, no
+deploy, no install write, no commit.
 """
 from __future__ import annotations
 
@@ -333,6 +340,49 @@ def s6_provenance() -> None:
     chk("S6 every integer is a coordinate, a size, an id or a count", max(ints) <= 8192, True)
 
 
+# --------------------------------------------------------------------------- S7
+CENSUS = os.path.join(CORPUS, "headless", "census.json")
+#: THE OPEN GAP, by name: editable cells (not already refused as a program-VRAM write) the plugin
+#: executes a DR_MOVE into while the static op-144 table names no rect over them.  The kit licenses
+#: these today; folding them in is its own task.
+KNOWN_GAP = frozenset({(226, "cell.s0.x448_y384"), (226, "cell.s0.x512_y384"),
+                       (509, "cell.s0.x448_y384"), (509, "cell.s0.x512_y384")})
+
+
+def s7_executed_crosscheck() -> None:
+    if not os.path.isfile(CENSUS):
+        _FAILS.append("S7: no headless census at %s -- run studies/custom-summons/headless/ first"
+                      % CENSUS)
+        return
+    with open(CENSUS, encoding="utf-8") as fh:
+        rows = {int(r["effect"]): r for r in json.load(fh)["rows"].values()}
+    ex = {ef: (r.get("dr_move_dst_cells") or {}) for ef, r in rows.items()}
+    executing = {ef for ef, v in ex.items() if v}
+    seen, unseen, gap = 0, [], set()
+    for ef in sorted(executing | set(SB.SCROLL_BLITS)):
+        if not os.path.isfile(os.path.join(CORPUS, "ef%03d.bytes" % ef)):
+            continue
+        for p in RP.scenery_texel_pages(_load(ef), ef):
+            key = "x%d_y%d" % p.cell
+            if p.hazards.scroll_dst:
+                if key in ex.get(ef, {}):
+                    seen += 1
+                else:
+                    unseen.append((ef, p.name))
+            elif key in ex.get(ef, {}) and p.hazards.program not in ("write", "unknown"):
+                gap.add((ef, p.name))
+    print("   census: %d containers execute DR_MOVE, %d (container, destination cell) pairs"
+          % (len(executing), sum(len(v) for v in ex.values())))
+    print("   static destination cells on the edit surface observed executing: %d / %d"
+          % (seen, seen + len(unseen)))
+    print("   OPEN GAP -- executed, editable, unpinned: %s"
+          % ", ".join("ef%03d %s" % g for g in sorted(gap)))
+    chk("S7 every static container executes", sorted(set(SB.SCROLL_BLITS) - executing), [])
+    chk("S7 every static destination cell is observed executing", unseen, [])
+    chk("S7 the static destination count", seen, SB.DEST_CELLS)
+    chk("S7 the open gap is exactly the pinned one", sorted(gap), sorted(KNOWN_GAP))
+
+
 GATES = [
     ("S1", "THE RE-DERIVATION PIN -- every site re-parsed and compared", s1_rederive),
     ("S2", "THE CORPUS VERDICT -- the kit's join == the instrument's, == the pins", s2_two_instruments),
@@ -340,6 +390,8 @@ GATES = [
     ("S4", "THE PARTIAL BAND -- ef211 x640_y256, refused by the texel, not the cell", s4_partial_band),
     ("S5", "THE ef211 CAST RECORD, READ BOTH WAYS -- and the key moves no byte", s5_retrodiction),
     ("S6", "PROVENANCE -- coordinates and counts, never a stock byte", s6_provenance),
+    ("S7", "THE EXECUTED-BLIT CROSS-CHECK -- 88/88 run headless; the open gap pinned",
+     s7_executed_crosscheck),
 ]
 
 
