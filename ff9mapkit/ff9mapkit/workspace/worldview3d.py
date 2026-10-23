@@ -574,7 +574,7 @@ class WorldView3D(QOpenGLWidget):
         self.setFormat(fmt)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAccessibleName("3D overworld view")
-        self.setMinimumSize(240, 180)
+        self.setMinimumSize(240, MIN_VIEW_H)
         self.camera = OrbitCamera()
         self._scene = _GLScene()
         self._pending = None                                 # (packed, textures) waiting for a current context
@@ -739,6 +739,9 @@ def _rgb(hexcolour):
     return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
 
 
+MIN_VIEW_H = 180                                             # the view's own floor (a tool's card may lower it)
+
+
 class WorldView3DPanel(QWidget):
     """The 3D page of the World tab: a status/fallback page until the map is loaded, then the view.
 
@@ -758,6 +761,8 @@ class WorldView3DPanel(QWidget):
         self._busy = False
         self._focus = None
         self._overlays, self._ghost = [], None               # a tool's drawing, held until the view exists
+        self._floor = None                                   # set_view_floor's height, or None for MIN_VIEW_H
+        self._caption_folded = False                         # fold_caption: a carry card's room
         self._loaded.connect(self._finish)
         from . import widgets
         outer = QVBoxLayout(self)
@@ -765,18 +770,21 @@ class WorldView3DPanel(QWidget):
         outer.setSpacing(4)
         # which folders the view drew, in the engine's order: the caption is the view's legend (a view that
         # silently draws a different stack from the game's is the defect this page exists to prevent)
-        # the page's own bar: the host's controls for what the view draws (add_control), then the caption. On the
-        # page, not the World tab's head row -- that row's wrapped scan summary clipped at 150% with one more control
+        # the page's own bar: the host's controls for what the view draws (add_control), then the caption on a line of
+        # its own. On the page, not the World tab's head row -- that row's wrapped scan summary clipped at 150% with
+        # one more control. Not beside the controls either: in the column they leave it wrapped to four lines at 150%
+        # (five once a draft is drawn) and squeezed a carry card's verdict out of a 1280x850 window.
         self.bar = QHBoxLayout()
         self.bar.setContentsMargins(0, 0, 0, 0)
         self.bar.setSpacing(8)
+        self.bar.addStretch(1)
+        outer.addLayout(self.bar)
         self.caption = widgets.role_label("", "caption")
         self.caption.setWordWrap(True)
         self.caption.setAccessibleName("3D view folders")
         self.caption.hide()
-        self.bar.addWidget(self.caption, 1)
-        outer.addLayout(self.bar)
-        host = QWidget()
+        outer.addWidget(self.caption)
+        host = self._host = QWidget()
         self._stack = QStackedLayout(host)
         self._stack.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(host, 1)
@@ -800,13 +808,28 @@ class WorldView3DPanel(QWidget):
         self._stack.removeWidget(old)
         old.deleteLater()
 
+    def set_view_floor(self, h=None):
+        """Lower the view's floor to ``h`` px (None: back to ``MIN_VIEW_H``), so it gives way first when the page is
+        short. The host gets the same EXPLICIT minimum: a stacked layout floors at its tallest page, and the hidden
+        status page outranks the view's own floor otherwise."""
+        self._floor = h
+        self._host.setMinimumHeight(0 if h is None else h)
+        if self.view is not None:
+            self.view.setMinimumHeight(MIN_VIEW_H if h is None else h)
+
     def add_control(self, w):
         """Put a host control (the World tab's draw chooser) at the front of the page's bar."""
         self.bar.insertWidget(0, w)
 
     def set_caption(self, text):
         self.caption.setText(text)
-        self.caption.setVisible(bool(text))
+        self.caption.setVisible(bool(text) and not self._caption_folded)
+
+    def fold_caption(self, folded):
+        """Fold the caption away (a carry card is open and the caption says nothing the draw box does not), or show
+        it again; the text is kept either way."""
+        self._caption_folded = bool(folded)
+        self.caption.setVisible(bool(self.caption.text()) and not self._caption_folded)
 
     def set_overlays(self, overlays):
         """What a tool draws over the map (:attr:`WorldView3D.overlays`), now or once the view exists."""
@@ -866,6 +889,8 @@ class WorldView3DPanel(QWidget):
             return
         if self.view is None:
             self.view = WorldView3D()
+            if self._floor is not None:
+                self.view.setMinimumHeight(self._floor)
             self.view.gl_failed.connect(lambda msg: self._show_message("The 3D view needs OpenGL", msg))
             self.view.picked.connect(self.picked.emit)
             self.view.ghost_moved.connect(self.ghost_moved.emit)
@@ -878,6 +903,10 @@ class WorldView3DPanel(QWidget):
         if self._focus is not None:
             self.view.focus(*self._focus)
         self._stack.setCurrentWidget(self.view)
+        # the status page leaves the stack once the view is up (a later message puts a fresh one back): a stacked
+        # layout's height-for-width is its tallest page's, so the hidden page's wrapped teach line otherwise
+        # outranks set_view_floor's explicit minimum and the card under the view is the one squeezed
+        self._stack.removeWidget(self._status)
 
     def retheme(self, pal):
         self.pal = pal
