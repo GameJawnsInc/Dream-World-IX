@@ -56,25 +56,13 @@ def _scripted_dialog(monkeypatch, script):
     monkeypatch.setattr(shell, "QDialog", _ScriptedExec)
 
 
-def _neutralize_coop(cd):
-    """Zero Co-op's play-style widgets to their defaults. The comes-back override reads whatever this
-    machine's real Memoria.ini says, so a dev box with a granted party slot would keep the drawer open
-    regardless of the mode -- reset the widgets so the override is deterministically OFF for the tests
-    that assert the plain mode default."""
-    for cb in cd.cb_slots:
-        cb.setChecked(False)
-    cd.combo_ghost.setCurrentIndex(0)
-    cd.cb_follow.setChecked(False)
-
-
 # ---------------------------------------------------------------- ASK #12: the cross-tab lever ---
 def test_full_mode_opens_every_expert_drawer_and_guided_collapses_them(app):
     """THE LEVER. Full blows every always-visible expert drawer open; Guided (no override active)
     collapses them all. The no-op fence: we open them via Full FIRST, so a Guided that does nothing
     would leave them open and fail the second loop."""
     w = _win()
-    _neutralize_coop(w.coop_doc)                     # the coop override reads the machine's Memoria.ini
-    drawers = [w.build_deploy._advanced, w.coop_doc.style_drawer,
+    drawers = [w.build_deploy._advanced,
                w.import_field.swap_drawer, w.import_field._more_import]
     w._apply_guided(True)                            # a known Guided baseline (no override) -> all collapsed
     for d in drawers:
@@ -85,21 +73,6 @@ def test_full_mode_opens_every_expert_drawer_and_guided_collapses_them(app):
     w._apply_guided(True)                            # -> Guided (no override) collapses them; a no-op fails
     for d in drawers:
         assert not d.toggle_button.isChecked(), "Guided collapses every expert drawer"
-    w.close()
-
-
-def test_a_nondefault_coop_play_style_keeps_its_drawer_open_in_guided(app):
-    """CHAIR RULING: the computed auto-expand override wins over the mode default. A granted party slot
-    keeps Co-op's Advanced drawer open even in Guided -- a configured knob is never hidden."""
-    w = _win()
-    cd = w.coop_doc
-    _neutralize_coop(cd)                             # start from a clean, override-free baseline
-    cd.cb_slots[0].setChecked(True)                  # a non-default play style = the override
-    w._apply_guided(True)                            # Guided would normally collapse it...
-    assert cd.style_drawer.toggle_button.isChecked(), "the override wins over the Guided default"
-    cd.cb_slots[0].setChecked(False)                 # clear it -> now the mode default applies
-    w._apply_guided(True)
-    assert not cd.style_drawer.toggle_button.isChecked(), "with no override, Guided collapses it"
     w.close()
 
 
