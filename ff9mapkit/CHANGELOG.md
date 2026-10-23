@@ -5,6 +5,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the hybrid summon lane checks the effect plugin before arming
+- `summon-deploy --arm` now hashes the install's `FF9SpecialEffectPlugin.dll` (x64 and x86) and refuses to arm
+  `[SfxHybrid]` unless it is the build the hybrid drive's native memory offsets were taken from (the Steam release,
+  linked 2016-10-19). On any other build the drive would read, and write 4 bytes, at addresses that mean nothing.
+  The refusal says which arch and hash it found and points at `lane = "overlay"`, which needs no engine and reads
+  no native memory. Nothing is written when it refuses.
+
 ### Added — promote a World tab draft into the game
 - The forest card's draft row has "Promote": after a confirm it writes the draft's edits into the live mod folder.
   Each file is backed up first, the disc-4 mirror runs, and the blocks are snapshotted so "Revert promote" puts the

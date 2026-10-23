@@ -9,7 +9,9 @@ the dragon's motion") -- the prototype is ``studies/custom-summons/thomas-swap/b
   * **hybrid** (DEFAULT) -- the s58 ``SfxHybridDrive`` engine feature poses the user's skinned model onto
     the native donor cast's live per-frame skeleton. Emits the mint (rows 1/1b) + the private-ef host
     ``.seq`` (row 2) and ARMS ``Memoria.ini [SfxHybrid]`` (row 3). REQUIRES the custom engine -- the arm
-    step string-probes the deployed ``Assembly-CSharp.dll`` for ``SfxHybridDrive`` and REFUSES on stock.
+    step string-probes the deployed ``Assembly-CSharp.dll`` for ``SfxHybridDrive`` and REFUSES on stock --
+    AND the exact ``FF9SpecialEffectPlugin.dll`` build the drive's native offsets came from (it hashes the
+    install's plugin and REFUSES an unknown build, :data:`SFX_PLUGIN_BUILDS`).
   * **overlay** (DLL-free rung-7 route) -- the mint + the host ``.seq`` (with the StartThread self-load
     delta) + ``FileList.txt`` + a ``.sfxmodel`` manifest + the decoded donor ``.anim`` clips. Works on a
     STOCK engine; never touches ``Memoria.ini``.
@@ -197,6 +199,22 @@ SFXHYBRID_SECTION = "SfxHybrid"
 #: the UTF-8 type name that MUST be present in a deployed ``Assembly-CSharp.dll`` for the hybrid lane to
 #: arm (the s58 feature class; ``m1b/RUNBOOK.md`` section 0 presence check).
 _SFXHYBRID_ENGINE_MARK = b"SfxHybridDrive"
+
+SFX_PLUGIN_NAME = "FF9SpecialEffectPlugin.dll"
+#: arch -> THE ONE ``FF9SpecialEffectPlugin.dll`` build the s58 drive's hard-coded RVAs (and the s52/s53
+#: probes') were derived from -- linked 2016-10-19, the Steam release (``studies/custom-summons/PLAN.md``
+#: section 3A; x86 re-derived in ``thomas-swap/disasm/B5-x86-crosscheck.md``). The drive READS pointers at
+#: fixed offsets into that DLL and WRITES 4 bytes through one (the body-hide mask), so on any other build it
+#: would write to an arbitrary address. ``sha256`` is what the arm step checks; ``machine``/``stamp``/
+#: ``size_of_image`` are the PE header fields the engine-side twin (``memoria-patches/s152``,
+#: ``SfxPluginIdentity``) checks in memory at runtime -- a test pins the two to each other. The x86 entry
+#: was never exercised in game (no x86 cast in the study record); it is pinned so an x86 install arms.
+SFX_PLUGIN_BUILDS = {
+    "x64": {"sha256": "5e01f899e9090fc720f4fd563648f216f5f1f088c902d0f80aa04d34f31d43cd",
+            "machine": 0x8664, "stamp": 0x58075FAB, "size_of_image": 0x627000},
+    "x86": {"sha256": "8635255d78cde4c839cc26c11d114f1e64b96553f08828f4fd4bd1900780a87e",
+            "machine": 0x014C, "stamp": 0x580763E9, "size_of_image": 0x611000},
+}
 
 #: the host ``.seq`` line the transplant edits -- the native creature's spawn. Matched by pattern so no
 #: ``SpecialEffect`` table is needed (the name is read straight off the donor's own line).
@@ -1984,6 +2002,51 @@ def probe_hybrid_engine(game) -> bool:
     return False
 
 
+def sfx_plugin_refusal(game) -> "str | None":
+    """Hash the install's ``FF9SpecialEffectPlugin.dll`` (x64 and x86) against :data:`SFX_PLUGIN_BUILDS`.
+    ``None`` when every plugin present is the pinned build; otherwise the refusal text, which says why.
+    Every PRESENT arch must match -- the launcher, not us, picks the arch that runs -- and an install with
+    no plugin at all is refused too (nothing to verify the offsets against)."""
+    game = Path(game)
+    seen, bad = [], []
+    for arch, pin in SFX_PLUGIN_BUILDS.items():
+        dll = game / arch / "FF9_Data" / "Plugins" / SFX_PLUGIN_NAME
+        if not dll.is_file():
+            continue
+        seen.append(arch)
+        sha = hashlib.sha256(dll.read_bytes()).hexdigest()
+        if sha != pin["sha256"]:
+            bad.append(f"{arch} sha256 {sha} (pinned {pin['sha256'][:16]}...)")
+    why = ("the hybrid lane's s58 SfxHybridDrive reads FF9SpecialEffectPlugin.dll's memory at fixed offsets "
+           "and WRITES the native body-hide mask through a pointer it reads there. Those offsets were derived "
+           "from ONE build of the plugin (linked 2016-10-19, the Steam release)")
+    if not seen:
+        return (f"{why}, and this install has no {SFX_PLUGIN_NAME} under x64/ or x86/FF9_Data/Plugins/ to "
+                f"check against -- [SfxHybrid] NOT armed. Point at the FF9 install, or use lane = \"overlay\" "
+                f"(DLL-free, no native memory access).")
+    if bad:
+        return (f"{why}; this install's plugin is a different build: {'; '.join(bad)}. On it the drive would "
+                f"read and write arbitrary memory, so [SfxHybrid] is NOT armed. Use lane = \"overlay\" "
+                f"(DLL-free, no native memory access).")
+    return None
+
+
+def check_armable(game) -> None:
+    """Raise :class:`SummonDeployError` unless ``[SfxHybrid]`` may be armed on ``game``: the s58 engine is
+    deployed (:func:`probe_hybrid_engine`) AND the plugin is the pinned build (:func:`sfx_plugin_refusal`).
+    :func:`arm_sfxhybrid` runs it at its own call site; :func:`emit_hybrid` runs it again BEFORE staging a
+    single file, so a refused arm never leaves a half-deploy without its revert script."""
+    game = Path(game)
+    if not probe_hybrid_engine(game):
+        raise SummonDeployError(
+            "the hybrid lane requires the s58 SfxHybridDrive engine, but the deployed Assembly-CSharp.dll "
+            "has no 'SfxHybridDrive' string (stock Memoria). Deploy the custom Dream World IX engine "
+            'bundle, or use lane = "overlay" (DLL-free).')
+    refusal = sfx_plugin_refusal(game)
+    if refusal is not None:
+        raise SummonDeployError(refusal)
+
+
 def sfxhybrid_updates(spec: dict, *, log: bool = False) -> dict:
     """The ``[SfxHybrid]`` key/value dict for a spec (maps the hybrid knobs 1:1; DESIGN section 2.3/2.4).
     Insertion order matches the acceptance block (RUNBOOK section 5)."""
@@ -2010,7 +2073,8 @@ def render_sfxhybrid_block(spec: dict, *, log: bool = False) -> str:
 def arm_sfxhybrid(game, spec: dict, *, log: bool = False, out=print,
                   ledger: "_Ledger | None" = None) -> Path:
     """Row 3: ARM ``Memoria.ini [SfxHybrid]`` -- the coop ``[Netsync]`` precedent EXACTLY (DESIGN section
-    2.4). Refuses (a) a stock engine (:func:`probe_hybrid_engine`) and (b) a missing ini; backs the ini up
+    2.4). Refuses (a) a stock engine and (b) a plugin build the drive's native offsets were not derived
+    from (both :func:`check_armable`), and (c) a missing ini; backs the ini up
     first (``coop._backup_ini``), rewrites the section (``coop.update_ini_section``, every pair vetted by
     ``coop._check_ini_pair``), warns on duplicate keys, and prints the applied block. Returns the backup
     path. This MUTATES the user's live ``Memoria.ini`` -- it is the explicit ``summon-deploy`` arm step,
@@ -2021,11 +2085,7 @@ def arm_sfxhybrid(game, spec: dict, *, log: bool = False, out=print,
     (see :func:`emit_hybrid`), or the emitted revert script never learns the ini needs undoing at all."""
     from .. import coop as _coop
     game = Path(game)
-    if not probe_hybrid_engine(game):
-        raise SummonDeployError(
-            "the hybrid lane requires the s58 SfxHybridDrive engine, but the deployed Assembly-CSharp.dll "
-            "has no 'SfxHybridDrive' string (stock Memoria). Deploy the custom Dream World IX engine "
-            'bundle, or use lane = "overlay" (DLL-free).')
+    check_armable(game)
     ini = game / "Memoria.ini"
     if not ini.is_file():
         raise SummonDeployError(f"{ini} not found -- is this the FF9 install (and is Memoria set up)?")
@@ -2082,6 +2142,8 @@ def emit_hybrid(spec: dict, mod_root, game, *, work_dir=None, arm: bool = False,
     spec = _resolve_ids(normalize_spec(spec), mod_root, game, out=out)
     _warn_model_id_collision(spec, mod_root, game, out)
     _preflight_short_sequence(spec)
+    if arm:
+        check_armable(game)     # refuse BEFORE staging a file (arm_sfxhybrid re-checks at the ini write)
     ledger = _Ledger(_backup_root(mod_root, work_dir), mod_root=mod_root)
     # FOLDER lock around the WHOLE live mutation (the staged trees AND the registrations), OUTSIDE the
     # sidecars (lock order: folder THEN sidecar): a wholesale campaign/journey install cannot hold a

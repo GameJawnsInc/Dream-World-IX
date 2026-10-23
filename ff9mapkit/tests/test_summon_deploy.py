@@ -226,7 +226,133 @@ def test_ledger_revert_round_trip(tmp_path):
     assert "3DModel 6201 GEO_MON_B0_M201" not in dp.read_text() # line dropped
 
 
-def test_hybrid_deploy_revert_restores_the_armed_ini(tmp_path):
+def _fake_install(tmp_path, plugins, *, engine=True) -> Path:
+    """A synthetic offline 'install': the s58 engine marker (unless ``engine=False``), the given
+    ``{arch: bytes}`` stand-ins for FF9SpecialEffectPlugin.dll, and a throwaway Memoria.ini. Never the
+    real install -- the pinned hashes are swapped onto these stubs via :func:`_pin`, never matched for real."""
+    game = tmp_path / "game"
+    game.mkdir()
+    if engine:
+        dll = game / "x64" / "FF9_Data" / "Managed" / "Assembly-CSharp.dll"
+        dll.parent.mkdir(parents=True)
+        dll.write_bytes(b"...SfxHybridDrive...")
+    for arch, data in plugins.items():
+        p = game / arch / "FF9_Data" / "Plugins" / D.SFX_PLUGIN_NAME
+        p.parent.mkdir(parents=True)
+        p.write_bytes(data)
+    (game / "Memoria.ini").write_text("[Other]\nFoo = 1\n", encoding="utf-8")
+    return game
+
+
+def _pin(monkeypatch, **arch_bytes):
+    """THE SEAM: make the given stub bytes the 'pinned build' for their arch (sha256 swapped in; the PE
+    fields stay the real ones). monkeypatch swaps the module's own NAME, so it is undone after the test."""
+    builds = {a: dict(v) for a, v in D.SFX_PLUGIN_BUILDS.items()}
+    for arch, data in arch_bytes.items():
+        builds[arch]["sha256"] = hashlib.sha256(data).hexdigest()
+    monkeypatch.setattr(D, "SFX_PLUGIN_BUILDS", builds)
+
+
+_ARM_SPEC = {"donor": 227, "id": 6201, "name": "GEO_MON_B0_M201", "private_ef": 84}
+
+
+def _tree(game) -> dict:
+    return {p.relative_to(game).as_posix(): p.read_bytes() for p in sorted(game.rglob("*")) if p.is_file()}
+
+
+def test_arm_refuses_an_unknown_plugin_build_before_touching_the_ini(tmp_path):
+    """THE PLUGIN IDENTITY GATE: the s58 drive reads FF9SpecialEffectPlugin.dll's memory at hard-coded RVAs
+    and WRITES the hide mask through a pointer read there, so on any build but the one the RVAs came from
+    it writes to an arbitrary address. The arm step must refuse such an install -- before the ini is read,
+    backed up or written -- and the message must say WHY and WHAT it found."""
+    stub = b"SOME-OTHER-PLUGIN-BUILD"
+    game = _fake_install(tmp_path, {"x64": stub})
+    before = _tree(game)
+    with pytest.raises(D.SummonDeployError) as ei:
+        D.arm_sfxhybrid(game, D.normalize_spec(_ARM_SPEC), out=lambda *a, **k: None)
+    msg = str(ei.value)
+    assert "FF9SpecialEffectPlugin.dll" in msg and "fixed offsets" in msg       # why
+    assert f"x64 sha256 {hashlib.sha256(stub).hexdigest()}" in msg              # what it found
+    assert D.SFX_PLUGIN_BUILDS["x64"]["sha256"][:16] in msg                     # what it wanted
+    assert 'lane = "overlay"' in msg                                            # what to do instead
+    assert _tree(game) == before                                                # no ini write, no backup
+
+
+def test_refused_arm_deploy_stages_nothing(tmp_path):
+    """``deploy(arm=True)`` stages the mint + host .seq BEFORE the arm step, so a refusal raised only at the
+    ini write would leave a half-deploy with no revert script. The preflight refuses first: the mod folder
+    stays empty and the install is untouched."""
+    game = _fake_install(tmp_path, {"x64": b"SOME-OTHER-PLUGIN-BUILD"})
+    donor = 501                                                    # NOT in EXPECTED_DONOR_SEQ_SHA
+    seq_dir = game / "StreamingAssets" / "Data" / "SpecialEffects" / f"ef{donor:03d}"
+    seq_dir.mkdir(parents=True)
+    (seq_dir / "PlayerSequence.seq").write_text(_DONOR_SEQ, encoding="utf-8")
+    before = _tree(game)
+    mod = tmp_path / "mod"
+    fbx = tmp_path / "m.fbx"
+    fbx.write_bytes(b"FAKE-FBX-BYTES")
+    block = {"donor": donor, "model": str(fbx), "id": 6202, "private_ef": 84, "lane": "hybrid"}
+    with pytest.raises(D.SummonDeployError, match="different build"):
+        D.deploy(block, game=str(game), mod_root=str(mod), arm=True, out=lambda *a, **k: None)
+    assert not mod.exists() or not any(mod.rglob("*"))
+    assert _tree(game) == before
+
+
+def test_arm_refuses_when_any_present_arch_is_unknown(tmp_path, monkeypatch):
+    """The launcher picks the arch, not the kit -- a pinned x64 beside an unknown x86 is still refused,
+    and the refusal names only the arch that is wrong."""
+    good, bad = b"PINNED-X64", b"UNKNOWN-X86"
+    game = _fake_install(tmp_path, {"x64": good, "x86": bad})
+    _pin(monkeypatch, x64=good)
+    with pytest.raises(D.SummonDeployError) as ei:
+        D.arm_sfxhybrid(game, D.normalize_spec(_ARM_SPEC), out=lambda *a, **k: None)
+    assert "x86 sha256" in str(ei.value) and "x64 sha256" not in str(ei.value)
+
+
+def test_arm_refuses_an_install_with_no_plugin(tmp_path):
+    """No plugin under either arch = nothing to verify the offsets against -> refused, not waved through."""
+    game = _fake_install(tmp_path, {})
+    with pytest.raises(D.SummonDeployError, match="no FF9SpecialEffectPlugin.dll"):
+        D.arm_sfxhybrid(game, D.normalize_spec(_ARM_SPEC), out=lambda *a, **k: None)
+
+
+def test_arm_accepts_the_pinned_build(tmp_path, monkeypatch):
+    """The positive half of the seam (so the refusals above are not a gate that cannot pass): with the
+    stubs pinned, both arches present, the same call arms [SfxHybrid] and backs the ini up."""
+    x64, x86 = b"PINNED-X64", b"PINNED-X86"
+    game = _fake_install(tmp_path, {"x64": x64, "x86": x86})
+    _pin(monkeypatch, x64=x64, x86=x86)
+    assert D.sfx_plugin_refusal(game) is None
+    backup = D.arm_sfxhybrid(game, D.normalize_spec(_ARM_SPEC), out=lambda *a, **k: None)
+    assert "[SfxHybrid]" in (game / "Memoria.ini").read_text(encoding="utf-8")
+    assert Path(backup).is_file()
+
+
+def test_plugin_pins_match_the_engine_gate():
+    """The kit's pin (sha256 + PE fields) and the engine's runtime pin (memoria-patches/s152,
+    SfxPluginIdentity's Machine/TimeDateStamp/SizeOfImage constants) describe ONE build -- a re-pin of
+    either side alone fails here. Reads the patch stack, never the install."""
+    import re
+    patch = Path(__file__).resolve().parents[2] / "memoria-patches" / "s152-sfx-plugin-identity-gate.patch"
+    if not patch.is_file():
+        pytest.skip("memoria-patches/ not beside this checkout")
+    text = patch.read_text(encoding="utf-8")
+
+    def const(name):
+        m = re.search(rf"^\+\s*private const UInt\d+ {name} = (0x[0-9A-Fa-f]+)u?;", text, re.M)
+        assert m, f"{name} not found in s152"
+        return int(m.group(1), 16)
+
+    for arch in ("x64", "x86"):
+        pin = D.SFX_PLUGIN_BUILDS[arch]
+        tag = arch.upper()
+        assert const(f"{tag}Machine") == pin["machine"], arch
+        assert const(f"{tag}TimeDateStamp") == pin["stamp"], arch
+        assert const(f"{tag}SizeOfImage") == pin["size_of_image"], arch
+        assert pin["sha256"][:16] in text, f"s152's header cites a different {arch} sha256"
+
+
+def test_hybrid_deploy_revert_restores_the_armed_ini(tmp_path, monkeypatch):
     """REGRESSION (arm/revert wiring): a hybrid ``deploy(..., arm=True)`` must produce a revert script that
     actually undoes the ``[SfxHybrid]`` Memoria.ini arm, not just the mint + host .seq -- previously
     ``_Ledger.record_ini`` was dead code (defined, never called anywhere), so an armed deploy's revert
@@ -238,6 +364,10 @@ def test_hybrid_deploy_revert_restores_the_armed_ini(tmp_path):
     dll = game / "x64" / "FF9_Data" / "Managed" / "Assembly-CSharp.dll"
     dll.parent.mkdir(parents=True)
     dll.write_bytes(b"...SfxHybridDrive...")                       # satisfies probe_hybrid_engine
+    plugin = game / "x64" / "FF9_Data" / "Plugins" / D.SFX_PLUGIN_NAME
+    plugin.parent.mkdir(parents=True)
+    plugin.write_bytes(b"STUB-PLUGIN")
+    _pin(monkeypatch, x64=b"STUB-PLUGIN")                          # satisfies sfx_plugin_refusal
     ini = game / "Memoria.ini"
     original = "[Other]\nFoo = 1\n"
     ini.write_text(original, encoding="utf-8")

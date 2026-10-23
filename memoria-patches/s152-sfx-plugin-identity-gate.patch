@@ -1,0 +1,288 @@
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -510,6 +510,7 @@
+     <Compile Include="Memoria\Battle\SFX\SFXDataMeshConverter.cs" />
+     <Compile Include="Memoria\Battle\SFX\SfxHybridDrive.cs" />
+     <Compile Include="Memoria\Battle\SFX\SfxMeshProbe.cs" />
++    <Compile Include="Memoria\Battle\SFX\SfxPluginIdentity.cs" />
+     <Compile Include="Memoria\Battle\SFX\UnifiedBattleSequencer.cs" />
+     <Compile Include="Memoria\Configuration\Access\Mod.cs" />
+     <Compile Include="Memoria\Configuration\Access\Cheats.cs" />
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SfxHybridDrive.cs b/Assembly-CSharp/Memoria/Battle/SFX/SfxHybridDrive.cs
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SfxHybridDrive.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxHybridDrive.cs
+@@ -158,6 +158,9 @@ namespace Memoria
+         }
+ 
+         // ---- native layout (arch split by IntPtr.Size, exactly as SfxMeshProbe s52/s53) ----
++        // s152 -- valid ONLY on the pinned plugin build, which SfxPluginIdentity enforces before any read.
++        // The x86 column was re-derived statically (disasm/B5-x86-crosscheck.md) and has NEVER been
++        // exercised in game: no x86 cast appears in the study record. Treat a first 32-bit cast as untested.
+         private static readonly Boolean Arch64 = (IntPtr.Size == 8);
+         // summonModels[] -- LENGTH 1 (the creature). Hi_RegisterSummonModel@0x15ee0.
+         private static readonly Int64 SummonRecRva = Arch64 ? 0x220830L : 0x20869cL;
+@@ -174,26 +177,12 @@ namespace Memoria
+         // the garbage -- a node whose translation exceeds it is a dead-arena frame to skip.
+         private const Int32 SaneMaxTrans = 1 << 24;
+ 
+-        // HMODULE of a normally-loaded DLL IS its in-memory base address (Win32 contract). Cache once.
+-        [DllImport("kernel32", CharSet = CharSet.Unicode, ExactSpelling = false)]
+-        private static extern IntPtr GetModuleHandle(String lpModuleName);
+-
+-        private static IntPtr _pluginBase = IntPtr.Zero;
+-
++        // s152 -- the base comes ONLY from SfxPluginIdentity, which hands it out for the exact plugin build
++        // the RVAs above were derived from (its in-memory PE header, checked once) and IntPtr.Zero otherwise.
++        // No GetModuleHandle of our own: a second, unchecked route to the base is how the gate would rot.
+         private static IntPtr PluginBase()
+         {
+-            if (_pluginBase == IntPtr.Zero)
+-            {
+-                try
+-                {
+-                    _pluginBase = GetModuleHandle("FF9SpecialEffectPlugin.dll");
+-                }
+-                catch
+-                {
+-                    _pluginBase = IntPtr.Zero;
+-                }
+-            }
+-            return _pluginBase;
++            return SfxPluginIdentity.VerifiedBase();
+         }
+ 
+         // ---- runtime state ----
+@@ -224,7 +213,16 @@ namespace Memoria
+                 }
+                 IntPtr baseAddr = PluginBase();
+                 if (baseAddr == IntPtr.Zero)
++                {
++                    // s152 -- an unrecognised plugin build is a PERMANENT refusal, not a not-loaded-yet: trip
++                    // the latch before ANY native read, model load or the hide-mask write, and never re-check.
++                    if (SfxPluginIdentity.Refused)
++                    {
++                        _disabled = true;
++                        LogLine("DISABLED: " + SfxPluginIdentity.RefusalReason);
++                    }
+                     return;
++                }
+                 IntPtr rec = new IntPtr(baseAddr.ToInt64() + SummonRecRva);
+                 Byte active = Marshal.ReadByte(rec, SummonActiveOff);
+                 if (active == 0)
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+--- a/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxMeshProbe.cs
+@@ -397,28 +397,28 @@ namespace Memoria
+         // into a measured one.
+         //   ROOT,<effectId>,<frame>,<active>,<m00,m01,m02,m10,m11,m12,m20,m21,m22>,<tx>,<ty>,<tz>
+         //   (rotation raw 1/4096 fixed-point ints; translation raw s32 world units -- interpreted offline)
+-        [DllImport("kernel32", CharSet = CharSet.Unicode, ExactSpelling = false)]
+-        private static extern IntPtr GetModuleHandle(String lpModuleName);
++        // s152 -- the base comes ONLY from SfxPluginIdentity: handed out for the exact plugin build the RVAs
++        // here and in LogModels were derived from (its in-memory PE header, checked once), IntPtr.Zero until
++        // the plugin loads (retry next frame) or forever on an unknown build -- so every fixed-RVA read (ROOT,
++        // MODEL, PSXCAM, BONES) is skipped there. The refusal is stamped into this log once, so an empty
++        // ROOT/MODEL stream is never read as "no summon was cast". The PRIM/STATE/UVR reads need no gate:
++        // they dereference the P_TAG* the engine itself is handed by SFX_GetPrim and reads on the same frame.
++        private static Boolean _identityRefusalLogged;
+ 
+-        private static IntPtr _pluginBase = IntPtr.Zero;
+-
+-        // HMODULE of a normally-loaded DLL IS its in-memory base address (Win32 contract). The plugin
+-        // is loaded by the time any SFX renders; return Zero (and retry next frame) until then, then
+-        // cache for the process lifetime. One cheap syscall, and only while CaptureRoot=1.
+         private static IntPtr PluginBase()
+         {
+-            if (_pluginBase == IntPtr.Zero)
++            IntPtr b = SfxPluginIdentity.VerifiedBase();
++            if (b == IntPtr.Zero && SfxPluginIdentity.Refused && !_identityRefusalLogged)
+             {
+-                try
+-                {
+-                    _pluginBase = GetModuleHandle("FF9SpecialEffectPlugin.dll");
+-                }
+-                catch
++                _identityRefusalLogged = true;
++                StreamWriter w = Writer;
++                if (w != null)
+                 {
+-                    _pluginBase = IntPtr.Zero;
++                    w.WriteLine("# s152 native reads REFUSED: " + SfxPluginIdentity.RefusalReason);
++                    w.Flush();
+                 }
+             }
+-            return _pluginBase;
++            return b;
+         }
+ 
+         public static void LogSummonRoot()
+@@ -494,6 +494,10 @@ namespace Memoria
+         // track logged since s48 and the root logged since s52). NO geometry is read (DATA+0x08 is a PSX
+         // address never decoded here); NO per-bone matrices are emitted -- WriteBoneAabb reduces 93x3 -> 6
+         // in-loop and writes only the aggregate. No DLL patched, no export called.
++        //
++        // s152 -- every RVA below is valid ONLY on the pinned plugin build (SfxPluginIdentity, via PluginBase).
++        // The x86 column was re-derived statically (disasm/B5-x86-crosscheck.md) and has NEVER been exercised
++        // in game: no x86 cast appears in the study record.
+ 
+         private static readonly Boolean Arch64 = (IntPtr.Size == 8);
+ 
+diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SfxPluginIdentity.cs b/Assembly-CSharp/Memoria/Battle/SFX/SfxPluginIdentity.cs
+new file mode 100644
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxPluginIdentity.cs
+@@ -0,0 +1,153 @@
++using Memoria.Prime;
++using System;
++using System.Globalization;
++using System.Runtime.InteropServices;
++
++namespace Memoria
++{
++    // s152 -- THE PLUGIN IDENTITY GATE. The ONE owner of FF9SpecialEffectPlugin.dll's base address for every
++    // feature that addresses the plugin's memory at a fixed RVA: the s52/s53 SfxMeshProbe reads (ROOT, MODEL,
++    // PSXCAM, BONES) and the s58 SfxHybridDrive reads + its one WRITE (the body-hide mask).
++    //
++    // WHY: those RVAs (the summon record x64 0x220830 / x86 0x20869c, the eff array, the GTE camera, ...)
++    // were decoded from ONE build of the plugin -- studies/custom-summons/PLAN.md 3A (linked 2016-10-19, the
++    // Steam release) and disasm/B5-x86-crosscheck.md. Before s152 nothing checked which DLL was loaded. On
++    // any other build (another store, an updated or relinked plugin) the RVAs name arbitrary memory: the
++    // probes would log garbage or fault, and the drive would WRITE 4 bytes through a pointer it read from an
++    // arbitrary address.
++    //
++    // THE CHECK: once, at first use, read the loaded module's OWN PE header from memory (an HMODULE is the
++    // image base, and a mapped image's header page is always readable): 'MZ', e_lfanew, 'PE\0\0', then the
++    // COFF Machine + TimeDateStamp and the optional header's Magic + SizeOfImage. The base is handed out ONLY
++    // when all four match the pinned build for this process's arch. A relink changes TimeDateStamp and moves
++    // .data/.bss, which is the event that invalidates the RVAs; an in-place byte patch that keeps the stamp
++    // also keeps the layout. The deploy-time twin is a whole-file sha256 (ff9mapkit summons/deploy.py
++    // SFX_PLUGIN_BUILDS: x64 5e01f899e9090fc7..., x86 8635255d78cde4c8...), which refuses to arm [SfxHybrid]
++    // on an unknown install. This gate is what still protects a hand-written ini.
++    //
++    // FAILS CLOSED: a mismatch (or an unreadable header) latches Refused for the process and logs ONE
++    // Memoria.log warning with the observed values; every caller then gets IntPtr.Zero and does nothing.
++    // Not-loaded-yet (GetModuleHandle == 0) is NOT a verdict -- the caller retries next frame, as before.
++    //
++    // x86: the x86 pins below and every x86 RVA in s52/s53/s58 were re-derived STATICALLY (B5) and have
++    // NEVER been exercised in game -- no x86 cast appears in the study record (every recorded cast ran the
++    // x64 build). A 32-bit launch on the pinned build is accepted here; its first cast is that arch's first
++    // real test.
++    public static class SfxPluginIdentity
++    {
++        private const String PluginName = "FF9SpecialEffectPlugin.dll";
++
++        // The pinned build, read off the installed DLLs' own headers (their sha256s are in the header above).
++        private const UInt16 X64Machine = 0x8664;
++        private const UInt16 X64Magic = 0x020B;              // PE32+
++        private const UInt32 X64TimeDateStamp = 0x58075FABu; // 2016-10-19 11:57:31 UTC
++        private const UInt32 X64SizeOfImage = 0x00627000u;
++        private const UInt16 X86Machine = 0x014C;
++        private const UInt16 X86Magic = 0x010B;              // PE32
++        private const UInt32 X86TimeDateStamp = 0x580763E9u; // 2016-10-19 12:15:37 UTC
++        private const UInt32 X86SizeOfImage = 0x00611000u;
++
++        // e_lfanew must land inside the first 4 KiB page (the headers' own page, mapped for any loaded image)
++        // with room for the fields read below, so an absurd value is a refusal, never a read past the mapping.
++        private const Int32 HeaderPage = 0x1000;
++        private const Int32 OptHeaderOff = 24;               // PE signature (4) + COFF file header (20)
++        private const Int32 SizeOfImageOff = 56;             // in the optional header; the same in PE32 and PE32+
++
++        // HMODULE of a normally-loaded DLL IS its in-memory base address (Win32 contract).
++        [DllImport("kernel32", CharSet = CharSet.Unicode, ExactSpelling = false)]
++        private static extern IntPtr GetModuleHandle(String lpModuleName);
++
++        private static IntPtr _base = IntPtr.Zero;           // set only once VERIFIED
++        private static Boolean _refused;
++        private static String _refusal = String.Empty;
++
++        // True once the loaded plugin was checked and is NOT the pinned build (latched for the process).
++        public static Boolean Refused
++        {
++            get { return _refused; }
++        }
++
++        // Why (observed vs expected), for a caller's own log. Empty unless Refused.
++        public static String RefusalReason
++        {
++            get { return _refusal; }
++        }
++
++        // The plugin's base address -- ONLY when it is loaded AND is the exact build the RVAs came from.
++        // IntPtr.Zero = not loaded yet (retry next frame) or Refused (read the property; it never clears).
++        public static IntPtr VerifiedBase()
++        {
++            if (_base != IntPtr.Zero || _refused)
++                return _base;
++            IntPtr b;
++            try
++            {
++                b = GetModuleHandle(PluginName);
++            }
++            catch
++            {
++                return IntPtr.Zero;
++            }
++            if (b == IntPtr.Zero)
++                return IntPtr.Zero;
++            String why = Check(b);
++            if (why == null)
++            {
++                _base = b;
++                return _base;
++            }
++            _refused = true;
++            _refusal = why;
++            try
++            {
++                Log.Warning("[SfxPluginIdentity] {0}", why);
++            }
++            catch
++            {
++            }
++            return IntPtr.Zero;
++        }
++
++        // null = the pinned build; otherwise the reason it is not.
++        private static String Check(IntPtr b)
++        {
++            Boolean x64 = (IntPtr.Size == 8);
++            try
++            {
++                if ((UInt16)Marshal.ReadInt16(b, 0) != 0x5A4D) // 'MZ'
++                    return Refusal(x64, "no MZ signature at the module base");
++                Int32 lfanew = Marshal.ReadInt32(b, 0x3C);
++                if (lfanew < 0x40 || lfanew > HeaderPage - 0x100)
++                    return Refusal(x64, "e_lfanew 0x" + lfanew.ToString("X", CultureInfo.InvariantCulture) + " is outside the header page");
++                if (Marshal.ReadInt32(b, lfanew) != 0x00004550) // 'PE\0\0'
++                    return Refusal(x64, "no PE signature at e_lfanew");
++                UInt16 machine = (UInt16)Marshal.ReadInt16(b, lfanew + 4);
++                UInt32 stamp = (UInt32)Marshal.ReadInt32(b, lfanew + 8);
++                UInt16 magic = (UInt16)Marshal.ReadInt16(b, lfanew + OptHeaderOff);
++                UInt32 size = (UInt32)Marshal.ReadInt32(b, lfanew + OptHeaderOff + SizeOfImageOff);
++                UInt16 wantMachine = x64 ? X64Machine : X86Machine;
++                UInt16 wantMagic = x64 ? X64Magic : X86Magic;
++                UInt32 wantStamp = x64 ? X64TimeDateStamp : X86TimeDateStamp;
++                UInt32 wantSize = x64 ? X64SizeOfImage : X86SizeOfImage;
++                if (machine == wantMachine && magic == wantMagic && stamp == wantStamp && size == wantSize)
++                    return null;
++                return Refusal(x64, String.Format(CultureInfo.InvariantCulture,
++                    "loaded build is Machine 0x{0:X4} Magic 0x{1:X3} TimeDateStamp 0x{2:X8} SizeOfImage 0x{3:X}, pinned build is " +
++                    "Machine 0x{4:X4} Magic 0x{5:X3} TimeDateStamp 0x{6:X8} SizeOfImage 0x{7:X}",
++                    machine, magic, stamp, size, wantMachine, wantMagic, wantStamp, wantSize));
++            }
++            catch (Exception ex)
++            {
++                return Refusal(x64, "its PE header could not be read (" + ex.GetType().Name + ")");
++            }
++        }
++
++        private static String Refusal(Boolean x64, String detail)
++        {
++            return PluginName + " (" + (x64 ? "x64" : "x86") + ") is not the build the summon hybrid drive and the SFX " +
++                "probe's native offsets were derived from -- " + detail + ". Every fixed-offset read of its memory, and the " +
++                "drive's hide-mask write, is OFF for this run: [SfxHybrid] does nothing and [SfxProbe] CaptureRoot/" +
++                "CaptureModels log no ROOT/MODEL rows. Use the DLL-free overlay summon lane on this install.";
++        }
++    }
++}

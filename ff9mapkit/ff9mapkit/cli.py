@@ -9533,7 +9533,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="overlay lane only: which donor clips to bake to .anim ('all'|'none'|index list)")
     sd_.add_argument("--arm", action="store_true",
                      help="ALSO write Memoria.ini [SfxHybrid] (hybrid lane): backs the ini up, string-probes "
-                          "the DLL for SfxHybridDrive, prints the diff. Confirm-first -- omit to only stage "
+                          "the DLL for SfxHybridDrive, refuses a FF9SpecialEffectPlugin.dll build the drive's "
+                          "native offsets were not derived from, prints the diff. Confirm-first -- omit to only stage "
                           "the assets + print the [SfxHybrid] block. RELAUNCH to apply.")
     sd_.set_defaults(func=_cmd_summon_deploy)
 
