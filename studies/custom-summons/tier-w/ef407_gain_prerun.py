@@ -3,6 +3,8 @@ r"""TIER W -- THE GAIN-HALF CAST, RUN OFFLINE FIRST.  ef407, ``cell.s0.x704_y256
     py ef407_gain_prerun.py                    # stamp both marks, build, render stock + both, report
     py ef407_gain_prerun.py --frames 70-215    # the drawn window (default: every frame of the reads)
     py ef407_gain_prerun.py --variants ink     # one mark only
+    py ef407_gain_prerun.py --art DIR          # THE CAST'S ART: stamp the ink bars into an `export-art`
+                                               # directory's own PNG (tier-w/ef407_gain.toml reads it)
 
 THE QUESTION
 ------------
@@ -84,7 +86,8 @@ def _lum(word: int) -> float:
 
 
 # ============================================================ 1-2: stamp and build
-def stamp(blob: bytes, variant: str) -> dict:
+def bars(blob: bytes, variant: str):
+    """The stamped page: ``(page, words, stamped index bytes, ink, texels moved)``."""
     page = next(p for p in RP.scenery_texel_pages(blob, EF) if p.name == CELL)
     assert (page.bpp, page.w, page.h, page.page_bytes) == (8, 128, 128, 16384), page
     raw = bytearray(blob[page.page_offset:page.page_offset + page.page_bytes])
@@ -101,6 +104,28 @@ def stamp(blob: bytes, variant: str) -> dict:
                 continue                                         # never cross the cutout boundary
             moved += raw[i] != ink
             raw[i] = ink
+    return page, words, raw, ink, moved
+
+
+def stamp_art(blob: bytes, art_dir: str, variant: str = "ink") -> str:
+    """Stamp the bars into ``export-art``'s own PNG, after proving that PNG IS the stock page (re-encoding
+    the stock bytes through the same writer must reproduce it byte for byte), so the cast keeps the art
+    manifest's drift guard and paints exactly the page the pre-run rendered."""
+    import tempfile
+    page, words, raw, ink, moved = bars(blob, variant)
+    png = Path(art_dir) / ("%s.png" % CELL)
+    stock = blob[page.page_offset:page.page_offset + page.page_bytes]
+    with tempfile.TemporaryDirectory() as t:
+        ref = RP.write_indexed_png(stock, words, page.w, page.h, os.path.join(t, "ref.png"))
+        if Path(ref).read_bytes() != png.read_bytes():
+            raise SystemExit("%s is not the stock page (painted already, or another export) -- re-export" % png)
+    RP.write_indexed_png(bytes(raw), words, page.w, page.h, str(H._refuse_repo_path(png)))
+    print("stamped %s: %d texels -> index %d (%s bars)" % (png, moved, ink, variant))
+    return str(png)
+
+
+def stamp(blob: bytes, variant: str) -> dict:
+    page, words, raw, ink, moved = bars(blob, variant)
     d = OUT / variant
     d.mkdir(parents=True, exist_ok=True)
     png = str(H._refuse_repo_path(d / ("%s.png" % CELL)))
@@ -265,12 +290,16 @@ def main(argv=None) -> int:
     ap.add_argument("--frames", default=DEFAULT_FRAMES)
     ap.add_argument("--variants", default=",".join(VARIANTS))
     ap.add_argument("--no-render", action="store_true", help="re-analyse the renders already in SCRATCH")
+    ap.add_argument("--art", metavar="DIR", help="stamp the ink bars into this export-art directory and stop")
     ap.add_argument("--child", nargs=2, metavar=("CONTAINER", "OUT"), help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     if a.child:
         return child(a.child[0], a.child[1], a.frames)
     variants = [v for v in a.variants.split(",") if v]
     blob = CORPUS_FILE.read_bytes()
+    if a.art:
+        stamp_art(blob, a.art)
+        return 0
     builds = {v: stamp(blob, v) for v in variants}
     for v, b in builds.items():
         print("%-5s ink %3d (lum %5.1f)  %d texels set, %d container bytes, self-check %s" % (

@@ -1,0 +1,41 @@
+# TIER W / U2 -- THE GAIN-HALF CAST: four bright bars on ef407 `cell.s0.x704_y256`.
+#
+# The cell binds NO reader of its own.  The U2 adoption (`linear-add-v1`) licenses it because one
+# record's second array displaces its readers from column 640 onto column 704, and op 144 copies
+# (704,256) into (704,384) every frame it runs, where those readers sample.  A wrong model would make
+# this repaint INVISIBLE IN GAME with no error anywhere -- this cast is what rules that out.
+#
+# PRE-RUN OFFLINE (`ef407_gain_prerun.py`, headless `raster.py`): the same bars change f75-192, 99.9% of
+# the changed pixels through (704,384), and climb the ice spire ~2 px a frame (tier-w/PLAN.md, owner
+# item 1).  Bright bars (index 254, the palette's brightest live entry) because the readers blend
+# ADDITIVELY and bright read at least as well as dark there.
+#
+# Generate the art first (export, then stamp -- the stamp refuses a PNG that is not the stock page):
+#
+#     cd ff9mapkit
+#     py -m ff9mapkit summon-reskin export-art --ef 407 --out C:\gd\SCRATCH\summon-format\repaint-w6b\ef407-gain\art
+#     cd ..\studies\custom-summons\tier-w
+#     py ef407_gain_prerun.py --art C:\gd\SCRATCH\summon-format\repaint-w6b\ef407-gain\art
+#
+# Cast from the bench: Steiniv -> Rune -> "Stock Shiva Short" (row 205, the only 6 MP row).
+
+[reskin]
+effect = 407
+label  = "ef407-gain-half-bars"
+expect_sha256 = "d09e233088d2f52cf151690ecbaab69fc9fbf4ecc832ed3e81a6cce1a96d5c60"
+
+[[reskin.texel]]
+name = "cell.s0.x704_y256"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef407-gain/art/cell.s0.x704_y256.png"
+
+# --- the guards, emitted by export-art's derivation, never typed ---------------------------------
+expect_page_offset = 0x02146c
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+expect_bpp         = 8
+expect_cell        = [704, 256]
+
+# --- the authored decisions ------------------------------------------------------------------------
+enabled = true
+acknowledge_cutout_reshape = false   # the palette has no transparent entry; nothing crosses a cutout
+note = "U2 gain half: bars on a readerless cell, carried to the screen by op 144's copy at (704,384)"
