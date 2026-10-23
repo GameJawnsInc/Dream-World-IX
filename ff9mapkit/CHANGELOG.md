@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the hybrid summon lane checks the effect plugin before arming
+- `summon-deploy --arm` now hashes the install's `FF9SpecialEffectPlugin.dll` (x64 and x86) and refuses to arm
+  `[SfxHybrid]` unless it is the build the hybrid drive's native memory offsets were taken from (the Steam release,
+  linked 2016-10-19). On any other build the drive would read, and write 4 bytes, at addresses that mean nothing.
+  The refusal says which arch and hash it found and points at `lane = "overlay"`, which needs no engine and reads
+  no native memory. Nothing is written when it refuses, not even the summon's model and sequence files.
+- A GOG or updated plugin that differs from the Steam release is refused the same way. The known builds are listed
+  in one place, `ff9mapkit/sfxplugin.py`.
+
 ### Added — the World tab's recipe: undo, redo, save and open
 - A "Recipe" bar above the forest and mountain cards lists the draft's edits as a `world-fuse` recipe: each Accept is
   one `[[forest]]` or `[[mountain]]` row, built from the very command it ran.
