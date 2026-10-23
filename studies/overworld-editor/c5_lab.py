@@ -1,7 +1,7 @@
 """Rung C5 in game: the island the World tab's sink tool sank into a draft, promoted, and seen in the running game.
 
     py studies/overworld-editor/c5_lab.py build    # the tool picks + accepts the sink; identity; predictions
-    py studies/overworld-editor/c5_lab.py run      # reach the world; before / promote / reload / after; KEEPS the game
+    py studies/overworld-editor/c5_lab.py run      # reach the world; before / promote / reload / after; quit
 
 THE EDITOR'S PATH (as C1-C3): the real SinkTool (workspace/worldsink.py) with its real runner, against the real
 install: the click at ISLAND picks the island from the cached island list, Check runs `world-sink --dry-run`, Accept
@@ -169,6 +169,7 @@ def run():
                           and any(f"Block[{a}][{b}]" in ln for a, b in cells)]
             tele("S2-island-after", island)
             tele("K1-back", K)                                        # never left standing on the water
+        C2._sh([py, "tools/play.py", HERE / "a1_quit.py", "--attach", "--label", "c5-quit"], 300)   # close the game
     RESULT.write_text(json.dumps(rec, indent=1, default=str), encoding="utf-8")
 
     def y(key):
@@ -212,6 +213,7 @@ def resume():
                   and any(f"Block[{a}][{b}]" in ln for a, b in cells)]
     tele("S2-island-after", island)
     tele("K1-back", K)
+    C2._sh([py, "tools/play.py", HERE / "a1_quit.py", "--attach", "--label", "c5-quit"], 300)       # close the game
 
     def y(key):
         return (rec["steps"].get(key) or {}).get("world_y")
