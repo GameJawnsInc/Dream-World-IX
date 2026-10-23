@@ -747,14 +747,21 @@ class CutsceneDoc(QWidget):
         cl = QVBoxLayout(center)
         cl.setContentsMargins(0, 0, 0, 0)
         cl.setSpacing(4)
-        bar = QWidget()
-        bh = QHBoxLayout(bar)
-        bh.setContentsMargins(10, 4, 10, 0)
-        bh.setSpacing(10)
+        # the scene bar: title + gate LEAD, the five scene buttons TAIL. A SpillRow, because one
+        # non-wrapping row floored the whole window (828px at 150% -> 1290 with a field open);
+        # the buttons drop to a second line only when the column cannot hold both.
+        lead = QWidget()
+        lh = QHBoxLayout(lead)
+        lh.setContentsMargins(0, 0, 0, 0)
+        lh.setSpacing(10)
         self.scene_title = widgets.role_label("—", "cardtitle")
-        bh.addWidget(self.scene_title)
+        lh.addWidget(self.scene_title)
         self.scene_gate = widgets.ElideLabel("", min_ch=8)
-        bh.addWidget(self.scene_gate, 1)
+        lh.addWidget(self.scene_gate, 1)
+        tail = QWidget()
+        bh = QHBoxLayout(tail)
+        bh.setContentsMargins(0, 0, 0, 0)
+        bh.setSpacing(10)
         self.add_step_btn = widgets.ElideButton("＋ Step")
         self.add_step_btn.setProperty("role", "quiet")
         self.add_step_btn.setToolTip("Insert a step after the selected row (at the end when "
@@ -790,7 +797,8 @@ class CutsceneDoc(QWidget):
             "No clock, on purpose: a say waits for the player, so seconds would be fiction.")
         self.board_btn.toggled.connect(self._toggle_board)
         bh.addWidget(self.board_btn)
-        cl.addWidget(bar)
+        self.scene_bar = widgets.SpillRow(lead, tail)
+        cl.addWidget(self.scene_bar)
         # the scene-settings card -- THE ACCORDION (playtest feedback: a separate band per
         # panel cluttered the column): it unfolds INSIDE the ladder above row 0, mutually
         # exclusive with the step editor, and scrolls WITH the ladder (one scrollbar). Built

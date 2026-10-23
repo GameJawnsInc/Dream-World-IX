@@ -9,7 +9,7 @@ from __future__ import annotations
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontInfo, QFontMetricsF, QPainter
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QApplication, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
+    QAbstractSpinBox, QApplication, QBoxLayout, QComboBox, QFrame, QGraphicsDropShadowEffect, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -552,6 +552,66 @@ class ElideButton(QPushButton):
         fm = self.fontMetrics()
         w = max(0, self.width() - self._pad())
         super().setText(fm.elidedText(self._full, Qt.TextElideMode.ElideRight, w) if w else self._full)
+
+
+class SpillRow(QWidget):
+    """A toolbar row whose trailing button cluster SPILLS onto a second line when one line cannot hold it.
+
+    A non-wrapping HBox floors its page at the SUM of its children: the Cutscene scene bar (title + gate + five
+    buttons) was 828px at 150%, the widest page in the stack, so it alone set the whole window floor (1290 with a
+    field open -- over a 1280 window). Here the floor is the WIDER of the two halves, never their sum, and the
+    row stays one line whenever the width allows. Both hints are derived from the CHILDREN'S hints, never from
+    this row's own geometry, so the direction flip cannot feed back into the width that decided it.
+    """
+
+    ROW_GAP, LINE_GAP = 10, 4
+
+    def __init__(self, lead: QWidget, tail: QWidget, *, margins=(10, 4, 10, 0), parent=None):
+        super().__init__(parent)
+        self._lead, self._tail = lead, tail
+        self._box = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
+        self._box.setContentsMargins(*margins)
+        self._box.setSpacing(self.ROW_GAP)
+        self._box.addWidget(lead, 1)
+        self._box.addWidget(tail, 0, Qt.AlignmentFlag.AlignLeft)   # spilled: packed left, not stretched
+
+    def spilled(self) -> bool:
+        return self._box.direction() == QBoxLayout.Direction.TopToBottom
+
+    def _one_line_width(self) -> int:
+        m = self._box.contentsMargins()
+        return (m.left() + m.right() + self._lead.minimumSizeHint().width() + self.ROW_GAP
+                + self._tail.sizeHint().width())
+
+    def sizeHint(self):                       # width: the one-line ask, in BOTH directions (a stable hint)
+        return QSize(self._one_line_width(), super().sizeHint().height())
+
+    def minimumSizeHint(self):                # the floor is the wider half -- the whole point
+        m = self._box.contentsMargins()
+        w = m.left() + m.right() + max(self._lead.minimumSizeHint().width(),
+                                       self._tail.minimumSizeHint().width())
+        return QSize(w, super().minimumSizeHint().height())
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._fit()
+
+    def event(self, ev):
+        # a child's hint moves with NO resize of this row (a scene relabel, CALIBRE re-metrics): the
+        # children's updateGeometry lands here as a LayoutRequest, so the threshold is re-read then too
+        handled = super().event(ev)
+        if ev.type() == QEvent.Type.LayoutRequest:
+            self._fit()
+        return handled
+
+    def _fit(self):
+        spill = self.width() < self._one_line_width()
+        if spill == self.spilled():
+            return
+        self._box.setDirection(QBoxLayout.Direction.TopToBottom if spill
+                               else QBoxLayout.Direction.LeftToRight)
+        self._box.setSpacing(self.LINE_GAP if spill else self.ROW_GAP)
+        self.updateGeometry()                 # the height changed; the width hints did not
 
 
 def nameplate(kicker: str, name: str, note: str = "", *, parent=None):
