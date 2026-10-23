@@ -90,7 +90,7 @@ alone.
   a refused file means stock, not the next folder's). Two labs first in FolderNames: 4/4 heights within 0.002u, each
   case 1.5u from the wrong rule; Memoria.log confirmed the loads and the refusal. "Only this folder" previews a
   scratch folder for C1.
-- **C1 BUILT + IN-GAME PROVEN (2026-10-23), owner playtest pending** -> [`C1.md`](C1.md). Add forest in the 3D view:
+- **C1 BUILT + IN-GAME PROVEN + OWNER-PASSED (2026-10-23: "forest is there and walkable")** -> [`C1.md`](C1.md). Add forest in the 3D view:
   click to place, drag the ghost, turn and spread it within the law's ceilings, a donor from the qualified canopies;
   the footprint law previews live (vectorised, 120/120 agreeing with the carve's loop, 3.8 ms); on release the tool
   runs `world-forest --dry-run` and draws its verdict where the gates refuse (B1 for the forest's gates: located
