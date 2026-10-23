@@ -3,8 +3,9 @@ r"""TIER W -- THE GAIN-HALF CAST, RUN OFFLINE FIRST.  ef407, ``cell.s0.x704_y256
     py ef407_gain_prerun.py                    # stamp both marks, build, render stock + both, report
     py ef407_gain_prerun.py --frames 70-215    # the drawn window (default: every frame of the reads)
     py ef407_gain_prerun.py --variants ink     # one mark only
-    py ef407_gain_prerun.py --art DIR          # THE CAST'S ART: stamp the ink bars into an `export-art`
-                                               # directory's own PNG (tier-w/ef407_gain.toml reads it)
+    py ef407_gain_prerun.py --art DIR          # THE CAST'S ART: stamp the cast mark (zebra; --mark to
+                                               # choose) into an `export-art` directory's own PNG
+                                               # (tier-w/ef407_gain.toml reads it)
 
 THE QUESTION
 ------------
@@ -115,7 +116,7 @@ def bars(blob: bytes, variant: str):
     return page, words, raw, (dark if variant == "dark" else bright), moved
 
 
-def stamp_art(blob: bytes, art_dir: str, variant: str = "ink") -> str:
+def stamp_art(blob: bytes, art_dir: str, variant: str = "zebra") -> str:
     """Stamp the bars into ``export-art``'s own PNG, after proving that PNG IS the stock page (re-encoding
     the stock bytes through the same writer must reproduce it byte for byte), so the cast keeps the art
     manifest's drift guard and paints exactly the page the pre-run rendered."""
@@ -128,7 +129,7 @@ def stamp_art(blob: bytes, art_dir: str, variant: str = "ink") -> str:
         if Path(ref).read_bytes() != png.read_bytes():
             raise SystemExit("%s is not the stock page (painted already, or another export) -- re-export" % png)
     RP.write_indexed_png(bytes(raw), words, page.w, page.h, str(H._refuse_repo_path(png)))
-    print("stamped %s: %d texels -> index %d (%s bars)" % (png, moved, ink, variant))
+    print("stamped %s: %d texels, mark %s" % (png, moved, variant))
     return str(png)
 
 
@@ -298,7 +299,8 @@ def main(argv=None) -> int:
     ap.add_argument("--frames", default=DEFAULT_FRAMES)
     ap.add_argument("--variants", default=",".join(VARIANTS))
     ap.add_argument("--no-render", action="store_true", help="re-analyse the renders already in SCRATCH")
-    ap.add_argument("--art", metavar="DIR", help="stamp the ink bars into this export-art directory and stop")
+    ap.add_argument("--art", metavar="DIR", help="stamp the cast mark into this export-art directory and stop")
+    ap.add_argument("--mark", default="zebra", choices=VARIANTS + ("zebra",), help="the mark --art stamps")
     ap.add_argument("--child", nargs=2, metavar=("CONTAINER", "OUT"), help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     if a.child:
@@ -306,7 +308,7 @@ def main(argv=None) -> int:
     variants = [v for v in a.variants.split(",") if v]
     blob = CORPUS_FILE.read_bytes()
     if a.art:
-        stamp_art(blob, a.art)
+        stamp_art(blob, a.art, a.mark)
         return 0
     builds = {v: stamp(blob, v) for v in variants}
     for v, b in builds.items():

@@ -646,8 +646,14 @@ scenery must be re-authored *together*.
   **STAGED FOR THE OWNER CAST.** Bench row **205 "Stock Shiva Short"** (vfx 407/407, the only 6 MP row
   on Steiniv's `Rune`) appended last in `rung8.field.toml`, bench 85/85, deployed to field 30301; the
   cast spec `ef407_gain.toml` (art stamped into `export-art`'s own PNG by `ef407_gain_prerun.py --art`)
-  deployed as `FF9CustomMap/FF9_Data/SpecialEffects/ef407` = sha `f7599f99…`, byte-identical to the
-  container the pre-run rendered. One revert, newest first:
+  deployed as `FF9CustomMap/FF9_Data/SpecialEffects/ef407`. **THE MARK IS ZEBRA, sha `71d04a12…`**,
+  byte-identical to the zebra pre-run: the first staging's bars (`f7599f99…`) were measurable but the
+  owner could not see them in the offline side-by-side (pale grey on bright additive ice), so the whole
+  cell became 16-row brightest/darkest bands — ~3.3× the strongly changed pixels, the burst, the shard
+  arms and the spire visibly striped. ⚠ THE LEDGER TRAP, MET AGAIN: redeploying zebra over bars made the
+  CLI ledger record the BARS as the pre-state, so its revert would have restored bars, not stock. Fixed
+  by unwinding (ledger revert → our bars removed by sha → zebra deployed onto an absent ef407; its
+  ledger revert now dry-runs `would delete`), and the wrapper below re-checks by sha. One revert, newest first:
   `C:\gd\SCRATCH\summon-format\repaint-w6b\ef407-gain\revert_ef407_gain_cast.py` (container deleted,
   then 30301's own revert restores the CSVs, registrations and scripts DLL). Found at staging: the
   install had NEITHER bench's rows 196-204 live — a field-30300 (rung 3) deploy at 15:42 the same day

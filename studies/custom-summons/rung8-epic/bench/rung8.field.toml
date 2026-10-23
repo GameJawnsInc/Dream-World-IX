@@ -327,10 +327,10 @@ abilities = [
   # --- TIER W / U2, THE GAIN HALF: "Stock Shiva Short" casts effect 407.  SAME shape as the rows above,
   #     same donor, same three overrides, APPENDED LAST so it takes id 205 and leaves 192-204 where they are.
   #   WHAT ef407 IS.  Shiva's SHORT cut (row 200 above is her full ef038), ef038's structural twin on
-  #     column 640.  It carries `tier-w/ef407_gain.toml`: bars painted into `cell.s0.x704_y256`, a cell
-  #     the U2 adoption licenses with NO bound reader.  op 144 copies it into (704,384) every frame, where
-  #     the displaced readers sample it -- the cast that closes the gain half's silent-failure mode.  The
-  #     headless pre-run (`tier-w/ef407_gain_prerun.py`) already shows the bars climbing the ice spire.
+  #     column 640.  It carries `tier-w/ef407_gain.toml`: bold zebra bands painted into `cell.s0.x704_y256`,
+  #     a cell the U2 adoption licenses with NO bound reader.  op 144 copies it into (704,384) every frame,
+  #     where the displaced readers sample it -- the cast that closes the gain half's silent-failure mode.
+  #     The headless pre-run (`tier-w/ef407_gain_prerun.py`) already shows the stripes climbing the spire.
   #   mp = 6, NOT 8   the one-glance tell against "Stock Shiva" three rows up (ef038, 24 s): the only
   #                   6 MP row on Rune.  It also buys Steiniv four casts out of his 24 MP instead of three.
   #   vfx1 = vfx2 = 407  both cells equal, so the short-summon roll cannot change what plays.
