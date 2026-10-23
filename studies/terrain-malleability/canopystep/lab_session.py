@@ -25,6 +25,7 @@ REGISTERED PREDICTIONS (lab_prep.py, out/lab/prep.json), tolerance 0.15 on every
   Owner: comp26 reads as a stock desert massif with its scrub canopy, at 0, 90, 200 and 270 deg.
 RUN:  py studies/terrain-malleability/canopystep/lab_install.py install
       py tools/play.py studies/terrain-malleability/canopystep/lab_session.py --label canopy-step
+      (CANOPY_DONOR=comp10 on all three for round 23)
       py studies/terrain-malleability/canopystep/lab_install.py uninstall <run dir>
 MTN_STILLS=1 = views and stills only.
 """
@@ -50,7 +51,8 @@ import lab_prep as P                                  # noqa: E402  (the variant
 GAME = Path(r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX")
 LAB_NAME = "FF9CustomMap-lab"
 LAB = GAME / LAB_NAME
-SRC = HERE / "out" / "lab"
+import rounds  # noqa: E402  ($CANOPY_DONOR)
+SRC = rounds.LAB
 PREP = json.loads((SRC / "prep.json").read_text(encoding="utf-8"))
 STAGES = tuple(os.environ.get("MTN_STAGES", ",".join(PREP["variants"])).split(","))
 STILLS_ONLY = os.environ.get("MTN_STILLS") == "1"
@@ -60,7 +62,7 @@ WALKS = ("west", "east")
 SETTLE, APART = 180, 60
 TOL_Y, TOL_FACE = 0.15, 6.0
 TREE = Path("FF9_Data") / "WorldMap" / "Disc1"
-_RECORD: dict = {"lane": "canopy-step", "prep": PREP, "stages": []}
+_RECORD: dict = {"lane": rounds.R["label"], "prep": PREP, "stages": []}
 
 
 def _save(g):
@@ -245,7 +247,7 @@ def run(g):
     _RECORD["environment"] = ENV.read_text(encoding="utf-8") if ENV.is_file() else None
     g.check(ENV.is_file() and "Mist [Condition=false]" in ENV.read_text(encoding="utf-8"),
             "the mist is forced off for the stills (the lab's Environment.txt)", str(_RECORD["environment"]))
-    g.note("canopy-step: comp26 carried with its canopy onto a desert island -- rot "
+    g.note(f"{rounds.R['label']}: {rounds.R['what']} -- rot "
            + ", ".join(f"{s} {PREP['variants'][s]['rot']}" for s in STAGES)
            + (" (stills, mist off)" if STILLS_ONLY else ""))
     mark = g.log_mark()

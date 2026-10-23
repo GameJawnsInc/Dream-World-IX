@@ -73,3 +73,19 @@ stills: 1 (a sea glint in C-south), so no gutter sliver: the round-21 fix holds 
 
 **The first deliberate canopy carry works as canopy:** the party sinks into it exactly as into stock forest, and walks
 across it to the rock. The panels (`mountain_panel_*.png`) show the scrub canopy against the rock at every angle.
+
+## Round 23: comp10, a grass massif with its forest canopy (`CANOPY_DONOR=comp10`; registered before the launch)
+
+The same lane, driven by `rounds.py` (comp26 stays the default). comp10 carries only since the down gate keeps a
+donor's own near-vertical walls (`../mountaindonors/STEP.md` round 2): its two stock tris (a canopy wall, ny -0.0074;
+a rock, ny -0.0030) are kept by name at every angle.
+- **Island:** `world-island --ground grass --center 1380,-96 --radius 66 --lobes 1 --patches 0 --seed 42`, blocks
+  (20,0)-(22,2), holding comp10's r65 bench; it mints with 3 WARN rows.
+- **Carve points** (`grid_probe.py`): 25/25 at every angle (0, 90, 200, 270); all four variants from near (1380, -96).
+- **Variants:** A rot 0, B 90, C 200, D 270, donor 14-16,14 with the canopy spec `((99.418, 128.5), (-32.5, -4.199),
+  2.234, (37,))`: 64 canopy tris, zip rise 1.45, rock-rigid 1.74% (the gate allows 3.5%), every gate clean.
+- **Prep:** summits 25.90-26.05; ring y 2.36-4.33; 5 canopy points each; the walk in meets the canopy at about 8u and
+  the rock at about 21.5u.
+
+Predictions: round 22's P1-P5 unchanged (tolerance 0.15; on canopy, the 1.171875 sink). Owner: comp10 reads as a stock
+grass massif with its forest canopy, and its 1.7% rock shear (the canopy's feet tilt the de-tilt plane) does not show.
