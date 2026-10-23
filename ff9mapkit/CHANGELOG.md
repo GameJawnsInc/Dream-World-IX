@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — sink an island from the World tab
+- "Sink an island" in the 3D view: click a real island and its outline shows where the sea will close; its verdict
+  shows at once (sunk whole, its land only, or with the islands its water joins; an island with an entrance needs
+  "Allow entrances"). `world-sink` checks it, and Accept writes it to the draft on disc 1 and on disc 4. It is a
+  `[[sink]]` row of the recipe, and Promote takes it into the game.
+- The island list takes about three minutes to read the first time and is kept in the kit's cache afterwards.
+- `world-sink --report-json PATH` writes the verdict as JSON. `world-sink --list` rows now carry each island's outline.
+- Tested in game: the island was gone after the promote and the reload, and the party stood in open water where it
+  had been.
+
+### Fixed
+- Promoting a draft whose edit lands on blocks the live folder had no files at (a sunk stock island) wrote the
+  files but then failed to save its record, so it could not be reverted. The record is now always written.
+
 ### Changed — `summon-reskin` refuses a repaint the effect overwrites every frame
 - Some stock summons animate a texture by copying one band of VRAM onto another every frame. A repaint
   inside such a band builds, deploys and verifies, then never shows. `summon-reskin build` and `plan` now

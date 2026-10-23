@@ -274,7 +274,7 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 
 # --------------------------------------------------------------------------------------- world states
-WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain")
+WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-sink")
 # "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
 # surface that depends on the developer's machine cannot be a pinned review state.
 WORLD_EXTRA_STATES = ("3d-live",)
@@ -639,6 +639,60 @@ def _settle_view(doc) -> None:
         _settle(1)
 
 
+def _snap_world_sink(ctx: _Ctx, win) -> None:
+    """Rung C5: the sink card on the pinned 3D page -- an island picked (its outline is the ghost) that passes, and
+    one whose entrances refuse it until "Allow entrances" is ticked. Invented outlines over the synthetic island."""
+    import math
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    seams, _runner = _mountain_seams()                   # the synthetic island as the soup
+    ring = [[1248.0 + 70.0 * math.cos(a), -1184.0 + 52.0 * math.sin(a)] for a in
+            [k * 2 * math.pi / 24 for k in range(24)]]
+    rows = [{"at": [1248.0, -1184.0], "outline": ring, "land_u2": 11436.0, "max_y": 32.0,
+             "blocks": [[19, 18], [19, 19], [18, 18], [20, 18]], "ok": True, "why": None, "fill": "tiles",
+             "entrance_tris": 0, "cluster": None}]
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "at": [1248.0, -1184.0], "blocks": rows[0]["blocks"],
+                 "written": [], "report": {"land_tris": 2304}, "refused": None}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._sink_runner = drafts, Scripted()
+    doc._sink_seams = {"outline_fn": lambda d: rows, "soup_fn": seams["soup_fn"], "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        st = doc.open_sink(sync=True)
+        st.place(1250.0, -1180.0, 20.0)
+        st._timer.stop()
+        st._check()
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(1248.0, -1184.0, dist=220.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 45.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-sink", win)
+        rows[0]["entrance_tris"] = 5                     # ...and one with an entrance on it (a fresh island
+        st._verdict = None                               # list: the pass above was for the one without)
+        st.place(1250.0, -1180.0, 20.0)
+        _settle(12)
+        _grab(ctx, "world-3d-sink-entrance", win)
+    finally:
+        V.load_scene = orig
+
+
 def _snap_forest_states(ctx: _Ctx, win, doc) -> None:
     ft, view = doc._forest, doc._view3d.view
     ft._on_reload = lambda x, z: None                    # the dev checkout's Show in game, offered
@@ -736,6 +790,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             return
         if state == "3d-mountain":
             _snap_world_mountain(ctx, win)
+            _close(win)
+            return
+        if state == "3d-sink":
+            _snap_world_sink(ctx, win)
             _close(win)
             return
         _settle()

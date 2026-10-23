@@ -448,7 +448,8 @@ class WorldDoc(QWidget):
 
     def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None, on_teleport=None,
                  drafts_root=None, forest_runner=None, forest_seams=None, on_reload=None,
-                 mountain_runner=None, mountain_seams=None, recipe_runner=None, recipe_seams=None):
+                 mountain_runner=None, mountain_seams=None, recipe_runner=None, recipe_seams=None,
+                 sink_runner=None, sink_seams=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -471,6 +472,9 @@ class WorldDoc(QWidget):
         self._mountain = None                      # the mountain tool (rung C2): built on the first Mountain click
         self._mountain_runner = mountain_runner    # ...and its seams, as the forest's
         self._mountain_seams = mountain_seams or {}
+        self._sink = None                          # the sink tool (rung C5): built on the first Sink click
+        self._sink_runner = sink_runner
+        self._sink_seams = sink_seams or {}
         self._recipe = None                        # the recipe bar (rung C3): built with the 3D page
         self._recipe_runner = recipe_runner        # ...its world-fuse runner and its seams (ask, file dialogs)
         self._recipe_seams = recipe_seams or {}
@@ -588,6 +592,13 @@ class WorldDoc(QWidget):
                                      "Accept writes it to a draft the game does not load.")
         self.mountain_btn.clicked.connect(lambda: self.open_mountain())
         self.mountain_btn.hide()
+        # ...and the sink tool (rung C5): a real island into open water through world-sink, into the same draft
+        self.sink_btn = QPushButton("Sink an island")
+        self.sink_btn.setProperty("role", "quiet")
+        self.sink_btn.setToolTip("Sink a real island into open water: click it; world-sink judges it, and Accept "
+                                 "writes it (disc 1 and disc 4) to a draft the game does not load.")
+        self.sink_btn.clicked.connect(lambda: self.open_sink())
+        self.sink_btn.hide()
         head.addWidget(self.view3d_btn)
         v.addLayout(head)
         self.canvas = AtlasCanvas(self.pal, on_select=self._on_select,
@@ -896,7 +907,7 @@ class WorldDoc(QWidget):
             self.draw_box.removeItem(ix)
 
     def _carry_tools(self):
-        return [t for t in (self._forest, self._mountain) if t is not None]
+        return [t for t in (self._forest, self._mountain, self._sink) if t is not None]
 
     def _open_carry(self, which, *, sync=False):
         """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
@@ -909,6 +920,8 @@ class WorldDoc(QWidget):
         if tool is None:
             if which == "forest":
                 from .worldforest import ForestTool as Tool
+            elif which == "sink":
+                from .worldsink import SinkTool as Tool
             else:
                 from .worldmountain import MountainTool as Tool
             tool = Tool(self.pal, self._view3d, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
@@ -946,6 +959,10 @@ class WorldDoc(QWidget):
         """The Mountain button."""
         return self._open_carry("mountain", sync=sync)
 
+    def open_sink(self, *, sync=False):
+        """The Sink button."""
+        return self._open_carry("sink", sync=sync)
+
     def _draft_changed(self, draft):
         """An Accept wrote the draft (or a discard removed it, an undo or redo moved it): draw it, or go back to the
         game's stack; the recipe bar and every tool read the draft again."""
@@ -979,6 +996,7 @@ class WorldDoc(QWidget):
                 self._recipe.refresh()
         self.forest_btn.setVisible(bool(on))
         self.mountain_btn.setVisible(bool(on))
+        self.sink_btn.setVisible(bool(on))
         if not on:
             for tool in self._carry_tools():
                 tool.close_tool()
@@ -990,8 +1008,9 @@ class WorldDoc(QWidget):
             from .worldview3d import WorldView3DPanel
             self._view3d = WorldView3DPanel(self.pal, scale=self._scale)
             self._view3d.picked.connect(self._on_pick)
-            self._view3d.add_control(self.mountain_btn)  # each control goes in front: these read draws, forest,
-            self._view3d.add_control(self.forest_btn)    # mountain
+            self._view3d.add_control(self.sink_btn)      # each control goes in front: these read draws, forest,
+            self._view3d.add_control(self.mountain_btn)  # mountain, sink
+            self._view3d.add_control(self.forest_btn)
             self._view3d.add_control(self.draw_box)
             self._views.addWidget(self._view3d)
             self._load_view3d(sync=sync)

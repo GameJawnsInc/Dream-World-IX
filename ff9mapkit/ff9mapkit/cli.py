@@ -4900,6 +4900,38 @@ def _gate_line(g: dict) -> str:
     return f"GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}"
 
 
+def _sink_report_json(args, at, *, s=None, refused=None) -> None:
+    """``world-sink --report-json``: the verdict as data, beside the unchanged printed text (the World tab's sink
+    card reads it). A refusal names its gates and the middles of the blocks they fail in."""
+    path = getattr(args, "report_json", None)
+    if not path:
+        return
+    import json
+    from pathlib import Path
+    out = {"ok": False, "dry_run": bool(args.dry_run), "disc": args.disc, "at": list(at), "blocks": [],
+           "written": [], "report": None, "refused": None}
+    if s is not None:
+        failing = [(b, g) for b, r in sorted(s.get("per_block", {}).items()) for g in r.get("gates", ())
+                   if not g.get("ok")]
+        out.update(ok=bool(s.get("clean")), blocks=[list(b) for b in s.get("blocks", ())],
+                   written=[str(p) for p in s.get("deployed", ())],
+                   report={k: s.get(k) for k in ("land_tris", "land_u2", "max_y", "tiles", "fill", "bands",
+                                                 "shore_tris", "entrance_tris", "members", "building")})
+        if not s.get("clean"):
+            def mid(b):
+                bx, by = (int(v) for v in str(b).split(","))
+                return [64.0 * bx + 32.0, -(64.0 * by + 32.0)]
+            out["refused"] = {"gate": failing[0][1].get("gate", "error") if failing else "error",
+                              "message": "NOT CLEAN -- nothing written: " + ", ".join(
+                                  sorted({g.get("gate", "?") for _b, g in failing})),
+                              "detail": "", "where": [mid(b) for b in sorted({b for b, _g in failing})]}
+    if refused is not None:
+        out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused), "detail": "",
+                          "where": [list(p) for p in getattr(refused, "where", [])] or [list(at)]}
+    Path(path).write_text(json.dumps(out, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
+                          encoding="utf-8")
+
+
 def _cmd_world_sink(args: argparse.Namespace) -> int:
     """LAND -> SEA: sink a whole REAL island into open water, in place (``transplant.sink``)."""
     from .world import discmirror as DM, transplant as TR
@@ -4947,7 +4979,7 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
     # THE DISC-4 REPLAY: where disc 4's blocks differ, this same command runs again there, on disc 4's own island
     def replay(d):
         sys.stdout.flush()
-        ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": DM.REPLAY})
+        ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": DM.REPLAY, "report_json": None})
         if _cmd_world_sink(ns) != 0:
             raise ValueError(f"world-sink --disc {d} refused the same island (see above)")
     try:
@@ -4956,7 +4988,9 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
                     allow_entrances=args.allow_entrances, replay=replay, cluster=args.cluster)
     except (ValueError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _sink_report_json(args, at, refused=e)
         return 2
+    _sink_report_json(args, at, s=s)
     print(f"SINK, disc {args.disc}: the island at ({at[0]}, {at[1]}) -- {s['land_tris']} land tris, {s['land_u2']} u2, "
           f"up to y {s['max_y']}, over block(s) {' '.join(str(tuple(b)) for b in s['blocks'])}")
     if s.get("members"):
@@ -10467,6 +10501,10 @@ def build_parser() -> argparse.ArgumentParser:
     wsk.add_argument("--skip-mirror", action="store_true", help="don't mirror or replay the edit on disc 4")
     _add_fresh_args(wsk, "sink")
     wsk.add_argument("--allow-entrances", action="store_true", help=_ALLOW_ENTRANCES_HELP)
+    wsk.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the verdict as JSON to PATH: ok, the blocks, the files written, the sink's "
+                          "report, and on a refusal its gates and where (the World tab's sink card reads it). The "
+                          "printed text is unchanged.")
     wsk.add_argument("--cluster", action="store_true",
                      help="sink the island together with every island its coastal or beach water joins (an island "
                           "cluster, within 9 blocks), re-tiled as one; without it, a joined island sinks alone and "
