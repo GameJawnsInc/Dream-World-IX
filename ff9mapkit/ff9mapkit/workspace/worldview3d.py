@@ -1,4 +1,4 @@
-"""The World tab's 3D view: the overworld as the engine binds it, on the GPU (editor rung A0, read-only).
+"""The World tab's 3D view: the overworld on the GPU, stock under one folder's overrides (editor rungs A0-A1).
 
 ``studies/overworld-editor/PLAN.md`` rung A0. The data path is the software renderer's own
 (:func:`ff9mapkit.world.render.load_batches` with ``stock=True``: stock land under the deployed overrides, open sea
@@ -20,7 +20,9 @@ Laws this surface honours by construction:
   the software renderer's pixel-corner samples to GL's pixel centres), and the interactive orbit camera produces the
   same camera dict, so the view and the oracle can never drift apart by construction.
 
-Not here (later rungs): picking (A1), the x-torus wrap at the 23|0 seam, sea animation, fog, the sky.
+Rung A1 adds :func:`pick` (the eye ray through a pixel, front faces only) and the pin. Not here: the whole
+``FolderNames`` stack (the view draws ONE folder over stock; ``world.pointinfo`` names a point where the game draws
+another folder's file), the x-torus wrap at the 23|0 seam, sea animation, fog, the sky.
 """
 
 from __future__ import annotations
@@ -143,6 +145,16 @@ class Packed:
     arrays: dict
     draws: list
     tris: int = 0
+    _pick: dict = dataclasses.field(default_factory=dict, repr=False)   # part -> (v0, e1, e2, n), built on first pick
+
+    def pick_arrays(self, part):
+        """Float64 ``(v0, e1, e2, normal)`` per triangle of ``part``, computed once (a click must not re-allocate
+        them for the whole map)."""
+        if part not in self._pick:
+            v = self.arrays[part][:, :3].astype(np.float64).reshape(-1, 3, 3)
+            v0, e1, e2 = v[:, 0].copy(), v[:, 1] - v[:, 0], v[:, 2] - v[:, 0]
+            self._pick[part] = (v0, e1, e2, np.cross(e1, e2))
+        return self._pick[part]
 
     @property
     def parts(self):
@@ -228,6 +240,48 @@ def compare(oracle, gpu, *, sky=None) -> dict:
             full &= pad[dy:dy + H, dx:dx + W]
     return {"pixels": int(diff.size), "differ": int(diff.sum()), "coverage": int((sky_a != sky_b).sum()),
             "blob": int(full.sum())}
+
+
+def pixel_ray(view, res, mx, my):
+    """``(origin, unit direction)`` of the eye ray through window point ``(mx, my)`` (top-left origin, device pixels,
+    continuous -- a mouse position). Pixel ``i``'s centre is ``i + 0.5`` there and ``i`` in render.project's frame,
+    the same half-pixel the clip matrix carries, so the ray passes exactly where that pixel was drawn."""
+    W, H = res
+    eye, right, up, fwd = view_basis(view)
+    f = (H / 2.0) / math.tan(math.radians(view["fov"]) / 2.0)
+    a = (mx - 0.5 - W / 2.0) / f
+    b = -(my - 0.5 - H / 2.0) / f
+    d = fwd + a * right + b * up
+    return eye, d / np.linalg.norm(d)
+
+
+def pick(packed: Packed, view, res, mx, my, *, near=None):
+    """The surface under window point ``(mx, my)``: ``(world xyz, part)`` of the nearest FRONT-facing triangle the
+    eye ray hits (the view culls back faces, so a pick never lands on one you cannot see), or ``None`` for sky.
+    Vectorised Moller-Trumbore over every packed triangle: ~287k on the whole map, a few tens of ms."""
+    eye, d = pixel_ray(view, res, mx, my)
+    near = float(view.get("near", NEAR)) if near is None else near
+    best_t, best = math.inf, None
+    for part in packed.arrays:
+        v0, e1, e2, n = packed.pick_arrays(part)
+        front = n @ d < 0.0                                  # the game-eye cull: the normal faces the eye
+        p = np.cross(d, e2)
+        det = np.einsum("ij,ij->i", e1, p)
+        ok = front & (np.abs(det) > 1e-12)
+        inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+        s = eye - v0
+        u = np.einsum("ij,ij->i", s, p) * inv
+        q = np.cross(s, e1)
+        w = (q @ d) * inv
+        t = np.einsum("ij,ij->i", e2, q) * inv
+        hit = ok & (u >= 0) & (w >= 0) & (u + w <= 1) & (t > near)
+        if hit.any():
+            i = int(np.argmin(np.where(hit, t, np.inf)))
+            if t[i] < best_t:
+                best_t, best = float(t[i]), part
+    if best is None:
+        return None
+    return tuple(float(c) for c in eye + best_t * d), best
 
 
 def load_scene(site, *, part_src=None):
@@ -323,6 +377,30 @@ class _GLScene:
             self.vbos[bound].release()
         prog.release()
 
+    def draw_solid(self, f, mvp: np.ndarray, tris_xyz: np.ndarray, rgb):
+        """Untextured triangles in one colour, on top of everything (no depth test, no cull) -- the pick's pin."""
+        data = np.ascontiguousarray(np.c_[tris_xyz, np.zeros((len(tris_xyz), 2))], dtype=np.float32).tobytes()
+        vbo = QOpenGLBuffer(QOpenGLBuffer.Type.VertexBuffer)
+        vbo.create()
+        vbo.bind()
+        vbo.allocate(data, len(data))
+        f.glDisable(GL_DEPTH_TEST)
+        f.glDisable(GL_CULL_FACE)
+        prog = self.prog
+        prog.bind()
+        prog.setUniformValue("u_mvp", QMatrix4x4(*[float(v) for v in mvp.reshape(-1)]))
+        prog.setUniformValue1i(prog.uniformLocation("u_has_tex"), 0)
+        prog.setUniformValue("u_missing", *[c / 255.0 for c in rgb])
+        loc_p, loc_uv = prog.attributeLocation("a_pos"), prog.attributeLocation("a_uv")
+        prog.enableAttributeArray(loc_p)
+        prog.enableAttributeArray(loc_uv)
+        prog.setAttributeBuffer(loc_p, GL_FLOAT, 0, 3, 20)
+        prog.setAttributeBuffer(loc_uv, GL_FLOAT, 12, 2, 20)
+        f.glDrawArrays(GL_TRIANGLES, 0, len(tris_xyz))
+        vbo.release()
+        vbo.destroy()
+        prog.release()
+
     def release_scene(self):
         for vbo in self.vbos.values():
             vbo.destroy()
@@ -382,6 +460,21 @@ def render_still(batches, view, *, res=None, tex_lookup=None, site=None, cull=Tr
         ctx.doneCurrent()
 
 
+PIN_HALO_RGB = (12, 12, 12)    # drawn under the accent pin: the world under it is any colour (sea is the dark
+#                                theme's accent blue), so the pin carries its own ground
+
+def pin_tris(xyz, height, *, w_frac=0.12):
+    """Two crossed upright quads standing on ``xyz``, ``height`` tall: the picked point's marker (12 vertices)."""
+    x, y, z = xyz
+    w = height * w_frac
+    out = []
+    for dx, dz in ((w, 0.0), (0.0, w)):
+        a, b = (x - dx, y, z - dz), (x + dx, y, z + dz)
+        c, d = (x + dx, y + height, z + dz), (x - dx, y + height, z - dz)
+        out += [a, b, c, a, c, d]
+    return np.asarray(out, dtype=np.float64)
+
+
 # ---------------------------------------------------------------- the interactive view
 @dataclasses.dataclass
 class OrbitCamera:
@@ -428,6 +521,8 @@ class WorldView3D(QOpenGLWidget):
     """The orbitable view. Left-drag orbits, right- or middle-drag pans, the wheel zooms, Home re-frames."""
 
     gl_failed = Signal(str)
+    picked = Signal(object)                                  # ((x, y, z), part) or None (sky) -- a click, not a drag
+    CLICK_SLOP = 4                                           # device px a press may wander and still be a click
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -442,10 +537,30 @@ class WorldView3D(QOpenGLWidget):
         self._pending = None                                 # (packed, textures) waiting for a current context
         self._ready = False
         self._drag = None
+        self._press_at = None
+        self.packed = None                                   # the scene the view draws (the pick's triangles)
+        self.marker = None                                   # (x, y, z) of the last pick
+        self.marker_rgb = None                               # the theme accent; the panel sets it (no colour of its own)
 
     def set_scene(self, packed: Packed, textures: dict):
         self._pending = (packed, textures)
+        self.packed = packed
         self.update()
+
+    def device_res(self):
+        dpr = self.devicePixelRatioF()
+        return max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr))
+
+    def pick_at(self, x, y):
+        """Pick at widget point ``(x, y)`` (logical px): ``((x, y, z), part)`` or None. Sets the marker."""
+        if self.packed is None:
+            return None
+        dpr = self.devicePixelRatioF()
+        res = self.device_res()
+        hit = pick(self.packed, self.camera.view(), res, x * dpr, y * dpr)
+        self.marker = None if hit is None else hit[0]
+        self.update()
+        return hit
 
     def focus(self, wx, wz, *, dist=160.0, y=0.0):
         self.camera.target, self.camera.dist = (float(wx), float(y), float(wz)), dist
@@ -472,11 +587,18 @@ class WorldView3D(QOpenGLWidget):
             self._scene.upload(*self._pending)
             self._pending = None
         cam = self.camera
-        self._scene.draw(f, clip_matrix(cam.view(), (w, h), far=cam.far()))
+        mvp = clip_matrix(cam.view(), (w, h), far=cam.far())
+        self._scene.draw(f, mvp)
+        if self.marker is not None and self.marker_rgb is not None:
+            h = max(1.5, cam.dist * 0.04)
+            hx, hy, hz = self.marker
+            self._scene.draw_solid(f, mvp, pin_tris((hx, hy - h * 0.06, hz), h * 1.12, w_frac=0.3), PIN_HALO_RGB)
+            self._scene.draw_solid(f, mvp, pin_tris(self.marker, h), self.marker_rgb)
 
     # -- input --
     def mousePressEvent(self, e):
         self._drag = (e.button(), e.position())
+        self._press_at = (e.button(), e.position(), 0.0)
         e.accept()
 
     def mouseMoveEvent(self, e):
@@ -484,6 +606,11 @@ class WorldView3D(QOpenGLWidget):
             return
         button, last = self._drag
         d: QPointF = e.position() - last
+        if self._press_at is not None:
+            b0, p0, _ = self._press_at
+            self._press_at = (b0, p0, max(self._press_at[2], math.hypot(*(e.position() - p0).toTuple())))
+            if self._press_at[2] * self.devicePixelRatioF() <= self.CLICK_SLOP:
+                return                                       # still a click: the camera holds still
         if button == Qt.MouseButton.LeftButton:
             self.camera.orbit(d.x(), d.y())
         else:
@@ -493,6 +620,10 @@ class WorldView3D(QOpenGLWidget):
 
     def mouseReleaseEvent(self, e):
         self._drag = None
+        press, self._press_at = self._press_at, None
+        if (press is not None and press[0] == Qt.MouseButton.LeftButton and e.button() == Qt.MouseButton.LeftButton
+                and press[2] * self.devicePixelRatioF() <= self.CLICK_SLOP):
+            self.picked.emit(self.pick_at(e.position().x(), e.position().y()))
 
     def wheelEvent(self, e):
         self.camera.zoom(e.angleDelta().y() / 120.0)
@@ -512,6 +643,11 @@ class WorldView3D(QOpenGLWidget):
             self.doneCurrent()
 
 
+def _rgb(hexcolour):
+    h = str(hexcolour).lstrip("#")
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
 class WorldView3DPanel(QWidget):
     """The 3D page of the World tab: a status/fallback page until the map is loaded, then the view.
 
@@ -519,11 +655,13 @@ class WorldView3DPanel(QWidget):
     deterministic lane for tests and gui_snap."""
 
     _loaded = Signal(object, object, object)                 # (packed | None, textures | None, error | None)
+    picked = Signal(object)                                  # the view's pick, forwarded: ((x, y, z), part) or None
 
     def __init__(self, pal, *, scale=100):
         super().__init__()
         self.pal, self._scale = pal, scale
         self.view = None
+        self.site = None                                     # the RenderSite the view drew (the pick's facts read it)
         self._busy = False
         self._focus = None
         self._loaded.connect(self._finish)
@@ -571,6 +709,7 @@ class WorldView3DPanel(QWidget):
         self._busy = True
         self._show_message("Loading the map…", "Reading the blocks the engine binds: stock land under your "
                            "overrides. About five seconds for the whole map.")
+        self.site = site
         if sync:
             self._work(site)
             return True
@@ -596,6 +735,8 @@ class WorldView3DPanel(QWidget):
         if self.view is None:
             self.view = WorldView3D()
             self.view.gl_failed.connect(lambda msg: self._show_message("The 3D view needs OpenGL", msg))
+            self.view.picked.connect(self.picked.emit)
+            self.view.marker_rgb = _rgb(self.pal["accent"])
             self._stack.addWidget(self.view)
         self.view.set_scene(packed, textures)
         if self._focus is not None:
@@ -604,6 +745,9 @@ class WorldView3DPanel(QWidget):
 
     def retheme(self, pal):
         self.pal = pal
+        if self.view is not None:
+            self.view.marker_rgb = _rgb(pal["accent"])
+            self.view.update()
 
     def set_scale(self, pct):
         self._scale = pct

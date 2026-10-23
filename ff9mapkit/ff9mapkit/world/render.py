@@ -50,7 +50,7 @@ from . import mesh as M
 __all__ = [
     "RenderSite", "BENCH_VSHORE", "BENCH_VIEWS", "BENCH_CORNER_BBOX",
     "BLIND_SPOTS", "PARTS", "WATER_TEX", "SCROLL_TEX", "SKY", "BLANK_WHITE", "effective_prefab",
-    "load_batches", "live_path", "tex_for", "sample", "project", "raster",
+    "cell_meshes", "load_batches", "live_path", "tex_for", "sample", "project", "raster",
     "diff", "render_blocks", "render_state", "calibrate", "cmd_flow",
     "face_grads", "flow_records", "views_around", "cells_around",
     "ground_y_near",
@@ -241,6 +241,29 @@ def _stock_part(site: RenderSite, bx, by, part):
         return None
 
 
+def cell_meshes(site: RenderSite, bx, by, part_src=None, *, stock: bool = False):
+    """``[(part, BlockMesh)]`` at cell ``(bx, by)`` in ``site.parts`` order, block-LOCAL: the override file where one
+    exists (``part_src`` first, then the site's folder), else with ``stock=True`` the part the engine binds there
+    (:func:`_stock_part`). The ONE per-cell resolution: :func:`load_batches` draws it and the World tab's 3D pick
+    asks the ground query of it, so what you click is what was drawn."""
+    site = site.resolved()
+    out = []
+    for part in site.parts:
+        p = live_path(site, bx, by, part)
+        if part_src is not None:
+            p = part_src.get((bx, by, part), p)
+        if p.is_file():
+            bm = M.blockmesh_from_ff9mesh(p, disc=site.disc, x=bx, y=by, part=part.lower())
+        elif stock:
+            bm = _stock_part(site, bx, by, part)
+            if bm is None:
+                continue
+        else:
+            continue
+        out.append((part, bm))
+    return out
+
+
 def load_batches(site: RenderSite, part_src=None, *, stock: bool = False):
     """[(part, verts Nx3 world, uvs Nx2, tris Mx3)]; ``part_src`` maps
     (bx,by,part)->Path overriding the live file (walk_sim convention). ``stock=True`` renders what the
@@ -252,19 +275,7 @@ def load_batches(site: RenderSite, part_src=None, *, stock: bool = False):
     batches = []
     for (bx, by) in site.cells:
         ox, oz = X.block_world_origin(bx, by)
-        for part in site.parts:
-            p = live_path(site, bx, by, part)
-            if part_src is not None:
-                p = part_src.get((bx, by, part), p)
-            if p.is_file():
-                bm = M.blockmesh_from_ff9mesh(p, disc=site.disc, x=bx, y=by,
-                                              part=part.lower())
-            elif stock:
-                bm = _stock_part(site, bx, by, part)
-                if bm is None:
-                    continue
-            else:
-                continue
+        for part, bm in cell_meshes(site, bx, by, part_src, stock=stock):
             pos = np.asarray(bm.chan_arrays[X.CH_POS], dtype=np.float64)
             uvc = bm.chan_arrays.get(X.CH_UV)
             uv = np.asarray(uvc, dtype=np.float64)[:, :2] if uvc is not None \

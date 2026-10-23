@@ -79,6 +79,11 @@ alone.
 - **A0 BUILT (2026-10-23), owner look pending** -> [`A0.md`](A0.md). The GPU view matches `world-render` at the six
   committed bench cameras and a disc-1 coast with blob 0 and coverage <= 2; three break-it mutations are caught.
   Whole-map load 5.4 s (worker thread). Not in A0: the x-torus wrap, picking (A1).
+- **A1 BUILT + IN-GAME PROVEN (2026-10-23)** -> [`A1.md`](A1.md). A click picks the surface (front faces, 27-79 ms on
+  the whole map) and the strip shows the triple, the engine's ground, the stacked-sheet rule, who the game takes the
+  files from, the ledger and the landmark; "Teleport game here" (dev checkout) moved the party to three landmark
+  picks within 0.004u, standing within 0.003u of the predicted height. Found on the way: the view draws one folder
+  over stock, not the whole FolderNames stack -- the facts flag it per point; drawing the stack is worth doing before C1.
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,

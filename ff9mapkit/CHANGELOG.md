@@ -6,14 +6,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 ## [Unreleased]
 
 ### Added — the World tab shows the map in 3D
-- The World tab has a "3D view" button. It shows the whole overworld the way the engine binds it: stock land under
-  the selected folder's overrides, open sea round them, and the parts a donor brings along. Drag to orbit, right-drag
+- The World tab has a "3D view" button. It shows the whole overworld: stock land under the selected folder's
+  overrides, open sea round them, and the parts a donor brings along. Where another mod folder overrides the same
+  block, the game shows that folder's files instead; a picked point says so. Drag to orbit, right-drag
   to pan, use the wheel to zoom, and press Home to re-frame; a selected block opens the view centred on it.
 - It draws with the same rules as `world-render` (unlit, nearest-texel, sea at its first frame, the same back-face
   cull), and its stills match `world-render`'s at the six committed bench cameras, apart from one-pixel differences
   at texture and triangle edges.
 - It is read-only. The map loads on the first click, in about five seconds. On a display without OpenGL (a remote
   desktop, a headless run) the page says so instead of showing a blank view.
+- Click the map to pick a point: a pin marks it, and the details strip shows its world, block and cell coordinates,
+  the ground the engine puts you on there (height, terrain type, whether you can walk it, the forest canopy's sink),
+  a warning where walkable ground is stacked, which mod folder the game takes each file from, the last kit verb
+  that wrote the block, and the nearest landmark. "Copy position" copies the point for the debug menu's teleport.
+- In a development checkout, "Teleport game here" moves the party in the running game to the picked point through
+  the test harness (`tools/world_teleport.py`). Tested on three landmarks: the party landed within 0.004 units of
+  the pick, at the predicted height.
 
 ### Fixed — no sky showing through the sea at a cove's inner corner on `world-island` islands
 - An island with a concave bend in its coast (a cove or notch) showed small sky-coloured wedges in the water at the

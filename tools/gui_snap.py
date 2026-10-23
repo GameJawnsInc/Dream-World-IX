@@ -446,6 +446,31 @@ def _snap_world_3d(ctx: _Ctx, state: str, win) -> None:
         view.update()
     _settle(12)
     _grab(ctx, f"world-{state}", win)
+    if view is None:
+        return
+    # rung A1: a pick at the view's centre, its pin and the strip's point facts. The pinned state answers the
+    # facts from a fixed record (the synthetic scene has no blocks to query); 3d-live asks the real install.
+    from ff9mapkit.world import pointinfo as PI
+    orig_info = PI.point_info
+    if state == "3d":
+        def _fixed(site, wx, wz, **_k):
+            return {"world": (wx, wz), "block": (19, 18), "cell": (39, 37), "local": (0.0, 0.0),
+                    "ground": {"modelled": True, "note": "", "y": 18.4, "part": "Terrain", "idall": 0,
+                               "topograph": 0, "area": 14, "event": 0, "walkable": True, "canopy": False,
+                               "stand_y": 18.4, "sheets": [(18.4, "Terrain", 0)]},
+                    "owners": {"shown": "FF9CustomMap-world", "in_stack": True,
+                               "parts": {"Terrain": "FF9CustomMap-world", "Sea4": "stock"}, "hidden": []},
+                    "ledger": {"verb": "world-island", "utc": "2026-10-23T09:00:00+00:00", "part": "Terrain",
+                               "removed": False},
+                    "landmark": {"name": "Treno", "dist": 228.0}}
+        PI.point_info = _fixed
+    try:
+        hit = view.pick_at(view.width() / 2, view.height() / 2)
+        doc._on_pick(hit, sync=True)
+    finally:
+        PI.point_info = orig_info
+    _settle(12)
+    _grab(ctx, f"world-{state}-pick", win)
 
 
 def snap_world(ctx: _Ctx, state: str) -> None:

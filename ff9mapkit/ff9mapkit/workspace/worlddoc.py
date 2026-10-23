@@ -443,8 +443,9 @@ class WorldDoc(QWidget):
     tab show."""
 
     _scan_done = Signal(object, object, object)    # (census | None, stock grid | None, error | None)
+    _point_done = Signal(object, object, object)   # (the pick it answers, point_info | None, error | None)
 
-    def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None):
+    def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None, on_teleport=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -457,6 +458,10 @@ class WorldDoc(QWidget):
         self._trees = []
         self._game = None                          # the install the last scan read (the 3D view reads it too)
         self._view3d = None                        # the 3D page: built on the user's first "3D view" click
+        self._point = None                         # the 3D pick the strip shows: ((x, y, z), part) or None
+        self._point_info = None                    # its facts, once read (world.pointinfo.point_info)
+        self._on_teleport = on_teleport            # (x, z) -> None: the shell's dev-checkout harness job, or None
+        self._point_done.connect(self._finish_point)
         self._busy = False
         self._guide_state = ("scan", "")
         self._ask_name = self._ask_name_dialog     # the modal seam: tests/snaps inject, prod asks
@@ -611,6 +616,16 @@ class WorldDoc(QWidget):
         self.site_btn.clicked.connect(self._copy_site_cmd)
         self.site_btn.hide()
         brow.addWidget(self.site_btn)
+        # The 3D pick's second-slot button (the same one-slot swap): move the running game's party to the
+        # picked point. Dev checkout only -- the shell passes on_teleport only when tools/world_teleport.py
+        # (the harness) is there, and the button never shows without it.
+        self.teleport_btn = QPushButton("Teleport game here")
+        self.teleport_btn.setProperty("role", "quiet")
+        self.teleport_btn.setToolTip("Move the party in the running game to this point (the debug menu's overworld "
+                                     "teleport, sent through the test harness; the game must be on the world map).")
+        self.teleport_btn.clicked.connect(self._teleport)
+        self.teleport_btn.hide()
+        brow.addWidget(self.teleport_btn)
         sh.addLayout(brow)
         v.addWidget(strip)
         return page
@@ -782,6 +797,7 @@ class WorldDoc(QWidget):
         if self._view3d is None:
             from .worldview3d import WorldView3DPanel
             self._view3d = WorldView3DPanel(self.pal, scale=self._scale)
+            self._view3d.picked.connect(self._on_pick)
             self._views.addWidget(self._view3d)
             self._load_view3d(sync=sync)
         self._focus_view3d()
@@ -814,6 +830,76 @@ class WorldDoc(QWidget):
         if self._view3d is not None and self._selected is not None:
             self._view3d.focus(*worldscan.block_center(*self._selected))
 
+    # -- the 3D pick (rung A1) --
+    def _on_pick(self, hit, *, sync=False):
+        """A click on the 3D view: select its block on the chart (so the chart agrees on return), then show the
+        point's facts -- read on a worker (the first read of a stock block opens its bundle, about a second);
+        ``sync=True`` is the deterministic lane."""
+        if hit is None:
+            self._point = self._point_info = None
+            self.sel_title.setText("Sky")
+            self.sel_facts.setText("Nothing under the cursor: click land or sea.")
+            self.sel_parts.setText("")
+            self._set_chip("", "info")
+            return
+        (x, _y, z), _part = hit
+        from ..world import frames
+        key = frames.world_to_block(*frames.wrap_world_xz(x, z))
+        self.canvas.select(key)                    # -> _on_select: the block strip, and the point cleared
+        self._point = hit
+        self.copy_btn.setText("Copy position")
+        self.copy_btn.setEnabled(True)
+        self.sel_title.setText(f"Point x {x:.2f}, z {z:.2f}")
+        self.sel_facts.setText("Reading the ground here…")
+        self.sel_parts.setText("")
+        self._set_chip("", "info")
+        self._swap_site(False, point=True)
+        site = self._view3d.site if self._view3d is not None else None
+        if site is None:
+            return
+        if sync:
+            self._work_point(hit, site)
+        else:
+            threading.Thread(target=self._work_point, args=(hit, site), daemon=True).start()
+
+    def _work_point(self, hit, site):
+        from ..world import pointinfo
+        try:
+            out = (hit, pointinfo.point_info(site, hit[0][0], hit[0][2]), None)
+        except Exception as e:                     # noqa: BLE001 -- surfaced on the GUI thread
+            out = (hit, None, f"{type(e).__name__}: {e}")
+        try:
+            self._point_done.emit(*out)
+        except RuntimeError:
+            pass
+
+    def _finish_point(self, hit, info, err):
+        if hit is not self._point:                 # a later click (or a selection) superseded this read
+            return
+        from ..world import pointinfo
+        if err is not None:
+            self.sel_facts.setText(f"The ground query failed: {err}")
+            return
+        self._point_info = info
+        lines = pointinfo.describe(info)
+        self.sel_facts.setText(" · ".join(lines[:2]))
+        self.sel_parts.setText(" · ".join(lines[2:]))
+        g = info["ground"]
+        if not g["modelled"]:
+            self._set_chip("not modelled", "warn")
+        elif g["part"] == "MISS":
+            self._set_chip("no ground", "warn")
+        elif g["walkable"]:
+            self._set_chip("walkable", "good")
+        else:
+            self._set_chip("not walkable", "info")
+
+    def _teleport(self):
+        if self._point is None or self._on_teleport is None:
+            return
+        (x, _y, z), _part = self._point
+        self._on_teleport(x, z)
+
     # -- selection / details --
     def _set_chip(self, text, kind):
         """Restyle the mirror chip: setText alone leaves the old kind's tint (setProperty needs the
@@ -829,6 +915,8 @@ class WorldDoc(QWidget):
 
     def _on_select(self, key):
         self._selected = key
+        self._point = self._point_info = None      # a chart selection ends the 3D pick
+        self.copy_btn.setText("Copy centre coords")
         if key is None or self._census is None:
             self.sel_title.setText("No block selected")
             self.sel_facts.setText("Click a block on the atlas — or arrow-key through them.")
@@ -869,11 +957,13 @@ class WorldDoc(QWidget):
         self.copy_btn.setEnabled(True)
         self.open_btn.setEnabled(c.dirpath is not None)
 
-    def _swap_site(self, siting):
-        """ONE of the two quiet buttons occupies the strip's second slot -- swapping keeps the strip's
+    def _swap_site(self, siting, *, point=False):
+        """ONE of the quiet buttons occupies the strip's second slot -- swapping keeps the strip's
         height (and therefore the canvas's fit) constant across every selection."""
-        self.site_btn.setVisible(siting)
-        self.open_btn.setVisible(not siting)
+        tele = point and self._on_teleport is not None
+        self.site_btn.setVisible(siting and not point)
+        self.teleport_btn.setVisible(tele)
+        self.open_btn.setVisible(not siting and not tele)
 
     def _select_empty(self, key):
         """The strip for an UNDEPLOYED block: its stock geography, its centre, and -- only when the
@@ -946,12 +1036,18 @@ class WorldDoc(QWidget):
         QTimer.singleShot(1400, lambda: self.site_btn.setText("Copy world-island command"))
 
     def _copy_coords(self):
-        if self._selected is None:
+        if self._point is not None:                # the 3D pick: the canonical pair, as the debug menu copies it
+            (x, _y, z), _part = self._point
+            QApplication.clipboard().setText(f"{x:.2f} {z:.2f}")
+            back = "Copy position"
+        elif self._selected is not None:
+            cx, cz = worldscan.block_center(*self._selected)
+            QApplication.clipboard().setText(f"{cx:g} {cz:g}")
+            back = "Copy centre coords"
+        else:
             return
-        cx, cz = worldscan.block_center(*self._selected)
-        QApplication.clipboard().setText(f"{cx:g} {cz:g}")
         self.copy_btn.setText("Copied ✓")          # text feedback, not motion (reduced-motion-safe)
-        QTimer.singleShot(1400, lambda: self.copy_btn.setText("Copy centre coords"))
+        QTimer.singleShot(1400, lambda: self.copy_btn.setText(back))
 
     def _open_folder(self):
         c = self._census.cells.get(self._selected) if self._census is not None else None

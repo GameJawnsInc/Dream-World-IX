@@ -184,3 +184,128 @@ def test_gpu_matches_the_committed_bench_cameras():
     for vn, c in out["views"].items():
         assert c["blob"] == 0 and c["coverage"] <= 4, (vn, c)
         assert c["differ"] < 0.01 * c["pixels"], (vn, c)
+
+
+# ------------------------------------------------------------------ rung A1: the pick
+GROUND = ("Terrain", np.array([[-50.0, 0.0, 50.0], [150.0, 0.0, 50.0], [-50.0, 0.0, -150.0], [150.0, 0.0, -150.0]]),
+          np.zeros((4, 2)), np.array([(0, 1, 2), (1, 3, 2)]))          # up-facing: (e1 x e2).y > 0
+PICK_VIEW = dict(kind="persp", eye=(20.0, 40.0, -90.0), at=(30.0, 0.0, -30.0), fov=50.0)
+
+
+def _lid(y, down):
+    v = np.array([[20.0, y, -40.0], [40.0, y, -40.0], [30.0, y, -20.0]])
+    return ("Object", v, np.zeros((3, 2)), np.array([(0, 1, 2)] if down else [(0, 2, 1)]))
+
+
+def test_a_pick_lands_on_the_point_render_projects_to_that_pixel():
+    """The ray and the projection are one: a click at pixel (i, j)'s centre hits the surface point render.project
+    puts on pixel (i, j) -- so the pin stands where you clicked, at any window size."""
+    res = (321, 207)
+    packed = V.pack([GROUND])
+    rng = np.random.default_rng(9)
+    for px, py in zip(rng.integers(0, res[0], 40), rng.integers(120, res[1], 40)):
+        hit = V.pick(packed, PICK_VIEW, res, px + 0.5, py + 0.5)
+        assert hit is not None and hit[1] == "Terrain" and abs(hit[0][1]) < 1e-9
+        sx, sy, _ = R.project(PICK_VIEW, np.array([hit[0]]), res)
+        assert abs(sx[0] - px) < 1e-6 and abs(sy[0] - py) < 1e-6
+
+
+def test_a_pick_takes_the_nearest_face_it_can_see_and_skips_back_faces():
+    res = (320, 200)
+    sx, sy, _ = R.project(PICK_VIEW, np.array([[30.0, 9.0, -33.0]]), res)
+    mx, my = sx[0] + 0.5, sy[0] + 0.5
+    up = V.pick(V.pack([GROUND, _lid(9.0, down=False)]), PICK_VIEW, res, mx, my)
+    assert up[1] == "Object" and up[0][1] == pytest.approx(9.0)
+    down = V.pick(V.pack([GROUND, _lid(9.0, down=True)]), PICK_VIEW, res, mx, my)
+    assert down[1] == "Terrain" and down[0][1] == pytest.approx(0.0)  # culled in the view, so not pickable
+    assert V.pick(V.pack([GROUND]), PICK_VIEW, res, 160.5, 2.5) is None   # above the horizon: sky
+
+
+def _mouse(w, kind, pos, button=None):
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
+    b = Qt.MouseButton.LeftButton if button is None else button
+    t = {"press": QEvent.Type.MouseButtonPress, "move": QEvent.Type.MouseMove,
+         "release": QEvent.Type.MouseButtonRelease}[kind]
+    held = Qt.MouseButton.NoButton if kind == "release" else b
+    ev = QMouseEvent(t, QPointF(*pos), QPointF(*pos), b if kind != "move" else Qt.MouseButton.NoButton, held,
+                     Qt.KeyboardModifier.NoModifier)
+    QApplication.sendEvent(w, ev)
+
+
+def test_a_click_picks_and_a_drag_orbits_through_real_event_delivery(app):
+    """Driven through QApplication.sendEvent (the skill's law: a fence that calls the handlers directly bypasses
+    Qt's delivery). A press that wanders under CLICK_SLOP is a click: it picks and the camera holds still; past it,
+    the same press is a drag: the camera orbits and nothing is picked."""
+    w = V.WorldView3D()
+    w.resize(320, 200)
+    w.packed = V.pack([GROUND])
+    w.camera = V.OrbitCamera(target=(30.0, 0.0, -30.0), yaw=10.0, pitch=40.0, dist=80.0)
+    got = []
+    w.picked.connect(got.append)
+    yaw0 = w.camera.yaw
+    _mouse(w, "press", (160, 120))
+    _mouse(w, "move", (162, 121))
+    _mouse(w, "release", (162, 121))
+    assert len(got) == 1 and got[0] is not None and got[0][1] == "Terrain"
+    assert w.camera.yaw == yaw0 and w.marker == got[0][0]
+    _mouse(w, "press", (160, 120))
+    _mouse(w, "move", (200, 120))
+    _mouse(w, "release", (200, 120))
+    assert len(got) == 1 and w.camera.yaw != yaw0
+
+
+def test_the_pin_stands_on_the_point():
+    t = V.pin_tris((5.0, 2.0, -7.0), 10.0)
+    assert t.shape == (12, 3) and t[:, 1].min() == pytest.approx(2.0) and t[:, 1].max() == pytest.approx(12.0)
+    assert np.allclose(t[:, [0, 2]].mean(axis=0), (5.0, -7.0))
+
+
+def test_a_pick_fills_the_strip_and_the_copy_and_teleport_buttons_follow_it(app, tmp_path, monkeypatch):
+    from ff9mapkit.world import pointinfo as PI
+    from ff9mapkit.workspace.worlddoc import WorldDoc
+    sent = []
+    doc = WorldDoc(pick_palette("mist"), game_path_fn=lambda: tmp_path, on_teleport=lambda x, z: sent.append((x, z)))
+    doc._census, doc._game = SimpleNamespace(root=tmp_path / "FF9CustomMap-world"), tmp_path
+    doc.set_view_mode("3d", sync=True)
+    doc._view3d.site = R.RenderSite(cells=(), game=tmp_path, mod_root=tmp_path / "FF9CustomMap-world")
+    seen = []
+
+    def fake(site, wx, wz, **_k):
+        seen.append((wx, wz))
+        return {"world": (wx, wz), "block": (1, 1), "cell": (3, 2), "local": (36.5, -6.25),
+                "ground": {"modelled": True, "note": "", "y": 5.0, "part": "Terrain", "idall": 0, "topograph": 0,
+                           "area": 14, "event": 0, "walkable": True, "canopy": False, "stand_y": 5.0,
+                           "sheets": [(5.0, "Terrain", 0)], "stacked": False, "shadowed": False},
+                "owners": {"shown": "FF9CustomMap-world", "in_stack": True, "parts": {"Terrain": "stock"},
+                           "hidden": []}, "ledger": None, "landmark": {"name": "Dali", "dist": 8.0}}
+    monkeypatch.setattr(PI, "point_info", fake)
+    doc._on_pick(((100.5, 5.0, -70.25), "Terrain"), sync=True)
+    assert seen == [(100.5, -70.25)]
+    assert doc.sel_title.text() == "Point x 100.50, z -70.25" and doc.sel_chip.text() == "walkable"
+    assert "block 1,1 · cell 3,2" in doc.sel_facts.text() and "Dali" in doc.sel_parts.text()
+    assert doc.copy_btn.text() == "Copy position" and not doc.teleport_btn.isHidden()
+    doc.copy_btn.click()
+    assert QApplication.clipboard().text() == "100.50 -70.25"
+    doc.teleport_btn.click()
+    assert sent == [(100.5, -70.25)]
+    doc._on_pick(None)                                       # a click on sky clears the point
+    assert doc._point is None and doc.sel_title.text() == "Sky"
+
+
+def test_without_the_dev_teleport_the_button_never_shows(app, tmp_path):
+    from ff9mapkit.workspace.worlddoc import WorldDoc
+    doc = WorldDoc(pick_palette("mist"), game_path_fn=lambda: tmp_path)
+    doc._census, doc._game = SimpleNamespace(root=tmp_path / "FF9CustomMap-world"), tmp_path
+    doc.set_view_mode("3d", sync=True)
+    doc._on_pick(((100.5, 5.0, -70.25), "Terrain"), sync=True)
+    assert doc.teleport_btn.isHidden() and not doc.open_btn.isHidden()
+
+
+def test_a_superseded_point_read_never_overwrites_the_newer_pick(app, tmp_path):
+    from ff9mapkit.workspace.worlddoc import WorldDoc
+    doc = WorldDoc(pick_palette("mist"), game_path_fn=lambda: tmp_path)
+    doc._point = ((2.0, 0.0, -2.0), "Terrain")
+    doc.sel_facts.setText("newer")
+    doc._finish_point(((1.0, 0.0, -1.0), "Terrain"), {"bogus": True}, None)   # an older click's late answer
+    assert doc.sel_facts.text() == "newer"
