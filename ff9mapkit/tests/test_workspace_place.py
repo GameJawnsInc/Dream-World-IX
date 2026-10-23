@@ -337,6 +337,28 @@ def test_regions_tool_swaps_clusters_and_canvas_mode(app):
     assert d.canvas._place_mode and d.mode_btns["npc"].isVisible()
 
 
+def test_the_no_field_row_shows_one_cluster_and_its_width(app):
+    """The fresh Place tab (no field fed) shows ONLY the Place tool's cluster, so its minimum
+    width is one tool's row, never both clusters' sum. Uncaught, the Regions radios + the two
+    gateway spinboxes sat beside the Place radios until a field was fed: PlaceDoc's polished
+    minimum went 895 -> 1164px natively and lifted the WHOLE window floor 1165 -> 1434, clipping
+    the Inspector at 1280. Widths are relative here (offscreen fonts are fiction)."""
+    d, _ = _doc(app)
+    assert d.tools.current() == "place"
+    assert d.mode_btns["npc"].isVisibleTo(d)
+    hidden = [d.rkind_btns["gateway"], d.rkind_btns["event"], d.gw_to_label, d.gw_to,
+              d.gw_ent_label, d.gw_ent]
+    assert not any(w.isVisibleTo(d) for w in hidden), "the Regions cluster leaks into Place"
+    fresh = d.minimumSizeHint().width()
+    widths = {}
+    for tool in ("regions", "place"):                  # each tool's OWN row, measured live
+        d.tools.set_current(tool)
+        QApplication.processEvents()
+        widths[tool] = d.minimumSizeHint().width()
+    assert fresh == widths["place"], (fresh, widths)
+    assert fresh <= max(widths.values()), (fresh, widths)
+
+
 def test_a_drawn_quad_lands_one_gateway_row(app):
     d, calls = _doc(app)
     data = {"field": {"source_field": 351}}
