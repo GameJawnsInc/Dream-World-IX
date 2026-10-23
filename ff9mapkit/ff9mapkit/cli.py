@@ -5040,8 +5040,9 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
 
 
 def _morph_report_json(args, *, summary=None, refused=None) -> None:
-    """``world-transplant --in-place --report-json``: the morph's verdict as data, beside the unchanged printed text.
-    A refusal names its failing gates; where they fail is the cell (its middle), the coast card's mark."""
+    """``world-transplant --report-json``: the verdict as data (an in-place morph's or a carry's), beside the
+    unchanged printed text. A refusal names its failing gates; where they fail is the cell (its middle), the card's
+    mark."""
     path = getattr(args, "report_json", None)
     if not path:
         return
@@ -5054,7 +5055,8 @@ def _morph_report_json(args, *, summary=None, refused=None) -> None:
     if summary is not None:
         bad = [g for g in summary.get("gates", ()) if not g.get("ok")]
         out.update(ok=bool(summary.get("clean")), gates=summary.get("gates", []),
-                   written=[str(p) for p in summary.get("deployed", ())], touched=summary.get("touched"))
+                   written=[str(p) for p in summary.get("deployed", ())], touched=summary.get("touched"),
+                   shift=summary.get("shift"), rot=summary.get("rot"), op=summary.get("op"))
         if bad:
             out["refused"] = {"gate": bad[0].get("gate", "error"), "detail": "", "where": [mid],
                               "message": "NOT CLEAN -- deploy refused: " + ", ".join(g.get("gate", "?") for g in bad)}
@@ -5265,8 +5267,8 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         print(str(e), file=sys.stderr)
         _morph_report_json(args, refused=e)
         return 2
+    _morph_report_json(args, summary=summary)          # every op: the in-place morph and the carry alike
     if summary["op"] == "morph-in-place":
-        _morph_report_json(args, summary=summary)
         print(f"IN-PLACE morph: real cell {tuple(summary['cell'])} "
               f"(touched parts: {', '.join(summary['touched'])})")
         _print_stack_notes(summary)

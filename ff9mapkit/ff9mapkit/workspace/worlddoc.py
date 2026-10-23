@@ -450,7 +450,7 @@ class WorldDoc(QWidget):
                  drafts_root=None, forest_runner=None, forest_seams=None, on_reload=None,
                  mountain_runner=None, mountain_seams=None, recipe_runner=None, recipe_seams=None,
                  sink_runner=None, sink_seams=None, coast_runner=None, coast_seams=None, island_runner=None,
-                 island_seams=None):
+                 island_seams=None, transplant_runner=None, transplant_seams=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -482,6 +482,9 @@ class WorldDoc(QWidget):
         self._island = None                        # the island tool (rung C5): built on the first Island click
         self._island_runner = island_runner
         self._island_seams = island_seams or {}
+        self._transplant = None                    # the transplant tool (rung C5): built on the first Carry click
+        self._transplant_runner = transplant_runner
+        self._transplant_seams = transplant_seams or {}
         self._recipe = None                        # the recipe bar (rung C3): built with the 3D page
         self._recipe_runner = recipe_runner        # ...its world-fuse runner and its seams (ask, file dialogs)
         self._recipe_seams = recipe_seams or {}
@@ -602,6 +605,8 @@ class WorldDoc(QWidget):
                  "radius, lobes, height, ground and shape; world-island judges it."),
                 ("coast", "Shape a coast", "Morph a real island's coast in place: click a cliff or a beach; only the "
                  "lawful windows and depths are offered, and world-transplant judges it."),
+                ("transplant", "Carry a coast", "Carry a real coastal block, whole, onto an open-ocean cell: pick "
+                 "the donor and the turn, click the cell; world-transplant judges it."),
                 ("sink", "Sink an island", "Sink a real island into open water: click it; world-sink judges it.")):
             act = menu.addAction(text)
             act.setToolTip(tip)
@@ -918,7 +923,8 @@ class WorldDoc(QWidget):
             self.draw_box.removeItem(ix)
 
     def _carry_tools(self):
-        return [t for t in (self._forest, self._mountain, self._sink, self._coast, self._island) if t is not None]
+        return [t for t in (self._forest, self._mountain, self._sink, self._coast, self._island, self._transplant)
+                if t is not None]
 
     def _open_carry(self, which, *, sync=False):
         """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
@@ -937,6 +943,8 @@ class WorldDoc(QWidget):
                 from .worldcoast import CoastTool as Tool
             elif which == "island":
                 from .worldisland import IslandTool as Tool
+            elif which == "transplant":
+                from .worldtransplant import TransplantTool as Tool
             else:
                 from .worldmountain import MountainTool as Tool
             tool = Tool(self.pal, self._view3d, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
@@ -985,6 +993,10 @@ class WorldDoc(QWidget):
     def open_island(self, *, sync=False):
         """The Island button."""
         return self._open_carry("island", sync=sync)
+
+    def open_transplant(self, *, sync=False):
+        """The Carry-a-coast menu entry."""
+        return self._open_carry("transplant", sync=sync)
 
     def _draft_changed(self, draft):
         """An Accept wrote the draft (or a discard removed it, an undo or redo moved it): draw it, or go back to the

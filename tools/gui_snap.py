@@ -274,7 +274,7 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 
 # --------------------------------------------------------------------------------------- world states
-WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-sink", "3d-coast", "3d-island")
+WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-sink", "3d-coast", "3d-island", "3d-transplant")
 # "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
 # surface that depends on the developer's machine cannot be a pinned review state.
 WORLD_EXTRA_STATES = ("3d-live",)
@@ -797,6 +797,60 @@ def _snap_world_island(ctx: _Ctx, win) -> None:
         V.load_scene = orig
 
 
+def _snap_world_transplant(ctx: _Ctx, win) -> None:
+    """Rung C5: the transplant card on the pinned 3D page -- an invented coastal block's land carried onto an open
+    cell beside the synthetic island, turned 90, passing with the shift the check chose."""
+    import math
+    import shutil as _sh
+    import numpy as np
+    from ff9mapkit.workspace import worldview3d as V
+    seams, _runner = _mountain_seams()
+    dcx, dcz = 64 * 7 + 32.0, -(64 * 17 + 32.0)          # an invented land blob in the donor cell (7,17)
+    ring = [(dcx + 20 * math.cos(a) - 6, dcz + 14 * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 25)[:-1]]
+    land = np.array([[(dcx - 6, 3.2, dcz), (ring[k][0], 3.0, ring[k][1]), (ring[(k + 1) % 24][0], 3.0,
+                                                                           ring[(k + 1) % 24][1])]
+                     for k in range(24)])
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "cell": [21, 18], "blocks": [[21, 18]],
+                 "shift": [0.0, -8.0], "written": [], "refused": None,
+                 "gates": [{"gate": g, "ok": True} for g in ("frame", "land-fit", "census", "weld")]}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._transplant_runner = drafts, Scripted()
+    doc._transplant_seams = {"land_fn": lambda d: land, "ocean_fn": lambda: set(), "soup_fn": seams["soup_fn"],
+                             "stack_fn": lambda: [], "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        tt = doc.open_transplant(sync=True)
+        tt._occupied = lambda blocks: {}
+        tt.rot_box.setCurrentIndex(tt.rot_box.findData(90))
+        tt.place(1376.0, -1184.0, 0.0)
+        tt._timer.stop()
+        tt._check()
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(1330.0, -1184.0, dist=260.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 45.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-transplant", win)
+    finally:
+        V.load_scene = orig
+
+
 def _snap_forest_states(ctx: _Ctx, win, doc) -> None:
     ft, view = doc._forest, doc._view3d.view
     ft._on_reload = lambda x, z: None                    # the dev checkout's Show in game, offered
@@ -906,6 +960,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             return
         if state == "3d-island":
             _snap_world_island(ctx, win)
+            _close(win)
+            return
+        if state == "3d-transplant":
+            _snap_world_transplant(ctx, win)
             _close(win)
             return
         _settle()
