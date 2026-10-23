@@ -28,8 +28,19 @@ mixer before blaming a DLL. The live install is the new DLL again, with the July
   The script's summary averages in the one-off warm-up step that both runs share (the bench loading its bank).
   The steady-state slope is the real comparison: about 250 times lower, well under the 0.05 MB/s bar. The run
   logged `[SaXAudio] Initialized`, with no exceptions in `Memoria.log` or `output_log.txt`.
+- **`bench_soak.py` on LEAKBENCH 30487**, 30 windows per spot
+  (`data/20261022-200246-leakbench_soak-saxaudio-fix.soak.jsonl`):
+
+  | Spot | July 2025 (`data/20261010-173329`) | Upstream `5b49756c` |
+  |---|---|---|
+  | plain | +0.015 MB/window | +0.029 MB/window |
+  | choice | **+1.566 MB/window** | **+0.017 MB/window** |
+  | plain + "!" | −0.012 MB/window | −0.004 MB/window |
+  | choice + "!" | **+1.568 MB/window** | **+0.042 MB/window** |
+
+  The choice arm now matches the plain arm, so the bar is met. Every spot is now within about ±1 MB over 30
+  windows, which is sampling noise. That confirms the choice-menu "leak" was entirely the sound effects.
 - **Still open:**
-  - `bench_soak.py`'s choice-versus-plain comparison.
   - Bundle and installer plumbing (step 3), and A2.
 
 ## What we found while mapping it
