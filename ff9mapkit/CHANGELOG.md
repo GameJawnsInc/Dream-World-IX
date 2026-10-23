@@ -5,6 +5,23 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — move the river from the World tab
+- "Move the river" (in "Edit the map"): the card finds where the carried river stands, a click picks where it goes
+  (only the river's own placements are offered, each marked free or held), and `world-river` checks it; Accept moves
+  it in the draft.
+- `world-river --move-from DX,DZ` moves the verb's own river: the new placement is judged as if the old river were
+  gone, and the old one is taken out only once every check passes, so a refused move changes nothing.
+  `world-river --report-json` writes the verdict, and `world-fuse`'s `[[river]]` row takes `move_from`.
+- Tested in game: the river moved one block north; its old ground is open sea and its new ground is walkable at the
+  predicted height.
+
+### Fixed — world drafts and their ledger
+- Promote now carries a draft's deletions into the live folder (and Revert restores them). Before, a removal made in
+  a draft never reached the game.
+- Promote keeps the verb that wrote each file in the folder's ledger, so a promoted river can still be moved or
+  removed by `world-river`. Undo and Redo keep the draft's ledger in step with its files.
+- When `world-river` meets its own earlier river, its message names where that river stands.
+
 ### Changed — one handle table for the relief verbs
 - `world-forest`, `world-mountain` and `world-hill` declare their shape flags once (`ff9mapkit/world/handles.py`):
   the command line, `world-fuse`'s `[[forest]]`/`[[mountain]]`/`[[hill]]` rows and the World tab's cards all read the

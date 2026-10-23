@@ -338,7 +338,8 @@ def test_promote_writes_the_edits_mirrors_and_leaves_the_draft_level(monkeypatch
         == untouched                                       # another block is never touched
     assert list((src / "FF9_Data/WorldMap/Disc1/0_1/r0").glob("Block[[]0[]][[]0[]] Terrain.ff9mesh.bak-*"))
     led = [json.loads(ln) for ln in (src / ".ff9world.jsonl").read_text().splitlines()]
-    assert led[-1]["cell"] == [0, 0] and led[-1]["pipeline"]["verb"] == "world-promote"
+    assert led[-1]["cell"] == [0, 0] and led[-1]["pipeline"]["via"] == "world-promote"   # the promote that carried it
+    assert led[-1]["pipeline"]["verb"] == "world-forest"   # ...and the verb that made the bytes, kept
     assert D.edits(d) == [] and D.stale(d) == []           # the draft equals the live folder again
     assert (d / S4).read_bytes() == (src / S4).read_bytes()
     assert D.last_promote(d)["utc"] == rec["utc"]

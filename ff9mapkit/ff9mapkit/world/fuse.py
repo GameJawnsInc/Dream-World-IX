@@ -381,7 +381,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         # world-river's ONE pipeline (river.deploy, RUNG5.md 5b), so a recipe writes the CLI's bytes. A base-tier
         # row: it mints its own island, and a later relief row can target that island (relief reads deployed bytes).
         from . import river as R
-        _strict_keys("river", row, {"donor", "at", "area", "apron"})
+        _strict_keys("river", row, {"donor", "at", "area", "apron", "move_from"})
         name = row.get("donor", "cluster-c")
         if name not in R.RIVER_DONORS:
             raise ValueError(f"[[river]] donor {name!r} is not a river donor: {sorted(R.RIVER_DONORS)}")
@@ -400,8 +400,13 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         # B1 is never waived here, allow_overwrite or not: a river over another deploy renders a mix of the two.
         # Re-running a recipe over its own river is `world-river --remove --at DX,DZ` first (the ledger rows carry
         # the world-river pipeline tag, so the removal owns them though world-fuse wrote them).
+        # move_from = [dx, dz]: world-river --move-from, the river at that placement moved here (the World tab's
+        # "Move the river" row): its old files are free for the gates, and taken out only once every gate is green
+        mf = row.get("move_from")
+        move_from = None if mf is None else tuple(float(v) for v in (mf.split(",") if isinstance(mf, str) else mf))
         d = R.deploy(mod_folder, donor=donor, offset=offset, area=row.get("area"),
-                     apron=bool(row.get("apron", True)), dry_run=dry_run, skip_mirror=skip_mirror, game=game)
+                     apron=bool(row.get("apron", True)), dry_run=dry_run, skip_mirror=skip_mirror, game=game,
+                     move_from=move_from)
         where = f"at = [{d.comp.offset[0]:g}, {d.comp.offset[1]:g}], {len(d.cells)} cells"
         if d.red:
             raise ValueError(f"world-river refused ({where}) -- "

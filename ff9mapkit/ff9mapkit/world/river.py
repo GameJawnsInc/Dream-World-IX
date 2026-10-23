@@ -1437,7 +1437,7 @@ def open_ocean_offsets(blocks, *, margin: int = 0, disc: int = 1, game=None, lim
 
 def compose(frag: Fragment, *, offset=(0.0, 0.0), window=None, ol: Outline | None = None, area: int | None = None,
             apron: bool = True, clear: float = COMPOSE_CLEAR, gblend: float | None = None, mod_folder=None,
-            disc: int = 1, game=None, census_step: float = 1.0) -> Composition:
+            disc: int = 1, game=None, census_step: float = 1.0, ignore=frozenset()) -> Composition:
     """Rung 2 end to end: the outline (donor frame) -> translate -> mint -> opening -> apron -> open zip -> stamp ->
     gates -> binding plan. ``window`` = the donor window's stock tris (for the census against home; without it G4/G6
     are skipped and say so). Raises :class:`RiverRefused` at the first structural failure; the gates' verdicts --
@@ -1651,7 +1651,7 @@ def compose(frag: Fragment, *, offset=(0.0, 0.0), window=None, ol: Outline | Non
             if place(ml, x, z, 0.0, sky=True, index=idx)[1] == "MISS"]
     gates["G4_kit"] = {"points": n_kit, "miss": len(miss), "where": miss[:12], "ok": not miss}
 
-    plan = binding_plan(tris, disc=disc, game=game, mod_folder=mod_folder)
+    plan = binding_plan(tris, disc=disc, game=game, mod_folder=mod_folder, ignore=ignore)
     gates["B1"], gates["C1"] = plan.pop("B1"), plan.pop("C1")
     report = {"offset": [dx, dz], "area": {k: stamp[k] for k in ("area", "source")},
               "opening": {"kit_tris": len(kit), "dropped": len(dropped), "dropped_fams": dict(Counter(
@@ -1664,12 +1664,13 @@ def compose(frag: Fragment, *, offset=(0.0, 0.0), window=None, ol: Outline | Non
     return Composition(offset=(dx, dz), tris=tris, outline=tol_, plan=plan, report=report, footprint=poly)
 
 
-def binding_plan(tris, *, disc: int = 1, game=None, mod_folder=None) -> dict:
+def binding_plan(tris, *, disc: int = 1, game=None, mod_folder=None, ignore=frozenset()) -> dict:
     """THE BINDING PLAN (PLAN.md step 7), computed, not written: each target block's parts after the 64u split,
     the divert (every cell -> :data:`DIVERT_PREFAB`), the hidden blanks (every prefab part a cell does not carry --
     its own would free-ride), and the gates B1 (every cell open ocean; the prefab hosts every emitted part) and C1
     (the per-part budget). Sea4 is emitted everywhere: the island lane's cut sheet (rung 3) fills it. With
-    ``mod_folder``, B1 also refuses a target cell another deploy there already holds."""
+    ``mod_folder``, B1 also refuses a target cell another deploy there already holds -- bar the files in ``ignore``
+    (a move's own old deploy, which goes before this one lands: :func:`deploy`'s ``move_from``)."""
     from pathlib import Path
     from . import mesh as M_
     from .interior import split_borders8
@@ -1705,8 +1706,9 @@ def binding_plan(tris, *, disc: int = 1, game=None, mod_folder=None) -> dict:
     # placement) would be shadowed cell by cell, its neighbours left rendering against ours
     occupied = []
     if mod_folder:
-        occupied = M_.existing_overrides(sorted((M_.wrap_block_col(b[0]), b[1]) for b in cells), mod_folder,
-                                         disc=disc, game=game)
+        occupied = [p for p in M_.existing_overrides(sorted((M_.wrap_block_col(b[0]), b[1]) for b in cells),
+                                                     mod_folder, disc=disc, game=game)
+                    if Path(p) not in ignore]
         if occupied:
             b1.append(f"{len(occupied)} override file(s) already deployed on the target cells in {mod_folder}, "
                       f"e.g. {[Path(p).name for p in occupied[:3]]}")
@@ -2119,22 +2121,31 @@ def stack_folders(game=None) -> list:
     return parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")) if ini.is_file() else []
 
 
-def stack_occupancy(cells, mod_folder: str, *, discs=(1, 4), game=None, lod: str = "0_1") -> dict:
+def stack_occupancy(cells, mod_folder: str, *, discs=(1, 4), game=None, lod: str = "0_1",
+                    ignore=frozenset()) -> dict:
     """THE STACK READ (rung 4's lab check, made the verb's): override files already deployed on ``cells`` in
     ``mod_folder`` AND in every folder ``FolderNames`` stacks, per disc. The engine resolves each part file through
     the stack on its own, so a cell two folders override renders a mix of two deploys' parts (or one hides the
-    other). ``{(folder, disc): [paths]}``, non-empty entries only; ``cells`` are wrapped labels."""
+    other). ``{(folder, disc): [paths]}``, non-empty entries only; ``cells`` are wrapped labels.
+
+    A world DRAFT (``world/draft.py``) stands in for its source folder: the source's own files are what the draft
+    copied and will replace on Promote, so they are read in the draft, never twice (the editor's river into a draft
+    of FF9CustomMap-world must not meet that folder's copy of the river it just moved). Files in ``ignore`` (a move's
+    own old deploy) are free."""
+    from pathlib import Path
     from . import mesh as M_
+    from .draft import stands_in_for
+    skip = {str(mod_folder), stands_in_for(mod_folder)}
     out = {}
-    for fo in [str(mod_folder)] + [f for f in stack_folders(game) if f != str(mod_folder)]:
+    for fo in [str(mod_folder)] + [f for f in stack_folders(game) if f not in skip]:
         for d in discs:
-            hits = M_.existing_overrides(cells, fo, disc=d, lod=lod, game=game)
+            hits = [p for p in M_.existing_overrides(cells, fo, disc=d, lod=lod, game=game) if Path(p) not in ignore]
             if hits:
                 out[(fo, d)] = hits
     return out
 
 
-def auto_offset(ol: Outline, mod_folder: str, *, discs=(1, 4), game=None, limit: int = 64):
+def auto_offset(ol: Outline, mod_folder: str, *, discs=(1, 4), game=None, limit: int = 64, ignore=frozenset()):
     """``--at auto``: the nearest whole-block shift (:func:`open_ocean_offsets`) whose footprint no stacked folder
     overrides. The footprint is the minted island's block RECTANGLE, a superset of the cells the write touches, so a
     pick is free wherever the composition lands (B1 re-checks the exact cells). Returns ``((dx, dz), skipped)``:
@@ -2146,7 +2157,7 @@ def auto_offset(ol: Outline, mod_folder: str, *, discs=(1, 4), game=None, limit:
     skipped = []
     for sx, sy in open_ocean_offsets(blocks, limit=limit, game=game):
         cells = sorted({(M_.wrap_block_col(x + sx), y + sy) for x in range(bx0, bx1 + 1) for y in range(by0, by1 + 1)})
-        occ = stack_occupancy(cells, mod_folder, discs=discs, game=game)
+        occ = stack_occupancy(cells, mod_folder, discs=discs, game=game, ignore=ignore)
         if not occ:
             return (BLOCK_U * sx + 0.0, -BLOCK_U * sy + 0.0), skipped     # + 0.0: never a -0.0
         skipped.append(((sx, sy), sum(len(v) for v in occ.values())))
@@ -2223,7 +2234,7 @@ def promote(stage, mod_folder: str, *, disc: int = 1, lod: str = "0_1", game=Non
     return [dst for _, dst in pairs]
 
 
-def red_gates(comp: Composition, stack: dict, mod_folder: str, donor: RiverDonor) -> list:
+def red_gates(comp: Composition, stack: dict, mod_folder: str, donor: RiverDonor, *, game=None) -> list:
     """The composition's red gates plus THE STACK READ, as ``(gate, message)`` in report order. B1 names this verb's
     own earlier deploy (``--remove`` is the way out) apart from another's (none is offered)."""
     red = [(k, "; ".join(map(str, g["fails"][:4])) if g.get("fails") else f"red at {str(g.get('where'))[:240]}")
@@ -2231,12 +2242,43 @@ def red_gates(comp: Composition, stack: dict, mod_folder: str, donor: RiverDonor
     if stack:
         more = {k: p for k, p in stack.items() if k != (str(mod_folder), donor.disc)}   # compose's B1 names that one
         held = ": " + "; ".join(f"{fo} disc {d} ({len(p)} file(s))" for (fo, d), p in sorted(more.items()))
-        own = any(fo == str(mod_folder) for fo, _d in stack)                           # the target holds some of it
+        mine = [p for (fo, _d), ps in stack.items() if fo == str(mod_folder) for p in ps]
+        ats = _own_placements(mine, mod_folder, game=game) if mine else []                         # this verb's, by the ledger
+        way = "; ".join(f"`world-river --remove --at {x:g},{z:g}` takes it out, or `--move-from {x:g},{z:g}` moves "
+                        "it here" for x, z in ats)
         red.append(("B1", "the stack already overrides these cells -- re-site with --at (or --at auto), or take that "
-                          "deploy out first" + (" (this verb's own earlier one: `world-river --remove --at "
-                                                f"{comp.offset[0]:g},{comp.offset[1]:g}`)" if own else "")
+                          "deploy out first" + (f" (this verb's own earlier one: {way})" if ats else "")
                     + (held if more else "")))
     return red
+
+
+def _own_placements(paths, mod_folder, *, game=None) -> list:
+    """The placements (``--at`` translations) of this verb's deploys that wrote any of ``paths`` in ``mod_folder``,
+    by the ledger: the last row for each file, when this verb wrote it at a known shift."""
+    from pathlib import Path
+    from .. import config
+    from . import mesh as M_
+    want = set()
+    for p in paths:
+        m = _STAGED.fullmatch(Path(p).name)
+        d = re.search(r"Disc(\d+)", str(p))
+        if m and d:
+            want.add((int(d[1]), (int(m[1]), int(m[2])), m[3]))
+    last = {}
+    for e in M_.read_ledger(Path(config.find_game_path(game)) / str(mod_folder)):
+        try:
+            last[(int(e["write_disc"]), (int(e["cell"][0]), int(e["cell"][1])), str(e["part"]))] = e
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+    out = []
+    for k in sorted(want):
+        e = last.get(k)
+        if e is None or e.get("op") == "remove":
+            continue
+        verb, sh = _row_verb_shift(e)
+        if verb == REMOVE_VERB and sh is not None and not any(_same_shift(sh, block_shift(o)) for o in out):
+            out.append((BLOCK_U * sh[0] + 0.0, -BLOCK_U * sh[1] + 0.0))
+    return out
 
 
 @dataclass
@@ -2257,11 +2299,13 @@ class RiverDeploy:
     red: list = field(default_factory=list)
     written: list = field(default_factory=list)
     mirror: dict | None = None
+    move_from: tuple | None = None                  # a move's old placement (its world translation)
+    moved: dict | None = None                       # ... its ownership read, then (deployed) remove_deploy's report
 
 
 def deploy(mod_folder: str, *, donor: RiverDonor = None, offset=None, area=None, apron: bool = True,
            dry_run: bool = False, skip_mirror: bool = False, game=None, on_planned=None,
-           on_gated=None) -> RiverDeploy:
+           on_gated=None, move_from=None) -> RiverDeploy:
     """THE VERB'S PIPELINE, one function for `world-river` and world-fuse's ``[[river]]`` row (RUNG5.md 5b: a recipe
     writes the CLI's bytes because both run this). Compose and gate (``offset=None`` is ``--at auto``); THE STACK
     READ; stage the write OUTSIDE the install and audit it there (:func:`write_composition`, :func:`write_verdict`);
@@ -2272,7 +2316,14 @@ def deploy(mod_folder: str, *, donor: RiverDonor = None, offset=None, area=None,
     A red gate does not raise: it lands in ``red`` so the caller can report every gate. Raises :class:`RiverRefused`
     (T0/T1 before the first read, B1 when ``auto`` finds no free placement, P0 at the promotion) and the install's
     ``ValueError`` / ``FileNotFoundError``. ``on_planned(d)`` runs once the composition and the stack read exist;
-    ``on_gated(d)`` once every gate has a verdict, before anything is promoted (the CLI prints from both)."""
+    ``on_gated(d)`` once every gate has a verdict, before anything is promoted (the CLI prints from both).
+
+    THE MOVE (``move_from``: this verb's own deploy at that placement, in ``mod_folder``): the old deploy's files are
+    read by :func:`deploy_ownership` and left out of every occupancy read, so the new placement may overlap the old
+    one; the composition and every gate then judge the new placement as if the old river were gone. A file on the old
+    cells that is not that deploy's is gate R1, and no deploy there is R0 (both red, nothing touched). Only when every
+    gate is green and the stage is audited does :func:`remove_deploy` take the old one out, then the new one is
+    promoted -- so a refused move changes nothing."""
     import shutil
     import tempfile
     from pathlib import Path
@@ -2286,16 +2337,35 @@ def deploy(mod_folder: str, *, donor: RiverDonor = None, offset=None, area=None,
     frag = build_fragment(win, donor)
     ol = outline(frag)
     skipped = []
+    own, free, move_red = None, frozenset(), []
+    if move_from is not None:
+        move_from = (float(move_from[0]), float(move_from[1]))
+        old_shift = block_shift(move_from)
+        # the old deploy's cells, from a composition at the old placement with no folder check (as --remove reads
+        # them), so the ownership read decides what is free before B1 judges the new one
+        probe = compose(frag, offset=move_from, window=win, ol=ol, area=area, apron=apron, disc=donor.disc, game=game)
+        old_cells = sorted(tuple(int(v) for v in k.split(",")) for k in probe.plan["cells"])
+        own = deploy_ownership(old_cells, mod_folder, shift=old_shift, discs=discs, game=game)
+        free = frozenset(Path(f["path"]) for f in own["owned"])
+        if own["foreign"]:
+            move_red.append(("R1", f"{len(own['foreign'])} file(s) on the old placement's cells are not this verb's "
+                                   "deploy there, so the move would leave them: " + "; ".join(
+                                       f"Disc{dd} {p.name}: {why}" for p, dd, why in own["foreign"][:4])))
+        if not own["owned"]:
+            move_red.append(("R0", f"no world-river deploy at {move_from[0]:g},{move_from[1]:g} in {mod_folder} to "
+                                   "move"))
+        own["cells"] = old_cells
     if offset is None:
-        offset, skipped = auto_offset(ol, mod_folder, discs=discs, game=game)
+        offset, skipped = auto_offset(ol, mod_folder, discs=discs, game=game, ignore=free)
     comp = compose(frag, offset=offset, window=win, ol=ol, area=area, apron=apron, mod_folder=mod_folder,
-                   disc=donor.disc, game=game)
+                   disc=donor.disc, game=game, ignore=free)
     cells = sorted(tuple(int(v) for v in k.split(",")) for k in comp.plan["cells"])
     d = RiverDeploy(donor=donor, mod_folder=str(mod_folder), frag=frag, ol=ol, comp=comp, cells=cells,
-                    stack=stack_occupancy(cells, mod_folder, discs=discs, game=game), skipped=skipped)
+                    stack=stack_occupancy(cells, mod_folder, discs=discs, game=game, ignore=free), skipped=skipped,
+                    move_from=move_from, moved=own)
     if on_planned:
         on_planned(d)
-    d.red = red_gates(comp, d.stack, mod_folder, donor)
+    d.red = move_red + red_gates(comp, d.stack, mod_folder, donor, game=game)
     stage_root = Path(tempfile.mkdtemp(prefix="ff9-world-river-"))
     try:
         if not d.red:
@@ -2312,6 +2382,11 @@ def deploy(mod_folder: str, *, donor: RiverDonor = None, offset=None, area=None,
         if d.red or dry_run:
             return d
         tag = M_.ledger_pipeline(REMOVE_VERB, at=[float(comp.offset[0]), float(comp.offset[1])], donor=donor.name)
+        if move_from is not None:                             # every gate green and the stage audited: now the old one
+            with M_.ledger_pipeline(REMOVE_VERB, at=list(move_from), donor=donor.name, op="move",
+                                    to=[float(comp.offset[0]), float(comp.offset[1])]):
+                d.moved = {**own, **remove_deploy(own["cells"], mod_folder, shift=block_shift(move_from),
+                                                  discs=discs, game=game)}
         with tag:
             d.written = list(promote(stage_root / "stage", mod_folder, disc=donor.disc, game=game))
     finally:

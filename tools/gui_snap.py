@@ -274,7 +274,8 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 
 # --------------------------------------------------------------------------------------- world states
-WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-sink", "3d-coast", "3d-island", "3d-transplant")
+WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-sink", "3d-coast", "3d-island", "3d-transplant",
+                "3d-river")
 # "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
 # surface that depends on the developer's machine cannot be a pinned review state.
 WORLD_EXTRA_STATES = ("3d-live",)
@@ -851,6 +852,61 @@ def _snap_world_transplant(ctx: _Ctx, win) -> None:
         V.load_scene = orig
 
 
+def _snap_world_river(ctx: _Ctx, win) -> None:
+    """Rung C5: the river card on the pinned 3D page -- an invented river (a ribbon of land in a ringed island) read
+    where it stands, moved one block south beside the synthetic island, passing its check."""
+    import math
+    import shutil as _sh
+    import numpy as np
+    from ff9mapkit.workspace import worldview3d as V
+    from ff9mapkit.world import riveredit as RE
+    seams, _runner = _mountain_seams()
+    cx, cz = 1376.0, -1120.0
+    ring = np.array([(cx + 40 * math.cos(a), cz + 26 * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 33)[:-1]])
+    tris = np.array([[(cx - 30 + 6 * k, 2.8, cz - 4), (cx - 24 + 6 * k, 2.8, cz - 4), (cx - 27 + 6 * k, 2.6, cz + 4)]
+                     for k in range(10)])
+    shape = RE.RiverShape(tris=tris, ring=ring, blocks=[(21, 16), (21, 17)], cells=[(21, 16), (21, 17)],
+                          cells_shift=(0, 0), shifts=[(0, 0), (0, 1)])
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "at": [0.0, -64.0], "shift": [0, 1],
+                 "move_from": [0.0, 0.0], "blocks": [[21, 16], [21, 17], [21, 18]], "files": 132, "written": [],
+                 "bridge": [cx, cz - 64.0], "refused": None,
+                 "gates": [{"gate": g, "verdict": "green"} for g in ("J1-J4 joins", "zip", "B1 stack", "W1 knit")]}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._river_runner = drafts, Scripted()
+    doc._river_seams = {"outline_fn": lambda _k: shape, "river_fn": lambda target, rs: ((0, 0), {}),
+                        "soup_fn": seams["soup_fn"], "stack_fn": lambda: [], "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        rt = doc.open_river(sync=True)
+        rt.place(cx, cz - 64.0, 0.0)
+        rt._timer.stop()
+        rt._check()
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(cx, cz - 64.0, dist=260.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 45.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-river", win)
+    finally:
+        V.load_scene = orig
+
+
 def _snap_forest_states(ctx: _Ctx, win, doc) -> None:
     ft, view = doc._forest, doc._view3d.view
     ft._on_reload = lambda x, z: None                    # the dev checkout's Show in game, offered
@@ -964,6 +1020,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             return
         if state == "3d-transplant":
             _snap_world_transplant(ctx, win)
+            _close(win)
+            return
+        if state == "3d-river":
+            _snap_world_river(ctx, win)
             _close(win)
             return
         _settle()
