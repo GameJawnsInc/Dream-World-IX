@@ -3012,7 +3012,10 @@ def _duo(d, check, rest) -> None:
         seen = any(_num(cb.path(x, "netsync.battle.host.wait.menu")) in (BW.CTL_ROOT, BW.CTL_DEEP) for x in hrec)
         return {"command": dp_command(seen, time.time() - t_fight)}        # [fix6] the fight lasts until the guest's menu
     try:
-        host.fight(policy=policy, timeout=FIGHT_S, finish=True)
+        # max_turns off: the Defend window is WALL time (DP_WAIT_S) and FIGHT_S bounds the whole fight. fight()'s 120-turn
+        # cap catches a party that cannot hurt its enemy, but turns spent defending prove nothing there -- and the stand-in
+        # turns them over faster on Linux (precise sleeps vs Windows' 15.6 ms tick): the b21 CI duo spent all 120 defending.
+        host.fight(policy=policy, timeout=FIGHT_S, finish=True, max_turns=1_000_000)
         host.wait_world(timeout=RETURN_S)
     except HarnessError as err:
         d.note(f"the host's fight / return raised: {str(err)[:200]}")
