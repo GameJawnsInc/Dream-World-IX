@@ -582,6 +582,10 @@ class Stats:
         #: "x704_y256@15/GENERATED" -> [mesh renders, first frame, last frame]: where every textured mesh
         #: key actually reads from, counted on EVERY frame (drawn or not)
         self.routes: Dict[str, list] = {}
+        #: cells to map on screen ("x704_y384@8", ...): each drawn frame leaves ``watch_masks[cell]`` = the
+        #: screen pixels some fragment sampling that cell changed, so a diff can be charged to a cell
+        self.watch: set = set()
+        self.watch_masks: Dict[str, np.ndarray] = {}
 
     def route(self, key: int, kind: str, frame: int) -> None:
         tx, ty, tp = (key >> 16) & 0xF, (key >> 20) & 1, (key >> 21) & 3
@@ -653,6 +657,8 @@ class Renderer:
         """Execute one frame. ``draw=False`` still runs moves, texture lookups and render-to-texture --
         the cache and the generated texture carry state from frame to frame -- but skips the screen."""
         screen = Target(SCREEN_W, SCREEN_H, self.scale, depth=True) if draw else None
+        if screen is not None and stats is not None and stats.watch:
+            stats.watch_masks = {c: np.zeros((screen.h, screen.w), bool) for c in stats.watch}
         target = screen
         rt = False
         for i, c in enumerate(cmds):
@@ -868,7 +874,11 @@ class Renderer:
                 cx, rest = divmod(int(cid), 10000)
                 cy, b = divmod(rest, 10)
                 book = stats.cells if t.kind == "screen" else stats.gen_cells
-                book["x%d_y%d@%d" % (cx, cy, (4, 8, 15)[b])][frame] += int(n)
+                name = "x%d_y%d@%d" % (cx, cy, (4, 8, 15)[b])
+                book[name][frame] += int(n)
+                if t.kind == "screen" and name in stats.watch_masks:
+                    hit = changed & (cells == cid)
+                    stats.watch_masks[name][ry[hit], rx[hit]] = True
         return len(ry), int(changed.sum())
 
     def _line(self, t: Target, m: Mesh, P, RGB):
@@ -944,10 +954,11 @@ def parse_frames(spec: Optional[str]) -> Optional[set]:
 
 
 def run(bin_dir: Path, blob: bytes, effnum: int, *, frames: Optional[set] = None, scale: int = 1,
-        max_frames: int = 8000, on_frame=None, keep_prims: bool = False) -> dict:
+        max_frames: int = 8000, on_frame=None, keep_prims: bool = False, watch: Iterable[str] = ()) -> dict:
     """Play ``blob`` through the plugin and render it. ``frames`` = the frames to draw (None = every one).
 
-    ``on_frame(frame, screen_target_or_None, cmds, stats)`` is called after each frame."""
+    ``on_frame(frame, screen_target_or_None, cmds, stats)`` is called after each frame. ``watch`` names
+    cells (``"x704_y384@8"``) whose screen footprint ``stats.watch_masks`` holds for each drawn frame."""
     H._install_no_dialog(bin_dir)
     dll = C.CDLL(str(bin_dir / H.PLUGIN))
     host = RasterHost(effnum, mode="rework")
@@ -977,6 +988,7 @@ def run(bin_dir: Path, blob: bytes, effnum: int, *, frames: Optional[set] = None
     builder = FrameBuilder(effnum, settings, keys)
     renderer = Renderer(effnum, settings, host.cache, scale)
     stats = Stats()
+    stats.watch = set(watch)
     faults: List[str] = []
     per_frame: List[dict] = []
     prim_log: Dict[int, list] = {}

@@ -626,6 +626,23 @@ scenery must be re-authored *together*.
   `export-art --ef 38` writes none of them. (`cell.s0.x640_y256` is also a destination, fed from
   (640,384), which ef407 does not make editable.) This cast is the ONLY thing that closes the gain
   half's silent-failure mode.
+  **★ PRE-RUN OFFLINE — THE MARK REACHES THE SCREEN AND SCROLLS** (`ef407_gain_prerun.py`, headless
+  `raster.py`; SCRATCH `headless/raster/ef407-gain/`). Four 8-row bars stamped full-width into
+  `x704_y256` and built through the kit's own `repaint.build` (self-check 21/21) change 110 of 146 drawn
+  frames, f75–192, strongest f85–125 (~4,900 px a frame off by more than 48 levels). Every changed pixel
+  is charged to the cell its fragments read: 99.9 % to (704,384), none to neither. On the ice spire, whose
+  (704,384) footprint holds still over f92–105 (IoU 0.98–1.00), the bars climb about 2 px a frame; the
+  replayed DR_MOVEs put source row 2k at (704,384) row 0 on f85+k, wrapping every 64 frames. The one
+  reader arriving on (704,256) draws on f75 and f80 only (~230 px each), so **the three-way reading is
+  really two: scrolling bars on the spire and shards during the crystal burst = the gain half working;
+  nothing = refuted.** A dependency this plan did not name: the readers' decode is the 8bpp page keyed at
+  x640, and Memoria refreshes a decode only for a write whose origin is in its own 64-wide column, so the
+  (704,384) blit alone would leave the old decode on screen. The mark shows because ef407's OTHER op-144
+  roll, (640,256) ← (640,384), writes column 640 on f68–210 and clears that decode every frame. Bright
+  bars (index 254) and dark (index 0) read about equally; bright is the default
+  (`ef407_gain_ink.toml` in SCRATCH). Still the owner's: the cast itself (a new `Actions.csv` row with
+  animation 407, a relaunch, a fresh battle), and the timing, since the headless opening is not aligned
+  against any ef407 capture.
   **(2) SHOULD THE GAIN HALF BE DECLINABLE?** Today `texel_page` / `export_art` / `build` hard-code
   `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface, so an author who distrusts
   `linear-add-v1` on THEIR container cannot ask for the pre-adoption reading. Recovery is EXACT at the

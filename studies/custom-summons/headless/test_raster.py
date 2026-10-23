@@ -230,6 +230,20 @@ def test_15bpp_routing_blur_vs_generated():
     assert r.texture_for(high).kind == R.KIND_GENERATED
 
 
+def test_watch_charges_each_pixel_to_the_cell_it_read():
+    """An 8bpp page keyed at x640 reads column 704 for u >= 128; ``watch`` maps the two on screen."""
+    page = tpage(tx=10, ty=1, tp=1)
+    cmds, faults = builder().build([ft4(0, 0, 16, 16, tp=page, uv=(130, 0, 146, 16)),
+                                    ft4(20, 0, 36, 16, tp=page, uv=(10, 0, 26, 16))])
+    assert not faults
+    st = R.Stats()
+    st.watch = {"x704_y256@8", "x640_y256@8"}
+    renderer().render(cmds, 1, True, st)
+    hi, lo = st.watch_masks["x704_y256@8"], st.watch_masks["x640_y256@8"]
+    assert hi[8, 8] and not hi[8, 28] and lo[8, 28] and not lo[8, 8]
+    assert hi.sum() == st.cells["x704_y256@8"][1] and lo.sum() == st.cells["x640_y256@8"][1]
+
+
 # ---------------------------------------------------------------- the probe-log reader
 def test_read_probe_log_casts_and_dedupe(tmp_path):
     log = tmp_path / "p.log"
