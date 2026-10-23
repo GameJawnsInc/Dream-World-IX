@@ -620,7 +620,7 @@ class CarryTool(QWidget):
         # the blocks whose bytes changed (the read window is wider, and a sink writes several parts per block)
         written = v.get("written") or []
         n = len({m.groups() for m in (re.search(r"Block\[(\d+)\]\[(\d+)\]", str(p)) for p in written) if m}) \
-            or len(written)
+            or len(written) or len(v.get("blocks") or [])  # (a mint's verdict names its blocks, not its files)
         self.center = self._ghost = None
         self._verdict = None
         self._ix = self._ix_for = None                   # the island changed: re-read it from the draft

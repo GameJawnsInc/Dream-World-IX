@@ -449,7 +449,8 @@ class WorldDoc(QWidget):
     def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None, on_teleport=None,
                  drafts_root=None, forest_runner=None, forest_seams=None, on_reload=None,
                  mountain_runner=None, mountain_seams=None, recipe_runner=None, recipe_seams=None,
-                 sink_runner=None, sink_seams=None, coast_runner=None, coast_seams=None):
+                 sink_runner=None, sink_seams=None, coast_runner=None, coast_seams=None, island_runner=None,
+                 island_seams=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -478,6 +479,9 @@ class WorldDoc(QWidget):
         self._coast = None                         # the coast tool (rung C5): built on the first Coast click
         self._coast_runner = coast_runner
         self._coast_seams = coast_seams or {}
+        self._island = None                        # the island tool (rung C5): built on the first Island click
+        self._island_runner = island_runner
+        self._island_seams = island_seams or {}
         self._recipe = None                        # the recipe bar (rung C3): built with the 3D page
         self._recipe_runner = recipe_runner        # ...its world-fuse runner and its seams (ask, file dialogs)
         self._recipe_seams = recipe_seams or {}
@@ -578,38 +582,34 @@ class WorldDoc(QWidget):
                                  "folder over stock, for previewing a folder the game does not load.")
         self.draw_box.activated.connect(lambda _ix: self._load_view3d())
         self.draw_box.hide()
-        # The forest tool (editor rung C1), on the 3D page's bar too: it places a real canopy through world-forest
-        # and accepts into a draft outside the install. Quiet like the toggle; its card names the state.
-        self.forest_btn = QPushButton("Add forest")
-        self.forest_btn.setProperty("role", "quiet")
-        self.forest_btn.setToolTip("Place a real stock canopy on a deployed island: click where it goes, drag, turn "
-                                   "and spread it; every world-forest gate judges it, and Accept writes it to a "
-                                   "draft the game does not load.")
-        self.forest_btn.clicked.connect(lambda: self.open_forest())
-        self.forest_btn.hide()
-        # ...and the mountain tool (rung C2): a real rock massif through world-mountain, into the same draft
-        self.mountain_btn = QPushButton("Add mountain")
-        self.mountain_btn.setProperty("role", "quiet")
-        self.mountain_btn.setToolTip("Place a real stock rock massif on a deployed island: click where it goes, "
-                                     "drag, turn, spread and heighten it; every world-mountain gate judges it, and "
-                                     "Accept writes it to a draft the game does not load.")
-        self.mountain_btn.clicked.connect(lambda: self.open_mountain())
-        self.mountain_btn.hide()
-        # ...and the sink tool (rung C5): a real island into open water through world-sink, into the same draft
-        self.sink_btn = QPushButton("Sink an island")
-        self.sink_btn.setProperty("role", "quiet")
-        self.sink_btn.setToolTip("Sink a real island into open water: click it; world-sink judges it, and Accept "
-                                 "writes it (disc 1 and disc 4) to a draft the game does not load.")
-        self.sink_btn.clicked.connect(lambda: self.open_sink())
-        self.sink_btn.hide()
-        # ...and the coast tool (rung C5): a real coast morphed in place at a lawful window (world-transplant --in-place)
-        self.coast_btn = QPushButton("Shape a coast")
-        self.coast_btn.setProperty("role", "quiet")
-        self.coast_btn.setToolTip("Morph a real island's coast in place: click a cliff or a beach; only the lawful "
-                                  "windows and depths are offered, world-transplant judges it, and Accept writes it "
-                                  "(disc 1 and disc 4) to a draft the game does not load.")
-        self.coast_btn.clicked.connect(lambda: self.open_coast())
-        self.coast_btn.hide()
+        # THE MAP EDITOR'S TOOLS (rungs C1, C2, C5), one menu on the 3D page's bar: five buttons there set the window's
+        # floor (1003px at 100%, 1336 at 150%) and crowded the caption out. Each is an action of the menu, the card's
+        # own open_*; their tooltips say which verb judges it.
+        from PySide6.QtWidgets import QMenu
+        self.tools_btn = QPushButton("Edit the map")
+        self.tools_btn.setProperty("role", "quiet")
+        self.tools_btn.setToolTip("Add a forest, a mountain or an island, shape a coast or sink an island: each tool's "
+                                  "card shows where it is lawful, its own world verb judges it, and Accept writes it to "
+                                  "a draft the game does not load.")
+        menu = QMenu(self.tools_btn)
+        self.tool_actions = {}
+        for key, text, tip in (
+                ("forest", "Add forest", "Place a real stock canopy on a deployed island: click where it goes, drag, "
+                 "turn and spread it; every world-forest gate judges it."),
+                ("mountain", "Add mountain", "Place a real stock rock massif on a deployed island: drag, turn, spread "
+                 "and heighten it; every world-mountain gate judges it."),
+                ("island", "Add an island", "Mint a new island on open ocean: click where it goes, drag it, set its "
+                 "radius, lobes, height, ground and shape; world-island judges it."),
+                ("coast", "Shape a coast", "Morph a real island's coast in place: click a cliff or a beach; only the "
+                 "lawful windows and depths are offered, and world-transplant judges it."),
+                ("sink", "Sink an island", "Sink a real island into open water: click it; world-sink judges it.")):
+            act = menu.addAction(text)
+            act.setToolTip(tip)
+            act.triggered.connect(lambda _c=False, k=key: getattr(self, f"open_{k}")())
+            self.tool_actions[key] = act
+        menu.setToolTipsVisible(True)
+        self.tools_btn.setMenu(menu)
+        self.tools_btn.hide()
         head.addWidget(self.view3d_btn)
         v.addLayout(head)
         self.canvas = AtlasCanvas(self.pal, on_select=self._on_select,
@@ -918,7 +918,7 @@ class WorldDoc(QWidget):
             self.draw_box.removeItem(ix)
 
     def _carry_tools(self):
-        return [t for t in (self._forest, self._mountain, self._sink, self._coast) if t is not None]
+        return [t for t in (self._forest, self._mountain, self._sink, self._coast, self._island) if t is not None]
 
     def _open_carry(self, which, *, sync=False):
         """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
@@ -935,6 +935,8 @@ class WorldDoc(QWidget):
                 from .worldsink import SinkTool as Tool
             elif which == "coast":
                 from .worldcoast import CoastTool as Tool
+            elif which == "island":
+                from .worldisland import IslandTool as Tool
             else:
                 from .worldmountain import MountainTool as Tool
             tool = Tool(self.pal, self._view3d, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
@@ -980,6 +982,10 @@ class WorldDoc(QWidget):
         """The Coast button."""
         return self._open_carry("coast", sync=sync)
 
+    def open_island(self, *, sync=False):
+        """The Island button."""
+        return self._open_carry("island", sync=sync)
+
     def _draft_changed(self, draft):
         """An Accept wrote the draft (or a discard removed it, an undo or redo moved it): draw it, or go back to the
         game's stack; the recipe bar and every tool read the draft again."""
@@ -1011,10 +1017,7 @@ class WorldDoc(QWidget):
             self._recipe.setVisible(bool(on))
             if on:
                 self._recipe.refresh()
-        self.forest_btn.setVisible(bool(on))
-        self.mountain_btn.setVisible(bool(on))
-        self.sink_btn.setVisible(bool(on))
-        self.coast_btn.setVisible(bool(on))
+        self.tools_btn.setVisible(bool(on))
         if not on:
             for tool in self._carry_tools():
                 tool.close_tool()
@@ -1026,10 +1029,7 @@ class WorldDoc(QWidget):
             from .worldview3d import WorldView3DPanel
             self._view3d = WorldView3DPanel(self.pal, scale=self._scale)
             self._view3d.picked.connect(self._on_pick)
-            self._view3d.add_control(self.coast_btn)     # each control goes in front: these read draws, forest,
-            self._view3d.add_control(self.sink_btn)      # mountain, sink, coast
-            self._view3d.add_control(self.mountain_btn)
-            self._view3d.add_control(self.forest_btn)
+            self._view3d.add_control(self.tools_btn)     # each control goes in front: the draws, then the tools
             self._view3d.add_control(self.draw_box)
             self._views.addWidget(self._view3d)
             self._load_view3d(sync=sync)

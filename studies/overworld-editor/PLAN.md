@@ -129,7 +129,12 @@ alone.
   world-transplant --in-place judges it; Accept on disc 1 then disc 4; a `[[morph]]` world-fuse table. I1 identical
   over 1,545 files, and on real bytes card == hand == recipe. In game: the cliff face at 1.543 became land at 4.219
   (predicted 4.219). River placement deferred: all 56 open-ocean shifts that fit it are FF9CustomMap-world's already.
-  Next in C5: island and transplant.
+- **C5, third verb: A NEW ISLAND BUILT + IN GAME (2026-10-23)** -> [`C5.md`](C5.md). "Add an island": the ghost is the
+  mint's own coast (its outline call, exact for the seed), the handles are the mint's (radius, lobes, height, ground,
+  seed), the preview its open-ocean and free-block laws; `world-island --report-json`; an `[[island]]` recipe row.
+  I1 identical over 1,553 files, and on real bytes card == hand == recipe. In game: open sea (-1.367) at the centre
+  before, the new island's grass at 3.199 after (predicted 3.200). The five tools now sit in one "Edit the map" menu
+  (five buttons raised the window floor). Next in C5: transplant.
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,

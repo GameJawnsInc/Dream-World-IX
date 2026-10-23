@@ -274,7 +274,7 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 
 # --------------------------------------------------------------------------------------- world states
-WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-sink", "3d-coast")
+WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-sink", "3d-coast", "3d-island")
 # "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
 # surface that depends on the developer's machine cannot be a pinned review state.
 WORLD_EXTRA_STATES = ("3d-live",)
@@ -748,6 +748,55 @@ def _snap_world_coast(ctx: _Ctx, win) -> None:
         V.load_scene = orig
 
 
+def _snap_world_island(ctx: _Ctx, win) -> None:
+    """Rung C5: the island card on the pinned 3D page -- the mint's own coastline as the ghost, on open sea beside the
+    synthetic island, passing; then the same island dragged onto the synthetic island's land, refused."""
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    seams, _runner = _mountain_seams()
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            c = [float(v) for v in argv[argv.index("--center") + 1].split(",")]
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "center": c, "seed": 5.0, "blocks": [[21, 18]],
+                 "written": [], "report": {"clean": True}, "refused": None}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._island_runner = drafts, Scripted()
+    land = {(18, 17), (18, 18), (18, 19), (19, 17), (19, 18), (19, 19), (20, 17), (20, 18), (20, 19)}
+    doc._island_seams = {"outline_fn": lambda d: land, "soup_fn": seams["soup_fn"], "stack_fn": lambda: [],
+                         "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        it = doc.open_island(sync=True)
+        it._occupied = lambda blocks: {}                 # the fake install's folder is not the subject
+        it.seed.setValue(5)
+        for name, (x, z) in (("", (1376.0, -1184.0)), ("-refused", (1300.0, -1184.0))):
+            it.place(x, z, 0.0)
+            it._timer.stop()
+            it._check()
+            view = doc._view3d.view
+            if view is not None:
+                view.focus(1330.0, -1184.0, dist=260.0, y=0.0)
+                view.camera.yaw, view.camera.pitch = 20.0, 45.0
+                view.update()
+            _settle(12)
+            _grab(ctx, f"world-3d-island{name}", win)
+    finally:
+        V.load_scene = orig
+
+
 def _snap_forest_states(ctx: _Ctx, win, doc) -> None:
     ft, view = doc._forest, doc._view3d.view
     ft._on_reload = lambda x, z: None                    # the dev checkout's Show in game, offered
@@ -853,6 +902,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             return
         if state == "3d-coast":
             _snap_world_coast(ctx, win)
+            _close(win)
+            return
+        if state == "3d-island":
+            _snap_world_island(ctx, win)
             _close(win)
             return
         _settle()

@@ -5,6 +5,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — mint a new island from the World tab
+- "Add an island" in the 3D view: click open ocean and the island's own coastline stands there (the one the mint will
+  build); drag it, and set its radius, lobes, height, ground and shape (with "New shape" to roll another). It refuses
+  at once over real land or coast, or where another edit already holds the ocean. `world-island` checks it, and Accept
+  mints it into the draft. It is an `[[island]]` row of the recipe.
+- `world-island --report-json PATH` writes the mint's verdict as JSON.
+- Tested in game: the party stood on the new island at the predicted height (3.199 against 3.200), where before it
+  had been in the open sea.
+
+### Changed
+- The World tab's map tools (forest, mountain, island, coast, sink) sit in one "Edit the map" menu on the 3D view's
+  bar, so the bar fits narrower windows.
+
 ### Added — shape a coast from the World tab
 - "Shape a coast" in the 3D view: click near a real island's cliff or beach, and the lawful window there is drawn.
   Only the morphs that pass there are offered (push a cliff out, a headland, a bay; move, reshape or slide a beach),

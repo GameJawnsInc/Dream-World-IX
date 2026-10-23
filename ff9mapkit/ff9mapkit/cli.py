@@ -5422,6 +5422,29 @@ def _cmd_world_coastnav(args: argparse.Namespace) -> int:
     return 0
 
 
+def _island_report_json(args, *, summary=None, refused=None) -> None:
+    """``world-island --report-json``: the mint's verdict as data, beside the unchanged printed text (the World tab's
+    island card reads it). A refusal's marks are the middles of the blocks its message names."""
+    path = getattr(args, "report_json", None)
+    if not path:
+        return
+    import json
+    import re
+    from pathlib import Path
+    out = {"ok": refused is None, "dry_run": bool(args.dry_run), "center": None, "seed": None, "blocks": [],
+           "written": [], "report": None, "refused": None}
+    if summary is not None:
+        out.update(center=summary["center"], seed=summary["seed"], blocks=[b["block"] for b in summary["blocks"]],
+                   written=[str(p) for p in summary.get("written", ())],
+                   report={k: v for k, v in summary["report"].items() if k not in ("placement", "texgates")})
+    if refused is not None:
+        cells = {(int(a), int(b)) for a, b in re.findall(r"\((-?\d+), (-?\d+)\)", str(refused))}
+        out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused), "detail": "",
+                          "where": [[64.0 * a + 32.0, -(64.0 * b + 32.0)] for a, b in sorted(cells)][:12]}
+    Path(path).write_text(json.dumps(out, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
+                          encoding="utf-8")
+
+
 def _cmd_world_island(args: argparse.Namespace) -> int:
     """Synthesize a fully-custom cliff ISLAND / LANDMASS: organic coastline + faithful rock wall + the real
     grass tile language (mains + verbatim meadow stamps; flat interior by default, OPT-IN rolling relief via
@@ -5472,7 +5495,9 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
             summary = I.landmass(args.mod_folder, cell=(bx, by), **kw)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _island_report_json(args, refused=e)
         return 2
+    _island_report_json(args, summary=summary)
     verb = "would deploy" if args.dry_run else "deployed"
     cx, cz = summary["center"]
     relief_note = ""
@@ -10649,6 +10674,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="don't stamp vehicle navigation classes after the deploy. The mint's water "
                           "then ships boat-permeable straddling triangles with no standoff belt and "
                           "no landability -- only for A/B work; stamp later with world-coastnav")
+    wis.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the mint's verdict as JSON to PATH: ok, the centre, the seed, the blocks, and "
+                          "on a refusal its message and the blocks it names (the World tab's island card reads it). "
+                          "The printed text is unchanged.")
     wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wis.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")

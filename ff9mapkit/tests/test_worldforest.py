@@ -311,15 +311,15 @@ def _doc(app, tmp_path, **kw):
 
 def test_the_forest_button_is_a_3d_page_control_and_opens_the_tool_there(app, tmp_path):
     doc, _g = _doc(app, tmp_path)
-    assert doc.forest_btn.isHidden() and doc._forest is None
+    assert doc.tools_btn.isHidden() and doc._forest is None
     doc.set_view_mode("3d", sync=True)
-    assert not doc.forest_btn.isHidden()
-    doc.forest_btn.click()
+    assert not doc.tools_btn.isHidden()
+    doc.tool_actions["forest"].trigger()
     assert doc._forest is not None and not doc._forest.isHidden()
     doc._on_pick(((26.0, 3.2, -26.0), "Terrain"), sync=True)
     assert doc._forest.center == (26.0, -26.0)             # a click on the map places the forest
     doc.set_view_mode("chart")
-    assert doc._forest.isHidden() and doc.forest_btn.isHidden() and doc._forest.center is None
+    assert doc._forest.isHidden() and doc.tools_btn.isHidden() and doc._forest.center is None
 
 
 def test_an_open_card_takes_the_strip_s_room_and_the_view_gives_way_first(app, tmp_path):
