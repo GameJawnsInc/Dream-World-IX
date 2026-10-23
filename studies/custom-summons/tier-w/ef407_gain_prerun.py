@@ -72,6 +72,10 @@ OUT = H.OUT_DIR / "raster" / "ef407-gain"
 DEFAULT_FRAMES = "70-215"                       # the reads run f71-192, the op-144 blits f85-211
 BAR_ROWS = tuple(r for r in range(128) if r % 32 < 8)
 VARIANTS = ("ink", "dark")
+#: THE LEGIBLE MARK. ``ink`` is measurable but the owner could not see it in a side-by-side: pale-grey bars
+#: on bright, additively blended ice. ``zebra`` repaints the WHOLE cell as 16-row bands, brightest entry
+#: then darkest, so the surface itself becomes a crawling barber pole instead of carrying a faint overlay.
+ZEBRA_PITCH, ZEBRA_ON = 32, 16
 #: THE STATIC-SURFACE WINDOW: the ice spire's shaft (screen x 150-175, y 0-129) over f92-105, chosen by
 #: eye from the stock frames and then CHECKED by the run itself -- the (704,384) footprint inside it must
 #: hold still (IoU near 1) while the mark moves, or "it scrolls" is geometry motion and proves nothing.
@@ -94,17 +98,21 @@ def bars(blob: bytes, variant: str):
     words = RP.palette_words(blob, page)
     zeros = set(RP.transparent_values(blob, page)[0])
     live = sorted(set(raw) - zeros)
-    pick = max if variant == "ink" else min
-    ink = pick(live, key=lambda i: (_lum(words[i]), -i if variant == "ink" else i))
+    bright = max(live, key=lambda i: (_lum(words[i]), -i))
+    dark = min(live, key=lambda i: (_lum(words[i]), i))
+    if variant == "zebra":
+        plan = {r: (bright if r % ZEBRA_PITCH < ZEBRA_ON else dark) for r in range(page.h)}
+    else:
+        plan = {r: (bright if variant == "ink" else dark) for r in BAR_ROWS}
     moved = 0
-    for r in BAR_ROWS:
+    for r, ink in plan.items():
         for c in range(page.w):
             i = r * page.w + c
             if raw[i] in zeros:
                 continue                                         # never cross the cutout boundary
             moved += raw[i] != ink
             raw[i] = ink
-    return page, words, raw, ink, moved
+    return page, words, raw, (dark if variant == "dark" else bright), moved
 
 
 def stamp_art(blob: bytes, art_dir: str, variant: str = "ink") -> str:
