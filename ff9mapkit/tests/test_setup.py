@@ -144,6 +144,46 @@ def test_install_engine_bundle_write_is_atomic(tmp_path, monkeypatch):
         assert not (mgd / "Assembly-CSharp.dll.tmp").exists()          # the failed .tmp is cleaned up
 
 
+def test_install_engine_bundle_installs_plugins_and_backs_up(tmp_path):
+    # since b20 the bundle also carries the leak-fixed SaXAudio.dll per arch; it lands in Plugins next to
+    # Managed, and the original is backed up under <stamp>/<arch>/Plugins/ like the managed DLLs.
+    game = _make_game(tmp_path, dll_bytes=b"OLD")
+    for arch in memoria.PLUGIN_ARCHES:
+        plug = game / arch / "FF9_Data" / "Plugins"
+        plug.mkdir(parents=True)
+        (plug / "SaXAudio.dll").write_bytes(b"OLD-AUDIO-" + arch.encode())
+    zp = _make_bundle(tmp_path, dll_bytes=b"NEW-ENGINE")
+    with zipfile.ZipFile(zp, "a") as z:
+        for arch in memoria.PLUGIN_ARCHES:
+            z.writestr(f"bundle/Plugins/{arch}/SaXAudio.dll", b"NEW-AUDIO-" + arch.encode())
+    rep = memoria.install_engine_bundle(game, zp, stamp="20261022-120000")
+
+    backup = game / "dwix-engine-backups" / "20261022-120000"
+    for arch in memoria.PLUGIN_ARCHES:                       # each arch gets ITS OWN build, not the other's
+        assert (game / arch / "FF9_Data" / "Plugins" / "SaXAudio.dll").read_bytes() == b"NEW-AUDIO-" + arch.encode()
+        assert (backup / arch / "Plugins" / "SaXAudio.dll").read_bytes() == b"OLD-AUDIO-" + arch.encode()
+    assert len(rep["installed"]) == 8 and len(rep["backed_up"]) == 8
+
+
+def test_managed_only_bundle_leaves_plugins_alone(tmp_path):
+    game = _make_game(tmp_path, dll_bytes=b"OLD")
+    plug = game / "x64" / "FF9_Data" / "Plugins"
+    plug.mkdir(parents=True)
+    (plug / "SaXAudio.dll").write_bytes(b"STOCK")
+    rep = memoria.install_engine_bundle(game, _make_bundle(tmp_path), stamp="20261022-130000")
+    assert (plug / "SaXAudio.dll").read_bytes() == b"STOCK" and len(rep["installed"]) == 6
+
+
+def test_bundle_with_one_arch_plugin_raises(tmp_path):
+    zp = _make_bundle(tmp_path)
+    with zipfile.ZipFile(zp, "a") as z:
+        z.writestr("bundle/Plugins/x64/SaXAudio.dll", b"NEW-AUDIO")
+    game = _make_game(tmp_path, dll_bytes=b"OLD")
+    with pytest.raises(ValueError):
+        memoria.install_engine_bundle(game, zp, stamp="x")
+    assert (memoria.managed_dirs(game)[0] / "Assembly-CSharp.dll").read_bytes() == b"OLD"  # refused before any write
+
+
 def test_install_engine_refuses_without_memoria(tmp_path):
     game = _make_game(tmp_path, memoria_installed=False)
     with pytest.raises(RuntimeError):

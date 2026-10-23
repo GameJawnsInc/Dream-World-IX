@@ -108,13 +108,17 @@ get it:
 1. **Windows installer / `ff9mapkit setup` (easiest).** The installer's "engine patches" task
    installs the bundled `dwix-custom-memoria-<version>.zip`; equivalently, run
    `ff9mapkit setup --install-engine <that-zip>`. Both back up the original DLLs automatically
-   before overwriting.
+   before overwriting, to `<FF9>\dwix-engine-backups\<timestamp>\`.
 2. **Pre-built bundle (manual).** Download `dwix-custom-memoria-<version>.zip` from the project's
    GitHub **Releases** and follow its `INSTALL.txt`: back up your `x64\FF9_Data\Managed\` and
    `x86\FF9_Data\Managed\` DLLs, then copy the bundle's three managed DLLs (`Assembly-CSharp.dll`
    + the matched `Memoria.Prime.dll` / `UnityEngine.UI.dll`) into **both** folders, overwriting.
+   Since b20 the bundle also carries `Plugins\x64\SaXAudio.dll` and `Plugins\x86\SaXAudio.dll`,
+   Memoria's audio plugin built unchanged from upstream's leak fix (Memoria `5b49756c`): stock's
+   July-2025 build leaks about 0.7 MB per sound effect. Each goes into its own arch's
+   `FF9_Data\Plugins\` (back up the stock one first; x64 and x86 are not interchangeable).
    The bundle is a compiled, **MIT-licensed** Memoria build (© Albeoris) plus the Dream World IX
-   patches, and ships **zero** game data. It's pinned to a specific Memoria base — if you run a much
+   patches and SaXAudio (MIT, © SamsamTS), and ships **zero** game data. It's pinned to a specific Memoria base — if you run a much
    newer Memoria and hit crashes, use option 3.
 3. **Build from source (version-robust).** Apply the live patch series from
    [`memoria-patches/`](../../memoria-patches/) (its README maps every file — which patches are

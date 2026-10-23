@@ -5,6 +5,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+## [1.0.0b20] - 2026-10-22 — Play the story together, and a world map that changes with it
+
+### Fixed — the sound-effect memory leak: the engine bundle ships a leak-fixed `SaXAudio.dll`
+- Stock Memoria's audio plugin (its July-2025 `SaXAudio.dll`) leaked about 0.7 MB of memory per sound effect
+  played, so menu-heavy and battle-heavy sessions grew without bound. The b20 engine bundle carries
+  `SaXAudio.dll` built unchanged from Memoria's own upstream fix (commit `5b49756c`, MIT) for both x64 and x86.
+  Measured on a sound-effect bench, memory growth fell from 0.71 MB/s to 0.003 MB/s, and repeated choice
+  menus no longer grow either. The plugin's interface is identical to stock, so nothing else changes.
+- `ff9mapkit setup --install-engine` (and the Windows installer's engine task) now installs a bundle's
+  `Plugins/<arch>/SaXAudio.dll` into each arch's `FF9_Data/Plugins`, backing up the stock one to
+  `dwix-engine-backups/<timestamp>/<arch>/Plugins/` first. A bundle that carries the plugin for only one arch
+  is refused before anything is written; an older managed-only bundle still installs as before.
+- For developers: `tools/build_saxaudio.py` builds the plugin from the pinned upstream source and installs or
+  restores it on a dev install behind the same backup and SHA checks as `build_memoria.py`.
+
 ### Added — co-op: the guest follows the host's conversations (custom engine s84–s85, s95–s99)
 - When the host talks to an NPC or uses a save moogle, a following guest sees the same scene on their own screen,
   and only the host's presses turn the pages and pick the choices (s84 lockstep, s85 talk relay, s96 the host
