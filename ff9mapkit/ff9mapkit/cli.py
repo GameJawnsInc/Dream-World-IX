@@ -9538,7 +9538,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="overlay lane only: which donor clips to bake to .anim ('all'|'none'|index list)")
     sd_.add_argument("--arm", action="store_true",
                      help="ALSO write Memoria.ini [SfxHybrid] (hybrid lane): backs the ini up, string-probes "
-                          "the DLL for SfxHybridDrive, prints the diff. Confirm-first -- omit to only stage "
+                          "the DLL for SfxHybridDrive, refuses a FF9SpecialEffectPlugin.dll build the drive's "
+                          "native offsets were not derived from, prints the diff. Confirm-first -- omit to only stage "
                           "the assets + print the [SfxHybrid] block. RELAUNCH to apply.")
     sd_.set_defaults(func=_cmd_summon_deploy)
 
@@ -11030,10 +11031,13 @@ def build_parser() -> argparse.ArgumentParser:
                                     "COMPOSE tables (audit rec 16, run in fixed tier order regardless of "
                                     "document position): [[island]] (the world-island mint), [[river]] "
                                     "(world-river's carry: donor, at=[DX,DZ] -- \"auto\" on --dry-run only --, "
-                                    "area, apron; the same pipeline, so the same bytes), [[mountain]]/"
-                                    "[[forest]]/[[hill]] (interior relief on the DEPLOYED base), [[coastnav]]/"
-                                    "[[rim_retile]] (nav stamps). Each table takes its verb's own argument "
-                                    "names; unknown keys refuse. The compose writes world_manifest.json "
+                                    "area, apron; the same pipeline, so the same bytes), [[sink]] (world-sink: "
+                                    "at=[WX,WZ], cluster, allow_entrances, fresh; with its disc-4 replay), "
+                                    "[[mountain]]/[[forest]]/[[hill]] (interior relief on the DEPLOYED base), "
+                                    "[[coastnav]]/[[rim_retile]] (nav stamps). Each table takes its verb's own "
+                                    "argument names; unknown keys refuse. Inside a tier, rows with step = N run "
+                                    "first, in step order (the World tab's saved recipes carry it). The compose "
+                                    "writes world_manifest.json "
                                     "beside the deploys and REFUSES over manifest-diverged files without "
                                     "--allow-overwrite")
     wfu.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")

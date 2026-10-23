@@ -17,6 +17,27 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   scaffold row before you paint. No picture is withheld.
 - 88 exportable cells across 20 effects are affected, including Phoenix's fire-field cell `(704,256)`.
 
+### Fixed — the hybrid summon lane checks the effect plugin before arming
+- `summon-deploy --arm` now hashes the install's `FF9SpecialEffectPlugin.dll` (x64 and x86) and refuses to arm
+  `[SfxHybrid]` unless it is the build the hybrid drive's native memory offsets were taken from (the Steam release,
+  linked 2016-10-19). On any other build the drive would read, and write 4 bytes, at addresses that mean nothing.
+  The refusal says which arch and hash it found and points at `lane = "overlay"`, which needs no engine and reads
+  no native memory. Nothing is written when it refuses, not even the summon's model and sequence files.
+- A GOG or updated plugin that differs from the Steam release is refused the same way. The known builds are listed
+  in one place, `ff9mapkit/sfxplugin.py`.
+
+### Added — the World tab's recipe: undo, redo, save and open
+- A "Recipe" bar above the forest and mountain cards lists the draft's edits as a `world-fuse` recipe: each Accept is
+  one `[[forest]]` or `[[mountain]]` row, built from the very command it ran.
+- Undo and Redo walk the edits, restoring each one's files exactly (no carve re-runs). An edit already promoted into
+  the game is not undone here: Revert promote first.
+- "Save recipe…" writes the rows as a TOML file; `ff9mapkit world-fuse <recipe> --mod-folder <folder>` composes it to
+  the same bytes (checked on a real island: 1,531 files identical). "Open recipe…" composes a recipe into a fresh
+  draft, one row at a time, so each row can be undone.
+- `world-fuse` rows may carry `step = N`, which keeps the order edits were made in (a recipe without steps composes as
+  before), and a `[[sink]]` row runs `world-sink` with its disc-4 replay.
+- The mountain card's placement check now also refuses a rim over open sea inside a deployed block, as the carve does.
+
 ### Added — place a mountain from the World tab's 3D view
 - "Add mountain" sits beside "Add forest" in the 3D view and works the same way: click where the massif goes, drag
   its ghost, and set which of the seven qualified stock massifs to carry, its angle, its spread (up to ×1.5) and its

@@ -229,6 +229,15 @@ def footprint_preview(ix: SoupIndex, center, rim_xz, r_placed: float, *, ground:
     if len(bad):
         return {"ok": False, "gate": "footprint", "where": [tuple(ix.cent[t]) for t in bad[:12]],
                 "why": IN.massif_ground_words(int(topo[bad[0]]), ground), "span": span}
+    # THE ANCHOR (the carve's next refusal, the same gate): plain ground just outside the rim to seat it on -- a
+    # deployed block holds only its land, so a rim over open sea inside one meets nothing above and is refused here
+    near = np.flatnonzero(in_span & plain & ((ix.corner.max(axis=1) >= poly.min(axis=0) - IN.MTN_CLEAR - 3.0)
+                                             & (ix.corner.min(axis=1) <= poly.max(axis=0) + IN.MTN_CLEAR + 3.0))
+                          .all(axis=1))
+    v = ix.corner[near].reshape(-1, 2)
+    if not len(v) or not (~_pip(v, poly) & _near(v, poly, IN.MTN_CLEAR + 3.0)).any():
+        return {"ok": False, "gate": "footprint", "where": [(CX, CZ)], "why": "no plain ground round its rim",
+                "span": span}
     return {"ok": True, "gate": None, "where": [], "why": "", "span": span}
 
 

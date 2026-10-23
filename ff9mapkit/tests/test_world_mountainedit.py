@@ -101,8 +101,9 @@ def test_the_ghost_stretches_as_rock_height_does(monkeypatch, tmp_path):
 
 
 # ---------------------------------------------------------------- the placement laws, vectorised
-def _patchy_blocks(seed, size=3, odd=0.012):
-    """A size x size block field of mains grass with coast rock and stamped tiles scattered through it."""
+def _patchy_blocks(seed, size=3, odd=0.012, sea=((96.0, -96.0, 22.0),)):
+    """A size x size block field of mains grass with coast rock and stamped tiles scattered through it, and a round
+    hole of open sea (no tris: a deployed block holds only its land) at each ``sea`` ``(x, z, r)``."""
     rng = np.random.default_rng(seed)
     blocks = {}
     for bx in range(size):
@@ -112,6 +113,8 @@ def _patchy_blocks(seed, size=3, odd=0.012):
                 for j in range(16):
                     x0, x1, z0, z1 = i * 4.0, (i + 1) * 4.0, -j * 4.0, -(j + 1) * 4.0
                     roll = rng.random()
+                    if any((64 * bx + x0 + 2 - sx) ** 2 + (-64 * by + z0 - 2 - sz) ** 2 < sr * sr for sx, sz, sr in sea):
+                        continue
                     idall, u = (ROCK, 0.9) if roll < odd / 2 else (GRASS, 0.4) if roll < odd else (GRASS, _MAIN_U)
                     tris.append((((x0, 3.2, z0), (x1, 3.2, z0), (x0, 3.2, z1)), idall, u))
                     tris.append((((x1, 3.2, z0), (x1, 3.2, z1), (x0, 3.2, z1)), GRASS, _MAIN_U))
@@ -145,9 +148,11 @@ def test_footprint_preview_is_the_carve_s_own_law(monkeypatch, tmp_path, which):
     blocks = _patchy_blocks(5)
     ix = ME.SoupIndex(IN.soup_from_blocks(blocks))
     rng = np.random.default_rng(11)
-    seen = set()
-    for _ in range(n):
+    seen, anchor = set(), 0
+    for k in range(n):
         c = (round(float(rng.uniform(-10, 202)), 1), round(float(rng.uniform(-202, 10)), 1))
+        if k < 2:                                      # two in the sea hole: the anchor law's own case
+            c = (96.0 + 3.0 * k, -96.0)
         rot, spread = float(rng.choice([0, 90, 180, 33, 301])), float(rng.choice([1.0, 1.0, 1.3]))
         _t, rim = ME.placed(ol, c, spread=spread, rot_deg=rot)
         pv = ME.footprint_preview(ix, c, rim[:, [0, 2]], ol.r_rim * spread)
@@ -158,6 +163,8 @@ def test_footprint_preview_is_the_carve_s_own_law(monkeypatch, tmp_path, which):
         want = _carve_gate(IN.soup_from_blocks(window), c, ME._blocks(donor), rot, spread, tmp_path)
         assert pv["gate"] == want, (c, rot, spread, pv)
         seen.add(pv["gate"])
+        anchor += pv["why"] == "no plain ground round its rim"
+    assert which == "cone" or anchor, "the field never asked the anchor law"
     assert {"blocks", "span", "footprint"} <= seen or which == "cone" and {"blocks", "footprint"} <= seen
 
 
