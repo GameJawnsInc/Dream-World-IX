@@ -16,7 +16,7 @@ import math
 import tomllib
 
 #: The tables the editor writes (the rest of a recipe it composes and lists, but does not edit).
-EDITOR_TABLES = ("forest", "mountain", "sink", "morph")
+EDITOR_TABLES = ("forest", "mountain", "sink", "morph", "island")
 
 HEADER = ("# Dream World IX overworld recipe, written by the World tab.\n"
           "# Compose it onto a mod folder with:  ff9mapkit world-fuse <this file> --mod-folder <folder>\n")
@@ -28,6 +28,20 @@ def row_for(argv) -> dict:
     from .. import cli
     a = cli.build_parser().parse_args([str(v) for v in argv])
     verb = argv[0]
+    if verb == "world-island":
+        if a.center is None:
+            raise ValueError("an [[island]] row is placed by --center")
+        if a.seed is None:
+            raise ValueError("an [[island]] row names its --seed (the mint derives one from the centre otherwise)")
+        if (a.disc != 1 or a.target_disc is not None or a.skip_mirror or a.beach or a.relief or a.flat
+                or a.skip_coastnav or a.area is not None or a.allow_overwrite or a.all_sea_target):
+            raise ValueError("an [[island]] row is the plain disc-1 mint the World tab makes")
+        row = {"table": "island", "center": [float(v) for v in a.center.split(",")], "seed": float(a.seed)}
+        for key, val, dflt in (("radius", a.radius, 24.0), ("lobes", a.lobes, 1), ("height", a.height, 3.2),
+                               ("ground", a.ground, "grass")):
+            if val != dflt:
+                row[key] = val
+        return row
     if verb == "world-sink":
         if a.at is None or a.list:
             raise ValueError("a [[sink]] row names its island: --at WX WZ")
@@ -82,6 +96,9 @@ def label(row: dict) -> str:
     """A row in words, for the history list and the Undo button: ``mountain uaho at 190, -1228``."""
     table = row.get("table", "?")
     name = row.get("donor")
+    if table == "island":
+        c = row.get("center") or (0, 0)
+        return f"island r{_num(row.get('radius', 24))} seed {_num(row.get('seed', 0))} at {_num(c[0])}, {_num(c[1])}"
     if table == "morph":
         c = row.get("cell") or (0, 0)
         return f"{row.get('verb', 'morph')} {_num(row.get('depth', 0))} at block ({c[0]}, {c[1]})"
