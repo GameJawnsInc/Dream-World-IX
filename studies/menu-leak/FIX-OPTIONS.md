@@ -4,6 +4,34 @@ This expands the "Fix options" section of [`FINDINGS.md`](FINDINGS.md) into what
 Nothing here is applied. The facts below were checked against the shared clone `C:\gd\FFIX\Memoria` (base
 `6b8bb2d5`, `origin/main` fetched up to `ac44a41f`) and the live install.
 
+## Status: A1 is installed, measured, and owner-confirmed on this machine
+
+**The owner confirmed it by ear on 2026-10-22.** With the new DLL, menus, battle, ambience and music all play. There
+was one false alarm along the way: a normal launch was silent, and the DLL was rolled back. The July DLL turned out to
+be silent too, and the real cause was FF9 being muted in the **Windows volume mixer**. If audio is silent, check the
+mixer before blaming a DLL. The live install is the new DLL again, with the July DLL backed up as
+`backups/SaXAudio.{x64,x86}.dll.pre-saxaudio-fix2.20261022-195849`.
+
+- `py tools/build_saxaudio.py` builds both arches from the pinned `5b49756c` through `git archive`, so the shared
+  clone is never checked out. The output goes to `build/saxaudio/5b49756ce04e/out/` in the main repo. x64 sha256
+  is `6e369399132dd2fc…` and x86 is `57d13987e811c7dd…`. Both match the live July DLLs exactly: the same 55
+  exports and the same import list (CRT plus system `xaudio2_9.dll`).
+- **Installed in the shared install on 2026-10-22** (the reinstall used `--install --label pre-saxaudio-fix2`).
+  Undo with `py tools/build_saxaudio.py --restore`.
+- **`se_soak.py` on SEBENCH 30488** (`data/20261022-194840-se_soak-saxaudio-fix.soak.jsonl`):
+
+  | DLL | first 10 s (warm-up) | 10 s → 120 s | Script's summary |
+  |---|---|---|---|
+  | July 2025 (`data/20261010-173935-se_soak`) | +7.9 MB | **+78.3 MB = 0.71 MB/s** | 0.718 MB/s |
+  | Upstream `5b49756c` | +6.9 MB | **+0.3 MB = 0.003 MB/s** | 0.06 MB/s |
+
+  The script's summary averages in the one-off warm-up step that both runs share (the bench loading its bank).
+  The steady-state slope is the real comparison: about 250 times lower, well under the 0.05 MB/s bar. The run
+  logged `[SaXAudio] Initialized`, with no exceptions in `Memoria.log` or `output_log.txt`.
+- **Still open:**
+  - `bench_soak.py`'s choice-versus-plain comparison.
+  - Bundle and installer plumbing (step 3), and A2.
+
 ## What we found while mapping it
 
 - **Upstream fixed the leak in four commits after our base, not one.** All are missing from `6b8bb2d5`:
