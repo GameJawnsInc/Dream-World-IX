@@ -11,6 +11,7 @@ The spec is mountaindonors/step_carry.py's registered rule (the walled topo-38 c
 grid_probe.py found every angle carving from near= the island centre (rot 0 11/25, 90 17/25, 200 14/25, 270 19/25):
   A  --rot 0      B  --rot 90      C  --rot 200      D  --rot 270      all near (1380, -100)
 RUN:  py studies/terrain-malleability/canopystep/lab_build.py   (then lab_prep.py)
+      CANOPY_DONOR=comp10 for round 23 (rounds.py: a grass island r66 at (1380, -96), comp10 on 14-16,14)
 """
 from __future__ import annotations
 
@@ -23,12 +24,13 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(HERE.parent / "mountaindonors"))
-LAB = HERE / "out" / "lab"
+sys.path.insert(0, str(HERE))
+import rounds  # noqa: E402  ($CANOPY_DONOR: comp26 = round 22, the default; comp10 = round 23)
+LAB = rounds.LAB
 NAME = "FF9CustomMap-lab"
-ISLAND = ["--ground", "desert", "--center", "1380,-100", "--radius", "55", "--lobes", "1", "--patches", "0",
-          "--seed", "42"]
-NEAR = (1380.0, -100.0)
-VARIANTS = {"A": 0, "B": 90, "C": 200, "D": 270}
+ISLAND = rounds.R["island"]
+NEAR = rounds.R["near"]
+VARIANTS = rounds.R["variants"]
 
 
 def kit(*args) -> None:
@@ -44,11 +46,11 @@ def carve(folder: Path, rot: int) -> dict:
     import step_carry as C                    # the donor, its canopy spec, and the worktree-pinned kit import
     IN, _, _ = C.S._kit()
     from ff9mapkit.world import discmirror as DM
-    donor = C.DONORS["comp26"][0]
+    donor = C.DONORS[rounds.NAME][0]
     spec, ncomp = C.canopy_spec(donor)
     blocks = IN.read_deployed_blocks(str(folder), near=NEAR, reach=140.0, disc=1)
     lines: list = []
-    res = IN.carve_mountain(IN.soup_from_blocks(blocks), near=NEAR, donor=donor, rot_deg=rot, ground="desert",
+    res = IN.carve_mountain(IN.soup_from_blocks(blocks), near=NEAR, donor=donor, rot_deg=rot, ground=rounds.R["ground"],
                             alcove=spec, disc=1, log=lines.append)
     IN.census_gate(res["changed"], disc=1, baseline=blocks, parts=IN.census_parts(res), log=lines.append,
                    stack=IN.read_deployed_stack(str(folder), blocks, disc=1))

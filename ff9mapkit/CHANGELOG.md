@@ -5,6 +5,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — no sky showing through the sea at a cove's inner corner on `world-island` islands
+- An island with a concave bend in its coast (a cove or notch) showed small sky-coloured wedges in the water at the
+  inner corner, below the cliff wall. The mint removes the deep-sea sheet under the land so boats cannot sail through
+  it, and it judged "under land" by a triangle's three corners. At a cove's inner corner all three corners of a
+  sea triangle can sit under the two walls while its middle is open water, so that water was removed too.
+- A sea triangle is now removed only when its whole area lies under land. In a sweep of 20 test islands, 8 had these
+  holes before the fix and none after; only the sea files of islands with a concave corner change, never the land.
+- Islands deployed before this fix keep their holes until they are minted again.
+
+### Changed — the mountain carve keeps a donor's own near-vertical walls
+- The carve refuses any new triangle that faces down, because on the world map that usually means a flipped triangle:
+  a see-through hole, and ground the party cannot stand on. But the shipping map itself has near-vertical walls that
+  lean past vertical by a fraction of a degree (55 of disc 1's 83,937 ground triangles), and a carried mountain brings
+  its own along. comp10, a grass massif, was refused for two of them.
+- A carried triangle is now kept when it was copied unchanged from the donor, already faced down at home, and leans
+  past vertical by no more than ny -0.02 (about 1.15 degrees). Each one kept is named in the log. Anything the carve
+  flips, and any steeper overhang, is still refused.
+- Every catalogued donor writes the same bytes as before. comp10 now carries offline at all 6 test angles (with its
+  forest canopy); it is not yet seen in game or catalogued.
+
 ## [1.0.0b22] - 2026-10-23 — Play the story together, and a world map that changes with it
 
 > Re-cut of the never-published 1.0.0b20 and 1.0.0b21: their tags' CI runs failed on the bare Ubuntu box (no FF9

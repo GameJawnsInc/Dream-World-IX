@@ -964,6 +964,45 @@ def test_atlas_gate_refuses_a_white_gutter_texel(monkeypatch, tmp_path):
         IN._atlas_gate_mountain([tri(0.46)], log=lambda *a: None)
 
 
+
+def _lean(ny_target, x0=0.0):
+    """A tri whose unit normal's y is ny_target (a wall leaning past vertical when negative), wound as the gate reads."""
+    import math as _m
+    s_ = _m.sqrt(max(0.0, 1.0 - ny_target * ny_target))
+    # edges (1, 0, 0) and (0, s_, -ny) span it; their cross product is (0, ny, s_), a unit normal with y = ny
+    a = (x0, 0.0, 0.0)
+    b = (x0 + 1.0, 0.0, 0.0)
+    c = (x0, s_, -ny_target)
+    return a, b, c
+
+
+def test_down_gate_keeps_only_stock_near_vertical_down_faces():
+    """STEP.md round 2 (D2): the mountain gate keeps a verbatim donor tri that faced down at home by a hair and still
+    does as carried; everything else that faces down still counts -- a carve-made flip, a steep stock overhang, a
+    tri the carry flipped (up at home), and a near-vertical stock tri the carry steepened past the line."""
+    assert abs(IN._tri_ny(*_lean(-0.007)) + 0.007) < 1e-9 and abs(IN._tri_ny(*_lean(0.5)) - 0.5) < 1e-9
+    home = {0: _lean(-0.007, 0), 1: _lean(-0.30, 10), 2: _lean(0.004, 20), 3: _lean(-0.010, 30)}
+    dV = np.array([p for t in range(4) for p in home[t]])
+    dtri = [[3 * t, 3 * t + 1, 3 * t + 2] for t in range(4)]
+    carried = {0: home[0], 1: home[1], 2: _lean(-0.004, 20), 3: _lean(-0.050, 30)}
+    keys = IN._stock_down_keys([0, 1, 2, 3], dV, dtri, carried)
+    # the near-vertical stock faces (0 and 3) are keyed; the steep overhang (1) and the up-at-home tri (2) are not
+    assert sorted(keys.values()) == [pytest.approx(-0.010), pytest.approx(-0.007)]
+
+    def par(ps, fam="mountain"):
+        return (tuple((*p, 0.0, 0.0, 0.0, 1.0, 0.0) for p in ps), MASSIF, fam)
+    lines = []
+    down, kept = IN._count_down([par(carried[0])], keys, log=lines.append)
+    assert (down, kept) == (0, 1) and "home ny -0.0070" in lines[0]            # stock wall: kept, by name
+    assert IN._count_down([par(carried[1])], keys) == (1, 0)                   # a steep stock overhang still counts
+    assert IN._count_down([par(carried[2])], keys) == (1, 0)                   # up at home, flipped by the carry
+    assert IN._count_down([par(carried[3])], keys) == (1, 0)                   # near-vertical home, steepened
+    assert IN._count_down([par(carried[0], "zip")], keys) == (1, 0)            # a zip tri is never stock
+    assert IN._count_down([par(_lean(0.9))], keys) == (0, 0)                   # up-facing: nothing to count
+    # break it: with no stock keys the old gate's count comes back
+    assert IN._count_down([par(carried[0])], {}) == (1, 0)
+
+
 # comp9 (a snow massif) with its inlet floor -- mountaindonors/INLET.md; the round-21 lab's spec
 COMP9_BLOCKS = [(8, 0), (8, 1), (9, 0), (9, 1), (10, 0)]
 COMP9_INLET = ((65.0, 77.5), (-100.0, -79.5), 3.0, (27,))

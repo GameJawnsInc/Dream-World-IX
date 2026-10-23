@@ -35,13 +35,15 @@ _spec = importlib.util.spec_from_file_location("spread_lab_prep", HERE.parent / 
 SP = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(SP)
 
-LAB = HERE / "out" / "lab"
+sys.path.insert(0, str(HERE))
+import rounds  # noqa: E402  ($CANOPY_DONOR)
+LAB = rounds.LAB
 NAME = "FF9CustomMap-lab"
 BUILD = json.loads((LAB / "build.json").read_text(encoding="utf-8"))
 VARIANTS = {k: v["rot"] for k, v in BUILD.items()}
 ROCK = frozenset(IN.MOUNTAIN_ROCK_TOPOS)
-DESERT = 17
-CANOPY = 38
+DESERT = rounds.R["ground_topo"]          # the island's walkable ground (round 22: desert, 17; comp10: grass, 0)
+CANOPY = rounds.R["canopy_topo"]
 CANOPY_SINK = 1.171875
 RING_OUT = 2.0
 VIEW_DIST = 28.0

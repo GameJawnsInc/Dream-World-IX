@@ -143,6 +143,9 @@ MTN_ROCK_HEIGHT_MAX = 2.0        # --rock-height ceiling: the owner passed the U
 STOCK_TERRAIN_MAX_Y = 42.68      # the tallest stock terrain vertex (terrain study vertical census);
 #                                  the airship flies at 42.1875, so taller rock holds it inside
 MTN_APRON_SLOPE = 29.5           # the grass apron's slope envelope (deg)
+MTN_STOCK_DOWN_NY = 0.02         # a VERBATIM donor tri that faced down at home by at most this (ny >= -0.02, about
+#                                  1.15 deg past vertical) is stock wall, not a flip -- the down gate keeps it
+#                                  (mountaindonors/STEP.md round 2; disc 1 ships 55 such tris, downface_census.py)
 # The terrain atlas's rock-band UV phase (u, v) -- measured by daguerreo_massif_anatomy.py
 # (its out/daguerreo_massif.json "phase"); the aperture-plug chart gate quantizes against
 # it (cols 5-10, rows 6-12 = the painted rock band).
@@ -1727,6 +1730,47 @@ def _plug_chart_ok(pcols, prows, own_cells=()) -> bool:
     oc = [c for c, _ in own_cells]
     orow = [r for _, r in own_cells]
     return min(pcols) >= min(oc) and max(pcols) <= max(oc) and min(prows) >= min(orow) and max(prows) <= max(orow)
+
+
+def _tri_ny(p0, p1, p2) -> float:
+    """The unit geometric normal's y of a tri (its winding, as the engine's ground query reads it); 0 when degenerate."""
+    import numpy as np
+    n = np.cross(np.asarray(p1, float) - np.asarray(p0, float), np.asarray(p2, float) - np.asarray(p0, float))
+    L = float(np.linalg.norm(n))
+    return float(n[1]) / L if L > 1e-12 else 0.0
+
+
+def _stock_down_keys(donor_tris, dV, dtri, carried) -> dict:
+    """THE STOCK NEAR-VERTICAL DOWN FACE (mountaindonors/STEP.md, round 2): the carried donor tris that ALREADY faced down
+    at home (the raw stock winding, before de-tilt) and only by a hair, ``ny >= -MTN_STOCK_DOWN_NY``: near-vertical
+    walls the shipping map holds 55 of on disc 1 (downface_census.py), comp10's two among them. Keyed by the carried
+    corner positions, so a later pass that moves a corner drops the exemption. -> ``{key: home ny}``."""
+    out = {}
+    for t in donor_tris:
+        ny = _tri_ny(*(dV[i] for i in dtri[t]))
+        if -MTN_STOCK_DOWN_NY <= ny < 0:
+            out[tuple(sorted(kk3(p) for p in carried[t]))] = ny
+    return out
+
+
+def _count_down(new_parents, stock_down, *, log=print):
+    """The mountain gate's down-face count -> ``(down, exempted)``. A new tri facing down counts, unless it is a verbatim
+    carried tri (``fam == "mountain"``) that faced down at home by a hair (``stock_down``) and still does so only by a
+    hair as carried: stock geometry, not a flip the carve made. A tri the carry FLIPPED (up at home) is never in
+    ``stock_down``, so it always counts; so does any steeper stock overhang."""
+    down = exempt = 0
+    for corners, _, fam in new_parents:
+        ny = _tri_ny(*(p[:3] for p in corners))
+        if ny >= 0:
+            continue
+        home = stock_down.get(tuple(sorted(kk3(p[:3]) for p in corners))) if fam == "mountain" else None
+        if home is not None and ny >= -MTN_STOCK_DOWN_NY:
+            exempt += 1
+            log(f"  stock near-vertical down face kept: home ny {home:.4f}, carried ny {ny:.4f} at "
+                f"({corners[0][0]:.1f},{corners[0][2]:.1f})")
+            continue
+        down += 1
+    return down, exempt
 
 
 def _strip_dispatch(idall_f) -> float:
@@ -3343,12 +3387,11 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         for p in corners:
             if not (SPX0 + 0.5 < p[0] < SPX1 - 0.5 and SPZ0 + 0.5 < p[2] < SPZ1 - 0.5):
                 raise ValueError(f"{fam} leaves block span {span}: {p[:3]}")
-    down = 0
+    down, stock_down = _count_down(new_parents, _stock_down_keys(list(blob) + list(sweep), dV, dtri, carried),
+                                   log=log)
     maxe = 0.0
     for corners, _, fam in new_parents:
         a, b, c = (np.asarray(p[:3]) for p in corners)
-        if np.cross(b - a, c - a)[1] < 0:
-            down += 1
         if fam not in ("zip", "foot"):
             continue                                       # verbatim rock/plug edges are stock-given
         for pq in ((a, b), (b, c), (c, a)):
@@ -3478,7 +3521,8 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         fn = np.cross(b - a, c3 - a)
         L = float(np.linalg.norm(fn)) or 1.0
         g_worst = max(g_worst, math.degrees(math.acos(max(-1, min(1, abs(fn[1]) / L)))))
-    log(f"gates: down={down} maxEdge={maxe:.1f} nearMiss={nm // 2} "
+    log(f"gates: down={down}" + (f" (+{stock_down} stock near-vertical exempt)" if stock_down else "")
+        + f" maxEdge={maxe:.1f} nearMiss={nm // 2} "
         f"annulusOnce={len(inner_once)} zipRise={zip_rise:.2f} zipNyMin={zip_ny_min:.2f} "
         f"(below-envelope {zip_ny_low}/{len(zip_tris)}) "
         + (f"footCourse={fc_n} fcNyMin={fc_ny_min:.2f} " if fc_n else "")
@@ -4002,7 +4046,9 @@ def census_gate(changed, *, disc: int = 1, game=None, log=print, probe=None, bas
             under = baseline.get(blk, bm) if baseline is not None else bm
             by_name = {"Object": hid("Object"), "Terrain": _wrap_label(bm, "Terrain"), "Sea1": hid("Sea1"),
                        "Sea2": hid("Sea2"), "Sea3": hid("Sea3"),
-                       "Sea4": _cut_plane(plane, bx, by, frozenset(), under, label_x=wbx),
+                       # the census's sea MODEL keeps the corner rule: a hole the carve punched in the land
+                       # loses the sea beneath it and reads MISS (an area cut would keep that sea, hiding it)
+                       "Sea4": _cut_plane(plane, bx, by, frozenset(), under, label_x=wbx, rule="corners"),
                        "Sea5": hid("Sea5")}
             by_name.update((p_, _wrap_label(m_, p_)) for p_, m_ in ((parts or {}).get(blk) or {}).items())
             meshlist = P.build_meshlist(by_name)

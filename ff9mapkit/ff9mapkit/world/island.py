@@ -1237,6 +1237,65 @@ def _xz_inside(cover, x, z) -> bool:
     return False
 
 
+SEA_CUT_EPS_AREA = 1e-3          # u^2 of a sea tri left uncovered below which it counts as wholly under land
+#                                  (shared-edge float slivers are ~1e-12; the round-23 cove wedge was ~0.5)
+
+
+def _clip_halfplane(poly, a, b):
+    """``poly`` (a convex polygon, CCW, list of (x, z)) cut to the left of the directed line ``a``->``b``."""
+    out = []
+    n = len(poly)
+    for i in range(n):
+        p, q = poly[i], poly[(i + 1) % n]
+        sp = (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+        sq = (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0])
+        if sp >= 0:
+            out.append(p)
+        if (sp >= 0) != (sq >= 0):
+            t = sp / (sp - sq)
+            out.append((p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])))
+    return out
+
+
+def _poly_area(poly) -> float:
+    return 0.5 * sum(poly[i][0] * poly[(i + 1) % len(poly)][1] - poly[(i + 1) % len(poly)][0] * poly[i][1]
+                     for i in range(len(poly)))
+
+
+def _ccw(tri):
+    return list(tri) if _poly_area(tri) >= 0 else [tri[0], tri[2], tri[1]]
+
+
+def _xz_uncovered_area(cover, tri) -> float:
+    """The plan area of the tri ``tri`` ((x, z) corners) that NO triangle of ``cover`` covers: the tri minus each
+    overlapping cover tri in turn, by exact convex clipping (a convex region minus a convex tri is at most three convex
+    pieces: the parts outside each of its edges). Pure Python -- the base install carries no geometry library."""
+    xs, zs = [p[0] for p in tri], [p[1] for p in tri]
+    lox, hix, loz, hiz = min(xs), max(xs), min(zs), max(zs)
+    pieces = [_ccw(tri)]
+    for minx, maxx, minz, maxz, a, b, c in cover:
+        if maxx < lox or minx > hix or maxz < loz or minz > hiz:
+            continue
+        if abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) < 1e-12:
+            continue                                     # a plan-degenerate (vertical) cover tri covers nothing
+        ct = _ccw((a, b, c))
+        nxt = []
+        for poly in pieces:
+            rest = poly
+            for k in range(3):                           # peel off the part outside each edge of the cover tri
+                e0, e1 = ct[k], ct[(k + 1) % 3]
+                outside = _clip_halfplane(rest, e1, e0)
+                if len(outside) >= 3 and _poly_area(outside) > 1e-12:
+                    nxt.append(outside)
+                rest = _clip_halfplane(rest, e0, e1)
+                if len(rest) < 3:
+                    break
+        pieces = nxt
+        if not pieces:
+            return 0.0
+    return sum(_poly_area(p) for p in pieces)
+
+
 def _sea4_override(plane, bx, by, cut_cells, under, wbx):
     """The block's Sea4 override: the cut plane, or -- when the land footprint consumed the WHOLE
     plane -- a hidden blanking stub.
@@ -1256,7 +1315,7 @@ def _sea4_override(plane, bx, by, cut_cells, under, wbx):
     return sea
 
 
-def _cut_plane(plane, bx, by, cut_cells, under=None, label_x=None):
+def _cut_plane(plane, bx, by, cut_cells, under=None, label_x=None, rule="area"):
     """The block's full-cell Sea4 plane MINUS the beach-claimed lattice cells (the ladder owns them:
     undropped deep tiles under new bands are off-language) and MINUS everything under ``under``'s
     footprint.
@@ -1268,7 +1327,14 @@ def _cut_plane(plane, bx, by, cut_cells, under=None, label_x=None):
     it reads deep sea (topo 57), which is why a boat sailed straight through the Rung-5a island.
     Cut it and the sea-level ray MISSES instead, and a water-area miss IS the engine's invisible
     vehicle wall (placement.py rule 2, airship-proven). This is why the fix is NOT a beach: cliff
-    coasts and beach coasts alike simply must not have ocean underneath them."""
+    coasts and beach coasts alike simply must not have ocean underneath them.
+
+    ``rule`` -- what "under land" means. ``"area"`` (every deployed Sea4): the tri's WHOLE AREA is covered, so a cove's
+    inner corner keeps its water (canopystep/HOLES.md). ``"corners"``: all three corners are covered -- the census's
+    MODEL of the sea (``interior.census_gate``), kept on purpose: there a hole the carve punched inside the land must
+    lose the sea beneath it so the hole reads MISS, and an area test would keep that sea and hide the hole."""
+    if rule not in ("area", "corners"):
+        raise ValueError(f"_cut_plane rule {rule!r}: 'area' or 'corners'")
     from .extract import CH_POS, CH_NRM, CH_UV, CH_TAN
     ca = plane.chan_arrays
     cover = _xz_tri_cover(under) if under is not None else None
@@ -1279,10 +1345,17 @@ def _cut_plane(plane, bx, by, cut_cells, under=None, label_x=None):
         cxw, czw = cxl + BLOCK * bx, czl - BLOCK * by
         if (math.floor(cxw / 4.0), math.floor(czw / 4.0)) in cut_cells:
             continue
-        # CONSERVATIVE cut: drop the tri only when ALL THREE corners are under land. A centroid test
+        # CONSERVATIVE cut: drop the tri only when its WHOLE AREA is under land. A centroid test
         # removes tris that overhang the shoreline and tears a query/render hole just outside the
         # land -- caught by the placement census (MISS) the first time this was written that way.
-        if cover is not None and all(_xz_inside(cover, ca[CH_POS][j][0], ca[CH_POS][j][2]) for j in tri):
+        # "All three corners under land" is the same hole at a COVE'S INNER CORNER: on a concave
+        # coast a half-tile's corners can all sit under the two walls while its middle spans the
+        # cove's water (the round-23 sky wedges, studies/terrain-malleability/canopystep/HOLES.md).
+        # The corner test stays as the cheap first filter; the area test decides (``rule="area"``).
+        if cover is not None and all(_xz_inside(cover, ca[CH_POS][j][0], ca[CH_POS][j][2]) for j in tri) \
+                and (rule == "corners"
+                     or _xz_uncovered_area(cover, [(ca[CH_POS][j][0], ca[CH_POS][j][2]) for j in tri])
+                     < SEA_CUT_EPS_AREA):
             continue
         base = len(pos)
         for j in tri:
