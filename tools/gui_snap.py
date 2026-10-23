@@ -199,18 +199,21 @@ def _fake_install(state: str) -> Path:
     from ff9mapkit import health as _health
     current = b" ".join(g[1] for g in _health.NETSYNC_GENERATIONS)     # ready/live = the CURRENT engine
     marker = {"stock": b"", "s36": b"NetSyncClient", "s37": b"NetSyncClient NetSyncBattle",
-              "ready": current, "live": current}
+              "ready": current, "live": current, "guest": current}
     (managed / "Assembly-CSharp.dll").write_bytes(b"MZfake" + marker[state])   # KeyError on an unknown
     #                                              state -- fabricating a fake machine silently is worse
-    ini = ("[Netsync]\nEnabled = 1\nRole = host\nSessionCode = ff9-a1b2c3d4\n"
-           "RelayUrl = wss://relay.example/ws\nGuestSlots = 3\nGuestWaitMs = 30000\n"
-           "GhostAs = vivi\nFollowHost = 1\n") if state == "live" else "[Netsync]\nEnabled = 0\n"
+    # live = a hosting PC mid-session; guest = the joining PC (Role = client, following)
+    ini = {"live": ("[Netsync]\nEnabled = 1\nRole = host\nSessionCode = ff9-a1b2c3d4\n"
+                    "RelayUrl = wss://relay.example/ws\nGuestSlots = 3\nGuestWaitMs = 30000\n"
+                    "GhostAs = auto\nFollowHost = 0\n"),
+           "guest": ("[Netsync]\nEnabled = 1\nRole = client\nSessionCode = ff9-a1b2c3d4\n"
+                     "RelayUrl = wss://relay.example/ws\nFollowHost = 1\n")}.get(state, "[Netsync]\nEnabled = 0\n")
     (game / "Memoria.ini").write_text(ini, encoding="utf-8")
     return game
 
 
 class _pin_coop_state:
-    """Point CoopDoc at a fake install: nogame | stock | s36 | s37 | ready | live."""
+    """Point CoopDoc at a fake install: nogame | stock | s36 | s37 | ready | live | guest."""
 
     def __init__(self, state: str):
         self.state = state
@@ -224,7 +227,7 @@ class _pin_coop_state:
         else:
             game = _fake_install(self.state)
             _cfg.find_game_path = lambda *_a, **_k: game
-            if self.state in ("ready", "live"):    # the co-op room is registered on this "machine"
+            if self.state in ("ready", "live", "guest"):    # the co-op room is registered on this "machine"
                 _coop.find_registered_field = lambda *_a, **_k: "FF9CustomMap"
         return self
 
@@ -233,7 +236,7 @@ class _pin_coop_state:
         return False
 
 
-COOP_STATES = ("nogame", "stock", "s36", "s37", "ready", "live")
+COOP_STATES = ("nogame", "stock", "s36", "s37", "ready", "live", "guest")
 
 
 def snap_coop(ctx: _Ctx, state: str) -> None:

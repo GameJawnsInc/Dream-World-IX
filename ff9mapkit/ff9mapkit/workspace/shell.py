@@ -1046,10 +1046,10 @@ class Workspace(QMainWindow):
         form's expert fields into an 'Advanced options' drawer; Full shows every field inline. Nothing removed.
 
         The CROSS-TAB LEVER (ASK #12): 'Full' also opens every expert drawer on the doc tabs (builddoc's
-        Advanced, coopdoc's play-style, importdoc's Walk-as + 'More ways to import') and re-renders the
+        Advanced, importdoc's Walk-as + 'More ways to import') and re-renders the
         _GUIDED-gated Battle panel -- so flipping the mode is consequential everywhere, not just on the
-        open form. Each doc's ``apply_guided`` fences its own computed auto-expand overrides (a non-default
-        co-op play style, a configured Walk-as swap) so those keep WINNING over the mode default (chair
+        open form. Each doc's ``apply_guided`` fences its own computed auto-expand overrides (a configured
+        Walk-as swap) so those keep WINNING over the mode default (chair
         ruling). Re-callable from the live Preferences preview AND its Cancel-revert path."""
         from . import forms_qt
         forms_qt.set_guided(bool(on))
@@ -9704,15 +9704,18 @@ def _smoke(win):
     assert any(lbl == "Go to Co-op" for lbl, _k, _cb in win._command_index())
     cd = win.coop_doc
     cd.refresh_status()
-    assert "bridge: not running" in cd.lbl_bridge.text()
+    assert cd.lbl_bridge.text() in ("not connected", "direct, on the home network (no relay needed)"), \
+        cd.lbl_bridge.text()
     from ..editor.jobs import coop_setup_argv as _csa
     assert "--no-bridge" in _csa("host") and _csa("join", "ff9-X", lan="1.2.3.4")[-1] == "1.2.3.4"
     cd.rb_join.setChecked(True)
+    cd.rb_relay.setChecked(True)
     cd.code.setText("")
     cd.start_coop()
-    assert "session code" in cd.lbl_config.text(), cd.lbl_config.text()
+    assert "session code" in cd.lbl_session.text(), cd.lbl_session.text()
+    assert cd._role_style() == {"ghost_as": "off", "follow_host": True}   # a guest always follows
     cd.rb_host.setChecked(True)
-    # the play-style group (s37): widgets -> the same human values the CLI flags take -> valid ini keys
+    # the host's battle settings (s37): widgets -> the same human values the CLI flags take -> valid ini keys
     # Set EVERY slot checkbox, not just the one under test: refresh_status ran _load_playstyle
     # against THIS machine's real Memoria.ini, so any slot bit a past co-op session left there
     # rides into the tuple. The old `cb_slots[1].setChecked(True)`-only line was green for weeks,
@@ -9722,19 +9725,18 @@ def _smoke(win):
         _cb.setChecked(_i == 1)
     cd.spin_wait.setValue(30)
     cd.combo_ghost.setCurrentIndex(cd.combo_ghost.findData("auto"))
-    cd.cb_follow.setChecked(True)
-    cd.style_box.setEnabled(True)
+    cd.host_box.setEnabled(True)
     _pstate = cd._playstyle_state()
-    assert _pstate == ("2", 30, "auto", True), _pstate
-    _argv = _csa("host", guest_slots="2", guest_wait=30, ghost_as="auto", follow_host=True)
-    assert "--guest-slots" in _argv and _argv[_argv.index("--follow-host") + 1] == "on"
+    assert _pstate == ("2", 30, "auto"), _pstate
+    assert cd._role_style()["follow_host"] is False                       # a host never follows
+    _argv = _csa("host", guest_slots="2", guest_wait=30, ghost_as="auto", follow_host=False)
+    assert "--guest-slots" in _argv and _argv[_argv.index("--follow-host") + 1] == "off"
     assert "--diorama" not in _argv          # the knob is GONE (s42) -- never emitted
     from .. import coop as _coop
     assert _coop.playstyle_updates("2", 30, "auto", True) == {
         "GuestSlots": "2", "GuestWaitMs": "30000", "GhostAs": "auto", "FollowHost": "1"}
     for cb in cd.cb_slots:
         cb.setChecked(False)
-    cd.cb_follow.setChecked(False)
     assert cd._playstyle_state()[0] == "none" and _coop.parse_guest_slots("none") == 0
     # the deployed-overrides panel: scan a fake mod folder, rows classified, backend revert works
     _fm = d / "fakemod"

@@ -72,6 +72,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   the world map where they stood (s145).
 
 ### Changed — `ff9mapkit coop` and the Workspace Co-op tab follow the new co-op engine
+- **The Co-op tab is redesigned around playing the story together.** It asks first whether this PC is the
+  host (who plays their own save) or the guest (whose game follows along), then how the two PCs connect, and
+  shows only that side's settings. The host sets which party positions their friend commands, what the friend
+  appears as, and how long a guest turn may pause the gauges. The guest gets no settings, just what following
+  means: pulled along between screens, conversations in step, battles from FF9's own menu, no saving while
+  paired. A PC already in a session opens on its real role, and the old meeting-room status and the separate
+  "play style" card are gone.
+- **A host can no longer be set to follow its guest.** The tab used to offer "Follow the host" to both sides,
+  and a host that ticked it chased its following guest between two screens every few seconds. Joining now
+  always follows and hosting never does, and `coop host --follow-host on` is refused with an explanation.
 - `coop host|join` help, `coop show` and the Co-op tab describe the new behaviour (the world map, the leader
   rule, who `--ghost-as` dresses), and the tab's outfit list gains the moogle and the four new models. The Co-op
   and Setup engine rows turn amber when the installed engine is older than the current co-op engine.
