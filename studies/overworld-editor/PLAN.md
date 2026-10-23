@@ -141,6 +141,15 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **B2, ONE HANDLE TABLE: DONE (2026-10-23).** `world/handles.py` declares each relief verb's handles once (forest,
+  mountain, hill): flag, type, default, help, range, the interior constant that is its ceiling, the catalogue its picker
+  lists, and its surfaces (cli / row / gui). argparse is built from it (the three parsers' dumps and `--help` are
+  byte-identical to the hand-written ones), the fuse runner's key check and defaults read it, and the forest and
+  mountain cards take their spin stops and donor catalogues from it and map every gui handle to its widget or rule.
+  The fence (`tests/test_world_handles.py`, 18 tests) fails on a flag added by hand, a row key the runner ignores, a
+  gui handle no card maps, and a spin hard-coded past the table (each break measured red). The compose parity tests
+  pass unchanged. Not in the table: the C5 verbs (sink, morph, island, transplant), whose rows carry a few of many
+  CLI flags and have no ceilings; they can join when one grows a handle.
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,

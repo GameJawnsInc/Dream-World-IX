@@ -24,6 +24,10 @@ class MountainTool(CarryTool):
     TITLE, NOUN, PART, VERB = "Mountain", "mountain", "massif", "world-mountain"
     GATES = MOUNTAIN_GATES
     CHECK_TIME = "about ten seconds"                     # a passing world-mountain dry run, measured (C2)
+    HANDLE_TABLE = "mountain"
+    HANDLES = {"center": "the click (and the drag)", "donor": "donor_box", "rot": "angle", "spread": "spread",
+               "rock_height": "rock_height", "reach": "the placed massif's radius (mountainedit.reach_for)",
+               "ground": "the island's ground under the ghost (mountainedit.island_ground)"}
 
     def _edit_module(self):
         from ..world import mountainedit
@@ -49,8 +53,7 @@ class MountainTool(CarryTool):
         self._extra_rows = (row,)
         row.addWidget(widgets.role_label("Angle", "caption"))
         self.angle = QSpinBox()
-        self.angle.setRange(0, 359)
-        self.angle.setWrapping(True)
+        self._fit(self.angle, "rot")
         self.angle.setSingleStep(5)
         self.angle.setSuffix("°")
         self.angle.setAccessibleName("Mountain angle")
@@ -60,24 +63,24 @@ class MountainTool(CarryTool):
         row.addWidget(self.angle)
         row.addWidget(widgets.role_label("Spread", "caption"))
         self.spread = QDoubleSpinBox()
-        self.spread.setRange(1.0, IN.MTN_SPREAD_MAX)       # the law's ceiling is the handle's stop
+        top = self._fit(self.spread, "spread")             # the law's ceiling is the handle's stop
         self.spread.setSingleStep(FE.SPREAD_STEP)
         self.spread.setDecimals(2)
         self.spread.setSuffix("×")
         self.spread.setAccessibleName("Mountain spread")
         self.spread.setToolTip(f"Widen the massif in plan, heights kept (world-mountain --spread). It stops at "
-                               f"×{IN.MTN_SPREAD_MAX:g}, the widest judged in game; the island must be bigger.")
+                               f"×{top:g}, the widest judged in game; the island must be bigger.")
         self.spread.valueChanged.connect(lambda _v: self._handles_changed())
         row.addWidget(self.spread)
         row.addWidget(widgets.role_label("Height", "caption"))
         self.rock_height = QDoubleSpinBox()
-        self.rock_height.setRange(1.0, IN.MTN_ROCK_HEIGHT_MAX)
+        top = self._fit(self.rock_height, "rock_height")
         self.rock_height.setSingleStep(FE.HEIGHT_STEP)
         self.rock_height.setDecimals(2)
         self.rock_height.setSuffix("×")
         self.rock_height.setAccessibleName("Mountain rock height")
         self._height_tip = (f"Stretch the rock taller about its rim, which never moves (world-mountain "
-                            f"--rock-height). It stops at ×{IN.MTN_ROCK_HEIGHT_MAX:g}, the tallest judged in game, "
+                            f"--rock-height). It stops at ×{top:g}, the tallest judged in game, "
                             f"and the peak may not pass stock's tallest terrain (y {IN.STOCK_TERRAIN_MAX_Y}).")
         self.rock_height.setToolTip(self._height_tip)
         self.rock_height.valueChanged.connect(lambda _v: self._handles_changed())
