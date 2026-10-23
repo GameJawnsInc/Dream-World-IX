@@ -233,7 +233,7 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
 #: The fixed execution order: base mint (placement layouts + synthetic islands) -> interior
 #: relief (reads the DEPLOYED bytes the base tier wrote) -> navigation stamps (reclassify the
 #: deployed water). Within a tier, rows run in document order.
-COMPOSE_TIERS = (("placement", "island", "river", "sink", "morph"), ("mountain", "forest", "hill"),
+COMPOSE_TIERS = (("placement", "island", "river", "sink", "morph", "transplant"), ("mountain", "forest", "hill"),
                  ("coastnav", "rim_retile"))
 COMPOSE_TABLES = tuple(t for tier in COMPOSE_TIERS for t in tier)
 
@@ -551,6 +551,21 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             if code != 0:
                 print("[[morph]] disc 4 (the draft's own step): refused, disc 4 keeps its own coast")
 
+    def _transplant_runner(row):
+        # `world-transplant` itself, the single-cell carry: NOT [[placement]], whose fused path (transplant_region and
+        # the fuse gates) refuses carries the single-cell command makes (measured: the beach island at (3,5) rot 90,
+        # land-fit) -- so a recipe row writes the command's bytes only through the command
+        from .. import cli
+        _strict_keys("transplant", row, {"cell", "donor", "rot"})
+        c = "{},{}".format(*(int(v) for v in row["cell"]))
+        d = "{},{}".format(*(int(v) for v in row["donor"]))
+        argv = (["--game", str(game)] if game is not None else []) + [
+            "world-transplant", "--mod-folder", str(mod_folder), "--cell", c, "--donor", d,
+            "--rot", str(int(row.get("rot", 0)))] + (["--skip-mirror"] if skip_mirror else []) + \
+            (["--dry-run"] if dry_run else [])
+        if cli._cmd_world_transplant(cli.build_parser().parse_args(argv)) != 0:
+            raise ValueError(f"world-transplant refused the carry of {d} to {c}")
+
     def _placement_runner(_row):
         out = fuse_layout(mod_folder, list(placements), disc=disc, lod=lod, game=game,
                           allow_overwrite=allow_overwrite, dry_run=dry_run,
@@ -562,6 +577,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         return out
 
     runners = {"island": _island_runner, "river": _river_runner, "sink": _sink_runner, "morph": _morph_runner,
+               "transplant": _transplant_runner,
                "coastnav": _coastnav_runner, "rim_retile": _rim_runner}
 
     steps = []                                               # (label, table, spec, runner)

@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — carry a coast from the World tab
+- "Carry a coast" (in "Edit the map"): pick one of the qualified coastal blocks and a quarter turn, click an
+  open-ocean cell, and the block's own land stands there; `world-transplant` checks it (and the ghost moves by the
+  shift it chose), and Accept carries the block, whole, into the draft.
+- `world-fuse` has a `[[transplant]]` table (cell, donor, rot) that runs `world-transplant` itself, the recipe's row
+  for a carry. (`[[placement]]`, the fused layout, refuses some carries the single-cell command makes.)
+- `world-transplant --report-json` now writes a carry's verdict too (its shift and gates).
+- Tested in game: the party stood on the carried island at the predicted height (3.738), where it had been in open sea.
+
 ### Added — mint a new island from the World tab
 - "Add an island" in the 3D view: click open ocean and the island's own coastline stands there (the one the mint will
   build); drag it, and set its radius, lobes, height, ground and shape (with "New shape" to roll another). It refuses

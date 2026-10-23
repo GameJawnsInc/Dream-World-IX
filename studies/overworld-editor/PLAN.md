@@ -134,7 +134,13 @@ alone.
   seed), the preview its open-ocean and free-block laws; `world-island --report-json`; an `[[island]]` recipe row.
   I1 identical over 1,553 files, and on real bytes card == hand == recipe. In game: open sea (-1.367) at the centre
   before, the new island's grass at 3.199 after (predicted 3.200). The five tools now sit in one "Edit the map" menu
-  (five buttons raised the window floor). Next in C5: transplant.
+  (five buttons raised the window floor).
+- **C5, fourth verb: THE TRANSPLANT BUILT + IN GAME (2026-10-23); C5 DONE but the river** -> [`C5.md`](C5.md).
+  "Carry a coast": a qualified coast donor, a quarter turn, a click on the target cell; the ghost is the donor's own
+  land by the carry's own turn map (and the shift once a check reports it). The recipe row is a new `[[transplant]]`
+  table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
+  I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
+  3.738 after (predicted 3.738).
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,
