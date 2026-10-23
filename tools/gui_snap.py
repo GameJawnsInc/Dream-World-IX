@@ -274,18 +274,15 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 
 # --------------------------------------------------------------------------------------- world states
-WORLD_STATES = ("guide", "nogame", "atlas", "3d")
+WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest")
 # "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
 # surface that depends on the developer's machine cannot be a pinned review state.
 WORLD_EXTRA_STATES = ("3d-live",)
 
 
-def _synthetic_world_scene():
-    """The pinned 3D scene: a procedural island round the atlas showpiece block (19,18) -- a height field with
-    grass/rock/sand textures and an open-sea plane -- packed the way worldview3d.load_scene packs the real map, so
-    the 3D page draws deterministically with no install. Geometry and colours are invented (zero SE bytes)."""
+def _synthetic_island():
+    """The pinned island's height field round the atlas showpiece block (19,18): ``(verts, uvs, tris)``. Invented."""
     import numpy as np
-    from ff9mapkit.workspace import worldview3d as V
     cx, cz, n, span = 1248.0, -1184.0, 49, 192.0
     g = np.linspace(-span / 2, span / 2, n)
     xs, zs = np.meshgrid(cx + g, cz + g)
@@ -298,7 +295,17 @@ def _synthetic_world_scene():
         for j in range(n - 1):
             a, b, c, d = i * n + j, i * n + j + 1, (i + 1) * n + j, (i + 1) * n + j + 1
             tris += [(a, c, b), (b, c, d)]
-    tris = np.array(tris)
+    return verts, uvs, np.array(tris)
+
+
+def _synthetic_world_scene():
+    """The pinned 3D scene: a procedural island round the atlas showpiece block (19,18) -- a height field with
+    grass/rock/sand textures and an open-sea plane -- packed the way worldview3d.load_scene packs the real map, so
+    the 3D page draws deterministically with no install. Geometry and colours are invented (zero SE bytes)."""
+    import numpy as np
+    from ff9mapkit.workspace import worldview3d as V
+    cx, cz = 1248.0, -1184.0
+    verts, uvs, tris = _synthetic_island()
     sea = np.array([[cx - 400, 0.0, cz - 400], [cx + 400, 0.0, cz - 400], [cx - 400, 0.0, cz + 400],
                     [cx + 400, 0.0, cz + 400]])
     batches = [("Terrain", verts, uvs, tris),
@@ -429,6 +436,84 @@ class _pin_world_state:
         return False
 
 
+FOREST_SPOTS = {"pass": (1214.0, -1132.0), "refused": (1290.0, -1140.0), "warn": (1250.0, -1180.0)}
+
+
+def _forest_seams():
+    """The pinned forest tool: an invented oval canopy, the synthetic island as its soup (plain grass below y 22,
+    coast rock above, so the summit refuses in the preview), and a scripted runner that answers like world-forest
+    (passes at the "pass" spot, a step-law refusal with two marks anywhere else)."""
+    import math
+    import numpy as np
+    from ff9mapkit.world import forestedit as FE
+    from ff9mapkit.world.extract import encode_id
+    ring = np.array([(9.0 * math.cos(a), 0.0, 6.0 * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 17)[:-1]])
+    top = np.array([0.0, 2.2, 0.0])
+    tris = np.array([[top, ring[k] + (0, 0.4, 0), ring[(k + 1) % 16] + (0, 0.4, 0)] for k in range(16)])
+    outline = FE.Outline((13, 15), tris, ring, (18.0, 12.0))
+    verts, _uvs, tri_ix = _synthetic_island()
+    meta, coast = [], []
+    for t in tri_ix:
+        rock = verts[t][:, 1].max() > 22.0
+        meta.append(((19, 18), float(encode_id(topograph=58 if rock else 0)), "rock" if rock else "main",
+                     [(0.05, 0.8)] * 3))
+        if rock:
+            coast += [(float(verts[i][0]), float(verts[i][2])) for i in t]
+    ix = FE.SoupIndex({"pos": verts.tolist(), "tris": tri_ix.tolist(), "meta": meta, "coast": coast,
+                       "blocks": {(19, 18): None}})
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            c = [float(v) for v in argv[argv.index("--center") + 1].split(",")]
+            ok = abs(c[0] - FOREST_SPOTS["pass"][0]) < 1 and abs(c[1] - FOREST_SPOTS["pass"][1]) < 1
+            v = {"ok": ok, "dry_run": "--dry-run" in argv, "center": c, "blocks": [[19, 18]], "written": [],
+                 "report": {"blob_tris": 41, "dropped": 55, "zip_tris": 32, "wall_rise": 2.05} if ok else None,
+                 "refused": None if ok else {
+                     "gate": "step", "detail": "", "where": [[c[0] + 7.5, c[1] - 2.0], [c[0] + 4.0, c[1] + 5.0]],
+                     "message": "THE CANOPY STEP LAW gate failed (wall/zip rise or zip winding)"}}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0 if ok else 2, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    return {"outline_fn": lambda donor: outline, "soup_fn": lambda folder: ix, "sync": True}, Scripted()
+
+
+def _snap_world_forest(ctx: _Ctx, win) -> None:
+    """Rung C1: the forest tool on the pinned 3D page -- a ghost that passes every gate, one a gate refuses (its
+    marks drawn where), and one the footprint preview refuses before any job runs."""
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    doc = win.world_doc
+    seams, runner = _forest_seams()
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._forest_runner, doc._forest_seams = drafts, runner, seams
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        doc.open_forest(sync=True)
+    finally:
+        V.load_scene = orig
+    ft, view = doc._forest, doc._view3d.view
+    for name, key in (("", "pass"), ("-refused", "refused"), ("-warn", "warn")):
+        x, z = FOREST_SPOTS[key]
+        ft.place(x, z, 0.0)
+        ft._timer.stop()
+        ft._check()
+        if view is not None:
+            gy = ft._ix.ground_y(x, z) or 0.0
+            view.focus(x, z, dist=60.0, y=gy)
+            view.camera.yaw, view.camera.pitch = 20.0, 42.0
+            view.update()
+        _settle(12)
+        _grab(ctx, f"world-3d-forest{name}", win)
+
+
 def _snap_world_3d(ctx: _Ctx, state: str, win) -> None:
     """The 3D page (editor rung A0) after the user's toggle, loaded on the deterministic lane. `3d` swaps the map
     read for the synthetic scene; `3d-live` reads the real install the doc resolved."""
@@ -497,6 +582,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             win.world_doc.canvas.select((19, 18))  # the showpiece cell: donor + buildings + details card
         if state in ("3d", "3d-live"):
             _snap_world_3d(ctx, state, win)
+            _close(win)
+            return
+        if state == "3d-forest":
+            _snap_world_forest(ctx, win)
             _close(win)
             return
         _settle()

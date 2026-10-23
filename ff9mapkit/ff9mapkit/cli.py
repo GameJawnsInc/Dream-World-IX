@@ -5463,6 +5463,7 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
     the productized island-E forest re-home (in-game proven 2026-07-12). Gates: canopy carry + the
     comprehensive step law + the perimeter walk-in simulation + placement census."""
     from .world import interior as IN
+    written = []
     try:
         (wx, wz), exact = _parse_world_point(args)
         dx, dy = (int(v) for v in args.donor.split(","))
@@ -5478,12 +5479,14 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
                        stack=IN.read_deployed_stack(args.mod_folder, blocks, disc=args.disc, game=args.game,
                                                     target_disc=args.target_disc))
         if not args.dry_run:
-            IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
-                              game=args.game, skip_mirror=args.skip_mirror,
-                              target_disc=args.target_disc)
+            written = IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
+                                        game=args.game, skip_mirror=args.skip_mirror,
+                                        target_disc=args.target_disc)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _forest_report_json(args, refused=e)
         return 2
+    _forest_report_json(args, res=res, written=written)
     verb = "would deploy" if args.dry_run else "deployed"
     from .world.frames import wrap_world_xz          # a seam carve's soup frame runs past x = 0/1536
     cx, cz = wrap_world_xz(*res["center"])
@@ -5498,6 +5501,28 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
           f"simulation + placement census. ~ -> World -> re-enter, then walk INTO and OVER the canopy.")
     _world_coupling_note(coastnav=False, minimap=False, encounters=True)
     return 0
+
+
+def _forest_report_json(args, *, res=None, written=(), refused=None) -> None:
+    """``world-forest --report-json``: the verdict as data, beside the unchanged printed text. A refusal carries
+    its gate and world points when the gate located it (:class:`interior.CarveRefused`), else gate "error"."""
+    path = getattr(args, "report_json", None)
+    if not path:
+        return
+    import json
+    from pathlib import Path
+    out = {"ok": refused is None, "dry_run": bool(args.dry_run), "center": None, "report": None,
+           "blocks": [], "written": [str(p) for p in written], "refused": None}
+    if res is not None:
+        out["center"] = [float(v) for v in res["center"]]
+        out["report"] = res["report"]
+        out["blocks"] = sorted([int(b[0]), int(b[1])] for b in res["changed"])
+    if refused is not None:
+        out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused),
+                          "detail": getattr(refused, "detail", ""),
+                          "where": [list(p) for p in getattr(refused, "where", [])]}
+    Path(path).write_text(json.dumps(out, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
+                          encoding="utf-8")
 
 
 def _cmd_world_hill(args: argparse.Namespace) -> int:
@@ -10582,6 +10607,10 @@ def build_parser() -> argparse.ArgumentParser:
     wfo.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wfo.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    wfo.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the verdict as JSON to PATH: ok, the centre, the carve's report, the files "
+                          "written, and on a refusal the gate, its message and the world points where it fails "
+                          "(what the Workspace's World tab draws). The printed text is unchanged.")
     wfo.set_defaults(func=_cmd_world_forest)
 
     whl = sub.add_parser("world-hill",

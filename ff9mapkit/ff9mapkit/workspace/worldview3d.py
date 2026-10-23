@@ -55,6 +55,7 @@ MAP_CENTRE = (768.0, 0.0, -640.0)                            # the 24x20 grid's 
 GL_TRIANGLES, GL_FLOAT = 0x0004, 0x1406
 GL_DEPTH_TEST, GL_CULL_FACE, GL_BACK, GL_LESS = 0x0B71, 0x0B44, 0x0405, 0x0201
 GL_COLOR_BUFFER_BIT, GL_DEPTH_BUFFER_BIT = 0x4000, 0x0100
+GL_BLEND, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA = 0x0BE2, 0x0302, 0x0303
 
 _VERT = """#version 120
 attribute vec3 a_pos;
@@ -69,9 +70,10 @@ _FRAG = """#version 120
 uniform sampler2D u_tex;
 uniform int u_has_tex;
 uniform vec3 u_missing;
+uniform float u_alpha;
 varying vec2 v_uv;
 void main() {
-    if (u_has_tex == 0) { gl_FragColor = vec4(u_missing, 1.0); return; }
+    if (u_has_tex == 0) { gl_FragColor = vec4(u_missing, u_alpha); return; }
     gl_FragColor = vec4(texture2D(u_tex, vec2(v_uv.x, 1.0 - v_uv.y)).rgb, 1.0);
 }
 """
@@ -359,6 +361,7 @@ class _GLScene:
         prog.setUniformValue("u_mvp", QMatrix4x4(*[float(v) for v in mvp.reshape(-1)]))
         prog.setUniformValue1i(prog.uniformLocation("u_tex"), 0)
         prog.setUniformValue("u_missing", *[c / 255.0 for c in MISSING_RGB])
+        prog.setUniformValue1f(prog.uniformLocation("u_alpha"), 1.0)
         loc_p, loc_uv = prog.attributeLocation("a_pos"), prog.attributeLocation("a_uv")
         bound = None
         for part, first, count in self.draws:
@@ -378,26 +381,40 @@ class _GLScene:
             self.vbos[bound].release()
         prog.release()
 
-    def draw_solid(self, f, mvp: np.ndarray, tris_xyz: np.ndarray, rgb):
-        """Untextured triangles in one colour, on top of everything (no depth test, no cull) -- the pick's pin."""
+    def draw_solid(self, f, mvp: np.ndarray, tris_xyz: np.ndarray, rgb, *, alpha: float = 1.0, depth: bool = False):
+        """Untextured triangles in one colour, no cull: on top of everything (the pick's pin, a refusal mark), or
+        ``depth=True`` inside the scene (the forest ghost, which the hills in front of it should hide). ``alpha``
+        below 1 blends it over what is drawn."""
+        if not len(tris_xyz):
+            return
         data = np.ascontiguousarray(np.c_[tris_xyz, np.zeros((len(tris_xyz), 2))], dtype=np.float32).tobytes()
         vbo = QOpenGLBuffer(QOpenGLBuffer.Type.VertexBuffer)
         vbo.create()
         vbo.bind()
         vbo.allocate(data, len(data))
-        f.glDisable(GL_DEPTH_TEST)
+        if depth:
+            f.glEnable(GL_DEPTH_TEST)
+            f.glDepthFunc(GL_LESS)
+        else:
+            f.glDisable(GL_DEPTH_TEST)
         f.glDisable(GL_CULL_FACE)
+        if alpha < 1.0:
+            f.glEnable(GL_BLEND)
+            f.glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         prog = self.prog
         prog.bind()
         prog.setUniformValue("u_mvp", QMatrix4x4(*[float(v) for v in mvp.reshape(-1)]))
         prog.setUniformValue1i(prog.uniformLocation("u_has_tex"), 0)
         prog.setUniformValue("u_missing", *[c / 255.0 for c in rgb])
+        prog.setUniformValue1f(prog.uniformLocation("u_alpha"), float(alpha))
         loc_p, loc_uv = prog.attributeLocation("a_pos"), prog.attributeLocation("a_uv")
         prog.enableAttributeArray(loc_p)
         prog.enableAttributeArray(loc_uv)
         prog.setAttributeBuffer(loc_p, GL_FLOAT, 0, 3, 20)
         prog.setAttributeBuffer(loc_uv, GL_FLOAT, 12, 2, 20)
         f.glDrawArrays(GL_TRIANGLES, 0, len(tris_xyz))
+        if alpha < 1.0:
+            f.glDisable(GL_BLEND)
         vbo.release()
         vbo.destroy()
         prog.release()
@@ -464,6 +481,29 @@ def render_still(batches, view, *, res=None, tex_lookup=None, site=None, cull=Tr
 PIN_HALO_RGB = (12, 12, 12)    # drawn under the accent pin: the world under it is any colour (sea is the dark
 #                                theme's accent blue), so the pin carries its own ground
 
+def ribbon_tris(ring, height):
+    """An upright band ``height`` tall standing on the closed ring of ``(x, y, z)`` points: a ghost's rim, drawn so
+    it reads from any angle (a flat outline vanishes edge-on). Two triangles per ring edge."""
+    ring = np.asarray(ring, dtype=np.float64)
+    nxt = np.roll(ring, -1, axis=0)
+    top, ntop = ring + (0.0, height, 0.0), nxt + (0.0, height, 0.0)
+    return np.stack([ring, nxt, ntop, ring, ntop, top], axis=1).reshape(-1, 3)
+
+
+def plane_hit(view, res, mx, my, y):
+    """Where the eye ray through window point ``(mx, my)`` meets the level plane at height ``y``: ``(x, z)``, or
+    None when the ray runs level or away from it. The ghost drag's ground: a pick per mouse move would cost tens of
+    ms, the plane costs nothing, and the ghost's own rim height is the plane it slides on."""
+    eye, d = pixel_ray(view, res, mx, my)
+    if abs(d[1]) < 1e-9:
+        return None
+    t = (y - eye[1]) / d[1]
+    if t <= 0.0:
+        return None
+    p = eye + t * d
+    return float(p[0]), float(p[2])
+
+
 def pin_tris(xyz, height, *, w_frac=0.12):
     """Two crossed upright quads standing on ``xyz``, ``height`` tall: the picked point's marker (12 vertices)."""
     x, y, z = xyz
@@ -523,6 +563,8 @@ class WorldView3D(QOpenGLWidget):
 
     gl_failed = Signal(str)
     picked = Signal(object)                                  # ((x, y, z), part) or None (sky) -- a click, not a drag
+    ghost_moved = Signal(float, float)                       # the ghost's new centre while it is dragged
+    ghost_dropped = Signal(float, float)                     # ...and where it was let go (the host judges it then)
     CLICK_SLOP = 4                                           # device px a press may wander and still be a click
 
     def __init__(self, parent=None):
@@ -542,6 +584,13 @@ class WorldView3D(QOpenGLWidget):
         self.packed = None                                   # the scene the view draws (the pick's triangles)
         self.marker = None                                   # (x, y, z) of the last pick
         self.marker_rgb = None                               # the theme accent; the panel sets it (no colour of its own)
+        # what a tool draws over the map: [(tris (n, 3), rgb, alpha, depth)], in order (the forest ghost, its rim,
+        # its refusal marks). The host owns the list and its colours; the view only draws it.
+        self.overlays = []
+        # a draggable ghost: {"center": (x, z), "y": rim height, "poly": (m, 2) plan ring}. A left press inside its
+        # plan drags it on the level plane at y (ghost_moved / ghost_dropped); anywhere else the camera orbits
+        self.ghost = None
+        self._ghost_grab = None                              # (dx, dz) from the grab point to the centre
 
     def set_scene(self, packed: Packed, textures: dict):
         self._pending = (packed, textures)
@@ -590,20 +639,55 @@ class WorldView3D(QOpenGLWidget):
         cam = self.camera
         mvp = clip_matrix(cam.view(), (w, h), far=cam.far())
         self._scene.draw(f, mvp)
+        for tris, rgb, alpha, depth in self.overlays:
+            self._scene.draw_solid(f, mvp, tris, rgb, alpha=alpha, depth=depth)
         if self.marker is not None and self.marker_rgb is not None:
             h = max(1.5, cam.dist * 0.04)
             hx, hy, hz = self.marker
             self._scene.draw_solid(f, mvp, pin_tris((hx, hy - h * 0.06, hz), h * 1.12, w_frac=0.3), PIN_HALO_RGB)
             self._scene.draw_solid(f, mvp, pin_tris(self.marker, h), self.marker_rgb)
 
+    def set_overlays(self, overlays):
+        self.overlays = list(overlays)
+        self.update()
+
+    def set_ghost(self, ghost):
+        self.ghost = ghost
+        if ghost is None:
+            self._ghost_grab = None
+
+    def _ghost_plane(self, e):
+        dpr = self.devicePixelRatioF()
+        return plane_hit(self.camera.view(), self.device_res(), e.position().x() * dpr, e.position().y() * dpr,
+                         self.ghost["y"])
+
     # -- input --
     def mousePressEvent(self, e):
         self._drag = (e.button(), e.position())
         self._press_at = (e.button(), e.position(), 0.0)
+        self._ghost_grab = None
+        if e.button() == Qt.MouseButton.LeftButton and self.ghost is not None:
+            from ..world.forestedit import _pip
+            at = self._ghost_plane(e)
+            if at is not None and bool(_pip(np.asarray([at]), np.asarray(self.ghost["poly"]))[0]):
+                cx, cz = self.ghost["center"]
+                self._ghost_grab = (cx - at[0], cz - at[1])
         e.accept()
 
     def mouseMoveEvent(self, e):
         if self._drag is None:
+            return
+        if self._ghost_grab is not None:                     # dragging the ghost, not the camera
+            if self._press_at is not None:                   # within the slop it is still a click (a pick)
+                b0, p0, far = self._press_at
+                far = max(far, math.hypot(*(e.position() - p0).toTuple()))
+                self._press_at = (b0, p0, far)
+                if far * self.devicePixelRatioF() <= self.CLICK_SLOP:
+                    return
+                self._press_at = None                        # a drag from here on, never a click
+            at = self._ghost_plane(e)
+            if at is not None:
+                self.ghost_moved.emit(at[0] + self._ghost_grab[0], at[1] + self._ghost_grab[1])
             return
         button, last = self._drag
         d: QPointF = e.position() - last
@@ -621,6 +705,12 @@ class WorldView3D(QOpenGLWidget):
 
     def mouseReleaseEvent(self, e):
         self._drag = None
+        grab, self._ghost_grab = self._ghost_grab, None
+        if grab is not None and self._press_at is None:      # a ghost drag ends where the plane meets the cursor
+            at = self._ghost_plane(e)
+            cx, cz = self.ghost["center"] if at is None else (at[0] + grab[0], at[1] + grab[1])
+            self.ghost_dropped.emit(cx, cz)
+            return
         press, self._press_at = self._press_at, None
         if (press is not None and press[0] == Qt.MouseButton.LeftButton and e.button() == Qt.MouseButton.LeftButton
                 and press[2] * self.devicePixelRatioF() <= self.CLICK_SLOP):
@@ -657,6 +747,8 @@ class WorldView3DPanel(QWidget):
 
     _loaded = Signal(object, object, object)                 # (packed | None, textures | None, error | None)
     picked = Signal(object)                                  # the view's pick, forwarded: ((x, y, z), part) or None
+    ghost_moved = Signal(float, float)                       # the view's ghost drag, forwarded
+    ghost_dropped = Signal(float, float)
 
     def __init__(self, pal, *, scale=100):
         super().__init__()
@@ -665,6 +757,7 @@ class WorldView3DPanel(QWidget):
         self.site = None                                     # the RenderSite the view drew (the pick's facts read it)
         self._busy = False
         self._focus = None
+        self._overlays, self._ghost = [], None               # a tool's drawing, held until the view exists
         self._loaded.connect(self._finish)
         from . import widgets
         outer = QVBoxLayout(self)
@@ -715,6 +808,17 @@ class WorldView3DPanel(QWidget):
         self.caption.setText(text)
         self.caption.setVisible(bool(text))
 
+    def set_overlays(self, overlays):
+        """What a tool draws over the map (:attr:`WorldView3D.overlays`), now or once the view exists."""
+        self._overlays = list(overlays)
+        if self.view is not None:
+            self.view.set_overlays(self._overlays)
+
+    def set_ghost(self, ghost):
+        self._ghost = ghost
+        if self.view is not None:
+            self.view.set_ghost(ghost)
+
     def status_text(self):
         """The words on the status page (the fallback fence reads it)."""
         from PySide6.QtWidgets import QLabel
@@ -764,7 +868,11 @@ class WorldView3DPanel(QWidget):
             self.view = WorldView3D()
             self.view.gl_failed.connect(lambda msg: self._show_message("The 3D view needs OpenGL", msg))
             self.view.picked.connect(self.picked.emit)
+            self.view.ghost_moved.connect(self.ghost_moved.emit)
+            self.view.ghost_dropped.connect(self.ghost_dropped.emit)
             self.view.marker_rgb = _rgb(self.pal["accent"])
+            self.view.set_overlays(self._overlays)
+            self.view.set_ghost(self._ghost)
             self._stack.addWidget(self.view)
         self.view.set_scene(packed, textures)
         if self._focus is not None:

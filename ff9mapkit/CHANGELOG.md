@@ -5,6 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — place a forest from the World tab's 3D view
+- In the 3D view, "Add forest" opens a card under the map. Click where the forest goes and a ghost of the canopy
+  stands there; drag it to move it, and set its angle, its spread (up to ×1.5, the widest judged in game) and which
+  stock canopy to carry (only the catalogue's qualified ones are offered).
+- While you move it, the footprint rule is checked at once: on rock, a stamped tile, the coast or off the island the
+  ghost turns red with marks where it fails, and nothing runs. When you let go, the tab runs `world-forest
+  --dry-run` and shows its verdict, the carve's own numbers when it passes or the refusing rule and marks where it
+  refused.
+- "Accept into draft" runs the same `world-forest` command into a draft: a copy of the folder's world files kept
+  outside the game folder, which the game does not load. The view then draws the draft in place of its folder.
+  "Copy command" copies the command, and "Discard draft" deletes the draft. Writing a draft into the live folder
+  comes later.
+- The tab runs the command itself, so a forest placed in the tab writes exactly the bytes the same command typed by
+  hand writes (checked on a real island, 1,531 files identical). Tested in game with the draft loaded: the party
+  stood on the new canopy at the predicted height, within 0.003 units.
+- `world-forest --report-json PATH` writes the verdict as JSON beside the unchanged printed text: whether it passed,
+  the carve's report, the files written, and on a refusal the rule, its message and the world points where it fails.
+
 ### Added — the World tab shows the map in 3D
 - The World tab has a "3D view" button. It shows the whole overworld as the game loads it: every mod folder in
   `Memoria.ini`'s FolderNames in priority order, each block file from the first folder that has it, stock land
