@@ -120,7 +120,9 @@ def inst_for(root, install, **kw):
 
 
 def test_single_instance_key_is_the_last_30_chars_with_non_alphanumerics_dashed():
-    exe = r"C:\gd\ff9-inst\host\x64\FF9.exe" if os.name == "nt" else "/gd/ff9-inst/host/x64/FF9.exe"
+    # Both spellings longer than the 30-char tail (the drive letter is 2 of the Windows one's 31): a shorter path's key
+    # is the whole path, so the POSIX one carries a /srv prefix -- without it, 29 chars and a 29-char key.
+    exe = r"C:\gd\ff9-inst\host\x64\FF9.exe" if os.name == "nt" else "/srv/gd/ff9-inst/host/x64/FF9.exe"
     key = I.single_instance_key(exe)
     assert len(key) == 30
     assert key.endswith("x64-FF9-exe")
@@ -549,7 +551,10 @@ def test_hang_dumper_with_an_explicit_pid_skips_the_resolution():
     def boom(*a, **k):
         raise AssertionError("the resolver must not run when --hang-pid names the game")
 
-    d = H.HangDumper(True, "dumps", pid=4321, resolver=boom, image_of=lambda pid: r"C:\gd\ff9-inst\host\x64\FF9.exe")
+    # The image as THIS OS spells it (QueryFullProcessImageNameW's, on Windows): the dumper takes its basename with
+    # os.path, so a backslashed literal is one whole path component on POSIX.
+    image = os.path.join(os.path.abspath(os.sep), "gd", "ff9-inst", "host", "x64", "FF9.exe")
+    d = H.HangDumper(True, "dumps", pid=4321, resolver=boom, image_of=lambda pid: image)
     proc = d._resolve(H.GameTarget(50000, 49211))
     assert (proc.pid, proc.exe, proc.how) == (4321, "FF9.exe", "--hang-pid 4321")
     unreadable = H.HangDumper(True, "dumps", pid=99, resolver=boom,

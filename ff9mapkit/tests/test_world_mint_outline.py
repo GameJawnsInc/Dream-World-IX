@@ -13,9 +13,18 @@ refinement, the seam wrap into column -1 and (install-gated) a beach mint. A mis
   near rank 1). The crest is now snapped onto and cut at the lattice lines and the grass clipped per cell, so the lip
   tris, the crest and the wall beside each cut changed; the interior (the mains field, the stamps, every tri over 6u
   from the rim) did not -- ``test_cell_lip_changes_only_the_lip`` holds that.
-* The beach mint keeps the old lip by design (THE LADDER MINT is falsified and superseded): one digest."""
+* The beach mint keeps the old lip by design (THE LADDER MINT is falsified and superseded): one digest.
+
+THE DIGESTS ARE A SAME-LIBM CONTRACT. The mint is pure-Python ``math``, and its sin/cos/exp are the platform C
+library's: the digests were frozen on Windows (MSVC's UCRT), and glibc rounds 118 of the 5156 libm calls five of these
+mints make one ulp differently (``mesh._hash01``'s frac(sin(.) * 43758.5453) carries that ulp into every outline). So
+on Linux the same mints come out within 4e-9 -- the same topology, every position equal at the f32 a ``.ff9mesh``
+stores, 50 normal/UV floats off by <= 3.7e-9 across three mints -- but not bit for bit. The digests (the beach's too)
+run where the libm is the frozen one (FROZEN_LIBM); MINT_SKETCHES -- the topology exact, every float folded into two
+projections held to 1e-6 -- run everywhere."""
 from __future__ import annotations
 
+import functools
 import hashlib
 import math
 import warnings
@@ -68,6 +77,39 @@ STREAKY_MINTS = {
 }
 
 
+#: THE LIBM THE DIGESTS WERE FROZEN ON (module docstring): three calls the blob mints make, as MSVC's UCRT rounds
+#: them -- ``(fn, arg, result)`` in ``float.hex``. glibc rounds all three one ulp the other way (sin(pi/4) to ...bcc).
+FROZEN_LIBM = (("sin", "0x1.921fb54442d18p-1", "0x1.6a09e667f3bcdp-1"),
+               ("cos", "0x1.ee46f9793ccc3p+1", "-0x1.80f125b1e8028p-1"),
+               ("exp", "-0x1.5f90826c96204p+4", "0x1.3b2b11c021a16p-32"))
+LIBM_DRIFT = [f"math.{fn}({float.fromhex(x)!r}) = {getattr(math, fn)(float.fromhex(x)).hex()}, frozen {want}"
+              for fn, x, want in FROZEN_LIBM if getattr(math, fn)(float.fromhex(x)).hex() != want]
+same_libm = pytest.mark.skipif(bool(LIBM_DRIFT), reason=(
+    "the blob-mint digests are a same-libm contract (frozen on MSVC's UCRT) and this libm rounds differently: "
+    + "; ".join(LIBM_DRIFT) + " -- test_blob_mints_hold_across_libms holds these mints here"))
+#: THE CROSS-LIBM NET: each blob mint as :func:`mint_sketch` gives it, ``(legacy, default lip)``. Frozen beside the
+#: digests (re-freeze them together); a libm's last-bit noise moves a projection by <= 3.2e-9 (glibc, measured).
+MINT_SKETCHES = {
+    "big-r69": (("d827a7be866653d8", -1146.5714355928753, -411.44368721988354),
+                ("ce63aeee1d8e5487", -983.2863997175868, -457.5033989443887)),
+    "desert": (("5fe5bba0d3c06bf8", 389.00282377003447, 59.84794933141326),
+               ("0a76861c8f655158", 482.99871845818967, -357.2761889008938)),
+    "island-E": (("022ad35eff021889", -1182.8914801537683, 208.6381947799635),
+                 ("add64a597c404ab3", 183.89966445299876, 311.15628891636794)),
+    "lobes2": (("396423028f849ee2", 761.8501666482778, -1219.8600624446296),
+               ("bbfd333625b4efb3", 391.4670577108538, 14.053489295388925)),
+    "r20-seed5": (("5fe5bba0d3c06bf8", 391.9855606446531, 72.44734986402992),
+                  ("0a76861c8f655158", 539.9073061581043, -266.808297092929)),
+    "relief": (("f5eed6afe9a6184b", -241.06601128319278, -312.57755543233424),
+               ("1bfba7ac3e557419", 428.51902688131, 1016.0290735261401)),
+    "seam-wrap": (("9f91aa140d2df25c", -674.1521856410823, -297.80775229099595),
+                  ("207ce78ca60116ab", 391.1551655159724, -68.46439868409036)),
+    "uaho-bench": (("55dc1b871e03dde4", -690.9674191893336, 1387.9026396531483),
+                   ("77311a5745415675", -487.6522386430086, 1001.3924569105459)),
+}
+SKETCH_TOL = 1e-6
+
+
 def mint_digest(built) -> str:
     h = hashlib.sha256()
     for blk in sorted(built["blocks"]):
@@ -81,16 +123,57 @@ def mint_digest(built) -> str:
     return h.hexdigest()
 
 
+def mint_sketch(built) -> tuple:
+    """``(topology, p1, p2)``: the block keys, every block's tris and every channel's shape hashed EXACTLY (no libm
+    moves them), and every f64 :func:`mint_digest` hashes folded into two fixed projections -- integer-derived weights
+    in [-0.5, 0.5), an exactly rounded ``math.fsum`` -- so a libm's last bit moves them by ~1e-9 and a real change (a
+    float moved 1e-4, any topology) by orders more than SKETCH_TOL."""
+    h = hashlib.sha256()
+    vals = []
+    for blk in sorted(built["blocks"]):
+        bm = built["blocks"][blk]
+        h.update(repr(blk).encode())
+        h.update(np.asarray(bm.tris, dtype="<i4").tobytes())
+        for ch in (CH_POS, CH_NRM, CH_UV, CH_TAN):
+            a = np.asarray(bm.chan_arrays[ch], dtype="<f8")
+            h.update(repr(a.shape).encode())
+            vals.append(a.ravel())
+    v = np.concatenate(vals + [np.asarray(built[k], dtype="<f8").ravel() for k in ("outline", "rim")])
+    i = np.arange(v.size, dtype=np.int64)
+    return (h.hexdigest()[:16], math.fsum((((i * 2654435761) % 8191) / 8191.0 - 0.5) * v),
+            math.fsum((((i * 40503) % 4093) / 4093.0 - 0.5) * v))
+
+
+@functools.lru_cache(maxsize=None)
+def _identity(name, cell_lip):
+    """``(digest, sketch)`` of one blob mint: one build per mint per worker serves both nets."""
+    built = I.build_landmass(**BLOB_MINTS[name][0], cell_lip=cell_lip)
+    return mint_digest(built), mint_sketch(built)
+
+
+@same_libm
 @pytest.mark.parametrize("name", sorted(BLOB_MINTS))
 def test_legacy_blob_mints_are_byte_identical(name):
-    kw, sha = BLOB_MINTS[name]
-    assert mint_digest(I.build_landmass(**kw, cell_lip=False)) == sha, f"the {name} pre-fix (cell_lip=False) mint moved"
+    _kw, sha = BLOB_MINTS[name]
+    assert _identity(name, False)[0] == sha, f"the {name} pre-fix (cell_lip=False) mint moved"
 
 
+@same_libm
 @pytest.mark.parametrize("name", sorted(BLOB_MINTS))
 def test_blob_mints_are_byte_identical(name):
-    kw, _legacy = BLOB_MINTS[name]
-    assert mint_digest(I.build_landmass(**kw)) == CELL_LIP_DIGESTS[name], f"the {name} blob mint moved"
+    assert _identity(name, True)[0] == CELL_LIP_DIGESTS[name], f"the {name} blob mint moved"
+
+
+@pytest.mark.parametrize("cell_lip", [False, True], ids=["legacy", "cell-lip"])
+@pytest.mark.parametrize("name", sorted(BLOB_MINTS))
+def test_blob_mints_hold_across_libms(name, cell_lip):
+    """THE CROSS-LIBM NET, on every box: the topology exact, both projections within SKETCH_TOL. A miss is a moved
+    mint anywhere; where the digests skip (another libm) this is the only net, and a miss there while the frozen
+    libm stays green means that libm's users mint a different island from the same seed -- a finding, not noise."""
+    topo, p1, p2 = _identity(name, cell_lip)[1]
+    want = MINT_SKETCHES[name][cell_lip]
+    assert topo == want[0] and abs(p1 - want[1]) <= SKETCH_TOL and abs(p2 - want[2]) <= SKETCH_TOL, (
+        f"the {name} {'cell-lip' if cell_lip else 'legacy'} mint moved: sketch {(topo, p1, p2)!r}, pinned {want!r}")
 
 
 # ---- THE LIP-STREAK DETECTOR + THE CELL-CLIPPED LIP ---------------------------------------------------------------
@@ -281,6 +364,7 @@ def test_the_crest_is_cut_on_the_lattice_and_the_wall_fans_to_it():
     assert sum(1 for p in crest if p[0] % 4.0 == 0.0 or p[2] % 4.0 == 0.0) >= built["crest_cuts"]
 
 
+@same_libm
 def test_beach_mint_is_byte_identical():
     try:
         import UnityPy  # noqa: F401

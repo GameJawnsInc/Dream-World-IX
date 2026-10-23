@@ -165,10 +165,14 @@ class FightTimeout(HarnessError):
 def pid_alive(pid: int) -> bool:
     """Windows-safe liveness probe.
 
-    ⚠ NEVER ``os.kill(pid, 0)`` here. On Windows CPython routes every signal but the console-control
+    ⚠ NEVER ``os.kill(pid, 0)`` here on Windows. There CPython routes every signal but the console-control
     ones to ``TerminateProcess``, so the textbook liveness idiom would KILL the process it asks about
-    -- in this case another agent's game, or another agent's driver.
+    -- in this case another agent's game, or another agent's driver. Off Windows there is no kernel32
+    (``ctypes.WinDLL`` is missing, which read every pid as alive, so a dead run's arm was never adopted)
+    and signal 0 IS the safe probe: :func:`_pid_alive_posix`.
     """
+    if os.name != "nt":
+        return _pid_alive_posix(pid, os.kill)
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
     try:
         handle = _kernel32().OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
@@ -183,6 +187,22 @@ def pid_alive(pid: int) -> bool:
     # this user may not open -- another account's driver, an elevated game -- read as DEAD, and its
     # arm was adopted. A liveness probe that cannot say "alive but not mine" is the wrong shape here.
     return ctypes.get_last_error() == 5
+
+
+def _pid_alive_posix(pid: int, kill) -> bool:
+    """POSIX liveness: ``kill(pid, 0)`` checks the pid and delivers nothing. ESRCH -> dead; EPERM -> it
+    exists and is not ours to signal (another account's run): alive, the POSIX face of the Windows
+    probe's ERROR_ACCESS_DENIED. ``kill`` is passed in so that only :func:`pid_alive`'s ``os.name``
+    guard ever hands this ``os.kill`` -- a test stubs it, and Windows never reaches it."""
+    try:
+        kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True                       # cannot tell -> assume alive, never steal another run's arm
+    return True
 
 
 _K32 = None

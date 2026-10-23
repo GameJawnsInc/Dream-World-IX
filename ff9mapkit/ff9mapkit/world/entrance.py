@@ -816,9 +816,15 @@ def fresh_discard_note(mod_folder: str, bx: int, by: int, *, disc: int = 1, lod:
     cell ANOTHER deploy owns silently reverts that deploy's terrain/building to stock. So: name it.
 
     Scoped to ``Terrain``/``Object`` -- the two parts this verb re-reads and re-writes. A ``Donor.txt``
-    or a sea layer at the same cell survives ``--fresh`` untouched and is not being discarded."""
-    discards = M.existing_overrides([(bx, by)], mod_folder, disc=disc, lod=lod, game=game,
-                                    parts=("Terrain", "Object"))
+    or a sea layer at the same cell survives ``--fresh`` untouched and is not being discarded.
+
+    No install resolves: nothing is deployed to discard, so ``{}`` -- as its sibling
+    :func:`mesh.fresh_reset_gate`. A warn row never raises; the verb's own install read does."""
+    try:
+        discards = M.existing_overrides([(bx, by)], mod_folder, disc=disc, lod=lod, game=game,
+                                        parts=("Terrain", "Object"))
+    except config.ConfigError:
+        return {}
     if not discards:
         return {}
     return {"fresh_discards": discards,

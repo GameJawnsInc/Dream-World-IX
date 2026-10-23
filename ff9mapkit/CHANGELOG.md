@@ -5,11 +5,24 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
-## [1.0.0b20] - 2026-10-22 — Play the story together, and a world map that changes with it
+## [1.0.0b21] - 2026-10-23 — Play the story together, and a world map that changes with it
+
+> Re-cut of the never-published 1.0.0b20: its tag's CI run failed on the bare Ubuntu box (no FF9 install, no Qt)
+> and nothing shipped under it. Same content, plus the portability fixes listed under Fixed below.
+
+### Fixed — what the release CI's first Linux run of this release caught
+- `world-entrance --fresh`'s discard warning no longer crashes when no FF9 install is found; it has nothing to
+  warn about, like its sibling check.
+- The in-game test harness on Linux and macOS: a dead run's lock is now recognised as dead (every process used to
+  read as alive there), and creating a test instance says plainly that it needs Windows instead of failing on a
+  missing `cmd`.
+- Tests that need the FF9 install, the extracted templates or Windows now skip with a reason on a machine without
+  them. The overworld mint checks compare exact bytes only where the C math library matches the one they were
+  pinned on, and compare shape and values at a 1e-6 tolerance everywhere else.
 
 ### Fixed — the sound-effect memory leak: the engine bundle ships a leak-fixed `SaXAudio.dll`
 - Stock Memoria's audio plugin (its July-2025 `SaXAudio.dll`) leaked about 0.7 MB of memory per sound effect
-  played, so menu-heavy and battle-heavy sessions grew without bound. The b20 engine bundle carries
+  played, so menu-heavy and battle-heavy sessions grew without bound. The b21 engine bundle carries
   `SaXAudio.dll` built unchanged from Memoria's own upstream fix (commit `5b49756c`, MIT) for both x64 and x86.
   Measured on a sound-effect bench, memory growth fell from 0.71 MB/s to 0.003 MB/s, and repeated choice
   menus no longer grow either. The plugin's interface is identical to stock, so nothing else changes.
@@ -30,7 +43,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - A guest who watched the host's battle returns to the field where they stood, the way a normal random battle
   returns, instead of re-entering the room (s97).
 - The host's dialogue presses ride on every state update, so a lost packet heals instead of dropping a line
-  (s98). This moves co-op to protocol v14: both players need the b20 engine bundle, and mismatched engines
+  (s98). This moves co-op to protocol v14: both players need the b21 engine bundle, and mismatched engines
   refuse to pair.
 
 ### Added — co-op: the guest fights from FF9's real battle menu (custom engine s100–s121, s131–s137, s143)

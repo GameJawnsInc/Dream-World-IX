@@ -67,9 +67,13 @@ cw, pb, cb = wb.cw, wb.pb, wb.cb
 # the bench's own waits, shortened for a stand-in that runs at 600 fps (every judged threshold stays the bench's)
 for k, v in dict(STAY_S=1.2, MAP_S=1.2, FIELD_S=10.0, BATTLE_S=10.0, FIGHT_S=60.0, RETURN_S=15.0, DUO_LINE_S=10.0).items():
     setattr(cw, k, v)
+# [ci-loaded] the duo host's fight (wb.FIGHT_S: its only reader) DEFENDS up to DP_WAIT_S of the WALL before it attacks, and a guest
+# that never boots (the s144 / prompts_busy calibrations) spends all of it -- so its budget is that cap PLUS the 60 s every other
+# fight gets. At a bare 60 the attack had 15 s left, and on a loaded CI runner the stand-in's overran it: the fight timed out, the
+# host stayed on BattleHUD and S145-D3 read 'not reached' (reproduced here with slow_ms=35). A ceiling only: a won fight returns.
 for k, v in dict(BOOT_S=8.0, LEAVE_S=10.0, SETTLE_S=6.0, DECLINE_S=0.6, QUIET_S=1.0, DIAL_S=8.0, PAIR_S=30.0, EXIT_S=40.0,
                  BATTLE_WAIT_S=60.0, BOOT_WAIT_S=10.0, LIVE_WAIT_S=10.0, RET_WAIT_S=60.0, ENTER_WAIT_S=40.0, REJOIN_S=30.0,
-                 HOLD_S=2.0, HOLD_WAIT_S=8.0, BATTLE_S=10.0, FIGHT_S=60.0, RETURN_S=15.0).items():
+                 HOLD_S=2.0, HOLD_WAIT_S=8.0, BATTLE_S=10.0, FIGHT_S=wb.DP_WAIT_S + 60.0, RETURN_S=15.0).items():
     setattr(wb, k, v)
 FAKES = []
 SPEED = float(doc.get("speed", 5.0))
