@@ -408,3 +408,21 @@ def test_world_promote_cli_reports_and_dry_runs(monkeypatch, tmp_path, capsys):
     assert json.loads(rep.read_text())["op"] == "revert" and (src / T1).read_bytes() != b"the forest"
     assert cli.main(["--game", str(game), "world-promote", str(d), "--revert", "--report-json", str(rep)]) == 2
     assert "no promote to revert" in json.loads(rep.read_text())["error"]
+
+
+def test_promote_onto_cells_the_live_folder_has_nothing_at_records_and_reverts(monkeypatch, tmp_path):
+    """A sink of a stock island writes files the live folder never had at those cells: there is nothing to snapshot,
+    and the promote must still write its record (it once failed there, after the live writes), so revert removes
+    exactly what it created."""
+    _fake_mirror(monkeypatch)
+    game, src, d = _edited_draft(tmp_path)
+    new = "FF9_Data/WorldMap/Disc1/0_1/r8/Block[3][8] Sea3.ff9mesh"
+    (d / new).parent.mkdir(parents=True, exist_ok=True)
+    (d / new).write_bytes(b"open water")
+    (d / T1).write_bytes((src / T1).read_bytes())          # only the new cell is an edit
+    before = {k: v for k, v in _tree(src).items() if ".bak-" not in k}
+    rec = D.promote(d, game=game, log=lambda *a: None)
+    assert rec["cells"] == [[3, 8]] and rec["before"] == {} and (src / new).read_bytes() == b"open water"
+    assert D.last_promote(d)["utc"] == rec["utc"]
+    D.revert(d, game=game, log=lambda *a: None)
+    assert {k: v for k, v in _tree(src).items() if ".bak-" not in k} == before

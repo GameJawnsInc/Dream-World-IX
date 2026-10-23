@@ -514,6 +514,15 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         if not s["clean"]:
             bad = sorted({g.get("gate", "?") for r in s["per_block"].values() for g in r["gates"] if not g.get("ok")})
             raise ValueError(f"world-sink refused the island at ({at[0]:g}, {at[1]:g}): {', '.join(bad) or 'not clean'}")
+        from .sinkedit import is_draft
+        if not dry_run and not skip_mirror and is_draft(mod_folder, game):
+            # A DRAFT CANNOT MIRROR (no bundles): its disc-4 half is the replay's own call, as the World tab's Accept
+            # makes it (world.sinkedit), so a recipe opened into a draft writes the draft the tab wrote
+            try:
+                ok4 = TR.sink(mod_folder, at, disc=4, skip_mirror=True, replay=None, **kw)["clean"]
+            except (ValueError, FileNotFoundError):
+                ok4 = False
+            print(f"[[sink]] disc 4 (the draft's own step): {'sunk' if ok4 else 'refused, disc 4 keeps its island'}")
         return s
 
     def _placement_runner(_row):

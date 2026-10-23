@@ -118,6 +118,13 @@ alone.
   `[[sink]]` is a compose row with world-sink's disc-4 replay. On FF9CustomMap-world: the saved recipe composed by
   the CLI is byte-identical to the editor's draft over 1,531 files, Open recipe the same, two undos back to the
   folder. Found: the preview's anchor law (open sea inside a deployed block).
+- **C5, first verb: SINK BUILT + IN GAME (2026-10-23)** -> [`C5.md`](C5.md). "Sink an island": the cached island list
+  (sink_candidates + outlines, 3 min once per install), a click picks the island, its outline is the ghost, its
+  precomputed verdict previews; Accept is world-sink on disc 1 then disc 4 (THE DRAFT'S DISC-4 HALF: a draft cannot
+  mirror, so it makes the replay's own call). I1 identical over 1,541 files. In game: the island's land 4.691 before,
+  gone after the promote and reload (the party in open water there; the control unchanged). Found: promote failed
+  onto cells the live folder had nothing at (fixed, recovered); a party stands 0.586 under a Sea3 surface. Next in
+  C5: river placement, coast morphs, island and transplant.
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,
