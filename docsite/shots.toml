@@ -89,3 +89,23 @@ annotate = [
   { widget = "build_deploy.rb_game",    label = "3" },
   { widget = "build_deploy.rb_other",   label = "4" },
 ]
+
+# The Co-op tab, host side, set up the way tutorial 17 asks: position 2 for the friend, outfit Auto.
+# coop:ready = gui_snap's fake install with the current engine and co-op off (before Start). The
+# install path it paints is a temp dir holding the account name, so it is pinned to Steam's.
+[shot.coop-host]
+surface = "coop:ready"
+height = 1650         # the whole page, Start hosting included (ring 5), with no scroll fold
+used_by = ["ff9mapkit/docs/tutorials/17-coop.md"]
+pin = [
+  { widget = "coop_doc.lbl_game", text = 'C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX' },
+  { widget = "coop_doc.cb_slots.1", checked = true },
+  { widget = "coop_doc.combo_ghost", data = "auto" },
+]
+annotate = [
+  { widget = "coop_doc.rb_host",     label = "1" },
+  { widget = "coop_doc.rb_relay",    label = "2" },
+  { widget = "coop_doc.cb_slots.1",  label = "3" },
+  { widget = "coop_doc.combo_ghost", label = "4" },
+  { widget = "coop_doc.btn_start",   label = "5" },
+]

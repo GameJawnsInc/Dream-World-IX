@@ -1,0 +1,72 @@
+{
+ "shot": "coop-host",
+ "surface": "coop:ready",
+ "theme": "light",
+ "scale": 100,
+ "kit_version": "1.0.0b22",
+ "theme_pair": {
+  "light": "light",
+  "dark": "mist"
+ },
+ "annotations": [
+  {
+   "widget": "coop_doc.rb_host",
+   "label": "1",
+   "kind": "ring",
+   "rect": [
+    304,
+    593,
+    731,
+    26
+   ]
+  },
+  {
+   "widget": "coop_doc.rb_relay",
+   "label": "2",
+   "kind": "ring",
+   "rect": [
+    304,
+    786,
+    731,
+    26
+   ]
+  },
+  {
+   "widget": "coop_doc.cb_slots.1",
+   "label": "3",
+   "kind": "ring",
+   "rect": [
+    546,
+    1052,
+    40,
+    26
+   ]
+  },
+  {
+   "widget": "coop_doc.combo_ghost",
+   "label": "4",
+   "kind": "ring",
+   "rect": [
+    407,
+    1142,
+    304,
+    31
+   ]
+  },
+  {
+   "widget": "coop_doc.btn_start",
+   "label": "5",
+   "kind": "ring",
+   "rect": [
+    287,
+    1391,
+    113,
+    33
+   ]
+  }
+ ],
+ "size": [
+  1280,
+  1650
+ ]
+}
