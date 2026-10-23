@@ -84,6 +84,11 @@ alone.
   files from, the ledger and the landmark; "Teleport game here" (dev checkout) moved the party to three landmark
   picks within 0.004u, standing within 0.003u of the predicted height. Found on the way: the view draws one folder
   over stock, not the whole FolderNames stack -- the facts flag it per point; drawing the stack is worth doing before C1.
+- **THE STACK DRAWN + IN-GAME PROVEN (2026-10-23)** -> [`STACK.md`](STACK.md). The 3D view and the pick resolve every
+  file the engine's way (FolderNames first holder per file; Terrain-exists from any folder, Donor.txt from the first;
+  a refused file means stock, not the next folder's). Two labs first in FolderNames: 4/4 heights within 0.002u, each
+  case 1.5u from the wrong rule; Memoria.log confirmed the loads and the refusal. "Only this folder" previews a
+  scratch folder for C1.
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,

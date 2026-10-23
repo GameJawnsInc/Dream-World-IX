@@ -12,6 +12,7 @@ import json
 
 import pytest
 
+from ff9mapkit.world import mesh as M
 from ff9mapkit.world import pointinfo as PI
 from ff9mapkit.world import render as R
 from ff9mapkit.world.extract import CH_NRM, CH_POS, CH_TAN, CH_UV, BlockMesh, encode_id
@@ -46,13 +47,22 @@ def site(tmp_path):
 
 
 def _parts(monkeypatch, parts):
-    monkeypatch.setattr(R, "cell_meshes", lambda site, bx, by, part_src=None, stock=False: list(parts))
+    """Hand ``parts`` to point_info as the block's meshes; each one's source is the site's file when one resolves
+    (render.live_path, the real rule), else stock -- what the real cell_meshes reports."""
+    def fake(site, bx, by, part_src=None, stock=False, bad=None, sources=None):
+        if sources is not None:
+            for part, _bm in parts:
+                p = R.live_path(site, bx, by, part)
+                sources[part] = p if p.is_file() else "stock"
+        return list(parts)
+    monkeypatch.setattr(R, "cell_meshes", fake)
 
 
-def _put(game, folder, part, bx=1, by=1):
+def _put(game, folder, part, bx=1, by=1, data=None):
+    """A real .ff9mesh (the engine reads it) unless ``data`` says otherwise."""
     p = PI._part_file(game, folder, 1, bx, by, part)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_bytes(b"F9WM")
+    p.write_bytes(M.ff9mesh_bytes(_grid(GRASS, 5.0)) if data is None else data)
     return p
 
 
@@ -126,3 +136,16 @@ def test_the_ledgers_last_row_for_the_block_names_its_verb(site, tmp_path, monke
                                                        encoding="utf-8")
     led = PI.point_info(site, 100.5, -70.25, stack=[SHOWN])["ledger"]
     assert led["verb"] == "world-island" and led["utc"].startswith("2026-10-01")
+
+
+def test_a_file_the_engine_refuses_means_stock_not_the_next_folders_file(site, tmp_path, monkeypatch):
+    """WorldMeshOverride.TryLoad returns null on a read failure -- it does not try the next folder -- so a refused
+    file in the top folder hides a good file below it and the game draws STOCK."""
+    _parts(monkeypatch, [("Terrain", _grid(GRASS, 5.0))])
+    _put(tmp_path, "FF9CustomMap", "Terrain", data=b"F9WM" + bytes(16))     # version 0: refused
+    _put(tmp_path, SHOWN, "Terrain")
+    info = PI.point_info(site, 100.5, -70.25, stack=["FF9CustomMap", SHOWN])
+    o = info["owners"]
+    assert o["parts"]["Terrain"] == "stock" and o["refused"][0][:2] == ("Terrain", "FF9CustomMap")
+    assert o["hidden"] == [("Terrain", "stock")]                             # the view (one folder) drew SHOWN's
+    assert any("refuses FF9CustomMap's Terrain" in ln for ln in PI.describe(info))

@@ -6,9 +6,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 ## [Unreleased]
 
 ### Added — the World tab shows the map in 3D
-- The World tab has a "3D view" button. It shows the whole overworld: stock land under the selected folder's
-  overrides, open sea round them, and the parts a donor brings along. Where another mod folder overrides the same
-  block, the game shows that folder's files instead; a picked point says so. Drag to orbit, right-drag
+- The World tab has a "3D view" button. It shows the whole overworld as the game loads it: every mod folder in
+  `Memoria.ini`'s FolderNames in priority order, each block file from the first folder that has it, stock land
+  under them, open sea round them, and the parts a donor brings along. A file the game cannot read is drawn the way
+  the game draws it, as stock. "Only this folder" shows one folder over stock instead, to preview a folder the game
+  does not load. A caption names the folder order it drew. Tested in game with two extra folders on top: the party
+  stood at the height the view predicted at all four test points, including where the top folder's file was
+  unreadable. Drag to orbit, right-drag
   to pan, use the wheel to zoom, and press Home to re-frame; a selected block opens the view centred on it.
 - It draws with the same rules as `world-render` (unlit, nearest-texel, sea at its first frame, the same back-face
   cull), and its stills match `world-render`'s at the six committed bench cameras, apart from one-pixel differences

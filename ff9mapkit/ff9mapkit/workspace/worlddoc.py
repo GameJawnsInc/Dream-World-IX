@@ -545,6 +545,18 @@ class WorldDoc(QWidget):
         self.view3d_btn.setProperty("role", "quiet")
         self.view3d_btn.clicked.connect(lambda: self._on_view3d(not self._mode3d))
         self._label_view_btn()
+        # What the 3D page draws: the game's whole FolderNames stack (the default: what you will see in game), or
+        # only this folder over stock (a scratch folder the game does not load yet). It lives on the 3D page's own
+        # bar (handed over when the page is built): in this row it squeezed the wrapped summary into a clip at 150%.
+        self.draw_box = QComboBox()
+        self.draw_box.addItem("As the game loads it", "stack")
+        self.draw_box.addItem("Only this folder", "folder")
+        self.draw_box.setAccessibleName("3D view draws")
+        self.draw_box.setToolTip("As the game loads it: every folder in Memoria.ini's FolderNames, highest priority "
+                                 "first, each file from the first folder holding it. Only this folder: the picked "
+                                 "folder over stock, for previewing a folder the game does not load.")
+        self.draw_box.activated.connect(lambda _ix: self._load_view3d())
+        self.draw_box.hide()
         head.addWidget(self.view3d_btn)
         v.addLayout(head)
         self.canvas = AtlasCanvas(self.pal, on_select=self._on_select,
@@ -779,10 +791,26 @@ class WorldDoc(QWidget):
 
     # -- the 3D page --
     def _render_site(self):
+        """``(RenderSite, caption)`` for the 3D page: the game's FolderNames stack, or this folder over stock."""
         from ..world import mesh as M
         from ..world import render as R
         cells = tuple((bx, by) for by in range(M.GRID_ROWS) for bx in range(M.GRID_COLS))
-        return R.RenderSite(cells=cells, disc=1, game=self._game, mod_root=self._census.root)
+        here = self._census.root.name
+        one = R.RenderSite(cells=cells, disc=1, game=self._game, mod_root=self._census.root)
+        if self.draw_box.currentData() == "folder":
+            return one, (f"Drawn: only {here} over stock. The game reads every folder in Memoria.ini's "
+                         "FolderNames, so a block another folder overrides looks different in game; a picked "
+                         "point says where.")
+        stack = R.game_stack(self._game)
+        if stack is None:
+            return one, (f"Memoria.ini could not be read, so this draws only {here} over stock, not the "
+                         "game's folder order.")
+        names = [p.name for p in stack]
+        cap = "Drawn as the game loads it, first folder first: " + " › ".join(names + ["stock"])
+        if here not in names:
+            cap += (f". ⚠ {here} is not in FolderNames, so the game does not load it and neither does this "
+                    "view; choose Only this folder to see it.")
+        return R.RenderSite(cells=cells, disc=1, game=self._game, stack=stack), cap
 
     def _on_view3d(self, on, *, sync=False):
         """The user's toggle. First use builds the panel (importing the GL module only now: the Workspace
@@ -790,6 +818,7 @@ class WorldDoc(QWidget):
         whole map on a worker; ``sync=True`` is the deterministic lane for tests and gui_snap."""
         self._mode3d = bool(on)
         self._label_view_btn()
+        self.draw_box.setVisible(bool(on))
         if not on:
             self._views.setCurrentWidget(self.canvas)
             self._legend_host.show()
@@ -798,6 +827,7 @@ class WorldDoc(QWidget):
             from .worldview3d import WorldView3DPanel
             self._view3d = WorldView3DPanel(self.pal, scale=self._scale)
             self._view3d.picked.connect(self._on_pick)
+            self._view3d.add_control(self.draw_box)
             self._views.addWidget(self._view3d)
             self._load_view3d(sync=sync)
         self._focus_view3d()
@@ -823,7 +853,9 @@ class WorldDoc(QWidget):
     def _load_view3d(self, *, sync=False):
         if self._view3d is None or self._census is None:
             return
-        self._view3d.load(self._render_site(), sync=sync)
+        site, caption = self._render_site()
+        self._view3d.set_caption(caption)
+        self._view3d.load(site, sync=sync)
         self._focus_view3d()
 
     def _focus_view3d(self):

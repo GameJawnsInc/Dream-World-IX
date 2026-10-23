@@ -1,0 +1,124 @@
+{
+ "prep_t": "2026-10-23 11:37:01",
+ "targets": [
+  {
+   "key": "A",
+   "x": 224.37,
+   "z": -800.41,
+   "predict_y": 4.3915227461283255,
+   "part": "Terrain",
+   "block": [
+    3,
+    12
+   ],
+   "wrong_rule_y": 2.8915227461283255,
+   "separation": 1.5,
+   "back": {
+    "ok": true,
+    "x": 224.37,
+    "z": -800.41,
+    "world_x": 224.367,
+    "world_y": 4.390625,
+    "world_z": -800.406,
+    "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\stack-A.png",
+    "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-113751-world-teleport",
+    "error": null
+   },
+   "dy": -0.0008977461283254939,
+   "S1": true
+  },
+  {
+   "key": "B",
+   "x": 352.37,
+   "z": -608.41,
+   "predict_y": 16.789703366704092,
+   "part": "Terrain",
+   "block": [
+    5,
+    9
+   ],
+   "wrong_rule_y": 18.28970336670409,
+   "separation": 1.4999999999999964,
+   "back": {
+    "ok": true,
+    "x": 352.37,
+    "z": -608.41,
+    "world_x": 352.367,
+    "world_y": 16.7890625,
+    "world_z": -608.406,
+    "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\stack-B.png",
+    "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-113754-world-teleport",
+    "error": null
+   },
+   "dy": -0.0006408667040922467,
+   "S1": true
+  },
+  {
+   "key": "C",
+   "x": 32.37,
+   "z": -800.41,
+   "predict_y": 4.708528094291687,
+   "part": "Terrain",
+   "block": [
+    0,
+    12
+   ],
+   "wrong_rule_y": 3.2085281163454056,
+   "separation": 1.4999999779462811,
+   "back": {
+    "ok": true,
+    "x": 32.37,
+    "z": -800.41,
+    "world_x": 32.367,
+    "world_y": 4.70703125,
+    "world_z": -800.406,
+    "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\stack-C.png",
+    "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-113757-world-teleport",
+    "error": null
+   },
+   "dy": -0.0014968442916867275,
+   "S1": true
+  },
+  {
+   "key": "K",
+   "x": 326.16,
+   "z": -569.09,
+   "predict_y": 4.286220703125,
+   "part": "Terrain",
+   "block": [
+    5,
+    8
+   ],
+   "back": {
+    "ok": true,
+    "x": 326.16,
+    "z": -569.09,
+    "world_x": 326.156,
+    "world_y": 4.28515625,
+    "world_z": -569.09,
+    "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\stack-K.png",
+    "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-113759-world-teleport",
+    "error": null
+   },
+   "dy": -0.0010644531250001421,
+   "S1": true
+  }
+ ],
+ "reach_rc": 0,
+ "log": {
+  "A": [
+   "23.10.2026 11:37:47 |M| [WorldMeshOverride] loaded 'WorldMap/Disc1/0_1/r12/Block[3][12] Terrain' from FF9CustomMap-lab-hi/FF9_Data/WorldMap/Disc1/0_1/r12/Block[3][12] Terrain.ff9mesh"
+  ],
+  "B": [
+   "23.10.2026 11:37:47 |E| [WorldMeshOverride] failed to read FF9CustomMap-lab-hi/FF9_Data/WorldMap/Disc1/0_1/r9/Block[5][9] Terrain.ff9mesh: unsupported version 2"
+  ],
+  "C": [
+   "23.10.2026 11:37:47 |M| [WorldMeshOverride] loaded 'WorldMap/Disc1/0_1/r12/Block[0][12] Terrain' from FF9CustomMap-lab-hi/FF9_Data/WorldMap/Disc1/0_1/r12/Block[0][12] Terrain.ff9mesh"
+  ]
+ },
+ "S2": {
+  "A": true,
+  "C": true,
+  "B": true
+ }
+}

@@ -309,3 +309,40 @@ def test_a_superseded_point_read_never_overwrites_the_newer_pick(app, tmp_path):
     doc.sel_facts.setText("newer")
     doc._finish_point(((1.0, 0.0, -1.0), "Terrain"), {"bogus": True}, None)   # an older click's late answer
     assert doc.sel_facts.text() == "newer"
+
+
+# ------------------------------------------------------------------ the whole FolderNames stack
+def _doc_with_ini(app, tmp_path, folder, names):
+    from ff9mapkit.workspace.worlddoc import WorldDoc
+    (tmp_path / "Memoria.ini").write_text("[Mod]\nFolderNames = " + ", ".join(f'"{n}"' for n in names) + "\n",
+                                          encoding="utf-8")
+    doc = WorldDoc(pick_palette("mist"), game_path_fn=lambda: tmp_path)
+    doc._census, doc._game = SimpleNamespace(root=tmp_path / folder), tmp_path
+    return doc
+
+
+def test_the_3d_page_draws_the_games_folder_order_by_default_and_says_so(app, tmp_path):
+    doc = _doc_with_ini(app, tmp_path, "FF9CustomMap-world", ["FF9CustomMap", "FF9CustomMap-world", "MoguriMain"])
+    assert doc.draw_box.isHidden()                           # a 3D-page control: the chart never shows it
+    site, cap = doc._render_site()
+    assert [p.name for p in site.stack] == ["FF9CustomMap", "FF9CustomMap-world", "MoguriMain"]
+    assert cap.endswith("FF9CustomMap › FF9CustomMap-world › MoguriMain › stock") and "⚠" not in cap
+    doc.set_view_mode("3d", sync=True)
+    assert not doc.draw_box.isHidden() and doc._view3d.caption.text() == cap
+
+
+def test_a_folder_the_game_does_not_load_is_named_and_only_this_folder_draws_it(app, tmp_path):
+    doc = _doc_with_ini(app, tmp_path, "FF9CustomMap-lab", ["FF9CustomMap", "FF9CustomMap-world"])
+    site, cap = doc._render_site()
+    assert "FF9CustomMap-lab is not in FolderNames" in cap
+    doc.draw_box.setCurrentIndex(doc.draw_box.findData("folder"))
+    site, cap = doc._render_site()
+    assert site.stack is None and site.mod_root.name == "FF9CustomMap-lab" and cap.startswith("Drawn: only")
+
+
+def test_an_unreadable_ini_falls_back_to_one_folder_and_says_why(app, tmp_path):
+    from ff9mapkit.workspace.worlddoc import WorldDoc
+    doc = WorldDoc(pick_palette("mist"), game_path_fn=lambda: tmp_path)
+    doc._census, doc._game = SimpleNamespace(root=tmp_path / "FF9CustomMap-world"), tmp_path   # no Memoria.ini
+    site, cap = doc._render_site()
+    assert site.stack is None and "could not be read" in cap

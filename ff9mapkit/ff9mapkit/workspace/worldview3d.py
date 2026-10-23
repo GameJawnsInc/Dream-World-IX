@@ -1,4 +1,4 @@
-"""The World tab's 3D view: the overworld on the GPU, stock under one folder's overrides (editor rungs A0-A1).
+"""The World tab's 3D view: the overworld on the GPU as the game loads it (editor rungs A0-A1 and the stack).
 
 ``studies/overworld-editor/PLAN.md`` rung A0. The data path is the software renderer's own
 (:func:`ff9mapkit.world.render.load_batches` with ``stock=True``: stock land under the deployed overrides, open sea
@@ -20,9 +20,10 @@ Laws this surface honours by construction:
   the software renderer's pixel-corner samples to GL's pixel centres), and the interactive orbit camera produces the
   same camera dict, so the view and the oracle can never drift apart by construction.
 
-Rung A1 adds :func:`pick` (the eye ray through a pixel, front faces only) and the pin. Not here: the whole
-``FolderNames`` stack (the view draws ONE folder over stock; ``world.pointinfo`` names a point where the game draws
-another folder's file), the x-torus wrap at the 23|0 seam, sea animation, fog, the sky.
+Rung A1 adds :func:`pick` (the eye ray through a pixel, front faces only) and the pin. The site the World tab hands
+in resolves every file through ``Memoria.ini``'s ``FolderNames`` the engine's way (``render.RenderSite.stack``,
+``studies/overworld-editor/STACK.md``), or one folder over stock on request. Not here: the x-torus wrap at the 23|0
+seam, forms (Terrain2/Object2), sea animation, fog, the sky.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ from PySide6.QtGui import QImage, QMatrix4x4, QOffscreenSurface, QOpenGLContext,
 from PySide6.QtOpenGL import (QOpenGLBuffer, QOpenGLFramebufferObject, QOpenGLFramebufferObjectFormat,
                               QOpenGLShader, QOpenGLShaderProgram, QOpenGLTexture)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtWidgets import QStackedLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QStackedLayout, QVBoxLayout, QWidget
 
 NEAR = 0.05                    # render.raster drops a tri with any vertex this close to the eye (or behind it)
 ORTHO_Y = (-200.0, 400.0)      # the y span an ortho still's depth maps over (the world sits in about -6..60)
@@ -665,10 +666,29 @@ class WorldView3DPanel(QWidget):
         self._busy = False
         self._focus = None
         self._loaded.connect(self._finish)
-        self._stack = QStackedLayout(self)
+        from . import widgets
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(4)
+        # which folders the view drew, in the engine's order: the caption is the view's legend (a view that
+        # silently draws a different stack from the game's is the defect this page exists to prevent)
+        # the page's own bar: the host's controls for what the view draws (add_control), then the caption. On the
+        # page, not the World tab's head row -- that row's wrapped scan summary clipped at 150% with one more control
+        self.bar = QHBoxLayout()
+        self.bar.setContentsMargins(0, 0, 0, 0)
+        self.bar.setSpacing(8)
+        self.caption = widgets.role_label("", "caption")
+        self.caption.setWordWrap(True)
+        self.caption.setAccessibleName("3D view folders")
+        self.caption.hide()
+        self.bar.addWidget(self.caption, 1)
+        outer.addLayout(self.bar)
+        host = QWidget()
+        self._stack = QStackedLayout(host)
         self._stack.setContentsMargins(0, 0, 0, 0)
-        self._status = self._message("Loading the map…", "Reading the blocks the engine binds: stock land "
-                                     "under your overrides. About five seconds for the whole map.")
+        outer.addWidget(host, 1)
+        self._status = self._message("Loading the map…", "Reading the blocks the engine binds, through your "
+                                     "mod folders in the game's order. About five seconds for the whole map.")
         self._stack.addWidget(self._status)
 
     def _message(self, title, teach):
@@ -686,6 +706,14 @@ class WorldView3DPanel(QWidget):
         self._stack.setCurrentWidget(self._status)
         self._stack.removeWidget(old)
         old.deleteLater()
+
+    def add_control(self, w):
+        """Put a host control (the World tab's draw chooser) at the front of the page's bar."""
+        self.bar.insertWidget(0, w)
+
+    def set_caption(self, text):
+        self.caption.setText(text)
+        self.caption.setVisible(bool(text))
 
     def status_text(self):
         """The words on the status page (the fallback fence reads it)."""
@@ -707,8 +735,8 @@ class WorldView3DPanel(QWidget):
         if self._busy:
             return True
         self._busy = True
-        self._show_message("Loading the map…", "Reading the blocks the engine binds: stock land under your "
-                           "overrides. About five seconds for the whole map.")
+        self._show_message("Loading the map…", "Reading the blocks the engine binds, through your mod folders "
+                           "in the game's order. About five seconds for the whole map.")
         self.site = site
         if sync:
             self._work(site)

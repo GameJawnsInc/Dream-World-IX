@@ -358,6 +358,8 @@ def _fake_world_install() -> Path:
     put(6, 18, "Terrain.ff9mesh.bak-20260719-093929", mesh(salt=42))       # an --in-place backup
     (mod / "atlas-names.json").write_text(json.dumps(                      # landmass nameplates
         {"version": 1, "names": {"4,17": "Twin Isles", "18,17": "The Bench"}}), encoding="utf-8")
+    (game / "Memoria.ini").write_text(                                      # the 3D page draws this folder order
+        '[Mod]\nFolderNames = "FF9CustomMap", "FF9CustomMap-world", "MoguriMain"\n', encoding="utf-8")
     return game
 
 

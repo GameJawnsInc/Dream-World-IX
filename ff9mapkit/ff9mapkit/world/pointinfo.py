@@ -11,9 +11,10 @@ new rule:
   the canopy sink on a forest tile, and every walkable sheet on the vertical (:func:`placement.all_sheets`: more
   than one is the stacked-sheet defect class);
 * **who owns the block's files in the game**: the engine resolves each part file through ``Memoria.ini``'s
-  ``FolderNames`` on its own, highest priority first, so a higher folder can hide the shown folder's part, and a
-  folder missing from ``FolderNames`` is not read at all. The view draws one folder over stock; this says when the
-  game would draw something else;
+  ``FolderNames`` on its own, highest priority first, so a higher folder can hide another's part, a folder missing
+  from ``FolderNames`` is not read at all, and a file the engine refuses (``render.engine_read_error``) means STOCK
+  there, never the next folder's file. The view draws the site's folders (the game's whole stack by default, or one
+  folder over stock); this says when the game would draw something else;
 * **the deploy ledger's last row** for the block (``.ff9world.jsonl``: which verb wrote it, when);
 * **the nearest landmark** (:func:`locate.nearest_landmark`, a label with its distance, not an identity).
 
@@ -54,26 +55,47 @@ def _part_file(game, folder, disc, bx, by, part) -> Path:
             / f"Block[{bx}][{by}] {part}.ff9mesh")
 
 
-def owners(site, bx, by, drawn, *, stack=None) -> dict:
-    """Who supplies each part at block ``(bx, by)``: ``{"shown": folder, "in_stack": bool | None, "parts": {part:
-    owner}, "hidden": [(part, owner)]}``. ``owner`` is the highest-priority ``FolderNames`` folder holding the part's
-    file, else ``"stock"``. ``drawn`` = the parts the view drew (``{part: "folder" | "stock"}``); ``hidden`` lists each
-    part the game takes from somewhere the view did not."""
+def owners(site, bx, by, sources, *, stack=None) -> dict:
+    """Who supplies each part at block ``(bx, by)`` in the GAME, against what the view drew there. ``sources`` is
+    :func:`render.cell_meshes`'s ``{part: Path | "stock"}`` for the site. Returns ``{"shown": [folder names the site
+    resolves through], "missing": [those not in FolderNames], "in_stack": bool | None, "parts": {part: owner},
+    "hidden": [(part, owner)], "refused": [(part, folder, reason)]}``: ``owner`` is the first ``FolderNames`` folder
+    holding the part's file, or ``"stock"`` (none does, or the engine refuses that file); ``hidden`` lists each part
+    the game takes from somewhere the view did not."""
     site = site.resolved()
-    shown = Path(site.mod_root).name if site.mod_root is not None else site.mod_folder
+    shown = [Path(r).name for r in R.site_roots(site)]
     stack = stack_folders(site.game) if stack is None else stack
-    out = {"shown": shown, "in_stack": None if stack is None else shown in stack, "parts": {}, "hidden": []}
+    missing = [] if stack is None else [f for f in shown if f not in stack]
+    out = {"shown": shown, "missing": missing, "in_stack": None if stack is None else not missing,
+           "parts": {}, "hidden": [], "refused": []}
     wbx = M.wrap_block_col(bx)
     for part in site.parts:
-        # the engine's file for this part: the first FolderNames folder holding it (None: no folder does)
+        # the engine's file for this part: the first FolderNames folder holding it; a refused file means stock
         owner = next((f for f in stack or () if _part_file(site.game, f, site.disc, wbx, by, part).is_file()), None)
-        view_src = None if part not in drawn else (shown if drawn[part] == "folder" else "stock")
+        if owner is not None:
+            why = R.engine_read_error(_part_file(site.game, owner, site.disc, wbx, by, part))
+            if why is not None:
+                out["refused"].append((part, owner, why))
+                owner = "stock"
+        src = sources.get(part)
+        view_src = None if src is None else ("stock" if src == "stock" else _root_name(site, src))
         if owner is None and view_src is None:
             continue
         out["parts"][part] = owner or view_src
-        if owner is not None and owner != view_src:
-            out["hidden"].append((part, owner))
+        if stack is not None and (owner or "stock") != view_src and not (owner is None and view_src is None):
+            out["hidden"].append((part, owner or "stock"))
     return out
+
+
+def _root_name(site, path) -> str:
+    """The folder name of the site root a resolved file lives under."""
+    for root in R.site_roots(site):
+        try:
+            Path(path).relative_to(root)
+            return Path(root).name
+        except ValueError:
+            continue
+    return Path(path).parents[5].name                       # <root>/FF9_Data/WorldMap/Disc/0_1/r/<file>
 
 
 def last_ledger_row(site, bx, by) -> dict | None:
@@ -102,8 +124,8 @@ def point_info(site, wx: float, wz: float, *, stack=None, landmark: bool = True)
     lx, lz = F.world_to_block_local(wx, wz, bx, by)
     info = {"world": (wx, wz), "block": (bx, by), "cell": (math.floor(wx / 32.0), math.floor(-wz / 32.0)),
             "local": (lx, lz)}
-    meshes = R.cell_meshes(site, bx, by, stock=True)
-    drawn = {part: ("folder" if R.live_path(site, bx, by, part).is_file() else "stock") for part, _ in meshes}
+    sources = {}
+    meshes = R.cell_meshes(site, bx, by, stock=True, sources=sources)
     ground = {"modelled": True, "note": ""}
     if not meshes:
         ground.update(y=0.0, part="MISS", idall=0, topograph=None)
@@ -131,7 +153,7 @@ def point_info(site, wx: float, wz: float, *, stack=None, landmark: bool = True)
                       canopy=ground["topograph"] in M.CANOPY_TOPOGRAPHS)
         ground["stand_y"] = ground["y"] - (CANOPY_SINK if ground["canopy"] else 0.0)
     info["ground"] = ground
-    info["owners"] = owners(site, bx, by, drawn, stack=stack)
+    info["owners"] = owners(site, bx, by, sources, stack=stack)
     info["ledger"] = last_ledger_row(site, bx, by)
     if landmark:
         from .locate import nearest_landmark
@@ -167,11 +189,14 @@ def describe(info: dict) -> list:
             lines.append("Also on this vertical: " + ", ".join(f"{n} at y {y:g}" for y, n in others))
     o = info["owners"]
     if o["in_stack"] is False:
-        lines.append(f"⚠ {o['shown']} is not in Memoria.ini's FolderNames: the game does not read it")
+        lines.append(f"⚠ {', '.join(o['missing'])} {'is' if len(o['missing']) == 1 else 'are'} not in Memoria.ini's "
+                     "FolderNames: the game does not read it")
+    for part, folder, why in o.get("refused", ()):
+        lines.append(f"⚠ The game refuses {folder}'s {part} ({why}) and draws stock here")
     if o["hidden"]:
         lines.append("⚠ In game " + ", ".join(f"{part} comes from {who}" for part, who in o["hidden"]) +
                      f", not what this view drew")
-    parts = sorted({who for who in o["parts"].values()})
+    parts = sorted({who for who in o["parts"].values()}, key=lambda w: (w == "stock", w))
     if parts:
         lines.append("Files from " + ", ".join(parts))
     if info.get("ledger"):
