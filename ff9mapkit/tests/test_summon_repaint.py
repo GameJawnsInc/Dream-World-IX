@@ -2813,11 +2813,18 @@ def test_a_program_READ_container_BUILDS_and_DISCLOSES_the_direction_law(tmp_pat
     blob = build_scenery_container()
     p = _cell(blob, 704, 256)
     src = _write_cell_png(tmp_path, blob, p, _bump_cell(p, _page_at(blob, p)))
-    b = RP.build(_spec_dict(blob, [_row(p, src)], effect=211), "?", blob=blob)
+    # ef211's id brings ef211's op-144 SCROLL BLITS with it, and `dst (704,256) <- src (704,384)`
+    # lands on this fixture cell -- a separate VRAM WRITE the direction law never covered, refused by
+    # its own gate (test_summon_scroll_blit.py).  The key isolates the direction law again.
+    with pytest.raises(RP.RepaintError, match="SCROLL-BLIT DESTINATION"):
+        RP.build(_spec_dict(blob, [_row(p, src)], effect=211), "?", blob=blob)
+    b = RP.build(_spec_dict(blob, [_row(p, src, **{RP.ACK_SCROLL_BLIT: True})], effect=211), "?",
+                 blob=blob)
     b.check = RP.self_check(b)
     assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
     note = "  ".join(b.enabled[0].hazard_notes)
     assert "program-VRAM READ" in note and "StoreImage" in note and "cannot clobber" in note
+    assert "SCROLL BLITS" in note, "and the READ class no longer claims StoreImage is ALL it does"
 
 
 def test_an_effect_id_the_lists_cannot_see_is_refused_as_a_WRITE_not_waved_through():
@@ -3211,17 +3218,25 @@ def test_describe_DISCLOSES_the_per_target_hazard_verdicts(tmp_path):
 
 # ---- the corpus-gated cases ----------------------------------------------------------------------
 @needs_corpus
-def test_ef211s_CAST_CELL_builds_clean_with_the_read_storeimage_disclosure(tmp_path):
-    """THE CAST VEHICLE, through the whole gate stack.  ef211 (704,256) -- the Phoenix fire field, the
-    one cell in the corpus whose upload path is already cast-proven on screen -- carries no hazard at
-    all except the program-VRAM READ, and the direction law is what makes that a disclosure."""
+def test_ef211s_CAST_CELL_refuses_as_a_scroll_blit_destination_and_builds_behind_the_key(tmp_path):
+    """THE W6b-1 CAST VEHICLE, through the whole gate stack.  ef211 (704,256) -- the Phoenix fire
+    field -- carries no ``names`` hazard but the program-VRAM READ, and the direction law makes that
+    a disclosure.  ⚠ BUT IT IS A FULL op-144 SCROLL-BLIT DESTINATION (``dst (704,256) 64x128 <- src
+    (704,384)``), found after both casts on it came back INVISIBLE: a whole-cell edit refuses by name
+    and names (704,384) as the cell to paint instead.  Behind the key the lane is what it was."""
     blob = (CORPUS / "ef211.bytes").read_bytes()
     p = RP.texel_page(blob, "cell.s0.x704_y256", 211)
     assert p.hazards.names == () and p.bpp == 8
+    assert len(p.hazards.scroll_rewritten) == 8192
     src = _write_cell_png(tmp_path, blob, p, _bump_cell(p, _page_at(blob, p)))
-    b = RP.build({"reskin": {"effect": 211, "expect_sha256": hashlib.sha256(blob).hexdigest(),
-                             "texel": [_row(p, src, expect_bpp=8, expect_cell=[704, 256])]}},
-                 "?", blob=blob)
+    row = _row(p, src, expect_bpp=8, expect_cell=[704, 256])
+    spec = {"reskin": {"effect": 211, "expect_sha256": hashlib.sha256(blob).hexdigest(),
+                       "texel": [row]}}
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(spec, "?", blob=blob)
+    assert "paint the source cell `cell.s0.x704_y384`" in str(e.value)
+    row[RP.ACK_SCROLL_BLIT] = True
+    b = RP.build(spec, "?", blob=blob)
     b.check = RP.self_check(b)
     assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
     moved = [i for i in range(len(blob)) if blob[i] != b.patched[i]]
@@ -3243,8 +3258,12 @@ def test_ef211s_CAST_2_lower_half_builds_and_its_UPPER_half_is_a_DISCLOSURE_not_
     low = RP.texel_page(blob, "cell.s0.x576_y384", 211)
     assert (low.bpp, low.page_offset) == (4, 0x25678) and low.hazards.names == ("lower-half",)
     src = _write_cell_png(tmp_path, blob, low, _bump_cell(low, _page_at(blob, low)))
+    # Both halves of column 576 sit under op-144 SCROLL-BLIT bands (`dst (576,256)/(576,368) 28x112`,
+    # fed from x 604), so a whole-cell bump changes texels in them and needs the key -- which is the
+    # honest key here: cast 2b's wheel lay wholly in that band and still showed at burst peak.
     b = RP.build({"reskin": {"effect": 211, "expect_sha256": hashlib.sha256(blob).hexdigest(),
-                             "texel": [_row(low, src, expect_bpp=4, expect_cell=[576, 384])]}},
+                             "texel": [_row(low, src, expect_bpp=4, expect_cell=[576, 384],
+                                            **{RP.ACK_SCROLL_BLIT: True})]}},
                  "?", blob=blob)
     b.check = RP.self_check(b)
     assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
@@ -3252,7 +3271,8 @@ def test_ef211s_CAST_2_lower_half_builds_and_its_UPPER_half_is_a_DISCLOSURE_not_
     assert up.hazards.multi_palette and up.hazards.shared_read
     src2 = _write_cell_png(tmp_path, blob, up, _bump_cell(up, _page_at(blob, up)), name="upper")
     b2 = RP.build({"reskin": {"effect": 211, "expect_sha256": hashlib.sha256(blob).hexdigest(),
-                              "texel": [_row(up, src2, expect_bpp=4)]}}, "?", blob=blob)
+                              "texel": [_row(up, src2, expect_bpp=4,
+                                             **{RP.ACK_SCROLL_BLIT: True})]}}, "?", blob=blob)
     b2.check = RP.self_check(b2)
     assert b2.check.ok, [g.detail for g in b2.check.gates if not g.ok]
     note = "  ".join(b2.enabled[0].hazard_notes)

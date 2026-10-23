@@ -48,4 +48,8 @@ enabled = true
 # exit code enforces that polarity.
 acknowledge_cutout_reshape = true
 palette_from = "pal.s0.x0_y247.e256"
+# ADDED AFTER THE CAST, AND IT MOVES NO BYTE -- the same op-144 SCROLL-BLIT DESTINATION as
+# phoenix_field.toml (`dst (704,256) 64x128 <- src (704,384)`).  All 2,141 changed halfwords lie in
+# the band, and the punched gaps were INVISIBLE, which the blit fits.  Said so the record rebuilds.
+acknowledge_scroll_blit_destination = true
 note = "CAST 1b, the punch discriminator: the same wheel as dark GAPS in the fire (transparent adds nothing) -- gaps visible = the lane reaches the screen; gaps absent = the upload path is the question"

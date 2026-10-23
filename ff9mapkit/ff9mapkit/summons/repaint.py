@@ -260,6 +260,23 @@ changed-offset set is intersected with a rebuilt sibling's. Two composition rout
 
 Either way it is ONE container, ONE ledger and ONE revert, and the composed delta is gated disjoint.
 
+THE SCROLL BLIT (HLE op 144) -- A DESTINATION BAND IS REWRITTEN EVERY FRAME
+--------------------------------------------------------------------------
+op 144 copies a source band of VRAM into a destination band, split and swapped at the animated
+phase, every frame it runs (:mod:`ff9mapkit.summons.scroll_blit`, the pinned table of its 167 corpus
+sites). The program-VRAM lists above never held it, so this lane used to call ef407 "clean" and ef211
+"read-only" while both rewrite cells it licensed. Now:
+
+* a build REFUSES, by name, an edit that changes a texel inside a destination band, with the
+  measurement and the remedy -- the cell the band is copied FROM (:func:`_gate_scroll_blit`). The unit
+  is the texel: a band can cover part of a cell, and an edit that stays out of it builds and says so;
+* ``acknowledge_scroll_blit_destination = true`` (literal boolean) lifts it, because reachability per
+  cast is not established -- ef211's own cast ladder has a null on one destination and a visible edit
+  inside another (:data:`~ff9mapkit.summons.scroll_blit.REACHABILITY`);
+* a SOURCE hit never refuses: the edit is read and propagated, and the build discloses where to;
+* export and the scaffold state both directions on the row before anyone paints, and export delta is
+  0 -- no picture is withheld.
+
 HOT RELOAD
 ----------
 Stronger here than for the CLUT lane: ``SFX.Play`` re-reads the container from disc every cast AND
@@ -283,7 +300,7 @@ import json
 import os
 import struct
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -292,6 +309,7 @@ from . import depth_attribution as DA
 from . import export
 from . import rescore as R
 from . import reskin as RS
+from . import scroll_blit as SB
 from . import texanim as TA
 from . import texture as KT
 from .ledger import Ledger
@@ -314,6 +332,8 @@ __all__ = [
     # --- W6b-3 (iv): the SECOND ARRAY, ADOPTED -- the effective cover ----------------------------
     "EDIT_CHANNELS", "DISPLACEMENT_MODEL", "sampled_halfword", "effective_cell",
     "assert_intra_page", "effective_cell_readers", "novel_displacement_reach",
+    # --- the SCROLL BLIT (HLE op 144): a destination band is REWRITTEN every frame ---------------
+    "ACK_SCROLL_BLIT", "scroll_blit_lines",
     # --- W6b-1: the codecs ----------------------------------------------------------------------
     "pack4", "unpack4", "write_indexed4_png", "read_indexed4_png",
     "stp_sidecar_path", "write_direct_png", "read_direct_png", "direct_transparent",
@@ -408,6 +428,11 @@ ACK_ARRAY_DEPTH = DA.ACK_ARRAY_KEY
 #: ⚠ Unlike the two above it admits **no depth** and pairs with **no** ``expect_bpp``: what it
 #: acknowledges is a question about READERSHIP, and there is no number to check it against.
 ACK_SECOND_ARRAY = DA.ACK_MOVER_KEY
+
+#: THE SCROLL-BLIT acknowledgement's spec key (:mod:`ff9mapkit.summons.scroll_blit`), re-exported for
+#: the same reason.  It admits no depth and pairs with no ``expect_bpp``: what it acknowledges is that
+#: an HLE op-144 band rewritten every frame may not be rewritten in THIS cast.
+ACK_SCROLL_BLIT = SB.ACK_KEY
 
 #: where a scenery page's ``bpp`` came from -- carried on the page itself, because a depth that is
 #: INHERITED FROM A COLUMN and a depth a model's own UVs declare are not the same kind of fact and a
@@ -760,15 +785,29 @@ def program_class(effect: Optional[int]) -> Tuple[str, str]:
         return ("write", "ef%03d is one of the %d containers whose id-3 program WRITES VRAM "
                          "(LoadImage / MoveImage / loader op 0x07 / the texanim arm)"
                 % (ef, len(PROGRAM_VRAM_WRITE_IDS)))
+    # ⚠ THE SCROLL BLIT IS A VRAM WRITE THIS CLASSIFICATION NEVER HELD.  HLE op 144 is a VRAM-to-VRAM
+    # move, so the old "only through StoreImage" / "no VRAM-transfer call site" was FALSE on every
+    # container that queues one -- all 12 READ ids among them -- and it is exactly the sentence that
+    # let ef211's (704,256), a full scroll-blit destination, be chosen as a cast vehicle.  op 144's
+    # rect folds, so it is judged PER CELL (`_gate_scroll_blit`) rather than here, and this line
+    # only stops the class from claiming a safety it does not have.
+    sb = SB.blits(ef)
+    blit = ("  ** BUT ITS PROGRAM ALSO QUEUES op-144 SCROLL BLITS (%d site(s), %d distinct rect(s)) "
+            "-- a VRAM-to-VRAM WRITE every frame they run, judged per cell by the scroll-blit "
+            "verdict" % (sum(b.sites for b in sb), len(sb))) if sb else ""
     if ef in PROGRAM_VRAM_READ_IDS:
-        return ("read", "ef%03d's program touches VRAM only through StoreImage (VRAM -> main RAM: a "
-                        "READ -- it cannot clobber a repaint).  DISCLOSE, do not refuse." % ef)
-    return ("clean", "ef%03d declares no VRAM-transfer call site and no loader op 0x07" % ef)
+        return ("read", "ef%03d's program touches VRAM %sthrough StoreImage (VRAM -> main RAM: a "
+                        "READ -- it cannot clobber a repaint).  DISCLOSE, do not refuse.%s"
+                % (ef, "" if sb else "only ", blit))
+    return ("clean", "ef%03d declares no %s call site and no loader op 0x07%s"
+            % (ef, "LoadImage / MoveImage / StoreImage" if sb else "VRAM-transfer", blit))
 
 
 # --------------------------------------------------------- W6b-1: THE BOUND MODELS + THEIR UV COVER
 #: one VRAM page-cell is 128 lines tall -- ``reskin``'s own constant, imported rather than re-typed.
 CELL_LINES = RS.PAGE_CELL_LINES
+# ``scroll_blit`` is a leaf module and re-states the cell geometry; this is where the two are checked.
+assert (SB.CELL_W, SB.CELL_LINES) == (RS.PAGE_CELL_W, RS.PAGE_CELL_LINES)
 
 
 def cell_texel_w(bpp: int, w_halfwords: int = RS.PAGE_CELL_W) -> int:
@@ -1425,6 +1464,25 @@ class CellHazards:
     #: :func:`novel_displacement_reach`. The effective cover is a LOWER BOUND on readership and this
     #: is the number that says by how much it could be wrong.
     novel_reach: Tuple[int, int] = (0, 0)
+    # ---- THE SCROLL BLIT (HLE op 144), as data ---------------------------------------------------
+    #: every op-144 rect whose DESTINATION overlaps this cell (:mod:`ff9mapkit.summons.scroll_blit`)
+    #: -- a band the program REWRITES from its source every frame the blit runs. Effect-keyed, like
+    #: :attr:`program`, so it is stated on every channel set. ⚠ **Deliberately NOT in** :attr:`names`,
+    #: on the second-array precedent: its own field, its own gate (``_gate_scroll_blit``), its own key
+    #: -- ``names`` is an exact-tuple pin and this class needs none of its consumers.
+    scroll_dst: Tuple["SB.ScrollBlit", ...] = ()
+    #: every op-144 rect whose SOURCE overlaps this cell: the cell is READ and propagated into the
+    #: destination. Milder, a DISCLOSURE, and never merged with :attr:`scroll_dst`.
+    scroll_src: Tuple["SB.ScrollBlit", ...] = ()
+    #: one remedy sentence per :attr:`scroll_dst` entry, same order -- where the rewritten band's
+    #: texels come FROM, named against this container's own edit surface (filled by the post-pass in
+    #: :func:`scenery_surface`, because it names OTHER cells).
+    scroll_remedy: Tuple[str, ...] = ()
+
+    @property
+    def scroll_rewritten(self) -> frozenset:
+        """Cell-local halfword indices (``row * 64 + col``) op 144 rewrites -- the union of the bands."""
+        return SB.rewritten_halfwords(self.scroll_dst, self.cell)
 
     @property
     def column_clut_cells(self) -> Tuple[Tuple[int, int], ...]:
@@ -2362,6 +2420,7 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                                   if c != pc.x}))
         covered = len({hw for m in rds
                        for hw in (m.effective_cover if displaced else m.cover).get(pc.cell, ())})
+        sb_dst, sb_src = SB.cell_hits(effect, pc.cell)
         hz = CellHazards(
             cell=pc.cell, writer=pc.tag, writers=tuple(writers_by_cell[pc.cell]), readers=tuple(crs),
             depths=depths, palette_cells=pal_cells, spill_in=spill_in, spill_out=spill_out,
@@ -2379,7 +2438,10 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             # `w6b2i_gates` I5 are written ABOUT.  *A channel a caller declined to consult must not
             # appear to have spoken*, and every author-facing entry point passes LICENSED_CHANNELS.
             second_array=tuple(sa_notes) if consulted else (),
-            displacement_adopted=displaced, bound_readers=brs, novel_reach=novel_reach)
+            displacement_adopted=displaced, bound_readers=brs, novel_reach=novel_reach,
+            # THE SCROLL BLIT, effect-keyed like `program` and stated on every channel set: it is
+            # a question about whether an edit SURVIVES, not about a depth or a reader.
+            scroll_dst=sb_dst, scroll_src=sb_src)
 
         # ---- (1) WHICH CHANNEL, IF ANY, STATES A DEPTH.  Hazards first: a DUAL derivation is a
         # refusal no acknowledgement lifts, and the FOUR hazard classes are DISJOINT over the corpus
@@ -2589,7 +2651,63 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                        "/".join(str(c) for c in n.swapped_columns),
                        "/".join(str(c) for c in n.original_columns))
                     for n in hz.second_array)))
-    return pages, refused
+    return _with_scroll_remedies(pages, refused), refused
+
+
+def _with_scroll_remedies(pages: List[TexelPage], refused: List[CellRefusal]) -> List[TexelPage]:
+    """THE SCROLL-BLIT REMEDY -- a POST-PASS, because it names OTHER cells.
+
+    A destination band's texels come from the blit's SOURCE, so the useful sentence is not "this cell
+    is overwritten" but "paint THAT cell instead" -- and whether THAT cell is something an author can
+    paint is a fact about the finished surface: a page this same derivation emitted, and that no
+    export-blocking refusal withholds. Three answers, each stated rather than guessed: the source is
+    a paintable cell (named), it is not (and why), or it does not fit VRAM as folded.
+
+    Columns map one to one; rows do not -- the scroll rotates the band, so over one period every
+    source row lands on every destination row (:meth:`~ff9mapkit.summons.scroll_blit.ScrollBlit.feeds`).
+    """
+    if not any(p.hazards is not None and p.hazards.scroll_dst for p in pages):
+        return pages
+    blocked = {r.name: r.klass for r in refused if r.klass in _EXPORT_BLOCKING}
+    by_cell: Dict[Tuple[int, int], List[str]] = {}
+    for p in pages:
+        by_cell.setdefault(p.cell, []).append(p.name)
+    out: List[TexelPage] = []
+    for p in pages:
+        hz = p.hazards
+        if hz is None or not hz.scroll_dst:
+            out.append(p)
+            continue
+        remedies = []
+        for b in hz.scroll_dst:
+            feed = b.feeds(b.dest_overlap(p.cell))
+            if feed is None:
+                remedies.append(
+                    "its source folds to (%d,%d), which does not fit the %dx%d VRAM, so there is no "
+                    "cell to paint instead" % (b.src[0], b.src[1], SB.VRAM_W, SB.VRAM_H))
+                continue
+            parts = []
+            for sc in SB.cells_under(feed):
+                names = by_cell.get(sc, [])
+                ok = [n for n in names if n not in blocked]
+                where = "(%d,%d) %dx%d" % (feed[0], feed[1], feed[2], feed[3])
+                if sc == p.cell:
+                    parts.append("the source band %s is in THIS cell, outside the rewritten band: "
+                                 "paint it there and op 144 copies it in, scrolling" % where)
+                elif ok:
+                    parts.append("paint the source cell `%s` (%d,%d) instead -- op 144 copies its "
+                                 "band %s into this one, scrolling" % (ok[0], sc[0], sc[1], where))
+                elif names:
+                    parts.append("its source cell (%d,%d) is `%s`, which this container refuses as "
+                                 "`%s`, so there is no cell to paint instead"
+                                 % (sc[0], sc[1], names[0], blocked[names[0]]))
+                else:
+                    parts.append("its source (%d,%d) is not an editable cell in this container (no "
+                                 "page whose depth it states), so there is no cell to paint instead"
+                                 % sc)
+            remedies.append("; ".join(parts))
+        out.append(replace(p, hazards=replace(hz, scroll_remedy=tuple(remedies))))
+    return out
 
 
 def scenery_texel_pages(blob: bytes, effect: Optional[int] = None, *,
@@ -4005,6 +4123,21 @@ def _spill_sheet(blob: bytes, m: BoundModel, by_cell: Dict[Tuple[int, int], Texe
     return (str(path), unwritten, unrendered)
 
 
+def _scroll_blit_record(hz: "CellHazards", cell: Tuple[int, int]) -> dict:
+    """One cell's op-144 verdict as manifest data -- what the scaffold row and an audit both read."""
+    return {
+        "destination": [{"dst": list(b.dst), "size": list(b.size), "src": list(b.src),
+                         "sites": b.sites, "chunks": list(b.chunks),
+                         "band": list(b.dest_overlap(cell)), "remedy": r}
+                        for b, r in zip(hz.scroll_dst,
+                                        hz.scroll_remedy or ("",) * len(hz.scroll_dst))],
+        "rewritten_halfwords": len(hz.scroll_rewritten),
+        "source": [{"dst": list(b.dst), "size": list(b.size), "src": list(b.src),
+                    "sites": b.sites, "band": list(b.source_overlap(cell))}
+                   for b in hz.scroll_src],
+    }
+
+
 def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane: str = "indexed",
                overlays: bool = True, scaffold: bool = True,
                displacement_ack: bool = False) -> dict:
@@ -4223,6 +4356,10 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
                 for n in hz.second_array],
             "program": hz.program, "program_evidence": hz.program_evidence,
             "program_cell": hz.program_cell,
+            # THE SCROLL BLIT: both directions, never merged.  Recorded at PAINT time, because an
+            # author who first hears that a band is rewritten every frame AFTER painting it hears it
+            # as a refusal -- the W7 L6 argument for the protected rects, verbatim.
+            "scroll_blit": _scroll_blit_record(hz, p.cell),
             "lower_half": hz.lower_half, "provenance": hz.provenance,
             "hazards": list(hz.names),
             "page_sha256": _sha(raw),
@@ -4455,6 +4592,9 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
         if (e.get("second_array_all_readers") or e.get("displaced_readerless")
                 or e.get("displaced_substituted")):
             L += ["%s = false" % DA.ACK_MOVER_KEY]
+        sbr = e.get("scroll_blit") or {}
+        if sbr.get("destination"):
+            L += ["%s = false" % SB.ACK_KEY]
         if e["bpp"] == 15:
             L += ['# 15bpp DIRECT colour: no palette at all.  Edit "%s" (RGB authoritative, alpha =' %
                   e["png"],
@@ -4476,6 +4616,27 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
         L += ["# measured: %d of %d halfwords in this cell are sampled by some model"
               % (e["covered_halfwords"], RS.PAGE_CELL_W * CELL_LINES),
               "# writer: %s" % e["provenance"]]
+        # THE SCROLL BLIT, printed BEFORE the author paints -- the destination as a refusal they
+        # would have to lift, the source as the propagation they should expect to see.
+        for d in sbr.get("destination", ()):
+            L.append("# ** SCROLL-BLIT DESTINATION: op 144 rewrites VRAM (%d,%d) %dx%d of this cell"
+                     % tuple(d["band"]))
+            L.append("#   from (%d,%d) every frame it runs (%d site(s)).  A repaint in that band is"
+                     % (d["src"][0], d["src"][1], d["sites"]))
+            L.append("#   byte-correct, deploys, verifies -- and never reaches the screen, so the build")
+            L.append("#   REFUSES an edit that changes a texel there.  %d of this cell's %d halfwords"
+                     % (sbr.get("rewritten_halfwords", 0), RS.PAGE_CELL_W * CELL_LINES))
+            L.append("#   are rewritten.  REMEDY:")
+            L += _wrap_comment(d["remedy"] or "no source cell could be named", "#     ")
+            L.append("#   `%s = true` (the key above) lifts it if you judge the blit does not run"
+                     % SB.ACK_KEY)
+            L.append("#   in your cast -- reachability per cast is not established.")
+        for d in sbr.get("source", ()):
+            L.append("# SCROLL-BLIT SOURCE: op 144 copies VRAM (%d,%d) %dx%d of this cell into"
+                     % tuple(d["band"]))
+            L.append("#   (%d,%d) %dx%d every frame it runs -- what you paint there ALSO appears there,"
+                     % (d["dst"][0], d["dst"][1], d["size"][0], d["size"][1]))
+            L.append("#   scrolling vertically with wraparound.  A disclosure, not a refusal.")
         if len(e["writers"]) > 1:
             L += ["# CO-TRANSFORM: %d writers upload this VRAM cell.  Name EVERY one with its own"
                   % len(e["writers"]),
@@ -4670,6 +4831,10 @@ _TEXEL_KEYS = frozenset((
     # about READERSHIP and there is no derived number for a guard to check it against.  Said in the
     # refusal text too, so it cannot read as a forgotten pair.
     DA.ACK_MOVER_KEY,
+    # THE SCROLL BLIT's key.  Literal-boolean-only; it admits no depth and pairs with no `expect_bpp`
+    # -- what it admits is that an op-144 band the container rewrites every frame may not be
+    # rewritten in the author's cast, which is a reachability judgement no number here can check.
+    SB.ACK_KEY,
 ))
 
 
@@ -4715,6 +4880,9 @@ class TexelTarget:
     #: non-zero second-array halfword, I have read what that may mean, and I judge the cell still
     #: read." Literal boolean only, and pairs with NO ``expect_bpp``: it admits no depth.
     ack_second_array: bool = False
+    #: ``acknowledge_scroll_blit_destination`` -- "this edit changes texels an op-144 scroll blit
+    #: rewrites every frame, and I judge that blit does not run in my cast." Literal boolean only.
+    ack_scroll_blit: bool = False
     stock: bytes = b""
     new: bytes = b""
     changed: Tuple[int, ...] = ()
@@ -5215,6 +5383,80 @@ def _gate_second_array(targets: Sequence["TexelTarget"]) -> Dict[str, str]:
                    DA.U_DISPLACEMENT_CAVEAT))
         notes[t.name] = ("SECOND-ARRAY MOVER on every reader (%s), acknowledged -- the page, its "
                          "depth and its bytes are unchanged" % detail)
+    return notes
+
+
+def _vram_rect(r: "SB.Rect") -> str:
+    return "VRAM (%d,%d) %dx%d" % r
+
+
+def _gate_scroll_blit(t: "TexelTarget") -> List[str]:
+    """**THE SCROLL-BLIT GATE** -- refuse an edit whose texels an op-144 band REWRITES; disclose a
+    source.  Runs after the art read, because the predicate is about THIS edit's changed texels.
+
+    HLE op 144 (:mod:`ff9mapkit.summons.scroll_blit`) copies a source band into a destination band
+    every frame it runs. A changed texel inside a destination band is therefore byte-correct on disk,
+    deploys, verifies -- and never reaches the screen, the lane's SILENT failure, and the null gets
+    charged to whatever else the author was testing. So the gate counts the changed halfwords in each
+    band and refuses BY NAME, with the measurement and the remedy -- the cell the band is copied FROM.
+
+    **The unit is the TEXEL, not the cell**, on the W7 texanim precedent: a band can cover part of a
+    cell (ef211's pool-wheel cell is rewritten in its LEFT half from its right half), and an edit that
+    stays out of the band loses nothing, so it builds and says so. ``acknowledge_scroll_blit_destination
+    = true`` lifts the refusal, because reachability per cast is not established
+    (:data:`~ff9mapkit.summons.scroll_blit.REACHABILITY`) -- and the build still says what was lifted.
+
+    A SOURCE hit never refuses: the edit is READ and propagated, so it shows -- in the destination
+    band too, scrolling. That is disclosed, never merged with the destination verdict.
+    """
+    hz = t.page.hazards
+    if not t.enabled or hz is None or not (hz.scroll_dst or hz.scroll_src):
+        return []
+    cell = t.page.cell
+    stride = t.page.page_bytes // (2 * t.page.h)
+    changed = sorted({o // 2 for o in t.changed})
+    at = [(cell[0] + hw % stride, cell[1] + hw // stride) for hw in changed]
+
+    def _inside(r: "SB.Rect") -> int:
+        return sum(1 for x, y in at if r[0] <= x < r[0] + r[2] and r[1] <= y < r[1] + r[3])
+
+    notes: List[str] = []
+    lost = []
+    for b, remedy in zip(hz.scroll_dst, hz.scroll_remedy or ("",) * len(hz.scroll_dst)):
+        band = b.dest_overlap(cell)
+        n = _inside(band)
+        what = ("%s of cell %s, rewritten from (%d,%d) by %s"
+                % (_vram_rect(band), list(cell), b.src[0], b.src[1], b.describe()))
+        if not n:
+            notes.append("SCROLL-BLIT DESTINATION, clear: %s -- and this edit changes no texel "
+                         "there (%d of this cell's halfwords are rewritten)"
+                         % (what, len(hz.scroll_rewritten)))
+        else:
+            lost.append((n, what, remedy))
+    if lost and not t.ack_scroll_blit:
+        raise RepaintError(
+            "SCROLL-BLIT DESTINATION, %s: %s.  %s.  Those texels are byte-correct on disk, deploy "
+            "and verify -- and are rewritten every frame the blit runs, so while it runs they never "
+            "reach the screen and the null gets charged to whatever else this cast was testing.  "
+            "REMEDY: %s.  %s.  %s.  %s.  If you judge this blit is not running when your cell is "
+            "drawn, say `%s = true` on this row -- an acknowledgement is stated, never inferred."
+            % (t.name,
+               "; ".join("%d of this edit's %d changed halfword(s) lie in %s" % (n, len(changed), w)
+                         for n, w, _r in lost),
+               SB.MECHANISM,
+               "; ".join(r for _n, _w, r in lost) or "no source cell could be named",
+               SB.EF407_EXECUTED, SB.MEASUREMENT, SB.REACHABILITY, SB.ACK_KEY))
+    for n, what, _remedy in lost:
+        notes.append("SCROLL-BLIT DESTINATION, acknowledged: %d of this edit's %d changed "
+                     "halfword(s) lie in %s.  %s" % (n, len(changed), what, SB.ACK_WARNING))
+    for b in hz.scroll_src:
+        band = b.source_overlap(cell)
+        notes.append("SCROLL-BLIT SOURCE (a disclosure, not a refusal): %s %s %s of this cell every "
+                     "frame and writes it into %s -- %d of this edit's changed halfword(s) are in "
+                     "that band, so what you paint there ALSO appears at (%d,%d), scrolling "
+                     "vertically with wraparound"
+                     % (b.describe(), "READS", _vram_rect(band), _vram_rect(b.dst_rect),
+                        _inside(band), b.dst[0], b.dst[1]))
     return notes
 
 
@@ -5904,6 +6146,9 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
             # refused AT resolution.  This one resolves nothing: the page is emitted either way and
             # the ack arms a build-time obligation, exactly like `acknowledge_spill` beside it.
             ack_second_array=ack_sa,
+            # THE SCROLL BLIT resolves nothing either: the page is emitted, and the gate that reads
+            # this needs the CHANGED texels, so it runs after the art read.
+            ack_scroll_blit=_ack_bool(d, SB.ACK_KEY, where),
             ack_program_depth=ack_pd, ack_array_depth=ack_ad))
 
     # ---- THE GATES THAT NEED NO ART, all of them before a single PNG is opened --------------------
@@ -5995,6 +6240,9 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
             raise RepaintError("%s decoded to %d bytes, this cell is %d"
                                % (t.name, len(t.new), t.page.page_bytes))
         t.changed = tuple(i for i in range(len(t.stock)) if t.stock[i] != t.new[i])
+        # THE SCROLL BLIT FIRST, ahead of the cutout law: "these texels never reach the screen"
+        # outranks every judgement about what they would have looked like.
+        t.hazard_notes += _gate_scroll_blit(t)
         # THE CUTOUT LAW, counted in TEXEL space at every depth (see :func:`texel_view`).
         zeros, zeros_why = transparent_values(base, t.page)
         zset, st, nw = set(zeros), texel_view(t.page, t.stock), texel_view(t.page, t.new)
@@ -6646,6 +6894,9 @@ def stage(b: TexelBuild, root=None, game_root=None, allow_install: bool = False,
                             # READERSHIP one -- and a cast of a cell whose readers all carry a mover
                             # is exactly the cast that would test it, so the record has to say so.
                             DA.ACK_MOVER_KEY: t.ack_second_array,
+                            # THE SCROLL BLIT's word: a cast of a destination band is exactly the
+                            # cast that would test whether the blit runs, so the record says so.
+                            SB.ACK_KEY: t.ack_scroll_blit,
                             # W6b-3 (iv): WHICH ARITHMETIC this row was staged under, and
                             # whether the reader it was attributed to was routed here by it.
                             # A cast record that cannot say which model it tested is a cast
@@ -6831,7 +7082,30 @@ def scenery_lines(blob: bytes, effect: Optional[int] = None, *,
             by[r.klass] = by.get(r.klass, 0) + 1
         L.append("    REFUSED %d cell(s): %s"
                  % (len(refused), ", ".join("%s %d" % (k, by[k]) for k in sorted(by))))
-    return L + depth_attribution_lines(blob, effect, pages, channels=channels)
+    return L + scroll_blit_lines(effect, pages) + depth_attribution_lines(blob, effect, pages,
+                                                                         channels=channels)
+
+
+def scroll_blit_lines(effect: Optional[int], pages: Sequence[TexelPage]) -> List[str]:
+    """The op-144 block of the scenery report: printed only where the container queues a scroll blit,
+    and it names every destination and source cell on the edit surface, so the listing never reads
+    "clean" on a cell whose repaint the build will refuse."""
+    bs = SB.blits(effect)
+    if not bs:
+        return []
+    dst = [p for p in pages if p.hazards is not None and p.hazards.scroll_dst]
+    src = [p for p in pages if p.hazards is not None and p.hazards.scroll_src]
+    L = ["    SCROLL BLITS (HLE op 144): %d site(s), %d distinct rect(s) -- %s"
+         % (sum(b.sites for b in bs), len(bs), "; ".join(b.describe() for b in bs))]
+    for p in dst:
+        L.append("      DESTINATION %-20s %d of %d halfwords rewritten every frame; an edit there "
+                 "REFUSES at build -- %s"
+                 % (p.name, len(p.hazards.scroll_rewritten), RS.PAGE_CELL_W * CELL_LINES,
+                    "; ".join(p.hazards.scroll_remedy)))
+    for p in src:
+        L.append("      SOURCE      %-20s copied into %s, scrolling -- disclosed, not refused"
+                 % (p.name, ", ".join("(%d,%d)" % b.dst for b in p.hazards.scroll_src)))
+    return L
 
 
 def depth_attribution_lines(blob: bytes, effect: Optional[int],
