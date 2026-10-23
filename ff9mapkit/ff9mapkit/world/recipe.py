@@ -16,7 +16,7 @@ import math
 import tomllib
 
 #: The tables the editor writes (the rest of a recipe it composes and lists, but does not edit).
-EDITOR_TABLES = ("forest", "mountain")
+EDITOR_TABLES = ("forest", "mountain", "sink")
 
 HEADER = ("# Dream World IX overworld recipe, written by the World tab.\n"
           "# Compose it onto a mod folder with:  ff9mapkit world-fuse <this file> --mod-folder <folder>\n")
@@ -28,6 +28,18 @@ def row_for(argv) -> dict:
     from .. import cli
     a = cli.build_parser().parse_args([str(v) for v in argv])
     verb = argv[0]
+    if verb == "world-sink":
+        if a.at is None or a.list:
+            raise ValueError("a [[sink]] row names its island: --at WX WZ")
+        if a.disc != 1 or a.skip_mirror or a.fresh or a.allow_overwrite:
+            raise ValueError("a [[sink]] row is the disc-1 sink with its own disc-4 step (no --disc, --skip-mirror, "
+                             "--fresh, --allow-overwrite)")
+        row = {"table": "sink", "at": [float(v) for v in a.at]}
+        if a.cluster:
+            row["cluster"] = True
+        if a.allow_entrances:
+            row["allow_entrances"] = True
+        return row
     if verb not in ("world-forest", "world-mountain"):
         raise ValueError(f"{verb} has no recipe row")
     if a.near is not None or a.center is None:
@@ -56,6 +68,9 @@ def label(row: dict) -> str:
     """A row in words, for the history list and the Undo button: ``mountain uaho at 190, -1228``."""
     table = row.get("table", "?")
     name = row.get("donor")
+    if table == "sink":
+        at = row.get("at") or (0, 0)
+        return f"sink the island at {_num(at[0])}, {_num(at[1])}" + (" (and its cluster)" if row.get("cluster") else "")
     if table in EDITOR_TABLES and name is not None:
         from .donors import load_donors, spec_blocks
         klass = "canopy" if table == "forest" else "massif"

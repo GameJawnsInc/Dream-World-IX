@@ -297,7 +297,8 @@ def promote(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
     rec_dir, n = draft / PROMOTES / stamp, 2
     while rec_dir.exists():
         rec_dir, n = draft / PROMOTES / f"{stamp}-{n}", n + 1
-    before_sha = {}
+    rec_dir.mkdir(parents=True)                    # (cells the live folder has nothing at snapshot no file: a sink
+    before_sha = {}                                # of a stock island; the record must still be written)
     for rel, p in before.items():                  # the snapshot (bytes and hashes), before any byte moves
         dst = rec_dir / "before" / rel
         dst.parent.mkdir(parents=True, exist_ok=True)

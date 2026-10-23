@@ -4354,6 +4354,27 @@ SEA4_QUADS = ((0.0, 0.0, 0.5039, 0.5079), (0.5039, 0.0, 0.9921, 0.5079),
 SEA4_IDALL = 228
 
 
+def _plan_hull(pts) -> list:
+    """The convex hull of plan points ``(x, z)``, counter-clockwise, rounded to 0.01u: an island's outline for the
+    editor to draw (rung C5), not a gate."""
+    p = sorted({(round(float(x), 2), round(float(z), 2)) for x, z in pts})
+    if len(p) < 3:
+        return [list(q) for q in p]
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lower, upper = [], []
+    for q in p:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], q) <= 0:
+            lower.pop()
+        lower.append(q)
+    for q in reversed(p):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], q) <= 0:
+            upper.pop()
+        upper.append(q)
+    return [list(q) for q in lower[:-1] + upper[:-1]]
+
+
 def _plan_centroid(tri):
     return (sum(v[0][0] for v in tri) / 3.0, sum(v[0][2] for v in tri) / 3.0)
 
@@ -6209,7 +6230,8 @@ def sink_candidates(*, disc: int = 1, lod: str = "0_1", game=None, max_blocks: i
             return abs((t[1][0][0] - t[0][0][0]) * (t[2][0][2] - t[0][0][2])
                        - (t[2][0][0] - t[0][0][0]) * (t[1][0][2] - t[0][0][2]))
         at = tuple(round(v, 3) for v in _plan_centroid(max(c, key=flat)))
-        row = {"at": list(at), "land_u2": round(sum(flat(t) for t in c) / 2.0, 1),
+        row = {"at": list(at), "outline": _plan_hull([(v[0][0], v[0][2]) for t in c for v in t]),
+               "land_u2": round(sum(flat(t) for t in c) / 2.0, 1),
                "max_y": round(max(v[0][1] for t in c for v in t), 2), "blocks": blocks, "bands": None,
                "shore_tris": 0, "cluster": None, "fill": "tiles", "joined": None, "building": None,
                "entrance_tris": 0}
