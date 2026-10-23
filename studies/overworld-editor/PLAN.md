@@ -1,6 +1,7 @@
 # Overworld visual editor: feasibility and plan
 
-**Status:** UNPARKED 2026-10-23 (owner: "let's start planning towards the GUI terrain editor"); A0 built, see Progress.
+**Status:** UNPARKED 2026-10-23 (owner: "let's start planning towards the GUI terrain editor"); A0, A1, the stack and
+C1 built, see Progress.
 The replan below supersedes the rung order further down; the recon sections stay as the evidence. Original status
 (2026-10-13): recon only. The owner asked whether the kit is on a path to a visual editor that adjusts the overworld
 in real time under the laws the terrain studies have proven. The answer is yes, with one design call. The owner
@@ -89,6 +90,14 @@ alone.
   a refused file means stock, not the next folder's). Two labs first in FolderNames: 4/4 heights within 0.002u, each
   case 1.5u from the wrong rule; Memoria.log confirmed the loads and the refusal. "Only this folder" previews a
   scratch folder for C1.
+- **C1 BUILT + IN-GAME PROVEN + OWNER-PASSED (2026-10-23: "forest is there and walkable")** -> [`C1.md`](C1.md). Add forest in the 3D view:
+  click to place, drag the ghost, turn and spread it within the law's ceilings, a donor from the qualified canopies;
+  the footprint law previews live (vectorised, 120/120 agreeing with the carve's loop, 3.8 ms); on release the tool
+  runs `world-forest --dry-run` and draws its verdict where the gates refuse (B1 for the forest's gates: located
+  refusals, `--report-json`); Accept runs the same command into a draft outside the install. The acceptance holds:
+  the editor's draft and the hand-typed command's are byte-identical (hermetic, and 1,531 files on the real island).
+  In game, the draft first in FolderNames: 4/4 heights within 0.003u, the canopy 1.36-1.72u from the no-lab height.
+  Measured: an exact-centre carve takes 7 s cold, so judging on release needs no warm worker (B3 deferred).
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,
@@ -315,7 +324,7 @@ Each rung is useful on its own. One change per in-game test, as everywhere else.
 
 ## Open questions (unmeasured)
 
-- `carve_forest` time at a fixed centre, before and after the walk-in index.
+- ~~`carve_forest` time at a fixed centre~~: 7 s cold through the CLI, every gate included (C1.md).
 - The harness round trip on the overworld, measured rather than estimated.
 - Whether GL works in the Workspace's offscreen smoke run, or what the fallback costs.
 - How close a free GPU camera can come to the game's own world camera. render.py's ledger says it cannot see the

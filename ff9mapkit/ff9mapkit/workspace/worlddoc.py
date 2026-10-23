@@ -445,7 +445,8 @@ class WorldDoc(QWidget):
     _scan_done = Signal(object, object, object)    # (census | None, stock grid | None, error | None)
     _point_done = Signal(object, object, object)   # (the pick it answers, point_info | None, error | None)
 
-    def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None, on_teleport=None):
+    def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None, on_teleport=None,
+                 drafts_root=None, forest_runner=None, forest_seams=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -461,6 +462,10 @@ class WorldDoc(QWidget):
         self._point = None                         # the 3D pick the strip shows: ((x, y, z), part) or None
         self._point_info = None                    # its facts, once read (world.pointinfo.point_info)
         self._on_teleport = on_teleport            # (x, z) -> None: the shell's dev-checkout harness job, or None
+        self._forest = None                        # the forest tool (rung C1): built on the first Forest click
+        self._drafts_root = drafts_root            # None -> world.draft.drafts_dir() (tests pin a tmp dir)
+        self._forest_runner = forest_runner        # None -> the tool's QProcess runner (tests inject one)
+        self._forest_seams = forest_seams or {}    # ForestTool's outline_fn / soup_fn / sync (tests, gui_snap)
         self._point_done.connect(self._finish_point)
         self._busy = False
         self._guide_state = ("scan", "")
@@ -557,6 +562,15 @@ class WorldDoc(QWidget):
                                  "folder over stock, for previewing a folder the game does not load.")
         self.draw_box.activated.connect(lambda _ix: self._load_view3d())
         self.draw_box.hide()
+        # The forest tool (editor rung C1), on the 3D page's bar too: it places a real canopy through world-forest
+        # and accepts into a draft outside the install. Quiet like the toggle; its card names the state.
+        self.forest_btn = QPushButton("Add forest")
+        self.forest_btn.setProperty("role", "quiet")
+        self.forest_btn.setToolTip("Place a real stock canopy on a deployed island: click where it goes, drag, turn "
+                                   "and spread it; every world-forest gate judges it, and Accept writes it to a "
+                                   "draft the game does not load.")
+        self.forest_btn.clicked.connect(lambda: self.open_forest())
+        self.forest_btn.hide()
         head.addWidget(self.view3d_btn)
         v.addLayout(head)
         self.canvas = AtlasCanvas(self.pal, on_select=self._on_select,
@@ -567,6 +581,9 @@ class WorldDoc(QWidget):
         views_host = QWidget()
         views_host.setLayout(self._views)
         v.addWidget(views_host, 1)
+        self._forest_slot = QVBoxLayout()          # the forest card's place: under the view, over the strip
+        self._forest_slot.setContentsMargins(0, 0, 0, 0)
+        v.addLayout(self._forest_slot)
         self._legend_host = QWidget()
         self._legend_lay = QHBoxLayout(self._legend_host)
         self._legend_lay.setContentsMargins(2, 0, 2, 0)
@@ -700,6 +717,8 @@ class WorldDoc(QWidget):
             self._fill_legend()                    # the swatch pixmaps are palette-baked at build time
         if self._view3d is not None:
             self._view3d.retheme(pal)
+        if self._forest is not None:
+            self._forest.retheme(pal)
         if self._stack.currentWidget() is self._guide_page:
             self._show_guide(*self._guide_state)   # rebuild: the glyph pixmap is palette-tinted
 
@@ -786,6 +805,9 @@ class WorldDoc(QWidget):
             self.summary_lbl.setText(" · ".join(bits))
         self._on_select(self._selected)            # re-derive the strip: the block may have changed
         #                                            class (deployed <-> empty) across the rescan
+        if self._forest is not None and not self._forest.isHidden():
+            self._forest.close_tool()              # its folder may have changed under it
+        self._sync_draw_box()
         if self._mode3d:                           # a rescan (or a new folder) re-reads the 3D page too
             self._load_view3d()
 
@@ -797,7 +819,20 @@ class WorldDoc(QWidget):
         cells = tuple((bx, by) for by in range(M.GRID_ROWS) for bx in range(M.GRID_COLS))
         here = self._census.root.name
         one = R.RenderSite(cells=cells, disc=1, game=self._game, mod_root=self._census.root)
-        if self.draw_box.currentData() == "folder":
+        mode = self.draw_box.currentData()
+        draft = self._draft() if mode == "draft" else None
+        if draft is not None:
+            stack = R.game_stack(self._game)
+            if stack is None:
+                return (R.RenderSite(cells=cells, disc=1, game=self._game, mod_root=draft),
+                        f"Drawn: only the draft of {here} over stock (Memoria.ini could not be read). The game "
+                        "does not load the draft.")
+            names = [p.name for p in stack]
+            roots = [draft if p.name == here else p for p in stack] if here in names else [draft] + list(stack)
+            order = " › ".join((f"the draft of {here}" if p == draft else p.name) for p in roots)
+            return (R.RenderSite(cells=cells, disc=1, game=self._game, stack=tuple(roots)),
+                    f"Drawn with your draft in place of {here}: {order} › stock. The game does not load the draft.")
+        if mode == "folder":
             return one, (f"Drawn: only {here} over stock. The game reads every folder in Memoria.ini's "
                          "FolderNames, so a block another folder overrides looks different in game; a picked "
                          "point says where.")
@@ -812,6 +847,51 @@ class WorldDoc(QWidget):
                     "view; choose Only this folder to see it.")
         return R.RenderSite(cells=cells, disc=1, game=self._game, stack=stack), cap
 
+    def _draft(self):
+        """The shown folder's draft (``world.draft``), or None."""
+        if self._census is None:
+            return None
+        from ..world import draft as D
+        p = D.draft_path(self._census.root, root=self._drafts_root)
+        return p if D.read_meta(p) is not None else None
+
+    def _sync_draw_box(self):
+        """Offer "With the draft" exactly while the shown folder has one."""
+        have = self._draft() is not None
+        ix = self.draw_box.findData("draft")
+        if have and ix < 0:
+            self.draw_box.insertItem(1, "With the draft", "draft")
+        elif not have and ix >= 0:
+            if self.draw_box.currentIndex() == ix:
+                self.draw_box.setCurrentIndex(0)
+            self.draw_box.removeItem(ix)
+
+    def open_forest(self, *, sync=False):
+        """The Forest button: the 3D view first (the tool works on it), then the forest card under it."""
+        if self._census is None:
+            return
+        if not self._mode3d:
+            self._on_view3d(True, sync=sync)
+        if self._forest is None:
+            from .worldforest import ForestTool
+            self._forest = ForestTool(self.pal, self._view3d, game_fn=lambda: self._game,
+                                      source_fn=lambda: self._census.root, on_changed=self._draft_changed,
+                                      runner=self._forest_runner, drafts_root=self._drafts_root,
+                                      **self._forest_seams)
+            self._forest_slot.addWidget(self._forest)
+            self._view3d.ghost_moved.connect(self._forest.drag_to)
+            self._view3d.ghost_dropped.connect(self._forest.drop_at)
+        self._forest.open_tool()
+
+    def _draft_changed(self, draft):
+        """An Accept wrote the draft (or a discard removed it): draw it, or go back to the game's stack."""
+        self._sync_draw_box()
+        ix = self.draw_box.findData("draft" if draft is not None else "stack")
+        self.draw_box.setCurrentIndex(max(0, ix))
+        self._load_view3d()
+        if self._point is not None:                # its facts were read from the site drawn before: read again
+            self._on_pick(self._point, place=False)
+
     def _on_view3d(self, on, *, sync=False):
         """The user's toggle. First use builds the panel (importing the GL module only now: the Workspace
         never pays for OpenGL at start, and the offscreen smoke never constructs a GL widget) and loads the
@@ -819,6 +899,9 @@ class WorldDoc(QWidget):
         self._mode3d = bool(on)
         self._label_view_btn()
         self.draw_box.setVisible(bool(on))
+        self.forest_btn.setVisible(bool(on))
+        if not on and self._forest is not None:
+            self._forest.close_tool()
         if not on:
             self._views.setCurrentWidget(self.canvas)
             self._legend_host.show()
@@ -827,6 +910,7 @@ class WorldDoc(QWidget):
             from .worldview3d import WorldView3DPanel
             self._view3d = WorldView3DPanel(self.pal, scale=self._scale)
             self._view3d.picked.connect(self._on_pick)
+            self._view3d.add_control(self.forest_btn)
             self._view3d.add_control(self.draw_box)
             self._views.addWidget(self._view3d)
             self._load_view3d(sync=sync)
@@ -863,7 +947,7 @@ class WorldDoc(QWidget):
             self._view3d.focus(*worldscan.block_center(*self._selected))
 
     # -- the 3D pick (rung A1) --
-    def _on_pick(self, hit, *, sync=False):
+    def _on_pick(self, hit, *, sync=False, place=True):
         """A click on the 3D view: select its block on the chart (so the chart agrees on return), then show the
         point's facts -- read on a worker (the first read of a stock block opens its bundle, about a second);
         ``sync=True`` is the deterministic lane."""
@@ -874,7 +958,9 @@ class WorldDoc(QWidget):
             self.sel_parts.setText("")
             self._set_chip("", "info")
             return
-        (x, _y, z), _part = hit
+        (x, y, z), _part = hit
+        if place and self._forest is not None and not self._forest.isHidden():
+            self._forest.place(x, z, y)            # the tool is open: a click puts the forest there
         from ..world import frames
         key = frames.world_to_block(*frames.wrap_world_xz(x, z))
         self.canvas.select(key)                    # -> _on_select: the block strip, and the point cleared
