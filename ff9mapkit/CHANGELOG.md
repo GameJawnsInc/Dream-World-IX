@@ -5,6 +5,18 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `summon-reskin` refuses a repaint the effect overwrites every frame
+- Some stock summons animate a texture by copying one band of VRAM onto another every frame. A repaint
+  inside such a band builds, deploys and verifies, then never shows. `summon-reskin build` and `plan` now
+  refuse an edit that changes a texel there, by cell name, and say which cell the band is copied from:
+  paint that one instead and the edit shows, scrolling. An edit outside the band builds as before.
+- `acknowledge_scroll_blit_destination = true` on a row lifts the refusal, for when you judge the copy is
+  not running while your cell is drawn. Painting the cell a band is copied from is never refused; the
+  build says where the edit will also appear.
+- `export-art` records the bands per cell in its manifest and prints them, with the remedy, on the
+  scaffold row before you paint. No picture is withheld.
+- 88 exportable cells across 20 effects are affected, including Phoenix's fire-field cell `(704,256)`.
+
 ### Added — promote a World tab draft into the game
 - The forest card's draft row has "Promote": after a confirm it writes the draft's edits into the live mod folder.
   Each file is backed up first, the disc-4 mirror runs, and the blocks are snapshotted so "Revert promote" puts the

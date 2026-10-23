@@ -158,4 +158,11 @@ acknowledge_cutout_reshape = true
 # derivation, and it stays a cross-reference -- this lane writes zero CLUT bytes and the container
 # remains the palette authority.
 palette_from = "pal.s0.x0_y247.e256"
+# ADDED AFTER THE CAST, AND IT MOVES NO BYTE.  This cell is an HLE op-144 SCROLL-BLIT DESTINATION,
+# `dst (704,256) 64x128 <- src (704,384)`: every halfword rewritten from the cell below it every
+# frame the blit runs (tier-r CALLBACK-OPS.md addendum 10, ff9mapkit/summons/scroll_blit.py).  The
+# kit now refuses this row without the key; it is said here so the record still rebuilds its cast
+# bytes.  Read against the blit, the cast's INVISIBLE verdict fits it: all 2,143 changed halfwords
+# lie in the band, while stripes on the SOURCE cell (704,384) banded the dome on screen (cast 1c).
+acknowledge_scroll_blit_destination = true
 note = "the wheel: a stroked ring + three radial spokes on the full-screen fire field, ink 254 (max luminance, no outline -- additive blending)"

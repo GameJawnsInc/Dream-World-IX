@@ -61,6 +61,10 @@ _REPO = os.path.dirname(os.path.dirname(os.path.dirname(_HERE)))  # <repo>
 #: upload path is ALREADY CAST-PROVEN live (W5's magenta probe: "magenta showed up in the flames"),
 #: which is the one property no other candidate has.  Every field below is RE-DERIVED by G2; they are
 #: written down so a drift is a visible diff rather than a silently different verdict.
+#: ⚠ AND IT IS AN HLE op-144 SCROLL-BLIT DESTINATION (`dst (704,256) 64x128 <- src (704,384)`, tier-r
+#: CALLBACK-OPS.md addendum 10) -- found after both casts on it came back INVISIBLE.  The lane proof
+#: below is about bytes, not visibility, so it builds behind `acknowledge_scroll_blit_destination`
+#: and G2 also proves the row REFUSES without it (`scroll_blit_gates.py` owns the hazard itself).
 CAST_EF = 211
 CAST_CELL = (704, 256)
 CAST_NAME = "cell.s0.x704_y256"
@@ -541,11 +545,18 @@ def cast_build():
     # NO `acknowledge_cutout_reshape`, deliberately.  sec 5.3 ANTICIPATED the cutout gate firing on a
     # solid stamp over a flame texture's holes; at this radius it does not, and the honest way to say
     # so is to build with nothing acknowledged and let the gate refuse if a texel ever crosses.
-    b = RP.build(_texel_spec(CAST_EF, [_row(CAST_NAME, art, expect_bpp=CAST_BPP,
+    try:
+        RP.build(_texel_spec(CAST_EF, [_row(CAST_NAME, art, expect_bpp=CAST_BPP,
                                             expect_cell=list(CAST_CELL))]), td, blob=blob)
+        unacked = ""
+    except RP.RepaintError as e:
+        unacked = str(e)
+    b = RP.build(_texel_spec(CAST_EF, [_row(CAST_NAME, art, expect_bpp=CAST_BPP,
+                                            expect_cell=list(CAST_CELL),
+                                            **{RP.ACK_SCROLL_BLIT: True})]), td, blob=blob)
     b.check = RP.self_check(b)
     _CAST = {"blob": blob, "page": page, "ink": ink, "noop": b_noop, "build": b,
-             "lum": _lum(ink), "live": len(live)}
+             "lum": _lum(ink), "live": len(live), "unacked": unacked}
     return _CAST
 
 
@@ -581,6 +592,10 @@ def g2_cast_artifact():
                                               b.enabled[0].hazard_notes else "(none)"))
     ok = ok and any("program-VRAM READ" in n for n in b.enabled[0].hazard_notes)
 
+    lines.append("THE SCROLL BLIT: without `%s` the stamp %s" % (
+        RP.ACK_SCROLL_BLIT, "REFUSES as a scroll-blit destination" if
+        "SCROLL-BLIT DESTINATION" in d["unacked"] else "*** DID NOT REFUSE ***"))
+    ok = ok and "SCROLL-BLIT DESTINATION" in d["unacked"]
     lines.append("THE NO-OP: the identity edit moves %d byte(s)" % len(noop.enabled[0].changed))
     ok = ok and not noop.enabled[0].changed and noop.patched == noop.orig
 
@@ -895,7 +910,13 @@ def g4_refusal_matrix():
         raw = bytearray(b227[p.page_offset:p.page_offset + p.page_bytes])
         # ONE index moved without ever crossing the transparent boundary, so a refusal in this block
         # is always THE CO-TRANSFORM REMEDY and never THE CUTOUT LAW wearing its coat.
-        i = next(k for k in range(len(raw)) if raw[k] not in zeros)
+        # ...and OUTSIDE the op-144 scroll-blit band on this cell's left 32 columns (`dst (832,256)
+        # 32x192 <- (864,256)`, found after this fixture was chosen as hazard-free), so it is never
+        # the SCROLL-BLIT gate either.
+        row_b = p.page_bytes // p.h
+        band = p.hazards.scroll_rewritten
+        i = next(k for k in range(len(raw)) if raw[k] not in zeros
+                 and ((k // row_b) * 64 + (k % row_b) // 2) not in band)
         v = 1 + (raw[i] % 255)
         while v in zeros:
             v = 1 + (v % 255)

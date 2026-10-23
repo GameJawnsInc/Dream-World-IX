@@ -85,4 +85,10 @@ enabled = true
 # the ink above is chosen to be the darkest entry under BOTH.  The kit builds this with the
 # display-palette disclosure; nothing here is acknowledged away.
 palette_from = "pal.s0.x80_y244.e16"
+# ADDED AFTER THE CAST, AND IT MOVES NO BYTE.  The LEFT half of this cell is an HLE op-144
+# SCROLL-BLIT band, `dst (640,256) 32x128 <- src (672,256)`: it is rewritten from the right half
+# every frame the blit runs.  768 of this edit's 1,612 changed halfwords lie in it, so the kit now
+# refuses the row without the key.  The cast PASSED; whatever was painted in the right half is also
+# copied into the left, scrolling.  Said so the record rebuilds its cast bytes.
+acknowledge_scroll_blit_destination = true
 note = "CAST 3: three world-circular punched wheels in the ARC BAND's private half of the cell + two control bands in the CONE's -- the pool's positive confirm and the scenery SHAPE verdict, attributed per reader, in one cast"
