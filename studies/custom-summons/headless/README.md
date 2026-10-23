@@ -135,7 +135,9 @@ six `SFX_OPA/ADD/SUB_G[T]` shaders' D3D9 programs (vertex colour clamped, `abr` 
 63/127/31, `abr` 2 as reverse-subtract, a depth buffer keyed on OT depth). It drives the plugin itself
 (`RasterHost` subclasses the host; `sfx_host.py` is untouched), writes a 320×220 PNG per frame, and counts
 per VRAM cell the fragments that **changed** the screen. `diff` renders two containers in separate
-processes and diffs them frame by frame: offline "does my edit reach the screen?".
+processes and diffs them frame by frame: offline "does my edit reach the screen?". `run(watch=[cells])`
+also maps, per drawn frame, which screen pixels each named cell's fragments changed, so a diff can be
+charged to the cell that carried it.
 
 ### Calibration (`rx_gates.py`)
 
@@ -182,6 +184,13 @@ reaching the screen only as speckle on saturated ice (≤ 8.6% of pixels, f214�
   real ones are **Stop's (448,256)** and **Carbuncle's (576,256) in all four gem variants (ef177 / ef493–495),
   frames 181–211**, read from VRAM before ef177 first renders into the target at f265. Those are the only
   places a 15bpp repaint can reach the screen as painted.
+- ★ **AN EDIT PRE-RUN: ef407's gained cell reaches the screen and scrolls**
+  (`tier-w/ef407_gain_prerun.py`). Bars painted into `x704_y256`, a cell the U2 adoption licenses with no
+  bound reader, change 110 of 146 frames (f75–192); 99.9 % of the changed pixels come through the op-144
+  copy at (704,384), and on the ice spire (a footprint that holds still) they climb about 2 px a frame.
+  The copy is visible only because a SECOND roll writes column 640: the readers' 8bpp decode is keyed at
+  x640, and a write whose origin is in column 704 alone would leave it stale. The owner cast is now a
+  confirmation with a pictured prediction (`tier-w/PLAN.md`, owner item 1).
 - **The binding census over-counts drawable cells, and the reason is now mechanical:** a cell can be bound
   and uploaded yet unreachable because a blit overwrites it before any read ((704,256) on Phoenix), or
   because its depth routes to the render target (the 15bpp class).
@@ -258,4 +267,4 @@ tests: code plus counts, with zero Square Enix bytes.
 | `test_sfx_host.py` | 23 tests; one is install-gated and says why it skips |
 | `raster.py` | the managed-renderer port: run / diff / routes / calibrate |
 | `rx_gates.py` | the calibration gates RX0–RX4 |
-| `test_raster.py` | 25 tests on synthetic primitives and the gate scoring; one is install-gated |
+| `test_raster.py` | 26 tests on synthetic primitives and the gate scoring; one is install-gated |
