@@ -209,7 +209,9 @@ A second gate guards the native memory itself. The drive reads `FF9SpecialEffect
 memory at fixed offsets and writes the body-hide mask there, and those offsets were derived from
 one build of the plugin (the Steam release, linked 2016-10-19). So `--arm` also hashes the
 install's plugin (x64 and x86) and **refuses an unknown build**, saying which arch and hash it
-found (`summons.deploy.SFX_PLUGIN_BUILDS`). On such an install, use `lane = "overlay"`.
+found. The known builds live in one table, `ff9mapkit/sfxplugin.py`. A GOG or updated plugin
+that isn't byte-identical to the Steam release is refused until its offsets are measured and it is
+pinned there. On such an install, use `lane = "overlay"`.
 
 ## Provenance, in plain terms
 

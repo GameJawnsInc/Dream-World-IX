@@ -132,7 +132,7 @@ diff --git a/Assembly-CSharp/Memoria/Battle/SFX/SfxPluginIdentity.cs b/Assembly-
 new file mode 100644
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Battle/SFX/SfxPluginIdentity.cs
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,155 @@
 +using Memoria.Prime;
 +using System;
 +using System.Globalization;
@@ -156,9 +156,11 @@ new file mode 100644
 +    // COFF Machine + TimeDateStamp and the optional header's Magic + SizeOfImage. The base is handed out ONLY
 +    // when all four match the pinned build for this process's arch. A relink changes TimeDateStamp and moves
 +    // .data/.bss, which is the event that invalidates the RVAs; an in-place byte patch that keeps the stamp
-+    // also keeps the layout. The deploy-time twin is a whole-file sha256 (ff9mapkit summons/deploy.py
-+    // SFX_PLUGIN_BUILDS: x64 5e01f899e9090fc7..., x86 8635255d78cde4c8...), which refuses to arm [SfxHybrid]
-+    // on an unknown install. This gate is what still protects a hand-written ini.
++    // also keeps the layout. THE ONE PIN TABLE is ff9mapkit/ff9mapkit/sfxplugin.py PINNED_BUILDS (x64 sha256
++    // 5e01f899e9090fc7..., x86 8635255d78cde4c8...): the kit hashes the install against it and refuses to arm
++    // [SfxHybrid] on an unknown build, the headless study host reads it, and a kit test fails if these
++    // constants, s58's offsets or s53's RVAs drift from it. Pin a new build (a GOG or updated plugin) THERE,
++    // after measuring its offsets, and here. This gate is what still protects a hand-written ini.
 +    //
 +    // FAILS CLOSED: a mismatch (or an unreadable header) latches Refused for the process and logs ONE
 +    // Memoria.log warning with the observed values; every caller then gets IntPtr.Zero and does nothing.

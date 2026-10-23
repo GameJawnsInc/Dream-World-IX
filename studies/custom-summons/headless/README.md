@@ -44,7 +44,9 @@ semantics (SFXRework=0) instead.
 
 **The plugin's internal offsets** (summon slot, view matrix, OFX/OFY/H) are read only on the pinned
 build (`PINNED_BUILDS`, x64 sha `5e01f899…`). On any other build those columns are `None` and the run
-says so.
+says so. The table is not kept here: the host loads the x64 entries of the kit's one pin table,
+`ff9mapkit/ff9mapkit/sfxplugin.py`, which the `[SfxHybrid]` arm refusal also reads and a kit test pins
+to the engine's s53/s58/s152 constants -- so a re-measured or newly pinned build reaches all three at once.
 
 ## Calibration (`hx_gates.py`, 8/8 PASS)
 

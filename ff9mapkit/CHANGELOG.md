@@ -10,7 +10,9 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `[SfxHybrid]` unless it is the build the hybrid drive's native memory offsets were taken from (the Steam release,
   linked 2016-10-19). On any other build the drive would read, and write 4 bytes, at addresses that mean nothing.
   The refusal says which arch and hash it found and points at `lane = "overlay"`, which needs no engine and reads
-  no native memory. Nothing is written when it refuses.
+  no native memory. Nothing is written when it refuses, not even the summon's model and sequence files.
+- A GOG or updated plugin that differs from the Steam release is refused the same way. The known builds are listed
+  in one place, `ff9mapkit/sfxplugin.py`.
 
 ### Added — promote a World tab draft into the game
 - The forest card's draft row has "Promote": after a confirm it writes the draft's edits into the live mod folder.

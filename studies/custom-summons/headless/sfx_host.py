@@ -76,19 +76,24 @@ OUT_DIR = SCRATCH / "headless"
 PLUGIN = "FF9SpecialEffectPlugin.dll"
 CRT_DLLS = ("msvcr120.dll", "msvcp120.dll")
 
-#: Plugin builds whose internal layout this module was measured on. The offsets are read ONLY when
-#: the staged DLL's sha256 is listed here -- on any other build the slot/camera columns are None and
-#: the run says so (the same posture the s58 hybrid drive needs). Values: TIER R / the s53 probe.
-PINNED_BUILDS: Dict[str, dict] = {
-    "5e01f899e9090fc720f4fd563648f216f5f1f088c902d0f80aa04d34f31d43cd": {
-        "arch": "x64", "linked": "2016-10-19",
-        "summon_rec": 0x220830,      # summonModels[0] (length 1), stride 0x58
-        "summon_active": 0x50,       # u8, 0 = no summon this frame
-        "data_bones": 0x38,          # SummonData -> composed node MATRIX array (node 0 = drawn transform)
-        "gte_ofx": 0x211FA0, "gte_ofy": 0x211FA4, "gte_h": 0x211FA8,
-        "view_matrix": 0x1C1DC8,     # native world->view MATRIX (s53 PSXCAM): 3x3 s16 fp12, s32 t @+0x14
-    },
-}
+def _kit_pinned_builds() -> Dict[str, dict]:
+    """The x64 entries of THE ONE pin table, ``ff9mapkit/ff9mapkit/sfxplugin.py`` -- shared with the kit's
+    ``[SfxHybrid]`` arm refusal and pinned to the engine's s53/s58/s152 constants by
+    ``test_plugin_pins_match_the_engine_patches``, so the host and the drive cannot drift apart. Loaded by
+    FILE from this checkout (never an installed kit -- the study-scripts pin trap) and without importing the
+    package, because every census child process pays for it. x64 only: this host loads the x64 plugin."""
+    import importlib.util
+    path = _REPO / "ff9mapkit" / "ff9mapkit" / "sfxplugin.py"
+    spec = importlib.util.spec_from_file_location("_ff9mapkit_sfxplugin", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return {sha: pin for sha, pin in mod.PINNED_BUILDS.items() if pin["arch"] == "x64"}
+
+
+#: Plugin builds whose internal layout is known (summon_rec / summon_active / data_bones / gte_* /
+#: view_matrix). The offsets are read ONLY when the staged DLL's sha256 is listed here -- on any other
+#: build the slot/camera columns are None and the run says so (the same posture as the s58 drive).
+PINNED_BUILDS: Dict[str, dict] = _kit_pinned_builds()
 
 #: A node translation beyond this is recycled-arena garbage, not a pose (s58's SaneMaxTrans).
 SANE_MAX_TRANS = 1 << 24

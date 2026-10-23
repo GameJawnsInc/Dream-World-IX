@@ -10,8 +10,8 @@ the dragon's motion") -- the prototype is ``studies/custom-summons/thomas-swap/b
     the native donor cast's live per-frame skeleton. Emits the mint (rows 1/1b) + the private-ef host
     ``.seq`` (row 2) and ARMS ``Memoria.ini [SfxHybrid]`` (row 3). REQUIRES the custom engine -- the arm
     step string-probes the deployed ``Assembly-CSharp.dll`` for ``SfxHybridDrive`` and REFUSES on stock --
-    AND the exact ``FF9SpecialEffectPlugin.dll`` build the drive's native offsets came from (it hashes the
-    install's plugin and REFUSES an unknown build, :data:`SFX_PLUGIN_BUILDS`).
+    AND an ``FF9SpecialEffectPlugin.dll`` build the drive's native offsets were measured on (it hashes the
+    install's plugin and REFUSES an unknown build -- the one pin table is ``ff9mapkit/sfxplugin.py``).
   * **overlay** (DLL-free rung-7 route) -- the mint + the host ``.seq`` (with the StartThread self-load
     delta) + ``FileList.txt`` + a ``.sfxmodel`` manifest + the decoded donor ``.anim`` clips. Works on a
     STOCK engine; never touches ``Memoria.ini``.
@@ -56,6 +56,7 @@ import time
 from pathlib import Path
 
 from .. import config, deploystack, fsutil
+from .. import sfxplugin as _sfxplugin
 from ..models import anim as _anim
 from ..models import export as _mexport
 from ..models import mint as _mint
@@ -199,22 +200,6 @@ SFXHYBRID_SECTION = "SfxHybrid"
 #: the UTF-8 type name that MUST be present in a deployed ``Assembly-CSharp.dll`` for the hybrid lane to
 #: arm (the s58 feature class; ``m1b/RUNBOOK.md`` section 0 presence check).
 _SFXHYBRID_ENGINE_MARK = b"SfxHybridDrive"
-
-SFX_PLUGIN_NAME = "FF9SpecialEffectPlugin.dll"
-#: arch -> THE ONE ``FF9SpecialEffectPlugin.dll`` build the s58 drive's hard-coded RVAs (and the s52/s53
-#: probes') were derived from -- linked 2016-10-19, the Steam release (``studies/custom-summons/PLAN.md``
-#: section 3A; x86 re-derived in ``thomas-swap/disasm/B5-x86-crosscheck.md``). The drive READS pointers at
-#: fixed offsets into that DLL and WRITES 4 bytes through one (the body-hide mask), so on any other build it
-#: would write to an arbitrary address. ``sha256`` is what the arm step checks; ``machine``/``stamp``/
-#: ``size_of_image`` are the PE header fields the engine-side twin (``memoria-patches/s152``,
-#: ``SfxPluginIdentity``) checks in memory at runtime -- a test pins the two to each other. The x86 entry
-#: was never exercised in game (no x86 cast in the study record); it is pinned so an x86 install arms.
-SFX_PLUGIN_BUILDS = {
-    "x64": {"sha256": "5e01f899e9090fc720f4fd563648f216f5f1f088c902d0f80aa04d34f31d43cd",
-            "machine": 0x8664, "stamp": 0x58075FAB, "size_of_image": 0x627000},
-    "x86": {"sha256": "8635255d78cde4c839cc26c11d114f1e64b96553f08828f4fd4bd1900780a87e",
-            "machine": 0x014C, "stamp": 0x580763E9, "size_of_image": 0x611000},
-}
 
 #: the host ``.seq`` line the transplant edits -- the native creature's spawn. Matched by pattern so no
 #: ``SpecialEffect`` table is needed (the name is read straight off the donor's own line).
@@ -2003,30 +1988,35 @@ def probe_hybrid_engine(game) -> bool:
 
 
 def sfx_plugin_refusal(game) -> "str | None":
-    """Hash the install's ``FF9SpecialEffectPlugin.dll`` (x64 and x86) against :data:`SFX_PLUGIN_BUILDS`.
-    ``None`` when every plugin present is the pinned build; otherwise the refusal text, which says why.
-    Every PRESENT arch must match -- the launcher, not us, picks the arch that runs -- and an install with
-    no plugin at all is refused too (nothing to verify the offsets against)."""
+    """Hash the install's ``FF9SpecialEffectPlugin.dll`` (x64 and x86) against the one pin table,
+    ``ff9mapkit/sfxplugin.py`` ``PINNED_BUILDS`` (shared with the headless host; the engine's constants are
+    pinned to it by test). ``None`` when every plugin present is a pinned build OF ITS OWN ARCH; otherwise
+    the refusal text, which says why. Every PRESENT arch must match -- the launcher, not us, picks the arch
+    that runs -- and an install with no plugin at all is refused too (nothing to verify the offsets against)."""
     game = Path(game)
+    name = _sfxplugin.PLUGIN_NAME
     seen, bad = [], []
-    for arch, pin in SFX_PLUGIN_BUILDS.items():
-        dll = game / arch / "FF9_Data" / "Plugins" / SFX_PLUGIN_NAME
+    for arch in ("x64", "x86"):
+        dll = game / arch / "FF9_Data" / "Plugins" / name
         if not dll.is_file():
             continue
         seen.append(arch)
         sha = hashlib.sha256(dll.read_bytes()).hexdigest()
-        if sha != pin["sha256"]:
-            bad.append(f"{arch} sha256 {sha} (pinned {pin['sha256'][:16]}...)")
-    why = ("the hybrid lane's s58 SfxHybridDrive reads FF9SpecialEffectPlugin.dll's memory at fixed offsets "
-           "and WRITES the native body-hide mask through a pointer it reads there. Those offsets were derived "
-           "from ONE build of the plugin (linked 2016-10-19, the Steam release)")
+        pin = _sfxplugin.PINNED_BUILDS.get(sha)
+        if pin is None or pin["arch"] != arch:
+            known = ", ".join(s[:16] + "..." for s in _sfxplugin.pinned_for(arch)) or "none"
+            bad.append(f"{arch} sha256 {sha} (pinned {arch}: {known})")
+    why = (f"the hybrid lane's s58 SfxHybridDrive reads {name}'s memory at fixed offsets and WRITES the "
+           "native body-hide mask through a pointer it reads there. Those offsets are known only for the "
+           "plugin builds they were measured on (today: the Steam release, linked 2016-10-19)")
     if not seen:
-        return (f"{why}, and this install has no {SFX_PLUGIN_NAME} under x64/ or x86/FF9_Data/Plugins/ to "
-                f"check against -- [SfxHybrid] NOT armed. Point at the FF9 install, or use lane = \"overlay\" "
+        return (f"{why}, and this install has no {name} under x64/ or x86/FF9_Data/Plugins/ to check "
+                f"against -- [SfxHybrid] NOT armed. Point at the FF9 install, or use lane = \"overlay\" "
                 f"(DLL-free, no native memory access).")
     if bad:
         return (f"{why}; this install's plugin is a different build: {'; '.join(bad)}. On it the drive would "
-                f"read and write arbitrary memory, so [SfxHybrid] is NOT armed. Use lane = \"overlay\" "
+                f"read and write arbitrary memory, so [SfxHybrid] is NOT armed (a GOG or updated build arms "
+                f"once its offsets are measured and pinned in ff9mapkit/sfxplugin.py). Use lane = \"overlay\" "
                 f"(DLL-free, no native memory access).")
     return None
 
