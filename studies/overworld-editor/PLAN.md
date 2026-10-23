@@ -1,6 +1,6 @@
 # Overworld visual editor: feasibility and plan
 
-**Status:** UNPARKED 2026-10-23 (owner: "let's start planning towards the GUI terrain editor"); nothing built yet.
+**Status:** UNPARKED 2026-10-23 (owner: "let's start planning towards the GUI terrain editor"); A0 built, see Progress.
 The replan below supersedes the rung order further down; the recon sections stay as the evidence. Original status
 (2026-10-13): recon only. The owner asked whether the kit is on a path to a visual editor that adjusts the overworld
 in real time under the laws the terrain studies have proven. The answer is yes, with one design call. The owner
@@ -68,13 +68,17 @@ alone.
 - **C5, the other verbs.** River placement (already editor-shaped), sink as clickable islands (`sink_candidates`),
   coast morphs as clickable lawful windows (`world-morphs`), island and transplant after their compute/deploy split.
 
-### Owner decisions before A0
+### Owner decisions (taken 2026-10-23: "Go with the recommended answers")
 
-1. Where it lives: the World tab (recommended, beside the existing chart) or a separate window.
-2. Which verb goes end to end first: the forest (recommended: fewest handles, the only measured carve time) or the
-   mountain (the most catalogue choices).
-3. Where Accept deploys in the first rungs: a scratch lab folder only (recommended until C4 is proven), or the live
-   `FF9CustomMap-world`.
+1. It lives in the World tab, beside the existing chart.
+2. The forest goes end to end first.
+3. Accept deploys to a scratch lab folder only, until C4 is proven.
+
+### Progress
+
+- **A0 BUILT (2026-10-23), owner look pending** -> [`A0.md`](A0.md). The GPU view matches `world-render` at the six
+  committed bench cameras and a disc-1 coast with blob 0 and coverage <= 2; three break-it mutations are caught.
+  Whole-map load 5.4 s (worker thread). Not in A0: the x-torus wrap, picking (A1).
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,

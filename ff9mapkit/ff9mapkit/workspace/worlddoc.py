@@ -455,6 +455,8 @@ class WorldDoc(QWidget):
         self._stock_known = False                  # False = geography unreadable: never claim "free"
         self._selected = None
         self._trees = []
+        self._game = None                          # the install the last scan read (the 3D view reads it too)
+        self._view3d = None                        # the 3D page: built on the user's first "3D view" click
         self._busy = False
         self._guide_state = ("scan", "")
         self._ask_name = self._ask_name_dialog     # the modal seam: tests/snaps inject, prod asks
@@ -525,11 +527,29 @@ class WorldDoc(QWidget):
         head.addWidget(self.rescan_btn)
         self.summary_lbl = widgets.role_label("", "caption")
         self.summary_lbl.setAccessibleName("Scan summary")
+        # WRAPS, never clips or elides: the stale-mirror note at the summary's end is a warning that must
+        # stay on the face (test_worlddoc), and the 3D toggle beside it cut it to "rerun wo" at 150%.
+        self.summary_lbl.setWordWrap(True)
         head.addWidget(self.summary_lbl, 1)
+        # The 3D view (editor rung A0) is a second PAGE over the same census, not a second tab: the
+        # details strip below serves both. Quiet tier (the atlas page has no CTA), and NOT checkable: no
+        # QPushButton:checked rule exists, so a checked quiet button looks unchecked (snap-caught). The
+        # label names the view the click goes TO, so the words always carry the state.
+        self._mode3d = False
+        self.view3d_btn = QPushButton()
+        self.view3d_btn.setProperty("role", "quiet")
+        self.view3d_btn.clicked.connect(lambda: self._on_view3d(not self._mode3d))
+        self._label_view_btn()
+        head.addWidget(self.view3d_btn)
         v.addLayout(head)
         self.canvas = AtlasCanvas(self.pal, on_select=self._on_select,
                                   on_name=self._name_landmass, scale=self._scale)
-        v.addWidget(self.canvas, 1)
+        self._views = QStackedLayout()
+        self._views.setContentsMargins(0, 0, 0, 0)
+        self._views.addWidget(self.canvas)
+        views_host = QWidget()
+        views_host.setLayout(self._views)
+        v.addWidget(views_host, 1)
         self._legend_host = QWidget()
         self._legend_lay = QHBoxLayout(self._legend_host)
         self._legend_lay.setContentsMargins(2, 0, 2, 0)
@@ -643,12 +663,16 @@ class WorldDoc(QWidget):
         self._scale = pct
         if hasattr(self, "canvas"):
             self.canvas.set_scale(pct)
+        if self._view3d is not None:
+            self._view3d.set_scale(pct)
 
     def retheme(self, pal):
         self.pal = pal
         if hasattr(self, "canvas"):
             self.canvas.retheme(pal)
             self._fill_legend()                    # the swatch pixmaps are palette-baked at build time
+        if self._view3d is not None:
+            self._view3d.retheme(pal)
         if self._stack.currentWidget() is self._guide_page:
             self._show_guide(*self._guide_state)   # rebuild: the glyph pixmap is palette-tinted
 
@@ -665,6 +689,7 @@ class WorldDoc(QWidget):
         except config.ConfigError as e:
             self._show_guide("nogame", str(e))
             return
+        self._game = game
         self._trees = worldscan.find_world_trees(game)
         if not self._trees:
             self._show_guide("notrees", str(game))
@@ -734,6 +759,60 @@ class WorldDoc(QWidget):
             self.summary_lbl.setText(" · ".join(bits))
         self._on_select(self._selected)            # re-derive the strip: the block may have changed
         #                                            class (deployed <-> empty) across the rescan
+        if self._mode3d:                           # a rescan (or a new folder) re-reads the 3D page too
+            self._load_view3d()
+
+    # -- the 3D page --
+    def _render_site(self):
+        from ..world import mesh as M
+        from ..world import render as R
+        cells = tuple((bx, by) for by in range(M.GRID_ROWS) for bx in range(M.GRID_COLS))
+        return R.RenderSite(cells=cells, disc=1, game=self._game, mod_root=self._census.root)
+
+    def _on_view3d(self, on, *, sync=False):
+        """The user's toggle. First use builds the panel (importing the GL module only now: the Workspace
+        never pays for OpenGL at start, and the offscreen smoke never constructs a GL widget) and loads the
+        whole map on a worker; ``sync=True`` is the deterministic lane for tests and gui_snap."""
+        self._mode3d = bool(on)
+        self._label_view_btn()
+        if not on:
+            self._views.setCurrentWidget(self.canvas)
+            self._legend_host.show()
+            return
+        if self._view3d is None:
+            from .worldview3d import WorldView3DPanel
+            self._view3d = WorldView3DPanel(self.pal, scale=self._scale)
+            self._views.addWidget(self._view3d)
+            self._load_view3d(sync=sync)
+        self._focus_view3d()
+        self._views.setCurrentWidget(self._view3d)
+        self._legend_host.hide()                   # the legend teaches the chart's fills, not the terrain
+
+    def set_view_mode(self, mode, *, sync=False):
+        """``"chart"`` or ``"3d"`` -- the toggle, for tests and gui_snap."""
+        want = mode == "3d"
+        if self._mode3d != want:
+            self._on_view3d(want, sync=sync)
+
+    def _label_view_btn(self):
+        if self._mode3d:
+            self.view3d_btn.setText("Chart view")
+            self.view3d_btn.setToolTip("Back to the block chart.")
+        else:
+            self.view3d_btn.setText("3D view")
+            self.view3d_btn.setToolTip("Show the map in 3D the way the engine binds it: stock land under this "
+                                       "folder's overrides (read-only; loads on first use, about five seconds). "
+                                       "Drag to orbit, right-drag to pan, wheel to zoom, Home to re-frame.")
+
+    def _load_view3d(self, *, sync=False):
+        if self._view3d is None or self._census is None:
+            return
+        self._view3d.load(self._render_site(), sync=sync)
+        self._focus_view3d()
+
+    def _focus_view3d(self):
+        if self._view3d is not None and self._selected is not None:
+            self._view3d.focus(*worldscan.block_center(*self._selected))
 
     # -- selection / details --
     def _set_chip(self, text, kind):
