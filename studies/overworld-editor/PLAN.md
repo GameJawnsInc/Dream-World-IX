@@ -1,9 +1,80 @@
 # Overworld visual editor: feasibility and plan
 
-**Status:** recon only, nothing built (2026-10-13). The owner asked whether the kit is on a path to a visual
-editor that adjusts the overworld in real time under the laws the terrain studies have proven. The answer is yes,
-with one design call. The owner parked it: more shaping work comes first, and this file says what that work can do
-now to keep the path cheap.
+**Status:** UNPARKED 2026-10-23 (owner: "let's start planning towards the GUI terrain editor"); nothing built yet.
+The replan below supersedes the rung order further down; the recon sections stay as the evidence. Original status
+(2026-10-13): recon only. The owner asked whether the kit is on a path to a visual editor that adjusts the overworld
+in real time under the laws the terrain studies have proven. The answer is yes, with one design call. The owner
+parked it then: more shaping work came first.
+
+## Replan (2026-10-23)
+
+### What ten days of shaping changed
+
+| Then (10-13) | Now | Effect on the editor |
+|---|---|---|
+| `render.py` read only deployed overrides; stock land drew as sky | `world-render --stock` draws stock under the overrides plus the donor's free-riding parts (`render.load_batches(stock=True)`), `--mod-root` reads a scratch build | Rung 0's data path and its pixel oracle both exist; the GPU view loads the same batches |
+| `[[forest]]`/`[[mountain]]` rows lacked handles | both carry every handle (centre, `rot`, `spread`, `rock_height`, `donor`); the alcove comes from the catalogue; `[[river]]` is a row and `river.deploy` is the one pipeline (recipe == CLI on 264/264 files) | the recipe is the document for island, river, mountain, forest and hill; only `[[sink]]` is missing |
+| one canopy, two massifs | `donors.toml`: 7 qualified massifs (incl. snow-ridge, desert-scrub), 5 canopies, 3 coast, the river, the sea plane; `home_ground` per row | the donor picker has real choices, and the home-ground warning is a chip, not a log line |
+| refusals were strings | `river.RiverRefused(gate, msg, where)` carries the failing plan points | the shape habit 2 asked for exists once; interior's gates still raise strings |
+| reload needed a DLL rung | every lab round since 16 reached a freshly deployed world through bench field 6603 with no DLL | "the game follows" gets a no-DLL rung first; the DLL rung becomes a speed upgrade, only if measured too slow |
+| `MTN_*` ceilings partly named | `FOREST_SPREAD_MAX`, `MTN_SPREAD_MAX`, `MTN_ROCK_HEIGHT_MAX` all named in `interior.py` | handles can read their ceilings, but the CLI, the fuse row and a GUI would each read them separately (habit 4 half done) |
+
+Unchanged: no 3D view in the Workspace (the World tab is still the 2D override chart, `workspace/worlddoc.py:439`);
+`QtOpenGL`/`QtOpenGLWidgets` ship in the installed PySide6 6.11.1 Essentials; relief verbs are not seam-aware (a
+placement straddling x = 0 does not seat, river rung 5b); the design call (arrange carried shapes, never sculpt).
+
+### The order now
+
+Two tracks that touch disjoint files, so they can run side by side. Each step has its own acceptance and is useful
+alone.
+
+**Track A: the view (Workspace files only)**
+- **A0, the read-only 3D view.** `QOpenGLWidget` in the World tab, fed by `render.load_batches(stock=True)`: one
+  atlas texture, nearest sampling, unlit, sea at frame 0, the same cull. Orbit, pan, zoom.
+  - Accept: at three committed bench cameras the GPU frame matches `world-render`'s still within a small tolerance;
+    the whole map orbits smoothly; the owner says it reads as the overworld.
+  - Measure first: whole-map load time through `load_batches` (480 blocks, unmeasured), and whether GL exists in
+    the offscreen smoke run. The fallback for headless runs is render.py's still, with a test that fails if the GL
+    path is silently skipped on a machine that has GL.
+- **A1, picking.** A click returns the coordinate triple (world / block / cell), the ground hit via `placement.place`
+  with its index, the cell's topograph and area, and which mod folder owns the block (the ledger). "Teleport the game
+  here" through the harness.
+  - Accept: click a landmark; the harness reads back the same x,z.
+
+**Track B: the backend contract (kit files only, no GUI)**
+- **B1, located refusals.** Interior's gates (walk-in, rigid, down, placement census, atlas) raise one refusal type
+  shaped like `RiverRefused`: gate name, message, failing points. The CLI text stays byte-identical.
+  - Accept: every gate's refusal test also asserts a point inside the plan; a mutation that drops the points goes red.
+- **B2, one handle table.** Each carry verb declares its handles once (name, type, range, ceiling constant, catalogue
+  source); argparse, the fuse row's `_strict_keys` and the GUI all read it. A law in a docstring is a wish; this puts
+  the ceilings at every call site from one place.
+  - Accept: the existing CLI-vs-row parity tests pass unchanged; a test fails if a handle exists in one surface only.
+- **B3, the warm worker and its timings.** A worker process with UnityPy and the block envs resident (the
+  `warm_run.py` precedent), request/reply over stdin/stdout, so the UI thread never imports the heavy kit.
+  - Measure: `carve_forest` at a fixed centre (about 5s after habit 5, to re-measure) and `carve_mountain` at a fixed
+    centre (never measured). These two numbers decide whether "judge on release" feels live or needs a progress bar.
+
+**Then, joined (needs A1 and B1-B3)**
+- **C1, the forest end to end.** Ghost canopy from `_forest_plan`; centre, angle, spread handles; donor picker from
+  the 5 canopies; cheap laws live (spread ceiling, footprint inside land, donor qualified); on release the worker runs
+  `carve_forest` + `census_gate` and draws refusals where they happen; Accept deploys to a scratch folder first.
+  - Accept: an editor-placed forest writes the same bytes as `world-forest` with the same arguments; owner playtest.
+- **C2, the mountain.** Same pattern with 7 massifs, `rot`/`spread`/`rock_height`, the catalogued alcove, and the
+  home-ground chip.
+- **C3, the recipe is the document.** Open and save a `world-fuse` TOML; undo walks the recipe; Accept re-composes.
+  Add `[[sink]]` here (it needs the disc-4 replay hook).
+- **C4, the game follows (no DLL).** Accept → deploy → world round trip through a bench field → teleport to the
+  editor's view, measured by the harness. The DLL `ArmWorldReload` rung only if C4 is measured too slow.
+- **C5, the other verbs.** River placement (already editor-shaped), sink as clickable islands (`sink_candidates`),
+  coast morphs as clickable lawful windows (`world-morphs`), island and transplant after their compute/deploy split.
+
+### Owner decisions before A0
+
+1. Where it lives: the World tab (recommended, beside the existing chart) or a separate window.
+2. Which verb goes end to end first: the forest (recommended: fewest handles, the only measured carve time) or the
+   mountain (the most catalogue choices).
+3. Where Accept deploys in the first rungs: a scratch lab folder only (recommended until C4 is proven), or the live
+   `FF9CustomMap-world`.
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,
