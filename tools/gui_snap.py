@@ -274,7 +274,45 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 
 # --------------------------------------------------------------------------------------- world states
-WORLD_STATES = ("guide", "nogame", "atlas")
+WORLD_STATES = ("guide", "nogame", "atlas", "3d")
+# "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
+# surface that depends on the developer's machine cannot be a pinned review state.
+WORLD_EXTRA_STATES = ("3d-live",)
+
+
+def _synthetic_world_scene():
+    """The pinned 3D scene: a procedural island round the atlas showpiece block (19,18) -- a height field with
+    grass/rock/sand textures and an open-sea plane -- packed the way worldview3d.load_scene packs the real map, so
+    the 3D page draws deterministically with no install. Geometry and colours are invented (zero SE bytes)."""
+    import numpy as np
+    from ff9mapkit.workspace import worldview3d as V
+    cx, cz, n, span = 1248.0, -1184.0, 49, 192.0
+    g = np.linspace(-span / 2, span / 2, n)
+    xs, zs = np.meshgrid(cx + g, cz + g)
+    r = np.hypot(xs - cx, (zs - cz) * 1.3) / (span / 2)
+    ys = np.clip(1.0 - r, 0, None) ** 1.6 * 34.0 + np.sin(xs / 9.0) * np.cos(zs / 7.0) * 1.5 - 2.0
+    verts = np.c_[xs.ravel(), ys.ravel(), zs.ravel()]
+    uvs = np.c_[xs.ravel() / 16.0, zs.ravel() / 16.0]
+    tris = []
+    for i in range(n - 1):
+        for j in range(n - 1):
+            a, b, c, d = i * n + j, i * n + j + 1, (i + 1) * n + j, (i + 1) * n + j + 1
+            tris += [(a, c, b), (b, c, d)]
+    tris = np.array(tris)
+    sea = np.array([[cx - 400, 0.0, cz - 400], [cx + 400, 0.0, cz - 400], [cx - 400, 0.0, cz + 400],
+                    [cx + 400, 0.0, cz + 400]])
+    batches = [("Terrain", verts, uvs, tris),
+               ("Sea4", sea, sea[:, [0, 2]] / 24.0, np.array([(0, 2, 1), (1, 2, 3)]))]
+    rng = np.random.default_rng(7)
+    grass = np.zeros((64, 64, 4), np.uint8)
+    grass[...] = (88, 140, 52, 255)
+    grass[..., :3] = np.clip(grass[..., :3] + rng.integers(-18, 18, (64, 64, 1)), 0, 255)
+    grass[:, 32:, :3] = np.clip(np.array([128, 124, 118]) + rng.integers(-25, 25, (64, 32, 1)), 0, 255)
+    water = np.zeros((32, 32, 4), np.uint8)
+    water[...] = (52, 104, 156, 255)
+    water[..., :3] = np.clip(water[..., :3] + rng.integers(-10, 10, (32, 32, 1)), 0, 255)
+    packed = V.pack(batches)
+    return packed, {"Terrain": V.texture_rgba(grass), "Sea4": V.texture_rgba(water)}
 
 
 def _fake_world_install() -> Path:
@@ -320,6 +358,8 @@ def _fake_world_install() -> Path:
     put(6, 18, "Terrain.ff9mesh.bak-20260719-093929", mesh(salt=42))       # an --in-place backup
     (mod / "atlas-names.json").write_text(json.dumps(                      # landmass nameplates
         {"version": 1, "names": {"4,17": "Twin Isles", "18,17": "The Bench"}}), encoding="utf-8")
+    (game / "Memoria.ini").write_text(                                      # the 3D page draws this folder order
+        '[Mod]\nFolderNames = "FF9CustomMap", "FF9CustomMap-world", "MoguriMain"\n', encoding="utf-8")
     return game
 
 
@@ -389,21 +429,76 @@ class _pin_world_state:
         return False
 
 
+def _snap_world_3d(ctx: _Ctx, state: str, win) -> None:
+    """The 3D page (editor rung A0) after the user's toggle, loaded on the deterministic lane. `3d` swaps the map
+    read for the synthetic scene; `3d-live` reads the real install the doc resolved."""
+    from ff9mapkit.workspace import worldview3d as V
+    doc = win.world_doc
+    orig = V.load_scene
+    if state == "3d":
+        V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+    finally:
+        V.load_scene = orig
+    view = doc._view3d.view
+    if view is not None:
+        view.camera.yaw, view.camera.pitch = 35.0, 38.0
+        view.camera.dist = 260.0 if state == "3d" else 300.0
+        view.update()
+    _settle(12)
+    _grab(ctx, f"world-{state}", win)
+    if view is None:
+        return
+    # rung A1: a pick at the view's centre, its pin and the strip's point facts. The pinned state answers the
+    # facts from a fixed record (the synthetic scene has no blocks to query); 3d-live asks the real install.
+    from ff9mapkit.world import pointinfo as PI
+    orig_info = PI.point_info
+    if state == "3d":
+        def _fixed(site, wx, wz, **_k):
+            return {"world": (wx, wz), "block": (19, 18), "cell": (39, 37), "local": (0.0, 0.0),
+                    "ground": {"modelled": True, "note": "", "y": 18.4, "part": "Terrain", "idall": 0,
+                               "topograph": 0, "area": 14, "event": 0, "walkable": True, "canopy": False,
+                               "stand_y": 18.4, "sheets": [(18.4, "Terrain", 0)]},
+                    "owners": {"shown": "FF9CustomMap-world", "in_stack": True,
+                               "parts": {"Terrain": "FF9CustomMap-world", "Sea4": "stock"}, "hidden": []},
+                    "ledger": {"verb": "world-island", "utc": "2026-10-23T09:00:00+00:00", "part": "Terrain",
+                               "removed": False},
+                    "landmark": {"name": "Treno", "dist": 228.0}}
+        PI.point_info = _fixed
+    try:
+        hit = view.pick_at(view.width() / 2, view.height() / 2)
+        doc._on_pick(hit, sync=True)
+    finally:
+        PI.point_info = orig_info
+    _settle(12)
+    _grab(ctx, f"world-{state}-pick", win)
+
+
 def snap_world(ctx: _Ctx, state: str) -> None:
-    if state not in WORLD_STATES:
-        raise ValueError(f"unknown world state {state!r} (know: {', '.join(WORLD_STATES)})")
+    if state not in WORLD_STATES + WORLD_EXTRA_STATES:
+        raise ValueError(f"unknown world state {state!r} (know: {', '.join(WORLD_STATES + WORLD_EXTRA_STATES)})")
     if state == "guide":                           # the pre-scan front door: NO pin needed, because the
         win = _make_win(ctx)                       # doc does no I/O until the user's own Scan click --
         win.tabs.setCurrentWidget(win.world_doc)   # which is itself the contract this surface records
         _grab(ctx, "world-guide", win)
         _close(win)
         return
-    with _pin_world_state(state):
+    import contextlib
+    with (contextlib.nullcontext() if state == "3d-live" else _pin_world_state(state)):
         win = _make_win(ctx)
         win.tabs.setCurrentWidget(win.world_doc)
         win.world_doc.refresh(sync=True)           # the deterministic lane; production scans on a worker
-        if state == "atlas":
+        if state == "3d-live":                     # the real install: show the overworld folder, not trees[0]
+            live = [t for t in win.world_doc._trees if t.name == "FF9CustomMap-world"]
+            if live:
+                win.world_doc.refresh(sync=True, folder=live[0])
+        if state in ("atlas", "3d", "3d-live"):
             win.world_doc.canvas.select((19, 18))  # the showpiece cell: donor + buildings + details card
+        if state in ("3d", "3d-live"):
+            _snap_world_3d(ctx, state, win)
+            _close(win)
+            return
         _settle()
         _grab(ctx, f"world-{state}", win)
         if state == "atlas":                       # the siting enhancement: a clean ocean block's

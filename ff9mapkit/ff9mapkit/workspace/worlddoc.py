@@ -443,8 +443,9 @@ class WorldDoc(QWidget):
     tab show."""
 
     _scan_done = Signal(object, object, object)    # (census | None, stock grid | None, error | None)
+    _point_done = Signal(object, object, object)   # (the pick it answers, point_info | None, error | None)
 
-    def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None):
+    def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None, on_teleport=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -455,6 +456,12 @@ class WorldDoc(QWidget):
         self._stock_known = False                  # False = geography unreadable: never claim "free"
         self._selected = None
         self._trees = []
+        self._game = None                          # the install the last scan read (the 3D view reads it too)
+        self._view3d = None                        # the 3D page: built on the user's first "3D view" click
+        self._point = None                         # the 3D pick the strip shows: ((x, y, z), part) or None
+        self._point_info = None                    # its facts, once read (world.pointinfo.point_info)
+        self._on_teleport = on_teleport            # (x, z) -> None: the shell's dev-checkout harness job, or None
+        self._point_done.connect(self._finish_point)
         self._busy = False
         self._guide_state = ("scan", "")
         self._ask_name = self._ask_name_dialog     # the modal seam: tests/snaps inject, prod asks
@@ -525,11 +532,41 @@ class WorldDoc(QWidget):
         head.addWidget(self.rescan_btn)
         self.summary_lbl = widgets.role_label("", "caption")
         self.summary_lbl.setAccessibleName("Scan summary")
+        # WRAPS, never clips or elides: the stale-mirror note at the summary's end is a warning that must
+        # stay on the face (test_worlddoc), and the 3D toggle beside it cut it to "rerun wo" at 150%.
+        self.summary_lbl.setWordWrap(True)
         head.addWidget(self.summary_lbl, 1)
+        # The 3D view (editor rung A0) is a second PAGE over the same census, not a second tab: the
+        # details strip below serves both. Quiet tier (the atlas page has no CTA), and NOT checkable: no
+        # QPushButton:checked rule exists, so a checked quiet button looks unchecked (snap-caught). The
+        # label names the view the click goes TO, so the words always carry the state.
+        self._mode3d = False
+        self.view3d_btn = QPushButton()
+        self.view3d_btn.setProperty("role", "quiet")
+        self.view3d_btn.clicked.connect(lambda: self._on_view3d(not self._mode3d))
+        self._label_view_btn()
+        # What the 3D page draws: the game's whole FolderNames stack (the default: what you will see in game), or
+        # only this folder over stock (a scratch folder the game does not load yet). It lives on the 3D page's own
+        # bar (handed over when the page is built): in this row it squeezed the wrapped summary into a clip at 150%.
+        self.draw_box = QComboBox()
+        self.draw_box.addItem("As the game loads it", "stack")
+        self.draw_box.addItem("Only this folder", "folder")
+        self.draw_box.setAccessibleName("3D view draws")
+        self.draw_box.setToolTip("As the game loads it: every folder in Memoria.ini's FolderNames, highest priority "
+                                 "first, each file from the first folder holding it. Only this folder: the picked "
+                                 "folder over stock, for previewing a folder the game does not load.")
+        self.draw_box.activated.connect(lambda _ix: self._load_view3d())
+        self.draw_box.hide()
+        head.addWidget(self.view3d_btn)
         v.addLayout(head)
         self.canvas = AtlasCanvas(self.pal, on_select=self._on_select,
                                   on_name=self._name_landmass, scale=self._scale)
-        v.addWidget(self.canvas, 1)
+        self._views = QStackedLayout()
+        self._views.setContentsMargins(0, 0, 0, 0)
+        self._views.addWidget(self.canvas)
+        views_host = QWidget()
+        views_host.setLayout(self._views)
+        v.addWidget(views_host, 1)
         self._legend_host = QWidget()
         self._legend_lay = QHBoxLayout(self._legend_host)
         self._legend_lay.setContentsMargins(2, 0, 2, 0)
@@ -591,6 +628,16 @@ class WorldDoc(QWidget):
         self.site_btn.clicked.connect(self._copy_site_cmd)
         self.site_btn.hide()
         brow.addWidget(self.site_btn)
+        # The 3D pick's second-slot button (the same one-slot swap): move the running game's party to the
+        # picked point. Dev checkout only -- the shell passes on_teleport only when tools/world_teleport.py
+        # (the harness) is there, and the button never shows without it.
+        self.teleport_btn = QPushButton("Teleport game here")
+        self.teleport_btn.setProperty("role", "quiet")
+        self.teleport_btn.setToolTip("Move the party in the running game to this point (the debug menu's overworld "
+                                     "teleport, sent through the test harness; the game must be on the world map).")
+        self.teleport_btn.clicked.connect(self._teleport)
+        self.teleport_btn.hide()
+        brow.addWidget(self.teleport_btn)
         sh.addLayout(brow)
         v.addWidget(strip)
         return page
@@ -643,12 +690,16 @@ class WorldDoc(QWidget):
         self._scale = pct
         if hasattr(self, "canvas"):
             self.canvas.set_scale(pct)
+        if self._view3d is not None:
+            self._view3d.set_scale(pct)
 
     def retheme(self, pal):
         self.pal = pal
         if hasattr(self, "canvas"):
             self.canvas.retheme(pal)
             self._fill_legend()                    # the swatch pixmaps are palette-baked at build time
+        if self._view3d is not None:
+            self._view3d.retheme(pal)
         if self._stack.currentWidget() is self._guide_page:
             self._show_guide(*self._guide_state)   # rebuild: the glyph pixmap is palette-tinted
 
@@ -665,6 +716,7 @@ class WorldDoc(QWidget):
         except config.ConfigError as e:
             self._show_guide("nogame", str(e))
             return
+        self._game = game
         self._trees = worldscan.find_world_trees(game)
         if not self._trees:
             self._show_guide("notrees", str(game))
@@ -734,6 +786,151 @@ class WorldDoc(QWidget):
             self.summary_lbl.setText(" · ".join(bits))
         self._on_select(self._selected)            # re-derive the strip: the block may have changed
         #                                            class (deployed <-> empty) across the rescan
+        if self._mode3d:                           # a rescan (or a new folder) re-reads the 3D page too
+            self._load_view3d()
+
+    # -- the 3D page --
+    def _render_site(self):
+        """``(RenderSite, caption)`` for the 3D page: the game's FolderNames stack, or this folder over stock."""
+        from ..world import mesh as M
+        from ..world import render as R
+        cells = tuple((bx, by) for by in range(M.GRID_ROWS) for bx in range(M.GRID_COLS))
+        here = self._census.root.name
+        one = R.RenderSite(cells=cells, disc=1, game=self._game, mod_root=self._census.root)
+        if self.draw_box.currentData() == "folder":
+            return one, (f"Drawn: only {here} over stock. The game reads every folder in Memoria.ini's "
+                         "FolderNames, so a block another folder overrides looks different in game; a picked "
+                         "point says where.")
+        stack = R.game_stack(self._game)
+        if stack is None:
+            return one, (f"Memoria.ini could not be read, so this draws only {here} over stock, not the "
+                         "game's folder order.")
+        names = [p.name for p in stack]
+        cap = "Drawn as the game loads it, first folder first: " + " › ".join(names + ["stock"])
+        if here not in names:
+            cap += (f". ⚠ {here} is not in FolderNames, so the game does not load it and neither does this "
+                    "view; choose Only this folder to see it.")
+        return R.RenderSite(cells=cells, disc=1, game=self._game, stack=stack), cap
+
+    def _on_view3d(self, on, *, sync=False):
+        """The user's toggle. First use builds the panel (importing the GL module only now: the Workspace
+        never pays for OpenGL at start, and the offscreen smoke never constructs a GL widget) and loads the
+        whole map on a worker; ``sync=True`` is the deterministic lane for tests and gui_snap."""
+        self._mode3d = bool(on)
+        self._label_view_btn()
+        self.draw_box.setVisible(bool(on))
+        if not on:
+            self._views.setCurrentWidget(self.canvas)
+            self._legend_host.show()
+            return
+        if self._view3d is None:
+            from .worldview3d import WorldView3DPanel
+            self._view3d = WorldView3DPanel(self.pal, scale=self._scale)
+            self._view3d.picked.connect(self._on_pick)
+            self._view3d.add_control(self.draw_box)
+            self._views.addWidget(self._view3d)
+            self._load_view3d(sync=sync)
+        self._focus_view3d()
+        self._views.setCurrentWidget(self._view3d)
+        self._legend_host.hide()                   # the legend teaches the chart's fills, not the terrain
+
+    def set_view_mode(self, mode, *, sync=False):
+        """``"chart"`` or ``"3d"`` -- the toggle, for tests and gui_snap."""
+        want = mode == "3d"
+        if self._mode3d != want:
+            self._on_view3d(want, sync=sync)
+
+    def _label_view_btn(self):
+        if self._mode3d:
+            self.view3d_btn.setText("Chart view")
+            self.view3d_btn.setToolTip("Back to the block chart.")
+        else:
+            self.view3d_btn.setText("3D view")
+            self.view3d_btn.setToolTip("Show the map in 3D the way the engine binds it: stock land under this "
+                                       "folder's overrides (read-only; loads on first use, about five seconds). "
+                                       "Drag to orbit, right-drag to pan, wheel to zoom, Home to re-frame.")
+
+    def _load_view3d(self, *, sync=False):
+        if self._view3d is None or self._census is None:
+            return
+        site, caption = self._render_site()
+        self._view3d.set_caption(caption)
+        self._view3d.load(site, sync=sync)
+        self._focus_view3d()
+
+    def _focus_view3d(self):
+        if self._view3d is not None and self._selected is not None:
+            self._view3d.focus(*worldscan.block_center(*self._selected))
+
+    # -- the 3D pick (rung A1) --
+    def _on_pick(self, hit, *, sync=False):
+        """A click on the 3D view: select its block on the chart (so the chart agrees on return), then show the
+        point's facts -- read on a worker (the first read of a stock block opens its bundle, about a second);
+        ``sync=True`` is the deterministic lane."""
+        if hit is None:
+            self._point = self._point_info = None
+            self.sel_title.setText("Sky")
+            self.sel_facts.setText("Nothing under the cursor: click land or sea.")
+            self.sel_parts.setText("")
+            self._set_chip("", "info")
+            return
+        (x, _y, z), _part = hit
+        from ..world import frames
+        key = frames.world_to_block(*frames.wrap_world_xz(x, z))
+        self.canvas.select(key)                    # -> _on_select: the block strip, and the point cleared
+        self._point = hit
+        self.copy_btn.setText("Copy position")
+        self.copy_btn.setEnabled(True)
+        self.sel_title.setText(f"Point x {x:.2f}, z {z:.2f}")
+        self.sel_facts.setText("Reading the ground here…")
+        self.sel_parts.setText("")
+        self._set_chip("", "info")
+        self._swap_site(False, point=True)
+        site = self._view3d.site if self._view3d is not None else None
+        if site is None:
+            return
+        if sync:
+            self._work_point(hit, site)
+        else:
+            threading.Thread(target=self._work_point, args=(hit, site), daemon=True).start()
+
+    def _work_point(self, hit, site):
+        from ..world import pointinfo
+        try:
+            out = (hit, pointinfo.point_info(site, hit[0][0], hit[0][2]), None)
+        except Exception as e:                     # noqa: BLE001 -- surfaced on the GUI thread
+            out = (hit, None, f"{type(e).__name__}: {e}")
+        try:
+            self._point_done.emit(*out)
+        except RuntimeError:
+            pass
+
+    def _finish_point(self, hit, info, err):
+        if hit is not self._point:                 # a later click (or a selection) superseded this read
+            return
+        from ..world import pointinfo
+        if err is not None:
+            self.sel_facts.setText(f"The ground query failed: {err}")
+            return
+        self._point_info = info
+        lines = pointinfo.describe(info)
+        self.sel_facts.setText(" · ".join(lines[:2]))
+        self.sel_parts.setText(" · ".join(lines[2:]))
+        g = info["ground"]
+        if not g["modelled"]:
+            self._set_chip("not modelled", "warn")
+        elif g["part"] == "MISS":
+            self._set_chip("no ground", "warn")
+        elif g["walkable"]:
+            self._set_chip("walkable", "good")
+        else:
+            self._set_chip("not walkable", "info")
+
+    def _teleport(self):
+        if self._point is None or self._on_teleport is None:
+            return
+        (x, _y, z), _part = self._point
+        self._on_teleport(x, z)
 
     # -- selection / details --
     def _set_chip(self, text, kind):
@@ -750,6 +947,8 @@ class WorldDoc(QWidget):
 
     def _on_select(self, key):
         self._selected = key
+        self._point = self._point_info = None      # a chart selection ends the 3D pick
+        self.copy_btn.setText("Copy centre coords")
         if key is None or self._census is None:
             self.sel_title.setText("No block selected")
             self.sel_facts.setText("Click a block on the atlas — or arrow-key through them.")
@@ -790,11 +989,13 @@ class WorldDoc(QWidget):
         self.copy_btn.setEnabled(True)
         self.open_btn.setEnabled(c.dirpath is not None)
 
-    def _swap_site(self, siting):
-        """ONE of the two quiet buttons occupies the strip's second slot -- swapping keeps the strip's
+    def _swap_site(self, siting, *, point=False):
+        """ONE of the quiet buttons occupies the strip's second slot -- swapping keeps the strip's
         height (and therefore the canvas's fit) constant across every selection."""
-        self.site_btn.setVisible(siting)
-        self.open_btn.setVisible(not siting)
+        tele = point and self._on_teleport is not None
+        self.site_btn.setVisible(siting and not point)
+        self.teleport_btn.setVisible(tele)
+        self.open_btn.setVisible(not siting and not tele)
 
     def _select_empty(self, key):
         """The strip for an UNDEPLOYED block: its stock geography, its centre, and -- only when the
@@ -867,12 +1068,18 @@ class WorldDoc(QWidget):
         QTimer.singleShot(1400, lambda: self.site_btn.setText("Copy world-island command"))
 
     def _copy_coords(self):
-        if self._selected is None:
+        if self._point is not None:                # the 3D pick: the canonical pair, as the debug menu copies it
+            (x, _y, z), _part = self._point
+            QApplication.clipboard().setText(f"{x:.2f} {z:.2f}")
+            back = "Copy position"
+        elif self._selected is not None:
+            cx, cz = worldscan.block_center(*self._selected)
+            QApplication.clipboard().setText(f"{cx:g} {cz:g}")
+            back = "Copy centre coords"
+        else:
             return
-        cx, cz = worldscan.block_center(*self._selected)
-        QApplication.clipboard().setText(f"{cx:g} {cz:g}")
         self.copy_btn.setText("Copied ✓")          # text feedback, not motion (reduced-motion-safe)
-        QTimer.singleShot(1400, lambda: self.copy_btn.setText("Copy centre coords"))
+        QTimer.singleShot(1400, lambda: self.copy_btn.setText(back))
 
     def _open_folder(self):
         c = self._census.cells.get(self._selected) if self._census is not None else None

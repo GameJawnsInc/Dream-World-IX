@@ -5,6 +5,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the World tab shows the map in 3D
+- The World tab has a "3D view" button. It shows the whole overworld as the game loads it: every mod folder in
+  `Memoria.ini`'s FolderNames in priority order, each block file from the first folder that has it, stock land
+  under them, open sea round them, and the parts a donor brings along. A file the game cannot read is drawn the way
+  the game draws it, as stock. "Only this folder" shows one folder over stock instead, to preview a folder the game
+  does not load. A caption names the folder order it drew. Tested in game with two extra folders on top: the party
+  stood at the height the view predicted at all four test points, including where the top folder's file was
+  unreadable. Drag to orbit, right-drag
+  to pan, use the wheel to zoom, and press Home to re-frame; a selected block opens the view centred on it.
+- It draws with the same rules as `world-render` (unlit, nearest-texel, sea at its first frame, the same back-face
+  cull), and its stills match `world-render`'s at the six committed bench cameras, apart from one-pixel differences
+  at texture and triangle edges.
+- It is read-only. The map loads on the first click, in about five seconds. On a display without OpenGL (a remote
+  desktop, a headless run) the page says so instead of showing a blank view.
+- Click the map to pick a point: a pin marks it, and the details strip shows its world, block and cell coordinates,
+  the ground the engine puts you on there (height, terrain type, whether you can walk it, the forest canopy's sink),
+  a warning where walkable ground is stacked, which mod folder the game takes each file from, the last kit verb
+  that wrote the block, and the nearest landmark. "Copy position" copies the point for the debug menu's teleport.
+- In a development checkout, "Teleport game here" moves the party in the running game to the picked point through
+  the test harness (`tools/world_teleport.py`). Tested on three landmarks: the party landed within 0.004 units of
+  the pick, at the predicted height.
+
 ### Fixed — no sky showing through the sea at a cove's inner corner on `world-island` islands
 - An island with a concave bend in its coast (a cove or notch) showed small sky-coloured wedges in the water at the
   inner corner, below the cliff wall. The mint removes the deep-sea sheet under the land so boats cannot sail through
@@ -23,7 +45,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   past vertical by no more than ny -0.02 (about 1.15 degrees). Each one kept is named in the log. Anything the carve
   flips, and any steeper overhang, is still refused.
 - Every catalogued donor writes the same bytes as before. comp10 now carries offline at all 6 test angles (with its
-  forest canopy); it is not yet seen in game or catalogued.
+  forest canopy) and walked in game with it; it is not catalogued yet.
 
 ## [1.0.0b22] - 2026-10-23 — Play the story together, and a world map that changes with it
 

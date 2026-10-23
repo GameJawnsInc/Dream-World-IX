@@ -1,0 +1,1146 @@
+{
+ "t": "2026-10-23 11:11:33",
+ "stack": [
+  "FF9CustomMap",
+  "FF9CustomMap-world",
+  "MoguriMain",
+  "MoguriVideo",
+  "FF9CustomMap-schema",
+  "FF9CustomMap-msgs",
+  "FF9Coop"
+ ],
+ "res": [
+  1280,
+  720
+ ],
+ "scene_tris": 287319,
+ "scene_load_s": 5.23,
+ "tolerances": {
+  "pick": 0.5,
+  "xz": 0.05,
+  "y": 0.15
+ },
+ "candidates": [
+  {
+   "name": "Alexandria Harbour",
+   "loc": 0,
+   "marker": [
+    1349.84375,
+    -677.984375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 0.0,
+    "part": "Sea4",
+    "topograph": 56,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Alexandria",
+   "loc": 1,
+   "marker": [
+    1283.90625,
+    -698.8671875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 42.53953968394887,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Evil Forest",
+   "loc": 2,
+   "marker": [
+    1217.5,
+    -747.35546875
+   ],
+   "ok": true,
+   "ground": {
+    "y": 3.6241554746820612,
+    "part": "Object",
+    "topograph": 0,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": [],
+   "pick_ms": 78.8,
+   "click_px": [
+    640.0,
+    360.0
+   ],
+   "pick": {
+    "xyz": [
+     1217.5,
+     3.624155474682084,
+     -747.35546875
+    ],
+    "part": "Object"
+   },
+   "pick_dist": 0.0,
+   "predict": {
+    "x": 1217.5,
+    "z": -747.35546875,
+    "stand_y": 3.6241554746820612,
+    "lines": [
+     "x 1217.50, z -747.36 \u00b7 block 19,11 \u00b7 cell 38,23",
+     "Ground y 3.62 on Object \u00b7 topograph 0 (walkable on foot) \u00b7 area 0 \u00b7 entrance event 1",
+     "Files from stock",
+     "Nearest landmark Evil Forest, 0u away"
+    ]
+   }
+  },
+  {
+   "name": "Ice Cavern",
+   "loc": 3,
+   "marker": [
+    1197.26953125,
+    -799.609375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 2.87890625,
+    "part": "Terrain",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Quan's Dwelling",
+   "loc": 4,
+   "marker": [
+    1398.66015625,
+    -922.33203125
+   ],
+   "ok": true,
+   "ground": {
+    "y": 26.0703125,
+    "part": "Terrain",
+    "topograph": 10,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Treno",
+   "loc": 5,
+   "marker": [
+    1282.18359375,
+    -958.37890625
+   ],
+   "ok": false,
+   "ground": {
+    "y": 27.23828125,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "South Gate",
+   "loc": 6,
+   "marker": [
+    1172.2265625,
+    -902.0234375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 39.93359375000001,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "South Gate",
+   "loc": 7,
+   "marker": [
+    1172.2265625,
+    -902.0234375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 39.93359375000001,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "South Gate",
+   "loc": 8,
+   "marker": [
+    1172.2265625,
+    -902.0234375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 39.93359375000001,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "South Gate",
+   "loc": 9,
+   "marker": [
+    1172.2265625,
+    -902.0234375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 39.93359375000001,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "South Gate",
+   "loc": 10,
+   "marker": [
+    1172.2265625,
+    -902.0234375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 39.93359375000001,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Ice Cavern",
+   "loc": 11,
+   "marker": [
+    1160.375,
+    -843.0625
+   ],
+   "ok": false,
+   "ground": {
+    "y": 28.403351903724737,
+    "part": "Terrain",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Observatory Mountain",
+   "loc": 12,
+   "marker": [
+    1111.66015625,
+    -793.90625
+   ],
+   "ok": false,
+   "ground": {
+    "y": 31.39848288552944,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Dali",
+   "loc": 13,
+   "marker": [
+    1094.73828125,
+    -806.37890625
+   ],
+   "ok": false,
+   "ground": {
+    "y": 30.185552921826627,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "North Gate",
+   "loc": 14,
+   "marker": [
+    1037.4375,
+    -755.22265625
+   ],
+   "ok": false,
+   "ground": {
+    "y": 39.93359374999999,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "North Gate",
+   "loc": 15,
+   "marker": [
+    1037.4375,
+    -755.22265625
+   ],
+   "ok": false,
+   "ground": {
+    "y": 39.93359374999999,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Gizamaluke's Grotto",
+   "loc": 16,
+   "marker": [
+    992.625,
+    -803.63671875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 2.7797868077298467,
+    "part": "Terrain",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Burmecia",
+   "loc": 17,
+   "marker": [
+    961.6640625,
+    -711.16796875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 6.167968749999999,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Cleyra",
+   "loc": 18,
+   "marker": [
+    896.671875,
+    -775.30859375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 1.37109375,
+    "part": "Terrain",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Chocobo's Forest",
+   "loc": 19,
+   "marker": [
+    1087.9921875,
+    -952.3984375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 0.0,
+    "part": "MISS",
+    "topograph": null,
+    "walkable": null,
+    "canopy": null
+   },
+   "hidden": []
+  },
+  {
+   "name": "Gizamaluke's Grotto",
+   "loc": 20,
+   "marker": [
+    979.37890625,
+    -875.265625
+   ],
+   "ok": false,
+   "ground": {
+    "y": 2.734375,
+    "part": "Terrain",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Qu's Marsh",
+   "loc": 21,
+   "marker": [
+    934.83984375,
+    -942.734375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 4.170861408587825,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Pinnacle Rocks",
+   "loc": 22,
+   "marker": [
+    942.375,
+    -1092.078125
+   ],
+   "ok": true,
+   "ground": {
+    "y": 26.070312500000004,
+    "part": "Terrain",
+    "topograph": 10,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Lindblum Dragon's Gate",
+   "loc": 23,
+   "marker": [
+    916.0,
+    -1018.84765625
+   ],
+   "ok": true,
+   "ground": {
+    "y": 3.0299858457435196,
+    "part": "Terrain",
+    "topograph": 0,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Lindblum",
+   "loc": 24,
+   "marker": [
+    895.8671875,
+    -1086.796875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 38.140625,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Lindblum Harbour",
+   "loc": 25,
+   "marker": [
+    865.2109375,
+    -1102.296875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 0.0,
+    "part": "Sea4",
+    "topograph": 56,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Earth Shrine",
+   "loc": 26,
+   "marker": [
+    1168.12890625,
+    -367.6953125
+   ],
+   "ok": true,
+   "ground": {
+    "y": 3.511035000659244,
+    "part": "Terrain",
+    "topograph": 4,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Desert Palace",
+   "loc": 27,
+   "marker": [
+    1184.94140625,
+    -277.3671875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 4.112673570916498,
+    "part": "Terrain",
+    "topograph": 49,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Mognet Central",
+   "loc": 28,
+   "marker": [
+    1075.50390625,
+    -106.0703125
+   ],
+   "ok": false,
+   "ground": {
+    "y": 4.534498766133094,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Qu's Marsh",
+   "loc": 29,
+   "marker": [
+    1025.7734375,
+    -310.3671875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 3.8671875,
+    "part": "Terrain",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Black Mage Village",
+   "loc": 30,
+   "marker": [
+    954.25,
+    -390.65234375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 8.469595343360211,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Fossil Roo",
+   "loc": 31,
+   "marker": [
+    920.21875,
+    -402.0625
+   ],
+   "ok": true,
+   "ground": {
+    "y": 5.460479058098392,
+    "part": "Terrain",
+    "topograph": 17,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Conde Petie",
+   "loc": 32,
+   "marker": [
+    894.67578125,
+    -352.08984375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 12.490209615736227,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Madain Sari",
+   "loc": 33,
+   "marker": [
+    910.55078125,
+    -190.03515625
+   ],
+   "ok": false,
+   "ground": {
+    "y": 6.187492961711711,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Conde Petie Mountain Path",
+   "loc": 34,
+   "marker": [
+    885.76953125,
+    -233.1875
+   ],
+   "ok": true,
+   "ground": {
+    "y": 3.605798698601882,
+    "part": "Terrain",
+    "topograph": 17,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Conde Petie Mountain Path",
+   "loc": 35,
+   "marker": [
+    850.265625,
+    -275.51953125
+   ],
+   "ok": true,
+   "ground": {
+    "y": 5.845387298970072,
+    "part": "Terrain",
+    "topograph": 17,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Iifa Tree",
+   "loc": 36,
+   "marker": [
+    781.62890625,
+    -320.73046875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 9.914012199647363,
+    "part": "Terrain",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Chocobo's Lagoon",
+   "loc": 37,
+   "marker": [
+    593.51953125,
+    -1131.37109375
+   ],
+   "ok": true,
+   "ground": {
+    "y": 6.414444642989951,
+    "part": "Terrain",
+    "topograph": 0,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": [],
+   "pick_ms": 26.9,
+   "click_px": [
+    640.0,
+    360.0
+   ],
+   "pick": {
+    "xyz": [
+     593.51953125,
+     6.4144446429899915,
+     -1131.37109375
+    ],
+    "part": "Terrain"
+   },
+   "pick_dist": 0.0,
+   "predict": {
+    "x": 593.51953125,
+    "z": -1131.37109375,
+    "stand_y": 6.414444642989951,
+    "lines": [
+     "x 593.52, z -1131.37 \u00b7 block 9,17 \u00b7 cell 18,35",
+     "Ground y 6.41 on Terrain \u00b7 topograph 0 (walkable on foot) \u00b7 area 49",
+     "Files from stock",
+     "Nearest landmark Chocobo's Lagoon, 0u away"
+    ]
+   }
+  },
+  {
+   "name": "Wind Shrine",
+   "loc": 38,
+   "marker": [
+    513.078125,
+    -903.78125
+   ],
+   "ok": false,
+   "ground": {
+    "y": -1.0868367463459196,
+    "part": "Terrain",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Daguerreo",
+   "loc": 39,
+   "marker": [
+    380.25390625,
+    -1025.4921875
+   ],
+   "ok": true,
+   "ground": {
+    "y": 16.40625,
+    "part": "Object",
+    "topograph": 52,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Qu's Marsh",
+   "loc": 40,
+   "marker": [
+    305.80078125,
+    -934.04296875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 3.522753527185766,
+    "part": "Terrain",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Oeilvert",
+   "loc": 41,
+   "marker": [
+    394.5859375,
+    -798.23046875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 4.397957039712594,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Landing Site",
+   "loc": 42,
+   "marker": [
+    326.16015625,
+    -569.0859375
+   ],
+   "ok": true,
+   "ground": {
+    "y": 4.286216735839844,
+    "part": "Terrain",
+    "topograph": 5,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": [],
+   "pick_ms": 46.2,
+   "click_px": [
+    640.0,
+    360.0
+   ],
+   "pick": {
+    "xyz": [
+     326.16015625,
+     4.286216735839815,
+     -569.0859375
+    ],
+    "part": "Terrain"
+   },
+   "pick_dist": 0.0,
+   "predict": {
+    "x": 326.16015625,
+    "z": -569.0859375,
+    "stand_y": 4.286216735839844,
+    "lines": [
+     "x 326.16, z -569.09 \u00b7 block 5,8 \u00b7 cell 10,17",
+     "Ground y 4.29 on Terrain \u00b7 topograph 5 (walkable on foot) \u00b7 area 42",
+     "Files from stock",
+     "Nearest landmark Landing Site, 0u away"
+    ]
+   }
+  },
+  {
+   "name": "Water Shrine",
+   "loc": 43,
+   "marker": [
+    223.23046875,
+    -607.265625
+   ],
+   "ok": false,
+   "ground": {
+    "y": null,
+    "part": null,
+    "topograph": null,
+    "walkable": null,
+    "canopy": null
+   },
+   "hidden": []
+  },
+  {
+   "name": "Ipsen's Castle",
+   "loc": 44,
+   "marker": [
+    191.5703125,
+    -474.46875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 3.077483232431149,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Qu's Marsh",
+   "loc": 45,
+   "marker": [
+    341.796875,
+    -489.375
+   ],
+   "ok": false,
+   "ground": {
+    "y": 2.61328125,
+    "part": "Terrain",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Shimmering Island",
+   "loc": 46,
+   "marker": [
+    454.61328125,
+    -318.87890625
+   ],
+   "ok": false,
+   "ground": {
+    "y": 1.5143156728094576,
+    "part": "Terrain",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Esto Gaza",
+   "loc": 47,
+   "marker": [
+    372.4921875,
+    -238.95703125
+   ],
+   "ok": false,
+   "ground": {
+    "y": 11.8125,
+    "part": "Object",
+    "topograph": 59,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Fire Shrine",
+   "loc": 48,
+   "marker": [
+    503.9609375,
+    -116.140625
+   ],
+   "ok": false,
+   "ground": {
+    "y": 0.0,
+    "part": "MISS",
+    "topograph": null,
+    "walkable": null,
+    "canopy": null
+   },
+   "hidden": []
+  },
+  {
+   "name": "Air Garden",
+   "loc": 54,
+   "marker": [
+    1305.7578125,
+    -644.484375
+   ],
+   "ok": true,
+   "ground": {
+    "y": 26.0703125,
+    "part": "Terrain",
+    "topograph": 10,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Air Garden",
+   "loc": 55,
+   "marker": [
+    1253.3046875,
+    -436.40625
+   ],
+   "ok": true,
+   "ground": {
+    "y": 3.90625,
+    "part": "Terrain",
+    "topograph": 17,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Air Garden",
+   "loc": 56,
+   "marker": [
+    468.28125,
+    -621.15234375
+   ],
+   "ok": true,
+   "ground": {
+    "y": 4.296875,
+    "part": "Terrain",
+    "topograph": 20,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Air Garden",
+   "loc": 57,
+   "marker": [
+    471.77734375,
+    -1076.56640625
+   ],
+   "ok": true,
+   "ground": {
+    "y": 2.734375,
+    "part": "Terrain",
+    "topograph": 0,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": []
+  },
+  {
+   "name": "Air Garden",
+   "loc": 58,
+   "marker": [
+    730.70703125,
+    -592.921875
+   ],
+   "ok": false,
+   "ground": {
+    "y": 0.0,
+    "part": "Sea4",
+    "topograph": 53,
+    "walkable": false,
+    "canopy": false
+   },
+   "hidden": []
+  }
+ ],
+ "targets": [
+  {
+   "name": "Evil Forest",
+   "loc": 2,
+   "marker": [
+    1217.5,
+    -747.35546875
+   ],
+   "ok": true,
+   "ground": {
+    "y": 3.6241554746820612,
+    "part": "Object",
+    "topograph": 0,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": [],
+   "pick_ms": 78.8,
+   "click_px": [
+    640.0,
+    360.0
+   ],
+   "pick": {
+    "xyz": [
+     1217.5,
+     3.624155474682084,
+     -747.35546875
+    ],
+    "part": "Object"
+   },
+   "pick_dist": 0.0,
+   "predict": {
+    "x": 1217.5,
+    "z": -747.35546875,
+    "stand_y": 3.6241554746820612,
+    "lines": [
+     "x 1217.50, z -747.36 \u00b7 block 19,11 \u00b7 cell 38,23",
+     "Ground y 3.62 on Object \u00b7 topograph 0 (walkable on foot) \u00b7 area 0 \u00b7 entrance event 1",
+     "Files from stock",
+     "Nearest landmark Evil Forest, 0u away"
+    ]
+   }
+  },
+  {
+   "name": "Landing Site",
+   "loc": 42,
+   "marker": [
+    326.16015625,
+    -569.0859375
+   ],
+   "ok": true,
+   "ground": {
+    "y": 4.286216735839844,
+    "part": "Terrain",
+    "topograph": 5,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": [],
+   "pick_ms": 46.2,
+   "click_px": [
+    640.0,
+    360.0
+   ],
+   "pick": {
+    "xyz": [
+     326.16015625,
+     4.286216735839815,
+     -569.0859375
+    ],
+    "part": "Terrain"
+   },
+   "pick_dist": 0.0,
+   "predict": {
+    "x": 326.16015625,
+    "z": -569.0859375,
+    "stand_y": 4.286216735839844,
+    "lines": [
+     "x 326.16, z -569.09 \u00b7 block 5,8 \u00b7 cell 10,17",
+     "Ground y 4.29 on Terrain \u00b7 topograph 5 (walkable on foot) \u00b7 area 42",
+     "Files from stock",
+     "Nearest landmark Landing Site, 0u away"
+    ]
+   }
+  },
+  {
+   "name": "Chocobo's Lagoon",
+   "loc": 37,
+   "marker": [
+    593.51953125,
+    -1131.37109375
+   ],
+   "ok": true,
+   "ground": {
+    "y": 6.414444642989951,
+    "part": "Terrain",
+    "topograph": 0,
+    "walkable": true,
+    "canopy": false
+   },
+   "hidden": [],
+   "pick_ms": 26.9,
+   "click_px": [
+    640.0,
+    360.0
+   ],
+   "pick": {
+    "xyz": [
+     593.51953125,
+     6.4144446429899915,
+     -1131.37109375
+    ],
+    "part": "Terrain"
+   },
+   "pick_dist": 0.0,
+   "predict": {
+    "x": 593.51953125,
+    "z": -1131.37109375,
+    "stand_y": 6.414444642989951,
+    "lines": [
+     "x 593.52, z -1131.37 \u00b7 block 9,17 \u00b7 cell 18,35",
+     "Ground y 6.41 on Terrain \u00b7 topograph 0 (walkable on foot) \u00b7 area 49",
+     "Files from stock",
+     "Nearest landmark Chocobo's Lagoon, 0u away"
+    ]
+   }
+  }
+ ]
+}

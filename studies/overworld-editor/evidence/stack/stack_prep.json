@@ -1,0 +1,74 @@
+{
+ "t": "2026-10-23 11:37:01",
+ "stack": [
+  "FF9CustomMap-lab-hi",
+  "FF9CustomMap-lab-lo",
+  "FF9CustomMap",
+  "FF9CustomMap-world",
+  "MoguriMain",
+  "MoguriVideo",
+  "FF9CustomMap-schema",
+  "FF9CustomMap-msgs",
+  "FF9Coop"
+ ],
+ "tolerance": 0.15,
+ "targets": [
+  {
+   "key": "A",
+   "x": 224.37,
+   "z": -800.41,
+   "predict_y": 4.3915227461283255,
+   "part": "Terrain",
+   "block": [
+    3,
+    12
+   ],
+   "wrong_rule_y": 2.8915227461283255,
+   "separation": 1.5
+  },
+  {
+   "key": "B",
+   "x": 352.37,
+   "z": -608.41,
+   "predict_y": 16.789703366704092,
+   "part": "Terrain",
+   "block": [
+    5,
+    9
+   ],
+   "wrong_rule_y": 18.28970336670409,
+   "separation": 1.4999999999999964
+  },
+  {
+   "key": "C",
+   "x": 32.37,
+   "z": -800.41,
+   "predict_y": 4.708528094291687,
+   "part": "Terrain",
+   "block": [
+    0,
+    12
+   ],
+   "wrong_rule_y": 3.2085281163454056,
+   "separation": 1.4999999779462811
+  },
+  {
+   "key": "K",
+   "x": 326.16,
+   "z": -569.09,
+   "predict_y": 4.286220703125,
+   "part": "Terrain",
+   "block": [
+    5,
+    8
+   ]
+  }
+ ],
+ "files": {
+  "FF9CustomMap-lab-hi\\FF9_Data\\WorldMap\\Disc1\\0_1\\r12\\Block[0][12] Terrain.ff9mesh": "eff27fdeb3852dd2",
+  "FF9CustomMap-lab-hi\\FF9_Data\\WorldMap\\Disc1\\0_1\\r12\\Block[3][12] Terrain.ff9mesh": "83dbf51579dbcfcc",
+  "FF9CustomMap-lab-hi\\FF9_Data\\WorldMap\\Disc1\\0_1\\r9\\Block[5][9] Terrain.ff9mesh": "16af626d85a890a6",
+  "FF9CustomMap-lab-lo\\FF9_Data\\WorldMap\\Disc1\\0_1\\r12\\Block[3][12] Terrain.ff9mesh": "7661d354f42f7b24",
+  "FF9CustomMap-lab-lo\\FF9_Data\\WorldMap\\Disc1\\0_1\\r9\\Block[5][9] Terrain.ff9mesh": "28e3b45cb5807704"
+ }
+}
