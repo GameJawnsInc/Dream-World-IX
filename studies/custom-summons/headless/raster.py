@@ -1124,8 +1124,11 @@ def _headless_prim_rows(prims) -> Tuple[list, list]:
 
 
 def calibrate(bin_dir: Path, blob: bytes, effnum: int, log: Path, max_frames: int = 8000,
-              xy_detail: bool = False) -> dict:
+              xy_detail: bool = False, offset: int = 0) -> dict:
     """RX1 (prim stream) and RX2 (command buffer) per frame, headless vs every cast in ``log``.
+
+    ``offset`` compares in-game frame ``f`` with headless frame ``f + offset`` -- the opening divergence
+    (an in-game timeline that runs ahead: Odin and ef407 by 19) without which no frame lines up.
 
     ``xy_detail`` adds ``xy_delta``: in-game minus headless first vertex, ``"[dx, dy]" -> count``, over
     the input-matched frames (the probe logs ``v + drOffset``, so widescreen shows as dx = +35)."""
@@ -1136,13 +1139,13 @@ def calibrate(bin_dir: Path, blob: bytes, effnum: int, log: Path, max_frames: in
         cmd_by_frame[f] = [(i, "%08X" % c.mesh.key, len(c.mesh.tris)) for i, c in enumerate(cmds) if c.kind == "mesh"]
 
     res = run(bin_dir, blob, effnum, frames=set(), max_frames=max_frames, on_frame=keep, keep_prims=True)
-    out = {"effect": effnum, "log": str(log), "headless_frames": res["frames"], "casts": []}
+    out = {"effect": effnum, "log": str(log), "headless_frames": res["frames"], "offset": offset, "casts": []}
     for ci, cast in enumerate(casts):
         rep = {"cast": ci, "frames": len(cast), "rx1": Counter(), "rx2": Counter(), "rx1_first_miss": None,
                "rx2_first_miss": None, "otz_equal": 0, "otz_total": 0, "xy_equal": 0, "xy_delta": Counter()}
         for fr in sorted(cast):
             g = cast[fr]
-            hp = res["prim_log"].get(fr)
+            hp = res["prim_log"].get(fr + offset)
             if hp is None:
                 rep["rx1"]["no_headless_frame"] += 1
                 continue
@@ -1164,7 +1167,7 @@ def calibrate(bin_dir: Path, blob: bytes, effnum: int, log: Path, max_frames: in
             if g["meshes"]:
                 # RX2 judges the BATCHING port, so it is scored only where RX1 says both sides fed the
                 # renderer the same prim sequence; the other frames are counted apart.
-                hm = cmd_by_frame.get(fr, [])
+                hm = cmd_by_frame.get(fr + offset, [])
                 gm = [(i, k, t) for i, k, t in g["meshes"]]
                 bucket = "match" if gm == hm else "differ"
                 if not same_input:
@@ -1320,6 +1323,7 @@ def main(argv=None) -> int:
     cp.add_argument("--game")
     cp.add_argument("--bin")
     cp.add_argument("--json")
+    cp.add_argument("--offset", type=int, default=0, help="in-game frame f vs headless f + OFFSET")
     a = ap.parse_args(argv)
     if a.cmd == "diff":
         return diff_main(a)
@@ -1328,7 +1332,7 @@ def main(argv=None) -> int:
     blob, source, _ = H.load_container(a.ef, a.container, a.from_install, a.game)
     bdir, sha = H.resolve_bin(a.bin, a.game)
     if a.cmd == "calibrate":
-        rep = calibrate(bdir, blob, a.ef, Path(a.log))
+        rep = calibrate(bdir, blob, a.ef, Path(a.log), offset=a.offset)
         print(json.dumps(rep, indent=1, default=str))
         if a.json:
             p = H._refuse_repo_path(Path(a.json))

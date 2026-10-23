@@ -1,0 +1,43 @@
+# TIER W / U2 -- THE GAIN-HALF CAST: ef407 `cell.s0.x704_y256` repainted as bold ZEBRA bands.
+#
+# The cell binds NO reader of its own.  The U2 adoption (`linear-add-v1`) licenses it because one
+# record's second array displaces its readers from column 640 onto column 704, and op 144 copies
+# (704,256) into (704,384) every frame it runs, where those readers sample.  A wrong model would make
+# this repaint INVISIBLE IN GAME with no error anywhere -- this cast is what rules that out.
+#
+# THE MARK IS ZEBRA, NOT BARS.  The first staging carried four 8-row bright bars: measurable offline
+# but not legible -- the owner could not see them in the side-by-side (pale grey on bright, additively
+# blended ice).  Zebra repaints the WHOLE cell as 16-row bands of the palette's brightest (254) and
+# darkest (0) entries; offline it changes ~3.3x as many pixels strongly (16,367 vs 4,932 px a frame over
+# 48 levels, f85-125), 99.9% through the copy at (704,384), and turns the burst, the shard arms and the
+# ice spire into stripes that climb (tier-w/PLAN.md, owner item 1).
+#
+# Generate the art first (export, then stamp -- the stamp refuses a PNG that is not the stock page):
+#
+#     cd ff9mapkit
+#     py -m ff9mapkit summon-reskin export-art --ef 407 --out C:\gd\SCRATCH\summon-format\repaint-w6b\ef407-gain\art-zebra
+#     cd ..\studies\custom-summons\tier-w
+#     py ef407_gain_prerun.py --art C:\gd\SCRATCH\summon-format\repaint-w6b\ef407-gain\art-zebra
+#
+# Cast from the bench: Steiniv -> Rune -> "Stock Shiva Short" (row 205, the only 6 MP row).
+
+[reskin]
+effect = 407
+label  = "ef407-gain-half-zebra"
+expect_sha256 = "d09e233088d2f52cf151690ecbaab69fc9fbf4ecc832ed3e81a6cce1a96d5c60"
+
+[[reskin.texel]]
+name = "cell.s0.x704_y256"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef407-gain/art-zebra/cell.s0.x704_y256.png"
+
+# --- the guards, emitted by export-art's derivation, never typed ---------------------------------
+expect_page_offset = 0x02146c
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+expect_bpp         = 8
+expect_cell        = [704, 256]
+
+# --- the authored decisions ------------------------------------------------------------------------
+enabled = true
+acknowledge_cutout_reshape = false   # the palette has no transparent entry; nothing crosses a cutout
+note = "U2 gain half: zebra bands on a readerless cell, carried to the screen by op 144's copy at (704,384)"

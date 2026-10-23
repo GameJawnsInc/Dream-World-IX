@@ -3,6 +3,9 @@ r"""TIER W -- THE GAIN-HALF CAST, RUN OFFLINE FIRST.  ef407, ``cell.s0.x704_y256
     py ef407_gain_prerun.py                    # stamp both marks, build, render stock + both, report
     py ef407_gain_prerun.py --frames 70-215    # the drawn window (default: every frame of the reads)
     py ef407_gain_prerun.py --variants ink     # one mark only
+    py ef407_gain_prerun.py --art DIR          # THE CAST'S ART: stamp the cast mark (zebra; --mark to
+                                               # choose) into an `export-art` directory's own PNG
+                                               # (tier-w/ef407_gain.toml reads it)
 
 THE QUESTION
 ------------
@@ -70,6 +73,10 @@ OUT = H.OUT_DIR / "raster" / "ef407-gain"
 DEFAULT_FRAMES = "70-215"                       # the reads run f71-192, the op-144 blits f85-211
 BAR_ROWS = tuple(r for r in range(128) if r % 32 < 8)
 VARIANTS = ("ink", "dark")
+#: THE LEGIBLE MARK. ``ink`` is measurable but the owner could not see it in a side-by-side: pale-grey bars
+#: on bright, additively blended ice. ``zebra`` repaints the WHOLE cell as 16-row bands, brightest entry
+#: then darkest, so the surface itself becomes a crawling barber pole instead of carrying a faint overlay.
+ZEBRA_PITCH, ZEBRA_ON = 32, 16
 #: THE STATIC-SURFACE WINDOW: the ice spire's shaft (screen x 150-175, y 0-129) over f92-105, chosen by
 #: eye from the stock frames and then CHECKED by the run itself -- the (704,384) footprint inside it must
 #: hold still (IoU near 1) while the mark moves, or "it scrolls" is geometry motion and proves nothing.
@@ -84,23 +91,50 @@ def _lum(word: int) -> float:
 
 
 # ============================================================ 1-2: stamp and build
-def stamp(blob: bytes, variant: str) -> dict:
+def bars(blob: bytes, variant: str):
+    """The stamped page: ``(page, words, stamped index bytes, ink, texels moved)``."""
     page = next(p for p in RP.scenery_texel_pages(blob, EF) if p.name == CELL)
     assert (page.bpp, page.w, page.h, page.page_bytes) == (8, 128, 128, 16384), page
     raw = bytearray(blob[page.page_offset:page.page_offset + page.page_bytes])
     words = RP.palette_words(blob, page)
     zeros = set(RP.transparent_values(blob, page)[0])
     live = sorted(set(raw) - zeros)
-    pick = max if variant == "ink" else min
-    ink = pick(live, key=lambda i: (_lum(words[i]), -i if variant == "ink" else i))
+    bright = max(live, key=lambda i: (_lum(words[i]), -i))
+    dark = min(live, key=lambda i: (_lum(words[i]), i))
+    if variant == "zebra":
+        plan = {r: (bright if r % ZEBRA_PITCH < ZEBRA_ON else dark) for r in range(page.h)}
+    else:
+        plan = {r: (bright if variant == "ink" else dark) for r in BAR_ROWS}
     moved = 0
-    for r in BAR_ROWS:
+    for r, ink in plan.items():
         for c in range(page.w):
             i = r * page.w + c
             if raw[i] in zeros:
                 continue                                         # never cross the cutout boundary
             moved += raw[i] != ink
             raw[i] = ink
+    return page, words, raw, (dark if variant == "dark" else bright), moved
+
+
+def stamp_art(blob: bytes, art_dir: str, variant: str = "zebra") -> str:
+    """Stamp the bars into ``export-art``'s own PNG, after proving that PNG IS the stock page (re-encoding
+    the stock bytes through the same writer must reproduce it byte for byte), so the cast keeps the art
+    manifest's drift guard and paints exactly the page the pre-run rendered."""
+    import tempfile
+    page, words, raw, ink, moved = bars(blob, variant)
+    png = Path(art_dir) / ("%s.png" % CELL)
+    stock = blob[page.page_offset:page.page_offset + page.page_bytes]
+    with tempfile.TemporaryDirectory() as t:
+        ref = RP.write_indexed_png(stock, words, page.w, page.h, os.path.join(t, "ref.png"))
+        if Path(ref).read_bytes() != png.read_bytes():
+            raise SystemExit("%s is not the stock page (painted already, or another export) -- re-export" % png)
+    RP.write_indexed_png(bytes(raw), words, page.w, page.h, str(H._refuse_repo_path(png)))
+    print("stamped %s: %d texels, mark %s" % (png, moved, variant))
+    return str(png)
+
+
+def stamp(blob: bytes, variant: str) -> dict:
+    page, words, raw, ink, moved = bars(blob, variant)
     d = OUT / variant
     d.mkdir(parents=True, exist_ok=True)
     png = str(H._refuse_repo_path(d / ("%s.png" % CELL)))
@@ -265,12 +299,17 @@ def main(argv=None) -> int:
     ap.add_argument("--frames", default=DEFAULT_FRAMES)
     ap.add_argument("--variants", default=",".join(VARIANTS))
     ap.add_argument("--no-render", action="store_true", help="re-analyse the renders already in SCRATCH")
+    ap.add_argument("--art", metavar="DIR", help="stamp the cast mark into this export-art directory and stop")
+    ap.add_argument("--mark", default="zebra", choices=VARIANTS + ("zebra",), help="the mark --art stamps")
     ap.add_argument("--child", nargs=2, metavar=("CONTAINER", "OUT"), help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     if a.child:
         return child(a.child[0], a.child[1], a.frames)
     variants = [v for v in a.variants.split(",") if v]
     blob = CORPUS_FILE.read_bytes()
+    if a.art:
+        stamp_art(blob, a.art, a.mark)
+        return 0
     builds = {v: stamp(blob, v) for v in variants}
     for v, b in builds.items():
         print("%-5s ink %3d (lum %5.1f)  %d texels set, %d container bytes, self-check %s" % (
