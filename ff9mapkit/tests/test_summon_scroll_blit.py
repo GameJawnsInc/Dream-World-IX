@@ -112,7 +112,9 @@ def test_a_destination_edit_REFUSES_by_name_with_the_measurement_and_the_remedy(
     assert "of this edit's" in msg and "VRAM (704,384) 64x128" in msg
     assert "paint the source cell `cell.s0.x704_y256`" in msg
     assert "252 DR_MOVE blits" in msg, "the measurement rides along"
-    assert "INVISIBLE" in msg and "eroded" in msg, "and BOTH sides of the in-game reachability record"
+    assert "INVISIBLE" in msg and "(576,368) band's blit running on every frame" in msg, \
+        "and the in-game reachability record"
+    assert "eroded" not in msg, "cast 2b is not a counter-witness: its band is blitted at every draw"
     assert "`%s = true`" % SB.ACK_KEY in msg
 
 

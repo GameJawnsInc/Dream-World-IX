@@ -554,6 +554,7 @@ not a comment.**
 > diffuse erosion; stripes read only because they are translation-invariant. A photographable
 > SHAPE verdict on scenery needs a flatter-UV surface (the pool, once its cell is named by one
 > more `--only`).
+> **CORRECTION (later) — 2b did not render:** the ladder capture runs the (576,368) band's scroll blit ahead of every draw of its page (f47–157) and the headless raster renders 2b identical to stock; the +11.6 read compared 2b with cast 2, never with stock (evidence: `ff9mapkit/summons/scroll_blit.py`, the `REACHABILITY` comment).
 > **Cast 1e (`--only cell.s0.x576_y256`, probe sha `dd9c0b39…`, root `ef211-cellprobe5`): THE
 > POOL IS (640,256), by elimination.** The pool stayed CLEAN under cell-5 stripes — cast 1c
 > bounded it to k ∈ {5, 7} and cast 1d cleared cell 6, so `cell.s0.x640_y256` is the only

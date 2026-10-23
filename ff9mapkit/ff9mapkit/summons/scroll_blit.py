@@ -26,10 +26,12 @@ ef407 executed **252 DR_MOVE blits into (704,384) from (704,256) over native fra
 static site is the one that runs (``studies/custom-summons/headless/``, its census row for ef407).
 
 WHAT IT DOES NOT ESTABLISH -- and why the refusal has a key: **reachability per cast.** A blit rewrites
-its band only while it runs, and ef211's own cast ladder, read against this table after the fact, has
-it both ways (:data:`REACHABILITY`): two wheels on a FULL destination were invisible, and a wheel wholly
-inside another destination band still showed at burst peak. So :data:`ACK_KEY` lifts the refusal,
-literal-boolean only, and the build says what was lifted.
+its band only while it runs, and these are static sites: the table does not know when a cast draws a
+cell. ef211's own cast ladder, read against this table after the fact, sides with the refusal wherever
+it was checked (:data:`REACHABILITY`): two wheels on a FULL destination were invisible, and the band
+under cast 2b's bold wheel, once quoted here as a counter-witness, is blitted on every frame its page
+is drawn, per the game's own capture. So :data:`ACK_KEY` lifts the refusal, literal-boolean only, and
+the build says what was lifted.
 
 THE JOIN, AND ITS TWO DELIBERATE COARSENESSES
 ---------------------------------------------
@@ -320,20 +322,27 @@ EF407_EXECUTED = (
     "ON ef407 THE STATIC SITE IS THE ONE THAT RUNS: the plugin, run headless, executed 252 DR_MOVE "
     "blits into (704,384) from (704,256) over native frames 85-211")
 
-#: what the table does not establish -- the reason the refusal has a key at all -- with the in-game
-#: record on BOTH sides of it, because a caveat that quotes only the evidence for its own refusal is
-#: a sales pitch.  The ef211 cast ladder (W6b-SCENERY.md sec 5) read against this table, after the
-#: fact: the ink and punch wheels on (704,256) -- a FULL destination fed from (704,384) -- were both
-#: invisible, while stripes on (704,384) banded the on-screen dome; and cast 2b's bold wheel, every
-#: changed halfword inside the (576,368) band, still eroded the vortex smoke at burst peak.
+#: what the table does not establish -- the reason the refusal has a key at all -- and what the
+#: in-game record says about it.  The ef211 cast ladder (W6b-SCENERY.md sec 5) read against this
+#: table, after the fact: the ink and punch wheels on (704,256) -- a FULL destination fed from
+#: (704,384) -- were both invisible, while stripes on (704,384) banded the on-screen dome.
+#: CORRECTED: this caveat used to cite cast 2b's bold wheel (every changed halfword inside the
+#: (576,368) band) as the other side, a wheel that "still eroded the vortex smoke at burst peak".  It
+#: is not.  The ladder's own capture (`sfxmeshprobe.w6b-cast-ladder.2026-07-28.log`) has DR_MOVE as
+#: the first prims of every frame f47-157, and the 4bpp page at (576,256) that holds the wheel's cell
+#: is drawn on exactly those frames and no others -- the headless census puts the column-576 blits on
+#: the same window -- so the wheel was stock bytes at every draw.  The headless raster renders 2b
+#: identical to stock on every frame, and the recorded erosion compared 2b with the thin-wheel cast
+#: (both edited), never with stock.  No cast on record has drawn a destination edit; the key stands
+#: because the table is static and does not know a cast's draw window.
 REACHABILITY = (
     "REACHABILITY IS NOT ESTABLISHED PER CAST: these are static call sites and a blit rewrites its "
-    "band only while it runs.  ef211's cast ladder has it both ways -- the ink and punch wheels on "
-    "(704,256), a FULL destination fed from (704,384), were both INVISIBLE while stripes on "
-    "(704,384) banded the dome on screen (headless, that blit runs over frames 235-284, exactly the "
-    "frames the 8bpp page sampling (704,256) draws), but cast 2b's bold wheel, wholly inside the "
-    "(576,368) band, still eroded the vortex smoke at burst peak, so that blit (headless frames "
-    "47-157) is not running in that phase")
+    "band only while it runs.  Every in-game check so far sides with the refusal -- on ef211 the "
+    "ink and punch wheels on (704,256), a FULL destination fed from (704,384), were both INVISIBLE "
+    "while stripes on (704,384) banded the dome on screen (headless, that blit runs over frames "
+    "235-284, exactly the frames the 8bpp page sampling (704,256) draws), and the game's own capture "
+    "shows the (576,368) band's blit running on every frame its page is drawn (f47-157), ahead of "
+    "the first draw, so cast 2b's bold wheel inside it never reached the screen either")
 
 #: what saying :data:`ACK_KEY` means, printed on every build that uses it.
 ACK_WARNING = (

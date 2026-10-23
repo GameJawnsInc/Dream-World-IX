@@ -802,9 +802,11 @@ models**. A disclosure, never a refusal.
   land in such a band and refuses by name, telling you which cell the band is copied **from** — paint
   that one instead and your edit shows, scrolling. An edit that stays outside the band (some bands
   cover half a cell) builds and says so; painting the *source* cell never refuses and is disclosed.
-  The refusal has a key because whether a blit runs during the part of the cast you care about is not
-  established: on Phoenix (ef211) two wheels painted on the fire-field cell `(704,256)`, a full
-  destination, never showed, while a wheel inside another band still showed at the burst peak.
+  The refusal has a key because the kit does not know whether a blit runs during the part of the cast
+  you care about. Every in-game check so far sides with the refusal: on Phoenix (ef211) two wheels
+  painted on the fire-field cell `(704,256)`, a full destination, never showed, and the game's own
+  capture shows the band under a third wheel, in cell `(576,384)`, copied over on every frame that
+  cell is drawn.
   `export-art`'s scaffold prints the band and the remedy on the row, before you paint.
 - **An UNWRITTEN column** — see the spill gate, above.
 - **RGBA on the INDEXED lane** — unchanged, and refused for its own reason rather than this one: that
