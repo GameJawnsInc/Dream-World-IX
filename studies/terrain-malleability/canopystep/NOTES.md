@@ -89,3 +89,36 @@ a rock, ny -0.0030) are kept by name at every angle.
 
 Predictions: round 22's P1-P5 unchanged (tolerance 0.15; on canopy, the 1.171875 sink). Owner: comp10 reads as a stock
 grass massif with its forest canopy, and its 1.7% rock shear (the canopy's feet tilt the de-tilt plane) does not show.
+
+### Round 23 result (`20261023-090402-canopy-step-comp10`)
+
+77/77 on the first launch, in 479 s; the ini restored byte-exact (sha e21219ce99cb42f0, the install's current one).
+
+| # | measured | verdict |
+|---|---|---|
+| P1 | summits 25.9023 / 26.0508 / 26.0078 / 26.0469 against 25.9036 / 26.0504 / 26.0108 / 26.0504 | holds |
+| P2 | 48/48 ring points round the carried blob | holds |
+| P3 | 8/8 view walks on built ground, never on rock | holds |
+| P4 | every home | holds |
+| P5 | 20/20 canopy points at the 1.171875 sink; each walk in climbed onto the canopy (8-9 samples) and crossed it to the rock, 21.4-22.6u | holds |
+
+Stills settled (at most 0.12% of pixels changed). Owner's verdict on the look: pending.
+
+## A defect the owner found: holes in the island's sea at a cove corner (NOT the carve)
+
+**Seen:** in round 23 the owner saw "multiple slivers/seams in the water next to the coast wall". In the stills each
+is a small wedge at a cove's INNER corner, at the waterline below the wall, and its colour is exactly the sky's
+(205, 217, 247): a hole through the sea, not paint.
+
+**Measured** (`hole_scan.py`: every plan point of the island's 9 blocks that none of its own written parts covers;
+on these prefab-less open-ocean blocks that is sky):
+- round 23's grass island (r66 one-lobe at (1380, -96)): a thin diagonal line of 8 uncovered points about
+  (1342.6-1344.1, -130.4 to -131.6) in blocks (20,2)/(21,2), and one point at (1393.9, -46.1);
+- round 22's desert island (r55 one-lobe at (1380, -100)): a thin diagonal of 3 points about (1349.6-1350.1, -129.4
+  to -129.9) in block (21,2) -- round 22's stills have the sky-coloured wedge too (B-south 104 px, B-west 149,
+  C-south 144), which its white-pixel scan (>= 240) could not see;
+- round 21's two-lobe snow island: none.
+
+These islands are minted by `world-island` before any mountain is carved, and the carve never writes their sea parts,
+so the holes are the island mint's (its coast/sea fill at a concave corner), not the carve's. Not diagnosed further and
+not fixed: a coast edit is governed by the coast-mosaic law index, and it is its own task.
