@@ -447,7 +447,7 @@ class WorldDoc(QWidget):
 
     def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None, on_teleport=None,
                  drafts_root=None, forest_runner=None, forest_seams=None, on_reload=None,
-                 mountain_runner=None, mountain_seams=None):
+                 mountain_runner=None, mountain_seams=None, recipe_runner=None, recipe_seams=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -470,6 +470,9 @@ class WorldDoc(QWidget):
         self._mountain = None                      # the mountain tool (rung C2): built on the first Mountain click
         self._mountain_runner = mountain_runner    # ...and its seams, as the forest's
         self._mountain_seams = mountain_seams or {}
+        self._recipe = None                        # the recipe bar (rung C3): built with the 3D page
+        self._recipe_runner = recipe_runner        # ...its world-fuse runner and its seams (ask, file dialogs)
+        self._recipe_seams = recipe_seams or {}
         self._on_reload = on_reload                # (x, z) -> None: the shell's dev-checkout world reload, or None
         self._point_done.connect(self._finish_point)
         self._busy = False
@@ -732,6 +735,8 @@ class WorldDoc(QWidget):
             self._view3d.retheme(pal)
         for tool in self._carry_tools():
             tool.retheme(pal)
+        if self._recipe is not None:
+            self._recipe.retheme(pal)
         if self._stack.currentWidget() is self._guide_page:
             self._show_guide(*self._guide_state)   # rebuild: the glyph pixmap is palette-tinted
 
@@ -821,6 +826,8 @@ class WorldDoc(QWidget):
         for tool in self._carry_tools():
             if not tool.isHidden():
                 tool.close_tool()                  # its folder may have changed under it
+        if self._recipe is not None:
+            self._recipe.refresh()                 # ...and the draft the bar reads with it
         self._sync_draw_box()
         if self._mode3d:                           # a rescan (or a new folder) re-reads the 3D page too
             self._load_view3d()
@@ -918,7 +925,12 @@ class WorldDoc(QWidget):
         return self._open_carry("mountain", sync=sync)
 
     def _draft_changed(self, draft):
-        """An Accept wrote the draft (or a discard removed it): draw it, or go back to the game's stack."""
+        """An Accept wrote the draft (or a discard removed it, an undo or redo moved it): draw it, or go back to the
+        game's stack; the recipe bar and every tool read the draft again."""
+        if self._recipe is not None:
+            self._recipe.refresh()
+        for tool in self._carry_tools():
+            tool.island_changed()
         self._sync_draw_box()
         ix = self.draw_box.findData("draft" if draft is not None else "stack")
         self.draw_box.setCurrentIndex(max(0, ix))
@@ -933,6 +945,16 @@ class WorldDoc(QWidget):
         self._mode3d = bool(on)
         self._label_view_btn()
         self.draw_box.setVisible(bool(on))
+        if on and self._recipe is None and self._census is not None:
+            from .worldrecipe import RecipeBar
+            self._recipe = RecipeBar(self.pal, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
+                                     on_changed=self._draft_changed, runner=self._recipe_runner,
+                                     drafts_root=self._drafts_root, **self._recipe_seams)
+            self._forest_slot.insertWidget(0, self._recipe)
+        if self._recipe is not None:
+            self._recipe.setVisible(bool(on))
+            if on:
+                self._recipe.refresh()
         self.forest_btn.setVisible(bool(on))
         self.mountain_btn.setVisible(bool(on))
         if not on:

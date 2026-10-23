@@ -595,6 +595,14 @@ def _snap_world_mountain(ctx: _Ctx, win) -> None:
                 view.update()
             _settle(12)
             _grab(ctx, f"world-3d-mountain{name}", win)
+        # rung C3: accepted, the recipe bar says what the draft holds and offers Undo
+        x, z = MOUNTAIN_SPOTS["pass"]
+        mt.place(x, z, 0.0)
+        mt._timer.stop()
+        mt._check()
+        mt.accept_btn.click()
+        _settle(12)
+        _grab(ctx, "world-3d-mountain-accepted", win)
     finally:
         V.load_scene = orig
 

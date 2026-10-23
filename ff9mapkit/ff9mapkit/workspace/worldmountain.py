@@ -192,6 +192,9 @@ class MountainTool(CarryTool):
         if gate == "span":
             return ("Not here: the massif's rim comes too near the edge of the deployed blocks; the carve works "
                     "inside them.", "warn")
+        if why == "no plain ground round its rim":
+            return ("Not here: there is no island under the massif's rim (open sea inside the deployed blocks).",
+                    "warn")
         if gate == "peak":
             return (f"Too tall: the peak would stand at {why}, above stock's tallest terrain. Lower the height.",
                     "warn")
