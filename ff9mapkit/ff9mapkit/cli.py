@@ -5503,6 +5503,33 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_world_promote(args: argparse.Namespace) -> int:
+    """Promote a world draft into its live folder, or revert its last promote (world.draft)."""
+    import json
+    from pathlib import Path
+    from .world import draft as D
+    out = {"ok": False, "op": "revert" if args.revert else "promote", "dry_run": bool(args.dry_run), "error": None}
+    try:
+        game = find_game_path(args.game)
+        fn = D.revert if args.revert else D.promote
+        rec = fn(Path(args.draft), game=game, dry_run=args.dry_run)
+        out.update(ok=True, folder=Path(rec["source"]).name, cells=rec["cells"], promoted=rec["promoted"],
+                   record=rec.get("record"), changed=sorted(set(rec.get("before", {})) | set(rec.get("after", {}))))
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        out["error"] = str(e)
+        print(str(e), file=sys.stderr)
+    if args.report_json:
+        Path(args.report_json).write_text(json.dumps(out, indent=1), encoding="utf-8")
+    if not out["ok"]:
+        return 2
+    cells = ", ".join(f"({a},{b})" for a, b in out["cells"])
+    verb = ("would revert" if args.dry_run else "reverted") if args.revert else         ("would promote" if args.dry_run else "promoted")
+    print(f"{verb} {len(out['promoted'])} file(s) at block(s) {cells} in {out['folder']}"
+          + ("" if args.dry_run else f" ({len(out['changed'])} file(s) at those blocks, disc 4 included)")
+          + ". The game shows it on its next world load (leave the world map and come back).")
+    return 0
+
+
 def _forest_report_json(args, *, res=None, written=(), refused=None) -> None:
     """``world-forest --report-json``: the verdict as data, beside the unchanged printed text. A refusal carries
     its gate and world points when the gate located it (:class:`interior.CarveRefused`), else gate "error"."""
@@ -10612,6 +10639,21 @@ def build_parser() -> argparse.ArgumentParser:
                           "written, and on a refusal the gate, its message and the world points where it fails "
                           "(what the Workspace's World tab draws). The printed text is unchanged.")
     wfo.set_defaults(func=_cmd_world_forest)
+
+    wpm = sub.add_parser("world-promote",
+                         help="write a world DRAFT's edits (the World tab's Accept writes drafts, outside the install) "
+                              "into its live mod folder: refuses when a file it edited changed there since the draft "
+                              "was made; backs up and ledgers every write, runs the disc-4 mirror, and snapshots the "
+                              "edited blocks first so --revert puts them back byte for byte. The game shows the "
+                              "change on its next world load.")
+    wpm.add_argument("draft", help="the draft folder (<kit cache>/world-drafts/<folder>.draft)")
+    wpm.add_argument("--revert", action="store_true",
+                     help="undo the draft's last promote instead: every file at its blocks back to the snapshot "
+                          "(refuses when one changed after the promote); the edits stay in the draft")
+    wpm.add_argument("--dry-run", action="store_true", help="check and report what would be written; write nothing")
+    wpm.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the outcome as JSON to PATH (what the World tab reads)")
+    wpm.set_defaults(func=_cmd_world_promote)
 
     whl = sub.add_parser("world-hill",
                          help="raise a raised-cosine GRASS HILL on a DEPLOYED kit island by pure-Y displacement "

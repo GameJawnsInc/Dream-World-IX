@@ -337,6 +337,77 @@ def test_after_accept_the_view_draws_the_draft_in_place_of_its_folder(app, tmp_p
     assert "the draft of FF9CustomMap-world › MoguriMain › stock" in cap and "does not load the draft" in cap
 
 
+# ---------------------------------------------------------------- rung C4: promote, revert, and the game follows
+class PromoteToo(Scripted):
+    """Scripted world-forest jobs; world-promote jobs run the real ``cli.main`` in-process (what the subprocess runs)."""
+
+    def start(self, argv, cwd, done):
+        if "world-promote" in argv:
+            from ff9mapkit import cli
+            self.argvs.append(argv)
+            done(cli.main([str(a) for a in argv[3:]]), "")
+            return
+        super().start(argv, cwd, done)
+
+
+def test_promote_asks_writes_the_live_folder_and_the_game_can_follow(app, monkeypatch, tmp_path):
+    from .test_world_forestedit import _fake_mirror
+    _fake_mirror(monkeypatch)
+    asked, reloads = [], []
+    run = PromoteToo()
+    tool, panel, changed = _tool(app, tmp_path, run, ask=lambda t, text: asked.append(t) or True,
+                                 on_reload=lambda x, z: reloads.append((x, z)))
+    tool.place(26.0, -26.0, 3.2)
+    _settle(tool)
+    tool.accept_btn.click()                                # scripted: the draft itself is edited by hand below
+    draft = tool.draft()
+    rel = "FF9_Data/WorldMap/Disc1/0_1/r0/Block[0][0] Terrain.ff9mesh"
+    (draft / rel).write_bytes(b"the forest")
+    tool._refresh_draft_label()
+    assert not tool.promote_btn.isHidden() and tool.revert_btn.isHidden()
+    assert not tool.show_btn.isHidden()                    # the accepted forest is where Show in game goes
+    tool.promote_btn.click()
+    assert asked == ["Promote the draft?"]
+    (argv,) = [a for a in run.argvs if "world-promote" in a]
+    assert argv[5:7] == ["world-promote", str(draft)] and "--revert" not in argv
+    live = tmp_path / "game" / "FF9CustomMap-world" / rel
+    assert live.read_bytes() == b"the forest"
+    assert tool.verdict_lbl.property("state") == "ok" and "Promoted into FF9CustomMap-world" in tool.verdict_lbl.text()
+    assert changed[-1] is None                             # the view goes back to the game's own stack
+    assert tool.promote_btn.isHidden() and not tool.revert_btn.isHidden()
+    tool.show_btn.click()
+    assert reloads == [(26.0, -26.0)]
+    tool.revert_btn.click()
+    assert asked[-1] == "Revert the promote?" and live.read_bytes() != b"the forest"
+    assert "Reverted" in tool.verdict_lbl.text() and changed[-1] == draft
+    assert not tool.promote_btn.isHidden() and tool.revert_btn.isHidden()
+
+
+def test_a_refused_promote_says_why_and_writes_nothing(app, monkeypatch, tmp_path):
+    from .test_world_forestedit import _fake_mirror
+    _fake_mirror(monkeypatch)
+    run = PromoteToo()
+    tool, _p, changed = _tool(app, tmp_path, run, ask=lambda t, text: True)
+    tool.place(26.0, -26.0, 3.2)
+    _settle(tool)
+    draft = tool.draft()
+    rel = "FF9_Data/WorldMap/Disc1/0_1/r0/Block[0][0] Terrain.ff9mesh"
+    (draft / rel).write_bytes(b"the forest")
+    live = tmp_path / "game" / "FF9CustomMap-world" / rel
+    live.write_bytes(b"another session")                   # someone deployed there after the draft was made
+    tool._refresh_draft_label()
+    tool.promote_btn.click()
+    assert tool.verdict_lbl.property("state") == "error" and "another deploy wrote them" in tool.verdict_lbl.text()
+    assert live.read_bytes() == b"another session" and changed == []
+
+
+def test_without_the_dev_reload_show_in_game_never_shows(app, tmp_path):
+    tool, _p, _c = _tool(app, tmp_path)
+    tool._last_center = (26.0, -26.0)
+    tool._sync_buttons()
+    assert tool.show_btn.isHidden()
+
+
 # ---------------------------------------------------------------- THE C1 ACCEPTANCE: the editor's bytes
 def test_the_editor_writes_the_bytes_the_hand_typed_command_writes(monkeypatch, tmp_path, app):
     """The forest tool accepts into a draft through its own job argv; the same forest typed by hand against a

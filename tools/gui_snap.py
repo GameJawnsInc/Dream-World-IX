@@ -464,6 +464,13 @@ def _forest_seams():
 
     class Scripted:
         def start(self, argv, cwd, done):
+            if "world-promote" in argv:                      # rung C4: the promote answers like world-promote
+                v = {"ok": True, "op": "revert" if "--revert" in argv else "promote", "folder": "FF9CustomMap-world",
+                     "cells": [[19, 18]], "promoted": ["FF9_Data/WorldMap/Disc1/0_1/r18/Block[19][18] Terrain.ff9mesh"],
+                     "error": None}
+                Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+                done(0, "")
+                return
             c = [float(v) for v in argv[argv.index("--center") + 1].split(",")]
             ok = abs(c[0] - FOREST_SPOTS["pass"][0]) < 1 and abs(c[1] - FOREST_SPOTS["pass"][1]) < 1
             v = {"ok": ok, "dry_run": "--dry-run" in argv, "center": c, "blocks": [[19, 18]], "written": [],
@@ -493,18 +500,38 @@ def _snap_world_forest(ctx: _Ctx, win) -> None:
     _sh.rmtree(drafts, ignore_errors=True)
     doc._drafts_root, doc._forest_runner, doc._forest_seams = drafts, runner, seams
     orig = V.load_scene
-    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()       # every load in this state, the reloads too
     try:
         doc.set_view_mode("3d", sync=True)
         doc.open_forest(sync=True)
+        _snap_forest_states(ctx, win, doc)
     finally:
         V.load_scene = orig
+
+
+def _snap_forest_states(ctx: _Ctx, win, doc) -> None:
     ft, view = doc._forest, doc._view3d.view
-    for name, key in (("", "pass"), ("-refused", "refused"), ("-warn", "warn")):
+    ft._on_reload = lambda x, z: None                    # the dev checkout's Show in game, offered
+    ft._ask = lambda title, text: True                   # the confirm dialogs, answered
+    for name, key in (("", "pass"), ("-refused", "refused"), ("-warn", "warn"), ("-promoted", "pass")):
         x, z = FOREST_SPOTS[key]
         ft.place(x, z, 0.0)
         ft._timer.stop()
         ft._check()
+        if name == "-promoted":                          # accept, an edit in the draft, then Promote
+            ft.accept_btn.click()
+            rel = "FF9_Data/WorldMap/Disc1/0_1/r18/Block[19][18] Terrain.ff9mesh"
+            p = ft.draft() / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"pinned edit")
+            ft._refresh_draft_label()
+            ft.promote_btn.click()
+            ft._show_draft_info(ft.draft(), set(), [], {"utc": "pinned"})   # the real promote rebases the draft
+            for _ in range(200):                         # the view's reload after the promote (a worker)
+                if not doc._view3d._busy:
+                    break
+                _settle(1)
+            view = doc._view3d.view
         if view is not None:
             gy = ft._ix.ground_y(x, z) or 0.0
             view.focus(x, z, dist=60.0, y=gy)
