@@ -292,3 +292,19 @@ def test_rx4_battery_is_well_formed():
     import rx_gates as G
     assert {v for *_, v in G.BATTERY} == {"DRAWN", "NOT_DRAWN"}
     assert len({n for n, *_ in G.BATTERY}) == len(G.BATTERY)
+
+
+def test_contested_rows_are_reported_not_scored(monkeypatch, capsys):
+    import rx_gates as G
+    assert set(G.CONTESTED) <= {n for n, *_ in G.BATTERY}
+    monkeypatch.setattr(G, "rx0", lambda: (True, "pinned"))
+    monkeypatch.setattr(G, "_calibrate", lambda e, l, o=None: {"casts": []})
+    monkeypatch.setattr(G, "_need", lambda p: p)
+    monkeypatch.setattr(G, "rx1_rx2", lambda reports: ((True, "a"), (True, "b"), []))
+    monkeypatch.setattr(G, "rx3", lambda: (True, "c"))
+    monkeypatch.setattr(G, "rx4", lambda jobs=5: [(True, "x"), (None, "contested"), (True, "y")])
+    assert G.main(["--battery"]) == 0
+    out = capsys.readouterr().out
+    assert "NOTE" in out and "6/6 gates pass (1 contested" in out
+    monkeypatch.setattr(G, "rx4", lambda jobs=5: [(False, "x"), (None, "contested")])
+    assert G.main(["--battery"]) == 1

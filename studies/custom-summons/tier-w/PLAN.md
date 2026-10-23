@@ -350,6 +350,11 @@ scenery must be re-authored *together*.
   channel P's LICENSE upgrade failed its first trigger, the DISCLOSE posture vindicated by its
   own test. THE 15bpp LANE RESTS: WRITE path cast-proven + codec offline-exhaustive; the READ
   proof is PARKED with the three-vehicle evidence table (the ghost-layer observation).**
+  ⛳ **EXPLAINED by `headless/raster.py` (README "Pixels"):** once a cast draws into Memoria's DR_AREA render
+  target, every 15bpp page at x ≥ 384 samples that target, never VRAM, and the target holds what the program
+  rendered there with INDEXED prims. ef429's covers, ef446's 8bpp salmon and ef251's indexed read all follow,
+  and the port reproduces all three. Over 372 containers, only Stop (448,256) and Carbuncle ×4 (576,256),
+  f181–211, read a 15bpp page from VRAM. A READ proof on any other 15bpp cell cannot succeed.
   `ff9mapkit/ff9mapkit/summons/{repaint,reskin,texture}.py`,
   `ff9mapkit/tests/test_summon_{repaint,reskin}.py`; w6b_gates 7/7, w6_gates 7/7, w7_gates 5/5,
   w5_gates 9/9, tier-w suite 360/1 single-process, the four kit summon test files 382).

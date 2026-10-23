@@ -145,15 +145,22 @@ container, cast, judged on screen by the owner).
 
 | Gate | Checks | Result |
 |---|---|---|
-| RX0 | the staged plugin is the pinned build | ⟨RX0⟩ |
-| RX1 | input: on frames where the game and the host emitted the same prim sequence, first vertices agree | ⟨RX1⟩ |
-| RX2 | batching: on those frames, the port reproduces the in-game command buffer (index, key, triangles) | ⟨RX2⟩ |
-| RX3 | falsifier: Bahamut under the wrong render order must fail RX2 | ⟨RX3⟩ |
-| RX4 | pixels: 16 owner-verdict casts, edited container vs its pre-state, drawn vs not drawn | ⟨RX4⟩ |
+| RX0 | the staged plugin is the pinned build | x64 `5e01f899…` |
+| RX1 | input: on frames where the game and the host emitted the same prim sequence, first vertices agree | 207,453 vertices, **95.0% exactly** at Memoria's widescreen `drOffsetX` (+35, 0) |
+| RX2 | batching: on those frames, the port reproduces the in-game command buffer (index, key, triangles) | **306/306** frames exact (Bahamut ×2, Phoenix ×2, Shiva) |
+| RX3 | falsifier: the wrong render order (Add before Opa) must fail RX2 | 9/34 Bahamut and 122/229 Phoenix frames break |
+| RX4 | pixels: 16 owner-verdict casts, edited container vs its pre-state, drawn vs not drawn | **15/15** scored verdicts reproduced; 1 contested (below) |
 
 RX4's cases: the Phoenix ladder (1a/1b wheels into (704,256) never seen; 1c–1f and the dome drawn),
 Odin's channel-A cast A, ef446 cast B, ef251 cast 15 and its x512 probe, and ef429's census probe and
-three cover probes (never seen). Appearance matches where it was checked: **ef446's cyan `0x7FE0` bands
+three cover probes (never seen). Every "never seen" cast renders byte-identical to its pre-state, and
+every drawn one changes the screen. **The contested one is Phoenix cast 2b**, the bold wheel recorded as
+eroding the vortex smoke. The port shows it on no frame, and the game's own ladder capture agrees on the
+mechanism. ef211 rewrites the band the wheel sits in, (576,368) 28×112, from (604,368) with a cyclic scroll.
+Those DR_MOVEs are the first commands of every frame from f47 to f360, and the page is drawn only in
+f47–157. So the wheel is stock bytes at every draw, from the first. The recorded read compared two edited
+casts (bold vs thin wheel), never stock. `rx_gates.py` prints that case on every run and does not score
+it. Appearance matches where it was checked: **ef446's cyan `0x7FE0` bands
 come out as hatched salmon/orange** (the 8bpp two-tone read the owner described), and **the dome bands are
 clean bright yellow, first reaching the screen on f235**, the scroll blit's first frame. ef251's depth
 signature (the owner's 4-cycle stripe) was not assessed. The Shiva U1 cast is reported, not gated (its own
@@ -168,8 +175,13 @@ reaching the screen only as speckle on saturated ice (≤ 8.6% of pixels, f214�
   below x 384 is always the BLUR texture (the previous frame's screen). The target holds what the program
   *rendered* into it with indexed primitives. So a 15bpp repaint at x ≥ 384 in a target-using effect can
   never reach the screen (ef429's three covers), and the "15bpp" surface shows its indexed source instead
-  (ef446's salmon, ef251's indexed read). `routes` lists, for all 372 containers, whether the effect uses
-  the target (⟨ROUTES⟩) and where every key reads from.
+  (ef446's salmon, ef251's indexed read). **`routes` over all 372 containers (0 errors):** 66 render into
+  the target; of the 181 (effect, page) pairs read at 15bpp, 70 read the target, 88 the blur texture, 13 the
+  battle-ground capture, and only 10 VRAM. Of those 10, three are Memoria's hard-coded screenshot
+  effects the port does not model (Slow, Devour, Silent Voice) and one is a reserved depth-3 page; the
+  real ones are **Stop's (448,256)** and **Carbuncle's (576,256) in all four gem variants (ef177 / ef493–495),
+  frames 181–211**, read from VRAM before ef177 first renders into the target at f265. Those are the only
+  places a 15bpp repaint can reach the screen as painted.
 - **The binding census over-counts drawable cells, and the reason is now mechanical:** a cell can be bound
   and uploaded yet unreachable because a blit overwrites it before any read ((704,256) on Phoenix), or
   because its depth routes to the render target (the 15bpp class).
@@ -246,4 +258,4 @@ tests: code plus counts, with zero Square Enix bytes.
 | `test_sfx_host.py` | 23 tests; one is install-gated and says why it skips |
 | `raster.py` | the managed-renderer port: run / diff / routes / calibrate |
 | `rx_gates.py` | the calibration gates RX0–RX4 |
-| `test_raster.py` | 24 tests on synthetic primitives; one is install-gated |
+| `test_raster.py` | 25 tests on synthetic primitives and the gate scoring; one is install-gated |
