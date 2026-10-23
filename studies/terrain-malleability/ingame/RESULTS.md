@@ -1211,7 +1211,9 @@ ground, 20/20 canopy points at the sink, and every walk in crossed the canopy to
 
 **A defect the owner found, the island's, not the carve's:** sky-coloured wedges in the sea at a cove's inner corner
 below the coast wall. `hole_scan.py` finds the plan uncovered there (a thin diagonal in block (20,2)); round 22's desert
-island has one too (block (21,2)), round 21's two-lobe snow island none. Not fixed; owner's verdict on the look pending.
+island has one too (block (21,2)), round 21's two-lobe snow island none. FIXED (0cc2ff0b, `../canopystep/HOLES.md`): the
+Sea4 cut now judges a tri by its area; re-run stills-only (`20261023-101037-sea-holes-fix`, 53/53), sky pixels 1557 -> 6.
+Owner's verdict on comp10's look pending.
 
 ## Not run
 

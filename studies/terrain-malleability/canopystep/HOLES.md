@@ -65,3 +65,12 @@ Rerun after the split: the mint bytes are identical to the first fix (`hole_cens
 
 **What follows:** an in-game look at a re-minted island's cove corner (stills + `hole_scan`), when the harness is free.
 Every kit island deployed before this fix keeps its holes until it is re-minted; `hole_scan.py <mod folder>` finds them.
+
+## In game (2026-10-23, `20261023-101037-sea-holes-fix`)
+
+Round 23's comp10 lab rebuilt with the fixed mint (its prep byte-identical to round 23's: the land did not move; 0
+uncovered points in all four variants), then the same session in stills-only mode (`MTN_STILLS=1`): 53/53, the ini
+restored byte-exact. Same cameras, same cove corners: sky-coloured pixels in the lower 58% of the 20 stills went from
+**1557 to 6** (B-west 501 -> 0, C-south 444 -> 0, D-south 260 -> 0, B-south 237 -> 0, A-north 55 -> 2, B-north 53 -> 0;
+the 6 left are single pixels, 1-2 a frame, none a wedge). The zoom on C-south's corner shows water meeting the wall
+where the sky wedge was. The boat drive near a fixed cove (the registered risk) was not run.
