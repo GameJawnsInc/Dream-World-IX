@@ -669,7 +669,13 @@ scenery must be re-authored *together*.
   offset); the (704,384) copy ran in-game f66–172 (headless f85–191) and the band's readers
   (`00BABDC0`) drew after it on 104 of those frames. `raster.py calibrate --offset 19`: RX2 12/12 on the
   input-matched frames — 108 frames differ in their INPUT, the real battle's camera and targets not being
-  the headless stage's. Still open on this item: nothing; the install still holds the cast (revert above).
+  the headless stage's. Still open on this item: nothing.
+  **Resting: REVERTED** by the wrapper, and checked against the backups rather than its own report: ef407
+  ABSENT (no `SpecialEffects` folder, as before staging), the 27 files 30301's revert restores each
+  byte-identical to its pre-deploy backup (CSVs, learn lists, scripts DLL, Battle/JournalPatch, the name
+  text), `Actions.csv` = `a6bc2de3…` rows 192–195, 30301 unregistered and 30300 kept; `DictionaryPatch`
+  holds the same 242 lines, reordered (30300's lines re-appended by the surgical revert). The minted
+  Models/Animations trees stay on disk unregistered — inert, as `deploy_field` documents.
   **(2) SHOULD THE GAIN HALF BE DECLINABLE?** Today `texel_page` / `export_art` / `build` hard-code
   `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface, so an author who distrusts
   `linear-add-v1` on THEIR container cannot ask for the pre-adoption reading. Recovery is EXACT at the
