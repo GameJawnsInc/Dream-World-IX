@@ -602,12 +602,25 @@ scenery must be re-authored *together*.
   231/231. The two W6b-3 (ii) Odin cast specs are FROZEN AS HISTORY — they no longer build under the
   adoption and their notes say why.
   **NEXT AFTER THIS — two owner items, neither blocking anything:**
-  **(1) CAST A GAINED CELL. The vehicle is `ef407 cell.s0.x704_y384`** — 20 arriving readers, no
-  program-VRAM block, and BOTH its gained pages verified exporting as real PNGs on disk. It is ef038's
-  structural twin and reproduces the derivation cell for cell (27 bound readers on `cell.s0.x640_y256`
-  down to 7, one arriving on `x704_y256` and twenty on `x704_y384`) — which is also why ef038 itself
-  CANNOT be the vehicle: it is a program-VRAM writer and `export-art --ef 38` writes none of them.
-  This cast is the ONLY thing that closes the gain half's silent-failure mode.
+  **(1) CAST A GAINED CELL. The vehicle is `ef407 cell.s0.x704_y256`, painted so the mark lands in
+  the scrolling band at (704,384)** — corrected from `cell.s0.x704_y384`, which this plan named until
+  the DR_MOVE check: **`x704_y384` is an op-144 scroll-blit DESTINATION** (`dst (704,384) 64x128 <-
+  src (704,256)`, tier-r `CALLBACK-OPS.md` addendum 10), so a repaint there is rewritten from
+  `x704_y256` every frame the blit runs and could never show, whatever the readers do. Independently,
+  the plugin run headless on ef407 executed 252 DR_MOVE blits into (704,384) from (704,256) over
+  native frames 85–211 (`headless/README.md` HX5). Had the cast run on `x704_y384` and shown nothing, the null would have been
+  charged to `linear-add-v1`: a second mechanism producing the exact silent failure this cast exists
+  to rule out. The kit now refuses that row by name (`acknowledge_scroll_blit_destination`).
+  **Paint the SOURCE.** `x704_y256` is editable and gains one arriving reader of its own; op 144 copies
+  it into (704,384), where the 20 arriving readers sample. **The prediction, and how to read it:** a
+  mark that SCROLLS vertically with wraparound is the 20 readers sampling the blitted band, the gain
+  half working; a static mark alone is the one reader arriving on (704,256) itself; nothing at all
+  would refute the derivation on this container. ef407 is ef038's structural twin and reproduces the derivation cell for
+  cell (27 bound readers on `cell.s0.x640_y256` down to 7, one arriving on `x704_y256` and twenty on
+  `x704_y384`); ef038 itself CANNOT be the vehicle because it is a program-VRAM writer and
+  `export-art --ef 38` writes none of them. (`cell.s0.x640_y256` is also a destination, fed from
+  (640,384), which ef407 does not make editable.) This cast is the ONLY thing that closes the gain
+  half's silent-failure mode.
   **(2) SHOULD THE GAIN HALF BE DECLINABLE?** Today `texel_page` / `export_art` / `build` hard-code
   `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface, so an author who distrusts
   `linear-add-v1` on THEIR container cannot ask for the pre-adoption reading. Recovery is EXACT at the

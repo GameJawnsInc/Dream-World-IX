@@ -47,4 +47,10 @@ enabled = true
 # gaps are what this surface renders legibly.  fill 0 (nothing painted), dead 0.
 acknowledge_cutout_reshape = true
 palette_from = "pal.s0.x208_y244.e16"
+# ADDED AFTER THE CAST, AND IT MOVES NO BYTE.  This cell sits under an HLE op-144 SCROLL-BLIT band,
+# `dst (576,368) 28x112 <- src (604,368)`, and ALL 1,302 changed halfwords of this wheel lie inside
+# it -- yet this cast (2b, the bold wheel) RENDERED: the vortex smoke eroded at burst peak.  So it is
+# the in-game COUNTER-WITNESS to the kit's scroll-blit refusal: that blit is not running in that
+# phase, which is exactly why the refusal has a key.  Said so the record rebuilds.
+acknowledge_scroll_blit_destination = true
 note = "CAST 2: the wheel as dark gaps in the emergence-vortex smoke -- lower-half addressing + the 4bpp nibble codec + the shape verdict, one cast"

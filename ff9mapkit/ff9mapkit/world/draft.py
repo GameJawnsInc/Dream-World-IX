@@ -15,6 +15,10 @@ size and mtime still match is unchanged without a hash), so it can tell its own 
 (:func:`edits`: files the draft changed or added since the copy) from the source moving on underneath it
 (:func:`stale`: source files that changed since the copy -- another session deployed).
 
+THE HISTORY (rung C3): every step the editor writes into a draft (an Accept, a recipe row) snapshots the files at
+the cells it may write before and after (:func:`begin_step` / :func:`commit_step`), so :func:`undo` and :func:`redo`
+walk the recipe byte for byte without re-running a verb, and :func:`recipe_rows` is the document Save writes.
+
 PROMOTE (rung C4) is the ONE path from a draft into the install: :func:`promote` writes the draft's edits into its
 live folder (refusing when a file it edited moved in the live folder since the copy), backs up and ledgers each write
 as the deploy seam does, runs the disc-4 mirror there, and snapshots every live file at the edited cells first, so
@@ -311,6 +315,7 @@ def promote(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
     record = {**plan, "utc": time.strftime("%Y-%m-%dT%H:%M:%S"), "record": str(rec_dir),
               "before": before_sha,
               "after": {rel: _sha(p) for rel, p in after.items()}, "reverted": None}
+    _mark_promoted(draft, record)                  # the recipe's steps so far are live: undo stops above them
     (rec_dir / "promote.json").write_text(json.dumps(record, indent=1), encoding="utf-8")
     _rebase(draft, meta, list(after) + list(before) + stale(draft))
     return record
@@ -376,6 +381,7 @@ def revert(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
                                             removed_sha256=sha0, backup=bak)
                 log(f"removed -> {live} (the promote created it)")
     rec["reverted"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    _unmark_promoted(draft, rec)
     (Path(rec["record"]) / "promote.json").write_text(json.dumps(rec, indent=1), encoding="utf-8")
     # the draft: the promoted files are its edits again (their baseline is the restored live bytes); everything else
     # the promote touched (the disc-4 mirror) is level with the live folder again
@@ -390,3 +396,171 @@ def revert(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
             man.pop(rel, None)
     _write_meta(draft, meta)
     return {**rec, "op": "revert"}
+
+
+# ---------------------------------------------------------------- the recipe's history (rung C3): undo and redo
+HISTORY = "history.json"                          # <draft>/history.json: the steps, the cursor, the promoted mark
+HISTORY_DIR = "history"                           # <draft>/history/<n>/{before,after}/<rel>: each step's cells
+_PENDING = "pending"
+
+
+def history(draft: Path) -> dict:
+    """The draft's steps: ``{"steps": [...], "cursor": n, "promoted": m}``. Steps ``[0, cursor)`` are applied (the
+    recipe), the rest can be redone; steps ``[0, promoted)`` are in the live folder and cannot be undone here (Revert
+    promote first). Each step: ``{"row", "label", "cells", "before", "after", "dir"}``, where ``before`` / ``after``
+    map every file at the step's cells to its sha-256 (a file missing from one side did not exist there)."""
+    try:
+        h = json.loads((Path(draft) / HISTORY).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        h = {}
+    return {"steps": h.get("steps", []), "cursor": int(h.get("cursor", 0)), "promoted": int(h.get("promoted", 0))}
+
+
+def _write_history(draft: Path, h: dict) -> None:
+    tmp = Path(draft) / (HISTORY + ".tmp")
+    tmp.write_text(json.dumps(h, indent=1), encoding="utf-8")
+    tmp.replace(Path(draft) / HISTORY)
+
+
+def _snap(draft: Path, cells, dest: Path) -> dict:
+    """Copy every file at ``cells`` (both discs, every part) under ``dest``; ``rel -> sha``."""
+    out = {}
+    for rel, p in sorted(_cell_files(Path(draft), cells).items()):
+        data = p.read_bytes()
+        q = dest / rel
+        q.parent.mkdir(parents=True, exist_ok=True)
+        q.write_bytes(data)
+        out[rel] = hashlib.sha256(data).hexdigest()
+    return out
+
+
+def _restore(draft: Path, files: dict, snap: Path, cells) -> None:
+    """Put the files at ``cells`` back to ``files`` (from the snapshot ``snap``): written back, or removed when that
+    side never had them."""
+    for rel in sorted(set(files) | set(_cell_files(Path(draft), cells))):
+        p = Path(draft) / rel
+        if rel in files:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes((snap / rel).read_bytes())
+        elif p.is_file():
+            p.unlink()
+
+
+def _differs(draft: Path, files: dict, cells) -> list:
+    now = {rel: _sha(p) for rel, p in _cell_files(Path(draft), cells).items()}
+    return sorted(rel for rel in set(now) | set(files) if now.get(rel) != files.get(rel))
+
+
+def all_cells() -> list:
+    """Every block of the world (24 x 20): a step whose cells are not known in advance snapshots them all."""
+    return [(bx, by) for by in range(20) for bx in range(24)]
+
+
+def begin_step(draft: Path, cells) -> None:
+    """Before a step writes the draft: snapshot every file at the ``cells`` it may write (a superset is fine)."""
+    pend = Path(draft) / HISTORY_DIR / _PENDING
+    if pend.exists():
+        shutil.rmtree(pend)
+    cells = sorted({(int(bx) % 24, int(by)) for bx, by in cells})
+    pend.mkdir(parents=True)                         # (a step over open sea has no file to snapshot)
+    before = _snap(draft, cells, pend / "before")
+    (pend / "step.json").write_text(json.dumps({"cells": [list(c) for c in cells], "before": before}),
+                                    encoding="utf-8")
+
+
+def commit_step(draft: Path, row: dict, label: str) -> dict:
+    """The step ran: record it after the applied steps (dropping any undone ones, as an edit after an undo does).
+    Only the files that changed are kept in the step."""
+    draft = Path(draft)
+    pend = draft / HISTORY_DIR / _PENDING
+    step = json.loads((pend / "step.json").read_text(encoding="utf-8"))
+    cells = [tuple(c) for c in step["cells"]]
+    after = _snap(draft, cells, pend / "after")
+    before = step["before"]
+    moved = {rel for rel in set(before) | set(after) if before.get(rel) != after.get(rel)}
+    keep = sorted({_parse_rel(rel)[1] for rel in moved if _parse_rel(rel) is not None})
+    before = {rel: h for rel, h in before.items() if _parse_rel(rel) and _parse_rel(rel)[1] in keep}
+    after = {rel: h for rel, h in after.items() if _parse_rel(rel) and _parse_rel(rel)[1] in keep}
+    for side in ("before", "after"):                 # the untouched cells' copies go (a whole-map step stays small)
+        for rel in _cell_files(pend / side, [c for c in cells if c not in set(keep)]):
+            (pend / side / rel).unlink()
+    h = history(draft)
+    for old in h["steps"][h["cursor"]:]:
+        shutil.rmtree(draft / old["dir"], ignore_errors=True)
+    n = h["cursor"]
+    rel_dir = f"{HISTORY_DIR}/{n:04d}"
+    shutil.rmtree(draft / rel_dir, ignore_errors=True)
+    pend.rename(draft / rel_dir)
+    rec = {"row": row, "label": label, "cells": [list(c) for c in keep], "before": before, "after": after,
+           "dir": rel_dir, "utc": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    h["steps"] = h["steps"][:n] + [rec]
+    h["cursor"] = n + 1
+    _write_history(draft, h)
+    return rec
+
+
+def abort_step(draft: Path) -> None:
+    """The step failed: put its cells back as they were before it (a verb refuses before writing, so this is
+    usually a no-op), and forget it."""
+    pend = Path(draft) / HISTORY_DIR / _PENDING
+    if not (pend / "step.json").is_file():
+        return
+    step = json.loads((pend / "step.json").read_text(encoding="utf-8"))
+    _restore(draft, step["before"], pend / "before", [tuple(c) for c in step["cells"]])
+    shutil.rmtree(pend)
+
+
+def undo(draft: Path) -> dict:
+    """Take the last applied step back out of the draft, byte for byte. Refuses a step already promoted (Revert
+    promote first) and a step whose files changed since (something else wrote the draft)."""
+    draft = Path(draft)
+    h = history(draft)
+    if h["cursor"] == 0:
+        raise ValueError("nothing to undo")
+    if h["cursor"] <= h["promoted"]:
+        raise ValueError("the last step is promoted into the live folder: Revert promote first")
+    s = h["steps"][h["cursor"] - 1]
+    cells = [tuple(c) for c in s["cells"]]
+    bad = _differs(draft, s["after"], cells)
+    if bad:
+        raise ValueError(f"{len(bad)} file(s) of '{s['label']}' changed since it was applied: {bad[:3]}")
+    _restore(draft, s["before"], draft / s["dir"] / "before", cells)
+    h["cursor"] -= 1
+    _write_history(draft, h)
+    return s
+
+
+def redo(draft: Path) -> dict:
+    """Put the next undone step back into the draft, byte for byte (its recorded result: the verb is not re-run)."""
+    draft = Path(draft)
+    h = history(draft)
+    if h["cursor"] >= len(h["steps"]):
+        raise ValueError("nothing to redo")
+    s = h["steps"][h["cursor"]]
+    cells = [tuple(c) for c in s["cells"]]
+    bad = _differs(draft, s["before"], cells)
+    if bad:
+        raise ValueError(f"{len(bad)} file(s) at '{s['label']}' changed since it was undone: {bad[:3]}")
+    _restore(draft, s["after"], draft / s["dir"] / "after", cells)
+    h["cursor"] += 1
+    _write_history(draft, h)
+    return s
+
+
+def recipe_rows(draft: Path) -> list:
+    """The applied steps' recipe rows, in order: the draft's document."""
+    h = history(draft)
+    return [s["row"] for s in h["steps"][:h["cursor"]]]
+
+
+def _mark_promoted(draft: Path, record: dict) -> None:
+    h = history(draft)
+    record["history_promoted_before"] = h["promoted"]
+    h["promoted"] = h["cursor"]
+    _write_history(draft, h)
+
+
+def _unmark_promoted(draft: Path, record: dict) -> None:
+    h = history(draft)
+    h["promoted"] = int(record.get("history_promoted_before", 0))
+    _write_history(draft, h)

@@ -5484,9 +5484,9 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
                                         target_disc=args.target_disc)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
-        _forest_report_json(args, refused=e)
+        _carry_report_json(args, refused=e)
         return 2
-    _forest_report_json(args, res=res, written=written)
+    _carry_report_json(args, res=res, written=written)
     verb = "would deploy" if args.dry_run else "deployed"
     from .world.frames import wrap_world_xz          # a seam carve's soup frame runs past x = 0/1536
     cx, cz = wrap_world_xz(*res["center"])
@@ -5530,9 +5530,10 @@ def _cmd_world_promote(args: argparse.Namespace) -> int:
     return 0
 
 
-def _forest_report_json(args, *, res=None, written=(), refused=None) -> None:
-    """``world-forest --report-json``: the verdict as data, beside the unchanged printed text. A refusal carries
-    its gate and world points when the gate located it (:class:`interior.CarveRefused`), else gate "error"."""
+def _carry_report_json(args, *, res=None, written=(), refused=None, extra=None) -> None:
+    """``world-forest`` / ``world-mountain --report-json``: the verdict as data, beside the unchanged printed text.
+    A refusal carries its gate and world points when the gate located it (:class:`interior.CarveRefused`), else
+    gate "error". ``extra`` adds the verb's own keys (the mountain's home-ground note)."""
     path = getattr(args, "report_json", None)
     if not path:
         return
@@ -5548,6 +5549,7 @@ def _forest_report_json(args, *, res=None, written=(), refused=None) -> None:
         out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused),
                           "detail": getattr(refused, "detail", ""),
                           "where": [list(p) for p in getattr(refused, "where", [])]}
+    out.update(extra or {})
     Path(path).write_text(json.dumps(out, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
                           encoding="utf-8")
 
@@ -5633,6 +5635,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
     DEPLOYED kit island -- the productized Uaho carry (in-game proven 2026-07-13). Gates: ROCK-RIGID +
     weld-safe lift + zip envelope + placement probes + census."""
     from .world import interior as IN
+    mountain_written, note = [], None
     try:
         (wx, wz), exact = _parse_world_point(args)
         donor_blocks = _parse_block_rect(args.donor)
@@ -5681,7 +5684,9 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
             DM.auto_mirror(mountain_written, mod_folder=args.mod_folder, skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _carry_report_json(args, refused=e, extra={"ground": args.ground, "note": note})
         return 2
+    _carry_report_json(args, res=res, written=mountain_written, extra={"ground": args.ground, "note": note})
     verb = "would deploy" if args.dry_run else "deployed"
     from .world.frames import wrap_world_xz          # a seam carve's soup frame runs past x = 0/1536
     cx, cz = wrap_world_xz(*res["center"])
@@ -9533,7 +9538,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="overlay lane only: which donor clips to bake to .anim ('all'|'none'|index list)")
     sd_.add_argument("--arm", action="store_true",
                      help="ALSO write Memoria.ini [SfxHybrid] (hybrid lane): backs the ini up, string-probes "
-                          "the DLL for SfxHybridDrive, prints the diff. Confirm-first -- omit to only stage "
+                          "the DLL for SfxHybridDrive, refuses a FF9SpecialEffectPlugin.dll build the drive's "
+                          "native offsets were not derived from, prints the diff. Confirm-first -- omit to only stage "
                           "the assets + print the [SfxHybrid] block. RELAUNCH to apply.")
     sd_.set_defaults(func=_cmd_summon_deploy)
 
@@ -10755,6 +10761,11 @@ def build_parser() -> argparse.ArgumentParser:
     wmt.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wmt.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    wmt.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the verdict as JSON to PATH: ok, the centre, the carve's report, the files "
+                          "written, the home-ground note, and on a refusal the gate, its message and the world "
+                          "points where it fails (what the Workspace's World tab draws). The printed text is "
+                          "unchanged.")
     wmt.set_defaults(func=_cmd_world_mountain)
 
     wrv = sub.add_parser("world-river",
@@ -11020,10 +11031,13 @@ def build_parser() -> argparse.ArgumentParser:
                                     "COMPOSE tables (audit rec 16, run in fixed tier order regardless of "
                                     "document position): [[island]] (the world-island mint), [[river]] "
                                     "(world-river's carry: donor, at=[DX,DZ] -- \"auto\" on --dry-run only --, "
-                                    "area, apron; the same pipeline, so the same bytes), [[mountain]]/"
-                                    "[[forest]]/[[hill]] (interior relief on the DEPLOYED base), [[coastnav]]/"
-                                    "[[rim_retile]] (nav stamps). Each table takes its verb's own argument "
-                                    "names; unknown keys refuse. The compose writes world_manifest.json "
+                                    "area, apron; the same pipeline, so the same bytes), [[sink]] (world-sink: "
+                                    "at=[WX,WZ], cluster, allow_entrances, fresh; with its disc-4 replay), "
+                                    "[[mountain]]/[[forest]]/[[hill]] (interior relief on the DEPLOYED base), "
+                                    "[[coastnav]]/[[rim_retile]] (nav stamps). Each table takes its verb's own "
+                                    "argument names; unknown keys refuse. Inside a tier, rows with step = N run "
+                                    "first, in step order (the World tab's saved recipes carry it). The compose "
+                                    "writes world_manifest.json "
                                     "beside the deploys and REFUSES over manifest-diverged files without "
                                     "--allow-overwrite")
     wfu.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")

@@ -205,6 +205,14 @@ kit's engine-independence split made executable for summons: a **novel** field s
 Memoria, but the **hybrid** summon lane requires the custom engine, while **overlay** (DLL-free)
 is never gated.
 
+A second gate guards the native memory itself. The drive reads `FF9SpecialEffectPlugin.dll`'s
+memory at fixed offsets and writes the body-hide mask there, and those offsets were derived from
+one build of the plugin (the Steam release, linked 2016-10-19). So `--arm` also hashes the
+install's plugin (x64 and x86) and **refuses an unknown build**, saying which arch and hash it
+found. The known builds live in one table, `ff9mapkit/sfxplugin.py`. A GOG or updated plugin
+that isn't byte-identical to the Steam release is refused until its offsets are measured and it is
+pinned there. On such an install, use `lane = "overlay"`.
+
 ## Provenance, in plain terms
 
 - **A stock summon's own bytes never leave your machine.** `summon-export` / `summon-rig-ref`
@@ -633,6 +641,7 @@ table, or both, under one `[reskin]` header). `[reskin.orthogonality]` gains one
 | `expect_cell` | no | `[X, Y]` — the VRAM page-cell this row means. Refuses on a creature page, whose addressable unit is the id-4 PART. |
 | `acknowledge_cotransform` | *conditional* | required (`= true`, a literal boolean) on **every** row of a VRAM cell that more than one writer uploads, and only reachable once every one of those writers is named with its own art. See THE CO-TRANSFORM REMEDY, below. |
 | `acknowledge_spill` | *conditional* | required (`= true`, a literal boolean) on **every** row of a model whose picture crosses a VRAM column, and only reachable once every cell that model reads is named. See THE NAME-EVERY-COLUMN GATE, below. |
+| `acknowledge_scroll_blit_destination` | *conditional* | required (`= true`, a literal boolean) before an edit that changes a texel inside a band the effect's program **rewrites every frame** may build. Say it only if you judge that blit is not running when your cell is drawn. See SCROLL-BLIT DESTINATION, below. |
 | `note` | no | free text, carried into manifests/reports only. |
 
 ### THE CUTOUT LAW, at the texel level
@@ -785,6 +794,18 @@ models**. A disclosure, never a refusal.
   direction matters and is measured: a program that only *reads* VRAM back cannot clobber anything, so
   those containers **disclose** instead of refusing (which is what makes Phoenix's fire field editable
   at all).
+- **SCROLL-BLIT DESTINATION — the write the list above never held.** 59 effects animate a texture by
+  copying one band of VRAM onto another every frame (a vertical scroll with wraparound, done as a VRAM
+  blit), and on 20 of them the band they copy *onto* covers cells you can export — 88 cells. Paint
+  there and your edit is byte-correct on disk, deploys, verifies, and is **overwritten while the blit
+  runs**: nothing on screen, no error anywhere. So the build counts how many of your changed texels
+  land in such a band and refuses by name, telling you which cell the band is copied **from** — paint
+  that one instead and your edit shows, scrolling. An edit that stays outside the band (some bands
+  cover half a cell) builds and says so; painting the *source* cell never refuses and is disclosed.
+  The refusal has a key because whether a blit runs during the part of the cast you care about is not
+  established: on Phoenix (ef211) two wheels painted on the fire-field cell `(704,256)`, a full
+  destination, never showed, while a wheel inside another band still showed at the burst peak.
+  `export-art`'s scaffold prints the band and the remedy on the row, before you paint.
 - **An UNWRITTEN column** — see the spill gate, above.
 - **RGBA on the INDEXED lane** — unchanged, and refused for its own reason rather than this one: that
   refusal is about **exact recovery**, and it would hold if every cell in the corpus were lawful.
@@ -915,7 +936,10 @@ cover (what the hardware reads — what the editable surface is now joined on). 
   reader to either, so every earlier kit handed you neither picture — while 20 of the 27 readers it
   attributed to `cell.s0.x640_y256` sample column 704 instead. You now get `cell.s0.x704_y256`
   (1 reader) and **`cell.s0.x704_y384` (20)** — the lower stacked cell, because the `v` term puts them
-  there — and both of those pages really do export. ⚠ **ef038 is that same derivation cell for cell and
+  there — and both of those pages really do export. ⚠ **But `cell.s0.x704_y384` is a scroll-blit
+  destination** (`(704,384)` is rewritten from `(704,256)` every frame — see SCROLL-BLIT DESTINATION,
+  above), so a repaint of it refuses at build. Paint `cell.s0.x704_y256` and expect the mark in the
+  scrolling band. ⚠ **ef038 is that same derivation cell for cell and
   delivers no art at all:** it is a program-VRAM writer, so `cell.s0.x640_y256`, `cell.s0.x704_y256`
   and `cell.s0.x704_y384` are all refused `program-vram-write`, and `export-art --ef 38` writes none of
   them. Derivable is not deliverable.

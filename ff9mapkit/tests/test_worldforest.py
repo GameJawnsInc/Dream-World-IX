@@ -322,6 +322,40 @@ def test_the_forest_button_is_a_3d_page_control_and_opens_the_tool_there(app, tm
     assert doc._forest.isHidden() and doc.forest_btn.isHidden() and doc._forest.center is None
 
 
+def test_an_open_card_takes_the_strip_s_room_and_the_view_gives_way_first(app, tmp_path):
+    """THE 931px FLOOR: card, block strip and view together floored the page at 931px tall at 150% (984 with the
+    mountain's second row), so in a 1280x850 window the card's verdict and draft line were clipped. While a card is
+    open the strip goes, the view's floor drops to CARD_VIEW_FLOOR -- on the host too, and with the status page
+    out of the stack, whose wrapped teach line otherwise sets the host's height for width and outranks it -- and a
+    PLAIN caption folds (room for C3's recipe bar too). A caption carrying a warning never folds."""
+    from ff9mapkit.workspace.worlddoc import CARD_VIEW_FLOOR
+    from ff9mapkit.workspace.worldview3d import MIN_VIEW_H
+    doc, _g = _doc(app, tmp_path)
+    doc.set_view_mode("3d", sync=True)
+    panel = doc._view3d
+    assert not doc._strip.isHidden() and panel._host.minimumHeight() == 0
+    assert not panel.caption.isHidden() and "as the game loads it" in panel.caption.text()
+    doc.open_forest(sync=True)
+    assert doc._strip.isHidden() and panel._host.minimumHeight() == CARD_VIEW_FLOOR < MIN_VIEW_H
+    assert panel.caption.isHidden() and "as the game loads it" in panel.caption.text()   # folded, text kept
+    doc.draw_box.setCurrentIndex(doc.draw_box.findData("folder"))     # a caption that warns: it stays on the face
+    doc._load_view3d(sync=True)
+    assert not panel.caption.isHidden() and "looks different in game" in panel.caption.text()
+    doc.draw_box.setCurrentIndex(doc.draw_box.findData("stack"))
+    doc._load_view3d(sync=True)
+    assert panel.caption.isHidden()
+    if panel.view is not None:                             # the GL view exists once the map loaded
+        assert panel.view.minimumHeight() == CARD_VIEW_FLOOR
+        assert panel._stack.indexOf(panel._status) < 0 and panel._stack.currentWidget() is panel.view
+    doc._forest.close_btn.click()
+    assert not doc._strip.isHidden() and panel._host.minimumHeight() == 0 and not panel.caption.isHidden()
+    if panel.view is not None:
+        assert panel.view.minimumHeight() == MIN_VIEW_H
+    doc.open_forest(sync=True)
+    doc.set_view_mode("chart")                             # leaving the 3D page puts the card away: the strip is back
+    assert not doc._strip.isHidden()
+
+
 def test_after_accept_the_view_draws_the_draft_in_place_of_its_folder(app, tmp_path):
     doc, game = _doc(app, tmp_path)
     doc.open_forest(sync=True)
@@ -381,6 +415,30 @@ def test_promote_asks_writes_the_live_folder_and_the_game_can_follow(app, monkey
     assert asked[-1] == "Revert the promote?" and live.read_bytes() != b"the forest"
     assert "Reverted" in tool.verdict_lbl.text() and changed[-1] == draft
     assert not tool.promote_btn.isHidden() and tool.revert_btn.isHidden()
+
+
+def test_the_promote_actions_ride_the_draft_line_and_never_widen_the_card(app, tmp_path):
+    """THE 1348px FLOOR: Promote, Revert promote and Show in game shared one row with Accept, Copy, the draft line and
+    Discard, so the promoted card floored the window at 1348px at 150% (1152 in every other state). They ride the
+    draft line's row now, and showing them leaves the card's floor where it was. Relative widths only: offscreen
+    fonts invent the absolute ones."""
+    tool, _panel, _changed = _tool(app, tmp_path, on_reload=lambda x, z: None)
+    acts = (tool.promote_btn, tool.revert_btn, tool.show_btn)
+    assert all(tool.draft_row.indexOf(b) >= 0 for b in acts + (tool.draft_lbl,))
+    assert all(tool.accept_row.indexOf(b) >= 0 for b in (tool.accept_btn, tool.copy_btn, tool.discard_btn))
+
+    def floor():
+        app.processEvents()                                 # the layouts' LayoutRequest: a hint is cached until then
+        return tool.minimumSizeHint().width()
+    for b in acts + (tool.discard_btn,):
+        b.hide()
+    bare = floor()
+    for b in acts + (tool.discard_btn,):
+        b.show()
+    assert floor() == bare                                  # every action showing: the floor has not moved
+    for b in acts:                                          # anti-vacuity: on the Accept row they DO move it
+        tool.accept_row.addWidget(b)
+    assert floor() > bare
 
 
 def test_a_refused_promote_says_why_and_writes_nothing(app, monkeypatch, tmp_path):

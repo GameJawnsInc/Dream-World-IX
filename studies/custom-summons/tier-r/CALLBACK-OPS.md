@@ -1060,3 +1060,20 @@ Other cast-relevant containers: **ef211 4 dst** (the pool wheel rests live on it
   a phase question -- `summon-inspect` could answer it per container; this pass did not.
 * Whether the W6b lane already covers the hazard by some route not found here.
 * Nothing in the kit was changed. This is a finding and an instrument, not a new refusal.
+
+## Since then -- folded into the kit
+
+The table now ships as `ff9mapkit/summons/scroll_blit.py` (all 167 sites, pinned) and the texel lane
+refuses, at build and by cell name, an edit that changes a texel inside a destination band -- with the
+remedy (the source cell) and the literal-boolean key `acknowledge_scroll_blit_destination`. A source
+hit is disclosed, never refused. `studies/custom-summons/tier-w/scroll_blit_gates.py` re-derives the
+table site for site from these listings and checks the kit's per-cell join against `drmove_cells.py`.
+
+Reading ef211's own cast ladder against the table, after the fact, cuts both ways -- which is why the
+refusal has a key:
+
+* `(704,256)` is a FULL destination fed from `(704,384)`. The ink and punch wheels painted on it were
+  both invisible, while stripes on `(704,384)` banded the dome on screen. The blit fits both, so that
+  null is confounded as evidence for BINDING-IS-NOT-A-DRAW (the law's other vehicles are untouched).
+* Cast 2b's bold wheel on `(576,384)` lies wholly inside the band `dst (576,368) 28x112 <- (604,368)`
+  and still eroded the vortex smoke at burst peak: that blit is not running in that phase.

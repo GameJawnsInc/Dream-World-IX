@@ -1,7 +1,7 @@
 # Overworld visual editor: feasibility and plan
 
-**Status:** UNPARKED 2026-10-23 (owner: "let's start planning towards the GUI terrain editor"); A0, A1, the stack, C1
-and C4 built, see Progress.
+**Status:** UNPARKED 2026-10-23 (owner: "let's start planning towards the GUI terrain editor"); A0, A1, the stack, C1,
+C2, C3 and C4 built, see Progress.
 The replan below supersedes the rung order further down; the recon sections stay as the evidence. Original status
 (2026-10-13): recon only. The owner asked whether the kit is on a path to a visual editor that adjusts the overworld
 in real time under the laws the terrain studies have proven. The answer is yes, with one design call. The owner
@@ -104,6 +104,20 @@ alone.
   world through bench 6603 and lands the party on the edit. In game: before 3.000 (grass), promoted without a reload
   3.000 (the game keeps its world), reloaded 4.719 (canopy, predicted 4.720), reverted 3.000; the live folder ended
   byte-identical. Promote to visible: about 13 s with NO DLL, so the DLL rung is not needed.
+- **C2 BUILT + IN-GAME PROVEN + OWNER-PASSED (2026-10-23: "walked it without issue")** -> [`C2.md`](C2.md). Add mountain beside Add forest:
+  the seven qualified massifs, angle, spread and rock height within the law's ceilings (height held at x1 for the
+  horseshoe), a home-ground chip that warns off the donor's home ground, the island's own `--ground`. The placement
+  laws preview live (60/60 against the carve on the real island, 4 ms); B1 for every mountain gate; `world-mountain
+  --report-json`. The forest's card is now `CarryTool`, shared. I1: the editor's draft and the hand-typed command's
+  are byte-identical (hermetic, and 1,719 files on the real island). In game, promoted and reloaded: the summit
+  15.523 (predicted 15.521, grass 3.000 before), beside it 2.867 (2.868).
+- **C3 BUILT (2026-10-23), the acceptance holds on the real island** -> [`C3.md`](C3.md). The Recipe bar: every Accept is
+  a `[[forest]]`/`[[mountain]]` row built from the command it ran; Undo/Redo restore each step's snapshots byte for
+  byte (0.2 s, fenced above a promote); Save recipe writes TOML for `world-fuse` with `step = N` (THE ORDER LAW:
+  `fuse.ordered_rows` keeps the order shapes were placed in); Open recipe composes one `world-fuse` job per row.
+  `[[sink]]` is a compose row with world-sink's disc-4 replay. On FF9CustomMap-world: the saved recipe composed by
+  the CLI is byte-identical to the editor's draft over 1,531 files, Open recipe the same, two undos back to the
+  folder. Found: the preview's anchor law (open sea inside a deployed block).
 
 **Rating:**
 - **7/10 for an ARRANGEMENT editor.** You place, drag, turn and scale the shapes the kit already carries (forests,

@@ -43,6 +43,7 @@ _ZOOM_MIN, _ZOOM_MAX = 0.3, 4.0                   # a 24x20 chart never needs th
 _GRID_ALPHA = 90                                  # the graticule: present, sub-informational (70 was
 #                                                   invisible on the light palette -- snap-measured)
 _KIND_ALPHA = {"land": 165, "water": 120, "stub": 90}
+CARD_VIEW_FLOOR = 32                              # the 3D view's floor while a carry card is open (px)
 
 
 def _fmt_bytes(n: int) -> str:
@@ -446,7 +447,8 @@ class WorldDoc(QWidget):
     _point_done = Signal(object, object, object)   # (the pick it answers, point_info | None, error | None)
 
     def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None, on_teleport=None,
-                 drafts_root=None, forest_runner=None, forest_seams=None, on_reload=None):
+                 drafts_root=None, forest_runner=None, forest_seams=None, on_reload=None,
+                 mountain_runner=None, mountain_seams=None, recipe_runner=None, recipe_seams=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -466,6 +468,12 @@ class WorldDoc(QWidget):
         self._drafts_root = drafts_root            # None -> world.draft.drafts_dir() (tests pin a tmp dir)
         self._forest_runner = forest_runner        # None -> the tool's QProcess runner (tests inject one)
         self._forest_seams = forest_seams or {}    # ForestTool's outline_fn / soup_fn / sync (tests, gui_snap)
+        self._mountain = None                      # the mountain tool (rung C2): built on the first Mountain click
+        self._mountain_runner = mountain_runner    # ...and its seams, as the forest's
+        self._mountain_seams = mountain_seams or {}
+        self._recipe = None                        # the recipe bar (rung C3): built with the 3D page
+        self._recipe_runner = recipe_runner        # ...its world-fuse runner and its seams (ask, file dialogs)
+        self._recipe_seams = recipe_seams or {}
         self._on_reload = on_reload                # (x, z) -> None: the shell's dev-checkout world reload, or None
         self._point_done.connect(self._finish_point)
         self._busy = False
@@ -572,6 +580,14 @@ class WorldDoc(QWidget):
                                    "draft the game does not load.")
         self.forest_btn.clicked.connect(lambda: self.open_forest())
         self.forest_btn.hide()
+        # ...and the mountain tool (rung C2): a real rock massif through world-mountain, into the same draft
+        self.mountain_btn = QPushButton("Add mountain")
+        self.mountain_btn.setProperty("role", "quiet")
+        self.mountain_btn.setToolTip("Place a real stock rock massif on a deployed island: click where it goes, "
+                                     "drag, turn, spread and heighten it; every world-mountain gate judges it, and "
+                                     "Accept writes it to a draft the game does not load.")
+        self.mountain_btn.clicked.connect(lambda: self.open_mountain())
+        self.mountain_btn.hide()
         head.addWidget(self.view3d_btn)
         v.addLayout(head)
         self.canvas = AtlasCanvas(self.pal, on_select=self._on_select,
@@ -582,7 +598,7 @@ class WorldDoc(QWidget):
         views_host = QWidget()
         views_host.setLayout(self._views)
         v.addWidget(views_host, 1)
-        self._forest_slot = QVBoxLayout()          # the forest card's place: under the view, over the strip
+        self._forest_slot = QVBoxLayout()          # the carry cards' place: under the view, over the strip
         self._forest_slot.setContentsMargins(0, 0, 0, 0)
         v.addLayout(self._forest_slot)
         self._legend_host = QWidget()
@@ -658,6 +674,7 @@ class WorldDoc(QWidget):
         brow.addWidget(self.teleport_btn)
         sh.addLayout(brow)
         v.addWidget(strip)
+        self._strip = strip
         return page
 
     def _fill_legend(self):
@@ -718,8 +735,10 @@ class WorldDoc(QWidget):
             self._fill_legend()                    # the swatch pixmaps are palette-baked at build time
         if self._view3d is not None:
             self._view3d.retheme(pal)
-        if self._forest is not None:
-            self._forest.retheme(pal)
+        for tool in self._carry_tools():
+            tool.retheme(pal)
+        if self._recipe is not None:
+            self._recipe.retheme(pal)
         if self._stack.currentWidget() is self._guide_page:
             self._show_guide(*self._guide_state)   # rebuild: the glyph pixmap is palette-tinted
 
@@ -806,15 +825,21 @@ class WorldDoc(QWidget):
             self.summary_lbl.setText(" · ".join(bits))
         self._on_select(self._selected)            # re-derive the strip: the block may have changed
         #                                            class (deployed <-> empty) across the rescan
-        if self._forest is not None and not self._forest.isHidden():
-            self._forest.close_tool()              # its folder may have changed under it
+        for tool in self._carry_tools():
+            if not tool.isHidden():
+                tool.close_tool()                  # its folder may have changed under it
+        if self._recipe is not None:
+            self._recipe.refresh()                 # ...and the draft the bar reads with it
         self._sync_draw_box()
         if self._mode3d:                           # a rescan (or a new folder) re-reads the 3D page too
             self._load_view3d()
 
     # -- the 3D page --
     def _render_site(self):
-        """``(RenderSite, caption)`` for the 3D page: the game's FolderNames stack, or this folder over stock."""
+        """``(RenderSite, caption)`` for the 3D page: the game's FolderNames stack, or this folder over stock. Sets
+        ``_caption_plain`` when the caption only restates the stack the draw box names (no warning in it): only then
+        may an open carry card fold it away."""
+        self._caption_plain = False
         from ..world import mesh as M
         from ..world import render as R
         cells = tuple((bx, by) for by in range(M.GRID_ROWS) for bx in range(M.GRID_COLS))
@@ -831,6 +856,7 @@ class WorldDoc(QWidget):
             names = [p.name for p in stack]
             roots = [draft if p.name == here else p for p in stack] if here in names else [draft] + list(stack)
             order = " › ".join((f"the draft of {here}" if p == draft else p.name) for p in roots)
+            self._caption_plain = True
             return (R.RenderSite(cells=cells, disc=1, game=self._game, stack=tuple(roots)),
                     f"Drawn with your draft in place of {here}: {order} › stock. The game does not load the draft.")
         if mode == "folder":
@@ -846,6 +872,8 @@ class WorldDoc(QWidget):
         if here not in names:
             cap += (f". ⚠ {here} is not in FolderNames, so the game does not load it and neither does this "
                     "view; choose Only this folder to see it.")
+        else:
+            self._caption_plain = True
         return R.RenderSite(cells=cells, disc=1, game=self._game, stack=stack), cap
 
     def _draft(self):
@@ -867,25 +895,64 @@ class WorldDoc(QWidget):
                 self.draw_box.setCurrentIndex(0)
             self.draw_box.removeItem(ix)
 
-    def open_forest(self, *, sync=False):
-        """The Forest button: the 3D view first (the tool works on it), then the forest card under it."""
+    def _carry_tools(self):
+        return [t for t in (self._forest, self._mountain) if t is not None]
+
+    def _open_carry(self, which, *, sync=False):
+        """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
+        ghost's drag goes to the open one."""
         if self._census is None:
-            return
+            return None
         if not self._mode3d:
             self._on_view3d(True, sync=sync)
-        if self._forest is None:
-            from .worldforest import ForestTool
-            self._forest = ForestTool(self.pal, self._view3d, game_fn=lambda: self._game,
-                                      source_fn=lambda: self._census.root, on_changed=self._draft_changed,
-                                      runner=self._forest_runner, drafts_root=self._drafts_root,
-                                      on_reload=self._on_reload, **self._forest_seams)
-            self._forest_slot.addWidget(self._forest)
-            self._view3d.ghost_moved.connect(self._forest.drag_to)
-            self._view3d.ghost_dropped.connect(self._forest.drop_at)
-        self._forest.open_tool()
+        tool = getattr(self, f"_{which}")
+        if tool is None:
+            if which == "forest":
+                from .worldforest import ForestTool as Tool
+            else:
+                from .worldmountain import MountainTool as Tool
+            tool = Tool(self.pal, self._view3d, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
+                        on_changed=self._draft_changed, runner=getattr(self, f"_{which}_runner"),
+                        drafts_root=self._drafts_root, on_reload=self._on_reload, **getattr(self, f"_{which}_seams"))
+            setattr(self, f"_{which}", tool)
+            self._forest_slot.addWidget(tool)
+            tool.opened.connect(lambda _on: self._sync_card_room())
+            self._view3d.ghost_moved.connect(lambda x, z, t=tool: t.drag_to(x, z) if not t.isHidden() else None)
+            self._view3d.ghost_dropped.connect(lambda x, z, t=tool: t.drop_at(x, z) if not t.isHidden() else None)
+        for other in self._carry_tools():
+            if other is not tool and not other.isHidden():
+                other.close_tool()
+        tool.open_tool()
+        return tool
+
+    def _sync_card_room(self):
+        """While a carry card is open the page makes room for it: card and strip together floored the page at 931px
+        tall at 150% (984 with the mountain's second row), so in a 1280x850 window the card's verdict and draft line
+        were clipped. The block strip goes (a click places the shape, and the card speaks for it), the 3D view's
+        floor drops to ``CARD_VIEW_FLOOR`` so the view gives way before the card's words do, and a PLAIN caption
+        folds (the draw box names the stack and the card's draft line names the draft; a caption carrying a warning
+        stays). The room is for the recipe bar above the cards too (rung C3). Close restores all three."""
+        open_ = any(not t.isHidden() for t in self._carry_tools())
+        self._strip.setVisible(not open_)
+        if self._view3d is not None:
+            self._view3d.set_view_floor(CARD_VIEW_FLOOR if open_ else None)
+            self._view3d.fold_caption(open_ and getattr(self, "_caption_plain", False))
+
+    def open_forest(self, *, sync=False):
+        """The Forest button."""
+        return self._open_carry("forest", sync=sync)
+
+    def open_mountain(self, *, sync=False):
+        """The Mountain button."""
+        return self._open_carry("mountain", sync=sync)
 
     def _draft_changed(self, draft):
-        """An Accept wrote the draft (or a discard removed it): draw it, or go back to the game's stack."""
+        """An Accept wrote the draft (or a discard removed it, an undo or redo moved it): draw it, or go back to the
+        game's stack; the recipe bar and every tool read the draft again."""
+        if self._recipe is not None:
+            self._recipe.refresh()
+        for tool in self._carry_tools():
+            tool.island_changed()
         self._sync_draw_box()
         ix = self.draw_box.findData("draft" if draft is not None else "stack")
         self.draw_box.setCurrentIndex(max(0, ix))
@@ -900,9 +967,21 @@ class WorldDoc(QWidget):
         self._mode3d = bool(on)
         self._label_view_btn()
         self.draw_box.setVisible(bool(on))
+        if on and self._recipe is None and self._census is not None:
+            from .worldrecipe import RecipeBar
+            self._recipe = RecipeBar(self.pal, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
+                                     on_changed=self._draft_changed, runner=self._recipe_runner,
+                                     drafts_root=self._drafts_root, **self._recipe_seams)
+            self._forest_slot.insertWidget(0, self._recipe)
+        if self._recipe is not None:
+            self._recipe.setVisible(bool(on))
+            if on:
+                self._recipe.refresh()
         self.forest_btn.setVisible(bool(on))
-        if not on and self._forest is not None:
-            self._forest.close_tool()
+        self.mountain_btn.setVisible(bool(on))
+        if not on:
+            for tool in self._carry_tools():
+                tool.close_tool()
         if not on:
             self._views.setCurrentWidget(self.canvas)
             self._legend_host.show()
@@ -911,7 +990,8 @@ class WorldDoc(QWidget):
             from .worldview3d import WorldView3DPanel
             self._view3d = WorldView3DPanel(self.pal, scale=self._scale)
             self._view3d.picked.connect(self._on_pick)
-            self._view3d.add_control(self.forest_btn)
+            self._view3d.add_control(self.mountain_btn)  # each control goes in front: these read draws, forest,
+            self._view3d.add_control(self.forest_btn)    # mountain
             self._view3d.add_control(self.draw_box)
             self._views.addWidget(self._view3d)
             self._load_view3d(sync=sync)
@@ -940,6 +1020,7 @@ class WorldDoc(QWidget):
             return
         site, caption = self._render_site()
         self._view3d.set_caption(caption)
+        self._sync_card_room()                     # a plain caption folds while a card is open, a warning never
         self._view3d.load(site, sync=sync)
         self._focus_view3d()
 
@@ -960,8 +1041,9 @@ class WorldDoc(QWidget):
             self._set_chip("", "info")
             return
         (x, y, z), _part = hit
-        if place and self._forest is not None and not self._forest.isHidden():
-            self._forest.place(x, z, y)            # the tool is open: a click puts the forest there
+        for tool in self._carry_tools() if place else ():
+            if not tool.isHidden():
+                tool.place(x, z, y)                # a tool is open: a click puts its shape there
         from ..world import frames
         key = frames.world_to_block(*frames.wrap_world_xz(x, z))
         self.canvas.select(key)                    # -> _on_select: the block strip, and the point cleared
