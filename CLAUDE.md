@@ -170,7 +170,7 @@ Revert a field: `tools/scroll_out/revert_deploy.py` or `revert_deploy_<id>.py`.
   the user's own install (`ff9mapkit extract-templates`). Documented exceptions: FLAG_LORE's ≤110-char
   excerpts + the owner-granted `release/` demo (FROZEN; `test_provenance_tripwire.py` enforces both the
   gate and the freeze) — `ff9mapkit/docs/PROVENANCE.md`.
-- **Versions:** kit `1.0.0b19`, Blender add-on `0.9.30`. (b18 was tagged but never published — its CI caught 3 portability bugs; b19 is the fixed re-cut.)
+- **Versions:** kit `1.0.0b22`, Blender add-on `0.9.30`. (b20 and b21 were tagged but never published — release CI caught Linux-only failures; b22 is the fixed re-cut.)
 
 ---
 
@@ -317,7 +317,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Story-write trace (s88) — ★★ rungs 0-4, F5, F5b/F5c, O1-O8 PROVEN: Dali's hub lane and the opening up to real 55 match stock key for key; next O9 → `studies/story-trace/PLAN.md`
 - `.eb` source round-trip — ★★ rungs 1-4+6-7 DONE, playtest-confirmed (source-edited chest at slot 30810 gave the edited reward in-game): annotated `eb-src`/`eb-asm` + `--against` splice edits + the 9753-binary gate → `studies/eb-roundtrip/PLAN.md`
 
-**Latest release:** kit **1.0.0b19** (tag pushed, CI green, PyPI live; engine bundle rebuilt s22-s79, first full-stack replay).
+**Latest release:** kit **1.0.0b22** (tag pushed, CI green, PyPI live; engine bundle rebuilt s22-s150 + the leak-fixed SaXAudio).
 
 ---
 
