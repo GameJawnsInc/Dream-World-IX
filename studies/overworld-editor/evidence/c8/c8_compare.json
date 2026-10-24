@@ -1,0 +1,390 @@
+{
+ "settings": {
+  "field_of_view": 58.0,
+  "camera_distance": 100.0,
+  "camera_height": 100.0,
+  "camera_aim_height": 100.0
+ },
+ "rows": [
+  {
+   "spot": "air-spawn",
+   "turn": 0,
+   "cam_rot": 270.0,
+   "cam_upper": 0,
+   "mode": 8,
+   "type": 1,
+   "type_cam": 3,
+   "topograph": 1,
+   "iou_foot": 0.993,
+   "area": 15,
+   "player": [
+    1207.371,
+    2.77661328125,
+    -964.609
+   ],
+   "eye": [
+    1181.004,
+    25.768,
+    -964.609
+   ],
+   "at": [
+    1207.371,
+    6.167,
+    -964.609
+   ],
+   "fov": 58.0,
+   "lifted": 16.88609421899956,
+   "iou_right": 0.952,
+   "iou_left": 0.952,
+   "mirror": false,
+   "iou_band": 0.958,
+   "eye_dy": -1.0,
+   "aim_dy": -0.5,
+   "iou_free": 0.967,
+   "free_drot": 4.0,
+   "free_fov_k": 0.95
+  },
+  {
+   "spot": "air-climbed",
+   "turn": 0,
+   "cam_rot": 270.0,
+   "cam_upper": 0,
+   "mode": 8,
+   "type": 1,
+   "type_cam": 3,
+   "topograph": 1,
+   "iou_foot": 0.885,
+   "area": 15,
+   "player": [
+    1207.371,
+    27.5973515625,
+    -964.609
+   ],
+   "eye": [
+    1181.004,
+    35.703,
+    -964.609
+   ],
+   "at": [
+    1207.371,
+    30.988,
+    -964.609
+   ],
+   "fov": 58.0,
+   "lifted": 0.0,
+   "iou_right": 0.841,
+   "iou_left": 0.841,
+   "mirror": false,
+   "iou_band": 0.849,
+   "eye_dy": 1.0,
+   "aim_dy": -0.5,
+   "iou_free": 0.905,
+   "free_drot": -4.0,
+   "free_fov_k": 0.95
+  },
+  {
+   "spot": "air-climbed",
+   "turn": 1,
+   "cam_rot": 242.227,
+   "cam_upper": 0,
+   "mode": 8,
+   "type": 1,
+   "type_cam": 3,
+   "topograph": 1,
+   "iou_foot": 1.0,
+   "area": 15,
+   "player": [
+    1207.371,
+    27.67894140625,
+    -964.609
+   ],
+   "eye": [
+    1184.041,
+    35.784,
+    -976.895
+   ],
+   "at": [
+    1207.371,
+    31.07,
+    -964.609
+   ],
+   "fov": 58.0,
+   "lifted": 0.0,
+   "iou_right": 0.989,
+   "iou_left": 0.989,
+   "mirror": false,
+   "iou_band": 0.996,
+   "eye_dy": 1.0,
+   "aim_dy": -0.5,
+   "iou_free": 0.999,
+   "free_drot": -4.0,
+   "free_fov_k": 0.95
+  },
+  {
+   "spot": "air-high",
+   "turn": 0,
+   "cam_rot": 241.611,
+   "cam_upper": 0,
+   "mode": 8,
+   "type": 1,
+   "type_cam": 3,
+   "topograph": 49,
+   "iou_foot": 0.983,
+   "area": 26,
+   "player": [
+    1034.367,
+    28.862671875,
+    -823.609
+   ],
+   "eye": [
+    1011.171,
+    51.805,
+    -836.145
+   ],
+   "at": [
+    1034.367,
+    32.253,
+    -823.609
+   ],
+   "fov": 58.0,
+   "lifted": 16.837328125000003,
+   "iou_right": 0.94,
+   "iou_left": 0.938,
+   "mirror": false,
+   "iou_band": 0.951,
+   "eye_dy": -1.0,
+   "aim_dy": -0.5,
+   "iou_free": 0.97,
+   "free_drot": 4.0,
+   "free_fov_k": 0.95
+  },
+  {
+   "spot": "air-ceiling",
+   "turn": 0,
+   "cam_rot": 241.611,
+   "cam_upper": 0,
+   "mode": 8,
+   "type": 1,
+   "type_cam": 3,
+   "topograph": 49,
+   "iou_foot": 0.883,
+   "area": 0,
+   "player": [
+    1225.527,
+    42.1875,
+    -926.469
+   ],
+   "eye": [
+    1202.331,
+    50.293,
+    -939.005
+   ],
+   "at": [
+    1225.527,
+    45.578,
+    -926.469
+   ],
+   "fov": 58.0,
+   "lifted": 0.0,
+   "iou_right": 0.791,
+   "iou_left": 0.791,
+   "mirror": false,
+   "iou_band": 0.865,
+   "eye_dy": 1.0,
+   "aim_dy": -0.5,
+   "iou_free": 0.872,
+   "free_drot": 2.0,
+   "free_fov_k": 0.95
+  },
+  {
+   "spot": "choco-lawn",
+   "turn": 0,
+   "cam_rot": 9.816,
+   "cam_upper": 0,
+   "mode": 1,
+   "type": 0,
+   "type_cam": 1,
+   "topograph": 0,
+   "iou_foot": 1.0,
+   "area": 7,
+   "player": [
+    972.18,
+    4.421875,
+    -996.297
+   ],
+   "eye": [
+    976.018,
+    18.336,
+    -974.114
+   ],
+   "at": [
+    972.18,
+    9.033,
+    -996.297
+   ],
+   "fov": 57.67,
+   "lifted": 0.7145273174447411,
+   "iou_right": 1.0,
+   "iou_left": 1.0,
+   "mirror": false,
+   "iou_band": 1.0,
+   "eye_dy": 0.0,
+   "aim_dy": 0.0,
+   "iou_free": 1.0,
+   "free_drot": 0.0,
+   "free_fov_k": 1.0
+  },
+  {
+   "spot": "choco-lawn",
+   "turn": 1,
+   "cam_rot": -21.121,
+   "cam_upper": 0,
+   "mode": 1,
+   "type": 0,
+   "type_cam": 1,
+   "topograph": 0,
+   "iou_foot": 0.991,
+   "area": 7,
+   "player": [
+    972.18,
+    4.421875,
+    -996.297
+   ],
+   "eye": [
+    964.068,
+    18.059,
+    -975.297
+   ],
+   "at": [
+    972.18,
+    8.533,
+    -996.297
+   ],
+   "fov": 57.67,
+   "lifted": 0.9372126159522729,
+   "iou_right": 0.997,
+   "iou_left": 0.981,
+   "mirror": false,
+   "iou_band": 0.998,
+   "eye_dy": -0.5,
+   "aim_dy": -0.5,
+   "iou_free": 0.998,
+   "free_drot": 0.0,
+   "free_fov_k": 1.0
+  },
+  {
+   "spot": "choco-forest",
+   "turn": 0,
+   "cam_rot": -21.121,
+   "cam_upper": 0,
+   "mode": 1,
+   "type": 0,
+   "type_cam": 1,
+   "topograph": 37,
+   "iou_foot": 0.99,
+   "area": 7,
+   "player": [
+    982.68,
+    8.6640625,
+    -1003.297
+   ],
+   "eye": [
+    974.738,
+    20.609,
+    -982.737
+   ],
+   "at": [
+    982.68,
+    12.115,
+    -1003.297
+   ],
+   "fov": 58.0,
+   "lifted": 0.0,
+   "iou_right": 0.989,
+   "iou_left": 0.854,
+   "mirror": false,
+   "iou_band": 0.992,
+   "eye_dy": -0.5,
+   "aim_dy": -0.5,
+   "iou_free": 0.992,
+   "free_drot": 0.0,
+   "free_fov_k": 1.0
+  },
+  {
+   "spot": "boat",
+   "turn": 0,
+   "cam_rot": 270.0,
+   "cam_upper": 0,
+   "mode": 7,
+   "type": 2,
+   "type_cam": 2,
+   "topograph": 57,
+   "iou_foot": 0.058,
+   "area": 0,
+   "player": [
+    257.762,
+    -0.703125,
+    -381.148
+   ],
+   "eye": [
+    231.485,
+    12.052,
+    -381.148
+   ],
+   "at": [
+    257.762,
+    7.683,
+    -381.148
+   ],
+   "fov": 51.97,
+   "lifted": 1.768951416015625,
+   "iou_right": 0.902,
+   "iou_left": 0.292,
+   "mirror": false,
+   "iou_band": 0.904,
+   "eye_dy": 1.0,
+   "aim_dy": 0.5,
+   "iou_free": 0.904,
+   "free_drot": 0.0,
+   "free_fov_k": 1.0
+  },
+  {
+   "spot": "boat",
+   "turn": 1,
+   "cam_rot": 268.77,
+   "cam_upper": 0,
+   "mode": 7,
+   "type": 2,
+   "type_cam": 2,
+   "topograph": 57,
+   "iou_foot": 0.051,
+   "area": 0,
+   "player": [
+    257.762,
+    -0.703125,
+    -381.148
+   ],
+   "eye": [
+    231.491,
+    12.052,
+    -381.712
+   ],
+   "at": [
+    257.762,
+    7.683,
+    -381.148
+   ],
+   "fov": 51.97,
+   "lifted": 1.768951416015625,
+   "iou_right": 0.899,
+   "iou_left": 0.29,
+   "mirror": false,
+   "iou_band": 0.905,
+   "eye_dy": 1.0,
+   "aim_dy": 0.5,
+   "iou_free": 0.905,
+   "free_drot": 0.0,
+   "free_fov_k": 1.0
+  }
+ ]
+}

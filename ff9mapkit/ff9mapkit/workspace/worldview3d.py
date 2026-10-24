@@ -45,6 +45,14 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QHBoxLayout, QStackedLayout, QVBoxLayout, QWidget
 
 NEAR = 0.05                    # render.raster drops a tri with any vertex this close to the eye (or behind it)
+# the game camera's vehicles (C8): the travel modes offered, how each sits (measured in game: c8_lab.py)
+VEHICLE_MODES = (0, 1, 6, 7, 8, 9)   # on foot, a chocobo, the gold chocobo flying, the Blue Narciss, the airships
+VEHICLE_LABELS = {0: "On foot", 1: "Chocobo", 6: "Gold chocobo, flying", 7: "Blue Narciss", 8: "Hilda Garde III",
+                  9: "Invincible"}
+FLYING_MODES = (6, 8, 9)
+BOAT_MODE = 7
+BOAT_DRAFT = -0.703125         # the Blue Narciss rides at the water's surface less this (published -0.703125)
+CEILING = 42.1875              # a flyer's ceiling (the vehicle study's rank 5, measured)
 ORTHO_Y = (-200.0, 400.0)      # the y span an ortho still's depth maps over (the world sits in about -6..60)
 MISSING_RGB = (200, 60, 200)   # render.raster's missing-texture magenta
 FOV = 50.0                     # the interactive camera's field of view (the bench cameras' own)
@@ -595,11 +603,17 @@ class GameCamera:
     ``player`` with the camera's yaw ``rotation`` -- its distance, height and field of view from the engine's tables
     and the user's Memoria.ini ``[Worldmap]`` (``settings``), the eye lifted over ``ground``. The orbit camera's
     interface, so the view drives either: a sideways drag turns it (the bumpers do the same in the game); it does not
-    pan or zoom, since the game's does not."""
+    pan or zoom, since the game's does not.
 
-    def __init__(self, player, rotation=0.0, *, settings=None, area=14, ground=None):
+    ``mode`` is the travel mode (gEventGlobal[190], C8): a chocobo, the boat and the airships each frame their own way
+    (``gamecam.pose``); ``table`` is the game's TransportControls (``gamecam.transport_table``); ``topograph`` the
+    cell's under the party (a chocobo over forest widens its view). The panel seats the party as each vehicle sits."""
+
+    def __init__(self, player, rotation=0.0, *, settings=None, area=14, ground=None, mode=0, table=None,
+                 topograph=None):
         self.player, self.rotation = tuple(float(v) for v in player), float(rotation) % 360.0
         self.settings, self.area, self.ground = settings, int(area), ground
+        self.mode, self.table, self.topograph = int(mode), table, topograph
         self.dist = 0.0
         self._memo = None
 
@@ -613,10 +627,11 @@ class GameCamera:
 
     def view(self):
         from ..world import gamecam as G
-        key = (self.player, round(self.rotation, 3), self.area)
+        key = (self.player, round(self.rotation, 3), self.area, self.mode, self.topograph)
         if self._memo is None or self._memo[0] != key:
             v = G.pose(self.player, self.rotation, settings=self.settings or G.Settings(), area=self.area,
-                       ground=self.ground)
+                       ground=self.ground, mode=self.mode, table=self.table, airborne=self.mode == 6,
+                       topograph=self.topograph)
             v["near"] = NEAR
             self._memo = (key, v)
         return dict(self._memo[1])
@@ -892,6 +907,30 @@ class WorldView3DPanel(QWidget):
         self.game_btn.toggled.connect(self.set_game_camera)
         self.game_btn.toggled.connect(self._name_game_btn)
         self.game_btn.hide()                                 # until the view is up
+        # C8: the travel mode the game camera frames for, and a flyer's height (shown only with the game camera on)
+        from PySide6.QtWidgets import QComboBox, QDoubleSpinBox
+        self.vehicle_box = QComboBox()
+        self.vehicle_box.setAccessibleName("Game camera vehicle")
+        self.vehicle_box.setToolTip("How the party travels: on foot, on a chocobo, on the boat or an airship. Each "
+                                    "vehicle's camera sits at its own distance and height, as the game's does.")
+        for m in VEHICLE_MODES:
+            self.vehicle_box.addItem(VEHICLE_LABELS[m], m)
+        # the longest name never sets the bar's width (the window's floor): the list opens as wide as its items
+        self.vehicle_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.vehicle_box.setMinimumContentsLength(12)
+        self.vehicle_box.currentIndexChanged.connect(lambda _ix: self._vehicle_changed())
+        self.alt_spin = QDoubleSpinBox()
+        self.alt_spin.setAccessibleName("Game camera flying height")
+        self.alt_spin.setToolTip(f"How high the airship (or the flying chocobo) flies. The game keeps a flyer on or "
+                                 f"above the ground below it and never above {CEILING:g}.")
+        self.alt_spin.setRange(0.0, CEILING)
+        self.alt_spin.setDecimals(1)
+        self.alt_spin.setSingleStep(2.0)
+        self.alt_spin.setValue(24.0)
+        self.alt_spin.valueChanged.connect(lambda _v: self._seat_party())
+        for w in (self.vehicle_box, self.alt_spin):
+            w.hide()
+            self.bar.addWidget(w)
         self.bar.addWidget(self.game_btn)
         outer.addLayout(self.bar)
         self.caption = widgets.role_label("", "caption")
@@ -1033,6 +1072,7 @@ class WorldView3DPanel(QWidget):
         """Frame the view as the game's camera would (on), or go back to the free orbit about the same point (off)."""
         if self.view is None:
             return
+        self._show_vehicle(on)
         if not on:
             if self.view.game_mode():
                 self.view.set_camera(self.view.camera.to_orbit())
@@ -1046,30 +1086,56 @@ class WorldView3DPanel(QWidget):
         settings = G.Settings.from_game(game) if game is not None else G.Settings()
         packed = self.view.packed
         cam = GameCamera.from_orbit(self.view.camera, (x, 0.0, z), settings=settings,
-                                    ground=lambda gx, gz: ground_y(packed, gx, gz))
+                                    ground=lambda gx, gz: ground_y(packed, gx, gz),
+                                    mode=int(self.vehicle_box.currentData() or 0), table=G.transport_table(game))
         self.view.set_camera(cam)
         self._seat_party()
 
+    def _show_vehicle(self, on: bool):
+        self.vehicle_box.setVisible(on)
+        self.alt_spin.setVisible(on and int(self.vehicle_box.currentData() or 0) in FLYING_MODES)
+
+    def _vehicle_changed(self):
+        cam = self.view.camera if self.view is not None else None
+        if isinstance(cam, GameCamera):
+            cam.mode = int(self.vehicle_box.currentData() or 0)
+            self._show_vehicle(True)
+            self._seat_party()
+
     def _seat_party(self):
-        """Stand the game camera's party on the ground at its point, in the cell's own AREA (which picks the
-        camera's posstats: stock grass at the Landing Site is area 42, kit lawn 14)."""
+        """Seat the game camera's party at its point as its vehicle sits there (C8, measured in game): on foot or a
+        chocobo on the ground it stands on; the boat at the water's surface less 0.703; a flyer at the height spin,
+        raised to the ground below it and never above the ceiling. In the cell's own AREA (which picks the camera's
+        posstats: stock grass at the Landing Site is area 42, kit lawn 14) and topograph (a chocobo's forest view)."""
         cam = self.view.camera if self.view is not None else None
         if not isinstance(cam, GameCamera):
             return
         x, _y, z = cam.player
-        y = ground_y(self.view.packed, x, z)
-        cam.player = (x, 0.0 if y is None else y, z)
-        cam.area = self._area_at(x, z)
+        g = self._ground_at(x, z)
+        top = ground_y(self.view.packed, x, z)
+        stand = g.get("stand_y", top)
+        if cam.mode in FLYING_MODES:
+            y = min(CEILING, max(float(self.alt_spin.value()), top if top is not None else 0.0))
+        elif cam.mode == BOAT_MODE:
+            y = (top if top is not None else 0.0) + BOAT_DRAFT
+        else:
+            y = 0.0 if stand is None else stand
+        cam.player = (x, float(y), z)
+        cam.area = int(g.get("area", 14) or 0)
+        cam.topograph = g.get("topograph")
         cam._memo = None
         self.view.update()
 
-    def _area_at(self, x, z) -> int:
+    def _ground_at(self, x, z) -> dict:
+        """The point facts' ground (area, topograph, the height one stands at), or {} when they cannot be read."""
         try:
             from ..world import pointinfo as PI
-            g = PI.point_info(self.site, x, z, landmark=False)["ground"]
-            return int(g.get("area", 14) or 0)
+            return dict(PI.point_info(self.site, x, z, landmark=False)["ground"])
         except Exception:                                    # noqa: BLE001 -- the kit's lawn area: the safe default
-            return 14
+            return {}
+
+    def _area_at(self, x, z) -> int:
+        return int(self._ground_at(x, z).get("area", 14) or 0)
 
     def _camera_changed(self, game: bool):
         self.game_btn.blockSignals(True)

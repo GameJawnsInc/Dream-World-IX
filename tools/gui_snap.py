@@ -1056,6 +1056,16 @@ def _snap_world_3d(ctx: _Ctx, state: str, win) -> None:
             PI.point_info = orig_info
         _settle(12)
         _grab(ctx, f"world-{state}-game", win)
+        # C8: the same point from the Hilda Garde III at a cruising height (the chooser and the height spin shown)
+        PI.point_info = _fixed
+        try:
+            p3 = doc._view3d
+            p3.vehicle_box.setCurrentIndex(p3.vehicle_box.findData(8))
+            p3.alt_spin.setValue(36.0)
+        finally:
+            PI.point_info = orig_info
+        _settle(12)
+        _grab(ctx, f"world-{state}-game-airship", win)
 
 
 def snap_world(ctx: _Ctx, state: str) -> None:
