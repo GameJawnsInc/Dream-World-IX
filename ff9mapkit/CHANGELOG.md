@@ -13,6 +13,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - Edit opens a card only on settings the card can show exactly as the step has them; otherwise it says why, and
   Delete still works.
 
+### Fixed — carrying a block onto the map's edge
+- `world-transplant` onto column 0 (or 23) now checks the carried coast's transition tiles against the blocks
+  across the map's edge too. Before, it ignored that side: a correct tile there could be reported as wrong, and
+  `--redress-orphans` could change it. Carries made without `--redress-orphans` are unchanged.
+
 ### Fixed — World tab
 - Clicking open sea with "Sink an island" open failed with an error instead of saying "Click an island."
 - "Shape a coast" could refuse a coast change it had just made, after an Undo, as "already edited".

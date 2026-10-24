@@ -142,6 +142,10 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C14, THE CARRY AT COLUMN 0: ANSWERED + FIXED (2026-10-24)** -> [`C14.md`](C14.md). The carry's bytes never
+  read the target's neighbours on either side, so nothing joins wrongly; but its orphan-decal census clipped its ring
+  to the grid, blind west of column 0 (and east of 23), and --redress-orphans could rewrite a lawful tile there. The
+  ring now wraps. Real bytes at (0, 3): the census now reads (23, 4); written bytes identical over 1,871 files.
 - **C13, MORPH AND RIVER REPLAY: BUILT (2026-10-24)** -> [`C13.md`](C13.md). Measured: a coast morph reads only its
   own block (it keeps the block's frame), a river only the blocks it changes; neither read a held neighbour. So both
   replay after an edit; the install-gated fence holds them to it. Real bytes: an edited hill with a morph and a
