@@ -28,6 +28,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - `world-fuse`'s `[[transplant]]` row takes `size`, and `world-transplant --report-json` names every block a
   multi-block carry fills.
 - Tested in game: the party stood on the carried comma at the predicted height (9.55), where it had been in open sea.
+  The crystal reef (9.27) and the terminus pair (5.04) were walked the same way and are no longer marked "new".
 
 ### Changed — `summon-reskin` refuses a 15bpp repaint that can never be seen
 - Once an effect draws into its off-screen render target, Memoria reads every 15bpp page from that target, not
