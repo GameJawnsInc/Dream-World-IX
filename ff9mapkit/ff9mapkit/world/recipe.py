@@ -16,7 +16,7 @@ import math
 import tomllib
 
 #: The tables the editor writes (the rest of a recipe it composes and lists, but does not edit).
-EDITOR_TABLES = ("forest", "mountain", "sink", "morph", "island", "transplant", "river")
+EDITOR_TABLES = ("forest", "mountain", "hill", "sink", "morph", "island", "transplant", "river")
 
 HEADER = ("# Dream World IX overworld recipe, written by the World tab.\n"
           "# Compose it onto a mod folder with:  ff9mapkit world-fuse <this file> --mod-folder <folder>\n")
@@ -90,6 +90,17 @@ def row_for(argv) -> dict:
         if getattr(a, "allow_entrances", False):
             row["allow_entrances"] = True
         return row
+    if verb == "world-hill":
+        if a.near is not None or a.center is None:
+            raise ValueError("a recipe row is an exact placement (--center)")
+        if a.target_disc is not None or a.disc != 1:
+            raise ValueError("a recipe row is a disc-1 edit")
+        from .handles import handle
+        row = {"table": "hill", "center": [float(v) for v in a.center.split(",")]}
+        for key in ("height", "radius"):
+            if getattr(a, key) != handle("hill", key).default:
+                row[key] = float(getattr(a, key))
+        return row
     if verb not in ("world-forest", "world-mountain"):
         raise ValueError(f"{verb} has no recipe row")
     if a.near is not None or a.center is None:
@@ -127,6 +138,10 @@ def label(row: dict) -> str:
     if table == "morph":
         c = row.get("cell") or (0, 0)
         return f"{row.get('verb', 'morph')} {_num(row.get('depth', 0))} at block ({c[0]}, {c[1]})"
+    if table == "hill":
+        c = row.get("center") or (0, 0)
+        return (f"hill h{_num(row.get('height', 4.2))} r{_num(row.get('radius', 18))} at {_num(c[0])}, "
+                f"{_num(c[1])}")
     if table == "river":
         at = row.get("at") or (0, 0)
         if row.get("move_from"):

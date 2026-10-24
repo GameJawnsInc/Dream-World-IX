@@ -141,6 +141,11 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C6, THE HILL: BUILT + IN GAME (2026-10-23)** -> [`C6.md`](C6.md). "Add a hill": the ghost is the island's own
+  triangles lifted by the verb's raised cosine (pinned to `build_hill`'s output), the preview runs its footprint,
+  flank and peak laws live (agreeing with the verb gate for gate), and the spins read B2's table. B1 reached the hill:
+  its gates raise located refusals. I1/I2 identical over 1,767 files; in game the lawn at 3.199, the hill's top at
+  7.320 (predicted 7.322). Every relief verb now has its card.
 - **C5, fifth verb: MOVE THE RIVER BUILT + IN GAME (2026-10-23); C5 DONE** -> [`C5.md`](C5.md). Of the river's 28
   placements, all are held in FF9CustomMap-world; with its own files left out, one more is free (one block north). So
   the card is a move: `world-river --at NEW --move-from OLD` judges the new placement with the old river's files free,

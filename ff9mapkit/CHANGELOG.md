@@ -5,6 +5,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — raise a hill from the World tab
+- "Add a hill" (in "Edit the map"): click a deployed island's lawn, drag it, and set its height and radius. The ghost
+  is the very hill `world-hill` will make, and its slope and height limits show while you drag; `world-hill` checks
+  the rest, and Accept raises it in the draft.
+- `world-hill --report-json`, and `world-hill`'s refusals now say where (the World tab marks them on the map).
+- Tested in game: the party stood on the hill's top at the predicted height (7.32, on a lawn at 3.20).
+
 ### Changed — `summon-reskin`'s scroll-copy notes follow what the screen actually sees
 - Memoria refreshes a decoded texture only when a write starts in that texture's own column, so an effect's
   per-frame scroll copy into the second column of an 8bpp page can run and never reach the screen. Measured over

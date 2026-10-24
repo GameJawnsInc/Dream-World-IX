@@ -147,13 +147,14 @@ HANDLES = {
                "island's world-island --ground)"),
     ),
     "hill": (
-        H("center", "--center", metavar="WX,WZ", group="where", surfaces="cli row",
+        H("center", "--center", metavar="WX,WZ", group="where", surfaces="cli row gui",
           help="EXACT hill centre in world coords (gated, no scan)"),
         H("near", "--near", metavar="WX,WZ", group="where", surfaces="cli row",
           help="scan a ~112u window around this point for the best lawful pure-mains placement"),
-        H("height", "--height", type=float, default=4.2, surfaces="cli row",
+        # the editor's stops, wider than the language both ways: the flank and peak gates judge each pair
+        H("height", "--height", type=float, default=4.2, lo=2.0, hi=6.0, surfaces="cli row gui",
           help="prominence in units (default 4.2; the real language is 3.5-5.2)"),
-        H("radius", "--radius", type=float, default=18.0, surfaces="cli row",
+        H("radius", "--radius", type=float, default=18.0, lo=12.0, hi=30.0, surfaces="cli row gui",
           help="footprint radius in units (default 18; the real language is 20-26u diameter runs)"),
     ),
 }
