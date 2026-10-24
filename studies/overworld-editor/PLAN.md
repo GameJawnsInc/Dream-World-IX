@@ -142,6 +142,12 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C11, FASTER RE-RUNS: BUILT (2026-10-24)** -> [`C11.md`](C11.md). Island, carry and sink steps get a measured
+  read window (`recipe.replay_window`: footprint or rect or own cells, plus the ring round them), held to what the
+  verbs really read by an install-gated fence; so after an edit they replay instead of running again. Real bytes:
+  an edited hill with an island, a carry and a sink after it -- 3 replayed, 0 composed again, 7.7 s against 35.7 s
+  to compose the four rows, == world-fuse over 1,900 files. Found: the manifest drift gate refused an opened
+  recipe's edit (editor jobs now --allow-overwrite in the draft), and an Edit right after an Accept raced a reader.
 - **C10, ACROSS THE SEAM: BUILT + IN GAME (2026-10-24)** -> [`C10.md`](C10.md). The verbs were seam-aware already;
   the editor was not (its soup cut at x = 0, the view drawing column 23 at the far end). Now each card reads the
   island in two frames and judges a centre within 384u of x = 0 in the one read across it, the command naming the

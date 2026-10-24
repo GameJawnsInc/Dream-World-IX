@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — edits are faster
+- After you edit or delete a placed shape, islands, carried coasts and sunk islands placed after it now come back
+  at once instead of being made again, unless the edit touched the ground they stand on. An edit with an island,
+  a carry and a sink after it took 8 seconds instead of about 36.
+
+### Fixed — editing a shape in a recipe you opened
+- Editing a step of a recipe opened with "Open…" could stop with "exit code 2" when the steps after it were
+  put back. It now works.
+- Clicking Edit right after Accept could stop half way on Windows while the card was still reading the island.
+
 ### Added — place forests, mountains and hills across the map's edge
 - The World tab's 3D view now draws the map's east and west edges side by side where they meet, so an island that
   crosses the edge reads whole, and "Add forest", "Add mountain" and "Add a hill" can place a shape across it.
