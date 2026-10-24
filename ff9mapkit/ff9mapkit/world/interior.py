@@ -3635,9 +3635,12 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             if d0 > 0.05:
                 worst_rig = max(worst_rig,
                                 abs(math.dist(carried[t][a], carried[t][b]) / d0 - 1.0))
-    g_worst, g_worst_at = 0.0, None                        # the apron slope envelope
+    # the apron slope envelope: the grass the apron LIFTED (rung C17). Judged over every plain tri of the span, a tri
+    # the lift never moved -- ground as the island already had it, a hill's flank, a vertical curtain up to 107u off --
+    # refused every mountain whose span reached it (42 of 150 measured checks, all of them)
+    g_worst, g_worst_at = 0.0, None
     for tdx, tri in enumerate(gtris):
-        if tdx in drop or not plain[tdx]:
+        if tdx in drop or not plain[tdx] or not any(i in lift_of for i in tri):
             continue
         a, b, c3 = (np.array(gpos[i]) for i in tri)
         fn = np.cross(b - a, c3 - a)

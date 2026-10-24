@@ -241,3 +241,77 @@ def test_mountain_report_json_carries_the_verdict_and_the_home_ground_note(monke
                                                        report=rep)) == 0
     v = json.loads(rep.read_text())
     assert v["ok"] and not v["dry_run"] and any(p.endswith("Block[0][0] Terrain.ff9mesh") for p in v["written"])
+
+
+# ---------------------------------------------------------------- the hole ring, read before the carve (rung C17)
+def _bench_tris(y=3.2):
+    tris = []
+    for i in range(13):
+        for j in range(13):
+            x0, x1, z0, z1 = i * 4.0, (i + 1) * 4.0, -j * 4.0, -(j + 1) * 4.0
+            tris.append((((x0, y, z0), (x1, y, z0), (x0, y, z1)), GRASS, _MAIN_U))
+            tris.append((((x1, y, z0), (x1, y, z1), (x0, y, z1)), GRASS, _MAIN_U))
+    return tris
+
+
+def _split_at(tris, p, d=3e-4):
+    """One kept tri's copy of point ``p`` moved ``d`` in x: the same 1e-3 key, two floats (a weld split)."""
+    k = next(n for n, (c, _i, _u) in enumerate(tris) if p in c)
+    tris = list(tris)
+    tris[k] = (tuple((p[0] + d, p[1], p[2]) if q == p else q for q in tris[k][0]),) + tris[k][1:]
+    return tris
+
+
+def test_a_weld_split_on_the_foot_s_ring_refuses_in_the_preview_and_in_the_carve(monkeypatch, tmp_path):
+    """THE PREVIEW IS THE LAW, for the ring: the carve drops every tri with a vertex inside the rim or within MTN_CLEAR
+    of it (plan only), and zips the rim to the points the dropped tris share with the kept. A weld split among a ring
+    point's kept copies refuses the carve (weld, or ring once the lift rounds the copies apart); the card reads the
+    same ring and refuses first, marking the point. A split off the ring refuses neither."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    ol = ME.outline("0,0", game=tmp_path)
+    c = (26.0, -26.0)
+    _t, rim = ME.placed(ol, c)
+    clean = ME.SoupIndex(IN.soup_from_blocks({(0, 0): _bm(_bench_tris())}))
+    ring = ME.foot_ring(clean, rim[:, [0, 2]])
+    assert ring["split"] == [] and 0.0 < ring["reach"] < IN.MTN_MAX_EDGE
+    on = ring["ring"][len(ring["ring"]) // 2]              # a point of the carve's own ring
+    for p, refused in (((on[0], 3.2, on[1]), True), ((48.0, 3.2, -48.0), False)):
+        tris = _bench_tris()
+        # the kept copy: a tri of the point with no vertex in the hole (the dropped ones do not count)
+        k = next(n for n, (cs, _i, _u) in enumerate(tris) if p in cs and not any(
+            ME._pip(np.array([[q[0], q[2]]]), rim[:, [0, 2]])[0]
+            or ME._near(np.array([[q[0], q[2]]]), rim[:, [0, 2]], IN.MTN_CLEAR)[0] for q in cs))
+        tris[k] = (tuple((p[0] + 3e-4, p[1], p[2]) if q == p else q for q in tris[k][0]),) + tris[k][1:]
+        soup = IN.soup_from_blocks({(0, 0): _bm(tris)})
+        pv = ME.footprint_preview(ME.SoupIndex(soup), c, rim[:, [0, 2]], ol.r_rim)
+        if not refused:
+            assert pv["ok"], pv
+            IN.carve_mountain(soup, center=c, alcove=None, game=tmp_path, **QUIET)
+            continue
+        assert pv["gate"] == "weld" and pv["where"] == [(p[0], p[2])], pv
+        with pytest.raises(IN.CarveRefused) as e:
+            IN.carve_mountain(soup, center=c, alcove=None, game=tmp_path, **QUIET)
+        assert e.value.gate in ("weld", "ring"), e.value
+
+
+def test_the_zip_edge_bound_refuses_ground_too_coarse_round_the_foot(monkeypatch, tmp_path):
+    """Every ring point is joined to some rim point, so the farthest ring point's distance to the rim bounds the zip's
+    longest edge from below: coarse ground round the foot (16u tris) leaves the ring far out, past MTN_MAX_EDGE."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    ol = ME.outline("0,0", game=tmp_path)
+    tris = []
+    for i in range(6):
+        for j in range(6):
+            x0, x1, z0, z1 = i * 64 / 6, (i + 1) * 64 / 6, -j * 64 / 6, -(j + 1) * 64 / 6
+            tris.append((((x0, 3.2, z0), (x1, 3.2, z0), (x0, 3.2, z1)), GRASS, _MAIN_U))
+            tris.append((((x1, 3.2, z0), (x1, 3.2, z1), (x0, 3.2, z1)), GRASS, _MAIN_U))
+    soup = IN.soup_from_blocks({(0, 0): _bm(tris)})
+    c = (30.0, -30.0)
+    _t, rim = ME.placed(ol, c)
+    ring = ME.foot_ring(ME.SoupIndex(soup), rim[:, [0, 2]])
+    assert ring["reach"] > IN.MTN_MAX_EDGE + ME.RING_TOL
+    pv = ME.footprint_preview(ME.SoupIndex(soup), c, rim[:, [0, 2]], ol.r_rim)
+    assert pv["gate"] == "edge" and pv["where"] == [ring["far"]], pv
+    with pytest.raises(IN.CarveRefused) as e:                       # the carve's own edge law agrees
+        IN.carve_mountain(soup, center=c, alcove=None, game=tmp_path, **QUIET)
+    assert e.value.gate == "geometry" and "edge of" in e.value.detail, e.value
