@@ -115,20 +115,31 @@ def app():
 
 def _card(table, tmp_path):
     from ff9mapkit.editor.theme import pick_palette
-    from ff9mapkit.workspace.worldforest import ForestTool
-    from ff9mapkit.workspace.worldmountain import MountainTool
     from ff9mapkit.workspace.worldview3d import WorldView3DPanel
-    cls = {"forest": ForestTool, "mountain": MountainTool}[table]
+    cls = CARDS()[table]
     return cls(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: tmp_path,
                source_fn=lambda: tmp_path / "Src", runner=lambda *a, **k: None, drafts_root=tmp_path / "d",
                outline_fn=lambda donor: None, soup_fn=lambda folder: None, sync=True)
+
+
+def CARDS():
+    """Every World-tab card that reads a handle table, by its table."""
+    from ff9mapkit.workspace.worldforest import ForestTool
+    from ff9mapkit.workspace.worldhill import HillTool
+    from ff9mapkit.workspace.worldmountain import MountainTool
+    return {c.HANDLE_TABLE: c for c in (ForestTool, MountainTool, HillTool)}
+
+
+def test_every_table_with_gui_handles_has_its_card(app):
+    """A handle on the gui surface with no card claiming its table exists in one surface only (the table's)."""
+    assert {t for t in TABLES if HD.handles(t, "gui")} == set(CARDS())
 
 
 def _flags(argv):
     return {a for a in argv if a.startswith("--")}
 
 
-@pytest.mark.parametrize("table", ["forest", "mountain"])
+@pytest.mark.parametrize("table", ["forest", "mountain", "hill"])
 def test_a_card_maps_exactly_the_table_s_gui_handles(app, table, tmp_path):
     card = _card(table, tmp_path)
     assert card.HANDLE_TABLE == table
@@ -151,16 +162,17 @@ def test_a_card_maps_exactly_the_table_s_gui_handles(app, table, tmp_path):
             assert w.count() == len(rows) > 0, name
 
 
-@pytest.mark.parametrize("table", ["forest", "mountain"])
+@pytest.mark.parametrize("table", ["forest", "mountain", "hill"])
 def test_a_card_s_command_names_only_its_gui_handles(app, table, tmp_path):
     """Every handle flag the card's command can emit is one its map names, and every mapped handle reaches the
     command when it is off its default (the centre always does)."""
     card = _card(table, tmp_path)
     card.center = (100.0, -100.0)
-    card.angle.setValue(90)
-    card.spread.setValue(card.spread.maximum())
+    for name, how in card.HANDLES.items():             # every mapped spin off its default
+        w = getattr(card, how, None)
+        if w is not None and HD.handle(table, name).lo is not None:
+            w.setValue(90 if HD.handle(table, name).wraps else w.maximum())
     if table == "mountain":
-        card.rock_height.setValue(card.rock_height.maximum())
         card.ground = lambda: "desert"
         card._r_placed = lambda: 200.0                  # a radius whose reach is off the default
     plumbing = {"--mod-folder", "--dry-run", "--report-json"}

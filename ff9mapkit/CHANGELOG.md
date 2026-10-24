@@ -5,6 +5,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — raise a hill from the World tab
+- "Add a hill" (in "Edit the map"): click a deployed island's lawn, drag it, and set its height and radius. The ghost
+  is the very hill `world-hill` will make, and its slope and height limits show while you drag; `world-hill` checks
+  the rest, and Accept raises it in the draft.
+- `world-hill --report-json`, and `world-hill`'s refusals now say where (the World tab marks them on the map).
+- Tested in game: the party stood on the hill's top at the predicted height (7.32, on a lawn at 3.20).
+
 ### Added — move the river from the World tab
 - "Move the river" (in "Edit the map"): the card finds where the carried river stands, a click picks where it goes
   (only the river's own placements are offered, each marked free or held), and `world-river` checks it; Accept moves
