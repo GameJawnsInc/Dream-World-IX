@@ -322,6 +322,14 @@ def _edited_draft(tmp_path):
     (tree4 / "Block[0][0] Terrain.ff9mesh").write_bytes((src / T1).read_bytes())
     d = D.ensure_draft(src, game=game, root=tmp_path / "drafts")
     (d / T1).write_bytes(b"the forest")
+    # ...ledgered as world-forest ledgers what it writes. Without the row the "verb that made the bytes" was whatever
+    # cli.main last ran in the test process (mesh._DEPLOY_ARGV, via _mod's own ledger rows): alone, or after a
+    # world-mountain test on the same worker, the promote test failed
+    import hashlib
+    with open(d / D.LEDGER, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"cell": [0, 0], "part": "Terrain", "write_disc": 1, "read_disc": 1,
+                            "sha256": hashlib.sha256(b"the forest").hexdigest(),
+                            "argv": ["world-forest", "--mod-folder", str(d)]}) + "\n")
     return game, src, d
 
 
