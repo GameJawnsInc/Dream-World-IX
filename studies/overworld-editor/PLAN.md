@@ -141,6 +141,17 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C7, THE GAME'S OWN CAMERA: ANSWERED + BUILT (2026-10-23)** -> [`C7.md`](C7.md). The chase camera decoded from
+  Memoria's source (`world/gamecam.py`: posstats, place, the altitude and tilt blends, the terrain lift, the user's
+  Memoria.ini [Worldmap]) and measured against nine in-game stills: exact in plan, within the engine's settle bands in
+  height. Found by asking: render.py and the 3D view drew the world as the game's MIRROR image (right-handed); fixed,
+  9 of 9 stills now choose the unmirrored frame. "As the game sees it" on the 3D page frames the pick as the game
+  would. **A0's owner look is owed again: the view it showed was mirrored.**
+- **C6, THE HILL: BUILT + IN GAME (2026-10-23)** -> [`C6.md`](C6.md). "Add a hill": the ghost is the island's own
+  triangles lifted by the verb's raised cosine (pinned to `build_hill`'s output), the preview runs its footprint,
+  flank and peak laws live (agreeing with the verb gate for gate), and the spins read B2's table. B1 reached the hill:
+  its gates raise located refusals. I1/I2 identical over 1,767 files; in game the lawn at 3.199, the hill's top at
+  7.320 (predicted 7.322). Every relief verb now has its card.
 - **C5, fifth verb: MOVE THE RIVER BUILT + IN GAME (2026-10-23); C5 DONE** -> [`C5.md`](C5.md). Of the river's 28
   placements, all are held in FF9CustomMap-world; with its own files left out, one more is free (one block north). So
   the card is a move: `world-river --at NEW --move-from OLD` judges the new placement with the old river's files free,
@@ -386,6 +397,8 @@ Each rung is useful on its own. One change per in-game test, as everywhere else.
 - ~~`carve_forest` time at a fixed centre~~: 7 s cold through the CLI, every gate included (C1.md).
 - The harness round trip on the overworld, measured rather than estimated.
 - Whether GL works in the Workspace's offscreen smoke run, or what the fallback costs.
-- How close a free GPU camera can come to the game's own world camera. render.py's ledger says it cannot see the
+- ~~How close a free GPU camera can come to the game's own world camera~~: exact in plan, within the engine's own
+  1u / 0.5u settle bands in height (C7.md: nine stills, land-mask IoU 0.873-0.995); and the view had drawn the world
+  MIRRORED (fixed). The old note follows. How close a free GPU camera can come to the game's own world camera. render.py's ledger says it cannot see the
   real camera path, so an "as the game sees it" view needs the 9001 rig's numbers
   (`project-ff9-world-scene-rigs`).

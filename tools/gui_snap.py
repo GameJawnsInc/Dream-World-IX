@@ -275,7 +275,7 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 # --------------------------------------------------------------------------------------- world states
 WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-sink", "3d-coast", "3d-island", "3d-transplant",
-                "3d-river")
+                "3d-river", "3d-hill")
 # "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
 # surface that depends on the developer's machine cannot be a pinned review state.
 WORLD_EXTRA_STATES = ("3d-live",)
@@ -907,6 +907,70 @@ def _snap_world_river(ctx: _Ctx, win) -> None:
         V.load_scene = orig
 
 
+def _snap_world_hill(ctx: _Ctx, win) -> None:
+    """Rung 6: the hill card on the pinned 3D page -- a level patch of invented mains lawn on the synthetic island's
+    lowland (its own grid, so the footprint law has level ground to pass), the hill's lifted ghost, a passing check;
+    then ``-refused``, too steep for its radius, refused by the flank law before any job."""
+    import math
+    import shutil as _sh
+    import numpy as np
+    from ff9mapkit.workspace import worldview3d as V
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world import hilledit as HE
+    from ff9mapkit.world.extract import encode_id
+    cx, cz, n, step, y0 = 1171.0, -1184.0, 25, 4.0, 3.0
+    xs = cx - n * step / 2 + step * np.arange(n + 1)
+    zs = cz - n * step / 2 + step * np.arange(n + 1)
+    verts = np.array([(x, y0, z) for z in zs for x in xs])
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            a, b, c, d = i * (n + 1) + j, i * (n + 1) + j + 1, (i + 1) * (n + 1) + j, (i + 1) * (n + 1) + j + 1
+            tris += [(a, c, b), (b, c, d)]
+    u = (G.FAM_REGION["main"][0] + G.FAM_REGION["main"][2]) / 2.0
+    blk = (int(math.floor(cx / 64.0)), int(math.floor(-cz / 64.0)))
+    meta = [(blk, float(encode_id(topograph=0)), "main", [(u, 0.8)] * 3) for _t in tris]
+    ix = HE.SoupIndex({"pos": verts.tolist(), "tris": tris, "meta": meta, "coast": [], "blocks": {blk: None}})
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "center": [cx, cz], "blocks": [list(blk)],
+                 "report": {"displaced_tris": 226, "worst_flank": 21.4, "peak_y": 7.2}, "written": [], "refused": None}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._hill_runner = drafts, Scripted()
+    doc._hill_seams = {"soup_fn": lambda folder: ix, "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        ht = doc.open_hill(sync=True)
+        for name, height in (("", 4.2), ("-refused", 6.0)):
+            ht.height_spin.setValue(height)
+            ht.radius_spin.setValue(18.0 if not name else 14.0)
+            ht.place(cx, cz, y0)
+            ht._timer.stop()
+            ht._check()
+            view = doc._view3d.view
+            if view is not None:
+                view.focus(cx, cz, dist=110.0, y=y0)
+                view.camera.yaw, view.camera.pitch = 20.0, 32.0
+                view.update()
+            _settle(12)
+            _grab(ctx, f"world-3d-hill{name}", win)
+    finally:
+        V.load_scene = orig
+
+
 def _snap_forest_states(ctx: _Ctx, win, doc) -> None:
     ft, view = doc._forest, doc._view3d.view
     ft._on_reload = lambda x, z: None                    # the dev checkout's Show in game, offered
@@ -972,6 +1036,15 @@ def _snap_world_3d(ctx: _Ctx, state: str, win) -> None:
         PI.point_info = orig_info
     _settle(12)
     _grab(ctx, f"world-{state}-pick", win)
+    # editor C7: the same point framed as the game's own camera does (the party standing at the pick)
+    if state == "3d":
+        PI.point_info = _fixed
+        try:
+            doc._view3d.game_btn.setChecked(True)
+        finally:
+            PI.point_info = orig_info
+        _settle(12)
+        _grab(ctx, f"world-{state}-game", win)
 
 
 def snap_world(ctx: _Ctx, state: str) -> None:
@@ -1024,6 +1097,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             return
         if state == "3d-river":
             _snap_world_river(ctx, win)
+            _close(win)
+            return
+        if state == "3d-hill":
+            _snap_world_hill(ctx, win)
             _close(win)
             return
         _settle()

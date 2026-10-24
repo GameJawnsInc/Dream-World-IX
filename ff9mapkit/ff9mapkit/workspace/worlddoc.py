@@ -451,7 +451,7 @@ class WorldDoc(QWidget):
                  mountain_runner=None, mountain_seams=None, recipe_runner=None, recipe_seams=None,
                  sink_runner=None, sink_seams=None, coast_runner=None, coast_seams=None, island_runner=None,
                  island_seams=None, transplant_runner=None, transplant_seams=None, river_runner=None,
-                 river_seams=None):
+                 river_seams=None, hill_runner=None, hill_seams=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -489,6 +489,9 @@ class WorldDoc(QWidget):
         self._river = None                         # the river tool (rung C5): built on the first Move-the-river click
         self._river_runner = river_runner
         self._river_seams = river_seams or {}
+        self._hill = None                          # the hill tool (rung 6): built on the first Add-a-hill click
+        self._hill_runner = hill_runner
+        self._hill_seams = hill_seams or {}
         self._recipe = None                        # the recipe bar (rung C3): built with the 3D page
         self._recipe_runner = recipe_runner        # ...its world-fuse runner and its seams (ask, file dialogs)
         self._recipe_seams = recipe_seams or {}
@@ -595,8 +598,8 @@ class WorldDoc(QWidget):
         from PySide6.QtWidgets import QMenu
         self.tools_btn = QPushButton("Edit the map")
         self.tools_btn.setProperty("role", "quiet")
-        self.tools_btn.setToolTip("Add a forest, a mountain or an island, shape or carry a coast, move the river or "
-                                  "sink an island: each tool's "
+        self.tools_btn.setToolTip("Add a forest, a mountain, a hill or an island, shape or carry a coast, move the "
+                                  "river or sink an island: each tool's "
                                   "card shows where it is lawful, its own world verb judges it, and Accept writes it to "
                                   "a draft the game does not load.")
         menu = QMenu(self.tools_btn)
@@ -606,6 +609,8 @@ class WorldDoc(QWidget):
                  "turn and spread it; every world-forest gate judges it."),
                 ("mountain", "Add mountain", "Place a real stock rock massif on a deployed island: drag, turn, spread "
                  "and heighten it; every world-mountain gate judges it."),
+                ("hill", "Add a hill", "Raise a grass hill on a deployed island: click where it goes, drag it, set "
+                 "its height and radius; the flank and peak laws show live, and world-hill judges it."),
                 ("island", "Add an island", "Mint a new island on open ocean: click where it goes, drag it, set its "
                  "radius, lobes, height, ground and shape; world-island judges it."),
                 ("coast", "Shape a coast", "Morph a real island's coast in place: click a cliff or a beach; only the "
@@ -930,8 +935,8 @@ class WorldDoc(QWidget):
             self.draw_box.removeItem(ix)
 
     def _carry_tools(self):
-        return [t for t in (self._forest, self._mountain, self._sink, self._coast, self._island, self._transplant,
-                            self._river) if t is not None]
+        return [t for t in (self._forest, self._mountain, self._hill, self._sink, self._coast, self._island,
+                            self._transplant, self._river) if t is not None]
 
     def _open_carry(self, which, *, sync=False):
         """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
@@ -954,6 +959,8 @@ class WorldDoc(QWidget):
                 from .worldtransplant import TransplantTool as Tool
             elif which == "river":
                 from .worldriver import RiverTool as Tool
+            elif which == "hill":
+                from .worldhill import HillTool as Tool
             else:
                 from .worldmountain import MountainTool as Tool
             tool = Tool(self.pal, self._view3d, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
@@ -1006,6 +1013,10 @@ class WorldDoc(QWidget):
     def open_transplant(self, *, sync=False):
         """The Carry-a-coast menu entry."""
         return self._open_carry("transplant", sync=sync)
+
+    def open_hill(self, *, sync=False):
+        """The Add-a-hill menu entry."""
+        return self._open_carry("hill", sync=sync)
 
     def open_river(self, *, sync=False):
         """The Move-the-river menu entry."""

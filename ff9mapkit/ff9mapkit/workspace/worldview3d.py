@@ -54,6 +54,7 @@ MAP_CENTRE = (768.0, 0.0, -640.0)                            # the 24x20 grid's 
 
 GL_TRIANGLES, GL_FLOAT = 0x0004, 0x1406
 GL_DEPTH_TEST, GL_CULL_FACE, GL_BACK, GL_LESS = 0x0B71, 0x0B44, 0x0405, 0x0201
+GL_CW, GL_CCW = 0x0900, 0x0901
 GL_COLOR_BUFFER_BIT, GL_DEPTH_BUFFER_BIT = 0x4000, 0x0100
 GL_BLEND, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA = 0x0BE2, 0x0302, 0x0303
 
@@ -85,13 +86,14 @@ class GLUnavailable(RuntimeError):
 
 # ---------------------------------------------------------------- the projection (pure)
 def view_basis(view):
-    """``(eye, right, up, fwd)`` exactly as ``render.project`` derives them (fwd = at - eye, right = fwd x Y)."""
+    """``(eye, right, up, fwd)`` exactly as ``render.project`` derives them (fwd = at - eye, right = Y x fwd: the
+    game's left-handed frame, C7)."""
     eye = np.asarray(view["eye"], dtype=np.float64)
     fwd = np.asarray(view["at"], dtype=np.float64) - eye
     fwd /= np.linalg.norm(fwd)
-    right = np.cross(fwd, [0.0, 1.0, 0.0])
+    right = np.cross([0.0, 1.0, 0.0], fwd)
     right /= np.linalg.norm(right)
-    up = np.cross(right, fwd)
+    up = np.cross(fwd, right)
     return eye, right, up, fwd
 
 
@@ -348,11 +350,12 @@ class _GLScene:
                 self.texs[part] = tex
         self.draws = list(packed.draws)
 
-    def draw(self, f, mvp: np.ndarray, *, cull: bool = True):
+    def draw(self, f, mvp: np.ndarray, *, cull: bool = True, ortho: bool = False):
         f.glEnable(GL_DEPTH_TEST)
         f.glDepthFunc(GL_LESS)
-        if cull:                                             # CCW front = the normal faces the eye (render's cull)
-            f.glEnable(GL_CULL_FACE)
+        if cull:                                             # the normal faces the eye (render's cull): in the
+            f.glEnable(GL_CULL_FACE)                         # game's left-handed perspective that face winds CW on
+            f.glFrontFace(GL_CCW if ortho else GL_CW)        # screen; the top-down ortho frame is unmirrored
             f.glCullFace(GL_BACK)
         else:
             f.glDisable(GL_CULL_FACE)
@@ -466,7 +469,7 @@ def render_still(batches, view, *, res=None, tex_lookup=None, site=None, cull=Tr
         scene = _GLScene()
         scene.init()
         scene.upload(packed, {p: texture_rgba(tex_lookup(p)) for p in packed.parts})
-        scene.draw(f, clip_matrix(view, res), cull=cull)
+        scene.draw(f, clip_matrix(view, res), cull=cull, ortho=view["kind"] == "ortho")
         f.glFinish()
         img = fbo.toImage().convertToFormat(QImage.Format.Format_RGB888)
         fbo.release()
@@ -542,20 +545,102 @@ class OrbitCamera:
         return self.dist + 2600.0
 
     def orbit(self, dx_px, dy_px):
-        self.yaw = (self.yaw - dx_px * 0.3) % 360.0
+        self.yaw = (self.yaw + dx_px * 0.3) % 360.0          # the world turns with the hand (left-handed frame)
         self.pitch = min(PITCH_MAX, max(PITCH_MIN, self.pitch + dy_px * 0.3))
 
     def pan(self, dx_px, dy_px, height_px):
         """Slide the target over the ground plane so the point under the cursor follows it."""
         per_px = 2.0 * self.dist * math.tan(math.radians(self.fov) / 2.0) / max(1, height_px)
         y = math.radians(self.yaw)
-        rx, rz = -math.cos(y), math.sin(y)                   # screen-right on the ground (render's right = fwd x Y)
+        rx, rz = math.cos(y), -math.sin(y)                   # screen-right on the ground (render's right = Y x fwd)
         fx, fz = math.sin(y), math.cos(y)                    # screen-up on the ground (toward the view direction)
         tx, ty, tz = self.target
         self.target = (tx - (dx_px * rx - dy_px * fx) * per_px, ty, tz - (dx_px * rz - dy_px * fz) * per_px)
 
     def zoom(self, steps):
         self.dist = min(DIST_MAX, max(DIST_MIN, self.dist * (0.85 ** steps)))
+
+
+def ground_y(packed: Packed, x: float, z: float):
+    """The highest up-facing surface of the scene under ``(x, z)`` (a ray straight down from the sky), or None: the
+    terrain the game camera's eye probes (``world.gamecam``'s ``ground``)."""
+    if packed is None:
+        return None
+    best = None
+    for part in packed.arrays:
+        v0, e1, e2, n = packed.pick_arrays(part)
+        ok = n[:, 1] > 0.0                                   # faces up: the face a ray from the sky meets
+        lo = np.minimum(v0, np.minimum(v0 + e1, v0 + e2))
+        hi = np.maximum(v0, np.maximum(v0 + e1, v0 + e2))
+        ok &= (lo[:, 0] <= x) & (x <= hi[:, 0]) & (lo[:, 2] <= z) & (z <= hi[:, 2])
+        idx = np.flatnonzero(ok)
+        if not len(idx):
+            continue
+        a, b, c = v0[idx], v0[idx] + e1[idx], v0[idx] + e2[idx]
+        d = (b[:, 2] - c[:, 2]) * (a[:, 0] - c[:, 0]) + (c[:, 0] - b[:, 0]) * (a[:, 2] - c[:, 2])
+        good = np.abs(d) > 1e-12
+        d = np.where(good, d, 1.0)
+        w0 = ((b[:, 2] - c[:, 2]) * (x - c[:, 0]) + (c[:, 0] - b[:, 0]) * (z - c[:, 2])) / d
+        w1 = ((c[:, 2] - a[:, 2]) * (x - c[:, 0]) + (a[:, 0] - c[:, 0]) * (z - c[:, 2])) / d
+        w2 = 1.0 - w0 - w1
+        inside = good & (w0 >= -1e-9) & (w1 >= -1e-9) & (w2 >= -1e-9)
+        if inside.any():
+            y = float((w0 * a[:, 1] + w1 * b[:, 1] + w2 * c[:, 1])[inside].max())
+            best = y if best is None else max(best, y)
+    return best
+
+
+class GameCamera:
+    """THE GAME'S OWN CAMERA (editor C7): the chase camera ``world.gamecam`` decodes, for the party standing at
+    ``player`` with the camera's yaw ``rotation`` -- its distance, height and field of view from the engine's tables
+    and the user's Memoria.ini ``[Worldmap]`` (``settings``), the eye lifted over ``ground``. The orbit camera's
+    interface, so the view drives either: a sideways drag turns it (the bumpers do the same in the game); it does not
+    pan or zoom, since the game's does not."""
+
+    def __init__(self, player, rotation=0.0, *, settings=None, area=14, ground=None):
+        self.player, self.rotation = tuple(float(v) for v in player), float(rotation) % 360.0
+        self.settings, self.area, self.ground = settings, int(area), ground
+        self.dist = 0.0
+        self._memo = None
+
+    @property
+    def target(self):
+        return self.player
+
+    @target.setter
+    def target(self, xyz):                                   # focus() moves the party, as the game's teleport does
+        self.player = tuple(float(v) for v in xyz)
+
+    def view(self):
+        from ..world import gamecam as G
+        key = (self.player, round(self.rotation, 3), self.area)
+        if self._memo is None or self._memo[0] != key:
+            v = G.pose(self.player, self.rotation, settings=self.settings or G.Settings(), area=self.area,
+                       ground=self.ground)
+            v["near"] = NEAR
+            self._memo = (key, v)
+        return dict(self._memo[1])
+
+    def far(self):
+        return 2600.0
+
+    def orbit(self, dx_px, dy_px):
+        self.rotation = (self.rotation + dx_px * 0.3) % 360.0
+
+    def pan(self, dx_px, dy_px, height_px):
+        pass
+
+    def zoom(self, steps):
+        pass
+
+    @classmethod
+    def from_orbit(cls, cam: "OrbitCamera", player, **kw):
+        """The game camera looking the way the orbit camera looks: the game's eye sits at +(sin, cos) of its yaw
+        from the party, the orbit's at -(sin, cos), so the yaw is the orbit's plus 180."""
+        return cls(player, (cam.yaw + 180.0) % 360.0, **kw)
+
+    def to_orbit(self) -> "OrbitCamera":
+        return OrbitCamera(target=self.player, yaw=(self.rotation + 180.0) % 360.0, pitch=35.0, dist=160.0)
 
 
 class WorldView3D(QOpenGLWidget):
@@ -565,6 +650,8 @@ class WorldView3D(QOpenGLWidget):
     picked = Signal(object)                                  # ((x, y, z), part) or None (sky) -- a click, not a drag
     ghost_moved = Signal(float, float)                       # the ghost's new centre while it is dragged
     ghost_dropped = Signal(float, float)                     # ...and where it was let go (the host judges it then)
+    camera_changed = Signal(bool)                            # the view left (False) the game camera on its own (Home)
+    party_moved = Signal(float, float, float)                # the game camera's party stands here now (a click)
     CLICK_SLOP = 4                                           # device px a press may wander and still be a click
 
     def __init__(self, parent=None):
@@ -591,6 +678,14 @@ class WorldView3D(QOpenGLWidget):
         # plan drags it on the level plane at y (ghost_moved / ghost_dropped); anywhere else the camera orbits
         self.ghost = None
         self._ghost_grab = None                              # (dx, dz) from the grab point to the centre
+
+    def set_camera(self, camera):
+        """Drive the view from ``camera`` (an :class:`OrbitCamera` or a :class:`GameCamera`)."""
+        self.camera = camera
+        self.update()
+
+    def game_mode(self) -> bool:
+        return isinstance(self.camera, GameCamera)
 
     def set_scene(self, packed: Packed, textures: dict):
         self._pending = (packed, textures)
@@ -714,7 +809,12 @@ class WorldView3D(QOpenGLWidget):
         press, self._press_at = self._press_at, None
         if (press is not None and press[0] == Qt.MouseButton.LeftButton and e.button() == Qt.MouseButton.LeftButton
                 and press[2] * self.devicePixelRatioF() <= self.CLICK_SLOP):
-            self.picked.emit(self.pick_at(e.position().x(), e.position().y()))
+            hit = self.pick_at(e.position().x(), e.position().y())
+            if hit is not None and self.game_mode():         # the game camera: the party stands where you click
+                self.camera.target = hit[0]
+                self.party_moved.emit(*hit[0])
+                self.update()
+            self.picked.emit(hit)
 
     def wheelEvent(self, e):
         self.camera.zoom(e.angleDelta().y() / 120.0)
@@ -723,6 +823,7 @@ class WorldView3D(QOpenGLWidget):
     def keyPressEvent(self, e):
         if e.key() == Qt.Key.Key_Home:
             self.camera = OrbitCamera()
+            self.camera_changed.emit(False)
             self.update()
             return
         super().keyPressEvent(e)
@@ -778,6 +879,20 @@ class WorldView3DPanel(QWidget):
         self.bar.setContentsMargins(0, 0, 0, 0)
         self.bar.setSpacing(8)
         self.bar.addStretch(1)
+        from PySide6.QtWidgets import QPushButton
+        self.game_btn = QPushButton("As the game sees it")
+        self.game_btn.setProperty("role", "quiet")
+        self.game_btn.setCheckable(True)
+        self.game_btn.setAccessibleName("Game camera")
+        self.game_btn.setToolTip("Frame the map as the game's own camera does for the party standing at the last "
+                                 "picked point (or the view's centre): its distance, height and field of view from "
+                                 "the engine's tables and your Memoria.ini [Worldmap]. A click stands the party "
+                                 "somewhere else; drag sideways to turn the camera, as the bumpers do. Home goes back "
+                                 "to the free view.")
+        self.game_btn.toggled.connect(self.set_game_camera)
+        self.game_btn.toggled.connect(self._name_game_btn)
+        self.game_btn.hide()                                 # until the view is up
+        self.bar.addWidget(self.game_btn)
         outer.addLayout(self.bar)
         self.caption = widgets.role_label("", "caption")
         self.caption.setWordWrap(True)
@@ -895,6 +1010,8 @@ class WorldView3DPanel(QWidget):
             self.view.picked.connect(self.picked.emit)
             self.view.ghost_moved.connect(self.ghost_moved.emit)
             self.view.ghost_dropped.connect(self.ghost_dropped.emit)
+            self.view.camera_changed.connect(self._camera_changed)
+            self.view.party_moved.connect(lambda x, y, z: self._seat_party())
             self.view.marker_rgb = _rgb(self.pal["accent"])
             self.view.set_overlays(self._overlays)
             self.view.set_ghost(self._ghost)
@@ -903,10 +1020,66 @@ class WorldView3DPanel(QWidget):
         if self._focus is not None:
             self.view.focus(*self._focus)
         self._stack.setCurrentWidget(self.view)
+        self.game_btn.show()
+        if self.view.game_mode():                            # a reload: the party re-stands on the new ground
+            self._seat_party()
         # the status page leaves the stack once the view is up (a later message puts a fresh one back): a stacked
         # layout's height-for-width is its tallest page's, so the hidden page's wrapped teach line otherwise
         # outranks set_view_floor's explicit minimum and the card under the view is the one squeezed
         self._stack.removeWidget(self._status)
+
+    # -- the game's own camera (editor C7) --
+    def set_game_camera(self, on: bool):
+        """Frame the view as the game's camera would (on), or go back to the free orbit about the same point (off)."""
+        if self.view is None:
+            return
+        if not on:
+            if self.view.game_mode():
+                self.view.set_camera(self.view.camera.to_orbit())
+            return
+        if self.view.game_mode():
+            return
+        from ..world import gamecam as G
+        m = self.view.marker
+        x, z = (m[0], m[2]) if m is not None else (self.view.camera.target[0], self.view.camera.target[2])
+        game = getattr(self.site, "game", None) if self.site is not None else None
+        settings = G.Settings.from_game(game) if game is not None else G.Settings()
+        packed = self.view.packed
+        cam = GameCamera.from_orbit(self.view.camera, (x, 0.0, z), settings=settings,
+                                    ground=lambda gx, gz: ground_y(packed, gx, gz))
+        self.view.set_camera(cam)
+        self._seat_party()
+
+    def _seat_party(self):
+        """Stand the game camera's party on the ground at its point, in the cell's own AREA (which picks the
+        camera's posstats: stock grass at the Landing Site is area 42, kit lawn 14)."""
+        cam = self.view.camera if self.view is not None else None
+        if not isinstance(cam, GameCamera):
+            return
+        x, _y, z = cam.player
+        y = ground_y(self.view.packed, x, z)
+        cam.player = (x, 0.0 if y is None else y, z)
+        cam.area = self._area_at(x, z)
+        cam._memo = None
+        self.view.update()
+
+    def _area_at(self, x, z) -> int:
+        try:
+            from ..world import pointinfo as PI
+            g = PI.point_info(self.site, x, z, landmark=False)["ground"]
+            return int(g.get("area", 14) or 0)
+        except Exception:                                    # noqa: BLE001 -- the kit's lawn area: the safe default
+            return 14
+
+    def _camera_changed(self, game: bool):
+        self.game_btn.blockSignals(True)
+        self.game_btn.setChecked(game)
+        self.game_btn.blockSignals(False)
+        self._name_game_btn(game)
+
+    def _name_game_btn(self, game: bool):
+        """The button names where it takes you, as the World tab's chart / 3D toggle does."""
+        self.game_btn.setText("Free view" if game else "As the game sees it")
 
     def retheme(self, pal):
         self.pal = pal

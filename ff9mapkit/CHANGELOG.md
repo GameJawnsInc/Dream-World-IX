@@ -9,9 +9,26 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - Once an effect draws into its off-screen render target, Memoria reads every 15bpp page from that target, not
   from the texture data. Measured over all 372 effects: all 22 cells the `direct15` export offers are in such
   effects, so a repaint there builds, deploys and never shows as painted. Three earlier casts agree.
-- The build now refuses that edit by name. It says whether the cell's own bytes reach the screen another way (on 8 of
-  the 22 the target's own drawing reads them, so they show as palette indices) and names the cells that draw the target. The export scaffold and
-  the scenery listing say the same before anyone paints. `acknowledge_render_target = true` lifts the refusal.
+- The build now refuses that edit by name. It says whether the cell's own bytes reach the screen another way (on 8
+  of the 22 the target's own drawing reads them, so they show as palette indices) and names the cells that draw the
+  target. The export scaffold says the same before anyone paints, and the build report lists it.
+  `acknowledge_render_target = true` lifts the refusal.
+
+### Added — see the map as the game's camera does
+- "As the game sees it" on the World tab's 3D page frames the picked point the way the game's own camera would for
+  the party standing there: its distance, height and field of view from the engine's tables and your Memoria.ini
+  `[Worldmap]` settings. Click to stand the party elsewhere, drag sideways to turn the camera; "Free view" goes back.
+- Checked against nine in-game screenshots: it lands within the game's own small camera-height easing.
+
+### Fixed — the 3D view and `world-render` showed the world mirrored
+- Both drew the map as a mirror image of the game (east and west swapped). They now use the game's own handedness.
+
+### Added — raise a hill from the World tab
+- "Add a hill" (in "Edit the map"): click a deployed island's lawn, drag it, and set its height and radius. The ghost
+  is the very hill `world-hill` will make, and its slope and height limits show while you drag; `world-hill` checks
+  the rest, and Accept raises it in the draft.
+- `world-hill --report-json`, and `world-hill`'s refusals now say where (the World tab marks them on the map).
+- Tested in game: the party stood on the hill's top at the predicted height (7.32, on a lawn at 3.20).
 
 ### Changed — `summon-reskin`'s scroll-copy notes follow what the screen actually sees
 - Memoria refreshes a decoded texture only when a write starts in that texture's own column, so an effect's

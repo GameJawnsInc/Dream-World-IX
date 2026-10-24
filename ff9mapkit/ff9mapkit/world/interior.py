@@ -1374,9 +1374,9 @@ def build_hill(soup, *, center=None, near=None, height: float = HILL_H,
     if center is not None:
         CX, CZ = center
         if lawful(CX, CZ) is None:
-            raise ValueError(f"hill footprint at ({CX},{CZ}) is not lawful (pure mains "
-                             f"disc r{FOOT:.0f} + clearances forest {FOREST_CLEAR}/"
-                             f"stamp {STAMP_CLEAR}/rim {RIM_CLEAR})")
+            raise CarveRefused("footprint", f"hill footprint at ({CX},{CZ}) is not lawful (pure mains "
+                               f"disc r{FOOT:.0f} + clearances forest {FOREST_CLEAR}/"
+                               f"stamp {STAMP_CLEAR}/rim {RIM_CLEAR})", [(CX, CZ)])
     else:
         if near is None:
             raise ValueError("give center= (exact) or near= (scan)")
@@ -1389,7 +1389,7 @@ def build_hill(soup, *, center=None, near=None, height: float = HILL_H,
                 if c is not None:
                     cands.append((round(c, 1), gx, gz))
         if not cands:
-            raise ValueError("no lawful hill placement near the given point")
+            raise CarveRefused("footprint", "no lawful hill placement near the given point", [tuple(near)])
         cands.sort(reverse=True)
         _, CX, CZ = cands[0]
         log(f"hill centre -> ({CX},{CZ}) (clearance {cands[0][0]}u, {len(cands)} candidates)")
@@ -1400,7 +1400,8 @@ def build_hill(soup, *, center=None, near=None, height: float = HILL_H,
                              height, radius) > 1e-9 for j in tri):
             touched.add(i)
             if gmeta[i][2] != "main":
-                raise ValueError(f"hill displaces a non-mains tri ({gmeta[i][2]})")
+                raise CarveRefused("footprint", f"hill displaces a non-mains tri ({gmeta[i][2]})",
+                                   [(tri_cx[i], tri_cz[i])])
     new_y = {}
     for i in range(len(gpos)):
         lift = raised_cosine(math.hypot(gpos[i][0] - CX, gpos[i][2] - CZ), height, radius)
@@ -1425,23 +1426,28 @@ def build_hill(soup, *, center=None, near=None, height: float = HILL_H,
         L = math.sqrt(sum(q * q for q in v)) or 1.0
         new_nrm[k] = [v[0] / L, v[1] / L, v[2] / L]
 
-    worst_slope = 0.0
-    down = 0
+    worst_slope, worst_at = 0.0, None
+    down = []
     for i in touched:
         a, b, c = (np.asarray(gpos2[j]) for j in gtris[i])
         n = np.cross(b - a, c - a)
         L = float(np.linalg.norm(n)) or 1.0
         if n[1] <= 0:
-            down += 1
-        worst_slope = max(worst_slope, math.degrees(math.acos(min(1.0, abs(n[1]) / L))))
-    peak_y = max(gpos2[j][1] for i in touched for j in gtris[i])
+            down.append((tri_cx[i], tri_cz[i]))
+        sl = math.degrees(math.acos(min(1.0, abs(n[1]) / L)))
+        if sl > worst_slope:
+            worst_slope, worst_at = sl, (tri_cx[i], tri_cz[i])
+    peak_j = max((j for i in touched for j in gtris[i]), key=lambda j: gpos2[j][1])
+    peak_y = gpos2[peak_j][1]
     log(f"gates: displaced tris={len(touched)} worstFlank={worst_slope:.1f}deg "
-        f"(<= {MAX_FLANK}) down={down} peakY={peak_y:.2f}")
+        f"(<= {MAX_FLANK}) down={len(down)} peakY={peak_y:.2f}")
     if worst_slope > MAX_FLANK or down:
-        raise ValueError(f"flank slope {worst_slope:.1f} > {MAX_FLANK} or down-facing tris "
-                         f"-- lower --height or raise --radius")
+        raise CarveRefused("flank", f"flank slope {worst_slope:.1f} > {MAX_FLANK} or down-facing tris "
+                           f"-- lower --height or raise --radius",
+                           (down[:12] or []) + ([worst_at] if worst_slope > MAX_FLANK else []))
     if peak_y > PEAK_CAP:
-        raise ValueError(f"peak {peak_y:.2f} leaves the lowland band (cap {PEAK_CAP})")
+        raise CarveRefused("peak", f"peak {peak_y:.2f} leaves the lowland band (cap {PEAK_CAP})",
+                           [(gpos2[peak_j][0], gpos2[peak_j][2])])
 
     # the crack gate = BASELINE-SUBTRACTED against the PRISTINE island, as carve_forest's and
     # carve_mountain's once-edge gates are: an edge the island already holds open is its own, not a
@@ -1471,7 +1477,8 @@ def build_hill(soup, *, center=None, near=None, height: float = HILL_H,
             + ", ".join(f"({(e[0][0] + e[1][0]) / 2:.2f},{(e[0][2] + e[1][2]) / 2:.2f})"
                         for e in sorted(e for e in once if e in once0)[:3]) + ")")
     if inner_once:
-        raise ValueError(f"{len(inner_once)} once-edges inside the hill region (cracks)")
+        raise CarveRefused("crack", f"{len(inner_once)} once-edges inside the hill region (cracks)",
+                           [((e[0][0] + e[1][0]) / 2, (e[0][2] + e[1][2]) / 2) for e in sorted(inner_once)[:12]])
 
     # write back per block
     import dataclasses

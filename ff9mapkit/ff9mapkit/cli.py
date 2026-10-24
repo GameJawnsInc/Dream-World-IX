@@ -5661,13 +5661,16 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
         IN.census_gate(res["changed"], disc=args.disc, game=args.game, baseline=blocks,
                        stack=IN.read_deployed_stack(args.mod_folder, blocks, disc=args.disc, game=args.game,
                                                     target_disc=args.target_disc))
+        written = []
         if not args.dry_run:
-            IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
-                              game=args.game, skip_mirror=args.skip_mirror,
-                              target_disc=args.target_disc)
+            written = list(IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
+                                             game=args.game, skip_mirror=args.skip_mirror,
+                                             target_disc=args.target_disc) or [])
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _carry_report_json(args, refused=e)
         return 2
+    _carry_report_json(args, res=res, written=written)
     verb = "would deploy" if args.dry_run else "deployed"
     from .world.frames import wrap_world_xz          # a seam carve's soup frame runs past x = 0/1536
     cx, cz = wrap_world_xz(*res["center"])
@@ -10822,6 +10825,10 @@ def build_parser() -> argparse.ArgumentParser:
     whl.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     whl.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    whl.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the verdict as JSON to PATH: ok, the centre, the hill's report, the files "
+                          "written, and on a refusal the gate, its message and the world points where it fails "
+                          "(what the Workspace's World tab draws). The printed text is unchanged.")
     whl.set_defaults(func=_cmd_world_hill)
 
     wmt = sub.add_parser("world-mountain",
