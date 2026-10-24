@@ -3283,6 +3283,12 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
             raise _SummonEditUsage("--readership has nothing to govern on `%s` -- it chooses which "
                                    "scenery cells resolve, for export-art and the building "
                                    "sub-verbs" % args.action)
+        # CHANNEL D's export flag hands out PNGs; a build reads each row's own key instead, so the flag
+        # anywhere else would read as an acknowledgement while acknowledging nothing
+        if getattr(args, "ack_drawn_depth", False) and args.action != "export-art":
+            raise _SummonEditUsage("--acknowledge-drawn-depth is an export-art flag: it writes the "
+                                   "PNGs of the cells CHANNEL D gives a depth to.  A build reads each "
+                                   "row's own `acknowledge_drawn_depth = true` (with `expect_bpp`)")
 
         if args.action == "scaffold":
             if args.ef is None:
@@ -3305,7 +3311,8 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
             man = rp.export_art(blob, args.ef, args.out or None, source=src, lane=args.art_lane,
                                 overlays=not args.no_coverage,
                                 displacement_ack=getattr(args, "ack_displacement", False),
-                                channels=rp.reading_channels(reading, "--readership"))
+                                channels=rp.reading_channels(reading, "--readership"),
+                                drawn_depth=getattr(args, "ack_drawn_depth", False))
             print("ef%03d  %d page(s) exported -- lane %s" % (args.ef, len(man["parts"]),
                                                               man["lane"]))
             print("  source        : %s" % man["source"])
@@ -9862,6 +9869,15 @@ def build_parser() -> argparse.ArgumentParser:
                           "A repaint of one of these is INVISIBLE IN GAME unless a reader this kit "
                           "cannot attribute -- one on a multi-part record -- samples it. "
                           "REFUSES with `--readership bound`, where these cells are pages already.")
+    srk.add_argument("--acknowledge-drawn-depth", dest="ack_drawn_depth", action="store_true",
+                     help="export-art: ALSO export the cells CHANNEL D gives a depth to -- cells no "
+                          "`so` record gives a depth, that the headless routes census saw the "
+                          "render target's draw read at ONE depth, keyed by the CLUT that draw read "
+                          "them through. These are mostly the cells a NEVER_VRAM 15bpp refusal names "
+                          "as what the target is drawn from. The scaffold writes each as a COMMENTED "
+                          "block carrying `acknowledge_drawn_depth = true` and its `expect_bpp`; "
+                          "uncomment it to edit. The census sees only draws INTO the target, at "
+                          "Battle Speed < 3, on the headless stage")
     srk.add_argument("--readership", dest="readership", default=None,
                      choices=sorted(_SUMMON_READINGS),
                      help="WHICH CELL a scenery reader is taken to read. `effective` (the default) "

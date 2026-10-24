@@ -645,6 +645,7 @@ gains one more switch:
 | `acknowledge_spill` | *conditional* | required (`= true`, a literal boolean) on **every** row of a model whose picture crosses a VRAM column, and only reachable once every cell that model reads is named. See THE NAME-EVERY-COLUMN GATE, below. |
 | `acknowledge_scroll_blit_destination` | *conditional* | required (`= true`, a literal boolean) before an edit that changes a texel inside a band the effect's program **rewrites every frame** may build. Say it only if you judge that blit is not running when your cell is drawn. See SCROLL-BLIT DESTINATION, below. |
 | `acknowledge_render_target` | *conditional* | required (`= true`, a literal boolean) before a 15bpp edit may build on a cell whose every measured 15bpp read samples the effect's render target instead of your art. Say it only if you judge a read in your cast samples VRAM. See RENDER TARGET, below. |
+| `acknowledge_drawn_depth` | *conditional* | required (`= true`, a literal boolean) to edit a cell whose depth comes from CHANNEL D, the depth the render target's draw reads it at. **It must be paired with a matching `expect_bpp`.** See `acknowledge_drawn_depth`, below. |
 | `note` | no | free text, carried into manifests/reports only. |
 
 ### THE CUTOUT LAW, at the texel level
@@ -823,9 +824,14 @@ models**. A disclosure, never a refusal.
   shows as painted. The build refuses it by name and says whether your bytes reach the screen another
   way: on 8 of the 22 the target's own drawing reads them at 4 or 8 bpp, so they show as palette indices,
   not your colours (an Atomos cast's cyan bands came out as a salmon checker this way). It also names
-  the cells that draw the target, which is what the screen really shows — though on 20 of the 22 the
-  kit cannot hand you any of them yet. Three earlier casts agree with the refusal. The key exists
-  because the measurement runs the effect offline, not in a real battle.
+  the cells that draw the target, which is what the screen really shows. Most of those cells have no
+  depth the kit can read from the container, but the offline run measures the depth the target's
+  draw reads each one at, and the palette it uses (CHANNEL D, below). So on 14 of the 22 the refusal
+  names a cell you can paint: 2 straight out of `export-art`, and 12 with `acknowledge_drawn_depth`
+  (alone, or after `acknowledge_second_array_displacement`). Offline, a repaint of one of them changes
+  the screen through the target. The other 8 have no route: ef381 overwrites its own texture memory,
+  ef429's feeder is drawn at two depths, and ef447's is vetoed. Three earlier casts agree with the
+  refusal. The key exists because the measurement runs the effect offline, not in a real battle.
   `export-art`'s scaffold prints the verdict on the row, before you paint; the build report lists it too.
 - **An UNWRITTEN column** — see the spill gate, above.
 - **RGBA on the INDEXED lane** — unchanged, and refused for its own reason rather than this one: that
@@ -883,6 +889,7 @@ Every page you get back now carries **`depth_source`**, and the plan/report line
 | `so-page` | **CHANNEL G**: no model samples this cell, but the container binds its **column**, so the depth is inherited from the page (57 cells) | **LICENSED** — no key |
 | `so-array` | **CHANNEL A** (W6b-3): the same `so` record class read at its true length — the depth comes from an **entry of the column's multi-part binding array**, an entry no kit before W6b-3 could read (65 cells) | **DISCLOSED** — an acknowledgement *and* a matching `expect_bpp`, and **nothing about this channel is in-game** |
 | `program` | **CHANNEL P**: the effect's own id-3 program *registers* this page at a constant depth (189 cells) | **DISCLOSED** — an edit needs an acknowledgement *and* a matching `expect_bpp`, **and even then it reaches only the 55 that are 15bpp** (see below) |
+| `drawn` | **CHANNEL D**: the effect's render target is *drawn* from this cell at one depth, measured offline, through a palette the container declares (187 page names in 52 effects) | **DISCLOSED** — an edit needs `acknowledge_drawn_depth` *and* a matching `expect_bpp`; `export-art --acknowledge-drawn-depth` hands out the PNG (see below) |
 
 > **THE ONE COUNT THAT MOVED, AND IT MOVED THE STRICT WAY.** Channel A holds **veto** power and never
 > emission power, so consulting it can only ever make the picture *less* certain. On the author-facing
@@ -1106,6 +1113,41 @@ Five ways it refuses, each by name:
 
 **The author carries the judgement; the kit carries the check.** This is `expect_bpp`'s own law, and
 W6b-2 does not soften it: the kit still declines to *choose* a depth anywhere, including here.
+
+#### `acknowledge_drawn_depth` — paint what the render target is drawn from
+
+When an effect draws into its off-screen render target, the 15bpp pages that show the target are not
+the place to paint (see RENDER TARGET). The target is drawn from other cells, and most of those have no
+depth the kit can read from the container. The offline run measures them. For every cell the target's
+draw reads, it records the depth and the palette (CLUT) each fragment was read through. That is CHANNEL D.
+
+```toml
+[[reskin.texel]]
+name        = "cell.s0.x448_y256"
+source      = "cell.s0.x448_y256.png"
+acknowledge_drawn_depth = true   # "the target's draw reads this cell at this depth, and so does my cast"
+expect_bpp  = 8                  # ...and here is the number the kit checks against the measurement
+```
+
+- Without the key the cell refuses `depth-unknown`, and the refusal states the measured depth, the
+  palette and the key to say.
+- With the key and no `expect_bpp` it refuses, and with an `expect_bpp` that does not match it refuses
+  naming CHANNEL D.
+- A cell the target's draw reads at **two** depths stays refused whatever you say: the same bytes are two
+  pictures.
+- `export-art --acknowledge-drawn-depth` writes the PNG in the draw's own palette (the lowest-addressed
+  one, with the others as read-only alternates). The scaffold carries each such cell as a commented
+  block with the key and the depth already filled in, so the first build is still a no-op.
+- A cell the displacement calls readerless can still be drawn by the target. Its refusal says so, and
+  `acknowledge_second_array_displacement` (with this key, where the column gives no depth) hands it back.
+
+**What it cannot see.** The measurement records only draws *into the render target*, at Battle Speed < 3,
+under the offline stage's camera and targets. A draw of the same bytes straight to the screen at another
+depth would be invisible to it, which is why it needs your word. Checked against the container where both
+speak: the depths agree on 13 cells and differ on 6. Five of those are 15bpp pages whose own bytes the
+target's draw reads at 8bpp. The sixth, ef499 `cell.s0.x704_y384`, is a column the container binds at
+4bpp that the draw reads at 8; it is disclosed, not refused. Offline, ef150's largest feeder, painted
+this way, changes 40 of the 92 frames it draws, and only through the target.
 
 #### `acknowledge_array_derived_depth` — and what it cannot buy you
 

@@ -289,6 +289,23 @@ def test_watch_charges_each_pixel_to_the_cell_it_read():
     assert hi.sum() == st.cells["x704_y256@8"][1] and lo.sum() == st.cells["x640_y256@8"][1]
 
 
+def test_each_sampled_cell_is_split_by_the_clut_that_drew_it():
+    """One 8bpp cell drawn through TWO CLUTs: ``cell_cluts`` names both, charges each its own
+    fragments, and the split sums to the cell's own count -- the join a page-level key cannot make."""
+    page = tpage(tx=10, ty=1, tp=1)
+    a, b = (245 << 6) | 0, (247 << 6) | 1
+    cmds, faults = builder().build([ft4(0, 0, 16, 16, tp=page, clut=a, uv=(10, 0, 26, 16)),
+                                    ft4(20, 0, 36, 8, tp=page, clut=b, uv=(10, 0, 26, 8))])
+    assert not faults
+    st = R.Stats()
+    renderer().render(cmds, 1, True, st)
+    got = R.cell_cluts(st)["x640_y256@8"]
+    assert set(got) == {"x0_y245", "x16_y247"}, got
+    assert got["x0_y245"] > got["x16_y247"] > 0, "each CLUT is charged its own fragments"
+    assert sum(got.values()) == st.cells["x640_y256@8"][1]
+    assert R.cell_cluts(st, gen=True) == {}, "nothing was drawn into the target"
+
+
 # ---------------------------------------------------------------- the probe-log reader
 def test_read_probe_log_casts_and_dedupe(tmp_path):
     log = tmp_path / "p.log"

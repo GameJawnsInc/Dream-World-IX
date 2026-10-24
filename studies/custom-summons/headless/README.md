@@ -286,10 +286,16 @@ tests: code plus counts, with zero Square Enix bytes.
 - **A real lint for native containers.** The native-slot lane was deferred behind an unrecoverable hang;
   here a hang is just a timeout.
 - **HLE op tracing.** Hook the interpreter's dispatch inside this process to log every op call per frame.
-- **A draw-side depth for the target's feeders.** The guard names the cells that draw the target, but 20
-  of the 22 refusals name none the author can paint: the kit's static derivation refuses most feeders
-  (depth-unknown, displaced). `routes` measures the depth each feeder is DRAWN at
-  (`render_target_cells`), which is the evidence a new channel would need.
+- ~~**A draw-side depth for the target's feeders.**~~ **DONE — CHANNEL D.** `run` now also records,
+  per indexed cell, the CLUT each fragment was read through (`visible_cell_cluts` /
+  `render_target_cell_cluts`). `routes --only <the 66 target containers> --out .../feeds` reproduces
+  `render_target_cells` exactly and splits each by CLUT. The kit carries the split
+  (`render_target._FEED_CLUT_ROWS`) and hands a feeder out at its drawn depth behind
+  `acknowledge_drawn_depth`. 14 of the 22 refusals now name a paintable cell, and
+  `tier-w/drawn_feed_prerun.py` shows a repaint of one reaching the screen through the target
+  (gates `tier-w/drawn_gates.py` D1-D6). Still unmeasured: draws straight to the SCREEN. `routes`
+  runs `--no-draw`, so `visible_cells` stays empty there, and a full screen-draw census is the
+  "empirical edit surface" above.
 - **The opening divergence.** Find what the game gives the plugin that suppresses the caster burst; until
   then, align a headless frame against a capture before quoting it as a cast frame.
 
@@ -303,4 +309,4 @@ tests: code plus counts, with zero Square Enix bytes.
 | `raster.py` | the managed-renderer port: run / diff / routes / calibrate |
 | `rx_gates.py` | the calibration gates RX0–RX4 |
 | `stale_census.py` | the refresh census: every copy joined to the reads that see it, with its falsifier |
-| `test_raster.py` | 29 tests on synthetic primitives and the gate scoring; one is install-gated |
+| `test_raster.py` | 30 tests on synthetic primitives and the gate scoring; one is install-gated |

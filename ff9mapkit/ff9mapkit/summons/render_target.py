@@ -49,6 +49,22 @@ cell-level verdict is exact in that direction. A cell is joined to every census 
 it. The other direction is coarser: a page routed to VRAM is not proof that THIS cell's texels are ever
 sampled, only that a 15bpp read of its page could see them.
 
+CHANNEL D -- THE DEPTH A CELL IS DRAWN AT
+----------------------------------------
+The remedy names what the target is DRAWN from, and on 20 of the 22 refusals those cells were ones the
+static derivation gives no depth to (``depth-unknown``) or calls readerless (``displaced``) -- so it named
+nothing an author could paint. But the census MEASURES each feeder: the depth the drawing primitive's own
+tpage mode reads it at, and (a second run, ``_FEED_CLUT_ROWS``) the CLUT each fragment was read through.
+:func:`drawn_depth` is that measurement per cell, and ``repaint`` consults it as the depth channel
+``"drawn"``: a refusal states it, and behind :data:`DRAWN_ACK_KEY` + ``expect_bpp`` the cell is handed out
+at that depth, keyed by the lowest-addressed CLUT the draw used. A cell drawn at two depths is a hazard and
+never emits. Calibrated before it was trusted (``studies/custom-summons/tier-w/drawn_gates.py`` D2): where
+the static derivation also speaks the depths agree on 13 cells and differ on 6 -- five of them a 15bpp
+reader that never reads VRAM over bytes the draw reads at 8bpp, the sixth a channel-G column bound at 4
+that the draw reads at 8 (ef499 ``x704_y384``). With the key the remedy names a paintable feeder on 14 of
+the 22 (:data:`SURFACE_15BPP_KEYED_REMEDY`), and headless a repaint of one reaches the screen through the
+target. What it cannot see is :data:`DRAWN_CAVEAT`.
+
 WHY THIS IS A CACHED CONSTANT, AND WHAT PINS IT
 -----------------------------------------------
 The measurement needs the plugin DLL from the user's install and the stock containers, so -- like
@@ -70,12 +86,15 @@ from typing import Dict, Optional, Tuple
 __all__ = [
     "CENSUS_CONTAINERS", "CENSUS_IDS", "ROUTE_ROWS", "TARGET_CONTAINERS", "FEED_ROWS", "KIND_COUNTS",
     "UNPORTED", "BLUR_X", "PAGE_SPAN", "SURFACE_15BPP", "SURFACE_15BPP_CONTAINERS",
-    "SURFACE_15BPP_OWN_FEED", "SURFACE_15BPP_VERDICTS", "SURFACE_15BPP_PAINTABLE_REMEDY", "WIDE_15BPP", "WIDE_15BPP_CONTAINERS",
+    "SURFACE_15BPP_OWN_FEED", "SURFACE_15BPP_VERDICTS", "SURFACE_15BPP_PAINTABLE_REMEDY",
+    "SURFACE_15BPP_KEYED_REMEDY", "WIDE_15BPP", "WIDE_15BPP_CONTAINERS",
     "WIDE_15BPP_OWN_FEED", "WIDE_15BPP_VERDICTS",
     "NEVER_VRAM", "READS_VRAM", "MIXED", "UNREAD", "UNPORTED_VERDICT", "UNMEASURED", "VERDICTS",
     "Route", "Feed", "CellRoute", "ROUTES", "FEEDS", "TARGETS", "routes", "feeders", "target_from",
     "cell_route",
     "ACK_KEY", "LAW", "MEASUREMENT", "CASTS", "SPEED_CAVEAT", "ACK_WARNING",
+    # --- CHANNEL D: the depth (and the CLUTs) a cell is DRAWN at, read off the target's draws -------
+    "FEED_CLUT_ROWS", "DrawnDepth", "drawn_depth", "DRAWN_ACK_KEY", "DRAWN_CAVEAT", "DRAWN_ACK_WARNING",
 ]
 
 #: the containers the routes census ran (the whole corpus) -- asserted against the gate's census read.
@@ -306,6 +325,201 @@ _FEED_ROWS = (
     (504, 512, 384, 4, 40710, 32), (504, 512, 384, 8, 6749, 32),
 )
 
+# ``(effect, cell x, cell y, bpp, CLUT x, CLUT y, fragments)`` -- the FEED rows above split by the CLUT
+# the drawing key indexes: a second run of the same census over the 66 target containers with the CLUT
+# recorded per fragment (``raster.py`` ``render_target_cell_cluts``, SCRATCH ``headless/raster/feeds``).
+# A page-level join of the census's mesh keys cannot say this -- 140 of the 280 feeds sit on a page read
+# through ONE CLUT, the other 140 through two to six -- so it is measured per cell.  Each feed's split
+# sums to that feed's own count (asserted below).
+_FEED_CLUT_ROWS: Tuple[Tuple[int, int, int, int, int, int, int], ...] = (
+    (11, 448, 256, 4, 64, 244, 50031), (11, 448, 256, 4, 80, 244, 92814),
+    (11, 448, 256, 4, 96, 244, 50009), (11, 448, 256, 8, 0, 245, 53341),
+    (14, 512, 256, 8, 0, 245, 1027217), (14, 512, 256, 8, 0, 247, 705037),
+    (14, 512, 384, 8, 0, 245, 3942), (14, 512, 384, 8, 0, 247, 3691),
+    (14, 576, 256, 8, 0, 247, 13001), (14, 576, 384, 8, 0, 247, 60),
+    (14, 640, 256, 8, 0, 246, 707598), (14, 640, 256, 8, 0, 248, 675322),
+    (14, 640, 384, 8, 0, 246, 2256), (14, 640, 384, 8, 0, 248, 3874),
+    (14, 704, 256, 8, 0, 248, 9250), (14, 704, 384, 8, 0, 248, 31),
+    (26, 512, 256, 4, 16, 244, 416300), (26, 512, 256, 8, 0, 246, 1774640),
+    (26, 576, 256, 8, 0, 246, 1819056), (26, 640, 256, 8, 0, 247, 321966),
+    (26, 704, 256, 8, 0, 247, 14481), (27, 512, 256, 4, 16, 244, 778041),
+    (27, 512, 256, 8, 0, 246, 1097745), (27, 576, 256, 8, 0, 246, 1255235),
+    (31, 512, 256, 8, 0, 246, 173289), (31, 512, 256, 8, 0, 247, 613887),
+    (31, 512, 384, 8, 0, 247, 8439), (31, 576, 256, 8, 0, 246, 2378),
+    (31, 576, 256, 8, 0, 247, 4264), (31, 576, 384, 8, 0, 247, 65),
+    (42, 448, 256, 8, 0, 245, 125722), (42, 448, 256, 8, 0, 246, 9891),
+    (42, 448, 256, 8, 0, 247, 225820), (42, 448, 384, 8, 0, 245, 477195),
+    (42, 448, 384, 8, 0, 246, 52797), (42, 512, 256, 4, 48, 244, 75908),
+    (42, 512, 256, 8, 0, 246, 64557), (42, 512, 256, 8, 0, 247, 148470),
+    (42, 512, 384, 8, 0, 246, 342700), (56, 448, 256, 8, 0, 248, 183456),
+    (56, 512, 256, 8, 0, 248, 1953), (56, 704, 256, 4, 16, 244, 311189),
+    (56, 704, 256, 8, 0, 249, 294812), (76, 512, 256, 4, 16, 244, 778041),
+    (76, 512, 256, 8, 0, 246, 1097745), (76, 576, 256, 8, 0, 246, 1255235),
+    (78, 512, 256, 4, 16, 244, 418645), (78, 512, 256, 8, 0, 246, 1774640),
+    (78, 576, 256, 8, 0, 246, 1819056), (78, 640, 256, 8, 0, 248, 354392),
+    (78, 704, 256, 8, 0, 248, 14979), (79, 448, 256, 8, 0, 245, 100991),
+    (79, 448, 256, 8, 0, 246, 86501), (79, 448, 256, 8, 0, 248, 96681),
+    (79, 448, 256, 8, 0, 249, 170022), (79, 448, 384, 8, 0, 244, 566206),
+    (79, 512, 256, 8, 0, 245, 129430), (79, 512, 256, 8, 0, 248, 128765),
+    (79, 512, 256, 8, 0, 249, 1290), (79, 512, 384, 4, 16, 250, 54682),
+    (79, 512, 384, 8, 0, 244, 10865), (79, 512, 384, 8, 0, 251, 240243),
+    (82, 512, 256, 8, 0, 248, 715359), (82, 512, 384, 8, 0, 248, 690033),
+    (82, 576, 256, 8, 0, 248, 4623), (82, 576, 384, 8, 0, 248, 4221),
+    (82, 640, 256, 8, 0, 246, 8108842), (82, 640, 384, 8, 0, 246, 95972),
+    (82, 704, 256, 8, 0, 246, 3064059), (82, 704, 384, 8, 0, 246, 38529),
+    (87, 448, 256, 8, 0, 245, 467701), (87, 448, 256, 8, 0, 246, 75222),
+    (87, 448, 384, 8, 0, 246, 75894), (87, 512, 256, 4, 160, 244, 482036),
+    (87, 512, 256, 8, 0, 245, 1219), (87, 512, 384, 4, 0, 244, 326456),
+    (87, 512, 384, 4, 160, 244, 245151), (87, 512, 384, 4, 16, 244, 178359),
+    (87, 576, 256, 8, 0, 247, 286878), (87, 576, 384, 8, 0, 246, 388410),
+    (87, 576, 384, 8, 0, 247, 579030), (87, 640, 256, 8, 0, 247, 2979),
+    (87, 640, 384, 8, 0, 246, 6006), (87, 640, 384, 8, 0, 247, 6139),
+    (90, 448, 256, 8, 0, 249, 134887), (90, 448, 384, 8, 0, 249, 1457),
+    (90, 448, 384, 8, 0, 252, 145656), (90, 512, 256, 8, 0, 249, 2098),
+    (90, 512, 256, 8, 0, 251, 351335), (90, 512, 384, 8, 0, 249, 27),
+    (90, 512, 384, 8, 0, 252, 65073), (94, 512, 256, 8, 0, 247, 125251),
+    (94, 512, 384, 8, 0, 247, 107961), (94, 576, 256, 8, 0, 249, 123618),
+    (98, 448, 256, 8, 0, 245, 1846812), (98, 448, 256, 8, 0, 247, 1115980),
+    (98, 448, 384, 8, 0, 245, 7328), (98, 448, 384, 8, 0, 247, 6632),
+    (98, 512, 256, 8, 0, 246, 1219401), (98, 512, 256, 8, 0, 247, 17220),
+    (98, 512, 256, 8, 0, 248, 1582584), (98, 512, 384, 8, 0, 246, 360539),
+    (98, 512, 384, 8, 0, 247, 57), (98, 576, 256, 4, 16, 244, 951609),
+    (98, 576, 384, 4, 16, 244, 978807), (99, 448, 256, 8, 0, 245, 2282850),
+    (99, 448, 256, 8, 0, 247, 1346954), (99, 448, 384, 8, 0, 245, 8996),
+    (99, 448, 384, 8, 0, 247, 7943), (99, 512, 256, 8, 0, 246, 1524858),
+    (99, 512, 256, 8, 0, 247, 20721), (99, 512, 256, 8, 0, 248, 2124217),
+    (99, 512, 384, 8, 0, 246, 478437), (99, 512, 384, 8, 0, 247, 69),
+    (99, 576, 256, 4, 16, 244, 1093234), (99, 576, 384, 4, 16, 244, 1092618),
+    (121, 640, 256, 8, 0, 245, 413660), (121, 640, 384, 8, 0, 245, 668620),
+    (121, 704, 256, 8, 0, 245, 653433), (121, 704, 384, 8, 0, 245, 530711),
+    (122, 640, 256, 8, 0, 245, 284555), (122, 640, 384, 8, 0, 245, 495458),
+    (122, 704, 256, 8, 0, 245, 454840), (122, 704, 384, 8, 0, 245, 405034),
+    (125, 448, 256, 8, 0, 244, 277310), (125, 448, 256, 8, 0, 245, 2292444),
+    (125, 448, 256, 8, 0, 246, 412147), (125, 512, 256, 8, 0, 245, 26246),
+    (125, 512, 256, 8, 0, 246, 9095), (125, 576, 256, 4, 16, 250, 1389286),
+    (125, 576, 256, 4, 32, 250, 889089), (125, 576, 384, 4, 16, 250, 844428),
+    (125, 576, 384, 8, 0, 244, 405157), (125, 640, 384, 8, 0, 244, 2919),
+    (125, 768, 256, 8, 0, 248, 878362), (125, 768, 256, 8, 0, 249, 199071),
+    (125, 832, 256, 8, 0, 249, 1045321), (127, 640, 384, 8, 0, 246, 81303),
+    (127, 704, 256, 8, 0, 247, 180376), (127, 704, 256, 8, 0, 248, 183172),
+    (127, 704, 384, 8, 0, 248, 2572), (129, 448, 256, 8, 0, 245, 426711),
+    (129, 448, 256, 8, 0, 246, 75222), (129, 448, 384, 8, 0, 246, 75894),
+    (129, 512, 256, 4, 160, 244, 448161), (129, 512, 384, 4, 0, 244, 304281),
+    (129, 512, 384, 4, 160, 244, 234081), (129, 512, 384, 4, 16, 244, 146367),
+    (129, 576, 256, 8, 0, 247, 304310), (129, 576, 384, 8, 0, 246, 388410),
+    (129, 576, 384, 8, 0, 247, 601147), (129, 640, 256, 8, 0, 247, 3069),
+    (129, 640, 384, 8, 0, 246, 6006), (129, 640, 384, 8, 0, 247, 6260),
+    (134, 576, 384, 4, 32, 244, 821922), (134, 576, 384, 4, 48, 244, 1222024),
+    (140, 512, 256, 8, 0, 245, 1027217), (140, 512, 256, 8, 0, 247, 705037),
+    (140, 512, 384, 8, 0, 245, 3942), (140, 512, 384, 8, 0, 247, 3691),
+    (140, 576, 256, 8, 0, 247, 13001), (140, 576, 384, 8, 0, 247, 60),
+    (140, 640, 256, 8, 0, 246, 707598), (140, 640, 256, 8, 0, 248, 675322),
+    (140, 640, 384, 8, 0, 246, 2256), (140, 640, 384, 8, 0, 248, 3874),
+    (140, 704, 256, 8, 0, 248, 9250), (140, 704, 384, 8, 0, 248, 31),
+    (143, 576, 384, 4, 32, 244, 994252), (143, 576, 384, 4, 48, 244, 1449907),
+    (145, 448, 256, 8, 0, 245, 186231), (145, 448, 256, 8, 0, 246, 578675),
+    (145, 448, 256, 8, 0, 247, 572169), (145, 448, 384, 8, 0, 247, 8271),
+    (145, 512, 256, 8, 0, 246, 6755), (150, 448, 256, 8, 0, 245, 1343955),
+    (150, 448, 256, 8, 0, 246, 241404), (150, 448, 384, 8, 0, 245, 1156878),
+    (150, 448, 384, 8, 0, 246, 111362), (150, 512, 256, 8, 0, 246, 1565709),
+    (150, 512, 384, 8, 0, 246, 886311), (154, 512, 256, 8, 0, 247, 138778),
+    (154, 512, 384, 8, 0, 247, 120852), (154, 576, 256, 8, 0, 249, 141273),
+    (177, 448, 256, 8, 0, 245, 194887), (177, 448, 256, 8, 0, 246, 63446),
+    (177, 448, 384, 8, 0, 244, 441111), (177, 512, 384, 4, 16, 250, 40695),
+    (177, 512, 384, 8, 0, 244, 9248), (178, 448, 256, 8, 0, 245, 1443605),
+    (178, 640, 256, 4, 16, 244, 672915), (184, 768, 256, 4, 64, 244, 5299592),
+    (184, 768, 256, 8, 0, 246, 484828), (184, 832, 256, 8, 0, 246, 2381067),
+    (187, 576, 256, 8, 0, 247, 316907), (187, 640, 256, 8, 0, 246, 1665437),
+    (187, 640, 384, 8, 0, 246, 11643), (187, 704, 256, 8, 0, 246, 217261),
+    (187, 704, 384, 8, 0, 246, 1463), (201, 448, 384, 8, 0, 252, 294027),
+    (201, 512, 256, 8, 0, 251, 682479), (201, 512, 384, 8, 0, 252, 162969),
+    (203, 448, 256, 8, 0, 244, 189465), (203, 448, 256, 8, 0, 245, 1136225),
+    (203, 448, 256, 8, 0, 246, 292862), (203, 512, 256, 8, 0, 245, 13166),
+    (203, 512, 256, 8, 0, 246, 8588), (203, 576, 384, 8, 0, 244, 202686),
+    (203, 640, 384, 8, 0, 244, 1465), (210, 640, 256, 4, 144, 250, 313022),
+    (210, 640, 256, 4, 96, 250, 753285), (210, 640, 384, 4, 96, 250, 4606),
+    (211, 448, 256, 8, 0, 246, 1256978), (211, 448, 256, 8, 0, 248, 194543),
+    (211, 448, 384, 8, 0, 246, 4919), (211, 512, 256, 8, 0, 246, 8255),
+    (211, 512, 256, 8, 0, 248, 2680), (223, 448, 256, 8, 0, 244, 277437),
+    (223, 448, 256, 8, 0, 245, 1185269), (223, 448, 256, 8, 0, 246, 406482),
+    (223, 512, 256, 8, 0, 245, 13184), (223, 512, 256, 8, 0, 246, 8765),
+    (223, 576, 256, 4, 16, 250, 1357483), (223, 576, 256, 4, 32, 250, 901384),
+    (223, 576, 384, 4, 16, 250, 824832), (223, 576, 384, 8, 0, 244, 202448),
+    (223, 640, 384, 8, 0, 244, 1461), (223, 768, 256, 8, 0, 248, 878788),
+    (223, 768, 256, 8, 0, 249, 205900), (223, 832, 256, 8, 0, 249, 1029213),
+    (224, 512, 256, 4, 160, 244, 806843), (224, 512, 256, 4, 64, 244, 752405),
+    (224, 512, 256, 8, 0, 246, 664954), (224, 512, 384, 4, 160, 244, 160281),
+    (224, 512, 384, 4, 64, 244, 432065), (224, 512, 384, 8, 0, 246, 328916),
+    (224, 576, 256, 8, 0, 246, 16720), (224, 576, 384, 8, 0, 246, 9534),
+    (225, 448, 256, 8, 0, 254, 902174), (225, 448, 256, 8, 0, 255, 150548),
+    (225, 448, 384, 8, 0, 254, 4079), (225, 512, 256, 8, 0, 254, 5604),
+    (225, 512, 256, 8, 0, 255, 2067), (227, 576, 256, 8, 0, 242, 2167560),
+    (227, 576, 256, 8, 0, 243, 185696), (227, 640, 256, 8, 0, 243, 979433),
+    (236, 448, 256, 8, 0, 248, 2529195), (236, 512, 256, 8, 0, 246, 450161),
+    (237, 512, 256, 8, 0, 247, 125251), (237, 512, 384, 8, 0, 247, 107961),
+    (237, 576, 256, 8, 0, 249, 123618), (242, 640, 256, 8, 0, 248, 986148),
+    (242, 640, 384, 8, 0, 248, 9113), (242, 704, 256, 8, 0, 248, 659624),
+    (242, 704, 384, 8, 0, 248, 5681), (244, 448, 256, 8, 0, 247, 860016),
+    (244, 512, 256, 8, 0, 247, 5904), (244, 640, 256, 8, 0, 248, 2984545),
+    (244, 640, 384, 8, 0, 248, 20527), (244, 704, 256, 8, 0, 248, 1408840),
+    (244, 704, 384, 8, 0, 248, 10354), (247, 448, 256, 8, 0, 246, 283929),
+    (247, 448, 256, 8, 0, 249, 103150), (247, 448, 384, 8, 0, 249, 99535),
+    (247, 512, 256, 8, 0, 246, 4664), (247, 512, 256, 8, 0, 249, 725),
+    (247, 512, 384, 8, 0, 249, 667), (247, 640, 256, 8, 0, 248, 2602746),
+    (247, 640, 384, 8, 0, 248, 9900), (247, 704, 256, 8, 0, 248, 465736),
+    (247, 704, 384, 8, 0, 248, 4736), (248, 512, 256, 8, 0, 246, 335599),
+    (248, 576, 256, 8, 0, 246, 2304), (248, 640, 256, 8, 0, 245, 6032591),
+    (248, 640, 384, 8, 0, 245, 54939), (248, 704, 256, 8, 0, 245, 1546557),
+    (248, 704, 384, 8, 0, 245, 16910), (251, 512, 256, 4, 144, 250, 219708),
+    (251, 512, 256, 8, 0, 246, 5740215), (251, 512, 256, 8, 0, 247, 662107),
+    (251, 512, 256, 8, 0, 255, 822267), (251, 512, 384, 8, 0, 255, 4288),
+    (251, 576, 256, 8, 0, 247, 4440540), (251, 576, 256, 8, 0, 255, 4595),
+    (251, 768, 384, 4, 112, 244, 179760), (251, 768, 384, 4, 144, 244, 831014),
+    (276, 320, 256, 8, 0, 247, 658084), (308, 512, 256, 4, 160, 244, 1295031),
+    (308, 512, 256, 4, 64, 244, 1711260), (308, 512, 256, 8, 0, 246, 1907918),
+    (308, 512, 384, 4, 160, 244, 281417), (308, 512, 384, 4, 64, 244, 1014216),
+    (308, 512, 384, 8, 0, 246, 942019), (308, 576, 256, 8, 0, 246, 45860),
+    (308, 576, 384, 8, 0, 246, 25865), (378, 512, 256, 4, 144, 250, 185484),
+    (378, 512, 256, 8, 0, 255, 791707), (378, 512, 384, 8, 0, 255, 3759),
+    (378, 576, 256, 8, 0, 255, 4524), (381, 384, 256, 8, 0, 251, 461015),
+    (381, 384, 256, 8, 0, 253, 779824), (381, 384, 384, 8, 0, 251, 1601193),
+    (381, 448, 256, 8, 0, 251, 5308), (381, 448, 384, 8, 0, 251, 24366),
+    (381, 704, 384, 8, 0, 243, 2051469), (381, 768, 384, 8, 0, 243, 12528),
+    (384, 576, 256, 8, 0, 247, 1242430), (384, 640, 256, 8, 0, 246, 3037695),
+    (384, 640, 384, 8, 0, 246, 19295), (384, 704, 256, 8, 0, 246, 4194864),
+    (384, 704, 384, 8, 0, 246, 23278), (385, 576, 256, 8, 0, 249, 254724),
+    (385, 640, 256, 8, 0, 248, 1268527), (385, 640, 384, 8, 0, 248, 14157),
+    (385, 704, 256, 8, 0, 248, 354825), (385, 704, 384, 8, 0, 248, 4181),
+    (386, 576, 256, 8, 0, 249, 254724), (386, 640, 256, 8, 0, 248, 1268527),
+    (386, 640, 384, 8, 0, 248, 14157), (386, 704, 256, 8, 0, 248, 354825),
+    (386, 704, 384, 8, 0, 248, 4181), (392, 448, 256, 8, 0, 248, 49493),
+    (392, 448, 256, 8, 0, 249, 176576), (392, 448, 384, 4, 0, 244, 59143),
+    (392, 512, 256, 8, 0, 249, 5439), (405, 576, 256, 8, 0, 242, 2167459),
+    (405, 576, 256, 8, 0, 243, 185696), (405, 640, 256, 8, 0, 243, 979781),
+    (408, 448, 256, 8, 0, 244, 2244042), (408, 448, 384, 8, 0, 244, 15526),
+    (408, 512, 256, 8, 0, 244, 18802), (408, 512, 384, 8, 0, 244, 200),
+    (427, 640, 256, 8, 0, 246, 4384736), (427, 640, 256, 8, 0, 248, 181930),
+    (427, 704, 256, 8, 0, 247, 1505817), (429, 512, 256, 4, 16, 244, 160278),
+    (429, 512, 256, 8, 0, 243, 263720), (434, 512, 256, 4, 0, 244, 256419),
+    (434, 512, 256, 8, 0, 242, 305929), (434, 512, 384, 4, 0, 244, 1750),
+    (434, 512, 384, 8, 0, 242, 2112), (435, 576, 256, 8, 0, 243, 1134683),
+    (435, 576, 256, 8, 0, 246, 1103557), (435, 576, 256, 8, 0, 249, 779377),
+    (435, 576, 384, 8, 0, 249, 353810), (435, 640, 256, 8, 0, 243, 1001485),
+    (435, 640, 256, 8, 0, 246, 990251), (435, 640, 256, 8, 0, 249, 686032),
+    (435, 640, 384, 8, 0, 249, 312528), (436, 448, 256, 8, 0, 246, 1968198),
+    (436, 512, 256, 8, 0, 246, 20988), (436, 576, 384, 8, 0, 245, 566256),
+    (436, 640, 384, 8, 0, 245, 4089), (446, 448, 256, 4, 64, 244, 1776777),
+    (446, 448, 256, 8, 0, 246, 202868), (446, 512, 256, 8, 0, 246, 1414055),
+    (447, 704, 384, 8, 0, 243, 1965940), (447, 768, 384, 8, 0, 243, 12331),
+    (492, 576, 256, 8, 0, 247, 1242430), (492, 640, 256, 8, 0, 246, 3037695),
+    (492, 640, 384, 8, 0, 246, 19295), (492, 704, 256, 8, 0, 246, 4194864),
+    (492, 704, 384, 8, 0, 246, 23278), (499, 448, 256, 8, 0, 248, 304423),
+    (499, 448, 384, 8, 0, 248, 4007), (499, 704, 384, 8, 0, 249, 88850),
+    (504, 448, 256, 8, 0, 245, 201506), (504, 448, 256, 8, 0, 246, 63446),
+    (504, 448, 384, 8, 0, 244, 447401), (504, 512, 384, 4, 16, 250, 40710),
+    (504, 512, 384, 8, 0, 244, 6749),
+)
+
 #: the ids the census ran -- the whole stock corpus, as inclusive ranges.
 _CENSUS_RANGES = ((0, 15), (17, 17), (21, 36), (38, 38), (40, 79), (81, 83), (85, 90), (92, 99),
                   (120, 199), (201, 262), (265, 272), (274, 312), (377, 378), (381, 392), (394, 425),
@@ -316,6 +530,7 @@ ROUTE_ROWS = 181
 KIND_COUNTS = {"GENERATED": 70, "BLUR": 88, "BACKGROUND": 13, "IMAGE": 10}
 TARGET_CONTAINERS = 66
 FEED_ROWS = 280
+FEED_CLUT_ROWS = 371
 
 #: THE CORPUS VERDICT against the texel edit surface's 15bpp cells.  Not checkable here -- it needs the
 #: containers -- so ``render_target_gates.py`` re-derives it through the kit's own join.  ``SURFACE`` is
@@ -327,6 +542,10 @@ SURFACE_15BPP_VERDICTS = {"NEVER_VRAM": 22}
 #: the default-surface NEVER_VRAM cells whose remedy names a feeder the ``indexed`` lane hands out --
 #: the rest are drawn from cells the kit's own derivation refuses (depth-unknown, displaced).
 SURFACE_15BPP_PAINTABLE_REMEDY = 2
+#: ...and the ones whose remedy names a feeder a STATED KEY hands out at the depth the target's draw
+#: reads it at -- CHANNEL D's ``acknowledge_drawn_depth``, alone or after the displacement key.  The
+#: other 8: a program-VRAM writer (ef381, 5), a feeder drawn at two depths (ef429, 2), a veto (ef447).
+SURFACE_15BPP_KEYED_REMEDY = 12
 WIDE_15BPP, WIDE_15BPP_CONTAINERS, WIDE_15BPP_OWN_FEED = 87, 37, 51
 WIDE_15BPP_VERDICTS = {"NEVER_VRAM": 79, "UNREAD": 6, "UNPORTED": 2}
 
@@ -361,6 +580,9 @@ class Feed:
     bpp: int
     pixels: int
     frames: int
+    #: the CLUT cells the drawing keys read these bytes through, LOWEST ADDRESS FIRST (the class-C
+    #: display rule), each with its fragments -- :data:`_FEED_CLUT_ROWS`
+    cluts: Tuple[Tuple[Tuple[int, int], int], ...] = ()
 
     def describe(self, total: int = 0) -> str:
         share = (" (%d%% of the target's fragments)" % round(100.0 * self.pixels / total)
@@ -376,9 +598,14 @@ def _routes() -> Dict[int, Tuple[Route, ...]]:
 
 
 def _feeds() -> Dict[int, Tuple[Feed, ...]]:
+    split: Dict[Tuple[int, int, int, int], list] = {}
+    for ef, x, y, bpp, cx, cy, px in _FEED_CLUT_ROWS:
+        split.setdefault((ef, x, y, bpp), []).append(((cx, cy), px))
     out: Dict[int, list] = {}
     for ef, x, y, bpp, px, n in _FEED_ROWS:
-        out.setdefault(ef, []).append(Feed(cell=(x, y), bpp=bpp, pixels=px, frames=n))
+        out.setdefault(ef, []).append(Feed(cell=(x, y), bpp=bpp, pixels=px, frames=n,
+                                           cluts=tuple(sorted(split.get((ef, x, y, bpp), ()),
+                                                              key=lambda c: (c[0][1], c[0][0])))))
     return {ef: tuple(sorted(v, key=lambda f: (-f.pixels, f.cell, f.bpp))) for ef, v in out.items()}
 
 
@@ -483,6 +710,72 @@ def cell_route(effect: Optional[int], cell: Tuple[int, int]) -> CellRoute:
                      own_feeds=own, feeders=fd)
 
 
+@dataclass(frozen=True)
+class DrawnDepth:
+    """CHANNEL D -- what the census saw DRAW one cell into the render target: every depth it was read
+    at, and every CLUT each depth was read through.
+
+    The strongest depth evidence this lane has, and the narrowest: the depth is the drawing
+    primitive's own tpage mode off the plugin's executed stream -- a draw, not a binding and not a
+    registration -- but only draws INTO the target are recorded (:data:`DRAWN_CAVEAT`).
+    """
+    effect: int
+    cell: Tuple[int, int]
+    #: one :class:`Feed` per depth the cell was drawn at, shallowest first
+    feeds: Tuple[Feed, ...]
+
+    @property
+    def depths(self) -> Tuple[int, ...]:
+        return tuple(f.bpp for f in self.feeds)
+
+    @property
+    def dual(self) -> bool:
+        """Drawn at two depths -- the same bytes as two pictures.  A hazard, not a vote."""
+        return len(self.feeds) > 1
+
+    @property
+    def bpp(self) -> Optional[int]:
+        return self.feeds[0].bpp if not self.dual else None
+
+    @property
+    def clut_cells(self) -> Tuple[Tuple[int, int], ...]:
+        """The CLUT cells of a single-depth draw, display binding (lowest address) first."""
+        return tuple(c for c, _n in self.feeds[0].cluts) if not self.dual else ()
+
+    def evidence(self) -> str:
+        """The measurement, in the sentence a refusal or disclosure quotes."""
+        return ("the headless routes census saw this cell DRAWN into the render target at %s"
+                % " AND ".join("%dbpp (%d fragments over %d frames, through %s)"
+                               % (f.bpp, f.pixels, f.frames,
+                                  ", ".join("CLUT x%d_y%d" % c for c, _n in f.cluts) or "no CLUT")
+                               for f in self.feeds))
+
+
+def drawn_depth(effect: Optional[int], cell: Tuple[int, int]) -> Optional[DrawnDepth]:
+    """CHANNEL D for one cell, or ``None`` where no draw of the target read it."""
+    cell = (int(cell[0]), int(cell[1]))
+    fs = tuple(sorted((f for f in feeders(effect) if f.cell == cell), key=lambda f: f.bpp))
+    return DrawnDepth(effect=int(effect), cell=cell, feeds=fs) if fs else None
+
+
+#: the row key that admits a channel-D depth.  Literal-boolean-only, and paired with ``expect_bpp``.
+DRAWN_ACK_KEY = "acknowledge_drawn_depth"
+
+#: what channel D measures and what it cannot see -- quoted wherever it speaks.
+DRAWN_CAVEAT = (
+    "CHANNEL D is a DRAW, not a binding: the depth is the drawing primitive's own tpage mode, read off "
+    "the plugin's executed stream by the headless routes census -- but the census records only the "
+    "draws INTO the render target, on the live cast path (Battle Speed < 3), under the headless "
+    "stage's camera and targets.  A draw of the same bytes at another depth straight to the screen, "
+    "or on a frame the stage never reached, is invisible to it, so it licenses nothing without your "
+    "word")
+
+#: what saying :data:`DRAWN_ACK_KEY` means, printed on every build that uses it.
+DRAWN_ACK_WARNING = (
+    "%s = true: this cell's depth is the one the target's draw reads it at, measured headless; no "
+    "`so` record binds it.  %s." % (DRAWN_ACK_KEY, DRAWN_CAVEAT))
+
+
 #: THE SPEC KEY.  Literal-boolean-only, like every other acknowledgement in this lane.
 ACK_KEY = "acknowledge_render_target"
 
@@ -536,6 +829,11 @@ assert len(CENSUS_IDS) == CENSUS_CONTAINERS
 #: the depths: a route row is a 15bpp page by construction, and a feeder is read at 4 or 8 bpp.
 assert all(r[4] > 0 and r[5] <= r[6] for r in _ROUTE_ROWS)
 assert {f[3] for f in _FEED_ROWS} <= {4, 8}
+#: CHANNEL D's CLUT split: every row names a feed, and each feed's split sums to its own count.
+assert len(_FEED_CLUT_ROWS) == FEED_CLUT_ROWS
+assert {r[:4] for r in _FEED_CLUT_ROWS} <= {r[:4] for r in _FEED_ROWS}
+assert all(sum(c[6] for c in _FEED_CLUT_ROWS if c[:4] == f[:4]) == f[4] for f in _FEED_ROWS
+           if any(c[:4] == f[:4] for c in _FEED_CLUT_ROWS))
 assert sum(v for k, v in SURFACE_15BPP_VERDICTS.items()) == SURFACE_15BPP
 assert sum(v for k, v in WIDE_15BPP_VERDICTS.items()) == WIDE_15BPP
 assert set(SURFACE_15BPP_VERDICTS) | set(WIDE_15BPP_VERDICTS) <= set(VERDICTS)

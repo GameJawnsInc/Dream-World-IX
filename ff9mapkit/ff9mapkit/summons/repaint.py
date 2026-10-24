@@ -365,6 +365,8 @@ __all__ = [
     # --- ...and DECLINABLE: the two readings an author chooses between ---------------------------
     "READINGS", "DEFAULT_READING", "READING_KEY", "reading_channels", "reading_of",
     "reading_models",
+    # --- CHANNEL D: the depth a cell is DRAWN at, read off the render target's draws -------------
+    "ACK_DRAWN_DEPTH",
     # --- the SCROLL BLIT (HLE op 144): a destination band is REWRITTEN every frame ---------------
     "ACK_SCROLL_BLIT", "scroll_blit_lines",
     # --- W6b-1: the codecs ----------------------------------------------------------------------
@@ -472,6 +474,12 @@ ACK_SCROLL_BLIT = SB.ACK_KEY
 #: that a 15bpp read the headless census saw go to the target may sample VRAM in THIS cast.
 ACK_RENDER_TARGET = RT.ACK_KEY
 
+#: CHANNEL D's acknowledgement (:data:`ff9mapkit.summons.render_target.DRAWN_ACK_KEY`), re-exported for
+#: the same reason.  Like channels P and A it admits a DEPTH, so it pairs with a mandatory
+#: ``expect_bpp``: the depth is measured (the census saw a draw read the cell at it), and the build still
+#: wants the number stated by the author and checked against the measurement.
+ACK_DRAWN_DEPTH = RT.DRAWN_ACK_KEY
+
 #: where a scenery page's ``bpp`` came from -- carried on the page itself, because a depth that is
 #: INHERITED FROM A COLUMN and a depth a model's own UVs declare are not the same kind of fact and a
 #: disclosure that cannot tell them apart cannot say the second sentence W6b-2 requires.
@@ -494,11 +502,18 @@ ACK_RENDER_TARGET = RT.ACK_KEY
 #:   ``expect_bpp`` -- see :data:`ff9mapkit.summons.depth_attribution.REGISTRATION_CAVEAT`, which is
 #:   an in-game refutation and not a caution.
 #:
+#: * ``"drawn"`` -- CHANNEL D: the headless routes census saw the render target's draw READ this cell
+#:   at one depth (:func:`ff9mapkit.summons.render_target.drawn_depth`). A DRAW, not a binding -- but
+#:   only draws into the target are recorded, so it is **DISCLOSED, and edits only behind**
+#:   :data:`ACK_DRAWN_DEPTH` plus a matching ``expect_bpp``
+#:   (:data:`ff9mapkit.summons.render_target.DRAWN_CAVEAT`). It exists for the render-target remedy:
+#:   the cells that draw a NEVER_VRAM target are mostly ones no record gives a depth to.
+#:
 #: ⚠ **W6b-3 (iii) ADDS NO TOKEN HERE, DELIBERATELY.** The ``so`` record's SECOND array is not a
 #: DEPTH channel -- it raises a READERSHIP question (:data:`ACK_SECOND_ARRAY`) -- and this tuple is
 #: load-bearing in two guards that would both be wrong about it: :func:`scenery_surface`'s
 #: unknown-channel check and :func:`assert_expect_bpp`'s ``_DEPTH_DERIVED_BY`` coverage assert.
-DEPTH_SOURCES = ("so-uv", "so-page", "so-array", "program")
+DEPTH_SOURCES = ("so-uv", "so-page", "so-array", "program", "drawn")
 
 #: **THE CENSUS CHANNEL SET** -- W6b-1's own, and the DEFAULT of :func:`scenery_surface`.
 #:
@@ -550,7 +565,11 @@ LICENSED_CHANNELS = ("so-uv", "so-page", "so-array", "program")
 #:   hardware SAMPLES rather than the cell the record BINDS. It requires ``"so-uv"`` in the same set
 #:   (enforced at the call site, below) because it is not a new channel at all -- it is the SAMPLING
 #:   ARITHMETIC of a channel this set already consults, and there is no coherent sense in which a
-#:   caller consults ``so-uv`` while declining its correct arithmetic.
+#:   caller consults ``so-uv`` while declining its correct arithmetic;
+#: * ``"drawn"`` -- CHANNEL D is CONSULTED: a ``depth-unknown`` refusal gains the depth the render
+#:   target's draw reads the cell at, and a displaced refusal says a draw this kit cannot attribute
+#:   samples it (DISCLOSURES); emitting needs ``drawn_depth=True``, i.e. :data:`ACK_DRAWN_DEPTH`.
+#:   Consulted on the edit surface only: the ``bound`` reading is the W6b-3 kit exactly.
 #:
 #: ⚠ **AND :data:`LICENSED_CHANNELS` IS FROZEN AT THE W6b-3 SCOPE ON PURPOSE.** It is the population
 #: ``u1_gates`` U2/U3/U5, ``w6q_gates`` G1/G16 and ``w6b3i_gates`` I4/I9 are written ABOUT, and two
@@ -559,7 +578,7 @@ LICENSED_CHANNELS = ("so-uv", "so-page", "so-array", "program")
 #: files at a surface they were never measured on. This is the same two-scope device
 #: :data:`CENSUS_CHANNELS` is, one channel later, and it is why the delta this rung emits is a
 #: nameable diff between two named sets rather than a number that moved under a constant's old name.
-EDIT_CHANNELS = LICENSED_CHANNELS + ("so-displaced",)
+EDIT_CHANNELS = LICENSED_CHANNELS + ("so-displaced", "drawn")
 
 #: every token :func:`scenery_surface` accepts. **NOT** :data:`DEPTH_SOURCES`: ``"so-displaced"``
 #: states no depth (it re-aims READERSHIP), so putting it in ``DEPTH_SOURCES`` would break both
@@ -1541,6 +1560,20 @@ class CellHazards:
     #: ``(record offset, slot index)`` for each contributing array entry -- **IDENTIFICATION ONLY**,
     #: quoted by the disclosure so an author can look the evidence up. Never an ordering claim.
     array_records: Tuple[Tuple[int, int], ...] = ()
+    # ---- CHANNEL D, as data ----------------------------------------------------------------------
+    #: CHANNEL D -- every depth the render target's draw read this cell at, measured headless
+    #: (:func:`ff9mapkit.summons.render_target.drawn_depth`). Two values is a HAZARD, not a vote.
+    #: Empty wherever the caller did not consult ``"drawn"``.
+    drawn_depths: Tuple[int, ...] = ()
+    #: the CLUT cells that draw read the cell through, DISPLAY KEY (lowest address) FIRST -- a
+    #: single-depth draw's only; the key evidence at the same granularity as the depth.
+    drawn_clut_cells: Tuple[Tuple[int, int], ...] = ()
+    #: the measurement in the sentence a disclosure quotes
+    drawn_evidence: str = ""
+    #: WHICH channel spoke for the emitted page's depth (its ``depth_source``), set on the page's own
+    #: hazards -- so :attr:`column_clut_cells` reads the keys of the channel that spoke, not of one that
+    #: merely has evidence here.
+    depth_channel: str = ""
     # ---- W6b-3 (iii): THE SECOND ARRAY, as data --------------------------------------------------
     #: the readers of this cell that carry a NON-ZERO second-array pair, with BOTH candidate
     #: effective columns. **PURELY INFORMATIONAL** -- it feeds no depth, no cover, no page and no
@@ -1600,6 +1633,8 @@ class CellHazards:
         from the depth** -- the defect W6b-2 had to repair for channel G, re-appearing verbatim for
         channel A if these two fields were read separately at each call site.
         """
+        if self.depth_channel == "drawn":
+            return self.drawn_clut_cells
         return self.page_clut_cells or self.array_clut_cells
 
     @property
@@ -2197,6 +2232,19 @@ def _reach_line(hz: "CellHazards") -> str:
             % (recs, pairs, DISPLACEMENT_MODEL))
 
 
+def _drawn_line(dd: Optional["RT.DrawnDepth"]) -> str:
+    """CHANNEL D on a cell the displacement verdict calls readerless: a draw DOES sample it.
+
+    The verdict says *no reader this kit can attribute*; the census can say more -- the target's draw
+    measured reading these bytes -- and when it does the refusal must not read as *nothing reads it*.
+    """
+    if dd is None:
+        return ""
+    return ("** AND A DRAW THIS KIT CANNOT ATTRIBUTE DOES SAMPLE IT (CHANNEL D, MEASURED): %s.  The "
+            "key above lifts the refusal onto whichever channel still speaks for the cell's depth."
+            % dd.evidence())
+
+
 def _arity(pmap: "RS.PaletteMap") -> Tuple[int, int]:
     """``(nClut4, nClut8)`` off an already-resolved palette map -- ONE derivation, two call sites.
 
@@ -2220,7 +2268,8 @@ def clut_arity(blob: bytes) -> Tuple[int, int]:
 
 def _depth_evidence(hint: Optional[int], pd: Optional[DA.ProgramDepth], consulted: bool,
                     ad: Optional["RS.PageDepth"] = None,
-                    a_records: Tuple[Tuple[int, int], ...] = ()) -> str:
+                    a_records: Tuple[Tuple[int, int], ...] = (),
+                    dd: Optional["RT.DrawnDepth"] = None) -> str:
     """The DISCLOSURE a depth refusal owes the author: what the container states ELSEWHERE.
 
     W6b-1's refusal said *"the container states nothing about this cell"*, and W6b-2 measured that
@@ -2244,6 +2293,17 @@ def _depth_evidence(hint: Optional[int], pd: Optional[DA.ProgramDepth], consulte
     if not consulted:
         return ""
     L: List[str] = []
+    # CHANNEL D first: a DRAW is the strongest of these, and it is the one that names a remedy.  ``dd``
+    # is None unless the caller named ``"drawn"``, so an unconsulted channel still says nothing.
+    if dd is not None and not dd.dual:
+        L.append("** BUT A DRAW READS IT (CHANNEL D, MEASURED): no `so` record gives this cell a "
+                 "depth, and %s.  %s  To edit it anyway say `%s = true` AND state a matching "
+                 "`expect_bpp = %d` -- export it with `--acknowledge-drawn-depth`."
+                 % (dd.evidence(), RT.DRAWN_CAVEAT, RT.DRAWN_ACK_KEY, dd.bpp))
+    elif dd is not None:
+        L.append("** AND A DRAW READS IT AT TWO DEPTHS (CHANNEL D, MEASURED): %s -- the same bytes as "
+                 "two pictures, which is a hazard and not a vote, so no acknowledgement reaches this "
+                 "cell." % dd.evidence())
     if pd is not None and not pd.dual:
         L.append("** BUT THE CONTAINER STATES A DEPTH ELSEWHERE (CHANNEL P, DISCLOSE): no `so` "
                  "reader samples this cell; %s.  %s  %s  %s"
@@ -2288,7 +2348,8 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                     channels: Sequence[str] = CENSUS_CHANNELS,
                     program_depth: bool = False,
                     array_depth: bool = False,
-                    displacement_ack: bool = False
+                    displacement_ack: bool = False,
+                    drawn_depth: bool = False
                     ) -> Tuple[List[TexelPage], List[CellRefusal]]:
     """**THE SCENERY TEXEL SURFACE** -- one pass, two results: the pages, and the refusals by name.
 
@@ -2431,6 +2492,9 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
 
     pages: List[TexelPage] = []
     refused: List[CellRefusal] = []
+    #: name -> (bpp, keys): a REFUSED cell that the stated key(s) would hand back as a page at that
+    #: depth -- what the render-target remedy names, so it never offers a cell a key cannot open.
+    keyed: Dict[str, Tuple[int, Tuple[str, ...]]] = {}
     for _key, pc in sorted(cells.items()):
         rds = readers.get(pc.cell, [])
         gpd = pdv.get(pc.cell)
@@ -2456,6 +2520,8 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                 a_keys.append(b.cell)
         p_depths = ppd.depths if ppd is not None else ()
         p_sites = ppd.call_sites if ppd is not None else 0
+        # CHANNEL D: what the render target's draw read this cell at -- consulted only when named.
+        dpd = RT.drawn_depth(effect, pc.cell) if ("drawn" in ch and effect is not None) else None
 
         crs: List[CellReader] = []
         #: W6b-3 (iii): the per-reader SECOND-ARRAY disclosure, built in this same loop -- no second
@@ -2546,6 +2612,9 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             # appear to have spoken*, and every author-facing entry point passes LICENSED_CHANNELS.
             second_array=tuple(sa_notes) if consulted else (),
             displacement_adopted=displaced, bound_readers=brs, novel_reach=novel_reach,
+            drawn_depths=dpd.depths if dpd is not None else (),
+            drawn_clut_cells=dpd.clut_cells if dpd is not None else (),
+            drawn_evidence=dpd.evidence() if dpd is not None else "",
             # THE SCROLL BLIT, effect-keyed like `program` and stated on every channel set: it is
             # a question about whether an edit SURVIVES, not about a depth or a reader.
             scroll_dst=sb_dst, scroll_src=sb_src)
@@ -2606,8 +2675,18 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             # readers went.
             klass = ("displaced-readerless" if hz.displaced_readerless
                      else "displaced-readership-substituted")
+            # what the key falls through to: the COLUMN (channel G) where it speaks, else a DRAW
+            if not _survives_export(prog, hz):
+                pass
+            elif gpd is not None and len(g_depths) == 1 and not len(p_depths) > 1 and (
+                    binder.direct or _palettes(binder.cell, binder.entries)):
+                keyed[pc.name] = (g_depths[0], (DA.ACK_MOVER_KEY,))
+            elif gpd is None and dpd is not None and not dpd.dual and _drawn_keyed(dpd, _palettes):
+                keyed[pc.name] = (dpd.bpp, (DA.ACK_MOVER_KEY, RT.DRAWN_ACK_KEY))
             refused.append(_refusal(pc.name, pc.cell, klass,
-                                    _displacement_detail(hz, pc.cell), extra=_reach_line(hz)))
+                                    _displacement_detail(hz, pc.cell),
+                                    extra="  ".join(x for x in (_reach_line(hz), _drawn_line(dpd))
+                                                    if x)))
             continue
         elif hz.displaced_vs_page_depth:
             refused.append(_refusal(
@@ -2633,6 +2712,11 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             continue
         elif gpd is not None:
             source = "so-page"                           # CHANNEL G LICENSES
+        elif dpd is not None and not dpd.dual and drawn_depth:
+            # CHANNEL D, behind the acknowledgement.  `dpd` is None unless "drawn" is in ``channels``,
+            # so an ack alone can never reach here through a scope that did not consult it; and a cell
+            # drawn at TWO depths never reaches here at all -- no acknowledgement lifts a hazard.
+            source = "drawn"
         elif apd is not None and array_depth:
             # CHANNEL A, behind the acknowledgement, at exactly CHANNEL P's tier.  `apd` is None
             # unless "so-array" is in ``channels``, so an ack alone can never reach here through a
@@ -2643,8 +2727,12 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             # ``channels``, so an ack alone can never reach here through a census-scoped caller.
             source = "program"
         else:
+            if (dpd is not None and not dpd.dual and _drawn_keyed(dpd, _palettes)
+                    and _survives_export(prog, hz)):
+                keyed[pc.name] = (dpd.bpp, (RT.DRAWN_ACK_KEY,))
             refused.append(_refusal(pc.name, pc.cell, "depth-unknown",
-                                    extra=_depth_evidence(hint, ppd, consulted, apd, a_records)))
+                                    extra=_depth_evidence(hint, ppd, consulted, apd, a_records,
+                                                          dpd)))
             continue
 
         # ---- (2) THE PAGE ITSELF.  THE DISPLAY BINDING for a read cell is the LOWEST-ADDRESSED
@@ -2676,6 +2764,17 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             pals = _palettes(a_binder.cell, a_binder.entries) if not a_binder.direct else ()
             clut_off = pals[0].off if pals else None
             clut_n, pal_name = (a_binder.entries or None), (pals[0].name if pals else "")
+        elif source == "drawn":
+            # CHANNEL D's page: the depth the draw read it at, keyed by the LOWEST-ADDRESSED CLUT the
+            # draw read it through (the class-C display rule); every other drawn key ships as a
+            # read-only alternate through `column_clut_cells`.  The tpage/CLUT words are not the
+            # draw's -- the census records the cell, the depth and the CLUT cell -- so they stay 0.
+            bpp, tpage, clut_word = dpd.bpp, 0, 0
+            d_cell = dpd.clut_cells[0] if dpd.clut_cells else None
+            pals = _palettes(d_cell, 16 if bpp == 4 else 256) if d_cell is not None else ()
+            clut_off = pals[0].off if pals else None
+            clut_n, pal_name = (16 if bpp == 4 else 256), (pals[0].name if pals else "")
+            hz = replace(hz, depth_channel="drawn")
         else:
             bpp, tpage, clut_word = p_depths[0], 0, 0
             clut_off, clut_n, pal_name = None, None, ""
@@ -2714,6 +2813,11 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                 "the program registers this page at %d bpp at %d call site(s), and this container's "
                 "own id-0 headers ship %d 16-entry and %d 256-entry palette(s) -- none of them bound "
                 "to THIS cell by anything" % (bpp, p_sites, n4, n8)))
+        elif bpp != 15 and clut_off is None and source == "drawn":
+            refused.append(CellRefusal(
+                name=pc.name, cell=pc.cell, klass="no-declared-clut",
+                reason=_REFUSAL_TEXT["no-declared-clut"]
+                % (str(hz.drawn_clut_cells[0] if hz.drawn_clut_cells else None), clut_n or 0)))
         elif bpp != 15 and clut_off is None:
             # whichever binder actually spoke for this cell -- a channel-A page's key comes off its
             # OWN array entry, so naming channel G's (absent) record here would print `None` as if it
@@ -2758,7 +2862,18 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                        "/".join(str(c) for c in n.swapped_columns),
                        "/".join(str(c) for c in n.original_columns))
                     for n in hz.second_array)))
-    return _with_render_routes(_with_scroll_remedies(pages, refused), refused, effect), refused
+    return (_with_render_routes(_with_scroll_remedies(pages, refused), refused, effect, keyed),
+            refused)
+
+
+def _drawn_keyed(dd: "RT.DrawnDepth", palettes) -> bool:
+    """A single-depth draw whose display CLUT the container declares -- a channel-D page with a key."""
+    return bool(dd.clut_cells) and bool(palettes(dd.clut_cells[0], 16 if dd.bpp == 4 else 256))
+
+
+def _survives_export(prog: str, hz: "CellHazards") -> bool:
+    """No program-VRAM verdict would take the page away again once a key handed it back."""
+    return prog not in ("write", "unknown") and not hz.program_cell
 
 
 def _with_scroll_remedies(pages: List[TexelPage], refused: List[CellRefusal]) -> List[TexelPage]:
@@ -2829,7 +2944,9 @@ _REMEDY_FEEDERS = 4
 
 
 def _with_render_routes(pages: List[TexelPage], refused: List[CellRefusal],
-                        effect: Optional[int]) -> List[TexelPage]:
+                        effect: Optional[int],
+                        keyed: Optional[Dict[str, Tuple[int, Tuple[str, ...]]]] = None
+                        ) -> List[TexelPage]:
     """THE RENDER-TARGET ROUTE -- a POST-PASS, for the same two reasons as the scroll remedy: it needs
     the page's FINAL depth (a route is a fact about 15bpp reads, and only the finished page says it is
     one), and its remedy names OTHER cells.
@@ -2875,6 +2992,15 @@ def _with_render_routes(pages: List[TexelPage], refused: List[CellRefusal],
                 elif here:
                     parts.append("%s: the surface holds it only as `%s` at %dbpp, not at the %dbpp "
                                  "the target's draw reads it" % (what, here[0].name, here[0].bpp, f.bpp))
+                elif any((keyed or {}).get(r.name, (0,))[0] == f.bpp
+                         for r in refused_at.get(f.cell, ())):
+                    # a refusal a STATED KEY opens at the very depth the target's draw reads it at --
+                    # named with the key(s), never as paintable outright
+                    r = next(r for r in refused_at[f.cell] if (keyed or {}).get(r.name, (0,))[0] == f.bpp)
+                    bpp, keys = keyed[r.name]
+                    parts.append("%s: `%s`, refused as `%s` -- paint it with %s and `expect_bpp = %d`"
+                                 % (what, r.name, r.klass,
+                                    " and ".join("`%s = true`" % k for k in keys), bpp))
                 elif refused_at.get(f.cell):
                     r = refused_at[f.cell][0]
                     parts.append("%s: `%s`, which the kit refuses as `%s` (its own refusal block "
@@ -2933,7 +3059,8 @@ def scenery_texel_pages(blob: bytes, effect: Optional[int] = None, *,
                         channels: Sequence[str] = EDIT_CHANNELS,
                         program_depth: bool = False,
                         array_depth: bool = False,
-                        displacement_ack: bool = False) -> List[TexelPage]:
+                        displacement_ack: bool = False,
+                        drawn_depth: bool = False) -> List[TexelPage]:
     """Every scenery page-cell whose DEPTH the container states -- **THE EDIT SURFACE**.
 
     Defaults to :data:`EDIT_CHANNELS`. It USED to default to :data:`LICENSED_CHANNELS` and the
@@ -2960,17 +3087,20 @@ def scenery_texel_pages(blob: bytes, effect: Optional[int] = None, *,
     there; ``EDIT_CHANNELS`` is what an author walks.
     """
     return scenery_surface(blob, effect, channels=channels, program_depth=program_depth,
-                           array_depth=array_depth, displacement_ack=displacement_ack)[0]
+                           array_depth=array_depth, displacement_ack=displacement_ack,
+                           drawn_depth=drawn_depth)[0]
 
 
 def scenery_cell_refusals(blob: bytes, effect: Optional[int] = None, *,
                           channels: Sequence[str] = EDIT_CHANNELS,
                           program_depth: bool = False,
                           array_depth: bool = False,
-                          displacement_ack: bool = False) -> List[CellRefusal]:
+                          displacement_ack: bool = False,
+                          drawn_depth: bool = False) -> List[CellRefusal]:
     """Every scenery page-cell this rung refuses an editable picture for, with its reason."""
     return scenery_surface(blob, effect, channels=channels, program_depth=program_depth,
-                           array_depth=array_depth, displacement_ack=displacement_ack)[1]
+                           array_depth=array_depth, displacement_ack=displacement_ack,
+                           drawn_depth=drawn_depth)[1]
 
 
 #: how each depth channel is named in a guard failure -- so the message says WHICH derivation the
@@ -2985,6 +3115,8 @@ _DEPTH_DERIVED_BY = {
                 "a DRAW)",
     "program": "the container's own id-3 program's registered tpage (CHANNEL P -- a REGISTRATION, "
                "and registration is not a draw)",
+    "drawn": "the depth the render target's draw read this cell at, measured by the headless routes "
+             "census (CHANNEL D -- a DRAW, recorded only where it draws INTO the target)",
 }
 
 # a source with no entry here raises `KeyError` inside `assert_expect_bpp`, i.e. the guard that is
@@ -3038,7 +3170,12 @@ def assert_expect_bpp(blob: bytes, page: TexelPage, stated: int, where: str) -> 
                 "depth read off an ENTRY of this column's `so` BINDING ARRAY is the drawn depth, and "
                 "`expect_bpp` is the number the kit checks that judgement against.  It does not "
                 "match." % DA.ACK_ARRAY_KEY)
-               if page.depth_source == "so-array" else ""))
+               if page.depth_source == "so-array" else
+               ("  This is the check `%s` exists to be paired with: the ack is your judgement that the "
+                "depth a draw INTO THE TARGET read this cell at is the depth your cast reads it at, and "
+                "`expect_bpp` is the number the kit checks against the measurement.  It does not "
+                "match." % RT.DRAWN_ACK_KEY)
+               if page.depth_source == "drawn" else ""))
     if page.scenery and got != 15:
         want = 16 if got == 4 else 256
         slot = page.hazards.writers[0].slot if page.hazards and page.hazards.writers else -1
@@ -3086,7 +3223,8 @@ def texel_page(blob: bytes, name: str, effect: Optional[int] = None, *,
                channels: Sequence[str] = EDIT_CHANNELS,
                allow_program_depth: bool = False,
                allow_array_depth: bool = False,
-               allow_displaced_readerless: bool = False) -> TexelPage:
+               allow_displaced_readerless: bool = False,
+               allow_drawn_depth: bool = False) -> TexelPage:
     """Resolve a spec-declared texel name over BOTH namespaces, or REFUSE with the set named.
 
     ``tex.part0`` is the id-4 CREATURE page (W6a). ``cell.s0.x704_y256`` is a scenery VRAM PAGE-CELL
@@ -3116,6 +3254,9 @@ def texel_page(blob: bytes, name: str, effect: Optional[int] = None, *,
     a ``displaced-vs-page-depth`` cell stays unaddressable under it, because that class reports two
     depths and an acknowledgement is a judgement about a single-valued derivation.
 
+    ``allow_drawn_depth`` is the row's :data:`ACK_DRAWN_DEPTH` (CHANNEL D), threaded the same way for
+    the same reason; a cell drawn at two depths stays unaddressable under it.
+
     ``channels`` is the READING (:data:`READINGS`), default :data:`EDIT_CHANNELS`. On a reading that
     declines the displacement a gained cell is refused with its pre-adoption reason, and the refusal
     says the default reading would have licensed it -- so the author's choice is never mistaken for
@@ -3129,7 +3270,7 @@ def texel_page(blob: bytes, name: str, effect: Optional[int] = None, *,
     refused: List[CellRefusal] = []
     scen_error = ""
     kw = dict(program_depth=allow_program_depth, array_depth=allow_array_depth,
-              displacement_ack=allow_displaced_readerless)
+              displacement_ack=allow_displaced_readerless, drawn_depth=allow_drawn_depth)
     try:
         scen, refused = scenery_surface(blob, effect, channels=channels, **kw)
     except (RS.ReskinError, EC.ContainerError) as e:               # a derivation refusal, surfaced
@@ -4422,7 +4563,8 @@ def _render_route_record(hz: "CellHazards") -> Optional[dict]:
 def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane: str = "indexed",
                overlays: bool = True, scaffold: bool = True,
                displacement_ack: bool = False,
-               channels: Sequence[str] = EDIT_CHANNELS) -> dict:
+               channels: Sequence[str] = EDIT_CHANNELS,
+               drawn_depth: bool = False) -> dict:
     """Decode every addressable page to a paintable PNG + its overlays + the manifest.
 
     ``channels`` is the READING (:data:`READINGS`), default :data:`EDIT_CHANNELS`; the manifest
@@ -4468,6 +4610,11 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
             "DIRECT lane is a different question and ships as `direct15`.)  %s"
             % (lane, INDEXED_RGBA_REASON))
     reading = reading_of(channels)
+    if drawn_depth and "drawn" not in frozenset(channels):
+        raise RepaintError(
+            "`--acknowledge-drawn-depth` hands out the cells CHANNEL D gives a depth to, and this "
+            "export reads %r, which does not consult channel D -- there is nothing for it to hand out."
+            % (reading or tuple(channels),))
     if displacement_ack and "so-displaced" not in frozenset(channels):
         # the ack lifts two refusals only the effective reading makes; honouring it silently on a
         # reading that never makes them would be a flag that does nothing while reading as a choice
@@ -4484,7 +4631,7 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
     scen_error = ""
     try:
         scen, refusals = scenery_surface(blob, effect, channels=channels,
-                                        displacement_ack=displacement_ack)
+                                        displacement_ack=displacement_ack, drawn_depth=drawn_depth)
     except (RS.ReskinError, EC.ContainerError) as e:               # surfaced, never swallowed
         scen_error = "the scenery derivation REFUSED on this container: %s: %s" % (type(e).__name__,
                                                                                    e)
@@ -4632,6 +4779,9 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
             # W6b-3 (iv): the ADOPTED answer, and the classes the effective cover mints.
             "displacement_model": DISPLACEMENT_MODEL,
             "readership": p.readership,
+            "depth_source": p.depth_source,
+            "drawn_depths": list(hz.drawn_depths),
+            "drawn_clut_cells": [list(c) for c in hz.drawn_clut_cells],
             "displaced_readerless": hz.displaced_readerless,
             "displaced_substituted": hz.displaced_substituted,
             "displaced_gained": hz.displaced_gained,
@@ -4894,6 +5044,7 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
         L += [""]
 
     for e in (scenery or []):
+        row_at = len(L)
         L += ["[[reskin.texel]]",
               'name = "%s"' % e["name"]]
         L += _src_lines(e)
@@ -5006,6 +5157,11 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
         if len(e["readers"]) > 1:
             L.append("# SHARED READ: this one edit changes %d models.  Disclosure, not a refusal."
                      % len(e["readers"]))
+        _dd = e.get("drawn_depths") or []
+        if _dd and e["bpp"] != 15 and e.get("depth_source") != "drawn" and set(_dd) != {e["bpp"]}:
+            L.append("# DRAWN AT ANOTHER DEPTH (CHANNEL D): the render target's draw reads these bytes at")
+            L.append("#   %s bpp, and this row is %dbpp (%s) -- the same bytes as a second picture."
+                     % ("/".join(str(b) for b in _dd), e["bpp"], e.get("depth_source", "?")))
         if e["spill_out"]:
             L.append("# SPILL-OUT: this cell's own reader(s) also sample column(s) %s -- name every"
                      % ", ".join(str(c) for c in e["spill_out"]))
@@ -5090,6 +5246,20 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
             L.append("#   perfect repaint here is invisible in game.  To paint it anyway say")
             L.append("#     `%s = true`  (the key above)." % DA.ACK_MOVER_KEY)
             L += _wrap_comment(DA.U_DISPLACEMENT_CAVEAT, "#   ")
+        if e.get("depth_source") == "drawn":
+            # ★ CHANNEL D's row ships COMMENTED, with its key already said: it resolves only behind the
+            # acknowledgement, and a live row without it would make the scaffold's first build refuse
+            # -- the no-op guarantee is worth more than saving the author one uncomment.  Uncommenting
+            # IS the statement; the key inside it is the build's record of it.
+            body = L[row_at:]
+            del L[row_at:]
+            L += ["# CHANNEL D -- A DRAW INTO THE TARGET GIVES THIS CELL ITS DEPTH.  UNCOMMENT THE BLOCK",
+                  "# BELOW TO EDIT IT: it resolves only with the key it carries.  " + e["name"]]
+            L += _wrap_comment(RT.DRAWN_CAVEAT, "#   ")
+            for ln in body:
+                L.append(ln if ln.startswith("#") else "# " + ln)
+                if ln.startswith("expect_bpp"):
+                    L.append("# %s = true" % RT.DRAWN_ACK_KEY)
         L += [""]
 
     spillers = [m for m in (models or []) if m.get("effective_spills", m.get("spills"))]
@@ -5192,6 +5362,9 @@ _TEXEL_KEYS = frozenset((
     # it admits is that a 15bpp read the headless census saw go to the target may sample VRAM in the
     # author's cast -- a judgement about a cast, not a number.
     RT.ACK_KEY,
+    # CHANNEL D's key: it admits a DEPTH, so like channels P and A it pairs with a mandatory
+    # `expect_bpp` -- the depth is measured, and the build still wants the author to state it.
+    RT.DRAWN_ACK_KEY,
 ))
 
 
@@ -5244,6 +5417,10 @@ class TexelTarget:
     #: the render target (or the blur / ground capture), and I judge a read in my cast samples VRAM."
     #: Literal boolean only.
     ack_render_target: bool = False
+    #: CHANNEL D's word, ``acknowledge_drawn_depth`` -- "this cell's depth is the one the target's
+    #: draw read it at, measured headless, and I judge my cast reads it there too."  Literal boolean
+    #: only, and MEANINGLESS without a matching ``expect_bpp``, which the build path requires by name.
+    ack_drawn_depth: bool = False
     stock: bytes = b""
     new: bytes = b""
     changed: Tuple[int, ...] = ()
@@ -6018,6 +6195,16 @@ def _scenery_disclosures(t: "TexelTarget") -> List[str]:
                  "samples this cell; the container's own program registers this page at %dbpp at %d "
                  "call site(s).%s  %s"
                  % (t.page.bpp, hz.program_sites, inherited, DA.ACK_WARNING))
+    elif t.page.depth_source == "drawn":
+        L.append("DEPTH FROM CHANNEL D (A DRAW INTO THE TARGET), acknowledged: no `so` record gives this "
+                 "cell a depth; %s.  %s" % (hz.drawn_evidence, RT.DRAWN_ACK_WARNING))
+    if (hz.drawn_depths and t.page.depth_source != "drawn" and not t.page.direct
+            and set(hz.drawn_depths) != {t.page.bpp}):
+        # a 15bpp page's own feed is the render-target disclosure's to state; an INDEXED page a draw
+        # reads at another depth is a second picture of the same bytes, stated here
+        L.append("DRAWN AT ANOTHER DEPTH (CHANNEL D): this page is %dbpp (%s), and %s -- the same "
+                 "bytes as a second picture.  Disclosed, not refused: the census sees only the target's "
+                 "draws." % (t.page.bpp, t.page.depth_source, hz.drawn_evidence))
     if hz.spill_vs_own_page:
         L.append("SPILL-vs-OWN-PAGE: this cell's readers bind the NEIGHBOURING page at %dbpp while "
                  "its own page is named at %dbpp -- both predicates true of the same bytes, FLAGGED "
@@ -6567,8 +6754,11 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
         # with NO `expect_bpp`, because what it admits is a READERSHIP, and there is no number for a
         # guard to check.
         ack_sa = _ack_bool(d, DA.ACK_MOVER_KEY, where)
+        # CHANNEL D's ack, read on the same rung for the same reason: it changes RESOLUTION.
+        ack_dd = _ack_bool(d, RT.DRAWN_ACK_KEY, where)
         page = texel_page(blob, name, effect, channels=ch, allow_program_depth=ack_pd,
-                          allow_array_depth=ack_ad, allow_displaced_readerless=ack_sa)
+                          allow_array_depth=ack_ad, allow_displaced_readerless=ack_sa,
+                          allow_drawn_depth=ack_dd)
         where = "texel target %s" % name
         # THE MANDATORY PAIR.  `expect_bpp` is STATED by the author and CHECKED against the derivation,
         # never chosen -- and on the one channel whose in-game trial FAILED the kit declines to accept
@@ -6597,6 +6787,15 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
                 "mean it.  %s  %s"
                 % (where, DA.ACK_ARRAY_KEY, page.bpp, _ident or "the column's novel array entries",
                    page.bpp, DA.ORDER_UNMEASURED, DA.ARRAY_CAVEAT))
+        # ...and CHANNEL D's, on the same rung: the depth is measured, and still the author states it.
+        if page.depth_source == "drawn" and "expect_bpp" not in d:
+            raise RepaintError(
+                "%s says `%s = true` but states NO `expect_bpp`.  The acknowledgement is your "
+                "judgement that the depth the render target's draw read this cell at is the depth your "
+                "cast reads it at; `expect_bpp` is the number the kit checks that judgement against, "
+                "and an ack with nothing to check is not a guard.  The draw read it at %dbpp -- write "
+                "`expect_bpp = %d` if you mean it.  %s"
+                % (where, RT.DRAWN_ACK_KEY, page.bpp, page.bpp, RT.DRAWN_CAVEAT))
         if "expect_bpp" in d:
             assert_expect_bpp(blob, page, int(d["expect_bpp"]), where)
         if "expect_cell" in d:
@@ -6657,7 +6856,7 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
             ack_scroll_blit=_ack_bool(d, SB.ACK_KEY, where),
             # THE RENDER TARGET likewise: the gate needs the CHANGED texels.
             ack_render_target=_ack_bool(d, RT.ACK_KEY, where),
-            ack_program_depth=ack_pd, ack_array_depth=ack_ad))
+            ack_program_depth=ack_pd, ack_array_depth=ack_ad, ack_drawn_depth=ack_dd))
 
     # ---- THE GATES THAT NEED NO ART, all of them before a single PNG is opened --------------------
     # An armed-and-unread table, a program-VRAM write, an unnamed co-transform writer and an unnamed
@@ -7417,6 +7616,9 @@ def stage(b: TexelBuild, root=None, game_root=None, allow_install: bool = False,
                             # THE RENDER TARGET's word: a cast of a NEVER_VRAM cell is exactly the
                             # cast that would test whether its 15bpp reads ever sample VRAM.
                             RT.ACK_KEY: t.ack_render_target,
+                            # CHANNEL D's word: a cast of a drawn cell is exactly the cast that tests
+                            # whether the census's draw depth is the cast's.
+                            RT.DRAWN_ACK_KEY: t.ack_drawn_depth,
                             # W6b-3 (iv): WHICH ARITHMETIC this row was staged under, and
                             # whether the reader it was attributed to was routed here by it.
                             # A cast record that cannot say which model it tested is a cast
@@ -7679,12 +7881,20 @@ def depth_attribution_lines(blob: bytes, effect: Optional[int],
     dual = [k for k in prog if DA.PROGRAM_DEPTH[k].dual]
     adv = RS.array_depth_view(blob) if "so-array" in ch else {}
     a_dual = sum(1 for v in adv.values() if len(v.depths) > 1)
+    drawn: Dict[Tuple[int, int], set] = {}
+    for f in (RT.feeders(effect) if "drawn" in ch else ()):
+        drawn.setdefault(f.cell, set()).add(f.bpp)
     L = ["", "  THE DEPTH CHANNELS (W6b-2, W6b-3) -- %s" % DA.GRANULARITY_LAW,
          "    depth source: so-uv %d (a reader's own UVs) . so-page %d (CHANNEL G, INHERITED from "
          "the column -- LICENSED) . so-array %d (CHANNEL A, only behind `%s`) . program %d "
-         "(CHANNEL P, only behind `%s`)"
+         "(CHANNEL P, only behind `%s`) . drawn %d (CHANNEL D, only behind `%s`)"
          % (by_src["so-uv"], by_src["so-page"], by_src["so-array"], DA.ACK_ARRAY_KEY,
-            by_src["program"], DA.ACK_KEY),
+            by_src["program"], DA.ACK_KEY, by_src["drawn"], RT.DRAWN_ACK_KEY),
+         ("    CHANNEL D here: %d cell(s) the render target's draw reads, %d of them at TWO depths "
+          "(a REFUSAL, never a vote)" % (len(drawn), sum(1 for f in drawn.values() if len(f) > 1)))
+         if "drawn" in ch else
+         "    CHANNEL D here: NOT CONSULTED -- this caller's channel set is %s"
+         % (", ".join(sorted(ch)),),
          "    CHANNEL P here: %d cell(s) this container's own id-3 program registers a depth for, "
          "%d of them at TWO depths (a REFUSAL, never a vote)" % (len(prog), len(dual)),
          ("    CHANNEL A here: %d cell(s) an entry of a MULTI-PART `so` record names a depth for, "

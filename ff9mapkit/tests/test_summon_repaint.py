@@ -5170,7 +5170,8 @@ def test_the_CHANNEL_TOKEN_is_gated_and_DEPENDS_on_so_uv():
     assert "so-displaced" not in RP.DEPTH_SOURCES, "it states no DEPTH"
     assert "so-displaced" in RP._CHANNEL_TOKENS and "so-displaced" in RP.EDIT_CHANNELS
     assert "so-displaced" not in RP.LICENSED_CHANNELS and "so-displaced" not in RP.CENSUS_CHANNELS
-    assert RP.EDIT_CHANNELS == RP.LICENSED_CHANNELS + ("so-displaced",), "DERIVED, never re-typed"
+    assert RP.EDIT_CHANNELS == RP.LICENSED_CHANNELS + ("so-displaced", "drawn"), \
+        "DERIVED, never re-typed -- the displacement, then CHANNEL D"
     with pytest.raises(RP.RepaintError, match="requires 'so-uv'"):
         RP.scenery_surface(blob, 999, channels=("so-page", "so-displaced"))
     with pytest.raises(RP.RepaintError, match="unknown depth channel"):

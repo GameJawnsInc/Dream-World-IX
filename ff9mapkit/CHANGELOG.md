@@ -71,6 +71,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   from the copies, so the build names the cells to paint instead and notes how many tiles a cell holds.
   Checked offline: the copies' sources now match the kit's too, on every effect.
 
+### Added — `summon-reskin` can paint what a summon's render target is drawn from
+- When an effect draws into its off-screen render target, its 15bpp pages show that target, never your
+  texture, so the kit refuses a repaint there and names the cells the target is drawn from. Until now, on
+  20 of the 22 such refusals none of those cells could be painted: the container gives them no depth.
+- The offline run now records the depth and the palette each of those cells is drawn with. Say
+  `acknowledge_drawn_depth = true` with a matching `expect_bpp` on the row, and the cell builds at that
+  depth; `export-art --acknowledge-drawn-depth` hands out its PNG in the draw's own palette. 14 of the 22
+  refusals now name a cell you can paint.
+- A cell drawn at two different depths stays refused. Checked offline: painting ef150's largest drawn cell
+  changes the effect on screen, through its render target.
+
 ### Added — `summon-reskin` can decline the cells it gained from the second array
 - 70 scenery cells became paintable when the kit adopted the second-array displacement, and nothing could
   contradict that if the model were wrong on your effect: the repaint would just not show. You can now turn it

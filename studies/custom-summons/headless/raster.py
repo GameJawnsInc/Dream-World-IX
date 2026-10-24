@@ -603,6 +603,10 @@ class Stats:
         #: cell -> {frame: fragments that changed the SCREEN}; ``gen_cells`` the same for the DR_AREA target
         self.cells: Dict[str, Counter] = defaultdict(Counter)
         self.gen_cells: Dict[str, Counter] = defaultdict(Counter)
+        #: the same fragments split by the CLUT the drawing key indexes ("x512_y256@8" -> {"x0_y245": n});
+        #: indexed reads only -- the palette an author's indices are seen through, per cell
+        self.cell_cluts: Dict[str, Counter] = defaultdict(Counter)
+        self.gen_cell_cluts: Dict[str, Counter] = defaultdict(Counter)
         #: "x704_y256@15/GENERATED" -> [mesh renders, first frame, last frame]: where every textured mesh
         #: key actually reads from, counted on EVERY frame (drawn or not)
         self.routes: Dict[str, list] = {}
@@ -977,6 +981,9 @@ class Renderer:
                 book = stats.cells if t.kind == "screen" else stats.gen_cells
                 name = "x%d_y%d@%d" % (cx, cy, (4, 8, 15)[b])
                 book[name][frame] += int(n)
+                if b < 2:                                # indexed: which CLUT the key reads through
+                    cb = stats.cell_cluts if t.kind == "screen" else stats.gen_cell_cluts
+                    cb[name]["x%d_y%d" % ((m.key & 0x3F) * 16, (m.key >> 6) & 0x1FF)] += int(n)
                 if t.kind == "screen" and name in stats.watch_masks:
                     hit = changed & (cells == cid)
                     stats.watch_masks[name][ry[hit], rx[hit]] = True
@@ -1167,6 +1174,13 @@ def visible_cells(stats: Stats, gen: bool = False) -> Dict[str, dict]:
         fs = sorted(frames)
         out[cell] = {"pixels": int(sum(frames.values())), "frames": [fs[0], fs[-1]], "n_frames": len(fs)}
     return out
+
+
+def cell_cluts(stats: Stats, gen: bool = False) -> Dict[str, Dict[str, int]]:
+    """indexed cell -> {CLUT cell: fragments that changed the screen (or the DR_AREA target)} -- the
+    palette(s) each sampled cell is actually seen through, which a page-level key join cannot say."""
+    book = stats.gen_cell_cluts if gen else stats.cell_cluts
+    return {cell: dict(sorted(c.items())) for cell, c in sorted(book.items())}
 
 
 def mesh_summary(stats: Stats) -> Dict[str, dict]:
@@ -1499,6 +1513,8 @@ def main(argv=None) -> int:
     doc = {k: v for k, v in res.items() if k not in ("stats", "prim_log", "host", "per_frame")}
     doc.update(source=source, plugin_sha256=sha, frames_drawn=sorted(frames) if frames is not None else "all",
                visible_cells=visible_cells(res["stats"]), render_target_cells=visible_cells(res["stats"], gen=True),
+               visible_cell_cluts=cell_cluts(res["stats"]),
+               render_target_cell_cluts=cell_cluts(res["stats"], gen=True),
                meshes=mesh_summary(res["stats"]), routes=res["stats"].routes, target_suppressed=a.no_target,
                moves=[list(k) + v for k, v in sorted(res["stats"].moves.items())])
     out.mkdir(parents=True, exist_ok=True)

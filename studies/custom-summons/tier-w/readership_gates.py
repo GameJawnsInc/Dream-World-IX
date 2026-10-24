@@ -141,16 +141,15 @@ class _SurfaceCache:
     def __enter__(self):
         self._orig = RP.scenery_surface
 
-        def cached(blob, effect=None, *, channels=RP.CENSUS_CHANNELS, program_depth=False,
-                   array_depth=False, displacement_ack=False):
+        def cached(blob, effect=None, **kw):
+            # EVERY keyword is part of the key, whatever the kit's signature grows -- a wrapper that
+            # re-typed the parameter list would break (or worse, drop one) the day the kit adds one
             if blob is not self._blob:
-                return self._orig(blob, effect, channels=channels, program_depth=program_depth,
-                                  array_depth=array_depth, displacement_ack=displacement_ack)
-            key = (effect, frozenset(channels), program_depth, array_depth, displacement_ack)
+                return self._orig(blob, effect, **kw)
+            key = (effect,) + tuple(sorted((k, frozenset(v) if k == "channels" else v)
+                                           for k, v in kw.items()))
             if key not in self._memo:
-                self._memo[key] = self._orig(blob, effect, channels=channels,
-                                             program_depth=program_depth, array_depth=array_depth,
-                                             displacement_ack=displacement_ack)
+                self._memo[key] = self._orig(blob, effect, **kw)
             return self._memo[key]
 
         RP.scenery_surface = cached

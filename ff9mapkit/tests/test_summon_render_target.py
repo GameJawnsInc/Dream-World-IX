@@ -238,3 +238,140 @@ def test_every_default_surface_15bpp_cell_of_ef446_refuses(tmp_path):
     with pytest.raises(RP.RepaintError) as e:
         RP.build(spec, "?", blob=blob)
     assert str(e.value).startswith("RENDER TARGET, cell.s0.x512_y384:")
+
+
+# ---------------------------------------------------------------- (7) CHANNEL D: the depth a cell is DRAWN at
+DARK = "cell.s0.x448_y256"
+
+
+@pytest.fixture
+def drawn(monkeypatch):
+    """A synthetic feed for effect 999: the fixture's depth-unknown cell (448,256) drawn into the target
+    at ``bpps`` through CLUT (0,245) (declared, 256 entries) and (0,246) (not declared)."""
+    def _set(*bpps):
+        monkeypatch.setitem(RT.TARGETS, 999, 10)
+        monkeypatch.setitem(RT.FEEDS, 999, tuple(
+            RT.Feed(cell=(448, 256), bpp=b, pixels=500, frames=9,
+                    cluts=(((0, 245), 400), ((0, 246), 100))) for b in bpps))
+    return _set
+
+
+def test_the_shipped_channel_is_the_census_split_by_clut():
+    d = RT.drawn_depth(150, (448, 256))
+    assert d.depths == (8,) and not d.dual and d.bpp == 8
+    assert d.clut_cells == ((0, 245), (0, 246)), "display binding = the lowest address, first"
+    assert "DRAWN into the render target at 8bpp" in d.evidence()
+    two = RT.drawn_depth(429, (512, 256))
+    assert two.dual and two.depths == (4, 8) and two.bpp is None and two.clut_cells == ()
+    assert RT.drawn_depth(150, (0, 0)) is None
+    assert RT.FEED_CLUT_ROWS == len(RT._FEED_CLUT_ROWS) == 371
+    assert "drawn" in RP.DEPTH_SOURCES and "drawn" in RP.EDIT_CHANNELS
+    assert "drawn" not in RP.LICENSED_CHANNELS, "the bound reading stays the W6b-3 kit"
+    assert RT.DRAWN_ACK_KEY in RP._TEXEL_KEYS and RP.ACK_DRAWN_DEPTH == RT.DRAWN_ACK_KEY
+
+
+def test_consulted_it_discloses_and_moves_no_page(drawn):
+    drawn(8)
+    blob = build_scenery_container()
+    no_d = tuple(c for c in RP.EDIT_CHANNELS if c != "drawn")
+    a, ar = RP.scenery_surface(blob, 999, channels=RP.EDIT_CHANNELS)
+    b, br = RP.scenery_surface(blob, 999, channels=no_d)
+    assert [(p.name, p.bpp, p.depth_source) for p in a] == [(p.name, p.bpp, p.depth_source) for p in b]
+    assert sorted((r.name, r.klass) for r in ar) == sorted((r.name, r.klass) for r in br)
+    hit = [r for r in ar if r.name == DARK]
+    assert [r.klass for r in hit] == ["depth-unknown"]
+    assert "A DRAW READS IT (CHANNEL D, MEASURED)" in hit[0].reason
+    assert "`%s = true`" % RT.DRAWN_ACK_KEY in hit[0].reason and "`expect_bpp = 8`" in hit[0].reason
+    assert "CHANNEL D" not in [r for r in br if r.name == DARK][0].reason, "unconsulted, it says nothing"
+
+
+def test_behind_its_key_it_emits_a_keyed_page_and_a_dual_draw_never_does(drawn):
+    drawn(8)
+    blob = build_scenery_container()
+    p = RP.texel_page(blob, DARK, 999, allow_drawn_depth=True)
+    assert (p.bpp, p.depth_source, p.palette_name) == (8, "drawn", "pal.s0.x0_y245.e256")
+    assert p.hazards.column_clut_cells == ((0, 245), (0, 246))
+    with pytest.raises(RP.RepaintError, match="A DRAW READS IT"):
+        RP.texel_page(blob, DARK, 999)
+    bound = RP.scenery_surface(blob, 999, channels=RP.READINGS["bound"], drawn_depth=True)[0]
+    assert DARK not in {q.name for q in bound}, "the bound reading never consults channel D"
+    drawn(4, 8)
+    with pytest.raises(RP.RepaintError, match="AT TWO DEPTHS"):
+        RP.texel_page(blob, DARK, 999, allow_drawn_depth=True)
+
+
+def test_the_build_wants_the_key_AND_the_number(tmp_path, drawn):
+    drawn(8)
+    blob = build_scenery_container()
+    p = RP.texel_page(blob, DARK, 999, allow_drawn_depth=True)
+    src = _edit(tmp_path, blob, p)
+    with pytest.raises(RP.RepaintError, match="depth-unknown"):
+        RP.build(_spec_dict(blob, [_row(p, src)]), "?", blob=blob)
+    with pytest.raises(RP.RepaintError, match="states NO `expect_bpp`"):
+        RP.build(_spec_dict(blob, [_row(p, src, **{RT.DRAWN_ACK_KEY: True})]), "?", blob=blob)
+    with pytest.raises(RP.RepaintError, match="a draw INTO THE TARGET read this cell at"):
+        RP.build(_spec_dict(blob, [_row(p, src, expect_bpp=4, **{RT.DRAWN_ACK_KEY: True})]), "?",
+                 blob=blob)
+    with pytest.raises(RP.RepaintError, match="must be a BOOLEAN"):
+        RP.build(_spec_dict(blob, [_row(p, src, expect_bpp=8, **{RT.DRAWN_ACK_KEY: "true"})]), "?",
+                 blob=blob)
+    b = RP.build(_spec_dict(blob, [_row(p, src, expect_bpp=8, **{RT.DRAWN_ACK_KEY: True})]), "?",
+                 blob=blob)
+    assert b.patched != blob
+    notes = "  ".join(b.targets[0].hazard_notes)
+    assert "DEPTH FROM CHANNEL D" in notes and RT.DRAWN_ACK_WARNING in notes
+
+
+def test_export_hands_it_out_behind_the_flag_as_a_commented_block(tmp_path, drawn):
+    drawn(8)
+    blob = build_scenery_container()
+    man = RP.export_art(blob, 999, tmp_path / "plain", overlays=False)
+    assert DARK not in {e["name"] for e in man["scenery"]}
+    man = RP.export_art(blob, 999, tmp_path / "d", overlays=False, drawn_depth=True)
+    e = [e for e in man["scenery"] if e["name"] == DARK][0]
+    assert e["depth_source"] == "drawn" and e["drawn_depths"] == [8]
+    assert (tmp_path / "d" / e["png"]).is_file()
+    txt = (tmp_path / "d" / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    assert "# CHANNEL D -- A DRAW INTO THE TARGET" in txt and "# %s = true" % RT.DRAWN_ACK_KEY in txt
+    assert '\nname = "%s"' % DARK not in txt, "the row ships COMMENTED"
+    import tomllib
+    rows = tomllib.loads(txt)["reskin"]["texel"]
+    assert DARK not in {r["name"] for r in rows}
+    assert RP.build(tomllib.loads(txt), str(tmp_path / "d" / "s.toml"), blob=blob).patched == blob, \
+        "the scaffold's first build is still a no-op"
+    with pytest.raises(RP.RepaintError, match="does not consult channel D"):
+        RP.export_art(blob, 999, tmp_path / "x", overlays=False, drawn_depth=True,
+                      channels=RP.READINGS["bound"])
+
+
+def test_the_remedy_names_a_drawn_feeder_with_its_key(census, monkeypatch):
+    census()
+    blob = build_scenery_container()
+    # the census fixture's (448,256) feeder, at 4bpp -- now WITH its CLUT, a declared 16-entry one
+    feeds = tuple(RT.Feed(cell=f.cell, bpp=f.bpp, pixels=f.pixels, frames=f.frames,
+                          cluts=((((0, 244), f.pixels),) if f.cell == (448, 256) else ()))
+                  for f in RT.FEEDS[999])
+    monkeypatch.setitem(RT.FEEDS, 999, feeds)
+    rem = _cell(blob, 512, 256).hazards.render_remedy
+    assert ("`cell.s0.x448_y256`, refused as `depth-unknown` -- paint it with `%s = true` and "
+            "`expect_bpp = 4`" % RT.DRAWN_ACK_KEY) in rem
+    p = RP.texel_page(blob, DARK, 999, allow_drawn_depth=True)
+    assert p.bpp == 4 and p.depth_source == "drawn", "the claim resolves exactly as written"
+
+
+def test_the_cli_flag_exports_and_is_refused_where_it_would_do_nothing(tmp_path, drawn, capsys):
+    from ff9mapkit import cli
+    drawn(8)
+    blob = build_scenery_container()
+    ef = tmp_path / "ef999.bytes"
+    ef.write_bytes(blob)
+    art = tmp_path / "art"
+    assert cli.main(["summon-reskin", "export-art", "--ef", "999", "--from", str(ef), "--out", str(art),
+                     "--acknowledge-drawn-depth"]) == 0
+    import json
+    man = json.loads((art / RP.ART_MANIFEST).read_text(encoding="utf-8"))
+    assert DARK in {e["name"] for e in man["scenery"]}
+    capsys.readouterr()
+    assert cli.main(["summon-reskin", "plan", str(art / RP.SCAFFOLD_NAME), "--from", str(ef),
+                     "--acknowledge-drawn-depth"]) == 2
+    assert "is an export-art flag" in capsys.readouterr().err

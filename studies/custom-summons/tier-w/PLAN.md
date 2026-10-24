@@ -702,6 +702,32 @@ scenery must be re-authored *together*.
   most of the target's feeders -- the census measures the depth each is drawn at, which is the
   evidence a draw-side depth channel would need. At Battle Speed ≥ 3 `SFXData.cs:403` sets the flag
   after every pre-recorded frame, so NEVER_VRAM holds on both cast paths and READS_VRAM only below 3.
+  **★ FOLLOW-UP — CHANNEL D, THE DEPTH A CELL IS DRAWN AT.** The honest limit above, closed as far as
+  the census reaches.
+  - **The census.** `raster.py` now records each indexed fragment's CLUT. A second `routes` run over the
+    66 target containers (`--no-draw`, under 2 min, SCRATCH `headless/raster/feeds`) reproduces
+    `_FEED_ROWS` exactly and splits each feed by CLUT, 371 rows in `render_target._FEED_CLUT_ROWS`. A
+    page-level join of mesh keys could not do this: 140 of the 280 feeds sit on a multi-CLUT page.
+  - **Calibrated before it was trusted.** Where the static derivation also speaks, depths agree on 13
+    cells and differ on 6. Five are 15bpp readers that never read VRAM, over bytes the target's draw
+    reads at 8 (the own feed). The sixth is ef499 `x704_y384`, a channel-G column bound at 4 that the
+    draw reads at 8; disclosed, not vetoed.
+  - **In the kit.** `"drawn"` is a depth source, consulted on the edit surface (not on `bound`).
+    Consulting it moves no page and no refusal class: it adds the drawn depth to `depth-unknown`
+    reasons and a "a draw this kit cannot attribute samples it" line to displaced ones. Behind
+    `acknowledge_drawn_depth` + `expect_bpp` it hands out 187 page names in 52 containers, keyed by
+    the draw's lowest-addressed CLUT; a cell drawn at two depths never emits.
+    `export-art --acknowledge-drawn-depth` writes them, as commented scaffold blocks, so the first
+    build stays a no-op.
+  - **The remedy.** 14 of the 22 refusals now name a paintable feeder: 2 outright, 12 behind stated
+    keys, all 26 keyed claims resolved through `texel_page`. The other 8: ef381 is a program-VRAM
+    writer (5), ef429's feeder is drawn at 4 and 8 (2), and ef447 is a veto (1).
+  - **The pre-run** (`drawn_feed_prerun.py`). ef150 `x448_y256` zebra'd with the key changes 549,208
+    screen px over 40 of 92 frames, while the feeder drew only into the target. The unedited build
+    moves nothing.
+  - **Gates.** `drawn_gates.py` D1-D6.
+  - **Open.** Screen draws are not censused (`routes` runs `--no-draw`), and no cast has tested a
+    drawn page.
   **★ FOLLOW-UP — THE SCROLL-BLIT OPEN GAP, CLOSED.** The four cells the headless census saw rewritten with
   no op-144 site (ef226 / ef509 `x448_y384` + `x512_y384`, licensed until now) are rewritten by the
   containers' OWN horizontal-scroll routine: six containers carry it, it takes op 144's arguments and
