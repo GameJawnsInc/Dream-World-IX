@@ -210,9 +210,11 @@ reaching the screen only as speckle on saturated ice (≤ 8.6% of pixels, f214�
   op 144's arguments and issues the two copies itself through HLE op 7 -- a HORIZONTAL scroll (tier-r
   `CALLBACK-OPS.md` addendum 11). Its 11 call sites are now kit table rows, and both cells refuse. `routes`
   now records every executed copy, and over all 63 containers that copy, **the executed destinations
-  equal the table's bands halfword for halfword** (gate S7). The sources do not: on 8 op-144 containers
-  the executed copies read from somewhere the folded source does not name (`scroll_blit.SOURCE_UNCERTAIN`,
-  pinned by S7) -- the kit names no remedy cell there and calls the source a fold.
+  equal the table's bands halfword for halfword** (gate S7). So do the sources, once 8 op-144 bands are
+  read for what they are: FLIPBOOKS that scroll a different band-sized tile on different frames (ef429's
+  16 tiles over (576..703, 256..511), its fold `(1,1)`). Each copy is attributed to the band whose scroll
+  shape it has; 115 bands read exactly their fold and the 8 flipbooks' 107 tiles are kit data
+  (`scroll_blit.TILES`), so remedies there name the tiles' cells.
 - ★ **AN EDIT PRE-RUN: ef407's gained cell reaches the screen and scrolls**
   (`tier-w/ef407_gain_prerun.py`). Bars painted into `x704_y256`, a cell the U2 adoption licenses with no
   bound reader, change 110 of 146 frames (f75–192); 99.9 % of the changed pixels come through the op-144

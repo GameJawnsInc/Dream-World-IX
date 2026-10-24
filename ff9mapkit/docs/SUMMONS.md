@@ -810,9 +810,9 @@ models**. A disclosure, never a refusal.
   capture shows the band under a third wheel, in cell `(576,384)`, copied over on every frame that
   cell is drawn.
   `export-art`'s scaffold prints the band and the remedy on the row, before you paint. Checked
-  against the effects run offline: every copy they execute lands inside a band the kit knows about.
-  On 8 of them the copy reads from somewhere other than where the kit's analysis says, so there the
-  build names no cell to paint instead and calls the source a guess.
+  against the effects run offline: every copy they execute lands inside a band the kit knows about,
+  and reads from where the kit says. On 8 of them the copy cycles through several source tiles, a
+  different one on different frames; there the remedy names every cell those tiles lie in.
 - **RENDER TARGET — a 15bpp read that never samples your art.** Once an effect has drawn into its
   off-screen render target, Memoria reads every 15bpp page at x ≥ 384 from that target, not from the
   texture data, until the next cast starts (and a 15bpp page left of x 384 is always the previous

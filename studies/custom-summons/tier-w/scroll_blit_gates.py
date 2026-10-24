@@ -38,9 +38,12 @@ S7  THE EXECUTED-BLIT CROSS-CHECK.  Two headless instruments (SCRATCH only: the 
     until the program-scroll routine joined the table).  (b) PER HALFWORD, the raster's routes census
     (`raster.py routes`, which records every copy): over every container, the union of the executed
     destinations EQUALS the union of the table's destination bands, and the containers that copy at
-    all are exactly the table's.  (c) THE SOURCE SIDE does not close, and where it does not is pinned:
-    the containers whose executed sources differ from the folded ones are exactly
-    `scroll_blit.SOURCE_UNCERTAIN`.  The census is a cross-check and never the refusal's authority:
+    all are exactly the table's.  (c) THE SOURCES, the same way: every executed copy is attributed to the
+    band whose scroll SHAPE it has, the source TILE it reads re-derived here from the census alone;
+    115 bands read exactly their fold, and the 8 FLIPBOOK bands' tiles must equal `scroll_blit.TILES`
+    row for row -- after which the executed sources equal the table's sources halfword for halfword
+    on every container, and no copy is left unattributed.  The census is a cross-check and never the
+    refusal's authority:
     the host stands actors at the origin with no battle camera, so a cell it never saw is "not
     observed", not "safe".
 S8  THE REFRESH LAW.  `headless/stale_census.py` (SCRATCH `headless/raster/stale/stale.json`) charged
@@ -381,6 +384,43 @@ KNOWN_GAP: frozenset = frozenset()
 ROUTES = os.path.join(CORPUS, "headless", "raster", "routes", "routes.json")
 
 
+def _tile_of(b, m):
+    """The source tile copy ``m`` reads under band ``b``'s scroll, or None if ``m`` is not that shape: a
+    scroll call's copies span the band along the axis it does not turn and sit flush with one end of the
+    one it does (the whole band at phase 0)."""
+    rx, ry, rw, rh, x, y = m[:6]
+    bx, by, bw, bh = b.dst_rect
+    if b.axis == "v":
+        if x != bx or rw != bw or not (by <= y and y + rh <= by + bh):
+            return None
+        return (rx, ry - (bh - rh)) if y == by else (rx, ry) if y + rh == by + bh else None
+    if y != by or rh != bh or not (bx <= x and x + rw <= bx + bw):
+        return None
+    return (rx - (bw - rw), ry) if x == bx else (rx, ry) if x + rw == bx + bw else None
+
+
+def _measured_tiles(bs, mv):
+    """``({band: {tile: copies}}, unattributed copies)`` -- a copy that fits ONE band's shape is that
+    band's; one that fits several (overlapping bands at a half-period phase) goes to the band whose
+    unambiguous copies already read the tile it implies, and is left unattributed if none does."""
+    fits = [[(b, _tile_of(b, m)) for b in bs if _tile_of(b, m) is not None] for m in mv]
+    tiles = {b: {} for b in bs}
+    for m, f in zip(mv, fits):
+        if len(f) == 1:
+            tiles[f[0][0]][f[0][1]] = tiles[f[0][0]].get(f[0][1], 0) + m[6]
+    left = []
+    for m, f in zip(mv, fits):
+        if len(f) > 1:
+            known = [(b, t) for b, t in f if t in tiles[b]]
+            for b, t in known:
+                tiles[b][t] += m[6]
+            if not known:
+                left.append(m)
+        elif not f:
+            left.append(m)
+    return tiles, left
+
+
 def _masks(rects):
     import numpy as np
     m = np.zeros((SB.VRAM_H, SB.VRAM_W), bool)
@@ -428,7 +468,8 @@ def s7_executed_crosscheck() -> None:
         return
     with open(ROUTES, encoding="utf-8") as fh:
         rrows = json.load(fh)["rows"]
-    copying, dst_off, src_off, halfwords = set(), [], set(), 0
+    copying, dst_off, src_off, halfwords = set(), [], [], 0
+    flip, fold_ok, unattributed = {}, 0, {}
     for e, r in sorted(rrows.items()):
         ef, mv = int(e[2:]), r.get("moves") or []
         if mv:
@@ -439,18 +480,33 @@ def s7_executed_crosscheck() -> None:
         ex_d = _masks([(x, y, rw, rh) for rx, ry, rw, rh, x, y, _n, _f0, _f1 in mv])
         ex_s = _masks([(rx, ry, rw, rh) for rx, ry, rw, rh, x, y, _n, _f0, _f1 in mv])
         st_d = _masks([b.dst_rect for b in bs])
-        st_s = _masks([b.src_rect for b in bs])
+        st_s = _masks([r for b in bs for r in b.sources])
         halfwords += int(ex_d.sum())
         if (ex_d != st_d).any():
             dst_off.append((ef, int((ex_d & ~st_d).sum()), int((st_d & ~ex_d).sum())))
         if (ex_s != st_s).any():
-            src_off.add(ef)
+            src_off.append((ef, int((ex_s & ~st_s).sum()), int((st_s & ~ex_s).sum())))
+        tiles, left = _measured_tiles(bs, mv)
+        if left:
+            unattributed[ef] = len(left)
+        for b, t in tiles.items():
+            if set(t) == {tuple(b.src)}:
+                fold_ok += 1
+            else:
+                flip[(ef,) + b.dst + b.size] = tuple(sorted((x, y, n) for (x, y), n in t.items()))
     print("   routes census: %d containers copy; %d destination halfwords executed; destinations off "
-          "the table: %s; sources off the folds: %s"
-          % (len(copying), halfwords, dst_off or "none", sorted(src_off)))
+          "the table: %s; sources off the table: %s"
+          % (len(copying), halfwords, dst_off or "none", src_off or "none"))
+    print("   sources re-derived from the copies: %d bands read their fold, %d are FLIPBOOKS (%d tiles); "
+          "unattributed copies: %s" % (fold_ok, len(flip), sum(len(v) for v in flip.values()),
+                                       unattributed or "none"))
     chk("S7 the containers that copy are exactly the table's", sorted(copying), sorted(SB.SCROLL_BLITS))
     chk("S7 the executed destinations == the table's bands, halfword for halfword", dst_off, [])
-    chk("S7 the sources that do not close are exactly SOURCE_UNCERTAIN", src_off, set(SB.SOURCE_UNCERTAIN))
+    chk("S7 every executed copy is attributed to one band's scroll", unattributed, {})
+    chk("S7 the flipbook tiles == scroll_blit.TILES, row for row", flip, SB.TILES)
+    chk("S7 the flipbook pins", (len(flip), sum(len(v) for v in flip.values())),
+        (SB.FLIPBOOK_PAIRS, SB.FLIPBOOK_TILES))
+    chk("S7 the executed sources == the table's sources, halfword for halfword", src_off, [])
 
 
 STALE_CENSUS = os.path.join(CORPUS, "headless", "raster", "stale", "stale.json")
@@ -502,7 +558,7 @@ GATES = [
     ("S4", "THE PARTIAL BAND -- ef211 x640_y256, refused by the texel, not the cell", s4_partial_band),
     ("S5", "THE ef211 CAST RECORD, READ BOTH WAYS -- and the key moves no byte", s5_retrodiction),
     ("S6", "PROVENANCE -- coordinates and counts, never a stock byte", s6_provenance),
-    ("S7", "THE EXECUTED-BLIT CROSS-CHECK -- every band runs, the gap is empty, halfword for halfword",
+    ("S7", "THE EXECUTED-BLIT CROSS-CHECK -- both sides close, halfword for halfword; the flipbooks measured",
      s7_executed_crosscheck),
     ("S8", "THE REFRESH LAW -- the measured stale/frozen pairs == the kit's table; falsifier fired",
      s8_refresh),

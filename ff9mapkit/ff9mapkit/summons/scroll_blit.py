@@ -40,8 +40,9 @@ THE JOIN, AND ITS TWO DELIBERATE COARSENESSES
 * **the SOURCE fields are less certain than the destination.** ``dstX/dstY/width`` fold in the ordinary
   census and the hardware's fit predicate (``x + w <= 1024``, ``y + h <= 512``, ``w > 0``) holds on
   167/167; ``srcX/srcY`` ride the stack beside the period and four sites fold to a source that does not
-  fit VRAM at all (ef022, ef095, ef222, ef418). Those name no source cell, and a remedy says so rather
-  than naming one (:attr:`ScrollBlit.src_in_vram`).
+  fit VRAM at all (ef022, ef095, ef222, ef418). On eight bands the fold is simply not the source -- the
+  copy reads a FLIPBOOK of tiles -- and those carry the source the executed copies measured
+  (:data:`TILES`, below).
 
 THE PROGRAM'S OWN SCROLL -- THE OTHER AXIS (tier-r ADDENDUM 11)
 ---------------------------------------------------------------
@@ -59,8 +60,17 @@ delay-slot store is applied before the call is read (the routine's sites keep th
 THE EXECUTED CROSS-CHECK (``scroll_blit_gates.py`` S7): the headless raster records every VRAM-to-VRAM
 copy the plugin executes, and over all 63 containers that run one, **the union of the executed
 destinations equals the union of this table's destination bands, halfword for halfword**, and every
-band in the table executes. The SOURCE side does not close the same way, and the gate pins where: on 8
-op-144 containers the folded source disagrees with the executed one (:data:`SOURCE_UNCERTAIN`).
+band in the table executes.
+
+THE FLIPBOOK -- A SOURCE THAT MOVES (``scroll_blit_gates.py`` S7). Attributing each executed copy to the
+band whose scroll shape it has (it spans the band along the axis that does not turn, and sits flush with
+one end along the one that does), 115 of the 123 pairs read exactly the band their fold names. The other
+8 -- one each on ef022, ef095, ef131, ef222, ef250, ef418, ef429, ef435 -- read a different band-sized
+TILE on different frames, and scroll within each: ef429's ``(512,256) 32x64`` cycles through 16 tiles
+covering (576..703, 256..511) while its fold says ``(1,1)``. :data:`TILES` carries those 107 measured
+tiles, and with them **the executed sources equal the table's sources halfword for halfword** too, on every
+container. A remedy on a flipbook band names the cells its tiles lie in; a source disclosure says how many
+of the band's tiles the cell holds.
 
 THE REFRESH LAW -- A COPY CAN RUN AND STILL NOT REACH THE SCREEN
 -----------------------------------------------------------------
@@ -105,7 +115,8 @@ from typing import Dict, FrozenSet, List, Optional, Tuple
 __all__ = [
     "SITES", "CONTAINERS", "EDIT_SURFACE_CELLS", "DEST_CONTAINERS", "DEST_CELLS",
     "SOURCE_CONTAINERS", "SOURCE_CELLS", "VRAM_W", "VRAM_H", "CELL_W", "CELL_LINES",
-    "HSCROLL_SITES", "HSCROLL_CONTAINERS", "ALL_CONTAINERS", "SOURCE_UNCERTAIN", "H_MECHANISM",
+    "HSCROLL_SITES", "HSCROLL_CONTAINERS", "ALL_CONTAINERS", "TILES", "FLIPBOOK", "FLIPBOOK_PAIRS",
+    "FLIPBOOK_TILES", "H_MECHANISM",
     "H_EXECUTED",
     "ScrollBlit", "SCROLL_BLITS", "blits", "cell_hits", "cell_of", "cells_under",
     "rewritten_halfwords",
@@ -150,11 +161,74 @@ _HSCROLL_ROWS = (
     (509, 0, "L_2558", 448, 384, 128, 64, 448, 448), (509, 0, "L_2558", 576, 384, 128, 64, 576, 256),
 )
 
-#: the op-144 containers whose folded SOURCE the executed copies contradict (S7): three fold to a source
-#: outside VRAM (ef022, ef095, ef222) and five fold inside it, to the wrong place -- ef429's (1,1) is read
-#: every frame from (576..703, 256..511), stepping through tiles.  A source named on these is a fold,
-#: not a measurement, and the remedy and source disclosure say so.
-SOURCE_UNCERTAIN = frozenset({22, 95, 131, 222, 250, 418, 429, 435})
+#: THE MEASURED SOURCES OF THE EIGHT FLIPBOOK BANDS (S7).  ``(effect, dst x, dst y, width, height, tile x,
+#: tile y, copies)`` -- one row per band-sized source tile the executed copies read, with how many of the
+#: band's executed copies (routes census, deduplicated per copy rectangle) read it.  Re-derived from the
+#: routes census and asserted equal, row for row, by ``scroll_blit_gates.py`` S7.
+_TILE_ROWS = (
+    (22, 576, 384, 16, 64, 576, 448, 4), (22, 576, 384, 16, 64, 592, 384, 5),
+    (22, 576, 384, 16, 64, 592, 448, 4), (22, 576, 384, 16, 64, 608, 384, 6),
+    (22, 576, 384, 16, 64, 608, 448, 4), (22, 576, 384, 16, 64, 624, 384, 6),
+    (22, 576, 384, 16, 64, 624, 448, 4), (22, 576, 384, 16, 64, 640, 384, 6),
+    (22, 576, 384, 16, 64, 640, 448, 4), (22, 576, 384, 16, 64, 656, 384, 6),
+    (22, 576, 384, 16, 64, 656, 448, 4), (22, 576, 384, 16, 64, 672, 384, 4),
+    (22, 576, 384, 16, 64, 672, 448, 4), (22, 576, 384, 16, 64, 688, 384, 4),
+    (22, 576, 384, 16, 64, 688, 448, 4), (22, 576, 384, 16, 64, 704, 256, 4),
+    (22, 576, 384, 16, 64, 704, 320, 4), (22, 576, 384, 16, 64, 720, 256, 4),
+    (22, 576, 384, 16, 64, 720, 320, 4), (22, 576, 384, 16, 64, 736, 256, 4),
+    (22, 576, 384, 16, 64, 736, 320, 4), (22, 576, 384, 16, 64, 752, 256, 4),
+    (22, 576, 384, 16, 64, 752, 320, 4), (95, 576, 384, 16, 64, 576, 448, 4),
+    (95, 576, 384, 16, 64, 592, 384, 5), (95, 576, 384, 16, 64, 592, 448, 4),
+    (95, 576, 384, 16, 64, 608, 384, 6), (95, 576, 384, 16, 64, 608, 448, 4),
+    (95, 576, 384, 16, 64, 624, 384, 6), (95, 576, 384, 16, 64, 624, 448, 4),
+    (95, 576, 384, 16, 64, 640, 384, 6), (95, 576, 384, 16, 64, 640, 448, 4),
+    (95, 576, 384, 16, 64, 656, 384, 6), (95, 576, 384, 16, 64, 656, 448, 4),
+    (95, 576, 384, 16, 64, 672, 384, 4), (95, 576, 384, 16, 64, 672, 448, 4),
+    (95, 576, 384, 16, 64, 688, 384, 4), (95, 576, 384, 16, 64, 688, 448, 4),
+    (95, 576, 384, 16, 64, 704, 256, 4), (95, 576, 384, 16, 64, 704, 320, 4),
+    (95, 576, 384, 16, 64, 720, 256, 4), (95, 576, 384, 16, 64, 720, 320, 4),
+    (95, 576, 384, 16, 64, 736, 256, 4), (95, 576, 384, 16, 64, 736, 320, 4),
+    (95, 576, 384, 16, 64, 752, 256, 4), (95, 576, 384, 16, 64, 752, 320, 4),
+    (131, 704, 384, 64, 64, 640, 256, 1), (131, 704, 384, 64, 64, 640, 320, 3),
+    (131, 704, 384, 64, 64, 640, 384, 3), (131, 704, 384, 64, 64, 704, 256, 2),
+    (131, 704, 384, 64, 64, 704, 320, 3), (222, 576, 384, 16, 64, 576, 448, 4),
+    (222, 576, 384, 16, 64, 592, 384, 5), (222, 576, 384, 16, 64, 592, 448, 4),
+    (222, 576, 384, 16, 64, 608, 384, 6), (222, 576, 384, 16, 64, 608, 448, 4),
+    (222, 576, 384, 16, 64, 624, 384, 6), (222, 576, 384, 16, 64, 624, 448, 4),
+    (222, 576, 384, 16, 64, 640, 384, 6), (222, 576, 384, 16, 64, 640, 448, 4),
+    (222, 576, 384, 16, 64, 656, 384, 6), (222, 576, 384, 16, 64, 656, 448, 4),
+    (222, 576, 384, 16, 64, 672, 384, 4), (222, 576, 384, 16, 64, 672, 448, 4),
+    (222, 576, 384, 16, 64, 688, 384, 4), (222, 576, 384, 16, 64, 688, 448, 4),
+    (222, 576, 384, 16, 64, 704, 256, 4), (222, 576, 384, 16, 64, 704, 320, 4),
+    (222, 576, 384, 16, 64, 720, 256, 4), (222, 576, 384, 16, 64, 720, 320, 4),
+    (222, 576, 384, 16, 64, 736, 256, 4), (222, 576, 384, 16, 64, 736, 320, 4),
+    (222, 576, 384, 16, 64, 752, 256, 4), (222, 576, 384, 16, 64, 752, 320, 4),
+    (250, 704, 384, 64, 64, 640, 256, 3), (250, 704, 384, 64, 64, 640, 320, 5),
+    (250, 704, 384, 64, 64, 640, 384, 5), (250, 704, 384, 64, 64, 704, 256, 2),
+    (250, 704, 384, 64, 64, 704, 320, 5), (418, 640, 480, 64, 32, 704, 256, 2),
+    (418, 640, 480, 64, 32, 704, 288, 2), (418, 640, 480, 64, 32, 704, 320, 2),
+    (418, 640, 480, 64, 32, 704, 352, 1), (418, 640, 480, 64, 32, 704, 384, 1),
+    (418, 640, 480, 64, 32, 704, 416, 1), (418, 640, 480, 64, 32, 704, 448, 1),
+    (418, 640, 480, 64, 32, 704, 480, 1), (429, 512, 256, 32, 64, 576, 256, 5),
+    (429, 512, 256, 32, 64, 576, 320, 10), (429, 512, 256, 32, 64, 576, 384, 8),
+    (429, 512, 256, 32, 64, 576, 448, 8), (429, 512, 256, 32, 64, 608, 256, 10),
+    (429, 512, 256, 32, 64, 608, 320, 10), (429, 512, 256, 32, 64, 608, 384, 8),
+    (429, 512, 256, 32, 64, 608, 448, 8), (429, 512, 256, 32, 64, 640, 256, 10),
+    (429, 512, 256, 32, 64, 640, 320, 8), (429, 512, 256, 32, 64, 640, 384, 8),
+    (429, 512, 256, 32, 64, 640, 448, 8), (429, 512, 256, 32, 64, 672, 256, 10),
+    (429, 512, 256, 32, 64, 672, 320, 8), (429, 512, 256, 32, 64, 672, 384, 8),
+    (429, 512, 256, 32, 64, 672, 448, 8), (435, 896, 0, 40, 80, 896, 80, 3),
+    (435, 896, 0, 40, 80, 896, 160, 3), (435, 896, 0, 40, 80, 936, 0, 3),
+    (435, 896, 0, 40, 80, 936, 80, 3),
+)
+FLIPBOOK_PAIRS, FLIPBOOK_TILES = 8, 107
+#: the containers whose folds the executed copies contradict -- every one now carries measured tiles.
+FLIPBOOK = frozenset(r[0] for r in _TILE_ROWS)
+#: ``{(effect, dst x, dst y, width, height): ((tile x, tile y, copies), ...)}``
+TILES: Dict[Tuple[int, int, int, int, int], Tuple[Tuple[int, int, int], ...]] = {}
+for _r in _TILE_ROWS:
+    TILES.setdefault(_r[:5], ())
+    TILES[_r[:5]] += (_r[5:],)
 
 # ``(effect, program chunk, dst x, dst y, width, period, src x, src y)`` -- one row per op-144 CALL
 # SITE, in listing order, duplicates kept: two sites queueing the same rect are two sites.  Width and
@@ -297,9 +371,20 @@ class ScrollBlit:
         return MECHANISM if self.axis == "v" else H_MECHANISM
 
     @property
-    def source_measured(self) -> bool:
-        """False where the executed copies contradict this container's folded op-144 sources."""
-        return not (self.axis == "v" and self.effect in SOURCE_UNCERTAIN)
+    def tiles(self) -> Tuple[Tuple[int, int, int], ...]:
+        """The measured source tiles ``(x, y, copies)`` of a FLIPBOOK band, or ``()`` where the fold is
+        the source (:data:`TILES`)."""
+        if self.axis != "v":
+            return ()
+        return TILES.get((self.effect, self.dst[0], self.dst[1], self.size[0], self.size[1]), ())
+
+    @property
+    def sources(self) -> Tuple[Rect, ...]:
+        """Every source band this pair reads: the measured tiles of a flipbook, else the folded source
+        where it fits VRAM, else nothing."""
+        if self.tiles:
+            return tuple((x, y, self.size[0], self.size[1]) for x, y, _n in self.tiles)
+        return (self.src_rect,) if self.src_in_vram else ()
 
     @property
     def dst_rect(self) -> Rect:
@@ -320,11 +405,11 @@ class ScrollBlit:
         """The part of ``cell`` this blit REWRITES, in VRAM coordinates, or None."""
         return _overlap(self.dst_rect, (cell[0], cell[1], CELL_W, CELL_LINES))
 
-    def source_overlap(self, cell: Tuple[int, int]) -> Optional[Rect]:
-        """The part of ``cell`` this blit READS, in VRAM coordinates, or None."""
-        if not self.src_in_vram:
-            return None
-        return _overlap(self.src_rect, (cell[0], cell[1], CELL_W, CELL_LINES))
+    def source_overlaps(self, cell: Tuple[int, int]) -> Tuple[Rect, ...]:
+        """Every part of ``cell`` this blit READS, in VRAM coordinates -- one rect per source band that
+        touches it (a flipbook's tiles need not tile the cell), ``()`` if none."""
+        box = (cell[0], cell[1], CELL_W, CELL_LINES)
+        return tuple(o for o in (_overlap(r, box) for r in self.sources) if o)
 
     def feeds(self, band: Rect) -> Optional[Rect]:
         """The SOURCE band written into ``band`` (a part of the destination).
@@ -337,10 +422,16 @@ class ScrollBlit:
         """
         if not self.src_in_vram:
             return None
+        return self._feed(self.src, band)
+
+    def _feed(self, src: Tuple[int, int], band: Rect) -> Rect:
         if self.axis == "h":
-            return (self.src[0], self.src[1] + (band[1] - self.dst[1]), self.size[0], band[3])
-        x0 = self.src[0] + (band[0] - self.dst[0])
-        return (x0, self.src[1], band[2], self.size[1])
+            return (src[0], src[1] + (band[1] - self.dst[1]), self.size[0], band[3])
+        return (src[0] + (band[0] - self.dst[0]), src[1], band[2], self.size[1])
+
+    def feeds_all(self, band: Rect) -> Tuple[Rect, ...]:
+        """:meth:`feeds` over every source band: one rect per measured tile of a flipbook."""
+        return tuple(self._feed((r[0], r[1]), band) for r in self.sources)
 
     @property
     def refresh(self) -> Optional["RefreshRead"]:
@@ -354,10 +445,17 @@ class ScrollBlit:
                     "chunk %s" % (self.dst[0], self.dst[1], self.size[0], self.size[1], self.src[0],
                                   self.src[1], self.sites, self.routine,
                                   "/".join(str(c) for c in self.chunks)))
+        if self.tiles:
+            xs = [x for x, _y, _n in self.tiles]
+            ys = [y for _x, y, _n in self.tiles]
+            return ("op 144 dst (%d,%d) %dx%d <- %d source tiles in (%d..%d, %d..%d), measured (the fold "
+                    "says (%d,%d)), %d site(s) in chunk %s"
+                    % (self.dst[0], self.dst[1], self.size[0], self.size[1], len(self.tiles), min(xs),
+                       max(xs) + self.size[0] - 1, min(ys), max(ys) + self.size[1] - 1, self.src[0],
+                       self.src[1], self.sites, "/".join(str(c) for c in self.chunks)))
         return ("op 144 dst (%d,%d) %dx%d <- src (%d,%d)%s, %d site(s) in chunk %s"
                 % (self.dst[0], self.dst[1], self.size[0], self.size[1], self.src[0], self.src[1],
-                   "" if self.src_in_vram else " [source does not fit VRAM as folded]"
-                   if self.source_measured or not self.src_in_vram else "",
+                   "" if self.src_in_vram else " [source does not fit VRAM as folded]",
                    self.sites, "/".join(str(c) for c in self.chunks)))
 
 
@@ -392,7 +490,7 @@ def cell_hits(effect: Optional[int], cell: Tuple[int, int]
     """``(destination hits, source hits)`` for one page-cell -- two lists, never merged."""
     bs = blits(effect)
     return (tuple(b for b in bs if b.dest_overlap(cell)),
-            tuple(b for b in bs if b.source_overlap(cell)))
+            tuple(b for b in bs if b.source_overlaps(cell)))
 
 
 def rewritten_halfwords(dst: Tuple[ScrollBlit, ...], cell: Tuple[int, int]) -> FrozenSet[int]:
@@ -525,7 +623,12 @@ assert len({r[0] for r in _SITE_ROWS}) == CONTAINERS
 assert len(_HSCROLL_ROWS) == HSCROLL_SITES and len({r[0] for r in _HSCROLL_ROWS}) == HSCROLL_CONTAINERS
 assert len(SCROLL_BLITS) == ALL_CONTAINERS, len(SCROLL_BLITS)
 assert sum(b.sites for bs in SCROLL_BLITS.values() for b in bs) == SITES + HSCROLL_SITES
-assert SOURCE_UNCERTAIN <= {r[0] for r in _SITE_ROWS}
+#: every measured tile belongs to a real op-144 band, and the counts close.
+assert len(_TILE_ROWS) == FLIPBOOK_TILES and len(TILES) == FLIPBOOK_PAIRS
+assert all(any(b.axis == "v" and (b.effect,) + b.dst + b.size == k for b in SCROLL_BLITS.get(k[0], ()))
+           for k in TILES)
+assert all(0 <= x and 0 <= y and x + k[3] <= VRAM_W and y + k[4] <= VRAM_H
+           for k, ts in TILES.items() for x, y, _n in ts)
 #: the hardware's own fit predicate, which every DESTINATION satisfies -- the evidence ADDENDUM 9
 #: shipped the op's naming on (167/167 against 46.0% on the control population).
 assert all(b.size[0] > 0 and b.dst[0] + b.size[0] <= VRAM_W and b.dst[1] + b.size[1] <= VRAM_H

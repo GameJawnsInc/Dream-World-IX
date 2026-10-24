@@ -75,8 +75,8 @@ def test_the_table_is_the_measurement_and_its_geometry_is_the_kits():
 
 def test_the_band_arithmetic_is_columns_one_to_one_and_rows_the_whole_period():
     assert FULL.dest_overlap((704, 384)) == (704, 384, 64, 128)
-    assert FULL.dest_overlap((704, 256)) is None and FULL.source_overlap((704, 256)) == \
-        (704, 256, 64, 128)
+    assert FULL.dest_overlap((704, 256)) is None and FULL.source_overlaps((704, 256)) == \
+        ((704, 256, 64, 128),)
     assert len(SB.rewritten_halfwords((FULL,), (704, 384))) == 64 * 128
     assert len(SB.rewritten_halfwords((HALF,), (704, 256))) == 32 * 128
     # a band of rows 368..480 feeds BOTH stacked cells; the scroll rotates rows, so a column range
@@ -329,22 +329,57 @@ def test_a_program_scroll_destination_refuses_and_its_own_bottom_half_builds(tmp
     b = RP.build(_spec_dict(blob, [_row(p, bottom)]), "?", blob=blob)
     note = "  ".join(b.enabled[0].hazard_notes)
     assert "SCROLL-BLIT DESTINATION, clear" in note and "SCROLL-BLIT SOURCE" in note
+    assert "scrolling horizontally" in note, "the source note says which way this scroll turns"
     text = "\n".join(RP.scenery_lines(blob, 999))
     assert "SCROLL BLITS (the program's own scroll)" in text
     assert "program-scroll SCROLL BLITS" in RP.program_class(999)[1]
 
 
-def test_a_source_the_executed_copies_contradict_names_no_cell(tmp_path, blits, monkeypatch):
+# ---------------------------------------------------------------- (4d) the flipbook
+def test_the_shipped_flipbooks_are_band_sized_tiles_in_vram():
+    assert SB.FLIPBOOK == {22, 95, 131, 222, 250, 418, 429, 435}
+    assert (SB.FLIPBOOK_PAIRS, SB.FLIPBOOK_TILES) == (8, 107)
+    ef429 = SB.blits(429)[0]
+    assert len(ef429.tiles) == 16 and ef429.src == (1, 1), "the fold names a band the copy never reads"
+    assert {(x, y) for x, y, _n in ef429.tiles} == {(x, y) for x in (576, 608, 640, 672)
+                                                    for y in (256, 320, 384, 448)}
+    assert "16 source tiles in (576..703, 256..511), measured (the fold says (1,1))" in ef429.describe()
+    # a flipbook's sources are its tiles, never the fold -- even where the fold fits VRAM
+    assert ef429.sources[0] == (576, 256, 32, 64) and (1, 1, 32, 64) not in ef429.sources
+    assert ef429.source_overlaps((576, 256)) == ((576, 256, 32, 64), (576, 320, 32, 64),
+                                                 (608, 256, 32, 64), (608, 320, 32, 64))
+    # the four whose fold does not fit VRAM name their measured tiles now
+    assert all(b.tiles for e in (22, 95, 222, 418) for b in SB.blits(e) if not b.src_in_vram)
+    assert all(not b.tiles for bs in SB.SCROLL_BLITS.values() for b in bs if b.effect not in SB.FLIPBOOK)
+
+
+#: FULL as a flipbook: its band reads (704,256) on some copies and (576,256) on others.
+FLIP = ((576, 256, 3), (704, 256, 5))
+
+
+def test_a_flipbook_remedy_names_every_tile_cell_and_the_source_note_counts_tiles(tmp_path, blits,
+                                                                                  monkeypatch):
     blits(FULL)
-    monkeypatch.setattr(SB, "SOURCE_UNCERTAIN", SB.SOURCE_UNCERTAIN | {999})
+    monkeypatch.setitem(SB.TILES, (999,) + FULL.dst + FULL.size, FLIP)
     blob = build_scenery_container()
     pages = {p.name: p for p in RP.scenery_texel_pages(blob, 999)}
     assert pages["cell.s0.x704_y384"].hazards.scroll_remedy == (
-        "its source folds to (704,256), but headless this container's copies read from elsewhere "
-        "(scroll_blit.SOURCE_UNCERTAIN), so the fold names no cell to paint instead",)
-    p = pages["cell.s0.x704_y256"]
+        "op 144 cycles this band through 2 source tiles, measured headless (its fold says (704,256)), "
+        "one tile per copy, scrolling within it: paint `cell.s0.x576_y256` (576,256) -- 1 of its tiles "
+        "feed this band in turn; paint `cell.s0.x704_y256` (704,256) -- 1 of its tiles feed this band in "
+        "turn",)
+    p = pages["cell.s0.x576_y256"]
+    assert p.hazards.scroll_src and p.hazards.scroll_src[0].tiles == FLIP
     b = RP.build(_spec_dict(blob, [_row(p, _edit(tmp_path, blob, p))]), "?", blob=blob)
-    assert "a fold, not a measurement" in "  ".join(b.enabled[0].hazard_notes)
+    note = "  ".join(b.enabled[0].hazard_notes)
+    assert "READS 1 of its 2 source tiles from this cell (VRAM (576,256) 64x128)" in note
+    assert "on the copies that read your tile" in note
+    man = RP.export_art(blob, 999, tmp_path / "art", overlays=False)
+    rec = {e["name"]: e["scroll_blit"] for e in man["scenery"]}
+    assert rec["cell.s0.x576_y256"]["source"][0]["tiles"] == 2
+    sc = (tmp_path / "art" / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    row = sc.split('name = "cell.s0.x576_y256"')[1].split("[[reskin.texel]]")[0]
+    assert "reads 1 of its 2 source tiles from this cell" in row
 
 
 # ---------------------------------------------------------------- (5) the corpus case
@@ -402,3 +437,19 @@ def test_the_open_gap_is_closed_ef226_and_ef509_refuse_their_top_halves(tmp_path
     for t in b.enabled:
         note = "  ".join(t.hazard_notes)
         assert "SCROLL-BLIT DESTINATION, clear" in note and "SCROLL-BLIT SOURCE" in note, t.name
+
+
+@needs_corpus
+def test_ef022s_flipbook_names_its_measured_tiles_on_the_acknowledged_surface():
+    """ef022's (576,384) 16x64 band folds to a source outside VRAM; the executed copies read 23 tiles.
+    Its cells are on the surface only behind every acknowledgement, and there the remedy names them."""
+    blob = (CORPUS / "ef022.bytes").read_bytes()
+    pages = {p.name: p for p in RP.scenery_texel_pages(blob, 22, program_depth=True, array_depth=True,
+                                                         displacement_ack=True)}
+    r = pages["cell.s0.x576_y384"].hazards.scroll_remedy[0]
+    assert r.startswith("op 144 cycles this band through 23 source tiles, measured headless (its fold "
+                        "says (6144,64))")
+    assert "7 of them lie in THIS cell, outside the rewritten band" in r
+    assert "(704,256) holds 8 tile(s) but is `cell.s0.x704_y256`" in r
+    src = pages["cell.s0.x704_y256"].hazards.scroll_src
+    assert [len(b.source_overlaps((704, 256))) for b in src] == [8]

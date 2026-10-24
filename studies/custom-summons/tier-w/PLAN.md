@@ -713,6 +713,12 @@ scenery must be re-authored *together*.
   63 containers the executed destinations EQUAL the table's bands. The sources do not -- on 8 op-144
   containers the copies read from elsewhere -- so `SOURCE_UNCERTAIN` names no remedy cell there and calls
   the source a fold. Surface pins 208 cells, 22 / 94 destinations, 21 / 88 sources; S1-S8 8/8.
+  **★ FOLLOW-UP — THE FLIPBOOKS MEASURED.** The 8 wrong sources are not misfolds of one band: each of those
+  bands scrolls a different band-sized TILE on different frames. Attributing every executed copy to the band
+  whose scroll shape it has (115 bands read exactly their fold, which validates the method), the 8 carry
+  107 measured tiles (`scroll_blit.TILES`), and with them the executed sources equal the table's halfword
+  for halfword on every container. Remedies and source disclosures there name the tiles' cells again. No
+  default-surface cell is touched -- the affected cells sit behind the acknowledgements -- so the pins hold.
   **(2) SHOULD THE GAIN HALF BE DECLINABLE?** Today `texel_page` / `export_art` / `build` hard-code
   `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface, so an author who distrusts
   `linear-add-v1` on THEIR container cannot ask for the pre-adoption reading. Recovery is EXACT at the

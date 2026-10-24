@@ -280,7 +280,10 @@ sites). The program-VRAM lists above never held it, so this lane used to call ef
 * the table carries a second static source: six containers' OWN horizontal-scroll routine, which
   takes op 144's arguments and issues the copies itself through HLE op 7 (``axis = "h"``). It closed the
   headless census's open gap -- four editable cells on ef226 / ef509 the kit used to license -- and the
-  executed copies now equal the table's bands halfword for halfword over every container that runs one.
+  executed copies now equal the table's bands halfword for halfword over every container that runs one;
+* eight op-144 bands are FLIPBOOKS -- they scroll a different band-sized tile on different frames -- and
+  carry the tiles the executed copies measured (``scroll_blit.TILES``), so a remedy there names every
+  cell the tiles lie in and a source disclosure counts the tiles a cell holds.
 
 THE RENDER TARGET -- A 15bpp READ THAT NEVER SAMPLES VRAM
 ---------------------------------------------------------
@@ -2721,20 +2724,18 @@ def _with_scroll_remedies(pages: List[TexelPage], refused: List[CellRefusal]) ->
             continue
         remedies = []
         for b in hz.scroll_dst:
-            feed = b.feeds(b.dest_overlap(p.cell))
-            if feed is None:
+            feeds = b.feeds_all(b.dest_overlap(p.cell))
+            if not feeds:
                 remedies.append(
                     "its source folds to (%d,%d), which does not fit the %dx%d VRAM, so there is no "
                     "cell to paint instead" % (b.src[0], b.src[1], SB.VRAM_W, SB.VRAM_H))
                 continue
-            if not b.source_measured:
-                # A remedy NAMES A CELL TO PAINT, so a source the executed copies contradict must not
-                # name one: the author would paint a cell the copy never reads.
-                remedies.append(
-                    "its source folds to (%d,%d), but headless this container's copies read from "
-                    "elsewhere (scroll_blit.SOURCE_UNCERTAIN), so the fold names no cell to paint "
-                    "instead" % b.src)
+            if b.tiles:
+                # A FLIPBOOK: the band reads a different tile on different copies, so the remedy is
+                # every cell its tiles lie in, never the fold (which names a band the copy never reads).
+                remedies.append(_flipbook_remedy(b, p, feeds, by_cell, blocked))
                 continue
+            feed = feeds[0]
             parts = []
             for sc in SB.cells_under(feed):
                 names = by_cell.get(sc, [])
@@ -2829,6 +2830,40 @@ def _with_render_routes(pages: List[TexelPage], refused: List[CellRefusal],
                 remedy = "no cell but this one draws the target, so there is no other cell to paint"
         out.append(replace(p, hazards=replace(hz, render_route=route, render_remedy=remedy)))
     return out
+
+
+def _flipbook_remedy(b: "SB.ScrollBlit", p: TexelPage, feeds: Sequence["SB.Rect"],
+                     by_cell: Dict[Tuple[int, int], List[str]], blocked: Dict[str, str]) -> str:
+    """The remedy for a FLIPBOOK band: every cell its measured tiles lie in, with how many tiles each
+    holds, named against this container's own surface."""
+    per: Dict[Tuple[int, int], int] = {}
+    for f in feeds:
+        for sc in SB.cells_under(f):
+            per[sc] = per.get(sc, 0) + 1
+    # a tile can sit INSIDE the band it feeds -- then that part of it is rewritten too, and saying
+    # "outside the rewritten band" would be false
+    inside = sum(1 for f in feeds if SB._overlap(f, b.dst_rect))
+    parts = []
+    for sc, n in sorted(per.items()):
+        names = by_cell.get(sc, [])
+        ok = [nm for nm in names if nm not in blocked]
+        if sc == p.cell:
+            parts.append("%d of them lie in THIS cell%s: paint those and they cycle in"
+                         % (n, ", outside the rewritten band" if not inside else
+                            " (%d overlapping the rewritten band itself, where they are rewritten too)"
+                            % inside))
+        elif ok:
+            parts.append("paint `%s` (%d,%d) -- %d of its tiles feed this band in turn" % (ok[0], sc[0],
+                                                                                      sc[1], n))
+        elif names:
+            parts.append("(%d,%d) holds %d tile(s) but is `%s`, which this container refuses as `%s`"
+                         % (sc[0], sc[1], n, names[0], blocked[names[0]]))
+        else:
+            parts.append("(%d,%d) holds %d tile(s) and is not an editable cell in this container"
+                         % (sc[0], sc[1], n))
+    return ("%s cycles this band through %d source tiles, measured headless (its fold says (%d,%d)), one "
+            "tile per copy, scrolling within it: %s" % (b.label, len(b.tiles), b.src[0], b.src[1],
+                                                        "; ".join(parts)))
 
 
 def scenery_texel_pages(blob: bytes, effect: Optional[int] = None, *,
@@ -4249,15 +4284,16 @@ def _scroll_blit_record(hz: "CellHazards", cell: Tuple[int, int]) -> dict:
     return {
         "destination": [{"dst": list(b.dst), "size": list(b.size), "src": list(b.src),
                          "sites": b.sites, "chunks": list(b.chunks), "via": b.label,
-                         "axis": b.axis, "source_measured": b.source_measured,
+                         "axis": b.axis, "tiles": len(b.tiles),
                          "band": list(b.dest_overlap(cell)), "remedy": r,
                          "refresh": _refresh_on_destination(b) or None}
                         for b, r in zip(hz.scroll_dst,
                                         hz.scroll_remedy or ("",) * len(hz.scroll_dst))],
         "rewritten_halfwords": len(hz.scroll_rewritten),
         "source": [{"dst": list(b.dst), "size": list(b.size), "src": list(b.src),
-                    "sites": b.sites, "band": list(b.source_overlap(cell)), "via": b.label,
-                    "axis": b.axis, "source_measured": b.source_measured,
+                    "sites": b.sites, "band": list(b.source_overlaps(cell)[0]),
+                    "bands": [list(r) for r in b.source_overlaps(cell)], "via": b.label,
+                    "axis": b.axis, "tiles": len(b.tiles),
                     "shows": _refresh_on_source(b)}
                    for b in hz.scroll_src],
     }
@@ -4783,11 +4819,13 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
             if d.get("refresh"):
                 L += _wrap_comment(d["refresh"], "#   ")
         for d in sbr.get("source", ()):
-            L.append("# SCROLL-BLIT SOURCE: %s copies VRAM (%d,%d) %dx%d of this cell into"
-                     % ((d.get("via", "op 144"),) + tuple(d["band"])))
-            if d.get("source_measured") is False:
-                L.append("#   (the FOLDED source -- headless, this container's copies read from")
-                L.append("#   elsewhere, so this is a fold, not a measurement)")
+            if d.get("tiles"):
+                L.append("# SCROLL-BLIT SOURCE: %s reads %d of its %d source tiles from this cell"
+                         % (d.get("via", "op 144"), len(d["bands"]), d["tiles"]))
+                L.append("#   (measured headless, one tile per copy, cycling) and writes each into")
+            else:
+                L.append("# SCROLL-BLIT SOURCE: %s copies VRAM (%d,%d) %dx%d of this cell into"
+                         % ((d.get("via", "op 144"),) + tuple(d["band"])))
             L.append("#   (%d,%d) %dx%d every frame it runs -- a disclosure, not a refusal:"
                      % (d["dst"][0], d["dst"][1], d["size"][0], d["size"][1]))
             L += _wrap_comment(d.get("shows") or "what you paint there ALSO appears there, scrolling "
@@ -5586,8 +5624,9 @@ def _refresh_on_source(b: "SB.ScrollBlit") -> str:
     """Where a SOURCE paint shows, given the pair's measured refresh verdict."""
     rf = b.refresh
     if rf is None:
-        return ("so what you paint there ALSO appears at (%d,%d), scrolling vertically with "
-                "wraparound" % b.dst)
+        return ("so what you paint there ALSO appears at (%d,%d)%s, scrolling %s with wraparound"
+                % (b.dst[0], b.dst[1], " on the copies that read your tile" if b.tiles else "",
+                   "horizontally" if b.axis == "h" else "vertically"))
     if rf.verdict == "READ_STALE":
         return ("but it does NOT appear at (%d,%d): %s.  This cell's own readers are the only way "
                 "your paint reaches the screen" % (b.dst[0], b.dst[1], rf.describe()))
@@ -5666,15 +5705,22 @@ def _gate_scroll_blit(t: "TexelTarget") -> List[str]:
                      "halfword(s) lie in %s.  %s%s" % (n, len(changed), what, SB.ACK_WARNING,
                                                       ("  " + m) if m else ""))
     for b in hz.scroll_src:
-        band = b.source_overlap(cell)
+        bands = b.source_overlaps(cell)
+        n = sum(1 for x, y in at
+                if any(r[0] <= x < r[0] + r[2] and r[1] <= y < r[1] + r[3] for r in bands))
+        if b.tiles:
+            notes.append("SCROLL-BLIT SOURCE (a disclosure, not a refusal): %s READS %d of its %d source "
+                         "tiles from this cell (%s), one per copy, cycling, and writes each into %s -- %d "
+                         "of this edit's changed halfword(s) are in them, %s"
+                         % (b.describe(), len(bands), len(b.tiles),
+                            ", ".join(_vram_rect(r) for r in bands), _vram_rect(b.dst_rect), n,
+                            _refresh_on_source(b)))
+            continue
         notes.append("SCROLL-BLIT SOURCE (a disclosure, not a refusal): %s %s %s of this cell every "
                      "frame and writes it into %s -- %d of this edit's changed halfword(s) are in "
-                     "that band, %s%s"
-                     % (b.describe(), "READS", _vram_rect(band), _vram_rect(b.dst_rect),
-                        _inside(band), _refresh_on_source(b),
-                        "" if b.source_measured else
-                        "  (THE FOLDED SOURCE: headless, this container's copies read from elsewhere, "
-                        "so this band is a fold, not a measurement)"))
+                     "that band, %s"
+                     % (b.describe(), "READS", _vram_rect(bands[0]), _vram_rect(b.dst_rect), n,
+                        _refresh_on_source(b)))
     return notes
 
 

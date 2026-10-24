@@ -11,8 +11,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   `cell.s0.x512_y384` every frame, and the kit used to let you paint there. Those edits now refuse by name, and
   the bottom halves (where the copy reads from) build with a note.
 - Checked against the effects run offline: every copy they execute now lands inside a band the kit knows about.
-- On 8 effects the copy reads from somewhere other than where the kit's analysis says. There the build no longer
-  names a cell to paint instead, and its note calls the source a guess.
+- On 8 effects the copy does not read one fixed source: it cycles through several source tiles, a different
+  one on different frames, and the kit's analysis named the wrong place. The kit now carries the tiles measured
+  from the copies, so the build names the cells to paint instead and notes how many tiles a cell holds.
+  Checked offline: the copies' sources now match the kit's too, on every effect.
 
 ### Added — see the map from a vehicle as the game does
 - "As the game sees it" now has a vehicle chooser: on foot, a chocobo, the flying gold chocobo, the Blue Narciss, the

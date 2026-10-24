@@ -1144,3 +1144,41 @@ folded source does not name: **ef022, ef095, ef222** fold to a source outside VR
 ef418, ef429, ef435** fold inside it, wrongly -- ef429's `(1,1)` is read every frame from (576..703,
 256..511), stepping through tiles. The kit's `scroll_blit.SOURCE_UNCERTAIN` holds them: a remedy names
 no cell there, and a source disclosure says it is a fold. `scroll_blit_gates.py` S7 pins the set.
+**Superseded by addendum 12:** those eight are flipbooks, now measured, and the sources close.
+
+---
+
+# ADDENDUM 12 -- the flipbook: a scroll whose source moves
+
+Addendum 11 left eight op-144 bands whose folded source the executed copies contradict. They are not
+misfolds of one band. **Each of those bands scrolls a different band-sized TILE on different frames** -- a
+flipbook of scrolling tiles. ef429's `dst (512,256) 32x64`, folded as `(1,1)`, reads 16 tiles of 32x64
+covering (576..703, 256..511).
+
+**How a copy is attributed.** A scroll call's copies have a fixed shape: they span the band along the
+axis it does not turn, and sit flush with one end along the one it does (or cover the whole band at phase
+0). That shape names the band, and the copy's source then names its tile: a top part reading `(x, y + p)`
+belongs to the tile at `(x, y)`, where `p` is the band's height minus the part's. Where two bands overlap
+(ef381's (768,256) and (768,320) at a half-period phase) a copy can fit both; it goes to the band whose
+unambiguous copies already read the tile it implies.
+
+**The result.** Every executed copy in all 63 containers is attributed, none ambiguous. **115 of the 123
+bands read exactly the band their fold names** -- the check on the method -- and the other 8 read 107
+tiles:
+
+| effect | band | fold | tiles |
+|---|---|---|---:|
+| ef022, ef095, ef222 | (576,384) 16x64 | outside VRAM | 23 each |
+| ef131, ef250 | (704,384) 64x64 | (64,64) | 5 each |
+| ef418 | (640,480) 64x32 | outside VRAM | 8 |
+| ef429 | (512,256) 32x64 | (1,1) | 16 |
+| ef435 | (896,0) 40x80 | (936,80), one of its tiles | 4 |
+
+With the tiles as the sources, **the executed sources equal the table's sources halfword for halfword on
+every container** -- the source side closes the way the destination side did. The kit carries them as
+`scroll_blit.TILES`; `scroll_blit_gates.py` S7 re-derives them from the routes census and asserts equality
+row for row.
+
+**Reach today:** none of the cells these tiles or bands touch is on the default edit surface; ef022, ef095,
+ef222, ef131, ef250 and ef418 expose some behind the acknowledgements, and there the remedy now names the
+tiles' cells instead of none.
