@@ -1036,6 +1036,15 @@ def _snap_world_3d(ctx: _Ctx, state: str, win) -> None:
         PI.point_info = orig_info
     _settle(12)
     _grab(ctx, f"world-{state}-pick", win)
+    # editor C7: the same point framed as the game's own camera does (the party standing at the pick)
+    if state == "3d":
+        PI.point_info = _fixed
+        try:
+            doc._view3d.game_btn.setChecked(True)
+        finally:
+            PI.point_info = orig_info
+        _settle(12)
+        _grab(ctx, f"world-{state}-game", win)
 
 
 def snap_world(ctx: _Ctx, state: str) -> None:
