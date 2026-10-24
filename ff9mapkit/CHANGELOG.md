@@ -5,6 +5,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — the beach chain is a tested carry
+- "Carry a coast"'s beach chain (the beach island and its chain of small islands, 4x2 blocks) is now marked as
+  tested: carried by the World tab and walked in game.
+
 ### Added — change a shape that is already in the game
 - Edit and Delete now work on a placed step you have already promoted into the game. The World tab takes that
   promote back out of the game while the step is open, then promotes the recipe again when you accept or cancel,
