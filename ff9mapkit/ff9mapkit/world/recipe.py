@@ -16,7 +16,7 @@ import math
 import tomllib
 
 #: The tables the editor writes (the rest of a recipe it composes and lists, but does not edit).
-EDITOR_TABLES = ("forest", "mountain", "sink", "morph", "island", "transplant")
+EDITOR_TABLES = ("forest", "mountain", "sink", "morph", "island", "transplant", "river")
 
 HEADER = ("# Dream World IX overworld recipe, written by the World tab.\n"
           "# Compose it onto a mod folder with:  ff9mapkit world-fuse <this file> --mod-folder <folder>\n")
@@ -41,6 +41,15 @@ def row_for(argv) -> dict:
                                ("ground", a.ground, "grass")):
             if val != dflt:
                 row[key] = val
+        return row
+    if verb == "world-river":
+        if a.remove or a.at.strip().lower() == "auto" or a.donor != "cluster-c" or a.skip_mirror or a.area is not None \
+                or not a.apron:
+            raise ValueError("a [[river]] row is the plain cluster-c carry at a placement (no --remove, auto, "
+                             "--skip-mirror, --area, --no-apron)")
+        row = {"table": "river", "at": [float(v) for v in a.at.split(",")]}
+        if a.move_from:
+            row["move_from"] = [float(v) for v in a.move_from.split(",")]
         return row
     if verb == "world-sink":
         if a.at is None or a.list:
@@ -118,12 +127,19 @@ def label(row: dict) -> str:
     if table == "morph":
         c = row.get("cell") or (0, 0)
         return f"{row.get('verb', 'morph')} {_num(row.get('depth', 0))} at block ({c[0]}, {c[1]})"
+    if table == "river":
+        at = row.get("at") or (0, 0)
+        if row.get("move_from"):
+            f = row["move_from"]
+            return f"move the river from {_num(f[0])}, {_num(f[1])} to {_num(at[0])}, {_num(at[1])}"
+        return f"river at {_num(at[0])}, {_num(at[1])}"
     if table == "sink":
         at = row.get("at") or (0, 0)
         return f"sink the island at {_num(at[0])}, {_num(at[1])}" + (" (and its cluster)" if row.get("cluster") else "")
-    if table in EDITOR_TABLES and name is not None:
+    if table in ("forest", "mountain") and name is not None:
         from .donors import load_donors, spec_blocks
-        klass = "canopy" if table == "forest" else "massif"
+        from .handles import handle
+        klass = handle(table, "donor").catalogue
         want = spec_blocks(str(name))
         for r in load_donors():
             if r.get("class") == klass and (want == spec_blocks(r["blocks"]) or want <= spec_blocks(r["blocks"])):

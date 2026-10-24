@@ -141,6 +141,13 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C5, fifth verb: MOVE THE RIVER BUILT + IN GAME (2026-10-23); C5 DONE** -> [`C5.md`](C5.md). Of the river's 28
+  placements, all are held in FF9CustomMap-world; with its own files left out, one more is free (one block north). So
+  the card is a move: `world-river --at NEW --move-from OLD` judges the new placement with the old river's files free,
+  and takes the old one out only once every gate is green. Underneath, drafts now carry deletions, the stack read
+  lets a draft stand in for its source, and Promote keeps each file's writer in the ledger (a promoted river was
+  foreign to its own verb before). I1/I2 identical over 1,635 files. In game: the new ground went from sea (-1.367)
+  to land (3.211, predicted 3.215), and the old from land (3.430) to sea (-1.367).
 - **B2, ONE HANDLE TABLE: DONE (2026-10-23).** `world/handles.py` declares each relief verb's handles once (forest,
   mountain, hill): flag, type, default, help, range, the interior constant that is its ceiling, the catalogue its picker
   lists, and its surfaces (cli / row / gui). argparse is built from it (the three parsers' dumps and `--help` are

@@ -12,8 +12,15 @@ on the next launch. :func:`ensure_draft` refuses one.
 
 A draft keeps a manifest of what it copied (``draft.json``: each file's sha-256, size and both mtimes; a file whose
 size and mtime still match is unchanged without a hash), so it can tell its own edits
-(:func:`edits`: files the draft changed or added since the copy) from the source moving on underneath it
-(:func:`stale`: source files that changed since the copy -- another session deployed).
+(:func:`edits`: files the draft changed or added since the copy; :func:`removals`: files it deleted, as
+``world-river --remove`` and a river move do) from the source moving on underneath it (:func:`stale`: source files
+that changed since the copy -- another session deployed).
+
+THE LEDGER TRAVELS WITH THE BYTES. A verb's ownership read (``river.deploy_ownership``) trusts a file only when the
+folder's ledger records its bytes under that verb. So Promote writes each file into the live ledger under the
+draft's own row's pipeline tag (never just "world-promote"), and mirrors it under that tag too; after a Promote the
+draft takes the live ledger (the two are level); Revert and Undo/Redo put the ledger back with the bytes. Without
+this a moved river, once promoted or undone, would read as foreign to its own verb and refuse to move again.
 
 THE HISTORY (rung C3): every step the editor writes into a draft (an Accept, a recipe row) snapshots the files at
 the cells it may write before and after (:func:`begin_step` / :func:`commit_step`), so :func:`undo` and :func:`redo`
@@ -144,6 +151,25 @@ def ensure_draft(source: Path, *, game, root=None) -> Path:
     return draft
 
 
+def stands_in_for(folder):
+    """The name of the live folder a draft at ``folder`` stands in for (its source), else None: the stack reads skip
+    it, since the draft holds what it copied from there."""
+    p = Path(str(folder))
+    if not p.is_absolute():
+        return None
+    meta = read_meta(p)
+    return Path(meta["source"]).name if meta else None
+
+
+def removals(draft: Path) -> list:
+    """Draft-relative paths the draft DELETED since it was copied (a removal is an edit too), sorted."""
+    meta = read_meta(draft)
+    if meta is None:
+        return []
+    have = _world_files(Path(draft))
+    return sorted(rel for rel in meta["manifest"] if rel != LEDGER and rel not in have)
+
+
 def edits(draft: Path) -> list:
     """Draft-relative paths the draft changed or added since it was copied (its own edits), sorted."""
     meta = read_meta(draft)
@@ -175,7 +201,7 @@ def edited_blocks(draft: Path) -> list:
     """``(disc, bx, by)`` for every block whose files the draft edited, sorted (the caption's count)."""
     import re
     got = set()
-    for rel in edits(draft):
+    for rel in edits(draft) + removals(draft):
         m = re.search(r"Disc(\d+)/[^/]+/r\d+/Block\[(\d+)\]\[(\d+)\]", rel)
         if m:
             got.add((int(m.group(1)), int(m.group(2)), int(m.group(3))))
@@ -202,6 +228,18 @@ def _parse_rel(rel: str):
     if not m:
         return None
     return int(m.group(1)), (int(m.group(2)), int(m.group(3))), m.group(4) if m.group(5) else None
+
+
+def _ledger_key(rel: str):
+    """``(disc, (bx, by), part)`` a world file is ledgered under, or None: a mesh by its part, a ``Donor.txt``
+    sidecar as part ``Donor`` (``mesh.deploy_donor_sidecar``'s rows), so Promote ledgers both."""
+    parsed = _parse_rel(rel)
+    if parsed is None:
+        return None
+    if parsed[2] is not None:
+        return parsed
+    m = re.search(r"\] (\w+)\.txt$", rel)
+    return (parsed[0], parsed[1], m.group(1)) if m else None
 
 
 def _cell_files(folder: Path, cells) -> dict:
@@ -244,6 +282,65 @@ def _rebase(draft: Path, meta: dict, rels) -> None:
     _write_meta(draft, meta)
 
 
+def _ledger_last(folder: Path) -> dict:
+    """``(disc, bx, by, part) -> row``: ``folder``'s last ledger row for each world file."""
+    from . import mesh as M
+    last = {}
+    for e in M.read_ledger(folder):
+        try:
+            last[(int(e["write_disc"]), int(e["cell"][0]), int(e["cell"][1]), str(e["part"]))] = e
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+    return last
+
+
+def _row_tag(e):
+    """A ledger row's writer as a ``ledger_pipeline`` tag: its ``pipeline`` field, else the verb its argv ran."""
+    from . import mesh as M
+    if e is None:
+        return None
+    tag = e.get("pipeline") or ({"verb": M.ledger_verb(e.get("argv")), "argv": e.get("argv")}
+                                if M.ledger_verb(e.get("argv")) else None)
+    return tag if tag and tag.get("verb") else None
+
+
+def _ledger_tags(folder: Path, rels, last=None) -> dict:
+    """``rel -> tag``: for each world file at ``rels``, the writer of ``folder``'s last ledger row for it, the tag
+    Promote and Revert carry the file's bytes under."""
+    last = _ledger_last(folder) if last is None else last
+    out = {}
+    for rel in rels:
+        key = _ledger_key(rel)
+        tag = None if key is None else _row_tag(last.get((key[0], *key[1], key[2])))
+        if tag:
+            out[rel] = tag
+    return out
+
+
+def _tagged(tag):
+    """A ``ledger_pipeline`` for ``tag``, the writer the row keeps, with ``via`` naming the promote (or revert) that
+    carried it -- inside one, whose own tag stays on rows that have no writer of their own (a nullcontext then)."""
+    import contextlib
+    from . import mesh as M
+    if not tag:
+        return contextlib.nullcontext()
+    outer = M._LEDGER_PIPELINE or {}
+    via = {"via": outer["verb"], **{k: v for k, v in outer.items() if k != "verb"}} if outer else {}
+    return M.ledger_pipeline(**{**via, **{k: v for k, v in tag.items() if k != "via"}})
+
+
+def _unlink_live(live: Path, *, source: Path) -> None:
+    """THE ONE LIVE DELETE: park it (the deploy seam's backup), remove it, ledger the removal."""
+    from . import mesh as M
+    sha0 = _sha(live)
+    bak = M.park_backup(live)
+    live.unlink()
+    parsed = _ledger_key(live.relative_to(source).as_posix())
+    if parsed is not None:
+        M.record_ledger_removal(source, cell=parsed[1], part=parsed[2], write_disc=parsed[0], removed_sha256=sha0,
+                                backup=bak)
+
+
 def _write_live(live: Path, data: bytes, *, source: Path) -> None:
     """THE ONE LIVE WRITE: park what is there (the deploy seam's backup), write it whole (a temp file renamed over
     it), and ledger the bytes, so a later deploy at this cell reads them as kit-written, not foreign."""
@@ -254,8 +351,8 @@ def _write_live(live: Path, data: bytes, *, source: Path) -> None:
     tmp = live.with_name(live.name + ".promoting")
     tmp.write_bytes(data)
     os.replace(tmp, live)
-    parsed = _parse_rel(live.relative_to(source).as_posix())
-    if parsed is not None and parsed[2] is not None:
+    parsed = _ledger_key(live.relative_to(source).as_posix())
+    if parsed is not None:
         disc, cell, part = parsed
         M.record_ledger_write(live, cell=cell, part=part, write_disc=disc, mod_root=source)
 
@@ -277,20 +374,38 @@ def promote(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
     source = Path(meta["source"])
     if game is None or not _inside(source, Path(game)):
         raise ValueError(f"the draft's source {source} is not a folder of the install {game}")
-    rels = edits(draft)
-    if not rels:
+    rels, gone = edits(draft), removals(draft)
+    if not rels and not gone:
         raise ValueError(f"the draft of {source.name} has no edits to promote")
     man = meta["manifest"]
     moved = [rel for rel in rels
              if ((source / rel).exists() if rel not in man else not _same(source / rel, man[rel], 2))]
+    moved += [rel for rel in gone if (source / rel).exists() and not _same(source / rel, man[rel], 2)]
     if moved:
         raise ValueError(f"{len(moved)} file(s) the draft edited changed in {source.name} since the draft was made "
                          f"(another deploy wrote them): {moved[:4]}. Promoting would overwrite that work; discard the "
                          "draft and place the edit again on a fresh one.")
-    cells = sorted({p[1] for p in map(_parse_rel, rels) if p is not None})
-    before = _cell_files(source, cells)
+    tags = _ledger_tags(draft, rels + gone)        # each file's bytes keep their verb in the live ledger
+    # THE RELABEL: a file at the edited cells whose bytes the draft left as they were, but which the draft's ledger
+    # gives another writer (a moved river's cell the new river fills with the old one's very bytes, an open Sea4
+    # sheet): its bytes need no write, its ownership does, and its disc-4 copy must be mirrored again with the rest
+    # (found by the ledgers: a key whose last row the draft wrote itself, the live folder's last row being another)
+    dl, ll = _ledger_last(draft), _ledger_last(source)
+    near = sorted({(k[1], k[2]) for k, e in dl.items() if e.get("sha256") and e != ll.get(k)})
+    relabel = []
+    for rel, p in sorted(_cell_files(draft, near).items()):
+        key = _ledger_key(rel)
+        if rel in rels or key is None or not (source / rel).is_file():
+            continue
+        e, sha = dl.get((key[0], *key[1], key[2])), _sha(p)
+        if e and e.get("sha256") == sha == _sha(source / rel) and _row_tag(e) != _row_tag(
+                ll.get((key[0], *key[1], key[2]))):
+            relabel.append(rel)
+    tags.update(_ledger_tags(draft, relabel, dl))
+    cells = sorted({p[1] for p in map(_parse_rel, rels + gone + relabel) if p is not None})
+    before = _cell_files(source, cells)            # (a relabelled cell's disc-4 copy is mirrored again: snapshot it)
     plan = {"op": "promote", "source": str(source), "folder": source.name, "cells": [list(c) for c in cells],
-            "promoted": rels}
+            "promoted": rels, "removed": gone, "relabelled": relabel}
     if dry_run:
         return plan
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -305,21 +420,42 @@ def promote(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
         data = p.read_bytes()
         dst.write_bytes(data)
         before_sha[rel] = hashlib.sha256(data).hexdigest()
-    written = []
+    groups = {}                                    # tag -> the written disc-1 paths it mirrors under
     with M.ledger_pipeline("world-promote", draft=str(draft)):
+        for rel in gone:                           # the deletions first: a moved river's new cells overlap its old
+            if (source / rel).is_file():
+                with _tagged(tags.get(rel)):
+                    _unlink_live(source / rel, source=source)
+                log(f"removed -> {source / rel}")
         for rel in rels:
-            _write_live(source / rel, (draft / rel).read_bytes(), source=source)
-            written.append(source / rel)
+            with _tagged(tags.get(rel)):
+                _write_live(source / rel, (draft / rel).read_bytes(), source=source)
+            groups.setdefault(json.dumps(tags.get(rel), sort_keys=True), []).append(source / rel)
             log(f"promoted -> {source / rel}")
-        DM.auto_mirror(written, mod_folder=source.name, log=log)
+        for rel in relabel:
+            key = _ledger_key(rel)
+            with _tagged(tags[rel]):
+                M.record_ledger_write(source / rel, cell=key[1], part=key[2], write_disc=key[0], mod_root=source)
+            groups.setdefault(json.dumps(tags[rel], sort_keys=True), []).append(source / rel)
+            log(f"relabelled -> {source / rel} (bytes unchanged, now {tags[rel].get('verb')}'s)")
+        for key, paths in groups.items():
+            with _tagged(json.loads(key)):
+                DM.auto_mirror(paths, mod_folder=source.name, log=log)
     after = _cell_files(source, cells)
     record = {**plan, "utc": time.strftime("%Y-%m-%dT%H:%M:%S"), "record": str(rec_dir),
-              "before": before_sha,
+              "before": before_sha, "tags": tags,
               "after": {rel: _sha(p) for rel, p in after.items()}, "reverted": None}
     _mark_promoted(draft, record)                  # the recipe's steps so far are live: undo stops above them
     (rec_dir / "promote.json").write_text(json.dumps(record, indent=1), encoding="utf-8")
     _rebase(draft, meta, list(after) + list(before) + stale(draft))
+    _take_ledger(draft, source)                    # level with the live folder: its ledger is the draft's now
     return record
+
+
+def _take_ledger(draft: Path, source: Path) -> None:
+    led = Path(source) / LEDGER
+    if led.is_file():
+        shutil.copy2(led, Path(draft) / LEDGER)
 
 
 def promotes(draft: Path) -> list:
@@ -373,20 +509,14 @@ def revert(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
                     _write_live(live, (snap / rel).read_bytes(), source=source)
                     log(f"restored -> {live}")
             elif live.is_file():
-                sha0 = _sha(live)
-                bak = M.park_backup(live)
-                live.unlink()
-                parsed = _parse_rel(rel)
-                if parsed is not None and parsed[2] is not None:
-                    M.record_ledger_removal(source, cell=parsed[1], part=parsed[2], write_disc=parsed[0],
-                                            removed_sha256=sha0, backup=bak)
+                _unlink_live(live, source=source)
                 log(f"removed -> {live} (the promote created it)")
     rec["reverted"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     _unmark_promoted(draft, rec)
     (Path(rec["record"]) / "promote.json").write_text(json.dumps(rec, indent=1), encoding="utf-8")
     # the draft: the promoted files are its edits again (their baseline is the restored live bytes); everything else
     # the promote touched (the disc-4 mirror) is level with the live folder again
-    edited = set(rec["promoted"])
+    edited = set(rec["promoted"]) | set(rec.get("removed", ()))
     _rebase(draft, meta, [rel for rel in touched if rel not in edited])
     man = meta["manifest"]
     for rel in edited:
@@ -396,6 +526,15 @@ def revert(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
         else:
             man.pop(rel, None)
     _write_meta(draft, meta)
+    # the ledger: the live one (level at every other cell), plus the draft's own bytes at the promoted files, under
+    # the tags they were promoted with (the edits are the draft's again, owned by the verb that made them)
+    _take_ledger(draft, source)
+    for rel in sorted(rec["promoted"]):
+        parsed = _ledger_key(rel)
+        if (draft / rel).is_file() and parsed is not None:
+            with _tagged((rec.get("tags") or {}).get(rel)):
+                M.record_ledger_write(draft / rel, cell=parsed[1], part=parsed[2], write_disc=parsed[0],
+                                      mod_root=draft)
     return {**rec, "op": "revert"}
 
 
@@ -447,6 +586,20 @@ def _restore(draft: Path, files: dict, snap: Path, cells) -> None:
             p.unlink()
 
 
+def _keep_ledger(draft: Path, side: Path) -> None:
+    """A step's side keeps the draft's ledger as it was then (the ownership reads trust bytes the ledger records)."""
+    led = Path(draft) / LEDGER
+    if led.is_file():
+        side.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(led, side / LEDGER)
+
+
+def _put_ledger(draft: Path, side: Path) -> None:
+    """Put the draft's ledger back as the step's side kept it (a step recorded before the ledger was kept: none)."""
+    if (side / LEDGER).is_file():
+        shutil.copy2(side / LEDGER, Path(draft) / LEDGER)
+
+
 def _differs(draft: Path, files: dict, cells) -> list:
     now = {rel: _sha(p) for rel, p in _cell_files(Path(draft), cells).items()}
     return sorted(rel for rel in set(now) | set(files) if now.get(rel) != files.get(rel))
@@ -465,6 +618,7 @@ def begin_step(draft: Path, cells) -> None:
     cells = sorted({(int(bx) % 24, int(by)) for bx, by in cells})
     pend.mkdir(parents=True)                         # (a step over open sea has no file to snapshot)
     before = _snap(draft, cells, pend / "before")
+    _keep_ledger(draft, pend / "before")
     (pend / "step.json").write_text(json.dumps({"cells": [list(c) for c in cells], "before": before}),
                                     encoding="utf-8")
 
@@ -477,6 +631,7 @@ def commit_step(draft: Path, row: dict, label: str) -> dict:
     step = json.loads((pend / "step.json").read_text(encoding="utf-8"))
     cells = [tuple(c) for c in step["cells"]]
     after = _snap(draft, cells, pend / "after")
+    _keep_ledger(draft, pend / "after")
     before = step["before"]
     moved = {rel for rel in set(before) | set(after) if before.get(rel) != after.get(rel)}
     keep = sorted({_parse_rel(rel)[1] for rel in moved if _parse_rel(rel) is not None})
@@ -508,6 +663,7 @@ def abort_step(draft: Path) -> None:
         return
     step = json.loads((pend / "step.json").read_text(encoding="utf-8"))
     _restore(draft, step["before"], pend / "before", [tuple(c) for c in step["cells"]])
+    _put_ledger(draft, pend / "before")
     shutil.rmtree(pend)
 
 
@@ -526,6 +682,7 @@ def undo(draft: Path) -> dict:
     if bad:
         raise ValueError(f"{len(bad)} file(s) of '{s['label']}' changed since it was applied: {bad[:3]}")
     _restore(draft, s["before"], draft / s["dir"] / "before", cells)
+    _put_ledger(draft, draft / s["dir"] / "before")
     h["cursor"] -= 1
     _write_history(draft, h)
     return s
@@ -543,6 +700,7 @@ def redo(draft: Path) -> dict:
     if bad:
         raise ValueError(f"{len(bad)} file(s) at '{s['label']}' changed since it was undone: {bad[:3]}")
     _restore(draft, s["after"], draft / s["dir"] / "after", cells)
+    _put_ledger(draft, draft / s["dir"] / "after")
     h["cursor"] += 1
     _write_history(draft, h)
     return s
