@@ -141,6 +141,12 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C5 follow-up, MULTI-BLOCK CARRIES: BUILT + IN GAME (2026-10-23)** -> [`C5.md`](C5.md). "Carry a coast" offers the
+  coast study's carry units (the comma 2x3, the reef 2x2, the terminus pair 1x2, the chain 4x2) beside the single
+  blocks: the ghost by the carry's own region map, the target the turned rect nearest the click, `--size --shift 0,0`,
+  a `[[transplant]]` row with `size`. Fixed on the way: the verdict JSON named one block of a unit's rect (Undo would
+  have lost the rest). I1/I2 identical over 1,782 files; in game the party stood on the carried comma at 9.551
+  (predicted 9.554), where it had been in open sea. The comma is qualified; the others stay candidates.
 - **C7, THE GAME'S OWN CAMERA: ANSWERED + BUILT (2026-10-23)** -> [`C7.md`](C7.md). The chase camera decoded from
   Memoria's source (`world/gamecam.py`: posstats, place, the altitude and tilt blends, the terrain lift, the user's
   Memoria.ini [Worldmap]) and measured against nine in-game stills: exact in plan, within the engine's settle bands in
