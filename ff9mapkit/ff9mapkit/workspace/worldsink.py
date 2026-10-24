@@ -7,6 +7,9 @@ sink, its land only, or the cluster its water joins; entrances need a tick). ``w
 Accept runs ``world-sink`` into the draft twice: disc 1, then the same sink on disc 4 (``sinkedit.commands``: the
 draft's own disc-4 step).
 
+Edit (rung C12) opens the card on a placed sink's row: its island picked again from the list, and its two
+checkboxes as the step set them; pick another island or retune them, and Accept.
+
 Show in game is not offered for a sink: the island's own point is open sea afterwards, and a party teleported there
 would stand in the water.
 """
@@ -32,6 +35,7 @@ class SinkTool(CarryTool):
     def __init__(self, pal, panel, *, game_fn, outline_fn=None, **kw):
         from ..world import sinkedit as SE
         self._row_sel = None
+        self._click_waits = False
         super().__init__(pal, panel, game_fn=game_fn,
                          outline_fn=outline_fn or (lambda _d: SE.candidates(game_fn())), **kw)
 
@@ -60,6 +64,7 @@ class SinkTool(CarryTool):
     # -- the island under the click --
     def place(self, x, z, y=0.0):
         rows = self._outlines.get(ISLANDS)
+        self._click_waits = rows is None                 # picked once the list comes
         self._row_sel = self.FE.hit(rows, x, z) if rows is not None else None
         self.center = tuple(self._row_sel["at"]) if self._row_sel else (round(x, 3), round(z, 3))
         self._pick_y = float(y)
@@ -73,8 +78,27 @@ class SinkTool(CarryTool):
         self.place(x, z)
 
     def _outline_loaded(self, donor, ol):
-        if self.center is not None and self._row_sel is None:   # a click that came before the list
-            self.place(*self.center)
+        self._try_seat()
+        if self._click_waits and self.center is not None:       # a click that came before the list (only that:
+            self.place(*self.center)                            # a click on open sea asks for the list again)
+
+    # -- a placed sink (rung C12) --
+    def load_row(self, row):
+        self.cluster.setChecked(bool(row.get("cluster", False)))
+        self.entrances.setChecked(bool(row.get("allow_entrances", False)))
+        self._pending_row = row
+        self._try_seat()
+
+    def _seat_row(self, row):
+        x, z = (float(v) for v in row["at"])
+        if self._outlines.get(ISLANDS) is None:          # the list is read on a worker (minutes, once per install)
+            self.center, self._row_sel = (x, z), None
+            self._say_island()
+            return False
+        self.place(x, z)
+        if self._row_sel is None:
+            raise ValueError(f"no island the sink takes lies at {x:g}, {z:g}")
+        return True
 
     def _say_island(self):
         r = self._row_sel

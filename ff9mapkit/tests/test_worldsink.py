@@ -200,3 +200,107 @@ def test_a_disc4_refusal_keeps_disc4_s_island_and_says_so(world, monkeypatch, tm
     assert len(run.argvs) == 3 and "--disc" in run.argvs[2]
     assert tool.verdict_lbl.property("state") == "warn" and "disc 4 keeps its own ground" in tool.verdict_lbl.text()
     assert D.history(tool.draft())["cursor"] == 1
+
+
+# ---------------------------------------------------------------- editing a placed sink (rung C12)
+def _sink_card(tmp_path, rows, runner=None, *, open_=True):
+    pytest.importorskip("PySide6", reason="GUI extra not installed")
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldsink import SinkTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_worldforest import Scripted
+    game, src = _drafts(tmp_path)
+    tool = SinkTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: game,
+                    source_fn=lambda: src, runner=runner or Scripted(), drafts_root=tmp_path / "drafts", sync=True,
+                    outline_fn=lambda d: rows)
+    if open_:
+        tool.open_tool()
+    return tool, game, src
+
+
+def test_the_sink_card_opens_on_its_row_and_says_it_back(tmp_path):
+    tool, _g, _s = _sink_card(tmp_path, [ROW])
+    row = {"table": "sink", "at": [344.0, -360.0], "cluster": True}
+    tool.load_row(row)
+    assert tool.row() == row and tool.cluster.isChecked() and not tool.entrances.isChecked()
+    assert "The island at 344, -360: 64 u²" in tool.island_lbl.text()
+    with pytest.raises(ValueError, match="no island the sink takes lies at 900, -900"):
+        tool.load_row({"table": "sink", "at": [900.0, -900.0]})
+    tool.place(900.0, -900.0)                           # open sea, the list in: once (it recursed without end)
+    assert tool._row_sel is None and tool.island_lbl.text() == "Click an island."
+
+
+def test_a_sink_row_waits_for_the_island_list_and_one_it_cannot_say_cancels_the_edit(tmp_path):
+    """The island list is read on a worker (minutes, once): the card holds the row until it comes, then seats it; a
+    row whose island is not in the list cancels the open edit with the reason (the draft goes back)."""
+    notes = []
+    tool, _g, _s = _sink_card(tmp_path / "a", [ROW], open_=False)
+    tool.edit_row({"table": "sink", "at": [344.0, -360.0]}, label="sink", on_accepted=lambda: None,
+                  on_cancel=lambda note=None: notes.append(note))
+    assert tool.editing() and tool._pending_row is not None and tool.center == (344.0, -360.0)
+    tool._on_bg("outline", 0, ("islands", [ROW]), None)
+    assert tool._pending_row is None and tool._row_sel is ROW and tool.editing() and notes == []
+    tool, _g, _s = _sink_card(tmp_path / "b", [ROW], open_=False)
+    tool.edit_row({"table": "sink", "at": [900.0, -900.0]}, label="sink", on_accepted=lambda: None,
+                  on_cancel=lambda note=None: notes.append(note))
+    tool._on_bg("outline", 0, ("islands", [ROW]), None)
+    assert notes == ["Not opened in its card: no island the sink takes lies at 900, -900. Delete still works."]
+    assert not tool.editing() and tool.isHidden()
+
+
+def test_a_sink_edited_through_the_recipe_bar_writes_what_world_fuse_writes(world, monkeypatch, tmp_path):
+    """THE C12 ACCEPTANCE for the sink, on the synthetic world: a sink placed with the card, picked in the recipe bar,
+    opened again in its card on its own row, retuned (entrances allowed) and accepted; the recipe is the edited row,
+    and the draft is that recipe composed by world-fuse onto the folder, byte for byte."""
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldrecipe import RecipeBar
+
+    class InProcess:
+        def __init__(self):
+            self.argvs = []
+
+        def start(self, argv, cwd, done):
+            self.argvs.append([str(a) for a in argv])
+            done(cli.main([str(a) for a in argv[3:]]), "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    _island(world, other=False)
+    rows = TR.sink_candidates()
+    at = tuple(rows[0]["at"])
+    run = InProcess()
+    tool, game, src = _sink_card(tmp_path, rows, run)
+    tool.place(345.0, -359.0, 1.0)
+    tool._timer.stop()
+    tool._check()
+    tool.accept_btn.click()
+    bar = RecipeBar(pick_palette("dark"), game_fn=lambda: game, source_fn=lambda: src, runner=run,
+                    drafts_root=tmp_path / "drafts", ask=lambda t, x: True,
+                    on_edit=lambda row, label: (tool.open_tool(), tool.edit_row(
+                        row, label=label, on_accepted=bar.edit_accepted, on_cancel=bar.cancel_edit)))
+    bar.refresh()
+    bar.select(0)
+    assert bar.edit_btn.isEnabled(), bar.edit_btn.toolTip()
+    bar.edit_btn.click()
+    assert tool.editing() and tool.row() == {"table": "sink", "at": list(at)}
+    tool.entrances.setChecked(True)
+    tool._timer.stop()
+    tool._check()
+    assert tool.accept_btn.isEnabled(), tool.verdict_lbl.text()
+    tool.accept_btn.click()
+    draft = tool.draft()
+    assert not tool.editing() and bar.status_lbl.property("state") == "ok", bar.status_lbl.text()
+    edited = [{"table": "sink", "at": list(at), "allow_entrances": True}]
+    assert D.recipe_rows(draft) == edited and D.history(draft)["edit"] is None
+    composed = D.ensure_draft(src, game=game, root=tmp_path / "composed")
+    recipe = tmp_path / "r.toml"
+    recipe.write_text(RC.dumps(edited), encoding="utf-8")
+    assert cli.main(["--game", str(game), "world-fuse", str(recipe), "--mod-folder", str(composed)]) == 0
+    assert _world_bytes(composed) == _world_bytes(draft)

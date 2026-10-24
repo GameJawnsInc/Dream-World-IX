@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — edit a sunk island, a coast change or a river move
+- Every step the World tab places can now be opened again with Edit, not only deleted: a sunk island (pick another
+  island, or change "With its cluster" and "Allow entrances"), a coast change (another stretch of coast, another
+  change, or another depth) and a river move (another free place for it). The steps after it go back on top as
+  before.
+- Edit opens a card only on settings the card can show exactly as the step has them; otherwise it says why, and
+  Delete still works.
+
+### Fixed — World tab
+- Clicking open sea with "Sink an island" open failed with an error instead of saying "Click an island."
+- "Shape a coast" could refuse a coast change it had just made, after an Undo, as "already edited".
+- A picked river move's marker was drawn in the wrong place; it is no longer drawn for a river (a click on any
+  block the river changed picks it).
+
 ### Changed — edits are faster
 - After you edit or delete a placed shape, islands, carried coasts and sunk islands placed after it now come back
   at once instead of being made again, unless the edit touched the ground they stand on. An edit with an island,

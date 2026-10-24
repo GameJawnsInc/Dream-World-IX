@@ -237,8 +237,9 @@ class RecipeBar(QWidget):
         steps = self.steps()
         s, after = steps[i], len(steps) - i - 1
         if not self._ask("Delete the step?", f"Take step {i + 1}, {s['label']}, out of the draft's recipe?"
-                         + (f" The {after} step{'s' if after != 1 else ''} after it go back on top (any whose ground "
-                            "changed is composed again by world-fuse)." if after else "")):
+                         + (f" The {after} step{'s' if after != 1 else ''} after it "
+                            f"{'go' if after != 1 else 'goes'} back on top (any whose ground changed is composed again "
+                            "by world-fuse)." if after else "")):
             return
         try:
             e = D.begin_edit(d, i)
@@ -277,8 +278,8 @@ class RecipeBar(QWidget):
         D.finish_edit(d)
         self._edit = None
         n = e["replayed"] + e["rerun"]
-        back = (f" The {n} step{'s' if n != 1 else ''} after it are back on top ({e['replayed']} as they were, "
-                f"{e['rerun']} composed again on the new ground)." if n else "")
+        back = (f" The {n} step{'s' if n != 1 else ''} after it {'are' if n != 1 else 'is'} back on top "
+                f"({e['replayed']} as they were, {e['rerun']} composed again on the new ground)." if n else "")
         if e["mode"] == "delete":
             self._sel = None
             self._moved(f"Deleted step {e['k'] + 1}, {e['label']}.{back}", "ok")

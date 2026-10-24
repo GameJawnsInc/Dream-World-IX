@@ -1025,7 +1025,8 @@ class WorldDoc(QWidget):
 
     # -- a placed step (rung C9) --
     EDIT_CARDS = {"forest": "forest", "mountain": "mountain", "hill": "hill", "island": "island",
-                  "transplant": "transplant"}         # a table -> the card that opens on its rows
+                  "transplant": "transplant", "sink": "sink", "morph": "coast",
+                  "river": "river"}                    # a table -> the card that opens on its rows
 
     def _mark_step(self, step):
         """Mark the picked step's place on the view (a pin at its anchor), or clear the mark; a card's own drawing
@@ -1053,7 +1054,7 @@ class WorldDoc(QWidget):
             return
         try:
             tool.edit_row(row, label=label, on_accepted=self._recipe.edit_accepted,
-                          on_cancel=lambda: self._recipe.cancel_edit())
+                          on_cancel=lambda note=None: self._recipe.cancel_edit(note, "error" if note else ""))
         except ValueError as e:
             tool.close_tool()
             self._recipe.cancel_edit(f"Not opened in its card: {e}. Delete still works.", "error")

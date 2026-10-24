@@ -28,6 +28,7 @@ from .forestedit import CENTRE_STEP, SoupIndex, fmt_num, read_verdict   # noqa: 
 VERBS = ("cliff-bump", "cliff-headland", "cliff-bay", "beach-bump", "beach-reshape", "beach-slide")
 DEPTH_STEP = 0.5                   # every probe ladder's rung spacing
 RIBBON_Y = 1.0                     # the window's ribbon height above the sea (a cliff base sits near it)
+PREFER_TIE = 0.05                  # the held window keeps a click this near as near as the nearest (a centre is 0.01u)
 
 
 def _cache_file(game, disc: int, cell) -> Path:
@@ -106,22 +107,49 @@ def span(window, verb) -> tuple:
     return tuple(float(v) for v in w[0]), tuple(float(v) for v in w[1])
 
 
-def nearest(ws, x: float, z: float, *, reach: float = 12.0):
-    """The window (with at least one lawful verb) whose run passes nearest ``(x, z)``, within ``reach``; else None."""
+def _on_run(w, x: float, z: float):
+    """``(distance, point)``: the point of window ``w``'s run nearest ``(x, z)``."""
     p = np.array([float(x), float(z)])
+    pts = np.asarray(w.get("run") or [w["start"], w["end"]], dtype=np.float64)
+    a, b = pts[:-1], pts[1:]
+    if not len(a):
+        return float(np.hypot(*(pts[0] - p))), pts[0]
+    e = b - a
+    t = np.clip(((p - a) * e).sum(axis=1) / ((e * e).sum(axis=1) + 1e-12), 0.0, 1.0)
+    q = a + t[:, None] * e
+    d = np.sqrt(((q - p) ** 2).sum(axis=1))
+    i = int(d.argmin())
+    return float(d[i]), q[i]
+
+
+def nearest(ws, x: float, z: float, *, reach: float = 12.0, prefer=None):
+    """The window (with at least one lawful verb) whose run passes nearest ``(x, z)``, within ``reach``; else None.
+    ``prefer`` (the window the card holds) wins a tie, so a handle that moves nothing never swaps the window."""
     best, bd = None, reach
     for w in ws:
         if not lawful(w):
             continue
-        pts = np.asarray(w.get("run") or [w["start"], w["end"]], dtype=np.float64)
-        a, b = pts[:-1], pts[1:]
-        e = b - a
-        t = np.clip(((p - a) * e).sum(axis=1) / ((e * e).sum(axis=1) + 1e-12), 0.0, 1.0)
-        d = float(np.sqrt((((a + t[:, None] * e) - p) ** 2).sum(axis=1)).min()) if len(e) else \
-            float(np.hypot(*(pts[0] - p)))
+        d = _on_run(w, x, z)[0]
         if d < bd:
             best, bd = w, d
+    if prefer is not None and best is not prefer and any(w is prefer for w in ws) and lawful(prefer) \
+            and _on_run(prefer, x, z)[0] <= bd + PREFER_TIE:
+        best = prefer                                    # a nearer window listed before it does not take the tie
     return best
+
+
+def anchor(window, verb) -> tuple:
+    """A point on the window's run by the middle of the verb's span: where the card puts its centre when it opens on a
+    placed morph, so the window it holds is the nearest one there."""
+    (x0, z0), (x1, z1) = span(window, verb)
+    q = _on_run(window, (x0 + x1) / 2.0, (z0 + z1) / 2.0)[1]
+    return float(q[0]), float(q[1])
+
+
+def row_spec(row) -> str:
+    """A ``[[morph]]`` row's window and depth in :func:`spec`'s spelling (the card matches a window by it)."""
+    (x0, z0), (x1, z1) = row["window"]
+    return f"{float(x0):.4f},{float(z0):.4f}:{float(x1):.4f},{float(z1):.4f}:{float(row['depth']):g}"
 
 
 def verdict(window, verb, depth, *, edited_by=()) -> dict:

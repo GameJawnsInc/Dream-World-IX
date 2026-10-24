@@ -125,7 +125,12 @@ class CarryTool(QWidget):
     EDITING A PLACED STEP (rung C9): a card that can set its handles from a recipe row (:meth:`load_row`) opens on a
     placed step's row (:meth:`edit_row`), the recipe bar having lifted the step and the ones after it out of the
     draft; Accept writes the edited shape in the step's place and hands back (``on_accepted``), and Cancel edit or
-    closing the card puts the draft back (``on_cancel``). Promote, Revert and Discard wait while an edit is open."""
+    closing the card puts the draft back (``on_cancel``). Promote, Revert and Discard wait while an edit is open.
+
+    A card whose handles wait on a read (the sink's island list, a coast block's windows, the river's shape: rung C12)
+    holds the row (``_pending_row``) and seats it when the read comes in (:meth:`_seat_row`). Seated, the handles must
+    say the row back exactly (:meth:`_said_back`: an edit that changes nothing changes nothing); a row they cannot
+    say refuses the edit (``on_cancel(note)``) and the draft goes back."""
 
     TITLE, NOUN, PART, VERB = "Shape", "shape", "shape", "world-?"
     GATES = GATE_WORDS
@@ -167,6 +172,8 @@ class CarryTool(QWidget):
         self._verdict = None                             # (handles key, verdict dict) of the last finished job
         self._job = None                                 # ("check" | "accept", key) while one runs
         self._editing = None                             # (label, on_accepted, on_cancel) while editing a placed step
+        self._pending_row = None                         # a row to edit, waiting on the card's read to seat it
+        self._seating = False
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._check)
@@ -318,14 +325,51 @@ class CarryTool(QWidget):
 
     def load_row(self, row):
         """Set the handles from a recipe row of this card's table and place the ghost there (rung C9); a row the
-        handles cannot say raises ValueError, naming what."""
+        handles cannot say raises ValueError, naming what. A card that must read first holds the row in
+        ``_pending_row`` and calls :meth:`_try_seat`."""
         raise ValueError(f"the {self.NOUN} card cannot open a placed step")
+
+    def _seat_row(self, row):
+        """Seat a held row: set the handles that waited on a read. False while the read is not in; ValueError when the
+        row is not one the handles can say."""
+        return True
+
+    def _try_seat(self):
+        """Seat the held row if its read is in, and hold the handles to it. A refusal raises while the card is being
+        opened (the bar reports it), and once the edit is open it cancels the edit with the reason."""
+        row = self._pending_row
+        if row is None or self._seating:                 # seating sets handles, and a handle asks for the read again
+            return
+        self._seating = True
+        try:
+            if not self._seat_row(row):
+                return
+            self._pending_row = None
+            self._said_back(row)
+        except ValueError as e:
+            self._pending_row = None
+            if self._editing is None:
+                raise
+            self._refuse_edit(str(e))
+        finally:
+            self._seating = False
+
+    def _said_back(self, row, mine=None):
+        """Raise ValueError unless the handles build ``row`` again, key for key."""
+        mine = self.row() if mine is None else mine
+        diff = sorted(k for k in set(mine) | set(row) if mine.get(k) != row.get(k))
+        if diff:
+            raise ValueError(f"the card would not say its {', '.join(diff)} back as the step has "
+                             + ("it" if len(diff) == 1 else "them"))
 
     # -- editing a placed step (rung C9) --
     def edit_row(self, row, *, label, on_accepted, on_cancel):
         """Open on a placed step: its row's handles, judged against the draft as it was before the step."""
         self._editing = None
+        self._pending_row = None
         self.load_row(row)
+        if self._pending_row is None:
+            self._said_back(row)
         self._editing = (label, on_accepted, on_cancel)
         self.title_lbl.setText(f"Edit {self.NOUN}")
         self.title_lbl.setToolTip(f"Editing the placed step {label}: move, turn or retune it, then Accept the edit.")
@@ -338,6 +382,14 @@ class CarryTool(QWidget):
 
     def editing(self):
         return self._editing is not None
+
+    def _refuse_edit(self, why):
+        """The open edit's row turned out, once the card's read came in, not to be one its handles can say: put the
+        card away and the draft back, saying why."""
+        cancel = self._editing[2]
+        self._end_edit()
+        self.close_tool()
+        cancel(f"Not opened in its card: {why}. Delete still works.")
 
     def _end_edit(self):
         """Leave edit mode (the handover or the cancel is the caller's)."""
@@ -377,6 +429,7 @@ class CarryTool(QWidget):
         self._timer.stop()
         self._runner.kill()
         self._job = None
+        self._pending_row = None
         if self._editing is not None:                    # closing an edit cancels it: the draft goes back
             cancel = self._editing[2]
             self._end_edit()

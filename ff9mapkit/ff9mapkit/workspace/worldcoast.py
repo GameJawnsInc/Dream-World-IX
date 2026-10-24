@@ -7,6 +7,9 @@ verbs that window can take, and the depth stops at its ceiling. The window's run
 ``world-transplant --in-place --dry-run`` judges it, and Accept runs the morph into the draft on disc 1 and then on
 disc 4 (the draft's own disc-4 step). A block a folder of the stack, or the draft, already overrides offers no
 window: the windows are stock's.
+
+Edit (rung C12) opens the card on a placed morph's row: its block, the window its span names (matched exactly), the
+verb and the depth; pick another window or verb, or retune the depth, and Accept.
 """
 from __future__ import annotations
 
@@ -97,14 +100,66 @@ class CoastTool(CarryTool):
         from ..world import river as R
         return [str(self._game_fn() / f) for f in R.stack_folders(self._game_fn())]
 
+    def island_changed(self):
+        """The draft moved under the card (an undo, an edit lifting steps out, an Accept): who holds the block it is
+        on is read again (it was read once per block: an undone morph's block still read as edited)."""
+        if self._cell is not None:
+            self._edited_by = self._edited(self._cell)
+        super().island_changed()
+
     def _outline_loaded(self, donor, ol):
         if donor == self.donor():
+            if self._pending_row is not None:
+                self._try_seat()
+                return
             self._pick_window()
             self._redraw()
 
+    # -- a placed morph (rung C12) --
+    def load_row(self, row):
+        if row.get("verb") not in self.FE.VERBS:
+            raise ValueError(f"its morph {row.get('verb')} is not one the card offers")
+        if row.get("allow_entrances"):
+            raise ValueError("its allow_entrances is not a handle of the card")
+        self._pending_row = row
+        self._try_seat()
+
+    def _seat_row(self, row):
+        cell = tuple(int(v) for v in row["cell"])
+        verb, depth = row["verb"], float(row["depth"])
+        (x0, z0), (x1, z1) = row["window"]
+        self.center = (round((x0 + x1) / 2.0, 2), round((z0 + z1) / 2.0, 2))
+        if cell != self._cell:
+            self._cell, self._window = cell, None
+        self._edited_by = self._edited(cell)             # the draft before the step, read now (not the card's last)
+        ws = self._outlines.get(self.donor())
+        if ws is None:                                   # the block's windows: a few seconds, once (cached)
+            self._say_window()
+            self._load_outline(self.donor())
+            ws = self._outlines.get(self.donor())        # (read inline in the synchronous lane)
+            if ws is None:
+                return False
+        want = self.FE.row_spec(row)
+        w = next((w for w in ws if verb in self.FE.lawful(w) and self.FE.spec(w, verb, depth) == want), None)
+        if w is None:
+            raise ValueError(f"its window is not one of block ({cell[0]}, {cell[1]})'s lawful {verb} windows")
+        rng = self.FE.lawful(w)[verb]
+        lo, hi = min(rng), max(rng)
+        if not lo - 1e-9 <= depth <= hi + 1e-9:
+            raise ValueError(f"its depth {depth:g} is outside the window's lawful {lo:g} to {hi:g}")
+        self.center = tuple(round(v, 2) for v in self.FE.anchor(w, verb))
+        self._window = w
+        self._fill_verbs()
+        self.verb_box.setCurrentIndex(self.verb_box.findData(verb))
+        self.depth.setValue(depth)
+        self._say_window()
+        self._handles_changed()
+        return True
+
     def _pick_window(self):
         ws = self._outlines.get(self.donor())
-        w = self.FE.nearest(ws, *self.center) if ws is not None and self.center is not None else None
+        w = self.FE.nearest(ws, *self.center, prefer=self._window) if ws is not None and self.center is not None \
+            else None
         if w is not self._window:
             self._window = w
             self._fill_verbs()
