@@ -1,0 +1,1812 @@
+{
+ "hill": {
+  "tried": 365,
+  "checked": [
+   {
+    "at": [
+     1481.3333333333333,
+     -350.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1481.3,-350.7",
+     "--height",
+     "3.3",
+     "--radius",
+     "20.3"
+    ],
+    "ok": false,
+    "gate": "crack",
+    "where": 8,
+    "message": "8 once-edges inside the hill region (cracks)"
+   },
+   {
+    "at": [
+     1433.3333333333333,
+     -538.6666666666666
+    ],
+    "handles": [
+     "--center",
+     "1433.3,-538.7",
+     "--height",
+     "3.4",
+     "--radius",
+     "17.1"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     58.666666666666664,
+     -397.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "58.7,-397.3",
+     "--radius",
+     "14.6"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     13.333333333333334,
+     -362.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "13.3,-362.7",
+     "--height",
+     "4",
+     "--radius",
+     "29.9"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     58.666666666666664,
+     -377.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "58.7,-377.3",
+     "--height",
+     "5.1",
+     "--radius",
+     "19.3"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     9.333333333333334,
+     -350.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "9.3,-350.7",
+     "--height",
+     "3.7",
+     "--radius",
+     "21.3"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1434.6666666666667,
+     -425.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1434.7,-425.3",
+     "--height",
+     "4",
+     "--radius",
+     "25.1"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1445.3333333333333,
+     -434.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1445.3,-434.7",
+     "--height",
+     "3.4",
+     "--radius",
+     "27"
+    ],
+    "ok": false,
+    "gate": "crack",
+    "where": 4,
+    "message": "4 once-edges inside the hill region (cracks)"
+   },
+   {
+    "at": [
+     1477.3333333333333,
+     -422.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1477.3,-422.7",
+     "--height",
+     "3.2",
+     "--radius",
+     "15.7"
+    ],
+    "ok": false,
+    "gate": "crack",
+    "where": 4,
+    "message": "4 once-edges inside the hill region (cracks)"
+   },
+   {
+    "at": [
+     57.333333333333336,
+     -750.6666666666666
+    ],
+    "handles": [
+     "--center",
+     "57.3,-750.7",
+     "--height",
+     "3.9",
+     "--radius",
+     "21.6"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     130.66666666666666,
+     -1241.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "130.7,-1241.3",
+     "--height",
+     "3.3",
+     "--radius",
+     "20"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     181.33333333333334,
+     -1054.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "181.3,-1054.7",
+     "--height",
+     "2.5",
+     "--radius",
+     "13.9"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1457.3333333333333,
+     -430.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1457.3,-430.7",
+     "--height",
+     "3",
+     "--radius",
+     "27.5"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     161.60677083333334,
+     -1089.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "161.6,-1089.3",
+     "--height",
+     "2",
+     "--radius",
+     "15.6"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     45.333333333333336,
+     -398.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "45.3,-398.7",
+     "--height",
+     "3.5",
+     "--radius",
+     "29"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1406.6666666666667,
+     -425.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1406.7,-425.3",
+     "--height",
+     "3.1",
+     "--radius",
+     "17"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     6.666666666666667,
+     -373.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "6.7,-373.3",
+     "--height",
+     "5.2",
+     "--radius",
+     "23.6"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1474.6666666666667,
+     -497.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1474.7,-497.3",
+     "--height",
+     "3.3",
+     "--radius",
+     "21"
+    ],
+    "ok": false,
+    "gate": "crack",
+    "where": 4,
+    "message": "4 once-edges inside the hill region (cracks)"
+   },
+   {
+    "at": [
+     142.66666666666666,
+     -1237.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "142.7,-1237.3",
+     "--height",
+     "4.7",
+     "--radius",
+     "23.6"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     178.66666666666666,
+     -1069.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "178.7,-1069.3",
+     "--height",
+     "2.5",
+     "--radius",
+     "16"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     46.666666666666664,
+     -769.3333333333334
+    ],
+    "handles": [
+     "--center",
+     "46.7,-769.3",
+     "--height",
+     "2.5",
+     "--radius",
+     "20.9"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1474.6666666666667,
+     -469.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1474.7,-469.3",
+     "--height",
+     "2.2",
+     "--radius",
+     "22.4"
+    ],
+    "ok": false,
+    "gate": "crack",
+    "where": 4,
+    "message": "4 once-edges inside the hill region (cracks)"
+   },
+   {
+    "at": [
+     1466.6666666666667,
+     -557.3333333333334
+    ],
+    "handles": [
+     "--center",
+     "1466.7,-557.3",
+     "--height",
+     "3.3",
+     "--radius",
+     "12.4"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1433.3333333333333,
+     -398.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1433.3,-398.7",
+     "--height",
+     "2.8",
+     "--radius",
+     "12.1"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     73.49609375,
+     -1165.6015625
+    ],
+    "handles": [
+     "--center",
+     "73.5,-1165.6",
+     "--height",
+     "3",
+     "--radius",
+     "13.7"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1405.3333333333333,
+     -470.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1405.3,-470.7",
+     "--height",
+     "4",
+     "--radius",
+     "17.6"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1518.6666666666667,
+     -537.3333333333334
+    ],
+    "handles": [
+     "--center",
+     "1518.7,-537.3",
+     "--height",
+     "5.5",
+     "--radius",
+     "17.9"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1393.3333333333333,
+     -502.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1393.3,-502.7",
+     "--height",
+     "5.1",
+     "--radius",
+     "17.4"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1469.3333333333333,
+     -506.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1469.3,-506.7",
+     "--height",
+     "2.5",
+     "--radius",
+     "14.7"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1502.6666666666667,
+     -525.3333333333334
+    ],
+    "handles": [
+     "--center",
+     "1502.7,-525.3",
+     "--height",
+     "5.5",
+     "--radius",
+     "20.5"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   }
+  ],
+  "s": 42.6
+ },
+ "forest": {
+  "tried": 107,
+  "checked": [
+   {
+    "at": [
+     141.33333333333334,
+     -1246.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "141.3,-1246.7",
+     "--donor",
+     "18,15",
+     "--spread",
+     "1.05",
+     "--rot",
+     "125"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1474.6666666666667,
+     -473.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1474.7,-473.3",
+     "--donor",
+     "19,8",
+     "--spread",
+     "1.07",
+     "--rot",
+     "205"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1429.3333333333333,
+     -526.6666666666666
+    ],
+    "handles": [
+     "--center",
+     "1429.3,-526.7",
+     "--donor",
+     "18,15",
+     "--spread",
+     "1.35",
+     "--rot",
+     "40"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     144.71875,
+     -1092.7643229166667
+    ],
+    "handles": [
+     "--center",
+     "144.7,-1092.8",
+     "--donor",
+     "18,15",
+     "--spread",
+     "1.16",
+     "--rot",
+     "315"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     53.333333333333336,
+     -422.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "53.3,-422.7",
+     "--donor",
+     "15,15",
+     "--spread",
+     "1.1",
+     "--rot",
+     "35"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     77.33333333333333,
+     -486.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "77.3,-486.7",
+     "--donor",
+     "13,15",
+     "--spread",
+     "1.09",
+     "--rot",
+     "105"
+    ],
+    "ok": false,
+    "gate": "step",
+    "where": 2,
+    "message": "THE CANOPY STEP LAW gate failed (wall/zip rise or zip winding)"
+   },
+   {
+    "at": [
+     1429.3333333333333,
+     -434.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1429.3,-434.7",
+     "--donor",
+     "19,8",
+     "--spread",
+     "1.28",
+     "--rot",
+     "15"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     41.333333333333336,
+     -430.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "41.3,-430.7",
+     "--donor",
+     "18,15",
+     "--spread",
+     "1.36",
+     "--rot",
+     "20"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1509.3333333333333,
+     -498.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1509.3,-498.7",
+     "--donor",
+     "3,12",
+     "--spread",
+     "1.25",
+     "--rot",
+     "250"
+    ],
+    "ok": false,
+    "gate": "step",
+    "where": 2,
+    "message": "THE CANOPY STEP LAW gate failed (wall/zip rise or zip winding)"
+   },
+   {
+    "at": [
+     149.33333333333334,
+     -1070.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "149.3,-1070.7",
+     "--donor",
+     "3,12",
+     "--spread",
+     "1.14",
+     "--rot",
+     "55"
+    ],
+    "ok": false,
+    "gate": "step",
+    "where": 4,
+    "message": "THE CANOPY STEP LAW gate failed (wall/zip rise or zip winding)"
+   },
+   {
+    "at": [
+     1490.6666666666667,
+     -349.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1490.7,-349.3",
+     "--donor",
+     "13,15",
+     "--spread",
+     "1.39",
+     "--rot",
+     "200"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     2.6666666666666665,
+     -361.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "2.7,-361.3",
+     "--donor",
+     "15,15",
+     "--spread",
+     "1.04",
+     "--rot",
+     "45"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     254.26302083333334,
+     -1146.109375
+    ],
+    "handles": [
+     "--center",
+     "254.3,-1146.1",
+     "--donor",
+     "13,15",
+     "--spread",
+     "1.05",
+     "--rot",
+     "180"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     150.77213541666666,
+     -1103.1979166666667
+    ],
+    "handles": [
+     "--center",
+     "150.8,-1103.2",
+     "--donor",
+     "18,15",
+     "--spread",
+     "1.13"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     137.33333333333334,
+     -1070.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "137.3,-1070.7",
+     "--donor",
+     "3,12",
+     "--spread",
+     "1.48",
+     "--rot",
+     "120"
+    ],
+    "ok": false,
+    "gate": "step",
+    "where": 3,
+    "message": "THE CANOPY STEP LAW gate failed (wall/zip rise or zip winding)"
+   },
+   {
+    "at": [
+     1430.6666666666667,
+     -393.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1430.7,-393.3",
+     "--donor",
+     "18,15",
+     "--rot",
+     "165"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1505.3333333333333,
+     -490.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1505.3,-490.7",
+     "--donor",
+     "19,8",
+     "--spread",
+     "1.37",
+     "--rot",
+     "280"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     158.66666666666666,
+     -1053.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "158.7,-1053.3",
+     "--donor",
+     "18,15",
+     "--spread",
+     "1.4",
+     "--rot",
+     "335"
+    ],
+    "ok": false,
+    "gate": "step",
+    "where": 3,
+    "message": "THE CANOPY STEP LAW gate failed (wall/zip rise or zip winding)"
+   },
+   {
+    "at": [
+     1382.6666666666667,
+     -441.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1382.7,-441.3",
+     "--donor",
+     "18,15",
+     "--spread",
+     "1.23",
+     "--rot",
+     "325"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     41.333333333333336,
+     -502.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "41.3,-502.7",
+     "--donor",
+     "3,12",
+     "--spread",
+     "1.07",
+     "--rot",
+     "55"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1498.6666666666667,
+     -541.3333333333334
+    ],
+    "handles": [
+     "--center",
+     "1498.7,-541.3",
+     "--donor",
+     "13,15",
+     "--spread",
+     "1.42",
+     "--rot",
+     "85"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     21.333333333333332,
+     -386.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "21.3,-386.7",
+     "--donor",
+     "19,8",
+     "--spread",
+     "1.46",
+     "--rot",
+     "225"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     41.333333333333336,
+     -470.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "41.3,-470.7",
+     "--donor",
+     "19,8",
+     "--spread",
+     "1.44",
+     "--rot",
+     "215"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1386.6666666666667,
+     -469.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1386.7,-469.3",
+     "--donor",
+     "13,15",
+     "--spread",
+     "1.46",
+     "--rot",
+     "275"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1390.6666666666667,
+     -489.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1390.7,-489.3",
+     "--donor",
+     "19,8",
+     "--spread",
+     "1.44",
+     "--rot",
+     "20"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1466.6666666666667,
+     -437.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1466.7,-437.3",
+     "--donor",
+     "19,8",
+     "--spread",
+     "1.26",
+     "--rot",
+     "45"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1398.6666666666667,
+     -445.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1398.7,-445.3",
+     "--donor",
+     "13,15",
+     "--spread",
+     "1.44",
+     "--rot",
+     "100"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     1473.3333333333333,
+     -462.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1473.3,-462.7",
+     "--donor",
+     "13,15",
+     "--spread",
+     "1.49",
+     "--rot",
+     "330"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     170.66666666666666,
+     -1061.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "170.7,-1061.3",
+     "--donor",
+     "19,8",
+     "--spread",
+     "1.01",
+     "--rot",
+     "55"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     50.666666666666664,
+     -365.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "50.7,-365.3",
+     "--donor",
+     "18,15",
+     "--spread",
+     "1.46",
+     "--rot",
+     "235"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   }
+  ],
+  "s": 144.7
+ },
+ "mountain": {
+  "tried": 522,
+  "checked": [
+   {
+    "at": [
+     1530.6666666666667,
+     -349.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1530.7,-349.3",
+     "--donor",
+     "0,0",
+     "--rot",
+     "85",
+     "--spread",
+     "1.45",
+     "--rock-height",
+     "1.58"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "hole ring set not degree-2 (2 odd points)"
+   },
+   {
+    "at": [
+     1437.3333333333333,
+     -526.6666666666666
+    ],
+    "handles": [
+     "--center",
+     "1437.3,-526.7",
+     "--donor",
+     "14-15,3",
+     "--rot",
+     "65",
+     "--spread",
+     "1.24",
+     "--rock-height",
+     "1.09"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (1456.0, 3.204, -484.0) has two float positions (1456.0, 3.204026222229004, -484.0) / (1456.0, 3.2039999961853027, -484.0) -- a weld split before "
+   },
+   {
+    "at": [
+     38.666666666666664,
+     -537.3333333333334
+    ],
+    "handles": [
+     "--center",
+     "38.7,-537.3",
+     "--donor",
+     "0,0",
+     "--rot",
+     "25",
+     "--spread",
+     "1.45",
+     "--rock-height",
+     "1.31"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     50.666666666666664,
+     -497.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "50.7,-497.3",
+     "--donor",
+     "19,3",
+     "--rot",
+     "170",
+     "--spread",
+     "1.04",
+     "--rock-height",
+     "1.21"
+    ],
+    "ok": false,
+    "gate": "zip",
+    "where": 1,
+    "message": "zip steeper than the grass envelope (rise 2.99, ny min 0.83 < floor 0.5, or 1 banks below 0.83 > 2 allowed)"
+   },
+   {
+    "at": [
+     173.33333333333334,
+     -1082.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "173.3,-1082.7",
+     "--donor",
+     "0,0",
+     "--rot",
+     "65",
+     "--spread",
+     "1.14",
+     "--rock-height",
+     "1.48"
+    ],
+    "ok": true,
+    "gate": null,
+    "where": 0,
+    "message": ""
+   },
+   {
+    "at": [
+     162.66666666666666,
+     -1065.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "162.7,-1065.3",
+     "--donor",
+     "14-15,3",
+     "--rot",
+     "225",
+     "--spread",
+     "1.07",
+     "--rock-height",
+     "1.54"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (187.129, np.float64(2.987), -1088.0) has two float positions (187.12900161743164, np.float64(2.9869566139176738), -1088.0) / (187.12890625, np.fl"
+   },
+   {
+    "at": [
+     25.333333333333332,
+     -354.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "25.3,-354.7",
+     "--donor",
+     "19,3",
+     "--rot",
+     "75",
+     "--spread",
+     "1.1",
+     "--rock-height",
+     "1.14"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (-16.0, 3.187, -384.0) has two float positions (-16.0, 3.1873116493225098, -384.0) / (-16.0, 3.187000036239624, -384.0) -- a weld split before the"
+   },
+   {
+    "at": [
+     1454.6666666666667,
+     -521.3333333333334
+    ],
+    "handles": [
+     "--center",
+     "1454.7,-521.3",
+     "--donor",
+     "14-15,3",
+     "--rot",
+     "285",
+     "--spread",
+     "1.18",
+     "--rock-height",
+     "1.64"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (1456.0, 3.204, -484.0) has two float positions (1456.0, 3.204026222229004, -484.0) / (1456.0, 3.2039999961853027, -484.0) -- a weld split before "
+   },
+   {
+    "at": [
+     33.333333333333336,
+     -418.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "33.3,-418.7",
+     "--donor",
+     "12,16-17",
+     "--rot",
+     "130",
+     "--spread",
+     "1.28",
+     "--rock-height",
+     "1.22"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (-16.0, 3.187, -384.0) has two float positions (-16.0, 3.1873116493225098, -384.0) / (-16.0, 3.187000036239624, -384.0) -- a weld split before the"
+   },
+   {
+    "at": [
+     1401.3333333333333,
+     -514.6666666666666
+    ],
+    "handles": [
+     "--center",
+     "1401.3,-514.7",
+     "--donor",
+     "14-15,3",
+     "--rot",
+     "245",
+     "--spread",
+     "1.04",
+     "--rock-height",
+     "1.19"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (1456.0, 3.204, -484.0) has two float positions (1456.0, 3.204026222229004, -484.0) / (1456.0, 3.2039999961853027, -484.0) -- a weld split before "
+   },
+   {
+    "at": [
+     1425.3333333333333,
+     -522.6666666666666
+    ],
+    "handles": [
+     "--center",
+     "1425.3,-522.7",
+     "--donor",
+     "14-15,3",
+     "--rot",
+     "310",
+     "--spread",
+     "1.22",
+     "--rock-height",
+     "1.92"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (1456.0, 3.204, -484.0) has two float positions (1456.0, 3.204026222229004, -484.0) / (1456.0, 3.2039999961853027, -484.0) -- a weld split before "
+   },
+   {
+    "at": [
+     1425.3333333333333,
+     -506.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1425.3,-506.7",
+     "--donor",
+     "19,3",
+     "--rot",
+     "285",
+     "--spread",
+     "1.14",
+     "--rock-height",
+     "1.76"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (1456.0, 3.204, -484.0) has two float positions (1456.0, 3.204026222229004, -484.0) / (1456.0, 3.2039999961853027, -484.0) -- a weld split before "
+   },
+   {
+    "at": [
+     9.333333333333334,
+     -366.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "9.3,-366.7",
+     "--donor",
+     "12,16-17",
+     "--rot",
+     "215",
+     "--spread",
+     "1.14",
+     "--rock-height",
+     "1.84"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "hole ring set not degree-2 (2 odd points)"
+   },
+   {
+    "at": [
+     1494.6666666666667,
+     -533.3333333333334
+    ],
+    "handles": [
+     "--center",
+     "1494.7,-533.3",
+     "--donor",
+     "14-15,3",
+     "--rot",
+     "310",
+     "--spread",
+     "1.04",
+     "--rock-height",
+     "1.75"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (1456.0, 3.204, -484.0) has two float positions (1456.0, 3.204026222229004, -484.0) / (1456.0, 3.2039999961853027, -484.0) -- a weld split before "
+   },
+   {
+    "at": [
+     49.333333333333336,
+     -470.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "49.3,-470.7",
+     "--donor",
+     "14-15,3",
+     "--rot",
+     "305",
+     "--spread",
+     "1.47",
+     "--rock-height",
+     "1.72"
+    ],
+    "ok": false,
+    "gate": "geometry",
+    "where": 1,
+    "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)"
+   },
+   {
+    "at": [
+     1.3333333333333333,
+     -394.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1.3,-394.7",
+     "--donor",
+     "0,0",
+     "--rot",
+     "50",
+     "--spread",
+     "1.07",
+     "--rock-height",
+     "1.55"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (-16.0, 3.187, -384.0) has two float positions (-16.0, 3.1873116493225098, -384.0) / (-16.0, 3.187000036239624, -384.0) -- a weld split before the"
+   },
+   {
+    "at": [
+     1449.3333333333333,
+     -554.6666666666666
+    ],
+    "handles": [
+     "--center",
+     "1449.3,-554.7",
+     "--donor",
+     "19,3",
+     "--spread",
+     "1.11",
+     "--rock-height",
+     "1.81"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (1456.0, 3.204, -484.0) has two float positions (1456.0, 3.204026222229004, -484.0) / (1456.0, 3.2039999961853027, -484.0) -- a weld split before "
+   },
+   {
+    "at": [
+     1446.6666666666667,
+     -525.3333333333334
+    ],
+    "handles": [
+     "--center",
+     "1446.7,-525.3",
+     "--donor",
+     "12,16-17",
+     "--rot",
+     "250",
+     "--spread",
+     "1.27",
+     "--rock-height",
+     "1.34"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "hole ring set not degree-2 (2 odd points)"
+   },
+   {
+    "at": [
+     1406.6666666666667,
+     -433.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1406.7,-433.3",
+     "--donor",
+     "19,3",
+     "--rot",
+     "235",
+     "--spread",
+     "1.29",
+     "--rock-height",
+     "1.37"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "hole ring set not degree-2 (2 odd points)"
+   },
+   {
+    "at": [
+     5.333333333333333,
+     -402.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "5.3,-402.7",
+     "--donor",
+     "0,0",
+     "--rot",
+     "30",
+     "--spread",
+     "1.28",
+     "--rock-height",
+     "1.37"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (-16.0, 3.187, -384.0) has two float positions (-16.0, 3.1873116493225098, -384.0) / (-16.0, 3.187000036239624, -384.0) -- a weld split before the"
+   },
+   {
+    "at": [
+     45.333333333333336,
+     -534.6666666666666
+    ],
+    "handles": [
+     "--center",
+     "45.3,-534.7",
+     "--donor",
+     "14-15,3",
+     "--rot",
+     "295",
+     "--spread",
+     "1.02",
+     "--rock-height",
+     "2"
+    ],
+    "ok": false,
+    "gate": "geometry",
+    "where": 1,
+    "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)"
+   },
+   {
+    "at": [
+     129.33333333333334,
+     -1234.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "129.3,-1234.7",
+     "--donor",
+     "14-15,3",
+     "--rot",
+     "15",
+     "--spread",
+     "1.14",
+     "--rock-height",
+     "1.13"
+    ],
+    "ok": false,
+    "gate": "geometry",
+    "where": 1,
+    "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)"
+   },
+   {
+    "at": [
+     34.666666666666664,
+     -409.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "34.7,-409.3",
+     "--donor",
+     "14-15,3",
+     "--rot",
+     "325",
+     "--spread",
+     "1.19",
+     "--rock-height",
+     "1.08"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (-16.0, 3.187, -384.0) has two float positions (-16.0, 3.1873116493225098, -384.0) / (-16.0, 3.187000036239624, -384.0) -- a weld split before the"
+   },
+   {
+    "at": [
+     54.666666666666664,
+     -369.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "54.7,-369.3",
+     "--donor",
+     "10,5-6",
+     "--rot",
+     "305",
+     "--spread",
+     "1.17",
+     "--rock-height",
+     "1.4"
+    ],
+    "ok": false,
+    "gate": "apron",
+    "where": 1,
+    "message": "the ground apron exceeds the grass slope envelope"
+   },
+   {
+    "at": [
+     1426.6666666666667,
+     -509.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "1426.7,-509.3",
+     "--donor",
+     "14-15,3",
+     "--rot",
+     "210",
+     "--spread",
+     "1.04",
+     "--rock-height",
+     "1.5"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (1456.0, 3.204, -484.0) has two float positions (1456.0, 3.204026222229004, -484.0) / (1456.0, 3.2039999961853027, -484.0) -- a weld split before "
+   },
+   {
+    "at": [
+     1458.6666666666667,
+     -537.3333333333334
+    ],
+    "handles": [
+     "--center",
+     "1458.7,-537.3",
+     "--donor",
+     "0,0",
+     "--rot",
+     "310",
+     "--spread",
+     "1.33",
+     "--rock-height",
+     "1.72"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (1456.0, 3.204, -484.0) has two float positions (1456.0, 3.204026222229004, -484.0) / (1456.0, 3.2039999961853027, -484.0) -- a weld split before "
+   },
+   {
+    "at": [
+     13.333333333333334,
+     -534.6666666666666
+    ],
+    "handles": [
+     "--center",
+     "13.3,-534.7",
+     "--donor",
+     "19,3",
+     "--rot",
+     "275",
+     "--spread",
+     "1.28",
+     "--rock-height",
+     "1.71"
+    ],
+    "ok": false,
+    "gate": "zip",
+    "where": 1,
+    "message": "zip steeper than the grass envelope (rise 3.88, ny min 0.81 < floor 0.5, or 1 banks below 0.83 > 2 allowed)"
+   },
+   {
+    "at": [
+     1405.3333333333333,
+     -478.6666666666667
+    ],
+    "handles": [
+     "--center",
+     "1405.3,-478.7",
+     "--donor",
+     "19,3",
+     "--rot",
+     "310",
+     "--spread",
+     "1.36",
+     "--rock-height",
+     "1.94"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (1460.0, 3.187, -384.0) has two float positions (1460.0, 3.187077760696411, -384.0) / (1460.0, 3.187000036239624, -384.0) -- a weld split before t"
+   },
+   {
+    "at": [
+     50.666666666666664,
+     -497.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "50.7,-497.3",
+     "--donor",
+     "0,0",
+     "--rot",
+     "245",
+     "--spread",
+     "1.49",
+     "--rock-height",
+     "1.01"
+    ],
+    "ok": false,
+    "gate": "zip",
+    "where": 1,
+    "message": "zip steeper than the grass envelope (rise 2.60, ny min 0.89 < floor 0.5, or 0 banks below 0.83 > 2 allowed)"
+   },
+   {
+    "at": [
+     150.66666666666666,
+     -1057.3333333333333
+    ],
+    "handles": [
+     "--center",
+     "150.7,-1057.3",
+     "--donor",
+     "0,0",
+     "--rot",
+     "310",
+     "--spread",
+     "1.23",
+     "--rock-height",
+     "1.63"
+    ],
+    "ok": false,
+    "gate": "error",
+    "where": 0,
+    "message": "kept grass at (187.129, 2.989, -1088.0) has two float positions (187.12900161743164, 2.9888880252838135, -1088.0) / (187.12890625, 2.9888880252838135, -1088.0) "
+   }
+  ],
+  "s": 110.1
+ }
+}

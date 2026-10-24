@@ -86,6 +86,9 @@ def test_chain_ring_chains_a_polygon_and_refuses_degeneracy():
     assert len(out) == 12 and set(out) == set(ring)
     with pytest.raises(ValueError, match="not a simple cycle"):
         IN.chain_ring(edges[:-1], "test")
+    with pytest.raises(IN.CarveRefused) as e:
+        IN.chain_ring(edges[:-1], "test")
+    assert e.value.gate == "ring" and len(e.value.where) == 2
 
 
 def test_split_borders8_splits_at_the_border_and_keeps_vertical_curtains():
@@ -228,6 +231,10 @@ def test_chain_rings_chains_multiple_cycles_and_refuses_degeneracy():
     assert {frozenset(r) for r in rings} == {frozenset(sq1), frozenset(sq2)}
     with pytest.raises(ValueError, match="not degree-2"):
         IN.chain_rings(edges[:-1], "test")
+    with pytest.raises(IN.CarveRefused) as e:                # it says where (rung C16): the two odd points
+        IN.chain_rings(edges[:-1], "test")
+    assert e.value.gate == "ring" and len(e.value.where) == 2
+    assert set(e.value.where) <= {(float(p[0]), float(p[2])) for p in sq1 + sq2}
 
 
 def test_signed_area_orientation():
@@ -295,6 +302,26 @@ def test_carve_mountain_seats_on_an_all_lawn_interior_span(monkeypatch, tmp_path
     res2 = IN.carve_mountain(IN.soup_from_blocks({(0, 0): _mountain_bench(coast=False)}),
                              center=(30.0, -30.0), alcove=None, game=tmp_path, log=lambda *a: None)
     assert res2["center"] == (30.0, -30.0)
+
+
+def test_a_weld_split_the_zip_never_touches_does_not_refuse_the_mountain(monkeypatch, tmp_path):
+    """THE EXACT-WELD LAW checks only the hole ring's keys (rung C16): the zip welds to nothing else. Checked over the
+    whole read window, a sub-millimetre split anywhere in it -- float noise between two old writers; the live folder
+    held four -- refused every mountain whose window reached it, and said nowhere (the refusal sweep: 16 of 30 lawful
+    mountain spots on the live island)."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    tris, y = [], 3.2
+    for i in range(13):
+        for j in range(13):
+            x0, x1, z0, z1 = i * 4.0, (i + 1) * 4.0, -j * 4.0, -(j + 1) * 4.0
+            tris.append((((x0, y, z0), (x1, y, z0), (x0, y, z1)), GRASS, _MAIN_U))
+            tris.append((((x1, y, z0), (x1, y, z1), (x0, y, z1)), GRASS, _MAIN_U))
+    # a vertex the hole never reaches, shared by several tris: one copy 3e-4u off, the same 1e-3 key, two floats
+    k = next(n for n, (c, _i, _u) in enumerate(tris) if (48.0, y, -48.0) in c)
+    tris[k] = (tuple((48.0003, y, -48.0) if p == (48.0, y, -48.0) else p for p in tris[k][0]),) + tris[k][1:]
+    soup = IN.soup_from_blocks({(0, 0): _bm(tris)})
+    res = IN.carve_mountain(soup, center=(26.0, -26.0), alcove=None, game=tmp_path, log=lambda *a: None)
+    assert res["center"] == (26.0, -26.0) and res["report"]["blob_tris"] == 4
 
 
 def test_carve_mountain_refusals(monkeypatch, tmp_path):

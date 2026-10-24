@@ -104,8 +104,40 @@ def anchor_for(x: float, z: float, *, size=(1, 1), rot: int = 0) -> tuple:
     return (max(0, min(GRID[0] - tw, bx)), max(0, min(GRID[1] - th, by)))
 
 
-def preview(cell, *, land: set, occupied, size=(1, 1), rot: int = 0) -> dict:
-    """The target's laws: ``{"ok", "why", "where", "blocks"}``."""
+#: the carry's land-fit margin (``transplant.transplant``'s ``land_margin``): its land keeps this much sea to the frame
+LAND_MARGIN = 2.0
+
+
+def too_wide(donor_tris, *, size=(1, 1), rot: int = 0, cell=(0, 0)):
+    """None when the donor's land can fit its target rect, else ``{"why", "where"}``: THE LAND-FIT LAW, from the donor
+    alone (rung C16). The carry's ``land-fit`` gate needs ``LAND_MARGIN`` of sea between its land (every Terrain and
+    beach tri, the seabed included) and the rect's frame on all four sides, so land wider than the rect less twice the
+    margin, along either axis, can never fit whatever the shift: a block cut from a continent's coast fills its frame.
+    ``where`` = the middles of the two edges the land runs to, on the target rect at ``cell``."""
+    t = np.asarray(donor_tris, dtype=np.float64).reshape(-1, 3)
+    if not len(t):
+        return None
+    ext = [float(np.ptp(t[:, 0])), float(np.ptp(t[:, 2]))]          # in the donor's own frame
+    if (int(rot) // 90) % 2:
+        ext.reverse()
+    tw, th = tsize(size, rot)
+    x0, z0, x1, z1 = 64.0 * cell[0], -64.0 * cell[1], 64.0 * (cell[0] + tw), -64.0 * (cell[1] + th)
+    where, sides = [], []
+    if ext[0] > 64.0 * tw - 2 * LAND_MARGIN + 1e-6:
+        where += [(x0, (z0 + z1) / 2.0), (x1, (z0 + z1) / 2.0)]
+        sides.append(f"{ext[0]:.0f}u east to west")
+    if ext[1] > 64.0 * th - 2 * LAND_MARGIN + 1e-6:
+        where += [((x0 + x1) / 2.0, z0), ((x0 + x1) / 2.0, z1)]
+        sides.append(f"{ext[1]:.0f}u north to south")
+    if not where:
+        return None
+    return {"why": f"its land runs to its block's edge ({' and '.join(sides)}); a carry needs "
+                   f"{LAND_MARGIN:g}u of sea all round it, so this block cannot be carried alone", "where": where}
+
+
+def preview(cell, *, land: set, occupied, size=(1, 1), rot: int = 0, donor_tris=None) -> dict:
+    """The target's laws: ``{"ok", "why", "where", "blocks"}``. ``donor_tris`` (the donor's land, :func:`donor_land`)
+    adds THE LAND-FIT LAW (:func:`too_wide`), which no target can pass for a donor that fills its frame."""
     from . import mesh as M
     tw, th = tsize(size, rot)
     region = (tw, th) != (1, 1)
@@ -116,6 +148,9 @@ def preview(cell, *, land: set, occupied, size=(1, 1), rot: int = 0) -> dict:
     off = [c for c in cs if not (0 <= c[1] < GRID[1] and 0 <= c[0] < GRID[0])]
     if off:
         return {"ok": False, "why": "the carry runs off the map", "where": [], "blocks": cs}
+    wide = too_wide(donor_tris, size=size, rot=rot, cell=cell) if donor_tris is not None else None
+    if wide:
+        return {"ok": False, "why": wide["why"], "where": wide["where"], "blocks": cs, "donor": True}
     real = [c for c in cs if c in land]
     if real:
         what = f"block ({real[0][0]}, {real[0][1]}) is" if not region else \

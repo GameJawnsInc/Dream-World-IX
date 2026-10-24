@@ -2903,6 +2903,22 @@ def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
     return ext_r[0] / 2.0 + dx, -ext_r[1] / 2.0 + dz
 
 
+def _land_fit_gate(lb_c, margin: float, ext, cell) -> dict:
+    """THE LAND-FIT GATE: the carried land's post-clip bbox ``lb_c`` (the target rect's frame: x 0..ext[0], z 0..-ext[1])
+    keeps ``margin`` of sea to every side. ``where`` (rung C16, world x, z) = the middle of each side of the land that
+    comes too near the frame -- the editor's marks, where the block middle said nothing."""
+    ok = lb_c is None or (lb_c[0] >= margin and lb_c[1] <= ext[0] - margin
+                          and lb_c[2] >= -ext[1] + margin and lb_c[3] <= -margin)
+    gate = {"gate": "land-fit", "bbox": lb_c, "margin": margin, "ok": ok}
+    if not ok:
+        ox, oz = 64.0 * cell[0], -64.0 * cell[1]
+        mx, mz = (lb_c[0] + lb_c[1]) / 2.0, (lb_c[2] + lb_c[3]) / 2.0
+        sides = [(lb_c[0] < margin, (lb_c[0], mz)), (lb_c[1] > ext[0] - margin, (lb_c[1], mz)),
+                 (lb_c[2] < -ext[1] + margin, (mx, lb_c[2])), (lb_c[3] > -margin, (mx, lb_c[3]))]
+        gate["where"] = [[ox + x, oz + z] for bad, (x, z) in sides if bad]
+    return gate
+
+
 def _carry_stitch_gate(pairs: dict, fwd, loc, fixed=(), emitted=()) -> dict:
     """THE CARRY STITCH GATE (terrain study defect 10: ``weld_audit`` flags only near-miss pairs, 0 < d < 0.05u, so it
     cannot see a weld torn wider than that). ``pairs`` = ``{part: (pre, post)}``: the donor-cell vertices of every
@@ -3236,10 +3252,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= 64.0 + FRAME_EPS
                          and -64.0 - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
     lb_c = None if math.isinf(lbc[0]) else list(lbc)
-    gates.append({"gate": "land-fit", "bbox": lb_c, "margin": land_margin,
-                  "ok": lb_c is None or (lb_c[0] >= land_margin and lb_c[1] <= 64.0 - land_margin
-                                         and lb_c[2] >= -64.0 + land_margin
-                                         and lb_c[3] <= -land_margin)})
+    gates.append(_land_fit_gate(lb_c, land_margin, (64.0, 64.0), (bx, by)))
     if obj_tris:
         ox = [v[0][0] for t in obj_tris for v in t]
         oz = [v[0][2] for t in obj_tris for v in t]
@@ -4089,11 +4102,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= ext_r[0] + FRAME_EPS
                          and -ext_r[1] - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
     lb_c = None if math.isinf(lbc[0]) else list(lbc)
-    gates.append({"gate": "land-fit", "bbox": lb_c, "margin": land_margin,
-                  "ok": lb_c is None or (lb_c[0] >= land_margin
-                                         and lb_c[1] <= ext_r[0] - land_margin
-                                         and lb_c[2] >= -ext_r[1] + land_margin
-                                         and lb_c[3] <= -land_margin)})
+    gates.append(_land_fit_gate(lb_c, land_margin, ext_r, (bx, by)))
     for c in dcells:
         if not obj_by_cell[c]:
             continue

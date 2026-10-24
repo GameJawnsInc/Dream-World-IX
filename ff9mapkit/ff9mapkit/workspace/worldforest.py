@@ -34,7 +34,8 @@ MARK_H = 7.0                    # a refusal mark's height
 GHOST_ALPHA = 0.42
 GATE_WORDS = {"footprint": "the footprint law", "hole": "the hole carve", "leak": "the deployed-blocks bound",
               "geometry": "the geometry gate", "step": "the canopy step law", "walk-in": "the walk-in simulation",
-              "census": "the placement census", "error": "the carve"}
+              "census": "the placement census", "error": "the carve", "ring": "the ring accounting",
+              "weld": "the exact-weld law", "atlas": "the atlas gate", "skip": "the bank skip law"}
 WHOLE_MAP = ((768.0, -640.0), 767.0)    # read_deployed_blocks' near/reach that spans all 24 columns once
 SEAM_MAP = ((0.0, -640.0), 767.0)       # ...the same 24 columns read across x = 0: columns 12-23 west of it, unwrapped
 WORLD_W = 1536.0                        # the world's width: x wraps here (24 columns of 64u)

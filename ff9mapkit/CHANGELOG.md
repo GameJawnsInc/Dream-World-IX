@@ -5,6 +5,13 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — the World tab shows where a shape was refused
+- A refused mountain now marks the place on the map in every case the editor was measured to meet (before, most
+  of its refusals only printed a sentence).
+- "Add a mountain" no longer refuses because of a tiny seam somewhere else on the island that it never touches.
+- "Carry a coast" now says at once when a donor can never be carried on its own (its land fills its whole block)
+  and marks the edges its land runs to, instead of refusing after a ten-second check.
+
 ### Added — edit a sunk island, a coast change or a river move
 - Every step the World tab places can now be opened again with Edit, not only deleted: a sunk island (pick another
   island, or change "With its cluster" and "Allow entrances"), a coast change (another stretch of coast, another
