@@ -871,7 +871,11 @@ def _snap_world_transplant(ctx: _Ctx, win) -> None:
     drafts = _SCRATCH / "world_drafts"
     _sh.rmtree(drafts, ignore_errors=True)
     doc._drafts_root, doc._transplant_runner = drafts, Scripted()
-    doc._transplant_seams = {"land_fn": lambda d, size=(1, 1): land, "ocean_fn": lambda: set(),
+    # (20,5), desert-beach in the donor list: an invented slab filling its whole block, the land-fit law's refusal
+    wide = np.array([[(1280.0, 3.0, -320.0), (1344.0, 3.0, -320.0), (1344.0, 3.0, -384.0)],
+                     [(1280.0, 3.0, -320.0), (1344.0, 3.0, -384.0), (1280.0, 3.0, -384.0)]])
+    doc._transplant_seams = {"land_fn": lambda d, size=(1, 1): wide if tuple(d) == (20, 5) else land,
+                             "ocean_fn": lambda: set(),
                              "soup_fn": seams["soup_fn"], "stack_fn": lambda: [], "sync": True}
     orig = V.load_scene
     V.load_scene = lambda site, **_k: _synthetic_world_scene()
@@ -901,6 +905,18 @@ def _snap_world_transplant(ctx: _Ctx, win) -> None:
             view.update()
         _settle(12)
         _grab(ctx, "world-3d-transplant-unit", win)
+        # rung C16: a donor whose land fills its block -- refused at once, its two edges marked, no dry run
+        tt.donor_box.setCurrentIndex(tt.donor_box.findData("20,5"))
+        tt.rot_box.setCurrentIndex(tt.rot_box.findData(0))
+        tt.place(1376.0, -1184.0, 0.0)
+        tt._timer.stop()
+        tt._check()
+        if view is not None:
+            view.focus(1376.0, -1184.0, dist=200.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 50.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-transplant-wide", win)
     finally:
         V.load_scene = orig
 

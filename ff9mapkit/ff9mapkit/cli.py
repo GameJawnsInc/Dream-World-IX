@@ -4920,7 +4920,7 @@ def _gate_line(g: dict) -> str:
         if isinstance(v, (list, tuple)):
             return "[" + ",".join(fmt(x) for x in v) + "]"
         return str(v)
-    detail = "  ".join(f"{k}={fmt(v)}" for k, v in g.items() if k not in ("gate", "ok"))
+    detail = "  ".join(f"{k}={fmt(v)}" for k, v in g.items() if k not in ("gate", "ok", "where"))
     return f"GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}"
 
 
@@ -5086,8 +5086,9 @@ def _morph_report_json(args, *, summary=None, refused=None) -> None:
         out.update(ok=bool(summary.get("clean")), gates=summary.get("gates", []),
                    written=[str(p) for p in summary.get("deployed", ())], touched=summary.get("touched"),
                    shift=summary.get("shift"), rot=summary.get("rot"), op=summary.get("op"))
-        if bad:
-            out["refused"] = {"gate": bad[0].get("gate", "error"), "detail": "", "where": [mid],
+        if bad:                                          # a gate that says where marks there (C16), else the middle
+            where = [list(p) for g in bad for p in (g.get("where") or [])][:24]
+            out["refused"] = {"gate": bad[0].get("gate", "error"), "detail": "", "where": where or [mid],
                               "message": "NOT CLEAN -- deploy refused: " + ", ".join(g.get("gate", "?") for g in bad)}
     if refused is not None:
         out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused), "detail": "",
@@ -5303,7 +5304,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
         _print_stack_notes(summary)
         for g in summary["gates"]:
             detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items()
-                               if k not in ("gate", "ok"))
+                               if k not in ("gate", "ok", "where"))
             print(f"  GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}")
         if not summary["clean"]:
             print("NOT CLEAN -- deploy refused", file=sys.stderr)
@@ -5341,7 +5342,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
     if summary.get("blanked"):
         print(f"  blanked (all tris clipped away): {', '.join(summary['blanked'])}")
     for g in summary["gates"]:
-        detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok", "warn"))
+        detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok", "warn", "where"))
         print(f"  GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}")
         if g.get("warn") and g["gate"] == "wang-carry":
             dn, sn = g.get("incoherent_deep", 0), g.get("incoherent_shallow", 0)

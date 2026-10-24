@@ -142,6 +142,10 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C16, REFUSALS THAT SAY WHERE: BUILT (2026-10-24)** -> [`C16.md`](C16.md). Measured through the real cards: of the
+  refusals they meet, the mountain left 21 of 28 unmarked; now none. The mountain's exact-weld law checked its whole
+  read window (16 refusals at far-off sub-mm splits); it checks the ring. A carry donor that fills its frame is refused
+  at once with its edges marked (two listed donors always failed land-fit); a carry's report marks a gate's points.
 - **C15, THE NORTH-SOUTH EDGE: ANSWERED (2026-10-24)** -> [`C15.md`](C15.md). The engine wraps rows too (positions
   mod 1280), but no land meets across that edge: 23.6u of water at the narrowest, so nothing placeable straddles it
   and no z seam frame is built. The orphan census's ring now wraps rows as well (a read; edged-z writes stay policy);
@@ -416,7 +420,7 @@ Each rung is useful on its own. One change per in-game test, as everywhere else.
 
 1. **Split compute from deploy in every new or touched verb**, the way the interior verbs are split: return
    `{changed, report}` and deploy separately.
-2. **Make refusals say where.** An exception that carries the failing point or edge as well as the text
+2. **Make refusals say where.** (C16: done for every refusal the cards were measured to meet.) An exception that carries the failing point or edge as well as the text
    ("cannot be carried alone" at x,z) can be drawn. Today's refusals are strings.
 3. **Give every verb a `world-fuse` compose table**, because the recipe is the editor's file format.
 4. **Express a verb's freedom as handle-shaped parameters** (centre, angle, scale, donor), with the proven ceilings
