@@ -227,18 +227,24 @@ def _ring_blocks(region_cells) -> list:
     ``cell_meshes``, in-memory and pre-write -- never from disk). Matches
     ``comp1_orphan_redress.ROUND2_RING``'s own Moore-neighbourhood construction, minus its core.
 
-    THE X-TORUS: rows stop at the grid's edge (0..19), but columns WRAP (the overworld is an x-torus,
-    ``mesh.wrap_block_col``). A ring block keeps the column it has in the region's own frame -- -1 west
-    of column 0, 24 east of column 23 -- so its triangles land beside the region in world x
-    (``block_world_origin``); the reader reads it at its label (column 23, column 0). Clipped instead,
-    a carry at column 0 lost its whole west ring, and the census judged its west-edge decals with no
-    context: a lawful fringe tile there read as an orphan (and ``--redress-orphans`` rewrote it)."""
+    THE TORUS: the overworld wraps in BOTH axes -- columns mod 24 and rows mod 20 (``WMWorld.Wrap``
+    shifts every block left/right and up/down; positions fold by 1536 and 1280). A ring block keeps the
+    index it has in the region's own frame -- column -1 west of column 0, 24 east of 23; row -1 north of
+    row 0, 20 south of 19 -- so its triangles land beside the region in world space
+    (``block_world_origin``); the reader reads it at its label (:func:`_label`). Clipped instead, a carry
+    at column 0 lost its whole west ring, and the census judged its west-edge decals with no context: a
+    lawful fringe tile there read as an orphan (and ``--redress-orphans`` rewrote it). This ring only
+    READS context; no write crosses a row edge (edged-z stays kit policy, ``mesh.wrap_block_col``)."""
     region_set = {tuple(c) for c in region_cells}
-    labels = {(_mesh.wrap_block_col(bx), by) for (bx, by) in region_set}
+    labels = {_label(b) for b in region_set}
     ring = {(bx + dx, by + dy) for (bx, by) in region_set
            for dx in (-1, 0, 1) for dy in (-1, 0, 1)} - region_set
-    return sorted((bx, by) for (bx, by) in ring
-                  if 0 <= by < _mesh.GRID_ROWS and (_mesh.wrap_block_col(bx), by) not in labels)
+    return sorted(b for b in ring if _label(b) not in labels)
+
+
+def _label(block) -> tuple:
+    """The engine's ``(column, row)`` label for a block index in an unwrapped frame (both axes wrap)."""
+    return _mesh.wrap_block_col(block[0]), block[1] % _mesh.GRID_ROWS
 
 
 def default_context_provider(region_cells, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
@@ -270,17 +276,17 @@ def default_context_provider(region_cells, *, mod_folder: str, disc: int = 1, lo
         return {}
     out = {}
     for (bx, by) in ring:                         # keyed in the region's frame, read at its label (THE X-TORUS)
-        lx = _mesh.wrap_block_col(bx)
-        path = game_root / mod_folder / _mesh.override_relpath(disc, lx, by, lod, "Terrain")
+        lx, ly = _label((bx, by))
+        path = game_root / mod_folder / _mesh.override_relpath(disc, lx, ly, lod, "Terrain")
         if path.is_file():
             # A DEPLOYED override that exists but cannot decode is a REAL bug in the deploy --
             # raise loudly, exactly like the proven instrument (comp1_orphan_redress's
             # _region_blockmeshes leaves this read unprotected). Never swallow it: a silently
             # skipped corrupt override would weaken the ring evidence AND mask the corruption.
-            bm = _mesh.blockmesh_from_ff9mesh(path, disc=disc, x=lx, y=by, lod=lod, part="terrain")
+            bm = _mesh.blockmesh_from_ff9mesh(path, disc=disc, x=lx, y=ly, lod=lod, part="terrain")
         else:
             try:
-                bm = read_block(lx, by, disc=disc, lod=lod, part="terrain", game=game)
+                bm = read_block(lx, ly, disc=disc, lod=lod, part="terrain", game=game)
             except Exception:                 # noqa: BLE001 -- no STOCK data / a stubbed asset reader
                 continue                      # (test doubles included) at this ring block -- narrower
                                               # evidence, not fatal (the codebase's degrade-on-read-
@@ -804,5 +810,5 @@ def orphan_decal_gate(cell_meshes: dict, region_cells, *, enforce: bool = False,
         "enforced": bool(enforce), "warn": warn, "ok": ok,
         "n_ambiguous": stats.get("n_ambiguous_cells", 0),
         "ambiguous_cells": stats.get("ambiguous_cells", []),
-        "ring_blocks": sorted([_mesh.wrap_block_col(b[0]), b[1]] for b in ring_meshes),   # by label
+        "ring_blocks": sorted(list(_label(b)) for b in ring_meshes),             # by label
     }
