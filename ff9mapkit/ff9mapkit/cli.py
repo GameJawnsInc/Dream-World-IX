@@ -3033,6 +3033,8 @@ _SUMMON_EDIT_ACTIONS = ("scaffold", "plan", "build", "verify", "deploy", "revert
 #: that drifted from the lane the handler dispatches on would refuse a lane that works, or offer one
 #: that does not.
 _SUMMON_ART_LANES = ("indexed", "rgba", "direct15", "paint")
+#: ...and `--readership`'s, likewise literal and PINNED EQUAL to `repaint.READINGS` by a test.
+_SUMMON_READINGS = ("effective", "bound")
 
 
 class _SummonEditUsage(Exception):
@@ -3275,6 +3277,12 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
                 "THE FIX: dither in your own editor at 5-BIT depth and save the RGBA -- this lane "
                 "then reproduces it EXACTLY, because every colour you produced is already an entry "
                 "the row carries.")
+        # the reading governs which scenery cells resolve; `scaffold` (the CLUT lane's) and `revert`
+        # (the ledger's own script) resolve none, so the flag would do nothing there -- say so.
+        if getattr(args, "readership", None) and args.action in ("scaffold", "revert"):
+            raise _SummonEditUsage("--readership has nothing to govern on `%s` -- it chooses which "
+                                   "scenery cells resolve, for export-art and the building "
+                                   "sub-verbs" % args.action)
 
         if args.action == "scaffold":
             if args.ef is None:
@@ -3293,12 +3301,19 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
                 blob, src = Path(args.from_path).read_bytes(), args.from_path
             else:
                 blob, src = rk.R.read_stock_effect(args.ef, getattr(args, "game", None))
+            reading = getattr(args, "readership", None) or rp.DEFAULT_READING
             man = rp.export_art(blob, args.ef, args.out or None, source=src, lane=args.art_lane,
                                 overlays=not args.no_coverage,
-                                displacement_ack=getattr(args, "ack_displacement", False))
+                                displacement_ack=getattr(args, "ack_displacement", False),
+                                channels=rp.reading_channels(reading, "--readership"))
             print("ef%03d  %d page(s) exported -- lane %s" % (args.ef, len(man["parts"]),
                                                               man["lane"]))
             print("  source        : %s" % man["source"])
+            print("  readership    : %s" % (
+                "%s -- the cell the hardware SAMPLES (MODEL %s), the default"
+                % (reading, rp.DISPLACEMENT_MODEL) if reading == rp.DEFAULT_READING else
+                "%s -- the cell each record BINDS; the gain half DECLINED, and the scaffold says so "
+                "in [reskin]" % reading))
             print("  stock sha256  : %s  (the drift guard the pack re-reads)" % man["stock_sha256"])
             print("  out           : %s" % man["out_dir"])
             for e in man["parts"]:
@@ -3360,6 +3375,14 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
         blob = Path(args.from_path).read_bytes() if args.from_path else None
         spec = rp.load_spec(spec_path)        # accepts target-only, texel-only, or both
         has_clut, has_texel = _summon_reskin_lanes(spec)
+        # --readership on a BUILDING sub-verb is a CHECK against the spec, never an override (every
+        # sub-verb rebuilds from the spec); `rp.build` refuses a mismatch.  On a CLUT-only spec it
+        # governs nothing, and a flag that does nothing must say so rather than be ignored.
+        reading_arg = getattr(args, "readership", None)
+        if reading_arg and not has_texel:
+            raise _SummonEditUsage("--readership is the TEXEL lane's reading; %s declares no "
+                                   "[[reskin.texel]]" % spec_path)
+        reading_ch = rp.reading_channels(reading_arg, "--readership") if reading_arg else None
 
         # ★ W6q: THE VERIFY PRE-FLIGHT.  `verify` is reached only THROUGH a rebuild, and a rebuild
         # OPENS the art -- so without this a deleted paint file refuses inside `build` with the
@@ -3390,7 +3413,8 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
                           blob=(b.orig if b is not None else blob),
                           base=(b.patched if b is not None else None),
                           base_label=("composed on this spec's own [[reskin.target]] rows (%d CLUT "
-                                      "bytes)" % len(b.check.changed)) if b is not None else "")
+                                      "bytes)" % len(b.check.changed)) if b is not None else "",
+                          channels=reading_ch)
             bt.check = rp.self_check(bt)
             print("")
             print("\n".join(rp.describe(bt)))
@@ -9831,7 +9855,22 @@ def build_parser() -> argparse.ArgumentParser:
                           "picture (4 of them 4bpp read back as 8bpp) and 10 come back with "
                           "nothing at all. "
                           "A repaint of one of these is INVISIBLE IN GAME unless a reader this kit "
-                          "cannot attribute -- one on a multi-part record -- samples it.")
+                          "cannot attribute -- one on a multi-part record -- samples it. "
+                          "REFUSES with `--readership bound`, where these cells are pages already.")
+    srk.add_argument("--readership", dest="readership", default=None,
+                     choices=sorted(_SUMMON_READINGS),
+                     help="WHICH CELL a scenery reader is taken to read. `effective` (the default) "
+                          "is the cell the hardware SAMPLES under the measured second-array "
+                          "displacement (MODEL linear-add-v1): 70 corpus cells GAIN a reader that "
+                          "way, licensed on the derivation alone, with no key -- and if the model "
+                          "does not hold on your container a repaint there is invisible in game with "
+                          "no error. `bound` DECLINES that: the cell each record BINDS, the "
+                          "pre-adoption reading, where a gained cell refuses as it used to (and 54 "
+                          "of the 55 cells the displacement empties are pages again, behind the "
+                          "build's second-array gate). export-art: the reading the art "
+                          "and scaffold are written under (the scaffold states it as [reskin] "
+                          "readership). plan/build/verify/deploy: a CHECK -- the spec's own "
+                          "`readership` decides, and a mismatch refuses")
     srk.add_argument("--dither", action="store_true",
                      help="REFUSES by name, with the measurement and a better workflow. Error "
                           "diffusion is stateful across texels, so an UNEDITED page would dither and "

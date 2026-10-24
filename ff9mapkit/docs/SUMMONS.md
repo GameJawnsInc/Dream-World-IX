@@ -616,10 +616,12 @@ satisfies all of it: `[[reskin.target]]`. Use it, or paint against the row you h
 
 `[reskin]` gains no new required key for the texel lane — `effect`/`label`/`expect_sha256`/
 `allow_unguarded` mean exactly what they mean for `[[reskin.target]]` (a spec may declare either
-table, or both, under one `[reskin]` header). `[reskin.orthogonality]` gains one more switch:
+table, or both, under one `[reskin]` header). It gains one optional key, and `[reskin.orthogonality]`
+gains one more switch:
 
 | key | required | meaning |
 |---|---|---|
+| `readership` | no, default `"effective"` | which cell a scenery model is taken to read. `"effective"` is the cell the hardware samples under the measured second-array displacement (`linear-add-v1`); `"bound"` is the cell each record binds, the reading from before that was adopted, which declines the gain half (see THE EFFECTIVE COVER, below). `export-art --readership bound` writes it for you; art exported under one reading refuses to build under the other. Refused on a spec with no `[[reskin.texel]]`. |
 | `orthogonality.reskin` | *conditional* | a sibling `[[reskin.target]]` spec's path (relative to THIS file), composed onto by `compose = true` — see Composing with the CLUT lane, below. |
 | `orthogonality.compose` | no, default `false` | `true` rebuilds the named `reskin` sibling and splices this spec's texel edits onto ITS patched bytes instead of stock — the CLI's own one-spec path sets this implicitly whenever a spec carries both tables. |
 
@@ -944,7 +946,18 @@ cover (what the hardware reads — what the editable surface is now joined on). 
   derivation alone with nothing to gate it — so if `linear-add-v1` does not hold on your container, a
   perfect repaint of a gained cell is **invisible in game with no error anywhere**, which is the same
   silent failure the loss half refuses to let you risk. The export scaffold says `GAINED` on every one
-  of them; a cast is the only thing that closes it. **27 of those 30 hand back a paintable PNG:**
+  of them; a cast is the only thing that closes it (ef407's did, on ef407). **You can decline this
+  half:** export with `--readership bound` and the scaffold writes `readership = "bound"` into
+  `[reskin]`. The kit then reads the cell each record *binds*, the reading from before the second array
+  was adopted. A gained cell refuses again with its old reason, and the refusal says the default reading
+  would have licensed it. Declining it also lifts the early refusal of the loss half: 54 of the 55
+  cells whose every model the displacement moves away come back as pages, and the build stops an unacknowledged
+  repaint there with the second-array gate instead (`acknowledge_second_array_displacement`). The
+  reading lives in the spec. On `plan` / `build` / `verify` / `deploy`, `--readership` only checks the
+  spec and refuses a mismatch, and art exported under one reading refuses to build under the other.
+  `readership_gates.py` D1 checks that this is the earlier reading exactly: forcing every
+  displacement to zero reproduces its pages and refusals on all 372 containers.
+  **27 of those 30 hand back a paintable PNG:**
   21 straight out of
   `export-art`, and 6 more (all 15 bpp) via `export-art --art-lane direct15` — though all 6 sit in
   effects that read 15bpp from their render target, so their builds refuse (see RENDER TARGET, above).

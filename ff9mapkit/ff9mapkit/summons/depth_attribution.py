@@ -699,7 +699,9 @@ DISPLACEMENT_DERIVATION = (
     "key, because there is no reader to contradict.  So if `linear-add-v1` does not hold on YOUR "
     "container, a perfect repaint of a gained cell is INVISIBLE IN GAME with no error anywhere: "
     "the same silent failure the loss half exists to refuse, pointing the other way.  A CAST IS "
-    "THE ONLY THING THAT CLOSES IT")
+    "THE ONLY THING THAT CLOSES IT (ef407's did, on ef407).  ON ANY OTHER CONTAINER YOU CAN "
+    "DECLINE IT: `readership = \"bound\"` in [reskin] (export with `--readership bound`) reads the "
+    "cell each record BINDS, and a gained cell then refuses as it did before")
 
 
 # ---------------------------------------------------------------- THE TABLE

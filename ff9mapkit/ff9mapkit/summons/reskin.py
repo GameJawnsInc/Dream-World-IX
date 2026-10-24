@@ -2184,14 +2184,14 @@ _TARGET_KEYS = frozenset((
 
 #: every key the top-level ``[reskin]`` table understands, ACROSS BOTH LANES -- the CLUT lane's own
 #: (``effect``/``label``/``expect_sha256``/``allow_unguarded``/``acknowledge_texanim``/``spans``/
-#: ``defaults``/``target``) and the texel lane's (``texel``, ``orthogonality``).
+#: ``defaults``/``target``) and the texel lane's (``texel``, ``orthogonality``, ``readership``).
 #:
 #: ONE set for both modules, consumed by :func:`load_spec` here and by ``repaint.load_spec`` there,
 #: because one spec file may carry both tables: two copies would let a key be lawful on the path that
 #: happened to load it and unknown on the other, which is a refusal that depends on the caller.
 _RESKIN_KEYS = frozenset((
     "effect", "label", "note", "expect_sha256", "allow_unguarded", "acknowledge_texanim",
-    "spans", "defaults", "orthogonality", "target", "texel",
+    "spans", "defaults", "orthogonality", "target", "texel", "readership",
 ))
 
 
@@ -3740,4 +3740,9 @@ def load_spec(path) -> dict:
     for key in ("effect", "target"):
         if key not in r:
             raise ReskinError("[reskin] needs `%s`" % key)
+    # the texel lane's READING governs nothing on a CLUT-only spec, and this lane would ignore it --
+    # the same refusal `repaint.load_spec` makes, so the key cannot be lawful on one loader only
+    if "readership" in r and not r.get("texel"):
+        raise ReskinError("%s says `readership` but declares no [[reskin.texel]] -- the reading is "
+                          "the texel lane's, and a CLUT-only spec has nothing for it to govern" % path)
     return spec

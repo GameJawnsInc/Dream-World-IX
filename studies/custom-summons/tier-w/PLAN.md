@@ -602,7 +602,7 @@ scenery must be re-authored *together*.
   REACH: incumbent single-part records only — `ORDER_UNMEASURED` is untouched and 142 novel slots
   carry a pair nothing models. THE HONEST LIMIT, and the one thing an owner may want to change: the
   loss half fails LOUDLY (refusal + key) and the gain half fails SILENTLY (licensed on the derivation
-  alone, no key, no way to decline at the CLI). Gates: `u1_gates` U1-U7 (U7 is the only instrument
+  alone, no key; DECLINABLE since owner item (2) below, `readership = "bound"`). Gates: `u1_gates` U1-U7 (U7 is the only instrument
   aimed at `EDIT_CHANNELS`), `w6b_gates` 7/7, `w6q_gates` 20/20, `tests/test_summon_repaint.py`
   231/231. The two W6b-3 (ii) Odin cast specs are FROZEN AS HISTORY — they no longer build under the
   adoption and their notes say why.
@@ -719,9 +719,27 @@ scenery must be re-authored *together*.
   107 measured tiles (`scroll_blit.TILES`), and with them the executed sources equal the table's halfword
   for halfword on every container. Remedies and source disclosures there name the tiles' cells again. No
   default-surface cell is touched -- the affected cells sit behind the acknowledgements -- so the pins hold.
-  **(2) SHOULD THE GAIN HALF BE DECLINABLE?** Today `texel_page` / `export_art` / `build` hard-code
-  `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface, so an author who distrusts
-  `linear-add-v1` on THEIR container cannot ask for the pre-adoption reading. Recovery is EXACT at the
-  page level (forcing the displacement to identity reproduces the LICENSED page set on 372/372), so it
-  is a PARAMETER — a mirror flag, or threading `channels=` through those three entry points — not a
-  re-derivation. A stated limit with no remedy attached is still a limit.
+  **(2) SHOULD THE GAIN HALF BE DECLINABLE?** ~~Today `texel_page` / `export_art` / `build` hard-code
+  `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface.~~ **★ DONE — DECLINABLE, AS A
+  PARAMETER.** `repaint.READINGS` names the two readings: `effective` (`EDIT_CHANNELS`, the default,
+  unchanged) and `bound` (`LICENSED_CHANNELS`, the cell each record BINDS). `channels=` is threaded
+  through `texel_page` / `export_art` / `build`. The spec is the source of truth (`[reskin] readership =
+  "bound"`, written live by `export-art --readership bound`). `--readership` on plan/build/verify/deploy
+  is a CHECK that refuses a mismatch, and art exported under one reading refuses to build under the
+  other (READING DRIFT). On `bound` a gained cell refuses with its pre-adoption reason plus a line saying
+  the default would license it. 54 of the loss half's 55 names are pages again, behind the W6b-3 (iii)
+  second-array gate. Gate `readership_gates.py` D1-D6:
+  - D1: identity-forced effective == bound, pages and export-blocking refusals, **372/372**; unforced
+    the two differ on 36.
+  - D2: `texel_page` on both readings, every name, 372/372.
+  - D3: `export_art` on both readings, 372/372.
+  - D4: ef407's cast spec still rebuilds `71d04a12…` by default and refuses `x704_y256` on `bound`. Its
+    loss cell `x640_y384` splices the same bytes on both readings once acknowledged.
+  - D5: the CLI.
+  - D6: 29 containers resolve different names (72 bound-only, 52 effective-only, 43 GAINED). Of the
+    55 loss-half names, 54 are pages on `bound`; ef227 `x448_y256` refuses there
+    `same-bytes-two-depths`, because its bound readers state two depths.
+  The walk takes ~17 min. D2 memoises `scenery_surface` on its exact arguments, since each
+  `texel_page` call re-derives it.
+  Found on the way: monkeypatching `RP.EDIT_CHANNELS` no longer re-aims an entry point, because the
+  defaults bind at definition time. The two tests that did it now ask for the reading by name.

@@ -30,6 +30,17 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   from the copies, so the build names the cells to paint instead and notes how many tiles a cell holds.
   Checked offline: the copies' sources now match the kit's too, on every effect.
 
+### Added — `summon-reskin` can decline the cells it gained from the second array
+- 70 scenery cells became paintable when the kit adopted the second-array displacement, and nothing could
+  contradict that if the model were wrong on your effect: the repaint would just not show. You can now turn it
+  off: `export-art --readership bound` reads the cell each model's record binds, the reading the kit used before,
+  and writes `readership = "bound"` into the scaffold's `[reskin]`. A gained cell then refuses with its old reason
+  and says the default would have allowed it.
+- The default is unchanged. The reading lives in the spec: `--readership` on `plan`/`build`/`verify`/`deploy` only
+  checks it, and art exported under one reading refuses to build under the other.
+- Checked offline on all 372 effects: the `bound` reading is exactly the pre-adoption surface, and ef407's cast
+  spec still rebuilds the cast's bytes by default.
+
 ### Added — see the map from a vehicle as the game does
 - "As the game sees it" now has a vehicle chooser: on foot, a chocobo, the flying gold chocobo, the Blue Narciss, the
   Hilda Garde III or the Invincible, and a height for the flyers. Each frames the map the way that vehicle's camera does
