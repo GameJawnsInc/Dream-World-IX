@@ -5049,8 +5049,13 @@ def _morph_report_json(args, *, summary=None, refused=None) -> None:
     import json
     from pathlib import Path
     bx, by = (int(v) for v in str(args.cell).split(","))
-    mid = [64.0 * bx + 32.0, -(64.0 * by + 32.0)]
-    out = {"ok": False, "dry_run": bool(args.dry_run), "disc": args.disc, "cell": [bx, by], "blocks": [[bx, by]],
+    # every target block (a multi-block carry fills its whole rect, which turns with --rot): the World tab's history
+    # snapshots these cells before an Accept writes them, so a block missing here could not be undone
+    nx, ny = (int(v) for v in str(getattr(args, "size", "1x1") or "1x1").lower().split("x"))
+    tw, th = (nx, ny) if (int(getattr(args, "rot", 0) or 0) // 90) % 2 == 0 else (ny, nx)
+    mid = [64.0 * (bx + tw / 2.0), -64.0 * (by + th / 2.0)]
+    out = {"ok": False, "dry_run": bool(args.dry_run), "disc": args.disc, "cell": [bx, by],
+           "blocks": [[bx + i, by + j] for j in range(th) for i in range(tw)], "size": [nx, ny],
            "gates": [], "written": [], "refused": None}
     if summary is not None:
         bad = [g for g in summary.get("gates", ()) if not g.get("ok")]

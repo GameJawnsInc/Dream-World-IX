@@ -829,8 +829,8 @@ def _snap_world_transplant(ctx: _Ctx, win) -> None:
     drafts = _SCRATCH / "world_drafts"
     _sh.rmtree(drafts, ignore_errors=True)
     doc._drafts_root, doc._transplant_runner = drafts, Scripted()
-    doc._transplant_seams = {"land_fn": lambda d: land, "ocean_fn": lambda: set(), "soup_fn": seams["soup_fn"],
-                             "stack_fn": lambda: [], "sync": True}
+    doc._transplant_seams = {"land_fn": lambda d, size=(1, 1): land, "ocean_fn": lambda: set(),
+                             "soup_fn": seams["soup_fn"], "stack_fn": lambda: [], "sync": True}
     orig = V.load_scene
     V.load_scene = lambda site, **_k: _synthetic_world_scene()
     try:
@@ -848,6 +848,17 @@ def _snap_world_transplant(ctx: _Ctx, win) -> None:
             view.update()
         _settle(12)
         _grab(ctx, "world-3d-transplant", win)
+        # a multi-block carry unit: the turned rect the click fits, and the turns its row allows
+        tt.donor_box.setCurrentIndex(tt.donor_box.findData("9,5@2x3"))
+        tt.rot_box.setCurrentIndex(tt.rot_box.findData(90))
+        tt.place(1376.0, -1184.0, 0.0)
+        tt._timer.stop()
+        tt._check()
+        if view is not None:
+            view.focus(1376.0, -1184.0, dist=420.0, y=0.0)
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-transplant-unit", win)
     finally:
         V.load_scene = orig
 
