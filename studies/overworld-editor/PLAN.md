@@ -141,6 +141,13 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C9, EDITING A PLACED SHAPE: BUILT + IN GAME (2026-10-24)** -> [`C9.md`](C9.md). A click picks the step placed
+  there; Edit opens its own card on its row (the draft undone back to before it, the step and the ones after it
+  lifted out), Delete puts nothing in its place; then each later step goes back on top, replayed from its record
+  where no block it reads changed (the dirty set), else composed again by `world-fuse`; a refusal leaves the draft
+  exactly as it was. On real bytes the edited draft == `world-fuse` of the edited recipe over 1,863 files; in game
+  a hill moved and lowered stood at its new place (6.730, predicted 6.733) and its old place was lawn again. Found:
+  promote's relabel crashed half way after another draft of the folder promoted and reverted (fixed, fenced).
 - **C8, THE GAME CAMERA ON A VEHICLE: BUILT + MEASURED (2026-10-23)** -> [`C8.md`](C8.md). `gamecam` reads each
   mode's type / type_cam from the stack's TransportControls.csv and decodes the flight, boat and forest rules;
   the 3D view's game camera gets a vehicle chooser and a flyer's height. Ten stills on the real vehicles (the

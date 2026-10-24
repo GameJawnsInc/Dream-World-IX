@@ -6,6 +6,13 @@ them with Undo and Redo (byte for byte, from each step's snapshots: no verb re-r
 ``world-fuse`` itself, one job per row, so every row is its own undoable step.
 
 THE CLI STAYS THE ORACLE here too: opening a recipe never carves in the Workspace's process.
+
+EDITING A PLACED STEP (rung C9): a click on the 3D view picks the step placed there (``world.recipe.step_at``), and
+the bar's second row names it, with Edit and Delete. Edit lifts the step and the ones after it out of the draft
+(``world.draft.begin_edit``) and opens the step's own card on its row; the card's Accept writes the edited shape in
+its place. Delete puts nothing in its place. Then the steps after it go back on top in their order: each REPLAYED
+from its record where no block it reads changed (``draft.dirty_after``), else composed again by ``world-fuse``. A
+step that refuses on the new ground stops the edit, and the draft goes back exactly as it was.
 """
 from __future__ import annotations
 
@@ -21,11 +28,12 @@ from .worldforest import QProcessRunner, kit_cwd
 
 class RecipeBar(QWidget):
     """``source_fn()`` the mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the
-    view and the tools after the draft moved. ``runner``, ``ask``, ``save_path_fn(default)`` / ``open_path_fn()``
-    (file dialogs) and ``drafts_root`` are the test and snap seams."""
+    view and the tools after the draft moved; ``on_select(step)`` marks the picked step on the view (None: no step);
+    ``on_edit(row, label)`` opens the step's card on its row. ``runner``, ``ask``, ``save_path_fn(default)`` /
+    ``open_path_fn()`` (file dialogs) and ``drafts_root`` are the test and snap seams."""
 
     def __init__(self, pal, *, game_fn, source_fn, on_changed=None, runner=None, drafts_root=None, ask=None,
-                 save_path_fn=None, open_path_fn=None):
+                 save_path_fn=None, open_path_fn=None, on_select=None, on_edit=None):
         super().__init__()
         self.pal = pal
         self._game_fn, self._source_fn, self._on_changed = game_fn, source_fn, on_changed
@@ -36,6 +44,9 @@ class RecipeBar(QWidget):
         self._save_path_fn = save_path_fn or self._save_dialog
         self._open_path_fn = open_path_fn or self._open_dialog
         self._queue = None                               # an opened recipe's rows still to compose
+        self._on_select, self._on_edit = on_select, on_edit
+        self._sel = None                                 # the picked step's index (rung C9), or None
+        self._edit = None                                # the open edit of a placed step, or None
         lay = QHBoxLayout(self)
         lay.setContentsMargins(2, 0, 2, 0)
         lay.setSpacing(8)
@@ -44,6 +55,22 @@ class RecipeBar(QWidget):
         self.status_lbl.setWordWrap(True)
         self.status_lbl.setAccessibleName("Recipe")
         lay.addWidget(self.status_lbl, 1)
+        # rung C9: a picked step's actions, in the same row (the status names the step): a row of their own raised the
+        # window's floor to 871px at 150%, past a 1280x850 window, and squeezed an open card's verdict
+        for attr, text, tip, slot in (
+                ("edit_btn", "Edit", "Open this step's card on its handles: move, turn or retune it, then Accept. The "
+                 "steps after it go back on top.", self.edit),
+                ("delete_btn", "Delete", "Take this step out of the recipe; the steps after it go back on top.",
+                 self.delete),
+                ("cancel_btn", "Cancel edit", "Stop putting the steps back and leave the draft exactly as it was.",
+                 lambda: self.cancel_edit())):
+            b = QPushButton(text)
+            b.setProperty("role", "quiet")
+            b.setToolTip(tip)
+            b.clicked.connect(slot)
+            b.hide()
+            lay.addWidget(b)
+            setattr(self, attr, b)
         self.undo_btn = QPushButton("Undo")
         self.undo_btn.setProperty("role", "quiet")
         self.undo_btn.clicked.connect(self.undo)
@@ -52,16 +79,16 @@ class RecipeBar(QWidget):
         self.redo_btn.setProperty("role", "quiet")
         self.redo_btn.clicked.connect(self.redo)
         lay.addWidget(self.redo_btn)
-        self.save_btn = QPushButton("Save recipe…")
+        self.save_btn = QPushButton("Save…")              # (the row's title says what: a recipe)
         self.save_btn.setProperty("role", "quiet")
-        self.save_btn.setToolTip("Write the draft's edits as a recipe world-fuse composes: ff9mapkit world-fuse "
-                                 "<recipe> --mod-folder <folder> makes the same bytes.")
+        self.save_btn.setToolTip("Save the recipe: the draft's edits as a TOML world-fuse composes (ff9mapkit "
+                                 "world-fuse <recipe> --mod-folder <folder> makes the same bytes).")
         self.save_btn.clicked.connect(self.save)
         lay.addWidget(self.save_btn)
-        self.open_btn = QPushButton("Open recipe…")
+        self.open_btn = QPushButton("Open…")
         self.open_btn.setProperty("role", "quiet")
-        self.open_btn.setToolTip("Compose a recipe into a fresh draft of this folder, one world-fuse job per row "
-                                 "(each row undoable). The install is not touched.")
+        self.open_btn.setToolTip("Open a recipe: compose it into a fresh draft of this folder, one world-fuse job per "
+                                 "row (each row undoable). The install is not touched.")
         self.open_btn.clicked.connect(self.open_recipe)
         lay.addWidget(self.open_btn)
         self.refresh()
@@ -79,11 +106,16 @@ class RecipeBar(QWidget):
         """Say what the recipe holds and which way it can walk."""
         from ..world import draft as D
         d = self.draft()
+        if d is not None and self._edit is None and self._queue is None and D.history(d)["edit"]:
+            try:                                         # an edit this Workspace did not open (it closed mid-edit)
+                D.cancel_edit(d)
+            except ValueError:
+                pass
         h = D.history(d) if d is not None else {"steps": [], "cursor": 0, "promoted": 0}
         steps, cur, prom = h["steps"], h["cursor"], h["promoted"]
-        busy = self._queue is not None
+        busy = self._queue is not None or self._edit is not None
         if not steps:
-            text = "No edits yet: each Accept adds a row, and Save recipe writes them for world-fuse."
+            text = "No edits yet: each Accept adds a row, and Save writes them as a recipe for world-fuse."
         else:
             text = f"{cur} step{'s' if cur != 1 else ''}"
             if cur:
@@ -92,11 +124,22 @@ class RecipeBar(QWidget):
                 text += f"; {len(steps) - cur} undone"
             if prom:
                 text += f"; the first {prom} in the game (promoted)"
-        if busy:
+        if self._sel is not None and self._sel >= cur:
+            self._sel = None
+        if self._queue is not None:
             left = len(self._queue["rows"])
             text = f"Composing {self._queue['name']}: {self._queue['done']} row(s) done, {left} to go…"
+        elif self._edit is not None:
+            text = self._edit_text(self._edit)
+        elif self._sel is not None:
+            i = self._sel
+            text = f"Step {i + 1} of {cur}: {steps[i]['label']}" + (
+                ". It is in the game: Revert promote to change it." if i < prom else ".")
         self.status_lbl.setText(text)
         widgets.set_state(self.status_lbl, "")
+        editing = self._edit is not None
+        for b in (self.undo_btn, self.redo_btn, self.save_btn, self.open_btn):
+            b.setVisible(not editing)                    # an open edit holds the history: they wait for it
         self.undo_btn.setEnabled(not busy and cur > prom)
         self.undo_btn.setToolTip(f"Undo: {steps[cur - 1]['label']}" if cur > prom else
                                  "The steps here are in the game: Revert promote first." if cur else "Nothing to undo.")
@@ -104,6 +147,186 @@ class RecipeBar(QWidget):
         self.redo_btn.setToolTip(f"Redo: {steps[cur]['label']}" if len(steps) > cur else "Nothing to redo.")
         self.save_btn.setEnabled(not busy and cur > 0)
         self.open_btn.setEnabled(not busy)
+        picked = self._sel is not None and not busy
+        self.edit_btn.setVisible(picked)
+        self.delete_btn.setVisible(picked)
+        self.cancel_btn.setVisible(editing and "queue" in self._edit)   # an open card has its own Cancel edit
+        if picked:
+            from ..world import recipe as RC
+            live, table = self._sel < prom, steps[self._sel]["row"].get("table")
+            self.edit_btn.setEnabled(not live and table in RC.EDITABLE_TABLES)
+            self.edit_btn.setToolTip("Open this step's card on its handles: move, turn or retune it, then Accept. The "
+                                     "steps after it go back on top." if table in RC.EDITABLE_TABLES else
+                                     f"A {table} step has no card that opens on it: Delete it, then place it again.")
+            self.delete_btn.setEnabled(not live)
+
+    @staticmethod
+    def _edit_text(e) -> str:
+        after = e["applied"] - 1
+        them = f"the {after} step{'s' if after != 1 else ''} after it"
+        if "queue" in e:
+            done = e["replayed"] + e["rerun"]
+            return (f"{'Deleting' if e['mode'] == 'delete' else 'Edited'} step {e['k'] + 1}, {e['label']}: putting "
+                    f"{them} back on top, {done} done, {len(e['queue'])} to go…")
+        return (f"Editing step {e['k'] + 1}, {e['label']}, in its card below."
+                + (f" {them[0].upper()}{them[1:]} come{'s' if after == 1 else ''} back on top when you accept."
+                   if after else ""))
+
+    # -- the picked step (rung C9) --
+    def steps(self) -> list:
+        """The applied steps (the recipe), each its history record."""
+        from ..world import draft as D
+        d = self.draft()
+        if d is None:
+            return []
+        h = D.history(d)
+        return h["steps"][:h["cursor"]]
+
+    def pick(self, x, z):
+        """A click on the view with no card open: pick the step placed there (or none). Returns its index."""
+        from ..world import recipe as RC
+        if self._edit is not None or self._queue is not None:
+            return None
+        i = RC.step_at(self.steps(), x, z)
+        self.select(i)
+        return i
+
+    def select(self, i):
+        self._sel = i
+        self.refresh()
+        if self._on_select is not None:
+            steps = self.steps()
+            self._on_select(steps[i] if i is not None and i < len(steps) else None)
+
+    # -- edit and delete (rung C9) --
+    def edit(self):
+        """Open the picked step in its card: the draft goes back to before it (the step and the ones after it lifted
+        out), and the card opens on its row."""
+        from ..world import draft as D
+        d, i = self.draft(), self._sel
+        if d is None or i is None or self._edit is not None:
+            return
+        s = self.steps()[i]
+        try:
+            e = D.begin_edit(d, i)
+        except ValueError as err:
+            self._moved(f"Not opened: {err}.", "error")
+            return
+        self._edit = {"k": i, "mode": "edit", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"]}
+        self._moved()
+        if self._on_select is not None:
+            self._on_select(None)
+        if self._on_edit is not None:
+            self._on_edit(s["row"], s["label"])
+
+    def edit_accepted(self):
+        """The card wrote the edited shape in the step's place: put the steps after it back on top."""
+        from ..world import draft as D
+        d, e = self.draft(), self._edit
+        if d is None or e is None:
+            return
+        new = D.history(d)["steps"][e["k"]]
+        e["new_label"] = new["label"]
+        self._start_put_back(d, D.dirty_after(set(), e["lifted"][0], new))
+
+    def delete(self):
+        from ..world import draft as D
+        d, i = self.draft(), self._sel
+        if d is None or i is None or self._edit is not None:
+            return
+        steps = self.steps()
+        s, after = steps[i], len(steps) - i - 1
+        if not self._ask("Delete the step?", f"Take step {i + 1}, {s['label']}, out of the draft's recipe?"
+                         + (f" The {after} step{'s' if after != 1 else ''} after it go back on top (any whose ground "
+                            "changed is composed again by world-fuse)." if after else "")):
+            return
+        try:
+            e = D.begin_edit(d, i)
+        except ValueError as err:
+            self._moved(f"Not deleted: {err}.", "error")
+            return
+        self._edit = {"k": i, "mode": "delete", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"]}
+        if self._on_select is not None:
+            self._on_select(None)
+        self._start_put_back(d, D.dirty_after(set(), e["lifted"][0], None))
+
+    def _start_put_back(self, d, dirty):
+        e = self._edit
+        e.update(dirty=dirty, queue=list(e["lifted"][1:e["applied"]]), replayed=0, rerun=0)
+        self._put_back(d)
+
+    def _put_back(self, d):
+        """The next lifted step back on top: replayed from its record where nothing it reads changed, else composed
+        again by world-fuse (a job); when none is left the edit closes."""
+        from ..world import draft as D
+        from ..world import recipe as RC
+        e = self._edit
+        while e["queue"]:
+            s = e["queue"][0]
+            if not RC.replay_window(s) & e["dirty"] and D.replay(d, s):
+                e["queue"].pop(0)
+                e["replayed"] += 1
+                continue
+            D.begin_step(d, RC.row_cells(s["row"]))
+            tmp = Path(tempfile.mkdtemp(prefix="ff9_edit_")) / "row.toml"
+            tmp.write_text(RC.dumps_one(dict(s["row"])), encoding="utf-8")
+            argv = [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn()), "world-fuse", str(tmp),
+                    "--mod-folder", str(d)]
+            self.refresh()
+            self._runner.start(argv, kit_cwd(), lambda code, text, s=s: self._put_back_done(d, s, code, text))
+            return
+        D.finish_edit(d)
+        self._edit = None
+        n = e["replayed"] + e["rerun"]
+        back = (f" The {n} step{'s' if n != 1 else ''} after it are back on top ({e['replayed']} as they were, "
+                f"{e['rerun']} composed again on the new ground)." if n else "")
+        if e["mode"] == "delete":
+            self._sel = None
+            self._moved(f"Deleted step {e['k'] + 1}, {e['label']}.{back}", "ok")
+            return
+        self._sel = e["k"]
+        self._moved(f"Edited step {e['k'] + 1}: {e['label']} is now {e.get('new_label', e['label'])}.{back}", "ok")
+        if self._on_select is not None:
+            self._on_select(self.steps()[e["k"]])
+
+    def _put_back_done(self, d, s, code, text):
+        from ..world import draft as D
+        e = self._edit
+        if e is None:
+            return
+        if code != 0:
+            D.abort_step(d)
+            last = [ln for ln in text.splitlines() if ln.strip()][-1:] or [f"exit code {code}"]
+            what = "deleted" if e["mode"] == "delete" else "edited"
+            self.cancel_edit(f"Not {what}: on the new ground, {s['label']} (a step after it) refuses: {last[0]}. "
+                             "The draft is exactly as it was.", "error")
+            return
+        new = D.commit_step(d, s["row"], s["label"])
+        e["dirty"] = D.dirty_after(e["dirty"], s, new)
+        e["queue"].pop(0)
+        e["rerun"] += 1
+        self._put_back(d)
+
+    def cancel_edit(self, note=None, state=""):
+        """Close the open edit, the draft exactly as it was before it (the card's Cancel edit, a closed card, a step
+        that refused on the new ground, the bar's own Cancel edit while the steps are put back)."""
+        from ..world import draft as D
+        d, e = self.draft(), self._edit
+        if e is None:
+            return
+        self._edit = None
+        if "queue" in e:
+            self._runner.kill()
+        if d is not None:
+            try:
+                D.cancel_edit(d)
+            except ValueError as err:
+                note, state = f"The edit could not be undone: {err}.", "error"
+        self._sel = e["k"]
+        self._moved(note or f"Edit cancelled: the draft is exactly as it was, {e['label']} in its place.", state)
+        if self._on_select is not None:
+            steps = self.steps()
+            self._on_select(steps[e["k"]] if e["k"] < len(steps) else None)
 
     def _moved(self, note=None, state="ok"):
         self.refresh()

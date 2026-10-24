@@ -274,7 +274,7 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 
 # --------------------------------------------------------------------------------------- world states
-WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-sink", "3d-coast", "3d-island", "3d-transplant",
+WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-step", "3d-sink", "3d-coast", "3d-island", "3d-transplant",
                 "3d-river", "3d-hill")
 # "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
 # surface that depends on the developer's machine cannot be a pinned review state.
@@ -616,6 +616,48 @@ def _snap_world_mountain(ctx: _Ctx, win) -> None:
                 view.update()
             _settle(12)
             _grab(ctx, f"world-3d-mountain{name}", win)  # -accepted is rung C3's too: the recipe bar holds the step
+    finally:
+        V.load_scene = orig
+
+
+def _snap_world_step(ctx: _Ctx, win) -> None:
+    """Rung C9: a placed step picked (the recipe bar's second row: the step, Previous / Next, Edit, Delete, Done), then
+    opened in its card (Edit mountain, Accept the edit, Cancel edit; the bar says what waits) -- both must fit a
+    1280x850 window at 150%."""
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    doc = win.world_doc
+    seams, runner = _mountain_seams()
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._mountain_runner, doc._mountain_seams = drafts, runner, seams
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        mt = doc.open_mountain(sync=True)
+        x, z = MOUNTAIN_SPOTS["pass"]
+        for _ in range(2):                               # two steps: the picked one, and one after it to put back
+            mt.place(x, z, 0.0)
+            mt._timer.stop()
+            mt._check()
+            mt.accept_btn.click()
+        mt.close_tool()
+        _settle_view(doc)
+        doc._recipe.select(0)
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(x, z, dist=80.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 38.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-step-picked", win)
+        doc._recipe.edit_btn.click()
+        mt._timer.stop()
+        mt._check()
+        _settle(12)
+        _grab(ctx, "world-3d-step-edit", win)
+        mt.close_tool()                                  # Cancel edit: the draft as it was
     finally:
         V.load_scene = orig
 
@@ -1098,6 +1140,10 @@ def snap_world(ctx: _Ctx, state: str) -> None:
             return
         if state == "3d-mountain":
             _snap_world_mountain(ctx, win)
+            _close(win)
+            return
+        if state == "3d-step":
+            _snap_world_step(ctx, win)
             _close(win)
             return
         if state == "3d-sink":

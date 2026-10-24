@@ -63,6 +63,11 @@ class HillTool(CarryTool):
     def donor(self):
         return self.FE.DONOR
 
+    def load_row(self, row):
+        self.height_spin.setValue(float(row.get("height", self._handle("height").default)))
+        self.radius_spin.setValue(float(row.get("radius", self._handle("radius").default)))
+        self.place(*row["center"])
+
     # -- the shape and the laws --
     def _cmd(self, target, *, dry_run, report=None):
         return self.FE.command(target, self.center, height=self.height_spin.value(), radius=self.radius_spin.value(),
