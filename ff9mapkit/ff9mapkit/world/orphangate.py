@@ -223,14 +223,22 @@ def flatten_terrain_records(cell_meshes: dict) -> list:
 
 def _ring_blocks(region_cells) -> list:
     """The 1-block Moore ring of ``(bx,by)`` BLOCKS around ``region_cells`` (the just-carried
-    target rect), clipped to the engine's real 24x20 grid (``mesh.block_in_grid`` -- THE
-    GRID-BOUNDS GATE) and EXCLUDING ``region_cells`` themselves (those are ours to read from
+    target rect), EXCLUDING ``region_cells`` themselves (those are ours to read from
     ``cell_meshes``, in-memory and pre-write -- never from disk). Matches
-    ``comp1_orphan_redress.ROUND2_RING``'s own Moore-neighbourhood construction, minus its core."""
+    ``comp1_orphan_redress.ROUND2_RING``'s own Moore-neighbourhood construction, minus its core.
+
+    THE X-TORUS: rows stop at the grid's edge (0..19), but columns WRAP (the overworld is an x-torus,
+    ``mesh.wrap_block_col``). A ring block keeps the column it has in the region's own frame -- -1 west
+    of column 0, 24 east of column 23 -- so its triangles land beside the region in world x
+    (``block_world_origin``); the reader reads it at its label (column 23, column 0). Clipped instead,
+    a carry at column 0 lost its whole west ring, and the census judged its west-edge decals with no
+    context: a lawful fringe tile there read as an orphan (and ``--redress-orphans`` rewrote it)."""
     region_set = {tuple(c) for c in region_cells}
+    labels = {(_mesh.wrap_block_col(bx), by) for (bx, by) in region_set}
     ring = {(bx + dx, by + dy) for (bx, by) in region_set
            for dx in (-1, 0, 1) for dy in (-1, 0, 1)} - region_set
-    return sorted((bx, by) for (bx, by) in ring if _mesh.block_in_grid(bx, by))
+    return sorted((bx, by) for (bx, by) in ring
+                  if 0 <= by < _mesh.GRID_ROWS and (_mesh.wrap_block_col(bx), by) not in labels)
 
 
 def default_context_provider(region_cells, *, mod_folder: str, disc: int = 1, lod: str = "0_1",
@@ -261,17 +269,18 @@ def default_context_provider(region_cells, *, mod_folder: str, disc: int = 1, lo
     except _config.ConfigError:
         return {}
     out = {}
-    for (bx, by) in ring:
-        path = game_root / mod_folder / _mesh.override_relpath(disc, bx, by, lod, "Terrain")
+    for (bx, by) in ring:                         # keyed in the region's frame, read at its label (THE X-TORUS)
+        lx = _mesh.wrap_block_col(bx)
+        path = game_root / mod_folder / _mesh.override_relpath(disc, lx, by, lod, "Terrain")
         if path.is_file():
             # A DEPLOYED override that exists but cannot decode is a REAL bug in the deploy --
             # raise loudly, exactly like the proven instrument (comp1_orphan_redress's
             # _region_blockmeshes leaves this read unprotected). Never swallow it: a silently
             # skipped corrupt override would weaken the ring evidence AND mask the corruption.
-            bm = _mesh.blockmesh_from_ff9mesh(path, disc=disc, x=bx, y=by, lod=lod, part="terrain")
+            bm = _mesh.blockmesh_from_ff9mesh(path, disc=disc, x=lx, y=by, lod=lod, part="terrain")
         else:
             try:
-                bm = read_block(bx, by, disc=disc, lod=lod, part="terrain", game=game)
+                bm = read_block(lx, by, disc=disc, lod=lod, part="terrain", game=game)
             except Exception:                 # noqa: BLE001 -- no STOCK data / a stubbed asset reader
                 continue                      # (test doubles included) at this ring block -- narrower
                                               # evidence, not fatal (the codebase's degrade-on-read-
@@ -795,5 +804,5 @@ def orphan_decal_gate(cell_meshes: dict, region_cells, *, enforce: bool = False,
         "enforced": bool(enforce), "warn": warn, "ok": ok,
         "n_ambiguous": stats.get("n_ambiguous_cells", 0),
         "ambiguous_cells": stats.get("ambiguous_cells", []),
-        "ring_blocks": [list(b) for b in sorted(ring_meshes)],
+        "ring_blocks": sorted([_mesh.wrap_block_col(b[0]), b[1]] for b in ring_meshes),   # by label
     }

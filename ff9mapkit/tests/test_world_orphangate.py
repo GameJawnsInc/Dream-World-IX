@@ -513,11 +513,44 @@ def test_orphan_decal_gate_default_no_mod_folder_skips_ring_entirely():
 
 
 # ================================================================================================ default_context_provider / _ring_blocks (the ring reader itself)
-def test_ring_blocks_excludes_the_region_and_clips_to_the_grid():
+def test_ring_blocks_excludes_the_region_clips_rows_and_wraps_columns():
     ring = OG._ring_blocks({(0, 0)})
     assert (0, 0) not in ring                                # the region is never its own ring
-    assert all(bx >= 0 and by >= 0 for (bx, by) in ring)      # off-grid neighbours (block (-1,*) etc) clipped
-    assert set(ring) == {(0, 1), (1, 0), (1, 1)}
+    assert all(by >= 0 for (_bx, by) in ring)                 # rows stop at the map's edge (no row -1)...
+    assert set(ring) == {(0, 1), (1, 0), (1, 1), (-1, 0), (-1, 1)}   # ...columns wrap: -1 IS column 23, west
+    assert set(OG._ring_blocks({(23, 19)})) == {(22, 18), (23, 18), (24, 18), (22, 19), (24, 19)}
+    assert OG._ring_blocks({(23, 5), (0, 5)}) and not {(24, 5), (-1, 5)} & set(OG._ring_blocks({(23, 5), (0, 5)}))
+
+
+def test_a_carry_at_column_0_reads_its_west_ring_across_the_seam(monkeypatch, tmp_path):
+    """THE X-TORUS (rung C14): a lawful grass|desert fringe decal on block (0,0)'s WEST edge, its grass partner one
+    cell west -- across the seam, in a deployed column-23 override. The ring was clipped to the grid, so the census
+    judged that edge with no context and read the decal as an orphan (``--redress-orphans`` rewrote it). Read at
+    its label and placed beside the region (key (-1, 0), world x -64..0), the partner clears it."""
+    from ff9mapkit import config
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: tmp_path)
+    pair = ("grass", "desert")
+    fringe = _strip_tri(pair, 2, 0, (0, 0), topo=16)         # world cell (0,0): block (0,0)'s west edge
+    g_alone = OG.orphan_decal_gate(_cell_meshes(fringe)[0], {(0, 0)})
+    assert g_alone["n_orphans"] == 1                         # no grass in the carried block alone
+    grass = _mains_tri((15, 0), 0)                           # block-local cell (15,0): its east edge, x 60..64
+    M.write_ff9mesh(TR._soup_block_mesh("Block[23][0] Terrain", (23, 0), [grass], disc=1, lod="0_1"),
+                    tmp_path / "MOD" / M.override_relpath(1, 23, 0, "0_1", "Terrain"))
+    ring = OG.default_context_provider({(0, 0)}, mod_folder="MOD")
+    assert set(ring) == {(-1, 0)} and ring[(-1, 0)][0][1].x == 23     # keyed beside the region, read at 23
+    g = OG.orphan_decal_gate(_cell_meshes(fringe)[0], {(0, 0)}, mod_folder="MOD")
+    assert g["n_orphans"] == 0 and g["ring_blocks"] == [[23, 0]], g
+    meshes, bm = _cell_meshes(fringe)
+    uv0 = [tuple(u) for u in bm.uvs]
+    g = OG.orphan_decal_gate(meshes, {(0, 0)}, mod_folder="MOD", redress=True)
+    assert g["n_redressed"] == 0 and [tuple(u) for u in bm.uvs] == uv0      # the lawful tile is left as it is
+    # ... and the mirror: a carry at column 23 reads column 0 east of it
+    fringe_e = _strip_tri(pair, 2, 0, (15, 0), topo=16)      # block (23,0)'s east edge
+    M.write_ff9mesh(TR._soup_block_mesh("Block[0][0] Terrain", (0, 0), [_mains_tri((0, 0), 0)], disc=1, lod="0_1"),
+                    tmp_path / "MOD" / M.override_relpath(1, 0, 0, "0_1", "Terrain"))
+    east = TR._soup_block_mesh("Block[23][0] Terrain", (23, 0), [fringe_e], disc=1, lod="0_1")
+    g = OG.orphan_decal_gate({(23, 0): [("Terrain", east)]}, {(23, 0)}, mod_folder="MOD")
+    assert g["n_orphans"] == 0 and [0, 0] in g["ring_blocks"], g
 
 
 def test_default_context_provider_reads_a_deployed_override_over_stock(monkeypatch, tmp_path):
