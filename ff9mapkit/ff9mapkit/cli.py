@@ -5907,7 +5907,18 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
     donor = R.RIVER_DONORS[args.donor]
     discs = (donor.disc,) if args.skip_mirror else (donor.disc, 4)
     if args.remove:
+        if args.move_from:
+            print("world-river: --remove and --move-from are two ways out of one deploy; pass one", file=sys.stderr)
+            return 2
         return _river_remove(args, folder, donor, discs)
+    try:
+        move_from = None if args.move_from is None else _parse_river_at(args.move_from)
+    except ValueError as e:
+        print(str(e).replace("--at", "--move-from"), file=sys.stderr)
+        return 2
+    if args.move_from is not None and move_from is None:
+        print("world-river --move-from needs the placement the deploy printed (DX,DZ), not auto", file=sys.stderr)
+        return 2
 
     def planned(d):
         comp, cells = d.comp, d.cells
@@ -5915,6 +5926,9 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
         print(f"world-river: {donor.name} (stock blocks {donor.blocks}) -> {folder}")
         print(f"  placement --at {comp.offset[0]:g},{comp.offset[1]:g}: block shift ({sx},{sy}), rotation 0, "
               f"{len(cells)} cells {_river_cells(cells)}")
+        if d.move_from is not None:
+            print(f"  moving from --at {d.move_from[0]:g},{d.move_from[1]:g}: {len(d.moved['owned'])} file(s) of that "
+                  f"deploy on {len(d.moved['cells'])} cells {_river_cells(d.moved['cells'])}, free for this one")
         if d.skipped:
             print("  auto: the nearest open-ocean shift no stacked folder overrides; passed over "
                   + ", ".join(f"({a},{b}) [{n} file(s)]" for (a, b), n in d.skipped[:8])
@@ -5942,21 +5956,29 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
     try:
         d = R.deploy(folder, donor=donor, offset=_parse_river_at(args.at), area=args.area, apron=args.apron,
                      dry_run=args.dry_run, skip_mirror=args.skip_mirror, game=args.game, on_planned=planned,
-                     on_gated=gated)
+                     on_gated=gated, move_from=move_from)
     except R.RiverRefused as e:
         print(f"world-river refused -- {e}", file=sys.stderr)
+        _river_report_json(args, refused=e)
         return 2
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _river_report_json(args, refused=e)
         return 2
+    _river_report_json(args, d=d, folder=folder)
     if d.red:
         for gate, msg in d.red:
             print(f"world-river refused -- {gate}: {msg.removeprefix(gate + ': ')}", file=sys.stderr)
         return 2
     if args.dry_run:
         print(f"would deploy {d.rep['files']} files into {folder}"
-              + ("" if args.skip_mirror else " (+ the disc-4 mirror)") + ". Nothing written.")
+              + ("" if args.skip_mirror else " (+ the disc-4 mirror)")
+              + (f", after removing the {len(d.moved['owned'])} file(s) of the deploy at "
+                 f"{d.move_from[0]:g},{d.move_from[1]:g}" if d.move_from is not None else "") + ". Nothing written.")
         return 0
+    if d.move_from is not None:
+        print(f"moved: removed {len(d.moved['removed'])} file(s) of the deploy at {d.move_from[0]:g},"
+              f"{d.move_from[1]:g} (each parked as <name>.bak-<ts> and ledgered)")
     bx, bz = _river_bridge_point(d.frag, d.comp.offset)
     print(f"deployed {len(d.written)} files into {folder} (every file the audited stage's bytes; ledgered). "
           f"~ -> World -> re-enter the world (a first-time cell needs it), then teleport to the bridge "
@@ -6011,6 +6033,47 @@ def _river_remove(args: argparse.Namespace, folder: str, donor, discs) -> int:
           f"~ -> World -> re-enter the world. To redeploy here: world-river --mod-folder {folder} --at "
           f"{offset[0]:g},{offset[1]:g}")
     return 0
+
+
+def _river_report_json(args, *, d=None, folder=None, refused=None) -> None:
+    """``world-river --report-json``: the verdict as data, beside the unchanged printed text (the World tab's river
+    card reads it). A refusal's marks are the middles of the cells it names, else the placement's cells."""
+    path = getattr(args, "report_json", None)
+    if not path:
+        return
+    import json
+    import re
+    from pathlib import Path
+
+    def mid(c):
+        return [64.0 * c[0] + 32.0, -(64.0 * c[1] + 32.0)]
+    out = {"ok": refused is None and d is not None and not d.red, "dry_run": bool(args.dry_run), "at": None,
+           "shift": None, "cells": [], "blocks": [], "gates": [], "red": [], "written": [], "move_from": None,
+           "moved_cells": [], "removed": [], "bridge": None, "files": None, "refused": None}
+    if d is not None:
+        from .world import river as R
+        out.update(at=list(d.comp.offset), shift=list(R.block_shift(d.comp.offset)), cells=[list(c) for c in d.cells],
+                   blocks=[list(c) for c in d.cells], written=[str(p) for p in d.written],
+                   bridge=list(_river_bridge_point(d.frag, d.comp.offset)),
+                   files=None if d.rep is None else d.rep.get("files"),
+                   gates=[{"gate": g, "verdict": v, "detail": t}
+                          for g, v, t in _river_report(d.comp, d.stack, folder, d.rep, d.fails)],
+                   red=[{"gate": g, "message": m} for g, m in d.red])
+        if d.move_from is not None:
+            out.update(move_from=list(d.move_from), moved_cells=[list(c) for c in d.moved["cells"]],
+                       blocks=sorted({tuple(c) for c in d.cells} | {tuple(c) for c in d.moved["cells"]}),
+                       removed=[str(f["path"]) for f in d.moved.get("removed", ())])
+            out["blocks"] = [list(c) for c in out["blocks"]]
+        if d.red:
+            gate, msg = d.red[0]
+            cells = {(int(a), int(b)) for a, b in re.findall(r"\((-?\d+), ?(-?\d+)\)", msg)}
+            out["refused"] = {"gate": gate, "message": msg, "detail": "",
+                              "where": [mid(c) for c in sorted(cells or set(d.cells))][:12]}
+    if refused is not None:
+        out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused), "detail": "",
+                          "where": []}
+    Path(path).write_text(json.dumps(out, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
+                          encoding="utf-8")
 
 
 def _river_source_point(frag, offset) -> tuple:
@@ -10828,6 +10891,19 @@ def build_parser() -> argparse.ArgumentParser:
                           "nothing: any other file there (a hand edit, another verb's, another placement's) refuses "
                           "R1 and nothing is removed. Other stacked folders are never touched. To redeploy at the "
                           "same cells: --remove, then the ordinary run. With --dry-run it only lists")
+    wrv.add_argument("--move-from", metavar="DX,DZ", default=None,
+                     help="MOVE this verb's own deploy at DX,DZ (the placement it printed) to --at: the old deploy's "
+                          "files (the ledger's, as --remove reads them) are left out of every occupancy read, so the "
+                          "new placement may overlap the old one, and every gate judges the new one as if the old "
+                          "river were gone. Only when every gate is green and the stage is audited is the old one "
+                          "removed (parked and ledgered, as --remove) and the new one deployed; a refused move "
+                          "changes nothing. A file on the old cells that is not that deploy's refuses R1. With "
+                          "--dry-run it only judges. A negative DX needs the = form: --move-from=-1024,0")
+    wrv.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the verdict as JSON to PATH: ok, the placement and its cells, every gate row, "
+                          "the refusing gates, the files written (and on a move, the old placement and the files it "
+                          "removed), and the bridge, where the party lands (what the Workspace's World tab reads). "
+                          "The printed text is unchanged.")
     wrv.set_defaults(func=_cmd_world_river)
 
     wdn = sub.add_parser("world-donors",
