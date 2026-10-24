@@ -5,6 +5,16 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — place forests, mountains and hills across the map's edge
+- The World tab's 3D view now draws the map's east and west edges side by side where they meet, so an island that
+  crosses the edge reads whole, and "Add forest", "Add mountain" and "Add a hill" can place a shape across it.
+- Tested in game: a hill placed across the edge stood at the same height on both sides of it.
+
+### Fixed — one point, one result
+- `world-forest`, `world-mountain`, `world-hill` and their `world-fuse` rows now treat a centre written past the
+  map's edge (x -2) exactly as the same point inside it (x 1534). Before, the two could write slightly different
+  files.
+
 ### Added — change a shape after you placed it
 - In the World tab's 3D view, click a forest, mountain, hill, island or carried coast you placed: the recipe bar
   names it, with Edit and Delete. Edit opens its card on its own settings, so you can drag it, turn it or retune it

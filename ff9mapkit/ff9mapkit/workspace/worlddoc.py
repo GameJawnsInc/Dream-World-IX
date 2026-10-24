@@ -1151,7 +1151,10 @@ class WorldDoc(QWidget):
             self.sel_parts.setText("")
             self._set_chip("", "info")
             return
-        (x, y, z), _part = hit
+        (x, y, z), part = hit
+        if not 0.0 <= x < 1536.0:                  # a pick on the view's seam copy: the point it copies (rung C10)
+            x = x % 1536.0
+            hit = ((x, y, z), part)
         for tool in self._carry_tools() if place else ():
             if not tool.isHidden():
                 tool.place(x, z, y)                # a tool is open: a click puts its shape there

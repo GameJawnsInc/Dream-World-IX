@@ -294,13 +294,15 @@ def _parse_block_rect(spec) -> list:
 
 
 def _row_point(table: str, row: dict) -> tuple:
-    """``(wx, wz), exact`` from a row's ``center`` (exact) or ``near`` (snap) key."""
+    """``(wx, wz), exact`` from a row's ``center`` (exact) or ``near`` (snap) key, folded into the mapped window as the
+    verbs fold theirs (``cli._parse_world_point``: THE ONE SPELLING)."""
+    from .frames import wrap_world_xz
     if "center" in row:
         wx, wz = (float(v) for v in row["center"])
-        return (wx, wz), True
+        return wrap_world_xz(wx, wz), True
     if "near" in row:
         wx, wz = (float(v) for v in row["near"])
-        return (wx, wz), False
+        return wrap_world_xz(wx, wz), False
     raise ValueError(f"[[{table}]] needs center=[wx,wz] or near=[wx,wz]")
 
 

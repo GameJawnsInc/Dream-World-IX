@@ -22,7 +22,8 @@ parked it then: more shaping work came first.
 
 Unchanged: no 3D view in the Workspace (the World tab is still the 2D override chart, `workspace/worlddoc.py:439`);
 `QtOpenGL`/`QtOpenGLWidgets` ship in the installed PySide6 6.11.1 Essentials; relief verbs are not seam-aware (a
-placement straddling x = 0 does not seat, river rung 5b); the design call (arrange carried shapes, never sculpt).
+placement straddling x = 0 does not seat, river rung 5b -- STALE: the verbs were seam-aware from 2026-10-20, the editor
+from C10); the design call (arrange carried shapes, never sculpt).
 
 ### The order now
 
@@ -141,6 +142,13 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C10, ACROSS THE SEAM: BUILT + IN GAME (2026-10-24)** -> [`C10.md`](C10.md). The verbs were seam-aware already;
+  the editor was not (its soup cut at x = 0, the view drawing column 23 at the far end). Now each card reads the
+  island in two frames and judges a centre within 384u of x = 0 in the one read across it, the command naming the
+  folded centre; the view draws three columns each side of the seam again across it, the ghost and its marks with
+  it. Found: THE ONE SPELLING -- x -2 and x 1534 wrote different bytes (the verbs read round the point as given);
+  the verbs and world-fuse now fold first. Real bytes: cards == hand (unfolded) == recipe over 1,863 files; in game
+  a hill at x -2 stood 7.238 at its top and 5.266 on both slopes, one in column 23, one in column 0.
 - **C9, EDITING A PLACED SHAPE: BUILT + IN GAME (2026-10-24)** -> [`C9.md`](C9.md). A click picks the step placed
   there; Edit opens its own card on its row (the draft undone back to before it, the step and the ones after it
   lifted out), Delete puts nothing in its place; then each later step goes back on top, replayed from its record
