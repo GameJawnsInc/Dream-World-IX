@@ -5,6 +5,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — change a shape that is already in the game
+- Edit and Delete now work on a placed step you have already promoted into the game. The World tab takes that
+  promote back out of the game while the step is open, then promotes the recipe again when you accept or cancel,
+  so you no longer need Revert promote first. If the game's files changed since (another tool wrote them), nothing
+  is changed and the bar says so.
+
 ### Added — the game's mist in the World tab's game view
 - "As the game sees it" now draws the world map's fog the way the game does: the Mist fading the far land into
   the sky, with high ground standing out of it. A "Mist" switch shows the years without mist instead. The fog was
