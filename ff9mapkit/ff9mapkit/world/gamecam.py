@@ -109,12 +109,21 @@ class Settings:
     camera_distance: float = 100.0
     camera_height: float = 100.0
     camera_aim_height: float = 100.0
+    # the fog's (world.fog, overworld editor C18): Memoria's documented vanilla values
+    fog_start: float = 86.0                       # FogStartDistance / FogEndDistance: the no-mist years (u)
+    fog_end: float = 142.0
+    mist_start: float = 27.0                      # MistStartDistance / MistEndDistance / MistDensity /
+    mist_end: float = 80.0                        # MistStartDistance_base: the Mist years
+    mist_density: float = 7.0
+    mist_base: float = 55.0
 
     @classmethod
     def from_ini(cls, text: str) -> "Settings":
         """Read ``[Worldmap]`` from a Memoria.ini's text; a missing key keeps Memoria's default."""
         keys = {"FieldOfView": "field_of_view", "CameraDistance": "camera_distance", "CameraHeight": "camera_height",
-                "CameraAimHeight": "camera_aim_height"}
+                "CameraAimHeight": "camera_aim_height", "FogStartDistance": "fog_start", "FogEndDistance": "fog_end",
+                "MistStartDistance": "mist_start", "MistEndDistance": "mist_end", "MistDensity": "mist_density",
+                "MistStartDistance_base": "mist_base"}
         out, section = {}, None
         for line in text.splitlines():
             s = line.split(";", 1)[0].strip()

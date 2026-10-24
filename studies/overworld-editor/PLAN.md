@@ -142,6 +142,10 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C18, THE GAME'S FOG: BUILT (2026-10-24)** -> [`C18.md`](C18.md). Measured from C7's nine stills (the shaders are
+  compiled): linear in view depth 15 -> 61u, +2.75u per unit of height (the Mist is a ground fog), the weather
+  table's daylight fogDW; held-out spot rmse 0.051-0.066 vs 0.71-0.83 unfogged. Mist follows the story (scenario
+  5990-11090 has none: the ini's fog). On the view's GPU path the far land's error falls 55-94 -> 6-14.
 - **C17, THE MOUNTAIN STOPS OFFERING FAILURES: BUILT (2026-10-24)** -> [`C17.md`](C17.md). Offered spots that pass:
   22 of 150 -> 76 of 150. The apron slope judged the whole span (42 of 42 refusals at steep ground it never lifted);
   it judges the lifted grass. The card reads the carve's hole ring (plan-only): a weld split on it, and a zip edge
@@ -457,6 +461,7 @@ Each rung is useful on its own. One change per in-game test, as everywhere else.
 - ~~`carve_forest` time at a fixed centre~~: 7 s cold through the CLI, every gate included (C1.md).
 - The harness round trip on the overworld, measured rather than estimated.
 - Whether GL works in the Workspace's offscreen smoke run, or what the fallback costs.
+- ~~The game's fog in the view~~: measured (C18.md); weather, time of day and altitude still unmeasured.
 - ~~How close a free GPU camera can come to the game's own world camera~~: exact in plan, within the engine's own
   1u / 0.5u settle bands in height (C7.md: nine stills, land-mask IoU 0.873-0.995); and the view had drawn the world
   MIRRORED (fixed). The old note follows. How close a free GPU camera can come to the game's own world camera. render.py's ledger says it cannot see the

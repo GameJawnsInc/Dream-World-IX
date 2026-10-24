@@ -5,6 +5,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — the game's mist in the World tab's game view
+- "As the game sees it" now draws the world map's fog the way the game does: the Mist fading the far land into
+  the sky, with high ground standing out of it. A "Mist" switch shows the years without mist instead. The fog was
+  measured from the game's own frames and uses your install's fog colour and Memoria.ini settings.
+
 ### Changed — "Add a mountain" offers places that work
 - About half the places the mountain card offers now pass its check, up from about one in seven: it no longer
   refuses over steep ground nearby that it does not change, and it spots at once two problems with the ground round

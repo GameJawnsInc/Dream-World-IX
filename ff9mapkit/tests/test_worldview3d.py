@@ -210,6 +210,12 @@ def test_gpu_still_matches_the_software_renderer_and_catches_each_mutation():
         assert c["sky_frac"] < 0.95, (vn, c)                 # not vacuous: the scene fills the frame
     for mn, worst in out["mutations"].items():
         assert worst["blob"] > 100, (mn, worst)              # every break-it is an AREA the measure sees
+    # THE GAME'S FOG (C18): the shader fogs as world.fog's software twin does, and the fog is really there
+    for vn, c in out["fog"].items():                         # (no coverage: fully fogged land IS the sky's colour;
+        assert c["blob"] == 0, (vn, c)                       #  the views above hold coverage without the fog)
+        assert c["differ"] < 0.01 * c["pixels"], (vn, c)
+        assert 0.3 < c["fogged_frac"] < 0.95, (vn, c)        # not vacuous: the ramp grades the frame
+    assert out["fog_mutation"]["blob"] > 100, out["fog_mutation"]
 
 
 def _has_install() -> bool:
