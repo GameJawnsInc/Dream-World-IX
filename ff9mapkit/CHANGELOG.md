@@ -5,6 +5,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — see the map from a vehicle as the game does
+- "As the game sees it" now has a vehicle chooser: on foot, a chocobo, the flying gold chocobo, the Blue Narciss, the
+  Hilda Garde III or the Invincible, and a height for the flyers. Each frames the map the way that vehicle's camera does
+  in the game, read from your own `TransportControls.csv` and Memoria.ini.
+- Checked against in-game screenshots aboard the boat, a chocobo and the airship.
+
 ### Added — carry whole multi-block islands from the World tab
 - "Carry a coast" now offers multi-block islands beside the single coastal blocks: the comma (2×3), the crystal reef
   (2×2), the terminus pair (1×2) and the beach chain (4×2), the only stock rects that hold every island they touch

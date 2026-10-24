@@ -9,6 +9,18 @@ and ``w_cameraSetEyeAim`` (the aim on the player, the eye lifted over the terrai
 verbatim. Only the camera's runtime state is not in the source: its yaw (``rotation``, degrees) and tilt
 (``upperCounter``, 0..4096), which the harness publishes as ``cam_rot`` / ``cam_upper``.
 
+THE VEHICLES (``TransportControls.csv``, read through the mod stack as Memoria reads it): each travel MODE
+(``gEventGlobal[190]``: 0 on foot, 1-5 the ground chocobos, 6 the gold chocobo in the air, 7 the Blue Narciss, 8-9
+the airships) names a movement ``type`` (0 ground, 1 flight, 2 boat) and a ``type_cam`` (the camera element's row).
+Beyond the element, the vehicle changes four things, all decoded here:
+  * the field of view: flight takes FieldOfView itself; the boat divides pers by 9.5 (not 8); a ground chocobo over
+    forest (topographs 36-38) takes FieldOfView itself too;
+  * the eye's floor: a flyer's eye never sits below 17.578125, and its terrain probe is capped at 33.2 (37.1 else);
+  * the final Y nudges (``FixTypeCam``, on by default): eye / aim 558 / 312 on foot and chocobo, 320 / 701 on the
+    boat, 1419 / 996 on an airship and on the gold chocobo AIRBORNE (its take-off script, RunScriptSync tag 19, sets
+    them; landing, tag 21, puts 558 / 312 back), scaled by CameraHeight / CameraAimHeight;
+  * nothing else at rest: the speed's FOV widening and the turn's roll both return to zero once the craft stops.
+
 THE SETTLED POSE AND ITS ONE SLACK. The eye's x and z follow the player exactly every frame. Its height and the aim's
 height EASE toward their targets and stop inside a deadband: the eye within 1u of its target, the aim within 0.5u
 (``w_cameraSetEyeAim``'s ``num17`` and its 0.5 test). So a pose rebuilt from the player's position and the camera's
@@ -48,6 +60,43 @@ AREA2PLACE = (0,) * 27 + (2,) * 13 + (1,) * 6 + (0,) * 5 + (2,) * 13
 
 TWEAK_EYE_Y = 558 / 256.0          # ``ff9.tweaker.w_cameraWorldEye_Y`` * 1/256 (w_tweakSomeValues: every status)
 TWEAK_AIM_Y = 312 / 256.0          # ``ff9.tweaker.w_cameraWorldAim_Y`` * 1/256
+#: FixTypeCam's final Y nudges per ``type_cam`` (eye, aim; raw /256): ff9.w_tweakSomeValues / w_cameraUpdate
+FIX_TYPE_Y = {0: (558, 312), 1: (558, 312), 2: (320, 701), 3: (1419, 996), 4: (558, 312)}
+FIX_AIRBORNE_Y = (1419, 996)       # the gold chocobo once it has taken off (RunScriptSync tag 19)
+FLYER_EYE_FLOOR = 17.578125        # w_cameraSetEyeAim's ``num``: a flyer's eye never lower
+FLYER_TERRAIN_CAP = 33.2
+FOREST_TOPOS = (36, 37, 38)        # a ground chocobo over these takes FieldOfView itself
+
+#: the stock ``TransportControls.csv`` rows: mode -> (type, type_cam), the fallback when no file is read
+TRANSPORT = {0: (0, 0), 1: (0, 1), 2: (0, 1), 3: (0, 1), 4: (0, 1), 5: (0, 1), 6: (1, 4), 7: (2, 2), 8: (1, 3),
+             9: (1, 3), 10: (3, 0), 11: (0, 0)}
+MODE_NAMES = {0: "on foot", 1: "yellow chocobo", 2: "light blue chocobo", 3: "red chocobo", 4: "deep blue chocobo",
+              5: "gold chocobo", 6: "gold chocobo, flying", 7: "Blue Narciss", 8: "Hilda Garde III",
+              9: "Invincible"}
+
+
+def transport_table(game=None) -> dict:
+    """``mode -> (type, type_cam)`` from the ``TransportControls.csv`` the game reads: the first folder of the stack
+    (Memoria.ini FolderNames, then the base game) that has ``StreamingAssets/Data/World/TransportControls.csv``.
+    The stock rows when none can be read."""
+    from pathlib import Path
+    if game is None:
+        return dict(TRANSPORT)
+    try:
+        from .render import game_stack
+        roots = list(game_stack(game) or ()) + [Path(game)]
+    except Exception:                                       # noqa: BLE001 -- the stock rows: the safe answer
+        return dict(TRANSPORT)
+    for root in roots:
+        f = Path(root) / "StreamingAssets" / "Data" / "World" / "TransportControls.csv"
+        if f.is_file():
+            rows = [ln.split(";") for ln in f.read_text(encoding="utf-8", errors="ignore").splitlines()
+                    if ln.strip() and not ln.lstrip().startswith("#")]
+            try:
+                return {i: (int(r[0]), int(r[15])) for i, r in enumerate(rows)}
+            except (ValueError, IndexError):
+                return dict(TRANSPORT)
+    return dict(TRANSPORT)
 FUZZY = 5.5                        # the eye's terrain probe: four samples this far round it (w_cameraFuzzy)
 TERRAIN_CAP = 37.1                 # ... the probe's height is capped here on foot (33.2 flying)
 EYE_BAND, AIM_BAND = 1.0, 0.5      # the settle deadbands (module docstring)
@@ -120,20 +169,29 @@ def blend(y: float, *, area: int = 14, type_cam: int = 0, upper_counter: int = 0
     return _lerp(base, posstat(fly), tilt_param(upper_counter))
 
 
-def fov(pers: float, s: Settings, *, type_cam: int = 0) -> float:
-    """``w_cameraUpdate``'s vertical field of view (degrees): ``pers / 8`` (9.5 for the Blue Narciss) scaled by the
-    user's FieldOfView over 44. (Flight, and the chocobo over forest, take FieldOfView itself: not decoded here.)"""
+def fov(pers: float, s: Settings, *, type_cam: int = 0, move_type: int = 0, topograph: int | None = None) -> float:
+    """``w_cameraUpdate``'s vertical field of view (degrees), at rest: ``pers / 8`` (9.5 for the Blue Narciss) scaled by
+    the user's FieldOfView over 44; flight, and a ground chocobo over forest, take FieldOfView itself."""
+    if move_type == 1 or (type_cam == 1 and topograph in FOREST_TOPOS):
+        return float(s.field_of_view)
     return pers / (9.5 if type_cam == 2 else 8.0) * (s.field_of_view / 44.0)
 
 
 def pose(player, rotation: float, *, settings: Settings = Settings(), area: int = 14, type_cam: int = 0,
-         upper_counter: int = 0, ground=None, eye_dy: float = 0.0, aim_dy: float = 0.0) -> dict:
+         upper_counter: int = 0, ground=None, eye_dy: float = 0.0, aim_dy: float = 0.0, move_type: int = 0,
+         airborne: bool = False, topograph: int | None = None, mode: int | None = None, table=None) -> dict:
     """The settled chase-camera pose for the party at ``player`` ``(x, y, z)`` with the camera's yaw ``rotation``
     (``cam_rot``, degrees): a ``render`` camera dict, plus the decode's own numbers under ``"game"``.
 
     ``ground(x, z)`` is the terrain's height there (None off any ground): the eye is lifted to ``correct`` above the
     highest of its four probes when that is above its own height. ``eye_dy`` / ``aim_dy`` move the eye / aim inside
-    their settle bands (``EYE_BAND`` / ``AIM_BAND``)."""
+    their settle bands (``EYE_BAND`` / ``AIM_BAND``).
+
+    A vehicle: ``mode`` (gEventGlobal[190]) looks its ``type`` and ``type_cam`` up in ``table`` (:func:`transport_table`;
+    the stock rows by default), or pass ``move_type`` / ``type_cam`` directly. ``airborne`` is the gold chocobo after
+    its take-off; ``topograph`` is the cell's under the party (a ground chocobo's forest field of view)."""
+    if mode is not None:
+        move_type, type_cam = (table or TRANSPORT).get(int(mode), TRANSPORT.get(int(mode), (0, 0)))
     px, py, pz = (float(v) for v in player)
     pers, dist, height, correct, aim = blend(py, area=area, type_cam=type_cam, upper_counter=upper_counter)
     aim_off = aim * s_pct(settings.camera_aim_height)
@@ -148,15 +206,21 @@ def pose(player, rotation: float, *, settings: Settings = Settings(), area: int 
         hs = [ground(cx + FUZZY, cz), ground(cx - FUZZY, cz), ground(cx, cz + FUZZY), ground(cx, cz - FUZZY)]
         hs = [h for h in hs if h is not None]
         if hs:
-            h = min(max(hs), TERRAIN_CAP)
+            h = min(max(hs), FLYER_TERRAIN_CAP if move_type == 1 else TERRAIN_CAP)
             if correct + h > ey:
                 lifted = correct + h - ey
                 ey = correct + h
-    eye = (ex, ey + eye_dy + TWEAK_EYE_Y, ez)
-    at = (px, py + aim_off + aim_dy + TWEAK_AIM_Y, pz)
-    return {"kind": "persp", "eye": eye, "at": at, "fov": fov(pers, settings, type_cam=type_cam),
+    if move_type == 1 and ey < FLYER_EYE_FLOOR:              # a flyer's eye never sits lower (w_cameraSetEyeAim)
+        lifted += FLYER_EYE_FLOOR - ey
+        ey = FLYER_EYE_FLOOR
+    ty_eye, ty_aim = FIX_AIRBORNE_Y if (type_cam == 4 and airborne) else FIX_TYPE_Y.get(type_cam, FIX_TYPE_Y[0])
+    eye = (ex, ey + eye_dy + ty_eye / 256.0 * s_pct(settings.camera_height), ez)
+    at = (px, py + aim_off + aim_dy + ty_aim / 256.0 * s_pct(settings.camera_aim_height), pz)
+    return {"kind": "persp", "eye": eye, "at": at,
+            "fov": fov(pers, settings, type_cam=type_cam, move_type=move_type, topograph=topograph),
             "game": {"pers": pers, "distance": dist, "height": height, "correct": correct, "aim": aim,
-                     "lifted": lifted, "rotation": float(rotation), "upper_counter": int(upper_counter)}}
+                     "lifted": lifted, "rotation": float(rotation), "upper_counter": int(upper_counter),
+                     "type": int(move_type), "type_cam": int(type_cam), "airborne": bool(airborne)}}
 
 
 def s_pct(v: float) -> float:

@@ -463,3 +463,30 @@ def test_the_panel_toggle_stands_the_party_at_the_pick_and_returns_to_the_orbit(
     p.game_btn.setChecked(True)
     p.view.camera_changed.emit(False)                                     # Home in the view: the button follows
     assert not p.game_btn.isChecked() and p.game_btn.text() == "As the game sees it"
+
+
+def test_the_game_camera_seats_each_vehicle_as_the_game_does(app):
+    """C8, measured in game: on foot / a chocobo on the ground, the Blue Narciss at the water's surface less 0.703,
+    a flyer at the height spin, raised to the ground below and never above the 42.1875 ceiling."""
+    from ff9mapkit.editor.theme import pick_palette
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    p.view = V.WorldView3D()
+    p.view.packed = V.pack([GROUND, _lid(9.0, down=False)])
+    p.view.marker = (30.0, 9.0, -33.0)
+    p.game_btn.setChecked(True)
+    assert p.vehicle_box.isVisibleTo(p) and not p.alt_spin.isVisibleTo(p)
+    cam = p.view.camera
+    assert cam.mode == 0 and cam.player[1] == pytest.approx(9.0)
+    p.vehicle_box.setCurrentIndex(p.vehicle_box.findData(7))
+    assert cam.mode == 7 and cam.player[1] == pytest.approx(9.0 + V.BOAT_DRAFT)
+    p.vehicle_box.setCurrentIndex(p.vehicle_box.findData(8))
+    assert p.alt_spin.isVisibleTo(p)
+    p.alt_spin.setValue(30.0)
+    assert cam.player[1] == pytest.approx(30.0)
+    p.alt_spin.setValue(2.0)                                              # below the lid: raised onto it
+    assert cam.player[1] == pytest.approx(9.0)
+    from ff9mapkit.world import gamecam as G
+    want = G.pose(cam.player, cam.rotation, mode=8, ground=cam.ground)
+    assert cam.view()["eye"] == pytest.approx(want["eye"]) and cam.view()["fov"] == pytest.approx(want["fov"])
+    p.game_btn.setChecked(False)
+    assert not p.vehicle_box.isVisibleTo(p) and not p.alt_spin.isVisibleTo(p)

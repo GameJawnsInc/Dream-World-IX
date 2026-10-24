@@ -141,6 +141,12 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C8, THE GAME CAMERA ON A VEHICLE: BUILT + MEASURED (2026-10-23)** -> [`C8.md`](C8.md). `gamecam` reads each
+  mode's type / type_cam from the stack's TransportControls.csv and decodes the flight, boat and forest rules;
+  the 3D view's game camera gets a vehicle chooser and a flyer's height. Ten stills on the real vehicles (the
+  vehicle study's boarding routes; a fresh boat spawn, the old lane being C5's comma): the boat confirmed (land IoU
+  0.90 vs 0.05 for the on-foot camera), the chocobo confirmed (class agreement 0.97-0.98), the airship consistent
+  but not tightly pinned (all-land, dusk-tinted frames: three measures, fits inside the on-foot noise).
 - **C5 follow-up, MULTI-BLOCK CARRIES: BUILT + IN GAME (2026-10-23)** -> [`C5.md`](C5.md). "Carry a coast" offers the
   coast study's carry units (the comma 2x3, the reef 2x2, the terminus pair 1x2, the chain 4x2) beside the single
   blocks: the ghost by the carry's own region map, the target the turned rect nearest the click, `--size --shift 0,0`,
