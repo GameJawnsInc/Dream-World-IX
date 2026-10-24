@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — see the map as the game's camera does
+- "As the game sees it" on the World tab's 3D page frames the picked point the way the game's own camera would for
+  the party standing there: its distance, height and field of view from the engine's tables and your Memoria.ini
+  `[Worldmap]` settings. Click to stand the party elsewhere, drag sideways to turn the camera; "Free view" goes back.
+- Checked against nine in-game screenshots: it lands within the game's own small camera-height easing.
+
+### Fixed — the 3D view and `world-render` showed the world mirrored
+- Both drew the map as a mirror image of the game (east and west swapped). They now use the game's own handedness.
+
 ### Added — raise a hill from the World tab
 - "Add a hill" (in "Edit the map"): click a deployed island's lawn, drag it, and set its height and radius. The ghost
   is the very hill `world-hill` will make, and its slope and height limits show while you drag; `world-hill` checks

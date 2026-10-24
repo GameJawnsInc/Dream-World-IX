@@ -408,9 +408,11 @@ def project(view, verts, res=RES):
     at = np.array(view["at"])
     fwd = at - eye
     fwd /= np.linalg.norm(fwd)
-    right = np.cross(fwd, [0.0, 1.0, 0.0])
+    # THE GAME'S HANDEDNESS (overworld editor C7, measured against 9 in-game stills): Unity's LookAt frame is
+    # left-handed, screen-right = Y x fwd. It was fwd x Y here, which drew the world as the game's MIRROR image
+    right = np.cross([0.0, 1.0, 0.0], fwd)
     right /= np.linalg.norm(right)
-    up = np.cross(right, fwd)
+    up = np.cross(fwd, right)
     rel = verts - eye
     cx, cy, cz = rel @ right, rel @ up, rel @ fwd
     f = (H / 2.0) / math.tan(math.radians(view["fov"]) / 2.0)

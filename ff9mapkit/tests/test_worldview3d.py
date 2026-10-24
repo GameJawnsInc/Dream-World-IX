@@ -142,6 +142,7 @@ def test_a_lowered_floor_reaches_the_view_and_the_status_page_leaves_the_stack(a
     class StubView(QWidget):
         gl_failed, picked = Signal(str), Signal(object)
         ghost_moved, ghost_dropped = Signal(float, float), Signal(float, float)
+        camera_changed, party_moved = Signal(bool), Signal(float, float, float)
 
         def __init__(self):
             super().__init__()
@@ -158,6 +159,9 @@ def test_a_lowered_floor_reaches_the_view_and_the_status_page_leaves_the_stack(a
 
         def set_ghost(self, *_a):
             pass
+
+        def game_mode(self):
+            return False
     monkeypatch.setattr(V, "WorldView3D", StubView)
     panel = V.WorldView3DPanel(pick_palette("mist"))
     assert panel._host.hasHeightForWidth()                   # anti-vacuity: the status page's wrap is there to lose
@@ -387,3 +391,75 @@ def test_an_unreadable_ini_falls_back_to_one_folder_and_says_why(app, tmp_path):
     doc._census, doc._game = SimpleNamespace(root=tmp_path / "FF9CustomMap-world"), tmp_path   # no Memoria.ini
     site, cap = doc._render_site()
     assert site.stack is None and "could not be read" in cap
+
+
+# ------------------------------------------------------------------ C7: the game's own camera
+def test_ground_is_the_highest_up_facing_surface_under_a_point():
+    packed = V.pack([GROUND, _lid(9.0, down=False)])
+    assert V.ground_y(packed, 30.0, -33.0) == pytest.approx(9.0)          # the lid, over the ground
+    assert V.ground_y(packed, 0.0, 0.0) == pytest.approx(0.0)
+    assert V.ground_y(V.pack([GROUND, _lid(9.0, down=True)]), 30.0, -33.0) == pytest.approx(0.0)   # faces down
+    assert V.ground_y(packed, 500.0, 500.0) is None and V.ground_y(None, 0.0, 0.0) is None
+
+
+def test_the_game_camera_is_the_decoded_pose_and_meets_the_orbit_camera():
+    from ff9mapkit.world import gamecam as G
+    s = G.Settings(field_of_view=58.0)
+    cam = V.GameCamera((30.0, 0.0, -30.0), 45.0, settings=s, area=14, ground=lambda x, z: 0.0)
+    want = G.pose((30.0, 0.0, -30.0), 45.0, settings=s, area=14, ground=lambda x, z: 0.0)
+    got = cam.view()
+    assert got["eye"] == pytest.approx(want["eye"]) and got["at"] == pytest.approx(want["at"])
+    assert got["fov"] == pytest.approx(want["fov"]) and got["near"] == V.NEAR
+    orb = V.OrbitCamera(target=(30.0, 0.0, -30.0), yaw=10.0, pitch=40.0, dist=80.0)
+    gc = V.GameCamera.from_orbit(orb, (30.0, 0.0, -30.0))
+    assert gc.rotation == pytest.approx(190.0)
+    e, a = np.asarray(gc.view()["eye"]), np.asarray(gc.view()["at"])
+    oe, oa = np.asarray(orb.eye()), np.asarray(orb.target)
+    d1, d2 = (a - e)[[0, 2]], (oa - oe)[[0, 2]]
+    assert np.dot(d1, d2) / np.linalg.norm(d1) / np.linalg.norm(d2) > 0.999   # both look the same way
+    assert gc.to_orbit().yaw == pytest.approx(10.0) and gc.to_orbit().target == gc.player
+
+
+def test_in_the_game_camera_a_click_stands_the_party_and_a_drag_turns_it(app):
+    w = V.WorldView3D()
+    w.resize(320, 200)
+    w.packed = V.pack([GROUND])
+    w.set_camera(V.GameCamera((30.0, 0.0, -30.0), 0.0, ground=lambda x, z: 0.0))
+    moved, picked = [], []
+    w.party_moved.connect(lambda *p: moved.append(p))
+    w.picked.connect(picked.append)
+    r0 = w.camera.rotation
+    _mouse(w, "press", (160, 150))
+    _mouse(w, "release", (160, 150))
+    assert picked and picked[0] is not None and moved and w.camera.player == pytest.approx(picked[0][0])
+    _mouse(w, "press", (160, 150))
+    _mouse(w, "move", (200, 150))
+    _mouse(w, "release", (200, 150))
+    assert w.camera.rotation != r0 and len(moved) == 1                    # a drag turns it and stands no one
+    w.camera.zoom(3)
+    w.camera.pan(10, 10, 200)
+    assert w.camera.player == pytest.approx(picked[0][0])                 # the game's camera neither zooms nor pans
+    changed = []
+    w.camera_changed.connect(changed.append)
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+    QApplication.sendEvent(w, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Home, Qt.KeyboardModifier.NoModifier))
+    assert not w.game_mode() and changed == [False]
+
+
+def test_the_panel_toggle_stands_the_party_at_the_pick_and_returns_to_the_orbit(app):
+    from ff9mapkit.editor.theme import pick_palette
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    p.view = V.WorldView3D()                                              # (offscreen has no GL to build one)
+    p.view.camera_changed.connect(p._camera_changed)
+    p.view.packed = V.pack([GROUND, _lid(9.0, down=False)])
+    p.view.marker = (30.0, 9.0, -33.0)
+    p.game_btn.setChecked(True)
+    cam = p.view.camera
+    assert p.view.game_mode() and cam.player == pytest.approx((30.0, 9.0, -33.0)) and cam.area == 14
+    assert p.game_btn.text() == "Free view"                               # it names where it takes you
+    p.game_btn.setChecked(False)
+    assert not p.view.game_mode() and p.view.camera.target == pytest.approx((30.0, 9.0, -33.0))
+    p.game_btn.setChecked(True)
+    p.view.camera_changed.emit(False)                                     # Home in the view: the button follows
+    assert not p.game_btn.isChecked() and p.game_btn.text() == "As the game sees it"
