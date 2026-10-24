@@ -5,6 +5,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — "Add a mountain" offers places that work
+- About half the places the mountain card offers now pass its check, up from about one in seven: it no longer
+  refuses over steep ground nearby that it does not change, and it spots at once two problems with the ground round
+  its foot that used to show only after the check.
+
 ### Changed — the World tab shows where a shape was refused
 - A refused mountain now marks the place on the map in every case the editor was measured to meet (before, most
   of its refusals only printed a sentence).

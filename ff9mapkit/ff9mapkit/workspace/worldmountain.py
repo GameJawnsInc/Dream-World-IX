@@ -15,7 +15,8 @@ from .worldforest import GATE_WORDS, CarryTool
 
 MOUNTAIN_GATES = {**GATE_WORDS, "blocks": "the deployed-blocks law", "span": "the span law",
                   "zip": "the zip envelope", "rigid": "the rock-rigid gate", "peak": "the peak cap",
-                  "apron": "the apron slope", "probe": "the placement probes", "plug": "the plug chart"}
+                  "apron": "the apron slope", "probe": "the placement probes", "plug": "the plug chart",
+                  "edge": "the zip's edge"}
 
 
 class MountainTool(CarryTool):
@@ -212,5 +213,7 @@ class MountainTool(CarryTool):
         if gate == "peak":
             return (f"Too tall: the peak would stand at {why}, above stock's tallest terrain. Lower the height.",
                     "warn")
+        if gate in ("weld", "edge"):                     # the carve's hole ring, read from the island (rung C17)
+            return (f"Not here: {why}. Move it a little, or turn it; the marks show where.", "warn")
         return (f"Not here: the footprint reaches {why}. A massif needs plain {self.ground()} under its whole rim "
                 "and a band round it.", "warn")

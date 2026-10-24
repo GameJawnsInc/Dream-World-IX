@@ -142,6 +142,10 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C17, THE MOUNTAIN STOPS OFFERING FAILURES: BUILT (2026-10-24)** -> [`C17.md`](C17.md). Offered spots that pass:
+  22 of 150 -> 76 of 150. The apron slope judged the whole span (42 of 42 refusals at steep ground it never lifted);
+  it judges the lifted grass. The card reads the carve's hole ring (plan-only): a weld split on it, and a zip edge
+  bound, refuse before any check (32 caught, no pass refused). Zip down faces and rise stay with the dry run.
 - **C16, REFUSALS THAT SAY WHERE: BUILT (2026-10-24)** -> [`C16.md`](C16.md). Measured through the real cards: of the
   refusals they meet, the mountain left 21 of 28 unmarked; now none. The mountain's exact-weld law checked its whole
   read window (16 refusals at far-off sub-mm splits); it checks the ring. A carry donor that fills its frame is refused

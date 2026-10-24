@@ -324,6 +324,23 @@ def test_a_weld_split_the_zip_never_touches_does_not_refuse_the_mountain(monkeyp
     assert res["center"] == (26.0, -26.0) and res["report"]["blob_tris"] == 4
 
 
+def test_the_apron_slope_judges_the_grass_the_apron_lifted(monkeypatch, tmp_path):
+    """THE APRON SLOPE, on the apron (rung C17): judged over every plain tri of the span, steep grass the lift never
+    moved -- a hill's flank, a vertical curtain, ground as the island already had it, up to 107u off -- refused every
+    mountain whose span reached it (all 42 apron refusals of 150 measured checks; 39 of them pass now)."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    tris = []
+    for i in range(13):
+        for j in range(13):
+            x0, x1, z0, z1 = i * 4.0, (i + 1) * 4.0, -j * 4.0, -(j + 1) * 4.0
+            tris.append((((x0, 3.2, z0), (x1, 3.2, z0), (x0, 3.2, z1)), GRASS, _MAIN_U))
+            tris.append((((x1, 3.2, z0), (x1, 3.2, z1), (x0, 3.2, z1)), GRASS, _MAIN_U))
+    tris.append((((48.0, 3.2, -50.0), (52.0, 3.2, -50.0), (48.0, 7.2, -50.0)), GRASS, _MAIN_U))   # a vertical curtain
+    res = IN.carve_mountain(IN.soup_from_blocks({(0, 0): _bm(tris)}), center=(26.0, -26.0), alcove=None,
+                            game=tmp_path, log=lambda *a: None)
+    assert res["report"]["apron_slope"] < IN.MTN_APRON_SLOPE      # the curtain is far past the apron's reach
+
+
 def test_carve_mountain_refusals(monkeypatch, tmp_path):
     _patch_donor(monkeypatch, _pyramid_donor())
     soup = IN.soup_from_blocks({(0, 0): _mountain_bench()})

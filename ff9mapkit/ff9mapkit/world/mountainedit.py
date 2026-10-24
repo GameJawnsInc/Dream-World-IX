@@ -240,7 +240,82 @@ def footprint_preview(ix: SoupIndex, center, rim_xz, r_placed: float, *, ground:
     if not len(v) or not (~_pip(v, poly) & _near(v, poly, IN.MTN_CLEAR + 3.0)).any():
         return {"ok": False, "gate": "footprint", "where": [(CX, CZ)], "why": "no plain ground round its rim",
                 "span": span}
+    ring = foot_ring(ix, poly)
+    if ring["split"]:
+        return {"ok": False, "gate": "weld", "where": ring["split"][:12], "span": span,
+                "why": "the ground round its foot has a weld split the zip cannot join (two copies of one point, "
+                       "a fraction of a millimetre apart)"}
+    if ring["reach"] > IN.MTN_MAX_EDGE + RING_TOL:
+        return {"ok": False, "gate": "edge", "where": [ring["far"]], "span": span,
+                "why": f"the ground's triangles round its foot are too coarse: the zip would need an edge over "
+                       f"{IN.MTN_MAX_EDGE:g}u (the hole's edge lies {ring['reach']:.1f}u from the rim)"}
     return {"ok": True, "gate": None, "where": [], "why": "", "span": span}
+
+
+#: the plan drift allowed between the ghost's rim and the carve's (the carve de-tilts the massif to the ground)
+RING_TOL = 0.5
+
+
+def _ring_keys(ix: SoupIndex):
+    """``(key(i), pos)``: vertex ``i``'s ``kk3`` key (memoised) and the island's positions as Python floats."""
+    memo = getattr(ix, "_ring_memo", None)
+    if memo is None:
+        pos = ix.pos.tolist()
+        cache = {}
+
+        def key(i):
+            k = cache.get(i)
+            if k is None:
+                k = cache[i] = IN.kk3(pos[i])
+            return k
+        memo = ix._ring_memo = (key, pos)
+    return memo
+
+
+def foot_ring(ix: SoupIndex, poly) -> dict:
+    """The carve's hole ring, from the island and the placed rim alone (rung C17). The carve drops every tri with a
+    vertex inside the rim or within ``MTN_CLEAR`` of it -- a PLAN-only test (the apron's lift moves heights only) --
+    and zips the rock's rim to the ring of points the dropped tris share with the kept ones. So, before any dry run:
+
+    * ``split``: ring points whose KEPT copies hold two floats (``(x, z)`` of each). The carve's exact-weld law
+      refuses those ("two float positions"), or, where the lift rounds the two copies apart, its ring accounting does
+      ("not degree-2"): a refusal either way. On 150 measured checks it caught all 28 of those refusals and no pass.
+    * ``reach``: the farthest ring point's plan distance to its nearest rim point, a LOWER bound on the zip's longest
+      edge (every ring point is joined to some rim point); ``far`` is that point.
+    * ``ring``: the ring's points ``(x, z)``.
+
+    The carve reads the same island bytes; only the tris near the rim are walked, so a drag stays cheap. Keys are the
+    carve's own (``kk3`` of Python floats: its positions are Python floats, and numpy's rounding is not Python's),
+    each vertex's computed once per island read (``_ring_keys``)."""
+    poly = np.asarray(poly, dtype=np.float64)
+    clear = IN.MTN_CLEAR
+    lo, hi = poly.min(axis=0) - clear - 1.0, poly.max(axis=0) + clear + 1.0
+    cand = np.flatnonzero(((ix.hi >= lo) & (ix.lo <= hi)).all(axis=1))
+    if not len(cand):
+        return {"split": [], "reach": 0.0, "far": None, "ring": []}
+    cor = ix.corner[cand].reshape(-1, 2)
+    hit = (_pip(cor, poly) | _near(cor, poly, clear)).reshape(-1, 3).any(axis=1)
+    dropped = cand[hit]
+    key, pos = _ring_keys(ix)
+    tris = ix.tris
+    keys = {key(int(i)) for t in dropped for i in tris[t]}
+    gone = set(dropped.tolist())
+    floats = {}
+    for t in np.flatnonzero(((ix.hi >= lo - 8.0) & (ix.lo <= hi + 8.0)).all(axis=1)).tolist():
+        if t in gone:
+            continue
+        for i in tris[t].tolist():
+            k = key(i)
+            if k in keys:
+                floats.setdefault(k, set()).add(tuple(pos[i]))
+    split = sorted((float(k[0]), float(k[2])) for k, v in floats.items() if len(v) > 1)
+    if not floats:
+        return {"split": split, "reach": 0.0, "far": None, "ring": []}
+    pts = np.array([(k[0], k[2]) for k in floats], dtype=np.float64)
+    d = np.sqrt(((pts[:, None, :] - poly[None, :, :]) ** 2).sum(axis=2)).min(axis=1)
+    j = int(d.argmax())
+    return {"split": split, "reach": float(d[j]), "far": (float(pts[j][0]), float(pts[j][1])),
+            "ring": sorted((float(x), float(z)) for x, z in pts)}
 
 
 # ---------------------------------------------------------------- the command
