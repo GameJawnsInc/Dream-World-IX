@@ -278,6 +278,25 @@ sites). The program-VRAM lists above never held it, so this lane used to call ef
 * export and the scaffold state both directions on the row before anyone paints, and export delta is
   0 -- no picture is withheld.
 
+THE RENDER TARGET -- A 15bpp READ THAT NEVER SAMPLES VRAM
+---------------------------------------------------------
+Memoria's ``SFXMesh.GetTexture`` hands a 15bpp key VRAM only as its last resort: left of x = 384 it is
+the blur texture, and once the effect has rendered into its DR_AREA target it is that target, until the
+next cast starts (:mod:`ff9mapkit.summons.render_target`, the headless routes census over all 372
+containers). Every one of the 22 default-surface ``direct15`` cells is in such an effect. So:
+
+* a build REFUSES, by name, a 15bpp edit on a cell whose every measured 15bpp read samples the target,
+  the blur or the ground capture (:func:`_gate_render_target`), says whether the cell's OWN bytes reach
+  the screen another way -- where the target's draw reads them at 4/8 bpp, and then as palette indices
+  -- and names the remedy: the cells that DRAW the target, each with whether the ``indexed`` lane can
+  hand it out (on 2 of the 22 it can; the kit's own derivation refuses most feeders);
+* ``acknowledge_render_target = true`` (literal boolean) lifts it, because the census is headless and
+  a cast is not -- though the cast record so far sides with the refusal three for three
+  (:data:`~ff9mapkit.summons.render_target.CASTS`);
+* the other verdicts (VRAM, mixed, unread, unported, unmeasured) never refuse and are disclosed;
+* export, the scaffold and the scenery listing state the verdict before anyone paints, and export
+  delta is 0 -- no picture is withheld.
+
 HOT RELOAD
 ----------
 Stronger here than for the CLUT lane: ``SFX.Play`` re-reads the container from disc every cast AND
@@ -308,6 +327,7 @@ from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 from . import container as EC
 from . import depth_attribution as DA
 from . import export
+from . import render_target as RT
 from . import rescore as R
 from . import reskin as RS
 from . import scroll_blit as SB
@@ -434,6 +454,11 @@ ACK_SECOND_ARRAY = DA.ACK_MOVER_KEY
 #: the same reason.  It admits no depth and pairs with no ``expect_bpp``: what it acknowledges is that
 #: an HLE op-144 band rewritten every frame may not be rewritten in THIS cast.
 ACK_SCROLL_BLIT = SB.ACK_KEY
+
+#: THE RENDER-TARGET acknowledgement's spec key (:mod:`ff9mapkit.summons.render_target`), re-exported
+#: for the same reason.  It admits no depth and pairs with no ``expect_bpp``: what it acknowledges is
+#: that a 15bpp read the headless census saw go to the target may sample VRAM in THIS cast.
+ACK_RENDER_TARGET = RT.ACK_KEY
 
 #: where a scenery page's ``bpp`` came from -- carried on the page itself, because a depth that is
 #: INHERITED FROM A COLUMN and a depth a model's own UVs declare are not the same kind of fact and a
@@ -1479,6 +1504,15 @@ class CellHazards:
     #: texels come FROM, named against this container's own edit surface (filled by the post-pass in
     #: :func:`scenery_surface`, because it names OTHER cells).
     scroll_remedy: Tuple[str, ...] = ()
+    # ---- THE RENDER TARGET, as data ---------------------------------------------------------------
+    #: what every measured 15bpp read covering this cell sampled (:func:`~ff9mapkit.summons.
+    #: render_target.cell_route`) -- set on a 15bpp page only, by the post-pass in
+    #: :func:`scenery_surface`, because the depth is decided after the hazards are built.  Like
+    #: :attr:`scroll_dst` it is NOT in :attr:`names`: its own field, its own gate, its own key.
+    render_route: Optional["RT.CellRoute"] = None
+    #: where a NEVER_VRAM cell's on-screen picture really comes from, named against this container's
+    #: own edit surface -- the cells that DRAW the target.  Empty on every other verdict.
+    render_remedy: str = ""
 
     @property
     def scroll_rewritten(self) -> frozenset:
@@ -2652,7 +2686,7 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                        "/".join(str(c) for c in n.swapped_columns),
                        "/".join(str(c) for c in n.original_columns))
                     for n in hz.second_array)))
-    return _with_scroll_remedies(pages, refused), refused
+    return _with_render_routes(_with_scroll_remedies(pages, refused), refused, effect), refused
 
 
 def _with_scroll_remedies(pages: List[TexelPage], refused: List[CellRefusal]) -> List[TexelPage]:
@@ -2708,6 +2742,77 @@ def _with_scroll_remedies(pages: List[TexelPage], refused: List[CellRefusal]) ->
                                  % sc)
             remedies.append("; ".join(parts))
         out.append(replace(p, hazards=replace(hz, scroll_remedy=tuple(remedies))))
+    return out
+
+
+#: how many target feeders a remedy names before it counts the rest.
+_REMEDY_FEEDERS = 4
+
+
+def _with_render_routes(pages: List[TexelPage], refused: List[CellRefusal],
+                        effect: Optional[int]) -> List[TexelPage]:
+    """THE RENDER-TARGET ROUTE -- a POST-PASS, for the same two reasons as the scroll remedy: it needs
+    the page's FINAL depth (a route is a fact about 15bpp reads, and only the finished page says it is
+    one), and its remedy names OTHER cells.
+
+    A NEVER_VRAM cell's on-screen picture is what the program DREW into the target, so the useful
+    sentence is "paint THOSE cells" -- the feeders the census measured, largest first, each named
+    against this container's own surface at the depth it was read: an editable indexed page (named),
+    one this container refuses (and why), a creature page, or no editable cell at all.  The cell's own
+    bytes, where they are a feeder, are not offered as a remedy -- they are the edit being refused.
+    """
+    if not any(p.bpp == 15 and p.hazards is not None for p in pages):
+        return pages
+    blocked = {r.name: r.klass for r in refused if r.klass in _EXPORT_BLOCKING}
+    by_cell: Dict[Tuple[int, int], List[TexelPage]] = {}
+    for p in pages:
+        by_cell.setdefault(p.cell, []).append(p)
+    refused_at: Dict[Tuple[int, int], List[CellRefusal]] = {}
+    for r in refused:
+        refused_at.setdefault(r.cell, []).append(r)
+    out: List[TexelPage] = []
+    for p in pages:
+        hz = p.hazards
+        if hz is None or p.bpp != 15:
+            out.append(p)
+            continue
+        route = RT.cell_route(effect, p.cell)
+        remedy = ""
+        if route.never_vram:
+            total = sum(f.pixels for f in route.feeders)
+            parts = []
+            for f in [f for f in route.feeders if f.cell != p.cell][:_REMEDY_FEEDERS]:
+                here = by_cell.get(f.cell, [])
+                same = [q.name for q in here if q.bpp == f.bpp]
+                ok = [n for n in same if n not in blocked]
+                what = f.describe(total)
+                if ok:
+                    parts.append("%s: paint `%s` in the indexed lane" % (what, ok[0]))
+                elif same:
+                    parts.append("%s: `%s`, which this container refuses as `%s`"
+                                 % (what, same[0], blocked[same[0]]))
+                elif f.cell[0] < 384:        # the creature owns x 192/256/320, scenery x >= 384
+                    parts.append("%s: a creature page -- the `indexed` export's `tex.part*` PNG" % what)
+                elif here:
+                    parts.append("%s: the surface holds it only as `%s` at %dbpp, not at the %dbpp "
+                                 "the target's draw reads it" % (what, here[0].name, here[0].bpp, f.bpp))
+                elif refused_at.get(f.cell):
+                    r = refused_at[f.cell][0]
+                    parts.append("%s: `%s`, which the kit refuses as `%s` (its own refusal block "
+                                 "says why)" % (what, r.name, r.klass))
+                else:
+                    parts.append("%s: no writer in this container uploads it" % what)
+            rest = len([f for f in route.feeders if f.cell != p.cell]) - len(parts)
+            if parts:
+                remedy = ("the target this cell's page reads is DRAWN from %s%s"
+                          % ("; ".join(parts), "; and %d smaller feeder(s)" % rest if rest > 0 else ""))
+            elif any(r.kind == "BACKGROUND" for r in route.reads):
+                remedy = ("this cell's page reads the battle-ground capture -- the battle scene behind "
+                          "the effect -- which no cell in this container draws, so there is no cell to "
+                          "paint instead")
+            else:
+                remedy = "no cell but this one draws the target, so there is no other cell to paint"
+        out.append(replace(p, hazards=replace(hz, render_route=route, render_remedy=remedy)))
     return out
 
 
@@ -4141,6 +4246,24 @@ def _scroll_blit_record(hz: "CellHazards", cell: Tuple[int, int]) -> dict:
     }
 
 
+def _render_route_record(hz: "CellHazards") -> Optional[dict]:
+    """THE RENDER-TARGET ROUTE for the manifest: the verdict, every measured read, whether the cell's own
+    bytes feed the target, and the remedy -- or None on a page that is not 15bpp."""
+    rt = hz.render_route
+    if rt is None:
+        return None
+    return {
+        "verdict": rt.verdict, "describe": rt.describe(), "own_feed": rt.own_feed_line(),
+        "target_from": rt.target_from, "remedy": hz.render_remedy or None,
+        "reads": [{"page": list(r.page), "kind": r.kind, "renders": r.renders, "frames": list(r.frames)}
+                  for r in rt.reads],
+        "own_feeds": [{"cell": list(f.cell), "bpp": f.bpp, "pixels": f.pixels, "frames": f.frames}
+                      for f in rt.own_feeds],
+        "feeders": [{"cell": list(f.cell), "bpp": f.bpp, "pixels": f.pixels, "frames": f.frames}
+                    for f in rt.feeders],
+    }
+
+
 def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane: str = "indexed",
                overlays: bool = True, scaffold: bool = True,
                displacement_ack: bool = False) -> dict:
@@ -4363,6 +4486,9 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
             # author who first hears that a band is rewritten every frame AFTER painting it hears it
             # as a refusal -- the W7 L6 argument for the protected rects, verbatim.
             "scroll_blit": _scroll_blit_record(hz, p.cell),
+            # THE RENDER TARGET, at PAINT time for the same reason: a 15bpp cell no 15bpp read
+            # samples is the one picture whose painter most needs to hear it first.
+            "render_route": _render_route_record(hz),
             "lower_half": hz.lower_half, "provenance": hz.provenance,
             "hazards": list(hz.names),
             "page_sha256": _sha(raw),
@@ -4598,6 +4724,9 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
         sbr = e.get("scroll_blit") or {}
         if sbr.get("destination"):
             L += ["%s = false" % SB.ACK_KEY]
+        rtr = e.get("render_route") or {}
+        if rtr.get("verdict") == RT.NEVER_VRAM:
+            L += ["%s = false" % RT.ACK_KEY]
         if e["bpp"] == 15:
             L += ['# 15bpp DIRECT colour: no palette at all.  Edit "%s" (RGB authoritative, alpha =' %
                   e["png"],
@@ -4643,6 +4772,21 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
                      % (d["dst"][0], d["dst"][1], d["size"][0], d["size"][1]))
             L += _wrap_comment(d.get("shows") or "what you paint there ALSO appears there, scrolling "
                                "vertically with wraparound", "#   ")
+        # THE RENDER TARGET, printed BEFORE the author paints: on a NEVER_VRAM cell the refusal they
+        # would have to lift, and where the picture on screen really comes from; otherwise the verdict.
+        if rtr.get("verdict") == RT.NEVER_VRAM:
+            L.append("# ** RENDER TARGET: no 15bpp read in this effect samples this cell from VRAM, so the")
+            L.append("#   build REFUSES an edit here.  Measured:")
+            L += _wrap_comment(rtr["describe"], "#     ")
+            L += _wrap_comment(rtr["own_feed"], "#   ")
+            L.append("#   REMEDY:")
+            L += _wrap_comment(rtr.get("remedy") or "no cell could be named", "#     ")
+            L.append("#   `%s = true` (the key above) lifts it if you judge a 15bpp read in your"
+                     % RT.ACK_KEY)
+            L.append("#   cast samples VRAM -- the census is headless, a cast is not.")
+        elif rtr:
+            L.append("# RENDER ROUTE (a disclosure, not a refusal):")
+            L += _wrap_comment(rtr["describe"], "#   ")
         if len(e["writers"]) > 1:
             L += ["# CO-TRANSFORM: %d writers upload this VRAM cell.  Name EVERY one with its own"
                   % len(e["writers"]),
@@ -4841,6 +4985,10 @@ _TEXEL_KEYS = frozenset((
     # -- what it admits is that an op-144 band the container rewrites every frame may not be
     # rewritten in the author's cast, which is a reachability judgement no number here can check.
     SB.ACK_KEY,
+    # THE RENDER TARGET's key, on the same terms: literal-boolean-only, no depth, no `expect_bpp`.  What
+    # it admits is that a 15bpp read the headless census saw go to the target may sample VRAM in the
+    # author's cast -- a judgement about a cast, not a number.
+    RT.ACK_KEY,
 ))
 
 
@@ -4889,6 +5037,10 @@ class TexelTarget:
     #: ``acknowledge_scroll_blit_destination`` -- "this edit changes texels an op-144 scroll blit
     #: rewrites every frame, and I judge that blit does not run in my cast." Literal boolean only.
     ack_scroll_blit: bool = False
+    #: ``acknowledge_render_target`` -- "every 15bpp read the census saw of this cell's page sampled
+    #: the render target (or the blur / ground capture), and I judge a read in my cast samples VRAM."
+    #: Literal boolean only.
+    ack_render_target: bool = False
     stock: bytes = b""
     new: bytes = b""
     changed: Tuple[int, ...] = ()
@@ -5499,6 +5651,48 @@ def _gate_scroll_blit(t: "TexelTarget") -> List[str]:
                      % (b.describe(), "READS", _vram_rect(band), _vram_rect(b.dst_rect),
                         _inside(band), _refresh_on_source(b)))
     return notes
+
+
+def _gate_render_target(t: "TexelTarget") -> List[str]:
+    """**THE RENDER-TARGET GATE** -- refuse a 15bpp edit no 15bpp read samples; disclose the rest.
+    Runs after the art read, because the predicate is about THIS edit's changed texels.
+
+    :mod:`ff9mapkit.summons.render_target` holds what the headless routes census measured: in an
+    effect that renders into its DR_AREA target, Memoria hands every 15bpp key at x >= 384 the TARGET
+    (and every one left of 384 the blur texture), never VRAM. A changed texel on a cell whose every
+    measured 15bpp read went elsewhere is therefore byte-correct on disk, deploys, verifies -- and is
+    sampled by no 15bpp read. The refusal says whether the cell's OWN bytes reach the screen another
+    way (the target's draw reading them at 4/8 bpp, as palette indices) and names the cells that
+    draw the target, which is what the screen shows. ``acknowledge_render_target = true`` lifts it,
+    because headless is not a cast, and the build still says what was lifted.
+
+    The unit is the CELL, not the texel -- the route is decided per KEY, so a page routed to the target
+    routes every texel it could sample there. Every other verdict (VRAM, MIXED, UNREAD, UNPORTED,
+    UNMEASURED) is a disclosure and never refuses.
+    """
+    hz = t.page.hazards
+    if not t.enabled or hz is None or hz.render_route is None:
+        return []
+    rt = hz.render_route
+    if not rt.never_vram:
+        return ["RENDER ROUTE (a disclosure, not a refusal): %s.  %s" % (rt.describe(), RT.SPEED_CAVEAT)]
+    if not t.changed:
+        return ["RENDER TARGET, clear: %s -- and this edit changes no texel of the cell" % rt.describe()]
+    if not t.ack_render_target:
+        raise RepaintError(
+            "RENDER TARGET, %s: %d changed byte(s) on a cell no 15bpp read samples.  %s.  %s.  And "
+            "%s.  REMEDY: %s.  %s.  %s.  If you judge a 15bpp read in your cast samples VRAM, say "
+            "`%s = true` on this row -- an acknowledgement is stated, never inferred."
+            % (t.name, len(t.changed), rt.describe(), RT.LAW, rt.own_feed_line(),
+               hz.render_remedy or "no cell could be named", _cap(RT.MEASUREMENT), _cap(RT.CASTS),
+               RT.ACK_KEY))
+    return ["RENDER TARGET, acknowledged: %d changed byte(s) on a cell no measured 15bpp read samples -- "
+            "%s.  %s.  %s" % (len(t.changed), rt.describe(), _cap(rt.own_feed_line()), RT.ACK_WARNING)]
+
+
+def _cap(text: str) -> str:
+    """A quoted sentence fragment, capitalised to open a sentence of its own."""
+    return text[:1].upper() + text[1:]
 
 
 def _cell_name_at(cells: Dict[Tuple[str, int, int], "RS.PageCell"], cell: Tuple[int, int]) -> str:
@@ -6190,6 +6384,8 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
             # THE SCROLL BLIT resolves nothing either: the page is emitted, and the gate that reads
             # this needs the CHANGED texels, so it runs after the art read.
             ack_scroll_blit=_ack_bool(d, SB.ACK_KEY, where),
+            # THE RENDER TARGET likewise: the gate needs the CHANGED texels.
+            ack_render_target=_ack_bool(d, RT.ACK_KEY, where),
             ack_program_depth=ack_pd, ack_array_depth=ack_ad))
 
     # ---- THE GATES THAT NEED NO ART, all of them before a single PNG is opened --------------------
@@ -6284,6 +6480,9 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
         # THE SCROLL BLIT FIRST, ahead of the cutout law: "these texels never reach the screen"
         # outranks every judgement about what they would have looked like.
         t.hazard_notes += _gate_scroll_blit(t)
+        # THE RENDER TARGET beside it, for the same reason: a 15bpp texel no 15bpp read samples
+        # is a texel that never reaches the screen as painted.
+        t.hazard_notes += _gate_render_target(t)
         # THE CUTOUT LAW, counted in TEXEL space at every depth (see :func:`texel_view`).
         zeros, zeros_why = transparent_values(base, t.page)
         zset, st, nw = set(zeros), texel_view(t.page, t.stock), texel_view(t.page, t.new)
@@ -6938,6 +7137,9 @@ def stage(b: TexelBuild, root=None, game_root=None, allow_install: bool = False,
                             # THE SCROLL BLIT's word: a cast of a destination band is exactly the
                             # cast that would test whether the blit runs, so the record says so.
                             SB.ACK_KEY: t.ack_scroll_blit,
+                            # THE RENDER TARGET's word: a cast of a NEVER_VRAM cell is exactly the
+                            # cast that would test whether its 15bpp reads ever sample VRAM.
+                            RT.ACK_KEY: t.ack_render_target,
                             # W6b-3 (iv): WHICH ARITHMETIC this row was staged under, and
                             # whether the reader it was attributed to was routed here by it.
                             # A cast record that cannot say which model it tested is a cast
@@ -7123,8 +7325,31 @@ def scenery_lines(blob: bytes, effect: Optional[int] = None, *,
             by[r.klass] = by.get(r.klass, 0) + 1
         L.append("    REFUSED %d cell(s): %s"
                  % (len(refused), ", ".join("%s %d" % (k, by[k]) for k in sorted(by))))
-    return L + scroll_blit_lines(effect, pages) + depth_attribution_lines(blob, effect, pages,
-                                                                         channels=channels)
+    return (L + scroll_blit_lines(effect, pages) + render_target_lines(effect, pages)
+            + depth_attribution_lines(blob, effect, pages, channels=channels))
+
+
+def render_target_lines(effect: Optional[int], pages: Sequence[TexelPage]) -> List[str]:
+    """The render-target block of the scenery report: printed only where the edit surface holds a
+    15bpp cell, so the listing never reads "clean" on a cell whose repaint the build will refuse."""
+    cells = [p for p in pages if p.hazards is not None and p.hazards.render_route is not None]
+    if not cells:
+        return []
+    t0 = RT.target_from(effect)
+    L = ["    RENDER TARGET: %d 15bpp cell(s); %s"
+         % (len(cells), "this effect renders into its DR_AREA target from f%d" % t0 if t0 is not None
+            else "this effect never renders into a DR_AREA target")]
+    for p in cells:
+        rt = p.hazards.render_route
+        if rt.never_vram:
+            L.append("      NEVER_VRAM  %-20s no 15bpp read samples it; an edit there REFUSES at build "
+                     "-- %s%s" % (p.name, "its own bytes feed the target at %s bpp; "
+                                  % "/".join(str(f.bpp) for f in rt.own_feeds) if rt.own_feeds else "",
+                                  p.hazards.render_remedy))
+        else:
+            L.append("      %-11s %-20s disclosed, not refused -- %s"
+                     % (rt.verdict, p.name, rt.describe().split(": ", 1)[-1]))
+    return L
 
 
 def scroll_blit_lines(effect: Optional[int], pages: Sequence[TexelPage]) -> List[str]:

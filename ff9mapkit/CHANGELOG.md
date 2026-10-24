@@ -5,6 +5,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — `summon-reskin` refuses a 15bpp repaint that can never be seen
+- Once an effect draws into its off-screen render target, Memoria reads every 15bpp page from that target, not
+  from the texture data. Measured over all 372 effects: all 22 cells the `direct15` export offers are in such
+  effects, so a repaint there builds, deploys and never shows as painted. Three earlier casts agree.
+- The build now refuses that edit by name. It says whether the cell's own bytes reach the screen another way (on 8 of
+  the 22 the target's own drawing reads them, so they show as palette indices) and names the cells that draw the target. The export scaffold and
+  the scenery listing say the same before anyone paints. `acknowledge_render_target = true` lifts the refusal.
+
 ### Changed — `summon-reskin`'s scroll-copy notes follow what the screen actually sees
 - Memoria refreshes a decoded texture only when a write starts in that texture's own column, so an effect's
   per-frame scroll copy into the second column of an 8bpp page can run and never reach the screen. Measured over

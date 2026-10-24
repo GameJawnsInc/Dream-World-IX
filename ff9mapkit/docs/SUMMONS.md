@@ -642,6 +642,7 @@ table, or both, under one `[reskin]` header). `[reskin.orthogonality]` gains one
 | `acknowledge_cotransform` | *conditional* | required (`= true`, a literal boolean) on **every** row of a VRAM cell that more than one writer uploads, and only reachable once every one of those writers is named with its own art. See THE CO-TRANSFORM REMEDY, below. |
 | `acknowledge_spill` | *conditional* | required (`= true`, a literal boolean) on **every** row of a model whose picture crosses a VRAM column, and only reachable once every cell that model reads is named. See THE NAME-EVERY-COLUMN GATE, below. |
 | `acknowledge_scroll_blit_destination` | *conditional* | required (`= true`, a literal boolean) before an edit that changes a texel inside a band the effect's program **rewrites every frame** may build. Say it only if you judge that blit is not running when your cell is drawn. See SCROLL-BLIT DESTINATION, below. |
+| `acknowledge_render_target` | *conditional* | required (`= true`, a literal boolean) before a 15bpp edit may build on a cell whose every measured 15bpp read samples the effect's render target instead of your art. Say it only if you judge a read in your cast samples VRAM. See RENDER TARGET, below. |
 | `note` | no | free text, carried into manifests/reports only. |
 
 ### THE CUTOUT LAW, at the texel level
@@ -808,6 +809,18 @@ models**. A disclosure, never a refusal.
   capture shows the band under a third wheel, in cell `(576,384)`, copied over on every frame that
   cell is drawn.
   `export-art`'s scaffold prints the band and the remedy on the row, before you paint.
+- **RENDER TARGET — a 15bpp read that never samples your art.** Once an effect has drawn into its
+  off-screen render target, Memoria reads every 15bpp page at x ≥ 384 from that target, not from the
+  texture data, until the next cast starts (and a 15bpp page left of x 384 is always the previous
+  frame's screen). Run over all 372 effects, **every one of the 22 cells `--art-lane direct15` hands
+  out is in such an effect**, so a repaint there is byte-correct on disk, deploys, verifies, and never
+  shows as painted. The build refuses it by name and says whether your bytes reach the screen another
+  way: on 8 of the 22 the target's own drawing reads them at 4 or 8 bpp, so they show as palette indices,
+  not your colours (an Atomos cast's cyan bands came out as a salmon checker this way). It also names
+  the cells that draw the target, which is what the screen really shows — though on 20 of the 22 the
+  kit cannot hand you any of them yet. Three earlier casts agree with the refusal. The key exists
+  because the measurement runs the effect offline, not in a real battle.
+  `export-art`'s scaffold prints the verdict on the row, before you paint; the build report lists it too.
 - **An UNWRITTEN column** — see the spill gate, above.
 - **RGBA on the INDEXED lane** — unchanged, and refused for its own reason rather than this one: that
   refusal is about **exact recovery**, and it would hold if every cell in the corpus were lawful.
@@ -929,7 +942,9 @@ cover (what the hardware reads — what the editable surface is now joined on). 
   silent failure the loss half refuses to let you risk. The export scaffold says `GAINED` on every one
   of them; a cast is the only thing that closes it. **27 of those 30 hand back a paintable PNG:**
   21 straight out of
-  `export-art`, and 6 more (all 15 bpp) via `export-art --art-lane direct15`. The other **3 hand back
+  `export-art`, and 6 more (all 15 bpp) via `export-art --art-lane direct15` — though all 6 sit in
+  effects that read 15bpp from their render target, so their builds refuse (see RENDER TARGET, above).
+  The other **3 hand back
   nothing in either lane** — all on ef038, all blocked by the pre-existing and correct
   `program-vram-write` refusal, which is an older and separate judgement about whether an edit survives
   the cast at all.

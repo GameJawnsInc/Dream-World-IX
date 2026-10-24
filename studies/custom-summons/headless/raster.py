@@ -675,6 +675,9 @@ class Renderer:
         self.gen = Target(GEN_W, GEN_H, 1, depth=False, rgb565=True, kind="gen")
         self.gen_created = False                    # PSXTextureMgr.isCreateGenTexture
         self.gen_first_frame: Optional[int] = None
+        #: THE ROUTES FALSIFIER: the target is still drawn, but SFXRenderTextureEnd never sets the flag,
+        #: so every 15bpp key that would read it falls through to VRAM (``routes --control``).
+        self.suppress_target = False
         self.bg_key = 0
         self.prev_screen: Optional[np.ndarray] = None     # the blur texture (previous frame)
         self.screen_shot = 0
@@ -698,7 +701,7 @@ class Renderer:
                     self.gen.color[:] = 0.0
                 target, rt = self.gen, True
             elif c.kind == "rt_end":
-                self.gen_created = True
+                self.gen_created = not self.suppress_target
                 if self.gen_first_frame is None:
                     self.gen_first_frame = frame
                 target, rt = screen, False
@@ -1043,13 +1046,14 @@ def parse_frames(spec: Optional[str]) -> Optional[set]:
 
 def run(bin_dir: Path, blob: bytes, effnum: int, *, frames: Optional[set] = None, scale: int = 1,
         max_frames: int = 8000, on_frame=None, keep_prims: bool = False, watch: Iterable[str] = (),
-        track: bool = False) -> dict:
+        track: bool = False, suppress_target: bool = False) -> dict:
     """Play ``blob`` through the plugin and render it. ``frames`` = the frames to draw (None = every one).
 
     ``on_frame(frame, screen_target_or_None, cmds, stats)`` is called after each frame. ``watch`` names
     cells (``"x704_y384@8"``) whose screen footprint ``stats.watch_masks`` holds for each drawn frame.
     ``track`` arms the write-order tracker: ``stats.stale`` then says, per mesh key, which reads showed
-    a decode older than a write to the texels they sample (``Renderer.stale_reads``)."""
+    a decode older than a write to the texels they sample (``Renderer.stale_reads``).
+    ``suppress_target`` keeps ``isCreateGenTexture`` down -- the routes census's falsifier."""
     H._install_no_dialog(bin_dir)
     dll = C.CDLL(str(bin_dir / H.PLUGIN))
     host = RasterHost(effnum, mode="rework")
@@ -1080,6 +1084,7 @@ def run(bin_dir: Path, blob: bytes, effnum: int, *, frames: Optional[set] = None
     keys = KeyState()
     builder = FrameBuilder(effnum, settings, keys)
     renderer = Renderer(effnum, settings, host.cache, scale)
+    renderer.suppress_target = suppress_target
     stats = Stats()
     stats.watch = set(watch)
     faults: List[str] = []
@@ -1332,6 +1337,35 @@ def diff_main(a) -> int:
 
 
 # ============================================================== routes: the census of texture sources
+#: the falsifier's container and page: ef429 renders into its target from f41 and reads (448,256) at 15bpp
+#: only from it -- so with the flag held down, the same reads must come back from VRAM.
+ROUTES_CONTROL_EF, ROUTES_CONTROL_PAGE = 429, "x448_y256@15"
+
+
+def _routes_control(a, out: Path, me: str) -> int:
+    """THE FALSIFIER: if the census can only ever say "the target", it measures nothing.  Run ef429 with
+    ``--no-target`` and record where its 15bpp page was read from (``control.json``)."""
+    import subprocess
+    dest = out / "control" / ("ef%03d" % ROUTES_CONTROL_EF)
+    cmd = [sys.executable, "-I", me, "run", "--ef", str(ROUTES_CONTROL_EF), "--no-draw", "--no-target",
+           "--out", str(dest)]
+    if a.bin:
+        cmd += ["--bin", a.bin]
+    cp = subprocess.run(cmd, capture_output=True, text=True, timeout=1200)
+    if cp.returncode != 0:
+        print(cp.stderr or cp.stdout)
+        return 1
+    d = json.loads((dest / "summary.json").read_text(encoding="utf-8"))
+    kinds = sorted(k.split("/")[1] for k in d["routes"] if k.split("/")[0] == ROUTES_CONTROL_PAGE)
+    doc = {"effect": ROUTES_CONTROL_EF, "page": ROUTES_CONTROL_PAGE, "target_suppressed": True,
+           "kinds": kinds, "routes": d["routes"], "gen_texture_used": d["gen_texture_used"],
+           "gen_texture_first_frame": d["gen_texture_first_frame"]}
+    (out / "control.json").write_text(json.dumps(doc, indent=1), encoding="utf-8")
+    print("routes control: ef%03d %s read %s with the target suppressed -> %s"
+          % (ROUTES_CONTROL_EF, ROUTES_CONTROL_PAGE, "/".join(kinds) or "nothing", out / "control.json"))
+    return 0
+
+
 def routes_main(a) -> int:
     """Run every container with ``--no-draw`` in its own process; tabulate, per effect, whether it
     renders into the DR_AREA target and where each textured key reads from (IMAGE = VRAM, BLUR = the
@@ -1342,6 +1376,8 @@ def routes_main(a) -> int:
     out.mkdir(parents=True, exist_ok=True)
     ids = [int(x) for x in a.only.split(",")] if a.only else H.corpus_ids()
     me = str(Path(__file__).resolve())
+    if a.control:
+        return _routes_control(a, out, me)
 
     def one(e):
         dest = out / ("ef%03d" % e)
@@ -1395,6 +1431,8 @@ def main(argv=None) -> int:
     rp.add_argument("--tag", default="", help="a suffix for the output folder")
     rp.add_argument("--max-frames", type=int, default=8000)
     rp.add_argument("--no-draw", action="store_true", help="run the batching and texture routing only (fast)")
+    rp.add_argument("--no-target", action="store_true",
+                    help="never set isCreateGenTexture (the routes falsifier: 15bpp keys read VRAM)")
     dp = sub.add_parser("diff", help="render two containers (each in its own process) and diff the frames")
     dp.add_argument("--ef", type=int, required=True)
     dp.add_argument("--a", default="stock", help="container A (default: the stock corpus file)")
@@ -1408,6 +1446,8 @@ def main(argv=None) -> int:
     op.add_argument("--only", help="comma-separated effect ids")
     op.add_argument("--out", default=str(RASTER_DIR / "routes"))
     op.add_argument("--bin")
+    op.add_argument("--control", action="store_true",
+                    help="run only the falsifier (ef429 with its target suppressed) into OUT/control.json")
     cp = sub.add_parser("calibrate", help="the RX gates vs an in-game s48 probe log")
     cp.add_argument("--ef", type=int, required=True)
     cp.add_argument("--log", required=True)
@@ -1441,11 +1481,11 @@ def main(argv=None) -> int:
             save_png(screen, out / ("f%04d.png" % f))
 
     res = run(bdir, blob, a.ef, frames=set() if a.no_draw else frames, scale=a.scale, max_frames=a.max_frames,
-              on_frame=save)
+              on_frame=save, suppress_target=a.no_target)
     doc = {k: v for k, v in res.items() if k not in ("stats", "prim_log", "host", "per_frame")}
     doc.update(source=source, plugin_sha256=sha, frames_drawn=sorted(frames) if frames is not None else "all",
                visible_cells=visible_cells(res["stats"]), render_target_cells=visible_cells(res["stats"], gen=True),
-               meshes=mesh_summary(res["stats"]), routes=res["stats"].routes)
+               meshes=mesh_summary(res["stats"]), routes=res["stats"].routes, target_suppressed=a.no_target)
     out.mkdir(parents=True, exist_ok=True)
     (out / "summary.json").write_text(json.dumps(doc, indent=1, default=list), encoding="utf-8")
     print("ef%03d: %d frames, %d faults, gen texture %s, cache %s -> %s" % (

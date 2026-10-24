@@ -685,6 +685,23 @@ scenery must be re-authored *together*.
   the key it shows on 23 frames, because the stale decode keeps it. `scroll_blit.REFRESH` carries the
   table, `repaint` says it in the refusal, the acknowledged note, the source disclosure and the
   scaffold, and `scroll_blit_gates.py` S8 re-derives it. The refusal keeps its key: headless is not a cast.
+  **★ FOLLOW-UP — THE RENDER-TARGET GUARD, FOLDED INTO THE KIT.** The 15bpp lane's parked READ proof,
+  turned into a call-site refusal. Memoria's `SFXMesh.GetTexture` hands a 15bpp key VRAM only as its
+  last resort: left of x 384 it is the blur texture, and once an effect has rendered into its DR_AREA
+  target (`isCreateGenTexture`, cleared only at the next cast) it is that target. `raster.py routes`
+  measured it over all 372 containers, and **all 22 default-surface `direct15` cells (9 containers)
+  read NEVER_VRAM** (79 of 87 with every acknowledgement; 6 unread, 2 unported). `summons/render_target.py`
+  carries the census, `repaint._gate_render_target` refuses a 15bpp edit there by name, says whether the
+  cell's own bytes reach the screen another way (the target's draw reading them at 4/8 bpp,
+  as indices: 8 of the 22) and names the cells that draw the target; `acknowledge_render_target = true`
+  lifts it. It retrodicts the three 15bpp casts (ef429 never showed, no road; ef446 salmon, fed at
+  4/8; ef251 bumper strip, fed at 8/4), and with the key ef429's cast spec rebuilds the cast's exact
+  bytes (`2ec7c474…`). Falsifier: `routes --control` holds the flag down on ef429 and the same 58
+  reads (f53–110) come back from VRAM. Gates `render_target_gates.py` R1–R6 6/6. The honest limit: 20
+  of the 22 refusals name no cell the author can paint, because the kit's static derivation refuses
+  most of the target's feeders -- the census measures the depth each is drawn at, which is the
+  evidence a draw-side depth channel would need. At Battle Speed ≥ 3 `SFXData.cs:403` sets the flag
+  after every pre-recorded frame, so NEVER_VRAM holds on both cast paths and READS_VRAM only below 3.
   **(2) SHOULD THE GAIN HALF BE DECLINABLE?** Today `texel_page` / `export_art` / `build` hard-code
   `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface, so an author who distrusts
   `linear-add-v1` on THEIR container cannot ask for the pre-adoption reading. Recovery is EXACT at the

@@ -122,7 +122,7 @@ before it's a statement about the container.**
 ```bash
 py -I raster.py run --ef 227 --frames 82,150,300 --scale 2      # PNGs + visible cells (SCRATCH)
 py -I raster.py diff --ef 211 --b <edited container> --frames 230-290 --out <SCRATCH dir>
-py -I raster.py routes --jobs 6                                 # every container: where each key reads from
+py -I raster.py routes --jobs 6 [--control]                     # every container: where each key reads from
 py -I stale_census.py [--only 499] [--control]                  # every container: is each copy ever SEEN?
 py -I raster.py calibrate --ef 227 --log <s48 probe log> [--offset 19]   # in-game f vs headless f+19
 py -I rx_gates.py [--battery]                                    # RX0-RX3 (+ RX4, the owner-verdict battery)
@@ -184,7 +184,14 @@ reaching the screen only as speckle on saturated ice (≤ 8.6% of pixels, f214�
   effects the port does not model (Slow, Devour, Silent Voice) and one is a reserved depth-3 page; the
   real ones are **Stop's (448,256)** and **Carbuncle's (576,256) in all four gem variants (ef177 / ef493–495),
   frames 181–211**, read from VRAM before ef177 first renders into the target at f265. Those are the only
-  places a 15bpp repaint can reach the screen as painted.
+  places a 15bpp repaint can reach the screen as painted. **Folded into the kit** (`render_target.py`,
+  `tier-w/render_target_gates.py` R1–R6): every one of the 22 default-surface `direct15` cells reads
+  NEVER_VRAM, and a build refuses an edit there by name, saying whether the cell's own bytes reach the
+  screen another way (the target's draw reading them at 4/8 bpp, as indices: 8 of the 22) and
+  naming the cells that draw the target. The falsifier: `routes --control` runs ef429 with
+  `isCreateGenTexture` held down, and the same 58 reads (f53–110) come back from VRAM. One caveat the port
+  cannot see: at Battle Speed ≥ 3 Memoria pre-records the cast (`SFXData.LoadSFXRawLoop`) and sets the
+  flag after every frame (`SFXData.cs:403`), so there Carbuncle's VRAM reads go to the target too.
 - ★ **THE REFRESH LAW: a VRAM copy can run every frame and never reach the screen.** Memoria refreshes a
   decoded page only for a write whose origin is in its own column, so a copy into an 8bpp page's second
   column changes VRAM and leaves the decode as it was. `run(track=True)` stamps every write and decode
@@ -267,8 +274,10 @@ tests: code plus counts, with zero Square Enix bytes.
 - **A real lint for native containers.** The native-slot lane was deferred behind an unrecoverable hang;
   here a hang is just a timeout.
 - **HLE op tracing.** Hook the interpreter's dispatch inside this process to log every op call per frame.
-- **A kit guard from `routes`.** `summon-reskin` can refuse (or disclose) a 15bpp repaint at x ≥ 384 in an
-  effect that renders into the `DR_AREA` target, and name the indexed source page to paint instead.
+- **A draw-side depth for the target's feeders.** The guard names the cells that draw the target, but 20
+  of the 22 refusals name none the author can paint: the kit's static derivation refuses most feeders
+  (depth-unknown, displaced). `routes` measures the depth each feeder is DRAWN at
+  (`render_target_cells`), which is the evidence a new channel would need.
 - **The opening divergence.** Find what the game gives the plugin that suppresses the caster burst; until
   then, align a headless frame against a capture before quoting it as a cast frame.
 
@@ -282,4 +291,4 @@ tests: code plus counts, with zero Square Enix bytes.
 | `raster.py` | the managed-renderer port: run / diff / routes / calibrate |
 | `rx_gates.py` | the calibration gates RX0–RX4 |
 | `stale_census.py` | the refresh census: every copy joined to the reads that see it, with its falsifier |
-| `test_raster.py` | 27 tests on synthetic primitives and the gate scoring; one is install-gated |
+| `test_raster.py` | 28 tests on synthetic primitives and the gate scoring; one is install-gated |

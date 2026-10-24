@@ -230,6 +230,20 @@ def test_15bpp_routing_blur_vs_generated():
     assert r.texture_for(high).kind == R.KIND_GENERATED
 
 
+def test_the_routes_falsifier_holds_the_target_flag_down():
+    """``suppress_target`` (``routes --control``): the render-texture bracket still runs, but the flag
+    SFXRenderTextureEnd sets stays down -- so the same 15bpp key reads VRAM instead of the target."""
+    cmds, faults = builder().build([ft4(0, 0, 16, 16, tp=tpage(tx=7, ty=1, tp=2), uv=(0, 0, 16, 16))])
+    assert not faults
+    frame = [R.Command("rt_begin"), R.Command("rt_end")] + cmds
+    for held, kind in ((False, "GENERATED"), (True, "IMAGE")):
+        r, st = renderer(), R.Stats()
+        r.suppress_target = held
+        r.render(frame, 1, False, st)
+        assert r.gen_created is (not held) and r.gen_first_frame == 1
+        assert set(st.routes) == {"x448_y256@15/%s" % kind}
+
+
 def test_the_tracker_sees_a_copy_the_decode_missed_and_the_sibling_write_that_refreshes_it():
     """An 8bpp page keyed at x640 sampling column 704: a DR_MOVE into (704,256) after the decode is a
     STALE read (ClearKey drops only the write's own column); one into column 640 first refreshes it."""
