@@ -302,7 +302,11 @@ def replay_window(step: dict) -> set:
       checks its neighbours, across the seam too;
     * transplant: its target rect (turned) and the ring round it -- the carry reads its neighbours' coasts;
     * sink: the blocks it changed (its island, every block of which it writes) and the ring round them;
-    * anything else (a coast morph, a river move): the whole world, so it always runs again after an edit.
+    * coast morph: its own block, no ring (rung C13) -- the in-place morph keeps the block's frame byte for byte, so
+      its neighbours weld to an unchanged edge and it never reads them (a held neighbour, measured, went unread);
+    * river: the blocks it changed, no ring (C13) -- its new placement, and a move's old one; it composes from stock
+      and reads the folder only at its own cells (four held neighbours, measured, went unread);
+    * anything else: the whole world, so it always runs again after an edit.
 
     The cells the step changed are always in it."""
     row = step["row"]
@@ -321,4 +325,8 @@ def replay_window(step: dict) -> set:
                      | cells)
     if table == "sink":
         return _ring(cells)
+    if table == "morph" and row.get("cell"):
+        return {(int(row["cell"][0]) % 24, int(row["cell"][1]))} | cells
+    if table == "river" and cells:
+        return cells
     return set(row_cells(row)) | cells

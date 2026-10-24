@@ -23,6 +23,8 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - After you edit or delete a placed shape, islands, carried coasts and sunk islands placed after it now come back
   at once instead of being made again, unless the edit touched the ground they stand on. An edit with an island,
   a carry and a sink after it took 8 seconds instead of about 36.
+- Coast changes and river moves placed after an edit come back at once too: an edit with one of each after it took
+  7 seconds instead of about 50.
 
 ### Fixed — editing a shape in a recipe you opened
 - Editing a step of a recipe opened with "Open…" could stop with "exit code 2" when the steps after it were
