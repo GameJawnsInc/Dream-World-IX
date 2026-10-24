@@ -288,8 +288,8 @@ def read_deployed_blocks(mod_folder: str, *, near, reach: float, disc: int = 1,
                 out[(bx, by)] = M.blockmesh_from_ff9mesh(p, disc=rtarget, x=bx, y=by,
                                                          lod=lod, part="terrain")
     if not out:
-        raise ValueError(f"no deployed Terrain overrides near world ({wx:.0f},{wz:.0f}) "
-                         f"in {mod_folder} -- these verbs reshape DEPLOYED kit islands only")
+        raise CarveRefused("footprint", f"no deployed Terrain overrides near world ({wx:.0f},{wz:.0f}) "
+                                        f"in {mod_folder} -- these verbs reshape DEPLOYED kit islands only", [(wx, wz)])
     return out
 
 
@@ -318,6 +318,11 @@ def _require_one_label_per_cell(keys, what: str) -> None:
 
 
 # ---- shared geometry helpers ---------------------------------------------------------------
+def _xz_of(points, limit: int = 24) -> list:
+    """World ``(x, z)`` of ring points (``(x, z)`` or ``(x, y, z)`` keys), for a refusal's marks (rung C16)."""
+    return [(float(p[0]), float(p[-1])) for p in sorted(points)[:limit]]
+
+
 def chain_ring(edges, what: str, *, min_len: int = 12):
     """Chain once-edges into one simple cycle (raises on degeneracy: a repeat, or fewer than ``min_len`` points)."""
     adj = defaultdict(list)
@@ -326,7 +331,7 @@ def chain_ring(edges, what: str, *, min_len: int = 12):
         adj[b].append(a)
     bad = [p for p, l in adj.items() if len(l) != 2]
     if bad:
-        raise ValueError(f"{what} ring not a simple cycle ({len(bad)} odd-degree points)")
+        raise CarveRefused("ring", f"{what} ring not a simple cycle ({len(bad)} odd-degree points)", _xz_of(bad))
     start = edges[0][0]
     ring = [start]
     prev = None
@@ -354,7 +359,7 @@ def chain_rings(edges, what: str):
         adj[b].append(a)
     bad = [p for p, l in adj.items() if len(l) != 2]
     if bad:
-        raise ValueError(f"{what} ring set not degree-2 ({len(bad)} odd points)")
+        raise CarveRefused("ring", f"{what} ring set not degree-2 ({len(bad)} odd points)", _xz_of(bad))
     unused = set(map(tuple, (tuple(sorted(e)) for e in edges)))
     rings = []
     while unused:
@@ -1831,11 +1836,12 @@ def _stock_down_keys(donor_tris, dV, dtri, carried) -> dict:
     return out
 
 
-def _count_down(new_parents, stock_down, *, log=print):
+def _count_down(new_parents, stock_down, *, log=print, at=None):
     """The mountain gate's down-face count -> ``(down, exempted)``. A new tri facing down counts, unless it is a verbatim
     carried tri (``fam == "mountain"``) that faced down at home by a hair (``stock_down``) and still does so only by a
     hair as carried: stock geometry, not a flip the carve made. A tri the carry FLIPPED (up at home) is never in
-    ``stock_down``, so it always counts; so does any steeper stock overhang."""
+    ``stock_down``, so it always counts; so does any steeper stock overhang. ``at`` (a list) collects each counted
+    face's first corner ``(x, z)``: the geometry refusal's marks."""
     down = exempt = 0
     for corners, _, fam in new_parents:
         ny = _tri_ny(*(p[:3] for p in corners))
@@ -1848,6 +1854,8 @@ def _count_down(new_parents, stock_down, *, log=print):
                 f"({corners[0][0]:.1f},{corners[0][2]:.1f})")
             continue
         down += 1
+        if at is not None:
+            at.append((corners[0][0], corners[0][2]))
     return down, exempt
 
 
@@ -2911,15 +2919,21 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     # 1e-3), not positions. Emitted as zip corners they sat up to 5e-4u off the kept grass they weld to --
     # invisible to every key-based gate, a pinhole crack on screen all round the foot. The zip's grass side
     # takes the kept grass's own float position, bit for bit, as its rock side always took c_float.
+    # Only the RING's keys are welded to (rung C16): a split elsewhere in the read window -- sub-millimetre float noise
+    # between two old writers, the live folder has four -- refused every mountain whose window reached it, unmarked.
+    ring_keys = set(hole)
     h_float = {}
     for tdx, tri in enumerate(gtris):
         if tdx in drop:
             continue
         for i in tri:
             k = kk3(gpos[i])
+            if k not in ring_keys:
+                continue
             if k in h_float and tuple(gpos[i]) != h_float[k]:
-                raise ValueError(f"kept grass at {k} has two float positions {h_float[k]} / {tuple(gpos[i])} "
-                                 f"-- a weld split before the zip; the zip cannot weld to both")
+                raise CarveRefused("weld", f"kept grass at {k} has two float positions {h_float[k]} / "
+                                          f"{tuple(gpos[i])} -- a weld split before the zip; the zip cannot weld to "
+                                          f"both", [(k[0], k[2])])
             h_float.setdefault(k, tuple(gpos[i]))
     log(f"hole ring: {len(hole)} positions")
 
@@ -3093,8 +3107,9 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         own_cells = [(math.floor((dU[i][0] - puA) / 0.0625), math.floor((dU[i][1] - pvA) / 0.03125))
                      for t in blob if dtopo[t] in ROCK for i in dtri[t]]
         if not _plug_chart_ok(pcols, prows, own_cells):
-            raise ValueError(f"plug chart left the rock band (plug cols {pcols} rows {prows}: outside the "
-                             f"painted band and outside the donor's own rock)")
+            raise CarveRefused("plug", f"plug chart left the rock band (plug cols {pcols} rows {prows}: outside the "
+                                       f"painted band and outside the donor's own rock)",
+                               _xz_of({c[:3] for cs, _, _ in plug_parents for c in cs}))
     rim_nrm = {}
     for t in blob:
         for k in range(3):
@@ -3226,11 +3241,14 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         corners = tuple((*carried[t][k], dU[tri[k]][0], dU[tri[k]][1], *nr[k])
                         for k in range(3))
         new_parents.append((corners, idall, "mountain"))
-    from .placement import skip_parity_gate
+    from .placement import ground_query_skips, skip_parity_gate
     skip_gate = skip_parity_gate(skip_pairs, label="mountain")
-    if not skip_gate["ok"]:
-        raise ValueError(f"the carry changed the ground-query visibility of {skip_gate['flipped']} donor tri(s) "
-                         f"(THE BANK SKIP LAW; e.g. donor/carried IDALL {skip_gate['sample'][:2]})")
+    if not skip_gate["ok"]:                                # new_parents[i] is skip_pairs[i]'s tri: its first corner
+        flipped = [new_parents[i][0][0] for i, (d, c) in enumerate(skip_pairs)
+                   if ground_query_skips(d) != ground_query_skips(c)]
+        raise CarveRefused("skip", f"the carry changed the ground-query visibility of {skip_gate['flipped']} donor "
+                                   f"tri(s) (THE BANK SKIP LAW; e.g. donor/carried IDALL {skip_gate['sample'][:2]})",
+                           _xz_of(flipped))
     new_parents.extend(plug_parents)
     # THE FOOT COURSE (the spur-graft class, massif_spur.py in-game proven): inside a
     # window rect the zip emits as synthetic ROCK instead of grass. Harvest r10 exemplar
@@ -3484,8 +3502,9 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
         for p in corners:
             if not (SPX0 + 0.5 < p[0] < SPX1 - 0.5 and SPZ0 + 0.5 < p[2] < SPZ1 - 0.5):
                 raise CarveRefused("span", f"{fam} leaves block span {span}: {p[:3]}", [(p[0], p[2])])
+    down_at = []
     down, stock_down = _count_down(new_parents, _stock_down_keys(list(blob) + list(sweep), dV, dtri, carried),
-                                   log=log)
+                                   log=log, at=down_at)
     maxe, maxe_at = 0.0, None
     for corners, _, fam in new_parents:
         a, b, c = (np.asarray(p[:3]) for p in corners)
@@ -3496,10 +3515,13 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
             if _e > maxe:
                 maxe, maxe_at = _e, (float(pq[0][0] + pq[1][0]) / 2, float(pq[0][2] + pq[1][2]) / 2)
     ring_pts = np.array([list(p) for p in hole_ord] + [list(rimw(p)) for p in rim_ord])
-    nm = 0
+    nm, nm_at = 0, []
     for a_ in range(len(ring_pts)):
         dd = np.sum((ring_pts - ring_pts[a_]) ** 2, axis=1)
-        nm += int(((dd > 1e-9) & (dd < 0.0025)).sum())
+        close = int(((dd > 1e-9) & (dd < 0.0025)).sum())
+        nm += close
+        if close:
+            nm_at.append((float(ring_pts[a_][0]), float(ring_pts[a_][2])))
     # per-block assembly: kept tris stay in their origin block, new tris split at the
     # 64u borders (real cross-block mountains ship border-split with identity welds --
     # split_borders8 cuts every parent at the same plane with the same lerp, so the
@@ -3632,7 +3654,7 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
     if down or nm or inner_once or maxe >= MTN_MAX_EDGE:
         raise CarveRefused("geometry", "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
                            [((e[0][0] + e[1][0]) / 2, (e[0][2] + e[1][2]) / 2) for e in inner_once[:12]]
-                           + ([maxe_at] if maxe >= MTN_MAX_EDGE and maxe_at else []),
+                           + ([maxe_at] if maxe >= MTN_MAX_EDGE and maxe_at else []) + down_at[:12] + nm_at[:12],
                            detail=", ".join(w for w, on in ((f"{down} down face(s)", down),
                                                             (f"{nm // 2} near miss(es)", nm),
                                                             (f"{len(inner_once)} crack edge(s)", inner_once),
@@ -3794,15 +3816,15 @@ def carve_mountain(soup, *, center=None, near=None, donor=MOUNTAIN_DONOR,
                                     tv[i] = (tv[i][0], rim_adjust[_nk], tv[i][2])
                                 if not (SPX0 - 1.0 < tv[i][0] < SPX1 + 1.0 and
                                         SPZ0 - 1.0 < tv[i][2] < SPZ1 + 1.0):
-                                    raise ValueError(f"ensemble {part} vert leaves the "
-                                                     f"span: {tv[i]}")
+                                    raise CarveRefused("span", f"ensemble {part} vert leaves the "
+                                                               f"span: {tv[i]}", [(tv[i][0], tv[i][2])])
                                 ens_keys_d.add(kk3(pV[i]))
                     ccx = sum(p[0] for p in tv.values()) / len(tv)
                     ccz = sum(p[2] for p in tv.values()) / len(tv)
                     blk = (int(math.floor(ccx / BLOCK)), int(math.floor(-ccz / BLOCK)))
                     if blk not in span:
-                        raise ValueError(f"ensemble {part} component centres outside "
-                                         f"the span at ({ccx:.0f},{ccz:.0f})")
+                        raise CarveRefused("span", f"ensemble {part} component centres outside "
+                                                   f"the span at ({ccx:.0f},{ccz:.0f})", [(ccx, ccz)])
                     dst = changed_parts.setdefault(blk, {}).setdefault(
                         part, dict(pos=[], nrm=[], uv=[], tan=[], flat=[], tris=[]))
                     sbx, sby = blk
@@ -4071,6 +4093,7 @@ def _atlas_gate_mountain(new_parents, *, game=None, log=print):
         return a4[3], (int(a4[0]), int(a4[1]), int(a4[2]))
 
     blank = gutter = 0
+    blank_at, gutter_at = [], []                       # the first corner of each, the refusal's marks (C16)
     for corners, _, fam in new_parents:
         nb = nw = 0
         for ii in range(11):
@@ -4088,19 +4111,22 @@ def _atlas_gate_mountain(new_parents, *, game=None, log=print):
                     nw += 1
         if nb:
             blank += 1
+            blank_at.append((corners[0][0], corners[0][2]))
             log(f"  BLANK {fam} nb={nb} uv "
                 f"{[(round(c[3], 4), round(c[4], 4)) for c in corners]} "
                 f"at ({corners[0][0]:.1f},{corners[0][2]:.1f})")
         if nw:
             gutter += 1
+            gutter_at.append((corners[0][0], corners[0][2]))
             log(f"  GUTTER {fam} white={nw} uv "
                 f"{[(round(c[3], 4), round(c[4], 4)) for c in corners]} "
                 f"at ({corners[0][0]:.1f},{corners[0][2]:.1f})")
     log(f"atlas gate: transparent-sampling tris = {blank}, white-gutter tris = {gutter} (want 0 and 0)")
     if blank:
-        raise ValueError(f"{blank} new tri(s) sample transparent atlas texels")
+        raise CarveRefused("atlas", f"{blank} new tri(s) sample transparent atlas texels", blank_at[:24])
     if gutter:
-        raise ValueError(f"{gutter} new tri(s) sample the atlas's white gutter texels (a white sliver in game)")
+        raise CarveRefused("atlas", f"{gutter} new tri(s) sample the atlas's white gutter texels (a white sliver in "
+                                    f"game)", gutter_at[:24])
 
 
 # ---- census + deploy ------------------------------------------------------------------------

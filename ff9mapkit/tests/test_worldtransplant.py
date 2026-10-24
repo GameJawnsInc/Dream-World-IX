@@ -327,3 +327,71 @@ def test_on_real_bytes_a_unit_by_hand_and_by_its_row_carry_the_same_bytes(tmp_pa
     assert _bytes(hand) == _bytes(composed) != _bytes(src)
     edited = {tuple(b[1:]) for b in D.edited_blocks(hand)}
     assert edited and edited <= set(TE.cells(target, (2, 3), 90))
+
+
+# ---------------------------------------------------------------- refusals that say where (rung C16)
+def _slab(bx, by, x0, x1, z0, z1):
+    """A donor block's land as two tris spanning x0..x1, z0..z1 (block-local; z negative)."""
+    o = np.array([64.0 * bx, 0.0, -64.0 * by])
+    a, b, c, d = ([x0, 3.0, z0], [x1, 3.0, z0], [x1, 3.0, z1], [x0, 3.0, z1])
+    return np.array([[a, b, c], [a, c, d]]) + o
+
+
+def test_the_land_fit_law_from_the_donor_alone():
+    """A carry's land keeps 2u of sea to its rect's frame on every side (the land-fit gate), so a donor whose land is
+    wider than the rect less 4u can never be carried, wherever it goes and however it is shifted: a block cut from a
+    continent's coast. The law says which way, and marks the two edges it runs to on the target."""
+    assert TE.too_wide(_slab(7, 17, 10, 54, -10, -54)) is None                   # an island: 44u each way
+    assert TE.too_wide(_slab(7, 17, 0, 64, -20, -40), cell=(3, 5)) == {
+        "why": "its land runs to its block's edge (64u east to west); a carry needs 2u of sea all round "
+               "it, so this block cannot be carried alone",
+        "where": [(192.0, -352.0), (256.0, -352.0)]}                            # (3,5)'s west and east edges
+    assert "north to south" in TE.too_wide(_slab(7, 17, 0, 64, -20, -40), rot=90)["why"]   # a turn swaps the sides
+    assert TE.too_wide(_slab(7, 17, 0, 61, -20, -40)) and TE.too_wide(_slab(7, 17, 2, 62, -20, -40)) is None
+    assert TE.too_wide(_slab(7, 17, 0, 100, -20, -40), size=(2, 1)) is None     # a 2-block rect has room for 100u
+    pv = TE.preview((3, 5), land=set(), occupied=lambda b: {}, donor_tris=_slab(7, 17, 0, 64, -20, -40))
+    assert not pv["ok"] and pv["donor"] and pv["where"] == [(192.0, -352.0), (256.0, -352.0)]
+
+
+def test_the_land_fit_gate_marks_the_sides_too_near_the_frame():
+    g = TR._land_fit_gate([0.0, 40.0, -50.0, -10.0], 2.0, (64.0, 64.0), (3, 5))
+    assert not g["ok"] and g["where"] == [[192.0, -350.0]]                      # its west side, on block (3,5)
+    g = TR._land_fit_gate([10.0, 127.0, -191.0, -1.0], 2.0, (128.0, 192.0), (20, 0))
+    assert not g["ok"] and g["where"] == [[1407.0, -96.0], [1348.5, -191.0], [1348.5, -1.0]]   # east, south, north
+    assert "where" not in TR._land_fit_gate([10.0, 50.0, -50.0, -10.0], 2.0, (64.0, 64.0), (3, 5))
+
+
+def test_a_refusal_marks_where_its_gates_say_not_the_block_s_middle(monkeypatch, tmp_path):
+    """The carry's report marks a failing gate's own points (rung C16); a gate that names none keeps the middle."""
+    def carry(mod, **kw):
+        return {"op": "transplant", "donor": list(kw["donor"]), "cell": list(kw["cell"]), "rot": kw["rot"],
+                "shift": [0.0, 0.0], "strips": [], "coverage_strips": [], "carried": {"terrain": 10}, "cells": {},
+                "gates": [TR._land_fit_gate([0.0, 40.0, -50.0, -10.0], 2.0, (64.0, 64.0), tuple(kw["cell"])),
+                          {"gate": "census", "introduced": 1, "ok": False}], "clean": False, "deployed": []}
+    monkeypatch.setattr(TR, "transplant", carry)
+    game = _game(tmp_path)
+    rep = tmp_path / "v.json"
+    assert cli.main(["--game", str(game)] + TE.command("M", (3, 5), (7, 17), report=rep)) == 2
+    v = json.loads(rep.read_text())
+    assert v["refused"]["gate"] == "land-fit" and v["refused"]["where"] == [[192.0, -350.0]]
+
+
+def test_the_card_says_a_donor_that_fills_its_frame_cannot_be_carried(app, tmp_path):
+    """No dry run for a donor no target can take: the card says so at once and marks the edges its land runs to."""
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldtransplant import TransplantTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_worldforest import Scripted
+    run = Scripted()
+    game = _game(tmp_path)
+    src = _mod(game, "FF9CustomMap-world", ((0, 0),))
+    panel = WorldView3DPanel(pick_palette("dark"))
+    tool = TransplantTool(pick_palette("dark"), panel, game_fn=lambda: game, source_fn=lambda: src, runner=run,
+                          drafts_root=tmp_path / "drafts", sync=True, stack_fn=lambda: [],
+                          land_fn=lambda d: _slab(7, 17, 0, 64, -20, -40), ocean_fn=lambda: set())
+    tool.open_tool()
+    tool.place(230.0, -350.0, 0.0)
+    tool._timer.stop()
+    tool._check()
+    assert run.argvs == [] and tool.verdict_lbl.text().startswith("Not this donor: its land runs to")
+    assert len(panel._overlays) == 2 + 2                # the ghost, its rim, and a mark on each edge

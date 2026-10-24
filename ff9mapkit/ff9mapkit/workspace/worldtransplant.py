@@ -198,7 +198,7 @@ class TransplantTool(CarryTool):
 
     def _preview_at(self, ol, rim):
         return self.FE.preview(self.cell(), land=getattr(self, "_ocean", set()), occupied=self._occupied,
-                               size=self.size(), rot=self.rot())
+                               size=self.size(), rot=self.rot(), donor_tris=ol)
 
     def _step_cells(self, verdict):
         """The carry's whole target rect (the history snapshots every block before an Accept writes it)."""
@@ -218,4 +218,6 @@ class TransplantTool(CarryTool):
                 f"{sh[0]:+g}, {sh[1]:+g}. Accept carries it into the draft.", "ok")
 
     def _preview_text(self, pv):
+        if pv.get("donor"):                              # the donor itself, wherever it goes: say so, not "here"
+            return f"Not this donor: {pv['why']}. The marks are the edges its land runs to; pick another.", "warn"
         return f"Not here: {pv['why']}.", "warn"

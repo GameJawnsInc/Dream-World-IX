@@ -1,0 +1,476 @@
+[
+ {
+  "donor": "beach-island",
+  "rot": 0,
+  "cell": [
+   9,
+   4
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "beach-island",
+  "rot": 0,
+  "cell": [
+   20,
+   1
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "beach-island",
+  "rot": 0,
+  "cell": [
+   12,
+   8
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "beach-island",
+  "rot": 90,
+  "cell": [
+   17,
+   18
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "beach-island",
+  "rot": 90,
+  "cell": [
+   13,
+   0
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "beach-island",
+  "rot": 90,
+  "cell": [
+   16,
+   0
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "desert-beach",
+  "rot": 0,
+  "cell": [
+   10,
+   13
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    672.0,
+    -864.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "desert-beach",
+  "rot": 0,
+  "cell": [
+   19,
+   0
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    1248.0,
+    -32.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "desert-beach",
+  "rot": 0,
+  "cell": [
+   8,
+   6
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    544.0,
+    -416.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "desert-beach",
+  "rot": 90,
+  "cell": [
+   9,
+   16
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    608.0,
+    -1056.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "desert-beach",
+  "rot": 90,
+  "cell": [
+   14,
+   0
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    928.0,
+    -32.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "desert-beach",
+  "rot": 90,
+  "cell": [
+   2,
+   12
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    160.0,
+    -800.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "sandy-coast",
+  "rot": 0,
+  "cell": [
+   21,
+   2
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    1376.0,
+    -160.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "sandy-coast",
+  "rot": 0,
+  "cell": [
+   6,
+   0
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    416.0,
+    -32.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "sandy-coast",
+  "rot": 0,
+  "cell": [
+   18,
+   0
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    1184.0,
+    -32.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "sandy-coast",
+  "rot": 90,
+  "cell": [
+   1,
+   9
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    96.0,
+    -608.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "sandy-coast",
+  "rot": 90,
+  "cell": [
+   15,
+   8
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    992.0,
+    -544.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "sandy-coast",
+  "rot": 90,
+  "cell": [
+   15,
+   0
+  ],
+  "ok": false,
+  "gate": "land-fit",
+  "bad": [
+   "land-fit"
+  ],
+  "where": [
+   [
+    992.0,
+    -32.0
+   ]
+  ],
+  "message": "NOT CLEAN -- deploy refused: land-fit"
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 0,
+  "cell": [
+   19,
+   1
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 0,
+  "cell": [
+   4,
+   0
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 0,
+  "cell": [
+   9,
+   3
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 90,
+  "cell": [
+   4,
+   0
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 90,
+  "cell": [
+   12,
+   8
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 90,
+  "cell": [
+   9,
+   11
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 0,
+  "cell": [
+   23,
+   2
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 0,
+  "cell": [
+   17,
+   17
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 0,
+  "cell": [
+   19,
+   0
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 90,
+  "cell": [
+   14,
+   19
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 90,
+  "cell": [
+   15,
+   19
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 90,
+  "cell": [
+   13,
+   8
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ }
+]

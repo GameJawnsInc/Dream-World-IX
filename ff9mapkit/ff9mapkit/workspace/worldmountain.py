@@ -15,7 +15,7 @@ from .worldforest import GATE_WORDS, CarryTool
 
 MOUNTAIN_GATES = {**GATE_WORDS, "blocks": "the deployed-blocks law", "span": "the span law",
                   "zip": "the zip envelope", "rigid": "the rock-rigid gate", "peak": "the peak cap",
-                  "apron": "the apron slope", "probe": "the placement probes"}
+                  "apron": "the apron slope", "probe": "the placement probes", "plug": "the plug chart"}
 
 
 class MountainTool(CarryTool):

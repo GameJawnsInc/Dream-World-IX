@@ -1,0 +1,236 @@
+[
+ {
+  "donor": "beach-island",
+  "rot": 0,
+  "cell": [
+   9,
+   4
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "beach-island",
+  "rot": 0,
+  "cell": [
+   20,
+   1
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "beach-island",
+  "rot": 0,
+  "cell": [
+   12,
+   8
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "beach-island",
+  "rot": 90,
+  "cell": [
+   17,
+   18
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "beach-island",
+  "rot": 90,
+  "cell": [
+   13,
+   0
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "beach-island",
+  "rot": 90,
+  "cell": [
+   16,
+   0
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 0,
+  "cell": [
+   12,
+   8
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 0,
+  "cell": [
+   4,
+   0
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 0,
+  "cell": [
+   22,
+   2
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 90,
+  "cell": [
+   12,
+   8
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 90,
+  "cell": [
+   4,
+   0
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "crystal-reef",
+  "rot": 90,
+  "cell": [
+   19,
+   1
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 0,
+  "cell": [
+   13,
+   0
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 0,
+  "cell": [
+   0,
+   1
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 0,
+  "cell": [
+   2,
+   12
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 90,
+  "cell": [
+   14,
+   8
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 90,
+  "cell": [
+   14,
+   0
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ },
+ {
+  "donor": "terminus-pair",
+  "rot": 90,
+  "cell": [
+   22,
+   2
+  ],
+  "ok": true,
+  "gate": null,
+  "bad": [],
+  "where": null,
+  "message": ""
+ }
+]

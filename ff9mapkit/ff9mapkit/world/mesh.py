@@ -62,7 +62,9 @@ def wrap_block_col(bx: int) -> int:
     is DEAD -- the engine can never build that lookup key). Build/verify geometry stays in
     CONTINUOUS unwrapped coordinates; this is the label conversion applied once, at the install
     boundary. Rows do NOT get this: z also wraps engine-side, but edged-z is kit policy -- the
-    row-bounds refusal (the dunes incident) stays."""
+    row-bounds refusal (the dunes incident) stays. (A read may wrap rows: the orphan census reads its
+    context ring across both edges, ``orphangate._ring_blocks``. On the live map no land meets across
+    the row edge -- 23.6u of water at the narrowest, overworld editor C15.)"""
     return bx % GRID_COLS
 
 
