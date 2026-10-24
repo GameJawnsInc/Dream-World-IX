@@ -6,6 +6,10 @@ shift onto open ocean, ``world.riveredit``), and the ghost is the river's own ca
 ring there. The preview marks a placement free or held (the river's own files do not count: they go first);
 ``world-river --move-from --dry-run`` judges the rest, and Accept moves it in the draft. A folder with no river in it
 gets the plain carry (``world-river --at``).
+
+Edit (rung C12) opens the card on a placed river step's row: its placement picked again among the river's fitting
+shifts, once the river's shape is read; and once where the river stands in the draft before the step is read, that
+must be where the step moved it from. Pick another placement and Accept.
 """
 from __future__ import annotations
 
@@ -31,6 +35,7 @@ class RiverTool(CarryTool):
         self._river_fn = river_fn or (lambda target, rs: self._read_river(target, rs))
         self._shift = None                               # the picked placement (a whole-block shift)
         self._river = None                               # (target, the river's shift now or None, held cells)
+        self._from_check = None                          # an edited row, its move_from held until the river is read
         super().__init__(pal, panel, game_fn=game_fn,
                          outline_fn=kw.pop("outline_fn", None) or (lambda _key: RE.shape(game=game_fn())), **kw)
 
@@ -113,9 +118,56 @@ class RiverTool(CarryTool):
         super()._discard()
 
     def _outline_loaded(self, donor, rs):
+        self._try_seat()
         self._load_river()
-        if self.center is not None and self._shift is None:
+        if self.center is not None and self._shift is None and self._pending_row is None:
             self.place(*self.center)                     # a click that landed before the read: pick for it now
+
+    # -- a placed river step (rung C12) --
+    def load_row(self, row):
+        self._from_check = None
+        self._pending_row = row
+        self._try_seat()
+
+    def _seat_row(self, row):
+        rs = self._rs()
+        at = tuple(float(v) for v in row["at"])
+        if rs is None:                                   # the river's shape: about fifteen seconds, once
+            self.center, self._shift = at, None
+            return False
+        s = next((s for s in rs.shifts if self.FE.offset_of(s) == at), None)
+        if s is None:
+            raise ValueError(f"its placement {at[0]:g}, {at[1]:g} is not one the river fits on open ocean")
+        self._shift = s
+        self.center = self.FE.centre(rs, s)
+        self.to_lbl.setText(f"To {at[0]:g}, {at[1]:g}")
+        self._handles_changed()
+        return True
+
+    def _said_back(self, row, mine=None):
+        """Where the river stands is a read of its own (the draft's ledger): the placement is held to the row at once,
+        and ``move_from`` when that read is in."""
+        strip = (lambda r: {k: v for k, v in r.items() if k != "move_from"})
+        super()._said_back(strip(row), strip(self._place_row()))
+        self._from_check = row
+        self._check_from()
+
+    def _place_row(self):
+        """The row the placement alone builds (where the river is moved from left out)."""
+        from ..world import recipe as RC
+        return RC.row_for(self.FE.command("-", self._shift or (0, 0), dry_run=False))
+
+    def _check_from(self):
+        row = self._from_check
+        if row is None or self._river is None:
+            return
+        self._from_check = None
+        at = self.river_at()
+        have = [*self.FE.offset_of(at)] if at is not None else None
+        want = [float(v) for v in row["move_from"]] if row.get("move_from") else None
+        if have != want:
+            where = f"at {have[0]:g}, {have[1]:g}" if have else "nowhere"
+            raise ValueError(f"the draft before it holds the river {where}, not where the step moved it from")
 
     def _on_bg(self, what, serial, result, err):
         if what != "river":
@@ -127,6 +179,12 @@ class RiverTool(CarryTool):
         if target != self.target() or self._river is not None:
             return                                       # a read of a folder the tool no longer judges
         self._river = (target, at, held)
+        try:
+            self._check_from()
+        except ValueError as e:
+            if self._editing is not None:
+                self._refuse_edit(str(e))
+                return
         self._sync_from()
         self._redraw()
         if self.center is not None and self._job is None and self._current_verdict() is None:

@@ -155,6 +155,9 @@ def test_a_click_picks_the_step_placed_nearest_it_on_the_block_it_changed():
     assert RC.step_at(steps, 700.0, -300.0) == 3        # the sea where the sunk island was
     assert RC.step_at(steps, 400.0, -400.0) is None
     assert RC.step_at(steps, 26.0 + 1536.0, -26.0) == 0     # the world wraps
+    river = {"row": {"table": "river", "at": [512.0, 192.0], "move_from": [512.0, 128.0]}, "cells": [[0, 10], [23, 11]]}
+    assert RC.anchor(river["row"]) is None              # its at is the carry's translation, not a place on the map
+    assert RC.step_at(steps + [river], 20.0, -650.0) == 4 and RC.step_at(steps + [river], 1500.0, -720.0) == 4
 
 
 # ---------------------------------------------------------------- the World tab: pick, edit, delete (THE C9 ACCEPTANCE)
@@ -310,7 +313,12 @@ def test_every_editable_card_opens_on_its_row_and_says_it_back(monkeypatch, tmp_
         tool.close_tool()
     with pytest.raises(ValueError, match="not one the card lists"):
         doc.open_forest(sync=True).load_row({"table": "forest", "center": [0.0, 0.0], "donor": "99,99"})
-    assert set(RC.EDITABLE_TABLES) == set(doc.EDIT_CARDS)
+    # THE SAID-BACK LAW (rung C12): an edit opens only on a row its card builds again, key for key -- a hand-written
+    # centre off the editor's 0.1u grid would otherwise move the shape before the author touched a handle
+    with pytest.raises(ValueError, match="would not say its center back as the step has it"):
+        doc.open_hill(sync=True).edit_row({"table": "hill", "center": [26.04, -26.0]}, label="hill",
+                                          on_accepted=lambda: None, on_cancel=lambda note=None: None)
+    assert set(RC.EDITABLE_TABLES) == set(doc.EDIT_CARDS) == set(RC.EDITOR_TABLES)    # every table the editor writes
 
 
 def test_a_second_draft_promotes_after_another_draft_of_the_folder_promoted_and_reverted(monkeypatch, tmp_path):

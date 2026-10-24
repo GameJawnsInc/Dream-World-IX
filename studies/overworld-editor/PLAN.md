@@ -142,6 +142,11 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C12, EVERY STEP EDITABLE: BUILT (2026-10-24)** -> [`C12.md`](C12.md). The sink, coast and river cards open on a
+  placed step's row, as C9's do: each holds the row until its read is in (island list, block windows, river shape),
+  and every card must say the row back key for key or the edit refuses. Real bytes: a sink moved to another
+  island, a cliff bump 2 -> 1.5, the river move reopened, each I1 == world-fuse over 1,751 files. Found: an
+  open-sea click recursed in the sink card, the coast card's stale "already edited", a river step's pin and pick.
 - **C11, FASTER RE-RUNS: BUILT (2026-10-24)** -> [`C11.md`](C11.md). Island, carry and sink steps get a measured
   read window (`recipe.replay_window`: footprint or rect or own cells, plus the ring round them), held to what the
   verbs really read by an install-gated fence; so after an edit they replay instead of running again. Real bytes:

@@ -160,3 +160,41 @@ def test_the_menu_opens_the_river_card(app, tmp_path):
     doc = WorldDoc(pick_palette("dark"))
     assert doc.tool_actions["river"].text() == "Move the river"
     assert "world-river --move-from" in doc.tool_actions["river"].toolTip()
+
+
+# ---------------------------------------------------------------- editing a placed river step (rung C12)
+MOVE = {"table": "river", "at": [512.0, 192.0], "move_from": [512.0, 128.0]}
+
+
+def test_the_river_card_opens_on_a_move_and_holds_where_it_moved_from(app, tmp_path):
+    tool, _run, _panel, _reads = _card(tmp_path / "a")
+    tool.open_tool()
+    tool.load_row(MOVE)
+    assert tool._shift == (8, -3) and tool.row() == MOVE and tool.to_lbl.text() == "To 512, 192"
+    with pytest.raises(ValueError, match="its placement 0, 0 is not one the river fits on open ocean"):
+        tool.load_row({"table": "river", "at": [0.0, 0.0]})
+    tool, _run, _panel, _reads = _card(tmp_path / "b", at=(9, 0))      # the draft holds it somewhere else
+    tool.open_tool()
+    with pytest.raises(ValueError, match="the draft before it holds the river at 576, 0, not where the step moved it"):
+        tool.edit_row(MOVE, label="move", on_accepted=lambda: None, on_cancel=lambda note=None: None)
+    tool, _run, _panel, _reads = _card(tmp_path / "c", at=None)        # a plain carry: no river before it
+    tool.open_tool()
+    tool.load_row({"table": "river", "at": [576.0, 0.0]})
+    assert tool.row() == {"table": "river", "at": [576.0, 0.0]}
+
+
+def test_a_river_edit_whose_move_from_is_not_where_the_river_stands_is_cancelled_when_that_read_comes(app, tmp_path):
+    """Where the river stands is read on a worker: the edit opens on the placement at once, and the row's move_from
+    is held to that read when it comes (a different one cancels the edit with the reason)."""
+    notes = []
+    tool, _run, _panel, _reads = _card(tmp_path, at=(9, 0))
+    tool.open_tool()                                    # the shape in (once per card)
+    tool._river = None                                  # an undo moved the draft: where it stands is read again
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))
+    tool.edit_row(MOVE, label="move", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    assert tool.editing() and tool._shift == (8, -3) and notes == []
+    (what, fn), = [h for h in held if h[0] == "river"]
+    tool._on_bg(what, 0, fn(), None)
+    assert notes == ["Not opened in its card: the draft before it holds the river at 576, 0, not where the step moved "
+                     "it from. Delete still works."] and not tool.editing() and tool.isHidden()

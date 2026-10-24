@@ -17,8 +17,9 @@ import tomllib
 
 #: The tables the editor writes (the rest of a recipe it composes and lists, but does not edit).
 EDITOR_TABLES = ("forest", "mountain", "hill", "sink", "morph", "island", "transplant", "river")
-#: The tables whose placed steps a card can open again, on the row's own handles (rung C9); any step can be deleted.
-EDITABLE_TABLES = ("forest", "mountain", "hill", "island", "transplant")
+#: The tables whose placed steps a card can open again, on the row's own handles (rungs C9, C12: every table the
+#: editor writes); any step can be deleted.
+EDITABLE_TABLES = ("forest", "mountain", "hill", "island", "transplant", "sink", "morph", "river")
 
 HEADER = ("# Dream World IX overworld recipe, written by the World tab.\n"
           "# Compose it onto a mod folder with:  ff9mapkit world-fuse <this file> --mod-folder <folder>\n")
@@ -251,8 +252,8 @@ def row_cells(row: dict) -> list:
 
 
 def anchor(row: dict):
-    """The world ``(x, z)`` a row is placed at: a shape's centre, a river's or a sink's point, a carry's target rect's
-    middle, a morph's block centre; None for a row that names none."""
+    """The world ``(x, z)`` a row is placed at: a shape's centre, a sink's point, a carry's target rect's middle, a
+    morph's block centre; None for a row that names none (a river: a click on any block it changed picks it)."""
     table = row.get("table")
     if table == "transplant" and row.get("cell"):
         from .transplantedit import tsize
@@ -262,6 +263,8 @@ def anchor(row: dict):
     if table == "morph" and row.get("cell"):
         c = row["cell"]
         return 64.0 * c[0] + 32.0, -(64.0 * c[1] + 32.0)
+    if table == "river":
+        return None                    # its ``at`` is the carry's translation, not a place on the map: any block of it
     pt = row.get("center") or row.get("at") or row.get("near")
     return (float(pt[0]), float(pt[1])) if pt else None
 
