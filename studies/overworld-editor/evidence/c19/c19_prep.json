@@ -1,0 +1,45 @@
+{
+ "t": "2026-10-24 18:36:33",
+ "H": [
+  64.0,
+  -512.0
+ ],
+ "H2": [
+  64.0,
+  -504.0
+ ],
+ "rows": [
+  {
+   "table": "hill",
+   "center": [
+    64.0,
+    -504.0
+   ]
+  }
+ ],
+ "jobs": [
+  "world-promote --revert",
+  "world-hill",
+  "world-hill",
+  "world-hill",
+  "world-promote"
+ ],
+ "text": "Edited step 1: hill h4.2 r18 at 64, -512 is now hill h4.2 r18 at 64, -504. Promoted into FF9CustomMap-world again: the game shows it on its next world load.",
+ "edit_s": 35.5,
+ "said_back": true,
+ "out_of_game_while_open": true,
+ "I1": {
+  "identical": true,
+  "differing": [],
+  "files": 999
+ },
+ "L1": {
+  "files": 72,
+  "bytes_mismatch": [],
+  "hill_tagged": 40
+ },
+ "R1": {
+  "revert_rc": 0,
+  "differing_from_snapshot": []
+ }
+}

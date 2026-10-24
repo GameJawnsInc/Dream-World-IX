@@ -142,6 +142,10 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C19, EDIT A STEP IN THE GAME: BUILT (2026-10-24)** -> [`C19.md`](C19.md). Edit / Delete on a promoted step chain
+  revert (newest first) -> C9's edit -> promote again on Accept or Cancel; a later revert refusing promotes straight
+  back. Real bytes on the live install: live disc 1 == the edited recipe on the snapshot over 999 files, every one of
+  72 files at the changed blocks ledgered true, and a final revert leaves the folder exactly as it was.
 - **C18, THE GAME'S FOG: BUILT (2026-10-24)** -> [`C18.md`](C18.md). Measured from C7's nine stills (the shaders are
   compiled): linear in view depth 15 -> 61u, +2.75u per unit of height (the Mist is a ground fog), the weather
   table's daylight fogDW; held-out spot rmse 0.051-0.066 vs 0.71-0.83 unfogged. Mist follows the story (scenario
