@@ -17,8 +17,9 @@ import tomllib
 
 #: The tables the editor writes (the rest of a recipe it composes and lists, but does not edit).
 EDITOR_TABLES = ("forest", "mountain", "hill", "sink", "morph", "island", "transplant", "river")
-#: The tables whose placed steps a card can open again, on the row's own handles (rung C9); any step can be deleted.
-EDITABLE_TABLES = ("forest", "mountain", "hill", "island", "transplant")
+#: The tables whose placed steps a card can open again, on the row's own handles (rungs C9, C12: every table the
+#: editor writes); any step can be deleted.
+EDITABLE_TABLES = ("forest", "mountain", "hill", "island", "transplant", "sink", "morph", "river")
 
 HEADER = ("# Dream World IX overworld recipe, written by the World tab.\n"
           "# Compose it onto a mod folder with:  ff9mapkit world-fuse <this file> --mod-folder <folder>\n")
@@ -251,8 +252,8 @@ def row_cells(row: dict) -> list:
 
 
 def anchor(row: dict):
-    """The world ``(x, z)`` a row is placed at: a shape's centre, a river's or a sink's point, a carry's target rect's
-    middle, a morph's block centre; None for a row that names none."""
+    """The world ``(x, z)`` a row is placed at: a shape's centre, a sink's point, a carry's target rect's middle, a
+    morph's block centre; None for a row that names none (a river: a click on any block it changed picks it)."""
     table = row.get("table")
     if table == "transplant" and row.get("cell"):
         from .transplantedit import tsize
@@ -262,6 +263,8 @@ def anchor(row: dict):
     if table == "morph" and row.get("cell"):
         c = row["cell"]
         return 64.0 * c[0] + 32.0, -(64.0 * c[1] + 32.0)
+    if table == "river":
+        return None                    # its ``at`` is the carry's translation, not a place on the map: any block of it
     pt = row.get("center") or row.get("at") or row.get("near")
     return (float(pt[0]), float(pt[1])) if pt else None
 
@@ -282,7 +285,48 @@ def step_at(steps, x: float, z: float):
     return None if best is None else best[1]
 
 
+def _ring(cells) -> set:
+    """``cells`` and the eight blocks round each (columns wrap; rows stop at the map's edge)."""
+    return {((bx + dx) % 24, by + dy) for bx, by in cells for dx in (-1, 0, 1) for dy in (-1, 0, 1)
+            if 0 <= by + dy < 20}
+
+
 def replay_window(step: dict) -> set:
-    """The blocks a step's verb may have read and written: its row's read window and the cells it changed. The step
-    replays from its record (``draft.replay``) only while none of them is dirty."""
-    return set(row_cells(step["row"])) | {tuple(c) for c in step.get("cells") or ()}
+    """The blocks a step's verb may have READ and written: the step replays from its record (``draft.replay``) only
+    while none of them is dirty. MEASURED, not assumed (rung C11: every file opened, every existence check and every
+    listing a real run makes under the folder it edits, `tests/test_worldedit.py` holding each verb to its window
+    on real bytes):
+
+    * forest, mountain, hill: the row's read window (``row_cells``: the verb's own reach) and its cells;
+    * island: its footprint (the ring the mint draws for its seed) and the eight blocks round each -- the mint
+      checks its neighbours, across the seam too;
+    * transplant: its target rect (turned) and the ring round it -- the carry reads its neighbours' coasts;
+    * sink: the blocks it changed (its island, every block of which it writes) and the ring round them;
+    * coast morph: its own block, no ring (rung C13) -- the in-place morph keeps the block's frame byte for byte, so
+      its neighbours weld to an unchanged edge and it never reads them (a held neighbour, measured, went unread);
+    * river: the blocks it changed, no ring (C13) -- its new placement, and a move's old one; it composes from stock
+      and reads the folder only at its own cells (four held neighbours, measured, went unread);
+    * anything else: the whole world, so it always runs again after an edit.
+
+    The cells the step changed are always in it."""
+    row = step["row"]
+    table = row.get("table")
+    cells = {tuple(c) for c in step.get("cells") or ()}
+    if table in ("forest", "mountain", "hill"):
+        return set(row_cells(row)) | cells
+    if table == "island" and row.get("center"):
+        from . import islandedit as IE
+        ring = IE.outline(tuple(row["center"]), radius=float(row.get("radius", 24.0)), seed=float(row["seed"]),
+                          lobes=int(row.get("lobes", 1)))
+        return _ring({(bx % 24, by) for bx, by in IE.footprint(ring)} | cells)
+    if table == "transplant" and row.get("cell"):
+        from .transplantedit import cells as rect
+        return _ring(set(rect(tuple(row["cell"]), tuple(row.get("size") or (1, 1)), int(row.get("rot") or 0)))
+                     | cells)
+    if table == "sink":
+        return _ring(cells)
+    if table == "morph" and row.get("cell"):
+        return {(int(row["cell"][0]) % 24, int(row["cell"][1]))} | cells
+    if table == "river" and cells:
+        return cells
+    return set(row_cells(row)) | cells

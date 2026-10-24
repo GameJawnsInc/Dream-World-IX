@@ -1,0 +1,128 @@
+{
+ "t": "2026-10-24 14:05:30",
+ "H": [
+  56.0,
+  -440.0
+ ],
+ "H2": [
+  48.0,
+  -440.0
+ ],
+ "M": {
+  "cell": [
+   5,
+   15
+  ],
+  "verb": "cliff-bump",
+  "depth": 2.0
+ },
+ "R": [
+  [
+   8,
+   -3
+  ],
+  [
+   8,
+   -2
+  ]
+ ],
+ "accept_s": {
+  "H": 7.8,
+  "M": 7.8,
+  "R": 32.8
+ },
+ "rows0": [
+  {
+   "table": "hill",
+   "center": [
+    56.0,
+    -440.0
+   ]
+  },
+  {
+   "table": "morph",
+   "cell": [
+    5,
+    15
+   ],
+   "verb": "cliff-bump",
+   "window": [
+    [
+     336.0,
+     -1024.0
+    ],
+    [
+     384.0,
+     -982.0234
+    ]
+   ],
+   "depth": 2.0
+  },
+  {
+   "table": "river",
+   "at": [
+    512.0,
+    128.0
+   ],
+   "move_from": [
+    512.0,
+    192.0
+   ]
+  }
+ ],
+ "rows": [
+  {
+   "table": "hill",
+   "center": [
+    48.0,
+    -440.0
+   ]
+  },
+  {
+   "table": "morph",
+   "cell": [
+    5,
+    15
+   ],
+   "verb": "cliff-bump",
+   "window": [
+    [
+     336.0,
+     -1024.0
+    ],
+    [
+     384.0,
+     -982.0234
+    ]
+   ],
+   "depth": 2.0
+  },
+  {
+   "table": "river",
+   "at": [
+    512.0,
+    128.0
+   ],
+   "move_from": [
+    512.0,
+    192.0
+   ]
+  }
+ ],
+ "edit": {
+  "jobs": [
+   "world-hill",
+   "world-hill"
+  ],
+  "text": "Edited step 1: hill h4.2 r18 at 56, -440 is now hill h4.2 r18 at 48, -440. The 2 steps after it are back on top (2 as they were, 0 composed again on the new ground).",
+  "s": 7.0
+ },
+ "R0": true,
+ "I1": {
+  "identical": true,
+  "differing": [],
+  "files": 1739
+ },
+ "compose_s": 48.9,
+ "draft": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\studies\\overworld-editor\\out\\c13_lab\\drafts\\FF9CustomMap-world.draft"
+}

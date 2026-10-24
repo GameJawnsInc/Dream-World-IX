@@ -5568,12 +5568,17 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
 
 
 def _parse_world_point(args) -> tuple:
-    """(point, exact) from --center / --near (one required)."""
+    """(point, exact) from --center / --near (one required), FOLDED into the mapped window (``frames.wrap_world_xz``).
+    THE ONE SPELLING (rung C10): the relief verbs read their window round the point as given, and a point spelled
+    1536u off (x -2 for x 1534) read the island in a frame 1536u away, whose float rounding wrote other bytes at the
+    seam (c10_lab: one Terrain file of six). Folded first, both spellings are one carve -- the island lane's own law
+    (island.landmass canonicalizes its centre)."""
+    from .world.frames import wrap_world_xz
     if getattr(args, "center", None):
         wx, wz = (float(v) for v in args.center.split(","))
-        return (wx, wz), True
+        return wrap_world_xz(wx, wz), True
     wx, wz = (float(v) for v in args.near.split(","))
-    return (wx, wz), False
+    return wrap_world_xz(wx, wz), False
 
 
 def _cmd_world_forest(args: argparse.Namespace) -> int:

@@ -10,6 +10,7 @@ from ff9mapkit.world import draft as D
 from ff9mapkit.world import recipe as RC
 
 from .test_world_forestedit import _fake_mirror, _game, _mod, _no_real_install  # noqa: F401
+from .test_worldcoast import REAL_GAME  # noqa: E402  (resolved at import, before the install guard closes)
 from .test_worldrecipe import T00, T10, _tree
 
 FAR = "FF9_Data/WorldMap/Disc1/0_1/r5/Block[10][5] Terrain.ff9mesh"
@@ -154,6 +155,9 @@ def test_a_click_picks_the_step_placed_nearest_it_on_the_block_it_changed():
     assert RC.step_at(steps, 700.0, -300.0) == 3        # the sea where the sunk island was
     assert RC.step_at(steps, 400.0, -400.0) is None
     assert RC.step_at(steps, 26.0 + 1536.0, -26.0) == 0     # the world wraps
+    river = {"row": {"table": "river", "at": [512.0, 192.0], "move_from": [512.0, 128.0]}, "cells": [[0, 10], [23, 11]]}
+    assert RC.anchor(river["row"]) is None              # its at is the carry's translation, not a place on the map
+    assert RC.step_at(steps + [river], 20.0, -650.0) == 4 and RC.step_at(steps + [river], 1500.0, -720.0) == 4
 
 
 # ---------------------------------------------------------------- the World tab: pick, edit, delete (THE C9 ACCEPTANCE)
@@ -309,7 +313,12 @@ def test_every_editable_card_opens_on_its_row_and_says_it_back(monkeypatch, tmp_
         tool.close_tool()
     with pytest.raises(ValueError, match="not one the card lists"):
         doc.open_forest(sync=True).load_row({"table": "forest", "center": [0.0, 0.0], "donor": "99,99"})
-    assert set(RC.EDITABLE_TABLES) == set(doc.EDIT_CARDS)
+    # THE SAID-BACK LAW (rung C12): an edit opens only on a row its card builds again, key for key -- a hand-written
+    # centre off the editor's 0.1u grid would otherwise move the shape before the author touched a handle
+    with pytest.raises(ValueError, match="would not say its center back as the step has it"):
+        doc.open_hill(sync=True).edit_row({"table": "hill", "center": [26.04, -26.0]}, label="hill",
+                                          on_accepted=lambda: None, on_cancel=lambda note=None: None)
+    assert set(RC.EDITABLE_TABLES) == set(doc.EDIT_CARDS) == set(RC.EDITOR_TABLES)    # every table the editor writes
 
 
 def test_a_second_draft_promotes_after_another_draft_of_the_folder_promoted_and_reverted(monkeypatch, tmp_path):
@@ -333,3 +342,212 @@ def test_a_second_draft_promotes_after_another_draft_of_the_folder_promoted_and_
     rec = D.promote(edited, game=game, log=lambda *a: None)
     assert rec["promoted"] == [T00] and rec["relabelled"] == []
     assert (src / T00).read_bytes() == b"the edit"
+
+
+def test_an_opened_recipe_can_be_edited_the_manifest_does_not_refuse_the_put_back(monkeypatch, tmp_path, app):
+    """world-fuse refuses to compose over files its world_manifest.json recorded and that have since changed (THE
+    MANIFEST DRIFT GATE, for a live folder another session may have written). In a draft they change by design: an
+    edit undoes the steps and the card writes the moved shape. So after Open recipe (every row a world-fuse job,
+    every file recorded), an edit's put-back refused on its own draft until the editor's world-fuse jobs waived
+    that gate there (the ownership refusal at the write seam still stands)."""
+    game, doc, _run, draft = _placed(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    rows0 = D.recipe_rows(draft)
+    saved = tmp_path / "three.toml"
+    saved.write_text(RC.dumps(rows0), encoding="utf-8")
+    bar._open_path_fn = lambda: saved
+    bar.open_btn.click()                                # a fresh draft, one world-fuse job per row
+    assert D.recipe_rows(draft) == rows0 and (draft / "FF9_Data" / "WorldMap" / "world_manifest.json").is_file()
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    forest = doc._forest
+    forest.drop_at(30.0, -30.0)
+    forest._timer.stop()
+    forest._check()
+    forest.accept_btn.click()
+    assert bar.status_lbl.property("state") == "ok", bar.status_lbl.text()
+    rows = D.recipe_rows(draft)
+    assert rows == [{**rows0[0], "center": [30.0, -30.0]}] + rows0[1:]
+    assert _tree(draft) == _compose(game, rows, "Hand")
+
+
+# ---------------------------------------------------------------- the read windows (rung C11)
+def test_each_table_s_read_window():
+    """An island's footprint and its ring, a carry's turned rect and its ring, a sink's own cells and their ring --
+    wrapping at x = 0 -- and the whole world for the tables not measured."""
+    from ff9mapkit.world import islandedit as IE
+    isl = {"table": "island", "center": [32.0, -160.0], "seed": 5.0}
+    foot = {(bx % 24, by) for bx, by in IE.footprint(IE.outline((32.0, -160.0), radius=24.0, seed=5.0))}
+    w = RC.replay_window({"row": isl, "cells": [[0, 2]]})
+    assert foot <= w and (23, 2) in w and (1, 3) in w and len(w) < 30
+    carry = {"table": "transplant", "cell": [20, 0], "donor": [9, 5], "size": [2, 3], "rot": 90}
+    w = RC.replay_window({"row": carry, "cells": [[20, 0]]})
+    assert {(x, y) for x in range(19, 24) for y in range(0, 3)} == w          # 3x2 turned, its ring, row 0 the edge
+    w = RC.replay_window({"row": {"table": "transplant", "cell": [0, 5], "donor": [7, 17]}, "cells": [[0, 5]]})
+    assert w == {((0 + dx) % 24, 5 + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)} and (23, 4) in w
+    w = RC.replay_window({"row": {"table": "sink", "at": [679.0, -386.7]}, "cells": [[10, 5], [10, 6]]})
+    assert w == {(x, y) for x in (9, 10, 11) for y in (4, 5, 6, 7)}
+    # rung C13: a coast morph its own block (no ring: it keeps the block's frame); a river the blocks it changed
+    assert RC.replay_window({"row": {"table": "morph", "cell": [3, 4]}, "cells": [[3, 4]]}) == {(3, 4)}
+    assert RC.replay_window({"row": {"table": "morph", "cell": [3, 4]}, "cells": []}) == {(3, 4)}
+    mv = [[0, 10], [0, 11], [23, 11], [1, 14]]
+    assert RC.replay_window({"row": {"table": "river", "at": [512.0, 128.0], "move_from": [512.0, 192.0]},
+                             "cells": mv}) == {tuple(c) for c in mv}
+    assert len(RC.replay_window({"row": {"table": "river", "at": [512.0, 128.0]}, "cells": []})) == 480  # unknown
+
+
+# ---------------------------------------------------------------- the windows hold what the verbs read (real bytes)
+def _reads(monkeypatch, root):
+    """Every file opened, every existence check, every listing and every glob under ``root``, as the blocks they
+    name (a listing names none: a row directory)."""
+    import builtins
+    import io
+    import os
+    import pathlib
+    import re
+    seen = []
+    low = str(root).lower()
+
+    def note(p):
+        try:
+            s = os.fsdecode(p)
+        except TypeError:
+            return
+        if low in s.lower().replace("/", "\\"):
+            seen.append(s)
+    for mod, name in ((builtins, "open"), (io, "open"), (os, "stat"), (os, "lstat"), (os, "scandir"),
+                      (os, "listdir"), (os.path, "exists"), (os.path, "isfile"), (os.path, "isdir")):
+        real = getattr(mod, name)
+
+        def wrap(p=None, *a, _real=real, **k):
+            if p is not None:
+                note(p)
+            return _real(p, *a, **k) if p is not None else _real(*a, **k)
+        monkeypatch.setattr(mod, name, wrap)
+    for name in ("glob", "rglob"):
+        real = getattr(pathlib.Path, name)
+
+        def gwrap(self, pattern, *a, _real=real, **k):
+            note(str(self) + "/" + pattern)
+            return _real(self, pattern, *a, **k)
+        monkeypatch.setattr(pathlib.Path, name, gwrap)
+    blk = re.compile(r"Block\[\[?\]?(\d+)\[?\]?\]\[\[?\]?(\d+)")
+
+    def blocks():
+        out = set()
+        for s in seen:
+            m = blk.search(s.replace("[[]", "[").replace("[]]", "]"))
+            if m:
+                out.add((int(m.group(1)), int(m.group(2))))
+        return out
+    return seen, blocks
+
+
+def test_on_real_bytes_an_island_a_carry_a_sink_a_morph_and_a_river_read_only_their_window(monkeypatch, tmp_path):
+    """THE C11 FENCE (C13: the morph and the river too): each verb, run for real on its own draft of the real FF9CustomMap-world at a target its card
+    calls lawful, reads no block of that draft outside ``recipe.replay_window`` -- so a step whose window no edit
+    touched may replay from its record. A verb that starts reading wider goes red here."""
+    if REAL_GAME is None or not (REAL_GAME / "FF9CustomMap-world").is_dir():
+        import warnings
+        warnings.warn("the read windows went unchecked on real bytes: no FF9 install + UnityPy + FF9CustomMap-world. "
+                      "Re-run in the MAIN repo (C:/gd/Dream-World-IX/ff9mapkit).", UserWarning)
+        pytest.skip("needs the FF9 install + UnityPy + FF9CustomMap-world")
+    import json
+    from pathlib import Path
+    from ff9mapkit import cli
+    from ff9mapkit.world import islandedit as IE
+    from ff9mapkit.world import mesh as M
+    from ff9mapkit.world import river as RV
+    from ff9mapkit.world import sinkedit as SE
+    from ff9mapkit.world import transplantedit as TE
+    src = REAL_GAME / "FF9CustomMap-world"
+    land = IE.stock_land(game=REAL_GAME)
+    probe = D.ensure_draft(src, game=REAL_GAME, root=tmp_path / "probe")
+    stack = [str(probe)] + [str(REAL_GAME / f) for f in RV.stack_folders(REAL_GAME) if f != src.name]
+
+    def occupied(blocks):
+        return {tuple(b): ["x"] for b in blocks
+                if any(M.existing_overrides([tuple(b)], fo, disc=d, game=REAL_GAME) for fo in stack for d in (1, 4))}
+    cases = []
+    c = next(((64.0 * bx + 32.0, -(64.0 * by + 32.0)) for by in range(2, 18) for bx in range(24)
+              if IE.preview(IE.outline((64.0 * bx + 32.0, -(64.0 * by + 32.0)), radius=24.0, seed=5.0),
+                            land=land, occupied=occupied)["ok"]), None)
+    if c is not None:
+        cases.append(("island", IE.command("D", c, seed=5.0, dry_run=False)))
+    cell = next(((bx, by) for by in range(2, 18) for bx in range(24)
+                 if TE.preview((bx, by), land=land, occupied=occupied)["ok"]), None)
+    if cell is not None:
+        cases.append(("transplant", TE.command("D", cell, (7, 17), dry_run=False)))
+    unit = next(((bx, by) for by in range(2, 17) for bx in range(24)
+                 if TE.preview((bx, by), land=land, occupied=occupied, size=(1, 2))["ok"]), None)
+    if unit is not None:
+        cases.append(("unit", TE.command("D", unit, (10, 17), size=(1, 2), dry_run=False)))
+    row = next((r for r in SE.candidates(REAL_GAME) if SE.verdict(r)["ok"]), None)
+    if row is not None:
+        cases.append(("sink", SE.command("D", tuple(row["at"]), disc=1, dry_run=False)))
+    # rung C13: a coast morph (both its calls, disc 1 then disc 4) on a coastal block no folder holds ...
+    from ff9mapkit.world import coastedit as CE
+    from ff9mapkit.world import riveredit as RE
+    morph, scanned = None, 0
+    for r in SE.candidates(REAL_GAME):
+        for b in r.get("blocks") or []:
+            if morph or scanned >= 16 or occupied([b]):
+                continue
+            scanned += 1
+            morph = next(((tuple(b), w, v) for w in CE.windows(REAL_GAME, tuple(b)) for v in CE.lawful(w)), None)
+    if morph is not None:
+        b, w, verb = morph
+        lo, hi = CE.lawful(w)[verb]
+        cases.append(("morph", CE.commands("D", b, verb, CE.spec(w, verb, hi if hi > 0 else lo))))
+    # ... and the river moved to the first placement no folder holds (its own files left out)
+    rs = RE.shape(game=REAL_GAME)
+    here = RE.placements(rs, str(probe), game=REAL_GAME)
+    if here:
+        at, mine = here[0][0], {Path(p) for p in here[0][1]}
+
+        def held(cells):
+            return any(Path(p) not in mine for fo in stack for d in (1, 4)
+                       for p in M.existing_overrides(cells, fo, disc=d, game=REAL_GAME))
+        to = next((s for s in rs.shifts if not RE.same_shift(s, at) and not held(rs.cells_at(s))), None)
+        if to is not None:
+            cases.append(("river", [RE.command("D", to, move_from=at, dry_run=False)]))
+    assert len(cases) == 6, [k for k, _a in cases]
+    unheld = []
+    for name, calls in cases:
+        calls = calls if isinstance(calls[0], list) else [calls]
+        d = D.ensure_draft(src, game=REAL_GAME, root=tmp_path / name)
+        calls = [[str(d) if a == "D" else a for a in argv] for argv in calls]
+        rep = tmp_path / f"{name}.json"
+        with monkeypatch.context() as mp:
+            seen, blocks = _reads(mp, d)
+            for argv in calls:
+                assert cli.main(["--game", str(REAL_GAME)] + argv + ["--report-json", str(rep)]) == 0, name
+            read = blocks()
+        v = json.loads(rep.read_text(encoding="utf-8"))
+        step = {"row": RC.row_for([a if a != str(d) else "-" for a in calls[0]]),
+                "cells": [list(b[1:]) for b in D.edited_blocks(d) if b[0] == 1] or v.get("blocks") or []}
+        window = RC.replay_window(step)
+        assert read, (name, seen[:5])                     # the recorder saw the verb's reads at all
+        assert read <= window, (name, sorted(read - window), sorted(window))
+        if name in ("morph", "river"):                    # a ringless window means something only where a ring is held
+            cells = {tuple(c) for c in step["cells"]}
+            if not any(occupied([c]) for c in RC._ring(cells) - cells):
+                unheld.append(name)
+    if unheld:
+        import warnings
+        warnings.warn(f"no neighbour of the {', '.join(unheld)} step is held on the real folder: its ringless window "
+                      "was not put to the test", UserWarning)
+
+
+@pytest.mark.skipif(__import__("os").name != "nt", reason="the sharing violation is Windows'")
+def test_an_undo_waits_for_a_reader_that_holds_a_file_open(tmp_path):
+    """An Edit clicked while a card still reads the island it just accepted (a worker thread holds a draft file
+    open) raced its own undo: Windows refuses to delete an open file. The undo waits for it (c11_lab)."""
+    import threading
+    _g, _s, d = _draft(tmp_path)
+    new = "FF9_Data/WorldMap/Disc1/0_1/r0/Block[0][0] Object.ff9mesh"
+    _step(d, [(0, 0)], {new: b"an object the step made"}, _row(26, -26), "forest one")
+    f = open(d / new, "rb")                             # the reader
+    threading.Timer(0.4, f.close).start()
+    D.undo(d)                                           # it must delete the file the step made
+    assert not (d / new).exists() and D.history(d)["cursor"] == 0

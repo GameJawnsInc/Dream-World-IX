@@ -271,3 +271,72 @@ def test_the_card_s_calls_write_what_the_hand_typed_calls_and_the_recipe_write(t
     ed = _bytes(drafts[0])
     assert ed == _bytes(drafts[1]) == _bytes(composed)
     assert any("Disc4" in k and "Block[2][7]" in k for k in D.edits(drafts[0]))   # the draft's own disc-4 step
+
+
+# ---------------------------------------------------------------- editing a placed morph (rung C12)
+def _morph_row(window, verb, depth):
+    return RC.row_for(CE.command("-", (3, 8), verb, CE.spec(window, verb, depth), dry_run=False))
+
+
+def test_the_held_window_keeps_a_tie():
+    twin = {**CLIFF, "probes": dict(CLIFF["probes"])}   # the same run, listed first
+    assert CE.nearest([twin, CLIFF], 205.0, -520.0) is twin
+    assert CE.nearest([twin, CLIFF], 205.0, -520.0, prefer=CLIFF) is CLIFF
+    assert CE.nearest([twin, CLIFF], 236.0, -567.0, prefer=CLIFF) is None     # nothing near: not kept for itself
+    x, z = CE.anchor(CLIFF, "cliff-bump")
+    assert CE.nearest([BEACH, CLIFF], x, z) is CLIFF and CE._on_run(CLIFF, x, z)[0] < 1e-9     # on its run
+
+
+def test_the_coast_card_opens_on_its_row_and_says_it_back(app, tmp_path):
+    from .test_worldforest import Scripted
+    tool, _p, _g, _s = _card(app, tmp_path, Scripted())
+    for window, verb, depth in ((CLIFF, "cliff-bump", 2.0), (BEACH, "beach-bump", -1.0), (BEACH, "beach-bump", 1.5)):
+        row = _morph_row(window, verb, depth)
+        tool.load_row(row)
+        assert tool.row() == row and tool._window is window and tool.verb() == verb and tool.depth.value() == depth
+    with pytest.raises(ValueError, match=r"not one of block \(3, 8\)'s lawful cliff-bump windows"):
+        tool.load_row({**_morph_row(CLIFF, "cliff-bump", 2.0), "window": [[211.0, -512.0], [192.0, -547.8594]]})
+    with pytest.raises(ValueError, match="depth 3 is outside the window's lawful 0.5 to 2.5"):
+        tool.load_row({**_morph_row(CLIFF, "cliff-bump", 2.0), "depth": 3.0})
+    with pytest.raises(ValueError, match="its morph cliff-shove is not one the card offers"):
+        tool.load_row({**_morph_row(CLIFF, "cliff-bump", 2.0), "verb": "cliff-shove"})
+
+
+def test_a_morph_row_waits_for_its_block_s_windows_and_one_it_cannot_say_cancels_the_edit(app, tmp_path):
+    from .test_worldforest import Scripted
+    notes = []
+    for sub, row, ok in (("a", _morph_row(CLIFF, "cliff-bump", 1.5), True),
+                         ("b", {**_morph_row(CLIFF, "cliff-bump", 1.5), "depth": 9.0}, False)):
+        tool, _p, _g, _s = _card(app, tmp_path / sub, Scripted())
+        held = []
+        tool._bg = lambda what, fn, held=held: held.append((what, fn))     # the windows read on a worker
+        tool.edit_row(row, label="morph", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+        assert tool.editing() and tool._pending_row is row and "Reading block (3, 8)'s coast" in tool.window_lbl.text()
+        (what, fn), = [h for h in held if h[0] == "outline"]
+        tool._on_bg(what, 0, fn(), None)
+        if ok:
+            assert tool._pending_row is None and tool.row() == row and tool.editing() and notes == []
+    assert notes == ["Not opened in its card: its depth 9 is outside the window's lawful 0.5 to 2.5. Delete still "
+                     "works."] and not tool.editing() and tool.isHidden()
+
+
+def test_who_holds_the_block_is_read_again_when_the_draft_moves(app, monkeypatch, tmp_path):
+    """The card read once per block which folders override it: after an undo (or an edit lifting the morph out) the
+    block still read as edited, and the card refused the very morph it had just made (c12_lab, E2)."""
+    from ff9mapkit.world import mesh as M
+    from .test_world_interior import _bm, GRASS, _MAIN_U
+    from .test_worldforest import Scripted
+    stack = []
+    tool, _p, game, _s = _card(app, tmp_path, Scripted(), stack=stack)
+    tool._stack_fn = lambda: list(stack)
+    tool.place(205.0, -521.0)
+    assert tool._edited_by == []
+    M.deploy_override(_bm([(((0, 3.0, 0), (4, 3.0, 0), (0, 3.0, -4)), GRASS, _MAIN_U)], name="Block[3][8] Terrain",
+                          x=3, y=8), mod_folder="Other", game=game, part="Terrain", disc=1)
+    stack.append(str(game / "Other"))
+    tool.island_changed()
+    assert tool._edited_by == ["Other"]
+    stack.clear()
+    tool.island_changed()
+    tool.place(205.0, -521.0)
+    assert tool._edited_by == [] and tool._preview["ok"], tool.verdict_lbl.text()

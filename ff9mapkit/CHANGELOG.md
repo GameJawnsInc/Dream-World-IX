@@ -5,6 +5,42 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — edit a sunk island, a coast change or a river move
+- Every step the World tab places can now be opened again with Edit, not only deleted: a sunk island (pick another
+  island, or change "With its cluster" and "Allow entrances"), a coast change (another stretch of coast, another
+  change, or another depth) and a river move (another free place for it). The steps after it go back on top as
+  before.
+- Edit opens a card only on settings the card can show exactly as the step has them; otherwise it says why, and
+  Delete still works.
+
+### Fixed — World tab
+- Clicking open sea with "Sink an island" open failed with an error instead of saying "Click an island."
+- "Shape a coast" could refuse a coast change it had just made, after an Undo, as "already edited".
+- A picked river move's marker was drawn in the wrong place; it is no longer drawn for a river (a click on any
+  block the river changed picks it).
+
+### Changed — edits are faster
+- After you edit or delete a placed shape, islands, carried coasts and sunk islands placed after it now come back
+  at once instead of being made again, unless the edit touched the ground they stand on. An edit with an island,
+  a carry and a sink after it took 8 seconds instead of about 36.
+- Coast changes and river moves placed after an edit come back at once too: an edit with one of each after it took
+  7 seconds instead of about 50.
+
+### Fixed — editing a shape in a recipe you opened
+- Editing a step of a recipe opened with "Open…" could stop with "exit code 2" when the steps after it were
+  put back. It now works.
+- Clicking Edit right after Accept could stop half way on Windows while the card was still reading the island.
+
+### Added — place forests, mountains and hills across the map's edge
+- The World tab's 3D view now draws the map's east and west edges side by side where they meet, so an island that
+  crosses the edge reads whole, and "Add forest", "Add mountain" and "Add a hill" can place a shape across it.
+- Tested in game: a hill placed across the edge stood at the same height on both sides of it.
+
+### Fixed — one point, one result
+- `world-forest`, `world-mountain`, `world-hill` and their `world-fuse` rows now treat a centre written past the
+  map's edge (x -2) exactly as the same point inside it (x 1534). Before, the two could write slightly different
+  files.
+
 ### Added — change a shape after you placed it
 - In the World tab's 3D view, click a forest, mountain, hill, island or carried coast you placed: the recipe bar
   names it, with Edit and Delete. Edit opens its card on its own settings, so you can drag it, turn it or retune it

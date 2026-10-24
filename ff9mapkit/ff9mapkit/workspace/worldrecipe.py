@@ -237,8 +237,9 @@ class RecipeBar(QWidget):
         steps = self.steps()
         s, after = steps[i], len(steps) - i - 1
         if not self._ask("Delete the step?", f"Take step {i + 1}, {s['label']}, out of the draft's recipe?"
-                         + (f" The {after} step{'s' if after != 1 else ''} after it go back on top (any whose ground "
-                            "changed is composed again by world-fuse)." if after else "")):
+                         + (f" The {after} step{'s' if after != 1 else ''} after it "
+                            f"{'go' if after != 1 else 'goes'} back on top (any whose ground changed is composed again "
+                            "by world-fuse)." if after else "")):
             return
         try:
             e = D.begin_edit(d, i)
@@ -270,16 +271,15 @@ class RecipeBar(QWidget):
             D.begin_step(d, RC.row_cells(s["row"]))
             tmp = Path(tempfile.mkdtemp(prefix="ff9_edit_")) / "row.toml"
             tmp.write_text(RC.dumps_one(dict(s["row"])), encoding="utf-8")
-            argv = [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn()), "world-fuse", str(tmp),
-                    "--mod-folder", str(d)]
+            argv = self._fuse_argv(tmp, d)
             self.refresh()
             self._runner.start(argv, kit_cwd(), lambda code, text, s=s: self._put_back_done(d, s, code, text))
             return
         D.finish_edit(d)
         self._edit = None
         n = e["replayed"] + e["rerun"]
-        back = (f" The {n} step{'s' if n != 1 else ''} after it are back on top ({e['replayed']} as they were, "
-                f"{e['rerun']} composed again on the new ground)." if n else "")
+        back = (f" The {n} step{'s' if n != 1 else ''} after it {'are' if n != 1 else 'is'} back on top "
+                f"({e['replayed']} as they were, {e['rerun']} composed again on the new ground)." if n else "")
         if e["mode"] == "delete":
             self._sel = None
             self._moved(f"Deleted step {e['k'] + 1}, {e['label']}.{back}", "ok")
@@ -412,10 +412,18 @@ class RecipeBar(QWidget):
         D.begin_step(d, RC.row_cells(row))
         tmp = Path(tempfile.mkdtemp(prefix="ff9_recipe_")) / "row.toml"
         tmp.write_text(RC.dumps_one({k: v for k, v in row.items()}), encoding="utf-8")
-        argv = [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn()), "world-fuse", str(tmp),
-                "--mod-folder", str(d)]
+        argv = self._fuse_argv(tmp, d)
         self.refresh()
         self._runner.start(argv, kit_cwd(), lambda code, text: self._row_done(d, row, code, text))
+
+    def _fuse_argv(self, recipe, d):
+        """The world-fuse job that composes one row into the draft ``d``. With ``--allow-overwrite``: THE MANIFEST
+        DRIFT GATE refuses to compose over files its world_manifest.json recorded and that changed since, which in a
+        live folder means another session wrote them; in a draft they change by design (an undo, an edit's lifted
+        steps, a card's Accept), and the draft's history is its record. An edit of an opened recipe refused its own
+        put-back on it. The ownership refusal at the write seam (another session's bytes) still stands."""
+        return [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn()), "world-fuse", str(recipe),
+                "--mod-folder", str(d), "--allow-overwrite"]
 
     def _row_done(self, d, row, code, text):
         from ..world import draft as D
