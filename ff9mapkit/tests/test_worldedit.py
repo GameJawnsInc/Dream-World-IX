@@ -387,8 +387,13 @@ def test_each_table_s_read_window():
     assert w == {((0 + dx) % 24, 5 + dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)} and (23, 4) in w
     w = RC.replay_window({"row": {"table": "sink", "at": [679.0, -386.7]}, "cells": [[10, 5], [10, 6]]})
     assert w == {(x, y) for x in (9, 10, 11) for y in (4, 5, 6, 7)}
-    assert len(RC.replay_window({"row": {"table": "morph", "cell": [3, 4]}, "cells": [[3, 4]]})) == 480
-    assert len(RC.replay_window({"row": {"table": "river", "at": [512.0, 128.0]}, "cells": []})) == 480
+    # rung C13: a coast morph its own block (no ring: it keeps the block's frame); a river the blocks it changed
+    assert RC.replay_window({"row": {"table": "morph", "cell": [3, 4]}, "cells": [[3, 4]]}) == {(3, 4)}
+    assert RC.replay_window({"row": {"table": "morph", "cell": [3, 4]}, "cells": []}) == {(3, 4)}
+    mv = [[0, 10], [0, 11], [23, 11], [1, 14]]
+    assert RC.replay_window({"row": {"table": "river", "at": [512.0, 128.0], "move_from": [512.0, 192.0]},
+                             "cells": mv}) == {tuple(c) for c in mv}
+    assert len(RC.replay_window({"row": {"table": "river", "at": [512.0, 128.0]}, "cells": []})) == 480  # unknown
 
 
 # ---------------------------------------------------------------- the windows hold what the verbs read (real bytes)
@@ -438,8 +443,8 @@ def _reads(monkeypatch, root):
     return seen, blocks
 
 
-def test_on_real_bytes_an_island_a_carry_and_a_sink_read_only_their_window(monkeypatch, tmp_path):
-    """THE C11 FENCE: each verb, run for real on its own draft of the real FF9CustomMap-world at a target its card
+def test_on_real_bytes_an_island_a_carry_a_sink_a_morph_and_a_river_read_only_their_window(monkeypatch, tmp_path):
+    """THE C11 FENCE (C13: the morph and the river too): each verb, run for real on its own draft of the real FF9CustomMap-world at a target its card
     calls lawful, reads no block of that draft outside ``recipe.replay_window`` -- so a step whose window no edit
     touched may replay from its record. A verb that starts reading wider goes red here."""
     if REAL_GAME is None or not (REAL_GAME / "FF9CustomMap-world").is_dir():
@@ -448,6 +453,7 @@ def test_on_real_bytes_an_island_a_carry_and_a_sink_read_only_their_window(monke
                       "Re-run in the MAIN repo (C:/gd/Dream-World-IX/ff9mapkit).", UserWarning)
         pytest.skip("needs the FF9 install + UnityPy + FF9CustomMap-world")
     import json
+    from pathlib import Path
     from ff9mapkit import cli
     from ff9mapkit.world import islandedit as IE
     from ff9mapkit.world import mesh as M
@@ -479,21 +485,58 @@ def test_on_real_bytes_an_island_a_carry_and_a_sink_read_only_their_window(monke
     row = next((r for r in SE.candidates(REAL_GAME) if SE.verdict(r)["ok"]), None)
     if row is not None:
         cases.append(("sink", SE.command("D", tuple(row["at"]), disc=1, dry_run=False)))
-    assert len(cases) == 4, [k for k, _a in cases]
-    for name, argv in cases:
+    # rung C13: a coast morph (both its calls, disc 1 then disc 4) on a coastal block no folder holds ...
+    from ff9mapkit.world import coastedit as CE
+    from ff9mapkit.world import riveredit as RE
+    morph, scanned = None, 0
+    for r in SE.candidates(REAL_GAME):
+        for b in r.get("blocks") or []:
+            if morph or scanned >= 16 or occupied([b]):
+                continue
+            scanned += 1
+            morph = next(((tuple(b), w, v) for w in CE.windows(REAL_GAME, tuple(b)) for v in CE.lawful(w)), None)
+    if morph is not None:
+        b, w, verb = morph
+        lo, hi = CE.lawful(w)[verb]
+        cases.append(("morph", CE.commands("D", b, verb, CE.spec(w, verb, hi if hi > 0 else lo))))
+    # ... and the river moved to the first placement no folder holds (its own files left out)
+    rs = RE.shape(game=REAL_GAME)
+    here = RE.placements(rs, str(probe), game=REAL_GAME)
+    if here:
+        at, mine = here[0][0], {Path(p) for p in here[0][1]}
+
+        def held(cells):
+            return any(Path(p) not in mine for fo in stack for d in (1, 4)
+                       for p in M.existing_overrides(cells, fo, disc=d, game=REAL_GAME))
+        to = next((s for s in rs.shifts if not RE.same_shift(s, at) and not held(rs.cells_at(s))), None)
+        if to is not None:
+            cases.append(("river", [RE.command("D", to, move_from=at, dry_run=False)]))
+    assert len(cases) == 6, [k for k, _a in cases]
+    unheld = []
+    for name, calls in cases:
+        calls = calls if isinstance(calls[0], list) else [calls]
         d = D.ensure_draft(src, game=REAL_GAME, root=tmp_path / name)
-        argv = [str(d) if a == "D" else a for a in argv]
+        calls = [[str(d) if a == "D" else a for a in argv] for argv in calls]
         rep = tmp_path / f"{name}.json"
         with monkeypatch.context() as mp:
             seen, blocks = _reads(mp, d)
-            assert cli.main(["--game", str(REAL_GAME)] + argv + ["--report-json", str(rep)]) == 0, name
+            for argv in calls:
+                assert cli.main(["--game", str(REAL_GAME)] + argv + ["--report-json", str(rep)]) == 0, name
             read = blocks()
         v = json.loads(rep.read_text(encoding="utf-8"))
-        step = {"row": RC.row_for([a if a != str(d) else "-" for a in argv]),
+        step = {"row": RC.row_for([a if a != str(d) else "-" for a in calls[0]]),
                 "cells": [list(b[1:]) for b in D.edited_blocks(d) if b[0] == 1] or v.get("blocks") or []}
         window = RC.replay_window(step)
         assert read, (name, seen[:5])                     # the recorder saw the verb's reads at all
         assert read <= window, (name, sorted(read - window), sorted(window))
+        if name in ("morph", "river"):                    # a ringless window means something only where a ring is held
+            cells = {tuple(c) for c in step["cells"]}
+            if not any(occupied([c]) for c in RC._ring(cells) - cells):
+                unheld.append(name)
+    if unheld:
+        import warnings
+        warnings.warn(f"no neighbour of the {', '.join(unheld)} step is held on the real folder: its ringless window "
+                      "was not put to the test", UserWarning)
 
 
 @pytest.mark.skipif(__import__("os").name != "nt", reason="the sharing violation is Windows'")

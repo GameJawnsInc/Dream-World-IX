@@ -142,6 +142,10 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C13, MORPH AND RIVER REPLAY: BUILT (2026-10-24)** -> [`C13.md`](C13.md). Measured: a coast morph reads only its
+  own block (it keeps the block's frame), a river only the blocks it changes; neither read a held neighbour. So both
+  replay after an edit; the install-gated fence holds them to it. Real bytes: an edited hill with a morph and a
+  river move after it -- 2 replayed, 0 composed, 7.0 s against 48.9 s, == world-fuse over 1,739 files.
 - **C12, EVERY STEP EDITABLE: BUILT (2026-10-24)** -> [`C12.md`](C12.md). The sink, coast and river cards open on a
   placed step's row, as C9's do: each holds the row until its read is in (island list, block windows, river shape),
   and every card must say the row back key for key or the edit refuses. Real bytes: a sink moved to another
