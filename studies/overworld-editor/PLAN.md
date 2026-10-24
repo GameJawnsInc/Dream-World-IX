@@ -141,6 +141,13 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C9, EDITING A PLACED SHAPE: BUILT + IN GAME (2026-10-24)** -> [`C9.md`](C9.md). A click picks the step placed
+  there; Edit opens its own card on its row (the draft undone back to before it, the step and the ones after it
+  lifted out), Delete puts nothing in its place; then each later step goes back on top, replayed from its record
+  where no block it reads changed (the dirty set), else composed again by `world-fuse`; a refusal leaves the draft
+  exactly as it was. On real bytes the edited draft == `world-fuse` of the edited recipe over 1,863 files; in game
+  a hill moved and lowered stood at its new place (6.730, predicted 6.733) and its old place was lawn again. Found:
+  promote's relabel crashed half way after another draft of the folder promoted and reverted (fixed, fenced).
 - **C8, THE GAME CAMERA ON A VEHICLE: BUILT + MEASURED (2026-10-23)** -> [`C8.md`](C8.md). `gamecam` reads each
   mode's type / type_cam from the stack's TransportControls.csv and decodes the flight, boat and forest rules;
   the 3D view's game camera gets a vehicle chooser and a flyer's height. Ten stills on the real vehicles (the
@@ -152,7 +159,9 @@ alone.
   blocks: the ghost by the carry's own region map, the target the turned rect nearest the click, `--size --shift 0,0`,
   a `[[transplant]]` row with `size`. Fixed on the way: the verdict JSON named one block of a unit's rect (Undo would
   have lost the rest). I1/I2 identical over 1,782 files; in game the party stood on the carried comma at 9.551
-  (predicted 9.554), where it had been in open sea. The comma is qualified; the others stay candidates.
+  (predicted 9.554), where it had been in open sea. The comma is qualified. Then the reef and the terminus pair, walked
+  together (`c5v_lab.py`): 9.266 (predicted 9.265, a crystal shard) and 5.039 (predicted 5.044, grass), I1/I2
+  identical over 1,830 files; both qualified. The beach chain stays a candidate: no free 4x2 rect here.
 - **C7, THE GAME'S OWN CAMERA: ANSWERED + BUILT (2026-10-23)** -> [`C7.md`](C7.md). The chase camera decoded from
   Memoria's source (`world/gamecam.py`: posstats, place, the altitude and tilt blends, the terrain lift, the user's
   Memoria.ini [Worldmap]) and measured against nine in-game stills: exact in plan, within the engine's settle bands in

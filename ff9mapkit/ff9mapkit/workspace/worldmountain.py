@@ -138,6 +138,17 @@ class MountainTool(CarryTool):
         ol = self._outlines.get(self.donor())
         return None if ol is None else ol.r_rim * self.spread.value()
 
+    def load_row(self, row):
+        """The massif, its angle, spread and height (the ground and the reach follow the place, as on a click)."""
+        ix = self.donor_box.findData(str(row["donor"]))
+        if ix < 0:
+            raise ValueError(f"its massif {row['donor']} is not one the card lists")
+        self.donor_box.setCurrentIndex(ix)
+        self.angle.setValue(int(round(float(row.get("rot", 0.0)))) % 360)
+        self.spread.setValue(float(row.get("spread", 1.0)))
+        self.rock_height.setValue(float(row.get("rock_height", 1.0)))
+        self.place(*row["center"])
+
     def _cmd(self, target, *, dry_run, report=None):
         r = self._r_placed()
         return self.FE.command(target, self.center, self.donor(), spread=self.spread.value(),

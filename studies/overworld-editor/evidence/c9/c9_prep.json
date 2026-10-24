@@ -1,0 +1,216 @@
+{
+ "t": "2026-10-24 09:45:54",
+ "height": 4.2,
+ "new_height": 3.6,
+ "radius": 18.0,
+ "A": [
+  64.0,
+  -512.0
+ ],
+ "B": [
+  40.0,
+  -472.0
+ ],
+ "C": [
+  144.0,
+  -1056.0
+ ],
+ "A2": [
+  40.0,
+  -528.0
+ ],
+ "placed": {
+  "H1": {
+   "at": [
+    64.0,
+    -512.0
+   ],
+   "check_s": 8.8,
+   "accept_s": 13.6
+  },
+  "H2": {
+   "at": [
+    40.0,
+    -472.0
+   ],
+   "check_s": 9.8,
+   "accept_s": 9.2
+  },
+  "H3": {
+   "at": [
+    144.0,
+    -1056.0
+   ],
+   "check_s": 8.0,
+   "accept_s": 8.1
+  }
+ },
+ "rows0": [
+  {
+   "table": "hill",
+   "center": [
+    64.0,
+    -512.0
+   ]
+  },
+  {
+   "table": "hill",
+   "center": [
+    40.0,
+    -472.0
+   ]
+  },
+  {
+   "table": "hill",
+   "center": [
+    144.0,
+    -1056.0
+   ]
+  }
+ ],
+ "rows": [
+  {
+   "table": "hill",
+   "center": [
+    40.0,
+    -528.0
+   ],
+   "height": 3.6
+  },
+  {
+   "table": "hill",
+   "center": [
+    40.0,
+    -472.0
+   ]
+  },
+  {
+   "table": "hill",
+   "center": [
+    144.0,
+    -1056.0
+   ]
+  }
+ ],
+ "picked": "Step 1 of 3: hill h4.2 r18 at 64, -512.",
+ "open_s": 0.99,
+ "edit": {
+  "check_s": 6.1,
+  "accept_put_back_s": 25.1,
+  "jobs": [
+   "world-hill",
+   "world-hill",
+   "world-fuse"
+  ],
+  "text": "Edited step 1: hill h4.2 r18 at 64, -512 is now hill h3.6 r18 at 40, -528. The 2 steps after it are back on top (1 as they were, 1 composed again on the new ground)."
+ },
+ "orig": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\studies\\overworld-editor\\out\\c9_lab\\orig\\FF9CustomMap-world.draft",
+ "draft": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\studies\\overworld-editor\\out\\c9_lab\\drafts\\FF9CustomMap-world.draft",
+ "edits": [
+  "FF9_Data/WorldMap/Disc1/0_1/r16/Block[1][16] Terrain.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r16/Block[2][16] Terrain.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r7/Block[0][7] Terrain.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r8/Block[0][8] Terrain.ff9mesh"
+ ],
+ "I1": {
+  "identical": true,
+  "differing": [],
+  "files": 1863,
+  "compose_s": 21.4
+ },
+ "I2": {
+  "identical": true,
+  "differing": [],
+  "files": 36
+ },
+ "stack": [
+  "FF9CustomMap",
+  "FF9CustomMap-world",
+  "MoguriMain",
+  "MoguriVideo",
+  "FF9CustomMap-schema",
+  "FF9CustomMap-msgs",
+  "FF9Coop"
+ ],
+ "tolerance": 0.15,
+ "targets": [
+  {
+   "key": "A1",
+   "x": 64.37,
+   "z": -512.29,
+   "predict_y": 7.321804431676869,
+   "part": "Terrain",
+   "topograph": 0,
+   "live_y": 3.200000047683716,
+   "block": [
+    1,
+    8
+   ]
+  },
+  {
+   "key": "K",
+   "x": 326.16,
+   "z": -569.09,
+   "predict_y": 4.286220703125,
+   "part": "Terrain",
+   "topograph": 5,
+   "live_y": 4.286220703125,
+   "block": [
+    5,
+    8
+   ]
+  },
+  {
+   "key": "A2",
+   "x": 64.37,
+   "z": -512.29,
+   "predict_y": 3.200000047683716,
+   "part": "Terrain",
+   "topograph": 0,
+   "live_y": 3.200000047683716,
+   "block": [
+    1,
+    8
+   ]
+  },
+  {
+   "key": "A'",
+   "x": 40.37,
+   "z": -528.29,
+   "predict_y": 6.732975310087208,
+   "part": "Terrain",
+   "topograph": 0,
+   "live_y": 3.2000000476837154,
+   "block": [
+    0,
+    8
+   ]
+  },
+  {
+   "key": "B",
+   "x": 40.37,
+   "z": -472.29,
+   "predict_y": 7.321804431676862,
+   "part": "Terrain",
+   "topograph": 0,
+   "live_y": 3.200000047683716,
+   "block": [
+    0,
+    7
+   ]
+  },
+  {
+   "key": "C",
+   "x": 144.37,
+   "z": -1056.29,
+   "predict_y": 7.121804155111316,
+   "part": "Terrain",
+   "topograph": 0,
+   "live_y": 3.0,
+   "block": [
+    2,
+    16
+   ]
+  }
+ ]
+}

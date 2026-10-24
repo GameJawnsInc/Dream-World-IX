@@ -172,7 +172,7 @@ note = "The proven proper-sandy-beach coastal donor (extract.py's list_coastal_d
 # THE MULTI-BLOCK CARRY UNITS (the overworld editor's "Carry a coast", --size): the only disc-1 rects that hold every
 # landmass they touch WHOLE with frame clearance (studies/coast-shape-language/DESIGN-MENU.md, carry_units.py over
 # every rect 1x1..4x4). A multi-block carry runs --shift 0,0 (auto-shift on a rect with empty ocean destroyed a 4x4
-# test). `rots` = the quarter turns the unit allows (an object pins the chain to 0). Candidates until walked in game.
+# test). `rots` = the quarter turns the unit allows (an object pins the chain to 0). A unit is a candidate until walked in game.
 
 [[donor]]
 name = "the-comma"
@@ -189,20 +189,20 @@ name = "crystal-reef"
 blocks = "6-7,4-5"
 class = "coast"
 aperture = "none"
-status = "candidate"
+status = "qualified"
 rots = [0, 90, 180, 270]
 anatomy_study = "studies/coast-shape-language/DESIGN-MENU.md (the carryable pool)"
-note = "The Shimmering crystal reef: six small masses in 2x2 blocks. 68 Wang seams (advisory)."
+note = "The Shimmering crystal reef: six small masses in 2x2 blocks. 68 Wang seams (advisory). Its shards are unwalkable crystal (topograph 59). Walked in game: the editor carried it onto (11,1) and the party stood on a shard at 9.266 (predicted 9.265; studies/overworld-editor/C5.md)."
 
 [[donor]]
 name = "terminus-pair"
 blocks = "10,17-18"
 class = "coast"
 aperture = "none"
-status = "candidate"
+status = "qualified"
 rots = [0, 90, 180, 270]
 anatomy_study = "studies/coast-shape-language/DESIGN-MENU.md (the carryable pool)"
-note = "Two small islands stacked north-south in 1x2 blocks. 8 Wang seams (advisory)."
+note = "Two small islands stacked north-south in 1x2 blocks. 8 Wang seams (advisory). Walked in game: the editor carried it onto (3,0) and the party stood on its grass at 5.039 (predicted 5.044; studies/overworld-editor/C5.md)."
 
 [[donor]]
 name = "beach-chain"

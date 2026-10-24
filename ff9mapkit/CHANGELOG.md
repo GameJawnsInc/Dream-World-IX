@@ -5,6 +5,20 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — change a shape after you placed it
+- In the World tab's 3D view, click a forest, mountain, hill, island or carried coast you placed: the recipe bar
+  names it, with Edit and Delete. Edit opens its card on its own settings, so you can drag it, turn it or retune it
+  and accept again; Delete takes it out. Either way the shapes placed after it go back on top in their order.
+- Shapes whose ground did not change come back exactly as they were, in a moment; the others are placed again by
+  `world-fuse`. If one no longer fits on the new ground, nothing changes and the bar says which one and why.
+- The recipe bar's buttons are now "Save…" and "Open…".
+- Tested in game: a hill moved and lowered this way stood where the edit put it, and its old place was lawn again.
+
+### Fixed — Promote could stop half way
+- Promoting a draft after another draft of the same folder had been promoted and reverted could fail part way
+  through, leaving some files written and no way to Revert. Promote now works out everything it will record before
+  it writes anything, and only re-labels files the draft itself changed hands on.
+
 ### Fixed — `summon-reskin` refuses four more repaints that a scroll copy overwrites
 - Six effects scroll a texture sideways with a routine of their own, not the vertical scroll the kit already
   knew. On two of them (ef226 and ef509) it rewrites the top half of `cell.s0.x448_y384` and
@@ -30,6 +44,7 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - `world-fuse`'s `[[transplant]]` row takes `size`, and `world-transplant --report-json` names every block a
   multi-block carry fills.
 - Tested in game: the party stood on the carried comma at the predicted height (9.55), where it had been in open sea.
+  The crystal reef (9.27) and the terminus pair (5.04) were walked the same way and are no longer marked "new".
 
 ### Changed — `summon-reskin` refuses a 15bpp repaint that can never be seen
 - Once an effect draws into its off-screen render target, Memoria reads every 15bpp page from that target, not
