@@ -77,6 +77,23 @@ def hermetic(V, R):
         "cull_off": dict(tex_lookup=look, cull=False),
         "a_batch_dropped": dict(tex_lookup=look, batches=[batches[0], batches[2]]),   # the wall (the lid is culled)
     }
+    # THE GAME'S FOG (C18): the shader's fog against world.fog's software twin (render.raster's depth, fog_still),
+    # graded over each view (a ramp from its own depths, the height term on), and the break-it: the GPU fogged, the
+    # oracle not
+    from ff9mapkit.world import fog as FG
+    out["fog"], out["fog_mutation"] = {}, {"blob": 0}
+    for vn, v in HERMETIC_VIEWS.items():
+        if v["kind"] != "persp":
+            continue
+        a, dep = R.raster(v, batches, vn, site=site, tex_lookup=look, verbose=False, want_depth=True)
+        p20, p80 = np.percentile(dep[np.isfinite(dep)], [20, 80])
+        fog = FG.Fog(start=float(p20), end=float(p80), per_u=1.5, floor=1.0)
+        af = FG.fog_still(a, dep, v, fog)
+        g = V.render_still(batches, v, res=site.res, tex_lookup=look, fog=fog)
+        c = V.compare(af, g, sky=fog.rgb, tol=2)
+        c["fogged_frac"] = float((np.abs(af.astype(int) - a.astype(int)).max(axis=2) > 8).mean())
+        out["fog"][vn] = c
+        out["fog_mutation"]["blob"] = max(out["fog_mutation"]["blob"], V.compare(a, g)["blob"])
     for mn, kw in mutants.items():
         worst = {"blob": 0, "coverage": 0}
         for vn, v in HERMETIC_VIEWS.items():
