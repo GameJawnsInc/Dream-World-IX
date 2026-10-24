@@ -66,13 +66,17 @@ def row_for(argv) -> dict:
     if verb == "world-transplant" and not a.in_place:
         from .coastedit import VERBS
         extra = [v for v in VERBS if getattr(a, v.replace("-", "_"), None)]
-        if (extra or a.size != "1x1" or a.shift.strip().lower() != "auto" or a.grow_cut or a.grow_cut_z
-                or a.disc != 1 or a.target_disc is not None or a.skip_mirror or a.allow_mod_overwrite
-                or getattr(a, "ground", None)):
-            raise ValueError("a [[transplant]] row is one plain single-cell carry (no --size, shift, morph or "
-                             "growth flags)")
+        multi = a.size.strip().lower() != "1x1"
+        # the editor's two carries: one block with shift auto, or a multi-block unit (--size) with shift 0,0
+        shift_ok = a.shift.strip().lower() == ("0,0" if multi else "auto")
+        if (extra or not shift_ok or a.grow_cut or a.grow_cut_z or a.disc != 1 or a.target_disc is not None
+                or a.skip_mirror or a.allow_mod_overwrite or getattr(a, "ground", None)):
+            raise ValueError("a [[transplant]] row is one plain carry: a single block (shift auto) or a multi-block "
+                             "unit (--size, shift 0,0), no morph or growth flags")
         row = {"table": "transplant", "cell": [int(v) for v in a.cell.split(",")],
                "donor": [int(v) for v in a.donor.split(",")]}
+        if multi:
+            row["size"] = [int(v) for v in a.size.lower().split("x")]
         if a.rot:
             row["rot"] = int(a.rot)
         return row
@@ -131,7 +135,8 @@ def label(row: dict) -> str:
     name = row.get("donor")
     if table == "transplant":
         d, c = row.get("donor") or (0, 0), row.get("cell") or (0, 0)
-        return f"carry block ({d[0]}, {d[1]}) to ({c[0]}, {c[1]})" + (f", turned {row['rot']}" if row.get("rot") else "")
+        what = f"block ({d[0]}, {d[1]})" if not row.get("size") else             f"blocks ({d[0]}, {d[1]}) {row['size'][0]}x{row['size'][1]}"
+        return f"carry {what} to ({c[0]}, {c[1]})" + (f", turned {row['rot']}" if row.get("rot") else "")
     if table == "island":
         c = row.get("center") or (0, 0)
         return f"island r{_num(row.get('radius', 24))} seed {_num(row.get('seed', 0))} at {_num(c[0])}, {_num(c[1])}"

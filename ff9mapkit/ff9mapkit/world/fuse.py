@@ -559,12 +559,15 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         # the fuse gates) refuses carries the single-cell command makes (measured: the beach island at (3,5) rot 90,
         # land-fit) -- so a recipe row writes the command's bytes only through the command
         from .. import cli
-        _strict_keys("transplant", row, {"cell", "donor", "rot"})
+        _strict_keys("transplant", row, {"cell", "donor", "rot", "size"})
         c = "{},{}".format(*(int(v) for v in row["cell"]))
         d = "{},{}".format(*(int(v) for v in row["donor"]))
+        # a multi-block unit (size) runs --shift 0,0, as the editor's command does (transplantedit.command)
+        size = ["--size", "{}x{}".format(*(int(v) for v in row["size"])), "--shift", "0,0"] \
+            if row.get("size") and tuple(int(v) for v in row["size"]) != (1, 1) else []
         argv = (["--game", str(game)] if game is not None else []) + [
             "world-transplant", "--mod-folder", str(mod_folder), "--cell", c, "--donor", d,
-            "--rot", str(int(row.get("rot", 0)))] + (["--skip-mirror"] if skip_mirror else []) + \
+            "--rot", str(int(row.get("rot", 0)))] + size + (["--skip-mirror"] if skip_mirror else []) + \
             (["--dry-run"] if dry_run else [])
         if cli._cmd_world_transplant(cli.build_parser().parse_args(argv)) != 0:
             raise ValueError(f"world-transplant refused the carry of {d} to {c}")

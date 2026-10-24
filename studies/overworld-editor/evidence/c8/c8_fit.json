@@ -1,0 +1,261 @@
+{
+ "air-spawn-0": {
+  "decoded": {
+   "fov": 58.0,
+   "eye": [
+    1181.0,
+    26.77,
+    -964.61
+   ],
+   "at": [
+    1207.37,
+    6.67,
+    -964.61
+   ],
+   "game": {
+    "pers": 320.0,
+    "distance": 26.3671875,
+    "height": 1.5625,
+    "correct": 14.0625,
+    "aim": 0.0,
+    "lifted": 16.88609421899956,
+    "rotation": 270.0,
+    "upper_counter": 0,
+    "type": 1,
+    "type_cam": 3,
+    "airborne": false
+   }
+  },
+  "decoded_iou": 0.523,
+  "fit": {
+   "k": 1.0,
+   "eye": -1.75,
+   "aim": 0.0,
+   "fov": 58.375,
+   "drot": 0.0
+  },
+  "fit_iou": 0.709
+ },
+ "air-climbed-0": {
+  "decoded": {
+   "fov": 58.0,
+   "eye": [
+    1181.0,
+    34.7,
+    -964.61
+   ],
+   "at": [
+    1207.37,
+    31.49,
+    -964.61
+   ],
+   "game": {
+    "pers": 320.0,
+    "distance": 26.3671875,
+    "height": 1.5625,
+    "correct": 14.0625,
+    "aim": 0.0,
+    "lifted": 0.0,
+    "rotation": 270.0,
+    "upper_counter": 0,
+    "type": 1,
+    "type_cam": 3,
+    "airborne": false
+   }
+  },
+  "decoded_iou": 0.479,
+  "fit": {
+   "k": 0.95,
+   "eye": 1.0,
+   "aim": 0.0,
+   "fov": 58.0,
+   "drot": -1.5
+  },
+  "fit_iou": 0.578
+ },
+ "air-high-0": {
+  "decoded": {
+   "fov": 58.0,
+   "eye": [
+    1011.17,
+    52.81,
+    -836.15
+   ],
+   "at": [
+    1034.37,
+    32.75,
+    -823.61
+   ],
+   "game": {
+    "pers": 320.0,
+    "distance": 26.3671875,
+    "height": 1.5625,
+    "correct": 14.0625,
+    "aim": 0.0,
+    "lifted": 16.837328125000003,
+    "rotation": 241.611,
+    "upper_counter": 0,
+    "type": 1,
+    "type_cam": 3,
+    "airborne": false
+   }
+  },
+  "decoded_iou": 0.378,
+  "fit": {
+   "k": 1.037,
+   "eye": -0.25,
+   "aim": -1.5,
+   "fov": 51.625,
+   "drot": 1.5
+  },
+  "fit_iou": 0.643
+ },
+ "air-ceiling-0": {
+  "decoded": {
+   "fov": 58.0,
+   "eye": [
+    1202.33,
+    49.29,
+    -939.01
+   ],
+   "at": [
+    1225.53,
+    46.08,
+    -926.47
+   ],
+   "game": {
+    "pers": 320.0,
+    "distance": 26.3671875,
+    "height": 1.5625,
+    "correct": 14.0625,
+    "aim": 0.0,
+    "lifted": 0.0,
+    "rotation": 241.611,
+    "upper_counter": 0,
+    "type": 1,
+    "type_cam": 3,
+    "airborne": false
+   }
+  },
+  "decoded_iou": 0.561,
+  "fit": {
+   "k": 1.1,
+   "eye": 0.5,
+   "aim": -0.25,
+   "fov": 57.25,
+   "drot": 0.0
+  },
+  "fit_iou": 0.686
+ },
+ "choco-lawn-0": {
+  "decoded": {
+   "fov": 57.67,
+   "eye": [
+    976.02,
+    18.34,
+    -974.11
+   ],
+   "at": [
+    972.18,
+    9.03,
+    -996.3
+   ],
+   "game": {
+    "pers": 350.0,
+    "distance": 22.512435913085938,
+    "height": 11.0198974609375,
+    "correct": 11.71875,
+    "aim": 3.3924102783203125,
+    "lifted": 0.7145273174447411,
+    "rotation": 9.816,
+    "upper_counter": 0,
+    "type": 0,
+    "type_cam": 1,
+    "airborne": false
+   }
+  },
+  "decoded_iou": 0.206,
+  "fit": {
+   "k": 1.0,
+   "eye": -3.0,
+   "aim": 0.0,
+   "fov": 59.17,
+   "drot": 0.0
+  },
+  "fit_iou": 0.28
+ },
+ "choco-forest-0": {
+  "decoded": {
+   "fov": 58.0,
+   "eye": [
+    974.74,
+    21.11,
+    -982.74
+   ],
+   "at": [
+    982.68,
+    12.61,
+    -1003.3
+   ],
+   "game": {
+    "pers": 350.0,
+    "distance": 22.040843963623047,
+    "height": 10.265350341796875,
+    "correct": 11.71875,
+    "aim": 2.7321815490722656,
+    "lifted": 0.0,
+    "rotation": -21.121,
+    "upper_counter": 0,
+    "type": 0,
+    "type_cam": 1,
+    "airborne": false
+   }
+  },
+  "decoded_iou": 0.475,
+  "fit": {
+   "k": 1.0,
+   "eye": 0.25,
+   "aim": 0.0,
+   "fov": 58.75,
+   "drot": 0.75
+  },
+  "fit_iou": 0.501
+ },
+ "boat-0": {
+  "decoded": {
+   "fov": 51.97,
+   "eye": [
+    231.49,
+    11.05,
+    -381.15
+   ],
+   "at": [
+    257.76,
+    7.18,
+    -381.15
+   ],
+   "game": {
+    "pers": 374.5361328125,
+    "distance": 26.276588439941406,
+    "height": 8.736038208007812,
+    "correct": 9.801864624023438,
+    "aim": 5.1479339599609375,
+    "lifted": 1.768951416015625,
+    "rotation": 270.0,
+    "upper_counter": 0,
+    "type": 2,
+    "type_cam": 2,
+    "airborne": false
+   }
+  },
+  "decoded_iou": 0.83,
+  "fit": {
+   "k": 1.0,
+   "eye": 0.0,
+   "aim": 0.0,
+   "fov": 51.969,
+   "drot": 0.375
+  },
+  "fit_iou": 0.831
+ }
+}

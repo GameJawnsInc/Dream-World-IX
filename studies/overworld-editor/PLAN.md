@@ -77,7 +77,7 @@ alone.
 
 ### Progress
 
-- **A0 BUILT (2026-10-23), owner look pending** -> [`A0.md`](A0.md). The GPU view matches `world-render` at the six
+- **A0 BUILT + OWNER-PASSED (2026-10-23: "i looked, looks good", after C7's handedness fix)** -> [`A0.md`](A0.md). The GPU view matches `world-render` at the six
   committed bench cameras and a disc-1 coast with blob 0 and coverage <= 2; three break-it mutations are caught.
   Whole-map load 5.4 s (worker thread). Not in A0: the x-torus wrap, picking (A1).
 - **A1 BUILT + IN-GAME PROVEN (2026-10-23)** -> [`A1.md`](A1.md). A click picks the surface (front faces, 27-79 ms on
@@ -141,6 +141,18 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C8, THE GAME CAMERA ON A VEHICLE: BUILT + MEASURED (2026-10-23)** -> [`C8.md`](C8.md). `gamecam` reads each
+  mode's type / type_cam from the stack's TransportControls.csv and decodes the flight, boat and forest rules;
+  the 3D view's game camera gets a vehicle chooser and a flyer's height. Ten stills on the real vehicles (the
+  vehicle study's boarding routes; a fresh boat spawn, the old lane being C5's comma): the boat confirmed (land IoU
+  0.90 vs 0.05 for the on-foot camera), the chocobo confirmed (class agreement 0.97-0.98), the airship consistent
+  but not tightly pinned (all-land, dusk-tinted frames: three measures, fits inside the on-foot noise).
+- **C5 follow-up, MULTI-BLOCK CARRIES: BUILT + IN GAME (2026-10-23)** -> [`C5.md`](C5.md). "Carry a coast" offers the
+  coast study's carry units (the comma 2x3, the reef 2x2, the terminus pair 1x2, the chain 4x2) beside the single
+  blocks: the ghost by the carry's own region map, the target the turned rect nearest the click, `--size --shift 0,0`,
+  a `[[transplant]]` row with `size`. Fixed on the way: the verdict JSON named one block of a unit's rect (Undo would
+  have lost the rest). I1/I2 identical over 1,782 files; in game the party stood on the carried comma at 9.551
+  (predicted 9.554), where it had been in open sea. The comma is qualified; the others stay candidates.
 - **C7, THE GAME'S OWN CAMERA: ANSWERED + BUILT (2026-10-23)** -> [`C7.md`](C7.md). The chase camera decoded from
   Memoria's source (`world/gamecam.py`: posstats, place, the altitude and tilt blends, the terrain lift, the user's
   Memoria.ini [Worldmap]) and measured against nine in-game stills: exact in plan, within the engine's settle bands in

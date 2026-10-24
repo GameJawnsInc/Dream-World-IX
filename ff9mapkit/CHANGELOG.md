@@ -14,6 +14,21 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 - On 8 effects the copy reads from somewhere other than where the kit's analysis says. There the build no longer
   names a cell to paint instead, and its note calls the source a guess.
 
+### Added — see the map from a vehicle as the game does
+- "As the game sees it" now has a vehicle chooser: on foot, a chocobo, the flying gold chocobo, the Blue Narciss, the
+  Hilda Garde III or the Invincible, and a height for the flyers. Each frames the map the way that vehicle's camera does
+  in the game, read from your own `TransportControls.csv` and Memoria.ini.
+- Checked against in-game screenshots aboard the boat, a chocobo and the airship.
+
+### Added — carry whole multi-block islands from the World tab
+- "Carry a coast" now offers multi-block islands beside the single coastal blocks: the comma (2×3), the crystal reef
+  (2×2), the terminus pair (1×2) and the beach chain (4×2), the only stock rects that hold every island they touch
+  whole. Pick one and a turn, click open ocean, and the rect fits the click; `world-transplant` checks it and Accept
+  carries it into the draft. Islands not yet walked in game are marked "new".
+- `world-fuse`'s `[[transplant]]` row takes `size`, and `world-transplant --report-json` names every block a
+  multi-block carry fills.
+- Tested in game: the party stood on the carried comma at the predicted height (9.55), where it had been in open sea.
+
 ### Changed — `summon-reskin` refuses a 15bpp repaint that can never be seen
 - Once an effect draws into its off-screen render target, Memoria reads every 15bpp page from that target, not
   from the texture data. Measured over all 372 effects: all 22 cells the `direct15` export offers are in such

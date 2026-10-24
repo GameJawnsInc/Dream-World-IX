@@ -73,3 +73,44 @@ def test_the_renderer_draws_in_the_game_s_handedness():
     sx, _sy, _d = R.project(v, np.array([[-5.0, 3.2, -10.0]]), (100, 100))
     assert sx[0] > 50.0                                           # so -x is on its right, as in the game
     assert math.isclose(G.s_pct(58), 0.58)
+
+
+# ---------------------------------------------------------------- C8: the vehicles
+def test_the_transport_table_is_read_through_the_stack(tmp_path):
+    game = tmp_path / "game"
+    stock = game / "StreamingAssets" / "Data" / "World"
+    stock.mkdir(parents=True)
+    head = "# type;...\n"
+    (stock / "TransportControls.csv").write_text(head + "".join(
+        f"{t};0;0;0;0;0;0;0;0;0;0;0;0;0;0;{c};0;0;0;# row\n" for t, c in G.TRANSPORT.values()), encoding="utf-8")
+    assert G.transport_table(game) == G.TRANSPORT                      # no FolderNames: the base game's
+    (game / "Memoria.ini").write_text('[Mod]\nFolderNames = "MINE"\n', encoding="utf-8")
+    mine = game / "MINE" / "StreamingAssets" / "Data" / "World"
+    mine.mkdir(parents=True)
+    rows = {**G.TRANSPORT, 10: (0, 0)}
+    (mine / "TransportControls.csv").write_text(head + "".join(
+        f"{t};0;0;0;0;0;0;0;0;0;0;0;0;0;0;{c};0;0;0;\n" for t, c in rows.values()), encoding="utf-8")
+    assert G.transport_table(game)[10] == (0, 0)                       # the mod folder's row wins, as in Memoria
+    assert G.transport_table(None) == G.TRANSPORT
+
+
+def test_each_vehicle_s_camera():
+    s = G.Settings(field_of_view=58.0)
+    p = (500.0, 3.2, -500.0)
+    foot, choco = G.pose(p, 0.0, settings=s, mode=0), G.pose(p, 0.0, settings=s, mode=1)
+    assert choco["game"]["type_cam"] == 1 and choco["eye"] != foot["eye"]        # its own element row
+    forest = G.pose(p, 0.0, settings=s, mode=1, topograph=37)
+    assert forest["fov"] == 58.0 and choco["fov"] != 58.0                       # over forest: FieldOfView itself
+    boat = G.pose((500.0, -0.703, -500.0), 0.0, settings=s, mode=7)
+    pers = boat["game"]["pers"]
+    assert boat["fov"] == pytest.approx(pers / 9.5 * 58.0 / 44.0)              # the Blue Narciss divides by 9.5
+    assert boat["eye"][1] - boat["game"]["height"] == pytest.approx(-0.703 + 320 / 256.0)
+    assert boat["at"][1] == pytest.approx(-0.703 + boat["game"]["aim"] + 701 / 256.0)
+    air = G.pose((500.0, 3.0, -500.0), 0.0, settings=s, mode=8)
+    assert air["game"]["type"] == 1 and air["fov"] == 58.0                     # flight: FieldOfView itself
+    assert air["eye"][1] >= G.FLYER_EYE_FLOOR + 1419 / 256.0 - 1e-9             # the flyer's eye floor
+    high = G.pose((500.0, 40.0, -500.0), 0.0, settings=s, mode=8)
+    assert high["eye"][1] == pytest.approx(40.0 + high["game"]["height"] + 1419 / 256.0)
+    gold = G.pose(p, 0.0, settings=s, mode=6)
+    gold_up = G.pose(p, 0.0, settings=s, mode=6, airborne=True)
+    assert gold_up["eye"][1] - gold["eye"][1] == pytest.approx((1419 - 558) / 256.0)   # its take-off script's nudge

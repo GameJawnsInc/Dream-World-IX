@@ -53,6 +53,52 @@ def masks(img, *, sky_rgb=None):
     return water, land
 
 
+def classes(img, *, sky_rgb=None) -> np.ndarray:
+    """A surface class per pixel, by hue: 0 sky / fog (excluded), 1 water (blue), 2 grass (green), 3 sand / earth
+    (warm), 4 rock (grey). The render draws the game's own textures, so the classes carry across the frames where a
+    land mask cannot: c8's airship frames are nearly all land, and the land IoU scored a 7-degree view as a perfect
+    fit (C8.md)."""
+    rgb = img / 255.0
+    mx, mn = rgb.max(axis=-1), rgb.min(axis=-1)
+    sat = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1e-6), 0.0)
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    d = np.maximum(mx - mn, 1e-6)
+    hue = np.where(mx == r, ((g - b) / d) % 6, np.where(mx == g, (b - r) / d + 2, (r - g) / d + 4)) * 60.0
+    out = np.full(img.shape[:2], 4, dtype=np.int8)                      # grey: rock
+    out[(sat > 0.18) & (hue >= 15) & (hue < 55)] = 3                   # warm: sand, earth
+    out[(sat > 0.18) & (hue >= 55) & (hue < 160)] = 2                  # green: grass, canopy
+    out[(sat > 0.18) & (hue >= 160) & (hue < 260)] = 1                 # blue: water
+    sky = (mx > 0.72) & (sat < 0.25)                                   # the game's pale sky and fog
+    if sky_rgb is not None:
+        sky |= (np.abs(img - np.asarray(sky_rgb, dtype=np.float32)).max(axis=-1) < 2)
+    out[sky] = 0
+    return out
+
+
+def agree(a, b, region) -> float:
+    """The fraction of the region's pixels (sky in neither frame) whose surface class the two frames share."""
+    m = region & (a > 0) & (b > 0)
+    return float((a[m] == b[m]).mean()) if m.any() else 0.0
+
+
+def edges(img) -> np.ndarray:
+    """The frame's structure: the luminance gradient's magnitude, blurred, normalised. Colour and light do not reach
+    it (WORLD07's dusk tints every surface orange in the game, which no class by hue survives: C8.md)."""
+    from scipy.ndimage import gaussian_filter, sobel
+    lum = img.astype(np.float64) @ np.array([0.299, 0.587, 0.114])
+    lum = (lum - lum.mean()) / (lum.std() or 1.0)
+    mag = np.hypot(sobel(lum, axis=0), sobel(lum, axis=1))
+    return gaussian_filter(mag, 1.5)
+
+
+def edge_score(a, b, region) -> float:
+    """The Pearson correlation of two edge maps over the region (1 = every edge where the other frame has one)."""
+    x, y = a[region], b[region]
+    x, y = x - x.mean(), y - y.mean()
+    d = math.sqrt(float((x * x).sum()) * float((y * y).sum()))
+    return float((x * y).sum() / d) if d else 0.0
+
+
 def _region(h, w):
     """The compared region: the lower 60% of the frame, the party's sprite (centre) boxed out."""
     m = np.zeros((h, w), dtype=bool)
@@ -68,13 +114,17 @@ def iou(a, b, region):
     return float((a & b).sum() / u) if u else 1.0
 
 
-def main():
+def main(capture=CAPTURE, compare=COMPARE, prefix="cmp"):
+    """Compare each captured still. A row's ``ctl`` (the live travel mode) picks the vehicle's camera (c8: the
+    vehicles); ``iou_foot`` scores the same still with the on-foot camera, the control that shows the vehicle's own
+    decode is what matched."""
     from ff9mapkit.world import gamecam as G
     from ff9mapkit.world import render as R
     from PIL import Image
-    rec = json.loads(CAPTURE.read_text(encoding="utf-8"))
+    rec = json.loads(Path(capture).read_text(encoding="utf-8"))
     rows = [r for r in rec.get("rows", []) if "error" not in r and r.get("shot")]
     S = G.Settings.from_game(GAME)
+    table = G.transport_table(GAME)
     stack = R.game_stack(GAME)
     names = [p.name for p in stack]
     gsite = R.RenderSite(cells=(), disc=1, game=GAME, stack=stack)
@@ -101,10 +151,13 @@ def main():
             g = C1._ground(gsite, px % 1536.0, pz, names)
             return g.get("y") if g.get("y") is not None else None
 
+        mode = int(row.get("ctl") or 0)
+        topo = gq.get("topograph")
+
         def render(**kw):
             v = G.pose((x, y, z), kw.pop("rot", row["cam_rot"]), settings=S, area=area,
-                       upper_counter=row["cam_upper"] or 0, ground=ground, **{k: kw[k] for k in ("eye_dy", "aim_dy")
-                                                                            if k in kw})
+                       upper_counter=row["cam_upper"] or 0, ground=ground, mode=kw.pop("mode", mode), table=table,
+                       topograph=topo, **{k: kw[k] for k in ("eye_dy", "aim_dy") if k in kw})
             v["fov"] *= kw.get("fov_k", 1.0)
             v["reach"] = 400.0
             img = R.raster(v, batches, "c7", site=site, out_dir=None, verbose=False).astype(np.float32)
@@ -130,6 +183,10 @@ def main():
                 s = iou(gl, masks(ri, sky_rgb=R.SKY)[1], region)
                 if s > free[0]:
                     free = (s, drot, fk)
+        foot = None
+        if mode:                                               # the control: the same still, the on-foot camera
+            _v, ri = render(mirror=mirror, mode=0)
+            foot = iou(gl, masks(ri, sky_rgb=R.SKY)[1], region)
         v, ri = render(mirror=mirror, eye_dy=best[1], aim_dy=best[2])
         rl = masks(ri, sky_rgb=R.SKY)[1]
         over = np.zeros((h, w, 3), dtype=np.uint8)
@@ -138,8 +195,10 @@ def main():
         over[gl & rl & region] = (240, 240, 240)
         comp = np.concatenate([gs.astype(np.uint8), ri.astype(np.uint8), over], axis=1)
         name = f"{row['spot']}-{row['turn']}"
-        Image.fromarray(comp).save(OUT / f"cmp-{name}.png")
+        Image.fromarray(comp).save(OUT / f"{prefix}-{name}.png")
         res = {"spot": row["spot"], "turn": row["turn"], "cam_rot": row["cam_rot"], "cam_upper": row["cam_upper"],
+               "mode": mode, "type": v["game"]["type"], "type_cam": v["game"]["type_cam"], "topograph": topo,
+               "iou_foot": None if foot is None else round(foot, 3),
                "area": area, "player": [x, y, z], "eye": [round(c, 3) for c in v["eye"]],
                "at": [round(c, 3) for c in v["at"]], "fov": round(v["fov"], 2), "lifted": v["game"]["lifted"],
                "iou_right": round(scores[False], 3), "iou_left": round(scores[True], 3), "mirror": mirror,
@@ -147,8 +206,8 @@ def main():
                "iou_free": round(free[0], 3), "free_drot": free[1], "free_fov_k": free[2]}
         out["rows"].append(res)
         print(res)
-    COMPARE.write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
-    print(f"-> {COMPARE}")
+    Path(compare).write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
+    print(f"-> {compare}")
 
 
 if __name__ == "__main__":

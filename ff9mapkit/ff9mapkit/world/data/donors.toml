@@ -169,6 +169,51 @@ status = "qualified"
 anatomy_study = "ff9mapkit/ff9mapkit/world/extract.py list_coastal_donors"
 note = "The proven proper-sandy-beach coastal donor (extract.py's list_coastal_donors example)."
 
+# THE MULTI-BLOCK CARRY UNITS (the overworld editor's "Carry a coast", --size): the only disc-1 rects that hold every
+# landmass they touch WHOLE with frame clearance (studies/coast-shape-language/DESIGN-MENU.md, carry_units.py over
+# every rect 1x1..4x4). A multi-block carry runs --shift 0,0 (auto-shift on a rect with empty ocean destroyed a 4x4
+# test). `rots` = the quarter turns the unit allows (an object pins the chain to 0). Candidates until walked in game.
+
+[[donor]]
+name = "the-comma"
+blocks = "9-10,5-7"
+class = "coast"
+aperture = "none"
+status = "qualified"
+rots = [0, 90, 180, 270]
+anatomy_study = "studies/coast-shape-language/DESIGN-MENU.md (THE LONG REACH)"
+note = "A teardrop island ~190u long: a bare rock spine to 26.5u and a green arm you can walk 51u out. Desert mains: off-biome beside grass. The cleanest carry measured (wang incoherent 0, sea overlap 0). Walked in game: the editor carried it turned 90 onto (20,0) and the party stood on it at 9.551 (predicted 9.554; studies/overworld-editor/C5.md)."
+
+[[donor]]
+name = "crystal-reef"
+blocks = "6-7,4-5"
+class = "coast"
+aperture = "none"
+status = "candidate"
+rots = [0, 90, 180, 270]
+anatomy_study = "studies/coast-shape-language/DESIGN-MENU.md (the carryable pool)"
+note = "The Shimmering crystal reef: six small masses in 2x2 blocks. 68 Wang seams (advisory)."
+
+[[donor]]
+name = "terminus-pair"
+blocks = "10,17-18"
+class = "coast"
+aperture = "none"
+status = "candidate"
+rots = [0, 90, 180, 270]
+anatomy_study = "studies/coast-shape-language/DESIGN-MENU.md (the carryable pool)"
+note = "Two small islands stacked north-south in 1x2 blocks. 8 Wang seams (advisory)."
+
+[[donor]]
+name = "beach-chain"
+blocks = "7-10,17-18"
+class = "coast"
+aperture = "object"
+status = "candidate"
+rots = [0]
+anatomy_study = "studies/coast-shape-language/DESIGN-MENU.md (the carryable pool)"
+note = "The beach island and its chain of dots, 4x2 blocks. Turn 0 only: Chocobo's Lagoon's object rides on (9,17)."
+
 [[donor]]
 name = "sea-plane"
 blocks = "12,0"
