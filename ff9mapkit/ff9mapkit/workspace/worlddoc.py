@@ -44,6 +44,7 @@ _GRID_ALPHA = 90                                  # the graticule: present, sub-
 #                                                   invisible on the light palette -- snap-measured)
 _KIND_ALPHA = {"land": 165, "water": 120, "stub": 90}
 CARD_VIEW_FLOOR = 32                              # the 3D view's floor while a carry card is open (px)
+STEP_MARK_H = 14.0                                # the picked step's pin on the 3D view (world units; rung C9)
 
 
 def _fmt_bytes(n: int) -> str:
@@ -1022,6 +1023,41 @@ class WorldDoc(QWidget):
         """The Move-the-river menu entry."""
         return self._open_carry("river", sync=sync)
 
+    # -- a placed step (rung C9) --
+    EDIT_CARDS = {"forest": "forest", "mountain": "mountain", "hill": "hill", "island": "island",
+                  "transplant": "transplant"}         # a table -> the card that opens on its rows
+
+    def _mark_step(self, step):
+        """Mark the picked step's place on the view (a pin at its anchor), or clear the mark; a card's own drawing
+        is never overwritten."""
+        if self._view3d is None or any(not t.isHidden() for t in self._carry_tools()):
+            return
+        from ..world import recipe as RC
+        pt = None if step is None else RC.anchor(step.get("row") or {})
+        if pt is None:
+            self._view3d.set_overlays([])
+            return
+        from .worldforest import _rgb
+        from .worldview3d import ground_y, pin_tris
+        packed = self._view3d.view.packed if self._view3d.view is not None else None
+        y = ground_y(packed, *pt) if packed is not None else None
+        self._view3d.set_overlays([(pin_tris((pt[0], 0.0 if y is None else y, pt[1]), STEP_MARK_H, w_frac=0.14),
+                                    _rgb(self.pal["accent"]), 1.0, False)])
+
+    def _edit_step(self, row, label):
+        """The recipe bar lifted a placed step out of the draft: open its card on the step's row."""
+        which = self.EDIT_CARDS.get(row.get("table"))
+        tool = self._open_carry(which) if which else None
+        if tool is None:
+            self._recipe.cancel_edit(f"Not opened: a {row.get('table')} step has no card that opens on it.", "error")
+            return
+        try:
+            tool.edit_row(row, label=label, on_accepted=self._recipe.edit_accepted,
+                          on_cancel=lambda: self._recipe.cancel_edit())
+        except ValueError as e:
+            tool.close_tool()
+            self._recipe.cancel_edit(f"Not opened in its card: {e}. Delete still works.", "error")
+
     def _draft_changed(self, draft):
         """An Accept wrote the draft (or a discard removed it, an undo or redo moved it): draw it, or go back to the
         game's stack; the recipe bar and every tool read the draft again."""
@@ -1047,7 +1083,8 @@ class WorldDoc(QWidget):
             from .worldrecipe import RecipeBar
             self._recipe = RecipeBar(self.pal, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
                                      on_changed=self._draft_changed, runner=self._recipe_runner,
-                                     drafts_root=self._drafts_root, **self._recipe_seams)
+                                     drafts_root=self._drafts_root, on_select=self._mark_step,
+                                     on_edit=self._edit_step, **self._recipe_seams)
             self._forest_slot.insertWidget(0, self._recipe)
         if self._recipe is not None:
             self._recipe.setVisible(bool(on))
@@ -1118,6 +1155,8 @@ class WorldDoc(QWidget):
         for tool in self._carry_tools() if place else ():
             if not tool.isHidden():
                 tool.place(x, z, y)                # a tool is open: a click puts its shape there
+        if place and self._recipe is not None and all(t.isHidden() for t in self._carry_tools()):
+            self._recipe.pick(x, z)                # no tool open: a click picks the step placed there (rung C9)
         from ..world import frames
         key = frames.world_to_block(*frames.wrap_world_xz(x, z))
         self.canvas.select(key)                    # -> _on_select: the block strip, and the point cleared

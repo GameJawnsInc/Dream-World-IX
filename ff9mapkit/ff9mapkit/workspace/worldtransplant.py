@@ -117,6 +117,22 @@ class TransplantTool(CarryTool):
     def donor(self):
         return str(self.donor_box.currentData())
 
+    def load_row(self, row):
+        """The donor (a block or a unit), the turn, and the target rect: placed by its middle, which fits it again."""
+        size = tuple(row.get("size") or (1, 1))
+        key = "{},{}".format(*row["donor"]) + ("" if size == (1, 1) else "@{}x{}".format(*size))
+        ix = self.donor_box.findData(key)
+        if ix < 0:
+            raise ValueError(f"its donor {key} is not one the card lists")
+        self.donor_box.setCurrentIndex(ix)
+        jx = self.rot_box.findData(int(row.get("rot") or 0))
+        if jx < 0:
+            raise ValueError(f"the turn {row.get('rot')} is not one its donor allows")
+        self.rot_box.setCurrentIndex(jx)
+        c = row["cell"]
+        tw, th = self.FE.tsize(size, self.rot())
+        self.place(64.0 * c[0] + 32.0 * tw, -(64.0 * c[1] + 32.0 * th))
+
     def _donor_blk(self):
         return self._parse(self.donor())[0]
 

@@ -98,7 +98,12 @@ class CarryTool(QWidget):
 
     A card whose verb has a handle table (``world/handles.py``, rung B2) names it in ``HANDLE_TABLE`` and maps every
     handle on the table's gui surface in ``HANDLES``: to the widget attribute that sets it, or to the rule (prose)
-    that does. Its spins stop where the table says (:meth:`_fit`); the fence holds the map to the table."""
+    that does. Its spins stop where the table says (:meth:`_fit`); the fence holds the map to the table.
+
+    EDITING A PLACED STEP (rung C9): a card that can set its handles from a recipe row (:meth:`load_row`) opens on a
+    placed step's row (:meth:`edit_row`), the recipe bar having lifted the step and the ones after it out of the
+    draft; Accept writes the edited shape in the step's place and hands back (``on_accepted``), and Cancel edit or
+    closing the card puts the draft back (``on_cancel``). Promote, Revert and Discard wait while an edit is open."""
 
     TITLE, NOUN, PART, VERB = "Shape", "shape", "shape", "world-?"
     GATES = GATE_WORDS
@@ -135,6 +140,7 @@ class CarryTool(QWidget):
         self._ghost = None                               # (tris, rim) of the drawn ghost
         self._verdict = None                             # (handles key, verdict dict) of the last finished job
         self._job = None                                 # ("check" | "accept", key) while one runs
+        self._editing = None                             # (label, on_accepted, on_cancel) while editing a placed step
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._check)
@@ -148,7 +154,8 @@ class CarryTool(QWidget):
         card.setSpacing(6)
         row = QHBoxLayout()
         row.setSpacing(8)
-        row.addWidget(widgets.role_label(self.TITLE, "cardtitle"))
+        self.title_lbl = widgets.role_label(self.TITLE, "cardtitle")
+        row.addWidget(self.title_lbl)
         self._build_handles(row)
         row.addStretch(1)
         self.close_btn = QPushButton("Close")
@@ -283,6 +290,40 @@ class CarryTool(QWidget):
     def _outline_loaded(self, donor, ol):
         """A donor's outline arrived (a subclass may set a handle from it)."""
 
+    def load_row(self, row):
+        """Set the handles from a recipe row of this card's table and place the ghost there (rung C9); a row the
+        handles cannot say raises ValueError, naming what."""
+        raise ValueError(f"the {self.NOUN} card cannot open a placed step")
+
+    # -- editing a placed step (rung C9) --
+    def edit_row(self, row, *, label, on_accepted, on_cancel):
+        """Open on a placed step: its row's handles, judged against the draft as it was before the step."""
+        self._editing = None
+        self.load_row(row)
+        self._editing = (label, on_accepted, on_cancel)
+        self.title_lbl.setText(f"Edit {self.NOUN}")
+        self.title_lbl.setToolTip(f"Editing the placed step {label}: move, turn or retune it, then Accept the edit.")
+        self.accept_btn.setText("Accept the edit")
+        self.accept_btn.setToolTip(f"Write the edited {self.NOUN} in the step's place ({self.VERB} against the draft), "
+                                   "then put the steps after it back on top.")
+        self.close_btn.setText("Cancel edit")
+        self.close_btn.setToolTip("Put the draft back exactly as it was before this edit.")
+        self._sync_buttons()
+
+    def editing(self):
+        return self._editing is not None
+
+    def _end_edit(self):
+        """Leave edit mode (the handover or the cancel is the caller's)."""
+        self._editing = None
+        self.title_lbl.setText(self.TITLE)
+        self.title_lbl.setToolTip("")
+        self.accept_btn.setText("Accept into draft")
+        self.accept_btn.setToolTip(f"Write this {self.NOUN} into the draft ({self.VERB} without --dry-run, against "
+                                   "the draft folder). The install is not touched.")
+        self.close_btn.setText("Close")
+        self.close_btn.setToolTip(f"Put the {self.NOUN} tool away (the draft keeps what you accepted).")
+
     # -- the folders --
     def source(self) -> Path:
         return Path(self._source_fn())
@@ -310,6 +351,10 @@ class CarryTool(QWidget):
         self._timer.stop()
         self._runner.kill()
         self._job = None
+        if self._editing is not None:                    # closing an edit cancels it: the draft goes back
+            cancel = self._editing[2]
+            self._end_edit()
+            cancel()
         self.center = self._ghost = None
         self.panel.set_overlays([])
         self.panel.set_ghost(None)
@@ -512,13 +557,14 @@ class CarryTool(QWidget):
         self.copy_btn.setEnabled(self.center is not None)
         has_draft = self.draft() is not None
         edited, last = self._draft_state if has_draft else (0, None)
-        self.discard_btn.setVisible(has_draft)
+        free = self._editing is None                     # an open edit holds the draft: these wait for it
+        self.discard_btn.setVisible(has_draft and free)
         self.discard_btn.setEnabled(self._job is None)
-        self.promote_btn.setVisible(has_draft and edited > 0)
+        self.promote_btn.setVisible(has_draft and edited > 0 and free)
         self.promote_btn.setEnabled(self._job is None)
-        self.revert_btn.setVisible(last is not None)
+        self.revert_btn.setVisible(last is not None and free)
         self.revert_btn.setEnabled(self._job is None)
-        self.show_btn.setVisible(self._on_reload is not None and self._show_target() is not None)
+        self.show_btn.setVisible(self._on_reload is not None and self._show_target() is not None and free)
 
     def _refresh_draft_label(self):
         """The draft line. Its counts walk both trees (about half a second), so a worker reads them."""
@@ -639,6 +685,13 @@ class CarryTool(QWidget):
         pt = self._show_point(v)
         if pt is not None:
             self._last_center = pt
+        if self._editing is not None:                    # an edit: the bar puts the steps after it back
+            done = self._editing[1]
+            self._end_edit()
+            self._verdict = None
+            self.close_tool()
+            done()
+            return
         import re
         # the blocks whose bytes changed (the read window is wider, and a sink writes several parts per block)
         written = v.get("written") or []
@@ -814,6 +867,17 @@ class ForestTool(CarryTool):
     def _cmd(self, target, *, dry_run, report=None):
         return self.FE.command(target, self.center, self.donor(), spread=self.spread.value(),
                                rot_deg=self.angle.value(), dry_run=dry_run, report=report)
+
+    def load_row(self, row):
+        ix = self.donor_box.findData(str(row["donor"]))
+        if ix < 0:
+            raise ValueError(f"its canopy {row['donor']} is not one the card lists")
+        if float(row.get("reach", 96.0)) != 96.0:
+            raise ValueError("its reach is not a handle of the card")
+        self.donor_box.setCurrentIndex(ix)
+        self.angle.setValue(int(round(float(row.get("rot", 0.0)))) % 360)
+        self.spread.setValue(float(row.get("spread", 1.0)))
+        self.place(*row["center"])
 
     def _shape(self, ol, ground_y):
         return self.FE.placed(ol, self.center, spread=self.spread.value(), rot_deg=self.angle.value(),

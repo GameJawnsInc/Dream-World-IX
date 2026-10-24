@@ -25,6 +25,10 @@ this a moved river, once promoted or undone, would read as foreign to its own ve
 THE HISTORY (rung C3): every step the editor writes into a draft (an Accept, a recipe row) snapshots the files at
 the cells it may write before and after (:func:`begin_step` / :func:`commit_step`), so :func:`undo` and :func:`redo`
 walk the recipe byte for byte without re-running a verb, and :func:`recipe_rows` is the document Save writes.
+EDITING A PLACED STEP (rung C9): :func:`begin_edit` undoes back to the step and lifts it and the steps after it out;
+the edited shape goes in its place (or nothing, for a delete), and each step after it goes back on top, replayed from
+its record (:func:`replay`) where no block it reads changed (:func:`dirty_after`), else re-run; :func:`finish_edit`
+keeps the result, :func:`cancel_edit` puts the draft back exactly as it was.
 
 PROMOTE (rung C4) is the ONE path from a draft into the install: :func:`promote` writes the draft's edits into its
 live folder (refusing when a file it edited moved in the live folder since the copy), backs up and ledgers each write
@@ -374,6 +378,8 @@ def promote(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
     source = Path(meta["source"])
     if game is None or not _inside(source, Path(game)):
         raise ValueError(f"the draft's source {source} is not a folder of the install {game}")
+    if history(draft)["edit"]:
+        raise ValueError("an edit of a placed step is open in the draft: accept or cancel it first")
     rels, gone = edits(draft), removals(draft)
     if not rels and not gone:
         raise ValueError(f"the draft of {source.name} has no edits to promote")
@@ -389,19 +395,27 @@ def promote(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
     # THE RELABEL: a file at the edited cells whose bytes the draft left as they were, but which the draft's ledger
     # gives another writer (a moved river's cell the new river fills with the old one's very bytes, an open Sea4
     # sheet): its bytes need no write, its ownership does, and its disc-4 copy must be mirrored again with the rest
-    # (found by the ledgers: a key whose last row the draft wrote itself, the live folder's last row being another)
+    # (found by the ledgers: a key whose last row the draft WROTE ITSELF -- a row the live ledger does not hold -- and
+    # names a writer, the live folder's last row naming another). A row the draft inherited from its copy is not its
+    # own: when the live ledger moved on after the copy (another draft of the folder promoted and reverted there), the
+    # two last rows differ although the draft wrote nothing, and an inherited row that names no writer (an old
+    # argv-less row) then crashed this promote half way (c9_lab, 2026-10-24)
     dl, ll = _ledger_last(draft), _ledger_last(source)
-    near = sorted({(k[1], k[2]) for k, e in dl.items() if e.get("sha256") and e != ll.get(k)})
+    live_rows = {json.dumps(e, sort_keys=True) for e in M.read_ledger(source)}
+    near = sorted({(k[1], k[2]) for k, e in dl.items() if e.get("sha256") and _row_tag(e)
+                   and json.dumps(e, sort_keys=True) not in live_rows})
     relabel = []
     for rel, p in sorted(_cell_files(draft, near).items()):
         key = _ledger_key(rel)
         if rel in rels or key is None or not (source / rel).is_file():
             continue
         e, sha = dl.get((key[0], *key[1], key[2])), _sha(p)
-        if e and e.get("sha256") == sha == _sha(source / rel) and _row_tag(e) != _row_tag(
-                ll.get((key[0], *key[1], key[2]))):
+        own = e is not None and _row_tag(e) and json.dumps(e, sort_keys=True) not in live_rows
+        if own and e.get("sha256") == sha == _sha(source / rel) and \
+                _row_tag(e) != _row_tag(ll.get((key[0], *key[1], key[2]))):
             relabel.append(rel)
     tags.update(_ledger_tags(draft, relabel, dl))
+    relabel = [rel for rel in relabel if rel in tags]   # every tag known before the first byte moves
     cells = sorted({p[1] for p in map(_parse_rel, rels + gone + relabel) if p is not None})
     before = _cell_files(source, cells)            # (a relabelled cell's disc-4 copy is mirrored again: snapshot it)
     plan = {"op": "promote", "source": str(source), "folder": source.name, "cells": [list(c) for c in cells],
@@ -548,12 +562,14 @@ def history(draft: Path) -> dict:
     """The draft's steps: ``{"steps": [...], "cursor": n, "promoted": m}``. Steps ``[0, cursor)`` are applied (the
     recipe), the rest can be redone; steps ``[0, promoted)`` are in the live folder and cannot be undone here (Revert
     promote first). Each step: ``{"row", "label", "cells", "before", "after", "dir"}``, where ``before`` / ``after``
-    map every file at the step's cells to its sha-256 (a file missing from one side did not exist there)."""
+    map every file at the step's cells to its sha-256 (a file missing from one side did not exist there). ``edit``
+    is the open edit of a placed step (:func:`begin_edit`), else None."""
     try:
         h = json.loads((Path(draft) / HISTORY).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         h = {}
-    return {"steps": h.get("steps", []), "cursor": int(h.get("cursor", 0)), "promoted": int(h.get("promoted", 0))}
+    return {"steps": h.get("steps", []), "cursor": int(h.get("cursor", 0)), "promoted": int(h.get("promoted", 0)),
+            "edit": h.get("edit")}
 
 
 def _write_history(draft: Path, h: dict) -> None:
@@ -723,3 +739,138 @@ def _unmark_promoted(draft: Path, record: dict) -> None:
     h = history(draft)
     h["promoted"] = int(record.get("history_promoted_before", 0))
     _write_history(draft, h)
+
+
+# ---------------------------------------------------------------- editing a placed step (rung C9)
+EDIT_DIR = "edit"                                 # <draft>/history/edit/<n>/ : the lifted steps while an edit is open
+
+
+def begin_edit(draft: Path, k: int) -> dict:
+    """Open an edit of applied step ``k`` (0-based): undo back to it, byte for byte, and LIFT step ``k`` and every
+    step after it out of the history (their records parked under ``history/edit/``, so :func:`cancel_edit` puts them
+    back exactly). The draft is then as it was before step ``k``: the card judges the edited shape there, and the
+    caller puts the steps after it back on top, each replayed (:func:`replay`) or re-run. Refuses a step out of range,
+    a promoted step (Revert promote first) and an edit already open; an undo that refuses on the way down (a step's
+    files moved) is redone again before the refusal is raised."""
+    draft = Path(draft)
+    h = history(draft)
+    if h["edit"]:
+        raise ValueError("an edit is already open in the draft")
+    if not 0 <= k < h["cursor"]:
+        raise ValueError(f"step {k + 1} is not an applied step of the recipe")
+    if k < h["promoted"]:
+        raise ValueError(f"step {k + 1} is in the game (promoted): Revert promote first")
+    cursor, done = h["cursor"], 0
+    try:
+        while history(draft)["cursor"] > k:
+            undo(draft)
+            done += 1
+    except ValueError:
+        for _ in range(done):
+            redo(draft)
+        raise
+    h = history(draft)
+    park = draft / HISTORY_DIR / EDIT_DIR
+    shutil.rmtree(park, ignore_errors=True)
+    park.mkdir(parents=True)
+    lifted = []
+    for i, s in enumerate(h["steps"][k:]):
+        rel = f"{HISTORY_DIR}/{EDIT_DIR}/{i:04d}"
+        (draft / s["dir"]).rename(draft / rel)
+        lifted.append({**s, "dir": rel, "home": s["dir"]})
+    h["steps"] = h["steps"][:k]
+    h["edit"] = {"at": k, "applied": cursor - k, "lifted": lifted, "utc": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    _write_history(draft, h)
+    return h["edit"]
+
+
+def replay(draft: Path, step: dict) -> bool:
+    """Put a lifted step back on top of the draft as it was recorded, without re-running its verb: its after-images
+    at its cells, and its own ledger rows appended. Only when its files are still exactly as it found them (its
+    before-images) and its ledger then was the ledger before it plus its own rows; otherwise nothing is written and
+    False comes back (the caller re-runs its row). Whether the verb READ only unchanged blocks is the caller's call
+    (the dirty set: :func:`dirty_after`)."""
+    draft = Path(draft)
+    cells = [tuple(c) for c in step["cells"]]
+    if _differs(draft, step["before"], cells):
+        return False
+    side = draft / step["dir"]
+    before, after = side / "before" / LEDGER, side / "after" / LEDGER
+    delta = b""
+    if after.is_file():
+        a = after.read_bytes()
+        b = before.read_bytes() if before.is_file() else b""
+        if not a.startswith(b):
+            return False
+        delta = a[len(b):]
+    begin_step(draft, cells)
+    _restore(draft, step["after"], side / "after", cells)
+    if delta:
+        with open(draft / LEDGER, "ab") as f:
+            f.write(delta)
+    commit_step(draft, step["row"], step["label"])
+    return True
+
+
+def _by_cell(files: dict) -> dict:
+    out = {}
+    for rel, sha in files.items():
+        p = _parse_rel(rel)
+        if p is not None:
+            out.setdefault(p[1], {})[rel] = sha
+    return out
+
+
+def dirty_after(dirty, old, new) -> set:
+    """THE DIRTY SET of an edit: the blocks where the edited draft may differ from the draft as it was, once a step
+    is put back. ``old`` is the step as first recorded, ``new`` the one now in its place (None: nothing in its place,
+    a deleted step). A block both wrote alike is clean again; any other block either wrote is dirty; a block neither
+    wrote keeps what it was. Conservative: a dirty block only costs a re-run."""
+    o = _by_cell(old["after"]) if old else {}
+    n = _by_cell(new["after"]) if new else {}
+    oc = {tuple(c) for c in old["cells"]} if old else set()
+    nc = {tuple(c) for c in new["cells"]} if new else set()
+    same = {c for c in oc & nc if o.get(c, {}) == n.get(c, {})}
+    return (set(dirty) | oc | nc) - same
+
+
+def finish_edit(draft: Path) -> dict:
+    """Close an open edit, keeping what was put back: the lifted records go (undone steps beyond it with them, as
+    any edit after an undo drops them)."""
+    draft = Path(draft)
+    h = history(draft)
+    e = h["edit"]
+    if not e:
+        raise ValueError("no edit is open in the draft")
+    shutil.rmtree(draft / HISTORY_DIR / EDIT_DIR, ignore_errors=True)
+    h["edit"] = None
+    _write_history(draft, h)
+    return e
+
+
+def cancel_edit(draft: Path) -> dict:
+    """Close an open edit as if it never began: a half-run step is aborted, every step put back since
+    :func:`begin_edit` is undone byte for byte, and the lifted steps go back in, applied as they were (redone from
+    their records), the undone ones after them still redoable."""
+    draft = Path(draft)
+    abort_step(draft)
+    e = history(draft)["edit"]
+    if not e:
+        raise ValueError("no edit is open in the draft")
+    k = e["at"]
+    while history(draft)["cursor"] > k:
+        undo(draft)
+    h = history(draft)
+    for s in h["steps"][k:]:
+        shutil.rmtree(draft / s["dir"], ignore_errors=True)
+    steps = h["steps"][:k]
+    for s in e["lifted"]:
+        shutil.rmtree(draft / s["home"], ignore_errors=True)
+        (draft / s["dir"]).rename(draft / s["home"])
+        steps.append({**{key: v for key, v in s.items() if key != "home"}, "dir": s["home"]})
+    h["steps"], h["cursor"], h["edit"] = steps, k, None
+    _write_history(draft, h)
+    for _ in range(e["applied"]):
+        redo(draft)
+    shutil.rmtree(draft / HISTORY_DIR / EDIT_DIR, ignore_errors=True)
+    return e

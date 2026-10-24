@@ -95,6 +95,21 @@ class IslandTool(CarryTool):
     def donor(self):
         return ISLAND
 
+    def load_row(self, row):
+        IE = self.FE
+        ix = self.ground_box.findData(str(row.get("ground", "grass")))
+        if ix < 0:
+            raise ValueError(f"its ground {row.get('ground')} is not one the card offers")
+        seed = float(row["seed"])
+        if seed != int(seed) or not 0 <= seed <= IE.SEED_MAX:
+            raise ValueError(f"its seed {row['seed']:g} is not one the card's shape spin can say")
+        self.ground_box.setCurrentIndex(ix)
+        self.radius.setValue(float(row.get("radius", IE.DEFAULTS["radius"])))
+        self.lobes.setValue(int(row.get("lobes", 1)))
+        self.height_spin.setValue(float(row.get("height", IE.DEFAULTS["height"])))
+        self.seed.setValue(int(seed))
+        self.place(*row["center"])
+
     # -- the shape and the laws --
     def _ring(self):
         return self.FE.outline(self.center, radius=self.radius.value(), seed=float(self.seed.value()),

@@ -1,0 +1,68 @@
+{
+ "prep_t": "2026-10-24 09:45:54",
+ "steps": {
+  "N0-A": {
+   "ok": true,
+   "x": 64.37,
+   "z": -512.29,
+   "world_x": 64.367,
+   "world_y": 3.19921875,
+   "world_z": -512.289,
+   "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\c9-N0-A.png",
+   "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261024-094644-world-teleport",
+   "error": null
+  },
+  "N1-reload": {
+   "ok": true,
+   "x": 326.16,
+   "z": -569.09,
+   "world_x": 326.156,
+   "world_y": 4.28515625,
+   "world_z": -569.09,
+   "scenario": 0,
+   "seconds": {
+    "to_field": 2.49,
+    "to_world": 7.14,
+    "teleport": 1.55,
+    "total": 11.55
+   },
+   "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\c9-N1-reload.png",
+   "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261024-094656-world-reload",
+   "error": null
+  },
+  "N1-A": {
+   "ok": true,
+   "x": 64.37,
+   "z": -512.29,
+   "world_x": 64.367,
+   "world_y": 7.3203125,
+   "world_z": -512.289,
+   "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\c9-N1-A.png",
+   "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261024-094709-world-teleport",
+   "error": null
+  }
+ },
+ "reach_rc": 0,
+ "promote1": {
+  "rc": 0,
+  "seconds": 9.22,
+  "out": "Map\\Disc1\\0_1\\r7\\Block[1][7] Terrain.ff9mesh\npromoted -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc1\\0_1\\r8\\Block[0][8] Terrain.ff9mesh\npromoted -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc1\\0_1\\r8\\Block[1][8] Terrain.ff9mesh\nmirrored 18 file(s), pinned 0 free-ride part(s), skipped 0 cell(s) -> Disc4\nmirrored 9 file(s), pinned 0 free-ride part(s), skipped 0 cell(s) -> Disc4\nmirrored 27 file(s), pinned 0 free-ride part(s), skipped 0 cell(s) -> Disc4\npromoted 6 file(s) at block(s) (0,7), (0,8), (1,7), (1,8), (1,16), (2,16) in FF9CustomMap-world (108 file(s) at those blocks, disc 4 included). The game shows it on its next world load (leave the world map and come back).\n",
+  "err": ""
+ },
+ "revert1": {
+  "rc": 0,
+  "seconds": 3.99,
+  "out": "\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc4\\0_1\\r7\\Block[0][7] Terrain.ff9mesh\nrestored -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc4\\0_1\\r7\\Block[1][7] Terrain.ff9mesh\nrestored -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc4\\0_1\\r8\\Block[0][8] Terrain.ff9mesh\nrestored -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc4\\0_1\\r8\\Block[1][8] Terrain.ff9mesh\nreverted 6 file(s) at block(s) (0,7), (0,8), (1,7), (1,8), (1,16), (2,16) in FF9CustomMap-world (108 file(s) at those blocks, disc 4 included). The game shows it on its next world load (leave the world map and come back).\n",
+  "err": ""
+ },
+ "promote2": {
+  "rc": 1,
+  "seconds": 4.09,
+  "out": "d -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc1\\0_1\\r16\\Block[1][16] Terrain.ff9mesh\npromoted -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc1\\0_1\\r16\\Block[2][16] Terrain.ff9mesh\npromoted -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc1\\0_1\\r7\\Block[0][7] Terrain.ff9mesh\npromoted -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc1\\0_1\\r8\\Block[0][8] Terrain.ff9mesh\nrelabelled -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc1\\0_1\\r7\\Block[1][7] Terrain.ff9mesh (bytes unchanged, now world-hill's)\n",
+  "err": "IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\ff9mapkit\\ff9mapkit\\__main__.py\", line 36, in <module>\n    sys.exit(main())\n             ~~~~^^\n  File \"C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\ff9mapkit\\ff9mapkit\\cli.py\", line 11873, in main\n    return args.func(args)\n           ~~~~~~~~~^^^^^^\n  File \"C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\ff9mapkit\\ff9mapkit\\cli.py\", line 5609, in _cmd_world_promote\n    rec = fn(Path(args.draft), game=game, dry_run=args.dry_run)\n  File \"C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\ff9mapkit\\ff9mapkit\\world\\draft.py\", line 443, in promote\n    with _tagged(tags[rel]):\n                 ~~~~^^^^^\nKeyError: 'FF9_Data/WorldMap/Disc1/0_1/r8/Block[1][8] Terrain.ff9mesh'\n"
+ },
+ "N0": true,
+ "N1": true,
+ "N2": false,
+ "N3": false
+}

@@ -17,6 +17,8 @@ import tomllib
 
 #: The tables the editor writes (the rest of a recipe it composes and lists, but does not edit).
 EDITOR_TABLES = ("forest", "mountain", "hill", "sink", "morph", "island", "transplant", "river")
+#: The tables whose placed steps a card can open again, on the row's own handles (rung C9); any step can be deleted.
+EDITABLE_TABLES = ("forest", "mountain", "hill", "island", "transplant")
 
 HEADER = ("# Dream World IX overworld recipe, written by the World tab.\n"
           "# Compose it onto a mod folder with:  ff9mapkit world-fuse <this file> --mod-folder <folder>\n")
@@ -246,3 +248,41 @@ def row_cells(row: dict) -> list:
         by0, by1 = math.floor(-(wz + reach) / 64.0), math.floor(-(wz - reach) / 64.0)
         return [(bx % 24, by) for by in range(max(by0, 0), min(by1, 19) + 1) for bx in range(bx0, bx1 + 1)]
     return all_cells()
+
+
+def anchor(row: dict):
+    """The world ``(x, z)`` a row is placed at: a shape's centre, a river's or a sink's point, a carry's target rect's
+    middle, a morph's block centre; None for a row that names none."""
+    table = row.get("table")
+    if table == "transplant" and row.get("cell"):
+        from .transplantedit import tsize
+        c = row["cell"]
+        tw, th = tsize(tuple(row.get("size") or (1, 1)), int(row.get("rot") or 0))
+        return 64.0 * c[0] + 32.0 * tw, -(64.0 * c[1] + 32.0 * th)
+    if table == "morph" and row.get("cell"):
+        c = row["cell"]
+        return 64.0 * c[0] + 32.0, -(64.0 * c[1] + 32.0)
+    pt = row.get("center") or row.get("at") or row.get("near")
+    return (float(pt[0]), float(pt[1])) if pt else None
+
+
+def step_at(steps, x: float, z: float):
+    """The index of the step a click at ``(x, z)`` picks among ``steps`` (the applied history steps), or None: of the
+    steps that changed the clicked block, the one placed nearest the click (the later one on a tie: it lies on top)."""
+    from .frames import world_to_block, wrap_world_xz
+    blk = world_to_block(*wrap_world_xz(x, z))
+    best = None
+    for i, s in enumerate(steps):
+        if tuple(blk) not in {tuple(c) for c in s.get("cells") or ()}:
+            continue
+        pt = anchor(s.get("row") or {})
+        d = 0.0 if pt is None else math.hypot((x - pt[0] + 768.0) % 1536.0 - 768.0, z - pt[1])
+        if best is None or d <= best[0]:
+            best = (d, i)
+    return None if best is None else best[1]
+
+
+def replay_window(step: dict) -> set:
+    """The blocks a step's verb may have read and written: its row's read window and the cells it changed. The step
+    replays from its record (``draft.replay``) only while none of them is dirty."""
+    return set(row_cells(step["row"])) | {tuple(c) for c in step.get("cells") or ()}
