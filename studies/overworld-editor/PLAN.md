@@ -142,6 +142,9 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C20, THE BEACH CHAIN QUALIFIED (2026-10-24)** -> [`C20.md`](C20.md). No free 4x2 rect was left; the nearest was held
+  only by C5u's own comma carry, reverted through its record. The card carried the chain onto (19, 1): 24 gates,
+  I1/I2 identical over 2,013 files; in game N0 sea -1.367, N2 its grass 6.516 (predicted 6.521), N3 loaded.
 - **C19, EDIT A STEP IN THE GAME: BUILT (2026-10-24)** -> [`C19.md`](C19.md). Edit / Delete on a promoted step chain
   revert (newest first) -> C9's edit -> promote again on Accept or Cancel; a later revert refusing promotes straight
   back. Real bytes on the live install: live disc 1 == the edited recipe on the snapshot over 999 files, every one of
