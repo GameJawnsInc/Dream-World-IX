@@ -111,7 +111,7 @@ class MountainTool(CarryTool):
         """The ground family under the ghost (``--ground``), grass until the island is read."""
         if self._ix is None or self.center is None:
             return "grass"
-        return self.FE.island_ground(self._ix, *self.center)
+        return self.FE.island_ground(self._ix, *self.fcenter())
 
     def _sync_chip(self):
         home = self._rows.get(self.donor(), {}).get("home_ground") or "grass"
@@ -157,12 +157,12 @@ class MountainTool(CarryTool):
                                dry_run=dry_run, report=report)
 
     def _shape(self, ol, ground_y):
-        return self.FE.placed(ol, self.center, spread=self.spread.value(), rot_deg=self.angle.value(),
+        return self.FE.placed(ol, self.fcenter(), spread=self.spread.value(), rot_deg=self.angle.value(),
                               rock_height=self.rock_height.value(), ground_y=ground_y)
 
     def _preview_at(self, ol, rim):
         from ..world import interior as IN
-        pv = self.FE.footprint_preview(self._ix, self.center, rim[:, [0, 2]], ol.r_rim * self.spread.value(),
+        pv = self.FE.footprint_preview(self._ix, self.fcenter(), rim[:, [0, 2]], ol.r_rim * self.spread.value(),
                                        ground=self.ground())
         if pv["ok"] and self.rock_height.value() > 1.0 and self._ghost is not None:
             t = self._ghost[0].reshape(-1, 3)

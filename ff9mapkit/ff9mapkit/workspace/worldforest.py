@@ -36,6 +36,20 @@ GATE_WORDS = {"footprint": "the footprint law", "hole": "the hole carve", "leak"
               "geometry": "the geometry gate", "step": "the canopy step law", "walk-in": "the walk-in simulation",
               "census": "the placement census", "error": "the carve"}
 WHOLE_MAP = ((768.0, -640.0), 767.0)    # read_deployed_blocks' near/reach that spans all 24 columns once
+SEAM_MAP = ((0.0, -640.0), 767.0)       # ...the same 24 columns read across x = 0: columns 12-23 west of it, unwrapped
+WORLD_W = 1536.0                        # the world's width: x wraps here (24 columns of 64u)
+SEAM_BAND = 384.0                       # a centre this near x = 0 is judged in the seam frame (each frame's own cut,
+                                        # x = 0/1536 east, x = +-768 seam, then lies 384u+ from every shape)
+
+
+def seam_frame(x) -> bool:
+    """Is a centre at world ``x`` (folded into [0, 1536)) judged in the seam frame, the soup read across x = 0?"""
+    return x < SEAM_BAND or x >= WORLD_W - SEAM_BAND
+
+
+def frame_x(x) -> float:
+    """World ``x`` (folded) as its frame spells it: the seam frame runs [-768, 768), the east frame [0, 1536)."""
+    return x - WORLD_W if seam_frame(x) and x >= WORLD_W / 2.0 else x
 
 
 def _rgb(hexcolour):
@@ -90,7 +104,15 @@ class CarryTool(QWidget):
     mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the view after an Accept
     or a discard. ``on_reload(x, z)`` (dev checkout: the shell's world reload) makes the running game re-read the
     world after a Promote. ``runner``, ``drafts_root``, ``ask``, ``outline_fn(donor)``, ``soup_fn(folder)`` (an
-    island ``SoupIndex``) and ``sync`` (background reads inline) are the test and snap seams.
+    island ``SoupIndex``) and ``sync`` (background reads inline) are the test and snap seams; ``seam_soup_fn(folder)``
+    is the soup read across x = 0 (none when only ``soup_fn`` is injected: that card keeps to the east frame).
+
+    THE SEAM (rung C10): a soup read in [0, 1536) is cut at x = 0, so a shape there met no ground under its west
+    half. ``center`` is always folded into [0, 1536), as the verbs spell it; a centre within ``SEAM_BAND`` of x = 0 is
+    judged in the SEAM FRAME, a second whole-map soup read across x = 0 (``SEAM_MAP``: columns 12-23 west of it,
+    unwrapped, as the verbs' own read window keys them), and the ghost and the cheap laws use :meth:`fcenter`, the
+    centre as that frame spells it. The view draws the seam twice (``worldview3d.seam_copies``), so the ghost stands
+    on the island at either end.
 
     A subclass names its shape (``TITLE``, ``NOUN``, ``PART``, ``VERB``, ``GATES``) and supplies the parts that
     differ: ``_edit_module``, ``_build_handles``, ``donor``, ``_cmd``, ``_shape``, ``_preview_at``, ``_pass_text``
@@ -115,7 +137,7 @@ class CarryTool(QWidget):
     opened = Signal(bool)                                # the card opened (True) or was put away (False)
 
     def __init__(self, pal, panel, *, game_fn, source_fn, on_changed=None, runner=None, drafts_root=None,
-                 ask=None, outline_fn=None, soup_fn=None, sync=False, on_reload=None):
+                 ask=None, outline_fn=None, soup_fn=None, sync=False, on_reload=None, seam_soup_fn=None):
         super().__init__()
         self.FE = FE = self._edit_module()
         self.pal, self.panel = pal, panel
@@ -125,6 +147,8 @@ class CarryTool(QWidget):
         self._ask = ask or self._ask_dialog
         self._outline_fn = outline_fn or (lambda donor: FE.outline(donor, game=self._game_fn()))
         self._soup_fn = soup_fn or self._read_soup
+        # an injected soup is in one frame only: no seam frame then, unless the seam's own soup is injected too
+        self._seam_soup_fn = seam_soup_fn or (None if soup_fn else (lambda folder: self._read_soup(folder, seam=True)))
         self._sync = sync
         self._on_reload = on_reload
         self._last_center = None                         # where Show in game goes (the last accepted shape)
@@ -136,6 +160,8 @@ class CarryTool(QWidget):
         self._outlines = {}                              # donor -> outline (a stock read, once per donor)
         self._ix = None                                  # the island soup the preview reads (SoupIndex)
         self._ix_for = None                              # the folder it was read from
+        self._seam = False                               # the frame _ix is read in: across x = 0 (True) or not
+        self._soups = {}                                 # (folder, seam) -> SoupIndex, until the island changes
         self._preview = None                             # the last preview
         self._ghost = None                               # (tris, rim) of the drawn ghost
         self._verdict = None                             # (handles key, verdict dict) of the last finished job
@@ -342,7 +368,7 @@ class CarryTool(QWidget):
     def open_tool(self):
         self.show()
         self.opened.emit(True)
-        self._ix = self._ix_for = None                   # the other tool may have written the draft meanwhile
+        self._drop_soups()                               # the other tool may have written the draft meanwhile
         self._refresh_draft_label()
         self._load_soup()
         self._load_outline(self.donor())
@@ -374,7 +400,7 @@ class CarryTool(QWidget):
 
     def island_changed(self):
         """The draft moved under the tool (an undo, a redo, an opened recipe): read the island and the draft again."""
-        self._ix = self._ix_for = None
+        self._drop_soups()
         self._verdict = None
         self._refresh_draft_label()
         if not self.isHidden():
@@ -403,18 +429,50 @@ class CarryTool(QWidget):
                 pass
         threading.Thread(target=run, daemon=True).start()
 
-    def _read_soup(self, folder):
-        """Every deployed Terrain block of ``folder`` as one island soup (about half a second for 94 blocks)."""
+    def _read_soup(self, folder, seam=False):
+        """Every deployed Terrain block of ``folder`` as one island soup (about half a second for 94 blocks), read in
+        [0, 1536) or, ``seam``, across x = 0 (the verbs' own unwrapped window: one contiguous frame there)."""
         from ..world import interior as IN
-        (near, reach) = WHOLE_MAP
+        (near, reach) = SEAM_MAP if seam else WHOLE_MAP
         blocks = IN.read_deployed_blocks(str(folder), near=near, reach=reach, game=self._game_fn())
         return self.FE.SoupIndex(IN.soup_from_blocks(blocks))
 
+    def _drop_soups(self):
+        """The island changed: every cached soup is stale."""
+        self._soups = {}
+        self._ix = self._ix_for = None
+
     def _load_soup(self):
+        """Both frames' soups, each from the cache or read on a worker (the seam frame's too, so a click near x = 0
+        never waits for a read); the current frame's is the one the preview reads."""
         target = self.target()
-        if self._ix is not None and self._ix_for == target:
-            return
-        self._bg("soup", lambda: (target, self._soup_fn(target)))
+        for seam in (self._seam, not self._seam):
+            if seam and self._seam_soup_fn is None:
+                continue
+            if (target, seam) in self._soups:
+                if seam == self._seam:
+                    self._ix, self._ix_for = self._soups[(target, seam)], target
+                continue
+            fn = self._seam_soup_fn if seam else self._soup_fn
+            self._bg("soup", lambda fn=fn, seam=seam: (target, seam, fn(target)))
+
+    def fcenter(self):
+        """The centre as the current soup's frame spells it (the ghost and the cheap laws); ``center`` is the folded
+        centre the command and the row name."""
+        if self.center is None:
+            return None
+        return (frame_x(self.center[0]) if self._seam else self.center[0], self.center[1])
+
+    def _set_center(self, x, z):
+        """Put the centre at world ``(x, z)``, folded into [0, 1536) (a pick on the view's seam copy, a drag across
+        the seam), and judge it in its frame: a frame change swaps the soup (read once per frame)."""
+        step = self.FE.CENTRE_STEP
+        self.center = ((round(x / step) * step) % WORLD_W, round(z / step) * step)
+        seam = seam_frame(self.center[0]) and self._seam_soup_fn is not None
+        if seam != self._seam:
+            self._seam = seam
+            self._ix = self._ix_for = None
+            self._load_soup()
 
     def _load_outline(self, donor):
         if donor in self._outlines:
@@ -435,7 +493,11 @@ class CarryTool(QWidget):
                 self._sync_buttons()
             return
         if what == "soup":
-            self._ix_for, self._ix = result
+            target, seam, ix = result
+            self._soups[(target, seam)] = ix
+            if (target, seam) != (self.target(), self._seam):
+                return                                   # a frame (or a draft) the tool has moved off meanwhile
+            self._ix_for, self._ix = target, ix
         elif what == "outline":
             donor, ol = result
             self._outlines[donor] = ol
@@ -460,14 +522,12 @@ class CarryTool(QWidget):
     # -- the handles --
     def place(self, x, z, y=0.0):
         """A click on the map (the World tab forwards its pick while the tool is open): the ghost goes there."""
-        step = self.FE.CENTRE_STEP
-        self.center = (round(x / step) * step, round(z / step) * step)
+        self._set_center(x, z)
         self._pick_y = float(y)
         self._handles_changed()
 
     def drag_to(self, x, z):
-        step = self.FE.CENTRE_STEP
-        self.center = (round(x / step) * step, round(z / step) * step)
+        self._set_center(x, z)
         self._timer.stop()
         self._redraw()
 
@@ -515,7 +575,7 @@ class CarryTool(QWidget):
             y = self._ix.ground_y(x, z)
             overlays.append((pin_tris((x, gy if y is None else y, z), MARK_H, w_frac=0.18), mark, 1.0, False))
         self.panel.set_overlays(overlays)
-        self.panel.set_ghost({"center": self.center, "y": gy, "poly": rim[:, [0, 2]]})
+        self.panel.set_ghost({"center": self.fcenter(), "y": gy, "poly": rim[:, [0, 2]]})
         self._explain()
         self._sync_buttons()
 
@@ -699,7 +759,7 @@ class CarryTool(QWidget):
             or len(written) or len(v.get("blocks") or [])  # (a mint's verdict names its blocks, not its files)
         self.center = self._ghost = None
         self._verdict = None
-        self._ix = self._ix_for = None                   # the island changed: re-read it from the draft
+        self._drop_soups()                               # the island changed: re-read it from the draft
         self.panel.set_overlays([])
         self.panel.set_ghost(None)
         self._refresh_draft_label()
@@ -776,7 +836,7 @@ class CarryTool(QWidget):
         else:
             self._say(f"Reverted: {src} is exactly as it was before the promote; the edit is still in the draft."
                       f"{follow}", "ok")
-        self._ix = self._ix_for = None                   # the live folder (and the draft) moved: read them again
+        self._drop_soups()                               # the live folder (and the draft) moved: read them again
         self._refresh_draft_label()
         self._load_soup()
         if self._on_changed is not None:                 # promoted: the game's stack has it; reverted: only the draft
@@ -803,7 +863,7 @@ class CarryTool(QWidget):
                          f"block file set{'s' if n != 1 else ''} in it? The install is not touched."):
             return
         D.discard(d, root=self._drafts_root)
-        self._ix = self._ix_for = None
+        self._drop_soups()
         self._verdict = None
         self._refresh_draft_label()
         self._load_soup()
@@ -880,7 +940,7 @@ class ForestTool(CarryTool):
         self.place(*row["center"])
 
     def _shape(self, ol, ground_y):
-        return self.FE.placed(ol, self.center, spread=self.spread.value(), rot_deg=self.angle.value(),
+        return self.FE.placed(ol, self.fcenter(), spread=self.spread.value(), rot_deg=self.angle.value(),
                               ground_y=ground_y)
 
     def _preview_at(self, ol, rim):

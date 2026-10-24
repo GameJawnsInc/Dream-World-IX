@@ -74,11 +74,11 @@ class HillTool(CarryTool):
                                dry_run=dry_run, report=report)
 
     def _shape(self, _ol, ground_y):
-        tris, _touched = self.FE.lifted(self._ix, self.center, self.height_spin.value(), self.radius_spin.value())
-        return tris, self.FE.rim(self._ix, self.center, self.radius_spin.value(), ground_y)
+        tris, _touched = self.FE.lifted(self._ix, self.fcenter(), self.height_spin.value(), self.radius_spin.value())
+        return tris, self.FE.rim(self._ix, self.fcenter(), self.radius_spin.value(), ground_y)
 
     def _preview_at(self, _ol, _rim):
-        return self.FE.preview(self._ix, self.center, self.height_spin.value(), self.radius_spin.value())
+        return self.FE.preview(self._ix, self.fcenter(), self.height_spin.value(), self.radius_spin.value())
 
     # -- the words --
     def _pass_text(self, v, where):

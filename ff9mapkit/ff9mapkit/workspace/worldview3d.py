@@ -297,11 +297,56 @@ def pick(packed: Packed, view, res, mx, my, *, near=None):
     return tuple(float(c) for c in eye + best_t * d), best
 
 
+WORLD_W = 1536.0                                             # the world's width: x wraps here
+SEAM_COPY = 192.0                                            # three columns each side of x = 0 drawn again across it
+
+
+def seam_copies(batches, width=SEAM_COPY):
+    """THE SEAM, DRAWN TWICE (rung C10): the batches, then the triangles within ``width`` of x = 0 again across it --
+    columns 0-2 east of x = 1536 and columns 21-23 west of x = 0 -- so an island straddling the seam reads whole at
+    both ends of the map, and a ghost there stands on it. Appended after every batch, so a depth tie inside the map
+    still resolves as the oracle's does; a pick on a copy is a point 1536u off, which the World tab folds back."""
+    out = list(batches)
+    for part, verts, uvs, tris in batches:
+        t = np.asarray(tris, dtype=np.int64).reshape(-1, 3)
+        if not len(t):
+            continue
+        v = np.asarray(verts, dtype=np.float64)
+        uv = np.asarray(uvs, dtype=np.float64)
+        cx = v[t].mean(axis=1)[:, 0]
+        for sel, shift in ((cx < width, WORLD_W), (cx >= WORLD_W - width, -WORLD_W)):
+            if not sel.any():
+                continue
+            st = t[sel]
+            used = np.unique(st)
+            remap = np.full(len(v), -1, dtype=np.int64)
+            remap[used] = np.arange(len(used))
+            nv = v[used].copy()
+            nv[:, 0] += shift
+            out.append((part, nv, uv[used], remap[st]))
+    return out
+
+
+def seam_shifts(xs, width=SEAM_COPY):
+    """The x offsets a drawing at ``xs`` is drawn at: itself, and its twin across the seam when it lies within
+    ``width`` of x = 0 or of x = 1536 (where the view draws the map again)."""
+    xs = np.asarray(xs, dtype=np.float64)
+    out = [0.0]
+    if not xs.size:
+        return out
+    if float(xs.min()) < width:
+        out.append(WORLD_W)
+    if float(xs.max()) > WORLD_W - width:
+        out.append(-WORLD_W)
+    return out
+
+
 def load_scene(site, *, part_src=None):
     """``(Packed, {part: rgba or None})`` for a :class:`~ff9mapkit.world.render.RenderSite`, stock under the
-    overrides. Pure numpy + file reads: the panel runs it on a worker thread."""
+    overrides, the seam drawn twice (:func:`seam_copies`). Pure numpy + file reads: the panel runs it on a worker
+    thread."""
     from ..world import render as R
-    batches = R.load_batches(site, part_src, stock=True)
+    batches = seam_copies(R.load_batches(site, part_src, stock=True))
     packed = pack(batches)
     return packed, {p: texture_rgba(R.tex_for(p, site)) for p in packed.parts}
 
@@ -750,7 +795,8 @@ class WorldView3D(QOpenGLWidget):
         mvp = clip_matrix(cam.view(), (w, h), far=cam.far())
         self._scene.draw(f, mvp)
         for tris, rgb, alpha, depth in self.overlays:
-            self._scene.draw_solid(f, mvp, tris, rgb, alpha=alpha, depth=depth)
+            for s in seam_shifts(tris[:, 0]) if len(tris) else (0.0,):   # a drawing at the seam, at both ends
+                self._scene.draw_solid(f, mvp, tris + (s, 0.0, 0.0) if s else tris, rgb, alpha=alpha, depth=depth)
         if self.marker is not None and self.marker_rgb is not None:
             h = max(1.5, cam.dist * 0.04)
             hx, hy, hz = self.marker
@@ -779,9 +825,12 @@ class WorldView3D(QOpenGLWidget):
         if e.button() == Qt.MouseButton.LeftButton and self.ghost is not None:
             from ..world.forestedit import _pip
             at = self._ghost_plane(e)
-            if at is not None and bool(_pip(np.asarray([at]), np.asarray(self.ghost["poly"]))[0]):
-                cx, cz = self.ghost["center"]
-                self._ghost_grab = (cx - at[0], cz - at[1])
+            poly = np.asarray(self.ghost["poly"], dtype=np.float64)
+            for s in seam_shifts(poly[:, 0]) if at is not None else ():   # the ghost or its twin across the seam
+                if bool(_pip(np.asarray([at]), poly + (s, 0.0))[0]):
+                    cx, cz = self.ghost["center"]
+                    self._ghost_grab = (cx + s - at[0], cz - at[1])
+                    break
         e.accept()
 
     def mouseMoveEvent(self, e):
