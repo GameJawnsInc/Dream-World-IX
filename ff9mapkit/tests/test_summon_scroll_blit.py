@@ -9,6 +9,10 @@ screen. These tests pin the three verdicts on containers this file builds (the s
 * the literal-boolean key lifts it, and the build says what was lifted;
 * a SOURCE edit builds and discloses where it propagates -- never merged with the destination.
 
+The table also carries six containers' OWN horizontal-scroll routine (``axis = "h"``), which closed the
+headless census's open gap on ef226 / ef509; section 4c pins its arithmetic and the corpus case at the end
+pins the four cells.
+
 The table itself is a cache of a measurement; its re-derivation lives in
 ``studies/custom-summons/tier-w/scroll_blit_gates.py``. The corpus-gated case at the end is ef407, the
 container whose named cast cell this check moved.
@@ -57,7 +61,9 @@ def _edit(tmp_path, blob, page, keep=None):
 # ---------------------------------------------------------------- (1) the table, as shipped
 def test_the_table_is_the_measurement_and_its_geometry_is_the_kits():
     assert SB.SITES == 167 and SB.CONTAINERS == 59
-    assert sum(b.sites for bs in SB.SCROLL_BLITS.values() for b in bs) == SB.SITES
+    assert (SB.HSCROLL_SITES, SB.HSCROLL_CONTAINERS, SB.ALL_CONTAINERS) == (11, 6, 63)
+    assert sum(b.sites for bs in SB.SCROLL_BLITS.values() for b in bs) == SB.SITES + SB.HSCROLL_SITES
+    assert sum(b.sites for bs in SB.SCROLL_BLITS.values() for b in bs if b.axis == "v") == SB.SITES
     assert (SB.CELL_W, SB.CELL_LINES) == (RS.PAGE_CELL_W, RS.PAGE_CELL_LINES)
     assert [(b.dst, b.size, b.src) for b in SB.blits(407)] == [
         ((704, 384), (64, 128), (704, 256)), ((640, 256), (64, 128), (640, 384))]
@@ -226,8 +232,10 @@ def _refresh(monkeypatch, read):
 
 
 def test_the_refresh_table_is_the_census_and_closes_over_the_site_table():
-    assert (SB.REFRESH_FRESH, SB.REFRESH_MIXED, SB.REFRESH_STALE) == (103, 9, 3)
-    assert SB.REFRESH_PAIRS == sum(len(bs) for bs in SB.SCROLL_BLITS.values()) == 115
+    assert (SB.REFRESH_FRESH, SB.REFRESH_MIXED, SB.REFRESH_STALE) == (111, 9, 3)
+    assert SB.REFRESH_PAIRS == sum(len(bs) for bs in SB.SCROLL_BLITS.values()) == 123
+    assert all(b.refresh is None for bs in SB.SCROLL_BLITS.values() for b in bs if b.axis == "h"), \
+        "the program scroll's 8 pairs all read fresh"
     ef499 = [b for b in SB.blits(499) if b.dst == (512, 256)][0]
     assert ef499.refresh.verdict == "READ_STALE" and ef499.refresh.pages == ("x448_y256@8",)
     assert [b.refresh for b in SB.blits(407)] == [None, None], \
@@ -284,6 +292,61 @@ def test_a_source_disclosure_follows_the_measured_refresh(tmp_path, blits, monke
     assert says in " ".join(row.replace("#", " ").split()), "the scaffold says the same before painting"
 
 
+# ---------------------------------------------------------------- (4c) the program's own scroll
+#: ef226 / ef509's shape at the fixture's coordinates: the top 64 lines of (704,384) rewritten from
+#: its own bottom 64, scrolled HORIZONTALLY by the container's own routine.
+HSCROLL = SB.ScrollBlit(effect=999, dst=(704, 384), size=(64, 64), src=(704, 448), chunks=(0,), sites=1,
+                        axis="h", routine="L_2558")
+
+
+def test_the_program_scroll_rotates_columns_and_maps_rows_one_to_one():
+    assert HSCROLL.label == "the program's own scroll (L_2558)" and HSCROLL.mechanism == SB.H_MECHANISM
+    assert "horizontal" in HSCROLL.describe() and "L_2558" in HSCROLL.describe()
+    # a part of the band is fed by the SAME rows of the source over its whole WIDTH -- op 144's rule
+    # turned through 90 degrees
+    assert HSCROLL.feeds((704, 400, 16, 8)) == (704, 464, 64, 8)
+    assert FULL.feeds((704, 400, 16, 8)) == (704, 256, 16, 128)
+    assert len(SB.rewritten_halfwords((HSCROLL,), (704, 384))) == 64 * 64
+    shipped = [b for b in SB.blits(509) if b.axis == "h"]
+    assert [(b.dst, b.size, b.src, b.routine) for b in shipped] == [
+        ((448, 384), (128, 64), (448, 448), "L_2558"), ((576, 384), (128, 64), (576, 256), "L_2558")]
+
+
+def test_a_program_scroll_destination_refuses_and_its_own_bottom_half_builds(tmp_path, blits):
+    blits(HSCROLL)
+    blob = build_scenery_container()
+    p = _cell(blob, 704, 384)
+    top = _edit(tmp_path, blob, p, keep=lambda c, r: r < 64)
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(_spec_dict(blob, [_row(p, top)]), "?", blob=blob)
+    msg = str(e.value)
+    assert msg.startswith("SCROLL-BLIT DESTINATION, cell.s0.x704_y384:")
+    assert "HORIZONTAL scroll" in msg and "THE PROGRAM SCROLL RUNS" in msg
+    assert "252 DR_MOVE blits" not in msg, "op 144's executed record is not this band's"
+    assert ("the source band (704,448) 64x64 is in THIS cell, outside the rewritten band: paint it "
+            "there and the program's own scroll (L_2558) copies it in, scrolling") in msg
+    bottom = _edit(tmp_path, blob, p, keep=lambda c, r: r >= 64)
+    b = RP.build(_spec_dict(blob, [_row(p, bottom)]), "?", blob=blob)
+    note = "  ".join(b.enabled[0].hazard_notes)
+    assert "SCROLL-BLIT DESTINATION, clear" in note and "SCROLL-BLIT SOURCE" in note
+    text = "\n".join(RP.scenery_lines(blob, 999))
+    assert "SCROLL BLITS (the program's own scroll)" in text
+    assert "program-scroll SCROLL BLITS" in RP.program_class(999)[1]
+
+
+def test_a_source_the_executed_copies_contradict_names_no_cell(tmp_path, blits, monkeypatch):
+    blits(FULL)
+    monkeypatch.setattr(SB, "SOURCE_UNCERTAIN", SB.SOURCE_UNCERTAIN | {999})
+    blob = build_scenery_container()
+    pages = {p.name: p for p in RP.scenery_texel_pages(blob, 999)}
+    assert pages["cell.s0.x704_y384"].hazards.scroll_remedy == (
+        "its source folds to (704,256), but headless this container's copies read from elsewhere "
+        "(scroll_blit.SOURCE_UNCERTAIN), so the fold names no cell to paint instead",)
+    p = pages["cell.s0.x704_y256"]
+    b = RP.build(_spec_dict(blob, [_row(p, _edit(tmp_path, blob, p))]), "?", blob=blob)
+    assert "a fold, not a measurement" in "  ".join(b.enabled[0].hazard_notes)
+
+
 # ---------------------------------------------------------------- (5) the corpus case
 @needs_corpus
 def test_ef407s_named_cast_cell_refuses_and_names_the_source(tmp_path):
@@ -304,3 +367,38 @@ def test_ef407s_named_cast_cell_refuses_and_names_the_source(tmp_path):
     assert "paint the source cell `cell.s0.x704_y256`" in str(e.value)
     assert pages["cell.s0.x640_y256"].hazards.scroll_remedy[0].startswith(
         "its source (640,384) is not an editable cell")
+
+
+@needs_corpus
+@pytest.mark.parametrize("ef, routine", [(226, "L_5220"), (509, "L_2558")])
+def test_the_open_gap_is_closed_ef226_and_ef509_refuse_their_top_halves(tmp_path, ef, routine):
+    """The headless census's open gap: the plugin rewrites the top 64 lines of ``x448_y384`` and
+    ``x512_y384`` every frame from their own bottom 64, through the container's OWN scroll routine,
+    while the op-144 table named nothing there -- so the kit licensed them. Now both refuse by name
+    and the bottom halves (the band's source) build and say where they propagate."""
+    blob = (CORPUS / ("ef%03d.bytes" % ef)).read_bytes()
+    pages = {p.name: p for p in RP.scenery_texel_pages(blob, ef)}
+    names = ("cell.s0.x448_y384", "cell.s0.x512_y384")
+    for name in names:
+        assert [b.routine for b in pages[name].hazards.scroll_dst] == [routine]
+        assert len(pages[name].hazards.scroll_rewritten) == 64 * 64
+
+    def spec(keep, **kw):
+        # both cells on one spec: a reader spills across them (THE NAME-EVERY-COLUMN gate); the cutout
+        # law is a different question and is acknowledged so this test asserts one thing
+        rows = [_row(pages[n], _edit(tmp_path, blob, pages[n], keep=keep), acknowledge_spill=True,
+                     acknowledge_cutout_reshape=True, **kw.get(n, {})) for n in names]
+        return {"reskin": {"effect": ef, "expect_sha256": hashlib.sha256(blob).hexdigest(),
+                           "texel": rows}}
+
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(spec(lambda c, r: r < 64), "?", blob=blob)
+    assert str(e.value).startswith("SCROLL-BLIT DESTINATION, cell.s0.x448_y384:")
+    assert "the program's own scroll (%s)" % routine in str(e.value)
+    with pytest.raises(RP.RepaintError) as e:      # the key is per row: the second cell still refuses
+        RP.build(spec(lambda c, r: r < 64, **{names[0]: {SB.ACK_KEY: True}}), "?", blob=blob)
+    assert str(e.value).startswith("SCROLL-BLIT DESTINATION, cell.s0.x512_y384:")
+    b = RP.build(spec(lambda c, r: r >= 64), "?", blob=blob)
+    for t in b.enabled:
+        note = "  ".join(t.hazard_notes)
+        assert "SCROLL-BLIT DESTINATION, clear" in note and "SCROLL-BLIT SOURCE" in note, t.name

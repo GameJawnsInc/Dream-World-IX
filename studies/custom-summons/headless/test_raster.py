@@ -244,6 +244,16 @@ def test_the_routes_falsifier_holds_the_target_flag_down():
         assert set(st.routes) == {"x448_y256@15/%s" % kind}
 
 
+def test_every_executed_copy_is_recorded_with_its_frames():
+    """``Stats.moves`` -- the executed counterpart of the kit's scroll-blit table (gate S7)."""
+    r, st = renderer(), R.Stats()
+    mv = R.Command("move", args=(448, 448, 128, 64, 448, 384))
+    for f in (3, 4, 9):
+        r.render([mv], f, False, st)
+    r.render([R.Command("move", args=(448, 448, 4, 64, 572, 384))], 9, False, st)
+    assert st.moves == {(448, 448, 128, 64, 448, 384): [3, 3, 9], (448, 448, 4, 64, 572, 384): [1, 9, 9]}
+
+
 def test_the_tracker_sees_a_copy_the_decode_missed_and_the_sibling_write_that_refreshes_it():
     """An 8bpp page keyed at x640 sampling column 704: a DR_MOVE into (704,256) after the decode is a
     STALE read (ClearKey drops only the write's own column); one into column 640 first refreshes it."""

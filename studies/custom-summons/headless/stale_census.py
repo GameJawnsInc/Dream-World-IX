@@ -130,6 +130,10 @@ def main(argv=None) -> int:
     ap.add_argument("--only", help="comma-separated effect ids (default: every corpus container)")
     ap.add_argument("--jobs", type=int, default=6)
     ap.add_argument("--control", action="store_true", help="run the falsifier only")
+    ap.add_argument("--rejoin", action="store_true",
+                    help="re-join the SAVED runs to the current scroll-blit table (no plugin run): the "
+                         "tracker stamps every DR_MOVE whatever issued it, so a table that gains rows "
+                         "needs no new run")
     ap.add_argument("--child", nargs=2, metavar=("EF", "OUT"), help=argparse.SUPPRESS)
     ap.add_argument("--no-clear-column", type=int, default=-1, help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
@@ -139,7 +143,10 @@ def main(argv=None) -> int:
     out.mkdir(parents=True, exist_ok=True)
 
     ef, col = CONTROL
-    ctrl = spawn(ef, out / "control" / ("ef%03d.json" % ef), col)
+    if a.rejoin:
+        ctrl = json.loads((out / "control" / ("ef%03d.json" % ef)).read_text(encoding="utf-8"))
+    else:
+        ctrl = spawn(ef, out / "control" / ("ef%03d.json" % ef), col)
     cv = {r["site"]: r["verdict"] for r in site_verdicts({ef: ctrl}) if r["effect"] == ef}
     print("CONTROL ef%03d, ClearKey suppressed on column %d:" % (ef, col))
     for site, v in cv.items():
@@ -148,8 +155,12 @@ def main(argv=None) -> int:
         return 0
 
     ids = [int(x) for x in a.only.split(",")] if a.only else H.corpus_ids()
-    with ThreadPoolExecutor(a.jobs) as pool:
-        got = list(pool.map(lambda e: spawn(e, out / "runs" / ("ef%03d.json" % e)), ids))
+    if a.rejoin:
+        got = [json.loads((out / "runs" / ("ef%03d.json" % e)).read_text(encoding="utf-8"))
+               for e in ids]
+    else:
+        with ThreadPoolExecutor(a.jobs) as pool:
+            got = list(pool.map(lambda e: spawn(e, out / "runs" / ("ef%03d.json" % e)), ids))
     runs = {r["effect"]: r for r in got}
     errs = [r["effect"] for r in got if "error" in r]
     sites = site_verdicts(runs)

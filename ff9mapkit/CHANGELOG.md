@@ -5,6 +5,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — `summon-reskin` refuses four more repaints that a scroll copy overwrites
+- Six effects scroll a texture sideways with a routine of their own, not the vertical scroll the kit already
+  knew. On two of them (ef226 and ef509) it rewrites the top half of `cell.s0.x448_y384` and
+  `cell.s0.x512_y384` every frame, and the kit used to let you paint there. Those edits now refuse by name, and
+  the bottom halves (where the copy reads from) build with a note.
+- Checked against the effects run offline: every copy they execute now lands inside a band the kit knows about.
+- On 8 effects the copy reads from somewhere other than where the kit's analysis says. There the build no longer
+  names a cell to paint instead, and its note calls the source a guess.
+
 ### Changed — `summon-reskin` refuses a 15bpp repaint that can never be seen
 - Once an effect draws into its off-screen render target, Memoria reads every 15bpp page from that target, not
   from the texture data. Measured over all 372 effects: all 22 cells the `direct15` export offers are in such

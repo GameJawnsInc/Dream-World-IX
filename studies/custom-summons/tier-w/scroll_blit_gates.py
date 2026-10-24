@@ -8,7 +8,9 @@ changes a texel inside a destination band, and discloses a source hit.  The tabl
 MEASUREMENT, so this runner re-derives it rather than trusting it:
 
 S1  THE RE-DERIVATION PIN.  Every annotated listing under the SCRATCH `annot-r2` corpus is re-parsed
-    through `drmove_cells.blit_rects` and compared with the shipped `_SITE_ROWS`, SITE FOR SITE.
+    through `drmove_cells.blit_rects` and compared with the shipped `_SITE_ROWS`, SITE FOR SITE -- and
+    through `drmove_cells.hscroll_rects` (the program's own horizontal-scroll routine, ADDENDUM 11)
+    against `_HSCROLL_ROWS`, the same way.
 S2  THE CORPUS VERDICT, TWO INSTRUMENTS.  The instrument's own `drmove_cells.analyse` and the kit's
     per-cell join (`scenery_texel_pages` -> `hazards.scroll_dst` / `scroll_src`) must name the SAME
     cells in the SAME containers, and both must equal the module's pins.
@@ -29,12 +31,18 @@ S5  THE ef211 CAST RECORD, READ BOTH WAYS.  The study's own cast specs, rebuilt 
     the key moves no byte.
 S6  PROVENANCE.  `scroll_blit.py` carries coordinates and counts only -- no bytes constant, no hex
     run, no integer outside the VRAM/coordinate range.
-S7  THE EXECUTED-BLIT CROSS-CHECK.  The headless host's census (`headless/sfx_host.py`, SCRATCH only:
-    the blits the user's own plugin actually EXECUTES) against the static table.  Every static
-    destination cell on the edit surface must be observed executing, and the executed destinations
-    the table does NOT hold must be exactly the pinned OPEN GAP -- so the gap cannot grow silently.
-    The census is a cross-check and never the refusal's authority: the host stands actors at the
-    origin with no battle camera, so a cell it never saw is "not observed", not "safe".
+S7  THE EXECUTED-BLIT CROSS-CHECK.  Two headless instruments (SCRATCH only: the copies the user's own
+    plugin actually EXECUTES) against the static table.  (a) PER CELL, the host's census
+    (`headless/sfx_host.py`): every static destination cell on the edit surface is observed executing,
+    and the open gap -- executed, editable, unpinned -- is EMPTY (it was ef226 / ef509's four cells
+    until the program-scroll routine joined the table).  (b) PER HALFWORD, the raster's routes census
+    (`raster.py routes`, which records every copy): over every container, the union of the executed
+    destinations EQUALS the union of the table's destination bands, and the containers that copy at
+    all are exactly the table's.  (c) THE SOURCE SIDE does not close, and where it does not is pinned:
+    the containers whose executed sources differ from the folded ones are exactly
+    `scroll_blit.SOURCE_UNCERTAIN`.  The census is a cross-check and never the refusal's authority:
+    the host stands actors at the origin with no battle camera, so a cell it never saw is "not
+    observed", not "safe".
 S8  THE REFRESH LAW.  `headless/stale_census.py` (SCRATCH `headless/raster/stale/stale.json`) charged
     every read of a copied band against the raster's write-order tracker; the shipped
     `scroll_blit.REFRESH` must equal it pair for pair (verdict, stale reads, reads, reading pages), the
@@ -171,6 +179,21 @@ def s1_rederive() -> None:
     chk("S1 no site excluded", unfolded, 0)
     chk("S1 site count", len(rows), SB.SITES)
     chk("S1 container count", len({r[0] for r in rows}), SB.CONTAINERS)
+    hrows, hunfolded = [], 0
+    for f in sorted(os.listdir(DM.ANNOT)):
+        m = re.match(r"ef(\d+)_c(\d+)\.asm$", f)
+        if not m:
+            continue
+        for r in DM.hscroll_rects(os.path.join(DM.ANNOT, f)):
+            if None in (r["x"], r["y"], r["w"], r["h"], r["sx"], r["sy"]):
+                hunfolded += 1
+                continue
+            hrows.append((int(m.group(1)), int(m.group(2)), r["via"], r["x"], r["y"], r["w"], r["h"],
+                          r["sx"], r["sy"]))
+    print("   program scroll: %d site(s) over %d container(s); %d excluded"
+          % (len(hrows), len({r[0] for r in hrows}), hunfolded))
+    chk("S1 the program-scroll sites, SITE FOR SITE", tuple(hrows), SB._HSCROLL_ROWS)
+    chk("S1 no program-scroll site excluded", hunfolded, 0)
 
 
 # --------------------------------------------------------------------------- S2
@@ -352,10 +375,19 @@ def s6_provenance() -> None:
 # --------------------------------------------------------------------------- S7
 CENSUS = os.path.join(CORPUS, "headless", "census.json")
 #: THE OPEN GAP, by name: editable cells (not already refused as a program-VRAM write) the plugin
-#: executes a DR_MOVE into while the static op-144 table names no rect over them.  The kit licenses
-#: these today; folding them in is its own task.
-KNOWN_GAP = frozenset({(226, "cell.s0.x448_y384"), (226, "cell.s0.x512_y384"),
-                       (509, "cell.s0.x448_y384"), (509, "cell.s0.x512_y384")})
+#: executes a DR_MOVE into while the static table names no rect over them.  It was ef226 / ef509's
+#: x448_y384 + x512_y384 -- the program-scroll routine's bands -- until the routine joined the table.
+KNOWN_GAP: frozenset = frozenset()
+ROUTES = os.path.join(CORPUS, "headless", "raster", "routes", "routes.json")
+
+
+def _masks(rects):
+    import numpy as np
+    m = np.zeros((SB.VRAM_H, SB.VRAM_W), bool)
+    for x, y, w, h in rects:
+        if x >= 0 and y >= 0 and x + w <= SB.VRAM_W and y + h <= SB.VRAM_H:
+            m[y:y + h, x:x + w] = True
+    return m
 
 
 def s7_executed_crosscheck() -> None:
@@ -390,6 +422,35 @@ def s7_executed_crosscheck() -> None:
     chk("S7 every static destination cell is observed executing", unseen, [])
     chk("S7 the static destination count", seen, SB.DEST_CELLS)
     chk("S7 the open gap is exactly the pinned one", sorted(gap), sorted(KNOWN_GAP))
+    # (b) + (c): PER HALFWORD, against every copy the raster executed
+    if not os.path.isfile(ROUTES):
+        _FAILS.append("S7: no routes census at %s -- run `headless/raster.py routes`" % ROUTES)
+        return
+    with open(ROUTES, encoding="utf-8") as fh:
+        rrows = json.load(fh)["rows"]
+    copying, dst_off, src_off, halfwords = set(), [], set(), 0
+    for e, r in sorted(rrows.items()):
+        ef, mv = int(e[2:]), r.get("moves") or []
+        if mv:
+            copying.add(ef)
+        bs = SB.blits(ef)
+        if not mv and not bs:
+            continue
+        ex_d = _masks([(x, y, rw, rh) for rx, ry, rw, rh, x, y, _n, _f0, _f1 in mv])
+        ex_s = _masks([(rx, ry, rw, rh) for rx, ry, rw, rh, x, y, _n, _f0, _f1 in mv])
+        st_d = _masks([b.dst_rect for b in bs])
+        st_s = _masks([b.src_rect for b in bs])
+        halfwords += int(ex_d.sum())
+        if (ex_d != st_d).any():
+            dst_off.append((ef, int((ex_d & ~st_d).sum()), int((st_d & ~ex_d).sum())))
+        if (ex_s != st_s).any():
+            src_off.add(ef)
+    print("   routes census: %d containers copy; %d destination halfwords executed; destinations off "
+          "the table: %s; sources off the folds: %s"
+          % (len(copying), halfwords, dst_off or "none", sorted(src_off)))
+    chk("S7 the containers that copy are exactly the table's", sorted(copying), sorted(SB.SCROLL_BLITS))
+    chk("S7 the executed destinations == the table's bands, halfword for halfword", dst_off, [])
+    chk("S7 the sources that do not close are exactly SOURCE_UNCERTAIN", src_off, set(SB.SOURCE_UNCERTAIN))
 
 
 STALE_CENSUS = os.path.join(CORPUS, "headless", "raster", "stale", "stale.json")
@@ -441,7 +502,7 @@ GATES = [
     ("S4", "THE PARTIAL BAND -- ef211 x640_y256, refused by the texel, not the cell", s4_partial_band),
     ("S5", "THE ef211 CAST RECORD, READ BOTH WAYS -- and the key moves no byte", s5_retrodiction),
     ("S6", "PROVENANCE -- coordinates and counts, never a stock byte", s6_provenance),
-    ("S7", "THE EXECUTED-BLIT CROSS-CHECK -- 88/88 run headless; the open gap pinned",
+    ("S7", "THE EXECUTED-BLIT CROSS-CHECK -- every band runs, the gap is empty, halfword for halfword",
      s7_executed_crosscheck),
     ("S8", "THE REFRESH LAW -- the measured stale/frozen pairs == the kit's table; falsifier fired",
      s8_refresh),

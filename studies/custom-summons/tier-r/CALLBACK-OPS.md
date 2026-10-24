@@ -1078,3 +1078,69 @@ refusal has a key:
 * Cast 2b's bold wheel on `(576,384)` lies wholly inside the band `dst (576,368) 28x112 <- (604,368)`
   and still eroded the vortex smoke at burst peak: that blit is not running in that phase.
   **CORRECTED (later): it is.** The ladder capture runs that blit ahead of every draw of its page (f47-157); 2b rendered as stock (see `scroll_blit.py` `REACHABILITY`).
+
+
+---
+
+# ADDENDUM 11 -- the program's own scroll: op 144 turned through 90 degrees
+
+**Tool: `drmove_cells.py` (`hscroll_rects`, `scroll_routines`, the shared `_fold_sites`).**
+
+The headless census (`headless/sfx_host.py`) found the plugin executing DR_MOVE copies into four
+editable cells no op-144 site names -- ef226 and ef509's `x448_y384` and `x512_y384` -- so the kit
+licensed them. Neither listing calls op 144 at all.
+
+## What issues them
+
+Six containers -- **ef038, ef179, ef226, ef312, ef406, ef509** -- carry ONE routine of their own,
+identical instruction for instruction (`role=leaf-hle-wrapper`, labelled `L_01bc` / `L_0b68` /
+`L_5220` / `L_2558`). It takes **op 144's seven arguments in op 144's layout** -- `$a0` the phase,
+`$a1..$a3` dst x / dst y / width, then height, src x, src y at `$sp+0x10/0x14/0x18` -- computes
+`phase % width` (`div $a0, $a3`), builds two RECTs on its own stack, and calls **HLE op 7** (libgpu
+`SetDrawMove`) twice:
+
+```
+dst (dx,          dy)  width - p   <- src (sx + p, sy)
+dst (dx + w - p,  dy)  p           <- src (sx,     sy)
+```
+
+**A horizontal scroll with wraparound**: over one period every source COLUMN reaches every destination
+column, while rows map one to one -- op 144's rule turned through 90 degrees. The RECTs are pointers and
+never fold, but the routine's 11 **call sites** fold exactly as op 144's do.
+
+## A folding bug this exposed
+
+A MIPS call's **delay-slot** instruction runs before the callee, and the routine's call sites keep the
+source-y store there. The old folder read the site first, so it took a stale slot from earlier code:
+ef179 and ef406 folded to a source of **(480, 4)** -- inside VRAM, and wrong (the executed copies read
+x448_y384). `_fold_sites` now applies the delay slot first. **On the 167 op-144 sites it changes no
+row.**
+
+## The result
+
+| | op 144 | program scroll |
+|---|---:|---:|
+| call sites | 167 | 11 |
+| containers | 59 | 6 (4 new: ef226, ef312, ef406, ef509) |
+| distinct rect pairs | 115 | 8 |
+
+Against the edit surface (now 208 cells over the 63 containers): **22 containers / 94 destination
+cells, 21 / 88 source cells**. The routine adds six destination cells, each also a source -- its top 64
+lines rewritten from its own (or its neighbour's) bottom 64: the four gap cells, and ef038's
+`x512_y384` / `x576_y384`, which ef038's program-VRAM write already refused. All 8 new pairs read
+FRESH in the refresh census (`stale_census.py --rejoin`).
+
+## The executed cross-check, halfword for halfword
+
+`raster.py routes` now records every copy the plugin executes. Over all **63 containers that copy at
+all, the union of executed destinations EQUALS the union of the table's destination bands**, halfword
+for halfword (600,320 halfwords), and every band in the table executes. The containers that copy are
+exactly the table's 63. (ef395, Silent Voice, emits DR_MOVE prims too, but every one sources
+inside the 320x240 framebuffer, which `SFXRender.DR_MOVE` (`SFXRender.cs:455`) turns into an
+`SFXScreenShot`, not a VRAM copy.)
+
+**The source side does not close.** On 8 op-144 containers the executed copies read from somewhere the
+folded source does not name: **ef022, ef095, ef222** fold to a source outside VRAM, and **ef131, ef250,
+ef418, ef429, ef435** fold inside it, wrongly -- ef429's `(1,1)` is read every frame from (576..703,
+256..511), stepping through tiles. The kit's `scroll_blit.SOURCE_UNCERTAIN` holds them: a remedy names
+no cell there, and a source disclosure says it is a fold. `scroll_blit_gates.py` S7 pins the set.

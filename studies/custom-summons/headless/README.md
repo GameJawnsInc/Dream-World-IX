@@ -122,8 +122,8 @@ before it's a statement about the container.**
 ```bash
 py -I raster.py run --ef 227 --frames 82,150,300 --scale 2      # PNGs + visible cells (SCRATCH)
 py -I raster.py diff --ef 211 --b <edited container> --frames 230-290 --out <SCRATCH dir>
-py -I raster.py routes --jobs 6 [--control]                     # every container: where each key reads from
-py -I stale_census.py [--only 499] [--control]                  # every container: is each copy ever SEEN?
+py -I raster.py routes --jobs 6 [--control]                     # every container: key sources + copies
+py -I stale_census.py [--only 499] [--control] [--rejoin]       # every container: is each copy ever SEEN?
 py -I raster.py calibrate --ef 227 --log <s48 probe log> [--offset 19]   # in-game f vs headless f+19
 py -I rx_gates.py [--battery]                                    # RX0-RX3 (+ RX4, the owner-verdict battery)
 ```
@@ -202,7 +202,17 @@ reaching the screen only as speckle on saturated ice (≤ 8.6% of pixels, f214�
   falsifier: ef407 with column 640's ClearKey suppressed reads (704,384) stale. And the inversion: ef499's
   `x512_y256`, which the kit refused as a destination, repainted offline with the key, shows on 23 frames
   (up to 25,347 px) -- the stale decode keeps it. The kit now carries the table
-  (`scroll_blit.REFRESH`, gate S8) and says so in its refusal and disclosures.
+  (`scroll_blit.REFRESH`, gate S8) and says so in its refusal and disclosures. The 8 pairs of the
+  program's own scroll (next bullet) all read fresh (`--rejoin`: 111 / 9 / 3 of 123).
+- ★ **THE OPEN GAP, CLOSED: the program's own scroll.** The census saw the plugin copy into four editable
+  cells no op-144 site names (ef226 / ef509 `x448_y384` + `x512_y384`, the top 64 lines rewritten from
+  their own bottom 64), so the kit licensed them. Six containers carry one routine of their own that takes
+  op 144's arguments and issues the two copies itself through HLE op 7 -- a HORIZONTAL scroll (tier-r
+  `CALLBACK-OPS.md` addendum 11). Its 11 call sites are now kit table rows, and both cells refuse. `routes`
+  now records every executed copy, and over all 63 containers that copy, **the executed destinations
+  equal the table's bands halfword for halfword** (gate S7). The sources do not: on 8 op-144 containers
+  the executed copies read from somewhere the folded source does not name (`scroll_blit.SOURCE_UNCERTAIN`,
+  pinned by S7) -- the kit names no remedy cell there and calls the source a fold.
 - ★ **AN EDIT PRE-RUN: ef407's gained cell reaches the screen and scrolls**
   (`tier-w/ef407_gain_prerun.py`). Bars painted into `x704_y256`, a cell the U2 adoption licenses with no
   bound reader, change 110 of 146 frames (f75–192); 99.9 % of the changed pixels come through the op-144
@@ -291,4 +301,4 @@ tests: code plus counts, with zero Square Enix bytes.
 | `raster.py` | the managed-renderer port: run / diff / routes / calibrate |
 | `rx_gates.py` | the calibration gates RX0–RX4 |
 | `stale_census.py` | the refresh census: every copy joined to the reads that see it, with its falsifier |
-| `test_raster.py` | 28 tests on synthetic primitives and the gate scoring; one is install-gated |
+| `test_raster.py` | 29 tests on synthetic primitives and the gate scoring; one is install-gated |

@@ -43,6 +43,25 @@ THE JOIN, AND ITS TWO DELIBERATE COARSENESSES
   fit VRAM at all (ef022, ef095, ef222, ef418). Those name no source cell, and a remedy says so rather
   than naming one (:attr:`ScrollBlit.src_in_vram`).
 
+THE PROGRAM'S OWN SCROLL -- THE OTHER AXIS (tier-r ADDENDUM 11)
+---------------------------------------------------------------
+op 144 is not the only scroll. Six containers (ef038, ef179, ef226, ef312, ef406, ef509) carry ONE
+routine of their own, identical instruction for instruction: it takes op 144's seven arguments, divides
+the phase by the width, and queues the two DR_MOVE copies itself through HLE op 7 (libgpu
+``SetDrawMove``) -- **a horizontal scroll with wraparound**: over one period every source COLUMN reaches
+every destination column, while rows map one to one. Its RECTs are built on the stack and never fold,
+but its 11 call sites fold exactly as op 144's do, so they are table rows too (:data:`HSCROLL_SITES`,
+``axis = "h"``). Four of its destination cells are on the edit surface -- ef226 and ef509's
+``x448_y384`` / ``x512_y384``, whose top 64 lines are rewritten from their own bottom 64 -- and before
+this table held the routine the kit licensed them: the headless census's open gap. A call site's
+delay-slot store is applied before the call is read (the routine's sites keep the source y there).
+
+THE EXECUTED CROSS-CHECK (``scroll_blit_gates.py`` S7): the headless raster records every VRAM-to-VRAM
+copy the plugin executes, and over all 63 containers that run one, **the union of the executed
+destinations equals the union of this table's destination bands, halfword for halfword**, and every
+band in the table executes. The SOURCE side does not close the same way, and the gate pins where: on 8
+op-144 containers the folded source disagrees with the executed one (:data:`SOURCE_UNCERTAIN`).
+
 THE REFRESH LAW -- A COPY CAN RUN AND STILL NOT REACH THE SCREEN
 -----------------------------------------------------------------
 Memoria decodes a texture page once and keeps the decode until ``PSXTextureMgr.ClearKey`` drops it,
@@ -86,6 +105,8 @@ from typing import Dict, FrozenSet, List, Optional, Tuple
 __all__ = [
     "SITES", "CONTAINERS", "EDIT_SURFACE_CELLS", "DEST_CONTAINERS", "DEST_CELLS",
     "SOURCE_CONTAINERS", "SOURCE_CELLS", "VRAM_W", "VRAM_H", "CELL_W", "CELL_LINES",
+    "HSCROLL_SITES", "HSCROLL_CONTAINERS", "ALL_CONTAINERS", "SOURCE_UNCERTAIN", "H_MECHANISM",
+    "H_EXECUTED",
     "ScrollBlit", "SCROLL_BLITS", "blits", "cell_hits", "cell_of", "cells_under",
     "rewritten_halfwords",
     "ACK_KEY", "MECHANISM", "MEASUREMENT", "EF407_EXECUTED", "REACHABILITY", "ACK_WARNING",
@@ -96,17 +117,44 @@ __all__ = [
 #: every op-144 call site in the corpus, and the containers they sit in -- asserted below.
 SITES = 167
 CONTAINERS = 59
-#: THE CORPUS VERDICT against the texel EDIT surface (``scenery_texel_pages`` at its default channels).
-#: Not checkable here -- it needs the containers -- so ``scroll_blit_gates.py`` re-derives all five
-#: through the kit's own join AND through ``drmove_cells.analyse`` and asserts both equal these.
-EDIT_SURFACE_CELLS = 198
-DEST_CONTAINERS, DEST_CELLS = 20, 88
-SOURCE_CONTAINERS, SOURCE_CELLS = 19, 82
+#: every call site of the program's own horizontal-scroll routine, the containers that carry it, and
+#: the containers the two kinds cover together (ef038 and ef179 carry both).
+HSCROLL_SITES, HSCROLL_CONTAINERS = 11, 6
+ALL_CONTAINERS = 63
+#: THE CORPUS VERDICT against the texel EDIT surface (``scenery_texel_pages`` at its default channels),
+#: op 144 and the program scroll together. Not checkable here -- it needs the containers -- so
+#: ``scroll_blit_gates.py`` re-derives all five through the kit's own join AND through
+#: ``drmove_cells.analyse`` and asserts both equal these. (op 144 alone: 198 / 20, 88 / 19, 82. The
+#: routine adds ef226 and ef509's x448_y384 + x512_y384 -- the open gap -- and ef038's x512_y384 +
+#: x576_y384, which its program-VRAM write already refused; each of the six is both a destination
+#: and a source, its top 64 lines rewritten from its own or its neighbour's bottom 64.)
+EDIT_SURFACE_CELLS = 208
+DEST_CONTAINERS, DEST_CELLS = 22, 94
+SOURCE_CONTAINERS, SOURCE_CELLS = 21, 88
 #: the PSX VRAM, in halfwords x lines -- what the hardware's fit predicate is stated against.
 VRAM_W, VRAM_H = 1024, 512
 #: one census page-cell: 64 halfwords x 128 lines (``reskin.PAGE_CELL_W`` / ``PAGE_CELL_LINES``; the
 #: equality is asserted by :mod:`ff9mapkit.summons.repaint` at import, which imports both).
 CELL_W, CELL_LINES = 64, 128
+
+# ``(effect, program chunk, routine, dst x, dst y, width, height, src x, src y)`` -- one row per CALL SITE
+# of the program's own horizontal-scroll routine (``routine`` is its label in the annotated listing), in
+# listing order, duplicates kept.  Here the WIDTH is the period: the scroll rotates columns.
+_HSCROLL_ROWS = (
+    (38, 0, "L_01bc", 512, 448, 128, 64, 512, 384),
+    (179, 0, "L_01bc", 448, 384, 32, 128, 480, 384), (179, 0, "L_01bc", 448, 384, 32, 128, 480, 384),
+    (226, 0, "L_5220", 448, 384, 128, 64, 448, 448), (226, 0, "L_5220", 448, 384, 128, 64, 448, 448),
+    (226, 0, "L_5220", 768, 384, 128, 64, 768, 320),
+    (312, 0, "L_0b68", 640, 384, 64, 128, 576, 384),
+    (406, 0, "L_01bc", 448, 384, 32, 128, 480, 384), (406, 0, "L_01bc", 448, 384, 32, 128, 480, 384),
+    (509, 0, "L_2558", 448, 384, 128, 64, 448, 448), (509, 0, "L_2558", 576, 384, 128, 64, 576, 256),
+)
+
+#: the op-144 containers whose folded SOURCE the executed copies contradict (S7): three fold to a source
+#: outside VRAM (ef022, ef095, ef222) and five fold inside it, to the wrong place -- ef429's (1,1) is read
+#: every frame from (576..703, 256..511), stepping through tiles.  A source named on these is a fold,
+#: not a measurement, and the remedy and source disclosure say so.
+SOURCE_UNCERTAIN = frozenset({22, 95, 131, 222, 250, 418, 429, 435})
 
 # ``(effect, program chunk, dst x, dst y, width, period, src x, src y)`` -- one row per op-144 CALL
 # SITE, in listing order, duplicates kept: two sites queueing the same rect are two sites.  Width and
@@ -229,10 +277,29 @@ class ScrollBlit:
     """
     effect: int
     dst: Tuple[int, int]
-    size: Tuple[int, int]                            # (width halfwords, period lines)
+    size: Tuple[int, int]                            # (width halfwords, height lines)
     src: Tuple[int, int]
     chunks: Tuple[int, ...]
     sites: int
+    #: ``"v"`` -- op 144, rows rotate over the height; ``"h"`` -- the program's own routine, columns
+    #: rotate over the width.  Which way the scroll turns decides which source band feeds a part.
+    axis: str = "v"
+    #: the program-scroll routine's label (``"L_2558"``); empty on op 144.
+    routine: str = ""
+
+    @property
+    def label(self) -> str:
+        """What issues the copy, in the words a refusal or remedy uses."""
+        return "op 144" if self.axis == "v" else "the program's own scroll (%s)" % self.routine
+
+    @property
+    def mechanism(self) -> str:
+        return MECHANISM if self.axis == "v" else H_MECHANISM
+
+    @property
+    def source_measured(self) -> bool:
+        """False where the executed copies contradict this container's folded op-144 sources."""
+        return not (self.axis == "v" and self.effect in SOURCE_UNCERTAIN)
 
     @property
     def dst_rect(self) -> Rect:
@@ -262,13 +329,16 @@ class ScrollBlit:
     def feeds(self, band: Rect) -> Optional[Rect]:
         """The SOURCE band written into ``band`` (a part of the destination).
 
-        Columns map one to one at the source's offset; ROWS do not -- the scroll rotates the band, so
-        over one period every source row lands on every destination row. So the source of a
-        destination column range is that column range over the WHOLE period. None when the source
-        does not fit VRAM.
+        Along the axis the scroll does NOT turn, positions map one to one at the source's offset; along
+        the one it turns, every source position lands on every destination position over one period.
+        So op 144's (``"v"``) source of a destination column range is that column range over the WHOLE
+        height, and the program scroll's (``"h"``) source of a row range is that row range over the
+        WHOLE width. None when the source does not fit VRAM.
         """
         if not self.src_in_vram:
             return None
+        if self.axis == "h":
+            return (self.src[0], self.src[1] + (band[1] - self.dst[1]), self.size[0], band[3])
         x0 = self.src[0] + (band[0] - self.dst[0])
         return (x0, self.src[1], band[2], self.size[1])
 
@@ -279,23 +349,32 @@ class ScrollBlit:
         return REFRESH.get((self.effect, self.dst[0], self.dst[1], self.size[0], self.size[1]))
 
     def describe(self) -> str:
+        if self.axis == "h":
+            return ("program scroll dst (%d,%d) %dx%d <- src (%d,%d), horizontal, %d site(s) of %s in "
+                    "chunk %s" % (self.dst[0], self.dst[1], self.size[0], self.size[1], self.src[0],
+                                  self.src[1], self.sites, self.routine,
+                                  "/".join(str(c) for c in self.chunks)))
         return ("op 144 dst (%d,%d) %dx%d <- src (%d,%d)%s, %d site(s) in chunk %s"
                 % (self.dst[0], self.dst[1], self.size[0], self.size[1], self.src[0], self.src[1],
-                   "" if self.src_in_vram else " [source does not fit VRAM as folded]",
+                   "" if self.src_in_vram else " [source does not fit VRAM as folded]"
+                   if self.source_measured or not self.src_in_vram else "",
                    self.sites, "/".join(str(c) for c in self.chunks)))
 
 
 def _build() -> Dict[int, Tuple[ScrollBlit, ...]]:
-    grouped: Dict[int, Dict[Tuple[int, ...], List[int]]] = {}
+    grouped: Dict[int, Dict[Tuple[object, ...], List[int]]] = {}
     for ef, chunk, dx, dy, w, h, sx, sy in _SITE_ROWS:
-        grouped.setdefault(ef, {}).setdefault((dx, dy, w, h, sx, sy), []).append(chunk)
-    return {ef: tuple(ScrollBlit(effect=ef, dst=(k[0], k[1]), size=(k[2], k[3]), src=(k[4], k[5]),
-                                 chunks=tuple(sorted(set(cs))), sites=len(cs))
+        grouped.setdefault(ef, {}).setdefault(("v", "", dx, dy, w, h, sx, sy), []).append(chunk)
+    for ef, chunk, routine, dx, dy, w, h, sx, sy in _HSCROLL_ROWS:
+        grouped.setdefault(ef, {}).setdefault(("h", routine, dx, dy, w, h, sx, sy), []).append(chunk)
+    return {ef: tuple(ScrollBlit(effect=ef, dst=(k[2], k[3]), size=(k[4], k[5]), src=(k[6], k[7]),
+                                 chunks=tuple(sorted(set(cs))), sites=len(cs), axis=k[0],
+                                 routine=k[1])
                       for k, cs in rects.items())
-            for ef, rects in grouped.items()}
+            for ef, rects in sorted(grouped.items())}
 
 
-#: ``{effect: (ScrollBlit, ...)}`` -- every distinct op-144 rect pair per container.
+#: ``{effect: (ScrollBlit, ...)}`` -- every distinct scroll rect pair per container, op 144's first.
 SCROLL_BLITS: Dict[int, Tuple[ScrollBlit, ...]] = _build()
 
 
@@ -365,8 +444,8 @@ _REFRESH_ROWS = (
 REFRESH: Dict[Tuple[int, int, int, int, int], RefreshRead] = {
     (ef, x, y, w, h): RefreshRead(verdict=v, stale_reads=st, reads=n, pages=pg)
     for ef, x, y, w, h, v, st, n, pg in _REFRESH_ROWS}
-REFRESH_PAIRS = 115
-REFRESH_FRESH, REFRESH_MIXED, REFRESH_STALE = 103, 9, 3
+REFRESH_PAIRS = 123
+REFRESH_FRESH, REFRESH_MIXED, REFRESH_STALE = 111, 9, 3
 
 #: the refresh law in the one sentence a disclosure quotes.
 REFRESH_LAW = (
@@ -383,19 +462,33 @@ MECHANISM = (
     "HLE op 144 is a VRAM SCROLL BLIT: it queues two DR_MOVE primitives (SFXRender case 231, "
     "libgpu's VRAM-to-VRAM block move) that copy a source band into a destination band split at the "
     "animated phase and swapped -- a vertical scroll with wraparound -- every frame it runs")
+#: the other axis, in the same breath.
+H_MECHANISM = (
+    "the container's own program SCROLLS this band: a routine of its own, carried by six containers and "
+    "identical in all of them, takes op 144's seven arguments and queues the two DR_MOVE copies itself "
+    "through HLE op 7 (libgpu SetDrawMove) -- a HORIZONTAL scroll with wraparound -- every frame it runs")
 
 #: the corpus measurement, asserted against the table below.
 MEASUREMENT = (
-    "%d op-144 sites over %d containers, every period folded; against the %d editable scenery "
-    "cells, %d containers / %d cells are DESTINATIONS and %d / %d are SOURCES -- a class the W6b "
-    "program-VRAM census structurally could not see, because op 144 was never in its writer union"
-    % (SITES, CONTAINERS, EDIT_SURFACE_CELLS, DEST_CONTAINERS, DEST_CELLS, SOURCE_CONTAINERS,
-       SOURCE_CELLS))
+    "%d op-144 sites over %d containers and %d sites of the program's own horizontal-scroll routine "
+    "over %d more, every period folded; against the %d editable scenery cells, %d containers / %d "
+    "cells are DESTINATIONS and %d / %d are SOURCES -- a class the W6b program-VRAM census "
+    "structurally could not see, because neither scroll was ever in its writer union.  Headless, the "
+    "executed copies' destinations equal the table's bands halfword for halfword over all %d "
+    "containers that run one"
+    % (SITES, CONTAINERS, HSCROLL_SITES, ALL_CONTAINERS - CONTAINERS, EDIT_SURFACE_CELLS,
+       DEST_CONTAINERS, DEST_CELLS, SOURCE_CONTAINERS, SOURCE_CELLS, ALL_CONTAINERS))
 
 #: the one container on which a static site has been seen to EXECUTE.
 EF407_EXECUTED = (
     "ON ef407 THE STATIC SITE IS THE ONE THAT RUNS: the plugin, run headless, executed 252 DR_MOVE "
     "blits into (704,384) from (704,256) over native frames 85-211")
+
+#: the program scroll's executed record -- the copies that were the headless census's open gap.
+H_EXECUTED = (
+    "THE PROGRAM SCROLL RUNS: headless, ef509's two bands execute over native frames 76-196 and "
+    "ef226's over 321-473 -- the copies the headless census found rewriting four editable cells "
+    "before this table held the routine")
 
 #: what the table does not establish -- the reason the refusal has a key at all -- and what the
 #: in-game record says about it.  The ef211 cast ladder (W6b-SCENERY.md sec 5) read against this
@@ -428,8 +521,11 @@ ACK_WARNING = (
 
 # ---------------------------------------------------------------- THE COUNT PINS (asserted at import)
 assert len(_SITE_ROWS) == SITES, len(_SITE_ROWS)
-assert len(SCROLL_BLITS) == CONTAINERS, len(SCROLL_BLITS)
-assert sum(b.sites for bs in SCROLL_BLITS.values() for b in bs) == SITES
+assert len({r[0] for r in _SITE_ROWS}) == CONTAINERS
+assert len(_HSCROLL_ROWS) == HSCROLL_SITES and len({r[0] for r in _HSCROLL_ROWS}) == HSCROLL_CONTAINERS
+assert len(SCROLL_BLITS) == ALL_CONTAINERS, len(SCROLL_BLITS)
+assert sum(b.sites for bs in SCROLL_BLITS.values() for b in bs) == SITES + HSCROLL_SITES
+assert SOURCE_UNCERTAIN <= {r[0] for r in _SITE_ROWS}
 #: the hardware's own fit predicate, which every DESTINATION satisfies -- the evidence ADDENDUM 9
 #: shipped the op's naming on (167/167 against 46.0% on the control population).
 assert all(b.size[0] > 0 and b.dst[0] + b.size[0] <= VRAM_W and b.dst[1] + b.size[1] <= VRAM_H

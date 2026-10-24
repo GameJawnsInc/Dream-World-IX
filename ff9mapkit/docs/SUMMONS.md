@@ -795,9 +795,10 @@ models**. A disclosure, never a refusal.
   direction matters and is measured: a program that only *reads* VRAM back cannot clobber anything, so
   those containers **disclose** instead of refusing (which is what makes Phoenix's fire field editable
   at all).
-- **SCROLL-BLIT DESTINATION — the write the list above never held.** 59 effects animate a texture by
-  copying one band of VRAM onto another every frame (a vertical scroll with wraparound, done as a VRAM
-  blit), and on 20 of them the band they copy *onto* covers cells you can export — 88 cells. Paint
+- **SCROLL-BLIT DESTINATION — the write the list above never held.** 63 effects animate a texture by
+  copying one band of VRAM onto another every frame (a scroll with wraparound, done as a VRAM blit:
+  vertical in 59 of them, and horizontal in 6 that carry a scroll routine of their own), and on 22 of
+  them the band they copy *onto* covers cells you can export — 94 cells. Paint
   there and your edit is byte-correct on disk, deploys, verifies, and is **overwritten while the blit
   runs**: nothing on screen, no error anywhere. So the build counts how many of your changed texels
   land in such a band and refuses by name, telling you which cell the band is copied **from** — paint
@@ -808,7 +809,10 @@ models**. A disclosure, never a refusal.
   painted on the fire-field cell `(704,256)`, a full destination, never showed, and the game's own
   capture shows the band under a third wheel, in cell `(576,384)`, copied over on every frame that
   cell is drawn.
-  `export-art`'s scaffold prints the band and the remedy on the row, before you paint.
+  `export-art`'s scaffold prints the band and the remedy on the row, before you paint. Checked
+  against the effects run offline: every copy they execute lands inside a band the kit knows about.
+  On 8 of them the copy reads from somewhere other than where the kit's analysis says, so there the
+  build names no cell to paint instead and calls the source a guess.
 - **RENDER TARGET — a 15bpp read that never samples your art.** Once an effect has drawn into its
   off-screen render target, Memoria reads every 15bpp page at x ≥ 384 from that target, not from the
   texture data, until the next cast starts (and a 15bpp page left of x 384 is always the previous

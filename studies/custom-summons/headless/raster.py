@@ -612,6 +612,17 @@ class Stats:
         self.watch_masks: Dict[str, np.ndarray] = {}
         #: mesh key -> what the write-order tracker saw it read (``run(track=True)``); see ``stale_reads``
         self.stale: Dict[str, dict] = {}
+        #: every VRAM-to-VRAM copy the frames executed: ``(rx, ry, rw, rh, x, y)`` -> [count, first, last]
+        #: -- the executed counterpart of the kit's static scroll-blit table (``scroll_blit_gates.py`` S7)
+        self.moves: Dict[tuple, list] = {}
+
+    def move(self, args: tuple, frame: int) -> None:
+        r = self.moves.get(args)
+        if r is None:
+            self.moves[args] = [1, frame, frame]
+        else:
+            r[0] += 1
+            r[2] = frame
 
     def route(self, key: int, kind: str, frame: int) -> None:
         tx, ty, tp = (key >> 16) & 0xF, (key >> 20) & 1, (key >> 21) & 3
@@ -694,6 +705,8 @@ class Renderer:
             if c.kind == "move":
                 rx, ry, rw, rh, x, y = c.args
                 self.move_image(rx, ry, rw, rh, x, y)
+                if stats is not None:
+                    stats.move(tuple(c.args), frame)
             elif c.kind == "screenshot":
                 self.screen_shot += 1
             elif c.kind == "rt_begin":
@@ -1400,7 +1413,8 @@ def routes_main(a) -> int:
                 continue
             rows["ef%03d" % e] = {"frames": d["frames"], "faults": d["faults"], "dr_area": d["gen_texture_used"],
                                   "dr_area_first_frame": d.get("gen_texture_first_frame"),
-                                  "texture_cache": d["texture_cache"], "routes": d["routes"]}
+                                  "texture_cache": d["texture_cache"], "routes": d["routes"],
+                                  "moves": d.get("moves", [])}
     doc = {"containers": len(rows), "rows": rows}
     (out / "routes.json").write_text(json.dumps(doc, indent=1), encoding="utf-8")
     with open(out / "routes.tsv", "w", encoding="utf-8") as fh:
@@ -1485,7 +1499,8 @@ def main(argv=None) -> int:
     doc = {k: v for k, v in res.items() if k not in ("stats", "prim_log", "host", "per_frame")}
     doc.update(source=source, plugin_sha256=sha, frames_drawn=sorted(frames) if frames is not None else "all",
                visible_cells=visible_cells(res["stats"]), render_target_cells=visible_cells(res["stats"], gen=True),
-               meshes=mesh_summary(res["stats"]), routes=res["stats"].routes, target_suppressed=a.no_target)
+               meshes=mesh_summary(res["stats"]), routes=res["stats"].routes, target_suppressed=a.no_target,
+               moves=[list(k) + v for k, v in sorted(res["stats"].moves.items())])
     out.mkdir(parents=True, exist_ok=True)
     (out / "summary.json").write_text(json.dumps(doc, indent=1, default=list), encoding="utf-8")
     print("ef%03d: %d frames, %d faults, gen texture %s, cache %s -> %s" % (

@@ -702,6 +702,17 @@ scenery must be re-authored *together*.
   most of the target's feeders -- the census measures the depth each is drawn at, which is the
   evidence a draw-side depth channel would need. At Battle Speed ≥ 3 `SFXData.cs:403` sets the flag
   after every pre-recorded frame, so NEVER_VRAM holds on both cast paths and READS_VRAM only below 3.
+  **★ FOLLOW-UP — THE SCROLL-BLIT OPEN GAP, CLOSED.** The four cells the headless census saw rewritten with
+  no op-144 site (ef226 / ef509 `x448_y384` + `x512_y384`, licensed until now) are rewritten by the
+  containers' OWN horizontal-scroll routine: six containers carry it, it takes op 144's arguments and
+  issues the two copies through HLE op 7 (tier-r `CALLBACK-OPS.md` addendum 11). Its 11 call sites are
+  kit rows (`scroll_blit._HSCROLL_ROWS`, `axis = "h"`), so both cells refuse by name and their bottom
+  halves build as the band's source; the 8 new pairs read fresh. Folding them exposed a delay-slot bug in
+  the site folder (a stale source y of (480,4) on ef179 / ef406; no op-144 row moved). `raster.py routes`
+  now records every executed copy, and gate S7 checks the table against it halfword for halfword: over
+  63 containers the executed destinations EQUAL the table's bands. The sources do not -- on 8 op-144
+  containers the copies read from elsewhere -- so `SOURCE_UNCERTAIN` names no remedy cell there and calls
+  the source a fold. Surface pins 208 cells, 22 / 94 destinations, 21 / 88 sources; S1-S8 8/8.
   **(2) SHOULD THE GAIN HALF BE DECLINABLE?** Today `texel_page` / `export_art` / `build` hard-code
   `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface, so an author who distrusts
   `linear-add-v1` on THEIR container cannot ask for the pre-adoption reading. Recovery is EXACT at the

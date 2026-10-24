@@ -276,7 +276,11 @@ sites). The program-VRAM lists above never held it, so this lane used to call ef
   (:data:`~ff9mapkit.summons.scroll_blit.REACHABILITY`);
 * a SOURCE hit never refuses: the edit is read and propagated, and the build discloses where to;
 * export and the scaffold state both directions on the row before anyone paints, and export delta is
-  0 -- no picture is withheld.
+  0 -- no picture is withheld;
+* the table carries a second static source: six containers' OWN horizontal-scroll routine, which
+  takes op 144's arguments and issues the copies itself through HLE op 7 (``axis = "h"``). It closed the
+  headless census's open gap -- four editable cells on ef226 / ef509 the kit used to license -- and the
+  executed copies now equal the table's bands halfword for halfword over every container that runs one.
 
 THE RENDER TARGET -- A 15bpp READ THAT NEVER SAMPLES VRAM
 ---------------------------------------------------------
@@ -818,9 +822,11 @@ def program_class(effect: Optional[int]) -> Tuple[str, str]:
     # rect folds, so it is judged PER CELL (`_gate_scroll_blit`) rather than here, and this line
     # only stops the class from claiming a safety it does not have.
     sb = SB.blits(ef)
-    blit = ("  ** BUT ITS PROGRAM ALSO QUEUES op-144 SCROLL BLITS (%d site(s), %d distinct rect(s)) "
+    kinds = " + ".join(k for k, axis in (("op-144", "v"), ("program-scroll", "h"))
+                       if any(b.axis == axis for b in sb))
+    blit = ("  ** BUT ITS PROGRAM ALSO QUEUES %s SCROLL BLITS (%d site(s), %d distinct rect(s)) "
             "-- a VRAM-to-VRAM WRITE every frame they run, judged per cell by the scroll-blit "
-            "verdict" % (sum(b.sites for b in sb), len(sb))) if sb else ""
+            "verdict" % (kinds, sum(b.sites for b in sb), len(sb))) if sb else ""
     if ef in PROGRAM_VRAM_READ_IDS:
         return ("read", "ef%03d's program touches VRAM %sthrough StoreImage (VRAM -> main RAM: a "
                         "READ -- it cannot clobber a repaint).  DISCLOSE, do not refuse.%s"
@@ -2721,6 +2727,14 @@ def _with_scroll_remedies(pages: List[TexelPage], refused: List[CellRefusal]) ->
                     "its source folds to (%d,%d), which does not fit the %dx%d VRAM, so there is no "
                     "cell to paint instead" % (b.src[0], b.src[1], SB.VRAM_W, SB.VRAM_H))
                 continue
+            if not b.source_measured:
+                # A remedy NAMES A CELL TO PAINT, so a source the executed copies contradict must not
+                # name one: the author would paint a cell the copy never reads.
+                remedies.append(
+                    "its source folds to (%d,%d), but headless this container's copies read from "
+                    "elsewhere (scroll_blit.SOURCE_UNCERTAIN), so the fold names no cell to paint "
+                    "instead" % b.src)
+                continue
             parts = []
             for sc in SB.cells_under(feed):
                 names = by_cell.get(sc, [])
@@ -2728,10 +2742,11 @@ def _with_scroll_remedies(pages: List[TexelPage], refused: List[CellRefusal]) ->
                 where = "(%d,%d) %dx%d" % (feed[0], feed[1], feed[2], feed[3])
                 if sc == p.cell:
                     parts.append("the source band %s is in THIS cell, outside the rewritten band: "
-                                 "paint it there and op 144 copies it in, scrolling" % where)
+                                 "paint it there and %s copies it in, scrolling" % (where, b.label))
                 elif ok:
-                    parts.append("paint the source cell `%s` (%d,%d) instead -- op 144 copies its "
-                                 "band %s into this one, scrolling" % (ok[0], sc[0], sc[1], where))
+                    parts.append("paint the source cell `%s` (%d,%d) instead -- %s copies its "
+                                 "band %s into this one, scrolling" % (ok[0], sc[0], sc[1], b.label,
+                                                                      where))
                 elif names:
                     parts.append("its source cell (%d,%d) is `%s`, which this container refuses as "
                                  "`%s`, so there is no cell to paint instead"
@@ -4233,14 +4248,16 @@ def _scroll_blit_record(hz: "CellHazards", cell: Tuple[int, int]) -> dict:
     """One cell's op-144 verdict as manifest data -- what the scaffold row and an audit both read."""
     return {
         "destination": [{"dst": list(b.dst), "size": list(b.size), "src": list(b.src),
-                         "sites": b.sites, "chunks": list(b.chunks),
+                         "sites": b.sites, "chunks": list(b.chunks), "via": b.label,
+                         "axis": b.axis, "source_measured": b.source_measured,
                          "band": list(b.dest_overlap(cell)), "remedy": r,
                          "refresh": _refresh_on_destination(b) or None}
                         for b, r in zip(hz.scroll_dst,
                                         hz.scroll_remedy or ("",) * len(hz.scroll_dst))],
         "rewritten_halfwords": len(hz.scroll_rewritten),
         "source": [{"dst": list(b.dst), "size": list(b.size), "src": list(b.src),
-                    "sites": b.sites, "band": list(b.source_overlap(cell)),
+                    "sites": b.sites, "band": list(b.source_overlap(cell)), "via": b.label,
+                    "axis": b.axis, "source_measured": b.source_measured,
                     "shows": _refresh_on_source(b)}
                    for b in hz.scroll_src],
     }
@@ -4751,8 +4768,8 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
         # THE SCROLL BLIT, printed BEFORE the author paints -- the destination as a refusal they
         # would have to lift, the source as the propagation they should expect to see.
         for d in sbr.get("destination", ()):
-            L.append("# ** SCROLL-BLIT DESTINATION: op 144 rewrites VRAM (%d,%d) %dx%d of this cell"
-                     % tuple(d["band"]))
+            L.append("# ** SCROLL-BLIT DESTINATION: %s rewrites VRAM (%d,%d) %dx%d of this cell"
+                     % ((d.get("via", "op 144"),) + tuple(d["band"])))
             L.append("#   from (%d,%d) every frame it runs (%d site(s)).  A repaint in that band is"
                      % (d["src"][0], d["src"][1], d["sites"]))
             L.append("#   byte-correct, deploys, verifies -- and never reaches the screen, so the build")
@@ -4766,8 +4783,11 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
             if d.get("refresh"):
                 L += _wrap_comment(d["refresh"], "#   ")
         for d in sbr.get("source", ()):
-            L.append("# SCROLL-BLIT SOURCE: op 144 copies VRAM (%d,%d) %dx%d of this cell into"
-                     % tuple(d["band"]))
+            L.append("# SCROLL-BLIT SOURCE: %s copies VRAM (%d,%d) %dx%d of this cell into"
+                     % ((d.get("via", "op 144"),) + tuple(d["band"])))
+            if d.get("source_measured") is False:
+                L.append("#   (the FOLDED source -- headless, this container's copies read from")
+                L.append("#   elsewhere, so this is a fold, not a measurement)")
             L.append("#   (%d,%d) %dx%d every frame it runs -- a disclosure, not a refusal:"
                      % (d["dst"][0], d["dst"][1], d["size"][0], d["size"][1]))
             L += _wrap_comment(d.get("shows") or "what you paint there ALSO appears there, scrolling "
@@ -5634,9 +5654,11 @@ def _gate_scroll_blit(t: "TexelTarget") -> List[str]:
             % (t.name,
                "; ".join("%d of this edit's %d changed halfword(s) lie in %s" % (n, len(changed), w)
                          for n, w, _r, _b in lost),
-               SB.MECHANISM,
+               "; ".join(sorted({b.mechanism for _n, _w, _r, b in lost})),
                "; ".join(r for _n, _w, r, _b in lost) or "no source cell could be named",
-               SB.EF407_EXECUTED, SB.MEASUREMENT, SB.REACHABILITY,
+               "; ".join(e for e, axis in ((SB.EF407_EXECUTED, "v"), (SB.H_EXECUTED, "h"))
+                         if any(b.axis == axis for _n, _w, _r, b in lost)),
+               SB.MEASUREMENT, SB.REACHABILITY,
                "".join(m + ".  " for m in measured), SB.ACK_KEY))
     for n, what, _remedy, b in lost:
         m = _refresh_on_destination(b)
@@ -5647,9 +5669,12 @@ def _gate_scroll_blit(t: "TexelTarget") -> List[str]:
         band = b.source_overlap(cell)
         notes.append("SCROLL-BLIT SOURCE (a disclosure, not a refusal): %s %s %s of this cell every "
                      "frame and writes it into %s -- %d of this edit's changed halfword(s) are in "
-                     "that band, %s"
+                     "that band, %s%s"
                      % (b.describe(), "READS", _vram_rect(band), _vram_rect(b.dst_rect),
-                        _inside(band), _refresh_on_source(b)))
+                        _inside(band), _refresh_on_source(b),
+                        "" if b.source_measured else
+                        "  (THE FOLDED SOURCE: headless, this container's copies read from elsewhere, "
+                        "so this band is a fold, not a measurement)"))
     return notes
 
 
@@ -7361,8 +7386,10 @@ def scroll_blit_lines(effect: Optional[int], pages: Sequence[TexelPage]) -> List
         return []
     dst = [p for p in pages if p.hazards is not None and p.hazards.scroll_dst]
     src = [p for p in pages if p.hazards is not None and p.hazards.scroll_src]
-    L = ["    SCROLL BLITS (HLE op 144): %d site(s), %d distinct rect(s) -- %s"
-         % (sum(b.sites for b in bs), len(bs), "; ".join(b.describe() for b in bs))]
+    L = ["    SCROLL BLITS (%s): %d site(s), %d distinct rect(s) -- %s"
+         % (" + ".join(k for k, axis in (("HLE op 144", "v"), ("the program's own scroll", "h"))
+                       if any(b.axis == axis for b in bs)),
+            sum(b.sites for b in bs), len(bs), "; ".join(b.describe() for b in bs))]
     for p in dst:
         L.append("      DESTINATION %-20s %d of %d halfwords rewritten every frame; an edit there "
                  "REFUSES at build -- %s"
