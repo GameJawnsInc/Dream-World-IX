@@ -1,0 +1,115 @@
+{
+ "t": "2026-10-24 12:01:22",
+ "H": [
+  64.0,
+  -512.0
+ ],
+ "H2": [
+  64.0,
+  -504.0
+ ],
+ "island": [
+  32.0,
+  -160.0
+ ],
+ "cell": [
+  3,
+  2
+ ],
+ "sink": [
+  679.033,
+  -386.717
+ ],
+ "accept_s": {
+  "H": 7.5,
+  "I": 6.1,
+  "T": 3.7,
+  "S": 41.5
+ },
+ "rows0": [
+  {
+   "table": "hill",
+   "center": [
+    64.0,
+    -512.0
+   ]
+  },
+  {
+   "table": "island",
+   "center": [
+    32.0,
+    -160.0
+   ],
+   "seed": 5.0
+  },
+  {
+   "table": "transplant",
+   "cell": [
+    3,
+    2
+   ],
+   "donor": [
+    7,
+    17
+   ]
+  },
+  {
+   "table": "sink",
+   "at": [
+    679.033,
+    -386.717
+   ]
+  }
+ ],
+ "rows": [
+  {
+   "table": "hill",
+   "center": [
+    64.0,
+    -504.0
+   ]
+  },
+  {
+   "table": "island",
+   "center": [
+    32.0,
+    -160.0
+   ],
+   "seed": 5.0
+  },
+  {
+   "table": "transplant",
+   "cell": [
+    3,
+    2
+   ],
+   "donor": [
+    7,
+    17
+   ]
+  },
+  {
+   "table": "sink",
+   "at": [
+    679.033,
+    -386.717
+   ]
+  }
+ ],
+ "edit": {
+  "jobs": [
+   "world-hill",
+   "world-hill"
+  ],
+  "text": "Edited step 1: hill h4.2 r18 at 64, -512 is now hill h4.2 r18 at 64, -504. The 3 steps after it are back on top (3 as they were, 0 composed again on the new ground).",
+  "s": 7.7
+ },
+ "R0": true,
+ "I1": {
+  "identical": true,
+  "differing": [],
+  "files": 1900
+ },
+ "compose_s": 35.7,
+ "draft": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\studies\\overworld-editor\\out\\c11_lab\\drafts\\FF9CustomMap-world.draft"
+}

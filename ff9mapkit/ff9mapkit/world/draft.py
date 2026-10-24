@@ -590,16 +590,30 @@ def _snap(draft: Path, cells, dest: Path) -> dict:
     return out
 
 
+def _retry(fn, *, tries: int = 60, wait: float = 0.05):
+    """``fn()``, again while Windows refuses it (``PermissionError``: another thread or process holds the file open,
+    as a card's island read does for a moment after an Accept), for up to ``tries * wait`` seconds."""
+    for i in range(tries):
+        try:
+            return fn()
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(wait)
+
+
 def _restore(draft: Path, files: dict, snap: Path, cells) -> None:
     """Put the files at ``cells`` back to ``files`` (from the snapshot ``snap``): written back, or removed when that
-    side never had them."""
+    side never had them. A file a reader holds open for a moment is waited for (:func:`_retry`): an Edit clicked
+    while a card still reads the island it just accepted raced its own undo here (c11_lab)."""
     for rel in sorted(set(files) | set(_cell_files(Path(draft), cells))):
         p = Path(draft) / rel
         if rel in files:
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_bytes((snap / rel).read_bytes())
+            data = (snap / rel).read_bytes()
+            _retry(lambda p=p, data=data: p.write_bytes(data))
         elif p.is_file():
-            p.unlink()
+            _retry(p.unlink)
 
 
 def _keep_ledger(draft: Path, side: Path) -> None:
@@ -765,7 +779,7 @@ def begin_edit(draft: Path, k: int) -> dict:
         while history(draft)["cursor"] > k:
             undo(draft)
             done += 1
-    except ValueError:
+    except (ValueError, OSError):                        # a refusal, or the disk: either way, back as it was
         for _ in range(done):
             redo(draft)
         raise

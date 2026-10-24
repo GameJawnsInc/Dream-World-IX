@@ -270,8 +270,7 @@ class RecipeBar(QWidget):
             D.begin_step(d, RC.row_cells(s["row"]))
             tmp = Path(tempfile.mkdtemp(prefix="ff9_edit_")) / "row.toml"
             tmp.write_text(RC.dumps_one(dict(s["row"])), encoding="utf-8")
-            argv = [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn()), "world-fuse", str(tmp),
-                    "--mod-folder", str(d)]
+            argv = self._fuse_argv(tmp, d)
             self.refresh()
             self._runner.start(argv, kit_cwd(), lambda code, text, s=s: self._put_back_done(d, s, code, text))
             return
@@ -412,10 +411,18 @@ class RecipeBar(QWidget):
         D.begin_step(d, RC.row_cells(row))
         tmp = Path(tempfile.mkdtemp(prefix="ff9_recipe_")) / "row.toml"
         tmp.write_text(RC.dumps_one({k: v for k, v in row.items()}), encoding="utf-8")
-        argv = [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn()), "world-fuse", str(tmp),
-                "--mod-folder", str(d)]
+        argv = self._fuse_argv(tmp, d)
         self.refresh()
         self._runner.start(argv, kit_cwd(), lambda code, text: self._row_done(d, row, code, text))
+
+    def _fuse_argv(self, recipe, d):
+        """The world-fuse job that composes one row into the draft ``d``. With ``--allow-overwrite``: THE MANIFEST
+        DRIFT GATE refuses to compose over files its world_manifest.json recorded and that changed since, which in a
+        live folder means another session wrote them; in a draft they change by design (an undo, an edit's lifted
+        steps, a card's Accept), and the draft's history is its record. An edit of an opened recipe refused its own
+        put-back on it. The ownership refusal at the write seam (another session's bytes) still stands."""
+        return [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn()), "world-fuse", str(recipe),
+                "--mod-folder", str(d), "--allow-overwrite"]
 
     def _row_done(self, d, row, code, text):
         from ..world import draft as D
