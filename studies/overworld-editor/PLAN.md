@@ -142,6 +142,10 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C15, THE NORTH-SOUTH EDGE: ANSWERED (2026-10-24)** -> [`C15.md`](C15.md). The engine wraps rows too (positions
+  mod 1280), but no land meets across that edge: 23.6u of water at the narrowest, so nothing placeable straddles it
+  and no z seam frame is built. The orphan census's ring now wraps rows as well (a read; edged-z writes stay policy);
+  real bytes at (2, 0) and (23, 19) identical over 2,007 files.
 - **C14, THE CARRY AT COLUMN 0: ANSWERED + FIXED (2026-10-24)** -> [`C14.md`](C14.md). The carry's bytes never
   read the target's neighbours on either side, so nothing joins wrongly; but its orphan-decal census clipped its ring
   to the grid, blind west of column 0 (and east of 23), and --redress-orphans could rewrite a lawful tile there. The

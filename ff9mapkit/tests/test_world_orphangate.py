@@ -513,13 +513,16 @@ def test_orphan_decal_gate_default_no_mod_folder_skips_ring_entirely():
 
 
 # ================================================================================================ default_context_provider / _ring_blocks (the ring reader itself)
-def test_ring_blocks_excludes_the_region_clips_rows_and_wraps_columns():
+def test_ring_blocks_excludes_the_region_and_wraps_both_axes():
+    """The engine wraps the overworld both ways (WMWorld.Wrap: columns mod 24, rows mod 20), so the ring does too,
+    each block keyed beside the region (-1 / 24 / 20) and read at its label."""
     ring = OG._ring_blocks({(0, 0)})
     assert (0, 0) not in ring                                # the region is never its own ring
-    assert all(by >= 0 for (_bx, by) in ring)                 # rows stop at the map's edge (no row -1)...
-    assert set(ring) == {(0, 1), (1, 0), (1, 1), (-1, 0), (-1, 1)}   # ...columns wrap: -1 IS column 23, west
-    assert set(OG._ring_blocks({(23, 19)})) == {(22, 18), (23, 18), (24, 18), (22, 19), (24, 19)}
-    assert OG._ring_blocks({(23, 5), (0, 5)}) and not {(24, 5), (-1, 5)} & set(OG._ring_blocks({(23, 5), (0, 5)}))
+    assert set(ring) == {(dx, dy) for dx in (-1, 0, 1) for dy in (-1, 0, 1)} - {(0, 0)}
+    assert {OG._label(b) for b in ring} == {(23, 19), (0, 19), (1, 19), (23, 0), (1, 0), (23, 1), (0, 1), (1, 1)}
+    assert {OG._label(b) for b in OG._ring_blocks({(23, 19)})} >= {(0, 0), (22, 0), (0, 18)}
+    two = set(OG._ring_blocks({(23, 5), (0, 5)}))           # a region on both sides of the seam: not its own ring
+    assert two and not {(24, 5), (-1, 5)} & two
 
 
 def test_a_carry_at_column_0_reads_its_west_ring_across_the_seam(monkeypatch, tmp_path):
@@ -906,3 +909,21 @@ def test_orphan_decal_gate_pre_redress_backup_reproduces_real_historical_orphans
                                                                         part="terrain"))]
     g2 = OG.orphan_decal_gate(cell_meshes2, set(cell_meshes2), enforce=True, redress=True)
     assert g2["n_redressed"] >= 1 and g2["n_orphans"] == 0 and g2["ok"] is True
+
+
+def test_a_carry_on_row_19_reads_row_0_south_of_it(monkeypatch, tmp_path):
+    """The engine wraps rows too (WMWorld.Wrap's ShiftUp/DownAllBlocks, positions mod 1280): a fringe decal on block
+    (0,19)'s south edge is justified by grass on row 0's north edge, read at (0,0) and keyed (0,20) beside it."""
+    from ff9mapkit import config
+    monkeypatch.setattr(config, "find_game_path", lambda explicit=None: tmp_path)
+    M.write_ff9mesh(TR._soup_block_mesh("Block[0][0] Terrain", (0, 0), [_mains_tri((0, -1), 0)], disc=1, lod="0_1"),
+                    tmp_path / "MOD" / M.override_relpath(1, 0, 0, "0_1", "Terrain"))
+    fringe = _strip_tri(("grass", "desert"), 2, 0, (0, -16), topo=16)    # local z -64..-60: the south edge
+
+    def region():
+        return {(0, 19): [("Terrain", TR._soup_block_mesh("Block[0][19] Terrain", (0, 19), [fringe], disc=1,
+                                                         lod="0_1"))]}
+    assert OG.orphan_decal_gate(region(), {(0, 19)})["n_orphans"] == 1
+    assert (0, 20) in OG.default_context_provider({(0, 19)}, mod_folder="MOD")
+    g = OG.orphan_decal_gate(region(), {(0, 19)}, mod_folder="MOD")
+    assert g["n_orphans"] == 0 and g["ring_blocks"] == [[0, 0]], g
