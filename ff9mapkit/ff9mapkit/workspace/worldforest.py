@@ -336,6 +336,10 @@ class CarryTool(QWidget):
     def _outline_loaded(self, donor, ol):
         """A donor's outline arrived (a subclass may set a handle from it)."""
 
+    def _read_failed(self, what, err):
+        """A read the card needs failed (``what``: "island", or the card's PART); a card holding a row on it refuses the
+        edit (MountainTool)."""
+
     def load_row(self, row):
         """Set the handles from a recipe row of this card's table and place the ghost there (rung C9); a row the
         handles cannot say raises ValueError, naming what. A card that must read first holds the row in
@@ -601,8 +605,10 @@ class CarryTool(QWidget):
             if what == "soup":
                 self._ix, self._ix_for = None, None
                 self._say(f"The island could not be read: {err}", "error")
+                self._read_failed("island", err)
             elif what == "outline":
                 self._say(f"The {self.PART} could not be read: {err}", "error")
+                self._read_failed(self.PART, err)
             elif what == "draft":
                 self._job = None
                 self._say(f"The draft could not be made: {err}", "error")
@@ -616,6 +622,7 @@ class CarryTool(QWidget):
                 if (target, seam) == (self.target(), self._seam):
                     self._ix, self._ix_for = None, None
                     self._say(f"The island could not be read: {ix}", "error")
+                    self._read_failed("island", ix)
                 return
             self._soups[(target, seam)] = ix
             if (target, seam) != (self.target(), self._seam):

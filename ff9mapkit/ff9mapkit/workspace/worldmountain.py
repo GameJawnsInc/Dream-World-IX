@@ -184,6 +184,14 @@ class MountainTool(CarryTool):
         if waited and self._pending_row is None and self._editing is not None and not self.isHidden():
             self._handles_changed(at_once=True)
 
+    def _read_failed(self, what, err):
+        """A read the held row waits on failed: nothing reads it again while the row waits frozen, and the card sat
+        saying it was reading with nothing in flight (review of the C12 fixes, fourth round). The edit is cancelled,
+        saying which read failed."""
+        if self._pending_row is not None and self._editing is not None:
+            self._pending_row = None
+            self._refuse_edit(f"its {what} could not be read ({err})")
+
     def _hold_handles(self, held):
         for w in (self.donor_box, self.angle, self.spread):
             w.setEnabled(not held)

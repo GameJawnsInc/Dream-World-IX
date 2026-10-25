@@ -321,6 +321,39 @@ def test_an_island_read_that_fails_after_the_island_changed_is_dropped(app, monk
     assert tool._ix is good and "could not be read" not in tool.verdict_lbl.text()
 
 
+@pytest.mark.parametrize("fails", ["island", "massif"])
+def test_a_held_mountain_row_whose_read_fails_is_cancelled_saying_why(app, monkeypatch, tmp_path, fails):
+    """A held row waits for the island and the massif with its handles frozen; when one of those reads failed, nothing
+    read it again and the card sat frozen saying "Reading the massif and the island..." with nothing in flight, Cancel
+    the only way out (review of the C12 fixes, fourth round). A failed read the held row waits on cancels the edit,
+    saying which read failed."""
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    tool.place(26.0, -26.0, 3.2)
+    row = tool.row()
+    tool.close_tool()
+
+    def broken(*_a):
+        raise OSError("a block of the draft could not be read")
+    if fails == "island":
+        tool._soup_fn = broken
+    else:
+        tool._outline_fn = broken
+    tool._sync = False
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))
+    tool._outlines.clear()
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    while held:
+        what, fn = held.pop(0)
+        try:
+            tool._on_bg(what, 0, fn(), None)
+        except Exception as e:                           # noqa: BLE001 -- as the worker hands it over
+            tool._on_bg(what, 0, None, e)
+    assert not tool.editing() and len(notes) == 1 and "could not be read" in notes[0], notes
+
+
 def test_the_preview_refuses_before_any_job_runs(app, monkeypatch, tmp_path):
     run = Scripted(_passes)
     tool, panel, _c = _tool(app, monkeypatch, tmp_path, run)
