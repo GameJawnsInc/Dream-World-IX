@@ -60,6 +60,20 @@ def test_the_weather_table_is_the_one_the_stack_gives(tmp_path):
     assert FG.weather_rgb(game) == (201, 211, 241)       # a folder the game does not load is not read
 
 
+def test_a_weather_table_saved_in_another_encoding_still_reads(tmp_path):
+    """Since the table comes from the stack, a mod's own file is read, and one saved by a cp1252 editor (an accented
+    comment) raised UnicodeDecodeError out of the game camera's toggle: no pose, no fog, the controls shown anyway
+    (review of the C18 fixes). Memoria's CsvReader replaces a bad byte and reads on; so does the kit."""
+    game = _install(tmp_path)
+    mod = game / "MINE" / FG.WEATHER_CSV
+    mod.parent.mkdir(parents=True)
+    comment = "# couleur modifiée\n".encode("cp1252")                 # 0xE9: not UTF-8
+    mod.write_bytes(HEADER.encode("ascii") + comment + DAYLIGHT.replace("201;211;241", "90;100;110").encode("ascii"))
+    (game / "Memoria.ini").write_text('[Mod]\nFolderNames = "MINE"\n', encoding="utf-8")
+    assert b"\xe9" in mod.read_bytes()
+    assert FG.weather_rgb(game) == (90, 100, 110) and FG.from_game(game).rgb == (90, 100, 110)
+
+
 def test_the_two_years(tmp_path):
     game = _install(tmp_path, ini="[Worldmap]\nFogStartDistance = 400\nFogEndDistance = 490\nMistStartDistance = 25\n"
                                   "MistEndDistance = 250\nMistDensity = 15\nMistStartDistance_base = 40\n")
