@@ -204,6 +204,30 @@ def test_a_placed_mountain_on_another_ground_opens_once_the_island_is_read(app, 
     assert not tool.editing() and len(notes) == 1 and "would not say its ground back" in notes[0], notes
 
 
+def test_a_mountain_retuned_while_its_row_is_held_stays_open(app, monkeypatch, tmp_path):
+    """While a mountain row waits for its reads the handles stay live; a turn then was said back against the step when
+    the reads landed and cancelled the edit, "would not say its rot back" (review of the C12 fixes). The handles' own
+    keys are said back at once, when the card opens (they wait on no read); the ground and the reach when the reads
+    land, unless the author has retuned the shape meanwhile -- then it is theirs."""
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    tool.place(26.0, -26.0, 3.2)
+    row = tool.row()
+    tool.close_tool()
+    held = _worker_lane(tool)
+    tool._outlines.clear()
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    tool.angle.setValue(30)                                # the author turns it while the island is read
+    _land(tool, held)
+    assert tool.editing() and notes == [] and tool.row()["rot"] == 30.0
+    tool.close_tool()
+    tool.open_tool()
+    with pytest.raises(ValueError, match="would not say its center back"):   # off the grid: refused at open
+        tool.edit_row({**row, "center": [26.04, -26.0]}, label="mountain", on_accepted=lambda: None,
+                      on_cancel=lambda note=None: None)
+
+
 def test_an_island_read_begun_before_the_edit_does_not_decide_it(app, monkeypatch, tmp_path):
     """An island (soup) read begun while the card was open lands after the bar's Edit lifted the step out of the draft
     (same path, new bytes): the card took any read whose path matched, so the held row's ground was read off the

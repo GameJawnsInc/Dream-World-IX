@@ -19,6 +19,13 @@ MOUNTAIN_GATES = {**GATE_WORDS, "blocks": "the deployed-blocks law", "span": "th
                   "edge": "the zip's edge"}
 
 
+def _read_free(row) -> dict:
+    """A mountain row as the editor writes it, less the keys that follow reads (--ground the island, --reach the
+    massif's outline)."""
+    from ..world import recipe as RC
+    return {k: v for k, v in RC.canon(row).items() if k not in ("ground", "reach")}
+
+
 class MountainTool(CarryTool):
     """The mountain card (rung C2)."""
 
@@ -154,12 +161,21 @@ class MountainTool(CarryTool):
         self.angle.setValue(int(round(float(row.get("rot", 0.0)))) % 360)
         self.spread.setValue(float(row.get("spread", 1.0)))
         self.rock_height.setValue(float(row.get("rock_height", 1.0)))
+        self.place(*row["center"])
+        self._said_back(_read_free(row), _read_free(self.row()))   # the handles' own keys wait on no read: at once
         self._pending_row = row
         self._try_seat()
 
     def _seat_row(self, row):
-        self.place(*row["center"])
-        return self._ix is not None and self.donor() in self._outlines
+        """Ready once the island and the massif are read; then the ground and the reach are said back. A shape the
+        author retuned while they were read is theirs, and nothing is said back (a turn then cancelled the edit:
+        review of the C12 fixes); its handles' own keys were said back at open."""
+        if self._ix is None or self.donor() not in self._outlines:
+            return False
+        if _read_free(self.row()) != _read_free(row):
+            self._pending_row = None
+            return False
+        return True
 
     def _cmd(self, target, *, dry_run, report=None):
         r = self._r_placed()
