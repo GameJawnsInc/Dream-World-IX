@@ -5,8 +5,8 @@
 
 ## Method
 
-Four rounds, each run as a workflow: a finder per slice, an independent skeptic told to refute each finding (it
-reproduced or traced every survivor), and in the first two rounds a completeness critic. Rounds 2 to 4 reviewed the
+Five rounds, each run as a workflow: a finder per slice, an independent skeptic told to refute each finding (it
+reproduced or traced every survivor), and in the first two rounds a completeness critic. Rounds 2 to 5 reviewed the
 fix commits of the round before. Every fix is one commit with a test that failed first. A test-only fix was shown
 to fail by breaking its guard in memory (a pytest plugin swapping one line). Offline only: no game, no lab, the
 install never written.

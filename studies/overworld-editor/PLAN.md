@@ -142,7 +142,12 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
-- **THE REVIEW OF C12-C23 (2026-10-25)** -> [`REVIEW-C12-C23.md`](REVIEW-C12-C23.md). Four adversarial rounds over the
+- **WHERE THE TAB MAKES YOU WAIT (2026-10-25)** -> [`PERF.md`](PERF.md). Measured, nothing built yet: every draft
+  change reloads the whole 3D map (7-16 s; a cell memo makes it 0.3-0.5 s, identical), a sink Accept freezes the
+  window 10-36 s snapshotting all 480 cells for one island, a Check is 1.3-5.6 s with 1.3-1.9 s of it start-up.
+  Ranked fixes, each proven identical on real data; two defects found (the game camera probes the old terrain
+  after a reload; a Check's report can carry disc 4's verdict).
+- **THE REVIEW OF C12-C23 (2026-10-25)** -> [`REVIEW-C12-C23.md`](REVIEW-C12-C23.md). Five adversarial rounds over the
   GUI work and then over each round's fixes: 51 confirmed (20, 13, 7, 7, 4), 44 commits, each with a test red first. The laws: what
   the game is owed lives on disk, and an in-game step opens only with nothing unpromoted on top; one lock routine;
   a card that writes is never killed; a read is known by its number, not its path.
