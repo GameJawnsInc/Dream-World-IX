@@ -52,9 +52,10 @@ def test_a_unit_s_ghost_turns_by_the_region_map(size, rot):
 def test_a_unit_s_target_fits_the_click_and_stays_on_the_grid():
     assert TE.tsize((2, 3), 90) == (3, 2) and TE.tsize((2, 3), 180) == (2, 3)
     assert TE.anchor_for(64 * 10 + 5.0, -(64 * 6 + 5.0), size=(2, 3)) == (9, 5)   # the rect's middle nearest it
-    assert TE.anchor_for(5.0, -5.0, size=(2, 3)) == (0, 0)                         # kept on the grid
-    assert TE.anchor_for(64 * 23 + 40.0, -(64 * 19 + 40.0), size=(2, 3), rot=90) == (21, 18)
-    assert TE.cells((21, 18), (2, 3), 90) == [(21, 18), (22, 18), (23, 18), (21, 19), (22, 19), (23, 19)]
+    assert TE.anchor_for(5.0, -5.0, size=(2, 3)) == (23, 0)                        # C23: the column wraps, the row
+    assert TE.cells((23, 0), (2, 3)) == [(23, 0), (0, 0), (23, 1), (0, 1), (23, 2), (0, 2)]   # is kept on the grid
+    assert TE.anchor_for(64 * 23 + 40.0, -(64 * 19 + 40.0), size=(2, 3), rot=90) == (22, 18)
+    assert TE.cells((22, 18), (2, 3), 90) == [(22, 18), (23, 18), (0, 18), (22, 19), (23, 19), (0, 19)]
     assert TE.anchor_for(64 * 3 + 10.0, -(64 * 5 + 10.0)) == (3, 5)               # one block: its own cell
     v = TE.preview((9, 5), land={(10, 6)}, occupied=lambda b: {}, size=(2, 3))
     assert not v["ok"] and "1 of its 6 blocks are real land or coast" in v["why"]
