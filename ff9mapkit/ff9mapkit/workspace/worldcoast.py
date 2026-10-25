@@ -100,6 +100,13 @@ class CoastTool(CarryTool):
         from ..world import river as R
         return [str(self._game_fn() / f) for f in R.stack_folders(self._game_fn())]
 
+    def open_tool(self):
+        """Who holds the card's block is read again: the folder may have changed while it was closed (a folder pick
+        or a Rescan only closes the card), and place() re-reads only for a new block (review of C12)."""
+        if self._cell is not None:
+            self._edited_by = self._edited(self._cell)
+        super().open_tool()
+
     def island_changed(self):
         """The draft moved under the card (an undo, an edit lifting steps out, an Accept): who holds the block it is
         on is read again (it was read once per block: an undone morph's block still read as edited)."""

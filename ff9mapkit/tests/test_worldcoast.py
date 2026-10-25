@@ -352,6 +352,32 @@ def test_a_second_read_of_the_block_keeps_the_held_window_and_its_depth(app, tmp
     assert tool.depth.value() == 1.5 and tool.row() == row
 
 
+def test_who_holds_the_block_is_read_again_when_the_card_opens_on_another_folder(app, tmp_path):
+    """C12 re-read who holds the card's block when the draft moved, but a folder pick or a Rescan only closes the
+    card: open on another folder and clicked on the same block, it judged the block by the OLD folder's holders and
+    refused a lawful morph -- or passed one the new folder already overrides (review of C12)."""
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.world import mesh as M
+    from ff9mapkit.workspace.worldcoast import CoastTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_world_interior import _bm, GRASS, _MAIN_U
+    from .test_worldforest import Scripted
+    game = _game(tmp_path)
+    a, b = _mod(game, "FolderA", ((0, 0),)), _mod(game, "FolderB", ((0, 0),))
+    M.deploy_override(_bm([(((0, 3.0, 0), (4, 3.0, 0), (0, 3.0, -4)), GRASS, _MAIN_U)], name="Block[3][8] Terrain",
+                          x=3, y=8), mod_folder="FolderA", game=game, part="Terrain", disc=1)     # A holds (3, 8)
+    shown = {"src": a}
+    tool = CoastTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: game,
+                     source_fn=lambda: shown["src"], runner=Scripted(), drafts_root=tmp_path / "drafts", sync=True,
+                     stack_fn=lambda: [str(shown["src"])], outline_fn=lambda c: [] if c == "-" else [CLIFF, BEACH])
+    for src, holders in ((a, ["FolderA"]), (b, []), (a, ["FolderA"])):
+        shown["src"] = src                               # the folder pick: the tab closes the card, nothing else
+        tool.close_tool()
+        tool.open_tool()
+        tool.place(205.0, -521.0)
+        assert tool._edited_by == holders and tool._preview["ok"] == (not holders), (src.name, tool._edited_by)
+
+
 def test_who_holds_the_block_is_read_again_when_the_draft_moves(app, monkeypatch, tmp_path):
     """The card read once per block which folders override it: after an undo (or an edit lifting the morph out) the
     block still read as edited, and the card refused the very morph it had just made (c12_lab, E2)."""
