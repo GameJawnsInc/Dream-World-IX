@@ -5,6 +5,36 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — World tab: editing a step that is in the game, the edit cards and the game camera (a review of C12-C23)
+- **A step that is in the game** (C19). Edit and Delete promote the recipe back when they close. Before, that wrote
+  every step in the draft, so a step placed after the last promote went into the game too, even on Cancel. Now
+  such a step opens only with nothing after the game's steps on top: the bar says to Promote or Undo them first.
+- **Closing or crashing mid-edit no longer leaves the game reverted.** What the game is owed is written next to the
+  draft. Closing the window waits for every job that writes (the bar's, one after another, and a card's own
+  Accept, Promote or Revert promote) and then promotes the game's steps back. After a crash, the next launch
+  does it when the 3D view opens, and says so.
+- **Nothing changes under an open edit or a card that writes.** While an edit is open, its steps go back on top
+  or the chain runs, the folder box, Rescan and the Edit the map menu wait, and no card opens but the edit's own.
+  A cancel always goes to the edit's own draft. While a card's Accept, Promote or Revert promote runs, Edit,
+  Delete, the menu, the view toggle, the folder box and Rescan wait. A card closed anyway waits for its write
+  instead of killing it, and a card's Close is off while it writes. A job whose program cannot start ends as a
+  failed job instead of locking the tab. Deleting the newest in-game step no longer reports a false error.
+- **The edit cards** (C12):
+  - a mountain placed on desert or snow opens again: its handles wait while the island is read, then it is judged;
+  - a coast edit keeps its depth through a second read of its block;
+  - a step on the river's blocks can be picked;
+  - Show in game goes to the right place for a carry across x = 0;
+  - a read begun before an edit (the river's, the island's), or its error, no longer decides it;
+  - a sink edit's ticks neither outlive it nor are wiped mid-edit;
+  - a folder change reaches every card;
+  - a hand-written row that spells a default (`rot = 0.0`) opens.
+- **The game camera** (C18):
+  - a fog key Memoria.ini leaves out is Memoria's own default (250 / 350, not 86 / 142);
+  - the fog colour comes from the WeatherColors.csv the stack gives, read as Memoria reads it (any encoding, a
+    byte-order mark);
+  - Home puts the camera's controls away, and the 3D view draws the last load asked, not the first;
+  - the fog's GPU test measures the land, and its software twin samples where the raster does.
+
 ### Fixed — summon repaint: a third of the scenery pages were read and written at the wrong place
 - `summon-reskin export-art` and `[[reskin.texel]]` now find every scenery page cell where the game actually loads
   it. Before, 943 of the 2,531 id-0 page cells (in 236 effects; 136 of the 272 pages the default surface hands

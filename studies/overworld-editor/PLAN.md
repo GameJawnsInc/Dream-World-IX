@@ -142,6 +142,10 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **THE REVIEW OF C12-C23 (2026-10-25)** -> [`REVIEW-C12-C23.md`](REVIEW-C12-C23.md). Four adversarial rounds over the
+  GUI work and then over each round's fixes: 51 confirmed (20, 13, 7, 7, 4), 44 commits, each with a test red first. The laws: what
+  the game is owed lives on disk, and an in-game step opens only with nothing unpromoted on top; one lock routine;
+  a card that writes is never killed; a read is known by its number, not its path.
 - **C23, THE CARD CARRIES ACROSS THE SEAM (2026-10-25)** -> [`C23.md`](C23.md). `transplant_region` takes a rect past
   column 23 (keys unwrapped inside, labels at every file); the card wraps its anchor. The comma onto (23, 1): I1/I2 over
   2,073 files, I3 off the seam byte-identical 6/6; in game 8.512 west and 9.438 east of x = 0 (predicted 8.514 / 9.438).
