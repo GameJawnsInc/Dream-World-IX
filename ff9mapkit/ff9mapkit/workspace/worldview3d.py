@@ -1264,10 +1264,13 @@ class WorldView3DPanel(QWidget):
         return int(self._ground_at(x, z).get("area", 14) or 0)
 
     def _camera_changed(self, game: bool):
+        """The view changed camera on its own (Home goes back to the orbit): the button follows, and the game
+        camera's controls with it -- left on the bar, the Mist switch toggled a fog nothing drew (review of C18)."""
         self.game_btn.blockSignals(True)
         self.game_btn.setChecked(game)
         self.game_btn.blockSignals(False)
         self._name_game_btn(game)
+        self._show_vehicle(game)
 
     def _name_game_btn(self, game: bool):
         """The button names where it takes you, as the World tab's chart / 3D toggle does."""

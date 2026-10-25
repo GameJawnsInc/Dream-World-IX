@@ -501,6 +501,29 @@ def test_the_game_camera_seats_each_vehicle_as_the_game_does(app):
     assert not p.vehicle_box.isVisibleTo(p) and not p.alt_spin.isVisibleTo(p)
 
 
+def test_home_puts_the_game_camera_s_controls_away(app):
+    """Home in the view goes back to the free orbit and says so (camera_changed): the button followed, but the Mist
+    switch, the vehicle chooser and the height spin stayed on the bar, live and drawing nothing (review of C18). They
+    go with the game camera, however it is left."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtWidgets import QApplication
+    from ff9mapkit.editor.theme import pick_palette
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    p.view = V.WorldView3D()
+    p.view.camera_changed.connect(p._camera_changed)       # as the panel wires its view
+    p.view.packed = V.pack([GROUND])
+    p.view.marker = (30.0, 0.0, -33.0)
+    p.game_btn.setChecked(True)
+    p.vehicle_box.setCurrentIndex(p.vehicle_box.findData(8))
+    assert p.mist_box.isVisibleTo(p) and p.vehicle_box.isVisibleTo(p) and p.alt_spin.isVisibleTo(p)
+    QApplication.sendEvent(p.view, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Home, Qt.KeyboardModifier.NoModifier))
+    assert not p.view.game_mode() and not p.game_btn.isChecked()
+    assert not p.mist_box.isVisibleTo(p) and not p.vehicle_box.isVisibleTo(p) and not p.alt_spin.isVisibleTo(p)
+    p.game_btn.setChecked(True)                             # and back: they come with it
+    assert p.view.game_mode() and p.mist_box.isVisibleTo(p) and p.vehicle_box.isVisibleTo(p)
+
+
 def test_the_chooser_says_how_the_vehicle_was_reached(app):
     """C21, measured in game: the final nudges follow how a vehicle was reached. The chooser's items carry it, the
     camera draws it, and the same flyer at the same height sits 1419 / 996 high only where the game puts it so."""
