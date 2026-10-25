@@ -1,0 +1,72 @@
+{
+ "t": "2026-10-24 21:49:24",
+ "P1": {
+  "what": "gold chocobo after a take-off (request 9, tag 18)",
+  "nudges": [
+   558,
+   312
+  ],
+  "c8_decode": [
+   1419,
+   996
+  ]
+ },
+ "P2": {
+  "what": "gold chocobo after a Dead Pepper in the air (request 10, tag 19)",
+  "nudges": [
+   1419,
+   996
+  ]
+ },
+ "P3": {
+  "what": "Hilda Garde III boarded on foot (request 16, tag 21)",
+  "nudges": [
+   558,
+   312
+  ],
+  "c8_decode": [
+   1419,
+   996
+  ]
+ },
+ "P0": {
+  "what": "the gold chocobo on the ground before the take-off (type_cam 1)",
+  "nudges": [
+   558,
+   312
+  ]
+ },
+ "P4": {
+  "what": "disc 4 (WORLD08): the gold chocobo after a take-off (request 9 runs tag 19 there)",
+  "nudges": [
+   1419,
+   996
+  ]
+ },
+ "P5": {
+  "what": "disc 4: after a Dead Pepper in the air (tag 20 there: no hook, the take-off's stays)",
+  "nudges": [
+   1419,
+   996
+  ]
+ },
+ "P6": {
+  "what": "WORLD03: the Blue Narciss boarded on foot (request 12: [190] = 7, then tag 21)",
+  "nudges": [
+   558,
+   312
+  ],
+  "c8_decode": [
+   320,
+   701
+  ]
+ },
+ "P7": {
+  "what": "disc 4: the Invincible boarded on foot (no tag 19 / 21 on its path: type_cam 3's own)",
+  "nudges": [
+   1419,
+   996
+  ]
+ },
+ "judged_by": "each still's edge score with the predicted pair above the other pair's"
+}

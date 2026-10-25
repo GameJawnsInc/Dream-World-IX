@@ -1,0 +1,290 @@
+{
+ "t": "2026-10-24 21:35:43",
+ "rows": [
+  {
+   "still": "air-spawn-0",
+   "truth": "risen",
+   "picks": {
+    "edges": "risen",
+    "classes": "walk"
+   },
+   "scores": {
+    "walk": {
+     "edges": -0.1627,
+     "classes": 0.801,
+     "eye_y": 23.405,
+     "aim_y": 3.995
+    },
+    "risen": {
+     "edges": 0.5229,
+     "classes": 0.7744,
+     "eye_y": 26.768,
+     "aim_y": 6.667
+    },
+    "boat": {
+     "edges": 0.1229,
+     "classes": 0.7967,
+     "eye_y": 22.475,
+     "aim_y": 5.515
+    }
+   }
+  },
+  {
+   "still": "air-climbed-0",
+   "truth": "risen",
+   "picks": {
+    "edges": "risen",
+    "classes": "risen"
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.4143,
+     "classes": 0.1602,
+     "eye_y": 31.34,
+     "aim_y": 28.816
+    },
+    "risen": {
+     "edges": 0.7093,
+     "classes": 0.1725,
+     "eye_y": 34.703,
+     "aim_y": 31.488
+    },
+    "boat": {
+     "edges": 0.155,
+     "classes": 0.1348,
+     "eye_y": 30.41,
+     "aim_y": 30.336
+    }
+   }
+  },
+  {
+   "still": "air-climbed-1",
+   "truth": "risen",
+   "picks": {
+    "edges": "risen",
+    "classes": "risen"
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.4836,
+     "classes": 0.0737,
+     "eye_y": 31.421,
+     "aim_y": 28.898
+    },
+    "risen": {
+     "edges": 0.8183,
+     "classes": 0.0798,
+     "eye_y": 34.784,
+     "aim_y": 31.57
+    },
+    "boat": {
+     "edges": 0.2832,
+     "classes": 0.049,
+     "eye_y": 30.491,
+     "aim_y": 30.417
+    }
+   }
+  },
+  {
+   "still": "air-high-0",
+   "truth": "risen",
+   "picks": {
+    "edges": "boat",
+    "classes": "boat"
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.3876,
+     "classes": 0.9057,
+     "eye_y": 49.442,
+     "aim_y": 30.081
+    },
+    "risen": {
+     "edges": 0.3778,
+     "classes": 0.9091,
+     "eye_y": 52.805,
+     "aim_y": 32.753
+    },
+    "boat": {
+     "edges": 0.7316,
+     "classes": 0.9616,
+     "eye_y": 48.513,
+     "aim_y": 31.601
+    }
+   }
+  },
+  {
+   "still": "air-ceiling-0",
+   "truth": "risen",
+   "picks": {
+    "edges": "risen",
+    "classes": "risen"
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.3452,
+     "classes": 0.152,
+     "eye_y": 45.93,
+     "aim_y": 43.406
+    },
+    "risen": {
+     "edges": 0.6268,
+     "classes": 0.2382,
+     "eye_y": 49.293,
+     "aim_y": 46.078
+    },
+    "boat": {
+     "edges": 0.1062,
+     "classes": 0.1192,
+     "eye_y": 45.0,
+     "aim_y": 44.926
+    }
+   }
+  },
+  {
+   "still": "choco-lawn-0",
+   "truth": "walk",
+   "picks": {
+    "edges": "walk",
+    "classes": "risen"
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.2062,
+     "classes": 0.9817,
+     "eye_y": 18.336,
+     "aim_y": 9.033
+    },
+    "risen": {
+     "edges": 0.0808,
+     "classes": 0.9818,
+     "eye_y": 21.699,
+     "aim_y": 11.705
+    },
+    "boat": {
+     "edges": 0.0789,
+     "classes": 0.9742,
+     "eye_y": 17.406,
+     "aim_y": 10.553
+    }
+   }
+  },
+  {
+   "still": "choco-lawn-1",
+   "truth": "walk",
+   "picks": {
+    "edges": "walk",
+    "classes": "walk"
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.2354,
+     "classes": 0.9686,
+     "eye_y": 18.559,
+     "aim_y": 9.033
+    },
+    "risen": {
+     "edges": 0.1289,
+     "classes": 0.9516,
+     "eye_y": 21.922,
+     "aim_y": 11.705
+    },
+    "boat": {
+     "edges": 0.1479,
+     "classes": 0.9223,
+     "eye_y": 17.629,
+     "aim_y": 10.553
+    }
+   }
+  },
+  {
+   "still": "choco-forest-0",
+   "truth": "walk",
+   "picks": {
+    "edges": "walk",
+    "classes": "walk"
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.475,
+     "classes": 0.9678,
+     "eye_y": 21.109,
+     "aim_y": 12.615
+    },
+    "risen": {
+     "edges": 0.0671,
+     "classes": 0.9346,
+     "eye_y": 24.472,
+     "aim_y": 15.287
+    },
+    "boat": {
+     "edges": -0.0664,
+     "classes": 0.884,
+     "eye_y": 20.179,
+     "aim_y": 14.135
+    }
+   }
+  },
+  {
+   "still": "boat-0",
+   "truth": "boat",
+   "picks": {
+    "edges": "boat",
+    "classes": "boat"
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.0782,
+     "classes": 0.8059,
+     "eye_y": 11.982,
+     "aim_y": 5.664
+    },
+    "risen": {
+     "edges": 0.4384,
+     "classes": 0.9013,
+     "eye_y": 15.345,
+     "aim_y": 8.335
+    },
+    "boat": {
+     "edges": 0.8287,
+     "classes": 0.9606,
+     "eye_y": 11.052,
+     "aim_y": 7.183
+    }
+   }
+  },
+  {
+   "still": "boat-1",
+   "truth": "boat",
+   "picks": {
+    "edges": "boat",
+    "classes": "boat"
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.0566,
+     "classes": 0.8067,
+     "eye_y": 11.982,
+     "aim_y": 5.664
+    },
+    "risen": {
+     "edges": 0.432,
+     "classes": 0.9024,
+     "eye_y": 15.345,
+     "aim_y": 8.335
+    },
+    "boat": {
+     "edges": 0.8144,
+     "classes": 0.9603,
+     "eye_y": 11.052,
+     "aim_y": 7.183
+    }
+   }
+  }
+ ],
+ "hits": {
+  "edges": 9,
+  "classes": 7
+ },
+ "n": 10
+}

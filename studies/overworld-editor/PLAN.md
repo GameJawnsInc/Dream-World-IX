@@ -142,6 +142,10 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C21, THE GOLD CHOCOBO'S CAMERA IN GAME (2026-10-24)** -> [`C21.md`](C21.md). The final nudges follow how a vehicle
+  was reached: a RunScriptSync hook keyed on tags 19 / 21 lands on different events per world script. Disc 1: the
+  gold chocobo flies 558 / 312 (C8 said 1419 / 996), a Dead Pepper lifts it; the Hilda Garde III and Blue Narciss
+  boarded on foot take 558 / 312. Disc 4: 1419 / 996 from the take-off. 8 of 8 registered predictions held.
 - **C20, THE BEACH CHAIN QUALIFIED (2026-10-24)** -> [`C20.md`](C20.md). No free 4x2 rect was left; the nearest was held
   only by C5u's own comma carry, reverted through its record. The card carried the chain onto (19, 1): 24 gates,
   I1/I2 identical over 2,013 files; in game N0 sea -1.367, N2 its grass 6.516 (predicted 6.521), N3 loaded.

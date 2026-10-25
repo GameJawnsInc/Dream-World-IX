@@ -5,6 +5,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — the flying gold chocobo's camera, and vehicles boarded on foot
+- "As the game sees it" now frames the flying gold chocobo, the Hilda Garde III and the Blue Narciss the way the
+  game does when you get aboard in play: on disc 1 the camera sits lower than it used to draw. Two new choices
+  show the higher camera the game uses after feeding the gold chocobo a Dead Pepper in the air, and when the
+  airship comes back from its bridge. Measured in game.
+
 ### Changed — the beach chain is a tested carry
 - "Carry a coast"'s beach chain (the beach island and its chain of small islands, 4x2 blocks) is now marked as
   tested: carried by the World tab and walked in game.

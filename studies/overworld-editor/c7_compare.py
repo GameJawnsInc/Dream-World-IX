@@ -157,7 +157,8 @@ def main(capture=CAPTURE, compare=COMPARE, prefix="cmp"):
         def render(**kw):
             v = G.pose((x, y, z), kw.pop("rot", row["cam_rot"]), settings=S, area=area,
                        upper_counter=row["cam_upper"] or 0, ground=ground, mode=kw.pop("mode", mode), table=table,
-                       topograph=topo, **{k: kw[k] for k in ("eye_dy", "aim_dy") if k in kw})
+                       topograph=topo, how="loaded",          # C7 / C8 load the dispatcher aboard (C21)
+                       **{k: kw[k] for k in ("eye_dy", "aim_dy") if k in kw})
             v["fov"] *= kw.get("fov_k", 1.0)
             v["reach"] = 400.0
             img = R.raster(v, batches, "c7", site=site, out_dir=None, verbose=False).astype(np.float32)
