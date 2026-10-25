@@ -204,12 +204,14 @@ def test_a_placed_mountain_on_another_ground_opens_once_the_island_is_read(app, 
     assert not tool.editing() and len(notes) == 1 and "would not say its ground back" in notes[0], notes
 
 
-def test_a_mountain_retuned_while_its_row_is_held_stays_open(app, monkeypatch, tmp_path):
-    """While a mountain row waits for its reads the handles stay live; a turn then was said back against the step when
-    the reads landed and cancelled the edit, "would not say its rot back" (review of the C12 fixes). The handles' own
-    keys are said back at once, when the card opens (they wait on no read); the ground and the reach when the reads
-    land, unless the author has retuned the shape meanwhile -- then it is theirs."""
-    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+def test_a_mountain_row_held_for_its_reads_freezes_its_handles_and_checks_once_seated(app, monkeypatch, tmp_path):
+    """While a mountain row waits for its reads, a retune was said back against the step and cancelled the edit
+    (review of the C12 fixes); letting a retune skip the law instead let a row the card cannot say open on whether a
+    sub-second read had landed, and a check armed at open ran on the wrong ground and stalled the card (review of its
+    fix). Now the handles wait with the row: frozen, a click on the map kept for after, no check until it is seated;
+    then the whole row is said back and the check runs at once, on the step's own ground."""
+    run = Scripted(_passes)
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, run, bench=_desert_bench())
     tool.place(26.0, -26.0, 3.2)
     row = tool.row()
     tool.close_tool()
@@ -218,14 +220,45 @@ def test_a_mountain_retuned_while_its_row_is_held_stays_open(app, monkeypatch, t
     tool.open_tool()
     notes = []
     tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
-    tool.angle.setValue(30)                                # the author turns it while the island is read
+    assert all(not w.isEnabled() for w in (tool.donor_box, tool.angle, tool.spread, tool.rock_height))
+    tool.place(40.0, -40.0, 3.2)                           # a click while it reads: not taken
+    n = len(run.argvs)
+    tool._check()                                          # the timer open armed: nothing runs yet
+    assert run.argvs[n:] == [] and tool.center == (26.0, -26.0)
     _land(tool, held)
-    assert tool.editing() and notes == [] and tool.row()["rot"] == 30.0
+    assert tool.editing() and notes == [] and tool.row() == row
+    assert all(w.isEnabled() for w in (tool.donor_box, tool.angle, tool.spread, tool.rock_height))
+    assert tool._timer.isActive()                          # seated: judged at once
+    tool._timer.stop()
+    tool._check()
+    _land(tool, held)                                      # (its draft is made first, on a worker)
+    argv = run.argvs[-1]
+    assert argv[argv.index("--ground") + 1] == "desert"
     tool.close_tool()
     tool.open_tool()
     with pytest.raises(ValueError, match="would not say its center back"):   # off the grid: refused at open
         tool.edit_row({**row, "center": [26.04, -26.0]}, label="mountain", on_accepted=lambda: None,
                       on_cancel=lambda note=None: None)
+
+
+def test_a_falls_massif_row_with_a_height_still_refuses_once_its_outline_is_read(app, monkeypatch, tmp_path):
+    """A massif with falls on its face keeps its height (world-mountain refuses --rock-height for it): a row that
+    stretches one is not one the card can say, and it refuses -- it opened, rewritten, while a retune skipped the law
+    (review of the C12 fixes, third round)."""
+    import dataclasses
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    falls = dataclasses.replace(tool._outline_fn(UAHO), height_ok=False)
+    tool._outline_fn = lambda donor: falls
+    tool.place(26.0, -26.0, 3.2)
+    row = {**tool.row(), "rock_height": 1.5}
+    tool.close_tool()
+    held = _worker_lane(tool)
+    tool._outlines.clear()
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    _land(tool, held)
+    assert not tool.editing() and len(notes) == 1 and "rock_height" in notes[0], notes
 
 
 def test_an_island_read_begun_before_the_edit_does_not_decide_it(app, monkeypatch, tmp_path):

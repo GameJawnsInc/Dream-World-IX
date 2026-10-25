@@ -167,15 +167,50 @@ class MountainTool(CarryTool):
         self._try_seat()
 
     def _seat_row(self, row):
-        """Ready once the island and the massif are read; then the ground and the reach are said back. A shape the
-        author retuned while they were read is theirs, and nothing is said back (a turn then cancelled the edit:
-        review of the C12 fixes); its handles' own keys were said back at open."""
-        if self._ix is None or self.donor() not in self._outlines:
-            return False
-        if _read_free(self.row()) != _read_free(row):
-            self._pending_row = None
-            return False
-        return True
+        """Ready once the island and the massif are read: then the whole row is said back."""
+        return self._ix is not None and self.donor() in self._outlines
+
+    # -- the held row's wait: its handles wait with it (review of the C12 fixes, twice) --
+    def _try_seat(self):
+        """While the row waits for its reads the handles are frozen and the map's clicks are not taken: a retune then
+        was said back against the step and cancelled the edit, and letting a retune skip the law let a row the card
+        cannot say open on whether a sub-second read had landed. Seated, the shape is judged at once (the check the
+        open armed was held off: it would have run on the ground the island did not say yet)."""
+        waited = self._pending_row is not None
+        try:
+            super()._try_seat()
+        finally:
+            self._hold_handles(self._pending_row is not None)
+        if waited and self._pending_row is None and self._editing is not None and not self.isHidden():
+            self._handles_changed(at_once=True)
+
+    def _hold_handles(self, held):
+        for w in (self.donor_box, self.angle, self.spread):
+            w.setEnabled(not held)
+        ol = self._outlines.get(self.donor())
+        self.rock_height.setEnabled(not held and (ol is None or ol.height_ok))
+
+    def _check(self):
+        if self._pending_row is not None:
+            return                                       # (judged once the row is seated)
+        super()._check()
+
+    def place(self, x, z, y=0.0):
+        if self._pending_row is not None and not self._seating:
+            return                                       # the held row's own place stands until it is seated
+        super().place(x, z, y)
+
+    def drag_to(self, x, z):
+        if self._pending_row is None:
+            super().drag_to(x, z)
+
+    def drop_at(self, x, z):
+        if self._pending_row is None:
+            super().drop_at(x, z)
+
+    def close_tool(self):
+        super().close_tool()
+        self._hold_handles(False)
 
     def _cmd(self, target, *, dry_run, report=None):
         r = self._r_placed()
