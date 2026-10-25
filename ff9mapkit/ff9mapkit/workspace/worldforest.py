@@ -907,9 +907,13 @@ class CarryTool(QWidget):
         return self._last_center
 
     def _show_in_game(self):
+        """The game re-reads the world and the party goes to the shape: the point folded onto the grid here, the one
+        call site, since the engine's teleport refuses x/64 >= 24 and a carry across the seam is centred at 1536 or
+        past it (review of C23)."""
         t = self._show_target()
         if t is not None and self._on_reload is not None:
-            self._on_reload(*t)
+            from ..world.frames import wrap_world_xz
+            self._on_reload(*(float(c) for c in wrap_world_xz(*t)))
 
     def _ask_dialog(self, title, text):
         return QMessageBox.question(self, title, text) == QMessageBox.StandardButton.Yes

@@ -273,6 +273,40 @@ def test_the_card_carries_a_unit_onto_a_rect_that_turns_with_it(app, tmp_path):
     assert [tool.rot_box.itemData(i) for i in range(tool.rot_box.count())] == [0]   # the chain: its object's turn
 
 
+def test_show_in_game_goes_onto_the_grid_for_a_carry_across_the_seam(app, tmp_path):
+    """A carry anchored at column 23 runs past x = 1536, and its middle is 1536 or more; the engine's teleport refuses
+    x/64 >= 24, so Show in game failed for every carry across the seam (review of C23). The point the card hands the
+    game is folded onto the grid, as the mountain card's already was."""
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldtransplant import TransplantTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_worldforest import Scripted
+
+    def answer(kind, argv):
+        c = [int(v) for v in argv[argv.index("--cell") + 1].split(",")]
+        return {"ok": True, "dry_run": kind == "check", "cell": c, "blocks": [list(b) for b in TE.cells(c, (2, 3))],
+                "shift": [0, 0], "gates": [{"gate": "land-fit", "ok": True}], "written": [], "refused": None}
+    game = _game(tmp_path)
+    src = _mod(game, "FF9CustomMap-world", ((0, 0),))
+    land = np.array([[[64 * 9 + 30.0, 3.0, -64 * 5 - 30.0], [64 * 10 + 34.0, 3.0, -64 * 6 - 30.0],
+                      [64 * 9 + 30.0, 3.0, -64 * 7 - 34.0]]])
+    reloads = []
+    tool = TransplantTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: game,
+                          source_fn=lambda: src, runner=Scripted(answer), drafts_root=tmp_path / "drafts", sync=True,
+                          stack_fn=lambda: [], land_fn=lambda d, size=(1, 1): land, ocean_fn=lambda: set(),
+                          on_reload=lambda x, z: reloads.append((x, z)))
+    tool.open_tool()
+    tool.donor_box.setCurrentIndex(tool.donor_box.findData("9,5@2x3"))
+    tool.place(3.0, -160.0, 0.0)                          # just east of x = 0: anchored at column 23
+    assert tool.cell() == (23, 1)
+    tool._timer.stop()
+    tool._check()
+    tool.accept_btn.click()
+    tool._show_in_game()
+    (x, z), = reloads
+    assert 0.0 <= x < 1536.0 and (x, z) == (0.0, -160.0)
+
+
 # ---------------------------------------------------------------- THE ACCEPTANCE, on real bytes
 def _bytes(root: Path) -> dict:
     return {p.relative_to(root).as_posix(): p.read_bytes()
