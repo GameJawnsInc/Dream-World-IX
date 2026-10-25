@@ -94,6 +94,22 @@ def test_the_transport_table_is_read_through_the_stack(tmp_path):
     assert G.transport_table(None) == G.TRANSPORT
 
 
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16"])
+def test_a_transport_table_with_a_byte_order_mark_reads_as_the_game_reads_it(tmp_path, encoding):
+    """Memoria reads TransportControls.csv through the same StreamReader as the weather table, which strips a
+    byte-order mark; the kit kept it, read the first comment line as row 0, and fell back to the stock rows, so the
+    game camera posed a mod's vehicle with the stock camera (review of the C18 fixes, fourth round)."""
+    game = tmp_path / "game"
+    (game / "StreamingAssets" / "Data" / "World").mkdir(parents=True)
+    (game / "Memoria.ini").write_text('[Mod]\nFolderNames = "MINE"\n', encoding="utf-8")
+    mine = game / "MINE" / "StreamingAssets" / "Data" / "World"
+    mine.mkdir(parents=True)
+    rows = {**G.TRANSPORT, 1: (0, 4)}                                    # the yellow chocobo, another camera row
+    (mine / "TransportControls.csv").write_bytes(("# type;...\n" + "".join(
+        f"{t};0;0;0;0;0;0;0;0;0;0;0;0;0;0;{c};0;0;0;\n" for t, c in rows.values())).encode(encoding))
+    assert G.transport_table(game)[1] == (0, 4)
+
+
 def test_each_vehicle_s_camera():
     s = G.Settings(field_of_view=58.0)
     p = (500.0, 3.2, -500.0)

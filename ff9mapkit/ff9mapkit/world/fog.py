@@ -110,17 +110,11 @@ def fog_still(img, depth, view, fog: Fog):
 def weather_rgb(game, row: int = DAYLIGHT):
     """``fogDW`` of the weather table's ``row`` in the ``WeatherColors.csv`` the game reads (the stack's first, then
     the base game's: ``gamecam.world_csv``, as Memoria's GetCsvWithHighestPriority), or None when it cannot be read."""
-    import codecs
-
-    from .gamecam import world_csv
+    from .gamecam import csv_text, world_csv
     try:
-        data = world_csv(game, WEATHER_CSV).read_bytes()
+        lines = csv_text(world_csv(game, WEATHER_CSV)).splitlines()     # (as Memoria's CsvReader reads a mod's file)
     except (OSError, TypeError, AttributeError):
         return None
-    # read as Memoria's CsvReader (a .NET StreamReader) reads a mod's file: a byte-order mark detected and stripped
-    # (UTF-16 as Notepad's "Unicode" saves it, UTF-8 as Excel's "CSV UTF-8"), else UTF-8, a bad byte replaced
-    utf16 = data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE))
-    lines = data.decode("utf-16" if utf16 else "utf-8-sig", errors="replace").splitlines()
     rows = [ln for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
     if not 0 <= row < len(rows):
         return None

@@ -108,6 +108,17 @@ def world_csv(game, rel):
     return next((Path(r) / rel for r in roots if (Path(r) / rel).is_file()), None)
 
 
+def csv_text(path) -> str:
+    """A data file's text as Memoria's CsvReader reads it (a .NET StreamReader): a byte-order mark detected and
+    stripped -- UTF-16 as Notepad's "Unicode" saves it, UTF-8 as Excel's "CSV UTF-8" -- else UTF-8, a bad byte
+    replaced. A mod's file may be any of these (review of the C18 fixes: a kept mark read as a row)."""
+    import codecs
+    from pathlib import Path
+    data = Path(path).read_bytes()
+    utf16 = data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE))
+    return data.decode("utf-16" if utf16 else "utf-8-sig", errors="replace")
+
+
 def transport_table(game=None) -> dict:
     """``mode -> (type, type_cam)`` from the ``TransportControls.csv`` the game reads (:func:`world_csv`). The stock
     rows when none can be read."""
@@ -115,8 +126,7 @@ def transport_table(game=None) -> dict:
     f = world_csv(game, Path("StreamingAssets") / "Data" / "World" / "TransportControls.csv")
     if f is None:
         return dict(TRANSPORT)
-    rows = [ln.split(";") for ln in f.read_text(encoding="utf-8", errors="ignore").splitlines()
-            if ln.strip() and not ln.lstrip().startswith("#")]
+    rows = [ln.split(";") for ln in csv_text(f).splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
     try:
         return {i: (int(r[0]), int(r[15])) for i, r in enumerate(rows)}
     except (ValueError, IndexError):
