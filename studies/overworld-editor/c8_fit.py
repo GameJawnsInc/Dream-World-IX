@@ -44,7 +44,7 @@ def main(spots, capture="c8_capture.json", fit="c8_fit.json"):
         def ground(px, pz):
             return C1._ground(gsite, px % 1536.0, pz, names).get("y")
         base = G.pose((x, y, z), row["cam_rot"], settings=S, area=int(gq.get("area", 14) or 0), mode=row["ctl"],
-                      table=table, topograph=gq.get("topograph"), ground=ground)
+                      table=table, topograph=gq.get("topograph"), ground=ground, how="loaded")   # (C21)
         region = CMP._region(h, w)
         gc = CMP.classes(gs) if METRIC == "classes" else CMP.edges(gs)
 

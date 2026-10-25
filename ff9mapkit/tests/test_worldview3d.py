@@ -496,3 +496,29 @@ def test_the_game_camera_seats_each_vehicle_as_the_game_does(app):
     assert cam.view()["eye"] == pytest.approx(want["eye"]) and cam.view()["fov"] == pytest.approx(want["fov"])
     p.game_btn.setChecked(False)
     assert not p.vehicle_box.isVisibleTo(p) and not p.alt_spin.isVisibleTo(p)
+
+
+def test_the_chooser_says_how_the_vehicle_was_reached(app):
+    """C21, measured in game: the final nudges follow how a vehicle was reached. The chooser's items carry it, the
+    camera draws it, and the same flyer at the same height sits 1419 / 996 high only where the game puts it so."""
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.world import gamecam as G
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    p.view = V.WorldView3D()
+    p.view.packed = V.pack([GROUND, _lid(9.0, down=False)])
+    p.view.marker = (30.0, 9.0, -33.0)
+    p.game_btn.setChecked(True)
+    cam = p.view.camera
+    items = [(p.vehicle_box.itemData(i), p.vehicle_box.itemData(i, V.HOW_ROLE)) for i in range(p.vehicle_box.count())]
+    assert items == [(m, h) for m, h, _l in V.VEHICLE_CHOICES]
+    eyes = {}
+    for i, (mode, how) in enumerate(items):
+        p.vehicle_box.setCurrentIndex(i)
+        p.alt_spin.setValue(30.0)
+        assert cam.mode == mode and cam.how == how
+        eyes[(mode, how)] = cam.view()["eye"][1]
+        assert cam.view()["game"]["fix"] == G.fix_target(mode, how=how)
+    lift = (1419 - 558) / 256.0                                          # CameraHeight 100 (Settings' default)
+    assert eyes[(6, "pepper")] - eyes[(6, "boarded")] == pytest.approx(lift)     # disc 1: the pepper lifts it
+    assert eyes[(8, "loaded")] - eyes[(8, "boarded")] == pytest.approx(lift)     # back from the bridge: lifted
+    assert p.vehicle_box.findData(8) == items.index((8, "boarded"))              # findData keeps the plain item

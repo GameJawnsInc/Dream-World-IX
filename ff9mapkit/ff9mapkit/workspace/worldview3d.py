@@ -45,10 +45,15 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QHBoxLayout, QStackedLayout, QVBoxLayout, QWidget
 
 NEAR = 0.05                    # render.raster drops a tri with any vertex this close to the eye (or behind it)
-# the game camera's vehicles (C8): the travel modes offered, how each sits (measured in game: c8_lab.py)
-VEHICLE_MODES = (0, 1, 6, 7, 8, 9)   # on foot, a chocobo, the gold chocobo flying, the Blue Narciss, the airships
-VEHICLE_LABELS = {0: "On foot", 1: "Chocobo", 6: "Gold chocobo, flying", 7: "Blue Narciss", 8: "Hilda Garde III",
-                  9: "Invincible"}
+# the game camera's vehicles (C8): the travel modes offered, how each sits (measured in game: c8_lab.py) -- and, C21,
+# how each was reached, since that moves the camera's final nudges (gamecam.fix_target): (mode, how, label)
+VEHICLE_CHOICES = ((0, "boarded", "On foot"), (1, "boarded", "Chocobo"), (6, "boarded", "Gold chocobo, flying"),
+                   (6, "pepper", "Gold chocobo, after a Dead Pepper"), (7, "boarded", "Blue Narciss"),
+                   (8, "boarded", "Hilda Garde III"), (8, "loaded", "Hilda Garde III, back from its bridge"),
+                   (9, "boarded", "Invincible"))
+VEHICLE_MODES = tuple(dict.fromkeys(m for m, _h, _l in VEHICLE_CHOICES))
+VEHICLE_LABELS = {m: label for m, how, label in VEHICLE_CHOICES if how == "boarded"}
+HOW_ROLE = 0x0101              # Qt.UserRole + 1: the chooser item's ``how`` beside its mode (the item data)
 FLYING_MODES = (6, 8, 9)
 BOAT_MODE = 7
 BOAT_DRAFT = -0.703125         # the Blue Narciss rides at the water's surface less this (published -0.703125)
@@ -689,14 +694,16 @@ class GameCamera:
     pan or zoom, since the game's does not.
 
     ``mode`` is the travel mode (gEventGlobal[190], C8): a chocobo, the boat and the airships each frame their own way
-    (``gamecam.pose``); ``table`` is the game's TransportControls (``gamecam.transport_table``); ``topograph`` the
-    cell's under the party (a chocobo over forest widens its view). The panel seats the party as each vehicle sits."""
+    (``gamecam.pose``); ``how`` is how it was reached (C21: boarded, after a Dead Pepper, or loaded aboard, which
+    moves the final nudges: ``gamecam.fix_target``, for the disc-1 world scripts this view draws); ``table`` is the
+    game's TransportControls (``gamecam.transport_table``); ``topograph`` the cell's under the party (a chocobo over
+    forest widens its view). The panel seats the party as each vehicle sits."""
 
     def __init__(self, player, rotation=0.0, *, settings=None, area=14, ground=None, mode=0, table=None,
-                 topograph=None):
+                 topograph=None, how="boarded"):
         self.player, self.rotation = tuple(float(v) for v in player), float(rotation) % 360.0
         self.settings, self.area, self.ground = settings, int(area), ground
-        self.mode, self.table, self.topograph = int(mode), table, topograph
+        self.mode, self.table, self.topograph, self.how = int(mode), table, topograph, str(how)
         self.dist = 0.0
         self._memo = None
 
@@ -710,10 +717,10 @@ class GameCamera:
 
     def view(self):
         from ..world import gamecam as G
-        key = (self.player, round(self.rotation, 3), self.area, self.mode, self.topograph)
+        key = (self.player, round(self.rotation, 3), self.area, self.mode, self.topograph, self.how)
         if self._memo is None or self._memo[0] != key:
             v = G.pose(self.player, self.rotation, settings=self.settings or G.Settings(), area=self.area,
-                       ground=self.ground, mode=self.mode, table=self.table, airborne=self.mode == 6,
+                       ground=self.ground, mode=self.mode, table=self.table, how=self.how, disc=1,
                        topograph=self.topograph)
             v["near"] = NEAR
             self._memo = (key, v)
@@ -1002,9 +1009,12 @@ class WorldView3DPanel(QWidget):
         self.vehicle_box = QComboBox()
         self.vehicle_box.setAccessibleName("Game camera vehicle")
         self.vehicle_box.setToolTip("How the party travels: on foot, on a chocobo, on the boat or an airship. Each "
-                                    "vehicle's camera sits at its own distance and height, as the game's does.")
-        for m in VEHICLE_MODES:
-            self.vehicle_box.addItem(VEHICLE_LABELS[m], m)
+                                    "vehicle's camera sits at its own distance and height, as the game's does, and "
+                                    "the game lifts it after a Dead Pepper in the air or when the airship comes "
+                                    "back from its bridge.")
+        for m, how, label in VEHICLE_CHOICES:
+            self.vehicle_box.addItem(label, m)
+            self.vehicle_box.setItemData(self.vehicle_box.count() - 1, how, HOW_ROLE)
         # the longest name never sets the bar's width (the window's floor): the list opens as wide as its items
         self.vehicle_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.vehicle_box.setMinimumContentsLength(12)
@@ -1183,7 +1193,8 @@ class WorldView3DPanel(QWidget):
         packed = self.view.packed
         cam = GameCamera.from_orbit(self.view.camera, (x, 0.0, z), settings=settings,
                                     ground=lambda gx, gz: ground_y(packed, gx, gz),
-                                    mode=int(self.vehicle_box.currentData() or 0), table=G.transport_table(game))
+                                    mode=int(self.vehicle_box.currentData() or 0), table=G.transport_table(game),
+                                    how=self._vehicle_how())
         self._set_fog()
         self.view.set_camera(cam)
         self._seat_party()
@@ -1206,10 +1217,14 @@ class WorldView3DPanel(QWidget):
         self.mist_box.setVisible(on)
         self.alt_spin.setVisible(on and int(self.vehicle_box.currentData() or 0) in FLYING_MODES)
 
+    def _vehicle_how(self) -> str:
+        return str(self.vehicle_box.currentData(HOW_ROLE) or "boarded")
+
     def _vehicle_changed(self):
         cam = self.view.camera if self.view is not None else None
         if isinstance(cam, GameCamera):
             cam.mode = int(self.vehicle_box.currentData() or 0)
+            cam.how = self._vehicle_how()
             self._show_vehicle(True)
             self._seat_party()
 

@@ -1124,6 +1124,16 @@ def _snap_world_3d(ctx: _Ctx, state: str, win) -> None:
             PI.point_info = orig_info
         _settle(12)
         _grab(ctx, f"world-{state}-game-airship", win)
+        # C21: the airship back from its bridge (the chooser's longest item: it must not widen the bar)
+        from ff9mapkit.workspace import worldview3d as V3
+        PI.point_info = _fixed
+        try:
+            p3.vehicle_box.setCurrentIndex(next(i for i, (m, h, _l) in enumerate(V3.VEHICLE_CHOICES)
+                                                if (m, h) == (8, "loaded")))
+        finally:
+            PI.point_info = orig_info
+        _settle(12)
+        _grab(ctx, f"world-{state}-game-bridge", win)
 
 
 def snap_world(ctx: _Ctx, state: str) -> None:

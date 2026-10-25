@@ -1,0 +1,1492 @@
+{
+ "t": "2026-10-24 21:59:08",
+ "predictions": {
+  "t": "2026-10-24 21:49:24",
+  "P1": {
+   "what": "gold chocobo after a take-off (request 9, tag 18)",
+   "nudges": [
+    558,
+    312
+   ],
+   "c8_decode": [
+    1419,
+    996
+   ]
+  },
+  "P2": {
+   "what": "gold chocobo after a Dead Pepper in the air (request 10, tag 19)",
+   "nudges": [
+    1419,
+    996
+   ]
+  },
+  "P3": {
+   "what": "Hilda Garde III boarded on foot (request 16, tag 21)",
+   "nudges": [
+    558,
+    312
+   ],
+   "c8_decode": [
+    1419,
+    996
+   ]
+  },
+  "P0": {
+   "what": "the gold chocobo on the ground before the take-off (type_cam 1)",
+   "nudges": [
+    558,
+    312
+   ]
+  },
+  "P4": {
+   "what": "disc 4 (WORLD08): the gold chocobo after a take-off (request 9 runs tag 19 there)",
+   "nudges": [
+    1419,
+    996
+   ]
+  },
+  "P5": {
+   "what": "disc 4: after a Dead Pepper in the air (tag 20 there: no hook, the take-off's stays)",
+   "nudges": [
+    1419,
+    996
+   ]
+  },
+  "P6": {
+   "what": "WORLD03: the Blue Narciss boarded on foot (request 12: [190] = 7, then tag 21)",
+   "nudges": [
+    558,
+    312
+   ],
+   "c8_decode": [
+    320,
+    701
+   ]
+  },
+  "P7": {
+   "what": "disc 4: the Invincible boarded on foot (no tag 19 / 21 on its path: type_cam 3's own)",
+   "nudges": [
+    1419,
+    996
+   ]
+  },
+  "judged_by": "each still's edge score with the predicted pair above the other pair's"
+ },
+ "rows": [
+  {
+   "still": "gold-ground-0",
+   "world": 9007,
+   "ctl": 5,
+   "y": 8.664,
+   "cam_rot": 9.816,
+   "predicted": "walk",
+   "against": "risen",
+   "verdict": {
+    "edges": {
+     "pick": "walk",
+     "margin": 0.2836
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": 0.0239
+    }
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.3738,
+     "classes": 0.9688,
+     "eye_y": 22.586,
+     "aim_y": 12.615
+    },
+    "risen": {
+     "edges": 0.0902,
+     "classes": 0.9449,
+     "eye_y": 25.949,
+     "aim_y": 15.287
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": true
+   }
+  },
+  {
+   "still": "gold-fly-0",
+   "world": 9007,
+   "ctl": 6,
+   "y": 18.039,
+   "cam_rot": 89.973,
+   "predicted": "walk",
+   "against": "risen",
+   "verdict": {
+    "edges": {
+     "pick": "walk",
+     "margin": 0.0555
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": 0.0103
+    }
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.1758,
+     "classes": 0.8751,
+     "eye_y": 21.781,
+     "aim_y": 19.258
+    },
+    "risen": {
+     "edges": 0.1203,
+     "classes": 0.8648,
+     "eye_y": 25.145,
+     "aim_y": 21.93
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": true
+   }
+  },
+  {
+   "still": "gold-fly-1",
+   "world": 9007,
+   "ctl": 6,
+   "y": 18.039,
+   "cam_rot": 61.057,
+   "predicted": "walk",
+   "against": "risen",
+   "verdict": {
+    "edges": {
+     "pick": "walk",
+     "margin": 0.0465
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": 0.0099
+    }
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.1805,
+     "classes": 0.8857,
+     "eye_y": 21.781,
+     "aim_y": 19.258
+    },
+    "risen": {
+     "edges": 0.134,
+     "classes": 0.8758,
+     "eye_y": 25.145,
+     "aim_y": 21.93
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": true
+   }
+  },
+  {
+   "still": "gold-fly-2",
+   "world": 9007,
+   "ctl": 6,
+   "y": 18.039,
+   "cam_rot": 89.006,
+   "predicted": "walk",
+   "against": "risen",
+   "verdict": {
+    "edges": {
+     "pick": "walk",
+     "margin": 0.0398
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": 0.0094
+    }
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.1595,
+     "classes": 0.8742,
+     "eye_y": 21.781,
+     "aim_y": 19.258
+    },
+    "risen": {
+     "edges": 0.1197,
+     "classes": 0.8648,
+     "eye_y": 25.145,
+     "aim_y": 21.93
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": true
+   }
+  },
+  {
+   "still": "gold-risen-0",
+   "world": 9007,
+   "ctl": 6,
+   "y": 18.039,
+   "cam_rot": 89.006,
+   "predicted": "risen",
+   "against": "walk",
+   "verdict": {
+    "edges": {
+     "pick": "risen",
+     "margin": 0.0675
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": -0.0006
+    }
+   },
+   "scores": {
+    "risen": {
+     "edges": 0.2328,
+     "classes": 0.8708,
+     "eye_y": 25.145,
+     "aim_y": 21.93
+    },
+    "walk": {
+     "edges": 0.1653,
+     "classes": 0.8714,
+     "eye_y": 21.781,
+     "aim_y": 19.258
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": false
+   }
+  },
+  {
+   "still": "gold-risen-1",
+   "world": 9007,
+   "ctl": 6,
+   "y": 18.039,
+   "cam_rot": 60.09,
+   "predicted": "risen",
+   "against": "walk",
+   "verdict": {
+    "edges": {
+     "pick": "risen",
+     "margin": 0.0691
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": -0.0075
+    }
+   },
+   "scores": {
+    "risen": {
+     "edges": 0.339,
+     "classes": 0.8922,
+     "eye_y": 25.578,
+     "aim_y": 21.93
+    },
+    "walk": {
+     "edges": 0.2699,
+     "classes": 0.8997,
+     "eye_y": 22.215,
+     "aim_y": 19.258
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": false
+   }
+  },
+  {
+   "still": "air-boarded-0",
+   "world": 9007,
+   "ctl": 8,
+   "y": 13.324,
+   "cam_rot": 270.061,
+   "predicted": "walk",
+   "against": "risen",
+   "verdict": {
+    "edges": {
+     "pick": "walk",
+     "margin": 0.257
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": 0.0919
+    }
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.4421,
+     "classes": 0.5569,
+     "eye_y": 23.416,
+     "aim_y": 14.543
+    },
+    "risen": {
+     "edges": 0.1851,
+     "classes": 0.465,
+     "eye_y": 26.779,
+     "aim_y": 17.215
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": true
+   }
+  },
+  {
+   "still": "air-boarded-1",
+   "world": 9007,
+   "ctl": 8,
+   "y": 13.324,
+   "cam_rot": 241.584,
+   "predicted": "walk",
+   "against": "risen",
+   "verdict": {
+    "edges": {
+     "pick": "walk",
+     "margin": 0.343
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": 0.0768
+    }
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.3959,
+     "classes": 0.6492,
+     "eye_y": 23.409,
+     "aim_y": 14.543
+    },
+    "risen": {
+     "edges": 0.0529,
+     "classes": 0.5724,
+     "eye_y": 26.772,
+     "aim_y": 17.215
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": true
+   }
+  },
+  {
+   "still": "gold4-ground-0",
+   "world": 9008,
+   "ctl": 5,
+   "y": 8.664,
+   "cam_rot": 9.816,
+   "predicted": "walk",
+   "against": "risen",
+   "verdict": {
+    "edges": {
+     "pick": "walk",
+     "margin": 0.2002
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": 0.0922
+    }
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.643,
+     "classes": 0.895,
+     "eye_y": 22.586,
+     "aim_y": 12.615
+    },
+    "risen": {
+     "edges": 0.4428,
+     "classes": 0.8028,
+     "eye_y": 25.949,
+     "aim_y": 15.287
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": true
+   }
+  },
+  {
+   "still": "gold4-fly-0",
+   "world": 9008,
+   "ctl": 6,
+   "y": 18.039,
+   "cam_rot": 89.973,
+   "predicted": "risen",
+   "against": "walk",
+   "verdict": {
+    "edges": {
+     "pick": "risen",
+     "margin": 0.1574
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": -0.026
+    }
+   },
+   "scores": {
+    "risen": {
+     "edges": 0.5932,
+     "classes": 0.8363,
+     "eye_y": 25.145,
+     "aim_y": 21.93
+    },
+    "walk": {
+     "edges": 0.4358,
+     "classes": 0.8623,
+     "eye_y": 21.781,
+     "aim_y": 19.258
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": false
+   }
+  },
+  {
+   "still": "gold4-fly-1",
+   "world": 9008,
+   "ctl": 6,
+   "y": 18.039,
+   "cam_rot": 55.783,
+   "predicted": "risen",
+   "against": "walk",
+   "verdict": {
+    "edges": {
+     "pick": "risen",
+     "margin": 0.2679
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": -0.0103
+    }
+   },
+   "scores": {
+    "risen": {
+     "edges": 0.6225,
+     "classes": 0.8378,
+     "eye_y": 26.328,
+     "aim_y": 21.93
+    },
+    "walk": {
+     "edges": 0.3546,
+     "classes": 0.8481,
+     "eye_y": 22.965,
+     "aim_y": 19.258
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": false
+   }
+  },
+  {
+   "still": "gold4-fly-2",
+   "world": 9008,
+   "ctl": 6,
+   "y": 18.039,
+   "cam_rot": 81.184,
+   "predicted": "risen",
+   "against": "walk",
+   "verdict": {
+    "edges": {
+     "pick": "risen",
+     "margin": 0.1303
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": -0.0316
+    }
+   },
+   "scores": {
+    "risen": {
+     "edges": 0.6032,
+     "classes": 0.8405,
+     "eye_y": 25.145,
+     "aim_y": 21.93
+    },
+    "walk": {
+     "edges": 0.4729,
+     "classes": 0.8721,
+     "eye_y": 21.781,
+     "aim_y": 19.258
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": false
+   }
+  },
+  {
+   "still": "gold4-risen-0",
+   "world": 9008,
+   "ctl": 6,
+   "y": 18.039,
+   "cam_rot": 81.184,
+   "predicted": "risen",
+   "against": "walk",
+   "verdict": {
+    "edges": {
+     "pick": "risen",
+     "margin": 0.1284
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": -0.0316
+    }
+   },
+   "scores": {
+    "risen": {
+     "edges": 0.5894,
+     "classes": 0.8405,
+     "eye_y": 25.145,
+     "aim_y": 21.93
+    },
+    "walk": {
+     "edges": 0.461,
+     "classes": 0.8721,
+     "eye_y": 21.781,
+     "aim_y": 19.258
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": false
+   }
+  },
+  {
+   "still": "gold4-risen-1",
+   "world": 9008,
+   "ctl": 6,
+   "y": 18.039,
+   "cam_rot": 52.268,
+   "predicted": "risen",
+   "against": "walk",
+   "verdict": {
+    "edges": {
+     "pick": "risen",
+     "margin": 0.1017
+    },
+    "classes": {
+     "pick": "risen",
+     "margin": 0.0015
+    }
+   },
+   "scores": {
+    "risen": {
+     "edges": 0.4218,
+     "classes": 0.843,
+     "eye_y": 26.879,
+     "aim_y": 21.93
+    },
+    "walk": {
+     "edges": 0.3201,
+     "classes": 0.8415,
+     "eye_y": 23.516,
+     "aim_y": 19.258
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": true
+   }
+  },
+  {
+   "still": "inv-boarded-0",
+   "world": 9008,
+   "ctl": 9,
+   "y": 13.324,
+   "cam_rot": 270.061,
+   "predicted": "risen",
+   "against": "walk",
+   "verdict": {
+    "edges": {
+     "pick": "risen",
+     "margin": 0.3188
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": -0.0185
+    }
+   },
+   "scores": {
+    "risen": {
+     "edges": 0.7357,
+     "classes": 0.1103,
+     "eye_y": 26.779,
+     "aim_y": 17.215
+    },
+    "walk": {
+     "edges": 0.4169,
+     "classes": 0.1288,
+     "eye_y": 23.416,
+     "aim_y": 14.543
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": false
+   }
+  },
+  {
+   "still": "inv-boarded-1",
+   "world": 9008,
+   "ctl": 9,
+   "y": 13.324,
+   "cam_rot": 240.617,
+   "predicted": "risen",
+   "against": "walk",
+   "verdict": {
+    "edges": {
+     "pick": "risen",
+     "margin": 0.3397
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": -0.0208
+    }
+   },
+   "scores": {
+    "risen": {
+     "edges": 0.5577,
+     "classes": 0.0702,
+     "eye_y": 26.531,
+     "aim_y": 17.215
+    },
+    "walk": {
+     "edges": 0.218,
+     "classes": 0.091,
+     "eye_y": 23.168,
+     "aim_y": 14.543
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": false
+   }
+  },
+  {
+   "still": "boat-boarded-0",
+   "world": 9003,
+   "ctl": 7,
+   "y": -0.609,
+   "cam_rot": 270.061,
+   "predicted": "walk",
+   "against": "boat",
+   "verdict": {
+    "edges": {
+     "pick": "walk",
+     "margin": 0.3723
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": 0.1098
+    }
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.5445,
+     "classes": 0.9219,
+     "eye_y": 11.994,
+     "aim_y": 5.736
+    },
+    "boat": {
+     "edges": 0.1722,
+     "classes": 0.8121,
+     "eye_y": 11.064,
+     "aim_y": 7.256
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": true
+   }
+  },
+  {
+   "still": "boat-boarded-1",
+   "world": 9003,
+   "ctl": 7,
+   "y": -0.609,
+   "cam_rot": 269.973,
+   "predicted": "walk",
+   "against": "boat",
+   "verdict": {
+    "edges": {
+     "pick": "walk",
+     "margin": 0.3773
+    },
+    "classes": {
+     "pick": "walk",
+     "margin": 0.11
+    }
+   },
+   "scores": {
+    "walk": {
+     "edges": 0.5551,
+     "classes": 0.9217,
+     "eye_y": 11.994,
+     "aim_y": 5.736
+    },
+    "boat": {
+     "edges": 0.1778,
+     "classes": 0.8117,
+     "eye_y": 11.064,
+     "aim_y": 7.256
+    }
+   },
+   "holds": {
+    "edges": true,
+    "classes": true
+   }
+  }
+ ],
+ "sprites": {
+  "gold-ground-0": {
+   "feet_row": 420,
+   "walk": 450.5,
+   "risen": 501.5,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": 0.0,
+    "risen": -51.0
+   },
+   "pick": "walk",
+   "predicted": "walk",
+   "holds": true
+  },
+  "gold-fly-0": {
+   "feet_row": 360,
+   "walk": 399.5,
+   "risen": 482.1,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": -9.0,
+    "risen": -91.6
+   },
+   "pick": "walk",
+   "predicted": "walk",
+   "holds": true
+  },
+  "gold-fly-1": {
+   "feet_row": 372,
+   "walk": 399.5,
+   "risen": 482.1,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": 3.0,
+    "risen": -79.6
+   },
+   "pick": "walk",
+   "predicted": "walk",
+   "holds": true
+  },
+  "gold-fly-2": {
+   "feet_row": 370,
+   "walk": 399.5,
+   "risen": 482.1,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": 1.0,
+    "risen": -81.6
+   },
+   "pick": "walk",
+   "predicted": "walk",
+   "holds": true
+  },
+  "gold-risen-0": {
+   "feet_row": 454,
+   "walk": 399.5,
+   "risen": 482.1,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": 85.0,
+    "risen": 2.4
+   },
+   "pick": "risen",
+   "predicted": "risen",
+   "holds": true
+  },
+  "gold-risen-1": {
+   "feet_row": 457,
+   "walk": 399.3,
+   "risen": 480.7,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": 88.2,
+    "risen": 6.8
+   },
+   "pick": "risen",
+   "predicted": "risen",
+   "holds": true
+  },
+  "gold4-ground-0": {
+   "feet_row": 420,
+   "walk": 450.5,
+   "risen": 501.5,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": 0.0,
+    "risen": -51.0
+   },
+   "pick": "walk",
+   "predicted": "walk",
+   "holds": true
+  },
+  "gold4-fly-0": {
+   "feet_row": 457,
+   "walk": 399.5,
+   "risen": 482.1,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": 88.0,
+    "risen": 5.4
+   },
+   "pick": "risen",
+   "predicted": "risen",
+   "holds": true
+  },
+  "gold4-fly-1": {
+   "feet_row": 444,
+   "walk": 398.7,
+   "risen": 478.1,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": 75.8,
+    "risen": -3.6
+   },
+   "pick": "risen",
+   "predicted": "risen",
+   "holds": true
+  },
+  "gold4-fly-2": {
+   "feet_row": 441,
+   "walk": 399.5,
+   "risen": 482.1,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": 72.0,
+    "risen": -10.6
+   },
+   "pick": "risen",
+   "predicted": "risen",
+   "holds": true
+  },
+  "gold4-risen-0": {
+   "feet_row": 457,
+   "walk": 399.5,
+   "risen": 482.1,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": 88.0,
+    "risen": 5.4
+   },
+   "pick": "risen",
+   "predicted": "risen",
+   "holds": true
+  },
+  "gold4-risen-1": {
+   "feet_row": 453,
+   "walk": 398.2,
+   "risen": 476.1,
+   "offset_ref": -30.5,
+   "residual": {
+    "walk": 85.3,
+    "risen": 7.4
+   },
+   "pick": "risen",
+   "predicted": "risen",
+   "holds": true
+  }
+ },
+ "pairs": {
+  "gold": {
+   "pepper": {
+    "a": "gold-fly-2",
+    "b": "gold-risen-0",
+    "dy": 0.0,
+    "drot": 0.0,
+    "frame_mae": 9.369,
+    "edges_between": 0.5936,
+    "game_vshift": 1,
+    "decode_vshift_walk_to_risen": -3,
+    "decode_mae_walk_to_risen": 20.735
+   },
+   "control": {
+    "a": "gold-fly-2",
+    "b": "gold-fly-0",
+    "dy": 0.0,
+    "drot": 0.967,
+    "frame_mae": 5.711,
+    "edges_between": 0.8955,
+    "game_vshift": 0,
+    "decode_vshift_walk_to_risen": -3,
+    "decode_mae_walk_to_risen": 20.735
+   }
+  },
+  "gold4": {
+   "pepper": {
+    "a": "gold4-fly-2",
+    "b": "gold4-risen-0",
+    "dy": 0.0,
+    "drot": 0.0,
+    "frame_mae": 0.021,
+    "edges_between": 0.9889,
+    "game_vshift": 0,
+    "decode_vshift_walk_to_risen": 10,
+    "decode_mae_walk_to_risen": 12.494
+   },
+   "control": {
+    "a": "gold4-fly-2",
+    "b": "gold4-fly-0",
+    "dy": 0.0,
+    "drot": 8.789,
+    "frame_mae": 6.951,
+    "edges_between": 0.7158,
+    "game_vshift": 0,
+    "decode_vshift_walk_to_risen": 10,
+    "decode_mae_walk_to_risen": 12.494
+   }
+  }
+ },
+ "routes": [
+  {
+   "gold": {
+    "field_readback": {
+     "scenario": 10650,
+     "bytes": {
+      "187": 1,
+      "190": 5,
+      "191": 5,
+      "1062": 0,
+      "1063": 0
+     },
+     "flags": {
+      "809": true,
+      "810": true
+     }
+    },
+    "arrival": {
+     "x": 68,
+     "z": -444,
+     "y": 3.19921875,
+     "world": 9007,
+     "vehicle": 5,
+     "ui": "WorldHUD",
+     "scenario": 10650,
+     "control": true,
+     "frame": 1182
+    },
+    "takeoff_y": [
+     9.289,
+     9.914,
+     10.852,
+     11.789,
+     12.727,
+     13.664,
+     14.289,
+     15.227,
+     15.852,
+     16.477,
+     17.414,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039
+    ],
+    "menu": {
+     "text": "Open Chocograph menu\nFeed him a Dead Pepper (Remaining: 3)\nCancel",
+     "choice": {
+      "selected": 0,
+      "count": 3,
+      "active": [
+       0,
+       1,
+       2
+      ],
+      "disabled": [],
+      "options": [
+       "",
+       "pen Chocograph menu",
+       "Feed him a Dead Pepper (Remaining: 3)",
+       "Cancel"
+      ]
+     }
+    },
+    "pick": {
+     "index": 1,
+     "text": "Feed him a Dead Pepper (Remaining: 3)",
+     "prompt": "",
+     "count": 3,
+     "field": 6603,
+     "frame": 2150,
+     "landed": true,
+     "confirms": 1,
+     "why": null
+    },
+    "rise_y": [
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     20.117,
+     23.234,
+     26.352,
+     29.469,
+     32.586,
+     34.664,
+     37.781,
+     39.859,
+     42.977,
+     46.094,
+     49.211,
+     47.133,
+     44.016,
+     40.898,
+     37.781,
+     34.664,
+     32.586,
+     29.469,
+     26.352,
+     23.234,
+     20.117,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039
+    ]
+   },
+   "pepper": {
+    "field": 31300
+   },
+   "air": {
+    "field_readback": {
+     "scenario": 10650,
+     "bytes": {
+      "74": 95,
+      "75": 183,
+      "76": 4,
+      "77": 199,
+      "78": 2,
+      "79": 100,
+      "80": 59,
+      "81": 252,
+      "82": 192,
+      "190": 0,
+      "191": 0,
+      "1062": 0,
+      "1063": 0
+     },
+     "flags": {}
+    },
+    "arrival": {
+     "x": 68,
+     "z": -444,
+     "y": 3.19921875,
+     "world": 9007,
+     "vehicle": 0,
+     "ui": "WorldHUD",
+     "scenario": 10650,
+     "control": true,
+     "frame": 3242
+    },
+    "tries": [
+     {
+      "bearing": 0.0,
+      "walk": "blocked",
+      "ctl": 8,
+      "here": {
+       "x": 1207.371,
+       "z": -964.609,
+       "y": 13.32421875,
+       "world": 9007,
+       "vehicle": 8,
+       "ui": "WorldHUD",
+       "scenario": 10650,
+       "control": true,
+       "frame": 4384
+      }
+     }
+    ]
+   }
+  },
+  {
+   "gold4": {
+    "field_readback": {
+     "scenario": 11101,
+     "bytes": {
+      "187": 1,
+      "190": 5,
+      "191": 5,
+      "1062": 0,
+      "1063": 0
+     },
+     "flags": {
+      "809": true,
+      "810": true
+     }
+    },
+    "arrival": {
+     "x": 68,
+     "z": -444,
+     "y": 3.19921875,
+     "world": 9008,
+     "vehicle": 5,
+     "ui": "WorldHUD",
+     "scenario": 11101,
+     "control": true,
+     "frame": 1226
+    },
+    "takeoff_y": [
+     8.664,
+     9.602,
+     10.227,
+     11.164,
+     12.102,
+     13.039,
+     13.664,
+     14.602,
+     15.852,
+     16.477,
+     17.102,
+     17.727,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039
+    ],
+    "menu": {
+     "text": "Open Chocograph menu\nFeed him a Dead Pepper (Remaining: 3)\nCancel",
+     "choice": {
+      "selected": 0,
+      "count": 3,
+      "active": [
+       0,
+       1,
+       2
+      ],
+      "disabled": [],
+      "options": [
+       "",
+       "pen Chocograph menu",
+       "Feed him a Dead Pepper (Remaining: 3)",
+       "Cancel"
+      ]
+     }
+    },
+    "pick": {
+     "index": 1,
+     "text": "Feed him a Dead Pepper (Remaining: 3)",
+     "prompt": "",
+     "count": 3,
+     "field": 6603,
+     "frame": 2180,
+     "landed": true,
+     "confirms": 1,
+     "why": null
+    },
+    "rise_y": [
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     20.117,
+     22.195,
+     25.312,
+     28.43,
+     30.508,
+     33.625,
+     36.742,
+     38.82,
+     41.938,
+     44.016,
+     46.094,
+     48.172,
+     45.055,
+     41.938,
+     39.859,
+     37.781,
+     34.664,
+     31.547,
+     28.43,
+     25.312,
+     21.156,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039,
+     18.039
+    ]
+   },
+   "pepper": {
+    "field": 31300
+   },
+   "inv": {
+    "field_readback": {
+     "scenario": 11101,
+     "bytes": {
+      "74": 95,
+      "75": 183,
+      "76": 4,
+      "77": 199,
+      "78": 2,
+      "79": 100,
+      "80": 59,
+      "81": 252,
+      "82": 192,
+      "190": 0,
+      "191": 0,
+      "1062": 0,
+      "1063": 0
+     },
+     "flags": {}
+    },
+    "arrival": {
+     "x": 68,
+     "z": -444,
+     "y": 3.19921875,
+     "world": 9008,
+     "vehicle": 0,
+     "ui": "WorldHUD",
+     "scenario": 11101,
+     "control": true,
+     "frame": 3272
+    },
+    "tries": [
+     {
+      "bearing": 0.0,
+      "walk": "blocked",
+      "ctl": 9,
+      "here": {
+       "x": 1207.371,
+       "z": -964.609,
+       "y": 13.32421875,
+       "world": 9008,
+       "vehicle": 9,
+       "ui": "WorldHUD",
+       "scenario": 11101,
+       "control": true,
+       "frame": 4546
+      }
+     }
+    ]
+   },
+   "boat": {
+    "field_readback": {
+     "scenario": 9500,
+     "bytes": {
+      "74": 95,
+      "75": 224,
+      "76": 1,
+      "77": 0,
+      "78": 0,
+      "79": 228,
+      "80": 153,
+      "81": 251,
+      "82": 192,
+      "190": 0,
+      "191": 0,
+      "1062": 0,
+      "1063": 0
+     },
+     "flags": {}
+    },
+    "arrival": {
+     "x": 68,
+     "z": -444,
+     "y": 3.19921875,
+     "world": 9003,
+     "vehicle": 0,
+     "ui": "WorldHUD",
+     "scenario": 9500,
+     "control": true,
+     "frame": 5118
+    }
+   }
+  },
+  {
+   "boat": {
+    "field_readback": {
+     "scenario": 9500,
+     "bytes": {
+      "74": 95,
+      "75": 224,
+      "76": 1,
+      "77": 0,
+      "78": 0,
+      "79": 228,
+      "80": 153,
+      "81": 251,
+      "82": 192,
+      "190": 0,
+      "191": 0,
+      "1062": 0,
+      "1063": 0
+     },
+     "flags": {}
+    },
+    "arrival": {
+     "x": 68,
+     "z": -444,
+     "y": 3.19921875,
+     "world": 9003,
+     "vehicle": 0,
+     "ui": "WorldHUD",
+     "scenario": 9500,
+     "control": true,
+     "frame": 1192
+    },
+    "tries": [
+     {
+      "bearing": 270.0,
+      "walk": "blocked",
+      "ctl": 7,
+      "here": {
+       "x": 480.371,
+       "z": -1126.109,
+       "y": -0.609375,
+       "world": 9003,
+       "vehicle": 7,
+       "ui": "WorldHUD",
+       "scenario": 9500,
+       "control": true,
+       "frame": 1814
+      }
+     }
+    ]
+   },
+   "pepper": {
+    "field": 31300
+   }
+  }
+ ]
+}

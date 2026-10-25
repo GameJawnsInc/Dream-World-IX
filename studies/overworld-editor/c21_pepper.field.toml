@@ -1,0 +1,27 @@
+# c21_pepper.field.toml -- C21's scratch field: the Dead Pepper the gold chocobo's mid-air rise needs.
+#
+# A new game carries no Dead Pepper, and the harness has no item verb, so the lab passes through this room once
+# before field 6603: one [[on_entry]] gives three Dead Peppers. It BG-borrows the same room as FARSHORE (field
+# 1659's beach, IFTR_MAP559_IF_CST_0), so only our .eb ships. Deployed by `c21_lab.py capture` in the dev
+# scratch band and reverted at the end of the run (revert_deploy_31300.py):
+#   py tools/deploy_field.py studies/overworld-editor/c21_pepper.field.toml --id 31300 --mod-folder FF9CustomMap
+
+[field]
+id = 31300
+name = "C21_PEPPER"
+text_block = 31300                   # the field's OWN id -- never a real block
+borrow_bg = "IFTR_MAP559_IF_CST_0"   # Iifa Tree/Seashore (field 1659), area 31
+area = 31
+hide_area_title = true
+
+[camera]
+borrow = "out/c21_lab/camera_1659.bgx"   # field 1659's real camera, copied by c21_lab.py (game bytes: gitignored)
+entry_settle = "auto"
+
+[player]
+spawn = [900, -1400]                 # FARSHORE's own probed spawn in the same room
+face = 192
+
+[[on_entry]]
+items = [["Dead Pepper", 3]]
+once = false                         # every entry: the lab may run again on the same save

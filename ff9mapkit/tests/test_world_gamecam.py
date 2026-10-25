@@ -101,16 +101,84 @@ def test_each_vehicle_s_camera():
     assert choco["game"]["type_cam"] == 1 and choco["eye"] != foot["eye"]        # its own element row
     forest = G.pose(p, 0.0, settings=s, mode=1, topograph=37)
     assert forest["fov"] == 58.0 and choco["fov"] != 58.0                       # over forest: FieldOfView itself
-    boat = G.pose((500.0, -0.703, -500.0), 0.0, settings=s, mode=7)
+    boat = G.pose((500.0, -0.703, -500.0), 0.0, settings=s, mode=7, how="loaded")   # as C8 met it: loaded aboard
     pers = boat["game"]["pers"]
     assert boat["fov"] == pytest.approx(pers / 9.5 * 58.0 / 44.0)              # the Blue Narciss divides by 9.5
     assert boat["eye"][1] - boat["game"]["height"] == pytest.approx(-0.703 + 320 / 256.0)
     assert boat["at"][1] == pytest.approx(-0.703 + boat["game"]["aim"] + 701 / 256.0)
-    air = G.pose((500.0, 3.0, -500.0), 0.0, settings=s, mode=8)
+    air = G.pose((500.0, 3.0, -500.0), 0.0, settings=s, mode=8, how="loaded")
     assert air["game"]["type"] == 1 and air["fov"] == 58.0                     # flight: FieldOfView itself
     assert air["eye"][1] >= G.FLYER_EYE_FLOOR + 1419 / 256.0 - 1e-9             # the flyer's eye floor
-    high = G.pose((500.0, 40.0, -500.0), 0.0, settings=s, mode=8)
+    high = G.pose((500.0, 40.0, -500.0), 0.0, settings=s, mode=8, how="loaded")
     assert high["eye"][1] == pytest.approx(40.0 + high["game"]["height"] + 1419 / 256.0)
     gold = G.pose(p, 0.0, settings=s, mode=6)
-    gold_up = G.pose(p, 0.0, settings=s, mode=6, airborne=True)
-    assert gold_up["eye"][1] - gold["eye"][1] == pytest.approx((1419 - 558) / 256.0)   # its take-off script's nudge
+    gold_up = G.pose(p, 0.0, settings=s, mode=6, how="pepper")
+    assert gold_up["eye"][1] - gold["eye"][1] == pytest.approx((1419 - 558) / 256.0)   # the Dead Pepper's nudge
+    assert gold_up["at"][1] - gold["at"][1] == pytest.approx((996 - 312) / 256.0)
+    assert gold["game"]["fix"] == G.WALK_Y and gold_up["game"]["fix"] == G.RISEN_Y
+
+
+#: C21's in-game verdicts (c21_lab.py; evidence/c21): (mode, how, dispatcher) -> the nudge target the stills chose
+C21_MEASURED = {(6, "boarded", 9007): G.WALK_Y, (6, "pepper", 9007): G.RISEN_Y, (8, "boarded", 9007): G.WALK_Y,
+                (6, "boarded", 9008): G.RISEN_Y, (6, "pepper", 9008): G.RISEN_Y, (9, "boarded", 9008): G.RISEN_Y,
+                (7, "boarded", 9003): G.WALK_Y, (1, "boarded", 9007): G.WALK_Y,
+                (8, "loaded", 9007): G.RISEN_Y, (7, "loaded", 9003): G.BOAT_Y}       # the last two: C8's
+
+
+@pytest.mark.parametrize("key", sorted(C21_MEASURED))
+def test_the_nudge_target_is_what_the_game_drew(key):
+    mode, how, world = key
+    assert G.fix_target(mode, how=how, world=world) == C21_MEASURED[key]
+
+
+def test_the_nudge_target_by_disc_and_its_refusals():
+    assert G.dispatcher_for(7) == 9003 and G.dispatcher_for(8) == 9007 and G.dispatcher_for(6, disc=4) == 9008
+    assert G.fix_target(6) == G.WALK_Y and G.fix_target(6, disc=4) == G.RISEN_Y     # one take-off, two worlds
+    assert G.fix_target(7, disc=4) == G.BOAT_Y                                        # 9008 boards no boat by tag 21
+    with pytest.raises(ValueError):
+        G.fix_target(8, how="pepper")
+    with pytest.raises(ValueError):
+        G.fix_target(6, how="airborne")
+    p = (500.0, 20.0, -500.0)
+    assert G.pose(p, 0.0, mode=6, fix=(0, 0))["game"]["fix"] == (0, 0)                # given outright
+
+
+def _census(dispatchers) -> dict:
+    """THE TABLE FROM THE BYTES: each free-roam dispatcher's RunScriptSync calls with tag 19 / 21, classified by
+    their own request block (from the label before the call to the call): [190] = 6 there is the take-off,
+    RunWorldCode(5, 1) the Dead Pepper's rise, [190] = 7 / 8 / 9 an on-foot boarding of that mode."""
+    import re
+    from ff9mapkit.eb.ebsrc import write_source
+    out = {}
+    for name, data in dispatchers.items():
+        m = re.search(r"world(\d\d)$", name)
+        world = 9000 + int(m.group(1))
+        lines = write_source(data, title=name).splitlines()
+        for i, ln in enumerate(lines):
+            c = re.match(r"RunScriptSync\(\d+, \d+, (19|21)\)", ln)
+            if not c:
+                continue
+            j = i
+            while j > 0 and not re.match(r"L\d+:$", lines[j]):
+                j -= 1
+            blk = "\n".join(lines[j:i])
+            sets = [int(v) for v in re.findall(r"Global\.Byte\[190\] const\((\d+)\) B_LET", blk)]
+            tag = int(c.group(1))
+            if 6 in sets:
+                out.setdefault(world, {})["takeoff"] = tag
+            elif "RunWorldCode(5, 1)" in blk:
+                out.setdefault(world, {})["pepper"] = tag
+            elif sets and sets[-1] in (7, 8, 9):
+                out.setdefault(world, {}).setdefault("board", {})[sets[-1]] = tag
+    return out
+
+
+def test_the_tag_table_is_the_install_s_own():
+    """DISPATCHER_TAGS re-derived from the install's world scripts (skipped without one): a table that only a
+    docstring defends would drift from the bytes it reads."""
+    from ff9mapkit.world.entrance import load_world_dispatchers
+    try:
+        dispatchers = load_world_dispatchers()
+    except Exception as e:                                            # noqa: BLE001 -- no install here
+        pytest.skip(f"no FF9 install: {e}")
+    assert _census(dispatchers) == G.DISPATCHER_TAGS
