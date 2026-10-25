@@ -835,6 +835,39 @@ def test_the_workspace_closing_shuts_the_world_tab_down(monkeypatch, app):
     assert calls == ["shutdown"]
 
 
+def test_deleting_the_newest_in_game_step_says_the_game_holds_the_rest(monkeypatch, tmp_path, app):
+    """A promote after each step; delete the newest. Its promote comes out and the step goes, and the older promotes
+    still stand: the game holds the recipe, so there is nothing to promote again -- not an error."""
+    import shutil
+    _fake_mirror(monkeypatch)
+    game = _three_islands(monkeypatch, tmp_path)
+    shutil.copytree(game / "FF9CustomMap-world", game / "Hand")
+    doc, run = _doc(app, game, tmp_path, tmp_path / "saved.toml")
+    doc.set_view_mode("3d", sync=True)
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    forest = doc.open_forest(sync=True)
+    forest.donor_box.setCurrentIndex(forest.donor_box.findData("15,15"))
+    _place(forest, 26.0, -26.0)
+    forest.close_tool()
+    D.promote(draft, game=game, log=lambda *a: None)
+    rows1 = D.recipe_rows(draft)
+    forest = doc.open_forest(sync=True)
+    _place(forest, 410.0, -26.0)
+    forest.close_tool()
+    D.promote(draft, game=game, log=lambda *a: None)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    bar.refresh()
+    doc._on_pick(_hit(410.0, -26.0), sync=True)
+    assert bar._sel == 1
+    bar.delete_btn.click()
+    assert bar.status_lbl.property("state") != "error", bar.status_lbl.text()
+    assert "nothing to promote again" in bar.status_lbl.text(), bar.status_lbl.text()
+    h = D.history(draft)
+    assert h["cursor"] == 1 and h["promoted"] == 1 and D.edits(draft) == [] and D.promote_owed(draft) is None
+    assert _tree(game / "FF9CustomMap-world") == _compose(game, rows1, "Hand")
+
+
 def _unpromoted_fourth(draft):
     """A fourth step in the draft that was never promoted: the game must never get it from the bar's chain."""
     (draft / FAR).parent.mkdir(parents=True, exist_ok=True)

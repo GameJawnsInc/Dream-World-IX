@@ -465,6 +465,12 @@ class RecipeBar(QWidget):
         draft holds, so the steps after the fence (placed after the promote, never promoted) are set aside first --
         undone, byte for byte -- and redone when the promote is over: the game gets what it held, nothing more."""
         from ..world import draft as D
+        if D.history(d)["promoted"] >= fence:            # the promotes still standing cover them (a deleted step was
+            D.settle_promote(d)                          # all of the newest): the game holds them already
+            folder = Path((D.read_meta(d) or {}).get("source") or self.source()).name
+            self._moved(f"{note} {folder} holds the recipe's first {fence} step{'s' if fence != 1 else ''} already "
+                        "(their promotes stand): nothing to promote again.", state)
+            return
         aside = []
         try:
             while D.history(d)["cursor"] > fence:
