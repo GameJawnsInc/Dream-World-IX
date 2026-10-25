@@ -29,14 +29,16 @@ from .worldforest import QProcessRunner, kit_cwd
 class RecipeBar(QWidget):
     """``source_fn()`` the mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the
     view and the tools after the draft moved; ``on_select(step)`` marks the picked step on the view (None: no step);
-    ``on_edit(row, label)`` opens the step's card on its row. ``runner``, ``ask``, ``save_path_fn(default)`` /
+    ``on_edit(row, label)`` opens the step's card on its row; ``on_hold(held)`` says when the bar holds the draft
+    (:meth:`holding`: the folder must not change under it). ``runner``, ``ask``, ``save_path_fn(default)`` /
     ``open_path_fn()`` (file dialogs) and ``drafts_root`` are the test and snap seams."""
 
     def __init__(self, pal, *, game_fn, source_fn, on_changed=None, runner=None, drafts_root=None, ask=None,
-                 save_path_fn=None, open_path_fn=None, on_select=None, on_edit=None):
+                 save_path_fn=None, open_path_fn=None, on_select=None, on_edit=None, on_hold=None):
         super().__init__()
         self.pal = pal
         self._game_fn, self._source_fn, self._on_changed = game_fn, source_fn, on_changed
+        self._on_hold = on_hold
         self._runner = runner or QProcessRunner()
         self._drafts_root = drafts_root
         self._ask = ask or (lambda title, text: QMessageBox.question(self, title, text)
@@ -170,6 +172,14 @@ class RecipeBar(QWidget):
                                      + (" It is in the game: its promote comes out of the game while you edit, and "
                                         "the recipe is promoted again when you accept or cancel." if live else ""))
             self.delete_btn.setEnabled(True)
+        if self._on_hold is not None:
+            self._on_hold(self.holding())
+
+    def holding(self) -> bool:
+        """The bar holds the draft: an edit is open (its steps lifted out) or an opened recipe's rows are going in. The
+        folder the tab shows must not change meanwhile: a switch closed the card, and the cancel went to the new
+        folder's draft (review of C19)."""
+        return self._edit is not None or self._queue is not None
 
     @staticmethod
     def _edit_text(e) -> str:
@@ -241,17 +251,24 @@ class RecipeBar(QWidget):
             self._closed(d, {"fence": fence}, f"Not opened: {err}.", "error")
             return
         self._edit = {"k": i, "mode": "edit", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"],
-                      "fence": fence}
+                      "fence": fence, "draft": d}
         self._moved()
         if self._on_select is not None:
             self._on_select(None)
         if self._on_edit is not None:
             self._on_edit(s["row"], s["label"])
 
+    def _edit_draft(self, e):
+        """The draft edit ``e`` is open in (it never changes under the edit), else the shown folder's."""
+        from ..world import draft as D
+        d = (e or {}).get("draft")
+        return Path(d) if d is not None and D.read_meta(Path(d)) is not None else self.draft()
+
     def edit_accepted(self):
         """The card wrote the edited shape in the step's place: put the steps after it back on top."""
         from ..world import draft as D
-        d, e = self.draft(), self._edit
+        e = self._edit
+        d = self._edit_draft(e)
         if d is None or e is None:
             return
         new = D.history(d)["steps"][e["k"]]
@@ -287,7 +304,7 @@ class RecipeBar(QWidget):
             self._closed(d, {"fence": fence}, f"Not deleted: {err}.", "error")
             return
         self._edit = {"k": i, "mode": "delete", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"],
-                      "fence": fence}
+                      "fence": fence, "draft": d}
         if self._on_select is not None:
             self._on_select(None)
         self._start_put_back(d, D.dirty_after(set(), e["lifted"][0], None))
@@ -356,9 +373,10 @@ class RecipeBar(QWidget):
         """Close the open edit, the draft exactly as it was before it (the card's Cancel edit, a closed card, a step
         that refused on the new ground, the bar's own Cancel edit while the steps are put back)."""
         from ..world import draft as D
-        d, e = self.draft(), self._edit
+        e = self._edit
         if e is None:
             return
+        d = self._edit_draft(e)                          # the edit's own draft, whatever the tab shows now
         self._edit = None
         if "queue" in e:
             self._runner.kill()
@@ -480,8 +498,9 @@ class RecipeBar(QWidget):
                                                             or [f"exit code {code}"])[0]}
         left = self._put_aside_back(d, aside)
         D.settle_promote(d)                              # it ran: a refusal is said now, never retried at each launch
+        folder = Path((D.read_meta(d) or {}).get("source") or self.source()).name
         if v.get("ok"):
-            self._moved(f"{note} Promoted into {self.source().name} again: the game shows it on its next world load."
+            self._moved(f"{note} Promoted into {folder} again: the game shows it on its next world load."
                         + left, "error" if left else state)
         else:
             self._moved(f"{note} Promoting it again did not run ({v.get('error')}): the game does not have the "

@@ -787,8 +787,8 @@ class WorldDoc(QWidget):
         """Scan (or rescan) the deployed worldmap tree. Reads the game path + folder list on the GUI
         thread (cheap stats), then runs the real census on a worker; ``sync=True`` is the deterministic
         test/snap lane. Never called by the shell -- every invocation is a user gesture."""
-        if self._busy:
-            return
+        if self._busy or self._held():
+            return                                 # (a draft the recipe bar holds: the folder waits for it)
         fn = self._game_path_fn or config.find_game_path
         try:
             game = fn()
@@ -837,7 +837,7 @@ class WorldDoc(QWidget):
 
     def _finish(self, census, stock, err):
         self._busy = False
-        self.rescan_btn.setEnabled(True)
+        self.rescan_btn.setEnabled(not self._held())
         self.rescan_btn.setText("Rescan")
         if err is not None:
             self._show_guide("error", err)
@@ -873,6 +873,8 @@ class WorldDoc(QWidget):
         self._sync_draw_box()
         if self._mode3d:                           # a rescan (or a new folder) re-reads the 3D page too
             self._load_view3d()
+            if self._recipe is not None:
+                self._recipe.settle()              # the folder shown may owe its game a promote (rung C19)
 
     # -- the 3D page --
     def _render_site(self):
@@ -1059,6 +1061,20 @@ class WorldDoc(QWidget):
             tool.close_tool()
             self._recipe.cancel_edit(f"Not opened in its card: {e}. Delete still works.", "error")
 
+    def _held(self) -> bool:
+        return self._recipe is not None and self._recipe.holding()
+
+    def _hold_folder(self, held):
+        """The recipe bar holds the draft (an edit open, a recipe going in): the folder box and Rescan wait for it, as
+        Undo and Open do. A switch closed the edit's card and its cancel went to the new folder's draft, leaving the
+        first folder's game reverted (review of C19)."""
+        why = ("Waits for the recipe bar, which holds this folder's draft (an edit open, or a recipe going in)."
+               if held else "")
+        self.folder_box.setEnabled(not held)
+        self.folder_box.setToolTip(why or "Which mod folder's worldmap tree the atlas shows.")
+        self.rescan_btn.setEnabled(not held and not self._busy)
+        self.rescan_btn.setToolTip(why or "Re-read the deployed overrides from disk (read-only).")
+
     def _draft_changed(self, draft):
         """An Accept wrote the draft (or a discard removed it, an undo or redo moved it): draw it, or go back to the
         game's stack; the recipe bar and every tool read the draft again."""
@@ -1085,7 +1101,7 @@ class WorldDoc(QWidget):
             self._recipe = RecipeBar(self.pal, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
                                      on_changed=self._draft_changed, runner=self._recipe_runner,
                                      drafts_root=self._drafts_root, on_select=self._mark_step,
-                                     on_edit=self._edit_step, **self._recipe_seams)
+                                     on_edit=self._edit_step, on_hold=self._hold_folder, **self._recipe_seams)
             self._forest_slot.insertWidget(0, self._recipe)
         if self._recipe is not None:
             self._recipe.setVisible(bool(on))

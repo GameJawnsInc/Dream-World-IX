@@ -732,6 +732,57 @@ def test_an_in_game_edit_a_dead_workspace_left_open_is_put_right_on_the_next_lau
     assert "left open when the Workspace closed" in text and "again" in text, text
 
 
+def test_the_folder_cannot_change_under_an_open_edit(monkeypatch, tmp_path, app):
+    """While the recipe bar holds the draft (an edit open), the folder box and Rescan wait: a switch closed the card,
+    and its cancel went to the NEW folder's draft, so the first folder's game stayed reverted."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert doc._forest.editing()
+    assert not doc.folder_box.isEnabled() and not doc.rescan_btn.isEnabled()
+    census = doc._census
+    doc.refresh(sync=True)                                                  # a Rescan asked for anyway waits too
+    assert doc._census is census and doc._forest.editing()
+    doc._forest.close_btn.click()                                          # Cancel edit
+    assert doc.folder_box.isEnabled() and doc.rescan_btn.isEnabled()
+    assert _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_a_scan_that_lands_under_an_open_edit_cancels_it_in_its_own_folder(monkeypatch, tmp_path, app):
+    """A scan begun before the edit (another folder picked) lands while it is open: the card closes, and the cancel
+    goes to the draft the edit is in, so its game gets its promote back."""
+    from ff9mapkit.workspace import worldscan
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    doc._finish(worldscan.scan_tree(game / "Hand"), None, None)           # the scan lands: Hand is shown now
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and D.promote_owed(draft) is None
+    assert _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_a_folder_shown_again_gets_the_promote_it_is_owed(monkeypatch, tmp_path, app):
+    """A Workspace died with an in-game edit open in FF9CustomMap-world; the next one opens on another folder first.
+    Showing FF9CustomMap-world settles what its game is owed."""
+    from types import SimpleNamespace
+    from ff9mapkit.workspace import worldscan
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()                                                   # ...and the Workspace dies
+    doc2, _run2 = _doc(app, game, tmp_path, tmp_path / "saved.toml")
+    doc2._census = SimpleNamespace(root=game / "Hand")
+    doc2.set_view_mode("3d", sync=True)
+    assert _tree(game / "FF9CustomMap-world") != live0                     # Hand owes nothing
+    doc2._finish(worldscan.scan_tree(game / "FF9CustomMap-world"), None, None)
+    assert _tree(game / "FF9CustomMap-world") == live0 and D.promote_owed(draft) is None
+
+
 def test_the_qprocess_runner_waits_for_its_job(app):
     import sys
     from ff9mapkit.workspace.worldforest import QProcessRunner
