@@ -755,6 +755,31 @@ def _unmark_promoted(draft: Path, record: dict) -> None:
     _write_history(draft, h)
 
 
+OWED = "promote-owed.json"                        # <draft>/promote-owed.json: the game is owed a promote back
+
+
+def owe_promote(draft: Path, fence: int) -> None:
+    """The editor took the draft's promotes out of the game to edit a step that was in it (rung C19): until the
+    first ``fence`` steps are promoted back, this says so on disk, so a Workspace that closes or dies mid-edit puts
+    the game right on its next launch (the in-memory chain dies with it)."""
+    tmp = Path(draft) / (OWED + ".tmp")
+    tmp.write_text(json.dumps({"fence": int(fence), "utc": time.strftime("%Y-%m-%dT%H:%M:%S")}), encoding="utf-8")
+    tmp.replace(Path(draft) / OWED)
+
+
+def promote_owed(draft: Path):
+    """The fence :func:`owe_promote` recorded (how many steps the game is owed back), or None."""
+    try:
+        return int(json.loads((Path(draft) / OWED).read_text(encoding="utf-8"))["fence"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def settle_promote(draft: Path) -> None:
+    """The promote back ran (or can no longer run): nothing is owed."""
+    (Path(draft) / OWED).unlink(missing_ok=True)
+
+
 # ---------------------------------------------------------------- editing a placed step (rung C9)
 EDIT_DIR = "edit"                                 # <draft>/history/edit/<n>/ : the lifted steps while an edit is open
 

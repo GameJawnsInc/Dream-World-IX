@@ -661,6 +661,102 @@ def test_a_second_revert_refusing_puts_the_first_back_into_the_game(monkeypatch,
     assert _tree(live) == after0 and D.history(draft)["promoted"] == 4
 
 
+class _Held:
+    """A runner that holds each job until :meth:`wait`: a job still running when the Workspace closes."""
+
+    def __init__(self, argvs):
+        self.argvs, self.held = argvs, None
+
+    def start(self, argv, cwd, done):
+        self.argvs.append([str(a) for a in argv])
+        self.held = (argv, done)
+
+    def busy(self):
+        return self.held is not None
+
+    def wait(self, msecs=-1):
+        from ff9mapkit import cli
+        argv, done = self.held
+        self.held = None
+        done(cli.main([str(a) for a in argv[3:]]), "")
+
+    def kill(self):
+        self.held = None
+
+
+def test_closing_the_workspace_mid_in_game_edit_puts_the_game_back(monkeypatch, tmp_path, app):
+    """The Workspace closes with an in-game step's edit open: the edit is cancelled and the steps that were in the
+    game go back into it before the window goes (``WorldDoc.shutdown``, from the shell's closeEvent)."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert doc._forest.editing() and _tree(game / "FF9CustomMap-world") != live0
+    doc.shutdown()
+    assert _tree(game / "FF9CustomMap-world") == live0
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and h["cursor"] == 3 and D.promote_owed(draft) is None
+
+
+def test_closing_the_workspace_mid_revert_finishes_the_chain(monkeypatch, tmp_path, app):
+    """A revert job still running when the Workspace closes is waited for, never killed half way, and the chain it
+    began closes with the game as it was."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    bar._runner = held = _Held(run.argvs)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert held.busy() and "--revert" in held.argvs[-1]
+    doc.shutdown()
+    assert not held.busy() and _tree(game / "FF9CustomMap-world") == live0
+    assert D.history(draft)["promoted"] == 3 and D.promote_owed(draft) is None
+
+
+def test_an_in_game_edit_a_dead_workspace_left_open_is_put_right_on_the_next_launch(monkeypatch, tmp_path, app):
+    """The Workspace dies with an in-game edit open (no shutdown): what the game is owed is on disk, so the next
+    launch puts the draft back and promotes the game's steps again, and says so."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert _tree(game / "FF9CustomMap-world") != live0
+    doc2, _run2 = _doc(app, game, tmp_path, tmp_path / "saved.toml")      # the next launch, on the same draft
+    doc2.set_view_mode("3d", sync=True)
+    assert _tree(game / "FF9CustomMap-world") == live0
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and h["cursor"] == 3 and D.promote_owed(draft) is None
+    text = doc2._recipe.status_lbl.text()
+    assert "left open when the Workspace closed" in text and "again" in text, text
+
+
+def test_the_qprocess_runner_waits_for_its_job(app):
+    import sys
+    from ff9mapkit.workspace.worldforest import QProcessRunner
+    r, got = QProcessRunner(), []
+    r.start([sys.executable, "-c", "import time; time.sleep(0.3); print('done')"], ".",
+            lambda code, text: got.append((code, text.strip())))
+    assert r.busy()
+    r.wait()
+    assert not r.busy() and got == [(0, "done")]
+
+
+def test_the_workspace_closing_shuts_the_world_tab_down(monkeypatch, app):
+    """THE CALL SITE: the window's closeEvent is what spends ``WorldDoc.shutdown``."""
+    from ff9mapkit import config as cfg
+    from ff9mapkit.workspace import shell as S
+    monkeypatch.setattr(cfg, "find_game_path",
+                        lambda *_a, **_k: (_ for _ in ()).throw(cfg.ConfigError("pinned: no game")))
+    win = S.Workspace(S.pick_palette("dark"))
+    calls = []
+    monkeypatch.setattr(win.world_doc, "shutdown", lambda: calls.append("shutdown"))
+    win.close()
+    win.deleteLater()
+    assert calls == ["shutdown"]
+
+
 def _unpromoted_fourth(draft):
     """A fourth step in the draft that was never promoted: the game must never get it from the bar's chain."""
     (draft / FAR).parent.mkdir(parents=True, exist_ok=True)

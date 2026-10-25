@@ -99,6 +99,13 @@ class QProcessRunner:
     def busy(self):
         return self.proc is not None
 
+    def wait(self, msecs=120000):
+        """Block until the running job ends and its ``done`` has run (the Workspace closing: a job writing the live
+        folder runs to its end, never killed half way)."""
+        proc = self.proc
+        if proc is not None:
+            proc.waitForFinished(msecs)
+
 
 class CarryTool(QWidget):
     """A carry card under the 3D view. ``panel`` is the World tab's :class:`WorldView3DPanel`; ``source_fn()`` the

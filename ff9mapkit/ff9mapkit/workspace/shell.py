@@ -7711,6 +7711,7 @@ class Workspace(QMainWindow):
     def closeEvent(self, event):                   # noqa: N802 (Qt override)
         if self._maybe_prompt_unsaved():
             self._save_layout()                    # window/splitters/console come back next launch
+            self.world_doc.shutdown()              # a live-folder write runs to its end; an in-game edit goes back
             event.accept()
         else:
             event.ignore()

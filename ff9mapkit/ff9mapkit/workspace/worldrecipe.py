@@ -108,7 +108,8 @@ class RecipeBar(QWidget):
         """Say what the recipe holds and which way it can walk."""
         from ..world import draft as D
         d = self.draft()
-        if d is not None and self._edit is None and self._queue is None and D.history(d)["edit"]:
+        if d is not None and self._edit is None and self._queue is None and D.history(d)["edit"] \
+                and D.promote_owed(d) is None:       # (one the game is owed a promote for is :meth:`settle`'s)
             try:                                         # an edit this Workspace did not open (it closed mid-edit)
                 D.cancel_edit(d)
             except ValueError:
@@ -324,6 +325,7 @@ class RecipeBar(QWidget):
             self._sel = None
             if e.get("fence") is not None:               # the deleted step was one of the game's: one fewer goes back
                 e["fence"] -= 1
+                D.owe_promote(d, e["fence"])
             self._closed(d, e, f"Deleted step {e['k'] + 1}, {e['label']}.{back}", "ok")
             return
         self._sel = e["k"]
@@ -366,6 +368,7 @@ class RecipeBar(QWidget):
                 D.cancel_edit(d)
             except ValueError as err:
                 note, state, undone = f"The edit could not be undone: {err}.", "error", False
+                D.settle_promote(d)                      # (a draft not known to be as it was is never promoted)
         self._sel = e["k"]
         note = note or f"Edit cancelled: the draft is exactly as it was, {e['label']} in its place."
         # an in-game step goes back into the game only from a draft known to be as it was
@@ -384,6 +387,7 @@ class RecipeBar(QWidget):
         promoted (:meth:`_repromote`)."""
         from ..world import draft as D
         self._prep = {"k": i, "mode": mode, "reverted": 0, "fence": D.history(d)["promoted"]}
+        D.owe_promote(d, self._prep["fence"])            # on disk: a Workspace that dies mid-chain owes it still
         self._revert_next(d)
 
     def _revert_next(self, d):
@@ -421,6 +425,8 @@ class RecipeBar(QWidget):
         if p["reverted"]:                                # some went: put the game back as it was
             self._repromote(d, p["fence"], note, "error")
         else:
+            from ..world import draft as D
+            D.settle_promote(d)
             self._moved(note + " The game and the draft are as they were.", "error")
 
     def _closed(self, d, e, note, state):
@@ -441,6 +447,7 @@ class RecipeBar(QWidget):
                 aside.append(D.undo(d)["label"])
         except (ValueError, OSError) as err:
             self._put_aside_back(d, len(aside))
+            D.settle_promote(d)
             self._moved(f"{note} Promoting it again did not run (a step after the game's could not be set aside: "
                         f"{err}): the game does not have the recipe now; Promote it from a card.", "error")
             return
@@ -466,17 +473,58 @@ class RecipeBar(QWidget):
         return ""
 
     def _repromoted(self, d, aside, note, state, report, code, text):
+        from ..world import draft as D
         from ..world.forestedit import read_verdict
         self._job = None
         v = read_verdict(report) or {"ok": False, "error": ([ln for ln in text.splitlines() if ln.strip()][-1:]
                                                             or [f"exit code {code}"])[0]}
         left = self._put_aside_back(d, aside)
+        D.settle_promote(d)                              # it ran: a refusal is said now, never retried at each launch
         if v.get("ok"):
             self._moved(f"{note} Promoted into {self.source().name} again: the game shows it on its next world load."
                         + left, "error" if left else state)
         else:
             self._moved(f"{note} Promoting it again did not run ({v.get('error')}): the game does not have the "
                         "recipe now; Promote it from a card." + left, "error")
+
+    def settle(self):
+        """Put right a promote the game is owed and no chain here is paying (rung C19): a Workspace that closed or
+        died with a step that is in the game taken out of it. The draft goes back to before the edit, and the steps
+        that were in the game are promoted again. The tab calls it once its 3D page and this bar are up."""
+        from ..world import draft as D
+        d = self.draft()
+        if d is None or self._edit is not None or self._queue is not None or self._job is not None \
+                or self._prep is not None:
+            return
+        fence = D.promote_owed(d)
+        if fence is None:
+            return
+        note = "An edit of a step that is in the game was left open when the Workspace closed"
+        if D.history(d)["edit"]:
+            try:
+                D.cancel_edit(d)
+            except ValueError as err:
+                D.settle_promote(d)
+                self._moved(f"{note}, and it could not be undone ({err}): the game does not have the recipe now; "
+                            "Promote it from a card.", "error")
+                return
+            note += ": the draft is back as it was before it."
+        else:
+            note += "."
+        self._repromote(d, fence, note, "")
+
+    def shutdown(self):
+        """The Workspace is closing: a job writing the live folder runs to its end (never killed half way), and an
+        edit of a step that is in the game is cancelled and its steps promoted back, so the game is left as it was."""
+        for _ in range(64):                              # each job's end may start the next: the chain's next revert,
+            if self._runner.busy():                      # the edit it opens, the promote back
+                self._runner.wait()
+                if self._runner.busy():                  # it never ended: leave it (the disk still says what is owed)
+                    return
+            elif self._edit is not None and self._edit.get("fence") is not None:
+                self.cancel_edit("The Workspace closed with the edit open: it is cancelled.")
+            else:
+                return
 
     def _moved(self, note=None, state="ok"):
         self.refresh()

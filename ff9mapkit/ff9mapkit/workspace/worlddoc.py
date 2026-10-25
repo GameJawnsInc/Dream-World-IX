@@ -1110,6 +1110,14 @@ class WorldDoc(QWidget):
         self._focus_view3d()
         self._views.setCurrentWidget(self._view3d)
         self._legend_host.hide()                   # the legend teaches the chart's fills, not the terrain
+        if self._recipe is not None:
+            self._recipe.settle()                  # a promote the game is owed from a Workspace that died mid-edit
+
+    def shutdown(self):
+        """The Workspace is closing (the shell's closeEvent): the recipe bar's live-folder jobs run to their end and
+        an in-game edit still open goes back, so the game is left as it was (rung C19)."""
+        if self._recipe is not None:
+            self._recipe.shutdown()
 
     def set_view_mode(self, mode, *, sync=False):
         """``"chart"`` or ``"3d"`` -- the toggle, for tests and gui_snap."""
