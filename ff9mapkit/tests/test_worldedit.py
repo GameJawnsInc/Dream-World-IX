@@ -868,6 +868,82 @@ def test_deleting_the_newest_in_game_step_says_the_game_holds_the_rest(monkeypat
     assert _tree(game / "FF9CustomMap-world") == _compose(game, rows1, "Hand")
 
 
+# ---- each recovery branch of the chain, driven (each was broken on purpose, in memory, and its test went red)
+def _promotes_after(run, n):
+    return [a for a in run.argvs[n:] if a[5] == "world-promote"]
+
+
+def test_a_cancel_that_cannot_undo_the_draft_never_promotes_it(monkeypatch, tmp_path, app):
+    """THE GUARD: an in-game step's edit whose cancel fails leaves a draft not known to be as it was, and such a draft
+    is never promoted into the game: the bar says so, and nothing is left owed (it would retry at every launch)."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    n = len(run.argvs)
+
+    def fails(_d):
+        raise ValueError("a file of the draft could not be written back")
+    monkeypatch.setattr(D, "cancel_edit", fails)
+    doc._forest.close_btn.click()                                          # Cancel edit
+    assert _promotes_after(run, n) == []
+    assert bar.status_lbl.property("state") == "error" and "could not be undone" in bar.status_lbl.text()
+    assert D.promote_owed(draft) is None
+
+
+def test_a_promote_back_that_refuses_says_the_game_lacks_the_recipe(monkeypatch, tmp_path, app):
+    """Another session wrote the live folder at the edited step's block while the edit was open: the promote back
+    refuses (it would overwrite that work), the bar says the game does not have the recipe, the steps set aside come
+    back, and nothing is left owed."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    _unpromoted_fourth(draft)
+    bar.refresh()
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    (game / "FF9CustomMap-world" / T00).write_bytes(b"another session's edit")
+    doc._forest.close_btn.click()                                          # Cancel edit
+    text = bar.status_lbl.text()
+    assert bar.status_lbl.property("state") == "error" and "Promoting it again did not run" in text, text
+    assert "does not have the recipe" in text
+    h = D.history(draft)
+    assert h["cursor"] == 4 and h["promoted"] == 0 and D.promote_owed(draft) is None
+
+
+def test_a_step_marked_in_the_game_with_no_promote_record_refuses_and_changes_nothing(monkeypatch, tmp_path, app):
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    for rec in (draft / D.PROMOTES).glob("*/promote.json"):
+        rec.unlink()                                                       # the record gone, the mark still there
+    h0 = D.history(draft)
+    n = len(run.argvs)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    text = bar.status_lbl.text()
+    assert "holds no promote to revert" in text and "as they were" in text, text
+    assert _promotes_after(run, n) == [] and D.history(draft) == h0 and D.promote_owed(draft) is None
+    assert _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_an_edit_that_will_not_open_after_the_reverts_promotes_the_game_back(monkeypatch, tmp_path, app):
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+
+    def refuses(_d, _k):
+        raise ValueError("an edit is already open in the draft")
+    monkeypatch.setattr(D, "begin_edit", refuses)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    text = bar.status_lbl.text()
+    assert "Not opened: an edit is already open" in text and "again" in text, text
+    assert _tree(game / "FF9CustomMap-world") == live0
+    assert D.history(draft)["promoted"] == 3 and D.promote_owed(draft) is None
+
+
 def _unpromoted_fourth(draft):
     """A fourth step in the draft that was never promoted: the game must never get it from the bar's chain."""
     (draft / FAR).parent.mkdir(parents=True, exist_ok=True)
