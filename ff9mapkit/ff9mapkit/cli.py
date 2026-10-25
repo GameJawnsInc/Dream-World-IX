@@ -6845,10 +6845,10 @@ def _cmd_world_forms(args: argparse.Namespace) -> int:
 
 
 def _cmd_world_ledger(args: argparse.Namespace) -> int:
-    """Read the world deploy ledger: the last write per (disc, cell, part), and with ``--drift`` every
-    deployed .ff9mesh whose bytes match NO ledger entry (a hand edit, another era, or a pre-ledger deploy).
-    Reconciliation, not quality scoring -- it makes no claim about whether the geometry is good."""
-    import hashlib
+    """Read the world deploy ledger: the last write per (disc, cell, part), and with ``--drift`` every deployed world
+    file whose bytes its own last row does not name (``mesh.ledger_audit``: stale, foreign or unledgered); ``--repair``
+    re-ledgers the stale ones (``mesh.ledger_repair``). Reconciliation, not quality scoring -- it makes no claim about
+    whether the geometry is good."""
     import json
     from . import config as _config
     from .world import mesh as WM
@@ -6879,20 +6879,27 @@ def _cmd_world_ledger(args: argparse.Namespace) -> int:
         argv = " ".join(e.get("argv") or []) or "(argv unrecorded)"
         gone = "  REMOVED" if e.get("op") == "remove" else ""             # world-river --remove's row
         print(f"  Disc{d} {cell} {part:8s} {e.get('utc')}  kit {e.get('kit')}{gone}  {argv[:80]}")
-    if args.drift:
-        known = {e.get("sha256") for e in entries}
-        wm_root = mod_root / "FF9_Data" / "WorldMap"
-        drift = []
-        for p in sorted(wm_root.rglob("Block*.ff9mesh")) if wm_root.is_dir() else []:
-            if args.disc is not None and f"Disc{args.disc}" not in p.parts:
+    if args.drift or args.repair:
+        # each file judged by ITS OWN last row (meshes and Donor.txt sidecars alike) -- the row Promote, Revert and the
+        # ownership reads trust; "some row anywhere names these bytes" let a file put back behind the ledger pass
+        audit = WM.ledger_audit(mod_root, disc=args.disc)
+        off = [a for a in audit if a["status"] != "true"]
+        why = {"stale": "an earlier row names their bytes: put back behind the ledger (--repair re-ledgers them)",
+               "foreign": "no row of theirs names their bytes: a hand edit or another session",
+               "unledgered": "no row at all: pre-ledger deploys, expected until each is re-deployed once"}
+        print(f"\ndrift: {len(off)} of {len(audit)} deployed file(s) whose bytes their last ledger row does not name")
+        for status in ("stale", "foreign", "unledgered"):
+            some = [a for a in off if a["status"] == status]
+            if not some:
                 continue
-            if hashlib.sha256(p.read_bytes()).hexdigest() not in known:
-                drift.append(p)
-        print(f"\ndrift: {len(drift)} deployed file(s) match no ledger entry"
-              + (" (pre-ledger deploys are expected here until each is re-deployed once)"
-                 if drift else ""))
-        for p in drift[:40]:
-            print(f"  {p.relative_to(mod_root)}")
+            print(f"  {status} {len(some)} ({why[status]})")
+            for a in some[:40]:
+                when = (a["match"] or {}).get("utc") if status == "stale" else (a["last"] or {}).get("utc")
+                print(f"    {a['rel']}" + (f"  (as of {when})" if when else ""))
+        if args.repair:
+            new = WM.ledger_repair(mod_root, disc=args.disc, audit=audit)
+            print(f"\nrepair: {len(new)} stale file(s) re-ledgered under the writer whose bytes they are"
+                  + ("; the ledger was parked first" if new else ""))
     return 0
 
 
@@ -11315,7 +11322,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "$FF9_MOD_FOLDER, else this checkout's .ff9deploy.toml pin, else FF9CustomMap)")
     wlg.add_argument("--disc", type=int, default=None, help="only this write-disc namespace")
     wlg.add_argument("--drift", action="store_true",
-                     help="hash every deployed Block*.ff9mesh and report unledgered bytes")
+                     help="judge every deployed world file (meshes and Donor.txt sidecars) by its own last ledger "
+                          "row: stale (put back behind the ledger), foreign, or unledgered")
+    wlg.add_argument("--repair", action="store_true",
+                     help="re-ledger the STALE files (bytes an earlier row of theirs names) under the writer whose "
+                          "bytes they are; foreign and unledgered files are never touched. Parks the ledger first")
     wlg.add_argument("--game", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     wlg.set_defaults(func=_cmd_world_ledger)
 

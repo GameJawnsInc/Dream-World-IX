@@ -142,6 +142,9 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C22, THE LEDGER STAYS TRUE (2026-10-24)** -> [`C22.md`](C22.md). C19's three drifted sidecars were 19 files the comp20
+  bench restored by plain copy on 2026-10-06. `world-ledger --drift` now judges each file (sidecars too) by its own last
+  row; `--repair` re-ledgers the stale under the writer whose bytes they are. Live: 19 stale -> 0, 0 foreign.
 - **C21, THE GOLD CHOCOBO'S CAMERA IN GAME (2026-10-24)** -> [`C21.md`](C21.md). The final nudges follow how a vehicle
   was reached: a RunScriptSync hook keyed on tags 19 / 21 lands on different events per world script. Disc 1: the
   gold chocobo flies 558 / 312 (C8 said 1419 / 996), a Dead Pepper lifts it; the Hilda Garde III and Blue Narciss
