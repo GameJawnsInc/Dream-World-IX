@@ -354,6 +354,45 @@ def test_a_held_mountain_row_whose_read_fails_is_cancelled_saying_why(app, monke
     assert not tool.editing() and len(notes) == 1 and "could not be read" in notes[0], notes
 
 
+def test_a_failed_read_of_another_massif_does_not_cancel_the_held_row(app, monkeypatch, tmp_path):
+    """An outline's error came back with no donor, and the held row took any failure for its own massif's: a read of
+    another massif begun while the author browsed the list, failing after the Edit, cancelled a valid edit (review
+    of the C12 fixes, fifth round). An outline read names its massif, its error too."""
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    tool.place(26.0, -26.0, 3.2)
+    row = tool.row()
+    tool.close_tool()
+    ol = tool._outline_fn(UAHO)
+
+    def outline_fn(donor):
+        if donor != UAHO:
+            raise OSError(f"massif {donor} could not be read")
+        return ol
+    tool._outline_fn = outline_fn
+    tool._sync = False
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))
+    tool._outlines.clear()
+    tool.open_tool()
+    other = next(i for i in range(tool.donor_box.count()) if tool.donor_box.itemData(i) != UAHO)
+    tool.donor_box.setCurrentIndex(other)                 # browsing: another massif's read begins
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    done = []
+    for what, fn in list(held):                           # the other massif's failure lands first, the row still held
+        try:
+            done.append((what, fn()))
+        except Exception as e:                           # noqa: BLE001 -- as the worker hands it over
+            tool._on_bg(what, 0, None, e)
+    held.clear()
+    for what, result in done:
+        tool._on_bg(what, 0, result, None)
+    while held:
+        what, fn = held.pop(0)
+        tool._on_bg(what, 0, fn(), None)
+    assert tool.editing() and notes == [] and tool.row() == row
+
+
 def test_the_preview_refuses_before_any_job_runs(app, monkeypatch, tmp_path):
     run = Scripted(_passes)
     tool, panel, _c = _tool(app, monkeypatch, tmp_path, run)

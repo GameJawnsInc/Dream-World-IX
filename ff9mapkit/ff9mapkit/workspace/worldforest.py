@@ -608,7 +608,12 @@ class CarryTool(QWidget):
         if donor in self._outlines:
             self._outline_loaded(donor, self._outlines[donor])
             return
-        self._bg("outline", lambda: (donor, self._outline_fn(donor)))
+        def read():                                      # its error names its donor too: a failed read of another
+            try:                                         # massif cancelled a held row's edit (review of the C12
+                return (donor, self._outline_fn(donor))  # fixes, fifth round)
+            except Exception as e:                       # noqa: BLE001 -- surfaced on the GUI thread
+                return (donor, e)
+        self._bg("outline", read)
 
     def _on_bg(self, what, _serial, result, err):
         if err is not None:
@@ -640,6 +645,11 @@ class CarryTool(QWidget):
             self._ix_for, self._ix = target, ix
         elif what == "outline":
             donor, ol = result
+            if isinstance(ol, Exception):
+                if donor == self.donor():
+                    self._say(f"The {self.PART} could not be read: {ol}", "error")
+                    self._read_failed(self.PART, ol)
+                return
             self._outlines[donor] = ol
             if donor == self.donor():
                 self._outline_loaded(donor, ol)
