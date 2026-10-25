@@ -1,0 +1,44 @@
+# TIER W / CHANNEL D -- THE DRAWN-PAGE CAST: ef179 `cell.s0.x576_y384` repainted as bold ZEBRA bands.
+#
+# No static record gives this page a depth: no reader's `so` binds it, so the default surface refuses it
+# `depth-unknown`.  CHANNEL D hands it out at 8bpp because the draw census measured the effect's own draws
+# reading these bytes at 8bpp, through one CLUT (0,245), on the screen, on 265 of the cast's 555 headless
+# frames -- and at no other depth (`summons/draw_census.py`, `render_target.drawn_depth`).  This is the first
+# cast of a page only the draws vouch for: bands on screen mean the census charged the reads to the right
+# bytes at the right depth; nothing at all means it did not.
+#
+# THE PAGE SITS WHERE THE UPLOAD WALK PUTS IT: cell 1 of the s0 rect at 0x11474 starts at 0x15800, the first
+# byte of the id-1 resource, not at 0x11474 + 0x4000 inside the id-0 sector pad (reskin.scenery_pages).
+#
+# Pre-run offline: `drawn_feed_prerun.py --screen --ef 179 --cell cell.s0.x576_y384` (SCRATCH
+# headless/raster/drawn-179-screen, sheet.png).  Generate the art first (export, then stamp -- the stamp
+# refuses a PNG that is not the stock page):
+#
+#     cd ff9mapkit
+#     py -m ff9mapkit summon-reskin export-art --ef 179 --acknowledge-drawn-depth --out C:\gd\SCRATCH\summon-format\repaint-w6b\leviathan-drawn\art-zebra
+#     cd ..\studies\custom-summons\tier-w
+#     py drawn_feed_prerun.py --screen --ef 179 --cell cell.s0.x576_y384 --art C:\gd\SCRATCH\summon-format\repaint-w6b\leviathan-drawn\art-zebra
+#
+# Cast from the bench: Steiniv -> Rune -> "Stock Leviathan" (row 206, the only 7 MP row).
+
+[reskin]
+effect = 179
+label  = "ef179-channel-d-drawn-zebra"
+expect_sha256 = "701cb0ead80f29aa70884c14b09c8aeb68430aee0f50ebe8b6ac8001d3f7f441"
+
+[[reskin.texel]]
+name = "cell.s0.x576_y384"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/leviathan-drawn/art-zebra/cell.s0.x576_y384.png"
+
+# --- the guards, emitted by export-art's derivation, never typed ---------------------------------
+expect_page_offset = 0x015800
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+expect_bpp         = 8
+expect_cell        = [576, 384]
+
+# --- the authored decisions ------------------------------------------------------------------------
+enabled = true
+acknowledge_drawn_depth = true       # the depth is the draw census's: headless, not a binding
+acknowledge_cutout_reshape = false   # every texel of the page is opaque; nothing crosses a cutout
+note = "channel D: zebra bands on a page only the effect's own draws give a depth to (8bpp, CLUT 0,245)"

@@ -337,6 +337,30 @@ abilities = [
   #
   #   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef407 container override itself is hot.
   { name = "Stock Shiva Short", from = "Bahamut", targets = "AllEnemy", vfx1 = 407, vfx2 = 407, type = 0, power = 30, mp = 6 },
+  # --- CHANNEL D, THE DRAWN PAGE: "Stock Leviathan" casts effect 179.  SAME shape as the rows above, same
+  #     donor, same three overrides, APPENDED LAST so it takes id 206 and leaves 192-205 where they are.
+  #   WHAT ef179 IS.  Leviathan's FULL cut (`Actions.csv` row 60 plays 179, its short cut is 406).  It
+  #     carries `tier-w/leviathan_drawn.toml`: zebra bands on `cell.s0.x576_y384`, a page no static record
+  #     gives a depth -- only the draw census does (8bpp, one CLUT, read on the screen on 265 of the
+  #     cast's 555 headless frames).  Bands on screen = the census charged the reads to the right bytes;
+  #     nothing = it did not.  The first cast of a page only the effect's own draws vouch for.
+  #   mp = 7   the one-glance tell: the only 7 MP row on Rune.
+  #   vfx1 = vfx2 = 179  both cells equal, so the short-summon roll cannot swap in ef406.
+  #
+  #   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef179 container override itself is hot.
+  { name = "Stock Leviathan", from = "Bahamut", targets = "AllEnemy", vfx1 = 179, vfx2 = 179, type = 0, power = 30, mp = 7 },
+  # --- CHANNEL D, THE CONFLICT: "Stock Fenrir" casts effect 226.  Same shape, same donor, APPENDED LAST so
+  #     it takes id 207.  Registered in the SAME relaunch as 206, so the two casts cost one relaunch.
+  #   WHAT ef226 IS.  Fenrir (`Actions.csv` row 67 plays 226, its short cut is 509).  It carries
+  #     `tier-w/fenrir_conflict.toml`: PARITY ZEBRA on `cell.s0.x576_y384`, an 8bpp page (its own `so` record
+  #     says so) that every draw reads at 4bpp.  The two inks are each other's nibbles swapped: horizontal
+  #     bands at 8bpp, one fine VERTICAL HATCH at 4bpp.  A hatch, no bands = THE DRAWN-CONFLICT GATE's
+  #     premise holds; bands = some draw reads the bytes at 8bpp; nothing = they never reach the screen.
+  #   mp = 5   the one-glance tell: the only 5 MP row on Rune.
+  #   vfx1 = vfx2 = 226  both cells equal, so the short-summon roll cannot swap in ef509.
+  #
+  #   Actions.csv is a REGISTRATION change -> RELAUNCH.  The ef226 container override itself is hot.
+  { name = "Stock Fenrir", from = "Bahamut", targets = "AllEnemy", vfx1 = 226, vfx2 = 226, type = 0, power = 30, mp = 5 },
 ]
 
 # --- THE SUMMON --------------------------------------------------------------------------------------

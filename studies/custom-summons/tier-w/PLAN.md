@@ -773,7 +773,35 @@ scenery must be re-authored *together*.
     target; the unedited build moves nothing (`drawn_feed_prerun.py --screen`).
   - **Gates.** `screen_gates.py` C1-C7 (C1 the page map). `drawn_gates` D3 now reads 335 pages in
     its 62 containers. The render-target remedy is unchanged (2 outright, 12 keyed, 8 no route).
-  - **Open.** No cast has tested a drawn page or the conflict gate's premise.
+  - **Open.** No cast has tested a drawn page or the conflict gate's premise. (Staged below.)
+  **★ FOLLOW-UP — STAGED FOR THE OWNER: THE TWO CHANNEL-D CASTS.** The open line above, one cast each.
+  - **The drawn page.** ef179 (Leviathan's full cut) `cell.s0.x576_y384`, the sky-and-sea panel behind
+    the creature: no `so` record gives it a depth; the draws read it at 8bpp through CLUT (0,245) on 265
+    of the cast's 555 frames. Zebra (`leviathan_drawn.toml`, `8db2eefe…`), offline DIRECT: 263 of 279
+    frames change (3,294,148 px), bold horizontal bands behind Leviathan. Bands = the census charged the
+    reads to the right bytes; nothing = it did not.
+  - **The conflict premise.** ef226 (Fenrir) `cell.s0.x576_y384`: an 8bpp page (`so-page`) every draw
+    reads at 4bpp (CLUT 0,244, 57 frames). A plain zebra cannot test it: rows and columns survive a depth
+    change, so both readings draw bands. The mark has to differ INSIDE a byte. PARITY ZEBRA: 16-row bands
+    of 0xF1 and 0x1F, each other's nibbles swapped. At 8bpp (the export PNG) they are warm grey and
+    near-black bands; at 4bpp both are one lit texel beside one clear one, so the element shows a fine
+    VERTICAL HATCH and the bands vanish. (`fenrir_conflict.toml`, `467c370d…`), offline SECOND-PICTURE:
+    55 frames change (1,061,239 px), every read at 4bpp. At band scale (a 5-px box) the two inks are one
+    picture (residual 0.19) and the plain zebra's two are not (1.88); pixel for pixel the two inks are
+    complementary combs (1.33), which is why the measure is band scale. Hatch without bands = the
+    premise holds; bands = some draw reads the bytes at 8bpp; nothing = the attribution is wrong.
+  - **Found on the way.** The kit's static coverage calls both edits 100 % "never-sampled pad, inert at
+    run time" (no GEOM model samples either page), while the draw census and both pre-runs have the
+    screen's own draws reading them, so the casts test that disagreement too. The first drawn
+    candidate, ef406 `x448_y384`, refused by name as a program-scroll DESTINATION.
+  - **Staged.** Bench 30301 rows 206 "Stock Leviathan" (vfx 179/179, 7 MP) and 207 "Stock Fenrir"
+    (226/226, 5 MP) on Steiniv's Rune, one relaunch for both; both containers deployed into
+    FF9CustomMap. The SFX probe is armed (prims), so each cast logs its draws' depths: archive
+    `sfxmeshprobe.log` before any relaunch. One revert, newest first:
+    `C:\gd\SCRATCH\summon-format\repaint-w6b\revert_channel_d_casts.py`.
+  - **Gates.** `screen_gates.py` C8 (each spec rebuilds its pin, carries the pre-run's own mark, refuses
+    without its key, and is cast by one bench row; a wrong pin, a stock PNG and a missing row each fail
+    it) and C9 (both pre-runs on the staged bytes). `drawn_feed_prerun.py --conflict` is the new mode.
   **★ FOLLOW-UP — THE SCROLL-BLIT OPEN GAP, CLOSED.** The four cells the headless census saw rewritten with
   no op-144 site (ef226 / ef509 `x448_y384` + `x512_y384`, licensed until now) are rewritten by the
   containers' OWN horizontal-scroll routine: six containers carry it, it takes op 144's arguments and

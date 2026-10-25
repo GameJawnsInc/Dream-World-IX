@@ -1,4 +1,4 @@
-r"""CHANNEL D, EVERY DRAW -- `py screen_gates.py` prints C1..C7 with PASS/FAIL.
+r"""CHANNEL D, EVERY DRAW -- `py screen_gates.py` prints C1..C9 with PASS/FAIL.
 
 Channel D (``drawn_gates.py``) gives a cell the depth the render target's draw reads it at -- but the
 routes census behind it ran ``--no-draw``, so it saw only the draws INTO the target, on 66 containers,
@@ -35,6 +35,15 @@ C6  THE PRE-RUN, AND ITS FALSIFIER.  ``drawn_feed_prerun.py --screen`` paints a 
     draws give a depth to, builds it through the kit, and renders stock against the build: its own screen
     draws change frames.  The unedited build moves nothing.
 C7  PROVENANCE.  The new tables carry ids, offsets, coordinates, depths and counts only.
+C8  THE STAGED CASTS.  The two owner casts' specs (``leviathan_drawn.toml``: zebra on ef179's
+    ``cell.s0.x576_y384``, a page only the draws give a depth; ``fenrir_conflict.toml``: parity zebra on
+    ef226's ``cell.s0.x576_y384``, an 8bpp page every draw reads at 4bpp) each rebuild their pinned
+    container, carry the pre-run's own mark byte for byte, refuse by name without their key, and are
+    cast by exactly one bench row.  Proven able to fail: a wrong pin, a stock PNG and a missing row each
+    fail it.
+C9  THE CASTS RUN OFFLINE.  Each spec's pre-run, on the staged bytes: the drawn page ``DIRECT``, the
+    conflict page ``SECOND-PICTURE`` (its two nibble-swapped inks one picture at band scale, the plain
+    zebra's two inks not).  About 8 minutes.
 
 Reads `C:\gd\SCRATCH\summon-format` ONLY and writes there -- no install read, no deploy, no commit.
 
@@ -731,6 +740,104 @@ def c7_provenance() -> None:
         (bool(re.search(r"\bb['\"]", src)), bool(re.search(r"[0-9a-fA-F]{32,}", src))), (False, False))
 
 
+# --------------------------------------------------------------------------- C8
+#: THE STAGED CASTS.  (spec, effect, page, half, the row key, the patched container's sha prefix).  Each
+#: spec's art is the pre-run's own mark, stamped into an `export-art` directory by `--art` (SCRATCH).
+CASTS = [
+    ("leviathan_drawn.toml", 179, "cell.s0.x576_y384", "drawn", "acknowledge_drawn_depth", "8db2eefe"),
+    ("fenrir_conflict.toml", 226, "cell.s0.x576_y384", "conflict", "acknowledge_drawn_conflict", "467c370d"),
+]
+BENCH = os.path.join(_REPO, "studies", "custom-summons", "rung8-epic", "bench", "rung8.field.toml")
+
+
+def _bench_rows() -> List[dict]:
+    import tomllib
+    with open(BENCH, "rb") as fh:
+        doc = tomllib.load(fh)
+    rows = []
+    for p in doc.get("playable", []):
+        for cmd in (p.get("abilities") or {}).values():
+            if isinstance(cmd, dict):
+                rows.extend(r for r in cmd.get("abilities", []) if isinstance(r, dict))
+    return rows
+
+
+def c8_casts() -> None:
+    _DA, _DC, _RT, RP, _RS = _kit()
+    import drawn_feed_prerun as PRE
+    rows = _bench_rows()
+    for spec_name, ef, cell, half, key, sha in CASTS:
+        path = os.path.join(_HERE, spec_name)
+        spec = RP.load_spec(path)
+        blob = _load(ef)
+        row = spec["reskin"]["texel"][0]
+        chk("C8 %s paints one page, %s, on ef%03d, with `%s`" % (spec_name, cell, ef, key),
+            (spec["reskin"]["effect"], len(spec["reskin"]["texel"]), row["name"], row.get(key)),
+            (ef, 1, cell, True))
+        b = RP.build(spec, path, blob=blob)
+        check = RP.self_check(b)
+        print("   %s: ef%03d %s (%s half) builds %s..., self-check %d/%d, %d byte(s) moved" % (
+            spec_name, ef, cell, half, b.sha_out[:8], sum(1 for g in check.gates if g.ok), len(check.gates),
+            len(check.changed)))
+        chk("C8 %s builds, self-check whole" % spec_name, all(g.ok for g in check.gates), True)
+        if sha is None:
+            _FAILS.append("C8 %s has no pinned sha (built %s)" % (spec_name, b.sha_out[:8]))
+        else:
+            chk("C8 %s rebuilds the staged container" % spec_name, b.sha_out[:len(sha)], sha)
+        # the art IS the pre-run's mark, re-derived from the stock page
+        if half == "drawn":
+            page = RP.texel_page(blob, cell, ef, allow_drawn_depth=True)
+            want = PRE.zebra(blob, page)
+        else:
+            page = RP.texel_page(blob, cell, ef)
+            want = PRE.paint8(blob, page, *PRE.parity_pair(blob, ef, page))
+        got = (RP.read_indexed4_png(row["source"], page.w, page.h) if page.bpp == 4
+               else RP.read_indexed_png(row["source"], page.w, page.h, 256))
+        chk("C8 %s's art is the pre-run's mark, byte for byte" % spec_name, got == want, True)
+        # and without its key the row refuses, by name
+        bare = json.loads(json.dumps(spec))
+        bare["reskin"]["texel"][0].pop(key)
+        try:
+            RP.build(bare, path, blob=blob)
+            why = "BUILT"
+        except RP.RepaintError as exc:
+            why = str(exc)
+        want_why = "DRAWN AT ANOTHER DEPTH" if half == "conflict" else "DEPTH-UNKNOWN"
+        chk("C8 %s refuses without `%s` (%s)" % (spec_name, key, want_why), want_why in why[:400], True)
+        hits = [r for r in rows if r.get("vfx1") == ef and r.get("vfx2") == ef]
+        chk("C8 the bench casts ef%03d structurally (one row, vfx1 = vfx2)" % ef, len(hits), 1)
+
+
+# --------------------------------------------------------------------------- C9
+#: what each staged cast's pre-run must say: the drawn page DIRECT, the conflict page SECOND-PICTURE
+PRERUN_CASTS = {"drawn": ("DIRECT", ["--screen"]), "conflict": ("SECOND-PICTURE", ["--conflict"])}
+
+
+def c9_cast_preruns() -> None:
+    procs = {}
+    for spec_name, ef, cell, half, _key, _sha in CASTS:
+        want, extra = PRERUN_CASTS[half]
+        procs[spec_name] = (want, half, subprocess.Popen(
+            [sys.executable, PRERUN, "--ef", str(ef), "--cell", cell] + extra,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=_HERE))
+    for spec_name, (want, half, p) in procs.items():
+        log, _ = p.communicate()
+        try:
+            rep = json.loads(log[log.index("{"):])
+        except ValueError:
+            _FAILS.append("C9 %s pre-run produced no report: %s" % (spec_name, log[-300:]))
+            continue
+        line = "   %s: %s, %d of %d frames changed, %d px" % (
+            spec_name, rep["verdict"], rep["frames_changed"], rep["frames_drawn"], rep["screen_px_changed"])
+        if half == "conflict":
+            line += "; band residual parity %.3f vs plain %.3f" % (rep["parity_residual"], rep["plain_residual"])
+        print(line)
+        chk("C9 %s's pre-run says %s" % (spec_name, want), rep["verdict"], want)
+        sha = next(s for n, _e, _c, _h, _k, s in CASTS if n == spec_name)
+        built = rep["build_sha256"]["parity"] if half == "conflict" else rep["build_sha256"]
+        chk("C9 %s's pre-run renders the staged bytes" % spec_name, built[:len(sha)], sha)
+
+
 GATES = [
     ("C1", "THE PAGE MAP -- the upload walk names every measured upload; the old cursor does not",
      c1_page_map),
@@ -740,6 +847,9 @@ GATES = [
     ("C5", "THE TARGET HALF, RE-READ -- the per-cell channel's pages, per page; the remedy", c5_target_half),
     ("C6", "THE PRE-RUN -- a page only the screen reads, painted, changes the screen", c6_prerun),
     ("C7", "PROVENANCE -- ids, offsets, coordinates, depths and counts", c7_provenance),
+    ("C8", "THE STAGED CASTS -- each spec rebuilds, carries the pre-run's mark, refuses without its key",
+     c8_casts),
+    ("C9", "THE CASTS RUN OFFLINE -- the drawn page DIRECT, the conflict page a second picture", c9_cast_preruns),
 ]
 
 

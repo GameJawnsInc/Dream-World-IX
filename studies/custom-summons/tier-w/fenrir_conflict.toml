@@ -1,0 +1,51 @@
+# TIER W / CHANNEL D -- THE CONFLICT CAST: ef226 `cell.s0.x576_y384` repainted as PARITY ZEBRA.
+#
+# THE DRAWN-CONFLICT GATE refuses this page.  Its own `so` record makes it an 8bpp page, and the kit hands
+# it out at 8bpp -- but the draw census saw every draw of these bytes read them at 4bpp (CLUT 0,244, on the
+# screen, 57 of the cast's frames) and none at 8bpp.  The gate's premise: an edit painted at the page's own
+# depth reaches the screen as a SECOND picture, its bytes repacked as nibbles.  No cast has tested it.
+#
+# THE MARK IS BUILT SO THE TWO READINGS DISAGREE ON SIGHT.  Every opaque texel is set, in 16-row bands, to
+# byte 0xF1 or 0x1F -- each other's nibbles swapped.  At 8bpp (what this PNG shows) they are two palette
+# entries, warm grey (128,104,80) and near-black (8,8,8): plain horizontal BANDS.  At 4bpp both are one lit
+# texel (72,80,96) beside one clear texel, the lit one right in one band and left in the other: a fine
+# VERTICAL HATCH over the whole element, the bands gone.  So:
+#
+#     a vertical hatch, no bands      the draws read it at 4bpp -- the premise holds, the gate is right
+#     horizontal bands                some draw reads these bytes at 8bpp -- the census missed it
+#     nothing                         the bytes never reach the screen -- the attribution is wrong
+#
+# Pre-run offline: `drawn_feed_prerun.py --conflict --ef 226 --cell cell.s0.x576_y384` -> SECOND-PICTURE:
+# 55 frames change (1,061,239 px), every read of the page at 4bpp and none at 8bpp, and at band scale
+# (a 5-px box) the two inks are one picture (residual 0.19) where the plain zebra's are not (1.88).  The
+# sheet (SCRATCH headless/raster/drawn-226-conflict/sheet.png) shows the hatch, and the plain zebra's bands
+# beside it.  Generate the art first (export, then stamp -- the stamp refuses a PNG that is not the stock page):
+#
+#     cd ff9mapkit
+#     py -m ff9mapkit summon-reskin export-art --ef 226 --out C:\gd\SCRATCH\summon-format\repaint-w6b\fenrir-conflict\art-parity
+#     cd ..\studies\custom-summons\tier-w
+#     py drawn_feed_prerun.py --conflict --ef 226 --cell cell.s0.x576_y384 --art C:\gd\SCRATCH\summon-format\repaint-w6b\fenrir-conflict\art-parity
+#
+# Cast from the bench: Steiniv -> Rune -> "Stock Fenrir" (row 207, the only 5 MP row).
+
+[reskin]
+effect = 226
+label  = "ef226-drawn-conflict-parity"
+expect_sha256 = "73b60e4d2fc0b70af364d4c470817e92090f833a76460058ec4c2ae4ebd09960"
+
+[[reskin.texel]]
+name = "cell.s0.x576_y384"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/fenrir-conflict/art-parity/cell.s0.x576_y384.png"
+
+# --- the guards, emitted by export-art's derivation, never typed ---------------------------------
+expect_page_offset = 0x01e000
+expect_page_bytes  = 16384
+expect_page_wh     = [128, 128]
+expect_bpp         = 8
+expect_cell        = [576, 384]
+
+# --- the authored decisions ------------------------------------------------------------------------
+enabled = true
+acknowledge_drawn_conflict = true    # lifted to TEST the gate's premise: the census is headless
+acknowledge_cutout_reshape = false   # only opaque texels change, to opaque entries
+note = "drawn-conflict premise: parity zebra (0xF1/0x1F) on an 8bpp page every draw reads at 4bpp"
