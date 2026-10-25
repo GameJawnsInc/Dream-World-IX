@@ -74,6 +74,19 @@ def test_a_weather_table_saved_in_another_encoding_still_reads(tmp_path):
     assert FG.weather_rgb(game) == (90, 100, 110) and FG.from_game(game).rgb == (90, 100, 110)
 
 
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16"])
+def test_a_weather_table_with_a_byte_order_mark_reads_as_the_game_reads_it(tmp_path, encoding):
+    """Memoria's CsvReader is a StreamReader, which detects a byte-order mark and strips it (UTF-8 as Excel's "CSV
+    UTF-8" saves it, UTF-16 as Notepad's "Unicode"); the kit kept the mark on the first comment line, which then read
+    as a row, and the fog fell back to the measured colour (review of the C18 fixes, third round)."""
+    game = _install(tmp_path)
+    mod = game / "MINE" / FG.WEATHER_CSV
+    mod.parent.mkdir(parents=True)
+    mod.write_bytes((HEADER + DAYLIGHT.replace("201;211;241", "90;100;110")).encode(encoding))
+    (game / "Memoria.ini").write_text('[Mod]\nFolderNames = "MINE"\n', encoding="utf-8")
+    assert FG.weather_rgb(game) == (90, 100, 110)
+
+
 def test_the_two_years(tmp_path):
     game = _install(tmp_path, ini="[Worldmap]\nFogStartDistance = 400\nFogEndDistance = 490\nMistStartDistance = 25\n"
                                   "MistEndDistance = 250\nMistDensity = 15\nMistStartDistance_base = 40\n")
