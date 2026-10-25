@@ -45,6 +45,21 @@ def test_the_colour_is_the_weather_table_s_fog_dw(tmp_path):
     assert FG.from_game(tmp_path / "nowhere").rgb == FG.FOG_RGB          # no table: the colour measured
 
 
+def test_the_weather_table_is_the_one_the_stack_gives(tmp_path):
+    """Memoria reads WeatherColors.csv with GetCsvWithHighestPriority: the first folder of Memoria.ini FolderNames
+    that ships one, then the base game. The kit read the base game's only, so a mod's own daylight fogged the game
+    one colour and the view another (review of C18); TransportControls.csv already walked the stack."""
+    game = _install(tmp_path)                            # the base game's: (201, 211, 241)
+    mod = game / "MINE" / FG.WEATHER_CSV
+    mod.parent.mkdir(parents=True)
+    mod.write_text(HEADER + DAYLIGHT.replace("201;211;241", "90;100;110"), encoding="utf-8")
+    assert FG.weather_rgb(game) == (201, 211, 241)       # no FolderNames: the base game's
+    (game / "Memoria.ini").write_text('[Mod]\nFolderNames = "OTHER", "MINE"\n', encoding="utf-8")
+    assert FG.weather_rgb(game) == (90, 100, 110) and FG.from_game(game).rgb == (90, 100, 110)
+    (game / "Memoria.ini").write_text('[Mod]\nFolderNames = "OTHER"\n', encoding="utf-8")
+    assert FG.weather_rgb(game) == (201, 211, 241)       # a folder the game does not load is not read
+
+
 def test_the_two_years(tmp_path):
     game = _install(tmp_path, ini="[Worldmap]\nFogStartDistance = 400\nFogEndDistance = 490\nMistStartDistance = 25\n"
                                   "MistEndDistance = 250\nMistDensity = 15\nMistStartDistance_base = 40\n")

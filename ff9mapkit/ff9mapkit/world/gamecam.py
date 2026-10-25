@@ -93,28 +93,34 @@ MODE_NAMES = {0: "on foot", 1: "yellow chocobo", 2: "light blue chocobo", 3: "re
               9: "Invincible"}
 
 
-def transport_table(game=None) -> dict:
-    """``mode -> (type, type_cam)`` from the ``TransportControls.csv`` the game reads: the first folder of the stack
-    (Memoria.ini FolderNames, then the base game) that has ``StreamingAssets/Data/World/TransportControls.csv``.
-    The stock rows when none can be read."""
+def world_csv(game, rel):
+    """The data file at ``rel`` (under a folder root, e.g. ``StreamingAssets/Data/World/WeatherColors.csv``) the game
+    reads: Memoria's ``AssetManager.GetCsvWithHighestPriority``, the first folder of the stack (Memoria.ini
+    FolderNames) that has it, then the base game. None when no root has it (or the stack cannot be read)."""
     from pathlib import Path
     if game is None:
-        return dict(TRANSPORT)
+        return None
     try:
         from .render import game_stack
         roots = list(game_stack(game) or ()) + [Path(game)]
-    except Exception:                                       # noqa: BLE001 -- the stock rows: the safe answer
+    except Exception:                                       # noqa: BLE001 -- unknown: the caller's safe answer
+        return None
+    return next((Path(r) / rel for r in roots if (Path(r) / rel).is_file()), None)
+
+
+def transport_table(game=None) -> dict:
+    """``mode -> (type, type_cam)`` from the ``TransportControls.csv`` the game reads (:func:`world_csv`). The stock
+    rows when none can be read."""
+    from pathlib import Path
+    f = world_csv(game, Path("StreamingAssets") / "Data" / "World" / "TransportControls.csv")
+    if f is None:
         return dict(TRANSPORT)
-    for root in roots:
-        f = Path(root) / "StreamingAssets" / "Data" / "World" / "TransportControls.csv"
-        if f.is_file():
-            rows = [ln.split(";") for ln in f.read_text(encoding="utf-8", errors="ignore").splitlines()
-                    if ln.strip() and not ln.lstrip().startswith("#")]
-            try:
-                return {i: (int(r[0]), int(r[15])) for i, r in enumerate(rows)}
-            except (ValueError, IndexError):
-                return dict(TRANSPORT)
-    return dict(TRANSPORT)
+    rows = [ln.split(";") for ln in f.read_text(encoding="utf-8", errors="ignore").splitlines()
+            if ln.strip() and not ln.lstrip().startswith("#")]
+    try:
+        return {i: (int(r[0]), int(r[15])) for i, r in enumerate(rows)}
+    except (ValueError, IndexError):
+        return dict(TRANSPORT)
 FUZZY = 5.5                        # the eye's terrain probe: four samples this far round it (w_cameraFuzzy)
 TERRAIN_CAP = 37.1                 # ... the probe's height is capped here on foot (33.2 flying)
 EYE_BAND, AIM_BAND = 1.0, 0.5      # the settle deadbands (module docstring)

@@ -106,11 +106,12 @@ def fog_still(img, depth, view, fog: Fog):
 
 
 def weather_rgb(game, row: int = DAYLIGHT):
-    """``fogDW`` of the weather table's ``row`` in the install's ``WeatherColors.csv`` (Memoria's own data file, read
-    where the game reads it), or None when it cannot be read."""
+    """``fogDW`` of the weather table's ``row`` in the ``WeatherColors.csv`` the game reads (the stack's first, then
+    the base game's: ``gamecam.world_csv``, as Memoria's GetCsvWithHighestPriority), or None when it cannot be read."""
+    from .gamecam import world_csv
     try:
-        lines = (Path(game) / WEATHER_CSV).read_text(encoding="utf-8").splitlines()
-    except (OSError, TypeError):
+        lines = world_csv(game, WEATHER_CSV).read_text(encoding="utf-8").splitlines()
+    except (OSError, TypeError, AttributeError):
         return None
     rows = [ln for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
     if not 0 <= row < len(rows):
