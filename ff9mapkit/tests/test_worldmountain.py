@@ -163,6 +163,236 @@ def test_on_another_ground_the_command_speaks_it_and_the_chip_warns(app, monkeyp
     assert tool.accept_btn.isEnabled()                     # a warning, not a refusal
 
 
+def _worker_lane(tool):
+    """The Workspace's lane for ``tool``: each read goes to a worker; here it is held until :func:`_land`."""
+    held = []
+    tool._sync = False
+    tool._bg = lambda what, fn: held.append((what, fn))
+    return held
+
+
+def _land(tool, held):
+    while held:
+        what, fn = held.pop(0)
+        tool._on_bg(what, 0, fn(), None)
+
+
+def test_a_placed_mountain_on_another_ground_opens_once_the_island_is_read(app, monkeypatch, tmp_path):
+    """THE SAID-BACK LAW waits for the reads a mountain row rests on: its --ground follows the island under it and its
+    --reach the massif's outline, both read on a worker in the Workspace, and open_tool has just dropped the island.
+    Said back at once, a mountain placed on desert read as grass and its edit refused (review of C12). A row the
+    handles truly cannot say still refuses, once the reads are in."""
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    tool.place(26.0, -26.0, 3.2)
+    row = tool.row()
+    assert row["ground"] == "desert"
+    tool.close_tool()
+    held = _worker_lane(tool)
+    tool._outlines.clear()                                 # a massif this card has not read yet either
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    assert tool.editing()
+    _land(tool, held)
+    assert tool.editing() and notes == [] and tool.row() == row
+    tool.close_tool()                                      # (its cancel)
+    tool.open_tool()
+    notes = []
+    tool.edit_row({**row, "ground": "snow"}, label="mountain", on_accepted=lambda: None,
+                  on_cancel=lambda note=None: notes.append(note))
+    _land(tool, held)
+    assert not tool.editing() and len(notes) == 1 and "would not say its ground back" in notes[0], notes
+
+
+def test_a_mountain_row_held_for_its_reads_freezes_its_handles_and_checks_once_seated(app, monkeypatch, tmp_path):
+    """While a mountain row waits for its reads, a retune was said back against the step and cancelled the edit
+    (review of the C12 fixes); letting a retune skip the law instead let a row the card cannot say open on whether a
+    sub-second read had landed, and a check armed at open ran on the wrong ground and stalled the card (review of its
+    fix). Now the handles wait with the row: frozen, a click on the map kept for after, no check until it is seated;
+    then the whole row is said back and the check runs at once, on the step's own ground."""
+    run = Scripted(_passes)
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, run, bench=_desert_bench())
+    tool.place(26.0, -26.0, 3.2)
+    row = tool.row()
+    tool.close_tool()
+    held = _worker_lane(tool)
+    tool._outlines.clear()
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    assert all(not w.isEnabled() for w in (tool.donor_box, tool.angle, tool.spread, tool.rock_height))
+    tool.place(40.0, -40.0, 3.2)                           # a click while it reads: not taken
+    n = len(run.argvs)
+    tool._check()                                          # the timer open armed: nothing runs yet
+    assert run.argvs[n:] == [] and tool.center == (26.0, -26.0)
+    _land(tool, held)
+    assert tool.editing() and notes == [] and tool.row() == row
+    assert all(w.isEnabled() for w in (tool.donor_box, tool.angle, tool.spread, tool.rock_height))
+    assert tool._timer.isActive()                          # seated: judged at once
+    tool._timer.stop()
+    tool._check()
+    _land(tool, held)                                      # (its draft is made first, on a worker)
+    argv = run.argvs[-1]
+    assert argv[argv.index("--ground") + 1] == "desert"
+    tool.close_tool()
+    tool.open_tool()
+    with pytest.raises(ValueError, match="would not say its center back"):   # off the grid: refused at open
+        tool.edit_row({**row, "center": [26.04, -26.0]}, label="mountain", on_accepted=lambda: None,
+                      on_cancel=lambda note=None: None)
+
+
+def test_a_falls_massif_row_with_a_height_still_refuses_once_its_outline_is_read(app, monkeypatch, tmp_path):
+    """A massif with falls on its face keeps its height (world-mountain refuses --rock-height for it): a row that
+    stretches one is not one the card can say, and it refuses -- it opened, rewritten, while a retune skipped the law
+    (review of the C12 fixes, third round)."""
+    import dataclasses
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    falls = dataclasses.replace(tool._outline_fn(UAHO), height_ok=False)
+    tool._outline_fn = lambda donor: falls
+    tool.place(26.0, -26.0, 3.2)
+    row = {**tool.row(), "rock_height": 1.5}
+    tool.close_tool()
+    held = _worker_lane(tool)
+    tool._outlines.clear()
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    _land(tool, held)
+    assert not tool.editing() and len(notes) == 1 and "rock_height" in notes[0], notes
+
+
+def test_an_island_read_begun_before_the_edit_does_not_decide_it(app, monkeypatch, tmp_path):
+    """An island (soup) read begun while the card was open lands after the bar's Edit lifted the step out of the draft
+    (same path, new bytes): the card took any read whose path matched, so the held row's ground was read off the
+    island as it was before the lift and a valid edit refused -- or, landing last, the ghost judged a stale island
+    (review of the C12 fixes). A read begun before the island changed is dropped."""
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    tool.place(26.0, -26.0, 3.2)
+    row = tool.row()
+    assert row["ground"] == "desert"
+    tool.close_tool()
+    desert = tool._soup_fn(None)
+    grass = ME.SoupIndex(IN.soup_from_blocks({(0, 0): _mountain_bench()}))
+    state = {"ix": grass}                                  # the draft as it was, with the step in it
+    tool._soup_fn = lambda folder: state["ix"]
+    tool._sync = False
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn()))  # a worker reads at once; its result comes later
+    tool.open_tool()                                       # a read begins: the island before the lift
+    state["ix"] = desert                                   # the bar's Edit lifts the step...
+    tool.island_changed()                                  # ...and the tab says so
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    while held:
+        what, result = held.pop(0)                         # the read from before the lift lands first
+        tool._on_bg(what, 0, result, None)
+    assert tool.editing() and notes == [] and tool.row() == row
+
+
+def test_an_island_read_that_fails_after_the_island_changed_is_dropped(app, monkeypatch, tmp_path):
+    """5519e76d dropped a stale island read's result, but its error came back with no generation and wiped the live
+    island and said "The island could not be read" whichever read it was -- a read racing a quick second Undo
+    (review of the C12 fixes, third round). A read's error carries its generation and its frame too."""
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    good = tool._soup_fn(None)
+    calls = {"n": 0}
+
+    def soup_fn(folder):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise FileNotFoundError("Block[0][0] Terrain.ff9mesh: the undo is rewriting it")
+        return good
+    tool._soup_fn = soup_fn
+    tool._sync = False
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))
+
+    def deliver_all():
+        while held:
+            what, fn = held.pop(0)
+            try:
+                tool._on_bg(what, 0, fn(), None)
+            except Exception as e:                       # noqa: BLE001 -- as the worker hands it over
+                tool._on_bg(what, 0, None, e)
+    tool.island_changed()                                # read 1: the undo rewriting the island under it
+    tool.island_changed()                                # the second undo: read 2
+    deliver_all()
+    assert tool._ix is good and "could not be read" not in tool.verdict_lbl.text()
+
+
+@pytest.mark.parametrize("fails", ["island", "massif"])
+def test_a_held_mountain_row_whose_read_fails_is_cancelled_saying_why(app, monkeypatch, tmp_path, fails):
+    """A held row waits for the island and the massif with its handles frozen; when one of those reads failed, nothing
+    read it again and the card sat frozen saying "Reading the massif and the island..." with nothing in flight, Cancel
+    the only way out (review of the C12 fixes, fourth round). A failed read the held row waits on cancels the edit,
+    saying which read failed."""
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    tool.place(26.0, -26.0, 3.2)
+    row = tool.row()
+    tool.close_tool()
+
+    def broken(*_a):
+        raise OSError("a block of the draft could not be read")
+    if fails == "island":
+        tool._soup_fn = broken
+    else:
+        tool._outline_fn = broken
+    tool._sync = False
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))
+    tool._outlines.clear()
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    while held:
+        what, fn = held.pop(0)
+        try:
+            tool._on_bg(what, 0, fn(), None)
+        except Exception as e:                           # noqa: BLE001 -- as the worker hands it over
+            tool._on_bg(what, 0, None, e)
+    assert not tool.editing() and len(notes) == 1 and "could not be read" in notes[0], notes
+
+
+def test_a_failed_read_of_another_massif_does_not_cancel_the_held_row(app, monkeypatch, tmp_path):
+    """An outline's error came back with no donor, and the held row took any failure for its own massif's: a read of
+    another massif begun while the author browsed the list, failing after the Edit, cancelled a valid edit (review
+    of the C12 fixes, fifth round). An outline read names its massif, its error too."""
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    tool.place(26.0, -26.0, 3.2)
+    row = tool.row()
+    tool.close_tool()
+    ol = tool._outline_fn(UAHO)
+
+    def outline_fn(donor):
+        if donor != UAHO:
+            raise OSError(f"massif {donor} could not be read")
+        return ol
+    tool._outline_fn = outline_fn
+    tool._sync = False
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))
+    tool._outlines.clear()
+    tool.open_tool()
+    other = next(i for i in range(tool.donor_box.count()) if tool.donor_box.itemData(i) != UAHO)
+    tool.donor_box.setCurrentIndex(other)                 # browsing: another massif's read begins
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    done = []
+    for what, fn in list(held):                           # the other massif's failure lands first, the row still held
+        try:
+            done.append((what, fn()))
+        except Exception as e:                           # noqa: BLE001 -- as the worker hands it over
+            tool._on_bg(what, 0, None, e)
+    held.clear()
+    for what, result in done:
+        tool._on_bg(what, 0, result, None)
+    while held:
+        what, fn = held.pop(0)
+        tool._on_bg(what, 0, fn(), None)
+    assert tool.editing() and notes == [] and tool.row() == row
+
+
 def test_the_preview_refuses_before_any_job_runs(app, monkeypatch, tmp_path):
     run = Scripted(_passes)
     tool, panel, _c = _tool(app, monkeypatch, tmp_path, run)

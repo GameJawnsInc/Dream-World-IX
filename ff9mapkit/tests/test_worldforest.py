@@ -102,6 +102,13 @@ class Scripted:
     def busy(self):
         return self.pending is not None
 
+    def wait(self, msecs=-1):
+        """The held job ends now (its finish may start the next one, as a real job's done does)."""
+        finish, self.pending = self.pending, None
+        if finish is not None:
+            finish()
+        return True
+
 
 def _tool(app, tmp_path, runner=None, **kw):
     from ff9mapkit.workspace.worldforest import ForestTool

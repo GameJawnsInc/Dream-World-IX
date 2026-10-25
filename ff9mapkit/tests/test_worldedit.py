@@ -160,6 +160,17 @@ def test_a_click_picks_the_step_placed_nearest_it_on_the_block_it_changed():
     assert RC.step_at(steps + [river], 20.0, -650.0) == 4 and RC.step_at(steps + [river], 1500.0, -720.0) == 4
 
 
+def test_a_step_placed_on_the_river_s_blocks_is_still_picked():
+    """A river has no anchor (its at is a translation), so it scored 0 on every block it changed and won every click
+    there, before or after another step: a hill on the river's island could not be picked, so not edited or deleted
+    (review of C12). A step with a place wins its block over one without; the river is picked where nothing else is."""
+    river = {"row": {"table": "river", "at": [512.0, 128.0]}, "cells": [[8, 3], [9, 3], [8, 4], [9, 4]]}
+    hill = {"row": {"table": "hill", "center": [560.0, -230.0]}, "cells": [[8, 3]]}
+    for steps, h in (([river, hill], 1), ([hill, river], 0)):
+        assert RC.step_at(steps, 561.0, -231.0) == h and RC.step_at(steps, 560.0, -230.0) == h
+        assert RC.step_at(steps, 600.0, -300.0) == 1 - h                  # (9, 4): the river's alone
+
+
 # ---------------------------------------------------------------- the World tab: pick, edit, delete (THE C9 ACCEPTANCE)
 from .test_worldrecipe import _doc, _place, _two_islands, app  # noqa: E402,F401
 
@@ -401,6 +412,31 @@ def test_every_editable_card_opens_on_its_row_and_says_it_back(monkeypatch, tmp_
         doc.open_hill(sync=True).edit_row({"table": "hill", "center": [26.04, -26.0]}, label="hill",
                                           on_accepted=lambda: None, on_cancel=lambda note=None: None)
     assert set(RC.EDITABLE_TABLES) == set(doc.EDIT_CARDS) == set(RC.EDITOR_TABLES)    # every table the editor writes
+
+
+def test_a_row_that_spells_a_default_opens_in_its_card(monkeypatch, tmp_path, app):
+    """An opened recipe keeps each row as written, and a hand-written row may spell a default the editor leaves out
+    (rot = 0.0, spread = 1.0) or turn a full circle (rot = 360). The said-back law compared the raw rows key for key
+    and refused these, though the card writes the same bytes (review of C12); it compares rows as the editor writes
+    them (recipe.canon). A row the handles cannot say still refuses."""
+    game = _two_islands(monkeypatch, tmp_path)
+    doc, _run = _doc(app, game, tmp_path, tmp_path / "saved.toml")
+    doc.set_view_mode("3d", sync=True)
+    base = {"table": "forest", "center": [26.0, -26.0], "donor": "15,15"}
+    for extra in ({"rot": 0.0}, {"spread": 1.0}, {"rot": 360.0}, {"rot": 405.0, "spread": 1.0}):
+        tool = doc.open_forest(sync=True)
+        tool.edit_row({**base, **extra}, label="forest", on_accepted=lambda: None, on_cancel=lambda note=None: None)
+        assert tool.editing(), extra
+        tool._end_edit()
+        tool.close_tool()
+    assert RC.canon({**base, "rot": 405.0, "spread": 1.0}) == {**base, "rot": 45.0}
+    assert RC.canon({"table": "sink", "at": [1.0, 2.0], "cluster": False, "allow_entrances": False}) == \
+        {"table": "sink", "at": [1.0, 2.0]}
+    assert RC.canon({"table": "transplant", "cell": [3, 5], "donor": [7, 17], "rot": 360, "size": [1, 1]}) == \
+        {"table": "transplant", "cell": [3, 5], "donor": [7, 17]}
+    with pytest.raises(ValueError, match="would not say its center back"):              # off the 0.1u grid
+        doc.open_forest(sync=True).edit_row({**base, "rot": 0.0, "center": [26.04, -26.0]}, label="forest",
+                                            on_accepted=lambda: None, on_cancel=lambda note=None: None)
 
 
 def test_a_second_draft_promotes_after_another_draft_of_the_folder_promoted_and_reverted(monkeypatch, tmp_path):
@@ -659,3 +695,599 @@ def test_a_second_revert_refusing_puts_the_first_back_into_the_game(monkeypatch,
     assert not doc._forest.editing() and "could not be taken back" in bar.status_lbl.text()
     assert "again" in bar.status_lbl.text(), bar.status_lbl.text()
     assert _tree(live) == after0 and D.history(draft)["promoted"] == 4
+
+
+class _Held:
+    """A runner that holds each job until :meth:`wait`: a job still running when the Workspace closes."""
+
+    def __init__(self, argvs):
+        self.argvs, self.held = argvs, None
+
+    def start(self, argv, cwd, done):
+        self.argvs.append([str(a) for a in argv])
+        self.held = (argv, done)
+
+    def busy(self):
+        return self.held is not None
+
+    def wait(self, msecs=-1):
+        from ff9mapkit import cli
+        argv, done = self.held
+        self.held = None
+        done(cli.main([str(a) for a in argv[3:]]), "")     # (its done may start the next job, as a real one does)
+        return True
+
+    def kill(self):
+        self.held = None
+
+
+def test_closing_the_workspace_mid_in_game_edit_puts_the_game_back(monkeypatch, tmp_path, app):
+    """The Workspace closes with an in-game step's edit open: the edit is cancelled and the steps that were in the
+    game go back into it before the window goes (``WorldDoc.shutdown``, from the shell's closeEvent)."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert doc._forest.editing() and _tree(game / "FF9CustomMap-world") != live0
+    doc.shutdown()
+    assert _tree(game / "FF9CustomMap-world") == live0
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and h["cursor"] == 3 and D.promote_owed(draft) is None
+
+
+def test_closing_the_workspace_mid_revert_finishes_the_chain(monkeypatch, tmp_path, app):
+    """A revert job still running when the Workspace closes is waited for, never killed half way, and the chain it
+    began closes with the game as it was."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    bar._runner = held = _Held(run.argvs)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert held.busy() and "--revert" in held.argvs[-1]
+    doc.shutdown()
+    assert not held.busy() and _tree(game / "FF9CustomMap-world") == live0
+    assert D.history(draft)["promoted"] == 3 and D.promote_owed(draft) is None
+
+
+def test_closing_the_workspace_waits_for_every_job_of_the_chain(monkeypatch, tmp_path, app):
+    """Two promotes stand over step 1: the first revert's end starts the second. shutdown took a job running after a
+    wait for one that never ended, and returned with that revert running: the window closed on a live-folder write
+    (review of the C19 fixes). It waits each job, the next one too, and the chain closes with the game as it was."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    _unpromoted_fourth(draft)
+    D.promote(draft, game=game, log=lambda *a: None)                       # P2: step 4, in the game too
+    live1 = _tree(game / "FF9CustomMap-world")
+    bar.refresh()
+    bar._runner = held = _Held(run.argvs)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert held.busy() and "--revert" in held.argvs[-1]
+    doc.shutdown()
+    assert not held.busy() and sum("--revert" in a for a in held.argvs) == 2
+    assert _tree(game / "FF9CustomMap-world") == live1
+    assert D.history(draft)["promoted"] == 4 and D.promote_owed(draft) is None
+
+
+def test_closing_the_workspace_while_an_in_game_edit_s_accept_runs_lets_it_finish(monkeypatch, tmp_path, app):
+    """The card's own Accept is writing the draft when the window closes: shutdown cancelled the edit under it (its
+    pending step aborted, then the game promoted from a draft the job was still writing). Every job that writes runs
+    to its end first -- the card's Accept, then the put-back and the promote back it leads to (review of the C19
+    fixes)."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    rows0 = D.recipe_rows(draft)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    forest = doc._forest
+    forest._runner = held = _Held([])
+    forest.drop_at(30.0, -30.0)
+    forest._timer.stop()
+    forest._check()
+    held.wait()                                                            # the check, in
+    assert forest.accept_btn.isEnabled(), forest.verdict_lbl.text()
+    forest.accept_btn.click()
+    assert held.busy()                                                     # its Accept writing the draft
+    doc.shutdown()
+    assert not held.busy() and D.history(draft)["edit"] is None
+    rows = D.recipe_rows(draft)
+    assert rows == [{**rows0[0], "center": [30.0, -30.0]}] + rows0[1:]
+    assert _tree(game / "FF9CustomMap-world") == _compose(game, rows, "Hand")
+    assert D.history(draft)["promoted"] == 3 and D.promote_owed(draft) is None
+
+
+def test_closing_the_workspace_while_a_recipe_composes_stops_after_the_running_row(monkeypatch, tmp_path, app):
+    """Each row's end starts the next, and shutdown waits for every job that writes: it composed the whole rest of an
+    opened recipe inside closeEvent, minutes with the window frozen (review of the C19 fixes, third round). A row is
+    its own step and an opened recipe owes the game nothing, so the running row ends and the rest waits."""
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar.save_btn.click()                                                   # the recipe, three rows
+    bar._runner = held = _Held(run.argvs)
+    bar.open_btn.click()                                                   # composed again, a row at a time
+    assert held.busy() and bar._queue is not None
+    doc.shutdown()
+    assert not held.busy() and bar._queue is None and D.history(draft)["cursor"] == 1
+    assert "1 row" in bar.status_lbl.text() and "closed" in bar.status_lbl.text(), bar.status_lbl.text()
+
+
+def test_an_in_game_edit_a_dead_workspace_left_open_is_put_right_on_the_next_launch(monkeypatch, tmp_path, app):
+    """The Workspace dies with an in-game edit open (no shutdown): what the game is owed is on disk, so the next
+    launch puts the draft back and promotes the game's steps again, and says so."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert _tree(game / "FF9CustomMap-world") != live0
+    doc2, _run2 = _doc(app, game, tmp_path, tmp_path / "saved.toml")      # the next launch, on the same draft
+    doc2.set_view_mode("3d", sync=True)
+    assert _tree(game / "FF9CustomMap-world") == live0
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and h["cursor"] == 3 and D.promote_owed(draft) is None
+    text = doc2._recipe.status_lbl.text()
+    assert "The Workspace closed with a step that is in the game taken out of it" in text and "again" in text, text
+
+
+def test_the_folder_cannot_change_under_an_open_edit(monkeypatch, tmp_path, app):
+    """While the recipe bar holds the draft (an edit open), the folder box and Rescan wait: a switch closed the card,
+    and its cancel went to the NEW folder's draft, so the first folder's game stayed reverted."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert doc._forest.editing()
+    assert not doc.folder_box.isEnabled() and not doc.rescan_btn.isEnabled()
+    census = doc._census
+    doc.refresh(sync=True)                                                  # a Rescan asked for anyway waits too
+    assert doc._census is census and doc._forest.editing()
+    doc._forest.close_btn.click()                                          # Cancel edit
+    assert doc.folder_box.isEnabled() and doc.rescan_btn.isEnabled()
+    assert _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_a_scan_that_lands_under_an_open_edit_cancels_it_in_its_own_folder(monkeypatch, tmp_path, app):
+    """A scan begun before the edit (another folder picked) lands while it is open: the card closes, and the cancel
+    goes to the draft the edit is in, so its game gets its promote back."""
+    from ff9mapkit.workspace import worldscan
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    doc._finish(worldscan.scan_tree(game / "Hand"), None, None)           # the scan lands: Hand is shown now
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and D.promote_owed(draft) is None
+    assert _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_the_folder_waits_for_the_chain_s_revert_and_a_scan_landing_mid_chain_opens_nothing(monkeypatch, tmp_path,
+                                                                                            app):
+    """The chain's revert job runs for seconds: the folder box and Rescan wait for it too. A scan begun before it that
+    lands meanwhile moves the tab off the chain's folder, and the chain does not open its edit on the wrong one: it
+    promotes its folder's steps back and says why."""
+    from ff9mapkit.workspace import worldscan
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    bar._runner = held = _Held(run.argvs)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert held.busy() and not doc.folder_box.isEnabled() and not doc.rescan_btn.isEnabled()
+    census = doc._census
+    doc.refresh(sync=True)
+    assert doc._census is census
+    doc._finish(worldscan.scan_tree(game / "Hand"), None, None)           # a scan begun before the chain lands
+    held.wait()                                                            # the revert ends
+    assert held.busy() and "--revert" not in held.argvs[-1]                # ...and the promote back runs, no edit
+    held.wait()
+    assert not doc._forest or not doc._forest.editing()
+    assert _tree(game / "FF9CustomMap-world") == live0
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and D.promote_owed(draft) is None
+    assert "another folder" in bar.status_lbl.text(), bar.status_lbl.text()
+
+
+def test_a_scan_tells_every_card_the_folder_moved(monkeypatch, tmp_path, app):
+    """THE CALL SITE: a folder pick or a Rescan only closed the open cards, and each card keeps per-folder reads (the
+    coast's and the island's block holders, where the river stands): reopened on another folder they judged it by the
+    old one's -- the river card built --move-from from the first folder's river (review of the C12 fixes). The scan
+    is the one place the folder changes, and it tells every card, open or not."""
+    from ff9mapkit.workspace import worldscan
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    doc.open_mountain(sync=True).close_tool()
+    told = []
+    for tool in doc._carry_tools():
+        monkeypatch.setattr(tool, "island_changed", lambda t=tool: told.append(type(t).__name__))
+    doc._finish(worldscan.scan_tree(game / "Hand"), None, None)
+    assert sorted(told) == sorted(type(t).__name__ for t in doc._carry_tools()) and len(told) >= 2
+
+
+def test_a_folder_shown_again_gets_the_promote_it_is_owed(monkeypatch, tmp_path, app):
+    """A Workspace died with an in-game edit open in FF9CustomMap-world; the next one opens on another folder first.
+    Showing FF9CustomMap-world settles what its game is owed."""
+    from types import SimpleNamespace
+    from ff9mapkit.workspace import worldscan
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()                                                   # ...and the Workspace dies
+    doc2, _run2 = _doc(app, game, tmp_path, tmp_path / "saved.toml")
+    doc2._census = SimpleNamespace(root=game / "Hand")
+    doc2.set_view_mode("3d", sync=True)
+    assert _tree(game / "FF9CustomMap-world") != live0                     # Hand owes nothing
+    doc2._finish(worldscan.scan_tree(game / "FF9CustomMap-world"), None, None)
+    assert _tree(game / "FF9CustomMap-world") == live0 and D.promote_owed(draft) is None
+
+
+def test_the_qprocess_runner_waits_for_its_job(app):
+    import sys
+    from ff9mapkit.workspace.worldforest import QProcessRunner
+    r, got = QProcessRunner(), []
+    r.start([sys.executable, "-c", "import time; time.sleep(0.3); print('done')"], ".",
+            lambda code, text: got.append((code, text.strip())))
+    assert r.busy()
+    r.wait()
+    assert not r.busy() and got == [(0, "done")]
+
+
+def test_a_job_that_cannot_start_ends_as_a_failed_job(app, tmp_path):
+    """QProcess sends no finished signal when its program cannot start (a missing interpreter, a blocked one): the
+    runner stayed busy and its done never ran, so a card's write never ended -- its Close, off while it writes, the
+    menu, the folder box all locked for the session, and a landing scan's wait spun for good (review of the C19
+    fixes, fifth round). A start that fails ends the job, as a failed one."""
+    from ff9mapkit.workspace.worldforest import QProcessRunner
+    r, got = QProcessRunner(), []
+    r.start([str(tmp_path / "no-such-python.exe"), "-c", "print(1)"], ".", lambda code, text: got.append((code, text)))
+    app.processEvents()
+    r.wait()
+    assert not r.busy() and len(got) == 1 and got[0][0] != 0 and "could not start" in got[0][1], got
+
+
+def test_the_workspace_closing_shuts_the_world_tab_down(monkeypatch, app):
+    """THE CALL SITE: the window's closeEvent is what spends ``WorldDoc.shutdown``."""
+    from ff9mapkit import config as cfg
+    from ff9mapkit.workspace import shell as S
+    monkeypatch.setattr(cfg, "find_game_path",
+                        lambda *_a, **_k: (_ for _ in ()).throw(cfg.ConfigError("pinned: no game")))
+    win = S.Workspace(S.pick_palette("dark"))
+    calls = []
+    monkeypatch.setattr(win.world_doc, "shutdown", lambda: calls.append("shutdown"))
+    win.close()
+    win.deleteLater()
+    assert calls == ["shutdown"]
+
+
+def test_deleting_the_newest_in_game_step_says_the_game_holds_the_rest(monkeypatch, tmp_path, app):
+    """A promote after each step; delete the newest. Its promote comes out and the step goes, and the older promotes
+    still stand: the game holds the recipe, so there is nothing to promote again -- not an error."""
+    import shutil
+    _fake_mirror(monkeypatch)
+    game = _three_islands(monkeypatch, tmp_path)
+    shutil.copytree(game / "FF9CustomMap-world", game / "Hand")
+    doc, run = _doc(app, game, tmp_path, tmp_path / "saved.toml")
+    doc.set_view_mode("3d", sync=True)
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    forest = doc.open_forest(sync=True)
+    forest.donor_box.setCurrentIndex(forest.donor_box.findData("15,15"))
+    _place(forest, 26.0, -26.0)
+    forest.close_tool()
+    D.promote(draft, game=game, log=lambda *a: None)
+    rows1 = D.recipe_rows(draft)
+    forest = doc.open_forest(sync=True)
+    _place(forest, 410.0, -26.0)
+    forest.close_tool()
+    D.promote(draft, game=game, log=lambda *a: None)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    bar.refresh()
+    doc._on_pick(_hit(410.0, -26.0), sync=True)
+    assert bar._sel == 1
+    bar.delete_btn.click()
+    assert bar.status_lbl.property("state") != "error", bar.status_lbl.text()
+    assert "nothing to promote again" in bar.status_lbl.text(), bar.status_lbl.text()
+    h = D.history(draft)
+    assert h["cursor"] == 1 and h["promoted"] == 1 and D.edits(draft) == [] and D.promote_owed(draft) is None
+    assert _tree(game / "FF9CustomMap-world") == _compose(game, rows1, "Hand")
+
+
+def test_no_card_writes_while_the_chain_writes_the_game(monkeypatch, tmp_path, app):
+    """The chain's revert and promote back write the live folder and the draft's records: while they run no card is
+    open (its Promote, Revert promote, Discard or Accept would write the same folder or draft at the same moment) and
+    none can be opened."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    forest = doc.open_forest(sync=True)                                    # a card open, the step still picked
+    assert not forest.isHidden() and not bar.delete_btn.isHidden()
+    bar._runner = held = _Held(run.argvs)
+    bar.delete_btn.click()
+    assert held.busy() and "--revert" in held.argvs[-1]
+    assert forest.isHidden() and not doc.tools_btn.isEnabled()
+    assert doc.open_forest(sync=True) is None and forest.isHidden()
+    while held.busy():
+        held.wait()
+    assert doc.tools_btn.isEnabled() and doc.open_forest(sync=True) is not None
+    assert D.history(draft)["promoted"] == 2 and D.promote_owed(draft) is None
+
+
+def test_an_open_card_is_put_away_when_the_bar_starts_holding_and_the_bar_waits_for_a_writing_card(monkeypatch,
+                                                                                                    tmp_path, app):
+    """The hold law was kept only at a card's opening: a card already open when the bar began holding -- a Delete's
+    put-back, an opened recipe composing -- kept its Accept and Discard, and its Accept swept the bar's pending
+    snapshot (the bar then locked the tab for good on a FileNotFoundError) (review of the C19 fixes, fourth round).
+    The bar puts every idle card away as it starts holding; and none of its writes (Delete, Edit, Undo, Redo, Open)
+    starts while a card writes."""
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    bar.save_btn.click()                                                   # (a recipe for Open)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)                             # a step not in the game
+    forest = doc.open_forest(sync=True)
+    assert not forest.isHidden() and not bar.delete_btn.isHidden()
+    bar._runner = held = _Held(run.argvs)
+    bar.delete_btn.click()                                                 # its put-back (the mountain composed again)
+    assert held.busy() and bar.holding() and forest.isHidden()
+    while held.busy():
+        held.wait()
+    forest = doc.open_forest(sync=True)
+    bar.open_btn.click()                                                   # an opened recipe composing
+    assert held.busy() and bar.holding() and forest.isHidden()
+    while held.busy():
+        held.wait()
+    forest = doc.open_forest(sync=True)
+    forest._ask = lambda title, text: True
+    forest._runner = card = _Held([])
+    forest._revert() if D.last_promote(draft) else forest._promote()      # the card writes
+    assert card.busy() and forest.writing()
+    for act, what in ((bar.undo, "undone"), (bar.redo, "redone"), (bar.open_recipe, "opened")):
+        act()
+        assert "still writing" in bar.status_lbl.text(), (what, bar.status_lbl.text())
+    card.wait()
+
+
+def test_a_scan_that_lands_during_a_card_s_accept_lets_it_commit_to_its_own_folder(monkeypatch, tmp_path, app):
+    """A folder pick made just before an Accept lands while it writes: _finish moved the tab to the new folder before
+    closing the card, so the Accept's end committed to the new folder's draft (or raised on none), and the draft it
+    wrote kept the shape with no record (review of the C19 fixes, fourth round). A landing scan waits for the cards'
+    writes first. And an edit's Cancel is not offered while its Accept writes: waiting turned a cancel into an accept."""
+    import shutil
+    from ff9mapkit.workspace import worldscan
+    game = _three_islands(monkeypatch, tmp_path)
+    shutil.copytree(game / "FF9CustomMap-world", game / "Hand")
+    doc, run = _doc(app, game, tmp_path, tmp_path / "saved.toml")
+    doc.set_view_mode("3d", sync=True)
+    forest = doc.open_forest(sync=True)
+    forest.donor_box.setCurrentIndex(forest.donor_box.findData("15,15"))
+    forest._runner = held = _Held([])
+    forest.place(26.0, -26.0, 3.2)
+    forest._timer.stop()
+    forest._check()
+    held.wait()                                                            # the check
+    forest.accept_btn.click()
+    assert held.busy() and not forest.close_btn.isEnabled()
+    doc._finish(worldscan.scan_tree(game / "Hand"), None, None)           # the scan lands: Hand is shown now
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    assert not held.busy() and D.history(draft)["cursor"] == 1
+    assert not (tmp_path / "drafts" / "Hand.draft").exists()
+
+
+def test_a_refusal_of_the_bar_s_tells_no_one_the_draft_moved(monkeypatch, tmp_path, app):
+    """The bar's refusals (a card still writing, steps after the game's out of it) went through the draft-moved
+    path: every card's island re-read, the draw box set to the draft, the 3D view reloaded from a draft mid-write --
+    whose own reload, when the write ended, the busy view then dropped (review of the C19 fixes, fifth round). A
+    refusal moves nothing, and says so to no one but the bar."""
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    moved = []
+    bar._on_changed = moved.append
+    forest = doc.open_forest(sync=True)
+    forest._ask = lambda title, text: True
+    forest._runner = held = _Held([])
+    forest._promote()                                                      # the card writes
+    for act in (bar.undo, bar.redo, bar.open_recipe):
+        act()
+    bar.select(0)
+    bar.edit()
+    assert "still writing" in bar.status_lbl.text() and moved == []
+    held.wait()
+
+
+def test_a_card_that_writes_is_never_closed_under_its_job(monkeypatch, tmp_path, app):
+    """Closing a card kills its job, and the view toggle, the menu (one card at a time), a Rescan and a folder pick all
+    close cards: a card's Promote or Revert promote cut off half way left the live folder half written with no
+    record to revert from (review of the C19 fixes, third round). While a card writes, those controls wait; and a
+    card closed anyway (a scan landing, a call from code) waits for its write to end instead of killing it."""
+    _fake_mirror(monkeypatch)
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    forest = doc.open_forest(sync=True)
+    forest._ask = lambda title, text: True
+    forest._runner = held = _Held([])
+    forest._promote()                                                      # the card's Promote, running
+    assert held.busy() and forest.writing()
+    for w in (doc.tools_btn, doc.view3d_btn, doc.folder_box, doc.rescan_btn):
+        assert not w.isEnabled(), w.text() if hasattr(w, "text") else w
+    doc.set_view_mode("2d", sync=True)                                    # closed anyway, from code
+    assert not held.busy() and forest.isHidden()                           # its promote ran to its end
+    assert D.last_promote(draft) is not None and D.history(draft)["promoted"] == 3
+    for w in (doc.tools_btn, doc.view3d_btn, doc.folder_box, doc.rescan_btn):
+        assert w.isEnabled()
+
+
+def test_no_other_card_opens_while_the_bar_holds_the_draft(monkeypatch, tmp_path, app):
+    """While an edit is open or its steps go back on top, another card could be opened from the menu: opening it
+    closed the editing card (whose cancel then started the promote back under the new card), or, during the
+    put-back, the new card's Accept or Discard wrote the draft under the open edit -- a Discard deleted the draft
+    and what the game was owed, leaving the game reverted for good (review of the C19 fixes, third round). While the
+    bar holds the draft, the menu waits, and no card opens but the edit's own."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    rows0 = D.recipe_rows(draft)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()                                                   # the in-game edit, open
+    forest = doc._forest
+    assert forest.editing() and not doc.tools_btn.isEnabled()
+    n = len(run.argvs)
+    assert doc.open_mountain(sync=True) is None and forest.editing() and run.argvs[n:] == []
+    bar._runner = held = _Held(run.argvs)                                  # the put-back's world-fuse, held
+    forest.drop_at(30.0, -30.0)
+    forest._timer.stop()
+    forest._check()
+    forest.accept_btn.click()
+    assert held.busy() and bar.holding() and not doc.tools_btn.isEnabled()
+    assert doc.open_mountain(sync=True) is None
+    while held.busy():
+        held.wait()
+    assert doc.tools_btn.isEnabled() and not bar.holding()
+    rows = D.recipe_rows(draft)
+    assert rows == [{**rows0[0], "center": [30.0, -30.0]}] + rows0[1:]
+    assert _tree(game / "FF9CustomMap-world") == _compose(game, rows, "Hand")
+    assert doc.open_mountain(sync=True) is not None
+
+
+def test_no_edit_or_delete_starts_while_a_card_writes(monkeypatch, tmp_path, app):
+    """Starting the chain closed every open card, and closing a card kills its job: a card's Revert promote (a
+    world-promote on the live folder) was cut off half way, and the chain reverted over the result (review of the
+    C19 fixes). While a card writes -- its Accept, Promote or Revert promote -- the bar's Edit and Delete refuse, and
+    the card and its job are left alone; once it is done they run."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    forest = doc.open_forest(sync=True)
+    forest._ask = lambda title, text: True
+    forest._runner = held = _Held([])
+    forest._revert()                                                      # the card's Revert promote, running
+    assert held.busy() and "--revert" in held.argvs[-1]
+    n = len(run.argvs)
+    for act in (bar.edit, bar.delete):
+        act()
+        assert "still writing" in bar.status_lbl.text() and bar.status_lbl.property("state") == "error"
+    assert run.argvs[n:] == [] and not forest.isHidden() and held.busy() and bar._edit is None
+    held.wait()                                                            # the card's revert ends
+    bar.select(0)
+    bar.delete()
+    assert "still writing" not in bar.status_lbl.text()
+
+
+# ---- each recovery branch of the chain, driven (each was broken on purpose, in memory, and its test went red)
+def _promotes_after(run, n):
+    return [a for a in run.argvs[n:] if a[5] == "world-promote"]
+
+
+def test_a_cancel_that_cannot_undo_the_draft_never_promotes_it(monkeypatch, tmp_path, app):
+    """THE GUARD: an in-game step's edit whose cancel fails leaves a draft not known to be as it was, and such a draft
+    is never promoted into the game: the bar says so, and nothing is left owed (it would retry at every launch)."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    n = len(run.argvs)
+
+    def fails(_d):
+        raise ValueError("a file of the draft could not be written back")
+    monkeypatch.setattr(D, "cancel_edit", fails)
+    doc._forest.close_btn.click()                                          # Cancel edit
+    assert _promotes_after(run, n) == []
+    assert bar.status_lbl.property("state") == "error" and "could not be undone" in bar.status_lbl.text()
+    assert D.promote_owed(draft) is None
+
+
+def test_a_promote_back_that_refuses_says_the_game_lacks_the_recipe(monkeypatch, tmp_path, app):
+    """Another session wrote the live folder at the edited step's block while the edit was open: the promote back
+    refuses (it would overwrite that work), the bar says the game does not have the recipe, and nothing is left owed
+    (it would retry at every launch)."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    (game / "FF9CustomMap-world" / T00).write_bytes(b"another session's edit")
+    doc._forest.close_btn.click()                                          # Cancel edit
+    text = bar.status_lbl.text()
+    assert bar.status_lbl.property("state") == "error" and "Promoting it again did not run" in text, text
+    assert "does not have the recipe" in text
+    h = D.history(draft)
+    assert h["cursor"] == 3 and h["promoted"] == 0 and D.promote_owed(draft) is None
+
+
+def test_a_step_marked_in_the_game_with_no_promote_record_refuses_and_changes_nothing(monkeypatch, tmp_path, app):
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    for rec in (draft / D.PROMOTES).glob("*/promote.json"):
+        rec.unlink()                                                       # the record gone, the mark still there
+    h0 = D.history(draft)
+    n = len(run.argvs)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    text = bar.status_lbl.text()
+    assert "holds no promote to revert" in text and "as they were" in text, text
+    assert _promotes_after(run, n) == [] and D.history(draft) == h0 and D.promote_owed(draft) is None
+    assert _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_an_edit_that_will_not_open_after_the_reverts_promotes_the_game_back(monkeypatch, tmp_path, app):
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+
+    def refuses(_d, _k):
+        raise ValueError("an edit is already open in the draft")
+    monkeypatch.setattr(D, "begin_edit", refuses)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    text = bar.status_lbl.text()
+    assert "Not opened: an edit is already open" in text and "again" in text, text
+    assert _tree(game / "FF9CustomMap-world") == live0
+    assert D.history(draft)["promoted"] == 3 and D.promote_owed(draft) is None
+
+
+def _unpromoted_fourth(draft):
+    """A fourth step in the draft that was never promoted."""
+    (draft / FAR).parent.mkdir(parents=True, exist_ok=True)
+    _step(draft, [(10, 5)], {FAR: b"a fourth step, never promoted"}, _row(672, -352), "a fourth step")
+
+
+@pytest.mark.parametrize("second_promote", [False, True])
+def test_an_in_game_step_does_not_open_while_steps_after_the_game_s_are_out_of_it(monkeypatch, tmp_path, app,
+                                                                                   second_promote):
+    """A step placed after the last promote is not in the game. The chain's promote back writes the whole draft, so
+    with such a step on top it pushed that step into the game (even on Cancel); setting it aside by undo and redo
+    instead broke where its blocks met a promote's (review of C19, twice). So an in-game step opens (or is deleted)
+    only with nothing after the game's on top: the bar says so, and runs nothing. Undo or Promote them, and it opens."""
+    game, doc, run, draft, _live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    if second_promote:                                                     # P1 = steps 1-3, P2 = step 4, then 5
+        _unpromoted_fourth(draft)
+        D.promote(draft, game=game, log=lambda *a: None)
+        far2 = "FF9_Data/WorldMap/Disc1/0_1/r6/Block[12][6] Terrain.ff9mesh"
+        (draft / far2).parent.mkdir(parents=True, exist_ok=True)
+        _step(draft, [(12, 6)], {far2: b"a fifth step, never promoted"}, _row(800, -416), "a fifth step")
+    else:
+        _unpromoted_fourth(draft)
+    bar.refresh()
+    live, h0, n = _tree(game / "FF9CustomMap-world"), D.history(draft), len(run.argvs)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    assert bar._sel == 0 and not bar.edit_btn.isEnabled() and not bar.delete_btn.isEnabled()
+    assert "not in the game" in bar.edit_btn.toolTip() and "not in the game" in bar.status_lbl.text()
+    for act in (bar.edit, bar.delete):                                     # (the law at the call site too)
+        act()
+        assert "not in the game" in bar.status_lbl.text() and bar.status_lbl.property("state") == "error"
+    assert run.argvs[n:] == [] and D.history(draft) == h0 and D.promote_owed(draft) is None
+    assert _tree(game / "FF9CustomMap-world") == live and not (doc._forest and doc._forest.editing())
+    bar.undo_btn.click()                                                   # the step after the game's: undone
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    assert bar.edit_btn.isEnabled()
+    bar.edit_btn.click()
+    assert doc._forest.editing()

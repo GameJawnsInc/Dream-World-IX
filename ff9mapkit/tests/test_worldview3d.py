@@ -216,6 +216,9 @@ def test_gpu_still_matches_the_software_renderer_and_catches_each_mutation():
         assert c["differ"] < 0.01 * c["pixels"], (vn, c)
         assert 0.3 < c["fogged_frac"] < 0.95, (vn, c)        # not vacuous: the ramp grades the frame
     assert out["fog_mutation"]["blob"] > 100, out["fog_mutation"]
+    # ...and the break-it's measure can fail: a fog that clears the sky but fogs no land scores nothing (it scored
+    # 44,691 once: the sky's clear colour alone filled the blocks, whatever the shader did -- review of C18)
+    assert out["fog_dead"]["blob"] == 0, out["fog_dead"]
 
 
 def _has_install() -> bool:
@@ -496,6 +499,54 @@ def test_the_game_camera_seats_each_vehicle_as_the_game_does(app):
     assert cam.view()["eye"] == pytest.approx(want["eye"]) and cam.view()["fov"] == pytest.approx(want["fov"])
     p.game_btn.setChecked(False)
     assert not p.vehicle_box.isVisibleTo(p) and not p.alt_spin.isVisibleTo(p)
+
+
+def test_a_load_asked_while_one_runs_is_the_one_drawn(app, monkeypatch):
+    """The panel dropped a load asked while one ran ("busy: return"): a scan landing during a card's write, or a write
+    ending while a refusal's reload ran, left the view drawing the old folder or the draft without the shape just
+    accepted, the caption saying otherwise (review of the C19 fixes, fifth round). The last load asked is the one
+    drawn: a result that a newer request overtook is dropped, and the newer one loads."""
+    from ff9mapkit.editor.theme import pick_palette
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    monkeypatch.setattr(V, "gl_available", lambda: True)
+    worked = []
+    p._work = lambda site: worked.append(site)            # the worker reads; its result comes later
+
+    class Inline:
+        def __init__(self, target, args, daemon):
+            self.go = lambda: target(*args)
+
+        def start(self):
+            self.go()
+    monkeypatch.setattr(V.threading, "Thread", Inline)
+    p.load("the old folder")
+    p.load("the new folder")                               # asked while the first one reads
+    assert worked == ["the old folder"]
+    p._finish(None, None, "the old folder's scene")       # the first lands: overtaken
+    assert worked == ["the old folder", "the new folder"] and p.site == "the new folder"
+
+
+def test_home_puts_the_game_camera_s_controls_away(app):
+    """Home in the view goes back to the free orbit and says so (camera_changed): the button followed, but the Mist
+    switch, the vehicle chooser and the height spin stayed on the bar, live and drawing nothing (review of C18). They
+    go with the game camera, however it is left."""
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtWidgets import QApplication
+    from ff9mapkit.editor.theme import pick_palette
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    p.view = V.WorldView3D()
+    p.view.camera_changed.connect(p._camera_changed)       # as the panel wires its view
+    p.view.packed = V.pack([GROUND])
+    p.view.marker = (30.0, 0.0, -33.0)
+    p.game_btn.setChecked(True)
+    p.vehicle_box.setCurrentIndex(p.vehicle_box.findData(8))
+    assert p.mist_box.isVisibleTo(p) and p.vehicle_box.isVisibleTo(p) and p.alt_spin.isVisibleTo(p)
+    QApplication.sendEvent(p.view, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Home, Qt.KeyboardModifier.NoModifier))
+    assert not p.view.game_mode() and not p.game_btn.isChecked()
+    assert not p.mist_box.isVisibleTo(p) and not p.vehicle_box.isVisibleTo(p) and not p.alt_spin.isVisibleTo(p)
+    p.game_btn.setChecked(True)                             # and back: they come with it
+    assert p.view.game_mode() and p.mist_box.isVisibleTo(p) and p.vehicle_box.isVisibleTo(p)
 
 
 def test_the_chooser_says_how_the_vehicle_was_reached(app):

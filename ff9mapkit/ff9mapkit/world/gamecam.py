@@ -93,28 +93,44 @@ MODE_NAMES = {0: "on foot", 1: "yellow chocobo", 2: "light blue chocobo", 3: "re
               9: "Invincible"}
 
 
-def transport_table(game=None) -> dict:
-    """``mode -> (type, type_cam)`` from the ``TransportControls.csv`` the game reads: the first folder of the stack
-    (Memoria.ini FolderNames, then the base game) that has ``StreamingAssets/Data/World/TransportControls.csv``.
-    The stock rows when none can be read."""
+def world_csv(game, rel):
+    """The data file at ``rel`` (under a folder root, e.g. ``StreamingAssets/Data/World/WeatherColors.csv``) the game
+    reads: Memoria's ``AssetManager.GetCsvWithHighestPriority``, the first folder of the stack (Memoria.ini
+    FolderNames) that has it, then the base game. None when no root has it (or the stack cannot be read)."""
     from pathlib import Path
     if game is None:
-        return dict(TRANSPORT)
+        return None
     try:
         from .render import game_stack
         roots = list(game_stack(game) or ()) + [Path(game)]
-    except Exception:                                       # noqa: BLE001 -- the stock rows: the safe answer
+    except Exception:                                       # noqa: BLE001 -- unknown: the caller's safe answer
+        return None
+    return next((Path(r) / rel for r in roots if (Path(r) / rel).is_file()), None)
+
+
+def csv_text(path) -> str:
+    """A data file's text as Memoria's CsvReader reads it (a .NET StreamReader): a byte-order mark detected and
+    stripped -- UTF-16 as Notepad's "Unicode" saves it, UTF-8 as Excel's "CSV UTF-8" -- else UTF-8, a bad byte
+    replaced. A mod's file may be any of these (review of the C18 fixes: a kept mark read as a row)."""
+    import codecs
+    from pathlib import Path
+    data = Path(path).read_bytes()
+    utf16 = data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE))
+    return data.decode("utf-16" if utf16 else "utf-8-sig", errors="replace")
+
+
+def transport_table(game=None) -> dict:
+    """``mode -> (type, type_cam)`` from the ``TransportControls.csv`` the game reads (:func:`world_csv`). The stock
+    rows when none can be read."""
+    from pathlib import Path
+    f = world_csv(game, Path("StreamingAssets") / "Data" / "World" / "TransportControls.csv")
+    if f is None:
         return dict(TRANSPORT)
-    for root in roots:
-        f = Path(root) / "StreamingAssets" / "Data" / "World" / "TransportControls.csv"
-        if f.is_file():
-            rows = [ln.split(";") for ln in f.read_text(encoding="utf-8", errors="ignore").splitlines()
-                    if ln.strip() and not ln.lstrip().startswith("#")]
-            try:
-                return {i: (int(r[0]), int(r[15])) for i, r in enumerate(rows)}
-            except (ValueError, IndexError):
-                return dict(TRANSPORT)
-    return dict(TRANSPORT)
+    rows = [ln.split(";") for ln in csv_text(f).splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
+    try:
+        return {i: (int(r[0]), int(r[15])) for i, r in enumerate(rows)}
+    except (ValueError, IndexError):
+        return dict(TRANSPORT)
 FUZZY = 5.5                        # the eye's terrain probe: four samples this far round it (w_cameraFuzzy)
 TERRAIN_CAP = 37.1                 # ... the probe's height is capped here on foot (33.2 flying)
 EYE_BAND, AIM_BAND = 1.0, 0.5      # the settle deadbands (module docstring)
@@ -127,13 +143,14 @@ class Settings:
     camera_distance: float = 100.0
     camera_height: float = 100.0
     camera_aim_height: float = 100.0
-    # the fog's (world.fog, overworld editor C18): Memoria's documented vanilla values
-    fog_start: float = 86.0                       # FogStartDistance / FogEndDistance: the no-mist years (u)
-    fog_end: float = 142.0
-    mist_start: float = 27.0                      # MistStartDistance / MistEndDistance / MistDensity /
-    mist_end: float = 80.0                        # MistStartDistance_base: the Mist years
-    mist_density: float = 7.0
-    mist_base: float = 55.0
+    # the fog's (world.fog, overworld editor C18): the defaults Memoria binds each key with (WorldmapSection's
+    # BindInt32), which is what a key the ini leaves out runs at -- not the ini comment's "vanilla" numbers
+    fog_start: float = 250.0                      # FogStartDistance / FogEndDistance: the no-mist years (u)
+    fog_end: float = 350.0
+    mist_start: float = 25.0                      # MistStartDistance / MistEndDistance / MistDensity /
+    mist_end: float = 250.0                       # MistStartDistance_base: the Mist years
+    mist_density: float = 15.0
+    mist_base: float = 40.0
 
     @classmethod
     def from_ini(cls, text: str) -> "Settings":

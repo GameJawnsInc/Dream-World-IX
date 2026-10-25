@@ -252,6 +252,70 @@ def test_a_sink_row_waits_for_the_island_list_and_one_it_cannot_say_cancels_the_
     assert not tool.editing() and tool.isHidden()
 
 
+def test_a_step_s_ticks_never_outlive_its_edit(tmp_path):
+    """load_row ticks the step's boxes before it knows the row can be seated; a row refused at open (the tab closes
+    the card before the author sees it) left 'Allow entrances' ticked, and the next fresh sink passed the entrance law
+    on an island with a place on it -- a place that never opens again (review of C12). A card opens on the defaults;
+    an edit then ticks what its row says."""
+    gated = {**ROW, "entrance_tris": 12}                 # an island with an entrance on it
+    tool, _g, _s = _sink_card(tmp_path, [gated])
+    with pytest.raises(ValueError, match="no island the sink takes"):
+        tool.edit_row({"table": "sink", "at": [900.0, -900.0], "allow_entrances": True, "cluster": True}, label="s",
+                      on_accepted=lambda: None, on_cancel=lambda note=None: None)
+    tool.close_tool()                                    # (WorldDoc._edit_step closes the refused card)
+    tool.open_tool()                                     # the Sink button, later
+    assert not tool.entrances.isChecked() and not tool.cluster.isChecked()
+    tool.place(345.0, -359.0)
+    assert not tool._preview["ok"], tool._preview
+    tool.edit_row({"table": "sink", "at": [344.0, -360.0], "allow_entrances": True}, label="s",
+                  on_accepted=lambda: None, on_cancel=lambda note=None: None)
+    assert tool.entrances.isChecked() and tool.row()["allow_entrances"] is True
+
+
+def test_reopening_the_sink_card_mid_edit_keeps_the_step_s_ticks(tmp_path):
+    """The tab opens a card that is already open (the menu stays live during an edit), and open_tool's reset of the
+    boxes wiped the edit's ticks: Accept would write the sink without --cluster, or a held row was refused against
+    the cleared boxes (review of the C12 fixes). The reset is for a card opening fresh, not mid-edit."""
+    row = {"table": "sink", "at": [344.0, -360.0], "cluster": True}
+    tool, _g, _s = _sink_card(tmp_path / "a", [ROW])
+    tool.edit_row(row, label="s", on_accepted=lambda: None, on_cancel=lambda note=None: None)
+    tool.open_tool()                                     # Sink an island, picked again mid-edit
+    assert tool.editing() and tool.cluster.isChecked() and tool.row() == row
+    notes = []
+    tool, _g, _s = _sink_card(tmp_path / "b", [ROW], open_=False)
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))  # the island list still being read
+    tool.edit_row(row, label="s", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    tool.open_tool()
+    for what, fn in held:
+        tool._on_bg(what, 0, fn(), None)
+    assert tool.editing() and notes == [] and tool.row() == row
+
+
+def test_a_sink_s_two_call_accept_is_never_cut_between_its_calls(tmp_path):
+    """The sink's Accept is two calls, disc 1 then disc 4's replay, the second started by the first's end. close_tool
+    waited for one call and then killed the runner, cutting the disc-4 call: the disc-1 sink in the draft with no
+    recipe row and an orphaned pending step (review of the C19 fixes, fourth round). The card cannot be closed while
+    it writes, and closed anyway it waits for every call of the job."""
+    from .test_worldforest import Scripted
+
+    def answer(kind, argv):
+        return {"ok": True, "dry_run": kind == "check", "blocks": [[5, 5]], "written": [], "refused": None,
+                "report": {"land_tris": 4}}
+    run = Scripted(answer)
+    tool, _g, _s = _sink_card(tmp_path, [ROW], run)
+    tool.place(345.0, -359.0)
+    tool._timer.stop()
+    tool._check()
+    assert tool.accept_btn.isEnabled(), tool.verdict_lbl.text()
+    run.hold = True
+    tool.accept_btn.click()                              # disc 1 writing
+    assert run.busy() and tool.writing() and not tool.close_btn.isEnabled()
+    tool.close_tool()                                    # closed anyway (from code)
+    assert not run.busy() and len([a for a in run.argvs if "--dry-run" not in a]) == 2
+    assert D.history(tool.draft())["cursor"] == 1 and tool.isHidden()
+
+
 def test_a_sink_edited_through_the_recipe_bar_writes_what_world_fuse_writes(world, monkeypatch, tmp_path):
     """THE C12 ACCEPTANCE for the sink, on the synthetic world: a sink placed with the card, picked in the recipe bar,
     opened again in its card on its own row, retuned (entrances allowed) and accepted; the recipe is the edited row,

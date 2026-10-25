@@ -183,6 +183,72 @@ def test_the_river_card_opens_on_a_move_and_holds_where_it_moved_from(app, tmp_p
     assert tool.row() == {"table": "river", "at": [576.0, 0.0]}
 
 
+def test_a_read_of_the_river_from_before_the_edit_is_not_taken_for_the_draft_before_the_step(app, tmp_path):
+    """A read of where the river stands, begun while the card was open, lands after the bar's Edit lifted the step out
+    of the draft (same path, new bytes): it said where the river was BEFORE the edit, and the move's held move_from
+    refused against it and cancelled the edit (review of C12). A read begun before the draft moved is dropped; the
+    one begun after it decides."""
+    tool, _run, _panel, _reads = _card(tmp_path)
+    state = {"at": (8, -3)}                                 # the draft after the step: the river moved (8,-2) -> (8,-3)
+    tool._river_fn = lambda target, rs: (state["at"], {})
+    tool._sync = False
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn()))   # a worker reads at once; its result comes later
+
+    def deliver(kind):
+        k = next((i for i, (w, _r) in enumerate(held) if w == kind), None)
+        if k is not None:
+            what, result = held.pop(k)
+            tool._on_bg(what, 0, result, None)
+        return k is not None
+    tool.open_tool()
+    deliver("outline")                                      # the river's shape in; where it stands is being read
+    assert any(w == "river" for w, _r in held)
+    state["at"] = (8, -2)                                   # the bar's Edit: the draft back to before the step...
+    tool.island_changed()                                   # ...the tab's _draft_changed, then _open_carry
+    tool.open_tool()
+    notes = []
+    tool.edit_row(MOVE, label="move", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    while deliver("river") or deliver("outline"):
+        pass
+    assert tool.editing() and notes == [] and tool.river_at() == (8, -2)
+
+
+def test_a_stale_read_that_fails_does_not_take_the_live_read_s_place(app, tmp_path):
+    """A read of the river begun before the draft moved fails (plausibly: the draft is being rewritten under it) and
+    its error came with no number, so it freed the slot of the read begun after: that one was dropped when it landed,
+    the river never read, the stale error on screen (review of the C12 fixes). A read's error carries its number."""
+    tool, _run, _panel, _reads = _card(tmp_path)
+    calls = {"n": 0}
+
+    def river_fn(target, rs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("the draft was being rewritten")
+        return (8, -2), {}
+    tool._river_fn = river_fn
+    tool._sync = False
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))
+
+    def deliver(kind):                                       # as the worker does: its result, or its exception
+        k = next((i for i, (w, _f) in enumerate(held) if w == kind), None)
+        if k is None:
+            return False
+        what, fn = held.pop(k)
+        try:
+            tool._on_bg(what, 0, fn(), None)
+        except Exception as e:                               # noqa: BLE001
+            tool._on_bg(what, 0, None, e)
+        return True
+    tool.open_tool()
+    deliver("outline")                                       # the shape in: read 1 asked
+    tool.island_changed()                                    # the draft moved: read 2 asked
+    while deliver("river") or deliver("outline"):
+        pass
+    assert tool.river_at() == (8, -2) and "could not be read" not in tool.verdict_lbl.text()
+
+
 def test_a_river_edit_whose_move_from_is_not_where_the_river_stands_is_cancelled_when_that_read_comes(app, tmp_path):
     """Where the river stands is read on a worker: the edit opens on the placement at once, and the row's move_from
     is held to that read when it comes (a different one cancels the edit with the reason)."""

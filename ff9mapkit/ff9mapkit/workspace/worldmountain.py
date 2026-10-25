@@ -19,6 +19,13 @@ MOUNTAIN_GATES = {**GATE_WORDS, "blocks": "the deployed-blocks law", "span": "th
                   "edge": "the zip's edge"}
 
 
+def _read_free(row) -> dict:
+    """A mountain row as the editor writes it, less the keys that follow reads (--ground the island, --reach the
+    massif's outline)."""
+    from ..world import recipe as RC
+    return {k: v for k, v in RC.canon(row).items() if k not in ("ground", "reach")}
+
+
 class MountainTool(CarryTool):
     """The mountain card (rung C2)."""
 
@@ -106,6 +113,7 @@ class MountainTool(CarryTool):
         self.rock_height.setToolTip(f"The {self._rows.get(donor, {}).get('name', donor)} massif carries falls or a "
                                "river mouth on its face, which a height stretch would leave behind, so its height "
                                "is fixed (world-mountain refuses --rock-height for it).")
+        self._try_seat()                                 # a held step's reach waited on this outline
 
     # -- the island's ground and the donor's home ground --
     def ground(self) -> str:
@@ -131,6 +139,8 @@ class MountainTool(CarryTool):
                                     "stock: lawful, and no gate sees it, so it is your call.")
 
     def _redraw(self):
+        if self._pending_row is not None:                # (the island's read lands here: a held step's ground)
+            self._try_seat()
         self._sync_chip()
         super()._redraw()
 
@@ -140,7 +150,10 @@ class MountainTool(CarryTool):
         return None if ol is None else ol.r_rim * self.spread.value()
 
     def load_row(self, row):
-        """The massif, its angle, spread and height (the ground and the reach follow the place, as on a click)."""
+        """The massif, its angle, spread and height (the ground and the reach follow the place, as on a click). The
+        row is held until the island and the massif are read: its --ground is the island's under the centre and its
+        --reach the outline's, so said back before they land it would read grass and the default reach (review of
+        C12: every mountain placed off grass refused to open)."""
         ix = self.donor_box.findData(str(row["donor"]))
         if ix < 0:
             raise ValueError(f"its massif {row['donor']} is not one the card lists")
@@ -149,6 +162,63 @@ class MountainTool(CarryTool):
         self.spread.setValue(float(row.get("spread", 1.0)))
         self.rock_height.setValue(float(row.get("rock_height", 1.0)))
         self.place(*row["center"])
+        self._said_back(_read_free(row), _read_free(self.row()))   # the handles' own keys wait on no read: at once
+        self._pending_row = row
+        self._try_seat()
+
+    def _seat_row(self, row):
+        """Ready once the island and the massif are read: then the whole row is said back."""
+        return self._ix is not None and self.donor() in self._outlines
+
+    # -- the held row's wait: its handles wait with it (review of the C12 fixes, twice) --
+    def _try_seat(self):
+        """While the row waits for its reads the handles are frozen and the map's clicks are not taken: a retune then
+        was said back against the step and cancelled the edit, and letting a retune skip the law let a row the card
+        cannot say open on whether a sub-second read had landed. Seated, the shape is judged at once (the check the
+        open armed was held off: it would have run on the ground the island did not say yet)."""
+        waited = self._pending_row is not None
+        try:
+            super()._try_seat()
+        finally:
+            self._hold_handles(self._pending_row is not None)
+        if waited and self._pending_row is None and self._editing is not None and not self.isHidden():
+            self._handles_changed(at_once=True)
+
+    def _read_failed(self, what, err):
+        """A read the held row waits on failed: nothing reads it again while the row waits frozen, and the card sat
+        saying it was reading with nothing in flight (review of the C12 fixes, fourth round). The edit is cancelled,
+        saying which read failed."""
+        if self._pending_row is not None and self._editing is not None:
+            self._pending_row = None
+            self._refuse_edit(f"its {what} could not be read ({err})")
+
+    def _hold_handles(self, held):
+        for w in (self.donor_box, self.angle, self.spread):
+            w.setEnabled(not held)
+        ol = self._outlines.get(self.donor())
+        self.rock_height.setEnabled(not held and (ol is None or ol.height_ok))
+
+    def _check(self):
+        if self._pending_row is not None:
+            return                                       # (judged once the row is seated)
+        super()._check()
+
+    def place(self, x, z, y=0.0):
+        if self._pending_row is not None and not self._seating:
+            return                                       # the held row's own place stands until it is seated
+        super().place(x, z, y)
+
+    def drag_to(self, x, z):
+        if self._pending_row is None:
+            super().drag_to(x, z)
+
+    def drop_at(self, x, z):
+        if self._pending_row is None:
+            super().drop_at(x, z)
+
+    def close_tool(self):
+        super().close_tool()
+        self._hold_handles(False)
 
     def _cmd(self, target, *, dry_run, report=None):
         r = self._r_placed()

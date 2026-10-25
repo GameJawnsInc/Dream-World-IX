@@ -85,8 +85,15 @@ class QProcessRunner:
                 self.proc = None
             out.append(bytes(proc.readAllStandardOutput()).decode("utf-8", "replace"))
             done(code, "".join(out))
+
+        def failed(err):                                 # no finished signal comes for a start that failed: the
+            if err == QProcess.ProcessError.FailedToStart and self.proc is proc:   # job ends here, as a failed one
+                self.proc = None                         # (it stayed busy, and a card's write never ended:
+                done(-1, f"the job could not start: {proc.errorString()}")      # review of the C19 fixes, round 5)
         proc.finished.connect(fin)
+        proc.errorOccurred.connect(failed)
         self.proc = proc
+        self._failed = failed
         proc.start(str(argv[0]), [str(a) for a in argv[1:]])
 
     def kill(self):
@@ -98,6 +105,18 @@ class QProcessRunner:
 
     def busy(self):
         return self.proc is not None
+
+    def wait(self, msecs=120000) -> bool:
+        """Block until the running job ends and its ``done`` has run (the Workspace closing: a job writing the live
+        folder runs to its end, never killed half way). True when it ended; ``done`` may have started the next job,
+        so ``busy()`` after it says nothing about this one."""
+        proc = self.proc
+        if proc is None:
+            return True
+        ended = bool(proc.waitForFinished(msecs))
+        if self.proc is proc and proc.state() == QProcess.ProcessState.NotRunning                 and proc.error() == QProcess.ProcessError.FailedToStart:
+            self._failed(QProcess.ProcessError.FailedToStart)    # (its errorOccurred not delivered yet)
+        return ended or proc.state() == QProcess.ProcessState.NotRunning
 
 
 class CarryTool(QWidget):
@@ -141,6 +160,7 @@ class CarryTool(QWidget):
     CHECK_TIME = "about seven seconds"                   # a passing world-forest dry run, measured (C1)
     _bg_done = Signal(str, int, object, object)          # (what, serial, result, error) from a worker thread
     opened = Signal(bool)                                # the card opened (True) or was put away (False)
+    writing_changed = Signal(bool)                       # a job that writes started (True) or ended (False)
 
     def __init__(self, pal, panel, *, game_fn, source_fn, on_changed=None, runner=None, drafts_root=None,
                  ask=None, outline_fn=None, soup_fn=None, sync=False, on_reload=None, seam_soup_fn=None):
@@ -168,6 +188,7 @@ class CarryTool(QWidget):
         self._ix_for = None                              # the folder it was read from
         self._seam = False                               # the frame _ix is read in: across x = 0 (True) or not
         self._soups = {}                                 # (folder, seam) -> SoupIndex, until the island changes
+        self._soup_gen = 0                               # which island the soups read: _drop_soups moves it on
         self._preview = None                             # the last preview
         self._ghost = None                               # (tris, rim) of the drawn ghost
         self._verdict = None                             # (handles key, verdict dict) of the last finished job
@@ -196,6 +217,7 @@ class CarryTool(QWidget):
         self.close_btn.setProperty("role", "quiet")
         self.close_btn.setToolTip(f"Put the {self.NOUN} tool away (the draft keeps what you accepted).")
         self.close_btn.clicked.connect(self.close_tool)
+        self.writing_changed.connect(lambda _on: self._sync_buttons())   # Close / Cancel edit wait for a write
         row.addWidget(self.close_btn)
         card.addLayout(row)
         for extra in self._extra_rows:                   # handles that would widen the first row past the window
@@ -324,6 +346,10 @@ class CarryTool(QWidget):
     def _outline_loaded(self, donor, ol):
         """A donor's outline arrived (a subclass may set a handle from it)."""
 
+    def _read_failed(self, what, err):
+        """A read the card needs failed (``what``: "island", or the card's PART); a card holding a row on it refuses the
+        edit (MountainTool)."""
+
     def load_row(self, row):
         """Set the handles from a recipe row of this card's table and place the ghost there (rung C9); a row the
         handles cannot say raises ValueError, naming what. A card that must read first holds the row in
@@ -356,8 +382,10 @@ class CarryTool(QWidget):
             self._seating = False
 
     def _said_back(self, row, mine=None):
-        """Raise ValueError unless the handles build ``row`` again, key for key."""
-        mine = self.row() if mine is None else mine
+        """Raise ValueError unless the handles build ``row`` again, key for key, both as the editor writes a row
+        (``recipe.canon``: a default spelled out or a full turn is the same step)."""
+        from ..world import recipe as RC
+        mine, row = RC.canon(self.row() if mine is None else mine), RC.canon(row)
         diff = sorted(k for k in set(mine) | set(row) if mine.get(k) != row.get(k))
         if diff:
             raise ValueError(f"the card would not say its {', '.join(diff)} back as the step has "
@@ -426,8 +454,24 @@ class CarryTool(QWidget):
         self._load_soup()
         self._load_outline(self.donor())
 
+    @property
+    def _job(self):
+        """``(kind, key)`` of the running job, or None; setting it says when a job that writes starts or ends."""
+        return self.__dict__.get("_job_v")
+
+    @_job.setter
+    def _job(self, v):
+        was = self.writing()
+        self.__dict__["_job_v"] = v
+        if self.writing() != was:
+            self.writing_changed.emit(not was)
+
     def close_tool(self):
+        """Put the card away. A job that writes (Accept, Promote, Revert promote) is waited for, never killed: a
+        Promote cut off half way leaves the live folder half written with no record to revert from (review of the
+        C19 fixes, third round). A Check, a dry run, is killed."""
         self._timer.stop()
+        self.finish_writes()                             # (its done runs: an Accept's may close this card itself)
         self._runner.kill()
         self._job = None
         self._pending_row = None
@@ -440,6 +484,29 @@ class CarryTool(QWidget):
         self.panel.set_ghost(None)
         self.hide()
         self.opened.emit(False)
+
+    def finish_writes(self):
+        """Wait for the card's write to end, every call of it: a two-call Accept (the sink's, the coast morph's: disc
+        1, then disc 4's replay) starts its second call in the first's end, and waiting for one then killing the runner
+        cut the disc-4 call (review of the C19 fixes, fourth round)."""
+        wait = getattr(self._runner, "wait", None)
+        for _ in range(64):                              # (bounded: a runner that never ends must not spin the GUI)
+            if wait is None or not self.writing() or not self._runner.busy() or not wait():
+                break
+
+    def writing(self) -> bool:
+        """A job of this card writes the draft or the live folder now (Accept, Promote, Revert promote, the draft's
+        copy): closing the card would kill it half way."""
+        return self._job is not None and self._job[0] != "check"
+
+    def closing_runner(self):
+        """The Workspace is closing (``WorldDoc.shutdown``): a Check, a dry run that writes nothing, stops; the runner of
+        a job that writes (Accept, Promote, Revert promote) is handed back to be waited for. None when nothing runs."""
+        if self._job is not None and self._job[0] == "check":
+            self._runner.kill()
+            self._job = None
+            return None
+        return self._runner if self._runner.busy() else None
 
     def handles(self):
         """The handles as the command spells them: the stale guard every verdict is matched against."""
@@ -492,9 +559,12 @@ class CarryTool(QWidget):
         return self.FE.SoupIndex(IN.soup_from_blocks(blocks))
 
     def _drop_soups(self):
-        """The island changed: every cached soup is stale."""
+        """The island changed: every cached soup is stale, and so is every read still running (its path is the same
+        and its bytes are not: a read begun before an Edit lifted the step out decided the held row's ground --
+        review of the C12 fixes)."""
         self._soups = {}
         self._ix = self._ix_for = None
+        self._soup_gen += 1
 
     def _load_soup(self):
         """Both frames' soups, each from the cache or read on a worker (the seam frame's too, so a click near x = 0
@@ -508,7 +578,13 @@ class CarryTool(QWidget):
                     self._ix, self._ix_for = self._soups[(target, seam)], target
                 continue
             fn = self._seam_soup_fn if seam else self._soup_fn
-            self._bg("soup", lambda fn=fn, seam=seam: (target, seam, fn(target)))
+
+            def read(fn=fn, seam=seam, gen=self._soup_gen):  # its error carries its generation and frame too: a
+                try:                                         # stale read's failure must not wipe the live island
+                    return (gen, target, seam, fn(target))
+                except Exception as e:                       # noqa: BLE001 -- surfaced on the GUI thread
+                    return (gen, target, seam, e)
+            self._bg("soup", read)
 
     def fcenter(self):
         """The centre as the current soup's frame spells it (the ghost and the cheap laws); ``center`` is the folded
@@ -532,28 +608,48 @@ class CarryTool(QWidget):
         if donor in self._outlines:
             self._outline_loaded(donor, self._outlines[donor])
             return
-        self._bg("outline", lambda: (donor, self._outline_fn(donor)))
+        def read():                                      # its error names its donor too: a failed read of another
+            try:                                         # massif cancelled a held row's edit (review of the C12
+                return (donor, self._outline_fn(donor))  # fixes, fifth round)
+            except Exception as e:                       # noqa: BLE001 -- surfaced on the GUI thread
+                return (donor, e)
+        self._bg("outline", read)
 
     def _on_bg(self, what, _serial, result, err):
         if err is not None:
             if what == "soup":
                 self._ix, self._ix_for = None, None
                 self._say(f"The island could not be read: {err}", "error")
+                self._read_failed("island", err)
             elif what == "outline":
                 self._say(f"The {self.PART} could not be read: {err}", "error")
+                self._read_failed(self.PART, err)
             elif what == "draft":
                 self._job = None
                 self._say(f"The draft could not be made: {err}", "error")
                 self._sync_buttons()
             return
         if what == "soup":
-            target, seam, ix = result
+            gen, target, seam, ix = result
+            if gen != self._soup_gen:
+                return                                   # begun before the island changed: not the island now
+            if isinstance(ix, Exception):
+                if (target, seam) == (self.target(), self._seam):
+                    self._ix, self._ix_for = None, None
+                    self._say(f"The island could not be read: {ix}", "error")
+                    self._read_failed("island", ix)
+                return
             self._soups[(target, seam)] = ix
             if (target, seam) != (self.target(), self._seam):
                 return                                   # a frame (or a draft) the tool has moved off meanwhile
             self._ix_for, self._ix = target, ix
         elif what == "outline":
             donor, ol = result
+            if isinstance(ol, Exception):
+                if donor == self.donor():
+                    self._say(f"The {self.PART} could not be read: {ol}", "error")
+                    self._read_failed(self.PART, ol)
+                return
             self._outlines[donor] = ol
             if donor == self.donor():
                 self._outline_loaded(donor, ol)
@@ -669,6 +765,7 @@ class CarryTool(QWidget):
         v = self._current_verdict()
         self.accept_btn.setEnabled(self._job is None and v is not None and v["ok"] and bool(v.get("dry_run")))
         self.copy_btn.setEnabled(self.center is not None)
+        self.close_btn.setEnabled(not self.writing())    # a write is never cut off (Cancel edit would accept it)
         has_draft = self.draft() is not None
         edited, last = self._draft_state if has_draft else (0, None)
         free = self._editing is None                     # an open edit holds the draft: these wait for it
@@ -900,9 +997,13 @@ class CarryTool(QWidget):
         return self._last_center
 
     def _show_in_game(self):
+        """The game re-reads the world and the party goes to the shape: the point folded onto the grid here, the one
+        call site, since the engine's teleport refuses x/64 >= 24 and a carry across the seam is centred at 1536 or
+        past it (review of C23)."""
         t = self._show_target()
         if t is not None and self._on_reload is not None:
-            self._on_reload(*t)
+            from ..world.frames import wrap_world_xz
+            self._on_reload(*(float(c) for c in wrap_world_xz(*t)))
 
     def _ask_dialog(self, title, text):
         return QMessageBox.question(self, title, text) == QMessageBox.StandardButton.Yes

@@ -287,6 +287,21 @@ def test_the_held_window_keeps_a_tie():
     assert CE.nearest([BEACH, CLIFF], x, z) is CLIFF and CE._on_run(CLIFF, x, z)[0] < 1e-9     # on its run
 
 
+def test_the_held_window_keeps_a_tie_from_a_fresh_read_too():
+    """Every read of a block's windows is a fresh JSON load: the window the card holds comes back as an equal new
+    dict. nearest() looked the held window up by identity, so after a second read a nearer window listed before it
+    took the tie and the card's depth reset to the ceiling (review of the C12 fixes: e7977bd9's card test had no
+    tie, and this half of it no test)."""
+    import copy
+    other = copy.deepcopy(CLIFF)
+    other["run"] = [[x + 0.02, z] for x, z in CLIFF["run"]]              # another run, 0.02u off, listed first
+    fresh = copy.deepcopy([other, CLIFF])                                 # the second read: equal, new dicts
+    held = CLIFF                                                          # what the card holds, from the first read
+    assert CE.nearest(fresh, 205.02, -520.0) == other                     # nearest by itself
+    w = CE.nearest(fresh, 205.02, -520.0, prefer=held)
+    assert w == CLIFF and w is fresh[1]                                   # the held window, as the read's own copy
+
+
 def test_the_coast_card_opens_on_its_row_and_says_it_back(app, tmp_path):
     from .test_worldforest import Scripted
     tool, _p, _g, _s = _card(app, tmp_path, Scripted())
@@ -318,6 +333,64 @@ def test_a_morph_row_waits_for_its_block_s_windows_and_one_it_cannot_say_cancels
             assert tool._pending_row is None and tool.row() == row and tool.editing() and notes == []
     assert notes == ["Not opened in its card: its depth 9 is outside the window's lawful 0.5 to 2.5. Delete still "
                      "works."] and not tool.editing() and tool.isHidden()
+
+
+def test_a_second_read_of_the_block_keeps_the_held_window_and_its_depth(app, tmp_path):
+    """Every read of a block's windows is a fresh JSON load: new dicts equal to the old. The card held its window by
+    identity, so a second read landing after the edit seated took the equal window for another and reset the depth to
+    its ceiling: Accept would write 2.5 for a step placed at 1.5, no handle touched (review of C12). Two reads are in
+    flight whenever an edit opens on a block whose windows are not in yet (open_tool asks, then the seat)."""
+    import copy
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldcoast import CoastTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_worldforest import Scripted
+    game = _game(tmp_path)
+    src = _mod(game, "FF9CustomMap-world", ((0, 0),))
+    tool = CoastTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: game,
+                     source_fn=lambda: src, runner=Scripted(), drafts_root=tmp_path / "drafts", sync=False,
+                     stack_fn=lambda: [], outline_fn=lambda cell: [] if cell == "-" else copy.deepcopy([CLIFF, BEACH]))
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))     # the worker lane, held
+    tool.open_tool()
+    tool.place(205.0, -521.0)                                # the card is on block (3, 8), its windows being read
+    row = _morph_row(CLIFF, "cliff-bump", 1.5)
+    tool.close_tool()
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="morph", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    reads = [h for h in held if h[0] == "outline"]
+    assert len(reads) >= 2
+    for what, fn in reads:
+        tool._on_bg(what, 0, fn(), None)
+        assert tool.editing() and notes == []
+    assert tool.depth.value() == 1.5 and tool.row() == row
+
+
+def test_who_holds_the_block_is_read_again_when_the_card_opens_on_another_folder(app, tmp_path):
+    """C12 re-read who holds the card's block when the draft moved, but a folder pick or a Rescan only closes the
+    card: open on another folder and clicked on the same block, it judged the block by the OLD folder's holders and
+    refused a lawful morph -- or passed one the new folder already overrides (review of C12)."""
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.world import mesh as M
+    from ff9mapkit.workspace.worldcoast import CoastTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_world_interior import _bm, GRASS, _MAIN_U
+    from .test_worldforest import Scripted
+    game = _game(tmp_path)
+    a, b = _mod(game, "FolderA", ((0, 0),)), _mod(game, "FolderB", ((0, 0),))
+    M.deploy_override(_bm([(((0, 3.0, 0), (4, 3.0, 0), (0, 3.0, -4)), GRASS, _MAIN_U)], name="Block[3][8] Terrain",
+                          x=3, y=8), mod_folder="FolderA", game=game, part="Terrain", disc=1)     # A holds (3, 8)
+    shown = {"src": a}
+    tool = CoastTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: game,
+                     source_fn=lambda: shown["src"], runner=Scripted(), drafts_root=tmp_path / "drafts", sync=True,
+                     stack_fn=lambda: [str(shown["src"])], outline_fn=lambda c: [] if c == "-" else [CLIFF, BEACH])
+    for src, holders in ((a, ["FolderA"]), (b, []), (a, ["FolderA"])):
+        shown["src"] = src                               # the folder pick: the tab closes the card, nothing else
+        tool.close_tool()
+        tool.open_tool()
+        tool.place(205.0, -521.0)
+        assert tool._edited_by == holders and tool._preview["ok"] == (not holders), (src.name, tool._edited_by)
 
 
 def test_who_holds_the_block_is_read_again_when_the_draft_moves(app, monkeypatch, tmp_path):

@@ -45,6 +45,48 @@ def test_the_colour_is_the_weather_table_s_fog_dw(tmp_path):
     assert FG.from_game(tmp_path / "nowhere").rgb == FG.FOG_RGB          # no table: the colour measured
 
 
+def test_the_weather_table_is_the_one_the_stack_gives(tmp_path):
+    """Memoria reads WeatherColors.csv with GetCsvWithHighestPriority: the first folder of Memoria.ini FolderNames
+    that ships one, then the base game. The kit read the base game's only, so a mod's own daylight fogged the game
+    one colour and the view another (review of C18); TransportControls.csv already walked the stack."""
+    game = _install(tmp_path)                            # the base game's: (201, 211, 241)
+    mod = game / "MINE" / FG.WEATHER_CSV
+    mod.parent.mkdir(parents=True)
+    mod.write_text(HEADER + DAYLIGHT.replace("201;211;241", "90;100;110"), encoding="utf-8")
+    assert FG.weather_rgb(game) == (201, 211, 241)       # no FolderNames: the base game's
+    (game / "Memoria.ini").write_text('[Mod]\nFolderNames = "OTHER", "MINE"\n', encoding="utf-8")
+    assert FG.weather_rgb(game) == (90, 100, 110) and FG.from_game(game).rgb == (90, 100, 110)
+    (game / "Memoria.ini").write_text('[Mod]\nFolderNames = "OTHER"\n', encoding="utf-8")
+    assert FG.weather_rgb(game) == (201, 211, 241)       # a folder the game does not load is not read
+
+
+def test_a_weather_table_saved_in_another_encoding_still_reads(tmp_path):
+    """Since the table comes from the stack, a mod's own file is read, and one saved by a cp1252 editor (an accented
+    comment) raised UnicodeDecodeError out of the game camera's toggle: no pose, no fog, the controls shown anyway
+    (review of the C18 fixes). Memoria's CsvReader replaces a bad byte and reads on; so does the kit."""
+    game = _install(tmp_path)
+    mod = game / "MINE" / FG.WEATHER_CSV
+    mod.parent.mkdir(parents=True)
+    comment = "# couleur modifiée\n".encode("cp1252")                 # 0xE9: not UTF-8
+    mod.write_bytes(HEADER.encode("ascii") + comment + DAYLIGHT.replace("201;211;241", "90;100;110").encode("ascii"))
+    (game / "Memoria.ini").write_text('[Mod]\nFolderNames = "MINE"\n', encoding="utf-8")
+    assert b"\xe9" in mod.read_bytes()
+    assert FG.weather_rgb(game) == (90, 100, 110) and FG.from_game(game).rgb == (90, 100, 110)
+
+
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16"])
+def test_a_weather_table_with_a_byte_order_mark_reads_as_the_game_reads_it(tmp_path, encoding):
+    """Memoria's CsvReader is a StreamReader, which detects a byte-order mark and strips it (UTF-8 as Excel's "CSV
+    UTF-8" saves it, UTF-16 as Notepad's "Unicode"); the kit kept the mark on the first comment line, which then read
+    as a row, and the fog fell back to the measured colour (review of the C18 fixes, third round)."""
+    game = _install(tmp_path)
+    mod = game / "MINE" / FG.WEATHER_CSV
+    mod.parent.mkdir(parents=True)
+    mod.write_bytes((HEADER + DAYLIGHT.replace("201;211;241", "90;100;110")).encode(encoding))
+    (game / "Memoria.ini").write_text('[Mod]\nFolderNames = "MINE"\n', encoding="utf-8")
+    assert FG.weather_rgb(game) == (90, 100, 110)
+
+
 def test_the_two_years(tmp_path):
     game = _install(tmp_path, ini="[Worldmap]\nFogStartDistance = 400\nFogEndDistance = 490\nMistStartDistance = 25\n"
                                   "MistEndDistance = 250\nMistDensity = 15\nMistStartDistance_base = 40\n")
@@ -53,9 +95,24 @@ def test_the_two_years(tmp_path):
     assert (clear.start, clear.end, clear.per_u, clear.mist) == (400.0, 490.0, 0.0, False)
     assert "FogStartDistance" in clear.note() and "measured" in mist.note() and "differ" not in mist.note()
     other = FG.from_game(_install(tmp_path / "b", ini="[Worldmap]\nMistEndDistance = 80\n"))
-    assert "MistEndDistance 80" in other.note() and "MistStartDistance 27" in other.note()    # vanilla vs measured
+    assert "MistEndDistance 80" in other.note() and "MistStartDistance" not in other.note()   # the unset ones: Memoria's
     assert G.Settings.from_ini("[Worldmap]\nFogStartDistance = 400\n").fog_start == 400.0
-    assert G.Settings().fog_end == 142.0                                 # Memoria's documented vanilla
+
+
+def test_a_key_the_ini_leaves_out_is_memoria_s_own_default(tmp_path):
+    """Memoria's WorldmapSection binds each key with a default (BindInt32), and a missing key runs at it. The kit used
+    the ini comment's "vanilla" numbers instead (86 / 142, 27 / 80 / 7 / 55): with no keys, the no-mist view fogged the
+    land solid by 142u where the engine keeps it clear to 250u, and the Mist tooltip called the engine's own defaults
+    -- the very ones measured -- unmeasured (review of C18)."""
+    s = G.Settings()
+    assert (s.fog_start, s.fog_end) == (250.0, 350.0)
+    assert {k: getattr(s, k) for k in FG.MEASURED_MIST} == FG.MEASURED_MIST
+    assert (s.field_of_view, s.camera_distance, s.camera_height, s.camera_aim_height) == (44.0, 100.0, 100.0, 100.0)
+    bare = _install(tmp_path, ini="[Worldmap]\n")
+    assert FG.from_game(bare).unmeasured == () and "differ" not in FG.from_game(bare).note()
+    clear = FG.from_game(bare, mist=False)
+    assert (clear.start, clear.end) == (250.0, 350.0)
+    assert FG.from_game(tmp_path / "nowhere", mist=False).end == 350.0      # no ini at all: the same
 
 
 def test_the_software_twin_fogs_by_each_pixel_s_ray():

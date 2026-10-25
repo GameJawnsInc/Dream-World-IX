@@ -132,6 +132,36 @@ def row_for(argv) -> dict:
     return row
 
 
+#: Each editor table's keys that :func:`row_for` leaves out at these values (the command leaves the default out)
+_ROW_DEFAULTS = {"forest": {"spread": 1.0, "reach": 96.0, "rot": 0.0},
+                 "mountain": {"spread": 1.0, "reach": 96.0, "rot": 0.0, "rock_height": 1.0, "ground": "grass"},
+                 "island": {"radius": 24.0, "lobes": 1, "height": 3.2, "ground": "grass"},
+                 "sink": {"cluster": False, "allow_entrances": False},
+                 "morph": {"allow_entrances": False},
+                 "transplant": {"rot": 0, "size": [1, 1]}}
+_ANGLE_KEY = {"forest": "rot", "mountain": "rot", "transplant": "rot"}
+
+
+def canon(row: dict) -> dict:
+    """``row`` as the editor writes it: an angle in [0, 360), a key at its default left out (:func:`row_for`'s own
+    rule). Two rows that compose the same step are equal here, a hand-written ``rot = 0.0`` and the card's row without
+    it among them: THE SAID-BACK LAW compares these (review of C12: the raw rows refused such a step, though the card
+    writes the same bytes)."""
+    table = row.get("table")
+    out = dict(row)
+    key = _ANGLE_KEY.get(table)
+    if isinstance(out.get(key), (int, float)) and not isinstance(out.get(key), bool):
+        out[key] = out[key] % 360
+    defaults = dict(_ROW_DEFAULTS.get(table, {}))
+    if table == "hill":
+        from .handles import handle
+        defaults = {k: handle("hill", k).default for k in ("height", "radius")}
+    for k, v in defaults.items():
+        if k in out and out[k] == v:
+            del out[k]
+    return out
+
+
 def label(row: dict) -> str:
     """A row in words, for the history list and the Undo button: ``mountain uaho at 190, -1228``."""
     table = row.get("table", "?")
@@ -271,7 +301,9 @@ def anchor(row: dict):
 
 def step_at(steps, x: float, z: float):
     """The index of the step a click at ``(x, z)`` picks among ``steps`` (the applied history steps), or None: of the
-    steps that changed the clicked block, the one placed nearest the click (the later one on a tie: it lies on top)."""
+    steps that changed the clicked block, the one placed nearest the click (the later one on a tie: it lies on top).
+    A step with no place on the map (a river) is the farthest: it is picked where no placed step changed the block
+    (scored 0, it took every click on its blocks, and a hill on its island could not be picked: review of C12)."""
     from .frames import world_to_block, wrap_world_xz
     blk = world_to_block(*wrap_world_xz(x, z))
     best = None
@@ -279,7 +311,7 @@ def step_at(steps, x: float, z: float):
         if tuple(blk) not in {tuple(c) for c in s.get("cells") or ()}:
             continue
         pt = anchor(s.get("row") or {})
-        d = 0.0 if pt is None else math.hypot((x - pt[0] + 768.0) % 1536.0 - 768.0, z - pt[1])
+        d = math.inf if pt is None else math.hypot((x - pt[0] + 768.0) % 1536.0 - 768.0, z - pt[1])
         if best is None or d <= best[0]:
             best = (d, i)
     return None if best is None else best[1]

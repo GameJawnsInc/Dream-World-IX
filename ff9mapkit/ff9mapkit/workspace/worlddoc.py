@@ -787,8 +787,8 @@ class WorldDoc(QWidget):
         """Scan (or rescan) the deployed worldmap tree. Reads the game path + folder list on the GUI
         thread (cheap stats), then runs the real census on a worker; ``sync=True`` is the deterministic
         test/snap lane. Never called by the shell -- every invocation is a user gesture."""
-        if self._busy:
-            return
+        if self._busy or self._held() or self._cards_write():
+            return                                 # (a draft the recipe bar holds, a card writing: the folder waits)
         fn = self._game_path_fn or config.find_game_path
         try:
             game = fn()
@@ -837,11 +837,13 @@ class WorldDoc(QWidget):
 
     def _finish(self, census, stock, err):
         self._busy = False
-        self.rescan_btn.setEnabled(True)
+        self.rescan_btn.setEnabled(not self._held() and not self._cards_write())
         self.rescan_btn.setText("Rescan")
         if err is not None:
             self._show_guide("error", err)
             return
+        for tool in self._carry_tools():           # a card writing as the scan lands ends in the folder it wrote
+            tool.finish_writes()                   # (its Accept committed to the new folder's draft: fourth round)
         self._census = census
         self._stock_grid = stock or {}
         self._stock_known = stock is not None
@@ -868,11 +870,15 @@ class WorldDoc(QWidget):
         for tool in self._carry_tools():
             if not tool.isHidden():
                 tool.close_tool()                  # its folder may have changed under it
+        for tool in self._carry_tools():           # ...and every card, open or not, forgets its per-folder reads
+            tool.island_changed()                  # (block holders, where the river is: review of the C12 fixes)
         if self._recipe is not None:
             self._recipe.refresh()                 # ...and the draft the bar reads with it
         self._sync_draw_box()
         if self._mode3d:                           # a rescan (or a new folder) re-reads the 3D page too
             self._load_view3d()
+            if self._recipe is not None:
+                self._recipe.settle()              # the folder shown may owe its game a promote (rung C19)
 
     # -- the 3D page --
     def _render_site(self):
@@ -939,10 +945,13 @@ class WorldDoc(QWidget):
         return [t for t in (self._forest, self._mountain, self._hill, self._sink, self._coast, self._island,
                             self._transplant, self._river) if t is not None]
 
-    def _open_carry(self, which, *, sync=False):
+    def _open_carry(self, which, *, sync=False, edit=False):
         """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
-        ghost's drag goes to the open one."""
-        if self._census is None:
+        ghost's drag goes to the open one. While the recipe bar holds the draft (an edit open, its steps going back,
+        an in-game step's chain) no card opens but the edit's own (``edit``): another closed the editing card, whose
+        cancel started the promote back under the new card, or wrote the draft under the open edit -- a Discard
+        deleted the draft and what the game was owed (review of the C19 fixes, third round)."""
+        if self._census is None or self._chain_writes() or (self._held() and not edit):
             return None
         if not self._mode3d:
             self._on_view3d(True, sync=sync)
@@ -970,6 +979,7 @@ class WorldDoc(QWidget):
             setattr(self, f"_{which}", tool)
             self._forest_slot.addWidget(tool)
             tool.opened.connect(lambda _on: self._sync_card_room())
+            tool.writing_changed.connect(lambda _on: self._sync_locks())
             self._view3d.ghost_moved.connect(lambda x, z, t=tool: t.drag_to(x, z) if not t.isHidden() else None)
             self._view3d.ghost_dropped.connect(lambda x, z, t=tool: t.drop_at(x, z) if not t.isHidden() else None)
         for other in self._carry_tools():
@@ -1048,7 +1058,7 @@ class WorldDoc(QWidget):
     def _edit_step(self, row, label):
         """The recipe bar lifted a placed step out of the draft: open its card on the step's row."""
         which = self.EDIT_CARDS.get(row.get("table"))
-        tool = self._open_carry(which) if which else None
+        tool = self._open_carry(which, edit=True) if which else None
         if tool is None:
             self._recipe.cancel_edit(f"Not opened: a {row.get('table')} step has no card that opens on it.", "error")
             return
@@ -1058,6 +1068,43 @@ class WorldDoc(QWidget):
         except ValueError as e:
             tool.close_tool()
             self._recipe.cancel_edit(f"Not opened in its card: {e}. Delete still works.", "error")
+
+    def _held(self) -> bool:
+        return self._recipe is not None and self._recipe.holding()
+
+    def _cards_write(self) -> bool:
+        return any(t.writing() for t in self._carry_tools())
+
+    def _sync_locks(self):
+        """What may change under the draft and the cards now: :meth:`_on_bar_hold`'s locks, and while a card writes
+        (its Accept, Promote or Revert promote) every control that would close it waits -- the menu (one card at a
+        time), the view toggle, the folder box and Rescan (review of the C19 fixes, third round)."""
+        self._on_bar_hold(self._held())
+
+    def _on_bar_hold(self, held):
+        """The recipe bar holds the draft (an edit open, a recipe going in, an in-game step's chain): the folder box and
+        Rescan wait for it, as Undo and Open do. A switch closed the edit's card and its cancel went to the new
+        folder's draft, leaving the first folder's game reverted. The Edit the map menu waits too: no card opens
+        but the edit's own (:meth:`_open_carry`). While the chain writes the live folder and the draft's records (its
+        revert, its promote back), no card is open either: a card's Promote, Revert promote, Discard or Accept would
+        write the same folder or draft at the same moment (review of C19)."""
+        writes = self._cards_write()
+        why = ("Waits for the recipe bar, which holds this folder's draft (an edit open, or a recipe going in)."
+               if held else "Waits for the card, which is writing (its Accept, Promote or Revert promote)."
+               if writes else "")
+        self.folder_box.setEnabled(not held and not writes)
+        self.folder_box.setToolTip(why or "Which mod folder's worldmap tree the atlas shows.")
+        self.rescan_btn.setEnabled(not held and not writes and not self._busy)
+        self.rescan_btn.setToolTip(why or "Re-read the deployed overrides from disk (read-only).")
+        self.view3d_btn.setEnabled(not writes)       # (the chart closes the cards)
+        self.tools_btn.setEnabled(not held and not writes)   # no card opens but the edit's own (_open_carry too)
+        if held:                                   # ...and a card open when the bar began holding is put away: its
+            for tool in self._carry_tools():       # Accept or Discard wrote the draft under a put-back or a recipe
+                if not tool.isHidden() and not tool.editing() and not tool.writing():    # (fourth round; a card
+                    tool.close_tool()              # that writes was refused the bar's start)
+
+    def _chain_writes(self) -> bool:
+        return self._recipe is not None and self._recipe.writing_live()
 
     def _draft_changed(self, draft):
         """An Accept wrote the draft (or a discard removed it, an undo or redo moved it): draw it, or go back to the
@@ -1085,7 +1132,9 @@ class WorldDoc(QWidget):
             self._recipe = RecipeBar(self.pal, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
                                      on_changed=self._draft_changed, runner=self._recipe_runner,
                                      drafts_root=self._drafts_root, on_select=self._mark_step,
-                                     on_edit=self._edit_step, **self._recipe_seams)
+                                     on_edit=self._edit_step, on_hold=self._on_bar_hold,
+                                     cards_writing=lambda: any(t.writing() for t in self._carry_tools()),
+                                     **self._recipe_seams)
             self._forest_slot.insertWidget(0, self._recipe)
         if self._recipe is not None:
             self._recipe.setVisible(bool(on))
@@ -1110,6 +1159,27 @@ class WorldDoc(QWidget):
         self._focus_view3d()
         self._views.setCurrentWidget(self._view3d)
         self._legend_host.hide()                   # the legend teaches the chart's fills, not the terrain
+        if self._recipe is not None:
+            self._recipe.settle()                  # a promote the game is owed from a Workspace that died mid-edit
+
+    def shutdown(self):
+        """The Workspace is closing (the shell's closeEvent). Every job that writes the live folder or a draft runs to
+        its end, never killed half way: the recipe bar's (one job's end may start the next: the chain's next revert,
+        the promote back) and a card's Accept, Promote or Revert promote (whose end may hand the bar its put-back). A
+        card's Check, a dry run, stops. Then an edit of a step that is in the game is cancelled and its steps promoted
+        back, so the game is left as it was (rung C19; review of its fixes: shutdown once returned with the chain's
+        next job running, and cancelled an edit under its card's running Accept)."""
+        for _ in range(256):
+            runners = [t.closing_runner() for t in self._carry_tools()]
+            if self._recipe is not None:
+                runners.append(self._recipe.closing_runner())
+            busy = [r for r in runners if r is not None]
+            if busy:
+                if not busy[0].wait():
+                    return                         # it never ended: leave it (what the game is owed is on disk)
+                continue
+            if self._recipe is None or not self._recipe.close_in_game_edit():
+                return
 
     def set_view_mode(self, mode, *, sync=False):
         """``"chart"`` or ``"3d"`` -- the toggle, for tests and gui_snap."""

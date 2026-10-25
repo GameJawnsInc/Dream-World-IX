@@ -29,14 +29,18 @@ from .worldforest import QProcessRunner, kit_cwd
 class RecipeBar(QWidget):
     """``source_fn()`` the mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the
     view and the tools after the draft moved; ``on_select(step)`` marks the picked step on the view (None: no step);
-    ``on_edit(row, label)`` opens the step's card on its row. ``runner``, ``ask``, ``save_path_fn(default)`` /
+    ``on_edit(row, label)`` opens the step's card on its row; ``on_hold(held)`` says when the bar holds the draft
+    (:meth:`holding`: the folder must not change under it); ``cards_writing()`` says a card's job is writing now. ``runner``, ``ask``, ``save_path_fn(default)`` /
     ``open_path_fn()`` (file dialogs) and ``drafts_root`` are the test and snap seams."""
 
     def __init__(self, pal, *, game_fn, source_fn, on_changed=None, runner=None, drafts_root=None, ask=None,
-                 save_path_fn=None, open_path_fn=None, on_select=None, on_edit=None):
+                 save_path_fn=None, open_path_fn=None, on_select=None, on_edit=None, on_hold=None,
+                 cards_writing=None):
         super().__init__()
         self.pal = pal
         self._game_fn, self._source_fn, self._on_changed = game_fn, source_fn, on_changed
+        self._on_hold = on_hold
+        self._cards_writing = cards_writing or (lambda: False)
         self._runner = runner or QProcessRunner()
         self._drafts_root = drafts_root
         self._ask = ask or (lambda title, text: QMessageBox.question(self, title, text)
@@ -108,7 +112,8 @@ class RecipeBar(QWidget):
         """Say what the recipe holds and which way it can walk."""
         from ..world import draft as D
         d = self.draft()
-        if d is not None and self._edit is None and self._queue is None and D.history(d)["edit"]:
+        if d is not None and self._edit is None and self._queue is None and D.history(d)["edit"] \
+                and D.promote_owed(d) is None:       # (one the game is owed a promote for is :meth:`settle`'s)
             try:                                         # an edit this Workspace did not open (it closed mid-edit)
                 D.cancel_edit(d)
             except ValueError:
@@ -169,6 +174,26 @@ class RecipeBar(QWidget):
                                      + (" It is in the game: its promote comes out of the game while you edit, and "
                                         "the recipe is promoted again when you accept or cancel." if live else ""))
             self.delete_btn.setEnabled(True)
+            later = self._later_out_of_game(self._sel)
+            if later:                                    # (an in-game step with steps after the game's on top)
+                for b in (self.edit_btn, self.delete_btn):
+                    b.setEnabled(False)
+                    b.setToolTip(self._later_text(later)[0].upper() + self._later_text(later)[1:])
+                self.status_lbl.setText(f"{text} {self._later_text(later)[0].upper()}{self._later_text(later)[1:]}")
+        if self._on_hold is not None:
+            self._on_hold(self.holding())
+
+    def holding(self) -> bool:
+        """The bar holds the draft: an edit is open (its steps lifted out), an opened recipe's rows are going in, or an
+        in-game step's chain is taking its promotes out of the game or putting them back. The folder the tab shows
+        must not change meanwhile: a switch closed the card, and the cancel went to the new folder's draft (review
+        of C19)."""
+        return self._edit is not None or self._queue is not None or self._job is not None or self._prep is not None
+
+    def writing_live(self) -> bool:
+        """An in-game step's chain is taking its promotes out of the game or putting them back: its jobs write the live
+        folder and the draft's records, so no card may write either meanwhile."""
+        return self._job is not None or self._prep is not None
 
     @staticmethod
     def _edit_text(e) -> str:
@@ -217,6 +242,8 @@ class RecipeBar(QWidget):
         d, i = self.draft(), self._sel
         if d is None or i is None or self._edit is not None or self._job is not None:
             return
+        if self._card_writes("opened") or self._out_of_game(i, "opened"):
+            return
         if i < D.history(d)["promoted"]:
             s = self.steps()[i]
             if not self._ask("Edit a step that is in the game?", f"Step {i + 1}, {s['label']}, is in the game. To edit "
@@ -229,26 +256,78 @@ class RecipeBar(QWidget):
             return
         self._open_edit(d, i)
 
-    def _open_edit(self, d, i, *, repromote=False):
+    def _later_out_of_game(self, i):
+        """For step ``i`` in the game: how many steps after the game's are applied but not in it (0 for a step not in
+        the game). The chain's promote back writes the whole draft, so it would carry them into the game; setting
+        them aside by undo and redo broke where their blocks met a promote's (review of C19, twice)."""
         from ..world import draft as D
-        s = self.steps()[i]
+        d = self.draft()
+        if d is None:
+            return 0
+        h = D.history(d)
+        return h["cursor"] - h["promoted"] if i is not None and i < h["promoted"] else 0
+
+    def _card_writes(self, what) -> bool:
+        """Refuse any write of the bar's (Edit, Delete, Undo, Redo, Open) while a card's job writes the draft or the
+        live folder: the two would write the same draft and its records at once, and opening the step's card (or the
+        chain's start) closes the open card (review of the C19 fixes; the bar's own writes, its fourth round)."""
+        if self._cards_writing():
+            self._refuse(f"Not {what}: a card is still writing (its Accept, Promote or Revert promote); wait for it "
+                         "to finish.")
+            return True
+        return False
+
+    def _refuse(self, note):
+        """Say a refusal. Nothing moved, so no one is told the draft did: the draft-moved pass (every card's island
+        read again, the view reloaded from a draft mid-write, whose own reload the busy view then dropped) ran for
+        a click that changed nothing (review of the C19 fixes, fifth round)."""
+        self.refresh()
+        widgets.set_state(self.status_lbl, "error")
+        self.status_lbl.setText(note)
+
+    def _out_of_game(self, i, what) -> bool:
+        """Refuse a chain for in-game step ``i`` while steps after the game's are out of it (the law at the call
+        site; the buttons say it too)."""
+        n = self._later_out_of_game(i)
+        if n:
+            self._refuse(f"Not {what}: {self._later_text(n)}")
+        return bool(n)
+
+    @staticmethod
+    def _later_text(n) -> str:
+        return (f"the {n} step{'s' if n != 1 else ''} after the game's {'are' if n != 1 else 'is'} not in the game. "
+                "Promote them (from a card) or Undo them first: an in-game step opens with nothing after the "
+                "game's steps on top.")
+
+    def _open_edit(self, d, i, *, fence=None):
+        """``fence``: the steps that were in the game before the chain took them out (rung C19), promoted again when
+        the edit closes; None for a step that was not in the game."""
+        from ..world import draft as D
+        s = D.history(d)["steps"][i]                     # the step of the draft it opens in, not the folder shown
         try:
             e = D.begin_edit(d, i)
         except ValueError as err:
-            self._closed(d, {"repromote": repromote}, f"Not opened: {err}.", "error")
+            self._closed(d, {"fence": fence}, f"Not opened: {err}.", "error")
             return
         self._edit = {"k": i, "mode": "edit", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"],
-                      "repromote": repromote}
+                      "fence": fence, "draft": d}
         self._moved()
         if self._on_select is not None:
             self._on_select(None)
         if self._on_edit is not None:
             self._on_edit(s["row"], s["label"])
 
+    def _edit_draft(self, e):
+        """The draft edit ``e`` is open in (it never changes under the edit), else the shown folder's."""
+        from ..world import draft as D
+        d = (e or {}).get("draft")
+        return Path(d) if d is not None and D.read_meta(Path(d)) is not None else self.draft()
+
     def edit_accepted(self):
         """The card wrote the edited shape in the step's place: put the steps after it back on top."""
         from ..world import draft as D
-        d, e = self.draft(), self._edit
+        e = self._edit
+        d = self._edit_draft(e)
         if d is None or e is None:
             return
         new = D.history(d)["steps"][e["k"]]
@@ -259,6 +338,8 @@ class RecipeBar(QWidget):
         from ..world import draft as D
         d, i = self.draft(), self._sel
         if d is None or i is None or self._edit is not None or self._job is not None:
+            return
+        if self._card_writes("deleted") or self._out_of_game(i, "deleted"):
             return
         steps = self.steps()
         s, after = steps[i], len(steps) - i - 1
@@ -275,16 +356,17 @@ class RecipeBar(QWidget):
             return
         self._run_delete(d, i)
 
-    def _run_delete(self, d, i, *, repromote=False):
+    def _run_delete(self, d, i, *, fence=None):
         from ..world import draft as D
-        s = self.steps()[i]
+        s = D.history(d)["steps"][i]
         try:
             e = D.begin_edit(d, i)
         except ValueError as err:
-            self._closed(d, {"repromote": repromote}, f"Not deleted: {err}.", "error")
+            self._closed(d, {"fence": fence}, f"Not deleted: {err}.", "error")
             return
         self._edit = {"k": i, "mode": "delete", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"],
-                      "repromote": repromote}
+                      "fence": fence, "draft": d}
+        self.refresh()                                   # (the hold begins: an idle card is put away)
         if self._on_select is not None:
             self._on_select(None)
         self._start_put_back(d, D.dirty_after(set(), e["lifted"][0], None))
@@ -320,6 +402,9 @@ class RecipeBar(QWidget):
                 f"({e['replayed']} as they were, {e['rerun']} composed again on the new ground)." if n else "")
         if e["mode"] == "delete":
             self._sel = None
+            if e.get("fence") is not None:               # the deleted step was one of the game's: one fewer goes back
+                e["fence"] -= 1
+                D.owe_promote(d, e["fence"])
             self._closed(d, e, f"Deleted step {e['k'] + 1}, {e['label']}.{back}", "ok")
             return
         self._sel = e["k"]
@@ -350,9 +435,10 @@ class RecipeBar(QWidget):
         """Close the open edit, the draft exactly as it was before it (the card's Cancel edit, a closed card, a step
         that refused on the new ground, the bar's own Cancel edit while the steps are put back)."""
         from ..world import draft as D
-        d, e = self.draft(), self._edit
+        e = self._edit
         if e is None:
             return
+        d = self._edit_draft(e)                          # the edit's own draft, whatever the tab shows now
         self._edit = None
         if "queue" in e:
             self._runner.kill()
@@ -362,10 +448,11 @@ class RecipeBar(QWidget):
                 D.cancel_edit(d)
             except ValueError as err:
                 note, state, undone = f"The edit could not be undone: {err}.", "error", False
+                D.settle_promote(d)                      # (a draft not known to be as it was is never promoted)
         self._sel = e["k"]
         note = note or f"Edit cancelled: the draft is exactly as it was, {e['label']} in its place."
         # an in-game step goes back into the game only from a draft known to be as it was
-        self._closed(d, e if undone else {**e, "repromote": False}, note, state)
+        self._closed(d, e if undone else {**e, "fence": None}, note, state)
         if self._on_select is not None:
             steps = self.steps()
             self._on_select(steps[e["k"]] if e["k"] < len(steps) else None)
@@ -375,8 +462,12 @@ class RecipeBar(QWidget):
         """Take the draft's promotes back out of the game, newest first, until step ``i`` is no longer promoted, then
         open the edit (or the delete); when it closes, :meth:`_closed` promotes the recipe again. Each revert is
         ``world-promote --revert`` (it refuses over later work at its blocks); one refusing after another went
-        through promotes straight back, so the game is never left half reverted."""
-        self._prep = {"k": i, "mode": mode, "reverted": 0}
+        through promotes straight back, so the game is never left half reverted. The FENCE is how many steps were in
+        the game when the chain began: the promote back is those steps, never a step placed after them that was not
+        promoted (:meth:`_repromote`)."""
+        from ..world import draft as D
+        self._prep = {"k": i, "mode": mode, "reverted": 0, "fence": D.history(d)["promoted"]}
+        D.owe_promote(d, self._prep["fence"])            # on disk: a Workspace that dies mid-chain owes it still
         self._revert_next(d)
 
     def _revert_next(self, d):
@@ -384,7 +475,12 @@ class RecipeBar(QWidget):
         p = self._prep
         if D.history(d)["promoted"] <= p["k"]:
             self._prep, self._job = None, None
-            (self._open_edit if p["mode"] == "edit" else self._run_delete)(d, p["k"], repromote=True)
+            if self.draft() is None or Path(self.draft()) != Path(d):    # a scan begun before the chain moved the tab
+                what = "opened" if p["mode"] == "edit" else "deleted"   # off its folder: its cards would open there
+                self._repromote(d, p["fence"], f"Not {what}: the tab moved to another folder while the step's promote "
+                                "came out of the game.", "error")
+                return
+            (self._open_edit if p["mode"] == "edit" else self._run_delete)(d, p["k"], fence=p["fence"])
             return
         if D.last_promote(d) is None:
             self._fail_revert(d, "the step is marked in the game but the draft holds no promote to revert")
@@ -412,36 +508,98 @@ class RecipeBar(QWidget):
         what = "opened" if p["mode"] == "edit" else "deleted"
         note = f"Not {what}: its promote could not be taken back out of the game ({why})."
         if p["reverted"]:                                # some went: put the game back as it was
-            self._repromote(d, note, "error")
+            self._repromote(d, p["fence"], note, "error")
         else:
+            from ..world import draft as D
+            D.settle_promote(d)
             self._moved(note + " The game and the draft are as they were.", "error")
 
     def _closed(self, d, e, note, state):
         """The edit (or delete) closed: promote the recipe again when the step was taken out of the game for it."""
-        if e.get("repromote") and d is not None:
-            self._repromote(d, note, state)
+        if e.get("fence") is not None and d is not None:
+            self._repromote(d, e["fence"], note, state)
         else:
             self._moved(note, state)
 
-    def _repromote(self, d, note, state):
+    def _repromote(self, d, fence, note, state):
+        """Promote the recipe's first ``fence`` steps into the game again. ``world-promote`` writes every edit the
+        draft holds, and a chain opens only with nothing after the game's steps on top (:meth:`_out_of_game`), so
+        that is exactly the fence's steps."""
+        from ..world import draft as D
+        if D.history(d)["promoted"] >= fence:            # the promotes still standing cover them (a deleted step was
+            D.settle_promote(d)                          # all of the newest): the game holds them already
+            folder = Path((D.read_meta(d) or {}).get("source") or self.source()).name
+            self._moved(f"{note} {folder} holds the recipe's first {fence} step{'s' if fence != 1 else ''} already "
+                        "(their promotes stand): nothing to promote again.", state)
+            return
+        if D.history(d)["cursor"] > fence:               # (never, by the refusal; a promote would carry them in)
+            D.settle_promote(d)
+            self._moved(f"{note} Promoting it again did not run: the draft holds steps after the game's, which the "
+                        "game never had; the game does not have the recipe now. Promote it from a card.", "error")
+            return
         report = Path(tempfile.mkdtemp(prefix="ff9_promote_")) / "verdict.json"
         argv = [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn()), "world-promote", str(d),
                 "--report-json", str(report)]
         self._job = "promote"
         self.refresh()
-        self._runner.start(argv, kit_cwd(), lambda code, text: self._repromoted(note, state, report, code, text))
+        self._runner.start(argv, kit_cwd(), lambda code, text: self._repromoted(d, note, state, report, code, text))
 
-    def _repromoted(self, note, state, report, code, text):
+    def _repromoted(self, d, note, state, report, code, text):
+        from ..world import draft as D
         from ..world.forestedit import read_verdict
         self._job = None
         v = read_verdict(report) or {"ok": False, "error": ([ln for ln in text.splitlines() if ln.strip()][-1:]
                                                             or [f"exit code {code}"])[0]}
+        D.settle_promote(d)                              # it ran: a refusal is said now, never retried at each launch
+        folder = Path((D.read_meta(d) or {}).get("source") or self.source()).name
         if v.get("ok"):
-            self._moved(f"{note} Promoted into {self.source().name} again: the game shows it on its next world load.",
-                        state)
+            self._moved(f"{note} Promoted into {folder} again: the game shows it on its next world load.", state)
         else:
             self._moved(f"{note} Promoting it again did not run ({v.get('error')}): the game does not have the "
                         "recipe now; Promote it from a card.", "error")
+
+    def settle(self):
+        """Put right a promote the game is owed and no chain here is paying (rung C19): a Workspace that closed or
+        died with a step that is in the game taken out of it. The draft goes back to before the edit, and the steps
+        that were in the game are promoted again. The tab calls it once its 3D page and this bar are up."""
+        from ..world import draft as D
+        d = self.draft()
+        if d is None or self._edit is not None or self._queue is not None or self._job is not None \
+                or self._prep is not None:
+            return
+        fence = D.promote_owed(d)
+        if fence is None:
+            return
+        note = "The Workspace closed with a step that is in the game taken out of it"
+        if D.history(d)["edit"]:
+            try:
+                D.cancel_edit(d)
+            except ValueError as err:
+                D.settle_promote(d)
+                self._moved(f"{note}, and it could not be undone ({err}): the game does not have the recipe now; "
+                            "Promote it from a card.", "error")
+                return
+            note += ", its edit open: the draft is back as it was before the edit."
+        else:
+            note += "."
+        self._repromote(d, fence, note, "")
+
+    def closing_runner(self):
+        """The Workspace is closing (``WorldDoc.shutdown``): the runner of the bar's job, to wait for, or None. An
+        opened recipe stops after the row that runs: each row is its own step and the recipe owes the game nothing,
+        so composing the rest inside closeEvent froze the window for minutes (review of the C19 fixes, third
+        round)."""
+        if self._queue is not None:
+            self._queue["closing"] = True
+        return self._runner if self._runner.busy() else None
+
+    def close_in_game_edit(self) -> bool:
+        """The Workspace is closing and no job runs: an edit of a step that is in the game is cancelled, and its steps
+        promoted back (a job, waited for in turn). True when there was one."""
+        if self._edit is None or self._edit.get("fence") is None:
+            return False
+        self.cancel_edit("The Workspace closed with the edit open: it is cancelled.")
+        return True
 
     def _moved(self, note=None, state="ok"):
         self.refresh()
@@ -455,7 +613,7 @@ class RecipeBar(QWidget):
     def undo(self):
         from ..world import draft as D
         d = self.draft()
-        if d is None:
+        if d is None or self._card_writes("undone"):
             return
         try:
             s = D.undo(d)
@@ -467,7 +625,7 @@ class RecipeBar(QWidget):
     def redo(self):
         from ..world import draft as D
         d = self.draft()
-        if d is None:
+        if d is None or self._card_writes("redone"):
             return
         try:
             s = D.redo(d)
@@ -495,6 +653,8 @@ class RecipeBar(QWidget):
     def open_recipe(self):
         from ..world import draft as D
         from ..world import recipe as RC
+        if self._card_writes("opened"):
+            return
         path = self._open_path_fn()
         if not path:
             return
@@ -522,6 +682,11 @@ class RecipeBar(QWidget):
         if not q["rows"]:
             self._queue = None
             self._moved(f"Composed {q['name']}: {q['done']} row{'s' if q['done'] != 1 else ''} into the draft.", "ok")
+            return
+        if q.get("closing"):
+            self._queue = None
+            self._moved(f"Stopped {q['name']} as the Workspace closed: {q['done']} row{'s' if q['done'] != 1 else ''} "
+                        f"composed into the draft, {len(q['rows'])} not.", "warn")
             return
         row = q["rows"][0]
         D.begin_step(d, RC.row_cells(row))

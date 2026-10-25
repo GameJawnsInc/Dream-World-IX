@@ -35,6 +35,7 @@ class RiverTool(CarryTool):
         self._river_fn = river_fn or (lambda target, rs: self._read_river(target, rs))
         self._shift = None                               # the picked placement (a whole-block shift)
         self._river = None                               # (target, the river's shift now or None, held cells)
+        self._river_ask, self._river_asks = None, 0      # the read of it in flight (its number), and the count
         self._from_check = None                          # an edited row, its move_from held until the river is read
         super().__init__(pal, panel, game_fn=game_fn,
                          outline_fn=kw.pop("outline_fn", None) or (lambda _key: RE.shape(game=game_fn())), **kw)
@@ -92,29 +93,45 @@ class RiverTool(CarryTool):
 
     def _load_river(self):
         rs, target = self._rs(), self.target()
-        if rs is None or self._river is not None:
-            return
-        self._bg("river", lambda: (target, *self._river_fn(target, rs)))
+        if rs is None or self._river is not None or self._river_ask is not None:
+            return                                       # (one read at a time: _forget_river drops one in flight)
+        self._river_asks += 1
+        ask = self._river_ask = self._river_asks
+
+        def read():                                      # its error carries its number too: a stale read's failure
+            try:                                         # must not free the live read's slot (review of the C12 fixes)
+                return (ask, target, *self._river_fn(target, rs))
+            except Exception as e:                       # noqa: BLE001 -- surfaced on the GUI thread, as _bg's are
+                return (ask, target, e, None)
+        self._bg("river", read)
+
+    def _forget_river(self):
+        """The draft moved (an edit lifting steps out, an Accept, a promote, a discard): where the river stands is
+        read again, and a read begun before is dropped when it lands. Its path is the same and its bytes are not, so
+        the path alone took a read from before an Edit for the draft before the step, and the move's held
+        move_from cancelled the edit against it (review of C12)."""
+        self._river = None
+        self._river_ask = None
 
     def _load_soup(self):
         super()._load_soup()
         self._load_river()
 
     def island_changed(self):
-        self._river = None
+        self._forget_river()
         super().island_changed()
 
     def _accepted(self, v):
-        self._river = None                               # the river moved in the draft: read where it is again
+        self._forget_river()                             # the river moved in the draft: read where it is again
         self._shift = None
         super()._accepted(v)
 
     def _promote_done(self, kind, report, code, text):
-        self._river = None                               # the folder (or the draft) moved: where is the river now
+        self._forget_river()                             # the folder (or the draft) moved: where is the river now
         super()._promote_done(kind, report, code, text)
 
     def _discard(self):
-        self._river = None                               # the target goes back to the folder
+        self._forget_river()                             # the target goes back to the folder
         super()._discard()
 
     def _outline_loaded(self, donor, rs):
@@ -173,9 +190,16 @@ class RiverTool(CarryTool):
         if what != "river":
             return super()._on_bg(what, serial, result, err)
         if err is not None:
+            self._river_ask = None
             self._say(f"Where the river stands could not be read: {err}", "error")
             return
-        target, at, held = result
+        ask, target, at, held = result
+        if ask != self._river_ask:
+            return                                       # begun before the draft moved: not where the river is now
+        self._river_ask = None
+        if isinstance(at, Exception):
+            self._say(f"Where the river stands could not be read: {at}", "error")
+            return
         if target != self.target() or self._river is not None:
             return                                       # a read of a folder the tool no longer judges
         self._river = (target, at, held)
