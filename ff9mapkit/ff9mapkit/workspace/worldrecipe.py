@@ -30,15 +30,17 @@ class RecipeBar(QWidget):
     """``source_fn()`` the mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the
     view and the tools after the draft moved; ``on_select(step)`` marks the picked step on the view (None: no step);
     ``on_edit(row, label)`` opens the step's card on its row; ``on_hold(held)`` says when the bar holds the draft
-    (:meth:`holding`: the folder must not change under it). ``runner``, ``ask``, ``save_path_fn(default)`` /
+    (:meth:`holding`: the folder must not change under it); ``cards_writing()`` says a card's job is writing now. ``runner``, ``ask``, ``save_path_fn(default)`` /
     ``open_path_fn()`` (file dialogs) and ``drafts_root`` are the test and snap seams."""
 
     def __init__(self, pal, *, game_fn, source_fn, on_changed=None, runner=None, drafts_root=None, ask=None,
-                 save_path_fn=None, open_path_fn=None, on_select=None, on_edit=None, on_hold=None):
+                 save_path_fn=None, open_path_fn=None, on_select=None, on_edit=None, on_hold=None,
+                 cards_writing=None):
         super().__init__()
         self.pal = pal
         self._game_fn, self._source_fn, self._on_changed = game_fn, source_fn, on_changed
         self._on_hold = on_hold
+        self._cards_writing = cards_writing or (lambda: False)
         self._runner = runner or QProcessRunner()
         self._drafts_root = drafts_root
         self._ask = ask or (lambda title, text: QMessageBox.question(self, title, text)
@@ -240,7 +242,7 @@ class RecipeBar(QWidget):
         d, i = self.draft(), self._sel
         if d is None or i is None or self._edit is not None or self._job is not None:
             return
-        if self._out_of_game(i, "opened"):
+        if self._card_writes("opened") or self._out_of_game(i, "opened"):
             return
         if i < D.history(d)["promoted"]:
             s = self.steps()[i]
@@ -264,6 +266,16 @@ class RecipeBar(QWidget):
             return 0
         h = D.history(d)
         return h["cursor"] - h["promoted"] if i is not None and i < h["promoted"] else 0
+
+    def _card_writes(self, what) -> bool:
+        """Refuse an edit or a delete while a card's job writes the draft or the live folder: opening the step's card
+        (or the chain's start) closes the open card, and closing a card kills its job half way -- a Revert promote cut
+        off mid-write, then reverted over (review of the C19 fixes)."""
+        if self._cards_writing():
+            self._moved(f"Not {what}: a card is still writing (its Accept, Promote or Revert promote); wait for it to "
+                        "finish.", "error")
+            return True
+        return False
 
     def _out_of_game(self, i, what) -> bool:
         """Refuse a chain for in-game step ``i`` while steps after the game's are out of it (the law at the call
@@ -319,7 +331,7 @@ class RecipeBar(QWidget):
         d, i = self.draft(), self._sel
         if d is None or i is None or self._edit is not None or self._job is not None:
             return
-        if self._out_of_game(i, "deleted"):
+        if self._card_writes("deleted") or self._out_of_game(i, "deleted"):
             return
         steps = self.steps()
         s, after = steps[i], len(steps) - i - 1

@@ -452,6 +452,11 @@ class CarryTool(QWidget):
         self.hide()
         self.opened.emit(False)
 
+    def writing(self) -> bool:
+        """A job of this card writes the draft or the live folder now (Accept, Promote, Revert promote, the draft's
+        copy): closing the card would kill it half way."""
+        return self._job is not None and self._job[0] != "check"
+
     def closing_runner(self):
         """The Workspace is closing (``WorldDoc.shutdown``): a Check, a dry run that writes nothing, stops; the runner of
         a job that writes (Accept, Promote, Revert promote) is handed back to be waited for. None when nothing runs."""

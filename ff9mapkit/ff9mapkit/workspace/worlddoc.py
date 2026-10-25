@@ -1080,8 +1080,8 @@ class WorldDoc(QWidget):
         self.tools_btn.setEnabled(not live)
         if live:
             for tool in self._carry_tools():
-                if not tool.isHidden() and not tool.editing():
-                    tool.close_tool()
+                if not tool.isHidden() and not tool.editing() and not tool.writing():
+                    tool.close_tool()              # (a card that writes was refused the chain's start)
 
     def _chain_writes(self) -> bool:
         return self._recipe is not None and self._recipe.writing_live()
@@ -1112,7 +1112,9 @@ class WorldDoc(QWidget):
             self._recipe = RecipeBar(self.pal, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
                                      on_changed=self._draft_changed, runner=self._recipe_runner,
                                      drafts_root=self._drafts_root, on_select=self._mark_step,
-                                     on_edit=self._edit_step, on_hold=self._on_bar_hold, **self._recipe_seams)
+                                     on_edit=self._edit_step, on_hold=self._on_bar_hold,
+                                     cards_writing=lambda: any(t.writing() for t in self._carry_tools()),
+                                     **self._recipe_seams)
             self._forest_slot.insertWidget(0, self._recipe)
         if self._recipe is not None:
             self._recipe.setVisible(bool(on))

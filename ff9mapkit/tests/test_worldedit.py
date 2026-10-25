@@ -975,6 +975,31 @@ def test_no_card_writes_while_the_chain_writes_the_game(monkeypatch, tmp_path, a
     assert D.history(draft)["promoted"] == 2 and D.promote_owed(draft) is None
 
 
+def test_no_edit_or_delete_starts_while_a_card_writes(monkeypatch, tmp_path, app):
+    """Starting the chain closed every open card, and closing a card kills its job: a card's Revert promote (a
+    world-promote on the live folder) was cut off half way, and the chain reverted over the result (review of the
+    C19 fixes). While a card writes -- its Accept, Promote or Revert promote -- the bar's Edit and Delete refuse, and
+    the card and its job are left alone; once it is done they run."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    forest = doc.open_forest(sync=True)
+    forest._ask = lambda title, text: True
+    forest._runner = held = _Held([])
+    forest._revert()                                                      # the card's Revert promote, running
+    assert held.busy() and "--revert" in held.argvs[-1]
+    n = len(run.argvs)
+    for act in (bar.edit, bar.delete):
+        act()
+        assert "still writing" in bar.status_lbl.text() and bar.status_lbl.property("state") == "error"
+    assert run.argvs[n:] == [] and not forest.isHidden() and held.busy() and bar._edit is None
+    held.wait()                                                            # the card's revert ends
+    bar.select(0)
+    bar.delete()
+    assert "still writing" not in bar.status_lbl.text()
+
+
 # ---- each recovery branch of the chain, driven (each was broken on purpose, in memory, and its test went red)
 def _promotes_after(run, n):
     return [a for a in run.argvs[n:] if a[5] == "world-promote"]
