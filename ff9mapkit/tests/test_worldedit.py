@@ -414,6 +414,31 @@ def test_every_editable_card_opens_on_its_row_and_says_it_back(monkeypatch, tmp_
     assert set(RC.EDITABLE_TABLES) == set(doc.EDIT_CARDS) == set(RC.EDITOR_TABLES)    # every table the editor writes
 
 
+def test_a_row_that_spells_a_default_opens_in_its_card(monkeypatch, tmp_path, app):
+    """An opened recipe keeps each row as written, and a hand-written row may spell a default the editor leaves out
+    (rot = 0.0, spread = 1.0) or turn a full circle (rot = 360). The said-back law compared the raw rows key for key
+    and refused these, though the card writes the same bytes (review of C12); it compares rows as the editor writes
+    them (recipe.canon). A row the handles cannot say still refuses."""
+    game = _two_islands(monkeypatch, tmp_path)
+    doc, _run = _doc(app, game, tmp_path, tmp_path / "saved.toml")
+    doc.set_view_mode("3d", sync=True)
+    base = {"table": "forest", "center": [26.0, -26.0], "donor": "15,15"}
+    for extra in ({"rot": 0.0}, {"spread": 1.0}, {"rot": 360.0}, {"rot": 405.0, "spread": 1.0}):
+        tool = doc.open_forest(sync=True)
+        tool.edit_row({**base, **extra}, label="forest", on_accepted=lambda: None, on_cancel=lambda note=None: None)
+        assert tool.editing(), extra
+        tool._end_edit()
+        tool.close_tool()
+    assert RC.canon({**base, "rot": 405.0, "spread": 1.0}) == {**base, "rot": 45.0}
+    assert RC.canon({"table": "sink", "at": [1.0, 2.0], "cluster": False, "allow_entrances": False}) == \
+        {"table": "sink", "at": [1.0, 2.0]}
+    assert RC.canon({"table": "transplant", "cell": [3, 5], "donor": [7, 17], "rot": 360, "size": [1, 1]}) == \
+        {"table": "transplant", "cell": [3, 5], "donor": [7, 17]}
+    with pytest.raises(ValueError, match="would not say its center back"):              # off the 0.1u grid
+        doc.open_forest(sync=True).edit_row({**base, "rot": 0.0, "center": [26.04, -26.0]}, label="forest",
+                                            on_accepted=lambda: None, on_cancel=lambda note=None: None)
+
+
 def test_a_second_draft_promotes_after_another_draft_of_the_folder_promoted_and_reverted(monkeypatch, tmp_path):
     """THE RELABEL CRASH (c9_lab, 2026-10-24): two drafts of one folder; the first promoted and reverted there, so the
     live ledger moved on past the second draft's copy. An inherited ledger row naming no writer (an old argv-less

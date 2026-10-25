@@ -363,8 +363,10 @@ class CarryTool(QWidget):
             self._seating = False
 
     def _said_back(self, row, mine=None):
-        """Raise ValueError unless the handles build ``row`` again, key for key."""
-        mine = self.row() if mine is None else mine
+        """Raise ValueError unless the handles build ``row`` again, key for key, both as the editor writes a row
+        (``recipe.canon``: a default spelled out or a full turn is the same step)."""
+        from ..world import recipe as RC
+        mine, row = RC.canon(self.row() if mine is None else mine), RC.canon(row)
         diff = sorted(k for k in set(mine) | set(row) if mine.get(k) != row.get(k))
         if diff:
             raise ValueError(f"the card would not say its {', '.join(diff)} back as the step has "
