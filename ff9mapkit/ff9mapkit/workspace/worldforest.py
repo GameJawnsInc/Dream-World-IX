@@ -207,6 +207,7 @@ class CarryTool(QWidget):
         self.close_btn.setProperty("role", "quiet")
         self.close_btn.setToolTip(f"Put the {self.NOUN} tool away (the draft keeps what you accepted).")
         self.close_btn.clicked.connect(self.close_tool)
+        self.writing_changed.connect(lambda _on: self._sync_buttons())   # Close / Cancel edit wait for a write
         row.addWidget(self.close_btn)
         card.addLayout(row)
         for extra in self._extra_rows:                   # handles that would widen the first row past the window
@@ -456,9 +457,7 @@ class CarryTool(QWidget):
         Promote cut off half way leaves the live folder half written with no record to revert from (review of the
         C19 fixes, third round). A Check, a dry run, is killed."""
         self._timer.stop()
-        wait = getattr(self._runner, "wait", None)
-        if self.writing() and wait is not None:
-            wait()                                       # (its done runs: an Accept's may close this card itself)
+        self.finish_writes()                             # (its done runs: an Accept's may close this card itself)
         self._runner.kill()
         self._job = None
         self._pending_row = None
@@ -471,6 +470,15 @@ class CarryTool(QWidget):
         self.panel.set_ghost(None)
         self.hide()
         self.opened.emit(False)
+
+    def finish_writes(self):
+        """Wait for the card's write to end, every call of it: a two-call Accept (the sink's, the coast morph's: disc
+        1, then disc 4's replay) starts its second call in the first's end, and waiting for one then killing the runner
+        cut the disc-4 call (review of the C19 fixes, fourth round)."""
+        wait = getattr(self._runner, "wait", None)
+        while wait is not None and self.writing() and self._runner.busy():
+            if not wait():
+                break
 
     def writing(self) -> bool:
         """A job of this card writes the draft or the live folder now (Accept, Promote, Revert promote, the draft's
@@ -730,6 +738,7 @@ class CarryTool(QWidget):
         v = self._current_verdict()
         self.accept_btn.setEnabled(self._job is None and v is not None and v["ok"] and bool(v.get("dry_run")))
         self.copy_btn.setEnabled(self.center is not None)
+        self.close_btn.setEnabled(not self.writing())    # a write is never cut off (Cancel edit would accept it)
         has_draft = self.draft() is not None
         edited, last = self._draft_state if has_draft else (0, None)
         free = self._editing is None                     # an open edit holds the draft: these wait for it

@@ -842,6 +842,8 @@ class WorldDoc(QWidget):
         if err is not None:
             self._show_guide("error", err)
             return
+        for tool in self._carry_tools():           # a card writing as the scan lands ends in the folder it wrote
+            tool.finish_writes()                   # (its Accept committed to the new folder's draft: fourth round)
         self._census = census
         self._stock_grid = stock or {}
         self._stock_known = stock is not None

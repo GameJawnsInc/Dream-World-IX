@@ -1040,6 +1040,32 @@ def test_an_open_card_is_put_away_when_the_bar_starts_holding_and_the_bar_waits_
     card.wait()
 
 
+def test_a_scan_that_lands_during_a_card_s_accept_lets_it_commit_to_its_own_folder(monkeypatch, tmp_path, app):
+    """A folder pick made just before an Accept lands while it writes: _finish moved the tab to the new folder before
+    closing the card, so the Accept's end committed to the new folder's draft (or raised on none), and the draft it
+    wrote kept the shape with no record (review of the C19 fixes, fourth round). A landing scan waits for the cards'
+    writes first. And an edit's Cancel is not offered while its Accept writes: waiting turned a cancel into an accept."""
+    import shutil
+    from ff9mapkit.workspace import worldscan
+    game = _three_islands(monkeypatch, tmp_path)
+    shutil.copytree(game / "FF9CustomMap-world", game / "Hand")
+    doc, run = _doc(app, game, tmp_path, tmp_path / "saved.toml")
+    doc.set_view_mode("3d", sync=True)
+    forest = doc.open_forest(sync=True)
+    forest.donor_box.setCurrentIndex(forest.donor_box.findData("15,15"))
+    forest._runner = held = _Held([])
+    forest.place(26.0, -26.0, 3.2)
+    forest._timer.stop()
+    forest._check()
+    held.wait()                                                            # the check
+    forest.accept_btn.click()
+    assert held.busy() and not forest.close_btn.isEnabled()
+    doc._finish(worldscan.scan_tree(game / "Hand"), None, None)           # the scan lands: Hand is shown now
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    assert not held.busy() and D.history(draft)["cursor"] == 1
+    assert not (tmp_path / "drafts" / "Hand.draft").exists()
+
+
 def test_a_card_that_writes_is_never_closed_under_its_job(monkeypatch, tmp_path, app):
     """Closing a card kills its job, and the view toggle, the menu (one card at a time), a Rescan and a folder pick all
     close cards: a card's Promote or Revert promote cut off half way left the live folder half written with no

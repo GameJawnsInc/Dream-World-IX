@@ -292,6 +292,30 @@ def test_reopening_the_sink_card_mid_edit_keeps_the_step_s_ticks(tmp_path):
     assert tool.editing() and notes == [] and tool.row() == row
 
 
+def test_a_sink_s_two_call_accept_is_never_cut_between_its_calls(tmp_path):
+    """The sink's Accept is two calls, disc 1 then disc 4's replay, the second started by the first's end. close_tool
+    waited for one call and then killed the runner, cutting the disc-4 call: the disc-1 sink in the draft with no
+    recipe row and an orphaned pending step (review of the C19 fixes, fourth round). The card cannot be closed while
+    it writes, and closed anyway it waits for every call of the job."""
+    from .test_worldforest import Scripted
+
+    def answer(kind, argv):
+        return {"ok": True, "dry_run": kind == "check", "blocks": [[5, 5]], "written": [], "refused": None,
+                "report": {"land_tris": 4}}
+    run = Scripted(answer)
+    tool, _g, _s = _sink_card(tmp_path, [ROW], run)
+    tool.place(345.0, -359.0)
+    tool._timer.stop()
+    tool._check()
+    assert tool.accept_btn.isEnabled(), tool.verdict_lbl.text()
+    run.hold = True
+    tool.accept_btn.click()                              # disc 1 writing
+    assert run.busy() and tool.writing() and not tool.close_btn.isEnabled()
+    tool.close_tool()                                    # closed anyway (from code)
+    assert not run.busy() and len([a for a in run.argvs if "--dry-run" not in a]) == 2
+    assert D.history(tool.draft())["cursor"] == 1 and tool.isHidden()
+
+
 def test_a_sink_edited_through_the_recipe_bar_writes_what_world_fuse_writes(world, monkeypatch, tmp_path):
     """THE C12 ACCEPTANCE for the sink, on the synthetic world: a sink placed with the card, picked in the recipe bar,
     opened again in its card on its own row, retuned (entrances allowed) and accepted; the recipe is the edited row,
