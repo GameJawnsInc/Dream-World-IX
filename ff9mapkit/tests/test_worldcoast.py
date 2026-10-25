@@ -287,6 +287,21 @@ def test_the_held_window_keeps_a_tie():
     assert CE.nearest([BEACH, CLIFF], x, z) is CLIFF and CE._on_run(CLIFF, x, z)[0] < 1e-9     # on its run
 
 
+def test_the_held_window_keeps_a_tie_from_a_fresh_read_too():
+    """Every read of a block's windows is a fresh JSON load: the window the card holds comes back as an equal new
+    dict. nearest() looked the held window up by identity, so after a second read a nearer window listed before it
+    took the tie and the card's depth reset to the ceiling (review of the C12 fixes: e7977bd9's card test had no
+    tie, and this half of it no test)."""
+    import copy
+    other = copy.deepcopy(CLIFF)
+    other["run"] = [[x + 0.02, z] for x, z in CLIFF["run"]]              # another run, 0.02u off, listed first
+    fresh = copy.deepcopy([other, CLIFF])                                 # the second read: equal, new dicts
+    held = CLIFF                                                          # what the card holds, from the first read
+    assert CE.nearest(fresh, 205.02, -520.0) == other                     # nearest by itself
+    w = CE.nearest(fresh, 205.02, -520.0, prefer=held)
+    assert w == CLIFF and w is fresh[1]                                   # the held window, as the read's own copy
+
+
 def test_the_coast_card_opens_on_its_row_and_says_it_back(app, tmp_path):
     from .test_worldforest import Scripted
     tool, _p, _g, _s = _card(app, tmp_path, Scripted())
