@@ -31,6 +31,32 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   still a no-op.
 - A page read only at 15bpp is handed out as a direct-colour page, with no palette.
 
+### Fixed — the flying gold chocobo's camera, and vehicles boarded on foot
+- "As the game sees it" now frames the flying gold chocobo, the Hilda Garde III and the Blue Narciss the way the
+  game does when you get aboard in play: on disc 1 the camera sits lower than it used to draw. Two new choices
+  show the higher camera the game uses after feeding the gold chocobo a Dead Pepper in the air, and when the
+  airship comes back from its bridge. Measured in game.
+
+### Changed — the beach chain is a tested carry
+- "Carry a coast"'s beach chain (the beach island and its chain of small islands, 4x2 blocks) is now marked as
+  tested: carried by the World tab and walked in game.
+
+### Added — change a shape that is already in the game
+- Edit and Delete now work on a placed step you have already promoted into the game. The World tab takes that
+  promote back out of the game while the step is open, then promotes the recipe again when you accept or cancel,
+  so you no longer need Revert promote first. If the game's files changed since (another tool wrote them), nothing
+  is changed and the bar says so.
+
+### Added — the game's mist in the World tab's game view
+- "As the game sees it" now draws the world map's fog the way the game does: the Mist fading the far land into
+  the sky, with high ground standing out of it. A "Mist" switch shows the years without mist instead. The fog was
+  measured from the game's own frames and uses your install's fog colour and Memoria.ini settings.
+
+### Changed — "Add a mountain" offers places that work
+- About half the places the mountain card offers now pass its check, up from about one in seven: it no longer
+  refuses over steep ground nearby that it does not change, and it spots at once two problems with the ground round
+  its foot that used to show only after the check.
+
 ### Changed — the World tab shows where a shape was refused
 - A refused mountain now marks the place on the map in every case the editor was measured to meet (before, most
   of its refusals only printed a sentence).

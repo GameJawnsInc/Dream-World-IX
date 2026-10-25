@@ -422,12 +422,13 @@ def project(view, verts, res=RES):
 
 # ---------------------------------------------------------------- raster
 def raster(view, batches, title, *, site: RenderSite, out_dir=None, cull=True,
-           want_ids=False, tex_lookup=None, verbose=True):
+           want_ids=False, tex_lookup=None, verbose=True, want_depth=False):
     """Rasterize one view. ``out_dir=None`` skips the PNG save (pure mode);
     ``tex_lookup`` (part -> texture array or None) overrides install textures
     -- the hermetic-test hook. ``want_ids``: also return an int32 per-pixel
     owner buffer (batch_index * 2**20 + tri_index, -1 = sky) -- the
-    seam-forensics hook."""
+    seam-forensics hook. ``want_depth``: also return the per-pixel depth (``project``'s, along the view; inf =
+    sky) -- the fog calibration's hook (overworld editor C18)."""
     _require_numpy()
     W, H = site.res
     if tex_lookup is None:
@@ -512,8 +513,12 @@ def raster(view, batches, title, *, site: RenderSite, out_dir=None, cull=True,
             print(f"   render {title}.png  tris={ntri} culled={ncull}")
     elif verbose:
         print(f"   render {title} (unsaved)  tris={ntri} culled={ncull}")
+    if want_ids and want_depth:
+        return np.asarray(img), idbuf, zbuf
     if want_ids:
         return np.asarray(img), idbuf
+    if want_depth:
+        return np.asarray(img), zbuf
     return np.asarray(img)
 
 

@@ -279,7 +279,7 @@ def test_a_step_that_refuses_on_the_new_ground_leaves_the_draft_as_it_was(monkey
            in bar.status_lbl.text() and "exactly as it was" in bar.status_lbl.text()
 
 
-def test_closing_the_card_cancels_the_edit_and_a_promoted_step_is_not_edited(monkeypatch, tmp_path, app):
+def test_closing_the_card_cancels_the_edit_and_a_promoted_step_says_it_is_in_the_game(monkeypatch, tmp_path, app):
     _fake_mirror(monkeypatch)
     game, doc, _run, draft = _placed(app, monkeypatch, tmp_path)
     bar = doc._recipe
@@ -295,7 +295,89 @@ def test_closing_the_card_cancels_the_edit_and_a_promoted_step_is_not_edited(mon
     D.promote(draft, game=game, log=lambda *a: None)
     bar.refresh()
     bar.select(0)
-    assert not bar.edit_btn.isEnabled() and not bar.delete_btn.isEnabled() and "in the game" in bar.status_lbl.text()
+    assert bar.edit_btn.isEnabled() and bar.delete_btn.isEnabled() and "in the game" in bar.status_lbl.text()
+    assert "comes out of the game while you edit" in bar.edit_btn.toolTip()        # rung C19
+
+
+# ---------------------------------------------------------------- a step that is in the game (rung C19)
+def _promoted(app, monkeypatch, tmp_path):
+    """_placed's three steps, promoted into the live folder (the fake disc-4 mirror), and the live folder's world
+    files before any edit."""
+    _fake_mirror(monkeypatch)
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    D.promote(draft, game=game, log=lambda *a: None)
+    doc._recipe.refresh()
+    return game, doc, run, draft, _tree(game / "FF9CustomMap-world")
+
+
+def test_an_in_game_step_edited_comes_out_of_the_game_and_goes_back_in_edited(monkeypatch, tmp_path, app):
+    """THE C19 ACCEPTANCE: a step that is in the game opens anyway -- its promote reverted (world-promote --revert),
+    the edit as C9's, then the recipe promoted again -- and the live folder ends as the edited recipe composed onto
+    the folder as it was before the draft: the ledger's own promote and revert carry every byte."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    rows0 = D.recipe_rows(draft)
+    asked = []
+    bar._ask = lambda title, text: asked.append(title) or True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert asked == ["Edit a step that is in the game?"]
+    verbs = [a[5:7] for a in run.argvs if a[5] == "world-promote"]
+    assert verbs == [["world-promote", str(draft)]] and "--revert" in run.argvs[-1]
+    forest = doc._forest
+    assert forest.editing() and forest.row() == rows0[0] and D.history(draft)["promoted"] == 0
+    assert _tree(game / "FF9CustomMap-world") != live0                       # out of the game while it is open
+    forest.drop_at(30.0, -30.0)
+    forest._timer.stop()
+    forest._check()
+    forest.accept_btn.click()
+    rows = D.recipe_rows(draft)
+    assert rows == [{**rows0[0], "center": [30.0, -30.0]}] + rows0[1:]
+    assert "--revert" not in run.argvs[-1] and run.argvs[-1][5] == "world-promote"      # promoted again, last
+    h = D.history(draft)
+    assert h["promoted"] == 3 and h["edit"] is None and D.edits(draft) == []
+    assert "Promoted into FF9CustomMap-world again" in bar.status_lbl.text(), bar.status_lbl.text()
+    assert _tree(game / "FF9CustomMap-world") == _compose(game, rows, "Hand")
+
+
+def test_an_in_game_step_whose_edit_is_cancelled_goes_back_into_the_game_as_it_was(monkeypatch, tmp_path, app):
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    doc._forest.close_btn.click()                                          # Cancel edit
+    assert _tree(game / "FF9CustomMap-world") == live0                      # the game exactly as it was
+    assert D.history(draft)["promoted"] == 3 and "Edit cancelled" in bar.status_lbl.text()
+    assert "again" in bar.status_lbl.text()
+
+
+def test_an_in_game_step_deleted_leaves_the_game_without_it(monkeypatch, tmp_path, app):
+    game, doc, run, draft, _live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    asked = []
+    bar._ask = lambda title, text: asked.append(text) or True
+    rows0 = D.recipe_rows(draft)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.delete_btn.click()
+    assert "It is in the game" in asked[0]
+    assert D.recipe_rows(draft) == rows0[1:] and D.history(draft)["promoted"] == 2
+    assert _tree(game / "FF9CustomMap-world") == _compose(game, rows0[1:], "Hand")
+
+
+def test_an_in_game_step_whose_promote_cannot_come_out_stays_as_it_was(monkeypatch, tmp_path, app):
+    """Revert refuses over later work at its blocks: the edit does not open, and the game and the draft stay."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    live = game / "FF9CustomMap-world"
+    (live / T00).write_bytes(b"another session's edit")                    # later work at a promoted block
+    h0, after0 = D.history(draft), _tree(live)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert not doc._forest.editing() and bar.status_lbl.property("state") == "error"
+    assert "could not be taken back out of the game" in bar.status_lbl.text(), bar.status_lbl.text()
+    assert _tree(live) == after0 and D.history(draft) == h0
 
 
 def test_every_editable_card_opens_on_its_row_and_says_it_back(monkeypatch, tmp_path, app):
@@ -555,3 +637,25 @@ def test_an_undo_waits_for_a_reader_that_holds_a_file_open(tmp_path):
     threading.Timer(0.4, f.close).start()
     D.undo(d)                                           # it must delete the file the step made
     assert not (d / new).exists() and D.history(d)["cursor"] == 0
+
+
+def test_a_second_revert_refusing_puts_the_first_back_into_the_game(monkeypatch, tmp_path, app):
+    """Two promotes stand over step 1: the newer reverts, the older refuses (later work at its block). The bar promotes
+    straight back, so the game is never left half reverted: the live folder ends exactly as it was."""
+    game, doc, run, draft, _live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    (draft / FAR).parent.mkdir(parents=True, exist_ok=True)               # a block of open sea: a new file
+    _step(draft, [(10, 5)], {FAR: b"a fourth step"}, _row(672, -352), "a fourth step")
+    D.promote(draft, game=game, log=lambda *a: None)                       # the newer promote: step 4 only
+    live = game / "FF9CustomMap-world"
+    (live / T00).write_bytes(b"another session's edit")                    # later work at the older promote's block
+    after0 = _tree(live)
+    bar.refresh()
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    reverts = [a for a in run.argvs if a[5] == "world-promote" and "--revert" in a]
+    assert len(reverts) == 2 and run.argvs[-1][5] == "world-promote" and "--revert" not in run.argvs[-1]
+    assert not doc._forest.editing() and "could not be taken back" in bar.status_lbl.text()
+    assert "again" in bar.status_lbl.text(), bar.status_lbl.text()
+    assert _tree(live) == after0 and D.history(draft)["promoted"] == 4

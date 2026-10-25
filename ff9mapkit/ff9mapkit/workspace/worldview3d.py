@@ -45,10 +45,15 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QHBoxLayout, QStackedLayout, QVBoxLayout, QWidget
 
 NEAR = 0.05                    # render.raster drops a tri with any vertex this close to the eye (or behind it)
-# the game camera's vehicles (C8): the travel modes offered, how each sits (measured in game: c8_lab.py)
-VEHICLE_MODES = (0, 1, 6, 7, 8, 9)   # on foot, a chocobo, the gold chocobo flying, the Blue Narciss, the airships
-VEHICLE_LABELS = {0: "On foot", 1: "Chocobo", 6: "Gold chocobo, flying", 7: "Blue Narciss", 8: "Hilda Garde III",
-                  9: "Invincible"}
+# the game camera's vehicles (C8): the travel modes offered, how each sits (measured in game: c8_lab.py) -- and, C21,
+# how each was reached, since that moves the camera's final nudges (gamecam.fix_target): (mode, how, label)
+VEHICLE_CHOICES = ((0, "boarded", "On foot"), (1, "boarded", "Chocobo"), (6, "boarded", "Gold chocobo, flying"),
+                   (6, "pepper", "Gold chocobo, after a Dead Pepper"), (7, "boarded", "Blue Narciss"),
+                   (8, "boarded", "Hilda Garde III"), (8, "loaded", "Hilda Garde III, back from its bridge"),
+                   (9, "boarded", "Invincible"))
+VEHICLE_MODES = tuple(dict.fromkeys(m for m, _h, _l in VEHICLE_CHOICES))
+VEHICLE_LABELS = {m: label for m, how, label in VEHICLE_CHOICES if how == "boarded"}
+HOW_ROLE = 0x0101              # Qt.UserRole + 1: the chooser item's ``how`` beside its mode (the item data)
 FLYING_MODES = (6, 8, 9)
 BOAT_MODE = 7
 BOAT_DRAFT = -0.703125         # the Blue Narciss rides at the water's surface less this (published -0.703125)
@@ -71,7 +76,8 @@ attribute vec3 a_pos;
 attribute vec2 a_uv;
 uniform mat4 u_mvp;
 varying vec2 v_uv;
-void main() { v_uv = a_uv; gl_Position = u_mvp * vec4(a_pos, 1.0); }
+varying vec3 v_pos;
+void main() { v_uv = a_uv; v_pos = a_pos; gl_Position = u_mvp * vec4(a_pos, 1.0); }
 """
 # Unity V is bottom-up and the texture is uploaded top row first, so t = 1 - v: render.sample's
 # floor((1 - frac(v)) * h) mod h is exactly GL's NEAREST + REPEAT texel for that t.
@@ -80,12 +86,27 @@ uniform sampler2D u_tex;
 uniform int u_has_tex;
 uniform vec3 u_missing;
 uniform float u_alpha;
+uniform int u_fog;
+uniform vec3 u_eye;
+uniform vec3 u_fwd;
+uniform vec4 u_fog_ramp;
+uniform vec3 u_fog_rgb;
 varying vec2 v_uv;
+varying vec3 v_pos;
 void main() {
-    if (u_has_tex == 0) { gl_FragColor = vec4(u_missing, u_alpha); return; }
-    gl_FragColor = vec4(texture2D(u_tex, vec2(v_uv.x, 1.0 - v_uv.y)).rgb, 1.0);
+    vec3 col = u_has_tex == 0 ? u_missing : texture2D(u_tex, vec2(v_uv.x, 1.0 - v_uv.y)).rgb;
+    float a = u_has_tex == 0 ? u_alpha : 1.0;
+    if (u_fog == 1) {
+        float d = dot(v_pos - u_eye, u_fwd);
+        float e = u_fog_ramp.y + u_fog_ramp.z * max(0.0, v_pos.y - u_fog_ramp.w);
+        col = mix(col, u_fog_rgb, clamp((d - u_fog_ramp.x) / max(e - u_fog_ramp.x, 1e-6), 0.0, 1.0));
+    }
+    gl_FragColor = vec4(col, a);
 }
 """
+# THE GAME'S FOG (editor C18, world.fog): the scene only (a missing texture's magenta too, as render.raster's twin
+# fogs it) -- draw_solid turns it off, so the editor's own drawings (a ghost, a refusal mark, the pick's pin) stay as
+# bright as ever: they are the author's, not the game's
 
 
 class GLUnavailable(RuntimeError):
@@ -224,7 +245,7 @@ def texture_rgba(tex):
     return np.ascontiguousarray(out)
 
 
-def compare(oracle, gpu, *, sky=None) -> dict:
+def compare(oracle, gpu, *, sky=None, tol: int = 0) -> dict:
     """How a GPU still differs from ``render.raster``'s, by defect class (measured 2026-10-23 on the V-shore bench
     and a disc-1 coast; ``studies/overworld-editor/A0.md``):
 
@@ -237,12 +258,15 @@ def compare(oracle, gpu, *, sky=None) -> dict:
       triangle changes this; the precision classes touch it only along silhouettes.
     * ``blob``: differing pixels whose whole 3x3 neighbourhood differs too. A wrong texture, a flipped tile or a
       missing triangle is an AREA; a line or a dot never fills a 3x3 block.
+
+    ``tol``: a channel within this many levels counts as equal (the fog's blend, float32 on the GPU and float64 in its
+    software twin, rounds a level apart on every fogged pixel: C18); exact by default.
     """
     from ..world import render as R
     sky = R.SKY if sky is None else sky
     a = np.asarray(oracle, dtype=np.int16)
     b = np.asarray(gpu, dtype=np.int16)
-    diff = (a != b).any(axis=2)
+    diff = (np.abs(a - b) > tol).any(axis=2)
     H, W = diff.shape
     sky_a = (a == sky).all(axis=2)
     sky_b = (b == sky).all(axis=2)
@@ -403,7 +427,8 @@ class _GLScene:
                 self.texs[part] = tex
         self.draws = list(packed.draws)
 
-    def draw(self, f, mvp: np.ndarray, *, cull: bool = True, ortho: bool = False):
+    def draw(self, f, mvp: np.ndarray, *, cull: bool = True, ortho: bool = False, fog=None, view=None):
+        """The scene; ``fog`` (a ``world.fog.Fog``) fogs it as ``view``'s camera sees it."""
         f.glEnable(GL_DEPTH_TEST)
         f.glDepthFunc(GL_LESS)
         if cull:                                             # the normal faces the eye (render's cull): in the
@@ -418,6 +443,7 @@ class _GLScene:
         prog.setUniformValue1i(prog.uniformLocation("u_tex"), 0)
         prog.setUniformValue("u_missing", *[c / 255.0 for c in MISSING_RGB])
         prog.setUniformValue1f(prog.uniformLocation("u_alpha"), 1.0)
+        _fog_uniforms(prog, fog, view)
         loc_p, loc_uv = prog.attributeLocation("a_pos"), prog.attributeLocation("a_uv")
         bound = None
         for part, first, count in self.draws:
@@ -461,6 +487,7 @@ class _GLScene:
         prog.bind()
         prog.setUniformValue("u_mvp", QMatrix4x4(*[float(v) for v in mvp.reshape(-1)]))
         prog.setUniformValue1i(prog.uniformLocation("u_has_tex"), 0)
+        prog.setUniformValue1i(prog.uniformLocation("u_fog"), 0)         # the author's drawings: never fogged
         prog.setUniformValue("u_missing", *[c / 255.0 for c in rgb])
         prog.setUniformValue1f(prog.uniformLocation("u_alpha"), float(alpha))
         loc_p, loc_uv = prog.attributeLocation("a_pos"), prog.attributeLocation("a_uv")
@@ -483,13 +510,29 @@ class _GLScene:
         self.vbos, self.texs, self.draws = {}, {}, []
 
 
+def _fog_uniforms(prog, fog, view):
+    """The fragment shader's fog: off without a fog or a perspective view, else its ramp, colour and the eye's frame."""
+    if fog is None or view is None or view.get("kind") != "persp":
+        prog.setUniformValue1i(prog.uniformLocation("u_fog"), 0)
+        return
+    eye = np.asarray(view["eye"], dtype=np.float64)
+    fwd = np.asarray(view["at"], dtype=np.float64) - eye
+    fwd /= np.linalg.norm(fwd)
+    prog.setUniformValue1i(prog.uniformLocation("u_fog"), 1)
+    prog.setUniformValue("u_eye", *[float(v) for v in eye])
+    prog.setUniformValue("u_fwd", *[float(v) for v in fwd])
+    prog.setUniformValue("u_fog_ramp", float(fog.start), float(fog.end), float(fog.per_u), float(fog.floor))
+    prog.setUniformValue("u_fog_rgb", *[c / 255.0 for c in fog.rgb])
+
+
 def _clear(f, rgb):
     f.glClearColor(rgb[0] / 255.0, rgb[1] / 255.0, rgb[2] / 255.0, 1.0)
     f.glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
 
-def render_still(batches, view, *, res=None, tex_lookup=None, site=None, cull=True):
-    """One still on the GPU, the way ``render.raster(view, batches, ...)`` draws it: (H, W, 3) uint8.
+def render_still(batches, view, *, res=None, tex_lookup=None, site=None, cull=True, fog=None):
+    """One still on the GPU, the way ``render.raster(view, batches, ...)`` draws it: (H, W, 3) uint8; ``fog`` as
+    ``world.fog.fog_still`` fogs a raster still (the sky cleared to the fog's colour).
 
     ``tex_lookup`` (part -> texture array or None) is the hermetic hook, as in ``render.raster``; else ``site``'s
     textures; ``cull`` as ``render.raster``'s. Needs a QGuiApplication on a GL platform; raises
@@ -517,12 +560,12 @@ def render_still(batches, view, *, res=None, tex_lookup=None, site=None, cull=Tr
         fbo.bind()
         f = ctx.functions()
         f.glViewport(0, 0, W, H)
-        _clear(f, R.SKY)
+        _clear(f, fog.rgb if fog is not None and view["kind"] == "persp" else R.SKY)
         packed = pack(batches, view)
         scene = _GLScene()
         scene.init()
         scene.upload(packed, {p: texture_rgba(tex_lookup(p)) for p in packed.parts})
-        scene.draw(f, clip_matrix(view, res), cull=cull, ortho=view["kind"] == "ortho")
+        scene.draw(f, clip_matrix(view, res), cull=cull, ortho=view["kind"] == "ortho", fog=fog, view=view)
         f.glFinish()
         img = fbo.toImage().convertToFormat(QImage.Format.Format_RGB888)
         fbo.release()
@@ -651,14 +694,16 @@ class GameCamera:
     pan or zoom, since the game's does not.
 
     ``mode`` is the travel mode (gEventGlobal[190], C8): a chocobo, the boat and the airships each frame their own way
-    (``gamecam.pose``); ``table`` is the game's TransportControls (``gamecam.transport_table``); ``topograph`` the
-    cell's under the party (a chocobo over forest widens its view). The panel seats the party as each vehicle sits."""
+    (``gamecam.pose``); ``how`` is how it was reached (C21: boarded, after a Dead Pepper, or loaded aboard, which
+    moves the final nudges: ``gamecam.fix_target``, for the disc-1 world scripts this view draws); ``table`` is the
+    game's TransportControls (``gamecam.transport_table``); ``topograph`` the cell's under the party (a chocobo over
+    forest widens its view). The panel seats the party as each vehicle sits."""
 
     def __init__(self, player, rotation=0.0, *, settings=None, area=14, ground=None, mode=0, table=None,
-                 topograph=None):
+                 topograph=None, how="boarded"):
         self.player, self.rotation = tuple(float(v) for v in player), float(rotation) % 360.0
         self.settings, self.area, self.ground = settings, int(area), ground
-        self.mode, self.table, self.topograph = int(mode), table, topograph
+        self.mode, self.table, self.topograph, self.how = int(mode), table, topograph, str(how)
         self.dist = 0.0
         self._memo = None
 
@@ -672,10 +717,10 @@ class GameCamera:
 
     def view(self):
         from ..world import gamecam as G
-        key = (self.player, round(self.rotation, 3), self.area, self.mode, self.topograph)
+        key = (self.player, round(self.rotation, 3), self.area, self.mode, self.topograph, self.how)
         if self._memo is None or self._memo[0] != key:
             v = G.pose(self.player, self.rotation, settings=self.settings or G.Settings(), area=self.area,
-                       ground=self.ground, mode=self.mode, table=self.table, airborne=self.mode == 6,
+                       ground=self.ground, mode=self.mode, table=self.table, how=self.how, disc=1,
                        topograph=self.topograph)
             v["near"] = NEAR
             self._memo = (key, v)
@@ -734,6 +779,7 @@ class WorldView3D(QOpenGLWidget):
         # what a tool draws over the map: [(tris (n, 3), rgb, alpha, depth)], in order (the forest ghost, its rim,
         # its refusal marks). The host owns the list and its colours; the view only draws it.
         self.overlays = []
+        self.fog = None                                      # world.fog.Fog the game camera draws (C18), or None
         # a draggable ghost: {"center": (x, z), "y": rim height, "poly": (m, 2) plan ring}. A left press inside its
         # plan drags it on the level plane at y (ghost_moved / ghost_dropped); anywhere else the camera orbits
         self.ghost = None
@@ -785,15 +831,17 @@ class WorldView3D(QOpenGLWidget):
         dpr = self.devicePixelRatioF()
         w, h = max(1, int(self.width() * dpr)), max(1, int(self.height() * dpr))
         f.glViewport(0, 0, w, h)
-        _clear(f, R.SKY)
+        cam = self.camera
+        fog = self.fog if self.game_mode() else None          # the game's fog only through the game's eye
+        _clear(f, fog.rgb if fog is not None else R.SKY)
         if not self._ready:
             return
         if self._pending is not None:
             self._scene.upload(*self._pending)
             self._pending = None
-        cam = self.camera
-        mvp = clip_matrix(cam.view(), (w, h), far=cam.far())
-        self._scene.draw(f, mvp)
+        view = cam.view()
+        mvp = clip_matrix(view, (w, h), far=cam.far())
+        self._scene.draw(f, mvp, fog=fog, view=view)
         for tris, rgb, alpha, depth in self.overlays:
             for s in seam_shifts(tris[:, 0]) if len(tris) else (0.0,):   # a drawing at the seam, at both ends
                 self._scene.draw_solid(f, mvp, tris + (s, 0.0, 0.0) if s else tris, rgb, alpha=alpha, depth=depth)
@@ -961,9 +1009,12 @@ class WorldView3DPanel(QWidget):
         self.vehicle_box = QComboBox()
         self.vehicle_box.setAccessibleName("Game camera vehicle")
         self.vehicle_box.setToolTip("How the party travels: on foot, on a chocobo, on the boat or an airship. Each "
-                                    "vehicle's camera sits at its own distance and height, as the game's does.")
-        for m in VEHICLE_MODES:
-            self.vehicle_box.addItem(VEHICLE_LABELS[m], m)
+                                    "vehicle's camera sits at its own distance and height, as the game's does, and "
+                                    "the game lifts it after a Dead Pepper in the air or when the airship comes "
+                                    "back from its bridge.")
+        for m, how, label in VEHICLE_CHOICES:
+            self.vehicle_box.addItem(label, m)
+            self.vehicle_box.setItemData(self.vehicle_box.count() - 1, how, HOW_ROLE)
         # the longest name never sets the bar's width (the window's floor): the list opens as wide as its items
         self.vehicle_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.vehicle_box.setMinimumContentsLength(12)
@@ -977,7 +1028,13 @@ class WorldView3DPanel(QWidget):
         self.alt_spin.setSingleStep(2.0)
         self.alt_spin.setValue(24.0)
         self.alt_spin.valueChanged.connect(lambda _v: self._seat_party())
-        for w in (self.vehicle_box, self.alt_spin):
+        # C18: the game's fog with the game camera; the Mist covers disc 1 until the Outer Continent, and disc 4
+        from PySide6.QtWidgets import QCheckBox
+        self.mist_box = QCheckBox("Mist")
+        self.mist_box.setAccessibleName("Game camera mist")
+        self.mist_box.setChecked(True)
+        self.mist_box.toggled.connect(lambda _on: self._set_fog())
+        for w in (self.vehicle_box, self.alt_spin, self.mist_box):
             w.hide()
             self.bar.addWidget(w)
         self.bar.addWidget(self.game_btn)
@@ -1136,18 +1193,38 @@ class WorldView3DPanel(QWidget):
         packed = self.view.packed
         cam = GameCamera.from_orbit(self.view.camera, (x, 0.0, z), settings=settings,
                                     ground=lambda gx, gz: ground_y(packed, gx, gz),
-                                    mode=int(self.vehicle_box.currentData() or 0), table=G.transport_table(game))
+                                    mode=int(self.vehicle_box.currentData() or 0), table=G.transport_table(game),
+                                    how=self._vehicle_how())
+        self._set_fog()
         self.view.set_camera(cam)
         self._seat_party()
 
+    def _set_fog(self):
+        """The game's fog for the game camera (C18): the Mist years' (measured) or the years without, as the switch
+        says, in the install's daylight fog colour; the switch's tooltip says which and where it comes from."""
+        if self.view is None:
+            return
+        from ..world import fog as FG
+        game = getattr(self.site, "game", None) if self.site is not None else None
+        fog = FG.from_game(game, mist=self.mist_box.isChecked())
+        self.view.fog = fog
+        self.mist_box.setToolTip("The game's fog, as the game's camera sees it: on = the Mist years (disc 1 until "
+                                 "the Outer Continent, and disc 4), off = the years without mist. " + fog.note())
+        self.view.update()
+
     def _show_vehicle(self, on: bool):
         self.vehicle_box.setVisible(on)
+        self.mist_box.setVisible(on)
         self.alt_spin.setVisible(on and int(self.vehicle_box.currentData() or 0) in FLYING_MODES)
+
+    def _vehicle_how(self) -> str:
+        return str(self.vehicle_box.currentData(HOW_ROLE) or "boarded")
 
     def _vehicle_changed(self):
         cam = self.view.camera if self.view is not None else None
         if isinstance(cam, GameCamera):
             cam.mode = int(self.vehicle_box.currentData() or 0)
+            cam.how = self._vehicle_how()
             self._show_vehicle(True)
             self._seat_party()
 

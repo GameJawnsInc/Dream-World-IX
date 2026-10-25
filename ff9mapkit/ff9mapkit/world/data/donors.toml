@@ -209,10 +209,10 @@ name = "beach-chain"
 blocks = "7-10,17-18"
 class = "coast"
 aperture = "object"
-status = "candidate"
+status = "qualified"
 rots = [0]
 anatomy_study = "studies/coast-shape-language/DESIGN-MENU.md (the carryable pool)"
-note = "The beach island and its chain of dots, 4x2 blocks. Turn 0 only: Chocobo's Lagoon's object rides on (9,17)."
+note = "The beach island and its chain of dots, 4x2 blocks. Turn 0 only: Chocobo's Lagoon's object rides on (9,17). Walked in game: the editor carried it onto (19,1) and the party stood on its grass at 6.516 (predicted 6.521; studies/overworld-editor/C20.md)."
 
 [[donor]]
 name = "sea-plane"

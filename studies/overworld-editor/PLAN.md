@@ -142,6 +142,25 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C21, THE GOLD CHOCOBO'S CAMERA IN GAME (2026-10-24)** -> [`C21.md`](C21.md). The final nudges follow how a vehicle
+  was reached: a RunScriptSync hook keyed on tags 19 / 21 lands on different events per world script. Disc 1: the
+  gold chocobo flies 558 / 312 (C8 said 1419 / 996), a Dead Pepper lifts it; the Hilda Garde III and Blue Narciss
+  boarded on foot take 558 / 312. Disc 4: 1419 / 996 from the take-off. 8 of 8 registered predictions held.
+- **C20, THE BEACH CHAIN QUALIFIED (2026-10-24)** -> [`C20.md`](C20.md). No free 4x2 rect was left; the nearest was held
+  only by C5u's own comma carry, reverted through its record. The card carried the chain onto (19, 1): 24 gates,
+  I1/I2 identical over 2,013 files; in game N0 sea -1.367, N2 its grass 6.516 (predicted 6.521), N3 loaded.
+- **C19, EDIT A STEP IN THE GAME: BUILT (2026-10-24)** -> [`C19.md`](C19.md). Edit / Delete on a promoted step chain
+  revert (newest first) -> C9's edit -> promote again on Accept or Cancel; a later revert refusing promotes straight
+  back. Real bytes on the live install: live disc 1 == the edited recipe on the snapshot over 999 files, every one of
+  72 files at the changed blocks ledgered true, and a final revert leaves the folder exactly as it was.
+- **C18, THE GAME'S FOG: BUILT (2026-10-24)** -> [`C18.md`](C18.md). Measured from C7's nine stills (the shaders are
+  compiled): linear in view depth 15 -> 61u, +2.75u per unit of height (the Mist is a ground fog), the weather
+  table's daylight fogDW; held-out spot rmse 0.051-0.066 vs 0.71-0.83 unfogged. Mist follows the story (scenario
+  5990-11090 has none: the ini's fog). On the view's GPU path the far land's error falls 55-94 -> 6-14.
+- **C17, THE MOUNTAIN STOPS OFFERING FAILURES: BUILT (2026-10-24)** -> [`C17.md`](C17.md). Offered spots that pass:
+  22 of 150 -> 76 of 150. The apron slope judged the whole span (42 of 42 refusals at steep ground it never lifted);
+  it judges the lifted grass. The card reads the carve's hole ring (plan-only): a weld split on it, and a zip edge
+  bound, refuse before any check (32 caught, no pass refused). Zip down faces and rise stay with the dry run.
 - **C16, REFUSALS THAT SAY WHERE: BUILT (2026-10-24)** -> [`C16.md`](C16.md). Measured through the real cards: of the
   refusals they meet, the mountain left 21 of 28 unmarked; now none. The mountain's exact-weld law checked its whole
   read window (16 refusals at far-off sub-mm splits); it checks the ring. A carry donor that fills its frame is refused
@@ -453,6 +472,7 @@ Each rung is useful on its own. One change per in-game test, as everywhere else.
 - ~~`carve_forest` time at a fixed centre~~: 7 s cold through the CLI, every gate included (C1.md).
 - The harness round trip on the overworld, measured rather than estimated.
 - Whether GL works in the Workspace's offscreen smoke run, or what the fallback costs.
+- ~~The game's fog in the view~~: measured (C18.md); weather, time of day and altitude still unmeasured.
 - ~~How close a free GPU camera can come to the game's own world camera~~: exact in plan, within the engine's own
   1u / 0.5u settle bands in height (C7.md: nine stills, land-mask IoU 0.873-0.995); and the view had drawn the world
   MIRRORED (fixed). The old note follows. How close a free GPU camera can come to the game's own world camera. render.py's ledger says it cannot see the
