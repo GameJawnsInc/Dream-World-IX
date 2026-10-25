@@ -204,6 +204,35 @@ def test_a_placed_mountain_on_another_ground_opens_once_the_island_is_read(app, 
     assert not tool.editing() and len(notes) == 1 and "would not say its ground back" in notes[0], notes
 
 
+def test_an_island_read_begun_before_the_edit_does_not_decide_it(app, monkeypatch, tmp_path):
+    """An island (soup) read begun while the card was open lands after the bar's Edit lifted the step out of the draft
+    (same path, new bytes): the card took any read whose path matched, so the held row's ground was read off the
+    island as it was before the lift and a valid edit refused -- or, landing last, the ghost judged a stale island
+    (review of the C12 fixes). A read begun before the island changed is dropped."""
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    tool.place(26.0, -26.0, 3.2)
+    row = tool.row()
+    assert row["ground"] == "desert"
+    tool.close_tool()
+    desert = tool._soup_fn(None)
+    grass = ME.SoupIndex(IN.soup_from_blocks({(0, 0): _mountain_bench()}))
+    state = {"ix": grass}                                  # the draft as it was, with the step in it
+    tool._soup_fn = lambda folder: state["ix"]
+    tool._sync = False
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn()))  # a worker reads at once; its result comes later
+    tool.open_tool()                                       # a read begins: the island before the lift
+    state["ix"] = desert                                   # the bar's Edit lifts the step...
+    tool.island_changed()                                  # ...and the tab says so
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    while held:
+        what, result = held.pop(0)                         # the read from before the lift lands first
+        tool._on_bg(what, 0, result, None)
+    assert tool.editing() and notes == [] and tool.row() == row
+
+
 def test_the_preview_refuses_before_any_job_runs(app, monkeypatch, tmp_path):
     run = Scripted(_passes)
     tool, panel, _c = _tool(app, monkeypatch, tmp_path, run)

@@ -177,6 +177,7 @@ class CarryTool(QWidget):
         self._ix_for = None                              # the folder it was read from
         self._seam = False                               # the frame _ix is read in: across x = 0 (True) or not
         self._soups = {}                                 # (folder, seam) -> SoupIndex, until the island changes
+        self._soup_gen = 0                               # which island the soups read: _drop_soups moves it on
         self._preview = None                             # the last preview
         self._ghost = None                               # (tris, rim) of the drawn ghost
         self._verdict = None                             # (handles key, verdict dict) of the last finished job
@@ -517,9 +518,12 @@ class CarryTool(QWidget):
         return self.FE.SoupIndex(IN.soup_from_blocks(blocks))
 
     def _drop_soups(self):
-        """The island changed: every cached soup is stale."""
+        """The island changed: every cached soup is stale, and so is every read still running (its path is the same
+        and its bytes are not: a read begun before an Edit lifted the step out decided the held row's ground --
+        review of the C12 fixes)."""
         self._soups = {}
         self._ix = self._ix_for = None
+        self._soup_gen += 1
 
     def _load_soup(self):
         """Both frames' soups, each from the cache or read on a worker (the seam frame's too, so a click near x = 0
@@ -533,7 +537,7 @@ class CarryTool(QWidget):
                     self._ix, self._ix_for = self._soups[(target, seam)], target
                 continue
             fn = self._seam_soup_fn if seam else self._soup_fn
-            self._bg("soup", lambda fn=fn, seam=seam: (target, seam, fn(target)))
+            self._bg("soup", lambda fn=fn, seam=seam, gen=self._soup_gen: (gen, target, seam, fn(target)))
 
     def fcenter(self):
         """The centre as the current soup's frame spells it (the ghost and the cheap laws); ``center`` is the folded
@@ -572,7 +576,9 @@ class CarryTool(QWidget):
                 self._sync_buttons()
             return
         if what == "soup":
-            target, seam, ix = result
+            gen, target, seam, ix = result
+            if gen != self._soup_gen:
+                return                                   # begun before the island changed: not the island now
             self._soups[(target, seam)] = ix
             if (target, seam) != (self.target(), self._seam):
                 return                                   # a frame (or a draft) the tool has moved off meanwhile
