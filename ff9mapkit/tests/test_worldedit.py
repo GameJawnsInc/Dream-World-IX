@@ -765,7 +765,7 @@ def test_an_in_game_edit_a_dead_workspace_left_open_is_put_right_on_the_next_lau
     h = D.history(draft)
     assert h["edit"] is None and h["promoted"] == 3 and h["cursor"] == 3 and D.promote_owed(draft) is None
     text = doc2._recipe.status_lbl.text()
-    assert "left open when the Workspace closed" in text and "again" in text, text
+    assert "The Workspace closed with a step that is in the game taken out of it" in text and "again" in text, text
 
 
 def test_the_folder_cannot_change_under_an_open_edit(monkeypatch, tmp_path, app):
@@ -951,13 +951,11 @@ def test_a_cancel_that_cannot_undo_the_draft_never_promotes_it(monkeypatch, tmp_
 
 def test_a_promote_back_that_refuses_says_the_game_lacks_the_recipe(monkeypatch, tmp_path, app):
     """Another session wrote the live folder at the edited step's block while the edit was open: the promote back
-    refuses (it would overwrite that work), the bar says the game does not have the recipe, the steps set aside come
-    back, and nothing is left owed."""
+    refuses (it would overwrite that work), the bar says the game does not have the recipe, and nothing is left owed
+    (it would retry at every launch)."""
     game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
     bar = doc._recipe
     bar._ask = lambda title, text: True
-    _unpromoted_fourth(draft)
-    bar.refresh()
     doc._on_pick(_hit(26.0, -26.0), sync=True)
     bar.edit_btn.click()
     (game / "FF9CustomMap-world" / T00).write_bytes(b"another session's edit")
@@ -966,7 +964,7 @@ def test_a_promote_back_that_refuses_says_the_game_lacks_the_recipe(monkeypatch,
     assert bar.status_lbl.property("state") == "error" and "Promoting it again did not run" in text, text
     assert "does not have the recipe" in text
     h = D.history(draft)
-    assert h["cursor"] == 4 and h["promoted"] == 0 and D.promote_owed(draft) is None
+    assert h["cursor"] == 3 and h["promoted"] == 0 and D.promote_owed(draft) is None
 
 
 def test_a_step_marked_in_the_game_with_no_promote_record_refuses_and_changes_nothing(monkeypatch, tmp_path, app):
@@ -1002,71 +1000,41 @@ def test_an_edit_that_will_not_open_after_the_reverts_promotes_the_game_back(mon
 
 
 def _unpromoted_fourth(draft):
-    """A fourth step in the draft that was never promoted: the game must never get it from the bar's chain."""
+    """A fourth step in the draft that was never promoted."""
     (draft / FAR).parent.mkdir(parents=True, exist_ok=True)
     _step(draft, [(10, 5)], {FAR: b"a fourth step, never promoted"}, _row(672, -352), "a fourth step")
 
 
-def test_a_cancelled_in_game_edit_promotes_only_what_was_in_the_game(monkeypatch, tmp_path, app):
-    """The re-promote is the steps that were in the game, never the draft's whole recipe: a step placed after the
-    promote and not promoted stays out of the game (and stays in the draft, applied)."""
-    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
-    bar = doc._recipe
-    bar._ask = lambda title, text: True
-    _unpromoted_fourth(draft)
-    bar.refresh()
-    rows0 = D.recipe_rows(draft)
-    doc._on_pick(_hit(26.0, -26.0), sync=True)
-    bar.edit_btn.click()
-    doc._forest.close_btn.click()                                          # Cancel edit
-    assert _tree(game / "FF9CustomMap-world") == live0                      # the game exactly as it was
-    h = D.history(draft)
-    assert h["promoted"] == 3 and h["cursor"] == 4 and D.recipe_rows(draft) == rows0
-    assert (draft / FAR).read_bytes() == b"a fourth step, never promoted"
-    assert "again" in bar.status_lbl.text(), bar.status_lbl.text()
-
-
-def test_an_accepted_in_game_edit_promotes_only_what_was_in_the_game(monkeypatch, tmp_path, app):
-    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
-    bar = doc._recipe
-    bar._ask = lambda title, text: True
-    _unpromoted_fourth(draft)
-    bar.refresh()
-    rows0 = D.recipe_rows(draft)
-    doc._on_pick(_hit(26.0, -26.0), sync=True)
-    bar.edit_btn.click()
-    forest = doc._forest
-    forest.drop_at(30.0, -30.0)
-    forest._timer.stop()
-    forest._check()
-    forest.accept_btn.click()
-    rows = D.recipe_rows(draft)
-    assert rows == [{**rows0[0], "center": [30.0, -30.0]}] + rows0[1:]
-    h = D.history(draft)
-    assert h["promoted"] == 3 and h["cursor"] == 4 and FAR not in _tree(game / "FF9CustomMap-world")
-    assert _tree(game / "FF9CustomMap-world") == _compose(game, rows[:3], "Hand")
-    assert D.edits(draft) == [FAR]                                          # still the draft's own, to promote later
-
-
-def test_the_rollback_after_a_refused_revert_promotes_only_what_was_in_the_game(monkeypatch, tmp_path, app):
-    """P1 = steps 1-3, P2 = step 4, step 5 never promoted; P1 cannot come out. The straight-back promote is P2's
-    step again, not step 5."""
-    far2 = "FF9_Data/WorldMap/Disc1/0_1/r6/Block[12][6] Terrain.ff9mesh"
+@pytest.mark.parametrize("second_promote", [False, True])
+def test_an_in_game_step_does_not_open_while_steps_after_the_game_s_are_out_of_it(monkeypatch, tmp_path, app,
+                                                                                   second_promote):
+    """A step placed after the last promote is not in the game. The chain's promote back writes the whole draft, so
+    with such a step on top it pushed that step into the game (even on Cancel); setting it aside by undo and redo
+    instead broke where its blocks met a promote's (review of C19, twice). So an in-game step opens (or is deleted)
+    only with nothing after the game's on top: the bar says so, and runs nothing. Undo or Promote them, and it opens."""
     game, doc, run, draft, _live0 = _promoted(app, monkeypatch, tmp_path)
     bar = doc._recipe
     bar._ask = lambda title, text: True
-    (draft / FAR).parent.mkdir(parents=True, exist_ok=True)
-    _step(draft, [(10, 5)], {FAR: b"a fourth step"}, _row(672, -352), "a fourth step")
-    D.promote(draft, game=game, log=lambda *a: None)
-    (draft / far2).parent.mkdir(parents=True, exist_ok=True)
-    _step(draft, [(12, 6)], {far2: b"a fifth step, never promoted"}, _row(800, -416), "a fifth step")
-    live = game / "FF9CustomMap-world"
-    (live / T00).write_bytes(b"another session's edit")                    # P1 cannot come out
-    after0 = _tree(live)
+    if second_promote:                                                     # P1 = steps 1-3, P2 = step 4, then 5
+        _unpromoted_fourth(draft)
+        D.promote(draft, game=game, log=lambda *a: None)
+        far2 = "FF9_Data/WorldMap/Disc1/0_1/r6/Block[12][6] Terrain.ff9mesh"
+        (draft / far2).parent.mkdir(parents=True, exist_ok=True)
+        _step(draft, [(12, 6)], {far2: b"a fifth step, never promoted"}, _row(800, -416), "a fifth step")
+    else:
+        _unpromoted_fourth(draft)
     bar.refresh()
+    live, h0, n = _tree(game / "FF9CustomMap-world"), D.history(draft), len(run.argvs)
     doc._on_pick(_hit(26.0, -26.0), sync=True)
+    assert bar._sel == 0 and not bar.edit_btn.isEnabled() and not bar.delete_btn.isEnabled()
+    assert "not in the game" in bar.edit_btn.toolTip() and "not in the game" in bar.status_lbl.text()
+    for act in (bar.edit, bar.delete):                                     # (the law at the call site too)
+        act()
+        assert "not in the game" in bar.status_lbl.text() and bar.status_lbl.property("state") == "error"
+    assert run.argvs[n:] == [] and D.history(draft) == h0 and D.promote_owed(draft) is None
+    assert _tree(game / "FF9CustomMap-world") == live and not (doc._forest and doc._forest.editing())
+    bar.undo_btn.click()                                                   # the step after the game's: undone
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    assert bar.edit_btn.isEnabled()
     bar.edit_btn.click()
-    assert "could not be taken back" in bar.status_lbl.text() and "again" in bar.status_lbl.text()
-    assert _tree(live) == after0 and far2 not in _tree(live)
-    h = D.history(draft)
-    assert h["promoted"] == 4 and h["cursor"] == 5 and D.edits(draft) == [far2]
+    assert doc._forest.editing()
