@@ -645,7 +645,8 @@ gains one more switch:
 | `acknowledge_spill` | *conditional* | required (`= true`, a literal boolean) on **every** row of a model whose picture crosses a VRAM column, and only reachable once every cell that model reads is named. See THE NAME-EVERY-COLUMN GATE, below. |
 | `acknowledge_scroll_blit_destination` | *conditional* | required (`= true`, a literal boolean) before an edit that changes a texel inside a band the effect's program **rewrites every frame** may build. Say it only if you judge that blit is not running when your cell is drawn. See SCROLL-BLIT DESTINATION, below. |
 | `acknowledge_render_target` | *conditional* | required (`= true`, a literal boolean) before a 15bpp edit may build on a cell whose every measured 15bpp read samples the effect's render target instead of your art. Say it only if you judge a read in your cast samples VRAM. See RENDER TARGET, below. |
-| `acknowledge_drawn_depth` | *conditional* | required (`= true`, a literal boolean) to edit a cell whose depth comes from CHANNEL D, the depth the render target's draw reads it at. **It must be paired with a matching `expect_bpp`.** See `acknowledge_drawn_depth`, below. |
+| `acknowledge_drawn_depth` | *conditional* | required (`= true`, a literal boolean) to edit a cell whose depth comes from CHANNEL D, the depth the effect's draws read it at, measured offline. **It must be paired with a matching `expect_bpp`.** See `acknowledge_drawn_depth`, below. |
+| `acknowledge_drawn_conflict` | *conditional* | required (`= true`, a literal boolean) before an edit may build on a page the effect's draws read at a depth other than the page's own. Say it only if you judge your cast reads the bytes at the page's depth. See `acknowledge_drawn_conflict`, below. |
 | `note` | no | free text, carried into manifests/reports only. |
 
 ### THE CUTOUT LAW, at the texel level
@@ -737,6 +738,15 @@ routinely differ (on Phoenix's column 576 the top half is a two-palette refusal 
 clean 4bpp), and the rect view could name only the top one. The per-cell map names **1,179** cells
 that previously had no name at all.
 
+**Each cell is where the game loads it from.** An effect's page data can start in one resource of the
+file and continue in the next, and the game never splits a cell across the two: it skips the first
+resource's filler and starts that cell at the next one. The kit follows the same walk, checked offline
+against every cell upload the game's own effect plugin makes (2,648 of 2,648). Before this, the kit
+read straight through the filler and took 943 cells too early in the file. Their pictures came out
+shifted by 3 to 15 rows, and a repaint landed shifted and overwrote the end of the cell before. A spec
+exported before the fix carries the old `expect_page_offset` on those cells and refuses to build;
+export the art again.
+
 **Three depths, dispatched on what the container declares — never on the picture you hand back:**
 
 | depth | the file(s) you edit | the rule |
@@ -752,8 +762,9 @@ to exactly the right byte count — the one number on this lane that can be wron
 #### The four remedies — obligations you can discharge, not refusals
 
 **THE CO-TRANSFORM REMEDY.** Some VRAM cells are uploaded by **more than one writer**, and across the
-whole stock corpus **not one of those writer pairs holds the same bytes** — they are genuinely
-different pictures shown at different points in the cast. Repainting one and leaving the others stock
+whole stock corpus **only 2 of those 156 writer pairs hold the same bytes** (two on Ark, where two
+writers upload one texture) — the rest are genuinely different pictures shown at different points in
+the cast. Repainting one and leaving the others stock
 makes the cast flicker between the new art and the old, which only a playtest catches. So: name every
 writer, supply art for each, and put `acknowledge_cotransform = true` on every row of the cell. The
 refusal names exactly which writers are **LEFT STOCK** and the `cell.*` names to add.
@@ -889,7 +900,7 @@ Every page you get back now carries **`depth_source`**, and the plan/report line
 | `so-page` | **CHANNEL G**: no model samples this cell, but the container binds its **column**, so the depth is inherited from the page (57 cells) | **LICENSED** — no key |
 | `so-array` | **CHANNEL A** (W6b-3): the same `so` record class read at its true length — the depth comes from an **entry of the column's multi-part binding array**, an entry no kit before W6b-3 could read (65 cells) | **DISCLOSED** — an acknowledgement *and* a matching `expect_bpp`, and **nothing about this channel is in-game** |
 | `program` | **CHANNEL P**: the effect's own id-3 program *registers* this page at a constant depth (189 cells) | **DISCLOSED** — an edit needs an acknowledgement *and* a matching `expect_bpp`, **and even then it reaches only the 55 that are 15bpp** (see below) |
-| `drawn` | **CHANNEL D**: the effect's render target is *drawn* from this cell at one depth, measured offline, through a palette the container declares (187 page names in 52 effects) | **DISCLOSED** — an edit needs `acknowledge_drawn_depth` *and* a matching `expect_bpp`; `export-art --acknowledge-drawn-depth` hands out the PNG (see below) |
+| `drawn` | **CHANNEL D**: the effect's draws read this page's bytes at one depth, on the screen or into its render target, measured offline, through a palette the container declares or as direct colour (1,665 page names in 329 effects) | **DISCLOSED** — an edit needs `acknowledge_drawn_depth` *and* a matching `expect_bpp`; `export-art --acknowledge-drawn-depth` hands out the PNG (see below) |
 
 > **THE ONE COUNT THAT MOVED, AND IT MOVED THE STRICT WAY.** Channel A holds **veto** power and never
 > emission power, so consulting it can only ever make the picture *less* certain. On the author-facing
@@ -1114,40 +1125,58 @@ Five ways it refuses, each by name:
 **The author carries the judgement; the kit carries the check.** This is `expect_bpp`'s own law, and
 W6b-2 does not soften it: the kit still declines to *choose* a depth anywhere, including here.
 
-#### `acknowledge_drawn_depth` — paint what the render target is drawn from
+#### `acknowledge_drawn_depth` — paint a page the effect's draws give a depth to
 
-When an effect draws into its off-screen render target, the 15bpp pages that show the target are not
-the place to paint (see RENDER TARGET). The target is drawn from other cells, and most of those have no
-depth the kit can read from the container. The offline run measures them. For every cell the target's
-draw reads, it records the depth and the palette (CLUT) each fragment was read through. That is CHANNEL D.
+Most scenery pages have no depth the kit can read from the container (`depth-unknown`). The offline
+run measures one: it plays every effect headless, draws every frame, and books every fragment that
+samples a page's bytes, on the screen and into the render target, with the depth and the palette (CLUT)
+the drawing primitive reads them through. It follows the bytes, not the cell: a read is charged to the
+page whose bytes it sampled, wherever in video memory the effect has copied them. That is CHANNEL D.
 
 ```toml
 [[reskin.texel]]
 name        = "cell.s0.x448_y256"
 source      = "cell.s0.x448_y256.png"
-acknowledge_drawn_depth = true   # "the target's draw reads this cell at this depth, and so does my cast"
+acknowledge_drawn_depth = true   # "the effect's draws read this page at this depth, and so does my cast"
 expect_bpp  = 8                  # ...and here is the number the kit checks against the measurement
 ```
 
-- Without the key the cell refuses `depth-unknown`, and the refusal states the measured depth, the
+- Without the key the page refuses `depth-unknown`, and the refusal states the measured depth, the
   palette and the key to say.
 - With the key and no `expect_bpp` it refuses, and with an `expect_bpp` that does not match it refuses
   naming CHANNEL D.
-- A cell the target's draw reads at **two** depths stays refused whatever you say: the same bytes are two
-  pictures.
-- `export-art --acknowledge-drawn-depth` writes the PNG in the draw's own palette (the lowest-addressed
-  one, with the others as read-only alternates). The scaffold carries each such cell as a commented
+- A page any draw reads at **two** depths stays refused whatever you say: the same bytes are two
+  pictures. A depth counts even where every texel it read happens to be clear, because a repaint is what
+  makes them visible.
+- A page read only at 15bpp is handed out as direct colour, with no palette.
+- `export-art --acknowledge-drawn-depth` writes the PNG in the draws' own palette (the lowest-addressed
+  one, with the others as read-only alternates). The scaffold carries each such page as a commented
   block with the key and the depth already filled in, so the first build is still a no-op.
-- A cell the displacement calls readerless can still be drawn by the target. Its refusal says so, and
+- A cell the displacement calls readerless can still be drawn. Its refusal says so, and
   `acknowledge_second_array_displacement` (with this key, where the column gives no depth) hands it back.
+- It began as the render-target remedy (the cells a target is drawn from, see RENDER TARGET), and that
+  remedy still names 14 of its 22 refusals' feeders as paintable.
 
-**What it cannot see.** The measurement records only draws *into the render target*, at Battle Speed < 3,
-under the offline stage's camera and targets. A draw of the same bytes straight to the screen at another
-depth would be invisible to it, which is why it needs your word. Checked against the container where both
-speak: the depths agree on 13 cells and differ on 6. Five of those are 15bpp pages whose own bytes the
-target's draw reads at 8bpp. The sixth, ef499 `cell.s0.x704_y384`, is a column the container binds at
-4bpp that the draw reads at 8; it is disclosed, not refused. Offline, ef150's largest feeder, painted
-this way, changes 40 of the 92 frames it draws, and only through the target.
+**What it cannot see.** The run is the offline stage, not a battle: no battle camera, the actors at the
+origin, Battle Speed < 3. A draw on a frame the stage never reached, or one a real battle's camera
+would change, is invisible to it, which is why it needs your word. The stage's own opening burst
+draws the caster's shared textures, which are no page's bytes. Offline, a page only the screen's draws
+give a depth to (ef383 `cell.s0.x448_y256`), painted this way, changes all 36 of the frames it is drawn
+on; ef150's largest target feeder changes 40 of 92, only through the target.
+
+#### `acknowledge_drawn_conflict` — a page the draws read at another depth
+
+The same measurement checks the pages the kit already hands out. On 78 of them the effect's draws read
+the page's bytes at a depth other than the one the container's `so` record (or its column's binding)
+gives it, or at that depth and another. An edit there is painted at one depth and drawn at another, so
+it reaches the screen as a second picture of the same bytes. The build refuses it by name, with the
+measurement:
+
+- the scaffold marks the row (`DRAWN AT ANOTHER DEPTH`) and writes `acknowledge_drawn_conflict = false`;
+- `= true` lifts it, if you judge your cast reads the bytes at the page's own depth. The page keeps its
+  depth; the key admits no other;
+- an edit that changes no texel builds, so the scaffold's first build is still a no-op;
+- a 15bpp page whose own bytes feed the render target is the RENDER TARGET refusal's to state, not this one's.
 
 #### `acknowledge_array_derived_depth` — and what it cannot buy you
 

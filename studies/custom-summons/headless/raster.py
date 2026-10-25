@@ -216,10 +216,75 @@ class TextureCache:
         self.wstamp: Optional[np.ndarray] = None
         self.wkind: Optional[np.ndarray] = None
         self.decoded_at: Dict[int, int] = {}
+        #: THE SOURCE TRACKER (``trace()``, off by default): where every VRAM halfword's bytes CAME FROM --
+        #: the container byte offset a LoadImage took them from, carried along by every copy (MoveImage,
+        #: DR_MOVE), or -1 -- and which upload (an index into ``loads``) put them there.  It is what lets a
+        #: read be charged to the RECORD whose bytes it sampled, not merely to the cell it sampled.
+        self.src_off: Optional[np.ndarray] = None
+        self.src_load: Optional[np.ndarray] = None
+        #: every traced upload: ``[frame, x, y, w, h, container offset or -1, ambiguous]``
+        self.loads: List[list] = []
+        self._load_off = np.empty(0, np.int64)
+        self._load_w = np.empty(0, np.int64)
 
     def track(self) -> None:
         self.wstamp = np.zeros(self.vram.shape, np.int64)
         self.wkind = np.zeros(self.vram.shape, np.uint8)
+
+    def trace(self) -> None:
+        self.src_off = np.full(self.vram.shape, -1, np.int64)
+        self.src_load = np.full(self.vram.shape, -1, np.int32)
+
+    def traced_load(self, x: int, y: int, w: int, h: int, off: int, frame: int, ambiguous: bool) -> None:
+        """A LoadImage of ``w*h`` halfwords taken from container offset ``off`` (-1: not the container's)."""
+        if self.src_off is None or w <= 0 or h <= 0:
+            return
+        i = len(self.loads)
+        self.loads.append([frame, x, y, w, h, off, int(ambiguous)])
+        self._load_off = np.append(self._load_off, off)
+        self._load_w = np.append(self._load_w, w)
+        H_, W_ = self.vram.shape
+        x0, y0, x1, y1 = max(0, x), max(0, y), min(W_, x + w), min(H_, y + h)
+        if x0 >= x1 or y0 >= y1:
+            return
+        if off >= 0:
+            rows = np.arange(y0, y1, dtype=np.int64)[:, None]
+            cols = np.arange(x0, x1, dtype=np.int64)[None, :]
+            self.src_off[y0:y1, x0:x1] = off + ((rows - y) * w + (cols - x)) * 2
+        else:
+            self.src_off[y0:y1, x0:x1] = -1
+        self.src_load[y0:y1, x0:x1] = i
+
+    def source_ids(self, srcl: np.ndarray, srco: np.ndarray) -> np.ndarray:
+        """Each sampled halfword's SOURCE: its upload and the 128-row band of that upload it came from,
+        packed ``(upload + 1) * 16 + band``.  A 64-wide upload's band is one page cell, so a copy of one
+        page into its neighbour (a scroll blit inside one 64x256 upload) is never merged with it."""
+        band = np.zeros(len(srcl), np.int64)
+        ok = np.nonzero(srcl >= 0)[0]
+        if len(ok):
+            li = srcl[ok]
+            o = self._load_off[li]
+            good = o >= 0
+            j = ok[good]
+            band[j] = (srco[j] - o[good]) // (self._load_w[li[good]] * 256)
+        return (srcl.astype(np.int64) + 1) * 16 + np.clip(band, 0, 15)
+
+    def traced_move(self, sx: int, sy: int, w: int, h: int, dx: int, dy: int) -> None:
+        """``sfx_host.Vram.move``'s semantics (store the clipped source, outside reads as nothing; load the
+        clipped destination), applied to where the bytes came from."""
+        if self.src_off is None or w <= 0 or h <= 0:
+            return
+        H_, W_ = self.vram.shape
+        bo = np.full((h, w), -1, np.int64)
+        bl = np.full((h, w), -1, np.int32)
+        x0, y0, x1, y1 = max(0, sx), max(0, sy), min(W_, sx + w), min(H_, sy + h)
+        if x0 < x1 and y0 < y1:
+            bo[y0 - sy:y1 - sy, x0 - sx:x1 - sx] = self.src_off[y0:y1, x0:x1]
+            bl[y0 - sy:y1 - sy, x0 - sx:x1 - sx] = self.src_load[y0:y1, x0:x1]
+        x0, y0, x1, y1 = max(0, dx), max(0, dy), min(W_, dx + w), min(H_, dy + h)
+        if x0 < x1 and y0 < y1:
+            self.src_off[y0:y1, x0:x1] = bo[y0 - dy:y1 - dy, x0 - dx:x1 - dx]
+            self.src_load[y0:y1, x0:x1] = bl[y0 - dy:y1 - dy, x0 - dx:x1 - dx]
 
     def stamp(self, x: int, y: int, w: int, h: int, kind: int) -> None:
         if self.wstamp is None or w <= 0 or h <= 0:
@@ -607,6 +672,18 @@ class Stats:
         #: indexed reads only -- the palette an author's indices are seen through, per cell
         self.cell_cluts: Dict[str, Counter] = defaultdict(Counter)
         self.gen_cell_cluts: Dict[str, Counter] = defaultdict(Counter)
+        #: cell -> {frame: fragments that SAMPLED it}, screen / target: every fragment past the depth test,
+        #: BEFORE the cutout test and whether or not it changed the pixel -- every depth the bytes would be
+        #: read at if they were painted, which ``cells`` (changes only) misses where the texels are clear
+        self.read_cells: Dict[str, Counter] = defaultdict(Counter)
+        self.gen_read_cells: Dict[str, Counter] = defaultdict(Counter)
+        self.read_cell_cluts: Dict[str, Counter] = defaultdict(Counter)
+        self.gen_read_cell_cluts: Dict[str, Counter] = defaultdict(Counter)
+        #: with the source tracker armed: ``(where, cell, upload, band) -> [reads, lowest source offset,
+        #: highest source offset, {frame}, {CLUT: reads}, screen pixels changed]`` -- every read charged to
+        #: the upload (and the 128-row band of it) whose bytes it sampled (``where`` is "screen" or
+        #: "target"; upload -1 = bytes no traced upload wrote)
+        self.src_reads: Dict[tuple, list] = {}
         #: "x704_y256@15/GENERATED" -> [mesh renders, first frame, last frame]: where every textured mesh
         #: key actually reads from, counted on EVERY frame (drawn or not)
         self.routes: Dict[str, list] = {}
@@ -637,6 +714,13 @@ class Stats:
         else:
             r[0] += 1
             r[2] = frame
+
+
+def _cell_name(cid) -> str:
+    """``Renderer._cell_fn``'s packed id -> ``"x512_y256@8"``."""
+    cx, rest = divmod(int(cid), 10000)
+    cy, b = divmod(rest, 10)
+    return "x%d_y%d@%d" % (cx, cy, (4, 8, 15)[b])
 
 
 def _edge(ax, ay, bx, by, px, py):
@@ -670,11 +754,11 @@ def _sample(tex: np.ndarray, fx: np.ndarray, fy: np.ndarray, bilinear: bool) -> 
 
 class TextureSource:
     """What one textured mesh samples: an (H, W, 4) float array, its row orientation, and TexParam."""
-    __slots__ = ("kind", "tex", "rows_from_top", "param", "bilinear", "cell_of")
+    __slots__ = ("kind", "tex", "rows_from_top", "param", "bilinear", "cell_of", "hw_of")
 
-    def __init__(self, kind, tex, rows_from_top, param, bilinear, cell_of=None):
+    def __init__(self, kind, tex, rows_from_top, param, bilinear, cell_of=None, hw_of=None):
         self.kind, self.tex, self.rows_from_top = kind, tex, rows_from_top
-        self.param, self.bilinear, self.cell_of = param, bilinear, cell_of
+        self.param, self.bilinear, self.cell_of, self.hw_of = param, bilinear, cell_of, hw_of
 
 
 class Renderer:
@@ -816,6 +900,10 @@ class Renderer:
             if min(d, s) < 0 or max(d, s) + rw > flat.size:
                 raise RasterFault("IndexOutOfRange in MoveImage (%d,%d)->(%d,%d)" % (rx, ry, x, y))
             flat[d:d + rw] = flat[s:s + rw].copy()
+            if self.cache.src_off is not None:
+                so, sl = self.cache.src_off.reshape(-1), self.cache.src_load.reshape(-1)
+                so[d:d + rw] = so[s:s + rw].copy()
+                sl[d:d + rw] = sl[s:s + rw].copy()
         self.cache.stamp(x, y, rw, rh, WRITE_DR_MOVE)
         self.cache.clear_key(x, y)
 
@@ -829,7 +917,7 @@ class Renderer:
             if rgba is None:
                 return None
             return TextureSource(KIND_IMAGE, rgba, False, (0.5, 0.5, 256.0, 256.0), bil,
-                                 self._cell_fn(key))
+                                 self._cell_fn(key), self._hw_fn(key))
         if is_blur_texture(tkey):
             if key & FULL_BLUR_TXTURE:
                 param = (0.5, 0.5, 320.0, 240.0)
@@ -846,7 +934,7 @@ class Renderer:
             if rgba is None:
                 return None
             return TextureSource(KIND_IMAGE, rgba, False, (0.5, 0.5, 256.0, 256.0), bil,
-                                 self._cell_fn(key))
+                                 self._cell_fn(key), self._hw_fn(key))
         if self.gen_created:
             gen = np.concatenate([self.gen.color, np.ones(self.gen.color.shape[:2] + (1,), np.float32)], axis=-1)
             x = ((key >> 16) & 0xF) * 64 - GEN_X + 0.5             # SFXKey.GetPositionX - GEN_TEXTURE_X + 0.5
@@ -855,7 +943,7 @@ class Renderer:
         if rgba is None:
             return None
         return TextureSource(KIND_IMAGE, rgba, False, (0.5, 0.5, 256.0, 256.0), bil,
-                             self._cell_fn(key))
+                             self._cell_fn(key), self._hw_fn(key))
 
     def _blur(self) -> np.ndarray:
         if self.prev_screen is None:
@@ -863,6 +951,18 @@ class Renderer:
         else:
             img = self.prev_screen
         return np.concatenate([img, np.ones(img.shape[:2] + (1,), np.float32)], axis=-1)
+
+    @staticmethod
+    def _hw_fn(key: int):
+        """The flat VRAM halfword (``y * 1024 + x``) each texel sample of this key reads."""
+        tx, ty, tp = (key >> 16) & 0xF, (key >> 20) & 1, (key >> 21) & 3
+        div = {0: 4, 1: 2}.get(tp, 1)
+
+        def hw(u: np.ndarray, v: np.ndarray) -> np.ndarray:
+            x = tx * 64 + np.clip(u, 0, 255).astype(np.int64) // div
+            y = ty * 256 + np.clip(v, 0, 255).astype(np.int64)
+            return y * 1024 + x
+        return hw
 
     @staticmethod
     def _cell_fn(key: int):
@@ -935,6 +1035,7 @@ class Renderer:
         rgb = l0[:, None] * RGB[0] + l1[:, None] * RGB[1] + l2[:, None] * RGB[2]
         alpha = np.ones(len(ry))
         cells = None
+        sid = None
         if src is not None:
             u = l0 * UV[0, 0] + l1 * UV[1, 0] + l2 * UV[2, 0]
             v = l0 * UV[0, 1] + l1 * UV[1, 1] + l2 * UV[2, 1]
@@ -949,11 +1050,26 @@ class Renderer:
             alpha = texel[:, 3]
             if src.cell_of is not None:
                 cells = src.cell_of(np.floor(fx), np.floor(fy))
-            if m.shader == 0:                            # SFX_OPA_GT: texkill when tex.a < _Threshold
+                if stats is not None and src.hw_of is not None and self.cache.src_off is not None:
+                    hw = src.hw_of(np.floor(fx), np.floor(fy))
+                    srco = self.cache.src_off.reshape(-1)[hw]
+                    sid = self.cache.source_ids(self.cache.src_load.reshape(-1)[hw], srco)
+                    self._book_sources(stats, "screen" if t.kind == "screen" else "target", m, frame,
+                                       cells, sid, srco)
+                if stats is not None:
+                    rb = stats.read_cells if t.kind == "screen" else stats.gen_read_cells
+                    rc = stats.read_cell_cluts if t.kind == "screen" else stats.gen_read_cell_cluts
+                    for cid, n in zip(*np.unique(cells, return_counts=True)):
+                        rb[_cell_name(cid)][frame] += int(n)
+                        if int(cid) % 10 < 2:
+                            rc[_cell_name(cid)]["x%d_y%d" % ((m.key & 0x3F) * 16, (m.key >> 6) & 0x1FF)] += int(n)
+            if m.shader == 0:                           # SFX_OPA_GT: texkill when tex.a < _Threshold
                 keep = alpha - self.threshold >= 0
                 ry, rx, rgb, alpha = ry[keep], rx[keep], rgb[keep], alpha[keep]
                 if cells is not None:
                     cells = cells[keep]
+                if sid is not None:
+                    sid = sid[keep]
                 if not len(ry):
                     return 0, 0
         before = t.color[ry, rx].copy()
@@ -974,12 +1090,19 @@ class Renderer:
             out = np.round(out * 255.0) / 255.0          # an 8-bit backbuffer
         t.color[ry, rx] = out
         changed = np.any(np.abs(out - before) >= 0.5 / 255.0, axis=-1)
+        if stats is not None and sid is not None and t.kind == "screen" and changed.any():
+            combo = (cells[changed] << 20) + sid[changed]
+            for k, n in zip(*np.unique(combo, return_counts=True)):
+                k = int(k)
+                r = stats.src_reads.get(("screen", _cell_name(k >> 20), (k & 0xFFFFF) // 16 - 1,
+                                         (k & 0xFFFFF) % 16))
+                if r is not None:
+                    r[5] += int(n)
         if stats is not None and cells is not None and changed.any():
             for cid, n in zip(*np.unique(cells[changed], return_counts=True)):
-                cx, rest = divmod(int(cid), 10000)
-                cy, b = divmod(rest, 10)
+                b = int(cid) % 10
                 book = stats.cells if t.kind == "screen" else stats.gen_cells
-                name = "x%d_y%d@%d" % (cx, cy, (4, 8, 15)[b])
+                name = _cell_name(cid)
                 book[name][frame] += int(n)
                 if b < 2:                                # indexed: which CLUT the key reads through
                     cb = stats.cell_cluts if t.kind == "screen" else stats.gen_cell_cluts
@@ -988,6 +1111,31 @@ class Renderer:
                     hit = changed & (cells == cid)
                     stats.watch_masks[name][ry[hit], rx[hit]] = True
         return len(ry), int(changed.sum())
+
+    @staticmethod
+    def _book_sources(stats: Stats, where: str, m: Mesh, frame: int, cells, sid, srco) -> None:
+        """Charge one triangle's sampling fragments to the uploads (and bands) whose bytes they read."""
+        combo = (cells.astype(np.int64) << 20) + sid
+        keys, inv = np.unique(combo, return_inverse=True)
+        counts = np.bincount(inv)
+        lo = np.full(len(keys), np.iinfo(np.int64).max, np.int64)
+        hi = np.full(len(keys), -1, np.int64)
+        np.minimum.at(lo, inv, srco)
+        np.maximum.at(hi, inv, srco)
+        clut = "x%d_y%d" % ((m.key & 0x3F) * 16, (m.key >> 6) & 0x1FF)
+        for j, k in enumerate(keys):
+            k = int(k)
+            cid, li, band = k >> 20, (k & 0xFFFFF) // 16 - 1, (k & 0xFFFFF) % 16
+            name = _cell_name(cid)
+            r = stats.src_reads.get((where, name, li, band))
+            if r is None:
+                r = stats.src_reads[(where, name, li, band)] = [0, int(lo[j]), int(hi[j]), set(), Counter(), 0]
+            r[0] += int(counts[j])
+            r[1] = min(r[1], int(lo[j]))
+            r[2] = max(r[2], int(hi[j]))
+            r[3].add(frame)
+            if cid % 10 < 2:
+                r[4][clut] += int(counts[j])
 
     def _line(self, t: Target, m: Mesh, P, RGB):
         s = t.scale
@@ -1029,6 +1177,8 @@ class RasterHost(H.Host):
         self.np_vram = np.frombuffer(self.vram.mem, dtype="<u2").reshape(H.Vram.H, H.Vram.W)
         self.cache = TextureCache(self.np_vram)
         self.bg_capture: Optional[Tuple[int, ...]] = None
+        #: the container the plugin was handed -- what the source tracker matches each upload against
+        self.blob: bytes = b""
 
     def _dispatch(self, full, a0, a1, a2, a3, p):
         code = (full >> 24) & 0xFF
@@ -1042,10 +1192,16 @@ class RasterHost(H.Host):
         if code == 100:
             self.cache.stamp(a0, a1, a2, a3, WRITE_LOAD)
             self.cache.clear_key(a0, a1)
+            if self.cache.src_off is not None and a2 > 0 and a3 > 0:
+                data = self._get(p, a2 * a3 * 2)
+                off = self.blob.find(data) if self.blob else -1
+                amb = off >= 0 and self.blob.find(data, off + 1) >= 0
+                self.cache.traced_load(a0, a1, a2, a3, off, self.frame, amb)
         elif code == 102:
             sx, sy, w, h, _, _ = self.vram_ops[-1][2]
             self.cache.stamp(a0, a1, w, h, WRITE_MOVE)
             self.cache.clear_key(a0, a1)
+            self.cache.traced_move(sx, sy, w, h, a0, a1)
         return r
 
 
@@ -1066,19 +1222,24 @@ def parse_frames(spec: Optional[str]) -> Optional[set]:
 
 def run(bin_dir: Path, blob: bytes, effnum: int, *, frames: Optional[set] = None, scale: int = 1,
         max_frames: int = 8000, on_frame=None, keep_prims: bool = False, watch: Iterable[str] = (),
-        track: bool = False, suppress_target: bool = False) -> dict:
+        track: bool = False, suppress_target: bool = False, trace: bool = False) -> dict:
     """Play ``blob`` through the plugin and render it. ``frames`` = the frames to draw (None = every one).
 
     ``on_frame(frame, screen_target_or_None, cmds, stats)`` is called after each frame. ``watch`` names
     cells (``"x704_y384@8"``) whose screen footprint ``stats.watch_masks`` holds for each drawn frame.
     ``track`` arms the write-order tracker: ``stats.stale`` then says, per mesh key, which reads showed
     a decode older than a write to the texels they sample (``Renderer.stale_reads``).
-    ``suppress_target`` keeps ``isCreateGenTexture`` down -- the routes census's falsifier."""
+    ``suppress_target`` keeps ``isCreateGenTexture`` down -- the routes census's falsifier.
+    ``trace`` arms the source tracker: ``stats.src_reads`` then charges every read to the upload whose
+    bytes it sampled, and ``texture_cache.loads`` lists the uploads with their container offsets."""
     H._install_no_dialog(bin_dir)
     dll = C.CDLL(str(bin_dir / H.PLUGIN))
     host = RasterHost(effnum, mode="rework")
     if track:
         host.cache.track()
+    if trace:
+        host.blob = bytes(blob)
+        host.cache.trace()
     CB = C.CFUNCTYPE(C.c_int32, C.c_int32, C.c_int32, C.c_int32, C.c_int32, C.c_int32, C.c_void_p)
     cb = CB(host.callback)
     dll.SFX_InitSystem.argtypes = [CB]
@@ -1153,6 +1314,7 @@ def run(bin_dir: Path, blob: bytes, effnum: int, *, frames: Optional[set] = None
     return {"effect": effnum, "settings": settings, "frames": len(per_frame), "ended_at": ended,
             "faults": faults, "per_frame": per_frame, "stats": stats, "texture_cache": {
                 "generated": host.cache.generated, "refused_full": host.cache.full},
+            "loads": host.cache.loads,
             "gen_texture_used": renderer.gen_created, "gen_texture_first_frame": renderer.gen_first_frame,
             "screenshots": renderer.screen_shot,
             "unported_special": UNPORTED_SPECIALS.get(effnum), "prim_log": prim_log, "host": host}
@@ -1166,21 +1328,39 @@ def save_png(t: Target, path: Path) -> None:
     Image.fromarray(np.round(np.clip(t.color, 0, 1) * 255).astype(np.uint8), "RGB").save(path)
 
 
-def visible_cells(stats: Stats, gen: bool = False) -> Dict[str, dict]:
+def visible_cells(stats: Stats, gen: bool = False, read: bool = False) -> Dict[str, dict]:
     """cell -> {pixels, frames [first, last], n_frames} -- fragments that changed the screen (or, with
-    ``gen``, the DR_AREA render target)."""
+    ``gen``, the DR_AREA render target); with ``read``, every fragment that SAMPLED the cell there."""
+    book = ((stats.gen_read_cells if gen else stats.read_cells) if read
+            else (stats.gen_cells if gen else stats.cells))
     out = {}
-    for cell, frames in sorted((stats.gen_cells if gen else stats.cells).items()):
+    for cell, frames in sorted(book.items()):
         fs = sorted(frames)
         out[cell] = {"pixels": int(sum(frames.values())), "frames": [fs[0], fs[-1]], "n_frames": len(fs)}
     return out
 
 
-def cell_cluts(stats: Stats, gen: bool = False) -> Dict[str, Dict[str, int]]:
+def cell_cluts(stats: Stats, gen: bool = False, read: bool = False) -> Dict[str, Dict[str, int]]:
     """indexed cell -> {CLUT cell: fragments that changed the screen (or the DR_AREA target)} -- the
-    palette(s) each sampled cell is actually seen through, which a page-level key join cannot say."""
-    book = stats.gen_cell_cluts if gen else stats.cell_cluts
+    palette(s) each sampled cell is actually seen through, which a page-level key join cannot say.
+    With ``read``, every fragment that sampled it."""
+    book = ((stats.gen_read_cell_cluts if gen else stats.read_cell_cluts) if read
+            else (stats.gen_cell_cluts if gen else stats.cell_cluts))
     return {cell: dict(sorted(c.items())) for cell, c in sorted(book.items())}
+
+
+def source_book(stats: Stats) -> Dict[str, Dict[str, Dict[str, dict]]]:
+    """``{where: {cell: {"upload:band": {reads, lo, hi, frames [first, last], n_frames, frame_list,
+    cluts, shown}}}}`` -- ``stats.src_reads``, every read charged to the upload (and its 128-row band)
+    whose bytes it sampled (``lo``/``hi`` the lowest and highest container offset sampled; upload ``-1``
+    = bytes no traced upload wrote)."""
+    out: Dict[str, Dict[str, Dict[str, dict]]] = {}
+    for (where, cell, li, band), (n, lo, hi, fr, cl, shown) in sorted(stats.src_reads.items()):
+        fs = sorted(fr)
+        out.setdefault(where, {}).setdefault(cell, {})["%d:%d" % (li, band)] = {
+            "reads": n, "lo": lo, "hi": hi, "frames": [fs[0], fs[-1]], "n_frames": len(fs),
+            "frame_list": fs, "cluts": dict(sorted(cl.items())), "shown": shown}
+    return out
 
 
 def mesh_summary(stats: Stats) -> Dict[str, dict]:
@@ -1408,7 +1588,8 @@ def routes_main(a) -> int:
 
     def one(e):
         dest = out / ("ef%03d" % e)
-        cmd = [sys.executable, "-I", me, "run", "--ef", str(e), "--no-draw", "--out", str(dest)]
+        cmd = [sys.executable, "-I", me, "run", "--ef", str(e)] + ([] if a.draw else ["--no-draw"]) + \
+              (["--trace"] if a.draw else []) + ["--out", str(dest)]
         if a.bin:
             cmd += ["--bin", a.bin]
         try:
@@ -1459,6 +1640,8 @@ def main(argv=None) -> int:
     rp.add_argument("--tag", default="", help="a suffix for the output folder")
     rp.add_argument("--max-frames", type=int, default=8000)
     rp.add_argument("--no-draw", action="store_true", help="run the batching and texture routing only (fast)")
+    rp.add_argument("--trace", action="store_true",
+                    help="arm the source tracker: charge every read to the upload whose bytes it sampled")
     rp.add_argument("--no-target", action="store_true",
                     help="never set isCreateGenTexture (the routes falsifier: 15bpp keys read VRAM)")
     dp = sub.add_parser("diff", help="render two containers (each in its own process) and diff the frames")
@@ -1476,6 +1659,9 @@ def main(argv=None) -> int:
     op.add_argument("--bin")
     op.add_argument("--control", action="store_true",
                     help="run only the falsifier (ef429 with its target suppressed) into OUT/control.json")
+    op.add_argument("--draw", action="store_true",
+                    help="draw every frame to the screen too (slow): each summary.json then holds "
+                         "visible_cells / visible_cell_cluts -- the SCREEN census")
     cp = sub.add_parser("calibrate", help="the RX gates vs an in-game s48 probe log")
     cp.add_argument("--ef", type=int, required=True)
     cp.add_argument("--log", required=True)
@@ -1509,12 +1695,17 @@ def main(argv=None) -> int:
             save_png(screen, out / ("f%04d.png" % f))
 
     res = run(bdir, blob, a.ef, frames=set() if a.no_draw else frames, scale=a.scale, max_frames=a.max_frames,
-              on_frame=save, suppress_target=a.no_target)
+              on_frame=save, suppress_target=a.no_target, trace=a.trace)
     doc = {k: v for k, v in res.items() if k not in ("stats", "prim_log", "host", "per_frame")}
     doc.update(source=source, plugin_sha256=sha, frames_drawn=sorted(frames) if frames is not None else "all",
                visible_cells=visible_cells(res["stats"]), render_target_cells=visible_cells(res["stats"], gen=True),
                visible_cell_cluts=cell_cluts(res["stats"]),
                render_target_cell_cluts=cell_cluts(res["stats"], gen=True),
+               read_cells=visible_cells(res["stats"], read=True),
+               render_target_read_cells=visible_cells(res["stats"], gen=True, read=True),
+               read_cell_cluts=cell_cluts(res["stats"], read=True),
+               read_sources=source_book(res["stats"]), loads=res["loads"],
+               render_target_read_cell_cluts=cell_cluts(res["stats"], gen=True, read=True),
                meshes=mesh_summary(res["stats"]), routes=res["stats"].routes, target_suppressed=a.no_target,
                moves=[list(k) + v for k, v in sorted(res["stats"].moves.items())])
     out.mkdir(parents=True, exist_ok=True)

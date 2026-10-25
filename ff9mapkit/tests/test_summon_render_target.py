@@ -260,7 +260,8 @@ def test_the_shipped_channel_is_the_census_split_by_clut():
     d = RT.drawn_depth(150, (448, 256))
     assert d.depths == (8,) and not d.dual and d.bpp == 8
     assert d.clut_cells == ((0, 245), (0, 246)), "display binding = the lowest address, first"
-    assert "DRAWN into the render target at 8bpp" in d.evidence()
+    assert "the headless draw census saw this cell READ at 8bpp at x448_y256 (" in d.evidence()
+    assert "into the render target over 92 frame(s)" in d.evidence() and d.feeds and d.reads
     two = RT.drawn_depth(429, (512, 256))
     assert two.dual and two.depths == (4, 8) and two.bpp is None and two.clut_cells == ()
     assert RT.drawn_depth(150, (0, 0)) is None
@@ -309,7 +310,7 @@ def test_the_build_wants_the_key_AND_the_number(tmp_path, drawn):
         RP.build(_spec_dict(blob, [_row(p, src)]), "?", blob=blob)
     with pytest.raises(RP.RepaintError, match="states NO `expect_bpp`"):
         RP.build(_spec_dict(blob, [_row(p, src, **{RT.DRAWN_ACK_KEY: True})]), "?", blob=blob)
-    with pytest.raises(RP.RepaintError, match="a draw INTO THE TARGET read this cell at"):
+    with pytest.raises(RP.RepaintError, match="the effect's draws read this cell at headless"):
         RP.build(_spec_dict(blob, [_row(p, src, expect_bpp=4, **{RT.DRAWN_ACK_KEY: True})]), "?",
                  blob=blob)
     with pytest.raises(RP.RepaintError, match="must be a BOOLEAN"):
@@ -332,7 +333,7 @@ def test_export_hands_it_out_behind_the_flag_as_a_commented_block(tmp_path, draw
     assert e["depth_source"] == "drawn" and e["drawn_depths"] == [8]
     assert (tmp_path / "d" / e["png"]).is_file()
     txt = (tmp_path / "d" / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
-    assert "# CHANNEL D -- A DRAW INTO THE TARGET" in txt and "# %s = true" % RT.DRAWN_ACK_KEY in txt
+    assert "# CHANNEL D -- A DRAW GIVES THIS CELL ITS DEPTH" in txt and "# %s = true" % RT.DRAWN_ACK_KEY in txt
     assert '\nname = "%s"' % DARK not in txt, "the row ships COMMENTED"
     import tomllib
     rows = tomllib.loads(txt)["reskin"]["texel"]
@@ -375,3 +376,137 @@ def test_the_cli_flag_exports_and_is_refused_where_it_would_do_nothing(tmp_path,
     assert cli.main(["summon-reskin", "plan", str(art / RP.SCAFFOLD_NAME), "--from", str(ef),
                      "--acknowledge-drawn-depth"]) == 2
     assert "is an export-art flag" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------- (8) CHANNEL D's SCREEN HALF: the draw census
+from ff9mapkit.summons import draw_census as DC  # noqa: E402
+from ff9mapkit.summons import reskin as RS  # noqa: E402
+
+
+def _off(x, y, writer="s0"):
+    """The fixture's page record at (x, y): its container offset, which the draw census keys reads by."""
+    return RS.page_cells(build_scenery_container())[(writer, x, y)].off
+
+
+def _read(page, cell, bpp, screen=0, shown=0, target=0, clut=(0, 245)):
+    return DC.Read(page=page, cell=cell, bpp=bpp, screen=screen, shown=shown, screen_frames=12 if screen else 0,
+                   target=target, target_frames=9 if target else 0,
+                   cluts=() if bpp == 15 else ((clut, screen + target),))
+
+
+@pytest.fixture
+def screen(monkeypatch):
+    """Synthetic draw-census rows for effect 999 -- ``rows`` of :func:`_read` arguments."""
+    def _set(*rows):
+        monkeypatch.setitem(DC.READS, 999, tuple(_read(*r[:3], **(r[3] if len(r) > 3 else {})) for r in rows))
+    return _set
+
+
+def test_a_screen_read_alone_gives_the_page_its_depth(screen):
+    blob = build_scenery_container()
+    screen((_off(448, 256), (448, 256), 8, dict(screen=600, shown=300)))
+    d = RT.drawn_depth(999, (448, 256), _off(448, 256))
+    assert d.depths == (8,) and d.bpp == 8 and d.clut_cells == ((0, 245),) and d.shown == 300
+    assert "the headless draw census saw this cell READ at 8bpp at x448_y256 (600 fragment(s) on the " \
+           "screen" in d.evidence()
+    a, ar = RP.scenery_surface(blob, 999, channels=RP.EDIT_CHANNELS)
+    hit = [r for r in ar if r.name == DARK]
+    assert [r.klass for r in hit] == ["depth-unknown"] and "A DRAW READS IT" in hit[0].reason
+    p = RP.texel_page(blob, DARK, 999, allow_drawn_depth=True)
+    assert (p.bpp, p.depth_source, p.palette_name) == (8, "drawn", "pal.s0.x0_y245.e256")
+
+
+def test_the_reads_are_the_pages_own_bytes_not_the_cells(drawn, screen):
+    """A censused container's page takes ONLY the reads of its own bytes: another page's bytes read at
+    this cell (another writer's, or a copy's) are not this page's evidence, and the per-cell feeds,
+    which cannot tell writers apart, are not consulted for it at all."""
+    drawn(4)                                             # a per-cell feed at 4 ...
+    screen((_off(448, 256), (448, 256), 8, dict(screen=600)),
+           (_off(704, 256), (448, 256), 4, dict(screen=900)))   # ... and ANOTHER page's bytes at 4
+    d = RT.drawn_depth(999, (448, 256), _off(448, 256))
+    assert d.depths == (8,) and not d.dual and d.feeds == ()
+    cell = RT.drawn_depth(999, (448, 256))
+    assert cell.depths == (4, 8), "the cell view still sees everything read there"
+
+
+def test_a_page_read_at_two_depths_never_emits_even_when_nothing_shows(screen):
+    page = _off(448, 256)
+    screen((page, (448, 256), 8, dict(target=500)), (page, (448, 256), 4, dict(screen=400, shown=0)))
+    d = RT.drawn_depth(999, (448, 256), page)
+    assert d.depths == (4, 8) and d.dual and d.bpp is None and d.clut_cells == ()
+    with pytest.raises(RP.RepaintError, match="AT TWO DEPTHS"):
+        RP.texel_page(build_scenery_container(), DARK, 999, allow_drawn_depth=True)
+
+
+def test_a_direct_colour_read_emits_a_page_with_no_palette(screen):
+    screen((_off(448, 256), (448, 256), 15, dict(screen=600, shown=200)))
+    p = RP.texel_page(build_scenery_container(), DARK, 999, allow_drawn_depth=True)
+    assert (p.bpp, p.depth_source, p.palette_name, p.clut_entries, p.clut_offset) == \
+        (15, "drawn", "", None, None)
+
+
+def test_the_shipped_census_reads_pages_on_the_screen_and_into_the_target():
+    assert DC.READ_ROWS == len(DC._READ_ROWS) and DC.READ_CLUT_ROWS == len(DC._READ_CLUT_ROWS)
+    assert DC.censused(150) and all(r.page >= 0 for r in DC.READS[150])
+    pages = {r.page for r in DC.READS[150] if r.cell == (512, 256)}
+    assert len(pages) == 1, "one record's bytes are read at x512_y256"
+    d = RT.drawn_depth(150, (512, 256), pages.pop())
+    assert d.dual and d.depths == (4, 8), "the target reads them at 8, the screen at 4"
+    assert {r.bpp: (bool(r.screen), bool(r.target)) for r in d.reads} == {4: (True, False), 8: (False, True)}
+    assert RT.drawn_cells(150)[(512, 256)] == (4, 8)
+
+
+# ---------------------------------------------------------------- (9) THE DRAWN-CONFLICT GATE
+FOUR = "cell.s0.x576_y256"                   # the fixture's 4bpp `so-uv` page
+
+
+@pytest.fixture
+def conflict(screen):
+    """The draw census reads the fixture's 4bpp page (576,256) on the screen at ``bpps``."""
+    def _set(*bpps):
+        screen(*[(_off(576, 256), (576, 256), b, dict(screen=800, shown=500, clut=(0, 244) if b == 4 else (0, 245)))
+                 for b in bpps])
+    return _set
+
+
+def test_a_page_read_at_another_depth_refuses_an_edit_until_acknowledged(tmp_path, conflict):
+    blob = build_scenery_container()
+    conflict(8)
+    p = _cell(blob, 576, 256)
+    assert p.bpp == 4 and p.depth_source == "so-uv" and RP.drawn_conflict(p)
+    src = _edit(tmp_path, blob, p)
+    with pytest.raises(RP.RepaintError, match=r"DRAWN AT ANOTHER DEPTH, cell\.s0\.x576_y256"):
+        RP.build(_spec_dict(blob, [_row(p, src, expect_bpp=4)]), "?", blob=blob)
+    with pytest.raises(RP.RepaintError, match="must be a BOOLEAN"):
+        RP.build(_spec_dict(blob, [_row(p, src, expect_bpp=4, **{RT.DRAWN_CONFLICT_KEY: "true"})]), "?",
+                 blob=blob)
+    b = RP.build(_spec_dict(blob, [_row(p, src, expect_bpp=4, **{RT.DRAWN_CONFLICT_KEY: True})]), "?",
+                 blob=blob)
+    assert b.patched != blob and RT.DRAWN_CONFLICT_WARNING in "  ".join(b.targets[0].hazard_notes)
+    # read at its own depth AND another is the same hazard; at its own depth only, none
+    conflict(4, 8)
+    assert RP.drawn_conflict(_cell(blob, 576, 256))
+    conflict(4)
+    assert not RP.drawn_conflict(_cell(blob, 576, 256))
+    assert RP.build(_spec_dict(blob, [_row(p, src, expect_bpp=4)]), "?", blob=blob).patched != blob
+
+
+def test_the_conflict_moves_no_page_and_the_bound_reading_never_fires_it(tmp_path, conflict):
+    blob = build_scenery_container()
+    no_d = tuple(c for c in RP.EDIT_CHANNELS if c != "drawn")
+    before = [(q.name, q.bpp, q.depth_source) for q in RP.scenery_surface(blob, 999, channels=no_d)[0]]
+    conflict(8)
+    assert [(q.name, q.bpp, q.depth_source)
+            for q in RP.scenery_surface(blob, 999, channels=RP.EDIT_CHANNELS)[0]] == before
+    bound = [q for q in RP.scenery_surface(blob, 999, channels=RP.READINGS["bound"])[0] if q.name == FOUR]
+    assert bound and not RP.drawn_conflict(bound[0])
+
+
+def test_the_scaffold_states_the_conflict_and_its_first_build_is_a_no_op(tmp_path, conflict):
+    import tomllib
+    blob = build_scenery_container()
+    conflict(8)
+    RP.export_art(blob, 999, tmp_path / "a", overlays=False)
+    txt = (tmp_path / "a" / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    assert "# ** DRAWN AT ANOTHER DEPTH (CHANNEL D)" in txt and "%s = false" % RT.DRAWN_CONFLICT_KEY in txt
+    assert RP.build(tomllib.loads(txt), str(tmp_path / "a" / "s.toml"), blob=blob).patched == blob

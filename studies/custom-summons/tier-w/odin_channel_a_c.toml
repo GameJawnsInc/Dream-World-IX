@@ -1,4 +1,10 @@
 # ==================================================================================================
+# ★ AND A SECOND SUPERSEDING NOTE -- THE UPLOAD WALK.  `cell.s0.x704_y384` is guarded below at 0x25668,
+# the PRE-WALK page map's offset: the game loads that cell from 0x25800, 408 bytes later
+# (`reskin.scenery_pages`: the id-0 sector pad is no texel).  So the marks sat 3 lines high in VRAM;
+# the read does not depend on where a band sits.  The spec stays frozen -- it no longer builds under
+# the adoption anyway -- and is not re-derived (tier-w/PLAN.md).
+# ==================================================================================================
 # ★ FROZEN AS-CAST RECORD.  SUPERSEDED BY W6b-3 (iv), THE DISPLACEMENT ADOPTION -- READ THIS FIRST.
 # ==================================================================================================
 # THIS SPEC REPRODUCES ONLY AGAINST THE PRE-ADOPTION KIT, AND IT IS KEPT ANYWAY.  Everything below

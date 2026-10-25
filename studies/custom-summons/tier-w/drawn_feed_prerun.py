@@ -3,6 +3,7 @@ r"""CHANNEL D, RUN OFFLINE -- does a repaint of a cell the render target is DRAW
     py drawn_feed_prerun.py                 # ef150 cell.s0.x448_y256: stamp, build, diff headless
     py drawn_feed_prerun.py --ef 203 --cell cell.s0.x448_y256
     py drawn_feed_prerun.py --noop          # the falsifier: the unedited art moves nothing
+    py drawn_feed_prerun.py --screen --ef N --cell C    # THE SCREEN HALF: a cell only the screen reads
 
 THE QUESTION
 ------------
@@ -25,6 +26,11 @@ WHAT THIS RUNS
 
 The verdict is ``REACHES`` when screen frames change and the feeder drew the target on both sides with
 no direct screen read of it -- the change can then only have travelled through the target.
+
+``--screen`` runs the same claim for the draw census's other half: a cell no `so` record gives a depth
+and no draw into the target reads, that the screen's own draws read at one depth.  Its frames are the
+ones the draw census saw it read on, and the verdict it wants is ``DIRECT``: screen frames change and
+the cell's own fragments drew the screen on both sides.
 
 Everything it writes goes to ``C:\gd\SCRATCH\summon-format\headless\raster\drawn-<ef>`` (decoded and
 repainted Square-Enix art, and frames rendered from it).  Nothing is deployed.
@@ -71,7 +77,7 @@ def zebra(blob: bytes, page) -> bytes:
     return RP.pack4(out) if page.bpp == 4 else bytes(out)
 
 
-def run(ef: int, cell: str, out: Path, noop: bool = False) -> dict:
+def run(ef: int, cell: str, out: Path, noop: bool = False, screen: bool = False) -> dict:
     blob = (Path(CORPUS) / ("ef%03d.bytes" % ef)).read_bytes()
     if out.exists():
         shutil.rmtree(out)
@@ -94,10 +100,11 @@ def run(ef: int, cell: str, out: Path, noop: bool = False) -> dict:
     b.check = RP.self_check(b)
     patched = out / ("ef%03d.patched.bytes" % ef)
     patched.write_bytes(b.patched)
-    feed = next(f for f in RT.feeders(ef) if "cell.s0.x%d_y%d" % f.cell == cell or f.cell == page.cell)
-    stats = json.loads((Path(CORPUS) / "headless" / "raster" / "feeds" / ("ef%03d" % ef)
+    census = "screen" if screen else "feeds"
+    stats = json.loads((Path(CORPUS) / "headless" / "raster" / census / ("ef%03d" % ef)
                         / "summary.json").read_text(encoding="utf-8"))
-    f0, f1 = stats["render_target_cells"]["x%d_y%d@%d" % (page.cell + (page.bpp,))]["frames"]
+    book = "read_cells" if screen else "render_target_cells"
+    f0, f1 = stats[book]["x%d_y%d@%d" % (page.cell + (page.bpp,))]["frames"]
     cp = subprocess.run([sys.executable, "-I", RASTER, "diff", "--ef", str(ef), "--b", str(patched),
                          "--frames", "%d-%d" % (f0, f1), "--out", str(out / "diff")],
                         capture_output=True, text=True, cwd=os.path.dirname(RASTER))
@@ -111,7 +118,7 @@ def run(ef: int, cell: str, out: Path, noop: bool = False) -> dict:
     changed = {f: r["changed_px"] for f, r in d["frames"].items() if r["changed_px"]}
     verdict = ("REACHES" if changed and tgt["a"] and tgt["b"] and not scr["a"] and not scr["b"]
                else "DIRECT" if changed and (scr["a"] or scr["b"]) else "NOTHING")
-    rep = {"effect": ef, "cell": cell, "bpp": page.bpp, "depth_source": page.depth_source,
+    rep = {"effect": ef, "cell": cell, "half": census, "bpp": page.bpp, "depth_source": page.depth_source,
            "palette": page.palette_name, "build_sha256": b.sha_out, "self_check": "%d/%d" % (
                sum(1 for g in b.check.gates if g.ok), len(b.check.gates)),
            "bytes_moved": len(b.check.changed), "frames": [f0, f1], "frames_drawn": len(d["frames"]),
@@ -127,11 +134,14 @@ def main(argv=None) -> int:
     ap.add_argument("--cell", default="cell.s0.x448_y256")
     ap.add_argument("--noop", action="store_true",
                     help="THE FALSIFIER: build the UNEDITED art -- no byte may move and no frame differ")
+    ap.add_argument("--screen", action="store_true",
+                    help="the draw census's SCREEN half: frames from the screen census, verdict DIRECT")
     a = ap.parse_args(argv)
-    out = Path(CORPUS) / "headless" / "raster" / ("drawn-%03d%s" % (a.ef, "-noop" if a.noop else ""))
-    rep = run(a.ef, a.cell, out, noop=a.noop)
+    out = Path(CORPUS) / "headless" / "raster" / ("drawn-%03d%s%s" % (
+        a.ef, "-screen" if a.screen else "", "-noop" if a.noop else ""))
+    rep = run(a.ef, a.cell, out, noop=a.noop, screen=a.screen)
     print(json.dumps(rep, indent=1))
-    return 0 if rep["verdict"] == ("NOTHING" if a.noop else "REACHES") else 1
+    return 0 if rep["verdict"] == ("NOTHING" if a.noop else "DIRECT" if a.screen else "REACHES") else 1
 
 
 if __name__ == "__main__":

@@ -727,7 +727,53 @@ scenery must be re-authored *together*.
     moves nothing.
   - **Gates.** `drawn_gates.py` D1-D6.
   - **Open.** Screen draws are not censused (`routes` runs `--no-draw`), and no cast has tested a
-    drawn page.
+    drawn page. (The first is closed below.)
+  **★★ FOLLOW-UP — THE UPLOAD WALK: A THIRD OF THE SCENERY PAGES WERE READ AND WRITTEN AT THE WRONG
+  PLACE.** Found by the screen census's source tracker, which books the container offset every
+  LoadImage takes its bytes from. **943 of the corpus's 2,531 id-0 page cells (236 containers; 136 of
+  the 272 id-0 pages the default surface hands out) sat 380 to 1,984 bytes too early in the kit.**
+  - **The mechanism.** The page pixel stream starts in the id-0 resource and continues in the id-1
+    resource behind it. The engine uploads 64×128 units and never splits one across the two: a unit
+    that will not fit before id-0's sector-padded end (0x55 fill) starts at id-1's first byte. The kit
+    ran one cursor `w*h*2` straight through the pad. `reskin.scenery_pages` now walks units with that
+    hop (`PageRect.unit_offs`), `page_cells` takes each cell's unit offset, `id0_splits.hi` is the
+    last unit's end.
+  - **Measured, not argued.** The walk names the source of all 2,648 measured 64×128 uploads into a
+    page cell (2,448 by offset, 200 pages of one repeated byte by identical bytes); the old cursor
+    misses 914 (`screen_gates.py` C1, its falsifier). Unit test on a synthetic split container.
+  - **What it did.** An export showed those pictures shifted 3 to 15 lines with pad rows on top; a
+    repaint landed shifted and overwrote the last lines of the unit before it, in another VRAM cell.
+  - **The casts.** No verdict moves: each cast's read was by mark type, orientation, pitch or band
+    texture, all of which survive a translation, and U1's 0.97 is the s77 read of logged u,v. But
+    these were written at pre-walk offsets: ef407 `x704_y256` (the gain cast, +916 B), ef038's four
+    U1 cells (+916), ef211 cast 2 `x576_y384`, cast 3 `x640_y256` and the dome `x704_y384` (+392),
+    ef424 `x704_y384` (+408). The specs are re-derived on the walk (re-exported, re-stamped, new
+    `*-walk` art; each header says so) except the ef424 pair, frozen since U2 (it no longer builds
+    under the adoption either way) and noted; the cast art stays as history, and `u1_cell_probe.py` still
+    regenerates cast 1 byte for byte by writing at the offsets the casts used (`CAST_OFFSETS`). The
+    gain cast's spec now rebuilds `53d93424…` (was `71d04a12…`).
+  **★ FOLLOW-UP — CHANNEL D READS EVERY DRAW, PER PAGE.** The open line above, closed.
+  - **The census.** `raster.py routes --draw` renders every frame of all 372 containers (0 errors,
+    about 38 min) with the source tracker armed, and books every fragment that samples a texel —
+    before the cutout test, changed pixel or not, screen or target — against the upload whose bytes it
+    read and the 128-row band of it. `screen_gates.py` charges each to the kit page holding the bytes;
+    the kit carries 2,598 (page, cell, depth) rows (`summons/draw_census.py`), and
+    `render_target.drawn_depth(effect, cell, page)` answers from a page's own reads.
+  - **Why per page.** A per-cell census (the first cut) called 113 of the default pages read at two
+    depths; almost all were co-transform cells, two writers' bytes read at two depths. Per page, and on
+    the fixed map: 89 of 289 default pages are read at another depth (11 are 15bpp own-feeds the
+    render-target gate already states).
+  - **In the kit.** Channel D hands out 1,665 pages in 329 containers behind its key (was 187 in 52);
+    41 of the old 187 are read on the screen at a second depth and no longer emit. A page read only at
+    15bpp emits as direct colour. The other 78 indexed pages refuse an edit at build time, THE
+    DRAWN-CONFLICT GATE, lifted by `acknowledge_drawn_conflict` (headless is not a cast); consulting
+    the channel still moves no page and no refusal class.
+  - **Pre-run.** ef383 `cell.s0.x448_y256`, a page only the screen's draws give a depth to, zebra'd
+    with the key: 36 of 36 frames change (1,312,817 px) through its own screen draws, none into a
+    target; the unedited build moves nothing (`drawn_feed_prerun.py --screen`).
+  - **Gates.** `screen_gates.py` C1-C7 (C1 the page map). `drawn_gates` D3 now reads 335 pages in
+    its 62 containers. The render-target remedy is unchanged (2 outright, 12 keyed, 8 no route).
+  - **Open.** No cast has tested a drawn page or the conflict gate's premise.
   **★ FOLLOW-UP — THE SCROLL-BLIT OPEN GAP, CLOSED.** The four cells the headless census saw rewritten with
   no op-144 site (ef226 / ef509 `x448_y384` + `x512_y384`, licensed until now) are rewritten by the
   containers' OWN horizontal-scroll routine: six containers carry it, it takes op 144's arguments and

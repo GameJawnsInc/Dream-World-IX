@@ -103,7 +103,10 @@ PIN = {
     "co_two_depth": 8,
     "co_unread": 10,
     "co_pairs": 156,
-    "co_identical": 0,
+    # 2, not the 0 this rung first stated: Ark's s2/s4 writers upload the SAME texture at (448,256) and
+    # (512,256), and the pre-walk page map read s4's (and s2's (512,256)) 1,440 bytes early, so each
+    # pair looked different
+    "co_identical": 2,
     "dual_depth": 17,
     "multi_palette": 42,         # class E2, A1's predicate: >1 palette KEY, "no CLUT" counting as one
     "multi_clut_cell": 38,       # ... counting only DECLARED CLUT cells (the kit's own predicate)
@@ -483,7 +486,8 @@ def g1_format_identity():
                  "%.4f)" % (win, len(nb), sig_win, len(sig), mean(r[2] for r in nb),
                             mean(r[3] for r in nb), mean(r[4] for r in nb),
                             mean(abs(r[2] - r[3]) for r in sig)))
-    ok = ok and len(nb) == 48 and win == 44 and len(sig) == 36 and sig_win == 36
+    # 37 with signal on THE UPLOAD WALK's page map (36 before it: the misaddressed pages read pad rows)
+    ok = ok and len(nb) == 48 and win == 44 and len(sig) == 37 and sig_win == 37
     for r in nb:
         if r[2] >= r[3]:
             lines.append("   dissenter ef%03d %s  H_can %.5f  H_swp %.5f  V %.4f -- separates by "
@@ -943,10 +947,14 @@ def g4_refusal_matrix():
               _row(pair[0].name, arts[0], acknowledge_cotransform="true"),
               _row(pair[1].name, arts[1], acknowledge_cotransform="true")]), td, blob=b227),
           want="must be a BOOLEAN")
+    # ...plus CHANNEL D's conflict key on a writer whose bytes the draw census reads at another depth
+    # as well (the id-9 writer here, read at 4 and 8): a separate obligation, stated, not this block's
+    conflict = [{RP.ACK_DRAWN_CONFLICT: True} if RP.drawn_conflict(p) else {} for p in pair]
     bco = builds("   both named + the literal `true`: THE REMEDY",
                  RP.build, _texel_spec(227, [
-                     _row(pair[0].name, arts[0], acknowledge_cotransform=True),
-                     _row(pair[1].name, arts[1], acknowledge_cotransform=True)]), td, blob=b227)
+                     _row(pair[0].name, arts[0], acknowledge_cotransform=True, **conflict[0]),
+                     _row(pair[1].name, arts[1], acknowledge_cotransform=True, **conflict[1])]), td,
+                 blob=b227)
     if bco is not None:
         note = next((n for n in bco.enabled[0].hazard_notes if n.startswith("CO-TRANSFORM")), "")
         lines.append("      %s" % note[:150])

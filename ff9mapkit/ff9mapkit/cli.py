@@ -9872,13 +9872,12 @@ def build_parser() -> argparse.ArgumentParser:
                           "REFUSES with `--readership bound`, where these cells are pages already.")
     srk.add_argument("--acknowledge-drawn-depth", dest="ack_drawn_depth", action="store_true",
                      help="export-art: ALSO export the cells CHANNEL D gives a depth to -- cells no "
-                          "`so` record gives a depth, that the headless routes census saw the "
-                          "render target's draw read at ONE depth, keyed by the CLUT that draw read "
-                          "them through. These are mostly the cells a NEVER_VRAM 15bpp refusal names "
-                          "as what the target is drawn from. The scaffold writes each as a COMMENTED "
-                          "block carrying `acknowledge_drawn_depth = true` and its `expect_bpp`; "
-                          "uncomment it to edit. The census sees only draws INTO the target, at "
-                          "Battle Speed < 3, on the headless stage")
+                          "`so` record gives a depth, that the headless draw census saw the "
+                          "effect's draws read at ONE depth (on the screen or into the render "
+                          "target), keyed by the CLUT those draws read them through. The scaffold "
+                          "writes each as a COMMENTED block carrying `acknowledge_drawn_depth = true` "
+                          "and its `expect_bpp`; uncomment it to edit. The census is the headless "
+                          "stage, at Battle Speed < 3: no battle camera, the actors at the origin")
     srk.add_argument("--readership", dest="readership", default=None,
                      choices=sorted(_SUMMON_READINGS),
                      help="WHICH CELL a scenery reader is taken to read. `effective` (the default) "

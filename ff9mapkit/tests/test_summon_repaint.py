@@ -1711,6 +1711,54 @@ def test_scenery_texel_pages_emits_ONLY_cells_whose_DEPTH_the_container_states()
         RP.scenery_surface(blob, 999, channels=("so-uv", "vibes"))
 
 
+def _hopped_container() -> bytes:
+    """The scenery fixture with its page stream split as the stock corpus splits 248 of 385: the id-0
+    payload holds the header and the FIRST upload unit, sector-padded with 0x55, and an id-1 resource
+    right behind it holds the other six -- so the tall rect's lower half is the unit that cannot fit."""
+    full = _scenery_id0()
+    n_units = sum(max(1, h // RS.PAGE_CELL_LINES) for _x, _y, _w, h in SCEN_RECTS)
+    head = len(full) - n_units * RS.PAGE_CELL_BYTES
+    id0 = full[:head + RS.PAGE_CELL_BYTES]
+    id0 += bytes([0x55]) * (-len(id0) % SECTOR)
+    id1 = full[head + RS.PAGE_CELL_BYTES:]
+    body = b"".join(_uv_geom(_tpage(x, y, bpp), 0 if cl is None else _clut_word(*cl), uv)
+                    for _lbl, x, y, bpp, cl, uv in SCEN_MODELS)
+    return _assemble_i([(0, [(0, 0, id0), (1, 0, id1), (3, 0, bytes([0x55]) * SECTOR), (6, 0, body)])])
+
+
+def test_the_upload_walk_hops_the_id0_pad_and_no_cell_straddles_a_resource(tmp_path):
+    """THE UPLOAD WALK.  The engine uploads 64 x 128 units and starts a unit that will not fit before
+    the end of its resource at the NEXT resource's first byte -- it never reads the id-0 sector pad as
+    texels.  A cursor running ``w * h * 2`` straight through the pad put the lower half (and every
+    cell after it) the pad's length too early: 943 stock cells, measured against the plugin's uploads."""
+    blob = _hopped_container()
+    c = KC.parse_header(blob, strict=True)
+    r0, r1 = [r for r in c.chunks[0].resources if r.id in (0, 1)]
+    cells = RS.page_cells(blob)
+    top, low = cells[("s0", 704, 256)], cells[("s0", 704, 384)]
+    assert top.off + RS.PAGE_CELL_BYTES < r0.offset + r0.nbytes < top.off + 2 * RS.PAGE_CELL_BYTES, \
+        "the fixture really leaves the lower half no room in id-0"
+    assert low.off == r1.offset, "the lower half starts at id-1's first byte, not after the pad"
+    pad = blob[top.off + RS.PAGE_CELL_BYTES:r1.offset]
+    assert pad and set(pad) == {0x55}
+    order = [(704, 256), (704, 384), (576, 256), (512, 256), (448, 256), (384, 256), (320, 256)]
+    for n, xy in enumerate(order):
+        pc = cells[("s0",) + xy]
+        assert blob[pc.off:pc.off + RS.PAGE_CELL_BYTES] == _cell_fill(n), "cell %s holds its own bytes" % (xy,)
+    assert sorted(cells) == sorted(RS.page_cells(build_scenery_container())), "the same cells, moved"
+    rect = RS.scenery_pages(blob)[("s0", 704)]
+    assert rect.units() == (top.off, low.off) and rect.pixels(blob) == _cell_fill(0) + _cell_fill(1)
+    assert RS.id0_splits(blob)[0].hi == max(pc.off for pc in cells.values()) + RS.PAGE_CELL_BYTES
+    # an edit of the lower half writes ONLY id-1 bytes: the pad and the top cell stay stock
+    p = _cell(blob, 704, 384)
+    assert p.page_offset == r1.offset
+    src = _write_cell_png(tmp_path, blob, p, _bump_cell(p, _page_at(blob, p)))
+    b = RP.build(_spec_dict(blob, [_row(p, src, expect_bpp=8, expect_page_offset=r1.offset)]), "?",
+                 blob=blob)
+    moved = [i for i in range(len(blob)) if b.patched[i] != blob[i]]
+    assert moved and r1.offset <= min(moved) and max(moved) < r1.offset + RS.PAGE_CELL_BYTES
+
+
 def test_the_same_0x4000_bytes_are_three_different_pictures_and_the_map_says_which():
     """Why ``expect_bpp`` has to exist: every cell is the same 0x4000 bytes and only the ``so`` record
     says how wide the picture is."""
@@ -2471,7 +2519,9 @@ def test_ef211s_cast_cell_derives_the_decision_documents_appendix_exactly():
     assert fire.hazards.program == "read", "StoreImage is a READ -- disclose, do not refuse"
     # CAST 2: the LOWER HALF the rect view cannot name, clean 4bpp under a two-palette refusal
     cast2 = pages["cell.s0.x576_y384"]
-    assert (cast2.bpp, cast2.page_offset) == (4, 0x25678)
+    # 0x25800, by THE UPLOAD WALK: the unit starts at id-1's first byte.  The kit said 0x25678 before
+    # it, 392 bytes early, and CAST 2's staged art was exported and written there.
+    assert (cast2.bpp, cast2.page_offset) == (4, 0x25800)
     assert cast2.hazards.names == ("lower-half",) and cast2.hazards.covered_halfwords == 2688
     assert cast2.palette_name == "pal.s0.x208_y244.e16"
     assert pages["cell.s0.x576_y256"].hazards.multi_palette, "...and its UPPER half is refused"
@@ -3256,7 +3306,7 @@ def test_ef211s_CAST_2_lower_half_builds_and_its_UPPER_half_is_a_DISCLOSURE_not_
     where the choice is visible instead of assumed."""
     blob = (CORPUS / "ef211.bytes").read_bytes()
     low = RP.texel_page(blob, "cell.s0.x576_y384", 211)
-    assert (low.bpp, low.page_offset) == (4, 0x25678) and low.hazards.names == ("lower-half",)
+    assert (low.bpp, low.page_offset) == (4, 0x25800) and low.hazards.names == ("lower-half",)
     src = _write_cell_png(tmp_path, blob, low, _bump_cell(low, _page_at(blob, low)))
     # Both halves of column 576 sit under op-144 SCROLL-BLIT bands (`dst (576,256)/(576,368) 28x112`,
     # fed from x 604), so a whole-cell bump changes texels in them and needs the key.  (Not a reachable

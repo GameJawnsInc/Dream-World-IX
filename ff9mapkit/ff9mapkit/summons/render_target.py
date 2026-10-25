@@ -65,6 +65,17 @@ that the draw reads at 8 (ef499 ``x704_y384``). With the key the remedy names a 
 the 22 (:data:`SURFACE_15BPP_KEYED_REMEDY`), and headless a repaint of one reaches the screen through the
 target. What it cannot see is :data:`DRAWN_CAVEAT`.
 
+THE SECOND HALF: EVERY DRAW, PER PAGE (:mod:`ff9mapkit.summons.draw_census`). The feeds are booked per CELL
+and only for draws INTO the target. The draw census renders every frame of all 372 containers and charges
+every sampling fragment -- screen or target, before the cutout test -- to the PAGE whose bytes it read,
+followed through every copy.  So :func:`drawn_depth` takes the page (its container offset) and, on a
+censused container, answers from that page's reads alone: a cell is not a picture (several writers upload
+into one; the program copies bytes between cells), and a per-cell view mistakes two writers' bytes read at
+two depths for one picture read twice.  With it the channel hands out 1,665 pages in 329 containers, holds
+back 41 of the 187 the feeds alone handed out (their bytes are also read on the screen at a second depth),
+and ``repaint``'s drawn-conflict gate refuses an edit to the 78 indexed pages the draws read at a depth not
+their own (:data:`DRAWN_CONFLICT_KEY`).  Gates ``studies/custom-summons/tier-w/screen_gates.py`` C1-C7.
+
 WHY THIS IS A CACHED CONSTANT, AND WHAT PINS IT
 -----------------------------------------------
 The measurement needs the plugin DLL from the user's install and the stock containers, so -- like
@@ -83,6 +94,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
 
+from . import draw_census as DC
+
 __all__ = [
     "CENSUS_CONTAINERS", "CENSUS_IDS", "ROUTE_ROWS", "TARGET_CONTAINERS", "FEED_ROWS", "KIND_COUNTS",
     "UNPORTED", "BLUR_X", "PAGE_SPAN", "SURFACE_15BPP", "SURFACE_15BPP_CONTAINERS",
@@ -93,8 +106,9 @@ __all__ = [
     "Route", "Feed", "CellRoute", "ROUTES", "FEEDS", "TARGETS", "routes", "feeders", "target_from",
     "cell_route",
     "ACK_KEY", "LAW", "MEASUREMENT", "CASTS", "SPEED_CAVEAT", "ACK_WARNING",
-    # --- CHANNEL D: the depth (and the CLUTs) a cell is DRAWN at, read off the target's draws -------
-    "FEED_CLUT_ROWS", "DrawnDepth", "drawn_depth", "DRAWN_ACK_KEY", "DRAWN_CAVEAT", "DRAWN_ACK_WARNING",
+    # --- CHANNEL D: the depth (and the CLUTs) a page is DRAWN at, read off the effect's draws -------
+    "FEED_CLUT_ROWS", "DrawnDepth", "drawn_depth", "drawn_cells", "drawn_pages", "DRAWN_ACK_KEY",
+    "DRAWN_CAVEAT", "DRAWN_ACK_WARNING", "DRAWN_CONFLICT_KEY", "DRAWN_CONFLICT_WARNING",
 ]
 
 #: the containers the routes census ran (the whole corpus) -- asserted against the gate's census read.
@@ -712,38 +726,55 @@ def cell_route(effect: Optional[int], cell: Tuple[int, int]) -> CellRoute:
 
 @dataclass(frozen=True)
 class DrawnDepth:
-    """CHANNEL D -- what the census saw DRAW one cell into the render target: every depth it was read
-    at, and every CLUT each depth was read through.
+    """CHANNEL D -- what the draws of one container read one cell at: every depth, and every CLUT each
+    depth was read through.  Two halves: the render target's FEEDS (the routes census, the fragments
+    that changed the target) and the DRAW CENSUS (:mod:`ff9mapkit.summons.draw_census`: every fragment
+    that sampled the cell, on the screen and into the target, before the cutout test).
 
-    The strongest depth evidence this lane has, and the narrowest: the depth is the drawing
-    primitive's own tpage mode off the plugin's executed stream -- a draw, not a binding and not a
-    registration -- but only draws INTO the target are recorded (:data:`DRAWN_CAVEAT`).
+    The strongest depth evidence this lane has: the depth is the drawing primitive's own tpage mode off
+    the plugin's executed stream -- a draw, not a binding and not a registration -- under the headless
+    stage's camera and targets (:data:`DRAWN_CAVEAT`).
     """
     effect: int
     cell: Tuple[int, int]
-    #: one :class:`Feed` per depth the cell was drawn at, shallowest first
+    #: one :class:`Feed` per depth the cell drew the render target at, shallowest first
     feeds: Tuple[Feed, ...]
+    #: every :class:`~ff9mapkit.summons.draw_census.Read` of the page's bytes (or, in the cell view, at
+    #: the cell) -- one per read cell and depth
+    reads: Tuple[DC.Read, ...] = ()
 
     @property
     def depths(self) -> Tuple[int, ...]:
-        return tuple(f.bpp for f in self.feeds)
+        return tuple(sorted({f.bpp for f in self.feeds} | {r.bpp for r in self.reads}))
 
     @property
     def dual(self) -> bool:
-        """Drawn at two depths -- the same bytes as two pictures.  A hazard, not a vote."""
-        return len(self.feeds) > 1
+        """Read at two depths, by any draw -- the same bytes as two pictures.  A hazard, not a vote."""
+        return len(self.depths) > 1
 
     @property
     def bpp(self) -> Optional[int]:
-        return self.feeds[0].bpp if not self.dual else None
+        return self.depths[0] if not self.dual else None
 
     @property
     def clut_cells(self) -> Tuple[Tuple[int, int], ...]:
-        """The CLUT cells of a single-depth draw, display binding (lowest address) first."""
-        return tuple(c for c, _n in self.feeds[0].cluts) if not self.dual else ()
+        """The CLUT cells of a single-depth read, display binding (lowest address) first: every CLUT
+        either half saw the cell read through."""
+        if self.dual:
+            return ()
+        cs = {c for f in self.feeds for c, _n in f.cluts} | {c for r in self.reads for c, _n in r.cluts}
+        return tuple(sorted(cs, key=lambda c: (c[1], c[0])))
+
+    @property
+    def shown(self) -> int:
+        """Screen fragments, at any depth, that changed a pixel as the cell stands."""
+        return sum(r.shown for r in self.reads)
 
     def evidence(self) -> str:
         """The measurement, in the sentence a refusal or disclosure quotes."""
+        if self.reads:
+            return ("the headless draw census saw this cell READ at %s"
+                    % " AND ".join(r.describe() for r in self.reads))
         return ("the headless routes census saw this cell DRAWN into the render target at %s"
                 % " AND ".join("%dbpp (%d fragments over %d frames, through %s)"
                                % (f.bpp, f.pixels, f.frames,
@@ -751,11 +782,40 @@ class DrawnDepth:
                                for f in self.feeds))
 
 
-def drawn_depth(effect: Optional[int], cell: Tuple[int, int]) -> Optional[DrawnDepth]:
-    """CHANNEL D for one cell, or ``None`` where no draw of the target read it."""
+def drawn_depth(effect: Optional[int], cell: Tuple[int, int],
+                page: Optional[int] = None) -> Optional[DrawnDepth]:
+    """CHANNEL D for one cell, or ``None`` where no draw read it.
+
+    With ``page`` (the container offset of the texel page at that cell) it is CHANNEL D for THAT page's
+    bytes: on a container the draw census covers, the reads of those bytes wherever they were read, and
+    nothing else -- not the cell's feeds, which are booked per cell and so cannot tell one writer's bytes
+    from another's.  Without it (or on a container the census does not cover) it is the cell's view.
+    """
     cell = (int(cell[0]), int(cell[1]))
     fs = tuple(sorted((f for f in feeders(effect) if f.cell == cell), key=lambda f: f.bpp))
-    return DrawnDepth(effect=int(effect), cell=cell, feeds=fs) if fs else None
+    if page is not None and DC.censused(effect):
+        fs, rs = (), DC.reads(effect, page=page)
+    else:
+        rs = DC.reads(effect, cell=cell)
+    return DrawnDepth(effect=int(effect), cell=cell, feeds=fs, reads=rs) if (fs or rs) else None
+
+
+def drawn_cells(effect: Optional[int]) -> Dict[Tuple[int, int], Tuple[int, ...]]:
+    """Every cell CHANNEL D speaks for in one container, both halves -> the depths it was read at."""
+    out: Dict[Tuple[int, int], set] = {}
+    for f in feeders(effect):
+        out.setdefault(f.cell, set()).add(f.bpp)
+    for r in (DC.READS.get(int(effect), ()) if effect is not None else ()):
+        out.setdefault(r.cell, set()).add(r.bpp)
+    return {c: tuple(sorted(v)) for c, v in sorted(out.items())}
+
+
+def drawn_pages(effect: Optional[int]) -> Dict[int, Tuple[int, ...]]:
+    """Every page CHANNEL D speaks for in a censused container -> the depths its bytes were read at."""
+    out: Dict[int, set] = {}
+    for r in (DC.READS.get(int(effect), ()) if effect is not None else ()):
+        out.setdefault(r.page, set()).add(r.bpp)
+    return {pg: tuple(sorted(v)) for pg, v in sorted(out.items())}
 
 
 #: the row key that admits a channel-D depth.  Literal-boolean-only, and paired with ``expect_bpp``.
@@ -764,16 +824,27 @@ DRAWN_ACK_KEY = "acknowledge_drawn_depth"
 #: what channel D measures and what it cannot see -- quoted wherever it speaks.
 DRAWN_CAVEAT = (
     "CHANNEL D is a DRAW, not a binding: the depth is the drawing primitive's own tpage mode, read off "
-    "the plugin's executed stream by the headless routes census -- but the census records only the "
-    "draws INTO the render target, on the live cast path (Battle Speed < 3), under the headless "
-    "stage's camera and targets.  A draw of the same bytes at another depth straight to the screen, "
-    "or on a frame the stage never reached, is invisible to it, so it licenses nothing without your "
-    "word")
+    "the plugin's executed stream by the headless censuses -- every fragment that sampled the cell, on "
+    "the screen and into the render target, before the cutout test -- on the live cast path (Battle "
+    "Speed < 3), under the headless stage's camera and targets and with its opening caster burst.  A "
+    "draw on a frame the stage never reached, or one a real battle's camera and targets would change, "
+    "is invisible to it, so it licenses nothing without your word")
 
 #: what saying :data:`DRAWN_ACK_KEY` means, printed on every build that uses it.
 DRAWN_ACK_WARNING = (
-    "%s = true: this cell's depth is the one the target's draw reads it at, measured headless; no "
+    "%s = true: this cell's depth is the one the effect's draws read it at, measured headless; no "
     "`so` record binds it.  %s." % (DRAWN_ACK_KEY, DRAWN_CAVEAT))
+
+#: THE CONFLICT KEY.  A page the kit hands out at one depth that the draws read at ANOTHER (or at two)
+#: refuses an edit at build time; this lifts it.  Literal-boolean-only, and it admits no depth: the page
+#: keeps its own, and what the author judges is that their cast reads the bytes there.
+DRAWN_CONFLICT_KEY = "acknowledge_drawn_conflict"
+
+#: what saying :data:`DRAWN_CONFLICT_KEY` means, printed on every build that uses it.
+DRAWN_CONFLICT_WARNING = (
+    "%s = true: the headless draws read these bytes at a depth other than the one this page is "
+    "painted at, and you judge your cast reads them at the page's own.  %s." % (DRAWN_CONFLICT_KEY,
+                                                                              DRAWN_CAVEAT))
 
 
 #: THE SPEC KEY.  Literal-boolean-only, like every other acknowledgement in this lane.

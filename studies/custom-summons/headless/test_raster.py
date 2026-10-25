@@ -307,6 +307,41 @@ def test_each_sampled_cell_is_split_by_the_clut_that_drew_it():
 
 
 # ---------------------------------------------------------------- the probe-log reader
+def test_the_source_tracker_charges_each_read_to_the_upload_whose_bytes_it_sampled():
+    """Two uploads of different container bytes, side by side: each fragment is booked against the
+    upload whose bytes it sampled, with the container offsets it read -- and a DR_MOVE carries the
+    source along, so what a destination shows is charged to the SOURCE's upload, not to the cell."""
+    r, st = renderer(), R.Stats()
+    r.cache.trace()
+    r.cache.traced_load(640, 256, 64, 128, 1000, 0, False)
+    r.cache.traced_load(704, 256, 64, 128, 50000, 0, False)
+    page = tpage(tx=10, ty=1, tp=1)                  # 8bpp keyed at x640: u >= 128 reads column 704
+    cmds, faults = builder().build([ft4(0, 0, 16, 16, tp=page, uv=(10, 0, 26, 16)),
+                                    ft4(20, 0, 36, 16, tp=page, uv=(130, 0, 146, 16))])
+    assert not faults
+    r.render(cmds, 1, True, st)
+    book = R.source_book(st)["screen"]
+    assert set(book["x640_y256@8"]) == {"0:0"} and set(book["x704_y256@8"]) == {"1:0"}
+    a = book["x640_y256@8"]["0:0"]
+    assert 1000 <= a["lo"] <= a["hi"] < 1000 + 64 * 128 * 2
+    assert a["reads"] == st.read_cells["x640_y256@8"][1] and a["frame_list"] == [1]
+    st2 = R.Stats()
+    r.render([R.Command("move", args=(704, 256, 64, 32, 640, 256))] + list(cmds), 2, True, st2)
+    moved = R.source_book(st2)["screen"]["x640_y256@8"]
+    assert set(moved) == {"1:0"}, "the copied rows are upload 1's bytes, from its first band"
+    assert 50000 <= moved["1:0"]["lo"] <= moved["1:0"]["hi"] < 50000 + 64 * 32 * 2
+    # a 64x256 upload is two page cells: its lower band copied into its upper one stays apart
+    r2, st3 = renderer(), R.Stats()
+    r2.cache.trace()
+    r2.cache.traced_load(640, 256, 64, 256, 7000, 0, False)
+    r2.render([R.Command("move", args=(640, 384, 64, 32, 640, 256))] + list(cmds), 3, True, st3)
+    up = R.source_book(st3)["screen"]["x640_y256@8"]
+    assert set(up) == {"0:1"} and 7000 + 16384 <= up["0:1"]["lo"], "the band the bytes came from"
+    off = R.TextureCache(np.zeros((512, 1024), np.uint16))
+    off.traced_load(0, 0, 4, 4, 0, 0, False)
+    assert off.loads == [], "an untraced cache keeps nothing"
+
+
 def test_read_probe_log_casts_and_dedupe(tmp_path):
     log = tmp_path / "p.log"
     log.write_text("\n".join([

@@ -123,6 +123,8 @@ before it's a statement about the container.**
 py -I raster.py run --ef 227 --frames 82,150,300 --scale 2      # PNGs + visible cells (SCRATCH)
 py -I raster.py diff --ef 211 --b <edited container> --frames 230-290 --out <SCRATCH dir>
 py -I raster.py routes --jobs 6 [--control]                     # every container: key sources + copies
+py -I raster.py routes --draw --jobs 8 --out <SCRATCH>\raster\screen   # THE DRAW CENSUS: every frame, traced
+py -I raster.py run --ef 150 --trace                             # one container, reads charged to uploads
 py -I stale_census.py [--only 499] [--control] [--rejoin]       # every container: is each copy ever SEEN?
 py -I raster.py calibrate --ef 227 --log <s48 probe log> [--offset 19]   # in-game f vs headless f+19
 py -I rx_gates.py [--battery]                                    # RX0-RX3 (+ RX4, the owner-verdict battery)
@@ -293,9 +295,25 @@ tests: code plus counts, with zero Square Enix bytes.
   (`render_target._FEED_CLUT_ROWS`) and hands a feeder out at its drawn depth behind
   `acknowledge_drawn_depth`. 14 of the 22 refusals now name a paintable cell, and
   `tier-w/drawn_feed_prerun.py` shows a repaint of one reaching the screen through the target
-  (gates `tier-w/drawn_gates.py` D1-D6). Still unmeasured: draws straight to the SCREEN. `routes`
-  runs `--no-draw`, so `visible_cells` stays empty there, and a full screen-draw census is the
-  "empirical edit surface" above.
+  (gates `tier-w/drawn_gates.py` D1-D6).
+- ~~**The screen draws.**~~ **DONE — THE DRAW CENSUS.** `routes --draw` renders every frame of all 372
+  containers (about 38 min at 8 jobs, SCRATCH `headless/raster/screen`, 0 errors) with `run --trace`'s
+  SOURCE TRACKER armed: every VRAM halfword remembers the container offset its LoadImage took it from,
+  carried through MoveImage and DR_MOVE, and every fragment that samples a texel (before the cutout test,
+  changed pixel or not) is booked against that upload and its 128-row band (`read_sources`, `loads`).
+  `tier-w/screen_gates.py` charges each upload's reads to the kit page holding those bytes; the kit carries
+  the result (`summons/draw_census.py`, 2,598 rows) and channel D reads it per page.
+  - ★★ **It found a kit defect first.** Charging reads to pages failed for 1.2 G fragments that
+    straddled two pages, and the uploads said why: **the kit put 943 of 2,531 id-0 page cells 380 to
+    1,984 bytes too early.** The engine never splits a 64×128 upload unit across the id-0 / id-1
+    boundary; it skips id-0's 0x55 sector pad and starts the unit at id-1. Fixed in
+    `reskin.scenery_pages` (THE UPLOAD WALK); gate C1 holds the page map to all 2,648 measured uploads,
+    the old cursor as its falsifier (914 missed).
+  - On the fixed map: 89 of the 289 default-surface pages are read at another depth (78 indexed: the
+    drawn-conflict gate refuses an edit there, key `acknowledge_drawn_conflict`); channel D hands out
+    1,665 pages in 329 containers; 41 of the 187 the feeds alone handed out are read on the screen at a
+    second depth and no longer emit. ef383 `cell.s0.x448_y256`, painted with the key, changes 36 of
+    36 frames through its own screen draws (`drawn_feed_prerun.py --screen`).
 - **The opening divergence.** Find what the game gives the plugin that suppresses the caster burst; until
   then, align a headless frame against a capture before quoting it as a cast frame.
 

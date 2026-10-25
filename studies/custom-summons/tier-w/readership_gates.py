@@ -66,8 +66,10 @@ CORPUS = r"C:\gd\SCRATCH\summon-format"
 BOUND, EFFECTIVE = RP.READINGS["bound"], RP.READINGS["effective"]
 LANES = {"indexed": (4, 8), "direct15": (15,)}
 CAST_SPEC = os.path.join(_HERE, "ef407_gain.toml")
-#: the zebra cast's patched container, as staged and cast (tier-w/PLAN.md, owner item 1)
-CAST_SHA_PREFIX = "71d04a12"
+#: the zebra cast's patched container, rebuilt on THE UPLOAD WALK's page map.  The cast itself ran as
+#: `71d04a12...`, written at the pre-walk offset 0x2146c, 916 bytes before where the game loads the cell
+#: (tier-w/PLAN.md, owner item 1, and the page-offset fix); this is the same zebra at 0x21800.
+CAST_SHA_PREFIX = "53d93424"
 GAIN_CELL, LOSS_CELL = "cell.s0.x704_y256", "cell.s0.x640_y384"
 
 # THE POPULATION PINS (D6), measured by this runner's own walk

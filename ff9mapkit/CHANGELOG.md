@@ -5,6 +5,32 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — summon repaint: a third of the scenery pages were read and written at the wrong place
+- `summon-reskin export-art` and `[[reskin.texel]]` now find every scenery page cell where the game actually loads
+  it. Before, 943 of the 2,531 id-0 page cells (in 236 effects; 136 of the 272 pages the default surface hands
+  out) were taken 380 to 1,984 bytes too early in the file. Their exported pictures came out shifted by 3 to 15
+  rows, with filler rows at the top, and a repaint landed shifted the same way and overwrote the last rows of the
+  cell before it.
+- The cause: an effect's page data starts in one resource and continues in the next, and the game never splits a
+  64x128 cell across the two; it skips the first resource's filler and starts that cell at the next resource. The
+  kit read straight through the filler. Checked offline against the game's own effect plugin: the kit's offsets
+  now match all 2,648 cell uploads the plugin makes over all 372 effects.
+- Specs exported before this fix carry the old `expect_page_offset` on those cells and refuse to build, by name.
+  Export the art again.
+
+### Changed — summon repaint: channel D reads every draw, and a page the draws read at another depth refuses
+- Channel D (`acknowledge_drawn_depth`) now reads every draw an effect makes, on the screen as well as into its
+  render target, measured offline over all 372 effects and charged to the page whose bytes each draw read. Before,
+  it saw only the draws into the target, and only per cell.
+  `export-art --acknowledge-drawn-depth` hands out 1,665 pages in 329 effects (was 187 in 52).
+- A page any draw reads at two depths is never handed out. That now holds back 41 of the 187 pages the old channel
+  handed out: their bytes are also read on the screen at a second depth.
+- A page the kit hands out at one depth that the effect's draws read at another (or at two) now refuses an edit at
+  build time, by name: 78 pages. `acknowledge_drawn_conflict = true` lifts it if you judge your cast reads
+  the bytes at the page's own depth. The scaffold marks those rows and carries the key, and its first build is
+  still a no-op.
+- A page read only at 15bpp is handed out as a direct-colour page, with no palette.
+
 ### Changed — the World tab shows where a shape was refused
 - A refused mountain now marks the place on the map in every case the editor was measured to meet (before, most
   of its refusals only printed a sentence).

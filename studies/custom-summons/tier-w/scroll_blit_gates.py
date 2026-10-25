@@ -313,6 +313,13 @@ CASTS = (("phoenix_field.toml", "cell.s0.x704_y256", "full", "ef211"),          
          ("phoenix_field_cast2.toml", "cell.s0.x576_y384", "in-band", "ef211-cast2"),  # stock at every draw
          ("phoenix_field_cast3.toml", "cell.s0.x640_y256", "partial", "ef211-pool"),  # showed
          ("phoenix_dome.toml", "cell.s0.x704_y384", "source", None))               # showed
+#: THE UPLOAD WALK moved these two cells (cast 2 +392 B, cast 3 +392 B: the casts were exported and
+#: written at the pre-walk offsets), so their specs are RE-DERIVED on the walk and rebuild these shas,
+#: not the cast's -- which S5 still reads off the staged manifest, and requires to DIFFER.
+WALK_REBUILT = {
+    "phoenix_field_cast2.toml": "362d29d7333febd388ddb622a3faaa5c5284e529ca04c1f27ec0baa8e9c6d98f",
+    "phoenix_field_cast3.toml": "3ca4ddc135f5def9cee29c59e1eadeb9ce665940238f8071053262410b6683b7",
+}
 
 
 def s5_retrodiction() -> None:
@@ -352,10 +359,16 @@ def s5_retrodiction() -> None:
             with open(os.path.join(REPAINT_W6B, staged, "build_manifest.json"),
                       encoding="utf-8") as fh:
                 want = json.load(fh)["patched_sha256"]
-        chk("S5 %s rebuilds the bytes it was cast with" % spec_name, b.sha_out, want)
+        if spec_name in WALK_REBUILT:
+            chk("S5 %s rebuilds its re-derived bytes on the upload walk" % spec_name, b.sha_out,
+                WALK_REBUILT[spec_name])
+            chk("S5 %s: ...which are NOT the pre-walk cast's" % spec_name, b.sha_out != want, True)
+        else:
+            chk("S5 %s rebuilds the bytes it was cast with" % spec_name, b.sha_out, want)
         print("   " + line + "refuses (%s of %s changed halfwords in the band); with the key "
               "sha %s %s" % (m.group(1) if m else "?", m.group(2) if m else "?", b.sha_out[:12],
-                             "== the cast" if b.sha_out == want else "!= the cast %s" % want))
+                             "== the cast" if b.sha_out == want else
+                             "(re-derived on the walk; the cast ran %s)" % (want or "?")[:12]))
 
 
 # --------------------------------------------------------------------------- S6

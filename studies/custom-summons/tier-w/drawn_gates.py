@@ -78,8 +78,10 @@ PIN_CONTRADICTIONS = [
     (381, "x704_y384", (15,), ("so-uv",), (8,)), (381, "x768_y384", (4,), ("so-uv",), (8,)),
     (447, "x704_y384", (15,), ("so-uv",), (8,)), (499, "x704_y384", (4,), ("so-page",), (8,)),
 ]
-#: (pages handed out behind the ack, containers) -- names, so a co-transform cell counts per writer
-PIN_REACH = (187, 52)
+#: (pages handed out behind the ack, containers) -- names, so a co-transform cell counts per writer.
+#: (187, 52) on the feeds alone; with the draw census (screen_gates.py) every draw of these 66 target
+#: containers is read, per page, and the reach here is (335, 62) -- the whole corpus is screen_gates C4's
+PIN_REACH = (335, 62)
 #: (outright, behind stated keys, total) of the 22 default-surface NEVER_VRAM 15bpp refusals
 PIN_REMEDY = (2, 12, 22)
 #: no route: a program-VRAM writer (ef381), a feeder drawn at TWO depths (ef429), a veto (ef447)
@@ -208,8 +210,9 @@ def d3_reach() -> None:
             if p.depth_source != "drawn":
                 continue
             emitted.append((ef, p.name))
-            dd = RT.drawn_depth(ef, p.cell)
-            if (dd is None or dd.dual or dd.bpp != p.bpp or not p.palette_name
+            dd = RT.drawn_depth(ef, p.cell, p.page_offset)
+            keyed = p.bpp == 15 or bool(p.palette_name)       # a 15bpp drawn page is direct colour
+            if (dd is None or dd.dual or dd.bpp != p.bpp or not keyed
                     or p.name in base_names):
                 bad.append((ef, p.name))
         if any(p.depth_source == "drawn" for p in bp):
