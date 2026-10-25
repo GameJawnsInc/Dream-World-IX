@@ -214,6 +214,41 @@ def test_a_read_of_the_river_from_before_the_edit_is_not_taken_for_the_draft_bef
     assert tool.editing() and notes == [] and tool.river_at() == (8, -2)
 
 
+def test_a_stale_read_that_fails_does_not_take_the_live_read_s_place(app, tmp_path):
+    """A read of the river begun before the draft moved fails (plausibly: the draft is being rewritten under it) and
+    its error came with no number, so it freed the slot of the read begun after: that one was dropped when it landed,
+    the river never read, the stale error on screen (review of the C12 fixes). A read's error carries its number."""
+    tool, _run, _panel, _reads = _card(tmp_path)
+    calls = {"n": 0}
+
+    def river_fn(target, rs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("the draft was being rewritten")
+        return (8, -2), {}
+    tool._river_fn = river_fn
+    tool._sync = False
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))
+
+    def deliver(kind):                                       # as the worker does: its result, or its exception
+        k = next((i for i, (w, _f) in enumerate(held) if w == kind), None)
+        if k is None:
+            return False
+        what, fn = held.pop(k)
+        try:
+            tool._on_bg(what, 0, fn(), None)
+        except Exception as e:                               # noqa: BLE001
+            tool._on_bg(what, 0, None, e)
+        return True
+    tool.open_tool()
+    deliver("outline")                                       # the shape in: read 1 asked
+    tool.island_changed()                                    # the draft moved: read 2 asked
+    while deliver("river") or deliver("outline"):
+        pass
+    assert tool.river_at() == (8, -2) and "could not be read" not in tool.verdict_lbl.text()
+
+
 def test_a_river_edit_whose_move_from_is_not_where_the_river_stands_is_cancelled_when_that_read_comes(app, tmp_path):
     """Where the river stands is read on a worker: the edit opens on the placement at once, and the row's move_from
     is held to that read when it comes (a different one cancels the edit with the reason)."""

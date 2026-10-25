@@ -97,7 +97,13 @@ class RiverTool(CarryTool):
             return                                       # (one read at a time: _forget_river drops one in flight)
         self._river_asks += 1
         ask = self._river_ask = self._river_asks
-        self._bg("river", lambda: (ask, target, *self._river_fn(target, rs)))
+
+        def read():                                      # its error carries its number too: a stale read's failure
+            try:                                         # must not free the live read's slot (review of the C12 fixes)
+                return (ask, target, *self._river_fn(target, rs))
+            except Exception as e:                       # noqa: BLE001 -- surfaced on the GUI thread, as _bg's are
+                return (ask, target, e, None)
+        self._bg("river", read)
 
     def _forget_river(self):
         """The draft moved (an edit lifting steps out, an Accept, a promote, a discard): where the river stands is
@@ -191,6 +197,9 @@ class RiverTool(CarryTool):
         if ask != self._river_ask:
             return                                       # begun before the draft moved: not where the river is now
         self._river_ask = None
+        if isinstance(at, Exception):
+            self._say(f"Where the river stands could not be read: {at}", "error")
+            return
         if target != self.target() or self._river is not None:
             return                                       # a read of a folder the tool no longer judges
         self._river = (target, at, held)
