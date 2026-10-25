@@ -216,6 +216,9 @@ def test_gpu_still_matches_the_software_renderer_and_catches_each_mutation():
         assert c["differ"] < 0.01 * c["pixels"], (vn, c)
         assert 0.3 < c["fogged_frac"] < 0.95, (vn, c)        # not vacuous: the ramp grades the frame
     assert out["fog_mutation"]["blob"] > 100, out["fog_mutation"]
+    # ...and the break-it's measure can fail: a fog that clears the sky but fogs no land scores nothing (it scored
+    # 44,691 once: the sky's clear colour alone filled the blocks, whatever the shader did -- review of C18)
+    assert out["fog_dead"]["blob"] == 0, out["fog_dead"]
 
 
 def _has_install() -> bool:

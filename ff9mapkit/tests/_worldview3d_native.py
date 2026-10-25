@@ -81,7 +81,7 @@ def hermetic(V, R):
     # graded over each view (a ramp from its own depths, the height term on), and the break-it: the GPU fogged, the
     # oracle not
     from ff9mapkit.world import fog as FG
-    out["fog"], out["fog_mutation"] = {}, {"blob": 0}
+    out["fog"], out["fog_mutation"], out["fog_dead"] = {}, {"blob": 0}, {"blob": 0}
     for vn, v in HERMETIC_VIEWS.items():
         if v["kind"] != "persp":
             continue
@@ -93,7 +93,14 @@ def hermetic(V, R):
         c = V.compare(af, g, sky=fog.rgb, tol=1)          # one level: float32 against float64 rounding, no more
         c["fogged_frac"] = float((np.abs(af.astype(int) - a.astype(int)).max(axis=2) > 8).mean())
         out["fog"][vn] = c
-        out["fog_mutation"]["blob"] = max(out["fog_mutation"]["blob"], V.compare(a, g)["blob"])
+        # the break-it measures the LAND: the unfogged oracle with its sky in the fog's colour (as the fogged frame
+        # clears it), so the sky's colour alone can no longer fill the blocks
+        a_sky = a.copy()
+        a_sky[~np.isfinite(dep)] = fog.rgb
+        out["fog_mutation"]["blob"] = max(out["fog_mutation"]["blob"], V.compare(a_sky, g, sky=fog.rgb)["blob"])
+        dead = FG.Fog(start=1e9, end=2e9, per_u=0.0, floor=fog.floor, rgb=fog.rgb)    # the sky cleared, no land fog
+        gd = V.render_still(batches, v, res=site.res, tex_lookup=look, fog=dead)
+        out["fog_dead"]["blob"] = max(out["fog_dead"]["blob"], V.compare(a_sky, gd, sky=fog.rgb)["blob"])
     for mn, kw in mutants.items():
         worst = {"blob": 0, "coverage": 0}
         for vn, v in HERMETIC_VIEWS.items():
