@@ -150,6 +150,7 @@ class CarryTool(QWidget):
     CHECK_TIME = "about seven seconds"                   # a passing world-forest dry run, measured (C1)
     _bg_done = Signal(str, int, object, object)          # (what, serial, result, error) from a worker thread
     opened = Signal(bool)                                # the card opened (True) or was put away (False)
+    writing_changed = Signal(bool)                       # a job that writes started (True) or ended (False)
 
     def __init__(self, pal, panel, *, game_fn, source_fn, on_changed=None, runner=None, drafts_root=None,
                  ask=None, outline_fn=None, soup_fn=None, sync=False, on_reload=None, seam_soup_fn=None):
@@ -438,8 +439,26 @@ class CarryTool(QWidget):
         self._load_soup()
         self._load_outline(self.donor())
 
+    @property
+    def _job(self):
+        """``(kind, key)`` of the running job, or None; setting it says when a job that writes starts or ends."""
+        return self.__dict__.get("_job_v")
+
+    @_job.setter
+    def _job(self, v):
+        was = self.writing()
+        self.__dict__["_job_v"] = v
+        if self.writing() != was:
+            self.writing_changed.emit(not was)
+
     def close_tool(self):
+        """Put the card away. A job that writes (Accept, Promote, Revert promote) is waited for, never killed: a
+        Promote cut off half way leaves the live folder half written with no record to revert from (review of the
+        C19 fixes, third round). A Check, a dry run, is killed."""
         self._timer.stop()
+        wait = getattr(self._runner, "wait", None)
+        if self.writing() and wait is not None:
+            wait()                                       # (its done runs: an Accept's may close this card itself)
         self._runner.kill()
         self._job = None
         self._pending_row = None

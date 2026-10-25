@@ -787,8 +787,8 @@ class WorldDoc(QWidget):
         """Scan (or rescan) the deployed worldmap tree. Reads the game path + folder list on the GUI
         thread (cheap stats), then runs the real census on a worker; ``sync=True`` is the deterministic
         test/snap lane. Never called by the shell -- every invocation is a user gesture."""
-        if self._busy or self._held():
-            return                                 # (a draft the recipe bar holds: the folder waits for it)
+        if self._busy or self._held() or self._cards_write():
+            return                                 # (a draft the recipe bar holds, a card writing: the folder waits)
         fn = self._game_path_fn or config.find_game_path
         try:
             game = fn()
@@ -837,7 +837,7 @@ class WorldDoc(QWidget):
 
     def _finish(self, census, stock, err):
         self._busy = False
-        self.rescan_btn.setEnabled(not self._held())
+        self.rescan_btn.setEnabled(not self._held() and not self._cards_write())
         self.rescan_btn.setText("Rescan")
         if err is not None:
             self._show_guide("error", err)
@@ -977,6 +977,7 @@ class WorldDoc(QWidget):
             setattr(self, f"_{which}", tool)
             self._forest_slot.addWidget(tool)
             tool.opened.connect(lambda _on: self._sync_card_room())
+            tool.writing_changed.connect(lambda _on: self._sync_locks())
             self._view3d.ghost_moved.connect(lambda x, z, t=tool: t.drag_to(x, z) if not t.isHidden() else None)
             self._view3d.ghost_dropped.connect(lambda x, z, t=tool: t.drop_at(x, z) if not t.isHidden() else None)
         for other in self._carry_tools():
@@ -1069,6 +1070,15 @@ class WorldDoc(QWidget):
     def _held(self) -> bool:
         return self._recipe is not None and self._recipe.holding()
 
+    def _cards_write(self) -> bool:
+        return any(t.writing() for t in self._carry_tools())
+
+    def _sync_locks(self):
+        """What may change under the draft and the cards now: :meth:`_on_bar_hold`'s locks, and while a card writes
+        (its Accept, Promote or Revert promote) every control that would close it waits -- the menu (one card at a
+        time), the view toggle, the folder box and Rescan (review of the C19 fixes, third round)."""
+        self._on_bar_hold(self._held())
+
     def _on_bar_hold(self, held):
         """The recipe bar holds the draft (an edit open, a recipe going in, an in-game step's chain): the folder box and
         Rescan wait for it, as Undo and Open do. A switch closed the edit's card and its cancel went to the new
@@ -1076,14 +1086,17 @@ class WorldDoc(QWidget):
         but the edit's own (:meth:`_open_carry`). While the chain writes the live folder and the draft's records (its
         revert, its promote back), no card is open either: a card's Promote, Revert promote, Discard or Accept would
         write the same folder or draft at the same moment (review of C19)."""
+        writes = self._cards_write()
         why = ("Waits for the recipe bar, which holds this folder's draft (an edit open, or a recipe going in)."
-               if held else "")
-        self.folder_box.setEnabled(not held)
+               if held else "Waits for the card, which is writing (its Accept, Promote or Revert promote)."
+               if writes else "")
+        self.folder_box.setEnabled(not held and not writes)
         self.folder_box.setToolTip(why or "Which mod folder's worldmap tree the atlas shows.")
-        self.rescan_btn.setEnabled(not held and not self._busy)
+        self.rescan_btn.setEnabled(not held and not writes and not self._busy)
         self.rescan_btn.setToolTip(why or "Re-read the deployed overrides from disk (read-only).")
+        self.view3d_btn.setEnabled(not writes)       # (the chart closes the cards)
         live = self._chain_writes()
-        self.tools_btn.setEnabled(not held)          # no card opens but the edit's own (_open_carry says so too)
+        self.tools_btn.setEnabled(not held and not writes)   # no card opens but the edit's own (_open_carry too)
         if live:
             for tool in self._carry_tools():
                 if not tool.isHidden() and not tool.editing() and not tool.writing():

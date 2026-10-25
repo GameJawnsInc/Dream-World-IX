@@ -990,6 +990,27 @@ def test_no_card_writes_while_the_chain_writes_the_game(monkeypatch, tmp_path, a
     assert D.history(draft)["promoted"] == 2 and D.promote_owed(draft) is None
 
 
+def test_a_card_that_writes_is_never_closed_under_its_job(monkeypatch, tmp_path, app):
+    """Closing a card kills its job, and the view toggle, the menu (one card at a time), a Rescan and a folder pick all
+    close cards: a card's Promote or Revert promote cut off half way left the live folder half written with no
+    record to revert from (review of the C19 fixes, third round). While a card writes, those controls wait; and a
+    card closed anyway (a scan landing, a call from code) waits for its write to end instead of killing it."""
+    _fake_mirror(monkeypatch)
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    forest = doc.open_forest(sync=True)
+    forest._ask = lambda title, text: True
+    forest._runner = held = _Held([])
+    forest._promote()                                                      # the card's Promote, running
+    assert held.busy() and forest.writing()
+    for w in (doc.tools_btn, doc.view3d_btn, doc.folder_box, doc.rescan_btn):
+        assert not w.isEnabled(), w.text() if hasattr(w, "text") else w
+    doc.set_view_mode("2d", sync=True)                                    # closed anyway, from code
+    assert not held.busy() and forest.isHidden()                           # its promote ran to its end
+    assert D.last_promote(draft) is not None and D.history(draft)["promoted"] == 3
+    for w in (doc.tools_btn, doc.view3d_btn, doc.folder_box, doc.rescan_btn):
+        assert w.isEnabled()
+
+
 def test_no_other_card_opens_while_the_bar_holds_the_draft(monkeypatch, tmp_path, app):
     """While an edit is open or its steps go back on top, another card could be opened from the menu: opening it
     closed the editing card (whose cancel then started the promote back under the new card), or, during the
