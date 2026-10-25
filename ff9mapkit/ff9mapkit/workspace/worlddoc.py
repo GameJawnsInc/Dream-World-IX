@@ -868,6 +868,8 @@ class WorldDoc(QWidget):
         for tool in self._carry_tools():
             if not tool.isHidden():
                 tool.close_tool()                  # its folder may have changed under it
+        for tool in self._carry_tools():           # ...and every card, open or not, forgets its per-folder reads
+            tool.island_changed()                  # (block holders, where the river is: review of the C12 fixes)
         if self._recipe is not None:
             self._recipe.refresh()                 # ...and the draft the bar reads with it
         self._sync_draw_box()

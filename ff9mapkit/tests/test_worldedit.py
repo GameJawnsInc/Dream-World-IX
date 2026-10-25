@@ -878,6 +878,21 @@ def test_the_folder_waits_for_the_chain_s_revert_and_a_scan_landing_mid_chain_op
     assert "another folder" in bar.status_lbl.text(), bar.status_lbl.text()
 
 
+def test_a_scan_tells_every_card_the_folder_moved(monkeypatch, tmp_path, app):
+    """THE CALL SITE: a folder pick or a Rescan only closed the open cards, and each card keeps per-folder reads (the
+    coast's and the island's block holders, where the river stands): reopened on another folder they judged it by the
+    old one's -- the river card built --move-from from the first folder's river (review of the C12 fixes). The scan
+    is the one place the folder changes, and it tells every card, open or not."""
+    from ff9mapkit.workspace import worldscan
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    doc.open_mountain(sync=True).close_tool()
+    told = []
+    for tool in doc._carry_tools():
+        monkeypatch.setattr(tool, "island_changed", lambda t=tool: told.append(type(t).__name__))
+    doc._finish(worldscan.scan_tree(game / "Hand"), None, None)
+    assert sorted(told) == sorted(type(t).__name__ for t in doc._carry_tools()) and len(told) >= 2
+
+
 def test_a_folder_shown_again_gets_the_promote_it_is_owed(monkeypatch, tmp_path, app):
     """A Workspace died with an in-game edit open in FF9CustomMap-world; the next one opens on another folder first.
     Showing FF9CustomMap-world settles what its game is owed."""
