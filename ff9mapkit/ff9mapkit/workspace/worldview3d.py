@@ -972,6 +972,7 @@ class WorldView3DPanel(QWidget):
         self.view = None
         self.site = None                                     # the RenderSite the view drew (the pick's facts read it)
         self._busy = False
+        self._next = None                                    # a load asked while one runs
         self._focus = None
         self._overlays, self._ghost = [], None               # a tool's drawing, held until the view exists
         self._floor = None                                   # set_view_floor's height, or None for MIN_VIEW_H
@@ -1119,8 +1120,9 @@ class WorldView3DPanel(QWidget):
                                "This display has no OpenGL 2.1 context (a remote desktop or a headless run). "
                                "The chart view and world-render's stills still work.")
             return False
-        if self._busy:
-            return True
+        if self._busy:                                       # the last load asked is the one drawn: this one loads
+            self._next = site                                # when the running one lands (it was dropped, and the
+            return True                                      # view kept the old folder: review of C19's fixes, r5)
         self._busy = True
         self._show_message("Loading the map…", "Reading the blocks the engine binds, through your mod folders "
                            "in the game's order. About five seconds for the whole map.")
@@ -1144,6 +1146,10 @@ class WorldView3DPanel(QWidget):
 
     def _finish(self, packed, textures, err):
         self._busy = False
+        nxt, self._next = self._next, None
+        if nxt is not None:                                  # overtaken by a newer request: that one is loaded
+            self.load(nxt)
+            return
         if err is not None:
             self._show_message("The map did not load", err)
             return

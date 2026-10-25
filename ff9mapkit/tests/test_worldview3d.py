@@ -501,6 +501,31 @@ def test_the_game_camera_seats_each_vehicle_as_the_game_does(app):
     assert not p.vehicle_box.isVisibleTo(p) and not p.alt_spin.isVisibleTo(p)
 
 
+def test_a_load_asked_while_one_runs_is_the_one_drawn(app, monkeypatch):
+    """The panel dropped a load asked while one ran ("busy: return"): a scan landing during a card's write, or a write
+    ending while a refusal's reload ran, left the view drawing the old folder or the draft without the shape just
+    accepted, the caption saying otherwise (review of the C19 fixes, fifth round). The last load asked is the one
+    drawn: a result that a newer request overtook is dropped, and the newer one loads."""
+    from ff9mapkit.editor.theme import pick_palette
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    monkeypatch.setattr(V, "gl_available", lambda: True)
+    worked = []
+    p._work = lambda site: worked.append(site)            # the worker reads; its result comes later
+
+    class Inline:
+        def __init__(self, target, args, daemon):
+            self.go = lambda: target(*args)
+
+        def start(self):
+            self.go()
+    monkeypatch.setattr(V.threading, "Thread", Inline)
+    p.load("the old folder")
+    p.load("the new folder")                               # asked while the first one reads
+    assert worked == ["the old folder"]
+    p._finish(None, None, "the old folder's scene")       # the first lands: overtaken
+    assert worked == ["the old folder", "the new folder"] and p.site == "the new folder"
+
+
 def test_home_puts_the_game_camera_s_controls_away(app):
     """Home in the view goes back to the free orbit and says so (camera_changed): the button followed, but the Mist
     switch, the vehicle chooser and the height spin stayed on the bar, live and drawing nothing (review of C18). They
