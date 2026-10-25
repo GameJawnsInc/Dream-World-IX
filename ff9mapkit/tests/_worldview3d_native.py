@@ -90,7 +90,7 @@ def hermetic(V, R):
         fog = FG.Fog(start=float(p20), end=float(p80), per_u=1.5, floor=1.0)
         af = FG.fog_still(a, dep, v, fog)
         g = V.render_still(batches, v, res=site.res, tex_lookup=look, fog=fog)
-        c = V.compare(af, g, sky=fog.rgb, tol=2)
+        c = V.compare(af, g, sky=fog.rgb, tol=1)          # one level: float32 against float64 rounding, no more
         c["fogged_frac"] = float((np.abs(af.astype(int) - a.astype(int)).max(axis=2) > 8).mean())
         out["fog"][vn] = c
         out["fog_mutation"]["blob"] = max(out["fog_mutation"]["blob"], V.compare(a, g)["blob"])

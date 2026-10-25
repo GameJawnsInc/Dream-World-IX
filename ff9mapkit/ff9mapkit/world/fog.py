@@ -98,7 +98,9 @@ def fog_still(img, depth, view, fog: Fog):
     up = np.cross(fwd, right)
     fpx = (H / 2.0) / math.tan(math.radians(view["fov"]) / 2.0)
     yy, xx = np.mgrid[0:H, 0:W]
-    ray_y = fwd[1] + ((xx + 0.5 - W / 2.0) / fpx) * right[1] - ((yy + 0.5 - H / 2.0) / fpx) * up[1]
+    # pixel i is sampled at i in render.project's frame (raster's integer meshgrid; the GPU's clip matrix carries
+    # the half pixel), so its ray is there too: at i + 0.5 the height term read half a pixel off (review of C18)
+    ray_y = fwd[1] + ((xx - W / 2.0) / fpx) * right[1] - ((yy - H / 2.0) / fpx) * up[1]
     sky = ~np.isfinite(depth)
     d = np.where(sky, 1e9, depth)
     y = np.where(sky, fog.floor, eye[1] + d * ray_y)          # the sky is the fog's colour, whatever its ray's height

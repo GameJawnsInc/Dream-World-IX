@@ -260,7 +260,7 @@ def compare(oracle, gpu, *, sky=None, tol: int = 0) -> dict:
       missing triangle is an AREA; a line or a dot never fills a 3x3 block.
 
     ``tol``: a channel within this many levels counts as equal (the fog's blend, float32 on the GPU and float64 in its
-    software twin, rounds a level apart on every fogged pixel: C18); exact by default.
+    software twin, rounds a level apart on fogged pixels: C18, so one level); exact by default.
     """
     from ..world import render as R
     sky = R.SKY if sky is None else sky
