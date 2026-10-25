@@ -944,8 +944,8 @@ class WorldDoc(QWidget):
     def _open_carry(self, which, *, sync=False):
         """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
         ghost's drag goes to the open one."""
-        if self._census is None:
-            return None
+        if self._census is None or self._chain_writes():
+            return None                            # (the recipe bar's chain is writing the live folder: it waits)
         if not self._mode3d:
             self._on_view3d(True, sync=sync)
         tool = getattr(self, f"_{which}")
@@ -1064,16 +1064,27 @@ class WorldDoc(QWidget):
     def _held(self) -> bool:
         return self._recipe is not None and self._recipe.holding()
 
-    def _hold_folder(self, held):
-        """The recipe bar holds the draft (an edit open, a recipe going in): the folder box and Rescan wait for it, as
-        Undo and Open do. A switch closed the edit's card and its cancel went to the new folder's draft, leaving the
-        first folder's game reverted (review of C19)."""
+    def _on_bar_hold(self, held):
+        """The recipe bar holds the draft (an edit open, a recipe going in, an in-game step's chain): the folder box and
+        Rescan wait for it, as Undo and Open do. A switch closed the edit's card and its cancel went to the new
+        folder's draft, leaving the first folder's game reverted. While the chain writes the live folder and the
+        draft's records (its revert, its promote back), no card is open and none opens either: a card's Promote,
+        Revert promote, Discard or Accept would write the same folder or draft at the same moment (review of C19)."""
         why = ("Waits for the recipe bar, which holds this folder's draft (an edit open, or a recipe going in)."
                if held else "")
         self.folder_box.setEnabled(not held)
         self.folder_box.setToolTip(why or "Which mod folder's worldmap tree the atlas shows.")
         self.rescan_btn.setEnabled(not held and not self._busy)
         self.rescan_btn.setToolTip(why or "Re-read the deployed overrides from disk (read-only).")
+        live = self._chain_writes()
+        self.tools_btn.setEnabled(not live)
+        if live:
+            for tool in self._carry_tools():
+                if not tool.isHidden() and not tool.editing():
+                    tool.close_tool()
+
+    def _chain_writes(self) -> bool:
+        return self._recipe is not None and self._recipe.writing_live()
 
     def _draft_changed(self, draft):
         """An Accept wrote the draft (or a discard removed it, an undo or redo moved it): draw it, or go back to the
@@ -1101,7 +1112,7 @@ class WorldDoc(QWidget):
             self._recipe = RecipeBar(self.pal, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
                                      on_changed=self._draft_changed, runner=self._recipe_runner,
                                      drafts_root=self._drafts_root, on_select=self._mark_step,
-                                     on_edit=self._edit_step, on_hold=self._hold_folder, **self._recipe_seams)
+                                     on_edit=self._edit_step, on_hold=self._on_bar_hold, **self._recipe_seams)
             self._forest_slot.insertWidget(0, self._recipe)
         if self._recipe is not None:
             self._recipe.setVisible(bool(on))

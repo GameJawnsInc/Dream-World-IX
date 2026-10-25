@@ -182,6 +182,11 @@ class RecipeBar(QWidget):
         of C19)."""
         return self._edit is not None or self._queue is not None or self._job is not None or self._prep is not None
 
+    def writing_live(self) -> bool:
+        """An in-game step's chain is taking its promotes out of the game or putting them back: its jobs write the live
+        folder and the draft's records, so no card may write either meanwhile."""
+        return self._job is not None or self._prep is not None
+
     @staticmethod
     def _edit_text(e) -> str:
         after = e["applied"] - 1

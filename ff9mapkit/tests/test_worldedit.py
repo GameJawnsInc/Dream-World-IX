@@ -868,6 +868,27 @@ def test_deleting_the_newest_in_game_step_says_the_game_holds_the_rest(monkeypat
     assert _tree(game / "FF9CustomMap-world") == _compose(game, rows1, "Hand")
 
 
+def test_no_card_writes_while_the_chain_writes_the_game(monkeypatch, tmp_path, app):
+    """The chain's revert and promote back write the live folder and the draft's records: while they run no card is
+    open (its Promote, Revert promote, Discard or Accept would write the same folder or draft at the same moment) and
+    none can be opened."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    forest = doc.open_forest(sync=True)                                    # a card open, the step still picked
+    assert not forest.isHidden() and not bar.delete_btn.isHidden()
+    bar._runner = held = _Held(run.argvs)
+    bar.delete_btn.click()
+    assert held.busy() and "--revert" in held.argvs[-1]
+    assert forest.isHidden() and not doc.tools_btn.isEnabled()
+    assert doc.open_forest(sync=True) is None and forest.isHidden()
+    while held.busy():
+        held.wait()
+    assert doc.tools_btn.isEnabled() and doc.open_forest(sync=True) is not None
+    assert D.history(draft)["promoted"] == 2 and D.promote_owed(draft) is None
+
+
 # ---- each recovery branch of the chain, driven (each was broken on purpose, in memory, and its test went red)
 def _promotes_after(run, n):
     return [a for a in run.argvs[n:] if a[5] == "world-promote"]
