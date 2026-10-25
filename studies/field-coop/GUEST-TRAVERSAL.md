@@ -1,0 +1,194 @@
+# Guest traversal: letting a following guest climb stock ladders and take jumps
+
+**Status: research and design only, nothing built.** Written 2026-10-25 from a read-only multi-agent pass
+(census, design, adversarial critique) over the live engine tree `C:\gd\FFIX\Memoria` at the netsync s145 tip.
+Cites are `file:line` against that tree, which other sessions edit, so lines can drift.
+Companion: [`../coop-review/REVIEW.md`](../coop-review/REVIEW.md) (the whole-stack adversarial review this came out of).
+
+The owner's ask: *"enabling some interaction for the guest such as ladders, so they're not reliant on the warp."*
+
+## 1. Why the guest can't climb today
+
+A following guest is a field spectator. `EventCollision.CheckQuadInput` refuses every press-fired region
+interaction for it (`EventCollision.cs:74-78`, `NetSyncField.SpectatorField`). Ladders, jumps, carries,
+chests, savepoints and kit gateways all go through that one funnel. DESIGN.md §4 accepted losing ladders
+because "no rider physics exists" (a climb only moves the machine that started it), and teleport-to-host
+(F11 / held L3) became the recovery. So the guest stands at the foot of every ladder and warps.
+
+## 2. The census: what stock ladders actually do
+
+Script: [`guest-traversal/interaction_census.py`](guest-traversal/interaction_census.py) (plus
+`walkmesh_pass.py`, `summarize.py`). It reads every field's US `.eb` live from the install via UnityPy and
+decodes raw opcodes through the kit's `eb` model. It is read-only and deterministic: a second full run gave a
+byte-identical report. Outputs: [`summary.txt`](guest-traversal/summary.txt) and
+[`guest_local_candidates.tsv`](guest-traversal/guest_local_candidates.tsv) (field, entry, tier, kind,
+walkmesh verdict, `.eb` sha1 prefix; no game bytes).
+
+For each press root it follows the handler's whole call closure: `RunScript*` by uid (250 = the controlled
+player), `RunSharedScript`, and `Init*`. Every opcode in that closure is sorted into an effect bucket.
+
+**Headline numbers:**
+- 818/818 fields scanned with 0 decode failures. 2,428 press roots: 494 region (quad), 1,099 NPC talk,
+  255 tread-poll chests, 330 loop polls, 250 card challenges.
+- 263 of the 494 region interactions move the player: 84 navigable ladders, 80 jumps, 74 carry loops,
+  7 auto ladders and 17 walks.
+- **125 candidates in 62 fields** move the player and do nothing else that matters: no window, choice,
+  story-flag write, item/gil/party op, battle, menu, FMV or ATE. They break down into:
+  - LOCO-ONLY: 86. These are pure movement and the first ship class.
+  - LOCO+EXIT: 25. The climb ends in `Field()`.
+  - LOCO+LATCH: 11. They write a room-local MAP variable that another region reads.
+  - LOCO+ACTORS: 3. They also move a prop.
+- **75 of the 86 pure ones link walkmesh areas you cannot reach on foot.** The ladder strip is a
+  script-only (CPC-restricted) triangle. A guest without the interaction is genuinely stranded today.
+- **All 86 are byte-identical across all 7 languages**, so one row per region covers every language
+  (the design pass measured 121/125 candidates identical; the 4 that differ are JP-only and already
+  excluded).
+- Climbs read only **direction keys**. Those are not in `HostOwnedKeys` (`NetSyncField.cs:949-950`), so the
+  s99 script-key relay never touches the guest's climb input. 30 player-moving handlers poll host-owned
+  bits, Confirm or Select (for example A. Castle/Staircase 1202's "press to jump off"). They stay refused.
+
+**The stock shape** (decoded from Alexandria/Residence 114 e9; Treno is the same):
+- Region tag 2 is the tread function. It reads `ifnot(usercontrol) return; Bubble(1)`, which shows the "!".
+- Region tag 3 is the press handler. It runs:
+  1. the usercontrol gate;
+  2. the stock control bracket (`Map.Bit[158]`, `DisableMove`, `SetTriangleFlagMask(127)`);
+  3. `RunScriptSync(2, 250, 17)`;
+  4. the closing bracket.
+- Player tag 17 is the climb. It picks the mount end by height, sets the ladder attribute
+  (`AddCharacterAttribute(4)`), runs a `SetupJump`/`Jump` arc onto the ladder, then loops:
+  - read `B_KEY` up/down;
+  - step `Map.Int16[2]` by 20;
+  - snap the position with `MoveInstantXZY`;
+  - step the climb animation by hand.
+
+  It dismounts with another jump arc.
+- One-shot hops (Ice Path 301, Dali Storage 407/408, Terra 2602) are shorter: they turn, jump and land.
+  Some are dispatched by the player's *entry index* rather than uid 250, so a uid-250-only scan misses them.
+
+**Examples worth knowing:**
+- Ladders: Alexandria/Residence 114, Prima Vista/Cabin 207, Lindblum/Church 557, Lindblum/Hideout
+  565/1312/2112.
+- Hops: Ice Cavern/Ice Path 301 and Waterfall 310, Dali/Storage Area 407 and 408, S. Gate/Bridge 805/808,
+  Terra/Stepping Stones 2602.
+- Carries: Chocobo's Paradise 2955.
+
+**What the census cannot see:**
+- Scenario dispatch (whether a region is ever armed).
+- Computed `SetRegion` zones.
+- Walkmesh triangles toggled at runtime.
+
+"Stranded" is therefore an estimate from the static `.bgi`, not a proof. Offline is not in-game proof.
+
+## 3. The design (recommended): a CRC-checked allowlist at the spectator gate
+
+Three engine-side alternatives were weighed and rejected:
+- **(A) Port the classifier to C#.** About 700-1000 new lines of exactly the kind of code where this
+  project's defects land.
+- **(C) A runtime sandbox that drops persistent effects.** The engine has no transactions, so a half-run
+  handler leaves `DisableMove` set, tiles changed and the walkmesh masked.
+- **(E) Teleport to the landing point.** That is the warp again, just moved somewhere else.
+
+**The recommendation is (B):**
+
+1. **The table.** The kit promotes the census classifier and generates one row per allowed region:
+   - the field id;
+   - the region entry;
+   - the class and kind;
+   - the 2-5 functions the closure calls, each with its role (the region, the controlled player, or a
+     fixed entry), tag, length and a CRC32 of its bytes.
+
+   The slice rule is `2+off[i]`, matching `GetIP`. The function tables are offset-sorted in every entry of
+   the 38 candidate fields (critique-verified).
+2. **The gate.** It is one site: the `SpectatorField` branch of `CheckQuadInput` (`EventCollision.cs:74-78`).
+   Look up `(EffectiveFieldId(fldMapNo), quad.sid)`, re-hash the row's functions from `allObjsEBData`, and
+   only on an exact match run the **stock** `Request(obj, 1, 3)`. The climb then plays on the guest's own
+   copy of the room. Any mismatch keeps today's decline: a modded script, a kit edit, another build, an
+   unknown field.
+3. **Nothing goes on the wire.** The guest's world is session-scoped already: the next load re-mirrors and
+   the exit ramp reloads its own save. `EmitTalkStartIfHost` is host-only, so a guest climb is never relayed.
+
+### Fixes the critique requires before R1 (verdict: *sound with fixes*)
+
+1. **No automatic control-restore watchdog.** A "5 s after the handler returns, force control back"
+   rule can fire in the middle of a scene: an NPC scene that won a same-tick race, a tread `DisableMove`
+   at the landing, or an Async jump still running. Log and count only. The ~ Reload stays the human
+   escape. (*A rule that can fire in the wrong place is worse than none.*)
+2. **The same-tick race with the talk relay.** The guest presses a ladder in the same frame that
+   `ApplyTalkStart` replays a host NPC talk (`NetSyncClient.cs:6803-6806` checks only usercontrol, and
+   control is still on). Both handlers start `ifnot(usercontrol) return`, so one bails. If the NPC's is
+   the one that bails, the host's conversation is lost for good. Defer `ApplyTalkStart` while a guest climb
+   is in flight. Refuse the press while a relayed start is pending.
+3. **Long ladder hangs vs the 4 s talk TTL** (`TalkRelayTtlMs`, `NetSyncClient.cs:394`). While the guest
+   hangs on a ladder, keep any deferred talk start, keyed on the host scene nonce. Apply it when the climb
+   ends if that scene is still running.
+4. **Trip wires are telemetry only,** attributed at the opcode to the climbing objects: the region, the
+   control character, or their Seqs. Keying them on a global "in flight" flag would poison good ladders
+   whenever an ambient line or a chaser battle fires mid-climb. Do not add `return 0` on battles and do not
+   reclassify windows. Gate every hook on `SpectatorField && InFlight`.
+5. **The "!" is drawn in two places.** The NPC/region icon poll is at `EventCollision.cs:321-323`.
+   Stock regions also draw it from their **tag-2** `Bubble(1)` (FICON, `DoEventCode.cs:1889-1898`). Gate
+   both, keep it on allowed rows, and buzz once on a refused press (the s121 SFX-102 precedent).
+6. **Fixed-uid dispatch rows** (I. Castle 2505 e7 calls entry 9, not 250) need their own role. They also
+   need a check that `GetControlChar().sid` equals that entry, or the wrong body jumps on a swap-player fork.
+7. **Drop the cross-room rung.** Follow-warp already handles the host's exits, and
+   `RedirectGuestFieldJump` already passes `dest == LastHostField` (`NetSyncClient.cs:439`). The only new case
+   would be a guest climbing to a room the host isn't in, which bounces anyway.
+8. **Dressed guests slide up ladders in idle pose.** Self-dress maps ladder/jump clips to the worn
+   character's idle alias on the source timeline (`NetSyncSelfDress.cs:142/152`). That is mechanically safe,
+   but every dressed Vivi or Steiner glides. Before the first owner playtest, either build the s141 twin-clip
+   rows (VIV/STN/GRN ladders, 8 jump rigs) or run the first playtests with an undressed guest and say so.
+
+### A related bug the design pass found (source-traced, not yet seen in game)
+
+The s95 quad promotion relays a host region press when a window rises within 3 s. **32-34 stock regions
+open a window before they move the player** (the two passes count slightly differently), and the guest's
+copy then moves the guest's body from wherever it stands. Examples:
+- Treno/Dock 916 e5;
+- the Ice Castle per-landing choices;
+- the Pandemonium lifts 2713/2714.
+
+The critique's fix splits these by what the handler does:
+- **It leaves the room:** skip the replay. Follow-warp covers it.
+- **It changes tiles, the walkmesh or spawns:** keep the replay. The guest's room matching the host's
+  matters more.
+- **Pure movement plus a window:** replay only if the guest stands inside the region.
+
+### Host view
+
+- The 30 Hz position lane already carries the climber's height, so the ghost rises with the ladder.
+- But `DriveGhost` loops the climb clip at speed 1 (`NetSyncClient.cs:9096-9104`), so a climber who stops
+  halfway keeps climbing in place on the other screen. Set the clip speed from the ghost's vertical
+  velocity, applied to the host's ghost, the guest's ghost and the selftest mirror.
+- An undressed guest that the host dresses as its puppet character plays that character's idle. A loco
+  byte cannot carry a ladder pose without a wire bump; accept it.
+
+## 4. Rungs (one in-game test each)
+
+| Rung | What | Proof |
+|---|---|---|
+| R0 | Generator + the table + `VerdictRule` self-test with mutants. Split pin test: an install-free half compares the committed table to committed verdict JSON; an install-gated half re-derives CRCs in the gate worktree (**the worktree skip trap**) | offline |
+| R1 | SHADOW mode: the DLL computes and logs verdicts, the gate still declines | bench 114, undressed; `guestlocal mutate` must read "unverified bytes"; `guestlocal off` = today's exact decline line (calibration red) |
+| R2 | ACT on LOCO-ONLY: ladders, jumps, carries | bench 114 up and down; Async 408; multi-node 207; F11 mid-climb declines; host-scene refusal |
+| R3 | The race, TTL retention and cold diorama return mid-climb | **duo harness, not bench**: the bench has no live talk lane. Each check must first be shown to fail with its fix removed |
+| R4 | The "!" at both sites + the refusal buzz | bench |
+| R5 | The s95 relay split above | duo harness; two-machine Pandemonium lift |
+| later | LOCO+LATCH (11 rows): only where every latch reader is a region or player gate | Ice Path 301 / Chocobo's Paradise 2955 |
+
+## 5. Owner decisions
+
+1. **Where the table lives.** It can be compiled into the DLL (CRCs only; `PROVENANCE.md` treats hashes
+   as fine) or regenerated by the kit from the user's own install.
+2. **The "!".** Show it only over interactions the guest can actually use? This applies to regions; NPCs
+   are an open question.
+3. **The window-first relayed regions.** Use the split above, or carry the guest along (riding lifts
+   together)?
+4. **Characters with no ladder clip** (Quina, Amarant, Freya, Eiko, the spectating moogle, Blank, Marcus,
+   Cinna, Beatrix). Is the idle slide acceptable for them?
+5. **Guest flavor talk** (same mechanism, NPC side). 694 stock NPC talks open windows and write nothing
+   persistent, and 147 of them are gated only by mirrored story state, so the guest would see the host's
+   text. It reverses the ratified spectator rule for one class. It composes with the s96 lock if those
+   windows are classed Local at open and closed when the host's scene starts. FLAVOR+LATCH ("second time
+   you talk" counters, 98) must stay refused, because a diverged counter makes later relayed talks pick a
+   different line.
+6. **A host battle starting mid-climb** gives a cold return at the host's entrance. Accept and log it, or
+   hold the boot until the climb ends?

@@ -1,0 +1,126 @@
+field_id	name	entry	tag	tier	kind	walkmesh	gate	host_owned_key_poll	eb_sha1
+114	Alexandria/Residence	9	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	2d975d4fdecb
+115	Alexandria/Steeple	15	3	LOCO+LATCH	ladder-navigable	intra-component	map,usercontrol	False	880868c6ee60
+207	Prima Vista/Cabin	10	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	25b0dec1ef32
+207	Prima Vista/Cabin	11	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	25b0dec1ef32
+301	Ice Cavern/Ice Path	7	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	57eaae25bc7c
+301	Ice Cavern/Ice Path	8	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	57eaae25bc7c
+301	Ice Cavern/Ice Path	9	3	LOCO+LATCH	jump	LINKS-COMPONENTS	usercontrol	False	57eaae25bc7c
+301	Ice Cavern/Ice Path	10	3	LOCO+LATCH	jump	LINKS-COMPONENTS	usercontrol	False	57eaae25bc7c
+301	Ice Cavern/Ice Path	11	3	LOCO+LATCH	jump	LINKS-COMPONENTS	usercontrol	False	57eaae25bc7c
+301	Ice Cavern/Ice Path	12	3	LOCO+LATCH	jump	LINKS-COMPONENTS	usercontrol	False	57eaae25bc7c
+307	Ice Cavern/Ice Path	5	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	44ee99657551
+307	Ice Cavern/Ice Path	6	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	44ee99657551
+307	Ice Cavern/Ice Path	7	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	44ee99657551
+307	Ice Cavern/Ice Path	8	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	44ee99657551
+310	Ice Cavern/Waterfall	2	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	a286be821c45
+310	Ice Cavern/Waterfall	3	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	a286be821c45
+310	Ice Cavern/Waterfall	4	3	LOCO-ONLY	jump	intra-component	usercontrol	False	a286be821c45
+310	Ice Cavern/Waterfall	5	3	LOCO-ONLY	jump	intra-component	usercontrol	False	a286be821c45
+353	Dali/Mayor’s House	11	3	LOCO-ONLY	ladder-navigable	intra-component	usercontrol	False	fbf1698f5aaf
+407	Dali/Storage Area	16	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	a5a60d36198d
+407	Dali/Storage Area	17	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	a5a60d36198d
+407	Dali/Storage Area	18	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	a5a60d36198d
+407	Dali/Storage Area	19	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	a5a60d36198d
+408	Dali/Storage Area	4	3	LOCO-ONLY	jump	LINKS-COMPONENTS	map,usercontrol	False	44f15cf0a24a
+408	Dali/Storage Area	5	3	LOCO-ONLY	jump	LINKS-COMPONENTS	map,usercontrol	False	44f15cf0a24a
+408	Dali/Storage Area	6	3	LOCO-ONLY	jump	LINKS-COMPONENTS	map,usercontrol	False	44f15cf0a24a
+408	Dali/Storage Area	7	3	LOCO-ONLY	jump	LINKS-COMPONENTS	map,usercontrol	False	44f15cf0a24a
+408	Dali/Storage Area	8	3	LOCO-ONLY	jump	LINKS-COMPONENTS	map,usercontrol	False	44f15cf0a24a
+408	Dali/Storage Area	9	3	LOCO-ONLY	jump	LINKS-COMPONENTS	map,usercontrol	False	44f15cf0a24a
+408	Dali/Storage Area	10	3	LOCO-ONLY	jump	LINKS-COMPONENTS	map,usercontrol	False	44f15cf0a24a
+408	Dali/Storage Area	11	3	LOCO-ONLY	jump	LINKS-COMPONENTS	map,usercontrol	False	44f15cf0a24a
+504	Cargo Ship/Engine Room	14	3	LOCO+EXIT	ladder-navigable	intra-component	usercontrol	False	bfef31b1f065
+557	Lindblum/Church	11	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	e30308fb5596
+557	Lindblum/Church	12	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	e30308fb5596
+565	Lindblum/Hideout	11	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	dfde7bcc9d39
+565	Lindblum/Hideout	12	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	dfde7bcc9d39
+802	S. Gate/Bohden Sta.	16	3	LOCO+EXIT	walk	off-mesh	map,usercontrol	False	f1b140c540aa
+805	S. Gate/Bridge	3	3	LOCO-ONLY	jump	intra-component	usercontrol	False	560b3db9ab6d
+808	S. Gate/Bridge	3	3	LOCO-ONLY	jump	intra-component	usercontrol	False	9b1336aa2579
+912	Treno/Slums	14	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	24a5c1a0f3df
+914	Treno/Tot Residence	10	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	e65225cc5233
+1006	Cleyra/Tree Trunk	8	3	LOCO-ONLY	ladder-navigable	intra-component	usercontrol	False	e2f3794257a4
+1006	Cleyra/Tree Trunk	9	3	LOCO-ONLY	ladder-navigable	intra-component	usercontrol	False	e2f3794257a4
+1017	Cleyra/Tree Trunk	5	3	LOCO+EXIT	ladder-navigable	intra-component	usercontrol	False	637220255a8e
+1018	Cleyra/Tree Trunk	4	3	LOCO+EXIT	ladder-navigable	intra-component	usercontrol	False	aabf9eeb5e7c
+1050	Cleyra/Tree Trunk	3	3	LOCO+EXIT	ladder-navigable	intra-component	usercontrol	False	d097bb332dd3
+1100	Cleyra/Tree Trunk	3	3	LOCO+EXIT	ladder-navigable	intra-component	usercontrol	False	84da81d1772a
+1202	A. Castle/Staircase	14	3	LOCO+LATCH	jump	LINKS-COMPONENTS	map,usercontrol	True	0b80636625d7
+1202	A. Castle/Staircase	15	3	LOCO+LATCH	jump	LINKS-COMPONENTS	map,usercontrol	True	0b80636625d7
+1202	A. Castle/Staircase	16	3	LOCO+LATCH	jump	LINKS-COMPONENTS	map,usercontrol	True	0b80636625d7
+1209	A. Castle/Dungeon	5	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	a98dcb1c419c
+1312	Lindblum/Hideout	11	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	730527f0d776
+1312	Lindblum/Hideout	12	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	730527f0d776
+1455	Mage Village/Synthesis	9	3	LOCO+EXIT	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	3c42ee4f31c9
+1460	Mage Village/Item Shop	8	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	de61dacab796
+1460	Mage Village/Item Shop	9	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	de61dacab796
+1550	Mountain Path/Trail	9	3	LOCO+ACTORS	ladder-navigable	LINKS-COMPONENTS	map,usercontrol	False	ec5ee5da00b0
+1551	Mountain Path/Trail	7	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	76ca09ea0519
+1551	Mountain Path/Trail	8	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	76ca09ea0519
+1553	Mountain Path/Roots	6	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	24c62b3eed1b
+1751	Iifa Tree/Inner Roots	5	3	LOCO+EXIT	carry-loop	no-geom	glob,map,scenario,usercontrol	False	41c51eb26eaf
+1863	Alexandria/Residence	9	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	223c71755a81
+1912	Treno/Treno Slums	15	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	40272f13194f
+1914	Treno/Tot Residence	9	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	5a81648e8176
+1950	Quan’s/Cave	4	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	d766bac62196
+1950	Quan’s/Cave	5	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	d766bac62196
+1952	Quan’s/Cave	8	3	LOCO-ONLY	ladder-navigable	intra-component	usercontrol	False	9d409f6b5d15
+2112	Lindblum/Hideout	4	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	6971aaf0f184
+2112	Lindblum/Hideout	5	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	6971aaf0f184
+2211	Palace/Dock	11	3	LOCO+EXIT	carry-loop	intra-component	glob,map,usercontrol	False	a7933136f0bf
+2212	Palace/Entrance	3	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	glob,usercontrol	False	9d63571962ef
+2212	Palace/Entrance	4	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	9d63571962ef
+2350	Gulug/Interior	23	3	LOCO+EXIT	ladder-auto	off-mesh	glob,map,usercontrol	False	08683e6f43e7
+2351	Gulug/Well	9	3	LOCO+EXIT	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	0694a2a96ebe
+2351	Gulug/Well	10	3	LOCO+EXIT	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	0694a2a96ebe
+2351	Gulug/Well	11	3	LOCO+EXIT	ladder-auto	LINKS-COMPONENTS	usercontrol	False	0694a2a96ebe
+2353	Gulug/Room	3	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	fcc32fc91b1b
+2353	Gulug/Room	4	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	fcc32fc91b1b
+2361	Gulug/Well	8	3	LOCO+EXIT	ladder-navigable	intra-component	glob,usercontrol	False	35d88b2764b2
+2456	Alexandria/Steeple	14	3	LOCO-ONLY	ladder-navigable	intra-component	usercontrol	False	28b79d0ad51e
+2505	I. Castle/Inverted Roo	2	3	LOCO+EXIT	ladder-navigable	intra-component	usercontrol	False	c4eadbacb3d7
+2505	I. Castle/Inverted Roo	3	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	c4eadbacb3d7
+2505	I. Castle/Inverted Roo	4	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	c4eadbacb3d7
+2505	I. Castle/Inverted Roo	7	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	c4eadbacb3d7
+2507	I. Castle/Stairwell	4	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	fda05b7f38b8
+2507	I. Castle/Stairwell	5	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	fda05b7f38b8
+2602	Terra/Stepping Stones	3	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	099b66bb8652
+2602	Terra/Stepping Stones	4	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	099b66bb8652
+2602	Terra/Stepping Stones	5	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	099b66bb8652
+2602	Terra/Stepping Stones	6	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	099b66bb8652
+2602	Terra/Stepping Stones	7	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	099b66bb8652
+2602	Terra/Stepping Stones	8	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	099b66bb8652
+2602	Terra/Stepping Stones	9	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	099b66bb8652
+2602	Terra/Stepping Stones	10	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	099b66bb8652
+2605	Terra/Treetop	4	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	f74c5e1b7ba1
+2605	Terra/Treetop	5	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	f74c5e1b7ba1
+2605	Terra/Treetop	6	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	f74c5e1b7ba1
+2605	Terra/Treetop	7	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	f74c5e1b7ba1
+2605	Terra/Treetop	9	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	f74c5e1b7ba1
+2606	Terra/Tree base	3	3	LOCO+EXIT	ladder-auto	off-mesh	map,usercontrol	False	a422032dbb4f
+2651	Bran Bal/Entrance	8	3	LOCO+EXIT	jump	off-mesh	glob,map,usercontrol	False	5a394c2a73ee
+2652	Bran Bal/Gate	8	3	LOCO+EXIT	jump	LINKS-COMPONENTS	glob,map,usercontrol	False	d41921fad43b
+2702	Pand./Observatory	15	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	ce64026daaa1
+2702	Pand./Observatory	19	3	LOCO-ONLY	jump	LINKS-COMPONENTS	usercontrol	False	ce64026daaa1
+2702	Pand./Observatory	20	3	LOCO+EXIT	jump	LINKS-COMPONENTS	glob,map,usercontrol	False	ce64026daaa1
+2802	Daguerreo/Left Hall	28	3	LOCO+ACTORS	carry-loop	LINKS-COMPONENTS	glob,usercontrol	False	5c9e524c32d5
+2853	Hilda Garde 3/Deck	5	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	12c66111973a
+2853	Hilda Garde 3/Deck	9	3	LOCO-ONLY	ladder-navigable	intra-component	usercontrol	False	12c66111973a
+2917	Memoria/Gaia’s Birth	2	3	LOCO+EXIT	ladder-navigable	intra-component	usercontrol	False	22ce0a55408b
+2918	Memoria/Stairs	3	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	66a10a095419
+2918	Memoria/Stairs	4	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	66a10a095419
+2918	Memoria/Stairs	5	3	LOCO+EXIT	ladder-navigable	intra-component	usercontrol	False	66a10a095419
+2926	Crystal World	7	3	LOCO+EXIT	jump	off-mesh	usercontrol	False	dfbc0bf0b16f
+2950	Chocobo’s Forest	21	3	LOCO+LATCH	jump	LINKS-COMPONENTS	usercontrol	False	a3831e35706a
+2950	Chocobo’s Forest	22	3	LOCO+LATCH	jump	LINKS-COMPONENTS	usercontrol	False	a3831e35706a
+2954	Chocobo’s Paradise	21	3	LOCO+EXIT	jump	intra-component	usercontrol	False	04a374af95cc
+2955	Chocobo’s Paradise	16	3	LOCO+EXIT	jump	intra-component	usercontrol	False	81babf40ed24
+2955	Chocobo’s Paradise	17	3	LOCO-ONLY	carry-loop	LINKS-COMPONENTS	usercontrol	False	81babf40ed24
+2955	Chocobo’s Paradise	19	3	LOCO+ACTORS+LATCH	carry-loop	LINKS-COMPONENTS	usercontrol	False	81babf40ed24
+2955	Chocobo’s Paradise	20	3	LOCO+LATCH	carry-loop	LINKS-COMPONENTS	usercontrol	False	81babf40ed24
+2955	Chocobo’s Paradise	21	3	LOCO-ONLY	carry-loop	LINKS-COMPONENTS	usercontrol	False	81babf40ed24
+2955	Chocobo’s Paradise	23	3	LOCO-ONLY	carry-loop	no-geom	usercontrol	False	81babf40ed24
+3054	Mage Village/Synthesis	8	3	LOCO+EXIT	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	57069a2462a3
+3059	Mage Village/Item Shop	9	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	35d6fc7283ea
+3059	Mage Village/Item Shop	10	3	LOCO-ONLY	ladder-navigable	LINKS-COMPONENTS	usercontrol	False	35d6fc7283ea
