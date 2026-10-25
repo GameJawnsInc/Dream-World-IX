@@ -320,6 +320,38 @@ def test_a_morph_row_waits_for_its_block_s_windows_and_one_it_cannot_say_cancels
                      "works."] and not tool.editing() and tool.isHidden()
 
 
+def test_a_second_read_of_the_block_keeps_the_held_window_and_its_depth(app, tmp_path):
+    """Every read of a block's windows is a fresh JSON load: new dicts equal to the old. The card held its window by
+    identity, so a second read landing after the edit seated took the equal window for another and reset the depth to
+    its ceiling: Accept would write 2.5 for a step placed at 1.5, no handle touched (review of C12). Two reads are in
+    flight whenever an edit opens on a block whose windows are not in yet (open_tool asks, then the seat)."""
+    import copy
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldcoast import CoastTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_worldforest import Scripted
+    game = _game(tmp_path)
+    src = _mod(game, "FF9CustomMap-world", ((0, 0),))
+    tool = CoastTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: game,
+                     source_fn=lambda: src, runner=Scripted(), drafts_root=tmp_path / "drafts", sync=False,
+                     stack_fn=lambda: [], outline_fn=lambda cell: [] if cell == "-" else copy.deepcopy([CLIFF, BEACH]))
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))     # the worker lane, held
+    tool.open_tool()
+    tool.place(205.0, -521.0)                                # the card is on block (3, 8), its windows being read
+    row = _morph_row(CLIFF, "cliff-bump", 1.5)
+    tool.close_tool()
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="morph", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    reads = [h for h in held if h[0] == "outline"]
+    assert len(reads) >= 2
+    for what, fn in reads:
+        tool._on_bg(what, 0, fn(), None)
+        assert tool.editing() and notes == []
+    assert tool.depth.value() == 1.5 and tool.row() == row
+
+
 def test_who_holds_the_block_is_read_again_when_the_draft_moves(app, monkeypatch, tmp_path):
     """The card read once per block which folders override it: after an undo (or an edit lifting the morph out) the
     block still read as edited, and the card refused the very morph it had just made (c12_lab, E2)."""

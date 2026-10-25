@@ -124,7 +124,9 @@ def _on_run(w, x: float, z: float):
 
 def nearest(ws, x: float, z: float, *, reach: float = 12.0, prefer=None):
     """The window (with at least one lawful verb) whose run passes nearest ``(x, z)``, within ``reach``; else None.
-    ``prefer`` (the window the card holds) wins a tie, so a handle that moves nothing never swaps the window."""
+    ``prefer`` (the window the card holds) wins a tie, so a handle that moves nothing never swaps the window. It is
+    found in ``ws`` by value too: every read of a block's windows is a fresh JSON load, equal windows as new dicts
+    (review of C12: an edit's held window lost to its own twin and its depth reset to the ceiling)."""
     best, bd = None, reach
     for w in ws:
         if not lawful(w):
@@ -132,9 +134,10 @@ def nearest(ws, x: float, z: float, *, reach: float = 12.0, prefer=None):
         d = _on_run(w, x, z)[0]
         if d < bd:
             best, bd = w, d
-    if prefer is not None and best is not prefer and any(w is prefer for w in ws) and lawful(prefer) \
-            and _on_run(prefer, x, z)[0] <= bd + PREFER_TIE:
-        best = prefer                                    # a nearer window listed before it does not take the tie
+    held = None if prefer is None else (next((w for w in ws if w is prefer), None)
+                                        or next((w for w in ws if w == prefer), None))
+    if held is not None and best is not held and lawful(held) and _on_run(held, x, z)[0] <= bd + PREFER_TIE:
+        best = held                                      # a nearer window listed before it does not take the tie
     return best
 
 

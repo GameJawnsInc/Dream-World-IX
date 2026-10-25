@@ -160,9 +160,10 @@ class CoastTool(CarryTool):
         ws = self._outlines.get(self.donor())
         w = self.FE.nearest(ws, *self.center, prefer=self._window) if ws is not None and self.center is not None \
             else None
-        if w is not self._window:
+        if w != self._window:                            # by value: a fresh read's equal window is the same one
             self._window = w
             self._fill_verbs()
+        self._window = w                                 # (the read's own copy)
         self._say_window()
 
     def _fill_verbs(self):
