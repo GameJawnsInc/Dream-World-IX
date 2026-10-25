@@ -82,6 +82,16 @@ class SinkTool(CarryTool):
         if self._click_waits and self.center is not None:       # a click that came before the list (only that:
             self.place(*self.center)                            # a click on open sea asks for the list again)
 
+    def open_tool(self):
+        """A card opens on the defaults: a placed step's ticks (an edit's load_row sets them first, before it knows
+        the row can be seated) never outlive it. A refused edit left Allow entrances ticked for the next fresh sink,
+        which then passed the entrance law (review of C12)."""
+        for box in (self.cluster, self.entrances):
+            box.blockSignals(True)
+            box.setChecked(False)
+            box.blockSignals(False)
+        super().open_tool()
+
     # -- a placed sink (rung C12) --
     def load_row(self, row):
         self.cluster.setChecked(bool(row.get("cluster", False)))
