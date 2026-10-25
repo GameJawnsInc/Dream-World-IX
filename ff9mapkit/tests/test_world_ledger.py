@@ -341,8 +341,94 @@ def test_cli_world_ledger_resolves_the_folder_like_every_other_verb(tmp_path, mo
     stray.write_bytes(b"not-from-the-kit")
     assert main(["world-ledger", "--game", str(tmp_path), "--drift"]) == 0
     out = capsys.readouterr().out
-    assert "drift: 1 deployed file(s) match no ledger entry" in out and "Block[9][9] Terrain.ff9mesh" in out
+    assert "drift: 1 of 2 deployed file(s) whose bytes their last ledger row does not name" in out
+    assert "unledgered 1" in out and "Block[9][9] Terrain.ff9mesh" in out
     # an explicit --mod-folder still wins over the env var
     (tmp_path / "Other").mkdir()
     assert main(["world-ledger", "--game", str(tmp_path), "--mod-folder", "Other"]) == 0
     assert f"0 ledger line(s), 0 distinct (disc, cell, part) target(s) in Other/{M.LEDGER_NAME}" in capsys.readouterr().out
+
+
+# ---- the audit: each file against ITS OWN last row (the 2026-10-06 comp20 restore) ---------------------------------
+def _restored_behind_the_ledger(tmp):
+    """The comp20 bench's R4 revert in small: a deploy (A), a second ledgered deploy over it (B, a different writer),
+    then A's bytes copied back by hand from the parked backup -- no ledger row. A mesh and a Donor sidecar both."""
+    import shutil
+    mesh_a = _deploy(tmp, _bm(y=3.2))                                   # A, under this process's argv
+    with M.ledger_pipeline("world-island"):
+        side_a = _sidecar(tmp, donor=(0, 0))
+    a_mesh, a_side = mesh_a.read_bytes(), side_a.read_bytes()
+    with M.ledger_pipeline("world-mountain"):
+        _deploy(tmp, _bm(y=9.0))                                        # B over both, ledgered
+        _sidecar(tmp, donor=(5, 15))
+    tmp_copy = tmp / "a_copy"
+    tmp_copy.mkdir()
+    (tmp_copy / "m").write_bytes(a_mesh)
+    (tmp_copy / "s").write_bytes(a_side)
+    shutil.copy2(tmp_copy / "m", mesh_a)                                # the restore: a plain copy, no row
+    shutil.copy2(tmp_copy / "s", side_a)
+    return mesh_a, side_a
+
+
+def _by_part(audit):
+    return {a["part"]: a for a in audit}
+
+
+def test_a_file_put_back_behind_the_ledger_reads_stale(tmp_path):
+    _restored_behind_the_ledger(tmp_path)
+    root = tmp_path / "TestMod"
+    audit = _by_part(M.ledger_audit(root))
+    assert audit["Terrain"]["status"] == "stale" and audit["Donor"]["status"] == "stale"
+    assert audit["Donor"]["match"]["pipeline"]["verb"] == "world-island"        # whose bytes they are
+    assert audit["Donor"]["last"]["pipeline"]["verb"] == "world-mountain"       # what the stale last row claims
+    # the old check passed it: every one of its bytes is named by SOME row of the ledger
+    known = {e.get("sha256") for e in M.read_ledger(root)}
+    assert all(a["sha256"] in known for a in audit.values())
+
+
+def test_the_audit_names_foreign_unledgered_and_true(tmp_path):
+    p = _deploy(tmp_path, _bm())
+    _sidecar(tmp_path)
+    root = tmp_path / "TestMod"
+    assert {a["status"] for a in M.ledger_audit(root)} == {"true"}
+    p.write_bytes(p.read_bytes() + b"\x00")                             # a hand edit
+    stray = p.parent / "Block[9][9] Terrain.ff9mesh"
+    stray.write_bytes(b"pre-ledger")
+    (p.parent / (p.name + ".bak-20260101-000000")).write_bytes(b"parked")  # a parked copy is no world file
+    got = {(a["cell"], a["part"]): a["status"] for a in M.ledger_audit(root)}
+    assert got == {((5, 7), "Terrain"): "foreign", ((9, 9), "Terrain"): "unledgered", ((5, 7), "Donor"): "true"}
+    assert [a["part"] for a in M.ledger_audit(root, disc=4)] == []
+
+
+def test_repair_re_ledgers_only_the_stale_under_their_own_writer(tmp_path):
+    from ff9mapkit.world import draft as D
+    mesh_a, side_a = _restored_behind_the_ledger(tmp_path)
+    root = tmp_path / "TestMod"
+    foreign = mesh_a.parent / "Block[6][7] Terrain.ff9mesh"
+    foreign.write_bytes(b"pre-ledger")
+    n0 = len(M.read_ledger(root))
+    new = M.ledger_repair(root)
+    assert sorted(r["part"] for r in new) == ["Donor", "Terrain"] and len(M.read_ledger(root)) == n0 + 2
+    got = {(a["cell"], a["part"]): a["status"] for a in M.ledger_audit(root)}
+    assert got == {((5, 7), "Terrain"): "true", ((5, 7), "Donor"): "true", ((6, 7), "Terrain"): "unledgered"}
+    side_row = next(r for r in new if r["part"] == "Donor")
+    assert side_row["pipeline"]["verb"] == "world-island" and side_row["via"] == "ledger_repair"
+    assert side_row["repair"]["restored_to_utc"] and side_row["repair"]["superseded_utc"]
+    # Promote now carries the sidecar under the writer whose bytes it holds, not the superseded run's
+    rel = side_a.relative_to(root).as_posix()
+    assert D._ledger_tags(root, [rel])[rel]["verb"] == "world-island"
+    assert list(root.glob(M.LEDGER_NAME + ".bak-*"))                   # the ledger was parked first
+    assert M.ledger_repair(root) == []                                 # nothing stale: nothing written
+
+
+def test_cli_world_ledger_repair(tmp_path, capsys):
+    from ff9mapkit.cli import main
+    _restored_behind_the_ledger(tmp_path)
+    assert main(["world-ledger", "--game", str(tmp_path), "--mod-folder", "TestMod", "--drift"]) == 0
+    out = capsys.readouterr().out
+    assert "drift: 2 of 2" in out and "stale 2" in out
+    assert main(["world-ledger", "--game", str(tmp_path), "--mod-folder", "TestMod", "--repair"]) == 0
+    out = capsys.readouterr().out
+    assert "repair: 2 stale file(s) re-ledgered" in out
+    assert main(["world-ledger", "--game", str(tmp_path), "--mod-folder", "TestMod", "--drift"]) == 0
+    assert "drift: 0 of 2" in capsys.readouterr().out
