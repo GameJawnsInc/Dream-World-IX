@@ -85,8 +85,15 @@ class QProcessRunner:
                 self.proc = None
             out.append(bytes(proc.readAllStandardOutput()).decode("utf-8", "replace"))
             done(code, "".join(out))
+
+        def failed(err):                                 # no finished signal comes for a start that failed: the
+            if err == QProcess.ProcessError.FailedToStart and self.proc is proc:   # job ends here, as a failed one
+                self.proc = None                         # (it stayed busy, and a card's write never ended:
+                done(-1, f"the job could not start: {proc.errorString()}")      # review of the C19 fixes, round 5)
         proc.finished.connect(fin)
+        proc.errorOccurred.connect(failed)
         self.proc = proc
+        self._failed = failed
         proc.start(str(argv[0]), [str(a) for a in argv[1:]])
 
     def kill(self):
@@ -106,7 +113,10 @@ class QProcessRunner:
         proc = self.proc
         if proc is None:
             return True
-        return bool(proc.waitForFinished(msecs)) or proc.state() == QProcess.ProcessState.NotRunning
+        ended = bool(proc.waitForFinished(msecs))
+        if self.proc is proc and proc.state() == QProcess.ProcessState.NotRunning                 and proc.error() == QProcess.ProcessError.FailedToStart:
+            self._failed(QProcess.ProcessError.FailedToStart)    # (its errorOccurred not delivered yet)
+        return ended or proc.state() == QProcess.ProcessState.NotRunning
 
 
 class CarryTool(QWidget):
@@ -480,8 +490,8 @@ class CarryTool(QWidget):
         1, then disc 4's replay) starts its second call in the first's end, and waiting for one then killing the runner
         cut the disc-4 call (review of the C19 fixes, fourth round)."""
         wait = getattr(self._runner, "wait", None)
-        while wait is not None and self.writing() and self._runner.busy():
-            if not wait():
+        for _ in range(64):                              # (bounded: a runner that never ends must not spin the GUI)
+            if wait is None or not self.writing() or not self._runner.busy() or not wait():
                 break
 
     def writing(self) -> bool:

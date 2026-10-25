@@ -937,6 +937,19 @@ def test_the_qprocess_runner_waits_for_its_job(app):
     assert not r.busy() and got == [(0, "done")]
 
 
+def test_a_job_that_cannot_start_ends_as_a_failed_job(app, tmp_path):
+    """QProcess sends no finished signal when its program cannot start (a missing interpreter, a blocked one): the
+    runner stayed busy and its done never ran, so a card's write never ended -- its Close, off while it writes, the
+    menu, the folder box all locked for the session, and a landing scan's wait spun for good (review of the C19
+    fixes, fifth round). A start that fails ends the job, as a failed one."""
+    from ff9mapkit.workspace.worldforest import QProcessRunner
+    r, got = QProcessRunner(), []
+    r.start([str(tmp_path / "no-such-python.exe"), "-c", "print(1)"], ".", lambda code, text: got.append((code, text)))
+    app.processEvents()
+    r.wait()
+    assert not r.busy() and len(got) == 1 and got[0][0] != 0 and "could not start" in got[0][1], got
+
+
 def test_the_workspace_closing_shuts_the_world_tab_down(monkeypatch, app):
     """THE CALL SITE: the window's closeEvent is what spends ``WorldDoc.shutdown``."""
     from ff9mapkit import config as cfg
