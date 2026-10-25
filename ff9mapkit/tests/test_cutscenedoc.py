@@ -228,6 +228,36 @@ def test_step_select_accents_the_leg_and_tolerates_reselect(doc, tmp_path):
     assert doc._selected_step is None
 
 
+def test_the_scene_bar_spills_its_buttons_instead_of_flooring_the_window(doc, tmp_path):
+    """The scene bar was one non-wrapping row (title + gate + five buttons): the widest page in
+    the stack, so it set the WHOLE window floor -- natively 1228 at 150% with no field, 1290 with
+    one open, over a 1280 window. Now the bar's floor is the wider HALF, never the sum: the buttons
+    drop under the title at the doc's floor (all in full, never elided) and rejoin it on one line
+    when the column is wide. Relative widths only -- offscreen fonts are fiction."""
+    _fed(doc, tmp_path)
+    bar, lead, tail = doc.scene_bar, doc.scene_bar._lead, doc.scene_bar._tail
+    m = bar.layout().contentsMargins()
+    pad = m.left() + m.right()
+    one_line = pad + lead.minimumSizeHint().width() + bar.ROW_GAP + tail.sizeHint().width()
+    floor = pad + max(lead.minimumSizeHint().width(), tail.minimumSizeHint().width())
+    assert bar.minimumSizeHint().width() == floor < one_line, "the floor is the wider half"
+    buttons = (doc.add_step_btn, doc.settings_btn, doc.dup_scene_btn, doc.del_scene_btn,
+               doc.board_btn)
+    assert all(b.parentWidget() is tail for b in buttons), "every scene button rides the tail"
+
+    doc.show()
+    doc.resize(doc.minimumSizeHint().width(), 700)
+    QApplication.processEvents()
+    assert bar.width() < one_line and bar.spilled(), "at the doc's floor the buttons spill"
+    assert tail.geometry().top() > lead.geometry().bottom(), "spilled = a second line"
+    assert all(b.text() == b.accessibleName() for b in buttons), "spilled, never elided"
+
+    doc.resize(doc.minimumSizeHint().width() + one_line + 400, 700)
+    QApplication.processEvents()
+    assert bar.width() >= one_line and not bar.spilled(), "wide: one line again"
+    assert tail.geometry().top() == lead.geometry().top()
+
+
 # ------------------------------------------------------------------ the storyboard strip
 def test_the_storyboard_scrubs_beats_and_wraps_the_say_line(doc, tmp_path):
     raw, _ = _fed(doc, tmp_path)

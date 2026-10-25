@@ -23,8 +23,10 @@ HERE = Path(__file__).resolve().parent
 GAME = Path(r"C:\Program Files (x86)\Steam\steamapps\common\FINAL FANTASY IX")
 MAIN_BACKUPS = Path(r"C:\gd\Dream-World-IX\backups")
 LAB_NAME = "FF9CustomMap-lab"
-SRC = HERE / "out" / "lab" / "island" / LAB_NAME
-STATE = HERE / "out" / "lab" / "install.json"
+sys.path.insert(0, str(HERE))
+import rounds  # noqa: E402  ($CANOPY_DONOR)
+SRC = rounds.LAB / "island" / LAB_NAME
+STATE = rounds.LAB / "install.json"
 INI = GAME / "Memoria.ini"
 
 
@@ -50,7 +52,7 @@ def install():
         raise SystemExit(f"{LAB_NAME} is already in FolderNames: {m.group(2)!r}")
     stamp = time.strftime("%Y%m%d-%H%M%S")
     MAIN_BACKUPS.mkdir(parents=True, exist_ok=True)
-    bak = MAIN_BACKUPS / f"Memoria.ini.{stamp}.canopy-step"
+    bak = MAIN_BACKUPS / f"Memoria.ini.{stamp}.{rounds.R['label']}"
     shutil.copyfile(INI, bak)
     assert sha(bak) == sha(INI)
     shutil.copytree(SRC, GAME / LAB_NAME)

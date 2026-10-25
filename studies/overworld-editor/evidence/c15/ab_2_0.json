@@ -1,0 +1,142 @@
+{
+ "old-plain": {
+  "rc": 0,
+  "ok": true,
+  "world": 2007,
+  "orphan": {
+   "ring_blocks": [
+    [
+     1,
+     1
+    ],
+    [
+     2,
+     1
+    ],
+    [
+     3,
+     0
+    ],
+    [
+     3,
+     1
+    ]
+   ],
+   "n_orphans": 0,
+   "n_redressed": 0,
+   "cells": [],
+   "detail": 0
+  }
+ },
+ "old-redress": {
+  "rc": 0,
+  "ok": true,
+  "world": 2007,
+  "orphan": {
+   "ring_blocks": [
+    [
+     1,
+     1
+    ],
+    [
+     2,
+     1
+    ],
+    [
+     3,
+     0
+    ],
+    [
+     3,
+     1
+    ]
+   ],
+   "n_orphans": 0,
+   "n_redressed": 0,
+   "cells": [],
+   "detail": 0
+  }
+ },
+ "new-plain": {
+  "rc": 0,
+  "ok": true,
+  "world": 2007,
+  "orphan": {
+   "ring_blocks": [
+    [
+     1,
+     1
+    ],
+    [
+     1,
+     19
+    ],
+    [
+     2,
+     1
+    ],
+    [
+     2,
+     19
+    ],
+    [
+     3,
+     0
+    ],
+    [
+     3,
+     1
+    ],
+    [
+     3,
+     19
+    ]
+   ],
+   "n_orphans": 0,
+   "n_redressed": 0,
+   "cells": [],
+   "detail": 0
+  }
+ },
+ "new-redress": {
+  "rc": 0,
+  "ok": true,
+  "world": 2007,
+  "orphan": {
+   "ring_blocks": [
+    [
+     1,
+     1
+    ],
+    [
+     1,
+     19
+    ],
+    [
+     2,
+     1
+    ],
+    [
+     2,
+     19
+    ],
+    [
+     3,
+     0
+    ],
+    [
+     3,
+     1
+    ],
+    [
+     3,
+     19
+    ]
+   ],
+   "n_orphans": 0,
+   "n_redressed": 0,
+   "cells": [],
+   "detail": 0
+  }
+ }
+}

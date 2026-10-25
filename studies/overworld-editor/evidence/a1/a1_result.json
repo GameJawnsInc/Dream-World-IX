@@ -1,0 +1,82 @@
+{
+ "prep_t": "2026-10-23 11:11:33",
+ "targets": [
+  {
+   "name": "Evil Forest",
+   "pick_dist": 0.0,
+   "sent": [
+    1217.5,
+    -747.36
+   ],
+   "stand_y": 3.6241554746820612,
+   "back": {
+    "ok": true,
+    "x": 1217.5,
+    "z": -747.36,
+    "world_x": 1217.5,
+    "world_y": 3.62109375,
+    "world_z": -747.359,
+    "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\a1-0.png",
+    "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-111247-world-teleport",
+    "error": null
+   },
+   "dxz": 0.0009999999999763531,
+   "dy": -0.0030617246820612287,
+   "P1": true,
+   "P2": true,
+   "P3": true
+  },
+  {
+   "name": "Landing Site",
+   "pick_dist": 0.0,
+   "sent": [
+    326.16,
+    -569.09
+   ],
+   "stand_y": 4.286216735839844,
+   "back": {
+    "ok": true,
+    "x": 326.16,
+    "z": -569.09,
+    "world_x": 326.156,
+    "world_y": 4.28515625,
+    "world_z": -569.09,
+    "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\a1-1.png",
+    "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-111250-world-teleport",
+    "error": null
+   },
+   "dxz": 0.004000000000019099,
+   "dy": -0.00106048583984375,
+   "P1": true,
+   "P2": true,
+   "P3": true
+  },
+  {
+   "name": "Chocobo's Lagoon",
+   "pick_dist": 0.0,
+   "sent": [
+    593.52,
+    -1131.37
+   ],
+   "stand_y": 6.414444642989951,
+   "back": {
+    "ok": true,
+    "x": 593.52,
+    "z": -1131.37,
+    "world_x": 593.52,
+    "world_y": 6.4140625,
+    "world_z": -1131.367,
+    "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\a1-2.png",
+    "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-111253-world-teleport",
+    "error": null
+   },
+   "dxz": 0.0029999999999290594,
+   "dy": -0.0003821429899506512,
+   "P1": true,
+   "P2": true,
+   "P3": true
+  }
+ ],
+ "reach_rc": 0,
+ "quit_rc": 1
+}

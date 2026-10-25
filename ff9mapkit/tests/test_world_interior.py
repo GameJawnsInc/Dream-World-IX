@@ -86,6 +86,9 @@ def test_chain_ring_chains_a_polygon_and_refuses_degeneracy():
     assert len(out) == 12 and set(out) == set(ring)
     with pytest.raises(ValueError, match="not a simple cycle"):
         IN.chain_ring(edges[:-1], "test")
+    with pytest.raises(IN.CarveRefused) as e:
+        IN.chain_ring(edges[:-1], "test")
+    assert e.value.gate == "ring" and len(e.value.where) == 2
 
 
 def test_split_borders8_splits_at_the_border_and_keeps_vertical_curtains():
@@ -228,6 +231,10 @@ def test_chain_rings_chains_multiple_cycles_and_refuses_degeneracy():
     assert {frozenset(r) for r in rings} == {frozenset(sq1), frozenset(sq2)}
     with pytest.raises(ValueError, match="not degree-2"):
         IN.chain_rings(edges[:-1], "test")
+    with pytest.raises(IN.CarveRefused) as e:                # it says where (rung C16): the two odd points
+        IN.chain_rings(edges[:-1], "test")
+    assert e.value.gate == "ring" and len(e.value.where) == 2
+    assert set(e.value.where) <= {(float(p[0]), float(p[2])) for p in sq1 + sq2}
 
 
 def test_signed_area_orientation():
@@ -295,6 +302,43 @@ def test_carve_mountain_seats_on_an_all_lawn_interior_span(monkeypatch, tmp_path
     res2 = IN.carve_mountain(IN.soup_from_blocks({(0, 0): _mountain_bench(coast=False)}),
                              center=(30.0, -30.0), alcove=None, game=tmp_path, log=lambda *a: None)
     assert res2["center"] == (30.0, -30.0)
+
+
+def test_a_weld_split_the_zip_never_touches_does_not_refuse_the_mountain(monkeypatch, tmp_path):
+    """THE EXACT-WELD LAW checks only the hole ring's keys (rung C16): the zip welds to nothing else. Checked over the
+    whole read window, a sub-millimetre split anywhere in it -- float noise between two old writers; the live folder
+    held four -- refused every mountain whose window reached it, and said nowhere (the refusal sweep: 16 of 30 lawful
+    mountain spots on the live island)."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    tris, y = [], 3.2
+    for i in range(13):
+        for j in range(13):
+            x0, x1, z0, z1 = i * 4.0, (i + 1) * 4.0, -j * 4.0, -(j + 1) * 4.0
+            tris.append((((x0, y, z0), (x1, y, z0), (x0, y, z1)), GRASS, _MAIN_U))
+            tris.append((((x1, y, z0), (x1, y, z1), (x0, y, z1)), GRASS, _MAIN_U))
+    # a vertex the hole never reaches, shared by several tris: one copy 3e-4u off, the same 1e-3 key, two floats
+    k = next(n for n, (c, _i, _u) in enumerate(tris) if (48.0, y, -48.0) in c)
+    tris[k] = (tuple((48.0003, y, -48.0) if p == (48.0, y, -48.0) else p for p in tris[k][0]),) + tris[k][1:]
+    soup = IN.soup_from_blocks({(0, 0): _bm(tris)})
+    res = IN.carve_mountain(soup, center=(26.0, -26.0), alcove=None, game=tmp_path, log=lambda *a: None)
+    assert res["center"] == (26.0, -26.0) and res["report"]["blob_tris"] == 4
+
+
+def test_the_apron_slope_judges_the_grass_the_apron_lifted(monkeypatch, tmp_path):
+    """THE APRON SLOPE, on the apron (rung C17): judged over every plain tri of the span, steep grass the lift never
+    moved -- a hill's flank, a vertical curtain, ground as the island already had it, up to 107u off -- refused every
+    mountain whose span reached it (all 42 apron refusals of 150 measured checks; 39 of them pass now)."""
+    _patch_donor(monkeypatch, _pyramid_donor())
+    tris = []
+    for i in range(13):
+        for j in range(13):
+            x0, x1, z0, z1 = i * 4.0, (i + 1) * 4.0, -j * 4.0, -(j + 1) * 4.0
+            tris.append((((x0, 3.2, z0), (x1, 3.2, z0), (x0, 3.2, z1)), GRASS, _MAIN_U))
+            tris.append((((x1, 3.2, z0), (x1, 3.2, z1), (x0, 3.2, z1)), GRASS, _MAIN_U))
+    tris.append((((48.0, 3.2, -50.0), (52.0, 3.2, -50.0), (48.0, 7.2, -50.0)), GRASS, _MAIN_U))   # a vertical curtain
+    res = IN.carve_mountain(IN.soup_from_blocks({(0, 0): _bm(tris)}), center=(26.0, -26.0), alcove=None,
+                            game=tmp_path, log=lambda *a: None)
+    assert res["report"]["apron_slope"] < IN.MTN_APRON_SLOPE      # the curtain is far past the apron's reach
 
 
 def test_carve_mountain_refusals(monkeypatch, tmp_path):
@@ -962,6 +1006,45 @@ def test_atlas_gate_refuses_a_white_gutter_texel(monkeypatch, tmp_path):
     with monkeypatch.context() as mp:
         mp.setattr(IN, "ATLAS_GUTTER_WHITE", 256)
         IN._atlas_gate_mountain([tri(0.46)], log=lambda *a: None)
+
+
+
+def _lean(ny_target, x0=0.0):
+    """A tri whose unit normal's y is ny_target (a wall leaning past vertical when negative), wound as the gate reads."""
+    import math as _m
+    s_ = _m.sqrt(max(0.0, 1.0 - ny_target * ny_target))
+    # edges (1, 0, 0) and (0, s_, -ny) span it; their cross product is (0, ny, s_), a unit normal with y = ny
+    a = (x0, 0.0, 0.0)
+    b = (x0 + 1.0, 0.0, 0.0)
+    c = (x0, s_, -ny_target)
+    return a, b, c
+
+
+def test_down_gate_keeps_only_stock_near_vertical_down_faces():
+    """STEP.md round 2 (D2): the mountain gate keeps a verbatim donor tri that faced down at home by a hair and still
+    does as carried; everything else that faces down still counts -- a carve-made flip, a steep stock overhang, a
+    tri the carry flipped (up at home), and a near-vertical stock tri the carry steepened past the line."""
+    assert abs(IN._tri_ny(*_lean(-0.007)) + 0.007) < 1e-9 and abs(IN._tri_ny(*_lean(0.5)) - 0.5) < 1e-9
+    home = {0: _lean(-0.007, 0), 1: _lean(-0.30, 10), 2: _lean(0.004, 20), 3: _lean(-0.010, 30)}
+    dV = np.array([p for t in range(4) for p in home[t]])
+    dtri = [[3 * t, 3 * t + 1, 3 * t + 2] for t in range(4)]
+    carried = {0: home[0], 1: home[1], 2: _lean(-0.004, 20), 3: _lean(-0.050, 30)}
+    keys = IN._stock_down_keys([0, 1, 2, 3], dV, dtri, carried)
+    # the near-vertical stock faces (0 and 3) are keyed; the steep overhang (1) and the up-at-home tri (2) are not
+    assert sorted(keys.values()) == [pytest.approx(-0.010), pytest.approx(-0.007)]
+
+    def par(ps, fam="mountain"):
+        return (tuple((*p, 0.0, 0.0, 0.0, 1.0, 0.0) for p in ps), MASSIF, fam)
+    lines = []
+    down, kept = IN._count_down([par(carried[0])], keys, log=lines.append)
+    assert (down, kept) == (0, 1) and "home ny -0.0070" in lines[0]            # stock wall: kept, by name
+    assert IN._count_down([par(carried[1])], keys) == (1, 0)                   # a steep stock overhang still counts
+    assert IN._count_down([par(carried[2])], keys) == (1, 0)                   # up at home, flipped by the carry
+    assert IN._count_down([par(carried[3])], keys) == (1, 0)                   # near-vertical home, steepened
+    assert IN._count_down([par(carried[0], "zip")], keys) == (1, 0)            # a zip tri is never stock
+    assert IN._count_down([par(_lean(0.9))], keys) == (0, 0)                   # up-facing: nothing to count
+    # break it: with no stock keys the old gate's count comes back
+    assert IN._count_down([par(carried[0])], {}) == (1, 0)
 
 
 # comp9 (a snow massif) with its inlet floor -- mountaindonors/INLET.md; the round-21 lab's spec

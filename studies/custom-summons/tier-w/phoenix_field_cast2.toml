@@ -19,11 +19,18 @@
 # (28%) read instantly, so the same figure is scaled toward stripe-class coverage:
 #
 #     py phoenix_field_stamp.py --cell cell.s0.x576_y384 --mode punch --bold ^
-#        --root C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-cast2
+#        --root C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-cast2-walk
 #
-# MEASURED by that run: 6,120 texels stamped (18.7% of the page), 4,419 differ (the rest were
-# already transparent -- this texture is 52% smoke-holes), punch 4,419 / fill 0, dead bytes
+# ⚠ CAST 2b RAN ON THE PRE-WALK PAGE MAP, which put this cell at 0x25678, 392 bytes before the 0x25800
+# the game loads it from (reskin.scenery_pages, THE UPLOAD WALK).  Its art was exported from those bytes
+# and written back there.  It changed nothing on screen either way (the op-144 band rewrites the page
+# before every draw, below), so no verdict moves.  This spec is the same figure re-stamped on the fixed
+# map into `ef211-cast2-walk`; `ef211-cast2` keeps the cast's own art, as history.
+#
+# MEASURED by that run: 6,120 texels stamped (18.7% of the page), 5,189 differ (the rest were
+# already transparent -- this texture is 54% smoke-holes), punch 5,189 / fill 0, dead bytes
 # moved 0; island centroid (55.5, 47.5), ring at r = 38.4 texels, stroke 0.30R, 3 wide spokes.
+# (On the pre-walk bytes: 4,419 differ, punch 4,419.)
 
 [reskin]
 effect = 211
@@ -32,10 +39,10 @@ expect_sha256 = "5d028c0bae621deb6814c504c15d7aa3c9ae9c65ea210011b1403d67e4b509c
 
 [[reskin.texel]]
 name = "cell.s0.x576_y384"
-source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-cast2/art/cell.s0.x576_y384.png"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-cast2-walk/art/cell.s0.x576_y384.png"
 
 # --- the guards, emitted by the derivation, never typed --------------------------------------
-expect_page_offset = 0x025678   # id-0 page rect 4 of the s0 chunk -- the LOWER 128 lines
+expect_page_offset = 0x025800   # id-0 page rect 4 of the s0 chunk -- the LOWER 128 lines, in id-1
 expect_page_bytes  = 16384
 expect_page_wh     = [256, 128] # at 4bpp: 256 texels wide, two per byte -- the nibble codec
 expect_bpp         = 4          # stated, CHECKED against GEOM 0x33960's so record + nClut4
@@ -47,4 +54,13 @@ enabled = true
 # gaps are what this surface renders legibly.  fill 0 (nothing painted), dead 0.
 acknowledge_cutout_reshape = true
 palette_from = "pal.s0.x208_y244.e16"
+# ADDED AFTER THE CAST, AND IT MOVES NO BYTE.  This cell sits under an HLE op-144 SCROLL-BLIT band,
+# `dst (576,368) 28x112 <- src (604,368)`, and ALL 1,302 changed halfwords of this wheel lie inside
+# it -- yet this cast (2b, the bold wheel) RENDERED: the vortex smoke eroded at burst peak.  So it is
+# the in-game COUNTER-WITNESS to the kit's scroll-blit refusal: that blit is not running in that
+# phase, which is exactly why the refusal has a key.  Said so the record rebuilds.
+# CORRECTED (later): not a counter-witness -- the game's capture runs that blit ahead of every draw of
+# the page (f47-157), so 2b rendered as stock (scroll_blit.py REACHABILITY).  The key still rebuilds the sha.
+# (The changed-halfword count, re-derived on the upload walk: 1,513 of 1,513.)
+acknowledge_scroll_blit_destination = true
 note = "CAST 2: the wheel as dark gaps in the emergence-vortex smoke -- lower-half addressing + the 4bpp nibble codec + the shape verdict, one cast"

@@ -3033,6 +3033,8 @@ _SUMMON_EDIT_ACTIONS = ("scaffold", "plan", "build", "verify", "deploy", "revert
 #: that drifted from the lane the handler dispatches on would refuse a lane that works, or offer one
 #: that does not.
 _SUMMON_ART_LANES = ("indexed", "rgba", "direct15", "paint")
+#: ...and `--readership`'s, likewise literal and PINNED EQUAL to `repaint.READINGS` by a test.
+_SUMMON_READINGS = ("effective", "bound")
 
 
 class _SummonEditUsage(Exception):
@@ -3275,6 +3277,18 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
                 "THE FIX: dither in your own editor at 5-BIT depth and save the RGBA -- this lane "
                 "then reproduces it EXACTLY, because every colour you produced is already an entry "
                 "the row carries.")
+        # the reading governs which scenery cells resolve; `scaffold` (the CLUT lane's) and `revert`
+        # (the ledger's own script) resolve none, so the flag would do nothing there -- say so.
+        if getattr(args, "readership", None) and args.action in ("scaffold", "revert"):
+            raise _SummonEditUsage("--readership has nothing to govern on `%s` -- it chooses which "
+                                   "scenery cells resolve, for export-art and the building "
+                                   "sub-verbs" % args.action)
+        # CHANNEL D's export flag hands out PNGs; a build reads each row's own key instead, so the flag
+        # anywhere else would read as an acknowledgement while acknowledging nothing
+        if getattr(args, "ack_drawn_depth", False) and args.action != "export-art":
+            raise _SummonEditUsage("--acknowledge-drawn-depth is an export-art flag: it writes the "
+                                   "PNGs of the cells CHANNEL D gives a depth to.  A build reads each "
+                                   "row's own `acknowledge_drawn_depth = true` (with `expect_bpp`)")
 
         if args.action == "scaffold":
             if args.ef is None:
@@ -3293,12 +3307,20 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
                 blob, src = Path(args.from_path).read_bytes(), args.from_path
             else:
                 blob, src = rk.R.read_stock_effect(args.ef, getattr(args, "game", None))
+            reading = getattr(args, "readership", None) or rp.DEFAULT_READING
             man = rp.export_art(blob, args.ef, args.out or None, source=src, lane=args.art_lane,
                                 overlays=not args.no_coverage,
-                                displacement_ack=getattr(args, "ack_displacement", False))
+                                displacement_ack=getattr(args, "ack_displacement", False),
+                                channels=rp.reading_channels(reading, "--readership"),
+                                drawn_depth=getattr(args, "ack_drawn_depth", False))
             print("ef%03d  %d page(s) exported -- lane %s" % (args.ef, len(man["parts"]),
                                                               man["lane"]))
             print("  source        : %s" % man["source"])
+            print("  readership    : %s" % (
+                "%s -- the cell the hardware SAMPLES (MODEL %s), the default"
+                % (reading, rp.DISPLACEMENT_MODEL) if reading == rp.DEFAULT_READING else
+                "%s -- the cell each record BINDS; the gain half DECLINED, and the scaffold says so "
+                "in [reskin]" % reading))
             print("  stock sha256  : %s  (the drift guard the pack re-reads)" % man["stock_sha256"])
             print("  out           : %s" % man["out_dir"])
             for e in man["parts"]:
@@ -3360,6 +3382,14 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
         blob = Path(args.from_path).read_bytes() if args.from_path else None
         spec = rp.load_spec(spec_path)        # accepts target-only, texel-only, or both
         has_clut, has_texel = _summon_reskin_lanes(spec)
+        # --readership on a BUILDING sub-verb is a CHECK against the spec, never an override (every
+        # sub-verb rebuilds from the spec); `rp.build` refuses a mismatch.  On a CLUT-only spec it
+        # governs nothing, and a flag that does nothing must say so rather than be ignored.
+        reading_arg = getattr(args, "readership", None)
+        if reading_arg and not has_texel:
+            raise _SummonEditUsage("--readership is the TEXEL lane's reading; %s declares no "
+                                   "[[reskin.texel]]" % spec_path)
+        reading_ch = rp.reading_channels(reading_arg, "--readership") if reading_arg else None
 
         # ★ W6q: THE VERIFY PRE-FLIGHT.  `verify` is reached only THROUGH a rebuild, and a rebuild
         # OPENS the art -- so without this a deleted paint file refuses inside `build` with the
@@ -3390,7 +3420,8 @@ def _cmd_summon_reskin(args: argparse.Namespace) -> int:
                           blob=(b.orig if b is not None else blob),
                           base=(b.patched if b is not None else None),
                           base_label=("composed on this spec's own [[reskin.target]] rows (%d CLUT "
-                                      "bytes)" % len(b.check.changed)) if b is not None else "")
+                                      "bytes)" % len(b.check.changed)) if b is not None else "",
+                          channels=reading_ch)
             bt.check = rp.self_check(bt)
             print("")
             print("\n".join(rp.describe(bt)))
@@ -4896,8 +4927,40 @@ def _gate_line(g: dict) -> str:
         if isinstance(v, (list, tuple)):
             return "[" + ",".join(fmt(x) for x in v) + "]"
         return str(v)
-    detail = "  ".join(f"{k}={fmt(v)}" for k, v in g.items() if k not in ("gate", "ok"))
+    detail = "  ".join(f"{k}={fmt(v)}" for k, v in g.items() if k not in ("gate", "ok", "where"))
     return f"GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}"
+
+
+def _sink_report_json(args, at, *, s=None, refused=None) -> None:
+    """``world-sink --report-json``: the verdict as data, beside the unchanged printed text (the World tab's sink
+    card reads it). A refusal names its gates and the middles of the blocks they fail in."""
+    path = getattr(args, "report_json", None)
+    if not path:
+        return
+    import json
+    from pathlib import Path
+    out = {"ok": False, "dry_run": bool(args.dry_run), "disc": args.disc, "at": list(at), "blocks": [],
+           "written": [], "report": None, "refused": None}
+    if s is not None:
+        failing = [(b, g) for b, r in sorted(s.get("per_block", {}).items()) for g in r.get("gates", ())
+                   if not g.get("ok")]
+        out.update(ok=bool(s.get("clean")), blocks=[list(b) for b in s.get("blocks", ())],
+                   written=[str(p) for p in s.get("deployed", ())],
+                   report={k: s.get(k) for k in ("land_tris", "land_u2", "max_y", "tiles", "fill", "bands",
+                                                 "shore_tris", "entrance_tris", "members", "building")})
+        if not s.get("clean"):
+            def mid(b):
+                bx, by = (int(v) for v in str(b).split(","))
+                return [64.0 * bx + 32.0, -(64.0 * by + 32.0)]
+            out["refused"] = {"gate": failing[0][1].get("gate", "error") if failing else "error",
+                              "message": "NOT CLEAN -- nothing written: " + ", ".join(
+                                  sorted({g.get("gate", "?") for _b, g in failing})),
+                              "detail": "", "where": [mid(b) for b in sorted({b for b, _g in failing})]}
+    if refused is not None:
+        out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused), "detail": "",
+                          "where": [list(p) for p in getattr(refused, "where", [])] or [list(at)]}
+    Path(path).write_text(json.dumps(out, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
+                          encoding="utf-8")
 
 
 def _cmd_world_sink(args: argparse.Namespace) -> int:
@@ -4947,7 +5010,7 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
     # THE DISC-4 REPLAY: where disc 4's blocks differ, this same command runs again there, on disc 4's own island
     def replay(d):
         sys.stdout.flush()
-        ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": DM.REPLAY})
+        ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": DM.REPLAY, "report_json": None})
         if _cmd_world_sink(ns) != 0:
             raise ValueError(f"world-sink --disc {d} refused the same island (see above)")
     try:
@@ -4956,7 +5019,9 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
                     allow_entrances=args.allow_entrances, replay=replay, cluster=args.cluster)
     except (ValueError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _sink_report_json(args, at, refused=e)
         return 2
+    _sink_report_json(args, at, s=s)
     print(f"SINK, disc {args.disc}: the island at ({at[0]}, {at[1]}) -- {s['land_tris']} land tris, {s['land_u2']} u2, "
           f"up to y {s['max_y']}, over block(s) {' '.join(str(tuple(b)) for b in s['blocks'])}")
     if s.get("members"):
@@ -5003,6 +5068,40 @@ def _cmd_world_sink(args: argparse.Namespace) -> int:
     print("  !! A save standing on the island loads onto open water: move such saves off it first. The big map still "
           f"draws the island until `world-minimap --mod-folder {args.mod_folder}` takes it off (and relaunch).")
     return 0
+
+
+def _morph_report_json(args, *, summary=None, refused=None) -> None:
+    """``world-transplant --report-json``: the verdict as data (an in-place morph's or a carry's), beside the
+    unchanged printed text. A refusal names its failing gates; where they fail is the cell (its middle), the card's
+    mark."""
+    path = getattr(args, "report_json", None)
+    if not path:
+        return
+    import json
+    from pathlib import Path
+    bx, by = (int(v) for v in str(args.cell).split(","))
+    # every target block (a multi-block carry fills its whole rect, which turns with --rot): the World tab's history
+    # snapshots these cells before an Accept writes them, so a block missing here could not be undone
+    nx, ny = (int(v) for v in str(getattr(args, "size", "1x1") or "1x1").lower().split("x"))
+    tw, th = (nx, ny) if (int(getattr(args, "rot", 0) or 0) // 90) % 2 == 0 else (ny, nx)
+    mid = [64.0 * (bx + tw / 2.0), -64.0 * (by + th / 2.0)]
+    out = {"ok": False, "dry_run": bool(args.dry_run), "disc": args.disc, "cell": [bx, by],
+           "blocks": [[(bx + i) % 24, by + j] for j in range(th) for i in range(tw)], "size": [nx, ny],   # labels (C23)
+           "gates": [], "written": [], "refused": None}
+    if summary is not None:
+        bad = [g for g in summary.get("gates", ()) if not g.get("ok")]
+        out.update(ok=bool(summary.get("clean")), gates=summary.get("gates", []),
+                   written=[str(p) for p in summary.get("deployed", ())], touched=summary.get("touched"),
+                   shift=summary.get("shift"), rot=summary.get("rot"), op=summary.get("op"))
+        if bad:                                          # a gate that says where marks there (C16), else the middle
+            where = [list(p) for g in bad for p in (g.get("where") or [])][:24]
+            out["refused"] = {"gate": bad[0].get("gate", "error"), "detail": "", "where": where or [mid],
+                              "message": "NOT CLEAN -- deploy refused: " + ", ".join(g.get("gate", "?") for g in bad)}
+    if refused is not None:
+        out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused), "detail": "",
+                          "where": [list(p) for p in getattr(refused, "where", [])] or [mid]}
+    Path(path).write_text(json.dumps(out, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
+                          encoding="utf-8")
 
 
 def _cmd_world_transplant(args: argparse.Namespace) -> int:
@@ -5173,7 +5272,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
             # there -- every morph rebuilt from disc 4's own bytes, through the same gates -- instead of a copy
             def replay(d):
                 sys.stdout.flush()
-                ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": DM.REPLAY})
+                ns = argparse.Namespace(**{**vars(args), "disc": d, "skip_mirror": DM.REPLAY, "report_json": None})
                 if _cmd_world_transplant(ns) != 0:
                     raise ValueError(f"world-transplant --in-place --disc {d} refused the same morph (see above)")
             summary = TR.morph_in_place(args.mod_folder, cell=(bx, by), tweaks=list(tweaks),
@@ -5203,14 +5302,16 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
                 summary = TR.transplant_region(args.mod_folder, size=(snx, sny), **kw)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _morph_report_json(args, refused=e)
         return 2
+    _morph_report_json(args, summary=summary)          # every op: the in-place morph and the carry alike
     if summary["op"] == "morph-in-place":
         print(f"IN-PLACE morph: real cell {tuple(summary['cell'])} "
               f"(touched parts: {', '.join(summary['touched'])})")
         _print_stack_notes(summary)
         for g in summary["gates"]:
             detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items()
-                               if k not in ("gate", "ok"))
+                               if k not in ("gate", "ok", "where"))
             print(f"  GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}")
         if not summary["clean"]:
             print("NOT CLEAN -- deploy refused", file=sys.stderr)
@@ -5248,7 +5349,7 @@ def _cmd_world_transplant(args: argparse.Namespace) -> int:
     if summary.get("blanked"):
         print(f"  blanked (all tris clipped away): {', '.join(summary['blanked'])}")
     for g in summary["gates"]:
-        detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok", "warn"))
+        detail = "  ".join(f"{k}={_fmt(v)}" for k, v in g.items() if k not in ("gate", "ok", "warn", "where"))
         print(f"  GATE {g['gate']}: {detail} -> {'ok' if g['ok'] else 'FAIL'}")
         if g.get("warn") and g["gate"] == "wang-carry":
             dn, sn = g.get("incoherent_deep", 0), g.get("incoherent_shallow", 0)
@@ -5360,6 +5461,29 @@ def _cmd_world_coastnav(args: argparse.Namespace) -> int:
     return 0
 
 
+def _island_report_json(args, *, summary=None, refused=None) -> None:
+    """``world-island --report-json``: the mint's verdict as data, beside the unchanged printed text (the World tab's
+    island card reads it). A refusal's marks are the middles of the blocks its message names."""
+    path = getattr(args, "report_json", None)
+    if not path:
+        return
+    import json
+    import re
+    from pathlib import Path
+    out = {"ok": refused is None, "dry_run": bool(args.dry_run), "center": None, "seed": None, "blocks": [],
+           "written": [], "report": None, "refused": None}
+    if summary is not None:
+        out.update(center=summary["center"], seed=summary["seed"], blocks=[b["block"] for b in summary["blocks"]],
+                   written=[str(p) for p in summary.get("written", ())],
+                   report={k: v for k, v in summary["report"].items() if k not in ("placement", "texgates")})
+    if refused is not None:
+        cells = {(int(a), int(b)) for a, b in re.findall(r"\((-?\d+), (-?\d+)\)", str(refused))}
+        out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused), "detail": "",
+                          "where": [[64.0 * a + 32.0, -(64.0 * b + 32.0)] for a, b in sorted(cells)][:12]}
+    Path(path).write_text(json.dumps(out, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
+                          encoding="utf-8")
+
+
 def _cmd_world_island(args: argparse.Namespace) -> int:
     """Synthesize a fully-custom cliff ISLAND / LANDMASS: organic coastline + faithful rock wall + the real
     grass tile language (mains + verbatim meadow stamps; flat interior by default, OPT-IN rolling relief via
@@ -5410,7 +5534,9 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
             summary = I.landmass(args.mod_folder, cell=(bx, by), **kw)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _island_report_json(args, refused=e)
         return 2
+    _island_report_json(args, summary=summary)
     verb = "would deploy" if args.dry_run else "deployed"
     cx, cz = summary["center"]
     relief_note = ""
@@ -5450,12 +5576,17 @@ def _cmd_world_island(args: argparse.Namespace) -> int:
 
 
 def _parse_world_point(args) -> tuple:
-    """(point, exact) from --center / --near (one required)."""
+    """(point, exact) from --center / --near (one required), FOLDED into the mapped window (``frames.wrap_world_xz``).
+    THE ONE SPELLING (rung C10): the relief verbs read their window round the point as given, and a point spelled
+    1536u off (x -2 for x 1534) read the island in a frame 1536u away, whose float rounding wrote other bytes at the
+    seam (c10_lab: one Terrain file of six). Folded first, both spellings are one carve -- the island lane's own law
+    (island.landmass canonicalizes its centre)."""
+    from .world.frames import wrap_world_xz
     if getattr(args, "center", None):
         wx, wz = (float(v) for v in args.center.split(","))
-        return (wx, wz), True
+        return wrap_world_xz(wx, wz), True
     wx, wz = (float(v) for v in args.near.split(","))
-    return (wx, wz), False
+    return wrap_world_xz(wx, wz), False
 
 
 def _cmd_world_forest(args: argparse.Namespace) -> int:
@@ -5463,6 +5594,7 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
     the productized island-E forest re-home (in-game proven 2026-07-12). Gates: canopy carry + the
     comprehensive step law + the perimeter walk-in simulation + placement census."""
     from .world import interior as IN
+    written = []
     try:
         (wx, wz), exact = _parse_world_point(args)
         dx, dy = (int(v) for v in args.donor.split(","))
@@ -5478,12 +5610,14 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
                        stack=IN.read_deployed_stack(args.mod_folder, blocks, disc=args.disc, game=args.game,
                                                     target_disc=args.target_disc))
         if not args.dry_run:
-            IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
-                              game=args.game, skip_mirror=args.skip_mirror,
-                              target_disc=args.target_disc)
+            written = IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
+                                        game=args.game, skip_mirror=args.skip_mirror,
+                                        target_disc=args.target_disc)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _carry_report_json(args, refused=e)
         return 2
+    _carry_report_json(args, res=res, written=written)
     verb = "would deploy" if args.dry_run else "deployed"
     from .world.frames import wrap_world_xz          # a seam carve's soup frame runs past x = 0/1536
     cx, cz = wrap_world_xz(*res["center"])
@@ -5498,6 +5632,57 @@ def _cmd_world_forest(args: argparse.Namespace) -> int:
           f"simulation + placement census. ~ -> World -> re-enter, then walk INTO and OVER the canopy.")
     _world_coupling_note(coastnav=False, minimap=False, encounters=True)
     return 0
+
+
+def _cmd_world_promote(args: argparse.Namespace) -> int:
+    """Promote a world draft into its live folder, or revert its last promote (world.draft)."""
+    import json
+    from pathlib import Path
+    from .world import draft as D
+    out = {"ok": False, "op": "revert" if args.revert else "promote", "dry_run": bool(args.dry_run), "error": None}
+    try:
+        game = find_game_path(args.game)
+        fn = D.revert if args.revert else D.promote
+        rec = fn(Path(args.draft), game=game, dry_run=args.dry_run)
+        out.update(ok=True, folder=Path(rec["source"]).name, cells=rec["cells"], promoted=rec["promoted"],
+                   record=rec.get("record"), changed=sorted(set(rec.get("before", {})) | set(rec.get("after", {}))))
+    except (ValueError, ConfigError, FileNotFoundError) as e:
+        out["error"] = str(e)
+        print(str(e), file=sys.stderr)
+    if args.report_json:
+        Path(args.report_json).write_text(json.dumps(out, indent=1), encoding="utf-8")
+    if not out["ok"]:
+        return 2
+    cells = ", ".join(f"({a},{b})" for a, b in out["cells"])
+    verb = ("would revert" if args.dry_run else "reverted") if args.revert else         ("would promote" if args.dry_run else "promoted")
+    print(f"{verb} {len(out['promoted'])} file(s) at block(s) {cells} in {out['folder']}"
+          + ("" if args.dry_run else f" ({len(out['changed'])} file(s) at those blocks, disc 4 included)")
+          + ". The game shows it on its next world load (leave the world map and come back).")
+    return 0
+
+
+def _carry_report_json(args, *, res=None, written=(), refused=None, extra=None) -> None:
+    """``world-forest`` / ``world-mountain --report-json``: the verdict as data, beside the unchanged printed text.
+    A refusal carries its gate and world points when the gate located it (:class:`interior.CarveRefused`), else
+    gate "error". ``extra`` adds the verb's own keys (the mountain's home-ground note)."""
+    path = getattr(args, "report_json", None)
+    if not path:
+        return
+    import json
+    from pathlib import Path
+    out = {"ok": refused is None, "dry_run": bool(args.dry_run), "center": None, "report": None,
+           "blocks": [], "written": [str(p) for p in written], "refused": None}
+    if res is not None:
+        out["center"] = [float(v) for v in res["center"]]
+        out["report"] = res["report"]
+        out["blocks"] = sorted([int(b[0]), int(b[1])] for b in res["changed"])
+    if refused is not None:
+        out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused),
+                          "detail": getattr(refused, "detail", ""),
+                          "where": [list(p) for p in getattr(refused, "where", [])]}
+    out.update(extra or {})
+    Path(path).write_text(json.dumps(out, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
+                          encoding="utf-8")
 
 
 def _cmd_world_hill(args: argparse.Namespace) -> int:
@@ -5518,13 +5703,16 @@ def _cmd_world_hill(args: argparse.Namespace) -> int:
         IN.census_gate(res["changed"], disc=args.disc, game=args.game, baseline=blocks,
                        stack=IN.read_deployed_stack(args.mod_folder, blocks, disc=args.disc, game=args.game,
                                                     target_disc=args.target_disc))
+        written = []
         if not args.dry_run:
-            IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
-                              game=args.game, skip_mirror=args.skip_mirror,
-                              target_disc=args.target_disc)
+            written = list(IN.deploy_changed(res["changed"], mod_folder=args.mod_folder, disc=args.disc,
+                                             game=args.game, skip_mirror=args.skip_mirror,
+                                             target_disc=args.target_disc) or [])
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _carry_report_json(args, refused=e)
         return 2
+    _carry_report_json(args, res=res, written=written)
     verb = "would deploy" if args.dry_run else "deployed"
     from .world.frames import wrap_world_xz          # a seam carve's soup frame runs past x = 0/1536
     cx, cz = wrap_world_xz(*res["center"])
@@ -5581,6 +5769,7 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
     DEPLOYED kit island -- the productized Uaho carry (in-game proven 2026-07-13). Gates: ROCK-RIGID +
     weld-safe lift + zip envelope + placement probes + census."""
     from .world import interior as IN
+    mountain_written, note = [], None
     try:
         (wx, wz), exact = _parse_world_point(args)
         donor_blocks = _parse_block_rect(args.donor)
@@ -5629,7 +5818,9 @@ def _cmd_world_mountain(args: argparse.Namespace) -> int:
             DM.auto_mirror(mountain_written, mod_folder=args.mod_folder, skip_mirror=args.skip_mirror)
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _carry_report_json(args, refused=e, extra={"ground": args.ground, "note": note})
         return 2
+    _carry_report_json(args, res=res, written=mountain_written, extra={"ground": args.ground, "note": note})
     verb = "would deploy" if args.dry_run else "deployed"
     from .world.frames import wrap_world_xz          # a seam carve's soup frame runs past x = 0/1536
     cx, cz = wrap_world_xz(*res["center"])
@@ -5761,7 +5952,18 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
     donor = R.RIVER_DONORS[args.donor]
     discs = (donor.disc,) if args.skip_mirror else (donor.disc, 4)
     if args.remove:
+        if args.move_from:
+            print("world-river: --remove and --move-from are two ways out of one deploy; pass one", file=sys.stderr)
+            return 2
         return _river_remove(args, folder, donor, discs)
+    try:
+        move_from = None if args.move_from is None else _parse_river_at(args.move_from)
+    except ValueError as e:
+        print(str(e).replace("--at", "--move-from"), file=sys.stderr)
+        return 2
+    if args.move_from is not None and move_from is None:
+        print("world-river --move-from needs the placement the deploy printed (DX,DZ), not auto", file=sys.stderr)
+        return 2
 
     def planned(d):
         comp, cells = d.comp, d.cells
@@ -5769,6 +5971,9 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
         print(f"world-river: {donor.name} (stock blocks {donor.blocks}) -> {folder}")
         print(f"  placement --at {comp.offset[0]:g},{comp.offset[1]:g}: block shift ({sx},{sy}), rotation 0, "
               f"{len(cells)} cells {_river_cells(cells)}")
+        if d.move_from is not None:
+            print(f"  moving from --at {d.move_from[0]:g},{d.move_from[1]:g}: {len(d.moved['owned'])} file(s) of that "
+                  f"deploy on {len(d.moved['cells'])} cells {_river_cells(d.moved['cells'])}, free for this one")
         if d.skipped:
             print("  auto: the nearest open-ocean shift no stacked folder overrides; passed over "
                   + ", ".join(f"({a},{b}) [{n} file(s)]" for (a, b), n in d.skipped[:8])
@@ -5796,21 +6001,29 @@ def _cmd_world_river(args: argparse.Namespace) -> int:
     try:
         d = R.deploy(folder, donor=donor, offset=_parse_river_at(args.at), area=args.area, apron=args.apron,
                      dry_run=args.dry_run, skip_mirror=args.skip_mirror, game=args.game, on_planned=planned,
-                     on_gated=gated)
+                     on_gated=gated, move_from=move_from)
     except R.RiverRefused as e:
         print(f"world-river refused -- {e}", file=sys.stderr)
+        _river_report_json(args, refused=e)
         return 2
     except (ValueError, ConfigError, FileNotFoundError) as e:
         print(str(e), file=sys.stderr)
+        _river_report_json(args, refused=e)
         return 2
+    _river_report_json(args, d=d, folder=folder)
     if d.red:
         for gate, msg in d.red:
             print(f"world-river refused -- {gate}: {msg.removeprefix(gate + ': ')}", file=sys.stderr)
         return 2
     if args.dry_run:
         print(f"would deploy {d.rep['files']} files into {folder}"
-              + ("" if args.skip_mirror else " (+ the disc-4 mirror)") + ". Nothing written.")
+              + ("" if args.skip_mirror else " (+ the disc-4 mirror)")
+              + (f", after removing the {len(d.moved['owned'])} file(s) of the deploy at "
+                 f"{d.move_from[0]:g},{d.move_from[1]:g}" if d.move_from is not None else "") + ". Nothing written.")
         return 0
+    if d.move_from is not None:
+        print(f"moved: removed {len(d.moved['removed'])} file(s) of the deploy at {d.move_from[0]:g},"
+              f"{d.move_from[1]:g} (each parked as <name>.bak-<ts> and ledgered)")
     bx, bz = _river_bridge_point(d.frag, d.comp.offset)
     print(f"deployed {len(d.written)} files into {folder} (every file the audited stage's bytes; ledgered). "
           f"~ -> World -> re-enter the world (a first-time cell needs it), then teleport to the bridge "
@@ -5865,6 +6078,47 @@ def _river_remove(args: argparse.Namespace, folder: str, donor, discs) -> int:
           f"~ -> World -> re-enter the world. To redeploy here: world-river --mod-folder {folder} --at "
           f"{offset[0]:g},{offset[1]:g}")
     return 0
+
+
+def _river_report_json(args, *, d=None, folder=None, refused=None) -> None:
+    """``world-river --report-json``: the verdict as data, beside the unchanged printed text (the World tab's river
+    card reads it). A refusal's marks are the middles of the cells it names, else the placement's cells."""
+    path = getattr(args, "report_json", None)
+    if not path:
+        return
+    import json
+    import re
+    from pathlib import Path
+
+    def mid(c):
+        return [64.0 * c[0] + 32.0, -(64.0 * c[1] + 32.0)]
+    out = {"ok": refused is None and d is not None and not d.red, "dry_run": bool(args.dry_run), "at": None,
+           "shift": None, "cells": [], "blocks": [], "gates": [], "red": [], "written": [], "move_from": None,
+           "moved_cells": [], "removed": [], "bridge": None, "files": None, "refused": None}
+    if d is not None:
+        from .world import river as R
+        out.update(at=list(d.comp.offset), shift=list(R.block_shift(d.comp.offset)), cells=[list(c) for c in d.cells],
+                   blocks=[list(c) for c in d.cells], written=[str(p) for p in d.written],
+                   bridge=list(_river_bridge_point(d.frag, d.comp.offset)),
+                   files=None if d.rep is None else d.rep.get("files"),
+                   gates=[{"gate": g, "verdict": v, "detail": t}
+                          for g, v, t in _river_report(d.comp, d.stack, folder, d.rep, d.fails)],
+                   red=[{"gate": g, "message": m} for g, m in d.red])
+        if d.move_from is not None:
+            out.update(move_from=list(d.move_from), moved_cells=[list(c) for c in d.moved["cells"]],
+                       blocks=sorted({tuple(c) for c in d.cells} | {tuple(c) for c in d.moved["cells"]}),
+                       removed=[str(f["path"]) for f in d.moved.get("removed", ())])
+            out["blocks"] = [list(c) for c in out["blocks"]]
+        if d.red:
+            gate, msg = d.red[0]
+            cells = {(int(a), int(b)) for a, b in re.findall(r"\((-?\d+), ?(-?\d+)\)", msg)}
+            out["refused"] = {"gate": gate, "message": msg, "detail": "",
+                              "where": [mid(c) for c in sorted(cells or set(d.cells))][:12]}
+    if refused is not None:
+        out["refused"] = {"gate": getattr(refused, "gate", "error"), "message": str(refused), "detail": "",
+                          "where": []}
+    Path(path).write_text(json.dumps(out, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o)),
+                          encoding="utf-8")
 
 
 def _river_source_point(frag, offset) -> tuple:
@@ -6591,10 +6845,10 @@ def _cmd_world_forms(args: argparse.Namespace) -> int:
 
 
 def _cmd_world_ledger(args: argparse.Namespace) -> int:
-    """Read the world deploy ledger: the last write per (disc, cell, part), and with ``--drift`` every
-    deployed .ff9mesh whose bytes match NO ledger entry (a hand edit, another era, or a pre-ledger deploy).
-    Reconciliation, not quality scoring -- it makes no claim about whether the geometry is good."""
-    import hashlib
+    """Read the world deploy ledger: the last write per (disc, cell, part), and with ``--drift`` every deployed world
+    file whose bytes its own last row does not name (``mesh.ledger_audit``: stale, foreign or unledgered); ``--repair``
+    re-ledgers the stale ones (``mesh.ledger_repair``). Reconciliation, not quality scoring -- it makes no claim about
+    whether the geometry is good."""
     import json
     from . import config as _config
     from .world import mesh as WM
@@ -6625,20 +6879,27 @@ def _cmd_world_ledger(args: argparse.Namespace) -> int:
         argv = " ".join(e.get("argv") or []) or "(argv unrecorded)"
         gone = "  REMOVED" if e.get("op") == "remove" else ""             # world-river --remove's row
         print(f"  Disc{d} {cell} {part:8s} {e.get('utc')}  kit {e.get('kit')}{gone}  {argv[:80]}")
-    if args.drift:
-        known = {e.get("sha256") for e in entries}
-        wm_root = mod_root / "FF9_Data" / "WorldMap"
-        drift = []
-        for p in sorted(wm_root.rglob("Block*.ff9mesh")) if wm_root.is_dir() else []:
-            if args.disc is not None and f"Disc{args.disc}" not in p.parts:
+    if args.drift or args.repair:
+        # each file judged by ITS OWN last row (meshes and Donor.txt sidecars alike) -- the row Promote, Revert and the
+        # ownership reads trust; "some row anywhere names these bytes" let a file put back behind the ledger pass
+        audit = WM.ledger_audit(mod_root, disc=args.disc)
+        off = [a for a in audit if a["status"] != "true"]
+        why = {"stale": "an earlier row names their bytes: put back behind the ledger (--repair re-ledgers them)",
+               "foreign": "no row of theirs names their bytes: a hand edit or another session",
+               "unledgered": "no row at all: pre-ledger deploys, expected until each is re-deployed once"}
+        print(f"\ndrift: {len(off)} of {len(audit)} deployed file(s) whose bytes their last ledger row does not name")
+        for status in ("stale", "foreign", "unledgered"):
+            some = [a for a in off if a["status"] == status]
+            if not some:
                 continue
-            if hashlib.sha256(p.read_bytes()).hexdigest() not in known:
-                drift.append(p)
-        print(f"\ndrift: {len(drift)} deployed file(s) match no ledger entry"
-              + (" (pre-ledger deploys are expected here until each is re-deployed once)"
-                 if drift else ""))
-        for p in drift[:40]:
-            print(f"  {p.relative_to(mod_root)}")
+            print(f"  {status} {len(some)} ({why[status]})")
+            for a in some[:40]:
+                when = (a["match"] or {}).get("utc") if status == "stale" else (a["last"] or {}).get("utc")
+                print(f"    {a['rel']}" + (f"  (as of {when})" if when else ""))
+        if args.repair:
+            new = WM.ledger_repair(mod_root, disc=args.disc, audit=audit)
+            print(f"\nrepair: {len(new)} stale file(s) re-ledgered under the writer whose bytes they are"
+                  + ("; the ledger was parked first" if new else ""))
     return 0
 
 
@@ -8655,6 +8916,7 @@ def _not_yet(phase: str):
 
 
 def build_parser() -> argparse.ArgumentParser:
+    from .world import handles as handles_table
     p = argparse.ArgumentParser(prog="ff9mapkit", description="Author custom FF9 field maps.")
     p.add_argument("--version", action="version", version=f"ff9mapkit {__version__}")
     p.add_argument("--game", default=None, help="path to the FF9 install (overrides $FF9_GAME_PATH and config)")
@@ -9481,7 +9743,8 @@ def build_parser() -> argparse.ArgumentParser:
                      help="overlay lane only: which donor clips to bake to .anim ('all'|'none'|index list)")
     sd_.add_argument("--arm", action="store_true",
                      help="ALSO write Memoria.ini [SfxHybrid] (hybrid lane): backs the ini up, string-probes "
-                          "the DLL for SfxHybridDrive, prints the diff. Confirm-first -- omit to only stage "
+                          "the DLL for SfxHybridDrive, refuses a FF9SpecialEffectPlugin.dll build the drive's "
+                          "native offsets were not derived from, prints the diff. Confirm-first -- omit to only stage "
                           "the assets + print the [SfxHybrid] block. RELAUNCH to apply.")
     sd_.set_defaults(func=_cmd_summon_deploy)
 
@@ -9612,7 +9875,30 @@ def build_parser() -> argparse.ArgumentParser:
                           "picture (4 of them 4bpp read back as 8bpp) and 10 come back with "
                           "nothing at all. "
                           "A repaint of one of these is INVISIBLE IN GAME unless a reader this kit "
-                          "cannot attribute -- one on a multi-part record -- samples it.")
+                          "cannot attribute -- one on a multi-part record -- samples it. "
+                          "REFUSES with `--readership bound`, where these cells are pages already.")
+    srk.add_argument("--acknowledge-drawn-depth", dest="ack_drawn_depth", action="store_true",
+                     help="export-art: ALSO export the cells CHANNEL D gives a depth to -- cells no "
+                          "`so` record gives a depth, that the headless draw census saw the "
+                          "effect's draws read at ONE depth (on the screen or into the render "
+                          "target), keyed by the CLUT those draws read them through. The scaffold "
+                          "writes each as a COMMENTED block carrying `acknowledge_drawn_depth = true` "
+                          "and its `expect_bpp`; uncomment it to edit. The census is the headless "
+                          "stage, at Battle Speed < 3: no battle camera, the actors at the origin")
+    srk.add_argument("--readership", dest="readership", default=None,
+                     choices=sorted(_SUMMON_READINGS),
+                     help="WHICH CELL a scenery reader is taken to read. `effective` (the default) "
+                          "is the cell the hardware SAMPLES under the measured second-array "
+                          "displacement (MODEL linear-add-v1): 70 corpus cells GAIN a reader that "
+                          "way, licensed on the derivation alone, with no key -- and if the model "
+                          "does not hold on your container a repaint there is invisible in game with "
+                          "no error. `bound` DECLINES that: the cell each record BINDS, the "
+                          "pre-adoption reading, where a gained cell refuses as it used to (and 54 "
+                          "of the 55 cells the displacement empties are pages again, behind the "
+                          "build's second-array gate). export-art: the reading the art "
+                          "and scaffold are written under (the scaffold states it as [reskin] "
+                          "readership). plan/build/verify/deploy: a CHECK -- the spec's own "
+                          "`readership` decides, and a mismatch refuses")
     srk.add_argument("--dither", action="store_true",
                      help="REFUSES by name, with the measurement and a better workflow. Error "
                           "diffusion is stateful across texels, so an UNEDITED page would dither and "
@@ -10384,6 +10670,10 @@ def build_parser() -> argparse.ArgumentParser:
     wtp.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wtp.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    wtp.add_argument("--report-json", metavar="PATH", default=None,
+                     help="with --in-place: also write the morph's verdict as JSON to PATH -- ok, the cell, every "
+                          "gate, the files written, and on a refusal the failing gates (the World tab's coast card "
+                          "reads it). The printed text is unchanged.")
     wtp.set_defaults(func=_cmd_world_transplant)
 
     wsk = sub.add_parser("world-sink",
@@ -10409,6 +10699,10 @@ def build_parser() -> argparse.ArgumentParser:
     wsk.add_argument("--skip-mirror", action="store_true", help="don't mirror or replay the edit on disc 4")
     _add_fresh_args(wsk, "sink")
     wsk.add_argument("--allow-entrances", action="store_true", help=_ALLOW_ENTRANCES_HELP)
+    wsk.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the verdict as JSON to PATH: ok, the blocks, the files written, the sink's "
+                          "report, and on a refusal its gates and where (the World tab's sink card reads it). The "
+                          "printed text is unchanged.")
     wsk.add_argument("--cluster", action="store_true",
                      help="sink the island together with every island its coastal or beach water joins (an island "
                           "cluster, within 9 blocks), re-tiled as one; without it, a joined island sinks alone and "
@@ -10521,6 +10815,10 @@ def build_parser() -> argparse.ArgumentParser:
                      help="don't stamp vehicle navigation classes after the deploy. The mint's water "
                           "then ships boat-permeable straddling triangles with no standoff belt and "
                           "no landability -- only for A/B work; stamp later with world-coastnav")
+    wis.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the mint's verdict as JSON to PATH: ok, the centre, the seed, the blocks, and "
+                          "on a refusal its message and the blocks it names (the World tab's island card reads it). "
+                          "The printed text is unchanged.")
     wis.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wis.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
@@ -10553,26 +10851,7 @@ def build_parser() -> argparse.ArgumentParser:
                               "perimeter walk-in simulation (takes a few minutes) + the placement census. "
                               "Needs the custom engine; re-enter the world.")
     wfo.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
-    _ftg = wfo.add_mutually_exclusive_group(required=True)
-    _ftg.add_argument("--center", metavar="WX,WZ", help="EXACT blob centre in world coords (gated, no scan)")
-    _ftg.add_argument("--near", metavar="WX,WZ",
-                      help="scan a ~80u window around this point for the best lawful plain-grass placement")
-    wfo.add_argument("--donor", default="15,15", metavar="BX,BY",
-                     help="real block whose canopy to carry: the largest topo-37 blob touching it whose rim meets "
-                          "only grass, gathered whole across block borders (default 15,15, the July donor; "
-                          "`world-donors --class canopy` lists the census-qualified ones). A blob that meets rock "
-                          "or other ground refuses: carried alone it would leave an open, unwalled edge.")
-    wfo.add_argument("--spread", type=float, default=1.0, metavar="S",
-                     help="scale the canopy S times wider in plan (1.0-1.5) about its centre, heights, UVs "
-                          "and topographs carried: a bigger forest from the same donor, its curtains still "
-                          "vertical. The step law and the walk-in gate judge the result as usual. In-game kept to "
-                          "x1.5 (terrain study X3). Default 1.0 = the verbatim carry.")
-    wfo.add_argument("--rot", type=float, default=None, metavar="DEG",
-                     help="turn the canopy to ANY angle about its centre (degrees, clockwise seen from above, "
-                          "as world-mountain --rot); its texture turns with it, the grass stays on its grid "
-                          "and the zip round the rim is minted fresh and gated. Default 0.")
-    wfo.add_argument("--reach", type=float, default=96.0,
-                     help="deployed-block load window around the point in units (default 96)")
+    handles_table.add_arguments(wfo, "forest")   # the verb's handles (world/handles.py)
     wfo.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wfo.add_argument("--target-disc", type=int, default=None,
                      help="work in THIS disc's override namespace instead of --disc's. Like world-terrain, "
@@ -10582,7 +10861,26 @@ def build_parser() -> argparse.ArgumentParser:
     wfo.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wfo.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    wfo.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the verdict as JSON to PATH: ok, the centre, the carve's report, the files "
+                          "written, and on a refusal the gate, its message and the world points where it fails "
+                          "(what the Workspace's World tab draws). The printed text is unchanged.")
     wfo.set_defaults(func=_cmd_world_forest)
+
+    wpm = sub.add_parser("world-promote",
+                         help="write a world DRAFT's edits (the World tab's Accept writes drafts, outside the install) "
+                              "into its live mod folder: refuses when a file it edited changed there since the draft "
+                              "was made; backs up and ledgers every write, runs the disc-4 mirror, and snapshots the "
+                              "edited blocks first so --revert puts them back byte for byte. The game shows the "
+                              "change on its next world load.")
+    wpm.add_argument("draft", help="the draft folder (<kit cache>/world-drafts/<folder>.draft)")
+    wpm.add_argument("--revert", action="store_true",
+                     help="undo the draft's last promote instead: every file at its blocks back to the snapshot "
+                          "(refuses when one changed after the promote); the edits stay in the draft")
+    wpm.add_argument("--dry-run", action="store_true", help="check and report what would be written; write nothing")
+    wpm.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the outcome as JSON to PATH (what the World tab reads)")
+    wpm.set_defaults(func=_cmd_world_promote)
 
     whl = sub.add_parser("world-hill",
                          help="raise a raised-cosine GRASS HILL on a DEPLOYED kit island by pure-Y displacement "
@@ -10590,14 +10888,7 @@ def build_parser() -> argparse.ArgumentParser:
                               "the in-game-proven grass-hill language (slope p99 28.6 deg, lowland-band peak "
                               "cap, local normal re-smooth). Needs the custom engine; re-enter the world.")
     whl.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
-    _htg = whl.add_mutually_exclusive_group(required=True)
-    _htg.add_argument("--center", metavar="WX,WZ", help="EXACT hill centre in world coords (gated, no scan)")
-    _htg.add_argument("--near", metavar="WX,WZ",
-                      help="scan a ~112u window around this point for the best lawful pure-mains placement")
-    whl.add_argument("--height", type=float, default=4.2,
-                     help="prominence in units (default 4.2; the real language is 3.5-5.2)")
-    whl.add_argument("--radius", type=float, default=18.0,
-                     help="footprint radius in units (default 18; the real language is 20-26u diameter runs)")
+    handles_table.add_arguments(whl, "hill")   # the verb's handles (world/handles.py)
     whl.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     whl.add_argument("--target-disc", type=int, default=None,
                      help="work in THIS disc's override namespace instead of --disc's. Like world-terrain, "
@@ -10606,6 +10897,10 @@ def build_parser() -> argparse.ArgumentParser:
     whl.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     whl.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    whl.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the verdict as JSON to PATH: ok, the centre, the hill's report, the files "
+                          "written, and on a refusal the gate, its message and the world points where it fails "
+                          "(what the Workspace's World tab draws). The printed text is unchanged.")
     whl.set_defaults(func=_cmd_world_hill)
 
     wmt = sub.add_parser("world-mountain",
@@ -10615,66 +10910,7 @@ def build_parser() -> argparse.ArgumentParser:
                               "annulus). Gated by ROCK-RIGID + the weld-safe lift + the zip envelope + "
                               "placement probes + the census. Needs the custom engine; re-enter the world.")
     wmt.add_argument("--mod-folder", required=True, help="the FolderNames mod folder holding the island")
-    _mtg = wmt.add_mutually_exclusive_group(required=True)
-    _mtg.add_argument("--center", metavar="WX,WZ",
-                      help="EXACT massif centre in world coords, rotation 0 (gated, no scan)")
-    _mtg.add_argument("--near", metavar="WX,WZ",
-                      help="scan a ~20u window around this point for the best lawful plain-grass placement "
-                           "(exact 90-deg rotations as fallbacks)")
-    wmt.add_argument("--donor", default="0,0", metavar="BX[,-BX1],BY[-BY1]",
-                     help="real block(s) whose rock massif to carry: one block (default 0,0 = Uaho) or a "
-                          "rect for a massif that straddles a border (the target sizes itself to a "
-                          "multi-block span automatically). The qualified-donor catalog is "
-                          "`ff9mapkit world-donors --class massif`; a NEW donor needs its own anatomy "
-                          "pass first (studies/overworld-topography/README.md).")
-    wmt.add_argument("--max-apron-lift", type=float, default=None, metavar="U",
-                     help="cap the grass apron's rise toward a high donor foot at U units; outer-rim "
-                          "columns still higher CONFORM DOWN (the carried bottom wall row stretches, uv "
-                          "kept -- THE WALL V CORNER-ROLE LAW) so flat host ground meets the wall at the "
-                          "crease instead of minting a grass knoll against mid-wall (the R4 west-seam "
-                          "defect). DOWN-only; aperture/ensemble columns exempt. Default: no cap (the "
-                          "frozen identity baselines' behavior).")
-    wmt.add_argument("--foot-course", action="append", default=None,
-                     metavar="X0,Z0,X1,Z1[,PULL[,TOP]]",
-                     help="world rect (repeatable) where the massif gets a synthetic ROCK "
-                          "FOOT COURSE instead of a grass apron: rim nodes inside the rect "
-                          "leave the apron field (the lawn stays flat), the hole hugs the "
-                          "rim (THE PROFILE LAW: the toe CONTINUES the face's own slope "
-                          "instead of skirting), and the zip annulus there emits as blocked "
-                          "topo-49 r10-tile rock, fringe pinned at the lawn line -- except "
-                          "where the rim sits at lawn height (the mountain has ended: grass, "
-                          "never rock paint on flat ground). Optional "
-                          "PULL steepens the carried flank inside the rect: horizontal pull "
-                          "toward the massif centre in units, full at lawn height fading to "
-                          "zero at TOP (default lawn+12) -- for a donor face that is "
-                          "low-angle because its home context hides it.")
-    wmt.add_argument("--rot", type=float, default=None, metavar="DEG",
-                     help="turn the massif to ANY angle about its centre (degrees, clockwise seen from above): "
-                          "exact with --center, the only angle --near scans. The rock's texture turns with it "
-                          "unchanged; the grass stays on its grid and the foot seam is minted fresh and gated. "
-                          "Default: --near tries the four quarter turns, --center uses 0.")
-    wmt.add_argument("--rock-height", type=float, default=1.0, metavar="S",
-                     help="stretch the carried rock S times taller (1.0-2.0) about its rim, UV carried: the "
-                          "rim, the welds to any floor or ledge and the aperture plugs stay put, so the apron "
-                          "and zip are unchanged. In-game passed to x2.0 on Uaho (terrain study X1). Refused "
-                          "for a massif with loose geometry on its face (the horseshoe's falls/river mouth) "
-                          "and for a peak above stock's tallest terrain (42.68). Default 1.0 = the rigid carry.")
-    wmt.add_argument("--spread", type=float, default=1.0, metavar="S",
-                     help="carry the massif S times wider in plan (1.0-1.5) about its centre, heights kept: the "
-                          "rock, its rim, plugs and any falls/river parts move alike, UVs carried, and every gate "
-                          "judges the result. With --rock-height S as well it scales uniformly. Needs a bigger "
-                          "island: the footprint grows S squared. In-game passed to x1.5 on Uaho, alone and scaled whole "
-                          "(terrain study round 20). Default 1.0 = the rigid carry.")
-    wmt.add_argument("--gblend", type=float, default=None, metavar="U",
-                     help="ground-apron blend reach in units (default 12.0, the proven hill-at-scale "
-                          "value): how far out from the rigid rim the grass apron spreads its rise. "
-                          "Wider = a broader, gentler bank into the foot (a high donor foot over flat "
-                          "host lawn wants ~20-26 so the rise reads as a foothill, not a knoll).")
-    wmt.add_argument("--reach", type=float, default=96.0,
-                     help="deployed-block load window around the point in units (default 96)")
-    wmt.add_argument("--ground", choices=_ground_choices(), default="grass",
-                     help="the bench island's ground family: the zip annulus + plain-ground checks speak "
-                          "it (match the island's world-island --ground)")
+    handles_table.add_arguments(wmt, "mountain")   # the verb's handles (world/handles.py)
     wmt.add_argument("--disc", type=int, default=1, help="world disc (default 1)")
     wmt.add_argument("--target-disc", type=int, default=None,
                      help="work in THIS disc's override namespace instead of --disc's. Like world-terrain, "
@@ -10684,6 +10920,11 @@ def build_parser() -> argparse.ArgumentParser:
     wmt.add_argument("--dry-run", action="store_true", help="build + run every gate, write nothing")
     wmt.add_argument("--skip-mirror", action="store_true",
                      help="don't auto-mirror the written override(s) to Disc4 (THE DISC-4 GAP; default: mirror)")
+    wmt.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the verdict as JSON to PATH: ok, the centre, the carve's report, the files "
+                          "written, the home-ground note, and on a refusal the gate, its message and the world "
+                          "points where it fails (what the Workspace's World tab draws). The printed text is "
+                          "unchanged.")
     wmt.set_defaults(func=_cmd_world_mountain)
 
     wrv = sub.add_parser("world-river",
@@ -10729,6 +10970,19 @@ def build_parser() -> argparse.ArgumentParser:
                           "nothing: any other file there (a hand edit, another verb's, another placement's) refuses "
                           "R1 and nothing is removed. Other stacked folders are never touched. To redeploy at the "
                           "same cells: --remove, then the ordinary run. With --dry-run it only lists")
+    wrv.add_argument("--move-from", metavar="DX,DZ", default=None,
+                     help="MOVE this verb's own deploy at DX,DZ (the placement it printed) to --at: the old deploy's "
+                          "files (the ledger's, as --remove reads them) are left out of every occupancy read, so the "
+                          "new placement may overlap the old one, and every gate judges the new one as if the old "
+                          "river were gone. Only when every gate is green and the stage is audited is the old one "
+                          "removed (parked and ledgered, as --remove) and the new one deployed; a refused move "
+                          "changes nothing. A file on the old cells that is not that deploy's refuses R1. With "
+                          "--dry-run it only judges. A negative DX needs the = form: --move-from=-1024,0")
+    wrv.add_argument("--report-json", metavar="PATH", default=None,
+                     help="also write the verdict as JSON to PATH: ok, the placement and its cells, every gate row, "
+                          "the refusing gates, the files written (and on a move, the old placement and the files it "
+                          "removed), and the bridge, where the party lands (what the Workspace's World tab reads). "
+                          "The printed text is unchanged.")
     wrv.set_defaults(func=_cmd_world_river)
 
     wdn = sub.add_parser("world-donors",
@@ -10949,10 +11203,13 @@ def build_parser() -> argparse.ArgumentParser:
                                     "COMPOSE tables (audit rec 16, run in fixed tier order regardless of "
                                     "document position): [[island]] (the world-island mint), [[river]] "
                                     "(world-river's carry: donor, at=[DX,DZ] -- \"auto\" on --dry-run only --, "
-                                    "area, apron; the same pipeline, so the same bytes), [[mountain]]/"
-                                    "[[forest]]/[[hill]] (interior relief on the DEPLOYED base), [[coastnav]]/"
-                                    "[[rim_retile]] (nav stamps). Each table takes its verb's own argument "
-                                    "names; unknown keys refuse. The compose writes world_manifest.json "
+                                    "area, apron; the same pipeline, so the same bytes), [[sink]] (world-sink: "
+                                    "at=[WX,WZ], cluster, allow_entrances, fresh; with its disc-4 replay), "
+                                    "[[mountain]]/[[forest]]/[[hill]] (interior relief on the DEPLOYED base), "
+                                    "[[coastnav]]/[[rim_retile]] (nav stamps). Each table takes its verb's own "
+                                    "argument names; unknown keys refuse. Inside a tier, rows with step = N run "
+                                    "first, in step order (the World tab's saved recipes carry it). The compose "
+                                    "writes world_manifest.json "
                                     "beside the deploys and REFUSES over manifest-diverged files without "
                                     "--allow-overwrite")
     wfu.add_argument("--mod-folder", required=True, help="the stacked FolderNames mod folder to deploy into")
@@ -11064,7 +11321,11 @@ def build_parser() -> argparse.ArgumentParser:
                           "$FF9_MOD_FOLDER, else this checkout's .ff9deploy.toml pin, else FF9CustomMap)")
     wlg.add_argument("--disc", type=int, default=None, help="only this write-disc namespace")
     wlg.add_argument("--drift", action="store_true",
-                     help="hash every deployed Block*.ff9mesh and report unledgered bytes")
+                     help="judge every deployed world file (meshes and Donor.txt sidecars) by its own last ledger "
+                          "row: stale (put back behind the ledger), foreign, or unledgered")
+    wlg.add_argument("--repair", action="store_true",
+                     help="re-ledger the STALE files (bytes an earlier row of theirs names) under the writer whose "
+                          "bytes they are; foreign and unledgered files are never touched. Parks the ledger first")
     wlg.add_argument("--game", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     wlg.set_defaults(func=_cmd_world_ledger)
 

@@ -19,13 +19,15 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 sys.path.insert(0, str(HERE.parent / "mountaindonors"))
 import step_carry as C  # noqa: E402  (the donor, its canopy spec, the worktree-pinned kit)
+sys.path.insert(0, str(HERE))
+import rounds  # noqa: E402  ($CANOPY_DONOR)
 
-ISLAND = ["--ground", "desert", "--center", "1380,-100", "--radius", "55", "--lobes", "1", "--patches", "0",
-          "--seed", "42"]
-DONOR = C.DONORS["comp26"][0]
+ISLAND = rounds.R["island"]
+DONOR = C.DONORS[rounds.NAME][0]
+CX, CZ = rounds.R["near"]
 ROTS = (0, 90, 200, 270)
-XS = (1372.0, 1376.0, 1380.0, 1384.0, 1388.0)
-ZS = (-108.0, -104.0, -100.0, -96.0, -92.0)
+XS = tuple(CX + d for d in (-8.0, -4.0, 0.0, 4.0, 8.0))
+ZS = tuple(CZ + d for d in (-8.0, -4.0, 0.0, 4.0, 8.0))
 _FOLDER = None
 
 
@@ -40,7 +42,8 @@ def one(job):
     spec, _ = C.canopy_spec(DONOR)
     try:
         blocks = IN.read_deployed_blocks(_FOLDER, near=(x, z), reach=140.0, disc=1)
-        res = IN.carve_mountain(IN.soup_from_blocks(blocks), near=(x, z), donor=DONOR, rot_deg=rot, ground="desert",
+        res = IN.carve_mountain(IN.soup_from_blocks(blocks), near=(x, z), donor=DONOR, rot_deg=rot,
+                                ground=rounds.R["ground"],
                                 alcove=spec, disc=1, log=lambda *a: None)
         IN.census_gate(res["changed"], disc=1, baseline=blocks, parts=IN.census_parts(res), log=lambda *a: None)
         rep = res["report"]
@@ -70,7 +73,7 @@ def main():
         for w, n in why.most_common(3):
             print(f"          {n:>2} x {w}")
     (HERE / "out").mkdir(exist_ok=True)
-    (HERE / "out" / "grid_probe.json").write_text(json.dumps(rows, indent=1), encoding="utf-8")
+    (HERE / "out" / f"grid_probe_{rounds.NAME}.json").write_text(json.dumps(rows, indent=1), encoding="utf-8")
 
 
 if __name__ == "__main__":

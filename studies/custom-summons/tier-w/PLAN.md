@@ -350,6 +350,11 @@ scenery must be re-authored *together*.
   channel P's LICENSE upgrade failed its first trigger, the DISCLOSE posture vindicated by its
   own test. THE 15bpp LANE RESTS: WRITE path cast-proven + codec offline-exhaustive; the READ
   proof is PARKED with the three-vehicle evidence table (the ghost-layer observation).**
+  ⛳ **EXPLAINED by `headless/raster.py` (README "Pixels"):** once a cast draws into Memoria's DR_AREA render
+  target, every 15bpp page at x ≥ 384 samples that target, never VRAM, and the target holds what the program
+  rendered there with INDEXED prims. ef429's covers, ef446's 8bpp salmon and ef251's indexed read all follow,
+  and the port reproduces all three. Over 372 containers, only Stop (448,256) and Carbuncle ×4 (576,256),
+  f181–211, read a 15bpp page from VRAM. A READ proof on any other 15bpp cell cannot succeed.
   `ff9mapkit/ff9mapkit/summons/{repaint,reskin,texture}.py`,
   `ff9mapkit/tests/test_summon_{repaint,reskin}.py`; w6b_gates 7/7, w6_gates 7/7, w7_gates 5/5,
   w5_gates 9/9, tier-w suite 360/1 single-process, the four kit summon test files 382).
@@ -597,20 +602,244 @@ scenery must be re-authored *together*.
   REACH: incumbent single-part records only — `ORDER_UNMEASURED` is untouched and 142 novel slots
   carry a pair nothing models. THE HONEST LIMIT, and the one thing an owner may want to change: the
   loss half fails LOUDLY (refusal + key) and the gain half fails SILENTLY (licensed on the derivation
-  alone, no key, no way to decline at the CLI). Gates: `u1_gates` U1-U7 (U7 is the only instrument
+  alone, no key; DECLINABLE since owner item (2) below, `readership = "bound"`). Gates: `u1_gates` U1-U7 (U7 is the only instrument
   aimed at `EDIT_CHANNELS`), `w6b_gates` 7/7, `w6q_gates` 20/20, `tests/test_summon_repaint.py`
   231/231. The two W6b-3 (ii) Odin cast specs are FROZEN AS HISTORY — they no longer build under the
   adoption and their notes say why.
   **NEXT AFTER THIS — two owner items, neither blocking anything:**
-  **(1) CAST A GAINED CELL. The vehicle is `ef407 cell.s0.x704_y384`** — 20 arriving readers, no
-  program-VRAM block, and BOTH its gained pages verified exporting as real PNGs on disk. It is ef038's
-  structural twin and reproduces the derivation cell for cell (27 bound readers on `cell.s0.x640_y256`
-  down to 7, one arriving on `x704_y256` and twenty on `x704_y384`) — which is also why ef038 itself
-  CANNOT be the vehicle: it is a program-VRAM writer and `export-art --ef 38` writes none of them.
-  This cast is the ONLY thing that closes the gain half's silent-failure mode.
-  **(2) SHOULD THE GAIN HALF BE DECLINABLE?** Today `texel_page` / `export_art` / `build` hard-code
-  `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface, so an author who distrusts
-  `linear-add-v1` on THEIR container cannot ask for the pre-adoption reading. Recovery is EXACT at the
-  page level (forcing the displacement to identity reproduces the LICENSED page set on 372/372), so it
-  is a PARAMETER — a mirror flag, or threading `channels=` through those three entry points — not a
-  re-derivation. A stated limit with no remedy attached is still a limit.
+  **(1) CAST A GAINED CELL. The vehicle is `ef407 cell.s0.x704_y256`, painted so the mark lands in
+  the scrolling band at (704,384)** — corrected from `cell.s0.x704_y384`, which this plan named until
+  the DR_MOVE check: **`x704_y384` is an op-144 scroll-blit DESTINATION** (`dst (704,384) 64x128 <-
+  src (704,256)`, tier-r `CALLBACK-OPS.md` addendum 10), so a repaint there is rewritten from
+  `x704_y256` every frame the blit runs and could never show, whatever the readers do. Independently,
+  the plugin run headless on ef407 executed 252 DR_MOVE blits into (704,384) from (704,256) over
+  native frames 85–211 (`headless/README.md` HX5). Had the cast run on `x704_y384` and shown nothing, the null would have been
+  charged to `linear-add-v1`: a second mechanism producing the exact silent failure this cast exists
+  to rule out. The kit now refuses that row by name (`acknowledge_scroll_blit_destination`).
+  **Paint the SOURCE.** `x704_y256` is editable and gains one arriving reader of its own; op 144 copies
+  it into (704,384), where the 20 arriving readers sample. **The prediction, and how to read it:** a
+  mark that SCROLLS vertically with wraparound is the 20 readers sampling the blitted band, the gain
+  half working; a static mark alone is the one reader arriving on (704,256) itself; nothing at all
+  would refute the derivation on this container. ef407 is ef038's structural twin and reproduces the derivation cell for
+  cell (27 bound readers on `cell.s0.x640_y256` down to 7, one arriving on `x704_y256` and twenty on
+  `x704_y384`); ef038 itself CANNOT be the vehicle because it is a program-VRAM writer and
+  `export-art --ef 38` writes none of them. (`cell.s0.x640_y256` is also a destination, fed from
+  (640,384), which ef407 does not make editable.) This cast is the ONLY thing that closes the gain
+  half's silent-failure mode.
+  **★ PRE-RUN OFFLINE — THE MARK REACHES THE SCREEN AND SCROLLS** (`ef407_gain_prerun.py`, headless
+  `raster.py`; SCRATCH `headless/raster/ef407-gain/`). Four 8-row bars stamped full-width into
+  `x704_y256` and built through the kit's own `repaint.build` (self-check 21/21) change 110 of 146 drawn
+  frames, f75–192, strongest f85–125 (~4,900 px a frame off by more than 48 levels). Every changed pixel
+  is charged to the cell its fragments read: 99.9 % to (704,384), none to neither. On the ice spire, whose
+  (704,384) footprint holds still over f92–105 (IoU 0.98–1.00), the bars climb about 2 px a frame; the
+  replayed DR_MOVEs put source row 2k at (704,384) row 0 on f85+k, wrapping every 64 frames. The one
+  reader arriving on (704,256) draws on f75 and f80 only (~230 px each), so **the three-way reading is
+  really two: scrolling bars on the spire and shards during the crystal burst = the gain half working;
+  nothing = refuted.** A dependency this plan did not name: the readers' decode is the 8bpp page keyed at
+  x640, and Memoria refreshes a decode only for a write whose origin is in its own 64-wide column, so the
+  (704,384) blit alone would leave the old decode on screen. The mark shows because ef407's OTHER op-144
+  roll, (640,256) ← (640,384), writes column 640 on f68–210 and clears that decode every frame. Bright
+  bars (index 254) and dark (index 0) read about equally; bright is the default
+  (`ef407_gain_ink.toml` in SCRATCH). Still the owner's: the cast itself (a new `Actions.csv` row with
+  animation 407, a relaunch, a fresh battle), and the timing, since the headless opening is not aligned
+  against any ef407 capture.
+  **STAGED FOR THE OWNER CAST.** Bench row **205 "Stock Shiva Short"** (vfx 407/407, the only 6 MP row
+  on Steiniv's `Rune`) appended last in `rung8.field.toml`, bench 85/85, deployed to field 30301; the
+  cast spec `ef407_gain.toml` (art stamped into `export-art`'s own PNG by `ef407_gain_prerun.py --art`)
+  deployed as `FF9CustomMap/FF9_Data/SpecialEffects/ef407`. **THE MARK IS ZEBRA, sha `71d04a12…`**,
+  byte-identical to the zebra pre-run: the first staging's bars (`f7599f99…`) were measurable but the
+  owner could not see them in the offline side-by-side (pale grey on bright additive ice), so the whole
+  cell became 16-row brightest/darkest bands — ~3.3× the strongly changed pixels, the burst, the shard
+  arms and the spire visibly striped. ⚠ THE LEDGER TRAP, MET AGAIN: redeploying zebra over bars made the
+  CLI ledger record the BARS as the pre-state, so its revert would have restored bars, not stock. Fixed
+  by unwinding (ledger revert → our bars removed by sha → zebra deployed onto an absent ef407; its
+  ledger revert now dry-runs `would delete`), and the wrapper below re-checks by sha. One revert, newest first:
+  `C:\gd\SCRATCH\summon-format\repaint-w6b\ef407-gain\revert_ef407_gain_cast.py` (container deleted,
+  then 30301's own revert restores the CSVs, registrations and scripts DLL). Found at staging: the
+  install had NEITHER bench's rows 196-204 live — a field-30300 (rung 3) deploy at 15:42 the same day
+  had written rows 192-195 fresh — so the 30301 deploy sits on top of it and its revert returns there.
+  **★★ CAST-CONFIRMED — THE GAIN HALF'S SILENT-FAILURE MODE IS CLOSED ON ef407.** Owner, cast of row 205
+  with the zebra mark: **"bands are in."** That alone is the verdict, because the only other route to
+  the screen — the one reader arriving on (704,256) itself — draws on two isolated frames offline, so
+  bands through the burst can only arrive through the copy at (704,384), i.e. through readers the kit
+  credits to this cell by `linear-add-v1` alone. The archived probe log
+  (`…\repaint-w6b\capture-logs\sfxmeshprobe.ef407-gain-zebra.2026-10-23.log`) agrees mechanically: the
+  in-game timeline runs **19 frames ahead** of the headless one (Odin's offset again), and at that offset
+  **121 of 121** in-game frames' DR_MOVE commands equal the headless ones move for move (0 at any other
+  offset); the (704,384) copy ran in-game f66–172 (headless f85–191) and the band's readers
+  (`00BABDC0`) drew after it on 104 of those frames. `raster.py calibrate --offset 19`: RX2 12/12 on the
+  input-matched frames — 108 frames differ in their INPUT, the real battle's camera and targets not being
+  the headless stage's. Still open on this item: nothing.
+  **Resting: REVERTED** by the wrapper, and checked against the backups rather than its own report: ef407
+  ABSENT (no `SpecialEffects` folder, as before staging), the 27 files 30301's revert restores each
+  byte-identical to its pre-deploy backup (CSVs, learn lists, scripts DLL, Battle/JournalPatch, the name
+  text), `Actions.csv` = `a6bc2de3…` rows 192–195, 30301 unregistered and 30300 kept; `DictionaryPatch`
+  holds the same 242 lines, reordered (30300's lines re-appended by the surgical revert). The minted
+  Models/Animations trees stay on disk unregistered — inert, as `deploy_field` documents.
+  **★ FOLLOW-UP — THE REFRESH LAW, FOLDED INTO THE KIT.** The cast's hidden dependency generalised:
+  `headless/stale_census.py` (raster's write-order tracker, all 372 containers, falsifier fired) found
+  103 of the 115 op-144 rect pairs read fresh, 9 MIXED (frozen after one decode) and 3 READ_STALE, every
+  bad one a band in the later column of the page that reads it. On today's edit surface no stale pair
+  has an editable SOURCE, so no "ALSO appears" disclosure was false; the one editable cell on a stale
+  pair is ef499's DESTINATION `x512_y256`, and its refusal's premise inverts — repainted offline with
+  the key it shows on 23 frames, because the stale decode keeps it. `scroll_blit.REFRESH` carries the
+  table, `repaint` says it in the refusal, the acknowledged note, the source disclosure and the
+  scaffold, and `scroll_blit_gates.py` S8 re-derives it. The refusal keeps its key: headless is not a cast.
+  **★ FOLLOW-UP — THE RENDER-TARGET GUARD, FOLDED INTO THE KIT.** The 15bpp lane's parked READ proof,
+  turned into a call-site refusal. Memoria's `SFXMesh.GetTexture` hands a 15bpp key VRAM only as its
+  last resort: left of x 384 it is the blur texture, and once an effect has rendered into its DR_AREA
+  target (`isCreateGenTexture`, cleared only at the next cast) it is that target. `raster.py routes`
+  measured it over all 372 containers, and **all 22 default-surface `direct15` cells (9 containers)
+  read NEVER_VRAM** (79 of 87 with every acknowledgement; 6 unread, 2 unported). `summons/render_target.py`
+  carries the census, `repaint._gate_render_target` refuses a 15bpp edit there by name, says whether the
+  cell's own bytes reach the screen another way (the target's draw reading them at 4/8 bpp,
+  as indices: 8 of the 22) and names the cells that draw the target; `acknowledge_render_target = true`
+  lifts it. It retrodicts the three 15bpp casts (ef429 never showed, no road; ef446 salmon, fed at
+  4/8; ef251 bumper strip, fed at 8/4), and with the key ef429's cast spec rebuilds the cast's exact
+  bytes (`2ec7c474…`). Falsifier: `routes --control` holds the flag down on ef429 and the same 58
+  reads (f53–110) come back from VRAM. Gates `render_target_gates.py` R1–R6 6/6. The honest limit: 20
+  of the 22 refusals name no cell the author can paint, because the kit's static derivation refuses
+  most of the target's feeders -- the census measures the depth each is drawn at, which is the
+  evidence a draw-side depth channel would need. At Battle Speed ≥ 3 `SFXData.cs:403` sets the flag
+  after every pre-recorded frame, so NEVER_VRAM holds on both cast paths and READS_VRAM only below 3.
+  **★ FOLLOW-UP — CHANNEL D, THE DEPTH A CELL IS DRAWN AT.** The honest limit above, closed as far as
+  the census reaches.
+  - **The census.** `raster.py` now records each indexed fragment's CLUT. A second `routes` run over the
+    66 target containers (`--no-draw`, under 2 min, SCRATCH `headless/raster/feeds`) reproduces
+    `_FEED_ROWS` exactly and splits each feed by CLUT, 371 rows in `render_target._FEED_CLUT_ROWS`. A
+    page-level join of mesh keys could not do this: 140 of the 280 feeds sit on a multi-CLUT page.
+  - **Calibrated before it was trusted.** Where the static derivation also speaks, depths agree on 13
+    cells and differ on 6. Five are 15bpp readers that never read VRAM, over bytes the target's draw
+    reads at 8 (the own feed). The sixth is ef499 `x704_y384`, a channel-G column bound at 4 that the
+    draw reads at 8; disclosed, not vetoed.
+  - **In the kit.** `"drawn"` is a depth source, consulted on the edit surface (not on `bound`).
+    Consulting it moves no page and no refusal class: it adds the drawn depth to `depth-unknown`
+    reasons and a "a draw this kit cannot attribute samples it" line to displaced ones. Behind
+    `acknowledge_drawn_depth` + `expect_bpp` it hands out 187 page names in 52 containers, keyed by
+    the draw's lowest-addressed CLUT; a cell drawn at two depths never emits.
+    `export-art --acknowledge-drawn-depth` writes them, as commented scaffold blocks, so the first
+    build stays a no-op.
+  - **The remedy.** 14 of the 22 refusals now name a paintable feeder: 2 outright, 12 behind stated
+    keys, all 26 keyed claims resolved through `texel_page`. The other 8: ef381 is a program-VRAM
+    writer (5), ef429's feeder is drawn at 4 and 8 (2), and ef447 is a veto (1).
+  - **The pre-run** (`drawn_feed_prerun.py`). ef150 `x448_y256` zebra'd with the key changes 549,208
+    screen px over 40 of 92 frames, while the feeder drew only into the target. The unedited build
+    moves nothing.
+  - **Gates.** `drawn_gates.py` D1-D6.
+  - **Open.** Screen draws are not censused (`routes` runs `--no-draw`), and no cast has tested a
+    drawn page. (The first is closed below.)
+  **★★ FOLLOW-UP — THE UPLOAD WALK: A THIRD OF THE SCENERY PAGES WERE READ AND WRITTEN AT THE WRONG
+  PLACE.** Found by the screen census's source tracker, which books the container offset every
+  LoadImage takes its bytes from. **943 of the corpus's 2,531 id-0 page cells (236 containers; 136 of
+  the 272 id-0 pages the default surface hands out) sat 380 to 1,984 bytes too early in the kit.**
+  - **The mechanism.** The page pixel stream starts in the id-0 resource and continues in the id-1
+    resource behind it. The engine uploads 64×128 units and never splits one across the two: a unit
+    that will not fit before id-0's sector-padded end (0x55 fill) starts at id-1's first byte. The kit
+    ran one cursor `w*h*2` straight through the pad. `reskin.scenery_pages` now walks units with that
+    hop (`PageRect.unit_offs`), `page_cells` takes each cell's unit offset, `id0_splits.hi` is the
+    last unit's end.
+  - **Measured, not argued.** The walk names the source of all 2,648 measured 64×128 uploads into a
+    page cell (2,448 by offset, 200 pages of one repeated byte by identical bytes); the old cursor
+    misses 914 (`screen_gates.py` C1, its falsifier). Unit test on a synthetic split container.
+  - **What it did.** An export showed those pictures shifted 3 to 15 lines with pad rows on top; a
+    repaint landed shifted and overwrote the last lines of the unit before it, in another VRAM cell.
+  - **The casts.** No verdict moves: each cast's read was by mark type, orientation, pitch or band
+    texture, all of which survive a translation, and U1's 0.97 is the s77 read of logged u,v. But
+    these were written at pre-walk offsets: ef407 `x704_y256` (the gain cast, +916 B), ef038's four
+    U1 cells (+916), ef211 cast 2 `x576_y384`, cast 3 `x640_y256` and the dome `x704_y384` (+392),
+    ef424 `x704_y384` (+408). The specs are re-derived on the walk (re-exported, re-stamped, new
+    `*-walk` art; each header says so) except the ef424 pair, frozen since U2 (it no longer builds
+    under the adoption either way) and noted; the cast art stays as history, and `u1_cell_probe.py` still
+    regenerates cast 1 byte for byte by writing at the offsets the casts used (`CAST_OFFSETS`). The
+    gain cast's spec now rebuilds `53d93424…` (was `71d04a12…`).
+  **★ FOLLOW-UP — CHANNEL D READS EVERY DRAW, PER PAGE.** The open line above, closed.
+  - **The census.** `raster.py routes --draw` renders every frame of all 372 containers (0 errors,
+    about 38 min) with the source tracker armed, and books every fragment that samples a texel —
+    before the cutout test, changed pixel or not, screen or target — against the upload whose bytes it
+    read and the 128-row band of it. `screen_gates.py` charges each to the kit page holding the bytes;
+    the kit carries 2,598 (page, cell, depth) rows (`summons/draw_census.py`), and
+    `render_target.drawn_depth(effect, cell, page)` answers from a page's own reads.
+  - **Why per page.** A per-cell census (the first cut) called 113 of the default pages read at two
+    depths; almost all were co-transform cells, two writers' bytes read at two depths. Per page, and on
+    the fixed map: 89 of 289 default pages are read at another depth (11 are 15bpp own-feeds the
+    render-target gate already states).
+  - **In the kit.** Channel D hands out 1,665 pages in 329 containers behind its key (was 187 in 52);
+    41 of the old 187 are read on the screen at a second depth and no longer emit. A page read only at
+    15bpp emits as direct colour. The other 78 indexed pages refuse an edit at build time, THE
+    DRAWN-CONFLICT GATE, lifted by `acknowledge_drawn_conflict` (headless is not a cast); consulting
+    the channel still moves no page and no refusal class.
+  - **Pre-run.** ef383 `cell.s0.x448_y256`, a page only the screen's draws give a depth to, zebra'd
+    with the key: 36 of 36 frames change (1,312,817 px) through its own screen draws, none into a
+    target; the unedited build moves nothing (`drawn_feed_prerun.py --screen`).
+  - **Gates.** `screen_gates.py` C1-C7 (C1 the page map). `drawn_gates` D3 now reads 335 pages in
+    its 62 containers. The render-target remedy is unchanged (2 outright, 12 keyed, 8 no route).
+  - **Open.** No cast has tested a drawn page or the conflict gate's premise. (Staged below.)
+  **★ FOLLOW-UP — STAGED FOR THE OWNER: THE TWO CHANNEL-D CASTS.** The open line above, one cast each.
+  - **The drawn page.** ef179 (Leviathan's full cut) `cell.s0.x576_y384`, the sky-and-sea panel behind
+    the creature: no `so` record gives it a depth; the draws read it at 8bpp through CLUT (0,245) on 265
+    of the cast's 555 frames. Zebra (`leviathan_drawn.toml`, `8db2eefe…`), offline DIRECT: 263 of 279
+    frames change (3,294,148 px), bold horizontal bands behind Leviathan. Bands = the census charged the
+    reads to the right bytes; nothing = it did not.
+  - **The conflict premise.** ef226 (Fenrir) `cell.s0.x576_y384`: an 8bpp page (`so-page`) every draw
+    reads at 4bpp (CLUT 0,244, 57 frames). A plain zebra cannot test it: rows and columns survive a depth
+    change, so both readings draw bands. The mark has to differ INSIDE a byte. PARITY ZEBRA: 16-row bands
+    of 0xF1 and 0x1F, each other's nibbles swapped. At 8bpp (the export PNG) they are warm grey and
+    near-black bands; at 4bpp both are one lit texel beside one clear one, so the element shows a fine
+    VERTICAL HATCH and the bands vanish. (`fenrir_conflict.toml`, `467c370d…`), offline SECOND-PICTURE:
+    55 frames change (1,061,239 px), every read at 4bpp. At band scale (a 5-px box) the two inks are one
+    picture (residual 0.19) and the plain zebra's two are not (1.88); pixel for pixel the two inks are
+    complementary combs (1.33), which is why the measure is band scale. Hatch without bands = the
+    premise holds; bands = some draw reads the bytes at 8bpp; nothing = the attribution is wrong.
+  - **Found on the way.** The kit's static coverage calls both edits 100 % "never-sampled pad, inert at
+    run time" (no GEOM model samples either page), while the draw census and both pre-runs have the
+    screen's own draws reading them, so the casts test that disagreement too. The first drawn
+    candidate, ef406 `x448_y384`, refused by name as a program-scroll DESTINATION.
+  - **Staged.** Bench 30301 rows 206 "Stock Leviathan" (vfx 179/179, 7 MP) and 207 "Stock Fenrir"
+    (226/226, 5 MP) on Steiniv's Rune, one relaunch for both; both containers deployed into
+    FF9CustomMap. The SFX probe is armed (prims), so each cast logs its draws' depths: archive
+    `sfxmeshprobe.log` before any relaunch. One revert, newest first:
+    `C:\gd\SCRATCH\summon-format\repaint-w6b\revert_channel_d_casts.py`.
+  - **Gates.** `screen_gates.py` C8 (each spec rebuilds its pin, carries the pre-run's own mark, refuses
+    without its key, and is cast by one bench row; a wrong pin, a stock PNG and a missing row each fail
+    it) and C9 (both pre-runs on the staged bytes). `drawn_feed_prerun.py --conflict` is the new mode.
+  **★ FOLLOW-UP — THE SCROLL-BLIT OPEN GAP, CLOSED.** The four cells the headless census saw rewritten with
+  no op-144 site (ef226 / ef509 `x448_y384` + `x512_y384`, licensed until now) are rewritten by the
+  containers' OWN horizontal-scroll routine: six containers carry it, it takes op 144's arguments and
+  issues the two copies through HLE op 7 (tier-r `CALLBACK-OPS.md` addendum 11). Its 11 call sites are
+  kit rows (`scroll_blit._HSCROLL_ROWS`, `axis = "h"`), so both cells refuse by name and their bottom
+  halves build as the band's source; the 8 new pairs read fresh. Folding them exposed a delay-slot bug in
+  the site folder (a stale source y of (480,4) on ef179 / ef406; no op-144 row moved). `raster.py routes`
+  now records every executed copy, and gate S7 checks the table against it halfword for halfword: over
+  63 containers the executed destinations EQUAL the table's bands. The sources do not -- on 8 op-144
+  containers the copies read from elsewhere -- so `SOURCE_UNCERTAIN` names no remedy cell there and calls
+  the source a fold. Surface pins 208 cells, 22 / 94 destinations, 21 / 88 sources; S1-S8 8/8.
+  **★ FOLLOW-UP — THE FLIPBOOKS MEASURED.** The 8 wrong sources are not misfolds of one band: each of those
+  bands scrolls a different band-sized TILE on different frames. Attributing every executed copy to the band
+  whose scroll shape it has (115 bands read exactly their fold, which validates the method), the 8 carry
+  107 measured tiles (`scroll_blit.TILES`), and with them the executed sources equal the table's halfword
+  for halfword on every container. Remedies and source disclosures there name the tiles' cells again. No
+  default-surface cell is touched -- the affected cells sit behind the acknowledgements -- so the pins hold.
+  **(2) SHOULD THE GAIN HALF BE DECLINABLE?** ~~Today `texel_page` / `export_art` / `build` hard-code
+  `EDIT_CHANNELS` and the one new CLI flag only WIDENS the surface.~~ **★ DONE — DECLINABLE, AS A
+  PARAMETER.** `repaint.READINGS` names the two readings: `effective` (`EDIT_CHANNELS`, the default,
+  unchanged) and `bound` (`LICENSED_CHANNELS`, the cell each record BINDS). `channels=` is threaded
+  through `texel_page` / `export_art` / `build`. The spec is the source of truth (`[reskin] readership =
+  "bound"`, written live by `export-art --readership bound`). `--readership` on plan/build/verify/deploy
+  is a CHECK that refuses a mismatch, and art exported under one reading refuses to build under the
+  other (READING DRIFT). On `bound` a gained cell refuses with its pre-adoption reason plus a line saying
+  the default would license it. 54 of the loss half's 55 names are pages again, behind the W6b-3 (iii)
+  second-array gate. Gate `readership_gates.py` D1-D6:
+  - D1: identity-forced effective == bound, pages and export-blocking refusals, **372/372**; unforced
+    the two differ on 36.
+  - D2: `texel_page` on both readings, every name, 372/372.
+  - D3: `export_art` on both readings, 372/372.
+  - D4: ef407's cast spec still rebuilds `71d04a12…` by default and refuses `x704_y256` on `bound`. Its
+    loss cell `x640_y384` splices the same bytes on both readings once acknowledged.
+  - D5: the CLI.
+  - D6: 29 containers resolve different names (72 bound-only, 52 effective-only, 43 GAINED). Of the
+    55 loss-half names, 54 are pages on `bound`; ef227 `x448_y256` refuses there
+    `same-bytes-two-depths`, because its bound readers state two depths.
+  The walk takes ~17 min. D2 memoises `scenery_surface` on its exact arguments, since each
+  `texel_page` call re-derives it.
+  Found on the way: monkeypatching `RP.EDIT_CHANNELS` no longer re-aims an entry point, because the
+  defaults bind at definition time. The two tests that did it now ask for the reading by name.

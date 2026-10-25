@@ -1,0 +1,200 @@
+{
+ "t": "2026-10-24 13:34:31",
+ "timings": {
+  "S": 47.8,
+  "M": 10.1,
+  "R": 32.1
+ },
+ "S1": [
+  679.033,
+  -386.717
+ ],
+ "S2": [
+  1325.281,
+  -227.083
+ ],
+ "M": {
+  "cell": [
+   5,
+   15
+  ],
+  "verb": "cliff-bump",
+  "depth": 2.0
+ },
+ "R": [
+  [
+   8,
+   -2
+  ]
+ ],
+ "rows0": [
+  {
+   "table": "sink",
+   "at": [
+    679.033,
+    -386.717
+   ]
+  },
+  {
+   "table": "morph",
+   "cell": [
+    5,
+    15
+   ],
+   "verb": "cliff-bump",
+   "window": [
+    [
+     336.0,
+     -1024.0
+    ],
+    [
+     384.0,
+     -982.0234
+    ]
+   ],
+   "depth": 2.0
+  },
+  {
+   "table": "river",
+   "at": [
+    512.0,
+    128.0
+   ],
+   "move_from": [
+    512.0,
+    192.0
+   ]
+  }
+ ],
+ "edits": [
+  {
+   "key": "E1",
+   "said_back": true,
+   "before": {
+    "table": "sink",
+    "at": [
+     679.033,
+     -386.717
+    ]
+   },
+   "after": {
+    "table": "sink",
+    "at": [
+     1325.281,
+     -227.083
+    ]
+   },
+   "status": "Edited step 1: sink the island at 679.033, -386.717 is now sink the island at 1325.28, -227.083. The 2 steps after it are back on top (0 as they were, 2 composed again on the new ground).",
+   "jobs": [
+    "world-sink",
+    "world-sink",
+    "world-sink",
+    "world-fuse",
+    "world-fuse"
+   ],
+   "s": 77.6,
+   "I1": {
+    "identical": true,
+    "differing": [],
+    "files": 1751
+   },
+   "compose_s": 46.1
+  },
+  {
+   "key": "E2",
+   "said_back": true,
+   "before": {
+    "table": "morph",
+    "cell": [
+     5,
+     15
+    ],
+    "verb": "cliff-bump",
+    "window": [
+     [
+      336.0,
+      -1024.0
+     ],
+     [
+      384.0,
+      -982.0234
+     ]
+    ],
+    "depth": 2.0
+   },
+   "after": {
+    "table": "morph",
+    "cell": [
+     5,
+     15
+    ],
+    "verb": "cliff-bump",
+    "window": [
+     [
+      336.0,
+      -1024.0
+     ],
+     [
+      384.0,
+      -982.0234
+     ]
+    ],
+    "depth": 1.5
+   },
+   "status": "Edited step 2: cliff-bump 2 at block (5, 15) is now cliff-bump 1.5 at block (5, 15). The 1 step after it are back on top (0 as they were, 1 composed again on the new ground).",
+   "jobs": [
+    "world-transplant",
+    "world-transplant",
+    "world-transplant",
+    "world-fuse"
+   ],
+   "s": 57.7,
+   "I1": {
+    "identical": true,
+    "differing": [],
+    "files": 1751
+   },
+   "compose_s": 47.1
+  },
+  {
+   "key": "E3",
+   "said_back": true,
+   "before": {
+    "table": "river",
+    "at": [
+     512.0,
+     128.0
+    ],
+    "move_from": [
+     512.0,
+     192.0
+    ]
+   },
+   "after": {
+    "table": "river",
+    "at": [
+     512.0,
+     128.0
+    ],
+    "move_from": [
+     512.0,
+     192.0
+    ]
+   },
+   "status": "Edited step 3: move the river from 512, 192 to 512, 128 is now move the river from 512, 192 to 512, 128.",
+   "jobs": [
+    "world-river",
+    "world-river"
+   ],
+   "s": 33.8,
+   "I1": {
+    "identical": true,
+    "differing": [],
+    "files": 1751
+   },
+   "compose_s": 47.5
+  }
+ ],
+ "R_next": [],
+ "draft": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\studies\\overworld-editor\\out\\c12_lab\\drafts\\FF9CustomMap-world.draft"
+}

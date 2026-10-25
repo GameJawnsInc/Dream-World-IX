@@ -1,0 +1,83 @@
+{
+ "prep_t": "2026-10-23 17:55:11",
+ "steps": {
+  "N0-before": {
+   "ok": true,
+   "x": 288.37,
+   "z": -352.29,
+   "world_x": 288.367,
+   "world_y": -1.3671875,
+   "world_z": -352.289,
+   "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\c5i-N0-before.png",
+   "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-175621-world-teleport",
+   "error": null
+  },
+  "K0-before": {
+   "ok": true,
+   "x": 326.16,
+   "z": -569.09,
+   "world_x": 326.156,
+   "world_y": 4.28515625,
+   "world_z": -569.09,
+   "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\c5i-K0-before.png",
+   "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-175626-world-teleport",
+   "error": null
+  },
+  "N1-reload": {
+   "ok": true,
+   "x": 326.16,
+   "z": -569.09,
+   "world_x": 326.156,
+   "world_y": 4.28515625,
+   "world_z": -569.09,
+   "scenario": 0,
+   "seconds": {
+    "to_field": 1.88,
+    "to_world": 6.57,
+    "teleport": 1.25,
+    "total": 10.18
+   },
+   "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\c5i-N1-reload.png",
+   "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-175635-world-reload",
+   "error": null
+  },
+  "N2-after": {
+   "ok": true,
+   "x": 288.37,
+   "z": -352.29,
+   "world_x": 288.367,
+   "world_y": 3.19921875,
+   "world_z": -352.289,
+   "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\c5i-N2-after.png",
+   "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-175646-world-teleport",
+   "error": null
+  },
+  "K1-back": {
+   "ok": true,
+   "x": 326.16,
+   "z": -569.09,
+   "world_x": 326.156,
+   "world_y": 4.28515625,
+   "world_z": -569.09,
+   "shot": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\x64\\ff9harness\\shots\\c5i-K1-back.png",
+   "run_dir": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\.harness-runs\\20261023-175651-world-teleport",
+   "error": null
+  }
+ },
+ "reach_rc": 0,
+ "promote": {
+  "rc": 0,
+  "seconds": 5.56,
+  "out": "L FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc1\\0_1\\r5\\Block[4][5] Sea3.ff9mesh\npromoted -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc1\\0_1\\r5\\Block[4][5] Sea4.ff9mesh\npromoted -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc1\\0_1\\r5\\Block[4][5] Sea5.ff9mesh\npromoted -> C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX\\FF9CustomMap-world\\FF9_Data\\WorldMap\\Disc1\\0_1\\r5\\Block[4][5] Terrain.ff9mesh\nmirrored 9 file(s), pinned 0 free-ride part(s), skipped 0 cell(s) -> Disc4\npromoted 9 file(s) at block(s) (4,5) in FF9CustomMap-world (18 file(s) at those blocks, disc 4 included). The game shows it on its next world load (leave the world map and come back).\n",
+  "err": ""
+ },
+ "log": [
+  "23.10.2026 17:56:43 |M| [WorldMeshOverride] loaded 'WorldMap/Disc1/0_1/r5/Block[4][5] Object' from FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r5/Block[4][5] Object.ff9mesh",
+  "23.10.2026 17:56:43 |M| [WorldMeshOverride] loaded 'WorldMap/Disc1/0_1/r5/Block[4][5] Terrain' from FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r5/Block[4][5] Terrain.ff9mesh",
+  "23.10.2026 17:56:43 |M| [WorldMeshOverride] loaded 'WorldMap/Disc1/0_1/r5/Block[4][5] Sea4' from FF9CustomMap-world/FF9_Data/WorldMap/Disc1/0_1/r5/Block[4][5] Sea4.ff9mesh"
+ ],
+ "N0": true,
+ "N1": true,
+ "N2": true,
+ "N3": true
+}

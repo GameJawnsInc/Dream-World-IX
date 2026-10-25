@@ -685,6 +685,41 @@ def test_region_catalog_counts_one_field_in_the_singular(app):
     assert "1 fields" not in lst.item(0).text()
 
 
+def test_spill_row_floors_at_the_wider_half_and_refits_on_a_relabel(app):
+    """SpillRow: the floor is max(lead, tail), never their sum; one line when the width holds the
+    lead's floor plus the tail's full ask, two lines otherwise. A lead RELABEL with no resize must
+    still re-decide (the LayoutRequest path) -- a scene switch moves the title, not the row."""
+    from PySide6.QtWidgets import QHBoxLayout, QPushButton, QVBoxLayout, QWidget
+    lead_lbl = QLabel("t")
+    lead = QWidget()
+    QHBoxLayout(lead).addWidget(lead_lbl)
+    tail = QWidget()
+    th = QHBoxLayout(tail)
+    for t in ("Alpha", "Bravo", "Charlie"):
+        th.addWidget(QPushButton(t))
+    row = widgets.SpillRow(lead, tail)
+    host = QWidget()                          # a CHILD, as in every real page: a top-level row's own
+    QVBoxLayout(host).addWidget(row)          # box would floor the window at its one-line sum
+    m = row.layout().contentsMargins()
+    pad = m.left() + m.right()
+    assert row.minimumSizeHint().width() == pad + max(lead.minimumSizeHint().width(),
+                                                      tail.minimumSizeHint().width())
+    one_line = row.sizeHint().width()
+    host.show()
+    host.resize(host.width() - row.width() + one_line, 200)
+    QApplication.processEvents()
+    assert row.width() == one_line and not row.spilled(), "exactly the one-line ask fits"
+    lead_lbl.setText("a longer title")       # the hint moves (still under the tail: the floor, and
+    for _ in range(3):                        # so the row's width, stay put); the request climbs
+        QApplication.processEvents()          # label -> lead -> row, one event round per hop
+    assert row.width() == one_line < row.sizeHint().width()
+    assert row.spilled(), "a relabel re-decides without a resize"
+    host.resize(host.width() - row.width() + row.sizeHint().width() + 50, 200)
+    QApplication.processEvents()
+    assert not row.spilled()
+    host.hide()
+
+
 def test_elide_button_yields_with_an_honest_ellipsis(app):
     """QPushButton has no elide -- under-allocated it CHOPS the paint (the toolbar search read
     'Search anything (C' at the default window). ElideButton elides instead, keeps the full string

@@ -1,0 +1,644 @@
+r"""THE SCROLL-BLIT TABLE -- the VRAM an effect's own program REWRITES EVERY FRAME (HLE op 144).
+
+WHAT OP 144 IS (tier-r ``CALLBACK-OPS.md`` ADDENDUM 9). ``fn 0x47b40`` queues two primitives whose code
+word is ``0xE7000000``, and ``SFXRender.cs`` dispatches ``case 231`` to ``DR_MOVE`` -- libgpu's
+VRAM-to-VRAM block move. Its seven arguments are ``(scroll, dstX, dstY, width, period, srcX, srcY)``:
+one source band, split at ``scroll % period`` and written back with the halves swapped, i.e. **a
+vertical scroll with wraparound done as a VRAM blit**, the PS1 way to animate a texture without moving
+a UV. Over one period every row of the source band reaches every row of the destination band.
+
+WHY THE TEXEL LANE HAS TO KNOW
+------------------------------
+**A DESTINATION band is rewritten from its source every frame the op runs.** A repaint of texels
+inside it is byte-correct on disk, deploys, verifies -- and never reaches the screen. That is this
+lane's worst failure class because it is SILENT, and the null it produces gets charged to whatever
+mechanism the author was testing. A **SOURCE** hit is milder and is never merged with it: the repaint
+is READ and propagated, so it shows -- in the destination band too, scrolling.
+
+The W6b-1 program-VRAM census could not see this. Its writer union is ``LoadImage`` / ``MoveImage`` /
+loader op ``0x07``, which take their rectangle as a POINTER (0 of 18 fold); op 144 takes its rectangle
+as seven loose integers, so it yields PER-CELL verdicts -- and it was never in that union at all.
+
+THE MEASUREMENT (tier-r ADDENDUM 10, ``drmove_cells.py``): **59 containers, 167 sites, 0 excluded**
+(every period folded -- a complete static picture), against 198 editable scenery cells: **20 containers
+/ 88 cells are DESTINATIONS** and 19 / 82 are SOURCES. Independently, running the plugin headless on
+ef407 executed **252 DR_MOVE blits into (704,384) from (704,256) over native frames 85-211** -- the
+static site is the one that runs (``studies/custom-summons/headless/``, its census row for ef407).
+
+WHAT IT DOES NOT ESTABLISH -- and why the refusal has a key: **reachability per cast.** A blit rewrites
+its band only while it runs, and these are static sites: the table does not know when a cast draws a
+cell. ef211's own cast ladder, read against this table after the fact, sides with the refusal wherever
+it was checked (:data:`REACHABILITY`): two wheels on a FULL destination were invisible, and the band
+under cast 2b's bold wheel, once quoted here as a counter-witness, is blitted on every frame its page
+is drawn, per the game's own capture. So :data:`ACK_KEY` lifts the refusal, literal-boolean only, and
+the build says what was lifted.
+
+THE JOIN, AND ITS TWO DELIBERATE COARSENESSES
+---------------------------------------------
+* **VRAM is one address space**, so a site in ANY program chunk is tested against EVERY editable cell,
+  whichever section declared it -- the instrument's own join, kept rather than narrowed;
+* **the SOURCE fields are less certain than the destination.** ``dstX/dstY/width`` fold in the ordinary
+  census and the hardware's fit predicate (``x + w <= 1024``, ``y + h <= 512``, ``w > 0``) holds on
+  167/167; ``srcX/srcY`` ride the stack beside the period and four sites fold to a source that does not
+  fit VRAM at all (ef022, ef095, ef222, ef418). On eight bands the fold is simply not the source -- the
+  copy reads a FLIPBOOK of tiles -- and those carry the source the executed copies measured
+  (:data:`TILES`, below).
+
+THE PROGRAM'S OWN SCROLL -- THE OTHER AXIS (tier-r ADDENDUM 11)
+---------------------------------------------------------------
+op 144 is not the only scroll. Six containers (ef038, ef179, ef226, ef312, ef406, ef509) carry ONE
+routine of their own, identical instruction for instruction: it takes op 144's seven arguments, divides
+the phase by the width, and queues the two DR_MOVE copies itself through HLE op 7 (libgpu
+``SetDrawMove``) -- **a horizontal scroll with wraparound**: over one period every source COLUMN reaches
+every destination column, while rows map one to one. Its RECTs are built on the stack and never fold,
+but its 11 call sites fold exactly as op 144's do, so they are table rows too (:data:`HSCROLL_SITES`,
+``axis = "h"``). Four of its destination cells are on the edit surface -- ef226 and ef509's
+``x448_y384`` / ``x512_y384``, whose top 64 lines are rewritten from their own bottom 64 -- and before
+this table held the routine the kit licensed them: the headless census's open gap. A call site's
+delay-slot store is applied before the call is read (the routine's sites keep the source y there).
+
+THE EXECUTED CROSS-CHECK (``scroll_blit_gates.py`` S7): the headless raster records every VRAM-to-VRAM
+copy the plugin executes, and over all 63 containers that run one, **the union of the executed
+destinations equals the union of this table's destination bands, halfword for halfword**, and every
+band in the table executes.
+
+THE FLIPBOOK -- A SOURCE THAT MOVES (``scroll_blit_gates.py`` S7). Attributing each executed copy to the
+band whose scroll shape it has (it spans the band along the axis that does not turn, and sits flush with
+one end along the one that does), 115 of the 123 pairs read exactly the band their fold names. The other
+8 -- one each on ef022, ef095, ef131, ef222, ef250, ef418, ef429, ef435 -- read a different band-sized
+TILE on different frames, and scroll within each: ef429's ``(512,256) 32x64`` cycles through 16 tiles
+covering (576..703, 256..511) while its fold says ``(1,1)``. :data:`TILES` carries those 107 measured
+tiles, and with them **the executed sources equal the table's sources halfword for halfword** too, on every
+container. A remedy on a flipbook band names the cells its tiles lie in; a source disclosure says how many
+of the band's tiles the cell holds.
+
+THE REFRESH LAW -- A COPY CAN RUN AND STILL NOT REACH THE SCREEN
+-----------------------------------------------------------------
+Memoria decodes a texture page once and keeps the decode until ``PSXTextureMgr.ClearKey`` drops it,
+and ClearKey drops only the pages whose ORIGIN column is the write's origin column. An 8bpp page spans
+two 64-halfword columns (a 15bpp page four), so a copy into a page's SECOND column changes VRAM and
+leaves the decode the screen samples as it was -- unless something else writes the first column. The
+headless raster's write-order tracker (``studies/custom-summons/headless/stale_census.py``) ran all 372
+containers and joined every read of a copied band to this table (:data:`REFRESH`): of the 115 distinct
+rect pairs, **103 read fresh, 9 MIXED** (refreshed once, then stale: the band shows FROZEN at one phase,
+or stale on some readers and fresh on others) **and 3 READ_STALE** (no read of the copied band is ever
+of a decode newer than the copy). Every non-fresh pair is a band in the second column of the page that
+reads it. Its falsifier: ef407 with column 640's ClearKey suppressed turns (704,384) READ_STALE -- the
+gain-half cast was seen in game only because ef407's other roll writes column 640 every frame.
+Two consequences the lane states rather than hides: on a non-fresh pair a SOURCE paint does not scroll
+through the destination (and on a stale one never reaches it), and on a READ_STALE pair the destination
+refusal's premise inverts -- the screen keeps what the band held when its page was first decoded, before
+any copy, so a repaint THERE shows, held still. The one editable cell this touches, ef499's
+``cell.s0.x512_y256``, was repainted offline with the key: the raster shows it on 23 frames, up to 25,347
+pixels a frame. Headless is not a cast: the refusal keeps its key and says what was measured.
+
+WHY THIS IS A CACHED CONSTANT, AND WHAT PINS IT
+-----------------------------------------------
+The derivation needs tier-r's disassembler and annotator over the container's id-3 program images --
+derived stock content that lives under ``C:\gd\SCRATCH`` and never in a build. So, exactly like
+:data:`ff9mapkit.summons.depth_attribution.PROGRAM_DEPTH` and
+:data:`ff9mapkit.summons.repaint.PROGRAM_VRAM_WRITE_IDS`, this table is a CACHE OF A MEASUREMENT and is
+**RE-DERIVATION-PINNED**: ``studies/custom-summons/tier-w/scroll_blit_gates.py`` re-parses every
+annotated listing through ``drmove_cells.blit_rects`` and asserts equality site for site, then re-runs
+the instrument's corpus verdict against the kit's own per-cell join. *A constant nobody re-checks is a
+claim.* The counts below are asserted AT IMPORT so a truncated table fails loudly.
+
+PROVENANCE
+----------
+VRAM coordinates, sizes, program-chunk indices, effect ids and counts. No stock byte, no hex run.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, FrozenSet, List, Optional, Tuple
+
+__all__ = [
+    "SITES", "CONTAINERS", "EDIT_SURFACE_CELLS", "DEST_CONTAINERS", "DEST_CELLS",
+    "SOURCE_CONTAINERS", "SOURCE_CELLS", "VRAM_W", "VRAM_H", "CELL_W", "CELL_LINES",
+    "HSCROLL_SITES", "HSCROLL_CONTAINERS", "ALL_CONTAINERS", "TILES", "FLIPBOOK", "FLIPBOOK_PAIRS",
+    "FLIPBOOK_TILES", "H_MECHANISM",
+    "H_EXECUTED",
+    "ScrollBlit", "SCROLL_BLITS", "blits", "cell_hits", "cell_of", "cells_under",
+    "rewritten_halfwords",
+    "ACK_KEY", "MECHANISM", "MEASUREMENT", "EF407_EXECUTED", "REACHABILITY", "ACK_WARNING",
+    "RefreshRead", "REFRESH", "REFRESH_PAIRS", "REFRESH_FRESH", "REFRESH_MIXED", "REFRESH_STALE",
+    "REFRESH_LAW",
+]
+
+#: every op-144 call site in the corpus, and the containers they sit in -- asserted below.
+SITES = 167
+CONTAINERS = 59
+#: every call site of the program's own horizontal-scroll routine, the containers that carry it, and
+#: the containers the two kinds cover together (ef038 and ef179 carry both).
+HSCROLL_SITES, HSCROLL_CONTAINERS = 11, 6
+ALL_CONTAINERS = 63
+#: THE CORPUS VERDICT against the texel EDIT surface (``scenery_texel_pages`` at its default channels),
+#: op 144 and the program scroll together. Not checkable here -- it needs the containers -- so
+#: ``scroll_blit_gates.py`` re-derives all five through the kit's own join AND through
+#: ``drmove_cells.analyse`` and asserts both equal these. (op 144 alone: 198 / 20, 88 / 19, 82. The
+#: routine adds ef226 and ef509's x448_y384 + x512_y384 -- the open gap -- and ef038's x512_y384 +
+#: x576_y384, which its program-VRAM write already refused; each of the six is both a destination
+#: and a source, its top 64 lines rewritten from its own or its neighbour's bottom 64.)
+EDIT_SURFACE_CELLS = 208
+DEST_CONTAINERS, DEST_CELLS = 22, 94
+SOURCE_CONTAINERS, SOURCE_CELLS = 21, 88
+#: the PSX VRAM, in halfwords x lines -- what the hardware's fit predicate is stated against.
+VRAM_W, VRAM_H = 1024, 512
+#: one census page-cell: 64 halfwords x 128 lines (``reskin.PAGE_CELL_W`` / ``PAGE_CELL_LINES``; the
+#: equality is asserted by :mod:`ff9mapkit.summons.repaint` at import, which imports both).
+CELL_W, CELL_LINES = 64, 128
+
+# ``(effect, program chunk, routine, dst x, dst y, width, height, src x, src y)`` -- one row per CALL SITE
+# of the program's own horizontal-scroll routine (``routine`` is its label in the annotated listing), in
+# listing order, duplicates kept.  Here the WIDTH is the period: the scroll rotates columns.
+_HSCROLL_ROWS = (
+    (38, 0, "L_01bc", 512, 448, 128, 64, 512, 384),
+    (179, 0, "L_01bc", 448, 384, 32, 128, 480, 384), (179, 0, "L_01bc", 448, 384, 32, 128, 480, 384),
+    (226, 0, "L_5220", 448, 384, 128, 64, 448, 448), (226, 0, "L_5220", 448, 384, 128, 64, 448, 448),
+    (226, 0, "L_5220", 768, 384, 128, 64, 768, 320),
+    (312, 0, "L_0b68", 640, 384, 64, 128, 576, 384),
+    (406, 0, "L_01bc", 448, 384, 32, 128, 480, 384), (406, 0, "L_01bc", 448, 384, 32, 128, 480, 384),
+    (509, 0, "L_2558", 448, 384, 128, 64, 448, 448), (509, 0, "L_2558", 576, 384, 128, 64, 576, 256),
+)
+
+#: THE MEASURED SOURCES OF THE EIGHT FLIPBOOK BANDS (S7).  ``(effect, dst x, dst y, width, height, tile x,
+#: tile y, copies)`` -- one row per band-sized source tile the executed copies read, with how many of the
+#: band's executed copies (routes census, deduplicated per copy rectangle) read it.  Re-derived from the
+#: routes census and asserted equal, row for row, by ``scroll_blit_gates.py`` S7.
+_TILE_ROWS = (
+    (22, 576, 384, 16, 64, 576, 448, 4), (22, 576, 384, 16, 64, 592, 384, 5),
+    (22, 576, 384, 16, 64, 592, 448, 4), (22, 576, 384, 16, 64, 608, 384, 6),
+    (22, 576, 384, 16, 64, 608, 448, 4), (22, 576, 384, 16, 64, 624, 384, 6),
+    (22, 576, 384, 16, 64, 624, 448, 4), (22, 576, 384, 16, 64, 640, 384, 6),
+    (22, 576, 384, 16, 64, 640, 448, 4), (22, 576, 384, 16, 64, 656, 384, 6),
+    (22, 576, 384, 16, 64, 656, 448, 4), (22, 576, 384, 16, 64, 672, 384, 4),
+    (22, 576, 384, 16, 64, 672, 448, 4), (22, 576, 384, 16, 64, 688, 384, 4),
+    (22, 576, 384, 16, 64, 688, 448, 4), (22, 576, 384, 16, 64, 704, 256, 4),
+    (22, 576, 384, 16, 64, 704, 320, 4), (22, 576, 384, 16, 64, 720, 256, 4),
+    (22, 576, 384, 16, 64, 720, 320, 4), (22, 576, 384, 16, 64, 736, 256, 4),
+    (22, 576, 384, 16, 64, 736, 320, 4), (22, 576, 384, 16, 64, 752, 256, 4),
+    (22, 576, 384, 16, 64, 752, 320, 4), (95, 576, 384, 16, 64, 576, 448, 4),
+    (95, 576, 384, 16, 64, 592, 384, 5), (95, 576, 384, 16, 64, 592, 448, 4),
+    (95, 576, 384, 16, 64, 608, 384, 6), (95, 576, 384, 16, 64, 608, 448, 4),
+    (95, 576, 384, 16, 64, 624, 384, 6), (95, 576, 384, 16, 64, 624, 448, 4),
+    (95, 576, 384, 16, 64, 640, 384, 6), (95, 576, 384, 16, 64, 640, 448, 4),
+    (95, 576, 384, 16, 64, 656, 384, 6), (95, 576, 384, 16, 64, 656, 448, 4),
+    (95, 576, 384, 16, 64, 672, 384, 4), (95, 576, 384, 16, 64, 672, 448, 4),
+    (95, 576, 384, 16, 64, 688, 384, 4), (95, 576, 384, 16, 64, 688, 448, 4),
+    (95, 576, 384, 16, 64, 704, 256, 4), (95, 576, 384, 16, 64, 704, 320, 4),
+    (95, 576, 384, 16, 64, 720, 256, 4), (95, 576, 384, 16, 64, 720, 320, 4),
+    (95, 576, 384, 16, 64, 736, 256, 4), (95, 576, 384, 16, 64, 736, 320, 4),
+    (95, 576, 384, 16, 64, 752, 256, 4), (95, 576, 384, 16, 64, 752, 320, 4),
+    (131, 704, 384, 64, 64, 640, 256, 1), (131, 704, 384, 64, 64, 640, 320, 3),
+    (131, 704, 384, 64, 64, 640, 384, 3), (131, 704, 384, 64, 64, 704, 256, 2),
+    (131, 704, 384, 64, 64, 704, 320, 3), (222, 576, 384, 16, 64, 576, 448, 4),
+    (222, 576, 384, 16, 64, 592, 384, 5), (222, 576, 384, 16, 64, 592, 448, 4),
+    (222, 576, 384, 16, 64, 608, 384, 6), (222, 576, 384, 16, 64, 608, 448, 4),
+    (222, 576, 384, 16, 64, 624, 384, 6), (222, 576, 384, 16, 64, 624, 448, 4),
+    (222, 576, 384, 16, 64, 640, 384, 6), (222, 576, 384, 16, 64, 640, 448, 4),
+    (222, 576, 384, 16, 64, 656, 384, 6), (222, 576, 384, 16, 64, 656, 448, 4),
+    (222, 576, 384, 16, 64, 672, 384, 4), (222, 576, 384, 16, 64, 672, 448, 4),
+    (222, 576, 384, 16, 64, 688, 384, 4), (222, 576, 384, 16, 64, 688, 448, 4),
+    (222, 576, 384, 16, 64, 704, 256, 4), (222, 576, 384, 16, 64, 704, 320, 4),
+    (222, 576, 384, 16, 64, 720, 256, 4), (222, 576, 384, 16, 64, 720, 320, 4),
+    (222, 576, 384, 16, 64, 736, 256, 4), (222, 576, 384, 16, 64, 736, 320, 4),
+    (222, 576, 384, 16, 64, 752, 256, 4), (222, 576, 384, 16, 64, 752, 320, 4),
+    (250, 704, 384, 64, 64, 640, 256, 3), (250, 704, 384, 64, 64, 640, 320, 5),
+    (250, 704, 384, 64, 64, 640, 384, 5), (250, 704, 384, 64, 64, 704, 256, 2),
+    (250, 704, 384, 64, 64, 704, 320, 5), (418, 640, 480, 64, 32, 704, 256, 2),
+    (418, 640, 480, 64, 32, 704, 288, 2), (418, 640, 480, 64, 32, 704, 320, 2),
+    (418, 640, 480, 64, 32, 704, 352, 1), (418, 640, 480, 64, 32, 704, 384, 1),
+    (418, 640, 480, 64, 32, 704, 416, 1), (418, 640, 480, 64, 32, 704, 448, 1),
+    (418, 640, 480, 64, 32, 704, 480, 1), (429, 512, 256, 32, 64, 576, 256, 5),
+    (429, 512, 256, 32, 64, 576, 320, 10), (429, 512, 256, 32, 64, 576, 384, 8),
+    (429, 512, 256, 32, 64, 576, 448, 8), (429, 512, 256, 32, 64, 608, 256, 10),
+    (429, 512, 256, 32, 64, 608, 320, 10), (429, 512, 256, 32, 64, 608, 384, 8),
+    (429, 512, 256, 32, 64, 608, 448, 8), (429, 512, 256, 32, 64, 640, 256, 10),
+    (429, 512, 256, 32, 64, 640, 320, 8), (429, 512, 256, 32, 64, 640, 384, 8),
+    (429, 512, 256, 32, 64, 640, 448, 8), (429, 512, 256, 32, 64, 672, 256, 10),
+    (429, 512, 256, 32, 64, 672, 320, 8), (429, 512, 256, 32, 64, 672, 384, 8),
+    (429, 512, 256, 32, 64, 672, 448, 8), (435, 896, 0, 40, 80, 896, 80, 3),
+    (435, 896, 0, 40, 80, 896, 160, 3), (435, 896, 0, 40, 80, 936, 0, 3),
+    (435, 896, 0, 40, 80, 936, 80, 3),
+)
+FLIPBOOK_PAIRS, FLIPBOOK_TILES = 8, 107
+#: the containers whose folds the executed copies contradict -- every one now carries measured tiles.
+FLIPBOOK = frozenset(r[0] for r in _TILE_ROWS)
+#: ``{(effect, dst x, dst y, width, height): ((tile x, tile y, copies), ...)}``
+TILES: Dict[Tuple[int, int, int, int, int], Tuple[Tuple[int, int, int], ...]] = {}
+for _r in _TILE_ROWS:
+    TILES.setdefault(_r[:5], ())
+    TILES[_r[:5]] += (_r[5:],)
+
+# ``(effect, program chunk, dst x, dst y, width, period, src x, src y)`` -- one row per op-144 CALL
+# SITE, in listing order, duplicates kept: two sites queueing the same rect are two sites.  Width and
+# x are VRAM HALFWORDS; y and the period are VRAM LINES.
+_SITE_ROWS = (
+    (4, 0, 640, 384, 64, 128, 640, 256), (6, 0, 576, 384, 64, 128, 576, 256),
+    (7, 0, 480, 384, 32, 128, 480, 256), (22, 0, 576, 384, 16, 64, 6144, 64),
+    (38, 0, 704, 384, 64, 128, 704, 256), (38, 0, 640, 256, 64, 128, 640, 384),
+    (52, 0, 640, 384, 64, 128, 640, 256), (62, 0, 576, 384, 64, 128, 576, 256),
+    (72, 0, 480, 384, 32, 128, 480, 256), (77, 0, 640, 384, 64, 128, 640, 256),
+    (95, 0, 576, 384, 16, 64, 4096, 64), (125, 0, 512, 256, 32, 128, 544, 256),
+    (125, 0, 512, 256, 32, 128, 544, 256), (131, 0, 704, 384, 64, 64, 64, 64),
+    (131, 0, 704, 384, 64, 64, 64, 64), (131, 0, 608, 256, 32, 240, 576, 256),
+    (134, 0, 448, 256, 64, 128, 512, 256), (134, 0, 576, 256, 64, 128, 768, 256),
+    (143, 0, 448, 256, 64, 128, 512, 256), (151, 0, 640, 384, 64, 128, 640, 256),
+    (151, 0, 640, 384, 64, 128, 640, 256), (151, 0, 640, 384, 64, 128, 640, 256),
+    (152, 0, 640, 384, 64, 128, 640, 256), (152, 0, 640, 384, 64, 128, 640, 256),
+    (152, 0, 640, 384, 64, 128, 640, 256), (178, 0, 448, 368, 28, 112, 476, 368),
+    (178, 0, 640, 256, 28, 112, 668, 256), (179, 0, 448, 256, 32, 128, 480, 256),
+    (179, 0, 448, 384, 32, 128, 480, 384), (179, 0, 448, 256, 32, 128, 480, 256),
+    (179, 0, 448, 256, 32, 128, 480, 256), (179, 0, 448, 384, 32, 128, 480, 384),
+    (179, 0, 448, 256, 32, 128, 480, 256), (179, 0, 448, 384, 32, 128, 480, 384),
+    (184, 0, 384, 256, 64, 128, 384, 384), (184, 0, 448, 256, 32, 128, 480, 256),
+    (184, 0, 448, 256, 32, 128, 480, 256), (184, 0, 640, 256, 32, 128, 672, 256),
+    (184, 0, 704, 256, 56, 112, 704, 368), (184, 0, 448, 256, 24, 96, 448, 384),
+    (186, 0, 576, 368, 56, 112, 576, 256), (186, 0, 640, 368, 56, 112, 640, 256),
+    (186, 0, 576, 368, 56, 112, 576, 256), (186, 0, 576, 368, 56, 112, 576, 256),
+    (186, 0, 640, 368, 56, 112, 640, 256), (186, 0, 352, 256, 32, 128, 320, 256),
+    (186, 0, 576, 368, 56, 112, 576, 256), (186, 0, 576, 368, 56, 112, 576, 256),
+    (186, 0, 352, 256, 32, 128, 320, 256), (203, 0, 576, 256, 56, 112, 632, 256),
+    (211, 0, 576, 256, 28, 112, 604, 256), (211, 0, 576, 368, 28, 112, 604, 368),
+    (211, 0, 576, 256, 28, 112, 604, 256), (211, 0, 576, 368, 28, 112, 604, 368),
+    (211, 0, 704, 256, 64, 128, 704, 384), (211, 0, 640, 256, 32, 128, 672, 256),
+    (211, 0, 704, 256, 64, 128, 704, 384), (211, 0, 640, 256, 32, 128, 672, 256),
+    (211, 0, 768, 384, 16, 128, 784, 384), (214, 0, 480, 384, 32, 128, 480, 256),
+    (218, 0, 576, 384, 64, 128, 576, 256), (219, 0, 640, 384, 64, 128, 640, 256),
+    (220, 0, 640, 384, 64, 128, 640, 256), (222, 0, 576, 384, 16, 64, 6144, 64),
+    (223, 0, 512, 256, 32, 128, 544, 256), (223, 0, 512, 256, 32, 128, 544, 256),
+    (224, 0, 480, 256, 32, 128, 768, 256), (225, 0, 640, 256, 32, 128, 672, 256),
+    (225, 0, 752, 256, 16, 128, 736, 256), (225, 0, 672, 384, 16, 64, 688, 384),
+    (225, 0, 752, 256, 16, 128, 736, 256), (227, 1, 832, 256, 32, 192, 864, 256),
+    (245, 0, 448, 256, 64, 128, 512, 256), (245, 0, 448, 384, 32, 128, 480, 384),
+    (245, 0, 640, 256, 32, 128, 672, 256), (250, 0, 704, 384, 64, 64, 64, 64),
+    (250, 0, 704, 384, 64, 64, 64, 64), (251, 1, 704, 256, 32, 128, 864, 256),
+    (251, 1, 864, 384, 16, 64, 880, 384), (251, 1, 672, 384, 16, 64, 688, 384),
+    (257, 0, 448, 288, 32, 64, 480, 288), (276, 0, 640, 256, 64, 128, 576, 256),
+    (276, 0, 640, 256, 64, 128, 576, 256), (308, 0, 448, 384, 24, 96, 800, 256),
+    (308, 0, 480, 256, 32, 128, 768, 256), (378, 0, 448, 256, 32, 128, 672, 256),
+    (378, 0, 672, 384, 16, 64, 688, 384), (381, 1, 832, 256, 64, 128, 832, 384),
+    (381, 1, 832, 256, 64, 128, 832, 384), (381, 2, 384, 256, 64, 128, 384, 384),
+    (381, 2, 576, 256, 64, 128, 640, 256), (381, 3, 768, 320, 32, 128, 800, 320),
+    (381, 3, 704, 256, 64, 128, 704, 384), (381, 3, 768, 320, 32, 128, 800, 320),
+    (381, 3, 704, 256, 64, 128, 704, 384), (381, 3, 704, 256, 64, 128, 704, 384),
+    (381, 3, 832, 256, 32, 128, 864, 256), (381, 3, 704, 256, 64, 128, 704, 384),
+    (381, 3, 832, 256, 32, 128, 864, 256), (381, 3, 704, 256, 64, 128, 704, 384),
+    (381, 3, 832, 256, 32, 128, 864, 256), (381, 3, 704, 256, 64, 128, 704, 384),
+    (381, 3, 832, 256, 32, 128, 864, 256), (381, 3, 704, 256, 64, 128, 704, 384),
+    (381, 3, 832, 256, 32, 128, 864, 256), (381, 3, 704, 256, 64, 128, 704, 384),
+    (381, 3, 832, 256, 32, 128, 864, 256), (381, 4, 384, 256, 64, 128, 384, 384),
+    (381, 4, 384, 256, 64, 128, 384, 384), (381, 4, 384, 256, 64, 128, 384, 384),
+    (381, 4, 384, 256, 64, 128, 384, 384), (381, 5, 512, 256, 64, 128, 512, 384),
+    (381, 6, 640, 256, 32, 128, 672, 256), (381, 6, 640, 256, 32, 128, 672, 256),
+    (381, 7, 832, 256, 16, 64, 848, 256), (381, 7, 832, 256, 16, 64, 848, 256),
+    (381, 7, 864, 256, 32, 128, 864, 384), (381, 7, 512, 384, 32, 128, 544, 384),
+    (381, 7, 512, 256, 32, 128, 544, 256), (381, 8, 704, 256, 32, 128, 736, 256),
+    (381, 8, 768, 256, 32, 128, 800, 256), (390, 0, 704, 384, 32, 128, 736, 384),
+    (394, 0, 448, 288, 32, 64, 480, 288), (405, 0, 512, 256, 32, 192, 544, 256),
+    (407, 0, 704, 384, 64, 128, 704, 256), (407, 0, 640, 256, 64, 128, 640, 384),
+    (415, 0, 608, 256, 32, 128, 576, 256), (418, 0, 640, 480, 64, 32, 704, 704),
+    (418, 0, 576, 256, 48, 128, 576, 384), (420, 0, 480, 384, 32, 128, 480, 256),
+    (420, 0, 512, 384, 32, 128, 512, 256), (424, 0, 448, 256, 56, 112, 448, 368),
+    (424, 0, 576, 320, 32, 128, 608, 320), (424, 0, 576, 256, 32, 64, 608, 256),
+    (429, 0, 512, 256, 32, 64, 1, 1), (435, 0, 896, 0, 40, 80, 936, 80),
+    (445, 0, 640, 256, 64, 128, 576, 256), (446, 0, 704, 256, 56, 112, 704, 368),
+    (446, 0, 640, 256, 32, 128, 672, 256), (446, 0, 576, 320, 24, 96, 576, 416),
+    (447, 1, 832, 256, 16, 64, 848, 256), (447, 1, 832, 256, 16, 64, 848, 256),
+    (447, 1, 864, 256, 32, 128, 864, 384), (447, 1, 512, 384, 32, 128, 544, 384),
+    (447, 1, 512, 256, 32, 128, 544, 256), (447, 2, 704, 256, 32, 128, 736, 256),
+    (447, 2, 768, 256, 32, 128, 800, 256), (460, 0, 640, 384, 64, 128, 640, 256),
+    (460, 0, 640, 384, 64, 128, 640, 256), (460, 0, 640, 384, 64, 128, 640, 256),
+    (489, 0, 448, 288, 32, 64, 480, 288), (496, 0, 512, 256, 64, 128, 512, 384),
+    (496, 0, 448, 288, 56, 112, 448, 400), (497, 0, 448, 256, 32, 128, 480, 256),
+    (497, 0, 448, 384, 32, 128, 480, 384), (498, 0, 832, 384, 16, 128, 848, 384),
+    (498, 0, 448, 256, 16, 128, 464, 256), (498, 0, 768, 256, 32, 128, 800, 256),
+    (498, 0, 800, 384, 32, 128, 864, 384), (498, 0, 448, 256, 16, 128, 464, 256),
+    (498, 0, 448, 256, 16, 128, 464, 256), (499, 0, 576, 256, 64, 128, 576, 384),
+    (499, 0, 576, 256, 64, 128, 576, 384), (499, 0, 512, 256, 64, 128, 512, 384),
+    (499, 0, 704, 256, 32, 128, 736, 256), (510, 0, 704, 256, 64, 128, 704, 384),
+    (510, 0, 640, 256, 32, 128, 672, 256),
+)
+
+Rect = Tuple[int, int, int, int]                     # (x, y, w, h) -- halfwords x lines
+
+
+def _overlap(a: Rect, b: Rect) -> Optional[Rect]:
+    x0, y0 = max(a[0], b[0]), max(a[1], b[1])
+    x1, y1 = min(a[0] + a[2], b[0] + b[2]), min(a[1] + a[3], b[1] + b[3])
+    return (x0, y0, x1 - x0, y1 - y0) if x0 < x1 and y0 < y1 else None
+
+
+def cell_of(x: int, y: int) -> Tuple[int, int]:
+    """The census page-cell a VRAM coordinate lies in."""
+    return (x - x % CELL_W, y - y % CELL_LINES)
+
+
+def cells_under(rect: Rect) -> Tuple[Tuple[int, int], ...]:
+    """Every census page-cell a VRAM rect touches, in (x, y) order."""
+    x, y, w, h = rect
+    x0, y0 = cell_of(x, y)
+    return tuple((cx, cy) for cx in range(x0, x + w, CELL_W) for cy in range(y0, y + h, CELL_LINES))
+
+
+@dataclass(frozen=True)
+class ScrollBlit:
+    """One op-144 destination/source rectangle pair, with every site that queues it.
+
+    The site count is kept because a rect queued from five sites is not five times as certain to run
+    -- it is five places a phase question has to be asked -- and the chunks are kept because they are
+    the only IDENTIFICATION the listing offers.
+    """
+    effect: int
+    dst: Tuple[int, int]
+    size: Tuple[int, int]                            # (width halfwords, height lines)
+    src: Tuple[int, int]
+    chunks: Tuple[int, ...]
+    sites: int
+    #: ``"v"`` -- op 144, rows rotate over the height; ``"h"`` -- the program's own routine, columns
+    #: rotate over the width.  Which way the scroll turns decides which source band feeds a part.
+    axis: str = "v"
+    #: the program-scroll routine's label (``"L_2558"``); empty on op 144.
+    routine: str = ""
+
+    @property
+    def label(self) -> str:
+        """What issues the copy, in the words a refusal or remedy uses."""
+        return "op 144" if self.axis == "v" else "the program's own scroll (%s)" % self.routine
+
+    @property
+    def mechanism(self) -> str:
+        return MECHANISM if self.axis == "v" else H_MECHANISM
+
+    @property
+    def tiles(self) -> Tuple[Tuple[int, int, int], ...]:
+        """The measured source tiles ``(x, y, copies)`` of a FLIPBOOK band, or ``()`` where the fold is
+        the source (:data:`TILES`)."""
+        if self.axis != "v":
+            return ()
+        return TILES.get((self.effect, self.dst[0], self.dst[1], self.size[0], self.size[1]), ())
+
+    @property
+    def sources(self) -> Tuple[Rect, ...]:
+        """Every source band this pair reads: the measured tiles of a flipbook, else the folded source
+        where it fits VRAM, else nothing."""
+        if self.tiles:
+            return tuple((x, y, self.size[0], self.size[1]) for x, y, _n in self.tiles)
+        return (self.src_rect,) if self.src_in_vram else ()
+
+    @property
+    def dst_rect(self) -> Rect:
+        return (self.dst[0], self.dst[1], self.size[0], self.size[1])
+
+    @property
+    def src_rect(self) -> Rect:
+        return (self.src[0], self.src[1], self.size[0], self.size[1])
+
+    @property
+    def src_in_vram(self) -> bool:
+        """Whether the folded SOURCE fits the 1024x512 VRAM -- the predicate the destination passes
+        167/167. False on 4 corpus sites, which therefore name no source cell."""
+        sx, sy, w, h = self.src_rect
+        return sx >= 0 and sy >= 0 and sx + w <= VRAM_W and sy + h <= VRAM_H
+
+    def dest_overlap(self, cell: Tuple[int, int]) -> Optional[Rect]:
+        """The part of ``cell`` this blit REWRITES, in VRAM coordinates, or None."""
+        return _overlap(self.dst_rect, (cell[0], cell[1], CELL_W, CELL_LINES))
+
+    def source_overlaps(self, cell: Tuple[int, int]) -> Tuple[Rect, ...]:
+        """Every part of ``cell`` this blit READS, in VRAM coordinates -- one rect per source band that
+        touches it (a flipbook's tiles need not tile the cell), ``()`` if none."""
+        box = (cell[0], cell[1], CELL_W, CELL_LINES)
+        return tuple(o for o in (_overlap(r, box) for r in self.sources) if o)
+
+    def feeds(self, band: Rect) -> Optional[Rect]:
+        """The SOURCE band written into ``band`` (a part of the destination).
+
+        Along the axis the scroll does NOT turn, positions map one to one at the source's offset; along
+        the one it turns, every source position lands on every destination position over one period.
+        So op 144's (``"v"``) source of a destination column range is that column range over the WHOLE
+        height, and the program scroll's (``"h"``) source of a row range is that row range over the
+        WHOLE width. None when the source does not fit VRAM.
+        """
+        if not self.src_in_vram:
+            return None
+        return self._feed(self.src, band)
+
+    def _feed(self, src: Tuple[int, int], band: Rect) -> Rect:
+        if self.axis == "h":
+            return (src[0], src[1] + (band[1] - self.dst[1]), self.size[0], band[3])
+        return (src[0] + (band[0] - self.dst[0]), src[1], band[2], self.size[1])
+
+    def feeds_all(self, band: Rect) -> Tuple[Rect, ...]:
+        """:meth:`feeds` over every source band: one rect per measured tile of a flipbook."""
+        return tuple(self._feed((r[0], r[1]), band) for r in self.sources)
+
+    @property
+    def refresh(self) -> Optional["RefreshRead"]:
+        """The measured refresh verdict for this pair, or None where every read of the copy was fresh
+        (:data:`REFRESH`)."""
+        return REFRESH.get((self.effect, self.dst[0], self.dst[1], self.size[0], self.size[1]))
+
+    def describe(self) -> str:
+        if self.axis == "h":
+            return ("program scroll dst (%d,%d) %dx%d <- src (%d,%d), horizontal, %d site(s) of %s in "
+                    "chunk %s" % (self.dst[0], self.dst[1], self.size[0], self.size[1], self.src[0],
+                                  self.src[1], self.sites, self.routine,
+                                  "/".join(str(c) for c in self.chunks)))
+        if self.tiles:
+            xs = [x for x, _y, _n in self.tiles]
+            ys = [y for _x, y, _n in self.tiles]
+            return ("op 144 dst (%d,%d) %dx%d <- %d source tiles in (%d..%d, %d..%d), measured (the fold "
+                    "says (%d,%d)), %d site(s) in chunk %s"
+                    % (self.dst[0], self.dst[1], self.size[0], self.size[1], len(self.tiles), min(xs),
+                       max(xs) + self.size[0] - 1, min(ys), max(ys) + self.size[1] - 1, self.src[0],
+                       self.src[1], self.sites, "/".join(str(c) for c in self.chunks)))
+        return ("op 144 dst (%d,%d) %dx%d <- src (%d,%d)%s, %d site(s) in chunk %s"
+                % (self.dst[0], self.dst[1], self.size[0], self.size[1], self.src[0], self.src[1],
+                   "" if self.src_in_vram else " [source does not fit VRAM as folded]",
+                   self.sites, "/".join(str(c) for c in self.chunks)))
+
+
+def _build() -> Dict[int, Tuple[ScrollBlit, ...]]:
+    grouped: Dict[int, Dict[Tuple[object, ...], List[int]]] = {}
+    for ef, chunk, dx, dy, w, h, sx, sy in _SITE_ROWS:
+        grouped.setdefault(ef, {}).setdefault(("v", "", dx, dy, w, h, sx, sy), []).append(chunk)
+    for ef, chunk, routine, dx, dy, w, h, sx, sy in _HSCROLL_ROWS:
+        grouped.setdefault(ef, {}).setdefault(("h", routine, dx, dy, w, h, sx, sy), []).append(chunk)
+    return {ef: tuple(ScrollBlit(effect=ef, dst=(k[2], k[3]), size=(k[4], k[5]), src=(k[6], k[7]),
+                                 chunks=tuple(sorted(set(cs))), sites=len(cs), axis=k[0],
+                                 routine=k[1])
+                      for k, cs in rects.items())
+            for ef, rects in sorted(grouped.items())}
+
+
+#: ``{effect: (ScrollBlit, ...)}`` -- every distinct scroll rect pair per container, op 144's first.
+SCROLL_BLITS: Dict[int, Tuple[ScrollBlit, ...]] = _build()
+
+
+def blits(effect: Optional[int]) -> Tuple[ScrollBlit, ...]:
+    """Every scroll blit one container's program queues. ``effect is None`` answers ``()`` and that
+    is ignorance, not safety -- the same law :func:`ff9mapkit.summons.repaint.program_class` states,
+    which is why the program-VRAM gate already refuses an id-less derivation outright."""
+    if effect is None:
+        return ()
+    return SCROLL_BLITS.get(int(effect), ())
+
+
+def cell_hits(effect: Optional[int], cell: Tuple[int, int]
+              ) -> Tuple[Tuple[ScrollBlit, ...], Tuple[ScrollBlit, ...]]:
+    """``(destination hits, source hits)`` for one page-cell -- two lists, never merged."""
+    bs = blits(effect)
+    return (tuple(b for b in bs if b.dest_overlap(cell)),
+            tuple(b for b in bs if b.source_overlaps(cell)))
+
+
+def rewritten_halfwords(dst: Tuple[ScrollBlit, ...], cell: Tuple[int, int]) -> FrozenSet[int]:
+    """Cell-local halfword indices (``row * CELL_W + col``) the destination hits rewrite."""
+    out = set()
+    for b in dst:
+        o = b.dest_overlap(cell)
+        if o:
+            for y in range(o[1], o[1] + o[3]):
+                row = (y - cell[1]) * CELL_W
+                out.update(row + x - cell[0] for x in range(o[0], o[0] + o[2]))
+    return frozenset(out)
+
+
+@dataclass(frozen=True)
+class RefreshRead:
+    """What the headless refresh census measured for one rect pair whose copy is NOT always seen."""
+    verdict: str                                     # "READ_STALE" or "MIXED"
+    stale_reads: int                                 # reads of the copied band from a decode older than the copy
+    reads: int                                       # every read of the copied band
+    pages: Tuple[str, ...]                           # the pages that read it, "x448_y256@8"
+
+    def describe(self) -> str:
+        return ("%s: %d of %d reads of the copied band were of a decode older than the copy, through "
+                "%s -- the page%s that sample%s it %s keyed at another column, and Memoria refreshes a "
+                "decode only for a write whose origin lies in its own column (headless refresh census)"
+                % (self.verdict, self.stale_reads, self.reads, " / ".join(self.pages),
+                   "" if len(self.pages) == 1 else "s", "s" if len(self.pages) == 1 else "",
+                   "is" if len(self.pages) == 1 else "are"))
+
+
+# ``(effect, dst x, dst y, width, period, verdict, stale reads, reads, reader pages)`` -- every rect pair
+# whose copy is not always seen, from ``stale_census.py`` over all 372 containers.  Re-derived and
+# asserted by ``scroll_blit_gates.py`` S8; the 103 fresh pairs are the complement.
+_REFRESH_ROWS = (
+    (6, 576, 384, 64, 128, "MIXED", 16, 17, ("x512_y256@8",)),
+    (62, 576, 384, 64, 128, "MIXED", 16, 17, ("x512_y256@8",)),
+    (125, 512, 256, 32, 128, "MIXED", 176, 201, ("x448_y256@8", "x512_y256@4")),
+    (131, 608, 256, 32, 240, "MIXED", 116, 118, ("x512_y256@8",)),
+    (131, 704, 384, 64, 64, "READ_STALE", 64, 64, ("x640_y256@8",)),
+    (218, 576, 384, 64, 128, "MIXED", 16, 17, ("x512_y256@8",)),
+    (223, 512, 256, 32, 128, "MIXED", 74, 201, ("x448_y256@8", "x512_y256@4")),
+    (225, 640, 256, 32, 128, "MIXED", 107, 108, ("x576_y256@8",)),
+    (250, 704, 384, 64, 64, "READ_STALE", 59, 59, ("x640_y256@8",)),
+    (418, 576, 256, 48, 128, "MIXED", 29, 30, ("x512_y256@8",)),
+    (429, 512, 256, 32, 64, "MIXED", 69, 70, ("x448_y256@8",)),
+    (499, 512, 256, 64, 128, "READ_STALE", 32, 32, ("x448_y256@8",)),
+)
+REFRESH: Dict[Tuple[int, int, int, int, int], RefreshRead] = {
+    (ef, x, y, w, h): RefreshRead(verdict=v, stale_reads=st, reads=n, pages=pg)
+    for ef, x, y, w, h, v, st, n, pg in _REFRESH_ROWS}
+REFRESH_PAIRS = 123
+REFRESH_FRESH, REFRESH_MIXED, REFRESH_STALE = 111, 9, 3
+
+#: the refresh law in the one sentence a disclosure quotes.
+REFRESH_LAW = (
+    "Memoria refreshes a decoded texture page only for a write whose origin lies in the page's own "
+    "column, so a copy into an 8bpp page's second column can run every frame and never reach the "
+    "screen; over the 115 op-144 rect pairs %d read fresh, %d MIXED, %d READ_STALE"
+    % (REFRESH_FRESH, REFRESH_MIXED, REFRESH_STALE))
+
+#: THE SPEC KEY.  Literal-boolean-only, like every other acknowledgement in this lane.
+ACK_KEY = "acknowledge_scroll_blit_destination"
+
+#: the mechanism, in the one sentence every refusal and disclosure quotes.
+MECHANISM = (
+    "HLE op 144 is a VRAM SCROLL BLIT: it queues two DR_MOVE primitives (SFXRender case 231, "
+    "libgpu's VRAM-to-VRAM block move) that copy a source band into a destination band split at the "
+    "animated phase and swapped -- a vertical scroll with wraparound -- every frame it runs")
+#: the other axis, in the same breath.
+H_MECHANISM = (
+    "the container's own program SCROLLS this band: a routine of its own, carried by six containers and "
+    "identical in all of them, takes op 144's seven arguments and queues the two DR_MOVE copies itself "
+    "through HLE op 7 (libgpu SetDrawMove) -- a HORIZONTAL scroll with wraparound -- every frame it runs")
+
+#: the corpus measurement, asserted against the table below.
+MEASUREMENT = (
+    "%d op-144 sites over %d containers and %d sites of the program's own horizontal-scroll routine "
+    "over %d more, every period folded; against the %d editable scenery cells, %d containers / %d "
+    "cells are DESTINATIONS and %d / %d are SOURCES -- a class the W6b program-VRAM census "
+    "structurally could not see, because neither scroll was ever in its writer union.  Headless, the "
+    "executed copies' destinations equal the table's bands halfword for halfword over all %d "
+    "containers that run one"
+    % (SITES, CONTAINERS, HSCROLL_SITES, ALL_CONTAINERS - CONTAINERS, EDIT_SURFACE_CELLS,
+       DEST_CONTAINERS, DEST_CELLS, SOURCE_CONTAINERS, SOURCE_CELLS, ALL_CONTAINERS))
+
+#: the one container on which a static site has been seen to EXECUTE.
+EF407_EXECUTED = (
+    "ON ef407 THE STATIC SITE IS THE ONE THAT RUNS: the plugin, run headless, executed 252 DR_MOVE "
+    "blits into (704,384) from (704,256) over native frames 85-211")
+
+#: the program scroll's executed record -- the copies that were the headless census's open gap.
+H_EXECUTED = (
+    "THE PROGRAM SCROLL RUNS: headless, ef509's two bands execute over native frames 76-196 and "
+    "ef226's over 321-473 -- the copies the headless census found rewriting four editable cells "
+    "before this table held the routine")
+
+#: what the table does not establish -- the reason the refusal has a key at all -- and what the
+#: in-game record says about it.  The ef211 cast ladder (W6b-SCENERY.md sec 5) read against this
+#: table, after the fact: the ink and punch wheels on (704,256) -- a FULL destination fed from
+#: (704,384) -- were both invisible, while stripes on (704,384) banded the on-screen dome.
+#: CORRECTED: this caveat used to cite cast 2b's bold wheel (every changed halfword inside the
+#: (576,368) band) as the other side, a wheel that "still eroded the vortex smoke at burst peak".  It
+#: is not.  The ladder's own capture (`sfxmeshprobe.w6b-cast-ladder.2026-07-28.log`) has DR_MOVE as
+#: the first prims of every frame f47-157, and the 4bpp page at (576,256) that holds the wheel's cell
+#: is drawn on exactly those frames and no others -- the headless census puts the column-576 blits on
+#: the same window -- so the wheel was stock bytes at every draw.  The headless raster renders 2b
+#: identical to stock on every frame, and the recorded erosion compared 2b with the thin-wheel cast
+#: (both edited), never with stock.  No cast on record has drawn a destination edit; the key stands
+#: because the table is static and does not know a cast's draw window.
+REACHABILITY = (
+    "REACHABILITY IS NOT ESTABLISHED PER CAST: these are static call sites and a blit rewrites its "
+    "band only while it runs.  Every in-game check so far sides with the refusal -- on ef211 the "
+    "ink and punch wheels on (704,256), a FULL destination fed from (704,384), were both INVISIBLE "
+    "while stripes on (704,384) banded the dome on screen (headless, that blit runs over frames "
+    "235-284, exactly the frames the 8bpp page sampling (704,256) draws), and the game's own capture "
+    "shows the (576,368) band's blit running on every frame its page is drawn (f47-157), ahead of "
+    "the first draw, so cast 2b's bold wheel inside it never reached the screen either")
+
+#: what saying :data:`ACK_KEY` means, printed on every build that uses it.
+ACK_WARNING = (
+    "%s = true: the texels this edit changes inside an op-144 DESTINATION band are rewritten from "
+    "the source every frame the blit runs, so while it runs they never reach the screen.  %s.  The "
+    "kit counts the changed texels in the band and checks nothing else; the judgement that this "
+    "blit is not running when your cell is drawn is yours." % (ACK_KEY, REACHABILITY))
+
+# ---------------------------------------------------------------- THE COUNT PINS (asserted at import)
+assert len(_SITE_ROWS) == SITES, len(_SITE_ROWS)
+assert len({r[0] for r in _SITE_ROWS}) == CONTAINERS
+assert len(_HSCROLL_ROWS) == HSCROLL_SITES and len({r[0] for r in _HSCROLL_ROWS}) == HSCROLL_CONTAINERS
+assert len(SCROLL_BLITS) == ALL_CONTAINERS, len(SCROLL_BLITS)
+assert sum(b.sites for bs in SCROLL_BLITS.values() for b in bs) == SITES + HSCROLL_SITES
+#: every measured tile belongs to a real op-144 band, and the counts close.
+assert len(_TILE_ROWS) == FLIPBOOK_TILES and len(TILES) == FLIPBOOK_PAIRS
+assert all(any(b.axis == "v" and (b.effect,) + b.dst + b.size == k for b in SCROLL_BLITS.get(k[0], ()))
+           for k in TILES)
+assert all(0 <= x and 0 <= y and x + k[3] <= VRAM_W and y + k[4] <= VRAM_H
+           for k, ts in TILES.items() for x, y, _n in ts)
+#: the hardware's own fit predicate, which every DESTINATION satisfies -- the evidence ADDENDUM 9
+#: shipped the op's naming on (167/167 against 46.0% on the control population).
+assert all(b.size[0] > 0 and b.dst[0] + b.size[0] <= VRAM_W and b.dst[1] + b.size[1] <= VRAM_H
+           for bs in SCROLL_BLITS.values() for b in bs)
+#: the refresh table names real pairs only, and its counts close over the whole table.
+assert sum(len(bs) for bs in SCROLL_BLITS.values()) == REFRESH_PAIRS
+assert all(any((b.effect,) + b.dst + b.size == k for b in SCROLL_BLITS.get(k[0], ())) for k in REFRESH)
+assert sum(r.verdict == "MIXED" for r in REFRESH.values()) == REFRESH_MIXED
+assert sum(r.verdict == "READ_STALE" for r in REFRESH.values()) == REFRESH_STALE
+assert REFRESH_PAIRS - len(REFRESH) == REFRESH_FRESH
+#: ...and the four sites whose folded SOURCE does not fit, named so a fifth cannot appear silently.
+assert sorted({b.effect for bs in SCROLL_BLITS.values() for b in bs
+               if not b.src_in_vram}) == [22, 95, 222, 418]

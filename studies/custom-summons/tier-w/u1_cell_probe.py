@@ -121,6 +121,7 @@ and written over the ef038 override.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import hashlib
 import json
 import os
@@ -267,7 +268,7 @@ CANARY_CORNER = {UPPER_CELL: ("left", "top"), LOWER_CELL: ("right", "top"),
 #: the probe would stage another container's bytes as `ef038.cellprobe` and `--deploy` would write
 #: them over `.../SpecialEffects/ef038`.  So the pin is by NAME *and* by STRUCTURE, and the
 #: structure checked is exactly what the cast rests on.
-SOURCE_PIN_CELLS = {UPPER_CELL: ("so-uv", 8, 0x1946c), LOWER_CELL: ("so-uv", 8, 0x1d46c)}
+SOURCE_PIN_CELLS = {UPPER_CELL: ("so-uv", 8, 0x19800), LOWER_CELL: ("so-uv", 8, 0x1d800)}
 #: the placement spans the marks are sized against.  If a container's declared cover moved, the
 #: stripe rows move with it and every face-crossing number in the study is stale -- refuse instead.
 SOURCE_PIN_COVER = {UPPER_CELL: (1, 127), LOWER_CELL: (0, 127)}
@@ -276,7 +277,15 @@ SOURCE_PIN_COVER = {UPPER_CELL: (1, 127), LOWER_CELL: (0, 127)}
 #: `repaint.texel_page` says DEPTH-UNKNOWN.  That refusal is pinned POSITIVELY -- a container in
 #: which those cells suddenly resolve is a container whose second column has a binder, and every
 #: word of the G1 argument would have to be re-derived for it.
-SOURCE_PIN_CELLS_HI = {UPPER_CELL_HI: (0x2146c, 0x4000), LOWER_CELL_HI: (0x2546c, 0x4000)}
+SOURCE_PIN_CELLS_HI = {UPPER_CELL_HI: (0x21800, 0x4000), LOWER_CELL_HI: (0x25800, 0x4000)}
+#: WHERE THE CASTS WROTE.  Both casts were generated on the kit's PRE-WALK page map, which put all four
+#: cells 916 bytes before where the game loads them (`reskin.scenery_pages`, THE UPLOAD WALK: the id-0
+#: sector pad is no texel) -- the offsets the pins above held until the walk.  The instrument keeps
+#: writing THERE so it still reproduces the containers that were read, byte for byte.  What that meant
+#: in VRAM: each mark sat translated 7 rows and 20 texels, and each cell's last 7 rows carried the NEXT
+#: cell's mark.  Orientation and pitch -- the read -- survive a translation, and the s77 mechanism was
+#: measured off the primitives' own logged u,v, not off the marks (U1-SECOND-ARRAY-CAST.md §12).
+CAST_OFFSETS = {UPPER_CELL: 0x1946c, LOWER_CELL: 0x1d46c, UPPER_CELL_HI: 0x2146c, LOWER_CELL_HI: 0x2546c}
 #: the column census: total binding slots on COLUMN, the A histogram, the B histogram, the JOINT
 #: (A,B) histogram -- the joint is what makes the 4-way read scoreable, and the lone (0x80, 0x00)
 #: slot is the bright-family column control -- and the ONE wrap reader whose v runs to 255.
@@ -464,7 +473,9 @@ def pin_source(blob: bytes, path: str, cast: int) -> dict:
     notes = []
     for cell, (want_src, want_bpp, want_off) in sorted(SOURCE_PIN_CELLS.items()):
         try:
-            page = RP.texel_page(blob, cell, EFFECT)
+            # on the reading the casts were MADE under: U2 adopted `linear-add-v1` after them, and
+            # under it this cell refuses as displaced-readerless -- which is U1's own finding
+            page = RP.texel_page(blob, cell, EFFECT, channels=RP.READINGS["bound"])
         except Exception as exc:                                    # noqa: BLE001
             raise _fail("%s does not resolve %s at all (%s: %s)."
                         % (path, cell, type(exc).__name__, str(exc).splitlines()[0][:160]))
@@ -543,7 +554,7 @@ def pin_source(blob: bytes, path: str, cast: int) -> dict:
             raise _fail("%s declares %s at %#x/%#x, not the %#x/%#x this cast was measured on."
                         % (path, cell, pc.off, pc.nbytes, want_off, want_len))
         try:
-            RP.texel_page(blob, cell, EFFECT)
+            RP.texel_page(blob, cell, EFFECT, channels=RP.READINGS["bound"])
         except Exception as exc:                                    # noqa: BLE001
             if "DEPTH-UNKNOWN" not in str(exc):
                 raise _fail("%s refuses %s for a reason that is NOT depth-unknown (%s: %s)."
@@ -873,7 +884,7 @@ def generate(from_path: str, root: str, cells=None, cast: int = 2) -> dict:
     ink = canary_ink(stock, cluts) if cast == 2 else None
 
     for cell in sorted(marks):
-        pc = by_name[cell]
+        pc = dataclasses.replace(by_name[cell], off=CAST_OFFSETS[cell])      # where the casts wrote
         axis, k, rows = marks[cell]
         cov = cover_span(stock, (pc.x, pc.y))
         # THE TWO PLACEMENT SPANS, each derived.  "H" marks are placed down the declared `so` row
@@ -925,7 +936,7 @@ def generate(from_path: str, root: str, cells=None, cast: int = 2) -> dict:
         for L in legend:
             if not L["written"]:
                 continue
-            pc = by_name[L["cell"]]
+            pc = dataclasses.replace(by_name[L["cell"]], off=CAST_OFFSETS[L["cell"]])
             rcov = cover_span(stock, (pc.x, pc.y)) or (0, CELL_ROWS - 1)
             blk = canary_block(pc.off, authored, CANARY_CORNER[L["cell"]], rcov,
                                canary_shape(L["axis"], L["rows"]))

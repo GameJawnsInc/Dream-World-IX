@@ -1194,7 +1194,26 @@ All 77 checks passed on the first launch, in 502 s:
 - **P5 holds (new, the canopy):** 20/20 canopy points read their surface less the 1.171875 sink, and each walk in
   climbed onto the canopy and crossed it to the rock (29.8-30.5u).
 
-No white sliver in any still (one near-white pixel, a sea glint). Owner's verdict on the look: pending.
+No white sliver in any still (one near-white pixel, a sea glint). The island's sea does have sky-coloured holes
+at a cove corner (found in round 23, section 38). Owner's verdict on the look: passed (catalogued as desert-scrub).
+
+## Round 23 (2026-10-23, owner's go: "the harness is yours"): a grass massif with its canopy, comp10, 77/77; holes in the island's sea
+
+Run `20261023-090402-canopy-step-comp10` (the lane: `../canopystep/NOTES.md`; `CANOPY_DONOR=comp10`). comp10 carries
+only since the down gate keeps a donor's own near-vertical walls (`../mountaindonors/STEP.md` round 2). A grass
+island (r66 one-lobe at (1380, -96), blocks (20,0)-(22,2)), carved four ways from donor 14-16,14 with its 64-tri
+forest canopy: A rot 0, B 90, C 200, D 270.
+
+### 38. A grass massif with its canopy
+
+All 77 checks passed on the first launch, in 479 s: summits within 0.004, 48/48 ring points, 8/8 view walks on built
+ground, 20/20 canopy points at the sink, and every walk in crossed the canopy to the rock (21.4-22.6u).
+
+**A defect the owner found, the island's, not the carve's:** sky-coloured wedges in the sea at a cove's inner corner
+below the coast wall. `hole_scan.py` finds the plan uncovered there (a thin diagonal in block (20,2)); round 22's desert
+island has one too (block (21,2)), round 21's two-lobe snow island none. FIXED (0cc2ff0b, `../canopystep/HOLES.md`): the
+Sea4 cut now judges a tri by its area; re-run stills-only (`20261023-101037-sea-holes-fix`, 53/53), sky pixels 1557 -> 6.
+Owner's verdict on comp10's look pending.
 
 ## Not run
 

@@ -274,7 +274,53 @@ def snap_coop(ctx: _Ctx, state: str) -> None:
 
 
 # --------------------------------------------------------------------------------------- world states
-WORLD_STATES = ("guide", "nogame", "atlas")
+WORLD_STATES = ("guide", "nogame", "atlas", "3d", "3d-forest", "3d-mountain", "3d-step", "3d-sink", "3d-coast", "3d-island", "3d-transplant",
+                "3d-river", "3d-hill")
+# "3d-live" reads the REAL install's blocks (read-only) to show the true look; it is never in `all`, because a
+# surface that depends on the developer's machine cannot be a pinned review state.
+WORLD_EXTRA_STATES = ("3d-live",)
+
+
+def _synthetic_island():
+    """The pinned island's height field round the atlas showpiece block (19,18): ``(verts, uvs, tris)``. Invented."""
+    import numpy as np
+    cx, cz, n, span = 1248.0, -1184.0, 49, 192.0
+    g = np.linspace(-span / 2, span / 2, n)
+    xs, zs = np.meshgrid(cx + g, cz + g)
+    r = np.hypot(xs - cx, (zs - cz) * 1.3) / (span / 2)
+    ys = np.clip(1.0 - r, 0, None) ** 1.6 * 34.0 + np.sin(xs / 9.0) * np.cos(zs / 7.0) * 1.5 - 2.0
+    verts = np.c_[xs.ravel(), ys.ravel(), zs.ravel()]
+    uvs = np.c_[xs.ravel() / 16.0, zs.ravel() / 16.0]
+    tris = []
+    for i in range(n - 1):
+        for j in range(n - 1):
+            a, b, c, d = i * n + j, i * n + j + 1, (i + 1) * n + j, (i + 1) * n + j + 1
+            tris += [(a, c, b), (b, c, d)]
+    return verts, uvs, np.array(tris)
+
+
+def _synthetic_world_scene():
+    """The pinned 3D scene: a procedural island round the atlas showpiece block (19,18) -- a height field with
+    grass/rock/sand textures and an open-sea plane -- packed the way worldview3d.load_scene packs the real map, so
+    the 3D page draws deterministically with no install. Geometry and colours are invented (zero SE bytes)."""
+    import numpy as np
+    from ff9mapkit.workspace import worldview3d as V
+    cx, cz = 1248.0, -1184.0
+    verts, uvs, tris = _synthetic_island()
+    sea = np.array([[cx - 400, 0.0, cz - 400], [cx + 400, 0.0, cz - 400], [cx - 400, 0.0, cz + 400],
+                    [cx + 400, 0.0, cz + 400]])
+    batches = [("Terrain", verts, uvs, tris),
+               ("Sea4", sea, sea[:, [0, 2]] / 24.0, np.array([(0, 2, 1), (1, 2, 3)]))]
+    rng = np.random.default_rng(7)
+    grass = np.zeros((64, 64, 4), np.uint8)
+    grass[...] = (88, 140, 52, 255)
+    grass[..., :3] = np.clip(grass[..., :3] + rng.integers(-18, 18, (64, 64, 1)), 0, 255)
+    grass[:, 32:, :3] = np.clip(np.array([128, 124, 118]) + rng.integers(-25, 25, (64, 32, 1)), 0, 255)
+    water = np.zeros((32, 32, 4), np.uint8)
+    water[...] = (52, 104, 156, 255)
+    water[..., :3] = np.clip(water[..., :3] + rng.integers(-10, 10, (32, 32, 1)), 0, 255)
+    packed = V.pack(batches)
+    return packed, {"Terrain": V.texture_rgba(grass), "Sea4": V.texture_rgba(water)}
 
 
 def _fake_world_install() -> Path:
@@ -320,6 +366,8 @@ def _fake_world_install() -> Path:
     put(6, 18, "Terrain.ff9mesh.bak-20260719-093929", mesh(salt=42))       # an --in-place backup
     (mod / "atlas-names.json").write_text(json.dumps(                      # landmass nameplates
         {"version": 1, "names": {"4,17": "Twin Isles", "18,17": "The Bench"}}), encoding="utf-8")
+    (game / "Memoria.ini").write_text(                                      # the 3D page draws this folder order
+        '[Mod]\nFolderNames = "FF9CustomMap", "FF9CustomMap-world", "MoguriMain"\n', encoding="utf-8")
     return game
 
 
@@ -389,21 +437,765 @@ class _pin_world_state:
         return False
 
 
+FOREST_SPOTS = {"pass": (1214.0, -1132.0), "refused": (1290.0, -1140.0), "warn": (1250.0, -1180.0)}
+
+
+def _forest_seams():
+    """The pinned forest tool: an invented oval canopy, the synthetic island as its soup (plain grass below y 22,
+    coast rock above, so the summit refuses in the preview), and a scripted runner that answers like world-forest
+    (passes at the "pass" spot, a step-law refusal with two marks anywhere else)."""
+    import math
+    import numpy as np
+    from ff9mapkit.world import forestedit as FE
+    from ff9mapkit.world.extract import encode_id
+    ring = np.array([(9.0 * math.cos(a), 0.0, 6.0 * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 17)[:-1]])
+    top = np.array([0.0, 2.2, 0.0])
+    tris = np.array([[top, ring[k] + (0, 0.4, 0), ring[(k + 1) % 16] + (0, 0.4, 0)] for k in range(16)])
+    outline = FE.Outline((13, 15), tris, ring, (18.0, 12.0))
+    verts, _uvs, tri_ix = _synthetic_island()
+    meta, coast = [], []
+    for t in tri_ix:
+        rock = verts[t][:, 1].max() > 22.0
+        meta.append(((19, 18), float(encode_id(topograph=58 if rock else 0)), "rock" if rock else "main",
+                     [(0.05, 0.8)] * 3))
+        if rock:
+            coast += [(float(verts[i][0]), float(verts[i][2])) for i in t]
+    ix = FE.SoupIndex({"pos": verts.tolist(), "tris": tri_ix.tolist(), "meta": meta, "coast": coast,
+                       "blocks": {(19, 18): None}})
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            if "world-promote" in argv:                      # rung C4: the promote answers like world-promote
+                v = {"ok": True, "op": "revert" if "--revert" in argv else "promote", "folder": "FF9CustomMap-world",
+                     "cells": [[19, 18]], "promoted": ["FF9_Data/WorldMap/Disc1/0_1/r18/Block[19][18] Terrain.ff9mesh"],
+                     "error": None}
+                Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+                done(0, "")
+                return
+            c = [float(v) for v in argv[argv.index("--center") + 1].split(",")]
+            ok = abs(c[0] - FOREST_SPOTS["pass"][0]) < 1 and abs(c[1] - FOREST_SPOTS["pass"][1]) < 1
+            v = {"ok": ok, "dry_run": "--dry-run" in argv, "center": c, "blocks": [[19, 18]], "written": [],
+                 "report": {"blob_tris": 41, "dropped": 55, "zip_tris": 32, "wall_rise": 2.05} if ok else None,
+                 "refused": None if ok else {
+                     "gate": "step", "detail": "", "where": [[c[0] + 7.5, c[1] - 2.0], [c[0] + 4.0, c[1] + 5.0]],
+                     "message": "THE CANOPY STEP LAW gate failed (wall/zip rise or zip winding)"}}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0 if ok else 2, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    return {"outline_fn": lambda donor: outline, "soup_fn": lambda folder: ix, "sync": True}, Scripted()
+
+
+def _snap_world_forest(ctx: _Ctx, win) -> None:
+    """Rung C1: the forest tool on the pinned 3D page -- a ghost that passes every gate, one a gate refuses (its
+    marks drawn where), and one the footprint preview refuses before any job runs."""
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    doc = win.world_doc
+    seams, runner = _forest_seams()
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._forest_runner, doc._forest_seams = drafts, runner, seams
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()       # every load in this state, the reloads too
+    try:
+        doc.set_view_mode("3d", sync=True)
+        doc.open_forest(sync=True)
+        _snap_forest_states(ctx, win, doc)
+    finally:
+        V.load_scene = orig
+
+
+MOUNTAIN_SPOTS = {"pass": (1214.0, -1132.0), "refused": (1196.0, -1214.0), "warn": (1246.0, -1166.0)}
+
+
+def _mountain_seams():
+    """The pinned mountain tool: an invented craggy cone (12u rim, 14u tall), the synthetic island as its soup
+    (each tri in its own block, so the span law reads real blocks), and a scripted runner that answers like
+    world-mountain (passes at the "pass" spot, an apron refusal with a mark anywhere else)."""
+    import math
+    import numpy as np
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world import mountainedit as ME
+    from ff9mapkit.world.extract import encode_id
+    n = 18
+    rim = np.array([((12.0 + 1.6 * math.sin(3 * a)) * math.cos(a), 0.0, (12.0 + 1.6 * math.sin(3 * a)) * math.sin(a))
+                    for a in np.linspace(0, 2 * math.pi, n + 1)[:-1]])
+    mid = rim * 0.55 + (0.0, 7.5, 0.0)
+    top = np.array([1.5, 14.0, -1.0])
+    tris = []
+    for k in range(n):
+        a, b, c, d = rim[k], rim[(k + 1) % n], mid[k], mid[(k + 1) % n]
+        tris += [[a, b, d], [a, d, c], [c, d, top]]
+    outline = ME.MassifOutline("0,0", np.array(tris), rim, 13.6, height_ok=True, home_ground="grass")
+    verts, _uvs, tri_ix = _synthetic_island()
+    u = (G.FAM_REGION["main"][0] + G.FAM_REGION["main"][2]) / 2.0
+    meta, coast, blocks = [], [], set()
+    for t in tri_ix:
+        rock = verts[t][:, 1].max() > 22.0
+        c = verts[t].mean(axis=0)
+        blk = (int(math.floor(c[0] / 64.0)), int(math.floor(-c[2] / 64.0)))
+        blocks.add(blk)
+        meta.append((blk, float(encode_id(topograph=58 if rock else 0)), "rock" if rock else "main", [(u, 0.8)] * 3))
+        if rock:
+            coast += [(float(verts[i][0]), float(verts[i][2])) for i in t]
+    ix = ME.SoupIndex({"pos": verts.tolist(), "tris": tri_ix.tolist(), "meta": meta, "coast": coast,
+                       "blocks": {b: None for b in blocks}})
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            if "world-promote" in argv:                      # rung C4, as in the forest's runner
+                v = {"ok": True, "op": "revert" if "--revert" in argv else "promote", "folder": "FF9CustomMap-world",
+                     "cells": [[18, 17]], "promoted": ["FF9_Data/WorldMap/Disc1/0_1/r17/Block[18][17] Terrain.ff9mesh"],
+                     "error": None}
+                Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+                done(0, "")
+                return
+            c = [float(v) for v in argv[argv.index("--center") + 1].split(",")]
+            ok = abs(c[0] - MOUNTAIN_SPOTS["pass"][0]) < 1 and abs(c[1] - MOUNTAIN_SPOTS["pass"][1]) < 1
+            v = {"ok": ok, "dry_run": "--dry-run" in argv, "center": c, "blocks": [[18, 17], [19, 17]], "written": [],
+                 "ground": "grass", "note": None,
+                 "report": {"blob_tris": 54, "plugs": 0, "dropped": 118, "zip_tris": 61, "peak_y": 16.8,
+                            "rock_rigid": 0.021, "teleport": [c[0] - 18.0, c[1]]} if ok else None,
+                 "refused": None if ok else {
+                     "gate": "apron", "detail": "31.6 deg > 29.5", "where": [[c[0] - 6.0, c[1] + 13.5]],
+                     "message": "the ground apron exceeds the grass slope envelope"}}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0 if ok else 2, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    return {"outline_fn": lambda donor: outline, "soup_fn": lambda folder: ix, "sync": True}, Scripted()
+
+
+def _snap_world_mountain(ctx: _Ctx, win) -> None:
+    """Rung C2: the mountain tool on the pinned 3D page -- a ghost that passes every gate, one a gate refuses (its
+    mark drawn where), and one the footprint preview refuses (it reaches the summit's rock) before any job runs.
+    Then ``-accepted`` (the view draws the draft, so the bar's caption is at its longest) and ``-promoted`` (an
+    edit in the draft, then Promote: the card at its tallest, the handles' row and the promote row) -- the two
+    states that must still fit a 1280x850 window at 150%."""
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    doc = win.world_doc
+    seams, runner = _mountain_seams()
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._mountain_runner, doc._mountain_seams = drafts, runner, seams
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        mt = doc.open_mountain(sync=True)
+        mt._on_reload = lambda x, z: None                # the dev checkout's Show in game, offered
+        mt._ask = lambda title, text: True               # the confirm dialogs, answered
+        view = doc._view3d.view
+        for name, key in (("", "pass"), ("-refused", "refused"), ("-warn", "warn"), ("-accepted", "pass"),
+                          ("-promoted", "pass")):
+            x, z = MOUNTAIN_SPOTS[key]
+            mt.place(x, z, 0.0)
+            mt._timer.stop()
+            mt._check()
+            if name == "-accepted":
+                mt.accept_btn.click()
+                _settle_view(doc)
+                view = doc._view3d.view
+            if name == "-promoted":
+                _promote_pinned(doc, mt, "FF9_Data/WorldMap/Disc1/0_1/r17/Block[18][17] Terrain.ff9mesh")
+                view = doc._view3d.view
+            if view is not None:
+                gy = mt._ix.ground_y(x, z) or 0.0
+                view.focus(x, z, dist=80.0, y=gy)
+                view.camera.yaw, view.camera.pitch = 20.0, 38.0
+                view.update()
+            _settle(12)
+            _grab(ctx, f"world-3d-mountain{name}", win)  # -accepted is rung C3's too: the recipe bar holds the step
+    finally:
+        V.load_scene = orig
+
+
+def _snap_world_step(ctx: _Ctx, win) -> None:
+    """Rung C9: a placed step picked (the recipe bar's second row: the step, Previous / Next, Edit, Delete, Done), then
+    opened in its card (Edit mountain, Accept the edit, Cancel edit; the bar says what waits) -- both must fit a
+    1280x850 window at 150%."""
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    doc = win.world_doc
+    seams, runner = _mountain_seams()
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._mountain_runner, doc._mountain_seams = drafts, runner, seams
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        mt = doc.open_mountain(sync=True)
+        x, z = MOUNTAIN_SPOTS["pass"]
+        for _ in range(2):                               # two steps: the picked one, and one after it to put back
+            mt.place(x, z, 0.0)
+            mt._timer.stop()
+            mt._check()
+            mt.accept_btn.click()
+        mt.close_tool()
+        _settle_view(doc)
+        doc._recipe.select(0)
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(x, z, dist=80.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 38.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-step-picked", win)
+        doc._recipe.edit_btn.click()
+        mt._timer.stop()
+        mt._check()
+        _settle(12)
+        _grab(ctx, "world-3d-step-edit", win)
+        mt.close_tool()                                  # Cancel edit: the draft as it was
+    finally:
+        V.load_scene = orig
+
+
+def _promote_pinned(doc, tool, rel) -> None:
+    """Accept the passing ghost, put an edit in the draft at ``rel``, then Promote (the scripted runner answers)."""
+    tool.accept_btn.click()
+    p = tool.draft() / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(b"pinned edit")
+    tool._refresh_draft_label()
+    tool.promote_btn.click()
+    tool._show_draft_info(tool.draft(), set(), [], {"utc": "pinned"})   # the real promote rebases the draft
+    _settle_view(doc)
+
+
+def _settle_view(doc) -> None:
+    """Wait out the 3D view's reload after an Accept or a Promote (a worker)."""
+    for _ in range(200):
+        if not doc._view3d._busy:
+            break
+        _settle(1)
+
+
+def _snap_world_sink(ctx: _Ctx, win) -> None:
+    """Rung C5: the sink card on the pinned 3D page -- an island picked (its outline is the ghost) that passes, and
+    one whose entrances refuse it until "Allow entrances" is ticked. Invented outlines over the synthetic island."""
+    import math
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    seams, _runner = _mountain_seams()                   # the synthetic island as the soup
+    ring = [[1248.0 + 70.0 * math.cos(a), -1184.0 + 52.0 * math.sin(a)] for a in
+            [k * 2 * math.pi / 24 for k in range(24)]]
+    rows = [{"at": [1248.0, -1184.0], "outline": ring, "land_u2": 11436.0, "max_y": 32.0,
+             "blocks": [[19, 18], [19, 19], [18, 18], [20, 18]], "ok": True, "why": None, "fill": "tiles",
+             "entrance_tris": 0, "cluster": None}]
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "at": [1248.0, -1184.0], "blocks": rows[0]["blocks"],
+                 "written": [], "report": {"land_tris": 2304}, "refused": None}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._sink_runner = drafts, Scripted()
+    doc._sink_seams = {"outline_fn": lambda d: rows, "soup_fn": seams["soup_fn"], "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        st = doc.open_sink(sync=True)
+        st.place(1250.0, -1180.0, 20.0)
+        st._timer.stop()
+        st._check()
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(1248.0, -1184.0, dist=220.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 45.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-sink", win)
+        rows[0]["entrance_tris"] = 5                     # ...and one with an entrance on it (a fresh island
+        st._verdict = None                               # list: the pass above was for the one without)
+        st.place(1250.0, -1180.0, 20.0)
+        _settle(12)
+        _grab(ctx, "world-3d-sink-entrance", win)
+    finally:
+        V.load_scene = orig
+
+
+def _snap_world_coast(ctx: _Ctx, win) -> None:
+    """Rung C5: the coast card on the pinned 3D page -- a cliff window picked (its run is the ghost, the verb picker
+    offers only the lawful morph, the depth stops at its ceiling) that passes. Invented window over the synthetic
+    island."""
+    import math
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    seams, _runner = _mountain_seams()
+    run = [[1248.0 + 84.0 * math.cos(a), -1184.0 + 64.0 * math.sin(a)] for a in
+           [math.radians(d) for d in range(200, 251, 5)]]
+    window = {"kind": "cliff", "cell": [18, 17], "L": 74.0, "n": len(run), "run": run, "start": run[0],
+              "end": run[-1], "probes": {"cliff-bump": {"depth": 2.5, "binding": None, "window": [run[0], run[-1]]},
+                                         "cliff-headland": {"depth": None, "binding": "D=8: a painted-mural family",
+                                                            "window": None}}}
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "cell": [18, 17], "blocks": [[18, 17]], "written": [],
+                 "gates": [{"gate": g, "ok": True} for g in ("frame", "stitch", "entrance", "bounds", "census")],
+                 "refused": None}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._coast_runner = drafts, Scripted()
+    doc._coast_seams = {"outline_fn": lambda cell: [] if cell == "-" else [window], "soup_fn": seams["soup_fn"],
+                        "stack_fn": lambda: [], "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        ct = doc.open_coast(sync=True)
+        ct._edited = lambda cell: []                     # the fake install overrides this block; the pass is the subject
+        x, z = run[5]
+        ct.place(x + 1.0, z - 1.0, 2.0)
+        ct._timer.stop()
+        ct._check()
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(x, z, dist=120.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 200.0, 40.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-coast", win)
+    finally:
+        V.load_scene = orig
+
+
+def _snap_world_island(ctx: _Ctx, win) -> None:
+    """Rung C5: the island card on the pinned 3D page -- the mint's own coastline as the ghost, on open sea beside the
+    synthetic island, passing; then the same island dragged onto the synthetic island's land, refused."""
+    import shutil as _sh
+    from ff9mapkit.workspace import worldview3d as V
+    seams, _runner = _mountain_seams()
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            c = [float(v) for v in argv[argv.index("--center") + 1].split(",")]
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "center": c, "seed": 5.0, "blocks": [[21, 18]],
+                 "written": [], "report": {"clean": True}, "refused": None}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._island_runner = drafts, Scripted()
+    land = {(18, 17), (18, 18), (18, 19), (19, 17), (19, 18), (19, 19), (20, 17), (20, 18), (20, 19)}
+    doc._island_seams = {"outline_fn": lambda d: land, "soup_fn": seams["soup_fn"], "stack_fn": lambda: [],
+                         "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        it = doc.open_island(sync=True)
+        it._occupied = lambda blocks: {}                 # the fake install's folder is not the subject
+        it.seed.setValue(5)
+        for name, (x, z) in (("", (1376.0, -1184.0)), ("-refused", (1300.0, -1184.0))):
+            it.place(x, z, 0.0)
+            it._timer.stop()
+            it._check()
+            view = doc._view3d.view
+            if view is not None:
+                view.focus(1330.0, -1184.0, dist=260.0, y=0.0)
+                view.camera.yaw, view.camera.pitch = 20.0, 45.0
+                view.update()
+            _settle(12)
+            _grab(ctx, f"world-3d-island{name}", win)
+    finally:
+        V.load_scene = orig
+
+
+def _snap_world_transplant(ctx: _Ctx, win) -> None:
+    """Rung C5: the transplant card on the pinned 3D page -- an invented coastal block's land carried onto an open
+    cell beside the synthetic island, turned 90, passing with the shift the check chose."""
+    import math
+    import shutil as _sh
+    import numpy as np
+    from ff9mapkit.workspace import worldview3d as V
+    seams, _runner = _mountain_seams()
+    dcx, dcz = 64 * 7 + 32.0, -(64 * 17 + 32.0)          # an invented land blob in the donor cell (7,17)
+    ring = [(dcx + 20 * math.cos(a) - 6, dcz + 14 * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 25)[:-1]]
+    land = np.array([[(dcx - 6, 3.2, dcz), (ring[k][0], 3.0, ring[k][1]), (ring[(k + 1) % 24][0], 3.0,
+                                                                           ring[(k + 1) % 24][1])]
+                     for k in range(24)])
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "cell": [21, 18], "blocks": [[21, 18]],
+                 "shift": [0.0, -8.0], "written": [], "refused": None,
+                 "gates": [{"gate": g, "ok": True} for g in ("frame", "land-fit", "census", "weld")]}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._transplant_runner = drafts, Scripted()
+    # (20,5), desert-beach in the donor list: an invented slab filling its whole block, the land-fit law's refusal
+    wide = np.array([[(1280.0, 3.0, -320.0), (1344.0, 3.0, -320.0), (1344.0, 3.0, -384.0)],
+                     [(1280.0, 3.0, -320.0), (1344.0, 3.0, -384.0), (1280.0, 3.0, -384.0)]])
+    doc._transplant_seams = {"land_fn": lambda d, size=(1, 1): wide if tuple(d) == (20, 5) else land,
+                             "ocean_fn": lambda: set(),
+                             "soup_fn": seams["soup_fn"], "stack_fn": lambda: [], "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        tt = doc.open_transplant(sync=True)
+        tt._occupied = lambda blocks: {}
+        tt.rot_box.setCurrentIndex(tt.rot_box.findData(90))
+        tt.place(1376.0, -1184.0, 0.0)
+        tt._timer.stop()
+        tt._check()
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(1330.0, -1184.0, dist=260.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 45.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-transplant", win)
+        # a multi-block carry unit: the turned rect the click fits, and the turns its row allows
+        tt.donor_box.setCurrentIndex(tt.donor_box.findData("9,5@2x3"))
+        tt.rot_box.setCurrentIndex(tt.rot_box.findData(90))
+        tt.place(1376.0, -1184.0, 0.0)
+        tt._timer.stop()
+        tt._check()
+        if view is not None:
+            view.focus(1376.0, -1184.0, dist=420.0, y=0.0)
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-transplant-unit", win)
+        # rung C16: a donor whose land fills its block -- refused at once, its two edges marked, no dry run
+        tt.donor_box.setCurrentIndex(tt.donor_box.findData("20,5"))
+        tt.rot_box.setCurrentIndex(tt.rot_box.findData(0))
+        tt.place(1376.0, -1184.0, 0.0)
+        tt._timer.stop()
+        tt._check()
+        if view is not None:
+            view.focus(1376.0, -1184.0, dist=200.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 50.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-transplant-wide", win)
+    finally:
+        V.load_scene = orig
+
+
+def _snap_world_river(ctx: _Ctx, win) -> None:
+    """Rung C5: the river card on the pinned 3D page -- an invented river (a ribbon of land in a ringed island) read
+    where it stands, moved one block south beside the synthetic island, passing its check."""
+    import math
+    import shutil as _sh
+    import numpy as np
+    from ff9mapkit.workspace import worldview3d as V
+    from ff9mapkit.world import riveredit as RE
+    seams, _runner = _mountain_seams()
+    cx, cz = 1376.0, -1120.0
+    ring = np.array([(cx + 40 * math.cos(a), cz + 26 * math.sin(a)) for a in np.linspace(0, 2 * math.pi, 33)[:-1]])
+    tris = np.array([[(cx - 30 + 6 * k, 2.8, cz - 4), (cx - 24 + 6 * k, 2.8, cz - 4), (cx - 27 + 6 * k, 2.6, cz + 4)]
+                     for k in range(10)])
+    shape = RE.RiverShape(tris=tris, ring=ring, blocks=[(21, 16), (21, 17)], cells=[(21, 16), (21, 17)],
+                          cells_shift=(0, 0), shifts=[(0, 0), (0, 1)])
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "at": [0.0, -64.0], "shift": [0, 1],
+                 "move_from": [0.0, 0.0], "blocks": [[21, 16], [21, 17], [21, 18]], "files": 132, "written": [],
+                 "bridge": [cx, cz - 64.0], "refused": None,
+                 "gates": [{"gate": g, "verdict": "green"} for g in ("J1-J4 joins", "zip", "B1 stack", "W1 knit")]}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._river_runner = drafts, Scripted()
+    doc._river_seams = {"outline_fn": lambda _k: shape, "river_fn": lambda target, rs: ((0, 0), {}),
+                        "soup_fn": seams["soup_fn"], "stack_fn": lambda: [], "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        rt = doc.open_river(sync=True)
+        rt.place(cx, cz - 64.0, 0.0)
+        rt._timer.stop()
+        rt._check()
+        view = doc._view3d.view
+        if view is not None:
+            view.focus(cx, cz - 64.0, dist=260.0, y=0.0)
+            view.camera.yaw, view.camera.pitch = 20.0, 45.0
+            view.update()
+        _settle(12)
+        _grab(ctx, "world-3d-river", win)
+    finally:
+        V.load_scene = orig
+
+
+def _snap_world_hill(ctx: _Ctx, win) -> None:
+    """Rung 6: the hill card on the pinned 3D page -- a level patch of invented mains lawn on the synthetic island's
+    lowland (its own grid, so the footprint law has level ground to pass), the hill's lifted ghost, a passing check;
+    then ``-refused``, too steep for its radius, refused by the flank law before any job."""
+    import math
+    import shutil as _sh
+    import numpy as np
+    from ff9mapkit.workspace import worldview3d as V
+    from ff9mapkit.world import grassland as G
+    from ff9mapkit.world import hilledit as HE
+    from ff9mapkit.world.extract import encode_id
+    cx, cz, n, step, y0 = 1171.0, -1184.0, 25, 4.0, 3.0
+    xs = cx - n * step / 2 + step * np.arange(n + 1)
+    zs = cz - n * step / 2 + step * np.arange(n + 1)
+    verts = np.array([(x, y0, z) for z in zs for x in xs])
+    tris = []
+    for i in range(n):
+        for j in range(n):
+            a, b, c, d = i * (n + 1) + j, i * (n + 1) + j + 1, (i + 1) * (n + 1) + j, (i + 1) * (n + 1) + j + 1
+            tris += [(a, c, b), (b, c, d)]
+    u = (G.FAM_REGION["main"][0] + G.FAM_REGION["main"][2]) / 2.0
+    blk = (int(math.floor(cx / 64.0)), int(math.floor(-cz / 64.0)))
+    meta = [(blk, float(encode_id(topograph=0)), "main", [(u, 0.8)] * 3) for _t in tris]
+    ix = HE.SoupIndex({"pos": verts.tolist(), "tris": tris, "meta": meta, "coast": [], "blocks": {blk: None}})
+
+    class Scripted:
+        def start(self, argv, cwd, done):
+            v = {"ok": True, "dry_run": "--dry-run" in argv, "center": [cx, cz], "blocks": [list(blk)],
+                 "report": {"displaced_tris": 226, "worst_flank": 21.4, "peak_y": 7.2}, "written": [], "refused": None}
+            Path(argv[argv.index("--report-json") + 1]).write_text(json.dumps(v), encoding="utf-8")
+            done(0, "")
+
+        def kill(self):
+            pass
+
+        def busy(self):
+            return False
+    doc = win.world_doc
+    drafts = _SCRATCH / "world_drafts"
+    _sh.rmtree(drafts, ignore_errors=True)
+    doc._drafts_root, doc._hill_runner = drafts, Scripted()
+    doc._hill_seams = {"soup_fn": lambda folder: ix, "sync": True}
+    orig = V.load_scene
+    V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+        ht = doc.open_hill(sync=True)
+        for name, height in (("", 4.2), ("-refused", 6.0)):
+            ht.height_spin.setValue(height)
+            ht.radius_spin.setValue(18.0 if not name else 14.0)
+            ht.place(cx, cz, y0)
+            ht._timer.stop()
+            ht._check()
+            view = doc._view3d.view
+            if view is not None:
+                view.focus(cx, cz, dist=110.0, y=y0)
+                view.camera.yaw, view.camera.pitch = 20.0, 32.0
+                view.update()
+            _settle(12)
+            _grab(ctx, f"world-3d-hill{name}", win)
+    finally:
+        V.load_scene = orig
+
+
+def _snap_forest_states(ctx: _Ctx, win, doc) -> None:
+    ft, view = doc._forest, doc._view3d.view
+    ft._on_reload = lambda x, z: None                    # the dev checkout's Show in game, offered
+    ft._ask = lambda title, text: True                   # the confirm dialogs, answered
+    for name, key in (("", "pass"), ("-refused", "refused"), ("-warn", "warn"), ("-promoted", "pass")):
+        x, z = FOREST_SPOTS[key]
+        ft.place(x, z, 0.0)
+        ft._timer.stop()
+        ft._check()
+        if name == "-promoted":
+            _promote_pinned(doc, ft, "FF9_Data/WorldMap/Disc1/0_1/r18/Block[19][18] Terrain.ff9mesh")
+            view = doc._view3d.view
+        if view is not None:
+            gy = ft._ix.ground_y(x, z) or 0.0
+            view.focus(x, z, dist=60.0, y=gy)
+            view.camera.yaw, view.camera.pitch = 20.0, 42.0
+            view.update()
+        _settle(12)
+        _grab(ctx, f"world-3d-forest{name}", win)
+
+
+def _snap_world_3d(ctx: _Ctx, state: str, win) -> None:
+    """The 3D page (editor rung A0) after the user's toggle, loaded on the deterministic lane. `3d` swaps the map
+    read for the synthetic scene; `3d-live` reads the real install the doc resolved."""
+    from ff9mapkit.workspace import worldview3d as V
+    doc = win.world_doc
+    orig = V.load_scene
+    if state == "3d":
+        V.load_scene = lambda site, **_k: _synthetic_world_scene()
+    try:
+        doc.set_view_mode("3d", sync=True)
+    finally:
+        V.load_scene = orig
+    view = doc._view3d.view
+    if view is not None:
+        view.camera.yaw, view.camera.pitch = 35.0, 38.0
+        view.camera.dist = 260.0 if state == "3d" else 300.0
+        view.update()
+    _settle(12)
+    _grab(ctx, f"world-{state}", win)
+    if view is None:
+        return
+    # rung A1: a pick at the view's centre, its pin and the strip's point facts. The pinned state answers the
+    # facts from a fixed record (the synthetic scene has no blocks to query); 3d-live asks the real install.
+    from ff9mapkit.world import pointinfo as PI
+    orig_info = PI.point_info
+    if state == "3d":
+        def _fixed(site, wx, wz, **_k):
+            return {"world": (wx, wz), "block": (19, 18), "cell": (39, 37), "local": (0.0, 0.0),
+                    "ground": {"modelled": True, "note": "", "y": 18.4, "part": "Terrain", "idall": 0,
+                               "topograph": 0, "area": 14, "event": 0, "walkable": True, "canopy": False,
+                               "stand_y": 18.4, "sheets": [(18.4, "Terrain", 0)]},
+                    "owners": {"shown": "FF9CustomMap-world", "in_stack": True,
+                               "parts": {"Terrain": "FF9CustomMap-world", "Sea4": "stock"}, "hidden": []},
+                    "ledger": {"verb": "world-island", "utc": "2026-10-23T09:00:00+00:00", "part": "Terrain",
+                               "removed": False},
+                    "landmark": {"name": "Treno", "dist": 228.0}}
+        PI.point_info = _fixed
+    try:
+        hit = view.pick_at(view.width() / 2, view.height() / 2)
+        doc._on_pick(hit, sync=True)
+    finally:
+        PI.point_info = orig_info
+    _settle(12)
+    _grab(ctx, f"world-{state}-pick", win)
+    # editor C7: the same point framed as the game's own camera does (the party standing at the pick)
+    if state == "3d":
+        PI.point_info = _fixed
+        try:
+            doc._view3d.game_btn.setChecked(True)
+        finally:
+            PI.point_info = orig_info
+        _settle(12)
+        _grab(ctx, f"world-{state}-game", win)
+        # C8: the same point from the Hilda Garde III at a cruising height (the chooser and the height spin shown)
+        PI.point_info = _fixed
+        try:
+            p3 = doc._view3d
+            p3.vehicle_box.setCurrentIndex(p3.vehicle_box.findData(8))
+            p3.alt_spin.setValue(36.0)
+        finally:
+            PI.point_info = orig_info
+        _settle(12)
+        _grab(ctx, f"world-{state}-game-airship", win)
+        # C21: the airship back from its bridge (the chooser's longest item: it must not widen the bar)
+        from ff9mapkit.workspace import worldview3d as V3
+        PI.point_info = _fixed
+        try:
+            p3.vehicle_box.setCurrentIndex(next(i for i, (m, h, _l) in enumerate(V3.VEHICLE_CHOICES)
+                                                if (m, h) == (8, "loaded")))
+        finally:
+            PI.point_info = orig_info
+        _settle(12)
+        _grab(ctx, f"world-{state}-game-bridge", win)
+
+
 def snap_world(ctx: _Ctx, state: str) -> None:
-    if state not in WORLD_STATES:
-        raise ValueError(f"unknown world state {state!r} (know: {', '.join(WORLD_STATES)})")
+    if state not in WORLD_STATES + WORLD_EXTRA_STATES:
+        raise ValueError(f"unknown world state {state!r} (know: {', '.join(WORLD_STATES + WORLD_EXTRA_STATES)})")
     if state == "guide":                           # the pre-scan front door: NO pin needed, because the
         win = _make_win(ctx)                       # doc does no I/O until the user's own Scan click --
         win.tabs.setCurrentWidget(win.world_doc)   # which is itself the contract this surface records
         _grab(ctx, "world-guide", win)
         _close(win)
         return
-    with _pin_world_state(state):
+    import contextlib
+    with (contextlib.nullcontext() if state == "3d-live" else _pin_world_state(state)):
         win = _make_win(ctx)
         win.tabs.setCurrentWidget(win.world_doc)
         win.world_doc.refresh(sync=True)           # the deterministic lane; production scans on a worker
-        if state == "atlas":
+        if state == "3d-live":                     # the real install: show the overworld folder, not trees[0]
+            live = [t for t in win.world_doc._trees if t.name == "FF9CustomMap-world"]
+            if live:
+                win.world_doc.refresh(sync=True, folder=live[0])
+        if state in ("atlas", "3d", "3d-live"):
             win.world_doc.canvas.select((19, 18))  # the showpiece cell: donor + buildings + details card
+        if state in ("3d", "3d-live"):
+            _snap_world_3d(ctx, state, win)
+            _close(win)
+            return
+        if state == "3d-forest":
+            _snap_world_forest(ctx, win)
+            _close(win)
+            return
+        if state == "3d-mountain":
+            _snap_world_mountain(ctx, win)
+            _close(win)
+            return
+        if state == "3d-step":
+            _snap_world_step(ctx, win)
+            _close(win)
+            return
+        if state == "3d-sink":
+            _snap_world_sink(ctx, win)
+            _close(win)
+            return
+        if state == "3d-coast":
+            _snap_world_coast(ctx, win)
+            _close(win)
+            return
+        if state == "3d-island":
+            _snap_world_island(ctx, win)
+            _close(win)
+            return
+        if state == "3d-transplant":
+            _snap_world_transplant(ctx, win)
+            _close(win)
+            return
+        if state == "3d-river":
+            _snap_world_river(ctx, win)
+            _close(win)
+            return
+        if state == "3d-hill":
+            _snap_world_hill(ctx, win)
+            _close(win)
+            return
         _settle()
         _grab(ctx, f"world-{state}", win)
         if state == "atlas":                       # the siting enhancement: a clean ocean block's

@@ -6,7 +6,8 @@ Offline only; writes nothing but out/step_*.json.
              block's local frame, y_min 0.5u under its lowest vertex, the floor = its own topograph
   anatomy    T2: with the spec, the carried non-rock tris, the step edges left on the rim, the steepest rim edge
   sweep      T1, T3-T6: the control (Uaho, grass) and each donor with and without its canopy, six angles, every gate
-RUN:  py studies/terrain-malleability/mountaindonors/step_carry.py anatomy|sweep
+  round2     D3-D5 (STEP.md round 2): comp10 with and without its canopy under the stock down-face rule
+RUN:  py studies/terrain-malleability/mountaindonors/step_carry.py anatomy|sweep|round2
 """
 from __future__ import annotations
 
@@ -140,5 +141,21 @@ def sweep():
     (HERE / "out" / "step_sweep.json").write_text(json.dumps(rows, indent=1, default=str), encoding="utf-8")
 
 
+def round2():
+    """STEP.md round 2 (D3-D5): comp10 with and without its canopy, six angles, with the stock near-vertical down-face
+    rule; per angle, how many tris the gate kept as stock (the exemption log lines)."""
+    jobs = [("comp10", r, m) for m in ("canopy", "bare") for r in S.ROTS]
+    with ProcessPoolExecutor(max_workers=6) as ex:
+        rows = list(ex.map(_job, jobs))
+    for r in rows:
+        r["exempted"] = sum(1 for line in r["log"] if "stock near-vertical down face kept" in line)
+        print(f"comp10 {r['mode']:6s} {r['rot']:>4} " + ("ok  " if r["ok"] else f"FAIL {r['error'][:110]} ")
+              + f"| exempted {r['exempted']} | {(r['gates'] or '')[:160]}")
+    for m in ("canopy", "bare"):
+        print(f"comp10 {m}: {sum(r['ok'] for r in rows if r['mode'] == m)}/{len(S.ROTS)}")
+    (HERE / "out").mkdir(exist_ok=True)
+    (HERE / "out" / "step_sweep_r2.json").write_text(json.dumps(rows, indent=1, default=str), encoding="utf-8")
+
+
 if __name__ == "__main__":
-    {"anatomy": anatomy, "sweep": sweep}[sys.argv[1]]()
+    {"anatomy": anatomy, "sweep": sweep, "round2": round2}[sys.argv[1]]()

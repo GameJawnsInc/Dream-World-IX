@@ -87,3 +87,49 @@ geometry from a defect the carve made, and changing that is the owner's call.
   harness + panels. If the owner passes it, catalogue it like the snow ridge (`alcove` + `alcove_floor = [38]`).
 - **comp10** waits on a gate decision: whether a donor's own stock down-facing (or ground-query-missing) tris are
   lawful in a carry.
+
+## Round 2: a stock near-vertical down face is lawful in a carry (registered before building; owner's go: option 1)
+
+**The census** (`downface_census.py`). Disc 1 ships 83,937 Terrain tris; **233 face down**. The histogram has NO
+quiet band: 81 below ny -0.5 (building undersides, topo 59, and a rock arch roof at (13,3), topo 49, ny -0.997), 46 in
+[-0.5, -0.2), 25 in [-0.2, -0.1), 16 in [-0.1, -0.05), 10 in [-0.05, -0.02), and **55 in [-0.02, 0)**: near-vertical
+walls, comp10's two among them. So the threshold is not read off a gap; it is a "near vertical" line, kept narrow.
+
+**The rule.** The mountain gate's down count skips a new tri only if ALL hold:
+- it is a verbatim carried donor tri (the blob or the footprint sweep: `fam == "mountain"`), its carried corner
+  positions unchanged by any later pass;
+- it faced down AT HOME too (the raw stock normal, before de-tilt) -- a tri the carry FLIPPED is never exempt;
+- it is near-vertical at home and as carried: ny >= -0.02 (`MTN_STOCK_DOWN_NY`, about 1.15 deg past vertical).
+Each exempted tri is logged by name. Every other down face still refuses, stock or not.
+
+| # | prediction | falsified if |
+|---|---|---|
+| D1 | the 44 catalogued carve files are byte-identical (the gate writes nothing) | any differs |
+| D2 | break-its, as tests: a carve-made down tri, a stock down tri steeper than -0.02, and a tri that faces UP at home but down as carried are each still refused | any passes |
+| D3 | **decisive:** comp10 with its canopy (`step_carry.py`, r65 grass bench) passes at least 4 of 6 angles | 3 or fewer |
+| D4 | at every angle comp10's exemption log names exactly its 2 stock tris (1 rock, 1 canopy wall) and no other | a count differs |
+| D5 | comp10 bare still refuses 0/6, now on the step (zipNyMin), its rock down tri exempted | any angle passes, or another gate refuses first |
+
+**Known risk, no call made:** comp10 with its canopy read rock-rigid 1.7% in round 1 (the gate allows 3.5%; round 1's
+T5 asked 1%). If D3 holds, T5 will not, and the rigidity is reported, not explained away.
+
+## Round 2 result (offline, 2026-10-22)
+
+| # | measured | verdict |
+|---|---|---|
+| D1 | the 44 catalogued carve files byte-identical | **holds** |
+| D2 | `test_down_gate_keeps_only_stock_near_vertical_down_faces`: a carve-made (zip) flip, a steep stock overhang (ny -0.30), a tri up at home and flipped by the carry, and a near-vertical stock tri the carry steepened to -0.05 each still count; with no stock keys the old count returns (the break-it) | **holds** |
+| D3 | comp10 with its canopy **6/6** on the r65 grass bench: zip rise 1.45, zipNyMin 0.92-0.96, maxEdge 7.7-8.2, every other sub-gate clean | **holds** |
+| D4 | at every angle the gate kept exactly the two registered tris (home ny -0.0074, the canopy wall; -0.0030, the rock) | **holds** |
+| D5 | comp10 bare 0/6, every refusal the step (zipNyMin 0.01, rise 2.27-2.44), its one rock tri kept | **holds** |
+
+Round 1's T5 (rock-rigid at most 1%) does not hold for comp10: **1.7%** at every angle with the canopy (0.4% bare),
+inside the gate's 3.5%. The canopy's feet change the rim plane the de-tilt fits, so the rock is sheared a little more.
+Reported, not explained away; the owner's eye in game is the judge.
+
+**The kit change** (`interior.py`): `MTN_STOCK_DOWN_NY = 0.02`, `_stock_down_keys`, `_count_down`; the gate line names
+each kept tri and adds "(+N stock near-vertical exempt)". World domain 333 passed.
+
+**What follows:** comp10 becomes an in-game round (a grass island holding the r65 bench; carves with the canopy spec
+of `step_carry.canopy_spec` for blocks 14-16,14). comp9's 90/180-degree refusals are a different gate (the placement
+census reads MISS on a ny-0.093 stock face) and are not touched by this rule.

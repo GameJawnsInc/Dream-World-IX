@@ -469,9 +469,12 @@ def g1_the_no_op():
                     c["surfaces"], c["noop_moved_total"]))
     # THE TAMPER IS THE CALIBRATION, not merely a non-zero: it must re-find the published figures.
     cal = c["per_page"].get("ef%03d/%s" % (CAL_EF, CAL_PAGE), (None, None, None))
-    pins = [("naive texels moved", c["naive_moved"], 767531),
+    # ⚠ RE-MEASURED ON THE UPLOAD WALK's page map (reskin.scenery_pages): the dossier's section 1 was
+    # measured on the pre-walk map, which read 943 scenery cells 380-1,984 bytes early -- its 767,531 /
+    # 678,900 are now 764,901 / 676,270.  The creature half and the calibration page do not move.
+    pins = [("naive texels moved", c["naive_moved"], 764901),
             ("   ...creature half", c["naive_creature"], 88631),
-            ("   ...scenery half", c["naive_scenery"], 678900),
+            ("   ...scenery half", c["naive_scenery"], 676270),
             ("   ...surfaces affected", c["naive_surfaces"], 191),
             ("★ ef251 tex.part0 (the rgba refusal's own figure)", cal[0], 1844)]
     for label, got, want in pins:
@@ -1517,9 +1520,11 @@ def g16_re_derivation_pin():
         lines.append("%-52s %s (published %s +/- %s)%s"
                      % (label, f(got), f(want), f(tol), "" if hit else "   *** MISMATCH ***"))
 
-    pin("§1.1 texels moved by a NAIVE re-quantize", c["naive_moved"], 767531, COMMA)
+    # ⚠ THE SCENERY FIGURES BELOW ARE RE-MEASURED ON THE UPLOAD WALK's page map (the dossier's pre-walk
+    # values: 767,531 / 678,900 / 14,428 / 88.06% / 1,217,754 / 39.75% / 119,369).  Nothing else moved.
+    pin("§1.1 texels moved by a NAIVE re-quantize", c["naive_moved"], 764901, COMMA)
     pin("§1.1    creature half", c["naive_creature"], 88631, COMMA)
-    pin("§1.1    scenery half", c["naive_scenery"], 678900, COMMA)
+    pin("§1.1    scenery half", c["naive_scenery"], 676270, COMMA)
     pin("§1.1    surfaces affected", c["naive_surfaces"], 191)
     pin("§1.1 texels moved WITH the incumbent lock", c["noop_moved_total"], 0)
     pin("§1.1    surfaces exact", c["noop_exact"], c["surfaces"])
@@ -1528,17 +1533,17 @@ def g16_re_derivation_pin():
     pin("§1.1 worst creature page (ef184 tex.part4)",
         c["per_page"]["ef184/tex.part4"][0], 6187, COMMA)
     pin("§1.1 worst scenery cell (ef447 cell.s1.x448_y256)",
-        c["per_page"]["ef447/cell.s1.x448_y256"][0], 14428, COMMA)
+        c["per_page"]["ef447/cell.s1.x448_y256"][0], 14506, COMMA)
     near("§1.1    ...as a share of its cell",
          100.0 * c["per_page"]["ef447/cell.s1.x448_y256"][0]
-         / c["per_page"]["ef447/cell.s1.x448_y256"][2], 88.06, 0.01, PCT2)
+         / c["per_page"]["ef447/cell.s1.x448_y256"][2], 88.54, 0.01, PCT2)
     near("§1.1 the ef211 bench cell would move",
          100.0 * c["per_page"]["ef211/cell.s0.x704_y256"][0]
          / c["per_page"]["ef211/cell.s0.x704_y256"][2], 78.56, 0.01, PCT2)
     pin("§1.2 ambiguous creature texels", c["amb_creature"], 156254, COMMA)
     near("§1.2    ...share", 100.0 * c["amb_creature"] / c["tex_creature"], 10.25, 0.005, PCT2)
-    pin("§1.2 ambiguous scenery texels", c["amb_scenery"], 1217754, COMMA)
-    near("§1.2    ...share", 100.0 * c["amb_scenery"] / c["tex_scenery"], 39.75, 0.005, PCT2)
+    pin("§1.2 ambiguous scenery texels", c["amb_scenery"], 1218503, COMMA)
+    near("§1.2    ...share", 100.0 * c["amb_scenery"] / c["tex_scenery"], 39.77, 0.005, PCT2)
     near("§1.2 ef184 tex.part4 ambiguity",
          100.0 * c["per_page"]["ef184/tex.part4"][1] / c["per_page"]["ef184/tex.part4"][2],
          54.8, 0.05, PCT1)
@@ -1561,7 +1566,7 @@ def g16_re_derivation_pin():
     pin("§1.4    ...carrying >= 1 split group", sum(1 for x in cc if x["split"]), 11)
     pin("§1.4 duplicate groups in the editable rows", sum(x["groups"] for x in cc), 365)
     pin("§1.4 ★ ...that SPLIT under some alternate", sum(x["split"] for x in cc), 298)
-    pin("§1.4 stock texels sitting on a split group", sum(x["on_split"] for x in cc), 119369,
+    pin("§1.4 stock texels sitting on a split group", sum(x["on_split"] for x in cc), 121805,
         COMMA)
     worst = max(cc, key=lambda x: x["on_split"] / max(1, x["texels"]))
     near("§1.4 worst exposure (ef%d %s)" % (worst["ef"], worst["name"]),

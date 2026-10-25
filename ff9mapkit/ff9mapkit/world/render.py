@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import os
 from pathlib import Path
 
 from PIL import Image
@@ -50,7 +51,7 @@ from . import mesh as M
 __all__ = [
     "RenderSite", "BENCH_VSHORE", "BENCH_VIEWS", "BENCH_CORNER_BBOX",
     "BLIND_SPOTS", "PARTS", "WATER_TEX", "SCROLL_TEX", "SKY", "BLANK_WHITE", "effective_prefab",
-    "load_batches", "live_path", "tex_for", "sample", "project", "raster",
+    "cell_meshes", "load_batches", "live_path", "game_stack", "site_roots", "resolve_file", "engine_read_error", "tex_for", "sample", "project", "raster",
     "diff", "render_blocks", "render_state", "calibrate", "cmd_flow",
     "face_grads", "flow_records", "views_around", "cells_around",
     "ground_y_near",
@@ -92,7 +93,13 @@ class RenderSite:
     render magenta, harmless for geometry checks). ``mod_root`` reads the overrides from a folder laid out as a
     mod folder ANYWHERE (a scratch build outside the install), in place of ``game / mod_folder``; stock still reads
     from the install. Cells may be UNWRAPPED columns (the world is an x-torus): a cell renders at its own unwrapped
-    origin and reads the files and prefab of its wrapped label, so a site across the 23|0 seam renders whole."""
+    origin and reads the files and prefab of its wrapped label, so a site across the 23|0 seam renders whole.
+
+    ``stack`` (folder ROOTS, highest priority first) resolves every file the way the engine does instead of from one
+    folder: ``WorldMeshOverride`` walks ``AssetManager.FolderHighToLow`` -- ``Memoria.ini``'s ``FolderNames`` in
+    order, then the base game -- and the first folder holding the file wins, per file (each mesh part, the divert's
+    Terrain-exists check and ``Donor.txt`` independently). :func:`game_stack` reads it from an install. With
+    ``stack`` set, ``mod_folder`` and ``mod_root`` are unused."""
     cells: tuple                                             # ((bx, by), ...)
     disc: int = 9
     mod_folder: str = "FF9CustomMap-world"
@@ -101,6 +108,7 @@ class RenderSite:
     parts: tuple = PARTS
     res: tuple = RES
     mod_root: Path | None = None
+    stack: tuple | None = None
 
     def resolved(self) -> "RenderSite":
         game = Path(config.find_game_path(None)) if self.game is None else Path(self.game)
@@ -182,12 +190,91 @@ def sample(tex, u, v):
 
 
 # ---------------------------------------------------------------- mesh loading
-def live_path(site: RenderSite, bx, by, part):
+def game_stack(game) -> tuple | None:
+    """The engine's folder search for an install: ``Memoria.ini`` ``FolderNames`` as ROOT paths, highest priority
+    first (``AssetManager.cs``: FolderHighToLow = FolderNames in order, then the base game, which here is stock).
+    ``None`` when the ini cannot be read -- unknown, which is not the same as no folders."""
+    from ..deploystack import parse_folder_names
+    ini = Path(game) / "Memoria.ini"
+    if not ini.is_file():
+        return None
+    return tuple(Path(game) / f for f in parse_folder_names(ini.read_text(encoding="utf-8", errors="ignore")))
+
+
+def site_roots(site: RenderSite) -> tuple:
+    """The folder roots a site resolves files through, highest priority first: its ``stack``, else its one folder."""
     site = site.resolved()
-    base = Path(site.mod_root) if site.mod_root is not None else site.game / site.mod_folder
-    root = base / "FF9_Data" / "WorldMap" / f"Disc{site.disc}" / "0_1"
+    if site.stack is not None:
+        return tuple(Path(r) for r in site.stack)
+    return (Path(site.mod_root) if site.mod_root is not None else site.game / site.mod_folder,)
+
+
+def _cell_rel(site, bx, by, name):
     wbx = M.wrap_block_col(bx)                               # an unwrapped column reads its wrapped label's file
-    return root / f"r{by}" / f"Block[{wbx}][{by}] {part}.ff9mesh"
+    return Path("FF9_Data") / "WorldMap" / f"Disc{site.disc}" / "0_1" / f"r{by}" / f"Block[{wbx}][{by}] {name}"
+
+
+_LISTING: dict | None = None                                 # {(root, rel dir): set of names}, live only in a scope
+
+
+def _exists(path: Path) -> bool:
+    if _LISTING is None:
+        return path.is_file()
+    key = path.parent
+    names = _LISTING.get(key)
+    if names is None:
+        try:
+            names = _LISTING[key] = {e.name for e in os.scandir(key) if e.is_file()}
+        except OSError:
+            names = _LISTING[key] = set()
+    return path.name in names
+
+
+def resolve_file(site: RenderSite, bx, by, name):
+    """The file the engine reads for ``Block[bx][by] <name>`` (``"Terrain.ff9mesh"``, ``"Donor.txt"``): the first
+    root holding it, or None."""
+    rel = _cell_rel(site.resolved(), bx, by, name)
+    for root in site_roots(site):
+        if _exists(root / rel):
+            return root / rel
+    return None
+
+
+def live_path(site: RenderSite, bx, by, part):
+    """The override file for ``part`` at the cell as the site resolves it (:func:`resolve_file`); when no root holds
+    one, the path it would have in the highest root (``is_file()`` False) -- one folder's site is the old rule."""
+    site = site.resolved()
+    hit = resolve_file(site, bx, by, f"{part}.ff9mesh")
+    if hit is not None:
+        return hit
+    roots = site_roots(site)                                 # an empty stack is stock everywhere: a path never there
+    return (roots[0] if roots else Path(site.game) / ".no-mod-folder") / _cell_rel(site, bx, by, f"{part}.ff9mesh")
+
+
+def engine_read_error(path) -> str | None:
+    """Why the engine would REFUSE this ``.ff9mesh``, or None: ``WorldMeshOverride.ReadMesh``'s own checks (magic
+    ``F9WM``, version 1, ``0 < vcount <= 65535``, ``0 <= icount <= 3 vcount``) plus a file too short for the channels
+    its flags declare (the engine's reader then throws). A refused file does NOT fall through to the next folder:
+    ``TryLoad`` returns null and the engine keeps the STOCK mesh."""
+    import struct
+    try:
+        data = Path(path).read_bytes()
+    except OSError as e:
+        return f"unreadable: {e}"
+    if len(data) < 20 or data[:4] != b"F9WM":
+        return "bad magic (not a .ff9mesh)"
+    version, vcount, icount, flags = struct.unpack_from("<iiii", data, 4)
+    if version != 1:
+        return f"unsupported version {version}"
+    if vcount <= 0 or vcount > 65535:
+        return f"vertex count out of range: {vcount}"
+    if icount < 0 or icount > vcount * 3:
+        return f"index count out of range: {icount}"
+    need = 20 + vcount * 12 + (vcount * 12 if flags & 1 else 0) + (vcount * 8 if flags & 2 else 0) \
+        + (vcount * 16 if flags & 4 else 0) + icount * 4
+    if len(data) < need:
+        return f"truncated: {len(data)} bytes, its header needs {need}"
+    return None
 
 
 SEA_BLOCK_PREFAB = ((12, 0), "sea4f")          # the engine's SeaBlockPrefab: Block[12][0]'s full-cell Sea4
@@ -207,10 +294,10 @@ def effective_prefab(site: RenderSite, bx, by):
     own = X.block_parts(disc=asset_disc, game=site.game)
     if site.disc in (1, 4) and (bx, by) in own:
         return (bx, by), "own prefab"
-    if not live_path(site, bx, by, "Terrain").is_file():
+    if resolve_file(site, bx, by, "Terrain.ff9mesh") is None:   # HasLandOverride: a Terrain file in ANY folder
         return None, "SeaBlockPrefab"
-    dt = live_path(site, bx, by, "Terrain").parent / f"Block[{bx}][{by}] Donor.txt"
-    if dt.is_file():
+    dt = resolve_file(site, bx, by, "Donor.txt")             # TryReadDonorPath: the first folder holding one
+    if dt is not None:
         try:
             dx, dy = (int(v) for v in dt.read_text(encoding="utf-8").strip().split(",")[:2])
             if (dx, dy) in own:
@@ -241,40 +328,71 @@ def _stock_part(site: RenderSite, bx, by, part):
         return None
 
 
-def load_batches(site: RenderSite, part_src=None, *, stock: bool = False):
+def cell_meshes(site: RenderSite, bx, by, part_src=None, *, stock: bool = False, bad=None, sources=None):
+    """``[(part, BlockMesh)]`` at cell ``(bx, by)`` in ``site.parts`` order, block-LOCAL: the override file where one
+    exists (``part_src`` first, then the site's folders, :func:`live_path`), else with ``stock=True`` the part the
+    engine binds there (:func:`_stock_part`). A file the engine would refuse (:func:`engine_read_error`) is drawn the
+    engine's way, as stock, and appended to ``bad`` as ``(path, reason)``. ``sources`` (a dict) receives
+    ``{part: Path | "stock"}``. The ONE per-cell resolution: :func:`load_batches` draws it and the World tab's 3D pick
+    asks the ground query of it, so what you click is what was drawn."""
+    site = site.resolved()
+    out = []
+    for part in site.parts:
+        p = live_path(site, bx, by, part)
+        if part_src is not None:
+            p = part_src.get((bx, by, part), p)
+        err = engine_read_error(p) if _exists(Path(p)) else "absent"
+        if err not in (None, "absent") and bad is not None:
+            bad.append((Path(p), err))
+        if err is None:
+            bm = M.blockmesh_from_ff9mesh(p, disc=site.disc, x=bx, y=by, part=part.lower())
+            if sources is not None:
+                sources[part] = Path(p)
+        elif stock:
+            bm = _stock_part(site, bx, by, part)
+            if bm is None:
+                continue
+            if sources is not None:
+                sources[part] = "stock"
+        else:
+            continue
+        out.append((part, bm))
+    return out
+
+
+def load_batches(site: RenderSite, part_src=None, *, stock: bool = False, bad=None):
     """[(part, verts Nx3 world, uvs Nx2, tris Mx3)]; ``part_src`` maps
     (bx,by,part)->Path overriding the live file (walk_sim convention). ``stock=True`` renders what the
     ENGINE binds where no override file exists -- the cell's effective prefab part (:func:`effective_prefab`):
     stock land under the overrides, open sea round them, and the donor's free-riding parts (a carried river
     that is not an override) -- so the eye sees the game, not only the deployed files."""
     _require_numpy()
+    global _LISTING
     site = site.resolved()
     batches = []
-    for (bx, by) in site.cells:
-        ox, oz = X.block_world_origin(bx, by)
-        for part in site.parts:
-            p = live_path(site, bx, by, part)
-            if part_src is not None:
-                p = part_src.get((bx, by, part), p)
-            if p.is_file():
-                bm = M.blockmesh_from_ff9mesh(p, disc=site.disc, x=bx, y=by,
-                                              part=part.lower())
-            elif stock:
-                bm = _stock_part(site, bx, by, part)
-                if bm is None:
-                    continue
-            else:
-                continue
-            pos = np.asarray(bm.chan_arrays[X.CH_POS], dtype=np.float64)
-            uvc = bm.chan_arrays.get(X.CH_UV)
-            uv = np.asarray(uvc, dtype=np.float64)[:, :2] if uvc is not None \
-                else np.zeros((len(pos), 2))
-            tris = np.asarray(bm.tris, dtype=np.int64)
-            w = pos.copy()
-            w[:, 0] += ox
-            w[:, 2] += oz
-            batches.append((part, w, uv, tris))
+    outer, _LISTING = _LISTING, {} if _LISTING is None else _LISTING   # one directory listing per load, not a stat
+    try:                                                                # per part per folder per cell (~40k on a map)
+        for (bx, by) in site.cells:
+            ox, oz = X.block_world_origin(bx, by)
+            batches += _cell_batches(site, bx, by, ox, oz, part_src, stock, bad)
+    finally:
+        _LISTING = outer
     return batches
+
+
+def _cell_batches(site, bx, by, ox, oz, part_src, stock, bad):
+    """One cell's batches, world-frame: :func:`cell_meshes` moved by the cell's origin."""
+    out = []
+    for part, bm in cell_meshes(site, bx, by, part_src, stock=stock, bad=bad):
+        pos = np.asarray(bm.chan_arrays[X.CH_POS], dtype=np.float64)
+        uvc = bm.chan_arrays.get(X.CH_UV)
+        uv = np.asarray(uvc, dtype=np.float64)[:, :2] if uvc is not None else np.zeros((len(pos), 2))
+        tris = np.asarray(bm.tris, dtype=np.int64)
+        w = pos.copy()
+        w[:, 0] += ox
+        w[:, 2] += oz
+        out.append((part, w, uv, tris))
+    return out
 
 
 # ---------------------------------------------------------------- camera
@@ -290,9 +408,11 @@ def project(view, verts, res=RES):
     at = np.array(view["at"])
     fwd = at - eye
     fwd /= np.linalg.norm(fwd)
-    right = np.cross(fwd, [0.0, 1.0, 0.0])
+    # THE GAME'S HANDEDNESS (overworld editor C7, measured against 9 in-game stills): Unity's LookAt frame is
+    # left-handed, screen-right = Y x fwd. It was fwd x Y here, which drew the world as the game's MIRROR image
+    right = np.cross([0.0, 1.0, 0.0], fwd)
     right /= np.linalg.norm(right)
-    up = np.cross(right, fwd)
+    up = np.cross(fwd, right)
     rel = verts - eye
     cx, cy, cz = rel @ right, rel @ up, rel @ fwd
     f = (H / 2.0) / math.tan(math.radians(view["fov"]) / 2.0)
@@ -302,12 +422,13 @@ def project(view, verts, res=RES):
 
 # ---------------------------------------------------------------- raster
 def raster(view, batches, title, *, site: RenderSite, out_dir=None, cull=True,
-           want_ids=False, tex_lookup=None, verbose=True):
+           want_ids=False, tex_lookup=None, verbose=True, want_depth=False):
     """Rasterize one view. ``out_dir=None`` skips the PNG save (pure mode);
     ``tex_lookup`` (part -> texture array or None) overrides install textures
     -- the hermetic-test hook. ``want_ids``: also return an int32 per-pixel
     owner buffer (batch_index * 2**20 + tri_index, -1 = sky) -- the
-    seam-forensics hook."""
+    seam-forensics hook. ``want_depth``: also return the per-pixel depth (``project``'s, along the view; inf =
+    sky) -- the fog calibration's hook (overworld editor C18)."""
     _require_numpy()
     W, H = site.res
     if tex_lookup is None:
@@ -392,8 +513,12 @@ def raster(view, batches, title, *, site: RenderSite, out_dir=None, cull=True,
             print(f"   render {title}.png  tris={ntri} culled={ncull}")
     elif verbose:
         print(f"   render {title} (unsaved)  tris={ntri} culled={ncull}")
+    if want_ids and want_depth:
+        return np.asarray(img), idbuf, zbuf
     if want_ids:
         return np.asarray(img), idbuf
+    if want_depth:
+        return np.asarray(img), zbuf
     return np.asarray(img)
 
 

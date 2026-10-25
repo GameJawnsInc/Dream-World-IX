@@ -302,7 +302,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
   lives on an unmerged branch)
-- Summons TIER W ★: W2-W7+W6q cast-proven; U1-U2 ★★★ CLOSED + ADOPTED — 2nd array = per-slot texel displacement (linear ADD), the kit joins on the effective cover at EDIT scope → `studies/custom-summons/tier-w/PLAN.md`
+- Summons TIER W ★: W2-W7+W6q cast-proven; U1-U2 ★★★ ADOPTED (2nd array = linear-ADD texel displacement); gain half cast-confirmed on ef407 → `studies/custom-summons/tier-w/PLAN.md`
 - The scene ladder — ★ rungs 0-3c ALL owner-confirmed: rig cinema + THE FERRY VOYAGE, symmetric origin-port departures + the s69 minimap bracket → `studies/overworld-topography/scene-ladder/`
 - Click authoring — ★★ Rungs 0-4 + 6a-6d owner-confirmed; BOTH lanes merge on regenerate; 7e+7f built, Trace carries its own rig; 7b+7d playtests deployed 30700-30702 → `studies/click-authoring/PLAN.md`
 - Path D, the genuinely new 3rd overworld — ★★★ rungs 0-6 ALL DONE, ladder complete: the 9013 round trip owner-confirmed, bench 30950 entry + "!"-Confirm exit; next = §8 polish at owner's call → `studies/path-d-new-world/rung6/`; laws → [[project-ff9-overhang-context-law]]

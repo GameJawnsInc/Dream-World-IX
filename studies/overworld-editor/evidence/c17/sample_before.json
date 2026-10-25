@@ -1,0 +1,6664 @@
+[
+ {
+  "at": [
+   42.666666666666664,
+   -441.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "42.7,-441.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "245",
+   "--spread",
+   "1.22",
+   "--rock-height",
+   "1.76"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "5 down face(s)",
+  "where": [
+   [
+    47.22,
+    -415.62
+   ],
+   [
+    36.8,
+    -415.2
+   ],
+   [
+    35.44,
+    -421.01
+   ],
+   [
+    54.66,
+    -430.42
+   ],
+   [
+    44.44,
+    -414.58
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.666484385673832,
+  "dh_p90": 0.8057202159463047,
+  "dh_nan": 0,
+  "border_min": 22.745403140608296,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1521.3333333333333,
+   -342.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1521.3,-342.7",
+   "--donor",
+   "19,3",
+   "--rot",
+   "250",
+   "--spread",
+   "1.29",
+   "--rock-height",
+   "1.03"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1508.0,
+    -368.0
+   ],
+   [
+    1512.0,
+    -372.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (2 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683487633010612,
+  "dh_p90": 0.6527281238705505,
+  "dh_nan": 0,
+  "border_min": 23.52483436152592,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   13.333333333333334,
+   -362.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "13.3,-362.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "175",
+   "--spread",
+   "1.12",
+   "--rock-height",
+   "1.11"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "3 down face(s), an edge of 10.3u",
+  "where": [
+   [
+    -3.08,
+    -366.51
+   ],
+   [
+    -7.44,
+    -350.74
+   ],
+   [
+    7.67,
+    -348.97
+   ],
+   [
+    12.33,
+    -350.91
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 25.891887496356162,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1526.6666666666667,
+   -537.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1526.7,-537.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "290",
+   "--spread",
+   "1.09",
+   "--rock-height",
+   "1.87"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 26.3,
+   "zip_rise": 1.4,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.3306981999836123,
+  "dh_p90": 0.7297241335940541,
+  "dh_nan": 0,
+  "border_min": 35.037336792016305,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   53.333333333333336,
+   -482.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "53.3,-482.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "185",
+   "--spread",
+   "1.01",
+   "--rock-height",
+   "1.67"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.298237177193024,
+  "dh_p90": 2.4078794084283435,
+  "dh_nan": 0,
+  "border_min": 32.14237508674823,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.319605511371188
+ },
+ {
+  "at": [
+   1514.6666666666667,
+   -513.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1514.7,-513.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "300",
+   "--spread",
+   "1.33",
+   "--rock-height",
+   "1.26"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    1531.05,
+    -507.2
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 2.92, ny min 0.89 < floor 0.5, or 0 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.131262081834712,
+  "dh_p90": 0.9683563286075407,
+  "dh_nan": 0,
+  "border_min": 30.776491248933212,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1529.3333333333333,
+   -538.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "1529.3,-538.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "15",
+   "--spread",
+   "1.06",
+   "--rock-height",
+   "1.75"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "2 down face(s)",
+  "where": [
+   [
+    1529.86,
+    -552.74
+   ],
+   [
+    1546.11,
+    -554.78
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 36.08531498889029,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1430.6666666666667,
+   -409.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1430.7,-409.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "5",
+   "--spread",
+   "1.17",
+   "--rock-height",
+   "1.26"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 crack edge(s)",
+  "where": [
+   [
+    1452.0,
+    -398.0
+   ],
+   [
+    1454.0,
+    -402.0
+   ],
+   [
+    1452.0,
+    -398.0
+   ],
+   [
+    1454.0,
+    -402.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 19.59253452117821,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1390.6666666666667,
+   -493.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1390.7,-493.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "280",
+   "--spread",
+   "1.17",
+   "--rock-height",
+   "1.84"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 15.7839379297086,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   9.333333333333334,
+   -514.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "9.3,-514.7",
+   "--donor",
+   "19,3",
+   "--rot",
+   "80",
+   "--spread",
+   "1.02",
+   "--rock-height",
+   "1.27"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    3.61,
+    -505.17
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 2.69, ny min 0.86 < floor 0.5, or 0 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.3264513919682486,
+  "dh_p90": 1.3768535373237496,
+  "dh_nan": 0,
+  "border_min": 36.09308397273516,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1398.6666666666667,
+   -469.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1398.7,-469.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "45",
+   "--spread",
+   "1.13",
+   "--rock-height",
+   "1.98"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s), 8 crack edge(s)",
+  "where": [
+   [
+    1426.0,
+    -460.0
+   ],
+   [
+    1424.0,
+    -462.0
+   ],
+   [
+    1428.0,
+    -478.0
+   ],
+   [
+    1430.0,
+    -482.0
+   ],
+   [
+    1430.0,
+    -482.0
+   ],
+   [
+    1428.0,
+    -478.0
+   ],
+   [
+    1424.0,
+    -462.0
+   ],
+   [
+    1426.0,
+    -460.0
+   ],
+   [
+    1402.9,
+    -493.09
+   ],
+   [
+    1391.81,
+    -472.9
+   ],
+   [
+    1405.65,
+    -493.11
+   ],
+   [
+    1393.8,
+    -487.59
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.59746807155132,
+  "dh_nan": 0,
+  "border_min": 18.254830449731116,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1470.6666666666667,
+   -525.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1470.7,-525.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "45",
+   "--spread",
+   "1.41",
+   "--rock-height",
+   "2"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1456.0,
+    -496.0
+   ]
+  ],
+  "message": "kept grass at (1456.0, np.float64(2.995), -496.0) has two float positions (1456.0, np.float64(2.994983061292235), -496.0) / (1456.0, np.float64(2.994603022077147), -496.0) -- a weld split before the z",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2533359096155075,
+  "dh_nan": 0,
+  "border_min": 37.65416209653382,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1410.6666666666667,
+   -521.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1410.7,-521.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "305",
+   "--spread",
+   "1.18",
+   "--rock-height",
+   "1.42"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 40.104665974528146,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   54.666666666666664,
+   -365.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "54.7,-365.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "270",
+   "--spread",
+   "1.31",
+   "--rock-height",
+   "2"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 29.181350624999993,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1457.3333333333333,
+   -518.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "1457.3,-518.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "30",
+   "--spread",
+   "1.39",
+   "--rock-height",
+   "1.68"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1440.0,
+    -496.0
+   ]
+  ],
+  "message": "kept grass at (1440.0, np.float64(3.017), -496.0) has two float positions (1440.0, np.float64(3.0170046755194395), -496.0) / (1440.0, np.float64(3.016656345975372), -496.0) -- a weld split before the ",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8332478463781512,
+  "dh_p90": 0.6255968633717334,
+  "dh_nan": 0,
+  "border_min": 25.352428948735195,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1482.6666666666667,
+   -441.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1482.7,-441.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "65",
+   "--rock-height",
+   "1.99"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "6 crack edge(s)",
+  "where": [
+   [
+    1460.0,
+    -474.0
+   ],
+   [
+    1454.0,
+    -468.0
+   ],
+   [
+    1458.0,
+    -470.0
+   ],
+   [
+    1454.0,
+    -468.0
+   ],
+   [
+    1458.0,
+    -470.0
+   ],
+   [
+    1460.0,
+    -474.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2533359096155075,
+  "dh_nan": 0,
+  "border_min": 28.73418059308179,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1393.3333333333333,
+   -446.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1393.3,-446.7",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "260",
+   "--spread",
+   "1.07",
+   "--rock-height",
+   "1.26"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1424.0,
+    -464.0
+   ]
+  ],
+  "message": "kept grass at (1424.0, np.float64(3.137), -464.0) has two float positions (1424.0, np.float64(3.1374927515003788), -464.0) / (1424.0, np.float64(3.1374522203419315), -464.0) -- a weld split before the",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9966481325551868,
+  "dh_p90": 0.5440783377386936,
+  "dh_nan": 0,
+  "border_min": 17.83188953239221,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1473.3333333333333,
+   -506.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1473.3,-506.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "290",
+   "--spread",
+   "1.02",
+   "--rock-height",
+   "1.43"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4468667647609696,
+  "dh_nan": 0,
+  "border_min": 44.91075528991354,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   76.03515625,
+   -1133.14453125
+  ],
+  "handles": [
+   "--center",
+   "76,-1133.1",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "150",
+   "--spread",
+   "1.05",
+   "--rock-height",
+   "1.95"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "3 down face(s), an edge of 9.2u",
+  "where": [
+   [
+    84.32,
+    -1152.96
+   ],
+   [
+    59.15,
+    -1140.85
+   ],
+   [
+    65.78,
+    -1123.66
+   ],
+   [
+    52.96,
+    -1133.61
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.0326990021833824,
+  "dh_p90": 0.5350030551405361,
+  "dh_nan": 0,
+  "border_min": 31.106460542434732,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.329050708267424
+ },
+ {
+  "at": [
+   1506.6666666666667,
+   -517.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1506.7,-517.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "35",
+   "--spread",
+   "1.31",
+   "--rock-height",
+   "1.41"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s), an edge of 10.2u",
+  "where": [
+   [
+    1523.35,
+    -525.92
+   ],
+   [
+    1519.42,
+    -543.08
+   ],
+   [
+    1526.2,
+    -538.41
+   ],
+   [
+    1499.56,
+    -522.8
+   ],
+   [
+    1523.96,
+    -523.81
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.4047759390661874,
+  "dh_p90": 0.8632488343560408,
+  "dh_nan": 0,
+  "border_min": 30.500593478928067,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1481.3333333333333,
+   -442.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1481.3,-442.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "250",
+   "--spread",
+   "1.05",
+   "--rock-height",
+   "1.4"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "1 down face(s), an edge of 9.9u",
+  "where": [
+   [
+    1474.21,
+    -428.45
+   ],
+   [
+    1492.37,
+    -434.27
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528786,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 34.82946968520156,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   182.66666666666666,
+   -1057.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "182.7,-1057.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "265",
+   "--spread",
+   "1.1",
+   "--rock-height",
+   "1.51"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 21.9,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 19.221404995859302,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.0
+ },
+ {
+  "at": [
+   30.666666666666668,
+   -525.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "30.7,-525.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "325",
+   "--spread",
+   "1.26",
+   "--rock-height",
+   "1.16"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 22.2,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.4773090840673833,
+  "dh_p90": 1.9622917291516517,
+  "dh_nan": 0,
+  "border_min": 37.8175136888284,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.5312249695174662
+ },
+ {
+  "at": [
+   161.33333333333334,
+   -1070.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "161.3,-1070.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "235",
+   "--spread",
+   "1.2",
+   "--rock-height",
+   "1.36"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "3 down face(s)",
+  "where": [
+   [
+    152.25,
+    -1057.24
+   ],
+   [
+    169.17,
+    -1068.2
+   ],
+   [
+    158.42,
+    -1044.52
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 4.01837488535832,
+  "dh_p90": 2.3800436348303546,
+  "dh_nan": 0,
+  "border_min": 19.996486957128127,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.0
+ },
+ {
+  "at": [
+   77.6171875,
+   -1201.5403645833333
+  ],
+  "handles": [
+   "--center",
+   "77.6,-1201.5",
+   "--donor",
+   "0,0",
+   "--rot",
+   "205",
+   "--spread",
+   "1.01",
+   "--rock-height",
+   "1.18"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "an edge of 10.7u",
+  "where": [
+   [
+    90.78,
+    -1214.91
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.9029728650923792,
+  "dh_p90": 1.398795073670332,
+  "dh_nan": 0,
+  "border_min": 31.612573498679467,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.0578758609114445
+ },
+ {
+  "at": [
+   1390.6666666666667,
+   -469.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1390.7,-469.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "285",
+   "--spread",
+   "1.08",
+   "--rock-height",
+   "1.59"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 19.49286670708244,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1461.3333333333333,
+   -354.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1461.3,-354.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "225",
+   "--spread",
+   "1.1",
+   "--rock-height",
+   "1.13"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1480.0,
+    -372.0
+   ]
+  ],
+  "message": "kept grass at (1480.0, np.float64(3.104), -372.0) has two float positions (1480.0, np.float64(3.104345712290375), -372.0) / (1480.0, np.float64(3.1042033763986514), -372.0) -- a weld split before the ",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 35.012101737589845,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   178.66666666666666,
+   -1061.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "178.7,-1061.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "270",
+   "--spread",
+   "1.19",
+   "--rock-height",
+   "1.65"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 23.3,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.448665573288949,
+  "dh_nan": 0,
+  "border_min": 23.289758124999935,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.0
+ },
+ {
+  "at": [
+   1481.3333333333333,
+   -470.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1481.3,-470.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "15",
+   "--spread",
+   "1.28",
+   "--rock-height",
+   "1.8"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1456.0,
+    -468.0
+   ],
+   [
+    1460.0,
+    -472.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (2 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 29.740350269105196,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   42.666666666666664,
+   -513.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "42.7,-513.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "145",
+   "--spread",
+   "1.22",
+   "--rock-height",
+   "1.32"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 22.2,
+   "zip_rise": 0.95,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.2601347768978957,
+  "dh_p90": 1.444676735741099,
+  "dh_nan": 0,
+  "border_min": 34.75950872279657,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.2000000476837163
+ },
+ {
+  "at": [
+   1509.3333333333333,
+   -342.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1509.3,-342.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "185",
+   "--spread",
+   "1.09",
+   "--rock-height",
+   "1.49"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1500.0,
+    -364.0
+   ]
+  ],
+  "message": "kept grass at (1500.0, np.float64(3.165), -364.0) has two float positions (1500.0, np.float64(3.16457126187159), -364.0) / (1500.0, np.float64(3.1645436053164144), -364.0) -- a weld split before the z",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 24.084028347346703,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   244.58203125,
+   -1107.3776041666667
+  ],
+  "handles": [
+   "--center",
+   "244.6,-1107.4",
+   "--donor",
+   "0,0",
+   "--rot",
+   "220",
+   "--spread",
+   "1.05",
+   "--rock-height",
+   "1.41"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 18.7,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.105332016054643,
+  "dh_p90": 1.4835707992673866,
+  "dh_nan": 0,
+  "border_min": 23.650339166260892,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.075243152276788
+ },
+ {
+  "at": [
+   1534.6666666666667,
+   -345.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1534.7,-345.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "155",
+   "--spread",
+   "1.32",
+   "--rock-height",
+   "1.12"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "7 down face(s), 4 crack edge(s)",
+  "where": [
+   [
+    1514.0,
+    -374.0
+   ],
+   [
+    1510.0,
+    -370.0
+   ],
+   [
+    1514.0,
+    -374.0
+   ],
+   [
+    1510.0,
+    -370.0
+   ],
+   [
+    1516.58,
+    -332.61
+   ],
+   [
+    1506.91,
+    -340.41
+   ],
+   [
+    1506.46,
+    -351.69
+   ],
+   [
+    1528.87,
+    -332.63
+   ],
+   [
+    1537.55,
+    -337.4
+   ],
+   [
+    1505.79,
+    -343.42
+   ],
+   [
+    1520.32,
+    -357.08
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 32.674963608580526,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   38.666666666666664,
+   -413.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "38.7,-413.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "15",
+   "--spread",
+   "1.24",
+   "--rock-height",
+   "1.75"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2533359096155075,
+  "dh_nan": 0,
+  "border_min": 58.163125479313976,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   14.666666666666666,
+   -537.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "14.7,-537.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "295",
+   "--spread",
+   "1.14",
+   "--rock-height",
+   "1.65"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s), an edge of 10.1u",
+  "where": [
+   [
+    19.24,
+    -521.01
+   ],
+   [
+    35.8,
+    -525.11
+   ],
+   [
+    25.59,
+    -542.45
+   ],
+   [
+    20.49,
+    -542.58
+   ],
+   [
+    33.73,
+    -535.63
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.1411026155929163,
+  "dh_p90": 1.5781107852736818,
+  "dh_nan": 0,
+  "border_min": 25.627249085233935,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1406.6666666666667,
+   -453.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1406.7,-453.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "10",
+   "--spread",
+   "1.28",
+   "--rock-height",
+   "1.11"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1424.0,
+    -464.0
+   ],
+   [
+    1424.0,
+    -460.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (2 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075416,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 33.00892354703154,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   21.333333333333332,
+   -494.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "21.3,-494.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "45",
+   "--spread",
+   "1.41",
+   "--rock-height",
+   "1.58"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    33.56,
+    -471.58
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 3.08, ny min 0.78 < floor 0.5, or 3 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.9175070704477046,
+  "dh_p90": 2.089015353589514,
+  "dh_nan": 0,
+  "border_min": 18.75810930356147,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   42.666666666666664,
+   -513.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "42.7,-513.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "20",
+   "--spread",
+   "1.07",
+   "--rock-height",
+   "1.41"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s), an edge of 10.5u",
+  "where": [
+   [
+    58.77,
+    -515.96
+   ],
+   [
+    55.82,
+    -532.03
+   ],
+   [
+    59.79,
+    -521.38
+   ],
+   [
+    42.03,
+    -527.46
+   ],
+   [
+    58.19,
+    -530.95
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.30636775122675,
+  "dh_p90": 1.829230418577942,
+  "dh_nan": 0,
+  "border_min": 22.124565771200345,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   38.666666666666664,
+   -401.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "38.7,-401.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "170",
+   "--spread",
+   "1.1",
+   "--rock-height",
+   "1.52"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 26.633718009812412,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   146.66666666666666,
+   -1057.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "146.7,-1057.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "290",
+   "--spread",
+   "1.44",
+   "--rock-height",
+   "1.24"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "44.7 deg > 29.5",
+  "where": [
+   [
+    65.01,
+    -1104.98
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.90988590381468,
+  "dh_p90": 1.4926831693140992,
+  "dh_nan": 0,
+  "border_min": 20.237953649970564,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.0441797883217623
+ },
+ {
+  "at": [
+   1401.3333333333333,
+   -442.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1401.3,-442.7",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "225",
+   "--spread",
+   "1.31",
+   "--rock-height",
+   "1.91"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 crack edge(s)",
+  "where": [
+   [
+    1428.0,
+    -458.0
+   ],
+   [
+    1430.0,
+    -456.0
+   ],
+   [
+    1428.0,
+    -458.0
+   ],
+   [
+    1430.0,
+    -456.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9966481325551868,
+  "dh_p90": 0.5440783377386941,
+  "dh_nan": 0,
+  "border_min": 24.600624279545826,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   21.333333333333332,
+   -546.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "21.3,-546.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "115",
+   "--spread",
+   "1.14",
+   "--rock-height",
+   "1.72"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 24.4,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 20.5293013152738,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1494.6666666666667,
+   -505.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1494.7,-505.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "345",
+   "--spread",
+   "1.47",
+   "--rock-height",
+   "1.41"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "62.2 deg > 29.5",
+  "where": [
+   [
+    1527.85,
+    -443.85
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2533359096155075,
+  "dh_nan": 0,
+  "border_min": 35.472086224371424,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1478.6666666666667,
+   -529.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1478.7,-529.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "280",
+   "--spread",
+   "1.06",
+   "--rock-height",
+   "1.05"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 22.958058703543998,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1513.3333333333333,
+   -534.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "1513.3,-534.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "340",
+   "--spread",
+   "1.01",
+   "--rock-height",
+   "1.02"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "1 down face(s), an edge of 9.5u",
+  "where": [
+   [
+    1527.37,
+    -529.01
+   ],
+   [
+    1534.16,
+    -540.28
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528786,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 20.0335798421264,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   167.48567708333334,
+   -1086.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "167.5,-1086.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "180",
+   "--spread",
+   "1.36",
+   "--rock-height",
+   "1.11"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "5 down face(s), 4 crack edge(s), an edge of 10.0u",
+  "where": [
+   [
+    185.69,
+    -1081.61
+   ],
+   [
+    182.94,
+    -1081.0
+   ],
+   [
+    182.94,
+    -1081.0
+   ],
+   [
+    185.69,
+    -1081.61
+   ],
+   [
+    154.06,
+    -1108.54
+   ],
+   [
+    156.1,
+    -1066.96
+   ],
+   [
+    143.68,
+    -1070.03
+   ],
+   [
+    170.29,
+    -1077.78
+   ],
+   [
+    173.6,
+    -1080.56
+   ],
+   [
+    150.64,
+    -1064.82
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.862910818221228,
+  "dh_p90": 1.2180167894767115,
+  "dh_nan": 0,
+  "border_min": 40.66683125000009,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.0
+ },
+ {
+  "at": [
+   138.66666666666666,
+   -1069.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "138.7,-1069.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "160",
+   "--spread",
+   "1.08",
+   "--rock-height",
+   "1.7"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    141.0,
+    -1058.44
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 2.44, ny min 0.82 < floor 0.5, or 1 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.084692621243863,
+  "dh_p90": 1.532318232694497,
+  "dh_nan": 0,
+  "border_min": 31.551265017363903,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.0
+ },
+ {
+  "at": [
+   1461.3333333333333,
+   -446.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1461.3,-446.7",
+   "--donor",
+   "19,3",
+   "--rot",
+   "110",
+   "--spread",
+   "1.03",
+   "--rock-height",
+   "1.92"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1456.0,
+    -468.0
+   ]
+  ],
+  "message": "kept grass at (1456.0, np.float64(3.284), -468.0) has two float positions (1456.0, np.float64(3.2842838146955042), -468.0) / (1456.0, np.float64(3.283865390089181), -468.0) -- a weld split before the ",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6624260549613652,
+  "dh_nan": 0,
+  "border_min": 34.31531506761104,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1474.6666666666667,
+   -485.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1474.7,-485.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "30",
+   "--spread",
+   "1.22",
+   "--rock-height",
+   "1.2"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1456.0,
+    -468.0
+   ],
+   [
+    1456.0,
+    -468.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (2 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.4135420819736604,
+  "dh_p90": 0.2315128132334421,
+  "dh_nan": 0,
+  "border_min": 43.04063200398754,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1417.3333333333333,
+   -434.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1417.3,-434.7",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "75",
+   "--spread",
+   "1.14",
+   "--rock-height",
+   "1.94"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1428.0,
+    -456.0
+   ],
+   [
+    1436.0,
+    -456.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (2 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9966481325551868,
+  "dh_p90": 0.5440783377386936,
+  "dh_nan": 0,
+  "border_min": 22.674374475384724,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1526.6666666666667,
+   -537.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1526.7,-537.3",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "100",
+   "--spread",
+   "1.3",
+   "--rock-height",
+   "1.22"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.6846193204960525,
+  "dh_p90": 0.5440783377386936,
+  "dh_nan": 0,
+  "border_min": 31.226677170575527,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1401.3333333333333,
+   -474.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1401.3,-474.7",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "345",
+   "--spread",
+   "1.02",
+   "--rock-height",
+   "1.94"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "8 crack edge(s)",
+  "where": [
+   [
+    1426.0,
+    -474.0
+   ],
+   [
+    1424.0,
+    -470.0
+   ],
+   [
+    1428.0,
+    -478.0
+   ],
+   [
+    1430.0,
+    -482.0
+   ],
+   [
+    1430.0,
+    -482.0
+   ],
+   [
+    1428.0,
+    -478.0
+   ],
+   [
+    1426.0,
+    -474.0
+   ],
+   [
+    1424.0,
+    -470.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9966481325551868,
+  "dh_p90": 0.5440783377386936,
+  "dh_nan": 0,
+  "border_min": 37.99004991989102,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1429.3333333333333,
+   -534.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "1429.3,-534.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "250",
+   "--spread",
+   "1.18",
+   "--rock-height",
+   "1.29"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 21.311483006633125,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   113.33333333333333,
+   -1230.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "113.3,-1230.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "195",
+   "--spread",
+   "1.11",
+   "--rock-height",
+   "1.85"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "30.4 deg > 29.5",
+  "where": [
+   [
+    184.13,
+    -1236.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 28.90961010636579,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.0
+ },
+ {
+  "at": [
+   1482.6666666666667,
+   -449.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1482.7,-449.3",
+   "--donor",
+   "5-6,15-16",
+   "--rot",
+   "220",
+   "--spread",
+   "1.04"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1464.0,
+    -408.0
+   ],
+   [
+    1468.0,
+    -408.0
+   ],
+   [
+    1472.0,
+    -408.0
+   ],
+   [
+    1480.0,
+    -408.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (4 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.8773149516751104,
+  "dh_p90": 1.359454879182154,
+  "dh_nan": 0,
+  "border_min": 41.74031886221735,
+  "dh_at_border": 0.0,
+  "rim_n": 62,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1489.3333333333333,
+   -534.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "1489.3,-534.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "275",
+   "--spread",
+   "1.06",
+   "--rock-height",
+   "1.99"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 29.019941516190784,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1485.3333333333333,
+   -526.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "1485.3,-526.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "230",
+   "--spread",
+   "1.27",
+   "--rock-height",
+   "1.19"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "1 down face(s), an edge of 9.5u",
+  "where": [
+   [
+    1471.85,
+    -514.78
+   ],
+   [
+    1479.85,
+    -499.37
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 26.26633092079726,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1414.6666666666667,
+   -513.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1414.7,-513.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "20",
+   "--spread",
+   "1.17",
+   "--rock-height",
+   "1.56"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1428.0,
+    -480.0
+   ],
+   [
+    1432.0,
+    -484.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (2 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2533359096155075,
+  "dh_nan": 0,
+  "border_min": 26.032598907807483,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1441.3333333333333,
+   -518.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "1441.3,-518.7",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "105",
+   "--spread",
+   "1.15",
+   "--rock-height",
+   "1.75"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "6 crack edge(s)",
+  "where": [
+   [
+    1456.0,
+    -494.0
+   ],
+   [
+    1454.0,
+    -496.0
+   ],
+   [
+    1450.0,
+    -496.0
+   ],
+   [
+    1456.0,
+    -494.0
+   ],
+   [
+    1454.0,
+    -496.0
+   ],
+   [
+    1450.0,
+    -496.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.23021215844781268,
+  "dh_nan": 0,
+  "border_min": 42.10326587310135,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   34.666666666666664,
+   -509.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "34.7,-509.3",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "275",
+   "--spread",
+   "1.17",
+   "--rock-height",
+   "1.41"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    1.85,
+    -502.39
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 2.73, ny min 0.86 < floor 0.5, or 0 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.430661704827706,
+  "dh_p90": 1.6332327101537982,
+  "dh_nan": 0,
+  "border_min": 41.23144100264216,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1454.6666666666667,
+   -533.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1454.7,-533.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "245",
+   "--spread",
+   "1.1",
+   "--rock-height",
+   "1.98"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s)",
+  "where": [
+   [
+    1448.15,
+    -515.01
+   ],
+   [
+    1465.49,
+    -523.49
+   ],
+   [
+    1456.27,
+    -509.21
+   ],
+   [
+    1465.27,
+    -518.2
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 20.088999514394686,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   18.666666666666668,
+   -529.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "18.7,-529.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "150",
+   "--spread",
+   "1.09",
+   "--rock-height",
+   "1.43"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 23.5,
+   "zip_rise": 2.27,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.465187356942243,
+  "dh_p90": 2.0895122750340525,
+  "dh_nan": 0,
+  "border_min": 25.11698935978957,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   69.33333333333333,
+   -390.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "69.3,-390.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "35",
+   "--spread",
+   "1.09",
+   "--rock-height",
+   "1.4"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s), an edge of 9.5u",
+  "where": [
+   [
+    83.64,
+    -398.07
+   ],
+   [
+    77.28,
+    -412.59
+   ],
+   [
+    63.36,
+    -395.27
+   ],
+   [
+    79.89,
+    -412.15
+   ],
+   [
+    67.71,
+    -408.9
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 33.83637167330659,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1509.3333333333333,
+   -518.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "1509.3,-518.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "295",
+   "--spread",
+   "1.31",
+   "--rock-height",
+   "1.14"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s), an edge of 10.0u",
+  "where": [
+   [
+    1514.83,
+    -500.87
+   ],
+   [
+    1521.81,
+    -524.61
+   ],
+   [
+    1515.95,
+    -524.77
+   ],
+   [
+    1512.18,
+    -526.53
+   ],
+   [
+    1535.26,
+    -512.89
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.791093120702702,
+  "dh_p90": 1.5747081201344706,
+  "dh_nan": 0,
+  "border_min": 33.328893463739405,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   37.333333333333336,
+   -410.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "37.3,-410.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "30",
+   "--spread",
+   "1.41",
+   "--rock-height",
+   "1.85"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s), an edge of 9.8u",
+  "where": [
+   [
+    55.39,
+    -418.29
+   ],
+   [
+    57.63,
+    -425.09
+   ],
+   [
+    33.18,
+    -428.93
+   ],
+   [
+    28.64,
+    -413.05
+   ],
+   [
+    56.42,
+    -416.06
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 99.0,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1493.3333333333333,
+   -490.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1493.3,-490.7",
+   "--donor",
+   "19,3",
+   "--rot",
+   "330",
+   "--spread",
+   "1.03",
+   "--rock-height",
+   "1.11"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 19.943232283825864,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   61.333333333333336,
+   -458.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "61.3,-458.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "290",
+   "--spread",
+   "1.07",
+   "--rock-height",
+   "1.5"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    76.51,
+    -466.49
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 3.36, ny min 0.87 < floor 0.5, or 0 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.86771265628206,
+  "dh_p90": 2.2821287988272956,
+  "dh_nan": 0,
+  "border_min": 40.99024471837204,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.2111191340418817
+ },
+ {
+  "at": [
+   29.333333333333332,
+   -518.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "29.3,-518.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "355",
+   "--spread",
+   "1.13",
+   "--rock-height",
+   "1.31"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 24.4,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.4738986849009583,
+  "dh_p90": 2.9190731158278918,
+  "dh_nan": 0,
+  "border_min": 40.36154213335976,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.44813101639276
+ },
+ {
+  "at": [
+   142.66666666666666,
+   -1065.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "142.7,-1065.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "295",
+   "--spread",
+   "1.21",
+   "--rock-height",
+   "1.05"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "44.7 deg > 29.5",
+  "where": [
+   [
+    65.01,
+    -1104.98
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.357199214942267,
+  "dh_p90": 2.2847387346692716,
+  "dh_nan": 0,
+  "border_min": 45.79527936323095,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.0
+ },
+ {
+  "at": [
+   1.3333333333333333,
+   -378.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1.3,-378.7",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "200",
+   "--spread",
+   "1.43",
+   "--rock-height",
+   "1.32"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    -16.0,
+    -384.0
+   ]
+  ],
+  "message": "kept grass at (-16.0, np.float64(3.268), -384.0) has two float positions (-16.0, np.float64(3.2680010119220078), -384.0) / (-16.0, np.float64(3.267689398839122), -384.0) -- a weld split before the zip",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2533359096155075,
+  "dh_nan": 0,
+  "border_min": 29.44426310258484,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   25.333333333333332,
+   -366.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "25.3,-366.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "195",
+   "--spread",
+   "1.21",
+   "--rock-height",
+   "1.07"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "1 down face(s)",
+  "where": [
+   [
+    28.67,
+    -354.37
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 23.25754945584299,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   54.666666666666664,
+   -385.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "54.7,-385.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "245",
+   "--spread",
+   "1.09",
+   "--rock-height",
+   "1.56"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2533359096155075,
+  "dh_nan": 0,
+  "border_min": 27.923256846459193,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   29.333333333333332,
+   -530.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "29.3,-530.7",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "225",
+   "--spread",
+   "1.13",
+   "--rock-height",
+   "1.14"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 22.2,
+   "zip_rise": 2.16,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.3951100764962394,
+  "dh_p90": 1.098701195584131,
+  "dh_nan": 0,
+  "border_min": 48.99245452238574,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1405.3333333333333,
+   -426.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1405.3,-426.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "100",
+   "--spread",
+   "1.42",
+   "--rock-height",
+   "1.67"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "6 down face(s), an edge of 10.5u",
+  "where": [
+   [
+    1404.19,
+    -446.74
+   ],
+   [
+    1393.5,
+    -455.53
+   ],
+   [
+    1401.61,
+    -445.53
+   ],
+   [
+    1386.63,
+    -429.08
+   ],
+   [
+    1390.54,
+    -424.02
+   ],
+   [
+    1385.8,
+    -451.01
+   ],
+   [
+    1379.75,
+    -440.07
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 35.095329711646656,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   10.666666666666666,
+   -413.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "10.7,-413.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "345",
+   "--spread",
+   "1.17",
+   "--rock-height",
+   "1.39"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "62.2 deg > 29.5",
+  "where": [
+   [
+    -8.15,
+    -443.85
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 36.27619287916545,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   248.47005208333334,
+   -1111.8151041666667
+  ],
+  "handles": [
+   "--center",
+   "248.5,-1111.8",
+   "--donor",
+   "0,0",
+   "--rot",
+   "175",
+   "--spread",
+   "1.01",
+   "--rock-height",
+   "1.04"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 18.7,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.163712790029448,
+  "dh_p90": 1.4298386254783095,
+  "dh_nan": 0,
+  "border_min": 24.761440104289477,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.0979388629716897
+ },
+ {
+  "at": [
+   18.666666666666668,
+   -389.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "18.7,-389.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "335",
+   "--spread",
+   "1.16",
+   "--rock-height",
+   "1.03"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 crack edge(s)",
+  "where": [
+   [
+    -18.0,
+    -382.0
+   ],
+   [
+    -18.0,
+    -382.0
+   ],
+   [
+    -16.0,
+    -386.0
+   ],
+   [
+    -16.0,
+    -386.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189638,
+  "dh_nan": 0,
+  "border_min": 25.708502138645954,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   253.18489583333334,
+   -1158.578125
+  ],
+  "handles": [
+   "--center",
+   "253.2,-1158.6",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "30",
+   "--spread",
+   "1.09",
+   "--rock-height",
+   "1.56"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "an edge of 11.9u",
+  "where": [
+   [
+    236.8,
+    -1157.34
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.3764448582092026,
+  "dh_p90": 0.24638043789351752,
+  "dh_nan": 0,
+  "border_min": 23.19531836972419,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.011428565916294
+ },
+ {
+  "at": [
+   1438.6666666666667,
+   -361.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1438.7,-361.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "285",
+   "--spread",
+   "1.05",
+   "--rock-height",
+   "1.64"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "1 down face(s), an edge of 10.5u",
+  "where": [
+   [
+    1440.17,
+    -345.24
+   ],
+   [
+    1445.13,
+    -343.91
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528777,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 20.82528733012549,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1426.6666666666667,
+   -425.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1426.7,-425.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "110",
+   "--spread",
+   "1.32",
+   "--rock-height",
+   "1.6"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s), 4 crack edge(s), an edge of 9.3u",
+  "where": [
+   [
+    1434.0,
+    -456.0
+   ],
+   [
+    1430.0,
+    -456.0
+   ],
+   [
+    1430.0,
+    -456.0
+   ],
+   [
+    1434.0,
+    -456.0
+   ],
+   [
+    1423.73,
+    -443.34
+   ],
+   [
+    1416.74,
+    -446.38
+   ],
+   [
+    1420.28,
+    -441.95
+   ],
+   [
+    1423.13,
+    -417.7
+   ],
+   [
+    1404.93,
+    -444.41
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 26.99140626154012,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1453.3333333333333,
+   -562.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "1453.3,-562.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "120",
+   "--spread",
+   "1.09",
+   "--rock-height",
+   "1.66"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 13.5,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 25.784240083973742,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   2.6666666666666665,
+   -385.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "2.7,-385.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "325",
+   "--spread",
+   "1.31",
+   "--rock-height",
+   "1.3"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    -16.0,
+    -384.0
+   ]
+  ],
+  "message": "kept grass at (-16.0, np.float64(3.514), -384.0) has two float positions (-16.0, np.float64(3.5143839273918833), -384.0) / (-16.0, np.float64(3.5140723143089976), -384.0) -- a weld split before the zi",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.831108394326268,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 32.14866492819805,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1385.3333333333333,
+   -430.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1385.3,-430.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "60",
+   "--spread",
+   "1.02",
+   "--rock-height",
+   "1.35"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "1 down face(s)",
+  "where": [
+   [
+    1376.75,
+    -445.51
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 26.403418812650955,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1442.6666666666667,
+   -429.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1442.7,-429.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "20",
+   "--spread",
+   "1.5",
+   "--rock-height",
+   "1.04"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "6 crack edge(s)",
+  "where": [
+   [
+    1452.0,
+    -398.0
+   ],
+   [
+    1454.0,
+    -402.0
+   ],
+   [
+    1458.0,
+    -406.0
+   ],
+   [
+    1452.0,
+    -398.0
+   ],
+   [
+    1454.0,
+    -402.0
+   ],
+   [
+    1458.0,
+    -406.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571311,
+  "dh_nan": 0,
+  "border_min": 16.828380446315975,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   13.333333333333334,
+   -374.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "13.3,-374.7",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "350",
+   "--spread",
+   "1.08",
+   "--rock-height",
+   "1.36"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "62.2 deg > 29.5",
+  "where": [
+   [
+    -8.15,
+    -443.85
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2533359096155075,
+  "dh_nan": 0,
+  "border_min": 25.09347090334063,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1390.6666666666667,
+   -485.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1390.7,-485.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "350",
+   "--spread",
+   "1.38",
+   "--rock-height",
+   "1.88"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 26.210280125185818,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   50.666666666666664,
+   -405.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "50.7,-405.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "65",
+   "--spread",
+   "1.09",
+   "--rock-height",
+   "1.62"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2533359096155075,
+  "dh_nan": 0,
+  "border_min": 28.839369943961113,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   21.333333333333332,
+   -366.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "21.3,-366.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "90",
+   "--spread",
+   "1.11",
+   "--rock-height",
+   "1.53"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "6 down face(s), an edge of 9.9u",
+  "where": [
+   [
+    23.3,
+    -383.1
+   ],
+   [
+    7.7,
+    -386.14
+   ],
+   [
+    19.49,
+    -386.22
+   ],
+   [
+    9.58,
+    -366.64
+   ],
+   [
+    14.02,
+    -364.42
+   ],
+   [
+    9.59,
+    -388.06
+   ],
+   [
+    5.19,
+    -376.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 22.906785781250107,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1441.3333333333333,
+   -422.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1441.3,-422.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "345",
+   "--spread",
+   "1.34",
+   "--rock-height",
+   "1.28"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 crack edge(s)",
+  "where": [
+   [
+    1462.0,
+    -408.0
+   ],
+   [
+    1466.0,
+    -408.0
+   ],
+   [
+    1462.0,
+    -408.0
+   ],
+   [
+    1466.0,
+    -408.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 99.0,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1518.6666666666667,
+   -537.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1518.7,-537.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "195",
+   "--spread",
+   "1.31",
+   "--rock-height",
+   "1.42"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 22.2,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.0929544867236696,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 29.19095901842236,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   41.333333333333336,
+   -510.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "41.3,-510.7",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "225",
+   "--spread",
+   "1.22",
+   "--rock-height",
+   "1.68"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 24.8,
+   "zip_rise": 2.15,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.643606178373764,
+  "dh_p90": 0.979858275886351,
+  "dh_nan": 0,
+  "border_min": 30.904635293995852,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1477.3333333333333,
+   -338.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1477.3,-338.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "120",
+   "--spread",
+   "1.08",
+   "--rock-height",
+   "1.87"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "3 down face(s), an edge of 11.0u",
+  "where": [
+   [
+    1472.4,
+    -354.51
+   ],
+   [
+    1466.28,
+    -354.27
+   ],
+   [
+    1463.34,
+    -335.55
+   ],
+   [
+    1457.04,
+    -351.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 26.006069851957136,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   21.333333333333332,
+   -386.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "21.3,-386.7",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "80",
+   "--spread",
+   "1.01",
+   "--rock-height",
+   "1.44"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    -16.0,
+    -384.0
+   ]
+  ],
+  "message": "kept grass at (-16.0, np.float64(3.172), -384.0) has two float positions (-16.0, np.float64(3.172065888255573), -384.0) / (-16.0, np.float64(3.1717542751726873), -384.0) -- a weld split before the zip",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9966481325551868,
+  "dh_p90": 0.5440783377386936,
+  "dh_nan": 0,
+  "border_min": 43.61745054206449,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   53.333333333333336,
+   -490.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "53.3,-490.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "15",
+   "--spread",
+   "1.39",
+   "--rock-height",
+   "1.37"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    38.85,
+    -472.81
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 2.57, ny min 0.88 < floor 0.5, or 0 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.92335418803723,
+  "dh_p90": 2.87387468707973,
+  "dh_nan": 0,
+  "border_min": 17.16608833139503,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   49.333333333333336,
+   -370.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "49.3,-370.7",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "270",
+   "--spread",
+   "1.11",
+   "--rock-height",
+   "1.45"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9966481325551868,
+  "dh_p90": 0.5440783377386936,
+  "dh_nan": 0,
+  "border_min": 35.900994375000096,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1525.3333333333333,
+   -538.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "1525.3,-538.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "265",
+   "--spread",
+   "1.43",
+   "--rock-height",
+   "1.66"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 22.2,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571311,
+  "dh_nan": 0,
+  "border_min": 31.441444900132595,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1494.6666666666667,
+   -425.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1494.7,-425.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "35",
+   "--spread",
+   "1.02",
+   "--rock-height",
+   "1.84"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1488.0,
+    -404.0
+   ],
+   [
+    1488.0,
+    -404.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (2 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 20.96596859264929,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1481.3333333333333,
+   -466.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1481.3,-466.7",
+   "--donor",
+   "19,3",
+   "--rot",
+   "55",
+   "--spread",
+   "1.06",
+   "--rock-height",
+   "1.02"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 crack edge(s)",
+  "where": [
+   [
+    1460.0,
+    -474.0
+   ],
+   [
+    1460.0,
+    -478.0
+   ],
+   [
+    1460.0,
+    -474.0
+   ],
+   [
+    1460.0,
+    -478.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 29.907355904618328,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   26.666666666666668,
+   -537.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "26.7,-537.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "350",
+   "--spread",
+   "1.11",
+   "--rock-height",
+   "1.18"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 22.2,
+   "zip_rise": 1.33,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.22361921251578,
+  "dh_p90": 2.3753896667875902,
+  "dh_nan": 0,
+  "border_min": 63.74501695812124,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.2000000476837163
+ },
+ {
+  "at": [
+   1453.3333333333333,
+   -446.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1453.3,-446.7",
+   "--donor",
+   "0,0",
+   "--spread",
+   "1.29",
+   "--rock-height",
+   "1.84"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1452.0,
+    -468.0
+   ],
+   [
+    1460.0,
+    -472.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (2 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 29.426953125000182,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   2.6666666666666665,
+   -537.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "2.7,-537.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "210",
+   "--spread",
+   "1.24",
+   "--rock-height",
+   "1.01"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 24.2,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.0929544867236705,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 49.93991353313301,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   34.666666666666664,
+   -505.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "34.7,-505.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "220",
+   "--spread",
+   "1.24",
+   "--rock-height",
+   "1.88"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 22.2,
+   "zip_rise": 1.56,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.5692097018537026,
+  "dh_p90": 2.98432824001978,
+  "dh_nan": 0,
+  "border_min": 19.519995176511713,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200079001474214
+ },
+ {
+  "at": [
+   1490.6666666666667,
+   -437.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1490.7,-437.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "235",
+   "--spread",
+   "1.25",
+   "--rock-height",
+   "1.03"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "62.2 deg > 29.5",
+  "where": [
+   [
+    1527.85,
+    -443.85
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 35.14829705733297,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1441.3333333333333,
+   -378.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1441.3,-378.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "210",
+   "--spread",
+   "1.03",
+   "--rock-height",
+   "1.21"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1452.0,
+    -396.0
+   ]
+  ],
+  "message": "kept grass at (1452.0, np.float64(3.168), -396.0) has two float positions (1452.0, np.float64(3.1683847746649807), -396.0) / (1452.0, np.float64(3.1680559954443996), -396.0) -- a weld split before the",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 40.25850209769982,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1458.6666666666667,
+   -437.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1458.7,-437.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "290",
+   "--spread",
+   "1.29",
+   "--rock-height",
+   "1.7"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1436.0,
+    -456.0
+   ]
+  ],
+  "message": "kept grass at (1436.0, np.float64(3.109), -456.0) has two float positions (1436.0, np.float64(3.1089767410519644), -456.0) / (1436.0, np.float64(3.108942408776574), -456.0) -- a weld split before the ",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2556949742063829,
+  "dh_nan": 0,
+  "border_min": 36.87183982142875,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   45.333333333333336,
+   -478.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "45.3,-478.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "20",
+   "--spread",
+   "1.14",
+   "--rock-height",
+   "1.05"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    35.1,
+    -470.55
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 2.62, ny min 0.85 < floor 0.5, or 0 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 4.307250705424847,
+  "dh_p90": 1.6941455729755508,
+  "dh_nan": 0,
+  "border_min": 35.12893361679935,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.5478851671281855
+ },
+ {
+  "at": [
+   1474.6666666666667,
+   -429.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1474.7,-429.3",
+   "--donor",
+   "8-10,0-1",
+   "--rot",
+   "205",
+   "--spread",
+   "1.18",
+   "--rock-height",
+   "1.04"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1504.0,
+    -396.0
+   ],
+   [
+    1508.0,
+    -396.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (2 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.5762634319787123,
+  "dh_p90": 1.2150276154449382,
+  "dh_nan": 0,
+  "border_min": 99.0,
+  "dh_at_border": 0.0,
+  "rim_n": 83,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   13.333333333333334,
+   -338.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "13.3,-338.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "30",
+   "--spread",
+   "1.15",
+   "--rock-height",
+   "1.51"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "2 down face(s)",
+  "where": [
+   [
+    7.17,
+    -349.19
+   ],
+   [
+    13.3,
+    -357.97
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418381,
+  "dh_nan": 0,
+  "border_min": 20.889304522702275,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1394.6666666666667,
+   -469.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1394.7,-469.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "235",
+   "--spread",
+   "1.22",
+   "--rock-height",
+   "1.38"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "1 down face(s), an edge of 10.0u",
+  "where": [
+   [
+    1383.14,
+    -455.88
+   ],
+   [
+    1403.34,
+    -450.77
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 19.40980643063193,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   30.666666666666668,
+   -517.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "30.7,-517.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "115",
+   "--spread",
+   "1.26",
+   "--rock-height",
+   "1.94"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    7.25,
+    -506.09
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 2.40, ny min 0.89 < floor 0.5, or 0 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.3394951101630945,
+  "dh_p90": 2.3023879320917686,
+  "dh_nan": 0,
+  "border_min": 42.04323029020725,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1426.6666666666667,
+   -421.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1426.7,-421.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "20",
+   "--spread",
+   "1.16",
+   "--rock-height",
+   "1.94"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "3 down face(s), an edge of 9.5u",
+  "where": [
+   [
+    1443.23,
+    -424.07
+   ],
+   [
+    1445.22,
+    -430.06
+   ],
+   [
+    1425.97,
+    -436.66
+   ],
+   [
+    1421.86,
+    -427.64
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 23.78216129626314,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   37.333333333333336,
+   -466.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "37.3,-466.7",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "230",
+   "--spread",
+   "1.43",
+   "--rock-height",
+   "1.5"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.2799961431303428,
+  "dh_p90": 0.9700855850721056,
+  "dh_nan": 0,
+  "border_min": 40.99334687627157,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1410.6666666666667,
+   -509.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1410.7,-509.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "295",
+   "--spread",
+   "1.39",
+   "--rock-height",
+   "1.02"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 25.060465228946953,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1413.3333333333333,
+   -414.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1413.3,-414.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "235",
+   "--spread",
+   "1.09",
+   "--rock-height",
+   "1.45"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "3 down face(s)",
+  "where": [
+   [
+    1422.14,
+    -403.27
+   ],
+   [
+    1422.77,
+    -408.15
+   ],
+   [
+    1421.02,
+    -398.14
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 46.56593103346427,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1489.3333333333333,
+   -498.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1489.3,-498.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "120",
+   "--spread",
+   "1.29",
+   "--rock-height",
+   "1.21"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s), 4 crack edge(s), an edge of 9.8u",
+  "where": [
+   [
+    1456.0,
+    -494.0
+   ],
+   [
+    1454.0,
+    -496.0
+   ],
+   [
+    1456.0,
+    -494.0
+   ],
+   [
+    1454.0,
+    -496.0
+   ],
+   [
+    1481.96,
+    -515.52
+   ],
+   [
+    1464.31,
+    -510.36
+   ],
+   [
+    1480.3,
+    -513.63
+   ],
+   [
+    1472.62,
+    -494.93
+   ],
+   [
+    1463.33,
+    -502.17
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418389,
+  "dh_nan": 0,
+  "border_min": 28.475275786955535,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   45.333333333333336,
+   -418.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "45.3,-418.7",
+   "--donor",
+   "19,3",
+   "--rot",
+   "265",
+   "--spread",
+   "1.09",
+   "--rock-height",
+   "1.46"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 25.414276536701514,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1530.6666666666667,
+   -493.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1530.7,-493.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "345",
+   "--spread",
+   "1.04",
+   "--rock-height",
+   "1.7"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 21.9,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.600698339638601,
+  "dh_p90": 2.2894215063480696,
+  "dh_nan": 0,
+  "border_min": 30.666266030448185,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.892667589077371
+ },
+ {
+  "at": [
+   41.333333333333336,
+   -370.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "41.3,-370.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "110",
+   "--spread",
+   "1.03",
+   "--rock-height",
+   "2"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 23.373675180187306,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1494.6666666666667,
+   -553.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1494.7,-553.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "315",
+   "--spread",
+   "1.06",
+   "--rock-height",
+   "1.14"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 13.5,
+   "zip_rise": 2.26,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 22.57170701640278,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   38.666666666666664,
+   -485.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "38.7,-485.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "205",
+   "--spread",
+   "1.13",
+   "--rock-height",
+   "1.5"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    41.45,
+    -465.94
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 2.56, ny min 0.88 < floor 0.5, or 0 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 4.352045441930457,
+  "dh_p90": 3.251941582120281,
+  "dh_nan": 0,
+  "border_min": 17.287334706443346,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.221776439131402
+ },
+ {
+  "at": [
+   46.666666666666664,
+   -389.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "46.7,-389.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "90",
+   "--spread",
+   "1.23",
+   "--rock-height",
+   "1.05"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "6 down face(s), an edge of 10.0u",
+  "where": [
+   [
+    48.07,
+    -407.02
+   ],
+   [
+    31.63,
+    -410.84
+   ],
+   [
+    44.69,
+    -410.93
+   ],
+   [
+    46.39,
+    -405.92
+   ],
+   [
+    31.14,
+    -394.14
+   ],
+   [
+    38.63,
+    -386.77
+   ],
+   [
+    33.72,
+    -412.97
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 26.772942968750012,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   166.66666666666666,
+   -1081.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "166.7,-1081.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "285",
+   "--spread",
+   "1.39",
+   "--rock-height",
+   "1.74"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "44.7 deg > 29.5",
+  "where": [
+   [
+    65.01,
+    -1104.98
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.818848046451706,
+  "dh_p90": 0.8133365444400861,
+  "dh_nan": 0,
+  "border_min": 40.91333495806157,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.0
+ },
+ {
+  "at": [
+   1470.6666666666667,
+   -529.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1470.7,-529.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "340",
+   "--spread",
+   "1.49",
+   "--rock-height",
+   "1.67"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 27.73183784802984,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1490.6666666666667,
+   -493.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1490.7,-493.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "345",
+   "--spread",
+   "1.18",
+   "--rock-height",
+   "1.28"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1460.0,
+    -480.0
+   ]
+  ],
+  "message": "kept grass at (1460.0, np.float64(3.209), -480.0) has two float positions (1460.0, np.float64(3.2091477300212996), -480.0) / (1460.0, np.float64(3.2086682702587264), -480.0) -- a weld split before the",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9250489547456153,
+  "dh_p90": 0.6575040717092753,
+  "dh_nan": 0,
+  "border_min": 21.60360122581712,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   2.6666666666666665,
+   -533.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "2.7,-533.3",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "190",
+   "--spread",
+   "1.1",
+   "--rock-height",
+   "1.69"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s)",
+  "where": [
+   [
+    0.85,
+    -518.84
+   ],
+   [
+    4.78,
+    -521.87
+   ],
+   [
+    -16.13,
+    -518.2
+   ],
+   [
+    -3.61,
+    -515.98
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 25.905647988127384,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1533.3333333333333,
+   -414.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1533.3,-414.7",
+   "--donor",
+   "19,3",
+   "--rot",
+   "295",
+   "--spread",
+   "1.4",
+   "--rock-height",
+   "1.28"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1520.0,
+    -384.0
+   ]
+  ],
+  "message": "kept grass at (1520.0, np.float64(2.95), -384.0) has two float positions (1520.0, np.float64(2.9503780606740273), -384.0) / (1520.0, np.float64(2.9500664475911416), -384.0) -- a weld split before the ",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 34.79006733320149,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   33.333333333333336,
+   -366.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "33.3,-366.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "305",
+   "--spread",
+   "1.16",
+   "--rock-height",
+   "1.92"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 31.201978630225767,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   33.333333333333336,
+   -530.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "33.3,-530.7",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "75",
+   "--spread",
+   "1.03",
+   "--rock-height",
+   "1.37"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 22.2,
+   "zip_rise": 1.05,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9966481325551868,
+  "dh_p90": 0.6767974047864543,
+  "dh_nan": 0,
+  "border_min": 62.807633319434,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1462.6666666666667,
+   -429.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1462.7,-429.3",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "110",
+   "--spread",
+   "1.03",
+   "--rock-height",
+   "1.81"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1456.0,
+    -404.0
+   ]
+  ],
+  "message": "kept grass at (1456.0, np.float64(3.174), -404.0) has two float positions (1456.0, np.float64(3.174463381396781), -404.0) / (1456.0, np.float64(3.174228062259208), -404.0) -- a weld split before the z",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9966481325551868,
+  "dh_p90": 0.5440783377386936,
+  "dh_nan": 0,
+  "border_min": 27.029050912413837,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1413.3333333333333,
+   -442.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1413.3,-442.7",
+   "--donor",
+   "19,3",
+   "--rot",
+   "255",
+   "--spread",
+   "1.11",
+   "--rock-height",
+   "1.41"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1424.0,
+    -464.0
+   ],
+   [
+    1424.0,
+    -460.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (2 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 36.40931979716703,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   5.333333333333333,
+   -374.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "5.3,-374.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "25",
+   "--spread",
+   "1.39",
+   "--rock-height",
+   "1.86"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "62.2 deg > 29.5",
+  "where": [
+   [
+    -8.15,
+    -443.85
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 27.66730598967598,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   146.66666666666666,
+   -1069.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "146.7,-1069.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "85",
+   "--spread",
+   "1.05",
+   "--rock-height",
+   "1.89"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    143.54,
+    -1055.14
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 2.79, ny min 0.89 < floor 0.5, or 0 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.738558958322847,
+  "dh_p90": 2.291095140139875,
+  "dh_nan": 0,
+  "border_min": 20.011775408075437,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.0515461049714023
+ },
+ {
+  "at": [
+   1486.6666666666667,
+   -465.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1486.7,-465.3",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "190",
+   "--spread",
+   "1.33",
+   "--rock-height",
+   "1.86"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1456.0,
+    -488.0
+   ],
+   [
+    1456.0,
+    -484.0
+   ],
+   [
+    1460.0,
+    -480.0
+   ],
+   [
+    1460.0,
+    -472.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (4 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9966481325551868,
+  "dh_p90": 0.5526741568358317,
+  "dh_nan": 0,
+  "border_min": 43.06886243416295,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1446.6666666666667,
+   -525.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1446.7,-525.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "290",
+   "--spread",
+   "1.12",
+   "--rock-height",
+   "1.86"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 17.441190733249286,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1429.3333333333333,
+   -418.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1429.3,-418.7",
+   "--donor",
+   "10,5-6",
+   "--rot",
+   "325",
+   "--spread",
+   "1.07",
+   "--rock-height",
+   "1.93"
+  ],
+  "ok": false,
+  "gate": "weld",
+  "detail": "",
+  "where": [
+   [
+    1436.0,
+    -456.0
+   ]
+  ],
+  "message": "kept grass at (1436.0, np.float64(2.986), -456.0) has two float positions (1436.0, np.float64(2.9858172916198535), -456.0) / (1436.0, np.float64(2.985782959344463), -456.0) -- a weld split before the ",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9966481325551872,
+  "dh_p90": 0.5440783377386936,
+  "dh_nan": 0,
+  "border_min": 58.23923733822119,
+  "dh_at_border": 0.0,
+  "rim_n": 42,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1422.6666666666667,
+   -425.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1422.7,-425.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "245",
+   "--spread",
+   "1.03",
+   "--rock-height",
+   "1.09"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 24.964509104363287,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   53.333333333333336,
+   -754.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "53.3,-754.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "30",
+   "--spread",
+   "1.28",
+   "--rock-height",
+   "1.72"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    26.35,
+    -792.12
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4137713058505719,
+  "dh_nan": 0,
+  "border_min": 25.398403812347624,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.2000000476837154
+ },
+ {
+  "at": [
+   1458.6666666666667,
+   -353.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "1458.7,-353.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "100",
+   "--spread",
+   "1.24",
+   "--rock-height",
+   "1.63"
+  ],
+  "ok": false,
+  "gate": "ring",
+  "detail": "",
+  "where": [
+   [
+    1492.0,
+    -364.0
+   ],
+   [
+    1496.0,
+    -364.0
+   ]
+  ],
+  "message": "hole ring set not degree-2 (2 odd points)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2533359096155075,
+  "dh_nan": 0,
+  "border_min": 41.85388319750397,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   53.333333333333336,
+   -434.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "53.3,-434.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "250",
+   "--spread",
+   "1.25",
+   "--rock-height",
+   "1.3"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "8 down face(s)",
+  "where": [
+   [
+    66.76,
+    -418.65
+   ],
+   [
+    60.21,
+    -408.89
+   ],
+   [
+    49.61,
+    -407.53
+   ],
+   [
+    47.82,
+    -418.72
+   ],
+   [
+    66.48,
+    -424.67
+   ],
+   [
+    61.89,
+    -434.31
+   ],
+   [
+    60.52,
+    -438.04
+   ],
+   [
+    57.46,
+    -407.59
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528781,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 22.28270200619238,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   33.333333333333336,
+   -518.6666666666666
+  ],
+  "handles": [
+   "--center",
+   "33.3,-518.7",
+   "--donor",
+   "19,3",
+   "--rot",
+   "170",
+   "--spread",
+   "1.19",
+   "--rock-height",
+   "1.55"
+  ],
+  "ok": true,
+  "gate": null,
+  "detail": null,
+  "where": null,
+  "message": "",
+  "report": {
+   "apron_slope": 22.2,
+   "zip_rise": 0.95,
+   "zip_ny_min": null
+  },
+  "dh_max": 1.7223111987812683,
+  "dh_p90": 0.968254684259823,
+  "dh_nan": 0,
+  "border_min": 35.591931301524255,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200101692031434
+ },
+ {
+  "at": [
+   1438.6666666666667,
+   -537.3333333333334
+  ],
+  "handles": [
+   "--center",
+   "1438.7,-537.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "180",
+   "--spread",
+   "1.06",
+   "--rock-height",
+   "1.11"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "31.1 deg > 29.5",
+  "where": [
+   [
+    1434.54,
+    -482.41
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 22.036054687499927,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   34.666666666666664,
+   -385.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "34.7,-385.3",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "290",
+   "--spread",
+   "1.09",
+   "--rock-height",
+   "1.78"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.44573637168919866,
+  "dh_p90": 0.2533359096155075,
+  "dh_nan": 0,
+  "border_min": 48.49455370971015,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   45.333333333333336,
+   -406.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "45.3,-406.7",
+   "--donor",
+   "19,3",
+   "--rot",
+   "345",
+   "--rock-height",
+   "1.54"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.9683563286075412,
+  "dh_p90": 0.6597485302189643,
+  "dh_nan": 0,
+  "border_min": 21.001300549758778,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   57.333333333333336,
+   -438.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "57.3,-438.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "165",
+   "--spread",
+   "1.14",
+   "--rock-height",
+   "1.55"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.0929544867236705,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 39.39158192063803,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   38.666666666666664,
+   -477.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "38.7,-477.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "260",
+   "--spread",
+   "1.46",
+   "--rock-height",
+   "1.82"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.031630894563643,
+  "dh_p90": 1.4305197717533398,
+  "dh_nan": 0,
+  "border_min": 99.0,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.289101441107649
+ },
+ {
+  "at": [
+   62.666666666666664,
+   -497.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "62.7,-497.3",
+   "--donor",
+   "19,3",
+   "--rot",
+   "85",
+   "--spread",
+   "1.06",
+   "--rock-height",
+   "1.19"
+  ],
+  "ok": false,
+  "gate": "zip",
+  "detail": "",
+  "where": [
+   [
+    78.36,
+    -478.19
+   ]
+  ],
+  "message": "zip steeper than the grass envelope (rise 3.02, ny min 0.86 < floor 0.5, or 0 banks below 0.83 > 2 allowed)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.8911951699421037,
+  "dh_p90": 1.4162890935521055,
+  "dh_nan": 0,
+  "border_min": 23.770935173866746,
+  "dh_at_border": 0.0,
+  "rim_n": 31,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   61.333333333333336,
+   -490.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "61.3,-490.7",
+   "--donor",
+   "12,16-17",
+   "--rot",
+   "85",
+   "--spread",
+   "1.31",
+   "--rock-height",
+   "1.46"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "90.0 deg > 29.5",
+  "where": [
+   [
+    76.0,
+    -437.93
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 3.8309568889264374,
+  "dh_p90": 0.7835830487797328,
+  "dh_nan": 0,
+  "border_min": 25.739579400257462,
+  "dh_at_border": 0.0,
+  "rim_n": 32,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   45.333333333333336,
+   -402.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "45.3,-402.7",
+   "--donor",
+   "14-15,3",
+   "--rot",
+   "340",
+   "--spread",
+   "1.15",
+   "--rock-height",
+   "1.21"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "4 down face(s), an edge of 9.6u",
+  "where": [
+   [
+    60.02,
+    -394.68
+   ],
+   [
+    54.53,
+    -414.83
+   ],
+   [
+    49.4,
+    -414.14
+   ],
+   [
+    45.66,
+    -410.6
+   ],
+   [
+    60.07,
+    -415.09
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 0.8302572143528777,
+  "dh_p90": 0.5974160985418384,
+  "dh_nan": 0,
+  "border_min": 21.085759226183324,
+  "dh_at_border": 0.0,
+  "rim_n": 29,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   10.666666666666666,
+   -397.3333333333333
+  ],
+  "handles": [
+   "--center",
+   "10.7,-397.3",
+   "--donor",
+   "0,0",
+   "--rot",
+   "330",
+   "--spread",
+   "1.02",
+   "--rock-height",
+   "1.09"
+  ],
+  "ok": false,
+  "gate": "apron",
+  "detail": "62.2 deg > 29.5",
+  "where": [
+   [
+    -8.15,
+    -443.85
+   ]
+  ],
+  "message": "the ground apron exceeds the grass slope envelope",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571311,
+  "dh_nan": 0,
+  "border_min": 36.63765112782326,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ },
+ {
+  "at": [
+   1401.3333333333333,
+   -494.6666666666667
+  ],
+  "handles": [
+   "--center",
+   "1401.3,-494.7",
+   "--donor",
+   "0,0",
+   "--rot",
+   "305",
+   "--spread",
+   "1.47",
+   "--rock-height",
+   "1.74"
+  ],
+  "ok": false,
+  "gate": "geometry",
+  "detail": "10 crack edge(s)",
+  "where": [
+   [
+    1436.0,
+    -490.0
+   ],
+   [
+    1434.0,
+    -486.0
+   ],
+   [
+    1438.0,
+    -494.0
+   ],
+   [
+    1428.0,
+    -478.0
+   ],
+   [
+    1430.0,
+    -482.0
+   ],
+   [
+    1438.0,
+    -494.0
+   ],
+   [
+    1436.0,
+    -490.0
+   ],
+   [
+    1434.0,
+    -486.0
+   ],
+   [
+    1430.0,
+    -482.0
+   ],
+   [
+    1428.0,
+    -478.0
+   ]
+  ],
+  "message": "mountain geometry gate failed (down/near-miss/annulus-crack/edge)",
+  "report": {
+   "apron_slope": null,
+   "zip_rise": null,
+   "zip_ny_min": null
+  },
+  "dh_max": 2.09295448672367,
+  "dh_p90": 1.4483005824571316,
+  "dh_nan": 0,
+  "border_min": 27.060266022786095,
+  "dh_at_border": 0.0,
+  "rim_n": 27,
+  "seat_y": 3.200000047683716
+ }
+]

@@ -1254,11 +1254,26 @@ class PageRect:
     y: int
     w: int                       # VRAM halfwords
     h: int                       # VRAM lines
-    off: int
-    nbytes: int
+    off: int                     # the FIRST upload unit's file byte
+    nbytes: int                  # w * h * 2 -- the declared size, NOT a contiguous span (see unit_offs)
+    #: the file byte of each 64 x 128 upload UNIT, top to bottom (:func:`scenery_pages`, THE UPLOAD
+    #: WALK).  A tall rect's two units are contiguous unless the stream hops a resource between them.
+    unit_offs: Tuple[int, ...] = ()
 
     def texel_size(self, bpp: int = 8) -> Tuple[int, int]:
         return (self.w * (16 // bpp), self.h)
+
+    def units(self) -> Tuple[int, ...]:
+        """Each upload unit's file offset -- the walk's, or contiguous from ``off`` where none is stated."""
+        if self.unit_offs:
+            return self.unit_offs
+        step = self.w * PAGE_CELL_LINES * 2
+        return tuple(self.off + k * step for k in range(max(1, self.h // PAGE_CELL_LINES)))
+
+    def pixels(self, blob: bytes) -> bytes:
+        """The rect's texels as the engine uploads them: its units, joined, top to bottom."""
+        step = self.w * PAGE_CELL_LINES * 2
+        return b"".join(blob[o:o + step] for o in self.units())
 
 
 #: THE VRAM PAGE-CELL, the quantum the engine uploads: **64 halfwords x 128 lines = 0x4000 bytes**.
@@ -1328,6 +1343,20 @@ def scenery_pages(blob: bytes) -> Dict[Tuple[str, int], PageRect]:
     * **a duplicate ``(tag, x)``** -- this dict used to overwrite silently, so a chunk declaring one
       column twice would have kept only the LAST upload and hidden the first from every consumer,
       including the collision gate. 0 duplicates over 1,317 corpus rects; it refuses if that changes.
+
+    ★ THE UPLOAD WALK -- WHERE EACH UNIT'S BYTES ARE.  The engine uploads a rect in 64 x 128 UNITS
+    (0x4000 bytes), reading the stream from the id-0 payload and, once that is spent, from the id-1
+    resource(s) that continue it (:func:`_id0_run`).  **A unit that does not fit before the end of
+    the resource the cursor is in starts at the NEXT resource's first byte**: the id-0 resource is
+    sector-padded (0x55 fill) and the engine never reads its pad as texels.  This used to be one
+    cursor advancing ``w * h * 2`` straight through the pad, which put every unit after the first
+    hop -- 943 of the corpus's 2,531 id-0 cells, in 236 containers -- 380 to 1,984 bytes (3 to 15
+    lines) too early: an export showed those pictures shifted with pad rows on top, and a repaint
+    landed shifted and spilled its first rows into the previous unit's real cell.  MEASURED against
+    the plugin's own uploads (``raster.py run --trace`` books each LoadImage's container offset): the
+    walk names the source of all 2,648 measured 64 x 128 uploads into a page cell (2,448 by offset,
+    200 pages of one repeated byte by identical bytes) and the old cursor misses 914
+    (``tier-w/screen_gates.py`` C1).
     """
     c = EC.parse_header(blob, strict=True)
     out: Dict[Tuple[str, int], PageRect] = {}
@@ -1340,6 +1369,8 @@ def scenery_pages(blob: bytes) -> Dict[Tuple[str, int], PageRect]:
         pb = P + _s32(blob, P)
         base = P + _s32(blob, pb)
         n = _s32(blob, pb + 4)
+        spans = _id0_run(ch)
+        si = next((i for i, (a, b) in enumerate(spans) if a <= base < b), 0)
         cur = base
         for k in range(n):
             o = pb + 8 + 8 * k
@@ -1354,9 +1385,34 @@ def scenery_pages(blob: bytes) -> Dict[Tuple[str, int], PageRect]:
                     "consumer, the collision gate included.  0 of the 1,317 stock page rects do "
                     "this; name the writers per cell through page_cells() instead."
                     % (tag, x, prev.off, prev.y, prev.h, k, cur, y, h))
-            out[(tag, x)] = PageRect(source=tag, x=x, y=y, w=w, h=h, off=cur, nbytes=w * h * 2)
-            cur += w * h * 2
+            unit, units = w * PAGE_CELL_LINES * 2, []
+            for _u in range(h // PAGE_CELL_LINES):
+                while cur + unit > spans[si][1]:                 # THE HOP: no unit straddles a resource
+                    si += 1
+                    if si >= len(spans):
+                        raise ReskinError(
+                            "%s: id-0 page rect %d (VRAM x=%d y=%d h=%d) runs past the streamed "
+                            "id-0[+id-1] run that holds it (%s) -- the upload walk has no resource left "
+                            "to start its next 64 x 128 unit in.  Every one of the 1,317 stock rects fits."
+                            % (tag, k, x, y, h, ", ".join("%#x..%#x" % s for s in spans)))
+                    cur = spans[si][0]
+                units.append(cur)
+                cur += unit
+            out[(tag, x)] = PageRect(source=tag, x=x, y=y, w=w, h=h, off=units[0], nbytes=w * h * 2,
+                                     unit_offs=tuple(units))
     return out
+
+
+def _id0_run(ch) -> List[Tuple[int, int]]:
+    """The file spans the id-0 page pixel stream is read from: the chunk's id-0 payload, then every id-1
+    resource that starts exactly where the previous one ended -- kept APART, because the upload walk
+    never lets a unit straddle two of them (:func:`scenery_pages`)."""
+    r0 = next(r for r in ch.resources if r.id == 0)
+    spans = [(r0.offset, r0.offset + r0.nbytes)]
+    for nxt in ch.resources:
+        if nxt.id == 1 and nxt.offset == spans[-1][1]:
+            spans.append((nxt.offset, nxt.offset + nxt.nbytes))
+    return spans
 
 
 def id9_pages(blob: bytes) -> Dict[Tuple[str, int], List[PageRect]]:
@@ -1444,12 +1500,12 @@ def page_cells(blob: bytes) -> Dict[Tuple[str, int, int], PageCell]:
 
     The arithmetic, and where it differs from the rect view:
 
-    * the id-0 stream cursor advances by the RECT's own ``w * h * 2`` -- that is
-      :func:`scenery_pages`' law and it is right;
-    * the SPLIT of a tall rect into stacked cells advances ``w * 128 * 2`` **per cell**, which
-      reduces to 0x4000 only at ``w == 64`` -- hence :func:`_assert_cell_width`, enforced here AND at
-      the rect view. Today 2,648 / 2,648 cell-writer records are w = 64, so the refusal is a
-      TRIPWIRE, not a code path;
+    * each cell IS one upload unit of :func:`scenery_pages`' walk, and its offset is that unit's
+      (``PageRect.units``) -- not the rect's offset plus ``k * 0x4000``, because the walk hops the id-0
+      resource's sector pad and a tall rect's second unit can start in the next resource;
+    * a unit is ``w * 128 * 2`` bytes, which reduces to 0x4000 only at ``w == 64`` -- hence
+      :func:`_assert_cell_width`, enforced here AND at the rect view. Today 2,648 / 2,648 cell-writer
+      records are w = 64, so the refusal is a TRIPWIRE, not a code path;
     * :func:`id9_pages` is folded in unchanged -- an id-9 alternate block is already exactly one cell.
 
     Uniqueness is asserted, not assumed: a duplicate key REFUSES. Corpus: 2,648 records, 2,648
@@ -1473,13 +1529,14 @@ def page_cells(blob: bytes) -> Dict[Tuple[str, int, int], PageCell]:
     for (tag, _x), r in sorted(scenery_pages(blob).items()):
         n = max(1, r.h // PAGE_CELL_LINES)
         step = r.w * PAGE_CELL_LINES * 2
+        units = r.units()
         for k in range(n):
             _add(PageCell(
                 tag=r.source, chunk=tag, slot=slots.get(tag, -1), kind="id0",
-                x=r.x, y=r.y + PAGE_CELL_LINES * k, w=r.w, off=r.off + k * step, nbytes=step,
+                x=r.x, y=r.y + PAGE_CELL_LINES * k, w=r.w, off=units[k], nbytes=step,
                 rect_key=(tag, r.x), rect_y=r.y, rect_h=r.h, split_index=k,
-                provenance="%s id-0 page rect at VRAM (x=%d y=%d w=%d h=%d) @%#x, cell %d of %d"
-                           % (r.source, r.x, r.y, r.w, r.h, r.off, k, n)))
+                provenance="%s id-0 page rect at VRAM (x=%d y=%d w=%d h=%d) @%#x, cell %d of %d @%#x"
+                           % (r.source, r.x, r.y, r.w, r.h, r.off, k, n, units[k])))
     for (tag, _x), rects in sorted(id9_pages(blob).items()):
         for j, r in enumerate(rects):
             _assert_cell_width("%s id-9 alternate block %d" % (r.source, j), r.x, r.y, r.w, r.h)
@@ -1683,7 +1740,7 @@ class Id0Split:
     slot: int
     lo: int                      # P -- the id-0 payload's first byte
     boundary: int                # P + pixelDataRel
-    hi: int                      # the DECLARED end of the page pixel stream (trailing pad excluded)
+    hi: int                      # the end of the page pixel stream's LAST upload unit (trailing pad excluded)
     res_hi: int                  # the id-0 RESOURCE's own sector-padded end
     run_hi: int                  # the end of the streamed id-0 [+ id-1] run that holds the stream
     n_rects: int
@@ -1707,17 +1764,19 @@ def id0_splits(blob: bytes) -> List[Id0Split]:
     own sector-padded end and continues into the **id-1 resource of the SAME chunk** -- 248 of 248
     unanimously, never into another chunk, never into any other resource id, and never past the file
     end (137 fit inside id-0 alone). id-0 and id-1 are both in
-    :data:`ff9mapkit.summons.container.STREAMED_IDS`; they are one contiguous streamed run and the
-    rect table addresses it as one. So the bound the stream is checked against is that RUN, derived
-    by walking forward while the next resource in the chunk is an id-1 that starts exactly where the
-    previous one ended -- never the id-0 resource's size, which would refuse 64 % of the corpus.
+    :data:`ff9mapkit.summons.container.STREAMED_IDS`; they are one streamed run, derived by walking
+    forward while the next resource in the chunk is an id-1 that starts exactly where the previous one
+    ended -- never the id-0 resource's size, which would refuse 64 % of the corpus.  But the run is
+    read RESOURCE BY RESOURCE: no 64 x 128 upload unit straddles two of them, so the id-0 resource's
+    sector pad sits between units and is no texel (:func:`scenery_pages`, THE UPLOAD WALK).  ``hi``
+    is therefore the end of the LAST unit, pad included, not ``boundary`` plus the declared bytes.
 
     A chunk with NO id-0 has no page block and contributes nothing (the corpus has none, but the
     absence is unambiguous, so it is not an error). A chunk with MORE than one is ambiguous about
     which payload owns the page block, and refuses -- the same refusal :func:`id0_palettes` makes.
     """
     c = EC.parse_header(blob, strict=True)
-    pages = scenery_pages(blob)
+    pages: Optional[Dict[Tuple[str, int], PageRect]] = None
     out: List[Id0Split] = []
     for ch in c.chunks:
         tag = chunk_tag(ch)
@@ -1742,15 +1801,17 @@ def id0_splits(blob: bytes) -> List[Id0Split]:
                 "the id-0 resource %#x..%#x -- the id-0 layout is not what this tool decodes"
                 % (tag, pix_rel, boundary, P, res_hi))
         n = _s32(blob, P + page_rel + 4)
-        stream = sum(rc.nbytes for (t, _x), rc in pages.items() if t == tag)
-        if boundary + stream > run_hi:
+        if pages is None:                    # walked only once a split's own header has checked out
+            pages = scenery_pages(blob)
+        unit = PAGE_CELL_W * PAGE_CELL_LINES * 2
+        ends = [u + unit for (t, _x), rc in pages.items() if t == tag for u in rc.units()]
+        hi = max(ends) if ends else boundary
+        if hi > run_hi:                                      # pragma: no cover - the walk refuses first
             raise ReskinError(
-                "%s: the id-0 page rect table declares %d B of pixel stream from %#x, which overruns "
-                "the streamed id-0[+id-1] run that holds it (%#x..%#x).  Corpus: 385/385 fit, 248 of "
-                "them only because id-1 continues the run."
-                % (tag, stream, boundary, P, run_hi))
+                "%s: the id-0 page stream's last upload unit ends at %#x, past the streamed "
+                "id-0[+id-1] run that holds it (%#x..%#x)." % (tag, hi, P, run_hi))
         out.append(Id0Split(tag=tag, slot=ch.slot, lo=P, boundary=boundary,
-                            hi=boundary + stream, res_hi=res_hi, run_hi=run_hi, n_rects=n))
+                            hi=hi, res_hi=res_hi, run_hi=run_hi, n_rects=n))
     return out
 
 
@@ -2184,14 +2245,14 @@ _TARGET_KEYS = frozenset((
 
 #: every key the top-level ``[reskin]`` table understands, ACROSS BOTH LANES -- the CLUT lane's own
 #: (``effect``/``label``/``expect_sha256``/``allow_unguarded``/``acknowledge_texanim``/``spans``/
-#: ``defaults``/``target``) and the texel lane's (``texel``, ``orthogonality``).
+#: ``defaults``/``target``) and the texel lane's (``texel``, ``orthogonality``, ``readership``).
 #:
 #: ONE set for both modules, consumed by :func:`load_spec` here and by ``repaint.load_spec`` there,
 #: because one spec file may carry both tables: two copies would let a key be lawful on the path that
 #: happened to load it and unknown on the other, which is a refusal that depends on the caller.
 _RESKIN_KEYS = frozenset((
     "effect", "label", "note", "expect_sha256", "allow_unguarded", "acknowledge_texanim",
-    "spans", "defaults", "orthogonality", "target", "texel",
+    "spans", "defaults", "orthogonality", "target", "texel", "readership",
 ))
 
 
@@ -3060,7 +3121,7 @@ def render_previews(b: Build, out_dir) -> List[str]:
         rects = preview_source(b.orig, t.pal, attrib, reasons=no_preview)
         if not rects:
             continue
-        px = b"".join(b.orig[r.off:r.off + r.nbytes] for r in rects)
+        px = b"".join(r.pixels(b.orig) for r in rects)
         w = rects[0].texel_size(8)[0]
         h = sum(r.texel_size(8)[1] for r in rects)
         if w <= 0 or h <= 0 or len(px) < w * h:              # pragma: no cover - malformed rect
@@ -3740,4 +3801,9 @@ def load_spec(path) -> dict:
     for key in ("effect", "target"):
         if key not in r:
             raise ReskinError("[reskin] needs `%s`" % key)
+    # the texel lane's READING governs nothing on a CLUT-only spec, and this lane would ignore it --
+    # the same refusal `repaint.load_spec` makes, so the key cannot be lawful on one loader only
+    if "readership" in r and not r.get("texel"):
+        raise ReskinError("%s says `readership` but declares no [[reskin.texel]] -- the reading is "
+                          "the texel lane's, and a CLUT-only spec has nothing for it to govern" % path)
     return spec

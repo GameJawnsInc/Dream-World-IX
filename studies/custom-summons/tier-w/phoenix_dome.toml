@@ -27,6 +27,14 @@
 #              duty, so the screen names which instrument drew
 #   inked      6,144 of 16,384 texels
 #
+# ⚠ CAST B RAN ON THE PRE-WALK PAGE MAP, which put this cell at 0x15678, 392 bytes before the 0x15800
+# the game loads it from (reskin.scenery_pages, THE UPLOAD WALK).  Its bands were exported and written
+# there, so in VRAM they sat 3 rows and 8 texels high, and the cell's last 3 rows carried the next
+# cell's first bytes.  The read was the bands' TEXTURE (clean / pin-striped / wrong colour), which a
+# shift does not change, so the verdict stands.  This spec is the same bands re-stamped on the fixed
+# map into `ef211-dome-walk` (6,116 of 6,144 band texels changed, 16 cutout holes skipped);
+# `ef211-dome` keeps the cast's own art, as history.
+#
 # THE ROW BELOW NEEDS NO ACKNOWLEDGEMENT KEY.  That is the point: CHANNEL G LICENSES.  The depth
 # is the container stating a fact at the hardware's granularity, `expect_bpp = 8` is the author's
 # cross-check AGAINST that derivation (stated, checked, never chosen), and the build's disclosure
@@ -45,10 +53,10 @@ expect_sha256 = "5d028c0bae621deb6814c504c15d7aa3c9ae9c65ea210011b1403d67e4b509c
 # THE TEXEL TARGET.  ONE cell, THE DOME.  One change per in-game test.
 [[reskin.texel]]
 name = "cell.s0.x704_y384"
-source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-dome/art/cell.s0.x704_y384.domebands.png"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-dome-walk/art/cell.s0.x704_y384.domebands.png"
 
 # --- the guards, emitted by the derivation (texel.scaffold.toml), never typed -----------------
-expect_page_offset = 0x015678
+expect_page_offset = 0x015800
 expect_page_bytes  = 16384
 expect_page_wh     = [128, 128]
 # STATED by the author, CHECKED against the channel-G derivation -- the same 16,384 bytes are 256

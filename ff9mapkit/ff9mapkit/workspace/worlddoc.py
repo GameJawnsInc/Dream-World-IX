@@ -43,6 +43,8 @@ _ZOOM_MIN, _ZOOM_MAX = 0.3, 4.0                   # a 24x20 chart never needs th
 _GRID_ALPHA = 90                                  # the graticule: present, sub-informational (70 was
 #                                                   invisible on the light palette -- snap-measured)
 _KIND_ALPHA = {"land": 165, "water": 120, "stub": 90}
+CARD_VIEW_FLOOR = 32                              # the 3D view's floor while a carry card is open (px)
+STEP_MARK_H = 14.0                                # the picked step's pin on the 3D view (world units; rung C9)
 
 
 def _fmt_bytes(n: int) -> str:
@@ -443,8 +445,14 @@ class WorldDoc(QWidget):
     tab show."""
 
     _scan_done = Signal(object, object, object)    # (census | None, stock grid | None, error | None)
+    _point_done = Signal(object, object, object)   # (the pick it answers, point_info | None, error | None)
 
-    def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None):
+    def __init__(self, pal, *, on_setup=None, scale=100, game_path_fn=None, on_teleport=None,
+                 drafts_root=None, forest_runner=None, forest_seams=None, on_reload=None,
+                 mountain_runner=None, mountain_seams=None, recipe_runner=None, recipe_seams=None,
+                 sink_runner=None, sink_seams=None, coast_runner=None, coast_seams=None, island_runner=None,
+                 island_seams=None, transplant_runner=None, transplant_seams=None, river_runner=None,
+                 river_seams=None, hill_runner=None, hill_seams=None):
         super().__init__()
         self.pal = pal
         self.on_setup = on_setup
@@ -455,6 +463,41 @@ class WorldDoc(QWidget):
         self._stock_known = False                  # False = geography unreadable: never claim "free"
         self._selected = None
         self._trees = []
+        self._game = None                          # the install the last scan read (the 3D view reads it too)
+        self._view3d = None                        # the 3D page: built on the user's first "3D view" click
+        self._point = None                         # the 3D pick the strip shows: ((x, y, z), part) or None
+        self._point_info = None                    # its facts, once read (world.pointinfo.point_info)
+        self._on_teleport = on_teleport            # (x, z) -> None: the shell's dev-checkout harness job, or None
+        self._forest = None                        # the forest tool (rung C1): built on the first Forest click
+        self._drafts_root = drafts_root            # None -> world.draft.drafts_dir() (tests pin a tmp dir)
+        self._forest_runner = forest_runner        # None -> the tool's QProcess runner (tests inject one)
+        self._forest_seams = forest_seams or {}    # ForestTool's outline_fn / soup_fn / sync (tests, gui_snap)
+        self._mountain = None                      # the mountain tool (rung C2): built on the first Mountain click
+        self._mountain_runner = mountain_runner    # ...and its seams, as the forest's
+        self._mountain_seams = mountain_seams or {}
+        self._sink = None                          # the sink tool (rung C5): built on the first Sink click
+        self._sink_runner = sink_runner
+        self._sink_seams = sink_seams or {}
+        self._coast = None                         # the coast tool (rung C5): built on the first Coast click
+        self._coast_runner = coast_runner
+        self._coast_seams = coast_seams or {}
+        self._island = None                        # the island tool (rung C5): built on the first Island click
+        self._island_runner = island_runner
+        self._island_seams = island_seams or {}
+        self._transplant = None                    # the transplant tool (rung C5): built on the first Carry click
+        self._transplant_runner = transplant_runner
+        self._transplant_seams = transplant_seams or {}
+        self._river = None                         # the river tool (rung C5): built on the first Move-the-river click
+        self._river_runner = river_runner
+        self._river_seams = river_seams or {}
+        self._hill = None                          # the hill tool (rung 6): built on the first Add-a-hill click
+        self._hill_runner = hill_runner
+        self._hill_seams = hill_seams or {}
+        self._recipe = None                        # the recipe bar (rung C3): built with the 3D page
+        self._recipe_runner = recipe_runner        # ...its world-fuse runner and its seams (ask, file dialogs)
+        self._recipe_seams = recipe_seams or {}
+        self._on_reload = on_reload                # (x, z) -> None: the shell's dev-checkout world reload, or None
+        self._point_done.connect(self._finish_point)
         self._busy = False
         self._guide_state = ("scan", "")
         self._ask_name = self._ask_name_dialog     # the modal seam: tests/snaps inject, prod asks
@@ -525,11 +568,79 @@ class WorldDoc(QWidget):
         head.addWidget(self.rescan_btn)
         self.summary_lbl = widgets.role_label("", "caption")
         self.summary_lbl.setAccessibleName("Scan summary")
+        # WRAPS, never clips or elides: the stale-mirror note at the summary's end is a warning that must
+        # stay on the face (test_worlddoc), and the 3D toggle beside it cut it to "rerun wo" at 150%.
+        self.summary_lbl.setWordWrap(True)
         head.addWidget(self.summary_lbl, 1)
+        # The 3D view (editor rung A0) is a second PAGE over the same census, not a second tab: the
+        # details strip below serves both. Quiet tier (the atlas page has no CTA), and NOT checkable: no
+        # QPushButton:checked rule exists, so a checked quiet button looks unchecked (snap-caught). The
+        # label names the view the click goes TO, so the words always carry the state.
+        self._mode3d = False
+        self.view3d_btn = QPushButton()
+        self.view3d_btn.setProperty("role", "quiet")
+        self.view3d_btn.clicked.connect(lambda: self._on_view3d(not self._mode3d))
+        self._label_view_btn()
+        # What the 3D page draws: the game's whole FolderNames stack (the default: what you will see in game), or
+        # only this folder over stock (a scratch folder the game does not load yet). It lives on the 3D page's own
+        # bar (handed over when the page is built): in this row it squeezed the wrapped summary into a clip at 150%.
+        self.draw_box = QComboBox()
+        self.draw_box.addItem("As the game loads it", "stack")
+        self.draw_box.addItem("Only this folder", "folder")
+        self.draw_box.setAccessibleName("3D view draws")
+        self.draw_box.setToolTip("As the game loads it: every folder in Memoria.ini's FolderNames, highest priority "
+                                 "first, each file from the first folder holding it. Only this folder: the picked "
+                                 "folder over stock, for previewing a folder the game does not load.")
+        self.draw_box.activated.connect(lambda _ix: self._load_view3d())
+        self.draw_box.hide()
+        # THE MAP EDITOR'S TOOLS (rungs C1, C2, C5), one menu on the 3D page's bar: five buttons there set the window's
+        # floor (1003px at 100%, 1336 at 150%) and crowded the caption out. Each is an action of the menu, the card's
+        # own open_*; their tooltips say which verb judges it.
+        from PySide6.QtWidgets import QMenu
+        self.tools_btn = QPushButton("Edit the map")
+        self.tools_btn.setProperty("role", "quiet")
+        self.tools_btn.setToolTip("Add a forest, a mountain, a hill or an island, shape or carry a coast, move the "
+                                  "river or sink an island: each tool's "
+                                  "card shows where it is lawful, its own world verb judges it, and Accept writes it to "
+                                  "a draft the game does not load.")
+        menu = QMenu(self.tools_btn)
+        self.tool_actions = {}
+        for key, text, tip in (
+                ("forest", "Add forest", "Place a real stock canopy on a deployed island: click where it goes, drag, "
+                 "turn and spread it; every world-forest gate judges it."),
+                ("mountain", "Add mountain", "Place a real stock rock massif on a deployed island: drag, turn, spread "
+                 "and heighten it; every world-mountain gate judges it."),
+                ("hill", "Add a hill", "Raise a grass hill on a deployed island: click where it goes, drag it, set "
+                 "its height and radius; the flank and peak laws show live, and world-hill judges it."),
+                ("island", "Add an island", "Mint a new island on open ocean: click where it goes, drag it, set its "
+                 "radius, lobes, height, ground and shape; world-island judges it."),
+                ("coast", "Shape a coast", "Morph a real island's coast in place: click a cliff or a beach; only the "
+                 "lawful windows and depths are offered, and world-transplant judges it."),
+                ("transplant", "Carry a coast", "Carry a real coastal block, whole, onto an open-ocean cell: pick "
+                 "the donor and the turn, click the cell; world-transplant judges it."),
+                ("river", "Move the river", "Move the carried river, whole, to another open-ocean placement: click "
+                 "where it goes; world-river --move-from judges it, the old river taken out only once it passes."),
+                ("sink", "Sink an island", "Sink a real island into open water: click it; world-sink judges it.")):
+            act = menu.addAction(text)
+            act.setToolTip(tip)
+            act.triggered.connect(lambda _c=False, k=key: getattr(self, f"open_{k}")())
+            self.tool_actions[key] = act
+        menu.setToolTipsVisible(True)
+        self.tools_btn.setMenu(menu)
+        self.tools_btn.hide()
+        head.addWidget(self.view3d_btn)
         v.addLayout(head)
         self.canvas = AtlasCanvas(self.pal, on_select=self._on_select,
                                   on_name=self._name_landmass, scale=self._scale)
-        v.addWidget(self.canvas, 1)
+        self._views = QStackedLayout()
+        self._views.setContentsMargins(0, 0, 0, 0)
+        self._views.addWidget(self.canvas)
+        views_host = QWidget()
+        views_host.setLayout(self._views)
+        v.addWidget(views_host, 1)
+        self._forest_slot = QVBoxLayout()          # the carry cards' place: under the view, over the strip
+        self._forest_slot.setContentsMargins(0, 0, 0, 0)
+        v.addLayout(self._forest_slot)
         self._legend_host = QWidget()
         self._legend_lay = QHBoxLayout(self._legend_host)
         self._legend_lay.setContentsMargins(2, 0, 2, 0)
@@ -591,8 +702,19 @@ class WorldDoc(QWidget):
         self.site_btn.clicked.connect(self._copy_site_cmd)
         self.site_btn.hide()
         brow.addWidget(self.site_btn)
+        # The 3D pick's second-slot button (the same one-slot swap): move the running game's party to the
+        # picked point. Dev checkout only -- the shell passes on_teleport only when tools/world_teleport.py
+        # (the harness) is there, and the button never shows without it.
+        self.teleport_btn = QPushButton("Teleport game here")
+        self.teleport_btn.setProperty("role", "quiet")
+        self.teleport_btn.setToolTip("Move the party in the running game to this point (the debug menu's overworld "
+                                     "teleport, sent through the test harness; the game must be on the world map).")
+        self.teleport_btn.clicked.connect(self._teleport)
+        self.teleport_btn.hide()
+        brow.addWidget(self.teleport_btn)
         sh.addLayout(brow)
         v.addWidget(strip)
+        self._strip = strip
         return page
 
     def _fill_legend(self):
@@ -643,12 +765,20 @@ class WorldDoc(QWidget):
         self._scale = pct
         if hasattr(self, "canvas"):
             self.canvas.set_scale(pct)
+        if self._view3d is not None:
+            self._view3d.set_scale(pct)
 
     def retheme(self, pal):
         self.pal = pal
         if hasattr(self, "canvas"):
             self.canvas.retheme(pal)
             self._fill_legend()                    # the swatch pixmaps are palette-baked at build time
+        if self._view3d is not None:
+            self._view3d.retheme(pal)
+        for tool in self._carry_tools():
+            tool.retheme(pal)
+        if self._recipe is not None:
+            self._recipe.retheme(pal)
         if self._stack.currentWidget() is self._guide_page:
             self._show_guide(*self._guide_state)   # rebuild: the glyph pixmap is palette-tinted
 
@@ -657,14 +787,15 @@ class WorldDoc(QWidget):
         """Scan (or rescan) the deployed worldmap tree. Reads the game path + folder list on the GUI
         thread (cheap stats), then runs the real census on a worker; ``sync=True`` is the deterministic
         test/snap lane. Never called by the shell -- every invocation is a user gesture."""
-        if self._busy:
-            return
+        if self._busy or self._held() or self._cards_write():
+            return                                 # (a draft the recipe bar holds, a card writing: the folder waits)
         fn = self._game_path_fn or config.find_game_path
         try:
             game = fn()
         except config.ConfigError as e:
             self._show_guide("nogame", str(e))
             return
+        self._game = game
         self._trees = worldscan.find_world_trees(game)
         if not self._trees:
             self._show_guide("notrees", str(game))
@@ -706,11 +837,13 @@ class WorldDoc(QWidget):
 
     def _finish(self, census, stock, err):
         self._busy = False
-        self.rescan_btn.setEnabled(True)
+        self.rescan_btn.setEnabled(not self._held() and not self._cards_write())
         self.rescan_btn.setText("Rescan")
         if err is not None:
             self._show_guide("error", err)
             return
+        for tool in self._carry_tools():           # a card writing as the scan lands ends in the folder it wrote
+            tool.finish_writes()                   # (its Accept committed to the new folder's draft: fourth round)
         self._census = census
         self._stock_grid = stock or {}
         self._stock_known = stock is not None
@@ -734,6 +867,426 @@ class WorldDoc(QWidget):
             self.summary_lbl.setText(" · ".join(bits))
         self._on_select(self._selected)            # re-derive the strip: the block may have changed
         #                                            class (deployed <-> empty) across the rescan
+        for tool in self._carry_tools():
+            if not tool.isHidden():
+                tool.close_tool()                  # its folder may have changed under it
+        for tool in self._carry_tools():           # ...and every card, open or not, forgets its per-folder reads
+            tool.island_changed()                  # (block holders, where the river is: review of the C12 fixes)
+        if self._recipe is not None:
+            self._recipe.refresh()                 # ...and the draft the bar reads with it
+        self._sync_draw_box()
+        if self._mode3d:                           # a rescan (or a new folder) re-reads the 3D page too
+            self._load_view3d()
+            if self._recipe is not None:
+                self._recipe.settle()              # the folder shown may owe its game a promote (rung C19)
+
+    # -- the 3D page --
+    def _render_site(self):
+        """``(RenderSite, caption)`` for the 3D page: the game's FolderNames stack, or this folder over stock. Sets
+        ``_caption_plain`` when the caption only restates the stack the draw box names (no warning in it): only then
+        may an open carry card fold it away."""
+        self._caption_plain = False
+        from ..world import mesh as M
+        from ..world import render as R
+        cells = tuple((bx, by) for by in range(M.GRID_ROWS) for bx in range(M.GRID_COLS))
+        here = self._census.root.name
+        one = R.RenderSite(cells=cells, disc=1, game=self._game, mod_root=self._census.root)
+        mode = self.draw_box.currentData()
+        draft = self._draft() if mode == "draft" else None
+        if draft is not None:
+            stack = R.game_stack(self._game)
+            if stack is None:
+                return (R.RenderSite(cells=cells, disc=1, game=self._game, mod_root=draft),
+                        f"Drawn: only the draft of {here} over stock (Memoria.ini could not be read). The game "
+                        "does not load the draft.")
+            names = [p.name for p in stack]
+            roots = [draft if p.name == here else p for p in stack] if here in names else [draft] + list(stack)
+            order = " › ".join((f"the draft of {here}" if p == draft else p.name) for p in roots)
+            self._caption_plain = True
+            return (R.RenderSite(cells=cells, disc=1, game=self._game, stack=tuple(roots)),
+                    f"Drawn with your draft in place of {here}: {order} › stock. The game does not load the draft.")
+        if mode == "folder":
+            return one, (f"Drawn: only {here} over stock. The game reads every folder in Memoria.ini's "
+                         "FolderNames, so a block another folder overrides looks different in game; a picked "
+                         "point says where.")
+        stack = R.game_stack(self._game)
+        if stack is None:
+            return one, (f"Memoria.ini could not be read, so this draws only {here} over stock, not the "
+                         "game's folder order.")
+        names = [p.name for p in stack]
+        cap = "Drawn as the game loads it, first folder first: " + " › ".join(names + ["stock"])
+        if here not in names:
+            cap += (f". ⚠ {here} is not in FolderNames, so the game does not load it and neither does this "
+                    "view; choose Only this folder to see it.")
+        else:
+            self._caption_plain = True
+        return R.RenderSite(cells=cells, disc=1, game=self._game, stack=stack), cap
+
+    def _draft(self):
+        """The shown folder's draft (``world.draft``), or None."""
+        if self._census is None:
+            return None
+        from ..world import draft as D
+        p = D.draft_path(self._census.root, root=self._drafts_root)
+        return p if D.read_meta(p) is not None else None
+
+    def _sync_draw_box(self):
+        """Offer "With the draft" exactly while the shown folder has one."""
+        have = self._draft() is not None
+        ix = self.draw_box.findData("draft")
+        if have and ix < 0:
+            self.draw_box.insertItem(1, "With the draft", "draft")
+        elif not have and ix >= 0:
+            if self.draw_box.currentIndex() == ix:
+                self.draw_box.setCurrentIndex(0)
+            self.draw_box.removeItem(ix)
+
+    def _carry_tools(self):
+        return [t for t in (self._forest, self._mountain, self._hill, self._sink, self._coast, self._island,
+                            self._transplant, self._river) if t is not None]
+
+    def _open_carry(self, which, *, sync=False, edit=False):
+        """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
+        ghost's drag goes to the open one. While the recipe bar holds the draft (an edit open, its steps going back,
+        an in-game step's chain) no card opens but the edit's own (``edit``): another closed the editing card, whose
+        cancel started the promote back under the new card, or wrote the draft under the open edit -- a Discard
+        deleted the draft and what the game was owed (review of the C19 fixes, third round)."""
+        if self._census is None or self._chain_writes() or (self._held() and not edit):
+            return None
+        if not self._mode3d:
+            self._on_view3d(True, sync=sync)
+        tool = getattr(self, f"_{which}")
+        if tool is None:
+            if which == "forest":
+                from .worldforest import ForestTool as Tool
+            elif which == "sink":
+                from .worldsink import SinkTool as Tool
+            elif which == "coast":
+                from .worldcoast import CoastTool as Tool
+            elif which == "island":
+                from .worldisland import IslandTool as Tool
+            elif which == "transplant":
+                from .worldtransplant import TransplantTool as Tool
+            elif which == "river":
+                from .worldriver import RiverTool as Tool
+            elif which == "hill":
+                from .worldhill import HillTool as Tool
+            else:
+                from .worldmountain import MountainTool as Tool
+            tool = Tool(self.pal, self._view3d, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
+                        on_changed=self._draft_changed, runner=getattr(self, f"_{which}_runner"),
+                        drafts_root=self._drafts_root, on_reload=self._on_reload, **getattr(self, f"_{which}_seams"))
+            setattr(self, f"_{which}", tool)
+            self._forest_slot.addWidget(tool)
+            tool.opened.connect(lambda _on: self._sync_card_room())
+            tool.writing_changed.connect(lambda _on: self._sync_locks())
+            self._view3d.ghost_moved.connect(lambda x, z, t=tool: t.drag_to(x, z) if not t.isHidden() else None)
+            self._view3d.ghost_dropped.connect(lambda x, z, t=tool: t.drop_at(x, z) if not t.isHidden() else None)
+        for other in self._carry_tools():
+            if other is not tool and not other.isHidden():
+                other.close_tool()
+        tool.open_tool()
+        return tool
+
+    def _sync_card_room(self):
+        """While a carry card is open the page makes room for it: card and strip together floored the page at 931px
+        tall at 150% (984 with the mountain's second row), so in a 1280x850 window the card's verdict and draft line
+        were clipped. The block strip goes (a click places the shape, and the card speaks for it), the 3D view's
+        floor drops to ``CARD_VIEW_FLOOR`` so the view gives way before the card's words do, and a PLAIN caption
+        folds (the draw box names the stack and the card's draft line names the draft; a caption carrying a warning
+        stays). The room is for the recipe bar above the cards too (rung C3). Close restores all three."""
+        open_ = any(not t.isHidden() for t in self._carry_tools())
+        self._strip.setVisible(not open_)
+        if self._view3d is not None:
+            self._view3d.set_view_floor(CARD_VIEW_FLOOR if open_ else None)
+            self._view3d.fold_caption(open_ and getattr(self, "_caption_plain", False))
+
+    def open_forest(self, *, sync=False):
+        """The Forest button."""
+        return self._open_carry("forest", sync=sync)
+
+    def open_mountain(self, *, sync=False):
+        """The Mountain button."""
+        return self._open_carry("mountain", sync=sync)
+
+    def open_sink(self, *, sync=False):
+        """The Sink button."""
+        return self._open_carry("sink", sync=sync)
+
+    def open_coast(self, *, sync=False):
+        """The Coast button."""
+        return self._open_carry("coast", sync=sync)
+
+    def open_island(self, *, sync=False):
+        """The Island button."""
+        return self._open_carry("island", sync=sync)
+
+    def open_transplant(self, *, sync=False):
+        """The Carry-a-coast menu entry."""
+        return self._open_carry("transplant", sync=sync)
+
+    def open_hill(self, *, sync=False):
+        """The Add-a-hill menu entry."""
+        return self._open_carry("hill", sync=sync)
+
+    def open_river(self, *, sync=False):
+        """The Move-the-river menu entry."""
+        return self._open_carry("river", sync=sync)
+
+    # -- a placed step (rung C9) --
+    EDIT_CARDS = {"forest": "forest", "mountain": "mountain", "hill": "hill", "island": "island",
+                  "transplant": "transplant", "sink": "sink", "morph": "coast",
+                  "river": "river"}                    # a table -> the card that opens on its rows
+
+    def _mark_step(self, step):
+        """Mark the picked step's place on the view (a pin at its anchor), or clear the mark; a card's own drawing
+        is never overwritten."""
+        if self._view3d is None or any(not t.isHidden() for t in self._carry_tools()):
+            return
+        from ..world import recipe as RC
+        pt = None if step is None else RC.anchor(step.get("row") or {})
+        if pt is None:
+            self._view3d.set_overlays([])
+            return
+        from .worldforest import _rgb
+        from .worldview3d import ground_y, pin_tris
+        packed = self._view3d.view.packed if self._view3d.view is not None else None
+        y = ground_y(packed, *pt) if packed is not None else None
+        self._view3d.set_overlays([(pin_tris((pt[0], 0.0 if y is None else y, pt[1]), STEP_MARK_H, w_frac=0.14),
+                                    _rgb(self.pal["accent"]), 1.0, False)])
+
+    def _edit_step(self, row, label):
+        """The recipe bar lifted a placed step out of the draft: open its card on the step's row."""
+        which = self.EDIT_CARDS.get(row.get("table"))
+        tool = self._open_carry(which, edit=True) if which else None
+        if tool is None:
+            self._recipe.cancel_edit(f"Not opened: a {row.get('table')} step has no card that opens on it.", "error")
+            return
+        try:
+            tool.edit_row(row, label=label, on_accepted=self._recipe.edit_accepted,
+                          on_cancel=lambda note=None: self._recipe.cancel_edit(note, "error" if note else ""))
+        except ValueError as e:
+            tool.close_tool()
+            self._recipe.cancel_edit(f"Not opened in its card: {e}. Delete still works.", "error")
+
+    def _held(self) -> bool:
+        return self._recipe is not None and self._recipe.holding()
+
+    def _cards_write(self) -> bool:
+        return any(t.writing() for t in self._carry_tools())
+
+    def _sync_locks(self):
+        """What may change under the draft and the cards now: :meth:`_on_bar_hold`'s locks, and while a card writes
+        (its Accept, Promote or Revert promote) every control that would close it waits -- the menu (one card at a
+        time), the view toggle, the folder box and Rescan (review of the C19 fixes, third round)."""
+        self._on_bar_hold(self._held())
+
+    def _on_bar_hold(self, held):
+        """The recipe bar holds the draft (an edit open, a recipe going in, an in-game step's chain): the folder box and
+        Rescan wait for it, as Undo and Open do. A switch closed the edit's card and its cancel went to the new
+        folder's draft, leaving the first folder's game reverted. The Edit the map menu waits too: no card opens
+        but the edit's own (:meth:`_open_carry`). While the chain writes the live folder and the draft's records (its
+        revert, its promote back), no card is open either: a card's Promote, Revert promote, Discard or Accept would
+        write the same folder or draft at the same moment (review of C19)."""
+        writes = self._cards_write()
+        why = ("Waits for the recipe bar, which holds this folder's draft (an edit open, or a recipe going in)."
+               if held else "Waits for the card, which is writing (its Accept, Promote or Revert promote)."
+               if writes else "")
+        self.folder_box.setEnabled(not held and not writes)
+        self.folder_box.setToolTip(why or "Which mod folder's worldmap tree the atlas shows.")
+        self.rescan_btn.setEnabled(not held and not writes and not self._busy)
+        self.rescan_btn.setToolTip(why or "Re-read the deployed overrides from disk (read-only).")
+        self.view3d_btn.setEnabled(not writes)       # (the chart closes the cards)
+        self.tools_btn.setEnabled(not held and not writes)   # no card opens but the edit's own (_open_carry too)
+        if held:                                   # ...and a card open when the bar began holding is put away: its
+            for tool in self._carry_tools():       # Accept or Discard wrote the draft under a put-back or a recipe
+                if not tool.isHidden() and not tool.editing() and not tool.writing():    # (fourth round; a card
+                    tool.close_tool()              # that writes was refused the bar's start)
+
+    def _chain_writes(self) -> bool:
+        return self._recipe is not None and self._recipe.writing_live()
+
+    def _draft_changed(self, draft):
+        """An Accept wrote the draft (or a discard removed it, an undo or redo moved it): draw it, or go back to the
+        game's stack; the recipe bar and every tool read the draft again."""
+        if self._recipe is not None:
+            self._recipe.refresh()
+        for tool in self._carry_tools():
+            tool.island_changed()
+        self._sync_draw_box()
+        ix = self.draw_box.findData("draft" if draft is not None else "stack")
+        self.draw_box.setCurrentIndex(max(0, ix))
+        self._load_view3d()
+        if self._point is not None:                # its facts were read from the site drawn before: read again
+            self._on_pick(self._point, place=False)
+
+    def _on_view3d(self, on, *, sync=False):
+        """The user's toggle. First use builds the panel (importing the GL module only now: the Workspace
+        never pays for OpenGL at start, and the offscreen smoke never constructs a GL widget) and loads the
+        whole map on a worker; ``sync=True`` is the deterministic lane for tests and gui_snap."""
+        self._mode3d = bool(on)
+        self._label_view_btn()
+        self.draw_box.setVisible(bool(on))
+        if on and self._recipe is None and self._census is not None:
+            from .worldrecipe import RecipeBar
+            self._recipe = RecipeBar(self.pal, game_fn=lambda: self._game, source_fn=lambda: self._census.root,
+                                     on_changed=self._draft_changed, runner=self._recipe_runner,
+                                     drafts_root=self._drafts_root, on_select=self._mark_step,
+                                     on_edit=self._edit_step, on_hold=self._on_bar_hold,
+                                     cards_writing=lambda: any(t.writing() for t in self._carry_tools()),
+                                     **self._recipe_seams)
+            self._forest_slot.insertWidget(0, self._recipe)
+        if self._recipe is not None:
+            self._recipe.setVisible(bool(on))
+            if on:
+                self._recipe.refresh()
+        self.tools_btn.setVisible(bool(on))
+        if not on:
+            for tool in self._carry_tools():
+                tool.close_tool()
+        if not on:
+            self._views.setCurrentWidget(self.canvas)
+            self._legend_host.show()
+            return
+        if self._view3d is None:
+            from .worldview3d import WorldView3DPanel
+            self._view3d = WorldView3DPanel(self.pal, scale=self._scale)
+            self._view3d.picked.connect(self._on_pick)
+            self._view3d.add_control(self.tools_btn)     # each control goes in front: the draws, then the tools
+            self._view3d.add_control(self.draw_box)
+            self._views.addWidget(self._view3d)
+            self._load_view3d(sync=sync)
+        self._focus_view3d()
+        self._views.setCurrentWidget(self._view3d)
+        self._legend_host.hide()                   # the legend teaches the chart's fills, not the terrain
+        if self._recipe is not None:
+            self._recipe.settle()                  # a promote the game is owed from a Workspace that died mid-edit
+
+    def shutdown(self):
+        """The Workspace is closing (the shell's closeEvent). Every job that writes the live folder or a draft runs to
+        its end, never killed half way: the recipe bar's (one job's end may start the next: the chain's next revert,
+        the promote back) and a card's Accept, Promote or Revert promote (whose end may hand the bar its put-back). A
+        card's Check, a dry run, stops. Then an edit of a step that is in the game is cancelled and its steps promoted
+        back, so the game is left as it was (rung C19; review of its fixes: shutdown once returned with the chain's
+        next job running, and cancelled an edit under its card's running Accept)."""
+        for _ in range(256):
+            runners = [t.closing_runner() for t in self._carry_tools()]
+            if self._recipe is not None:
+                runners.append(self._recipe.closing_runner())
+            busy = [r for r in runners if r is not None]
+            if busy:
+                if not busy[0].wait():
+                    return                         # it never ended: leave it (what the game is owed is on disk)
+                continue
+            if self._recipe is None or not self._recipe.close_in_game_edit():
+                return
+
+    def set_view_mode(self, mode, *, sync=False):
+        """``"chart"`` or ``"3d"`` -- the toggle, for tests and gui_snap."""
+        want = mode == "3d"
+        if self._mode3d != want:
+            self._on_view3d(want, sync=sync)
+
+    def _label_view_btn(self):
+        if self._mode3d:
+            self.view3d_btn.setText("Chart view")
+            self.view3d_btn.setToolTip("Back to the block chart.")
+        else:
+            self.view3d_btn.setText("3D view")
+            self.view3d_btn.setToolTip("Show the map in 3D the way the engine binds it: stock land under this "
+                                       "folder's overrides (read-only; loads on first use, about five seconds). "
+                                       "Drag to orbit, right-drag to pan, wheel to zoom, Home to re-frame.")
+
+    def _load_view3d(self, *, sync=False):
+        if self._view3d is None or self._census is None:
+            return
+        site, caption = self._render_site()
+        self._view3d.set_caption(caption)
+        self._sync_card_room()                     # a plain caption folds while a card is open, a warning never
+        self._view3d.load(site, sync=sync)
+        self._focus_view3d()
+
+    def _focus_view3d(self):
+        if self._view3d is not None and self._selected is not None:
+            self._view3d.focus(*worldscan.block_center(*self._selected))
+
+    # -- the 3D pick (rung A1) --
+    def _on_pick(self, hit, *, sync=False, place=True):
+        """A click on the 3D view: select its block on the chart (so the chart agrees on return), then show the
+        point's facts -- read on a worker (the first read of a stock block opens its bundle, about a second);
+        ``sync=True`` is the deterministic lane."""
+        if hit is None:
+            self._point = self._point_info = None
+            self.sel_title.setText("Sky")
+            self.sel_facts.setText("Nothing under the cursor: click land or sea.")
+            self.sel_parts.setText("")
+            self._set_chip("", "info")
+            return
+        (x, y, z), part = hit
+        if not 0.0 <= x < 1536.0:                  # a pick on the view's seam copy: the point it copies (rung C10)
+            x = x % 1536.0
+            hit = ((x, y, z), part)
+        for tool in self._carry_tools() if place else ():
+            if not tool.isHidden():
+                tool.place(x, z, y)                # a tool is open: a click puts its shape there
+        if place and self._recipe is not None and all(t.isHidden() for t in self._carry_tools()):
+            self._recipe.pick(x, z)                # no tool open: a click picks the step placed there (rung C9)
+        from ..world import frames
+        key = frames.world_to_block(*frames.wrap_world_xz(x, z))
+        self.canvas.select(key)                    # -> _on_select: the block strip, and the point cleared
+        self._point = hit
+        self.copy_btn.setText("Copy position")
+        self.copy_btn.setEnabled(True)
+        self.sel_title.setText(f"Point x {x:.2f}, z {z:.2f}")
+        self.sel_facts.setText("Reading the ground here…")
+        self.sel_parts.setText("")
+        self._set_chip("", "info")
+        self._swap_site(False, point=True)
+        site = self._view3d.site if self._view3d is not None else None
+        if site is None:
+            return
+        if sync:
+            self._work_point(hit, site)
+        else:
+            threading.Thread(target=self._work_point, args=(hit, site), daemon=True).start()
+
+    def _work_point(self, hit, site):
+        from ..world import pointinfo
+        try:
+            out = (hit, pointinfo.point_info(site, hit[0][0], hit[0][2]), None)
+        except Exception as e:                     # noqa: BLE001 -- surfaced on the GUI thread
+            out = (hit, None, f"{type(e).__name__}: {e}")
+        try:
+            self._point_done.emit(*out)
+        except RuntimeError:
+            pass
+
+    def _finish_point(self, hit, info, err):
+        if hit is not self._point:                 # a later click (or a selection) superseded this read
+            return
+        from ..world import pointinfo
+        if err is not None:
+            self.sel_facts.setText(f"The ground query failed: {err}")
+            return
+        self._point_info = info
+        lines = pointinfo.describe(info)
+        self.sel_facts.setText(" · ".join(lines[:2]))
+        self.sel_parts.setText(" · ".join(lines[2:]))
+        g = info["ground"]
+        if not g["modelled"]:
+            self._set_chip("not modelled", "warn")
+        elif g["part"] == "MISS":
+            self._set_chip("no ground", "warn")
+        elif g["walkable"]:
+            self._set_chip("walkable", "good")
+        else:
+            self._set_chip("not walkable", "info")
+
+    def _teleport(self):
+        if self._point is None or self._on_teleport is None:
+            return
+        (x, _y, z), _part = self._point
+        self._on_teleport(x, z)
 
     # -- selection / details --
     def _set_chip(self, text, kind):
@@ -750,6 +1303,8 @@ class WorldDoc(QWidget):
 
     def _on_select(self, key):
         self._selected = key
+        self._point = self._point_info = None      # a chart selection ends the 3D pick
+        self.copy_btn.setText("Copy centre coords")
         if key is None or self._census is None:
             self.sel_title.setText("No block selected")
             self.sel_facts.setText("Click a block on the atlas — or arrow-key through them.")
@@ -790,11 +1345,13 @@ class WorldDoc(QWidget):
         self.copy_btn.setEnabled(True)
         self.open_btn.setEnabled(c.dirpath is not None)
 
-    def _swap_site(self, siting):
-        """ONE of the two quiet buttons occupies the strip's second slot -- swapping keeps the strip's
+    def _swap_site(self, siting, *, point=False):
+        """ONE of the quiet buttons occupies the strip's second slot -- swapping keeps the strip's
         height (and therefore the canvas's fit) constant across every selection."""
-        self.site_btn.setVisible(siting)
-        self.open_btn.setVisible(not siting)
+        tele = point and self._on_teleport is not None
+        self.site_btn.setVisible(siting and not point)
+        self.teleport_btn.setVisible(tele)
+        self.open_btn.setVisible(not siting and not tele)
 
     def _select_empty(self, key):
         """The strip for an UNDEPLOYED block: its stock geography, its centre, and -- only when the
@@ -867,12 +1424,18 @@ class WorldDoc(QWidget):
         QTimer.singleShot(1400, lambda: self.site_btn.setText("Copy world-island command"))
 
     def _copy_coords(self):
-        if self._selected is None:
+        if self._point is not None:                # the 3D pick: the canonical pair, as the debug menu copies it
+            (x, _y, z), _part = self._point
+            QApplication.clipboard().setText(f"{x:.2f} {z:.2f}")
+            back = "Copy position"
+        elif self._selected is not None:
+            cx, cz = worldscan.block_center(*self._selected)
+            QApplication.clipboard().setText(f"{cx:g} {cz:g}")
+            back = "Copy centre coords"
+        else:
             return
-        cx, cz = worldscan.block_center(*self._selected)
-        QApplication.clipboard().setText(f"{cx:g} {cz:g}")
         self.copy_btn.setText("Copied ✓")          # text feedback, not motion (reduced-motion-safe)
-        QTimer.singleShot(1400, lambda: self.copy_btn.setText("Copy centre coords"))
+        QTimer.singleShot(1400, lambda: self.copy_btn.setText(back))
 
     def _open_folder(self):
         c = self._census.cells.get(self._selected) if self._census is not None else None

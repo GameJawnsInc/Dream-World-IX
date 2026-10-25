@@ -233,9 +233,29 @@ def fuse_layout(mod_folder: str, placements, *, disc: int = 1, lod: str = "0_1",
 #: The fixed execution order: base mint (placement layouts + synthetic islands) -> interior
 #: relief (reads the DEPLOYED bytes the base tier wrote) -> navigation stamps (reclassify the
 #: deployed water). Within a tier, rows run in document order.
-COMPOSE_TIERS = (("placement", "island", "river"), ("mountain", "forest", "hill"),
+COMPOSE_TIERS = (("placement", "island", "river", "sink", "morph", "transplant"), ("mountain", "forest", "hill"),
                  ("coastnav", "rim_retile"))
 COMPOSE_TABLES = tuple(t for tier in COMPOSE_TIERS for t in tier)
+
+
+def ordered_rows(doc: dict) -> list:
+    """Every compose row of ``doc`` as ``(table, index, row)`` in the order :func:`compose_layout` runs them: tier by
+    tier; inside a tier, rows carrying ``step = N`` first in step order (the World tab's recipe records the order its
+    edits were made in, which TOML's per-table arrays cannot), then the rest in table and document order. The
+    ``[[placement]]`` rows are not included (they run as one fused step)."""
+    out = []
+    for tier in COMPOSE_TIERS:
+        rows = []
+        for t_ix, table in enumerate(tier):
+            if table == "placement":
+                continue
+            for i, row in enumerate(doc.get(table, ())):
+                step = row.get("step")
+                if step is not None and (isinstance(step, bool) or not isinstance(step, int)):
+                    raise ValueError(f"[[{table}]] #{i}: step must be a whole number, not {step!r}")
+                rows.append(((0, step, 0, 0) if step is not None else (1, 0, t_ix, i), table, i, row))
+        out += [(table, i, row) for _k, table, i, row in sorted(rows, key=lambda r: r[0])]
+    return out
 
 _MANIFEST_NAME = "world_manifest.json"
 _SKIP_MARKERS = (".bak-", ".prerim")         # write-seam backups, never composition output
@@ -274,13 +294,15 @@ def _parse_block_rect(spec) -> list:
 
 
 def _row_point(table: str, row: dict) -> tuple:
-    """``(wx, wz), exact`` from a row's ``center`` (exact) or ``near`` (snap) key."""
+    """``(wx, wz), exact`` from a row's ``center`` (exact) or ``near`` (snap) key, folded into the mapped window as the
+    verbs fold theirs (``cli._parse_world_point``: THE ONE SPELLING)."""
+    from .frames import wrap_world_xz
     if "center" in row:
         wx, wz = (float(v) for v in row["center"])
-        return (wx, wz), True
+        return wrap_world_xz(wx, wz), True
     if "near" in row:
         wx, wz = (float(v) for v in row["near"])
-        return (wx, wz), False
+        return wrap_world_xz(wx, wz), False
     raise ValueError(f"[[{table}]] needs center=[wx,wz] or near=[wx,wz]")
 
 
@@ -361,7 +383,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         # world-river's ONE pipeline (river.deploy, RUNG5.md 5b), so a recipe writes the CLI's bytes. A base-tier
         # row: it mints its own island, and a later relief row can target that island (relief reads deployed bytes).
         from . import river as R
-        _strict_keys("river", row, {"donor", "at", "area", "apron"})
+        _strict_keys("river", row, {"donor", "at", "area", "apron", "move_from"})
         name = row.get("donor", "cluster-c")
         if name not in R.RIVER_DONORS:
             raise ValueError(f"[[river]] donor {name!r} is not a river donor: {sorted(R.RIVER_DONORS)}")
@@ -380,8 +402,13 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         # B1 is never waived here, allow_overwrite or not: a river over another deploy renders a mix of the two.
         # Re-running a recipe over its own river is `world-river --remove --at DX,DZ` first (the ledger rows carry
         # the world-river pipeline tag, so the removal owns them though world-fuse wrote them).
+        # move_from = [dx, dz]: world-river --move-from, the river at that placement moved here (the World tab's
+        # "Move the river" row): its old files are free for the gates, and taken out only once every gate is green
+        mf = row.get("move_from")
+        move_from = None if mf is None else tuple(float(v) for v in (mf.split(",") if isinstance(mf, str) else mf))
         d = R.deploy(mod_folder, donor=donor, offset=offset, area=row.get("area"),
-                     apron=bool(row.get("apron", True)), dry_run=dry_run, skip_mirror=skip_mirror, game=game)
+                     apron=bool(row.get("apron", True)), dry_run=dry_run, skip_mirror=skip_mirror, game=game,
+                     move_from=move_from)
         where = f"at = [{d.comp.offset[0]:g}, {d.comp.offset[1]:g}], {len(d.cells)} cells"
         if d.red:
             raise ValueError(f"world-river refused ({where}) -- "
@@ -391,23 +418,23 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
         return d
 
     def _relief_runner(table, row):
+        from . import handles as HD
         from . import interior as IN
         pt, exact = _row_point(table, row)
         loc = dict(center=pt if exact else None, near=None if exact else pt)
-        # The shape handles are the verbs' own parameters under the CLI's names (world-forest
-        # --spread/--rot, world-mountain --rot/--rock-height), passed through unclamped: the
-        # ceilings live in the verb, so a recipe and the CLI refuse alike. An absent key is the
-        # CLI's default, so a row without one carves the bytes it always did.
+        # The row's keys are the verb's handles on the row surface (world/handles.py, the table the
+        # CLI's parser is built from too), passed through unclamped: the ceilings live in the verb,
+        # so a recipe and the CLI refuse alike. An absent key is the handle's own default, so a row
+        # without one carves the bytes it always did.
+        _strict_keys(table, row, HD.row_keys(table))
+
+        def arg(name):
+            return float(row.get(name, HD.handle(table, name).default))
         if table == "hill":
-            _strict_keys(table, row, {"center", "near", "height", "radius"})
-            radius = float(row.get("radius", 18.0))
+            radius = arg("radius")
             reach = max(96.0, radius + 10.0)
         else:
-            _strict_keys(table, row, {"center", "near", "donor", "reach", "ground", "rot",
-                                      "rock_height", "spread"}
-                         if table == "mountain" else {"center", "near", "donor", "reach",
-                                                      "spread", "rot"})
-            reach = float(row.get("reach", 96.0))
+            reach = arg("reach")
         rot = None if "rot" not in row else float(row["rot"])
         blocks = IN.read_deployed_blocks(mod_folder, near=pt, reach=reach, disc=disc,
                                          game=game, target_disc=target_disc)
@@ -417,12 +444,11 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             spec = row.get("donor", IN.FOREST_DONOR)
             donor = tuple(int(v) for v in (spec.split(",") if isinstance(spec, str) else spec))
             res = IN.carve_forest(soup, donor=donor, disc=disc, game=game,
-                                  spread=float(row.get("spread", 1.0)), rot_deg=rot, **loc)
+                                  spread=arg("spread"), rot_deg=rot, **loc)
             IN.census_gate(res["changed"], disc=disc, game=game,
                            probe=(res["center"], 37), baseline=blocks, stack=stack)
         elif table == "hill":
-            res = IN.build_hill(soup, height=float(row.get("height", 4.2)),
-                                radius=radius, **loc)
+            res = IN.build_hill(soup, height=arg("height"), radius=radius, **loc)
             IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks, stack=stack)
         else:                                                # mountain
             extra = {"ground": row["ground"]} if "ground" in row else {}
@@ -433,8 +459,7 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
                 print(note)
             res = IN.carve_mountain(soup, donor=donor, disc=disc, game=game,
                                     alcove=catalog_alcove(donor) or "auto",
-                                    rock_height=float(row.get("rock_height", 1.0)),
-                                    spread=float(row.get("spread", 1.0)),
+                                    rock_height=arg("rock_height"), spread=arg("spread"),
                                     rot_deg=rot, **loc, **extra)
             IN.census_gate(res["changed"], disc=disc, game=game, baseline=blocks,
                            parts=IN.census_parts(res), stack=stack)
@@ -474,6 +499,81 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             raise ValueError(f"rim-retile refused: {rep['refused']}")
         return rep
 
+    def _sink_runner(row):
+        # world-sink's own call, with the CLI's disc-4 REPLAY (where disc 4's blocks differ, the same sink runs again
+        # on disc 4's own island), so a [[sink]] row writes the bytes `world-sink` writes
+        from . import discmirror as DM
+        from . import transplant as TR
+        _strict_keys("sink", row, {"at", "cluster", "allow_entrances", "fresh"})
+        if "at" not in row:
+            raise ValueError("[[sink]] needs at = [wx, wz] (a point on the island)")
+        at = tuple(float(v) for v in row["at"])
+        kw = dict(game=game, dry_run=dry_run, fresh=bool(row.get("fresh", False)), allow_overwrite=allow_overwrite,
+                  allow_entrances=bool(row.get("allow_entrances", False)), cluster=bool(row.get("cluster", False)))
+
+        def replay(d):
+            s4 = TR.sink(mod_folder, at, disc=d, skip_mirror=DM.REPLAY, replay=replay, **kw)
+            if not s4["clean"]:
+                raise ValueError(f"world-sink --disc {d} refused the same island")
+        s = TR.sink(mod_folder, at, disc=disc, skip_mirror=skip_mirror, replay=replay, **kw)
+        if not s["clean"]:
+            bad = sorted({g.get("gate", "?") for r in s["per_block"].values() for g in r["gates"] if not g.get("ok")})
+            raise ValueError(f"world-sink refused the island at ({at[0]:g}, {at[1]:g}): {', '.join(bad) or 'not clean'}")
+        from .sinkedit import is_draft
+        if not dry_run and not skip_mirror and is_draft(mod_folder, game):
+            # A DRAFT CANNOT MIRROR (no bundles): its disc-4 half is the replay's own call, as the World tab's Accept
+            # makes it (world.sinkedit), so a recipe opened into a draft writes the draft the tab wrote
+            try:
+                ok4 = TR.sink(mod_folder, at, disc=4, skip_mirror=True, replay=None, **kw)["clean"]
+            except (ValueError, FileNotFoundError):
+                ok4 = False
+            print(f"[[sink]] disc 4 (the draft's own step): {'sunk' if ok4 else 'refused, disc 4 keeps its island'}")
+        return s
+
+    def _morph_runner(row):
+        # `world-transplant --in-place` itself (its tweak builders, its gates and its disc-4 replay): the row is that
+        # command's own arguments, parsed by the CLI's parser, so a recipe writes the bytes the command writes
+        from .. import cli
+        from .coastedit import VERBS, command
+        from .sinkedit import is_draft
+        _strict_keys("morph", row, {"cell", "verb", "window", "depth", "allow_entrances"})
+        if row.get("verb") not in VERBS:
+            raise ValueError(f"[[morph]] verb must be one of {list(VERBS)}, not {row.get('verb')!r}")
+        (x0, z0), (x1, z1) = row["window"]
+        spec_str = f"{float(x0):.4f},{float(z0):.4f}:{float(x1):.4f},{float(z1):.4f}:{float(row['depth']):g}"
+        ent = bool(row.get("allow_entrances", False))
+        calls = [command(mod_folder, row["cell"], row["verb"], spec_str, skip_mirror=skip_mirror, allow_entrances=ent,
+                         dry_run=dry_run)]
+        if not dry_run and not skip_mirror and is_draft(mod_folder, game):
+            # A DRAFT CANNOT MIRROR: its disc-4 half is the replay's own call (world.coastedit), as the tab makes it
+            calls.append(command(mod_folder, row["cell"], row["verb"], spec_str, disc=4, skip_mirror=True,
+                                 allow_entrances=ent, dry_run=False))
+        for k, argv in enumerate(calls):
+            ns = cli.build_parser().parse_args((["--game", str(game)] if game is not None else []) + argv)
+            code = cli._cmd_world_transplant(ns)
+            if code != 0 and k == 0:
+                raise ValueError(f"world-transplant --in-place --{row['verb']} refused at cell {tuple(row['cell'])}")
+            if code != 0:
+                print("[[morph]] disc 4 (the draft's own step): refused, disc 4 keeps its own coast")
+
+    def _transplant_runner(row):
+        # `world-transplant` itself, the single-cell carry: NOT [[placement]], whose fused path (transplant_region and
+        # the fuse gates) refuses carries the single-cell command makes (measured: the beach island at (3,5) rot 90,
+        # land-fit) -- so a recipe row writes the command's bytes only through the command
+        from .. import cli
+        _strict_keys("transplant", row, {"cell", "donor", "rot", "size"})
+        c = "{},{}".format(*(int(v) for v in row["cell"]))
+        d = "{},{}".format(*(int(v) for v in row["donor"]))
+        # a multi-block unit (size) runs --shift 0,0, as the editor's command does (transplantedit.command)
+        size = ["--size", "{}x{}".format(*(int(v) for v in row["size"])), "--shift", "0,0"] \
+            if row.get("size") and tuple(int(v) for v in row["size"]) != (1, 1) else []
+        argv = (["--game", str(game)] if game is not None else []) + [
+            "world-transplant", "--mod-folder", str(mod_folder), "--cell", c, "--donor", d,
+            "--rot", str(int(row.get("rot", 0)))] + size + (["--skip-mirror"] if skip_mirror else []) + \
+            (["--dry-run"] if dry_run else [])
+        if cli._cmd_world_transplant(cli.build_parser().parse_args(argv)) != 0:
+            raise ValueError(f"world-transplant refused the carry of {d} to {c}")
+
     def _placement_runner(_row):
         out = fuse_layout(mod_folder, list(placements), disc=disc, lod=lod, game=game,
                           allow_overwrite=allow_overwrite, dry_run=dry_run,
@@ -484,21 +584,17 @@ def compose_layout(mod_folder: str, doc: dict, *, placements=(), disc: int = 1,
             raise ValueError(f"fuse layout refused: {', '.join(bad)}")
         return out
 
-    runners = {"island": _island_runner, "river": _river_runner, "coastnav": _coastnav_runner,
-               "rim_retile": _rim_runner}
+    runners = {"island": _island_runner, "river": _river_runner, "sink": _sink_runner, "morph": _morph_runner,
+               "transplant": _transplant_runner,
+               "coastnav": _coastnav_runner, "rim_retile": _rim_runner}
 
     steps = []                                               # (label, table, spec, runner)
-    for tier in COMPOSE_TIERS:
-        for table in tier:
-            if table == "placement":
-                if placements:
-                    steps.append(("placement[]", table, {"count": len(placements)},
-                                  _placement_runner))
-                continue
-            for i, row in enumerate(doc.get(table, ())):
-                run = (runners[table] if table in runners
-                       else (lambda row, table=table: _relief_runner(table, row)))
-                steps.append((f"{table} #{i}", table, dict(row), run))
+    if placements:                                           # tier 0's first step, as before
+        steps.append(("placement[]", "placement", {"count": len(placements)}, _placement_runner))
+    for table, i, row in ordered_rows(doc):
+        run = (runners[table] if table in runners
+               else (lambda row, table=table: _relief_runner(table, row)))
+        steps.append((f"{table} #{i}", table, {k: v for k, v in row.items() if k != "step"}, run))
 
     # ---- run in order, attributing written files per step -------------------------------
     entries = []

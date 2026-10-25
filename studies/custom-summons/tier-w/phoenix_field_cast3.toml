@@ -37,13 +37,21 @@
 # GENERATE THE ART FIRST (the committed generator -- no stock byte is committable):
 #
 #     py phoenix_pool_stamp.py --from C:/gd/SCRATCH/summon-format/ef211.bytes ^
-#        --root C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-pool
+#        --root C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-pool-walk
+#
+# ⚠ CAST 3 RAN ON THE PRE-WALK PAGE MAP, which put this cell at 0x19678, 392 bytes before the 0x19800
+# the game loads it from (reskin.scenery_pages, THE UPLOAD WALK).  Its art was exported from those bytes
+# and written back there, so in VRAM every mark sat 3 rows and 8 texels off where it was placed, and
+# the cell's last 3 rows carried the next cell's first bytes.  Its read was by mark TYPE (wheels vs
+# bands, by zone), which a 3-row shift does not change.  This spec is the same figure re-stamped on the
+# fixed map into `ef211-pool-walk`; `ef211-pool` keeps the cast's own art, as history.
 #
 # MEASURED by that run: 3 wheels (ru 15, rv 29 -> 1607 x 1605 WORLD units, roundness 1.00; ring
-# 0.80 R, stroke 0.22, 3 spokes at duty 0.76, rim 18% of the diameter) at u 155/189/223, placed at
-# the brightest of 27 offsets (mean stock L removed 42.58); 2 control bands of 12 rows at y 11/43;
-# 5,438 texels changed = 16.6% of the page; 0 texels outside the two attributed zones; unpack4/pack4
-# NO-OP identity verified on the stock page before anything was drawn.
+# 0.80 R, stroke 0.22, 3 spokes at duty 0.76, rim 18% of the diameter) at u 145/179/213, placed at
+# the brightest of 27 offsets (mean stock L removed 38.15); 2 control bands of 12 rows at y 11/43;
+# 5,345 texels changed = 16.3% of the page; 0 texels outside the two attributed zones; unpack4/pack4
+# NO-OP identity verified on the stock page before anything was drawn.  (On the pre-walk bytes: wheels
+# at u 155/189/223, L removed 42.58, 5,438 changed.)
 #
 # THE INK IS INDEX 0, AND ITS PALETTE-INVARIANCE IS MEASURED, NOT ASSUMED.  This is a class-C cell
 # (one index array, two CLUTs), so the write value is the index whose WORST-CASE luminance across
@@ -69,10 +77,10 @@ expect_sha256 = "5d028c0bae621deb6814c504c15d7aa3c9ae9c65ea210011b1403d67e4b509c
 
 [[reskin.texel]]
 name = "cell.s0.x640_y256"
-source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-pool/art/cell.s0.x640_y256.png"
+source = "C:/gd/SCRATCH/summon-format/repaint-w6b/ef211-pool-walk/art/cell.s0.x640_y256.png"
 
 # --- the guards, emitted by the derivation, never typed --------------------------------------
-expect_page_offset = 0x019678   # id-0 page rect of the s0 chunk -- the cell the pool reads
+expect_page_offset = 0x019800   # id-0 page rect of the s0 chunk, in id-1 -- the cell the pool reads
 expect_page_bytes  = 16384
 expect_page_wh     = [256, 128] # at 4bpp: 256 texels wide, two per byte -- the nibble codec
 expect_bpp         = 4          # stated, CHECKED against BOTH so records' tpage 0x1a + nClut4
@@ -85,4 +93,11 @@ enabled = true
 # the ink above is chosen to be the darkest entry under BOTH.  The kit builds this with the
 # display-palette disclosure; nothing here is acknowledged away.
 palette_from = "pal.s0.x80_y244.e16"
+# ADDED AFTER THE CAST, AND IT MOVES NO BYTE.  The LEFT half of this cell is an HLE op-144
+# SCROLL-BLIT band, `dst (640,256) 32x128 <- src (672,256)`: it is rewritten from the right half
+# every frame the blit runs.  768 of this edit's 1,612 changed halfwords lie in it, so the kit now
+# refuses the row without the key.  The cast PASSED; whatever was painted in the right half is also
+# copied into the left, scrolling.  Said so the record rebuilds its cast bytes.
+# (The changed-halfword count, re-derived on the upload walk: 766 of 1,612.)
+acknowledge_scroll_blit_destination = true
 note = "CAST 3: three world-circular punched wheels in the ARC BAND's private half of the cell + two control bands in the CONE's -- the pool's positive confirm and the scenery SHAPE verdict, attributed per reader, in one cast"

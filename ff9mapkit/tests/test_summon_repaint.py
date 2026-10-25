@@ -1711,6 +1711,54 @@ def test_scenery_texel_pages_emits_ONLY_cells_whose_DEPTH_the_container_states()
         RP.scenery_surface(blob, 999, channels=("so-uv", "vibes"))
 
 
+def _hopped_container() -> bytes:
+    """The scenery fixture with its page stream split as the stock corpus splits 248 of 385: the id-0
+    payload holds the header and the FIRST upload unit, sector-padded with 0x55, and an id-1 resource
+    right behind it holds the other six -- so the tall rect's lower half is the unit that cannot fit."""
+    full = _scenery_id0()
+    n_units = sum(max(1, h // RS.PAGE_CELL_LINES) for _x, _y, _w, h in SCEN_RECTS)
+    head = len(full) - n_units * RS.PAGE_CELL_BYTES
+    id0 = full[:head + RS.PAGE_CELL_BYTES]
+    id0 += bytes([0x55]) * (-len(id0) % SECTOR)
+    id1 = full[head + RS.PAGE_CELL_BYTES:]
+    body = b"".join(_uv_geom(_tpage(x, y, bpp), 0 if cl is None else _clut_word(*cl), uv)
+                    for _lbl, x, y, bpp, cl, uv in SCEN_MODELS)
+    return _assemble_i([(0, [(0, 0, id0), (1, 0, id1), (3, 0, bytes([0x55]) * SECTOR), (6, 0, body)])])
+
+
+def test_the_upload_walk_hops_the_id0_pad_and_no_cell_straddles_a_resource(tmp_path):
+    """THE UPLOAD WALK.  The engine uploads 64 x 128 units and starts a unit that will not fit before
+    the end of its resource at the NEXT resource's first byte -- it never reads the id-0 sector pad as
+    texels.  A cursor running ``w * h * 2`` straight through the pad put the lower half (and every
+    cell after it) the pad's length too early: 943 stock cells, measured against the plugin's uploads."""
+    blob = _hopped_container()
+    c = KC.parse_header(blob, strict=True)
+    r0, r1 = [r for r in c.chunks[0].resources if r.id in (0, 1)]
+    cells = RS.page_cells(blob)
+    top, low = cells[("s0", 704, 256)], cells[("s0", 704, 384)]
+    assert top.off + RS.PAGE_CELL_BYTES < r0.offset + r0.nbytes < top.off + 2 * RS.PAGE_CELL_BYTES, \
+        "the fixture really leaves the lower half no room in id-0"
+    assert low.off == r1.offset, "the lower half starts at id-1's first byte, not after the pad"
+    pad = blob[top.off + RS.PAGE_CELL_BYTES:r1.offset]
+    assert pad and set(pad) == {0x55}
+    order = [(704, 256), (704, 384), (576, 256), (512, 256), (448, 256), (384, 256), (320, 256)]
+    for n, xy in enumerate(order):
+        pc = cells[("s0",) + xy]
+        assert blob[pc.off:pc.off + RS.PAGE_CELL_BYTES] == _cell_fill(n), "cell %s holds its own bytes" % (xy,)
+    assert sorted(cells) == sorted(RS.page_cells(build_scenery_container())), "the same cells, moved"
+    rect = RS.scenery_pages(blob)[("s0", 704)]
+    assert rect.units() == (top.off, low.off) and rect.pixels(blob) == _cell_fill(0) + _cell_fill(1)
+    assert RS.id0_splits(blob)[0].hi == max(pc.off for pc in cells.values()) + RS.PAGE_CELL_BYTES
+    # an edit of the lower half writes ONLY id-1 bytes: the pad and the top cell stay stock
+    p = _cell(blob, 704, 384)
+    assert p.page_offset == r1.offset
+    src = _write_cell_png(tmp_path, blob, p, _bump_cell(p, _page_at(blob, p)))
+    b = RP.build(_spec_dict(blob, [_row(p, src, expect_bpp=8, expect_page_offset=r1.offset)]), "?",
+                 blob=blob)
+    moved = [i for i in range(len(blob)) if b.patched[i] != blob[i]]
+    assert moved and r1.offset <= min(moved) and max(moved) < r1.offset + RS.PAGE_CELL_BYTES
+
+
 def test_the_same_0x4000_bytes_are_three_different_pictures_and_the_map_says_which():
     """Why ``expect_bpp`` has to exist: every cell is the same 0x4000 bytes and only the ``so`` record
     says how wide the picture is."""
@@ -2471,7 +2519,9 @@ def test_ef211s_cast_cell_derives_the_decision_documents_appendix_exactly():
     assert fire.hazards.program == "read", "StoreImage is a READ -- disclose, do not refuse"
     # CAST 2: the LOWER HALF the rect view cannot name, clean 4bpp under a two-palette refusal
     cast2 = pages["cell.s0.x576_y384"]
-    assert (cast2.bpp, cast2.page_offset) == (4, 0x25678)
+    # 0x25800, by THE UPLOAD WALK: the unit starts at id-1's first byte.  The kit said 0x25678 before
+    # it, 392 bytes early, and CAST 2's staged art was exported and written there.
+    assert (cast2.bpp, cast2.page_offset) == (4, 0x25800)
     assert cast2.hazards.names == ("lower-half",) and cast2.hazards.covered_halfwords == 2688
     assert cast2.palette_name == "pal.s0.x208_y244.e16"
     assert pages["cell.s0.x576_y256"].hazards.multi_palette, "...and its UPPER half is refused"
@@ -2813,11 +2863,18 @@ def test_a_program_READ_container_BUILDS_and_DISCLOSES_the_direction_law(tmp_pat
     blob = build_scenery_container()
     p = _cell(blob, 704, 256)
     src = _write_cell_png(tmp_path, blob, p, _bump_cell(p, _page_at(blob, p)))
-    b = RP.build(_spec_dict(blob, [_row(p, src)], effect=211), "?", blob=blob)
+    # ef211's id brings ef211's op-144 SCROLL BLITS with it, and `dst (704,256) <- src (704,384)`
+    # lands on this fixture cell -- a separate VRAM WRITE the direction law never covered, refused by
+    # its own gate (test_summon_scroll_blit.py).  The key isolates the direction law again.
+    with pytest.raises(RP.RepaintError, match="SCROLL-BLIT DESTINATION"):
+        RP.build(_spec_dict(blob, [_row(p, src)], effect=211), "?", blob=blob)
+    b = RP.build(_spec_dict(blob, [_row(p, src, **{RP.ACK_SCROLL_BLIT: True})], effect=211), "?",
+                 blob=blob)
     b.check = RP.self_check(b)
     assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
     note = "  ".join(b.enabled[0].hazard_notes)
     assert "program-VRAM READ" in note and "StoreImage" in note and "cannot clobber" in note
+    assert "SCROLL BLITS" in note, "and the READ class no longer claims StoreImage is ALL it does"
 
 
 def test_an_effect_id_the_lists_cannot_see_is_refused_as_a_WRITE_not_waved_through():
@@ -3211,17 +3268,25 @@ def test_describe_DISCLOSES_the_per_target_hazard_verdicts(tmp_path):
 
 # ---- the corpus-gated cases ----------------------------------------------------------------------
 @needs_corpus
-def test_ef211s_CAST_CELL_builds_clean_with_the_read_storeimage_disclosure(tmp_path):
-    """THE CAST VEHICLE, through the whole gate stack.  ef211 (704,256) -- the Phoenix fire field, the
-    one cell in the corpus whose upload path is already cast-proven on screen -- carries no hazard at
-    all except the program-VRAM READ, and the direction law is what makes that a disclosure."""
+def test_ef211s_CAST_CELL_refuses_as_a_scroll_blit_destination_and_builds_behind_the_key(tmp_path):
+    """THE W6b-1 CAST VEHICLE, through the whole gate stack.  ef211 (704,256) -- the Phoenix fire
+    field -- carries no ``names`` hazard but the program-VRAM READ, and the direction law makes that
+    a disclosure.  ⚠ BUT IT IS A FULL op-144 SCROLL-BLIT DESTINATION (``dst (704,256) 64x128 <- src
+    (704,384)``), found after both casts on it came back INVISIBLE: a whole-cell edit refuses by name
+    and names (704,384) as the cell to paint instead.  Behind the key the lane is what it was."""
     blob = (CORPUS / "ef211.bytes").read_bytes()
     p = RP.texel_page(blob, "cell.s0.x704_y256", 211)
     assert p.hazards.names == () and p.bpp == 8
+    assert len(p.hazards.scroll_rewritten) == 8192
     src = _write_cell_png(tmp_path, blob, p, _bump_cell(p, _page_at(blob, p)))
-    b = RP.build({"reskin": {"effect": 211, "expect_sha256": hashlib.sha256(blob).hexdigest(),
-                             "texel": [_row(p, src, expect_bpp=8, expect_cell=[704, 256])]}},
-                 "?", blob=blob)
+    row = _row(p, src, expect_bpp=8, expect_cell=[704, 256])
+    spec = {"reskin": {"effect": 211, "expect_sha256": hashlib.sha256(blob).hexdigest(),
+                       "texel": [row]}}
+    with pytest.raises(RP.RepaintError) as e:
+        RP.build(spec, "?", blob=blob)
+    assert "paint the source cell `cell.s0.x704_y384`" in str(e.value)
+    row[RP.ACK_SCROLL_BLIT] = True
+    b = RP.build(spec, "?", blob=blob)
     b.check = RP.self_check(b)
     assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
     moved = [i for i in range(len(blob)) if blob[i] != b.patched[i]]
@@ -3241,10 +3306,15 @@ def test_ef211s_CAST_2_lower_half_builds_and_its_UPPER_half_is_a_DISCLOSURE_not_
     where the choice is visible instead of assumed."""
     blob = (CORPUS / "ef211.bytes").read_bytes()
     low = RP.texel_page(blob, "cell.s0.x576_y384", 211)
-    assert (low.bpp, low.page_offset) == (4, 0x25678) and low.hazards.names == ("lower-half",)
+    assert (low.bpp, low.page_offset) == (4, 0x25800) and low.hazards.names == ("lower-half",)
     src = _write_cell_png(tmp_path, blob, low, _bump_cell(low, _page_at(blob, low)))
+    # Both halves of column 576 sit under op-144 SCROLL-BLIT bands (`dst (576,256)/(576,368) 28x112`,
+    # fed from x 604), so a whole-cell bump changes texels in them and needs the key.  (Not a reachable
+    # band: the game's own capture runs that blit on every frame the page is drawn, so cast 2b's wheel,
+    # wholly inside it, never reached the screen -- the key here only lets the fixture build.)
     b = RP.build({"reskin": {"effect": 211, "expect_sha256": hashlib.sha256(blob).hexdigest(),
-                             "texel": [_row(low, src, expect_bpp=4, expect_cell=[576, 384])]}},
+                             "texel": [_row(low, src, expect_bpp=4, expect_cell=[576, 384],
+                                            **{RP.ACK_SCROLL_BLIT: True})]}},
                  "?", blob=blob)
     b.check = RP.self_check(b)
     assert b.check.ok, [g.detail for g in b.check.gates if not g.ok]
@@ -3252,7 +3322,8 @@ def test_ef211s_CAST_2_lower_half_builds_and_its_UPPER_half_is_a_DISCLOSURE_not_
     assert up.hazards.multi_palette and up.hazards.shared_read
     src2 = _write_cell_png(tmp_path, blob, up, _bump_cell(up, _page_at(blob, up)), name="upper")
     b2 = RP.build({"reskin": {"effect": 211, "expect_sha256": hashlib.sha256(blob).hexdigest(),
-                              "texel": [_row(up, src2, expect_bpp=4)]}}, "?", blob=blob)
+                              "texel": [_row(up, src2, expect_bpp=4,
+                                             **{RP.ACK_SCROLL_BLIT: True})]}}, "?", blob=blob)
     b2.check = RP.self_check(b2)
     assert b2.check.ok, [g.detail for g in b2.check.gates if not g.ok]
     note = "  ".join(b2.enabled[0].hazard_notes)
@@ -4868,7 +4939,7 @@ def test_the_second_array_ack_is_a_LITERAL_BOOLEAN_and_fails_closed_when_misspel
     assert b.targets[0].ack_second_array is True and b.patched == blob
 
 
-def test_THE_BUILD_GATE_refuses_by_name_and_the_ack_moves_NO_BYTE(tmp_path, monkeypatch):
+def test_THE_BUILD_GATE_refuses_by_name_and_the_ack_moves_NO_BYTE(tmp_path):
     """★ P7.  The two-layer shape ``u``-spill already has: a refusal CLASS carries the reason and a
     build GATE carries the obligation.
 
@@ -4878,7 +4949,8 @@ def test_THE_BUILD_GATE_refuses_by_name_and_the_ack_moves_NO_BYTE(tmp_path, monk
     rather than the disclosure.  The W6b-3 build gate is still asserted, at its own channel set, so
     neither half is weakened: BOTH refusals are pinned here, and the emission identity below is
     proven against the pre-adoption CHANNEL SET rather than against a stubbed predicate, which is a
-    stronger counterfactual (it exercises the real code path end to end)."""
+    stronger counterfactual (it exercises the real code path end to end) -- and since the gain half
+    became declinable that set is reached the way an author reaches it, ``readership = "bound"``."""
     blob = build_scenery_container(extra_models=_mover_model())
     # the art itself is resolved THROUGH the ack, because on the shipped surface this cell is
     # refused at resolution -- which is the behaviour under test two lines down.
@@ -4890,35 +4962,38 @@ def test_THE_BUILD_GATE_refuses_by_name_and_the_ack_moves_NO_BYTE(tmp_path, monk
     # (a) THE SHIPPED SURFACE: refused at resolution, BY THE NEW NAME
     with pytest.raises(RP.RepaintError, match="DISPLACED-READERLESS"):
         RP.build(_spec_dict(blob, [dict(row)]), str(tmp_path / "s.toml"), blob=blob)
-    # (b) THE W6b-3 SURFACE: still the build gate, still by ITS name
-    monkeypatch.setattr(RP, "EDIT_CHANNELS", RP.LICENSED_CHANNELS)
+    # (b) THE W6b-3 SURFACE -- the shipped `bound` reading, by the spec's own key: still the build
+    # gate, still by ITS name
+    def _bound(spec):
+        spec["reskin"][RP.READING_KEY] = "bound"
+        return spec
     with pytest.raises(RP.RepaintError, match="THE SECOND-ARRAY GATE"):
-        RP.build(_spec_dict(blob, [dict(row)]), str(tmp_path / "s.toml"), blob=blob)
-    before = RP.build(_spec_dict(blob, [dict(row, **{DA.ACK_MOVER_KEY: True})]),
+        RP.build(_bound(_spec_dict(blob, [dict(row)])), str(tmp_path / "s.toml"), blob=blob)
+    before = RP.build(_bound(_spec_dict(blob, [dict(row, **{DA.ACK_MOVER_KEY: True})])),
                       str(tmp_path / "s.toml"), blob=blob)
     assert any("SECOND-ARRAY MOVER on every reader" in n for n in before.targets[0].hazard_notes)
     assert any(DA.U_DISPLACEMENT_ACK_WARNING in n for n in before.targets[0].hazard_notes), \
         "the ACKNOWLEDGED case still says what was acknowledged"
     # (c) ...and the SAME row, acknowledged, on the SHIPPED surface writes the SAME BYTES.  Adoption
     # re-aims ATTRIBUTION; it may not move a texel of an acknowledged build.
-    monkeypatch.undo()
     ok = RP.build(_spec_dict(blob, [dict(row, **{DA.ACK_MOVER_KEY: True})]),
                   str(tmp_path / "s.toml"), blob=blob)
     assert ok.patched == before.patched, "the ack buys a DISCLOSURE, never a different byte"
     assert any(DA.U_DISPLACEMENT_ACK_WARNING in n for n in ok.targets[0].hazard_notes)
 
 
-def test_export_art_PRINTS_the_disclosure_in_the_manifest_and_the_scaffold(tmp_path, monkeypatch):
+def test_export_art_PRINTS_the_disclosure_in_the_manifest_and_the_scaffold(tmp_path):
     """★ P8.  The author meets this BEFORE they paint, not after the playtest: the MEASURED reading
     and the retired one in the manifest, both in the scaffold labelled as such, and the ack line only
     on a firing row.
 
-    ⚠ Asserted at the W6b-3 channel set BY NAME (W6b-3 (iv) refuses this cell on the shipped one; the
+    ⚠ Asserted at the W6b-3 channel set BY NAME -- the ``bound`` reading -- (W6b-3 (iv) refuses this
+    cell on the default one; the
     export half of THAT behaviour is pinned in
     ``test_the_LOSS_HALF_export_needs_the_ack_and_then_says_what_was_acknowledged``)."""
     blob = build_scenery_container(extra_models=_mover_model())
-    monkeypatch.setattr(RP, "EDIT_CHANNELS", RP.LICENSED_CHANNELS)
-    RP.export_art(blob, 999, out_dir=tmp_path, scaffold=True, overlays=False)
+    RP.export_art(blob, 999, out_dir=tmp_path, scaffold=True, overlays=False,
+                  channels=RP.READINGS["bound"])
     man = json.loads((tmp_path / RP.ART_MANIFEST).read_text(encoding="utf-8"))
     hit = [e for e in man["scenery"] if e["name"] == DARK_CELL][0]
     assert hit["second_array_all_readers"] is True
@@ -4942,11 +5017,13 @@ def test_export_art_PRINTS_the_disclosure_in_the_manifest_and_the_scaffold(tmp_p
     assert "pair position 1 moves u" not in txt, "the one claim the s77 read refutes outright"
     assert max(len(ln) for ln in txt.splitlines()) < 120
     import tomllib as _toml
-    rows = _toml.loads(txt)["reskin"]["texel"]
+    reskin = _toml.loads(txt)["reskin"]
+    rows = reskin["texel"]
     assert all(set(r) <= RP._TEXEL_KEYS for r in rows), "every emitted key is a KNOWN key"
+    assert reskin[RP.READING_KEY] == "bound", "the scaffold carries the reading it came out of"
     assert RP.build({"reskin": {"effect": 999, "expect_sha256": hashlib.sha256(blob).hexdigest(),
-                                "texel": rows}}, str(tmp_path / "s.toml"),
-                    blob=blob).patched == blob
+                                RP.READING_KEY: reskin[RP.READING_KEY], "texel": rows}},
+                    str(tmp_path / "s.toml"), blob=blob).patched == blob
 
 
 def test_hazard_NAMES_is_untouched_by_the_new_class():
@@ -5143,7 +5220,8 @@ def test_the_CHANNEL_TOKEN_is_gated_and_DEPENDS_on_so_uv():
     assert "so-displaced" not in RP.DEPTH_SOURCES, "it states no DEPTH"
     assert "so-displaced" in RP._CHANNEL_TOKENS and "so-displaced" in RP.EDIT_CHANNELS
     assert "so-displaced" not in RP.LICENSED_CHANNELS and "so-displaced" not in RP.CENSUS_CHANNELS
-    assert RP.EDIT_CHANNELS == RP.LICENSED_CHANNELS + ("so-displaced",), "DERIVED, never re-typed"
+    assert RP.EDIT_CHANNELS == RP.LICENSED_CHANNELS + ("so-displaced", "drawn"), \
+        "DERIVED, never re-typed -- the displacement, then CHANNEL D"
     with pytest.raises(RP.RepaintError, match="requires 'so-uv'"):
         RP.scenery_surface(blob, 999, channels=("so-page", "so-displaced"))
     with pytest.raises(RP.RepaintError, match="unknown depth channel"):
@@ -5582,3 +5660,197 @@ def test_THE_PRIZE_HAS_A_QUALIFIER_derivable_is_not_deliverable(tmp_path):
     got = {e["name"] for e in man["scenery"] if (tmp_path / "ef227d" / e["png"]).is_file()}
     assert {"cell.s0.x640_y384", "cell.s1.x640_y384"} <= got, \
         "two of the six 15bpp gains, delivered by the lane the docs name"
+
+
+# ======================================== THE READING, DECLINABLE.  The gain half fails SILENTLY (a
+# gained cell is licensed on the derivation alone), so an author who distrusts `linear-add-v1` on
+# THEIR container can read the cell each record BINDS instead: `[reskin] readership = "bound"`,
+# `export-art --readership bound`, `channels=` on texel_page / export_art / build.  The default is
+# unchanged.  The corpus half (372/372 recovery, every entry point) is `readership_gates.py`.
+
+def _gain_fixture() -> bytes:
+    """A mover on column 384 that, at 8bpp with du = 128, SAMPLES the declared cell (448, 256) no
+    record binds -- the gain half's own vehicle (Q8)."""
+    return build_scenery_container(
+        extra_models=_mover_model(x=384, y=256, bpp=8, second=(0x0080, 0x0000)))
+
+
+def test_the_TWO_READINGS_are_the_two_named_scopes_and_the_DEFAULT_is_unchanged():
+    import inspect
+    assert RP.READINGS == {"effective": RP.EDIT_CHANNELS, "bound": RP.LICENSED_CHANNELS}
+    assert RP.READINGS["effective"] is RP.EDIT_CHANNELS and RP.READINGS["bound"] is RP.LICENSED_CHANNELS
+    assert RP.DEFAULT_READING == "effective" and RP.READING_KEY == "readership"
+    assert set(cli._SUMMON_READINGS) == set(RP.READINGS), "the parser's literal is pinned"
+    assert RP.reading_of(RP.EDIT_CHANNELS) == "effective"
+    assert RP.reading_of(tuple(reversed(RP.LICENSED_CHANNELS))) == "bound", "a SET, not an order"
+    assert RP.reading_of(RP.CENSUS_CHANNELS) == "", "a scope no author chooses has no name"
+    with pytest.raises(RP.RepaintError, match="two readings"):
+        RP.reading_channels("sampled")
+    # THE DEFAULT IS UNCHANGED at every author-facing entry point
+    for fn in (RP.texel_page, RP.export_art, RP.scenery_texel_pages, RP.scenery_cell_refusals):
+        assert inspect.signature(fn).parameters["channels"].default is RP.EDIT_CHANNELS, fn
+    assert inspect.signature(RP.build).parameters["channels"].default is None, "the SPEC decides"
+    assert "readership" in RS._RESKIN_KEYS, "ONE key set for both loaders"
+
+
+def test_BOUND_declines_the_GAIN_half_at_resolution_and_says_whose_choice_it_was():
+    blob = _gain_fixture()
+    got = RP.texel_page(blob, DARK_CELL, 999)                  # the default: GAINED, no key
+    assert got.readership == "displaced" and got.hazards.displaced_gained
+    with pytest.raises(RP.RepaintError) as e:
+        RP.texel_page(blob, DARK_CELL, 999, channels=RP.READINGS["bound"])
+    msg = str(e.value)
+    assert "REFUSED, not unknown" in msg and "depth-unknown" in msg.lower(), \
+        "the PRE-ADOPTION reason, exactly what every kit before W6b-3 (iv) said"
+    assert "Under the default 'effective' reading" in msg and "GAINED" in msg, \
+        "and it says the AUTHOR'S choice withdrew it, not the container"
+    # a cell BOTH readings refuse carries no such line
+    with pytest.raises(RP.RepaintError) as e2:
+        RP.texel_page(blob, "cell.s9.x0_y0", 999, channels=RP.READINGS["bound"])
+    assert "Under the default" not in str(e2.value)
+
+
+def test_BOUND_brings_the_LOSS_half_page_back_behind_the_SECOND_ARRAY_GATE(tmp_path):
+    """Declining the gain half declines the loss half's early refusal with it: the cell whose every
+    reader the displacement moves away is a page again -- and the build's second-array gate, the
+    obligation those rows carried before W6b-3 (iv), is what stops an unacknowledged repaint."""
+    blob = build_scenery_container(extra_models=_mover_model())
+    bound = RP.READINGS["bound"]
+    page = RP.texel_page(blob, DARK_CELL, 999, channels=bound)
+    assert page.depth_source == "so-uv" and page.readership == "bound"
+    assert page.hazards.every_reader_moves and not page.hazards.displaced_readerless
+    src = _write_cell_png(tmp_path, blob, page, _bump_cell(page, _page_at(blob, page)))
+    spec = _spec_dict(blob, [_row(page, src)])
+    spec["reskin"]["readership"] = "bound"
+    with pytest.raises(RP.RepaintError, match="THE SECOND-ARRAY GATE"):
+        RP.build(spec, str(tmp_path / "x_reskin.toml"), blob=blob)
+    spec["reskin"]["texel"] = [_row(page, src, **{DA.ACK_MOVER_KEY: True})]
+    b_bound = RP.build(spec, str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert b_bound.reading == "bound" and b_bound.channels == RP.LICENSED_CHANNELS
+    # the effective reading refuses the same row at RESOLUTION, and the SAME key lifts it there
+    eff = _spec_dict(blob, [_row(page, src)])
+    with pytest.raises(RP.RepaintError, match="displaced-readerless"):
+        RP.build(eff, str(tmp_path / "x_reskin.toml"), blob=blob)
+    eff["reskin"]["texel"] = [_row(page, src, **{DA.ACK_MOVER_KEY: True})]
+    b_eff = RP.build(eff, str(tmp_path / "x_reskin.toml"), blob=blob)
+    assert b_eff.reading == "effective"
+    # THE READING MOVES THE LICENCE, NOT THE BYTES: one picture, one splice
+    assert b_bound.patched == b_eff.patched and b_bound.patched != blob
+    assert any("gain half DECLINED" in ln for ln in RP.describe(b_bound))
+
+
+def test_export_art_BOUND_writes_the_LICENSED_surface_and_states_the_reading(tmp_path):
+    blob = _gain_fixture()
+    man = RP.export_art(blob, 999, out_dir=tmp_path / "eff", overlays=False)
+    assert man["readership"] == "effective" and DARK_CELL in {e["name"] for e in man["scenery"]}
+    txt = (tmp_path / "eff" / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    assert '# readership = "bound"' in txt, "the default writes the choice, commented"
+    assert "To decline it" in txt, "...and says so on the GAINED row itself"
+    out = tmp_path / "bound"
+    man = RP.export_art(blob, 999, out_dir=out, overlays=False, channels=RP.READINGS["bound"])
+    assert man["readership"] == "bound" and man["channels"] == list(RP.LICENSED_CHANNELS)
+    names = {e["name"] for e in man["scenery"]}
+    assert DARK_CELL not in names
+    assert [r["class"] for r in man["refused"] if r["name"] == DARK_CELL] == ["depth-unknown"]
+    pages, refused = RP.scenery_surface(blob, 999, channels=RP.LICENSED_CHANNELS)
+    blocked = {r.name for r in refused if r.klass in RP._EXPORT_BLOCKING}
+    assert names == {p.name for p in pages if p.bpp in (4, 8) and p.name not in blocked}, \
+        "the export IS the pre-adoption surface"
+    # the MODEL join follows the reading: the mover reads its BOUND cell, never the gained one
+    mover = [m for m in man["models"] if m["mover"] != [0, 0]]
+    assert mover and all(m["readership"] == "bound" for m in mover)
+    assert all(m["effective_columns"] == m["columns"] for m in man["models"])
+    txt = (out / RP.SCAFFOLD_NAME).read_text(encoding="utf-8")
+    assert '\nreadership = "bound"\n' in txt and "--readership bound" in txt
+    assert max(len(ln) for ln in txt.splitlines()) < 120
+    with pytest.raises(RP.RepaintError, match="only the 'effective' reading makes"):
+        RP.export_art(blob, 999, out_dir=tmp_path / "x", overlays=False, displacement_ack=True,
+                      channels=RP.READINGS["bound"])
+
+
+def test_build_reads_the_SPEC_and_a_caller_reading_is_a_CHECK_never_an_override(tmp_path):
+    blob = _gain_fixture()
+    both = sorted({p.name for p in RP.scenery_texel_pages(blob, 999, channels=RP.LICENSED_CHANNELS)}
+                  & {p.name for p in RP.scenery_texel_pages(blob, 999)})
+    assert both
+    row = {"name": both[0], "enabled": False}
+    spec = _spec_dict(blob, [row])
+    b = RP.build(spec, "t", blob=blob)
+    assert b.reading == "effective" and b.channels == RP.EDIT_CHANNELS
+    with pytest.raises(RP.RepaintError, match='Write `readership = "bound"`'):
+        RP.build(spec, "t", blob=blob, channels=RP.READINGS["bound"])
+    with pytest.raises(RP.RepaintError, match="Only the named readings"):
+        RP.build(spec, "t", blob=blob, channels=RP.CENSUS_CHANNELS)
+    spec["reskin"]["readership"] = "bound"
+    b = RP.build(spec, "t", blob=blob, channels=RP.READINGS["bound"])
+    assert b.reading == "bound"
+    with pytest.raises(RP.RepaintError, match="this call asked for 'effective'"):
+        RP.build(spec, "t", blob=blob, channels=RP.EDIT_CHANNELS)
+    # ...and the GAINED row refuses on `bound` exactly where the default builds it
+    gained = _spec_dict(blob, [{"name": DARK_CELL, "enabled": False}])
+    RP.build(gained, "t", blob=blob)
+    gained["reskin"]["readership"] = "bound"
+    with pytest.raises(RP.RepaintError, match="Under the default 'effective' reading"):
+        RP.build(gained, "t", blob=blob)
+    gained["reskin"]["readership"] = "sampled"
+    with pytest.raises(RP.RepaintError, match="two readings"):
+        RP.build(gained, "t", blob=blob)
+
+
+def test_READING_DRIFT_art_exported_under_one_reading_refuses_under_the_other(tmp_path):
+    blob = _gain_fixture()
+    out = tmp_path / "art"
+    man = RP.export_art(blob, 999, out_dir=out, overlays=False, channels=RP.READINGS["bound"])
+    eff = {p.name for p in RP.scenery_texel_pages(blob, 999)}
+    # a cell BOTH readings resolve, with no obligation of its own (spill, co-transform)
+    e = next(e for e in man["scenery"] if e["name"] in eff and not e["spill_out"]
+             and not e["spill_in"] and len(e["writers"]) == 1)
+    rows = [{"name": e["name"], "source": str(out / e["png"])}]
+    with pytest.raises(RP.RepaintError, match="READING DRIFT"):
+        RP.build(_spec_dict(blob, rows), str(out / "x_reskin.toml"), blob=blob)
+    spec = _spec_dict(blob, rows)
+    spec["reskin"]["readership"] = "bound"
+    b = RP.build(spec, str(out / "x_reskin.toml"), blob=blob)
+    assert b.patched == blob, "the unedited export is a no-op on its own reading"
+
+
+def test_the_reading_is_the_TEXEL_lane_s_and_load_spec_refuses_it_elsewhere(tmp_path):
+    blob = _gain_fixture()
+    sha = hashlib.sha256(blob).hexdigest()
+    clut = tmp_path / "clut.toml"
+    clut.write_text('[reskin]\neffect = 999\nexpect_sha256 = "%s"\nreadership = "bound"\n'
+                    '[[reskin.target]]\nname = "x"\n' % sha, encoding="utf-8")
+    with pytest.raises(RP.RepaintError, match="declares no \\[\\[reskin.texel\\]\\]"):
+        RP.load_spec(clut)
+    with pytest.raises(RS.ReskinError, match="declares no \\[\\[reskin.texel\\]\\]"):
+        RS.load_spec(clut)
+    bad = tmp_path / "bad.toml"
+    bad.write_text('[reskin]\neffect = 999\nreadership = "sampled"\n'
+                   '[[reskin.texel]]\nname = "%s"\n' % DARK_CELL, encoding="utf-8")
+    with pytest.raises(RP.RepaintError, match="two readings"):
+        RP.load_spec(bad)
+
+
+def test_the_CLI_readership_flag_exports_and_CHECKS(tmp_path, capsys):
+    blob = _gain_fixture()
+    ef = tmp_path / "ef999.bytes"
+    ef.write_bytes(blob)
+    art = tmp_path / "art"
+    rc, cap = _run(["summon-reskin", "export-art", "--ef", "999", "--from", str(ef),
+                    "--out", str(art), "--readership", "bound"], capsys)
+    assert rc == 0, cap.out + cap.err
+    assert "readership    : bound" in cap.out
+    assert json.loads((art / RP.ART_MANIFEST).read_text(encoding="utf-8"))["readership"] == "bound"
+    spec = art / RP.SCAFFOLD_NAME
+    rc, cap = _run(["summon-reskin", "plan", str(spec), "--from", str(ef)], capsys)
+    assert rc == 0, cap.out + cap.err
+    assert "gain half DECLINED" in cap.out, "the spec's own line decides"
+    rc, cap = _run(["summon-reskin", "plan", str(spec), "--from", str(ef),
+                    "--readership", "effective"], capsys)
+    assert rc == 2 and "this call asked for 'effective'" in cap.err
+    rc, cap = _run(["summon-reskin", "export-art", "--ef", "999", "--from", str(ef),
+                    "--out", str(tmp_path / "x"), "--readership", "bound",
+                    "--acknowledge-displacement"], capsys)
+    assert rc == 2 and "Drop one of the two" in cap.err
+    rc, cap = _run(["summon-reskin", "revert", str(spec), "--readership", "bound"], capsys)
+    assert rc == 2 and "nothing to govern" in cap.err

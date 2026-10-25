@@ -177,11 +177,13 @@ it. It is the first rung in this lane that deliberately changes behaviour.
   ``program-vram-write`` refusal, which is why the deliverable worked case is ef038's twin ef407.
   ⚠ **AND THIS HALF IS THE RUNG'S HONEST LIMIT.** The loss half fails LOUDLY -- a refusal, with a
   stated key to argue with it. The gain half fails SILENTLY: the page is licensed on the derivation
-  ALONE, nothing binds the cell to contradict it, and there is no key and no CLI way to decline. If
-  ``linear-add-v1`` does not hold on a container, a perfect repaint of a gained cell is INVISIBLE IN
-  GAME with no error anywhere -- the same failure the loss half refuses to let an author risk,
-  pointing the other way. Every such cell is printed ``GAINED`` in the export scaffold, and a CAST is
-  the only thing that closes it;
+  ALONE and nothing binds the cell to contradict it. If ``linear-add-v1`` does not hold on a
+  container, a perfect repaint of a gained cell is INVISIBLE IN GAME with no error anywhere -- the
+  same failure the loss half refuses to let an author risk, pointing the other way. Every such cell
+  is printed ``GAINED`` in the export scaffold, and a CAST is the only thing that closes it (ef407's
+  did). **An author can DECLINE the half** (:data:`READINGS`): ``[reskin] readership = "bound"``,
+  or ``export-art --readership bound``, reads the cell each record BINDS, and a gained cell then
+  refuses with what it was before this rung;
 * **a third channel set**: :data:`CENSUS_CHANNELS` (frozen at W6b-1) / :data:`LICENSED_CHANNELS`
   (frozen at the W6b-3 scope every gate board is written about) / :data:`EDIT_CHANNELS` (what an
   author walks). The delta is a diff between two NAMED sets, never a number that moved under a
@@ -260,6 +262,50 @@ changed-offset set is intersected with a rebuilt sibling's. Two composition rout
 
 Either way it is ONE container, ONE ledger and ONE revert, and the composed delta is gated disjoint.
 
+THE SCROLL BLIT (HLE op 144) -- A DESTINATION BAND IS REWRITTEN EVERY FRAME
+--------------------------------------------------------------------------
+op 144 copies a source band of VRAM into a destination band, split and swapped at the animated
+phase, every frame it runs (:mod:`ff9mapkit.summons.scroll_blit`, the pinned table of its 167 corpus
+sites). The program-VRAM lists above never held it, so this lane used to call ef407 "clean" and ef211
+"read-only" while both rewrite cells it licensed. Now:
+
+* a build REFUSES, by name, an edit that changes a texel inside a destination band, with the
+  measurement and the remedy -- the cell the band is copied FROM (:func:`_gate_scroll_blit`). The unit
+  is the texel: a band can cover part of a cell, and an edit that stays out of it builds and says so;
+* ``acknowledge_scroll_blit_destination = true`` (literal boolean) lifts it, because reachability per
+  cast is not established -- the sites are static and say nothing of when a cast draws a cell, though
+  every in-game check on ef211's cast ladder so far sides with the refusal
+  (:data:`~ff9mapkit.summons.scroll_blit.REACHABILITY`);
+* a SOURCE hit never refuses: the edit is read and propagated, and the build discloses where to;
+* export and the scaffold state both directions on the row before anyone paints, and export delta is
+  0 -- no picture is withheld;
+* the table carries a second static source: six containers' OWN horizontal-scroll routine, which
+  takes op 144's arguments and issues the copies itself through HLE op 7 (``axis = "h"``). It closed the
+  headless census's open gap -- four editable cells on ef226 / ef509 the kit used to license -- and the
+  executed copies now equal the table's bands halfword for halfword over every container that runs one;
+* eight op-144 bands are FLIPBOOKS -- they scroll a different band-sized tile on different frames -- and
+  carry the tiles the executed copies measured (``scroll_blit.TILES``), so a remedy there names every
+  cell the tiles lie in and a source disclosure counts the tiles a cell holds.
+
+THE RENDER TARGET -- A 15bpp READ THAT NEVER SAMPLES VRAM
+---------------------------------------------------------
+Memoria's ``SFXMesh.GetTexture`` hands a 15bpp key VRAM only as its last resort: left of x = 384 it is
+the blur texture, and once the effect has rendered into its DR_AREA target it is that target, until the
+next cast starts (:mod:`ff9mapkit.summons.render_target`, the headless routes census over all 372
+containers). Every one of the 22 default-surface ``direct15`` cells is in such an effect. So:
+
+* a build REFUSES, by name, a 15bpp edit on a cell whose every measured 15bpp read samples the target,
+  the blur or the ground capture (:func:`_gate_render_target`), says whether the cell's OWN bytes reach
+  the screen another way -- where the target's draw reads them at 4/8 bpp, and then as palette indices
+  -- and names the remedy: the cells that DRAW the target, each with whether the ``indexed`` lane can
+  hand it out (on 2 of the 22 it can; the kit's own derivation refuses most feeders);
+* ``acknowledge_render_target = true`` (literal boolean) lifts it, because the census is headless and
+  a cast is not -- though the cast record so far sides with the refusal three for three
+  (:data:`~ff9mapkit.summons.render_target.CASTS`);
+* the other verdicts (VRAM, mixed, unread, unported, unmeasured) never refuse and are disclosed;
+* export, the scaffold and the scenery listing state the verdict before anyone paints, and export
+  delta is 0 -- no picture is withheld.
+
 HOT RELOAD
 ----------
 Stronger here than for the CLUT lane: ``SFX.Play`` re-reads the container from disc every cast AND
@@ -283,15 +329,17 @@ import json
 import os
 import struct
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 
 from . import container as EC
 from . import depth_attribution as DA
 from . import export
+from . import render_target as RT
 from . import rescore as R
 from . import reskin as RS
+from . import scroll_blit as SB
 from . import texanim as TA
 from . import texture as KT
 from .ledger import Ledger
@@ -314,6 +362,13 @@ __all__ = [
     # --- W6b-3 (iv): the SECOND ARRAY, ADOPTED -- the effective cover ----------------------------
     "EDIT_CHANNELS", "DISPLACEMENT_MODEL", "sampled_halfword", "effective_cell",
     "assert_intra_page", "effective_cell_readers", "novel_displacement_reach",
+    # --- ...and DECLINABLE: the two readings an author chooses between ---------------------------
+    "READINGS", "DEFAULT_READING", "READING_KEY", "reading_channels", "reading_of",
+    "reading_models",
+    # --- CHANNEL D: the depth a cell is DRAWN at, read off the effect's draws (screen + target) ---
+    "ACK_DRAWN_DEPTH", "ACK_DRAWN_CONFLICT", "drawn_conflict",
+    # --- the SCROLL BLIT (HLE op 144): a destination band is REWRITTEN every frame ---------------
+    "ACK_SCROLL_BLIT", "scroll_blit_lines",
     # --- W6b-1: the codecs ----------------------------------------------------------------------
     "pack4", "unpack4", "write_indexed4_png", "read_indexed4_png",
     "stp_sidecar_path", "write_direct_png", "read_direct_png", "direct_transparent",
@@ -328,7 +383,7 @@ __all__ = [
     "read_art_manifest", "art_came_out_of_base",
     "resolve_art_path", "absent_paint_line", "missing_paint_sources",
     "ART_LANES", "export_art", "scaffold_text", "scenery_lines",
-    "TexelTarget", "TexelBuild", "load_spec", "build",
+    "TexelTarget", "TexelBuild", "load_spec", "spec_channels", "build",
     "Gate", "SelfCheck", "self_check", "ORTH_REBUILDERS",
     "render_previews", "stage", "verify", "modfilelist_refusal",
     "describe", "derivation_lines", "check_lines",
@@ -409,6 +464,27 @@ ACK_ARRAY_DEPTH = DA.ACK_ARRAY_KEY
 #: acknowledges is a question about READERSHIP, and there is no number to check it against.
 ACK_SECOND_ARRAY = DA.ACK_MOVER_KEY
 
+#: THE SCROLL-BLIT acknowledgement's spec key (:mod:`ff9mapkit.summons.scroll_blit`), re-exported for
+#: the same reason.  It admits no depth and pairs with no ``expect_bpp``: what it acknowledges is that
+#: an HLE op-144 band rewritten every frame may not be rewritten in THIS cast.
+ACK_SCROLL_BLIT = SB.ACK_KEY
+
+#: THE RENDER-TARGET acknowledgement's spec key (:mod:`ff9mapkit.summons.render_target`), re-exported
+#: for the same reason.  It admits no depth and pairs with no ``expect_bpp``: what it acknowledges is
+#: that a 15bpp read the headless census saw go to the target may sample VRAM in THIS cast.
+ACK_RENDER_TARGET = RT.ACK_KEY
+
+#: CHANNEL D's acknowledgement (:data:`ff9mapkit.summons.render_target.DRAWN_ACK_KEY`), re-exported for
+#: the same reason.  Like channels P and A it admits a DEPTH, so it pairs with a mandatory
+#: ``expect_bpp``: the depth is measured (the census saw a draw read the cell at it), and the build still
+#: wants the number stated by the author and checked against the measurement.
+ACK_DRAWN_DEPTH = RT.DRAWN_ACK_KEY
+
+#: CHANNEL D's CONFLICT acknowledgement (:data:`ff9mapkit.summons.render_target.DRAWN_CONFLICT_KEY`),
+#: re-exported for the same reason.  It admits no depth: the page keeps its own, and what it acknowledges
+#: is that a headless draw reading the same bytes at another depth is not what THIS cast does.
+ACK_DRAWN_CONFLICT = RT.DRAWN_CONFLICT_KEY
+
 #: where a scenery page's ``bpp`` came from -- carried on the page itself, because a depth that is
 #: INHERITED FROM A COLUMN and a depth a model's own UVs declare are not the same kind of fact and a
 #: disclosure that cannot tell them apart cannot say the second sentence W6b-2 requires.
@@ -431,11 +507,20 @@ ACK_SECOND_ARRAY = DA.ACK_MOVER_KEY
 #:   ``expect_bpp`` -- see :data:`ff9mapkit.summons.depth_attribution.REGISTRATION_CAVEAT`, which is
 #:   an in-game refutation and not a caution.
 #:
+#: * ``"drawn"`` -- CHANNEL D: the headless censuses saw the effect's draws READ this cell at one
+#:   depth, on the screen or into the render target
+#:   (:func:`ff9mapkit.summons.render_target.drawn_depth`, :mod:`ff9mapkit.summons.draw_census`). A
+#:   DRAW, not a binding, measured on the headless stage -- so it is **DISCLOSED, and edits only
+#:   behind** :data:`ACK_DRAWN_DEPTH` plus a matching ``expect_bpp``
+#:   (:data:`ff9mapkit.summons.render_target.DRAWN_CAVEAT`). It began with the render-target remedy
+#:   (the cells that draw a NEVER_VRAM target are mostly ones no record gives a depth to) and now
+#:   reads every draw the census rendered.
+#:
 #: ⚠ **W6b-3 (iii) ADDS NO TOKEN HERE, DELIBERATELY.** The ``so`` record's SECOND array is not a
 #: DEPTH channel -- it raises a READERSHIP question (:data:`ACK_SECOND_ARRAY`) -- and this tuple is
 #: load-bearing in two guards that would both be wrong about it: :func:`scenery_surface`'s
 #: unknown-channel check and :func:`assert_expect_bpp`'s ``_DEPTH_DERIVED_BY`` coverage assert.
-DEPTH_SOURCES = ("so-uv", "so-page", "so-array", "program")
+DEPTH_SOURCES = ("so-uv", "so-page", "so-array", "program", "drawn")
 
 #: **THE CENSUS CHANNEL SET** -- W6b-1's own, and the DEFAULT of :func:`scenery_surface`.
 #:
@@ -487,7 +572,11 @@ LICENSED_CHANNELS = ("so-uv", "so-page", "so-array", "program")
 #:   hardware SAMPLES rather than the cell the record BINDS. It requires ``"so-uv"`` in the same set
 #:   (enforced at the call site, below) because it is not a new channel at all -- it is the SAMPLING
 #:   ARITHMETIC of a channel this set already consults, and there is no coherent sense in which a
-#:   caller consults ``so-uv`` while declining its correct arithmetic.
+#:   caller consults ``so-uv`` while declining its correct arithmetic;
+#: * ``"drawn"`` -- CHANNEL D is CONSULTED: a ``depth-unknown`` refusal gains the depth the
+#:   effect's draws read the cell at, and a displaced refusal says a draw this kit cannot attribute
+#:   samples it (DISCLOSURES); emitting needs ``drawn_depth=True``, i.e. :data:`ACK_DRAWN_DEPTH`.
+#:   Consulted on the edit surface only: the ``bound`` reading is the W6b-3 kit exactly.
 #:
 #: ⚠ **AND :data:`LICENSED_CHANNELS` IS FROZEN AT THE W6b-3 SCOPE ON PURPOSE.** It is the population
 #: ``u1_gates`` U2/U3/U5, ``w6q_gates`` G1/G16 and ``w6b3i_gates`` I4/I9 are written ABOUT, and two
@@ -496,13 +585,53 @@ LICENSED_CHANNELS = ("so-uv", "so-page", "so-array", "program")
 #: files at a surface they were never measured on. This is the same two-scope device
 #: :data:`CENSUS_CHANNELS` is, one channel later, and it is why the delta this rung emits is a
 #: nameable diff between two named sets rather than a number that moved under a constant's old name.
-EDIT_CHANNELS = LICENSED_CHANNELS + ("so-displaced",)
+EDIT_CHANNELS = LICENSED_CHANNELS + ("so-displaced", "drawn")
 
 #: every token :func:`scenery_surface` accepts. **NOT** :data:`DEPTH_SOURCES`: ``"so-displaced"``
 #: states no depth (it re-aims READERSHIP), so putting it in ``DEPTH_SOURCES`` would break both
 #: guards that constant is load-bearing in -- the unknown-channel check here and
 #: :func:`assert_expect_bpp`'s ``_DEPTH_DERIVED_BY`` coverage assert.
 _CHANNEL_TOKENS = frozenset(DEPTH_SOURCES) | frozenset(("so-displaced",))
+
+#: **THE TWO READINGS AN AUTHOR CHOOSES BETWEEN** -- ``[reskin] readership = "..."`` in the spec,
+#: ``--readership`` on ``summon-reskin export-art``, ``channels=`` on :func:`texel_page`,
+#: :func:`export_art` and :func:`build`. ``"effective"`` is :data:`EDIT_CHANNELS`, the default,
+#: where the reader join is taken on the cell the hardware SAMPLES (:data:`DISPLACEMENT_MODEL`).
+#: ``"bound"`` is :data:`LICENSED_CHANNELS`, THE PRE-ADOPTION READING: the join on the cell each
+#: record BINDS, with the displacement applied nowhere.
+#:
+#: It exists because the gain half fails SILENTLY -- a gained cell is licensed on the derivation
+#: alone, with no key -- so an author who distrusts ``linear-add-v1`` on THEIR container needs a way
+#: to say so that is not a re-derivation. It is the adoption UNDONE, not a third surface: forcing
+#: every displacement to identity on the effective path reproduces this reading's page set and its
+#: export-blocking refusals on 372 of 372 corpus containers (``readership_gates.py`` D1).
+#:
+#: ⚠ **DECLINING THE GAIN HALF DECLINES THE LOSS HALF'S EARLY REFUSAL WITH IT.** Of the 55 names the
+#: effective reading refuses ``displaced-readerless`` / ``displaced-readership-substituted``, 54
+#: resolve again as pages, as they did before W6b-3 (iv) (``readership_gates.py`` D6), and what stops
+#: an unacknowledged repaint there is the build's SECOND-ARRAY GATE (:data:`ACK_SECOND_ARRAY`) -- the
+#: obligation those rows carried then. One arithmetic, one choice.
+READINGS = {"effective": EDIT_CHANNELS, "bound": LICENSED_CHANNELS}
+DEFAULT_READING = "effective"
+#: the ``[reskin]`` key a spec states its reading in; omitted = :data:`DEFAULT_READING`.
+READING_KEY = "readership"
+
+
+def reading_channels(reading, where: str = "[reskin] %s" % READING_KEY) -> Tuple[str, ...]:
+    """The channel set a NAMED reading stands for -- or a refusal naming both readings."""
+    if not isinstance(reading, str) or reading not in READINGS:
+        raise RepaintError(
+            "%s = %r -- this lane has two readings: %r (the default, the cell the hardware SAMPLES "
+            "under %s) and %r (the pre-adoption reading, the cell each record BINDS)"
+            % (where, reading, DEFAULT_READING, DISPLACEMENT_MODEL, "bound"))
+    return READINGS[reading]
+
+
+def reading_of(channels: Sequence[str]) -> str:
+    """The NAME of the reading a channel set is, or ``""`` for a scope no author chooses (the frozen
+    census scope, or a gate's own)."""
+    ch = frozenset(channels)
+    return next((k for k, v in READINGS.items() if frozenset(v) == ch), "")
 
 #: THE INDEXED LANE'S RGBA REFUSAL, in its own words -- deliberately NOT :data:`W6B_REASON`.
 #:
@@ -760,15 +889,31 @@ def program_class(effect: Optional[int]) -> Tuple[str, str]:
         return ("write", "ef%03d is one of the %d containers whose id-3 program WRITES VRAM "
                          "(LoadImage / MoveImage / loader op 0x07 / the texanim arm)"
                 % (ef, len(PROGRAM_VRAM_WRITE_IDS)))
+    # ⚠ THE SCROLL BLIT IS A VRAM WRITE THIS CLASSIFICATION NEVER HELD.  HLE op 144 is a VRAM-to-VRAM
+    # move, so the old "only through StoreImage" / "no VRAM-transfer call site" was FALSE on every
+    # container that queues one -- all 12 READ ids among them -- and it is exactly the sentence that
+    # let ef211's (704,256), a full scroll-blit destination, be chosen as a cast vehicle.  op 144's
+    # rect folds, so it is judged PER CELL (`_gate_scroll_blit`) rather than here, and this line
+    # only stops the class from claiming a safety it does not have.
+    sb = SB.blits(ef)
+    kinds = " + ".join(k for k, axis in (("op-144", "v"), ("program-scroll", "h"))
+                       if any(b.axis == axis for b in sb))
+    blit = ("  ** BUT ITS PROGRAM ALSO QUEUES %s SCROLL BLITS (%d site(s), %d distinct rect(s)) "
+            "-- a VRAM-to-VRAM WRITE every frame they run, judged per cell by the scroll-blit "
+            "verdict" % (kinds, sum(b.sites for b in sb), len(sb))) if sb else ""
     if ef in PROGRAM_VRAM_READ_IDS:
-        return ("read", "ef%03d's program touches VRAM only through StoreImage (VRAM -> main RAM: a "
-                        "READ -- it cannot clobber a repaint).  DISCLOSE, do not refuse." % ef)
-    return ("clean", "ef%03d declares no VRAM-transfer call site and no loader op 0x07" % ef)
+        return ("read", "ef%03d's program touches VRAM %sthrough StoreImage (VRAM -> main RAM: a "
+                        "READ -- it cannot clobber a repaint).  DISCLOSE, do not refuse.%s"
+                % (ef, "" if sb else "only ", blit))
+    return ("clean", "ef%03d declares no %s call site and no loader op 0x07%s"
+            % (ef, "LoadImage / MoveImage / StoreImage" if sb else "VRAM-transfer", blit))
 
 
 # --------------------------------------------------------- W6b-1: THE BOUND MODELS + THEIR UV COVER
 #: one VRAM page-cell is 128 lines tall -- ``reskin``'s own constant, imported rather than re-typed.
 CELL_LINES = RS.PAGE_CELL_LINES
+# ``scroll_blit`` is a leaf module and re-states the cell geometry; this is where the two are checked.
+assert (SB.CELL_W, SB.CELL_LINES) == (RS.PAGE_CELL_W, RS.PAGE_CELL_LINES)
 
 
 def cell_texel_w(bpp: int, w_halfwords: int = RS.PAGE_CELL_W) -> int:
@@ -1199,6 +1344,24 @@ def effective_cell_readers(blob: bytes, models: Optional[Sequence[BoundModel]] =
     return out
 
 
+def reading_models(blob: bytes, channels: Sequence[str] = EDIT_CHANNELS) -> List[BoundModel]:
+    """:func:`bound_models` at the CALLER'S READING -- the models every consumer downstream of
+    :func:`scenery_surface` reads its cover from (the export's model join and spill sheets, the
+    NAME-EVERY-COLUMN gate, the build's coverage census).
+
+    Those consumers read :attr:`BoundModel.effective_cover`, which is right on the effective reading
+    and wrong on any scope that declines ``"so-displaced"``: a ``readership = "bound"`` build would
+    otherwise owe art for a cell its surface says the model does not read. So on such a scope every
+    effective cover IS the bound one -- the same object, the identity :func:`bound_models` already
+    gives a non-mover -- and the surface and its consumers answer the one question.
+    """
+    models = bound_models(blob)
+    if "so-displaced" not in frozenset(channels):
+        for m in models:
+            m.effective_cover = m.cover
+    return models
+
+
 # --------------------------------------------------------- W6b-1: THE HAZARD RECORD (data, not gates)
 @dataclass(frozen=True)
 class CellWriter:
@@ -1404,6 +1567,20 @@ class CellHazards:
     #: ``(record offset, slot index)`` for each contributing array entry -- **IDENTIFICATION ONLY**,
     #: quoted by the disclosure so an author can look the evidence up. Never an ordering claim.
     array_records: Tuple[Tuple[int, int], ...] = ()
+    # ---- CHANNEL D, as data ----------------------------------------------------------------------
+    #: CHANNEL D -- every depth the effect's draws read this cell at (screen and target), measured headless
+    #: (:func:`ff9mapkit.summons.render_target.drawn_depth`). Two values is a HAZARD, not a vote.
+    #: Empty wherever the caller did not consult ``"drawn"``.
+    drawn_depths: Tuple[int, ...] = ()
+    #: the CLUT cells those draws read the cell through, DISPLAY KEY (lowest address) FIRST -- a
+    #: single-depth draw's only; the key evidence at the same granularity as the depth.
+    drawn_clut_cells: Tuple[Tuple[int, int], ...] = ()
+    #: the measurement in the sentence a disclosure quotes
+    drawn_evidence: str = ""
+    #: WHICH channel spoke for the emitted page's depth (its ``depth_source``), set on the page's own
+    #: hazards -- so :attr:`column_clut_cells` reads the keys of the channel that spoke, not of one that
+    #: merely has evidence here.
+    depth_channel: str = ""
     # ---- W6b-3 (iii): THE SECOND ARRAY, as data --------------------------------------------------
     #: the readers of this cell that carry a NON-ZERO second-array pair, with BOTH candidate
     #: effective columns. **PURELY INFORMATIONAL** -- it feeds no depth, no cover, no page and no
@@ -1425,6 +1602,34 @@ class CellHazards:
     #: :func:`novel_displacement_reach`. The effective cover is a LOWER BOUND on readership and this
     #: is the number that says by how much it could be wrong.
     novel_reach: Tuple[int, int] = (0, 0)
+    # ---- THE SCROLL BLIT (HLE op 144), as data ---------------------------------------------------
+    #: every op-144 rect whose DESTINATION overlaps this cell (:mod:`ff9mapkit.summons.scroll_blit`)
+    #: -- a band the program REWRITES from its source every frame the blit runs. Effect-keyed, like
+    #: :attr:`program`, so it is stated on every channel set. ⚠ **Deliberately NOT in** :attr:`names`,
+    #: on the second-array precedent: its own field, its own gate (``_gate_scroll_blit``), its own key
+    #: -- ``names`` is an exact-tuple pin and this class needs none of its consumers.
+    scroll_dst: Tuple["SB.ScrollBlit", ...] = ()
+    #: every op-144 rect whose SOURCE overlaps this cell: the cell is READ and propagated into the
+    #: destination. Milder, a DISCLOSURE, and never merged with :attr:`scroll_dst`.
+    scroll_src: Tuple["SB.ScrollBlit", ...] = ()
+    #: one remedy sentence per :attr:`scroll_dst` entry, same order -- where the rewritten band's
+    #: texels come FROM, named against this container's own edit surface (filled by the post-pass in
+    #: :func:`scenery_surface`, because it names OTHER cells).
+    scroll_remedy: Tuple[str, ...] = ()
+    # ---- THE RENDER TARGET, as data ---------------------------------------------------------------
+    #: what every measured 15bpp read covering this cell sampled (:func:`~ff9mapkit.summons.
+    #: render_target.cell_route`) -- set on a 15bpp page only, by the post-pass in
+    #: :func:`scenery_surface`, because the depth is decided after the hazards are built.  Like
+    #: :attr:`scroll_dst` it is NOT in :attr:`names`: its own field, its own gate, its own key.
+    render_route: Optional["RT.CellRoute"] = None
+    #: where a NEVER_VRAM cell's on-screen picture really comes from, named against this container's
+    #: own edit surface -- the cells that DRAW the target.  Empty on every other verdict.
+    render_remedy: str = ""
+
+    @property
+    def scroll_rewritten(self) -> frozenset:
+        """Cell-local halfword indices (``row * 64 + col``) op 144 rewrites -- the union of the bands."""
+        return SB.rewritten_halfwords(self.scroll_dst, self.cell)
 
     @property
     def column_clut_cells(self) -> Tuple[Tuple[int, int], ...]:
@@ -1435,6 +1640,8 @@ class CellHazards:
         from the depth** -- the defect W6b-2 had to repair for channel G, re-appearing verbatim for
         channel A if these two fields were read separately at each call site.
         """
+        if self.depth_channel == "drawn":
+            return self.drawn_clut_cells
         return self.page_clut_cells or self.array_clut_cells
 
     @property
@@ -2032,6 +2239,19 @@ def _reach_line(hz: "CellHazards") -> str:
             % (recs, pairs, DISPLACEMENT_MODEL))
 
 
+def _drawn_line(dd: Optional["RT.DrawnDepth"]) -> str:
+    """CHANNEL D on a cell the displacement verdict calls readerless: a draw DOES sample it.
+
+    The verdict says *no reader this kit can attribute*; the census can say more -- the effect's draws
+    measured reading these bytes -- and when it does the refusal must not read as *nothing reads it*.
+    """
+    if dd is None:
+        return ""
+    return ("** AND A DRAW THIS KIT CANNOT ATTRIBUTE DOES SAMPLE IT (CHANNEL D, MEASURED): %s.  The "
+            "key above lifts the refusal onto whichever channel still speaks for the cell's depth."
+            % dd.evidence())
+
+
 def _arity(pmap: "RS.PaletteMap") -> Tuple[int, int]:
     """``(nClut4, nClut8)`` off an already-resolved palette map -- ONE derivation, two call sites.
 
@@ -2055,7 +2275,8 @@ def clut_arity(blob: bytes) -> Tuple[int, int]:
 
 def _depth_evidence(hint: Optional[int], pd: Optional[DA.ProgramDepth], consulted: bool,
                     ad: Optional["RS.PageDepth"] = None,
-                    a_records: Tuple[Tuple[int, int], ...] = ()) -> str:
+                    a_records: Tuple[Tuple[int, int], ...] = (),
+                    dd: Optional["RT.DrawnDepth"] = None) -> str:
     """The DISCLOSURE a depth refusal owes the author: what the container states ELSEWHERE.
 
     W6b-1's refusal said *"the container states nothing about this cell"*, and W6b-2 measured that
@@ -2079,6 +2300,17 @@ def _depth_evidence(hint: Optional[int], pd: Optional[DA.ProgramDepth], consulte
     if not consulted:
         return ""
     L: List[str] = []
+    # CHANNEL D first: a DRAW is the strongest of these, and it is the one that names a remedy.  ``dd``
+    # is None unless the caller named ``"drawn"``, so an unconsulted channel still says nothing.
+    if dd is not None and not dd.dual:
+        L.append("** BUT A DRAW READS IT (CHANNEL D, MEASURED): no `so` record gives this cell a "
+                 "depth, and %s.  %s  To edit it anyway say `%s = true` AND state a matching "
+                 "`expect_bpp = %d` -- export it with `--acknowledge-drawn-depth`."
+                 % (dd.evidence(), RT.DRAWN_CAVEAT, RT.DRAWN_ACK_KEY, dd.bpp))
+    elif dd is not None:
+        L.append("** AND A DRAW READS IT AT TWO DEPTHS (CHANNEL D, MEASURED): %s -- the same bytes as "
+                 "two pictures, which is a hazard and not a vote, so no acknowledgement reaches this "
+                 "cell." % dd.evidence())
     if pd is not None and not pd.dual:
         L.append("** BUT THE CONTAINER STATES A DEPTH ELSEWHERE (CHANNEL P, DISCLOSE): no `so` "
                  "reader samples this cell; %s.  %s  %s  %s"
@@ -2123,7 +2355,8 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                     channels: Sequence[str] = CENSUS_CHANNELS,
                     program_depth: bool = False,
                     array_depth: bool = False,
-                    displacement_ack: bool = False
+                    displacement_ack: bool = False,
+                    drawn_depth: bool = False
                     ) -> Tuple[List[TexelPage], List[CellRefusal]]:
     """**THE SCENERY TEXEL SURFACE** -- one pass, two results: the pages, and the refusals by name.
 
@@ -2266,6 +2499,9 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
 
     pages: List[TexelPage] = []
     refused: List[CellRefusal] = []
+    #: name -> (bpp, keys): a REFUSED cell that the stated key(s) would hand back as a page at that
+    #: depth -- what the render-target remedy names, so it never offers a cell a key cannot open.
+    keyed: Dict[str, Tuple[int, Tuple[str, ...]]] = {}
     for _key, pc in sorted(cells.items()):
         rds = readers.get(pc.cell, [])
         gpd = pdv.get(pc.cell)
@@ -2291,6 +2527,8 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                 a_keys.append(b.cell)
         p_depths = ppd.depths if ppd is not None else ()
         p_sites = ppd.call_sites if ppd is not None else 0
+        # CHANNEL D: what the effect's draws read this cell at -- consulted only when named.
+        dpd = RT.drawn_depth(effect, pc.cell, pc.off) if ("drawn" in ch and effect is not None) else None
 
         crs: List[CellReader] = []
         #: W6b-3 (iii): the per-reader SECOND-ARRAY disclosure, built in this same loop -- no second
@@ -2362,6 +2600,7 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                                   if c != pc.x}))
         covered = len({hw for m in rds
                        for hw in (m.effective_cover if displaced else m.cover).get(pc.cell, ())})
+        sb_dst, sb_src = SB.cell_hits(effect, pc.cell)
         hz = CellHazards(
             cell=pc.cell, writer=pc.tag, writers=tuple(writers_by_cell[pc.cell]), readers=tuple(crs),
             depths=depths, palette_cells=pal_cells, spill_in=spill_in, spill_out=spill_out,
@@ -2379,7 +2618,13 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             # `w6b2i_gates` I5 are written ABOUT.  *A channel a caller declined to consult must not
             # appear to have spoken*, and every author-facing entry point passes LICENSED_CHANNELS.
             second_array=tuple(sa_notes) if consulted else (),
-            displacement_adopted=displaced, bound_readers=brs, novel_reach=novel_reach)
+            displacement_adopted=displaced, bound_readers=brs, novel_reach=novel_reach,
+            drawn_depths=dpd.depths if dpd is not None else (),
+            drawn_clut_cells=dpd.clut_cells if dpd is not None else (),
+            drawn_evidence=dpd.evidence() if dpd is not None else "",
+            # THE SCROLL BLIT, effect-keyed like `program` and stated on every channel set: it is
+            # a question about whether an edit SURVIVES, not about a depth or a reader.
+            scroll_dst=sb_dst, scroll_src=sb_src)
 
         # ---- (1) WHICH CHANNEL, IF ANY, STATES A DEPTH.  Hazards first: a DUAL derivation is a
         # refusal no acknowledgement lifts, and the FOUR hazard classes are DISJOINT over the corpus
@@ -2437,8 +2682,18 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             # readers went.
             klass = ("displaced-readerless" if hz.displaced_readerless
                      else "displaced-readership-substituted")
+            # what the key falls through to: the COLUMN (channel G) where it speaks, else a DRAW
+            if not _survives_export(prog, hz):
+                pass
+            elif gpd is not None and len(g_depths) == 1 and not len(p_depths) > 1 and (
+                    binder.direct or _palettes(binder.cell, binder.entries)):
+                keyed[pc.name] = (g_depths[0], (DA.ACK_MOVER_KEY,))
+            elif gpd is None and dpd is not None and not dpd.dual and _drawn_keyed(dpd, _palettes):
+                keyed[pc.name] = (dpd.bpp, (DA.ACK_MOVER_KEY, RT.DRAWN_ACK_KEY))
             refused.append(_refusal(pc.name, pc.cell, klass,
-                                    _displacement_detail(hz, pc.cell), extra=_reach_line(hz)))
+                                    _displacement_detail(hz, pc.cell),
+                                    extra="  ".join(x for x in (_reach_line(hz), _drawn_line(dpd))
+                                                    if x)))
             continue
         elif hz.displaced_vs_page_depth:
             refused.append(_refusal(
@@ -2464,6 +2719,11 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             continue
         elif gpd is not None:
             source = "so-page"                           # CHANNEL G LICENSES
+        elif dpd is not None and not dpd.dual and drawn_depth:
+            # CHANNEL D, behind the acknowledgement.  `dpd` is None unless "drawn" is in ``channels``,
+            # so an ack alone can never reach here through a scope that did not consult it; and a cell
+            # drawn at TWO depths never reaches here at all -- no acknowledgement lifts a hazard.
+            source = "drawn"
         elif apd is not None and array_depth:
             # CHANNEL A, behind the acknowledgement, at exactly CHANNEL P's tier.  `apd` is None
             # unless "so-array" is in ``channels``, so an ack alone can never reach here through a
@@ -2474,8 +2734,12 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             # ``channels``, so an ack alone can never reach here through a census-scoped caller.
             source = "program"
         else:
+            if (dpd is not None and not dpd.dual and _drawn_keyed(dpd, _palettes)
+                    and _survives_export(prog, hz)):
+                keyed[pc.name] = (dpd.bpp, (RT.DRAWN_ACK_KEY,))
             refused.append(_refusal(pc.name, pc.cell, "depth-unknown",
-                                    extra=_depth_evidence(hint, ppd, consulted, apd, a_records)))
+                                    extra=_depth_evidence(hint, ppd, consulted, apd, a_records,
+                                                          dpd)))
             continue
 
         # ---- (2) THE PAGE ITSELF.  THE DISPLAY BINDING for a read cell is the LOWEST-ADDRESSED
@@ -2507,6 +2771,20 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
             pals = _palettes(a_binder.cell, a_binder.entries) if not a_binder.direct else ()
             clut_off = pals[0].off if pals else None
             clut_n, pal_name = (a_binder.entries or None), (pals[0].name if pals else "")
+        elif source == "drawn":
+            # CHANNEL D's page: the depth the draw read it at, keyed by the LOWEST-ADDRESSED CLUT the
+            # draw read it through (the class-C display rule); every other drawn key ships as a
+            # read-only alternate through `column_clut_cells`.  The tpage/CLUT words are not the
+            # draw's -- the census records the cell, the depth and the CLUT cell -- so they stay 0.
+            # A 15bpp draw is direct colour: no CLUT, no palette -- the census books a 15bpp read
+            # only where it sampled VRAM, never where the key was routed to the target or the blur.
+            bpp, tpage, clut_word = dpd.bpp, 0, 0
+            d_cell = dpd.clut_cells[0] if (dpd.clut_cells and bpp != 15) else None
+            pals = _palettes(d_cell, 16 if bpp == 4 else 256) if d_cell is not None else ()
+            clut_off = pals[0].off if pals else None
+            clut_n = None if bpp == 15 else (16 if bpp == 4 else 256)
+            pal_name = pals[0].name if pals else ""
+            hz = replace(hz, depth_channel="drawn")
         else:
             bpp, tpage, clut_word = p_depths[0], 0, 0
             clut_off, clut_n, pal_name = None, None, ""
@@ -2545,6 +2823,11 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                 "the program registers this page at %d bpp at %d call site(s), and this container's "
                 "own id-0 headers ship %d 16-entry and %d 256-entry palette(s) -- none of them bound "
                 "to THIS cell by anything" % (bpp, p_sites, n4, n8)))
+        elif bpp != 15 and clut_off is None and source == "drawn":
+            refused.append(CellRefusal(
+                name=pc.name, cell=pc.cell, klass="no-declared-clut",
+                reason=_REFUSAL_TEXT["no-declared-clut"]
+                % (str(hz.drawn_clut_cells[0] if hz.drawn_clut_cells else None), clut_n or 0)))
         elif bpp != 15 and clut_off is None:
             # whichever binder actually spoke for this cell -- a channel-A page's key comes off its
             # OWN array entry, so naming channel G's (absent) record here would print `None` as if it
@@ -2589,14 +2872,208 @@ def scenery_surface(blob: bytes, effect: Optional[int] = None, *,
                        "/".join(str(c) for c in n.swapped_columns),
                        "/".join(str(c) for c in n.original_columns))
                     for n in hz.second_array)))
-    return pages, refused
+    return (_with_render_routes(_with_scroll_remedies(pages, refused), refused, effect, keyed),
+            refused)
+
+
+def _drawn_keyed(dd: "RT.DrawnDepth", palettes) -> bool:
+    """A single-depth draw whose display CLUT the container declares, or a direct-colour one -- a
+    channel-D page with a key."""
+    if dd.bpp == 15:
+        return True
+    return bool(dd.clut_cells) and bool(palettes(dd.clut_cells[0], 16 if dd.bpp == 4 else 256))
+
+
+def _survives_export(prog: str, hz: "CellHazards") -> bool:
+    """No program-VRAM verdict would take the page away again once a key handed it back."""
+    return prog not in ("write", "unknown") and not hz.program_cell
+
+
+def _with_scroll_remedies(pages: List[TexelPage], refused: List[CellRefusal]) -> List[TexelPage]:
+    """THE SCROLL-BLIT REMEDY -- a POST-PASS, because it names OTHER cells.
+
+    A destination band's texels come from the blit's SOURCE, so the useful sentence is not "this cell
+    is overwritten" but "paint THAT cell instead" -- and whether THAT cell is something an author can
+    paint is a fact about the finished surface: a page this same derivation emitted, and that no
+    export-blocking refusal withholds. Three answers, each stated rather than guessed: the source is
+    a paintable cell (named), it is not (and why), or it does not fit VRAM as folded.
+
+    Columns map one to one; rows do not -- the scroll rotates the band, so over one period every
+    source row lands on every destination row (:meth:`~ff9mapkit.summons.scroll_blit.ScrollBlit.feeds`).
+    """
+    if not any(p.hazards is not None and p.hazards.scroll_dst for p in pages):
+        return pages
+    blocked = {r.name: r.klass for r in refused if r.klass in _EXPORT_BLOCKING}
+    by_cell: Dict[Tuple[int, int], List[str]] = {}
+    for p in pages:
+        by_cell.setdefault(p.cell, []).append(p.name)
+    out: List[TexelPage] = []
+    for p in pages:
+        hz = p.hazards
+        if hz is None or not hz.scroll_dst:
+            out.append(p)
+            continue
+        remedies = []
+        for b in hz.scroll_dst:
+            feeds = b.feeds_all(b.dest_overlap(p.cell))
+            if not feeds:
+                remedies.append(
+                    "its source folds to (%d,%d), which does not fit the %dx%d VRAM, so there is no "
+                    "cell to paint instead" % (b.src[0], b.src[1], SB.VRAM_W, SB.VRAM_H))
+                continue
+            if b.tiles:
+                # A FLIPBOOK: the band reads a different tile on different copies, so the remedy is
+                # every cell its tiles lie in, never the fold (which names a band the copy never reads).
+                remedies.append(_flipbook_remedy(b, p, feeds, by_cell, blocked))
+                continue
+            feed = feeds[0]
+            parts = []
+            for sc in SB.cells_under(feed):
+                names = by_cell.get(sc, [])
+                ok = [n for n in names if n not in blocked]
+                where = "(%d,%d) %dx%d" % (feed[0], feed[1], feed[2], feed[3])
+                if sc == p.cell:
+                    parts.append("the source band %s is in THIS cell, outside the rewritten band: "
+                                 "paint it there and %s copies it in, scrolling" % (where, b.label))
+                elif ok:
+                    parts.append("paint the source cell `%s` (%d,%d) instead -- %s copies its "
+                                 "band %s into this one, scrolling" % (ok[0], sc[0], sc[1], b.label,
+                                                                      where))
+                elif names:
+                    parts.append("its source cell (%d,%d) is `%s`, which this container refuses as "
+                                 "`%s`, so there is no cell to paint instead"
+                                 % (sc[0], sc[1], names[0], blocked[names[0]]))
+                else:
+                    parts.append("its source (%d,%d) is not an editable cell in this container (no "
+                                 "page whose depth it states), so there is no cell to paint instead"
+                                 % sc)
+            remedies.append("; ".join(parts))
+        out.append(replace(p, hazards=replace(hz, scroll_remedy=tuple(remedies))))
+    return out
+
+
+#: how many target feeders a remedy names before it counts the rest.
+_REMEDY_FEEDERS = 4
+
+
+def _with_render_routes(pages: List[TexelPage], refused: List[CellRefusal],
+                        effect: Optional[int],
+                        keyed: Optional[Dict[str, Tuple[int, Tuple[str, ...]]]] = None
+                        ) -> List[TexelPage]:
+    """THE RENDER-TARGET ROUTE -- a POST-PASS, for the same two reasons as the scroll remedy: it needs
+    the page's FINAL depth (a route is a fact about 15bpp reads, and only the finished page says it is
+    one), and its remedy names OTHER cells.
+
+    A NEVER_VRAM cell's on-screen picture is what the program DREW into the target, so the useful
+    sentence is "paint THOSE cells" -- the feeders the census measured, largest first, each named
+    against this container's own surface at the depth it was read: an editable indexed page (named),
+    one this container refuses (and why), a creature page, or no editable cell at all.  The cell's own
+    bytes, where they are a feeder, are not offered as a remedy -- they are the edit being refused.
+    """
+    if not any(p.bpp == 15 and p.hazards is not None for p in pages):
+        return pages
+    blocked = {r.name: r.klass for r in refused if r.klass in _EXPORT_BLOCKING}
+    by_cell: Dict[Tuple[int, int], List[TexelPage]] = {}
+    for p in pages:
+        by_cell.setdefault(p.cell, []).append(p)
+    refused_at: Dict[Tuple[int, int], List[CellRefusal]] = {}
+    for r in refused:
+        refused_at.setdefault(r.cell, []).append(r)
+    out: List[TexelPage] = []
+    for p in pages:
+        hz = p.hazards
+        if hz is None or p.bpp != 15:
+            out.append(p)
+            continue
+        route = RT.cell_route(effect, p.cell)
+        remedy = ""
+        if route.never_vram:
+            total = sum(f.pixels for f in route.feeders)
+            parts = []
+            for f in [f for f in route.feeders if f.cell != p.cell][:_REMEDY_FEEDERS]:
+                here = by_cell.get(f.cell, [])
+                same = [q.name for q in here if q.bpp == f.bpp]
+                ok = [n for n in same if n not in blocked]
+                what = f.describe(total)
+                if ok:
+                    parts.append("%s: paint `%s` in the indexed lane" % (what, ok[0]))
+                elif same:
+                    parts.append("%s: `%s`, which this container refuses as `%s`"
+                                 % (what, same[0], blocked[same[0]]))
+                elif f.cell[0] < 384:        # the creature owns x 192/256/320, scenery x >= 384
+                    parts.append("%s: a creature page -- the `indexed` export's `tex.part*` PNG" % what)
+                elif here:
+                    parts.append("%s: the surface holds it only as `%s` at %dbpp, not at the %dbpp "
+                                 "the target's draw reads it" % (what, here[0].name, here[0].bpp, f.bpp))
+                elif any((keyed or {}).get(r.name, (0,))[0] == f.bpp
+                         for r in refused_at.get(f.cell, ())):
+                    # a refusal a STATED KEY opens at the very depth the target's draw reads it at --
+                    # named with the key(s), never as paintable outright
+                    r = next(r for r in refused_at[f.cell] if (keyed or {}).get(r.name, (0,))[0] == f.bpp)
+                    bpp, keys = keyed[r.name]
+                    parts.append("%s: `%s`, refused as `%s` -- paint it with %s and `expect_bpp = %d`"
+                                 % (what, r.name, r.klass,
+                                    " and ".join("`%s = true`" % k for k in keys), bpp))
+                elif refused_at.get(f.cell):
+                    r = refused_at[f.cell][0]
+                    parts.append("%s: `%s`, which the kit refuses as `%s` (its own refusal block "
+                                 "says why)" % (what, r.name, r.klass))
+                else:
+                    parts.append("%s: no writer in this container uploads it" % what)
+            rest = len([f for f in route.feeders if f.cell != p.cell]) - len(parts)
+            if parts:
+                remedy = ("the target this cell's page reads is DRAWN from %s%s"
+                          % ("; ".join(parts), "; and %d smaller feeder(s)" % rest if rest > 0 else ""))
+            elif any(r.kind == "BACKGROUND" for r in route.reads):
+                remedy = ("this cell's page reads the battle-ground capture -- the battle scene behind "
+                          "the effect -- which no cell in this container draws, so there is no cell to "
+                          "paint instead")
+            else:
+                remedy = "no cell but this one draws the target, so there is no other cell to paint"
+        out.append(replace(p, hazards=replace(hz, render_route=route, render_remedy=remedy)))
+    return out
+
+
+def _flipbook_remedy(b: "SB.ScrollBlit", p: TexelPage, feeds: Sequence["SB.Rect"],
+                     by_cell: Dict[Tuple[int, int], List[str]], blocked: Dict[str, str]) -> str:
+    """The remedy for a FLIPBOOK band: every cell its measured tiles lie in, with how many tiles each
+    holds, named against this container's own surface."""
+    per: Dict[Tuple[int, int], int] = {}
+    for f in feeds:
+        for sc in SB.cells_under(f):
+            per[sc] = per.get(sc, 0) + 1
+    # a tile can sit INSIDE the band it feeds -- then that part of it is rewritten too, and saying
+    # "outside the rewritten band" would be false
+    inside = sum(1 for f in feeds if SB._overlap(f, b.dst_rect))
+    parts = []
+    for sc, n in sorted(per.items()):
+        names = by_cell.get(sc, [])
+        ok = [nm for nm in names if nm not in blocked]
+        if sc == p.cell:
+            parts.append("%d of them lie in THIS cell%s: paint those and they cycle in"
+                         % (n, ", outside the rewritten band" if not inside else
+                            " (%d overlapping the rewritten band itself, where they are rewritten too)"
+                            % inside))
+        elif ok:
+            parts.append("paint `%s` (%d,%d) -- %d of its tiles feed this band in turn" % (ok[0], sc[0],
+                                                                                      sc[1], n))
+        elif names:
+            parts.append("(%d,%d) holds %d tile(s) but is `%s`, which this container refuses as `%s`"
+                         % (sc[0], sc[1], n, names[0], blocked[names[0]]))
+        else:
+            parts.append("(%d,%d) holds %d tile(s) and is not an editable cell in this container"
+                         % (sc[0], sc[1], n))
+    return ("%s cycles this band through %d source tiles, measured headless (its fold says (%d,%d)), one "
+            "tile per copy, scrolling within it: %s" % (b.label, len(b.tiles), b.src[0], b.src[1],
+                                                        "; ".join(parts)))
 
 
 def scenery_texel_pages(blob: bytes, effect: Optional[int] = None, *,
                         channels: Sequence[str] = EDIT_CHANNELS,
                         program_depth: bool = False,
                         array_depth: bool = False,
-                        displacement_ack: bool = False) -> List[TexelPage]:
+                        displacement_ack: bool = False,
+                        drawn_depth: bool = False) -> List[TexelPage]:
     """Every scenery page-cell whose DEPTH the container states -- **THE EDIT SURFACE**.
 
     Defaults to :data:`EDIT_CHANNELS`. It USED to default to :data:`LICENSED_CHANNELS` and the
@@ -2623,17 +3100,20 @@ def scenery_texel_pages(blob: bytes, effect: Optional[int] = None, *,
     there; ``EDIT_CHANNELS`` is what an author walks.
     """
     return scenery_surface(blob, effect, channels=channels, program_depth=program_depth,
-                           array_depth=array_depth, displacement_ack=displacement_ack)[0]
+                           array_depth=array_depth, displacement_ack=displacement_ack,
+                           drawn_depth=drawn_depth)[0]
 
 
 def scenery_cell_refusals(blob: bytes, effect: Optional[int] = None, *,
                           channels: Sequence[str] = EDIT_CHANNELS,
                           program_depth: bool = False,
                           array_depth: bool = False,
-                          displacement_ack: bool = False) -> List[CellRefusal]:
+                          displacement_ack: bool = False,
+                          drawn_depth: bool = False) -> List[CellRefusal]:
     """Every scenery page-cell this rung refuses an editable picture for, with its reason."""
     return scenery_surface(blob, effect, channels=channels, program_depth=program_depth,
-                           array_depth=array_depth, displacement_ack=displacement_ack)[1]
+                           array_depth=array_depth, displacement_ack=displacement_ack,
+                           drawn_depth=drawn_depth)[1]
 
 
 #: how each depth channel is named in a guard failure -- so the message says WHICH derivation the
@@ -2648,6 +3128,8 @@ _DEPTH_DERIVED_BY = {
                 "a DRAW)",
     "program": "the container's own id-3 program's registered tpage (CHANNEL P -- a REGISTRATION, "
                "and registration is not a draw)",
+    "drawn": "the depth the effect's draws read this cell at, measured by the headless draw census "
+             "(CHANNEL D -- a DRAW, on the screen or into the render target, on the headless stage)",
 }
 
 # a source with no entry here raises `KeyError` inside `assert_expect_bpp`, i.e. the guard that is
@@ -2701,7 +3183,12 @@ def assert_expect_bpp(blob: bytes, page: TexelPage, stated: int, where: str) -> 
                 "depth read off an ENTRY of this column's `so` BINDING ARRAY is the drawn depth, and "
                 "`expect_bpp` is the number the kit checks that judgement against.  It does not "
                 "match." % DA.ACK_ARRAY_KEY)
-               if page.depth_source == "so-array" else ""))
+               if page.depth_source == "so-array" else
+               ("  This is the check `%s` exists to be paired with: the ack is your judgement that the "
+                "depth the effect's draws read this cell at headless is the depth your cast reads it at, and "
+                "`expect_bpp` is the number the kit checks against the measurement.  It does not "
+                "match." % RT.DRAWN_ACK_KEY)
+               if page.depth_source == "drawn" else ""))
     if page.scenery and got != 15:
         want = 16 if got == 4 else 256
         slot = page.hazards.writers[0].slot if page.hazards and page.hazards.writers else -1
@@ -2716,10 +3203,41 @@ def assert_expect_bpp(blob: bytes, page: TexelPage, stated: int, where: str) -> 
     return "expect_bpp %d MATCHES %s" % (got, _DEPTH_DERIVED_BY[page.depth_source])
 
 
+def _declined_line(blob: bytes, name: str, effect: Optional[int], channels: Sequence[str],
+                   **kw) -> str:
+    """On a reading that declines the displacement, what the DEFAULT reading says of this name.
+
+    A cell the gain half licenses refuses on the bound reading with whatever it refused as before
+    W6b-3 (iv) -- usually ``depth-unknown`` -- and that reason alone reads as *"nothing licenses
+    this"*. The refusal says instead that the author's own choice is what withdrew it. Empty on the
+    effective reading, and wherever the effective reading refuses the name too.
+    """
+    if "so-displaced" in frozenset(channels):
+        return ""
+    try:
+        pages, refused = scenery_surface(blob, effect, channels=EDIT_CHANNELS, **kw)
+    except (RS.ReskinError, EC.ContainerError, RepaintError):
+        return ""
+    if any(r.name == name and r.klass in _UNADDRESSABLE for r in refused):
+        return ""
+    p = next((q for q in pages if q.name == name), None)
+    if p is None:
+        return ""
+    return ("Under the default %r reading (MODEL %s) this cell IS addressable%s; this caller reads "
+            "%r, which declines the displacement -- that choice, not the container, withdrew it."
+            % (DEFAULT_READING, DISPLACEMENT_MODEL,
+               (" -- GAINED: it binds no reader and %s arrive(s) from another column"
+                % ", ".join("GEOM %#x" % r.geom for r in p.hazards.readers))
+               if p.hazards is not None and p.hazards.displaced_gained else "",
+               reading_of(channels) or tuple(channels)))
+
+
 def texel_page(blob: bytes, name: str, effect: Optional[int] = None, *,
+               channels: Sequence[str] = EDIT_CHANNELS,
                allow_program_depth: bool = False,
                allow_array_depth: bool = False,
-               allow_displaced_readerless: bool = False) -> TexelPage:
+               allow_displaced_readerless: bool = False,
+               allow_drawn_depth: bool = False) -> TexelPage:
     """Resolve a spec-declared texel name over BOTH namespaces, or REFUSE with the set named.
 
     ``tex.part0`` is the id-4 CREATURE page (W6a). ``cell.s0.x704_y256`` is a scenery VRAM PAGE-CELL
@@ -2748,6 +3266,14 @@ def texel_page(blob: bytes, name: str, effect: Optional[int] = None, *,
     an author is about to spend bytes rather than after they have painted. It widens nothing else:
     a ``displaced-vs-page-depth`` cell stays unaddressable under it, because that class reports two
     depths and an acknowledgement is a judgement about a single-valued derivation.
+
+    ``allow_drawn_depth`` is the row's :data:`ACK_DRAWN_DEPTH` (CHANNEL D), threaded the same way for
+    the same reason; a cell drawn at two depths stays unaddressable under it.
+
+    ``channels`` is the READING (:data:`READINGS`), default :data:`EDIT_CHANNELS`. On a reading that
+    declines the displacement a gained cell is refused with its pre-adoption reason, and the refusal
+    says the default reading would have licensed it -- so the author's choice is never mistaken for
+    the container's.
     """
     pages = creature_texel_pages(blob)
     for p in pages:
@@ -2756,11 +3282,10 @@ def texel_page(blob: bytes, name: str, effect: Optional[int] = None, *,
     scen: List[TexelPage] = []
     refused: List[CellRefusal] = []
     scen_error = ""
+    kw = dict(program_depth=allow_program_depth, array_depth=allow_array_depth,
+              displacement_ack=allow_displaced_readerless, drawn_depth=allow_drawn_depth)
     try:
-        scen, refused = scenery_surface(blob, effect, channels=EDIT_CHANNELS,
-                                        program_depth=allow_program_depth,
-                                        array_depth=allow_array_depth,
-                                        displacement_ack=allow_displaced_readerless)
+        scen, refused = scenery_surface(blob, effect, channels=channels, **kw)
     except (RS.ReskinError, EC.ContainerError) as e:               # a derivation refusal, surfaced
         scen_error = "%s: %s" % (type(e).__name__, e)
     # the REFUSAL is consulted FIRST: a same-bytes-two-depths cell is still EMITTED (the gates phase
@@ -2768,11 +3293,16 @@ def texel_page(blob: bytes, name: str, effect: Optional[int] = None, *,
     # not a fact -- the one thing this lane may never do quietly.
     hit = next((r for r in refused if r.name == name and r.klass in _UNADDRESSABLE), None)
     if hit is not None:
-        raise RepaintError("texel cell %r is REFUSED, not unknown -- %s" % (name, hit.reason))
+        declined = _declined_line(blob, name, effect, channels, **kw)
+        raise RepaintError("texel cell %r is REFUSED, not unknown -- %s%s"
+                           % (name, hit.reason, ("  " + declined) if declined else ""))
     for p in scen:
         if p.name == name:
             return p
     L = ["no texel page named %r." % name]
+    declined = _declined_line(blob, name, effect, channels, **kw)
+    if declined:
+        L.append(declined)
     if name.startswith("page.") and name.count(".") >= 3:
         stem = name.rsplit(".", 1)[0]                              # "page.s0.x576_y256"
         try:
@@ -3100,8 +3630,9 @@ def unpack4(raw: bytes) -> bytes:
     discriminator was needed: vertical neighbour disagreement is invariant under any within-row
     permutation and is therefore a free control for horizontal disagreement. Calibrated on the
     cast-proven 8bpp answer the instrument re-finds it **93/93 unanimously**; on the 4bpp question the
-    low-nibble-first order wins **36/36 with signal** (the 4 dissenters separate by <= 0.00273 against
-    a mean winning margin of 0.0616 and are diagnosed individually, not averaged away).
+    low-nibble-first order wins **37/37 with signal** (the 4 dissenters separate by <= 0.00273 against
+    a mean winning margin of 0.0740 and are diagnosed individually, not averaged away; 36/36 and
+    0.0616 before THE UPLOAD WALK, when a third of the pages were read with pad rows).
 
     The load-bearing argument is not statistical, though: the PSX rule is ONE rule at every depth --
     *lower-order bits hold the lower u* -- and its 8bpp instance is cast-proven on screen (W6a's
@@ -4005,10 +4536,54 @@ def _spill_sheet(blob: bytes, m: BoundModel, by_cell: Dict[Tuple[int, int], Texe
     return (str(path), unwritten, unrendered)
 
 
+def _scroll_blit_record(hz: "CellHazards", cell: Tuple[int, int]) -> dict:
+    """One cell's op-144 verdict as manifest data -- what the scaffold row and an audit both read."""
+    return {
+        "destination": [{"dst": list(b.dst), "size": list(b.size), "src": list(b.src),
+                         "sites": b.sites, "chunks": list(b.chunks), "via": b.label,
+                         "axis": b.axis, "tiles": len(b.tiles),
+                         "band": list(b.dest_overlap(cell)), "remedy": r,
+                         "refresh": _refresh_on_destination(b) or None}
+                        for b, r in zip(hz.scroll_dst,
+                                        hz.scroll_remedy or ("",) * len(hz.scroll_dst))],
+        "rewritten_halfwords": len(hz.scroll_rewritten),
+        "source": [{"dst": list(b.dst), "size": list(b.size), "src": list(b.src),
+                    "sites": b.sites, "band": list(b.source_overlaps(cell)[0]),
+                    "bands": [list(r) for r in b.source_overlaps(cell)], "via": b.label,
+                    "axis": b.axis, "tiles": len(b.tiles),
+                    "shows": _refresh_on_source(b)}
+                   for b in hz.scroll_src],
+    }
+
+
+def _render_route_record(hz: "CellHazards") -> Optional[dict]:
+    """THE RENDER-TARGET ROUTE for the manifest: the verdict, every measured read, whether the cell's own
+    bytes feed the target, and the remedy -- or None on a page that is not 15bpp."""
+    rt = hz.render_route
+    if rt is None:
+        return None
+    return {
+        "verdict": rt.verdict, "describe": rt.describe(), "own_feed": rt.own_feed_line(),
+        "target_from": rt.target_from, "remedy": hz.render_remedy or None,
+        "reads": [{"page": list(r.page), "kind": r.kind, "renders": r.renders, "frames": list(r.frames)}
+                  for r in rt.reads],
+        "own_feeds": [{"cell": list(f.cell), "bpp": f.bpp, "pixels": f.pixels, "frames": f.frames}
+                      for f in rt.own_feeds],
+        "feeders": [{"cell": list(f.cell), "bpp": f.bpp, "pixels": f.pixels, "frames": f.frames}
+                    for f in rt.feeders],
+    }
+
+
 def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane: str = "indexed",
                overlays: bool = True, scaffold: bool = True,
-               displacement_ack: bool = False) -> dict:
+               displacement_ack: bool = False,
+               channels: Sequence[str] = EDIT_CHANNELS,
+               drawn_depth: bool = False) -> dict:
     """Decode every addressable page to a paintable PNG + its overlays + the manifest.
+
+    ``channels`` is the READING (:data:`READINGS`), default :data:`EDIT_CHANNELS`; the manifest
+    records it and the scaffold states it in ``[reskin]``, so the spec an author builds from carries
+    the reading its art came out of and :func:`build` can refuse a mismatch.
 
     TWO SURFACES SINCE W6b-1. The id-4 CREATURE pages (W6a, always 8bpp indexed) and the SCENERY
     page-cells whose depth the container states, at 4 / 8 bpp under ``lane="indexed"`` and at 15 bpp
@@ -4048,6 +4623,20 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
             "refusal is about the INDEXED lane's exact recovery and is unchanged by W6b-1; the 15bpp "
             "DIRECT lane is a different question and ships as `direct15`.)  %s"
             % (lane, INDEXED_RGBA_REASON))
+    reading = reading_of(channels)
+    if drawn_depth and "drawn" not in frozenset(channels):
+        raise RepaintError(
+            "`--acknowledge-drawn-depth` hands out the cells CHANNEL D gives a depth to, and this "
+            "export reads %r, which does not consult channel D -- there is nothing for it to hand out."
+            % (reading or tuple(channels),))
+    if displacement_ack and "so-displaced" not in frozenset(channels):
+        # the ack lifts two refusals only the effective reading makes; honouring it silently on a
+        # reading that never makes them would be a flag that does nothing while reading as a choice
+        raise RepaintError(
+            "`--acknowledge-displacement` lifts the `displaced-readerless` / "
+            "`displaced-readership-substituted` refusals, which only the %r reading makes -- this "
+            "export reads %r, where those cells are pages already.  Drop one of the two."
+            % (DEFAULT_READING, reading or tuple(channels)))
     # ⚠ THE LINE A NEW LANE MUST NOT FORGET.  A lane that left this reading `== "indexed"` would
     # silently export SCENERY ONLY -- no error, no empty directory, just 93 creature pages missing.
     pages = creature_texel_pages(blob) if lane in ("indexed", "paint") else []
@@ -4055,8 +4644,8 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
     refusals: List[CellRefusal] = []
     scen_error = ""
     try:
-        scen, refusals = scenery_surface(blob, effect, channels=EDIT_CHANNELS,
-                                        displacement_ack=displacement_ack)
+        scen, refusals = scenery_surface(blob, effect, channels=channels,
+                                        displacement_ack=displacement_ack, drawn_depth=drawn_depth)
     except (RS.ReskinError, EC.ContainerError) as e:               # surfaced, never swallowed
         scen_error = "the scenery derivation REFUSED on this container: %s: %s" % (type(e).__name__,
                                                                                    e)
@@ -4204,6 +4793,9 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
             # W6b-3 (iv): the ADOPTED answer, and the classes the effective cover mints.
             "displacement_model": DISPLACEMENT_MODEL,
             "readership": p.readership,
+            "depth_source": p.depth_source,
+            "drawn_depths": list(hz.drawn_depths),
+            "drawn_clut_cells": [list(c) for c in hz.drawn_clut_cells],
             "displaced_readerless": hz.displaced_readerless,
             "displaced_substituted": hz.displaced_substituted,
             "displaced_gained": hz.displaced_gained,
@@ -4223,6 +4815,13 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
                 for n in hz.second_array],
             "program": hz.program, "program_evidence": hz.program_evidence,
             "program_cell": hz.program_cell,
+            # THE SCROLL BLIT: both directions, never merged.  Recorded at PAINT time, because an
+            # author who first hears that a band is rewritten every frame AFTER painting it hears it
+            # as a refusal -- the W7 L6 argument for the protected rects, verbatim.
+            "scroll_blit": _scroll_blit_record(hz, p.cell),
+            # THE RENDER TARGET, at PAINT time for the same reason: a 15bpp cell no 15bpp read
+            # samples is the one picture whose painter most needs to hear it first.
+            "render_route": _render_route_record(hz),
             "lower_half": hz.lower_half, "provenance": hz.provenance,
             "hazards": list(hz.names),
             "page_sha256": _sha(raw),
@@ -4230,8 +4829,11 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
 
     # ---- the MODEL direction of the join, + the stitched spill previews --------------------------
     model_entries: List[dict] = []
+    adopted = "so-displaced" in frozenset(channels)
     if scen:
-        for m in bound_models(blob):
+        # AT THE EXPORT'S OWN READING: on `bound` every effective cover IS the bound one, so the
+        # model join, the spill sheets and the scaffold's column lists answer what the surface does.
+        for m in reading_models(blob, channels):
             if not m.effective_cover:
                 continue
             # THE UNWRITTEN COLUMN, derived once and used by both the preview and the record: 11
@@ -4256,7 +4858,7 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
                 # are the cells the model SAMPLES, which is what an author has to supply art for.
                 "cells": [n for c in sorted(m.effective_cover) for n in names_by_cell.get(c, ())],
                 "effective_columns": list(m.effective_columns), "mover": list(m.mover or (0, 0)),
-                "readership": ("displaced" if m.displaced else "bound"),
+                "readership": ("displaced" if (adopted and m.displaced) else "bound"),
                 "cells_no_writer": unwritten, "cells_not_rendered": unrendered,
                 "spills": m.spills, "effective_spills": m.effective_spills,
                 "spill_png": spill_png})
@@ -4267,6 +4869,8 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
     res_ta = TA.read(blob)
     prot = TA.protected_rects(blob) if res_ta.parsed else {}
     man = {"tool": "ff9mapkit summon-reskin export-art", "lane": lane, "effect": int(effect),
+           # THE READING the art came out of -- :func:`build` refuses a spec that reads another
+           "readership": reading, "channels": list(channels),
            "stock_sha256": stock_sha, "source": source or "(caller-supplied bytes)",
            "container_bytes": len(blob), "parts": entries,
            "scenery": scen_entries, "models": model_entries,
@@ -4290,7 +4894,8 @@ def export_art(blob: bytes, effect: int, out_dir=None, *, source: str = "", lane
         fsutil.atomic_write_text(spath, scaffold_text(effect, stock_sha, entries, protected=prot,
                                                       texanim_armed=res_ta.armed,
                                                       scenery=scen_entries, models=model_entries,
-                                                      refused=refusals, lane=lane, blob=blob),
+                                                      refused=refusals, lane=lane, blob=blob,
+                                                      reading=reading),
                                  encoding="utf-8", newline="\n")
         written.append(str(spath))
     man["out_dir"] = str(out)
@@ -4304,8 +4909,13 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
                   scenery: Optional[Sequence[dict]] = None,
                   models: Optional[Sequence[dict]] = None,
                   refused: Optional[Sequence["CellRefusal"]] = None,
-                  lane: str = "indexed", blob: bytes = b"") -> str:
+                  lane: str = "indexed", blob: bytes = b"",
+                  reading: str = DEFAULT_READING) -> str:
     """A COMPLETE, guarded ``[[reskin.texel]]`` scaffold, emitted from the derivation.
+
+    ``reading`` (:data:`READINGS`) is the one the art came out of. A non-default reading is written
+    LIVE into ``[reskin]``, because the build must read what the export read; the default is written
+    as a commented line, because a choice nobody can see is a choice nobody can make.
 
     Every ``expect_*`` is emitted rather than typed, so a guard cannot start life disagreeing with the
     bytes; every row starts ``enabled = false``, so the first build is provably a no-op and the author
@@ -4373,8 +4983,10 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
                 "#           NEW colour with >1 equally-near entry REFUSES on a class-C cell (R7)."]
         return out
 
-    L = ["# AUTO-SCAFFOLDED by `ff9mapkit summon-reskin export-art --ef %d%s`."
-         % (effect, " --art-lane paint" if paint else ""),
+    declined = bool(reading) and reading != DEFAULT_READING
+    L = ["# AUTO-SCAFFOLDED by `ff9mapkit summon-reskin export-art --ef %d%s%s`."
+         % (effect, " --art-lane paint" if paint else "",
+            " --readership %s" % reading if declined else ""),
          "# Every number is DERIVED from the container's own id-4 header.  Two kinds of line only:",
          "#   * GUARDS (`expect_*`, `expect_sha256`) -- what the derivation MUST find.  They refuse;",
          "#     they instruct nothing.  Re-export rather than retyping them.",
@@ -4398,8 +5010,21 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
          'label  = "ef%03d-texel-scaffold"' % effect,
          '# the drift guard: sha256 of the pristine stock container in YOUR install.  A HASH, not',
          '# data -- no stock byte is committable.',
-         'expect_sha256 = "%s"' % stock_sha,
-         ""]
+         'expect_sha256 = "%s"' % stock_sha]
+    if declined:
+        L += ["# THE READING this art came out of: the cell each record BINDS, with the measured",
+              "# displacement (MODEL %s) applied nowhere -- the GAIN HALF DECLINED, and with it"
+              % DISPLACEMENT_MODEL,
+              "# the loss half's early refusal (the SECOND-ARRAY GATE stands in at build).  The",
+              "# build refuses art exported under the other reading.",
+              '%s = "%s"' % (READING_KEY, reading)]
+    elif reading:
+        L += ['# %s = "bound"   # DECLINE the gain half: read the cell each record BINDS, not the'
+              % READING_KEY,
+              "#                      # one MODEL %s says the hardware samples.  Re-export with"
+              % DISPLACEMENT_MODEL,
+              "#                      # `--readership bound` first: the build refuses mixed readings."]
+    L.append("")
     for e in entries:
         cov = ("%d of %d texels sampled (%.1f%%), %d dead, %d interior hole(s)"
                % (e["covered_texels"], e["wh"][0] * e["wh"][1],
@@ -4433,6 +5058,7 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
         L += [""]
 
     for e in (scenery or []):
+        row_at = len(L)
         L += ["[[reskin.texel]]",
               'name = "%s"' % e["name"]]
         L += _src_lines(e)
@@ -4455,6 +5081,14 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
         if (e.get("second_array_all_readers") or e.get("displaced_readerless")
                 or e.get("displaced_substituted")):
             L += ["%s = false" % DA.ACK_MOVER_KEY]
+        sbr = e.get("scroll_blit") or {}
+        if sbr.get("destination"):
+            L += ["%s = false" % SB.ACK_KEY]
+        rtr = e.get("render_route") or {}
+        if rtr.get("verdict") == RT.NEVER_VRAM:
+            L += ["%s = false" % RT.ACK_KEY]
+        if _entry_conflict(e):
+            L += ["%s = false" % RT.DRAWN_CONFLICT_KEY]
         if e["bpp"] == 15:
             L += ['# 15bpp DIRECT colour: no palette at all.  Edit "%s" (RGB authoritative, alpha =' %
                   e["png"],
@@ -4476,6 +5110,50 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
         L += ["# measured: %d of %d halfwords in this cell are sampled by some model"
               % (e["covered_halfwords"], RS.PAGE_CELL_W * CELL_LINES),
               "# writer: %s" % e["provenance"]]
+        # THE SCROLL BLIT, printed BEFORE the author paints -- the destination as a refusal they
+        # would have to lift, the source as the propagation they should expect to see.
+        for d in sbr.get("destination", ()):
+            L.append("# ** SCROLL-BLIT DESTINATION: %s rewrites VRAM (%d,%d) %dx%d of this cell"
+                     % ((d.get("via", "op 144"),) + tuple(d["band"])))
+            L.append("#   from (%d,%d) every frame it runs (%d site(s)).  A repaint in that band is"
+                     % (d["src"][0], d["src"][1], d["sites"]))
+            L.append("#   byte-correct, deploys, verifies -- and never reaches the screen, so the build")
+            L.append("#   REFUSES an edit that changes a texel there.  %d of this cell's %d halfwords"
+                     % (sbr.get("rewritten_halfwords", 0), RS.PAGE_CELL_W * CELL_LINES))
+            L.append("#   are rewritten.  REMEDY:")
+            L += _wrap_comment(d["remedy"] or "no source cell could be named", "#     ")
+            L.append("#   `%s = true` (the key above) lifts it if you judge the blit does not run"
+                     % SB.ACK_KEY)
+            L.append("#   in your cast -- reachability per cast is not established.")
+            if d.get("refresh"):
+                L += _wrap_comment(d["refresh"], "#   ")
+        for d in sbr.get("source", ()):
+            if d.get("tiles"):
+                L.append("# SCROLL-BLIT SOURCE: %s reads %d of its %d source tiles from this cell"
+                         % (d.get("via", "op 144"), len(d["bands"]), d["tiles"]))
+                L.append("#   (measured headless, one tile per copy, cycling) and writes each into")
+            else:
+                L.append("# SCROLL-BLIT SOURCE: %s copies VRAM (%d,%d) %dx%d of this cell into"
+                         % ((d.get("via", "op 144"),) + tuple(d["band"])))
+            L.append("#   (%d,%d) %dx%d every frame it runs -- a disclosure, not a refusal:"
+                     % (d["dst"][0], d["dst"][1], d["size"][0], d["size"][1]))
+            L += _wrap_comment(d.get("shows") or "what you paint there ALSO appears there, scrolling "
+                               "vertically with wraparound", "#   ")
+        # THE RENDER TARGET, printed BEFORE the author paints: on a NEVER_VRAM cell the refusal they
+        # would have to lift, and where the picture on screen really comes from; otherwise the verdict.
+        if rtr.get("verdict") == RT.NEVER_VRAM:
+            L.append("# ** RENDER TARGET: no 15bpp read in this effect samples this cell from VRAM, so the")
+            L.append("#   build REFUSES an edit here.  Measured:")
+            L += _wrap_comment(rtr["describe"], "#     ")
+            L += _wrap_comment(rtr["own_feed"], "#   ")
+            L.append("#   REMEDY:")
+            L += _wrap_comment(rtr.get("remedy") or "no cell could be named", "#     ")
+            L.append("#   `%s = true` (the key above) lifts it if you judge a 15bpp read in your"
+                     % RT.ACK_KEY)
+            L.append("#   cast samples VRAM -- the census is headless, a cast is not.")
+        elif rtr:
+            L.append("# RENDER ROUTE (a disclosure, not a refusal):")
+            L += _wrap_comment(rtr["describe"], "#   ")
         if len(e["writers"]) > 1:
             L += ["# CO-TRANSFORM: %d writers upload this VRAM cell.  Name EVERY one with its own"
                   % len(e["writers"]),
@@ -4495,6 +5173,14 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
         if len(e["readers"]) > 1:
             L.append("# SHARED READ: this one edit changes %d models.  Disclosure, not a refusal."
                      % len(e["readers"]))
+        if _entry_conflict(e):
+            L.append("# ** DRAWN AT ANOTHER DEPTH (CHANNEL D): the effect's draws read these bytes at")
+            L.append("#   %s bpp, and this row is %dbpp (%s) -- an edit here reaches the screen as a"
+                     % ("/".join(str(b) for b in e["drawn_depths"]), e["bpp"], e.get("depth_source", "?")))
+            L.append("#   second picture, so the build REFUSES it.  `%s = true` (the key above)"
+                     % RT.DRAWN_CONFLICT_KEY)
+            L.append("#   lifts it if you judge your cast reads them at %dbpp -- the census is headless."
+                     % e["bpp"])
         if e["spill_out"]:
             L.append("# SPILL-OUT: this cell's own reader(s) also sample column(s) %s -- name every"
                      % ", ".join(str(c) for c in e["spill_out"]))
@@ -4549,6 +5235,9 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
                 L.append("#   DERIVATION ALONE and no key gates it.  If the model does not hold on")
                 L.append("#   this container, a perfect repaint here is INVISIBLE IN GAME with no")
                 L.append("#   error anywhere -- the loss half's failure, pointing the other way.")
+                L.append('#   To decline it: `%s = "bound"` in [reskin], re-exported with'
+                         % READING_KEY)
+                L.append("#   `--readership bound` -- this cell then refuses as it did before.")
             if e.get("display_binding_moved"):
                 L.append("#   ** THE DISPLAY BINDING CHANGED HANDS: the PNG above is keyed to a"
                          " DIFFERENT")
@@ -4576,6 +5265,20 @@ def scaffold_text(effect: int, stock_sha: str, entries: Sequence[dict], *,
             L.append("#   perfect repaint here is invisible in game.  To paint it anyway say")
             L.append("#     `%s = true`  (the key above)." % DA.ACK_MOVER_KEY)
             L += _wrap_comment(DA.U_DISPLACEMENT_CAVEAT, "#   ")
+        if e.get("depth_source") == "drawn":
+            # ★ CHANNEL D's row ships COMMENTED, with its key already said: it resolves only behind the
+            # acknowledgement, and a live row without it would make the scaffold's first build refuse
+            # -- the no-op guarantee is worth more than saving the author one uncomment.  Uncommenting
+            # IS the statement; the key inside it is the build's record of it.
+            body = L[row_at:]
+            del L[row_at:]
+            L += ["# CHANNEL D -- A DRAW GIVES THIS CELL ITS DEPTH.  UNCOMMENT THE BLOCK",
+                  "# BELOW TO EDIT IT: it resolves only with the key it carries.  " + e["name"]]
+            L += _wrap_comment(RT.DRAWN_CAVEAT, "#   ")
+            for ln in body:
+                L.append(ln if ln.startswith("#") else "# " + ln)
+                if ln.startswith("expect_bpp"):
+                    L.append("# %s = true" % RT.DRAWN_ACK_KEY)
         L += [""]
 
     spillers = [m for m in (models or []) if m.get("effective_spills", m.get("spills"))]
@@ -4670,6 +5373,20 @@ _TEXEL_KEYS = frozenset((
     # about READERSHIP and there is no derived number for a guard to check it against.  Said in the
     # refusal text too, so it cannot read as a forgotten pair.
     DA.ACK_MOVER_KEY,
+    # THE SCROLL BLIT's key.  Literal-boolean-only; it admits no depth and pairs with no `expect_bpp`
+    # -- what it admits is that an op-144 band the container rewrites every frame may not be
+    # rewritten in the author's cast, which is a reachability judgement no number here can check.
+    SB.ACK_KEY,
+    # THE RENDER TARGET's key, on the same terms: literal-boolean-only, no depth, no `expect_bpp`.  What
+    # it admits is that a 15bpp read the headless census saw go to the target may sample VRAM in the
+    # author's cast -- a judgement about a cast, not a number.
+    RT.ACK_KEY,
+    # CHANNEL D's key: it admits a DEPTH, so like channels P and A it pairs with a mandatory
+    # `expect_bpp` -- the depth is measured, and the build still wants the author to state it.
+    RT.DRAWN_ACK_KEY,
+    # ...and its CONFLICT key, on the render target's terms: literal-boolean-only, no depth.  What it
+    # admits is that the draws the census saw read this page's bytes at another depth are not the cast's.
+    RT.DRAWN_CONFLICT_KEY,
 ))
 
 
@@ -4715,6 +5432,21 @@ class TexelTarget:
     #: non-zero second-array halfword, I have read what that may mean, and I judge the cell still
     #: read." Literal boolean only, and pairs with NO ``expect_bpp``: it admits no depth.
     ack_second_array: bool = False
+    #: ``acknowledge_scroll_blit_destination`` -- "this edit changes texels an op-144 scroll blit
+    #: rewrites every frame, and I judge that blit does not run in my cast." Literal boolean only.
+    ack_scroll_blit: bool = False
+    #: ``acknowledge_render_target`` -- "every 15bpp read the census saw of this cell's page sampled
+    #: the render target (or the blur / ground capture), and I judge a read in my cast samples VRAM."
+    #: Literal boolean only.
+    ack_render_target: bool = False
+    #: CHANNEL D's word, ``acknowledge_drawn_depth`` -- "this cell's depth is the one the target's
+    #: draw read it at, measured headless, and I judge my cast reads it there too."  Literal boolean
+    #: only, and MEANINGLESS without a matching ``expect_bpp``, which the build path requires by name.
+    ack_drawn_depth: bool = False
+    #: ``acknowledge_drawn_conflict`` -- "the headless draws read this page's bytes at a depth other
+    #: than the one I am painting at, and I judge my cast reads them at the page's own."  Literal
+    #: boolean only; it admits no depth.
+    ack_drawn_conflict: bool = False
     stock: bytes = b""
     new: bytes = b""
     changed: Tuple[int, ...] = ()
@@ -4779,6 +5511,9 @@ class TexelBuild:
     #: site that enforced it so the report quotes the check that ran, not a restatement of it.
     region_invariant: str = ""
     check: Optional["SelfCheck"] = None
+    #: THE READING every target resolved under (:data:`READINGS`) -- the spec's ``readership``.
+    channels: Tuple[str, ...] = EDIT_CHANNELS
+    reading: str = DEFAULT_READING
 
     @property
     def enabled(self) -> List[TexelTarget]:
@@ -4818,7 +5553,42 @@ def load_spec(path) -> dict:
     if not r.get("texel") and not r.get("target"):
         raise RepaintError("%s declares neither [[reskin.target]] (the CLUT lever) nor "
                            "[[reskin.texel]] (the texel lever) -- nothing to do" % path)
+    if READING_KEY in r:
+        if not r.get("texel"):
+            raise RepaintError(
+                "%s says `%s = %r` but declares no [[reskin.texel]] -- the reading is the texel "
+                "lane's (which cell a scenery reader SAMPLES); a CLUT-only spec has nothing for it to "
+                "govern, and a key that governs nothing is a guard that silently is not one."
+                % (path, READING_KEY, r[READING_KEY]))
+        reading_channels(r[READING_KEY], "%s: [reskin] %s" % (path, READING_KEY))
     return spec
+
+
+def spec_channels(spec: dict, channels: Optional[Sequence[str]] = None,
+                  where: str = "?") -> Tuple[Tuple[str, ...], str]:
+    """``(channel set, reading name)`` for a build -- THE SPEC IS THE SOURCE OF TRUTH.
+
+    ``[reskin] readership`` names it (omitted = :data:`DEFAULT_READING`). A caller's ``channels`` is
+    a CHECK against the spec, never an override: ``plan`` / ``build`` / ``verify`` / ``deploy`` all
+    rebuild from the spec, so a reading that lived only on one command line would build one thing
+    and verify another. A mismatch refuses, naming the line to write.
+    """
+    r = spec["reskin"]
+    stated = r.get(READING_KEY)
+    reading = DEFAULT_READING if stated is None else stated
+    want = reading_channels(reading, "%s: [reskin] %s" % (where, READING_KEY))
+    if channels is not None and frozenset(channels) != frozenset(want):
+        asked = reading_of(channels)
+        raise RepaintError(
+            "%s reads %r (%s), and this call asked for %r.  The reading is part of the SPEC -- every "
+            "sub-verb rebuilds from it, so one stated only here would build one surface and verify "
+            "another.  %s"
+            % (where, reading, "stated" if stated is not None else "the default, nothing stated",
+               asked or tuple(channels),
+               ('Write `%s = "%s"` in [reskin] (and re-export the art with `--readership %s`).'
+                % (READING_KEY, asked, asked)) if asked else
+               "Only the named readings %s can be built." % ", ".join(sorted(READINGS))))
+    return tuple(want), reading
 
 
 def _spec_dir(spec_path: str) -> str:
@@ -5218,6 +5988,217 @@ def _gate_second_array(targets: Sequence["TexelTarget"]) -> Dict[str, str]:
     return notes
 
 
+def _vram_rect(r: "SB.Rect") -> str:
+    return "VRAM (%d,%d) %dx%d" % r
+
+
+def _refresh_on_destination(b: "SB.ScrollBlit") -> str:
+    """The measured sentence a DESTINATION verdict carries when its copy is not always seen, or ''."""
+    rf = b.refresh
+    if rf is None:
+        return ""
+    if rf.verdict == "READ_STALE":
+        return ("MEASURED ON THIS PAIR, AND IT INVERTS THE PREMISE: %s.  So the screen keeps what this "
+                "band held when its page was first decoded, before any copy -- a repaint here DOES "
+                "show, held still rather than scrolled.  On this band the key is the expected path "
+                "(%s)" % (rf.describe(), SB.REFRESH_LAW))
+    return ("MEASURED ON THIS PAIR: %s -- on those readers the band shows frozen at the phase of its "
+            "decode (%s)" % (rf.describe(), SB.REFRESH_LAW))
+
+
+def _refresh_on_source(b: "SB.ScrollBlit") -> str:
+    """Where a SOURCE paint shows, given the pair's measured refresh verdict."""
+    rf = b.refresh
+    if rf is None:
+        return ("so what you paint there ALSO appears at (%d,%d)%s, scrolling %s with wraparound"
+                % (b.dst[0], b.dst[1], " on the copies that read your tile" if b.tiles else "",
+                   "horizontally" if b.axis == "h" else "vertically"))
+    if rf.verdict == "READ_STALE":
+        return ("but it does NOT appear at (%d,%d): %s.  This cell's own readers are the only way "
+                "your paint reaches the screen" % (b.dst[0], b.dst[1], rf.describe()))
+    return ("but at (%d,%d) it shows FROZEN at one phase, or not at all on the stale readers, rather "
+            "than scrolling: %s" % (b.dst[0], b.dst[1], rf.describe()))
+
+
+def _gate_scroll_blit(t: "TexelTarget") -> List[str]:
+    """**THE SCROLL-BLIT GATE** -- refuse an edit whose texels an op-144 band REWRITES; disclose a
+    source.  Runs after the art read, because the predicate is about THIS edit's changed texels.
+
+    HLE op 144 (:mod:`ff9mapkit.summons.scroll_blit`) copies a source band into a destination band
+    every frame it runs. A changed texel inside a destination band is therefore byte-correct on disk,
+    deploys, verifies -- and never reaches the screen, the lane's SILENT failure, and the null gets
+    charged to whatever else the author was testing. So the gate counts the changed halfwords in each
+    band and refuses BY NAME, with the measurement and the remedy -- the cell the band is copied FROM.
+
+    **The unit is the TEXEL, not the cell**, on the W7 texanim precedent: a band can cover part of a
+    cell (ef211's pool-wheel cell is rewritten in its LEFT half from its right half), and an edit that
+    stays out of the band loses nothing, so it builds and says so. ``acknowledge_scroll_blit_destination
+    = true`` lifts the refusal, because reachability per cast is not established
+    (:data:`~ff9mapkit.summons.scroll_blit.REACHABILITY`) -- and the build still says what was lifted.
+
+    A SOURCE hit never refuses: the edit is READ and propagated, so it shows -- in the destination
+    band too, scrolling. That is disclosed, never merged with the destination verdict.
+
+    **THE REFRESH LAW** (:data:`~ff9mapkit.summons.scroll_blit.REFRESH`) qualifies both: where the
+    measured census found the destination's readers sampling a decode older than the copy, a source
+    paint does not scroll there (and on a READ_STALE pair never reaches it), and a destination repaint
+    is what stays on screen. The refusal keeps its key and says what was measured.
+    """
+    hz = t.page.hazards
+    if not t.enabled or hz is None or not (hz.scroll_dst or hz.scroll_src):
+        return []
+    cell = t.page.cell
+    stride = t.page.page_bytes // (2 * t.page.h)
+    changed = sorted({o // 2 for o in t.changed})
+    at = [(cell[0] + hw % stride, cell[1] + hw // stride) for hw in changed]
+
+    def _inside(r: "SB.Rect") -> int:
+        return sum(1 for x, y in at if r[0] <= x < r[0] + r[2] and r[1] <= y < r[1] + r[3])
+
+    notes: List[str] = []
+    lost = []
+    for b, remedy in zip(hz.scroll_dst, hz.scroll_remedy or ("",) * len(hz.scroll_dst)):
+        band = b.dest_overlap(cell)
+        n = _inside(band)
+        what = ("%s of cell %s, rewritten from (%d,%d) by %s"
+                % (_vram_rect(band), list(cell), b.src[0], b.src[1], b.describe()))
+        if not n:
+            notes.append("SCROLL-BLIT DESTINATION, clear: %s -- and this edit changes no texel "
+                         "there (%d of this cell's halfwords are rewritten)"
+                         % (what, len(hz.scroll_rewritten)))
+        else:
+            lost.append((n, what, remedy, b))
+    measured = [m for m in (_refresh_on_destination(b) for _n, _w, _r, b in lost) if m]
+    if lost and not t.ack_scroll_blit:
+        raise RepaintError(
+            "SCROLL-BLIT DESTINATION, %s: %s.  %s.  Those texels are byte-correct on disk, deploy "
+            "and verify -- and are rewritten every frame the blit runs, so while it runs they never "
+            "reach the screen and the null gets charged to whatever else this cast was testing.  "
+            "REMEDY: %s.  %s.  %s.  %s.  %sIf you judge this blit is not running when your cell is "
+            "drawn, say `%s = true` on this row -- an acknowledgement is stated, never inferred."
+            % (t.name,
+               "; ".join("%d of this edit's %d changed halfword(s) lie in %s" % (n, len(changed), w)
+                         for n, w, _r, _b in lost),
+               "; ".join(sorted({b.mechanism for _n, _w, _r, b in lost})),
+               "; ".join(r for _n, _w, r, _b in lost) or "no source cell could be named",
+               "; ".join(e for e, axis in ((SB.EF407_EXECUTED, "v"), (SB.H_EXECUTED, "h"))
+                         if any(b.axis == axis for _n, _w, _r, b in lost)),
+               SB.MEASUREMENT, SB.REACHABILITY,
+               "".join(m + ".  " for m in measured), SB.ACK_KEY))
+    for n, what, _remedy, b in lost:
+        m = _refresh_on_destination(b)
+        notes.append("SCROLL-BLIT DESTINATION, acknowledged: %d of this edit's %d changed "
+                     "halfword(s) lie in %s.  %s%s" % (n, len(changed), what, SB.ACK_WARNING,
+                                                      ("  " + m) if m else ""))
+    for b in hz.scroll_src:
+        bands = b.source_overlaps(cell)
+        n = sum(1 for x, y in at
+                if any(r[0] <= x < r[0] + r[2] and r[1] <= y < r[1] + r[3] for r in bands))
+        if b.tiles:
+            notes.append("SCROLL-BLIT SOURCE (a disclosure, not a refusal): %s READS %d of its %d source "
+                         "tiles from this cell (%s), one per copy, cycling, and writes each into %s -- %d "
+                         "of this edit's changed halfword(s) are in them, %s"
+                         % (b.describe(), len(bands), len(b.tiles),
+                            ", ".join(_vram_rect(r) for r in bands), _vram_rect(b.dst_rect), n,
+                            _refresh_on_source(b)))
+            continue
+        notes.append("SCROLL-BLIT SOURCE (a disclosure, not a refusal): %s %s %s of this cell every "
+                     "frame and writes it into %s -- %d of this edit's changed halfword(s) are in "
+                     "that band, %s"
+                     % (b.describe(), "READS", _vram_rect(bands[0]), _vram_rect(b.dst_rect), n,
+                        _refresh_on_source(b)))
+    return notes
+
+
+def _gate_render_target(t: "TexelTarget") -> List[str]:
+    """**THE RENDER-TARGET GATE** -- refuse a 15bpp edit no 15bpp read samples; disclose the rest.
+    Runs after the art read, because the predicate is about THIS edit's changed texels.
+
+    :mod:`ff9mapkit.summons.render_target` holds what the headless routes census measured: in an
+    effect that renders into its DR_AREA target, Memoria hands every 15bpp key at x >= 384 the TARGET
+    (and every one left of 384 the blur texture), never VRAM. A changed texel on a cell whose every
+    measured 15bpp read went elsewhere is therefore byte-correct on disk, deploys, verifies -- and is
+    sampled by no 15bpp read. The refusal says whether the cell's OWN bytes reach the screen another
+    way (the target's draw reading them at 4/8 bpp, as palette indices) and names the cells that
+    draw the target, which is what the screen shows. ``acknowledge_render_target = true`` lifts it,
+    because headless is not a cast, and the build still says what was lifted.
+
+    The unit is the CELL, not the texel -- the route is decided per KEY, so a page routed to the target
+    routes every texel it could sample there. Every other verdict (VRAM, MIXED, UNREAD, UNPORTED,
+    UNMEASURED) is a disclosure and never refuses.
+    """
+    hz = t.page.hazards
+    if not t.enabled or hz is None or hz.render_route is None:
+        return []
+    rt = hz.render_route
+    if not rt.never_vram:
+        return ["RENDER ROUTE (a disclosure, not a refusal): %s.  %s" % (rt.describe(), RT.SPEED_CAVEAT)]
+    if not t.changed:
+        return ["RENDER TARGET, clear: %s -- and this edit changes no texel of the cell" % rt.describe()]
+    if not t.ack_render_target:
+        raise RepaintError(
+            "RENDER TARGET, %s: %d changed byte(s) on a cell no 15bpp read samples.  %s.  %s.  And "
+            "%s.  REMEDY: %s.  %s.  %s.  If you judge a 15bpp read in your cast samples VRAM, say "
+            "`%s = true` on this row -- an acknowledgement is stated, never inferred."
+            % (t.name, len(t.changed), rt.describe(), RT.LAW, rt.own_feed_line(),
+               hz.render_remedy or "no cell could be named", _cap(RT.MEASUREMENT), _cap(RT.CASTS),
+               RT.ACK_KEY))
+    return ["RENDER TARGET, acknowledged: %d changed byte(s) on a cell no measured 15bpp read samples -- "
+            "%s.  %s.  %s" % (len(t.changed), rt.describe(), _cap(rt.own_feed_line()), RT.ACK_WARNING)]
+
+
+def _cap(text: str) -> str:
+    """A quoted sentence fragment, capitalised to open a sentence of its own."""
+    return text[:1].upper() + text[1:]
+
+
+def drawn_conflict(page: "TexelPage") -> bool:
+    """A page the kit hands out at one depth that CHANNEL D's draws read at another, or at two.
+
+    Only an INDEXED page, and only one whose depth came from somewhere else: a ``drawn`` page's depth IS
+    the draw's, and a 15bpp page's own feed is the render-target gate's to state.  ``drawn_depths`` is
+    empty wherever the caller did not consult ``"drawn"``, so the ``bound`` reading never fires it.
+    """
+    hz = page.hazards
+    return bool(hz is not None and hz.drawn_depths and page.depth_source != "drawn" and not page.direct
+                and set(hz.drawn_depths) != {page.bpp})
+
+
+def _gate_drawn_conflict(t: "TexelTarget") -> List[str]:
+    """**THE DRAWN-CONFLICT GATE** -- refuse an edit to a page the draws read at another depth.
+
+    The page's depth came from the container (a reader's ``so`` record, the column's binding); the draw
+    census measured what the effect's draws actually do with these bytes, and on this cell they read
+    them at another depth too (or only).  An edit painted at the page's depth then reaches the screen
+    as a second picture -- indices repacked at a depth they were not painted at.  Like the render-target
+    gate it runs after the art read, refuses only an edit that changes a texel, and lifts with
+    ``acknowledge_drawn_conflict = true`` because headless is not a cast; the build still says what was
+    lifted.
+    """
+    if not t.enabled or not drawn_conflict(t.page):
+        return []
+    hz = t.page.hazards
+    what = ("this page is %dbpp (%s) and %s"
+            % (t.page.bpp, t.page.depth_source, hz.drawn_evidence))
+    if not t.changed:
+        return ["DRAWN AT ANOTHER DEPTH, clear: %s -- and this edit changes no texel of the cell" % what]
+    if not t.ack_drawn_conflict:
+        raise RepaintError(
+            "DRAWN AT ANOTHER DEPTH, %s: %d changed byte(s) on a page the effect's draws read at a "
+            "depth it is not painted at: %s.  An edit here reaches the screen as a second picture of "
+            "the same bytes.  %s.  If you judge your cast reads them at %dbpp only, say `%s = true` on "
+            "this row -- an acknowledgement is stated, never inferred."
+            % (t.name, len(t.changed), what, _cap(RT.DRAWN_CAVEAT), t.page.bpp, RT.DRAWN_CONFLICT_KEY))
+    return ["DRAWN AT ANOTHER DEPTH, acknowledged: %d changed byte(s) -- %s.  %s"
+            % (len(t.changed), what, RT.DRAWN_CONFLICT_WARNING)]
+
+
+def _entry_conflict(e: dict) -> bool:
+    """:func:`drawn_conflict`, read off an export manifest entry (the scaffold's view of a page)."""
+    dd = e.get("drawn_depths") or []
+    return bool(dd and e["bpp"] != 15 and e.get("depth_source") != "drawn" and set(dd) != {e["bpp"]})
+
+
 def _cell_name_at(cells: Dict[Tuple[str, int, int], "RS.PageCell"], cell: Tuple[int, int]) -> str:
     """Every writer's name for one VRAM cell -- a co-transform cell is several names and naming one of
     them in a work order would send the author to a picture the other writer overwrites."""
@@ -5287,6 +6268,9 @@ def _scenery_disclosures(t: "TexelTarget") -> List[str]:
                  "samples this cell; the container's own program registers this page at %dbpp at %d "
                  "call site(s).%s  %s"
                  % (t.page.bpp, hz.program_sites, inherited, DA.ACK_WARNING))
+    elif t.page.depth_source == "drawn":
+        L.append("DEPTH FROM CHANNEL D (A DRAW, MEASURED HEADLESS), acknowledged: no `so` record gives this "
+                 "cell a depth; %s.  %s" % (hz.drawn_evidence, RT.DRAWN_ACK_WARNING))
     if hz.spill_vs_own_page:
         L.append("SPILL-vs-OWN-PAGE: this cell's readers bind the NEIGHBOURING page at %dbpp while "
                  "its own page is named at %dbpp -- both predicates true of the same bytes, FLAGGED "
@@ -5543,7 +6527,8 @@ def art_came_out_of_base(src: Path, base: bytes, blob: bytes) -> bool:
 
 
 def _gate_manifest(blob: bytes, src: Path, target_name: str, page: TexelPage, *,
-                   paint: bool = False, base_page: bytes = b"", base: bytes = b"") -> str:
+                   paint: bool = False, base_page: bytes = b"", base: bytes = b"",
+                   reading: str = DEFAULT_READING) -> str:
     """THE STOCK-SHA DRIFT GUARD, applied where the ART is rather than where the spec is.
 
     ``export_art`` drops :data:`ART_MANIFEST` beside the PNGs it writes. When one is there, the pack
@@ -5576,6 +6561,17 @@ def _gate_manifest(blob: bytes, src: Path, target_name: str, page: TexelPage, *,
             % (target_name, mf, got, want,
                " (or its composition base %s)" % base_sha if base_sha else ""))
     from_base = bool(base_sha and got == base_sha)
+    # THE READING, where the manifest states one (a manifest from before the reading was recorded
+    # states none, and gets no extra guard -- it is never fabricated).  The two readings hand back
+    # different surfaces and, on a cell whose display binding moved, a different key for the SAME
+    # bytes, so art from one under a build of the other is drift with no symptom.
+    if "readership" in man and man.get("readership") != reading:
+        raise RepaintError(
+            "READING DRIFT on %s: %s was exported under readership %r and this build reads %r.  "
+            "The two readings are different surfaces (which cells are pages, which reader keys a "
+            "PNG), so the art was painted against a picture this build does not resolve.  Re-export "
+            "with `--readership %s`, or set `%s` in [reskin] to the reading the art came out of."
+            % (target_name, mf, man.get("readership"), reading, reading, READING_KEY))
     # BOTH surfaces, one manifest: `parts` holds the id-4 creature pages and `scenery` the VRAM
     # page-cells, and a lookup that read only the first would refuse every scenery pack as "no record"
     # -- a drift guard that fires on correct input is a guard nobody keeps.
@@ -5745,7 +6741,8 @@ def _resolve_base(spec: dict, spec_path: str, blob: bytes, game, compose: Option
 
 def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = None,
           base: Optional[bytes] = None, base_label: str = "",
-          compose: Optional[bool] = None) -> TexelBuild:
+          compose: Optional[bool] = None,
+          channels: Optional[Sequence[str]] = None) -> TexelBuild:
     """Read the install, resolve every texel target, run every gate, splice the pages.
 
     ``blob`` supplies the STOCK container directly and skips the install read, so the whole guard /
@@ -5754,9 +6751,13 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
     lane (the CLI's one-spec composition); ``compose`` overrides the spec's own
     ``[reskin.orthogonality] compose`` (``False`` is what an orthogonality REBUILD passes, so a spec
     that composes onto its sibling can never recurse into rebuilding itself).
+
+    THE READING comes from the spec's ``[reskin] readership`` (:func:`spec_channels`); ``channels``
+    is checked against it and refuses on a mismatch rather than overriding it.
     """
     r = spec["reskin"]
     effect = int(r["effect"])
+    ch, reading = spec_channels(spec, channels, spec_path)
     if blob is None:
         blob, source = R.read_stock_effect(effect, game)
     else:
@@ -5819,8 +6820,11 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
         # with NO `expect_bpp`, because what it admits is a READERSHIP, and there is no number for a
         # guard to check.
         ack_sa = _ack_bool(d, DA.ACK_MOVER_KEY, where)
-        page = texel_page(blob, name, effect, allow_program_depth=ack_pd,
-                          allow_array_depth=ack_ad, allow_displaced_readerless=ack_sa)
+        # CHANNEL D's ack, read on the same rung for the same reason: it changes RESOLUTION.
+        ack_dd = _ack_bool(d, RT.DRAWN_ACK_KEY, where)
+        page = texel_page(blob, name, effect, channels=ch, allow_program_depth=ack_pd,
+                          allow_array_depth=ack_ad, allow_displaced_readerless=ack_sa,
+                          allow_drawn_depth=ack_dd)
         where = "texel target %s" % name
         # THE MANDATORY PAIR.  `expect_bpp` is STATED by the author and CHECKED against the derivation,
         # never chosen -- and on the one channel whose in-game trial FAILED the kit declines to accept
@@ -5849,6 +6853,15 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
                 "mean it.  %s  %s"
                 % (where, DA.ACK_ARRAY_KEY, page.bpp, _ident or "the column's novel array entries",
                    page.bpp, DA.ORDER_UNMEASURED, DA.ARRAY_CAVEAT))
+        # ...and CHANNEL D's, on the same rung: the depth is measured, and still the author states it.
+        if page.depth_source == "drawn" and "expect_bpp" not in d:
+            raise RepaintError(
+                "%s says `%s = true` but states NO `expect_bpp`.  The acknowledgement is your "
+                "judgement that the depth the effect's draws read this cell at headless is the depth your "
+                "cast reads it at; `expect_bpp` is the number the kit checks that judgement against, "
+                "and an ack with nothing to check is not a guard.  The draw read it at %dbpp -- write "
+                "`expect_bpp = %d` if you mean it.  %s"
+                % (where, RT.DRAWN_ACK_KEY, page.bpp, page.bpp, RT.DRAWN_CAVEAT))
         if "expect_bpp" in d:
             assert_expect_bpp(blob, page, int(d["expect_bpp"]), where)
         if "expect_cell" in d:
@@ -5904,7 +6917,14 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
             # refused AT resolution.  This one resolves nothing: the page is emitted either way and
             # the ack arms a build-time obligation, exactly like `acknowledge_spill` beside it.
             ack_second_array=ack_sa,
-            ack_program_depth=ack_pd, ack_array_depth=ack_ad))
+            # THE SCROLL BLIT resolves nothing either: the page is emitted, and the gate that reads
+            # this needs the CHANGED texels, so it runs after the art read.
+            ack_scroll_blit=_ack_bool(d, SB.ACK_KEY, where),
+            # THE RENDER TARGET likewise: the gate needs the CHANGED texels.
+            ack_render_target=_ack_bool(d, RT.ACK_KEY, where),
+            # ...and CHANNEL D's conflict: the same shape of gate, on the same changed texels.
+            ack_drawn_conflict=_ack_bool(d, RT.DRAWN_CONFLICT_KEY, where),
+            ack_program_depth=ack_pd, ack_array_depth=ack_ad, ack_drawn_depth=ack_dd))
 
     # ---- THE GATES THAT NEED NO ART, all of them before a single PNG is opened --------------------
     # An armed-and-unread table, a program-VRAM write, an unnamed co-transform writer and an unnamed
@@ -5918,7 +6938,9 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
         if t.enabled:
             t.hazard_notes = [n for n in [_gate_program_vram(t.page, "texel target %s" % t.name)]
                               if n]
-    models = bound_models(blob) if scenery_live else []
+    # AT THE BUILD'S OWN READING: the NAME-EVERY-COLUMN gate and the coverage census below owe art
+    # for, and count, the cells the resolved surface says each model reads -- never the other cover.
+    models = reading_models(blob, ch) if scenery_live else []
     ct_notes = _gate_cotransform(blob, targets)
     sp_notes = _gate_spill_columns(blob, targets, models)
     sa_notes = _gate_second_array(targets)
@@ -5948,7 +6970,7 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
         t.stock = bytes(base[t.page.page_offset:t.page.page_offset + t.page.page_bytes])
         t.manifest_note = _gate_manifest(blob, src, t.name, t.page,   # about the PAGE outranks a
                                          paint=t.quantized, base_page=t.stock,   # guard on the ART
-                                         base=base)
+                                         base=base, reading=reading)
         # THE ART READ, at THIS page's own depth.  Dispatching on the DERIVED depth (never on the
         # file's shape) is what makes a wrong `expect_bpp` a refusal rather than a differently-shaped
         # picture that packs to exactly the right byte count.
@@ -5995,6 +7017,14 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
             raise RepaintError("%s decoded to %d bytes, this cell is %d"
                                % (t.name, len(t.new), t.page.page_bytes))
         t.changed = tuple(i for i in range(len(t.stock)) if t.stock[i] != t.new[i])
+        # THE SCROLL BLIT FIRST, ahead of the cutout law: "these texels never reach the screen"
+        # outranks every judgement about what they would have looked like.
+        t.hazard_notes += _gate_scroll_blit(t)
+        # THE RENDER TARGET beside it, for the same reason: a 15bpp texel no 15bpp read samples
+        # is a texel that never reaches the screen as painted.
+        t.hazard_notes += _gate_render_target(t)
+        # CHANNEL D's CONFLICT beside them: these texels may reach the screen as another picture.
+        t.hazard_notes += _gate_drawn_conflict(t)
         # THE CUTOUT LAW, counted in TEXEL space at every depth (see :func:`texel_view`).
         zeros, zeros_why = transparent_values(base, t.page)
         zset, st, nw = set(zeros), texel_view(t.page, t.stock), texel_view(t.page, t.new)
@@ -6054,7 +7084,8 @@ def build(spec: dict, spec_path: str = "?", game=None, blob: Optional[bytes] = N
                       sha_stock=sha_stock, sha_out=_sha(patched), pages=pages, targets=targets,
                       pmap=pmap, guard=guard, base_label=base_label,
                       region_invariant=region_invariant,
-                      base_changed=tuple(base_delta), orth_specs=orth)
+                      base_changed=tuple(base_delta), orth_specs=orth,
+                      channels=ch, reading=reading)
 
 
 # ============================================================ (6) THE SELF-CHECK
@@ -6618,6 +7649,9 @@ def stage(b: TexelBuild, root=None, game_root=None, allow_install: bool = False,
     manifest = {
         "spec": b.spec_path, "effect": b.effect, "label": b.label,
         "lane": "texel/" + "+".join(lanes),
+        # THE READING the whole build resolved under: a cast of a gained cell staged on `effective`
+        # tests the displacement model, and the same cast on `bound` cannot -- the record says which
+        "readership": b.reading,
         "stock_sha256": b.sha_stock, "base_sha256": b.sha_in, "patched_sha256": sha,
         "composed": b.composed, "composed_on": b.base_label,
         "composed_base_bytes": len(b.base_changed),
@@ -6646,6 +7680,17 @@ def stage(b: TexelBuild, root=None, game_root=None, allow_install: bool = False,
                             # READERSHIP one -- and a cast of a cell whose readers all carry a mover
                             # is exactly the cast that would test it, so the record has to say so.
                             DA.ACK_MOVER_KEY: t.ack_second_array,
+                            # THE SCROLL BLIT's word: a cast of a destination band is exactly the
+                            # cast that would test whether the blit runs, so the record says so.
+                            SB.ACK_KEY: t.ack_scroll_blit,
+                            # THE RENDER TARGET's word: a cast of a NEVER_VRAM cell is exactly the
+                            # cast that would test whether its 15bpp reads ever sample VRAM.
+                            RT.ACK_KEY: t.ack_render_target,
+                            # CHANNEL D's word: a cast of a drawn cell is exactly the cast that tests
+                            # whether the census's draw depth is the cast's.
+                            RT.DRAWN_ACK_KEY: t.ack_drawn_depth,
+                            # ...and its conflict word: a cast of such a page tests which depth wins.
+                            RT.DRAWN_CONFLICT_KEY: t.ack_drawn_conflict,
                             # W6b-3 (iv): WHICH ARITHMETIC this row was staged under, and
                             # whether the reader it was attributed to was routed here by it.
                             # A cast record that cannot say which model it tested is a cast
@@ -6831,7 +7876,55 @@ def scenery_lines(blob: bytes, effect: Optional[int] = None, *,
             by[r.klass] = by.get(r.klass, 0) + 1
         L.append("    REFUSED %d cell(s): %s"
                  % (len(refused), ", ".join("%s %d" % (k, by[k]) for k in sorted(by))))
-    return L + depth_attribution_lines(blob, effect, pages, channels=channels)
+    return (L + scroll_blit_lines(effect, pages) + render_target_lines(effect, pages)
+            + depth_attribution_lines(blob, effect, pages, channels=channels))
+
+
+def render_target_lines(effect: Optional[int], pages: Sequence[TexelPage]) -> List[str]:
+    """The render-target block of the scenery report: printed only where the edit surface holds a
+    15bpp cell, so the listing never reads "clean" on a cell whose repaint the build will refuse."""
+    cells = [p for p in pages if p.hazards is not None and p.hazards.render_route is not None]
+    if not cells:
+        return []
+    t0 = RT.target_from(effect)
+    L = ["    RENDER TARGET: %d 15bpp cell(s); %s"
+         % (len(cells), "this effect renders into its DR_AREA target from f%d" % t0 if t0 is not None
+            else "this effect never renders into a DR_AREA target")]
+    for p in cells:
+        rt = p.hazards.render_route
+        if rt.never_vram:
+            L.append("      NEVER_VRAM  %-20s no 15bpp read samples it; an edit there REFUSES at build "
+                     "-- %s%s" % (p.name, "its own bytes feed the target at %s bpp; "
+                                  % "/".join(str(f.bpp) for f in rt.own_feeds) if rt.own_feeds else "",
+                                  p.hazards.render_remedy))
+        else:
+            L.append("      %-11s %-20s disclosed, not refused -- %s"
+                     % (rt.verdict, p.name, rt.describe().split(": ", 1)[-1]))
+    return L
+
+
+def scroll_blit_lines(effect: Optional[int], pages: Sequence[TexelPage]) -> List[str]:
+    """The op-144 block of the scenery report: printed only where the container queues a scroll blit,
+    and it names every destination and source cell on the edit surface, so the listing never reads
+    "clean" on a cell whose repaint the build will refuse."""
+    bs = SB.blits(effect)
+    if not bs:
+        return []
+    dst = [p for p in pages if p.hazards is not None and p.hazards.scroll_dst]
+    src = [p for p in pages if p.hazards is not None and p.hazards.scroll_src]
+    L = ["    SCROLL BLITS (%s): %d site(s), %d distinct rect(s) -- %s"
+         % (" + ".join(k for k, axis in (("HLE op 144", "v"), ("the program's own scroll", "h"))
+                       if any(b.axis == axis for b in bs)),
+            sum(b.sites for b in bs), len(bs), "; ".join(b.describe() for b in bs))]
+    for p in dst:
+        L.append("      DESTINATION %-20s %d of %d halfwords rewritten every frame; an edit there "
+                 "REFUSES at build -- %s"
+                 % (p.name, len(p.hazards.scroll_rewritten), RS.PAGE_CELL_W * CELL_LINES,
+                    "; ".join(p.hazards.scroll_remedy)))
+    for p in src:
+        L.append("      SOURCE      %-20s copied into %s, scrolling -- disclosed, not refused"
+                 % (p.name, ", ".join("(%d,%d)" % b.dst for b in p.hazards.scroll_src)))
+    return L
 
 
 def depth_attribution_lines(blob: bytes, effect: Optional[int],
@@ -6860,12 +7953,21 @@ def depth_attribution_lines(blob: bytes, effect: Optional[int],
     dual = [k for k in prog if DA.PROGRAM_DEPTH[k].dual]
     adv = RS.array_depth_view(blob) if "so-array" in ch else {}
     a_dual = sum(1 for v in adv.values() if len(v.depths) > 1)
+    # per PAGE where the draw census covers the container (a cell is not a picture), else per cell
+    by_page = "drawn" in ch and RT.DC.censused(effect)
+    drawn = (RT.drawn_pages(effect) if by_page else RT.drawn_cells(effect)) if "drawn" in ch else {}
     L = ["", "  THE DEPTH CHANNELS (W6b-2, W6b-3) -- %s" % DA.GRANULARITY_LAW,
          "    depth source: so-uv %d (a reader's own UVs) . so-page %d (CHANNEL G, INHERITED from "
          "the column -- LICENSED) . so-array %d (CHANNEL A, only behind `%s`) . program %d "
-         "(CHANNEL P, only behind `%s`)"
+         "(CHANNEL P, only behind `%s`) . drawn %d (CHANNEL D, only behind `%s`)"
          % (by_src["so-uv"], by_src["so-page"], by_src["so-array"], DA.ACK_ARRAY_KEY,
-            by_src["program"], DA.ACK_KEY),
+            by_src["program"], DA.ACK_KEY, by_src["drawn"], RT.DRAWN_ACK_KEY),
+         ("    CHANNEL D here: %d %s the effect's draws read, %d of them at TWO depths "
+          "(a REFUSAL, never a vote)" % (len(drawn), "page(s) whose bytes" if by_page else "cell(s)",
+                                         sum(1 for f in drawn.values() if len(f) > 1)))
+         if "drawn" in ch else
+         "    CHANNEL D here: NOT CONSULTED -- this caller's channel set is %s"
+         % (", ".join(sorted(ch)),),
          "    CHANNEL P here: %d cell(s) this container's own id-3 program registers a depth for, "
          "%d of them at TWO depths (a REFUSAL, never a vote)" % (len(prog), len(dual)),
          ("    CHANNEL A here: %d cell(s) an entry of a MULTI-PART `so` record names a depth for, "
@@ -6923,12 +8025,18 @@ def describe(b: TexelBuild) -> List[str]:
          "  repaint sha256 : %s" % b.sha_out,
          "  container      : %d B in, %d B out (same length -- every page is spliced in place)"
          % (len(b.orig), len(b.patched)),
+         "  readership     : %s" % (
+             "%s -- the cell the hardware SAMPLES (MODEL %s), the default" % (b.reading,
+                                                                             DISPLACEMENT_MODEL)
+             if "so-displaced" in frozenset(b.channels) else
+             "%s -- the cell each record BINDS; the gain half DECLINED (MODEL %s applied nowhere)"
+             % (b.reading, DISPLACEMENT_MODEL)),
          ""]
     if b.region_invariant:
         L += ["  THE REGION INVARIANT (W7 R1, enforced at the build call site)",
               "    %s" % b.region_invariant, ""]
     L += derivation_lines(b.stock, b.pages)
-    L += [""] + scenery_lines(b.stock, b.effect)
+    L += [""] + scenery_lines(b.stock, b.effect, channels=b.channels)
     L += ["", "  THE TEXEL TARGETS"]
     for t in b.targets:
         if not t.enabled:

@@ -322,7 +322,7 @@ def specs_on_firing_cells(firing: Set[Tuple[str, Tuple[int, int]]]) -> List[str]
     return out
 
 
-def frozen_spec_verdicts() -> List[Tuple[str, str, str]]:
+def frozen_spec_verdicts() -> List[Tuple[str, str, str, str]]:
     """``[(spec, what the SHIPPED kit says with no ack, what it says WITH the ack)]``.
 
     ★ THE FREEZE, ASSERTED RATHER THAN ANNOUNCED.  The owner froze both Odin cast records as HISTORY:
@@ -340,11 +340,23 @@ def frozen_spec_verdicts() -> List[Tuple[str, str, str]]:
         ef = spec["reskin"]["effect"]
         with open(os.path.join(CORPUS, "ef%03d.bytes" % ef), "rb") as fh:
             blob = fh.read()
+        # AS FILED, the record now refuses FIRST on its other row's page offset: it guards
+        # `cell.s0.x704_y384` at the PRE-WALK 0x25668, and THE UPLOAD WALK puts that cell at 0x25800.
+        # So the adoption's two refusals are probed with that one guard re-pointed at the walk, and
+        # the file itself is required to refuse on the offset -- a second reason it stays frozen.
+        try:
+            RP.build(spec, path, blob=blob)
+            filed = "BUILT"
+        except RP.RepaintError as e:
+            filed = "PRE-WALK-OFFSET" if "the spec guards file" in str(e) else "OTHER: %s" % str(e)[:60]
+        offs = {pc.name: pc.off for pc in RS.page_cells(blob).values()}
+        rows = [dict(t, expect_page_offset=offs[t["name"]]) if "expect_page_offset" in t else t
+                for t in spec["reskin"]["texel"]]
         verdicts = []
         for ack in (False, True):
             probe = {"reskin": dict(spec["reskin"], texel=[
                 dict(t, **({DA.ACK_MOVER_KEY: True} if ack and t.get("name") == FROZEN_ODIN_CELL
-                           else {})) for t in spec["reskin"]["texel"]])}
+                           else {})) for t in rows])}
             try:
                 RP.build(probe, path, blob=blob)
                 verdicts.append("BUILT")
@@ -353,7 +365,7 @@ def frozen_spec_verdicts() -> List[Tuple[str, str, str]]:
                 verdicts.append("DISPLACED-READERLESS" if "DISPLACED-READERLESS" in msg
                                 else ("PALETTE-IS-A-HEADER-FACT" if "indexes into" in msg
                                       else "OTHER: %s" % msg[:60]))
-        out.append((name, verdicts[0], verdicts[1]))
+        out.append((name, verdicts[0], verdicts[1], filed))
     return out
 
 
@@ -1002,17 +1014,19 @@ def u5_shipped_casts(D: Data) -> None:
     chk("neither has been silently REPAIRED with an ack", acked, 0)
     verdicts = frozen_spec_verdicts()
     chk("frozen records that BUILD under the shipped kit",
-        sum(1 for _, a, b in verdicts if "BUILT" in (a, b)), PIN["frozen_specs_that_build"])
+        sum(1 for _, a, b, f in verdicts if "BUILT" in (a, b, f)), PIN["frozen_specs_that_build"])
     chk("...with no ack, every one refuses as DISPLACED-READERLESS",
-        sorted({a for _, a, _ in verdicts}), ["DISPLACED-READERLESS"])
+        sorted({a for _, a, _, _ in verdicts}), ["DISPLACED-READERLESS"])
     chk("...and WITH the ack the palette is a HEADER FACT and refuses again",
-        sorted({b for _, _, b in verdicts}), ["PALETTE-IS-A-HEADER-FACT"])
+        sorted({b for _, _, b, _ in verdicts}), ["PALETTE-IS-A-HEADER-FACT"])
+    chk("...and AS FILED each refuses first on its PRE-WALK page offset (THE UPLOAD WALK)",
+        sorted({f for _, _, _, f in verdicts}), ["PRE-WALK-OFFSET"])
     print("   ★ THE OWNER'S DECISION: BOTH ef424 CAST RECORDS ARE FROZEN AS HISTORY.  They reproduce "
           "only against the PRE-adoption kit; their bodies are NOT retro-edited and a superseding "
           "note stands at the top of each.")
-    for name, no_ack, with_ack in verdicts:
-        print("      FROZEN  %-22s no ack -> %-22s with the ack -> %s"
-              % (name, no_ack, with_ack))
+    for name, no_ack, with_ack, filed in verdicts:
+        print("      FROZEN  %-22s no ack -> %-22s with the ack -> %s (as filed: %s)"
+              % (name, no_ack, with_ack, filed))
     print("   ⚠ `%s` DOES NOT RESCUE THEM -- it lifts the readerless refusal and the row then fails "
           "on `palette_from`, because the cell re-sources so-uv -> so-page and the COLUMN's own CLUT "
           "word is 243 where the departed reader 0x2ec34's key was 242.  A bare re-point would also "

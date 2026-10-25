@@ -14,6 +14,7 @@ The engine override search is the Resources loose-asset path: a block's file liv
 from __future__ import annotations
 
 import math
+import re
 import struct
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -62,7 +63,9 @@ def wrap_block_col(bx: int) -> int:
     is DEAD -- the engine can never build that lookup key). Build/verify geometry stays in
     CONTINUOUS unwrapped coordinates; this is the label conversion applied once, at the install
     boundary. Rows do NOT get this: z also wraps engine-side, but edged-z is kit policy -- the
-    row-bounds refusal (the dunes incident) stays."""
+    row-bounds refusal (the dunes incident) stays. (A read may wrap rows: the orphan census reads its
+    context ring across both edges, ``orphangate._ring_blocks``. On the live map no land meets across
+    the row edge -- 23.6u of water at the narrowest, overworld editor C15.)"""
     return bx % GRID_COLS
 
 
@@ -685,6 +688,89 @@ def read_ledger(mod_root) -> list:
         if isinstance(e, dict):
             rows.append(e)
     return rows
+
+
+#: a world file the ledger tracks: a block mesh or its ``Donor.txt`` sidecar anywhere under a disc tree (a parked
+#: ``.bak-<ts>`` copy or a ``.promoting`` stage does not end so)
+_LEDGERED_FILE = re.compile(r"Disc(\d+)/(?:[^/]+/)*Block\[(\d+)\]\[(\d+)\] (\w+)\.(?:ff9mesh|txt)$")
+LEDGER_STATUSES = ("true", "stale", "foreign", "unledgered")
+
+
+def ledger_audit(mod_root, *, disc: int | None = None) -> list:
+    """THE LEDGER AGAINST THE BYTES, file by file: every deployed world file under ``mod_root`` (the block meshes and
+    their ``Donor.txt`` sidecars, on every disc tree, or ``disc``'s only), judged by the rows of its OWN
+    ``(disc, cell, part)``:
+      * ``true``: its last row names its bytes -- what Promote, Revert and the ownership reads
+        (``draft._ledger_tags``, ``river.deploy_ownership``) trust;
+      * ``stale``: an EARLIER row names them. The file was put back behind the ledger (a backup restored by a plain
+        copy: the comp20 bench's R4 revert on 2026-10-06 left 19), so the last row describes bytes that are gone,
+        and a Promote would carry them under the wrong writer;
+      * ``foreign``: it has rows and none names its bytes (a hand edit, another session);
+      * ``unledgered``: no row at all (a pre-ledger deploy).
+    Returns ``[{"rel", "disc", "cell", "part", "status", "sha256", "last", "match"}]`` sorted by path; ``last`` is the
+    file's last row, ``match`` the latest earlier row naming its bytes (for ``stale``)."""
+    import hashlib
+    mod_root = Path(mod_root)
+    rows: dict = {}
+    for e in read_ledger(mod_root):
+        try:
+            rows.setdefault((int(e["write_disc"]), int(e["cell"][0]), int(e["cell"][1]), str(e["part"])), []).append(e)
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue                                     # a row of another shape claims no file
+    out = []
+    root = mod_root / "FF9_Data" / "WorldMap"
+    for p in sorted(root.rglob("Block*")) if root.is_dir() else ():
+        rel = p.relative_to(mod_root).as_posix()
+        m = _LEDGERED_FILE.search(rel)
+        if not p.is_file() or not m or (disc is not None and int(m[1]) != disc):
+            continue
+        key = (int(m[1]), int(m[2]), int(m[3]), m[4])
+        sha = hashlib.sha256(p.read_bytes()).hexdigest()
+        rs = rows.get(key, [])
+        last = rs[-1] if rs else None
+        match = None
+        if not rs:
+            status = "unledgered"
+        elif last.get("sha256") == sha:
+            status = "true"
+        else:
+            match = next((e for e in reversed(rs[:-1]) if e.get("sha256") == sha), None)
+            status = "stale" if match is not None else "foreign"
+        out.append({"rel": rel, "disc": key[0], "cell": (key[1], key[2]), "part": key[3], "status": status,
+                    "sha256": sha, "last": last, "match": match})
+    return out
+
+
+def ledger_repair(mod_root, *, disc: int | None = None, audit=None) -> list:
+    """Re-ledger every ``stale`` file (:func:`ledger_audit`): append a row naming its bytes NOW, attributed to the
+    writer whose bytes they are -- the earlier row's own ``argv`` and ``pipeline`` -- with ``repair`` saying who
+    repaired it and which rows it rests on. ``foreign`` and ``unledgered`` files are never touched: no row says whose
+    they are, and the ledger does not bless bytes it never saw. The ledger is parked first (:func:`park_backup`);
+    returns the rows appended (none when nothing is stale, and then nothing is written)."""
+    import json
+    from datetime import datetime, timezone
+    from .. import __version__
+    mod_root = Path(mod_root)
+    audit = ledger_audit(mod_root, disc=disc) if audit is None else audit
+    stale = [a for a in audit if a["status"] == "stale"]
+    if not stale:
+        return []
+    park_backup(_ledger_path(mod_root))
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    new = []
+    for a in stale:
+        m, last = a["match"], a["last"]
+        entry = {"cell": [a["cell"][0], a["cell"][1]], "part": a["part"], "write_disc": a["disc"],
+                 "read_disc": m.get("read_disc", a["disc"]), "sha256": a["sha256"], "kit": __version__, "utc": now,
+                 "argv": m.get("argv"), "via": "ledger_repair",
+                 **({"pipeline": dict(m["pipeline"])} if m.get("pipeline") else {}),
+                 "repair": {"by": _DEPLOY_ARGV, "restored_to_utc": m.get("utc"),
+                            "superseded_utc": (last or {}).get("utc")}}
+        new.append(entry)
+    with open(_ledger_path(mod_root), "a", encoding="utf-8") as fh:
+        for entry in new:
+            fh.write(json.dumps(entry) + "\n")
+    return new
 
 
 #: the top-level ``ff9mapkit`` options that take a value (``cli.build_parser``; a test pins the two): a recorded argv

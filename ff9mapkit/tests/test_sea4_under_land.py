@@ -105,6 +105,38 @@ def test_cut_is_conservative_and_leaves_no_hole_outside_the_land():
             assert name != "MISS", f"open water at ({x:.1f}, {z:.1f}) lost its Sea4 -- render/query hole"
 
 
+
+def test_cut_keeps_a_tri_whose_corners_are_under_land_but_whose_middle_is_not():
+    """A COVE'S INNER CORNER (studies/terrain-malleability/canopystep/HOLES.md): on concave land a sea tri's three
+    corners can all sit under the two arms of the coast while its middle spans the cove's water. "All corners under
+    land" then drops it and the game shows sky there (the round-23 wedges). Land here is an L: one arm along z -10..-6,
+    one along x 6..10; the grid tri (8,-16) (8,-8) (16,-8) has a corner on each arm and its centroid in the notch."""
+    arm_a = _land_square(6.0, 18.0, -10.0, -6.0)
+    arm_b = _land_square(6.0, 10.0, -18.0, -6.0)
+    land = _mesh("Terrain", [[tuple(arm.chan_arrays[CH_POS][j]) for j in t] for arm in (arm_a, arm_b) for t in arm.tris])
+    sea = _grid_plane()
+    cover = I._xz_tri_cover(land)
+    corners = [(8.0, -16.0), (8.0, -8.0), (16.0, -8.0)]
+    assert all(I._xz_inside(cover, x, z) for x, z in corners)                 # the premise: every corner on land
+    notch = (10.67, -10.67)
+    assert not I._xz_inside(cover, *notch)                                    # ... and the middle in the cove
+
+    def grounds(cut):
+        meshlist = [("Terrain", land), ("Sea4", cut)]
+        return P.place(meshlist, notch[0], notch[1], 0.0, sky=True)[1]
+    assert grounds(I._cut_plane(sea, 0, 0, frozenset(), land)) != "MISS"     # the cove keeps its water
+    # break it: the old rule (corners decide alone) tears the hole
+    real = I._xz_uncovered_area
+    I._xz_uncovered_area = lambda cover_, tri_: 0.0
+    try:
+        assert grounds(I._cut_plane(sea, 0, 0, frozenset(), land)) == "MISS"
+    finally:
+        I._xz_uncovered_area = real
+    # and a tri wholly under one arm is still cut (the law itself): arm b's interior sea at (8, -12)
+    whole = _land_square(0.0, 24.0, -24.0, 0.0)
+    cut = I._cut_plane(sea, 0, 0, frozenset(), whole)
+    assert P.place([("Terrain", whole), ("Sea4", cut)], 12.0, -12.0, 0.0)[1] != "Sea4"
+
 def test_open_ocean_block_is_untouched():
     """No land in the block -> the plane must survive whole."""
     sea = _grid_plane()

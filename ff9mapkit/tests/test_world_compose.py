@@ -333,7 +333,7 @@ def test_the_river_row_runs_in_the_base_tier_before_relief(monkeypatch, tmp_path
                                                                                          False, False)
     assert kw["donor"].name == "cluster-c"                                   # the default donor
     assert "[[river]] cluster-c: at = [512, 128], 3 cells, deployed 132 files" in capsys.readouterr().out
-    assert FU.COMPOSE_TIERS[0] == ("placement", "island", "river")
+    assert FU.COMPOSE_TIERS[0] == ("placement", "island", "river", "sink", "morph", "transplant")
 
 
 @pytest.mark.parametrize("row, kwargs, error", [

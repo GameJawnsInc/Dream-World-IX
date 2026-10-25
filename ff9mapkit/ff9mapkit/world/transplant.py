@@ -2903,6 +2903,22 @@ def _rot_region_xz(x: float, z: float, nrot: int, ext, ext_r):
     return ext_r[0] / 2.0 + dx, -ext_r[1] / 2.0 + dz
 
 
+def _land_fit_gate(lb_c, margin: float, ext, cell) -> dict:
+    """THE LAND-FIT GATE: the carried land's post-clip bbox ``lb_c`` (the target rect's frame: x 0..ext[0], z 0..-ext[1])
+    keeps ``margin`` of sea to every side. ``where`` (rung C16, world x, z) = the middle of each side of the land that
+    comes too near the frame -- the editor's marks, where the block middle said nothing."""
+    ok = lb_c is None or (lb_c[0] >= margin and lb_c[1] <= ext[0] - margin
+                          and lb_c[2] >= -ext[1] + margin and lb_c[3] <= -margin)
+    gate = {"gate": "land-fit", "bbox": lb_c, "margin": margin, "ok": ok}
+    if not ok:
+        ox, oz = 64.0 * cell[0], -64.0 * cell[1]
+        mx, mz = (lb_c[0] + lb_c[1]) / 2.0, (lb_c[2] + lb_c[3]) / 2.0
+        sides = [(lb_c[0] < margin, (lb_c[0], mz)), (lb_c[1] > ext[0] - margin, (lb_c[1], mz)),
+                 (lb_c[2] < -ext[1] + margin, (mx, lb_c[2])), (lb_c[3] > -margin, (mx, lb_c[3]))]
+        gate["where"] = [[ox + x, oz + z] for bad, (x, z) in sides if bad]
+    return gate
+
+
 def _carry_stitch_gate(pairs: dict, fwd, loc, fixed=(), emitted=()) -> dict:
     """THE CARRY STITCH GATE (terrain study defect 10: ``weld_audit`` flags only near-miss pairs, 0 < d < 0.05u, so it
     cannot see a weld torn wider than that). ``pairs`` = ``{part: (pre, post)}``: the donor-cell vertices of every
@@ -3236,10 +3252,7 @@ def transplant(mod_folder: str, *, cell, donor, rot: int = 0, shift="auto", part
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= 64.0 + FRAME_EPS
                          and -64.0 - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
     lb_c = None if math.isinf(lbc[0]) else list(lbc)
-    gates.append({"gate": "land-fit", "bbox": lb_c, "margin": land_margin,
-                  "ok": lb_c is None or (lb_c[0] >= land_margin and lb_c[1] <= 64.0 - land_margin
-                                         and lb_c[2] >= -64.0 + land_margin
-                                         and lb_c[3] <= -land_margin)})
+    gates.append(_land_fit_gate(lb_c, land_margin, (64.0, 64.0), (bx, by)))
     if obj_tris:
         ox = [v[0][0] for t in obj_tris for v in t]
         oz = [v[0][2] for t in obj_tris for v in t]
@@ -3592,6 +3605,18 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     return summary
 
 
+def _seam_label(bm, part: str):
+    """A carried block mesh at an unwrapped seam column (``Block[24][y]``) under its wrapped label
+    (``interior._wrap_label``'s relabel: the bytes are block-local and untouched). A column already in [0, 24) is
+    returned as-is, so every carry off the seam deploys exactly what it did before."""
+    import dataclasses
+    from . import mesh as M_
+    wbx = M_.wrap_block_col(bm.x)
+    if wbx == bm.x:
+        return bm
+    return dataclasses.replace(bm, x=wbx, name=f"Block[{wbx}][{bm.y}] {part}")
+
+
 def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0, shift="auto",
                       parts=PARTS, tweaks=(), strips="auto", extra: float = 8.0,
                       land_margin: float = 2.0, disc: int = 1, lod: str = "0_1", game=None,
@@ -3658,9 +3683,15 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     if not (0 <= dbx and dbx + nx <= GRID_X and 0 <= dby and dby + ny <= GRID_Y):
         raise ValueError(f"donor rect ({dbx},{dby})+{nx}x{ny} out of the {GRID_X}x{GRID_Y} "
                          f"overworld grid")
-    if not (0 <= bx and bx + tw <= GRID_X and 0 <= by and by + th <= GRID_Y):
+    # THE SEAM WRAP (overworld editor C23): the world is an x-torus, so a target rect may run past column 23 and
+    # carry across x = 0. Inside, every target key stays UNWRAPPED (column 24 is column 0's east neighbour, so the
+    # region's own adjacency -- the Wang, texture and orphan gates' -- holds); a column takes its wrapped label only
+    # where it meets a file: the occupancy and overwrite reads, the donor-identity compare, the deploy, the report.
+    # A block's verts are block-local (24 * 64 = the world's width), so the relabel moves no byte. Rows stay edged.
+    if not (0 <= bx < GRID_X and tw <= GRID_X and 0 <= by and by + th <= GRID_Y):
         raise ValueError(f"target rect ({bx},{by})+{tw}x{th} (rot {rot}) out of the "
                          f"{GRID_X}x{GRID_Y} overworld grid")
+    from .mesh import wrap_block_col as lab         # an unwrapped target column -> the engine's label
     tweaks = list(tweaks)
     _check_tweak(tweaks)               # the Tweak protocol, at the call site (rec 16)
     parts = tuple(parts)
@@ -3674,11 +3705,11 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     # island.landmass -- deliberately NOT keyed on ``target_disc != disc`` (s75 CLONE mode).
     if not allow_real_target and not all_sea_target:
         for (i, j) in tcells:
-            occupied = {p: len(world_tris(bx + i, by + j, p, disc=disc, lod=lod, game=game))
+            occupied = {p: len(world_tris(lab(bx + i), by + j, p, disc=disc, lod=lod, game=game))
                         for p in parts}
             occupied = {p: n for p, n in occupied.items() if n}
             if occupied:
-                raise ValueError(f"target cell ({bx + i},{by + j}) is a REAL world block "
+                raise ValueError(f"target cell ({lab(bx + i)},{by + j}) is a REAL world block "
                                  f"({occupied}) -- transplanting onto it would replace real game "
                                  f"geometry. Pick empty open-ocean cells, or pass "
                                  f"allow_real_target=True if you really mean it")
@@ -3992,7 +4023,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         # ocean at the prefab's block-local pose. At the IDENTITY transform the natural
         # cell legitimately renders its own object (in-place morphs).
         identity = (rtarget == disc and nrot == 0 and sh_x == 0.0 and sh_z == 0.0
-                    and (bx + i, by + j) == (dbx + nat[0], dby + nat[1]))
+                    and (lab(bx + i), by + j) == (dbx + nat[0], dby + nat[1]))
         # THE OBJECT POSE LAW (the bent crescent's cave door, 2026-08-04): an object may
         # ride its NATURAL sidecar iff its pose stays lawful -- the carry UNROTATED and
         # UNSHIFTED and the object's verts untouched by the tweaks (not dropped, not
@@ -4062,7 +4093,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     # 6) GATES -- all must pass; I cannot see the game, these substitute for eyes.
     gates = []
     for (i, j), mlist in deploy_meshes.items():
-        arm, epg = effective_prefab_arm(mlist, cell=(bx + i, by + j), sidecar_parts=cell_sidecar[(i, j)],
+        arm, epg = effective_prefab_arm(mlist, cell=(lab(bx + i), by + j), sidecar_parts=cell_sidecar[(i, j)],
                                         disc=disc, lod=lod)
         gates.append(epg)
         if arm is not None:
@@ -4089,11 +4120,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                   "ok": (-FRAME_EPS <= bb[0] and bb[1] <= ext_r[0] + FRAME_EPS
                          and -ext_r[1] - FRAME_EPS <= bb[2] and bb[3] <= FRAME_EPS)})
     lb_c = None if math.isinf(lbc[0]) else list(lbc)
-    gates.append({"gate": "land-fit", "bbox": lb_c, "margin": land_margin,
-                  "ok": lb_c is None or (lb_c[0] >= land_margin
-                                         and lb_c[1] <= ext_r[0] - land_margin
-                                         and lb_c[2] >= -ext_r[1] + land_margin
-                                         and lb_c[3] <= -land_margin)})
+    gates.append(_land_fit_gate(lb_c, land_margin, ext_r, (bx, by)))
     for c in dcells:
         if not obj_by_cell[c]:
             continue
@@ -4269,7 +4296,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                   "ok": not bholes})
     gates.append(_mod_overwrite_gate(
         mod_folder,
-        {(bx + i, by + j): tuple(cell_meta[(i, j)]["donor"]) for (i, j) in deploy_meshes},
+        {(lab(bx + i), by + j): tuple(cell_meta[(i, j)]["donor"]) for (i, j) in deploy_meshes},
         disc=rtarget, lod=lod, game=game, allow=allow_mod_overwrite))
     clean = all(g["ok"] for g in gates)
 
@@ -4319,7 +4346,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                "strips": sorted(strips_with_data & windowed),
                "coverage_strips": sorted(strips_with_data - windowed), "carried": carried,
                "clipped_out": clipped_out,
-               "cells": {f"{bx + i},{by + j}": cell_meta[(i, j)] for (i, j) in tcells
+               "cells": {f"{lab(bx + i)},{by + j}": cell_meta[(i, j)] for (i, j) in tcells
                          if (i, j) in cell_meta},
                "frame_profile": frame_profile,
                "gates": gates, "clean": clean, "dry_run": dry_run, "deployed": []}
@@ -4329,16 +4356,16 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         if (i, j) not in deploy_meshes:
             continue
         for (pn, bm) in deploy_meshes[(i, j)]:
-            summary["deployed"].append(str(M.deploy_override(bm, mod_folder=mod_folder,
+            summary["deployed"].append(str(M.deploy_override(_seam_label(bm, pn), mod_folder=mod_folder,
                                                              game=game, lod=lod, part=pn,
                                                              disc=rtarget)))
         if (i, j) in arm_meshes:                              # the divert-arm stub Terrain (water-only cell)
-            summary["deployed"].append(str(M.deploy_override(arm_meshes[(i, j)], mod_folder=mod_folder,
-                                                             game=game, lod=lod, part="Terrain",
-                                                             disc=rtarget)))
+            summary["deployed"].append(str(M.deploy_override(_seam_label(arm_meshes[(i, j)], "Terrain"),
+                                                             mod_folder=mod_folder, game=game, lod=lod,
+                                                             part="Terrain", disc=rtarget)))
         (sdx, sdy) = cell_meta[(i, j)]["donor"]
         summary["deployed"].append(str(M.deploy_donor_sidecar(sdx, sdy, mod_folder=mod_folder,
-                                                              disc=rtarget, x=bx + i, y=by + j,
+                                                              disc=rtarget, x=lab(bx + i), y=by + j,
                                                               lod=lod, game=game)))
     from . import discmirror as DM
     DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)
@@ -4352,6 +4379,27 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
 SEA4_QUADS = ((0.0, 0.0, 0.5039, 0.5079), (0.5039, 0.0, 0.9921, 0.5079),
               (0.0, 0.5079, 0.5039, 1.0), (0.5039, 0.5079, 0.9921, 1.0))
 SEA4_IDALL = 228
+
+
+def _plan_hull(pts) -> list:
+    """The convex hull of plan points ``(x, z)``, counter-clockwise, rounded to 0.01u: an island's outline for the
+    editor to draw (rung C5), not a gate."""
+    p = sorted({(round(float(x), 2), round(float(z), 2)) for x, z in pts})
+    if len(p) < 3:
+        return [list(q) for q in p]
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    lower, upper = [], []
+    for q in p:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], q) <= 0:
+            lower.pop()
+        lower.append(q)
+    for q in reversed(p):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], q) <= 0:
+            upper.pop()
+        upper.append(q)
+    return [list(q) for q in lower[:-1] + upper[:-1]]
 
 
 def _plan_centroid(tri):
@@ -6209,7 +6257,8 @@ def sink_candidates(*, disc: int = 1, lod: str = "0_1", game=None, max_blocks: i
             return abs((t[1][0][0] - t[0][0][0]) * (t[2][0][2] - t[0][0][2])
                        - (t[2][0][0] - t[0][0][0]) * (t[1][0][2] - t[0][0][2]))
         at = tuple(round(v, 3) for v in _plan_centroid(max(c, key=flat)))
-        row = {"at": list(at), "land_u2": round(sum(flat(t) for t in c) / 2.0, 1),
+        row = {"at": list(at), "outline": _plan_hull([(v[0][0], v[0][2]) for t in c for v in t]),
+               "land_u2": round(sum(flat(t) for t in c) / 2.0, 1),
                "max_y": round(max(v[0][1] for t in c for v in t), 2), "blocks": blocks, "bands": None,
                "shore_tris": 0, "cluster": None, "fill": "tiles", "joined": None, "building": None,
                "entrance_tris": 0}

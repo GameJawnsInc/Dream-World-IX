@@ -5,6 +5,431 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — World tab: editing a step that is in the game, the edit cards and the game camera (a review of C12-C23)
+- **A step that is in the game** (C19). Edit and Delete promote the recipe back when they close. Before, that wrote
+  every step in the draft, so a step placed after the last promote went into the game too, even on Cancel. Now
+  such a step opens only with nothing after the game's steps on top: the bar says to Promote or Undo them first.
+- **Closing or crashing mid-edit no longer leaves the game reverted.** What the game is owed is written next to the
+  draft. Closing the window waits for every job that writes (the bar's, one after another, and a card's own
+  Accept, Promote or Revert promote) and then promotes the game's steps back. After a crash, the next launch
+  does it when the 3D view opens, and says so.
+- **Nothing changes under an open edit or a card that writes.** While an edit is open, its steps go back on top
+  or the chain runs, the folder box, Rescan and the Edit the map menu wait, and no card opens but the edit's own.
+  A cancel always goes to the edit's own draft. While a card's Accept, Promote or Revert promote runs, Edit,
+  Delete, the menu, the view toggle, the folder box and Rescan wait. A card closed anyway waits for its write
+  instead of killing it, and a card's Close is off while it writes. A job whose program cannot start ends as a
+  failed job instead of locking the tab. Deleting the newest in-game step no longer reports a false error.
+- **The edit cards** (C12):
+  - a mountain placed on desert or snow opens again: its handles wait while the island is read, then it is judged;
+  - a coast edit keeps its depth through a second read of its block;
+  - a step on the river's blocks can be picked;
+  - Show in game goes to the right place for a carry across x = 0;
+  - a read begun before an edit (the river's, the island's), or its error, no longer decides it;
+  - a sink edit's ticks neither outlive it nor are wiped mid-edit;
+  - a folder change reaches every card;
+  - a hand-written row that spells a default (`rot = 0.0`) opens.
+- **The game camera** (C18):
+  - a fog key Memoria.ini leaves out is Memoria's own default (250 / 350, not 86 / 142);
+  - the fog colour comes from the WeatherColors.csv the stack gives, read as Memoria reads it (any encoding, a
+    byte-order mark);
+  - Home puts the camera's controls away, and the 3D view draws the last load asked, not the first;
+  - the fog's GPU test measures the land, and its software twin samples where the raster does.
+
+### Fixed — summon repaint: a third of the scenery pages were read and written at the wrong place
+- `summon-reskin export-art` and `[[reskin.texel]]` now find every scenery page cell where the game actually loads
+  it. Before, 943 of the 2,531 id-0 page cells (in 236 effects; 136 of the 272 pages the default surface hands
+  out) were taken 380 to 1,984 bytes too early in the file. Their exported pictures came out shifted by 3 to 15
+  rows, with filler rows at the top, and a repaint landed shifted the same way and overwrote the last rows of the
+  cell before it.
+- The cause: an effect's page data starts in one resource and continues in the next, and the game never splits a
+  64x128 cell across the two; it skips the first resource's filler and starts that cell at the next resource. The
+  kit read straight through the filler. Checked offline against the game's own effect plugin: the kit's offsets
+  now match all 2,648 cell uploads the plugin makes over all 372 effects.
+- Specs exported before this fix carry the old `expect_page_offset` on those cells and refuse to build, by name.
+  Export the art again.
+
+### Changed — summon repaint: channel D reads every draw, and a page the draws read at another depth refuses
+- Channel D (`acknowledge_drawn_depth`) now reads every draw an effect makes, on the screen as well as into its
+  render target, measured offline over all 372 effects and charged to the page whose bytes each draw read. Before,
+  it saw only the draws into the target, and only per cell.
+  `export-art --acknowledge-drawn-depth` hands out 1,665 pages in 329 effects (was 187 in 52).
+- A page any draw reads at two depths is never handed out. That now holds back 41 of the 187 pages the old channel
+  handed out: their bytes are also read on the screen at a second depth.
+- A page the kit hands out at one depth that the effect's draws read at another (or at two) now refuses an edit at
+  build time, by name: 78 pages. `acknowledge_drawn_conflict = true` lifts it if you judge your cast reads
+  the bytes at the page's own depth. The scaffold marks those rows and carries the key, and its first build is
+  still a no-op.
+- A page read only at 15bpp is handed out as a direct-colour page, with no palette.
+
+### Added — carry a coast across the map's edge
+- "Carry a coast" can now place a multi-block carry across x = 0, where the world map wraps round: click near
+  the edge and the carry's blocks fill both sides. Measured in game: the land stands whole on both sides.
+
+### Fixed — `world-ledger` sees files put back behind it
+- `world-ledger --drift` now checks the `Donor.txt` sidecars too, and judges each file by its own latest ledger row, so
+  a file restored from a backup by hand shows up as stale instead of passing. The new `--repair` records those
+  files again under the run that wrote their bytes; files the ledger never saw are left alone.
+
+### Fixed — the flying gold chocobo's camera, and vehicles boarded on foot
+- "As the game sees it" now frames the flying gold chocobo, the Hilda Garde III and the Blue Narciss the way the
+  game does when you get aboard in play: on disc 1 the camera sits lower than it used to draw. Two new choices
+  show the higher camera the game uses after feeding the gold chocobo a Dead Pepper in the air, and when the
+  airship comes back from its bridge. Measured in game.
+
+### Changed — the beach chain is a tested carry
+- "Carry a coast"'s beach chain (the beach island and its chain of small islands, 4x2 blocks) is now marked as
+  tested: carried by the World tab and walked in game.
+
+### Added — change a shape that is already in the game
+- Edit and Delete now work on a placed step you have already promoted into the game. The World tab takes that
+  promote back out of the game while the step is open, then promotes the recipe again when you accept or cancel,
+  so you no longer need Revert promote first. If the game's files changed since (another tool wrote them), nothing
+  is changed and the bar says so.
+
+### Added — the game's mist in the World tab's game view
+- "As the game sees it" now draws the world map's fog the way the game does: the Mist fading the far land into
+  the sky, with high ground standing out of it. A "Mist" switch shows the years without mist instead. The fog was
+  measured from the game's own frames and uses your install's fog colour and Memoria.ini settings.
+
+### Changed — "Add a mountain" offers places that work
+- About half the places the mountain card offers now pass its check, up from about one in seven: it no longer
+  refuses over steep ground nearby that it does not change, and it spots at once two problems with the ground round
+  its foot that used to show only after the check.
+
+### Changed — the World tab shows where a shape was refused
+- A refused mountain now marks the place on the map in every case the editor was measured to meet (before, most
+  of its refusals only printed a sentence).
+- "Add a mountain" no longer refuses because of a tiny seam somewhere else on the island that it never touches.
+- "Carry a coast" now says at once when a donor can never be carried on its own (its land fills its whole block)
+  and marks the edges its land runs to, instead of refusing after a ten-second check.
+
+### Added — edit a sunk island, a coast change or a river move
+- Every step the World tab places can now be opened again with Edit, not only deleted: a sunk island (pick another
+  island, or change "With its cluster" and "Allow entrances"), a coast change (another stretch of coast, another
+  change, or another depth) and a river move (another free place for it). The steps after it go back on top as
+  before.
+- Edit opens a card only on settings the card can show exactly as the step has them; otherwise it says why, and
+  Delete still works.
+
+### Fixed — carrying a block onto the map's edge
+- `world-transplant` onto an edge of the map (column 0 or 23, row 0 or 19) now checks the carried coast's
+  transition tiles against the blocks across that edge too. Before, it ignored that side: a correct tile there could be reported as wrong, and
+  `--redress-orphans` could change it. Carries made without `--redress-orphans` are unchanged.
+
+### Fixed — World tab
+- Clicking open sea with "Sink an island" open failed with an error instead of saying "Click an island."
+- "Shape a coast" could refuse a coast change it had just made, after an Undo, as "already edited".
+- A picked river move's marker was drawn in the wrong place; it is no longer drawn for a river (a click on any
+  block the river changed picks it).
+
+### Changed — edits are faster
+- After you edit or delete a placed shape, islands, carried coasts and sunk islands placed after it now come back
+  at once instead of being made again, unless the edit touched the ground they stand on. An edit with an island,
+  a carry and a sink after it took 8 seconds instead of about 36.
+- Coast changes and river moves placed after an edit come back at once too: an edit with one of each after it took
+  7 seconds instead of about 50.
+
+### Fixed — editing a shape in a recipe you opened
+- Editing a step of a recipe opened with "Open…" could stop with "exit code 2" when the steps after it were
+  put back. It now works.
+- Clicking Edit right after Accept could stop half way on Windows while the card was still reading the island.
+
+### Added — place forests, mountains and hills across the map's edge
+- The World tab's 3D view now draws the map's east and west edges side by side where they meet, so an island that
+  crosses the edge reads whole, and "Add forest", "Add mountain" and "Add a hill" can place a shape across it.
+- Tested in game: a hill placed across the edge stood at the same height on both sides of it.
+
+### Fixed — one point, one result
+- `world-forest`, `world-mountain`, `world-hill` and their `world-fuse` rows now treat a centre written past the
+  map's edge (x -2) exactly as the same point inside it (x 1534). Before, the two could write slightly different
+  files.
+
+### Added — change a shape after you placed it
+- In the World tab's 3D view, click a forest, mountain, hill, island or carried coast you placed: the recipe bar
+  names it, with Edit and Delete. Edit opens its card on its own settings, so you can drag it, turn it or retune it
+  and accept again; Delete takes it out. Either way the shapes placed after it go back on top in their order.
+- Shapes whose ground did not change come back exactly as they were, in a moment; the others are placed again by
+  `world-fuse`. If one no longer fits on the new ground, nothing changes and the bar says which one and why.
+- The recipe bar's buttons are now "Save…" and "Open…".
+- Tested in game: a hill moved and lowered this way stood where the edit put it, and its old place was lawn again.
+
+### Fixed — Promote could stop half way
+- Promoting a draft after another draft of the same folder had been promoted and reverted could fail part way
+  through, leaving some files written and no way to Revert. Promote now works out everything it will record before
+  it writes anything, and only re-labels files the draft itself changed hands on.
+
+### Fixed — `summon-reskin` refuses four more repaints that a scroll copy overwrites
+- Six effects scroll a texture sideways with a routine of their own, not the vertical scroll the kit already
+  knew. On two of them (ef226 and ef509) it rewrites the top half of `cell.s0.x448_y384` and
+  `cell.s0.x512_y384` every frame, and the kit used to let you paint there. Those edits now refuse by name, and
+  the bottom halves (where the copy reads from) build with a note.
+- Checked against the effects run offline: every copy they execute now lands inside a band the kit knows about.
+- On 8 effects the copy does not read one fixed source: it cycles through several source tiles, a different
+  one on different frames, and the kit's analysis named the wrong place. The kit now carries the tiles measured
+  from the copies, so the build names the cells to paint instead and notes how many tiles a cell holds.
+  Checked offline: the copies' sources now match the kit's too, on every effect.
+
+### Added — `summon-reskin` can paint what a summon's render target is drawn from
+- When an effect draws into its off-screen render target, its 15bpp pages show that target, never your
+  texture, so the kit refuses a repaint there and names the cells the target is drawn from. Until now, on
+  20 of the 22 such refusals none of those cells could be painted: the container gives them no depth.
+- The offline run now records the depth and the palette each of those cells is drawn with. Say
+  `acknowledge_drawn_depth = true` with a matching `expect_bpp` on the row, and the cell builds at that
+  depth; `export-art --acknowledge-drawn-depth` hands out its PNG in the draw's own palette. 14 of the 22
+  refusals now name a cell you can paint.
+- A cell drawn at two different depths stays refused. Checked offline: painting ef150's largest drawn cell
+  changes the effect on screen, through its render target.
+
+### Added — `summon-reskin` can decline the cells it gained from the second array
+- 70 scenery cells became paintable when the kit adopted the second-array displacement, and nothing could
+  contradict that if the model were wrong on your effect: the repaint would just not show. You can now turn it
+  off: `export-art --readership bound` reads the cell each model's record binds, the reading the kit used before,
+  and writes `readership = "bound"` into the scaffold's `[reskin]`. A gained cell then refuses with its old reason
+  and says the default would have allowed it.
+- The default is unchanged. The reading lives in the spec: `--readership` on `plan`/`build`/`verify`/`deploy` only
+  checks it, and art exported under one reading refuses to build under the other.
+- Checked offline on all 372 effects: the `bound` reading is exactly the pre-adoption surface, and ef407's cast
+  spec still rebuilds the cast's bytes by default.
+
+### Added — see the map from a vehicle as the game does
+- "As the game sees it" now has a vehicle chooser: on foot, a chocobo, the flying gold chocobo, the Blue Narciss, the
+  Hilda Garde III or the Invincible, and a height for the flyers. Each frames the map the way that vehicle's camera does
+  in the game, read from your own `TransportControls.csv` and Memoria.ini.
+- Checked against in-game screenshots aboard the boat, a chocobo and the airship.
+
+### Added — carry whole multi-block islands from the World tab
+- "Carry a coast" now offers multi-block islands beside the single coastal blocks: the comma (2×3), the crystal reef
+  (2×2), the terminus pair (1×2) and the beach chain (4×2), the only stock rects that hold every island they touch
+  whole. Pick one and a turn, click open ocean, and the rect fits the click; `world-transplant` checks it and Accept
+  carries it into the draft. Islands not yet walked in game are marked "new".
+- `world-fuse`'s `[[transplant]]` row takes `size`, and `world-transplant --report-json` names every block a
+  multi-block carry fills.
+- Tested in game: the party stood on the carried comma at the predicted height (9.55), where it had been in open sea.
+  The crystal reef (9.27) and the terminus pair (5.04) were walked the same way and are no longer marked "new".
+
+### Changed — `summon-reskin` refuses a 15bpp repaint that can never be seen
+- Once an effect draws into its off-screen render target, Memoria reads every 15bpp page from that target, not
+  from the texture data. Measured over all 372 effects: all 22 cells the `direct15` export offers are in such
+  effects, so a repaint there builds, deploys and never shows as painted. Three earlier casts agree.
+- The build now refuses that edit by name. It says whether the cell's own bytes reach the screen another way (on 8
+  of the 22 the target's own drawing reads them, so they show as palette indices) and names the cells that draw the
+  target. The export scaffold says the same before anyone paints, and the build report lists it.
+  `acknowledge_render_target = true` lifts the refusal.
+
+### Added — see the map as the game's camera does
+- "As the game sees it" on the World tab's 3D page frames the picked point the way the game's own camera would for
+  the party standing there: its distance, height and field of view from the engine's tables and your Memoria.ini
+  `[Worldmap]` settings. Click to stand the party elsewhere, drag sideways to turn the camera; "Free view" goes back.
+- Checked against nine in-game screenshots: it lands within the game's own small camera-height easing.
+
+### Fixed — the 3D view and `world-render` showed the world mirrored
+- Both drew the map as a mirror image of the game (east and west swapped). They now use the game's own handedness.
+
+### Added — raise a hill from the World tab
+- "Add a hill" (in "Edit the map"): click a deployed island's lawn, drag it, and set its height and radius. The ghost
+  is the very hill `world-hill` will make, and its slope and height limits show while you drag; `world-hill` checks
+  the rest, and Accept raises it in the draft.
+- `world-hill --report-json`, and `world-hill`'s refusals now say where (the World tab marks them on the map).
+- Tested in game: the party stood on the hill's top at the predicted height (7.32, on a lawn at 3.20).
+
+### Changed — `summon-reskin`'s scroll-copy notes follow what the screen actually sees
+- Memoria refreshes a decoded texture only when a write starts in that texture's own column, so an effect's
+  per-frame scroll copy into the second column of an 8bpp page can run and never reach the screen. Measured over
+  all 372 effects: of the 115 copies, 103 are always seen, 9 freeze at one frame, and 3 are never seen.
+- On a copy that freezes or is never seen, painting its source no longer promises "it also appears there,
+  scrolling": the build note and the export scaffold say what happens instead.
+- On a copy that is never seen, the refusal to repaint its destination keeps its key but no longer says the paint
+  can't show: the screen keeps what that band held before the copy, so a repaint there does show, held still.
+  The one editable cell this affects is ef499's `cell.s0.x512_y256`.
+
+### Added — move the river from the World tab
+- "Move the river" (in "Edit the map"): the card finds where the carried river stands, a click picks where it goes
+  (only the river's own placements are offered, each marked free or held), and `world-river` checks it; Accept moves
+  it in the draft.
+- `world-river --move-from DX,DZ` moves the verb's own river: the new placement is judged as if the old river were
+  gone, and the old one is taken out only once every check passes, so a refused move changes nothing.
+  `world-river --report-json` writes the verdict, and `world-fuse`'s `[[river]]` row takes `move_from`.
+- Tested in game: the river moved one block north; its old ground is open sea and its new ground is walkable at the
+  predicted height.
+
+### Fixed — world drafts and their ledger
+- Promote now carries a draft's deletions into the live folder (and Revert restores them). Before, a removal made in
+  a draft never reached the game.
+- Promote keeps the verb that wrote each file in the folder's ledger, so a promoted river can still be moved or
+  removed by `world-river`. Undo and Redo keep the draft's ledger in step with its files.
+- When `world-river` meets its own earlier river, its message names where that river stands.
+
+### Changed — one handle table for the relief verbs
+- `world-forest`, `world-mountain` and `world-hill` declare their shape flags once (`ff9mapkit/world/handles.py`):
+  the command line, `world-fuse`'s `[[forest]]`/`[[mountain]]`/`[[hill]]` rows and the World tab's cards all read the
+  same table, so a flag, a row key and a card's limits can no longer drift apart. The flags themselves are unchanged.
+
+### Added — carry a coast from the World tab
+- "Carry a coast" (in "Edit the map"): pick one of the qualified coastal blocks and a quarter turn, click an
+  open-ocean cell, and the block's own land stands there; `world-transplant` checks it (and the ghost moves by the
+  shift it chose), and Accept carries the block, whole, into the draft.
+- `world-fuse` has a `[[transplant]]` table (cell, donor, rot) that runs `world-transplant` itself, the recipe's row
+  for a carry. (`[[placement]]`, the fused layout, refuses some carries the single-cell command makes.)
+- `world-transplant --report-json` now writes a carry's verdict too (its shift and gates).
+- Tested in game: the party stood on the carried island at the predicted height (3.738), where it had been in open sea.
+
+### Added — mint a new island from the World tab
+- "Add an island" in the 3D view: click open ocean and the island's own coastline stands there (the one the mint will
+  build); drag it, and set its radius, lobes, height, ground and shape (with "New shape" to roll another). It refuses
+  at once over real land or coast, or where another edit already holds the ocean. `world-island` checks it, and Accept
+  mints it into the draft. It is an `[[island]]` row of the recipe.
+- `world-island --report-json PATH` writes the mint's verdict as JSON.
+- Tested in game: the party stood on the new island at the predicted height (3.199 against 3.200), where before it
+  had been in the open sea.
+
+### Changed
+- The World tab's map tools (forest, mountain, island, coast, sink) sit in one "Edit the map" menu on the 3D view's
+  bar, so the bar fits narrower windows.
+
+### Added — shape a coast from the World tab
+- "Shape a coast" in the 3D view: click near a real island's cliff or beach, and the lawful window there is drawn.
+  Only the morphs that pass there are offered (push a cliff out, a headland, a bay; move, reshape or slide a beach),
+  and the depth stops at the deepest the window takes. `world-transplant --in-place` checks it, and Accept writes it to
+  the draft on disc 1 and on disc 4. A block already edited in the draft or the mod stack is not offered.
+- `world-fuse` has a `[[morph]]` table (cell, verb, window, depth), so a coast morph is a recipe row like the others.
+- `world-transplant --report-json PATH` writes an in-place morph's verdict as JSON.
+- Tested in game: a cliff pushed out 2.5 units; the party stood on the new land at the predicted height (4.219).
+
+### Added — sink an island from the World tab
+- "Sink an island" in the 3D view: click a real island and its outline shows where the sea will close; its verdict
+  shows at once (sunk whole, its land only, or with the islands its water joins; an island with an entrance needs
+  "Allow entrances"). `world-sink` checks it, and Accept writes it to the draft on disc 1 and on disc 4. It is a
+  `[[sink]]` row of the recipe, and Promote takes it into the game.
+- The island list takes about three minutes to read the first time and is kept in the kit's cache afterwards.
+- `world-sink --report-json PATH` writes the verdict as JSON. `world-sink --list` rows now carry each island's outline.
+- Tested in game: the island was gone after the promote and the reload, and the party stood in open water where it
+  had been.
+
+### Fixed
+- Promoting a draft whose edit lands on blocks the live folder had no files at (a sunk stock island) wrote the
+  files but then failed to save its record, so it could not be reverted. The record is now always written.
+
+### Changed — `summon-reskin` refuses a repaint the effect overwrites every frame
+- Some stock summons animate a texture by copying one band of VRAM onto another every frame. A repaint
+  inside such a band builds, deploys and verifies, then never shows. `summon-reskin build` and `plan` now
+  refuse an edit that changes a texel there, by cell name, and say which cell the band is copied from:
+  paint that one instead and the edit shows, scrolling. An edit outside the band builds as before.
+- `acknowledge_scroll_blit_destination = true` on a row lifts the refusal, for when you judge the copy is
+  not running while your cell is drawn. Painting the cell a band is copied from is never refused; the
+  build says where the edit will also appear.
+- `export-art` records the bands per cell in its manifest and prints them, with the remedy, on the
+  scaffold row before you paint. No picture is withheld.
+- 88 exportable cells across 20 effects are affected, including Phoenix's fire-field cell `(704,256)`.
+
+### Fixed — the hybrid summon lane checks the effect plugin before arming
+- `summon-deploy --arm` now hashes the install's `FF9SpecialEffectPlugin.dll` (x64 and x86) and refuses to arm
+  `[SfxHybrid]` unless it is the build the hybrid drive's native memory offsets were taken from (the Steam release,
+  linked 2016-10-19). On any other build the drive would read, and write 4 bytes, at addresses that mean nothing.
+  The refusal says which arch and hash it found and points at `lane = "overlay"`, which needs no engine and reads
+  no native memory. Nothing is written when it refuses, not even the summon's model and sequence files.
+- A GOG or updated plugin that differs from the Steam release is refused the same way. The known builds are listed
+  in one place, `ff9mapkit/sfxplugin.py`.
+
+### Added — the World tab's recipe: undo, redo, save and open
+- A "Recipe" bar above the forest and mountain cards lists the draft's edits as a `world-fuse` recipe: each Accept is
+  one `[[forest]]` or `[[mountain]]` row, built from the very command it ran.
+- Undo and Redo walk the edits, restoring each one's files exactly (no carve re-runs). An edit already promoted into
+  the game is not undone here: Revert promote first.
+- "Save recipe…" writes the rows as a TOML file; `ff9mapkit world-fuse <recipe> --mod-folder <folder>` composes it to
+  the same bytes (checked on a real island: 1,531 files identical). "Open recipe…" composes a recipe into a fresh
+  draft, one row at a time, so each row can be undone.
+- `world-fuse` rows may carry `step = N`, which keeps the order edits were made in (a recipe without steps composes as
+  before), and a `[[sink]]` row runs `world-sink` with its disc-4 replay.
+- The mountain card's placement check now also refuses a rim over open sea inside a deployed block, as the carve does.
+
+### Added — place a mountain from the World tab's 3D view
+- "Add mountain" sits beside "Add forest" in the 3D view and works the same way: click where the massif goes, drag
+  its ghost, and set which of the seven qualified stock massifs to carry, its angle, its spread (up to ×1.5) and its
+  rock height (up to ×2.0, held at ×1 for a massif with falls on its face). The ghost stretches as the carve does.
+- A chip names the ground the massif stands on at home and the ground under the ghost, and warns when they differ:
+  the carry is lawful there, but its foot meets a ground it never meets in stock. The command speaks the island's
+  own ground (`--ground`).
+- While you move it, the placement rules are checked at once (the island blocks its span needs, the edge of those
+  blocks, anything but plain ground under its rim, the peak cap) and match `world-mountain`'s own on 60 of 60 spots
+  of a real island. When you let go the tab runs `world-mountain --dry-run`; Accept writes it into the same draft
+  the forest uses, and Promote takes it into the game.
+- A mountain placed in the tab writes exactly the bytes the same command typed by hand writes (on a real island:
+  1,719 files identical). Tested in game, promoted and reloaded: the party stood on the carried rock at the
+  predicted height (15.523 against 15.521), and beside it on the apron (2.867 against 2.868).
+- `world-mountain --report-json PATH` writes the verdict as JSON, and its refusals now say where they fail (the
+  footprint, the span, the missing blocks, the hole, the geometry, the zip, the apron, the peak, the probes), with
+  the printed text unchanged.
+
+### Added — promote a World tab draft into the game
+- The forest card's draft row has "Promote": after a confirm it writes the draft's edits into the live mod folder.
+  Each file is backed up first, the disc-4 mirror runs, and the blocks are snapshotted so "Revert promote" puts the
+  folder back exactly; the edits then stay in the draft. Promote refuses, writing nothing, when a file it would write
+  changed in the folder since the draft was made (another deploy wrote it).
+- `ff9mapkit world-promote <draft>` is the command behind it (`--revert`, `--dry-run`, `--report-json`).
+- In a development checkout, "Show in game" makes the running game re-read the world map (a quick trip through a
+  bench field and back, no relaunch and no engine change) and puts the party at the edit (`tools/world_reload.py`).
+  Tested in game: the party stood on the promoted forest at the predicted height after the reload, and on the old
+  grass again after a revert; about 13 seconds from Promote to the edit on screen.
+
+### Added — place a forest from the World tab's 3D view
+- In the 3D view, "Add forest" opens a card under the map. Click where the forest goes and a ghost of the canopy
+  stands there; drag it to move it, and set its angle, its spread (up to ×1.5, the widest judged in game) and which
+  stock canopy to carry (only the catalogue's qualified ones are offered).
+- While you move it, the footprint rule is checked at once: on rock, a stamped tile, the coast or off the island the
+  ghost turns red with marks where it fails, and nothing runs. When you let go, the tab runs `world-forest
+  --dry-run` and shows its verdict, the carve's own numbers when it passes or the refusing rule and marks where it
+  refused.
+- "Accept into draft" runs the same `world-forest` command into a draft: a copy of the folder's world files kept
+  outside the game folder, which the game does not load. The view then draws the draft in place of its folder.
+  "Copy command" copies the command, and "Discard draft" deletes the draft.
+- The tab runs the command itself, so a forest placed in the tab writes exactly the bytes the same command typed by
+  hand writes (checked on a real island, 1,531 files identical). Tested in game with the draft loaded: the party
+  stood on the new canopy at the predicted height, within 0.003 units.
+- `world-forest --report-json PATH` writes the verdict as JSON beside the unchanged printed text: whether it passed,
+  the carve's report, the files written, and on a refusal the rule, its message and the world points where it fails.
+
+### Added — the World tab shows the map in 3D
+- The World tab has a "3D view" button. It shows the whole overworld as the game loads it: every mod folder in
+  `Memoria.ini`'s FolderNames in priority order, each block file from the first folder that has it, stock land
+  under them, open sea round them, and the parts a donor brings along. A file the game cannot read is drawn the way
+  the game draws it, as stock. "Only this folder" shows one folder over stock instead, to preview a folder the game
+  does not load. A caption names the folder order it drew. Tested in game with two extra folders on top: the party
+  stood at the height the view predicted at all four test points, including where the top folder's file was
+  unreadable. Drag to orbit, right-drag
+  to pan, use the wheel to zoom, and press Home to re-frame; a selected block opens the view centred on it.
+- It draws with the same rules as `world-render` (unlit, nearest-texel, sea at its first frame, the same back-face
+  cull), and its stills match `world-render`'s at the six committed bench cameras, apart from one-pixel differences
+  at texture and triangle edges.
+- It is read-only. The map loads on the first click, in about five seconds. On a display without OpenGL (a remote
+  desktop, a headless run) the page says so instead of showing a blank view.
+- Click the map to pick a point: a pin marks it, and the details strip shows its world, block and cell coordinates,
+  the ground the engine puts you on there (height, terrain type, whether you can walk it, the forest canopy's sink),
+  a warning where walkable ground is stacked, which mod folder the game takes each file from, the last kit verb
+  that wrote the block, and the nearest landmark. "Copy position" copies the point for the debug menu's teleport.
+- In a development checkout, "Teleport game here" moves the party in the running game to the picked point through
+  the test harness (`tools/world_teleport.py`). Tested on three landmarks: the party landed within 0.004 units of
+  the pick, at the predicted height.
+
+### Fixed — no sky showing through the sea at a cove's inner corner on `world-island` islands
+- An island with a concave bend in its coast (a cove or notch) showed small sky-coloured wedges in the water at the
+  inner corner, below the cliff wall. The mint removes the deep-sea sheet under the land so boats cannot sail through
+  it, and it judged "under land" by a triangle's three corners. At a cove's inner corner all three corners of a
+  sea triangle can sit under the two walls while its middle is open water, so that water was removed too.
+- A sea triangle is now removed only when its whole area lies under land. In a sweep of 20 test islands, 8 had these
+  holes before the fix and none after; only the sea files of islands with a concave corner change, never the land.
+- Islands deployed before this fix keep their holes until they are minted again.
+
+### Changed — the mountain carve keeps a donor's own near-vertical walls
+- The carve refuses any new triangle that faces down, because on the world map that usually means a flipped triangle:
+  a see-through hole, and ground the party cannot stand on. But the shipping map itself has near-vertical walls that
+  lean past vertical by a fraction of a degree (55 of disc 1's 83,937 ground triangles), and a carried mountain brings
+  its own along. comp10, a grass massif, was refused for two of them.
+- A carried triangle is now kept when it was copied unchanged from the donor, already faced down at home, and leans
+  past vertical by no more than ny -0.02 (about 1.15 degrees). Each one kept is named in the log. Anything the carve
+  flips, and any steeper overhang, is still refused.
+- Every catalogued donor writes the same bytes as before. comp10 now carries offline at all 6 test angles (with its
+  forest canopy) and walked in game with it; it is not catalogued yet.
+
 ## [1.0.0b22] - 2026-10-23 — Play the story together, and a world map that changes with it
 
 > Re-cut of the never-published 1.0.0b20 and 1.0.0b21: their tags' CI runs failed on the bare Ubuntu box (no FF9
