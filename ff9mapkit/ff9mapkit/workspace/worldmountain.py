@@ -106,6 +106,7 @@ class MountainTool(CarryTool):
         self.rock_height.setToolTip(f"The {self._rows.get(donor, {}).get('name', donor)} massif carries falls or a "
                                "river mouth on its face, which a height stretch would leave behind, so its height "
                                "is fixed (world-mountain refuses --rock-height for it).")
+        self._try_seat()                                 # a held step's reach waited on this outline
 
     # -- the island's ground and the donor's home ground --
     def ground(self) -> str:
@@ -131,6 +132,8 @@ class MountainTool(CarryTool):
                                     "stock: lawful, and no gate sees it, so it is your call.")
 
     def _redraw(self):
+        if self._pending_row is not None:                # (the island's read lands here: a held step's ground)
+            self._try_seat()
         self._sync_chip()
         super()._redraw()
 
@@ -140,7 +143,10 @@ class MountainTool(CarryTool):
         return None if ol is None else ol.r_rim * self.spread.value()
 
     def load_row(self, row):
-        """The massif, its angle, spread and height (the ground and the reach follow the place, as on a click)."""
+        """The massif, its angle, spread and height (the ground and the reach follow the place, as on a click). The
+        row is held until the island and the massif are read: its --ground is the island's under the centre and its
+        --reach the outline's, so said back before they land it would read grass and the default reach (review of
+        C12: every mountain placed off grass refused to open)."""
         ix = self.donor_box.findData(str(row["donor"]))
         if ix < 0:
             raise ValueError(f"its massif {row['donor']} is not one the card lists")
@@ -148,7 +154,12 @@ class MountainTool(CarryTool):
         self.angle.setValue(int(round(float(row.get("rot", 0.0)))) % 360)
         self.spread.setValue(float(row.get("spread", 1.0)))
         self.rock_height.setValue(float(row.get("rock_height", 1.0)))
+        self._pending_row = row
+        self._try_seat()
+
+    def _seat_row(self, row):
         self.place(*row["center"])
+        return self._ix is not None and self.donor() in self._outlines
 
     def _cmd(self, target, *, dry_run, report=None):
         r = self._r_placed()

@@ -163,6 +163,47 @@ def test_on_another_ground_the_command_speaks_it_and_the_chip_warns(app, monkeyp
     assert tool.accept_btn.isEnabled()                     # a warning, not a refusal
 
 
+def _worker_lane(tool):
+    """The Workspace's lane for ``tool``: each read goes to a worker; here it is held until :func:`_land`."""
+    held = []
+    tool._sync = False
+    tool._bg = lambda what, fn: held.append((what, fn))
+    return held
+
+
+def _land(tool, held):
+    while held:
+        what, fn = held.pop(0)
+        tool._on_bg(what, 0, fn(), None)
+
+
+def test_a_placed_mountain_on_another_ground_opens_once_the_island_is_read(app, monkeypatch, tmp_path):
+    """THE SAID-BACK LAW waits for the reads a mountain row rests on: its --ground follows the island under it and its
+    --reach the massif's outline, both read on a worker in the Workspace, and open_tool has just dropped the island.
+    Said back at once, a mountain placed on desert read as grass and its edit refused (review of C12). A row the
+    handles truly cannot say still refuses, once the reads are in."""
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    tool.place(26.0, -26.0, 3.2)
+    row = tool.row()
+    assert row["ground"] == "desert"
+    tool.close_tool()
+    held = _worker_lane(tool)
+    tool._outlines.clear()                                 # a massif this card has not read yet either
+    tool.open_tool()
+    notes = []
+    tool.edit_row(row, label="mountain", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    assert tool.editing()
+    _land(tool, held)
+    assert tool.editing() and notes == [] and tool.row() == row
+    tool.close_tool()                                      # (its cancel)
+    tool.open_tool()
+    notes = []
+    tool.edit_row({**row, "ground": "snow"}, label="mountain", on_accepted=lambda: None,
+                  on_cancel=lambda note=None: notes.append(note))
+    _land(tool, held)
+    assert not tool.editing() and len(notes) == 1 and "would not say its ground back" in notes[0], notes
+
+
 def test_the_preview_refuses_before_any_job_runs(app, monkeypatch, tmp_path):
     run = Scripted(_passes)
     tool, panel, _c = _tool(app, monkeypatch, tmp_path, run)
