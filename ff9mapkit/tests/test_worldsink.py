@@ -272,6 +272,26 @@ def test_a_step_s_ticks_never_outlive_its_edit(tmp_path):
     assert tool.entrances.isChecked() and tool.row()["allow_entrances"] is True
 
 
+def test_reopening_the_sink_card_mid_edit_keeps_the_step_s_ticks(tmp_path):
+    """The tab opens a card that is already open (the menu stays live during an edit), and open_tool's reset of the
+    boxes wiped the edit's ticks: Accept would write the sink without --cluster, or a held row was refused against
+    the cleared boxes (review of the C12 fixes). The reset is for a card opening fresh, not mid-edit."""
+    row = {"table": "sink", "at": [344.0, -360.0], "cluster": True}
+    tool, _g, _s = _sink_card(tmp_path / "a", [ROW])
+    tool.edit_row(row, label="s", on_accepted=lambda: None, on_cancel=lambda note=None: None)
+    tool.open_tool()                                     # Sink an island, picked again mid-edit
+    assert tool.editing() and tool.cluster.isChecked() and tool.row() == row
+    notes = []
+    tool, _g, _s = _sink_card(tmp_path / "b", [ROW], open_=False)
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))  # the island list still being read
+    tool.edit_row(row, label="s", on_accepted=lambda: None, on_cancel=lambda note=None: notes.append(note))
+    tool.open_tool()
+    for what, fn in held:
+        tool._on_bg(what, 0, fn(), None)
+    assert tool.editing() and notes == [] and tool.row() == row
+
+
 def test_a_sink_edited_through_the_recipe_bar_writes_what_world_fuse_writes(world, monkeypatch, tmp_path):
     """THE C12 ACCEPTANCE for the sink, on the synthetic world: a sink placed with the card, picked in the recipe bar,
     opened again in its card on its own row, retuned (entrances allowed) and accepted; the recipe is the edited row,
