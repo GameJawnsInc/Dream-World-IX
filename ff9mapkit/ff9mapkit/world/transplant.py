@@ -3605,6 +3605,18 @@ def morph_in_place(mod_folder: str, *, cell, tweaks, parts=PARTS, disc: int = 1,
     return summary
 
 
+def _seam_label(bm, part: str):
+    """A carried block mesh at an unwrapped seam column (``Block[24][y]``) under its wrapped label
+    (``interior._wrap_label``'s relabel: the bytes are block-local and untouched). A column already in [0, 24) is
+    returned as-is, so every carry off the seam deploys exactly what it did before."""
+    import dataclasses
+    from . import mesh as M_
+    wbx = M_.wrap_block_col(bm.x)
+    if wbx == bm.x:
+        return bm
+    return dataclasses.replace(bm, x=wbx, name=f"Block[{wbx}][{bm.y}] {part}")
+
+
 def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0, shift="auto",
                       parts=PARTS, tweaks=(), strips="auto", extra: float = 8.0,
                       land_margin: float = 2.0, disc: int = 1, lod: str = "0_1", game=None,
@@ -3671,9 +3683,15 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     if not (0 <= dbx and dbx + nx <= GRID_X and 0 <= dby and dby + ny <= GRID_Y):
         raise ValueError(f"donor rect ({dbx},{dby})+{nx}x{ny} out of the {GRID_X}x{GRID_Y} "
                          f"overworld grid")
-    if not (0 <= bx and bx + tw <= GRID_X and 0 <= by and by + th <= GRID_Y):
+    # THE SEAM WRAP (overworld editor C23): the world is an x-torus, so a target rect may run past column 23 and
+    # carry across x = 0. Inside, every target key stays UNWRAPPED (column 24 is column 0's east neighbour, so the
+    # region's own adjacency -- the Wang, texture and orphan gates' -- holds); a column takes its wrapped label only
+    # where it meets a file: the occupancy and overwrite reads, the donor-identity compare, the deploy, the report.
+    # A block's verts are block-local (24 * 64 = the world's width), so the relabel moves no byte. Rows stay edged.
+    if not (0 <= bx < GRID_X and tw <= GRID_X and 0 <= by and by + th <= GRID_Y):
         raise ValueError(f"target rect ({bx},{by})+{tw}x{th} (rot {rot}) out of the "
                          f"{GRID_X}x{GRID_Y} overworld grid")
+    from .mesh import wrap_block_col as lab         # an unwrapped target column -> the engine's label
     tweaks = list(tweaks)
     _check_tweak(tweaks)               # the Tweak protocol, at the call site (rec 16)
     parts = tuple(parts)
@@ -3687,11 +3705,11 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     # island.landmass -- deliberately NOT keyed on ``target_disc != disc`` (s75 CLONE mode).
     if not allow_real_target and not all_sea_target:
         for (i, j) in tcells:
-            occupied = {p: len(world_tris(bx + i, by + j, p, disc=disc, lod=lod, game=game))
+            occupied = {p: len(world_tris(lab(bx + i), by + j, p, disc=disc, lod=lod, game=game))
                         for p in parts}
             occupied = {p: n for p, n in occupied.items() if n}
             if occupied:
-                raise ValueError(f"target cell ({bx + i},{by + j}) is a REAL world block "
+                raise ValueError(f"target cell ({lab(bx + i)},{by + j}) is a REAL world block "
                                  f"({occupied}) -- transplanting onto it would replace real game "
                                  f"geometry. Pick empty open-ocean cells, or pass "
                                  f"allow_real_target=True if you really mean it")
@@ -4005,7 +4023,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         # ocean at the prefab's block-local pose. At the IDENTITY transform the natural
         # cell legitimately renders its own object (in-place morphs).
         identity = (rtarget == disc and nrot == 0 and sh_x == 0.0 and sh_z == 0.0
-                    and (bx + i, by + j) == (dbx + nat[0], dby + nat[1]))
+                    and (lab(bx + i), by + j) == (dbx + nat[0], dby + nat[1]))
         # THE OBJECT POSE LAW (the bent crescent's cave door, 2026-08-04): an object may
         # ride its NATURAL sidecar iff its pose stays lawful -- the carry UNROTATED and
         # UNSHIFTED and the object's verts untouched by the tweaks (not dropped, not
@@ -4075,7 +4093,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
     # 6) GATES -- all must pass; I cannot see the game, these substitute for eyes.
     gates = []
     for (i, j), mlist in deploy_meshes.items():
-        arm, epg = effective_prefab_arm(mlist, cell=(bx + i, by + j), sidecar_parts=cell_sidecar[(i, j)],
+        arm, epg = effective_prefab_arm(mlist, cell=(lab(bx + i), by + j), sidecar_parts=cell_sidecar[(i, j)],
                                         disc=disc, lod=lod)
         gates.append(epg)
         if arm is not None:
@@ -4278,7 +4296,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                   "ok": not bholes})
     gates.append(_mod_overwrite_gate(
         mod_folder,
-        {(bx + i, by + j): tuple(cell_meta[(i, j)]["donor"]) for (i, j) in deploy_meshes},
+        {(lab(bx + i), by + j): tuple(cell_meta[(i, j)]["donor"]) for (i, j) in deploy_meshes},
         disc=rtarget, lod=lod, game=game, allow=allow_mod_overwrite))
     clean = all(g["ok"] for g in gates)
 
@@ -4328,7 +4346,7 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
                "strips": sorted(strips_with_data & windowed),
                "coverage_strips": sorted(strips_with_data - windowed), "carried": carried,
                "clipped_out": clipped_out,
-               "cells": {f"{bx + i},{by + j}": cell_meta[(i, j)] for (i, j) in tcells
+               "cells": {f"{lab(bx + i)},{by + j}": cell_meta[(i, j)] for (i, j) in tcells
                          if (i, j) in cell_meta},
                "frame_profile": frame_profile,
                "gates": gates, "clean": clean, "dry_run": dry_run, "deployed": []}
@@ -4338,16 +4356,16 @@ def transplant_region(mod_folder: str, *, cell, donor, size=(1, 1), rot: int = 0
         if (i, j) not in deploy_meshes:
             continue
         for (pn, bm) in deploy_meshes[(i, j)]:
-            summary["deployed"].append(str(M.deploy_override(bm, mod_folder=mod_folder,
+            summary["deployed"].append(str(M.deploy_override(_seam_label(bm, pn), mod_folder=mod_folder,
                                                              game=game, lod=lod, part=pn,
                                                              disc=rtarget)))
         if (i, j) in arm_meshes:                              # the divert-arm stub Terrain (water-only cell)
-            summary["deployed"].append(str(M.deploy_override(arm_meshes[(i, j)], mod_folder=mod_folder,
-                                                             game=game, lod=lod, part="Terrain",
-                                                             disc=rtarget)))
+            summary["deployed"].append(str(M.deploy_override(_seam_label(arm_meshes[(i, j)], "Terrain"),
+                                                             mod_folder=mod_folder, game=game, lod=lod,
+                                                             part="Terrain", disc=rtarget)))
         (sdx, sdy) = cell_meta[(i, j)]["donor"]
         summary["deployed"].append(str(M.deploy_donor_sidecar(sdx, sdy, mod_folder=mod_folder,
-                                                              disc=rtarget, x=bx + i, y=by + j,
+                                                              disc=rtarget, x=lab(bx + i), y=by + j,
                                                               lod=lod, game=game)))
     from . import discmirror as DM
     DM.auto_mirror(summary["deployed"], mod_folder=mod_folder, skip_mirror=skip_mirror)

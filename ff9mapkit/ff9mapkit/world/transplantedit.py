@@ -14,8 +14,8 @@ disc-1 rects that hold every landmass they touch whole -- with the quarter turns
 THE RECIPE ROW is ``world-fuse``'s ``[[transplant]]``, which runs this very command -- not ``[[placement]]``, whose
 fused path refuses carries the single-cell command makes (measured: the beach island at (3,5) turned 90, land-fit).
 
-THE LAWS the preview runs: every target block is TRUE open ocean on the stock disc and on the grid (a region does not
-wrap the seam: ``transplant_region``'s own bound), and no folder of the stack nor the draft already holds one. The
+THE LAWS the preview runs: every target block is TRUE open ocean on the stock disc and on the grid's rows (columns wrap:
+a rect may carry across x = 0, rung C23), and no folder of the stack nor the draft already holds one. The
 carry's own gates (land fit, census, welds, the texture gates) run on Check. The disc-4 step is the mirror's copy,
 which Promote runs in the live folder.
 """
@@ -79,10 +79,10 @@ def placed(land, donor, cell, *, rot: int = 0, shift=(0.0, 0.0), size=(1, 1)) ->
 
 
 def cells(cell, size=(1, 1), rot: int = 0) -> list:
-    """The target blocks (wrapped columns for a single block; a region stays on the grid)."""
+    """The target blocks, by the engine's labels: columns wrap (a rect at column 23 two wide fills 23 and 0, rung
+    C23, as ``transplant_region`` writes it); rows do not."""
     tw, th = tsize(size, rot)
-    return [((int(cell[0]) + i) % GRID[0] if (tw, th) == (1, 1) else int(cell[0]) + i, int(cell[1]) + j)
-            for j in range(th) for i in range(tw)]
+    return [((int(cell[0]) + i) % GRID[0], int(cell[1]) + j) for j in range(th) for i in range(tw)]
 
 
 def rim(cell, size=(1, 1), rot: int = 0) -> np.ndarray:
@@ -94,14 +94,15 @@ def rim(cell, size=(1, 1), rot: int = 0) -> np.ndarray:
 
 
 def anchor_for(x: float, z: float, *, size=(1, 1), rot: int = 0) -> tuple:
-    """The target rect's anchor (min block) for a click at ``(x, z)``: the rect whose middle is nearest it, kept on the
-    grid (a single block keeps its own cell, the seam wrapping)."""
+    """The target rect's anchor (min block) for a click at ``(x, z)``: the rect whose middle is nearest it. Its column
+    wraps -- a rect whose middle is near x = 0 anchors in column 23 and carries across the seam (rung C23); its row is
+    kept on the grid. A single block keeps its own cell."""
     tw, th = tsize(size, rot)
     if (tw, th) == (1, 1):
         return cell_of(x, z)
     bx = int(round(x / 64.0 - tw / 2.0))
     by = int(round(-z / 64.0 - th / 2.0))
-    return (max(0, min(GRID[0] - tw, bx)), max(0, min(GRID[1] - th, by)))
+    return (bx % GRID[0], max(0, min(GRID[1] - th, by)))
 
 
 #: the carry's land-fit margin (``transplant.transplant``'s ``land_margin``): its land keeps this much sea to the frame

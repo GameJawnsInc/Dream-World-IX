@@ -1170,8 +1170,10 @@ def test_region_refusals(monkeypatch):
         TR.transplant_region("MOD", cell=(4, 2), donor=(1, 1), size=(0, 1), dry_run=True)
     with pytest.raises(ValueError, match="donor rect"):
         TR.transplant_region("MOD", cell=(4, 2), donor=(23, 1), size=(2, 1), dry_run=True)
+    # an anchor off the grid refuses; a rect from column 23 two wide WRAPS the x seam (C23,
+    # test_world_transplant_seam.py) -- the world is an x-torus, so only the rows are edged
     with pytest.raises(ValueError, match="target rect"):
-        TR.transplant_region("MOD", cell=(23, 2), donor=(1, 1), size=(2, 1), dry_run=True)
+        TR.transplant_region("MOD", cell=(24, 2), donor=(1, 1), size=(2, 1), dry_run=True)
     # rot 90 swaps the target rect: 1x2 must fit vertically
     with pytest.raises(ValueError, match="target rect"):
         TR.transplant_region("MOD", cell=(4, 19), donor=(1, 1), size=(2, 1), rot=90, dry_run=True)

@@ -142,6 +142,10 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
+- **C23, THE CARD CARRIES ACROSS THE SEAM (2026-10-25)** -> [`C23.md`](C23.md). `transplant_region` takes a rect past
+  column 23 (keys unwrapped inside, labels at every file); the card wraps its anchor. The comma onto (23, 1): I1/I2 over
+  2,073 files, I3 off the seam byte-identical 6/6; in game 8.512 west and 9.438 east of x = 0 (predicted 8.514 / 9.438).
+  River, sink and coast needed nothing: the river wraps already, and no stock land crosses the seam.
 - **C22, THE LEDGER STAYS TRUE (2026-10-24)** -> [`C22.md`](C22.md). C19's three drifted sidecars were 19 files the comp20
   bench restored by plain copy on 2026-10-06. `world-ledger --drift` now judges each file (sidecars too) by its own last
   row; `--repair` re-ledgers the stale under the writer whose bytes they are. Live: 19 stale -> 0, 0 foreign.
