@@ -990,6 +990,38 @@ def test_no_card_writes_while_the_chain_writes_the_game(monkeypatch, tmp_path, a
     assert D.history(draft)["promoted"] == 2 and D.promote_owed(draft) is None
 
 
+def test_no_other_card_opens_while_the_bar_holds_the_draft(monkeypatch, tmp_path, app):
+    """While an edit is open or its steps go back on top, another card could be opened from the menu: opening it
+    closed the editing card (whose cancel then started the promote back under the new card), or, during the
+    put-back, the new card's Accept or Discard wrote the draft under the open edit -- a Discard deleted the draft
+    and what the game was owed, leaving the game reverted for good (review of the C19 fixes, third round). While the
+    bar holds the draft, the menu waits, and no card opens but the edit's own."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    rows0 = D.recipe_rows(draft)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()                                                   # the in-game edit, open
+    forest = doc._forest
+    assert forest.editing() and not doc.tools_btn.isEnabled()
+    n = len(run.argvs)
+    assert doc.open_mountain(sync=True) is None and forest.editing() and run.argvs[n:] == []
+    bar._runner = held = _Held(run.argvs)                                  # the put-back's world-fuse, held
+    forest.drop_at(30.0, -30.0)
+    forest._timer.stop()
+    forest._check()
+    forest.accept_btn.click()
+    assert held.busy() and bar.holding() and not doc.tools_btn.isEnabled()
+    assert doc.open_mountain(sync=True) is None
+    while held.busy():
+        held.wait()
+    assert doc.tools_btn.isEnabled() and not bar.holding()
+    rows = D.recipe_rows(draft)
+    assert rows == [{**rows0[0], "center": [30.0, -30.0]}] + rows0[1:]
+    assert _tree(game / "FF9CustomMap-world") == _compose(game, rows, "Hand")
+    assert doc.open_mountain(sync=True) is not None
+
+
 def test_no_edit_or_delete_starts_while_a_card_writes(monkeypatch, tmp_path, app):
     """Starting the chain closed every open card, and closing a card kills its job: a card's Revert promote (a
     world-promote on the live folder) was cut off half way, and the chain reverted over the result (review of the

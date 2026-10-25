@@ -943,11 +943,14 @@ class WorldDoc(QWidget):
         return [t for t in (self._forest, self._mountain, self._hill, self._sink, self._coast, self._island,
                             self._transplant, self._river) if t is not None]
 
-    def _open_carry(self, which, *, sync=False):
+    def _open_carry(self, which, *, sync=False, edit=False):
         """The 3D view first (the tools work on it), then that tool's card under it; one card at a time, and the
-        ghost's drag goes to the open one."""
-        if self._census is None or self._chain_writes():
-            return None                            # (the recipe bar's chain is writing the live folder: it waits)
+        ghost's drag goes to the open one. While the recipe bar holds the draft (an edit open, its steps going back,
+        an in-game step's chain) no card opens but the edit's own (``edit``): another closed the editing card, whose
+        cancel started the promote back under the new card, or wrote the draft under the open edit -- a Discard
+        deleted the draft and what the game was owed (review of the C19 fixes, third round)."""
+        if self._census is None or self._chain_writes() or (self._held() and not edit):
+            return None
         if not self._mode3d:
             self._on_view3d(True, sync=sync)
         tool = getattr(self, f"_{which}")
@@ -1052,7 +1055,7 @@ class WorldDoc(QWidget):
     def _edit_step(self, row, label):
         """The recipe bar lifted a placed step out of the draft: open its card on the step's row."""
         which = self.EDIT_CARDS.get(row.get("table"))
-        tool = self._open_carry(which) if which else None
+        tool = self._open_carry(which, edit=True) if which else None
         if tool is None:
             self._recipe.cancel_edit(f"Not opened: a {row.get('table')} step has no card that opens on it.", "error")
             return
@@ -1069,9 +1072,10 @@ class WorldDoc(QWidget):
     def _on_bar_hold(self, held):
         """The recipe bar holds the draft (an edit open, a recipe going in, an in-game step's chain): the folder box and
         Rescan wait for it, as Undo and Open do. A switch closed the edit's card and its cancel went to the new
-        folder's draft, leaving the first folder's game reverted. While the chain writes the live folder and the
-        draft's records (its revert, its promote back), no card is open and none opens either: a card's Promote,
-        Revert promote, Discard or Accept would write the same folder or draft at the same moment (review of C19)."""
+        folder's draft, leaving the first folder's game reverted. The Edit the map menu waits too: no card opens
+        but the edit's own (:meth:`_open_carry`). While the chain writes the live folder and the draft's records (its
+        revert, its promote back), no card is open either: a card's Promote, Revert promote, Discard or Accept would
+        write the same folder or draft at the same moment (review of C19)."""
         why = ("Waits for the recipe bar, which holds this folder's draft (an edit open, or a recipe going in)."
                if held else "")
         self.folder_box.setEnabled(not held)
@@ -1079,7 +1083,7 @@ class WorldDoc(QWidget):
         self.rescan_btn.setEnabled(not held and not self._busy)
         self.rescan_btn.setToolTip(why or "Re-read the deployed overrides from disk (read-only).")
         live = self._chain_writes()
-        self.tools_btn.setEnabled(not live)
+        self.tools_btn.setEnabled(not held)          # no card opens but the edit's own (_open_carry says so too)
         if live:
             for tool in self._carry_tools():
                 if not tool.isHidden() and not tool.editing() and not tool.writing():
