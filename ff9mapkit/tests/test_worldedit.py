@@ -765,6 +765,33 @@ def test_a_scan_that_lands_under_an_open_edit_cancels_it_in_its_own_folder(monke
     assert _tree(game / "FF9CustomMap-world") == live0
 
 
+def test_the_folder_waits_for_the_chain_s_revert_and_a_scan_landing_mid_chain_opens_nothing(monkeypatch, tmp_path,
+                                                                                            app):
+    """The chain's revert job runs for seconds: the folder box and Rescan wait for it too. A scan begun before it that
+    lands meanwhile moves the tab off the chain's folder, and the chain does not open its edit on the wrong one: it
+    promotes its folder's steps back and says why."""
+    from ff9mapkit.workspace import worldscan
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    bar._runner = held = _Held(run.argvs)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert held.busy() and not doc.folder_box.isEnabled() and not doc.rescan_btn.isEnabled()
+    census = doc._census
+    doc.refresh(sync=True)
+    assert doc._census is census
+    doc._finish(worldscan.scan_tree(game / "Hand"), None, None)           # a scan begun before the chain lands
+    held.wait()                                                            # the revert ends
+    assert held.busy() and "--revert" not in held.argvs[-1]                # ...and the promote back runs, no edit
+    held.wait()
+    assert not doc._forest or not doc._forest.editing()
+    assert _tree(game / "FF9CustomMap-world") == live0
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and D.promote_owed(draft) is None
+    assert "another folder" in bar.status_lbl.text(), bar.status_lbl.text()
+
+
 def test_a_folder_shown_again_gets_the_promote_it_is_owed(monkeypatch, tmp_path, app):
     """A Workspace died with an in-game edit open in FF9CustomMap-world; the next one opens on another folder first.
     Showing FF9CustomMap-world settles what its game is owed."""

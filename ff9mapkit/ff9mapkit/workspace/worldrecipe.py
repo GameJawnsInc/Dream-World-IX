@@ -176,10 +176,11 @@ class RecipeBar(QWidget):
             self._on_hold(self.holding())
 
     def holding(self) -> bool:
-        """The bar holds the draft: an edit is open (its steps lifted out) or an opened recipe's rows are going in. The
-        folder the tab shows must not change meanwhile: a switch closed the card, and the cancel went to the new
-        folder's draft (review of C19)."""
-        return self._edit is not None or self._queue is not None
+        """The bar holds the draft: an edit is open (its steps lifted out), an opened recipe's rows are going in, or an
+        in-game step's chain is taking its promotes out of the game or putting them back. The folder the tab shows
+        must not change meanwhile: a switch closed the card, and the cancel went to the new folder's draft (review
+        of C19)."""
+        return self._edit is not None or self._queue is not None or self._job is not None or self._prep is not None
 
     @staticmethod
     def _edit_text(e) -> str:
@@ -244,7 +245,7 @@ class RecipeBar(QWidget):
         """``fence``: the steps that were in the game before the chain took them out (rung C19), promoted again when
         the edit closes; None for a step that was not in the game."""
         from ..world import draft as D
-        s = self.steps()[i]
+        s = D.history(d)["steps"][i]                     # the step of the draft it opens in, not the folder shown
         try:
             e = D.begin_edit(d, i)
         except ValueError as err:
@@ -297,7 +298,7 @@ class RecipeBar(QWidget):
 
     def _run_delete(self, d, i, *, fence=None):
         from ..world import draft as D
-        s = self.steps()[i]
+        s = D.history(d)["steps"][i]
         try:
             e = D.begin_edit(d, i)
         except ValueError as err:
@@ -413,6 +414,11 @@ class RecipeBar(QWidget):
         p = self._prep
         if D.history(d)["promoted"] <= p["k"]:
             self._prep, self._job = None, None
+            if self.draft() is None or Path(self.draft()) != Path(d):    # a scan begun before the chain moved the tab
+                what = "opened" if p["mode"] == "edit" else "deleted"   # off its folder: its cards would open there
+                self._repromote(d, p["fence"], f"Not {what}: the tab moved to another folder while the step's promote "
+                                "came out of the game.", "error")
+                return
             (self._open_edit if p["mode"] == "edit" else self._run_delete)(d, p["k"], fence=p["fence"])
             return
         if D.last_promote(d) is None:
