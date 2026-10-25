@@ -563,18 +563,17 @@ class RecipeBar(QWidget):
             note += "."
         self._repromote(d, fence, note, "")
 
-    def shutdown(self):
-        """The Workspace is closing: a job writing the live folder runs to its end (never killed half way), and an
-        edit of a step that is in the game is cancelled and its steps promoted back, so the game is left as it was."""
-        for _ in range(64):                              # each job's end may start the next: the chain's next revert,
-            if self._runner.busy():                      # the edit it opens, the promote back
-                self._runner.wait()
-                if self._runner.busy():                  # it never ended: leave it (the disk still says what is owed)
-                    return
-            elif self._edit is not None and self._edit.get("fence") is not None:
-                self.cancel_edit("The Workspace closed with the edit open: it is cancelled.")
-            else:
-                return
+    def closing_runner(self):
+        """The Workspace is closing (``WorldDoc.shutdown``): the runner of the bar's job, to wait for, or None."""
+        return self._runner if self._runner.busy() else None
+
+    def close_in_game_edit(self) -> bool:
+        """The Workspace is closing and no job runs: an edit of a step that is in the game is cancelled, and its steps
+        promoted back (a job, waited for in turn). True when there was one."""
+        if self._edit is None or self._edit.get("fence") is None:
+            return False
+        self.cancel_edit("The Workspace closed with the edit open: it is cancelled.")
+        return True
 
     def _moved(self, note=None, state="ok"):
         self.refresh()

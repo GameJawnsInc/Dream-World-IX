@@ -99,12 +99,14 @@ class QProcessRunner:
     def busy(self):
         return self.proc is not None
 
-    def wait(self, msecs=120000):
+    def wait(self, msecs=120000) -> bool:
         """Block until the running job ends and its ``done`` has run (the Workspace closing: a job writing the live
-        folder runs to its end, never killed half way)."""
+        folder runs to its end, never killed half way). True when it ended; ``done`` may have started the next job,
+        so ``busy()`` after it says nothing about this one."""
         proc = self.proc
-        if proc is not None:
-            proc.waitForFinished(msecs)
+        if proc is None:
+            return True
+        return bool(proc.waitForFinished(msecs)) or proc.state() == QProcess.ProcessState.NotRunning
 
 
 class CarryTool(QWidget):
@@ -449,6 +451,15 @@ class CarryTool(QWidget):
         self.panel.set_ghost(None)
         self.hide()
         self.opened.emit(False)
+
+    def closing_runner(self):
+        """The Workspace is closing (``WorldDoc.shutdown``): a Check, a dry run that writes nothing, stops; the runner of
+        a job that writes (Accept, Promote, Revert promote) is handed back to be waited for. None when nothing runs."""
+        if self._job is not None and self._job[0] == "check":
+            self._runner.kill()
+            self._job = None
+            return None
+        return self._runner if self._runner.busy() else None
 
     def handles(self):
         """The handles as the command spells them: the stale guard every verdict is matched against."""

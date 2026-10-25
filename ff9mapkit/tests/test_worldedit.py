@@ -714,7 +714,8 @@ class _Held:
         from ff9mapkit import cli
         argv, done = self.held
         self.held = None
-        done(cli.main([str(a) for a in argv[3:]]), "")
+        done(cli.main([str(a) for a in argv[3:]]), "")     # (its done may start the next job, as a real one does)
+        return True
 
     def kill(self):
         self.held = None
@@ -747,6 +748,55 @@ def test_closing_the_workspace_mid_revert_finishes_the_chain(monkeypatch, tmp_pa
     assert held.busy() and "--revert" in held.argvs[-1]
     doc.shutdown()
     assert not held.busy() and _tree(game / "FF9CustomMap-world") == live0
+    assert D.history(draft)["promoted"] == 3 and D.promote_owed(draft) is None
+
+
+def test_closing_the_workspace_waits_for_every_job_of_the_chain(monkeypatch, tmp_path, app):
+    """Two promotes stand over step 1: the first revert's end starts the second. shutdown took a job running after a
+    wait for one that never ended, and returned with that revert running: the window closed on a live-folder write
+    (review of the C19 fixes). It waits each job, the next one too, and the chain closes with the game as it was."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    _unpromoted_fourth(draft)
+    D.promote(draft, game=game, log=lambda *a: None)                       # P2: step 4, in the game too
+    live1 = _tree(game / "FF9CustomMap-world")
+    bar.refresh()
+    bar._runner = held = _Held(run.argvs)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert held.busy() and "--revert" in held.argvs[-1]
+    doc.shutdown()
+    assert not held.busy() and sum("--revert" in a for a in held.argvs) == 2
+    assert _tree(game / "FF9CustomMap-world") == live1
+    assert D.history(draft)["promoted"] == 4 and D.promote_owed(draft) is None
+
+
+def test_closing_the_workspace_while_an_in_game_edit_s_accept_runs_lets_it_finish(monkeypatch, tmp_path, app):
+    """The card's own Accept is writing the draft when the window closes: shutdown cancelled the edit under it (its
+    pending step aborted, then the game promoted from a draft the job was still writing). Every job that writes runs
+    to its end first -- the card's Accept, then the put-back and the promote back it leads to (review of the C19
+    fixes)."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    rows0 = D.recipe_rows(draft)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    forest = doc._forest
+    forest._runner = held = _Held([])
+    forest.drop_at(30.0, -30.0)
+    forest._timer.stop()
+    forest._check()
+    held.wait()                                                            # the check, in
+    assert forest.accept_btn.isEnabled(), forest.verdict_lbl.text()
+    forest.accept_btn.click()
+    assert held.busy()                                                     # its Accept writing the draft
+    doc.shutdown()
+    assert not held.busy() and D.history(draft)["edit"] is None
+    rows = D.recipe_rows(draft)
+    assert rows == [{**rows0[0], "center": [30.0, -30.0]}] + rows0[1:]
+    assert _tree(game / "FF9CustomMap-world") == _compose(game, rows, "Hand")
     assert D.history(draft)["promoted"] == 3 and D.promote_owed(draft) is None
 
 

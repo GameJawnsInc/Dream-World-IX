@@ -1141,10 +1141,23 @@ class WorldDoc(QWidget):
             self._recipe.settle()                  # a promote the game is owed from a Workspace that died mid-edit
 
     def shutdown(self):
-        """The Workspace is closing (the shell's closeEvent): the recipe bar's live-folder jobs run to their end and
-        an in-game edit still open goes back, so the game is left as it was (rung C19)."""
-        if self._recipe is not None:
-            self._recipe.shutdown()
+        """The Workspace is closing (the shell's closeEvent). Every job that writes the live folder or a draft runs to
+        its end, never killed half way: the recipe bar's (one job's end may start the next: the chain's next revert,
+        the promote back) and a card's Accept, Promote or Revert promote (whose end may hand the bar its put-back). A
+        card's Check, a dry run, stops. Then an edit of a step that is in the game is cancelled and its steps promoted
+        back, so the game is left as it was (rung C19; review of its fixes: shutdown once returned with the chain's
+        next job running, and cancelled an edit under its card's running Accept)."""
+        for _ in range(256):
+            runners = [t.closing_runner() for t in self._carry_tools()]
+            if self._recipe is not None:
+                runners.append(self._recipe.closing_runner())
+            busy = [r for r in runners if r is not None]
+            if busy:
+                if not busy[0].wait():
+                    return                         # it never ended: leave it (what the game is owed is on disk)
+                continue
+            if self._recipe is None or not self._recipe.close_in_game_edit():
+                return
 
     def set_view_mode(self, mode, *, sync=False):
         """``"chart"`` or ``"3d"`` -- the toggle, for tests and gui_snap."""
