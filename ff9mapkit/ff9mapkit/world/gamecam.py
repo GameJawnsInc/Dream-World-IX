@@ -127,13 +127,14 @@ class Settings:
     camera_distance: float = 100.0
     camera_height: float = 100.0
     camera_aim_height: float = 100.0
-    # the fog's (world.fog, overworld editor C18): Memoria's documented vanilla values
-    fog_start: float = 86.0                       # FogStartDistance / FogEndDistance: the no-mist years (u)
-    fog_end: float = 142.0
-    mist_start: float = 27.0                      # MistStartDistance / MistEndDistance / MistDensity /
-    mist_end: float = 80.0                        # MistStartDistance_base: the Mist years
-    mist_density: float = 7.0
-    mist_base: float = 55.0
+    # the fog's (world.fog, overworld editor C18): the defaults Memoria binds each key with (WorldmapSection's
+    # BindInt32), which is what a key the ini leaves out runs at -- not the ini comment's "vanilla" numbers
+    fog_start: float = 250.0                      # FogStartDistance / FogEndDistance: the no-mist years (u)
+    fog_end: float = 350.0
+    mist_start: float = 25.0                      # MistStartDistance / MistEndDistance / MistDensity /
+    mist_end: float = 250.0                       # MistStartDistance_base: the Mist years
+    mist_density: float = 15.0
+    mist_base: float = 40.0
 
     @classmethod
     def from_ini(cls, text: str) -> "Settings":

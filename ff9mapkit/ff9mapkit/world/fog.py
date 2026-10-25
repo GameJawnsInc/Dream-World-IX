@@ -20,8 +20,9 @@ differently, and :meth:`Fog.note` says so where the view shows it.
 
 THE TWO YEARS. Mist is not position-keyed (Memoria's ``WorldConfiguration.UseMist``): it follows the scenario counter,
 on before the Exterior Continent (5990) and after disc 4 (11090). In between the fog is the shaders' linear one at the
-ini's ``FogStartDistance`` / ``FogEndDistance`` (``RenderSettings``, vanilla 86 / 142) -- C8's stills, taken there,
-show no fog inside 250u at this install's 400 / 490, and the mist model on them is worse than none.
+ini's ``FogStartDistance`` / ``FogEndDistance`` (``RenderSettings``; Memoria's own default 250 / 350 for a key the ini
+leaves out) -- C8's stills, taken there, show no fog inside 250u at this install's 400 / 490, and the mist model on
+them is worse than none.
 """
 from __future__ import annotations
 
@@ -59,7 +60,8 @@ class Fog:
         """The fog in words, for the view's tooltip: which year, where its numbers come from."""
         if not self.mist:
             return (f"The fog of the years without mist: from {self.start:g}u to {self.end:g}u, this install's "
-                    "Memoria.ini [Worldmap] FogStartDistance / FogEndDistance.")
+                    "Memoria.ini [Worldmap] FogStartDistance / FogEndDistance (Memoria's own default where it leaves "
+                    "one out).")
         out = ("The Mist, as measured from the game's own frames (depth 15u to 61u, longer over high ground: the "
                "highlands stand out of it), in the daylight fog colour.")
         if self.unmeasured:

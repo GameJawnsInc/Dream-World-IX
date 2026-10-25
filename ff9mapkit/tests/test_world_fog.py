@@ -53,9 +53,24 @@ def test_the_two_years(tmp_path):
     assert (clear.start, clear.end, clear.per_u, clear.mist) == (400.0, 490.0, 0.0, False)
     assert "FogStartDistance" in clear.note() and "measured" in mist.note() and "differ" not in mist.note()
     other = FG.from_game(_install(tmp_path / "b", ini="[Worldmap]\nMistEndDistance = 80\n"))
-    assert "MistEndDistance 80" in other.note() and "MistStartDistance 27" in other.note()    # vanilla vs measured
+    assert "MistEndDistance 80" in other.note() and "MistStartDistance" not in other.note()   # the unset ones: Memoria's
     assert G.Settings.from_ini("[Worldmap]\nFogStartDistance = 400\n").fog_start == 400.0
-    assert G.Settings().fog_end == 142.0                                 # Memoria's documented vanilla
+
+
+def test_a_key_the_ini_leaves_out_is_memoria_s_own_default(tmp_path):
+    """Memoria's WorldmapSection binds each key with a default (BindInt32), and a missing key runs at it. The kit used
+    the ini comment's "vanilla" numbers instead (86 / 142, 27 / 80 / 7 / 55): with no keys, the no-mist view fogged the
+    land solid by 142u where the engine keeps it clear to 250u, and the Mist tooltip called the engine's own defaults
+    -- the very ones measured -- unmeasured (review of C18)."""
+    s = G.Settings()
+    assert (s.fog_start, s.fog_end) == (250.0, 350.0)
+    assert {k: getattr(s, k) for k in FG.MEASURED_MIST} == FG.MEASURED_MIST
+    assert (s.field_of_view, s.camera_distance, s.camera_height, s.camera_aim_height) == (44.0, 100.0, 100.0, 100.0)
+    bare = _install(tmp_path, ini="[Worldmap]\n")
+    assert FG.from_game(bare).unmeasured == () and "differ" not in FG.from_game(bare).note()
+    clear = FG.from_game(bare, mist=False)
+    assert (clear.start, clear.end) == (250.0, 350.0)
+    assert FG.from_game(tmp_path / "nowhere", mist=False).end == 350.0      # no ini at all: the same
 
 
 def test_the_software_twin_fogs_by_each_pixel_s_ray():
