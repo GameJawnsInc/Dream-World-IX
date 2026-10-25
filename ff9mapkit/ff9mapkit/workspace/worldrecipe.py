@@ -576,7 +576,12 @@ class RecipeBar(QWidget):
         self._repromote(d, fence, note, "")
 
     def closing_runner(self):
-        """The Workspace is closing (``WorldDoc.shutdown``): the runner of the bar's job, to wait for, or None."""
+        """The Workspace is closing (``WorldDoc.shutdown``): the runner of the bar's job, to wait for, or None. An
+        opened recipe stops after the row that runs: each row is its own step and the recipe owes the game nothing,
+        so composing the rest inside closeEvent froze the window for minutes (review of the C19 fixes, third
+        round)."""
+        if self._queue is not None:
+            self._queue["closing"] = True
         return self._runner if self._runner.busy() else None
 
     def close_in_game_edit(self) -> bool:
@@ -666,6 +671,11 @@ class RecipeBar(QWidget):
         if not q["rows"]:
             self._queue = None
             self._moved(f"Composed {q['name']}: {q['done']} row{'s' if q['done'] != 1 else ''} into the draft.", "ok")
+            return
+        if q.get("closing"):
+            self._queue = None
+            self._moved(f"Stopped {q['name']} as the Workspace closed: {q['done']} row{'s' if q['done'] != 1 else ''} "
+                        f"composed into the draft, {len(q['rows'])} not.", "warn")
             return
         row = q["rows"][0]
         D.begin_step(d, RC.row_cells(row))

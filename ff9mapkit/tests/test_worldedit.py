@@ -800,6 +800,21 @@ def test_closing_the_workspace_while_an_in_game_edit_s_accept_runs_lets_it_finis
     assert D.history(draft)["promoted"] == 3 and D.promote_owed(draft) is None
 
 
+def test_closing_the_workspace_while_a_recipe_composes_stops_after_the_running_row(monkeypatch, tmp_path, app):
+    """Each row's end starts the next, and shutdown waits for every job that writes: it composed the whole rest of an
+    opened recipe inside closeEvent, minutes with the window frozen (review of the C19 fixes, third round). A row is
+    its own step and an opened recipe owes the game nothing, so the running row ends and the rest waits."""
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar.save_btn.click()                                                   # the recipe, three rows
+    bar._runner = held = _Held(run.argvs)
+    bar.open_btn.click()                                                   # composed again, a row at a time
+    assert held.busy() and bar._queue is not None
+    doc.shutdown()
+    assert not held.busy() and bar._queue is None and D.history(draft)["cursor"] == 1
+    assert "1 row" in bar.status_lbl.text() and "closed" in bar.status_lbl.text(), bar.status_lbl.text()
+
+
 def test_an_in_game_edit_a_dead_workspace_left_open_is_put_right_on_the_next_launch(monkeypatch, tmp_path, app):
     """The Workspace dies with an in-game edit open (no shutdown): what the game is owed is on disk, so the next
     launch puts the draft back and promotes the game's steps again, and says so."""
