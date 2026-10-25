@@ -272,17 +272,25 @@ class RecipeBar(QWidget):
         live folder: the two would write the same draft and its records at once, and opening the step's card (or the
         chain's start) closes the open card (review of the C19 fixes; the bar's own writes, its fourth round)."""
         if self._cards_writing():
-            self._moved(f"Not {what}: a card is still writing (its Accept, Promote or Revert promote); wait for it to "
-                        "finish.", "error")
+            self._refuse(f"Not {what}: a card is still writing (its Accept, Promote or Revert promote); wait for it "
+                         "to finish.")
             return True
         return False
+
+    def _refuse(self, note):
+        """Say a refusal. Nothing moved, so no one is told the draft did: the draft-moved pass (every card's island
+        read again, the view reloaded from a draft mid-write, whose own reload the busy view then dropped) ran for
+        a click that changed nothing (review of the C19 fixes, fifth round)."""
+        self.refresh()
+        widgets.set_state(self.status_lbl, "error")
+        self.status_lbl.setText(note)
 
     def _out_of_game(self, i, what) -> bool:
         """Refuse a chain for in-game step ``i`` while steps after the game's are out of it (the law at the call
         site; the buttons say it too)."""
         n = self._later_out_of_game(i)
         if n:
-            self._moved(f"Not {what}: {self._later_text(n)}", "error")
+            self._refuse(f"Not {what}: {self._later_text(n)}")
         return bool(n)
 
     @staticmethod

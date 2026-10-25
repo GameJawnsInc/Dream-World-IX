@@ -1079,6 +1079,27 @@ def test_a_scan_that_lands_during_a_card_s_accept_lets_it_commit_to_its_own_fold
     assert not (tmp_path / "drafts" / "Hand.draft").exists()
 
 
+def test_a_refusal_of_the_bar_s_tells_no_one_the_draft_moved(monkeypatch, tmp_path, app):
+    """The bar's refusals (a card still writing, steps after the game's out of it) went through the draft-moved
+    path: every card's island re-read, the draw box set to the draft, the 3D view reloaded from a draft mid-write --
+    whose own reload, when the write ended, the busy view then dropped (review of the C19 fixes, fifth round). A
+    refusal moves nothing, and says so to no one but the bar."""
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    moved = []
+    bar._on_changed = moved.append
+    forest = doc.open_forest(sync=True)
+    forest._ask = lambda title, text: True
+    forest._runner = held = _Held([])
+    forest._promote()                                                      # the card writes
+    for act in (bar.undo, bar.redo, bar.open_recipe):
+        act()
+    bar.select(0)
+    bar.edit()
+    assert "still writing" in bar.status_lbl.text() and moved == []
+    held.wait()
+
+
 def test_a_card_that_writes_is_never_closed_under_its_job(monkeypatch, tmp_path, app):
     """Closing a card kills its job, and the view toggle, the menu (one card at a time), a Rescan and a folder pick all
     close cards: a card's Promote or Revert promote cut off half way left the live folder half written with no
