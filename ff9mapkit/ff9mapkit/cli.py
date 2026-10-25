@@ -5086,7 +5086,7 @@ def _morph_report_json(args, *, summary=None, refused=None) -> None:
     tw, th = (nx, ny) if (int(getattr(args, "rot", 0) or 0) // 90) % 2 == 0 else (ny, nx)
     mid = [64.0 * (bx + tw / 2.0), -64.0 * (by + th / 2.0)]
     out = {"ok": False, "dry_run": bool(args.dry_run), "disc": args.disc, "cell": [bx, by],
-           "blocks": [[bx + i, by + j] for j in range(th) for i in range(tw)], "size": [nx, ny],
+           "blocks": [[(bx + i) % 24, by + j] for j in range(th) for i in range(tw)], "size": [nx, ny],   # labels (C23)
            "gates": [], "written": [], "refused": None}
     if summary is not None:
         bad = [g for g in summary.get("gates", ()) if not g.get("ok")]

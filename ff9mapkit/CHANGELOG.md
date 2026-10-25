@@ -5,6 +5,10 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Added — carry a coast across the map's edge
+- "Carry a coast" can now place a multi-block carry across x = 0, where the world map wraps round: click near
+  the edge and the carry's blocks fill both sides. Measured in game: the land stands whole on both sides.
+
 ### Fixed — `world-ledger` sees files put back behind it
 - `world-ledger --drift` now checks the `Donor.txt` sidecars too, and judges each file by its own latest ledger row, so
   a file restored from a backup by hand shows up as stale instead of passing. The new `--repair` records those

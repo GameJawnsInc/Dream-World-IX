@@ -1,0 +1,156 @@
+{
+ "t": "2026-10-25 00:30:39",
+ "draft": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\studies\\overworld-editor\\out\\c23_lab\\drafts\\FF9CustomMap-world.draft",
+ "tool": {
+  "check": {
+   "text": "Passes every gate (21): the-comma (2x3 blocks) carried onto (23, 1), turned 0\u00b0, shifted +0, +0. Accept carries it into the draft.",
+   "s": 8.5,
+   "cell": [
+    23,
+    1
+   ],
+   "blocks": [
+    [
+     23,
+     1
+    ],
+    [
+     0,
+     1
+    ],
+    [
+     23,
+     2
+    ],
+    [
+     0,
+     2
+    ],
+    [
+     23,
+     3
+    ],
+    [
+     0,
+     3
+    ]
+   ]
+  },
+  "accepted": "In the draft: 5 blocks written. The view now draws the draft in place of FF9CustomMap-world. Click to place another carry.",
+  "accept_s": 8.6,
+  "argv": [
+   "C:\\Users\\skaki\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe",
+   "-m",
+   "ff9mapkit",
+   "--game",
+   "C:\\Program Files (x86)\\Steam\\steamapps\\common\\FINAL FANTASY IX",
+   "world-transplant",
+   "--mod-folder",
+   "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\studies\\overworld-editor\\out\\c23_lab\\drafts\\FF9CustomMap-world.draft",
+   "--cell",
+   "23,1",
+   "--donor",
+   "9,5",
+   "--size",
+   "2x3",
+   "--shift",
+   "0,0",
+   "--report-json",
+   "C:\\Users\\skaki\\AppData\\Local\\Temp\\ff9_carry_3txga2rq\\verdict.json"
+  ],
+  "draft": "C:\\gd\\Dream-World-IX\\.claude\\worktrees\\terrain-shaping-continue-4647b2\\studies\\overworld-editor\\out\\c23_lab\\drafts\\FF9CustomMap-world.draft"
+ },
+ "edits": [
+  "FF9_Data/WorldMap/Disc1/0_1/r1/Block[0][1] Donor.txt",
+  "FF9_Data/WorldMap/Disc1/0_1/r1/Block[0][1] Sea4.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r1/Block[0][1] Terrain.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r2/Block[0][2] Donor.txt",
+  "FF9_Data/WorldMap/Disc1/0_1/r2/Block[0][2] Sea4.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r2/Block[0][2] Terrain.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r2/Block[23][2] Donor.txt",
+  "FF9_Data/WorldMap/Disc1/0_1/r2/Block[23][2] Sea4.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r2/Block[23][2] Terrain.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r3/Block[0][3] Donor.txt",
+  "FF9_Data/WorldMap/Disc1/0_1/r3/Block[0][3] Sea4.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r3/Block[0][3] Terrain.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r3/Block[23][3] Donor.txt",
+  "FF9_Data/WorldMap/Disc1/0_1/r3/Block[23][3] Sea4.ff9mesh",
+  "FF9_Data/WorldMap/Disc1/0_1/r3/Block[23][3] Terrain.ff9mesh"
+ ],
+ "I1": {
+  "identical": true,
+  "files": 2073
+ },
+ "I2": {
+  "identical": true
+ },
+ "I3": {
+  "offseam": [
+   2,
+   0
+  ],
+  "pairs": {
+   "(23, 1)": true,
+   "(0, 1)": true,
+   "(23, 2)": true,
+   "(0, 2)": true,
+   "(23, 3)": true,
+   "(0, 3)": true
+  },
+  "cleared": 58
+ },
+ "stack": [
+  "FF9CustomMap",
+  "FF9CustomMap-world",
+  "MoguriMain",
+  "MoguriVideo",
+  "FF9CustomMap-schema",
+  "FF9CustomMap-msgs",
+  "FF9Coop"
+ ],
+ "tolerance": 0.15,
+ "targets": [
+  {
+   "key": "W",
+   "x": 1529.7,
+   "z": -182.96,
+   "predict_y": 8.513925781249993,
+   "part": "Terrain",
+   "topograph": 38,
+   "live_y": 0.0,
+   "live_part": "Sea4",
+   "block": [
+    23,
+    2
+   ]
+  },
+  {
+   "key": "E",
+   "x": 5.7,
+   "z": -174.96,
+   "predict_y": 9.43818359375,
+   "part": "Terrain",
+   "topograph": 38,
+   "live_y": 0.0,
+   "live_part": "Sea4",
+   "block": [
+    0,
+    2
+   ]
+  },
+  {
+   "key": "K",
+   "x": 326.16,
+   "z": -569.09,
+   "predict_y": 4.286220703125,
+   "part": "Terrain",
+   "topograph": 5,
+   "live_y": 4.286220703125,
+   "live_part": "Terrain",
+   "block": [
+    5,
+    8
+   ]
+  }
+ ]
+}
