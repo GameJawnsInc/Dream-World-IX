@@ -1095,12 +1095,11 @@ class WorldDoc(QWidget):
         self.rescan_btn.setEnabled(not held and not writes and not self._busy)
         self.rescan_btn.setToolTip(why or "Re-read the deployed overrides from disk (read-only).")
         self.view3d_btn.setEnabled(not writes)       # (the chart closes the cards)
-        live = self._chain_writes()
         self.tools_btn.setEnabled(not held and not writes)   # no card opens but the edit's own (_open_carry too)
-        if live:
-            for tool in self._carry_tools():
-                if not tool.isHidden() and not tool.editing() and not tool.writing():
-                    tool.close_tool()              # (a card that writes was refused the chain's start)
+        if held:                                   # ...and a card open when the bar began holding is put away: its
+            for tool in self._carry_tools():       # Accept or Discard wrote the draft under a put-back or a recipe
+                if not tool.isHidden() and not tool.editing() and not tool.writing():    # (fourth round; a card
+                    tool.close_tool()              # that writes was refused the bar's start)
 
     def _chain_writes(self) -> bool:
         return self._recipe is not None and self._recipe.writing_live()

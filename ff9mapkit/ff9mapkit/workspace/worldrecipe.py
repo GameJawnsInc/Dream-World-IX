@@ -268,9 +268,9 @@ class RecipeBar(QWidget):
         return h["cursor"] - h["promoted"] if i is not None and i < h["promoted"] else 0
 
     def _card_writes(self, what) -> bool:
-        """Refuse an edit or a delete while a card's job writes the draft or the live folder: opening the step's card
-        (or the chain's start) closes the open card, and closing a card kills its job half way -- a Revert promote cut
-        off mid-write, then reverted over (review of the C19 fixes)."""
+        """Refuse any write of the bar's (Edit, Delete, Undo, Redo, Open) while a card's job writes the draft or the
+        live folder: the two would write the same draft and its records at once, and opening the step's card (or the
+        chain's start) closes the open card (review of the C19 fixes; the bar's own writes, its fourth round)."""
         if self._cards_writing():
             self._moved(f"Not {what}: a card is still writing (its Accept, Promote or Revert promote); wait for it to "
                         "finish.", "error")
@@ -358,6 +358,7 @@ class RecipeBar(QWidget):
             return
         self._edit = {"k": i, "mode": "delete", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"],
                       "fence": fence, "draft": d}
+        self.refresh()                                   # (the hold begins: an idle card is put away)
         if self._on_select is not None:
             self._on_select(None)
         self._start_put_back(d, D.dirty_after(set(), e["lifted"][0], None))
@@ -604,7 +605,7 @@ class RecipeBar(QWidget):
     def undo(self):
         from ..world import draft as D
         d = self.draft()
-        if d is None:
+        if d is None or self._card_writes("undone"):
             return
         try:
             s = D.undo(d)
@@ -616,7 +617,7 @@ class RecipeBar(QWidget):
     def redo(self):
         from ..world import draft as D
         d = self.draft()
-        if d is None:
+        if d is None or self._card_writes("redone"):
             return
         try:
             s = D.redo(d)
@@ -644,6 +645,8 @@ class RecipeBar(QWidget):
     def open_recipe(self):
         from ..world import draft as D
         from ..world import recipe as RC
+        if self._card_writes("opened"):
+            return
         path = self._open_path_fn()
         if not path:
             return

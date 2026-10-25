@@ -1005,6 +1005,41 @@ def test_no_card_writes_while_the_chain_writes_the_game(monkeypatch, tmp_path, a
     assert D.history(draft)["promoted"] == 2 and D.promote_owed(draft) is None
 
 
+def test_an_open_card_is_put_away_when_the_bar_starts_holding_and_the_bar_waits_for_a_writing_card(monkeypatch,
+                                                                                                    tmp_path, app):
+    """The hold law was kept only at a card's opening: a card already open when the bar began holding -- a Delete's
+    put-back, an opened recipe composing -- kept its Accept and Discard, and its Accept swept the bar's pending
+    snapshot (the bar then locked the tab for good on a FileNotFoundError) (review of the C19 fixes, fourth round).
+    The bar puts every idle card away as it starts holding; and none of its writes (Delete, Edit, Undo, Redo, Open)
+    starts while a card writes."""
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    bar.save_btn.click()                                                   # (a recipe for Open)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)                             # a step not in the game
+    forest = doc.open_forest(sync=True)
+    assert not forest.isHidden() and not bar.delete_btn.isHidden()
+    bar._runner = held = _Held(run.argvs)
+    bar.delete_btn.click()                                                 # its put-back (the mountain composed again)
+    assert held.busy() and bar.holding() and forest.isHidden()
+    while held.busy():
+        held.wait()
+    forest = doc.open_forest(sync=True)
+    bar.open_btn.click()                                                   # an opened recipe composing
+    assert held.busy() and bar.holding() and forest.isHidden()
+    while held.busy():
+        held.wait()
+    forest = doc.open_forest(sync=True)
+    forest._ask = lambda title, text: True
+    forest._runner = card = _Held([])
+    forest._revert() if D.last_promote(draft) else forest._promote()      # the card writes
+    assert card.busy() and forest.writing()
+    for act, what in ((bar.undo, "undone"), (bar.redo, "redone"), (bar.open_recipe, "opened")):
+        act()
+        assert "still writing" in bar.status_lbl.text(), (what, bar.status_lbl.text())
+    card.wait()
+
+
 def test_a_card_that_writes_is_never_closed_under_its_job(monkeypatch, tmp_path, app):
     """Closing a card kills its job, and the view toggle, the menu (one card at a time), a Rescan and a folder pick all
     close cards: a card's Promote or Revert promote cut off half way left the live folder half written with no
