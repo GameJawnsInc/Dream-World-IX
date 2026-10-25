@@ -556,7 +556,13 @@ class CarryTool(QWidget):
                     self._ix, self._ix_for = self._soups[(target, seam)], target
                 continue
             fn = self._seam_soup_fn if seam else self._soup_fn
-            self._bg("soup", lambda fn=fn, seam=seam, gen=self._soup_gen: (gen, target, seam, fn(target)))
+
+            def read(fn=fn, seam=seam, gen=self._soup_gen):  # its error carries its generation and frame too: a
+                try:                                         # stale read's failure must not wipe the live island
+                    return (gen, target, seam, fn(target))
+                except Exception as e:                       # noqa: BLE001 -- surfaced on the GUI thread
+                    return (gen, target, seam, e)
+            self._bg("soup", read)
 
     def fcenter(self):
         """The centre as the current soup's frame spells it (the ghost and the cheap laws); ``center`` is the folded
@@ -598,6 +604,11 @@ class CarryTool(QWidget):
             gen, target, seam, ix = result
             if gen != self._soup_gen:
                 return                                   # begun before the island changed: not the island now
+            if isinstance(ix, Exception):
+                if (target, seam) == (self.target(), self._seam):
+                    self._ix, self._ix_for = None, None
+                    self._say(f"The island could not be read: {ix}", "error")
+                return
             self._soups[(target, seam)] = ix
             if (target, seam) != (self.target(), self._seam):
                 return                                   # a frame (or a draft) the tool has moved off meanwhile

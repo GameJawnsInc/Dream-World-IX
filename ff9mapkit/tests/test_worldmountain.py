@@ -290,6 +290,37 @@ def test_an_island_read_begun_before_the_edit_does_not_decide_it(app, monkeypatc
     assert tool.editing() and notes == [] and tool.row() == row
 
 
+def test_an_island_read_that_fails_after_the_island_changed_is_dropped(app, monkeypatch, tmp_path):
+    """5519e76d dropped a stale island read's result, but its error came back with no generation and wiped the live
+    island and said "The island could not be read" whichever read it was -- a read racing a quick second Undo
+    (review of the C12 fixes, third round). A read's error carries its generation and its frame too."""
+    tool, _p, _c = _tool(app, monkeypatch, tmp_path, bench=_desert_bench())
+    good = tool._soup_fn(None)
+    calls = {"n": 0}
+
+    def soup_fn(folder):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise FileNotFoundError("Block[0][0] Terrain.ff9mesh: the undo is rewriting it")
+        return good
+    tool._soup_fn = soup_fn
+    tool._sync = False
+    held = []
+    tool._bg = lambda what, fn: held.append((what, fn))
+
+    def deliver_all():
+        while held:
+            what, fn = held.pop(0)
+            try:
+                tool._on_bg(what, 0, fn(), None)
+            except Exception as e:                       # noqa: BLE001 -- as the worker hands it over
+                tool._on_bg(what, 0, None, e)
+    tool.island_changed()                                # read 1: the undo rewriting the island under it
+    tool.island_changed()                                # the second undo: read 2
+    deliver_all()
+    assert tool._ix is good and "could not be read" not in tool.verdict_lbl.text()
+
+
 def test_the_preview_refuses_before_any_job_runs(app, monkeypatch, tmp_path):
     run = Scripted(_passes)
     tool, panel, _c = _tool(app, monkeypatch, tmp_path, run)
