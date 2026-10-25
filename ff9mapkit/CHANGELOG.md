@@ -31,6 +31,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   still a no-op.
 - A page read only at 15bpp is handed out as a direct-colour page, with no palette.
 
+### Fixed — `world-ledger` sees files put back behind it
+- `world-ledger --drift` now checks the `Donor.txt` sidecars too, and judges each file by its own latest ledger row, so
+  a file restored from a backup by hand shows up as stale instead of passing. The new `--repair` records those
+  files again under the run that wrote their bytes; files the ledger never saw are left alone.
+
 ### Fixed — the flying gold chocobo's camera, and vehicles boarded on foot
 - "As the game sees it" now frames the flying gold chocobo, the Hilda Garde III and the Blue Narciss the way the
   game does when you get aboard in play: on disc 1 the camera sits lower than it used to draw. Two new choices
