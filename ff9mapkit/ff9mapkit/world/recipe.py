@@ -271,7 +271,9 @@ def anchor(row: dict):
 
 def step_at(steps, x: float, z: float):
     """The index of the step a click at ``(x, z)`` picks among ``steps`` (the applied history steps), or None: of the
-    steps that changed the clicked block, the one placed nearest the click (the later one on a tie: it lies on top)."""
+    steps that changed the clicked block, the one placed nearest the click (the later one on a tie: it lies on top).
+    A step with no place on the map (a river) is the farthest: it is picked where no placed step changed the block
+    (scored 0, it took every click on its blocks, and a hill on its island could not be picked: review of C12)."""
     from .frames import world_to_block, wrap_world_xz
     blk = world_to_block(*wrap_world_xz(x, z))
     best = None
@@ -279,7 +281,7 @@ def step_at(steps, x: float, z: float):
         if tuple(blk) not in {tuple(c) for c in s.get("cells") or ()}:
             continue
         pt = anchor(s.get("row") or {})
-        d = 0.0 if pt is None else math.hypot((x - pt[0] + 768.0) % 1536.0 - 768.0, z - pt[1])
+        d = math.inf if pt is None else math.hypot((x - pt[0] + 768.0) % 1536.0 - 768.0, z - pt[1])
         if best is None or d <= best[0]:
             best = (d, i)
     return None if best is None else best[1]

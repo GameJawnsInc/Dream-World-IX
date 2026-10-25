@@ -160,6 +160,17 @@ def test_a_click_picks_the_step_placed_nearest_it_on_the_block_it_changed():
     assert RC.step_at(steps + [river], 20.0, -650.0) == 4 and RC.step_at(steps + [river], 1500.0, -720.0) == 4
 
 
+def test_a_step_placed_on_the_river_s_blocks_is_still_picked():
+    """A river has no anchor (its at is a translation), so it scored 0 on every block it changed and won every click
+    there, before or after another step: a hill on the river's island could not be picked, so not edited or deleted
+    (review of C12). A step with a place wins its block over one without; the river is picked where nothing else is."""
+    river = {"row": {"table": "river", "at": [512.0, 128.0]}, "cells": [[8, 3], [9, 3], [8, 4], [9, 4]]}
+    hill = {"row": {"table": "hill", "center": [560.0, -230.0]}, "cells": [[8, 3]]}
+    for steps, h in (([river, hill], 1), ([hill, river], 0)):
+        assert RC.step_at(steps, 561.0, -231.0) == h and RC.step_at(steps, 560.0, -230.0) == h
+        assert RC.step_at(steps, 600.0, -300.0) == 1 - h                  # (9, 4): the river's alone
+
+
 # ---------------------------------------------------------------- the World tab: pick, edit, delete (THE C9 ACCEPTANCE)
 from .test_worldrecipe import _doc, _place, _two_islands, app  # noqa: E402,F401
 
