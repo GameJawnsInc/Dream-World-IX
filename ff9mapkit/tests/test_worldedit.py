@@ -659,3 +659,74 @@ def test_a_second_revert_refusing_puts_the_first_back_into_the_game(monkeypatch,
     assert not doc._forest.editing() and "could not be taken back" in bar.status_lbl.text()
     assert "again" in bar.status_lbl.text(), bar.status_lbl.text()
     assert _tree(live) == after0 and D.history(draft)["promoted"] == 4
+
+
+def _unpromoted_fourth(draft):
+    """A fourth step in the draft that was never promoted: the game must never get it from the bar's chain."""
+    (draft / FAR).parent.mkdir(parents=True, exist_ok=True)
+    _step(draft, [(10, 5)], {FAR: b"a fourth step, never promoted"}, _row(672, -352), "a fourth step")
+
+
+def test_a_cancelled_in_game_edit_promotes_only_what_was_in_the_game(monkeypatch, tmp_path, app):
+    """The re-promote is the steps that were in the game, never the draft's whole recipe: a step placed after the
+    promote and not promoted stays out of the game (and stays in the draft, applied)."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    _unpromoted_fourth(draft)
+    bar.refresh()
+    rows0 = D.recipe_rows(draft)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    doc._forest.close_btn.click()                                          # Cancel edit
+    assert _tree(game / "FF9CustomMap-world") == live0                      # the game exactly as it was
+    h = D.history(draft)
+    assert h["promoted"] == 3 and h["cursor"] == 4 and D.recipe_rows(draft) == rows0
+    assert (draft / FAR).read_bytes() == b"a fourth step, never promoted"
+    assert "again" in bar.status_lbl.text(), bar.status_lbl.text()
+
+
+def test_an_accepted_in_game_edit_promotes_only_what_was_in_the_game(monkeypatch, tmp_path, app):
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    _unpromoted_fourth(draft)
+    bar.refresh()
+    rows0 = D.recipe_rows(draft)
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    forest = doc._forest
+    forest.drop_at(30.0, -30.0)
+    forest._timer.stop()
+    forest._check()
+    forest.accept_btn.click()
+    rows = D.recipe_rows(draft)
+    assert rows == [{**rows0[0], "center": [30.0, -30.0]}] + rows0[1:]
+    h = D.history(draft)
+    assert h["promoted"] == 3 and h["cursor"] == 4 and FAR not in _tree(game / "FF9CustomMap-world")
+    assert _tree(game / "FF9CustomMap-world") == _compose(game, rows[:3], "Hand")
+    assert D.edits(draft) == [FAR]                                          # still the draft's own, to promote later
+
+
+def test_the_rollback_after_a_refused_revert_promotes_only_what_was_in_the_game(monkeypatch, tmp_path, app):
+    """P1 = steps 1-3, P2 = step 4, step 5 never promoted; P1 cannot come out. The straight-back promote is P2's
+    step again, not step 5."""
+    far2 = "FF9_Data/WorldMap/Disc1/0_1/r6/Block[12][6] Terrain.ff9mesh"
+    game, doc, run, draft, _live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    (draft / FAR).parent.mkdir(parents=True, exist_ok=True)
+    _step(draft, [(10, 5)], {FAR: b"a fourth step"}, _row(672, -352), "a fourth step")
+    D.promote(draft, game=game, log=lambda *a: None)
+    (draft / far2).parent.mkdir(parents=True, exist_ok=True)
+    _step(draft, [(12, 6)], {far2: b"a fifth step, never promoted"}, _row(800, -416), "a fifth step")
+    live = game / "FF9CustomMap-world"
+    (live / T00).write_bytes(b"another session's edit")                    # P1 cannot come out
+    after0 = _tree(live)
+    bar.refresh()
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    assert "could not be taken back" in bar.status_lbl.text() and "again" in bar.status_lbl.text()
+    assert _tree(live) == after0 and far2 not in _tree(live)
+    h = D.history(draft)
+    assert h["promoted"] == 4 and h["cursor"] == 5 and D.edits(draft) == [far2]

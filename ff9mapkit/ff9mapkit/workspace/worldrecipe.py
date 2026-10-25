@@ -229,16 +229,18 @@ class RecipeBar(QWidget):
             return
         self._open_edit(d, i)
 
-    def _open_edit(self, d, i, *, repromote=False):
+    def _open_edit(self, d, i, *, fence=None):
+        """``fence``: the steps that were in the game before the chain took them out (rung C19), promoted again when
+        the edit closes; None for a step that was not in the game."""
         from ..world import draft as D
         s = self.steps()[i]
         try:
             e = D.begin_edit(d, i)
         except ValueError as err:
-            self._closed(d, {"repromote": repromote}, f"Not opened: {err}.", "error")
+            self._closed(d, {"fence": fence}, f"Not opened: {err}.", "error")
             return
         self._edit = {"k": i, "mode": "edit", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"],
-                      "repromote": repromote}
+                      "fence": fence}
         self._moved()
         if self._on_select is not None:
             self._on_select(None)
@@ -275,16 +277,16 @@ class RecipeBar(QWidget):
             return
         self._run_delete(d, i)
 
-    def _run_delete(self, d, i, *, repromote=False):
+    def _run_delete(self, d, i, *, fence=None):
         from ..world import draft as D
         s = self.steps()[i]
         try:
             e = D.begin_edit(d, i)
         except ValueError as err:
-            self._closed(d, {"repromote": repromote}, f"Not deleted: {err}.", "error")
+            self._closed(d, {"fence": fence}, f"Not deleted: {err}.", "error")
             return
         self._edit = {"k": i, "mode": "delete", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"],
-                      "repromote": repromote}
+                      "fence": fence}
         if self._on_select is not None:
             self._on_select(None)
         self._start_put_back(d, D.dirty_after(set(), e["lifted"][0], None))
@@ -320,6 +322,8 @@ class RecipeBar(QWidget):
                 f"({e['replayed']} as they were, {e['rerun']} composed again on the new ground)." if n else "")
         if e["mode"] == "delete":
             self._sel = None
+            if e.get("fence") is not None:               # the deleted step was one of the game's: one fewer goes back
+                e["fence"] -= 1
             self._closed(d, e, f"Deleted step {e['k'] + 1}, {e['label']}.{back}", "ok")
             return
         self._sel = e["k"]
@@ -365,7 +369,7 @@ class RecipeBar(QWidget):
         self._sel = e["k"]
         note = note or f"Edit cancelled: the draft is exactly as it was, {e['label']} in its place."
         # an in-game step goes back into the game only from a draft known to be as it was
-        self._closed(d, e if undone else {**e, "repromote": False}, note, state)
+        self._closed(d, e if undone else {**e, "fence": None}, note, state)
         if self._on_select is not None:
             steps = self.steps()
             self._on_select(steps[e["k"]] if e["k"] < len(steps) else None)
@@ -375,8 +379,11 @@ class RecipeBar(QWidget):
         """Take the draft's promotes back out of the game, newest first, until step ``i`` is no longer promoted, then
         open the edit (or the delete); when it closes, :meth:`_closed` promotes the recipe again. Each revert is
         ``world-promote --revert`` (it refuses over later work at its blocks); one refusing after another went
-        through promotes straight back, so the game is never left half reverted."""
-        self._prep = {"k": i, "mode": mode, "reverted": 0}
+        through promotes straight back, so the game is never left half reverted. The FENCE is how many steps were in
+        the game when the chain began: the promote back is those steps, never a step placed after them that was not
+        promoted (:meth:`_repromote`)."""
+        from ..world import draft as D
+        self._prep = {"k": i, "mode": mode, "reverted": 0, "fence": D.history(d)["promoted"]}
         self._revert_next(d)
 
     def _revert_next(self, d):
@@ -384,7 +391,7 @@ class RecipeBar(QWidget):
         p = self._prep
         if D.history(d)["promoted"] <= p["k"]:
             self._prep, self._job = None, None
-            (self._open_edit if p["mode"] == "edit" else self._run_delete)(d, p["k"], repromote=True)
+            (self._open_edit if p["mode"] == "edit" else self._run_delete)(d, p["k"], fence=p["fence"])
             return
         if D.last_promote(d) is None:
             self._fail_revert(d, "the step is marked in the game but the draft holds no promote to revert")
@@ -412,36 +419,64 @@ class RecipeBar(QWidget):
         what = "opened" if p["mode"] == "edit" else "deleted"
         note = f"Not {what}: its promote could not be taken back out of the game ({why})."
         if p["reverted"]:                                # some went: put the game back as it was
-            self._repromote(d, note, "error")
+            self._repromote(d, p["fence"], note, "error")
         else:
             self._moved(note + " The game and the draft are as they were.", "error")
 
     def _closed(self, d, e, note, state):
         """The edit (or delete) closed: promote the recipe again when the step was taken out of the game for it."""
-        if e.get("repromote") and d is not None:
-            self._repromote(d, note, state)
+        if e.get("fence") is not None and d is not None:
+            self._repromote(d, e["fence"], note, state)
         else:
             self._moved(note, state)
 
-    def _repromote(self, d, note, state):
+    def _repromote(self, d, fence, note, state):
+        """Promote the recipe's first ``fence`` steps into the game again. ``world-promote`` writes every edit the
+        draft holds, so the steps after the fence (placed after the promote, never promoted) are set aside first --
+        undone, byte for byte -- and redone when the promote is over: the game gets what it held, nothing more."""
+        from ..world import draft as D
+        aside = []
+        try:
+            while D.history(d)["cursor"] > fence:
+                aside.append(D.undo(d)["label"])
+        except (ValueError, OSError) as err:
+            self._put_aside_back(d, len(aside))
+            self._moved(f"{note} Promoting it again did not run (a step after the game's could not be set aside: "
+                        f"{err}): the game does not have the recipe now; Promote it from a card.", "error")
+            return
         report = Path(tempfile.mkdtemp(prefix="ff9_promote_")) / "verdict.json"
         argv = [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn()), "world-promote", str(d),
                 "--report-json", str(report)]
         self._job = "promote"
         self.refresh()
-        self._runner.start(argv, kit_cwd(), lambda code, text: self._repromoted(note, state, report, code, text))
+        self._runner.start(argv, kit_cwd(),
+                           lambda code, text: self._repromoted(d, len(aside), note, state, report, code, text))
 
-    def _repromoted(self, note, state, report, code, text):
+    @staticmethod
+    def _put_aside_back(d, n) -> str:
+        """Redo the ``n`` steps :meth:`_repromote` set aside; the words for any that would not come back."""
+        from ..world import draft as D
+        for i in range(n):
+            try:
+                D.redo(d)
+            except (ValueError, OSError) as err:
+                left = n - i
+                return (f" {left} step{'s' if left != 1 else ''} placed after the game's stay undone ({err}): Redo "
+                        "puts them back.")
+        return ""
+
+    def _repromoted(self, d, aside, note, state, report, code, text):
         from ..world.forestedit import read_verdict
         self._job = None
         v = read_verdict(report) or {"ok": False, "error": ([ln for ln in text.splitlines() if ln.strip()][-1:]
                                                             or [f"exit code {code}"])[0]}
+        left = self._put_aside_back(d, aside)
         if v.get("ok"):
-            self._moved(f"{note} Promoted into {self.source().name} again: the game shows it on its next world load.",
-                        state)
+            self._moved(f"{note} Promoted into {self.source().name} again: the game shows it on its next world load."
+                        + left, "error" if left else state)
         else:
             self._moved(f"{note} Promoting it again did not run ({v.get('error')}): the game does not have the "
-                        "recipe now; Promote it from a card.", "error")
+                        "recipe now; Promote it from a card." + left, "error")
 
     def _moved(self, note=None, state="ok"):
         self.refresh()
