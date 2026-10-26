@@ -4928,7 +4928,13 @@ def _preview_disc4(args: argparse.Namespace, cells, cmd, what: str, keeps: str) 
     ns = argparse.Namespace(**{**vars(args), "disc": 4, "skip_mirror": DM.REPLAY, "dry_run": True,
                                "disc4_preview": True, "report_json": None})   # the report is disc 1's: the first
     #                                    call decides, as the World tab's two-call Accept does (PERF.md defect 2)
-    if cmd(ns) == 0:
+    try:
+        code = cmd(ns)
+    except Exception as e:                       # noqa: BLE001 -- disc 1's verdict stands; disc 4 is unknown
+        print(f"disc 4: !! the replay could not be checked ({type(e).__name__}: {e})")
+        _note_disc4(args, "unchecked")
+        return
+    if code == 0:
         print("disc 4: the replay passes its gates -- the deploy edits both discs")
         _note_disc4(args, "replays")
     else:

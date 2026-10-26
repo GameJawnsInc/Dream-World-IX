@@ -221,9 +221,12 @@ def command(mod_folder, center, donor, *, spread: float = 1.0, rot_deg: float = 
 def disc4_words(v) -> str:
     """Where a two-call Accept (the sink's, the coast morph's) writes, as its Check's report says (``disc4``: the
     disc-4 preview's outcome)."""
-    if (v or {}).get("disc4") == "refuses":
+    disc4 = (v or {}).get("disc4")
+    if disc4 == "refuses":
         return "on disc 1 only: disc 4's own replay refuses there, so disc 4 keeps its own ground"
-    return "on disc 1 and on disc 4"
+    if disc4 in ("copies", "replays"):
+        return "on disc 1 and on disc 4"
+    return "on disc 1; whether disc 4 takes it was not checked"      # (unreadable, or its dry run broke)
 
 
 def read_verdict(path) -> dict | None:

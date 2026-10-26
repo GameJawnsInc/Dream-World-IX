@@ -434,3 +434,31 @@ def test_a_check_says_when_disc4_will_keep_its_own_ground(world, monkeypatch, tm
         tool._timer.stop()
         tool._check()
         assert words in tool.verdict_lbl.text(), tool.verdict_lbl.text()
+
+
+def test_a_disc4_preview_that_could_not_run_is_said_so(world, monkeypatch, tmp_path):
+    """The pass text said "on disc 1 and on disc 4" for every outcome but a refusal -- an unreadable disc 4
+    ("disc 4: not checked") and a disc-4 dry run that crashed (struct.error from a cut-short override) included, the
+    crash also killing the Check after disc 1's report was written (review of the perf fixes, round 2). Both discs
+    only when disc 4 was checked; a crash there is noted unchecked."""
+    import struct
+    from ff9mapkit.world import discmirror as DM
+    from ff9mapkit.world.forestedit import disc4_words
+    _island(world, other=False)
+    game, _src = _drafts(tmp_path)
+    monkeypatch.setattr(DM, "copy_refusal", lambda blk, **k: "cells differ")
+    real = TR.sink
+
+    def sink(mod, at, **k):
+        if k.get("disc") == 4:
+            raise struct.error("unpack_from requires a buffer of at least 72 bytes")
+        return real(mod, at, **k)
+    monkeypatch.setattr(TR, "sink", sink)
+    rep = tmp_path / "v.json"
+    assert cli.main(["--game", str(game)] + SE.command("FF9CustomMap-world", (344.0, -360.0), report=rep)) == 0
+    v = json.loads(rep.read_text())
+    assert v["ok"] and v["disc4"] == "unchecked"
+    for outcome in ("unchecked", None):
+        words = disc4_words({"disc4": outcome} if outcome else {})
+        assert "not checked" in words and "disc 4" in words, outcome
+    assert disc4_words({"disc4": "replays"}) == disc4_words({"disc4": "copies"}) == "on disc 1 and on disc 4"
