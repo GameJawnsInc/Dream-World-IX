@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from ff9mapkit.world import placement as P
+from ff9mapkit.world.extract import CH_TAN
 
 from .test_world_placement_order import GRASS, _bm, _grid
 
@@ -75,6 +78,20 @@ def test_a_mesh_without_tangents_is_asked_only_where_a_sample_lands(monkeypatch)
     del bare.channels[CH_TAN]
     stack = [("Object", bare), stack[1]]
     monkeypatch.setattr(P, "_prepare", lambda meshlist, real=P._prepare: real(meshlist))
+    fast = P.census(stack, samples=12)
+    monkeypatch.setattr(P, "_prepare", lambda meshlist: None)
+    assert P.census(stack, samples=12) == fast
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf")])
+def test_a_bad_idall_no_sample_reaches_does_not_raise(bad, monkeypatch):
+    """_prepare read every triangle's IDALL up front: a NaN or inf one on a triangle no sample's bucket reaches raised
+    (int(round(nan))), where the per-sample census never reads it (review of the perf fixes, round 2). A mesh the
+    precompute cannot read is left to the per-sample code."""
+    stack = _stack()
+    odd = _bm([(((300.0, 5.0, -300.0), (310.0, 5.0, -300.0), (300.0, 5.0, -310.0)), GRASS)], name="Block[0][0] Object")
+    odd.chan_arrays[CH_TAN][0][0] = bad                                  # off the span, an unreadable IDALL
+    stack = [("Object", odd), stack[1]]
     fast = P.census(stack, samples=12)
     monkeypatch.setattr(P, "_prepare", lambda meshlist: None)
     assert P.census(stack, samples=12) == fast

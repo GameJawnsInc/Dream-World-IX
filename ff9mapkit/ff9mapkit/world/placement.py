@@ -162,32 +162,40 @@ def _prepare(meshlist):
     times a candidate (PERF.md 5). VETO tris stay (place abandons a mesh on one; all_sheets skips it)."""
     out = []
     for _name, bm in meshlist:
-        V, T, fi = bm.verts, bm.tangents, bm.flat_index
-        if not T:                                        # no IDALL channel: the per-sample code, which raises only
-            out.append(None)                             # where a sample lands on it (review of the perf commits)
+        try:
+            out.append(_prepare_mesh(bm))
+        except (ValueError, OverflowError, IndexError, TypeError):
+            out.append(None)                             # a mesh the precompute cannot read (a NaN or inf IDALL):
+    return out                                           # the per-sample code, raising only where a sample lands
+
+
+def _prepare_mesh(bm):
+    """One mesh's rows for :func:`_prepare`, or None when it has no IDALL channel (the per-sample code, which raises
+    only where a sample lands on it: review of the perf commits)."""
+    V, T, fi = bm.verts, bm.tangents, bm.flat_index
+    if not T:
+        return None
+    rows = []
+    for t in range(len(fi) // 3):
+        idx = fi[3 * t:3 * t + 3]
+        idall = int(round(T[idx[0]][0]))
+        if idall in IDALL_SKIP:
+            rows.append(None)
             continue
-        rows = []
-        for t in range(len(fi) // 3):
-            idx = fi[3 * t:3 * t + 3]
-            idall = int(round(T[idx[0]][0]))
-            if idall in IDALL_SKIP:
-                rows.append(None)
-                continue
-            a, b, c = V[idx[0]], V[idx[1]], V[idx[2]]
-            ux, uy, uz = b[0]-a[0], b[1]-a[1], b[2]-a[2]
-            vx, vy, vz = c[0]-a[0], c[1]-a[1], c[2]-a[2]
-            ny = uz * vx - ux * vz
-            L = math.sqrt((uy*vz-uz*vy)**2 + ny*ny + (ux*vy-uy*vx)**2) or 1.0
-            if ny / L <= 0.1:
-                rows.append(None)
-                continue
-            d = (b[2]-c[2])*(a[0]-c[0]) + (c[0]-b[0])*(a[2]-c[2])
-            if abs(d) < 1e-12:
-                rows.append(None)
-                continue
-            rows.append((idall, a, b, c, b[2]-c[2], c[0]-b[0], c[2]-a[2], a[0]-c[0], d))
-        out.append(rows)
-    return out
+        a, b, c = V[idx[0]], V[idx[1]], V[idx[2]]
+        ux, uy, uz = b[0]-a[0], b[1]-a[1], b[2]-a[2]
+        vx, vy, vz = c[0]-a[0], c[1]-a[1], c[2]-a[2]
+        ny = uz * vx - ux * vz
+        L = math.sqrt((uy*vz-uz*vy)**2 + ny*ny + (ux*vy-uy*vx)**2) or 1.0
+        if ny / L <= 0.1:
+            rows.append(None)
+            continue
+        d = (b[2]-c[2])*(a[0]-c[0]) + (c[0]-b[0])*(a[2]-c[2])
+        if abs(d) < 1e-12:
+            rows.append(None)
+            continue
+        rows.append((idall, a, b, c, b[2]-c[2], c[0]-b[0], c[2]-a[2], a[0]-c[0], d))
+    return rows
 
 
 def build_index(bm):
