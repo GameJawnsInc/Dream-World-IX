@@ -8,6 +8,8 @@ file the engine cannot read means STOCK, not the next folder's file. Hermetic: t
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 np = pytest.importorskip("numpy")
@@ -150,6 +152,16 @@ def _same_batches(a, b):
                                     and np.array_equal(ta, tb) for (pa, va, ua, ta), (pb, vb, ub, tb) in zip(a, b))
 
 
+def _age(root, seconds=60):
+    """Every file under ``root`` last written ``seconds`` ago: a folder in use, older than the racy-clean window."""
+    import os
+    import time
+    then = time.time_ns() - seconds * 10 ** 9
+    for f in Path(root).rglob("*"):
+        if f.is_file():
+            os.utime(f, ns=(then, then))
+
+
 def _moved(p, data):
     """Write ``data`` at ``p`` as a later job does: seconds after the last load read it (the file's time moves on;
     two writes inside one clock tick, a load between them, is not a path the tab takes)."""
@@ -173,6 +185,7 @@ def test_a_cell_memo_draws_again_only_the_cells_whose_files_moved(stack, monkeyp
     cells = ((1, 1), (2, 1), (3, 1))
     for bx, by in cells:
         _put(lo, "Terrain.ff9mesh", M.ff9mesh_bytes(_tri_mesh(1.0 + bx, bx=bx)), bx=bx)
+    _age(lo)
     site = R.RenderSite(cells=cells, disc=1, game=game, stack=(hi, lo), parts=("Terrain", "Sea4"))
     drawn, real = [], R.cell_meshes
     monkeypatch.setattr(R, "cell_meshes", lambda s, bx, by, *a, **k: drawn.append((bx, by)) or real(s, bx, by, *a, **k))
@@ -206,3 +219,20 @@ def test_a_cell_memo_draws_again_only_the_cells_whose_files_moved(stack, monkeyp
     other.mkdir()
     assert load(R.RenderSite(cells=cells, disc=1, game=game, stack=(other, lo), parts=("Terrain", "Sea4")))[1] == [
         (1, 1)]                                               # keeps it; (1, 1) lost the HIGH Donor.txt with HIGH
+
+
+def test_a_cell_memo_does_not_trust_a_file_written_the_instant_before(stack, monkeypatch):
+    """THE RACY-CLEAN RULE (git's, and draft.RACY_NS): a file written in the clock tick a load read it in can be
+    written again at the same size and time. A cell holding a file younger than the window draws again."""
+    import os
+    game, hi, lo = stack
+    monkeypatch.setattr(X, "block_parts", lambda disc=1, game=None: {})
+    p = _put(lo, "Terrain.ff9mesh", M.ff9mesh_bytes(_tri_mesh(1.0)))      # written just now
+    site = R.RenderSite(cells=((1, 1),), disc=1, game=game, stack=(hi, lo), parts=("Terrain",))
+    memo = R.CellMemo()
+    R.load_batches(site, stock=True, memo=memo)
+    st = p.stat()
+    p.write_bytes(M.ff9mesh_bytes(_tri_mesh(6.0)))                       # other bytes, the same size...
+    os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))                     # ...and the same time (one clock tick)
+    got = R.load_batches(site, stock=True, memo=memo)
+    assert _same_batches(got, R.load_batches(site, stock=True)) and got[0][1][0][1] == 6.0

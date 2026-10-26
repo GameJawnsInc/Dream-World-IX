@@ -34,6 +34,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import os
+import time
 from pathlib import Path
 
 from PIL import Image
@@ -369,11 +370,13 @@ class CellMemo:
     ``Donor.txt`` -- and stock, which a process never sees change. So a cell whose files all stand (each one's
     root, name, size, mtime and file id) hands back the batches it drew last, and a cell where a file was written,
     added or removed draws again. One entry per cell; a root switch keeps the cells no switched root holds a file
-    for. The batches it hands out are read-only, so no caller can edit what the next load returns."""
+    for. The batches it hands out are read-only, so no caller can edit what the next load returns. A cell holding a
+    file written within ``draft.RACY_NS`` of the load is drawn again whatever its stat says: written in that clock
+    tick, it can be written again at the same size and time (git's racy-clean rule)."""
 
     def __init__(self):
         self._cells = {}
-        self._dirs = self._roots = None
+        self._dirs = self._roots = self._at = None
 
     def forget(self):
         """Draw every cell again on the next load (the tab's Rescan: re-read everything from disk)."""
@@ -408,7 +411,8 @@ class CellMemo:
         key = (bx, by, bool(stock), site.disc, str(site.game), tuple(site.parts))
         fp = self._fingerprint(site, bx, by)
         hit = self._cells.get(key)
-        if hit is not None and hit[0] == fp:
+        from .draft import RACY_NS
+        if hit is not None and hit[0] == fp and all(f[4] < self._at - RACY_NS for f in fp):
             return hit[1]
         out = _cell_batches(site, bx, by, ox, oz, None, stock, None)
         for _part, *arrays in out:
@@ -433,7 +437,7 @@ def load_batches(site: RenderSite, part_src=None, *, stock: bool = False, bad=No
     batches = []
     outer, _LISTING = _LISTING, {} if _LISTING is None else _LISTING   # one directory listing per load, not a stat
     if use is not None:                                                 # per part per folder per cell (~40k on a map)
-        use._dirs, use._roots = {}, site_roots(site)
+        use._dirs, use._roots, use._at = {}, site_roots(site), time.time_ns()
     try:
         for (bx, by) in site.cells:
             ox, oz = X.block_world_origin(bx, by)
@@ -444,7 +448,7 @@ def load_batches(site: RenderSite, part_src=None, *, stock: bool = False, bad=No
     finally:
         _LISTING = outer
         if use is not None:
-            use._dirs = use._roots = None
+            use._dirs = use._roots = use._at = None
     return batches
 
 

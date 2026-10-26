@@ -531,12 +531,13 @@ def test_the_panel_draws_again_only_the_cells_a_change_touched(app, monkeypatch,
     whose files moved -- and the Rescan button, which says it re-reads from disk, forgets it."""
     from ff9mapkit.world import mesh as M
     from ff9mapkit.workspace.worlddoc import WorldDoc
-    from .test_world_render_stack import _moved, _put, _tri_mesh
+    from .test_world_render_stack import _age, _moved, _put, _tri_mesh
     monkeypatch.setattr(R.X, "block_parts", lambda disc=1, game=None: {})
     monkeypatch.setattr(R, "tex_for", lambda part, site, cache=None: None)  # no atlas in a tmp game
     mod = tmp_path / "FF9CustomMap-world"
     for bx in (1, 2):
         _put(mod, "Terrain.ff9mesh", M.ff9mesh_bytes(_tri_mesh(float(bx), bx=bx)), bx=bx)
+    _age(mod)                                                              # a folder in use, not written now
     site = R.RenderSite(cells=((1, 1), (2, 1)), disc=1, game=tmp_path, mod_root=mod, parts=("Terrain",))
     drawn, real = [], R.cell_meshes
     monkeypatch.setattr(R, "cell_meshes", lambda s, bx, by, *a, **k: drawn.append((bx, by)) or real(s, bx, by, *a, **k))
