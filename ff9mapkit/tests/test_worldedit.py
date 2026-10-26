@@ -1347,3 +1347,32 @@ def test_an_in_game_step_does_not_open_while_steps_after_the_game_s_are_out_of_i
     assert bar.edit_btn.isEnabled()
     bar.edit_btn.click()
     assert doc._forest.editing()
+
+
+def test_a_job_s_done_follows_its_exit_not_its_pipe(app):
+    """JobRunner's done waited for pipe EOF (communicate): a process that inherited the job's output pipe -- a
+    QProcess the shell started in the Popen window, or a child the job left running -- held the done, and with it
+    the card's writing(), its Close and the tab's locks, for that other process's whole life (review of the perf
+    commits, J1). The done follows the job's own exit, its output read from a file."""
+    import sys
+    import time
+    from ff9mapkit.workspace.worldforest import JobRunner
+    r, got = JobRunner(), []
+    leaves = ("import subprocess, sys; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(8)']); "
+              "print('parent done')")                                     # a child that outlives the job, our stdout
+    t = time.time()
+    r.start([sys.executable, "-c", leaves], ".", lambda code, text: got.append((code, text.strip())))
+    assert r.wait(30000) and got == [(0, "parent done")]
+    assert time.time() - t < 6                                             # not the 8 s the left child lives
+
+
+def test_any_failed_start_ends_the_job(app):
+    """Only an OSError from the start ended a JobRunner job as a failed one; any other (a ValueError for a NUL in an
+    argument) killed the worker with no result: busy for good, done never run, and wait() saying it ended (review of
+    the perf commits, J4). A job always ends."""
+    import sys
+    from ff9mapkit.workspace.worldforest import JobRunner
+    r, got = JobRunner(), []
+    r.start([sys.executable, "-c", "print('a\x00b')"], ".", lambda code, text: got.append((code, text)))
+    assert r.wait() and not r.busy() and len(got) == 1 and got[0][0] == -1 and "could not start" in got[0][1]
+

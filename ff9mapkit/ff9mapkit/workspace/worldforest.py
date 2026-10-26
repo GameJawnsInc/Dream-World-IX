@@ -151,17 +151,29 @@ class JobRunner(QObject):
         job["thread"].start()
 
     def _run(self, job):                                 # (the worker: touches only its job)
+        # the output goes to a FILE: done follows the job's own exit, where a pipe's EOF waited for every process
+        # that inherited its write end -- a QProcess the shell started meanwhile, a child the job left running
+        # (review of the perf commits, J1)
+        out = tempfile.TemporaryFile()
         try:
-            proc = subprocess.Popen(job["argv"], cwd=job["cwd"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, creationflags=_no_window())
-        except OSError as e:
-            job["result"] = (-1, f"the job could not start: {e}")
-        else:
-            job["proc"] = proc
-            if job["killed"]:                            # (kill ran between the start and this line)
-                proc.kill()
-            out, _ = proc.communicate()
-            job["result"] = (proc.returncode, out.decode("utf-8", "replace"))
+            try:
+                proc = subprocess.Popen(job["argv"], cwd=job["cwd"], stdin=subprocess.DEVNULL, stdout=out,
+                                        stderr=subprocess.STDOUT, creationflags=_no_window())
+            except Exception as e:                       # noqa: BLE001 -- any failed start ends the job (review, J4)
+                job["result"] = (-1, f"the job could not start: {e}")
+            else:
+                job["proc"] = proc
+                if job["killed"]:                        # (kill ran between the start and this line)
+                    proc.kill()
+                code = proc.wait()
+                try:
+                    out.seek(0)
+                    text = out.read().decode("utf-8", "replace")
+                except Exception as e:                   # noqa: BLE001 -- the job ended; its words could not be read
+                    text = f"(the job's output could not be read: {e})"
+                job["result"] = (code, text)
+        finally:
+            out.close()
         try:
             self._ended.emit(job)
         except RuntimeError:                             # the runner died with its window
