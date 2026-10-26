@@ -246,16 +246,52 @@ def _ledger_key(rel: str):
     return (parsed[0], parsed[1], m.group(1)) if m else None
 
 
+_HEAD = re.compile(r"^Block\[\d+\]\[\d+\] ")
+
+
 def _cell_files(folder: Path, cells) -> dict:
-    """``rel -> path`` for every live file at ``cells`` on the DISCS trees (every part, sidecars too), no backups."""
+    """``rel -> path`` for every live file at ``cells`` on the DISCS trees (every part, sidecars too), no backups.
+    One listing per row directory (a glob per cell and disc was 960 globs for a whole-map step: PERF.md 3)."""
+    folder = Path(folder)
+    rows = {}
+    for bx, by in cells:
+        rows.setdefault(int(by), set()).add(f"Block[{int(bx)}][{int(by)}] ")
     out = {}
     for d in DISCS:
         tree = folder / "FF9_Data" / "WorldMap" / f"Disc{d}"
-        for bx, by in cells:
-            for p in tree.glob(f"*/r{by}/Block[[]{bx}[]][[]{by}[]] *"):
-                if p.is_file() and ".bak-" not in p.name and not p.name.endswith(".promoting"):
-                    out[p.relative_to(folder).as_posix()] = p
+        try:
+            lods = sorted(e.name for e in os.scandir(tree) if e.is_dir())
+        except OSError:
+            continue
+        for lod in lods:
+            for by, heads in sorted(rows.items()):
+                row = tree / lod / f"r{by}"
+                try:
+                    entries = sorted(os.scandir(row), key=lambda e: e.name)
+                except OSError:
+                    continue
+                for e in entries:
+                    m = _HEAD.match(e.name)
+                    if (m and m.group(0) in heads and ".bak-" not in e.name and not e.name.endswith(".promoting")
+                            and e.is_file()):
+                        out[f"FF9_Data/WorldMap/Disc{d}/{lod}/r{by}/{e.name}"] = row / e.name
     return out
+
+
+RACY_NS = 2 * 10 ** 9           # a file written within this of a stat can be written again at the same size and time
+
+
+def _unmoved(p: Path, rec, at) -> bool:
+    """Is ``p`` still the file a step's begin stat'ed as ``rec`` ([size, mtime_ns]) at ``at`` (ns)? Its size and
+    time stand, and it was last written more than :data:`RACY_NS` before that stat: a file written in the stat's own
+    clock tick can be written again at the same size and time (git's racy-clean rule), so that one is hashed."""
+    if rec is None or at is None:
+        return False
+    try:
+        st = os.stat(p)
+    except OSError:
+        return False
+    return st.st_size == rec[0] and st.st_mtime_ns == rec[1] and rec[1] < at - RACY_NS
 
 
 def _write_meta(draft: Path, meta: dict) -> None:
@@ -578,13 +614,16 @@ def _write_history(draft: Path, h: dict) -> None:
     tmp.replace(Path(draft) / HISTORY)
 
 
-def _snap(draft: Path, cells, dest: Path) -> dict:
-    """Copy every file at ``cells`` (both discs, every part) under ``dest``; ``rel -> sha``."""
-    out = {}
-    for rel, p in sorted(_cell_files(Path(draft), cells).items()):
+def _snap(draft: Path, cells, dest: Path, files=None) -> dict:
+    """Copy every file at ``cells`` (both discs, every part) under ``dest``; ``rel -> sha``. ``files``: the cells'
+    listing, when the caller has it."""
+    out, made = {}, set()
+    for rel, p in sorted((_cell_files(Path(draft), cells) if files is None else files).items()):
         data = p.read_bytes()
         q = dest / rel
-        q.parent.mkdir(parents=True, exist_ok=True)
+        if q.parent not in made:
+            q.parent.mkdir(parents=True, exist_ok=True)
+            made.add(q.parent)
         q.write_bytes(data)
         out[rel] = hashlib.sha256(data).hexdigest()
     return out
@@ -602,12 +641,15 @@ def _retry(fn, *, tries: int = 60, wait: float = 0.05):
             time.sleep(wait)
 
 
-def _restore(draft: Path, files: dict, snap: Path, cells) -> None:
+def _restore(draft: Path, files: dict, snap: Path, cells, unmoved=None) -> None:
     """Put the files at ``cells`` back to ``files`` (from the snapshot ``snap``): written back, or removed when that
     side never had them. A file a reader holds open for a moment is waited for (:func:`_retry`): an Edit clicked
-    while a card still reads the island it just accepted raced its own undo here (c11_lab)."""
+    while a card still reads the island it just accepted raced its own undo here (c11_lab). ``unmoved(rel, path)``
+    True leaves a file that is still the snapshot's bytes as it is."""
     for rel in sorted(set(files) | set(_cell_files(Path(draft), cells))):
         p = Path(draft) / rel
+        if rel in files and unmoved is not None and unmoved(rel, p):
+            continue
         if rel in files:
             p.parent.mkdir(parents=True, exist_ok=True)
             data = (snap / rel).read_bytes()
@@ -647,29 +689,42 @@ def begin_step(draft: Path, cells) -> None:
         shutil.rmtree(pend)
     cells = sorted({(int(bx) % 24, int(by)) for bx, by in cells})
     pend.mkdir(parents=True)                         # (a step over open sea has no file to snapshot)
-    before = _snap(draft, cells, pend / "before")
+    files, at = _cell_files(draft, cells), time.time_ns()
+    stat = {}                                        # each file's size and time: what commit and abort trust
+    for rel, p in files.items():
+        st = os.stat(p)
+        stat[rel] = [st.st_size, st.st_mtime_ns]
+    before = _snap(draft, cells, pend / "before", files)
     _keep_ledger(draft, pend / "before")
-    (pend / "step.json").write_text(json.dumps({"cells": [list(c) for c in cells], "before": before}),
-                                    encoding="utf-8")
+    (pend / "step.json").write_text(json.dumps({"cells": [list(c) for c in cells], "before": before,
+                                                "stat": stat, "at": at}), encoding="utf-8")
 
 
 def commit_step(draft: Path, row: dict, label: str) -> dict:
     """The step ran: record it after the applied steps (dropping any undone ones, as an edit after an undo does).
-    Only the files that changed are kept in the step."""
+    Only the files that changed are kept in the step. A file whose size and time stand since :func:`begin_step` is
+    the bytes it snapshotted (:func:`_unmoved`), so only the files that moved are read again (a whole-map step read
+    all 2,088 again and copied them: PERF.md 3)."""
     draft = Path(draft)
     pend = draft / HISTORY_DIR / _PENDING
     step = json.loads((pend / "step.json").read_text(encoding="utf-8"))
     cells = [tuple(c) for c in step["cells"]]
-    after = _snap(draft, cells, pend / "after")
-    _keep_ledger(draft, pend / "after")
-    before = step["before"]
+    before, stat, at = step["before"], step.get("stat", {}), step.get("at")
+    now = _cell_files(draft, cells)
+    after = {rel: before[rel] if rel in before and _unmoved(p, stat.get(rel), at) else _sha(p)
+             for rel, p in sorted(now.items())}
     moved = {rel for rel in set(before) | set(after) if before.get(rel) != after.get(rel)}
     keep = sorted({_parse_rel(rel)[1] for rel in moved if _parse_rel(rel) is not None})
+    keep_set = set(keep)
+    _snap(draft, keep, pend / "after", {rel: p for rel, p in now.items()        # the kept cells' after side only
+                                        if _parse_rel(rel) and _parse_rel(rel)[1] in keep_set})
+    _keep_ledger(draft, pend / "after")
     before = {rel: h for rel, h in before.items() if _parse_rel(rel) and _parse_rel(rel)[1] in keep}
     after = {rel: h for rel, h in after.items() if _parse_rel(rel) and _parse_rel(rel)[1] in keep}
-    for side in ("before", "after"):                 # the untouched cells' copies go (a whole-map step stays small)
-        for rel in _cell_files(pend / side, [c for c in cells if c not in set(keep)]):
-            (pend / side / rel).unlink()
+    for rel in _cell_files(pend / "before", [c for c in cells if c not in keep_set]):
+        (pend / "before" / rel).unlink()             # the untouched cells' copies go (a whole-map step stays small)
+    (pend / "step.json").write_text(json.dumps({"cells": step["cells"], "before": step["before"]}),
+                                    encoding="utf-8")
     h = history(draft)
     for old in h["steps"][h["cursor"]:]:
         shutil.rmtree(draft / old["dir"], ignore_errors=True)
@@ -687,12 +742,15 @@ def commit_step(draft: Path, row: dict, label: str) -> dict:
 
 def abort_step(draft: Path) -> None:
     """The step failed: put its cells back as they were before it (a verb refuses before writing, so this is
-    usually a no-op), and forget it."""
+    usually a no-op), and forget it. Only what the step moved is written back (:func:`_unmoved`): rewriting all
+    2,088 files of a whole-map step took 14-28 s and moved every file's time (PERF.md 3)."""
     pend = Path(draft) / HISTORY_DIR / _PENDING
     if not (pend / "step.json").is_file():
         return
     step = json.loads((pend / "step.json").read_text(encoding="utf-8"))
-    _restore(draft, step["before"], pend / "before", [tuple(c) for c in step["cells"]])
+    stat, at = step.get("stat", {}), step.get("at")
+    _restore(draft, step["before"], pend / "before", [tuple(c) for c in step["cells"]],
+             unmoved=lambda rel, p: _unmoved(p, stat.get(rel), at))
     _put_ledger(draft, pend / "before")
     shutil.rmtree(pend)
 

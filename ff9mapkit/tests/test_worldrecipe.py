@@ -87,6 +87,83 @@ def test_undo_refuses_a_step_whose_files_moved_and_abort_puts_the_cells_back(tmp
     assert _tree(d) == before and D.history(d)["cursor"] == 1
 
 
+def _aged(d, seconds=60):
+    """Every draft file last written ``seconds`` ago (a draft in use: its files were not written this instant)."""
+    import time
+    then = time.time_ns() - seconds * 10 ** 9
+    for p in (d / "FF9_Data").rglob("*"):
+        if p.is_file():
+            os.utime(p, ns=(then, then))
+
+
+def test_a_step_reads_and_writes_back_only_the_files_that_moved(monkeypatch, tmp_path):
+    """A whole-map step (a sink Accept, a recipe's island or carry row) snapshots 480 cells and 2,088 files, and its
+    commit read every one again and its abort wrote every one back: 10-36 s frozen per sink Accept, and an abort
+    moved every file's time, so the 3D view drew the whole map again (PERF.md 3). A file whose size and time stand
+    since begin_step is the bytes it snapshotted: commit reads only what moved, abort writes back only what moved."""
+    _game_, _src, d = _draft(tmp_path)
+    _aged(d)
+    reads, real = [], Path.read_bytes
+    monkeypatch.setattr(Path, "read_bytes", lambda p: reads.append(p.relative_to(d).as_posix()
+                                                                   if p.is_relative_to(d) else str(p)) or real(p))
+    D.begin_step(d, D.all_cells())
+    (d / T00).write_bytes(b"forest")
+    reads.clear()
+    rec = D.commit_step(d, {"table": "forest", "center": [1.0, -1.0], "donor": "15,15"}, "forest one")
+    assert rec["cells"] == [[0, 0]] and set(rec["after"]) == {T00}
+    assert T10 not in reads                                               # it did not move: not read again
+    _aged(d)                                                              # (T00 was just written: racy, hashed)
+    D.begin_step(d, D.all_cells())
+    (d / T10).write_bytes(b"half a write")
+    t00 = os.stat(d / T00).st_mtime_ns
+    D.abort_step(d)
+    assert (d / T10).read_bytes() == real(_src / T10) and os.stat(d / T00).st_mtime_ns == t00   # T00 not rewritten
+
+
+def test_a_file_written_the_instant_before_a_step_is_read_again(tmp_path):
+    """THE RACY-CLEAN RULE (git's): a file written in the same clock tick as begin_step's stat can be written again
+    at the same size and time. Only a file older than the window is trusted by its stat; a younger one is hashed."""
+    _game_, _src, d = _draft(tmp_path)                                    # ensure_draft wrote its files just now
+    st = os.stat(d / T00)
+    D.begin_step(d, [(0, 0)])
+    same = bytes(b ^ 0xFF for b in (d / T00).read_bytes())                # other bytes, the same size...
+    (d / T00).write_bytes(same)
+    os.utime(d / T00, ns=(st.st_atime_ns, st.st_mtime_ns))                # ...and the same time (one clock tick)
+    rec = D.commit_step(d, {"table": "forest", "center": [1.0, -1.0], "donor": "15,15"}, "forest one")
+    assert set(rec["after"]) == {T00}                                     # still seen: the step holds the change
+    D.undo(d)
+    assert (d / T00).read_bytes() == (_src / T00).read_bytes()
+
+
+def test_cell_files_lists_what_one_glob_per_cell_lists(tmp_path):
+    """_cell_files reads one listing per row directory (it globbed once per cell and disc: 960 globs a whole-map
+    step). The same files: every part and sidecar of the cells, no backups, no promote leftovers, no neighbours."""
+    root = tmp_path / "F"
+    names = ["Block[1][1] Terrain.ff9mesh", "Block[1][1] Donor.txt", "Block[1][1] Sea4.ff9mesh.bak-2026",
+             "Block[1][1] Object.ff9mesh.promoting", "Block[11][1] Terrain.ff9mesh", "Block[1][11] Terrain.ff9mesh",
+             "Block[2][1] Terrain.ff9mesh", "Block[1][1]Terrain.ff9mesh"]
+    for disc in (1, 4):
+        for lod in ("0_1", "1_1"):
+            for row, ns in ((1, names), (11, ["Block[1][11] Terrain.ff9mesh"])):
+                for n in ns:
+                    if f"][{row}]" in n:
+                        p = root / "FF9_Data" / "WorldMap" / f"Disc{disc}" / lod / f"r{row}" / n
+                        p.parent.mkdir(parents=True, exist_ok=True)
+                        p.write_bytes(b"x")
+
+    def by_glob(folder, cells):                                           # the rule as it was written
+        out = {}
+        for disc in D.DISCS:
+            tree = folder / "FF9_Data" / "WorldMap" / f"Disc{disc}"
+            for bx, by in cells:
+                for p in tree.glob(f"*/r{by}/Block[[]{bx}[]][[]{by}[]] *"):
+                    if p.is_file() and ".bak-" not in p.name and not p.name.endswith(".promoting"):
+                        out[p.relative_to(folder).as_posix()] = p
+        return out
+    for cells in ([(1, 1)], [(1, 1), (1, 11), (2, 1)], D.all_cells(), [(5, 5)]):
+        assert D._cell_files(root, cells) == by_glob(root, cells)
+
+
 def test_a_promote_fences_undo_and_its_revert_lifts_the_fence(monkeypatch, tmp_path):
     _fake_mirror(monkeypatch)
     game, src, d = _draft(tmp_path)
