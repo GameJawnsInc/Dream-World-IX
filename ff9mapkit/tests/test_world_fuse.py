@@ -218,7 +218,12 @@ def test_the_after_walk_reads_only_the_files_a_step_moved(tmp_path, monkeypatch)
     before = FU._world_tree_md5(tmp_path / "M")
     (tree / "Block[2][0] Terrain.ff9mesh").write_bytes(b"the row's edit")
     reads, real = [], Path.read_bytes
-    monkeypatch.setattr(Path, "read_bytes", lambda p: reads.append(p.name) or real(p))
+
+    def counted(p):                                          # this tree's reads only: a daemon thread of an earlier
+        if p.is_relative_to(tree):                           # test in the worker may read through Path.read_bytes
+            reads.append(p.name)
+        return real(p)
+    monkeypatch.setattr(Path, "read_bytes", counted)
     after = FU._world_tree_md5(tmp_path / "M")
     assert sorted(reads) == ["Block[2][0] Terrain.ff9mesh", "Block[9][0] Terrain.ff9mesh"]
     assert after == {**before, "FF9_Data/WorldMap/Disc1/0_1/r0/Block[2][0] Terrain.ff9mesh":
