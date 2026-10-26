@@ -1413,3 +1413,19 @@ def test_a_killed_job_s_process_ends(app):
         r.kill()
         job["thread"].join(10)
         assert job["proc"] is not None and job["proc"].poll() is not None, delay
+
+
+def test_an_edit_or_delete_that_the_disk_refuses_says_so(monkeypatch, tmp_path, app):
+    """begin_edit now finishes a pending abort first, which can raise an OSError (a reader holding a file); Edit and
+    Delete caught a ValueError only, so the error left the slot -- in the in-game chain with the promotes taken out
+    of the game and nothing said (review of the perf fixes, round 2, H2). Either refusal closes the edit, said."""
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    doc._on_pick(_hit(27.0, -25.0), sync=True)
+    monkeypatch.setattr(D, "begin_edit", lambda d, k: (_ for _ in ()).throw(PermissionError(13, "a reader holds it")))
+    bar.edit_btn.click()
+    assert "Not opened" in bar.status_lbl.text() and "a reader holds it" in bar.status_lbl.text()
+    assert bar._edit is None and not bar.holding()
+    doc._on_pick(_hit(27.0, -25.0), sync=True)
+    bar.delete_btn.click()
+    assert "Not deleted" in bar.status_lbl.text() and not bar.holding()

@@ -308,7 +308,7 @@ class RecipeBar(QWidget):
         s = D.history(d)["steps"][i]                     # the step of the draft it opens in, not the folder shown
         try:
             e = D.begin_edit(d, i)
-        except ValueError as err:
+        except (ValueError, OSError) as err:            # (an OSError: the disk refused a pending abort, H2)
             self._closed(d, {"fence": fence}, f"Not opened: {err}.", "error")
             return
         self._edit = {"k": i, "mode": "edit", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"],
@@ -363,7 +363,7 @@ class RecipeBar(QWidget):
         s = D.history(d)["steps"][i]
         try:
             e = D.begin_edit(d, i)
-        except ValueError as err:
+        except (ValueError, OSError) as err:            # (an OSError: the disk refused a pending abort, H2)
             self._closed(d, {"fence": fence}, f"Not deleted: {err}.", "error")
             return
         self._edit = {"k": i, "mode": "delete", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"],
