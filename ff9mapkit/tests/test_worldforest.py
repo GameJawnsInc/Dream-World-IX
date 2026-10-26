@@ -690,7 +690,13 @@ def test_a_refused_accept_whose_abort_fails_keeps_its_refusal(app, tmp_path, mon
     tool, _panel, _changed = _tool(app, tmp_path, Scripted(answer))
     tool.place(26.04, -25.97, 3.2)
     _settle(tool)
-    monkeypatch.setattr(D, "abort_step", lambda d: (_ for _ in ()).throw(PermissionError(13, "a reader holds it")))
+    real = D.abort_step
+
+    def fails(d):                                                         # a real abort (a pending step) fails
+        if (Path(d) / D.HISTORY_DIR / D._PENDING / "step.json").is_file():
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "abort_step", fails)
     tool.accept_btn.click()
     text = tool.verdict_lbl.text()
     assert "written" not in text and "census" in text and "could not be cleared" in text

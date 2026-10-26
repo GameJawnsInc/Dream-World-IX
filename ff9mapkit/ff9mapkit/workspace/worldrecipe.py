@@ -746,7 +746,9 @@ class RecipeBar(QWidget):
 
             def stopped(_r, err):
                 self._queue = None
-                self._moved(f"Stopped at {RC.label(row)} ({q['done']} row(s) composed): {last[0]}", "error")
+                lost = "" if err is None else (f"; its writes could not be taken back ({err}): the draft holds an "
+                                               "unrecorded change, taken back when the next step begins")
+                self._moved(f"Stopped at {RC.label(row)} ({q['done']} row(s) composed): {last[0]}{lost}", "error")
             self._steps.start(lambda: D.abort_step(d), stopped)
             return
         self._steps.start(lambda: D.commit_step(d, row, RC.label(row)),

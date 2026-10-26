@@ -722,8 +722,11 @@ def all_cells() -> list:
 
 
 def begin_step(draft: Path, cells) -> None:
-    """Before a step writes the draft: snapshot every file at the ``cells`` it may write (a superset is fine)."""
+    """Before a step writes the draft: snapshot every file at the ``cells`` it may write (a superset is fine). A
+    pending step left by an abort that failed is aborted first: its snapshot holds the before-images of the half
+    step, which deleting it left in the draft unrecorded (review of the perf commits, F2)."""
     pend = Path(draft) / HISTORY_DIR / _PENDING
+    abort_step(draft)
     if pend.exists():
         shutil.rmtree(pend)
     cells = sorted({(int(bx) % 24, int(by)) for bx, by in cells})
@@ -889,6 +892,7 @@ def begin_edit(draft: Path, k: int) -> dict:
     a promoted step (Revert promote first) and an edit already open; an undo that refuses on the way down (a step's
     files moved) is redone again before the refusal is raised."""
     draft = Path(draft)
+    abort_step(draft)                                    # (an abort that failed, finished first: F2)
     h = history(draft)
     if h["edit"]:
         raise ValueError("an edit is already open in the draft")

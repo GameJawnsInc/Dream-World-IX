@@ -497,3 +497,51 @@ def test_a_step_is_recorded_while_the_window_reads_the_history(tmp_path):
         stop.set()
         t.join(5)
     assert errors == [] and D.history(d)["cursor"] == 80
+
+
+def test_an_abort_that_failed_is_finished_by_the_next_step_or_edit(tmp_path, monkeypatch):
+    """An abort that failed (a reader holding a file past _retry) left its pending snapshot -- the before-images of
+    the half-written step -- and the next begin_step deleted it, leaving the half step in the draft unrecorded, or
+    a later cancel_edit wrote it back over the edit's cells (review of the perf commits, F2). The next begin_step or
+    begin_edit finishes that abort first: the draft is back as it was before the failed step."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain one")
+    before = _tree(d)
+    for opener in ("step", "edit"):
+        D.begin_step(d, [(0, 0)])
+        (d / T00).write_bytes(b"half a forest")                           # the step half wrote its cell...
+        real = D._restore
+        monkeypatch.setattr(D, "_restore", lambda *a, **k: (_ for _ in ()).throw(PermissionError(13, "held")))
+        with pytest.raises(PermissionError):
+            D.abort_step(d)                                               # ...and its abort failed
+        monkeypatch.setattr(D, "_restore", real)
+        if opener == "step":
+            D.begin_step(d, [(1, 0)])
+            assert _tree(d) == before                                     # the half forest is gone
+            D.abort_step(d)
+        else:
+            D.begin_edit(d, 0)
+            D.cancel_edit(d)
+            assert _tree(d) == before and D.history(d)["cursor"] == 1
+
+
+def test_an_opened_recipe_says_when_a_row_s_abort_fails(monkeypatch, tmp_path, app):
+    """A row that failed and whose abort then failed was reported with the verb's last line only: its half writes
+    stayed in the draft unrecorded, said nowhere (review of the perf commits, F2)."""
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "bad.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"},
+                               {"table": "mountain", "center": [300.0, -300.0], "donor": "0,0"}]), encoding="utf-8")
+    doc, _run = _doc(app, game, tmp_path, saved)
+    doc.set_view_mode("3d", sync=True)
+    real = D.abort_step
+
+    def fails(d):                                                         # a real abort (a pending step) fails
+        if (Path(d) / D.HISTORY_DIR / D._PENDING / "step.json").is_file():
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "abort_step", fails)
+    doc._recipe.open_btn.click()
+    monkeypatch.setattr(D, "abort_step", real)
+    text = doc._recipe.status_lbl.text()
+    assert "Stopped at mountain" in text and "could not be taken back" in text and "a reader holds it" in text
