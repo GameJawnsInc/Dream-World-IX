@@ -5,6 +5,32 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Changed — World tab: faster, and the window no longer freezes while it works
+- **Undo, Redo and every Accept no longer reload the whole 3D map.** Only the blocks whose files changed are drawn
+  again: Undo and Redo come back in under a second (8-11 s before), a forest Accept in about 5 s (22-25 s).
+- **The window stays responsive while a card writes.** An Accept's history snapshot and record, Open...'s draft copy
+  and each of its rows' steps, starting a job, and seating the game camera's party all run off the window's thread;
+  a sink Accept froze the window 10-36 s. A whole-map step also reads and rewrites only the files that moved.
+- **Checks and recipe rows are faster:** a forest Check about 5 s (6.8), `world-forest --near` 28 s (305), a hill
+  Accept about 2.5 s (6.6), a sink recipe row 16 s (27); the first 3D view 7 s (9.5). Every one was held to the old
+  code on real data: the same verdicts, the same bytes.
+- **Dragging and turning are smooth:** a forest ghost drag 5 ms a move (45-55), a game-camera frame 11 ms (95-104).
+- **The river card opens at once after its first time on an install** (its shape is cached; 15-24 s before).
+
+### Fixed — World tab
+- After a reload with the game camera on, its eye followed the old terrain.
+- A sink or coast Check whose disc-4 replay refuses showed disc 4's verdict instead of disc 1's, and said both discs
+  would be written: it now says "on disc 1 only" (or that disc 4 was not checked).
+- The draft's history keeps exact when the disk refuses: a draft is discarded whole or not at all, a step's record
+  waits out a reader of history.json, an abort that failed is finished before the next step, edit, undo, redo,
+  promote or revert, and a commit whose folder cannot be moved leaves its step whole.
+- An Edit the disk refuses half way leaves the draft and its history as they were. Before, the steps after the
+  edited one could be lost from the draft for good and, for a step in the game, from the game too.
+- An Accept or a recipe row whose history step cannot be recorded is taken back at once, and says so. It said Undo
+  could not take it back, and the next Undo then took it out and undid the step before it too.
+- Undo and Redo say when the disk refuses them, and a sink or coast Accept whose disc-4 call died says disc 4 may
+  hold a half write (Undo takes it back) instead of saying disc 4 kept its own ground.
+
 ### Fixed — World tab: editing a step that is in the game, the edit cards and the game camera (a review of C12-C23)
 - **A step that is in the game** (C19). Edit and Delete promote the recipe back when they close. Before, that wrote
   every step in the draft, so a step placed after the last promote went into the game too, even on Cancel. Now
