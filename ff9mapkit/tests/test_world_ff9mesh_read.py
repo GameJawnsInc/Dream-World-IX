@@ -81,3 +81,13 @@ def test_the_refusals_stand(tmp_path):
     p.write_bytes(data[:4] + struct.pack("<i", 2) + data[8:])
     with pytest.raises(ValueError, match="unsupported .ff9mesh version 2"):
         M.read_ff9mesh(p)
+
+
+def test_a_cut_short_file_refuses_as_it_always_did(tmp_path):
+    """A .ff9mesh cut short (an interrupted write) raised struct.error by the per-vertex unpack and a ValueError by
+    numpy's whole read -- and coastnav's stacked loader reads a ValueError as "no such part", so a corrupt override
+    went quietly absent (review of the perf commits, K2). The whole read refuses as the loop does."""
+    p = _file(tmp_path, flags=7)
+    p.write_bytes(p.read_bytes()[:60])                                   # positions half there, the rest gone
+    with pytest.raises(struct.error):
+        M.read_ff9mesh(p)
