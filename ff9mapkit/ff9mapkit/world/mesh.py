@@ -210,9 +210,14 @@ def read_ff9mesh(path) -> dict:
         # a channel block read whole: numpy widens float32 to a Python float as struct does, bit for bit; the
         # per-vertex unpack was most of a card's island read (PERF.md 5)
         nonlocal off
+        block = None
         if np is not None and 0 <= n and off + n * dim * 4 <= len(data):   # (a file cut short: the loop's refusal,
-            arr = np.frombuffer(data, dtype="<f4", count=n * dim, offset=off).reshape(n, dim).tolist()   # struct.error
-        else:                                                                # -- review of the perf commits, K2)
+            block = np.frombuffer(data, dtype="<f4", count=n * dim, offset=off)   # struct.error -- review, K2)
+            if np.isnan(block).any():                                        # numpy quiets a signalling NaN, struct
+                block = None                                                 # keeps it: the loop (review, K4)
+        if block is not None:
+            arr = block.reshape(n, dim).tolist()
+        else:
             arr = [list(struct.unpack_from("<%df" % dim, data, off + j * dim * 4)) for j in range(n)]
         off += n * dim * 4
         return arr

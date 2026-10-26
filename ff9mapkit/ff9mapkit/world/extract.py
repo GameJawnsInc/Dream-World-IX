@@ -251,11 +251,16 @@ def _decode_world_mesh(mesh_pptr, *, disc: int, x: int, y: int, lod: str) -> Blo
         import numpy as np
     except ImportError:                              # numpy is optional for the kit: the per-vertex loop
         np = None
+    f = None
     if np is not None and stride % 4 == 0 and all(off % 4 == 0 for off, _dim in channels.values()):
         # the buffer read whole: float32 -> Python float is the same widening struct.unpack('<f') does, bit for bit
-        # (-0.0, NaN, inf, subnormals; every mesh of discs 1 and 4) -- the per-vertex loop was 1.2 s of the first 3D
-        # view and 4.5 s for every mesh of a disc (PERF.md 5)
+        # (-0.0, inf, subnormals; every mesh of discs 1 and 4) -- the per-vertex loop was 1.2 s of the first 3D view
+        # and 4.5 s for every mesh of a disc (PERF.md 5). A NaN goes through the loop: numpy quiets a signalling
+        # one, which struct keeps (review of the perf commits, K4)
         f = np.frombuffer(raw, dtype="<f4").reshape(vcount, stride // 4)
+        if np.isnan(f).any():
+            f = None
+    if f is not None:
         chan_arrays = {ci: f[:, off // 4: off // 4 + dim].tolist() for ci, (off, dim) in channels.items()}
     else:
         def rd(ci, vi):

@@ -266,7 +266,7 @@ def test_the_vertex_decode_reads_the_buffer_whole_with_the_same_floats(monkeypat
     inf, a subnormal); an unaligned one keeps the per-vertex loop."""
     import math
     import struct
-    vals = [0.0, -0.0, 1.5, -2.25, float("inf"), float("nan"), 1e-45, 3.4e38]   # two vertices, 16 bytes each
+    vals = [0.0, -0.0, 1.5, -2.25, float("inf"), 6.5, 1e-45, 3.4e38]   # two vertices, 16 bytes each (a NaN: the loop)
     chans = [_Chan(0, 3), _Chan(12, 1), _Chan(0, 0)]                   # pos, a 1-wide channel, an empty one
     raw = struct.pack("<8f", *vals)
     vcount = 2
@@ -288,7 +288,7 @@ def test_the_vertex_decode_reads_the_buffer_whole_with_the_same_floats(monkeypat
         for a, b in zip(bm.chan_arrays[ci], want[ci]):
             assert [struct.pack("<d", v) for v in a] == [struct.pack("<d", v) for v in b]
             assert all(type(v) is float for v in a)
-    assert math.isnan(bm.chan_arrays[0][1][1]) and bm.tris == [[0, 1, 2]]
+    assert bm.chan_arrays[0][1][1] == 6.5 and not math.isnan(bm.chan_arrays[0][1][1]) and bm.tris == [[0, 1, 2]]
     odd = [_Chan(2, 1), _Chan(6, 1)]                        # offsets not 4-aligned: the loop, the same answer
     raw2 = b"\x00\x00" + struct.pack("<f", 1.25) + struct.pack("<f", -3.5) + b"\x00\x00" * 0
     unpacked.clear()

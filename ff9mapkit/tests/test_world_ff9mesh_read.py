@@ -12,7 +12,7 @@ from ff9mapkit.world import mesh as M
 
 pytest.importorskip("numpy")
 
-VALS = [0.0, -0.0, 1.5, float("inf"), float("-inf"), float("nan"), 1e-45, 3.4e38, -2.25]
+VALS = [0.0, -0.0, 1.5, float("inf"), float("-inf"), 7.25, 1e-45, 3.4e38, -2.25]   # (a NaN: the loop, below)
 
 
 def _file(tmp_path, flags=7, vcount=3, icount=4):
@@ -91,3 +91,20 @@ def test_a_cut_short_file_refuses_as_it_always_did(tmp_path):
     p.write_bytes(p.read_bytes()[:60])                                   # positions half there, the rest gone
     with pytest.raises(struct.error):
         M.read_ff9mesh(p)
+
+
+def test_a_signalling_nan_reads_as_the_loop_reads_it(tmp_path):
+    """On CPython 3.14 struct keeps a float32 signalling NaN signalling and numpy's widening quiets it, so the whole
+    read was not the loop's bit for bit for that one input (review of the perf commits, K4). A block holding a NaN
+    goes through the loop: the same doubles for every input, in both decoders."""
+    from ff9mapkit.world import extract as X
+    bits = (0x7F800001, 0xFFA00000, 0x7FC00000)                           # two signalling NaNs and a quiet one
+    snan = [struct.unpack("<f", struct.pack("<I", u))[0] for u in bits]
+    raw = b"".join(struct.pack("<I", u) for u in bits)
+    out = bytearray(M.MAGIC) + struct.pack("<iiii", M.VERSION, 1, 0, 0) + raw
+    p = tmp_path / "Block[1][2] Terrain.ff9mesh"
+    p.write_bytes(bytes(out))
+    assert _bits(M.read_ff9mesh(p)["verts"]) == _bits([snan])
+    from .test_world_block_part_lookup import _Chan, _Pptr
+    bm = X._decode_world_mesh(_Pptr(raw, 1, [_Chan(0, 3)]), disc=1, x=1, y=2, lod="0_1")
+    assert _bits(bm.chan_arrays[0]) == _bits([snan])
