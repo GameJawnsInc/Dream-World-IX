@@ -291,7 +291,7 @@ def test_the_river_s_shape_is_read_once_per_install_and_kit(tmp_path, monkeypatc
     RE.cached_shape(game, read=read)
     assert len(calls) == 2                                               # a new kit reads it again
     (doc,) = [json.loads(p.read_text()) for p in (tmp_path / "cache" / "world-river").glob("*.json")]
-    assert doc["stamp"] == "another kit" and doc["game"] == str(game)
+    assert doc["stamp"].startswith("another kit-") and doc["game"] == str(game)
 
 
 def test_the_river_card_reads_the_cached_shape(tmp_path, monkeypatch):
@@ -327,3 +327,24 @@ def test_a_cache_that_cannot_be_written_still_hands_back_the_shape(tmp_path, mon
     monkeypatch.setattr(type(tmp_path), "replace", real)
     assert got.cells == _shape().cells
     assert not list((tmp_path / "ok" / "world-river").glob("*.tmp*"))   # no tmp left behind
+
+
+def test_the_river_cache_reads_again_when_the_install_s_bundles_change(tmp_path, monkeypatch):
+    """The cache keyed the install's PATH only: a Steam update or a verify-integrity repair at the same path kept
+    handing back the river read from the old bundles (review of the perf commits, K3). The stamp holds each stock
+    bundle's name, size and time too."""
+    import os
+    monkeypatch.setattr(RE, "_cache_dir", lambda: tmp_path / "cache")
+    game = tmp_path / "game"
+    (game / "StreamingAssets").mkdir(parents=True)
+    bundle = game / "StreamingAssets" / "p0data3.bin"
+    bundle.write_bytes(b"stock")
+    calls = []
+    read = (lambda game=None: calls.append(1) or _shape())
+    RE.cached_shape(game, read=read)
+    RE.cached_shape(game, read=read)
+    assert len(calls) == 1
+    st = bundle.stat()
+    os.utime(bundle, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))       # the bundle was replaced
+    RE.cached_shape(game, read=read)
+    assert len(calls) == 2

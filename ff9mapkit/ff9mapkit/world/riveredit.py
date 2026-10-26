@@ -98,13 +98,43 @@ def _code_stamp() -> str:
     return h.hexdigest()[:16]
 
 
+def _stock_stamp(game) -> str:
+    """What the shape reads besides the code: each stock bundle's name, size and time, and the versions of the
+    readers below the kit (a Steam update or a repair at the same path, a new UnityPy: review of the perf commits)."""
+    from importlib import metadata
+    h = hashlib.sha256()
+    sa = Path(game) / "StreamingAssets"
+    try:
+        names = sorted(n for n in os.listdir(sa) if n.startswith("p0data") and n.endswith(".bin"))
+    except OSError:
+        names = []
+    for n in names:
+        try:
+            st = os.stat(sa / n)
+        except OSError:
+            continue
+        h.update(f"{n}:{st.st_size}:{st.st_mtime_ns};".encode())
+    for dist in ("UnityPy", "numpy"):
+        try:
+            h.update(f"{dist}={metadata.version(dist)};".encode())
+        except metadata.PackageNotFoundError:
+            h.update(f"{dist}=none;".encode())
+    kit = Path(__file__).resolve().parents[1]
+    for rel in ("extract.py", "config.py"):
+        try:
+            h.update((kit / rel).read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:16]
+
+
 def cached_shape(game, *, refresh: bool = False, read=None) -> RiverShape:
     """:func:`shape`, from the kit's cache when it holds this install's, computed by this kit (:func:`_code_stamp`):
     the shape is a function of the install's stock bytes and the code alone, and reading it was 17-24 s on every
     session's first river open (PERF.md 7). ``read`` is the test seam for :func:`shape`."""
     key = hashlib.sha256(str(Path(game).resolve()).lower().encode()).hexdigest()[:12]
     path = _cache_dir() / "world-river" / f"shape-{key}.json"
-    stamp = _code_stamp()
+    stamp = f"{_code_stamp()}-{_stock_stamp(game)}"
     if not refresh:
         try:
             doc = json.loads(path.read_text(encoding="utf-8"))
