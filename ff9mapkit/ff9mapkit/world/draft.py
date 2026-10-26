@@ -636,6 +636,7 @@ def revert(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
 HISTORY = "history.json"                          # <draft>/history.json: the steps, the cursor, the promoted mark
 HISTORY_DIR = "history"                           # <draft>/history/<n>/{before,after}/<rel>: each step's cells
 _PENDING = "pending"
+_OWED_BACK = "take-back.json"                     # history/take-back.json: a commit's folder whose take-back is owed
 
 
 def history(draft: Path) -> dict:
@@ -794,8 +795,11 @@ def commit_step(draft: Path, row: dict, label: str) -> dict:
     except OSError:
         try:
             _retry(lambda: home.rename(pend))
-        except OSError:
+        except OSError:                              # (named on disk first: a take-back refused too is the next
+            owed = draft / HISTORY_DIR / _OWED_BACK  # abort's to finish, never an orphan folder: round 5, R5-4)
+            owed.write_text(json.dumps({"dir": rel_dir}), encoding="utf-8")
             _take_back(draft, home)
+            owed.unlink()
         raise
     try:
         for rel in _cell_files(home / "before", [c for c in cells if c not in keep_set]):
@@ -813,6 +817,17 @@ def abort_step(draft: Path) -> None:
     """The step failed: put its cells back as they were before it (a verb refuses before writing, so this is
     usually a no-op), and forget it. Only what the step moved is written back (:func:`_unmoved`): rewriting all
     2,088 files of a whole-map step took 14-28 s and moved every file's time (PERF.md 3)."""
+    owed = Path(draft) / HISTORY_DIR / _OWED_BACK
+    if owed.is_file():                               # a commit's take-back the disk refused: finished first (R5-4)
+        try:
+            folder = Path(draft) / json.loads(owed.read_text(encoding="utf-8"))["dir"]
+        except (ValueError, KeyError, TypeError):
+            folder = None
+        if folder is not None and (folder / "step.json").is_file():
+            _take_back(draft, folder)
+        elif folder is not None:
+            shutil.rmtree(folder, ignore_errors=True)    # (taken back already, its folder half deleted)
+        owed.unlink()
     pend = Path(draft) / HISTORY_DIR / _PENDING
     if not (pend / "step.json").is_file():
         return
@@ -1059,29 +1074,37 @@ def cancel_edit(draft: Path) -> dict:
     e = history(draft)["edit"]
     if not e:
         raise ValueError("no edit is open in the draft")
-    k = e["at"]
-    while history(draft)["cursor"] > k:
-        undo(draft)
-    h = history(draft)
-    put = h["steps"][k:]
-    if put:
-        h["steps"] = h["steps"][:k]
+    if "redo_to" not in e:                               # the lifted steps go back in (a second phase, below, redoes)
+        k = e["at"]
+        while history(draft)["cursor"] > k:
+            undo(draft)
+        h = history(draft)
+        put = h["steps"][k:]
+        if put:
+            h["steps"] = h["steps"][:k]
+            _write_history(draft, h)
+            for s in put:
+                shutil.rmtree(draft / s["dir"], ignore_errors=True)
+        steps = h["steps"][:k]
+        for s in e["lifted"]:
+            park, home = draft / s["dir"], draft / s["home"]
+            if park.is_dir():                            # (its home holds nothing of the history's: cleared)
+                if home.exists():
+                    _retry(lambda home=home: shutil.rmtree(home))
+                _retry(lambda park=park, home=home: park.rename(home))
+            elif not home.is_dir():
+                raise ValueError(f"the record of {s['label']} is missing from the draft ({s['dir']})")
+            steps.append({**{key: v for key, v in s.items() if key != "home"}, "dir": s["home"]})
+        # THE REDOS OWED stay in the open edit until they are done: written closed first, a redo the disk refused
+        # left the edit closed and the later steps undone, with nothing to run them again (round 5, R5-2)
+        h["steps"], h["cursor"] = steps, k
+        h["edit"] = {"at": k, "applied": e["applied"], "lifted": [], "redo_to": k + e["applied"], "utc": e.get("utc")}
         _write_history(draft, h)
-        for s in put:
-            shutil.rmtree(draft / s["dir"], ignore_errors=True)
-    steps = h["steps"][:k]
-    for s in e["lifted"]:
-        park, home = draft / s["dir"], draft / s["home"]
-        if park.is_dir():                                # (its home holds nothing of the history's: cleared)
-            if home.exists():
-                _retry(lambda home=home: shutil.rmtree(home))
-            _retry(lambda park=park, home=home: park.rename(home))
-        elif not home.is_dir():
-            raise ValueError(f"the record of {s['label']} is missing from the draft ({s['dir']})")
-        steps.append({**{key: v for key, v in s.items() if key != "home"}, "dir": s["home"]})
-    h["steps"], h["cursor"], h["edit"] = steps, k, None
-    _write_history(draft, h)
-    for _ in range(e["applied"]):
+    to = history(draft)["edit"]["redo_to"]
+    while history(draft)["cursor"] < to:
         redo(draft)
+    h = history(draft)
+    h["edit"] = None
+    _write_history(draft, h)
     shutil.rmtree(draft / HISTORY_DIR / EDIT_DIR, ignore_errors=True)
     return e
