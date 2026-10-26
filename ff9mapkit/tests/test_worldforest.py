@@ -168,6 +168,40 @@ def test_a_click_places_a_ghost_the_check_judges_and_accept_writes_the_draft(app
     assert "In the draft: 1 block written" in tool.verdict_lbl.text()
 
 
+def test_an_accept_reads_the_island_and_the_draft_line_once(app, tmp_path, monkeypatch):
+    """An Accept read the island twice -- the card's own re-read, then the tab's island_changed for every card, which
+    threw the first away -- and every built card, hidden or not, walked the draft for its line: 4 soup reads and 6
+    walks of 1-9 s each per Accept on workers, slowing the map's reload through the GIL (PERF.md 2). The tab's
+    on_changed is the one re-read: the accepting card reads once, and a hidden card reads when it opens."""
+    from ff9mapkit.workspace.worldforest import ForestTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    game = _game(tmp_path)
+    ix = FE.SoupIndex(IN.soup_from_blocks({(0, 0): _mains_grid()}))
+    reads, walks, tools = [], [], []
+    real = D.edited_blocks
+    monkeypatch.setattr(D, "edited_blocks", lambda d: walks.append(d) or real(d))
+
+    def card():
+        t = ForestTool(PAL, WorldView3DPanel(PAL), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                       runner=Scripted(), drafts_root=tmp_path / "drafts", sync=True, outline_fn=lambda d: _outline(),
+                       soup_fn=lambda folder: reads.append(folder) or ix,
+                       on_changed=lambda d: [x.island_changed() for x in tools])   # as WorldDoc._draft_changed
+        tools.append(t)
+        return t
+    tool, hidden = card(), card()
+    tool.open_tool()
+    tool.place(26.04, -25.97, 3.2)
+    _settle(tool)
+    reads.clear()
+    walks.clear()
+    tool.accept_btn.click()
+    assert "In the draft: 1 block written" in tool.verdict_lbl.text()
+    assert len(reads) == 1 and len(walks) == 1                            # the accepting card's, once each
+    walks.clear()
+    hidden.open_tool()
+    assert len(walks) == 1                                                # the hidden card reads its line on open
+
+
 def test_a_verdict_for_handles_that_moved_is_never_shown(app, tmp_path):
     """The stale guard: a check answers the handles it was asked about; turning the forest after it makes the
     verdict moot (Accept stays off) and a running check is killed rather than left to answer late."""

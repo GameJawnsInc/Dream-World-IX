@@ -520,11 +520,13 @@ class CarryTool(QWidget):
         return RC.row_for(self._cmd("-", dry_run=False))
 
     def island_changed(self):
-        """The draft moved under the tool (an undo, a redo, an opened recipe): read the island and the draft again."""
+        """The draft moved under the tool (an Accept, an undo, a redo, an opened recipe): read the island and the
+        draft again. A hidden card only forgets: it reads both when it opens, and its line's walk of the draft cost
+        every change 1-9 s on a worker for a label nobody saw (PERF.md 2)."""
         self._drop_soups()
         self._verdict = None
-        self._refresh_draft_label()
         if not self.isHidden():
+            self._refresh_draft_label()
             self._load_soup()
 
     # -- background reads --
@@ -910,17 +912,16 @@ class CarryTool(QWidget):
             or len(written) or len(v.get("blocks") or [])  # (a mint's verdict names its blocks, not its files)
         self.center = self._ghost = None
         self._verdict = None
-        self._drop_soups()                               # the island changed: re-read it from the draft
         self.panel.set_overlays([])
         self.panel.set_ghost(None)
-        self._refresh_draft_label()
         self._say(f"In the draft: {n} block{'s' if n != 1 else ''} written. The view now draws the draft in place "
                   f"of {self.source().name}. Click to place another {self.NOUN}."
                   + (" Disc 4 refused the same edit, so disc 4 keeps its own ground there (as the verb's replay "
                      "would)." if disc4 is False else ""), "warn" if disc4 is False else "ok")
-        self._load_soup()
-        if self._on_changed is not None:
-            self._on_changed(self.draft())
+        if self._on_changed is not None:                 # the tab reads the island and the draft line again, once,
+            self._on_changed(self.draft())               # for every card (island_changed): reading them here too
+        else:                                            # was thrown away by its generation bump (PERF.md 2)
+            self.island_changed()
 
     def _copy_command(self):
         """Accept's command, to run by hand: always against the DRAFT's path, never the live folder (before the
