@@ -201,10 +201,19 @@ def read_ff9mesh(path) -> dict:
                          f"{VERSION}) -- {path}: a stale or foreign override; nothing enforced "
                          "this before, so an abandoned experiment could ride along silently")
     off = 20
+    try:
+        import numpy as np
+    except ImportError:                              # numpy is optional for the kit: the per-vertex loop
+        np = None
 
     def take(n, dim):
+        # a channel block read whole: numpy widens float32 to a Python float as struct does, bit for bit; the
+        # per-vertex unpack was most of a card's island read (PERF.md 5)
         nonlocal off
-        arr = [list(struct.unpack_from("<%df" % dim, data, off + j * dim * 4)) for j in range(n)]
+        if np is not None:
+            arr = np.frombuffer(data, dtype="<f4", count=n * dim, offset=off).reshape(n, dim).tolist()
+        else:
+            arr = [list(struct.unpack_from("<%df" % dim, data, off + j * dim * 4)) for j in range(n)]
         off += n * dim * 4
         return arr
 
