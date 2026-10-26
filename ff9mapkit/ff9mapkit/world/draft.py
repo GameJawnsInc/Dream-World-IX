@@ -589,6 +589,7 @@ def revert(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
                          "Reverting would erase that later work.")
     if dry_run:
         return {**rec, "op": "revert"}
+    abort_step(draft)                                    # (a failed abort, finished before the rebase: round 3, H2)
     snap = Path(rec["record"]) / "before"
     for rel, sha in rec["before"].items():          # every snapshot whole before any byte moves
         if not (snap / rel).is_file() or _sha(snap / rel) != sha:

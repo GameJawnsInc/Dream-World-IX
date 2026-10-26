@@ -710,3 +710,19 @@ def test_an_edit_over_a_step_whose_record_is_gone_refuses_before_anything_moves(
     with pytest.raises(ValueError, match="mountain two"):
         D.begin_edit(d, 0)
     assert _tree(d) == before and D.history(d) == h0 and (d / h0["steps"][0]["dir"]).is_dir()
+
+
+def test_a_pending_abort_is_finished_before_a_revert_rebases_the_draft(tmp_path, monkeypatch):
+    """Undo, Redo and Promote finish a failed abort first (round 2, H1), but Revert did not: its rebase put the draft's
+    disc-4 files back to the live bytes, and the late abort then wrote the promote-time images over them -- the
+    history said the step was applied as recorded while the draft held other bytes, edits() listed disc-4 files no
+    step wrote, and the Undo the 'Revert promote first' refusal sends the user to refused (review of the perf fixes,
+    round 3, H2). Revert finishes it first too."""
+    _fake_mirror(monkeypatch)
+    game, src, d = _draft(tmp_path)
+    _step(d, [(0, 0)], {T00: b"forest"}, "forest one")
+    D.promote(d, game=game, log=lambda *a: None)
+    _failed_abort(d, monkeypatch, [(0, 0), (1, 0)], {T10: b"half a mountain"})
+    D.revert(d, game=game, log=lambda *a: None)
+    D.undo(d)
+    assert _tree(d) == _tree(src) and D.edits(d) == [] and D.history(d)["cursor"] == 0
