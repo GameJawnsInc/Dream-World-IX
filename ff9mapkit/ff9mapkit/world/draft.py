@@ -1019,7 +1019,9 @@ def finish_edit(draft: Path) -> dict:
 def cancel_edit(draft: Path) -> dict:
     """Close an open edit as if it never began: a half-run step is aborted, every step put back since
     :func:`begin_edit` is undone byte for byte, and the lifted steps go back in, applied as they were (redone from
-    their records), the undone ones after them still redoable."""
+    their records), the undone ones after them still redoable. A cancel the disk refuses part way can run again: the
+    steps put back leave the history before their folders go (one may hold a lifted step's home name), a lifted step
+    already moved home is left there, and each move waits out a reader (review of the perf fixes, round 4, R4-2)."""
     draft = Path(draft)
     abort_step(draft)
     e = history(draft)["edit"]
@@ -1029,12 +1031,21 @@ def cancel_edit(draft: Path) -> dict:
     while history(draft)["cursor"] > k:
         undo(draft)
     h = history(draft)
-    for s in h["steps"][k:]:
-        shutil.rmtree(draft / s["dir"], ignore_errors=True)
+    put = h["steps"][k:]
+    if put:
+        h["steps"] = h["steps"][:k]
+        _write_history(draft, h)
+        for s in put:
+            shutil.rmtree(draft / s["dir"], ignore_errors=True)
     steps = h["steps"][:k]
     for s in e["lifted"]:
-        shutil.rmtree(draft / s["home"], ignore_errors=True)
-        (draft / s["dir"]).rename(draft / s["home"])
+        park, home = draft / s["dir"], draft / s["home"]
+        if park.is_dir():                                # (its home holds nothing of the history's: cleared)
+            if home.exists():
+                _retry(lambda home=home: shutil.rmtree(home))
+            _retry(lambda park=park, home=home: park.rename(home))
+        elif not home.is_dir():
+            raise ValueError(f"the record of {s['label']} is missing from the draft ({s['dir']})")
         steps.append({**{key: v for key, v in s.items() if key != "home"}, "dir": s["home"]})
     h["steps"], h["cursor"], h["edit"] = steps, k, None
     _write_history(draft, h)

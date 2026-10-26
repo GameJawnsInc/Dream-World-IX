@@ -786,3 +786,62 @@ def test_an_undo_or_redo_the_disk_refuses_says_so(monkeypatch, tmp_path, app):
         assert word in text and "a reader holds it" in text, text
     monkeypatch.setattr(D, "abort_step", real)
     assert D.history(draft)["cursor"] == 1                                # nothing moved
+
+
+def _edited_one_of_two(tmp_path):
+    """Two steps; an edit of the first open, its edited shape put in its place (the card's Accept)."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(0, 0)], {T00: b"forest"}, "forest one")
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain two")
+    before, h0 = _tree(d), D.history(d)
+    D.begin_edit(d, 0)
+    _step(d, [(0, 0)], {T00: b"forest moved"}, "forest one, moved")
+    return d, before, h0
+
+
+def test_a_cancel_whose_put_back_fails_runs_again_and_loses_nothing(tmp_path, monkeypatch):
+    """cancel_edit moved the lifted folders home one rename at a time with no retry, deleting each home first: a
+    rename refused part way left the edit open, and the next cancel (the bar's refresh runs one) deleted the folder
+    the first had moved home -- the edited step's own put-back held that name -- then failed on it, so the step's
+    record was gone and the edit could never close (review of the perf fixes, round 4, R4-2). The put-back steps
+    leave the history before their folders go, so a cancel run again finishes the first."""
+    d, before, h0 = _edited_one_of_two(tmp_path)
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())
+    real, held = type(d).rename, d / D.HISTORY_DIR / D.EDIT_DIR / "0001"
+
+    def rename(self, target):
+        if self == held:
+            raise PermissionError(5, "a handle is open in it")
+        return real(self, target)
+    monkeypatch.setattr(type(d), "rename", rename)
+    with pytest.raises(PermissionError):
+        D.cancel_edit(d)
+    monkeypatch.setattr(type(d), "rename", real)
+    D.cancel_edit(d)                                                      # the handle went: it finishes
+    h = D.history(d)
+    assert _tree(d) == before and h["edit"] is None and h["cursor"] == 2
+    assert [s["label"] for s in h["steps"]] == [s["label"] for s in h0["steps"]]
+    assert all((d / s["dir"]).is_dir() for s in h["steps"])
+    D.undo(d)                                                             # and each step walks again
+    D.undo(d)
+    D.redo(d)
+    D.redo(d)
+    assert _tree(d) == before
+
+
+def test_a_cancel_waits_out_a_handle_held_a_moment_in_a_lifted_folder(tmp_path, monkeypatch):
+    """begin_edit's lift retries a rename a reader refuses for a moment (round 3, H1); the cancel's put-back of the
+    same folders did not (review of the perf fixes, round 4, R4-2)."""
+    d, before, _h0 = _edited_one_of_two(tmp_path)
+    real_retry = D._retry
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: real_retry(fn, wait=0))
+    real, held, refused = type(d).rename, d / D.HISTORY_DIR / D.EDIT_DIR / "0001", []
+
+    def rename(self, target):
+        if self == held and len(refused) < 2:
+            refused.append(1)
+            raise PermissionError(5, "a handle is open in it")
+        return real(self, target)
+    monkeypatch.setattr(type(d), "rename", rename)
+    D.cancel_edit(d)
+    assert len(refused) == 2 and _tree(d) == before and D.history(d)["edit"] is None
