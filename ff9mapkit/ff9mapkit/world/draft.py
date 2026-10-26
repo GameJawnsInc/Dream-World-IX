@@ -765,22 +765,29 @@ def commit_step(draft: Path, row: dict, label: str) -> dict:
     _keep_ledger(draft, pend / "after")
     before = {rel: h for rel, h in before.items() if _parse_rel(rel) and _parse_rel(rel)[1] in keep}
     after = {rel: h for rel, h in after.items() if _parse_rel(rel) and _parse_rel(rel)[1] in keep}
-    for rel in _cell_files(pend / "before", [c for c in cells if c not in keep_set]):
-        (pend / "before" / rel).unlink()             # the untouched cells' copies go (a whole-map step stays small)
-    (pend / "step.json").write_text(json.dumps({"cells": step["cells"], "before": step["before"]}),
-                                    encoding="utf-8")
+    # THE ORDER: the pending folder goes in place first, under a name no step holds, retried while a handle is open
+    # in it; only then is it trimmed, the history written and the undone steps dropped. A rename that still fails
+    # leaves the pending step whole (abort_step finishes it) and the undone steps redo-able (review of the perf
+    # fixes, round 2, H2)
     h = history(draft)
-    for old in h["steps"][h["cursor"]:]:
-        shutil.rmtree(draft / old["dir"], ignore_errors=True)
     n = h["cursor"]
     rel_dir = f"{HISTORY_DIR}/{n:04d}"
-    shutil.rmtree(draft / rel_dir, ignore_errors=True)
-    pend.rename(draft / rel_dir)
+    if (draft / rel_dir).exists():                   # (an undone step's folder: kept until the history drops it)
+        rel_dir = f"{HISTORY_DIR}/{n:04d}-{time.time_ns()}"
+    _retry(lambda: pend.rename(draft / rel_dir))
+    home = draft / rel_dir
+    for rel in _cell_files(home / "before", [c for c in cells if c not in keep_set]):
+        (home / "before" / rel).unlink()             # the untouched cells' copies go (a whole-map step stays small)
+    (home / "step.json").write_text(json.dumps({"cells": step["cells"], "before": step["before"]}),
+                                    encoding="utf-8")
     rec = {"row": row, "label": label, "cells": [list(c) for c in keep], "before": before, "after": after,
            "dir": rel_dir, "utc": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    undone = h["steps"][n:]
     h["steps"] = h["steps"][:n] + [rec]
     h["cursor"] = n + 1
     _write_history(draft, h)
+    for old in undone:                               # (dropped from the history: their folders go)
+        shutil.rmtree(draft / old["dir"], ignore_errors=True)
     return rec
 
 
@@ -792,6 +799,9 @@ def abort_step(draft: Path) -> None:
     if not (pend / "step.json").is_file():
         return
     step = json.loads((pend / "step.json").read_text(encoding="utf-8"))
+    if any(not (pend / "before" / rel).is_file() for rel in step["before"]):
+        shutil.rmtree(pend)                          # a commit's, trimmed before a rename that failed (an older kit):
+        return                                       # its writes are in the draft; replayed in part it wedged it (H2)
     stat, at = step.get("stat", {}), step.get("at")
     _restore(draft, step["before"], pend / "before", [tuple(c) for c in step["cells"]],
              unmoved=lambda rel, p: _unmoved(p, stat.get(rel), at))

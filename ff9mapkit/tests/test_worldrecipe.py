@@ -605,3 +605,52 @@ def test_a_pending_abort_is_finished_before_an_undo_or_redo_rewrites_its_cells(t
     D.abort_step(d)
     D.redo(d)
     assert (d / T10).read_bytes() == b"mountain" and D.history(d)["cursor"] == 1
+
+
+def test_a_commit_whose_rename_fails_leaves_a_step_an_abort_can_finish(tmp_path, monkeypatch):
+    """commit_step deleted the untouched cells' before-copies, rewrote step.json and dropped the undone steps BEFORE
+    its folder rename, which it did not retry: a rename refused (a handle open in the pending folder) left a step no
+    abort could finish -- every later step, edit and undo failing on a missing copy, the draft half rewritten each
+    time -- and the undone steps gone (review of the perf fixes, round 2, H2). The rename is retried and comes first;
+    a commit that still cannot rename leaves the step whole, and the undone ones too."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain one")
+    D.undo(d)                                                             # an undone step: redo-able
+    before = _tree(d)
+    D.begin_step(d, [(0, 0), (1, 0)])
+    (d / T00).write_bytes(b"forest")
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())
+    real = type(d).rename
+
+    def rename(self, target):
+        if self.name == D._PENDING:
+            raise PermissionError(5, "a handle is open in it")
+        return real(self, target)
+    monkeypatch.setattr(type(d), "rename", rename)
+    with pytest.raises(PermissionError):
+        D.commit_step(d, {"table": "forest", "center": [1.0, -1.0], "donor": "15,15"}, "forest one")
+    monkeypatch.setattr(type(d), "rename", real)
+    D.abort_step(d)                                                       # the step can be finished
+    assert _tree(d) == before and D.history(d)["cursor"] == 0
+    D.redo(d)                                                             # and the undone step is still there
+    assert (d / T10).read_bytes() == b"mountain"
+
+
+def test_a_commit_shaped_pending_left_by_an_older_kit_does_not_wedge_the_draft(tmp_path):
+    """A pending step a commit had already trimmed (its untouched cells' before-copies gone) before its rename failed
+    -- what the kit before H2's fix left -- could never be aborted: every later step, edit and undo failed on the
+    missing copy. Its writes are in the draft (the card said so); the pending is dropped instead of half replayed."""
+    import json as _json
+    _game_, _src, d = _draft(tmp_path)
+    D.begin_step(d, [(0, 0), (1, 0)])
+    (d / T00).write_bytes(b"forest")
+    pend = d / D.HISTORY_DIR / D._PENDING
+    step = _json.loads((pend / "step.json").read_text(encoding="utf-8"))
+    (pend / "before" / T10).unlink()                                      # trimmed, as the older commit did
+    (pend / "step.json").write_text(_json.dumps({"cells": step["cells"], "before": step["before"]}),
+                                    encoding="utf-8")
+    now = _tree(d)
+    D.abort_step(d)
+    assert not pend.exists() and _tree(d) == now                         # dropped, nothing half written back
+    D.begin_step(d, [(1, 0)])                                             # and the draft goes on
+    D.abort_step(d)
