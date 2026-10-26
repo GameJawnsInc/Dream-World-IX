@@ -421,8 +421,9 @@ def test_opening_a_recipe_makes_its_draft_and_steps_off_the_window_s_thread(monk
 
     def seen(name, real):
         def fn(*a, **k):
-            where.setdefault(name, threading.current_thread() is threading.main_thread())
-            return real(*a, **k)
+            if any(str(tmp_path) in str(v) for v in list(a) + list(k.values())):   # this test's drafts only (a
+                where.setdefault(name, threading.current_thread() is threading.main_thread())   # card left alive
+            return real(*a, **k)                                                  # by an earlier test may fire)
         return fn
     for name in ("discard", "ensure_draft", "begin_step", "commit_step"):
         monkeypatch.setattr(D, name, seen(name, getattr(D, name)))
