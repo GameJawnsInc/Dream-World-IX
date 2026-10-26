@@ -62,3 +62,19 @@ def test_the_precomputed_census_is_the_census(monkeypatch):
         assert P.place(stack, x, z, prep=prep) == P.place(stack, x, z)
     monkeypatch.setattr(P, "_prepare", lambda meshlist: None)
     assert P.census(stack, samples=24) == fast
+
+
+def test_a_mesh_without_tangents_is_asked_only_where_a_sample_lands(monkeypatch):
+    """The precompute judged every triangle of every mesh up front, so a mesh with no tangent channel (no IDALL)
+    raised even where no sample touches it -- a census the per-sample code ran raised (review of the perf commits).
+    Such a mesh keeps the per-sample code: it raises only where a sample lands on it, as before."""
+    from ff9mapkit.world.extract import CH_TAN
+    stack = _stack()
+    bare = _bm([(((200.0, 5.0, -200.0), (210.0, 5.0, -200.0), (200.0, 5.0, -210.0)), GRASS)], name="Block[0][0] Object")
+    del bare.chan_arrays[CH_TAN]                                      # off the sampled span, and no IDALL
+    del bare.channels[CH_TAN]
+    stack = [("Object", bare), stack[1]]
+    monkeypatch.setattr(P, "_prepare", lambda meshlist, real=P._prepare: real(meshlist))
+    fast = P.census(stack, samples=12)
+    monkeypatch.setattr(P, "_prepare", lambda meshlist: None)
+    assert P.census(stack, samples=12) == fast

@@ -163,6 +163,9 @@ def _prepare(meshlist):
     out = []
     for _name, bm in meshlist:
         V, T, fi = bm.verts, bm.tangents, bm.flat_index
+        if not T:                                        # no IDALL channel: the per-sample code, which raises only
+            out.append(None)                             # where a sample lands on it (review of the perf commits)
+            continue
         rows = []
         for t in range(len(fi) // 3):
             idx = fi[3 * t:3 * t + 3]
@@ -237,7 +240,7 @@ def all_sheets(meshlist, x: float, z: float, *, strict: bool = True, index=None,
             cand = range(len(fi) // 3)
         else:
             cand = index[mi].get((math.floor(x / INDEX_GRID), math.floor(z / INDEX_GRID)), ())
-        if prep is not None:
+        if prep is not None and prep[mi] is not None:
             rows = prep[mi]
             for t in cand:
                 r = rows[t]
@@ -298,7 +301,7 @@ def place(meshlist, x: float, z: float, y: float = 0.0, *, sky: bool = True, ind
         else:
             cand = index[mi].get((math.floor(x / INDEX_GRID), math.floor(z / INDEX_GRID)), ())
         hit = None
-        if prep is not None:
+        if prep is not None and prep[mi] is not None:
             rows = prep[mi]
             for t in cand:
                 r = rows[t]
