@@ -325,15 +325,16 @@ class RecipeBar(QWidget):
         d = (e or {}).get("draft")
         return Path(d) if d is not None and D.is_draft(Path(d)) else self.draft()
 
-    def edit_accepted(self):
-        """The card wrote the edited shape in the step's place: put the steps after it back on top."""
+    def edit_accepted(self, note=""):
+        """The card wrote the edited shape in the step's place: put the steps after it back on top. ``note``: what the
+        card had to say of its Accept (disc 4's), said with the edit once it closes (round 4, R4-5)."""
         from ..world import draft as D
         e = self._edit
         d = self._edit_draft(e)
         if d is None or e is None:
             return
         new = D.history(d)["steps"][e["k"]]
-        e["new_label"] = new["label"]
+        e["new_label"], e["note"] = new["label"], note
         self._start_put_back(d, D.dirty_after(set(), e["lifted"][0], new))
 
     def delete(self):
@@ -410,8 +411,9 @@ class RecipeBar(QWidget):
             self._closed(d, e, f"Deleted step {e['k'] + 1}, {e['label']}.{back}", "ok")
             return
         self._sel = e["k"]
-        self._closed(d, e, f"Edited step {e['k'] + 1}: {e['label']} is now {e.get('new_label', e['label'])}.{back}",
-                     "ok")
+        said = f" {e['note']}" if e.get("note") else ""
+        self._closed(d, e, f"Edited step {e['k'] + 1}: {e['label']} is now {e.get('new_label', e['label'])}.{back}"
+                     f"{said}", "warn" if said else "ok")
         if self._on_select is not None:
             self._on_select(self.steps()[e["k"]])
 
