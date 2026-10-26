@@ -1,0 +1,201 @@
+== fields: {'fields_scanned': 818, 'fields_with_roots': 554, 'roots_LOOP-POLL': 330, 'roots_NPC': 1099, 'roots_TREAD-POLL': 255, 'roots_QUAD': 494, 'roots_CARD': 250, 'unresolved_NPC': 3, 'unresolved_QUAD': 6}
+
+== class x root
+class                      QUAD        NPC TREAD-POLL  LOOP-POLL       CARD     ALL
+STATEFUL                    286        357        243        251        244    1381
+FLAVOR-TALK                  42        579          4         25          6     656
+FLAVOR+LATCH                  4         94          0          0          0      98
+LOCO-ONLY                    92          0          0          0          0      92
+TRIVIAL                       5         23          3         47          0      78
+FLAVOR+CHOICE                 6         21          0          2          0      29
+SCENE-LOCAL                  17          4          4          4          0      29
+LOCO+EXIT                    25          0          0          0          0      25
+COSMETIC-ONLY                 0         18          0          0          0      18
+LOCO+LATCH                   11          3          1          1          0      16
+EXIT-ONLY                     3          0          0          0          0       3
+LOCO+ACTORS                   2          0          0          0          0       2
+LOCO+ACTORS+LATCH             1          0          0          0          0       1
+TOTAL                       494       1099        255        330        250    2428
+
+== QUAD: player-moving interactions (loco kind x class), with walkmesh verdict
+  player-moving QUADs: 263 of 494
+  carry-loop         STATEFUL           n= 58  {'intra-component': 14, 'no-geom': 33, 'off-mesh': 2, 'LINKS-COMPONENTS': 9}
+  carry-loop         FLAVOR+CHOICE      n=  4  {'no-geom': 2, 'LINKS-COMPONENTS': 1, 'intra-component': 1}
+  carry-loop         FLAVOR-TALK        n=  3  {'no-geom': 2, 'intra-component': 1}
+  carry-loop         LOCO-ONLY          n=  3  {'LINKS-COMPONENTS': 2, 'no-geom': 1}
+  carry-loop         LOCO+EXIT          n=  2  {'no-geom': 1, 'intra-component': 1}
+  carry-loop         FLAVOR+LATCH       n=  1  {'no-geom': 1}
+  carry-loop         LOCO+ACTORS        n=  1  {'LINKS-COMPONENTS': 1}
+  carry-loop         LOCO+ACTORS+LATCH  n=  1  {'LINKS-COMPONENTS': 1}
+  carry-loop         LOCO+LATCH         n=  1  {'LINKS-COMPONENTS': 1}
+  jump               STATEFUL           n= 33  {'LINKS-COMPONENTS': 15, 'intra-component': 13, 'off-mesh': 5}
+  jump               LOCO-ONLY          n= 32  {'LINKS-COMPONENTS': 28, 'intra-component': 4}
+  jump               LOCO+LATCH         n=  9  {'LINKS-COMPONENTS': 9}
+  jump               LOCO+EXIT          n=  6  {'off-mesh': 2, 'LINKS-COMPONENTS': 2, 'intra-component': 2}
+  ladder-auto        STATEFUL           n=  4  {'off-mesh': 2, 'intra-component': 1, 'LINKS-COMPONENTS': 1}
+  ladder-auto        LOCO+EXIT          n=  3  {'off-mesh': 2, 'LINKS-COMPONENTS': 1}
+  ladder-navigable   LOCO-ONLY          n= 51  {'LINKS-COMPONENTS': 45, 'intra-component': 6}
+  ladder-navigable   STATEFUL           n= 17  {'intra-component': 8, 'LINKS-COMPONENTS': 9}
+  ladder-navigable   LOCO+EXIT          n= 13  {'intra-component': 9, 'LINKS-COMPONENTS': 4}
+  ladder-navigable   LOCO+LATCH         n=  1  {'intra-component': 1}
+  ladder-navigable   FLAVOR-TALK        n=  1  {'intra-component': 1}
+  ladder-navigable   LOCO+ACTORS        n=  1  {'LINKS-COMPONENTS': 1}
+  teleport           STATEFUL           n=  1  {'no-geom': 1}
+  walk               STATEFUL           n= 14  {'intra-component': 11, 'no-geom': 2, 'LINKS-COMPONENTS': 1}
+  walk               FLAVOR-TALK        n=  2  {'intra-component': 2}
+  walk               LOCO+EXIT          n=  1  {'off-mesh': 1}
+
+== GUEST-LOCAL CANDIDATES (player-moving QUAD, class in ['LOCO+ACTORS', 'LOCO+ACTORS+LATCH', 'LOCO+EXIT', 'LOCO+LATCH', 'LOCO-ONLY']): 125
+   by class: Counter({'LOCO-ONLY': 86, 'LOCO+EXIT': 25, 'LOCO+LATCH': 11, 'LOCO+ACTORS': 2, 'LOCO+ACTORS+LATCH': 1})
+   by kind : Counter({'ladder-navigable': 66, 'jump': 47, 'carry-loop': 8, 'ladder-auto': 3, 'walk': 1})
+   walkmesh: Counter({'LINKS-COMPONENTS': 95, 'intra-component': 23, 'off-mesh': 5, 'no-geom': 2})
+   fields  : 62
+   gates   : Counter({'usercontrol': 125, 'map': 21, 'glob': 9, 'scenario': 1})
+   gated by glob/scenario: 9  by map(non-bracket): 21  by local: 0
+   call shapes: Counter({('Sync',): 104, ('Async',): 13, ('RunScript',): 6, ('Async', 'Sync'): 1, ('RunScript', 'Sync'): 1})
+
+== STATEFUL player-moving QUADs: why (reason x count)
+  n = 127 [('window', 90), ('tile_bg', 86), ('glob_write', 65), ('map_shared', 58), ('choice', 46), ('exit', 43), ('loco_other', 38), ('spawn', 31), ('sps', 30), ('item_party', 19), ('scenario_write', 18), ('walkmesh', 17), ('local_shared', 8), ('other', 8), ('ate', 2), ('menu', 2), ('control_swap', 1), ('fmv', 1), ('battle', 1), ('timer', 1), ('party_add', 1)]
+
+== EDGE CASES among player-moving QUADs
+  windows inside the PLAYER's climb/jump body: [(115, 14, 'ladder-navigable', 'STATEFUL'), (302, 14, 'carry-loop', 'STATEFUL'), (303, 15, 'carry-loop', 'STATEFUL'), (303, 16, 'carry-loop', 'STATEFUL'), (304, 15, 'carry-loop', 'STATEFUL'), (306, 11, 'walk', 'STATEFUL'), (350, 25, 'walk', 'STATEFUL'), (352, 12, 'carry-loop', 'FLAVOR-TALK'), (356, 10, 'carry-loop', 'STATEFUL'), (403, 7, 'carry-loop', 'STATEFUL'), (407, 15, 'carry-loop', 'STATEFUL'), (764, 1, 'carry-loop', 'STATEFUL'), (801, 16, 'ladder-navigable', 'FLAVOR-TALK'), (802, 14, 'carry-loop', 'STATEFUL'), (951, 7, 'walk', 'STATEFUL'), (1206, 12, 'carry-loop', 'STATEFUL'), (1254, 11, 'jump', 'STATEFUL'), (1255, 3, 'teleport', 'STATEFUL'), (1422, 10, 'walk', 'STATEFUL'), (1500, 5, 'walk', 'FLAVOR-TALK'), (1554, 4, 'carry-loop', 'STATEFUL'), (1602, 8, 'carry-loop', 'STATEFUL'), (1606, 22, 'carry-loop', 'STATEFUL'), (1755, 12, 'jump', 'STATEFUL'), (1801, 6, 'carry-loop', 'FLAVOR+CHOICE'), (1865, 22, 'ladder-navigable', 'STATEFUL'), (2102, 7, 'carry-loop', 'FLAVOR+CHOICE'), (2109, 10, 'carry-loop', 'STATEFUL'), (2111, 7, 'carry-loop', 'STATEFUL'), (2114, 10, 'carry-loop', 'FLAVOR+LATCH'), (2253, 4, 'carry-loop', 'FLAVOR-TALK'), (2253, 6, 'carry-loop', 'STATEFUL'), (2254, 3, 'carry-loop', 'STATEFUL'), (2254, 6, 'carry-loop', 'STATEFUL'), (2254, 9, 'carry-loop', 'STATEFUL'), (2254, 12, 'carry-loop', 'STATEFUL'), (2257, 5, 'carry-loop', 'STATEFUL'), (2259, 7, 'carry-loop', 'FLAVOR-TALK'), (2260, 3, 'jump', 'STATEFUL'), (2353, 5, 'walk', 'STATEFUL'), (2355, 3, 'walk', 'STATEFUL'), (2504, 2, 'ladder-navigable', 'STATEFUL'), (2504, 3, 'ladder-navigable', 'STATEFUL'), (2504, 8, 'jump', 'STATEFUL'), (2504, 9, 'jump', 'STATEFUL'), (2504, 10, 'jump', 'STATEFUL'), (2504, 11, 'jump', 'STATEFUL'), (2506, 2, 'ladder-navigable', 'STATEFUL'), (2506, 3, 'ladder-navigable', 'STATEFUL'), (2506, 4, 'ladder-navigable', 'STATEFUL'), (2506, 6, 'ladder-navigable', 'STATEFUL'), (2507, 6, 'ladder-navigable', 'STATEFUL'), (2507, 7, 'ladder-navigable', 'STATEFUL'), (2508, 5, 'jump', 'STATEFUL'), (2510, 5, 'carry-loop', 'STATEFUL'), (2510, 7, 'carry-loop', 'STATEFUL'), (2510, 9, 'carry-loop', 'STATEFUL'), (2510, 11, 'carry-loop', 'STATEFUL'), (2513, 8, 'carry-loop', 'STATEFUL'), (2513, 9, 'carry-loop', 'STATEFUL'), (2513, 10, 'carry-loop', 'STATEFUL'), (2709, 3, 'carry-loop', 'STATEFUL'), (2802, 26, 'carry-loop', 'STATEFUL'), (2802, 27, 'walk', 'STATEFUL'), (2803, 26, 'walk', 'STATEFUL'), (2803, 28, 'carry-loop', 'FLAVOR+CHOICE')]
+  HOST-OWNED key polls inside (Confirm/Cancel/etc): [(356, 10, 'carry-loop', [['KEYON', '0x1', 'player']]), (951, 7, 'walk', [['KEYON', '0x1', 'self']]), (952, 9, 'carry-loop', [['KEYON', '0x1', 'self']]), (953, 5, 'walk', [['KEYON', '0x1', 'self']]), (1202, 14, 'jump', [['KEYON', '0xa0000', 'player'], ['KEYON', '0xa0000', 'player']]), (1202, 15, 'jump', [['KEYON', '0xa0000', 'player'], ['KEYON', '0xa0000', 'player']]), (1202, 16, 'jump', [['KEYON', '0xa0000', 'player'], ['KEYON', '0xa0000', 'player']]), (1206, 12, 'carry-loop', [['KEYON', '0x1', 'player']]), (1606, 22, 'carry-loop', [['KEYON', '0x1', 'player']]), (2111, 7, 'carry-loop', [['KEYON', '0x1', 'player']]), (2253, 6, 'carry-loop', [['KEYON', '0x1', 'player']]), (2254, 3, 'carry-loop', [['KEYON', '0x1', 'other']]), (2254, 6, 'carry-loop', [['KEYON', '0x1', 'other']]), (2254, 9, 'carry-loop', [['KEYON', '0x1', 'other']]), (2254, 12, 'carry-loop', [['KEYON', '0x1', 'other']]), (2257, 5, 'carry-loop', [['KEYON', '0x1', 'player']]), (2260, 3, 'jump', [['KEYON', '0x1', 'player'], ['KEYON', '0x1', 'player']]), (2504, 2, 'ladder-navigable', [['KEYON', '0xa0000', 'other']]), (2504, 3, 'ladder-navigable', [['KEYON', '0xa0000', 'other']]), (2506, 2, 'ladder-navigable', [['KEYON', '0xa0000', 'other'], ['KEYON', '0xa0000', 'other']]), (2506, 3, 'ladder-navigable', [['KEYON', '0xa0000', 'other'], ['KEYON', '0xa0000', 'other']]), (2506, 4, 'ladder-navigable', [['KEYON', '0xa0000', 'other'], ['KEYON', '0xa0000', 'other']]), (2506, 6, 'ladder-navigable', [['KEYON', '0xa0000', 'other']]), (2507, 6, 'ladder-navigable', [['KEYON', '0xa0000', 'other']]), (2507, 7, 'ladder-navigable', [['KEYON', '0xa0000', 'other']]), (2510, 5, 'carry-loop', [['KEYON', '0x1', 'player']]), (2510, 7, 'carry-loop', [['KEYON', '0x1', 'player']]), (2510, 9, 'carry-loop', [['KEYON', '0x1', 'player']]), (2510, 11, 'carry-loop', [['KEYON', '0x1', 'player']]), (2711, 5, 'walk', [['KEYON', '0xb0000', 'self'], ['KEYON', '0x10000', 'self']])]
+  direction-key polls (navigable): 85
+  multi-floor (>=2 floors touched): 92
+  ends in Field()/WorldMap(): [(306, 11, 'walk', 'STATEFUL', [[43, 652], [43, 652]]), (350, 25, 'walk', 'STATEFUL', [[43, 358]]), (356, 10, 'carry-loop', 'STATEFUL', [[43, 404], [43, 404]]), (356, 14, 'ladder-navigable', 'STATEFUL', [[43, 357]]), (357, 11, 'ladder-navigable', 'STATEFUL', [[43, 356]]), (404, 7, 'ladder-navigable', 'STATEFUL', [[43, 356]]), (504, 14, 'ladder-navigable', 'LOCO+EXIT', [[43, 507]]), (603, 3, 'carry-loop', 'STATEFUL', [[43, 601], [43, 601]]), (706, 13, 'ladder-navigable', 'STATEFUL', [[182, 9000], [182, 9011]]), (802, 16, 'walk', 'LOCO+EXIT', [[43, 813]]), (914, 8, 'ladder-auto', 'STATEFUL', [[43, 950]]), (950, 6, 'ladder-auto', 'STATEFUL', [[43, 914]]), (952, 9, 'carry-loop', 'STATEFUL', [[43, 953]]), (1017, 5, 'ladder-navigable', 'LOCO+EXIT', [[43, 1050]]), (1018, 4, 'ladder-navigable', 'LOCO+EXIT', [[43, 1100]]), (1050, 3, 'ladder-navigable', 'LOCO+EXIT', [[43, 1017]]), (1100, 3, 'ladder-navigable', 'LOCO+EXIT', [[43, 1018]]), (1455, 9, 'ladder-navigable', 'LOCO+EXIT', [[43, 1457]]), (1602, 8, 'carry-loop', 'STATEFUL', [[43, 1609]]), (1751, 5, 'carry-loop', 'LOCO+EXIT', [[43, 1652], [43, 1759]]), (1755, 12, 'jump', 'STATEFUL', [[43, 1750]]), (2153, 3, 'carry-loop', 'STATEFUL', [[43, 2151], [43, 2151]]), (2173, 8, 'ladder-auto', 'STATEFUL', [[43, 2105], [43, 2855]]), (2211, 11, 'carry-loop', 'LOCO+EXIT', [[43, 2207]]), (2255, 2, 'carry-loop', 'STATEFUL', [[43, 2260]]), (2260, 3, 'jump', 'STATEFUL', [[43, 2200]]), (2350, 23, 'ladder-auto', 'LOCO+EXIT', [[43, 2351]]), (2351, 9, 'ladder-navigable', 'LOCO+EXIT', [[43, 2361]]), (2351, 10, 'ladder-navigable', 'LOCO+EXIT', [[43, 2361]]), (2351, 11, 'ladder-auto', 'LOCO+EXIT', [[43, 2350]]), (2361, 8, 'ladder-navigable', 'LOCO+EXIT', [[43, 2351]]), (2504, 2, 'ladder-navigable', 'STATEFUL', [[43, 2505]]), (2504, 3, 'ladder-navigable', 'STATEFUL', [[43, 2505]]), (2504, 8, 'jump', 'STATEFUL', [[43, 2505]]), (2504, 9, 'jump', 'STATEFUL', [[43, 2505]]), (2504, 10, 'jump', 'STATEFUL', [[43, 2505]]), (2504, 11, 'jump', 'STATEFUL', [[43, 2505]]), (2505, 2, 'ladder-navigable', 'LOCO+EXIT', [[43, 2504]]), (2506, 2, 'ladder-navigable', 'STATEFUL', [[43, 2507]]), (2506, 3, 'ladder-navigable', 'STATEFUL', [[43, 2507]]), (2506, 4, 'ladder-navigable', 'STATEFUL', [[43, 2507]]), (2506, 6, 'ladder-navigable', 'STATEFUL', [[43, 2507]]), (2507, 6, 'ladder-navigable', 'STATEFUL', [[43, 2506]]), (2507, 7, 'ladder-navigable', 'STATEFUL', [[43, 2506]]), (2508, 5, 'jump', 'STATEFUL', [[43, 2502]]), (2552, 5, 'carry-loop', 'STATEFUL', [[43, 2553]]), (2605, 10, 'ladder-auto', 'STATEFUL', [[43, 2606]]), (2606, 3, 'ladder-auto', 'LOCO+EXIT', [[43, 2605]]), (2651, 8, 'jump', 'LOCO+EXIT', [[43, 2652]]), (2652, 8, 'jump', 'LOCO+EXIT', [[43, 2651]]), (2702, 20, 'jump', 'LOCO+EXIT', [[43, 2703]]), (2703, 8, 'jump', 'STATEFUL', [[43, 2704]]), (2712, 16, 'jump', 'STATEFUL', [[43, 2713]]), (2713, 4, 'carry-loop', 'STATEFUL', [[43, 2714]]), (2713, 5, 'carry-loop', 'STATEFUL', [[43, 2714]]), (2713, 6, 'carry-loop', 'STATEFUL', [[43, 2714]]), (2713, 7, 'carry-loop', 'STATEFUL', [[43, 2712]]), (2714, 14, 'carry-loop', 'STATEFUL', [[43, 2713]]), (2714, 15, 'carry-loop', 'STATEFUL', [[43, 2713]]), (2714, 16, 'carry-loop', 'STATEFUL', [[43, 2713]]), (2901, 7, 'carry-loop', 'STATEFUL', [[182, 9000], [182, 9011]]), (2917, 2, 'ladder-navigable', 'LOCO+EXIT', [[43, 2918]]), (2918, 5, 'ladder-navigable', 'LOCO+EXIT', [[43, 2917]]), (2926, 7, 'jump', 'LOCO+EXIT', [[43, 2925]]), (2952, 22, 'carry-loop', 'STATEFUL', [[182, 9000], [182, 9011]]), (2954, 21, 'jump', 'LOCO+EXIT', [[43, 2955]]), (2955, 16, 'jump', 'LOCO+EXIT', [[43, 2954]]), (3054, 8, 'ladder-navigable', 'LOCO+EXIT', [[43, 3056]])]
+  RunScriptAsync / RunScript dispatch (not Sync): [(302, 14, 'carry-loop', 'STATEFUL', ['Sync', 'Sync', 'Sync']), (303, 15, 'carry-loop', 'STATEFUL', ['Sync', 'Sync', 'Sync']), (303, 16, 'carry-loop', 'STATEFUL', ['Sync', 'Sync', 'Sync']), (304, 15, 'carry-loop', 'STATEFUL', ['Sync', 'Sync', 'Sync']), (306, 11, 'walk', 'STATEFUL', ['Sync', 'Sync', 'Sync']), (356, 10, 'carry-loop', 'STATEFUL', ['RunScript', 'RunScript']), (408, 4, 'jump', 'LOCO-ONLY', ['Async']), (408, 5, 'jump', 'LOCO-ONLY', ['Async']), (408, 6, 'jump', 'LOCO-ONLY', ['Async']), (408, 7, 'jump', 'LOCO-ONLY', ['Async']), (408, 8, 'jump', 'LOCO-ONLY', ['Async']), (408, 9, 'jump', 'LOCO-ONLY', ['Async']), (408, 10, 'jump', 'LOCO-ONLY', ['Async']), (408, 11, 'jump', 'LOCO-ONLY', ['Async']), (603, 3, 'carry-loop', 'STATEFUL', ['Sync', 'RunScript', 'Sync']), (802, 16, 'walk', 'LOCO+EXIT', ['RunScript']), (914, 8, 'ladder-auto', 'STATEFUL', ['Async']), (950, 6, 'ladder-auto', 'STATEFUL', ['Async']), (951, 7, 'walk', 'STATEFUL', ['Sync', 'Sync', 'Async']), (952, 9, 'carry-loop', 'STATEFUL', ['Sync', 'Async', 'Async']), (953, 5, 'walk', 'STATEFUL', ['Sync', 'Async', 'Async']), (1254, 11, 'jump', 'STATEFUL', ['RunScript', 'Sync', 'Sync']), (1418, 16, 'walk', 'STATEFUL', ['RunScript', 'Sync', 'Sync']), (1419, 5, 'walk', 'STATEFUL', ['RunScript', 'Sync', 'Sync']), (1419, 6, 'walk', 'STATEFUL', ['RunScript', 'Sync', 'Sync']), (1420, 12, 'walk', 'STATEFUL', ['RunScript', 'Sync', 'Sync']), (1460, 10, 'jump', 'STATEFUL', ['Sync', 'Sync', 'Async']), (1751, 5, 'carry-loop', 'LOCO+EXIT', ['RunScript']), (2109, 10, 'carry-loop', 'STATEFUL', ['RunScript']), (2111, 7, 'carry-loop', 'STATEFUL', ['Async']), (2111, 8, 'carry-loop', 'STATEFUL', ['Async']), (2153, 3, 'carry-loop', 'STATEFUL', ['Sync', 'RunScript', 'Sync']), (2173, 8, 'ladder-auto', 'STATEFUL', ['Sync', 'RunScript']), (2253, 4, 'carry-loop', 'FLAVOR-TALK', ['Async']), (2253, 6, 'carry-loop', 'STATEFUL', ['Async']), (2254, 3, 'carry-loop', 'STATEFUL', ['Async', 'Async', 'Async']), (2254, 6, 'carry-loop', 'STATEFUL', ['Async', 'Async']), (2254, 9, 'carry-loop', 'STATEFUL', ['Async', 'Async', 'Async']), (2254, 12, 'carry-loop', 'STATEFUL', ['Async', 'Async', 'Async']), (2255, 2, 'carry-loop', 'STATEFUL', ['Async']), (2257, 5, 'carry-loop', 'STATEFUL', ['Async', 'Async', 'Sync']), (2259, 7, 'carry-loop', 'FLAVOR-TALK', ['Async']), (2260, 3, 'jump', 'STATEFUL', ['Async', 'Async']), (2350, 23, 'ladder-auto', 'LOCO+EXIT', ['RunScript']), (2351, 9, 'ladder-navigable', 'LOCO+EXIT', ['RunScript']), (2351, 10, 'ladder-navigable', 'LOCO+EXIT', ['RunScript']), (2351, 11, 'ladder-auto', 'LOCO+EXIT', ['RunScript']), (2504, 2, 'ladder-navigable', 'STATEFUL', ['Async', 'Sync']), (2504, 3, 'ladder-navigable', 'STATEFUL', ['Async', 'Sync']), (2505, 2, 'ladder-navigable', 'LOCO+EXIT', ['Async']), (2505, 7, 'jump', 'LOCO-ONLY', ['Async']), (2506, 2, 'ladder-navigable', 'STATEFUL', ['Async', 'Sync', 'Sync']), (2506, 3, 'ladder-navigable', 'STATEFUL', ['Async', 'Sync', 'Sync']), (2506, 4, 'ladder-navigable', 'STATEFUL', ['Async', 'Sync', 'Sync']), (2506, 6, 'ladder-navigable', 'STATEFUL', ['Async', 'Sync']), (2507, 6, 'ladder-navigable', 'STATEFUL', ['Async', 'Sync', 'Async']), (2507, 7, 'ladder-navigable', 'STATEFUL', ['Async', 'Sync']), (2510, 5, 'carry-loop', 'STATEFUL', ['Async']), (2510, 7, 'carry-loop', 'STATEFUL', ['Async']), (2510, 9, 'carry-loop', 'STATEFUL', ['Async']), (2510, 11, 'carry-loop', 'STATEFUL', ['Async']), (2513, 8, 'carry-loop', 'STATEFUL', ['Sync', 'Async', 'Async']), (2513, 9, 'carry-loop', 'STATEFUL', ['Sync', 'Async', 'Async']), (2513, 10, 'carry-loop', 'STATEFUL', ['Sync', 'Async', 'Async']), (2552, 5, 'carry-loop', 'STATEFUL', ['RunScript', 'RunScript', 'RunScript']), (2605, 10, 'ladder-auto', 'STATEFUL', ['Sync', 'Sync', 'Async']), (2606, 3, 'ladder-auto', 'LOCO+EXIT', ['Sync', 'Async']), (2651, 8, 'jump', 'LOCO+EXIT', ['Async', 'Async']), (2652, 8, 'jump', 'LOCO+EXIT', ['Async', 'Async']), (2702, 16, 'jump', 'STATEFUL', ['Sync', 'RunScript']), (2702, 17, 'jump', 'STATEFUL', ['Sync', 'Sync', 'RunScript']), (2702, 20, 'jump', 'LOCO+EXIT', ['Sync', 'RunScript']), (2703, 7, 'jump', 'STATEFUL', ['Sync', 'RunScript', 'RunScript']), (2703, 8, 'jump', 'STATEFUL', ['Sync', 'RunScript']), (2712, 10, 'jump', 'STATEFUL', ['RunScript', 'Sync', 'RunScript']), (2712, 11, 'jump', 'STATEFUL', ['RunScript', 'Sync', 'RunScript']), (2712, 12, 'jump', 'STATEFUL', ['RunScript', 'Sync', 'RunScript']), (2712, 13, 'jump', 'STATEFUL', ['RunScript', 'Sync', 'RunScript']), (2712, 14, 'jump', 'STATEFUL', ['RunScript', 'Sync', 'RunScript']), (2712, 15, 'jump', 'STATEFUL', ['RunScript', 'Sync', 'RunScript']), (2712, 16, 'jump', 'STATEFUL', ['RunScript', 'Sync', 'RunScript']), (2713, 4, 'carry-loop', 'STATEFUL', ['RunScript']), (2713, 5, 'carry-loop', 'STATEFUL', ['RunScript']), (2713, 6, 'carry-loop', 'STATEFUL', ['RunScript']), (2713, 7, 'carry-loop', 'STATEFUL', ['Sync', 'RunScript']), (2714, 14, 'carry-loop', 'STATEFUL', ['RunScript']), (2714, 15, 'carry-loop', 'STATEFUL', ['RunScript']), (2714, 16, 'carry-loop', 'STATEFUL', ['RunScript']), (2926, 7, 'jump', 'LOCO+EXIT', ['Async']), (2952, 22, 'carry-loop', 'STATEFUL', ['RunScript']), (2955, 22, 'jump', 'STATEFUL', ['RunScript', 'RunScript']), (3059, 11, 'jump', 'STATEFUL', ['Sync', 'Sync', 'Async'])]
+  ATE inside: [(306, 11), (2173, 8)]
+  unresolved calls: [(1910, 4, {'party-slot': 9}), (1916, 4, {'party-slot': 9}), (1917, 4, {'party-slot': 9}), (2207, 4, {'party-slot': 1}), (2207, 5, {'party-slot': 1}), (2215, 13, {'party-slot': 1}), (2215, 14, {'party-slot': 2}), (2222, 4, {'party-slot': 1}), (2222, 5, {'party-slot': 2})]
+  missing call targets (Request no-op): 181
+  order (window vs move first) in QUADs having BOTH: Counter({'move-first': 192, 'window-first': 34})
+  'anim-only' QUADs (player animates, no displacement): Counter({'STATEFUL': 90, 'FLAVOR-TALK': 33, 'LOCO-ONLY': 6, 'FLAVOR+CHOICE': 2, 'FLAVOR+LATCH': 1})
+
+== FLAVOR (window, no persistent write) by root: {'QUAD': 52, 'NPC': 694, 'TREAD-POLL': 4, 'LOOP-POLL': 27, 'CARD': 6}
+== GLOB-gated FLAVOR NPC talks: 147
+
+== examples: guest-local candidates
+   1751 Iifa Tree/Inner Roots          e5   carry-loop        LOCO+EXIT         no-geom           gate=['glob', 'map', 'scenario', 'usercontrol'] pc=[[3, 12, 'RunScript']] exit=[[43, 1652]]
+   2211 Palace/Dock                    e11  carry-loop        LOCO+EXIT         intra-component   gate=['glob', 'map', 'usercontrol'] pc=[[3, 18, 'Sync']] exit=[[43, 2207]]
+   2802 Daguerreo/Left Hall            e28  carry-loop        LOCO+ACTORS       LINKS-COMPONENTS  gate=['glob', 'usercontrol'] pc=[[3, 31, 'Sync']] exit=[]
+   2955 Chocobo’s Paradise             e17  carry-loop        LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 35, 'Sync'], [3, 35, 'Sync']] exit=[]
+   2955 Chocobo’s Paradise             e19  carry-loop        LOCO+ACTORS+LATCH LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 38, 'Sync'], [3, 38, 'Sync']] exit=[]
+   2955 Chocobo’s Paradise             e20  carry-loop        LOCO+LATCH        LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 39, 'Sync'], [3, 39, 'Sync']] exit=[]
+   2955 Chocobo’s Paradise             e21  carry-loop        LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 40, 'Sync'], [3, 40, 'Sync']] exit=[]
+   2955 Chocobo’s Paradise             e23  carry-loop        LOCO-ONLY         no-geom           gate=['usercontrol'] pc=[[3, 34, 'Sync'], [3, 34, 'Sync']] exit=[]
+    301 Ice Cavern/Ice Path            e7   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 26, 'Sync']] exit=[]
+    301 Ice Cavern/Ice Path            e8   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 25, 'Sync']] exit=[]
+    301 Ice Cavern/Ice Path            e9   jump              LOCO+LATCH        LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 29, 'Sync']] exit=[]
+    301 Ice Cavern/Ice Path            e10  jump              LOCO+LATCH        LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 30, 'Sync']] exit=[]
+    301 Ice Cavern/Ice Path            e11  jump              LOCO+LATCH        LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 27, 'Sync']] exit=[]
+    301 Ice Cavern/Ice Path            e12  jump              LOCO+LATCH        LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 28, 'Sync']] exit=[]
+    310 Ice Cavern/Waterfall           e2   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 12, 'Sync']] exit=[]
+    310 Ice Cavern/Waterfall           e3   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 13, 'Sync']] exit=[]
+    310 Ice Cavern/Waterfall           e4   jump              LOCO-ONLY         intra-component   gate=['usercontrol'] pc=[[3, 14, 'Sync']] exit=[]
+    310 Ice Cavern/Waterfall           e5   jump              LOCO-ONLY         intra-component   gate=['usercontrol'] pc=[[3, 15, 'Sync']] exit=[]
+    407 Dali/Storage Area              e16  jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 20, 'Sync']] exit=[]
+    407 Dali/Storage Area              e17  jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 21, 'Sync'], [3, 23, 'Sync']] exit=[]
+    407 Dali/Storage Area              e18  jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 22, 'Sync']] exit=[]
+    407 Dali/Storage Area              e19  jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 23, 'Sync']] exit=[]
+    408 Dali/Storage Area              e4   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 15, 'Async']] exit=[]
+    408 Dali/Storage Area              e5   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 16, 'Async']] exit=[]
+    408 Dali/Storage Area              e6   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 17, 'Async']] exit=[]
+    408 Dali/Storage Area              e7   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 18, 'Async']] exit=[]
+    408 Dali/Storage Area              e8   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 19, 'Async']] exit=[]
+    408 Dali/Storage Area              e9   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 20, 'Async']] exit=[]
+    408 Dali/Storage Area              e10  jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 21, 'Async']] exit=[]
+    408 Dali/Storage Area              e11  jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 22, 'Async']] exit=[]
+    805 S. Gate/Bridge                 e3   jump              LOCO-ONLY         intra-component   gate=['usercontrol'] pc=[[3, 13, 'Sync'], [3, 14, 'Sync']] exit=[]
+    808 S. Gate/Bridge                 e3   jump              LOCO-ONLY         intra-component   gate=['usercontrol'] pc=[[3, 13, 'Sync'], [3, 14, 'Sync']] exit=[]
+   1202 A. Castle/Staircase            e14  jump              LOCO+LATCH        LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 15, 'Sync'], [3, 15, 'Sync']] exit=[]
+   1202 A. Castle/Staircase            e15  jump              LOCO+LATCH        LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 15, 'Sync'], [3, 15, 'Sync']] exit=[]
+   1202 A. Castle/Staircase            e16  jump              LOCO+LATCH        LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 15, 'Sync'], [3, 15, 'Sync']] exit=[]
+   2505 I. Castle/Inverted Roo         e7   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 27, 'Async']] exit=[]
+   2602 Terra/Stepping Stones          e3   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 14, 'Sync']] exit=[]
+   2602 Terra/Stepping Stones          e4   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 15, 'Sync']] exit=[]
+   2602 Terra/Stepping Stones          e5   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 16, 'Sync']] exit=[]
+   2602 Terra/Stepping Stones          e6   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 17, 'Sync']] exit=[]
+   2602 Terra/Stepping Stones          e7   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 18, 'Sync']] exit=[]
+   2602 Terra/Stepping Stones          e8   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 19, 'Sync']] exit=[]
+   2602 Terra/Stepping Stones          e9   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 20, 'Sync']] exit=[]
+   2602 Terra/Stepping Stones          e10  jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 21, 'Sync']] exit=[]
+   2605 Terra/Treetop                  e9   jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 15, 'Sync']] exit=[]
+   2651 Bran Bal/Entrance              e8   jump              LOCO+EXIT         off-mesh          gate=['glob', 'map', 'usercontrol'] pc=[[3, 16, 'Async'], [3, 16, 'Async']] exit=[[43, 2652]]
+   2652 Bran Bal/Gate                  e8   jump              LOCO+EXIT         LINKS-COMPONENTS  gate=['glob', 'map', 'usercontrol'] pc=[[3, 29, 'Async'], [3, 29, 'Async']] exit=[[43, 2651]]
+   2702 Pand./Observatory              e15  jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 25, 'Sync']] exit=[]
+   2702 Pand./Observatory              e19  jump              LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 28, 'Sync']] exit=[]
+   2702 Pand./Observatory              e20  jump              LOCO+EXIT         LINKS-COMPONENTS  gate=['glob', 'map', 'usercontrol'] pc=[[3, 29, 'Sync'], [3, 31, 'RunScript']] exit=[[43, 2703]]
+   2926 Crystal World                  e7   jump              LOCO+EXIT         off-mesh          gate=['usercontrol'] pc=[[3, 23, 'Async']] exit=[[43, 2925]]
+   2950 Chocobo’s Forest               e21  jump              LOCO+LATCH        LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 52, 'Sync']] exit=[]
+   2950 Chocobo’s Forest               e22  jump              LOCO+LATCH        LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 53, 'Sync']] exit=[]
+   2954 Chocobo’s Paradise             e21  jump              LOCO+EXIT         intra-component   gate=['usercontrol'] pc=[[3, 33, 'Sync'], [3, 33, 'Sync']] exit=[[43, 2955]]
+   2955 Chocobo’s Paradise             e16  jump              LOCO+EXIT         intra-component   gate=['usercontrol'] pc=[[3, 22, 'Sync'], [3, 22, 'Sync']] exit=[[43, 2954]]
+   2350 Gulug/Interior                 e23  ladder-auto       LOCO+EXIT         off-mesh          gate=['glob', 'map', 'usercontrol'] pc=[[3, 17, 'RunScript']] exit=[[43, 2351]]
+   2351 Gulug/Well                     e11  ladder-auto       LOCO+EXIT         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 17, 'RunScript']] exit=[[43, 2350]]
+   2606 Terra/Tree base                e3   ladder-auto       LOCO+EXIT         off-mesh          gate=['map', 'usercontrol'] pc=[[3, 19, 'Sync'], [3, 20, 'Async']] exit=[[43, 2605]]
+    114 Alexandria/Residence           e9   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 17, 'Sync']] exit=[]
+    115 Alexandria/Steeple             e15  ladder-navigable  LOCO+LATCH        intra-component   gate=['map', 'usercontrol'] pc=[[3, 15, 'Sync']] exit=[]
+    207 Prima Vista/Cabin              e10  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 50, 'Sync']] exit=[]
+    207 Prima Vista/Cabin              e11  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 50, 'Sync']] exit=[]
+    307 Ice Cavern/Ice Path            e5   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 46, 'Sync']] exit=[]
+    307 Ice Cavern/Ice Path            e6   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 46, 'Sync']] exit=[]
+    307 Ice Cavern/Ice Path            e7   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 45, 'Sync']] exit=[]
+    307 Ice Cavern/Ice Path            e8   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 45, 'Sync']] exit=[]
+    353 Dali/Mayor’s House             e11  ladder-navigable  LOCO-ONLY         intra-component   gate=['usercontrol'] pc=[[3, 17, 'Sync'], [3, 17, 'Sync']] exit=[]
+    504 Cargo Ship/Engine Room         e14  ladder-navigable  LOCO+EXIT         intra-component   gate=['usercontrol'] pc=[[3, 11, 'Sync']] exit=[[43, 507]]
+    557 Lindblum/Church                e11  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 13, 'Sync']] exit=[]
+    557 Lindblum/Church                e12  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 13, 'Sync']] exit=[]
+    565 Lindblum/Hideout               e11  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 33, 'Sync']] exit=[]
+    565 Lindblum/Hideout               e12  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 33, 'Sync']] exit=[]
+    912 Treno/Slums                    e14  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 14, 'Sync'], [3, 14, 'Sync']] exit=[]
+    914 Treno/Tot Residence            e10  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 31, 'Sync']] exit=[]
+   1006 Cleyra/Tree Trunk              e8   ladder-navigable  LOCO-ONLY         intra-component   gate=['usercontrol'] pc=[[3, 12, 'Sync']] exit=[]
+   1006 Cleyra/Tree Trunk              e9   ladder-navigable  LOCO-ONLY         intra-component   gate=['usercontrol'] pc=[[3, 13, 'Sync']] exit=[]
+   1017 Cleyra/Tree Trunk              e5   ladder-navigable  LOCO+EXIT         intra-component   gate=['usercontrol'] pc=[[3, 11, 'Sync']] exit=[[43, 1050]]
+   1018 Cleyra/Tree Trunk              e4   ladder-navigable  LOCO+EXIT         intra-component   gate=['usercontrol'] pc=[[3, 11, 'Sync']] exit=[[43, 1100]]
+   1050 Cleyra/Tree Trunk              e3   ladder-navigable  LOCO+EXIT         intra-component   gate=['usercontrol'] pc=[[3, 11, 'Sync']] exit=[[43, 1017]]
+   1100 Cleyra/Tree Trunk              e3   ladder-navigable  LOCO+EXIT         intra-component   gate=['usercontrol'] pc=[[3, 11, 'Sync']] exit=[[43, 1018]]
+   1209 A. Castle/Dungeon              e5   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 13, 'Sync']] exit=[]
+   1312 Lindblum/Hideout               e11  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 14, 'Sync']] exit=[]
+   1312 Lindblum/Hideout               e12  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 14, 'Sync']] exit=[]
+   1455 Mage Village/Synthesis         e9   ladder-navigable  LOCO+EXIT         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 24, 'Sync'], [3, 24, 'Sync']] exit=[[43, 1457]]
+   1460 Mage Village/Item Shop         e8   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 20, 'Sync'], [3, 20, 'Sync']] exit=[]
+   1460 Mage Village/Item Shop         e9   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 21, 'Sync'], [3, 21, 'Sync']] exit=[]
+   1550 Mountain Path/Trail            e9   ladder-navigable  LOCO+ACTORS       LINKS-COMPONENTS  gate=['map', 'usercontrol'] pc=[[3, 47, 'Sync']] exit=[]
+   1551 Mountain Path/Trail            e7   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 13, 'Sync'], [3, 14, 'Sync']] exit=[]
+   1551 Mountain Path/Trail            e8   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 14, 'Sync']] exit=[]
+   1553 Mountain Path/Roots            e6   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 12, 'Sync']] exit=[]
+   1863 Alexandria/Residence           e9   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 12, 'Sync'], [3, 12, 'Sync']] exit=[]
+   1912 Treno/Treno Slums              e15  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 17, 'Sync'], [3, 17, 'Sync']] exit=[]
+   1914 Treno/Tot Residence            e9   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 34, 'Sync'], [3, 34, 'Sync']] exit=[]
+   1950 Quan’s/Cave                    e4   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 17, 'Sync'], [3, 17, 'Sync']] exit=[]
+   1950 Quan’s/Cave                    e5   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 17, 'Sync'], [3, 17, 'Sync']] exit=[]
+   1952 Quan’s/Cave                    e8   ladder-navigable  LOCO-ONLY         intra-component   gate=['usercontrol'] pc=[[3, 24, 'Sync'], [3, 24, 'Sync']] exit=[]
+   2112 Lindblum/Hideout               e4   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 13, 'Sync']] exit=[]
+   2112 Lindblum/Hideout               e5   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 13, 'Sync']] exit=[]
+   2212 Palace/Entrance                e3   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['glob', 'usercontrol'] pc=[[3, 18, 'Sync']] exit=[]
+   2212 Palace/Entrance                e4   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 18, 'Sync']] exit=[]
+   2351 Gulug/Well                     e9   ladder-navigable  LOCO+EXIT         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 12, 'RunScript']] exit=[[43, 2361]]
+   2351 Gulug/Well                     e10  ladder-navigable  LOCO+EXIT         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 12, 'RunScript']] exit=[[43, 2361]]
+   2353 Gulug/Room                     e3   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 12, 'Sync']] exit=[]
+   2353 Gulug/Room                     e4   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 12, 'Sync']] exit=[]
+   2361 Gulug/Well                     e8   ladder-navigable  LOCO+EXIT         intra-component   gate=['glob', 'usercontrol'] pc=[[3, 12, 'Sync']] exit=[[43, 2351]]
+   2456 Alexandria/Steeple             e14  ladder-navigable  LOCO-ONLY         intra-component   gate=['usercontrol'] pc=[[3, 17, 'Sync'], [3, 17, 'Sync']] exit=[]
+   2505 I. Castle/Inverted Roo         e2   ladder-navigable  LOCO+EXIT         intra-component   gate=['usercontrol'] pc=[[3, 18, 'Async']] exit=[[43, 2504]]
+   2505 I. Castle/Inverted Roo         e3   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 16, 'Sync']] exit=[]
+   2505 I. Castle/Inverted Roo         e4   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 17, 'Sync']] exit=[]
+   2507 I. Castle/Stairwell            e4   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 16, 'Sync']] exit=[]
+   2507 I. Castle/Stairwell            e5   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 16, 'Sync']] exit=[]
+   2605 Terra/Treetop                  e4   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 17, 'Sync']] exit=[]
+   2605 Terra/Treetop                  e5   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 17, 'Sync']] exit=[]
+   2605 Terra/Treetop                  e6   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 18, 'Sync']] exit=[]
+   2605 Terra/Treetop                  e7   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 18, 'Sync']] exit=[]
+   2853 Hilda Garde 3/Deck             e5   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 20, 'Sync']] exit=[]
+   2853 Hilda Garde 3/Deck             e9   ladder-navigable  LOCO-ONLY         intra-component   gate=['usercontrol'] pc=[[3, 24, 'Sync']] exit=[]
+   2917 Memoria/Gaia’s Birth           e2   ladder-navigable  LOCO+EXIT         intra-component   gate=['usercontrol'] pc=[[3, 14, 'Sync']] exit=[[43, 2918]]
+   2918 Memoria/Stairs                 e3   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 15, 'Sync']] exit=[]
+   2918 Memoria/Stairs                 e4   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 15, 'Sync']] exit=[]
+   2918 Memoria/Stairs                 e5   ladder-navigable  LOCO+EXIT         intra-component   gate=['usercontrol'] pc=[[3, 14, 'Sync']] exit=[[43, 2917]]
+   3054 Mage Village/Synthesis         e8   ladder-navigable  LOCO+EXIT         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 12, 'Sync']] exit=[[43, 3056]]
+   3059 Mage Village/Item Shop         e9   ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 14, 'Sync'], [3, 14, 'Sync']] exit=[]
+   3059 Mage Village/Item Shop         e10  ladder-navigable  LOCO-ONLY         LINKS-COMPONENTS  gate=['usercontrol'] pc=[[3, 15, 'Sync'], [3, 15, 'Sync']] exit=[]
+    802 S. Gate/Bohden Sta.            e16  walk              LOCO+EXIT         off-mesh          gate=['map', 'usercontrol'] pc=[[3, 19, 'RunScript']] exit=[[43, 813]]

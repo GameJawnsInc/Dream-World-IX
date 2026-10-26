@@ -194,7 +194,7 @@ def owner_code(install) -> str | None:
     """The owner's live [Netsync] SessionCode (read-only, last key wins), or None."""
     from ff9mapkit.coop import read_ini_key
     try:
-        return read_ini_key(Path(install, "Memoria.ini").read_text(encoding="utf-8", errors="replace"),
+        return read_ini_key(Path(install, "Memoria.ini").read_text(encoding="utf-8-sig", errors="replace"),
                             "Netsync", "SessionCode")
     except OSError:
         return None

@@ -407,6 +407,32 @@ def _redial_backoff(failed_attempts):
     return _REDIAL_BACKOFFS[min(failed_attempts, len(_REDIAL_BACKOFFS)) - 1]
 
 
+# THE EVICTION PING-PONG GUARD (studies/coop-review/REVIEW.md §1.9). The relay REPLACES a leg when a second connection
+# registers the same code + role (main.go register() closes the old occupant, with no close frame). Every upstream EOF
+# used to redial at once -- so two live clients on one code (two friends clicking one invite, one friend on two PCs, two
+# hosts on a reused code) evicted each other at handshake-RTT rate, forever, while the decoupled loopback hops kept both
+# games blind to it. A leg that dies within FLAP_LIFE_S of coming up is a FLAP. Flaps form a STREAK while each follows the
+# last within FLAP_WINDOW_S (measured flap to flap: the backoff ladder itself sums to about a minute, so ageing each flap out
+# on its own let the wait fall back from its cap every cycle); from the second flap the redial waits (FLAP_FLOOR_S,
+# doubling, held at FLAP_MAX_WAIT_S), and the third says why in plain words. A leg that lives past FLAP_LIFE_S ends the
+# streak -- the Caddy wobble (EOFs every 10-36 s) and the 60 s pair window never look like flaps. Only the side whose legs
+# keep dying young can tell: the other side's legs now live long, so to it each eviction looks like a wobble (a relay close
+# code on a replaced leg would let both say it).
+FLAP_LIFE_S = 3.0
+FLAP_WINDOW_S = 60.0
+FLAP_FLOOR_S = 2.0
+FLAP_MAX_WAIT_S = 30.0
+FLAP_WARN_AT = 3
+
+
+def flap_backoff(flaps):
+    """Seconds to wait before redialing after the Nth flap in the window (1-based): none for the first (one short leg
+    can be an honest wobble), then FLAP_FLOOR_S doubling per flap, capped at FLAP_MAX_WAIT_S."""
+    if flaps <= 1:
+        return 0.0
+    return min(FLAP_FLOOR_S * (2 ** (flaps - 2)), FLAP_MAX_WAIT_S)
+
+
 class _Upstream:
     """The redialable upstream hop, shared by a session's two pump threads. The upstream->game
     reader OWNS redial (it is the thread that must block waiting for a fresh socket anyway); the
@@ -425,6 +451,36 @@ class _Upstream:
         self.sock = sock
         self.gen = 0
         self.state = "up"
+        self.up_since = time.monotonic()   # when the current leg came up (the eviction guard reads its life)
+        self._flap_count = 0               # the current streak of legs that died inside FLAP_LIFE_S
+        self._flap_last = None             # monotonic time of the streak's last flap
+        self._flap_warned = False
+
+    def flap_wait(self, now):
+        """The eviction guard's step, run once per upstream EOF (the reader thread only): record whether the leg that
+        just ended was a flap, and return how long to wait before redialing."""
+        if now - self.up_since >= FLAP_LIFE_S:
+            self._flap_count = 0
+            self._flap_last = None
+            self._flap_warned = False
+            return 0.0
+        if self._flap_last is not None and now - self._flap_last > FLAP_WINDOW_S:
+            self._flap_count = 0               # a quiet minute since the last flap: a fresh streak
+            self._flap_warned = False
+        self._flap_count += 1
+        self._flap_last = now
+        n = self._flap_count
+        if n >= FLAP_WARN_AT and not self._flap_warned:
+            self._flap_warned = True
+            if "role=host" in self.path:
+                advice = ("Most likely two hosts are on one session code (a code reused from an old invite): start hosting "
+                          "with a fresh code.")
+            else:
+                advice = ("Most likely another guest -- or this game on a second PC -- joined with the same code: only one "
+                          "guest can join a session, so give a second friend their own host's code.")
+            log("the relay keeps replacing this connection within seconds (%d times on %s); each new connection on the "
+                "same code and role kicks the other off. %s" % (n, self.path, advice))
+        return flap_backoff(n)
 
     def snapshot(self):
         with self._lock:
@@ -462,6 +518,13 @@ class _Upstream:
                 old.close()
             except OSError:
                 pass
+        wait = self.flap_wait(time.monotonic())   # the eviction ping-pong guard (FLAP_*), before the hard cap's clock starts
+        if wait > 0:
+            log("upstream died %.1fs after it came up; redialing in %.0fs" % (time.monotonic() - self.up_since, wait))
+            if self.stop.wait(wait):
+                with self._lock:
+                    self.state = "dead"
+                return None, gen
         started = time.monotonic()
         deadline = started + UPSTREAM_REDIAL_HARD_CAP
         failed = 0
@@ -488,6 +551,7 @@ class _Upstream:
                 self.sock = new
                 self.gen += 1
                 self.state = "up"
+                self.up_since = time.monotonic()
                 newgen = self.gen
             log("upstream restored after %d ms (redial %d)"
                 % (int((time.monotonic() - started) * 1000), failed + 1))

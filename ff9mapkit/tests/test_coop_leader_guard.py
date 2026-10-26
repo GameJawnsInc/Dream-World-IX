@@ -852,6 +852,7 @@ PREMISES = {
     "coop_battle_end_host.py": ({0, 2, 15}, CP), "coop_battle_containment.py": ({1}, None),   # field + diorama only
     "coop_battle_start_hold.py": ({0}, CP), "coop_battle_wait_parity.py": ({0, 15}, CP),
     "coop_battle_flee_defeat.py": ({0}, CP),
+    "coop_session_edges.py": ({2}, CP),   # [s153] host_gates' premise: slot 1 over COOPPARTY, Zidane leading -- guard-neutral
 }
 REKEYED = {"coop_battle_wait_parity.py", "coop_battle_end_host.py"}
 #: every route a scenario can send `netsync guestslots <mask>` by (review s143: `cb.ns_verb` and `g.netsync` too)

@@ -24,6 +24,8 @@ INI = (
     "Role = host\n"
     "SessionCode =\n"
 )
+BOM = bytes((0xEF, 0xBB, 0xBF))          # a UTF-8 byte-order mark (THE BOM LAW: coop.read_ini_text)
+NL = chr(10)
 
 
 # ---------------------------------------------------------------- codes
@@ -350,6 +352,40 @@ def test_ensure_folder_registered_backs_up(game):
 def test_ensure_folder_registered_no_tmp_file_left_behind(game):
     coop.ensure_folder_registered(game, "FF9Coop", out=lambda *_: None)
     assert not (game / "Memoria.ini.tmp").exists()
+
+
+def test_bom_ini_keeps_the_mod_list(game):
+    # THE BOM LAW (studies/coop-review/REVIEW.md 1.3): a Notepad / Notepad++ BOM glued U+FEFF to the line-1 [Mod]
+    # header, read_folder_names saw [], and the first co-op setup appended a SECOND [Mod] with FolderNames = "FF9Coop"
+    # -- which the engine (last write wins) loaded alone. The existing folders must survive, in one [Mod] section.
+    ini = game / "Memoria.ini"
+    ini.write_bytes(b"\xef\xbb\xbf" + INI.encode("utf-8"))
+    assert coop.read_folder_names(coop.read_ini_text(ini)) == ["FF9CustomMap", "MoguriMain"]
+    assert coop.ensure_folder_registered(game, "FF9Coop", out=lambda *_: None)
+    raw = ini.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf"), "the file's BOM was not kept"
+    assert raw.count(b"\xef\xbb\xbf") == 1
+    text = raw[3:].decode("utf-8")
+    assert text.count("[Mod]") == 1
+    assert coop.read_folder_names(text) == ["FF9CustomMap", "MoguriMain", "FF9Coop"]
+    assert coop.read_ini_key(text, "Mod", "Priorities") == '"FF9CustomMap", "MoguriMain", "FF9Coop"'
+
+
+def test_bom_ini_netsync_write_keeps_bom_and_sections(game):
+    ini = game / "Memoria.ini"
+    ini.write_bytes(b"\xef\xbb\xbf" + INI.encode("utf-8"))
+    coop.write_netsync(game, {"Enabled": "1"}, out=lambda *_: None)
+    raw = ini.read_bytes()
+    assert raw.startswith(b"\xef\xbb\xbf") and raw.count(b"\xef\xbb\xbf") == 1
+    text = raw[3:].decode("utf-8")
+    assert text.count("[Mod]") == 1 and text.count("[Netsync]") == 1
+    assert coop.read_ini_key(text, "Netsync", "Enabled") == "1"
+    assert coop.read_folder_names(text) == ["FF9CustomMap", "MoguriMain"]
+
+
+def test_no_bom_ini_stays_without_bom(game):
+    coop.ensure_folder_registered(game, "FF9Coop", out=lambda *_: None)
+    assert not (game / "Memoria.ini").read_bytes().startswith(b"\xef\xbb\xbf")
 
 
 # ------------------------------------------------- FolderNames <-> Priorities (THE LAUNCHER LAW)
@@ -694,3 +730,23 @@ def test_coop_host_replaces_a_poisoned_second_stored_code(game, monkeypatch):
     assert "not a code!" not in text
     assert text.count("SessionCode") == 1
     assert re.fullmatch(r"ff9-[A-Z0-9]{8}", coop.read_ini_key(text, "Netsync", "SessionCode"))
+
+
+def test_bom_ini_find_registered_field_sees_the_real_folders(game):
+    # red on the pre-fix reader: a BOM'd line-1 [Mod] read as no folders, so the 30000 in FF9CustomMap was invisible and the
+    # co-op room could be built (and registered) a second time beside it -- the cross-folder EventDB collision
+    ini = game / "Memoria.ini"
+    ini.write_bytes(BOM + INI.encode("utf-8"))
+    assert coop.find_registered_field(game, 30000) == "FF9CustomMap"
+
+
+def test_split_mod_section_is_named_not_left_silent(game):
+    # an ini the OLD bug already split: the engine obeys the last [Mod] (FF9Coop alone) -- the setup must say so, not report
+    # "already registered" and leave every other mod off
+    ini = game / "Memoria.ini"
+    ini.write_text(INI + NL + "[Mod]" + NL + 'FolderNames = "FF9Coop"' + NL, encoding="utf-8")
+    said = []
+    assert not coop.ensure_folder_registered(game, "FF9Coop", out=said.append)
+    assert any("FolderNames more than once" in line for line in said), said
+    said.clear()
+    assert not coop.warn_split_mod_section(INI, out=said.append) and not said

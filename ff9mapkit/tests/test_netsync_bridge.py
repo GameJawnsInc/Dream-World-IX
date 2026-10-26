@@ -1024,3 +1024,106 @@ def test_trailing_control_byte_in_request_line_is_refused(relay, reqline):
         assert relay.conn is None
     finally:
         bridge.close()
+
+
+# --------------------------------------------------------------------------- the eviction ping-pong guard
+# studies/coop-review/REVIEW.md 1.9: the relay REPLACES a same-code + same-role leg (no close frame), and the bridge used to
+# redial at once on every EOF -- two live clients on one code evicted each other at handshake-RTT rate, forever.
+
+def test_flap_backoff_grows_from_the_second_flap_and_caps():
+    assert NB.flap_backoff(0) == 0.0
+    assert NB.flap_backoff(1) == 0.0                       # one short leg can be an honest wobble
+    assert NB.flap_backoff(2) == NB.FLAP_FLOOR_S
+    assert NB.flap_backoff(3) == NB.FLAP_FLOOR_S * 2
+    assert NB.flap_backoff(4) == NB.FLAP_FLOOR_S * 4
+    assert NB.flap_backoff(50) == NB.FLAP_MAX_WAIT_S        # capped
+
+
+def _upstream():
+    return NB._Upstream(None, "ws://127.0.0.1:1", "/sess/ff9-TEST0000?role=guest", False, threading.Event())
+
+
+def test_flap_wait_counts_short_legs_and_a_long_leg_ends_the_streak(monkeypatch):
+    lines = []
+    monkeypatch.setattr(NB, "log", lines.append)
+    up = _upstream()
+    t = 1000.0
+    waits = []
+    for _ in range(4):                                     # four legs that each die 0.4 s after coming up
+        up.up_since = t
+        t += 0.4
+        waits.append(up.flap_wait(t))
+    assert waits == [0.0, NB.FLAP_FLOOR_S, NB.FLAP_FLOOR_S * 2, NB.FLAP_FLOOR_S * 4]
+    warned = [ln for ln in lines if "keeps replacing this connection" in ln]
+    assert len(warned) == 1, "the plain-words warning must fire exactly once per streak"
+    up.up_since = t
+    t += NB.FLAP_LIFE_S + 0.1                              # a leg that LIVED: the Caddy wobble / a real session
+    assert up.flap_wait(t) == 0.0
+    up.up_since = t
+    t += 0.4
+    assert up.flap_wait(t) == 0.0, "a long leg must end the streak (the next short leg is a first flap again)"
+
+
+def test_flap_window_forgets_old_flaps():
+    up = _upstream()
+    up.up_since = 0.0
+    assert up.flap_wait(0.5) == 0.0
+    up.up_since = NB.FLAP_WINDOW_S + 10.0
+    assert up.flap_wait(NB.FLAP_WINDOW_S + 10.5) == 0.0, "a flap outside FLAP_WINDOW_S still counted"
+
+
+def test_redial_waits_between_evictions(monkeypatch):
+    # the reader's redial path end to end: every dial "succeeds" and the leg is killed at once -- the eviction loop.
+    monkeypatch.setattr(NB, "log", lambda *_: None)
+    monkeypatch.setattr(NB, "open_upstream", lambda *a, **k: types.SimpleNamespace(close=lambda: None))
+    up = _upstream()
+    waited = []
+    up.stop = types.SimpleNamespace(is_set=lambda: False, wait=lambda s: waited.append(s) or False)
+    gen = 0
+    for _ in range(4):
+        sock, gen = up.redial(gen)
+        assert sock is not None
+    # redial 1: the first leg died young (flap 1, no wait); 2, 3, 4: the doubling floor
+    assert waited == [NB.FLAP_FLOOR_S, NB.FLAP_FLOOR_S * 2, NB.FLAP_FLOOR_S * 4]
+
+
+def test_redial_flap_wait_ends_on_stop(monkeypatch):
+    monkeypatch.setattr(NB, "log", lambda *_: None)
+    monkeypatch.setattr(NB, "open_upstream", lambda *a, **k: types.SimpleNamespace(close=lambda: None))
+    up = _upstream()
+    stopped = {"now": False}
+    up.stop = types.SimpleNamespace(is_set=lambda: stopped["now"], wait=lambda s: True)   # the session stops mid-wait
+    up.redial(0)                                           # flap 1: no wait
+    sock, _ = up.redial(1)                                 # flap 2: waits, and the wait reports a stop
+    assert sock is None
+    assert up.snapshot()[2] == "dead"
+
+def test_flap_streak_holds_the_cap_across_the_whole_ladder():
+    # the backoff ladder sums to about a minute; ageing each flap out on its own let the wait fall back from the cap every
+    # cycle (an incumbent kicked about every 13 s). A streak measured flap to flap holds it.
+    up = _upstream()
+    t = 0.0
+    waits = []
+    for _ in range(12):
+        up.up_since = t
+        t += 0.4                                           # each leg dies young
+        w = up.flap_wait(t)
+        waits.append(w)
+        t += w                                             # the redial waits, then the next leg comes up
+    assert waits[:7] == [0.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0]
+    assert all(w == NB.FLAP_MAX_WAIT_S for w in waits[5:]), waits
+
+
+def test_host_and_guest_get_their_own_advice(monkeypatch):
+    lines = []
+    monkeypatch.setattr(NB, "log", lines.append)
+    for path, needle in (("/sess/ff9-T?role=host", "fresh code"), ("/sess/ff9-T?role=guest", "only one guest")):
+        up = NB._Upstream(None, "ws://127.0.0.1:1", path, False, threading.Event())
+        t = 0.0
+        for _ in range(NB.FLAP_WARN_AT):
+            up.up_since = t
+            t += 0.4
+            up.flap_wait(t)
+        assert any(needle in ln for ln in lines), (path, lines)
+        lines.clear()
+

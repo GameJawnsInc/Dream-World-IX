@@ -392,7 +392,7 @@ class CoopDoc(QWidget):
         self.btn_setup.setVisible(self._on_setup is not None and warn)   # the door keys on the SAME predicate
         self.host_box.setEnabled(gen["s37"])
         try:
-            ini = (self._game / "Memoria.ini").read_text(encoding="utf-8", errors="replace")
+            ini = coop.read_ini_text(self._game / "Memoria.ini")
         except OSError:
             ini = ""
         enabled = self._enabled = coop.read_ini_key(ini, "Netsync", "Enabled") == "1"
@@ -506,7 +506,7 @@ class CoopDoc(QWidget):
             if rc != 0 or self._game is None:
                 return
             if hosting and not lan:
-                ini = (self._game / "Memoria.ini").read_text(encoding="utf-8", errors="replace")
+                ini = coop.read_ini_text(self._game / "Memoria.ini")
                 new_code = coop.read_ini_key(ini, "Netsync", "SessionCode") or ""
                 if new_code:
                     self.code.setText(new_code)
@@ -579,7 +579,7 @@ class CoopDoc(QWidget):
         """The local bridge port from the ini's RelayUrl (so a custom port set via the CLI is honored)."""
         from .. import coop
         try:
-            ini = (self._game / "Memoria.ini").read_text(encoding="utf-8", errors="replace")
+            ini = coop.read_ini_text(self._game / "Memoria.ini")
             url = coop.read_ini_key(ini, "Netsync", "RelayUrl") or ""
             if url.startswith("ws://127.0.0.1:"):
                 return int(url.rsplit(":", 1)[1].split("/")[0])
