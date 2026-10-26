@@ -5,6 +5,28 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ## [Unreleased]
 
+### Fixed — co-op at the session edges (engine patch s153, the bridge, `coop` setup)
+From the co-op adversarial review (`studies/coop-review/REVIEW.md` section 1). Each fix has its own in-game check
+(`studies/test-harness/scenarios/coop_session_edges.py` solo, `coop_session_edges_duo.py` on two games), calibrated red
+on the previous engine first.
+- **After the host quits, a guest's own game gets random battles and autosaves back.** The pause now needs a live host,
+  not just the connection to the guest's own bridge (which stays up). The log says when it turns on and off.
+- **A guest watching a battle is no longer frozen in it** when it turns co-op off, changes the link settings or stops
+  following: the battle view leaves by itself.
+- **A `Memoria.ini` saved with a byte-order mark no longer loses its mod list** on the first co-op setup (it used to
+  load only `FF9Coop`). A BOM is kept, and an ini the old bug already split is named, with where the original list is.
+- **The ending plays through on a following guest** instead of replaying its last scene three times; a guest watching
+  the host's ending is not marked as having finished the game, and no achievement is filed for it.
+- **Dialogue:** a guest who pauses between the host's lines keeps the host's answers (they were later auto-answered
+  "No"); a stock "ask again until Yes" loop with no host answer takes the other answer, then hands the choice back.
+- **Battle:** a guest pick can no longer throw or use the host's items: Throw, Item-type and Mix commands are refused
+  at the host's intake and are not offered in the number-key menu.
+- **A host never follows its guest**, whatever its ini says (a stale or copied `FollowHost = 1`).
+- **Direct-LAN hosting restarts cleanly** when co-op is turned off and on in the same session.
+- **Two connections on one session code no longer knock each other off many times a second.** The bridge backs off
+  (2 s up to 30 s) and says, once, that another player or PC is on the same code, with advice for a host or a guest.
+- **A partner animation this install lacks** no longer stalls the co-op update loop.
+
 ### Fixed — World tab: editing a step that is in the game, the edit cards and the game camera (a review of C12-C23)
 - **A step that is in the game** (C19). Edit and Delete promote the recipe back when they close. Before, that wrote
   every step in the draft, so a step placed after the last promote went into the game too, even on Cancel. Now

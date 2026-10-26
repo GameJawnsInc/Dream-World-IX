@@ -218,6 +218,20 @@ listener close and bridge eviction backoff, and §1.10.
 Only §1.2 and §1.4 need care in the diorama and ending code. Batch the DLL-side ones into one round with one
 in-game box each.
 
+**Status: DONE as engine patch s153 plus the kit and bridge fixes, deployed 2026-10-25.** The memoria-patches README
+s153 row has the details.
+- **Proof:** solo 10/10 and duo 20/20, calibrated red on the previous engine.
+- **Still open from §1:**
+  - the follow-warp race (§1.7);
+  - world-map pairing seating the guest's own party (§1.7);
+  - the stale exit-ramp autosave and the title (§1.8);
+  - the battle song left after a cold return (§1.8);
+  - the version handshake (§1.9);
+  - the relay read limit (§1.9: the live relay, confirm-first);
+  - state re-send (§1.9);
+  - every low finding in the appendix.
+- **Proven only by the self-test, not in a real scene:** the ending pass, the re-ask breaker and the inbox-pause hold.
+
 ### Tier 1: make what exists usable
 
 1. **Make recovery discoverable and refusals audible (S).** F11 / held L3 is documented *nowhere a user

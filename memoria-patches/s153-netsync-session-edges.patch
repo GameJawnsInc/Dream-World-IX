@@ -1,0 +1,808 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 0a4b540..47df3f0 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -132,6 +132,8 @@ namespace Memoria.Netsync
+         private GameObject _ghost;
+         private Animation _ghostAnim;
+         private String _ghostClip;
++        private readonly System.Collections.Generic.HashSet<Int32> _ghostUnknownAnims =
++            new System.Collections.Generic.HashSet<Int32>();   // [ff9mapkit netsync s153] unregistered wire anims already logged (one line per id)
+         private UInt16 _ghostModel = UInt16.MaxValue;    // which GEO the ghost currently wears
+         private String _ghostGeo;                        // [ff9mapkit netsync s138] the GEO name CreateModel BUILT (FallbackGeo included; null = no ghost) -- harness-only
+         private Int32 _ghostRig = -1;                    // [ff9mapkit netsync s138] the dress rig the ghost is driven with (-1 = undressed / no ghost) -- harness-only
+@@ -438,6 +440,9 @@ namespace Memoria.Netsync
+                 Int32 myField = FF9StateSystem.Common.FF9.fldMapNo;
+                 if (dest == myField || dest == LastHostField)
+                     return false;              // scripted same-field reload / the follow allowance
++                if (EndingPasses(myField, dest))
++                    return false;              // [ff9mapkit netsync s153] the ending: the staff roll + the 3000-3012 chain are the guest's own
++                                               // (no follow can reach PreEnding; Field(16000) never matches the host's lane field)
+                 Int32 now = Environment.TickCount;
+                 if (_lastBounceField == myField && now - _lastBounceTick <= BounceStreakWindowMs)
+                 {
+@@ -502,6 +507,7 @@ namespace Memoria.Netsync
+         // boot/leave attempts to ~1/s -- both refuse/defer while a scene fade is in flight, and each
+         // refusal logs, so an unthrottled watcher would spam the log every frame of a fade.
+         private Int32 _dioramaWireNonce = -1;
++        private Int32 _sessionOverLeaveNonce = -1;       // [ff9mapkit netsync s153] the boot the session-over leave last named (one line per boot)
+         private Int32 _dioramaSkipNonce = -1;            // the user manually left THIS battle's diorama -- don't re-boot it
+         private Boolean _dioramaWatcherLeft;             // B3.6: OUR OWN staleness-leave/fence-disarm is in flight --
+                                                          // the opt-out stamp must not misread it as a user opt-out
+@@ -1102,7 +1108,11 @@ namespace Memoria.Netsync
+                 if (!tChanged && !bChanged)
+                     return 0;                     // e.g. an edit to some OTHER Memoria.ini section
+                 _enabled = enabled; _role = role; _peer = peer; _port = port; _targetField = field;
+-                _guestSlots = guestSlots; _ghostAs = ghostAs; _followHost = followHost;
++                _guestSlots = guestSlots; _ghostAs = ghostAs; _followHost = FollowHostRole(followHost, role);   // [ff9mapkit netsync s153]
++                if (followHost && !_followHost)                                                                 // [ff9mapkit netsync s153]
++                    Log.Message(role == "host"
++                                ? "[NetSync] FollowHost=1 ignored: this machine is the HOST (a host never follows its guest)"
++                                : "[NetSync] FollowHost=1 ignored: Role=" + role + " is neither client nor selftest");
+                 _autoTeleport = autoTeleport;                                       // s55: BEHAVIOR key, applies live
+                 _relayUrl = relayUrl; _sessionCode = code; _insecureTls = insecure;
+                 _selfTestDx = stDx; _selfTestDz = stDz;                             // B3.6: committed before the sigs
+@@ -1322,6 +1332,12 @@ namespace Memoria.Netsync
+                     ApplyBehaviorChange();
+             }
+ 
++            // [ff9mapkit netsync s153] A WIRE DIORAMA WHOSE SESSION IS OVER LEAVES -- before the enabled gate and before the ramp (which waits
++            // on !Booted): every other diorama exit runs inside the live transport branch below, so co-op turned off, a transport key edited
++            // or FollowHost dropped mid-fight froze the guest in the battle scene with only the ~ menu's Leave.
++            try { SessionOverDioramaTick(); }
++            catch (Exception err) { Log.Error(err, "[NetSync] session-over diorama tick failed"); }
++
+             // SESSION EXIT RAMP: a mirrored session that ended must not leave the guest playing the
+             // host's story at the host's location. Once the guest is free-standing on a FIELD or the
+             // WORLD MAP (the two places the game itself allows a moogle load; never mid-battle or
+@@ -1635,6 +1651,10 @@ namespace Memoria.Netsync
+                         Boolean wwatchOk = WorldWatchSelfTest(out wwatchDetail);
+                         Log.Message("[NetSync] world watcher selftest: "
+                                     + (wwatchOk ? "OK (" + wwatchDetail + ")" : "FAIL (" + wwatchDetail + ")"));
++                        String edgeDetail;               // [ff9mapkit netsync s153] the session-edge round: suppress, follow role, session-over leave, ending, intake
++                        Boolean edgeOk = SessionEdgeSelfTest(out edgeDetail);
++                        Log.Message("[NetSync] session edges selftest: "
++                                    + (edgeOk ? "OK (" + edgeDetail + ")" : "FAIL (" + edgeDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+@@ -1787,24 +1807,39 @@ namespace Memoria.Netsync
+                 // applies only while FOLLOWING (a free-roamer keeps vanilla encounters); a deliberate
+                 // session end simply ages out in 5s. Fail-safe still holds: a real link loss un-pauses
+                 // after the grace. Tick-baseline law: subtraction delta only, baseline pre-expired above.
++                // [ff9mapkit netsync s153] THE PEER-ALIVE LAW AT THE SUPPRESS SITE (review 2026-10-25, the s120 KNOWN follow-up): the
++                // pause keys on a LIVE HOST (IsConnected && the keepalive-fed position lane fresh), never on the hop alone -- behind the
++                // bridge IsConnected is only the loopback leg, which outlives the host indefinitely, so after the exit ramp a guest's OWN
++                // save kept no random battles and (EventEngine's noSave reads this flag) never autosaved. And a GUEST's rule only: a host
++                // never pauses its own encounters, whatever a stale FollowHost line says (FollowHostRole commits it false there too).
+                 Boolean connected = _socket.IsConnected;
++                Boolean peerAlive = false;
+                 if (connected)
+                 {
+-                    _lastConnectedTick = Environment.TickCount;
++                    try { peerAlive = _socket.GetRemote().Valid; }
++                    catch { peerAlive = false; }           // unreadable = silent: the grace below, never an instant flip
++                }
++                if (peerAlive)
++                {
++                    _lastConnectedTick = Environment.TickCount;   // the last LIVE-HOST frame (the name predates s153)
+                     _encounterGraceLogged = false;         // healthy link -> re-arm the one-shot for the next blip
+                 }
+                 Boolean withinGrace = Environment.TickCount - _lastConnectedTick < EncounterGraceMs;
+                 // [ff9mapkit netsync R3 s120] ...and while the SESSION lives: a mirroring guest (until the ramp reloads its own save)
+                 // or an outage inside the session grace never boots a local battle -- the 5 s window above was sized for the old 3 s
+                 // ramp, and the grace now keeps the host's story live for up to SessionGraceMs with the hop down (a direct link, a dead bridge).
+-                // Only ever EXTENDS the pause (behind the bridge `connected` already holds it).
++                // Only ever EXTENDS the pause.
+                 Boolean sessionHeld = _storyMirroring || _sessionState == SessionGrace;
+-                Boolean suppress = _followHost && (connected || withinGrace || sessionHeld);
+-                if (suppress && !connected && !_encounterGraceLogged)
++                Boolean suppress = SuppressRule(_followHost, _role, peerAlive, withinGrace, sessionHeld);   // [ff9mapkit netsync s153]
++                if (suppress && !peerAlive && !_encounterGraceLogged)                                      // [ff9mapkit netsync s153]
+                 {
+                     _encounterGraceLogged = true;          // once per blip, not per frame
+                     Log.Message("[NetSync] link blip: encounter suppression held (grace)");
+                 }
++                if (suppress != NetSyncVisitor.SuppressEncounters)                                         // [ff9mapkit netsync s153]
++                    Log.Message("[NetSync] encounter pause " + (suppress ? "ON (following the host)"        // the edges only: a player
++                                : "OFF (" + (!_followHost || _role != "client" ? "not following"            // reads why its random battles
++                                             : "no live host and no session") + ")"));                       // and autosaves came back
+                 NetSyncVisitor.SuppressEncounters = suppress;
+ 
+                 RemoteState rs = _socket.GetRemote();                    // apply the peer
+@@ -2007,6 +2042,149 @@ namespace Memoria.Netsync
+         // then WorldHUD, the rate limit, ValidateWireBoot and the warm pre-verdict (WorldBootRefused) BEFORE BootFromWire, so a refusal is
+         // never a boot failure (NoteBootFail would turn the report DECLINED). A booted diorama also leaves when the peer, alive for the
+         // settle, is back on the world map (section 7's b6: WatchWhyHostWorld) -- a host back there sends field 0, as in battle.
++        // [ff9mapkit netsync s153] THE SESSION-OVER LEAVE (studies/coop-review/REVIEW.md §1.2): a diorama the WIRE booted belongs to a live
++        // followed session. Once that session is over -- co-op disabled, the transport dropped by a key edit (its redial waits for a field,
++        // so inside the battle scene it never comes), FollowHost dropped, or the exit ramp armed -- nothing behind Update's enabled gate
++        // runs its watcher, fences or end-leave again. Leave it the watcher's way (a REAL leave: the teardown stamps the skip), mop up flags
++        // stranded on a live map the fence-1 way, and never cut a swirl short (fence 2's 15 s bound holds here too). At most 1 Hz. The wire
++        // test is NetSyncDiorama.BootedWireNonce (stamped by the wire boot only, cleared by every Boot and teardown), so a bench or ~ boot
++        // is never touched -- the client's _dioramaWireNonce can outlive its boot, and is consumed here when its session is over.
++        private void SessionOverDioramaTick()
++        {
++            Boolean socketUp = _socket != null;
++            String why = SessionOverWhy(NetSyncDiorama.Booted, NetSyncDiorama.BootedWireNonce, _enabled, socketUp, _followHost, _exitRampPending);
++            if (why == null)
++            {
++                // a wire diorama torn down while its session was over: DioramaTick's consume block (behind the enabled gate) never
++                // ran -- consume it the same way, so the stale nonce can never read as a wire boot later
++                if (!NetSyncDiorama.Booted && _dioramaWireNonce >= 0
++                    && SessionOverWhy(true, _dioramaWireNonce, _enabled, socketUp, _followHost, _exitRampPending) != null)
++                {
++                    _dioramaSkipNonce = _dioramaWireNonce;
++                    _dioramaWireNonce = -1;
++                    _dioramaWatcherLeft = false;
++                    _dioramaWatcherLeftFinal = false;
++                }
++                return;
++            }
++            if (Environment.TickCount - _dioramaActionTick < 1000)
++                return;
++            _dioramaActionTick = Environment.TickCount;
++            String scene = Application.loadedLevelName;
++            SceneDirector sd = PersistenSingleton<SceneDirector>.Instance;
++            Boolean fading = sd != null && sd.IsFading;
++            if (scene == "FieldMap" || scene == "WorldMap")
++            {
++                if (!fading)
++                {
++                    Log.Message("[NetSync] diorama flags on a live " + scene + " after the session ended (" + why + ") -- disarming");
++                    NetSyncDiorama.ForceDisarm();
++                }
++                return;
++            }
++            Boolean midSwirl = sd != null && sd.CurrentScene == "SwirlScene";
++            if ((midSwirl && Environment.TickCount - NetSyncDiorama.BootTick <= 15000) || NetSyncDiorama.LeaveRequestedRecently || fading)
++                return;   // the swirl lands in a second or two (a strand past 15 s is fence 2's case); a leave in flight is already
++                          // coming; a fade would only defer the Leave (its "press Leave again" line is for the ~ menu) -- next tick
++            if (_sessionOverLeaveNonce != NetSyncDiorama.BootedWireNonce)
++            {
++                _sessionOverLeaveNonce = NetSyncDiorama.BootedWireNonce;   // one line per boot, however many ticks the leave takes
++                Log.Message("[NetSync] diorama LEAVE: the co-op session is over (" + why + ")");
++            }
++            _dioramaWatcherLeft = true;
++            _dioramaWatcherLeftFinal = true;   // a REAL leave: the teardown stamps the skip once co-op is back
++            NetSyncDiorama.Leave();            // request-only; teardown happens on arrival
++        }
++
++        // [ff9mapkit netsync s153] the session-edge round's PURE rules, scripted by SessionEdgeSelfTest.
++        // Why a booted diorama's session is over (null = it is not, or this is not a wire boot).
++        internal static String SessionOverWhy(Boolean booted, Int32 wireNonce, Boolean enabled, Boolean socketUp, Boolean followHost,
++                                              Boolean rampPending)
++        {
++            if (!booted || wireNonce < 0)
++                return null;
++            if (!enabled)
++                return "co-op disabled";
++            if (!socketUp)
++                return "the link was reconfigured";
++            if (!followHost)
++                return "FollowHost dropped";
++            return rampPending ? "the exit ramp is armed" : null;
++        }
++
++        // The guest's encounter / autosave pause: a following CLIENT with a live host (or inside the blip grace, or a live session).
++        internal static Boolean SuppressRule(Boolean followHost, String role, Boolean peerAlive, Boolean withinGrace, Boolean sessionHeld)
++        {
++            return followHost && role == "client" && (peerAlive || withinGrace || sessionHeld);
++        }
++
++        // FollowHost as committed: only a CLIENT and the bench ever follow (IsClientOrSelfTestRole's positive shape) -- a HOST's own save is
++        // the authoritative playthrough, and a mistyped role ("guest", "server") fails CLOSED instead of pausing that machine's encounters.
++        internal static Boolean FollowHostRole(Boolean followHost, String role)
++        {
++            return followHost && (role == "client" || role == "selftest");
++        }
++
++        // The ending passes the spectator jump redirect untouched (REVIEW.md §1.4): the staff roll (Field(16000), nextMode 4) can never
++        // match the host's lane field, and inside the 3000-3012 chain (HonoluluFieldMain's PreEnding band, outside FieldHUD) no follow can
++        // ever correct a bounce -- a non-interactive chain both machines play identically.
++        internal const Int32 EndingFirstField = 3000;
++        internal const Int32 EndingLastField = 3012;
++
++        internal static Boolean EndingPasses(Int32 myField, Int32 dest)
++        {
++            return dest == FF9Define.FLDSCRPT_EVTNO_ENDING || (myField >= EndingFirstField && myField <= EndingLastField);
++        }
++
++        // "session edges selftest: OK (N rows)" (the selftest proof block): every rule above as a table, each with its failure named.
++        internal static Boolean SessionEdgeSelfTest(out String detail)
++        {
++            Int32 rows = 0;
++            String fail = null;
++            Action<Boolean, String> row = (ok, what) => { rows++; if (!ok && fail == null) fail = what; };
++            // the suppress rule: a live host holds it; a hop with no host behind it (grace and session both over) never does
++            row(SuppressRule(true, "client", true, false, false), "suppress: a live host did not pause encounters");
++            row(!SuppressRule(true, "client", false, false, false), "suppress: no live host, grace and session over, still paused");
++            row(SuppressRule(true, "client", false, true, false), "suppress: a blip inside the grace un-paused");
++            row(SuppressRule(true, "client", false, false, true), "suppress: a live session (mirror / grace) un-paused");
++            row(!SuppressRule(false, "client", true, true, true), "suppress: paused while not following");
++            row(!SuppressRule(true, "host", true, true, true), "suppress: a HOST paused its own encounters");
++            // FollowHost as committed
++            row(!FollowHostRole(true, "host"), "follow: a host committed FollowHost=1");
++            row(FollowHostRole(true, "client"), "follow: a client lost FollowHost=1");
++            row(FollowHostRole(true, "selftest"), "follow: the bench lost FollowHost=1");
++            row(!FollowHostRole(false, "client"), "follow: FollowHost=0 committed as 1");
++            row(!FollowHostRole(true, "guest") && !FollowHostRole(true, ""), "follow: a mistyped role kept FollowHost=1 (it must fail closed)");
++            // the session-over leave
++            row(SessionOverWhy(true, 7, true, true, true, false) == null, "dio: a live session's diorama was told to leave");
++            row(SessionOverWhy(true, 7, false, true, true, false) != null, "dio: co-op disabled did not leave");
++            row(SessionOverWhy(true, 7, true, false, true, false) != null, "dio: a dropped link (reconfigured) did not leave");
++            row(SessionOverWhy(true, 7, true, true, false, false) != null, "dio: FollowHost dropped did not leave");
++            row(SessionOverWhy(true, 7, true, true, true, true) != null, "dio: an armed exit ramp did not leave");
++            row(SessionOverWhy(false, 7, false, false, false, true) == null, "dio: no diorama booted, still told to leave");
++            row(SessionOverWhy(true, -1, false, false, false, true) == null, "dio: a bench boot (no wire nonce) was told to leave");
++            // the ending
++            row(EndingPasses(3011, FF9Define.FLDSCRPT_EVTNO_ENDING), "ending: Field(16000) from 3011 bounced");
++            row(EndingPasses(3000, 3004), "ending: a jump inside the 3000-3012 chain bounced");
++            row(EndingPasses(3012, 3005), "ending: the chain's last field bounced");
++            row(!EndingPasses(2934, 3000), "ending: a jump INTO the chain from outside passed (the follow owns that one)");
++            row(!EndingPasses(350, 351), "ending: an ordinary gateway passed");
++            row(!EndingPasses(2999, 3013), "ending: the band's neighbours passed");
++            // the battle intake's command types (NetSyncBattle)
++            row(NetSyncBattle.IntakeAllowsCommandType(global::Memoria.Data.CharacterCommandType.Normal) &&
++                NetSyncBattle.IntakeAllowsCommandType(global::Memoria.Data.CharacterCommandType.Ability) &&
++                NetSyncBattle.IntakeAllowsCommandType(global::Memoria.Data.CharacterCommandType.Instant), "intake: a single-shot command type was refused");
++            row(!NetSyncBattle.IntakeAllowsCommandType(global::Memoria.Data.CharacterCommandType.Throw), "intake: Throw passed as a single-shot pick");
++            row(!NetSyncBattle.IntakeAllowsCommandType(global::Memoria.Data.CharacterCommandType.Item), "intake: an Item-type command passed as a single-shot pick");
++            row(!NetSyncBattle.IntakeAllowsCommand(global::Memoria.Data.BattleCommandId.Throw)
++                && !NetSyncBattle.IntakeAllowsCommand(global::Memoria.Data.BattleCommandId.Item), "intake: the Throw / Item command ids passed (by the engine's classification)");
++            row(NetSyncBattle.IntakeAllowsCommand(global::Memoria.Data.BattleCommandId.Attack), "intake: Attack was refused");
++            detail = fail ?? (rows + " rows: suppress keyed on a live host + client only, a host never follows, a wire diorama leaves on "
++                              + "disable / reconfigure / unfollow / ramp, the ending chain + Field(16000) pass the redirect, Throw/Item refused "
++                              + "at the single-shot intake");
++            return fail == null;
++        }
++
+         private void DioramaTick(Boolean onField, Boolean onWorld)
+         {
+             // B3.6 FENCE 1 -- stranded-flags mop-up: a silently dropped boot Replace (the Boot fade
+@@ -2356,6 +2534,14 @@ namespace Memoria.Netsync
+             }
+             if (!onField && !onWorld)                    // [ff9mapkit netsync s145] + the world map (decision 1)
+                 return;   // free-standing on a field or the world map only -- never from my own battle/menu/transition
++            if (_exitRampPending)
++            {
++                // [ff9mapkit netsync s153] the session is over for this guest (its ramp is armed): never boot a diorama the
++                // session-over leave would leave at once -- one line per battle, the skip spent by the host's next nonce
++                _dioramaSkipNonce = nonce;
++                Log.Message("[NetSync] diorama boot declined (nonce " + nonce + "): this session is ending (the exit ramp is armed)");
++                return;
++            }
+             if (_followWarpPending >= 0)
+                 return;   // s42 verify find: a warp fade is in flight (chase or the same-field kick) --
+                           // onField/FieldHUD both stay true through a fade, so without this gate a Boot
+@@ -9090,7 +9276,17 @@ namespace Memoria.Netsync
+             }
+             if (_ghostAnim == null)
+                 return;
+-            String clip = FF9DBAll.AnimationDB.GetValue((Int32)animId);
++            // [ff9mapkit netsync s153] CLB-3: TryGetValue -- GetValue THREW on an id this install does not register (a peer with other mod
++            // content, a bad frame), every co-located frame, and the Update-level catch then skipped Pump, DioramaTick and every stage after
++            // it. An unknown id keeps the clip already playing; one line per distinct id (a capped set: an alternation of two unknown ids
++            // logs each once).
++            String clip;
++            if (!FF9DBAll.AnimationDB.TryGetValue((Int32)animId, out clip))
++            {
++                if (_ghostUnknownAnims.Count < 32 && _ghostUnknownAnims.Add((Int32)animId))
++                    Log.Message("[NetSync] ghost: the peer plays anim " + animId + ", which this install does not register -- keeping the current clip");
++                return;
++            }
+             if (String.IsNullOrEmpty(clip) || clip == _ghostClip)
+                 return;   // same clip already playing -- don't restart it every frame
+             if (!_ghostAnim.IsPlaying(clip))
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+index fd5a6ba..bb359cd 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSocket.cs
+@@ -514,6 +514,8 @@ namespace Memoria.Netsync
+         private volatile Boolean _connected;
+         private Socket _conn;
+         private Thread _acceptThread;
++        private TcpListener _listener;            // [ff9mapkit netsync s153] the host's, so Stop() can close it (it used to be HostLoop's local)
++        private readonly System.Object _listenerLock = new System.Object();   // [ff9mapkit netsync s153] Stop() vs the publish: one lock, no Dekker race
+ 
+         public Boolean IsConnected { get { return _connected; } }
+ 
+@@ -544,6 +546,13 @@ namespace Memoria.Netsync
+         public void Stop()
+         {
+             _running = false;
++            // [ff9mapkit netsync s153] close the LISTENER too (REVIEW.md §1.9): with no guest connected nothing woke HostLoop's blocked
++            // AcceptSocket, so the old thread kept the port bound -- a live co-op restart's new host could not bind, and the zombie then
++            // accepted the first guest dial, saw _running false, closed it and left nothing listening until a relaunch
++            TcpListener l;
++            lock (_listenerLock)
++                l = _listener;                    // _running is already false: a listener published after this is closed by HostLoop itself
++            try { if (l != null) l.Stop(); } catch { }
+             try { if (_conn != null) _conn.Close(); } catch { }
+         }
+ 
+@@ -606,20 +615,76 @@ namespace Memoria.Netsync
+             TcpListener listener = null;
+             try
+             {
+-                listener = new TcpListener(IPAddress.Any, _port);
+-                listener.Start();
++                // [ff9mapkit netsync s153] the bind RETRIES (a port another program -- or a pre-s153 zombie -- still holds is said once, then
++                // tried every 2 s) and every accept + connection has its OWN catch, as ClientLoop always had: one accept-path exception
++                // (a reset during accept, a NoDelay failure) used to end hosting for the rest of the process
++                Boolean bindLogged = false;
++                while (_running && listener == null)
++                {
++                    try
++                    {
++                        TcpListener l = new TcpListener(IPAddress.Any, _port);
++                        l.Start();
++                        listener = l;
++                    }
++                    catch (SocketException err)
++                    {
++                        if (!bindLogged)
++                        {
++                            bindLogged = true;
++                            Log.Message("[NetSync] host cannot listen on port " + _port + " (" + err.Message + ") -- retrying every 2s");
++                        }
++                        if (_running) Thread.Sleep(2000);
++                    }
++                }
++                if (listener == null)
++                    return;
++                lock (_listenerLock)
++                {
++                    if (!_running)
++                        return;                   // Stop() raced the bind: the finally closes it
++                    _listener = listener;         // published under the lock Stop() reads it with: Stop either sees it or we saw _running false
++                }
+                 Log.Message("[NetSync] host listening on port " + _port);
+                 while (_running)
+                 {
+-                    Socket s = listener.AcceptSocket();   // blocks until a client connects
+-                    Log.Message("[NetSync] peer connected: " + s.RemoteEndPoint);
+-                    HandleConnection(s);
+-                    Log.Message("[NetSync] peer disconnected; awaiting reconnect"
+-                                + (_breakReason != null ? " (" + _breakReason + ")" : " (link closed)"));
++                    Socket s;
++                    try { s = listener.AcceptSocket(); }   // blocks until a client connects (Stop() closes the listener to end it)
++                    catch (Exception err)
++                    {
++                        if (!_running)
++                            break;                // Stop(): the orderly exit
++                        Log.Message("[NetSync] host accept failed (" + err.Message + ") -- still listening");
++                        Thread.Sleep(500);
++                        continue;
++                    }
++                    if (!_running)
++                    {
++                        try { s.Close(); } catch { }
++                        break;
++                    }
++                    try
++                    {
++                        Log.Message("[NetSync] peer connected: " + s.RemoteEndPoint);
++                        HandleConnection(s);
++                        Log.Message("[NetSync] peer disconnected; awaiting reconnect"
++                                    + (_breakReason != null ? " (" + _breakReason + ")" : " (link closed)"));
++                    }
++                    catch (Exception err)
++                    {
++                        try { s.Close(); } catch { }
++                        if (_running)
++                            Log.Error(err, "[NetSync] host connection failed -- still listening");
++                    }
+                 }
+             }
+             catch (Exception err) { Log.Error(err, "[NetSync] host loop failed"); }
+-            finally { try { if (listener != null) listener.Stop(); } catch { } }
++            finally
++            {
++                lock (_listenerLock)
++                    _listener = null;
++                try { if (listener != null) listener.Stop(); } catch { }
++            }
+         }
+ 
+         private void ClientLoop()
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs
+index 4f90dbb..055c5cf 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncDialog.cs
+@@ -222,6 +222,12 @@ namespace Memoria.Netsync
+         private readonly SettleClock _settle = new SettleClock();
+         private Boolean _capLogged;            // one "inbox hit its cap" line per overflow episode
+         private Int32 _orphanCloses;           // windows the orphan rule closed this session (telemetry)
++        // [ff9mapkit netsync s153] THE RE-ASK BREAKER's memory: the last orphaned CHOICE this rule committed, by window key, the answer it
++        // gave, and how many times that same key came straight back (a stock "while (choice == No) ask again" loop re-opens it on the
++        // Cancel pick). It holds only through one scripted episode: it lapses when my control returns, the host stops being settled, my
++        // field changes, or OrphanRepeatMs passes (OrphanMemoryLapses, every guest tick).
++        private Boolean _orphChoiceArmed;      // tick-baseline law: _orphChoiceTick is read only while armed
++        private Int32 _orphChoiceFld, _orphChoiceWin, _orphChoiceText, _orphChoiceTick, _orphChoiceCount, _orphChoicePick;
+         private String _chip;
+         private Boolean _quiet;                // SelfTest's synthetic ingest: no per-event log lines
+ 
+@@ -439,6 +445,7 @@ namespace Memoria.Netsync
+             _keyCapLogged = false;
+             _keyClockArmed = false;            // C3KEYS-3
+             _ownPollsField = -1;               // C3KEYS-4
++            _orphChoiceArmed = false;          // [ff9mapkit netsync s153] the re-ask breaker's memory dies with the session
+         }
+ 
+         // [ff9mapkit netsync F3.3] the TRANSPORT ended (a reconfigure / teardown -- NetSyncClient.ResetDialogLockstepState):
+@@ -469,6 +476,7 @@ namespace Memoria.Netsync
+             _capLogged = false;
+             _keys.Clear();                     // [ff9mapkit netsync F3.3] R5: the host's relayed presses for it too (lock off = local polls)
+             _keyCapLogged = false;
++            _orphChoiceArmed = false;          // [ff9mapkit netsync s153] ...and the re-ask breaker's memory (lock off = my own answers)
+         }
+ 
+         // The lock is off while the session holds and the guest is OFF-field (a load/battle): the windows are gone,
+@@ -1055,7 +1063,8 @@ namespace Memoria.Netsync
+                 if (why == null)
+                     continue;
+                 _inbox.RemoveAt(k);
+-                Log.Message("[NetSync] dialogue: host seq " + e.Raw + " (win " + e.Win + " text " + e.Text + ") " + why);
++                if (!_quiet)                   // [ff9mapkit netsync s153] the selftest's purge rows stay out of the log
++                    Log.Message("[NetSync] dialogue: host seq " + e.Raw + " (win " + e.Win + " text " + e.Text + ") " + why);
+             }
+         }
+ 
+@@ -1130,8 +1139,11 @@ namespace Memoria.Netsync
+                 paused = ui == null || ui.IsPause;
+             }
+             catch { paused = true; }
+-            Purge(ref v);
++            // [ff9mapkit netsync s153] the clocks are held BEFORE the inbox purge (it used to run first): a pause now stops the inbox TTL too
+             HoldKeyClocks(paused, v.Engaged, v.Now);   // C3KEYS-3 / SEM-1: a pause stops the KEY TTL and the cursor wait
++            Purge(ref v);
++            if (_orphChoiceArmed && OrphanMemoryLapses(v.GuestControl, _settle.Long, v.MyField != _orphChoiceFld, _orphChoiceTick, v.Now))
++                _orphChoiceArmed = false;      // [ff9mapkit netsync s153] the scripted episode the breaker remembered is over
+             PurgeKeys(ref v, paused);          // [ff9mapkit netsync F3.3] R5: field / TTL / idle / spent
+             if (!v.Engaged)
+             {
+@@ -1518,7 +1530,22 @@ namespace Memoria.Netsync
+                 Int32 pick = -1;
+                 if (choice)
+                 {
+-                    pick = OrphanChoice(d.CancelChoice, d.DefaultChoice);
++                    // [ff9mapkit netsync s153] THE RE-ASK BREAKER (REVIEW.md §1.5): the same orphaned choice back inside OrphanRepeatMs of the
++                    // last commit is a stock re-ask loop (Ice Cavern 312 "Is that okay with you?" re-asks on No, every ~4 s, forever) --
++                    // the first repeat takes the other answer, a second one hands the window back for the guest to answer itself
++                    Int32 repeat = OrphanRepeatStep(_orphChoiceArmed, _orphChoiceFld == w.Field && _orphChoiceWin == w.Id
++                                                    && _orphChoiceText == w.TextId, _orphChoiceTick, _orphChoiceCount, v.Now);
++                    Int32 alt = repeat == 1 ? OrphanRepeatPick(d.ActiveIndexes, d.ChoiceNumber, d.CancelChoice, _orphChoicePick) : -1;
++                    if (repeat >= 2 || (repeat == 1 && alt < 0))
++                    {
++                        w.Cls = ClsLocal;
++                        marksDirty = true;
++                        _orphChoiceTick = v.Now;       // stays armed: a later re-ask of this key in the same episode is handed back at once
++                        Log.Message("[NetSync] dialogue orphan: win " + w.Id + " text " + w.TextId
++                                    + " re-asked with no host answer -- handed back: choose for yourself");
++                        continue;
++                    }
++                    pick = repeat == 1 ? alt : OrphanChoice(d.CancelChoice, d.DefaultChoice);
+                     if (!HostSetChoice(d, pick))
+                     {
+                         pick = d.DefaultChoice;
+@@ -1536,6 +1563,8 @@ namespace Memoria.Netsync
+                         _orphanCloses++;
+                         Log.Message("[NetSync] dialogue orphan: win " + w.Id + " text " + w.TextId + " auto-closed (host idle "
+                                     + (_settle.SettledMs / 1000) + "s, choice " + pick + ")");
++                        if (choice)
++                            NoteOrphanChoice(w.Field, w.Id, w.TextId, pick, v.Now);   // [ff9mapkit netsync s153] the re-ask breaker's memory
+                     }
+                 }
+                 else
+@@ -1552,6 +1581,52 @@ namespace Memoria.Netsync
+                 RebuildMarks();
+         }
+ 
++        // [ff9mapkit netsync s153] THE RE-ASK BREAKER's pure parts (SelfTest's OrphanScript scripts them). A repeat = the same window key
++        // orphaned and committed again while the memory holds. The memory is STRUCTURAL -- one scripted episode: my control off the whole
++        // time (a re-ask loop runs as a scene), the host settled, the same field -- with OrphanRepeatMs only as the backstop. (Wall-clock
++        // alone failed its own targets: Ice Cavern 312's loop takes ~15 s commit to commit, Steeple 115's ~17 s.)
++        internal const Int32 OrphanRepeatMs = 60000;
++
++        internal static Boolean OrphanMemoryLapses(Boolean guestControl, Boolean settledLong, Boolean fieldChanged, Int32 lastTick, Int32 now)
++        {
++            Int32 d = now - lastTick;
++            return guestControl || !settledLong || fieldChanged || d < 0 || d > OrphanRepeatMs;
++        }
++
++        internal static Int32 OrphanRepeatStep(Boolean armed, Boolean sameKey, Int32 lastTick, Int32 count, Int32 now)
++        {
++            Int32 d = now - lastTick;
++            return armed && sameKey && d >= 0 && d <= OrphanRepeatMs ? count : 0;
++        }
++
++        // The other answer for a repeat: the first ACTIVE option that is neither the cancel option nor the answer the loop already
++        // re-asked on (active = the dialog's ActiveIndexes; none listed = every index below choiceNumber); -1 = none: hand it back.
++        internal static Int32 OrphanRepeatPick(IList<Int32> active, Int32 choiceNumber, Int32 cancelChoice, Int32 lastPick)
++        {
++            Int32 n = active != null && active.Count > 0 ? active.Count : choiceNumber;
++            for (Int32 k = 0; k < n; k++)
++            {
++                Int32 i = active != null && active.Count > 0 ? active[k] : k;
++                if (i != cancelChoice && i != lastPick)
++                    return i;
++            }
++            return -1;
++        }
++
++        private void NoteOrphanChoice(Int32 fld, Int32 win, Int32 text, Int32 pick, Int32 now)
++        {
++            Int32 d = now - _orphChoiceTick;
++            Boolean same = _orphChoiceArmed && _orphChoiceFld == fld && _orphChoiceWin == win && _orphChoiceText == text
++                           && d >= 0 && d <= OrphanRepeatMs;
++            _orphChoiceCount = same ? _orphChoiceCount + 1 : 1;
++            _orphChoiceFld = fld;
++            _orphChoiceWin = win;
++            _orphChoiceText = text;
++            _orphChoicePick = pick;
++            _orphChoiceTick = now;
++            _orphChoiceArmed = true;
++        }
++
+         // The per-window orphan decision (S5 step 7) as a PURE step, so SelfTest scripts it (A11) -- Orphans() only
+         // reads the engine and acts on the verdict. Inputs: the window's class; settledLong (the host settled for
+         // OrphanGraceMs); eventPending (an inbox event for its key) and relayOwned (a relayed start accepted under
+@@ -1735,6 +1810,16 @@ namespace Memoria.Netsync
+                 if ((paused || !engaged) && e.DeferArmed)
+                     e.DeferSince = now;
+             }
++            // [ff9mapkit netsync s153] ...and the INBOX's TTL the same way (REVIEW.md §1.5): AwaitedByOpenWindow covers only an event whose
++            // window is already open, so a guest paused in a walk beat BETWEEN two host lines aged the next lines' events out after
++            // PendingTtlMs and later auto-picked the host's choice as Cancel ("No" where the host said "Yes")
++            if (paused && dt > 0)
++                for (Int32 k = 0; k < _inbox.Count; k++)
++                {
++                    _inbox[k].FirstSeen = unchecked(_inbox[k].FirstSeen + dt);
++                    if (_inbox[k].FirstSeen - now > 0)
++                        _inbox[k].FirstSeen = now;     // an event merged on this very tick never lived through the gap
++                }
+         }
+ 
+         // A tracked line still under the host (locked or orphaned, not input-inhibited) -- the guest is not idle.
+@@ -2478,6 +2563,43 @@ namespace Memoria.Netsync
+             // the auto-close choice: Cancel, else Default
+             if (OrphanChoice(2, 0) != 2 || OrphanChoice(-1, 1) != 1)
+                 return "orphan: the auto-close choice is not Cancel-else-Default";
++            // [ff9mapkit netsync s153] the re-ask breaker, at the REAL loop periods (Ice Cavern 312 ~15 s, Steeple 115 ~17 s commit to
++            // commit): the same key back inside the episode is a repeat with its count; another key, an unarmed memory, a backward tick or
++            // a return past OrphanRepeatMs is not; the memory lapses on my control, a busy host or a field change; a repeat answers an
++            // ACTIVE option that is neither Cancel nor the answer already given, and none = a hand-back
++            const Int32 R0 = 5000000;
++            if (OrphanRepeatStep(false, true, R0, 1, R0 + 100) != 0)
++                return "orphan: an unarmed re-ask memory counted a repeat";
++            if (OrphanRepeatStep(true, true, R0, 1, unchecked(R0 + 15000)) != 1 || OrphanRepeatStep(true, true, R0, 2, unchecked(R0 + 17000)) != 2)
++                return "orphan: a re-ask at the real loop period (15-17 s) was not counted as a repeat";
++            if (OrphanRepeatStep(true, false, R0, 1, unchecked(R0 + 4000)) != 0)
++                return "orphan: another window key counted as a repeat";
++            if (OrphanRepeatStep(true, true, R0, 1, unchecked(R0 + OrphanRepeatMs + 1)) != 0 || OrphanRepeatStep(true, true, R0, 1, R0 - 5) != 0)
++                return "orphan: a return past OrphanRepeatMs (or a backward tick) counted as a repeat";
++            if (OrphanRepeatStep(true, true, Int32.MaxValue - 1000, 1, unchecked(Int32.MaxValue + 15000)) != 1)
++                return "orphan: the repeat window broke across the tick wrap";
++            if (OrphanMemoryLapses(false, true, false, R0, unchecked(R0 + 15000)))
++                return "orphan: the memory lapsed inside one scripted episode (control off, host settled, same field)";
++            if (!OrphanMemoryLapses(true, true, false, R0, R0 + 100) || !OrphanMemoryLapses(false, false, false, R0, R0 + 100)
++                || !OrphanMemoryLapses(false, true, true, R0, R0 + 100) || !OrphanMemoryLapses(false, true, false, R0, unchecked(R0 + OrphanRepeatMs + 1)))
++                return "orphan: the memory did not lapse on my control / a busy host / a field change / the backstop";
++            List<Int32> yn = new List<Int32> { 0, 1 };
++            if (OrphanRepeatPick(yn, 2, 1, 1) != 0 || OrphanRepeatPick(yn, 2, -1, 0) != 1 || OrphanRepeatPick(null, 2, -1, 0) != 1)
++                return "orphan: a repeat did not answer the other ACTIVE option (Cancel 1 -> 0; no cancel -> not the last answer)";
++            if (OrphanRepeatPick(new List<Int32> { 1, 2 }, 3, 1, 1) != 2 || OrphanRepeatPick(new List<Int32> { 1 }, 3, 1, 1) != -1)
++                return "orphan: a masked choice picked a disabled option, or did not hand back when no other option is active";
++            NetSyncDialog r = new NetSyncDialog();
++            r._quiet = true;
++            r.NoteOrphanChoice(312, 0, 171, 1, R0);
++            r.NoteOrphanChoice(312, 0, 171, 0, unchecked(R0 + 15000));
++            if (!r._orphChoiceArmed || r._orphChoiceCount != 2 || r._orphChoicePick != 0)
++                return "orphan: two commits of one key 15 s apart did not count 2 (with the last answer kept)";
++            r.NoteOrphanChoice(312, 0, 172, 1, unchecked(R0 + 30000));
++            if (r._orphChoiceCount != 1)
++                return "orphan: a commit on another key did not restart the count";
++            r.ClearInbox();
++            if (r._orphChoiceArmed)
++                return "orphan: the panic unlock (ClearInbox) kept the re-ask memory";
+             return null;
+         }
+ 
+@@ -2524,6 +2646,29 @@ namespace Memoria.Netsync
+             p.PurgeAtRelayAccept(5);
+             if (p._inbox.Count != 2 || p._inbox[0].Scene != 5 || p._inbox[1].Scene != 6)
+                 return "inbox: the relay-accept purge did not keep exactly the talk's scene and later (" + p._inbox.Count + " kept)";
++            // [ff9mapkit netsync s153] a pause holds the INBOX's TTL: an event no open window awaits survives a pause longer than
++            // PendingTtlMs, then ages out PendingTtlMs of UNPAUSED time after it arrived
++            NetSyncDialog t = new NetSyncDialog();
++            t._quiet = true;
++            RingEvt te = Evt(40, KindAdv, 1, 5, 3, 40, 1, 0);
++            t.IngestRing(ref te, T0);
++            GuestView tv = new GuestView { MyField = 5, WarpField = -1, HostField = 5, Now = T0 };
++            t.HoldKeyClocks(false, true, T0);
++            t.HoldKeyClocks(true, true, unchecked(T0 + PendingTtlMs + 5000));                    // paused past a whole PendingTtlMs
++            tv.Now = unchecked(T0 + PendingTtlMs + 5000);
++            t.Purge(ref tv);
++            if (t._inbox.Count != 1)
++                return "inbox: a pause did not hold the inbox TTL (an event aged out while the guest was paused)";
++            t.HoldKeyClocks(false, true, unchecked(T0 + PendingTtlMs + 5000 + PendingTtlMs - 100));
++            tv.Now = unchecked(T0 + PendingTtlMs + 5000 + PendingTtlMs - 100);
++            t.Purge(ref tv);
++            if (t._inbox.Count != 1)
++                return "inbox: an event aged out before PendingTtlMs of unpaused time";
++            t.HoldKeyClocks(false, true, unchecked(T0 + PendingTtlMs + 5000 + PendingTtlMs + 10));
++            tv.Now = unchecked(T0 + PendingTtlMs + 5000 + PendingTtlMs + 10);
++            t.Purge(ref tv);
++            if (t._inbox.Count != 0)
++                return "inbox: an event did not age out after PendingTtlMs of unpaused time";
+             return null;
+         }
+ 
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 02eaf23..0febeeb 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -1539,6 +1539,26 @@ namespace Memoria.Netsync
+             CountDrop(why);
+         }
+ 
++        // [ff9mapkit netsync s153] the command types a guest pick (ActAttack / ActInstant / ActAbility) may carry -- the host intake's rule,
++        // the digit panel's and the stock menu's Attack branch, one table: Throw and Item-type commands go through their own menus (the
++        // stock menu greys Throw in v1), and a Mix command is outside v1 however it is reached (V1Action / V1Scope's own rule).
++        internal static Boolean IntakeAllowsCommandType(CharacterCommandType type)
++        {
++            return type == CharacterCommandType.Normal || type == CharacterCommandType.Ability || type == CharacterCommandType.Instant;
++        }
++
++        // The id form the call sites use: the ENGINE's classification (GetCommandTypeSafe reads Item / AutoPotion / Throw by id before the
++        // table, which is how btl_cmd itself treats sub_no), and never a Mix command.
++        internal static Boolean IntakeAllowsCommand(BattleCommandId cmdId)
++        {
++            return !BattleHUD.MixCommandSet.ContainsKey(cmdId) && IntakeAllowsCommandType(global::FF9.btl_util.GetCommandTypeSafe(cmdId));
++        }
++
++        internal static String IntakeTypeName(BattleCommandId cmdId)
++        {
++            return BattleHUD.MixCommandSet.ContainsKey(cmdId) ? "Mix" : global::FF9.btl_util.GetCommandTypeSafe(cmdId).ToString();
++        }
++
+         private static void CountDrop(String why)
+         {
+             _cmdDropped++;
+@@ -4662,6 +4682,8 @@ namespace Memoria.Netsync
+                     if (d == 1)   // Attack (works with or without a roster; targeting from its AA when known)
+                     {
+                         CmdView atk = FindMenu(cmds, 0 /* BattleCommandMenu.Attack */);
++                        if (atk != null && !DigitOffers(atk))   // [ff9mapkit netsync s153] a modded Attack slot the intake would drop
++                            break;
+                         BeginTarget(ActAttack, atk != null ? atk.Menu : 0, 0,
+                                     atk != null ? atk.Target : 0 /* SingleAny */, atk != null && atk.ForDead, UiRoot);
+                     }
+@@ -4672,7 +4694,7 @@ namespace Memoria.Netsync
+                     else if ((d == 3 || d == 4) && cmds != null)
+                     {
+                         CmdView cmd = FindMenu(cmds, d == 3 ? 2 : 3 /* Ability1 / Ability2 */);
+-                        if (cmd == null)
++                        if (cmd == null || !DigitOffers(cmd))   // [ff9mapkit netsync s153] Throw / Item-type: not offered (the intake refuses them)
+                             break;
+                         if (cmd.Type == 4 /* CharacterCommandType.Instant */ || cmd.Abilities.Count == 0)
+                         {
+@@ -4766,6 +4788,12 @@ namespace Memoria.Netsync
+             return roster.Slots.TryGetValue(slot, out cmds) ? cmds : null;
+         }
+ 
++        // [ff9mapkit netsync s153] the digit panel offers a roster command only when the host intake would take it (IntakeAllowsCommandType)
++        private static Boolean DigitOffers(CmdView cmd)
++        {
++            return cmd != null && IntakeAllowsCommandType((CharacterCommandType)cmd.Type) && IntakeAllowsCommand((BattleCommandId)cmd.CmdId);
++        }
++
+         private static CmdView FindMenu(List<CmdView> cmds, Int32 menu)
+         {
+             if (cmds == null)
+@@ -5968,6 +5996,15 @@ namespace Memoria.Netsync
+                         Drop("slot " + slot + " " + ActionName(action) + ": no command in menu " + (action == ActAttack ? 0 : menu));
+                         return;
+                     }
++                    // [ff9mapkit netsync s153] THE v1 SCOPE ENFORCED AT THE INTAKE (REVIEW.md §1.6): a single-shot pick is a Normal, Ability or
++                    // Instant command, never Throw or an Item-type one. Amarant's Throw arrived here as an Instant pick (its roster entry has no
++                    // list), took sub_no = Throw's own MainEntry 190, which the engine reads as the thrown ITEM -- Maximillian -- and threw a
++                    // spare one out of the host's bag. "The engine re-validates, so the worst case is a no-op" was a comment, not a guard.
++                    if (!IntakeAllowsCommand(cmdId))
++                    {
++                        Drop("slot " + slot + " " + cmdId + ": a " + IntakeTypeName(cmdId) + "-type command is not a single-shot pick");
++                        return;
++                    }
+                     // A single-shot cast routed through an ABILITY-type command (the guest saw an empty
+                     // list) must pass the SAME learned/usable validation as a listed pick -- otherwise an
+                     // unlearned ability could be cast through the fallback (playtest finding: Swd Art with
+@@ -6022,6 +6059,11 @@ namespace Memoria.Netsync
+                         Drop("slot " + slot + " Ability: no command in menu " + menu);
+                         return;
+                     }
++                    if (!IntakeAllowsCommand(cmdId))     // [ff9mapkit netsync s153] the same rule: a Throw / Item / Mix command never rides ActAbility
++                    {
++                        Drop("slot " + slot + " " + cmdId + ": a " + IntakeTypeName(cmdId) + "-type command is not an ability pick");
++                        return;
++                    }
+                     Int32 subNo;
+                     if (!hud.NetAbilityUsable(slot, cmdId, id, out subNo))
+                     {
+@@ -7347,6 +7389,10 @@ namespace Memoria.Netsync
+                 {
+                     sb.Append("[1] Attack   [2] Defend");
+                     CmdView c1 = FindMenu(cmds, 2), c2 = FindMenu(cmds, 3);
++                    if (c1 != null && !DigitOffers(c1))   // [ff9mapkit netsync s153] Throw / Item-type commands are not listed
++                        c1 = null;
++                    if (c2 != null && !DigitOffers(c2))   // [ff9mapkit netsync s153]
++                        c2 = null;
+                     if (c1 != null)
+                         sb.Append("   [3] ").Append(CommandLabel(c1));
+                     if (c2 != null)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+index c885eab..1cfae8a 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.StockMenu.cs
+@@ -171,6 +171,8 @@ namespace Memoria.Netsync
+                 return "Mix (" + cmd + ") is outside the v1 command scope (B4.2)";
+             if (menu == (Int32)BattleCommandMenu.Attack)
+             {
++                if (!IntakeAllowsCommand(cmd))   // [ff9mapkit netsync s153] the host intake's rule: grey what the host would drop
++                    return cmd + " (a " + IntakeTypeName(cmd) + " command in Attack) is outside the v1 command scope";
+                 action = ActAttack;
+                 return null;
+             }
+@@ -653,6 +655,8 @@ namespace Memoria.Netsync
+                 return null;                                 // stock: the capture refuses it if it is ever picked
+             if (BattleHUD.MixCommandSet.ContainsKey(cmd))
+                 return "Mix is outside the v1 command scope (B4.2)";
++            if (menu == (Int32)BattleCommandMenu.Attack && !IntakeAllowsCommand(cmd))   // [ff9mapkit netsync s153] keep in step with V1Action
++                return cmd + " (a " + IntakeTypeName(cmd) + " command in Attack) is outside the v1 command scope";
+             if (menu == (Int32)BattleCommandMenu.Attack || cmd == BattleCommandId.Defend)
+                 return null;
+             if (cmd == BattleCommandId.Change || menu == (Int32)BattleCommandMenu.Change)
+diff --git a/Assembly-CSharp/Assets/SiliconSocial/AchievementManager.cs b/Assembly-CSharp/Assets/SiliconSocial/AchievementManager.cs
+index 59ad0c3..9e9f14d 100644
+--- a/Assembly-CSharp/Assets/SiliconSocial/AchievementManager.cs
++++ b/Assembly-CSharp/Assets/SiliconSocial/AchievementManager.cs
+@@ -73,6 +73,12 @@ namespace Assets.SiliconSocial
+         {
+             if (key == AcheivementKey.AllAbility || key == AcheivementKey.CardWinAll)
+                 return;
++            // [ff9mapkit netsync s153] the co-op hold moves up to the report's door (studies/coop-review/REVIEW.md §1.4): the
++            // SetAchievementStatus(ReadyToUnlock) below writes a SYSTEM achievement's status (CompleteGame, Blackjack) straight into the save
++            // metadata on disk, which a later title / launch resync reports once the mirror is gone -- so the gate in
++            // ProcessAchievementReport alone held the report but not the write that re-sends it. Same two terms, one read each.
++            if (Memoria.Netsync.NetSyncDiorama.HoldAchievement((Int32)key) || Memoria.Netsync.NetSyncClient.IsMirroringStory)
++                return;
+             AchievementStatusesEnum achievementStatus = AchievementManager.GetAchievementStatus(key);
+             if (FF9StateSystem.Settings.IsFastTrophyMode)
+                 totalProgress = AchievementManager.GetFastTrophyModeProgess(key, totalProgress);
+diff --git a/Assembly-CSharp/Global/Ending/EndingMain.cs b/Assembly-CSharp/Global/Ending/EndingMain.cs
+index 91060b4..6ebe5fa 100644
+--- a/Assembly-CSharp/Global/Ending/EndingMain.cs
++++ b/Assembly-CSharp/Global/Ending/EndingMain.cs
+@@ -82,12 +82,18 @@ public class EndingMain : HonoBehavior
+                     PersistenSingleton<UIManager>.Instance.EndingScene.ReadyToBlackjack();
+                     FF9Snd.ff9endsnd_song_play(156);
+                     FF9Snd.ff9endsnd_song_vol_fade(156, 90, 0, 127);
+-                    FF9StateSystem.Serializer.SetGameFinishFlagWithTrue(delegate (DataSerializerErrorCode errNo, Boolean isSuccess)
++                    // [ff9mapkit netsync s153] a co-op guest watching the HOST's ending has not finished its own game: the finish flag
++                    // (save metadata on disk -- it unlocks the title's extras) is not written while it mirrors; the achievement report
++                    // holds itself (AchievementManager.ReportAchievement)
++                    if (!Memoria.Netsync.NetSyncClient.IsMirroringStory)
+                     {
+-                        if (errNo != DataSerializerErrorCode.Success || !isSuccess)
++                        FF9StateSystem.Serializer.SetGameFinishFlagWithTrue(delegate (DataSerializerErrorCode errNo, Boolean isSuccess)
+                         {
+-                        }
+-                    });
++                            if (errNo != DataSerializerErrorCode.Success || !isSuccess)
++                            {
++                            }
++                        });
++                    }
+                     AchievementManager.ReportAchievement(AcheivementKey.CompleteGame, 1);
+                 });
+                 this.ff9endingState = EndingMain.FF9EndingState.WAITENDINGSTATEIMAGE;

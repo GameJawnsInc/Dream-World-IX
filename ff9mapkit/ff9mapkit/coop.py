@@ -225,6 +225,28 @@ def _ini_path(game: Path) -> Path:
     return game / "Memoria.ini"
 
 
+_BOM = b"\xef\xbb\xbf"
+
+
+def read_ini_text(ini: Path) -> str:
+    """Memoria.ini as text with a leading UTF-8 byte-order mark removed. THE BOM LAW (studies/coop-review/REVIEW.md
+    §1.3): Notepad and Notepad++ can save the file with a BOM, and a plain ``utf-8`` read keeps U+FEFF glued to the
+    first line -- so a ``[Mod]`` header on line 1 stopped matching, ``read_folder_names`` returned [], and the first
+    co-op setup appended a SECOND ``[Mod]`` whose ``FolderNames = "FF9Coop"`` the engine (last write wins) then loaded
+    ALONE: every other mod gone. Every reader in this module goes through here."""
+    return ini.read_text(encoding="utf-8-sig", errors="replace")
+
+
+def ini_write_encoding(ini: Path) -> str:
+    """The encoding to write Memoria.ini back in: ``utf-8-sig`` when the file already carries a BOM (kept, so a
+    co-op edit never changes the file's encoding marker), else ``utf-8``."""
+    try:
+        with open(ini, "rb") as f:
+            return "utf-8-sig" if f.read(3) == _BOM else "utf-8"
+    except OSError:
+        return "utf-8"
+
+
 def _split_lines(text: str):
     """Split preserving the file's newline style for the rewrite."""
     nl = "\r\n" if "\r\n" in text else "\n"
@@ -406,10 +428,10 @@ def write_netsync(game: Path, updates: dict, *, out=print) -> Path | None:
     if not ini.is_file():
         raise FileNotFoundError(f"{ini} not found -- is this really the FF9 install "
                                 "(and is Memoria set up)?")
-    text = ini.read_text(encoding="utf-8", errors="replace")
+    text = read_ini_text(ini)
     new_text = update_ini_section(text, "Netsync", updates)   # vets every pair before we touch the disk
     backup = _backup_ini(ini)
-    fsutil.atomic_write_text(ini, new_text, encoding="utf-8")
+    fsutil.atomic_write_text(ini, new_text, encoding=ini_write_encoding(ini))
     out(f"  Memoria.ini: [Netsync] updated (backup: {backup.name})")
     return backup
 
@@ -448,6 +470,20 @@ def mod_order_updates(text: str, names: list[str]) -> dict:
     return updates
 
 
+def warn_split_mod_section(text: str, *, out=print) -> bool:
+    """Say so when ``[Mod]`` lists FolderNames more than once -- the fingerprint of the pre-fix BOM bug (THE BOM LAW,
+    :func:`read_ini_text`), which appended a second ``[Mod]`` holding only "FF9Coop". The game obeys the LAST copy, so
+    every other mod is off until it is merged back. True when it warned. Read-only: the original list is the first copy
+    (and in every ``Memoria.ini.coop-bak-*`` backup)."""
+    if "FolderNames" not in duplicate_ini_keys(text, "Mod"):
+        return False
+    out("  ! Memoria.ini lists [Mod] FolderNames more than once -- the game loads ONLY the last list "
+        f"({read_ini_key(text, 'Mod', 'FolderNames')}). An older co-op setup could write that second list; your original "
+        "mod list is the first one (and in the Memoria.ini.coop-bak-* backups). Merge them into one [Mod] FolderNames "
+        "line, or re-run the Memoria launcher's mod manager.")
+    return True
+
+
 def ensure_folder_registered(game: Path, folder: str, *, out=print) -> bool:
     """Add ``folder`` to ``[Mod] FolderNames`` (at the END -- the room's assets are uniquely named, and
     last place keeps its text block from shadowing other folders'). True if the ini was changed.
@@ -455,13 +491,14 @@ def ensure_folder_registered(game: Path, folder: str, *, out=print) -> bool:
     FolderNames-only edit at the next Play click). Backs the ini up first, same as :func:`write_netsync`
     -- this is the FIRST ini mutation of a default `coop host`/`coop join` run."""
     ini = _ini_path(game)
-    text = ini.read_text(encoding="utf-8", errors="replace")
+    text = read_ini_text(ini)
+    warn_split_mod_section(text, out=out)
     names = read_folder_names(text)
     if any(n.lower() == folder.lower() for n in names):
         return False
     updates = mod_order_updates(text, names + [folder])
     backup = _backup_ini(ini)
-    fsutil.atomic_write_text(ini, update_ini_section(text, "Mod", updates), encoding="utf-8")
+    fsutil.atomic_write_text(ini, update_ini_section(text, "Mod", updates), encoding=ini_write_encoding(ini))
     out(f'  Memoria.ini: added "{folder}" to [Mod] FolderNames + Priorities (backup: {backup.name})')
     return True
 
@@ -476,7 +513,7 @@ def find_registered_field(game: Path, field_id: int) -> str | None:
     ini = _ini_path(game)
     if not ini.is_file():
         return None
-    text = ini.read_text(encoding="utf-8", errors="replace")
+    text = read_ini_text(ini)
     needle = f"FieldScene {field_id} "
     for folder in read_folder_names(text) + [COOP_MOD]:
         dp = game / folder / "DictionaryPatch.txt"
@@ -529,7 +566,7 @@ def show_config(game: Path, *, out=print) -> int:
     if not ini.is_file():
         out(f"{ini} not found -- is this really the FF9 install?")
         return 2
-    text = ini.read_text(encoding="utf-8", errors="replace")
+    text = read_ini_text(ini)
     key = lambda k, d="": (read_ini_key(text, "Netsync", k) or d).strip()
     enabled = key("Enabled") == "1"
     out(f"FF9 install: {game}")
@@ -540,6 +577,7 @@ def show_config(game: Path, *, out=print) -> int:
         # earlier lines the user can see are dead. Worth naming before they debug the wrong ones.
         out(f"  ! [Netsync] lists {', '.join(dupes)} more than once -- the LAST copy is the one the "
             "game uses; the earlier lines do nothing (re-run  ff9mapkit coop host|join  to tidy it)")
+    warn_split_mod_section(text, out=out)
     out(f"  co-op:       {'ON' if enabled else 'off'}")
     if not enabled:
         out("  (start one with  ff9mapkit coop host  /  ff9mapkit coop join <code>)")
@@ -673,7 +711,7 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
         # the co-op room stays the guaranteed meeting spot (both installs are certain to have it)
         ensure_room(game, rebuild=getattr(args, "rebuild_room", False), out=out)
 
-    ini_text = _ini_path(game).read_text(encoding="utf-8", errors="replace")
+    ini_text = read_ini_text(_ini_path(game))
     if role == "host" and not code:
         code = None if getattr(args, "new_code", False) else read_ini_key(ini_text, "Netsync", "SessionCode")
         if code:

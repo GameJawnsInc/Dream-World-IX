@@ -272,6 +272,15 @@ def _read_text(p) -> str:
         return f.read()
 
 
+_BOM_CHAR = chr(0xFEFF)
+
+
+def _read_ini(p) -> str:
+    """The install's Memoria.ini for PARSING: _read_text with a leading UTF-8 BOM dropped (a Notepad BOM glued U+FEFF to a
+    line-1 ``[Mod]`` header, so FolderNames read as [] -- coop.read_ini_text's BOM law, studies/coop-review/REVIEW.md 1.3)."""
+    return _read_text(p).removeprefix(_BOM_CHAR)
+
+
 def _write_text(p, text: str, *, tries: int = 25, wait: float = 0.1) -> None:
     """Atomic (a sibling .tmp + os.replace), retried: on Windows os.replace onto a file another process has open for
     reading -- the engine's ini hot-reload poll, an AV scan, a tool reading it -- fails with WinError 5 for that moment
@@ -394,7 +403,7 @@ class Instance:
         """The install's ``[Mod] FolderNames``, as the engine reads them (last key wins)."""
         from ff9mapkit.coop import read_folder_names
         try:
-            return read_folder_names(_read_text(self.install / "Memoria.ini"))
+            return read_folder_names(_read_ini(self.install / "Memoria.ini"))
         except OSError:
             return []
 
@@ -423,7 +432,7 @@ class Instance:
         return base_overlay(self.root)
 
     def wanted_ini(self) -> str:
-        return overlay_text(_read_text(self.install / "Memoria.ini"), self.overlay())
+        return overlay_text(_read_ini(self.install / "Memoria.ini"), self.overlay())
 
     # -- processes ---------------------------------------------------------------------------------
     def scan(self) -> tuple[list[int], list[int], list[int]]:
@@ -758,7 +767,7 @@ def install_fingerprint(install, names=None) -> dict:
     install = Path(install)
     if names is None:
         from ff9mapkit.coop import read_folder_names
-        names = list(ROOT_LINKS) + read_folder_names(_read_text(install / "Memoria.ini")) + [
+        names = list(ROOT_LINKS) + read_folder_names(_read_ini(install / "Memoria.ini")) + [
             f"x64/FF9_Data/{d}" for d in DATA_DIRS]
     out = {}
     for t in names:

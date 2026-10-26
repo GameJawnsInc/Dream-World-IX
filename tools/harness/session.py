@@ -3276,7 +3276,7 @@ class Session:
         stick movement, and ``FieldMapActorController.cs:715-718`` reads ``twist.x`` for keys only under
         ``UseAbsoluteOrientationKeys`` (``Control.cs:14``: setting 1 or 2). This install ships 3."""
         try:
-            text = (self.game_path / "Memoria.ini").read_text(encoding="utf-8", errors="replace")
+            text = (self.game_path / "Memoria.ini").read_text(encoding="utf-8-sig", errors="replace")
         except OSError:
             return 1
         m = re.search(r"^\s*\[AnalogControl\]\s*$(.*?)(?=^\s*\[|\Z)", text, re.M | re.S)
