@@ -930,3 +930,44 @@ def test_a_commit_whose_history_write_fails_is_taken_back_whole(tmp_path, monkey
     monkeypatch.setattr(D, "_write_history", real_write)
     assert _tree(d) == before and sorted(p.name for p in (d / D.HISTORY_DIR).iterdir()) == ["0000"]
     assert D.history(d)["cursor"] == 1
+
+
+def test_a_put_back_whose_step_cannot_be_recorded_cancels_the_edit_and_says_so(monkeypatch, tmp_path, app):
+    """An edit's put-back recorded each step it composed again on the window's thread, unguarded: a commit refused
+    left the job's done with the error (seen by no one in the windowless app), the pending step whole, and the bar
+    saying the steps were going back on top while nothing ran (review of the perf fixes, round 4, R4-6). The edit
+    is cancelled -- the draft exactly as it was -- and the bar says why."""
+    import sys
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "two.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"},
+                               {"table": "mountain", "center": [90.0, -26.0], "donor": "0,0"}]), encoding="utf-8")
+    doc, run = _doc(app, game, tmp_path, saved)
+    doc.set_view_mode("3d", sync=True)
+    doc._recipe.open_btn.click()
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    bar, before = doc._recipe, _tree(draft)
+    bar.select(0)
+    bar.edit_btn.click()
+    forest = doc._forest
+    forest.drop_at(30.0, -30.0)
+    forest._timer.stop()
+    forest._check()
+    assert forest.accept_btn.isEnabled(), forest.verdict_lbl.text()
+    real, calls = D.commit_step, []
+
+    def second_fails(*a, **k):
+        calls.append(1)
+        if len(calls) == 2:                                               # the put-back's own record
+            raise PermissionError(5, "a handle is open")
+        return real(*a, **k)
+    monkeypatch.setattr(D, "commit_step", second_fails)
+    raised = []
+    monkeypatch.setattr(sys, "excepthook", lambda *a: raised.append(a[1]))
+    forest.accept_btn.click()
+    text = bar.status_lbl.text()
+    assert raised == [] and len(calls) == 2
+    assert "Not edited" in text and "a handle is open" in text and bar._edit is None, text
+    h = D.history(draft)
+    assert _tree(draft) == before and h["edit"] is None and h["cursor"] == 2
+    assert not (draft / D.HISTORY_DIR / D._PENDING).exists()

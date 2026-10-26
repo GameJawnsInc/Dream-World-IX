@@ -387,11 +387,15 @@ class RecipeBar(QWidget):
         e = self._edit
         while e["queue"]:
             s = e["queue"][0]
-            if not RC.replay_window(s) & e["dirty"] and D.replay(d, s):
-                e["queue"].pop(0)
-                e["replayed"] += 1
-                continue
-            D.begin_step(d, RC.row_cells(s["row"]))
+            try:
+                if not RC.replay_window(s) & e["dirty"] and D.replay(d, s):
+                    e["queue"].pop(0)
+                    e["replayed"] += 1
+                    continue
+                D.begin_step(d, RC.row_cells(s["row"]))
+            except OSError as err:                       # (the disk refused a step's record: R4-6)
+                self._put_back_refused(s, err)
+                return
             tmp = Path(tempfile.mkdtemp(prefix="ff9_edit_")) / "row.toml"
             tmp.write_text(RC.dumps_one(dict(s["row"])), encoding="utf-8")
             argv = self._fuse_argv(tmp, d)
@@ -423,17 +427,33 @@ class RecipeBar(QWidget):
         if e is None:
             return
         if code != 0:
-            D.abort_step(d)
+            try:
+                D.abort_step(d)
+            except OSError:                              # (the cancel's own abort finishes it: R4-6)
+                pass
             last = [ln for ln in text.splitlines() if ln.strip()][-1:] or [f"exit code {code}"]
             what = "deleted" if e["mode"] == "delete" else "edited"
             self.cancel_edit(f"Not {what}: on the new ground, {s['label']} (a step after it) refuses: {last[0]}. "
                              "The draft is exactly as it was.", "error")
             return
-        new = D.commit_step(d, s["row"], s["label"])
+        try:
+            new = D.commit_step(d, s["row"], s["label"])
+        except OSError as err:
+            self._put_back_refused(s, err)
+            return
         e["dirty"] = D.dirty_after(e["dirty"], s, new)
         e["queue"].pop(0)
         e["rerun"] += 1
         self._put_back(d)
+
+    def _put_back_refused(self, s, err):
+        """A step after the edited one could not be put back on top because the disk refused its record: the edit
+        is cancelled, the draft as it was (the pending step taken back by the cancel's abort). It left the job's
+        done unseen, the bar saying the steps were going back while nothing ran (review of the perf fixes, round 4,
+        R4-6)."""
+        what = "deleted" if self._edit["mode"] == "delete" else "edited"
+        self.cancel_edit(f"Not {what}: {s['label']} (a step after it) could not be put back on top ({err}). The "
+                         "draft is exactly as it was.", "error")
 
     def cancel_edit(self, note=None, state=""):
         """Close the open edit, the draft exactly as it was before it (the card's Cancel edit, a closed card, a step
