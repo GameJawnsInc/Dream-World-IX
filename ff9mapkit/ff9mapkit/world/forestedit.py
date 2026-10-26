@@ -177,7 +177,7 @@ def footprint_preview(ix: SoupIndex, rim_xz) -> dict:
     if not bad and len(ix.coast) and len(idx):
         v = ix.pos[ix.tris[idx]][..., [0, 2]].reshape(-1, 2)
         # a coast point outside the tested verts' box grown by RIM_MARGIN is farther than that from every one of them
-        coast = np.asarray(ix.coast)
+        coast = ix.coast
         keep = ((coast >= v.min(axis=0) - IN.RIM_MARGIN) & (coast <= v.max(axis=0) + IN.RIM_MARGIN)).all(axis=1)
         coast = coast[keep]
         near_coast = np.zeros(len(v), dtype=bool)

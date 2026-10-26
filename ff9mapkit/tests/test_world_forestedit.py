@@ -479,7 +479,7 @@ def test_promote_onto_cells_the_live_folder_has_nothing_at_records_and_reverts(m
 
 
 class _Watched(np.ndarray):
-    """An array that records the calls a preview makes of it (the fence on the preview's work, not its answer)."""
+    """A tri-corner array that records a box taken from it again (min / max over it)."""
     log: list = []
 
     def max(self, *a, **k):
@@ -490,22 +490,32 @@ class _Watched(np.ndarray):
         _Watched.log.append("min")
         return np.ndarray.min(np.asarray(self), *a, **k)
 
+
+class _Coast(np.ndarray):
+    """A coast array that records how many of its points each broadcast against the tested verts carries."""
+    log: list = []
+
     def __getitem__(self, key):
         if isinstance(key, tuple) and key[:1] == (None,):
-            _Watched.log.append("broadcast")
+            _Coast.log.append(len(self))
         return np.ndarray.__getitem__(self, key)
 
 
 def test_a_drag_preview_reuses_the_index_and_reads_only_the_coast_near_it():
     """A forest ghost drag cost 45-55 ms per mouse move on the GUI thread, 93% in footprint_preview: it took every
     tri's plan box again (SoupIndex already holds them: lo, hi) and measured every tested vertex against EVERY coast
-    point of the island (PERF.md 6, C3). Neither now, and the answer is the same."""
+    point of the island (PERF.md 6, C3). Neither now, and the answer is the same. (The coast fence watches the
+    culled array itself: an asarray of the coast hid it, so the cull could go unnoticed -- review, CR-3.)"""
     ix = FE.SoupIndex(IN.soup_from_blocks({(0, 0): _mains_grid()}))
-    ix.coast = np.vstack([ix.coast.reshape(-1, 2), [[30.0, -45.0], [5000.0, 5000.0]]])   # one by the rim, one far
+    far = [[5000.0 + i, 5000.0] for i in range(50)]
+    ix.coast = np.vstack([ix.coast.reshape(-1, 2), [[30.0, -45.0]], far])   # one by the rim, many far off
     poly = [(20.0, -20.0), (40.0, -20.0), (40.0, -40.0), (20.0, -40.0)]
     want = FE.footprint_preview(ix, poly)
     assert want["why"] == "the coast rim" and want["where"]           # the coast check ran, and decided
-    ix.corner, ix.coast = ix.corner.view(_Watched), ix.coast.view(_Watched)
-    _Watched.log = []
+    full = len(ix.coast)
+    ix.corner, ix.coast = ix.corner.view(_Watched), ix.coast.view(_Coast)
+    _Watched.log, _Coast.log = [], []
     got = FE.footprint_preview(ix, poly)
     assert _Watched.log == [] and got == want
+    assert _Coast.log and max(_Coast.log) <= full - len(far)           # the far points were never measured
+
