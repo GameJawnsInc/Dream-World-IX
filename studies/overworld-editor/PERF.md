@@ -1,8 +1,8 @@
 # Where the World tab makes you wait, and what would shorten it
 
 **Status:** BUILT, 2026-10-26: the two defects and tiers 1-5 of the ranked list, each fix one commit with a test that
-failed first, re-measured per tier; then four adversarial review rounds over the fixes (17, 9, 5 and 6 confirmed, all
-fixed). Owner requests: "explore performance improvements next", then "fix the two defects first, then
+failed first, re-measured per tier; then five adversarial review rounds over the fixes (17, 9, 5, 6 and 4 confirmed,
+all fixed). Owner requests: "explore performance improvements next", then "fix the two defects first, then
 build the ranked list in order, one commit per fix with a test that fails before it, re-measuring after each tier".
 What was built and what it measured is [below](#what-was-built); the exploration as it was written follows.
 
@@ -52,6 +52,12 @@ report is disc 1's verdict, with the disc-4 preview's outcome beside it (40d347f
   refused goes back to pending; an Edit's open moves its folders back and redoes its undos; a cancel takes the
   put-back steps out of the history before their folders go, so run again it finishes the first. A caller's
   rollback is only as true as the primitives under it, and every bar path that can meet the disk catches OSError.
+- WORK A REFUSAL LEAVES OWED IS KEPT ON DISK, AND THE DRAFT IS HELD UNTIL IT IS PAID (round 5, after round 4 caught
+  the refusals): an edit whose cancel the disk refused stays open with the bar holding the draft -- every bar write
+  refuses at its call site, the cards wait, nothing retries behind the user -- until Cancel edit closes it and runs
+  the game's promote kept owed; a cancel's redos still owed live in the open edit; a refused take-back is named in
+  history/take-back.json for the next abort. Catching an error and letting go of the draft let other writes run
+  under a half-closed edit.
 - A FAST PATH REFUSES AS THE SLOW ONE DID: a cut-short .ff9mesh raises struct.error, a NaN block takes the loop, a mesh
   the census precompute cannot read is asked per sample.
 
@@ -64,7 +70,7 @@ report is disc 1's verdict, with the disc-4 preview's outcome beside it (40d347f
 - **D1 / R1, the river:** no river Check can start from the card on the live folder.
 
 **Not checked:** no in-game run (the changes touch the editor's bookkeeping and its readers, not the bytes a verb
-writes); the fourth review round's own fixes had no fifth.
+writes); the fifth review round's own fixes had no sixth.
 
 
 ## Method
