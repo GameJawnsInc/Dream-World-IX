@@ -18,6 +18,7 @@ cache + the packed Unity-5 ``m_VertexData`` decode approach (cf. :func:`ff9mapki
 from __future__ import annotations
 
 import json
+import os
 import struct
 from collections import Counter, OrderedDict
 from dataclasses import dataclass, field as _dcfield, replace as _dc_replace
@@ -152,7 +153,11 @@ def _worldmap_env(disc: int = 1, game=None):
     needle = f"worldmap/disc{disc}/0_1/"
     missing = (f"no worldmap terrain meshes (container {needle!r}) found in StreamingAssets/p0data*.bin "
                f"-- is this a full FF9 install?")
-    if not _bundles(game):
+    try:                                             # (a listing, not a glob: a path holding '[...]' is no set)
+        has = any(n.startswith("p0data") and n.endswith(".bin") for n in os.listdir(sa))
+    except OSError:
+        has = False
+    if not has:
         _WM_ENV_MEMO[memo_key] = (None, missing)
         raise ValueError(missing)
     _unitypy()                                       # surface the install/UnityPy error early
