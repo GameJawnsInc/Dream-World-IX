@@ -1474,29 +1474,61 @@ def _refused_cancel(monkeypatch):
     return real
 
 
-def test_a_cancel_the_disk_refuses_says_so_and_closes_once_it_can(monkeypatch, tmp_path, app):
-    """Cancel edit begins with the pending abort, which the disk can refuse (a reader holding a file a failed take-back
-    left); the bar caught a ValueError only, so the OSError left the click after the bar had dropped its edit: the
-    game's promote never came back, the bar kept its stale 'Editing...' text, and every later refresh raised on the
-    same refusal (review of the perf fixes, round 4, R4-4). It is said, and the edit closes once the disk lets it."""
+def test_a_cancel_the_disk_refuses_holds_the_draft_until_cancel_edit_closes_it(monkeypatch, tmp_path, app):
+    """Cancel edit begins with the pending abort, which the disk can refuse; the bar caught a ValueError only (round 4,
+    R4-4), and then -- catching it -- dropped its edit while the draft's stayed open: Undo, Redo and the cards ran
+    against a half-closed edit, and the next refresh's retry undid a card's Accept or left an Undone step applied
+    (review of the perf fixes, round 5, R5-1). The bar holds the draft until the edit closes, says so, and its
+    Cancel edit tries again; the game's promote is kept owed and runs once it closes."""
     game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
     bar = doc._recipe
     bar._ask = lambda title, text: True
     doc._on_pick(_hit(26.0, -26.0), sync=True)
     bar.edit_btn.click()
     real = _refused_cancel(monkeypatch)
-    doc._forest.close_btn.click()                                          # Cancel edit
+    doc._forest.close_btn.click()                                          # Cancel edit, refused
     text = bar.status_lbl.text()
-    assert "could not be undone" in text and "a reader holds it" in text and "does not have the recipe" in text
-    assert "Editing" not in text and not bar.holding()
+    assert "still open" in text and "a reader holds it" in text and "Cancel edit" in text, text
+    assert bar.holding() and not bar.undo_btn.isEnabled() and not doc.tools_btn.isEnabled()
+    assert not bar.cancel_btn.isHidden() and D.promote_owed(draft) is not None
+    bar.refresh()                                                          # a refresh never retries it behind the bar
+    assert D.history(draft)["edit"] and "still open" in bar.status_lbl.text()
+    bar.undo()                                                             # the call site refuses, not only the button
+    assert "Not undone" in bar.status_lbl.text() and "still open" in bar.status_lbl.text()
+    bar.cancel_btn.click()                                                 # still refused: still held
+    assert bar.holding() and "still open" in bar.status_lbl.text()
     monkeypatch.setattr(D, "cancel_edit", real)
-    bar.refresh()                                                          # the reader went: the edit closes
-    assert D.history(draft)["edit"] is None and D.history(draft)["cursor"] == 3
+    bar.cancel_btn.click()                                                 # the reader went
+    h = D.history(draft)
+    assert h["edit"] is None and h["cursor"] == 3 and h["promoted"] == 3 and not bar.holding()
+    assert _tree(game / "FF9CustomMap-world") == live0 and "again" in bar.status_lbl.text()
 
 
-def test_a_launch_whose_owed_cancel_the_disk_refuses_says_so(monkeypatch, tmp_path, app):
-    """settle() puts right a Workspace that closed mid-edit of an in-game step; its cancel caught a ValueError only, so
-    the disk's refusal left the launch's own call (review of the perf fixes, round 4, R4-4)."""
+def test_a_cancel_refused_once_is_never_retried_in_the_same_click(monkeypatch, tmp_path, app):
+    """The bar's refused cancel was retried at once by the same click's refresh: when that went through, the bar still
+    said "could not be undone" and had already dropped the game's promote (review of the perf fixes, round 5, R5-3).
+    The refusal holds the draft and is said; the retry is the user's Cancel edit."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    real, calls = D.cancel_edit, []
+
+    def once(d):
+        calls.append(1)
+        if len(calls) == 1:
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "cancel_edit", once)
+    doc._forest.close_btn.click()
+    assert len(calls) == 1 and D.history(draft)["edit"] and "still open" in bar.status_lbl.text()
+    assert D.promote_owed(draft) is not None
+
+
+def test_a_launch_whose_owed_cancel_the_disk_refuses_holds_the_draft(monkeypatch, tmp_path, app):
+    """settle() puts right a Workspace that closed mid-edit of an in-game step; a cancel the disk refused there is held
+    as the bar's own is, its promote kept owed (review of the perf fixes, rounds 4 and 5, R4-4 R5-1)."""
     game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
     bar = doc._recipe
     bar._ask = lambda title, text: True
@@ -1505,7 +1537,11 @@ def test_a_launch_whose_owed_cancel_the_disk_refuses_says_so(monkeypatch, tmp_pa
     doc._forest._editing = None                                            # the Workspace died with the edit open
     bar._edit = None
     assert D.promote_owed(draft) is not None
-    _refused_cancel(monkeypatch)
+    real = _refused_cancel(monkeypatch)
     bar.settle()
     text = bar.status_lbl.text()
-    assert "could not be undone" in text and "a reader holds it" in text and "does not have the recipe" in text
+    assert "still open" in text and "a reader holds it" in text and bar.holding(), text
+    monkeypatch.setattr(D, "cancel_edit", real)
+    bar.cancel_btn.click()
+    assert D.history(draft)["edit"] is None and D.history(draft)["promoted"] == 3
+    assert _tree(game / "FF9CustomMap-world") == live0

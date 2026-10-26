@@ -55,6 +55,7 @@ class RecipeBar(QWidget):
         self._edit = None                                # the open edit of a placed step, or None
         self._job = None                                 # "revert" / "promote" while an in-game step's job runs (C19)
         self._prep = None                                # the in-game step being taken out of the game to edit
+        self._stuck = None                               # (draft, why) while the disk refuses an edit's cancel (R5-1)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(2, 0, 2, 0)
         lay.setSpacing(8)
@@ -114,15 +115,20 @@ class RecipeBar(QWidget):
         """Say what the recipe holds and which way it can walk."""
         from ..world import draft as D
         d = self.draft()
-        if d is not None and self._edit is None and self._queue is None and D.history(d)["edit"] \
+        if self._stuck is not None and (d is None or Path(d) != self._stuck[0] or not D.history(d)["edit"]):
+            self._stuck = None                           # (closed, or the tab moved to another folder)
+        if d is not None and self._stuck is None and self._edit is None and self._queue is None \
+                and not self._cards_writing() and D.history(d)["edit"] \
                 and D.promote_owed(d) is None:       # (one the game is owed a promote for is :meth:`settle`'s)
-            try:                                         # an edit this Workspace did not open (it closed mid-edit,
-                D.cancel_edit(d)                         # or the disk refused its cancel: R4-4)
-            except (ValueError, OSError):
+            try:                                         # an edit this Workspace did not open (it closed mid-edit);
+                D.cancel_edit(d)                         # never while a card writes: its abort took the card's step
+            except OSError as err:                       # the disk refused it: held until Cancel edit closes it (R5-1)
+                self._stuck = (Path(d), str(err))
+            except ValueError:
                 pass
         h = D.history(d) if d is not None else {"steps": [], "cursor": 0, "promoted": 0}
         steps, cur, prom = h["steps"], h["cursor"], h["promoted"]
-        busy = self._queue is not None or self._edit is not None or self._job is not None
+        busy = self._queue is not None or self._edit is not None or self._job is not None or self._stuck is not None
         if not steps:
             text = "No edits yet: each Accept adds a row, and Save writes them as a recipe for world-fuse."
         else:
@@ -143,6 +149,9 @@ class RecipeBar(QWidget):
                     f"(Revert promote)…")
         elif self._job == "promote":
             text = "Promoting the recipe into the game again…"
+        elif self._stuck is not None:
+            text = (f"An edit is still open in the draft: the disk refused its cancel ({self._stuck[1]}). Nothing "
+                    "writes the draft until it closes; Cancel edit tries again.")
         elif self._edit is not None:
             text = self._edit_text(self._edit)
         elif self._sel is not None:
@@ -165,7 +174,8 @@ class RecipeBar(QWidget):
         picked = self._sel is not None and not busy
         self.edit_btn.setVisible(picked)
         self.delete_btn.setVisible(picked)
-        self.cancel_btn.setVisible(editing and "queue" in self._edit)   # an open card has its own Cancel edit
+        self.cancel_btn.setVisible(editing and "queue" in self._edit   # an open card has its own Cancel edit
+                                   or self._stuck is not None)
         if picked:
             from ..world import recipe as RC
             live, table = self._sel < prom, steps[self._sel]["row"].get("table")
@@ -190,7 +200,8 @@ class RecipeBar(QWidget):
         in-game step's chain is taking its promotes out of the game or putting them back. The folder the tab shows
         must not change meanwhile: a switch closed the card, and the cancel went to the new folder's draft (review
         of C19)."""
-        return self._edit is not None or self._queue is not None or self._job is not None or self._prep is not None
+        return self._edit is not None or self._queue is not None or self._job is not None or self._prep is not None \
+            or self._stuck is not None
 
     def writing_live(self) -> bool:
         """An in-game step's chain is taking its promotes out of the game or putting them back: its jobs write the live
@@ -272,7 +283,12 @@ class RecipeBar(QWidget):
     def _card_writes(self, what) -> bool:
         """Refuse any write of the bar's (Edit, Delete, Undo, Redo, Open) while a card's job writes the draft or the
         live folder: the two would write the same draft and its records at once, and opening the step's card (or the
-        chain's start) closes the open card (review of the C19 fixes; the bar's own writes, its fourth round)."""
+        chain's start) closes the open card (review of the C19 fixes; the bar's own writes, its fourth round). And
+        while the draft is held open by a cancel the disk refused: at the call site, not only by the buttons (R5-1)."""
+        if self._stuck is not None:
+            self._refuse(f"Not {what}: an edit is still open in the draft (the disk refused its cancel); Cancel edit "
+                         "closes it first.")
+            return True
         if self._cards_writing():
             self._refuse(f"Not {what}: a card is still writing (its Accept, Promote or Revert promote); wait for it "
                          "to finish.")
@@ -461,6 +477,8 @@ class RecipeBar(QWidget):
         from ..world import draft as D
         e = self._edit
         if e is None:
+            if self._stuck is not None:                  # (the bar's own Cancel edit on a held draft: again)
+                self._close_stuck(self._stuck[0])
             return
         d = self._edit_draft(e)                          # the edit's own draft, whatever the tab shows now
         self._edit = None
@@ -470,7 +488,11 @@ class RecipeBar(QWidget):
         if d is not None:
             try:
                 D.cancel_edit(d)
-            except (ValueError, OSError) as err:         # (an OSError: the disk refused it; closed once it lets: R4-4)
+            except OSError as err:                       # the disk refused it: held, the game's promote kept owed
+                self._sel = e["k"]
+                self._hold_stuck(d, err)
+                return
+            except ValueError as err:
                 note, state, undone = f"The edit could not be undone: {err}.", "error", False
                 if e.get("fence") is not None:
                     note += " The game does not have the recipe now; Promote it from a card."
@@ -598,17 +620,42 @@ class RecipeBar(QWidget):
             return
         note = "The Workspace closed with a step that is in the game taken out of it"
         if D.history(d)["edit"]:
-            try:
-                D.cancel_edit(d)
-            except (ValueError, OSError) as err:
-                D.settle_promote(d)
-                self._moved(f"{note}, and it could not be undone ({err}): the game does not have the recipe now; "
-                            "Promote it from a card.", "error")
-                return
-            note += ", its edit open: the draft is back as it was before the edit."
+            self._close_stuck(d, f"{note}, its edit open")
+            return
+        self._repromote(d, fence, note + ".", "")
+
+    def _hold_stuck(self, d, err):
+        """The disk refused an edit's cancel, so the draft's edit stays open: the bar holds the draft -- nothing writes
+        it (Undo, Redo, a card's Accept, the refresh's own retry) until Cancel edit closes it -- and a promote the
+        game is owed for the edit stays owed, run then. Dropping the edit let Undo and the cards write under it, and
+        the next refresh's retry undid them (review of the perf fixes, round 5, R5-1 R5-3)."""
+        self._stuck = (Path(d), str(err))
+        self.refresh()
+        widgets.set_state(self.status_lbl, "error")
+
+    def _close_stuck(self, d, why="The edit is closed"):
+        """Close the edit a draft holds open with no one here editing it (a cancel the disk refused, a Workspace that
+        closed mid-edit): back to before it, then the promote the game is owed for it (rung C19)."""
+        from ..world import draft as D
+        fence = D.promote_owed(d)
+        try:
+            D.cancel_edit(d)
+        except OSError as err:
+            self._hold_stuck(d, err)
+            return
+        except ValueError as err:                        # a refusal: never promoted (a draft not known to be as it was)
+            self._stuck = None
+            D.settle_promote(d)
+            self._moved(f"{why}, and it could not be undone ({err})"
+                        + (": the game does not have the recipe now; Promote it from a card." if fence is not None
+                           else "."), "error")
+            return
+        self._stuck = None
+        note = f"{why}: the draft is back as it was before the edit."
+        if fence is not None:
+            self._repromote(d, fence, note, "")
         else:
-            note += "."
-        self._repromote(d, fence, note, "")
+            self._moved(note, "ok")
 
     def closing_runner(self):
         """The Workspace is closing (``WorldDoc.shutdown``): the runner of the bar's job, to wait for, or None. An
