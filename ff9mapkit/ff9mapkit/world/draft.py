@@ -636,6 +636,7 @@ def revert(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
 HISTORY = "history.json"                          # <draft>/history.json: the steps, the cursor, the promoted mark
 HISTORY_DIR = "history"                           # <draft>/history/<n>/{before,after}/<rel>: each step's cells
 _PENDING = "pending"
+_OWED_BACK = "take-back.json"                     # history/take-back.json: a commit's folder whose take-back is owed
 
 
 def history(draft: Path) -> dict:
@@ -794,8 +795,11 @@ def commit_step(draft: Path, row: dict, label: str) -> dict:
     except OSError:
         try:
             _retry(lambda: home.rename(pend))
-        except OSError:
+        except OSError:                              # (named on disk first: a take-back refused too is the next
+            owed = draft / HISTORY_DIR / _OWED_BACK  # abort's to finish, never an orphan folder: round 5, R5-4)
+            owed.write_text(json.dumps({"dir": rel_dir}), encoding="utf-8")
             _take_back(draft, home)
+            owed.unlink()
         raise
     try:
         for rel in _cell_files(home / "before", [c for c in cells if c not in keep_set]):
@@ -813,6 +817,17 @@ def abort_step(draft: Path) -> None:
     """The step failed: put its cells back as they were before it (a verb refuses before writing, so this is
     usually a no-op), and forget it. Only what the step moved is written back (:func:`_unmoved`): rewriting all
     2,088 files of a whole-map step took 14-28 s and moved every file's time (PERF.md 3)."""
+    owed = Path(draft) / HISTORY_DIR / _OWED_BACK
+    if owed.is_file():                               # a commit's take-back the disk refused: finished first (R5-4)
+        try:
+            folder = Path(draft) / json.loads(owed.read_text(encoding="utf-8"))["dir"]
+        except (ValueError, KeyError, TypeError):
+            folder = None
+        if folder is not None and (folder / "step.json").is_file():
+            _take_back(draft, folder)
+        elif folder is not None:
+            shutil.rmtree(folder, ignore_errors=True)    # (taken back already, its folder half deleted)
+        owed.unlink()
     pend = Path(draft) / HISTORY_DIR / _PENDING
     if not (pend / "step.json").is_file():
         return

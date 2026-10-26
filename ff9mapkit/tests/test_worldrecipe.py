@@ -995,3 +995,36 @@ def test_a_cancel_whose_redo_the_disk_refuses_runs_again_and_finishes(tmp_path, 
     h = D.history(d)
     assert _tree(d) == before and h["edit"] is None and h["cursor"] == 2
     assert not (d / D.HISTORY_DIR / D.EDIT_DIR).exists()
+
+
+def test_a_commit_whose_take_back_is_refused_too_is_finished_by_the_next_abort(tmp_path, monkeypatch):
+    """A commit whose history write, its folder's way back to pending and the in-place take-back were all refused
+    left the step's folder under history/ as neither pending nor a step: the card's take-back found nothing and said
+    "the write was taken back", the write stayed in the draft for good, and a Promote carried it (review of the
+    perf fixes, round 5, R5-4). The folder is named on disk first, so the next abort -- before any step, Undo,
+    Redo, Edit or Promote -- finishes its take-back."""
+    row = {"table": "forest", "center": [1.0, -1.0], "donor": "15,15"}
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain one")
+    before = _tree(d)
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())
+    real_write, real_rename, real_restore = D._write_history, type(d).rename, D._restore
+    D.begin_step(d, [(0, 0), (1, 0)])
+    (d / T00).write_bytes(b"forest")
+
+    def rename(self, target):
+        if self.name == "0001":
+            raise PermissionError(5, "a handle is open in it")
+        return real_rename(self, target)
+    monkeypatch.setattr(D, "_write_history", lambda *a: (_ for _ in ()).throw(PermissionError(5, "history held")))
+    monkeypatch.setattr(type(d), "rename", rename)
+    monkeypatch.setattr(D, "_restore", lambda *a, **k: (_ for _ in ()).throw(PermissionError(32, "in use")))
+    with pytest.raises(PermissionError):
+        D.commit_step(d, row, "forest two")
+    monkeypatch.setattr(D, "_write_history", real_write)
+    monkeypatch.setattr(type(d), "rename", real_rename)
+    monkeypatch.setattr(D, "_restore", real_restore)
+    assert (d / T00).read_bytes() == b"forest"                            # still in the draft...
+    D.abort_step(d)                                                       # ...until whatever runs next
+    assert _tree(d) == before and sorted(p.name for p in (d / D.HISTORY_DIR).iterdir()) == ["0000"]
+    assert D.history(d)["cursor"] == 1
