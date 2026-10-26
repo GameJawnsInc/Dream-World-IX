@@ -150,6 +150,47 @@ def test_footprint_preview_is_the_gate_s_own_law():
     assert lawful >= 10 and refused >= 10              # both verdicts exercised, or the fence proves nothing
 
 
+def test_the_footprint_law_asks_only_the_points_near_the_rim(monkeypatch):
+    """The carve's footprint law ran pip() / near_poly() for every tri of the island (0.58 s of a forest Check; the
+    two ten-line functions were 70% of world-forest --near). A point outside the rim polygon's box widened by
+    SCAN_BAND is neither in it nor within SCAN_BAND of it, so it is not asked (PERF.md 5, P2)."""
+    soup = _patchy_soup(1)
+    tri_c = IN._tri_centroids(soup)
+    poly = [(40.0, -40.0), (60.0, -40.0), (60.0, -60.0), (40.0, -60.0)]
+    calls, real = [], IN.pip
+    monkeypatch.setattr(IN, "pip", lambda *a: calls.append(1) or real(*a))
+    boxed = IN.forest_footprint_lawful(soup, tri_c, poly)
+    asked = len(calls)
+    calls.clear()
+    monkeypatch.setattr(IN, "_poly_box", lambda p: None, raising=False)   # every tri asked, as it was
+    assert IN.forest_footprint_lawful(soup, tri_c, poly) == boxed
+    assert 0 < asked < len(calls) / 10
+
+
+def test_the_boxed_footprint_law_is_the_footprint_law(monkeypatch):
+    """The box answers exactly what pip() and near_poly() answer: the same count, the same refusal and its point, at
+    random centres, turns and spreads (the preview fence's) -- and an edge whose dz is under pip's 1e-12 guard's
+    reach (0 < |dz| < 1e-6) turns the box off, the one case the guard could move a crossing along x."""
+    ring = np.array([(math.cos(a) * 9.0, 0.0, math.sin(a) * 6.0) for a in np.linspace(0, 2 * math.pi, 19)[:-1]])
+    ol = FE.Outline((0, 0), np.zeros((0, 3, 3)), ring, (18.0, 12.0))
+    rng = np.random.default_rng(5)
+    real_box = IN._poly_box
+    for seed in (1, 2):
+        soup = _patchy_soup(seed)
+        tri_c = IN._tri_centroids(soup)
+        for _ in range(40):
+            c = (rng.uniform(-10, 202), rng.uniform(-202, 10))
+            _t, rim = FE.placed(ol, c, spread=float(rng.choice([1.0, 1.5])), rot_deg=float(rng.choice([0, 33, 250])))
+            poly = [(float(x), float(z)) for x, _y, z in rim]
+            got, why = IN.forest_footprint_lawful(soup, tri_c, poly, why := []), why
+            monkeypatch.setattr(IN, "_poly_box", lambda p: None)
+            want, why2 = IN.forest_footprint_lawful(soup, tri_c, poly, why2 := []), why2
+            monkeypatch.setattr(IN, "_poly_box", real_box)
+            assert (got, why) == (want, why2), c
+    assert IN._poly_box([(0.0, 0.0), (10.0, 5e-7), (5.0, 9.0)]) is None
+    assert IN._poly_box([(0.0, 0.0), (10.0, 0.0), (5.0, 9.0)]) is not None
+
+
 def test_footprint_preview_says_what_it_reached():
     soup = _patchy_soup(1)
     ix = FE.SoupIndex(soup)

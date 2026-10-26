@@ -93,15 +93,20 @@ def stock(step):
 def child(arm, out, argv):
     if arm == "old":
         old_off()
+    import contextlib
+    import io
     from ff9mapkit import cli
+    buf = io.StringIO()
     t = time.perf_counter()
-    try:
-        code = cli.main(argv)
-    except SystemExit as e:
-        code = e.code
+    with contextlib.redirect_stdout(buf):
+        try:
+            code = cli.main(argv)
+        except SystemExit as e:
+            code = e.code
     rep = Path(argv[argv.index("--report-json") + 1])
     Path(out).write_text(json.dumps({"cli_main_s": time.perf_counter() - t, "code": code,
-                                     "verdict": json.loads(rep.read_text(encoding="utf-8"))}), encoding="utf-8")
+                                     "verdict": json.loads(rep.read_text(encoding="utf-8")) if rep.is_file() else None,
+                                     "stdout": buf.getvalue()}), encoding="utf-8")
 
 
 def check(n, verbs):
@@ -113,7 +118,12 @@ def check(n, verbs):
         for i in range(n):
             for arm in (("old", "new") if i % 2 == 0 else ("new", "old")):
                 tmp = Path(tempfile.mkdtemp(prefix="t3k_"))
-                argv = [str(a) for a in J.check_argv(verb, J.draft(), tmp / "verdict.json")]
+                if verb == "near":                                # the CLI's own search: the law in a loop
+                    argv = [str(a) for a in J.prefix()] + ["world-forest", "--mod-folder", str(J.draft()), "--near",
+                                                         "1400,-460", "--donor", "13,15", "--dry-run",
+                                                         "--report-json", str(tmp / "verdict.json")]
+                else:
+                    argv = [str(a) for a in J.check_argv(verb, J.draft(), tmp / "verdict.json")]
                 cli_argv = argv[argv.index("ff9mapkit") + 1:]
                 t = time.perf_counter()
                 subprocess.run([sys.executable, str(Path(__file__).resolve()), "child", arm, str(tmp / "o.json")]
@@ -121,7 +131,7 @@ def check(n, verbs):
                 walls[arm].append(round(time.perf_counter() - t, 3))
                 r = json.loads((tmp / "o.json").read_text(encoding="utf-8"))
                 mains[arm].append(round(r["cli_main_s"], 3))
-                verdicts.append(json.dumps(r["verdict"], sort_keys=True))
+                verdicts.append(json.dumps([r["verdict"], r["stdout"]], sort_keys=True))
         res[verb] = {"wall_min": {a: min(v) for a, v in walls.items()},
                      "cli_main_min": {a: min(v) for a, v in mains.items()},
                      "cli_main_median": {a: statistics.median(v) for a, v in mains.items()},

@@ -524,19 +524,38 @@ def _block_mid(b):
     return (BLOCK * b[0] + BLOCK / 2, -(BLOCK * b[1] + BLOCK / 2))
 
 
+def _poly_box(poly, band=None):
+    """``(xmin, xmax, zmin, zmax)`` of ``poly`` widened by ``band`` (default SCAN_BAND) + 1e-6: a point outside it is
+    neither :func:`pip` inside ``poly`` (its z is outside every edge's span, or its x is past every crossing, and an
+    outside point's crossings pair up) nor :func:`near_poly` within ``band`` of it (the nearest point of an edge lies
+    in the edge's box). None -- ask every point -- when an edge has 0 < |dz| < 1e-6: there pip's 1e-12 guard can move
+    a crossing far along x."""
+    if any(0.0 < abs(poly[i][1] - poly[i - 1][1]) < 1e-6 for i in range(len(poly))):
+        return None
+    m = (SCAN_BAND if band is None else band) + 1e-6
+    xs, zs = [p[0] for p in poly], [p[1] for p in poly]
+    return min(xs) - m, max(xs) + m, min(zs) - m, max(zs) + m
+
+
 def forest_footprint_lawful(soup, tri_c, poly, why=None):
     """THE FOREST FOOTPRINT LAW (``carve_forest``'s placement test): every island tri in or within
     :data:`SCAN_BAND` of the rim polygon ``poly`` is plain-grass mains with no corner within :data:`RIM_MARGIN`
     of the coast. Returns how many tris it judged, or None at the first that fails (appending ``((x, z),
-    what)`` to ``why``). ``world.forestedit.footprint_preview`` is this, vectorised (and fenced against it)."""
+    what)`` to ``why``). ``world.forestedit.footprint_preview`` is this, vectorised (and fenced against it). A point
+    outside the polygon's box widened by SCAN_BAND is not asked (:func:`_poly_box`: the same answers, PERF.md 5)."""
     gpos, gtris, gmeta = soup["pos"], soup["tris"], soup["meta"]
+    box = _poly_box(poly)
+
+    def near(px, pz):
+        if box is not None and (px < box[0] or px > box[1] or pz < box[2] or pz > box[3]):
+            return False
+        return pip(px, pz, poly) or near_poly(px, pz, poly, SCAN_BAND)
     seen = 0
     for tidx, tri in enumerate(gtris):
         cx, cz = tri_c[tidx]
-        hit = pip(cx, cz, poly) or near_poly(cx, cz, poly, SCAN_BAND)
+        hit = near(cx, cz)
         if not hit:
-            hit = any(pip(gpos[i][0], gpos[i][2], poly) or
-                      near_poly(gpos[i][0], gpos[i][2], poly, SCAN_BAND) for i in tri)
+            hit = any(near(gpos[i][0], gpos[i][2]) for i in tri)
         if not hit:
             continue
         seen += 1
