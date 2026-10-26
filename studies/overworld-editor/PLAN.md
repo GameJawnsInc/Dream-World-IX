@@ -146,7 +146,7 @@ alone.
   the 3D reload draws only the cells that moved (Undo 8-11 s -> under 1 s, an Accept 22-25 s -> about 5 s); every
   history step, Open...'s copy, a job's start and the party's seat off the window's thread; the Check kernels (a
   forest Check 6.8 -> 5.2 s, --near 305 -> 28 s); the drag and camera frames (50 / 100 ms -> 5 / 11 ms). Each fix
-  held to the old code on real data; three review rounds over the fixes (17, 9, 5 confirmed, all fixed). Not built:
+  held to the old code on real data; four review rounds over the fixes (17, 9, 5, 6 confirmed, all fixed). Not built:
   the warm worker (B3).
 - **THE REVIEW OF C12-C23 (2026-10-25)** -> [`REVIEW-C12-C23.md`](REVIEW-C12-C23.md). Five adversarial rounds over the
   GUI work and then over each round's fixes: 51 confirmed (20, 13, 7, 7, 4), 44 commits, each with a test red first. The laws: what

@@ -28,8 +28,12 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   edited one could be lost from the draft for good and, for a step in the game, from the game too.
 - An Accept or a recipe row whose history step cannot be recorded is taken back at once, and says so. It said Undo
   could not take it back, and the next Undo then took it out and undid the step before it too.
-- Undo and Redo say when the disk refuses them, and a sink or coast Accept whose disc-4 call died says disc 4 may
-  hold a half write (Undo takes it back) instead of saying disc 4 kept its own ground.
+- An Undo, Redo or Cancel edit the disk refuses part way leaves the draft as it was and says so, and a cancel that
+  could not finish closes the edit once the disk lets it. Before, a refused cancel could lose a step's record for
+  good and leave the edit open forever.
+- A sink or coast Accept whose disc-4 call died says disc 4 may hold a half write (Undo takes it back) instead of
+  saying disc 4 kept its own ground, an edit's Accept included.
+- An edit whose later step cannot be put back on top is cancelled and says why; it used to stop silently.
 
 ### Fixed — World tab: editing a step that is in the game, the edit cards and the game camera (a review of C12-C23)
 - **A step that is in the game** (C19). Edit and Delete promote the recipe back when they close. Before, that wrote
