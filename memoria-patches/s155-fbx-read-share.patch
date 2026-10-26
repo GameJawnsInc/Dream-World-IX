@@ -1,0 +1,34 @@
+diff --git a/Assembly-CSharp/Memoria/Assets/3DModel/FbxIO.cs b/Assembly-CSharp/Memoria/Assets/3DModel/FbxIO.cs
+index 8645a0e..f8e4b35 100644
+--- a/Assembly-CSharp/Memoria/Assets/3DModel/FbxIO.cs
++++ b/Assembly-CSharp/Memoria/Assets/3DModel/FbxIO.cs
+@@ -35,7 +35,7 @@ namespace Memoria.Assets
+         {
+             if (path == null)
+                 throw new ArgumentNullException(nameof(path));
+-            using (var stream = new FileStream(path, FileMode.Open))
++            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)) // [ff9mapkit s155] read-only, shared: see ReadFlexible
+             {
+                 var reader = new FbxBinaryReader(stream);
+                 return reader.Read();
+@@ -49,7 +49,7 @@ namespace Memoria.Assets
+         {
+             if (path == null)
+                 throw new ArgumentNullException(nameof(path));
+-            using (var stream = new FileStream(path, FileMode.Open))
++            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)) // [ff9mapkit s155] read-only, shared: see ReadFlexible
+             {
+                 var reader = new FbxAsciiReader(stream);
+                 return reader.Read();
+@@ -63,7 +63,10 @@ namespace Memoria.Assets
+         {
+             if (path == null)
+                 throw new ArgumentNullException(nameof(path));
+-            using (var stream = new FileStream(path, FileMode.Open))
++            // [ff9mapkit s155] FileMode.Open alone asks READ-WRITE access and shares Read only, for the whole parse: a second game on
++            // one desktop parsing the same mod FBX (two instance roots junction one mod folder) got a sharing violation, the import
++            // returned null and a world-map actor's model never built. A reader only needs Read, and must let other readers in.
++            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+             {
+                 if (FbxBinary.ReadHeader(stream))
+                 {
