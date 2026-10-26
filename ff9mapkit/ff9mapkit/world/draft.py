@@ -333,7 +333,7 @@ def _unmoved(p: Path, rec, at) -> bool:
 def _write_meta(draft: Path, meta: dict) -> None:
     tmp = Path(draft) / (DRAFT_FILE + ".tmp")
     tmp.write_text(json.dumps(meta, indent=1), encoding="utf-8")
-    tmp.replace(Path(draft) / DRAFT_FILE)
+    _retry(lambda: tmp.replace(Path(draft) / DRAFT_FILE))   # (a reader of draft.json waited out, as history's)
 
 
 def _record(data: bytes, src_mtime: int, draft_mtime: int) -> list:
@@ -645,9 +645,12 @@ def history(draft: Path) -> dict:
 
 
 def _write_history(draft: Path, h: dict) -> None:
+    """history.json, whole: written aside and put in place, waiting out a reader that holds it open (the window's
+    thread reads it while a worker records a step; Windows refuses the replace meanwhile: review of the perf
+    commits, CR-2)."""
     tmp = Path(draft) / (HISTORY + ".tmp")
     tmp.write_text(json.dumps(h, indent=1), encoding="utf-8")
-    tmp.replace(Path(draft) / HISTORY)
+    _retry(lambda: tmp.replace(Path(draft) / HISTORY))
 
 
 def _snap(draft: Path, cells, dest: Path, files=None) -> dict:

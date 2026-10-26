@@ -467,3 +467,32 @@ def test_a_discard_is_whole_or_nothing(tmp_path, monkeypatch):
     D.discard(d, root=tmp_path / "drafts")
     assert not d.exists() and gone and gone[0] != d.name               # the renamed copy is what is deleted
     assert not [p for p in (tmp_path / "drafts").iterdir() if p.name.startswith(d.name)]
+
+
+def test_a_step_is_recorded_while_the_window_reads_the_history(tmp_path):
+    """commit_step now runs on a worker (a card's Accept, an opened recipe's row) while the window's thread reads
+    history.json (the recipe bar's refresh, Undo's refusal, Save). Windows refuses the replace onto a file another
+    handle holds open, so the step's record was lost: its bytes in the draft, Undo unable to take them back (review
+    of the perf commits, CR-2). The history and meta writes wait such a reader out."""
+    import threading
+    _game_, _src, d = _draft(tmp_path)
+    stop, errors = threading.Event(), []
+
+    def reader():
+        while not stop.is_set():
+            D.history(d)
+    t = threading.Thread(target=reader, daemon=True)
+    t.start()
+    try:
+        for i in range(80):
+            D.begin_step(d, [(0, 0)])
+            (d / T00).write_bytes(b"step %d" % i)
+            try:
+                D.commit_step(d, {"table": "forest", "center": [1.0, -1.0], "donor": "15,15"}, f"step {i}")
+            except OSError as e:
+                errors.append(e)
+                D.abort_step(d)
+    finally:
+        stop.set()
+        t.join(5)
+    assert errors == [] and D.history(d)["cursor"] == 80
