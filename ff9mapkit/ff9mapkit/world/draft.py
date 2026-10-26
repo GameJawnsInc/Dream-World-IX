@@ -155,6 +155,7 @@ def ensure_draft(source: Path, *, game, root=None) -> Path:
         raise ValueError(f"{source} has no FF9_Data/WorldMap disc tree to draft")
     if draft.exists():
         raise ValueError(f"{draft} exists and is not a draft; move it aside")
+    _sweep_discarded(draft)                       # (what an earlier discard could not delete yet)
     tmp = draft.with_name(draft.name + ".making")
     if tmp.exists():
         shutil.rmtree(tmp)
@@ -234,12 +235,26 @@ def edited_blocks(draft: Path) -> list:
 
 
 def discard(draft: Path, *, root=None) -> None:
-    """Delete a draft (its edits with it). Refuses anything that is not a draft under the drafts root."""
+    """Delete a draft (its edits with it), whole or not at all. Refuses anything that is not a draft under the drafts
+    root. The draft is renamed aside first -- Windows refuses that, whole, while a reader holds a file in it (waited
+    out by :func:`_retry`) -- and the renamed copy is deleted: a bare rmtree stopped at the first held file, deleting
+    bottom-up with draft.json last, and left a gutted folder that was still a draft (review of the perf commits)."""
     draft = Path(draft)
     root = Path(root or drafts_dir())
     if read_meta(draft) is None or not _inside(draft, root) or draft.resolve() == root.resolve():
         raise ValueError(f"{draft} is not a draft under {root}")
-    shutil.rmtree(draft)
+    aside = draft.with_name(f"{draft.name}{_DISCARDING}{os.getpid()}-{time.time_ns()}")
+    _retry(lambda: draft.rename(aside))
+    _sweep_discarded(draft)
+
+
+_DISCARDING = ".discarding-"                      # a discarded draft's name while it is deleted (never a draft's)
+
+
+def _sweep_discarded(draft: Path) -> None:
+    """Delete what discards of ``draft`` renamed aside (a leftover a reader held is taken on the next sweep)."""
+    for p in Path(draft).parent.glob(Path(draft).name + _DISCARDING + "*"):
+        shutil.rmtree(p, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- promote (rung C4): the draft into the live folder

@@ -442,3 +442,28 @@ def test_opening_a_recipe_makes_its_draft_and_steps_off_the_window_s_thread(monk
     assert where == {"discard": False, "ensure_draft": False, "begin_step": False, "commit_step": False}
     assert D.history(tmp_path / "drafts" / "FF9CustomMap-world.draft")["cursor"] == 1 and holds[-1] is False
     assert "Composed one.toml: 1 row" in bar.status_lbl.text()
+
+
+def test_a_discard_is_whole_or_nothing(tmp_path, monkeypatch):
+    """Open... discards the draft on a worker while the window stays live, and the 3D view can read the draft's
+    files meanwhile. A bare rmtree stopped at the first file a reader held (deleting bottom-up, draft.json last): a
+    gutted folder that is still a draft, drawn, its missing files read as edits, a Promote deleting them from the
+    live folder (review of the perf commits, CR-1). A discard renames the draft aside first -- refused, whole, while
+    a file in it is open -- and then deletes the renamed copy."""
+    import shutil
+    _game_, _src, d = _draft(tmp_path)
+    before = _tree(d)
+    held = open(d / T10, "rb")                                          # a reader holds a file of the draft
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())              # (no waiting out the reader here)
+    try:
+        with pytest.raises(OSError):
+            D.discard(d, root=tmp_path / "drafts")
+    finally:
+        held.close()
+    assert D.is_draft(d) and _tree(d) == before                         # untouched: the discard did nothing
+    real = shutil.rmtree
+    gone = []
+    monkeypatch.setattr(shutil, "rmtree", lambda p, **k: gone.append(Path(p).name) or real(p, **k))
+    D.discard(d, root=tmp_path / "drafts")
+    assert not d.exists() and gone and gone[0] != d.name               # the renamed copy is what is deleted
+    assert not [p for p in (tmp_path / "drafts").iterdir() if p.name.startswith(d.name)]
