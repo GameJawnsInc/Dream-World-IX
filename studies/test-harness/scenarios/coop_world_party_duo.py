@@ -100,6 +100,8 @@ BOOT_WAIT_S = 30.0                                         # the host's battle u
 #: null, and WMScriptDirector.HonoAwake -> w_frameMapConstructor threw (its output_log): a world map that never constructed
 #: (ui BattleResult on scene WorldMap, world ticks 0, never a WorldHUD frame) and so could never boot battle 5 -- whose late
 #: join it then CORRECTLY declined. The bench had waited RET_WAIT_S for that return, dropped the None and fought on.
+#: memoria-patch s155 opens the FBX readers read-only, shared (probe: studies/test-harness/multi-instance/p8_fbx_share.py); the
+#: pre-pair farm below predates it and stays: it also shortens the leg.
 GUEST_RETURN_S = 60.0                                      # the host back on its world map -> the guest's own WorldHUD (~6 s)
 READY_S = 20.0                                             # before a host battle: the guest live on the world map
 DETAIL_W = 1600

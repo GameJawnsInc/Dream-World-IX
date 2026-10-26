@@ -161,6 +161,13 @@ release gate.
   final seq's re-sends before the cut) is > 0; the offset = 2000 - tail. Full write-up, per-run table, fix shape and recalibration
   in studies/battle-coop/R3-SITTING-A-FIXES.md ("The hold-onset variance"). The duo found a bug the replay bench had passed by
   placement luck.
+- **P8 -- THE SHARED-FILE RACE (2026-10-26, after the fact: `p8_fbx_share.py`).** Every root junctions the same mod folders,
+  so two games read ONE file. Stock `FbxIO.ReadFlexible` opened a custom FBX READ-WRITE (share Read) for its whole parse, and a
+  duo guest building the world map in the same second as its host lost the open: a null boat model, a world map that never
+  constructed (`20261026-121811-duo-s154-wpm-cal153`). The probe calls the COMPILED reader from a copy of each DLL in two
+  processes released together: s154 2974 of 4000 paired calls refused, s155 (read-only, shared) 0 of 4000, solo controls clean.
+  The law for any engine reader a duo shares: open Read + share Read, never the two-argument FileStream. Trap: the probe's two
+  workers' warm-up parses raced each other on s154 -- warm them up one at a time.
 - **Where this leaves the goal:** two real co-op clients on this desktop, harness-driven, over the sittings' own bridge + relay
   path, with no DLL change and the real install untouched. Next: P5 (a bridge-suspend cut vs sitting A), then productionize
   (instance.py, a Session multi-instance mode, duo.py, tests -- see "Harness changes"). **Productionized: next section.**
