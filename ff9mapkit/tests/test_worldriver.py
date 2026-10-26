@@ -309,3 +309,21 @@ def test_the_river_card_reads_the_cached_shape(tmp_path, monkeypatch):
     tool = RiverTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: tmp_path,
                      source_fn=lambda: tmp_path / "F", drafts_root=tmp_path / "d", sync=True)
     assert tool._outline_fn(None).cells == _shape().cells and asked == [tmp_path]
+
+
+def test_a_cache_that_cannot_be_written_still_hands_back_the_shape(tmp_path, monkeypatch):
+    """A cache write that fails -- the JSON held open by another reader, a read-only shared cache, two reads racing
+    one tmp name -- threw the finished 17-24 s shape away and the card said "The river could not be read" (review
+    of the perf commits, K1). The shape comes back; only the cache is skipped, and each writer has its own tmp."""
+    cache = tmp_path / "cache"
+    (cache).write_text("a file where the cache folder should be")      # mkdir under it fails
+    monkeypatch.setattr(RE, "_cache_dir", lambda: cache)
+    got = RE.cached_shape(tmp_path / "game", read=lambda game=None: _shape())
+    assert got.cells == _shape().cells
+    monkeypatch.setattr(RE, "_cache_dir", lambda: tmp_path / "ok")
+    real = type(tmp_path).replace
+    monkeypatch.setattr(type(tmp_path), "replace", lambda self, dst: (_ for _ in ()).throw(PermissionError(5, "held")))
+    got = RE.cached_shape(tmp_path / "game", read=lambda game=None: _shape())
+    monkeypatch.setattr(type(tmp_path), "replace", real)
+    assert got.cells == _shape().cells
+    assert not list((tmp_path / "ok" / "world-river").glob("*.tmp*"))   # no tmp left behind

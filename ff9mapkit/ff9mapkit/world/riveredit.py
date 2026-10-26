@@ -23,6 +23,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -117,10 +119,16 @@ def cached_shape(game, *, refresh: bool = False, read=None) -> RiverShape:
     doc = {"version": CACHE_VERSION, "stamp": stamp, "game": str(game), "tris": rs.tris.tolist(),
            "ring": rs.ring.tolist(), "blocks": [list(b) for b in rs.blocks], "cells": [list(c) for c in rs.cells],
            "cells_shift": list(rs.cells_shift), "shifts": [list(s) for s in rs.shifts]}
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(doc), encoding="utf-8")         # (floats round-trip exactly through their repr)
-    tmp.replace(path)
+    tmp = None
+    try:                                                      # a cache that cannot be written is only skipped: the
+        path.parent.mkdir(parents=True, exist_ok=True)        # shape is the answer (review of the perf commits, K1)
+        fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))   # each writer's own
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(doc))                          # (floats round-trip exactly through their repr)
+        Path(tmp).replace(path)
+    except OSError:
+        if tmp is not None:
+            Path(tmp).unlink(missing_ok=True)
     return rs
 
 
