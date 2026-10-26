@@ -29,6 +29,26 @@ import jobs_common as J                                               # noqa: E4
 from jobs_wall import job_env                                         # noqa: E402
 
 OUT = HERE.parent / "out" / "perf" / "t3"
+OLD_REV = "1dce6836"                     # the commit before tier 3: the OLD arm runs these modules as they were there
+OLD_MODULES = ("extract", "mesh", "placement", "interior", "transplant", "fuse")   # (dependency order)
+
+
+def load_old():
+    """Put world/<m>.py of OLD_REV in sys.modules under its own name before anything imports it (no switch in the
+    package: the old arm IS the old code). Registered before exec, as an import does, so cycles resolve."""
+    import types
+    import ff9mapkit.world as W
+    for m in OLD_MODULES:
+        rel = f"ff9mapkit/ff9mapkit/world/{m}.py"
+        src = subprocess.run(["git", "show", f"{OLD_REV}:{rel}"], cwd=str(J.KIT.parent), capture_output=True,
+                             text=True, encoding="utf-8", check=True).stdout
+        name = f"ff9mapkit.world.{m}"
+        mod = types.ModuleType(name)
+        mod.__file__ = str(J.KIT.parent / rel)                         # data files resolve beside it, as before
+        mod.__package__ = "ff9mapkit.world"
+        sys.modules[name] = mod
+        setattr(W, m, mod)
+        exec(compile(src, mod.__file__, "exec"), mod.__dict__)
 
 
 def old_off():
@@ -92,7 +112,7 @@ def stock(step):
 
 def child(arm, out, argv):
     if arm == "old":
-        old_off()
+        load_old()
     import contextlib
     import io
     from ff9mapkit import cli
@@ -141,11 +161,66 @@ def check(n, verbs):
     (OUT / "t3_check.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
 
 
+def accept(n, verbs):
+    """The card's real Accept call(s) into twin drafts, OLD and NEW children per call; the whole trees (and each
+    call's printed output, the draft path normalized) must match."""
+    import os
+    import shutil
+    import jobs_step_proto as SP
+    from ff9mapkit.world import draft as D
+    base, res = J.draft(), {}
+    for verb in verbs:
+        walls = {"old": [], "new": []}
+        same = []
+        for i in range(n):
+            drafts, outs = {}, {}
+            for arm in ("old", "new"):
+                root = OUT / f"acc_{verb}_{arm}{i}"
+                if root.exists():
+                    shutil.rmtree(root)
+                drafts[arm] = D.ensure_draft(J.SOURCE, game=J.GAME, root=root)
+            for arm in (("old", "new") if i % 2 == 0 else ("new", "old")):
+                d, total, printed = drafts[arm], 0.0, []
+                tmp = Path(tempfile.mkdtemp(prefix="t3acc_"))
+                for a in J.accept_argvs(verb, base, tmp / "verdict.json", tmp / "verdict4.json"):
+                    argv = [str(x).replace(str(base), str(d)) for x in a]
+                    cli_argv = argv[argv.index("ff9mapkit") + 1:]
+                    t = time.perf_counter()
+                    subprocess.run([sys.executable, str(Path(__file__).resolve()), "child", arm, str(tmp / "o.json")]
+                                   + cli_argv, cwd=str(J.kit_cwd()), env=job_env(), capture_output=True, check=False)
+                    total += time.perf_counter() - t
+                    printed.append(json.loads((tmp / "o.json").read_text(encoding="utf-8"))["stdout"]
+                                   .replace(str(d), "<D>"))
+                walls[arm].append(round(total, 3))
+                outs[arm] = printed
+            import re
+
+            def norm(tr):                                 # each arm's temp --report-json path is its own
+                return {k: re.sub(rb"t3acc_[A-Za-z0-9_]+", b"<T>", v) for k, v in tr.items()}
+            to, tn = norm(SP.tree(drafts["old"])), norm(SP.tree(drafts["new"]))
+            diff = sorted(k for k in set(to) | set(tn) if to.get(k) != tn.get(k))
+            for k in diff[:1]:                            # say what differs
+                ro, rn = to.get(k, b"").splitlines(), tn.get(k, b"").splitlines()
+                bad = [(x, y) for x, y in zip(ro, rn) if x != y][:1]
+                print("  first differing row:", bad, len(ro), len(rn), flush=True)
+            same.append(not diff and outs["old"] == outs["new"])
+            print(verb, i, walls["old"][-1], walls["new"][-1], "identical", same[-1], diff[:3], flush=True)
+            for d in drafts.values():
+                shutil.rmtree(d.parent, ignore_errors=True)
+        res[verb] = {"wall_min": {a: min(v) for a, v in walls.items()},
+                     "wall_median": {a: statistics.median(v) for a, v in walls.items()}, "identical": all(same)}
+        print(verb, json.dumps(res[verb]), flush=True)
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "t3_accept.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+
+
 if __name__ == "__main__":
     mode = sys.argv[1]
     if mode == "stock":
         stock(int(sys.argv[2]) if len(sys.argv) > 2 else 1)
     elif mode == "check":
         check(int(sys.argv[2]), sys.argv[3:])
+    elif mode == "accept":
+        accept(int(sys.argv[2]), sys.argv[3:])
     elif mode == "child":
         child(sys.argv[2], sys.argv[3], sys.argv[4:])
