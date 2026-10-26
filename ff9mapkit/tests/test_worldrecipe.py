@@ -404,3 +404,41 @@ def test_asking_whether_a_draft_exists_parses_its_meta_once_per_write(tmp_path, 
     for fn in (WF.CarryTool.draft, WD.WorldDoc._draft, WR.RecipeBar.draft):   # THE CALL SITES
         src = inspect.getsource(fn)
         assert "is_draft(" in src and "read_meta(" not in src, fn
+
+
+def test_opening_a_recipe_makes_its_draft_and_steps_off_the_window_s_thread(monkeypatch, tmp_path, app):
+    """Open... discarded the draft, copied a fresh one (2-10 s) and snapshotted each row's cells (a whole-map step
+    for an island, carry or sink row) on the window's thread: its click froze the window 13-23 s (PERF.md 7, K8).
+    They run on a worker; the bar holds the draft from the click to the last row, as before."""
+    import threading
+    import time
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldrecipe import RecipeBar
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "one.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"}]), encoding="utf-8")
+    where = {}
+
+    def seen(name, real):
+        def fn(*a, **k):
+            where.setdefault(name, threading.current_thread() is threading.main_thread())
+            return real(*a, **k)
+        return fn
+    for name in ("discard", "ensure_draft", "begin_step", "commit_step"):
+        monkeypatch.setattr(D, name, seen(name, getattr(D, name)))
+    D.ensure_draft(game / "FF9CustomMap-world", game=game, root=tmp_path / "drafts")   # a draft to replace
+    where.clear()
+    holds = []
+    bar = RecipeBar(pick_palette("dark"), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                    runner=InProcess(), drafts_root=tmp_path / "drafts", open_path_fn=lambda: str(saved),
+                    ask=lambda *a: True, on_hold=holds.append, sync=False)
+    bar.open_btn.click()
+    assert bar.holding() and holds[-1] is True                            # held from the click
+    t = time.time()
+    while bar.holding():
+        assert time.time() - t < 60
+        app.processEvents()
+        time.sleep(0.01)
+    assert where == {"discard": False, "ensure_draft": False, "begin_step": False, "commit_step": False}
+    assert D.history(tmp_path / "drafts" / "FF9CustomMap-world.draft")["cursor"] == 1 and holds[-1] is False
+    assert "Composed one.toml: 1 row" in bar.status_lbl.text()
