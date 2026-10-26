@@ -767,3 +767,26 @@ def test_an_accept_whose_step_cannot_be_recorded_is_taken_back_and_says_so(app, 
     monkeypatch.setattr(D, "abort_step", real)
     D.undo(draft) if D.history(draft)["cursor"] else D.abort_step(draft)  # (whichever runs next takes it back)
     assert (draft / rel).read_bytes() == stock
+
+
+def test_a_take_back_refused_in_an_open_edit_names_the_way_out_it_has(app, tmp_path, monkeypatch):
+    """An edit's Accept whose step could not be recorded nor taken back said "the next step, Undo, Redo or Promote
+    takes it back first": in an open edit Undo and Redo are hidden and Promote waits for the edit, so the way out is
+    Cancel edit, whose abort takes it back (review of the perf fixes, round 4, R4-4)."""
+    tool, _panel, _changed = _tool(app, tmp_path)
+    tool.place(26.04, -25.97, 3.2)                                        # (the draft is made)
+    _settle(tool)
+    tool.edit_row({"table": "forest", "center": [26.0, -26.0], "donor": "15,15"}, label="forest",
+                  on_accepted=lambda *a: None, on_cancel=lambda note=None: None)
+    _settle(tool)
+    monkeypatch.setattr(D, "commit_step", lambda *a, **k: (_ for _ in ()).throw(PermissionError(5, "a handle is open")))
+    real = D.abort_step
+
+    def fails(d):
+        if (Path(d) / D.HISTORY_DIR / D._PENDING / "step.json").is_file():
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "abort_step", fails)
+    tool.accept_btn.click()
+    text = tool.verdict_lbl.text()
+    assert "a reader holds it" in text and "Cancel edit" in text and "Undo" not in text, text

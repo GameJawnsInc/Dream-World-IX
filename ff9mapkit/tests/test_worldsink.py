@@ -498,3 +498,45 @@ def test_a_disc4_preview_that_could_not_run_is_said_so(world, monkeypatch, tmp_p
         words = disc4_words({"disc4": outcome} if outcome else {})
         assert "not checked" in words and "disc 4" in words, outcome
     assert disc4_words({"disc4": "replays"}) == disc4_words({"disc4": "copies"}) == "on disc 1 and on disc 4"
+
+
+def test_an_edit_whose_disc4_call_died_says_so_in_the_bar(world, tmp_path):
+    """The disc-4 note ('disc 4 refused', and since round 3 'disc 4 may hold a half write') was built after the edit
+    branch had handed the Accept to the bar, so an edit's Accept closed the card and the bar said only "Edited step
+    1 ...": for an in-game step the chain promoted the half write with no word anywhere (review of the perf fixes,
+    round 4, R4-5). The note goes to the bar, which says it with the edit."""
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldrecipe import RecipeBar
+    from .test_worldforest import Scripted
+    d4, die = "FF9_Data/WorldMap/Disc4/0_1/r5/Block[5][5] Terrain.ff9mesh", []
+
+    def answer(kind, argv):
+        if "--disc" in argv and kind == "accept" and die:                 # the edit's disc-4 call: writes, then dies
+            mod = Path(argv[argv.index("--mod-folder") + 1])
+            (mod / d4).parent.mkdir(parents=True, exist_ok=True)
+            (mod / d4).write_bytes(b"half a disc-4 sink")
+            return None
+        return {"ok": True, "dry_run": kind == "check", "at": [344.0, -360.0], "blocks": [[5, 5]], "written": [],
+                "report": {"land_tris": 4}, "refused": None}
+    run = Scripted(answer)
+    tool, game, src = _sink_card(tmp_path, [ROW], run)
+    tool.place(344.0, -360.0)
+    tool._timer.stop()
+    tool._check()
+    tool.accept_btn.click()                                               # the sink, whole
+    bar = RecipeBar(pick_palette("dark"), game_fn=lambda: game, source_fn=lambda: src, runner=run,
+                    drafts_root=tmp_path / "drafts", ask=lambda t, x: True,
+                    on_edit=lambda row, label: (tool.open_tool(), tool.edit_row(
+                        row, label=label, on_accepted=bar.edit_accepted, on_cancel=bar.cancel_edit)))
+    bar.refresh()
+    bar.select(0)
+    bar.edit_btn.click()
+    assert tool.editing(), bar.status_lbl.text()
+    tool.entrances.setChecked(True)                                       # retune it
+    tool._timer.stop()
+    tool._check()
+    die.append(1)
+    tool.accept_btn.click()                                               # Accept the edit: disc 4's call dies
+    text = bar.status_lbl.text()
+    assert "Edited step 1" in text and "may hold a half write" in text, text
+    assert bar.status_lbl.property("state") == "warn" and D.history(tool.draft())["edit"] is None

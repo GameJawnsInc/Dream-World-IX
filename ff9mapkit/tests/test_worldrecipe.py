@@ -786,3 +786,188 @@ def test_an_undo_or_redo_the_disk_refuses_says_so(monkeypatch, tmp_path, app):
         assert word in text and "a reader holds it" in text, text
     monkeypatch.setattr(D, "abort_step", real)
     assert D.history(draft)["cursor"] == 1                                # nothing moved
+
+
+def _edited_one_of_two(tmp_path):
+    """Two steps; an edit of the first open, its edited shape put in its place (the card's Accept)."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(0, 0)], {T00: b"forest"}, "forest one")
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain two")
+    before, h0 = _tree(d), D.history(d)
+    D.begin_edit(d, 0)
+    _step(d, [(0, 0)], {T00: b"forest moved"}, "forest one, moved")
+    return d, before, h0
+
+
+def test_a_cancel_whose_put_back_fails_runs_again_and_loses_nothing(tmp_path, monkeypatch):
+    """cancel_edit moved the lifted folders home one rename at a time with no retry, deleting each home first: a
+    rename refused part way left the edit open, and the next cancel (the bar's refresh runs one) deleted the folder
+    the first had moved home -- the edited step's own put-back held that name -- then failed on it, so the step's
+    record was gone and the edit could never close (review of the perf fixes, round 4, R4-2). The put-back steps
+    leave the history before their folders go, so a cancel run again finishes the first."""
+    d, before, h0 = _edited_one_of_two(tmp_path)
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())
+    real, held = type(d).rename, d / D.HISTORY_DIR / D.EDIT_DIR / "0001"
+
+    def rename(self, target):
+        if self == held:
+            raise PermissionError(5, "a handle is open in it")
+        return real(self, target)
+    monkeypatch.setattr(type(d), "rename", rename)
+    with pytest.raises(PermissionError):
+        D.cancel_edit(d)
+    monkeypatch.setattr(type(d), "rename", real)
+    D.cancel_edit(d)                                                      # the handle went: it finishes
+    h = D.history(d)
+    assert _tree(d) == before and h["edit"] is None and h["cursor"] == 2
+    assert [s["label"] for s in h["steps"]] == [s["label"] for s in h0["steps"]]
+    assert all((d / s["dir"]).is_dir() for s in h["steps"])
+    D.undo(d)                                                             # and each step walks again
+    D.undo(d)
+    D.redo(d)
+    D.redo(d)
+    assert _tree(d) == before
+
+
+def test_a_cancel_waits_out_a_handle_held_a_moment_in_a_lifted_folder(tmp_path, monkeypatch):
+    """begin_edit's lift retries a rename a reader refuses for a moment (round 3, H1); the cancel's put-back of the
+    same folders did not (review of the perf fixes, round 4, R4-2)."""
+    d, before, _h0 = _edited_one_of_two(tmp_path)
+    real_retry = D._retry
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: real_retry(fn, wait=0))
+    real, held, refused = type(d).rename, d / D.HISTORY_DIR / D.EDIT_DIR / "0001", []
+
+    def rename(self, target):
+        if self == held and len(refused) < 2:
+            refused.append(1)
+            raise PermissionError(5, "a handle is open in it")
+        return real(self, target)
+    monkeypatch.setattr(type(d), "rename", rename)
+    D.cancel_edit(d)
+    assert len(refused) == 2 and _tree(d) == before and D.history(d)["edit"] is None
+
+
+def test_an_undo_or_redo_the_disk_refuses_part_way_leaves_the_step_as_it_was(tmp_path, monkeypatch):
+    """undo and redo wrote a step's files back one at a time, then the history: a write refused part way (a reader
+    holding a file the step made) or a history the disk would not replace left the bytes half moved and the cursor
+    where it was. An Edit's rollback then redid the steps after it over a half-undone one and raised a refusal in
+    place of the error; the bar said "Not undone" over a half undo; the next Undo and Redo refused (review of the
+    perf fixes, round 4, R4-3). A refused undo or redo puts the step back as it was before it raises."""
+    _game_, _src, d = _draft(tmp_path)
+    obj = "FF9_Data/WorldMap/Disc1/0_1/r0/Block[1][0] Object.ff9mesh"
+    _step(d, [(0, 0)], {T00: b"A"}, "A")
+    _step(d, [(0, 0), (1, 0)], {T00: b"B", obj: b"B's object"}, "B")
+    _step(d, [(0, 0)], {T00: b"C"}, "C")
+    applied = _tree(d)
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())
+    real = type(d).unlink
+
+    def unlink(self, *a, **k):
+        if self.name == "Block[1][0] Object.ff9mesh":
+            raise PermissionError(32, "the file is being used by another process")
+        return real(self, *a, **k)
+    monkeypatch.setattr(type(d), "unlink", unlink)
+    with pytest.raises(PermissionError):                                  # an Edit of B: undoes C, then B refuses
+        D.begin_edit(d, 1)
+    assert _tree(d) == applied and D.history(d)["cursor"] == 3 and D.history(d)["edit"] is None
+    D.undo(d)
+    c_undone = _tree(d)
+    with pytest.raises(PermissionError):                                  # the bar's Undo of B
+        D.undo(d)
+    assert _tree(d) == c_undone and D.history(d)["cursor"] == 2
+    monkeypatch.setattr(type(d), "unlink", real)
+
+    real_write = D._write_history
+    monkeypatch.setattr(D, "_write_history", lambda *a: (_ for _ in ()).throw(PermissionError(5, "history held")))
+    with pytest.raises(PermissionError):                                  # every file moved, the history refused
+        D.undo(d)
+    assert _tree(d) == c_undone and D.history(d)["cursor"] == 2
+    with pytest.raises(PermissionError):
+        D.redo(d)
+    assert _tree(d) == c_undone and D.history(d)["cursor"] == 2
+    monkeypatch.setattr(D, "_write_history", real_write)
+    D.redo(d)                                                             # and the steps walk again
+    assert _tree(d) == applied
+    D.undo(d)
+    D.undo(d)
+    D.undo(d)
+    assert _tree(d) == _tree(_src)
+
+
+def test_a_commit_whose_history_write_fails_is_taken_back_whole(tmp_path, monkeypatch):
+    """commit_step renamed its pending folder in, trimmed it, then wrote the history: a history the disk would not
+    replace (a reader holding history.json) left no pending step and the folder orphaned, so the card's take-back
+    found nothing and said "the write was taken back" over a write the draft kept unrecorded (review of the perf
+    fixes, round 4, R4-1). The history is written next after the rename; refused, the folder goes back to pending
+    whole (the take-back finishes it), and when that is refused too the draft is put back from it here."""
+    row = {"table": "forest", "center": [1.0, -1.0], "donor": "15,15"}
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain one")
+    before = _tree(d)
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())
+    real_write = D._write_history
+    monkeypatch.setattr(D, "_write_history", lambda *a: (_ for _ in ()).throw(PermissionError(5, "history held")))
+    D.begin_step(d, [(0, 0), (1, 0)])
+    (d / T00).write_bytes(b"forest")
+    with pytest.raises(PermissionError):
+        D.commit_step(d, row, "forest two")
+    assert (d / D.HISTORY_DIR / D._PENDING / "step.json").is_file()       # whole, for the take-back
+    D.abort_step(d)
+    assert _tree(d) == before and sorted(p.name for p in (d / D.HISTORY_DIR).iterdir()) == ["0000"]
+
+    real = type(d).rename                                                 # the way back refused too
+    D.begin_step(d, [(0, 0), (1, 0)])
+    (d / T00).write_bytes(b"forest")
+
+    def rename(self, target):
+        if self.name == "0001":
+            raise PermissionError(5, "a handle is open in it")
+        return real(self, target)
+    monkeypatch.setattr(type(d), "rename", rename)
+    with pytest.raises(PermissionError):
+        D.commit_step(d, row, "forest two")
+    monkeypatch.setattr(type(d), "rename", real)
+    monkeypatch.setattr(D, "_write_history", real_write)
+    assert _tree(d) == before and sorted(p.name for p in (d / D.HISTORY_DIR).iterdir()) == ["0000"]
+    assert D.history(d)["cursor"] == 1
+
+
+def test_a_put_back_whose_step_cannot_be_recorded_cancels_the_edit_and_says_so(monkeypatch, tmp_path, app):
+    """An edit's put-back recorded each step it composed again on the window's thread, unguarded: a commit refused
+    left the job's done with the error (seen by no one in the windowless app), the pending step whole, and the bar
+    saying the steps were going back on top while nothing ran (review of the perf fixes, round 4, R4-6). The edit
+    is cancelled -- the draft exactly as it was -- and the bar says why."""
+    import sys
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "two.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"},
+                               {"table": "mountain", "center": [90.0, -26.0], "donor": "0,0"}]), encoding="utf-8")
+    doc, run = _doc(app, game, tmp_path, saved)
+    doc.set_view_mode("3d", sync=True)
+    doc._recipe.open_btn.click()
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    bar, before = doc._recipe, _tree(draft)
+    bar.select(0)
+    bar.edit_btn.click()
+    forest = doc._forest
+    forest.drop_at(30.0, -30.0)
+    forest._timer.stop()
+    forest._check()
+    assert forest.accept_btn.isEnabled(), forest.verdict_lbl.text()
+    real, calls = D.commit_step, []
+
+    def second_fails(*a, **k):
+        calls.append(1)
+        if len(calls) == 2:                                               # the put-back's own record
+            raise PermissionError(5, "a handle is open")
+        return real(*a, **k)
+    monkeypatch.setattr(D, "commit_step", second_fails)
+    raised = []
+    monkeypatch.setattr(sys, "excepthook", lambda *a: raised.append(a[1]))
+    forest.accept_btn.click()
+    text = bar.status_lbl.text()
+    assert raised == [] and len(calls) == 2
+    assert "Not edited" in text and "a handle is open" in text and bar._edit is None, text
+    h = D.history(draft)
+    assert _tree(draft) == before and h["edit"] is None and h["cursor"] == 2
+    assert not (draft / D.HISTORY_DIR / D._PENDING).exists()

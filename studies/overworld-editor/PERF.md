@@ -1,7 +1,7 @@
 # Where the World tab makes you wait, and what would shorten it
 
 **Status:** BUILT, 2026-10-26: the two defects and tiers 1-5 of the ranked list, each fix one commit with a test that
-failed first, re-measured per tier; then three adversarial review rounds over the fixes (17, 9 and 5 confirmed, all
+failed first, re-measured per tier; then four adversarial review rounds over the fixes (17, 9, 5 and 6 confirmed, all
 fixed). Owner requests: "explore performance improvements next", then "fix the two defects first, then
 build the ranked list in order, one commit per fix with a test that fails before it, re-measuring after each tier".
 What was built and what it measured is [below](#what-was-built); the exploration as it was written follows.
@@ -43,10 +43,15 @@ report is disc 1's verdict, with the disc-4 preview's outcome beside it (40d347f
   failure (the temp file included) ends it as a failed job; a done that raises is reported, never let out of wait();
   a call that ended without a verdict died, and is never called unchanged or a refusal (disc 4's call too).
 - THE HISTORY IS WRITTEN IN AN ORDER A FAILURE LEAVES WHOLE: a commit renames its folder in first (retried, a fresh
-  name), then trims and writes; an abort that failed is finished before the next step, edit, undo, redo, promote or
-  revert touches its cells; an Edit's open is whole or nothing (a lift that fails moves its folders back and redoes
-  its undos); a step that cannot be recorded is taken back at once, never left for whatever the user clicks next;
-  a discard renames the draft aside before deleting it (Windows refuses that whole while a reader holds a file).
+  name), writes the history next and only then trims; an abort that failed is finished before the next step, edit,
+  undo, redo, promote or revert touches its cells; a step that cannot be recorded is taken back at once, never left
+  for whatever the user clicks next; a discard renames the draft aside before deleting it (Windows refuses that
+  whole while a reader holds a file).
+- EVERY HISTORY PRIMITIVE IS WHOLE OR NOTHING, AND A REFUSED ONE CAN RUN AGAIN (round 4, after round 3 made one of
+  them so): an undo or redo the disk refuses part way puts the step's other side back; a commit whose history is
+  refused goes back to pending; an Edit's open moves its folders back and redoes its undos; a cancel takes the
+  put-back steps out of the history before their folders go, so run again it finishes the first. A caller's
+  rollback is only as true as the primitives under it, and every bar path that can meet the disk catches OSError.
 - A FAST PATH REFUSES AS THE SLOW ONE DID: a cut-short .ff9mesh raises struct.error, a NaN block takes the loop, a mesh
   the census precompute cannot read is asked per sample.
 
@@ -59,7 +64,7 @@ report is disc 1's verdict, with the disc-4 preview's outcome beside it (40d347f
 - **D1 / R1, the river:** no river Check can start from the card on the live folder.
 
 **Not checked:** no in-game run (the changes touch the editor's bookkeeping and its readers, not the bytes a verb
-writes); the third review round's own fixes had no fourth.
+writes); the fourth review round's own fixes had no fifth.
 
 
 ## Method

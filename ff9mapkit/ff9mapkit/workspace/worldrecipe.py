@@ -116,9 +116,9 @@ class RecipeBar(QWidget):
         d = self.draft()
         if d is not None and self._edit is None and self._queue is None and D.history(d)["edit"] \
                 and D.promote_owed(d) is None:       # (one the game is owed a promote for is :meth:`settle`'s)
-            try:                                         # an edit this Workspace did not open (it closed mid-edit)
-                D.cancel_edit(d)
-            except ValueError:
+            try:                                         # an edit this Workspace did not open (it closed mid-edit,
+                D.cancel_edit(d)                         # or the disk refused its cancel: R4-4)
+            except (ValueError, OSError):
                 pass
         h = D.history(d) if d is not None else {"steps": [], "cursor": 0, "promoted": 0}
         steps, cur, prom = h["steps"], h["cursor"], h["promoted"]
@@ -325,15 +325,16 @@ class RecipeBar(QWidget):
         d = (e or {}).get("draft")
         return Path(d) if d is not None and D.is_draft(Path(d)) else self.draft()
 
-    def edit_accepted(self):
-        """The card wrote the edited shape in the step's place: put the steps after it back on top."""
+    def edit_accepted(self, note=""):
+        """The card wrote the edited shape in the step's place: put the steps after it back on top. ``note``: what the
+        card had to say of its Accept (disc 4's), said with the edit once it closes (round 4, R4-5)."""
         from ..world import draft as D
         e = self._edit
         d = self._edit_draft(e)
         if d is None or e is None:
             return
         new = D.history(d)["steps"][e["k"]]
-        e["new_label"] = new["label"]
+        e["new_label"], e["note"] = new["label"], note
         self._start_put_back(d, D.dirty_after(set(), e["lifted"][0], new))
 
     def delete(self):
@@ -386,11 +387,15 @@ class RecipeBar(QWidget):
         e = self._edit
         while e["queue"]:
             s = e["queue"][0]
-            if not RC.replay_window(s) & e["dirty"] and D.replay(d, s):
-                e["queue"].pop(0)
-                e["replayed"] += 1
-                continue
-            D.begin_step(d, RC.row_cells(s["row"]))
+            try:
+                if not RC.replay_window(s) & e["dirty"] and D.replay(d, s):
+                    e["queue"].pop(0)
+                    e["replayed"] += 1
+                    continue
+                D.begin_step(d, RC.row_cells(s["row"]))
+            except OSError as err:                       # (the disk refused a step's record: R4-6)
+                self._put_back_refused(s, err)
+                return
             tmp = Path(tempfile.mkdtemp(prefix="ff9_edit_")) / "row.toml"
             tmp.write_text(RC.dumps_one(dict(s["row"])), encoding="utf-8")
             argv = self._fuse_argv(tmp, d)
@@ -410,8 +415,9 @@ class RecipeBar(QWidget):
             self._closed(d, e, f"Deleted step {e['k'] + 1}, {e['label']}.{back}", "ok")
             return
         self._sel = e["k"]
-        self._closed(d, e, f"Edited step {e['k'] + 1}: {e['label']} is now {e.get('new_label', e['label'])}.{back}",
-                     "ok")
+        said = f" {e['note']}" if e.get("note") else ""
+        self._closed(d, e, f"Edited step {e['k'] + 1}: {e['label']} is now {e.get('new_label', e['label'])}.{back}"
+                     f"{said}", "warn" if said else "ok")
         if self._on_select is not None:
             self._on_select(self.steps()[e["k"]])
 
@@ -421,17 +427,33 @@ class RecipeBar(QWidget):
         if e is None:
             return
         if code != 0:
-            D.abort_step(d)
+            try:
+                D.abort_step(d)
+            except OSError:                              # (the cancel's own abort finishes it: R4-6)
+                pass
             last = [ln for ln in text.splitlines() if ln.strip()][-1:] or [f"exit code {code}"]
             what = "deleted" if e["mode"] == "delete" else "edited"
             self.cancel_edit(f"Not {what}: on the new ground, {s['label']} (a step after it) refuses: {last[0]}. "
                              "The draft is exactly as it was.", "error")
             return
-        new = D.commit_step(d, s["row"], s["label"])
+        try:
+            new = D.commit_step(d, s["row"], s["label"])
+        except OSError as err:
+            self._put_back_refused(s, err)
+            return
         e["dirty"] = D.dirty_after(e["dirty"], s, new)
         e["queue"].pop(0)
         e["rerun"] += 1
         self._put_back(d)
+
+    def _put_back_refused(self, s, err):
+        """A step after the edited one could not be put back on top because the disk refused its record: the edit
+        is cancelled, the draft as it was (the pending step taken back by the cancel's abort). It left the job's
+        done unseen, the bar saying the steps were going back while nothing ran (review of the perf fixes, round 4,
+        R4-6)."""
+        what = "deleted" if self._edit["mode"] == "delete" else "edited"
+        self.cancel_edit(f"Not {what}: {s['label']} (a step after it) could not be put back on top ({err}). The "
+                         "draft is exactly as it was.", "error")
 
     def cancel_edit(self, note=None, state=""):
         """Close the open edit, the draft exactly as it was before it (the card's Cancel edit, a closed card, a step
@@ -448,8 +470,10 @@ class RecipeBar(QWidget):
         if d is not None:
             try:
                 D.cancel_edit(d)
-            except ValueError as err:
+            except (ValueError, OSError) as err:         # (an OSError: the disk refused it; closed once it lets: R4-4)
                 note, state, undone = f"The edit could not be undone: {err}.", "error", False
+                if e.get("fence") is not None:
+                    note += " The game does not have the recipe now; Promote it from a card."
                 D.settle_promote(d)                      # (a draft not known to be as it was is never promoted)
         self._sel = e["k"]
         note = note or f"Edit cancelled: the draft is exactly as it was, {e['label']} in its place."
@@ -576,7 +600,7 @@ class RecipeBar(QWidget):
         if D.history(d)["edit"]:
             try:
                 D.cancel_edit(d)
-            except ValueError as err:
+            except (ValueError, OSError) as err:
                 D.settle_promote(d)
                 self._moved(f"{note}, and it could not be undone ({err}): the game does not have the recipe now; "
                             "Promote it from a card.", "error")

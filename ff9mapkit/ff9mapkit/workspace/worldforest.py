@@ -1137,23 +1137,28 @@ class CarryTool(QWidget):
             return
         self._job = None
         self._verdict = None
+        way_out = ("Cancel edit, or Accept the edit again, takes it back first" if self._editing is not None else
+                   "the next step, Undo, Redo or Promote takes it back first")   # (an open edit hides Undo: R4-4)
         self._say(f"Not written: its history step could not be recorded ({err}), so "
                   + ("the write was taken back and the draft is as it was." if err2 is None else
-                     f"the write is in the draft until it can be taken back ({err2}): the next step, Undo, Redo or "
-                     "Promote takes it back first."), "error")
+                     f"the write is in the draft until it can be taken back ({err2}): {way_out}."), "error")
         self._sync_buttons()
 
     def _accepted(self, v):
         disc4 = getattr(self, "_disc4", None)
+        note = (" Disc 4 refused the same edit, so disc 4 keeps its own ground there (as the verb's replay would)."
+                if disc4 is False else
+                " Disc 4's call ended without a verdict, so disc 4 may hold a half write: Undo takes it back with "
+                "the rest of the step." if disc4 == "died" else "")
         pt = self._show_point(v)
         if pt is not None:
             self._last_center = pt
-        if self._editing is not None:                    # an edit: the bar puts the steps after it back
-            done = self._editing[1]
+        if self._editing is not None:                    # an edit: the bar puts the steps after it back, and says
+            done = self._editing[1]                      # the note, the card closing here (round 4, R4-5)
             self._end_edit()
             self._verdict = None
             self.close_tool()
-            done()
+            done(note.strip()) if note else done()
             return
         import re
         # the blocks whose bytes changed (the read window is wider, and a sink writes several parts per block)
@@ -1164,10 +1169,6 @@ class CarryTool(QWidget):
         self._verdict = None
         self.panel.set_overlays([])
         self.panel.set_ghost(None)
-        note = (" Disc 4 refused the same edit, so disc 4 keeps its own ground there (as the verb's replay would)."
-                if disc4 is False else
-                " Disc 4's call ended without a verdict, so disc 4 may hold a half write: Undo takes it back with "
-                "the rest of the step." if disc4 == "died" else "")
         self._say(f"In the draft: {n} block{'s' if n != 1 else ''} written. The view now draws the draft in place "
                   f"of {self.source().name}. Click to place another {self.NOUN}." + note, "warn" if note else "ok")
         if self._on_changed is not None:                 # the tab reads the island and the draft line again, once,
