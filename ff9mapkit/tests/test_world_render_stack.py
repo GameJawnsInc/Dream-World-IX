@@ -236,3 +236,25 @@ def test_a_cell_memo_does_not_trust_a_file_written_the_instant_before(stack, mon
     os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))                     # ...and the same time (one clock tick)
     got = R.load_batches(site, stock=True, memo=memo)
     assert _same_batches(got, R.load_batches(site, stock=True)) and got[0][1][0][1] == 6.0
+
+
+def test_a_young_file_s_entry_is_never_trusted_later_either(stack, monkeypatch):
+    """The memo's racy-clean rule judged a file's time against the clock of the load REUSING an entry: an entry
+    recorded while its file was young (its stat could still hide a same-tick rewrite) was trusted by every load
+    starting 2 s later, handing back bytes no longer on disk until a Rescan (review of the perf commits, 3D-1). An
+    entry is judged against the clock of the load that RECORDED it, as draft._unmoved does."""
+    import os
+    game, hi, lo = stack
+    monkeypatch.setattr(X, "block_parts", lambda disc=1, game=None: {})
+    p = _put(lo, "Terrain.ff9mesh", M.ff9mesh_bytes(_tri_mesh(1.0)))      # written just now: young
+    site = R.RenderSite(cells=((1, 1),), disc=1, game=game, stack=(hi, lo), parts=("Terrain",))
+    memo = R.CellMemo()
+    R.load_batches(site, stock=True, memo=memo)                           # recorded while young
+    st = p.stat()
+    p.write_bytes(M.ff9mesh_bytes(_tri_mesh(6.0)))                       # rewritten in the same tick
+    os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
+    import types
+    later = R.time.time_ns() + 3 * 10 ** 9                                # a load three seconds on (render's
+    monkeypatch.setattr(R, "time", types.SimpleNamespace(time_ns=lambda: later))   # name swapped, not the module)
+    got = R.load_batches(site, stock=True, memo=memo)
+    assert got[0][1][0][1] == 6.0 and _same_batches(got, R.load_batches(site, stock=True))

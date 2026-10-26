@@ -412,13 +412,15 @@ class CellMemo:
         fp = self._fingerprint(site, bx, by)
         hit = self._cells.get(key)
         from .draft import RACY_NS
-        if hit is not None and hit[0] == fp and all(f[4] < self._at - RACY_NS for f in fp):
+        # the racy-clean window is judged at the load that RECORDED the entry, as draft._unmoved judges at the begin
+        # stat: an entry made while a file was young stays untrusted (review of the perf commits, 3D-1)
+        if hit is not None and hit[0] == fp and all(f[4] < hit[2] - RACY_NS for f in fp):
             return hit[1]
         out = _cell_batches(site, bx, by, ox, oz, None, stock, None)
         for _part, *arrays in out:
             for a in arrays:
                 a.flags.writeable = False
-        self._cells[key] = (fp, out)
+        self._cells[key] = (fp, out, self._at)
         return out
 
 
