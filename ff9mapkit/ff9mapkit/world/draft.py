@@ -908,8 +908,10 @@ def begin_edit(draft: Path, k: int) -> dict:
     step after it out of the history (their records parked under ``history/edit/``, so :func:`cancel_edit` puts them
     back exactly). The draft is then as it was before step ``k``: the card judges the edited shape there, and the
     caller puts the steps after it back on top, each replayed (:func:`replay`) or re-run. Refuses a step out of range,
-    a promoted step (Revert promote first) and an edit already open; an undo that refuses on the way down (a step's
-    files moved) is redone again before the refusal is raised."""
+    a promoted step (Revert promote first), an edit already open and a lifted step whose record is gone; whatever
+    fails on the way (an undo that refuses, a step's folder the disk will not move, the history write) is put back
+    -- the folders moved back, the steps undone redone -- before it is raised: the open is whole or nothing (review
+    of the perf fixes, round 3, H1)."""
     draft = Path(draft)
     abort_step(draft)                                    # (an abort that failed, finished first: F2)
     h = history(draft)
@@ -919,27 +921,33 @@ def begin_edit(draft: Path, k: int) -> dict:
         raise ValueError(f"step {k + 1} is not an applied step of the recipe")
     if k < h["promoted"]:
         raise ValueError(f"step {k + 1} is in the game (promoted): Revert promote first")
-    cursor, done = h["cursor"], 0
+    for i, s in enumerate(h["steps"][k:], start=k):      # (an older kit could drop an undone step's folder)
+        if not (draft / s["dir"]).is_dir():
+            raise ValueError(f"the record of step {i + 1} ({s['label']}) is missing from the draft ({s['dir']})")
+    park = draft / HISTORY_DIR / EDIT_DIR
+    shutil.rmtree(park, ignore_errors=True)
+    park.mkdir(parents=True)                             # (a leftover the disk keeps refuses here, nothing moved)
+    cursor, done, moved = h["cursor"], 0, []
     try:
         while history(draft)["cursor"] > k:
             undo(draft)
             done += 1
+        h = history(draft)
+        lifted = []
+        for i, s in enumerate(h["steps"][k:]):
+            rel = f"{HISTORY_DIR}/{EDIT_DIR}/{i:04d}"
+            _retry(lambda s=s, rel=rel: (draft / s["dir"]).rename(draft / rel))
+            moved.append((s["dir"], rel))
+            lifted.append({**s, "dir": rel, "home": s["dir"]})
+        h["steps"] = h["steps"][:k]
+        h["edit"] = {"at": k, "applied": cursor - k, "lifted": lifted, "utc": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        _write_history(draft, h)
     except (ValueError, OSError):                        # a refusal, or the disk: either way, back as it was
+        for home, rel in reversed(moved):
+            _retry(lambda home=home, rel=rel: (draft / rel).rename(draft / home))
         for _ in range(done):
             redo(draft)
         raise
-    h = history(draft)
-    park = draft / HISTORY_DIR / EDIT_DIR
-    shutil.rmtree(park, ignore_errors=True)
-    park.mkdir(parents=True)
-    lifted = []
-    for i, s in enumerate(h["steps"][k:]):
-        rel = f"{HISTORY_DIR}/{EDIT_DIR}/{i:04d}"
-        (draft / s["dir"]).rename(draft / rel)
-        lifted.append({**s, "dir": rel, "home": s["dir"]})
-    h["steps"] = h["steps"][:k]
-    h["edit"] = {"at": k, "applied": cursor - k, "lifted": lifted, "utc": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    _write_history(draft, h)
     return h["edit"]
 
 

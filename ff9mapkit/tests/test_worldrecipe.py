@@ -665,3 +665,48 @@ def test_a_discard_leaves_no_copy_for_a_folder_with_brackets_in_its_name(tmp_pat
         d = D.ensure_draft(src, game=game, root=tmp_path / "drafts")
         D.discard(d, root=tmp_path / "drafts")
     assert sorted(p.name for p in (tmp_path / "drafts").iterdir()) == []
+
+
+def test_an_edit_whose_lift_fails_leaves_the_draft_and_its_history_as_they_were(tmp_path, monkeypatch):
+    """begin_edit undid back to the step, then moved each lifted step's folder into history/edit with no retry and no
+    way back: a rename refused (a handle open in a step's folder) left the steps undone and some of their folders
+    where the history did not point -- Redo raised, the next Edit deleted them, and the in-game chain promoted the
+    draft without them (review of the perf fixes, round 3, H1). The lift is whole or nothing."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(0, 0)], {T00: b"forest"}, "forest one")
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain two")
+    _step(d, [(0, 0)], {T00: b"forest again"}, "forest three")
+    before, h0 = _tree(d), D.history(d)
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())
+    real, held = type(d).rename, d / h0["steps"][2]["dir"]
+
+    def rename(self, target):
+        if self == held:
+            raise PermissionError(5, "a handle is open in it")
+        return real(self, target)
+    monkeypatch.setattr(type(d), "rename", rename)
+    with pytest.raises(PermissionError):
+        D.begin_edit(d, 1)
+    monkeypatch.setattr(type(d), "rename", real)
+    assert _tree(d) == before and D.history(d) == h0
+    assert all((d / s["dir"]).is_dir() for s in h0["steps"])
+    D.undo(d)                                                             # every step still walks
+    D.redo(d)
+    D.begin_edit(d, 1)                                                    # and the edit opens once the handle goes
+    D.cancel_edit(d)
+    assert _tree(d) == before and D.history(d)["cursor"] == 3
+
+
+def test_an_edit_over_a_step_whose_record_is_gone_refuses_before_anything_moves(tmp_path):
+    """A draft the kit before round 2's H2 fix left can hold an undone step whose folder is already gone: begin_edit
+    undid the applied steps, moved their folders, then raised on the missing one -- an applied step that could never
+    come back (review of the perf fixes, round 3, H1). It refuses first, the draft as it was."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(0, 0)], {T00: b"forest"}, "forest one")
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain two")
+    D.undo(d)
+    shutil.rmtree(d / D.history(d)["steps"][1]["dir"])
+    before, h0 = _tree(d), D.history(d)
+    with pytest.raises(ValueError, match="mountain two"):
+        D.begin_edit(d, 0)
+    assert _tree(d) == before and D.history(d) == h0 and (d / h0["steps"][0]["dir"]).is_dir()
