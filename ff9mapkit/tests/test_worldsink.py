@@ -96,6 +96,28 @@ def test_report_json_carries_the_sink_s_verdict(world, tmp_path, capsys):
     assert not v["ok"] and v["refused"]["message"] in capsys.readouterr().err and v["refused"]["where"]
 
 
+def test_the_disc4_preview_leaves_the_check_s_report_alone(world, monkeypatch, tmp_path, capsys):
+    """The disc-4 preview re-ran the sink with every argument, ``--report-json`` included, so its verdict overwrote
+    disc 1's: the card's Check showed disc 4's ("disc": 4, seen in a real Check), and "refused" for an island disc 1
+    sinks and the Accept writes, disc 4 keeping its own -- the first call's verdict decides (PERF.md defect 2)."""
+    from ff9mapkit.world import discmirror as DM
+    _island(world, other=False)
+    game, _src = _drafts(tmp_path)
+    monkeypatch.setattr(DM, "copy_refusal", lambda blk, **k: "real cell differs across discs in ['terrain']")
+    real = TR.sink
+
+    def sink(mod, at, **k):
+        if k.get("disc") == 4:
+            raise ValueError("no island at (344, -360) on disc 4")
+        return real(mod, at, **k)
+    monkeypatch.setattr(TR, "sink", sink)
+    rep = tmp_path / "v.json"
+    assert cli.main(["--game", str(game)] + SE.command("FF9CustomMap-world", (344.0, -360.0), report=rep)) == 0
+    v = json.loads(rep.read_text())
+    assert v["disc"] == 1 and v["ok"] and v["refused"] is None and v["blocks"] == [[5, 5]]
+    assert "the replay REFUSES there" in capsys.readouterr().out
+
+
 # ---------------------------------------------------------------- THE ACCEPTANCE: the card's bytes, by hand, by recipe
 def _drafts(tmp_path):
     game = _game(tmp_path)

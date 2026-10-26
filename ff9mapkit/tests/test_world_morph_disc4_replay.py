@@ -7,6 +7,7 @@ edit: before this, the edit stayed on disc 1 and disc 4 kept its stock coast wit
 """
 from __future__ import annotations
 
+import json
 import warnings
 from pathlib import Path
 
@@ -141,6 +142,18 @@ def test_a_dry_run_names_a_coast_disc4_cannot_take(dry, capsys):
     cap = capsys.readouterr()
     assert "the replay REFUSES there (above) -- the deploy edits disc 1 only" in cap.out
     assert "folds a tile at the waterline" in cap.err
+
+
+def test_the_disc4_preview_leaves_the_check_s_report_alone(dry, tmp_path, capsys):
+    """The disc-4 preview re-ran the morph with every argument, ``--report-json`` included, so its verdict overwrote
+    disc 1's: the coast card's Check said "refused" (at disc 4's gate) for a morph disc 1 takes and its Accept
+    writes, disc 4 keeping its own coast -- the first call's verdict is the one that decides (PERF.md defect 2)."""
+    rep = tmp_path / "v.json"
+    dry["why"], dry["refuse4"] = "real cell differs across discs in ['sea3', 'terrain']", True
+    assert cli._cmd_world_transplant(_args("--dry-run", "--report-json", str(rep))) == 0
+    v = json.loads(rep.read_text())
+    assert v["disc"] == 1 and v["ok"] and v["refused"] is None
+    assert "the replay REFUSES there (above)" in capsys.readouterr().out   # the text still says what disc 4 does
 
 
 def test_no_disc4_preview_when_skipped_or_on_disc4(dry, capsys):

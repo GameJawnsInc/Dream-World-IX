@@ -4908,7 +4908,8 @@ def _preview_disc4(args: argparse.Namespace, cells, cmd, what: str, keeps: str) 
     print(f"disc 4: {why} -- the deploy re-runs this {what} on disc 4's own ground. Its dry run:")
     sys.stdout.flush()                         # its refusal goes to stderr: keep it below this line
     ns = argparse.Namespace(**{**vars(args), "disc": 4, "skip_mirror": DM.REPLAY, "dry_run": True,
-                               "disc4_preview": True})
+                               "disc4_preview": True, "report_json": None})   # the report is disc 1's: the first
+    #                                    call decides, as the World tab's two-call Accept does (PERF.md defect 2)
     if cmd(ns) == 0:
         print("disc 4: the replay passes its gates -- the deploy edits both discs")
     else:
