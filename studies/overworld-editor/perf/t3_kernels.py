@@ -214,6 +214,51 @@ def accept(n, verbs):
     (OUT / "t3_accept.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
 
 
+def fuse(n, ks):
+    """The recipe bar's world-fuse row (the chain lane's gold draft, the state before step k: K=1 the hill row H2,
+    K=4 the sink row) in OLD and NEW children; world files, ledger rows (utc/argv out) and world_manifest.json entries
+    ('at' out) compared, and each equal to the card's own Accept of that step."""
+    import chain_fuse as CF
+    from chain_md5 import _manifest
+    from ff9mapkit.world import mesh as M
+    res = {}
+    for k in ks:
+        walls, same = {"old": [], "new": []}, []
+        recipe = CF.row_toml(k)
+        for i in range(n):
+            got = {}
+            for arm in (("old", "new") if i % 2 == 0 else ("new", "old")):
+                d = CF.state_before(k, f"t3fuse_{arm}{i}", warm=True)
+                nl = len(M.read_ledger(d))
+                cli_argv = [str(a) for a in CF.argv(Path(recipe), Path(d))[3:]]
+                tmp = Path(tempfile.mkdtemp(prefix="t3fuse_"))
+                t = time.perf_counter()
+                subprocess.run([sys.executable, str(Path(__file__).resolve()), "child-noreport", arm,
+                                str(tmp / "o.json")] + cli_argv, cwd=str(J.kit_cwd()), env=job_env(),
+                               capture_output=True, check=False)
+                walls[arm].append(round(time.perf_counter() - t, 3))
+                got[arm] = (CF.world(d), CF.ledger_rows(d, nl), _manifest(d), CF.vs_gold(k, d))
+            same.append(got["old"][:3] == got["new"][:3] and got["old"][3] and got["new"][3])
+            print(k, i, walls["old"][-1], walls["new"][-1], "identical and == the card's Accept", same[-1], flush=True)
+        res[str(k)] = {"wall_min": {a: min(v) for a, v in walls.items()},
+                       "wall_median": {a: statistics.median(v) for a, v in walls.items()}, "identical": all(same)}
+        print(k, json.dumps(res[str(k)]), flush=True)
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "t3_fuse.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+
+
+def child_noreport(arm, out, argv):
+    if arm == "old":
+        load_old()
+    from ff9mapkit import cli
+    t = time.perf_counter()
+    try:
+        code = cli.main(argv)
+    except SystemExit as e:
+        code = e.code
+    Path(out).write_text(json.dumps({"cli_main_s": time.perf_counter() - t, "code": code}), encoding="utf-8")
+
+
 if __name__ == "__main__":
     mode = sys.argv[1]
     if mode == "stock":
@@ -222,5 +267,9 @@ if __name__ == "__main__":
         check(int(sys.argv[2]), sys.argv[3:])
     elif mode == "accept":
         accept(int(sys.argv[2]), sys.argv[3:])
+    elif mode == "fuse":
+        fuse(int(sys.argv[2]), [int(k) for k in sys.argv[3:]])
+    elif mode == "child-noreport":
+        child_noreport(sys.argv[2], sys.argv[3], sys.argv[4:])
     elif mode == "child":
         child(sys.argv[2], sys.argv[3], sys.argv[4:])
