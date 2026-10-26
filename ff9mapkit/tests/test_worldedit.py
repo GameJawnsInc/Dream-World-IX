@@ -1590,3 +1590,24 @@ def test_a_held_draft_stays_held_when_the_tab_moves_to_another_folder(monkeypatc
     h = D.history(draft)
     assert h["edit"] is None and h["promoted"] == 3 and not bar.holding()
     assert _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_a_draft_held_in_the_chart_view_says_where_its_way_out_is(monkeypatch, tmp_path, app):
+    """The chart view closes the cards, so an edit's card cancels its edit there; refused, the bar held the draft out
+    of sight -- the folder box's tooltip pointing at a recipe bar not on screen -- and going back to 3D ran settle(),
+    which closed it with "The Workspace closed with a step ... taken out of it" although nothing closed (review of
+    the perf fixes, round 6, R6-4). The tooltip says the 3D view; settle leaves a held draft to its Cancel edit."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    real = _refused_cancel(monkeypatch)
+    doc.set_view_mode("chart", sync=True)
+    assert bar.holding() and "3D view" in doc.folder_box.toolTip(), doc.folder_box.toolTip()
+    monkeypatch.setattr(D, "cancel_edit", real)
+    doc.set_view_mode("3d", sync=True)
+    text = bar.status_lbl.text()
+    assert "Workspace closed" not in text and "still open" in text and bar.holding(), text
+    bar.cancel_btn.click()
+    assert D.history(draft)["edit"] is None and _tree(game / "FF9CustomMap-world") == live0

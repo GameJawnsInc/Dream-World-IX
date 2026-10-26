@@ -625,11 +625,12 @@ class RecipeBar(QWidget):
     def settle(self):
         """Put right a promote the game is owed and no chain here is paying (rung C19): a Workspace that closed or
         died with a step that is in the game taken out of it. The draft goes back to before the edit, and the steps
-        that were in the game are promoted again. The tab calls it once its 3D page and this bar are up."""
+        that were in the game are promoted again. The tab calls it once its 3D page and this bar are up. A held draft
+        is its Cancel edit's: settle closed it behind the user, saying the Workspace had closed (R6-4)."""
         from ..world import draft as D
         d = self.draft()
         if d is None or self._edit is not None or self._queue is not None or self._job is not None \
-                or self._prep is not None:
+                or self._prep is not None or self._stuck is not None:
             return
         fence = D.promote_owed(d)
         if fence is None:
