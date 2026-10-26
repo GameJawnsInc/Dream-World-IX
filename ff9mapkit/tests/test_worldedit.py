@@ -1398,21 +1398,43 @@ def test_any_failed_start_ends_the_job(app):
     assert r.wait() and not r.busy() and len(got) == 1 and got[0][0] == -1 and "could not start" in got[0][1]
 
 
-def test_a_killed_job_s_process_ends(app):
+def test_a_killed_job_s_process_ends(app, monkeypatch):
     """kill() must end the job's process, whether it lands while the worker is still inside Popen or after (a
     put-back killed by Cancel must not write over the restored draft): the contract test only checked that the
-    killed job's done never ran, which the runner's identity check gives by itself (review, J5)."""
+    killed job's done never ran, which the runner's identity check gives by itself (review, J5). Each case is made
+    to land where it says -- a fixed sleep let a slow first Popen put both inside it (review round 2)."""
+    import subprocess
     import sys
+    import threading
     import time
-    from ff9mapkit.workspace.worldforest import JobRunner
-    for delay in (0.0, 1.0):
-        r = JobRunner()
-        r.start([sys.executable, "-c", "import time; time.sleep(30)"], ".", lambda code, text: None)
-        time.sleep(delay)
-        job = r._job
-        r.kill()
-        job["thread"].join(10)
-        assert job["proc"] is not None and job["proc"].poll() is not None, delay
+    from ff9mapkit.workspace import worldforest as WF
+    real = subprocess.Popen
+    gate = threading.Event()
+
+    def gated(*a, **k):
+        gate.wait(30)
+        return real(*a, **k)
+    sleeper = [sys.executable, "-c", "import time; time.sleep(30)"]
+    # inside Popen: the worker holds at the gate while kill() lands; the worker's own kill ends the process
+    monkeypatch.setattr(WF.subprocess, "Popen", gated)
+    r = WF.JobRunner()
+    r.start(sleeper, ".", lambda code, text: None)
+    job = r._job
+    threading.Timer(0.3, gate.set).start()
+    r.kill()
+    job["thread"].join(10)
+    assert job["proc"] is not None and job["proc"].poll() is not None, "inside Popen"
+    # after Popen: kill() lands once the process exists; kill()'s own proc.kill() ends it
+    monkeypatch.setattr(WF.subprocess, "Popen", real)
+    r = WF.JobRunner()
+    r.start(sleeper, ".", lambda code, text: None)
+    job, t = r._job, time.time()
+    while job["proc"] is None:
+        assert time.time() - t < 30
+        time.sleep(0.01)
+    r.kill()
+    job["thread"].join(10)
+    assert job["proc"].poll() is not None, "after Popen"
 
 
 def test_an_edit_or_delete_that_the_disk_refuses_says_so(monkeypatch, tmp_path, app):
