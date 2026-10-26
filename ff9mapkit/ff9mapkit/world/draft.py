@@ -1059,29 +1059,37 @@ def cancel_edit(draft: Path) -> dict:
     e = history(draft)["edit"]
     if not e:
         raise ValueError("no edit is open in the draft")
-    k = e["at"]
-    while history(draft)["cursor"] > k:
-        undo(draft)
-    h = history(draft)
-    put = h["steps"][k:]
-    if put:
-        h["steps"] = h["steps"][:k]
+    if "redo_to" not in e:                               # the lifted steps go back in (a second phase, below, redoes)
+        k = e["at"]
+        while history(draft)["cursor"] > k:
+            undo(draft)
+        h = history(draft)
+        put = h["steps"][k:]
+        if put:
+            h["steps"] = h["steps"][:k]
+            _write_history(draft, h)
+            for s in put:
+                shutil.rmtree(draft / s["dir"], ignore_errors=True)
+        steps = h["steps"][:k]
+        for s in e["lifted"]:
+            park, home = draft / s["dir"], draft / s["home"]
+            if park.is_dir():                            # (its home holds nothing of the history's: cleared)
+                if home.exists():
+                    _retry(lambda home=home: shutil.rmtree(home))
+                _retry(lambda park=park, home=home: park.rename(home))
+            elif not home.is_dir():
+                raise ValueError(f"the record of {s['label']} is missing from the draft ({s['dir']})")
+            steps.append({**{key: v for key, v in s.items() if key != "home"}, "dir": s["home"]})
+        # THE REDOS OWED stay in the open edit until they are done: written closed first, a redo the disk refused
+        # left the edit closed and the later steps undone, with nothing to run them again (round 5, R5-2)
+        h["steps"], h["cursor"] = steps, k
+        h["edit"] = {"at": k, "applied": e["applied"], "lifted": [], "redo_to": k + e["applied"], "utc": e.get("utc")}
         _write_history(draft, h)
-        for s in put:
-            shutil.rmtree(draft / s["dir"], ignore_errors=True)
-    steps = h["steps"][:k]
-    for s in e["lifted"]:
-        park, home = draft / s["dir"], draft / s["home"]
-        if park.is_dir():                                # (its home holds nothing of the history's: cleared)
-            if home.exists():
-                _retry(lambda home=home: shutil.rmtree(home))
-            _retry(lambda park=park, home=home: park.rename(home))
-        elif not home.is_dir():
-            raise ValueError(f"the record of {s['label']} is missing from the draft ({s['dir']})")
-        steps.append({**{key: v for key, v in s.items() if key != "home"}, "dir": s["home"]})
-    h["steps"], h["cursor"], h["edit"] = steps, k, None
-    _write_history(draft, h)
-    for _ in range(e["applied"]):
+    to = history(draft)["edit"]["redo_to"]
+    while history(draft)["cursor"] < to:
         redo(draft)
+    h = history(draft)
+    h["edit"] = None
+    _write_history(draft, h)
     shutil.rmtree(draft / HISTORY_DIR / EDIT_DIR, ignore_errors=True)
     return e

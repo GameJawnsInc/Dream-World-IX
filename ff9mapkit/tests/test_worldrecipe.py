@@ -971,3 +971,27 @@ def test_a_put_back_whose_step_cannot_be_recorded_cancels_the_edit_and_says_so(m
     h = D.history(draft)
     assert _tree(draft) == before and h["edit"] is None and h["cursor"] == 2
     assert not (draft / D.HISTORY_DIR / D._PENDING).exists()
+
+
+def test_a_cancel_whose_redo_the_disk_refuses_runs_again_and_finishes(tmp_path, monkeypatch):
+    """cancel_edit wrote the history with the edit closed before it redid the steps that were applied: a redo refused
+    there (round 4 rolls that one step back whole) left the edit closed with the later steps undone, and no cancel
+    run again or refresh ever finished it (review of the perf fixes, round 5, R5-2). The redos still owed stay in
+    the open edit until they are done, so a cancel run again finishes them."""
+    d, before, _h0 = _edited_one_of_two(tmp_path)
+    real, calls = D.redo, []
+
+    def second_refused(draft):
+        calls.append(1)
+        if len(calls) == 2:
+            raise PermissionError(5, "history held")
+        return real(draft)
+    monkeypatch.setattr(D, "redo", second_refused)
+    with pytest.raises(PermissionError):
+        D.cancel_edit(d)
+    monkeypatch.setattr(D, "redo", real)
+    assert D.history(d)["edit"] and D.history(d)["cursor"] == 1          # still open: a redo is owed
+    D.cancel_edit(d)
+    h = D.history(d)
+    assert _tree(d) == before and h["edit"] is None and h["cursor"] == 2
+    assert not (d / D.HISTORY_DIR / D.EDIT_DIR).exists()
