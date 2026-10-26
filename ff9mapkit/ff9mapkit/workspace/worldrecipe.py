@@ -32,6 +32,15 @@ def _said(err) -> str:
     return s[:1].upper() + s[1:]
 
 
+def _short(err) -> str:
+    """An error in a few words, for a status line: an OSError's own text and its file's name, not the paths (a
+    WinError's two full paths took the held bar's whole row: round 6, its render)."""
+    if isinstance(err, OSError) and err.strerror:
+        return err.strerror + (f" ({Path(err.filename).name})" if err.filename else "")
+    s = str(err)
+    return s if len(s) <= 120 else s[:117] + "..."
+
+
 class RecipeBar(QWidget):
     """``source_fn()`` the mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the
     view and the tools after the draft moved; ``on_select(step)`` marks the picked step on the view (None: no step);
@@ -61,7 +70,7 @@ class RecipeBar(QWidget):
         self._edit = None                                # the open edit of a placed step, or None
         self._job = None                                 # "revert" / "promote" while an in-game step's job runs (C19)
         self._prep = None                                # the in-game step being taken out of the game to edit
-        self._stuck = None                               # (draft, why) while the disk refuses an edit's cancel (R5-1)
+        self._stuck = None                               # (draft, short, full) while an edit's cancel is refused
         self._closing_tried = False                      # a close tried a held edit's cancel once (R6-5)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(2, 0, 2, 0)
@@ -133,7 +142,7 @@ class RecipeBar(QWidget):
                 D.cancel_edit(d)                         # never while a card writes: its abort took the card's step
             except (ValueError, OSError) as err:         # refused, the edit left open: held until Cancel edit closes
                 if D.history(d)["edit"]:                 # it, never retried behind the bar (R5-1, R6-2)
-                    self._stuck = (Path(d), str(err))
+                    self._stuck = (Path(d), _short(err), str(err))
         h = D.history(d) if d is not None else {"steps": [], "cursor": 0, "promoted": 0}
         steps, cur, prom = h["steps"], h["cursor"], h["promoted"]
         busy = self._queue is not None or self._edit is not None or self._job is not None or self._stuck is not None
@@ -159,10 +168,10 @@ class RecipeBar(QWidget):
             text = "Promoting the recipe into the game again…"
         elif self._stuck is not None:
             held = Path((D.read_meta(self._stuck[0]) or {}).get("source") or self._stuck[0]).name
-            text = (f"An edit is still open in the draft of {held}: its cancel was refused ({self._stuck[1]}). "
-                    "Nothing writes the draft until it closes; Cancel edit tries again, or Discard draft starts "
-                    "over." + (f" The game does not have {held}'s steps until it closes: their promote runs then."
-                               if D.promote_owed(self._stuck[0]) is not None else ""))
+            text = (f"The edit of {held} is still open: its cancel was refused ({self._stuck[1]}). Cancel edit "
+                    "tries again; Discard draft starts over."
+                    + (" The game lacks its steps until then." if D.promote_owed(self._stuck[0]) is not None
+                       else ""))
         elif self._edit is not None:
             text = self._edit_text(self._edit)
         elif self._sel is not None:
@@ -174,7 +183,10 @@ class RecipeBar(QWidget):
         widgets.set_state(self.status_lbl, "")
         editing = self._edit is not None
         for b in (self.undo_btn, self.redo_btn, self.save_btn, self.open_btn):
-            b.setVisible(not editing)                    # an open edit holds the history: they wait for it
+            b.setVisible(not editing and self._stuck is None)   # an open or held edit holds the history: they wait
+        self.status_lbl.setToolTip("" if self._stuck is None else
+                                   f"{self._stuck[2]}\n\nNothing writes the draft until the edit closes: Undo, "
+                                   "Redo and the cards wait for it.")
         self.undo_btn.setEnabled(not busy and cur > prom)
         self.undo_btn.setToolTip(f"Undo: {steps[cur - 1]['label']}" if cur > prom else
                                  "The steps here are in the game: Revert promote first." if cur else "Nothing to undo.")
@@ -671,7 +683,7 @@ class RecipeBar(QWidget):
         it (Undo, Redo, a card's Accept, the refresh's own retry) until Cancel edit closes it -- and a promote the
         game is owed for the edit stays owed, run then. Dropping the edit let Undo and the cards write under it, and
         the next refresh's retry undid them (review of the perf fixes, round 5, R5-1 R5-3)."""
-        self._stuck = (Path(d), str(err))
+        self._stuck = (Path(d), _short(err), str(err))
         self.refresh()
         widgets.set_state(self.status_lbl, "error")
 

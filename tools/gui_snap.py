@@ -657,7 +657,16 @@ def _snap_world_step(ctx: _Ctx, win) -> None:
         mt._check()
         _settle(12)
         _grab(ctx, "world-3d-step-edit", win)
-        mt.close_tool()                                  # Cancel edit: the draft as it was
+        from ff9mapkit.world import draft as D           # the perf review's round 6: a cancel refused holds the
+        real = D.cancel_edit                             # draft, its way out on the bar (Cancel edit, Discard draft)
+        D.cancel_edit = lambda d: (_ for _ in ()).throw(PermissionError(13, "a reader holds it"))
+        try:
+            mt.close_tool()
+            _settle(12)
+            _grab(ctx, "world-3d-step-held", win)
+        finally:
+            D.cancel_edit = real
+        doc._recipe.cancel_edit()                        # Cancel edit, again: the draft as it was
     finally:
         V.load_scene = orig
 
