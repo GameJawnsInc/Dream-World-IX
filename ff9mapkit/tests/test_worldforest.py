@@ -725,3 +725,45 @@ def test_a_job_that_died_without_a_verdict_is_never_called_unchanged(app, tmp_pa
     tool.accept_btn.click()
     text = tool.verdict_lbl.text()
     assert "unchanged" not in text and "may hold" in text and "without a verdict" in text
+
+
+def test_an_accept_whose_step_cannot_be_recorded_is_taken_back_and_says_so(app, tmp_path, monkeypatch):
+    """A commit whose rename is refused leaves its pending step whole (round 2, H2), so the next Undo, step or Promote
+    took the accepted write back -- while the card said "Undo cannot take it back", and that one Undo undid the step
+    before it too (review of the perf fixes, round 3, H3). The write is taken back at once, and the card says so;
+    when the disk refuses that too, it says the next step, Undo, Redo or Promote takes it back."""
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    rel = "FF9_Data/WorldMap/Disc1/0_1/r0/Block[0][0] Terrain.ff9mesh"
+    ok = Scripted().answer
+
+    def answer(kind, argv):
+        if kind == "accept":
+            (draft / rel).write_bytes(b"a forest")                        # the verb wrote the draft
+        return ok(kind, argv)
+    tool, _panel, _changed = _tool(app, tmp_path, Scripted(answer))
+    tool.place(26.04, -25.97, 3.2)
+    _settle(tool)
+    stock = (draft / rel).read_bytes()
+    monkeypatch.setattr(D, "commit_step", lambda *a, **k: (_ for _ in ()).throw(PermissionError(5, "a handle is open")))
+    tool.accept_btn.click()
+    text = tool.verdict_lbl.text()
+    assert (draft / rel).read_bytes() == stock and D.history(draft)["cursor"] == 0
+    assert not (draft / D.HISTORY_DIR / D._PENDING).exists() and not tool.writing()
+    assert "cannot take it back" not in text and "a handle is open" in text and "taken back" in text
+
+    real = D.abort_step
+
+    def fails(d):                                                         # the take-back refused too
+        if (Path(d) / D.HISTORY_DIR / D._PENDING / "step.json").is_file():
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "abort_step", fails)
+    tool.place(26.04, -25.97, 3.2)
+    _settle(tool)
+    tool.accept_btn.click()
+    text = tool.verdict_lbl.text()
+    assert (draft / rel).read_bytes() == b"a forest" and not tool.writing()
+    assert "a reader holds it" in text and "next step, Undo, Redo or Promote" in text
+    monkeypatch.setattr(D, "abort_step", real)
+    D.undo(draft) if D.history(draft)["cursor"] else D.abort_step(draft)  # (whichever runs next takes it back)
+    assert (draft / rel).read_bytes() == stock

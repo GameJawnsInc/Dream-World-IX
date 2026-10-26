@@ -726,3 +726,34 @@ def test_a_pending_abort_is_finished_before_a_revert_rebases_the_draft(tmp_path,
     D.revert(d, game=game, log=lambda *a: None)
     D.undo(d)
     assert _tree(d) == _tree(src) and D.edits(d) == [] and D.history(d)["cursor"] == 0
+
+
+def test_an_opened_recipe_row_whose_step_cannot_be_recorded_is_taken_back(monkeypatch, tmp_path, app):
+    """A row composed but not recorded (its commit's rename refused) stayed in the draft while the bar said "Undo
+    cannot take it back"; the pending step it left was whole, so the next Undo took it out and undid the row before
+    it too, the bar naming only that one (review of the perf fixes, round 3, H3). It is taken back at once."""
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "two.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"},
+                               {"table": "mountain", "center": [90.0, -26.0], "donor": "0,0"}]), encoding="utf-8")
+    doc, _run = _doc(app, game, tmp_path, saved)
+    doc.set_view_mode("3d", sync=True)
+    real, calls = D.commit_step, []
+
+    def second_fails(*a, **k):
+        calls.append(1)
+        if len(calls) == 2:
+            raise PermissionError(5, "a handle is open")
+        return real(*a, **k)
+    monkeypatch.setattr(D, "commit_step", second_fails)
+    doc._recipe.open_btn.click()
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    one = _tree(draft)
+    h = D.history(draft)
+    assert h["cursor"] == 1 and not (draft / D.HISTORY_DIR / D._PENDING).exists()
+    text = doc._recipe.status_lbl.text()
+    assert "Stopped at mountain" in text and "a handle is open" in text and "taken back" in text
+    assert "cannot take it back" not in text
+    D.undo(draft)                                                         # the forest row, and only it
+    D.redo(draft)
+    assert _tree(draft) == one

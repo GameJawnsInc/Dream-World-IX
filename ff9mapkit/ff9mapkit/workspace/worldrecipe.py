@@ -763,10 +763,17 @@ class RecipeBar(QWidget):
         q = self._queue
         if q is None:
             return
-        if err is not None:
-            self._queue = None
-            self._moved(f"Stopped at {RC.label(row)}: the row was composed but its history step was not recorded "
-                        f"({err}): Undo cannot take it back.", "error")
+        if err is not None:                              # its step is left whole: taken back now (round 3, H3)
+            from ..world import draft as D
+
+            def taken_back(_r, err2):
+                self._queue = None
+                back = ("its writes were taken back" if err2 is None else
+                        f"its writes stay in the draft until they can be taken back ({err2}): the next step, Undo, "
+                        "Redo or Promote takes them back first")
+                self._moved(f"Stopped at {RC.label(row)} ({q['done']} row(s) composed): its history step could not "
+                            f"be recorded ({err}), so {back}.", "error")
+            self._steps.start(lambda: D.abort_step(d), taken_back)
             return
         q["rows"].pop(0)
         q["done"] += 1

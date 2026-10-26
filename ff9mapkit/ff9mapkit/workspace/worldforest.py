@@ -1109,6 +1109,11 @@ class CarryTool(QWidget):
     def _recorded(self, kind, key, v, err):
         if self._job != (kind, key):
             return
+        if err is not None and v["ok"]:                  # a commit that failed leaves its step whole: taken back
+            from ..world import draft as D               # now, not by whatever the user clicks next (round 3, H3)
+            d = self.draft()
+            self._steps.start(lambda: D.abort_step(d), lambda _r, err2: self._not_recorded(kind, key, err, err2))
+            return
         self._job = None
         if err is not None and not v["ok"]:              # a refused Accept: nothing was written, only its pending
             self._verdict = (key, v)                     # snapshot stays (review of the perf commits, F1)
@@ -1120,17 +1125,22 @@ class CarryTool(QWidget):
                 self._say(f"{self.verdict_lbl.text()} The draft is unchanged, but its history snapshot could not be "
                           f"cleared ({err}).", "error")
             return
-        if err is not None:
-            self._verdict = None
-            self._say(f"The draft was written but its history step was not recorded ({err}): Undo cannot take it "
-                      "back.", "error")
-            self._sync_buttons()
-            return
         self._verdict = (key, v)
         if kind == "accept" and v["ok"]:
             self._accepted(v)
             return
         self._redraw()
+
+    def _not_recorded(self, kind, key, err, err2):
+        if self._job != (kind, key):
+            return
+        self._job = None
+        self._verdict = None
+        self._say(f"Not written: its history step could not be recorded ({err}), so "
+                  + ("the write was taken back and the draft is as it was." if err2 is None else
+                     f"the write is in the draft until it can be taken back ({err2}): the next step, Undo, Redo or "
+                     "Promote takes it back first."), "error")
+        self._sync_buttons()
 
     def _accepted(self, v):
         disc4 = getattr(self, "_disc4", None)
