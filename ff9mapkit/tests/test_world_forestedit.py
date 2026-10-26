@@ -476,3 +476,36 @@ def test_promote_onto_cells_the_live_folder_has_nothing_at_records_and_reverts(m
     assert D.last_promote(d)["utc"] == rec["utc"]
     D.revert(d, game=game, log=lambda *a: None)
     assert {k: v for k, v in _tree(src).items() if ".bak-" not in k} == before
+
+
+class _Watched(np.ndarray):
+    """An array that records the calls a preview makes of it (the fence on the preview's work, not its answer)."""
+    log: list = []
+
+    def max(self, *a, **k):
+        _Watched.log.append("max")
+        return np.ndarray.max(np.asarray(self), *a, **k)
+
+    def min(self, *a, **k):
+        _Watched.log.append("min")
+        return np.ndarray.min(np.asarray(self), *a, **k)
+
+    def __getitem__(self, key):
+        if isinstance(key, tuple) and key[:1] == (None,):
+            _Watched.log.append("broadcast")
+        return np.ndarray.__getitem__(self, key)
+
+
+def test_a_drag_preview_reuses_the_index_and_reads_only_the_coast_near_it():
+    """A forest ghost drag cost 45-55 ms per mouse move on the GUI thread, 93% in footprint_preview: it took every
+    tri's plan box again (SoupIndex already holds them: lo, hi) and measured every tested vertex against EVERY coast
+    point of the island (PERF.md 6, C3). Neither now, and the answer is the same."""
+    ix = FE.SoupIndex(IN.soup_from_blocks({(0, 0): _mains_grid()}))
+    ix.coast = np.vstack([ix.coast.reshape(-1, 2), [[30.0, -45.0], [5000.0, 5000.0]]])   # one by the rim, one far
+    poly = [(20.0, -20.0), (40.0, -20.0), (40.0, -40.0), (20.0, -40.0)]
+    want = FE.footprint_preview(ix, poly)
+    assert want["why"] == "the coast rim" and want["where"]           # the coast check ran, and decided
+    ix.corner, ix.coast = ix.corner.view(_Watched), ix.coast.view(_Watched)
+    _Watched.log = []
+    got = FE.footprint_preview(ix, poly)
+    assert _Watched.log == [] and got == want
