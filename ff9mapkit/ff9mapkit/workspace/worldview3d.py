@@ -365,12 +365,12 @@ def seam_shifts(xs, width=SEAM_COPY):
     return out
 
 
-def load_scene(site, *, part_src=None):
+def load_scene(site, *, part_src=None, memo=None):
     """``(Packed, {part: rgba or None})`` for a :class:`~ff9mapkit.world.render.RenderSite`, stock under the
     overrides, the seam drawn twice (:func:`seam_copies`). Pure numpy + file reads: the panel runs it on a worker
-    thread."""
+    thread, with its :class:`~ff9mapkit.world.render.CellMemo` so a reload draws only the cells that moved."""
     from ..world import render as R
-    batches = seam_copies(R.load_batches(site, part_src, stock=True))
+    batches = seam_copies(R.load_batches(site, part_src, stock=True, memo=memo))
     packed = pack(batches)
     return packed, {p: texture_rgba(R.tex_for(p, site)) for p in packed.parts}
 
@@ -973,6 +973,8 @@ class WorldView3DPanel(QWidget):
         self.site = None                                     # the RenderSite the view drew (the pick's facts read it)
         self._busy = False
         self._next = None                                    # a load asked while one runs
+        from ..world import render as R
+        self._cells = R.CellMemo()                           # every reload draws only the cells whose files moved
         self._focus = None
         self._overlays, self._ghost = [], None               # a tool's drawing, held until the view exists
         self._floor = None                                   # set_view_floor's height, or None for MIN_VIEW_H
@@ -1133,9 +1135,13 @@ class WorldView3DPanel(QWidget):
         threading.Thread(target=self._work, args=(site,), daemon=True).start()
         return True
 
+    def forget_cells(self):
+        """The next load draws every cell again (the World tab's Rescan re-reads everything from disk)."""
+        self._cells.forget()
+
     def _work(self, site):
         try:
-            packed, textures = load_scene(site)
+            packed, textures = load_scene(site, memo=self._cells)
             out = (packed, textures, None)
         except Exception as e:                               # noqa: BLE001 -- surfaced on the GUI thread
             out = (None, None, str(e))

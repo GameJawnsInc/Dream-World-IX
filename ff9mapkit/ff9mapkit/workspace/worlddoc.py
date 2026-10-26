@@ -564,7 +564,7 @@ class WorldDoc(QWidget):
         head.addWidget(self.folder_box)
         self.rescan_btn = QPushButton("Rescan")
         self.rescan_btn.setToolTip("Re-read the deployed overrides from disk (read-only).")
-        self.rescan_btn.clicked.connect(lambda: self.refresh())
+        self.rescan_btn.clicked.connect(self._rescan)
         head.addWidget(self.rescan_btn)
         self.summary_lbl = widgets.role_label("", "caption")
         self.summary_lbl.setAccessibleName("Scan summary")
@@ -783,6 +783,12 @@ class WorldDoc(QWidget):
             self._show_guide(*self._guide_state)   # rebuild: the glyph pixmap is palette-tinted
 
     # -- the scan --
+    def _rescan(self):
+        """The Rescan button: re-read the folder AND every cell the 3D view drew (its memo trusts files' times)."""
+        if self._view3d is not None:
+            self._view3d.forget_cells()
+        self.refresh()
+
     def refresh(self, *, sync=False, folder=None):
         """Scan (or rescan) the deployed worldmap tree. Reads the game path + folder list on the GUI
         thread (cheap stats), then runs the real census on a worker; ``sync=True`` is the deterministic

@@ -525,6 +525,42 @@ def test_the_game_camera_probes_the_ground_it_draws_after_a_reload(app):
     assert gone() is None                                                 # nothing holds the old scene
 
 
+def test_the_panel_draws_again_only_the_cells_a_change_touched(app, monkeypatch, tmp_path):
+    """Every Accept, undo, redo or rescan reloaded all 480 cells: 7-16 s behind "Loading the map..." for an edit of
+    two (PERF.md 1). The panel keeps one :class:`render.CellMemo` across its loads, so a reload draws only the cells
+    whose files moved -- and the Rescan button, which says it re-reads from disk, forgets it."""
+    from ff9mapkit.world import mesh as M
+    from ff9mapkit.workspace.worlddoc import WorldDoc
+    from .test_world_render_stack import _moved, _put, _tri_mesh
+    monkeypatch.setattr(R.X, "block_parts", lambda disc=1, game=None: {})
+    monkeypatch.setattr(R, "tex_for", lambda part, site, cache=None: None)  # no atlas in a tmp game
+    mod = tmp_path / "FF9CustomMap-world"
+    for bx in (1, 2):
+        _put(mod, "Terrain.ff9mesh", M.ff9mesh_bytes(_tri_mesh(float(bx), bx=bx)), bx=bx)
+    site = R.RenderSite(cells=((1, 1), (2, 1)), disc=1, game=tmp_path, mod_root=mod, parts=("Terrain",))
+    drawn, real = [], R.cell_meshes
+    monkeypatch.setattr(R, "cell_meshes", lambda s, bx, by, *a, **k: drawn.append((bx, by)) or real(s, bx, by, *a, **k))
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    got = []
+    p._loaded.disconnect()
+    p._loaded.connect(lambda packed, tex, err: got.append((packed, err)))
+    p._work(site)
+    assert sorted(drawn) == [(1, 1), (2, 1)] and got[-1][1] is None
+    drawn.clear()
+    _moved(mod / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r1" / "Block[2][1] Terrain.ff9mesh",
+           M.ff9mesh_bytes(_tri_mesh(5.0, bx=2)))                         # an Accept wrote one cell
+    p._work(site)
+    assert drawn == [(2, 1)]
+    fresh = V.load_scene(site)[0]                                          # what a load from nothing draws
+    assert all(np.array_equal(got[-1][0].arrays[k], fresh.arrays[k]) for k in fresh.arrays)
+    drawn.clear()
+    doc = WorldDoc(pick_palette("mist"), game_path_fn=lambda: tmp_path)
+    doc._view3d = p
+    doc.rescan_btn.click()
+    p._work(site)
+    assert sorted(drawn) == [(1, 1), (2, 1)]                               # Rescan re-read every cell
+
+
 def test_a_load_asked_while_one_runs_is_the_one_drawn(app, monkeypatch):
     """The panel dropped a load asked while one ran ("busy: return"): a scan landing during a card's write, or a write
     ending while a refusal's reload ran, left the view drawing the old folder or the draft without the shape just
