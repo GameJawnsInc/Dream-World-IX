@@ -49,6 +49,7 @@ INI = (
     "Role = host\r\n"
     "RelayUrl = ws://127.0.0.1:49201\r\n"
     "SessionCode = ff9-OWNERLIV\r\n"
+    "HostSessionCode = ff9-OWNERHST\r\n"
     "\r\n"
     "[SfxProbe]\r\n"
     "Enabled = 1\r\n"
@@ -160,6 +161,9 @@ def test_base_overlay_parks_netsync_away_from_the_owner_and_keeps_crlf(tmp_path)
     assert "\r\n" in text and "\n" not in text.replace("\r\n", "")
     assert "RelayUrl = ws://127.0.0.1:9\r\n" in text and "49201" not in text
     assert "ff9-OWNERLIV" not in text and I.parked_code(tmp_path / "r") in text
+    # [ff9mapkit s154] the kit's own-code record is parked too: a `coop host` aimed at a root that inherited the
+    # owner's HostSessionCode would re-publish the OWNER's session
+    assert "ff9-OWNERHST" not in text and f"HostSessionCode = {I.parked_code(tmp_path / 'r')}\r\n" in text
     assert I.parked_code(tmp_path / "r") != I.parked_code(tmp_path / "s")
     assert len(I.parked_code(tmp_path / "r")) == len("ff9-") + 8
     # only [Netsync] Enabled flips there; [Graphics]/[Control] Enabled = 1 stay

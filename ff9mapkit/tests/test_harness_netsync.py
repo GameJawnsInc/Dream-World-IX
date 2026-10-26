@@ -860,10 +860,24 @@ def _catch_doc_in(stem: str) -> dict:
 def _unworlded(doc: dict) -> dict:
     """[ff9mapkit netsync s144] A `netsync` document without s144's keys -- `world` (netsync's LAST key, after `dress`) and
     `session`'s last two, `overlay_text` and `follow`: the catch line as s143 wrote it -- s144 added those and nothing else.
-    Every older shape below (_undressed, _unguarded, _dress_through) starts from it."""
+    Every older shape below (_undressed, _unguarded, _dress_through) starts from it. [ff9mapkit netsync s154] (and without
+    s154's keys: _unsonged)"""
+    doc = _unsonged(doc)
     out = {k: v for k, v in doc.items() if k != "world"}
     if isinstance(doc.get("session"), dict):
         out["session"] = {k: v for k, v in doc["session"].items() if k not in BW.SESSION_KEYS_S144}
+    return out
+
+
+def _unsonged(doc: dict) -> dict:
+    """[ff9mapkit netsync s154] A `netsync` document without s154's catch-line keys -- `diorama`'s last two, `boot_song` and
+    `leave_song_live` (AppendDioramaReturnSong; the digit panel's keys sit inside the null bench feed): the catch line as
+    s145-s153 wrote it -- s154 added those and nothing else."""
+    if not isinstance(doc.get("diorama"), dict):
+        return doc
+    out = dict(doc)
+    out["diorama"] = {k: v for k, v in doc["diorama"].items()
+                      if k not in FG.NETSYNC_DIORAMA_CAP_KEYS[FG.NETSYNC_S154_RUNG]}
     return out
 
 
@@ -2040,6 +2054,10 @@ def _key_is_the_patchs(key: str, cap: str) -> bool:
     if leaf in FG.NETSYNC_BATTLE_CAP_KEYS[cap].get(sub, ()):
         return True
     parent, _, last = path.rpartition(".")
+    # [ff9mapkit netsync s154] ...or a key the capability added INSIDE the nullable bench feed (`menu.feed`: null in the catch
+    # line, so never a NESTED key there -- FG.NETSYNC_FEED_CAP_KEYS; s154's digit panel keys)
+    if parent == "menu.feed" and last in FG.NETSYNC_FEED_CAP_KEYS.get(cap, ()):
+        return True
     return last in FG.NETSYNC_BATTLE_NESTED_KEYS.get(cap, {}).get(parent, ())
 
 
@@ -2229,11 +2247,16 @@ def test_the_bmenu_and_endbench_ops_are_the_agents_patch_by_patch():
     assert any(old in _literals(ln) for ln in net_lines("NetSyncEnd.cs", r"the result manifest is stage 9",
                                                         [_patch_bytes("s103")])), old
     assert not _battle_text("the result manifest is stage 9")      # gone from the live stack
-    # `bbench` (NetSyncBattle.StockMenu.HarnessStockBench): s106's note, then s107's list
+    # `bbench` (NetSyncBattle.StockMenu.HarnessStockBench): s106's note, then s107's list, then [ff9mapkit netsync s154] the
+    # digit-pick bench's `digit|digitsnap` appended (s107-s153 print s107's ten)
     assert _agent_bbench_unknown([_patch_bytes("s106")]) == FG.NETSYNC_BBENCH_UNKNOWN_S106 \
         == Session.NETSYNC_BBENCH_S106_LIST
-    assert tuple(_agent_bbench_unknown().split("|")) == Session.NETSYNC_BBENCH_OPS == FG.NETSYNC_BBENCH_OPS \
+    assert tuple(_agent_bbench_unknown([_patch_bytes("s107")]).split("|")) == FG.NETSYNC_BBENCH_OPS_S107 \
+        == FG.bbench_ops(_all_caps_through("worlddio")) == tuple(Session.NETSYNC_BBENCH_S153_LIST.split("|")) \
         == FG.bbench_ops(_all_caps_through("mirror"))
+    assert tuple(_agent_bbench_unknown().split("|")) == Session.NETSYNC_BBENCH_OPS == FG.NETSYNC_BBENCH_OPS \
+        == FG.bbench_ops(_all_caps_through(FG.NETSYNC_S154_RUNG)) == FG.NETSYNC_BBENCH_OPS_S107 + ("digit", "digitsnap")
+    assert _agent_bbench_unknown(_prefix("s153")) == Session.NETSYNC_BBENCH_S153_LIST
     assert FG.bbench_ops(_all_caps_through("content")) == FG.NETSYNC_BBENCH_OPS_S106 \
         == tuple(FG.NETSYNC_BBENCH_UNKNOWN_S106.split(";")[0].split("|"))
 
@@ -2523,6 +2546,17 @@ BATTLE_REFUSALS = [
     ("netsync bbench mode: accept|refuse|freeze", lambda f: _fed(f)._netsync(["bbench", "mode", "ignore"])),
     ("netsync bbench freeze: 1|0", lambda f: _fed(f)._netsync(["bbench", "freeze", "2"])),
     ("netsync bbench unmap: a WIRE slot 0-3, or none", lambda f: _fed(f)._netsync(["bbench", "unmap", "4"])),
+    # [ff9mapkit netsync s154] the digit-pick bench (NetSyncBattle.BenchDigit / BenchDigitSnap, routed by BenchFeedVerb)
+    (": no bench feed is running (`bbench start <mask>` inside a live diorama first)",
+     lambda f: _selftest(f)._netsync(["bbench", "digit", "1"])),
+    ("netsync bbench digit: needs one digit 0-9 (a keypress for the digit panel's next serving tick)",
+     lambda f: _fed(f)._netsync(["bbench", "digit", "12"])),
+    ("] still waits for the digit panel (it takes one digit per serving tick, past its ",
+     lambda f: (_fed(f)._netsync(["bbench", "digit", "1"]), f._netsync(["bbench", "digit", "2"]))),
+    (" ms send cooldown, while a slot it serves is Ready)",
+     lambda f: (_fed(f)._netsync(["bbench", "digit", "1"]), f._netsync(["bbench", "digit", "2"]))),
+    ("netsync bbench digitsnap: on|off (off = CALIBRATION: the pre-s154 digit panel -- its item page and target pick drawn ",
+     lambda f: _fed(f)._netsync(["bbench", "digitsnap", "maybe"])),
     # [ff9mapkit netsync B4] s110 -- the `bench` named ops
     ("netsync bench: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["bench", "lapse", "hold"])),
 ]
@@ -2937,6 +2971,49 @@ def test_netsync_refuses_a_bbench_feed_op_on_an_s106_engine_before_spending_a_st
         st = g.netsync("bbench", "content", "0x3F")
         assert st.coop_menu_content_off == 64 and fake.executed[-1] == ["netsync", "bbench", "content", "0x3F"]
         assert st.coop_ready_mirror is False and st.coop_stock_owns is None
+
+
+@pytest.mark.parametrize("op,arg", [("digit", "1"), ("digitsnap", "off")])
+def test_netsync_tells_a_bbench_digit_op_by_the_feeds_own_key(game, op, arg):
+    """[ff9mapkit netsync s154] `bbench digit|digitsnap` are told by `digit_taken` INSIDE the bench feed (null in the catch
+    line): with a feed running, an s153 engine's feed lacks it and the driver refuses before the step, quoting the s107-s153
+    "unknown op" answer; with no feed running nothing can tell, so the op reaches the engine (s153: "unknown op"; s154: "no
+    bench feed is running"); on s154 with a feed it is sent and taken."""
+    answer = f"netsync bbench: unknown op '{op}' ({Session.NETSYNC_BBENCH_S153_LIST})"
+    old = FakeGame(game)
+    old.netsync_caps = _caps_at("s153")
+    with session(game, old) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        assert g.state.coop_digit_pick is None                        # no feed: cannot tell
+        with pytest.raises(HarnessError, match=re.escape(answer)):
+            g.netsync("bbench", op, arg)                              # sent: the engine's own answer
+        assert old.executed[-1] == ["netsync", "bbench", op, arg]
+        old.dio_units = [dict(u) for u in BENCH_UNITS]
+        _dio(g, old, fresh=False)
+        g.netsync("bbench", "start", "1")
+        st = g.wait_for(lambda s: isinstance(s.coop_feed, dict), timeout=8.0, what="the feed")
+        assert st.coop_digit_pick is False
+        n = len(old.executed)
+        with pytest.raises(HarnessError, match=rf"^netsync bbench {op}: the deployed engine publishes no "
+                                               rf"`netsync\.battle\.menu\.feed\.digit_taken` .*\(memoria-patch s154\); it "
+                                               rf"would answer \"{re.escape(answer)}\" only after the step"):
+            g.netsync("bbench", op, arg)
+        assert len(old.executed) == n
+    new = FakeGame(game)
+    with session(game, new) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        with pytest.raises(HarnessError, match=rf"netsync bbench {op}: no bench feed is running"):
+            g.netsync("bbench", op, arg)
+        new.dio_units = [dict(u) for u in BENCH_UNITS]
+        _dio(g, new, fresh=False)
+        g.netsync("bbench", "start", "1")
+        st = g.wait_for(lambda s: s.coop_digit_pick is True, timeout=8.0, what="the s154 feed's digit keys")
+        g.netsync("bbench", op, arg)
+        assert new.executed[-1] == ["netsync", "bbench", op, arg]
+        f = g.state.coop_feed
+        assert (f["digit_waiting"], f["digit_snap"]) == ((1, True) if op == "digit" else (-1, False))
 
 
 @pytest.mark.parametrize("op,arg", [("lapse", "hold"), ("handback", "0"), ("LAPSE", "end")])
@@ -5517,6 +5594,32 @@ def test_the_stand_ins_units_and_feed_grow_as_the_agents_do(game, level):
     assert feed[at:at + 2] == (["ctl", "ctl_menu"] if int(level[1:]) >= 113 else ["frames", "taken"]), feed
 
 
+@pytest.mark.parametrize("level", ["s153", "s154"])
+def test_the_stand_ins_feed_gains_the_digit_keys_at_its_end_from_s154(game, level):
+    """[ff9mapkit netsync s154] the bench feed gains the digit panel's keys at its END, after `last` (AppendFeedDigit), in
+    the agent's order (read off the s154 patch) -- the stand-in publishes them exactly from the s154 rung on, and an s153
+    stand-in's feed ends at `last` (the driver's `coop_digit_pick` reads False there, True on s154)."""
+    if level == "s154":
+        digit = [re.search(r'"(digit_[a-z_]+)"', ln).group(1)
+                 for ln in net_lines("HarnessAgent.cs", r'\b(Str|Num|Bool|IntList)\(sb, "digit_', [_patch_bytes("s154")])]
+        assert tuple(digit) == FG.NETSYNC_FEED_DIGIT_KEYS == FG.NETSYNC_FEED_CAP_KEYS[FG.NETSYNC_S154_RUNG], digit
+        assert net_lines("HarnessAgent.cs", r'AppendFeedDigit\(sb, f\);', [_patch_bytes("s154")])
+    fake = _dio_fake(FakeGame(game))
+    fake.netsync_caps = _caps_at(level)
+    fake._netsync(["bbench", "start", "1"])
+    fake._nb_feed_tick()
+    doc = fake._nb_feed_doc()
+    feed = list(doc)
+    assert feed[feed.index("last") + 1:] == (list(FG.NETSYNC_FEED_DIGIT_KEYS) if level == "s154" else []), feed
+    st = State({"frame": 1, "netsync": {"enabled": True, "battle": {"menu": {"feed": doc}}}})
+    assert st.coop_digit_pick is (level == "s154")
+    assert State({"frame": 1, "netsync": {"enabled": True, "battle": {"menu": {"feed": None}}}}).coop_digit_pick is None
+    if level == "s154":
+        assert {k: doc[k] for k in FG.NETSYNC_FEED_DIGIT_KEYS} == {
+            "digit_mode": None, "digit_slot": -1, "digit_snap": True, "digit_waiting": -1, "digit_taken": 0,
+            "digit_cands": [], "digit_items": [], "digit_refused": 0, "digit_refused_why": None, "digit_note": None}
+
+
 def test_the_start_hold_arms_late_ignores_a_stale_live_and_releases_on_the_link(game):
     """s114 on the stand-in, the remaining report levers: `bench boot late 300` (no frame until 300 ms after the opening,
     then BOOTING) arms LATE (why "late", late_ms about 300); `stale` (a LIVE naming the previous nonce) releases nothing --
@@ -5913,8 +6016,12 @@ def test_guest_owns_twins_evaluate_every_s118_control_selftest_row_off_the_stack
     assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s141"))) == \
         BW.CONTROL_SELFTEST_ROWS + BW.ADOPT_SELFTEST_ROWS + BW.ACTION_SELFTEST_ROWS == 103
     # [ff9mapkit netsync s143] ...and a fourth (LeaderGuardSelfTest: 19 of its 44 rows are such calls -- test_leader_guard.py)
-    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncBattle.cs")) == \
+    assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s153"))) == \
         BW.CONTROL_SELFTEST_ROWS + BW.ADOPT_SELFTEST_ROWS + BW.ACTION_SELFTEST_ROWS + BW.LEADER_GUARD_REF_ROWS == 122
+    # [ff9mapkit netsync s154] ...and a fifth (DigitPickSelfTest: all 22 of its rows are such calls)
+    assert sum("ref rows, ref fail);" in ln for ln in _stack_text("NetSyncBattle.cs")) == \
+        BW.CONTROL_SELFTEST_ROWS + BW.ADOPT_SELFTEST_ROWS + BW.ACTION_SELFTEST_ROWS + BW.LEADER_GUARD_REF_ROWS \
+        + BW.DIGIT_PICK_REF_ROWS == 144
     assert sum("ref rows, ref fail);" in ln for ln in net_lines("NetSyncBattle.cs", r".", _prefix("s117"))) == \
         BW.CONTROL_SELFTEST_ROWS_S114 == 33
 
@@ -22098,10 +22205,12 @@ def test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self_and_ghost():
     line and False on s140's; the `polish` op's capability key is a key s141 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
     # [ff9mapkit netsync s143] ...LAST until s143's `leaderguard` rung joined after it; [ff9mapkit netsync s144] and s144's
-    # `worldwait` after that; [ff9mapkit netsync s145] and s145's `worlddio` after that
+    # `worldwait` after that; [ff9mapkit netsync s145] and s145's `worlddio` after that; [ff9mapkit netsync s154] and s154's
+    # `returnsong` after that
     assert names[names.index("dressself") + 1] == "dresspolish" and names[names.index("dresspolish") + 1:] == ["leaderguard",
                                                                                                              "worldwait",
-                                                                                                             "worlddio"]
+                                                                                                             "worlddio",
+                                                                                                             "returnsong"]
     assert FG.NETSYNC_BATTLE_CAPS["dresspolish"] == ("s141", ()) and FG.NETSYNC_S141_CAPS == frozenset(("dresspolish",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresspolish"] == {} and "dresspolish" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     assert FG.NETSYNC_DRESS_CAP_KEYS["dresspolish"] == BW.DRESS_KEYS_BY_RUNG["dresspolish"] == ()

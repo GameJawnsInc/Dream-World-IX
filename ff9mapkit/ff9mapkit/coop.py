@@ -56,10 +56,15 @@ share (``--field N`` restricts it to one field). What ``host``/``join`` do:
    meeting spot -- both installs are certain to have the same field there.
 2. **Config** -- back up ``Memoria.ini`` and write the ``[Netsync]`` section
    (role, target field, relay URL pointing at the local bridge, session code).
-3. **Code** -- the host reuses its saved session code or mints a random
-   ``ff9-XXXXXXXX`` (the code is the only thing that pairs two players on the
-   shared relay -- treat it like a private invite link); it is echoed big and
-   copied to the clipboard. The guest passes the host's code to ``join``.
+3. **Code** -- the host reuses ITS OWN saved session code (``[Netsync]
+   HostSessionCode``) or mints a random ``ff9-XXXXXXXX`` (the code is the only
+   thing that pairs two players on the shared relay -- treat it like a private
+   invite link); it is echoed big and copied to the clipboard. The guest passes
+   the host's code to ``join``, which sets ``SessionCode`` (what the engine
+   dials) and never the own code: a code you joined a friend with is never
+   re-published when you host (:func:`own_host_code`; ``--new-code`` mints a
+   fresh one; an explicit ``coop host <that code>`` dials it for that run only,
+   :func:`joined_override`).
 4. **Bridge** -- run the ws->wss bridge in-process and stay in the foreground
    while the game plays (FF9's old Mono has no TLS 1.2, so the bridge carries
    the connection to the relay). Its lines are wall-clock stamped and teed to
@@ -307,6 +312,93 @@ def duplicate_ini_keys(text: str, section: str) -> list[str]:
                 dupes.append(k)
             seen.add(k.lower())
     return dupes
+
+
+# ---------------------------------------------------------------- THE OWN-CODE LAW (s154)
+#
+# [ff9mapkit s154] ONE ini key used to carry two meanings. The ENGINE reads [Netsync] SessionCode as "the code to dial
+# now" -- a host's own code, or, after `coop join`, the FRIEND's invite -- while `coop host` also read it back as "this
+# PC's own code, kept stable across runs". Nothing recorded which meaning the stored value had, so a PC that had joined a
+# friend and later hosted re-published the friend's code: anyone holding that invite walked into ITS game, and two hosts
+# on one code evicted each other (studies/coop-review/REVIEW.md appendix 25). The own code now has a key of its own.
+
+#: THIS PC's own host code, kept apart from SessionCode (what the engine DIALS). Kit-owned: written by `coop host` (equal to
+#: the SessionCode it writes -- with ONE exception: an explicit `coop host <code>` naming a code this PC JOINED with, see
+#: :func:`joined_override`, dials that code this run and keeps the own code, or mints one, so the invite is never
+#: recorded as this PC's) and once by `coop join`'s migration of a pre-s154 host ini. The engine never reads it, and its
+#: PersistSessionCode matches 'SessionCode' exactly, so a HostSessionCode line is never touched.
+HOST_CODE_KEY = "HostSessionCode"
+
+
+def own_host_code(text: str) -> tuple[str | None, str, str]:
+    """THE OWN-CODE LAW: the code THIS PC hosts on, read from Memoria.ini text, as ``(code, why, key)``. Pure.
+
+    ``key`` names the ini key the verdict came from; ``why`` is one of
+
+    * ``"own"``      -- ``HostSessionCode`` is set and passes :func:`validate_code`: that is the code.
+    * ``"unusable"`` -- the key named holds a value :func:`validate_code` refuses: ABSENT. An unusable HostSessionCode
+      never falls back to SessionCode, which may be an invite.
+    * ``"migrated"`` -- no HostSessionCode (a pre-s154 ini) and the LAST ``Role`` is ``host`` (lowercased and trimmed,
+      as the engine reads it): SessionCode was written by hosting (`coop host`, an engine mint, then maybe `coop off`).
+    * ``"joined"``   -- no HostSessionCode and the last Role is ``client``: SessionCode is the code this PC JOINED with,
+      a friend's. Never reused.
+    * ``"unowned"``  -- no HostSessionCode and the Role is absent (the engine's default is selftest), selftest or anything
+      else: nothing says hosting wrote that code, so it is never adopted either.
+    * ``"none"``     -- nothing stored at all.
+
+    ``code`` is set exactly for ``own`` and ``migrated``. Last key wins (:func:`read_ini_key`), like the engine."""
+    own = (read_ini_key(text, "Netsync", HOST_CODE_KEY) or "").strip()
+    if own:
+        try:
+            return validate_code(own), "own", HOST_CODE_KEY
+        except ValueError:
+            return None, "unusable", HOST_CODE_KEY
+    stored = (read_ini_key(text, "Netsync", "SessionCode") or "").strip()
+    if not stored:
+        return None, "none", "SessionCode"
+    role = (read_ini_key(text, "Netsync", "Role") or "").strip().lower()   # the engine's Trim().ToLowerInvariant()
+    if role == "client":
+        return None, "joined", "SessionCode"
+    if role != "host":
+        return None, "unowned", "SessionCode"
+    try:
+        return validate_code(stored), "migrated", "SessionCode"
+    except ValueError:
+        return None, "unusable", "SessionCode"
+
+
+def joined_override(code: str | None, text: str) -> bool:
+    """[ff9mapkit s154] Is ``code`` -- an EXPLICIT `coop host <code>` -- a code this PC JOINED with? Pure, on ini text.
+
+    True when ``code`` equals the stored SessionCode (case-insensitively, as pairing compares) and either
+
+    * the last ``Role`` is ``client``: this PC joined a session with it (the first override), or
+    * this PC's own code (:func:`own_host_code`) is set and is NOT that SessionCode: a host dialling a code other than its
+      own, which only an earlier override writes (a REPEATED `coop host <code>`, from shell history say: by then the
+      Role reads ``host``). An explicit code that is not a joined one writes both keys equal, so it never trips this.
+
+    Such a run still dials ``code`` (`coop host <code>` is a documented override), but `_setup` never records it as the own
+    code -- otherwise every later bare `coop host` re-published the friend's invite, silently. Last key wins, like the
+    engine."""
+    if not code:
+        return False
+    stored = (read_ini_key(text, "Netsync", "SessionCode") or "").strip()
+    if not stored or code.strip().upper() != stored.upper():
+        return False
+    if (read_ini_key(text, "Netsync", "Role") or "").strip().lower() == "client":
+        return True
+    own = own_host_code(text)[0]
+    return bool(own) and own.upper() != stored.upper()
+
+
+#: [ff9mapkit s154] The pre-fix residue the migration cannot tell apart from a genuine own code: a PC that joined a friend
+#: and then hosted under an older kit already has Role=host plus the FRIEND's code. Said once, when the code is adopted.
+#: The cure is named in its BRIDGE-SAFE form: a bare `coop host --new-code` runs its own bridge on the same port beside a
+#: running one (the Workspace's, or another terminal's), and SO_REUSEADDR lets both bind on Windows. `--no-bridge` keeps
+#: the bridge already running; Start hosting again (bare `coop host`) then keeps the new code and copies it.
+MIGRATION_CAVEAT = ("if this PC ever hosted with a code a friend gave you, that code is theirs too -- run  "
+                    "ff9mapkit coop host --new-code --no-bridge  for a fresh one (a bridge already running keeps "
+                    "going; in the Workspace, press Start hosting again after it)")
 
 
 # Every C0 control + DEL + the three line breaks only Python knows about. THE UNION IS DELIBERATE:
@@ -587,7 +679,14 @@ def show_config(game: Path, *, out=print) -> int:
     target = key("TargetField", "0") or "0"
     out(f"  role:        {role}" + ("  (selftest = solo mirror)" if role not in ("host", "client") else ""))
     out(f"  transport:   " + (f"relay via {relay}" if relay else f"direct LAN ({key('PeerAddress') or 'listening'})"))
-    out(f"  session:     {key('SessionCode') or '(no code)'}")
+    session = key("SessionCode")
+    out(f"  session:     {session or '(no code)'}"
+        + ("  (the host's code you joined with)" if role.lower() == "client" and session else ""))
+    # [ff9mapkit s154] THE OWN-CODE LAW: on a guest PC SessionCode is the FRIEND's code -- say which code is this PC's own
+    # (and on a host whose HostSessionCode differs from what it dials: the next `coop host` goes back to the own one)
+    own = own_host_code(text)[0]
+    if own and (role.lower() != "host" or own.upper() != session.upper()):
+        out(f"  your code:   {own}  (what `coop host` uses -- a code you join with never replaces it)")
     out(f"  where:       " + ("everywhere (any shared screen)" if target == "0" else f"field {target} only"))
     try:
         mask = int(key("GuestSlots", "0") or "0") & 0x0F
@@ -712,18 +811,44 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
         ensure_room(game, rebuild=getattr(args, "rebuild_room", False), out=out)
 
     ini_text = read_ini_text(_ini_path(game))
+    # [ff9mapkit s154] THE OWN-CODE LAW (own_host_code): which stored code is THIS PC's own. SessionCode alone cannot say
+    # -- after `coop join` it holds the friend's invite, and re-reading it here re-published that invite as this PC's
+    # session. Every branch that declines a stored value says why, once, in this run's output.
+    own, own_why, own_key = own_host_code(ini_text)
+    stored = (read_ini_key(ini_text, "Netsync", "SessionCode") or "").strip()
+    last_role = (read_ini_key(ini_text, "Netsync", "Role") or "").strip().lower()
+    adopted = False                                   # a pre-s154 host's stored code taken as its own (the caveat)
+    # an explicit `coop host <code>` naming a code this PC JOINED with: dialled this run, never recorded as the own code
+    joined_explicit = role == "host" and joined_override(code, ini_text)
+    own_after = None                                  # the own code such a run keeps (or mints, never published)
     if role == "host" and not code:
-        code = None if getattr(args, "new_code", False) else read_ini_key(ini_text, "Netsync", "SessionCode")
-        if code:
-            # A stored code we can't vouch for (hand-edited, or left behind by a poisoned ini) is
-            # treated as ABSENT -- minting a fresh one keeps the host's setup working instead of
-            # dying on a line they didn't write, and stops a bad value being re-written verbatim.
-            try:
-                validate_code(code)
-            except ValueError:
-                out(f"  ignoring the stored SessionCode {code!r} -- not a usable code, minting a new one")
-                code = None
+        if not getattr(args, "new_code", False):
+            if own_why == "unusable":
+                # A stored code we can't vouch for (hand-edited, or left behind by a poisoned ini) is
+                # treated as ABSENT -- minting a fresh one keeps the host's setup working instead of
+                # dying on a line they didn't write, and stops a bad value being re-written verbatim.
+                out(f"  ignoring the stored {own_key} {read_ini_key(ini_text, 'Netsync', own_key)!r} -- not a usable "
+                    "code, minting a new one")
+            elif own_why == "joined":
+                out(f"  not reusing {stored!r} as your host code: this PC joined a session with it (it is the code a "
+                    "host gave you) -- minting your own")
+            elif own_why == "unowned":
+                role_said = f"Role is {last_role!r}" if last_role else "Role is not set"
+                out(f"  not reusing the stored SessionCode {stored!r} as your host code: no `coop host` wrote it "
+                    f"([Netsync] {role_said}; only a host's own code is reused) -- minting your own")
+            code = own
+            adopted = own_why == "migrated"
         code = code or generate_code()
+    elif joined_explicit:
+        # an EXPLICIT code is honoured (`coop host <code>` is a documented override) -- but say what it is, and keep it
+        # THIS run's: the own code stays (or is minted now, never published), so the note's advice is true and a repeat
+        # of the same command (Role reads host by then) is caught too (joined_override)
+        own_after = own or generate_code()
+        what = ("is the code this PC last JOINED with (a host gave it to you)" if last_role == "client" else
+                f"is not this PC's own code ({own}) -- most likely a code a host gave you, dialled by an earlier "
+                f"`coop host {code}`")
+        out(f"  note: {code} {what}: hosting on it shares their session code, this run only -- your own code is "
+            f"{own_after} ([Netsync] {HOST_CODE_KEY}); leave the code off to host on it")
 
     updates = {
         "Enabled": "1",
@@ -731,6 +856,20 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
         "TargetField": str(target),
         "SessionCode": code or "",
     }
+    kept = None                                      # the one-time migration's line, said once the ini write landed
+    if role == "host":
+        # explicit, minted or kept alike: the code this PC hosts on -- EXCEPT a joined override, which dials the
+        # friend's code but keeps the own one (writing nothing is not safe: with Role host and SessionCode the invite, a
+        # missing key reads 'migrated' and the next bare `coop host` would adopt the invite)
+        updates[HOST_CODE_KEY] = own_after if joined_explicit else code
+        if adopted:
+            kept = (f"  adopting your stored session code {code} as your own ([Netsync] {HOST_CODE_KEY}); "
+                    + MIGRATION_CAVEAT)
+    elif own_why == "migrated":
+        # a pre-s154 host about to join: keep its own code before the invite (or a LAN join's blank) replaces it
+        updates[HOST_CODE_KEY] = own
+        kept = (f"  keeping your own session code {own} as [Netsync] {HOST_CODE_KEY} (joining sets SessionCode to the "
+                "host's code); " + MIGRATION_CAVEAT)
     if lan is not None:
         updates["RelayUrl"] = ""                     # blank -> the proven direct-TCP transport
         if role != "host":
@@ -744,6 +883,8 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
                                                      # host to the guest's field (playstyle_updates already
                                                      # refused an explicit --follow-host on)
     write_netsync(game, updates, out=out)
+    if kept:
+        out(kept)
     if "GuestSlots" in style:
         out("  battle: your friend commands party slot(s) "
             + format_guest_slots(int(style["GuestSlots"]))

@@ -280,6 +280,7 @@ def test_each_side_sees_only_its_own_settings(coop, app):
         assert not hasattr(coop, "cb_follow"), "following is the guest's role, not a checkbox either side can tick"
     finally:
         coop.rb_host.setChecked(True)
+        coop._paste = ""                # [ff9mapkit s154] the module-scoped doc's stashed paste must not leak
         _settle(app)
 
 
@@ -330,6 +331,7 @@ def test_join_always_follows_and_the_host_never_does(coop, app, monkeypatch, tmp
     finally:
         coop.rb_host.setChecked(True)
         coop.code.clear()
+        coop._paste = ""                # [ff9mapkit s154] the join paste above was stashed by the flip back to Host
         widgets.set_state(coop.lbl_session, "")
 
 
@@ -360,14 +362,16 @@ def test_a_live_session_shows_this_pcs_real_role(coop, app, monkeypatch, tmp_pat
     finally:
         coop.rb_host.setChecked(True)
         coop.code.clear()
+        coop._paste = ""                # [ff9mapkit s154] the live guest's code was stashed by the flip back to Host
 
 
 def test_host_start_survives_an_unusable_stored_session_code(coop, app, monkeypatch, tmp_path):
     """`coop host` deliberately treats a stored SessionCode it cannot vouch for as ABSENT and mints a
-    fresh one. The tab has to match: refresh_status SEEDS the code field from the ini, and in Host mode
-    that field is read-only -- so a value the user never typed dead-ended Start with no way to clear it.
-    Hosting drops the bad code (the subprocess mints one); JOINING still refuses, because there the code
-    IS the user's paste and silently replacing it would pair them with the wrong session."""
+    fresh one. The tab has to match: in Host mode the code field is read-only -- so a value the user never
+    typed must never dead-end Start with no way to clear it. [ff9mapkit s154] The Host field now shows only
+    this PC's OWN code (coop.own_host_code: a no-Role SessionCode is nobody's), so the unusable value is not
+    even seeded, and a host never forwards the field; JOINING still refuses a bad paste, because there the
+    code IS the user's paste and silently replacing it would pair them with the wrong session."""
     from ff9mapkit import config as cfg
 
     game = tmp_path / "game"
@@ -378,7 +382,7 @@ def test_host_start_survives_an_unusable_stored_session_code(coop, app, monkeypa
     coop.rb_host.setChecked(True)
     coop.code.clear()
     coop.refresh_status()
-    assert coop.code.text() == "my session", "precondition: the ini's value is seeded into the field"
+    assert coop.code.text() == "", "precondition: a value no host wrote is not seeded into the Host field"
 
     seen = []
     monkeypatch.setattr(coop, "_run", lambda argv, **kw: seen.append(argv) or True)
@@ -400,4 +404,255 @@ def test_host_start_survives_an_unusable_stored_session_code(coop, app, monkeypa
     finally:
         coop.rb_host.setChecked(True)
         coop.code.clear()
+        coop._paste = ""                # [ff9mapkit s154] the poisoned paste was stashed by the flip back to Host
         widgets.set_state(coop.lbl_session, "")
+
+
+# ------------------------------------------------- THE OWN-CODE LAW (s154): the Host field is never a joined code
+#
+# s153's tab seeded the read-only Host field from [Netsync] SessionCode -- after a `coop join` that is the FRIEND's code --
+# and Start forwarded the field as an EXPLICIT `coop host <code>`: a switched-off guest (the radios default to Host) or a
+# live guest flipping to Host hosted on its friend's invite (studies/coop-review/REVIEW.md appendix 25).
+
+def _game_with(tmp_path, ini_text):
+    from ff9mapkit import health
+    game = tmp_path / "game"
+    managed = game / "x64" / "FF9_Data" / "Managed"
+    managed.mkdir(parents=True)
+    (managed / "Assembly-CSharp.dll").write_bytes(b"MZ " + b" ".join(g[1] for g in health.NETSYNC_GENERATIONS))
+    (game / "Memoria.ini").write_text(ini_text, encoding="utf-8")
+    return game
+
+
+def _positional_code(argv):
+    """The code `coop host|join` would get from this argv (the token right after the action), or None."""
+    from ff9mapkit.editor import jobs as J
+    head = len(J.coop_setup_argv("host"))  # [python, -m, ff9mapkit, coop, host, --no-bridge]
+    nxt = argv[head - 1] if len(argv) >= head else None
+    return None if nxt is None or nxt.startswith("--") else nxt
+
+
+def _reset(coop):
+    coop.rb_relay.setChecked(True)
+    coop.rb_host.setChecked(True)
+    coop.code.clear()
+    coop._paste = ""
+    widgets.set_state(coop.lbl_session, "")
+
+
+def test_the_host_field_never_shows_a_joined_code(coop, app, monkeypatch, tmp_path):
+    from ff9mapkit import config as cfg
+    game = _game_with(tmp_path, "[Netsync]\nEnabled = 1\nRole = client\nSessionCode = ff9-ABCD1234\n"
+                                "RelayUrl = ws://127.0.0.1:49201\n")
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+    seen = []
+    monkeypatch.setattr(coop, "_run", lambda argv, **kw: seen.append(argv) or True)
+    try:
+        _reset(coop)
+        coop.refresh_status()
+        assert coop.rb_join.isChecked() and coop.code.text() == "ff9-ABCD1234", "a live guest shows the code it joined"
+        coop.rb_host.setChecked(True)                        # the guest PC decides to host instead
+        _settle(app)
+        assert coop.code.text() != "ff9-ABCD1234", "the Host field shows the friend's code as this PC's own"
+        assert coop.code.isReadOnly()
+        coop.start_coop()
+        assert seen and "ff9-ABCD1234" not in seen[-1], f"Start hosting forwarded the joined code: {seen[-1]}"
+        assert _positional_code(seen[-1]) is None, seen[-1]
+        coop.rb_join.setChecked(True)                        # ...and back: the guest's code is still theirs
+        _settle(app)
+        assert coop.code.text() == "ff9-ABCD1234" and not coop.code.isReadOnly()
+    finally:
+        _reset(coop)
+
+
+def test_a_switched_off_guest_ini_seeds_no_host_code(coop, app, monkeypatch, tmp_path):
+    from ff9mapkit import config as cfg
+    game = _game_with(tmp_path, "[Netsync]\nEnabled = 0\nRole = client\nSessionCode = ff9-ABCD1234\n"
+                                "RelayUrl = ws://127.0.0.1:49201\n")
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+    seen = []
+    monkeypatch.setattr(coop, "_run", lambda argv, **kw: seen.append(argv) or True)
+    try:
+        _reset(coop)
+        coop.refresh_status()                                # "Turn co-op off" left the guest's Role and code
+        assert coop.rb_host.isChecked(), "precondition: a switched-off ini leaves the default Host pick"
+        assert coop.code.text() == "", "the Host field was seeded with the code this PC joined with"
+        from ff9mapkit.workspace.coopdoc import HOST_CODE_PLACEHOLDER
+        assert coop.code.placeholderText() == HOST_CODE_PLACEHOLDER
+        # a code-width field: a placeholder longer than a code ELIDES (the first cut's 27-char one read "made when you
+        # st..." in the snap) -- the code's own shape is the length budget (character arithmetic: platform-proof)
+        assert len(HOST_CODE_PLACEHOLDER) <= len("ff9-XXXXXXXX"), HOST_CODE_PLACEHOLDER
+        coop.start_coop()
+        assert seen, "Start hosting bailed"
+        assert seen[-1][4] == "host" and _positional_code(seen[-1]) is None, f"Start forwarded a code: {seen[-1]}"
+    finally:
+        _reset(coop)
+
+
+def test_the_host_field_shows_this_pcs_own_code(coop, app, monkeypatch, tmp_path):
+    from ff9mapkit import config as cfg
+    game = _game_with(tmp_path, "[Netsync]\nEnabled = 0\nRole = client\nSessionCode = ff9-ABCD1234\n"
+                                "HostSessionCode = ff9-MINE0001\nRelayUrl = ws://127.0.0.1:49201\n")
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+    try:
+        _reset(coop)
+        coop.refresh_status()
+        assert coop.code.text() == "ff9-MINE0001", "the Host field must show this PC's own code"
+    finally:
+        _reset(coop)
+
+
+def test_a_live_host_shows_the_code_its_game_dials(coop, app, monkeypatch, tmp_path):
+    """A LIVE host (Enabled=1, Role=host) shows and copies the code its game DIALS (SessionCode), which the guest must
+    join -- not HostSessionCode. They part when the engine mints a code into an emptied SessionCode (it never writes
+    HostSessionCode: the bridge README's own guest-to-host hand edit) or after a CLI `coop host <joined code>`; the first
+    s154 cut showed the stale own code there while the row read 'ON, hosting', so Copy handed out a code nobody hosts on.
+    Off, or not a host, the field goes back to the own code (what Start hosting uses)."""
+    from ff9mapkit import config as cfg
+    from ff9mapkit.workspace import coopdoc
+    game = _game_with(tmp_path, "[Netsync]\nEnabled = 1\nRole = host\nSessionCode = ff9-ENGINEY1\n"
+                                "HostSessionCode = ff9-OWNX0001\nRelayUrl = ws://127.0.0.1:49201\n")
+    ini = game / "Memoria.ini"
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+    seen = []
+    monkeypatch.setattr(coop, "_run", lambda argv, **kw: seen.append(argv) or True)
+    copied = []
+
+    class _App:                                          # Copy's clipboard, without a Qt class patch
+        @staticmethod
+        def clipboard():
+            return type("C", (), {"setText": staticmethod(copied.append)})()
+    monkeypatch.setattr(coopdoc, "QApplication", _App)
+    try:
+        _reset(coop)
+        coop.refresh_status()
+        assert coop.rb_host.isChecked() and "hosting" in coop.lbl_session.text()
+        assert coop.code.text() == "ff9-ENGINEY1", "a live host's field shows a code its game does not dial"
+        coop._copy_code()                                      # the Copy button's own handler
+        assert copied == ["ff9-ENGINEY1"], copied
+        coop.rb_join.setChecked(True)                          # a flip away and back renders the same dialled code
+        _settle(app)
+        coop.rb_host.setChecked(True)
+        _settle(app)
+        assert coop.code.text() == "ff9-ENGINEY1", coop.code.text()
+        coop.start_coop()
+        assert seen and _positional_code(seen[-1]) is None, f"Start forwarded the field: {seen[-1]}"
+        # an unusable dialled code is never shown (Copy would hand it out), and never falls back to the own code
+        ini.write_text("[Netsync]\nEnabled = 1\nRole = host\nSessionCode = not a code!\n"
+                       "HostSessionCode = ff9-OWNX0001\nRelayUrl = ws://127.0.0.1:49201\n", encoding="utf-8")
+        coop.refresh_status()
+        assert coop.code.text() == "", coop.code.text()
+        # switched off: the field is the own code again, what a bare `coop host` (Start hosting) goes back to
+        ini.write_text("[Netsync]\nEnabled = 0\nRole = host\nSessionCode = ff9-ENGINEY1\n"
+                       "HostSessionCode = ff9-OWNX0001\nRelayUrl = ws://127.0.0.1:49201\n", encoding="utf-8")
+        coop.refresh_status()
+        assert coop.code.text() == "ff9-OWNX0001", coop.code.text()
+        # an enabled ini with NO Role is not a live host (the engine's default role is selftest): its code is nobody's
+        ini.write_text("[Netsync]\nEnabled = 1\nSessionCode = ff9-BENCH001\n", encoding="utf-8")
+        coop.refresh_status()
+        assert coop.code.text() == "", coop.code.text()
+    finally:
+        _reset(coop)
+
+
+def test_start_hosting_after_the_cli_cure_keeps_the_fresh_code(coop, app, monkeypatch, tmp_path):
+    """The two-hosts cure the bridge log and tutorial 17 name: `ff9mapkit coop host --new-code --no-bridge` in a terminal,
+    then Start hosting again. Start (a bare `coop host`, end to end through the REAL kit) must keep the code the cure
+    minted -- not go back to the old one -- and its done() must show and copy that code."""
+    from ff9mapkit import cli, coop as kit, config as cfg
+    from ff9mapkit.workspace import coopdoc
+    game = _game_with(tmp_path, "[Netsync]\nEnabled = 1\nRole = host\nSessionCode = ff9-OLDCODE1\n"
+                                "HostSessionCode = ff9-OLDCODE1\nRelayUrl = ws://127.0.0.1:49201\n")
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+    monkeypatch.setattr(kit, "_copy_clipboard", lambda _t: False)          # never the developer's clipboard
+    copied = []
+
+    class _App:                                          # done()'s clipboard, without a Qt class patch
+        @staticmethod
+        def clipboard():
+            return type("C", (), {"setText": staticmethod(copied.append)})()
+    monkeypatch.setattr(coopdoc, "QApplication", _App)
+    monkeypatch.setattr(coop, "start_bridge", lambda: None)                 # no real bridge thread
+    said = []
+
+    def kit_run(argv):
+        return kit.run(cli.build_parser().parse_args(["--game", str(game), *argv]), out=said.append)
+
+    def run_job(argv, **kw):
+        kw["on_finished"](kit_run([*argv[3:], "--no-room"]))
+        return True
+    monkeypatch.setattr(coop, "_run", run_job)
+    try:
+        _reset(coop)
+        coop.refresh_status()
+        assert coop.code.text() == "ff9-OLDCODE1"
+        assert kit_run(["coop", "host", "--new-code", "--no-bridge", "--no-room"]) == 0   # the terminal half of the cure
+        fresh = kit.read_ini_key(kit.read_ini_text(game / "Memoria.ini"), "Netsync", "SessionCode")
+        assert fresh and fresh != "ff9-OLDCODE1"
+        coop.start_coop()                                                   # ...then Start hosting again
+        ini = kit.read_ini_text(game / "Memoria.ini")
+        assert kit.read_ini_key(ini, "Netsync", "SessionCode") == fresh, f"Start went back to the old code: {said}"
+        assert kit.read_ini_key(ini, "Netsync", "HostSessionCode") == fresh
+        assert coop.code.text() == fresh and copied == [fresh], (coop.code.text(), copied)
+    finally:
+        _reset(coop)
+
+
+def test_a_paste_survives_a_flip_to_host_and_back(coop, app, monkeypatch, tmp_path):
+    from ff9mapkit import config as cfg
+    game = _game_with(tmp_path, "[Netsync]\nEnabled = 0\nRole = host\nHostSessionCode = ff9-MINE0001\n"
+                                "SessionCode = ff9-MINE0001\n")
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+    try:
+        _reset(coop)
+        coop.refresh_status()
+        coop.rb_join.setChecked(True)
+        _settle(app)
+        assert coop.code.text() == "", "the Join field starts empty, never the host's own code"
+        coop.code.setText("ff9-PASTE001")
+        coop.rb_host.setChecked(True)
+        _settle(app)
+        assert coop.code.text() == "ff9-MINE0001", "Host shows the own code, not the guest's paste"
+        coop.refresh_status()                                # a Refresh while Host is up keeps the paste aside
+        coop.rb_join.setChecked(True)
+        _settle(app)
+        assert coop.code.text() == "ff9-PASTE001", "the guest's paste was lost by a flip to Host and back"
+    finally:
+        _reset(coop)
+
+
+def test_start_hosting_on_a_former_guest_hosts_and_copies_its_own_code(coop, app, monkeypatch, tmp_path):
+    """End to end through the REAL kit: the argv Start hands the subprocess is run in-process, then the job's done()
+    -- the ini must host on a fresh own code, and the field and the clipboard must carry that code, never the friend's."""
+    from ff9mapkit import cli, coop as kit, config as cfg
+    from ff9mapkit.workspace import coopdoc
+    game = _game_with(tmp_path, "[Netsync]\nEnabled = 0\nRole = client\nSessionCode = ff9-FRIEND01\n"
+                                "RelayUrl = ws://127.0.0.1:49201\n")
+    monkeypatch.setattr(cfg, "find_game_path", lambda *_a, **_k: game)
+    monkeypatch.setattr(kit, "_copy_clipboard", lambda _t: False)          # never the developer's clipboard
+    copied = []
+
+    class _App:                                          # done()'s clipboard, without a Qt class patch
+        @staticmethod
+        def clipboard():
+            return type("C", (), {"setText": staticmethod(copied.append)})()
+    monkeypatch.setattr(coopdoc, "QApplication", _App)
+    monkeypatch.setattr(coop, "start_bridge", lambda: None)                 # no real bridge thread
+    said = []
+
+    def run_job(argv, **kw):
+        args = cli.build_parser().parse_args(["--game", str(game), *argv[3:], "--no-room"])
+        kw["on_finished"](kit.run(args, out=said.append))
+        return True
+    monkeypatch.setattr(coop, "_run", run_job)
+    try:
+        _reset(coop)
+        coop.refresh_status()
+        coop.start_coop()
+        ini = kit.read_ini_text(game / "Memoria.ini")
+        code = kit.read_ini_key(ini, "Netsync", "SessionCode")
+        assert code != "ff9-FRIEND01", f"the tab hosted on the code this PC joined with: {said}"
+        assert kit.read_ini_key(ini, "Netsync", "HostSessionCode") == code
+        assert coop.code.text() == code and copied == [code], (coop.code.text(), copied)
+    finally:
+        _reset(coop)

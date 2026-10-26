@@ -68,6 +68,8 @@ GUEST_TERMS = (
 )
 
 START_LABEL = {True: "Start hosting", False: "Join game"}
+#: [ff9mapkit s154] the Host field before this PC has an own code: Start hosting makes one (coop.own_host_code)
+HOST_CODE_PLACEHOLDER = "not made yet"
 
 
 class CoopDoc(QWidget):
@@ -89,6 +91,13 @@ class CoopDoc(QWidget):
         self._thread = None
         self._game = None              # resolved install path (None until refresh_status finds it)
         self._enabled = False          # [Netsync] Enabled, as of the last refresh_status
+        # [ff9mapkit s154] THE OWN-CODE LAW (coop.own_host_code): the code field is per ROLE. Host shows THIS PC's own
+        # code -- never SessionCode, which after a join is the FRIEND's -- except on a LIVE host, which shows the code its
+        # game dials (see refresh_status); Join shows the guest's paste, kept here while the Host radio is up and put
+        # back when Join is picked again.
+        self._host_code = ""           # what the Host field shows, as of the last refresh_status ("" = none yet)
+        self._paste = ""               # the Join field's text, stashed while Host shows the own code
+        self._shown_hosting = True     # which role the field shows now (rb_host starts checked)
         self._bridge_line.connect(self._append_log)
         self._build_ui()
         self._poll = QTimer(self)      # notices the bridge dying (or its port) without user action
@@ -331,14 +340,33 @@ class CoopDoc(QWidget):
     def _hosting(self) -> bool:
         return self.rb_host.isChecked()
 
+    @staticmethod
+    def _usable_code(text: str) -> str:
+        """``text`` stripped when coop.validate_code accepts it, else "" -- a value Copy must never hand out."""
+        from .. import coop
+        try:
+            return coop.validate_code(text.strip())
+        except ValueError:
+            return ""
+
     def _render_role(self):
         """Show this PC's side only: the host's battle settings or the guest's account of following, the
-        code as the host's (read-only, Copy) or the host's (pasted), and the LAN IP only for a LAN guest."""
+        code as this PC's own (read-only, Copy) or the host's (pasted; kept across a flip to Host and back), and the
+        LAN IP only for a LAN guest."""
         hosting = self._hosting()
         lan = self.rb_lan.isChecked()
         self.host_box.setVisible(hosting)
         self.guest_box.setVisible(not hosting)
+        if hosting != self._shown_hosting:      # [ff9mapkit s154] THE OWN-CODE LAW: the field's text is per role
+            if hosting:
+                self._paste = self.code.text()  # the guest's paste waits while Host shows this PC's own code
+                self.code.setText(self._host_code)
+            else:
+                self.code.setText(self._paste)
+            self._shown_hosting = hosting
         self.code.setReadOnly(hosting)          # the host's code is generated/kept; the guest pastes one
+        # (a code-width field: the host's placeholder stays as short as a code, or it clips at the field's edge)
+        self.code.setPlaceholderText(HOST_CODE_PLACEHOLDER if hosting else "ff9-XXXXXXXX")
         self.btn_copy.setVisible(hosting)
         self.code_label.setText("Your session code:" if hosting else "Host's session code:")
         self.code.setAccessibleName(self.code_label.text().rstrip(":"))
@@ -375,6 +403,9 @@ class CoopDoc(QWidget):
             self.lbl_session.setText("—")
             widgets.set_state(self.lbl_session, "")
             self._enabled = False
+            self._host_code = ""                          # [ff9mapkit s154] no install, no own code to show
+            if self._hosting():
+                self.code.clear()
             self.btn_start.setEnabled(False)
             self.host_box.setEnabled(False)
             self.btn_setup.setVisible(self._on_setup is not None)
@@ -399,6 +430,14 @@ class CoopDoc(QWidget):
         role = (coop.read_ini_key(ini, "Netsync", "Role") or "host").strip().lower()
         relay = coop.read_ini_key(ini, "Netsync", "RelayUrl") or ""
         saved_code = coop.read_ini_key(ini, "Netsync", "SessionCode") or ""
+        # [ff9mapkit s154] BEFORE the radios move (a flip renders it): what the Host field shows. This PC's own code --
+        # except on a LIVE host (Enabled=1 and the ini's own Role is host, as the engine reads it: an absent Role is
+        # selftest, not hosting), which shows the code its game DIALS and the guest must join. The two part when the
+        # engine mints a code into an emptied SessionCode (it never writes HostSessionCode) or after a CLI `coop host
+        # <joined code>` (coop.joined_override); showing the own code there handed out a code nobody hosts on. An empty or
+        # unusable dialled code shows nothing (the placeholder). Start hosting never forwards the field either way.
+        live_host = enabled and (coop.read_ini_key(ini, "Netsync", "Role") or "").strip().lower() == "host"
+        self._host_code = (self._usable_code(saved_code) if live_host else coop.own_host_code(ini)[0]) or ""
         if enabled:
             # A live session's role and transport are the truth: a guest PC opening this tab must not
             # find "Host" selected. A switched-off ini leaves the user's own picks alone.
@@ -411,8 +450,14 @@ class CoopDoc(QWidget):
         # The session row doubles as the validation channel (Start writes warnings into it), so a refresh
         # must CLEAR the state -- otherwise a stale amber outlives the problem it described.
         widgets.set_state(self.lbl_session, "")
-        if saved_code and not self.code.text() and (self._hosting() or enabled):
-            self.code.setText(saved_code)       # the host's own code, or the code a live guest joined with
+        # [ff9mapkit s154] THE OWN-CODE LAW: the Host field shows THIS PC's own code (or a live host's dialled one), never
+        # a joined SessionCode -- after a `coop join` that is the FRIEND's code, and s153 seeded it here (a switched-off
+        # guest ini, or a live guest flipping to Host), so Start hosted on the friend's invite. The Join field of a live
+        # guest shows the code it joined with.
+        if self._hosting():
+            self.code.setText(self._host_code)
+        elif enabled and saved_code and not self.code.text():
+            self.code.setText(saved_code)
         self._load_playstyle(ini)               # widgets mirror the ini (Refresh = re-read)
         self._refresh_bridge_row()
 
@@ -473,7 +518,10 @@ class CoopDoc(QWidget):
         from .. import coop
         hosting = self._hosting()
         lan = self.rb_lan.isChecked()
-        code = "" if lan and not hosting else self.code.text().strip()
+        # [ff9mapkit s154] THE OWN-CODE LAW: hosting NEVER forwards the field. `coop host` with no code picks THIS PC's
+        # own code itself (coop.own_host_code) -- s153 forwarded the read-only field as an EXPLICIT `coop host <code>`,
+        # and that field could hold the code this PC had joined a friend with. Joining forwards the guest's paste.
+        code = "" if hosting or lan else self.code.text().strip()
         if not hosting and not lan and not code:
             widgets.set_state(self.lbl_session, "warn")
             self.lbl_session.setText("paste the host's session code first (ask your friend)")
@@ -485,18 +533,14 @@ class CoopDoc(QWidget):
         if code:
             # Reject a bad paste HERE, before a subprocess spawns: .strip() only trims the ends, and argv
             # carries an embedded newline through intact, so the field is a live carrier for the ini-splice
-            # -- see coop.validate_code.
+            # -- see coop.validate_code. (Join only: a host never forwards the field, so a stored value the
+            # user cannot edit can no longer dead-end Start -- `coop host` ignores an unusable one out loud.)
             try:
                 coop.validate_code(code)
             except ValueError as e:
-                if not hosting:
-                    widgets.set_state(self.lbl_session, "warn")
-                    self.lbl_session.setText(str(e))
-                    return
-                # HOSTING: the field is read-only and seeded from the stored SessionCode, so a value the
-                # user never typed must not dead-end Start. Drop it and let coop.py mint a fresh one.
-                self._append_log(f"{e} -- it came from Memoria.ini, minting a new one")
-                code = ""
+                widgets.set_state(self.lbl_session, "warn")
+                self.lbl_session.setText(str(e))
+                return
         argv = jobs.coop_setup_argv("host" if hosting else "join", code or None,
                                     lan=("" if hosting else self.lan_ip.text().strip()) if lan else None,
                                     **self._role_style())
@@ -507,7 +551,7 @@ class CoopDoc(QWidget):
                 return
             if hosting and not lan:
                 ini = coop.read_ini_text(self._game / "Memoria.ini")
-                new_code = coop.read_ini_key(ini, "Netsync", "SessionCode") or ""
+                new_code = coop.own_host_code(ini)[0] or ""     # [ff9mapkit s154] the code `coop host` just kept
                 if new_code:
                     self.code.setText(new_code)
                     QApplication.clipboard().setText(new_code)   # same auto-copy the CLI does

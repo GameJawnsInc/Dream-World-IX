@@ -56,6 +56,15 @@ version of the same setup.
    thing that pairs you two on the shared relay — anyone without it cannot
    join your session. Codes are case-insensitive.
 
+   Switching a PC from guest to host by hand? Replace `SessionCode` first:
+   after joining it still holds your friend's code, and the game would host on
+   it. If the section has a `HostSessionCode` line (the toolkit writes one),
+   copy that code into `SessionCode` — it is this PC's own, and the next
+   `ff9mapkit coop host` goes back to it anyway. Otherwise empty `SessionCode`
+   and the game makes a fresh one. (`ff9mapkit coop host` does this for you:
+   it keeps your own code in `HostSessionCode` and never reuses a code you
+   joined with.)
+
 4. Both launch the game and stand on the same screen — anywhere. Ghosts
    appear wherever you two share a field; the in-game overlay tells you which
    field your friend is on. (The co-op room, ~ → Warp → 30003, is a

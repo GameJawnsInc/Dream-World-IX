@@ -38,6 +38,31 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   saying disc 4 kept its own ground, an edit's Accept included.
 - An edit whose later step cannot be put back on top is cancelled and says why; it used to stop silently.
 
+### Fixed — co-op: the rest of the fix-first list (engine patch s154, the kit's own host code)
+The second half of `studies/coop-review/REVIEW.md` section 1. Each fix has its own check: in game where the harness can
+reach it, calibrated on the previous engine (or, for the number-key panel, on the previous code behind a bench lever).
+- **Following no longer strands or double-loads a guest** whose own door or scene change runs at the same moment as the
+  host's: a follow never writes into another scene change, a field load ends a pending follow, and the follow re-arms
+  toward the host from wherever the guest landed.
+- **A guest who pairs on the world map fights the host's world battles with the host's party**, not its own, with the
+  levels and order the host has at that battle (the battle seats the host's party from the host's own state, never from
+  the guest's last field load).
+- **Leaving co-op returns a guest to where its own game was when the partner came online**, not to an older autosave.
+  The guest's own game is autosaved once at that moment (Memoria's save-anywhere kind: Continue reloads that field at its
+  entrance with the progress up to then). It is skipped, and the log says why, under `[SaveFile] AutoSaveOnlyAtMoogle` or
+  `DisableAutoSave`, mid-event, or on a place co-op moved the guest to.
+- **Turning co-op off, or the host leaving, while the guest is at the title screen** no longer pulls the guest out of
+  the save or New Game it picks next.
+- **A guest who leaves a battle mid-fight no longer hears the battle song over the field's own music**, warm or cold
+  return; a song that was already playing when the battle began is kept.
+- **The number-key battle panel keeps each number's unit and item** for as long as the list is open: a target that falls
+  or an item that runs out is refused with the stock buzzer and a note, never moved onto another unit (it used to be able
+  to hit the host's Zidane) or another item.
+- **A PC that joined a friend no longer hosts on the friend's code.** The kit keeps this PC's own code in
+  `[Netsync] HostSessionCode`, the Workspace never sends its code field when hosting, and an explicit
+  `coop host <code you joined with>` dials it for that run only. An existing host keeps its code; if this PC ever hosted
+  on a friend's code before, `ff9mapkit coop host --new-code --no-bridge` (then Start hosting again) mints a fresh one.
+
 ### Fixed — co-op at the session edges (engine patch s153, the bridge, `coop` setup)
 From the co-op adversarial review (`studies/coop-review/REVIEW.md` section 1). Each fix has its own in-game check
 (`studies/test-harness/scenarios/coop_session_edges.py` solo, `coop_session_edges_duo.py` on two games), calibrated red

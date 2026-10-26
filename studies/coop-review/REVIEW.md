@@ -221,16 +221,36 @@ in-game box each.
 **Status: DONE as engine patch s153 plus the kit and bridge fixes, deployed 2026-10-25.** The memoria-patches README
 s153 row has the details.
 - **Proof:** solo 10/10 and duo 20/20, calibrated red on the previous engine.
+- **Proven only by the self-test, not in a real scene:** the ending pass, the re-ask breaker and the inbox-pause hold.
+
+**Status of the rest of §1: DONE as engine patch s154 plus a kit fix, deployed 2026-10-26.** The memoria-patches README
+s154 row has the details.
+- **Fixed:** the follow-warp race [5] (§1.7); world-map pairing seating the guest's own party [9], with the stale
+  world-battle party [55]; the stale exit-ramp autosave [17] and the ramp surviving the title [28] (§1.8); the battle
+  song after a mid-fight leave [21] (§1.8, every return, warm or cold); digit-panel picks by position [33] (§1.6); a
+  former guest's invite reused as its host code [25] (§1.9, kit only).
+- **Proof:** every fix has its own in-game check, calibrated red on s153 by behaviour first, then green on s154:
+  follow race duo 21/21, world party duo 15/15 and its #55 mirror leg 17/17, the five pairing-autosave and title legs,
+  battle song 11/11, host code 8/8 (calibrated on the s153-era kit). The digit panel is calibrated by a bench lever that
+  runs s153's code, because no harness input reaches the s153 binary's panel.
+- **Owner decisions taken as defaults (open to change):**
+  - the pairing autosave is a mid-field Continue point (Memoria's save-anywhere class);
+  - it respects `AutoSaveOnlyAtMoogle` and `DisableAutoSave`;
+  - the title is not a transport boundary;
+  - a fallen or used-up digit pick is refused, not retargeted;
+  - the "new host code" cure is CLI-only (`coop host --new-code --no-bridge`), with no Workspace button.
+- **Not proven in game:** the pairing window's bend carry (a bounced gateway or a skipped-mirror landing), the
+  departure sites' Busy decline, the world rejoin's pairing save.
+- **Found on the way, outside co-op:** stock Memoria's `FbxIO.ReadFlexible` opens custom FBX read-write, so two games on
+  one desktop loading the world map in the same second can kill the loser's world map. It affects only same-desktop duo
+  benches.
 - **Still open from §1:**
-  - the follow-warp race (§1.7);
-  - world-map pairing seating the guest's own party (§1.7);
-  - the stale exit-ramp autosave and the title (§1.8);
-  - the battle song left after a cold return (§1.8);
   - the version handshake (§1.9);
   - the relay read limit (§1.9: the live relay, confirm-first);
   - state re-send (§1.9);
+  - [34]: a field guest paired while the host is off-field still arms the host's story at its first warm return (its
+    first diorama now seats the host's party);
   - every low finding in the appendix.
-- **Proven only by the self-test, not in a real scene:** the ending pass, the re-ask breaker and the inbox-pause hold.
 
 ### Tier 1: make what exists usable
 

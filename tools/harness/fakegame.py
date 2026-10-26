@@ -329,7 +329,17 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # audio lanes (no sound: only the field block's cosmetic failure line, a fault), the report byte over a
                        # transport (the start hold's guest half), the settle clock of the over-signal (a stale lane with the
                        # peer alive leaves at once), the swirl, a real Main_Reinit. Faults: WORLD_DIO_FAULTS.
-                       "worlddio": ("s145", ())}
+                       "worlddio": ("s145", ()),
+                       # [ff9mapkit netsync s154] THE RETURN'S BATTLE HALF (appendix #21; the diorama agent's half of the s154 round): no
+                       # sub-verb, no op, no lever (the critic's simpler alternative: the calibration is the s153 DLL's behaviour plus the
+                       # selftest's s153-seam mutant) -- `netsync.diorama` gains `boot_song` and `leave_song_live` at its END, after `hold`
+                       # (NETSYNC_DIORAMA_CAP_KEYS), and the proof block "return song selftest" / "diorama seat selftest". WHAT THE STAND-IN
+                       # MODELS: `boot_song` = the song current as a WORLD boot began on the opt-in sound model (``world_music``), -1
+                       # otherwise. WHAT IT CANNOT: field music (no field song, no field suspend slot, no field-boot latch -- so
+                       # `leave_song_live` stays false and BeforeFieldEvents' stop has nothing to stop), and the seat (no host state frame:
+                       # the s154 SeatRule's inputs are the engine's; SeatSelfTest is its proof). The in-game benches are
+                       # coop_battle_song.py (solo) and coop_world_party_duo.py (duo).
+                       "returnsong": ("s154", ())}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -364,6 +374,9 @@ NETSYNC_S143_CAPS = frozenset(("leaderguard",))
 NETSYNC_S144_CAPS = frozenset(("worldwait",))
 #: [ff9mapkit netsync s145] The world-diorama rung (its calibration, s144, is ``caps_through("worldwait")``).
 NETSYNC_S145_CAPS = frozenset(("worlddio",))
+#: [ff9mapkit netsync s154] The return-song rung (its calibration, the deployed s153 -- no harness key since s145 -- is
+#: ``caps_through("worlddio")``).
+NETSYNC_S154_CAPS = frozenset(("returnsong",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -448,6 +461,9 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "worldwait": {},
     # [ff9mapkit netsync s145] nothing under `netsync.battle` either: `dio` is `netsync.world`'s last block (NETSYNC_WORLD_KEYS_BY_RUNG)
     "worlddio": {},
+    # [ff9mapkit netsync s154] nothing under `netsync.battle`: `boot_song` / `leave_song_live` sit in `netsync.diorama`
+    # (NETSYNC_DIORAMA_CAP_KEYS)
+    "returnsong": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -462,7 +478,9 @@ NETSYNC_BATTLE_NESTED_KEYS = {
 }
 #: [ff9mapkit netsync R3] The keys a battle capability adds to the F3.3 `netsync.diorama` block (s111 `intro`, s114 `live`;
 #: [ff9mapkit netsync R3 s119] `hold`) and inside it (s112 `intro.swirl_clamp`).
-NETSYNC_DIORAMA_CAP_KEYS = {"intro": ("intro",), "starthold": ("live",), "holdpeer": ("hold",)}
+NETSYNC_DIORAMA_CAP_KEYS = {"intro": ("intro",), "starthold": ("live",), "holdpeer": ("hold",),
+                            # [ff9mapkit netsync s154] the return's battle half: the block's LAST two keys (AppendDioramaReturnSong)
+                            "returnsong": ("boot_song", "leave_song_live")}
 NETSYNC_DIORAMA_NESTED_KEYS = {"swirl": {"intro": ("swirl_clamp",)}}
 #: [ff9mapkit netsync R3 s120/s121] The TOP-LEVEL `netsync` blocks a battle capability adds, in the agent's order --
 #: between `diorama` and `battle` (AppendSession, AppendMenuRefusal); [ff9mapkit netsync s138] and `dress` AFTER `battle`
@@ -657,10 +675,68 @@ def selfdress_ops(caps) -> tuple:
 #: [ff9mapkit netsync B4] `bmenu <op>` (NetSyncBattle.HarnessStockMenu), in its "unknown op" refusal's order.
 NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
 #: [ff9mapkit netsync B4] `bbench <op>` (NetSyncBattle.HarnessStockBench): s106's two, then s107's bench feed -- each
-#: engine's "unknown op" text (s106 names stage 8's ops in a note).
+#: engine's "unknown op" text (s106 names stage 8's ops in a note). [ff9mapkit netsync s154] + THE DIGIT-PICK LAW's
+#: `digit|digitsnap` (an s107-s153 engine prints NETSYNC_BBENCH_OPS_S107).
 NETSYNC_BBENCH_OPS_S106 = ("roster", "content")
-NETSYNC_BBENCH_OPS = ("roster", "content", "start", "stop", "ready", "caps", "mode", "freeze", "unmap", "knob")
+NETSYNC_BBENCH_OPS_S107 = ("roster", "content", "start", "stop", "ready", "caps", "mode", "freeze", "unmap", "knob")
+NETSYNC_BBENCH_OPS = NETSYNC_BBENCH_OPS_S107 + ("digit", "digitsnap")
 NETSYNC_BBENCH_UNKNOWN_S106 = "roster|content; stage 8 adds start|ready|caps|mode|unmap|stop"
+#: [ff9mapkit netsync s154] THE s154 RUNG, looked up (never spelled): ONE rung per patch -- the ladder tests key a patch to its
+#: first rung -- and the round's diorama half named it, so the digit-pick bench rides it under whatever name it carries.
+#: WHAT THE STAND-IN MODELS of the digit half (FakeGame._nb_digit_tick, the feed lane only): RunAssistUi's root ([1] Attack ->
+#: the target pick, [2] Defend, [5] the item page; [0] back), the item page and the target pick under THE DIGIT-PICK LAW (the
+#: snapshot at open, the two rules -- digit_target_rule / digit_item_rule, the engine's twins -- the refusal: the note, the
+#: counters, its log line once per (pick, digit, verdict) -- digit_log_fresh, PickLogFresh's twin) and under the `digitsnap off` lever (s153's live re-derivation), the 700 ms send cooldown, the bench
+#: host's take (its verdict words), the control frame's byte 1 (3 below the root) and the feed's digit keys. WHAT IT CANNOT:
+#: the ability pages ([3] / [4] are ignored), DigitOffers' command-type gate (Attack is always offered), the 150 ms sample
+#: (a press reads the stand-in's units NOW -- the engine reads the last sampled view), the buzzer, the on-screen panel.
+NETSYNC_S154_RUNG = next(c for c, (p, _vs) in NETSYNC_BATTLE_CAPS.items() if p == "s154")
+#: [ff9mapkit netsync s154] the keys a capability adds INSIDE the bench feed (`menu.feed`, a NULLABLE record -- null in the catch
+#: line, so the battle ladder test never sees them; the feed's own tests pin them off each patch): s113's `ctl` / `ctl_menu`
+#: (after `menu_open`) and s154's digit panel keys (after `last`, AppendFeedDigit's order).
+NETSYNC_FEED_DIGIT_KEYS = ("digit_mode", "digit_slot", "digit_snap", "digit_waiting", "digit_taken", "digit_cands",
+                           "digit_items", "digit_refused", "digit_refused_why", "digit_note")
+NETSYNC_FEED_CAP_KEYS = {"waitparity": ("ctl", "ctl_menu"), NETSYNC_S154_RUNG: NETSYNC_FEED_DIGIT_KEYS}
+#: [ff9mapkit netsync s154] the digit-pick verdicts (NetSyncBattle.PickSend ..) and their words (PickWhy)
+DIGIT_PICK_SEND, DIGIT_PICK_NO_ENTRY, DIGIT_PICK_GONE, DIGIT_PICK_FALLEN, DIGIT_PICK_RAISED, DIGIT_PICK_USED_UP = range(6)
+DIGIT_PICK_WHY = {DIGIT_PICK_FALLEN: "is KO since the list was drawn",
+                  DIGIT_PICK_GONE: "has left the battle since the list was drawn",
+                  DIGIT_PICK_RAISED: "is no longer KO (the revive list drew the fallen)",
+                  DIGIT_PICK_USED_UP: "is used up since the page was drawn"}
+DIGIT_COOLDOWN_S = 0.7                                  # NetSyncBattle.InputCooldownMs
+DIGIT_PAGE = 6                                          # NetSyncBattle.PageSize
+
+
+def digit_target_rule(drawn: bool, present: bool, same_side: bool, alive: bool, for_dead: bool) -> int:
+    """[ff9mapkit netsync s154] NetSyncBattle.DigitTargetRule's twin: a press on a DRAWN target's verdict."""
+    if not drawn:
+        return DIGIT_PICK_NO_ENTRY
+    if not present or not same_side:
+        return DIGIT_PICK_GONE
+    if for_dead:
+        return DIGIT_PICK_RAISED if alive else DIGIT_PICK_SEND
+    return DIGIT_PICK_SEND if alive else DIGIT_PICK_FALLEN
+
+
+def digit_item_rule(drawn: bool, live_count: int) -> int:
+    """[ff9mapkit netsync s154] NetSyncBattle.DigitItemRule's twin (``live_count`` -1 = no live roster)."""
+    if not drawn:
+        return DIGIT_PICK_NO_ENTRY
+    return DIGIT_PICK_USED_UP if live_count == 0 else DIGIT_PICK_SEND
+
+
+def digit_log_fresh(mask: int, mask_epoch: int, epoch: int, digit: int, verdict: int) -> tuple:
+    """[ff9mapkit netsync s154] NetSyncBattle.PickLogFresh's twin (the refusal log, review L15): (fresh, mask, mask_epoch) --
+    ``fresh`` = this (pick, digit, verdict) was never logged. One bit per (digit, verdict) pair (digit * 6 + verdict) for the
+    pick ``mask_epoch``; a press on a newer pick clears the mask first, so [2] [3] [2] [3] on one pick logs twice."""
+    if mask_epoch != epoch:
+        mask, mask_epoch = 0, epoch
+    if not 0 <= digit <= 9 or not 0 <= verdict <= 5:
+        return True, mask, mask_epoch
+    bit = 1 << (digit * 6 + verdict)
+    if mask & bit:
+        return False, mask, mask_epoch
+    return True, mask | bit, mask_epoch
 #: [ff9mapkit netsync B5] `endbench <op>` (NetSyncEnd.HarnessEndBench) as s103 printed it; s104 inserts `guest` and s105
 #: `exit` after `host`, s108 `manifest` after `afterevent`, s109 `fieldsong` before it and `replay|quit` after `exit`
 #: (:func:`endbench_ops`). Before s108 `manifest` is an op the engine knows and refuses (stage 9) but never lists.
@@ -705,8 +781,11 @@ def endbench_ops(caps) -> tuple:
 
 
 def bbench_ops(caps) -> tuple:
-    """[ff9mapkit netsync B4] The `bbench` ops an engine with these capabilities has."""
-    return NETSYNC_BBENCH_OPS if "mirror" in caps else NETSYNC_BBENCH_OPS_S106 if "content" in caps else ()
+    """[ff9mapkit netsync B4] The `bbench` ops an engine with these capabilities has. [ff9mapkit netsync s154] + the
+    digit-pick bench's two on the s154 rung."""
+    if NETSYNC_S154_RUNG in caps:
+        return NETSYNC_BBENCH_OPS
+    return NETSYNC_BBENCH_OPS_S107 if "mirror" in caps else NETSYNC_BBENCH_OPS_S106 if "content" in caps else ()
 
 
 #: [ff9mapkit netsync B5] The stand-in's level table (ff9level.CharacterLevelUps' role): level L becomes L + 1 at
@@ -1664,6 +1743,7 @@ class FakeGame:
         self.dio_boot_refusal: str | None = None
         self._dio = {"booted": False, "boot": None, "boot_why": None, "boot_field": -1, "boot_x": None,
                      "boot_z": None, "primed": False, "returns": 0, "last_return": None, "last_return_field": -1}
+        self._dio_boot_song = -1                    # [ff9mapkit netsync s154] NetSyncDiorama._bootSong (`netsync.diorama.boot_song`)
         self._dio_by_harness = False                # HarnessAgent._dioramaByHarness
         self._dio_release_pending = False           # ...and _dioramaReleasePending (the role held until the teardown)
         self._dio_retry_rt = 0.0                    # ...and _dioramaRetryTick (a Leave re-requested once a second)
@@ -5353,6 +5433,12 @@ class FakeGame:
             doc["live"] = {"latched": nb.live_latched and d["booted"], "ms": nb.live_ms, "nonce": nb.live_nonce}
         if "holdpeer" in caps:                              # [ff9mapkit netsync R3 s119] AppendDioramaHold
             doc["hold"] = self._diorama_hold_doc()
+        if "returnsong" in caps:                            # [ff9mapkit netsync s154] AppendDioramaReturnSong (the block's LAST keys)
+            # `boot_song` = NetSyncDiorama._bootSong (the home song the last boot found; the stand-in knows one only on a WORLD boot
+            # of the opt-in sound model); `leave_song_live` = the FIELD boot's Leave latch, which the stand-in (no field music)
+            # never sets
+            doc["boot_song"] = self._dio_boot_song
+            doc["leave_song_live"] = False
         return doc
 
     # -- [ff9mapkit netsync R3 s119-s121] the sitting-A round's guest blocks ------------------------------------------
@@ -8690,6 +8776,7 @@ class FakeGame:
         forced-role early return."""
         nb = self._nb
         nb.gates_off_lever = False
+        self._nb_digit_release()                    # [ff9mapkit netsync s154] ReleaseDigitBench: the lever, a waiting bench digit
         nb.loop.clear()
         nb.containment_off_lever = False
         if nb.bench_control:
@@ -9215,8 +9302,9 @@ class FakeGame:
 
     def _nb_menu_roster(self) -> tuple:
         """MenuRoster -> (roster, src): the bench roster while armed (selftest role) -- under the s107 bench feed only while
-        its lane is live (it rides the feed's lane) -- else none: the live peer roster counts only under
-        NetSyncParty.MirrorActive, which the stand-in (no party mirror) never reaches."""
+        its lane is live (it rides the feed's lane) -- else none: the live peer roster counts only while the diorama seats the
+        HOST's party ([ff9mapkit netsync s154] NetSyncDiorama.SeatsHostParty, the boot's own seat; s107-s153 read
+        NetSyncParty.MirrorActive, the story mirror), which the stand-in (no peer roster, no seat model) never reaches."""
         nb = self._nb
         if nb.bench_roster is not None and self._nb_role():
             if nb.feed is not None and self._nb_feed_view_live() is None:
@@ -9395,10 +9483,10 @@ class FakeGame:
                 raise RuntimeError("netsync bbench content: on|off|<mask 0-127> (the hooks left ON: 1 command, 2 grey, 4 "
                                    "ability, 8 bag, 16 count, 32 cast, 64 refresh)")
             nb.content_off_lever = BW.CONTENT_ALL & ~on
-        elif op in NETSYNC_BBENCH_OPS[2:] and "mirror" in caps:
+        elif op in bbench_ops(caps)[2:]:                  # s107's feed ops ([ff9mapkit netsync s154] + digit|digitsnap)
             self._nb_feed_verb(op, rest)
         else:
-            known = "|".join(NETSYNC_BBENCH_OPS) if "mirror" in caps else NETSYNC_BBENCH_UNKNOWN_S106
+            known = "|".join(bbench_ops(caps)) if "mirror" in caps else NETSYNC_BBENCH_UNKNOWN_S106
             raise RuntimeError(f"netsync bbench: unknown op '{op}' ({known})")
 
     def _nb_bench_roster(self, rest: list, hexb: bytes | None) -> None:
@@ -9495,8 +9583,10 @@ class FakeGame:
         return v["seq"] if v is not None else 0
 
     def _nb_stock_owns(self, view: dict | None, active: bool) -> tuple:
-        """StockMenuOwns -> (owns, why): the knob, a live diorama, the party mirror or the bench feed, a live lane, caps
-        bit 1, not faulted -- the first missing condition is the why."""
+        """StockMenuOwns -> (owns, why): the knob, a live diorama, the host's party seated or the bench feed, a live lane, caps
+        bit 1, not faulted -- the first missing condition is the why. ([ff9mapkit netsync s154] the engine's third gate reads
+        NetSyncDiorama.SeatsHostParty -- the boot's own seat -- where s107-s153 read NetSyncParty.MirrorActive; its why text is
+        unchanged, the line below. The stand-in models no seat: only the bench feed passes it.)"""
         nb = self._nb
         if not self._nb_knob_on():
             return False, ("the knob is off ([Netsync] GuestStockMenu=0, the bench override)"
@@ -9516,7 +9606,8 @@ class FakeGame:
 
     def _nb_feed_verb(self, op: str, rest: list) -> None:
         """BenchFeedVerb: `start <mask>` (inside a live diorama), `stop`, `knob 0|1|ini`; then -- a feed running --
-        `ready <mask>`, `caps <0-255>`, `mode accept|refuse|freeze`, `freeze 1|0`, `unmap <w>|none`."""
+        `ready <mask>`, `caps <0-255>`, `mode accept|refuse|freeze`, `freeze 1|0`, `unmap <w>|none`; [ff9mapkit netsync s154]
+        `digit <0-9>` and `digitsnap on|off` (the s154 rung only: an older stand-in answers "unknown op")."""
         nb = self._nb
         a = rest[0].strip().lower() if rest else ""
         if op == "start":
@@ -9578,6 +9669,29 @@ class FakeGame:
                 if v < 0:
                     raise RuntimeError("netsync bbench unmap: a WIRE slot 0-3, or none")
                 f["unmap"] = v
+        elif op == "digit":                                 # [ff9mapkit netsync s154] NetSyncBattle.BenchDigit
+            if len(a) != 1 or not a.isdigit() or not a.isascii():
+                raise RuntimeError("netsync bbench digit: needs one digit 0-9 (a keypress for the digit panel's next serving "
+                                   "tick)")
+            if nb.dg_waiting >= 0:
+                raise RuntimeError(f"netsync bbench digit: [{nb.dg_waiting}] still waits for the digit panel (it takes one "
+                                   f"digit per serving tick, past its {int(DIGIT_COOLDOWN_S * 1000)} ms send cooldown, while a "
+                                   f"slot it serves is Ready)")
+            nb.dg_waiting = int(a)
+            self._mlog(f"[NetSync] harness: digit [{a}] queued for the digit panel (taken on its next serving tick as a "
+                       f"keypress; selftest bench feed)")
+        elif op == "digitsnap":                             # [ff9mapkit netsync s154] NetSyncBattle.BenchDigitSnap
+            if a not in ("on", "1", "off", "0"):
+                raise RuntimeError("netsync bbench digitsnap: on|off (off = CALIBRATION: the pre-s154 digit panel -- its item "
+                                   "page and target pick drawn live and re-derived at the keypress)")
+            off = a in ("off", "0")
+            changed = nb.dg_snap_off != off
+            nb.dg_snap_off = off
+            if changed:
+                self._nb_digit_reset_ui()                   # no pick spans a lever change
+            self._mlog("[NetSync] harness: digit-panel snapshot " + ("ON (THE DIGIT-PICK LAW)" if not off else
+                       "OFF -- CALIBRATION: the pre-s154 digit panel (its item page and target pick drawn live and "
+                       "re-derived at the keypress)") + ("; the panel back at its root" if changed else ""))
 
     def _nb_stop_feed(self, why: str) -> None:
         """StopFeed: the feed and the lane it published go (the mirror stands down on its next tick)."""
@@ -9587,6 +9701,8 @@ class FakeGame:
         nb.feed = None
         nb.feed_view = None
         nb.assist_slot = -1
+        self._nb_digit_reset_ui()                           # [ff9mapkit netsync s154] ResetUi, and a press for its panel never
+        self._nb_digit_discard("the bench feed stopped")    # outlives the feed
 
     def _nb_feed_doc(self) -> dict | None:
         """`netsync.battle.menu.feed` (HarnessBenchFeed): None = no feed running."""
@@ -9606,21 +9722,27 @@ class FakeGame:
             doc["menu_open"] = frame is not None and frame[1] > 0
         doc.update(frames=f["frames"], taken=f["taken"], accepted=f["accepted"], refused=f["refused"], bad=f["bad"],
                    last=f["last"])
+        if NETSYNC_S154_RUNG in self._nb_caps():
+            doc.update(self._nb_digit_doc())                # [ff9mapkit netsync s154] AppendFeedDigit, after `last`
         return doc
 
     def _nb_feed_control(self) -> tuple:
         """[ff9mapkit netsync R3 s113/s114] The bench feed's control frame -- what Pump's guest branch would send while the
         feed's lane is live: GuestControl over the feed view (the stock window below its root = 3, the Quit prompt
-        excluded) and, s114, the report of a WIRE boot of the feed's nonce (LIVE once the LIVE latch holds)."""
+        excluded) and, s114, the report of a WIRE boot of the feed's nonce (LIVE once the LIVE latch holds).
+        [ff9mapkit netsync s154] ...and the digit panel below its root = 3 too (GuestMenuByte's `digit`, ahead of the stock
+        window's), which only the s154 stand-in's digit model ever leaves."""
         view = self._nb_feed_view_live()
         if view is None:
             return None, None
         nb = self._nb
         ready = self._nb_first_ready_guest(view) >= 0
         slot = self.battle_turn
+        digit = nb.dg_slot >= 0 and nb.dg_mode != "root"
         deep = (slot >= 0 and bool(nb.mirror_mask & (1 << slot)) and not self.quit_prompt
                 and self.menu.get("group") in ("Battle.Ability", "Battle.Item", "Battle.Target"))
-        return self._nb_guest_control(view["nonce"], ready, deep=deep, booted_live=nb.live_latched)
+        return self._nb_guest_control(view["nonce"], ready, deep=deep or digit, booted_live=nb.live_latched,
+                                      src_deep="digit" if digit else "stock")
 
     def _nb_first_ready_guest(self, view: dict) -> int:
         """FirstReadyGuestSlot: the first WIRE slot the view offers that is Ready and alive (-1 = none)."""
@@ -9824,6 +9946,272 @@ class FakeGame:
                 f["refused"] += 1
                 verdict = "REFUSED"
             f["last"] = f"[{BW.hex_bytes(frame)}] slot {c['slot']} {BW.action_name(c['action'])} -- {verdict}"
+
+    # ---- [ff9mapkit netsync s154] THE DIGIT-PICK LAW: the digit panel the bench feed serves (NETSYNC_S154_RUNG's model) --
+    def _nb_digit_reset_ui(self) -> None:
+        """ResetUi: the panel back at its root serving nothing; the drawn snapshots and the note go with it."""
+        nb = self._nb
+        nb.dg_mode, nb.dg_slot, nb.dg_page, nb.dg_pend = "root", -1, 0, None
+        nb.dg_cands = nb.dg_items = nb.dg_note = None
+
+    def _nb_digit_discard(self, why: str) -> None:
+        """DiscardBenchDigit: a waiting bench digit dropped, with its line."""
+        nb = self._nb
+        if nb.dg_waiting < 0:
+            return
+        self._mlog(f"[NetSync] harness: a waiting bench digit [{nb.dg_waiting}] discarded ({why})")
+        nb.dg_waiting = -1
+
+    def _nb_digit_release(self) -> None:
+        """ReleaseDigitBench (every harness release): the lever back on -- the panel back at its root when it was pulled --
+        and a waiting bench digit discarded; the counters stay (monotonic)."""
+        nb = self._nb
+        if nb.dg_snap_off:
+            nb.dg_snap_off = False
+            self._nb_digit_reset_ui()
+            self._mlog("[NetSync] harness: digit-panel snapshot back ON (released with the harness)")
+        self._nb_digit_discard("released with the harness")
+
+    def _nb_digit_law(self) -> bool:
+        """DigitSnapOn: the law, unless the `digitsnap off` lever is pulled under the selftest role."""
+        return not (self._nb.dg_snap_off and self._nb_role())
+
+    def _nb_digit_units(self) -> list:
+        """The feed view's units as ParseView builds them (wire order: the players at their wire index, then the enemies),
+        each a fresh record -- alive = hp > 0 and no Death (BuildFeedFrame)."""
+        return [{"slot": int(u["slot"]), "player": bool(u.get("player")), "name": u.get("name"),
+                 "alive": bool(u.get("alive", True)) and int(u.get("hp", 0)) > 0}
+                for u in sorted(self.battle_units, key=lambda x: int(x["slot"]))]
+
+    @staticmethod
+    def _nb_digit_candidates(units: list, target: int, for_dead: bool) -> list:
+        """TargetCandidates: the side filter, the dead/alive filter (a revive pick lists the fallen), enemies then party."""
+        enemies, allies = target in (0, 2, 3, 5), target in (0, 1, 3, 4)
+        if not enemies and not allies:
+            enemies = allies = True
+        return [u for side in (False, True) for u in units if u["player"] is side
+                and (allies if side else enemies) and (not u["alive"] if for_dead else u["alive"])]
+
+    @staticmethod
+    def _nb_digit_auto(target: int, slot: int) -> tuple | None:
+        """ResolveAutoTarget: (mask, cursor) for an All / Random / Self pick, None for a pick that needs a target."""
+        if target == 13:
+            return 1 << slot, 0
+        return {6: (0xFF, 1), 12: (0xFF, 1), 7: (0x0F, 1), 8: (0xF0, 1), 9: (0xFF, 2), 10: (0x0F, 2),
+                11: (0xF0, 2)}.get(target)
+
+    def _nb_digit_begin(self, units: list, view: dict, action: int, menu: int, ident: int, target: int, for_dead: bool,
+                        back: str, *, snapshot: bool) -> None:
+        """BeginTarget -- and, on every pick the law opens (``snapshot``), the list it will draw and press, taken NOW."""
+        nb = self._nb
+        nb.dg_pend = {"action": action, "menu": menu, "id": ident, "target": target, "for_dead": for_dead, "back": back}
+        nb.dg_mode = "target"
+        if snapshot:
+            nb.dg_cands = [dict(u) for u in self._nb_digit_candidates(units, target, for_dead)]
+            nb.dg_nonce = view["nonce"]
+            nb.dg_epoch += 1
+            nb.dg_note = None
+
+    def _nb_digit_build(self, slot: int, action: int, menu: int, ident: int, mask: int, cursor: int) -> bytes:
+        """BuildCommand: the cooldown stamped, the panel reset (still serving the slot), the v1 frame."""
+        nb = self._nb
+        nb.dg_send_rt = self.rt
+        nb.dg_pending_slot = slot
+        self._nb_digit_reset_ui()
+        nb.dg_slot = slot
+        return BW.encode_command(slot, action, menu, ident, mask, cursor)
+
+    def _nb_digit_refuse(self, d: int, what: str, verdict: int) -> None:
+        """RefusePick: nothing sent, the pick stays open -- the note, the counters, ONE line per (pick, digit, verdict)."""
+        nb = self._nb
+        nb.dg_refused += 1
+        why = f"[{d}] {what} {DIGIT_PICK_WHY.get(verdict, 'cannot be picked')}"
+        nb.dg_refused_why = why
+        nb.dg_note = f"-- {why}: pick another, or [0] back"
+        fresh, nb.dg_logged_mask, nb.dg_logged_epoch = digit_log_fresh(nb.dg_logged_mask, nb.dg_logged_epoch, nb.dg_epoch,
+                                                                       d, verdict)
+        if fresh:
+            self._mlog(f"[NetSync] digit panel: {why} -- not sent (the pick stays open: pick another or [0] back)")
+
+    def _nb_digit_resolve_target(self, d: int, view: dict, units: list, for_dead: bool) -> tuple:
+        """ResolveDigitTarget -> (verdict, the btl index to command or -1)."""
+        nb = self._nb
+        snap = nb.dg_cands
+        drawn = snap is not None and 1 <= d <= 8 and d - 1 < len(snap)
+        u = None
+        if drawn and view["nonce"] == nb.dg_nonce:
+            u = next((x for x in units if x["slot"] == snap[d - 1]["slot"]), None)
+        v = digit_target_rule(drawn, u is not None, u is not None and u["player"] == snap[d - 1]["player"],
+                              u is not None and u["alive"], for_dead)
+        return v, snap[d - 1]["slot"] if v == DIGIT_PICK_SEND else -1
+
+    @staticmethod
+    def _nb_digit_live_count(roster: dict | None, ident: int) -> int:
+        if roster is None:
+            return -1
+        return next((int(i["count"]) for i in roster["items"] if int(i["id"]) == ident), 0)
+
+    def _nb_digit_press(self, d: int, slot: int, view: dict) -> bytes | None:
+        """RunAssistUi's switch for one digit -> the frame it sends (None = none)."""
+        nb = self._nb
+        roster, _src = self._nb_menu_roster()
+        units = self._nb_digit_units()
+        law = self._nb_digit_law()
+        if nb.dg_mode == "root":
+            if d == 1:                                      # Attack: targeting from its roster entry when known
+                atk = next((c for c in ((roster or {}).get("slots") or {}).get(slot) or () if c["menu"] == 0), None)
+                t = int(atk["target"]) if atk else 0
+                self._nb_digit_begin(units, view, BW.ACT_ATTACK, int(atk["menu"]) if atk else 0, 0, t & 0x7F,
+                                     bool(t & 0x80), "root", snapshot=True)
+            elif d == 2:
+                return self._nb_digit_build(slot, BW.ACT_DEFEND, 0, 0, 1 << slot, 0)
+            elif d == 5 and roster is not None and roster["items"]:
+                nb.dg_mode, nb.dg_page = "item", 0
+                nb.dg_items = [dict(i) for i in roster["items"]]
+                nb.dg_epoch += 1
+                nb.dg_note = None
+            return None                                     # ([3] / [4]: the ability pages are not modelled)
+        if nb.dg_mode == "item":
+            if not law:                                     # the lever: s153's press, the LIVE roster by position
+                if d == 0:
+                    nb.dg_mode = "root"
+                elif d == 8:
+                    nb.dg_page = max(0, nb.dg_page - 1)
+                elif d == 9:
+                    if roster is not None and (nb.dg_page + 1) * DIGIT_PAGE < len(roster["items"]):
+                        nb.dg_page += 1
+                elif 1 <= d <= DIGIT_PAGE and roster is not None:
+                    idx = nb.dg_page * DIGIT_PAGE + d - 1
+                    if idx < len(roster["items"]) and int(roster["items"][idx]["count"]) > 0:
+                        it = roster["items"][idx]
+                        auto = self._nb_digit_auto(int(it["target"]), slot)
+                        if auto is not None:
+                            return self._nb_digit_build(slot, BW.ACT_ITEM, 0, int(it["id"]), *auto)
+                        self._nb_digit_begin(units, view, BW.ACT_ITEM, 0, int(it["id"]), int(it["target"]),
+                                             bool(it.get("for_dead")), "item", snapshot=False)
+                return None
+            if d == 0:
+                nb.dg_mode, nb.dg_items, nb.dg_note = "root", None, None
+            elif d == 8:
+                nb.dg_page, nb.dg_note = max(0, nb.dg_page - 1), None
+            elif d == 9:
+                if nb.dg_items is not None and (nb.dg_page + 1) * DIGIT_PAGE < len(nb.dg_items):
+                    nb.dg_page += 1
+                nb.dg_note = None
+            elif 1 <= d <= DIGIT_PAGE:
+                idx = nb.dg_page * DIGIT_PAGE + d - 1
+                drawn = nb.dg_items is not None and idx < len(nb.dg_items) and int(nb.dg_items[idx]["count"]) > 0
+                it = nb.dg_items[idx] if drawn else None
+                v = digit_item_rule(drawn, self._nb_digit_live_count(roster, int(it["id"])) if drawn else -1)
+                if v == DIGIT_PICK_NO_ENTRY:
+                    return None
+                if v != DIGIT_PICK_SEND:
+                    self._nb_digit_refuse(d, f"{self._nb_digit_item_label(int(it['id']))} (item {int(it['id'])})", v)
+                    return None
+                auto = self._nb_digit_auto(int(it["target"]), slot)
+                if auto is not None:
+                    return self._nb_digit_build(slot, BW.ACT_ITEM, 0, int(it["id"]), *auto)
+                self._nb_digit_begin(units, view, BW.ACT_ITEM, 0, int(it["id"]), int(it["target"]),
+                                     bool(it.get("for_dead")), "item", snapshot=True)
+            return None
+        p = nb.dg_pend or {"action": BW.ACT_ATTACK, "menu": 0, "id": 0, "target": 0, "for_dead": False, "back": "root"}
+        if not law:                                         # the lever: s153's press, the list RE-DERIVED here
+            if d == 0:
+                nb.dg_mode = p["back"]
+            elif 1 <= d <= 8:
+                targets = self._nb_digit_candidates(units, p["target"], p["for_dead"])
+                if d - 1 < len(targets):
+                    return self._nb_digit_build(slot, p["action"], p["menu"], p["id"], 1 << targets[d - 1]["slot"], 0)
+            return None
+        if d == 0:
+            nb.dg_mode, nb.dg_cands, nb.dg_note = p["back"], None, None
+        elif 1 <= d <= 8:
+            v, unit = self._nb_digit_resolve_target(d, view, units, p["for_dead"])
+            if v == DIGIT_PICK_NO_ENTRY:
+                return None
+            if v != DIGIT_PICK_SEND:
+                c = nb.dg_cands[d - 1]
+                self._nb_digit_refuse(d, f"{c['name']} (unit {c['slot']})", v)
+                return None
+            return self._nb_digit_build(slot, p["action"], p["menu"], p["id"], 1 << unit, 0)
+        return None
+
+    def _nb_digit_item_label(self, ident: int) -> str:
+        """ItemLabel: this install's item name, else ``#<id>``."""
+        return str(self.FAKE_ITEM_NAMES.get(ident, f"#{ident}"))
+
+    def _nb_digit_take(self, frame: bytes) -> None:
+        """BenchTake(frame, "digit panel"): the bench host decodes it with the host's decoder -- ACCEPTED for a Ready wire slot
+        (its bit falls at once), REFUSED under `mode refuse`, else dropped -- with the engine's words and line."""
+        f = self._nb.feed
+        hexs = BW.hex_bytes(frame)
+        c = BW.decode_command(frame)
+        if c is None:
+            f["bad"] += 1
+            f["last"] = f"digit panel [{hexs}] malformed"
+            self._mlog(f"[NetSync] bench feed: the bench host could not decode a digit panel frame [{hexs}]")
+            return
+        f["taken"] += 1
+        bit = 1 << c["slot"]
+        if f["refuse"]:
+            f["refused"] += 1
+            verdict = "REFUSED (mode refuse) -- its Ready bit stays up"
+        elif 0 <= c["slot"] < 4 and f["ready"] & bit:
+            f["accepted"] += 1
+            f["ready"] &= ~bit
+            f["force"] = True
+            verdict = f"ACCEPTED -- wire slot {c['slot']}'s Ready bit falls"
+        else:
+            verdict = f"dropped -- wire slot {c['slot']} was not Ready (a real host's \"not awaiting input\")"
+        f["last"] = (f"digit panel [{hexs}] slot {c['slot']} {BW.action_name(c['action'])} menu {c['menu']} id {c['id']} "
+                     f"mask 0x{c['mask']:02X} cursor {c['cursor']}: {verdict}")
+        self._mlog("[NetSync] bench feed: the bench host took a " + f["last"])
+
+    def _nb_digit_tick(self) -> None:
+        """BenchFeedTick's step 3 on the s154 rung: GuestAssistTick -> RunAssistUi over the feed's lane (AssistSlot is the
+        mirror tick's), then BenchTake of the frame it built. The bench press is the stand-in's only digit (no OS key)."""
+        nb = self._nb
+        view = self._nb_feed_view_live()
+        if nb.feed is None or view is None:
+            if nb.dg_slot >= 0:
+                self._nb_digit_reset_ui()                   # BenchFeedTick's not-live branch: ResetUi
+            return
+        slot = nb.assist_slot
+        if slot < 0:
+            nb.dg_pending_slot = -1
+            if nb.dg_slot >= 0:
+                self._nb_digit_reset_ui()
+            return
+        if nb.dg_slot != slot:
+            self._nb_digit_reset_ui()
+            nb.dg_slot = slot
+        if self.rt - nb.dg_send_rt < DIGIT_COOLDOWN_S or nb.dg_waiting < 0:
+            return
+        d, nb.dg_waiting = nb.dg_waiting, -1
+        nb.dg_taken += 1
+        frame = self._nb_digit_press(d, slot, view)
+        if frame is not None:
+            self._nb_digit_take(frame)
+
+    def _nb_digit_doc(self) -> dict:
+        """AppendFeedDigit's keys (after the feed's `last`): the panel's level / slot, the law, the bench press, the lists AS
+        DRAWN now (the snapshot, or under the lever the live list s153 draws), the refusals and the note."""
+        nb = self._nb
+        law = self._nb_digit_law()
+        cands, items = [], []
+        if nb.dg_slot >= 0 and nb.dg_mode == "target":
+            if law:
+                cands = [u["slot"] for u in (nb.dg_cands or [])][:8]
+            elif nb.dg_pend is not None:
+                cands = [u["slot"] for u in self._nb_digit_candidates(self._nb_digit_units(), nb.dg_pend["target"],
+                                                                      nb.dg_pend["for_dead"])][:8]
+        elif nb.dg_slot >= 0 and nb.dg_mode == "item":
+            roster, _src = self._nb_menu_roster()
+            src = nb.dg_items if law else (roster or {}).get("items")
+            items = [int(i["id"]) for i in (src or [])]
+        return {"digit_mode": nb.dg_mode if nb.dg_slot >= 0 else None, "digit_slot": nb.dg_slot, "digit_snap": law,
+                "digit_waiting": nb.dg_waiting, "digit_taken": nb.dg_taken, "digit_cands": cands, "digit_items": items,
+                "digit_refused": nb.dg_refused, "digit_refused_why": nb.dg_refused_why, "digit_note": nb.dg_note}
 
     # ---- [ff9mapkit netsync B5] s108 (stage 9): the result manifest ----------------------------------------------------
     def _nb_manifest_mode(self) -> int:
@@ -10962,6 +11350,8 @@ class FakeGame:
         if "mirror" in caps:                                # [ff9mapkit netsync B4] s107: the bench feed, then StockMenuTick
             self._nb_feed_tick()
             self._nb_mirror_tick()
+            if NETSYNC_S154_RUNG in caps:                   # [ff9mapkit netsync s154] the digit panel the feed serves
+                self._nb_digit_tick()
             self._nb_drain_outbox()
             if "waitparity" in caps and nb.feed is not None and nb.own_epoch is None:
                 frame, src = self._nb_feed_control()        # [ff9mapkit netsync R3 s113] the feed records the frame Pump
@@ -12455,6 +12845,9 @@ class FakeGame:
         self.control = False
         self._nb_boot()                                   # [ff9mapkit netsync B4] the battle lane's per-boot state
         self._wsnd["leave_sid"] = -1                      # [ff9mapkit netsync s145 fix2] Boot's `_leaveSongSid = -1` (every boot)
+        # [ff9mapkit netsync s154] Boot's `_bootSong = GetCurrentMusicId()`, read before the boot's audio: the sound model's current
+        # song on a WORLD boot (the model plays no field music), else -1
+        self._dio_boot_song = int(self._wsnd["cur"]) if world and self._wsnd_on() else -1
         if world:
             self._wsnd_boot(silent)                       # ...and a WORLD boot's audio (the sound model, opt-in)
         self._nb.d_wire = wire_intro if "intro" in self._nb_caps() and wire_intro in (0, 1) else -1
@@ -13363,6 +13756,25 @@ class _BattleLane:
         self.mirror_faulted = False
         self.mirror_fault_why: str | None = None
         self.assist_slot = -1                       # _assistSlot
+        # ---- [ff9mapkit netsync s154] the digit panel the bench feed serves (THE DIGIT-PICK LAW; FakeGame._nb_digit_tick)
+        self.dg_mode = "root"                       # _uiMode: root | item | target (the ability pages are not modelled)
+        self.dg_slot = -1                           # _uiSlot (WIRE)
+        self.dg_page = 0                            # _uiPage
+        self.dg_cands: list | None = None           # _pickCands: [{slot, player, name}] AS DRAWN (None = no target pick open)
+        self.dg_nonce = -1                          # _pickNonce
+        self.dg_items: list | None = None           # _uiItems: [{id, count, target, for_dead}] AS DRAWN (None = no item page)
+        self.dg_pend: dict | None = None            # the pick's command {action, menu, id, target, for_dead, back}
+        self.dg_epoch = 0                           # _pickEpoch
+        self.dg_logged_mask = 0                     # _pickLoggedMask: the (digit, verdict) pairs logged (digit_log_fresh)...
+        self.dg_logged_epoch = -1                   # _pickLoggedEpoch: ...for the pick of this epoch
+        self.dg_note: str | None = None             # _pickNote
+        self.dg_refused = 0                         # _pickRefused -- monotonic
+        self.dg_refused_why: str | None = None      # _pickRefusedWhy
+        self.dg_waiting = -1                        # _benchDigit
+        self.dg_taken = 0                           # _benchDigitsTaken -- monotonic
+        self.dg_snap_off = False                    # BenchDigitSnapOff (the lever)
+        self.dg_send_rt = -3600.0                   # _lastSendTick ("long ago")
+        self.dg_pending_slot = -1                   # _pendingSlot
         # ---- s108: the result manifest
         self.manifest_mode = 0                      # BW.MANIFEST_SHIP_ON (`endbench manifest host on|off`)
         self.host_manifest: dict | None = None      # NOT MODELLED beyond the keys: the stand-in's own battles have no result

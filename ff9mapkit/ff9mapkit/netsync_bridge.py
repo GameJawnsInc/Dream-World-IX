@@ -473,8 +473,13 @@ class _Upstream:
         if n >= FLAP_WARN_AT and not self._flap_warned:
             self._flap_warned = True
             if "role=host" in self.path:
+                # [ff9mapkit s154] the cure named as a command: the Workspace has no fresh-code control. In its BRIDGE-SAFE
+                # form -- this line is usually read in the Workspace's own Connection log, and a bare `coop host
+                # --new-code` would run a second bridge on this same port (SO_REUSEADDR lets both bind on Windows).
+                # Start hosting again (a bare `coop host`) then keeps the new code, shows it and copies it.
                 advice = ("Most likely two hosts are on one session code (a code reused from an old invite): start hosting "
-                          "with a fresh code.")
+                          "with a fresh code -- run  ff9mapkit coop host --new-code --no-bridge  (this bridge keeps "
+                          "running), then in the Workspace press Start hosting again, and send your friend the new one.")
             else:
                 advice = ("Most likely another guest -- or this game on a second PC -- joined with the same code: only one "
                           "guest can join a session, so give a second friend their own host's code.")

@@ -322,10 +322,14 @@ def parked_code(root) -> str:
 
 def base_overlay(root) -> dict[str, dict[str, str]]:
     """What a root's Memoria.ini changes from the install's: Netsync OFF and parked (:data:`PARKED_RELAY`, a code of its
-    own); gamepad capture OFF -- with it ON a pad press reaches even an UNFOCUSED FF9, which is what paused a P3 host;
-    the SfxProbe off. A co-op run writes its [Netsync] role through :meth:`Instance.netsync` and restores this after."""
+    own -- in SessionCode AND in the kit's own-code record HostSessionCode); gamepad capture OFF -- with it ON a pad press
+    reaches even an UNFOCUSED FF9, which is what paused a P3 host; the SfxProbe off. A co-op run writes its [Netsync] role
+    through :meth:`Instance.netsync` and restores this after."""
     return {
-        "Netsync": {"Enabled": "0", "RelayUrl": PARKED_RELAY, "SessionCode": parked_code(root)},
+        # [ff9mapkit s154] HostSessionCode parked too: it is the kit's record of THIS PC's own host code, so a root that
+        # inherited the owner's would re-publish the owner's session on any `coop host` aimed at the root
+        "Netsync": {"Enabled": "0", "RelayUrl": PARKED_RELAY, "SessionCode": parked_code(root),
+                    "HostSessionCode": parked_code(root)},
         "Control": {"AlwaysCaptureGamepad": "0"},
         "SfxProbe": {"Enabled": "0"},
     }
