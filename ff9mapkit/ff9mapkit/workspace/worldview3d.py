@@ -1196,9 +1196,10 @@ class WorldView3DPanel(QWidget):
         x, z = (m[0], m[2]) if m is not None else (self.view.camera.target[0], self.view.camera.target[2])
         game = getattr(self.site, "game", None) if self.site is not None else None
         settings = G.Settings.from_game(game) if game is not None else G.Settings()
-        packed = self.view.packed
+        view = self.view                # the eye probes the scene drawn NOW: a reload re-seats the party on new ground,
+        #                                 and a probe bound to this click's scene kept the old (PERF.md defect 1)
         cam = GameCamera.from_orbit(self.view.camera, (x, 0.0, z), settings=settings,
-                                    ground=lambda gx, gz: ground_y(packed, gx, gz),
+                                    ground=lambda gx, gz: ground_y(view.packed, gx, gz),
                                     mode=int(self.vehicle_box.currentData() or 0), table=G.transport_table(game),
                                     how=self._vehicle_how())
         self._set_fog()

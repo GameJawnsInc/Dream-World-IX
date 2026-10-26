@@ -501,6 +501,30 @@ def test_the_game_camera_seats_each_vehicle_as_the_game_does(app):
     assert not p.vehicle_box.isVisibleTo(p) and not p.alt_spin.isVisibleTo(p)
 
 
+def test_the_game_camera_probes_the_ground_it_draws_after_a_reload(app):
+    """The game camera's eye probe was bound to the scene shown when it was turned on: after a reload (an Accept, an
+    Undo, a rescan) the party stood on the new ground while the eye lifted over the old, and the old scene's arrays
+    stayed alive in the probe (found by the World tab perf study, PERF.md defect 1). It probes the scene drawn now."""
+    import gc
+    import weakref
+    from ff9mapkit.editor.theme import pick_palette
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    p.view = V.WorldView3D()
+    old = V.pack([GROUND, _lid(9.0, down=False)])
+    p.view.packed = old
+    p.view.marker = (30.0, 9.0, -33.0)
+    p.game_btn.setChecked(True)
+    cam = p.view.camera
+    assert cam.ground(30.0, -33.0) == pytest.approx(9.0)
+    p._finish(V.pack([GROUND, _lid(20.0, down=False)]), {}, None)        # a reload lands
+    assert p.view.camera is cam and cam.player[1] == pytest.approx(20.0)  # the party re-stood on the new lid
+    assert cam.ground(30.0, -33.0) == pytest.approx(20.0)                 # ...and the eye probes the same ground
+    gone = weakref.ref(old)
+    del old
+    gc.collect()
+    assert gone() is None                                                 # nothing holds the old scene
+
+
 def test_a_load_asked_while_one_runs_is_the_one_drawn(app, monkeypatch):
     """The panel dropped a load asked while one ran ("busy: return"): a scan landing during a card's write, or a write
     ending while a refusal's reload ran, left the view drawing the old folder or the draft without the shape just
