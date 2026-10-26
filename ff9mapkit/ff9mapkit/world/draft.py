@@ -441,6 +441,8 @@ def promote(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
     would overwrite their bytes). Every live file at the edited cells (both discs, every part) is snapshotted first
     into ``<draft>/promotes/<stamp>/``, so :func:`revert` restores them exactly. Afterwards the draft is rebased: it
     equals the live folder again, with no edits and nothing stale. Returns the promote record."""
+    if not dry_run:
+        abort_step(Path(draft))                          # (a failed abort, finished before the draft is copied)
     from . import discmirror as DM
     from . import mesh as M
     draft = Path(draft)
@@ -801,6 +803,7 @@ def undo(draft: Path) -> dict:
     """Take the last applied step back out of the draft, byte for byte. Refuses a step already promoted (Revert
     promote first) and a step whose files changed since (something else wrote the draft)."""
     draft = Path(draft)
+    abort_step(draft)                                    # a failed abort, finished before this rewrites its cells
     h = history(draft)
     if h["cursor"] == 0:
         raise ValueError("nothing to undo")
@@ -821,6 +824,7 @@ def undo(draft: Path) -> dict:
 def redo(draft: Path) -> dict:
     """Put the next undone step back into the draft, byte for byte (its recorded result: the verb is not re-run)."""
     draft = Path(draft)
+    abort_step(draft)                                    # a failed abort, finished before this rewrites its cells
     h = history(draft)
     if h["cursor"] >= len(h["steps"]):
         raise ValueError("nothing to redo")

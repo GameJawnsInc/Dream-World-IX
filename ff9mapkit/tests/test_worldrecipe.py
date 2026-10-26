@@ -576,3 +576,32 @@ def test_a_closing_workspace_starts_no_row_whose_snapshot_was_still_running(monk
     assert run.argvs == [] and not bar.holding()                          # the row never started
     assert "Stopped one.toml as the Workspace closed" in bar.status_lbl.text()
     assert not (tmp_path / "drafts" / "FF9CustomMap-world.draft" / D.HISTORY_DIR / D._PENDING).exists()
+
+
+def _failed_abort(d, monkeypatch, cells, writes):
+    """A step that half wrote and whose abort failed: its pending snapshot left in the draft."""
+    D.begin_step(d, cells)
+    for rel, data in writes.items():
+        (d / rel).write_bytes(data)
+    real = D._restore
+    monkeypatch.setattr(D, "_restore", lambda *a, **k: (_ for _ in ()).throw(PermissionError(13, "held")))
+    with pytest.raises(PermissionError):
+        D.abort_step(d)
+    monkeypatch.setattr(D, "_restore", real)
+
+
+def test_a_pending_abort_is_finished_before_an_undo_or_redo_rewrites_its_cells(tmp_path, monkeypatch):
+    """A failed abort's snapshot was finished at the NEXT begin_step, after an Undo or Redo had rewritten its cells:
+    it wrote the undone step's bytes back while the history said undone (review round 2, H1). Undo, Redo and
+    Promote finish a pending abort first, so the history stays exact."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain one")
+    stock = (_src / T10).read_bytes()
+    _failed_abort(d, monkeypatch, [(0, 0), (1, 0)], {T00: b"half a forest"})
+    D.undo(d)                                                             # takes the mountain back out
+    assert (d / T10).read_bytes() == stock and (d / T00).read_bytes() == (_src / T00).read_bytes()
+    D.begin_step(d, [(0, 0)])
+    assert (d / T10).read_bytes() == stock                                # not written back by a late abort
+    D.abort_step(d)
+    D.redo(d)
+    assert (d / T10).read_bytes() == b"mountain" and D.history(d)["cursor"] == 1
