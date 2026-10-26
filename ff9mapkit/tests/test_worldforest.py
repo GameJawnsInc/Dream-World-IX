@@ -701,3 +701,27 @@ def test_a_refused_accept_whose_abort_fails_keeps_its_refusal(app, tmp_path, mon
     text = tool.verdict_lbl.text()
     assert "written" not in text and "census" in text and "could not be cleared" in text
     assert tool._verdict is not None and not tool._verdict[1]["ok"] and not tool.writing()
+
+
+def test_a_job_that_died_without_a_verdict_is_never_called_unchanged(app, tmp_path, monkeypatch):
+    """F1 said "The draft is unchanged" for every refused Accept whose abort failed -- including the card's own
+    refusal for a job that ended without a verdict, a verb that died maybe after writing (review of the perf fixes,
+    round 2, H3). Only a verb's own refusal is called unchanged; a death says the draft may hold a half write."""
+    def answer(kind, argv):
+        if kind == "check":
+            return {"ok": True, "dry_run": True, "center": [26, -26], "report": {}, "blocks": [[0, 0]],
+                    "written": [], "refused": None}
+        return None                                                       # the Accept died: no verdict
+    tool, _panel, _changed = _tool(app, tmp_path, Scripted(answer))
+    tool.place(26.04, -25.97, 3.2)
+    _settle(tool)
+    real = D.abort_step
+
+    def fails(d):
+        if (Path(d) / D.HISTORY_DIR / D._PENDING / "step.json").is_file():
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "abort_step", fails)
+    tool.accept_btn.click()
+    text = tool.verdict_lbl.text()
+    assert "unchanged" not in text and "may hold" in text and "without a verdict" in text

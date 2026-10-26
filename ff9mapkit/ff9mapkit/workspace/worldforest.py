@@ -1082,7 +1082,7 @@ class CarryTool(QWidget):
         v = self.FE.read_verdict(report)
         if v is None:
             last = [ln for ln in text.splitlines() if ln.strip()][-1:] or [f"exit code {code}"]
-            v = {"ok": False, "dry_run": kind == "check",
+            v = {"ok": False, "dry_run": kind == "check", "died": True,      # (the verb may have written: H3)
                  "refused": {"gate": "error", "message": f"the job ended without a verdict: {last[0]}", "where": []}}
         if kind == "accept":                             # the step goes into the recipe, or back out of the draft,
             from ..world import draft as D               # on a worker: the card writes until it is recorded
@@ -1106,8 +1106,12 @@ class CarryTool(QWidget):
         if err is not None and not v["ok"]:              # a refused Accept: nothing was written, only its pending
             self._verdict = (key, v)                     # snapshot stays (review of the perf commits, F1)
             self._redraw()
-            self._say(f"{self.verdict_lbl.text()} The draft is unchanged, but its history snapshot could not be "
-                      f"cleared ({err}).", "error")
+            if v.get("died"):                            # a verb that died may have written: never "unchanged" (H3)
+                self._say(f"{self.verdict_lbl.text()} The draft may hold a half write: its history snapshot could not "
+                          f"be put back ({err}), so it is taken back when the next step begins.", "error")
+            else:
+                self._say(f"{self.verdict_lbl.text()} The draft is unchanged, but its history snapshot could not be "
+                          f"cleared ({err}).", "error")
             return
         if err is not None:
             self._verdict = None
