@@ -625,6 +625,36 @@ def test_the_game_camera_has_its_grid_built_off_the_window_s_thread(app):
     assert built(p.view.packed) and p.view.camera.ground(30.0, -33.0) == pytest.approx(20.0)
 
 
+def test_seating_the_party_reads_the_point_facts_off_the_window_s_thread(app, monkeypatch):
+    """Each vehicle or height change seated the party with point_info on the GUI thread: 97-121 ms a spin step
+    (PERF.md 6, C7). The party stands at once on the drawn ground, keeping the cell's area (no camera flicker on a
+    held spin); the point facts arrive from a worker and seat it in the cell's own area -- the newest ask only."""
+    import threading
+    import time
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.world import pointinfo as PI
+    where = []
+
+    def facts(site, x, z, **_k):
+        where.append(threading.current_thread() is threading.main_thread())
+        return {"ground": {"stand_y": 9.0, "area": 42, "topograph": 0}}
+    monkeypatch.setattr(PI, "point_info", facts)
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    p.view = V.WorldView3D()
+    p.view.packed = V.pack([GROUND, _lid(9.0, down=False)])
+    p.view.marker = (30.0, 9.0, -33.0)
+    p.site = R.RenderSite(cells=(), game=None)
+    p.game_btn.setChecked(True)
+    cam = p.view.camera
+    assert cam.player[1] == pytest.approx(9.0)                            # stood at once, on the drawn lid
+    t = time.time()
+    while cam.area != 42:
+        assert time.time() - t < 30
+        app.processEvents()
+        time.sleep(0.005)
+    assert where and not any(where)                                       # every point_info on a worker
+
+
 def test_a_load_asked_while_one_runs_is_the_one_drawn(app, monkeypatch):
     """The panel dropped a load asked while one ran ("busy: return"): a scan landing during a card's write, or a write
     ending while a refusal's reload ran, left the view drawing the old folder or the draft without the shape just
