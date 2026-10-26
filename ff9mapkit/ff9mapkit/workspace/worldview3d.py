@@ -180,6 +180,7 @@ class Packed:
     draws: list
     tris: int = 0
     _pick: dict = dataclasses.field(default_factory=dict, repr=False)   # part -> (v0, e1, e2, n), built on first pick
+    _ground: dict | None = dataclasses.field(default=None, repr=False)  # part -> {16u cell: up tri ids}, once built
 
     def pick_arrays(self, part):
         """Float64 ``(v0, e1, e2, normal)`` per triangle of ``part``, computed once (a click must not re-allocate
@@ -193,6 +194,35 @@ class Packed:
     @property
     def parts(self):
         return list(self.arrays)
+
+    def ground_grid(self):
+        """The plan grid :func:`ground_y` reads (``part -> {(i, j): ascending up-facing tri ids whose plan box meets
+        16u cell (i, j)}``), or None while it is not built: the probe then scans every tri, as it did."""
+        return self._ground
+
+    def build_ground_grid(self):
+        """Build :meth:`ground_grid` (about 0.4 s for the whole map: the panel runs it on a worker). Every tri whose
+        plan box holds a point is in that point's cell, so a cell's tris are the whole scan's candidates there."""
+        if self._ground is not None:
+            return self._ground
+        grid = {}
+        for part in self.arrays:
+            v0, e1, e2, n = self.pick_arrays(part)
+            lo = np.minimum(v0, np.minimum(v0 + e1, v0 + e2))
+            hi = np.maximum(v0, np.maximum(v0 + e1, v0 + e2))
+            up = np.flatnonzero(n[:, 1] > 0.0)
+            i0 = np.floor(lo[up, 0] / GROUND_CELL).astype(np.int64)
+            i1 = np.floor(hi[up, 0] / GROUND_CELL).astype(np.int64)
+            j0 = np.floor(lo[up, 2] / GROUND_CELL).astype(np.int64)
+            j1 = np.floor(hi[up, 2] / GROUND_CELL).astype(np.int64)
+            cells = {}
+            for tri, a, b, c, d in zip(up.tolist(), i0.tolist(), i1.tolist(), j0.tolist(), j1.tolist()):
+                for i in range(a, b + 1):
+                    for j in range(c, d + 1):
+                        cells.setdefault((i, j), []).append(tri)
+            grid[part] = {k: np.asarray(v, dtype=np.int64) for k, v in cells.items()}
+        self._ground = grid                              # (one assignment: a probe sees it built or not at all)
+        return grid
 
 
 def _view_keep(view, verts, tris):
@@ -657,14 +687,26 @@ class OrbitCamera:
         self.dist = min(DIST_MAX, max(DIST_MIN, self.dist * (0.85 ** steps)))
 
 
+GROUND_CELL = 16.0                                           # the ground grid's plan cell (Packed.build_ground_grid)
+
+
 def ground_y(packed: Packed, x: float, z: float):
     """The highest up-facing surface of the scene under ``(x, z)`` (a ray straight down from the sky), or None: the
-    terrain the game camera's eye probes (``world.gamecam``'s ``ground``)."""
+    terrain the game camera's eye probes (``world.gamecam``'s ``ground``). With the Packed's ground grid built, only
+    the tris of the point's 16u cell are tested -- the same tests and arithmetic, so the same heights: a game-camera
+    frame's four probes over the whole map were 95-104 ms on the GUI thread (PERF.md 6)."""
     if packed is None:
         return None
+    grid = packed.ground_grid()
+    key = (math.floor(x / GROUND_CELL), math.floor(z / GROUND_CELL))
     best = None
     for part in packed.arrays:
         v0, e1, e2, n = packed.pick_arrays(part)
+        if grid is not None:
+            cand = grid.get(part, {}).get(key)
+            if cand is None:
+                continue
+            v0, e1, e2, n = v0[cand], e1[cand], e2[cand], n[cand]
         ok = n[:, 1] > 0.0                                   # faces up: the face a ray from the sky meets
         lo = np.minimum(v0, np.minimum(v0 + e1, v0 + e2))
         hi = np.maximum(v0, np.maximum(v0 + e1, v0 + e2))
@@ -1179,6 +1221,7 @@ class WorldView3DPanel(QWidget):
         self._stack.setCurrentWidget(self.view)
         self.game_btn.show()
         if self.view.game_mode():                            # a reload: the party re-stands on the new ground
+            self._build_ground(packed)
             self._seat_party()
         # the status page leaves the stack once the view is up (a later message puts a fresh one back): a stacked
         # layout's height-for-width is its tallest page's, so the hidden page's wrapped teach line otherwise
@@ -1210,7 +1253,14 @@ class WorldView3DPanel(QWidget):
                                     how=self._vehicle_how())
         self._set_fog()
         self.view.set_camera(cam)
+        self._build_ground(self.view.packed)
         self._seat_party()
+
+    @staticmethod
+    def _build_ground(packed):
+        """The game camera's ground grid, on a worker (its probe scans the map until the grid lands)."""
+        if packed is not None and packed.ground_grid() is None:
+            threading.Thread(target=packed.build_ground_grid, daemon=True).start()
 
     def _set_fog(self):
         """The game's fog for the game camera (C18): the Mist years' (measured) or the years without, as the switch

@@ -87,7 +87,7 @@ def ground(reps):
     probe += [(FOREST_SPOT[0] + 0.37 * k, FOREST_SPOT[1] - 0.29 * k) for k in range(200)]
     probe += [(16.0 * i, -16.0 * j) for i in range(0, 96, 7) for j in range(0, 80, 7)]
     t = time.perf_counter()
-    V.ground_y(packed, *probe[0])                                     # the first probe builds the grid
+    packed.build_ground_grid()                                        # (the panel builds it on a worker)
     build = time.perf_counter() - t
     a = [OLD.ground_y(packed, x, z) for x, z in probe]
     b = [V.ground_y(packed, x, z) for x, z in probe]
