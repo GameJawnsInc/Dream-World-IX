@@ -950,6 +950,62 @@ def test_a_job_that_cannot_start_ends_as_a_failed_job(app, tmp_path):
     assert not r.busy() and len(got) == 1 and got[0][0] != 0 and "could not start" in got[0][1], got
 
 
+def test_a_card_starts_its_jobs_off_the_window_s_thread(app, tmp_path, monkeypatch):
+    """Starting a process on the GUI thread froze the window 0.5-1.2 s in bursts, inside the process start itself
+    (QProcess.start: card._run_job held the thread 1.2-1.5 s an Accept, PERF.md tier 2). The cards' and the recipe
+    bar's default runner starts its process on a worker thread and hands ``done`` back to the window's thread."""
+    import subprocess
+    import sys
+    import threading
+    from ff9mapkit.workspace import worldforest as WF
+    from ff9mapkit.workspace.worldrecipe import RecipeBar
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    seen, real = [], subprocess.Popen
+
+    def popen(*a, **k):
+        seen.append(threading.current_thread() is threading.main_thread())
+        return real(*a, **k)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    card = WF.ForestTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: tmp_path,
+                         source_fn=lambda: tmp_path / "F", drafts_root=tmp_path / "d", sync=True)
+    bar = RecipeBar(pick_palette("dark"), game_fn=lambda: tmp_path, source_fn=lambda: tmp_path / "F",
+                    on_changed=lambda d: None, drafts_root=tmp_path / "d")
+    for r in (card._runner, bar._runner):
+        got = []
+        r.start([sys.executable, "-c", "print('done')"], ".", lambda code, text: got.append((code, text.strip())))
+        assert r.busy()
+        assert r.wait() and not r.busy() and got == [(0, "done")]
+    assert seen == [False, False]                                          # each process started on a worker
+
+
+def test_the_job_runner_keeps_the_runner_s_contract(app, tmp_path):
+    """JobRunner: ``done`` runs on the window's thread when the job ends (or inside ``wait``, which says whether it
+    ended); ``kill`` ends a job without its done; a program that cannot start ends as a failed job."""
+    import sys
+    import time
+    from ff9mapkit.workspace.worldforest import JobRunner
+    r, got = JobRunner(), []
+    r.start([sys.executable, "-c", "import time; time.sleep(0.3); print('slow')"], ".",
+            lambda code, text: got.append((code, text.strip())))
+    t = time.time()
+    while not got and time.time() - t < 30:
+        app.processEvents()
+        time.sleep(0.01)
+    assert got == [(0, "slow")] and not r.busy()                           # delivered by the event loop
+    got.clear()
+    r.start([sys.executable, "-c", "import time; time.sleep(5)"], ".", lambda code, text: got.append(code))
+    r.kill()
+    assert not r.busy() and r.wait()
+    app.processEvents()
+    assert got == []                                                       # a killed job's done never runs
+    r.start([str(tmp_path / "no-such-python.exe"), "-c", "print(1)"], ".", lambda code, text: got.append((code, text)))
+    assert r.wait() and not r.busy() and len(got) == 1 and got[0][0] != 0 and "could not start" in got[0][1]
+    r.start([sys.executable, "-c", "raise SystemExit(3)"], ".", lambda code, text: got.append(code))
+    r.start([sys.executable, "-c", "print('second')"], ".", lambda code, text: got.append(text.strip()))
+    assert r.wait() and got[-1] == "second" and 3 not in got               # a new start kills the running job
+
+
 def test_the_workspace_closing_shuts_the_world_tab_down(monkeypatch, app):
     """THE CALL SITE: the window's closeEvent is what spends ``WorldDoc.shutdown``."""
     from ff9mapkit import config as cfg

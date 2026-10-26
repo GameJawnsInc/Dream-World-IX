@@ -23,7 +23,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QMessageBox, QPushButton, QWidget
 
 from . import widgets
-from .worldforest import QProcessRunner, kit_cwd
+from .worldforest import JobRunner, kit_cwd
 
 
 class RecipeBar(QWidget):
@@ -41,7 +41,7 @@ class RecipeBar(QWidget):
         self._game_fn, self._source_fn, self._on_changed = game_fn, source_fn, on_changed
         self._on_hold = on_hold
         self._cards_writing = cards_writing or (lambda: False)
-        self._runner = runner or QProcessRunner()
+        self._runner = runner or JobRunner()
         self._drafts_root = drafts_root
         self._ask = ask or (lambda title, text: QMessageBox.question(self, title, text)
                             == QMessageBox.StandardButton.Yes)

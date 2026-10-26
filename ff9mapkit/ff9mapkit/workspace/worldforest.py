@@ -21,7 +21,7 @@ import threading
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QProcess, QTimer, Signal
+from PySide6.QtCore import QObject, QProcess, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSpinBox,
                                QVBoxLayout, QWidget)
@@ -119,6 +119,88 @@ class QProcessRunner:
         return ended or proc.state() == QProcess.ProcessState.NotRunning
 
 
+def _no_window() -> int:
+    """``CREATE_NO_WINDOW`` when this process has no console (the Workspace runs windowless): QProcess's own rule, so
+    a job opens no console window. 0 elsewhere."""
+    if sys.platform != "win32":
+        return 0
+    import ctypes
+    return 0 if ctypes.windll.kernel32.GetConsoleWindow() else subprocess.CREATE_NO_WINDOW
+
+
+class JobRunner(QObject):
+    """The cards' and the recipe bar's runner: one job at a time, its process started and waited for on a worker
+    thread (``subprocess.Popen``, stdout and stderr merged), ``done(code, text)`` back on the window's thread. A
+    process started on the GUI thread froze the window 0.5-1.2 s in bursts, inside the start itself (QProcess.start;
+    PERF.md tier 2). The contract is :class:`QProcessRunner`'s: ``kill`` ends a job without its done, ``wait`` blocks
+    until it ends and runs its done there, and a program that cannot start ends as a failed job."""
+
+    _ended = Signal(object)                              # the job (a dict) whose result is in
+
+    def __init__(self):
+        super().__init__()
+        self._job = None                                 # the running job, until its done is handed back or it is killed
+        self._ended.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
+
+    def start(self, argv, cwd, done):
+        self.kill()
+        job = {"argv": [str(a) for a in argv], "cwd": str(cwd), "done": done, "proc": None, "result": None,
+               "killed": False, "delivered": False}
+        job["thread"] = threading.Thread(target=self._run, args=(job,), daemon=True)
+        self._job = job
+        job["thread"].start()
+
+    def _run(self, job):                                 # (the worker: touches only its job)
+        try:
+            proc = subprocess.Popen(job["argv"], cwd=job["cwd"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, creationflags=_no_window())
+        except OSError as e:
+            job["result"] = (-1, f"the job could not start: {e}")
+        else:
+            job["proc"] = proc
+            if job["killed"]:                            # (kill ran between the start and this line)
+                proc.kill()
+            out, _ = proc.communicate()
+            job["result"] = (proc.returncode, out.decode("utf-8", "replace"))
+        try:
+            self._ended.emit(job)
+        except RuntimeError:                             # the runner died with its window
+            pass
+
+    def _deliver(self, job):
+        if job is not self._job or job["delivered"] or job["killed"] or job["result"] is None:
+            return
+        job["delivered"] = True
+        self._job = None
+        job["done"](*job["result"])
+
+    def kill(self):
+        job, self._job = self._job, None
+        if job is None:
+            return
+        job["killed"] = True
+        proc = job["proc"]
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+        job["thread"].join(2.0)
+
+    def busy(self):
+        return self._job is not None
+
+    def wait(self, msecs=120000) -> bool:
+        """Block until the running job ends and its ``done`` has run (the Workspace closing: a job writing the live
+        folder runs to its end, never killed half way). True when it ended; ``done`` may have started the next job,
+        so ``busy()`` after it says nothing about this one."""
+        job = self._job
+        if job is None:
+            return True
+        job["thread"].join(msecs / 1000.0)
+        if job["thread"].is_alive():
+            return False
+        self._deliver(job)                               # its done runs now; the queued delivery then finds it done
+        return True
+
+
 class CarryTool(QWidget):
     """A carry card under the 3D view. ``panel`` is the World tab's :class:`WorldView3DPanel`; ``source_fn()`` the
     mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the view after an Accept
@@ -168,7 +250,7 @@ class CarryTool(QWidget):
         self.FE = FE = self._edit_module()
         self.pal, self.panel = pal, panel
         self._game_fn, self._source_fn, self._on_changed = game_fn, source_fn, on_changed
-        self._runner = runner or QProcessRunner()
+        self._runner = runner or JobRunner()
         self._drafts_root = drafts_root
         self._ask = ask or self._ask_dialog
         self._outline_fn = outline_fn or (lambda donor: FE.outline(donor, game=self._game_fn()))
