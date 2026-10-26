@@ -224,6 +224,42 @@ def test_a_disc4_refusal_keeps_disc4_s_island_and_says_so(world, monkeypatch, tm
     assert D.history(tool.draft())["cursor"] == 1
 
 
+def test_a_disc4_call_that_died_is_never_called_a_refusal(world, monkeypatch, tmp_path):
+    """A two-call Accept's disc-4 call that ended without a verdict (an uncaught error after the sink wrote its first
+    blocks) was told apart from a refusal nowhere: the card said "Disc 4 refused the same edit, so disc 4 keeps its
+    own ground there" over a half write the step recorded and a Promote would carry (review of the perf fixes, round
+    3, H5). It says disc 4 may hold a half write, which Undo takes back with the step."""
+    pytest.importorskip("PySide6", reason="GUI extra not installed")
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldsink import SinkTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_worldforest import Scripted
+
+    def answer(kind, argv):
+        if "--disc" in argv:
+            return None                                                   # disc 4's call died: no verdict
+        return {"ok": True, "dry_run": kind == "check", "at": [344.0, -360.0], "blocks": [[5, 5]], "written": [],
+                "report": {"land_tris": 4}, "refused": None}
+    run = Scripted(answer)
+    game, src = _drafts(tmp_path)
+    tool = SinkTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: game,
+                    source_fn=lambda: src, runner=run, drafts_root=tmp_path / "drafts", sync=True,
+                    outline_fn=lambda d: [ROW])
+    tool.open_tool()
+    tool.place(344.0, -360.0)
+    tool._timer.stop()
+    tool._check()
+    tool.accept_btn.click()
+    text = tool.verdict_lbl.text()
+    assert len(run.argvs) == 3 and "--disc" in run.argvs[2]
+    assert "keeps its own ground" not in text and "may hold a half write" in text and "Undo" in text
+    assert tool.verdict_lbl.property("state") == "warn" and D.history(tool.draft())["cursor"] == 1
+
+
 # ---------------------------------------------------------------- editing a placed sink (rung C12)
 def _sink_card(tmp_path, rows, runner=None, *, open_=True):
     pytest.importorskip("PySide6", reason="GUI extra not installed")

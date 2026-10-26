@@ -1077,8 +1077,9 @@ class CarryTool(QWidget):
                 if v is not None and v.get("ok"):
                     self._runner.start(pre + calls[1], kit_cwd(), lambda c, t: step(1, c, t))
                     return
-            if k == 1:
-                self._disc4 = bool((self.FE.read_verdict(tmp / "verdict4.json") or {}).get("ok"))
+            if k == 1:                                   # disc 4's own call: it passed, refused, or died (no verdict:
+                v4 = self.FE.read_verdict(tmp / "verdict4.json")   # it may have written, round 3 H5)
+                self._disc4 = "died" if v4 is None else bool(v4.get("ok"))
                 code = 0
             self._job_done(kind, key, report, code, text)
         self._runner.start(pre + calls[0], kit_cwd(), lambda code, text: step(0, code, text))
@@ -1163,10 +1164,12 @@ class CarryTool(QWidget):
         self._verdict = None
         self.panel.set_overlays([])
         self.panel.set_ghost(None)
+        note = (" Disc 4 refused the same edit, so disc 4 keeps its own ground there (as the verb's replay would)."
+                if disc4 is False else
+                " Disc 4's call ended without a verdict, so disc 4 may hold a half write: Undo takes it back with "
+                "the rest of the step." if disc4 == "died" else "")
         self._say(f"In the draft: {n} block{'s' if n != 1 else ''} written. The view now draws the draft in place "
-                  f"of {self.source().name}. Click to place another {self.NOUN}."
-                  + (" Disc 4 refused the same edit, so disc 4 keeps its own ground there (as the verb's replay "
-                     "would)." if disc4 is False else ""), "warn" if disc4 is False else "ok")
+                  f"of {self.source().name}. Click to place another {self.NOUN}." + note, "warn" if note else "ok")
         if self._on_changed is not None:                 # the tab reads the island and the draft line again, once,
             self._on_changed(self.draft())               # for every card (island_changed): reading them here too
         else:                                            # was thrown away by its generation bump (PERF.md 2)
