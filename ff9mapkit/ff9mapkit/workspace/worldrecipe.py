@@ -123,8 +123,8 @@ class RecipeBar(QWidget):
         """Say what the recipe holds and which way it can walk."""
         from ..world import draft as D
         d = self.draft()
-        if self._stuck is not None and (d is None or Path(d) != self._stuck[0] or not D.history(d)["edit"]):
-            self._stuck = None                           # (closed, or the tab moved to another folder)
+        if self._stuck is not None and not D.history(self._stuck[0])["edit"]:
+            self._stuck = None                           # (its own draft's edit closed; a folder switch keeps it, R6-3)
         if d is not None and self._stuck is None and self._edit is None and self._queue is None \
                 and not self._cards_writing() and D.history(d)["edit"] \
                 and D.promote_owed(d) is None:       # (one the game is owed a promote for is :meth:`settle`'s)
@@ -157,8 +157,10 @@ class RecipeBar(QWidget):
         elif self._job == "promote":
             text = "Promoting the recipe into the game again…"
         elif self._stuck is not None:
-            text = (f"An edit is still open in the draft: its cancel was refused ({self._stuck[1]}). Nothing "
-                    "writes the draft until it closes; Cancel edit tries again, or Discard draft starts over.")
+            held = Path((D.read_meta(self._stuck[0]) or {}).get("source") or self._stuck[0]).name
+            text = (f"An edit is still open in the draft of {held}: its cancel was refused ({self._stuck[1]}). "
+                    "Nothing writes the draft until it closes; Cancel edit tries again, or Discard draft starts "
+                    "over.")
         elif self._edit is not None:
             text = self._edit_text(self._edit)
         elif self._sel is not None:

@@ -1567,3 +1567,26 @@ def test_a_cancel_the_draft_refuses_holds_the_draft_and_offers_discard(monkeypat
     bar.discard_btn.click()
     assert asked[-1] == "Discard the draft?" and not draft.exists() and not bar.holding()
     assert "discarded" in bar.status_lbl.text()
+
+
+def test_a_held_draft_stays_held_when_the_tab_moves_to_another_folder(monkeypatch, tmp_path, app):
+    """A scan landing under an open edit closes its card, and the cancel goes to the edit's own draft; refused, the
+    hold was dropped at once because the tab now showed another folder -- the first folder's edit left open, its game
+    reverted, nothing said (review of the perf fixes, round 6, R6-3). The hold is its draft's until that edit
+    closes, and names the folder."""
+    from ff9mapkit.workspace import worldscan
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    real = _refused_cancel(monkeypatch)
+    doc._finish(worldscan.scan_tree(game / "Hand"), None, None)           # the scan lands: Hand is shown now
+    text = bar.status_lbl.text()
+    assert bar.holding() and "still open" in text and "FF9CustomMap-world" in text, text
+    assert not bar.cancel_btn.isHidden() and not doc.tools_btn.isEnabled()
+    monkeypatch.setattr(D, "cancel_edit", real)
+    bar.cancel_btn.click()
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and not bar.holding()
+    assert _tree(game / "FF9CustomMap-world") == live0
