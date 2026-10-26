@@ -715,11 +715,18 @@ class CarryTool(QWidget):
         self._soups = {}
         self._ix = self._ix_for = None
         self._soup_gen += 1
+        self._soup_reading = set()
 
     def _load_soup(self):
-        """Both frames' soups, each from the cache or read on a worker (the seam frame's too, so a click near x = 0
-        never waits for a read); the current frame's is the one the preview reads."""
+        """Both frames' soups (:meth:`_read_frames`)."""
+        self._read_frames()
+
+    def _read_frames(self):
+        """Both frames' soups, each from the cache or read on a worker: the current frame's first -- the one the
+        preview reads -- and the other frame's once it lands, so a click near x = 0 seldom waits for one. Read at
+        once, the two fought for the GIL and the preview's landed at 1.5-1.9 s instead of 0.8 (PERF.md 7)."""
         target = self.target()
+        reading = self.__dict__.setdefault("_soup_reading", set())
         for seam in (self._seam, not self._seam):
             if seam and self._seam_soup_fn is None:
                 continue
@@ -727,6 +734,13 @@ class CarryTool(QWidget):
                 if seam == self._seam:
                     self._ix, self._ix_for = self._soups[(target, seam)], target
                 continue
+            if (target, seam, self._soup_gen) in reading:
+                if seam == self._seam:
+                    return                                   # the preview's frame is on its way: then the other
+                continue
+            if seam != self._seam and (target, self._seam, self._soup_gen) in reading:
+                return                                       # (the other frame waits for the preview's)
+            reading.add((target, seam, self._soup_gen))
             fn = self._seam_soup_fn if seam else self._soup_fn
 
             def read(fn=fn, seam=seam, gen=self._soup_gen):  # its error carries its generation and frame too: a
@@ -735,6 +749,8 @@ class CarryTool(QWidget):
                 except Exception as e:                       # noqa: BLE001 -- surfaced on the GUI thread
                     return (gen, target, seam, e)
             self._bg("soup", read)
+            if seam == self._seam:
+                return                                       # the other frame's read starts when this one lands
 
     def fcenter(self):
         """The centre as the current soup's frame spells it (the ghost and the cheap laws); ``center`` is the folded
@@ -783,6 +799,10 @@ class CarryTool(QWidget):
             gen, target, seam, ix = result
             if gen != self._soup_gen:
                 return                                   # begun before the island changed: not the island now
+            self.__dict__.setdefault("_soup_reading", set()).discard((target, seam, gen))
+            if not isinstance(ix, Exception) and not self.isHidden():
+                self._soups.setdefault((target, seam), ix)
+                self._read_frames()                      # the other frame's turn (a cached one only fills the ix)
             if isinstance(ix, Exception):
                 if (target, seam) == (self.target(), self._seam):
                     self._ix, self._ix_for = None, None

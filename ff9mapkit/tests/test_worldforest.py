@@ -277,6 +277,47 @@ def test_closing_a_card_mid_snapshot_waits_for_the_whole_accept(app, tmp_path, m
     assert not (tool.draft() / D.HISTORY_DIR / D._PENDING).exists()
 
 
+def test_a_card_reads_the_frame_its_preview_needs_first(app, tmp_path):
+    """A card read both frames' soups at once (the east frame and the seam frame across x = 0): the two reads
+    fought for the GIL, so the frame the preview needs landed at 1.5-1.9 s instead of 0.8 (PERF.md 7, c2). It reads
+    that frame first and the other once it lands."""
+    import threading
+    import time
+    from ff9mapkit.workspace.worldforest import ForestTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    game = _game(tmp_path)
+    ix = FE.SoupIndex(IN.soup_from_blocks({(0, 0): _mains_grid()}))
+    hold, log = threading.Event(), []
+
+    def east(folder):
+        log.append("east starts")
+        hold.wait(30)
+        log.append("east lands")
+        return ix
+
+    def seam(folder):
+        log.append("seam starts")
+        return ix
+    tool = ForestTool(PAL, WorldView3DPanel(PAL), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                      runner=Scripted(), drafts_root=tmp_path / "drafts", outline_fn=lambda d: _outline(),
+                      soup_fn=east, seam_soup_fn=seam)
+    tool.open_tool()
+    t = time.time()
+    while "east starts" not in log:
+        assert time.time() - t < 30
+        app.processEvents()
+        time.sleep(0.005)
+    time.sleep(0.2)
+    app.processEvents()
+    assert log == ["east starts"]                                          # the seam frame waits its turn
+    hold.set()
+    while "seam starts" not in log or tool._ix is None:
+        assert time.time() - t < 30
+        app.processEvents()
+        time.sleep(0.005)
+    assert log == ["east starts", "east lands", "seam starts"]
+
+
 def test_a_verdict_for_handles_that_moved_is_never_shown(app, tmp_path):
     """The stale guard: a check answers the handles it was asked about; turning the forest after it makes the
     verdict moot (Accept stays off) and a running check is killed rather than left to answer late."""
