@@ -202,6 +202,81 @@ def test_an_accept_reads_the_island_and_the_draft_line_once(app, tmp_path, monke
     assert len(walks) == 1                                                # the hidden card reads its line on open
 
 
+def test_an_accept_records_its_step_off_the_window_s_thread(app, tmp_path, monkeypatch):
+    """A sink Accept's history step snapshots every file of the map: begin_step and commit_step froze the window
+    1.7-2.4 s with warm files and 7-12 s on a fresh draft's (PERF.md tier 2). They run on a worker; the card writes
+    -- Close off, the tab's locks held -- from the click until the step is recorded."""
+    import threading
+    import time
+    from ff9mapkit.workspace.worldforest import ForestTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    game = _game(tmp_path)
+    ix = FE.SoupIndex(IN.soup_from_blocks({(0, 0): _mains_grid()}))
+    where, real_begin, real_commit = [], D.begin_step, D.commit_step
+    monkeypatch.setattr(D, "begin_step", lambda *a, **k: where.append(
+        ("begin", threading.current_thread() is threading.main_thread())) or real_begin(*a, **k))
+    monkeypatch.setattr(D, "commit_step", lambda *a, **k: where.append(
+        ("commit", threading.current_thread() is threading.main_thread())) or real_commit(*a, **k))
+    tool = ForestTool(PAL, WorldView3DPanel(PAL), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                      runner=Scripted(), drafts_root=tmp_path / "drafts", outline_fn=lambda d: _outline(),
+                      soup_fn=lambda folder: ix)                           # the threaded lane, as the Workspace runs
+
+    def until(cond, what):
+        t = time.time()
+        while not cond():
+            assert time.time() - t < 30, what
+            app.processEvents()
+            time.sleep(0.005)
+    tool.open_tool()
+    until(lambda: tool._ix is not None, "the island read")
+    tool.place(26.04, -25.97, 3.2)
+    tool._timer.stop()
+    tool._check()
+    until(lambda: tool.draft() is not None and tool.accept_btn.isEnabled(), "the check")
+    tool.accept_btn.click()
+    assert tool.writing()                                                  # from the click...
+    until(lambda: not tool.writing(), "the accept")
+    assert where == [("begin", False), ("commit", False)]                  # ...on a worker
+    assert D.history(tool.draft())["cursor"] == 1 and "In the draft: 1 block written" in tool.verdict_lbl.text()
+
+
+def test_closing_a_card_mid_snapshot_waits_for_the_whole_accept(app, tmp_path, monkeypatch):
+    """CLOSE WAITS A WRITE, with the step on a worker: a card closed (or the Workspace closing: closing_runner)
+    while its Accept's snapshot runs must not cut the Accept -- the snapshot ends, the verb writes, the step is
+    recorded, then the card closes. A Check is still killed."""
+    import threading
+    import time
+    from ff9mapkit.workspace.worldforest import ForestTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    game = _game(tmp_path)
+    ix = FE.SoupIndex(IN.soup_from_blocks({(0, 0): _mains_grid()}))
+    go, real = threading.Event(), D.begin_step
+    monkeypatch.setattr(D, "begin_step", lambda *a, **k: go.wait(30) and real(*a, **k))
+    tool = ForestTool(PAL, WorldView3DPanel(PAL), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                      runner=Scripted(), drafts_root=tmp_path / "drafts", outline_fn=lambda d: _outline(),
+                      soup_fn=lambda folder: ix)
+    tool.open_tool()
+    t = time.time()
+    while tool._ix is None or tool.draft() is None:
+        if tool._ix is not None and tool.draft() is None and tool.center is None:
+            tool.place(26.04, -25.97, 3.2)
+            tool._timer.stop()
+            tool._check()
+        assert time.time() - t < 30
+        app.processEvents()
+        time.sleep(0.005)
+    while not tool.accept_btn.isEnabled():
+        assert time.time() - t < 30
+        app.processEvents()
+        time.sleep(0.005)
+    tool.accept_btn.click()
+    assert tool.writing() and tool.closing_runner() is tool._steps          # the Workspace closing waits for it
+    threading.Timer(0.3, go.set).start()                                   # the snapshot ends while close waits
+    tool.close_tool()
+    assert not tool.writing() and D.history(tool.draft())["cursor"] == 1   # written AND recorded, then closed
+    assert not (tool.draft() / D.HISTORY_DIR / D._PENDING).exists()
+
+
 def test_a_verdict_for_handles_that_moved_is_never_shown(app, tmp_path):
     """The stale guard: a check answers the handles it was asked about; turning the forest after it makes the
     verdict moot (Accept stays off) and a running check is killed rather than left to answer late."""

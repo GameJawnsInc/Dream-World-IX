@@ -201,6 +201,63 @@ class JobRunner(QObject):
         return True
 
 
+class StepWorker(QObject):
+    """A card's draft bookkeeping -- an Accept's history snapshot and its record -- on a worker thread, one at a time,
+    ``done(result, error)`` back on the window's thread; inline with ``sync`` (the test and snap lane). A whole-map
+    step (a sink's) froze the window 1.7-2.4 s with warm files and 7-12 s with a fresh draft's (PERF.md tier 2).
+    Never killed: a step cut half way leaves the draft without its record, so ``wait`` (the card closing, the
+    Workspace closing) blocks until it ends and runs its done there."""
+
+    _ended = Signal(object)
+
+    def __init__(self, *, sync=False):
+        super().__init__()
+        self._sync, self._job = sync, None
+        self._ended.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
+
+    def start(self, fn, done):
+        job = {"fn": fn, "done": done, "out": None, "delivered": False}
+        self._job = job
+        if self._sync:
+            self._run(job, emit=False)
+            self._deliver(job)
+            return
+        job["thread"] = threading.Thread(target=self._run, args=(job,), daemon=True)
+        job["thread"].start()
+
+    def _run(self, job, emit=True):
+        try:
+            job["out"] = (job["fn"](), None)
+        except Exception as e:                           # noqa: BLE001 -- handed to done, on the window's thread
+            job["out"] = (None, e)
+        if emit:
+            try:
+                self._ended.emit(job)
+            except RuntimeError:                         # the card died with its window
+                pass
+
+    def _deliver(self, job):
+        if job is not self._job or job["delivered"] or job["out"] is None:
+            return
+        job["delivered"] = True
+        self._job = None
+        job["done"](*job["out"])
+
+    def busy(self):
+        return self._job is not None
+
+    def wait(self, msecs=120000) -> bool:
+        job = self._job
+        if job is None:
+            return True
+        if "thread" in job:
+            job["thread"].join(msecs / 1000.0)
+            if job["thread"].is_alive():
+                return False
+        self._deliver(job)
+        return True
+
+
 class CarryTool(QWidget):
     """A carry card under the 3D view. ``panel`` is the World tab's :class:`WorldView3DPanel`; ``source_fn()`` the
     mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the view after an Accept
@@ -258,6 +315,7 @@ class CarryTool(QWidget):
         # an injected soup is in one frame only: no seam frame then, unless the seam's own soup is injected too
         self._seam_soup_fn = seam_soup_fn or (None if soup_fn else (lambda folder: self._read_soup(folder, seam=True)))
         self._sync = sync
+        self._steps = StepWorker(sync=sync)              # an Accept's history step, off the window's thread
         self._on_reload = on_reload
         self._last_center = None                         # where Show in game goes (the last accepted shape)
         self._draft_state = (0, None)                    # (edited disc-1 blocks, the last unreverted promote)
@@ -573,7 +631,13 @@ class CarryTool(QWidget):
         cut the disc-4 call (review of the C19 fixes, fourth round)."""
         wait = getattr(self._runner, "wait", None)
         for _ in range(64):                              # (bounded: a runner that never ends must not spin the GUI)
-            if wait is None or not self.writing() or not self._runner.busy() or not wait():
+            if not self.writing():
+                break
+            if self._steps.busy():                       # an Accept's snapshot or record: its end starts the next leg
+                if not self._steps.wait():
+                    break
+                continue
+            if wait is None or not self._runner.busy() or not wait():
                 break
 
     def writing(self) -> bool:
@@ -588,6 +652,8 @@ class CarryTool(QWidget):
             self._runner.kill()
             self._job = None
             return None
+        if self._steps.busy():                           # an Accept's history step (its end may start a job)
+            return self._steps
         return self._runner if self._runner.busy() else None
 
     def handles(self):
@@ -923,9 +989,7 @@ class CarryTool(QWidget):
             return
         tmp = Path(tempfile.mkdtemp(prefix=f"ff9_{self.NOUN}_"))
         report = tmp / "verdict.json"
-        if kind == "accept":                             # rung C3: the step's cells, snapshotted before it writes
-            from ..world import draft as D
-            D.begin_step(draft, self._step_cells(self._current_verdict()))
+        if kind == "accept":
             calls = self._accept_calls(draft, report, tmp / "verdict4.json")
         else:
             calls = [self._cmd(draft, dry_run=True, report=report)]
@@ -935,6 +999,25 @@ class CarryTool(QWidget):
                   else f"Writing the {self.NOUN} into the draft of {self.source().name}"
                        + (", disc 1 then disc 4…" if len(calls) > 1 else "…"), "")
         self._sync_buttons()
+        if kind == "accept":                             # rung C3: the step's cells, snapshotted before it writes --
+            from ..world import draft as D               # on a worker; the card writes from here (PERF.md tier 2)
+            cells = self._step_cells(self._current_verdict())
+            self._steps.start(lambda: D.begin_step(draft, cells),
+                              lambda _r, err: self._snapshotted(kind, key, calls, report, tmp, err))
+            return
+        self._launch(kind, key, calls, report, tmp)
+
+    def _snapshotted(self, kind, key, calls, report, tmp, err):
+        if self._job != (kind, key):
+            return
+        if err is not None:                              # nothing was written: the draft stands as it was
+            self._job = None
+            self._say(f"Not written: the draft's history could not be snapshotted ({err}).", "error")
+            self._sync_buttons()
+            return
+        self._launch(kind, key, calls, report, tmp)
+
+    def _launch(self, kind, key, calls, report, tmp):
         pre = [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn())]
 
         def step(k, code, text):
@@ -954,21 +1037,36 @@ class CarryTool(QWidget):
     def _job_done(self, kind, key, report, code, text):
         if self._job != (kind, key):
             return                                       # superseded (a handle moved, or the tool closed)
-        self._job = None
         v = self.FE.read_verdict(report)
         if v is None:
             last = [ln for ln in text.splitlines() if ln.strip()][-1:] or [f"exit code {code}"]
             v = {"ok": False, "dry_run": kind == "check",
                  "refused": {"gate": "error", "message": f"the job ended without a verdict: {last[0]}", "where": []}}
-        if kind == "accept":                             # the step goes into the recipe, or back out of the draft
-            from ..world import draft as D
+        if kind == "accept":                             # the step goes into the recipe, or back out of the draft,
+            from ..world import draft as D               # on a worker: the card writes until it is recorded
             from ..world import recipe as RC
             d = self.draft()
             if v["ok"]:
                 row = RC.row_for(list(key))           # the handles the job ran with, not the current ones
-                D.commit_step(d, row, RC.label(row))
+                work = lambda: D.commit_step(d, row, RC.label(row))   # noqa: E731
             else:
-                D.abort_step(d)
+                work = lambda: D.abort_step(d)                       # noqa: E731
+            self._steps.start(work, lambda _r, err: self._recorded(kind, key, v, err))
+            return
+        self._job = None
+        self._verdict = (key, v)
+        self._redraw()
+
+    def _recorded(self, kind, key, v, err):
+        if self._job != (kind, key):
+            return
+        self._job = None
+        if err is not None:
+            self._verdict = None
+            self._say(f"The draft was written but its history step was not recorded ({err}): Undo cannot take it "
+                      "back.", "error")
+            self._sync_buttons()
+            return
         self._verdict = (key, v)
         if kind == "accept" and v["ok"]:
             self._accepted(v)
