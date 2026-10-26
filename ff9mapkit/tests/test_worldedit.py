@@ -1429,3 +1429,18 @@ def test_an_edit_or_delete_that_the_disk_refuses_says_so(monkeypatch, tmp_path, 
     doc._on_pick(_hit(27.0, -25.0), sync=True)
     bar.delete_btn.click()
     assert "Not deleted" in bar.status_lbl.text() and not bar.holding()
+
+
+def test_a_job_whose_output_file_cannot_be_made_still_ends(app, monkeypatch):
+    """The output file J1 added was made outside the try that ends a failed start: if it could not be made (a
+    %TEMP% gone or denied), the worker died with no result, the job never ended and WorldDoc.shutdown spun out its
+    bound (review of the perf fixes, round 2). A job always ends."""
+    import sys
+    import types
+    from ff9mapkit.workspace import worldforest as WF
+    def no_file():
+        raise OSError(13, "the temp folder refuses")
+    monkeypatch.setattr(WF, "tempfile", types.SimpleNamespace(TemporaryFile=no_file))   # the module's NAME swapped
+    r, got = WF.JobRunner(), []
+    r.start([sys.executable, "-c", "pass"], ".", lambda code, text: got.append((code, text)))
+    assert r.wait() and not r.busy() and len(got) == 1 and got[0][0] == -1 and "could not start" in got[0][1]

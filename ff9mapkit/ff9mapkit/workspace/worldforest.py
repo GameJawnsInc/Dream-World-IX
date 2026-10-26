@@ -164,9 +164,10 @@ class JobRunner(QObject):
         # the output goes to a FILE: done follows the job's own exit, where a pipe's EOF waited for every process
         # that inherited its write end -- a QProcess the shell started meanwhile, a child the job left running
         # (review of the perf commits, J1)
-        out = tempfile.TemporaryFile()
+        out = None
         try:
-            try:
+            try:                                         # (the file too: a job always ends -- review round 2)
+                out = tempfile.TemporaryFile()
                 proc = subprocess.Popen(job["argv"], cwd=job["cwd"], stdin=subprocess.DEVNULL, stdout=out,
                                         stderr=subprocess.STDOUT, creationflags=_no_window())
             except Exception as e:                       # noqa: BLE001 -- any failed start ends the job (review, J4)
@@ -182,12 +183,18 @@ class JobRunner(QObject):
                 except Exception as e:                   # noqa: BLE001 -- the job ended; its words could not be read
                     text = f"(the job's output could not be read: {e})"
                 job["result"] = (code, text)
+        except Exception as e:                           # noqa: BLE001 -- whatever broke, the job ends, failed
+            job["result"] = job["result"] or (-1, f"the job failed in its runner: {e}")
         finally:
-            out.close()
-        try:
-            self._ended.emit(job)
-        except RuntimeError:                             # the runner died with its window
-            pass
+            if out is not None:
+                try:
+                    out.close()
+                except OSError:
+                    pass
+            try:
+                self._ended.emit(job)
+            except RuntimeError:                         # the runner died with its window
+                pass
 
     def _deliver(self, job):
         if job is not self._job or job["delivered"] or job["killed"] or job["result"] is None:
