@@ -1611,3 +1611,30 @@ def test_a_draft_held_in_the_chart_view_says_where_its_way_out_is(monkeypatch, t
     assert "Workspace closed" not in text and "still open" in text and bar.holding(), text
     bar.cancel_btn.click()
     assert D.history(draft)["edit"] is None and _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_a_workspace_closing_on_a_held_in_game_edit_tries_once_to_put_the_game_right(monkeypatch, tmp_path, app):
+    """shutdown cancelled an in-game edit only when the bar had it open, so a held one (its cancel refused) was never
+    tried at close, the reader gone or not, and the held text never said the game lacked the steps meanwhile
+    (review of the perf fixes, round 6, R6-5). The held text says it; the close tries the cancel once -- the game's
+    promote run if it goes -- and a refusal there leaves the promote owed for the next launch."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    real, calls = D.cancel_edit, []
+
+    def refused(d):
+        calls.append(1)
+        raise PermissionError(13, "a reader holds it")
+    monkeypatch.setattr(D, "cancel_edit", refused)
+    doc._forest.close_btn.click()
+    assert bar.holding() and "the game" in bar.status_lbl.text().lower(), bar.status_lbl.text()
+    doc.shutdown()                                                         # still refused: tried once, never looped
+    assert len(calls) == 2 and D.promote_owed(draft) is not None
+    monkeypatch.setattr(D, "cancel_edit", real)
+    bar._closing_tried = False                                             # (a later close of this Workspace)
+    doc.shutdown()                                                         # the reader went
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and _tree(game / "FF9CustomMap-world") == live0

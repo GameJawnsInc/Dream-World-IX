@@ -62,6 +62,7 @@ class RecipeBar(QWidget):
         self._job = None                                 # "revert" / "promote" while an in-game step's job runs (C19)
         self._prep = None                                # the in-game step being taken out of the game to edit
         self._stuck = None                               # (draft, why) while the disk refuses an edit's cancel (R5-1)
+        self._closing_tried = False                      # a close tried a held edit's cancel once (R6-5)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(2, 0, 2, 0)
         lay.setSpacing(8)
@@ -160,7 +161,8 @@ class RecipeBar(QWidget):
             held = Path((D.read_meta(self._stuck[0]) or {}).get("source") or self._stuck[0]).name
             text = (f"An edit is still open in the draft of {held}: its cancel was refused ({self._stuck[1]}). "
                     "Nothing writes the draft until it closes; Cancel edit tries again, or Discard draft starts "
-                    "over.")
+                    "over." + (f" The game does not have {held}'s steps until it closes: their promote runs then."
+                               if D.promote_owed(self._stuck[0]) is not None else ""))
         elif self._edit is not None:
             text = self._edit_text(self._edit)
         elif self._sel is not None:
@@ -710,7 +712,14 @@ class RecipeBar(QWidget):
 
     def close_in_game_edit(self) -> bool:
         """The Workspace is closing and no job runs: an edit of a step that is in the game is cancelled, and its steps
-        promoted back (a job, waited for in turn). True when there was one."""
+        promoted back (a job, waited for in turn). True when there was one. A held in-game edit (its cancel refused)
+        is tried once a close: it was never tried, the game left without its steps (round 6, R6-5)."""
+        if self._stuck is not None and not self._closing_tried:
+            from ..world import draft as D
+            self._closing_tried = True
+            if D.promote_owed(self._stuck[0]) is not None:
+                self._close_stuck(self._stuck[0], "The Workspace closed with the edit open")
+                return True
         if self._edit is None or self._edit.get("fence") is None:
             return False
         self.cancel_edit("The Workspace closed with the edit open: it is cancelled.")
