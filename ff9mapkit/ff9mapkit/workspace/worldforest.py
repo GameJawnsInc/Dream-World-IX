@@ -128,6 +128,16 @@ def _no_window() -> int:
     return 0 if ctypes.windll.kernel32.GetConsoleWindow() else subprocess.CREATE_NO_WINDOW
 
 
+def _run_done(done, *args):
+    """Run a job's or a step's done; one that raises is reported, never let out of ``wait()``: the Workspace closing
+    waits every writing job one after another, and a done that raised left that loop with the next job never
+    waited for (QProcessRunner's done ran inside Qt's emission, which reported it: review of the perf commits, J2)."""
+    try:
+        done(*args)
+    except Exception:                                    # noqa: BLE001 -- reported as an unhandled error is
+        sys.excepthook(*sys.exc_info())
+
+
 class JobRunner(QObject):
     """The cards' and the recipe bar's runner: one job at a time, its process started and waited for on a worker
     thread (``subprocess.Popen``, stdout and stderr merged), ``done(code, text)`` back on the window's thread. A
@@ -184,7 +194,7 @@ class JobRunner(QObject):
             return
         job["delivered"] = True
         self._job = None
-        job["done"](*job["result"])
+        _run_done(job["done"], *job["result"])
 
     def kill(self):
         job, self._job = self._job, None
@@ -253,7 +263,7 @@ class StepWorker(QObject):
             return
         job["delivered"] = True
         self._job = None
-        job["done"](*job["out"])
+        _run_done(job["done"], *job["out"])
 
     def busy(self):
         return self._job is not None

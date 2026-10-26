@@ -1366,6 +1366,27 @@ def test_a_job_s_done_follows_its_exit_not_its_pipe(app):
     assert time.time() - t < 6                                             # not the 8 s the left child lives
 
 
+def test_a_done_that_raises_does_not_leave_the_wait(app, monkeypatch):
+    """JobRunner.wait and StepWorker.wait ran a done straight from Python, so a done that raised (a commit_step's
+    PermissionError, a settle write) left wait() -- and WorldDoc.shutdown's loop, which waits every writing job one
+    after another, with the bar's job never waited for (review of the perf commits, J2). As QProcessRunner's done
+    did inside Qt's emission, the error is reported and the wait goes on."""
+    import sys
+    from ff9mapkit.workspace.worldforest import JobRunner, StepWorker
+    seen = []
+    monkeypatch.setattr(sys, "excepthook", lambda *exc: seen.append(exc[0]))
+
+    def boom(*_a):
+        raise PermissionError(13, "a reader holds it")
+    r = JobRunner()
+    r.start([sys.executable, "-c", "pass"], ".", boom)
+    assert r.wait() and not r.busy()
+    s = StepWorker()
+    s.start(lambda: None, boom)
+    assert s.wait() and not s.busy()
+    assert seen == [PermissionError, PermissionError]
+
+
 def test_any_failed_start_ends_the_job(app):
     """Only an OSError from the start ended a JobRunner job as a failed one; any other (a ValueError for a NUL in an
     argument) killed the worker with no result: busy for good, done never run, and wait() saying it ended (review of
