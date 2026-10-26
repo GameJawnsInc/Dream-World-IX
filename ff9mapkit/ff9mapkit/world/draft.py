@@ -772,9 +772,11 @@ def commit_step(draft: Path, row: dict, label: str) -> dict:
     before = {rel: h for rel, h in before.items() if _parse_rel(rel) and _parse_rel(rel)[1] in keep}
     after = {rel: h for rel, h in after.items() if _parse_rel(rel) and _parse_rel(rel)[1] in keep}
     # THE ORDER: the pending folder goes in place first, under a name no step holds, retried while a handle is open
-    # in it; only then is it trimmed, the history written and the undone steps dropped. A rename that still fails
-    # leaves the pending step whole (abort_step finishes it) and the undone steps redo-able (review of the perf
-    # fixes, round 2, H2)
+    # in it, and the history is written next; only then is it trimmed and the undone steps dropped, tidying no
+    # refusal undoes. A rename that still fails leaves the pending step whole (abort_step finishes it) and the undone
+    # steps redo-able (review of the perf fixes, round 2, H2); a history the disk refuses puts the folder back to
+    # pending, whole, or -- that refused too -- the draft back from it, so a failed commit never leaves its write
+    # in the draft with nothing to take it back (round 4, R4-1)
     h = history(draft)
     n = h["cursor"]
     rel_dir = f"{HISTORY_DIR}/{n:04d}"
@@ -782,16 +784,26 @@ def commit_step(draft: Path, row: dict, label: str) -> dict:
         rel_dir = f"{HISTORY_DIR}/{n:04d}-{time.time_ns()}"
     _retry(lambda: pend.rename(draft / rel_dir))
     home = draft / rel_dir
-    for rel in _cell_files(home / "before", [c for c in cells if c not in keep_set]):
-        (home / "before" / rel).unlink()             # the untouched cells' copies go (a whole-map step stays small)
-    (home / "step.json").write_text(json.dumps({"cells": step["cells"], "before": step["before"]}),
-                                    encoding="utf-8")
     rec = {"row": row, "label": label, "cells": [list(c) for c in keep], "before": before, "after": after,
            "dir": rel_dir, "utc": time.strftime("%Y-%m-%dT%H:%M:%S")}
     undone = h["steps"][n:]
     h["steps"] = h["steps"][:n] + [rec]
     h["cursor"] = n + 1
-    _write_history(draft, h)
+    try:
+        _write_history(draft, h)
+    except OSError:
+        try:
+            _retry(lambda: home.rename(pend))
+        except OSError:
+            _take_back(draft, home)
+        raise
+    try:
+        for rel in _cell_files(home / "before", [c for c in cells if c not in keep_set]):
+            (home / "before" / rel).unlink()         # the untouched cells' copies go (a whole-map step stays small)
+        (home / "step.json").write_text(json.dumps({"cells": step["cells"], "before": step["before"]}),
+                                        encoding="utf-8")
+    except OSError:                                  # (a copy left over costs room, never the history)
+        pass
     for old in undone:                               # (dropped from the history: their folders go)
         shutil.rmtree(draft / old["dir"], ignore_errors=True)
     return rec
@@ -804,15 +816,21 @@ def abort_step(draft: Path) -> None:
     pend = Path(draft) / HISTORY_DIR / _PENDING
     if not (pend / "step.json").is_file():
         return
-    step = json.loads((pend / "step.json").read_text(encoding="utf-8"))
-    if any(not (pend / "before" / rel).is_file() for rel in step["before"]):
-        shutil.rmtree(pend)                          # a commit's, trimmed before a rename that failed (an older kit):
+    _take_back(draft, pend)
+
+
+def _take_back(draft: Path, folder: Path) -> None:
+    """Put the cells of the step snapshotted in ``folder`` (its ``step.json`` and ``before/``) back as they were,
+    then drop the folder: the pending step's (:func:`abort_step`), or a commit's whose history was refused."""
+    step = json.loads((folder / "step.json").read_text(encoding="utf-8"))
+    if any(not (folder / "before" / rel).is_file() for rel in step["before"]):
+        shutil.rmtree(folder)                        # a commit's, trimmed before a rename that failed (an older kit):
         return                                       # its writes are in the draft; replayed in part it wedged it (H2)
     stat, at = step.get("stat", {}), step.get("at")
-    _restore(draft, step["before"], pend / "before", [tuple(c) for c in step["cells"]],
+    _restore(draft, step["before"], folder / "before", [tuple(c) for c in step["cells"]],
              unmoved=lambda rel, p: _unmoved(p, stat.get(rel), at))
-    _put_ledger(draft, pend / "before")
-    shutil.rmtree(pend)
+    _put_ledger(draft, folder / "before")
+    shutil.rmtree(folder)
 
 
 def undo(draft: Path) -> dict:

@@ -892,3 +892,41 @@ def test_an_undo_or_redo_the_disk_refuses_part_way_leaves_the_step_as_it_was(tmp
     D.undo(d)
     D.undo(d)
     assert _tree(d) == _tree(_src)
+
+
+def test_a_commit_whose_history_write_fails_is_taken_back_whole(tmp_path, monkeypatch):
+    """commit_step renamed its pending folder in, trimmed it, then wrote the history: a history the disk would not
+    replace (a reader holding history.json) left no pending step and the folder orphaned, so the card's take-back
+    found nothing and said "the write was taken back" over a write the draft kept unrecorded (review of the perf
+    fixes, round 4, R4-1). The history is written next after the rename; refused, the folder goes back to pending
+    whole (the take-back finishes it), and when that is refused too the draft is put back from it here."""
+    row = {"table": "forest", "center": [1.0, -1.0], "donor": "15,15"}
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain one")
+    before = _tree(d)
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())
+    real_write = D._write_history
+    monkeypatch.setattr(D, "_write_history", lambda *a: (_ for _ in ()).throw(PermissionError(5, "history held")))
+    D.begin_step(d, [(0, 0), (1, 0)])
+    (d / T00).write_bytes(b"forest")
+    with pytest.raises(PermissionError):
+        D.commit_step(d, row, "forest two")
+    assert (d / D.HISTORY_DIR / D._PENDING / "step.json").is_file()       # whole, for the take-back
+    D.abort_step(d)
+    assert _tree(d) == before and sorted(p.name for p in (d / D.HISTORY_DIR).iterdir()) == ["0000"]
+
+    real = type(d).rename                                                 # the way back refused too
+    D.begin_step(d, [(0, 0), (1, 0)])
+    (d / T00).write_bytes(b"forest")
+
+    def rename(self, target):
+        if self.name == "0001":
+            raise PermissionError(5, "a handle is open in it")
+        return real(self, target)
+    monkeypatch.setattr(type(d), "rename", rename)
+    with pytest.raises(PermissionError):
+        D.commit_step(d, row, "forest two")
+    monkeypatch.setattr(type(d), "rename", real)
+    monkeypatch.setattr(D, "_write_history", real_write)
+    assert _tree(d) == before and sorted(p.name for p in (d / D.HISTORY_DIR).iterdir()) == ["0000"]
+    assert D.history(d)["cursor"] == 1
