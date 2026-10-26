@@ -1103,6 +1103,12 @@ class CarryTool(QWidget):
         if self._job != (kind, key):
             return
         self._job = None
+        if err is not None and not v["ok"]:              # a refused Accept: nothing was written, only its pending
+            self._verdict = (key, v)                     # snapshot stays (review of the perf commits, F1)
+            self._redraw()
+            self._say(f"{self.verdict_lbl.text()} The draft is unchanged, but its history snapshot could not be "
+                      f"cleared ({err}).", "error")
+            return
         if err is not None:
             self._verdict = None
             self._say(f"The draft was written but its history step was not recorded ({err}): Undo cannot take it "

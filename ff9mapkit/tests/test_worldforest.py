@@ -676,3 +676,22 @@ def test_the_editor_writes_the_bytes_the_hand_typed_command_writes(monkeypatch, 
     assert hand == ed and len(hand) >= 1                   # (no stock Disc4 here, so no mirror file to compare)
     assert ed != world(game / "FF9CustomMap-world")        # and the forest is really in it
     assert {p: p.read_bytes() for p in (game / "FF9CustomMap-world").rglob("*") if p.is_file()} == before
+
+
+def test_a_refused_accept_whose_abort_fails_keeps_its_refusal(app, tmp_path, monkeypatch):
+    """A refused Accept whose history abort then failed (a reader holding the ledger) was told "The draft was written
+    but its history step was not recorded": the draft's bytes were untouched, and the refusal and its marks were
+    thrown away (review of the perf commits, F1). It keeps the refusal and says the snapshot could not be cleared."""
+    def answer(kind, argv):
+        return {"ok": kind == "check", "dry_run": kind == "check", "center": [26, -26], "report": {},
+                "blocks": [[0, 0]], "written": [],
+                "refused": None if kind == "check" else {"gate": "census", "message": "the census refuses", "where":
+                                                          [[26.0, -26.0]]}}
+    tool, _panel, _changed = _tool(app, tmp_path, Scripted(answer))
+    tool.place(26.04, -25.97, 3.2)
+    _settle(tool)
+    monkeypatch.setattr(D, "abort_step", lambda d: (_ for _ in ()).throw(PermissionError(13, "a reader holds it")))
+    tool.accept_btn.click()
+    text = tool.verdict_lbl.text()
+    assert "written" not in text and "census" in text and "could not be cleared" in text
+    assert tool._verdict is not None and not tool._verdict[1]["ok"] and not tool.writing()
