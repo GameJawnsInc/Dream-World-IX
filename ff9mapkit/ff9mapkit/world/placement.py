@@ -27,6 +27,7 @@ warp target must ground on walkable topo.
 from __future__ import annotations
 
 import collections
+import functools
 import math
 
 #: idall values the engine's triangle filter skips outright
@@ -147,9 +148,43 @@ def check_order_exceptions(meshlist):
                              "Sea3/Sea4/Sea5 there; this simulator does not model it")
 
 
+@functools.lru_cache(maxsize=None)
 def _decode_topo(idall: int):
     from .extract import decode_id
     return decode_id(idall)["topograph"]
+
+
+def _prepare(meshlist):
+    """What :func:`place` and :func:`all_sheets` ask of a triangle at every sample but that depends on the triangle
+    alone, once per meshlist: per mesh, per triangle, None when the filters drop it at any point (an IDALL_SKIP, a
+    normal at or under the walkable 0.1, a plan-degenerate tri), else ``(idall, a, b, c, bc2, cb0, ca2, ac0, d)``.
+    The same expressions on the same operands as the per-sample code, so the same floats: a census asked them 576
+    times a candidate (PERF.md 5). VETO tris stay (place abandons a mesh on one; all_sheets skips it)."""
+    out = []
+    for _name, bm in meshlist:
+        V, T, fi = bm.verts, bm.tangents, bm.flat_index
+        rows = []
+        for t in range(len(fi) // 3):
+            idx = fi[3 * t:3 * t + 3]
+            idall = int(round(T[idx[0]][0]))
+            if idall in IDALL_SKIP:
+                rows.append(None)
+                continue
+            a, b, c = V[idx[0]], V[idx[1]], V[idx[2]]
+            ux, uy, uz = b[0]-a[0], b[1]-a[1], b[2]-a[2]
+            vx, vy, vz = c[0]-a[0], c[1]-a[1], c[2]-a[2]
+            ny = uz * vx - ux * vz
+            L = math.sqrt((uy*vz-uz*vy)**2 + ny*ny + (ux*vy-uy*vx)**2) or 1.0
+            if ny / L <= 0.1:
+                rows.append(None)
+                continue
+            d = (b[2]-c[2])*(a[0]-c[0]) + (c[0]-b[0])*(a[2]-c[2])
+            if abs(d) < 1e-12:
+                rows.append(None)
+                continue
+            rows.append((idall, a, b, c, b[2]-c[2], c[0]-b[0], c[2]-a[2], a[0]-c[0], d))
+        out.append(rows)
+    return out
 
 
 def build_index(bm):
@@ -182,7 +217,7 @@ def build_meshlist_index(meshlist):
     return [build_index(bm) for _, bm in meshlist]
 
 
-def all_sheets(meshlist, x: float, z: float, *, strict: bool = True, index=None):
+def all_sheets(meshlist, x: float, z: float, *, strict: bool = True, index=None, prep=None):
     """Every filter-passing intersection on the vertical line at ``(x, z)``, in SCAN order
     (mesh registration order, buffer order within a mesh), deduped by y
     (:data:`SHEET_DEDUP_EPS`). Returns ``[(y, mesh_name, idall, topograph), ...]``.
@@ -193,7 +228,7 @@ def all_sheets(meshlist, x: float, z: float, *, strict: bool = True, index=None)
     to a walkable sheet UNDER a walkable sheet -- the one defect class in the Path-D arc
     with a playtest receipt, and a STATIC one. ``strict=True`` demands interior hits (a
     shared boundary LINE is not a stack). VETO (flight-only) tris are invisible here,
-    matching the walk instrument."""
+    matching the walk instrument. ``prep`` (optional) = :func:`_prepare` of THIS meshlist: the same sheets."""
     eps = 1e-5 if strict else -1e-9
     out = []
     for mi, (name, bm) in enumerate(meshlist):
@@ -202,6 +237,23 @@ def all_sheets(meshlist, x: float, z: float, *, strict: bool = True, index=None)
             cand = range(len(fi) // 3)
         else:
             cand = index[mi].get((math.floor(x / INDEX_GRID), math.floor(z / INDEX_GRID)), ())
+        if prep is not None:
+            rows = prep[mi]
+            for t in cand:
+                r = rows[t]
+                if r is None or r[0] == VETO:
+                    continue
+                idall, a, b, c, bc2, cb0, ca2, ac0, d = r
+                w0 = (bc2*(x-c[0]) + cb0*(z-c[2])) / d
+                w1 = (ca2*(x-c[0]) + ac0*(z-c[2])) / d
+                w2 = 1 - w0 - w1
+                if w0 < eps or w1 < eps or w2 < eps:
+                    continue
+                hy = w0*a[1] + w1*b[1] + w2*c[1]
+                if any(abs(hy - y0) <= SHEET_DEDUP_EPS for (y0, _, _, _) in out):
+                    continue
+                out.append((hy, name, idall, _decode_topo(idall)))
+            continue
         for t in cand:
             idx = fi[3 * t:3 * t + 3]
             idall = int(round(T[idx[0]][0]))
@@ -229,12 +281,13 @@ def all_sheets(meshlist, x: float, z: float, *, strict: bool = True, index=None)
     return out
 
 
-def place(meshlist, x: float, z: float, y: float = 0.0, *, sky: bool = True, index=None):
+def place(meshlist, x: float, z: float, y: float = 0.0, *, sky: bool = True, index=None, prep=None):
     """The engine ground query at ``(x, z)`` from height ``y``. ``meshlist`` = ``[(name, BlockMesh)]`` in
     the block's REGISTRATION order (Object, Terrain, ..., Sea1..6), all in the same (block-local or world)
     frame as ``x, z``. Returns ``(ground_y, mesh_name, idall, topograph)``; a miss returns
     ``(0.0, "MISS", 0, None)`` -- the engine's defaultHeight fallback. ``index`` (optional) = the
-    :func:`build_meshlist_index` of THIS meshlist; a pure accelerator, byte-identical verdicts."""
+    :func:`build_meshlist_index` of THIS meshlist; a pure accelerator, byte-identical verdicts. ``prep``
+    (optional) = :func:`_prepare` of THIS meshlist: the triangle-only tests done once, the same verdicts."""
     origin_y = y + (SKY_RAY_START if sky else WALK_RAY_START)
     # NO max drop in either mode: the engine passes ff9.rayDistance (2.8) into WMBlock.Raycast
     # but that parameter is never read -- descent of any height is legal, only the climb gates.
@@ -245,6 +298,24 @@ def place(meshlist, x: float, z: float, y: float = 0.0, *, sky: bool = True, ind
         else:
             cand = index[mi].get((math.floor(x / INDEX_GRID), math.floor(z / INDEX_GRID)), ())
         hit = None
+        if prep is not None:
+            rows = prep[mi]
+            for t in cand:
+                r = rows[t]
+                if r is None:
+                    continue
+                idall, a, b, c, bc2, cb0, ca2, ac0, d = r
+                w0 = (bc2*(x-c[0]) + cb0*(z-c[2])) / d
+                w1 = (ca2*(x-c[0]) + ac0*(z-c[2])) / d
+                w2 = 1 - w0 - w1
+                if w0 < -1e-9 or w1 < -1e-9 or w2 < -1e-9:
+                    continue
+                hy = w0*a[1] + w1*b[1] + w2*c[1]
+                if hy > origin_y:
+                    continue
+                hit = (hy, idall)
+                break
+            cand = ()                                    # (judged above)
         for t in cand:
             idx = fi[3 * t:3 * t + 3]
             idall = int(round(T[idx[0]][0]))
@@ -318,16 +389,17 @@ def census(meshlist, *, span=(2.0, 62.0, -62.0, -2.0), samples: int = 24, y: flo
     inversions = []
     check_registration_order(meshlist)                   # the scan order IS the verdict
     index = build_meshlist_index(meshlist)               # once per census -- pure accelerator
+    prep = _prepare(meshlist)                            # ...and each triangle's own tests, once (PERF.md 5)
     for i in range(samples):
         for j in range(samples):
             px = x0 + (x1 - x0) * i / (samples - 1)
             pz = z0 + (z1 - z0) * j / (samples - 1)
-            gy, name, idall, topo = place(meshlist, px, pz, y, sky=True, index=index)
+            gy, name, idall, topo = place(meshlist, px, pz, y, sky=True, index=index, prep=prep)
             counts[(name, topo)] += 1
             points.append((px, pz, gy, name, topo))
             if name == "MISS":
                 miss.append((px, pz))
-            walk = [s for s in all_sheets(meshlist, px, pz, strict=True, index=index)
+            walk = [s for s in all_sheets(meshlist, px, pz, strict=True, index=index, prep=prep)
                     if s[3] in WALK_OK]
             if len(walk) >= 2:
                 ys = sorted((s[0] for s in walk), reverse=True)
