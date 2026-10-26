@@ -9977,6 +9977,10 @@ WORLD_DAGGER_MODEL = -4
 LEADER_GUARD_SELFTEST_ROWS = 44
 LEADER_GUARD_TABLE_ROWS = 25
 LEADER_GUARD_REF_ROWS = 19
+#: [ff9mapkit netsync s154] "digit picks selftest: OK (22 rows)" (NetSyncBattle.DigitPickSelfTest): 7 target-rule + 4 item-rule
+#: + 8 resolver + 3 refusal-log rows, every one a `ref rows, ref fail);` Row call.
+DIGIT_PICK_SELFTEST_ROWS = 22
+DIGIT_PICK_REF_ROWS = 22
 #: `netsync.battle.host.guard` (AppendHostGuard) at the catch line's sentinels -- also its values at rest (no client).
 GUARD_HOST_SENTINELS = {"leader": -1, "raw": 0, "effective": 0, "moved_from": -1, "moved_to": -1, "off": False,
                         "line": None, "line_shown": False, "leader_model": -1, "chars": [-1, -1, -1, -1], "nonce": -1}

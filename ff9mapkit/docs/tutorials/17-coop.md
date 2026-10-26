@@ -42,7 +42,8 @@ Both PCs must run the **same** engine version. Mismatched engines refuse to pair
    that character in their position, they get the next member instead. Set **They appear as** to
    **Auto** (④) so your friend looks like that party member on both screens.
 4. Click **Start hosting** (⑤). The first time takes about a minute. Your session code is copied
-   to the clipboard: send it to your friend.
+   to the clipboard: send it to your friend. The code is your PC's own and stays the same each time
+   you host. A code you once used to join a friend is never reused when you host.
 5. Keep the Workspace open while you play (it carries the connection), then launch FF9 and load
    your save.
 
@@ -62,7 +63,11 @@ While you're paired:
 - In the host's battles you command the party members they handed you, or watch if they handed you
   none.
 - On the world map the host drives; you wait and rejoin at their next stop.
-- There is no main menu and no saving. When the session ends, your game reloads your own autosave.
+- There is no main menu and no saving. When the session ends, your game reloads your own autosave:
+  the one it made of your own game the moment your partner came online, so you go back to that screen
+  (from its entrance) with your progress up to then. If that autosave was skipped (the
+  `AutoSaveOnlyAtMoogle` or `DisableAutoSave` option is on, or you were in the middle of a scene), it
+  reloads your last own autosave instead.
 
 ## 4. Stop
 
@@ -84,5 +89,10 @@ When Windows asks about FF9 and the network, allow it on **Private** networks on
   install the engine patches from the same release as your friend.
 - **The games never pair:** check that both PCs show the same code, and that neither side clicked
   **Turn co-op off**. The **Connection log** at the bottom of the tab shows what the link is doing.
+- **Someone else got into your game, or the log says two hosts are on one code:** host with a fresh
+  code. With the Workspace still open, run `ff9mapkit coop host --new-code --no-bridge` once in a
+  terminal (`--no-bridge` keeps the Workspace's connection; without it a second one starts beside
+  it). Then click **Start hosting** again: it keeps the new code and copies it. Send your friend
+  the new code.
 - **Command-line instead:** the tab runs `ff9mapkit coop host` and `ff9mapkit coop join <code>`
   underneath; `ff9mapkit coop -h` lists every option.

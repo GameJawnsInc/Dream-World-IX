@@ -1,0 +1,35 @@
+# SONGSRC -- the s154 battle-song bench's SONG SOURCE (studies/test-harness/scenarios/coop_battle_song.py, appendix #21).
+#
+# WHY IT EXISTS. The bench's two SUSPENDED-song legs (BS-W-SUSP, BS-C-SUSP) need a FIELD song playing on the silent bench
+# fields (30602 LOCKT2, 30604 COOPPARTY) when the wire diorama boots. A debug warp never touches the music, so warping
+# here first (Main_Init plays song 9) and then onto the bench field carries song 9 there. Its oracle leg (BS-OR) reads
+# the DEPLOYED .eb and takes the song from this field's own load-time RunSoundCode(0, N) -- never from this file.
+#
+# WHY A NEW FIELD. No registered field qualified cleanly when the bench was written (read off every live mod folder's
+# DictionaryPatch, read-only): the only kit fields with a load-time song are the summon benches 30300 / 30301 (their
+# Main_Init recruits a [[playable]] character and arms encounters -- other sessions' benches), the actor-shadow forks
+# 30930 / 30935 and the story-trace forks (their songs are scenario-gated). The bench also takes COOP_BS_SONGSRC=<id>,
+# so the lead may point it at any registered field whose deployed .eb passes the oracle instead.
+#
+# DEPLOY (a NEW id: the first deploy registers it -- one game RELAUNCH). Re-read every live DictionaryPatch first: 30610
+# was free in FF9CustomMap / -world / -msgs / -schema when this was written (-msgs registers 30601-30609):
+#   py tools/deploy_field.py studies/battle-coop/bench/songsrc.field.toml --id 30610 --mod-folder FF9CustomMap-msgs
+# Offline check:  py -m ff9mapkit lint ../studies/battle-coop/bench/songsrc.field.toml   (from ff9mapkit/)
+
+[field]
+id = 30610
+name = "SONGSRC"
+area = 11
+
+[camera]
+pitch = 40
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+# Vivi's Theme (Disc 1): Main_Init plays it on every entry. No [encounter], no [party], no gateway -- nothing else runs.
+[music]
+song = 9

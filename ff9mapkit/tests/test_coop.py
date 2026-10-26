@@ -624,13 +624,291 @@ def test_coop_host_replaces_an_unusable_stored_code(game, monkeypatch):
 
 
 def test_coop_host_keeps_a_valid_stored_code(game, monkeypatch):
-    # the flip side: a good stored code still survives a re-run (the fence must not churn codes)
+    # the flip side: a good stored code still survives a re-run (the fence must not churn codes). INI's Role is host, so
+    # this is also THE OWN-CODE LAW's migration row: a pre-s154 host's code is adopted as its own (HostSessionCode)
     monkeypatch.setattr(coop, "_copy_clipboard", lambda _text: False)
     ini = (game / "Memoria.ini")
     ini.write_text(INI.replace("SessionCode =\n", "SessionCode = ff9-KEEPME12\n"), encoding="utf-8")
     assert coop.run(_cli_args(action="host", game=str(game), lan="", no_room=True),
                     out=lambda *_: None) == 0
     assert coop.read_ini_key(ini.read_text(encoding="utf-8"), "Netsync", "SessionCode") == "ff9-KEEPME12"
+    assert coop.read_ini_key(ini.read_text(encoding="utf-8"), "Netsync", "HostSessionCode") == "ff9-KEEPME12"
+
+
+# ------------------------------------------------- THE OWN-CODE LAW (s154): a code this PC JOINED with is never its own
+#
+# One ini key used to carry two meanings: the engine DIALS [Netsync] SessionCode (a host's own code, a guest's friend's
+# invite after `coop join`), and `coop host` re-read it as "this PC's own code". So a PC that joined a friend and later
+# hosted re-published the friend's code: anyone holding that invite walked into its game, and two hosts on one code
+# evicted each other (studies/coop-review/REVIEW.md appendix 25). The own code now lives in HostSessionCode.
+
+def _ns(*lines):
+    return "[Netsync]\n" + "".join(ln + "\n" for ln in lines)
+
+
+# (the [Netsync] body, the expected (code, why, key), the failure the row names)
+OWN_ROWS = [
+    (_ns("HostSessionCode = ff9-MINE0001", "Role = client", "SessionCode = ff9-FRIEND01"),
+     ("ff9-MINE0001", "own", "HostSessionCode"), "a former guest hosts on its friend's invite (THE bug)"),
+    (_ns("Role = client", "SessionCode = ff9-FRIEND01"),
+     (None, "joined", "SessionCode"), "a pre-s154 guest ini's invite is adopted as this PC's own code"),
+    (_ns("Role = host", "SessionCode = ff9-MINE0001"),
+     ("ff9-MINE0001", "migrated", "SessionCode"), "an existing host's code churns at the upgrade"),
+    (_ns("Enabled = 0", "Role =  Host ", "SessionCode = ff9-MINE0001"),
+     ("ff9-MINE0001", "migrated", "SessionCode"), "`coop off` or a hand-cased Role (the engine lowercases) forgets it"),
+    (_ns("SessionCode = ff9-MINE0001"),
+     (None, "unowned", "SessionCode"), "a code under no Role is adopted (the engine's default role is selftest)"),
+    (_ns("Role = selftest", "SessionCode = ff9-BENCH001"),
+     (None, "unowned", "SessionCode"), "a bench's code is re-published as a host's"),
+    (_ns("Role = CLIENT", "SessionCode = ff9-FRIEND01"),
+     (None, "joined", "SessionCode"), "a hand-cased client Role reads as a host's code"),
+    (_ns("HostSessionCode = not a code!", "Role = client", "SessionCode = ff9-FRIEND01"),
+     (None, "unusable", "HostSessionCode"), "a bad own key falls back to the invite"),
+    (_ns("Role = host", "SessionCode = not a code!"),
+     (None, "unusable", "SessionCode"), "a poisoned stored code is re-written verbatim"),
+    (_ns("Role = host", "SessionCode = ff9-MINE0001", "HostSessionCode ="),
+     ("ff9-MINE0001", "migrated", "SessionCode"), "an empty own key blocks the migration"),
+    (_ns("Role = client", "SessionCode =", "HostSessionCode = ff9-MINE0001"),
+     ("ff9-MINE0001", "own", "HostSessionCode"), "a LAN join (SessionCode blanked) loses the host's code"),
+    (_ns("HostSessionCode = ff9-OLD00001", "Role = client", "HostSessionCode = ff9-NEW00001"),
+     ("ff9-NEW00001", "own", "HostSessionCode"), "the kit vets a copy the file does not use (last key wins)"),
+    (_ns("Role = host"),
+     (None, "none", "SessionCode"), "an empty ini is treated as a code"),
+    (_ns("; HostSessionCode = ff9-MINE0001", "Role = client", "SessionCode = ff9-FRIEND01"),
+     (None, "joined", "SessionCode"), "a commented-out own key is read as live"),
+    ("[Mod]\nHostSessionCode = ff9-MINE0001\n\n" + _ns("Role = client", "SessionCode = ff9-FRIEND01"),
+     (None, "joined", "SessionCode"), "another section's HostSessionCode is read as this PC's"),
+]
+
+
+@pytest.mark.parametrize("text,want,failure", OWN_ROWS, ids=[r[2] for r in OWN_ROWS])
+def test_own_host_code_rule(text, want, failure):
+    assert coop.own_host_code(text) == want, failure
+
+
+@pytest.fixture
+def no_clip(monkeypatch):
+    monkeypatch.setattr(coop, "_copy_clipboard", lambda _text: False)     # never the developer's clipboard
+
+
+def _coop(game, action, code=None, **kw):
+    """One `ff9mapkit coop <action>` against the fake install, relay mode unless ``lan`` is given; (rc, lines)."""
+    lines = []
+    rc = coop.run(_cli_args(action=action, game=str(game), code=code, no_room=True, no_bridge=True, **kw),
+                  out=lines.append)
+    return rc, lines
+
+
+def _netsync(game, key):
+    return coop.read_ini_key(coop.read_ini_text(game / "Memoria.ini"), "Netsync", key)
+
+
+def test_a_former_guest_hosts_on_its_own_code(game, no_clip):
+    assert _coop(game, "join", "ff9-FRIEND01")[0] == 0
+    assert _netsync(game, "SessionCode") == "ff9-FRIEND01" and _netsync(game, "Role") == "client"
+    rc, lines = _coop(game, "host")
+    assert rc == 0
+    code = _netsync(game, "SessionCode")
+    assert code != "ff9-FRIEND01", "the PC re-published the code it JOINED with as its own session"
+    assert re.fullmatch(r"ff9-[A-Z0-9]{8}", code) and _netsync(game, "HostSessionCode") == code
+    assert any("not reusing 'ff9-FRIEND01'" in ln and "joined a session with it" in ln for ln in lines), lines
+
+
+def test_a_hosts_own_code_survives_a_join(game, no_clip):
+    assert _coop(game, "host")[0] == 0
+    mine = _netsync(game, "SessionCode")
+    assert _netsync(game, "HostSessionCode") == mine
+    assert _coop(game, "join", "ff9-FRIEND01")[0] == 0
+    assert _netsync(game, "SessionCode") == "ff9-FRIEND01" and _netsync(game, "HostSessionCode") == mine
+    assert _coop(game, "off")[0] == 0
+    assert _coop(game, "host")[0] == 0
+    assert _netsync(game, "SessionCode") == mine, "a guest stint churned the host's code ('generated once, persisted')"
+
+
+def test_a_pre_s154_host_ini_keeps_its_code_through_a_join(game, no_clip):
+    (game / "Memoria.ini").write_text(INI.replace("SessionCode =\n", "SessionCode = ff9-MINE0001\n"), encoding="utf-8")
+    rc, lines = _coop(game, "join", "ff9-FRIEND01")
+    assert rc == 0
+    assert _netsync(game, "HostSessionCode") == "ff9-MINE0001" and _netsync(game, "SessionCode") == "ff9-FRIEND01"
+    # the one-time migration says what it kept AND that it cannot vouch for a pre-fix residue
+    assert any("keeping your own session code ff9-MINE0001" in ln and "coop host --new-code --no-bridge" in ln
+               for ln in lines), lines
+    assert _coop(game, "host")[0] == 0
+    assert _netsync(game, "SessionCode") == "ff9-MINE0001"
+
+
+def test_a_lan_join_keeps_the_host_code(game, no_clip):
+    assert _coop(game, "host")[0] == 0
+    mine = _netsync(game, "SessionCode")
+    assert _coop(game, "join", lan="192.168.1.50")[0] == 0
+    assert _netsync(game, "SessionCode") == ""                   # a LAN join pairs by address and blanks the code
+    assert _coop(game, "host")[0] == 0
+    assert _netsync(game, "SessionCode") == mine
+
+
+def test_explicit_and_new_codes_become_the_own_code(game, no_clip):
+    assert _coop(game, "host", "ff9-CHOSEN01")[0] == 0
+    assert _netsync(game, "SessionCode") == _netsync(game, "HostSessionCode") == "ff9-CHOSEN01"
+    assert _coop(game, "join", "ff9-FRIEND01")[0] == 0
+    assert _coop(game, "host")[0] == 0
+    assert _netsync(game, "SessionCode") == "ff9-CHOSEN01"
+    assert _coop(game, "host", new_code=True)[0] == 0
+    fresh = _netsync(game, "SessionCode")
+    assert fresh != "ff9-CHOSEN01" and re.fullmatch(r"ff9-[A-Z0-9]{8}", fresh)
+    assert _netsync(game, "HostSessionCode") == fresh
+
+
+def test_an_explicit_joined_code_is_honoured_and_named(game, no_clip):
+    # `coop host <code>` stays a documented override, even on the code this PC joined with -- but never silently, and
+    # never FOR GOOD: it dials the friend's code this run, and the own code stays this PC's, so the note's advice ("leave
+    # the code off to host on your own") is true. The s154 first cut wrote the invite into HostSessionCode: every later
+    # bare `coop host` re-published it, silently (Role read host by then, so the note never fired again).
+    assert _coop(game, "host")[0] == 0
+    mine = _netsync(game, "HostSessionCode")
+    assert _coop(game, "join", "ff9-FRIEND01")[0] == 0
+    rc, lines = _coop(game, "host", "FF9-friend01")
+    assert rc == 0 and _netsync(game, "SessionCode") == "FF9-friend01"
+    assert _netsync(game, "HostSessionCode") == mine, "the override recorded the friend's code as this PC's own"
+    assert any("last JOINED with" in ln and f"your own code is {mine}" in ln for ln in lines), lines
+    shown = []
+    assert coop.show_config(game, out=shown.append) == 0
+    assert any(ln.startswith(f"  your code:   {mine}") for ln in shown), shown   # says what a bare host goes back to
+    # the same command again (shell history): the Role reads host now, and the override must still be caught
+    rc, lines = _coop(game, "host", "ff9-FRIEND01")
+    assert rc == 0 and _netsync(game, "SessionCode") == "ff9-FRIEND01"
+    assert _netsync(game, "HostSessionCode") == mine, "a REPEATED override recorded the friend's code as this PC's own"
+    assert any("is not this PC's own code" in ln and f"your own code is {mine}" in ln for ln in lines), lines
+    assert _coop(game, "off")[0] == 0
+    rc, lines = _coop(game, "host")                          # the note's advice: leave the code off
+    assert rc == 0
+    assert _netsync(game, "SessionCode") == _netsync(game, "HostSessionCode") == mine, (
+        "a bare `coop host` after the override re-published the friend's invite")
+
+
+def test_an_explicit_joined_code_on_a_never_hosted_pc_mints_its_own(game, no_clip):
+    # no own code yet: the override mints one and records THAT, never published -- writing nothing would not do, a
+    # Role=host ini with no HostSessionCode reads 'migrated' and the next bare host would adopt the invite
+    assert _coop(game, "join", "ff9-FRIEND01")[0] == 0
+    rc, lines = _coop(game, "host", "ff9-FRIEND01")
+    assert rc == 0 and _netsync(game, "SessionCode") == "ff9-FRIEND01"
+    own = _netsync(game, "HostSessionCode")
+    assert own and re.fullmatch(r"ff9-[A-Z0-9]{8}", own) and own.upper() != "FF9-FRIEND01", own
+    assert any(f"your own code is {own}" in ln for ln in lines), lines
+    assert _coop(game, "host", "ff9-FRIEND01")[0] == 0       # a repeat keeps the one minted, mints no second
+    assert _netsync(game, "HostSessionCode") == own
+    assert _coop(game, "off")[0] == 0
+    assert _coop(game, "host")[0] == 0
+    assert _netsync(game, "SessionCode") == _netsync(game, "HostSessionCode") == own
+
+
+# (the [Netsync] body, the explicit code, joined_override's verdict, the failure the row names)
+OVERRIDE_ROWS = [
+    (_ns("Role = client", "SessionCode = ff9-FRIEND01"), "ff9-FRIEND01", True,
+     "the first override (a guest ini) records the invite as the own code"),
+    (_ns("Role = CLIENT ", "SessionCode = ff9-FRIEND01", "HostSessionCode = ff9-MINE0001"), "FF9-friend01", True,
+     "a hand-cased Role or a re-cased code slips the guard"),
+    (_ns("Role = host", "SessionCode = ff9-FRIEND01", "HostSessionCode = ff9-MINE0001"), "ff9-FRIEND01", True,
+     "a REPEATED override (Role reads host by then) records the invite"),
+    (_ns("Role = host", "SessionCode = ff9-MINE0001", "HostSessionCode = ff9-MINE0001"), "ff9-MINE0001", False,
+     "a host re-naming its own code is told it joined with it"),
+    (_ns("Role = host", "SessionCode = ff9-MINE0001"), "ff9-MINE0001", False,
+     "a pre-s154 host's migrated code is refused as its own"),
+    (_ns("Role = client", "SessionCode = ff9-FRIEND01", "HostSessionCode = ff9-MINE0001"), "ff9-CHOSEN01", False,
+     "a fresh explicit code is kept from becoming the own code"),
+    (_ns("Role = host", "SessionCode = ff9-FRIEND01", "HostSessionCode = ff9-MINE0001"), None, False,
+     "a bare `coop host` (no code) is taken for an override"),
+    (_ns("Role = selftest", "SessionCode = ff9-BENCH001"), "ff9-BENCH001", False,
+     "a bench's own code, named explicitly, is refused as a host code"),
+    (_ns("Role = client", "SessionCode ="), "ff9-FRIEND01", False, "an empty SessionCode matches any code"),
+]
+
+
+@pytest.mark.parametrize("text,code,want,failure", OVERRIDE_ROWS, ids=[r[3] for r in OVERRIDE_ROWS])
+def test_joined_override_rule(text, code, want, failure):
+    assert coop.joined_override(code, text) is want, failure
+
+
+def test_every_fresh_code_cure_names_the_bridge_safe_form(monkeypatch):
+    # the cure is read in a place a bridge already runs (the Workspace's Connection log and Output panel, or beside a
+    # terminal's `coop host`): a bare `coop host --new-code` runs a SECOND bridge on the same port, and SO_REUSEADDR lets
+    # both bind on Windows. Every surface that names it names `--no-bridge`, and the Workspace's step after it.
+    import threading
+    from pathlib import Path
+    from ff9mapkit import netsync_bridge as NB
+    said = []
+    monkeypatch.setattr(NB, "log", said.append)
+    up = NB._Upstream(None, "ws://127.0.0.1:1", "/sess/ff9-T?role=host", False, threading.Event())
+    t = 0.0
+    for _ in range(NB.FLAP_WARN_AT):                         # the shipped two-hosts advice, driven, not read from source
+        up.up_since = t
+        t += 0.4
+        up.flap_wait(t)
+    tutorial = (Path(__file__).resolve().parents[1] / "docs" / "tutorials" / "17-coop.md").read_text(encoding="utf-8")
+    for name, text in (("the bridge's two-hosts advice", " ".join(said)), ("the migration caveat", coop.MIGRATION_CAVEAT),
+                       ("tutorial 17", tutorial)):
+        cures = re.findall(r"ff9mapkit coop host --new-code(?: --[\w-]+)*", text)
+        assert cures, f"{name} no longer names the cure: {text[:300]}"
+        assert all("--no-bridge" in c for c in cures), (name, cures)
+        assert "Start hosting again" in re.sub(r"\*\*|\s+", lambda m: "" if m.group() == "**" else " ", text), name
+
+
+def test_a_fresh_code_from_the_bridge_safe_cure_is_kept_by_the_next_host(game, no_clip):
+    # the cure's second half: Start hosting again (a bare `coop host`, which is all the Workspace's Start runs) must keep
+    # the code `--new-code --no-bridge` just minted, not go back to the old one
+    assert _coop(game, "host")[0] == 0
+    old = _netsync(game, "SessionCode")
+    assert _coop(game, "host", new_code=True)[0] == 0          # _coop always passes --no-bridge
+    fresh = _netsync(game, "SessionCode")
+    assert fresh != old and _netsync(game, "HostSessionCode") == fresh
+    rc, lines = _coop(game, "host")
+    assert rc == 0 and _netsync(game, "SessionCode") == _netsync(game, "HostSessionCode") == fresh
+    assert any(ln.strip().startswith(f"session code:  {fresh}") for ln in lines), lines
+
+
+@pytest.mark.parametrize("role_line,said", [("Role = selftest", "Role is 'selftest'"), (None, "Role is not set")])
+def test_an_unowned_stored_code_is_declined_with_its_real_reason(game, no_clip, role_line, said):
+    # a bench's (selftest) or a no-Role code was never a friend's invite: the decline must not claim this PC joined with
+    # it -- every gate that declines says its REAL reason
+    body = INI.replace("Role = host\n", (role_line + "\n") if role_line else "")
+    (game / "Memoria.ini").write_text(body.replace("SessionCode =\n", "SessionCode = ff9-BENCH001\n"), encoding="utf-8")
+    rc, lines = _coop(game, "host")
+    assert rc == 0 and _netsync(game, "SessionCode") != "ff9-BENCH001"
+    hit = [ln for ln in lines if "not reusing the stored SessionCode 'ff9-BENCH001'" in ln]
+    assert len(hit) == 1 and said in hit[0] and "joined" not in hit[0], lines
+
+
+def test_the_migration_caveat_is_said_once(game, no_clip):
+    (game / "Memoria.ini").write_text(INI.replace("SessionCode =\n", "SessionCode = ff9-MINE0001\n"), encoding="utf-8")
+    rc, lines = _coop(game, "host")
+    assert rc == 0 and _netsync(game, "SessionCode") == "ff9-MINE0001"
+    caveat = [ln for ln in lines if "adopting your stored session code ff9-MINE0001" in ln]
+    assert len(caveat) == 1 and "coop host --new-code --no-bridge" in caveat[0], lines
+    rc, lines = _coop(game, "host")
+    assert rc == 0 and not any("adopting" in ln for ln in lines), "the caveat is one-time: HostSessionCode exists now"
+
+
+def test_an_unusable_own_key_never_falls_back_to_the_invite(game, no_clip):
+    (game / "Memoria.ini").write_text(
+        INI.replace("Role = host\n", "Role = client\n").replace("SessionCode =\n", "SessionCode = ff9-FRIEND01\n")
+        + "HostSessionCode = not a code!\n", encoding="utf-8")
+    rc, lines = _coop(game, "host")
+    assert rc == 0
+    code = _netsync(game, "SessionCode")
+    assert code != "ff9-FRIEND01" and _netsync(game, "HostSessionCode") == code
+    assert any("ignoring the stored HostSessionCode 'not a code!'" in ln for ln in lines), lines
+
+
+def test_show_config_names_the_own_code_on_a_guest(game, no_clip):
+    assert _coop(game, "host", "ff9-MINE0001")[0] == 0
+    assert _coop(game, "join", "ff9-FRIEND01")[0] == 0
+    lines = []
+    assert coop.show_config(game, out=lines.append) == 0
+    assert any(ln.startswith("  session:     ff9-FRIEND01  (the host's code you joined with)") for ln in lines), lines
+    assert any(ln.startswith("  your code:   ff9-MINE0001") for ln in lines), lines
+    assert _coop(game, "host")[0] == 0                      # hosting on the own code: nothing to tell apart
+    lines = []
+    assert coop.show_config(game, out=lines.append) == 0
+    assert not any("your code:" in ln for ln in lines), lines
 
 
 def test_show_config_off_and_missing(game, tmp_path):
@@ -728,7 +1006,8 @@ def test_coop_host_replaces_a_poisoned_second_stored_code(game, monkeypatch):
     text = ini.read_text(encoding="utf-8")
     assert any("ignoring the stored SessionCode" in ln for ln in lines)
     assert "not a code!" not in text
-    assert text.count("SessionCode") == 1
+    # anchored on the KEY: [ff9mapkit s154] HostSessionCode now sits beside it and contains the substring
+    assert sum(1 for ln in text.splitlines() if ln.split("=")[0].strip() == "SessionCode") == 1
     assert re.fullmatch(r"ff9-[A-Z0-9]{8}", coop.read_ini_key(text, "Netsync", "SessionCode"))
 
 

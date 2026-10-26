@@ -1125,5 +1125,8 @@ def test_host_and_guest_get_their_own_advice(monkeypatch):
             t += 0.4
             up.flap_wait(t)
         assert any(needle in ln for ln in lines), (path, lines)
+        if "role=host" in path:
+            # [ff9mapkit s154] the cure is named as a command a user can run: the Workspace has no fresh-code control
+            assert any("ff9mapkit coop host --new-code" in ln for ln in lines), lines
         lines.clear()
 

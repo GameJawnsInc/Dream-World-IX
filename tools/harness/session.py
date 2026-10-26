@@ -8508,14 +8508,24 @@ class Session:
     #: (NetSyncBattle.HarnessStockMenu, s102).
     NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
     #: [ff9mapkit netsync B4] `bbench <op>`, in the engine's order -- the list its "unknown op" refusal prints
-    #: (NetSyncBattle.HarnessStockBench: s106 `roster|content`, + the s107 bench feed). An s106 engine prints
-    #: :attr:`NETSYNC_BBENCH_S106_LIST` instead.
-    NETSYNC_BBENCH_OPS = ("roster", "content", "start", "stop", "ready", "caps", "mode", "freeze", "unmap", "knob")
+    #: (NetSyncBattle.HarnessStockBench: s106 `roster|content`, + the s107 bench feed; [ff9mapkit netsync s154] + THE DIGIT-PICK
+    #: LAW's `digit|digitsnap`). An s106 engine prints :attr:`NETSYNC_BBENCH_S106_LIST` instead, an s107-s153 one
+    #: :attr:`NETSYNC_BBENCH_S153_LIST`.
+    NETSYNC_BBENCH_OPS = ("roster", "content", "start", "stop", "ready", "caps", "mode", "freeze", "unmap", "knob", "digit",
+                          "digitsnap")
     NETSYNC_BBENCH_S106_LIST = "roster|content; stage 8 adds start|ready|caps|mode|unmap|stop"
+    NETSYNC_BBENCH_S153_LIST = "roster|content|start|stop|ready|caps|mode|freeze|unmap|knob"
     #: [ff9mapkit netsync B4] The `bbench` ops a LATER patch added (s107's bench feed), told by their own key.
     NETSYNC_BBENCH_OP_CAPS = {op: ("coop_ready_mirror", "netsync.battle.menu.stock_owns", "s107",
                                    "the B4 ready-mirror bench feed")
                               for op in ("start", "stop", "ready", "caps", "mode", "freeze", "unmap", "knob")}
+    #: [ff9mapkit netsync s154] ...and THE DIGIT-PICK LAW's two (the digit panel's bench press, the calibration lever), told by
+    #: a key INSIDE the bench feed: readable only while a feed runs (both ops need one), so with no feed the driver cannot tell
+    #: and lets the engine answer (an s107-s153 engine: "unknown op"; s154: "no bench feed is running").
+    NETSYNC_BBENCH_OP_CAPS.update({op: ("coop_digit_pick", "netsync.battle.menu.feed.digit_taken", "s154",
+                                        "the s154 digit-pick bench (THE DIGIT-PICK LAW)") for op in ("digit", "digitsnap")})
+    #: the list the engine BEFORE an op's patch prints in its "unknown op" refusal (the driver quotes it)
+    NETSYNC_BBENCH_PRIOR_LISTS = {"s107": NETSYNC_BBENCH_S106_LIST, "s154": NETSYNC_BBENCH_S153_LIST}
     #: [ff9mapkit netsync B5] `endbench <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncEnd.HarnessEndBench: s103, + `guest` s104, + `exit` s105, + `manifest` s108, + `fieldsong` / `replay` /
     #: `quit` s109; [ff9mapkit netsync R3] + `fleegil` s116, + `phase-defeat` / `kill` s117).
@@ -8917,11 +8927,15 @@ class Session:
             if op not in self.NETSYNC_BBENCH_OPS:
                 raise HarnessError(f"netsync bbench: unknown op '{op}' ({'|'.join(self.NETSYNC_BBENCH_OPS)})")
             cap = self.NETSYNC_BBENCH_OP_CAPS.get(op)
-            if cap is not None and not getattr(st, cap[0]):
+            # [ff9mapkit netsync s154] a capability keyed INSIDE the bench feed cannot be read with no feed running: unknown, not absent
+            unreadable = (cap is not None and cap[1].startswith("netsync.battle.menu.feed.")
+                          and not isinstance(st.coop_feed, dict))
+            if cap is not None and not unreadable and not getattr(st, cap[0]):
                 raise HarnessError(
                     f"netsync bbench {op}: the deployed engine publishes no `{cap[1]}` -- `bbench {op}` is {cap[3]} "
                     f"(memoria-patch {cap[2]}); it would answer \"netsync bbench: unknown op '{op}' "
-                    f"({self.NETSYNC_BBENCH_S106_LIST})\" only after the step. Rebuild the DLL, or update the driver.")
+                    f"({self.NETSYNC_BBENCH_PRIOR_LISTS[cap[2]]})\" only after the step. Rebuild the DLL, or update the "
+                    f"driver.")
         elif sub == "endbench":
             # [ff9mapkit netsync B5] the same for HarnessEndBench; a later patch's op is told by its own key
             op = str(args[0]).strip().lower() if args else ""
@@ -9570,8 +9584,10 @@ class Session:
         overlap, and the reset would simply never fire.
 
         ⚠ It is gated on `[Control] SoftReset` in Memoria.ini -- 1 on this install, but the ENGINE
-        default is 0. So this asserts on the outcome (the title screen actually arriving) rather
-        than returning and letting the caller assume it worked.
+        default is 0 -- AND on `[Cheats] Enabled`: the soft-reset branch (UIKeyTrigger.cs:344) sits
+        inside `HandleBoosterButton`, which returns at once unless the cheats are on (:239; the
+        engine default is off). So this asserts on the outcome (the title screen actually arriving)
+        rather than returning and letting the caller assume it worked.
         """
         steps = [f"hold {b} {frames}" for b in self.SOFT_RESET_BUTTONS]
         self.send(*steps, f"wait {frames + 4}")
@@ -9580,9 +9596,9 @@ class Session:
                                what="the soft reset to return to the title screen")
         except HarnessError as err:
             raise HarnessError(
-                f"the soft reset did not reach the title. Either `[Control] SoftReset` is 0 in "
-                f"Memoria.ini (the engine default -- this needs it on), or the game is no longer "
-                f"responding to input at all. ({err})"
+                f"the soft reset did not reach the title. Either `[Control] SoftReset` or `[Cheats] "
+                f"Enabled` is 0 in Memoria.ini (both engine defaults are off -- this needs them on), or "
+                f"the game is no longer responding to input at all. ({err})"
             ) from err
         self._sleep_alive(0.5)          # let the scene transition finish before anyone acts on it
         return st

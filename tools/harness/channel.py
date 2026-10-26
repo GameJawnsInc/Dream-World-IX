@@ -1495,6 +1495,16 @@ class State:
         return self._nb_cap("menu.stock_owns", bool)
 
     @property
+    def coop_digit_pick(self) -> bool | None:
+        """[ff9mapkit netsync s154] THE DIGIT-PICK LAW's bench (the ``bbench`` feed ops ``digit|digitsnap``), told by
+        ``digit_taken`` INSIDE the bench feed -- the feed is null in the catch line, so the key is readable only while a feed
+        runs: None = no ``netsync`` block, or no feed running (cannot tell); False = a running feed without it (s107-s153)."""
+        if not isinstance(self.netsync, dict):
+            return None
+        feed = self._nb_key("menu.feed", dict)
+        return None if feed is None else "digit_taken" in feed
+
+    @property
     def coop_result_manifest(self) -> bool | None:
         """s108 (stage 9): the host result manifest (``host.manifest_captures``; ``endbench manifest``)."""
         return self._nb_cap("host.manifest_captures", int)
@@ -1732,7 +1742,10 @@ class State:
     coop_mirror_fault_why = _nb_prop("menu.mirror.fault_why", str, "s107: why ('' = none).")
     coop_feed = _nb_prop("menu.feed", dict, "s107: the selftest bench feed ({guest_slots, ready, caps, mode, frozen, "
                                             "unmap, nonce, seq, live, menu_open, frames, taken, accepted, refused, bad, "
-                                            "last}); None = not running (or cannot).")
+                                            "last}; s113 + ctl, ctl_menu after menu_open; [ff9mapkit netsync s154] + the "
+                                            "digit panel's digit_mode, digit_slot, digit_snap, digit_waiting, digit_taken, "
+                                            "digit_cands, digit_items, digit_refused, digit_refused_why, digit_note after "
+                                            "last); None = not running (or cannot).")
     # ---- host / peer: s108 (stage 9) the result manifest
     coop_host_manifest = _nb_prop("host.manifest", dict, "s108: the host's last captured manifest (battlewire."
                                                          "published_manifest's shape); None = none this battle (or "
