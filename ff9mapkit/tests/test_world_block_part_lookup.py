@@ -204,3 +204,93 @@ def test_every_real_block_container_resolves_to_itself():
             if X._find_block_part(env, int(d), lod, int(x), int(y), part) is not o:
                 wrong.append(c)
     assert swept > 2000 and wrong == []
+
+
+# --------------------------------------------------------------------------- the lookup and the decode, fast (PERF.md 5)
+def test_a_part_lookup_is_a_dict_read_with_the_walk_s_answer(fake_layer, monkeypatch):
+    """_find_block_part walked every container per lookup -- 1.02M matches, 0.54 s of the first 3D view. A suffix
+    index built once per env answers each lookup by one read, with the walk's answer: the first container in
+    env.objects order whose stem is the target or ends "/" + target (prefix siblings and a duplicate included)."""
+    from ff9mapkit.extract import env_lock
+    install, _decoded = fake_layer
+    containers = [_SEA4F, _SEA4, _JOINT, _RIVER, _SEA4, f"{_PFX}/disc1/0_1/r15/block[16][15] riverjoint.asset",
+                  f"other/{_PFX}/disc1/0_1/r11/block[19][11] river.asset", "worldmap/disc1/0_1/r2/block[3][2] terrain"]
+    env = install(containers)
+    queries = [(4, "0_1", 12, 0, "sea4"), (4, "0_1", 12, 0, "sea4f"), (1, "0_1", 19, 11, "river"),
+               (1, "0_1", 19, 11, "riverjoint"), (1, "0_1", 15, 16, "river"), (1, "0_1", 16, 15, "river"),
+               (1, "0_1", 3, 2, "terrain"), (1, "0_1", 3, 2, "object")]
+    real = X._is_block_part_container
+    with env_lock:
+        want = [next((o for c, o in X._mesh_index(env).items()
+                      if real(c, X._block_part_target(*q))), None) for q in queries]
+        walked = []
+        monkeypatch.setattr(X, "_is_block_part_container", lambda c, t: walked.append(c) or real(c, t))
+        got = [X._find_block_part(env, *q) for q in queries]
+    assert got == want and want[0] is env.objects[1] and want[5] is None
+    assert walked == []                                     # no walk
+
+
+class _Chan:
+    def __init__(self, offset, dimension):
+        self.offset, self.dimension = offset, dimension
+
+
+class _Pptr:
+    """A Mesh object's ``read()``: the fields _decode_world_mesh reads."""
+
+    def __init__(self, raw, vcount, chans, ib=b"\x00\x00\x01\x00\x02\x00"):
+        sub = type("S", (), {"firstByte": 0, "indexCount": 3})()
+        vd = type("VD", (), {"m_DataSize": raw, "m_VertexCount": vcount, "m_Channels": chans})()
+        self.md = type("MD", (), {"m_VertexData": vd, "m_IndexBuffer": ib, "m_SubMeshes": [sub],
+                                  "m_Name": "Block[1][2] Terrain", "m_Use16BitIndices": 1})()
+
+    def read(self):
+        return self.md
+
+
+def _decode_by_vertex(raw, vcount, chans):
+    """The decode as it was, a struct.unpack per vertex and channel: the oracle."""
+    import struct
+    channels, stride = {}, 0
+    for ci, c in enumerate(chans):
+        if c.dimension:
+            channels[ci] = (c.offset, c.dimension)
+            stride = max(stride, c.offset + c.dimension * 4)
+    return {ci: [list(struct.unpack_from("<%df" % d, raw, vi * stride + o)) for vi in range(vcount)]
+            for ci, (o, d) in channels.items()}
+
+
+def test_the_vertex_decode_reads_the_buffer_whole_with_the_same_floats(monkeypatch):
+    """_decode_world_mesh unpacked every vertex's every channel by struct (1.23 s of the first 3D view, 4.5 s for
+    every mesh of a disc). An aligned layout is read whole by numpy: the same doubles, bit for bit (-0.0, NaN,
+    inf, a subnormal); an unaligned one keeps the per-vertex loop."""
+    import math
+    import struct
+    vals = [0.0, -0.0, 1.5, -2.25, float("inf"), float("nan"), 1e-45, 3.4e38]   # two vertices, 16 bytes each
+    chans = [_Chan(0, 3), _Chan(12, 1), _Chan(0, 0)]                   # pos, a 1-wide channel, an empty one
+    raw = struct.pack("<8f", *vals)
+    vcount = 2
+    want = _decode_by_vertex(raw, vcount, chans)
+    unpacked = []
+
+    class _Counting:                                        # extract's NAME swapped, never the struct module
+        def unpack_from(self, *a):
+            unpacked.append(1)
+            return struct.unpack_from(*a)
+
+        def __getattr__(self, name):
+            return getattr(struct, name)
+    monkeypatch.setattr(X, "struct", _Counting())
+    bm = X._decode_world_mesh(_Pptr(raw, vcount, chans), disc=1, x=1, y=2, lod="0_1")
+    assert unpacked == []                                   # read whole, not per vertex
+    assert set(bm.chan_arrays) == set(want)
+    for ci in want:
+        for a, b in zip(bm.chan_arrays[ci], want[ci]):
+            assert [struct.pack("<d", v) for v in a] == [struct.pack("<d", v) for v in b]
+            assert all(type(v) is float for v in a)
+    assert math.isnan(bm.chan_arrays[0][1][1]) and bm.tris == [[0, 1, 2]]
+    odd = [_Chan(2, 1), _Chan(6, 1)]                        # offsets not 4-aligned: the loop, the same answer
+    raw2 = b"\x00\x00" + struct.pack("<f", 1.25) + struct.pack("<f", -3.5) + b"\x00\x00" * 0
+    unpacked.clear()
+    bm2 = X._decode_world_mesh(_Pptr(raw2, 1, odd), disc=1, x=1, y=2, lod="0_1")
+    assert unpacked and bm2.chan_arrays == _decode_by_vertex(raw2, 1, odd)

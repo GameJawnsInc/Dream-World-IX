@@ -247,11 +247,22 @@ def _decode_world_mesh(mesh_pptr, *, disc: int, x: int, y: int, lod: str) -> Blo
     if vcount * stride != len(raw):
         raise ValueError(f"block[{x}][{y}] vertex stride mismatch (v{vcount} * s{stride} != {len(raw)})")
 
-    def rd(ci, vi):
-        off, dim = channels[ci]
-        return list(struct.unpack_from("<%df" % dim, raw, vi * stride + off))
+    try:
+        import numpy as np
+    except ImportError:                              # numpy is optional for the kit: the per-vertex loop
+        np = None
+    if np is not None and stride % 4 == 0 and all(off % 4 == 0 for off, _dim in channels.values()):
+        # the buffer read whole: float32 -> Python float is the same widening struct.unpack('<f') does, bit for bit
+        # (-0.0, NaN, inf, subnormals; every mesh of discs 1 and 4) -- the per-vertex loop was 1.2 s of the first 3D
+        # view and 4.5 s for every mesh of a disc (PERF.md 5)
+        f = np.frombuffer(raw, dtype="<f4").reshape(vcount, stride // 4)
+        chan_arrays = {ci: f[:, off // 4: off // 4 + dim].tolist() for ci, (off, dim) in channels.items()}
+    else:
+        def rd(ci, vi):
+            off, dim = channels[ci]
+            return list(struct.unpack_from("<%df" % dim, raw, vi * stride + off))
 
-    chan_arrays = {ci: [rd(ci, i) for i in range(vcount)] for ci in channels}
+        chan_arrays = {ci: [rd(ci, i) for i in range(vcount)] for ci in channels}
 
     ib = bytes(md.m_IndexBuffer)
     use32 = getattr(md, "m_IndexFormat", None) == 1 or getattr(md, "m_Use16BitIndices", 1) in (0, False)
@@ -313,16 +324,33 @@ def _is_block_part_container(container: str, target: str) -> bool:
     return stem == target or stem.endswith("/" + target)
 
 
+def _suffix_index(env) -> dict:
+    """Once per env: every container stem (the extension dropped) and each of its suffixes after a ``/`` ->
+    the FIRST Mesh object in ``env.objects`` order with that stem or suffix -- exactly the targets
+    :func:`_is_block_part_container` matches (``stem == target`` or ``stem.endswith("/" + target)``), so a lookup
+    is one read where it was a walk of every container (1.02M matches, 0.54 s of the first 3D view: PERF.md 5)."""
+    idx = getattr(env, "_ff9mapkit_suffix_index", None)
+    if idx is None:
+        idx = {}
+        for c, o in _mesh_index(env).items():
+            head, slash, base = c.rpartition("/")
+            dot = base.rfind(".")
+            if dot >= 0:                                 # the one file extension, as _is_block_part_container drops it
+                base = base[:dot]
+            parts = (head + slash + base).split("/")
+            for k in range(len(parts)):
+                idx.setdefault("/".join(parts[k:]), o)
+        env._ff9mapkit_suffix_index = idx
+    return idx
+
+
 def _find_block_part(env, disc: int, lod: str, x: int, y: int, part: str):
     """The Mesh object holding block ``(x, y)``'s ``part`` on ``disc``/``lod``, or ``None`` if the block has
-    none. Walks :func:`_mesh_index` in ``env.objects`` order with the EXACT :func:`_is_block_part_container`
-    rule, so the first hit can only lose to a true duplicate container. Seeks nothing itself, but builds the
-    index on first use -- call it under ``env_lock``, as :func:`read_block` does."""
-    target = _block_part_target(disc, lod, x, y, part)
-    for c, o in _mesh_index(env).items():
-        if _is_block_part_container(c, target):
-            return o
-    return None
+    none: the first container in ``env.objects`` order that the EXACT :func:`_is_block_part_container` rule
+    matches, read from :func:`_suffix_index`, so the first hit can only lose to a true duplicate container.
+    Seeks nothing itself, but builds the indexes on first use -- call it under ``env_lock``, as
+    :func:`read_block` does."""
+    return _suffix_index(env).get(_block_part_target(disc, lod, x, y, part))
 
 
 _BLOCK_MEMO_MAX = 512          # masters are ~0.4 MB avg; unbounded, a host that read every key would retain ~800 MB
