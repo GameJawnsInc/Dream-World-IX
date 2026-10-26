@@ -106,7 +106,7 @@ class RecipeBar(QWidget):
     def draft(self):
         from ..world import draft as D
         p = D.draft_path(self.source(), root=self._drafts_root)
-        return p if D.read_meta(p) is not None else None
+        return p if D.is_draft(p) else None
 
     def refresh(self):
         """Say what the recipe holds and which way it can walk."""
@@ -321,7 +321,7 @@ class RecipeBar(QWidget):
         """The draft edit ``e`` is open in (it never changes under the edit), else the shown folder's."""
         from ..world import draft as D
         d = (e or {}).get("draft")
-        return Path(d) if d is not None and D.read_meta(Path(d)) is not None else self.draft()
+        return Path(d) if d is not None and D.is_draft(Path(d)) else self.draft()
 
     def edit_accepted(self):
         """The card wrote the edited shape in the step's place: put the steps after it back on top."""

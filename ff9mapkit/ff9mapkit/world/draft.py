@@ -114,6 +114,27 @@ def read_meta(draft: Path):
         return None
 
 
+_IS_DRAFT: dict = {}           # draft.json path -> ((size, mtime_ns, file id), is it a draft)
+
+
+def is_draft(draft) -> bool:
+    """``read_meta(draft) is not None``, without parsing ``draft.json`` again while its stat stands: the World tab
+    asks it per Accept (14-16 times), per undo and per ghost drag frame, and a parse of the 423 KB file was 2.5-4.7 ms
+    on the GUI thread (PERF.md 7). A meta write replaces the file, so its stat moves."""
+    f = Path(draft) / DRAFT_FILE
+    try:
+        st = os.stat(f)
+    except OSError:
+        return False
+    key = (st.st_size, st.st_mtime_ns, st.st_ino)
+    hit = _IS_DRAFT.get(str(f))
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    ok = read_meta(draft) is not None
+    _IS_DRAFT[str(f)] = (key, ok)
+    return ok
+
+
 def ensure_draft(source: Path, *, game, root=None) -> Path:
     """The draft of mod folder ``source``: reuse the one already made from it (its edits kept), else copy one.
 

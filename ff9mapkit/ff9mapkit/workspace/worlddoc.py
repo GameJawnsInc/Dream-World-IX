@@ -934,7 +934,7 @@ class WorldDoc(QWidget):
             return None
         from ..world import draft as D
         p = D.draft_path(self._census.root, root=self._drafts_root)
-        return p if D.read_meta(p) is not None else None
+        return p if D.is_draft(p) else None
 
     def _sync_draw_box(self):
         """Offer "With the draft" exactly while the shown folder has one."""

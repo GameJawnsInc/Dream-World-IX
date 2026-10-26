@@ -381,3 +381,26 @@ def test_a_recipe_row_that_refuses_stops_the_open_and_keeps_the_rows_before_it(m
         doc._recipe.status_lbl.text()
     assert doc._recipe.status_lbl.property("state") == "error"
     assert json.loads((draft / D.HISTORY).read_text())["steps"][0]["row"]["table"] == "forest"
+
+
+def test_asking_whether_a_draft_exists_parses_its_meta_once_per_write(tmp_path, monkeypatch):
+    """The cards, the recipe bar and the tab asked "is there a draft?" by parsing its 423 KB draft.json: 14-16
+    parses an Accept, 8 an undo, one per ghost drag frame, 2.5-4.7 ms each on the GUI thread (PERF.md 7, c3).
+    draft.is_draft answers read_meta's question again only when draft.json's stat moved; every such check spends it."""
+    import time
+    _game_, _src, d = _draft(tmp_path)
+    parsed, real = [], D.read_meta
+    monkeypatch.setattr(D, "read_meta", lambda p: parsed.append(p) or real(p))
+    assert all(D.is_draft(d) for _ in range(20)) and len(parsed) == 1
+    then = time.time_ns() - 10 ** 9
+    (d / D.DRAFT_FILE).write_text("{ not json", encoding="utf-8")      # rewritten (and broken): asked again
+    os.utime(d / D.DRAFT_FILE, ns=(then, then))
+    assert not D.is_draft(d) and len(parsed) == 2
+    assert not D.is_draft(tmp_path / "nowhere")
+    import ff9mapkit.workspace.worlddoc as WD
+    import ff9mapkit.workspace.worldforest as WF
+    import ff9mapkit.workspace.worldrecipe as WR
+    import inspect
+    for fn in (WF.CarryTool.draft, WD.WorldDoc._draft, WR.RecipeBar.draft):   # THE CALL SITES
+        src = inspect.getsource(fn)
+        assert "is_draft(" in src and "read_meta(" not in src, fn

@@ -579,7 +579,7 @@ class CarryTool(QWidget):
         """The source's draft folder if one was made, else None."""
         from ..world import draft as D
         p = D.draft_path(self.source(), root=self._drafts_root)
-        return p if D.read_meta(p) is not None else None
+        return p if D.is_draft(p) else None             # (a stat while draft.json stands: PERF.md 7)
 
     def target(self) -> Path:
         """Where the shape is judged and written: the draft once it exists, else the source (read only)."""
