@@ -757,3 +757,32 @@ def test_an_opened_recipe_row_whose_step_cannot_be_recorded_is_taken_back(monkey
     D.undo(draft)                                                         # the forest row, and only it
     D.redo(draft)
     assert _tree(draft) == one
+
+
+def test_an_undo_or_redo_the_disk_refuses_says_so(monkeypatch, tmp_path, app):
+    """Undo and Redo finish a pending abort first (round 2, H1), which the disk can refuse (a reader holding a file
+    the failed step made); the bar caught a ValueError only, so the OSError left the click and the bar said nothing
+    (review of the perf fixes, round 3, H4). Both say why, as Edit and Delete do."""
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "one.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"}]), encoding="utf-8")
+    doc, _run = _doc(app, game, tmp_path, saved)
+    doc.set_view_mode("3d", sync=True)
+    doc._recipe.open_btn.click()
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    assert D.history(draft)["cursor"] == 1
+    D.begin_step(draft, [(1, 0)])                                         # a step whose abort the disk refuses
+    real = D.abort_step
+
+    def fails(d):
+        if (Path(d) / D.HISTORY_DIR / D._PENDING / "step.json").is_file():
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "abort_step", fails)
+    for act, word in ((doc._recipe.undo, "Not undone"), (doc._recipe.redo, "Not redone")):
+        doc._recipe.status_lbl.setText("")
+        act()
+        text = doc._recipe.status_lbl.text()
+        assert word in text and "a reader holds it" in text, text
+    monkeypatch.setattr(D, "abort_step", real)
+    assert D.history(draft)["cursor"] == 1                                # nothing moved

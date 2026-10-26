@@ -621,7 +621,7 @@ class RecipeBar(QWidget):
             return
         try:
             s = D.undo(d)
-        except ValueError as e:
+        except (ValueError, OSError) as e:               # (an OSError: the disk refused a pending abort, round 3 H4)
             self._moved(f"Not undone: {e}.", "error")
             return
         self._moved(f"Undone: {s['label']}.", "")
@@ -633,7 +633,7 @@ class RecipeBar(QWidget):
             return
         try:
             s = D.redo(d)
-        except ValueError as e:
+        except (ValueError, OSError) as e:               # (an OSError: the disk refused a pending abort, round 3 H4)
             self._moved(f"Not redone: {e}.", "error")
             return
         self._moved(f"Redone: {s['label']}.", "")
