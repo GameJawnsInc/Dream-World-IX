@@ -654,3 +654,14 @@ def test_a_commit_shaped_pending_left_by_an_older_kit_does_not_wedge_the_draft(t
     assert not pend.exists() and _tree(d) == now                         # dropped, nothing half written back
     D.begin_step(d, [(1, 0)])                                             # and the draft goes on
     D.abort_step(d)
+
+
+def test_a_discard_leaves_no_copy_for_a_folder_with_brackets_in_its_name(tmp_path):
+    """The sweep found the renamed copy by a glob, and a '[...]' in the folder's name is a character set there: every
+    discard of 'Mod[1]-world's draft left a whole copy in the drafts root (review of the perf fixes, round 2, H4)."""
+    game = _game(tmp_path)
+    src = _mod(game, "Mod[1]-world", ((0, 0),))
+    for _ in range(2):
+        d = D.ensure_draft(src, game=game, root=tmp_path / "drafts")
+        D.discard(d, root=tmp_path / "drafts")
+    assert sorted(p.name for p in (tmp_path / "drafts").iterdir()) == []

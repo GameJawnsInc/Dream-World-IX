@@ -253,8 +253,13 @@ _DISCARDING = ".discarding-"                      # a discarded draft's name whi
 
 def _sweep_discarded(draft: Path) -> None:
     """Delete what discards of ``draft`` renamed aside (a leftover a reader held is taken on the next sweep)."""
-    for p in Path(draft).parent.glob(Path(draft).name + _DISCARDING + "*"):
-        shutil.rmtree(p, ignore_errors=True)
+    head = Path(draft).name + _DISCARDING                # (a listing, not a glob: a '[...]' in the name is no set)
+    try:
+        names = [n for n in os.listdir(Path(draft).parent) if n.startswith(head)]
+    except OSError:
+        return
+    for n in names:
+        shutil.rmtree(Path(draft).parent / n, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- promote (rung C4): the draft into the live folder
