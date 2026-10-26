@@ -1397,3 +1397,19 @@ def test_any_failed_start_ends_the_job(app):
     r.start([sys.executable, "-c", "print('a\x00b')"], ".", lambda code, text: got.append((code, text)))
     assert r.wait() and not r.busy() and len(got) == 1 and got[0][0] == -1 and "could not start" in got[0][1]
 
+
+def test_a_killed_job_s_process_ends(app):
+    """kill() must end the job's process, whether it lands while the worker is still inside Popen or after (a
+    put-back killed by Cancel must not write over the restored draft): the contract test only checked that the
+    killed job's done never ran, which the runner's identity check gives by itself (review, J5)."""
+    import sys
+    import time
+    from ff9mapkit.workspace.worldforest import JobRunner
+    for delay in (0.0, 1.0):
+        r = JobRunner()
+        r.start([sys.executable, "-c", "import time; time.sleep(30)"], ".", lambda code, text: None)
+        time.sleep(delay)
+        job = r._job
+        r.kill()
+        job["thread"].join(10)
+        assert job["proc"] is not None and job["proc"].poll() is not None, delay
