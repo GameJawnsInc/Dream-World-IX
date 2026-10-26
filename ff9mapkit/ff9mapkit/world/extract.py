@@ -18,6 +18,7 @@ cache + the packed Unity-5 ``m_VertexData`` decode approach (cf. :func:`ff9mapki
 from __future__ import annotations
 
 import json
+import os
 import struct
 from collections import Counter, OrderedDict
 from dataclasses import dataclass, field as _dcfield, replace as _dc_replace
@@ -139,8 +140,9 @@ _WM_ENV_MEMO: dict = {}
 def _worldmap_env(disc: int = 1, game=None):
     """The loaded p0data bundle that holds the worldmap terrain meshes for ``disc``. Caches the winning bundle
     basename next to StreamingAssets so we don't rescan ~50 bundles every call (p0data3 first -- where they live).
-    A disc with NO winning bundle is memoized too (see ``_WM_ENV_MEMO``) and re-raises without rescanning."""
-    _unitypy()                                       # surface the install/UnityPy error early
+    A disc with NO winning bundle is memoized too (see ``_WM_ENV_MEMO``) and re-raises without rescanning. A root
+    with no bundle at all (a draft's parent: every world-* job into a draft attempts its disc-4 mirror there)
+    refuses so without importing UnityPy, about 1 s of each such job (PERF.md 5)."""
     sa = _streaming_assets(game)
     memo_key = (str(sa), int(disc))
     if memo_key in _WM_ENV_MEMO:
@@ -149,6 +151,16 @@ def _worldmap_env(disc: int = 1, game=None):
             raise ValueError(err)
         return env
     needle = f"worldmap/disc{disc}/0_1/"
+    missing = (f"no worldmap terrain meshes (container {needle!r}) found in StreamingAssets/p0data*.bin "
+               f"-- is this a full FF9 install?")
+    try:                                             # (a listing, not a glob: a path holding '[...]' is no set)
+        has = any(n.startswith("p0data") and n.endswith(".bin") for n in os.listdir(sa))
+    except OSError:
+        has = False
+    if not has:
+        _WM_ENV_MEMO[memo_key] = (None, missing)
+        raise ValueError(missing)
+    _unitypy()                                       # surface the install/UnityPy error early
     hint = sa / _WM_BUNDLE_HINT
 
     def _has(env) -> bool:
@@ -179,10 +191,8 @@ def _worldmap_env(disc: int = 1, game=None):
                 pass
             _WM_ENV_MEMO[memo_key] = (env, None)
             return env
-    msg = (f"no worldmap terrain meshes (container {needle!r}) found in StreamingAssets/p0data*.bin "
-           f"-- is this a full FF9 install?")
-    _WM_ENV_MEMO[memo_key] = (None, msg)
-    raise ValueError(msg)
+    _WM_ENV_MEMO[memo_key] = (None, missing)
+    raise ValueError(missing)
 
 
 @dataclass
@@ -242,11 +252,27 @@ def _decode_world_mesh(mesh_pptr, *, disc: int, x: int, y: int, lod: str) -> Blo
     if vcount * stride != len(raw):
         raise ValueError(f"block[{x}][{y}] vertex stride mismatch (v{vcount} * s{stride} != {len(raw)})")
 
-    def rd(ci, vi):
-        off, dim = channels[ci]
-        return list(struct.unpack_from("<%df" % dim, raw, vi * stride + off))
+    try:
+        import numpy as np
+    except ImportError:                              # numpy is optional for the kit: the per-vertex loop
+        np = None
+    f = None
+    if np is not None and stride % 4 == 0 and all(off % 4 == 0 for off, _dim in channels.values()):
+        # the buffer read whole: float32 -> Python float is the same widening struct.unpack('<f') does, bit for bit
+        # (-0.0, inf, subnormals; every mesh of discs 1 and 4) -- the per-vertex loop was 1.2 s of the first 3D view
+        # and 4.5 s for every mesh of a disc (PERF.md 5). A NaN goes through the loop: numpy quiets a signalling
+        # one, which struct keeps (review of the perf commits, K4)
+        f = np.frombuffer(raw, dtype="<f4").reshape(vcount, stride // 4)
+        if np.isnan(f).any():
+            f = None
+    if f is not None:
+        chan_arrays = {ci: f[:, off // 4: off // 4 + dim].tolist() for ci, (off, dim) in channels.items()}
+    else:
+        def rd(ci, vi):
+            off, dim = channels[ci]
+            return list(struct.unpack_from("<%df" % dim, raw, vi * stride + off))
 
-    chan_arrays = {ci: [rd(ci, i) for i in range(vcount)] for ci in channels}
+        chan_arrays = {ci: [rd(ci, i) for i in range(vcount)] for ci in channels}
 
     ib = bytes(md.m_IndexBuffer)
     use32 = getattr(md, "m_IndexFormat", None) == 1 or getattr(md, "m_Use16BitIndices", 1) in (0, False)
@@ -308,16 +334,33 @@ def _is_block_part_container(container: str, target: str) -> bool:
     return stem == target or stem.endswith("/" + target)
 
 
+def _suffix_index(env) -> dict:
+    """Once per env: every container stem (the extension dropped) and each of its suffixes after a ``/`` ->
+    the FIRST Mesh object in ``env.objects`` order with that stem or suffix -- exactly the targets
+    :func:`_is_block_part_container` matches (``stem == target`` or ``stem.endswith("/" + target)``), so a lookup
+    is one read where it was a walk of every container (1.02M matches, 0.54 s of the first 3D view: PERF.md 5)."""
+    idx = getattr(env, "_ff9mapkit_suffix_index", None)
+    if idx is None:
+        idx = {}
+        for c, o in _mesh_index(env).items():
+            head, slash, base = c.rpartition("/")
+            dot = base.rfind(".")
+            if dot >= 0:                                 # the one file extension, as _is_block_part_container drops it
+                base = base[:dot]
+            parts = (head + slash + base).split("/")
+            for k in range(len(parts)):
+                idx.setdefault("/".join(parts[k:]), o)
+        env._ff9mapkit_suffix_index = idx
+    return idx
+
+
 def _find_block_part(env, disc: int, lod: str, x: int, y: int, part: str):
     """The Mesh object holding block ``(x, y)``'s ``part`` on ``disc``/``lod``, or ``None`` if the block has
-    none. Walks :func:`_mesh_index` in ``env.objects`` order with the EXACT :func:`_is_block_part_container`
-    rule, so the first hit can only lose to a true duplicate container. Seeks nothing itself, but builds the
-    index on first use -- call it under ``env_lock``, as :func:`read_block` does."""
-    target = _block_part_target(disc, lod, x, y, part)
-    for c, o in _mesh_index(env).items():
-        if _is_block_part_container(c, target):
-            return o
-    return None
+    none: the first container in ``env.objects`` order that the EXACT :func:`_is_block_part_container` rule
+    matches, read from :func:`_suffix_index`, so the first hit can only lose to a true duplicate container.
+    Seeks nothing itself, but builds the indexes on first use -- call it under ``env_lock``, as
+    :func:`read_block` does."""
+    return _suffix_index(env).get(_block_part_target(disc, lod, x, y, part))
 
 
 _BLOCK_MEMO_MAX = 512          # masters are ~0.4 MB avg; unbounded, a host that read every key would retain ~800 MB

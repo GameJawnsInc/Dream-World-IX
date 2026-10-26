@@ -20,8 +20,13 @@ runs in the live folder (keeping the ledger's world-river tag, so the moved rive
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
+import os
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -72,6 +77,89 @@ def shape(*, game=None) -> RiverShape:
     tris = np.asarray([t["P"] for t in frag.tris], dtype=np.float64).reshape(-1, 3, 3)
     return RiverShape(tris=tris, ring=np.asarray(ol.ring, dtype=np.float64), blocks=[tuple(b) for b in blocks],
                       cells=cells, cells_shift=tuple(shifts[0]), shifts=[tuple(s) for s in shifts])
+
+
+CACHE_VERSION = 1
+
+
+def _cache_dir() -> Path:
+    from ..provision import cache_dir
+    return Path(cache_dir())
+
+
+def _code_stamp() -> str:
+    """The world code (and data) a shape is computed by: a hash of every ``world/*.py`` and ``world/data/*`` file, so
+    a kit that would read the river differently reads it again rather than trusting an old answer."""
+    root = Path(__file__).resolve().parent
+    h = hashlib.sha256()
+    for p in sorted(list(root.glob("*.py")) + [q for q in (root / "data").glob("*") if q.is_file()]):
+        h.update(p.name.encode())
+        h.update(p.read_bytes())
+    return h.hexdigest()[:16]
+
+
+def _stock_stamp(game) -> str:
+    """What the shape reads besides the code: each stock bundle's name, size and time, and the versions of the
+    readers below the kit (a Steam update or a repair at the same path, a new UnityPy: review of the perf commits)."""
+    from importlib import metadata
+    h = hashlib.sha256()
+    sa = Path(game) / "StreamingAssets"
+    try:
+        names = sorted(n for n in os.listdir(sa) if n.startswith("p0data") and n.endswith(".bin"))
+    except OSError:
+        names = []
+    for n in names:
+        try:
+            st = os.stat(sa / n)
+        except OSError:
+            continue
+        h.update(f"{n}:{st.st_size}:{st.st_mtime_ns};".encode())
+    for dist in ("UnityPy", "numpy"):
+        try:
+            h.update(f"{dist}={metadata.version(dist)};".encode())
+        except metadata.PackageNotFoundError:
+            h.update(f"{dist}=none;".encode())
+    kit = Path(__file__).resolve().parents[1]
+    for rel in ("extract.py", "config.py"):
+        try:
+            h.update((kit / rel).read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:16]
+
+
+def cached_shape(game, *, refresh: bool = False, read=None) -> RiverShape:
+    """:func:`shape`, from the kit's cache when it holds this install's, computed by this kit (:func:`_code_stamp`):
+    the shape is a function of the install's stock bytes and the code alone, and reading it was 17-24 s on every
+    session's first river open (PERF.md 7). ``read`` is the test seam for :func:`shape`."""
+    key = hashlib.sha256(str(Path(game).resolve()).lower().encode()).hexdigest()[:12]
+    path = _cache_dir() / "world-river" / f"shape-{key}.json"
+    stamp = f"{_code_stamp()}-{_stock_stamp(game)}"
+    if not refresh:
+        try:
+            doc = json.loads(path.read_text(encoding="utf-8"))
+            if doc.get("version") == CACHE_VERSION and doc.get("stamp") == stamp:
+                return RiverShape(tris=np.asarray(doc["tris"], dtype=np.float64).reshape(-1, 3, 3),
+                                  ring=np.asarray(doc["ring"], dtype=np.float64).reshape(-1, 2),
+                                  blocks=[tuple(b) for b in doc["blocks"]], cells=[tuple(c) for c in doc["cells"]],
+                                  cells_shift=tuple(doc["cells_shift"]), shifts=[tuple(s) for s in doc["shifts"]])
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    rs = (read or shape)(game=game)
+    doc = {"version": CACHE_VERSION, "stamp": stamp, "game": str(game), "tris": rs.tris.tolist(),
+           "ring": rs.ring.tolist(), "blocks": [list(b) for b in rs.blocks], "cells": [list(c) for c in rs.cells],
+           "cells_shift": list(rs.cells_shift), "shifts": [list(s) for s in rs.shifts]}
+    tmp = None
+    try:                                                      # a cache that cannot be written is only skipped: the
+        path.parent.mkdir(parents=True, exist_ok=True)        # shape is the answer (review of the perf commits, K1)
+        fd, tmp = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))   # each writer's own
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(doc))                          # (floats round-trip exactly through their repr)
+        Path(tmp).replace(path)
+    except OSError:
+        if tmp is not None:
+            Path(tmp).unlink(missing_ok=True)
+    return rs
 
 
 def offset_of(shift) -> tuple:

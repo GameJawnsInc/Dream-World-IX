@@ -34,6 +34,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import os
+import time
 from pathlib import Path
 
 from PIL import Image
@@ -360,23 +361,96 @@ def cell_meshes(site: RenderSite, bx, by, part_src=None, *, stock: bool = False,
     return out
 
 
-def load_batches(site: RenderSite, part_src=None, *, stock: bool = False, bad=None):
+class CellMemo:
+    """A long-lived view's batches, per cell (the World tab's 3D view: every Accept, undo or rescan reloads the
+    map, 7-16 s for 480 cells, and an edit changes a few of them -- PERF.md 1).
+
+    What a cell draws is a function of its own files and of stock: :func:`cell_meshes` reads only the cell's
+    ``Block[wbx][by] *`` files in each root of the site -- its parts, and for a divert the Terrain-exists check and
+    ``Donor.txt`` -- and stock, which a process never sees change. So a cell whose files all stand (each one's
+    root, name, size, mtime and file id) hands back the batches it drew last, and a cell where a file was written,
+    added or removed draws again. One entry per cell; a root switch keeps the cells no switched root holds a file
+    for. The batches it hands out are read-only, so no caller can edit what the next load returns. A cell holding a
+    file written within ``draft.RACY_NS`` of the load is drawn again whatever its stat says: written in that clock
+    tick, it can be written again at the same size and time (git's racy-clean rule)."""
+
+    def __init__(self):
+        self._cells = {}
+        self._dirs = self._roots = self._at = None
+
+    def forget(self):
+        """Draw every cell again on the next load (the tab's Rescan: re-read everything from disk)."""
+        self._cells.clear()
+
+    def _names(self, d: Path):
+        got = self._dirs.get(d)
+        if got is None:
+            try:
+                got = sorted(e.name for e in os.scandir(d) if e.is_file())
+            except OSError:
+                got = []
+            self._dirs[d] = got
+        return got
+
+    def _fingerprint(self, site, bx, by) -> tuple:
+        rel = Path("FF9_Data") / "WorldMap" / f"Disc{site.disc}" / "0_1" / f"r{by}"
+        head = f"Block[{M.wrap_block_col(bx)}][{by}] "
+        out = []
+        for i, root in enumerate(self._roots):
+            d = Path(root) / rel
+            for name in self._names(d):
+                if name.startswith(head):
+                    try:
+                        st = os.stat(d / name)
+                    except OSError:
+                        continue
+                    out.append((i, str(root), name, st.st_size, st.st_mtime_ns, st.st_ino))
+        return tuple(out)
+
+    def batches(self, site, bx, by, ox, oz, stock):
+        key = (bx, by, bool(stock), site.disc, str(site.game), tuple(site.parts))
+        fp = self._fingerprint(site, bx, by)
+        hit = self._cells.get(key)
+        from .draft import RACY_NS
+        # the racy-clean window is judged at the load that RECORDED the entry, as draft._unmoved judges at the begin
+        # stat: an entry made while a file was young stays untrusted (review of the perf commits, 3D-1)
+        if hit is not None and hit[0] == fp and all(f[4] < hit[2] - RACY_NS for f in fp):
+            return hit[1]
+        out = _cell_batches(site, bx, by, ox, oz, None, stock, None)
+        for _part, *arrays in out:
+            for a in arrays:
+                a.flags.writeable = False
+        self._cells[key] = (fp, out, self._at)
+        return out
+
+
+def load_batches(site: RenderSite, part_src=None, *, stock: bool = False, bad=None, memo: CellMemo | None = None):
     """[(part, verts Nx3 world, uvs Nx2, tris Mx3)]; ``part_src`` maps
     (bx,by,part)->Path overriding the live file (walk_sim convention). ``stock=True`` renders what the
     ENGINE binds where no override file exists -- the cell's effective prefab part (:func:`effective_prefab`):
     stock land under the overrides, open sea round them, and the donor's free-riding parts (a carried river
-    that is not an override) -- so the eye sees the game, not only the deployed files."""
+    that is not an override) -- so the eye sees the game, not only the deployed files. ``memo`` (a long-lived
+    view's :class:`CellMemo`) draws again only the cells whose files moved; with ``part_src`` or ``bad`` it is not
+    used, since those are not the cell's files."""
     _require_numpy()
     global _LISTING
     site = site.resolved()
+    use = memo if part_src is None and bad is None else None
     batches = []
     outer, _LISTING = _LISTING, {} if _LISTING is None else _LISTING   # one directory listing per load, not a stat
-    try:                                                                # per part per folder per cell (~40k on a map)
+    if use is not None:                                                 # per part per folder per cell (~40k on a map)
+        use._dirs, use._roots, use._at = {}, site_roots(site), time.time_ns()
+    try:
         for (bx, by) in site.cells:
             ox, oz = X.block_world_origin(bx, by)
-            batches += _cell_batches(site, bx, by, ox, oz, part_src, stock, bad)
+            if use is not None:
+                batches += use.batches(site, bx, by, ox, oz, stock)
+            else:
+                batches += _cell_batches(site, bx, by, ox, oz, part_src, stock, bad)
     finally:
         _LISTING = outer
+        if use is not None:
+            use._dirs = use._roots = use._at = None
     return batches
 
 

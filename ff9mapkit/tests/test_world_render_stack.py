@@ -8,6 +8,8 @@ file the engine cannot read means STOCK, not the next folder's file. Hermetic: t
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 np = pytest.importorskip("numpy")
@@ -142,3 +144,117 @@ def test_an_empty_stack_is_stock_everywhere(stack):
     _put(lo, "Terrain.ff9mesh", _mesh(2.0))
     site = _site(game, ())
     assert not R.live_path(site, 1, 1, "Terrain").is_file() and R.cell_meshes(site, 1, 1) == []
+
+
+# ---------------------------------------------------------------- THE RELOAD: a long-lived view draws again only what moved
+def _same_batches(a, b):
+    return len(a) == len(b) and all(pa == pb and np.array_equal(va, vb) and np.array_equal(ua, ub)
+                                    and np.array_equal(ta, tb) for (pa, va, ua, ta), (pb, vb, ub, tb) in zip(a, b))
+
+
+def _age(root, seconds=60):
+    """Every file under ``root`` last written ``seconds`` ago: a folder in use, older than the racy-clean window."""
+    import os
+    import time
+    then = time.time_ns() - seconds * 10 ** 9
+    for f in Path(root).rglob("*"):
+        if f.is_file():
+            os.utime(f, ns=(then, then))
+
+
+def _moved(p, data):
+    """Write ``data`` at ``p`` as a later job does: seconds after the last load read it (the file's time moves on;
+    two writes inside one clock tick, a load between them, is not a path the tab takes)."""
+    import os
+    st = p.stat() if p.exists() else None
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_bytes(data)
+    if st is not None:
+        os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))
+
+
+def test_a_cell_memo_draws_again_only_the_cells_whose_files_moved(stack, monkeypatch):
+    """THE RELOAD (PERF.md 1): the World tab reloads the whole map after every Accept, undo or rescan (7-16 s), and
+    an edit changes a few of 480 cells. A cell's batches are a function of its own files in every root of the stack
+    -- its parts, the divert's Terrain and Donor.txt -- and of stock: :class:`render.CellMemo` hands back a cell's
+    last batches while every one of its files stands (root, name, size, time, file id), and draws again a cell where
+    a file was written, added or removed. What it hands back is what a load without it draws, and read-only."""
+    import os
+    game, hi, lo = stack
+    monkeypatch.setattr(X, "block_parts", lambda disc=1, game=None: {})       # sea everywhere: no stock reads
+    cells = ((1, 1), (2, 1), (3, 1))
+    for bx, by in cells:
+        _put(lo, "Terrain.ff9mesh", M.ff9mesh_bytes(_tri_mesh(1.0 + bx, bx=bx)), bx=bx)
+    _age(lo)
+    site = R.RenderSite(cells=cells, disc=1, game=game, stack=(hi, lo), parts=("Terrain", "Sea4"))
+    drawn, real = [], R.cell_meshes
+    monkeypatch.setattr(R, "cell_meshes", lambda s, bx, by, *a, **k: drawn.append((bx, by)) or real(s, bx, by, *a, **k))
+    memo = R.CellMemo()
+
+    def load(s=site):
+        got = R.load_batches(s, stock=True, memo=memo)
+        seen = list(drawn)
+        drawn.clear()
+        plain = R.load_batches(s, stock=True)                 # the same site drawn without the memo
+        drawn.clear()
+        assert _same_batches(got, plain)
+        return got, seen
+
+    first, seen = load()
+    assert sorted(seen) == sorted(cells)
+    again, seen = load()
+    assert seen == [] and _same_batches(again, first)
+    with pytest.raises(ValueError):                           # a batch handed out twice cannot be edited in place
+        again[0][1][0, 0] = 99.0
+    f = lo / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r1" / "Block[2][1] Terrain.ff9mesh"
+    _moved(f, M.ff9mesh_bytes(_tri_mesh(9.0, bx=2)))         # rewritten, same size: its time moved
+    assert load()[1] == [(2, 1)]
+    _moved(hi / f.relative_to(lo).parent / "Block[3][1] Terrain.ff9mesh", M.ff9mesh_bytes(_tri_mesh(7.0, bx=3)))
+    assert load()[1] == [(3, 1)]                              # a file added in a higher root
+    os.remove(hi / f.relative_to(lo).parent / "Block[3][1] Terrain.ff9mesh")
+    assert load()[1] == [(3, 1)]                              # ...and taken away again
+    _moved(hi / f.relative_to(lo).parent / "Block[1][1] Donor.txt", b"5,15")
+    assert load()[1] == [(1, 1)]                              # a divert's donor is the cell's file too
+    other = game / "OTHER"                                    # a draw-box switch: a root holding nothing for a cell
+    other.mkdir()
+    assert load(R.RenderSite(cells=cells, disc=1, game=game, stack=(other, lo), parts=("Terrain", "Sea4")))[1] == [
+        (1, 1)]                                               # keeps it; (1, 1) lost the HIGH Donor.txt with HIGH
+
+
+def test_a_cell_memo_does_not_trust_a_file_written_the_instant_before(stack, monkeypatch):
+    """THE RACY-CLEAN RULE (git's, and draft.RACY_NS): a file written in the clock tick a load read it in can be
+    written again at the same size and time. A cell holding a file younger than the window draws again."""
+    import os
+    game, hi, lo = stack
+    monkeypatch.setattr(X, "block_parts", lambda disc=1, game=None: {})
+    p = _put(lo, "Terrain.ff9mesh", M.ff9mesh_bytes(_tri_mesh(1.0)))      # written just now
+    site = R.RenderSite(cells=((1, 1),), disc=1, game=game, stack=(hi, lo), parts=("Terrain",))
+    memo = R.CellMemo()
+    R.load_batches(site, stock=True, memo=memo)
+    st = p.stat()
+    p.write_bytes(M.ff9mesh_bytes(_tri_mesh(6.0)))                       # other bytes, the same size...
+    os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))                     # ...and the same time (one clock tick)
+    got = R.load_batches(site, stock=True, memo=memo)
+    assert _same_batches(got, R.load_batches(site, stock=True)) and got[0][1][0][1] == 6.0
+
+
+def test_a_young_file_s_entry_is_never_trusted_later_either(stack, monkeypatch):
+    """The memo's racy-clean rule judged a file's time against the clock of the load REUSING an entry: an entry
+    recorded while its file was young (its stat could still hide a same-tick rewrite) was trusted by every load
+    starting 2 s later, handing back bytes no longer on disk until a Rescan (review of the perf commits, 3D-1). An
+    entry is judged against the clock of the load that RECORDED it, as draft._unmoved does."""
+    import os
+    game, hi, lo = stack
+    monkeypatch.setattr(X, "block_parts", lambda disc=1, game=None: {})
+    p = _put(lo, "Terrain.ff9mesh", M.ff9mesh_bytes(_tri_mesh(1.0)))      # written just now: young
+    site = R.RenderSite(cells=((1, 1),), disc=1, game=game, stack=(hi, lo), parts=("Terrain",))
+    memo = R.CellMemo()
+    R.load_batches(site, stock=True, memo=memo)                           # recorded while young
+    st = p.stat()
+    p.write_bytes(M.ff9mesh_bytes(_tri_mesh(6.0)))                       # rewritten in the same tick
+    os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
+    import types
+    later = R.time.time_ns() + 3 * 10 ** 9                                # a load three seconds on (render's
+    monkeypatch.setattr(R, "time", types.SimpleNamespace(time_ns=lambda: later))   # name swapped, not the module)
+    got = R.load_batches(site, stock=True, memo=memo)
+    assert got[0][1][0][1] == 6.0 and _same_batches(got, R.load_batches(site, stock=True))

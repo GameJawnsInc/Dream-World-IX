@@ -142,11 +142,12 @@ alone.
   table that runs the command: `[[placement]]`'s fused path refused (land-fit) a carry the command makes, measured.
   I1 identical over 1,568 files; on real bytes hand == recipe. In game: open sea (-1.367) before, the carried grass at
   3.738 after (predicted 3.738).
-- **WHERE THE TAB MAKES YOU WAIT (2026-10-25)** -> [`PERF.md`](PERF.md). Measured, nothing built yet: every draft
-  change reloads the whole 3D map (7-16 s; a cell memo makes it 0.3-0.5 s, identical), a sink Accept freezes the
-  window 10-36 s snapshotting all 480 cells for one island, a Check is 1.3-5.6 s with 1.3-1.9 s of it start-up.
-  Ranked fixes, each proven identical on real data; two defects found (the game camera probes the old terrain
-  after a reload; a Check's report can carry disc 4's verdict).
+- **WHERE THE TAB MAKES YOU WAIT (2026-10-25, BUILT 2026-10-26)** -> [`PERF.md`](PERF.md). Measured, then built:
+  the 3D reload draws only the cells that moved (Undo 8-11 s -> under 1 s, an Accept 22-25 s -> about 5 s); every
+  history step, Open...'s copy, a job's start and the party's seat off the window's thread; the Check kernels (a
+  forest Check 6.8 -> 5.2 s, --near 305 -> 28 s); the drag and camera frames (50 / 100 ms -> 5 / 11 ms). Each fix
+  held to the old code on real data; three review rounds over the fixes (17, 9, 5 confirmed, all fixed). Not built:
+  the warm worker (B3).
 - **THE REVIEW OF C12-C23 (2026-10-25)** -> [`REVIEW-C12-C23.md`](REVIEW-C12-C23.md). Five adversarial rounds over the
   GUI work and then over each round's fixes: 51 confirmed (20, 13, 7, 7, 4), 44 commits, each with a test red first. The laws: what
   the game is owed lives on disk, and an in-game step opens only with nothing unpromoted on top; one lock routine;

@@ -38,7 +38,7 @@ class RiverTool(CarryTool):
         self._river_ask, self._river_asks = None, 0      # the read of it in flight (its number), and the count
         self._from_check = None                          # an edited row, its move_from held until the river is read
         super().__init__(pal, panel, game_fn=game_fn,
-                         outline_fn=kw.pop("outline_fn", None) or (lambda _key: RE.shape(game=game_fn())), **kw)
+                         outline_fn=kw.pop("outline_fn", None) or (lambda _key: RE.cached_shape(game_fn())), **kw)
 
     def _edit_module(self):
         from ..world import riveredit
@@ -149,7 +149,7 @@ class RiverTool(CarryTool):
     def _seat_row(self, row):
         rs = self._rs()
         at = tuple(float(v) for v in row["at"])
-        if rs is None:                                   # the river's shape: about fifteen seconds, once
+        if rs is None:                                   # the river's shape: once per install and kit (cached)
             self.center, self._shift = at, None
             return False
         s = next((s for s in rs.shifts if self.FE.offset_of(s) == at), None)

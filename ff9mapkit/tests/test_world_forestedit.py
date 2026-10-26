@@ -150,6 +150,47 @@ def test_footprint_preview_is_the_gate_s_own_law():
     assert lawful >= 10 and refused >= 10              # both verdicts exercised, or the fence proves nothing
 
 
+def test_the_footprint_law_asks_only_the_points_near_the_rim(monkeypatch):
+    """The carve's footprint law ran pip() / near_poly() for every tri of the island (0.58 s of a forest Check; the
+    two ten-line functions were 70% of world-forest --near). A point outside the rim polygon's box widened by
+    SCAN_BAND is neither in it nor within SCAN_BAND of it, so it is not asked (PERF.md 5, P2)."""
+    soup = _patchy_soup(1)
+    tri_c = IN._tri_centroids(soup)
+    poly = [(40.0, -40.0), (60.0, -40.0), (60.0, -60.0), (40.0, -60.0)]
+    calls, real = [], IN.pip
+    monkeypatch.setattr(IN, "pip", lambda *a: calls.append(1) or real(*a))
+    boxed = IN.forest_footprint_lawful(soup, tri_c, poly)
+    asked = len(calls)
+    calls.clear()
+    monkeypatch.setattr(IN, "_poly_box", lambda p: None, raising=False)   # every tri asked, as it was
+    assert IN.forest_footprint_lawful(soup, tri_c, poly) == boxed
+    assert 0 < asked < len(calls) / 10
+
+
+def test_the_boxed_footprint_law_is_the_footprint_law(monkeypatch):
+    """The box answers exactly what pip() and near_poly() answer: the same count, the same refusal and its point, at
+    random centres, turns and spreads (the preview fence's) -- and an edge whose dz is under pip's 1e-12 guard's
+    reach (0 < |dz| < 1e-6) turns the box off, the one case the guard could move a crossing along x."""
+    ring = np.array([(math.cos(a) * 9.0, 0.0, math.sin(a) * 6.0) for a in np.linspace(0, 2 * math.pi, 19)[:-1]])
+    ol = FE.Outline((0, 0), np.zeros((0, 3, 3)), ring, (18.0, 12.0))
+    rng = np.random.default_rng(5)
+    real_box = IN._poly_box
+    for seed in (1, 2):
+        soup = _patchy_soup(seed)
+        tri_c = IN._tri_centroids(soup)
+        for _ in range(40):
+            c = (rng.uniform(-10, 202), rng.uniform(-202, 10))
+            _t, rim = FE.placed(ol, c, spread=float(rng.choice([1.0, 1.5])), rot_deg=float(rng.choice([0, 33, 250])))
+            poly = [(float(x), float(z)) for x, _y, z in rim]
+            got, why = IN.forest_footprint_lawful(soup, tri_c, poly, why := []), why
+            monkeypatch.setattr(IN, "_poly_box", lambda p: None)
+            want, why2 = IN.forest_footprint_lawful(soup, tri_c, poly, why2 := []), why2
+            monkeypatch.setattr(IN, "_poly_box", real_box)
+            assert (got, why) == (want, why2), c
+    assert IN._poly_box([(0.0, 0.0), (10.0, 5e-7), (5.0, 9.0)]) is None
+    assert IN._poly_box([(0.0, 0.0), (10.0, 0.0), (5.0, 9.0)]) is not None
+
+
 def test_footprint_preview_says_what_it_reached():
     soup = _patchy_soup(1)
     ix = FE.SoupIndex(soup)
@@ -435,3 +476,46 @@ def test_promote_onto_cells_the_live_folder_has_nothing_at_records_and_reverts(m
     assert D.last_promote(d)["utc"] == rec["utc"]
     D.revert(d, game=game, log=lambda *a: None)
     assert {k: v for k, v in _tree(src).items() if ".bak-" not in k} == before
+
+
+class _Watched(np.ndarray):
+    """A tri-corner array that records a box taken from it again (min / max over it)."""
+    log: list = []
+
+    def max(self, *a, **k):
+        _Watched.log.append("max")
+        return np.ndarray.max(np.asarray(self), *a, **k)
+
+    def min(self, *a, **k):
+        _Watched.log.append("min")
+        return np.ndarray.min(np.asarray(self), *a, **k)
+
+
+class _Coast(np.ndarray):
+    """A coast array that records how many of its points each broadcast against the tested verts carries."""
+    log: list = []
+
+    def __getitem__(self, key):
+        if isinstance(key, tuple) and key[:1] == (None,):
+            _Coast.log.append(len(self))
+        return np.ndarray.__getitem__(self, key)
+
+
+def test_a_drag_preview_reuses_the_index_and_reads_only_the_coast_near_it():
+    """A forest ghost drag cost 45-55 ms per mouse move on the GUI thread, 93% in footprint_preview: it took every
+    tri's plan box again (SoupIndex already holds them: lo, hi) and measured every tested vertex against EVERY coast
+    point of the island (PERF.md 6, C3). Neither now, and the answer is the same. (The coast fence watches the
+    culled array itself: an asarray of the coast hid it, so the cull could go unnoticed -- review, CR-3.)"""
+    ix = FE.SoupIndex(IN.soup_from_blocks({(0, 0): _mains_grid()}))
+    far = [[5000.0 + i, 5000.0] for i in range(50)]
+    ix.coast = np.vstack([ix.coast.reshape(-1, 2), [[30.0, -45.0]], far])   # one by the rim, many far off
+    poly = [(20.0, -20.0), (40.0, -20.0), (40.0, -40.0), (20.0, -40.0)]
+    want = FE.footprint_preview(ix, poly)
+    assert want["why"] == "the coast rim" and want["where"]           # the coast check ran, and decided
+    full = len(ix.coast)
+    ix.corner, ix.coast = ix.corner.view(_Watched), ix.coast.view(_Coast)
+    _Watched.log, _Coast.log = [], []
+    got = FE.footprint_preview(ix, poly)
+    assert _Watched.log == [] and got == want
+    assert _Coast.log and max(_Coast.log) <= full - len(far)           # the far points were never measured
+

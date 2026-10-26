@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QComboBox, QDoubleSpinBox
 
 from . import widgets
 from .worldforest import GATE_WORDS, CarryTool
+from ..world.forestedit import disc4_words
 
 COAST_GATES = {**GATE_WORDS, "frame": "the frame gate", "stitch": "the stitch gate", "entrance": "the entrance gate",
                "bounds": "the bounds gate", "census": "the placement census"}
@@ -260,7 +261,7 @@ class CoastTool(CarryTool):
         n = sum(1 for g in v.get("gates") or [] if g.get("ok"))
         return (f"Passes every gate ({n}): {self.verb()} {self.depth.value():g} u — "
                 f"{VERB_WORDS.get(self.verb(), '')} along {self._window['L']:.0f} u of "
-                f"{self._window['kind']}. Accept writes it to the draft, on disc 1 and on disc 4.", "ok")
+                f"{self._window['kind']}. Accept writes it to the draft, {disc4_words(v)}.", "ok")
 
     def _preview_text(self, pv):
         if pv["why"] == "no lawful coast window here":

@@ -114,6 +114,27 @@ def read_meta(draft: Path):
         return None
 
 
+_IS_DRAFT: dict = {}           # draft.json path -> ((size, mtime_ns, file id), is it a draft)
+
+
+def is_draft(draft) -> bool:
+    """``read_meta(draft) is not None``, without parsing ``draft.json`` again while its stat stands: the World tab
+    asks it per Accept (14-16 times), per undo and per ghost drag frame, and a parse of the 423 KB file was 2.5-4.7 ms
+    on the GUI thread (PERF.md 7). A meta write replaces the file, so its stat moves."""
+    f = Path(draft) / DRAFT_FILE
+    try:
+        st = os.stat(f)
+    except OSError:
+        return False
+    key = (st.st_size, st.st_mtime_ns, st.st_ino)
+    hit = _IS_DRAFT.get(str(f))
+    if hit is not None and hit[0] == key:
+        return hit[1]
+    ok = read_meta(draft) is not None
+    _IS_DRAFT[str(f)] = (key, ok)
+    return ok
+
+
 def ensure_draft(source: Path, *, game, root=None) -> Path:
     """The draft of mod folder ``source``: reuse the one already made from it (its edits kept), else copy one.
 
@@ -134,6 +155,7 @@ def ensure_draft(source: Path, *, game, root=None) -> Path:
         raise ValueError(f"{source} has no FF9_Data/WorldMap disc tree to draft")
     if draft.exists():
         raise ValueError(f"{draft} exists and is not a draft; move it aside")
+    _sweep_discarded(draft)                       # (what an earlier discard could not delete yet)
     tmp = draft.with_name(draft.name + ".making")
     if tmp.exists():
         shutil.rmtree(tmp)
@@ -213,12 +235,31 @@ def edited_blocks(draft: Path) -> list:
 
 
 def discard(draft: Path, *, root=None) -> None:
-    """Delete a draft (its edits with it). Refuses anything that is not a draft under the drafts root."""
+    """Delete a draft (its edits with it), whole or not at all. Refuses anything that is not a draft under the drafts
+    root. The draft is renamed aside first -- Windows refuses that, whole, while a reader holds a file in it (waited
+    out by :func:`_retry`) -- and the renamed copy is deleted: a bare rmtree stopped at the first held file, deleting
+    bottom-up with draft.json last, and left a gutted folder that was still a draft (review of the perf commits)."""
     draft = Path(draft)
     root = Path(root or drafts_dir())
     if read_meta(draft) is None or not _inside(draft, root) or draft.resolve() == root.resolve():
         raise ValueError(f"{draft} is not a draft under {root}")
-    shutil.rmtree(draft)
+    aside = draft.with_name(f"{draft.name}{_DISCARDING}{os.getpid()}-{time.time_ns()}")
+    _retry(lambda: draft.rename(aside))
+    _sweep_discarded(draft)
+
+
+_DISCARDING = ".discarding-"                      # a discarded draft's name while it is deleted (never a draft's)
+
+
+def _sweep_discarded(draft: Path) -> None:
+    """Delete what discards of ``draft`` renamed aside (a leftover a reader held is taken on the next sweep)."""
+    head = Path(draft).name + _DISCARDING                # (a listing, not a glob: a '[...]' in the name is no set)
+    try:
+        names = [n for n in os.listdir(Path(draft).parent) if n.startswith(head)]
+    except OSError:
+        return
+    for n in names:
+        shutil.rmtree(Path(draft).parent / n, ignore_errors=True)
 
 
 # ---------------------------------------------------------------- promote (rung C4): the draft into the live folder
@@ -246,22 +287,58 @@ def _ledger_key(rel: str):
     return (parsed[0], parsed[1], m.group(1)) if m else None
 
 
+_HEAD = re.compile(r"^Block\[\d+\]\[\d+\] ")
+
+
 def _cell_files(folder: Path, cells) -> dict:
-    """``rel -> path`` for every live file at ``cells`` on the DISCS trees (every part, sidecars too), no backups."""
+    """``rel -> path`` for every live file at ``cells`` on the DISCS trees (every part, sidecars too), no backups.
+    One listing per row directory (a glob per cell and disc was 960 globs for a whole-map step: PERF.md 3)."""
+    folder = Path(folder)
+    rows = {}
+    for bx, by in cells:
+        rows.setdefault(int(by), set()).add(f"Block[{int(bx)}][{int(by)}] ")
     out = {}
     for d in DISCS:
         tree = folder / "FF9_Data" / "WorldMap" / f"Disc{d}"
-        for bx, by in cells:
-            for p in tree.glob(f"*/r{by}/Block[[]{bx}[]][[]{by}[]] *"):
-                if p.is_file() and ".bak-" not in p.name and not p.name.endswith(".promoting"):
-                    out[p.relative_to(folder).as_posix()] = p
+        try:
+            lods = sorted(e.name for e in os.scandir(tree) if e.is_dir())
+        except OSError:
+            continue
+        for lod in lods:
+            for by, heads in sorted(rows.items()):
+                row = tree / lod / f"r{by}"
+                try:
+                    entries = sorted(os.scandir(row), key=lambda e: e.name)
+                except OSError:
+                    continue
+                for e in entries:
+                    m = _HEAD.match(e.name)
+                    if (m and m.group(0) in heads and ".bak-" not in e.name and not e.name.endswith(".promoting")
+                            and e.is_file()):
+                        out[f"FF9_Data/WorldMap/Disc{d}/{lod}/r{by}/{e.name}"] = row / e.name
     return out
+
+
+RACY_NS = 2 * 10 ** 9           # a file written within this of a stat can be written again at the same size and time
+
+
+def _unmoved(p: Path, rec, at) -> bool:
+    """Is ``p`` still the file a step's begin stat'ed as ``rec`` ([size, mtime_ns]) at ``at`` (ns)? Its size and
+    time stand, and it was last written more than :data:`RACY_NS` before that stat: a file written in the stat's own
+    clock tick can be written again at the same size and time (git's racy-clean rule), so that one is hashed."""
+    if rec is None or at is None:
+        return False
+    try:
+        st = os.stat(p)
+    except OSError:
+        return False
+    return st.st_size == rec[0] and st.st_mtime_ns == rec[1] and rec[1] < at - RACY_NS
 
 
 def _write_meta(draft: Path, meta: dict) -> None:
     tmp = Path(draft) / (DRAFT_FILE + ".tmp")
     tmp.write_text(json.dumps(meta, indent=1), encoding="utf-8")
-    tmp.replace(Path(draft) / DRAFT_FILE)
+    _retry(lambda: tmp.replace(Path(draft) / DRAFT_FILE))   # (a reader of draft.json waited out, as history's)
 
 
 def _record(data: bytes, src_mtime: int, draft_mtime: int) -> list:
@@ -369,6 +446,8 @@ def promote(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
     would overwrite their bytes). Every live file at the edited cells (both discs, every part) is snapshotted first
     into ``<draft>/promotes/<stamp>/``, so :func:`revert` restores them exactly. Afterwards the draft is rebased: it
     equals the live folder again, with no edits and nothing stale. Returns the promote record."""
+    if not dry_run:
+        abort_step(Path(draft))                          # (a failed abort, finished before the draft is copied)
     from . import discmirror as DM
     from . import mesh as M
     draft = Path(draft)
@@ -510,6 +589,7 @@ def revert(draft: Path, *, game, dry_run: bool = False, log=print) -> dict:
                          "Reverting would erase that later work.")
     if dry_run:
         return {**rec, "op": "revert"}
+    abort_step(draft)                                    # (a failed abort, finished before the rebase: round 3, H2)
     snap = Path(rec["record"]) / "before"
     for rel, sha in rec["before"].items():          # every snapshot whole before any byte moves
         if not (snap / rel).is_file() or _sha(snap / rel) != sha:
@@ -573,18 +653,24 @@ def history(draft: Path) -> dict:
 
 
 def _write_history(draft: Path, h: dict) -> None:
+    """history.json, whole: written aside and put in place, waiting out a reader that holds it open (the window's
+    thread reads it while a worker records a step; Windows refuses the replace meanwhile: review of the perf
+    commits, CR-2)."""
     tmp = Path(draft) / (HISTORY + ".tmp")
     tmp.write_text(json.dumps(h, indent=1), encoding="utf-8")
-    tmp.replace(Path(draft) / HISTORY)
+    _retry(lambda: tmp.replace(Path(draft) / HISTORY))
 
 
-def _snap(draft: Path, cells, dest: Path) -> dict:
-    """Copy every file at ``cells`` (both discs, every part) under ``dest``; ``rel -> sha``."""
-    out = {}
-    for rel, p in sorted(_cell_files(Path(draft), cells).items()):
+def _snap(draft: Path, cells, dest: Path, files=None) -> dict:
+    """Copy every file at ``cells`` (both discs, every part) under ``dest``; ``rel -> sha``. ``files``: the cells'
+    listing, when the caller has it."""
+    out, made = {}, set()
+    for rel, p in sorted((_cell_files(Path(draft), cells) if files is None else files).items()):
         data = p.read_bytes()
         q = dest / rel
-        q.parent.mkdir(parents=True, exist_ok=True)
+        if q.parent not in made:
+            q.parent.mkdir(parents=True, exist_ok=True)
+            made.add(q.parent)
         q.write_bytes(data)
         out[rel] = hashlib.sha256(data).hexdigest()
     return out
@@ -602,12 +688,15 @@ def _retry(fn, *, tries: int = 60, wait: float = 0.05):
             time.sleep(wait)
 
 
-def _restore(draft: Path, files: dict, snap: Path, cells) -> None:
+def _restore(draft: Path, files: dict, snap: Path, cells, unmoved=None) -> None:
     """Put the files at ``cells`` back to ``files`` (from the snapshot ``snap``): written back, or removed when that
     side never had them. A file a reader holds open for a moment is waited for (:func:`_retry`): an Edit clicked
-    while a card still reads the island it just accepted raced its own undo here (c11_lab)."""
+    while a card still reads the island it just accepted raced its own undo here (c11_lab). ``unmoved(rel, path)``
+    True leaves a file that is still the snapshot's bytes as it is."""
     for rel in sorted(set(files) | set(_cell_files(Path(draft), cells))):
         p = Path(draft) / rel
+        if rel in files and unmoved is not None and unmoved(rel, p):
+            continue
         if rel in files:
             p.parent.mkdir(parents=True, exist_ok=True)
             data = (snap / rel).read_bytes()
@@ -641,58 +730,87 @@ def all_cells() -> list:
 
 
 def begin_step(draft: Path, cells) -> None:
-    """Before a step writes the draft: snapshot every file at the ``cells`` it may write (a superset is fine)."""
+    """Before a step writes the draft: snapshot every file at the ``cells`` it may write (a superset is fine). A
+    pending step left by an abort that failed is aborted first: its snapshot holds the before-images of the half
+    step, which deleting it left in the draft unrecorded (review of the perf commits, F2)."""
     pend = Path(draft) / HISTORY_DIR / _PENDING
+    abort_step(draft)
     if pend.exists():
         shutil.rmtree(pend)
     cells = sorted({(int(bx) % 24, int(by)) for bx, by in cells})
     pend.mkdir(parents=True)                         # (a step over open sea has no file to snapshot)
-    before = _snap(draft, cells, pend / "before")
+    files, at = _cell_files(draft, cells), time.time_ns()
+    stat = {}                                        # each file's size and time: what commit and abort trust
+    for rel, p in files.items():
+        st = os.stat(p)
+        stat[rel] = [st.st_size, st.st_mtime_ns]
+    before = _snap(draft, cells, pend / "before", files)
     _keep_ledger(draft, pend / "before")
-    (pend / "step.json").write_text(json.dumps({"cells": [list(c) for c in cells], "before": before}),
-                                    encoding="utf-8")
+    (pend / "step.json").write_text(json.dumps({"cells": [list(c) for c in cells], "before": before,
+                                                "stat": stat, "at": at}), encoding="utf-8")
 
 
 def commit_step(draft: Path, row: dict, label: str) -> dict:
     """The step ran: record it after the applied steps (dropping any undone ones, as an edit after an undo does).
-    Only the files that changed are kept in the step."""
+    Only the files that changed are kept in the step. A file whose size and time stand since :func:`begin_step` is
+    the bytes it snapshotted (:func:`_unmoved`), so only the files that moved are read again (a whole-map step read
+    all 2,088 again and copied them: PERF.md 3)."""
     draft = Path(draft)
     pend = draft / HISTORY_DIR / _PENDING
     step = json.loads((pend / "step.json").read_text(encoding="utf-8"))
     cells = [tuple(c) for c in step["cells"]]
-    after = _snap(draft, cells, pend / "after")
-    _keep_ledger(draft, pend / "after")
-    before = step["before"]
+    before, stat, at = step["before"], step.get("stat", {}), step.get("at")
+    now = _cell_files(draft, cells)
+    after = {rel: before[rel] if rel in before and _unmoved(p, stat.get(rel), at) else _sha(p)
+             for rel, p in sorted(now.items())}
     moved = {rel for rel in set(before) | set(after) if before.get(rel) != after.get(rel)}
     keep = sorted({_parse_rel(rel)[1] for rel in moved if _parse_rel(rel) is not None})
+    keep_set = set(keep)
+    _snap(draft, keep, pend / "after", {rel: p for rel, p in now.items()        # the kept cells' after side only
+                                        if _parse_rel(rel) and _parse_rel(rel)[1] in keep_set})
+    _keep_ledger(draft, pend / "after")
     before = {rel: h for rel, h in before.items() if _parse_rel(rel) and _parse_rel(rel)[1] in keep}
     after = {rel: h for rel, h in after.items() if _parse_rel(rel) and _parse_rel(rel)[1] in keep}
-    for side in ("before", "after"):                 # the untouched cells' copies go (a whole-map step stays small)
-        for rel in _cell_files(pend / side, [c for c in cells if c not in set(keep)]):
-            (pend / side / rel).unlink()
+    # THE ORDER: the pending folder goes in place first, under a name no step holds, retried while a handle is open
+    # in it; only then is it trimmed, the history written and the undone steps dropped. A rename that still fails
+    # leaves the pending step whole (abort_step finishes it) and the undone steps redo-able (review of the perf
+    # fixes, round 2, H2)
     h = history(draft)
-    for old in h["steps"][h["cursor"]:]:
-        shutil.rmtree(draft / old["dir"], ignore_errors=True)
     n = h["cursor"]
     rel_dir = f"{HISTORY_DIR}/{n:04d}"
-    shutil.rmtree(draft / rel_dir, ignore_errors=True)
-    pend.rename(draft / rel_dir)
+    if (draft / rel_dir).exists():                   # (an undone step's folder: kept until the history drops it)
+        rel_dir = f"{HISTORY_DIR}/{n:04d}-{time.time_ns()}"
+    _retry(lambda: pend.rename(draft / rel_dir))
+    home = draft / rel_dir
+    for rel in _cell_files(home / "before", [c for c in cells if c not in keep_set]):
+        (home / "before" / rel).unlink()             # the untouched cells' copies go (a whole-map step stays small)
+    (home / "step.json").write_text(json.dumps({"cells": step["cells"], "before": step["before"]}),
+                                    encoding="utf-8")
     rec = {"row": row, "label": label, "cells": [list(c) for c in keep], "before": before, "after": after,
            "dir": rel_dir, "utc": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    undone = h["steps"][n:]
     h["steps"] = h["steps"][:n] + [rec]
     h["cursor"] = n + 1
     _write_history(draft, h)
+    for old in undone:                               # (dropped from the history: their folders go)
+        shutil.rmtree(draft / old["dir"], ignore_errors=True)
     return rec
 
 
 def abort_step(draft: Path) -> None:
     """The step failed: put its cells back as they were before it (a verb refuses before writing, so this is
-    usually a no-op), and forget it."""
+    usually a no-op), and forget it. Only what the step moved is written back (:func:`_unmoved`): rewriting all
+    2,088 files of a whole-map step took 14-28 s and moved every file's time (PERF.md 3)."""
     pend = Path(draft) / HISTORY_DIR / _PENDING
     if not (pend / "step.json").is_file():
         return
     step = json.loads((pend / "step.json").read_text(encoding="utf-8"))
-    _restore(draft, step["before"], pend / "before", [tuple(c) for c in step["cells"]])
+    if any(not (pend / "before" / rel).is_file() for rel in step["before"]):
+        shutil.rmtree(pend)                          # a commit's, trimmed before a rename that failed (an older kit):
+        return                                       # its writes are in the draft; replayed in part it wedged it (H2)
+    stat, at = step.get("stat", {}), step.get("at")
+    _restore(draft, step["before"], pend / "before", [tuple(c) for c in step["cells"]],
+             unmoved=lambda rel, p: _unmoved(p, stat.get(rel), at))
     _put_ledger(draft, pend / "before")
     shutil.rmtree(pend)
 
@@ -701,6 +819,7 @@ def undo(draft: Path) -> dict:
     """Take the last applied step back out of the draft, byte for byte. Refuses a step already promoted (Revert
     promote first) and a step whose files changed since (something else wrote the draft)."""
     draft = Path(draft)
+    abort_step(draft)                                    # a failed abort, finished before this rewrites its cells
     h = history(draft)
     if h["cursor"] == 0:
         raise ValueError("nothing to undo")
@@ -721,6 +840,7 @@ def undo(draft: Path) -> dict:
 def redo(draft: Path) -> dict:
     """Put the next undone step back into the draft, byte for byte (its recorded result: the verb is not re-run)."""
     draft = Path(draft)
+    abort_step(draft)                                    # a failed abort, finished before this rewrites its cells
     h = history(draft)
     if h["cursor"] >= len(h["steps"]):
         raise ValueError("nothing to redo")
@@ -789,9 +909,12 @@ def begin_edit(draft: Path, k: int) -> dict:
     step after it out of the history (their records parked under ``history/edit/``, so :func:`cancel_edit` puts them
     back exactly). The draft is then as it was before step ``k``: the card judges the edited shape there, and the
     caller puts the steps after it back on top, each replayed (:func:`replay`) or re-run. Refuses a step out of range,
-    a promoted step (Revert promote first) and an edit already open; an undo that refuses on the way down (a step's
-    files moved) is redone again before the refusal is raised."""
+    a promoted step (Revert promote first), an edit already open and a lifted step whose record is gone; whatever
+    fails on the way (an undo that refuses, a step's folder the disk will not move, the history write) is put back
+    -- the folders moved back, the steps undone redone -- before it is raised: the open is whole or nothing (review
+    of the perf fixes, round 3, H1)."""
     draft = Path(draft)
+    abort_step(draft)                                    # (an abort that failed, finished first: F2)
     h = history(draft)
     if h["edit"]:
         raise ValueError("an edit is already open in the draft")
@@ -799,27 +922,33 @@ def begin_edit(draft: Path, k: int) -> dict:
         raise ValueError(f"step {k + 1} is not an applied step of the recipe")
     if k < h["promoted"]:
         raise ValueError(f"step {k + 1} is in the game (promoted): Revert promote first")
-    cursor, done = h["cursor"], 0
+    for i, s in enumerate(h["steps"][k:], start=k):      # (an older kit could drop an undone step's folder)
+        if not (draft / s["dir"]).is_dir():
+            raise ValueError(f"the record of step {i + 1} ({s['label']}) is missing from the draft ({s['dir']})")
+    park = draft / HISTORY_DIR / EDIT_DIR
+    shutil.rmtree(park, ignore_errors=True)
+    park.mkdir(parents=True)                             # (a leftover the disk keeps refuses here, nothing moved)
+    cursor, done, moved = h["cursor"], 0, []
     try:
         while history(draft)["cursor"] > k:
             undo(draft)
             done += 1
+        h = history(draft)
+        lifted = []
+        for i, s in enumerate(h["steps"][k:]):
+            rel = f"{HISTORY_DIR}/{EDIT_DIR}/{i:04d}"
+            _retry(lambda s=s, rel=rel: (draft / s["dir"]).rename(draft / rel))
+            moved.append((s["dir"], rel))
+            lifted.append({**s, "dir": rel, "home": s["dir"]})
+        h["steps"] = h["steps"][:k]
+        h["edit"] = {"at": k, "applied": cursor - k, "lifted": lifted, "utc": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        _write_history(draft, h)
     except (ValueError, OSError):                        # a refusal, or the disk: either way, back as it was
+        for home, rel in reversed(moved):
+            _retry(lambda home=home, rel=rel: (draft / rel).rename(draft / home))
         for _ in range(done):
             redo(draft)
         raise
-    h = history(draft)
-    park = draft / HISTORY_DIR / EDIT_DIR
-    shutil.rmtree(park, ignore_errors=True)
-    park.mkdir(parents=True)
-    lifted = []
-    for i, s in enumerate(h["steps"][k:]):
-        rel = f"{HISTORY_DIR}/{EDIT_DIR}/{i:04d}"
-        (draft / s["dir"]).rename(draft / rel)
-        lifted.append({**s, "dir": rel, "home": s["dir"]})
-    h["steps"] = h["steps"][:k]
-    h["edit"] = {"at": k, "applied": cursor - k, "lifted": lifted, "utc": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    _write_history(draft, h)
     return h["edit"]
 
 

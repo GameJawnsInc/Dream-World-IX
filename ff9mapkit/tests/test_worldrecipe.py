@@ -87,6 +87,83 @@ def test_undo_refuses_a_step_whose_files_moved_and_abort_puts_the_cells_back(tmp
     assert _tree(d) == before and D.history(d)["cursor"] == 1
 
 
+def _aged(d, seconds=60):
+    """Every draft file last written ``seconds`` ago (a draft in use: its files were not written this instant)."""
+    import time
+    then = time.time_ns() - seconds * 10 ** 9
+    for p in (d / "FF9_Data").rglob("*"):
+        if p.is_file():
+            os.utime(p, ns=(then, then))
+
+
+def test_a_step_reads_and_writes_back_only_the_files_that_moved(monkeypatch, tmp_path):
+    """A whole-map step (a sink Accept, a recipe's island or carry row) snapshots 480 cells and 2,088 files, and its
+    commit read every one again and its abort wrote every one back: 10-36 s frozen per sink Accept, and an abort
+    moved every file's time, so the 3D view drew the whole map again (PERF.md 3). A file whose size and time stand
+    since begin_step is the bytes it snapshotted: commit reads only what moved, abort writes back only what moved."""
+    _game_, _src, d = _draft(tmp_path)
+    _aged(d)
+    reads, real = [], Path.read_bytes
+    monkeypatch.setattr(Path, "read_bytes", lambda p: reads.append(p.relative_to(d).as_posix()
+                                                                   if p.is_relative_to(d) else str(p)) or real(p))
+    D.begin_step(d, D.all_cells())
+    (d / T00).write_bytes(b"forest")
+    reads.clear()
+    rec = D.commit_step(d, {"table": "forest", "center": [1.0, -1.0], "donor": "15,15"}, "forest one")
+    assert rec["cells"] == [[0, 0]] and set(rec["after"]) == {T00}
+    assert T10 not in reads                                               # it did not move: not read again
+    _aged(d)                                                              # (T00 was just written: racy, hashed)
+    D.begin_step(d, D.all_cells())
+    (d / T10).write_bytes(b"half a write")
+    t00 = os.stat(d / T00).st_mtime_ns
+    D.abort_step(d)
+    assert (d / T10).read_bytes() == real(_src / T10) and os.stat(d / T00).st_mtime_ns == t00   # T00 not rewritten
+
+
+def test_a_file_written_the_instant_before_a_step_is_read_again(tmp_path):
+    """THE RACY-CLEAN RULE (git's): a file written in the same clock tick as begin_step's stat can be written again
+    at the same size and time. Only a file older than the window is trusted by its stat; a younger one is hashed."""
+    _game_, _src, d = _draft(tmp_path)                                    # ensure_draft wrote its files just now
+    st = os.stat(d / T00)
+    D.begin_step(d, [(0, 0)])
+    same = bytes(b ^ 0xFF for b in (d / T00).read_bytes())                # other bytes, the same size...
+    (d / T00).write_bytes(same)
+    os.utime(d / T00, ns=(st.st_atime_ns, st.st_mtime_ns))                # ...and the same time (one clock tick)
+    rec = D.commit_step(d, {"table": "forest", "center": [1.0, -1.0], "donor": "15,15"}, "forest one")
+    assert set(rec["after"]) == {T00}                                     # still seen: the step holds the change
+    D.undo(d)
+    assert (d / T00).read_bytes() == (_src / T00).read_bytes()
+
+
+def test_cell_files_lists_what_one_glob_per_cell_lists(tmp_path):
+    """_cell_files reads one listing per row directory (it globbed once per cell and disc: 960 globs a whole-map
+    step). The same files: every part and sidecar of the cells, no backups, no promote leftovers, no neighbours."""
+    root = tmp_path / "F"
+    names = ["Block[1][1] Terrain.ff9mesh", "Block[1][1] Donor.txt", "Block[1][1] Sea4.ff9mesh.bak-2026",
+             "Block[1][1] Object.ff9mesh.promoting", "Block[11][1] Terrain.ff9mesh", "Block[1][11] Terrain.ff9mesh",
+             "Block[2][1] Terrain.ff9mesh", "Block[1][1]Terrain.ff9mesh"]
+    for disc in (1, 4):
+        for lod in ("0_1", "1_1"):
+            for row, ns in ((1, names), (11, ["Block[1][11] Terrain.ff9mesh"])):
+                for n in ns:
+                    if f"][{row}]" in n:
+                        p = root / "FF9_Data" / "WorldMap" / f"Disc{disc}" / lod / f"r{row}" / n
+                        p.parent.mkdir(parents=True, exist_ok=True)
+                        p.write_bytes(b"x")
+
+    def by_glob(folder, cells):                                           # the rule as it was written
+        out = {}
+        for disc in D.DISCS:
+            tree = folder / "FF9_Data" / "WorldMap" / f"Disc{disc}"
+            for bx, by in cells:
+                for p in tree.glob(f"*/r{by}/Block[[]{bx}[]][[]{by}[]] *"):
+                    if p.is_file() and ".bak-" not in p.name and not p.name.endswith(".promoting"):
+                        out[p.relative_to(folder).as_posix()] = p
+        return out
+    for cells in ([(1, 1)], [(1, 1), (1, 11), (2, 1)], D.all_cells(), [(5, 5)]):
+        assert D._cell_files(root, cells) == by_glob(root, cells)
+
+
 def test_a_promote_fences_undo_and_its_revert_lifts_the_fence(monkeypatch, tmp_path):
     _fake_mirror(monkeypatch)
     game, src, d = _draft(tmp_path)
@@ -304,3 +381,408 @@ def test_a_recipe_row_that_refuses_stops_the_open_and_keeps_the_rows_before_it(m
         doc._recipe.status_lbl.text()
     assert doc._recipe.status_lbl.property("state") == "error"
     assert json.loads((draft / D.HISTORY).read_text())["steps"][0]["row"]["table"] == "forest"
+
+
+def test_asking_whether_a_draft_exists_parses_its_meta_once_per_write(tmp_path, monkeypatch):
+    """The cards, the recipe bar and the tab asked "is there a draft?" by parsing its 423 KB draft.json: 14-16
+    parses an Accept, 8 an undo, one per ghost drag frame, 2.5-4.7 ms each on the GUI thread (PERF.md 7, c3).
+    draft.is_draft answers read_meta's question again only when draft.json's stat moved; every such check spends it."""
+    import time
+    _game_, _src, d = _draft(tmp_path)
+    parsed, real = [], D.read_meta
+    monkeypatch.setattr(D, "read_meta", lambda p: parsed.append(p) or real(p))
+    assert all(D.is_draft(d) for _ in range(20)) and len(parsed) == 1
+    then = time.time_ns() - 10 ** 9
+    (d / D.DRAFT_FILE).write_text("{ not json", encoding="utf-8")      # rewritten (and broken): asked again
+    os.utime(d / D.DRAFT_FILE, ns=(then, then))
+    assert not D.is_draft(d) and len(parsed) == 2
+    assert not D.is_draft(tmp_path / "nowhere")
+    import ff9mapkit.workspace.worlddoc as WD
+    import ff9mapkit.workspace.worldforest as WF
+    import ff9mapkit.workspace.worldrecipe as WR
+    import inspect
+    for fn in (WF.CarryTool.draft, WD.WorldDoc._draft, WR.RecipeBar.draft):   # THE CALL SITES
+        src = inspect.getsource(fn)
+        assert "is_draft(" in src and "read_meta(" not in src, fn
+
+
+def test_opening_a_recipe_makes_its_draft_and_steps_off_the_window_s_thread(monkeypatch, tmp_path, app):
+    """Open... discarded the draft, copied a fresh one (2-10 s) and snapshotted each row's cells (a whole-map step
+    for an island, carry or sink row) on the window's thread: its click froze the window 13-23 s (PERF.md 7, K8).
+    They run on a worker; the bar holds the draft from the click to the last row, as before."""
+    import threading
+    import time
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldrecipe import RecipeBar
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "one.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"}]), encoding="utf-8")
+    where = {}
+
+    def seen(name, real):
+        def fn(*a, **k):
+            if any(str(tmp_path) in str(v) for v in list(a) + list(k.values())):   # this test's drafts only (a
+                where.setdefault(name, threading.current_thread() is threading.main_thread())   # card left alive
+            return real(*a, **k)                                                  # by an earlier test may fire)
+        return fn
+    for name in ("discard", "ensure_draft", "begin_step", "commit_step"):
+        monkeypatch.setattr(D, name, seen(name, getattr(D, name)))
+    D.ensure_draft(game / "FF9CustomMap-world", game=game, root=tmp_path / "drafts")   # a draft to replace
+    where.clear()
+    holds = []
+    bar = RecipeBar(pick_palette("dark"), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                    runner=InProcess(), drafts_root=tmp_path / "drafts", open_path_fn=lambda: str(saved),
+                    ask=lambda *a: True, on_hold=holds.append, sync=False)
+    bar.open_btn.click()
+    assert bar.holding() and holds[-1] is True                            # held from the click
+    t = time.time()
+    while bar.holding():
+        assert time.time() - t < 60
+        app.processEvents()
+        time.sleep(0.01)
+    assert where == {"discard": False, "ensure_draft": False, "begin_step": False, "commit_step": False}
+    assert D.history(tmp_path / "drafts" / "FF9CustomMap-world.draft")["cursor"] == 1 and holds[-1] is False
+    assert "Composed one.toml: 1 row" in bar.status_lbl.text()
+
+
+def test_a_discard_is_whole_or_nothing(tmp_path, monkeypatch):
+    """Open... discards the draft on a worker while the window stays live, and the 3D view can read the draft's
+    files meanwhile. A bare rmtree stopped at the first file a reader held (deleting bottom-up, draft.json last): a
+    gutted folder that is still a draft, drawn, its missing files read as edits, a Promote deleting them from the
+    live folder (review of the perf commits, CR-1). A discard renames the draft aside first -- refused, whole, while
+    a file in it is open -- and then deletes the renamed copy."""
+    import shutil
+    _game_, _src, d = _draft(tmp_path)
+    before = _tree(d)
+    held = open(d / T10, "rb")                                          # a reader holds a file of the draft
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())              # (no waiting out the reader here)
+    try:
+        with pytest.raises(OSError):
+            D.discard(d, root=tmp_path / "drafts")
+    finally:
+        held.close()
+    assert D.is_draft(d) and _tree(d) == before                         # untouched: the discard did nothing
+    real = shutil.rmtree
+    gone = []
+    monkeypatch.setattr(shutil, "rmtree", lambda p, **k: gone.append(Path(p).name) or real(p, **k))
+    D.discard(d, root=tmp_path / "drafts")
+    assert not d.exists() and gone and gone[0] != d.name               # the renamed copy is what is deleted
+    assert not [p for p in (tmp_path / "drafts").iterdir() if p.name.startswith(d.name)]
+
+
+def test_a_step_is_recorded_while_the_window_reads_the_history(tmp_path):
+    """commit_step now runs on a worker (a card's Accept, an opened recipe's row) while the window's thread reads
+    history.json (the recipe bar's refresh, Undo's refusal, Save). Windows refuses the replace onto a file another
+    handle holds open, so the step's record was lost: its bytes in the draft, Undo unable to take them back (review
+    of the perf commits, CR-2). The history and meta writes wait such a reader out."""
+    import threading
+    _game_, _src, d = _draft(tmp_path)
+    stop, errors = threading.Event(), []
+
+    def reader():
+        while not stop.is_set():
+            D.history(d)
+    t = threading.Thread(target=reader, daemon=True)
+    t.start()
+    try:
+        for i in range(80):
+            D.begin_step(d, [(0, 0)])
+            (d / T00).write_bytes(b"step %d" % i)
+            try:
+                D.commit_step(d, {"table": "forest", "center": [1.0, -1.0], "donor": "15,15"}, f"step {i}")
+            except OSError as e:
+                errors.append(e)
+                D.abort_step(d)
+    finally:
+        stop.set()
+        t.join(5)
+    assert errors == [] and D.history(d)["cursor"] == 80
+
+
+def test_an_abort_that_failed_is_finished_by_the_next_step_or_edit(tmp_path, monkeypatch):
+    """An abort that failed (a reader holding a file past _retry) left its pending snapshot -- the before-images of
+    the half-written step -- and the next begin_step deleted it, leaving the half step in the draft unrecorded, or
+    a later cancel_edit wrote it back over the edit's cells (review of the perf commits, F2). The next begin_step or
+    begin_edit finishes that abort first: the draft is back as it was before the failed step."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain one")
+    before = _tree(d)
+    for opener in ("step", "edit"):
+        D.begin_step(d, [(0, 0)])
+        (d / T00).write_bytes(b"half a forest")                           # the step half wrote its cell...
+        real = D._restore
+        monkeypatch.setattr(D, "_restore", lambda *a, **k: (_ for _ in ()).throw(PermissionError(13, "held")))
+        with pytest.raises(PermissionError):
+            D.abort_step(d)                                               # ...and its abort failed
+        monkeypatch.setattr(D, "_restore", real)
+        if opener == "step":
+            D.begin_step(d, [(1, 0)])
+            assert _tree(d) == before                                     # the half forest is gone
+            D.abort_step(d)
+        else:
+            D.begin_edit(d, 0)
+            D.cancel_edit(d)
+            assert _tree(d) == before and D.history(d)["cursor"] == 1
+
+
+def test_an_opened_recipe_says_when_a_row_s_abort_fails(monkeypatch, tmp_path, app):
+    """A row that failed and whose abort then failed was reported with the verb's last line only: its half writes
+    stayed in the draft unrecorded, said nowhere (review of the perf commits, F2)."""
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "bad.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"},
+                               {"table": "mountain", "center": [300.0, -300.0], "donor": "0,0"}]), encoding="utf-8")
+    doc, _run = _doc(app, game, tmp_path, saved)
+    doc.set_view_mode("3d", sync=True)
+    real = D.abort_step
+
+    def fails(d):                                                         # a real abort (a pending step) fails
+        if (Path(d) / D.HISTORY_DIR / D._PENDING / "step.json").is_file():
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "abort_step", fails)
+    doc._recipe.open_btn.click()
+    monkeypatch.setattr(D, "abort_step", real)
+    text = doc._recipe.status_lbl.text()
+    assert "Stopped at mountain" in text and "could not be taken back" in text and "a reader holds it" in text
+
+
+def test_a_closing_workspace_starts_no_row_whose_snapshot_was_still_running(monkeypatch, tmp_path, app):
+    """Closing the Workspace stops an opened recipe after the row that RUNS. With the snapshot on a worker, a close
+    landing while a row's begin_step ran still started that row's world-fuse once the snapshot ended -- up to a
+    15-26 s sink row the user had not seen start (review of the perf commits). A row not yet started is not."""
+    import threading
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldrecipe import RecipeBar
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "one.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"}]), encoding="utf-8")
+    go, real = threading.Event(), D.begin_step
+    monkeypatch.setattr(D, "begin_step", lambda *a, **k: go.wait(30) and real(*a, **k))
+    run = InProcess()
+    bar = RecipeBar(pick_palette("dark"), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                    runner=run, drafts_root=tmp_path / "drafts", open_path_fn=lambda: str(saved),
+                    ask=lambda *a: True, sync=False)
+    bar.open_btn.click()
+    bar._steps.wait()                                                     # the fresh draft is made
+    waiter = bar.closing_runner()                                         # the close lands mid-snapshot
+    assert waiter is bar._steps
+    threading.Timer(0.2, go.set).start()
+    for _ in range(16):                                                   # as WorldDoc.shutdown loops
+        w = bar.closing_runner()
+        if w is None:
+            break
+        assert w.wait()
+    assert run.argvs == [] and not bar.holding()                          # the row never started
+    assert "Stopped one.toml as the Workspace closed" in bar.status_lbl.text()
+    assert not (tmp_path / "drafts" / "FF9CustomMap-world.draft" / D.HISTORY_DIR / D._PENDING).exists()
+
+
+def _failed_abort(d, monkeypatch, cells, writes):
+    """A step that half wrote and whose abort failed: its pending snapshot left in the draft."""
+    D.begin_step(d, cells)
+    for rel, data in writes.items():
+        (d / rel).write_bytes(data)
+    real = D._restore
+    monkeypatch.setattr(D, "_restore", lambda *a, **k: (_ for _ in ()).throw(PermissionError(13, "held")))
+    with pytest.raises(PermissionError):
+        D.abort_step(d)
+    monkeypatch.setattr(D, "_restore", real)
+
+
+def test_a_pending_abort_is_finished_before_an_undo_or_redo_rewrites_its_cells(tmp_path, monkeypatch):
+    """A failed abort's snapshot was finished at the NEXT begin_step, after an Undo or Redo had rewritten its cells:
+    it wrote the undone step's bytes back while the history said undone (review round 2, H1). Undo, Redo and
+    Promote finish a pending abort first, so the history stays exact."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain one")
+    stock = (_src / T10).read_bytes()
+    _failed_abort(d, monkeypatch, [(0, 0), (1, 0)], {T00: b"half a forest"})
+    D.undo(d)                                                             # takes the mountain back out
+    assert (d / T10).read_bytes() == stock and (d / T00).read_bytes() == (_src / T00).read_bytes()
+    D.begin_step(d, [(0, 0)])
+    assert (d / T10).read_bytes() == stock                                # not written back by a late abort
+    D.abort_step(d)
+    D.redo(d)
+    assert (d / T10).read_bytes() == b"mountain" and D.history(d)["cursor"] == 1
+
+
+def test_a_commit_whose_rename_fails_leaves_a_step_an_abort_can_finish(tmp_path, monkeypatch):
+    """commit_step deleted the untouched cells' before-copies, rewrote step.json and dropped the undone steps BEFORE
+    its folder rename, which it did not retry: a rename refused (a handle open in the pending folder) left a step no
+    abort could finish -- every later step, edit and undo failing on a missing copy, the draft half rewritten each
+    time -- and the undone steps gone (review of the perf fixes, round 2, H2). The rename is retried and comes first;
+    a commit that still cannot rename leaves the step whole, and the undone ones too."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain one")
+    D.undo(d)                                                             # an undone step: redo-able
+    before = _tree(d)
+    D.begin_step(d, [(0, 0), (1, 0)])
+    (d / T00).write_bytes(b"forest")
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())
+    real = type(d).rename
+
+    def rename(self, target):
+        if self.name == D._PENDING:
+            raise PermissionError(5, "a handle is open in it")
+        return real(self, target)
+    monkeypatch.setattr(type(d), "rename", rename)
+    with pytest.raises(PermissionError):
+        D.commit_step(d, {"table": "forest", "center": [1.0, -1.0], "donor": "15,15"}, "forest one")
+    monkeypatch.setattr(type(d), "rename", real)
+    D.abort_step(d)                                                       # the step can be finished
+    assert _tree(d) == before and D.history(d)["cursor"] == 0
+    D.redo(d)                                                             # and the undone step is still there
+    assert (d / T10).read_bytes() == b"mountain"
+
+
+def test_a_commit_shaped_pending_left_by_an_older_kit_does_not_wedge_the_draft(tmp_path):
+    """A pending step a commit had already trimmed (its untouched cells' before-copies gone) before its rename failed
+    -- what the kit before H2's fix left -- could never be aborted: every later step, edit and undo failed on the
+    missing copy. Its writes are in the draft (the card said so); the pending is dropped instead of half replayed."""
+    import json as _json
+    _game_, _src, d = _draft(tmp_path)
+    D.begin_step(d, [(0, 0), (1, 0)])
+    (d / T00).write_bytes(b"forest")
+    pend = d / D.HISTORY_DIR / D._PENDING
+    step = _json.loads((pend / "step.json").read_text(encoding="utf-8"))
+    (pend / "before" / T10).unlink()                                      # trimmed, as the older commit did
+    (pend / "step.json").write_text(_json.dumps({"cells": step["cells"], "before": step["before"]}),
+                                    encoding="utf-8")
+    now = _tree(d)
+    D.abort_step(d)
+    assert not pend.exists() and _tree(d) == now                         # dropped, nothing half written back
+    D.begin_step(d, [(1, 0)])                                             # and the draft goes on
+    D.abort_step(d)
+
+
+def test_a_discard_leaves_no_copy_for_a_folder_with_brackets_in_its_name(tmp_path):
+    """The sweep found the renamed copy by a glob, and a '[...]' in the folder's name is a character set there: every
+    discard of 'Mod[1]-world's draft left a whole copy in the drafts root (review of the perf fixes, round 2, H4)."""
+    game = _game(tmp_path)
+    src = _mod(game, "Mod[1]-world", ((0, 0),))
+    for _ in range(2):
+        d = D.ensure_draft(src, game=game, root=tmp_path / "drafts")
+        D.discard(d, root=tmp_path / "drafts")
+    assert sorted(p.name for p in (tmp_path / "drafts").iterdir()) == []
+
+
+def test_an_edit_whose_lift_fails_leaves_the_draft_and_its_history_as_they_were(tmp_path, monkeypatch):
+    """begin_edit undid back to the step, then moved each lifted step's folder into history/edit with no retry and no
+    way back: a rename refused (a handle open in a step's folder) left the steps undone and some of their folders
+    where the history did not point -- Redo raised, the next Edit deleted them, and the in-game chain promoted the
+    draft without them (review of the perf fixes, round 3, H1). The lift is whole or nothing."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(0, 0)], {T00: b"forest"}, "forest one")
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain two")
+    _step(d, [(0, 0)], {T00: b"forest again"}, "forest three")
+    before, h0 = _tree(d), D.history(d)
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())
+    real, held = type(d).rename, d / h0["steps"][2]["dir"]
+
+    def rename(self, target):
+        if self == held:
+            raise PermissionError(5, "a handle is open in it")
+        return real(self, target)
+    monkeypatch.setattr(type(d), "rename", rename)
+    with pytest.raises(PermissionError):
+        D.begin_edit(d, 1)
+    monkeypatch.setattr(type(d), "rename", real)
+    assert _tree(d) == before and D.history(d) == h0
+    assert all((d / s["dir"]).is_dir() for s in h0["steps"])
+    D.undo(d)                                                             # every step still walks
+    D.redo(d)
+    D.begin_edit(d, 1)                                                    # and the edit opens once the handle goes
+    D.cancel_edit(d)
+    assert _tree(d) == before and D.history(d)["cursor"] == 3
+
+
+def test_an_edit_over_a_step_whose_record_is_gone_refuses_before_anything_moves(tmp_path):
+    """A draft the kit before round 2's H2 fix left can hold an undone step whose folder is already gone: begin_edit
+    undid the applied steps, moved their folders, then raised on the missing one -- an applied step that could never
+    come back (review of the perf fixes, round 3, H1). It refuses first, the draft as it was."""
+    _game_, _src, d = _draft(tmp_path)
+    _step(d, [(0, 0)], {T00: b"forest"}, "forest one")
+    _step(d, [(1, 0)], {T10: b"mountain"}, "mountain two")
+    D.undo(d)
+    shutil.rmtree(d / D.history(d)["steps"][1]["dir"])
+    before, h0 = _tree(d), D.history(d)
+    with pytest.raises(ValueError, match="mountain two"):
+        D.begin_edit(d, 0)
+    assert _tree(d) == before and D.history(d) == h0 and (d / h0["steps"][0]["dir"]).is_dir()
+
+
+def test_a_pending_abort_is_finished_before_a_revert_rebases_the_draft(tmp_path, monkeypatch):
+    """Undo, Redo and Promote finish a failed abort first (round 2, H1), but Revert did not: its rebase put the draft's
+    disc-4 files back to the live bytes, and the late abort then wrote the promote-time images over them -- the
+    history said the step was applied as recorded while the draft held other bytes, edits() listed disc-4 files no
+    step wrote, and the Undo the 'Revert promote first' refusal sends the user to refused (review of the perf fixes,
+    round 3, H2). Revert finishes it first too."""
+    _fake_mirror(monkeypatch)
+    game, src, d = _draft(tmp_path)
+    _step(d, [(0, 0)], {T00: b"forest"}, "forest one")
+    D.promote(d, game=game, log=lambda *a: None)
+    _failed_abort(d, monkeypatch, [(0, 0), (1, 0)], {T10: b"half a mountain"})
+    D.revert(d, game=game, log=lambda *a: None)
+    D.undo(d)
+    assert _tree(d) == _tree(src) and D.edits(d) == [] and D.history(d)["cursor"] == 0
+
+
+def test_an_opened_recipe_row_whose_step_cannot_be_recorded_is_taken_back(monkeypatch, tmp_path, app):
+    """A row composed but not recorded (its commit's rename refused) stayed in the draft while the bar said "Undo
+    cannot take it back"; the pending step it left was whole, so the next Undo took it out and undid the row before
+    it too, the bar naming only that one (review of the perf fixes, round 3, H3). It is taken back at once."""
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "two.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"},
+                               {"table": "mountain", "center": [90.0, -26.0], "donor": "0,0"}]), encoding="utf-8")
+    doc, _run = _doc(app, game, tmp_path, saved)
+    doc.set_view_mode("3d", sync=True)
+    real, calls = D.commit_step, []
+
+    def second_fails(*a, **k):
+        calls.append(1)
+        if len(calls) == 2:
+            raise PermissionError(5, "a handle is open")
+        return real(*a, **k)
+    monkeypatch.setattr(D, "commit_step", second_fails)
+    doc._recipe.open_btn.click()
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    one = _tree(draft)
+    h = D.history(draft)
+    assert h["cursor"] == 1 and not (draft / D.HISTORY_DIR / D._PENDING).exists()
+    text = doc._recipe.status_lbl.text()
+    assert "Stopped at mountain" in text and "a handle is open" in text and "taken back" in text
+    assert "cannot take it back" not in text
+    D.undo(draft)                                                         # the forest row, and only it
+    D.redo(draft)
+    assert _tree(draft) == one
+
+
+def test_an_undo_or_redo_the_disk_refuses_says_so(monkeypatch, tmp_path, app):
+    """Undo and Redo finish a pending abort first (round 2, H1), which the disk can refuse (a reader holding a file
+    the failed step made); the bar caught a ValueError only, so the OSError left the click and the bar said nothing
+    (review of the perf fixes, round 3, H4). Both say why, as Edit and Delete do."""
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "one.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"}]), encoding="utf-8")
+    doc, _run = _doc(app, game, tmp_path, saved)
+    doc.set_view_mode("3d", sync=True)
+    doc._recipe.open_btn.click()
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    assert D.history(draft)["cursor"] == 1
+    D.begin_step(draft, [(1, 0)])                                         # a step whose abort the disk refuses
+    real = D.abort_step
+
+    def fails(d):
+        if (Path(d) / D.HISTORY_DIR / D._PENDING / "step.json").is_file():
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "abort_step", fails)
+    for act, word in ((doc._recipe.undo, "Not undone"), (doc._recipe.redo, "Not redone")):
+        doc._recipe.status_lbl.setText("")
+        act()
+        text = doc._recipe.status_lbl.text()
+        assert word in text and "a reader holds it" in text, text
+    monkeypatch.setattr(D, "abort_step", real)
+    assert D.history(draft)["cursor"] == 1                                # nothing moved

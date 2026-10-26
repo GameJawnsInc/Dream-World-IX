@@ -264,3 +264,87 @@ def test_a_river_edit_whose_move_from_is_not_where_the_river_stands_is_cancelled
     tool._on_bg(what, 0, fn(), None)
     assert notes == ["Not opened in its card: the draft before it holds the river at 576, 0, not where the step moved "
                      "it from. Delete still works."] and not tool.editing() and tool.isHidden()
+
+
+def test_the_river_s_shape_is_read_once_per_install_and_kit(tmp_path, monkeypatch):
+    """The river card read the river's shape on its first open of every session: 17-24 s on a worker, every time
+    (PERF.md 7, c5). It is a function of the install's stock bytes and of the kit's code alone, so it is kept in the
+    kit's cache per install, stamped with the world code it was computed by: the same shape back, exactly, and a
+    different kit computes it again."""
+    import json
+    calls = []
+
+    def read(game=None):
+        calls.append(game)
+        return _shape()
+    monkeypatch.setattr(RE, "_cache_dir", lambda: tmp_path / "cache")
+    game = tmp_path / "game"
+    first = RE.cached_shape(game, read=read)
+    again = RE.cached_shape(game, read=read)
+    assert len(calls) == 1
+    for a, b in ((first, _shape()), (again, _shape())):
+        assert np.array_equal(a.tris, b.tris) and a.tris.dtype == b.tris.dtype == np.float64
+        assert np.array_equal(a.ring, b.ring) and a.ring.dtype == b.ring.dtype
+        assert (a.blocks, a.cells, a.cells_shift, a.shifts) == (b.blocks, b.cells, b.cells_shift, b.shifts)
+        assert all(type(x) is tuple for x in a.blocks + a.cells + a.shifts) and type(a.cells_shift) is tuple
+    monkeypatch.setattr(RE, "_code_stamp", lambda: "another kit")
+    RE.cached_shape(game, read=read)
+    assert len(calls) == 2                                               # a new kit reads it again
+    (doc,) = [json.loads(p.read_text()) for p in (tmp_path / "cache" / "world-river").glob("*.json")]
+    assert doc["stamp"].startswith("another kit-") and doc["game"] == str(game)
+
+
+def test_the_river_card_reads_the_cached_shape(tmp_path, monkeypatch):
+    """THE CALL SITE: the card's default shape read is the cached one."""
+    pytest.importorskip("PySide6", reason="GUI extra not installed")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldriver import RiverTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    asked = []
+    monkeypatch.setattr(RE, "cached_shape", lambda game, **k: asked.append(game) or _shape())
+    monkeypatch.setattr(RE, "shape", lambda **k: pytest.fail("the uncached read"))
+    tool = RiverTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: tmp_path,
+                     source_fn=lambda: tmp_path / "F", drafts_root=tmp_path / "d", sync=True)
+    assert tool._outline_fn(None).cells == _shape().cells and asked == [tmp_path]
+
+
+def test_a_cache_that_cannot_be_written_still_hands_back_the_shape(tmp_path, monkeypatch):
+    """A cache write that fails -- the JSON held open by another reader, a read-only shared cache, two reads racing
+    one tmp name -- threw the finished 17-24 s shape away and the card said "The river could not be read" (review
+    of the perf commits, K1). The shape comes back; only the cache is skipped, and each writer has its own tmp."""
+    cache = tmp_path / "cache"
+    (cache).write_text("a file where the cache folder should be")      # mkdir under it fails
+    monkeypatch.setattr(RE, "_cache_dir", lambda: cache)
+    got = RE.cached_shape(tmp_path / "game", read=lambda game=None: _shape())
+    assert got.cells == _shape().cells
+    monkeypatch.setattr(RE, "_cache_dir", lambda: tmp_path / "ok")
+    real = type(tmp_path).replace
+    monkeypatch.setattr(type(tmp_path), "replace", lambda self, dst: (_ for _ in ()).throw(PermissionError(5, "held")))
+    got = RE.cached_shape(tmp_path / "game", read=lambda game=None: _shape())
+    monkeypatch.setattr(type(tmp_path), "replace", real)
+    assert got.cells == _shape().cells
+    assert not list((tmp_path / "ok" / "world-river").glob("*.tmp*"))   # no tmp left behind
+
+
+def test_the_river_cache_reads_again_when_the_install_s_bundles_change(tmp_path, monkeypatch):
+    """The cache keyed the install's PATH only: a Steam update or a verify-integrity repair at the same path kept
+    handing back the river read from the old bundles (review of the perf commits, K3). The stamp holds each stock
+    bundle's name, size and time too."""
+    import os
+    monkeypatch.setattr(RE, "_cache_dir", lambda: tmp_path / "cache")
+    game = tmp_path / "game"
+    (game / "StreamingAssets").mkdir(parents=True)
+    bundle = game / "StreamingAssets" / "p0data3.bin"
+    bundle.write_bytes(b"stock")
+    calls = []
+    read = (lambda game=None: calls.append(1) or _shape())
+    RE.cached_shape(game, read=read)
+    RE.cached_shape(game, read=read)
+    assert len(calls) == 1
+    st = bundle.stat()
+    os.utime(bundle, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))       # the bundle was replaced
+    RE.cached_shape(game, read=read)
+    assert len(calls) == 2

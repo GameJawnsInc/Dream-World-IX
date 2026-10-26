@@ -180,6 +180,7 @@ class Packed:
     draws: list
     tris: int = 0
     _pick: dict = dataclasses.field(default_factory=dict, repr=False)   # part -> (v0, e1, e2, n), built on first pick
+    _ground: dict | None = dataclasses.field(default=None, repr=False)  # part -> {16u cell: up tri ids}, once built
 
     def pick_arrays(self, part):
         """Float64 ``(v0, e1, e2, normal)`` per triangle of ``part``, computed once (a click must not re-allocate
@@ -193,6 +194,35 @@ class Packed:
     @property
     def parts(self):
         return list(self.arrays)
+
+    def ground_grid(self):
+        """The plan grid :func:`ground_y` reads (``part -> {(i, j): ascending up-facing tri ids whose plan box meets
+        16u cell (i, j)}``), or None while it is not built: the probe then scans every tri, as it did."""
+        return self._ground
+
+    def build_ground_grid(self):
+        """Build :meth:`ground_grid` (about 0.4 s for the whole map: the panel runs it on a worker). Every tri whose
+        plan box holds a point is in that point's cell, so a cell's tris are the whole scan's candidates there."""
+        if self._ground is not None:
+            return self._ground
+        grid = {}
+        for part in self.arrays:
+            v0, e1, e2, n = self.pick_arrays(part)
+            lo = np.minimum(v0, np.minimum(v0 + e1, v0 + e2))
+            hi = np.maximum(v0, np.maximum(v0 + e1, v0 + e2))
+            up = np.flatnonzero(n[:, 1] > 0.0)
+            i0 = np.floor(lo[up, 0] / GROUND_CELL).astype(np.int64)
+            i1 = np.floor(hi[up, 0] / GROUND_CELL).astype(np.int64)
+            j0 = np.floor(lo[up, 2] / GROUND_CELL).astype(np.int64)
+            j1 = np.floor(hi[up, 2] / GROUND_CELL).astype(np.int64)
+            cells = {}
+            for tri, a, b, c, d in zip(up.tolist(), i0.tolist(), i1.tolist(), j0.tolist(), j1.tolist()):
+                for i in range(a, b + 1):
+                    for j in range(c, d + 1):
+                        cells.setdefault((i, j), []).append(tri)
+            grid[part] = {k: np.asarray(v, dtype=np.int64) for k, v in cells.items()}
+        self._ground = grid                              # (one assignment: a probe sees it built or not at all)
+        return grid
 
 
 def _view_keep(view, verts, tris):
@@ -365,12 +395,12 @@ def seam_shifts(xs, width=SEAM_COPY):
     return out
 
 
-def load_scene(site, *, part_src=None):
+def load_scene(site, *, part_src=None, memo=None):
     """``(Packed, {part: rgba or None})`` for a :class:`~ff9mapkit.world.render.RenderSite`, stock under the
     overrides, the seam drawn twice (:func:`seam_copies`). Pure numpy + file reads: the panel runs it on a worker
-    thread."""
+    thread, with its :class:`~ff9mapkit.world.render.CellMemo` so a reload draws only the cells that moved."""
     from ..world import render as R
-    batches = seam_copies(R.load_batches(site, part_src, stock=True))
+    batches = seam_copies(R.load_batches(site, part_src, stock=True, memo=memo))
     packed = pack(batches)
     return packed, {p: texture_rgba(R.tex_for(p, site)) for p in packed.parts}
 
@@ -657,14 +687,26 @@ class OrbitCamera:
         self.dist = min(DIST_MAX, max(DIST_MIN, self.dist * (0.85 ** steps)))
 
 
+GROUND_CELL = 16.0                                           # the ground grid's plan cell (Packed.build_ground_grid)
+
+
 def ground_y(packed: Packed, x: float, z: float):
     """The highest up-facing surface of the scene under ``(x, z)`` (a ray straight down from the sky), or None: the
-    terrain the game camera's eye probes (``world.gamecam``'s ``ground``)."""
+    terrain the game camera's eye probes (``world.gamecam``'s ``ground``). With the Packed's ground grid built, only
+    the tris of the point's 16u cell are tested -- the same tests and arithmetic, so the same heights: a game-camera
+    frame's four probes over the whole map were 95-104 ms on the GUI thread (PERF.md 6)."""
     if packed is None:
         return None
+    grid = packed.ground_grid()
+    key = (math.floor(x / GROUND_CELL), math.floor(z / GROUND_CELL))
     best = None
     for part in packed.arrays:
         v0, e1, e2, n = packed.pick_arrays(part)
+        if grid is not None:
+            cand = grid.get(part, {}).get(key)
+            if cand is None:
+                continue
+            v0, e1, e2, n = v0[cand], e1[cand], e2[cand], n[cand]
         ok = n[:, 1] > 0.0                                   # faces up: the face a ray from the sky meets
         lo = np.minimum(v0, np.minimum(v0 + e1, v0 + e2))
         hi = np.maximum(v0, np.maximum(v0 + e1, v0 + e2))
@@ -962,6 +1004,7 @@ class WorldView3DPanel(QWidget):
     deterministic lane for tests and gui_snap."""
 
     _loaded = Signal(object, object, object)                 # (packed | None, textures | None, error | None)
+    _seated = Signal(int, float, float, object)              # (ask, x, z, the point's ground facts) from a worker
     picked = Signal(object)                                  # the view's pick, forwarded: ((x, y, z), part) or None
     ghost_moved = Signal(float, float)                       # the view's ghost drag, forwarded
     ghost_dropped = Signal(float, float)
@@ -973,11 +1016,15 @@ class WorldView3DPanel(QWidget):
         self.site = None                                     # the RenderSite the view drew (the pick's facts read it)
         self._busy = False
         self._next = None                                    # a load asked while one runs
+        self._seat_ask = 0                                   # the newest seat's number (a landing older one is dropped)
+        from ..world import render as R
+        self._cells = R.CellMemo()                           # every reload draws only the cells whose files moved
         self._focus = None
         self._overlays, self._ghost = [], None               # a tool's drawing, held until the view exists
         self._floor = None                                   # set_view_floor's height, or None for MIN_VIEW_H
         self._caption_folded = False                         # fold_caption: a carry card's room
         self._loaded.connect(self._finish)
+        self._seated.connect(self._on_seated)
         from . import widgets
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -1133,9 +1180,13 @@ class WorldView3DPanel(QWidget):
         threading.Thread(target=self._work, args=(site,), daemon=True).start()
         return True
 
+    def forget_cells(self):
+        """The next load draws every cell again (the World tab's Rescan re-reads everything from disk)."""
+        self._cells.forget()
+
     def _work(self, site):
         try:
-            packed, textures = load_scene(site)
+            packed, textures = load_scene(site, memo=self._cells)
             out = (packed, textures, None)
         except Exception as e:                               # noqa: BLE001 -- surfaced on the GUI thread
             out = (None, None, str(e))
@@ -1173,6 +1224,7 @@ class WorldView3DPanel(QWidget):
         self._stack.setCurrentWidget(self.view)
         self.game_btn.show()
         if self.view.game_mode():                            # a reload: the party re-stands on the new ground
+            self._build_ground(packed)
             self._seat_party()
         # the status page leaves the stack once the view is up (a later message puts a fresh one back): a stacked
         # layout's height-for-width is its tallest page's, so the hidden page's wrapped teach line otherwise
@@ -1196,14 +1248,22 @@ class WorldView3DPanel(QWidget):
         x, z = (m[0], m[2]) if m is not None else (self.view.camera.target[0], self.view.camera.target[2])
         game = getattr(self.site, "game", None) if self.site is not None else None
         settings = G.Settings.from_game(game) if game is not None else G.Settings()
-        packed = self.view.packed
+        view = self.view                # the eye probes the scene drawn NOW: a reload re-seats the party on new ground,
+        #                                 and a probe bound to this click's scene kept the old (PERF.md defect 1)
         cam = GameCamera.from_orbit(self.view.camera, (x, 0.0, z), settings=settings,
-                                    ground=lambda gx, gz: ground_y(packed, gx, gz),
+                                    ground=lambda gx, gz: ground_y(view.packed, gx, gz),
                                     mode=int(self.vehicle_box.currentData() or 0), table=G.transport_table(game),
                                     how=self._vehicle_how())
         self._set_fog()
         self.view.set_camera(cam)
+        self._build_ground(self.view.packed)
         self._seat_party()
+
+    @staticmethod
+    def _build_ground(packed):
+        """The game camera's ground grid, on a worker (its probe scans the map until the grid lands)."""
+        if packed is not None and packed.ground_grid() is None:
+            threading.Thread(target=packed.build_ground_grid, daemon=True).start()
 
     def _set_fog(self):
         """The game's fog for the game camera (C18): the Mist years' (measured) or the years without, as the switch
@@ -1238,13 +1298,40 @@ class WorldView3DPanel(QWidget):
         """Seat the game camera's party at its point as its vehicle sits there (C8, measured in game): on foot or a
         chocobo on the ground it stands on; the boat at the water's surface less 0.703; a flyer at the height spin,
         raised to the ground below it and never above the ceiling. In the cell's own AREA (which picks the camera's
-        posstats: stock grass at the Landing Site is area 42, kit lawn 14) and topograph (a chocobo's forest view)."""
+        posstats: stock grass at the Landing Site is area 42, kit lawn 14) and topograph (a chocobo's forest view).
+        The point facts (point_info) were 97-121 ms a spin step on the GUI thread (PERF.md 6): the party stands at
+        once on the drawn ground in the area it had, and the facts seat it when they land from a worker."""
         cam = self.view.camera if self.view is not None else None
         if not isinstance(cam, GameCamera):
             return
         x, _y, z = cam.player
-        g = self._ground_at(x, z)
+        self._seat_ask += 1
+        site, ask = self.site, self._seat_ask
+        if site is None:                                     # no facts to read: the lawn area, at once
+            self._seat(cam, x, z, {})
+            return
+        self._seat(cam, x, z, None)
+
+        def work():
+            g = self._ground_of(site, x, z)
+            try:
+                self._seated.emit(ask, x, z, g)
+            except RuntimeError:                             # the panel died while the worker read
+                pass
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_seated(self, ask, x, z, g):
+        cam = self.view.camera if self.view is not None else None
+        if ask != self._seat_ask or not isinstance(cam, GameCamera) or (cam.player[0], cam.player[2]) != (x, z):
+            return                                           # a newer seat was asked, or the party moved on
+        self._seat(cam, x, z, g)
+
+    def _seat(self, cam, x, z, g):
+        """Stand the party at ``(x, z)``: with the point's ground facts ``g``, in its cell's area and on the height
+        one stands at there; with None, on the drawn ground in the area it had."""
         top = ground_y(self.view.packed, x, z)
+        if g is None:
+            g = {"area": cam.area, "topograph": cam.topograph}
         stand = g.get("stand_y", top)
         if cam.mode in FLYING_MODES:
             y = min(CEILING, max(float(self.alt_spin.value()), top if top is not None else 0.0))
@@ -1258,16 +1345,14 @@ class WorldView3DPanel(QWidget):
         cam._memo = None
         self.view.update()
 
-    def _ground_at(self, x, z) -> dict:
+    @staticmethod
+    def _ground_of(site, x, z) -> dict:
         """The point facts' ground (area, topograph, the height one stands at), or {} when they cannot be read."""
         try:
             from ..world import pointinfo as PI
-            return dict(PI.point_info(self.site, x, z, landmark=False)["ground"])
+            return dict(PI.point_info(site, x, z, landmark=False)["ground"])
         except Exception:                                    # noqa: BLE001 -- the kit's lawn area: the safe default
             return {}
-
-    def _area_at(self, x, z) -> int:
-        return int(self._ground_at(x, z).get("area", 14) or 0)
 
     def _camera_changed(self, game: bool):
         """The view changed camera on its own (Home goes back to the orbit): the button follows, and the game

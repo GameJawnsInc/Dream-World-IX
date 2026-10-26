@@ -1,7 +1,66 @@
 # Where the World tab makes you wait, and what would shorten it
 
-**Status:** EXPLORED, 2026-10-25. Nothing in the package is changed yet. Owner request: "explore performance
-improvements next", after the C12-C23 review.
+**Status:** BUILT, 2026-10-26: the two defects and tiers 1-5 of the ranked list, each fix one commit with a test that
+failed first, re-measured per tier; then three adversarial review rounds over the fixes (17, 9 and 5 confirmed, all
+fixed). Owner requests: "explore performance improvements next", then "fix the two defects first, then
+build the ranked list in order, one commit per fix with a test that fails before it, re-measuring after each tier".
+What was built and what it measured is [below](#what-was-built); the exploration as it was written follows.
+
+## What was built
+
+Measured on the real install (read only), each fast path held to the code before it on real data. "Old" is the
+module as it stood before the change, loaded from git into the probe (no switch in the package).
+
+| what you wait on | before | after | how it was held to the old bytes |
+|---|---|---|---|
+| a forest Accept, click to the map back (a later one) | 22-25 s | 5.5 s | end-to-end trace, real tab and job |
+| the same, the first Accept of a session (the draft drawn the first time) | 22-25 s | 9.7 s | |
+| the click's freeze (begin_step + process start) | 1.2-1.5 s | 2-4 ms | |
+| Undo / Redo, click to the map back | 8.2-10.7 s | 0.69-0.86 s | |
+| the 3D reload after a 2-cell edit | 5.6-7.5 s | 0.65-0.71 s | Packed and textures == 6/6 (t1_reload) |
+| a sink step's history: begin / commit / abort | 2.7 / 5.5 / 11.4 s | 1.7 / 0.74 / 0.65 s, on a worker | whole draft trees == after commit, undo, abort (t2_step) |
+| a forest Check | 6.75 s | 5.21 s | verdict and printed text == 3/3 (t3_kernels) |
+| world-forest --near | 305 s | 28 s | verdict and printed text == 3/3 |
+| hill / mountain Check | 1.81 / 5.40 s | 1.39 / 5.07 s | verdicts == |
+| a hill / sink Accept (the card's calls) | 6.6 / 9.3 s | 2.7 / 6.0 s | whole trees and printed text == |
+| a recipe row: hill / sink | 6.8 / 26.6 s | 2.5 / 15.9 s | world, ledger, manifest == and == the card's Accept |
+| the first 3D view | 9.45 s | 7.0 s | every mesh of discs 1 and 4 bit for bit; Packed == |
+| forest ghost drag, per move (GUI thread) | 45-55 ms | 5 ms | 247/247 placements == |
+| game-camera frame (GUI thread) | 95-104 ms | 11 ms | 1,868 ground probes == |
+| seating the party (GUI thread) | 97-121 ms | 0.6 ms | |
+| a card's island ready: reopen / after an Accept | 1.5-2.3 / 3.3-4.0 s | 0.54-0.75 / 0.62-1.08 s | soups == |
+| the river card's first open each session | 15-24 s | 12-22 ms (cached) | the cached shape == a fresh read |
+| Open...'s click | 13-23 s frozen | the copy and each row's steps on a worker | |
+
+**The two defects** (ef520295, 3ce416e1): the game camera's ground probe now reads the scene drawn now; a Check's
+report is disc 1's verdict, with the disc-4 preview's outcome beside it (40d347f8), so the sink and coast cards say
+"on disc 1 only" when disc 4's replay refuses.
+
+**Laws the review rounds paid for** (each a defect in a first fix):
+- THE RACY-CLEAN RULE, three times (the step history, the md5 walk, the cell memo): a stat is trusted only for a file
+  older than 2 s at the moment the stat was RECORDED; judging at the moment of reuse trusted a young file later.
+- A JOB ALWAYS ENDS, ON ITS OWN EXIT: a job's output to a temp file, not a pipe another process can inherit; any start
+  failure (the temp file included) ends it as a failed job; a done that raises is reported, never let out of wait();
+  a call that ended without a verdict died, and is never called unchanged or a refusal (disc 4's call too).
+- THE HISTORY IS WRITTEN IN AN ORDER A FAILURE LEAVES WHOLE: a commit renames its folder in first (retried, a fresh
+  name), then trims and writes; an abort that failed is finished before the next step, edit, undo, redo, promote or
+  revert touches its cells; an Edit's open is whole or nothing (a lift that fails moves its folders back and redoes
+  its undos); a step that cannot be recorded is taken back at once, never left for whatever the user clicks next;
+  a discard renames the draft aside before deleting it (Windows refuses that whole while a reader holds a file).
+- A FAST PATH REFUSES AS THE SLOW ONE DID: a cut-short .ff9mesh raises struct.error, a NaN block takes the loop, a mesh
+  the census precompute cannot read is asked per sample.
+
+**Not built, decided after the re-measure:**
+- **B3, the warm worker:** a Check still pays 1.3-1.9 s of start-up (UnityPy's import): forest 5.2 s, mountain 5.1 s.
+  It would take most of that, at the price of a resident process's risks (PERF's list below). The next lever if
+  Checks matter.
+- **c4, the bytes-keyed soup memo:** a reopen is already 0.54-0.75 s; it would hold 130 MB for about 0.3 s more.
+- **c6, the sink scan over processes:** once per install (126 s); still worth it for a first sink card.
+- **D1 / R1, the river:** no river Check can start from the card on the live folder.
+
+**Not checked:** no in-game run (the changes touch the editor's bookkeeping and its readers, not the bytes a verb
+writes); the third review round's own fixes had no fourth.
+
 
 ## Method
 

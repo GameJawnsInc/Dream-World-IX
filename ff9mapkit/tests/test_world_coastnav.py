@@ -66,6 +66,7 @@ def test_real_disc_loader_still_uses_the_stacked_read(monkeypatch):
 
 def test_worldmap_env_memoizes_the_negative(monkeypatch, tmp_path):
     """A disc with no winning bundle pays the full bundle scan ONCE per process, not per call."""
+    (tmp_path / "p0data3.bin").write_bytes(b"")     # a bundle the listing sees, so the miss is the full scan's
     monkeypatch.setattr(WX, "_streaming_assets", lambda game=None: tmp_path)
     monkeypatch.setattr(WX, "_unitypy", lambda: None)
     scans = []

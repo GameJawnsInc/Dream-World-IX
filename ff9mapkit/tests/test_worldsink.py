@@ -96,6 +96,28 @@ def test_report_json_carries_the_sink_s_verdict(world, tmp_path, capsys):
     assert not v["ok"] and v["refused"]["message"] in capsys.readouterr().err and v["refused"]["where"]
 
 
+def test_the_disc4_preview_leaves_the_check_s_report_alone(world, monkeypatch, tmp_path, capsys):
+    """The disc-4 preview re-ran the sink with every argument, ``--report-json`` included, so its verdict overwrote
+    disc 1's: the card's Check showed disc 4's ("disc": 4, seen in a real Check), and "refused" for an island disc 1
+    sinks and the Accept writes, disc 4 keeping its own -- the first call's verdict decides (PERF.md defect 2)."""
+    from ff9mapkit.world import discmirror as DM
+    _island(world, other=False)
+    game, _src = _drafts(tmp_path)
+    monkeypatch.setattr(DM, "copy_refusal", lambda blk, **k: "real cell differs across discs in ['terrain']")
+    real = TR.sink
+
+    def sink(mod, at, **k):
+        if k.get("disc") == 4:
+            raise ValueError("no island at (344, -360) on disc 4")
+        return real(mod, at, **k)
+    monkeypatch.setattr(TR, "sink", sink)
+    rep = tmp_path / "v.json"
+    assert cli.main(["--game", str(game)] + SE.command("FF9CustomMap-world", (344.0, -360.0), report=rep)) == 0
+    v = json.loads(rep.read_text())
+    assert v["disc"] == 1 and v["ok"] and v["refused"] is None and v["blocks"] == [[5, 5]]
+    assert "the replay REFUSES there" in capsys.readouterr().out
+
+
 # ---------------------------------------------------------------- THE ACCEPTANCE: the card's bytes, by hand, by recipe
 def _drafts(tmp_path):
     game = _game(tmp_path)
@@ -200,6 +222,42 @@ def test_a_disc4_refusal_keeps_disc4_s_island_and_says_so(world, monkeypatch, tm
     assert len(run.argvs) == 3 and "--disc" in run.argvs[2]
     assert tool.verdict_lbl.property("state") == "warn" and "disc 4 keeps its own ground" in tool.verdict_lbl.text()
     assert D.history(tool.draft())["cursor"] == 1
+
+
+def test_a_disc4_call_that_died_is_never_called_a_refusal(world, monkeypatch, tmp_path):
+    """A two-call Accept's disc-4 call that ended without a verdict (an uncaught error after the sink wrote its first
+    blocks) was told apart from a refusal nowhere: the card said "Disc 4 refused the same edit, so disc 4 keeps its
+    own ground there" over a half write the step recorded and a Promote would carry (review of the perf fixes, round
+    3, H5). It says disc 4 may hold a half write, which Undo takes back with the step."""
+    pytest.importorskip("PySide6", reason="GUI extra not installed")
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldsink import SinkTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_worldforest import Scripted
+
+    def answer(kind, argv):
+        if "--disc" in argv:
+            return None                                                   # disc 4's call died: no verdict
+        return {"ok": True, "dry_run": kind == "check", "at": [344.0, -360.0], "blocks": [[5, 5]], "written": [],
+                "report": {"land_tris": 4}, "refused": None}
+    run = Scripted(answer)
+    game, src = _drafts(tmp_path)
+    tool = SinkTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: game,
+                    source_fn=lambda: src, runner=run, drafts_root=tmp_path / "drafts", sync=True,
+                    outline_fn=lambda d: [ROW])
+    tool.open_tool()
+    tool.place(344.0, -360.0)
+    tool._timer.stop()
+    tool._check()
+    tool.accept_btn.click()
+    text = tool.verdict_lbl.text()
+    assert len(run.argvs) == 3 and "--disc" in run.argvs[2]
+    assert "keeps its own ground" not in text and "may hold a half write" in text and "Undo" in text
+    assert tool.verdict_lbl.property("state") == "warn" and D.history(tool.draft())["cursor"] == 1
 
 
 # ---------------------------------------------------------------- editing a placed sink (rung C12)
@@ -368,3 +426,75 @@ def test_a_sink_edited_through_the_recipe_bar_writes_what_world_fuse_writes(worl
     recipe.write_text(RC.dumps(edited), encoding="utf-8")
     assert cli.main(["--game", str(game), "world-fuse", str(recipe), "--mod-folder", str(composed)]) == 0
     assert _world_bytes(composed) == _world_bytes(draft)
+
+
+def test_a_check_says_when_disc4_will_keep_its_own_ground(world, monkeypatch, tmp_path):
+    """With the report disc 1's alone, a Check whose disc-4 replay refused still showed "Accept writes it to the
+    draft, on disc 1 and on disc 4" -- its own printed text said the opposite (review of the perf commits, J3).
+    disc 1's report carries the disc-4 preview's outcome, and the pass text says what the Accept will do."""
+    from ff9mapkit.world import discmirror as DM
+    _island(world, other=False)
+    game, src = _drafts(tmp_path)
+    real = TR.sink
+    rep = tmp_path / "v.json"
+    for why, refuse, want in ((None, False, "copies"), ("cells differ", False, "replays"), ("cells differ", True,
+                                                                                           "refuses")):
+        monkeypatch.setattr(DM, "copy_refusal", lambda blk, why=why, **k: why)
+
+        def sink(mod, at, refuse=refuse, **k):
+            if k.get("disc") == 4 and refuse:
+                raise ValueError("no island at (344, -360) on disc 4")
+            return real(mod, at, **k)
+        monkeypatch.setattr(TR, "sink", sink)
+        assert cli.main(["--game", str(game)] + SE.command("FF9CustomMap-world", (344.0, -360.0), report=rep)) == 0
+        v = json.loads(rep.read_text())
+        assert v["ok"] and v["disc"] == 1 and v["disc4"] == want, (why, refuse)
+    pytest.importorskip("PySide6", reason="GUI extra not installed")
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldsink import SinkTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_worldforest import Scripted
+    for disc4, words in (("refuses", "on disc 1 only"), ("copies", "on disc 1 and on disc 4")):
+        run = Scripted(lambda kind, argv, disc4=disc4: {"ok": True, "dry_run": kind == "check", "at": [344.0, -360.0],
+                                                         "blocks": [[5, 5]], "written": [], "report": {"land_tris": 4},
+                                                         "refused": None, "disc": 1, "disc4": disc4})
+        tool = SinkTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: game,
+                        source_fn=lambda: src, runner=run, drafts_root=tmp_path / f"drafts_{disc4}", sync=True,
+                        outline_fn=lambda d: [ROW])
+        tool.open_tool()
+        tool.place(344.0, -360.0)
+        tool._timer.stop()
+        tool._check()
+        assert words in tool.verdict_lbl.text(), tool.verdict_lbl.text()
+
+
+def test_a_disc4_preview_that_could_not_run_is_said_so(world, monkeypatch, tmp_path):
+    """The pass text said "on disc 1 and on disc 4" for every outcome but a refusal -- an unreadable disc 4
+    ("disc 4: not checked") and a disc-4 dry run that crashed (struct.error from a cut-short override) included, the
+    crash also killing the Check after disc 1's report was written (review of the perf fixes, round 2). Both discs
+    only when disc 4 was checked; a crash there is noted unchecked."""
+    import struct
+    from ff9mapkit.world import discmirror as DM
+    from ff9mapkit.world.forestedit import disc4_words
+    _island(world, other=False)
+    game, _src = _drafts(tmp_path)
+    monkeypatch.setattr(DM, "copy_refusal", lambda blk, **k: "cells differ")
+    real = TR.sink
+
+    def sink(mod, at, **k):
+        if k.get("disc") == 4:
+            raise struct.error("unpack_from requires a buffer of at least 72 bytes")
+        return real(mod, at, **k)
+    monkeypatch.setattr(TR, "sink", sink)
+    rep = tmp_path / "v.json"
+    assert cli.main(["--game", str(game)] + SE.command("FF9CustomMap-world", (344.0, -360.0), report=rep)) == 0
+    v = json.loads(rep.read_text())
+    assert v["ok"] and v["disc4"] == "unchecked"
+    for outcome in ("unchecked", None):
+        words = disc4_words({"disc4": outcome} if outcome else {})
+        assert "not checked" in words and "disc 4" in words, outcome
+    assert disc4_words({"disc4": "replays"}) == disc4_words({"disc4": "copies"}) == "on disc 1 and on disc 4"

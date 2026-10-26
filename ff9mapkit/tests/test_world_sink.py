@@ -1060,3 +1060,23 @@ def test_a_building_ringing_the_whole_coast_is_not_read_as_a_plug(world):
         [R[k], R[(k + 1) % 4], I[(k + 1) % 4]], [R[k], I[(k + 1) % 4], I[k]])])
     with pytest.raises(ValueError, match="meet no water"):
         TR.sink_footprint_plan((344.0, -360.0))
+
+
+def test_a_sink_plans_once_and_deploys_what_a_second_plan_deploys(world, monkeypatch):
+    """sink() planned twice -- the gates' dry runs, then "fresh tweaks: each counts what it applied" -- and a sink
+    row runs it on both discs: four plans of 4-6 s each, 18-21 s of a 21-24 s row (PERF.md 5, K2). The plan reads
+    stock only, so a copy taken before any use is as fresh as a second plan: the same bytes deploy."""
+    from pathlib import Path
+    from ff9mapkit.world import mesh as M
+    at = _island(world, keel=False, other=False)
+    meshes = {}
+    monkeypatch.setattr(M, "deploy_override", lambda bm, **k: meshes.update({bm.name: M.ff9mesh_bytes(bm)})
+                        or Path(bm.name))
+    monkeypatch.setattr(DM, "auto_mirror", lambda w, **k: None)
+    plans, real = [], TR.sink_auto_plan
+    monkeypatch.setattr(TR, "sink_auto_plan", lambda *a, **k: plans.append(1) or real(*a, **k))
+    assert TR.sink("MOD", at)["clean"] and len(plans) == 1
+    once = dict(meshes)
+    meshes.clear()
+    monkeypatch.setattr(TR, "_fresh_tweaks", lambda plan: real(at)[0])   # a second plan, as it was
+    assert TR.sink("MOD", at)["clean"] and meshes == once and once

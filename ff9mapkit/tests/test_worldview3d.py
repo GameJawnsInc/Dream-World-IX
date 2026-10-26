@@ -501,6 +501,160 @@ def test_the_game_camera_seats_each_vehicle_as_the_game_does(app):
     assert not p.vehicle_box.isVisibleTo(p) and not p.alt_spin.isVisibleTo(p)
 
 
+def test_the_game_camera_probes_the_ground_it_draws_after_a_reload(app):
+    """The game camera's eye probe was bound to the scene shown when it was turned on: after a reload (an Accept, an
+    Undo, a rescan) the party stood on the new ground while the eye lifted over the old, and the old scene's arrays
+    stayed alive in the probe (found by the World tab perf study, PERF.md defect 1). It probes the scene drawn now."""
+    import gc
+    import weakref
+    from ff9mapkit.editor.theme import pick_palette
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    p.view = V.WorldView3D()
+    old = V.pack([GROUND, _lid(9.0, down=False)])
+    p.view.packed = old
+    p.view.marker = (30.0, 9.0, -33.0)
+    p.game_btn.setChecked(True)
+    cam = p.view.camera
+    assert cam.ground(30.0, -33.0) == pytest.approx(9.0)
+    p._finish(V.pack([GROUND, _lid(20.0, down=False)]), {}, None)        # a reload lands
+    assert p.view.camera is cam and cam.player[1] == pytest.approx(20.0)  # the party re-stood on the new lid
+    assert cam.ground(30.0, -33.0) == pytest.approx(20.0)                 # ...and the eye probes the same ground
+    gone = weakref.ref(old)
+    del old
+    gc.collect()
+    assert gone() is None                                                 # nothing holds the old scene
+
+
+def test_the_panel_draws_again_only_the_cells_a_change_touched(app, monkeypatch, tmp_path):
+    """Every Accept, undo, redo or rescan reloaded all 480 cells: 7-16 s behind "Loading the map..." for an edit of
+    two (PERF.md 1). The panel keeps one :class:`render.CellMemo` across its loads, so a reload draws only the cells
+    whose files moved -- and the Rescan button, which says it re-reads from disk, forgets it."""
+    from ff9mapkit.world import mesh as M
+    from ff9mapkit.workspace.worlddoc import WorldDoc
+    from .test_world_render_stack import _age, _moved, _put, _tri_mesh
+    monkeypatch.setattr(R.X, "block_parts", lambda disc=1, game=None: {})
+    monkeypatch.setattr(R, "tex_for", lambda part, site, cache=None: None)  # no atlas in a tmp game
+    mod = tmp_path / "FF9CustomMap-world"
+    for bx in (1, 2):
+        _put(mod, "Terrain.ff9mesh", M.ff9mesh_bytes(_tri_mesh(float(bx), bx=bx)), bx=bx)
+    _age(mod)                                                              # a folder in use, not written now
+    site = R.RenderSite(cells=((1, 1), (2, 1)), disc=1, game=tmp_path, mod_root=mod, parts=("Terrain",))
+    drawn, real = [], R.cell_meshes
+    monkeypatch.setattr(R, "cell_meshes", lambda s, bx, by, *a, **k: drawn.append((bx, by)) or real(s, bx, by, *a, **k))
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    got = []
+    p._loaded.disconnect()
+    p._loaded.connect(lambda packed, tex, err: got.append((packed, err)))
+    p._work(site)
+    assert sorted(drawn) == [(1, 1), (2, 1)] and got[-1][1] is None
+    drawn.clear()
+    _moved(mod / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r1" / "Block[2][1] Terrain.ff9mesh",
+           M.ff9mesh_bytes(_tri_mesh(5.0, bx=2)))                         # an Accept wrote one cell
+    p._work(site)
+    assert drawn == [(2, 1)]
+    fresh = V.load_scene(site)[0]                                          # what a load from nothing draws
+    assert all(np.array_equal(got[-1][0].arrays[k], fresh.arrays[k]) for k in fresh.arrays)
+    drawn.clear()
+    doc = WorldDoc(pick_palette("mist"), game_path_fn=lambda: tmp_path)
+    doc._view3d = p
+    doc.rescan_btn.click()
+    p._work(site)
+    assert sorted(drawn) == [(1, 1), (2, 1)]                               # Rescan re-read every cell
+
+
+class _Full(np.ndarray):
+    """A pick array that records a ufunc run over all of it (the probe reading the whole map, not one cell)."""
+    size_full, seen = 0, []
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kw):
+        if any(isinstance(i, _Full) and len(i) >= _Full.size_full for i in inputs):
+            _Full.seen.append(ufunc.__name__)
+        args = [np.asarray(i) if isinstance(i, _Full) else i for i in inputs]
+        return getattr(ufunc, method)(*args, **kw)
+
+
+def _tiles(n=20, cell=8.0, y=2.0):
+    """An n x n field of up-facing tile pairs (800 tris at n=20), heights stepped so a wrong tri shows."""
+    v, t = [], []
+    for i in range(n):
+        for j in range(n):
+            x0, z0 = i * cell, -j * cell
+            h = y + 0.25 * ((i * 7 + j * 3) % 5)
+            base = len(v)
+            v += [(x0, h, z0), (x0 + cell, h, z0), (x0, h, z0 - cell), (x0 + cell, h, z0 - cell)]
+            t += [(base, base + 1, base + 2), (base + 1, base + 3, base + 2)]
+    return ("Terrain", np.array(v), np.zeros((len(v), 2)), np.array(t))
+
+
+def test_the_ground_grid_answers_what_the_whole_map_scan_answers_from_one_cell():
+    """The game camera's eye probe ran ground_y over all 365k tris: 4 probes, 95-104 ms a frame on the GUI thread
+    (PERF.md 6, C4). With the Packed's plan grid built, a probe reads its own 16u cell's tris -- with the same tests
+    and arithmetic, so the same heights, on the grid lines too."""
+    scene = [_tiles(), _lid(9.0, down=False)]
+    plain, gridded = V.pack(scene), V.pack(scene)
+    gridded.build_ground_grid()
+    pts = [(x * 3.7 + 0.1, -z * 2.9 - 0.2) for x in range(45) for z in range(55)]
+    pts += [(16.0 * i, -16.0 * j) for i in range(11) for j in range(11)] + [(30.0, -33.0), (900.0, 900.0)]
+    assert [V.ground_y(gridded, x, z) for x, z in pts] == [V.ground_y(plain, x, z) for x, z in pts]
+    part = "Terrain"
+    _Full.size_full, _Full.seen = len(gridded.pick_arrays(part)[0]), []
+    gridded._pick[part] = tuple(a.view(_Full) for a in gridded.pick_arrays(part))
+    assert V.ground_y(gridded, 31.0, -33.0) == V.ground_y(plain, 31.0, -33.0)
+    assert _Full.seen == []                                                # one cell's tris, not the field's
+
+
+def test_the_game_camera_has_its_grid_built_off_the_window_s_thread(app):
+    """The panel builds the grid on a worker when the game camera turns on and after each reload it draws in game
+    mode; until it lands, the probe scans the map as before (the window never waits the build)."""
+    import time
+    from ff9mapkit.editor.theme import pick_palette
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    p.view = V.WorldView3D()
+    p.view.packed = V.pack([_tiles(), _lid(9.0, down=False)])
+    p.view.marker = (30.0, 9.0, -33.0)
+    p.game_btn.setChecked(True)
+
+    def built(packed):
+        t = time.time()
+        while packed.ground_grid() is None:
+            assert time.time() - t < 30
+            time.sleep(0.01)
+        return True
+    assert built(p.view.packed)
+    p._finish(V.pack([_tiles(y=4.0), _lid(20.0, down=False)]), {}, None)    # a reload in game mode
+    assert built(p.view.packed) and p.view.camera.ground(30.0, -33.0) == pytest.approx(20.0)
+
+
+def test_seating_the_party_reads_the_point_facts_off_the_window_s_thread(app, monkeypatch):
+    """Each vehicle or height change seated the party with point_info on the GUI thread: 97-121 ms a spin step
+    (PERF.md 6, C7). The party stands at once on the drawn ground, keeping the cell's area (no camera flicker on a
+    held spin); the point facts arrive from a worker and seat it in the cell's own area -- the newest ask only."""
+    import threading
+    import time
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.world import pointinfo as PI
+    where = []
+
+    def facts(site, x, z, **_k):
+        where.append(threading.current_thread() is threading.main_thread())
+        return {"ground": {"stand_y": 9.0, "area": 42, "topograph": 0}}
+    monkeypatch.setattr(PI, "point_info", facts)
+    p = V.WorldView3DPanel(pick_palette("dark"))
+    p.view = V.WorldView3D()
+    p.view.packed = V.pack([GROUND, _lid(9.0, down=False)])
+    p.view.marker = (30.0, 9.0, -33.0)
+    p.site = R.RenderSite(cells=(), game=None)
+    p.game_btn.setChecked(True)
+    cam = p.view.camera
+    assert cam.player[1] == pytest.approx(9.0)                            # stood at once, on the drawn lid
+    t = time.time()
+    while cam.area != 42:
+        assert time.time() - t < 30
+        app.processEvents()
+        time.sleep(0.005)
+    assert where and not any(where)                                       # every point_info on a worker
+
+
 def test_a_load_asked_while_one_runs_is_the_one_drawn(app, monkeypatch):
     """The panel dropped a load asked while one ran ("busy: return"): a scan landing during a card's write, or a write
     ending while a refusal's reload ran, left the view drawing the old folder or the draft without the shape just

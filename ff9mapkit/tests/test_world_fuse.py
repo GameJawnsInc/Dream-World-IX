@@ -195,3 +195,36 @@ def test_fuse_real_two_island_layout():
     assert out2["clean"] is False
     fg2 = next(g for g in out2["fuse_gates"] if g["gate"].startswith("fuse["))
     assert not fg2["ok"] and any(b["b"].startswith("blocked:sea1") for b in fg2["bad"])
+
+
+def test_the_after_walk_reads_only_the_files_a_step_moved(tmp_path, monkeypatch):
+    """world-fuse hashes the WorldMap tree before and after each row (the drift gate and the step attribution), and
+    the after walk read all 2,000 files again: 1 s a row, and 9-11 s on a fresh draft's (PERF.md 5, K5). A file
+    whose size and time stand since this process hashed it is the bytes it hashed -- unless it was written within
+    draft.RACY_NS of that hash, when it is read again (the racy-clean rule)."""
+    import os
+    import time
+    from pathlib import Path
+    from ff9mapkit.world import fuse as FU
+    tree = tmp_path / "M" / "FF9_Data" / "WorldMap" / "Disc1" / "0_1" / "r0"
+    tree.mkdir(parents=True)
+    old = time.time_ns() - 60 * 10 ** 9
+    for i in range(6):
+        p = tree / f"Block[{i}][0] Terrain.ff9mesh"
+        p.write_bytes(bytes([i]) * 40)
+        os.utime(p, ns=(old, old))
+    fresh = tree / "Block[9][0] Terrain.ff9mesh"
+    fresh.write_bytes(b"just written")                       # inside the racy window: never trusted
+    before = FU._world_tree_md5(tmp_path / "M")
+    (tree / "Block[2][0] Terrain.ff9mesh").write_bytes(b"the row's edit")
+    reads, real = [], Path.read_bytes
+
+    def counted(p):                                          # this tree's reads only: a daemon thread of an earlier
+        if p.is_relative_to(tree):                           # test in the worker may read through Path.read_bytes
+            reads.append(p.name)
+        return real(p)
+    monkeypatch.setattr(Path, "read_bytes", counted)
+    after = FU._world_tree_md5(tmp_path / "M")
+    assert sorted(reads) == ["Block[2][0] Terrain.ff9mesh", "Block[9][0] Terrain.ff9mesh"]
+    assert after == {**before, "FF9_Data/WorldMap/Disc1/0_1/r0/Block[2][0] Terrain.ff9mesh":
+                     __import__("hashlib").md5(b"the row's edit").hexdigest()}

@@ -21,7 +21,7 @@ import threading
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QProcess, QTimer, Signal
+from PySide6.QtCore import QObject, QProcess, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSpinBox,
                                QVBoxLayout, QWidget)
@@ -119,6 +119,174 @@ class QProcessRunner:
         return ended or proc.state() == QProcess.ProcessState.NotRunning
 
 
+def _no_window() -> int:
+    """``CREATE_NO_WINDOW`` when this process has no console (the Workspace runs windowless): QProcess's own rule, so
+    a job opens no console window. 0 elsewhere."""
+    if sys.platform != "win32":
+        return 0
+    import ctypes
+    return 0 if ctypes.windll.kernel32.GetConsoleWindow() else subprocess.CREATE_NO_WINDOW
+
+
+def _run_done(done, *args):
+    """Run a job's or a step's done; one that raises is reported, never let out of ``wait()``: the Workspace closing
+    waits every writing job one after another, and a done that raised left that loop with the next job never
+    waited for (QProcessRunner's done ran inside Qt's emission, which reported it: review of the perf commits, J2)."""
+    try:
+        done(*args)
+    except Exception:                                    # noqa: BLE001 -- reported as an unhandled error is
+        sys.excepthook(*sys.exc_info())
+
+
+class JobRunner(QObject):
+    """The cards' and the recipe bar's runner: one job at a time, its process started and waited for on a worker
+    thread (``subprocess.Popen``, stdout and stderr merged), ``done(code, text)`` back on the window's thread. A
+    process started on the GUI thread froze the window 0.5-1.2 s in bursts, inside the start itself (QProcess.start;
+    PERF.md tier 2). The contract is :class:`QProcessRunner`'s: ``kill`` ends a job without its done, ``wait`` blocks
+    until it ends and runs its done there, and a program that cannot start ends as a failed job."""
+
+    _ended = Signal(object)                              # the job (a dict) whose result is in
+
+    def __init__(self):
+        super().__init__()
+        self._job = None                                 # the running job, until its done is handed back or it is killed
+        self._ended.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
+
+    def start(self, argv, cwd, done):
+        self.kill()
+        job = {"argv": [str(a) for a in argv], "cwd": str(cwd), "done": done, "proc": None, "result": None,
+               "killed": False, "delivered": False}
+        job["thread"] = threading.Thread(target=self._run, args=(job,), daemon=True)
+        self._job = job
+        job["thread"].start()
+
+    def _run(self, job):                                 # (the worker: touches only its job)
+        # the output goes to a FILE: done follows the job's own exit, where a pipe's EOF waited for every process
+        # that inherited its write end -- a QProcess the shell started meanwhile, a child the job left running
+        # (review of the perf commits, J1)
+        out = None
+        try:
+            try:                                         # (the file too: a job always ends -- review round 2)
+                out = tempfile.TemporaryFile()
+                proc = subprocess.Popen(job["argv"], cwd=job["cwd"], stdin=subprocess.DEVNULL, stdout=out,
+                                        stderr=subprocess.STDOUT, creationflags=_no_window())
+            except Exception as e:                       # noqa: BLE001 -- any failed start ends the job (review, J4)
+                job["result"] = (-1, f"the job could not start: {e}")
+            else:
+                job["proc"] = proc
+                if job["killed"]:                        # (kill ran between the start and this line)
+                    proc.kill()
+                code = proc.wait()
+                try:
+                    out.seek(0)
+                    text = out.read().decode("utf-8", "replace")
+                except Exception as e:                   # noqa: BLE001 -- the job ended; its words could not be read
+                    text = f"(the job's output could not be read: {e})"
+                job["result"] = (code, text)
+        except Exception as e:                           # noqa: BLE001 -- whatever broke, the job ends, failed
+            job["result"] = job["result"] or (-1, f"the job failed in its runner: {e}")
+        finally:
+            if out is not None:
+                try:
+                    out.close()
+                except OSError:
+                    pass
+            try:
+                self._ended.emit(job)
+            except RuntimeError:                         # the runner died with its window
+                pass
+
+    def _deliver(self, job):
+        if job is not self._job or job["delivered"] or job["killed"] or job["result"] is None:
+            return
+        job["delivered"] = True
+        self._job = None
+        _run_done(job["done"], *job["result"])
+
+    def kill(self):
+        job, self._job = self._job, None
+        if job is None:
+            return
+        job["killed"] = True
+        proc = job["proc"]
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+        job["thread"].join(2.0)
+
+    def busy(self):
+        return self._job is not None
+
+    def wait(self, msecs=120000) -> bool:
+        """Block until the running job ends and its ``done`` has run (the Workspace closing: a job writing the live
+        folder runs to its end, never killed half way). True when it ended; ``done`` may have started the next job,
+        so ``busy()`` after it says nothing about this one."""
+        job = self._job
+        if job is None:
+            return True
+        job["thread"].join(msecs / 1000.0)
+        if job["thread"].is_alive():
+            return False
+        self._deliver(job)                               # its done runs now; the queued delivery then finds it done
+        return True
+
+
+class StepWorker(QObject):
+    """A card's draft bookkeeping -- an Accept's history snapshot and its record -- on a worker thread, one at a time,
+    ``done(result, error)`` back on the window's thread; inline with ``sync`` (the test and snap lane). A whole-map
+    step (a sink's) froze the window 1.7-2.4 s with warm files and 7-12 s with a fresh draft's (PERF.md tier 2).
+    Never killed: a step cut half way leaves the draft without its record, so ``wait`` (the card closing, the
+    Workspace closing) blocks until it ends and runs its done there."""
+
+    _ended = Signal(object)
+
+    def __init__(self, *, sync=False):
+        super().__init__()
+        self._sync, self._job = sync, None
+        self._ended.connect(self._deliver, Qt.ConnectionType.QueuedConnection)
+
+    def start(self, fn, done):
+        job = {"fn": fn, "done": done, "out": None, "delivered": False}
+        self._job = job
+        if self._sync:
+            self._run(job, emit=False)
+            self._deliver(job)
+            return
+        job["thread"] = threading.Thread(target=self._run, args=(job,), daemon=True)
+        job["thread"].start()
+
+    def _run(self, job, emit=True):
+        try:
+            job["out"] = (job["fn"](), None)
+        except Exception as e:                           # noqa: BLE001 -- handed to done, on the window's thread
+            job["out"] = (None, e)
+        if emit:
+            try:
+                self._ended.emit(job)
+            except RuntimeError:                         # the card died with its window
+                pass
+
+    def _deliver(self, job):
+        if job is not self._job or job["delivered"] or job["out"] is None:
+            return
+        job["delivered"] = True
+        self._job = None
+        _run_done(job["done"], *job["out"])
+
+    def busy(self):
+        return self._job is not None
+
+    def wait(self, msecs=120000) -> bool:
+        job = self._job
+        if job is None:
+            return True
+        if "thread" in job:
+            job["thread"].join(msecs / 1000.0)
+            if job["thread"].is_alive():
+                return False
+        self._deliver(job)
+        return True
+
+
 class CarryTool(QWidget):
     """A carry card under the 3D view. ``panel`` is the World tab's :class:`WorldView3DPanel`; ``source_fn()`` the
     mod folder the tab shows; ``game_fn()`` the install; ``on_changed(draft)`` re-reads the view after an Accept
@@ -168,7 +336,7 @@ class CarryTool(QWidget):
         self.FE = FE = self._edit_module()
         self.pal, self.panel = pal, panel
         self._game_fn, self._source_fn, self._on_changed = game_fn, source_fn, on_changed
-        self._runner = runner or QProcessRunner()
+        self._runner = runner or JobRunner()
         self._drafts_root = drafts_root
         self._ask = ask or self._ask_dialog
         self._outline_fn = outline_fn or (lambda donor: FE.outline(donor, game=self._game_fn()))
@@ -176,6 +344,7 @@ class CarryTool(QWidget):
         # an injected soup is in one frame only: no seam frame then, unless the seam's own soup is injected too
         self._seam_soup_fn = seam_soup_fn or (None if soup_fn else (lambda folder: self._read_soup(folder, seam=True)))
         self._sync = sync
+        self._steps = StepWorker(sync=sync)              # an Accept's history step, off the window's thread
         self._on_reload = on_reload
         self._last_center = None                         # where Show in game goes (the last accepted shape)
         self._draft_state = (0, None)                    # (edited disc-1 blocks, the last unreverted promote)
@@ -439,7 +608,7 @@ class CarryTool(QWidget):
         """The source's draft folder if one was made, else None."""
         from ..world import draft as D
         p = D.draft_path(self.source(), root=self._drafts_root)
-        return p if D.read_meta(p) is not None else None
+        return p if D.is_draft(p) else None             # (a stat while draft.json stands: PERF.md 7)
 
     def target(self) -> Path:
         """Where the shape is judged and written: the draft once it exists, else the source (read only)."""
@@ -491,7 +660,13 @@ class CarryTool(QWidget):
         cut the disc-4 call (review of the C19 fixes, fourth round)."""
         wait = getattr(self._runner, "wait", None)
         for _ in range(64):                              # (bounded: a runner that never ends must not spin the GUI)
-            if wait is None or not self.writing() or not self._runner.busy() or not wait():
+            if not self.writing():
+                break
+            if self._steps.busy():                       # an Accept's snapshot or record: its end starts the next leg
+                if not self._steps.wait():
+                    break
+                continue
+            if wait is None or not self._runner.busy() or not wait():
                 break
 
     def writing(self) -> bool:
@@ -506,6 +681,8 @@ class CarryTool(QWidget):
             self._runner.kill()
             self._job = None
             return None
+        if self._steps.busy():                           # an Accept's history step (its end may start a job)
+            return self._steps
         return self._runner if self._runner.busy() else None
 
     def handles(self):
@@ -520,11 +697,13 @@ class CarryTool(QWidget):
         return RC.row_for(self._cmd("-", dry_run=False))
 
     def island_changed(self):
-        """The draft moved under the tool (an undo, a redo, an opened recipe): read the island and the draft again."""
+        """The draft moved under the tool (an Accept, an undo, a redo, an opened recipe): read the island and the
+        draft again. A hidden card only forgets: it reads both when it opens, and its line's walk of the draft cost
+        every change 1-9 s on a worker for a label nobody saw (PERF.md 2)."""
         self._drop_soups()
         self._verdict = None
-        self._refresh_draft_label()
         if not self.isHidden():
+            self._refresh_draft_label()
             self._load_soup()
 
     # -- background reads --
@@ -565,11 +744,18 @@ class CarryTool(QWidget):
         self._soups = {}
         self._ix = self._ix_for = None
         self._soup_gen += 1
+        self._soup_reading = set()
 
     def _load_soup(self):
-        """Both frames' soups, each from the cache or read on a worker (the seam frame's too, so a click near x = 0
-        never waits for a read); the current frame's is the one the preview reads."""
+        """Both frames' soups (:meth:`_read_frames`)."""
+        self._read_frames()
+
+    def _read_frames(self):
+        """Both frames' soups, each from the cache or read on a worker: the current frame's first -- the one the
+        preview reads -- and the other frame's once it lands, so a click near x = 0 seldom waits for one. Read at
+        once, the two fought for the GIL and the preview's landed at 1.5-1.9 s instead of 0.8 (PERF.md 7)."""
         target = self.target()
+        reading = self.__dict__.setdefault("_soup_reading", set())
         for seam in (self._seam, not self._seam):
             if seam and self._seam_soup_fn is None:
                 continue
@@ -577,6 +763,13 @@ class CarryTool(QWidget):
                 if seam == self._seam:
                     self._ix, self._ix_for = self._soups[(target, seam)], target
                 continue
+            if (target, seam, self._soup_gen) in reading:
+                if seam == self._seam:
+                    return                                   # the preview's frame is on its way: then the other
+                continue
+            if seam != self._seam and (target, self._seam, self._soup_gen) in reading:
+                return                                       # (the other frame waits for the preview's)
+            reading.add((target, seam, self._soup_gen))
             fn = self._seam_soup_fn if seam else self._soup_fn
 
             def read(fn=fn, seam=seam, gen=self._soup_gen):  # its error carries its generation and frame too: a
@@ -585,6 +778,8 @@ class CarryTool(QWidget):
                 except Exception as e:                       # noqa: BLE001 -- surfaced on the GUI thread
                     return (gen, target, seam, e)
             self._bg("soup", read)
+            if seam == self._seam:
+                return                                       # the other frame's read starts when this one lands
 
     def fcenter(self):
         """The centre as the current soup's frame spells it (the ghost and the cheap laws); ``center`` is the folded
@@ -633,6 +828,10 @@ class CarryTool(QWidget):
             gen, target, seam, ix = result
             if gen != self._soup_gen:
                 return                                   # begun before the island changed: not the island now
+            self.__dict__.setdefault("_soup_reading", set()).discard((target, seam, gen))
+            if not isinstance(ix, Exception) and not self.isHidden():
+                self._soups.setdefault((target, seam), ix)
+                self._read_frames()                      # the other frame's turn (a cached one only fills the ix)
             if isinstance(ix, Exception):
                 if (target, seam) == (self.target(), self._seam):
                     self._ix, self._ix_for = None, None
@@ -839,9 +1038,7 @@ class CarryTool(QWidget):
             return
         tmp = Path(tempfile.mkdtemp(prefix=f"ff9_{self.NOUN}_"))
         report = tmp / "verdict.json"
-        if kind == "accept":                             # rung C3: the step's cells, snapshotted before it writes
-            from ..world import draft as D
-            D.begin_step(draft, self._step_cells(self._current_verdict()))
+        if kind == "accept":
             calls = self._accept_calls(draft, report, tmp / "verdict4.json")
         else:
             calls = [self._cmd(draft, dry_run=True, report=report)]
@@ -851,6 +1048,25 @@ class CarryTool(QWidget):
                   else f"Writing the {self.NOUN} into the draft of {self.source().name}"
                        + (", disc 1 then disc 4…" if len(calls) > 1 else "…"), "")
         self._sync_buttons()
+        if kind == "accept":                             # rung C3: the step's cells, snapshotted before it writes --
+            from ..world import draft as D               # on a worker; the card writes from here (PERF.md tier 2)
+            cells = self._step_cells(self._current_verdict())
+            self._steps.start(lambda: D.begin_step(draft, cells),
+                              lambda _r, err: self._snapshotted(kind, key, calls, report, tmp, err))
+            return
+        self._launch(kind, key, calls, report, tmp)
+
+    def _snapshotted(self, kind, key, calls, report, tmp, err):
+        if self._job != (kind, key):
+            return
+        if err is not None:                              # nothing was written: the draft stands as it was
+            self._job = None
+            self._say(f"Not written: the draft's history could not be snapshotted ({err}).", "error")
+            self._sync_buttons()
+            return
+        self._launch(kind, key, calls, report, tmp)
+
+    def _launch(self, kind, key, calls, report, tmp):
         pre = [sys.executable, "-m", "ff9mapkit", "--game", str(self._game_fn())]
 
         def step(k, code, text):
@@ -861,8 +1077,9 @@ class CarryTool(QWidget):
                 if v is not None and v.get("ok"):
                     self._runner.start(pre + calls[1], kit_cwd(), lambda c, t: step(1, c, t))
                     return
-            if k == 1:
-                self._disc4 = bool((self.FE.read_verdict(tmp / "verdict4.json") or {}).get("ok"))
+            if k == 1:                                   # disc 4's own call: it passed, refused, or died (no verdict:
+                v4 = self.FE.read_verdict(tmp / "verdict4.json")   # it may have written, round 3 H5)
+                self._disc4 = "died" if v4 is None else bool(v4.get("ok"))
                 code = 0
             self._job_done(kind, key, report, code, text)
         self._runner.start(pre + calls[0], kit_cwd(), lambda code, text: step(0, code, text))
@@ -870,26 +1087,61 @@ class CarryTool(QWidget):
     def _job_done(self, kind, key, report, code, text):
         if self._job != (kind, key):
             return                                       # superseded (a handle moved, or the tool closed)
-        self._job = None
         v = self.FE.read_verdict(report)
         if v is None:
             last = [ln for ln in text.splitlines() if ln.strip()][-1:] or [f"exit code {code}"]
-            v = {"ok": False, "dry_run": kind == "check",
+            v = {"ok": False, "dry_run": kind == "check", "died": True,      # (the verb may have written: H3)
                  "refused": {"gate": "error", "message": f"the job ended without a verdict: {last[0]}", "where": []}}
-        if kind == "accept":                             # the step goes into the recipe, or back out of the draft
-            from ..world import draft as D
+        if kind == "accept":                             # the step goes into the recipe, or back out of the draft,
+            from ..world import draft as D               # on a worker: the card writes until it is recorded
             from ..world import recipe as RC
             d = self.draft()
             if v["ok"]:
                 row = RC.row_for(list(key))           # the handles the job ran with, not the current ones
-                D.commit_step(d, row, RC.label(row))
+                work = lambda: D.commit_step(d, row, RC.label(row))   # noqa: E731
             else:
-                D.abort_step(d)
+                work = lambda: D.abort_step(d)                       # noqa: E731
+            self._steps.start(work, lambda _r, err: self._recorded(kind, key, v, err))
+            return
+        self._job = None
+        self._verdict = (key, v)
+        self._redraw()
+
+    def _recorded(self, kind, key, v, err):
+        if self._job != (kind, key):
+            return
+        if err is not None and v["ok"]:                  # a commit that failed leaves its step whole: taken back
+            from ..world import draft as D               # now, not by whatever the user clicks next (round 3, H3)
+            d = self.draft()
+            self._steps.start(lambda: D.abort_step(d), lambda _r, err2: self._not_recorded(kind, key, err, err2))
+            return
+        self._job = None
+        if err is not None and not v["ok"]:              # a refused Accept: nothing was written, only its pending
+            self._verdict = (key, v)                     # snapshot stays (review of the perf commits, F1)
+            self._redraw()
+            if v.get("died"):                            # a verb that died may have written: never "unchanged" (H3)
+                self._say(f"{self.verdict_lbl.text()} The draft may hold a half write: its history snapshot could not "
+                          f"be put back ({err}), so it is taken back when the next step begins.", "error")
+            else:
+                self._say(f"{self.verdict_lbl.text()} The draft is unchanged, but its history snapshot could not be "
+                          f"cleared ({err}).", "error")
+            return
         self._verdict = (key, v)
         if kind == "accept" and v["ok"]:
             self._accepted(v)
             return
         self._redraw()
+
+    def _not_recorded(self, kind, key, err, err2):
+        if self._job != (kind, key):
+            return
+        self._job = None
+        self._verdict = None
+        self._say(f"Not written: its history step could not be recorded ({err}), so "
+                  + ("the write was taken back and the draft is as it was." if err2 is None else
+                     f"the write is in the draft until it can be taken back ({err2}): the next step, Undo, Redo or "
+                     "Promote takes it back first."), "error")
+        self._sync_buttons()
 
     def _accepted(self, v):
         disc4 = getattr(self, "_disc4", None)
@@ -910,17 +1162,18 @@ class CarryTool(QWidget):
             or len(written) or len(v.get("blocks") or [])  # (a mint's verdict names its blocks, not its files)
         self.center = self._ghost = None
         self._verdict = None
-        self._drop_soups()                               # the island changed: re-read it from the draft
         self.panel.set_overlays([])
         self.panel.set_ghost(None)
-        self._refresh_draft_label()
+        note = (" Disc 4 refused the same edit, so disc 4 keeps its own ground there (as the verb's replay would)."
+                if disc4 is False else
+                " Disc 4's call ended without a verdict, so disc 4 may hold a half write: Undo takes it back with "
+                "the rest of the step." if disc4 == "died" else "")
         self._say(f"In the draft: {n} block{'s' if n != 1 else ''} written. The view now draws the draft in place "
-                  f"of {self.source().name}. Click to place another {self.NOUN}."
-                  + (" Disc 4 refused the same edit, so disc 4 keeps its own ground there (as the verb's replay "
-                     "would)." if disc4 is False else ""), "warn" if disc4 is False else "ok")
-        self._load_soup()
-        if self._on_changed is not None:
-            self._on_changed(self.draft())
+                  f"of {self.source().name}. Click to place another {self.NOUN}." + note, "warn" if note else "ok")
+        if self._on_changed is not None:                 # the tab reads the island and the draft line again, once,
+            self._on_changed(self.draft())               # for every card (island_changed): reading them here too
+        else:                                            # was thrown away by its generation bump (PERF.md 2)
+            self.island_changed()
 
     def _copy_command(self):
         """Accept's command, to run by hand: always against the DRAFT's path, never the live folder (before the

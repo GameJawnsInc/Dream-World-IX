@@ -168,6 +168,156 @@ def test_a_click_places_a_ghost_the_check_judges_and_accept_writes_the_draft(app
     assert "In the draft: 1 block written" in tool.verdict_lbl.text()
 
 
+def test_an_accept_reads_the_island_and_the_draft_line_once(app, tmp_path, monkeypatch):
+    """An Accept read the island twice -- the card's own re-read, then the tab's island_changed for every card, which
+    threw the first away -- and every built card, hidden or not, walked the draft for its line: 4 soup reads and 6
+    walks of 1-9 s each per Accept on workers, slowing the map's reload through the GIL (PERF.md 2). The tab's
+    on_changed is the one re-read: the accepting card reads once, and a hidden card reads when it opens."""
+    from ff9mapkit.workspace.worldforest import ForestTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    game = _game(tmp_path)
+    ix = FE.SoupIndex(IN.soup_from_blocks({(0, 0): _mains_grid()}))
+    reads, walks, tools = [], [], []
+    real = D.edited_blocks
+    monkeypatch.setattr(D, "edited_blocks", lambda d: walks.append(d) or real(d))
+
+    def card():
+        t = ForestTool(PAL, WorldView3DPanel(PAL), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                       runner=Scripted(), drafts_root=tmp_path / "drafts", sync=True, outline_fn=lambda d: _outline(),
+                       soup_fn=lambda folder: reads.append(folder) or ix,
+                       on_changed=lambda d: [x.island_changed() for x in tools])   # as WorldDoc._draft_changed
+        tools.append(t)
+        return t
+    tool, hidden = card(), card()
+    tool.open_tool()
+    tool.place(26.04, -25.97, 3.2)
+    _settle(tool)
+    reads.clear()
+    walks.clear()
+    tool.accept_btn.click()
+    assert "In the draft: 1 block written" in tool.verdict_lbl.text()
+    assert len(reads) == 1 and len(walks) == 1                            # the accepting card's, once each
+    walks.clear()
+    hidden.open_tool()
+    assert len(walks) == 1                                                # the hidden card reads its line on open
+
+
+def test_an_accept_records_its_step_off_the_window_s_thread(app, tmp_path, monkeypatch):
+    """A sink Accept's history step snapshots every file of the map: begin_step and commit_step froze the window
+    1.7-2.4 s with warm files and 7-12 s on a fresh draft's (PERF.md tier 2). They run on a worker; the card writes
+    -- Close off, the tab's locks held -- from the click until the step is recorded."""
+    import threading
+    import time
+    from ff9mapkit.workspace.worldforest import ForestTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    game = _game(tmp_path)
+    ix = FE.SoupIndex(IN.soup_from_blocks({(0, 0): _mains_grid()}))
+    where, real_begin, real_commit = [], D.begin_step, D.commit_step
+    monkeypatch.setattr(D, "begin_step", lambda *a, **k: where.append(
+        ("begin", threading.current_thread() is threading.main_thread())) or real_begin(*a, **k))
+    monkeypatch.setattr(D, "commit_step", lambda *a, **k: where.append(
+        ("commit", threading.current_thread() is threading.main_thread())) or real_commit(*a, **k))
+    tool = ForestTool(PAL, WorldView3DPanel(PAL), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                      runner=Scripted(), drafts_root=tmp_path / "drafts", outline_fn=lambda d: _outline(),
+                      soup_fn=lambda folder: ix)                           # the threaded lane, as the Workspace runs
+
+    def until(cond, what):
+        t = time.time()
+        while not cond():
+            assert time.time() - t < 30, what
+            app.processEvents()
+            time.sleep(0.005)
+    tool.open_tool()
+    until(lambda: tool._ix is not None, "the island read")
+    tool.place(26.04, -25.97, 3.2)
+    tool._timer.stop()
+    tool._check()
+    until(lambda: tool.draft() is not None and tool.accept_btn.isEnabled(), "the check")
+    tool.accept_btn.click()
+    assert tool.writing()                                                  # from the click...
+    until(lambda: not tool.writing(), "the accept")
+    assert where == [("begin", False), ("commit", False)]                  # ...on a worker
+    assert D.history(tool.draft())["cursor"] == 1 and "In the draft: 1 block written" in tool.verdict_lbl.text()
+
+
+def test_closing_a_card_mid_snapshot_waits_for_the_whole_accept(app, tmp_path, monkeypatch):
+    """CLOSE WAITS A WRITE, with the step on a worker: a card closed (or the Workspace closing: closing_runner)
+    while its Accept's snapshot runs must not cut the Accept -- the snapshot ends, the verb writes, the step is
+    recorded, then the card closes. A Check is still killed."""
+    import threading
+    import time
+    from ff9mapkit.workspace.worldforest import ForestTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    game = _game(tmp_path)
+    ix = FE.SoupIndex(IN.soup_from_blocks({(0, 0): _mains_grid()}))
+    go, real = threading.Event(), D.begin_step
+    monkeypatch.setattr(D, "begin_step", lambda *a, **k: go.wait(30) and real(*a, **k))
+    tool = ForestTool(PAL, WorldView3DPanel(PAL), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                      runner=Scripted(), drafts_root=tmp_path / "drafts", outline_fn=lambda d: _outline(),
+                      soup_fn=lambda folder: ix)
+    tool.open_tool()
+    t = time.time()
+    while tool._ix is None or tool.draft() is None:
+        if tool._ix is not None and tool.draft() is None and tool.center is None:
+            tool.place(26.04, -25.97, 3.2)
+            tool._timer.stop()
+            tool._check()
+        assert time.time() - t < 30
+        app.processEvents()
+        time.sleep(0.005)
+    while not tool.accept_btn.isEnabled():
+        assert time.time() - t < 30
+        app.processEvents()
+        time.sleep(0.005)
+    tool.accept_btn.click()
+    assert tool.writing() and tool.closing_runner() is tool._steps          # the Workspace closing waits for it
+    threading.Timer(0.3, go.set).start()                                   # the snapshot ends while close waits
+    tool.close_tool()
+    assert not tool.writing() and D.history(tool.draft())["cursor"] == 1   # written AND recorded, then closed
+    assert not (tool.draft() / D.HISTORY_DIR / D._PENDING).exists()
+
+
+def test_a_card_reads_the_frame_its_preview_needs_first(app, tmp_path):
+    """A card read both frames' soups at once (the east frame and the seam frame across x = 0): the two reads
+    fought for the GIL, so the frame the preview needs landed at 1.5-1.9 s instead of 0.8 (PERF.md 7, c2). It reads
+    that frame first and the other once it lands."""
+    import threading
+    import time
+    from ff9mapkit.workspace.worldforest import ForestTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    game = _game(tmp_path)
+    ix = FE.SoupIndex(IN.soup_from_blocks({(0, 0): _mains_grid()}))
+    hold, log = threading.Event(), []
+
+    def east(folder):
+        log.append("east starts")
+        hold.wait(30)
+        log.append("east lands")
+        return ix
+
+    def seam(folder):
+        log.append("seam starts")
+        return ix
+    tool = ForestTool(PAL, WorldView3DPanel(PAL), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                      runner=Scripted(), drafts_root=tmp_path / "drafts", outline_fn=lambda d: _outline(),
+                      soup_fn=east, seam_soup_fn=seam)
+    tool.open_tool()
+    t = time.time()
+    while "east starts" not in log:
+        assert time.time() - t < 30
+        app.processEvents()
+        time.sleep(0.005)
+    time.sleep(0.2)
+    app.processEvents()
+    assert log == ["east starts"]                                          # the seam frame waits its turn
+    hold.set()
+    while "seam starts" not in log or tool._ix is None:
+        assert time.time() - t < 30
+        app.processEvents()
+        time.sleep(0.005)
+    assert log == ["east starts", "east lands", "seam starts"]
+
+
 def test_a_verdict_for_handles_that_moved_is_never_shown(app, tmp_path):
     """The stale guard: a check answers the handles it was asked about; turning the forest after it makes the
     verdict moot (Accept stays off) and a running check is killed rather than left to answer late."""
@@ -526,3 +676,94 @@ def test_the_editor_writes_the_bytes_the_hand_typed_command_writes(monkeypatch, 
     assert hand == ed and len(hand) >= 1                   # (no stock Disc4 here, so no mirror file to compare)
     assert ed != world(game / "FF9CustomMap-world")        # and the forest is really in it
     assert {p: p.read_bytes() for p in (game / "FF9CustomMap-world").rglob("*") if p.is_file()} == before
+
+
+def test_a_refused_accept_whose_abort_fails_keeps_its_refusal(app, tmp_path, monkeypatch):
+    """A refused Accept whose history abort then failed (a reader holding the ledger) was told "The draft was written
+    but its history step was not recorded": the draft's bytes were untouched, and the refusal and its marks were
+    thrown away (review of the perf commits, F1). It keeps the refusal and says the snapshot could not be cleared."""
+    def answer(kind, argv):
+        return {"ok": kind == "check", "dry_run": kind == "check", "center": [26, -26], "report": {},
+                "blocks": [[0, 0]], "written": [],
+                "refused": None if kind == "check" else {"gate": "census", "message": "the census refuses", "where":
+                                                          [[26.0, -26.0]]}}
+    tool, _panel, _changed = _tool(app, tmp_path, Scripted(answer))
+    tool.place(26.04, -25.97, 3.2)
+    _settle(tool)
+    real = D.abort_step
+
+    def fails(d):                                                         # a real abort (a pending step) fails
+        if (Path(d) / D.HISTORY_DIR / D._PENDING / "step.json").is_file():
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "abort_step", fails)
+    tool.accept_btn.click()
+    text = tool.verdict_lbl.text()
+    assert "written" not in text and "census" in text and "could not be cleared" in text
+    assert tool._verdict is not None and not tool._verdict[1]["ok"] and not tool.writing()
+
+
+def test_a_job_that_died_without_a_verdict_is_never_called_unchanged(app, tmp_path, monkeypatch):
+    """F1 said "The draft is unchanged" for every refused Accept whose abort failed -- including the card's own
+    refusal for a job that ended without a verdict, a verb that died maybe after writing (review of the perf fixes,
+    round 2, H3). Only a verb's own refusal is called unchanged; a death says the draft may hold a half write."""
+    def answer(kind, argv):
+        if kind == "check":
+            return {"ok": True, "dry_run": True, "center": [26, -26], "report": {}, "blocks": [[0, 0]],
+                    "written": [], "refused": None}
+        return None                                                       # the Accept died: no verdict
+    tool, _panel, _changed = _tool(app, tmp_path, Scripted(answer))
+    tool.place(26.04, -25.97, 3.2)
+    _settle(tool)
+    real = D.abort_step
+
+    def fails(d):
+        if (Path(d) / D.HISTORY_DIR / D._PENDING / "step.json").is_file():
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "abort_step", fails)
+    tool.accept_btn.click()
+    text = tool.verdict_lbl.text()
+    assert "unchanged" not in text and "may hold" in text and "without a verdict" in text
+
+
+def test_an_accept_whose_step_cannot_be_recorded_is_taken_back_and_says_so(app, tmp_path, monkeypatch):
+    """A commit whose rename is refused leaves its pending step whole (round 2, H2), so the next Undo, step or Promote
+    took the accepted write back -- while the card said "Undo cannot take it back", and that one Undo undid the step
+    before it too (review of the perf fixes, round 3, H3). The write is taken back at once, and the card says so;
+    when the disk refuses that too, it says the next step, Undo, Redo or Promote takes it back."""
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    rel = "FF9_Data/WorldMap/Disc1/0_1/r0/Block[0][0] Terrain.ff9mesh"
+    ok = Scripted().answer
+
+    def answer(kind, argv):
+        if kind == "accept":
+            (draft / rel).write_bytes(b"a forest")                        # the verb wrote the draft
+        return ok(kind, argv)
+    tool, _panel, _changed = _tool(app, tmp_path, Scripted(answer))
+    tool.place(26.04, -25.97, 3.2)
+    _settle(tool)
+    stock = (draft / rel).read_bytes()
+    monkeypatch.setattr(D, "commit_step", lambda *a, **k: (_ for _ in ()).throw(PermissionError(5, "a handle is open")))
+    tool.accept_btn.click()
+    text = tool.verdict_lbl.text()
+    assert (draft / rel).read_bytes() == stock and D.history(draft)["cursor"] == 0
+    assert not (draft / D.HISTORY_DIR / D._PENDING).exists() and not tool.writing()
+    assert "cannot take it back" not in text and "a handle is open" in text and "taken back" in text
+
+    real = D.abort_step
+
+    def fails(d):                                                         # the take-back refused too
+        if (Path(d) / D.HISTORY_DIR / D._PENDING / "step.json").is_file():
+            raise PermissionError(13, "a reader holds it")
+        return real(d)
+    monkeypatch.setattr(D, "abort_step", fails)
+    tool.place(26.04, -25.97, 3.2)
+    _settle(tool)
+    tool.accept_btn.click()
+    text = tool.verdict_lbl.text()
+    assert (draft / rel).read_bytes() == b"a forest" and not tool.writing()
+    assert "a reader holds it" in text and "next step, Undo, Redo or Promote" in text
+    monkeypatch.setattr(D, "abort_step", real)
+    D.undo(draft) if D.history(draft)["cursor"] else D.abort_step(draft)  # (whichever runs next takes it back)
+    assert (draft / rel).read_bytes() == stock

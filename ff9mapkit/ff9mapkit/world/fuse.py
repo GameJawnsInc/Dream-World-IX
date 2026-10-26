@@ -261,20 +261,41 @@ _MANIFEST_NAME = "world_manifest.json"
 _SKIP_MARKERS = (".bak-", ".prerim")         # write-seam backups, never composition output
 
 
+_MD5_SEEN: dict = {}          # path -> (size, mtime_ns, md5, when hashed): this process's last hash of each file
+
+
 def _world_tree_md5(mod_root: Path) -> dict:
     """``relpath -> md5`` over the mod folder's WorldMap tree (backups + the manifest and
-    ledger excluded) -- the before/after snapshot that attributes files to compose steps."""
+    ledger excluded) -- the before/after snapshot that attributes files to compose steps. A file whose size and
+    time stand since this process hashed it is the bytes it hashed, unless it was written within
+    ``draft.RACY_NS`` of that hash (the racy-clean rule): the after walk re-read every file (PERF.md 5)."""
     import hashlib
+    import stat
+    import time
+    from .draft import RACY_NS
     root = mod_root / "FF9_Data" / "WorldMap"
     out = {}
     if not root.is_dir():
         return out
     from .mesh import LEDGER_NAME
     for p in sorted(root.rglob("*")):
-        if not p.is_file() or p.name in (_MANIFEST_NAME, LEDGER_NAME) \
-                or any(m in p.name for m in _SKIP_MARKERS):
+        if p.name in (_MANIFEST_NAME, LEDGER_NAME) or any(m in p.name for m in _SKIP_MARKERS):
             continue
-        out[p.relative_to(mod_root).as_posix()] = hashlib.md5(p.read_bytes()).hexdigest()
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        if not stat.S_ISREG(st.st_mode):
+            continue
+        key = str(p)
+        seen = _MD5_SEEN.get(key)
+        if seen is not None and seen[:2] == (st.st_size, st.st_mtime_ns) and st.st_mtime_ns < seen[3] - RACY_NS:
+            h = seen[2]
+        else:
+            now = time.time_ns()
+            h = hashlib.md5(p.read_bytes()).hexdigest()
+            _MD5_SEEN[key] = (st.st_size, st.st_mtime_ns, h, now)
+        out[p.relative_to(mod_root).as_posix()] = h
     return out
 
 

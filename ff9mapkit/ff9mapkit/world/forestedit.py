@@ -161,9 +161,10 @@ def footprint_preview(ix: SoupIndex, rim_xz) -> dict:
     poly = np.asarray(rim_xz, dtype=np.float64)
     if not len(ix.tris):
         return {"ok": False, "seen": None, "where": [], "why": "no island here"}
-    # only a tri whose plan box meets the rim's box grown by the band can be in or near it (exact, not a heuristic)
+    # only a tri whose plan box meets the rim's box grown by the band can be in or near it (exact, not a heuristic);
+    # the index holds each tri's box (taking them again was most of a drag frame: PERF.md 6)
     lo, hi = poly.min(axis=0) - IN.SCAN_BAND, poly.max(axis=0) + IN.SCAN_BAND
-    cand = np.flatnonzero(((ix.corner.max(axis=1) >= lo) & (ix.corner.min(axis=1) <= hi)).all(axis=1))
+    cand = np.flatnonzero(((ix.hi >= lo) & (ix.lo <= hi)).all(axis=1))
     hit = _pip(ix.cent[cand], poly) | _near(ix.cent[cand], poly, IN.SCAN_BAND)
     rest = ~hit
     if rest.any():
@@ -175,8 +176,14 @@ def footprint_preview(ix: SoupIndex, rim_xz) -> dict:
     where, why = [tuple(ix.cent[i]) for i in bad[:12]], (ix.what[bad[0]] if bad else "")
     if not bad and len(ix.coast) and len(idx):
         v = ix.pos[ix.tris[idx]][..., [0, 2]].reshape(-1, 2)
-        d2 = ((v[:, None, :] - ix.coast[None, :, :]) ** 2).sum(axis=-1).min(axis=1)
-        near_coast = d2 < IN.RIM_MARGIN ** 2
+        # a coast point outside the tested verts' box grown by RIM_MARGIN is farther than that from every one of them
+        coast = ix.coast
+        keep = ((coast >= v.min(axis=0) - IN.RIM_MARGIN) & (coast <= v.max(axis=0) + IN.RIM_MARGIN)).all(axis=1)
+        coast = coast[keep]
+        near_coast = np.zeros(len(v), dtype=bool)
+        if len(coast):
+            d2 = ((v[:, None, :] - coast[None, :, :]) ** 2).sum(axis=-1).min(axis=1)
+            near_coast = d2 < IN.RIM_MARGIN ** 2
         if near_coast.any():
             where, why = [tuple(p) for p in v[near_coast][:12]], "the coast rim"
     if where:
@@ -209,6 +216,17 @@ def command(mod_folder, center, donor, *, spread: float = 1.0, rot_deg: float = 
     if report is not None:
         argv += ["--report-json", str(report)]
     return argv
+
+
+def disc4_words(v) -> str:
+    """Where a two-call Accept (the sink's, the coast morph's) writes, as its Check's report says (``disc4``: the
+    disc-4 preview's outcome)."""
+    disc4 = (v or {}).get("disc4")
+    if disc4 == "refuses":
+        return "on disc 1 only: disc 4's own replay refuses there, so disc 4 keeps its own ground"
+    if disc4 in ("copies", "replays"):
+        return "on disc 1 and on disc 4"
+    return "on disc 1; whether disc 4 takes it was not checked"      # (unreadable, or its dry run broke)
 
 
 def read_verdict(path) -> dict | None:

@@ -950,6 +950,62 @@ def test_a_job_that_cannot_start_ends_as_a_failed_job(app, tmp_path):
     assert not r.busy() and len(got) == 1 and got[0][0] != 0 and "could not start" in got[0][1], got
 
 
+def test_a_card_starts_its_jobs_off_the_window_s_thread(app, tmp_path, monkeypatch):
+    """Starting a process on the GUI thread froze the window 0.5-1.2 s in bursts, inside the process start itself
+    (QProcess.start: card._run_job held the thread 1.2-1.5 s an Accept, PERF.md tier 2). The cards' and the recipe
+    bar's default runner starts its process on a worker thread and hands ``done`` back to the window's thread."""
+    import subprocess
+    import sys
+    import threading
+    from ff9mapkit.workspace import worldforest as WF
+    from ff9mapkit.workspace.worldrecipe import RecipeBar
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    seen, real = [], subprocess.Popen
+
+    def popen(*a, **k):
+        seen.append(threading.current_thread() is threading.main_thread())
+        return real(*a, **k)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    card = WF.ForestTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: tmp_path,
+                         source_fn=lambda: tmp_path / "F", drafts_root=tmp_path / "d", sync=True)
+    bar = RecipeBar(pick_palette("dark"), game_fn=lambda: tmp_path, source_fn=lambda: tmp_path / "F",
+                    on_changed=lambda d: None, drafts_root=tmp_path / "d")
+    for r in (card._runner, bar._runner):
+        got = []
+        r.start([sys.executable, "-c", "print('done')"], ".", lambda code, text: got.append((code, text.strip())))
+        assert r.busy()
+        assert r.wait() and not r.busy() and got == [(0, "done")]
+    assert seen == [False, False]                                          # each process started on a worker
+
+
+def test_the_job_runner_keeps_the_runner_s_contract(app, tmp_path):
+    """JobRunner: ``done`` runs on the window's thread when the job ends (or inside ``wait``, which says whether it
+    ended); ``kill`` ends a job without its done; a program that cannot start ends as a failed job."""
+    import sys
+    import time
+    from ff9mapkit.workspace.worldforest import JobRunner
+    r, got = JobRunner(), []
+    r.start([sys.executable, "-c", "import time; time.sleep(0.3); print('slow')"], ".",
+            lambda code, text: got.append((code, text.strip())))
+    t = time.time()
+    while not got and time.time() - t < 30:
+        app.processEvents()
+        time.sleep(0.01)
+    assert got == [(0, "slow")] and not r.busy()                           # delivered by the event loop
+    got.clear()
+    r.start([sys.executable, "-c", "import time; time.sleep(5)"], ".", lambda code, text: got.append(code))
+    r.kill()
+    assert not r.busy() and r.wait()
+    app.processEvents()
+    assert got == []                                                       # a killed job's done never runs
+    r.start([str(tmp_path / "no-such-python.exe"), "-c", "print(1)"], ".", lambda code, text: got.append((code, text)))
+    assert r.wait() and not r.busy() and len(got) == 1 and got[0][0] != 0 and "could not start" in got[0][1]
+    r.start([sys.executable, "-c", "raise SystemExit(3)"], ".", lambda code, text: got.append(code))
+    r.start([sys.executable, "-c", "print('second')"], ".", lambda code, text: got.append(text.strip()))
+    assert r.wait() and got[-1] == "second" and 3 not in got               # a new start kills the running job
+
+
 def test_the_workspace_closing_shuts_the_world_tab_down(monkeypatch, app):
     """THE CALL SITE: the window's closeEvent is what spends ``WorldDoc.shutdown``."""
     from ff9mapkit import config as cfg
@@ -1291,3 +1347,122 @@ def test_an_in_game_step_does_not_open_while_steps_after_the_game_s_are_out_of_i
     assert bar.edit_btn.isEnabled()
     bar.edit_btn.click()
     assert doc._forest.editing()
+
+
+def test_a_job_s_done_follows_its_exit_not_its_pipe(app):
+    """JobRunner's done waited for pipe EOF (communicate): a process that inherited the job's output pipe -- a
+    QProcess the shell started in the Popen window, or a child the job left running -- held the done, and with it
+    the card's writing(), its Close and the tab's locks, for that other process's whole life (review of the perf
+    commits, J1). The done follows the job's own exit, its output read from a file."""
+    import sys
+    import time
+    from ff9mapkit.workspace.worldforest import JobRunner
+    r, got = JobRunner(), []
+    leaves = ("import subprocess, sys; subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(8)']); "
+              "print('parent done')")                                     # a child that outlives the job, our stdout
+    t = time.time()
+    r.start([sys.executable, "-c", leaves], ".", lambda code, text: got.append((code, text.strip())))
+    assert r.wait(30000) and got == [(0, "parent done")]
+    assert time.time() - t < 6                                             # not the 8 s the left child lives
+
+
+def test_a_done_that_raises_does_not_leave_the_wait(app, monkeypatch):
+    """JobRunner.wait and StepWorker.wait ran a done straight from Python, so a done that raised (a commit_step's
+    PermissionError, a settle write) left wait() -- and WorldDoc.shutdown's loop, which waits every writing job one
+    after another, with the bar's job never waited for (review of the perf commits, J2). As QProcessRunner's done
+    did inside Qt's emission, the error is reported and the wait goes on."""
+    import sys
+    from ff9mapkit.workspace.worldforest import JobRunner, StepWorker
+    seen = []
+    monkeypatch.setattr(sys, "excepthook", lambda *exc: seen.append(exc[0]))
+
+    def boom(*_a):
+        raise PermissionError(13, "a reader holds it")
+    r = JobRunner()
+    r.start([sys.executable, "-c", "pass"], ".", boom)
+    assert r.wait() and not r.busy()
+    s = StepWorker()
+    s.start(lambda: None, boom)
+    assert s.wait() and not s.busy()
+    assert seen == [PermissionError, PermissionError]
+
+
+def test_any_failed_start_ends_the_job(app):
+    """Only an OSError from the start ended a JobRunner job as a failed one; any other (a ValueError for a NUL in an
+    argument) killed the worker with no result: busy for good, done never run, and wait() saying it ended (review of
+    the perf commits, J4). A job always ends."""
+    import sys
+    from ff9mapkit.workspace.worldforest import JobRunner
+    r, got = JobRunner(), []
+    r.start([sys.executable, "-c", "print('a\x00b')"], ".", lambda code, text: got.append((code, text)))
+    assert r.wait() and not r.busy() and len(got) == 1 and got[0][0] == -1 and "could not start" in got[0][1]
+
+
+def test_a_killed_job_s_process_ends(app, monkeypatch):
+    """kill() must end the job's process, whether it lands while the worker is still inside Popen or after (a
+    put-back killed by Cancel must not write over the restored draft): the contract test only checked that the
+    killed job's done never ran, which the runner's identity check gives by itself (review, J5). Each case is made
+    to land where it says -- a fixed sleep let a slow first Popen put both inside it (review round 2)."""
+    import subprocess
+    import sys
+    import threading
+    import time
+    from ff9mapkit.workspace import worldforest as WF
+    real = subprocess.Popen
+    gate = threading.Event()
+
+    def gated(*a, **k):
+        gate.wait(30)
+        return real(*a, **k)
+    sleeper = [sys.executable, "-c", "import time; time.sleep(30)"]
+    # inside Popen: the worker holds at the gate while kill() lands; the worker's own kill ends the process
+    monkeypatch.setattr(WF.subprocess, "Popen", gated)
+    r = WF.JobRunner()
+    r.start(sleeper, ".", lambda code, text: None)
+    job = r._job
+    threading.Timer(0.3, gate.set).start()
+    r.kill()
+    job["thread"].join(10)
+    assert job["proc"] is not None and job["proc"].poll() is not None, "inside Popen"
+    # after Popen: kill() lands once the process exists; kill()'s own proc.kill() ends it
+    monkeypatch.setattr(WF.subprocess, "Popen", real)
+    r = WF.JobRunner()
+    r.start(sleeper, ".", lambda code, text: None)
+    job, t = r._job, time.time()
+    while job["proc"] is None:
+        assert time.time() - t < 30
+        time.sleep(0.01)
+    r.kill()
+    job["thread"].join(10)
+    assert job["proc"].poll() is not None, "after Popen"
+
+
+def test_an_edit_or_delete_that_the_disk_refuses_says_so(monkeypatch, tmp_path, app):
+    """begin_edit now finishes a pending abort first, which can raise an OSError (a reader holding a file); Edit and
+    Delete caught a ValueError only, so the error left the slot -- in the in-game chain with the promotes taken out
+    of the game and nothing said (review of the perf fixes, round 2, H2). Either refusal closes the edit, said."""
+    game, doc, run, draft = _placed(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    doc._on_pick(_hit(27.0, -25.0), sync=True)
+    monkeypatch.setattr(D, "begin_edit", lambda d, k: (_ for _ in ()).throw(PermissionError(13, "a reader holds it")))
+    bar.edit_btn.click()
+    assert "Not opened" in bar.status_lbl.text() and "a reader holds it" in bar.status_lbl.text()
+    assert bar._edit is None and not bar.holding()
+    doc._on_pick(_hit(27.0, -25.0), sync=True)
+    bar.delete_btn.click()
+    assert "Not deleted" in bar.status_lbl.text() and not bar.holding()
+
+
+def test_a_job_whose_output_file_cannot_be_made_still_ends(app, monkeypatch):
+    """The output file J1 added was made outside the try that ends a failed start: if it could not be made (a
+    %TEMP% gone or denied), the worker died with no result, the job never ended and WorldDoc.shutdown spun out its
+    bound (review of the perf fixes, round 2). A job always ends."""
+    import sys
+    import types
+    from ff9mapkit.workspace import worldforest as WF
+    def no_file():
+        raise OSError(13, "the temp folder refuses")
+    monkeypatch.setattr(WF, "tempfile", types.SimpleNamespace(TemporaryFile=no_file))   # the module's NAME swapped
+    r, got = WF.JobRunner(), []
+    r.start([sys.executable, "-c", "pass"], ".", lambda code, text: got.append((code, text)))
+    assert r.wait() and not r.busy() and len(got) == 1 and got[0][0] == -1 and "could not start" in got[0][1]

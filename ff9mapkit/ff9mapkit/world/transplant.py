@@ -32,6 +32,7 @@ override plus the donor sidecar. RELAUNCH (or exit + re-enter the overworld) to 
 from __future__ import annotations
 
 import collections
+import copy
 import math
 import warnings
 
@@ -6291,6 +6292,13 @@ def sink_candidates(*, disc: int = 1, lod: str = "0_1", game=None, max_blocks: i
     return sorted(rows, key=lambda r: -r["land_u2"])
 
 
+def _fresh_tweaks(plan):
+    """A sink plan's tweaks as fresh as a second plan's -- each counts what it applied -- copied before any use. The
+    plan reads stock only, so this is what planning again returns; a second sink_auto_plan was 4-6 s of every sink
+    (PERF.md 5)."""
+    return copy.deepcopy(plan)
+
+
 def sink(mod_folder: str, at, *, disc: int = 1, lod: str = "0_1", game=None, dry_run: bool = False,
          skip_mirror: bool = False, fresh: bool = False, allow_overwrite: bool = False,
          allow_entrances: bool = False, replay=None, cluster: bool = False) -> dict:
@@ -6300,9 +6308,8 @@ def sink(mod_folder: str, at, *, disc: int = 1, lod: str = "0_1", game=None, dry
     mirror pass over all of it, with ``replay`` (the caller's same sink on disc 4) where disc 4's blocks differ."""
     from . import discmirror as DM
 
-    def planned():
-        return sink_auto_plan(at, disc=disc, lod=lod, game=game, cluster=cluster)
-    plan, report = planned()
+    plan, report = sink_auto_plan(at, disc=disc, lod=lod, game=game, cluster=cluster)
+    deploy = _fresh_tweaks(plan)                                 # before the gates use any tweak
     edited = set(plan)
     out = {"op": "sink", **report, "per_block": {}, "deployed": [], "dry_run": dry_run}
     # the morph loads land and water; a building's parts (its Object, a waterfall, a river) only where the plan has one
@@ -6315,7 +6322,7 @@ def sink(mod_folder: str, at, *, disc: int = 1, lod: str = "0_1", game=None, dry
     out["clean"] = all(s["clean"] for s in out["per_block"].values())
     if dry_run or not out["clean"]:
         return out
-    plan, _r = planned()                                         # fresh tweaks: each counts what it applied
+    plan = deploy                                                # fresh tweaks: each counts what it applied
     for b in sorted(edited):
         s = morph_in_place(mod_folder, cell=b, tweaks=plan[b], frame_shared=edited - {b},
                            skip_mirror=DM.DEFERRED, **kw)

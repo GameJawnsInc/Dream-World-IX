@@ -23,7 +23,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QFileDialog, QHBoxLayout, QMessageBox, QPushButton, QWidget
 
 from . import widgets
-from .worldforest import QProcessRunner, kit_cwd
+from .worldforest import JobRunner, StepWorker, kit_cwd
 
 
 class RecipeBar(QWidget):
@@ -31,17 +31,19 @@ class RecipeBar(QWidget):
     view and the tools after the draft moved; ``on_select(step)`` marks the picked step on the view (None: no step);
     ``on_edit(row, label)`` opens the step's card on its row; ``on_hold(held)`` says when the bar holds the draft
     (:meth:`holding`: the folder must not change under it); ``cards_writing()`` says a card's job is writing now. ``runner``, ``ask``, ``save_path_fn(default)`` /
-    ``open_path_fn()`` (file dialogs) and ``drafts_root`` are the test and snap seams."""
+    ``open_path_fn()`` (file dialogs) and ``drafts_root`` are the test and snap seams. ``sync``: Open...'s draft
+    copy and history steps inline (default: when a runner is injected, a test's or a snap's), else on a worker."""
 
     def __init__(self, pal, *, game_fn, source_fn, on_changed=None, runner=None, drafts_root=None, ask=None,
                  save_path_fn=None, open_path_fn=None, on_select=None, on_edit=None, on_hold=None,
-                 cards_writing=None):
+                 cards_writing=None, sync=None):
         super().__init__()
         self.pal = pal
         self._game_fn, self._source_fn, self._on_changed = game_fn, source_fn, on_changed
         self._on_hold = on_hold
         self._cards_writing = cards_writing or (lambda: False)
-        self._runner = runner or QProcessRunner()
+        self._steps = StepWorker(sync=(runner is not None) if sync is None else bool(sync))
+        self._runner = runner or JobRunner()
         self._drafts_root = drafts_root
         self._ask = ask or (lambda title, text: QMessageBox.question(self, title, text)
                             == QMessageBox.StandardButton.Yes)
@@ -106,7 +108,7 @@ class RecipeBar(QWidget):
     def draft(self):
         from ..world import draft as D
         p = D.draft_path(self.source(), root=self._drafts_root)
-        return p if D.read_meta(p) is not None else None
+        return p if D.is_draft(p) else None
 
     def refresh(self):
         """Say what the recipe holds and which way it can walk."""
@@ -306,7 +308,7 @@ class RecipeBar(QWidget):
         s = D.history(d)["steps"][i]                     # the step of the draft it opens in, not the folder shown
         try:
             e = D.begin_edit(d, i)
-        except ValueError as err:
+        except (ValueError, OSError) as err:            # (an OSError: the disk refused a pending abort, H2)
             self._closed(d, {"fence": fence}, f"Not opened: {err}.", "error")
             return
         self._edit = {"k": i, "mode": "edit", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"],
@@ -321,7 +323,7 @@ class RecipeBar(QWidget):
         """The draft edit ``e`` is open in (it never changes under the edit), else the shown folder's."""
         from ..world import draft as D
         d = (e or {}).get("draft")
-        return Path(d) if d is not None and D.read_meta(Path(d)) is not None else self.draft()
+        return Path(d) if d is not None and D.is_draft(Path(d)) else self.draft()
 
     def edit_accepted(self):
         """The card wrote the edited shape in the step's place: put the steps after it back on top."""
@@ -361,7 +363,7 @@ class RecipeBar(QWidget):
         s = D.history(d)["steps"][i]
         try:
             e = D.begin_edit(d, i)
-        except ValueError as err:
+        except (ValueError, OSError) as err:            # (an OSError: the disk refused a pending abort, H2)
             self._closed(d, {"fence": fence}, f"Not deleted: {err}.", "error")
             return
         self._edit = {"k": i, "mode": "delete", "label": s["label"], "lifted": e["lifted"], "applied": e["applied"],
@@ -591,6 +593,8 @@ class RecipeBar(QWidget):
         round)."""
         if self._queue is not None:
             self._queue["closing"] = True
+        if self._steps.busy():                           # an opened recipe's draft copy or a row's history step
+            return self._steps
         return self._runner if self._runner.busy() else None
 
     def close_in_game_edit(self) -> bool:
@@ -617,7 +621,7 @@ class RecipeBar(QWidget):
             return
         try:
             s = D.undo(d)
-        except ValueError as e:
+        except (ValueError, OSError) as e:               # (an OSError: the disk refused a pending abort, round 3 H4)
             self._moved(f"Not undone: {e}.", "error")
             return
         self._moved(f"Undone: {s['label']}.", "")
@@ -629,7 +633,7 @@ class RecipeBar(QWidget):
             return
         try:
             s = D.redo(d)
-        except ValueError as e:
+        except (ValueError, OSError) as e:               # (an OSError: the disk refused a pending abort, round 3 H4)
             self._moved(f"Not redone: {e}.", "error")
             return
         self._moved(f"Redone: {s['label']}.", "")
@@ -669,10 +673,23 @@ class RecipeBar(QWidget):
                              f"{self.source().name}? The draft's current edits and their history are deleted (the "
                              "install is not touched)."):
                 return
-        if d is not None:
-            D.discard(d, root=self._drafts_root)
-        d = D.ensure_draft(self.source(), game=self._game_fn(), root=self._drafts_root)
-        self._queue = {"name": Path(path).name, "rows": list(rows), "done": 0}
+        self._queue = {"name": Path(path).name, "rows": list(rows), "done": 0}   # held from here to the last row
+        self.refresh()
+        source, game, root = self.source(), self._game_fn(), self._drafts_root
+
+        def fresh():                                     # (2-10 s on the window's thread: PERF.md 7)
+            if d is not None:
+                D.discard(d, root=root)
+            return D.ensure_draft(source, game=game, root=root)
+        self._steps.start(fresh, self._opened)
+
+    def _opened(self, d, err):
+        if self._queue is None:
+            return
+        if err is not None:
+            self._queue = None
+            self._moved(f"Not opened: the fresh draft could not be made ({err}).", "error")
+            return
         self._next_row(d)
 
     def _next_row(self, d):
@@ -689,7 +706,24 @@ class RecipeBar(QWidget):
                         f"composed into the draft, {len(q['rows'])} not.", "warn")
             return
         row = q["rows"][0]
-        D.begin_step(d, RC.row_cells(row))
+        cells = RC.row_cells(row)                        # (a whole-map step for an island, carry or sink row: on a
+        self._steps.start(lambda: D.begin_step(d, cells),   # worker, PERF.md 7)
+                          lambda _r, err: self._row_snapshotted(d, row, err))
+
+    def _row_snapshotted(self, d, row, err):
+        from ..world import recipe as RC
+        q = self._queue
+        if q is None:
+            return
+        if err is not None:
+            self._queue = None
+            self._moved(f"Stopped at {RC.label(row)} ({q['done']} row(s) composed): the draft's history could not be "
+                        f"snapshotted ({err}).", "error")
+            return
+        if q.get("closing"):                             # the Workspace closed while the snapshot ran: a row not
+            from ..world import draft as D               # started is not run (review of the perf commits)
+            self._steps.start(lambda: D.abort_step(d), lambda _r, _err: self._next_row(d))
+            return
         tmp = Path(tempfile.mkdtemp(prefix="ff9_recipe_")) / "row.toml"
         tmp.write_text(RC.dumps_one({k: v for k, v in row.items()}), encoding="utf-8")
         argv = self._fuse_argv(tmp, d)
@@ -712,12 +746,35 @@ class RecipeBar(QWidget):
         if q is None:
             return
         if code != 0:
-            D.abort_step(d)
-            self._queue = None
             last = [ln for ln in text.splitlines() if ln.strip()][-1:] or [f"exit code {code}"]
-            self._moved(f"Stopped at {RC.label(row)} ({q['done']} row(s) composed): {last[0]}", "error")
+
+            def stopped(_r, err):
+                self._queue = None
+                lost = "" if err is None else (f"; its writes could not be taken back ({err}): the draft holds an "
+                                               "unrecorded change, taken back when the next step begins")
+                self._moved(f"Stopped at {RC.label(row)} ({q['done']} row(s) composed): {last[0]}{lost}", "error")
+            self._steps.start(lambda: D.abort_step(d), stopped)
             return
-        D.commit_step(d, row, RC.label(row))
+        self._steps.start(lambda: D.commit_step(d, row, RC.label(row)),
+                          lambda _r, err: self._row_recorded(d, row, err))
+
+    def _row_recorded(self, d, row, err):
+        from ..world import recipe as RC
+        q = self._queue
+        if q is None:
+            return
+        if err is not None:                              # its step is left whole: taken back now (round 3, H3)
+            from ..world import draft as D
+
+            def taken_back(_r, err2):
+                self._queue = None
+                back = ("its writes were taken back" if err2 is None else
+                        f"its writes stay in the draft until they can be taken back ({err2}): the next step, Undo, "
+                        "Redo or Promote takes them back first")
+                self._moved(f"Stopped at {RC.label(row)} ({q['done']} row(s) composed): its history step could not "
+                            f"be recorded ({err}), so {back}.", "error")
+            self._steps.start(lambda: D.abort_step(d), taken_back)
+            return
         q["rows"].pop(0)
         q["done"] += 1
         if self._on_changed is not None:
