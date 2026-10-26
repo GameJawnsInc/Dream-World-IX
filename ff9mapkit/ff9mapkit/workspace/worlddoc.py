@@ -1095,7 +1095,8 @@ class WorldDoc(QWidget):
         revert, its promote back), no card is open either: a card's Promote, Revert promote, Discard or Accept would
         write the same folder or draft at the same moment (review of C19)."""
         writes = self._cards_write()
-        why = ("Waits for the recipe bar, which holds this folder's draft (an edit open, or a recipe going in)."
+        why = ("Waits for the recipe bar (in the 3D view), which holds this folder's draft (an edit open, or a recipe "
+               "going in)."
                if held else "Waits for the card, which is writing (its Accept, Promote or Revert promote)."
                if writes else "")
         self.folder_box.setEnabled(not held and not writes)

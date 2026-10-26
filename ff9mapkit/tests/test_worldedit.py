@@ -1241,7 +1241,8 @@ def _promotes_after(run, n):
 
 def test_a_cancel_that_cannot_undo_the_draft_never_promotes_it(monkeypatch, tmp_path, app):
     """THE GUARD: an in-game step's edit whose cancel fails leaves a draft not known to be as it was, and such a draft
-    is never promoted into the game: the bar says so, and nothing is left owed (it would retry at every launch)."""
+    is never promoted into the game. Since round 6 (R6-2) a refusal that leaves the edit open holds the draft: the
+    promote stays owed until a cancel goes through (the draft then as it was) or the draft is discarded."""
     game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
     bar = doc._recipe
     bar._ask = lambda title, text: True
@@ -1254,8 +1255,8 @@ def test_a_cancel_that_cannot_undo_the_draft_never_promotes_it(monkeypatch, tmp_
     monkeypatch.setattr(D, "cancel_edit", fails)
     doc._forest.close_btn.click()                                          # Cancel edit
     assert _promotes_after(run, n) == []
-    assert bar.status_lbl.property("state") == "error" and "could not be undone" in bar.status_lbl.text()
-    assert D.promote_owed(draft) is None
+    assert bar.status_lbl.property("state") == "error" and "still open" in bar.status_lbl.text()
+    assert bar.holding() and D.promote_owed(draft) is not None
 
 
 def test_a_promote_back_that_refuses_says_the_game_lacks_the_recipe(monkeypatch, tmp_path, app):
@@ -1545,3 +1546,95 @@ def test_a_launch_whose_owed_cancel_the_disk_refuses_holds_the_draft(monkeypatch
     bar.cancel_btn.click()
     assert D.history(draft)["edit"] is None and D.history(draft)["promoted"] == 3
     assert _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_a_cancel_the_draft_refuses_holds_the_draft_and_offers_discard(monkeypatch, tmp_path, app):
+    """A cancel the draft itself refused (not the disk) dropped the bar's hold with the edit still open: Undo and the
+    cards ran under it, the refresh's cancel replayed a step while the bar said 'Undone', and the advice to Promote
+    from a card was refused by the open edit (review of the perf fixes, round 6, R6-2). An edit left open by a
+    refusal is held whatever refused it, and since retrying may never help, the bar offers Discard draft."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    asked = []
+    bar._ask = lambda title, text: asked.append(title) or True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    monkeypatch.setattr(D, "cancel_edit", lambda d: (_ for _ in ()).throw(ValueError("a file of the draft changed")))
+    doc._forest.close_btn.click()                                          # Cancel edit, refused by the draft
+    text = bar.status_lbl.text()
+    assert bar.holding() and "still open" in text and "a file of the draft changed" in text and "Discard" in text
+    assert not bar.cancel_btn.isHidden() and not bar.discard_btn.isHidden() and not bar.undo_btn.isEnabled()
+    bar.discard_btn.click()
+    assert asked[-1] == "Discard the draft?" and not draft.exists() and not bar.holding()
+    assert "discarded" in bar.status_lbl.text()
+
+
+def test_a_held_draft_stays_held_when_the_tab_moves_to_another_folder(monkeypatch, tmp_path, app):
+    """A scan landing under an open edit closes its card, and the cancel goes to the edit's own draft; refused, the
+    hold was dropped at once because the tab now showed another folder -- the first folder's edit left open, its game
+    reverted, nothing said (review of the perf fixes, round 6, R6-3). The hold is its draft's until that edit
+    closes, and names the folder."""
+    from ff9mapkit.workspace import worldscan
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    real = _refused_cancel(monkeypatch)
+    doc._finish(worldscan.scan_tree(game / "Hand"), None, None)           # the scan lands: Hand is shown now
+    text = bar.status_lbl.text()
+    assert bar.holding() and "still open" in text and "FF9CustomMap-world" in text, text
+    assert not bar.cancel_btn.isHidden() and not doc.tools_btn.isEnabled()
+    monkeypatch.setattr(D, "cancel_edit", real)
+    bar.cancel_btn.click()
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and not bar.holding()
+    assert _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_a_draft_held_in_the_chart_view_says_where_its_way_out_is(monkeypatch, tmp_path, app):
+    """The chart view closes the cards, so an edit's card cancels its edit there; refused, the bar held the draft out
+    of sight -- the folder box's tooltip pointing at a recipe bar not on screen -- and going back to 3D ran settle(),
+    which closed it with "The Workspace closed with a step ... taken out of it" although nothing closed (review of
+    the perf fixes, round 6, R6-4). The tooltip says the 3D view; settle leaves a held draft to its Cancel edit."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    real = _refused_cancel(monkeypatch)
+    doc.set_view_mode("chart", sync=True)
+    assert bar.holding() and "3D view" in doc.folder_box.toolTip(), doc.folder_box.toolTip()
+    monkeypatch.setattr(D, "cancel_edit", real)
+    doc.set_view_mode("3d", sync=True)
+    text = bar.status_lbl.text()
+    assert "Workspace closed" not in text and "still open" in text and bar.holding(), text
+    bar.cancel_btn.click()
+    assert D.history(draft)["edit"] is None and _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_a_workspace_closing_on_a_held_in_game_edit_tries_once_to_put_the_game_right(monkeypatch, tmp_path, app):
+    """shutdown cancelled an in-game edit only when the bar had it open, so a held one (its cancel refused) was never
+    tried at close, the reader gone or not, and the held text never said the game lacked the steps meanwhile
+    (review of the perf fixes, round 6, R6-5). The held text says it; the close tries the cancel once -- the game's
+    promote run if it goes -- and a refusal there leaves the promote owed for the next launch."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    real, calls = D.cancel_edit, []
+
+    def refused(d):
+        calls.append(1)
+        raise PermissionError(13, "a reader holds it")
+    monkeypatch.setattr(D, "cancel_edit", refused)
+    doc._forest.close_btn.click()
+    assert bar.holding() and "the game" in bar.status_lbl.text().lower(), bar.status_lbl.text()
+    doc.shutdown()                                                         # still refused: tried once, never looped
+    assert len(calls) == 2 and D.promote_owed(draft) is not None
+    monkeypatch.setattr(D, "cancel_edit", real)
+    bar._closing_tried = False                                             # (a later close of this Workspace)
+    doc.shutdown()                                                         # the reader went
+    h = D.history(draft)
+    assert h["edit"] is None and h["promoted"] == 3 and _tree(game / "FF9CustomMap-world") == live0

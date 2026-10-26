@@ -1,8 +1,8 @@
 # Where the World tab makes you wait, and what would shorten it
 
 **Status:** BUILT, 2026-10-26: the two defects and tiers 1-5 of the ranked list, each fix one commit with a test that
-failed first, re-measured per tier; then five adversarial review rounds over the fixes (17, 9, 5, 6 and 4 confirmed,
-all fixed). Owner requests: "explore performance improvements next", then "fix the two defects first, then
+failed first, re-measured per tier; then six adversarial review rounds over the fixes (17, 9, 5, 6, 4 and 5
+confirmed, all fixed). Owner requests: "explore performance improvements next", then "fix the two defects first, then
 build the ranked list in order, one commit per fix with a test that fails before it, re-measuring after each tier".
 What was built and what it measured is [below](#what-was-built); the exploration as it was written follows.
 
@@ -58,6 +58,12 @@ report is disc 1's verdict, with the disc-4 preview's outcome beside it (40d347f
   the game's promote kept owed; a cancel's redos still owed live in the open edit; a refused take-back is named in
   history/take-back.json for the next abort. Catching an error and letting go of the draft let other writes run
   under a half-closed edit.
+- A HELD DRAFT ALWAYS HAS A WAY OUT, AND ITS HOLD IS ITS OWN DRAFT'S (round 6, after round 5 built the hold): any
+  refusal that leaves an edit open holds the draft, whatever refused it, and since a retry may never help the bar
+  offers Discard draft beside Cancel edit; a refusal no retry helps in a cancel's last phase closes the edit with
+  the rest undone, said; the hold lasts until that draft's edit closes, whatever folder or view the tab shows, and
+  neither settle nor a close acts behind it (a close tries it once). And an edit's close writes the history before
+  its records go: the other order lost every step from the edited one to a refused write.
 - A FAST PATH REFUSES AS THE SLOW ONE DID: a cut-short .ff9mesh raises struct.error, a NaN block takes the loop, a mesh
   the census precompute cannot read is asked per sample.
 
@@ -70,7 +76,7 @@ report is disc 1's verdict, with the disc-4 preview's outcome beside it (40d347f
 - **D1 / R1, the river:** no river Check can start from the card on the live folder.
 
 **Not checked:** no in-game run (the changes touch the editor's bookkeeping and its readers, not the bytes a verb
-writes); the fifth review round's own fixes had no sixth.
+writes); the sixth review round's own fixes had no seventh.
 
 
 ## Method
