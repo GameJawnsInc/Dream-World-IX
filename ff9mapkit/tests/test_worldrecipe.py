@@ -845,3 +845,50 @@ def test_a_cancel_waits_out_a_handle_held_a_moment_in_a_lifted_folder(tmp_path, 
     monkeypatch.setattr(type(d), "rename", rename)
     D.cancel_edit(d)
     assert len(refused) == 2 and _tree(d) == before and D.history(d)["edit"] is None
+
+
+def test_an_undo_or_redo_the_disk_refuses_part_way_leaves_the_step_as_it_was(tmp_path, monkeypatch):
+    """undo and redo wrote a step's files back one at a time, then the history: a write refused part way (a reader
+    holding a file the step made) or a history the disk would not replace left the bytes half moved and the cursor
+    where it was. An Edit's rollback then redid the steps after it over a half-undone one and raised a refusal in
+    place of the error; the bar said "Not undone" over a half undo; the next Undo and Redo refused (review of the
+    perf fixes, round 4, R4-3). A refused undo or redo puts the step back as it was before it raises."""
+    _game_, _src, d = _draft(tmp_path)
+    obj = "FF9_Data/WorldMap/Disc1/0_1/r0/Block[1][0] Object.ff9mesh"
+    _step(d, [(0, 0)], {T00: b"A"}, "A")
+    _step(d, [(0, 0), (1, 0)], {T00: b"B", obj: b"B's object"}, "B")
+    _step(d, [(0, 0)], {T00: b"C"}, "C")
+    applied = _tree(d)
+    monkeypatch.setattr(D, "_retry", lambda fn, **k: fn())
+    real = type(d).unlink
+
+    def unlink(self, *a, **k):
+        if self.name == "Block[1][0] Object.ff9mesh":
+            raise PermissionError(32, "the file is being used by another process")
+        return real(self, *a, **k)
+    monkeypatch.setattr(type(d), "unlink", unlink)
+    with pytest.raises(PermissionError):                                  # an Edit of B: undoes C, then B refuses
+        D.begin_edit(d, 1)
+    assert _tree(d) == applied and D.history(d)["cursor"] == 3 and D.history(d)["edit"] is None
+    D.undo(d)
+    c_undone = _tree(d)
+    with pytest.raises(PermissionError):                                  # the bar's Undo of B
+        D.undo(d)
+    assert _tree(d) == c_undone and D.history(d)["cursor"] == 2
+    monkeypatch.setattr(type(d), "unlink", real)
+
+    real_write = D._write_history
+    monkeypatch.setattr(D, "_write_history", lambda *a: (_ for _ in ()).throw(PermissionError(5, "history held")))
+    with pytest.raises(PermissionError):                                  # every file moved, the history refused
+        D.undo(d)
+    assert _tree(d) == c_undone and D.history(d)["cursor"] == 2
+    with pytest.raises(PermissionError):
+        D.redo(d)
+    assert _tree(d) == c_undone and D.history(d)["cursor"] == 2
+    monkeypatch.setattr(D, "_write_history", real_write)
+    D.redo(d)                                                             # and the steps walk again
+    assert _tree(d) == applied
+    D.undo(d)
+    D.undo(d)
+    D.undo(d)
+    assert _tree(d) == _tree(_src)

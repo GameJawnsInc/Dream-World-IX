@@ -830,11 +830,28 @@ def undo(draft: Path) -> dict:
     bad = _differs(draft, s["after"], cells)
     if bad:
         raise ValueError(f"{len(bad)} file(s) of '{s['label']}' changed since it was applied: {bad[:3]}")
-    _restore(draft, s["before"], draft / s["dir"] / "before", cells)
-    _put_ledger(draft, draft / s["dir"] / "before")
-    h["cursor"] -= 1
-    _write_history(draft, h)
+    _step_to(draft, h, s, "before", cells)
     return s
+
+
+def _step_to(draft: Path, h: dict, s: dict, side: str, cells) -> None:
+    """Put step ``s``'s ``side`` at its cells (an undo: ``"before"``, a redo: ``"after"``) and move the cursor past
+    it, whole or nothing: a file or the history the disk refuses part way puts the other side back before the error
+    is raised (only the files not already its bytes), so the bytes stay what the history says. An Edit's rollback
+    redid the steps after a half-undone one, and the bar said "Not undone" over a half undo (review of the perf
+    fixes, round 4, R4-3)."""
+    other = "after" if side == "before" else "before"
+    try:
+        _restore(draft, s[side], draft / s["dir"] / side, cells)
+        _put_ledger(draft, draft / s["dir"] / side)
+        h["cursor"] += -1 if side == "before" else 1
+        _write_history(draft, h)
+    except OSError:
+        back = s[other]
+        _restore(draft, back, draft / s["dir"] / other, cells,
+                 unmoved=lambda rel, p: p.is_file() and _sha(p) == back[rel])
+        _put_ledger(draft, draft / s["dir"] / other)
+        raise
 
 
 def redo(draft: Path) -> dict:
@@ -849,10 +866,7 @@ def redo(draft: Path) -> dict:
     bad = _differs(draft, s["before"], cells)
     if bad:
         raise ValueError(f"{len(bad)} file(s) at '{s['label']}' changed since it was undone: {bad[:3]}")
-    _restore(draft, s["after"], draft / s["dir"] / "after", cells)
-    _put_ledger(draft, draft / s["dir"] / "after")
-    h["cursor"] += 1
-    _write_history(draft, h)
+    _step_to(draft, h, s, "after", cells)
     return s
 
 
