@@ -720,6 +720,10 @@ class RecipeBar(QWidget):
             self._moved(f"Stopped at {RC.label(row)} ({q['done']} row(s) composed): the draft's history could not be "
                         f"snapshotted ({err}).", "error")
             return
+        if q.get("closing"):                             # the Workspace closed while the snapshot ran: a row not
+            from ..world import draft as D               # started is not run (review of the perf commits)
+            self._steps.start(lambda: D.abort_step(d), lambda _r, _err: self._next_row(d))
+            return
         tmp = Path(tempfile.mkdtemp(prefix="ff9_recipe_")) / "row.toml"
         tmp.write_text(RC.dumps_one({k: v for k, v in row.items()}), encoding="utf-8")
         argv = self._fuse_argv(tmp, d)

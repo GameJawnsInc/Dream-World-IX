@@ -545,3 +545,34 @@ def test_an_opened_recipe_says_when_a_row_s_abort_fails(monkeypatch, tmp_path, a
     monkeypatch.setattr(D, "abort_step", real)
     text = doc._recipe.status_lbl.text()
     assert "Stopped at mountain" in text and "could not be taken back" in text and "a reader holds it" in text
+
+
+def test_a_closing_workspace_starts_no_row_whose_snapshot_was_still_running(monkeypatch, tmp_path, app):
+    """Closing the Workspace stops an opened recipe after the row that RUNS. With the snapshot on a worker, a close
+    landing while a row's begin_step ran still started that row's world-fuse once the snapshot ended -- up to a
+    15-26 s sink row the user had not seen start (review of the perf commits). A row not yet started is not."""
+    import threading
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldrecipe import RecipeBar
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "one.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"}]), encoding="utf-8")
+    go, real = threading.Event(), D.begin_step
+    monkeypatch.setattr(D, "begin_step", lambda *a, **k: go.wait(30) and real(*a, **k))
+    run = InProcess()
+    bar = RecipeBar(pick_palette("dark"), game_fn=lambda: game, source_fn=lambda: game / "FF9CustomMap-world",
+                    runner=run, drafts_root=tmp_path / "drafts", open_path_fn=lambda: str(saved),
+                    ask=lambda *a: True, sync=False)
+    bar.open_btn.click()
+    bar._steps.wait()                                                     # the fresh draft is made
+    waiter = bar.closing_runner()                                         # the close lands mid-snapshot
+    assert waiter is bar._steps
+    threading.Timer(0.2, go.set).start()
+    for _ in range(16):                                                   # as WorldDoc.shutdown loops
+        w = bar.closing_runner()
+        if w is None:
+            break
+        assert w.wait()
+    assert run.argvs == [] and not bar.holding()                          # the row never started
+    assert "Stopped one.toml as the Workspace closed" in bar.status_lbl.text()
+    assert not (tmp_path / "drafts" / "FF9CustomMap-world.draft" / D.HISTORY_DIR / D._PENDING).exists()
