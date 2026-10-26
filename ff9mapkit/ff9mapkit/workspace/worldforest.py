@@ -1137,10 +1137,11 @@ class CarryTool(QWidget):
             return
         self._job = None
         self._verdict = None
+        way_out = ("Cancel edit, or Accept the edit again, takes it back first" if self._editing is not None else
+                   "the next step, Undo, Redo or Promote takes it back first")   # (an open edit hides Undo: R4-4)
         self._say(f"Not written: its history step could not be recorded ({err}), so "
                   + ("the write was taken back and the draft is as it was." if err2 is None else
-                     f"the write is in the draft until it can be taken back ({err2}): the next step, Undo, Redo or "
-                     "Promote takes it back first."), "error")
+                     f"the write is in the draft until it can be taken back ({err2}): {way_out}."), "error")
         self._sync_buttons()
 
     def _accepted(self, v):

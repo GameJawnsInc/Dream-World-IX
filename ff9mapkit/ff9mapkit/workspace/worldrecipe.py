@@ -116,9 +116,9 @@ class RecipeBar(QWidget):
         d = self.draft()
         if d is not None and self._edit is None and self._queue is None and D.history(d)["edit"] \
                 and D.promote_owed(d) is None:       # (one the game is owed a promote for is :meth:`settle`'s)
-            try:                                         # an edit this Workspace did not open (it closed mid-edit)
-                D.cancel_edit(d)
-            except ValueError:
+            try:                                         # an edit this Workspace did not open (it closed mid-edit,
+                D.cancel_edit(d)                         # or the disk refused its cancel: R4-4)
+            except (ValueError, OSError):
                 pass
         h = D.history(d) if d is not None else {"steps": [], "cursor": 0, "promoted": 0}
         steps, cur, prom = h["steps"], h["cursor"], h["promoted"]
@@ -448,8 +448,10 @@ class RecipeBar(QWidget):
         if d is not None:
             try:
                 D.cancel_edit(d)
-            except ValueError as err:
+            except (ValueError, OSError) as err:         # (an OSError: the disk refused it; closed once it lets: R4-4)
                 note, state, undone = f"The edit could not be undone: {err}.", "error", False
+                if e.get("fence") is not None:
+                    note += " The game does not have the recipe now; Promote it from a card."
                 D.settle_promote(d)                      # (a draft not known to be as it was is never promoted)
         self._sel = e["k"]
         note = note or f"Edit cancelled: the draft is exactly as it was, {e['label']} in its place."
@@ -576,7 +578,7 @@ class RecipeBar(QWidget):
         if D.history(d)["edit"]:
             try:
                 D.cancel_edit(d)
-            except ValueError as err:
+            except (ValueError, OSError) as err:
                 D.settle_promote(d)
                 self._moved(f"{note}, and it could not be undone ({err}): the game does not have the recipe now; "
                             "Promote it from a card.", "error")

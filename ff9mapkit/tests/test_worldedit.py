@@ -1466,3 +1466,46 @@ def test_a_job_whose_output_file_cannot_be_made_still_ends(app, monkeypatch):
     r, got = WF.JobRunner(), []
     r.start([sys.executable, "-c", "pass"], ".", lambda code, text: got.append((code, text)))
     assert r.wait() and not r.busy() and len(got) == 1 and got[0][0] == -1 and "could not start" in got[0][1]
+
+
+def _refused_cancel(monkeypatch):
+    real = D.cancel_edit
+    monkeypatch.setattr(D, "cancel_edit", lambda d: (_ for _ in ()).throw(PermissionError(13, "a reader holds it")))
+    return real
+
+
+def test_a_cancel_the_disk_refuses_says_so_and_closes_once_it_can(monkeypatch, tmp_path, app):
+    """Cancel edit begins with the pending abort, which the disk can refuse (a reader holding a file a failed take-back
+    left); the bar caught a ValueError only, so the OSError left the click after the bar had dropped its edit: the
+    game's promote never came back, the bar kept its stale 'Editing...' text, and every later refresh raised on the
+    same refusal (review of the perf fixes, round 4, R4-4). It is said, and the edit closes once the disk lets it."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    real = _refused_cancel(monkeypatch)
+    doc._forest.close_btn.click()                                          # Cancel edit
+    text = bar.status_lbl.text()
+    assert "could not be undone" in text and "a reader holds it" in text and "does not have the recipe" in text
+    assert "Editing" not in text and not bar.holding()
+    monkeypatch.setattr(D, "cancel_edit", real)
+    bar.refresh()                                                          # the reader went: the edit closes
+    assert D.history(draft)["edit"] is None and D.history(draft)["cursor"] == 3
+
+
+def test_a_launch_whose_owed_cancel_the_disk_refuses_says_so(monkeypatch, tmp_path, app):
+    """settle() puts right a Workspace that closed mid-edit of an in-game step; its cancel caught a ValueError only, so
+    the disk's refusal left the launch's own call (review of the perf fixes, round 4, R4-4)."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    bar._ask = lambda title, text: True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    doc._forest._editing = None                                            # the Workspace died with the edit open
+    bar._edit = None
+    assert D.promote_owed(draft) is not None
+    _refused_cancel(monkeypatch)
+    bar.settle()
+    text = bar.status_lbl.text()
+    assert "could not be undone" in text and "a reader holds it" in text and "does not have the recipe" in text
