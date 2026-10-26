@@ -264,3 +264,48 @@ def test_a_river_edit_whose_move_from_is_not_where_the_river_stands_is_cancelled
     tool._on_bg(what, 0, fn(), None)
     assert notes == ["Not opened in its card: the draft before it holds the river at 576, 0, not where the step moved "
                      "it from. Delete still works."] and not tool.editing() and tool.isHidden()
+
+
+def test_the_river_s_shape_is_read_once_per_install_and_kit(tmp_path, monkeypatch):
+    """The river card read the river's shape on its first open of every session: 17-24 s on a worker, every time
+    (PERF.md 7, c5). It is a function of the install's stock bytes and of the kit's code alone, so it is kept in the
+    kit's cache per install, stamped with the world code it was computed by: the same shape back, exactly, and a
+    different kit computes it again."""
+    import json
+    calls = []
+
+    def read(game=None):
+        calls.append(game)
+        return _shape()
+    monkeypatch.setattr(RE, "_cache_dir", lambda: tmp_path / "cache")
+    game = tmp_path / "game"
+    first = RE.cached_shape(game, read=read)
+    again = RE.cached_shape(game, read=read)
+    assert len(calls) == 1
+    for a, b in ((first, _shape()), (again, _shape())):
+        assert np.array_equal(a.tris, b.tris) and a.tris.dtype == b.tris.dtype == np.float64
+        assert np.array_equal(a.ring, b.ring) and a.ring.dtype == b.ring.dtype
+        assert (a.blocks, a.cells, a.cells_shift, a.shifts) == (b.blocks, b.cells, b.cells_shift, b.shifts)
+        assert all(type(x) is tuple for x in a.blocks + a.cells + a.shifts) and type(a.cells_shift) is tuple
+    monkeypatch.setattr(RE, "_code_stamp", lambda: "another kit")
+    RE.cached_shape(game, read=read)
+    assert len(calls) == 2                                               # a new kit reads it again
+    (doc,) = [json.loads(p.read_text()) for p in (tmp_path / "cache" / "world-river").glob("*.json")]
+    assert doc["stamp"] == "another kit" and doc["game"] == str(game)
+
+
+def test_the_river_card_reads_the_cached_shape(tmp_path, monkeypatch):
+    """THE CALL SITE: the card's default shape read is the cached one."""
+    pytest.importorskip("PySide6", reason="GUI extra not installed")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldriver import RiverTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    asked = []
+    monkeypatch.setattr(RE, "cached_shape", lambda game, **k: asked.append(game) or _shape())
+    monkeypatch.setattr(RE, "shape", lambda **k: pytest.fail("the uncached read"))
+    tool = RiverTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: tmp_path,
+                     source_fn=lambda: tmp_path / "F", drafts_root=tmp_path / "d", sync=True)
+    assert tool._outline_fn(None).cells == _shape().cells and asked == [tmp_path]
