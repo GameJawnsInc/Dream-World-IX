@@ -139,8 +139,9 @@ _WM_ENV_MEMO: dict = {}
 def _worldmap_env(disc: int = 1, game=None):
     """The loaded p0data bundle that holds the worldmap terrain meshes for ``disc``. Caches the winning bundle
     basename next to StreamingAssets so we don't rescan ~50 bundles every call (p0data3 first -- where they live).
-    A disc with NO winning bundle is memoized too (see ``_WM_ENV_MEMO``) and re-raises without rescanning."""
-    _unitypy()                                       # surface the install/UnityPy error early
+    A disc with NO winning bundle is memoized too (see ``_WM_ENV_MEMO``) and re-raises without rescanning. A root
+    with no bundle at all (a draft's parent: every world-* job into a draft attempts its disc-4 mirror there)
+    refuses so without importing UnityPy, about 1 s of each such job (PERF.md 5)."""
     sa = _streaming_assets(game)
     memo_key = (str(sa), int(disc))
     if memo_key in _WM_ENV_MEMO:
@@ -149,6 +150,12 @@ def _worldmap_env(disc: int = 1, game=None):
             raise ValueError(err)
         return env
     needle = f"worldmap/disc{disc}/0_1/"
+    missing = (f"no worldmap terrain meshes (container {needle!r}) found in StreamingAssets/p0data*.bin "
+               f"-- is this a full FF9 install?")
+    if not _bundles(game):
+        _WM_ENV_MEMO[memo_key] = (None, missing)
+        raise ValueError(missing)
+    _unitypy()                                       # surface the install/UnityPy error early
     hint = sa / _WM_BUNDLE_HINT
 
     def _has(env) -> bool:
@@ -179,10 +186,8 @@ def _worldmap_env(disc: int = 1, game=None):
                 pass
             _WM_ENV_MEMO[memo_key] = (env, None)
             return env
-    msg = (f"no worldmap terrain meshes (container {needle!r}) found in StreamingAssets/p0data*.bin "
-           f"-- is this a full FF9 install?")
-    _WM_ENV_MEMO[memo_key] = (None, msg)
-    raise ValueError(msg)
+    _WM_ENV_MEMO[memo_key] = (None, missing)
+    raise ValueError(missing)
 
 
 @dataclass
