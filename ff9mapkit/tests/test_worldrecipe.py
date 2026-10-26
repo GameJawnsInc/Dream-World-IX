@@ -1089,3 +1089,26 @@ def test_an_edit_whose_close_the_disk_refuses_is_cancelled_and_says_so(monkeypat
     assert raised == [] and "Not edited" in text and "history held" in text and bar._edit is None, text
     h = D.history(draft)
     assert _tree(draft) == before and h["edit"] is None and h["cursor"] == 2
+
+
+def test_a_cancel_whose_redo_the_draft_refuses_closes_with_the_rest_undone(tmp_path, monkeypatch):
+    """Since round 5 a cancel's redos stay owed in the open edit; a redo the DRAFT refuses (a file written outside the
+    history, at a later step's cells) refuses every time, so the edit stayed open for good, the bar's way out gone
+    (review of the perf fixes, round 6, R6-2). Such a refusal closes the edit with the rest undone, redo-able once
+    the draft lets them, and says so."""
+    d, before, _h0 = _edited_one_of_two(tmp_path)
+    real, calls = D.redo, []
+
+    def second_refused(draft):
+        calls.append(1)
+        if len(calls) == 2:
+            raise ValueError("1 file(s) at 'mountain two' changed since it was undone")
+        return real(draft)
+    monkeypatch.setattr(D, "redo", second_refused)
+    with pytest.raises(ValueError, match="1 step after it stays undone"):
+        D.cancel_edit(d)
+    monkeypatch.setattr(D, "redo", real)
+    h = D.history(d)
+    assert h["edit"] is None and h["cursor"] == 1 and len(h["steps"]) == 2
+    D.redo(d)
+    assert _tree(d) == before

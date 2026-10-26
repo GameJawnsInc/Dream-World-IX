@@ -1106,7 +1106,16 @@ def cancel_edit(draft: Path) -> dict:
         _write_history(draft, h)
     to = history(draft)["edit"]["redo_to"]
     while history(draft)["cursor"] < to:
-        redo(draft)
+        try:
+            redo(draft)
+        except ValueError as err:                        # the draft refuses it (a file written outside the history):
+            h = history(draft)                           # no retry helps, so the edit closes, the rest undone and
+            n = to - h["cursor"]                         # redo-able once the draft lets them (round 6, R6-2)
+            h["edit"] = None
+            _write_history(draft, h)
+            shutil.rmtree(draft / HISTORY_DIR / EDIT_DIR, ignore_errors=True)
+            raise ValueError(f"the edit is cancelled, but {n} step{'s' if n != 1 else ''} after it "
+                             f"{'stay' if n != 1 else 'stays'} undone: {err}") from err
     h = history(draft)
     h["edit"] = None
     _write_history(draft, h)

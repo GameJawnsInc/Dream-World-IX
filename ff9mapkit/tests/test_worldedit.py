@@ -1241,7 +1241,8 @@ def _promotes_after(run, n):
 
 def test_a_cancel_that_cannot_undo_the_draft_never_promotes_it(monkeypatch, tmp_path, app):
     """THE GUARD: an in-game step's edit whose cancel fails leaves a draft not known to be as it was, and such a draft
-    is never promoted into the game: the bar says so, and nothing is left owed (it would retry at every launch)."""
+    is never promoted into the game. Since round 6 (R6-2) a refusal that leaves the edit open holds the draft: the
+    promote stays owed until a cancel goes through (the draft then as it was) or the draft is discarded."""
     game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
     bar = doc._recipe
     bar._ask = lambda title, text: True
@@ -1254,8 +1255,8 @@ def test_a_cancel_that_cannot_undo_the_draft_never_promotes_it(monkeypatch, tmp_
     monkeypatch.setattr(D, "cancel_edit", fails)
     doc._forest.close_btn.click()                                          # Cancel edit
     assert _promotes_after(run, n) == []
-    assert bar.status_lbl.property("state") == "error" and "could not be undone" in bar.status_lbl.text()
-    assert D.promote_owed(draft) is None
+    assert bar.status_lbl.property("state") == "error" and "still open" in bar.status_lbl.text()
+    assert bar.holding() and D.promote_owed(draft) is not None
 
 
 def test_a_promote_back_that_refuses_says_the_game_lacks_the_recipe(monkeypatch, tmp_path, app):
@@ -1545,3 +1546,24 @@ def test_a_launch_whose_owed_cancel_the_disk_refuses_holds_the_draft(monkeypatch
     bar.cancel_btn.click()
     assert D.history(draft)["edit"] is None and D.history(draft)["promoted"] == 3
     assert _tree(game / "FF9CustomMap-world") == live0
+
+
+def test_a_cancel_the_draft_refuses_holds_the_draft_and_offers_discard(monkeypatch, tmp_path, app):
+    """A cancel the draft itself refused (not the disk) dropped the bar's hold with the edit still open: Undo and the
+    cards ran under it, the refresh's cancel replayed a step while the bar said 'Undone', and the advice to Promote
+    from a card was refused by the open edit (review of the perf fixes, round 6, R6-2). An edit left open by a
+    refusal is held whatever refused it, and since retrying may never help, the bar offers Discard draft."""
+    game, doc, run, draft, live0 = _promoted(app, monkeypatch, tmp_path)
+    bar = doc._recipe
+    asked = []
+    bar._ask = lambda title, text: asked.append(title) or True
+    doc._on_pick(_hit(26.0, -26.0), sync=True)
+    bar.edit_btn.click()
+    monkeypatch.setattr(D, "cancel_edit", lambda d: (_ for _ in ()).throw(ValueError("a file of the draft changed")))
+    doc._forest.close_btn.click()                                          # Cancel edit, refused by the draft
+    text = bar.status_lbl.text()
+    assert bar.holding() and "still open" in text and "a file of the draft changed" in text and "Discard" in text
+    assert not bar.cancel_btn.isHidden() and not bar.discard_btn.isHidden() and not bar.undo_btn.isEnabled()
+    bar.discard_btn.click()
+    assert asked[-1] == "Discard the draft?" and not draft.exists() and not bar.holding()
+    assert "discarded" in bar.status_lbl.text()
