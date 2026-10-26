@@ -4886,6 +4886,22 @@ def _cmd_world_rim_retile(args: argparse.Namespace) -> int:
     return 0
 
 
+def _note_disc4(args, outcome: str) -> None:
+    """Disc 1's ``--report-json`` gains the disc-4 preview's outcome -- ``copies``, ``replays``, ``refuses`` or
+    ``unchecked`` -- so a card says what its two-call Accept will do (review of the perf commits, J3)."""
+    path = getattr(args, "report_json", None)
+    if not path:
+        return
+    import json
+    from pathlib import Path
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    doc["disc4"] = outcome
+    Path(path).write_text(json.dumps(doc, indent=1), encoding="utf-8")
+
+
 def _preview_disc4(args: argparse.Namespace, cells, cmd, what: str, keeps: str) -> None:
     """A disc-1 dry run says what the deploy will do on disc 4 (THE DISC-4 REPLAY): copy the edit where disc 4's real
     cells are the same, else re-run ``cmd`` there -- and then whether that replay passes its own gates, so an edit
@@ -4897,11 +4913,13 @@ def _preview_disc4(args: argparse.Namespace, cells, cmd, what: str, keeps: str) 
         whys = {c: DM.copy_refusal(c, src_disc=1, dst_disc=4, game=args.game) for c in cells}
     except ValueError as e:
         print(f"disc 4: not checked ({e})")
+        _note_disc4(args, "unchecked")
         return
     differ = {c: w for c, w in whys.items() if w}
     if not differ:
         print(f"disc 4: the deploy copies this edit there (disc 4's real cell{'s are' if len(cells) > 1 else ' is'} "
               f"the same)")
+        _note_disc4(args, "copies")
         return
     why = (next(iter(differ.values())) if len(cells) == 1 else
            f"{len(differ)} of the {len(cells)} blocks differ across discs ({', '.join(map(str, sorted(differ)))})")
@@ -4912,8 +4930,10 @@ def _preview_disc4(args: argparse.Namespace, cells, cmd, what: str, keeps: str) 
     #                                    call decides, as the World tab's two-call Accept does (PERF.md defect 2)
     if cmd(ns) == 0:
         print("disc 4: the replay passes its gates -- the deploy edits both discs")
+        _note_disc4(args, "replays")
     else:
         print(f"disc 4: !! the replay REFUSES there (above) -- the deploy edits disc 1 only; disc 4 keeps {keeps}")
+        _note_disc4(args, "refuses")
 
 
 def _preview_disc4_morph(args: argparse.Namespace, cell) -> None:

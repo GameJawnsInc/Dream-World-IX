@@ -390,3 +390,47 @@ def test_a_sink_edited_through_the_recipe_bar_writes_what_world_fuse_writes(worl
     recipe.write_text(RC.dumps(edited), encoding="utf-8")
     assert cli.main(["--game", str(game), "world-fuse", str(recipe), "--mod-folder", str(composed)]) == 0
     assert _world_bytes(composed) == _world_bytes(draft)
+
+
+def test_a_check_says_when_disc4_will_keep_its_own_ground(world, monkeypatch, tmp_path):
+    """With the report disc 1's alone, a Check whose disc-4 replay refused still showed "Accept writes it to the
+    draft, on disc 1 and on disc 4" -- its own printed text said the opposite (review of the perf commits, J3).
+    disc 1's report carries the disc-4 preview's outcome, and the pass text says what the Accept will do."""
+    from ff9mapkit.world import discmirror as DM
+    _island(world, other=False)
+    game, src = _drafts(tmp_path)
+    real = TR.sink
+    rep = tmp_path / "v.json"
+    for why, refuse, want in ((None, False, "copies"), ("cells differ", False, "replays"), ("cells differ", True,
+                                                                                           "refuses")):
+        monkeypatch.setattr(DM, "copy_refusal", lambda blk, why=why, **k: why)
+
+        def sink(mod, at, refuse=refuse, **k):
+            if k.get("disc") == 4 and refuse:
+                raise ValueError("no island at (344, -360) on disc 4")
+            return real(mod, at, **k)
+        monkeypatch.setattr(TR, "sink", sink)
+        assert cli.main(["--game", str(game)] + SE.command("FF9CustomMap-world", (344.0, -360.0), report=rep)) == 0
+        v = json.loads(rep.read_text())
+        assert v["ok"] and v["disc"] == 1 and v["disc4"] == want, (why, refuse)
+    pytest.importorskip("PySide6", reason="GUI extra not installed")
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from ff9mapkit.editor.theme import pick_palette
+    from ff9mapkit.workspace.worldsink import SinkTool
+    from ff9mapkit.workspace.worldview3d import WorldView3DPanel
+    from .test_worldforest import Scripted
+    for disc4, words in (("refuses", "on disc 1 only"), ("copies", "on disc 1 and on disc 4")):
+        run = Scripted(lambda kind, argv, disc4=disc4: {"ok": True, "dry_run": kind == "check", "at": [344.0, -360.0],
+                                                         "blocks": [[5, 5]], "written": [], "report": {"land_tris": 4},
+                                                         "refused": None, "disc": 1, "disc4": disc4})
+        tool = SinkTool(pick_palette("dark"), WorldView3DPanel(pick_palette("dark")), game_fn=lambda: game,
+                        source_fn=lambda: src, runner=run, drafts_root=tmp_path / f"drafts_{disc4}", sync=True,
+                        outline_fn=lambda d: [ROW])
+        tool.open_tool()
+        tool.place(344.0, -360.0)
+        tool._timer.stop()
+        tool._check()
+        assert words in tool.verdict_lbl.text(), tool.verdict_lbl.text()

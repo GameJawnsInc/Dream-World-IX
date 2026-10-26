@@ -218,6 +218,14 @@ def command(mod_folder, center, donor, *, spread: float = 1.0, rot_deg: float = 
     return argv
 
 
+def disc4_words(v) -> str:
+    """Where a two-call Accept (the sink's, the coast morph's) writes, as its Check's report says (``disc4``: the
+    disc-4 preview's outcome)."""
+    if (v or {}).get("disc4") == "refuses":
+        return "on disc 1 only: disc 4's own replay refuses there, so disc 4 keeps its own ground"
+    return "on disc 1 and on disc 4"
+
+
 def read_verdict(path) -> dict | None:
     """The ``--report-json`` verdict, or None when the job wrote none (it died before deciding)."""
     try:

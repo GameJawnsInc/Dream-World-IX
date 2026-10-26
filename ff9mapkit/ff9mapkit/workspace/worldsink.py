@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QCheckBox
 
 from . import widgets
 from .worldforest import GATE_WORDS, CarryTool
+from ..world.forestedit import disc4_words
 
 SINK_GATES = {**GATE_WORDS, "frame": "the frame gate", "stitch": "the stitch gate", "entrance": "the entrance gate",
               "coverage": "the coverage gate"}
@@ -143,7 +144,7 @@ class SinkTool(CarryTool):
         n = len(v.get("blocks") or [])
         return (f"Passes every gate: the island at {self.center[0]:g}, {self.center[1]:g} goes, {r.get('land_tris')} "
                 f"land tris over {n} block{'s' if n != 1 else ''} ({self._preview.get('how')}). Accept writes it to "
-                "the draft, on disc 1 and on disc 4.", "ok")
+                f"the draft, {disc4_words(v)}.", "ok")
 
     def _preview_text(self, pv):
         if pv["why"] == "no sinkable island here":
