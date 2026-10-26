@@ -418,7 +418,13 @@ class RecipeBar(QWidget):
             self.refresh()
             self._runner.start(argv, kit_cwd(), lambda code, text, s=s: self._put_back_done(d, s, code, text))
             return
-        D.finish_edit(d)
+        try:
+            D.finish_edit(d)
+        except OSError as err:                           # its history write refused: the records stand, so the edit
+            what = "deleted" if e["mode"] == "delete" else "edited"   # is cancelled from them (round 6, R6-1)
+            self.cancel_edit(f"Not {what}: the edit could not be closed ({err}). The draft is exactly as it was.",
+                             "error")
+            return
         self._edit = None
         n = e["replayed"] + e["rerun"]
         back = (f" The {n} step{'s' if n != 1 else ''} after it {'are' if n != 1 else 'is'} back on top "

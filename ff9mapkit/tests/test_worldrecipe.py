@@ -1028,3 +1028,64 @@ def test_a_commit_whose_take_back_is_refused_too_is_finished_by_the_next_abort(t
     D.abort_step(d)                                                       # ...until whatever runs next
     assert _tree(d) == before and sorted(p.name for p in (d / D.HISTORY_DIR).iterdir()) == ["0000"]
     assert D.history(d)["cursor"] == 1
+
+
+def test_a_finish_the_disk_refuses_leaves_every_record_for_the_cancel(tmp_path, monkeypatch):
+    """finish_edit deleted the parked records before it wrote the history that closes the edit: a write refused left
+    an open edit whose lifted records were gone, and its cancel -- the bar's, or the next launch's own -- undid every
+    step put back, dropped them, and then failed on the missing records: every step from the edited one lost (review
+    of the perf fixes, round 6, R6-1). The history is written first; the records go after."""
+    d, before, _h0 = _edited_one_of_two(tmp_path)
+    D.replay(d, D.history(d)["edit"]["lifted"][1])                       # the put-back: the mountain on top
+    real = D._write_history
+    monkeypatch.setattr(D, "_write_history", lambda *a: (_ for _ in ()).throw(PermissionError(5, "history held")))
+    with pytest.raises(PermissionError):
+        D.finish_edit(d)
+    monkeypatch.setattr(D, "_write_history", real)
+    assert D.history(d)["edit"] and (d / D.HISTORY_DIR / D.EDIT_DIR / "0000").is_dir()
+    D.cancel_edit(d)
+    assert _tree(d) == before and D.history(d)["cursor"] == 2
+
+
+def test_a_cancel_over_a_record_already_gone_refuses_before_anything_moves(tmp_path):
+    """A draft an older kit left -- an open edit whose parked records a refused finish had deleted -- lost every step
+    put back to its cancel, which undid and dropped them before it found the records gone (review of the perf
+    fixes, round 6, R6-1). The cancel looks first."""
+    d, _before, _h0 = _edited_one_of_two(tmp_path)
+    D.replay(d, D.history(d)["edit"]["lifted"][1])
+    shutil.rmtree(d / D.HISTORY_DIR / D.EDIT_DIR)                         # what the older finish_edit left
+    now, h = _tree(d), D.history(d)
+    with pytest.raises(ValueError, match="missing"):
+        D.cancel_edit(d)
+    assert _tree(d) == now and D.history(d) == h
+
+
+def test_an_edit_whose_close_the_disk_refuses_is_cancelled_and_says_so(monkeypatch, tmp_path, app):
+    """The put-back's last call, finish_edit, ran unguarded on the window's thread: refused, its error left the slot,
+    the bar kept a stale 'putting the steps back on top, 0 done' and the edit stayed open with nothing said (review
+    of the perf fixes, round 6, R6-1). The edit is cancelled -- its records whole, since the finish now writes the
+    history first -- and the bar says why."""
+    import sys
+    game = _two_islands(monkeypatch, tmp_path)
+    saved = tmp_path / "two.toml"
+    saved.write_text(RC.dumps([{"table": "forest", "center": [26.0, -26.0], "donor": "15,15"},
+                               {"table": "mountain", "center": [90.0, -26.0], "donor": "0,0"}]), encoding="utf-8")
+    doc, run = _doc(app, game, tmp_path, saved)
+    doc.set_view_mode("3d", sync=True)
+    doc._recipe.open_btn.click()
+    draft = tmp_path / "drafts" / "FF9CustomMap-world.draft"
+    bar, before = doc._recipe, _tree(draft)
+    bar.select(0)
+    bar.edit_btn.click()
+    forest = doc._forest
+    forest.drop_at(30.0, -30.0)
+    forest._timer.stop()
+    forest._check()
+    monkeypatch.setattr(D, "finish_edit", lambda d: (_ for _ in ()).throw(PermissionError(5, "history held")))
+    raised = []
+    monkeypatch.setattr(sys, "excepthook", lambda *a: raised.append(a[1]))
+    forest.accept_btn.click()
+    text = bar.status_lbl.text()
+    assert raised == [] and "Not edited" in text and "history held" in text and bar._edit is None, text
+    h = D.history(draft)
+    assert _tree(draft) == before and h["edit"] is None and h["cursor"] == 2
