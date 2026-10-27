@@ -76,6 +76,16 @@ While you're paired:
   `AutoSaveOnlyAtMoogle` or `DisableAutoSave` option is on, or you were in the middle of a scene), it
   reloads your last own autosave instead.
 
+**If you get left behind,** press **F11**, or hold the left stick in (**L3**) for about a second. On
+the host's screen it puts you where they are standing; on another screen it takes you to theirs. On the
+world map it takes you to the host's screen, or, if they aren't on one, you join them at their next
+stop. It works only while you can move: not in a menu, during a conversation, a cutscene or a screen
+change, or partway up a ladder or jump you started yourself, which ends on its own. If you are ever
+stuck partway up one, press **~** to open the debug menu and click **Reload field** on its **Go** tab.
+Holding L3 hasn't been tested on real controllers yet; if it does nothing on yours, use F11 (some
+PlayStation controllers report that button as Share). When it refuses outside a menu, `Memoria.log` in
+your FF9 folder has a `teleport-to-host declined` line that says why.
+
 ## 4. Stop
 
 Click **Turn co-op off** on both PCs. The game goes back to solo play.
