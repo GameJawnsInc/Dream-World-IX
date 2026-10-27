@@ -166,6 +166,53 @@ It still leaves a few things untouched:
 **This is a taste call for the owner** before it is built: during host scenes the guest does not see themselves.
 The owner already wants plain NPC talks to keep the guest visible.
 
+**Owner decisions (2026-10-27):**
+- step out on both screens (A + C + E), as recommended;
+- pop, not fade;
+- the host hides the guest's ghost during its own plain scenes, even when the guest still has control (C);
+- no free-roam rule (F) this round.
+
+### Build: engine patch s158 (`memoria-patches/s158-netsync-step-out.patch`)
+
+The number is s158 because another round took s157. The code is `NetSyncStepOut` plus hooks in `NetSyncClient`,
+`NetSyncSelfDress`, `SetRenderer`, `PosObj` and the harness.
+
+The guest's rule:
+- **Start.** Every base term must hold: a following, mirroring guest on a field; the host on my field with its control
+  off; my control off; no guest climb in flight; not a relayed talk; the lever not off. Then the guest steps out at once
+  when a line is open on its own copy or the host's sticky scene is up, and otherwise after a 1.5 s dwell.
+- **The arrival law.** A door's fade-in has control off on both copies and no line. The dwell keeps it from stepping
+  out. Without it, a dressed guest would flash Zidane at every parallel arrival.
+- **End.** My control back for 500 ms, a field change, the controlled body changing, the session ending, or the lever.
+  The host's state does not end it, because the guest's copy may still be playing the tail of the scene.
+- **The talk test** is the guest's own copy. A relay accept owns the control-off episode it starts. Before the accept,
+  the host's section-5 nonce equal to `_talkSceneNonce` also counts as a talk.
+
+While the guest is stepped out:
+- its wire mask is 0, so the host's ghost of it hides;
+- its own screen hides the host's ghost;
+- a dressed body's meshes go dark through a flag4 term, but the blob shadow keeps stock's flag4, because it sits under
+  the stand-in;
+- a Zidane stand-in (the body's `netDressSrc` model) follows the body. It copies the body's local position, rotation
+  and scale. It plays the body's raw source clip at the body's own normalized time, takes the body's room tint, and
+  shows only when stock would show the body. It runs in its own `LateUpdate`, after the logic tick and the smoothing
+  pass. The raw clip is recorded in `PosObj.netRawAnims` wherever `NetSyncSelfDress` maps one: the slot setters,
+  `RunAnimation`, the dress-time slot store and the jump;
+- an undressed body stays visible, because it already is the solo protagonist.
+
+The host's side:
+- a zero wire mask now hides the ghost in every dress branch. Before s158, only the same-model branch read it;
+- while the host's sticky scene is up and was not raised by a relayed talk (`StartSceneAt` marks those), the guest's
+  ghost hides.
+
+Accepted gaps:
+- a prop held by a dressed body hides with it;
+- the head focus is not copied to the stand-in;
+- free-roam doubles (F);
+- a talk that turns into a party cutscene (G);
+- a scene with no line, shorter than the dwell, shows the double for its length;
+- the pop.
+
 ## Finding 4: the guest lags the host's F1 high speed through conversations
 
 **Cause.** F1 is stock Memoria's High Speed booster (`UIKeyTrigger.cs:237-256`). `FastForwardFactor` returns

@@ -8409,17 +8409,19 @@ class Session:
     #: s99 `tap-record`/`replay`; [ff9mapkit netsync B4] + s100 `guestslots`/`bcmd`/`hostgates`, s101
     #: `containment`/`bctl`, s102 `bmenu`; [ff9mapkit netsync B5] + s103 `endbench`; [ff9mapkit netsync B4] s106 INSERTS
     #: `bbench` before `endbench`; [ff9mapkit netsync s133] + `actbench`; [ff9mapkit netsync s139] + `selfdress`;
-    #: [ff9mapkit netsync s156] + `guestlocal`, at the END). Pinned to the patch stack by test_harness_netsync.py.
+    #: [ff9mapkit netsync s156] + `guestlocal`, at the END; [ff9mapkit netsync s158] + `stepout` after it). Pinned to the
+    #: patch stack by test_harness_netsync.py.
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
                         "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
                         "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench",
-                        "endbench", "actbench", "selfdress", "guestlocal")
+                        "endbench", "actbench", "selfdress", "guestlocal", "stepout")
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
     #: "authority", s96) -- the F3.3 and B4/B5 ones included (they build on it). An F3 engine answers them "unknown
-    #: sub-verb" only AFTER the step is spent. [ff9mapkit netsync s156] + `guestlocal`, at the END.
+    #: sub-verb" only AFTER the step is spent. [ff9mapkit netsync s156] + `guestlocal`, at the END. [ff9mapkit netsync s158] +
+    #: `stepout` after it.
     NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
                                   "host", "tap-record", "replay", "guestslots", "bcmd", "hostgates", "containment",
-                                  "bctl", "bmenu", "bbench", "endbench", "actbench", "selfdress", "guestlocal")
+                                  "bctl", "bmenu", "bbench", "endbench", "actbench", "selfdress", "guestlocal", "stepout")
     #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
     #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
     #: engine without it, the key it reads, the patch that added it, and what the verb is.
@@ -8521,6 +8523,15 @@ class Session:
     #: unknown op, a wrong arity, and a non-integer or out-of-range n
     NETSYNC_GUESTLOCAL_ROLE_REFUSAL = "netsync guestlocal: needs the selftest role (netsync selftest 1)"
     NETSYNC_GUESTLOCAL_USAGE = "netsync guestlocal: expected act|shadow|off|mutate <0-65535>|clear|teleport"
+    #: [ff9mapkit netsync s158] THE PARTY-SCENE STEP-OUT's sub-verb (studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md Finding 3), told
+    #: by ``netsync.stepout``'s PRESENCE (netsync's LAST key, after `guestlocal`): the State capability accessor, the key, the
+    #: patch, what the verb is -- and NetSyncStepOut.HarnessLever's ops and two refusals, in its words.
+    NETSYNC_STEPOUT_SUBVERBS = {
+        "stepout": ("coop_step_out", "netsync.stepout", "s158", "the s158 party-scene step-out bench"),
+    }
+    NETSYNC_STEPOUT_OPS = ("act", "off", "clear")
+    NETSYNC_STEPOUT_ROLE_REFUSAL = "netsync stepout: needs the selftest role (netsync selftest 1)"
+    NETSYNC_STEPOUT_USAGE = "netsync stepout: expected act|off|clear"
     #: [ff9mapkit netsync B4] `bmenu <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncBattle.HarnessStockMenu, s102).
     NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
@@ -8908,6 +8919,7 @@ class Session:
             nb = self.NETSYNC_BATTLE_SUBVERBS.get(sub)
             nd = self.NETSYNC_DRESS_SUBVERBS.get(sub)           # [ff9mapkit netsync s139] the dress sub-verbs' own table
             ng = self.NETSYNC_GUESTLOCAL_SUBVERBS.get(sub)      # [ff9mapkit netsync s156] guest traversal's own table
+            ng = ng or self.NETSYNC_STEPOUT_SUBVERBS.get(sub)   # [ff9mapkit netsync s158] ...and the step-out's, the same gate
             if not authority:
                 if st.netsync is None:
                     have = "publishes no `netsync` block"
@@ -9037,6 +9049,12 @@ class Session:
             why = self._guestlocal_refusal(st, args)
             if why is not None:
                 raise HarnessError(why)
+        elif sub == "stepout":
+            # [ff9mapkit netsync s158] NetSyncStepOut.HarnessLever's order: the ROLE first (the engine refuses it), then one op alone
+            ns = st.netsync if isinstance(st.netsync, dict) else {}
+            op = str(args[0]).strip().lower() if args else ""
+            if ns.get("selftest") is True and (len(args) != 1 or op not in self.NETSYNC_STEPOUT_OPS):
+                raise HarnessError(self.NETSYNC_STEPOUT_USAGE)
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
             # [ff9mapkit netsync s145] THE WORLD DIOBOOT: a diorama boots from a live world map from s145 on (warm only: the engine's
             # pre-Arm verdict refuses anything a stock world battle could not return warm from). An s144 engine refuses it after
@@ -9254,6 +9272,12 @@ class Session:
         -- through :meth:`netsync`'s gates (refused before the step on an engine without ``netsync.guestlocal``). Returns a
         fresh state; read it back through the ``guest_local_*`` accessors."""
         return self.netsync("guestlocal", op, *args, timeout=timeout)
+
+    def stepout(self, op: str, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s158] ``netsync stepout act|off|clear`` (selftest role): off = CALIBRATION, never step out (a live
+        step-out steps in); act / clear = the shipping rule -- through :meth:`netsync`'s gates (refused before the step on an
+        engine without ``netsync.stepout``). Returns a fresh state; read it back through :attr:`State.step_out`."""
+        return self.netsync("stepout", op, timeout=timeout)
 
     def act_trance_grace(self, on: bool, *, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s137] ``actbench trancegrace on|off``: the trance burst timing's calibration lever (off = the
