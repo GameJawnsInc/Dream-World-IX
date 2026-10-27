@@ -32,7 +32,12 @@ adversarial critique) over the live engine tree `C:\gd\FFIX\Memoria` at the nets
     same frame (a lone fact dies at any yielding op); an incomplete closure or scan counts as exposed. A moving
     object's footprint is bounded only when its moves are its own pathing-on walks, over the tris an NPC may walk
     (the player-only block bit does not stop it). It refuses 1209:5: the dungeon monsters can walk onto the landing
-    floor across NPC-only tris that Main_Init disables only after it yields.
+    floor across NPC-only tris that Main_Init disables only after it yields. Rounds 4-5 closed it fail-closed against
+    synthetic shapes: a Seq entry that is not exactly one tag 0 is a gap (its tag 1 runs when tag 0 returns), tris code
+    can turn on count as footprint and as NPC ground, a walk-in on new ground that moves the player onward is chased
+    to a fixpoint, any op past the engine's enum is a yield, stacked `0xFF` prefixes are a function that does not
+    decode, and a field that runs BAFRAME or a walkmesh sim (0x102-0x108) refuses every row. Each was measured
+    stock-neutral: no row moved.
   - **The Japanese waiver.** 14 rows (407:16-18, 408:6, 408:9, 912:14, 1912:15, 1950:4-5, 2602:5, 2605:4-7) fail
     R15 only in Japanese, through stock chest bumps. `ETb.ProcessJapaneseLayout` moves a Japanese player's Confirm
     into the Cancel bit before the follow filter, which strips only Confirm|Special|Select, so a Japanese guest can
@@ -96,6 +101,14 @@ adversarial critique) over the live engine tree `C:\gd\FFIX\Memoria` at the nets
   - *The binding gap.* `VerifyRow` hashes only the row's closure functions, so a modded or forked field whose OTHER
     bytes changed still verifies (measured: a 2955 fork with an injected event). R11, R15 and R16 judged those
     bytes, and the walkmesh, from the stock install. The fix is E3.
+  - *Latent R15 gaps (no stock row reaches any of them; left for later).* The round-5 verifiers built each one as a
+    synthetic shape that ships, then measured 0 rows on the install. An island of code-switchable tris that touches
+    no walkable tri counts as no component. `Ground.landed` matches walkable tris only, where the engine's re-pick
+    (`GetActiveTriIdxAtPos`) also takes a player-restricted or code-enabled tri. The chase records the usual landing
+    ops only, not a CreateObject, Slide, WalkTowardObject or WalkEx that moves the player. `SetTriangleFlagMask` can
+    mask the player-restriction bit, and Ground does not model it (the bench rows restore 255 inside their own
+    closure). No install-free test reads the far report's chase and new-ground columns. They matter only once the
+    table is derived from bytes other than stock's, the same premise as E3.
 - **Engine follow-ups (not built).** **E1:** while a guest-local flight is armed and in flight, strip
   `HostOwnedKeys` from control-off reads in `FilterScriptButtons` (R14 guarantees no climb needs them); closes the
   ladder-top items. **E2:** a JP-aware `ControlOnScriptKeys` that also strips the Cancel bit under the Japanese

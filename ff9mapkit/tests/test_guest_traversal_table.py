@@ -428,7 +428,9 @@ def test_render_cs_is_ascii_crlf_and_a_pure_function_of_the_json():
 
 
 def _added_generated_file():
-    """The LAST live patch's section for NetSyncGuestLocalTable.cs: (patch name, its '+' lines, its other lines)."""
+    """The LAST live patch's section for NetSyncGuestLocalTable.cs: (patch name, its '+' lines, its other lines, the
+    section's raw bytes). The lines are CRLF-normalised and the '\\ No newline' marker dropped -- the BYTES pin
+    (:func:`_check_capture_bytes`) reads the raw section."""
     last = None
     for name in msr.stack():
         if name in msr.DEAD:
@@ -444,16 +446,17 @@ def _added_generated_file():
                                                     "@@", "\\ No newline"))]
     added = [ln[1:] for ln in hunk if ln.startswith("+")]
     other = [ln for ln in hunk if ln and not ln.startswith("+")]
-    return name, added, other
+    return name, added, other, sec
 
 
 #: THE DEPLOYED-AHEAD PIN: the rows the captured engine table ships beyond the JSON, each with its why. AT THE NEXT
 #: ENGINE CAPTURE (the generator writes the engine tree, the lead re-captures the patch from it) EMPTY THIS -- the pin
 #: is then exact equality with render_cs(json) again
 S156_DEPLOYED_AHEAD = {
-    "1209:5": "refused by R15's walker bound since round 3, after the engine was captured; the next capture drops it; on a "
-              "guest its worst case is a bump whose Battle the engine already skips for a mirroring guest "
-              "(EventEngine.DoEventCode.cs ENCOUNT: NetSyncClient.IsMirroringStory returns 0)",
+    "1209:5": {"evt": "EVT_ALEX2_AC_PRISON_B",
+               "why": "refused by R15's walker bound since round 3, after the engine was captured; the next capture "
+                      "drops it; on a guest its worst case is a bump whose Battle the engine already skips for a "
+                      "mirroring guest (EventEngine.DoEventCode.cs ENCOUNT: NetSyncClient.IsMirroringStory returns 0)"},
 }
 _ROW_NOTE_RE = re.compile(r"new GuestLocalRow\((\d+), (\d+), \d+, \d+, \d+\),?   // \d+:\d+ \w+ ?(.*)$", re.M)
 
@@ -472,12 +475,14 @@ def _cs_rows_as_json(added) -> dict:
             for (f, e, k, s, n) in p["rows"]}
 
 
-def _check_deployed_ahead(added, obj, ahead):
+def _check_deployed_ahead(added, obj, ahead) -> dict:
     """The captured table's lines ``added`` against the JSON ``obj`` and the pinned ``ahead`` rows: the rows it carries
     beyond the JSON are EXACTLY ``ahead`` (no more, no fewer -- a pinned row the JSON ships is one fewer), each the JSON's
-    own REFUSED row function for function, and the text is render_cs of the JSON plus them, byte for byte (counts, start
-    offsets and TableCrc recomputed; every other line the JSON's) -- so taking them out leaves render_cs(json). With
-    ``ahead`` empty that is exact equality."""
+    own REFUSED row function for function and kind for kind, its row note naming the ``evt`` the pin records (the note
+    is read back from the capture, so render_cs would only echo a hand edit), and the text is render_cs of the JSON plus
+    them, line for line (counts, start offsets and TableCrc recomputed; every other line the JSON's) -- so taking them
+    out leaves render_cs(json). With ``ahead`` empty that is exact equality. Returns that JSON-plus-pinned object, which
+    the BYTES pin (:func:`_check_capture_bytes`) renders."""
     patch = _cs_rows_as_json(added)
     shipped = {(r["field"], r["entry"]) for r in obj["rows"]}
     extra = {f"{f}:{e}" for (f, e) in patch if (f, e) not in shipped}
@@ -490,6 +495,7 @@ def _check_deployed_ahead(added, obj, ahead):
         assert key in refused and [{k: v for k, v in f.items() if k not in ("call", "level")} for f in
                                    refused[key]["funcs"]] == r["funcs"] and refused[key]["kind"] == r["kind"], \
             f"{key} is not the JSON's refused row of that key, function for function"
+        assert r["evt"] == ahead[key]["evt"], f"{key}'s row note names {r['evt']!r}; the pin records {ahead[key]['evt']!r}"
     full = copy.deepcopy(obj)
     full["rows"] = sorted(obj["rows"] + rows, key=lambda r: (r["field"], r["entry"]))
     full["table_crc"] = "0x%08x" % G.table_crc(full["rows"])
@@ -498,6 +504,22 @@ def _check_deployed_ahead(added, obj, ahead):
         want = want[:-1]
     assert added == want, "the captured NetSyncGuestLocalTable.cs is not render_cs(json + the pinned rows) (hand edit or stale)"
     _assert_cs_is_the_json("\n".join(added), full)
+    return full
+
+
+def _check_capture_bytes(sec: bytes, full: dict) -> None:
+    """THE BYTES PIN: the file the captured section writes is render_cs(``full``) BYTE for byte -- every hunk '+' line
+    CRLF (render_cs's ending, which :func:`_added_generated_file` normalises away), no '\\ No newline' marker after the
+    last one (the file ends with its CRLF), and the '+' lines, their '+' dropped and their own endings kept, ARE
+    render_cs's bytes."""
+    lines = re.findall(rb"[^\n]*\n|[^\n]+$", sec)
+    at = next(k for k, ln in enumerate(lines) if ln.startswith(b"@@"))
+    hunk = lines[at + 1:]
+    assert not any(ln.startswith(b"\\") for ln in hunk), "a '\\ No newline' marker: the captured file has no final newline"
+    bad = [k for k, ln in enumerate(hunk) if ln.startswith(b"+") and not ln.endswith(b"\r\n")]
+    assert not bad, f"captured line {bad[0] + 1} is not CRLF (render_cs writes CRLF only)"
+    assert b"".join(ln[1:] for ln in hunk if ln.startswith(b"+")) == G.render_cs(full).encode("ascii"), \
+        "the captured file's bytes are not render_cs(json + the pinned rows)"
 
 
 def test_the_s156_patch_carries_render_cs_of_the_json_and_only_the_pinned_rows_ahead():
@@ -510,9 +532,9 @@ def test_the_s156_patch_carries_render_cs_of_the_json_and_only_the_pinned_rows_a
     if got is None:
         pytest.fail("s156 not captured: no live memoria-patches/*.patch adds Memoria/Netsync/NetSyncGuestLocalTable.cs "
                     "yet -- capture s156 from the engine tree the generator wrote")
-    name, added, other = got
+    name, added, other, sec = got
     assert other == [], f"{name}: the generated file must be replaced WHOLE, but its section has {other[:3]}"
-    _check_deployed_ahead(added, _obj(), S156_DEPLOYED_AHEAD)
+    _check_capture_bytes(sec, _check_deployed_ahead(added, _obj(), S156_DEPLOYED_AHEAD))
 
 
 def _flip_hex(line: str, after: str) -> str:
@@ -521,26 +543,77 @@ def _flip_hex(line: str, after: str) -> str:
                   lambda m: f"{after}{m.group(1)}{int(m.group(2), 16) ^ 1:X}u", line, count=1)
 
 
-@pytest.mark.parametrize("how", ["pin_loses_a_row", "pin_gains_a_row", "json_gains_a_row", "json_ships_a_pinned_row",
-                                 "patch_gains_a_row", "pinned_row_crc", "header_line", "selftest_vector", "table_crc"])
-def test_the_deployed_ahead_pin_can_fail(how):
-    """A check that cannot fail is not a check: each mutation of the pin, the JSON or the captured lines turns it red.
-    Once the pin is emptied the pinned-row mutations stay live: the JSON's first row is moved to refused and pinned
-    (green) first."""
+def _pinned_probe():
+    """``(added, obj, ahead)``: the captured lines, a copy of the JSON and of the pin -- once the pin is emptied, the
+    JSON's first row moved to refused and pinned (green), so the pinned-row mutations stay live."""
     got = _added_generated_file()
     if got is None:
         pytest.fail("s156 not captured")
-    added, obj, ahead = list(got[1]), copy.deepcopy(_obj()), dict(S156_DEPLOYED_AHEAD)
+    added, obj, ahead = list(got[1]), copy.deepcopy(_obj()), copy.deepcopy(S156_DEPLOYED_AHEAD)
     if not ahead:
         r = obj["rows"].pop(0)
         obj["refused"].append(dict(r, refusal="R15 walk-in: probe"))
-        ahead = {f"{r['field']}:{r['entry']}": "probe"}
+        ahead = {f"{r['field']}:{r['entry']}": {"evt": r.get("evt", ""), "why": "probe"}}
     _check_deployed_ahead(added, obj, ahead)
+    return added, obj, ahead
+
+
+def _refused_of(obj, key) -> dict:
+    (x,) = [x for x in obj["refused"] if f"{x['field']}:{x['entry']}" == key]
+    return x
+
+
+def _flip_refused_crc(obj, key) -> None:
+    f = _refused_of(obj, key)["funcs"][0]
+    f["crc"] = "0x%08x" % (int(f["crc"], 16) ^ 1)
+
+
+def _recompute_table_crc(added, obj, ahead) -> None:
+    """Rewrite the captured TableCrc line as render_cs would for the captured pinned rows (a self-consistent edit)."""
+    patch = _cs_rows_as_json(added)
+    rows = sorted(obj["rows"] + [patch[tuple(int(x) for x in k.split(":"))] for k in ahead],
+                  key=lambda r: (r["field"], r["entry"]))
+    (j,) = [k for k, ln in enumerate(added) if "UInt32 TableCrc = " in ln]
+    added[j] = re.sub(r"0x[0-9A-F]{8}u", "0x%08Xu" % G.table_crc(rows), added[j], count=1)
+
+
+@pytest.mark.parametrize("how", ["pin_loses_a_row", "pin_gains_a_row", "json_gains_a_row", "json_ships_a_pinned_row",
+                                 "patch_gains_a_row", "pinned_row_crc", "header_line", "selftest_vector", "table_crc",
+                                 "refused_len", "refused_crc", "refused_kind", "pinned_row_crc_recomputed",
+                                 "note_hand_edited", "note_dropped", "pin_evt_edited"])
+def test_the_deployed_ahead_pin_can_fail(how):
+    """A check that cannot fail is not a check: each mutation of the pin, the JSON or the captured lines turns it red.
+    The refused-row and note cases are edits the TEXT compare cannot see (the capture's own pinned row and note are what
+    render_cs echoes): the JSON's refused entry changed under an untouched capture, the pinned row's crc flipped with
+    the capture's TableCrc recomputed, the note hand-edited or dropped -- each is red, and (for the self-consistent ones)
+    green again once the other side agrees, so the clause that catches it is the one under test."""
+    added, obj, ahead = _pinned_probe()
     key = min(ahead)
+    agree = None                                      # the counter-edit that makes a self-consistent case green again
     if how == "pin_loses_a_row":
         del ahead[key]
     elif how == "pin_gains_a_row":
-        ahead["1:1"] = "probe"
+        ahead["1:1"] = {"evt": "", "why": "probe"}
+    elif how == "refused_len":
+        _refused_of(obj, key)["funcs"][-1]["len"] += 1
+    elif how == "refused_crc":
+        _flip_refused_crc(obj, key)
+    elif how == "refused_kind":
+        r = _refused_of(obj, key)
+        r["kind"] = next(k for k in G.KIND_CODES if k != r["kind"])
+    elif how == "pinned_row_crc_recomputed":
+        (i,) = [k for k, ln in enumerate(added) if "new GuestLocalFunc(" in ln and ln.endswith(f"   // {key}")]
+        added[i] = _flip_hex(added[i], ", ")
+        _recompute_table_crc(added, obj, ahead)
+        agree = functools.partial(_flip_refused_crc, obj, key)
+    elif how in ("note_hand_edited", "note_dropped"):
+        evt = ahead[key]["evt"]
+        (i,) = [k for k, ln in enumerate(added) if "new GuestLocalRow(" in ln and f"   // {key} " in ln]
+        assert evt and added[i].endswith(f" {evt}")
+        added[i] = added[i][:-len(evt) - 1] + ("" if how == "note_dropped" else f" {evt}X")
+        agree = functools.partial(ahead[key].__setitem__, "evt", "" if how == "note_dropped" else f"{evt}X")
+    elif how == "pin_evt_edited":
+        ahead[key]["evt"] += "X"
     elif how == "json_gains_a_row":
         obj["rows"].insert(1, dict(copy.deepcopy(obj["rows"][0]), entry=254))
     elif how == "json_ships_a_pinned_row":
@@ -561,6 +634,75 @@ def test_the_deployed_ahead_pin_can_fail(how):
         added[i] = _flip_hex(added[i], after)
     with pytest.raises(AssertionError):
         _check_deployed_ahead(added, obj, ahead)
+    if agree is not None:
+        agree()
+        _check_deployed_ahead(added, obj, ahead)
+
+
+@pytest.mark.parametrize("how", ["lf_only", "no_final_newline", "marker_after_crlf", "one_lf_line", "one_byte",
+                                 "stray_cr"])
+def test_the_capture_bytes_pin_can_fail(how):
+    """THE BYTES PIN can fail where the line pin cannot (it normalises CRLF and drops the marker): an LF-only capture,
+    a capture whose file has no final newline (git's '\\ No newline at end of file', the last line CR-less before it --
+    or with its CRLF kept, which only the marker shows: git then strips the final LF), one LF line in the middle, one
+    byte changed inside a line, one bare CR inside a line -- each red, while the line pin stays green on all but the
+    last two."""
+    got = _added_generated_file()
+    if got is None:
+        pytest.fail("s156 not captured")
+    added, obj, ahead = _pinned_probe()
+    full = _check_deployed_ahead(added, obj, ahead)
+    sec = got[3]
+    _check_capture_bytes(sec, full)
+    at = sec.index(b"\n+", sec.index(b"\n@@")) + 1
+    head, body = sec[:at], sec[at:]
+    if how == "lf_only":
+        bad = head + body.replace(b"\r\n", b"\n")
+    elif how == "no_final_newline":
+        assert body.endswith(b"\r\n")
+        bad = head + body[:-2] + b"\n\\ No newline at end of file\n"
+    elif how == "marker_after_crlf":
+        bad = head + body + b"\\ No newline at end of file\n"
+    elif how == "one_lf_line":
+        k = body.index(b"\r\n", len(body) // 2)
+        bad = head + body[:k] + body[k + 1:]
+    elif how == "stray_cr":
+        k = body.index(b"GuestLocalRow(")
+        bad = head + body[:k] + b"\r" + body[k:]
+    else:
+        k = body.index(b"GuestLocalRow(")
+        bad = head + body[:k] + b"GuestLocalRoW(" + body[k + len(b"GuestLocalRow("):]
+    with pytest.raises(AssertionError):
+        _check_capture_bytes(bad, full)
+    if how not in ("one_byte", "stray_cr"):
+        lines = bad.decode("ascii").replace("\r\n", "\n").split("\n")
+        relined = [ln[1:] for ln in lines[lines.index(next(x for x in lines if x.startswith("@@"))) + 1:]
+                   if ln.startswith("+")]
+        _check_deployed_ahead(relined, obj, ahead)       # the line pin cannot see it
+
+
+@pytest.mark.parametrize("how", ["lf_only", "marker_after_crlf", "context_line"])
+def test_the_main_pin_reads_the_capture_bytes_and_the_whole_section(how, monkeypatch):
+    """THE MAIN PIN is wired to both checks, not only the line pin: fed through its own seam (_added_generated_file) an
+    LF-only capture, a capture ending in git's '\\ No newline' marker (the lines unchanged), or a section carrying a
+    context line, it turns red -- the can_fail tests above call the helpers directly, so only this shows the main test
+    calls them."""
+    got = _added_generated_file()
+    if got is None:
+        pytest.fail("s156 not captured")
+    name, added, other, sec = got
+    test_the_s156_patch_carries_render_cs_of_the_json_and_only_the_pinned_rows_ahead()   # green as captured
+    at = sec.index(b"\n+", sec.index(b"\n@@")) + 1
+    head, body = sec[:at], sec[at:]
+    if how == "lf_only":
+        bad = (name, added, other, head + body.replace(b"\r\n", b"\n"))
+    elif how == "marker_after_crlf":
+        bad = (name, added, other, head + body + b"\\ No newline at end of file\n")
+    else:
+        bad = (name, added, other + [" a context line"], sec)
+    monkeypatch.setitem(globals(), "_added_generated_file", lambda: bad)
+    with pytest.raises(AssertionError):
+        test_the_s156_patch_carries_render_cs_of_the_json_and_only_the_pinned_rows_ahead()
 
 
 def _added_lines_of(fname: str) -> list:

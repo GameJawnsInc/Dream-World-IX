@@ -635,6 +635,11 @@ HOTFIX_ON_TRIS = {900: frozenset({62}), 2803: frozenset({105, 106}), 1421: froze
 #: BGI_floorSetActive) and BAFRAME (0x10A, :3184-3187 -> WalkMesh.BGI_animShowFrame, WalkMesh.cs:1081-1121: it turns a
 #: walkmesh animation frame's tris on)
 PATH_TRI_OP, PATH_FLOOR_OP, BAFRAME_OP = 0x9A, 0xCB, 0x10A
+#: the walkmesh SIM setters BSACTIVE .. BSAXIS (0x102-0x108, EventEngine.DoEventCode.cs:3149-3182 -> WalkMesh.BGI_sim*):
+#: a sim starts inactive (simFlags 2, WalkMesh.cs:1488-1502) and only these ops drive it; once on, BGI_simService
+#: (WalkMesh.cs:1507-1549, every frame from HonoluluFieldMain.cs:290) slides a whole floor along an axis and carries every
+#: pathing-on actor standing on it by the same delta
+SIM_OPS = frozenset(range(0x102, 0x109))
 #: EventEngineUtils.QuadCircleData's keys (EventEngineUtils.cs:1722-1738 -- engine code, no game bytes): fldMapNo * 1000
 #: + the region's sid (EMinigame.CreateNPCID, EMinigame.cs:315-318). EventEngine.IsInQuadHotFix (EventEngine.TreadQuad.cs
 #: :41-54) tests such a region against a hard-coded circle instead of, or as well as, its SetRegion: it touches all
@@ -694,10 +699,14 @@ class Ground:
     components (:func:`_components`) with ``disabled`` tris (:func:`main_init_disables`) taken off first, the engine's
     placement pick, walkmesh_pass's landing match, and the walk-in region area and bump reach; ``blocked``
     (:func:`walker_blocks`) the tris no walker can ever step on, ``enabled`` (:func:`activatable`) the tris code of the
-    field can turn on."""
+    field can turn on, ``unnamed`` (:func:`ground_unnamed`) why none of its components can be named at all (R15 then
+    refuses every row of the field). A walk-in's FOOTPRINT (:meth:`touched`, :meth:`near`, :meth:`walker_touched`)
+    counts every :attr:`foot` tri -- statically walkable, or one code can turn on (a tread or bump over it fires once it
+    is) -- and such a tri that is not walkable now stands for the walkable components it borders (:meth:`_comps`)."""
 
-    def __init__(self, wm, disabled=frozenset(), blocked=frozenset(), enabled=frozenset()):
+    def __init__(self, wm, disabled=frozenset(), blocked=frozenset(), enabled=frozenset(), unnamed=None):
         self.wm = wm
+        self.unnamed = unnamed
         self.disabled = frozenset(disabled)
         self.blocked = frozenset(blocked)
         self.enabled = frozenset(enabled)
@@ -705,16 +714,18 @@ class Ground:
         wv = wm.world_verts()
         self.static_walk = [_player_walkable(t) for t in wm.tris]
         self.walk = [w and i not in self.disabled for i, w in enumerate(self.static_walk)]
+        self.foot = [w or i in self.enabled for i, w in enumerate(self.static_walk)]
         self.height = [sum(wv[k][1] for k in t.vtx) / 3.0 for t in wm.tris]
         self.yr = [(min(wv[k][1] for k in t.vtx), max(wv[k][1] for k in t.vtx)) for t in wm.tris]
         self.xz = [tuple((wv[k][0], wv[k][2]) for k in t.vtx) for t in wm.tris]
         self.walkable = frozenset(self.comp_of[t] for t in range(len(wm.tris)) if self.walk[t])
 
     def _comps(self, tris) -> set:
-        """The walkable components of ``tris``. A statically walkable tri Main_Init disabled stands for the walkable
-        components its disabled run borders: a script that re-enables it joins them."""
+        """The walkable components of ``tris``. A :attr:`foot` tri that is not walkable now -- statically walkable but
+        Main_Init disabled it, or statically off but code can turn it on (:func:`activatable`) -- stands for the walkable
+        components its run of such tris borders: a script that turns it on joins them."""
         out, seen = set(), set()
-        stack = [t for t in tris if not self.walk[t] and self.static_walk[t]]
+        stack = [t for t in tris if not self.walk[t] and self.foot[t]]
         out |= {self.comp_of[t] for t in tris if self.walk[t]}
         while stack:
             t = stack.pop()
@@ -725,7 +736,7 @@ class Ground:
                 if 0 <= n < len(self.walk):
                     if self.walk[n]:
                         out.add(self.comp_of[n])
-                    elif self.static_walk[n]:
+                    elif self.foot[n]:
                         stack.append(n)
         return out
 
@@ -762,20 +773,20 @@ class Ground:
         return {self.comp_of[best[1]]} if best is not None and best[0] <= LAND_TOL else set()
 
     def touched(self, poly) -> set:
-        """The components a walk-in region can fire on: every walkable tri whose XZ projection overlaps the region's
+        """The components a walk-in region can fire on: every :attr:`foot` tri whose XZ projection overlaps the region's
         AREA, edges inclusive. The area is EventEngine.IsInQuad's: the union of the triangles of every three consecutive
         points (a centre-and-corners probe misses a tri the polygon only crosses)."""
         n = len(poly)
         area = [tuple(tuple(poly[(i + k) % n]) for k in range(3)) for i in range(n)]
         return self._comps([t for t, tri in enumerate(self.xz)
-                            if self.static_walk[t] and any(_overlap_xz(tri, q) for q in area)])
+                            if self.foot[t] and any(_overlap_xz(tri, q) for q in area)])
 
     def touched_all(self, polys) -> set:
         return set().union(*(self.touched(p) for p in polys))
 
     def near(self, x, z, reach) -> set:
-        """The components a bump at ``(x, z)`` can fire on: every walkable tri within ``reach`` of it in XZ."""
-        return self._comps([t for t, tri in enumerate(self.xz) if self.static_walk[t] and _dist_xz(x, z, tri) <= reach])
+        """The components a bump at ``(x, z)`` can fire on: every :attr:`foot` tri within ``reach`` of it in XZ."""
+        return self._comps([t for t, tri in enumerate(self.xz) if self.foot[t] and _dist_xz(x, z, tri) <= reach])
 
     def region(self, seeds) -> set:
         """Every tri a pathing-on walker standing on ``seeds`` can reach: its own tri, then any neighbour that is
@@ -793,14 +804,14 @@ class Ground:
         return out
 
     def walker_touched(self, region, reach) -> set:
-        """The components a walker on ``region`` can bump into: its own walkable tris, and every walkable tri within
+        """The components a walker on ``region`` can bump into: its own tris, and every :attr:`foot` tri within
         ``reach`` of one of them in XZ whose height range comes within :data:`BUMP_DY` of it (WalkMesh.Collision bumps
         only for -400 < dy < 400)."""
         box = {t: (min(x for x, _ in self.xz[t]), max(x for x, _ in self.xz[t]),
                    min(z for _, z in self.xz[t]), max(z for _, z in self.xz[t])) for t in range(len(self.xz))}
         hit = set(region)
         for u in range(len(self.xz)):
-            if u in hit or not self.static_walk[u]:
+            if u in hit or not self.foot[u]:
                 continue
             bu = box[u]
             for t in region:
@@ -882,7 +893,7 @@ def walker_blocks(fld: P.FieldModel, wm) -> frozenset:
             b = work.pop()
             cur = state[b]
             for ins in flow.blocks[b].instrs:
-                if ins.op in P.YIELD_OPS:
+                if P.is_yield(ins.op):
                     break
                 cur = cur | off_by(ins)
                 if P._ends_path(ins):
@@ -902,8 +913,35 @@ def walker_blocks(fld: P.FieldModel, wm) -> frozenset:
     return frozenset(t for t in sure - activatable(fld, wm) if 0 <= t < len(wm.tris))
 
 
+def ground_unnamed(fld: P.FieldModel) -> "str | None":
+    """Why NO component of the field can be named (FAIL CLOSED, at FIELD level: R15 refuses every row of it), or None:
+    a BAFRAME (0x10A, EventEngine.DoEventCode.cs:3184-3187 -> WalkMesh.BGI_animShowFrame) does more than turn a frame's
+    tris on (:func:`activatable` counts that) -- it CARRIES every pathing-on actor standing on the old frame's tris to the
+    new frame's (BGI_animUpdateCharacters, WalkMesh.cs:1423-1455) and REWIRES the neighbour links between floors
+    (BGI_animUpdateNeighbors, :1457-1482), so a component, a placement or a landing is the static walkmesh's no more; a
+    walkmesh SIM op (:data:`SIM_OPS`: the floor it drives slides away from its static verts, so a footprint or a landing
+    height read from them is wrong); or a function that does not decode (it may run either). Stock runs BAFRAME in fields
+    404 and 2930 and the sims in 1609, 1610, 1652, 1658, 1759 and 2952 -- none of them a table field."""
+    for (ce, ct) in fld.iter_funcs():
+        if fld.decode_failed(ce, ct):
+            return f"{ce}:{ct} does not decode (it may run BAFRAME or a walkmesh sim)"
+        for ins in fld.instrs(ce, ct):
+            if ins.op == BAFRAME_OP:
+                return f"{ce}:{ct} +{ins.off - fld.func(ce, ct).abs_start} runs BAFRAME (0x10A)"
+            if ins.op in SIM_OPS:
+                return f"{ce}:{ct} +{ins.off - fld.func(ce, ct).abs_start} drives a walkmesh sim (0x{ins.op:X})"
+    return None
+
+
+#: R15's field-level refusal (:func:`ground_unnamed`), its why appended
+UNNAMED_GROUND = ("R15 walk-in: no component of this field can be named -- BAFRAME carries every pathing-on actor to "
+                  "its new frame's tris and rewires the neighbour links (WalkMesh.BGI_animUpdateCharacters / "
+                  "BGI_animUpdateNeighbors), and a walkmesh sim slides a floor and the actors on it "
+                  "(WalkMesh.BGI_simService): ")
+
+
 def field_ground(fld: P.FieldModel, wm) -> Ground:
-    return Ground(wm, main_init_disables(fld, wm), walker_blocks(fld, wm), activatable(fld, wm))
+    return Ground(wm, main_init_disables(fld, wm), walker_blocks(fld, wm), activatable(fld, wm), ground_unnamed(fld))
 
 
 def _lets(fld: P.FieldModel, ei: int, tag: int, ins) -> "list | None":
@@ -1244,10 +1282,12 @@ def bump_reach(fld: P.FieldModel, ei: int) -> int:
     return 4 * _coll_rad(fld, sorted(fld.player)) + 4 * _coll_rad(fld, [ei]) + MAX_BYTE + BUMP_SLACK
 
 
-def _own_code(fld: P.FieldModel, ei: int) -> "list | None":
-    """Every function whose moves move object ``ei`` ITSELF: its own, then the tag 0 of every Seq it runs (a Seq keeps
-    its caller's body, EBin.ProcessCode's objV0, EBin.cs:165-166), transitively -- None when a Seq's entry is
-    computed (it may run anything on it)."""
+def _own_code(fld: P.FieldModel, ei: int) -> "tuple[list, str | None]":
+    """``(functions, why)``: every function whose moves move object ``ei`` ITSELF -- its own, then the tag 0 (by tag id)
+    of every Seq it runs (a Seq keeps its caller's body, EBin.ProcessCode's objV0, EBin.cs:165-166), transitively --
+    and, FAIL CLOSED, why they are not all of them: a Seq of a computed entry (it may run anything on it), or of an entry
+    that is not :func:`pressclosure.one_tag_zero` (its tag 1 runs as the Seq when its tag 0 returns,
+    EventEngine.Return :1278-1283). With a why the list is partial."""
     out, stack = [], [(ei, f.tag) for f in fld.eb.entry(ei).funcs]
     while stack:
         node = stack.pop(0)
@@ -1257,11 +1297,13 @@ def _own_code(fld: P.FieldModel, ei: int) -> "list | None":
         for ins in fld.instrs(*node):
             if ins.op == P.SEQ_OP and ins.args:
                 if ins.arg_is_expr[0]:
-                    return None
+                    return out, "it runs a Seq of a computed entry"
                 t = ins.args[0]
-                if 0 <= t < fld.eb.entry_count and not fld.eb.entry(t).empty and fld.eb.entry(t).funcs:
-                    stack.append((t, fld.eb.entry(t).funcs[0].tag))
-    return out
+                if not P.one_tag_zero(fld, t):
+                    return out, (f"it runs a Seq whose entry is not one tag 0 ({node[0]}:{node[1]} "
+                                 f"RunSharedScript({t}))")
+                stack.append((t, 0))
+    return out, None
 
 
 def _moved_elsewhere(fld: P.FieldModel, ei: int) -> "str | None":
@@ -1269,9 +1311,9 @@ def _moved_elsewhere(fld: P.FieldModel, ei: int) -> "str | None":
     (:func:`_own_code`: its other functions, and any Seq it runs -- the tag-0 walk follows no Seq either), or anyone's
     Ex / attach op whose uid is computed or can name it (:func:`_ex_named`)."""
     from .eb._optables import OP_NAMES
-    own = _own_code(fld, ei)
-    if own is None:
-        return "it runs a Seq of a computed entry"
+    own, why = _own_code(fld, ei)
+    if why:
+        return why
     for (ce, ct) in own:
         if (ce, ct) == (ei, 0):
             continue
@@ -1287,7 +1329,7 @@ def _ex_named(fld: P.FieldModel, ei: int) -> "str | None":
     (EBin.ProcessCode objV0, EBin.cs:164-165; ad3, :181) -- so it names ``ei`` in ``ei``'s own code (:func:`_own_code`,
     every Seq it runs included) as well as in the entry's own."""
     from .eb._optables import OP_NAMES
-    own = set(_own_code(fld, ei) or ())
+    own = set(_own_code(fld, ei)[0])
     for (ce, ct) in fld.iter_funcs():
         for ins in fld.instrs(ce, ct):
             if ins.op in EX_MOVE_OPS or ins.op in ATTACH_OPS:
@@ -1309,9 +1351,9 @@ def _walk_bound(fld: P.FieldModel, ei: int) -> "tuple[set, str | None]":
     constant non-zero -- field 2508's entry 2 never), and no Ex / attach op anywhere can name it (:func:`_ex_named`);
     else ``(set(), why)``."""
     from .eb._optables import OP_NAMES
-    own = _own_code(fld, ei)
-    if own is None:
-        return set(), "it runs a Seq of a computed entry"
+    own, why = _own_code(fld, ei)
+    if why:
+        return set(), why
     pts = set()
     for (ce, ct) in own:
         for ins in fld.instrs(ce, ct):
@@ -1409,16 +1451,12 @@ def _walkin_effects(tv: P.PressVerdict) -> str:
     return ", ".join(_effect_classes(tv)) or ", ".join(tv.reasons) or tv.tier
 
 
-def walkin(fld: P.FieldModel, v: P.PressVerdict, ground: Ground, arrival: set, walks: list) -> dict:
-    """R15 on one row: ``{"land", "new", "wild", "why", "hits"}`` -- the components its landing points match, those
-    that are not an ARRIVAL (``arrival``: where :func:`spawn_points` stands the player), the final landings it cannot
-    name, the refusal or None, and every exposed walk-in on NEW ground as ``(kind, entry)``. A FINAL landing at a
-    computed point or on no walkable tri within LAND_TOL cannot be named, so it may leave the player on ANY walkable
-    component (FAIL CLOSED: its landing is all of them; a non-final one is in flight). An :func:`exposed` walk-in
-    (``walks``, :func:`walk_ins`) whose components meet a NEW one refuses: nothing gates a tag-2 tread or bump for a
-    spectator, so a guest who climbs there runs it on its own copy."""
+def _landing(fld: P.FieldModel, v: P.PressVerdict, ground: Ground) -> "tuple[set, list]":
+    """``(named, wild)`` of closure ``v``'s player landing points (:func:`landing_points`): the components
+    :meth:`Ground.landed` matches, and -- as text -- every FINAL landing it cannot name (at a computed point, or on no
+    walkable tri within LAND_TOL): such a landing may leave the player on ANY walkable component."""
     from .eb._optables import OP_NAMES
-    land, named, wild = set(), set(), []
+    named, wild = set(), []
     for (op, x, y, z, node, off, final) in landing_points(fld, v):
         at = f"{node[0]}:{node[1]} +{off - fld.func(*node).abs_start} {OP_NAMES.get(op, hex(op))}"
         if x is None or z is None:
@@ -1429,29 +1467,69 @@ def walkin(fld: P.FieldModel, v: P.PressVerdict, ground: Ground, arrival: set, w
         if not got and final:
             wild.append(f"{at}({x}, {y}, {z}) can end the climb on no walkable tri within {LAND_TOL} u")
         named |= got
+    return named, wild
+
+
+def walkin(fld: P.FieldModel, v: P.PressVerdict, ground: Ground, arrival: set, walks: list) -> dict:
+    """R15 on one row: ``{"land", "new", "reach", "wild", "why", "hits"}`` -- the components its landing points match,
+    those that are not an ARRIVAL (``arrival``: where :func:`spawn_points` stands the player), NEW grown by the walk-ins
+    that move the player on from it (``reach``, below), the final landings it cannot name, the refusal or None, and every
+    exposed walk-in on that ground as ``(kind, entry)``. A FINAL landing at a computed point or on no walkable tri within
+    LAND_TOL cannot be named, so it may leave the player on ANY walkable component (FAIL CLOSED: its landing is all of
+    them; a non-final one is in flight). THE CHASE (S5): a walk-in whose footprint meets the grown ground and whose
+    closure lands the player (a tread jump run on a spectator) adds its own landing, minus ARRIVAL, to it -- to a
+    fixpoint; such a landing it cannot name, or a closure it cannot judge whole, lands everywhere (FAIL CLOSED). An
+    :func:`exposed` walk-in (``walks``, :func:`walk_ins`) whose components meet the grown ground refuses: nothing gates a
+    tag-2 tread or bump for a spectator, so a guest who climbs there runs it on its own copy. A field whose ground
+    cannot be named at all (:attr:`Ground.unnamed`, :func:`ground_unnamed`) refuses every row."""
+    if ground.unnamed:
+        every = set(ground.walkable)
+        return {"land": every, "new": every - arrival, "reach": every - arrival, "wild": [ground.unnamed],
+                "why": UNNAMED_GROUND + ground.unnamed, "hits": []}
+    named, wild = _landing(fld, v, ground)
     land = named | (set(ground.walkable) if wild else set())
     new = land - arrival
+    reach, via, grew = set(new), {}, bool(new)
+    while grew:
+        grew = False
+        for (kind, ei, comps, _why_all, tv, _exempt, gap) in walks:
+            if not tv.closure.landings or not ((set(ground.walkable) if comps is None else comps) & reach):
+                continue
+            wn, ww = _landing(fld, tv, ground)
+            more = (wn | (set(ground.walkable) if ww or gap else set())) - arrival - reach
+            if more:
+                reach |= more
+                for c in sorted(more):
+                    via[c] = (kind, ei, ww[0] if ww else gap)
+                grew = True
     why, hits = None, []
     for walk in walks:
         (kind, ei, comps, why_all, tv, _exempt, gap) = walk
-        if not new or not exposed(walk):
+        if not reach or not exposed(walk):
             continue
-        hit = sorted(new) if comps is None else sorted(comps & new)
+        hit = sorted(reach) if comps is None else sorted(comps & reach)
         if not hit:
             continue
         hits.append((kind, ei))
         if why is not None:
             continue
-        c = hit[0]
+        c = next((x for x in hit if x in new), hit[0])
         how = "may carry" if comps is None else "carries"
-        why = f"R15 walk-in: landing component {c} (not an arrival) {how} {kind} {ei}:2 ({_walkin_effects(tv)})"
+        if c in new:
+            head = f"R15 walk-in: landing component {c} (not an arrival)"
+        else:
+            head = (f"R15 walk-in: component {c} (not an arrival; {via[c][0]} {via[c][1]}:2 on the climb's new ground "
+                    "lands the player there)")
+        why = f"{head} {how} {kind} {ei}:2 ({_walkin_effects(tv)})"
         if gap:
             why += f" -- its tag-2 closure cannot be judged whole ({gap})"
         if comps is None:
             why += f" -- {why_all}"
-        if c not in named:
+        if c in new and c not in named:
             why += f" -- {wild[0]}, so the climb may land on any walkable component"
-    return {"land": land, "new": new, "wild": wild, "why": why, "hits": hits}
+        elif c not in new and via[c][2]:
+            why += f" -- {via[c][2]}, so that walk-in may land the player on any walkable component"
+    return {"land": land, "new": new, "reach": reach, "wild": wild, "why": why, "hits": hits}
 
 
 def field_arrival(fld: P.FieldModel, ground: Ground) -> set:
@@ -2031,6 +2109,8 @@ def far_tread_report(game=None, obj: "dict | None" = None, *, events: "InstallEv
             if ground is not None:
                 w = walkin(fld, P.analyze_root(fld, r["entry"], 3), ground, arrival, walks)
                 line += f"  landing {_comps_text(w['land'])}  new {_comps_text(w['new'])}"
+                if w["reach"] != w["new"]:
+                    line += f"  chased {_comps_text(w['reach'] - w['new'])}"
                 if w["wild"]:
                     line += f"  (any walkable component: {w['wild'][0]})"
             L.append(line)

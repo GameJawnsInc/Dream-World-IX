@@ -53,6 +53,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
 from ._exprtable import EXPR_OP_NAMES, decode_var
+from ._optables import OP_ARG_COUNT
 from .cfg import FuncFlow
 from .disasm import TERMINATOR_OPS, decode_switch, instr_expr_tokens, jump_target
 from .exprsem import OP_SEMANTICS
@@ -329,7 +330,8 @@ class FieldModel:
         if k not in self._instrs:
             f = self.func(ei, tag)
             try:
-                self._instrs[k] = list(self.eb.instrs(f)) if f else []
+                got = list(self.eb.instrs(f)) if f else []
+                self._instrs[k] = None if any(i.op == STACKED_PREFIX_OP for i in got) else got
             except Exception:
                 self._instrs[k] = None
         return self._instrs[k] or []
@@ -1158,11 +1160,28 @@ FILTERED_KEY_OPS = frozenset({0x4F, 0x59})
 #: :144-152) returns 0 but yields when its uid names the executing object (255 outside a Seq, its own uid, a computed
 #: one): Request -> Call (EventEngine.cs:340-372) points the CURRENT object's ip at the callee, which runs inline, and
 #: the callee's RET ends the object's run (EBin.jumpToCommand case 4: Return + adfr) -- the caller resumes in a later one;
-#: it counts as a yield whatever its uid (FAIL CLOSED)
+#: it counts as a yield whatever its uid (FAIL CLOSED). Every code PAST the enum yields too (:func:`is_yield`)
 YIELD_OPS = frozenset({0x00, 0x10, 0x12, 0x14, 0x18, 0x1A, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2A, 0x2B, 0x41, 0x44,
                        0x4F, 0x50, 0x54, 0x75, 0x8C, 0x8F, 0x95, 0x96, 0x97, 0xA0, 0xA2, 0xA5, 0xAB, 0xAC, 0xAE, 0xB2,
                        0xB6, 0xBC, 0xBE, 0xDC, 0xE8, 0xF5, 0x117,
                        0x0A, 0x0C, 0x0E, 0x0F, 0x11, 0x13, 0x15, 0x17, 0x19, 0x6E, 0x11F})
+#: the first code past the engine's opcode enum (EBin.event_code_binary ends at REMOVE_STATUS 0x11E): OP_ARG_COUNT's
+#: length, 0x11F. disasm.read_code decodes ``0xFF XX`` as ``0x100 | XX`` for ANY XX, so a decoded op can be anything up to
+#: 0x1FF -- and none of those codes has a DoEventCode case (default: return 1, EventEngine.DoEventCode.cs:3387-3390)
+OP_PAST_ENUM = len(OP_ARG_COUNT)
+#: what disasm.read_code makes of STACKED prefixes ``0xFF 0xFF XX``: the engine loops over them (DoEventCode.cs:35-42,
+#: code += 0x100 per prefix) and runs ONE op 0x200 + XX -- the default case, after which commandDefault2 backs ip up one
+#: byte (EBin.cs:1421-1434) -- where the disassembler reads 0x1FF and then decodes XX as an op of its own, out of step
+#: with the engine; FieldModel.instrs counts such a function as one that does not decode (FAIL CLOSED). Stock has none.
+STACKED_PREFIX_OP = 0x1FF
+
+
+def is_yield(op: int) -> bool:
+    """``op`` may end the object's run for this frame: :data:`YIELD_OPS`, or any code at or past :data:`OP_PAST_ENUM`
+    (the default case's ``return 1``) -- FAIL CLOSED for a code the kit's tables never name."""
+    return op in YIELD_OPS or op >= OP_PAST_ENUM
+
+
 #: user control's writers inside one frame (EventEngine.DoEventCode.cs): DisableMove :1059-1061 and ExitField :859-866
 #: set _context.usercontrol = 0, EnableMove :1077-1079 sets it 1
 CONTROL_OFF_OPS, CONTROL_ON_OPS = frozenset({0x2D, 0x9E}), frozenset({0x2E})
@@ -1259,11 +1278,11 @@ def facts_after(facts: frozenset, ins) -> frozenset:
     control was on at the test and off at the poll (F1 strips it at control-on) within one frame and no control write
     -- a contradiction, so no guest's path gets past that point at all. ONE alone does not survive a yield (YIELD_OPS:
     other objects run and control can change before the other half is proved -- FilterScriptButtons decides the mask
-    at the KEYON read, NetSyncField.cs:858), CONTROL not an op that turns control off, KEY (control off at its poll)
-    not one that turns it on."""
+    at the KEYON read, NetSyncField.cs:858; :func:`is_yield`), CONTROL not an op that turns control off, KEY (control off
+    at its poll) not one that turns it on."""
     if BOTH <= facts:
         return facts
-    if ins.op in YIELD_OPS:
+    if is_yield(ins.op):
         return facts - BOTH
     if ins.op in CONTROL_OFF_OPS:
         return facts - {CONTROL}
@@ -1430,13 +1449,24 @@ def site_buckets(fld: FieldModel, node, ins, actor, seq: bool, root: int, near_e
     return out | ({bk} - {"call", "flow"})
 
 
+def one_tag_zero(fld: FieldModel, t) -> bool:
+    """Entry ``t`` holds exactly ONE function, tag 0 -- the only Seq entry whose run the closure walk (which takes the
+    entry's FIRST listed function, census-verbatim) sees whole. RunSharedScript (STARTSEQ, EventEngine.DoEventCode.cs
+    :1444-1471) builds ``new Seq(entry, uid)``: the Obj constructor points it at ``GetIP(sid, 0)`` -- found by TAG id, in
+    any listed order (EventEngine.GetIP, EventEngine.cs:1116-1137) -- in stateNew, EBin.ProcessCode moves it to stateInit
+    (EBin.cs:115-119), and when that tag 0 returns EventEngine.Return (stateInit, EventEngine.cs:1278-1283) points it at
+    ``GetIP(sid, 1)``: the entry's TAG 1 runs next, as the Seq, on the caller's body."""
+    return 0 <= t < fld.eb.entry_count and not fld.eb.entry(t).empty and [f.tag for f in fld.eb.entry(t).funcs] == [0]
+
+
 def closure_gaps(v: "PressVerdict") -> list:
     """Why the closure walk of ``v`` did not see everything (FAIL CLOSED -- R15 holds such a walk-in EXPOSED whatever
     its tier): a truncated walk, a decode failure, an unresolved uid / tag / entry, a call with an expression, unknown
     or party target -- and the tag 1 a walked op starts, which the walk never follows: an Init*-created entry that has
     one runs it when its tag 0 returns (EventEngine.Return, stateInit -> ``ip = GetIP(sid, 1)``, EventEngine.cs:1278-1283),
-    and ReturnEntryFunctions restarts its target's (EventEngine.DoEventCode.cs DRET :2172-2181: ``sx = 0``, stateInit,
-    Return)."""
+    ReturnEntryFunctions restarts its target's (EventEngine.DoEventCode.cs DRET :2172-2181: ``sx = 0``, stateInit,
+    Return), and a Seq whose entry is not :func:`one_tag_zero` runs its tag 1 when its tag 0 returns (and the walk took
+    the entry's first listed function, which need not be its tag 0)."""
     out = []
     if v.truncated:
         out.append("the walk was truncated")
@@ -1451,6 +1481,9 @@ def closure_gaps(v: "PressVerdict") -> list:
             for ed in v.edges if ed.kind == "spawn" for t in ed.targets + ed.missing if fld.func(t, 1) is not None]
     out += [f"{ei}:{tag} ReturnEntryFunctions restarts an entry's tag 1" for (ei, tag) in v.funcs
             if any(ins.op == RETURN_ENTRY_OP for ins in fld.instrs(ei, tag))]
+    out += [f"{ed.src[0]}:{ed.src[1]} RunSharedScript({t}) runs a Seq whose entry is not one tag 0 (its tag 1 runs when "
+            "its tag 0 returns)" for ed in v.edges if ed.kind == "seq" for t in ed.targets + ed.missing
+            if not one_tag_zero(fld, t)]
     return out
 
 
@@ -1685,7 +1718,8 @@ class WatchScan:
 def watch_scan(fld: FieldModel, ei: int, tag: int, taint: "Taint | None" = None, *, spawn: bool = False,
                stripped: int = F1_STRIPPED) -> WatchScan:
     """Scan root ``(ei, tag)`` and every function it calls -- RunScript* into its targets' code, RunSharedScript into
-    the Seq target's tag 0 on the caller's object -- each callee entered holding the triggers at its call site and the
+    the Seq target's tag 0 (by tag id, :func:`one_tag_zero`) and its tag 1 (it runs when that returns) on the caller's
+    object -- each callee entered holding the triggers at its call site and the
     facts that carry (:func:`carried`). Init* is followed only with ``spawn`` (R15's walk-ins: the closure walk follows
     it), into the created entry's tag 0; for R16 the object it creates runs its own tag 0 / tag 1, which
     :func:`watch_roots` lists. ``taint`` is the field's (:func:`field_watch` computes it; without one nothing is
@@ -1781,8 +1815,9 @@ def watch_scan(fld: FieldModel, ei: int, tag: int, taint: "Taint | None" = None,
                 ws.open.append(f"{where} RunSharedScript has a computed entry")
                 return
             t = ins.args[0]
-            if 0 <= t < fld.eb.entry_count and not fld.eb.entry(t).empty and fld.eb.entry(t).funcs:
-                visit((t, fld.eb.entry(t).funcs[0].tag), actor, True, carried(have), trig, depth + 1)
+            for stag in (0, 1):                       # GetIP(sid, 0) BY TAG, then its tag 1 when that returns
+                if fld.func(t, stag) is not None:
+                    visit((t, stag), actor, True, carried(have), trig, depth + 1)
         elif spawn and op in INIT_OPS and ins.args:
             if ins.arg_is_expr[0] or 251 <= ins.args[0] < 255:
                 ws.open.append(f"{where} {ins.name} creates a computed or party-slot entry")

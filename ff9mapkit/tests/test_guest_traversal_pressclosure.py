@@ -1222,6 +1222,121 @@ def test_r15_a_spawned_entry_with_no_tag_1_is_no_gap():
     assert P.closure_gaps(P.analyze_root(fld, 3, 2)) == [] and ships(ents)
 
 
+#: S1 / S2's shapes: a Seq entry that is not ONE tag 0 -- RunSharedScript builds new Seq(entry, uid) at GetIP(sid, 0),
+#: found by TAG id whatever the listed order (EventEngine.cs:1116-1137), and when that tag 0 returns EventEngine.Return
+#: (stateInit, :1278-1283) runs GetIP(sid, 1): its tag 1, as the Seq -- while the census walk (verbatim) takes the entry's
+#: FIRST listed function. "empty" (an EMPTY entry 8 below a code entry 9) and "out_of_range" (no entry 8 at all) are
+#: the closure walk's 'missing' Seq targets -- failed closed with them
+SEQ_NOT_ONE_TAG_0 = {
+    "tag_1_after_tag_0": (0, {0: [], 1: ["AddItem(236, 1)"]}),
+    "tag_1_listed_first": (0, {1: [], 0: ["AddItem(236, 1)"]}),
+    "tag_1_only": (0, {1: ["AddItem(236, 1)"]}),
+    "empty": "EMPTY",
+    "out_of_range": None,
+}
+
+
+def _with_seq8(ents, how) -> dict:
+    seq = SEQ_NOT_ONE_TAG_0[how]
+    if seq == "EMPTY":
+        ents[9] = (0, {0: []})
+    elif seq:
+        ents[8] = seq
+    return ents
+
+
+def _seq_gap(src) -> str:
+    return f"{src} RunSharedScript(8) runs a Seq whose entry is not one tag 0 (its tag 1 runs when its tag 0 returns)"
+
+
+@pytest.mark.parametrize("how", sorted(SEQ_NOT_ONE_TAG_0))
+@pytest.mark.parametrize("gated", [False, True])
+def test_r15_a_walk_in_whose_seq_is_not_one_tag_0_is_a_gap(how, gated):
+    """S1, FAIL CLOSED: whatever the census tier says (the walk took the entry's first listed function), the Seq runs
+    code the walk never saw -- the walk-in cannot be judged whole: EXPOSED, even under both halves."""
+    lines = (CTRL_GATE + CONFIRM_GATE + ["RunSharedScript(8)", "Lx:"]) if gated else ["RunSharedScript(8)"]
+    ents = _with_seq8(tread_r15(lines), how)
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    tv = P.analyze_root(fld, 3, 2)
+    assert P.closure_gaps(tv) == [_seq_gap("3:2")]
+    assert (tv.tier == "STATEFUL") is (how == "tag_1_only")          # only there does the census walk reach the item
+    assert _refusal(ents, walkmesh=ground) == on_b(f"carries walk-in 3:2 ({G._walkin_effects(tv)}) -- its tag-2 closure "
+                                                   f"cannot be judged whole ({_seq_gap('3:2')})")
+
+
+@pytest.mark.parametrize("how", sorted(SEQ_NOT_ONE_TAG_0))
+def test_r15_a_bump_whose_seq_is_not_one_tag_0_is_a_gap_and_touches_everything(how):
+    """S1 + S2 on a bump: object 4's tag 2 runs the Seq -- a gap in its closure, and (its own code runs it on its body)
+    the object may stand anywhere."""
+    ents = _with_seq8(bump_field(["RunSharedScript(8)"]), how)
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    tv = P.analyze_root(fld, 4, 2)
+    assert P.closure_gaps(tv) == [_seq_gap("4:2")]
+    assert _refusal(ents, walkmesh=ground) == on_b(
+        f"may carry bump 4:2 ({G._walkin_effects(tv)}) -- its tag-2 closure cannot be judged whole ({_seq_gap('4:2')}) "
+        "-- it runs a "
+        "Seq whose entry is not one tag 0 (4:2 RunSharedScript(8))")
+
+
+def test_r15_a_seq_of_one_tag_0_is_no_gap():
+    """The controls: a Seq entry of exactly one tag 0 is walked whole -- a TRIVIAL one ships as a tread and as a bump on
+    B, and the gated item inside one is the template (the Seq is entered holding both halves)."""
+    one = {8: (0, {0: ["op_22(1)"]})}
+    ents = tread_r15(["RunSharedScript(8)"], one)
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    assert P.closure_gaps(P.analyze_root(fld, 3, 2)) == [] and ships(ents)
+    bump = bump_field(["RunSharedScript(8)"])
+    bump.update(one)
+    assert G._own_code(P.FieldModel.from_bytes(build(bump), 30999), 4)[1] is None and ships(bump)
+    gated = tread_r15(CTRL_GATE + CONFIRM_GATE + ["RunSharedScript(8)", "Lx:"], {8: (0, {0: ["AddItem(236, 1)"]})})
+    assert judged(gated) == ("STATEFUL", None) and ships(gated)
+
+
+@pytest.mark.parametrize("order, item_at", [({1: ["op_22(1)"], 0: ["AddItem(236, 1)"]}, "8:0"),
+                                            ({0: ["op_22(1)"], 1: ["AddItem(236, 1)"]}, "8:1")])
+def test_the_scan_runs_a_seqs_tag_0_by_id_and_then_its_tag_1(order, item_at):
+    """S1: watch_scan follows the engine, not the listing -- the Seq's tag 0 found by id, then its tag 1 -- so the item
+    the census walk never reaches is a site the exemption sees (and refuses, unguarded)."""
+    ents = tread_r15(["RunSharedScript(8)"], {8: (0, dict(order))})
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    tv = P.analyze_root(fld, 3, 2)
+    ws = P.watch_scan(fld, 3, 2, spawn=True)
+    assert ws.nodes == {(3, 2), (8, 0), (8, 1)} and tv.tier != "STATEFUL"
+    assert ws.exempt_why(tv) == f"item at {item_at} {NOT_BOTH}"
+
+
+@pytest.mark.parametrize("seq, why", [
+    ((0, {0: [], 1: ["MoveInstantXZY(200, 0, 200)"]}), "its tag 1 teleports"),
+    ((0, {0: [], 1: ["MoveInstantEx(255, 200, 200)"]}), "its tag 1 moves 255: the body"),
+    ((0, {0: [], 1: ["MoveInstantXZYEx(255, 200, 0, 200)"]}), "its tag 1 moves 255: the body"),
+    ((0, {0: [], 1: ["SetupJump(200, 0, 200, 4)", "Jump()"]}), "its tag 1 jumps"),
+    ((0, {1: [], 0: ["MoveInstantXZY(200, 0, 200)"]}), "its tag 0, listed second, teleports"),
+    ((0, {0: ["op_1C(255)"], 1: ["MoveInstantXZY(200, 0, 200)"]}), "failed closed: its tag 0 self-ends first"),
+])
+def test_r15_an_objects_seq_that_is_not_one_tag_0_moves_it_anywhere(seq, why):
+    """S2, FAIL CLOSED: _own_code follows a Seq's tag 0 by id, and a Seq entry that is not one tag 0 (its tag 1 runs as
+    the Seq on object 4's body when its tag 0 returns) may move the object where its tag-0 walk never says -- its bump
+    touches every component, even placed on the arrival ground A."""
+    ents = bump_field(STATEFUL_TREAD, at=(-750, -750), tag1=["RunSharedScript(7)"])
+    ents[7] = seq
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    want = "it runs a Seq whose entry is not one tag 0 (4:1 RunSharedScript(7))"
+    assert G._own_code(fld, 4)[1] == want and G._moved_elsewhere(fld, 4) == want, why
+    assert G._walk_bound(fld, 4) == (set(), want)
+    assert _refusal(ents, walkmesh=ground) == on_b(f"may carry bump 4:2 (item) -- {want}")
+
+
+def test_r15_an_objects_seq_of_one_tag_0_is_followed_by_id():
+    """The controls: a one-tag-0 Seq that does not move the object leaves its bump on A (ships); one whose tag 0 moves it
+    is a move of its own (refuses with that op), followed into the Seq's tag 0 by id."""
+    ents = bump_field(STATEFUL_TREAD, at=(-750, -750), tag1=["RunSharedScript(7)"])
+    ents[7] = (0, {0: ["op_22(1)"]})
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    assert G._own_code(fld, 4) == ([(4, 0), (4, 2), (4, 1), (7, 0)], None) and ships(ents)
+    ents[7] = (0, {0: ["MoveInstantXZY(200, 0, 200)"]})
+    assert _refusal(ents, walkmesh=ground) == on_b("may carry bump 4:2 (item) -- its 7:0 runs MoveInstantXZY")
+
+
 #: V3's same-frame law: each of these breaks the pair between the control test and the poll -- a yield (Wait) either
 #: way round, DisableMove after the test, EnableMove after the poll
 SPLIT_PAIRS = {
@@ -1234,6 +1349,8 @@ SPLIT_PAIRS = {
     # the non-wait yields: RunScript stays until its target accepts (:154-186), WalkEx until the walk ends (:806)
     "control_runscript_poll": CTRL_GATE + ["RunScript(2, 250, 13)"] + CONFIRM_GATE + ["AddItem(236, 1)", "Lx:"],
     "control_walkex_poll": CTRL_GATE + ["WalkEx(250, 30, 100, 0, 200, 0)"] + CONFIRM_GATE + ["AddItem(236, 1)", "Lx:"],
+    # a code past the engine's enum (disasm decodes 0xFF 0x20 as 0x120; DoEventCode's default: return 1)
+    "control_op120_poll": CTRL_GATE + ["op_120()"] + CONFIRM_GATE + ["AddItem(236, 1)", "Lx:"],
 }
 
 #: YIELD_OPS as DERIVED from the engine (EventEngine.DoEventCode.cs split into its case blocks): every case whose block
@@ -1242,7 +1359,9 @@ SPLIT_PAIRS = {
 #: 0x4C hit is a comment's ')': ATTACH returns 0) -- plus EBin's own Wait (jumpToCommand case 34 -> EBin.wait), every
 #: opcode with no case (default: return 1, :3387-3390 -- 0x0A 0x0C 0x0E 0x0F 0x11 0x13 0x15 0x17 0x19 0x6E and 0x11F, past
 #: the enum), and RunScriptAsync 0x10 (a self-call runs inline and its RET ends the run: Request -> Call,
-#: EventEngine.cs:340-372; EBin.jumpToCommand case 4)
+#: EventEngine.cs:340-372; EBin.jumpToCommand case 4). EVERY code past the enum (EBin.event_code_binary ends at
+#: REMOVE_STATUS 0x11E) is the default case too: disasm.read_code decodes 0xFF XX as 0x100 | XX for any XX, so a decoded
+#: op can be anything up to 0x1FF -- pressclosure.is_yield counts 0x11F..0x1FF whatever YIELD_OPS lists
 ENGINE_YIELD_OPS = frozenset({
     0x00, 0x12, 0x14, 0x18, 0x1A, 0x1F, 0x20, 0x21, 0x23, 0x24, 0x2A, 0x2B, 0x41, 0x44, 0x4F, 0x50, 0x54, 0x75, 0x8C, 0x8F,
     0x95, 0x96, 0x97, 0xA0, 0xA2, 0xA5, 0xAB, 0xAC, 0xAE, 0xB2, 0xB6, 0xBC, 0xBE, 0xDC, 0xE8, 0xF5, 0x117,
@@ -1256,6 +1375,9 @@ def test_yield_ops_is_the_engines_derived_set():
     there), a yield added refuses more than the engine needs -- either is a change to argue against the derivation
     above (ENGINE_YIELD_OPS), not to make quietly."""
     assert P.YIELD_OPS == ENGINE_YIELD_OPS, sorted(hex(o) for o in P.YIELD_OPS ^ ENGINE_YIELD_OPS)
+    from ff9mapkit.eb._optables import OP_ARG_COUNT
+    assert P.OP_PAST_ENUM == len(OP_ARG_COUNT) == 0x11F
+    assert {op for op in range(0x200) if P.is_yield(op)} == ENGINE_YIELD_OPS | set(range(0x11F, 0x200))
 
 
 @pytest.mark.parametrize("how", sorted(SPLIT_PAIRS))
@@ -1413,6 +1535,11 @@ def test_r15_a_chaser_is_held_to_its_region_reach_and_height_window():
     assert ships(chaser_field(-1000), near(-1000))
     assert _refusal(chaser_field(0), walkmesh=near(0)) == \
         f"R15 walk-in: landing component {G.Ground(near(0)()).comp_of[2]} (not an arrival) carries bump 4:2 (item)"
+    # the window's edge, exactly: WalkMesh.cs:919-920 bumps only for -400 < dy < 400 (BUMP_DY), so a floor 400 u above
+    # A is out of it and one 399 u above is in
+    assert G.BUMP_DY == 400 and ships(chaser_field(-400), near(-400))
+    assert _refusal(chaser_field(-399), walkmesh=near(-399)) == \
+        f"R15 walk-in: landing component {G.Ground(near(-399)()).comp_of[2]} (not an arrival) carries bump 4:2 (item)"
     for off in (["SetPathing(0)"] + CHASER, CHASER + ["SetupJump(100, 0, 200, 4)", "Jump()"]):
         assert _refusal(chaser_field(-1000, off), walkmesh=near(-1000)) == (
             f"R15 walk-in: landing component {G.Ground(near(-1000)()).comp_of[2]} (not an arrival) may carry bump 4:2 "
@@ -1449,12 +1576,14 @@ def bridged(flags=0x8001):
 
 def strip_walker(init=(), more=None) -> dict:
     """bump_field on the strip: the player spawned on A, object 4 created on A chasing it (CHASER), Main_Init's tag 0
-    extended by ``init`` and entry 0's other tags set from ``more``."""
+    extended by ``init`` and other functions set from ``more`` -- a key ``tag`` is entry 0's, ``(entry, tag)`` any
+    entry's (the walker's own 4, the player's 2, the press region's 1)."""
     ents = bump_field(STATEFUL_TREAD, place=f"CreateObject({_u16(-900)}, 200)", tag1=CHASER)
     ents[2][1][0] = [*SPAWN_STRIP_A, "SetModel(8, 61)", "DefinePlayerCharacter()"]
     ents[0][1][0] = ents[0][1][0] + list(init)
-    for tag, lines in (more or {}).items():
-        ents[0][1][tag] = list(lines)
+    for key, lines in (more or {}).items():
+        e, tag = key if isinstance(key, tuple) else (0, key)
+        ents[e][1][tag] = list(lines)
     return ents
 
 
@@ -1481,6 +1610,12 @@ _ON_ONE_ARM = {
     (_ON_ONE_ARM["taken"], {}, False),
     (_ON_ONE_ARM["ended"], {}, False),
     (["op_1C(255)", "EnablePath(1, 0)"], {}, False),         # Main_Init ends itself first: the disable never runs
+    (["op_120()", "EnablePath(1, 0)"], {}, False),            # ... after a code past the enum (default: return 1)
+    # the re-enable in a function OTHER than entry 0's: activatable sweeps every function of the field
+    (["EnablePath(1, 0)"], {(4, 7): ["EnablePath(1, 1)"]}, False),                             # the walker's own
+    (["EnablePath(1, 0)"], {(2, 9): ["EnablePathTriangle(2, 1)", "EnablePathTriangle(3, 1)"]}, False),   # the player's
+    (["EnablePath(1, 0)"], {(1, 9): ["EnablePath(1, {Map.Int16[8] B_EXPR_END})"]}, False),     # a region's
+    (["EnablePath(1, 0)"], {(4, 7): ["op_10A(0, 0)"]}, False),
 ])
 def test_r15_a_walker_crosses_what_only_the_player_cannot(init, more, ok):
     """An NPC is blocked by high-byte bit 0x40 only (WalkMesh.BGI_findAccessibleTriangle, WalkMesh.cs:1155-1169): a
@@ -1503,14 +1638,26 @@ def test_r15_a_walker_crosses_what_only_the_player_cannot(init, more, ok):
     ([], {1: ["EnablePath(1, {Map.Int16[8] B_EXPR_END})"]}, False),
     ([], {1: ["EnablePathTriangle({Map.Int16[8] B_EXPR_END}, 1)"]}, False),
     ([], {1: ["op_10A(0, 0)"]}, False),
+    # the source in a function OTHER than entry 0's (the walker's own tag, the player's, a region's)
+    ([], {(4, 7): ["EnablePath(1, 1)"]}, False),
+    ([], {(2, 9): ["EnablePathTriangle(2, 1)", "EnablePathTriangle(3, 1)"]}, False),
+    ([], {(1, 9): ["EnablePath(1, {Map.Int16[8] B_EXPR_END})"]}, False),
+    ([], {(1, 9): ["EnablePathTriangle({Map.Int16[8] B_EXPR_END}, 1)"]}, False),
+    ([], {(4, 7): ["op_10A(0, 0)"]}, False),
+    ([], {(2, 9): ["op_10A(0, 0)"]}, False),
 ])
 @pytest.mark.parametrize("flags", [0x8000, 0])
 def test_r15_a_walker_steps_onto_what_code_can_turn_on(init, more, ok, flags):
     """HOLE 4: a bridge INACTIVE in the walkmesh (0x8000: player-blocked as well; 0: not) still joins A and B for a walker
     once code can turn it on (guest_traversal.activatable) -- an EnablePath / EnablePathTriangle whose flag is not the
     constant 0 (DoEventCode.cs:2661-2678), a computed tri or floor, any BAFRAME (0x10A -> WalkMesh.BGI_animShowFrame,
-    :3184-3187, WalkMesh.cs:1081-1121). Ground.region steps onto it, and walker_blocks never blocks it."""
-    assert ships(strip_walker(init, more), bridged(flags)) is ok
+    :3184-3187, WalkMesh.cs:1081-1121), in ANY function of the field. Ground.region steps onto it, and walker_blocks never
+    blocks it; activatable itself names the bridge exactly when code can turn it on (a BAFRAME field is refused whole,
+    ground_unnamed, so the sweep is pinned here too)."""
+    ents = strip_walker(init, more)
+    assert ships(ents, bridged(flags)) is ok
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    assert ({2, 3} <= G.activatable(fld, bridged(flags)())) is not ok
 
 
 def test_r15_the_engines_own_tri_switches_count(monkeypatch):
@@ -1573,6 +1720,295 @@ def test_r15_a_walker_that_moves_another_object_is_still_a_walker():
     fld = P.FieldModel.from_bytes(build(ents), 30999)
     assert G._walk_bound(fld, 4) == (set(), "4:1 runs MoveInstantEx on it")
     assert _refusal(ents, walkmesh=ground) == on_b("may carry bump 4:2 (item) -- its 4:1 runs Walk")
+
+
+# ================================================================================================ R15: ground code can turn on (S3)
+#: over the strip's bridge (floor 1, tris 2-3) only; ... and over its tri 3 only (A's side of its diagonal): a footprint
+#: whose one tri borders A alone, and reaches C only through the bridge's other tri
+BRIDGE_POLY = [(-450, 100), (-50, 100), (-50, 300), (-450, 300)]
+BRIDGE_CORNER = [(-480, 300), (-400, 300), (-400, 380), (-480, 380)]
+#: A, a LONG bridge (floor 1: 1500 u, past a bump's 443 u reach from its middle) and C, sharing their edges
+LONG_STRIP = [(-2000, 0, 0), (-2000, 0, 400), (-1500, 0, 0), (-1500, 0, 400), (0, 0, 0), (0, 0, 400), (400, 0, 0),
+              (400, 0, 400)]
+#: A, then 50 u apart an island I (floor 1) that shares its far edge with C (floor 2): I is no neighbour of A
+GAP_ISLAND = [(-1000, 0, 0), (-1000, 0, 400), (-500, 0, 0), (-500, 0, 400), (-450, 0, 0), (-450, 0, 400), (-50, 0, 0),
+              (-50, 0, 400), (350, 0, 0), (350, 0, 400)]
+GAP_ISLAND_FACES = [(0, 2, 3), (0, 3, 1), (4, 6, 7), (4, 7, 5), (6, 8, 9), (6, 9, 7)]
+
+
+def _off_floor_1(verts, faces):
+    """A walkmesh of ``verts`` / ``faces`` on floors 0, 1, 2 whose floor 1 (tris 2-3) is INACTIVE (triFlags 0)."""
+    def wm():
+        from ff9mapkit.scene import bgi
+        m = bgi.build(verts, faces, floor_ids=[0, 0, 1, 1, 2, 2])
+        for t in (2, 3):
+            m.tris[t].tri_flags = 0
+        return m
+    return wm
+
+
+@pytest.mark.parametrize("poly", [BRIDGE_POLY, BRIDGE_CORNER], ids=["bridge", "corner"])
+@pytest.mark.parametrize("where", [(0, 1), (2, 9), (3, 9)])       # Main_Init's tag 1, the player's, the tread's own
+def test_r15_a_tread_over_a_tri_code_can_turn_on_touches_what_it_borders(where, poly):
+    """S3, the player-side HOLE 4: a tread whose area lies only on a statically INACTIVE tri fires once code turns that
+    tri on (activatable) -- it touches the walkable components its run of such tris borders (Ground.foot / _comps), here
+    A and the landing C (the corner footprint through the bridge's other tri). With nothing turning the bridge on it is
+    over no ground at all and ships."""
+    ents = r15_field(STATEFUL_TREAD, poly=poly, spawn=SPAWN_STRIP_A, body=["SetupJump(200, 0, 200, 4)", "Jump()"])
+    assert ships(ents, bridged(0))
+    ents[where[0]][1][where[1]] = ["EnablePath(1, 1)"]
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    gr = G.field_ground(fld, bridged(0)())
+    assert gr.enabled == {2, 3} and not any(gr.static_walk[t] for t in (2, 3)) and gr.foot[2] and gr.foot[3]
+    assert gr.touched(poly) == {gr.comp_of[0], gr.comp_of[4]}
+    assert _refusal(ents, walkmesh=bridged(0)) == (f"R15 walk-in: landing component {gr.comp_of[4]} (not an arrival) "
+                                                   "carries walk-in 3:2 (item)")
+
+
+@pytest.mark.parametrize("where", [(0, 1), (4, 7), (2, 9)])       # Main_Init's tag 1, the object's own, the player's
+def test_r15_a_bump_on_a_tri_code_can_turn_on_reaches_what_it_borders(where):
+    """S3 for a bump (Ground.near): object 4 stands in the middle of a long inactive bridge, 750 u from A and from C --
+    beyond its 443 u reach of both. Once code can turn the bridge on, the bridge stands for A and C."""
+    ents = bump_field(STATEFUL_TREAD, at=(-750, 200))
+    ents[2][1][0] = [f"CreateObject({_u16(-1750)}, 200)", "SetModel(8, 61)", "DefinePlayerCharacter()"]
+    wm = _off_floor_1(LONG_STRIP, STRIP_FACES)
+    assert ships(ents, wm)
+    ents[where[0]][1][where[1]] = ["EnablePath(1, 1)"]
+    gr = G.field_ground(P.FieldModel.from_bytes(build(ents), 30999), wm())
+    assert gr.near(-750, 200, 443) == {gr.comp_of[0], gr.comp_of[4]}
+    assert _refusal(ents, walkmesh=wm) == (f"R15 walk-in: landing component {gr.comp_of[4]} (not an arrival) carries "
+                                           "bump 4:2 (item)")
+
+
+#: A, a bridge (floor 1), B, a second strip (floor 3, NPC-only: 0x8001) and C (floor 4) in a row, sharing their edges
+FAR_XS = [-1000, -500, 0, 400, 900, 1300]
+
+
+def far_strip(bridge_flags):
+    """FAR_XS as a strip of five floors: the bridge (tris 2-3) flagged ``bridge_flags``, the second strip (tris 6-7)
+    0x8001 -- a walker crosses it, the player does not -- so A, B and C (tris 8-9) are three player components."""
+    def wm():
+        from ff9mapkit.scene import bgi
+        verts = [(x, 0, z) for x in FAR_XS for z in (0, 400)]
+        faces = [f for k in range(5) for f in ((2 * k, 2 * k + 2, 2 * k + 3), (2 * k, 2 * k + 3, 2 * k + 1))]
+        m = bgi.build(verts, faces, floor_ids=[0, 0, 1, 1, 2, 2, 3, 3, 4, 4])
+        for t in (2, 3):
+            m.tris[t].tri_flags = bridge_flags
+        for t in (6, 7):
+            m.tris[t].tri_flags = 0x8001
+        return m
+    return wm
+
+
+@pytest.mark.parametrize("init, more, flags", [
+    (["EnablePath(1, 0)"], {1: ["EnablePath(1, 1)"]}, 0x8001),   # Main_Init's disable, put back: walker_blocks lets go
+    ([], {1: ["EnablePath(1, 1)"]}, 0),                          # inactive, turned on: Ground.region steps onto it
+])
+def test_r15_a_walker_crosses_a_bridge_code_turns_on_and_goes_on_beyond_it(init, more, flags):
+    """The bridge itself is a FOOTPRINT tri once code can turn it on (S3), so a walker on A already bumps into a player on
+    it -- the bridge stands for A and B. What only the walker's REGION sees is the ground past B: across the NPC-only
+    strip to C, 900 u off A (out of its reach) and the row's landing. With the bridge's switch on the walker gets there
+    and the row refuses; without it (Main_Init's disable stands, or nothing turns the inactive bridge on) it ships."""
+    ents = strip_walker(init, more)
+    ents[2][1][17] = ["SetupJump(1100, 0, 200, 4)", "Jump()"]
+    gr = G.Ground(far_strip(flags)())
+    assert _refusal(ents, walkmesh=far_strip(flags)) == (f"R15 walk-in: landing component {gr.comp_of[8]} (not an "
+                                                         "arrival) carries bump 4:2 (item)")
+    control = strip_walker(init)
+    control[2][1][17] = list(ents[2][1][17])
+    assert ships(control, far_strip(flags))
+
+
+@pytest.mark.parametrize("where", [(0, 1), (4, 7), (2, 9)])
+def test_r15_a_walker_bumps_into_a_tri_code_can_turn_on(where):
+    """S3 for a walker (Ground.walker_touched): the chaser stays on A (the island I is no neighbour), but a player
+    standing on I -- 50 u off A, once code turns it on -- is within its reach, and I borders C (the landing), which is
+    450 u off A: out of reach on its own."""
+    ents = strip_walker()
+    ents[2][1][17] = ["SetupJump(150, 0, 200, 4)", "Jump()"]
+    wm = _off_floor_1(GAP_ISLAND, GAP_ISLAND_FACES)
+    assert ships(ents, wm)
+    ents[where[0]][1][where[1]] = ["EnablePath(1, 1)"]
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    gr = G.field_ground(fld, wm())
+    assert gr.region([0]) == {0, 1} and gr.walker_touched({0, 1}, G.bump_reach(fld, 4)) == {gr.comp_of[0], gr.comp_of[4]}
+    assert _refusal(ents, walkmesh=wm) == (f"R15 walk-in: landing component {gr.comp_of[4]} (not an arrival) carries "
+                                           "bump 4:2 (item)")
+
+
+# ================================================================================================ R15: BAFRAME, field-wide (S4)
+@pytest.mark.parametrize("where", [(0, 1), (2, 9), (1, 9)])       # Main_Init's tag 1, the player's, the press region's
+@pytest.mark.parametrize("body", [JUMP_B, [f"SetupJump({_u16(-750)}, 0, {_u16(-750)}, 4)", "Jump()"]], ids=["to_b", "to_a"])
+def test_r15_a_field_that_runs_baframe_refuses_every_row(where, body):
+    """S4, FAIL CLOSED at FIELD level: BAFRAME carries every pathing-on actor on the old frame's tris to the new frame's
+    (WalkMesh.BGI_animUpdateCharacters, WalkMesh.cs:1423-1455) and rewires the neighbour links (BGI_animUpdateNeighbors,
+    :1457-1482) -- no component, placement or landing is the static walkmesh's -- so every row of such a field refuses,
+    the one that lands on new ground and the one that lands on the arrival ground alike, with no walk-in at all."""
+    ents = r15_field(None, body=body)
+    assert ships(ents)
+    ents[where[0]][1][where[1]] = ["op_10A(0, 1)"]
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    assert G.ground_unnamed(fld) == f"{where[0]}:{where[1]} +0 runs BAFRAME (0x10A)"
+    assert G.activatable(fld, ground()) == frozenset(range(4))
+    assert _refusal(ents, walkmesh=ground) == G.UNNAMED_GROUND + f"{where[0]}:{where[1]} +0 runs BAFRAME (0x10A)"
+
+
+def test_r15_a_function_that_does_not_decode_refuses_every_row():
+    """S4's other half: a function that does not decode may run BAFRAME -- the field's ground is unnamed too."""
+    fld = P.FieldModel.from_bytes(build(r15_field(None)), 30999)
+    v = P.analyze_regions(fld)[0]
+    gr = G.field_ground(fld, ground())
+    assert gr.unnamed is None and G.walkin(fld, v, gr, G.field_arrival(fld, gr), G.walk_ins(fld, gr))["why"] is None
+    fld._instrs[(0, 1)] = None
+    gr = G.field_ground(fld, ground())
+    assert gr.unnamed == G.ground_unnamed(fld) == "0:1 does not decode (it may run BAFRAME or a walkmesh sim)"
+    w = G.walkin(fld, v, gr, G.field_arrival(fld, gr), G.walk_ins(fld, gr))
+    assert w["why"] == G.UNNAMED_GROUND + "0:1 does not decode (it may run BAFRAME or a walkmesh sim)" and w["land"] == set(gr.walkable)
+
+
+@pytest.mark.parametrize("op, args", [(0x102, "0, 1"), (0x103, "0, 13"), (0x104, "0, 1"), (0x105, "0, 256"),
+                                      (0x106, "0, 0"), (0x107, "0, 0, 100"), (0x108, "0, 0")])
+def test_r15_a_field_that_drives_a_walkmesh_sim_refuses_every_row(op, args):
+    """S4 for the walkmesh SIM setters BSACTIVE .. BSAXIS: a sim starts inactive and only these ops drive it; once on,
+    WalkMesh.BGI_simService slides its floor and the actors standing on it every frame, so a footprint or a landing
+    height read from the static verts is wrong -- every row of the field refuses, as for BAFRAME."""
+    ents = r15_field(None, body=JUMP_B)
+    assert ships(ents)
+    ents[0][1][1] = [f"op_{op:X}({args})"]
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    why = f"0:1 +0 drives a walkmesh sim (0x{op:X})"
+    assert G.ground_unnamed(fld) == why
+    assert _refusal(ents, walkmesh=ground) == G.UNNAMED_GROUND + why
+
+
+def test_r15_stacked_prefixes_are_a_function_that_does_not_decode():
+    """``0xFF 0xFF XX`` is ONE engine op (DoEventCode.cs:35-42 loops over the prefixes; the default case runs, then
+    commandDefault2 backs ip up one byte) where the disassembler reads 0x1FF and then decodes XX as an op of its own --
+    here a RunScriptAsync the engine never runs, out of step with the bytes after it. The function counts as one that
+    does not decode, so the field's rows refuse."""
+    ents = r15_field(None, body=JUMP_B)
+    ents[0][1][1] = ["op_1FF()", "op_10(0, 236, 0)"]
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    assert fld.decode_failed(0, 1) and fld.instrs(0, 1) == []
+    why = "0:1 does not decode (it may run BAFRAME or a walkmesh sim)"
+    assert G.ground_unnamed(fld) == why
+    assert _refusal(ents, walkmesh=ground) == G.UNNAMED_GROUND + why
+
+
+# ================================================================================================ R15: the chase (S5)
+GROUND_C = [(1000, 0, 0), (1400, 0, 0), (1400, 0, 400), (1000, 0, 400)]
+GROUND_D = [(2000, 0, 0), (2400, 0, 0), (2400, 0, 400), (2000, 0, 400)]
+POLY_C = [(1050, 50), (1350, 50), (1350, 350), (1050, 350)]
+POLY_D = [(2050, 50), (2350, 50), (2350, 350), (2050, 350)]
+
+
+def four():
+    """GROUND_A .. GROUND_D, each its own component (tris 0-1, 2-3, 4-5, 6-7)."""
+    from ff9mapkit.scene import bgi
+    return bgi.build(GROUND_A + GROUND_B + GROUND_C + GROUND_D,
+                     [(4 * k + a, 4 * k + b, 4 * k + c) for k in range(4) for (a, b, c) in ((0, 1, 2), (0, 2, 3))])
+
+
+def chain_field(hops, item_poly, item_entry=7) -> dict:
+    """r15_field (spawn on A, the row's jump lands on B), a tread per hop ``(entry, poly, player tag, (x, z))`` whose tag 2
+    runs the player's jump to ``(x, 0, z)`` -- LOCO-ONLY, never exposed itself -- and a STATEFUL item tread over
+    ``item_poly``."""
+    ents = r15_field(None)
+    inits = ["InitRegion(1, 0)", "InitObject(2, 0)"]
+    for (e, poly, tag, (x, z)) in hops:
+        ents[e] = (1, {0: [zone(*poly)], 2: [f"RunScriptSync(2, 250, {tag})"]})
+        ents[2][1][tag] = [f"SetupJump({_u16(x)}, 0, {_u16(z)}, 4)", "Jump()"]
+        inits.append(f"InitRegion({e}, 0)")
+    ents[item_entry] = (1, {0: [zone(*item_poly)], 2: list(STATEFUL_TREAD)})
+    ents[0][1][0] = inits + [f"InitRegion({item_entry}, 0)"]
+    return ents
+
+
+def test_r15_a_walk_in_that_lands_the_player_is_chased():
+    """S5: a LOCO-ONLY tread on the climb's new ground B jumps the player (a spectator's tread runs its tag 2) to C,
+    which is neither an arrival nor the row's landing -- C's STATEFUL tread is judged against the row too."""
+    gr = G.Ground(four())
+    c = gr.comp_of[4]
+    ents = chain_field([(3, POLY_B, 18, (1200, 200))], POLY_C)
+    assert _refusal(ents, walkmesh=four) == (f"R15 walk-in: component {c} (not an arrival; walk-in 3:2 on the climb's "
+                                             "new ground lands the player there) carries walk-in 7:2 (item)")
+
+
+def test_r15_a_hop_over_a_computed_region_is_chased_from_anywhere():
+    """A hop whose SetRegion is computed may fire on ANY component -- the climb's new ground B among them -- so its
+    landing is chased as one that meets B (and C's item refuses)."""
+    gr = G.Ground(four())
+    ents = chain_field([(3, POLY_B, 18, (1200, 200))], POLY_C)
+    ents[3][1][0] = ["SetRegion({Map.Int16[8] B_EXPR_END}, 0, 0, 0)"]
+    assert _refusal(ents, walkmesh=four) == (f"R15 walk-in: component {gr.comp_of[4]} (not an arrival; walk-in 3:2 on "
+                                             "the climb's new ground lands the player there) carries walk-in 7:2 (item)")
+
+
+def test_r15_the_chase_runs_to_a_fixpoint():
+    """Two hops, the later one listed FIRST (entry 3 hops C -> D, entry 5 hops B -> C): one pass over the walk-ins
+    reaches C only; the fixpoint reaches D, whose item refuses."""
+    gr = G.Ground(four())
+    ents = chain_field([(3, POLY_C, 19, (2200, 200)), (5, POLY_B, 18, (1200, 200))], POLY_D)
+    assert _refusal(ents, walkmesh=four) == (f"R15 walk-in: component {gr.comp_of[6]} (not an arrival; walk-in 3:2 on "
+                                             "the climb's new ground lands the player there) carries walk-in 7:2 (item)")
+
+
+@pytest.mark.parametrize("hops, item", [
+    ([], POLY_C),                                             # nothing reaches C
+    ([(3, POLY_B, 18, (-750, -750))], POLY_A),               # the hop lands on A, an arrival: no new ground
+    ([(3, POLY_C, 19, (2200, 200))], POLY_D),                 # a hop on ground the climb never reaches
+])
+def test_r15_the_chase_stops_where_nothing_new_is_reached(hops, item):
+    assert ships(chain_field(hops, item), four)
+
+
+def test_r15_a_chased_landing_it_cannot_name_lands_everywhere():
+    """FAIL CLOSED: the hop's jump goes to a computed point, so it may land the player on ANY walkable component."""
+    gr = G.Ground(four())
+    ents = chain_field([(3, POLY_B, 18, (1200, 200))], POLY_C)
+    ents[2][1][18] = ["SetupJump({Map.Int16[8] B_EXPR_END}, 0, 200, 4)", "Jump()"]
+    assert _refusal(ents, walkmesh=four) == (
+        f"R15 walk-in: component {gr.comp_of[4]} (not an arrival; walk-in 3:2 on the climb's new ground lands the "
+        "player there) carries walk-in 7:2 (item) -- 2:18 +0 SetupJump can end the climb at a computed point, so that "
+        "walk-in may land the player on any walkable component")
+
+
+def test_r15_only_a_walk_in_that_lands_the_player_is_chased():
+    """The chase follows a walk-in's own landing points: a hop with NO landing adds nothing, even one that cannot be
+    judged whole (it is exposed itself, and refuses as itself -- named, not the item tread far away that only an
+    everywhere-landing would reach)."""
+    ents = chain_field([], POLY_D, item_entry=3)
+    ents[5] = (1, {0: [zone(*POLY_B)], 2: ["InitObject(8, 0)"]})
+    ents[8] = (2, {0: [], 1: ["op_22(1)"]})
+    ents[0][1][0].append("InitRegion(5, 0)")
+    assert _refusal(ents, walkmesh=four) == (f"R15 walk-in: landing component {G.Ground(four()).comp_of[2]} (not an "
+                                             "arrival) carries walk-in 5:2 (spawn) -- its tag-2 closure cannot be judged "
+                                             "whole (5:2 InitObject creates 8, whose tag 1 runs when its tag 0 returns)")
+
+
+def test_r15_a_refusal_names_the_climbs_own_new_ground_first():
+    """The refusal text names a NEW component (the row's own landing) before a chased one, whatever their numbers: the
+    row lands on D, a hop on D lands the player on B, and a walk-in over a computed region (it may fire anywhere) is
+    exposed on both."""
+    gr = G.Ground(four())
+    ents = chain_field([(3, POLY_D, 18, (200, 200))], POLY_C)
+    ents[2][1][17] = ["SetupJump(2200, 0, 200, 4)", "Jump()"]
+    ents[7] = (1, {0: ["SetRegion({Map.Int16[8] B_EXPR_END}, 0, 0, 0)"], 2: list(STATEFUL_TREAD)})
+    assert _refusal(ents, walkmesh=four) == (f"R15 walk-in: landing component {gr.comp_of[6]} (not an arrival) may "
+                                             "carry walk-in 7:2 (item) -- its region is computed")
+
+
+def test_r15_a_chased_walk_in_it_cannot_judge_whole_lands_everywhere():
+    """FAIL CLOSED: a hop whose closure has a gap (an object it creates runs a tag 1 the walk never follows) may land the
+    player anywhere -- the chase grows to every non-arrival component (it refuses as itself too: it is exposed)."""
+    ents = chain_field([(3, POLY_B, 18, (1200, 200))], POLY_C)
+    ents[3][1][2].append("InitObject(8, 0)")
+    ents[8] = (2, {0: [], 1: ["op_22(1)"]})
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    gr = G.field_ground(fld, four())
+    arrival = G.field_arrival(fld, gr)
+    w = G.walkin(fld, P.analyze_regions(fld)[0], gr, arrival, G.walk_ins(fld, gr))
+    assert w["new"] == {gr.comp_of[2]} and w["reach"] == set(gr.walkable) - arrival and w["why"] is not None
 
 
 # ================================================================================================ R15: THE JP WAIVER (V6)
@@ -1875,3 +2311,115 @@ def test_the_far_tread_report_loads_a_walkmesh_only_through_the_parsed_index(tmp
     assert (calls["build_field_index"], calls["resolve_field"], calls["stock_walkmesh"]) == ([], [], [])
     assert "field 30999: walkmesh unreadable (FileNotFoundError)" in text and G.UNKNOWN_COMPONENT not in text
     assert _snapshot(sa) == before
+
+
+# ================================================================================================ R15: round 5's controls
+def test_r15_a_seq_entry_listing_another_tag_first_is_a_gap():
+    """S1's rule is EXACTLY [tag 0], not "no tag 1": a Seq entry whose FIRST listed function is tag 2 and whose tag 0
+    (listed second) holds the item. The census walk takes the first listed function (op_22: not STATEFUL); the engine
+    runs tag 0 by id. It is a closure gap, and the tread refuses on B."""
+    ents = tread_r15(["RunSharedScript(8)"], {8: (0, {2: ["op_22(1)"], 0: ["AddItem(236, 1)"]})})
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    tv = P.analyze_root(fld, 3, 2)
+    assert tv.tier != "STATEFUL"                                   # the census walk saw tag 2's op_22 only
+    assert P.closure_gaps(tv) == [_seq_gap("3:2")]
+    assert not ships(ents)
+
+
+def _four_floor_strip():
+    """A (tris 0-1), D (floor 1, tris 2-3: statically walkable, Main_Init disables it), X (floor 2, tris 4-5: INACTIVE,
+    no code turns it on), C (floor 3, tris 6-7) -- in a row, sharing edges."""
+    from ff9mapkit.scene import bgi
+    xs = [-1000, -500, 0, 400, 900]
+    verts = [(x, 0, z) for x in xs for z in (0, 400)]
+    faces = [f for k in range(4) for f in ((2 * k, 2 * k + 2, 2 * k + 3), (2 * k, 2 * k + 3, 2 * k + 1))]
+    m = bgi.build(verts, faces, floor_ids=[0, 0, 1, 1, 2, 2, 3, 3])
+    for t in (4, 5):
+        m.tris[t].tri_flags = 0
+    return m
+
+
+def test_r15_a_disabled_tris_run_stops_at_a_tri_nothing_turns_on():
+    """S3's run of foot tris stops at a tri no code turns on: a tread only over D (Main_Init's constant disable) stands
+    for what D's run borders -- A. X is inactive and nothing turns it on, so it is no foot tri; C beyond X (the row's
+    landing, new ground) is not the tread's, and the row ships."""
+    ents = r15_field(STATEFUL_TREAD, poly=BRIDGE_POLY, spawn=SPAWN_STRIP_A, body=["SetupJump(600, 0, 200, 4)", "Jump()"])
+    ents[0][1][0] = ents[0][1][0] + ["EnablePath(1, 0)"]
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    gr = G.field_ground(fld, _four_floor_strip())
+    assert gr.disabled == {2, 3} and gr.enabled == frozenset() and not gr.foot[4] and not gr.foot[5]
+    assert gr.touched(BRIDGE_POLY) == {gr.comp_of[0]}
+    assert ships(ents, _four_floor_strip)
+
+
+def test_r15_the_height_window_holds_below_as_well_as_above():
+    """WalkMesh.Collision's -400 < dy < 400 is symmetric: B 1000 u BELOW A (y +1000, y is down) is out of the window
+    exactly as B 1000 u above is, so the chaser on A never bumps a player there and the row ships."""
+    assert ships(chaser_field(1000), near(1000))
+    assert ships(chaser_field(400), near(400))
+    assert not ships(chaser_field(399), near(399))
+
+
+def test_r15_baframe_in_main_init_itself_refuses_every_row():
+    """S4 with the BAFRAME appended to Main_Init (0, 0) itself -- the BAFRAME test replaces other functions' bodies,
+    never Main_Init's (that would drop the field's InitRegion / InitObject)."""
+    for body in (JUMP_B, [f"SetupJump({_u16(-750)}, 0, {_u16(-750)}, 4)", "Jump()"]):
+        ents = r15_field(None, body=body)
+        assert ships(ents)
+        ents[0][1][0] = ents[0][1][0] + ["op_10A(0, 1)"]
+        fld = P.FieldModel.from_bytes(build(ents), 30999)
+        why = G.ground_unnamed(fld)
+        assert why is not None and why.startswith("0:0 +") and why.endswith(" runs BAFRAME (0x10A)"), why
+        assert _refusal(ents, walkmesh=ground) == G.UNNAMED_GROUND + why
+
+
+def test_r15_a_gap_chased_component_names_its_gap():
+    """S5's text: the item tread (entry 3, over C) is listed BEFORE the hop that reaches C (entry 5, B -> C, whose
+    closure has a gap), so the item is named first, on the chased C, and the refusal carries the hop's gap as the reason
+    C is reached."""
+    ents = chain_field([(5, POLY_B, 18, (1200, 200))], POLY_C, item_entry=3)
+    ents[5][1][2].append("InitObject(8, 0)")
+    ents[8] = (2, {0: [], 1: ["op_22(1)"]})
+    gr = G.Ground(four())
+    gap = "5:2 InitObject creates 8, whose tag 1 runs when its tag 0 returns"
+    assert _refusal(ents, walkmesh=four) == (
+        f"R15 walk-in: component {gr.comp_of[4]} (not an arrival; walk-in 5:2 on the climb's new ground lands the "
+        f"player there) carries walk-in 3:2 (item) -- {gap}, so that walk-in may land the player on any walkable component")
+
+
+def test_r15_a_seq_terminateentry_is_flow_in_the_scan():
+    """The scan visits a Seq AS a Seq: the gated chest-template tread, then -- outside the gate -- a Seq whose one tag 0
+    runs TerminateEntry(5). The census walk counts a Seq-run TerminateEntry as FLOW and the scan agrees, so the template
+    stays exempt and ships (visited as a plain call it would be an ungated 'spawn' site)."""
+    ents = tread_r15(CTRL_GATE + CONFIRM_GATE + ["AddItem(236, 1)", "Lx:", "RunSharedScript(8)"],
+                     {8: (0, {0: ["op_1C(5)"]}), 5: (0, {0: []})})
+    assert judged(ents) == ("STATEFUL", None)
+    assert ships(ents)
+
+
+def test_r15_a_nonfinal_landing_in_flight_is_not_wild():
+    """Only a FINAL unnamed landing lands everywhere: the climb's first jump peaks 3000 u above A (no walkable tri within
+    LAND_TOL: in flight), its last lands back on A, so the row lands on A (arrival) and ships beside a STATEFUL tread on
+    B."""
+    body = [f"SetupJump({_u16(-750)}, {_u16(-3000)}, {_u16(-750)}, 4)", "Jump()",
+            f"SetupJump({_u16(-750)}, 0, {_u16(-750)}, 4)", "Jump()"]
+    ents = r15_field(STATEFUL_TREAD, body=body)
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    pts = G.landing_points(fld, P.analyze_regions(fld)[0])
+    assert [(x, y, z, final) for (_op, x, y, z, _n, _o, final) in pts] == [(-750, -3000, -750, False),
+                                                                          (-750, 0, -750, True)], pts
+    assert ships(ents)
+
+
+@pytest.mark.parametrize("flags", [0x8000, 0x8001], ids=["inactive_restricted", "active_restricted"])
+def test_r15_a_restricted_tri_code_turns_on_is_foot(flags):
+    """S3's foot counts EVERY tri code can turn on, the player-restricted ones included (SetTriangleFlagMask / BGIMASK
+    can mask bit 0x80 off, WalkMesh.cs:1155-1163): on a player-restricted bridge that code turns on, the tread touches A
+    and C and refuses."""
+    ents = r15_field(STATEFUL_TREAD, poly=BRIDGE_POLY, spawn=SPAWN_STRIP_A, body=["SetupJump(200, 0, 200, 4)", "Jump()"])
+    assert ships(ents, bridged(flags))
+    ents[0][1][1] = ["EnablePath(1, 1)"]
+    fld = P.FieldModel.from_bytes(build(ents), 30999)
+    gr = G.field_ground(fld, bridged(flags)())
+    assert gr.foot[2] and gr.foot[3] and gr.touched(BRIDGE_POLY) == {gr.comp_of[0], gr.comp_of[4]}
+    assert not ships(ents, bridged(flags))

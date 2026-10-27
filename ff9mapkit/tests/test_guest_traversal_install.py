@@ -298,6 +298,41 @@ def test_f4_the_engine_frames_bite_where_they_should_and_change_no_row(events, i
     assert q[2] is None and "QuadCircleData" in q[3] and q[4].tier == "TRIVIAL"
 
 
+#: S4 on stock: the fields whose ground R15 cannot name (ground_unnamed: a BAFRAME, a walkmesh sim, or a function that
+#: does not decode) -- 404 and 2930 run BAFRAME, 1609, 1610, 1652, 1658, 1759 and 2952 drive a sim, nothing fails to
+#: decode, and none holds a census candidate
+UNNAMED_GROUND_FIELDS = {404, 2930, 1609, 1610, 1652, 1658, 1759, 2952}
+
+
+def test_round_5s_rules_are_measured_stock_neutral(events, index):
+    """Round 5's fail-closed rules, each pinned to its stock measurement (the derivation pin above holds the rows; this
+    names WHICH rule a stock difference moves): S4 -- the unnamed-ground fields are exactly UNNAMED_GROUND_FIELDS (us),
+    none a table field; and on every table field, us and jp: S1 / S2 -- every constant RunSharedScript names an entry of
+    one tag 0; S3 -- every tri code can turn on is statically walkable, so the footprint is the static one; S6 -- no
+    decoded code past the opcode enum but the listed yields; S5 -- no row's chase grows its new ground."""
+    table = _committed()
+    fields = sorted({r["field"] for r in table["rows"] + table["refused"]})
+    unnamed = set()
+    for fid in G._field_ids():
+        b = events.eb(fid, "us")
+        if b and G.ground_unnamed(P.FieldModel.from_bytes(b, fid)):
+            unnamed.add(fid)
+    assert unnamed == UNNAMED_GROUND_FIELDS and not unnamed & set(fields)
+    for lang in ("us", "jp"):
+        for fid in fields:
+            fld, gr, arrival, walks = _field(events, index, fid, lang)
+            assert gr.unnamed is None and all(gr.static_walk[t] for t in gr.enabled), (fid, lang)
+            for (ce, ct) in fld.iter_funcs():
+                for ins in fld.instrs(ce, ct):
+                    assert ins.op < P.OP_PAST_ENUM or ins.op in P.YIELD_OPS, (fid, lang, ce, ct, ins.off)
+                    if ins.op == P.SEQ_OP and ins.args and not ins.arg_is_expr[0]:
+                        assert P.one_tag_zero(fld, ins.args[0]), (fid, lang, ce, ct, ins.off)
+            verdicts = {v.region: v for v in P.analyze_regions(fld)}
+            for r in (x for x in table["rows"] + table["refused"] if x["field"] == fid):
+                w = G.walkin(fld, verdicts[r["entry"]], gr, arrival, walks)
+                assert w["reach"] == w["new"], (fid, r["entry"], lang)
+
+
 #: R16 MEASURED (not enforced): every watch root that trips, with the languages it trips in. By hand: the stock
 #: SCENARIO GUARD in a Main_Loop (scenario past N: a window, a wait for Select or Start, the scenario reset -- (a), no
 #: user-control test): 207, 301, 307, 565, 914, 2505 9:1, 2605, 2853 0:1, 2918 0:1, 353 16:1; the hidden-item template
