@@ -169,8 +169,9 @@ generated `Memoria/Netsync/NetSyncGuestLocalTable.cs` in the s156 patch. Neither
 - **What they hold:** field ids, entry and tag indices, byte lengths, and **CRC‑32 digests** of the
   stock `.eb` functions a press runs. Every function is 8 bytes or longer (the generator refuses a
   shorter one), and CRC‑32 can be inverted only on inputs of 4 bytes or fewer, so no digest can be
-  turned back into its function. The JSON also records each source `.eb` file's SHA‑1 and Memoria's
-  open‑source EVT script names. The shared selftest vectors are kit‑authored byte strings.
+  turned back into its function. The JSON also records each source `.eb` file's SHA‑1, Memoria's
+  open‑source EVT script names, and the ids of the rows it refuses or waives with a kit‑written reason.
+  The shared selftest vectors are kit‑authored byte strings.
 - **Where they come from:** `py -m ff9mapkit.guest_traversal --write` re-derives both from **your**
   install, read‑only. It reads `StreamingAssets/p0data*.bin` through UnityPy and never writes into the
   install. `--check` (the default) re-derives the table in memory and diffs it against the committed

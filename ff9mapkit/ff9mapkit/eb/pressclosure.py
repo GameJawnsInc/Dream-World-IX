@@ -21,6 +21,17 @@ What the promotion ADDS (the census could not see these; each is a fact the ship
   ``spawn`` (``Init*``).
 * **Fail-closed flags.** The census walk silently stops at depth > 8 or past its node budget; here that sets
   ``truncated``. An instruction stream or expression that fails to decode sets ``decode_fail``.
+* **Where.** Every key poll and every player landing op is also recorded with its function and offset
+  (``Closure.key_sites``, ``Closure.landings`` -- the landing's constant x / y / z, :func:`place_point`), for the
+  ship filter's R14 (key) and R15 (walk-in); the buckets they feed are untouched.
+* **The WATCHER scan** (:func:`watch_scan`). What a function the engine starts on its own -- and everything it
+  calls -- can do with no press at all: its key polls, its reads of the controlled player's whereabouts, and its
+  effect ops, each with the FACTS every path to it establishes (:func:`func_facts`: a dominating branch that
+  proves user control is on, or that a constant Confirm / Special / Select poll fired). ONE fact does not survive a
+  yield or a control write (:func:`facts_after`, :data:`YIELD_OPS`): the two halves count only proved in one frame,
+  and only the proved pair carries into a callee (:func:`carried`). The ship filter's R16 and R15's walk-in
+  exemption read it (:meth:`WatchScan.exempt_why`, FAIL CLOSED: a closed scan that visited every closure function,
+  and a site for every STATEFUL bucket of the closure, :func:`site_buckets`); the census never sees it.
 * **The PATH-AWARE latch audit** (:func:`latch_consumers`). The census's scratch rule (a reader that ALSO
   writes the closure's var is "another scratch user") is order-blind: field 2702's stone latch Map.Byte[32] is
   read FIRST by four other regions' jump functions, so a guest's press leaves a value they consume. The audit
@@ -39,11 +50,12 @@ census's (they drop a read of the very var an instruction writes, which is right
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from ._exprtable import EXPR_OP_NAMES, decode_var
+from ._optables import OP_ARG_COUNT
 from .cfg import FuncFlow
-from .disasm import TERMINATOR_OPS, instr_expr_tokens, jump_target
+from .disasm import TERMINATOR_OPS, decode_switch, instr_expr_tokens, jump_target
 from .exprsem import OP_SEMANTICS
 from .model import EbScript
 
@@ -150,6 +162,29 @@ def var_bits(typ, idx):
 def var_name(src: int, typ: int, idx: int) -> str:
     """``(src, typ, idx)`` -> the disassembler's ``Source.Type[index]`` text (``Map.Byte[32]``)."""
     return decode_var(0xC0 | (typ << 2) | src, idx)
+
+
+#: the placement and landing ops -> the operand index of x, y, z (None = the op carries no y); an Ex op's operand 0
+#: is the moved object's uid
+PLACE_ARGS = {0x1D: (0, None, 1),             # CreateObject(x, z)
+              0x23: (0, None, 1),             # Walk(x, z)
+              0xA1: (0, 1, 2),                # MoveInstantXZY(x, y, z)
+              0xA2: (0, 1, 2),                # WalkXZY(x, y, z)
+              0xAD: (1, 2, 3),                # MoveInstantXZYEx(uid, x, y, z)
+              0xBF: (1, None, 2),             # MoveInstantEx(uid, x, z)
+              0xE2: (0, 1, 2),                # SetupJump(x, y, z, steps)
+              0xE8: (0, 1, 2)}                # SideWalkXZY(x, y, z)
+
+
+def place_point(ins) -> tuple:
+    """``(op, x, y, z)`` of a placement / landing op (:data:`PLACE_ARGS`): each coordinate its signed constant, None
+    when that operand is an expression or the op carries none."""
+    def at(i):
+        if i is None or i >= len(ins.args) or ins.arg_is_expr[i]:
+            return None
+        return s16(ins.args[i])
+    xi, yi, zi = PLACE_ARGS[ins.op]
+    return ins.op, at(xi), at(yi), at(zi)
 
 
 # ------------------------------------------------------------------ expression walker (census, verbatim)
@@ -295,7 +330,8 @@ class FieldModel:
         if k not in self._instrs:
             f = self.func(ei, tag)
             try:
-                self._instrs[k] = list(self.eb.instrs(f)) if f else []
+                got = list(self.eb.instrs(f)) if f else []
+                self._instrs[k] = None if any(i.op == STACKED_PREFIX_OP for i in got) else got
             except Exception:
                 self._instrs[k] = None
         return self._instrs[k] or []
@@ -373,7 +409,9 @@ class Closure:
         self.missing = 0
         self.writes = []                 # (src, typ, idx, exec_entry)
         self.keys = []                   # (kind, mask, ctx)
-        self.landing_ops = []            # player-context landing op kinds (coordinates are not kept)
+        self.key_sites = []              # ... and where: (kind, mask, bucket, (entry, tag), off) -- R14 reads it
+        self.landing_ops = []            # player-context landing op kinds
+        self.landings = []               # ... and their points: (op, x, y, z, (entry, tag), off), None = computed
         self.player_calls = []           # (caller_tag, callee_tag, opname)
         self.reads = Counter()
         self.has_loop_player = False
@@ -472,6 +510,7 @@ class Closure:
                         b2 = "key_other"
                     self.add(b2, ctx)
                     self.keys.append((k, m, ctx))
+                    self.key_sites.append((k, m, b2, (ei, tag), ins.off))
                 if 9 in w["sysv"]:
                     self.add("read_choice", ctx)
                 if 0 in w["sysv"] or "B_SELECT" in w["ops"]:
@@ -503,6 +542,7 @@ class Closure:
                     self.add("loco_player", actx)
                     if op in (0xE2, 0xA1, 0x23, 0xA2, 0xAD, 0xBF, 0xE8):
                         self.landing_ops.append(op)
+                        self.landings.append(place_point(ins) + ((ei, tag), ins.off))
                     if op == 0xCC and ins.imm(0) is not None and ins.imm(0) & 4:
                         self.ladder_flag = True
                     if op == 0xE2:
@@ -1089,4 +1129,753 @@ def latch_consumers(eb_or_model, verdict: PressVerdict) -> list:
             else:
                 out.append(LatchReader(re_, rt, var, "write", first, first - start, None))
     out.sort(key=lambda r: (r.var, r.entry, r.tag))
+    return out
+
+
+# ------------------------------------------------------------------ the watcher scan (R16, and R15's walk-in exemption)
+#: what a FOLLOWING guest's control-ON field poll loses: NetSyncField.ControlOnScriptKeys(keys, false) =
+#: keys & ~(Confirm | Special | Select) -- F1's free-walk mask (NetSyncField.cs:955-958, called at :892). Every other
+#: host-owned bit (Circle, Cross, Cancel, ...) still reaches a control-on poll.
+F1_STRIPPED = CONFIRM | SPECIAL | SELECT
+#: EventInput.Cancel (EventInput.cs:553): where ETb.ProcessJapaneseLayout (ETb.cs:80-89) moves a physical Confirm in a
+#: Japanese game BEFORE the filter sees it (EBin.cs:1106 / :1137 read ETb.KeyOn / GetInputs(CurrentSymbol == "JP"))
+CANCEL = 0x10000
+#: guest_traversal's JP WAIVER hypothesis: F1's mask once ControlOnScriptKeys also strips the Cancel bit a Japanese
+#: guest's Confirm lands on (the engine follow-up) -- a Japanese chest's KEYON(Cancel | Special) then proves a press too
+JP_F1_STRIPPED = F1_STRIPPED | CANCEL
+#: the key reads EBin routes through NetSyncField.FilterScriptButtons: B_KEYON (EBin.cs:1096-1110) and B_KEY
+#: (:1131-1140). B_KEYOFF (:1125-1129) is never filtered; B_KEYON2 / B_KEYOFF2 / B_KEY2 read 0
+#: (EventEngine.DoCalcOperationExt.cs:7, :67-70)
+FILTERED_KEY_OPS = frozenset({0x4F, 0x59})
+#: the ops after which a script's next instruction may run in a LATER frame, other objects having run between: the
+#: interpreter leaves an object whenever an op returns non-zero (EBin.next / adfr, EBin.cs:188-221) -- EBin.wait (Wait,
+#: :1341-1372) and every EventEngine.DoEventCode case that can return non-zero or stay() (EventEngine.DoEventCode.cs, by
+#: case line): NOTHING :50, RunScript :154, RunScriptSync :186, RunScriptObject :236, RunScriptObjectSync :250,
+#: WindowSync :410, WindowAsync :461, WindowSyncEx / WindowAsyncEx :506, CloseWindow :527, WaitWindow :569, ChangeDisc
+#: :604, Walk :656, WalkTowardObject :798, WalkEx :806, WalkXZY :847, WalkToExit :872, Slide :878, SideWalkXZY :892,
+#: Battle :957, BattleEx :985, Field :1016, WaitAnimation :1420, WaitAnimationEx :1427, WaitSharedScript :1472, 0x4F
+#: :1665, WaitTurn / WaitTurnEx :1672, SetModelColor :2088, Jump :2137, ReturnEntryFunctions :2172, DisableMenu :2356,
+#: Menu :2364, Party :2390, GameOver :2427, TetraMaster :2433, WorldMap :2513 -- and every opcode with no case at all
+#: (default: return 1, :3387-3390). Bubble (FICON, :1889-1902) returns 0: it does not yield. RunScriptAsync (REQ,
+#: :144-152) returns 0 but yields when its uid names the executing object (255 outside a Seq, its own uid, a computed
+#: one): Request -> Call (EventEngine.cs:340-372) points the CURRENT object's ip at the callee, which runs inline, and
+#: the callee's RET ends the object's run (EBin.jumpToCommand case 4: Return + adfr) -- the caller resumes in a later one;
+#: it counts as a yield whatever its uid (FAIL CLOSED). Every code PAST the enum yields too (:func:`is_yield`)
+YIELD_OPS = frozenset({0x00, 0x10, 0x12, 0x14, 0x18, 0x1A, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2A, 0x2B, 0x41, 0x44,
+                       0x4F, 0x50, 0x54, 0x75, 0x8C, 0x8F, 0x95, 0x96, 0x97, 0xA0, 0xA2, 0xA5, 0xAB, 0xAC, 0xAE, 0xB2,
+                       0xB6, 0xBC, 0xBE, 0xDC, 0xE8, 0xF5, 0x117,
+                       0x0A, 0x0C, 0x0E, 0x0F, 0x11, 0x13, 0x15, 0x17, 0x19, 0x6E, 0x11F})
+#: the first code past the engine's opcode enum (EBin.event_code_binary ends at REMOVE_STATUS 0x11E): OP_ARG_COUNT's
+#: length, 0x11F. disasm.read_code decodes ``0xFF XX`` as ``0x100 | XX`` for ANY XX, so a decoded op can be anything up to
+#: 0x1FF -- and none of those codes has a DoEventCode case (default: return 1, EventEngine.DoEventCode.cs:3387-3390)
+OP_PAST_ENUM = len(OP_ARG_COUNT)
+#: what disasm.read_code makes of STACKED prefixes ``0xFF 0xFF XX``: the engine loops over them (DoEventCode.cs:35-42,
+#: code += 0x100 per prefix) and runs ONE op 0x200 + XX -- the default case, after which commandDefault2 backs ip up one
+#: byte (EBin.cs:1421-1434) -- where the disassembler reads 0x1FF and then decodes XX as an op of its own, out of step
+#: with the engine; FieldModel.instrs counts such a function as one that does not decode (FAIL CLOSED). Stock has none.
+STACKED_PREFIX_OP = 0x1FF
+
+
+def is_yield(op: int) -> bool:
+    """``op`` may end the object's run for this frame: :data:`YIELD_OPS`, or any code at or past :data:`OP_PAST_ENUM`
+    (the default case's ``return 1``) -- FAIL CLOSED for a code the kit's tables never name."""
+    return op in YIELD_OPS or op >= OP_PAST_ENUM
+
+
+#: user control's writers inside one frame (EventEngine.DoEventCode.cs): DisableMove :1059-1061 and ExitField :859-866
+#: set _context.usercontrol = 0, EnableMove :1077-1079 sets it 1
+CONTROL_OFF_OPS, CONTROL_ON_OPS = frozenset({0x2D, 0x9E}), frozenset({0x2E})
+#: every census bucket classify can turn into STATEFUL -- alone (PERSIST, HARD, a choice), with a window or the player's
+#: own motion (SCENE), an exit with a window, exit_glob with no exit -- the sites the walk-in exemption must see
+STATEFUL_BUCKETS = frozenset(PERSIST | HARD | SCENE | {"exit", "window", "choice", "read_choice", "exit_glob"})
+#: B_SYSVAR[2] = EventEngine.GetSysvar(2) = _context.usercontrol (GetSysvar.cs:17-18): root_gate's "usercontrol"
+USERCONTROL_SYSVAR = 2
+#: B_SYSVAR[4] = EventCollision.sSysAngle, the controlled player's angle to the object it collided with
+#: (EventCollision.cs:115, :281) -- a read of where the player stands
+PLAYER_ANGLE_SYSVAR = 4
+CONTROL, KEY = "control", "key"             # the facts a dominating branch can establish (:func:`cond_facts`)
+BOTH = frozenset({CONTROL, KEY})
+#: an instruction's effect, by the census's opcode bucket (guest_traversal's effect classes, widened to every HARD /
+#: PERSIST bucket an opcode carries)
+EFFECT_BUCKETS = {"exit": "exit", "battle": "battle", "window": "window", "choice": "window", "item_party": "item",
+                  "menu": "menu", "fmv": "fmv", "ate": "ate", "world": "world", "flex_state": "flex state"}
+#: expression operators that read an object's whereabouts through an operand uid (EBin.cs:1188-1201 B_DISTANCEA,
+#: :1172-1187 B_ANGLEA; DoCalcOperationExt.cs:42-49 B_BGIID / B_BGIFLOOR) -- the first two also read the executing
+#: object's own position, as B_ANGLE / B_DISTANCE do (EBin.cs:1141-1164)
+UID_POS_OPS = {0x60: "B_ANGLEA", 0x61: "B_DISTANCEA", 0x70: "B_BGIID", 0x71: "B_BGIFLOOR"}
+SELF_POS_OPS = {0x5D: "B_ANGLE", 0x5E: "B_DISTANCE", 0x60: "B_ANGLEA", 0x61: "B_DISTANCEA"}
+SCREEN_POS_OP = 0xA9                        # CalculateScreenPosition(uid): sSysX / sSysY from the object's position
+_WATCH_DEPTH, _WATCH_BUDGET = 8, 300        # watch_scan's bounds (the closure walk's own)
+_CMP3 = {24: lambda a, b: a < b, 25: lambda a, b: a > b, 26: lambda a, b: a <= b, 27: lambda a, b: a >= b,
+         32: lambda a, b: a == b, 33: lambda a, b: a != b}
+
+
+def eval3(toks, hyp) -> "int | None":
+    """One expression's value under a HYPOTHESIS, three-valued. ``hyp(o, v, arg)`` names the value of a B_SYSVAR
+    (``o`` 0x7A, ``v`` its code) or of a key read (``o`` a KEY_OPS token, ``arg`` its mask when that is constant):
+    an int, or None when it does not know; every other leaf is unknown. The result is an int only when it holds for
+    EVERY value of the unknowns -- ``0 && x`` and ``0 & x`` are 0, ``1 || x`` is 1, a comparison or ``!`` needs
+    known operands -- else None. The stack walk is :func:`walk_expr`'s (each operator's true arity)."""
+    st = []
+    for (o, v) in toks or ():
+        if o == 0x7F:
+            break
+        if o == 0xD3:
+            for _ in range(min(v[1], len(st))):
+                st.pop()
+            st.append(None)
+            continue
+        if o in (0x7D, 0x7E):
+            st.append(s16(v) if o == 0x7D else v)
+            continue
+        if o == 0x7A:
+            st.append(hyp(o, v, None))
+            continue
+        if o >= 0xC0 or o in (0x78, 0x79, 0x29, 0x5F):
+            st.append(None)
+            continue
+        ar = OP_SEMANTICS.get(EXPR_OP_NAMES.get(o, f"op{o:02X}"), (0, "read"))[0]
+        args = [st.pop() if st else None for _ in range(ar)][::-1]
+        if o in KEY_OPS:
+            st.append(hyp(o, None, args[0] if args else None))
+        elif o in _CMP3 and len(args) == 2 and None not in args:
+            st.append(int(_CMP3[o](*args)))
+        elif o == 14 and len(args) == 1 and args[0] is not None:          # B_NOT (logical)
+            st.append(int(not args[0]))
+        elif o in (36, 39) and len(args) == 2:                            # B_AND / B_ANDAND: a known 0 decides it
+            a, b = args
+            st.append(0 if 0 in (a, b) else None if None in (a, b) else (a & b if o == 36 else int(bool(a and b))))
+        elif o == 40 and len(args) == 2:                                  # B_OROR: a known non-zero decides it
+            a, b = args
+            st.append(1 if any(x not in (None, 0) for x in (a, b)) else 0 if (a, b) == (0, 0) else None)
+        else:
+            st.append(None)
+    return st[-1] if st else None
+
+
+def _control_off(o, v, arg):
+    return 0 if (o == 0x7A and v == USERCONTROL_SYSVAR) else None
+
+
+def _stripped_polls_miss(stripped):
+    """The F1 hypothesis under mask ``stripped``: every filtered poll of a constant, non-zero mask inside it reads 0."""
+    return lambda o, v, arg: 0 if (o in FILTERED_KEY_OPS and arg and not (arg & ~stripped)) else None
+
+
+def cond_facts(toks, stripped=F1_STRIPPED) -> "tuple[frozenset, frozenset]":
+    """``(when true, when false)``: the facts a branch on this condition establishes on each outcome. CONTROL when the
+    condition is decided with user control OFF (B_SYSVAR[2] = 0: if that makes it false, a true outcome proves control
+    on); KEY when it is decided with every filtered poll of a constant mask inside ``stripped`` (F1_STRIPPED) missing (a
+    true outcome then proves such a poll fired -- which F1 forbids a following guest at control-on)."""
+    uc, ky = eval3(toks, _control_off), eval3(toks, _stripped_polls_miss(stripped))
+    when_true = frozenset(f for f, r in ((CONTROL, uc), (KEY, ky)) if r == 0)
+    when_false = frozenset(f for f, r in ((CONTROL, uc), (KEY, ky)) if r not in (None, 0))
+    return when_true, when_false
+
+
+def facts_after(facts: frozenset, ins) -> frozenset:
+    """The CONTROL / KEY facts still proved once ``ins`` has run. BOTH together survive anything: a following guest's
+    control was on at the test and off at the poll (F1 strips it at control-on) within one frame and no control write
+    -- a contradiction, so no guest's path gets past that point at all. ONE alone does not survive a yield (YIELD_OPS:
+    other objects run and control can change before the other half is proved -- FilterScriptButtons decides the mask
+    at the KEYON read, NetSyncField.cs:858; :func:`is_yield`), CONTROL not an op that turns control off, KEY (control off
+    at its poll) not one that turns it on."""
+    if BOTH <= facts:
+        return facts
+    if is_yield(ins.op):
+        return facts - BOTH
+    if ins.op in CONTROL_OFF_OPS:
+        return facts - {CONTROL}
+    if ins.op in CONTROL_ON_OPS:
+        return facts - {KEY}
+    return facts
+
+
+def carried(facts: frozenset) -> frozenset:
+    """The CONTROL / KEY facts a callee is entered with -- a RunScript* target, a Seq, an Init*-created object. Its code
+    runs in a later segment (EventEngine.Request -> Call only sets the target's ip, EventEngine.cs:340-372: it runs when
+    the interpreter reaches that object), so only BOTH carry: the call site itself is then out of every guest's reach."""
+    return facts & BOTH if BOTH <= facts else frozenset()
+
+
+def branch_facts(fld: FieldModel, flow: FuncFlow, b: int, end: int, stripped=F1_STRIPPED) -> dict:
+    """``{successor block: facts}`` for block ``b``'s JMP_IF / JMP_IFNOT on the SET right before it (eb.cfg's branch
+    idiom); a successor both outcomes reach keeps only what both prove. No facts for a switch, an unconditional edge,
+    a jump with no SET before it, or a condition that does not decode."""
+    blk = flow.blocks[b]
+    last = blk.instrs[-1]
+    if last.op not in (0x02, 0x03) or len(blk.instrs) < 2 or blk.instrs[-2].op != 0x05:
+        return {}
+    try:
+        toks = instr_expr_tokens(fld.data, blk.instrs[-2])[0]
+    except Exception:                             # noqa: BLE001 -- an undecodable condition proves nothing
+        return {}
+    when_true, when_false = cond_facts(toks, stripped)
+    taken, fall = (when_true, when_false) if last.op == 0x03 else (when_false, when_true)
+    t = jump_target(last)
+    out = {}
+    for at, facts in ((None if last.end >= end else flow.block_at(last.end), fall),
+                      (None if t is None or t >= end else flow.block_at(t), taken)):
+        if at is not None:
+            out[at] = facts if at not in out else out[at] & facts
+    return out
+
+
+def func_facts(fld: FieldModel, ei: int, tag: int, ctx=frozenset(), stripped=F1_STRIPPED) -> "dict | None":
+    """block -> the facts EVERY path from the function's start (entered holding ``ctx``) to that block's start
+    establishes -- a forward MUST dataflow (a join keeps what all its paths prove; each instruction passes them through
+    :func:`facts_after`; a path ends at a flow terminator, TerminateEntry only as the constant self-end). Unreachable
+    blocks are absent. None when the function does not decode or its CFG does not build (the caller fails closed)."""
+    f = fld.func(ei, tag)
+    flow = _flow(fld, ei, tag)
+    if f is None or flow is None or not flow.blocks or fld.decode_failed(ei, tag):
+        return None
+    facts = {flow.entry: frozenset(ctx)}
+    work = [flow.entry]
+    while work:
+        b = work.pop()
+        if any(_ends_path(ins) for ins in flow.blocks[b].instrs):
+            continue
+        bf = branch_facts(fld, flow, b, f.abs_end, stripped)
+        out = facts[b]
+        for ins in flow.blocks[b].instrs:
+            out = facts_after(out, ins)
+        for (s, _c) in flow.blocks[b].succs:
+            new = out | bf.get(s, frozenset())
+            if s not in facts:
+                facts[s] = new
+                work.append(s)
+            elif not facts[s] <= new:
+                facts[s] = facts[s] & new
+                work.append(s)
+    return facts
+
+
+def names_player(fld: FieldModel, uid, actor) -> bool:
+    """``uid`` (read in ``actor``'s code) can name the controlled player: 250, the uid of a DefinePlayerCharacter
+    entry, 255 inside a player entry, a party slot, None (computed) or a uid that does not resolve (FAIL CLOSED)."""
+    if uid is None or uid == PLAYER_UID or 251 <= uid < 255:
+        return True
+    if uid == SELF_UID:
+        return actor in fld.player
+    tgts, why = fld.resolve_uid(uid, actor)
+    return bool(why) or bool(tgts & fld.player)
+
+
+def player_reads(fld: FieldModel, toks, actor) -> list:
+    """The reads of the controlled player's whereabouts in one expression run by ``actor``, as text: ``obj(uid).f[0..2]``
+    (B_OBJSPECA: x, y, z -- EBin.cs getvobj cases 0-2), B_MEMBER's f[0..2] (a computed object), B_DISTANCEA /
+    B_ANGLEA / B_BGIID / B_BGIFLOOR of a uid that can name the player (:func:`names_player`; a computed one counts),
+    B_ANGLE / B_DISTANCE / B_ANGLEA / B_DISTANCEA run by a player entry (they read the executing object's own position)
+    and B_SYSVAR[4] (the player's collision angle)."""
+    out, st = [], []
+    for (o, v) in toks or ():
+        if o == 0x7F:
+            break
+        if o == 0xD3:
+            for _ in range(min(v[1], len(st))):
+                st.pop()
+            st.append(None)
+            continue
+        if o in (0x7D, 0x7E, 0x5F):                   # a constant, or B_PTR(uid): the uid itself
+            st.append(v)
+            continue
+        if o == 0x78:
+            if v[1] in (0, 1, 2) and names_player(fld, v[0], actor):
+                out.append(f"obj(uid={v[0]}).f[{v[1]}]")
+            st.append(None)
+            continue
+        if o == 0x29:
+            if v in (0, 1, 2):
+                out.append(f"B_MEMBER f[{v}] (a computed object)")
+            st.append(None)
+            continue
+        if o == 0x7A:
+            if v == PLAYER_ANGLE_SYSVAR:
+                out.append("B_SYSVAR[4] (the player's collision angle)")
+            st.append(None)
+            continue
+        if o >= 0xC0 or o == 0x79:
+            st.append(None)
+            continue
+        ar = OP_SEMANTICS.get(EXPR_OP_NAMES.get(o, f"op{o:02X}"), (0, "read"))[0]
+        args = [st.pop() if st else None for _ in range(ar)][::-1]
+        if o in UID_POS_OPS and args and names_player(fld, args[0], actor):
+            out.append(f"{UID_POS_OPS[o]}({'a computed uid' if args[0] is None else args[0]})")
+        elif o in SELF_POS_OPS and actor in fld.player:
+            out.append(f"{SELF_POS_OPS[o]} by a player entry")
+        st.append(None)
+    return out
+
+
+def site_buckets(fld: FieldModel, node, ins, actor, seq: bool, root: int, near_exit: bool) -> set:
+    """The census buckets ONE instruction adds to its closure -- Closure.walk's own rules, instruction by instruction
+    (its expression writes and reads, the opcode's bucket, a locomotion op's target context, the Seq / self-end
+    TerminateEntry), so the walk-in exemption can name the site behind each bucket of a closure. ``actor`` is whose body
+    runs it (a Seq keeps its caller's), ``root`` the scanned root's entry, ``near_exit`` an exit op within the census's
+    12 instructions after it."""
+    ei, tag = node
+    out = set()
+    for w in fld.expr_info(ei, tag, ins):
+        for wr in w["writes"]:
+            if len(wr) != 3:
+                out.add("other")
+            elif wr[0] == 0:
+                typ, idx = wr[1], wr[2]
+                if near_exit and not (typ in (6, 7) and idx == 0):
+                    out.add("entrance_write" if (typ in (6, 7) and idx == 2) else "exit_glob")
+                elif typ in (6, 7) and idx in (0, 2):
+                    out.add("scenario_write" if idx == 0 else "entrance_write")
+                else:
+                    out.add("glob_write")
+        if 9 in w["sysv"]:
+            out.add("read_choice")
+        out |= {bk for flag, bk in (("objw", "objvar_write"), ("member_w", "member_write"), ("partyadd", "party_add"),
+                                    ("flex", "flex_expr")) if w[flag]}
+    if ins.op == 0x05:
+        return out
+    bk = B.get(ins.op, "other")
+    if bk == "locomotion":
+        ctx = "player" if actor in fld.player else ("self" if actor == root else "other")
+        if ins.op in EX_TARGET_OPS and ins.args and not ins.arg_is_expr[0]:
+            tgt, why = fld.resolve_uid(ins.args[0], actor)
+            if why == "party-slot":
+                ctx = "party"
+            elif tgt:
+                ctx = "player" if tgt & fld.player else ("self" if root in tgt else "other")
+        return out | {"loco_" + ctx}
+    if ins.op == TERMINATE_OP and (seq or is_const_self_end(ins)):
+        return out                                # a Seq / self ending itself: "flow"
+    return out | ({bk} - {"call", "flow"})
+
+
+def one_tag_zero(fld: FieldModel, t) -> bool:
+    """Entry ``t`` holds exactly ONE function, tag 0 -- the only Seq entry whose run the closure walk (which takes the
+    entry's FIRST listed function, census-verbatim) sees whole. RunSharedScript (STARTSEQ, EventEngine.DoEventCode.cs
+    :1444-1471) builds ``new Seq(entry, uid)``: the Obj constructor points it at ``GetIP(sid, 0)`` -- found by TAG id, in
+    any listed order (EventEngine.GetIP, EventEngine.cs:1116-1137) -- in stateNew, EBin.ProcessCode moves it to stateInit
+    (EBin.cs:115-119), and when that tag 0 returns EventEngine.Return (stateInit, EventEngine.cs:1278-1283) points it at
+    ``GetIP(sid, 1)``: the entry's TAG 1 runs next, as the Seq, on the caller's body."""
+    return 0 <= t < fld.eb.entry_count and not fld.eb.entry(t).empty and [f.tag for f in fld.eb.entry(t).funcs] == [0]
+
+
+def closure_gaps(v: "PressVerdict") -> list:
+    """Why the closure walk of ``v`` did not see everything (FAIL CLOSED -- R15 holds such a walk-in EXPOSED whatever
+    its tier): a truncated walk, a decode failure, an unresolved uid / tag / entry, a call with an expression, unknown
+    or party target -- and the tag 1 a walked op starts, which the walk never follows: an Init*-created entry that has
+    one runs it when its tag 0 returns (EventEngine.Return, stateInit -> ``ip = GetIP(sid, 1)``, EventEngine.cs:1278-1283),
+    ReturnEntryFunctions restarts its target's (EventEngine.DoEventCode.cs DRET :2172-2181: ``sx = 0``, stateInit,
+    Return), and a Seq whose entry is not :func:`one_tag_zero` runs its tag 1 when its tag 0 returns (and the walk took
+    the entry's first listed function, which need not be its tag 0)."""
+    out = []
+    if v.truncated:
+        out.append("the walk was truncated")
+    if v.decode_fail:
+        out.append("an instruction or expression failed to decode")
+    if v.unresolved:
+        out.append("unresolved " + ", ".join(f"{k} x{n}" for k, n in v.unresolved))
+    out += [f"{ed.src[0]}:{ed.src[1]} {ed.call} has a {ed.kind} target" for ed in v.edges
+            if ed.kind in ("expr", "unknown", "party")]
+    fld = v.closure.f
+    out += [f"{ed.src[0]}:{ed.src[1]} {ed.call} creates {t}, whose tag 1 runs when its tag 0 returns"
+            for ed in v.edges if ed.kind == "spawn" for t in ed.targets + ed.missing if fld.func(t, 1) is not None]
+    out += [f"{ei}:{tag} ReturnEntryFunctions restarts an entry's tag 1" for (ei, tag) in v.funcs
+            if any(ins.op == RETURN_ENTRY_OP for ins in fld.instrs(ei, tag))]
+    out += [f"{ed.src[0]}:{ed.src[1]} RunSharedScript({t}) runs a Seq whose entry is not one tag 0 (its tag 1 runs when "
+            "its tag 0 returns)" for ed in v.edges if ed.kind == "seq" for t in ed.targets + ed.missing
+            if not one_tag_zero(fld, t)]
+    return out
+
+
+def effects_of(fld: FieldModel, ei: int, tag: int, ins) -> list:
+    """One instruction's effect classes: its opcode's (:data:`EFFECT_BUCKETS`) and its expressions' -- a Global or
+    Null var write, a write whose target is not a var, a party add or member write, a flexible-varfunc call."""
+    out = []
+    eff = EFFECT_BUCKETS.get(B.get(ins.op))
+    if eff:
+        out.append(eff)
+    for w in fld.expr_info(ei, tag, ins):
+        for wr in w["writes"]:
+            if len(wr) != 3:
+                out.append("a computed write")
+            elif wr[0] in (0, 3):
+                out.append("GLOB write" if wr[0] == 0 else "Null write")
+        if w["partyadd"]:
+            out.append("item")
+        if w["member_w"]:
+            out.append("member write")
+        if w["flex"]:
+            out.append("flex")
+    return out
+
+
+def control_deps(fld: FieldModel, ei: int, tag: int) -> "dict | None":
+    """block -> the BRANCH blocks it is control-dependent on, transitively (a branch decides whether the block runs:
+    the block post-dominates one of the branch's successors but not the branch). Post-dominators over the reachable
+    blocks plus a virtual exit that every path end (RET, the function's end, a flow terminator) and every LOOP LATCH
+    (a block with an edge back to an equal-or-earlier block) reaches -- one iteration of a tag-1 loop is a path, so an
+    endless loop still has post-dominators. None when the CFG does not build (FAIL CLOSED)."""
+    f = fld.func(ei, tag)
+    flow = _flow(fld, ei, tag)
+    if f is None or flow is None or not flow.blocks or fld.decode_failed(ei, tag):
+        return None
+    blocks = flow.blocks
+    ends = {b for b, blk in enumerate(blocks) if any(_ends_path(i) for i in blk.instrs)}
+    reach, work = set(), [flow.entry]
+    while work:
+        b = work.pop()
+        if b in reach:
+            continue
+        reach.add(b)
+        if b not in ends:
+            work += [s for (s, _c) in blocks[b].succs]
+    EXIT = -1
+    succ = {}
+    for b in reach:
+        last = blocks[b].instrs[-1]
+        succ[b] = set() if b in ends else {s for (s, _c) in blocks[b].succs}
+        if b in ends or not succ[b] or any(blocks[s].start <= blocks[b].start for s in succ[b]):
+            succ[b].add(EXIT)                     # a path end, or a latch: one iteration ends here
+        if b not in ends and last.op in (0x02, 0x03) and (last.end >= f.abs_end or (jump_target(last) or f.abs_end)
+                                                          >= f.abs_end):
+            succ[b].add(EXIT)                     # a conditional jump or its fall-through leaves the function
+        if b not in ends and last.op in (0x06, 0x0B, 0x0D):
+            si = decode_switch(last)
+            if si is None or any(e.target >= f.abs_end for e in si.edges) or last.end >= f.abs_end:
+                succ[b].add(EXIT)                 # a switch arm (or the default) leaves the function
+    every = frozenset(reach) | {EXIT}
+    pdom = {b: every for b in reach}
+    pdom[EXIT] = frozenset({EXIT})
+    changed = True
+    while changed:
+        changed = False
+        for b in reach:
+            m = frozenset.intersection(*(pdom[s] for s in succ[b])) | {b}
+            if m != pdom[b]:
+                pdom[b], changed = m, True
+
+    def ipdom(b):
+        strict = pdom[b] - {b}
+        return next((d for d in strict if pdom[d] == strict), EXIT)
+    cd = defaultdict(set)
+    for a in reach:
+        if a in ends or blocks[a].instrs[-1].op not in (0x02, 0x03, 0x06, 0x0B, 0x0D):
+            continue                              # not a branch (a latch's exit edge is virtual)
+        stop = ipdom(a)
+        for s in succ[a]:
+            t = s
+            while t != EXIT and t != stop:
+                cd[t].add(a)
+                t = ipdom(t)
+    out = {}
+    for b in reach:                               # the transitive closure: a branch's own dependences carry
+        seen, stack = set(), list(cd.get(b, ()))
+        while stack:
+            a = stack.pop()
+            if a not in seen:
+                seen.add(a)
+                stack += cd.get(a, ())
+        out[b] = frozenset(seen)
+    return out
+
+
+def branch_cond(fld: FieldModel, flow: FuncFlow, b: int) -> "list | None":
+    """The condition tokens of block ``b``'s branch -- the SET right before its JMP_IF / JMP_IFNOT / switch (eb.cfg's
+    idiom) -- or None when the branch has no SET there or it does not decode (the value it tests is unknown)."""
+    blk = flow.blocks[b]
+    if len(blk.instrs) < 2 or blk.instrs[-2].op != 0x05:
+        return None
+    try:
+        return instr_expr_tokens(fld.data, blk.instrs[-2])[0]
+    except Exception:                             # noqa: BLE001
+        return None
+
+
+POS, HOSTKEY = "position", "host key"     # what an effect's firing can depend on (watch_scan's TRIGGER flags)
+
+
+@dataclass
+class Taint:
+    """The vars whose value can carry the controlled player's whereabouts (``pos``) or a host-owned key poll's
+    outcome (``key``), per var source as a set of bits (var_bits: a Byte inside an Int16 overlaps it): a var written by
+    an expression that reads one (data), or written where the write's firing depends on one (control). ``screen``:
+    the field computes a CalculateScreenPosition that can name the player, so B_SYSVAR[12] / [13] (sSysX / sSysY,
+    EventEngine.DoEventCode.cs:2343) carry its position."""
+    pos: dict
+    key: dict
+    screen: bool = False
+
+    @classmethod
+    def empty(cls, screen=False) -> "Taint":
+        return cls(defaultdict(frozenset), defaultdict(frozenset), screen)
+
+    def reads(self, which: str, toks) -> bool:
+        tbl = self.pos if which == POS else self.key
+        for (o, v) in toks or ():
+            if o == 0x7F:
+                break
+            if o >= 0xC0 and o != 0xD3 and var_bits((o >> 2) & 7, v) & tbl.get(o & 3, frozenset()):
+                return True
+            if which == POS and o == 0x7A and self.screen and v in (12, 13):
+                return True
+        return False
+
+    def same(self, other: "Taint") -> bool:
+        def norm(t):
+            return {k: v for k, v in t.items() if v}
+        return norm(self.pos) == norm(other.pos) and norm(self.key) == norm(other.key)
+
+
+def _host_poll(toks) -> bool:
+    """The expression polls a host-owned key (HOST_OWNED) or a computed mask -- any key read."""
+    w = walk_expr(toks)
+    return any(m is None or m & HOST_OWNED for (_k, m) in w["keys"])
+
+
+def cond_triggers(fld: FieldModel, toks, actor, taint: Taint) -> frozenset:
+    """What a branch on this condition makes its dependents' firing depend on: POS when it reads the controlled
+    player's whereabouts (:func:`player_reads`) or a POS-tainted var, HOSTKEY when it polls a host-owned or computed
+    key or reads a KEY-tainted var. None (no SET before the branch, an undecodable one) is BOTH (FAIL CLOSED)."""
+    if toks is None:
+        return frozenset({POS, HOSTKEY})
+    out = set()
+    if player_reads(fld, toks, actor) or taint.reads(POS, toks):
+        out.add(POS)
+    if _host_poll(toks) or taint.reads(HOSTKEY, toks):
+        out.add(HOSTKEY)
+    return frozenset(out)
+
+
+@dataclass(frozen=True)
+class WatchSite:
+    """One site watch_scan met: ``node`` (entry, tag), its absolute ``off``, ``what`` it is, and its ``facts``: CONTROL
+    / KEY when every path from the scanned root to it passes a branch proving them (:func:`func_facts`), POS /
+    HOSTKEY when its firing depends on a branch reading them (:func:`control_deps`, :func:`cond_triggers`)."""
+    node: tuple
+    off: int
+    what: str
+    facts: frozenset
+
+    def at(self, fld: FieldModel) -> str:
+        return f"{self.node[0]}:{self.node[1]} +{self.off - fld.func(*self.node).abs_start}"
+
+
+@dataclass
+class WatchScan:
+    """What one root function and everything it calls can do with no press: ``polls`` (``(site, mask)``, mask None =
+    computed), ``reads`` (of the controlled player's whereabouts), ``effects``, ``writes`` (``(var, triggers)``: every
+    var write with what its value or its firing depends on -- the field's taint) and ``open`` -- why the scan could
+    not see everything (a CFG that does not build, a computed or unresolvable call, a sender call, the walk's bounds).
+    ``nodes``: the functions it visited; ``stateful``: every site of a :data:`STATEFUL_BUCKETS` census bucket (its
+    ``what`` the bucket, :func:`site_buckets`). FAIL CLOSED: an open scan is never exempt and always trips R16."""
+    root: tuple
+    polls: list
+    reads: list
+    effects: list
+    writes: list
+    open: list
+    nodes: set = field(default_factory=set)
+    stateful: list = field(default_factory=list)
+
+    def host_polls(self) -> list:
+        """The polls of a host-owned or computed mask -- any key read (B_KEYOFF is not even filtered)."""
+        return [p for (p, mask) in self.polls if mask is None or mask & HOST_OWNED]
+
+    def uncovered(self, fact: str) -> list:
+        return [e for e in self.effects if fact not in e.facts]
+
+    def key_triggered(self) -> list:
+        """(a): the effects whose firing depends on a host-owned key poll and that no user-control test dominates --
+        a following guest's OWN press reaches them while a guest-local climb holds control off (FilterScriptButtons
+        masks a control-off poll only under ScriptKeyLockActive, NetSyncField.cs:894-907)."""
+        return [e for e in self.effects if HOSTKEY in e.facts and CONTROL not in e.facts]
+
+    def position_triggered(self) -> list:
+        """(b): the effects whose firing depends on the controlled player's whereabouts and that no constant poll F1
+        strips at control-on dominates -- the climb carries the guest where its own copy fires them."""
+        return [e for e in self.effects if POS in e.facts and KEY not in e.facts]
+
+    def exempt_why(self, v: PressVerdict) -> "str | None":
+        """None when the HIDDEN-ITEM exemption holds for the scanned root's closure ``v`` (its PressVerdict), else why
+        not -- FAIL CLOSED, in order: (a) the scan is open; (b) the closure reaches a function the scan never visited;
+        (c) a bucket of the closure that can make it STATEFUL (:data:`STATEFUL_BUCKETS`) has no site in the scan; then
+        any effect or STATEFUL-bucket site not dominated by BOTH a user-control test and a constant poll inside the
+        scan's mask -- with both, it can fire neither with control off (the test) nor at control-on (F1's mask)."""
+        if self.open:
+            return f"its scan is open ({self.open[0]})"
+        unseen = [n for n in v.funcs if n not in self.nodes]
+        if unseen:
+            return f"the scan never visited {unseen[0][0]}:{unseen[0][1]}"
+        lost = sorted(set(v.buckets) & STATEFUL_BUCKETS - {s.what for s in self.stateful})
+        if lost:
+            return f"its closure's {lost[0]} has no site the scan saw"
+        for s in self.effects + self.stateful:
+            if not BOTH <= s.facts:
+                return f"{s.what} at {s.node[0]}:{s.node[1]} is not under both a user-control test and a stripped poll"
+        return None
+
+
+def watch_scan(fld: FieldModel, ei: int, tag: int, taint: "Taint | None" = None, *, spawn: bool = False,
+               stripped: int = F1_STRIPPED) -> WatchScan:
+    """Scan root ``(ei, tag)`` and every function it calls -- RunScript* into its targets' code, RunSharedScript into
+    the Seq target's tag 0 (by tag id, :func:`one_tag_zero`) and its tag 1 (it runs when that returns) on the caller's
+    object -- each callee entered holding the triggers at its call site and the
+    facts that carry (:func:`carried`). Init* is followed only with ``spawn`` (R15's walk-ins: the closure walk follows
+    it), into the created entry's tag 0; for R16 the object it creates runs its own tag 0 / tag 1, which
+    :func:`watch_roots` lists. ``taint`` is the field's (:func:`field_watch` computes it; without one nothing is
+    tainted); ``stripped`` the control-on mask a KEY fact needs (F1_STRIPPED; JP_F1_STRIPPED is the JP waiver's)."""
+    taint = taint or Taint.empty()
+    ws = WatchScan((ei, tag), [], [], [], [], [])
+    seen = set()
+
+    def visit(node, actor, seq, ctx, trig, depth):
+        if (node, actor, seq, ctx, trig) in seen:
+            return
+        if depth > _WATCH_DEPTH or len(seen) > _WATCH_BUDGET:
+            ws.open.append(f"{node[0]}:{node[1]} is past the walk's depth / node budget")
+            return
+        seen.add((node, actor, seq, ctx, trig))
+        if fld.func(*node) is None:
+            return                                    # a missing function: the stock no-op
+        ws.nodes.add(node)
+        facts = func_facts(fld, node[0], node[1], ctx, stripped)
+        deps = control_deps(fld, node[0], node[1])
+        if facts is None or deps is None:
+            ws.open.append(f"{node[0]}:{node[1]}'s CFG does not build")
+            return
+        flow = _flow(fld, *node)
+        listed = fld.instrs(*node)
+        pos = {x.off: k for k, x in enumerate(listed)}
+        exits = [k for k, x in enumerate(listed) if x.op in (0x2B, 0xB6)]
+        branch = {}
+        for b in sorted(facts):
+            got = set(trig)
+            for a in deps.get(b, ()):
+                if a not in branch:
+                    branch[a] = cond_triggers(fld, branch_cond(fld, flow, a), actor, taint)
+                got |= branch[a]
+            cur = facts[b]
+            for ins in flow.blocks[b].instrs:
+                near = any(0 < j - pos.get(ins.off, -99) <= 12 for j in exits)
+                site(node, actor, seq, cur | got, frozenset(got), depth, ins, near)
+                cur = facts_after(cur, ins)
+                if _ends_path(ins):
+                    break
+
+    def site(node, actor, seq, have, trig, depth, ins, near):
+        where = f"{node[0]}:{node[1]} +{ins.off - fld.func(*node).abs_start}"
+        if any(ins.arg_is_expr) or ins.op == 0x05:
+            try:
+                toks = instr_expr_tokens(fld.data, ins)
+            except Exception:                         # noqa: BLE001 -- an undecodable operand hides anything
+                ws.open.append(f"{where} does not decode")
+                toks = []
+            for t in toks:
+                if not t:
+                    continue
+                for r in player_reads(fld, t, actor):
+                    ws.reads.append(WatchSite(node, ins.off, r, have))
+                w = walk_expr(t)
+                for (k, m) in w["keys"]:
+                    what = f"{k}({'a computed mask' if m is None else '0x%X' % m})"
+                    ws.polls.append((WatchSite(node, ins.off, what, have), m))
+                data = set(trig)
+                if player_reads(fld, t, actor) or taint.reads(POS, t):
+                    data.add(POS)
+                if _host_poll(t) or taint.reads(HOSTKEY, t):
+                    data.add(HOSTKEY)
+                for wr in w["writes"]:
+                    if len(wr) == 3:
+                        ws.writes.append((tuple(wr), frozenset(data), have & {CONTROL, KEY}))
+        for e in effects_of(fld, node[0], node[1], ins):
+            ws.effects.append(WatchSite(node, ins.off, e, have))
+        for bk in sorted(site_buckets(fld, node, ins, actor, seq, ei, near) & STATEFUL_BUCKETS):
+            ws.stateful.append(WatchSite(node, ins.off, bk, have))
+        op = ins.op
+        if op == SCREEN_POS_OP and ins.args:
+            uid = None if ins.arg_is_expr[0] else ins.args[0]
+            if names_player(fld, uid, actor):
+                what = f"CalculateScreenPosition({'a computed uid' if uid is None else uid})"
+                ws.reads.append(WatchSite(node, ins.off, what, have))
+        if op in CALL_OPS and len(ins.args) >= 3:
+            if ins.arg_is_expr[1] or ins.arg_is_expr[2]:
+                ws.open.append(f"{where} {ins.name} has a computed uid or tag")
+                return
+            tgts, why = fld.resolve_uid(ins.args[1], actor)
+            if why:
+                ws.open.append(f"{where} {ins.name}(uid {ins.args[1]}) does not resolve ({why})")
+                return
+            for t in sorted(tgts):
+                if fld.func(t, ins.args[2]) is not None:
+                    visit((t, ins.args[2]), t, False, carried(have), trig, depth + 1)
+        elif op in SENDER_OPS:
+            ws.open.append(f"{where} {ins.name} runs its sender's code (unknown to a root)")
+        elif op == SEQ_OP and ins.args:
+            if ins.arg_is_expr[0]:
+                ws.open.append(f"{where} RunSharedScript has a computed entry")
+                return
+            t = ins.args[0]
+            for stag in (0, 1):                       # GetIP(sid, 0) BY TAG, then its tag 1 when that returns
+                if fld.func(t, stag) is not None:
+                    visit((t, stag), actor, True, carried(have), trig, depth + 1)
+        elif spawn and op in INIT_OPS and ins.args:
+            if ins.arg_is_expr[0] or 251 <= ins.args[0] < 255:
+                ws.open.append(f"{where} {ins.name} creates a computed or party-slot entry")
+                return
+            if fld.func(ins.args[0], 0) is not None:
+                visit((ins.args[0], 0), ins.args[0], False, carried(have), trig, depth + 1)
+
+    visit((ei, tag), ei, False, frozenset(), frozenset(), 0)
+    return ws
+
+
+def watch_roots(fld: FieldModel) -> list:
+    """The functions the engine starts on its own on a guest's copy: every entry's tag 0 (Obj: ip = GetIP(sid, 0),
+    Obj.cs:51) and tag 1 (when tag 0 returns, EventEngine.cs:1282), and entry 0's tag 10 (Main_Reinit after a battle,
+    EventEngine.cs:689). The other engine-started tags are judged elsewhere: tag 2 (a tread or a bump,
+    EventCollision.cs:305-312) by R15; tags 3 and 8 (a press, a card) a following guest never starts but for the
+    CRC-checked rows (CheckQuadInput EventCollision.cs:73-86, CheckNPCInput :115-119)."""
+    return list(dict.fromkeys((e.index, f.tag) for e in fld.eb.entries if not e.empty
+                              for f in e.funcs if f.tag in (0, 1) or (e.index == 0 and f.tag == 10)))
+
+
+_TAINT_ROUNDS = 8
+#: the var sources a trigger taints: Map and Instance. A Global or Null write is itself an EFFECT (effects_of), so a chain
+#: through one already trips at its writer -- the guest-triggerable write is the finding, not what later reads it
+TAINT_SOURCES = (1, 2)
+
+
+def field_watch(fld: FieldModel) -> dict:
+    """``{root: WatchScan}`` for every :func:`watch_roots` root under the field's :class:`Taint`, a FIXPOINT: every
+    function of the field is scanned as its own root (a callee also inside its callers' contexts), and a Map / Instance
+    var write a guest can trigger taints its var with what its value or firing depends on -- POS when that is the
+    player's whereabouts and no F1-stripped poll dominates the write, HOSTKEY when it is a host-owned key poll and no
+    user-control test dominates it -- until no var is newly tainted. A taint that does not settle in its rounds marks
+    every scan open (FAIL CLOSED)."""
+    screen = any(ins.op == SCREEN_POS_OP and ins.args and
+                 names_player(fld, None if ins.arg_is_expr[0] else ins.args[0], ei)
+                 for (ei, tag) in fld.iter_funcs() for ins in fld.instrs(ei, tag))
+    taint = Taint.empty(screen)
+    funcs = list(dict.fromkeys(fld.iter_funcs()))
+    for _ in range(_TAINT_ROUNDS):
+        scans = {node: watch_scan(fld, *node, taint) for node in funcs}
+        new = Taint.empty(screen)
+        for ws in scans.values():
+            for ((src, typ, idx), trig, facts) in ws.writes:
+                if src not in TAINT_SOURCES:
+                    continue
+                if POS in trig and KEY not in facts:
+                    new.pos[src] = new.pos[src] | var_bits(typ, idx)
+                if HOSTKEY in trig and CONTROL not in facts:
+                    new.key[src] = new.key[src] | var_bits(typ, idx)
+        for which in ("pos", "key"):
+            mine, theirs = getattr(new, which), getattr(taint, which)
+            for k, v in theirs.items():
+                mine[k] = mine[k] | v
+        if new.same(taint):
+            return {r: scans[r] for r in watch_roots(fld) if r in scans}
+        taint = new
+    out = {r: scans[r] for r in watch_roots(fld) if r in scans}
+    for ws in out.values():
+        ws.open.append(f"the field's position / key taint did not settle in {_TAINT_ROUNDS} rounds")
     return out
