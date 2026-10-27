@@ -122,6 +122,13 @@ DEFAULT_FILES = [
     # INSTANCE witness, NetSyncMusicSoundId: the FIRST netsync patch to touch it; s65's fork gate touched it before) -- so a stale or
     # mixed hunk in it cannot pass diag
     "Assembly-CSharp/Global/AllSoundDispatchPlayer.cs",
+    # [ff9mapkit netsync s156] guest traversal: its three new files (created from /dev/null; the table is the kit's generator output)
+    # and its stock hook sites not yet listed -- EBin.cs (the op and GLOB trip wires) and ProcessEvents.cs (the flight's Tick)
+    "Assembly-CSharp/Memoria/Netsync/NetSyncGuestLocal.cs",
+    "Assembly-CSharp/Memoria/Netsync/NetSyncGuestLocal.SelfTest.cs",
+    "Assembly-CSharp/Memoria/Netsync/NetSyncGuestLocalTable.cs",
+    "Assembly-CSharp/Global/EBin.cs",
+    "Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs",
 ]
 
 # Same-number ties, pinned explicitly.

@@ -38,6 +38,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   saying disc 4 kept its own ground, an edit's Accept included.
 - An edit whose later step cannot be put back on top is cancelled and says why; it used to stop silently.
 
+### Added — co-op: the guest climbs ladders and takes jumps on its own (engine patch s156)
+From `studies/field-coop/GUEST-TRAVERSAL.md`, rungs R0-R2.
+- **A following guest can use the room's own ladders, jumps and carries**, the ones that only move the player, instead
+  of watching the host climb and waiting for the follow warp. Everything else a guest presses (doors, chests, people,
+  story events) is still the host's.
+- **The allowlist is built from your own install.** `py -m ff9mapkit.guest_traversal --check` re-derives it (all 7
+  languages) and compares it to the committed `ff9mapkit/data/guest_traversal.json`; the engine compiles the same
+  table (ids, lengths and checksums only, no game bytes). At every press the engine re-checks the bytes it is about to
+  run, so a mod that changed a ladder's script just keeps the old decline.
+- **A host conversation that starts while the guest is mid-climb is held** and opens on the guest's screen when it
+  lands, even after the host's usual hold time runs out. Teleport-to-host refuses mid-climb and says why.
+- The kit's classifier (`ff9mapkit.eb.pressclosure`) now owns what "locomotion only" means; it matches the census it
+  came from on every region press. The shipping filter is stricter than the census: a value the climb writes must not
+  be read first by another function on any path through it, and a row may not restart or end another object, or write
+  save data. That refuses five stock rows the census allowed (two stone switches in 2702, one in 353, two in 2507).
+
 ### Fixed — co-op: the rest of the fix-first list (engine patch s154, the kit's own host code)
 The second half of `studies/coop-review/REVIEW.md` section 1. Each fix has its own check: in game where the harness can
 reach it, calibrated on the previous engine (or, for the number-key panel, on the previous code behind a bench lever).

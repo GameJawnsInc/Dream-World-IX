@@ -265,7 +265,9 @@ s154 row has the details.
    mod-set digest, shown on both overlays and both Co-op tabs, plus WIRE-5's mismatch line on the relay.
    This goes first among the M items because every later item is a DLL both players must take.
 3. **Guest traversal: ladders, jumps, carries (M).** 86 stock regions in 38 fields; 75 of them strand the
-   guest today. Design, census and rungs → `GUEST-TRAVERSAL.md`.
+   guest today. Design, census and rungs → `GUEST-TRAVERSAL.md`. **R0-R2 BUILT (engine s156, 2026-10-26):** 81
+   rows the guest may run on its own copy (5 census rows refused by the path-aware latch rule); bench-proven solo;
+   R3-R5 and the two-PC session open.
 4. **A disc-1 duo acceptance walk (M).** `tools/harness/duo.py` pairs two real games on one desktop. Drive
    the host with the existing story-trace walkers (`o1_opening.py`, `dali_tour.py`) and record, per beat:
    - what the guest saw;

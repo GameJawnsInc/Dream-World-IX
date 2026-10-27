@@ -140,3 +140,6 @@ studies/story-trace/research/o7_fake_replay.json -text
 # session records the sha of the bytes it read, and the analysis refuses a file that no longer matches. The line is in
 # place BEFORE any freeze (the lead freezes v1 after the stock rehearsals); never line-end convert them.
 studies/story-trace/o8_predictions*.json -text
+
+# The guest-traversal JSON twin is pinned byte for byte (its test reads BYTES): keep it text, check it out LF.
+ff9mapkit/ff9mapkit/data/guest_traversal.json text eol=lf

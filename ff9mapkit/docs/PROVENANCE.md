@@ -159,6 +159,23 @@ in that README, is **staging/choreography only**:
 - **What is distributed:** nothing. Nothing read is ever redistributed, and the kit's shipped
   artifacts contain none of it.
 
+## What about the co-op guest-traversal table?
+
+Engine patch s156 lets a following co-op guest climb a stock ladder or take a stock jump on its own
+copy of the room, but only when the bytes it is about to run are the ones the kit verified. The kit's
+record of those bytes is `data/guest_traversal.json` (package data), and its engine twin is the
+generated `Memoria/Netsync/NetSyncGuestLocalTable.cs` in the s156 patch. Neither holds game bytes:
+
+- **What they hold:** field ids, entry and tag indices, byte lengths, and **CRC‑32 digests** of the
+  stock `.eb` functions a press runs. Every function is 8 bytes or longer (the generator refuses a
+  shorter one), and CRC‑32 can be inverted only on inputs of 4 bytes or fewer, so no digest can be
+  turned back into its function. The JSON also records each source `.eb` file's SHA‑1 and Memoria's
+  open‑source EVT script names. The shared selftest vectors are kit‑authored byte strings.
+- **Where they come from:** `py -m ff9mapkit.guest_traversal --write` re-derives both from **your**
+  install, read‑only. It reads `StreamingAssets/p0data*.bin` through UnityPy and never writes into the
+  install. `--check` (the default) re-derives the table in memory and diffs it against the committed
+  copy. The install‑gated pin `tests/test_guest_traversal_install.py` runs the same comparison.
+
 ## For maintainers
 
 `python -m ff9mapkit.data._regen_provenance` (run against a **vanilla** install) re‑authors the

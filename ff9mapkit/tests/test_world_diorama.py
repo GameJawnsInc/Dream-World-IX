@@ -245,8 +245,8 @@ def test_the_verdicts_words_are_the_engines():
 def test_the_harness_keys_are_the_agents_and_every_accessor_reads_its_sentinel():
     lit = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')[0].replace('\\"', '"')
     esc = lambda d: json.dumps(d, separators=(",", ":"))                 # noqa: E731
-    assert lit.endswith(f'"waitline":{esc(BW.WORLD_WAITLINE_SENTINELS)},"dio":{esc(BW.WORLD_DIO_SENTINELS)}}}}}");')
-    assert lit.endswith(f'"world":{esc(BW.WORLD_SENTINELS)}}}");') and list(BW.WORLD_SENTINELS)[-1] == "dio"
+    assert f'"waitline":{esc(BW.WORLD_WAITLINE_SENTINELS)},"dio":{esc(BW.WORLD_DIO_SENTINELS)}}},"guestlocal":{{' in lit   # [ff9mapkit netsync s156]
+    assert f'"world":{esc(BW.WORLD_SENTINELS)},"guestlocal":{{' in lit and list(BW.WORLD_SENTINELS)[-1] == "dio"   # [ff9mapkit netsync s156]
     assert _catch(_upto("s144")).endswith(f'"world":{esc(BW.WORLD_SENTINELS_S144)}}}");')       # the s144 stage, frozen
     dio = " ".join(_code(t) for t in _block("HarnessAgent.cs", "private static void AppendWorldDio(StringBuilder sb)", 'sb.Append("}");'))
     assert re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', dio) == list(BW.WORLD_DIO_SENTINELS), dio

@@ -195,7 +195,7 @@ def test_the_twins_constants_are_the_engines():
     lit = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')[0].replace('\\"', '"')
     esc = lambda d: json.dumps(d, separators=(",", ":"))                 # noqa: E731
     assert f'"ghost_held":false,"overlay_text":null,"follow":{esc(BW.SESSION_FOLLOW_SENTINELS)}}},"menu_refusal"' in lit
-    assert lit.endswith(f'"world":{esc(BW.WORLD_SENTINELS)}}}");')
+    assert f'"world":{esc(BW.WORLD_SENTINELS)},"guestlocal":{{' in lit   # [ff9mapkit netsync s156] guestlocal follows world
     # [ff9mapkit netsync s145] the s144 patch's own line ends with ITS three blocks (frozen); the live block adds s145's `dio`
     upto = [(msr.PATCHES / n).read_bytes() for n in msr.stack()[:msr.stack().index(PATCH) + 1] if n not in msr.DEAD]
     old = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', upto)[0].replace('\\"', '"')
@@ -770,7 +770,7 @@ def test_every_world_key_has_an_accessor_and_reads_its_sentinel():
     its sentinel's type at rest (a null string reads ""); on an s143 block every one reads None -- "this engine cannot" --
     and the capability False; the top-level keys outside netsync read None when absent."""
     nothing = _agent_nothing()
-    assert nothing["world"] == BW.WORLD_SENTINELS and list(nothing)[-1] == "world"
+    assert nothing["world"] == BW.WORLD_SENTINELS and list(nothing)[-2:] == ["world", "guestlocal"]   # [ff9mapkit netsync s156]
     assert nothing["session"]["follow"] == BW.SESSION_FOLLOW_SENTINELS and nothing["session"]["overlay_text"] is None
     assert list(nothing["session"])[-2:] == list(BW.SESSION_KEYS_S144) and tuple(nothing["session"]) == FG.NETSYNC_SESSION_KEYS
     leaves = _leaves(nothing["world"])
