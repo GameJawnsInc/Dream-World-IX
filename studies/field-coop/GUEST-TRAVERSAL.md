@@ -11,8 +11,10 @@ adversarial critique) over the live engine tree `C:\gd\FFIX\Memoria` at the nets
   the census on every QUAD root) and `ff9mapkit/ff9mapkit/guest_traversal.py` (`py -m ff9mapkit.guest_traversal
   --check|--write`) derive the allowlist from the user's own install across all 7 languages. The committed
   `ff9mapkit/ff9mapkit/data/guest_traversal.json` owns the counts; the engine compiles its C# twin
-  `NetSyncGuestLocalTable.cs` (ids, lengths and CRC-32s only). Of the census's 86 LOCO-ONLY rows, 81 ship today; 5
-  are refused by the ship filters the census lacked:
+  `NetSyncGuestLocalTable.cs` (ids, lengths and CRC-32s only). Of the census's 86 LOCO-ONLY rows, the kit ships 80;
+  6 are refused by the ship filters the census lacked. The deployed s156 engine was captured before R15 and still
+  carries the sixth, 1209:5: `S156_DEPLOYED_AHEAD` in `tests/test_guest_traversal_table.py` pins that one row as
+  deployed-ahead (the patch must equal the JSON plus exactly the pinned rows), and the next engine capture empties it.
   - **R11, the latch audit, path-aware:** a variable the climb writes must not be READ by any other function on any
     control-flow path before it is written there (a read-modify-write is a read; a partial-width write covers only
     its own bits), unless the reader is load-once. 2702 e15/e19 (entry 21's stone functions read the latch first),
@@ -21,6 +23,25 @@ adversarial critique) over the live engine tree `C:\gd\FFIX\Memoria` at the nets
   - **R12 (ops)** refuses ReturnEntryFunctions (0x97) anywhere in a row's functions, and any TerminateEntry that is
     not the constant self-end 255. **R13 (writes)** refuses any Global (save) or Null/Memoria-variable write.
     Neither refuses a stock row today; both close holes the review proved with synthetic fields.
+  - **R14 (keys)** refuses a closure that polls any key other than the directions. It refuses no stock row, and it
+    is what lets an engine-side in-flight key mask (E1 below) strip every host-owned key without breaking a climb.
+  - **R15 (walk-ins)** refuses a row that lands the guest on NEW ground (the landing's walkmesh components minus the
+    components the room's entrances arrive on, taken as a union over entrances) where a tread region or an object's
+    bump (`CheckNPCPush`) starts something. A walk-in is exempt only when every effect of its closure sits behind a
+    user-control test AND a constant key poll inside the bits the follow filter strips at control-on, both in the
+    same frame (a lone fact dies at any yielding op); an incomplete closure or scan counts as exposed. A moving
+    object's footprint is bounded only when its moves are its own pathing-on walks, over the tris an NPC may walk
+    (the player-only block bit does not stop it). It refuses 1209:5: the dungeon monsters can walk onto the landing
+    floor across NPC-only tris that Main_Init disables only after it yields.
+  - **The Japanese waiver.** 14 rows (407:16-18, 408:6, 408:9, 912:14, 1912:15, 1950:4-5, 2602:5, 2605:4-7) fail
+    R15 only in Japanese, through stock chest bumps. `ETb.ProcessJapaneseLayout` moves a Japanese player's Confirm
+    into the Cancel bit before the follow filter, which strips only Confirm|Special|Select, so a Japanese guest can
+    already open those chests (KEYON 0x90000) on any ground: an engine hole older than traversal, not a new class.
+    They ship under an explicit waiver (the JSON's top-level `waivers`, outside the CRC and the C#), pinned row for
+    row; the engine fix is E2 below, which retires it.
+  - **R16 (watchers)** is measured, not enforced: it flags code outside the closure that would react to the guest's
+    presses or position on new ground. Enforced, it refuses bench rows 114:9, 207:10 and 207:11 through two
+    false-positive classes (the stock scenario-guard idiom and 114's direction pick), so its trips are pinned instead.
   `studies/field-coop/guest-traversal/far_component_treads.txt` is the D5 report.
 - **R1, shadow.** `netsync guestlocal shadow` computes and logs every verdict while the gate still declines;
   `guestlocal mutate <n>` flips one byte of the hash INPUT (never the script) and the press reads "unverified bytes";
@@ -44,6 +65,42 @@ adversarial critique) over the live engine tree `C:\gd\FFIX\Memoria` at the nets
 - **Review:** three independent reviewers (engine, kit, bench), every finding then adversarially verified with its
   fix measured. The kit holes (the path-blind R11, the DRET restart, R12/R13) and the bench's blind spots (when a
   flight ends, 207's foot inside the loop band, K-R's mutate half) were fixed; two engine findings were refuted.
+- **Pre-session review (after the merge), two findings that turned out unreachable -- no code change, by evidence:**
+  - *A host battle booted mid-climb leaves the rest of the climb untracked after a WARM return.* It cannot return
+    warm: `NetSyncDiorama.WarmVerdict` refuses a warm prime whenever player control is off ("player control is off
+    (a scene holds it)"), and every shipped climb holds control off for its whole flight, so a mid-climb boot always
+    returns COLD through Main_Init and dropping the record at the boot is right. The only control-on flight window on
+    the shipped rows is the one-tick queued press (207's Seq closes 4-8 frames before control returns; 408's async
+    body hands control back in the pass it returns), and there the climb's own DisableMove still holds auto-teleport
+    (busy on control off) and s155's control-off talk defer.
+  - *The live talk hold drops when the scene record misses.* It cannot miss on a v14 host: `BuildStateFrame`
+    appends section 5 (the scene flag and nonce) to EVERY host frame and section 6 (the talk) rides the same
+    snapshot after the host raises the talk's scene (`StartSceneAt`), and `NoteTalkScene` reads that frame on the
+    same tick (from `ServiceTalkFollow` and the dialogue pump) before `HoldTalk` keys the slot. A hold is dropped on
+    the scene only when the host's conversation really ends during the climb -- by design (D8b).
+- **Pre-session review: what still ships, documented, not refused.** Each one plays on the guest's copy only.
+  Nothing reaches the host's game. The guest's story is re-staged from the host's at the next field load
+  (`ApplyStoryImpl`). A paired guest cannot save, and it reloads its own autosave when the session ends.
+  - *A ladder-top hidden item (1952:8, 2853:9).* A code entry's tag-1 loop pays out an Ether or Elixir (Global
+    7573 / 7582) on a position test plus Confirm, with no user-control test. The guest's own Confirm passes the
+    filter while the climb holds control off. R15 sees no new ground (the top is mid-flight) and R16 is not
+    enforced; the fix is E1.
+  - *Per-visit ground.* ARRIVAL is a union over entrances, so a row ships when its landing is arrival ground for
+    SOME entrance, even on a visit that came in elsewhere: 207:10 (bench), 914:10, 2505:4, 2853:5, 2212:3, 301:8,
+    2918:4. A per-visit rule would refuse the bench row 207:10.
+  - *Japanese hidden-item watchers on new ground* (R16, not enforced): 114:9 (bench), 557:11-12, 565:11-12,
+    1312:11-12, 1863:9, 2918:3/4. Same JP key hole; the fix is E2.
+  - *1209:5 on the deployed engine.* The kit refuses it, but the captured engine ships it until the next capture.
+    Its exposure is a monster bump whose `Battle` the engine already skips for a mirroring guest (ENCOUNT
+    `IsMirroringStory`).
+  - *The binding gap.* `VerifyRow` hashes only the row's closure functions, so a modded or forked field whose OTHER
+    bytes changed still verifies (measured: a 2955 fork with an injected event). R11, R15 and R16 judged those
+    bytes, and the walkmesh, from the stock install. The fix is E3.
+- **Engine follow-ups (not built).** **E1:** while a guest-local flight is armed and in flight, strip
+  `HostOwnedKeys` from control-off reads in `FilterScriptButtons` (R14 guarantees no climb needs them); closes the
+  ladder-top items. **E2:** a JP-aware `ControlOnScriptKeys` that also strips the Cancel bit under the Japanese
+  layout; retires the waiver and closes the JP watchers. **E3:** a per-field, per-language digest that binds the
+  bytes R11/R15/R16 read plus the walkmesh, checked beside `VerifyRow`. Any capture also drops 1209:5.
 - **Owner decisions taken as defaults:** (1) the table is regenerated by the kit from the user's install and
   compiled into the DLL; (4) an undressed guest climbs with the field's own body, and the idle slide stays for
   characters with no ladder clip; (6) a host battle mid-climb is accepted and logged. (2), (3) and (5) are R4/R5/later.

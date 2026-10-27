@@ -91,11 +91,23 @@ def _problems(obj) -> list:
         bad.append(f"counts {c} do not match the rows")
     if obj["table_crc"] != "0x%08x" % G.table_crc(rows):
         bad.append(f"table_crc {obj['table_crc']} != 0x{G.table_crc(rows):08x} of the rows")
+    for r in rows:
+        if "r15" in r:
+            bad.append(f"{r['field']}:{r['entry']}: shipped with R15 not evaluated ({r['r15']!r})")
     for x in obj["refused"]:
-        if not re.match(r"R\d+ [a-z0-9]+: \S", x["refusal"]):
+        if not re.match(r"R\d+ [a-z0-9-]+: \S", x["refusal"]):
             bad.append(f"refused {x['field']}:{x['entry']}: refusal text {x['refusal']!r}")
         if (x["field"], x["entry"]) in set(keys):
             bad.append(f"{x['field']}:{x['entry']} is both shipped and refused")
+    waived = [(w["field"], w["entry"]) for w in obj["waivers"]]
+    if waived != sorted(set(waived)):
+        bad.append("waivers are not strictly ascending by (field, entry)")
+    for w in obj["waivers"]:
+        if list(w) != ["field", "entry", "waiver"] or (w["field"], w["entry"]) not in set(keys) \
+                or not w["waiver"].startswith("R15 walk-in waived: jp F1 hole -- "):
+            bad.append(f"waiver {w.get('field')}:{w.get('entry')}: not a shipped row's R15 jp waiver ({w!r})")
+    if any("waived" in r for r in rows):
+        bad.append("a row carries its waiver (the rows feed table_crc and render_cs: waivers live apart)")
     want = sorted({r["field"] for r in rows} | {x["field"] for x in obj["refused"]})
     if [e["field"] for e in obj["eb_sha1"]] != want:
         bad.append("eb_sha1 does not list exactly the fields of rows + refused, ascending")
@@ -109,7 +121,7 @@ def test_the_committed_table_is_lawful():
     obj = _obj()
     assert obj["schema"] == G.SCHEMA and obj["langs"] == list(G.LANGS)
     assert list(obj) == ["schema", "generated_from", "regenerate", "langs", "rule", "counts", "table_crc", "rows",
-                         "refused", "eb_sha1", "op_classes", "selftest"]
+                         "refused", "waivers", "eb_sha1", "op_classes", "selftest"]
     assert list(obj["rule"]) == ["tier", "kinds", "slice", "crc", "uid", "func_order", "refusals"]
     assert list(obj["counts"]) == ["fields_scanned", "quad_roots", "census_candidates", "rows", "funcs", "fields",
                                    "refused"]
@@ -126,6 +138,16 @@ def test_the_committed_table_is_lawful():
     (lambda o: next(r for r in o["rows"] if len(r["funcs"]) >= 3)["funcs"].reverse(), "region's tag 3"),
     (lambda o: next(f for r in o["rows"] for f in r["funcs"] if f["role"] == "ctrl").update(uid=0), "ctrl function"),
     (lambda o: o["refused"].append(dict(o["rows"][0], refusal="R11 latch: x")), "both shipped and refused"),
+    (lambda o: o["rows"][0].update(r15=G.R15_NOT_EVALUATED), "R15 not evaluated"),
+    (lambda o: o["refused"].append({"field": 1, "entry": 1, "kind": "ladder", "refusal": "R15 walk_in: x"}),
+     "refusal text"),
+    (lambda o: o["waivers"].append({"field": 1, "entry": 1, "waiver": "R15 walk-in waived: jp F1 hole -- x"}),
+     "not a shipped row's R15 jp waiver"),
+    (lambda o: o["waivers"].append({"field": o["rows"][0]["field"], "entry": o["rows"][0]["entry"],
+                                    "waiver": "R16 watcher waived: x"}), "not a shipped row's R15 jp waiver"),
+    (lambda o: o["waivers"].reverse() if len(o["waivers"]) > 1 else o["waivers"].extend(o["waivers"]),
+     "waivers are not strictly ascending"),
+    (lambda o: o["rows"][0].update(waived="R15 walk-in waived: jp F1 hole -- x"), "a row carries its waiver"),
 ])
 def test_the_table_laws_can_fail(mutate, expect):
     """A check that cannot fail is not a check: each mutation of a deep copy turns the laws red."""
@@ -425,23 +447,120 @@ def _added_generated_file():
     return name, added, other
 
 
-def test_the_s156_patch_carries_exactly_render_cs_of_the_json():
+#: THE DEPLOYED-AHEAD PIN: the rows the captured engine table ships beyond the JSON, each with its why. AT THE NEXT
+#: ENGINE CAPTURE (the generator writes the engine tree, the lead re-captures the patch from it) EMPTY THIS -- the pin
+#: is then exact equality with render_cs(json) again
+S156_DEPLOYED_AHEAD = {
+    "1209:5": "refused by R15's walker bound since round 3, after the engine was captured; the next capture drops it; on a "
+              "guest its worst case is a bump whose Battle the engine already skips for a mirroring guest "
+              "(EventEngine.DoEventCode.cs ENCOUNT: NetSyncClient.IsMirroringStory returns 0)",
+}
+_ROW_NOTE_RE = re.compile(r"new GuestLocalRow\((\d+), (\d+), \d+, \d+, \d+\),?   // \d+:\d+ \w+ ?(.*)$", re.M)
+
+
+def _cs_rows_as_json(added) -> dict:
+    """The captured table's rows JSON-shaped, ``{(field, entry): row}`` (``evt`` from each row's note): what render_cs
+    needs to write those lines back."""
+    cs = "\n".join(added)
+    p = _parse_cs(cs)
+    roles = {v: k for k, v in G.ROLE_CODES.items()}
+    kinds = {v: k for k, v in G.KIND_CODES.items()}
+    evt = {(int(m.group(1)), int(m.group(2))): m.group(3) for m in _ROW_NOTE_RE.finditer(_block(cs, "GuestLocalRow[] Rows ="))}
+    return {(f, e): {"field": f, "entry": e, "kind": kinds[k], "evt": evt.get((f, e), ""),
+                     "funcs": [{"role": roles[r], "entry": fe, "tag": t, "uid": u, "len": ln, "crc": "0x%08x" % c}
+                               for (r, fe, t, u, ln, c) in p["funcs"][s:s + n]]}
+            for (f, e, k, s, n) in p["rows"]}
+
+
+def _check_deployed_ahead(added, obj, ahead):
+    """The captured table's lines ``added`` against the JSON ``obj`` and the pinned ``ahead`` rows: the rows it carries
+    beyond the JSON are EXACTLY ``ahead`` (no more, no fewer -- a pinned row the JSON ships is one fewer), each the JSON's
+    own REFUSED row function for function, and the text is render_cs of the JSON plus them, byte for byte (counts, start
+    offsets and TableCrc recomputed; every other line the JSON's) -- so taking them out leaves render_cs(json). With
+    ``ahead`` empty that is exact equality."""
+    patch = _cs_rows_as_json(added)
+    shipped = {(r["field"], r["entry"]) for r in obj["rows"]}
+    extra = {f"{f}:{e}" for (f, e) in patch if (f, e) not in shipped}
+    assert extra == set(ahead), f"the captured table carries {sorted(extra)} beyond the JSON; the pin says {sorted(ahead)}"
+    lack = sorted(f"{f}:{e}" for (f, e) in shipped - set(patch))
+    assert not lack, f"the captured table lacks the JSON's rows {lack}"
+    refused = {f"{x['field']}:{x['entry']}": x for x in obj["refused"]}
+    rows = [patch[tuple(int(x) for x in key.split(":"))] for key in sorted(ahead)]
+    for key, r in zip(sorted(ahead), rows):
+        assert key in refused and [{k: v for k, v in f.items() if k not in ("call", "level")} for f in
+                                   refused[key]["funcs"]] == r["funcs"] and refused[key]["kind"] == r["kind"], \
+            f"{key} is not the JSON's refused row of that key, function for function"
+    full = copy.deepcopy(obj)
+    full["rows"] = sorted(obj["rows"] + rows, key=lambda r: (r["field"], r["entry"]))
+    full["table_crc"] = "0x%08x" % G.table_crc(full["rows"])
+    want = G.render_cs(full).replace("\r\n", "\n").split("\n")
+    if want and want[-1] == "":
+        want = want[:-1]
+    assert added == want, "the captured NetSyncGuestLocalTable.cs is not render_cs(json + the pinned rows) (hand edit or stale)"
+    _assert_cs_is_the_json("\n".join(added), full)
+
+
+def test_the_s156_patch_carries_render_cs_of_the_json_and_only_the_pinned_rows_ahead():
     """THE PIN THAT ORDERS THE WORK: the engine's generated table is render_cs(json) verbatim, captured whole in the
-    LAST live patch touching it (a generated file is only ever replaced WHOLE -- no context or removed lines). RED
-    with 's156 not captured' until the lead captures memoria-patches/s156-netsync-guest-traversal.patch from the
-    tree the generator wrote (`py -m ff9mapkit.guest_traversal --write --cs ...`); that red is by design."""
+    LAST live patch touching it (a generated file is only ever replaced WHOLE -- no context or removed lines) -- exact
+    about everything but :data:`S156_DEPLOYED_AHEAD`, the rows a deployed engine still ships after the kit refused
+    them (_check_deployed_ahead). AT THE NEXT CAPTURE: regenerate the engine tree (`py -m ff9mapkit.guest_traversal
+    --write --cs ...`), re-capture the patch from it, and EMPTY S156_DEPLOYED_AHEAD -- this is exact equality again."""
     got = _added_generated_file()
     if got is None:
         pytest.fail("s156 not captured: no live memoria-patches/*.patch adds Memoria/Netsync/NetSyncGuestLocalTable.cs "
                     "yet -- capture s156 from the engine tree the generator wrote")
     name, added, other = got
     assert other == [], f"{name}: the generated file must be replaced WHOLE, but its section has {other[:3]}"
-    obj = _obj()
-    want = G.render_cs(obj).replace("\r\n", "\n").split("\n")
-    if want and want[-1] == "":
-        want = want[:-1]
-    assert added == want, f"{name}: the captured NetSyncGuestLocalTable.cs is not render_cs(json) (hand edit or stale)"
-    _assert_cs_is_the_json("\n".join(added), obj)
+    _check_deployed_ahead(added, _obj(), S156_DEPLOYED_AHEAD)
+
+
+def _flip_hex(line: str, after: str) -> str:
+    """``line`` with the last digit of the 8-digit hex constant that follows ``after`` XOR 1."""
+    return re.sub(re.escape(after) + r"(0x[0-9A-F]{7})([0-9A-F])u",
+                  lambda m: f"{after}{m.group(1)}{int(m.group(2), 16) ^ 1:X}u", line, count=1)
+
+
+@pytest.mark.parametrize("how", ["pin_loses_a_row", "pin_gains_a_row", "json_gains_a_row", "json_ships_a_pinned_row",
+                                 "patch_gains_a_row", "pinned_row_crc", "header_line", "selftest_vector", "table_crc"])
+def test_the_deployed_ahead_pin_can_fail(how):
+    """A check that cannot fail is not a check: each mutation of the pin, the JSON or the captured lines turns it red.
+    Once the pin is emptied the pinned-row mutations stay live: the JSON's first row is moved to refused and pinned
+    (green) first."""
+    got = _added_generated_file()
+    if got is None:
+        pytest.fail("s156 not captured")
+    added, obj, ahead = list(got[1]), copy.deepcopy(_obj()), dict(S156_DEPLOYED_AHEAD)
+    if not ahead:
+        r = obj["rows"].pop(0)
+        obj["refused"].append(dict(r, refusal="R15 walk-in: probe"))
+        ahead = {f"{r['field']}:{r['entry']}": "probe"}
+    _check_deployed_ahead(added, obj, ahead)
+    key = min(ahead)
+    if how == "pin_loses_a_row":
+        del ahead[key]
+    elif how == "pin_gains_a_row":
+        ahead["1:1"] = "probe"
+    elif how == "json_gains_a_row":
+        obj["rows"].insert(1, dict(copy.deepcopy(obj["rows"][0]), entry=254))
+    elif how == "json_ships_a_pinned_row":
+        row = _cs_rows_as_json(added)[tuple(int(x) for x in key.split(":"))]
+        obj["rows"] = sorted(obj["rows"] + [row], key=lambda r: (r["field"], r["entry"]))
+    elif how == "patch_gains_a_row":
+        i = next(k for k, ln in enumerate(added) if "new GuestLocalRow(" in ln)
+        added.insert(i + 1, re.sub(r"GuestLocalRow\((\d+), \d+,", r"GuestLocalRow(\1, 254,", added[i]))
+    elif how == "pinned_row_crc":
+        (i,) = [k for k, ln in enumerate(added) if "new GuestLocalFunc(" in ln and ln.endswith(f"   // {key}")]
+        added[i] = _flip_hex(added[i], ", ")
+    elif how == "header_line":
+        (i,) = [k for k, ln in enumerate(added) if "DO NOT EDIT BY HAND." in ln]
+        added[i] = added[i].replace("BY HAND.", "BY HAND!")
+    else:
+        after = "CrcWant = { " if how == "selftest_vector" else "UInt32 TableCrc = "
+        (i,) = [k for k, ln in enumerate(added) if after in ln]
+        added[i] = _flip_hex(added[i], after)
+    with pytest.raises(AssertionError):
+        _check_deployed_ahead(added, obj, ahead)
 
 
 def _added_lines_of(fname: str) -> list:

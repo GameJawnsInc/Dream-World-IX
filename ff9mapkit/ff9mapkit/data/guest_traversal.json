@@ -18,18 +18,18 @@
   "crc": "CRC-32/ISO-HDLC: zlib.crc32 == Unity.IO.Compression.Crc32Helper.UpdateCrc32(0u, buf, off, len); a function matches only when its length agrees first and then its CRC",
   "uid": "the DISPATCH uid: ctrl 250 (RunScript* through the control uid: the control character's own function), fixed_ctrl its fixed uid (1..249, naming DefinePlayerCharacter entries), region and seq 0",
   "func_order": "the region function (the row's entry, tag 3) first, then the rest by (role, entry, tag) ascending, each triple once per row",
-  "refusals": "R1 closure (truncated, decode failure, unresolved or computed uid/tag); R2 edge (self, party, sender, spawn, fixed_other); R3 roles (one function in two roles); R4 table (not strictly increasing, an fpos past the entry, a duplicated closure tag); R5 card (a tag-8 handler on the region); R6 seq (a RunSharedScript target that is not exactly one tag-0 function); R7 body (none, ctrl and fixed_ctrl mixed, two fixed uids); R8 short (a function under 8 bytes); R9 language (a language missing or different); R10 is a generator error (the C# slice twin disagrees with the kit model); R11 latch (any function outside the closure reads a MAP/instance var the closure writes on some CFG path before a plain B_LET covers it -- compound *_LET, ++/-- and an RHS self-read are reads, a write covers only its own bits -- exempt only when it is a tag-0/1 load-once reader: no RunScript*/RunScriptObject*/Seq targets it, no ReturnEntryFunctions can restart it (tag 1), its every uncovered read precedes its first backward-jump target, and its entry is created only by entry 0's tag-0 Init*); R12 op (a closure function holds ReturnEntryFunctions, or a TerminateEntry that is not the constant self-end 255); R13 write (the closure writes a Global or Null var: it may write only Map and Instance vars)"
+  "refusals": "R1 closure (truncated, decode failure, unresolved or computed uid/tag); R2 edge (self, party, sender, spawn, fixed_other); R3 roles (one function in two roles); R4 table (not strictly increasing, an fpos past the entry, a duplicated closure tag); R5 card (a tag-8 handler on the region); R6 seq (a RunSharedScript target that is not exactly one tag-0 function); R7 body (none, ctrl and fixed_ctrl mixed, two fixed uids); R8 short (a function under 8 bytes); R9 language (a language missing or different); R10 is a generator error (the C# slice twin disagrees with the kit model); R11 latch (any function outside the closure reads a MAP/instance var the closure writes on some CFG path before a plain B_LET covers it -- compound *_LET, ++/-- and an RHS self-read are reads, a write covers only its own bits -- exempt only when it is a tag-0/1 load-once reader: no RunScript*/RunScriptObject*/Seq targets it, no ReturnEntryFunctions can restart it (tag 1), its every uncovered read precedes its first backward-jump target, and its entry is created only by entry 0's tag-0 Init*); R12 op (a closure function holds ReturnEntryFunctions, or a TerminateEntry that is not the constant self-end 255); R13 write (the closure writes a Global or Null var: it may write only Map and Instance vars); R14 key (a closure function polls a key mask that is not directions-only: a host-owned bit, a computed mask or a constant with no direction bit -- a live guest's FilterScriptButtons masks the host-owned bits during a control-off climb whenever ScriptKeyLockActive is on, so the loop would wait forever); R15 walk-in (the climb newly opens ground carrying an EXPOSED walk-in: NEW = the walkable components its landing points match (the walkable tri nearest the point's height, within 250 u; a final landing -- one some path ends its function at -- at a computed point or on no walkable tri lands on EVERY walkable component) minus the ARRIVAL components (where a player entry's tag 0 leaves the player with pathing on and no ladder attribute, on any entrance branch -- a UNION, so per-visit exposures remain by design -- placed by the engine's nearest-height tri pick, CreateObject's default height the topmost tri, with Main_Init's constant path / triangle disables taken off the walkmesh first); a walk-in is a tag-2 region (its area: every three consecutive points; a computed or QuadCircleData hot-fix region touches everything) or a tag-2 object (the walkable tris within its bump reach of where its tag 0 leaves it; a walker moved only by its own pathing-on walks and constant CreateObjects: the tris its placements reach through active tris and every walkable tri within its reach and +-400 height window of them; any other unknown or moved one touches everything), and it is EXPOSED when its tag-2 closure cannot be judged whole (truncated, a decode failure, unresolved, an expression / unknown / party target, an open scan: whatever its tier) or tiers STATEFUL and is not exempt -- exempt only when the scan visited every closure function, saw a site for each of its STATEFUL buckets, and every effect / STATEFUL site is dominated by both a user-control test and a constant Confirm / Special / Select poll proved together, with no yield or control write between them; THE JP WAIVER: a row whose only refusal is R15 in Japanese and that passes R15 there once the key fact also accepts Cancel -- where a Japanese guest's Confirm lands, a pre-existing hole of the co-op key mask on any ground -- ships, listed in \"waivers\", until the engine's ControlOnScriptKeys strips the JP-mapped bits); R16 watcher (specified and measured, NOT ENFORCED: a function the engine starts on its own whose effect fires on a host-owned key poll with no user-control test, or on the player's whereabouts with no constant F1-stripped poll -- it refuses bench rows on the stock install)"
  },
  "counts": {
   "fields_scanned": 818,
   "quad_roots": 494,
   "census_candidates": 86,
-  "rows": 81,
-  "funcs": 190,
-  "fields": 35,
-  "refused": 5
+  "rows": 80,
+  "funcs": 188,
+  "fields": 34,
+  "refused": 6
  },
- "table_crc": "0xee993d31",
+ "table_crc": "0x70d5f5f9",
  "rows": [
   {
    "field": 114,
@@ -1349,40 +1349,6 @@
    ],
    "player_entries": [
     10
-   ]
-  },
-  {
-   "field": 1209,
-   "entry": 5,
-   "kind": "ladder",
-   "evt": "EVT_ALEX2_AC_PRISON_B",
-   "async": false,
-   "funcs": [
-    {
-     "role": "region",
-     "entry": 5,
-     "tag": 3,
-     "uid": 0,
-     "len": 102,
-     "crc": "0x9d4e3732"
-    },
-    {
-     "role": "ctrl",
-     "entry": 9,
-     "tag": 13,
-     "uid": 250,
-     "len": 643,
-     "crc": "0xd90c88a3",
-     "call": "RunScriptSync",
-     "level": 2
-    }
-   ],
-   "census_kind": "ladder-navigable",
-   "gate": [
-    "usercontrol"
-   ],
-   "player_entries": [
-    9
    ]
   },
   {
@@ -3111,6 +3077,32 @@
    ]
   },
   {
+   "field": 1209,
+   "entry": 5,
+   "kind": "ladder",
+   "refusal": "R15 walk-in: landing component 1 (not an arrival) carries bump 2:2 (battle)",
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 5,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x9d4e3732"
+    },
+    {
+     "role": "ctrl",
+     "entry": 9,
+     "tag": 13,
+     "uid": 250,
+     "len": 643,
+     "crc": "0xd90c88a3",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ]
+  },
+  {
    "field": 2507,
    "entry": 4,
    "kind": "ladder",
@@ -3213,6 +3205,78 @@
      "level": 2
     }
    ]
+  }
+ ],
+ "waivers": [
+  {
+   "field": 407,
+   "entry": 16,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 12:2, bump 22:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 407,
+   "entry": 17,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 12:2, bump 22:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 407,
+   "entry": 18,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 12:2, bump 22:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 408,
+   "entry": 6,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 15:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 408,
+   "entry": 9,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 15:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 912,
+   "entry": 14,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 16:2, bump 17:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 1912,
+   "entry": 15,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 16:2, bump 17:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 1950,
+   "entry": 4,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 9:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 1950,
+   "entry": 5,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 9:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 2602,
+   "entry": 5,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 11:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 2605,
+   "entry": 4,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 11:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 2605,
+   "entry": 5,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 11:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 2605,
+   "entry": 6,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 11:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
+  },
+  {
+   "field": 2605,
+   "entry": 7,
+   "waiver": "R15 walk-in waived: jp F1 hole -- bump 11:2 exempt once F1's control-on mask also strips Cancel, where ETb.ProcessJapaneseLayout puts a Japanese guest's Confirm (the engine follow-up: NetSyncField.ControlOnScriptKeys)"
   }
  ],
  "eb_sha1": [

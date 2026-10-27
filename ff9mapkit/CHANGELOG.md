@@ -51,8 +51,12 @@ From `studies/field-coop/GUEST-TRAVERSAL.md`, rungs R0-R2.
   lands, even after the host's usual hold time runs out. Teleport-to-host refuses mid-climb and says why.
 - The kit's classifier (`ff9mapkit.eb.pressclosure`) now owns what "locomotion only" means; it matches the census it
   came from on every region press. The shipping filter is stricter than the census: a value the climb writes must not
-  be read first by another function on any path through it, and a row may not restart or end another object, or write
-  save data. That refuses five stock rows the census allowed (two stone switches in 2702, one in 353, two in 2507).
+  be read first by another function on any path through it, and a row may not restart or end another object, write
+  save data, poll any key but the directions, or carry the guest onto ground none of the room's entrances reach where
+  stepping on a spot or meeting a monster starts something. That refuses six stock rows the census allowed (two stone
+  switches in 2702, one in 353, two in 2507, a monster-patrolled ladder in 1209). The deployed engine predates the last
+  rule and still allows the 1209 ladder until its next rebuild; the monster's battle is skipped on the guest's screen.
+  What still gets through, on the guest's screen only, is listed in the study with its engine follow-up.
 
 ### Fixed — co-op: the rest of the fix-first list (engine patch s154, the kit's own host code)
 The second half of `studies/coop-review/REVIEW.md` section 1. Each fix has its own check: in game where the harness can

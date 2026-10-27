@@ -65,7 +65,11 @@ While you're paired:
 - On the world map the host drives; you wait and rejoin at their next stop.
 - You can climb the room's own ladders and take its jumps yourself, the ones that only move you, so you
   aren't stuck at the bottom while the host climbs. Doors, chests, people and anything else that moves
-  the story stay the host's: pressing them does nothing on your screen.
+  the story stay the host's: pressing them does nothing on your screen. Ladders that could take you
+  onto a spot that starts something when you walk onto it are left off the list. If you still set
+  something off, or pick up an item hidden at the top of a ladder, it plays on your screen only: it
+  changes nothing in the host's game or your own save, and your game catches up with the host's at
+  the next screen.
 - There is no main menu and no saving. When the session ends, your game reloads your own autosave:
   the one it made of your own game the moment your partner came online, so you go back to that screen
   (from its entrance) with your progress up to then. If that autosave was skipped (the
