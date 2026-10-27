@@ -418,10 +418,10 @@ index 7d48eff..dc2ba64 100644
                      actor.idle = actor.idle != 0 ? (UInt16)MapRigAnim(rigIdx, actor.idle, SiteIdle, alias) : rig.Idle;
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
 new file mode 100644
-index 0000000..0cb3807
+index 0000000..6e9b470
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
-@@ -0,0 +1,976 @@
+@@ -0,0 +1,980 @@
 +using System;
 +using System.Collections.Generic;
 +using System.Globalization;
@@ -472,7 +472,7 @@ index 0000000..0cb3807
 +
 +    // The stand-in's driver: its LateUpdate runs after every Update (HonoBehaviorSystem.Update runs the field's logic tick and the
 +    // FPSManager smoothing pass), so it copies the body's final pose of the frame.
-+    internal sealed class NetSyncStandIn : MonoBehaviour
++    public sealed class NetSyncStandIn : MonoBehaviour
 +    {
 +        private void LateUpdate()
 +        {
@@ -820,9 +820,13 @@ index 0000000..0cb3807
 +            _stockVisible = ((Int32)local.flags & 1) == 1 && local.frontCamera;
 +            Outs++;
 +            OutBy[why]++;
-+            local.tempFlag = -1;                        // SetRenderer re-evaluates the body this pass (the term applies)
 +            if (_dressed)
++            {
 +                SpawnStandIn(local);
++                if (_standin == null)
++                    _dressed = false;                   // no stand-in: the body stays lit (the guest is never left without its part)
++            }
++            local.tempFlag = -1;                        // SetRenderer re-evaluates the body this pass (the term applies)
 +            Log.Message("[NetSync] step-out: OUT on field " + fld + " (uid " + _uid + ", " + (_dressed
 +                        ? "dressed: the body hides, a " + (_standinGeo ?? "missing") + " stand-in plays its part"
 +                        : "undressed: the body stays") + "; the host's ghost hides, my wire mask is 0) -- " + OutNames[why]);
