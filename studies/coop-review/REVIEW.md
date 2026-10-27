@@ -258,7 +258,9 @@ s154 row has the details.
    reads*: no hit in tutorial 17, `ff9mapkit/docs` or `docsite`. Every refusal and teleport decline goes
    only to Memoria.log.
    - Add a short rate-limited toast (never an ETb Dialog, because the s96 lock grabs those), a buzz on
-     refused presses (the s121 precedent), and one tutorial paragraph.
+     refused presses (the s121 precedent), and one tutorial paragraph. **The tutorial paragraph is DONE**
+     (tutorial 17, "If you get left behind": the keys, what each case does, when it refuses, the ~ Reload
+     escape mid-climb, the untested L3, the log line). The toast, the buzz and the XInput L3 need a DLL.
    - Held L3 reads `JoystickButton8`, which is **Share on a raw DS4** (COMMS-MENU recon). Read XInput
      `LeftStick` instead.
 2. **Peer-engine handshake (M).** An additive state section carrying the engine generation, language and a
