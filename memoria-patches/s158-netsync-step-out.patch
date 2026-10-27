@@ -33,6 +33,26 @@ index 300e839..b96c5b5 100644
                  meshRenderer.enabled = flag6;
                  transform.localScale = (Int32)FF9StateSystem.Common.FF9.fldMapNo != 2913 || (Int32)actor1.uid != 6 ? new Vector3(ff9Shadow.xScale, 1f, ff9Shadow.zScale) : new Vector3(ff9Shadow.xScale, 1f, ff9Shadow.zScale) * actor1.fieldMapActor.transform.localScale.z;
              }
+diff --git a/Assembly-CSharp/Global/Event/EventCollision.cs b/Assembly-CSharp/Global/Event/EventCollision.cs
+index b7f2c6a..8a43ebf 100644
+--- a/Assembly-CSharp/Global/Event/EventCollision.cs
++++ b/Assembly-CSharp/Global/Event/EventCollision.cs
+@@ -87,6 +87,7 @@ public class EventCollision
+                 }
+                 if (interactInput == EventInput.Special && instance.Request(obj, 1, 8, false))
+                 {
++                    Memoria.Netsync.NetSyncClient.NoteHostInteraction();   // [ff9mapkit netsync s158] the prompt's scene is an NPC interaction (option C keeps the guest)
+                     EventCollision.ClearPathFinding(po);
+                     EMinigame.SetQuadmistOpponentId(obj);
+                     return true;
+@@ -127,6 +128,7 @@ public class EventCollision
+                     {
+                         if (instance.Request(obj, 1, 8, false))
+                         {
++                            Memoria.Netsync.NetSyncClient.NoteHostInteraction();   // [ff9mapkit netsync s158] the prompt's scene is an NPC interaction (option C keeps the guest)
+                             EventCollision.ClearPathFinding(po);
+                             EMinigame.SetQuadmistOpponentId(obj);
+                             return true;
 diff --git a/Assembly-CSharp/Global/PosObj.cs b/Assembly-CSharp/Global/PosObj.cs
 index ef885a8..e670dd4 100644
 --- a/Assembly-CSharp/Global/PosObj.cs
@@ -56,7 +76,7 @@ index ef885a8..e670dd4 100644
 +    public UInt16[] netRawAnims;
  }
 diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-index 918af6e..71ad286 100644
+index 918af6e..757ba11 100644
 --- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
 @@ -343,6 +343,12 @@ namespace Memoria.Harness
@@ -110,11 +130,11 @@ index 918af6e..71ad286 100644
 +                // [ff9mapkit netsync s158] netsync gains `stepout` after `guestlocal`, its LAST key -- AppendStepOut's keys at their
 +                // sentinels (lever / why / why_not / geo / clip / hide / last_fault / selftest null, the flags false, the ids, ages, masks
 +                // and norms -1, the counters 0).
-+                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null},\"boot_song\":-1,\"leave_song_live\":false},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false,\"overlay_text\":null,\"follow\":{\"pending\":-1,\"warped_to\":-1,\"candidate\":-1,\"world_armed\":-1,\"on_world\":false,\"host_world\":false,\"host_title\":false,\"hold\":-1}},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1,\"guard\":{\"leader\":-1,\"raw\":0,\"effective\":0,\"moved_from\":-1,\"moved_to\":-1,\"off\":false,\"line\":null,\"line_shown\":false,\"leader_model\":-1,\"chars\":[-1,-1,-1,-1],\"nonce\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"guard\":{\"nonce\":-1,\"mask\":-1,\"line\":null,\"shown\":false},\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false},\"guard\":{\"leader\":-1,\"raw\":-1,\"effective\":-1,\"moved_from\":-1,\"moved_to\":-1}},\"world\":{\"freeze\":{\"on\":false,\"why\":null,\"off\":false,\"released\":false,\"edges\":0,\"skips\":0,\"keys\":0,\"map\":0,\"location\":0,\"battles\":0},\"rejoin\":{\"latch\":false,\"arms\":0,\"lands\":0,\"timeouts\":0,\"redirects\":0,\"rearms\":0,\"why\":null,\"last\":-1},\"waitline\":{\"line\":null,\"fallback\":false,\"away_ms\":-1},\"dio\":{\"booted_world\":false,\"boot_world\":-1,\"boot\":null,\"prev_mode_at_boot\":-1,\"lever\":null,\"declines\":0,\"decline_why\":null,\"decline_durable\":false,\"visit_decline\":null,\"wait_why\":null,\"returns\":0,\"last_return\":null,\"last_world\":-1,\"resuming\":false,\"suspend_song\":-1,\"song_sid\":-1,\"boot_song_live\":false}},\"guestlocal\":{\"mode\":null,\"lever\":null,\"rows\":-1,\"funcs\":-1,\"table_crc\":null,\"selftest\":null,\"last\":{\"seq\":0,\"field\":-1,\"entry\":-1,\"verdict\":null,\"reason\":null,\"kind\":null,\"hashed\":0,\"age_ms\":-1},\"verdicts\":{\"allow\":0,\"shadow\":0,\"lever_off\":0,\"not_field\":0,\"special\":0,\"no_row\":0,\"unverified\":0,\"wrong_body\":0,\"own_story\":0,\"no_control\":0,\"in_flight\":0,\"warp\":0,\"host_scene\":0,\"busy\":0},\"in_flight\":false,\"flight\":{\"field\":-1,\"entry\":-1,\"kind\":null,\"region_uid\":-1,\"body_uid\":-1,\"age_ms\":-1,\"seen_off\":false,\"body_open\":false,\"body_ran\":false,\"seq_open\":false},\"climbs\":0,\"ended\":0,\"bailed\":0,\"aborted\":0,\"abort_why\":null,\"long_climbs\":0,\"boots_mid_climb\":0,\"trips\":{\"total\":0,\"op\":0,\"glob\":0,\"last\":null},\"tp_calls\":0,\"tp_refusals\":0,\"tp_last\":null,\"talk_queued\":0,\"talk_held\":0,\"talk_applied_after_climb\":0,\"talk_expired\":0,\"mutate\":{\"armed\":false,\"index\":-1,\"spent\":false,\"hit\":false,\"hashed\":0}},\"stepout\":{\"lever\":null,\"active\":false,\"field\":-1,\"uid\":-1,\"dressed\":false,\"why\":null,\"age_ms\":-1,\"base\":{\"eligible\":false,\"host_here\":false,\"host_ctl_off\":false,\"my_ctl_off\":false,\"climb\":false,\"talk\":false,\"line\":false,\"host_scene\":false,\"why_not\":null,\"age_ms\":-1},\"talk_armed\":false,\"outs\":0,\"ins\":0,\"out_why\":{\"line\":0,\"scene\":0,\"dwell\":0},\"in_why\":{\"control\":0,\"field\":0,\"body\":0,\"session\":0,\"lever\":0},\"wire_mask\":-1,\"stock_visible\":false,\"body_rends_on\":-1,\"shadow\":-1,\"standin\":{\"on\":false,\"shown\":false,\"geo\":null,\"clip\":null,\"src_anim\":-1,\"norm\":-1,\"body_norm\":-1,\"dpos\":-1,\"rends_on\":-1,\"spawns\":0,\"frames\":0,\"missing_clip\":0},\"ghost\":{\"hide\":null,\"edges\":0,\"by\":{\"mask0\":0,\"host_scene\":0,\"step_out\":0}},\"host_plain_scene\":false,\"talk_accepts\":0,\"faults\":0,\"last_fault\":null,\"selftest\":null}}");
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null},\"boot_song\":-1,\"leave_song_live\":false},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false,\"overlay_text\":null,\"follow\":{\"pending\":-1,\"warped_to\":-1,\"candidate\":-1,\"world_armed\":-1,\"on_world\":false,\"host_world\":false,\"host_title\":false,\"hold\":-1}},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1,\"guard\":{\"leader\":-1,\"raw\":0,\"effective\":0,\"moved_from\":-1,\"moved_to\":-1,\"off\":false,\"line\":null,\"line_shown\":false,\"leader_model\":-1,\"chars\":[-1,-1,-1,-1],\"nonce\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"guard\":{\"nonce\":-1,\"mask\":-1,\"line\":null,\"shown\":false},\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false},\"guard\":{\"leader\":-1,\"raw\":-1,\"effective\":-1,\"moved_from\":-1,\"moved_to\":-1}},\"world\":{\"freeze\":{\"on\":false,\"why\":null,\"off\":false,\"released\":false,\"edges\":0,\"skips\":0,\"keys\":0,\"map\":0,\"location\":0,\"battles\":0},\"rejoin\":{\"latch\":false,\"arms\":0,\"lands\":0,\"timeouts\":0,\"redirects\":0,\"rearms\":0,\"why\":null,\"last\":-1},\"waitline\":{\"line\":null,\"fallback\":false,\"away_ms\":-1},\"dio\":{\"booted_world\":false,\"boot_world\":-1,\"boot\":null,\"prev_mode_at_boot\":-1,\"lever\":null,\"declines\":0,\"decline_why\":null,\"decline_durable\":false,\"visit_decline\":null,\"wait_why\":null,\"returns\":0,\"last_return\":null,\"last_world\":-1,\"resuming\":false,\"suspend_song\":-1,\"song_sid\":-1,\"boot_song_live\":false}},\"guestlocal\":{\"mode\":null,\"lever\":null,\"rows\":-1,\"funcs\":-1,\"table_crc\":null,\"selftest\":null,\"last\":{\"seq\":0,\"field\":-1,\"entry\":-1,\"verdict\":null,\"reason\":null,\"kind\":null,\"hashed\":0,\"age_ms\":-1},\"verdicts\":{\"allow\":0,\"shadow\":0,\"lever_off\":0,\"not_field\":0,\"special\":0,\"no_row\":0,\"unverified\":0,\"wrong_body\":0,\"own_story\":0,\"no_control\":0,\"in_flight\":0,\"warp\":0,\"host_scene\":0,\"busy\":0},\"in_flight\":false,\"flight\":{\"field\":-1,\"entry\":-1,\"kind\":null,\"region_uid\":-1,\"body_uid\":-1,\"age_ms\":-1,\"seen_off\":false,\"body_open\":false,\"body_ran\":false,\"seq_open\":false},\"climbs\":0,\"ended\":0,\"bailed\":0,\"aborted\":0,\"abort_why\":null,\"long_climbs\":0,\"boots_mid_climb\":0,\"trips\":{\"total\":0,\"op\":0,\"glob\":0,\"last\":null},\"tp_calls\":0,\"tp_refusals\":0,\"tp_last\":null,\"talk_queued\":0,\"talk_held\":0,\"talk_applied_after_climb\":0,\"talk_expired\":0,\"mutate\":{\"armed\":false,\"index\":-1,\"spent\":false,\"hit\":false,\"hashed\":0}},\"stepout\":{\"lever\":null,\"active\":false,\"field\":-1,\"uid\":-1,\"dressed\":false,\"why\":null,\"age_ms\":-1,\"base\":{\"eligible\":false,\"host_here\":false,\"host_ctl_off\":false,\"my_ctl_off\":false,\"climb\":false,\"talk\":false,\"line\":false,\"host_scene\":false,\"why_not\":null,\"age_ms\":-1},\"talk_armed\":false,\"outs\":0,\"ins\":0,\"out_why\":{\"line\":0,\"dwell\":0},\"in_why\":{\"control\":0,\"field\":0,\"body\":0,\"session\":0,\"lever\":0,\"talk\":0,\"climb\":0},\"wire_mask\":-1,\"stock_visible\":false,\"body_rends_on\":-1,\"shadow\":-1,\"shadow_off\":-1,\"standin\":{\"on\":false,\"shown\":false,\"geo\":null,\"clip\":null,\"src_anim\":-1,\"norm\":-1,\"body_norm\":-1,\"dpos\":-1,\"rends_on\":-1,\"spawns\":0,\"frames\":0,\"missing_clip\":0},\"ghost\":{\"hide\":null,\"edges\":0,\"by\":{\"mask0\":0,\"host_scene\":0,\"step_out\":0}},\"host_plain_scene\":false,\"talk_accepts\":0,\"faults\":0,\"last_fault\":null,\"selftest\":null}}");
                  return;
              }
              outer.Append("\"netsync\":{").Append(sb).Append("}");
-@@ -4619,6 +4641,104 @@ namespace Memoria.Harness
+@@ -4619,6 +4641,110 @@ namespace Memoria.Harness
              sb.Append("}}");
          }
  
@@ -127,15 +147,20 @@ index 918af6e..71ad286 100644
 +        //                    `why_not` (the FIRST failing base term, BaseWhyNot's words; null while it holds or an episode runs) and
 +        //                    `age_ms` (how long the base has held without a start: the dwell clock; -1 = not holding)
 +        //   talk_armed       a relay accept owns my control-off episode (NoteRelayAccept)
-+        //   outs / ins / out_why / in_why   the edges, by StartRule / EndRule reason
++        //   outs / ins / out_why / in_why   the edges, by StartRule ("line" | "dwell") / EndRule reason ("control" | "field" | "body" |
++        //                    "session" | "lever" | "talk" | "climb")
 +        //   wire_mask        the mask last handed to the wire (live SetLocal) or to the selftest mirror: 0 while stepped out
 +        //   stock_visible    while out, the body's STOCK visibility (flag4 && frontCamera) the stand-in follows
 +        //   body_rends_on    the CONTROLLED body's enabled renderers (0 while a dressed body is out); `shadow` its blob shadow (1/0/-1)
++        //                    and `shadow_off` stock's own shadow switch on it (FF9Char attr bit 16: 1 off, 0 on, -1 none)
 +        //   standin          the Zidane stand-in: on, shown, geo, clip, src_anim (the source clip id SourceAnim chose), norm (its sampled
-+        //                    normalized time), body_norm (the body's), dpos (its distance from the body), rends_on, then the counters
++        //                    normalized time, read off its AnimationState at the publish), body_norm (the body's, as Follow last
++        //                    sampled it), dpos (its distance from the body at the publish), rends_on, then the counters
 +        //                    spawns / frames (follows run) / missing_clip
-+        //   ghost            GhostHide's verdict now (`hide`: null | "mask0" | "host_scene" | "step_out"), its edges and edges `by` reason
-+        //   host_plain_scene the host's last option-C read (its sticky scene up and not a relayed talk's)
++        //   ghost            GhostHide's verdict now (`hide`: null | "mask0" | "host_scene" | "step_out"; null too when no ghost was
++        //                    driven in the last 2 frames), its edges and edges `by` reason
++        //   host_plain_scene the host's option-C read, every host frame (its sticky scene up, not a relayed talk's or a card button's,
++        //                    and a fresh line shown since its control went off)
 +        //   talk_accepts / faults / last_fault / selftest   (selftest: null until the proof block ran, then "ok" | "fail: <row>")
 +        private static void AppendStepOut(StringBuilder sb)
 +        {
@@ -183,6 +208,7 @@ index 918af6e..71ad286 100644
 +            Bool(sb, "stock_visible", Try(() => Memoria.Netsync.NetSyncStepOut.HarnessStockVisible, false)); sb.Append(",");
 +            Num(sb, "body_rends_on", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.HarnessBodyRendsOn, -1L)); sb.Append(",");
 +            Num(sb, "shadow", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.HarnessShadowOn, -1L)); sb.Append(",");
++            Num(sb, "shadow_off", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.HarnessShadowOff, -1L)); sb.Append(",");
 +            sb.Append("\"standin\":{");
 +            Bool(sb, "on", Try(() => Memoria.Netsync.NetSyncStepOut.HarnessStandinOn, false)); sb.Append(",");
 +            Bool(sb, "shown", Try(() => Memoria.Netsync.NetSyncStepOut.HarnessStandinShown, false)); sb.Append(",");
@@ -197,7 +223,7 @@ index 918af6e..71ad286 100644
 +            Num(sb, "frames", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.StandinFrames, 0L)); sb.Append(",");
 +            Num(sb, "missing_clip", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.StandinMissingClip, 0L));
 +            sb.Append("},\"ghost\":{");
-+            Str(sb, "hide", Try(() => Memoria.Netsync.NetSyncStepOut.HideNames[Memoria.Netsync.NetSyncStepOut.GhostHideNow])); sb.Append(",");
++            Str(sb, "hide", Try(() => Memoria.Netsync.NetSyncStepOut.HarnessGhostHideName)); sb.Append(",");
 +            Num(sb, "edges", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.GhostHideEdges, 0L)); sb.Append(",");
 +            sb.Append("\"by\":{");
 +            for (Int32 i = 1; i < Memoria.Netsync.NetSyncStepOut.HideNames.Length; i++)
@@ -232,20 +258,27 @@ index 5810426..859771c 100644
  
          // ============================================================================ harness surface (s143)
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-index 7406bb4..6b1df44 100644
+index 7406bb4..ab6102c 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-@@ -331,6 +331,9 @@ namespace Memoria.Netsync
+@@ -331,6 +331,16 @@ namespace Memoria.Netsync
          private Byte _benchSceneNonce;                   // F3.2 bench: bumps on each simulated scene rise (the events' Scene stamp)
          // F3.2 HOST (S2): the sticky scene behind section 5 -- see NetSyncDialog.HostSceneMachine.
          private readonly NetSyncDialog.HostSceneMachine _hostScene = new NetSyncDialog.HostSceneMachine();
-+        // [ff9mapkit netsync s158] HOST: the live sticky scene was raised by a relayed talk / promoted quad (StartSceneAt), not by a line
-+        // opening with control off -- the step-out's option C hides the guest's ghost only in a PLAIN scene (NetSyncStepOut.GhostHideRule)
++        // [ff9mapkit netsync s158] HOST: the live sticky scene was raised by a relayed talk / promoted quad (StartSceneAt) or an NPC's card
++        // button (NoteHostInteraction), not by a plain line opening with control off -- the step-out's option C hides the guest's ghost only
++        // in a PLAIN scene that has shown a FRESH LINE since my control went off (a HUD strip open before is never one: on such a field the
++        // sticky scene rises at every control-off beat -- a climb, a gateway walk; review 2026-10-27)
 +        private Boolean _hostSceneTalk;
++        private Boolean _hostSceneFresh;
++        private Boolean _hostInteractArmed;
++        private Int32 _hostInteractTick;
++        private Boolean _hostCtlPrev = true;
++        private readonly NetSyncWindowSnapshot _hostWindows = new NetSyncWindowSnapshot();
          // F3.2 HOST: a scene edge awaits its out-of-band push. [ff9mapkit netsync F3.3] volatile: a ring tap (possibly the
          // VA thread) sets it too; the push itself (BuildStateFrame) only ever runs on the main thread (host Update).
          private volatile Boolean _dlgDirty;
-@@ -1669,6 +1672,7 @@ namespace Memoria.Netsync
+@@ -1669,6 +1679,7 @@ namespace Memoria.Netsync
                      // too, so a bench lock can never go stale across a battle or a load (the early returns below).
                      BenchSceneEdge(fld);
                      ServiceDialogAuthority(new RemoteState { Valid = false }, fld, onField);
@@ -253,7 +286,7 @@ index 7406bb4..6b1df44 100644
                      if (!inScope)
                      {
                          DespawnGhost();
-@@ -1809,6 +1813,10 @@ namespace Memoria.Netsync
+@@ -1809,6 +1820,10 @@ namespace Memoria.Netsync
                          Boolean glOk = NetSyncGuestLocal.SelfTest(out glDetail);
                          Log.Message("[NetSync] guest traversal selftest: "
                                      + (glOk ? "OK (" + glDetail + ")" : "FAIL (" + glDetail + ")"));
@@ -264,7 +297,7 @@ index 7406bb4..6b1df44 100644
                      }
                      // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
                      // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
-@@ -1878,6 +1886,10 @@ namespace Memoria.Netsync
+@@ -1878,6 +1893,10 @@ namespace Memoria.Netsync
                              ApplyGhostMask(LocalMeshMask(me));
                          else
                              ApplyGhostMask(_ghostRestMask);          // [ff9mapkit netsync s139] neither mask rule: CreateModel's own hides
@@ -275,7 +308,7 @@ index 7406bb4..6b1df44 100644
                          ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
                      }
                      // F2 L1 BENCH (selftest): DebugHostEventFlag simulates "the host is in a scene" -- its edges
-@@ -1923,7 +1935,7 @@ namespace Memoria.Netsync
+@@ -1923,7 +1942,7 @@ namespace Memoria.Netsync
                  if (local != null && local.fieldMapActor != null)
                  {
                      Transform pt = local.fieldMapActor.transform;
@@ -284,7 +317,7 @@ index 7406bb4..6b1df44 100644
                                       NetSyncVisitor.ClassifyLoco(local.model, local.anim),
                                       pt.localPosition, pt.localRotation);
                  }
-@@ -2019,6 +2031,7 @@ namespace Memoria.Netsync
+@@ -2019,6 +2038,7 @@ namespace Memoria.Netsync
                  ServiceEventCoLocate(rs, fld, onField);                  // F2 L1: log the host's dialogue-scene edge (F3.2: never moves/freezes)
                  ServiceDialogAuthority(rs, fld, onField);                // F3.2 C2: lock every line from open; the host's events drive it (F3.3: from the section-7 ring)
                  FollowHostTick(rs, followFld, onField, onWorld);         // visitor mode: chase the peer's field [ff9mapkit netsync s144] + the world rejoin
@@ -292,47 +325,61 @@ index 7406bb4..6b1df44 100644
                  if (local != null && rs.Valid && rs.Field == fld)
                  {
                      _ghostLastPairedTick = Environment.TickCount;   // s56: ghost blip-grace baseline (last paired frame)
-@@ -2057,6 +2070,12 @@ namespace Memoria.Netsync
+@@ -2057,6 +2077,14 @@ namespace Memoria.Netsync
                              ApplyGhostMask(LocalMeshMask(local));
                          else if (hostRule)
                              ApplyGhostMask(_ghostRestMask);      // [ff9mapkit netsync s139] neither rule: CreateModel's own hides (one hairstyle)
++                        else
++                            ApplyGhostMask(0xFFFF);              // [ff9mapkit netsync s158] a client's no-rule dress: EnsureGhost's force-enabled look, re-asserted so the hide below lasts only while its cause holds
 +                        // [ff9mapkit netsync s158] THE STEP-OUT's ghost half (NetSyncStepOut.GhostHideRule), over whichever mask rule ran: a
 +                        // ZERO wire mask hides the ghost in every dress branch (a stepped-out guest, or a body stock hid); a host's own
-+                        // PLAIN scene hides its guest's ghost (option C); a guest's own step-out hides the host's ghost (its copy plays the part)
-+                        HostPlainSceneNow = hostRule && _hostScene.Active && !_hostSceneTalk;
-+                        if (NetSyncStepOut.GhostHide(rs.MeshVis, HostPlainSceneNow, !hostRule && NetSyncStepOutArmed.On))
++                        // PLAIN scene hides its guest's ghost (option C, HostPlainSceneNow: UpdateHostScene's every frame); a guest's own
++                        // step-out hides the host's ghost (its copy plays the part)
++                        if (NetSyncStepOut.GhostHide(rs.MeshVis, hostRule && HostPlainSceneNow, !hostRule && NetSyncStepOutArmed.On))
 +                            ApplyGhostMask(0);
                          ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
                      }
                      AutoTeleportTick(local, rs.Pos, false);    // F1: recover a separated guest (self-gated)
-@@ -6482,6 +6501,8 @@ namespace Memoria.Netsync
+@@ -6482,6 +6510,12 @@ namespace Memoria.Netsync
              DropQuadStart(null);             // F3.2: an armed quad start too (silent)
              _benchSceneLogged = false;
              _hostScene.Reset();              // F3.2 C2: the sticky scene (and its nonce) dies with the session
-+            _hostSceneTalk = false;          // [ff9mapkit netsync s158] ...and its talk mark
++            _hostSceneTalk = false;          // [ff9mapkit netsync s158] ...and its talk mark, the fresh-line witness, the card press
++            _hostSceneFresh = false;
++            _hostInteractArmed = false;
++            _hostWindows.Clear();
++            HostPlainSceneNow = false;
 +            NetSyncStepOut.Reset();          // [ff9mapkit netsync s158] a step-out in progress steps in (its body is lit again)
              _hostEventFlag = 0;
              _hostEventNonce = 0;
              _lastIntentNonce = -1;
-@@ -6669,6 +6690,8 @@ namespace Memoria.Netsync
+@@ -6669,6 +6703,15 @@ namespace Memoria.Netsync
                  Boolean anyLine = !_hostScene.Active && onField && !ctl && NetSyncDialog.AnyEtbLine(true);   // read only when it can matter
                  String why;
                  Int32 edge = _hostScene.Step(onField, fld, ctl, worldMap, anyLine, Environment.TickCount, out why);
 +                if (edge == 1)
-+                    _hostSceneTalk = false;          // [ff9mapkit netsync s158] a line opened with control off: a PLAIN scene
++                {
++                    // [ff9mapkit netsync s158] a line opened with control off: a PLAIN scene -- unless an NPC's card button raised it
++                    // (NoteHostInteraction, the press 2 s or less ago: an NPC interaction, as a relayed talk is)
++                    _hostSceneTalk = _hostInteractArmed && Environment.TickCount - _hostInteractTick < 2000;
++                    _hostInteractArmed = false;
++                    _hostSceneFresh = false;
++                }
++                HostSceneLineTick(ctl);              // [ff9mapkit netsync s158] option C's fresh-line witness, then HostPlainSceneNow
                  if (edge == 1)
                      Log.Message("[NetSync] host scene: rose (nonce " + _hostScene.Nonce + ", field " + fld + ") -- " + why);
                  else if (edge == 2)
-@@ -6694,6 +6717,48 @@ namespace Memoria.Netsync
+@@ -6694,6 +6737,79 @@ namespace Memoria.Netsync
              }
          }
  
 +        // [ff9mapkit netsync s158] THE PARTY-SCENE STEP-OUT's inputs (NetSyncStepOut.Tick, every frame). LIVE: a following, mirroring
 +        // guest (the exit ramp not armed; never link liveness -- a blip must not pop the body back mid-scene), the host on my field by the
 +        // position lane, its control off and its sticky scene from the dialogue view ServiceDialogAuthority cached for THIS field (section 7
-+        // b1 / b0), and "a relayed talk" = the host's scene now is the one its talk start rode in (NoteTalkScene's record; the accept itself
-+        // arms NoteRelayAccept). BENCH (the selftest role): the mirror is always here, `hostscene 1` is the host's scene with its control
-+        // off, a fabricated start not yet applied is a talk. A host is never eligible. Faults are the step-out's own (never the frame's).
++        // b1 / b0 -- the scene bit is published for the harness only: it is not a start), and "a relayed talk" = the host's scene now is the
++        // one a still-recorded talk start rode in (NoteTalkScene's record; the accept itself arms NoteRelayAccept). BENCH (the selftest
++        // role): the mirror is always here, `hostscene 1` is the host's scene with its control off, a fabricated start not yet applied is
++        // a talk. A host is never eligible. Faults are the step-out's own (never the frame's).
 +        internal static Boolean HostPlainSceneNow;       // the host's last option-C read (harness)
 +
 +        private void ServiceStepOut(EventEngine ee, Int32 fld, Boolean onField, RemoteState rs, Boolean bench)
@@ -359,7 +406,7 @@ index 7406bb4..6b1df44 100644
 +                    Boolean up;
 +                    Int32 nonce;
 +                    ReadHostScene(_dlgLastState, out up, out nonce);
-+                    talkLane = up && nonce >= 0 && nonce == _talkSceneNonce;
++                    talkLane = up && _talkSceneTalk >= 0 && nonce >= 0 && nonce == _talkSceneNonce;   // the record's own guard (a retired one never matches)
 +                }
 +                NetSyncStepOut.Tick(ee, eligible, onField, fld, local, hostHere, hostCtlOff, hostScene, talkLane);
 +            }
@@ -369,22 +416,53 @@ index 7406bb4..6b1df44 100644
 +            }
 +        }
 +
++        // [ff9mapkit netsync s158] option C's fresh-line witness, every host frame: a snapshot of the open windows at my control's falling
++        // edge; while the sticky scene is up, a lockable non-inhibited window not among them marks it fresh. HostPlainSceneNow = up, not a
++        // talk's, fresh -- read by the paired block and the harness (never stale: written every host frame, false off a scene).
++        private void HostSceneLineTick(Boolean ctl)
++        {
++            if (!ctl && _hostCtlPrev)
++                _hostWindows.Take();
++            else if (ctl && !_hostCtlPrev)
++                _hostWindows.Clear();
++            _hostCtlPrev = ctl;
++            if (_hostScene.Active && !_hostSceneFresh && !ctl && _hostWindows.AnyFresh())
++                _hostSceneFresh = true;
++            HostPlainSceneNow = _hostScene.Active && !_hostSceneTalk && _hostSceneFresh;
++        }
++
++        // [ff9mapkit netsync s158] EventCollision's card-button branch (Request(obj, 1, 8): an NPC's Tetra Master prompt, never relayed):
++        // on the HOST, the scene its prompt raises is an NPC interaction, not a plain scene (option C keeps the guest visible). Never throws.
++        internal static void NoteHostInteraction()
++        {
++            try
++            {
++                NetSyncClient i = _instance;
++                if (i == null || _role != "host")
++                    return;
++                i._hostInteractArmed = true;
++                i._hostInteractTick = Environment.TickCount;   // tick-baseline law: armed bool + delta
++            }
++            catch { }
++        }
++
          // [ff9mapkit netsync F3.2] S2: a relayed talk (the NPC press) or a promoted quad starts a scene of its OWN
          // from the press -- an active one ends first -- so each relayed start carries a fresh nonce: the guest's
          // relay-accept purge (NetSyncDialog.PurgeAtRelayAccept) keys on it. The caller pushes the frame.
-@@ -6703,6 +6768,7 @@ namespace Memoria.Netsync
+@@ -6703,6 +6819,8 @@ namespace Memoria.Netsync
              if (_hostScene.StartAt(fld))
                  Log.Message("[NetSync] host scene: ended (nonce " + old + ") -- a new talk started");
              Log.Message("[NetSync] host scene: rose (nonce " + _hostScene.Nonce + ", field " + fld + ") -- a talk started");
 +            _hostSceneTalk = true;           // [ff9mapkit netsync s158] a relayed talk's scene: the guest stays visible (owner: plain NPC talks keep it)
++            _hostSceneFresh = false;         // [ff9mapkit netsync s158]
              _hostEventFlag = 1;
              _hostEventNonce = _hostScene.Nonce;
          }
-@@ -8173,6 +8239,7 @@ namespace Memoria.Netsync
+@@ -8173,6 +8291,7 @@ namespace Memoria.Netsync
                  {
                      _relayAcceptTick = Environment.TickCount;   // tick-baseline law: armed bool + delta
                      _relayAcceptArmed = true;
-+                    NetSyncStepOut.NoteRelayAccept();           // [ff9mapkit netsync s158] this talk owns my control-off episode: no step-out
++                    NetSyncStepOut.NoteRelayAccept(myField);    // [ff9mapkit netsync s158] this talk owns my control-off episode on this field: no step-out (and an episode it lands in ends)
                      // [ff9mapkit netsync F3.3] R8 (DIO-4 partial, a separable hunk): refresh the party/bag read wraps from the
                      // SAME state frame that carried this start -- pure reads, so safe mid-field -- before my copy's handler
                      // runs (Request only queued it). The wraps otherwise answer from my last field load, so the same visit's
@@ -418,13 +496,12 @@ index 7d48eff..dc2ba64 100644
                      actor.idle = actor.idle != 0 ? (UInt16)MapRigAnim(rigIdx, actor.idle, SiteIdle, alias) : rig.Idle;
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
 new file mode 100644
-index 0000000..6e9b470
+index 0000000..79d08ea
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
-@@ -0,0 +1,980 @@
+@@ -0,0 +1,1155 @@
 +using System;
 +using System.Collections.Generic;
-+using System.Globalization;
 +using Memoria.Prime;
 +using Memoria.Scripts;   // ShadersLoader
 +using UnityEngine;
@@ -441,24 +518,33 @@ index 0000000..6e9b470
 +    // THE FIX, guest side (Tick, from NetSyncClient once per frame; bench = the selftest role):
 +    //   START  every BASE term (BaseWhyNot) -- a following, mirroring guest on a field / the host on my field / the host's control off
 +    //          (section 7 b1 clear, ServiceDialogAuthority's cached view for THIS field; bench: `hostscene 1`) / my control off / no guest
-+    //          climb in flight (NetSyncGuestLocal.InFlightNow) / not a relayed talk (a relay accept armed this control-off episode, or the
-+    //          host's scene nonce is the one the talk start rode in) / the lever not off -- and then (StartRule) at once when a line is open
-+    //          on MY copy or the host's sticky scene is up here, else after DwellMs of the base. THE ARRIVAL LAW: a door's fade-in is
-+    //          control-off on both copies with no line, and it must never step out (a dressed guest would flash Zidane at every arrival).
-+    //   END    (EndRule) my control back for StepInMs, the field or the controlled body changing, the session ending, the lever. The
-+    //          host's state is NOT an end input: my copy may lag the host's scene, and its tail is still the scene.
++    //          climb in flight (NetSyncGuestLocal.InFlightNow) / not a relayed talk (a relay accept on THIS field armed this control-off
++    //          episode, or the host's live scene is the one a still-recorded talk start rode in) / the lever not off -- and then (StartRule)
++    //          at once when a FRESH LINE is open on MY copy (a lockable, non-inhibited window that was not open when the base began: a HUD
++    //          strip that outlives control is never one), else after DwellMs of the base. THE ARRIVAL LAW: a door's fade-in is control-off
++    //          on both copies with no line, and it must never step out (a dressed guest would flash Zidane at every arrival). The host's
++    //          sticky scene is NOT a start: on a field with a persistent strip it rises at every control-off beat (review 2026-10-27).
++    //   END    (EndRule) my control back for StepInMs, the field or the controlled body changing, the session ending, the lever, and AT
++    //          ONCE a relayed talk or a guest climb my copy starts inside the episode (both need my control back, so both land in the
++    //          debounce window: without this term the episode carried on through a plain NPC talk). The host's state is NOT an end
++    //          input: my copy may lag the host's scene, and its tail is still the scene.
 +    //   WHILE OUT  the wire mask is 0 (WireMask, at SetLocal) for every body, so the host's ghost of me vanishes; my screen hides the
-+    //          host's ghost (GhostHideRule); a DRESSED body's meshes go dark through a term in SetRenderer's flag4 (ProcessEvents; the blob
-+    //          shadow keeps the STOCK flag4 -- it sits under the stand-in) and a STAND-IN of the model the script asked for (netDressSrc,
-+    //          Zidane) follows it: the body's local TRS, its RAW source clip (SourceAnim: PosObj.netRawAnims, recorded where
-+    //          NetSyncSelfDress maps a clip), sampled at the body's own normalized clip time, lit by the body's _Color, shown only when the
-+    //          body's STOCK visibility says so. It runs in its own LateUpdate (NetSyncStandIn), after HonoBehaviorSystem's Update has run
-+    //          the logic tick and the smoothing pass. An UNDRESSED body is already the solo protagonist: it stays.
++    //          host's ghost (GhostHideRule); a DRESSED body goes dark AT THE EDGE (StepOut disables its renderers in the same frame, so
++    //          nothing draws the body and the stand-in together) and stays dark through a term in SetRenderer's flag4 (ProcessEvents; the
++    //          blob shadow keeps the STOCK flag4 -- it sits under the stand-in); a STAND-IN of the model the script asked for
++    //          (netDressSrc, Zidane) follows it: the body's local TRS, its RAW source clip (SourceAnim: PosObj.netRawAnims, recorded where
++    //          NetSyncSelfDress maps a clip), sampled at the body's own normalized clip time, the body's material state (shader, render
++    //          queue, _Slice, _Color rgb: a slice or a blend stock writes on the body reaches it), shown only when the body's STOCK
++    //          visibility says so; the body's eye takes the source's height while out (the speaker's window points at the stand-in's head).
++    //          The stand-in runs in its own LateUpdate (NetSyncStandIn), after HonoBehaviorSystem's Update has run the logic tick and the
++    //          smoothing pass. An UNDRESSED body is already the solo protagonist: it stays.
 +    // THE FIX, host side (NetSyncClient's paired block): a ZERO wire mask hides the ghost in every dress branch (today only the
-+    //   same-model branch read it), and while my sticky scene is up and was NOT raised by a relayed talk (StartSceneAt marks those), the
-+    //   guest's ghost hides (option C: host-only scenes the guest's copy never runs).
-+    // Accepted, not fixed: a held prop on a dressed body hides with it; the head focus is not copied; free-roam doubles (F); a talk that
-+    // turns into a party cutscene (G); a line-less scene shorter than DwellMs shows the double for its length; the pop.
++    //   same-model branch read it), and while my sticky scene is up, was not raised by a relayed talk or an NPC's card button
++    //   (StartSceneAt / NoteHostInteraction), and has shown a FRESH LINE since my control went off, the guest's ghost hides (option C).
++    // Accepted, not fixed: a prop attached to a dressed body mid-episode stays at the dark rig's hand; the head focus and a mirror floor's
++    // reflection are not copied; the dress rig's footsteps keep sounding under the stand-in; the multi-binder fields (control on another
++    // entry than the dressed one) keep the double; free-roam doubles (F); a talk that turns into a party cutscene (G); a scene with no
++    // fresh line shorter than DwellMs shows the double for its length; the pop.
 +    //
 +    // Vanilla, a host and solo play pay one static read per hook site (NetSyncStepOutArmed.On, which only StepOut sets); nothing goes on
 +    // the wire but the mask the lane already carries (wire v14 unchanged). Every hook catches its own faults (`netsync.stepout.faults`).
@@ -480,16 +566,68 @@ index 0000000..6e9b470
 +        }
 +    }
 +
++    // THE FRESH-LINE SNAPSHOT: the lockable ETb windows open at one moment (a pooled Dialog is reused, so each is kept with its TextId);
++    // AnyFresh = a lockable, NON-inhibited window open now that was not among them. Main thread only; allocation-free after construction.
++    internal sealed class NetSyncWindowSnapshot
++    {
++        private readonly Dialog[] _open = new Dialog[16];
++        private readonly Int32[] _text = new Int32[16];
++        private Int32 _n;
++
++        internal void Take()
++        {
++            _n = 0;
++            List<Dialog> list = NetSyncDialog.LiveList();
++            if (list == null)
++                return;
++            for (Int32 k = 0; k < list.Count && _n < _open.Length; k++)
++            {
++                Dialog d = list[k];
++                if (!NetSyncDialog.IsLockable(d))
++                    continue;
++                _open[_n] = d;
++                _text[_n] = d.TextId;
++                _n++;
++            }
++        }
++
++        internal void Clear()
++        {
++            for (Int32 k = 0; k < _n; k++)
++                _open[k] = null;
++            _n = 0;
++        }
++
++        internal Boolean AnyFresh()
++        {
++            List<Dialog> list = NetSyncDialog.LiveList();
++            if (list == null)
++                return false;
++            for (Int32 k = 0; k < list.Count; k++)
++            {
++                Dialog d = list[k];
++                if (!NetSyncDialog.IsLockable(d) || d.FlagButtonInh)
++                    continue;
++                Boolean old = false;
++                for (Int32 j = 0; j < _n && !old; j++)
++                    old = ReferenceEquals(_open[j], d) && _text[j] == d.TextId;
++                if (!old)
++                    return true;
++            }
++            return false;
++        }
++    }
++
 +    public static class NetSyncStepOut
 +    {
-+        internal const Int32 DwellMs = 1500;           // a line-less control-off episode is a scene after this (THE ARRIVAL LAW)
++        internal const Int32 DwellMs = 1500;           // a control-off episode with no fresh line is a scene after this (THE ARRIVAL LAW)
 +        internal const Int32 StepInMs = 500;           // my control back this long ends it (the host's SceneFallMs)
 +        internal const Int32 TalkOwnMs = 1000;         // a relay accept owns my control-off episode until control has been back this long past it
 +
-+        internal const Int32 OutNone = 0, OutLine = 1, OutScene = 2, OutDwell = 3;
-+        internal static readonly String[] OutNames = { null, "line", "scene", "dwell" };
-+        internal const Int32 InNone = 0, InControl = 1, InField = 2, InBody = 3, InSession = 4, InLever = 5;
-+        internal static readonly String[] InNames = { null, "control", "field", "body", "session", "lever" };
++        internal const Int32 OutNone = 0, OutLine = 1, OutDwell = 2;
++        internal static readonly String[] OutNames = { null, "line", "dwell" };
++        internal const Int32 InNone = 0, InControl = 1, InField = 2, InBody = 3, InSession = 4, InLever = 5, InTalkStart = 6, InClimbStart = 7;
++        internal static readonly String[] InNames = { null, "control", "field", "body", "session", "lever", "talk", "climb" };
 +        internal const Int32 HideNone = 0, HideMask = 1, HideHostScene = 2, HideStepOut = 3;
 +        internal static readonly String[] HideNames = { null, "mask0", "host_scene", "step_out" };
 +
@@ -515,25 +653,31 @@ index 0000000..6e9b470
 +        private static Int32 _backSince;
 +        private static Boolean _talkArmed;
 +        private static Int32 _talkTick;
++        private static Int32 _talkField = -1;
 +        private static Boolean _stockVisible = true;
++        private static Boolean _eyeSwapped;
++        private static Int16 _eyeKept;                 // the dressed body's own eye, restored at StepIn
++        private static Int16 _eyeSet;                  // the source eye written at StepOut (restored only while it still stands)
++        private static readonly List<Obj> _children = new List<Obj>();   // the actors under the body at StepOut (attached props)
++        private static readonly NetSyncWindowSnapshot _baseWindows = new NetSyncWindowSnapshot();
 +
 +        // ---------------------------------------------------------------- the stand-in
 +        private static GameObject _standin;
 +        private static Animation _standinAnim;
 +        private static Renderer[] _standinRends;
++        private static Material[][] _standinMats;      // each renderer's materials, read ONCE (Renderer.materials allocates)
 +        private static Boolean[] _standinRest;          // CreateModel's own enables (a field model's battle_model, a hairstyle)
++        private static Renderer _bodyRend;              // the body's first renderer: the material state the stand-in mirrors
 +        private static String _standinGeo;
 +        private static String _standinClip;
 +        private static Int32 _standinSrc = -1;
-+        private static Single _standinNorm = -1f;
 +        private static Single _bodyNorm = -1f;
 +        private static Boolean _standinShown;
-+        private static Int32 _lightTick;
 +
 +        // ---------------------------------------------------------------- counters (cumulative per process; read DELTAS)
 +        internal static Int32 Outs, Ins;
-+        internal static readonly Int32[] OutBy = new Int32[4];
-+        internal static readonly Int32[] InBy = new Int32[6];
++        internal static readonly Int32[] OutBy = new Int32[3];
++        internal static readonly Int32[] InBy = new Int32[8];
 +        internal static Int32 StandinSpawns, StandinFrames, StandinMissingClip, Faults, TalkAccepts, GhostHideEdges;
 +        internal static readonly Int32[] HideBy = new Int32[4];
 +        internal static String LastFault;
@@ -544,6 +688,7 @@ index 0000000..6e9b470
 +        internal static String BaseWhyNotNow = "not ticked";
 +        internal static Int32 WireMaskNow = -1;
 +        internal static Int32 GhostHideNow;             // the last GhostHide verdict (HideNames index)
++        private static Int32 _hideFrame = -10;          // the frame GhostHide last ran: an older verdict is no verdict (no ghost)
 +        internal static String SelfTestVerdict;
 +
 +        internal static Boolean Active { get { return _active; } }
@@ -571,20 +716,20 @@ index 0000000..6e9b470
 +            return null;
 +        }
 +
-+        // THE START, once the base holds: a line open on my copy, the host's sticky scene up here, or the dwell (THE ARRIVAL LAW).
-+        internal static Int32 StartRule(Boolean lineOpen, Boolean hostScene, Int32 baseAgeMs)
++        // THE START, once the base holds: a fresh line on my copy at once, else the dwell (THE ARRIVAL LAW).
++        internal static Int32 StartRule(Boolean freshLine, Int32 baseAgeMs)
 +        {
-+            if (lineOpen)
++            if (freshLine)
 +                return OutLine;
-+            if (hostScene)
-+                return OutScene;
 +            if (baseAgeMs >= DwellMs)
 +                return OutDwell;
 +            return OutNone;
 +        }
 +
-+        // THE END: never on the host's state. ctlBackMs = how long my control has been back (-1 = it is off).
-+        internal static Int32 EndRule(Boolean eligible, Boolean leverOff, Boolean sameField, Boolean sameBody, Boolean myCtl, Int32 ctlBackMs)
++        // THE END: never on the host's state. ctlBackMs = how long my control has been back (-1 = it is off); talkStarted = a relayed
++        // talk my copy accepted inside the episode; climb = my guest climb in flight.
++        internal static Int32 EndRule(Boolean eligible, Boolean leverOff, Boolean sameField, Boolean sameBody, Boolean myCtl, Int32 ctlBackMs,
++                                      Boolean talkStarted, Boolean climb)
 +        {
 +            if (!eligible)
 +                return InSession;
@@ -594,6 +739,10 @@ index 0000000..6e9b470
 +                return InField;
 +            if (!sameBody)
 +                return InBody;
++            if (talkStarted)
++                return InTalkStart;
++            if (climb)
++                return InClimbStart;
 +            if (myCtl && ctlBackMs >= StepInMs)
 +                return InControl;
 +            return InNone;
@@ -733,11 +882,12 @@ index 0000000..6e9b470
 +
 +        // ================================================================ the episode (NetSyncClient.ServiceStepOut gathers the inputs)
 +
-+        // A relayed talk start was applied on my copy (ServiceTalkFollow's accept): it owns the control-off episode it starts.
-+        internal static void NoteRelayAccept()
++        // A relayed talk start was applied on my copy (ServiceTalkFollow's accept): it owns the control-off episode it starts ON THIS FIELD.
++        internal static void NoteRelayAccept(Int32 field)
 +        {
 +            _talkArmed = true;
 +            _talkTick = Environment.TickCount;          // tick-baseline law: armed bool + delta
++            _talkField = field;
 +            TalkAccepts++;
 +        }
 +
@@ -748,21 +898,20 @@ index 0000000..6e9b470
 +            {
 +                Int32 now = Environment.TickCount;
 +                Boolean myCtl = ee == null || ee.GetUserControl();
-+                if (_talkArmed && myCtl && now - _talkTick >= TalkOwnMs)
-+                    _talkArmed = false;                 // the talk's episode is over (or its handler never took control)
++                if (_talkArmed && (!onField || fld != _talkField || (myCtl && now - _talkTick >= TalkOwnMs)))
++                    _talkArmed = false;                 // the talk's episode is over, its handler never took control, or the field changed
 +                Boolean climb = NetSyncGuestLocalArmed.On && NetSyncGuestLocal.InFlightNow(ee);
 +                Boolean talk = _talkArmed || talkLane;
-+                Boolean line = onField && !myCtl && NetSyncDialog.AnyEtbLine(true);
 +                InEligible = eligible;
 +                InHostHere = hostHere;
 +                InHostCtlOff = hostCtlOff;
 +                InMyCtlOff = !myCtl;
 +                InClimb = climb;
 +                InTalk = talk;
-+                InLine = line;
 +                InHostScene = hostScene;
 +                if (_active)
 +                {
++                    InLine = false;
 +                    if (myCtl)
 +                    {
 +                        if (!_backArmed)
@@ -775,7 +924,7 @@ index 0000000..6e9b470
 +                        _backArmed = false;
 +                    Boolean sameField = onField && fld == _field;
 +                    Boolean sameBody = local != null && ReferenceEquals(local, _body) && local.go != null;
-+                    Int32 end = EndRule(eligible, LeverOff, sameField, sameBody, myCtl, _backArmed ? now - _backSince : -1);
++                    Int32 end = EndRule(eligible, LeverOff, sameField, sameBody, myCtl, _backArmed ? now - _backSince : -1, _talkArmed, climb);
 +                    BaseWhyNotNow = null;
 +                    if (end != InNone)
 +                        StepIn(end);
@@ -786,6 +935,9 @@ index 0000000..6e9b470
 +                BaseWhyNotNow = whyNot;
 +                if (whyNot != null)
 +                {
++                    InLine = false;
++                    if (_baseArmed)
++                        _baseWindows.Clear();
 +                    _baseArmed = false;
 +                    return;
 +                }
@@ -793,10 +945,13 @@ index 0000000..6e9b470
 +                {
 +                    _baseArmed = true;
 +                    _baseSince = now;
++                    _baseWindows.Take();                // what is open as the base begins is never a fresh line (a HUD strip)
 +                }
-+                Int32 start = StartRule(line, hostScene, now - _baseSince);
++                Boolean line = _baseWindows.AnyFresh();
++                InLine = line;
++                Int32 start = StartRule(line, now - _baseSince);
 +                if (start != OutNone)
-+                    StepOut(ee, local, fld, start);
++                    StepOut(local, fld, start);
 +            }
 +            catch (Exception err)
 +            {
@@ -806,7 +961,7 @@ index 0000000..6e9b470
 +            }
 +        }
 +
-+        private static void StepOut(EventEngine ee, Actor local, Int32 fld, Int32 why)
++        private static void StepOut(Actor local, Int32 fld, Int32 why)
 +        {
 +            _active = true;
 +            NetSyncStepOutArmed.On = true;
@@ -817,6 +972,8 @@ index 0000000..6e9b470
 +            _outTick = Environment.TickCount;
 +            _outWhy = why;
 +            _backArmed = false;
++            _baseArmed = false;
++            _baseWindows.Clear();
 +            _stockVisible = ((Int32)local.flags & 1) == 1 && local.frontCamera;
 +            Outs++;
 +            OutBy[why]++;
@@ -826,10 +983,42 @@ index 0000000..6e9b470
 +                if (_standin == null)
 +                    _dressed = false;                   // no stand-in: the body stays lit (the guest is never left without its part)
 +            }
-+            local.tempFlag = -1;                        // SetRenderer re-evaluates the body this pass (the term applies)
++            if (_dressed)
++                DarkenNow(local);
++            local.tempFlag = -1;                        // SetRenderer re-evaluates the body at its next pass (the term keeps it dark)
 +            Log.Message("[NetSync] step-out: OUT on field " + fld + " (uid " + _uid + ", " + (_dressed
-+                        ? "dressed: the body hides, a " + (_standinGeo ?? "missing") + " stand-in plays its part"
++                        ? "dressed: the body hides, a " + _standinGeo + " stand-in plays its part"
 +                        : "undressed: the body stays") + "; the host's ghost hides, my wire mask is 0) -- " + OutNames[why]);
++        }
++
++        // THE EDGE, synchronous: the dressed body's renderers off NOW (stock's own else-branch does the same at the next SetRenderer pass,
++        // which runs only inside a logic tick), the actors under it recorded for StepIn, and the source's eye height swapped in.
++        private static void DarkenNow(Actor body)
++        {
++            try
++            {
++                _children.Clear();
++                foreach (FieldMapActor fma in body.go.GetComponentsInChildren<FieldMapActor>(true))
++                    if (fma != null && fma.actor != null && !ReferenceEquals(fma.actor, body))
++                        _children.Add(fma.actor);
++                Renderer[] rends = body.go.GetComponentsInChildren<Renderer>();
++                _bodyRend = rends.Length > 0 ? rends[0] : null;
++                foreach (Renderer r in rends)
++                    if (r != null)
++                        r.enabled = false;
++                NetSyncVisitor.Rig src;
++                if (NetSyncVisitor.TryGetRig(0, out src) && src.Eye != 0)
++                {
++                    _eyeKept = body.eye;
++                    _eyeSet = (Int16)(-4 * src.Eye);    // AtSetModel's own formula, on the source rig (98 -> 93 in every stock init)
++                    body.eye = _eyeSet;
++                    _eyeSwapped = true;
++                }
++            }
++            catch (Exception err)
++            {
++                NoteFault("darken", err);
++            }
 +        }
 +
 +        private static void StepIn(Int32 why)
@@ -842,9 +1031,22 @@ index 0000000..6e9b470
 +            try
 +            {
 +                if (_body != null && _body.go != null)
-+                    _body.tempFlag = -1;                // the body's stock visibility comes back this pass
++                {
++                    _body.tempFlag = -1;                // the body's stock visibility comes back at the next SetRenderer pass
++                    if (_eyeSwapped && _body.eye == _eyeSet)
++                        _body.eye = _eyeKept;
++                }
++                for (Int32 k = 0; k < _children.Count; k++)
++                    if (_children[k] != null)
++                        _children[k].tempFlag = -1;     // a prop detached mid-episode re-evaluates too (it is no longer under the body)
 +            }
-+            catch { }
++            catch (Exception err)
++            {
++                NoteFault("step in", err);
++            }
++            _children.Clear();
++            _eyeSwapped = false;
++            _bodyRend = null;
 +            DespawnStandIn();
 +            _body = null;
 +            _uid = -1;
@@ -872,6 +1074,7 @@ index 0000000..6e9b470
 +            }
 +            _talkArmed = false;
 +            _baseArmed = false;
++            _baseWindows.Clear();
 +        }
 +
 +        // ================================================================ the hooks
@@ -900,15 +1103,18 @@ index 0000000..6e9b470
 +        internal static Boolean GhostHide(UInt16 wireMask, Boolean hostPlainScene, Boolean myStepOut)
 +        {
 +            Int32 h = GhostHideRule(wireMask, hostPlainScene, myStepOut);
-+            if (h != GhostHideNow)
++            Int32 frame = Time.frameCount;
++            Boolean fresh = frame - _hideFrame <= 2;    // the ghost was driven last frame: an episode of hiding continues
++            if (h != GhostHideNow || !fresh)
 +            {
-+                if (h != HideNone)
++                if (h != HideNone && (h != GhostHideNow || !fresh))
 +                {
 +                    GhostHideEdges++;
 +                    HideBy[h]++;
 +                }
 +                GhostHideNow = h;
 +            }
++            _hideFrame = frame;
 +            return h != HideNone;
 +        }
 +
@@ -940,6 +1146,8 @@ index 0000000..6e9b470
 +                    NoteFault("stand-in", new InvalidOperationException("CreateModel returned null for " + geo));
 +                    return;
 +                }
++                _standin = g;                           // owned from here: a fault below is torn down by the catch's DespawnStandIn
++                _standinGeo = geo;
 +                GeoTexAnim.addTexAnim(g, geo);          // texture anims (blinking etc.) -- engine parity, as the ghost
 +                AnimationFactory.AddAnimToGameObject(g, geo);
 +                g.name = "NetSyncStandIn";
@@ -952,6 +1160,7 @@ index 0000000..6e9b470
 +                SetLayerRecursive(g, body.go.layer);
 +                Renderer[] rends = g.GetComponentsInChildren<Renderer>();
 +                Boolean[] rest = new Boolean[rends.Length];
++                Material[][] mats = new Material[rends.Length][];
 +                for (Int32 i = 0; i < rends.Length; i++)
 +                {
 +                    Renderer renderer = rends[i];
@@ -964,22 +1173,21 @@ index 0000000..6e9b470
 +                        smr.updateWhenOffscreen = false;   // placed by the PSX projection IN THE SHADER: never frustum-cull it
 +                        smr.localBounds = new Bounds(Vector3.zero, new Vector3(100000f, 100000f, 100000f));
 +                    }
-+                    foreach (Material material in renderer.materials)
++                    mats[i] = renderer.materials;
++                    foreach (Material material in mats[i])
 +                    {
 +                        material.shader = ShadersLoader.Find(Configuration.Shaders.FieldCharacterShader);
 +                        ModelFactory.SetMatFilter(material, Configuration.Graphics.ElementsSmoothTexture);
 +                    }
 +                }
 +                NormalSolver.SmoothCharacterMesh(rends);
-+                _standin = g;
 +                _standinAnim = g.GetComponent<Animation>();
 +                _standinRends = rends;
++                _standinMats = mats;
 +                _standinRest = rest;
-+                _standinGeo = geo;
 +                _standinClip = null;
 +                _standinSrc = -1;
 +                _standinShown = true;
-+                _lightTick = 0;
 +                StandinSpawns++;
 +                ShowStandIn(_stockVisible);
 +                g.AddComponent<NetSyncStandIn>();
@@ -1010,11 +1218,11 @@ index 0000000..6e9b470
 +            _standin = null;
 +            _standinAnim = null;
 +            _standinRends = null;
++            _standinMats = null;
 +            _standinRest = null;
 +            _standinGeo = null;
 +            _standinClip = null;
 +            _standinSrc = -1;
-+            _standinNorm = -1f;
 +            _bodyNorm = -1f;
 +            if (g == null)
 +                return;
@@ -1036,7 +1244,8 @@ index 0000000..6e9b470
 +            }
 +        }
 +
-+        // NetSyncStandIn.LateUpdate (and once at the spawn): the body's local TRS, its source clip at its own normalized time, its tint.
++        // NetSyncStandIn.LateUpdate (and once at the spawn): the body's local TRS, its source clip at its own normalized time, its material
++        // state.
 +        internal static void Follow(GameObject g)
 +        {
 +            try
@@ -1054,6 +1263,7 @@ index 0000000..6e9b470
 +                st.localRotation = bt.localRotation;
 +                st.localScale = bt.localScale;
 +                StandinFrames++;
++                CopyMaterialState();
 +                if (_standinAnim == null)
 +                    return;
 +                Int32 src = SourceAnim(_body);
@@ -1081,12 +1291,6 @@ index 0000000..6e9b470
 +                    ss.speed = 0f;
 +                    ss.time = norm * ss.length;
 +                    _standinAnim.Sample();
-+                    _standinNorm = ss.length > 0f ? ss.time / ss.length : 0f;
-+                }
-+                if (Environment.TickCount - _lightTick >= 100)
-+                {
-+                    _lightTick = Environment.TickCount;
-+                    CopyTint(bgo);
 +                }
 +            }
 +            catch (Exception err)
@@ -1115,26 +1319,42 @@ index 0000000..6e9b470
 +            return body.frameN > 0 ? (Single)body.animFrame / (Single)body.frameN : 0f;
 +        }
 +
-+        // The body's room tint (fldchar writes it into every renderer's material each tick, hidden or not): rgb only, alpha kept.
-+        private static void CopyTint(GameObject bgo)
++        // The body's material state onto the stand-in, every frame: fldchar writes the room tint (_Color rgb), the blend shader
++        // (RunModelCode 0: PSX/Actor_Abr_N and back) and the slice (RunModelCode 4: _Slice) ONLY onto the registered body, hidden or not.
++        private static void CopyMaterialState()
 +        {
-+            if (_standinRends == null)
++            if (_standinMats == null || _bodyRend == null)
 +                return;
-+            Renderer[] br = bgo.GetComponentsInChildren<Renderer>();
-+            if (br == null || br.Length == 0 || br[0] == null)
++            Material src = _bodyRend.sharedMaterial;   // the body's own instance (fldchar's renderer.material made it): no new copy
++            if (src == null)
 +                return;
-+            Color32 src = br[0].material.GetColor("_Color");
-+            for (Int32 i = 0; i < _standinRends.Length; i++)
++            Color32 c0 = src.GetColor("_Color");
++            Boolean slice = src.HasProperty("_Slice");
++            Single sliceV = slice ? src.GetFloat("_Slice") : 0f;
++            for (Int32 i = 0; i < _standinMats.Length; i++)
 +            {
-+                if (_standinRends[i] == null)
++                Material[] ms = _standinMats[i];
++                if (ms == null)
 +                    continue;
-+                foreach (Material material in _standinRends[i].materials)
++                for (Int32 j = 0; j < ms.Length; j++)
 +                {
-+                    Color32 c = material.GetColor("_Color");
-+                    c.r = src.r;
-+                    c.g = src.g;
-+                    c.b = src.b;
-+                    material.SetColor("_Color", c);
++                    Material m = ms[j];
++                    if (m == null)
++                        continue;
++                    if (m.shader != src.shader)
++                        m.shader = src.shader;
++                    if (m.renderQueue != src.renderQueue)
++                        m.renderQueue = src.renderQueue;
++                    if (slice && m.HasProperty("_Slice"))
++                        m.SetFloat("_Slice", sliceV);
++                    Color32 c = m.GetColor("_Color");
++                    if (c.r != c0.r || c.g != c0.g || c.b != c0.b)
++                    {
++                        c.r = c0.r;
++                        c.g = c0.g;
++                        c.b = c0.b;
++                        m.SetColor("_Color", c);
++                    }
 +                }
 +            }
 +        }
@@ -1169,9 +1389,21 @@ index 0000000..6e9b470
 +        internal static String HarnessStandinGeo { get { return _standin != null ? _standinGeo : null; } }
 +        internal static String HarnessStandinClip { get { return _standin != null ? _standinClip : null; } }
 +        internal static Int32 HarnessStandinSrc { get { return _standin != null ? _standinSrc : -1; } }
-+        internal static Single HarnessStandinNorm { get { return _standin != null ? _standinNorm : -1f; } }
 +        internal static Single HarnessBodyNorm { get { return _standin != null ? _bodyNorm : -1f; } }
 +        internal static Boolean HarnessTalkArmed { get { return _talkArmed; } }
++        internal static String HarnessGhostHideName { get { return Time.frameCount - _hideFrame <= 2 ? HideNames[GhostHideNow] : null; } }
++
++        // The stand-in's OWN clip time, read off its AnimationState at the publish (not the value Follow wrote): -1 = none.
++        internal static Single HarnessStandinNorm
++        {
++            get
++            {
++                if (_standin == null || _standinAnim == null || _standinClip == null)
++                    return -1f;
++                AnimationState ss = _standinAnim[_standinClip];
++                return ss != null && ss.length > 0f ? ss.time / ss.length : -1f;
++            }
++        }
 +
 +        // The distance from the stand-in to the body (-1 = no stand-in): a follow that lags or never ran reads > 0.
 +        internal static Single HarnessStandinDpos
@@ -1181,6 +1413,21 @@ index 0000000..6e9b470
 +                if (_standin == null || _body == null || _body.go == null)
 +                    return -1f;
 +                return Vector3.Distance(_standin.transform.localPosition, _body.go.transform.localPosition);
++            }
++        }
++
++        // The stand-in's enabled renderers (-1 = none).
++        internal static Int32 HarnessStandinRendsOn
++        {
++            get
++            {
++                if (_standin == null || _standinRends == null)
++                    return -1;
++                Int32 n = 0;
++                for (Int32 i = 0; i < _standinRends.Length; i++)
++                    if (_standinRends[i] != null && _standinRends[i].enabled)
++                        n++;
++                return n;
 +            }
 +        }
 +
@@ -1214,18 +1461,18 @@ index 0000000..6e9b470
 +            }
 +        }
 +
-+        // The stand-in's enabled renderers (-1 = none).
-+        internal static Int32 HarnessStandinRendsOn
++        // Stock's own shadow switch on the controlled body (DisableShadow / EnableShadow: FF9Char attr bit 16): 1 off, 0 on, -1 none. The
++        // bench judges `shadow` against it -- a stock climb turns the shadow off itself.
++        internal static Int32 HarnessShadowOff
 +        {
 +            get
 +            {
-+                if (_standin == null || _standinRends == null)
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                Actor a = ee != null ? ee.GetControlChar() as Actor : null;
++                if (a == null)
 +                    return -1;
-+                Int32 n = 0;
-+                for (Int32 i = 0; i < _standinRends.Length; i++)
-+                    if (_standinRends[i] != null && _standinRends[i].enabled)
-+                        n++;
-+                return n;
++                FF9Char ch = FF9StateSystem.Common.FF9.FF9GetCharPtr((Int32)a.uid);
++                return ch == null ? -1 : (ch.attr & 16u) != 0 ? 1 : 0;
 +            }
 +        }
 +
@@ -1261,8 +1508,9 @@ index 0000000..6e9b470
 +        // ================================================================ THE PROOF (the selftest proof block: "step-out selftest: OK (N rows, M mutants caught)")
 +
 +        private delegate String BaseFn(Boolean eligible, Boolean leverOff, Boolean hostHere, Boolean hostCtlOff, Boolean myCtlOff, Boolean climb, Boolean talk);
-+        private delegate Int32 StartFn(Boolean line, Boolean scene, Int32 ageMs);
-+        private delegate Int32 EndFn(Boolean eligible, Boolean leverOff, Boolean sameField, Boolean sameBody, Boolean myCtl, Int32 backMs);
++        private delegate Int32 StartFn(Boolean line, Int32 ageMs);
++        private delegate Int32 EndFn(Boolean eligible, Boolean leverOff, Boolean sameField, Boolean sameBody, Boolean myCtl, Int32 backMs,
++                                     Boolean talkStarted, Boolean climb);
 +        private delegate UInt16 WireFn(Boolean active, UInt16 mask);
 +        private delegate Int32 HideFn(UInt16 mask, Boolean plain, Boolean stepOut);
 +        private delegate Int32 SrcFn(Int32 cur, Boolean dressed, UInt16[] raws, UInt16 idle, UInt16 walk, UInt16 run, UInt16 turnl,
@@ -1292,21 +1540,23 @@ index 0000000..6e9b470
 +            row(r.Base(true, false, true, true, false, false, false) != null, "base.my_control");
 +            row(r.Base(true, false, true, true, true, true, false) != null, "base.climb");
 +            row(r.Base(true, false, true, true, true, false, true) != null, "base.talk");
-+            // the start: a line or the host's scene at once; THE ARRIVAL LAW: neither, under the dwell, never
-+            row(r.Start(true, false, 0) == OutLine, "start.line_now");
-+            row(r.Start(false, true, 0) == OutScene, "start.scene_now");
-+            row(r.Start(false, false, 0) == OutNone, "start.arrival_0");
-+            row(r.Start(false, false, DwellMs - 1) == OutNone, "start.arrival_dwell_minus_1");
-+            row(r.Start(false, false, DwellMs) == OutDwell, "start.dwell");
-+            row(r.Start(true, true, DwellMs) == OutLine, "start.line_first");
-+            // the end: debounced control, never while control is off, the field / body / session / lever at once
-+            row(r.End(true, false, true, true, true, StepInMs - 1) == InNone, "end.debounce");
-+            row(r.End(true, false, true, true, true, StepInMs) == InControl, "end.control");
-+            row(r.End(true, false, true, true, false, -1) == InNone, "end.still_off");
-+            row(r.End(true, false, false, true, false, -1) == InField, "end.field");
-+            row(r.End(true, false, true, false, false, -1) == InBody, "end.body");
-+            row(r.End(false, false, true, true, false, -1) == InSession, "end.session");
-+            row(r.End(true, true, true, true, false, -1) == InLever, "end.lever");
++            // the start: a fresh line at once; THE ARRIVAL LAW: none, under the dwell, never
++            row(r.Start(true, 0) == OutLine, "start.line_now");
++            row(r.Start(false, 0) == OutNone, "start.arrival_0");
++            row(r.Start(false, DwellMs - 1) == OutNone, "start.arrival_dwell_minus_1");
++            row(r.Start(false, DwellMs) == OutDwell, "start.dwell");
++            row(r.Start(true, DwellMs) == OutLine, "start.line_first");
++            // the end: debounced control, never while control is off, the field / body / session / lever at once, a talk or a climb
++            // started inside the episode at once -- even inside the debounce
++            row(r.End(true, false, true, true, true, StepInMs - 1, false, false) == InNone, "end.debounce");
++            row(r.End(true, false, true, true, true, StepInMs, false, false) == InControl, "end.control");
++            row(r.End(true, false, true, true, false, -1, false, false) == InNone, "end.still_off");
++            row(r.End(true, false, false, true, false, -1, false, false) == InField, "end.field");
++            row(r.End(true, false, true, false, false, -1, false, false) == InBody, "end.body");
++            row(r.End(false, false, true, true, false, -1, false, false) == InSession, "end.session");
++            row(r.End(true, true, true, true, false, -1, false, false) == InLever, "end.lever");
++            row(r.End(true, false, true, true, true, 40, true, false) == InTalkStart, "end.talk_in_debounce");
++            row(r.End(true, false, true, true, true, 40, false, true) == InClimbStart, "end.climb_in_debounce");
 +            // the wire: stepped out = 0, else the mask as it is
 +            row(r.Wire(true, 0x1F) == 0, "wire.out");
 +            row(r.Wire(false, 0x1F) == 0x1F, "wire.in");
@@ -1338,8 +1588,10 @@ index 0000000..6e9b470
 +            Rules m = new Rules();
 +            switch (name)
 +            {
-+                case "no_dwell": m.Start = (line, scene, age) => line ? OutLine : scene ? OutScene : OutDwell; break;
-+                case "no_debounce": m.End = (e, l, f, b, c, ms) => !e ? InSession : l ? InLever : !f ? InField : !b ? InBody : c ? InControl : InNone; break;
++                case "no_dwell": m.Start = (line, age) => line ? OutLine : OutDwell; break;
++                case "no_debounce": m.End = (e, l, f, b, c, ms, t, cl) => EndRule(e, l, f, b, c, c ? StepInMs : ms, t, cl); break;
++                case "end_talk_blind": m.End = (e, l, f, b, c, ms, t, cl) => EndRule(e, l, f, b, c, ms, false, cl); break;
++                case "end_climb_blind": m.End = (e, l, f, b, c, ms, t, cl) => EndRule(e, l, f, b, c, ms, t, false); break;
 +                case "climb_blind": m.Base = (e, l, h, hc, mc, climb, t) => BaseWhyNot(e, l, h, hc, mc, false, t); break;
 +                case "talk_blind": m.Base = (e, l, h, hc, mc, c, talk) => BaseWhyNot(e, l, h, hc, mc, c, false); break;
 +                case "host_control_blind": m.Base = (e, l, h, hc, mc, c, t) => BaseWhyNot(e, l, h, true, mc, c, t); break;
@@ -1352,8 +1604,9 @@ index 0000000..6e9b470
 +            return m;
 +        }
 +
-+        private static readonly String[] MutantNames = { "no_dwell", "no_debounce", "climb_blind", "talk_blind", "host_control_blind",
-+                                                         "wire_leak", "mask_blind", "scene_blind", "play_blind", "dress_blind" };
++        private static readonly String[] MutantNames = { "no_dwell", "no_debounce", "end_talk_blind", "end_climb_blind", "climb_blind",
++                                                         "talk_blind", "host_control_blind", "wire_leak", "mask_blind", "scene_blind",
++                                                         "play_blind", "dress_blind" };
 +
 +        internal static Boolean SelfTest(out String detail)
 +        {
@@ -1369,9 +1622,9 @@ index 0000000..6e9b470
 +                }
 +                // the live tables the rules lean on
 +                NetSyncVisitor.Rig src;
-+                if (!NetSyncVisitor.TryGetRig(0, out src) || src.Idle == 0)
++                if (!NetSyncVisitor.TryGetRig(0, out src) || src.Idle == 0 || src.Eye == 0)
 +                {
-+                    detail = "row live.source_rig failed (rig 0 has no idle)";
++                    detail = "row live.source_rig failed (rig 0 has no idle or no eye)";
 +                    SelfTestVerdict = "fail: live.source_rig";
 +                    return false;
 +                }

@@ -180,11 +180,13 @@ The number is s158 because another round took s157. The code is `NetSyncStepOut`
 The guest's rule:
 - **Start.** Every base term must hold: a following, mirroring guest on a field; the host on my field with its control
   off; my control off; no guest climb in flight; not a relayed talk; the lever not off. Then the guest steps out at once
-  when a line is open on its own copy or the host's sticky scene is up, and otherwise after a 1.5 s dwell.
+  when a fresh line opens on its own copy, and otherwise after a 1.5 s dwell. (The pre-build review dropped an earlier
+  host-scene shortcut; see below.)
 - **The arrival law.** A door's fade-in has control off on both copies and no line. The dwell keeps it from stepping
   out. Without it, a dressed guest would flash Zidane at every parallel arrival.
 - **End.** My control back for 500 ms, a field change, the controlled body changing, the session ending, or the lever.
-  The host's state does not end it, because the guest's copy may still be playing the tail of the scene.
+  It also ends at once when a relayed talk or a guest climb starts inside the episode. The host's state does not end it,
+  because the guest's copy may still be playing the tail of the scene.
 - **The talk test** is the guest's own copy. A relay accept owns the control-off episode it starts. Before the accept,
   the host's section-5 nonce equal to `_talkSceneNonce` also counts as a talk.
 
@@ -212,6 +214,45 @@ Accepted gaps:
 - a talk that turns into a party cutscene (G);
 - a scene with no line, shorter than the dwell, shows the double for its length;
 - the pop.
+
+### Pre-build review (2026-10-27)
+
+Before the first build, six reviewers each read the private engine copy through one lens: visibility, the trigger, the
+stand-in, the wire and the host, the harness and bench, and stock safety. Two skeptics then tried to refute each serious
+finding, and a completeness critic looked for misses. 34 of 36 findings survived, and the critic added 4. Fixed before the
+build:
+- **The client's no-mask ghost branch never came back.** A guest whose own GhostAs dresses the host's ghost as a model
+  equal to neither body lost the ghost for the rest of the field after its first step-out. The branch now re-asserts the
+  spawn look every frame.
+- **The episode carried on through a relayed talk.** A talk or a guest climb accepted inside the 500 ms debounce
+  re-dropped control, so a plain NPC talk stayed stepped out. Both now end the episode at once. Talk ownership is also
+  scoped to its field.
+- **OUT drew the body and the stand-in together** for one logic tick. `SetRenderer` runs only inside a tick, so a dressed
+  body now goes dark in the same frame. StepIn re-evaluates the actors that were under the body, so a prop detached
+  mid-episode lights again.
+- **The host's scene and a HUD strip started step-outs.** On a field with a persistent strip, the sticky scene rises at
+  every control-off beat, and AnyEtbLine counts the strip. The start is now a **fresh line**: a lockable, non-inhibited
+  window that was not open when the base began. The host-scene shortcut is gone. Option C uses the same fresh-line rule
+  against the host's control-off edge, and the card button (`Request(obj, 1, 8)`, never relayed) counts as an NPC
+  interaction.
+- **The stand-in copies the body's material state every frame:** shader, render queue, `_Slice` and the `_Color` rgb. So
+  stock's wading slices (2800, 2951, Evil Forest) and blend fades (2928) reach it. While out, it also takes the source
+  rig's eye height, so the speaker's window points at its head. A spawn fault can no longer leak a model.
+- **Smaller fixes:**
+  - the talk-lane check gets `_talkSceneTalk`'s guard;
+  - stale harness reads are gone: `ghost.hide` and `host_plain_scene` are written every frame;
+  - the stand-in's published clip time is read off its own AnimationState.
+- **Bench defects fixed:**
+  - the mirror witness is `dress.ghost.shown_mask`; `hidden` is a list of renderer paths, never a bool;
+  - the shadow is judged against stock's own switch (`shadow_off`), because the 207 ladder turns the shadow off itself;
+  - IN allows one logic tick for the relight;
+  - the time and clip checks could not fail, so they now need a ZDN ladder clip mid-ladder and a moving clip time;
+  - the distance check allows one frame of motion (80 u);
+  - the climbs hang past the dwell, and a new N-DWELL leg checks that a short climb never steps out.
+
+Accepted and documented: a mirror floor reflects the dressed body; multi-binder fields keep the double; the dress rig's
+footsteps keep sounding under the stand-in; a prop attached mid-episode stays at the dark rig's hand; a loco
+`RunAnimation` can colour which walk variant the stand-in plays.
 
 ## Finding 4: the guest lags the host's F1 high speed through conversations
 

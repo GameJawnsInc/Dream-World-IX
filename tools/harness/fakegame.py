@@ -649,8 +649,8 @@ FAKE_GUESTLOCAL_MUTANTS = 30
 #: inputs, the edge counters by StartRule / EndRule reason (OutNames / InNames order), the stand-in, the ghost's hide verdict and
 #: its edges by reason (HideNames order). The live agent reads `lever` (as set), `selftest` (once the proof block ran), the
 #: base's inputs and `why_not` (every tick), `wire_mask`, `body_rends_on` and `shadow` where the catch line has its sentinels.
-NETSYNC_STEPOUT_OUT_WHY = ("line", "scene", "dwell")
-NETSYNC_STEPOUT_IN_WHY = ("control", "field", "body", "session", "lever")
+NETSYNC_STEPOUT_OUT_WHY = ("line", "dwell")
+NETSYNC_STEPOUT_IN_WHY = ("control", "field", "body", "session", "lever", "talk", "climb")
 NETSYNC_STEPOUT_HIDE_WHY = ("mask0", "host_scene", "step_out")
 NETSYNC_STEPOUT_BASE_SENTINELS = {"eligible": False, "host_here": False, "host_ctl_off": False, "my_ctl_off": False,
                                   "climb": False, "talk": False, "line": False, "host_scene": False, "why_not": None,
@@ -661,7 +661,8 @@ NETSYNC_STEPOUT_SENTINELS = {
     "lever": None, "active": False, "field": -1, "uid": -1, "dressed": False, "why": None, "age_ms": -1,
     "base": NETSYNC_STEPOUT_BASE_SENTINELS, "talk_armed": False, "outs": 0, "ins": 0,
     "out_why": {k: 0 for k in NETSYNC_STEPOUT_OUT_WHY}, "in_why": {k: 0 for k in NETSYNC_STEPOUT_IN_WHY},
-    "wire_mask": -1, "stock_visible": False, "body_rends_on": -1, "shadow": -1, "standin": NETSYNC_STEPOUT_STANDIN_SENTINELS,
+    "wire_mask": -1, "stock_visible": False, "body_rends_on": -1, "shadow": -1, "shadow_off": -1,
+    "standin": NETSYNC_STEPOUT_STANDIN_SENTINELS,
     "ghost": {"hide": None, "edges": 0, "by": {k: 0 for k in NETSYNC_STEPOUT_HIDE_WHY}}, "host_plain_scene": False,
     "talk_accepts": 0, "faults": 0, "last_fault": None, "selftest": None}
 NETSYNC_STEPOUT_KEYS = tuple(NETSYNC_STEPOUT_SENTINELS)
@@ -673,11 +674,11 @@ STEPOUT_LOG_OFF = "[NetSync] harness: step-out OFF -- CALIBRATION: never step ou
 STEPOUT_LOG_ACT = "[NetSync] harness: step-out ACT"
 STEPOUT_LOG_RELEASE = "[NetSync] harness: step-out lever released (act)"
 #: [ff9mapkit netsync s158] the proof line's head and the bench's parse of it; the stand-in's N / M are NetSyncStepOut.SelfTest's
-#: own tallies as the stand-in counts them (38 rows + the live source-rig row; 10 mutants) -- a stand-in's numbers
+#: own tallies as the stand-in counts them (36 rows + the live source-rig row; 12 mutants) -- a stand-in's numbers
 PROOF_STEP_OUT = "step-out selftest: "
 STEPOUT_PROOF_RE = r"step-out selftest: OK \((\d+) rows, (\d+) mutants caught, dwell (\d+) ms, step-in (\d+) ms\)"
-FAKE_STEPOUT_SELFTEST_ROWS = 39
-FAKE_STEPOUT_MUTANTS = 10
+FAKE_STEPOUT_SELFTEST_ROWS = 37
+FAKE_STEPOUT_MUTANTS = 12
 STEPOUT_DWELL_MS = 1500                                 # NetSyncStepOut.DwellMs (THE ARRIVAL LAW)
 STEPOUT_STEP_IN_MS = 500                                # NetSyncStepOut.StepInMs
 #: [ff9mapkit netsync s156] the kit's committed table (the generator's JSON: its `counts` and `table_crc` are what the compiled
