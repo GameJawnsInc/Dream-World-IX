@@ -144,6 +144,7 @@ def child_env() -> dict:
     (writes land wherever it points). The gate worktree is provisioned for real instead."""
     env = dict(os.environ)
     env.pop("FF9MAPKIT_DATA", None)
+    env["FF9MAPKIT_REQUIRE_INSTALL"] = "1"   # install-gated pins (test_guest_traversal_install.py) FAIL here, never skip
     return env
 
 

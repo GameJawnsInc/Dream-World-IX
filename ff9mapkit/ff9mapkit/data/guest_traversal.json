@@ -1,0 +1,4246 @@
+{
+ "schema": 1,
+ "generated_from": "install by guest_traversal.py",
+ "regenerate": "py -m ff9mapkit.guest_traversal --write [--cs <Memoria>/Assembly-CSharp/Memoria/Netsync/NetSyncGuestLocalTable.cs]",
+ "langs": [
+  "us",
+  "uk",
+  "fr",
+  "gr",
+  "it",
+  "es",
+  "jp"
+ ],
+ "rule": {
+  "tier": "census tier LOCO-ONLY of the QUAD press closure (ff9mapkit.eb.pressclosure == studies/field-coop/guest-traversal/interaction_census.py): player locomotion only -- no window, choice, exit, battle, menu, persistent write, latch, spawn, tile or SPS op anywhere in the closure",
+  "kinds": "ladder-navigable and ladder-auto -> ladder (1), jump -> jump (2), carry-loop -> carry (3); a candidate of any other mover kind (walk, teleport) is a generator error",
+  "slice": "start = 2 + fpos of the FIRST func-table row whose tag matches (EventEngine.GetIP); end = the next body in (fpos, table index) order -- a tie goes to the later-listed row -- never past the entry (ff9mapkit eb/model.py); a start past the entry has length 0; a table that does not fit its entry, or no matching tag, is absent",
+  "crc": "CRC-32/ISO-HDLC: zlib.crc32 == Unity.IO.Compression.Crc32Helper.UpdateCrc32(0u, buf, off, len); a function matches only when its length agrees first and then its CRC",
+  "uid": "the DISPATCH uid: ctrl 250 (RunScript* through the control uid: the control character's own function), fixed_ctrl its fixed uid (1..249, naming DefinePlayerCharacter entries), region and seq 0",
+  "func_order": "the region function (the row's entry, tag 3) first, then the rest by (role, entry, tag) ascending, each triple once per row",
+  "refusals": "R1 closure (truncated, decode failure, unresolved or computed uid/tag); R2 edge (self, party, sender, spawn, fixed_other); R3 roles (one function in two roles); R4 table (not strictly increasing, an fpos past the entry, a duplicated closure tag); R5 card (a tag-8 handler on the region); R6 seq (a RunSharedScript target that is not exactly one tag-0 function); R7 body (none, ctrl and fixed_ctrl mixed, two fixed uids); R8 short (a function under 8 bytes); R9 language (a language missing or different); R10 is a generator error (the C# slice twin disagrees with the kit model); R11 latch (any function outside the closure reads a MAP/instance var the closure writes on some CFG path before a plain B_LET covers it -- compound *_LET, ++/-- and an RHS self-read are reads, a write covers only its own bits -- exempt only when it is a tag-0/1 load-once reader: no RunScript*/RunScriptObject*/Seq targets it, no ReturnEntryFunctions can restart it (tag 1), its every uncovered read precedes its first backward-jump target, and its entry is created only by entry 0's tag-0 Init*); R12 op (a closure function holds ReturnEntryFunctions, or a TerminateEntry that is not the constant self-end 255); R13 write (the closure writes a Global or Null var: it may write only Map and Instance vars)"
+ },
+ "counts": {
+  "fields_scanned": 818,
+  "quad_roots": 494,
+  "census_candidates": 86,
+  "rows": 81,
+  "funcs": 190,
+  "fields": 35,
+  "refused": 5
+ },
+ "table_crc": "0xee993d31",
+ "rows": [
+  {
+   "field": 114,
+   "entry": 9,
+   "kind": "ladder",
+   "evt": "EVT_ALEX1_AT_HOUSE_2",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 9,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xf4e530de"
+    },
+    {
+     "role": "ctrl",
+     "entry": 11,
+     "tag": 17,
+     "uid": 250,
+     "len": 644,
+     "crc": "0x0ec1a3e4",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    11
+   ]
+  },
+  {
+   "field": 207,
+   "entry": 10,
+   "kind": "ladder",
+   "evt": "EVT_DOWNSHIP_BT_GTR_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 10,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x5472f911"
+    },
+    {
+     "role": "ctrl",
+     "entry": 15,
+     "tag": 50,
+     "uid": 250,
+     "len": 657,
+     "crc": "0x8c63cbe3",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "seq",
+     "entry": 3,
+     "tag": 0,
+     "uid": 0,
+     "len": 42,
+     "crc": "0xe0262dce"
+    },
+    {
+     "role": "seq",
+     "entry": 4,
+     "tag": 0,
+     "uid": 0,
+     "len": 38,
+     "crc": "0xc1a5853a"
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    15
+   ]
+  },
+  {
+   "field": 207,
+   "entry": 11,
+   "kind": "ladder",
+   "evt": "EVT_DOWNSHIP_BT_GTR_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 11,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x5472f911"
+    },
+    {
+     "role": "ctrl",
+     "entry": 15,
+     "tag": 50,
+     "uid": 250,
+     "len": 657,
+     "crc": "0x8c63cbe3",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "seq",
+     "entry": 3,
+     "tag": 0,
+     "uid": 0,
+     "len": 42,
+     "crc": "0xe0262dce"
+    },
+    {
+     "role": "seq",
+     "entry": 4,
+     "tag": 0,
+     "uid": 0,
+     "len": 38,
+     "crc": "0xc1a5853a"
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    15
+   ]
+  },
+  {
+   "field": 301,
+   "entry": 7,
+   "kind": "jump",
+   "evt": "EVT_ICE_IC_STP_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 7,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x81ac1ae1"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 20,
+     "tag": 26,
+     "uid": 20,
+     "len": 90,
+     "crc": "0xdbb0de95",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    20
+   ]
+  },
+  {
+   "field": 301,
+   "entry": 8,
+   "kind": "jump",
+   "evt": "EVT_ICE_IC_STP_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 8,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0xc77e2f85"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 20,
+     "tag": 25,
+     "uid": 20,
+     "len": 90,
+     "crc": "0x321d18de",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    20
+   ]
+  },
+  {
+   "field": 307,
+   "entry": 5,
+   "kind": "ladder",
+   "evt": "EVT_ICE_IC_STA_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 5,
+     "tag": 3,
+     "uid": 0,
+     "len": 113,
+     "crc": "0xa7f46c55"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 11,
+     "tag": 46,
+     "uid": 11,
+     "len": 645,
+     "crc": "0xb956e302",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    11
+   ]
+  },
+  {
+   "field": 307,
+   "entry": 6,
+   "kind": "ladder",
+   "evt": "EVT_ICE_IC_STA_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 6,
+     "tag": 3,
+     "uid": 0,
+     "len": 113,
+     "crc": "0x4a6b1105"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 11,
+     "tag": 46,
+     "uid": 11,
+     "len": 645,
+     "crc": "0xb956e302",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    11
+   ]
+  },
+  {
+   "field": 307,
+   "entry": 7,
+   "kind": "ladder",
+   "evt": "EVT_ICE_IC_STA_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 7,
+     "tag": 3,
+     "uid": 0,
+     "len": 113,
+     "crc": "0x626935a3"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 11,
+     "tag": 45,
+     "uid": 11,
+     "len": 643,
+     "crc": "0x5be0d420",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    11
+   ]
+  },
+  {
+   "field": 307,
+   "entry": 8,
+   "kind": "ladder",
+   "evt": "EVT_ICE_IC_STA_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 8,
+     "tag": 3,
+     "uid": 0,
+     "len": 113,
+     "crc": "0x0cb92461"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 11,
+     "tag": 45,
+     "uid": 11,
+     "len": 643,
+     "crc": "0x5be0d420",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    11
+   ]
+  },
+  {
+   "field": 310,
+   "entry": 2,
+   "kind": "jump",
+   "evt": "EVT_ICE_IC_CAF_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 2,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x085fb687"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 8,
+     "tag": 12,
+     "uid": 8,
+     "len": 47,
+     "crc": "0x5943b107",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    8
+   ]
+  },
+  {
+   "field": 310,
+   "entry": 3,
+   "kind": "jump",
+   "evt": "EVT_ICE_IC_CAF_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 3,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x35ee5a5b"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 8,
+     "tag": 13,
+     "uid": 8,
+     "len": 47,
+     "crc": "0x004bd7df",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    8
+   ]
+  },
+  {
+   "field": 310,
+   "entry": 4,
+   "kind": "jump",
+   "evt": "EVT_ICE_IC_CAF_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 4,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x733c6f3f"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 8,
+     "tag": 14,
+     "uid": 8,
+     "len": 47,
+     "crc": "0xf10e25f3",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    8
+   ]
+  },
+  {
+   "field": 310,
+   "entry": 5,
+   "kind": "jump",
+   "evt": "EVT_ICE_IC_CAF_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 5,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x4e8d83e3"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 8,
+     "tag": 15,
+     "uid": 8,
+     "len": 50,
+     "crc": "0x5262da47",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    8
+   ]
+  },
+  {
+   "field": 407,
+   "entry": 16,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 16,
+     "tag": 3,
+     "uid": 0,
+     "len": 130,
+     "crc": "0x19e25e7d"
+    },
+    {
+     "role": "ctrl",
+     "entry": 23,
+     "tag": 20,
+     "uid": 250,
+     "len": 56,
+     "crc": "0x4851b660",
+     "call": "RunScriptSync",
+     "level": 4
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    23
+   ]
+  },
+  {
+   "field": 407,
+   "entry": 17,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 17,
+     "tag": 3,
+     "uid": 0,
+     "len": 254,
+     "crc": "0x30c3c713"
+    },
+    {
+     "role": "ctrl",
+     "entry": 23,
+     "tag": 21,
+     "uid": 250,
+     "len": 56,
+     "crc": "0x4643d2d1",
+     "call": "RunScriptSync",
+     "level": 4
+    },
+    {
+     "role": "ctrl",
+     "entry": 23,
+     "tag": 23,
+     "uid": 250,
+     "len": 56,
+     "crc": "0x97726a77",
+     "call": "RunScriptSync",
+     "level": 4
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    23
+   ]
+  },
+  {
+   "field": 407,
+   "entry": 18,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 18,
+     "tag": 3,
+     "uid": 0,
+     "len": 130,
+     "crc": "0x3fe0735e"
+    },
+    {
+     "role": "ctrl",
+     "entry": 23,
+     "tag": 22,
+     "uid": 250,
+     "len": 56,
+     "crc": "0x3435471e",
+     "call": "RunScriptSync",
+     "level": 4
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    23
+   ]
+  },
+  {
+   "field": 407,
+   "entry": 19,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 19,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xb0c2fd9f"
+    },
+    {
+     "role": "ctrl",
+     "entry": 23,
+     "tag": 23,
+     "uid": 250,
+     "len": 56,
+     "crc": "0x97726a77",
+     "call": "RunScriptSync",
+     "level": 4
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    23
+   ]
+  },
+  {
+   "field": 408,
+   "entry": 4,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_1",
+   "async": true,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 4,
+     "tag": 3,
+     "uid": 0,
+     "len": 83,
+     "crc": "0x03a612d3"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 15,
+     "uid": 250,
+     "len": 145,
+     "crc": "0x795445c1",
+     "call": "RunScriptAsync",
+     "level": 4
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "map",
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 408,
+   "entry": 5,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_1",
+   "async": true,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 5,
+     "tag": 3,
+     "uid": 0,
+     "len": 91,
+     "crc": "0xa7a5aa48"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 16,
+     "uid": 250,
+     "len": 145,
+     "crc": "0x803c7e1a",
+     "call": "RunScriptAsync",
+     "level": 4
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "map",
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 408,
+   "entry": 6,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_1",
+   "async": true,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 6,
+     "tag": 3,
+     "uid": 0,
+     "len": 91,
+     "crc": "0x398da433"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 17,
+     "uid": 250,
+     "len": 177,
+     "crc": "0xa3075036",
+     "call": "RunScriptAsync",
+     "level": 4
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "map",
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 408,
+   "entry": 7,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_1",
+   "async": true,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 7,
+     "tag": 3,
+     "uid": 0,
+     "len": 83,
+     "crc": "0x06c94798"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 18,
+     "uid": 250,
+     "len": 177,
+     "crc": "0xcad8df0e",
+     "call": "RunScriptAsync",
+     "level": 4
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "map",
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 408,
+   "entry": 8,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_1",
+   "async": true,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 8,
+     "tag": 3,
+     "uid": 0,
+     "len": 83,
+     "crc": "0xd585c10e"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 19,
+     "uid": 250,
+     "len": 250,
+     "crc": "0xf95060cb",
+     "call": "RunScriptAsync",
+     "level": 4
+    },
+    {
+     "role": "seq",
+     "entry": 3,
+     "tag": 0,
+     "uid": 0,
+     "len": 90,
+     "crc": "0xaef49123"
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "map",
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 408,
+   "entry": 9,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_1",
+   "async": true,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 9,
+     "tag": 3,
+     "uid": 0,
+     "len": 91,
+     "crc": "0xafe9341d"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 20,
+     "uid": 250,
+     "len": 250,
+     "crc": "0x1c087d25",
+     "call": "RunScriptAsync",
+     "level": 4
+    },
+    {
+     "role": "seq",
+     "entry": 2,
+     "tag": 0,
+     "uid": 0,
+     "len": 90,
+     "crc": "0x633e5902"
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "map",
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 408,
+   "entry": 10,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_1",
+   "async": true,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 10,
+     "tag": 3,
+     "uid": 0,
+     "len": 91,
+     "crc": "0xae2b5e2a"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 21,
+     "uid": 250,
+     "len": 215,
+     "crc": "0xac1e1c44",
+     "call": "RunScriptAsync",
+     "level": 4
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "map",
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 408,
+   "entry": 11,
+   "kind": "jump",
+   "evt": "EVT_DALI_F_UF_STO_1",
+   "async": true,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 11,
+     "tag": 3,
+     "uid": 0,
+     "len": 83,
+     "crc": "0x070d85e0"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 22,
+     "uid": 250,
+     "len": 218,
+     "crc": "0xdd29534f",
+     "call": "RunScriptAsync",
+     "level": 4
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "map",
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 557,
+   "entry": 11,
+   "kind": "ladder",
+   "evt": "EVT_LIND1_TN_LB_TMP_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 11,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x9d4e3732"
+    },
+    {
+     "role": "ctrl",
+     "entry": 13,
+     "tag": 13,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x68991f9b",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    13
+   ]
+  },
+  {
+   "field": 557,
+   "entry": 12,
+   "kind": "ladder",
+   "evt": "EVT_LIND1_TN_LB_TMP_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 12,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x9d4e3732"
+    },
+    {
+     "role": "ctrl",
+     "entry": 13,
+     "tag": 13,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x68991f9b",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    13
+   ]
+  },
+  {
+   "field": 565,
+   "entry": 11,
+   "kind": "ladder",
+   "evt": "EVT_LIND1_TN_LB_TTL_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 11,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x86545218"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 33,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x2a64a8dd",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 565,
+   "entry": 12,
+   "kind": "ladder",
+   "evt": "EVT_LIND1_TN_LB_TTL_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 12,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x86545218"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 33,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x2a64a8dd",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 805,
+   "entry": 3,
+   "kind": "jump",
+   "evt": "EVT_GATE_S_SG_ALX_2",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 3,
+     "tag": 3,
+     "uid": 0,
+     "len": 122,
+     "crc": "0xd20bc3ef"
+    },
+    {
+     "role": "ctrl",
+     "entry": 7,
+     "tag": 13,
+     "uid": 250,
+     "len": 72,
+     "crc": "0x4ba70ac9",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "ctrl",
+     "entry": 7,
+     "tag": 14,
+     "uid": 250,
+     "len": 74,
+     "crc": "0xb95fb5d2",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    7
+   ]
+  },
+  {
+   "field": 808,
+   "entry": 3,
+   "kind": "jump",
+   "evt": "EVT_GATE_S_SG_ALX_5",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 3,
+     "tag": 3,
+     "uid": 0,
+     "len": 122,
+     "crc": "0xd20bc3ef"
+    },
+    {
+     "role": "ctrl",
+     "entry": 5,
+     "tag": 13,
+     "uid": 250,
+     "len": 72,
+     "crc": "0x7c69c98b",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "ctrl",
+     "entry": 5,
+     "tag": 14,
+     "uid": 250,
+     "len": 72,
+     "crc": "0x304515ce",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    5
+   ]
+  },
+  {
+   "field": 912,
+   "entry": 14,
+   "kind": "ladder",
+   "evt": "EVT_TRENO1_TR_RES_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 14,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xd7d74046"
+    },
+    {
+     "role": "ctrl",
+     "entry": 20,
+     "tag": 14,
+     "uid": 250,
+     "len": 657,
+     "crc": "0x4b35ef01",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "ctrl",
+     "entry": 21,
+     "tag": 14,
+     "uid": 250,
+     "len": 657,
+     "crc": "0x33ec4e4d",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "seq",
+     "entry": 2,
+     "tag": 0,
+     "uid": 0,
+     "len": 42,
+     "crc": "0x14587ad4"
+    },
+    {
+     "role": "seq",
+     "entry": 3,
+     "tag": 0,
+     "uid": 0,
+     "len": 38,
+     "crc": "0xe716cdee"
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    20,
+    21,
+    24
+   ]
+  },
+  {
+   "field": 914,
+   "entry": 10,
+   "kind": "ladder",
+   "evt": "EVT_TRENO1_TR_TOT_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 10,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xc030b328"
+    },
+    {
+     "role": "ctrl",
+     "entry": 13,
+     "tag": 31,
+     "uid": 250,
+     "len": 1362,
+     "crc": "0x83da4ca1",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "seq",
+     "entry": 3,
+     "tag": 0,
+     "uid": 0,
+     "len": 42,
+     "crc": "0xac195534"
+    },
+    {
+     "role": "seq",
+     "entry": 4,
+     "tag": 0,
+     "uid": 0,
+     "len": 38,
+     "crc": "0xcdd76121"
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    13
+   ]
+  },
+  {
+   "field": 1006,
+   "entry": 8,
+   "kind": "ladder",
+   "evt": "EVT_CLEYRA1_DUN_03",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 8,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x12161821"
+    },
+    {
+     "role": "ctrl",
+     "entry": 10,
+     "tag": 12,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x85848129",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    10
+   ]
+  },
+  {
+   "field": 1006,
+   "entry": 9,
+   "kind": "ladder",
+   "evt": "EVT_CLEYRA1_DUN_03",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 9,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x9d4e3732"
+    },
+    {
+     "role": "ctrl",
+     "entry": 10,
+     "tag": 13,
+     "uid": 250,
+     "len": 644,
+     "crc": "0xd1619f89",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    10
+   ]
+  },
+  {
+   "field": 1209,
+   "entry": 5,
+   "kind": "ladder",
+   "evt": "EVT_ALEX2_AC_PRISON_B",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 5,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x9d4e3732"
+    },
+    {
+     "role": "ctrl",
+     "entry": 9,
+     "tag": 13,
+     "uid": 250,
+     "len": 643,
+     "crc": "0xd90c88a3",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    9
+   ]
+  },
+  {
+   "field": 1312,
+   "entry": 11,
+   "kind": "ladder",
+   "evt": "EVT_LIND2_TN_LB_TTL_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 11,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xd7d74046"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 14,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x2a64a8dd",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 1312,
+   "entry": 12,
+   "kind": "ladder",
+   "evt": "EVT_LIND2_TN_LB_TTL_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 12,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xd7d74046"
+    },
+    {
+     "role": "ctrl",
+     "entry": 17,
+     "tag": 14,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x2a64a8dd",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    17
+   ]
+  },
+  {
+   "field": 1460,
+   "entry": 8,
+   "kind": "ladder",
+   "evt": "EVT_MAGE_BV_ITM_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 8,
+     "tag": 3,
+     "uid": 0,
+     "len": 114,
+     "crc": "0x23b98415"
+    },
+    {
+     "role": "ctrl",
+     "entry": 14,
+     "tag": 20,
+     "uid": 250,
+     "len": 557,
+     "crc": "0x66935a2d",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    3,
+    14
+   ]
+  },
+  {
+   "field": 1460,
+   "entry": 9,
+   "kind": "ladder",
+   "evt": "EVT_MAGE_BV_ITM_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 9,
+     "tag": 3,
+     "uid": 0,
+     "len": 114,
+     "crc": "0x5984aac4"
+    },
+    {
+     "role": "ctrl",
+     "entry": 14,
+     "tag": 21,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x29465742",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    3,
+    14
+   ]
+  },
+  {
+   "field": 1551,
+   "entry": 7,
+   "kind": "ladder",
+   "evt": "EVT_PATA_M_CM_MP1_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 7,
+     "tag": 3,
+     "uid": 0,
+     "len": 106,
+     "crc": "0xe54acb5a"
+    },
+    {
+     "role": "ctrl",
+     "entry": 10,
+     "tag": 13,
+     "uid": 250,
+     "len": 47,
+     "crc": "0x21f99ce3",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "ctrl",
+     "entry": 10,
+     "tag": 14,
+     "uid": 250,
+     "len": 643,
+     "crc": "0xa9364a64",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    10
+   ]
+  },
+  {
+   "field": 1551,
+   "entry": 8,
+   "kind": "ladder",
+   "evt": "EVT_PATA_M_CM_MP1_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 8,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xd7d74046"
+    },
+    {
+     "role": "ctrl",
+     "entry": 10,
+     "tag": 14,
+     "uid": 250,
+     "len": 643,
+     "crc": "0xa9364a64",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    10
+   ]
+  },
+  {
+   "field": 1553,
+   "entry": 6,
+   "kind": "ladder",
+   "evt": "EVT_PATA_M_CM_MP3_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 6,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x12161821"
+    },
+    {
+     "role": "ctrl",
+     "entry": 13,
+     "tag": 12,
+     "uid": 250,
+     "len": 657,
+     "crc": "0x44608036",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "seq",
+     "entry": 1,
+     "tag": 0,
+     "uid": 0,
+     "len": 42,
+     "crc": "0x177ad0aa"
+    },
+    {
+     "role": "seq",
+     "entry": 2,
+     "tag": 0,
+     "uid": 0,
+     "len": 38,
+     "crc": "0x59ddfe8c"
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    13
+   ]
+  },
+  {
+   "field": 1863,
+   "entry": 9,
+   "kind": "ladder",
+   "evt": "EVT_ALEX3_AT_HOUSE_2",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 9,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x12161821"
+    },
+    {
+     "role": "ctrl",
+     "entry": 10,
+     "tag": 12,
+     "uid": 250,
+     "len": 643,
+     "crc": "0xf52f7fc5",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "ctrl",
+     "entry": 11,
+     "tag": 12,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x1541a62e",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    10,
+    11
+   ]
+  },
+  {
+   "field": 1912,
+   "entry": 15,
+   "kind": "ladder",
+   "evt": "EVT_TRENO2_TR_RES_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 15,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xf4e530de"
+    },
+    {
+     "role": "ctrl",
+     "entry": 19,
+     "tag": 17,
+     "uid": 250,
+     "len": 657,
+     "crc": "0xbaad9adf",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "seq",
+     "entry": 2,
+     "tag": 0,
+     "uid": 0,
+     "len": 42,
+     "crc": "0x14587ad4"
+    },
+    {
+     "role": "seq",
+     "entry": 3,
+     "tag": 0,
+     "uid": 0,
+     "len": 38,
+     "crc": "0xe716cdee"
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    19,
+    20
+   ]
+  },
+  {
+   "field": 1914,
+   "entry": 9,
+   "kind": "ladder",
+   "evt": "EVT_TRENO2_TR_TOT_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 9,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xcccd256c"
+    },
+    {
+     "role": "ctrl",
+     "entry": 10,
+     "tag": 34,
+     "uid": 250,
+     "len": 1362,
+     "crc": "0x1cc98c82",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "seq",
+     "entry": 4,
+     "tag": 0,
+     "uid": 0,
+     "len": 42,
+     "crc": "0x14587ad4"
+    },
+    {
+     "role": "seq",
+     "entry": 5,
+     "tag": 0,
+     "uid": 0,
+     "len": 38,
+     "crc": "0xe716cdee"
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    10,
+    16
+   ]
+  },
+  {
+   "field": 1950,
+   "entry": 4,
+   "kind": "ladder",
+   "evt": "EVT_KUWAN_QH_CAV_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 4,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xf4e530de"
+    },
+    {
+     "role": "ctrl",
+     "entry": 10,
+     "tag": 17,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x7f7633bc",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "ctrl",
+     "entry": 12,
+     "tag": 17,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x5d9b1081",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    10,
+    11,
+    12
+   ]
+  },
+  {
+   "field": 1950,
+   "entry": 5,
+   "kind": "ladder",
+   "evt": "EVT_KUWAN_QH_CAV_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 5,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xf4e530de"
+    },
+    {
+     "role": "ctrl",
+     "entry": 10,
+     "tag": 17,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x7f7633bc",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "ctrl",
+     "entry": 12,
+     "tag": 17,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x5d9b1081",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    10,
+    11,
+    12
+   ]
+  },
+  {
+   "field": 1952,
+   "entry": 8,
+   "kind": "ladder",
+   "evt": "EVT_KUWAN_QH_HUR_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 8,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xda5a72d3"
+    },
+    {
+     "role": "ctrl",
+     "entry": 11,
+     "tag": 24,
+     "uid": 250,
+     "len": 533,
+     "crc": "0x90c81f1f",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "ctrl",
+     "entry": 13,
+     "tag": 24,
+     "uid": 250,
+     "len": 533,
+     "crc": "0x28faf26e",
+     "call": "RunScriptSync",
+     "level": 2
+    },
+    {
+     "role": "seq",
+     "entry": 2,
+     "tag": 0,
+     "uid": 0,
+     "len": 42,
+     "crc": "0x14587ad4"
+    },
+    {
+     "role": "seq",
+     "entry": 3,
+     "tag": 0,
+     "uid": 0,
+     "len": 38,
+     "crc": "0xe716cdee"
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    11,
+    12,
+    13
+   ]
+  },
+  {
+   "field": 2112,
+   "entry": 4,
+   "kind": "ladder",
+   "evt": "EVT_LIND3_TN_LB_TTL_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 4,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x9d4e3732"
+    },
+    {
+     "role": "ctrl",
+     "entry": 11,
+     "tag": 13,
+     "uid": 250,
+     "len": 645,
+     "crc": "0xad42a813",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    11
+   ]
+  },
+  {
+   "field": 2112,
+   "entry": 5,
+   "kind": "ladder",
+   "evt": "EVT_LIND3_TN_LB_TTL_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 5,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x9d4e3732"
+    },
+    {
+     "role": "ctrl",
+     "entry": 11,
+     "tag": 13,
+     "uid": 250,
+     "len": 645,
+     "crc": "0xad42a813",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    11
+   ]
+  },
+  {
+   "field": 2212,
+   "entry": 3,
+   "kind": "ladder",
+   "evt": "EVT_SUNA_SP_KEX_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 3,
+     "tag": 3,
+     "uid": 0,
+     "len": 121,
+     "crc": "0x43c0fa60"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 8,
+     "tag": 18,
+     "uid": 8,
+     "len": 643,
+     "crc": "0x2c252f61",
+     "call": "RunScriptSync",
+     "level": 6
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "glob",
+    "usercontrol"
+   ],
+   "player_entries": [
+    8
+   ]
+  },
+  {
+   "field": 2212,
+   "entry": 4,
+   "kind": "ladder",
+   "evt": "EVT_SUNA_SP_KEX_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 4,
+     "tag": 3,
+     "uid": 0,
+     "len": 113,
+     "crc": "0xc2f32fbb"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 8,
+     "tag": 18,
+     "uid": 8,
+     "len": 643,
+     "crc": "0x2c252f61",
+     "call": "RunScriptSync",
+     "level": 6
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    8
+   ]
+  },
+  {
+   "field": 2353,
+   "entry": 3,
+   "kind": "ladder",
+   "evt": "EVT_GULUGU_GV_RM2_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 3,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x3fcf6476"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 8,
+     "tag": 12,
+     "uid": 8,
+     "len": 647,
+     "crc": "0x2d34aa15",
+     "call": "RunScriptSync",
+     "level": 6
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    8
+   ]
+  },
+  {
+   "field": 2353,
+   "entry": 4,
+   "kind": "ladder",
+   "evt": "EVT_GULUGU_GV_RM2_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 4,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x3fcf6476"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 8,
+     "tag": 12,
+     "uid": 8,
+     "len": 647,
+     "crc": "0x2d34aa15",
+     "call": "RunScriptSync",
+     "level": 6
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    8
+   ]
+  },
+  {
+   "field": 2456,
+   "entry": 14,
+   "kind": "ladder",
+   "evt": "EVT_ALEX5_AT_SENTOU",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 14,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xf4e530de"
+    },
+    {
+     "role": "ctrl",
+     "entry": 15,
+     "tag": 17,
+     "uid": 250,
+     "len": 653,
+     "crc": "0xa791926a",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    15,
+    16,
+    21
+   ]
+  },
+  {
+   "field": 2505,
+   "entry": 3,
+   "kind": "ladder",
+   "evt": "EVT_IPSEN_IP_RM2_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 3,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x2ac28b07"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 9,
+     "tag": 16,
+     "uid": 9,
+     "len": 660,
+     "crc": "0x342a95ec",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    9
+   ]
+  },
+  {
+   "field": 2505,
+   "entry": 4,
+   "kind": "ladder",
+   "evt": "EVT_IPSEN_IP_RM2_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 4,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x177367db"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 9,
+     "tag": 17,
+     "uid": 9,
+     "len": 651,
+     "crc": "0xe4523d3e",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    9
+   ]
+  },
+  {
+   "field": 2505,
+   "entry": 7,
+   "kind": "jump",
+   "evt": "EVT_IPSEN_IP_RM2_0",
+   "async": true,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 7,
+     "tag": 3,
+     "uid": 0,
+     "len": 55,
+     "crc": "0x7d3d75ac"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 9,
+     "tag": 27,
+     "uid": 9,
+     "len": 100,
+     "crc": "0x3f4df7ad",
+     "call": "RunScriptAsync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    9
+   ]
+  },
+  {
+   "field": 2602,
+   "entry": 3,
+   "kind": "jump",
+   "evt": "EVT_TERA_TA_BST_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 3,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x23cfd9b0"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 12,
+     "tag": 14,
+     "uid": 12,
+     "len": 52,
+     "crc": "0x47b7c352",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    12
+   ]
+  },
+  {
+   "field": 2602,
+   "entry": 4,
+   "kind": "jump",
+   "evt": "EVT_TERA_TA_BST_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 4,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x1e7e356c"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 12,
+     "tag": 15,
+     "uid": 12,
+     "len": 52,
+     "crc": "0x9165eb2a",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    12
+   ]
+  },
+  {
+   "field": 2602,
+   "entry": 5,
+   "kind": "jump",
+   "evt": "EVT_TERA_TA_BST_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 5,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0xf569129b"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 12,
+     "tag": 16,
+     "uid": 12,
+     "len": 52,
+     "crc": "0x6394f9de",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    12
+   ]
+  },
+  {
+   "field": 2602,
+   "entry": 6,
+   "kind": "jump",
+   "evt": "EVT_TERA_TA_BST_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 6,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0xc8d8fe47"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 12,
+     "tag": 17,
+     "uid": 12,
+     "len": 62,
+     "crc": "0xb6b38069",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    12
+   ]
+  },
+  {
+   "field": 2602,
+   "entry": 7,
+   "kind": "jump",
+   "evt": "EVT_TERA_TA_BST_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 7,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x8e0acb23"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 12,
+     "tag": 18,
+     "uid": 12,
+     "len": 52,
+     "crc": "0x05fae79d",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    12
+   ]
+  },
+  {
+   "field": 2602,
+   "entry": 8,
+   "kind": "jump",
+   "evt": "EVT_TERA_TA_BST_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 8,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0xb3bb27ff"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 12,
+     "tag": 19,
+     "uid": 12,
+     "len": 52,
+     "crc": "0x4a31f00a",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    12
+   ]
+  },
+  {
+   "field": 2602,
+   "entry": 9,
+   "kind": "jump",
+   "evt": "EVT_TERA_TA_BST_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 9,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x03aea1eb"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 12,
+     "tag": 20,
+     "uid": 12,
+     "len": 52,
+     "crc": "0xe2aada24",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    12
+   ]
+  },
+  {
+   "field": 2602,
+   "entry": 10,
+   "kind": "jump",
+   "evt": "EVT_TERA_TA_BST_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 10,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x3e1f4d37"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 12,
+     "tag": 21,
+     "uid": 12,
+     "len": 52,
+     "crc": "0xd8e00ea5",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    12
+   ]
+  },
+  {
+   "field": 2605,
+   "entry": 4,
+   "kind": "ladder",
+   "evt": "EVT_TERA_TA_ROU_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 4,
+     "tag": 3,
+     "uid": 0,
+     "len": 113,
+     "crc": "0xe59ba1a3"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 13,
+     "tag": 17,
+     "uid": 13,
+     "len": 651,
+     "crc": "0x282f63c3",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    13
+   ]
+  },
+  {
+   "field": 2605,
+   "entry": 5,
+   "kind": "ladder",
+   "evt": "EVT_TERA_TA_ROU_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 5,
+     "tag": 3,
+     "uid": 0,
+     "len": 113,
+     "crc": "0xd943a09f"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 13,
+     "tag": 17,
+     "uid": 13,
+     "len": 651,
+     "crc": "0x282f63c3",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    13
+   ]
+  },
+  {
+   "field": 2605,
+   "entry": 6,
+   "kind": "ladder",
+   "evt": "EVT_TERA_TA_ROU_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 6,
+     "tag": 3,
+     "uid": 0,
+     "len": 125,
+     "crc": "0x88ab36ce"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 13,
+     "tag": 18,
+     "uid": 13,
+     "len": 651,
+     "crc": "0x161fce0d",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    13
+   ]
+  },
+  {
+   "field": 2605,
+   "entry": 7,
+   "kind": "ladder",
+   "evt": "EVT_TERA_TA_ROU_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 7,
+     "tag": 3,
+     "uid": 0,
+     "len": 113,
+     "crc": "0x1d5941b7"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 13,
+     "tag": 18,
+     "uid": 13,
+     "len": 651,
+     "crc": "0x161fce0d",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    13
+   ]
+  },
+  {
+   "field": 2605,
+   "entry": 9,
+   "kind": "jump",
+   "evt": "EVT_TERA_TA_ROU_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 9,
+     "tag": 3,
+     "uid": 0,
+     "len": 113,
+     "crc": "0x0fe56bb4"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 13,
+     "tag": 15,
+     "uid": 13,
+     "len": 47,
+     "crc": "0x2d28bf60",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "jump",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    13
+   ]
+  },
+  {
+   "field": 2853,
+   "entry": 5,
+   "kind": "ladder",
+   "evt": "EVT_HILDA3_G3_EXT_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 5,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x2b4ea942"
+    },
+    {
+     "role": "ctrl",
+     "entry": 11,
+     "tag": 20,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x994c7b05",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    11
+   ]
+  },
+  {
+   "field": 2853,
+   "entry": 9,
+   "kind": "ladder",
+   "evt": "EVT_HILDA3_G3_EXT_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 9,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xda5a72d3"
+    },
+    {
+     "role": "ctrl",
+     "entry": 11,
+     "tag": 24,
+     "uid": 250,
+     "len": 522,
+     "crc": "0xf2145009",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    11
+   ]
+  },
+  {
+   "field": 2918,
+   "entry": 3,
+   "kind": "ladder",
+   "evt": "EVT_LAST_CW_LTP_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 3,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x4e8d83e3"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 8,
+     "tag": 15,
+     "uid": 8,
+     "len": 643,
+     "crc": "0x335ef1aa",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    8
+   ]
+  },
+  {
+   "field": 2918,
+   "entry": 4,
+   "kind": "ladder",
+   "evt": "EVT_LAST_CW_LTP_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 4,
+     "tag": 3,
+     "uid": 0,
+     "len": 101,
+     "crc": "0x4e8d83e3"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 8,
+     "tag": 15,
+     "uid": 8,
+     "len": 643,
+     "crc": "0x335ef1aa",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    8
+   ]
+  },
+  {
+   "field": 2955,
+   "entry": 17,
+   "kind": "carry",
+   "evt": "EVT_CHOCO_CH_PDS_1",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 17,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xdd8cc8b1"
+    },
+    {
+     "role": "ctrl",
+     "entry": 3,
+     "tag": 35,
+     "uid": 250,
+     "len": 153,
+     "crc": "0x6293553d",
+     "call": "RunScriptSync",
+     "level": 6
+    }
+   ],
+   "census_kind": "carry-loop",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    3,
+    6
+   ]
+  },
+  {
+   "field": 2955,
+   "entry": 21,
+   "kind": "carry",
+   "evt": "EVT_CHOCO_CH_PDS_1",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 21,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x36f2d2db"
+    },
+    {
+     "role": "ctrl",
+     "entry": 3,
+     "tag": 40,
+     "uid": 250,
+     "len": 172,
+     "crc": "0xf9cedf72",
+     "call": "RunScriptSync",
+     "level": 6
+    }
+   ],
+   "census_kind": "carry-loop",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    3,
+    6
+   ]
+  },
+  {
+   "field": 2955,
+   "entry": 23,
+   "kind": "carry",
+   "evt": "EVT_CHOCO_CH_PDS_1",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 23,
+     "tag": 3,
+     "uid": 0,
+     "len": 114,
+     "crc": "0x581e72a8"
+    },
+    {
+     "role": "ctrl",
+     "entry": 3,
+     "tag": 34,
+     "uid": 250,
+     "len": 204,
+     "crc": "0x05a7b66c",
+     "call": "RunScriptSync",
+     "level": 6
+    },
+    {
+     "role": "seq",
+     "entry": 4,
+     "tag": 0,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xe4fc33b5"
+    }
+   ],
+   "census_kind": "carry-loop",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    3,
+    6
+   ]
+  },
+  {
+   "field": 3059,
+   "entry": 9,
+   "kind": "ladder",
+   "evt": "EVT_MAGE2_BV_ITM_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 9,
+     "tag": 3,
+     "uid": 0,
+     "len": 114,
+     "crc": "0xdf206d11"
+    },
+    {
+     "role": "ctrl",
+     "entry": 14,
+     "tag": 14,
+     "uid": 250,
+     "len": 557,
+     "crc": "0x66935a2d",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    14,
+    21
+   ]
+  },
+  {
+   "field": 3059,
+   "entry": 10,
+   "kind": "ladder",
+   "evt": "EVT_MAGE2_BV_ITM_0",
+   "async": false,
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 10,
+     "tag": 3,
+     "uid": 0,
+     "len": 114,
+     "crc": "0xa51d43c0"
+    },
+    {
+     "role": "ctrl",
+     "entry": 14,
+     "tag": 15,
+     "uid": 250,
+     "len": 643,
+     "crc": "0x29465742",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ],
+   "census_kind": "ladder-navigable",
+   "gate": [
+    "usercontrol"
+   ],
+   "player_entries": [
+    14,
+    21
+   ]
+  }
+ ],
+ "refused": [
+  {
+   "field": 353,
+   "entry": 11,
+   "kind": "ladder",
+   "refusal": "R11 latch: Map.Int16[2] is read before it is written by 16:1",
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 11,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x25f01377"
+    },
+    {
+     "role": "ctrl",
+     "entry": 16,
+     "tag": 17,
+     "uid": 250,
+     "len": 563,
+     "crc": "0xb09ffd04",
+     "call": "RunScriptSync",
+     "level": 4
+    },
+    {
+     "role": "ctrl",
+     "entry": 18,
+     "tag": 17,
+     "uid": 250,
+     "len": 549,
+     "crc": "0x73f3134e",
+     "call": "RunScriptSync",
+     "level": 4
+    },
+    {
+     "role": "seq",
+     "entry": 4,
+     "tag": 0,
+     "uid": 0,
+     "len": 42,
+     "crc": "0xfa7ffbd5"
+    },
+    {
+     "role": "seq",
+     "entry": 5,
+     "tag": 0,
+     "uid": 0,
+     "len": 38,
+     "crc": "0xbee7706b"
+    }
+   ]
+  },
+  {
+   "field": 2507,
+   "entry": 4,
+   "kind": "ladder",
+   "refusal": "R11 latch: Map.Int16[2] is read before it is written by 13:1",
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 4,
+     "tag": 3,
+     "uid": 0,
+     "len": 113,
+     "crc": "0x6ba68439"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 13,
+     "tag": 16,
+     "uid": 13,
+     "len": 651,
+     "crc": "0x4e5117d4",
+     "call": "RunScriptSync",
+     "level": 6
+    }
+   ]
+  },
+  {
+   "field": 2507,
+   "entry": 5,
+   "kind": "ladder",
+   "refusal": "R11 latch: Map.Int16[2] is read before it is written by 13:1",
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 5,
+     "tag": 3,
+     "uid": 0,
+     "len": 113,
+     "crc": "0xba440d0d"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 13,
+     "tag": 16,
+     "uid": 13,
+     "len": 651,
+     "crc": "0x4e5117d4",
+     "call": "RunScriptSync",
+     "level": 6
+    }
+   ]
+  },
+  {
+   "field": 2702,
+   "entry": 15,
+   "kind": "jump",
+   "refusal": "R11 latch: Map.Byte[32] is read before it is written by 21:20, 21:26, 21:27, 21:28, 21:29",
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 15,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0xcb26fffc"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 21,
+     "tag": 25,
+     "uid": 21,
+     "len": 152,
+     "crc": "0xdb3cbb92",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ]
+  },
+  {
+   "field": 2702,
+   "entry": 19,
+   "kind": "jump",
+   "refusal": "R11 latch: Map.Byte[32] is read before it is written by 21:20, 21:25, 21:26, 21:27, 21:29",
+   "funcs": [
+    {
+     "role": "region",
+     "entry": 19,
+     "tag": 3,
+     "uid": 0,
+     "len": 102,
+     "crc": "0x148d6660"
+    },
+    {
+     "role": "fixed_ctrl",
+     "entry": 21,
+     "tag": 28,
+     "uid": 21,
+     "len": 152,
+     "crc": "0xaa814aff",
+     "call": "RunScriptSync",
+     "level": 2
+    }
+   ]
+  }
+ ],
+ "eb_sha1": [
+  {
+   "field": 114,
+   "us": "2d975d4fdecbc7f3c5a5e6071bb4483381e65eac",
+   "uk": "2d975d4fdecbc7f3c5a5e6071bb4483381e65eac",
+   "fr": "dde8e3ab6c443dd13bd8d22e5d502ed3a445ba4f",
+   "gr": "6d517fdbf8303296aec54f7d727e78b8cf12c25a",
+   "it": "0167381708193a3486b67e3a51ae9b7035909d5e",
+   "es": "0df751b371a1234f7dbc460b5eaa13c4f4390b26",
+   "jp": "59d6eacf33c63b7f51c1df9ce16e4d9d1fa07013"
+  },
+  {
+   "field": 207,
+   "us": "25b0dec1ef3287a921951b50a352cc0a88210243",
+   "uk": "25b0dec1ef3287a921951b50a352cc0a88210243",
+   "fr": "ff5a8fa572db325810d5be8a4e9be52b1e622dc6",
+   "gr": "24c06463916fd4f4d2a41f6624e7edaabc255ada",
+   "it": "fa2ecbdd3ff7c3b3139c3e03f2feea5e07d80f5e",
+   "es": "4ec427012e093fc255651b277905e981d5355dc2",
+   "jp": "72216886e3ca412ca28fd98ae33f058f66667cf8"
+  },
+  {
+   "field": 301,
+   "us": "57eaae25bc7c66e8f280e4e1f844b277d2e6885e",
+   "uk": "9882e034efc5ec6125e1da9411fb735326f47dea",
+   "fr": "72911e35527c70746905775e3a2eaa7f8387cdb3",
+   "gr": "1f2b394555b90eee98db350247deac8e4014e14d",
+   "it": "76bf373469fef34d33cc8f11bf1220c4bc270c6f",
+   "es": "fdd586333e8169662f7870d70e6cf6bfc500a2b4",
+   "jp": "d22d98206a833d6cd42afb892c8f9dde9f79efd0"
+  },
+  {
+   "field": 307,
+   "us": "44ee99657551b832fcc83d0d0b8761ddb18fc924",
+   "uk": "866e18c78e88b1973906a002615140a0c09be0ae",
+   "fr": "d956dac837e0027b6e1bdeecaeb6c7a23a7e8f42",
+   "gr": "c09d502325e9953bd5d63530899204bbf7e791e7",
+   "it": "92e4df1cb3728e2bbab604140a65f629ce970415",
+   "es": "6e6dee3b539fc650721b97f825109711a6bc7bba",
+   "jp": "5aa53e7310153d4f9c925e32a2b61ca21edfb308"
+  },
+  {
+   "field": 310,
+   "us": "a286be821c456a90f1f863a784b50be0a9f1eb64",
+   "uk": "a286be821c456a90f1f863a784b50be0a9f1eb64",
+   "fr": "41d4a811465825291651c9e5dcf1d4e2ba481122",
+   "gr": "55a0e5b34929b4c46b3bb6d426393c8f7c708e1c",
+   "it": "9943b535521aae6b408a9ee57d0d9e8aac169345",
+   "es": "dbc8034598fadf24fa78528491a1b6ed9bf24aaf",
+   "jp": "8c7b34470a3a4db43da2a5ed8ed031da60ded245"
+  },
+  {
+   "field": 353,
+   "us": "fbf1698f5aaf8003fa7710ca6e4f1ad05e43902b",
+   "uk": "f2690d7eaeba7925a3bc3d2161701614b44b78ca",
+   "fr": "75722509363d5a4f9aab6193c9d1d08c5175a549",
+   "gr": "cf95eb3d77999818ee332ce8cc3bb44ee43694f6",
+   "it": "afb4c79be9406fc49151e31259dd90c68c066fa4",
+   "es": "4a2f7280f06922aaee68c22cdef6a5057570aa72",
+   "jp": "1a47ddf31031ae3574cc1e94e32ea72a32a41691"
+  },
+  {
+   "field": 407,
+   "us": "a5a60d36198daa286c167c29a0a8c5004d8b0cc1",
+   "uk": "a5a60d36198daa286c167c29a0a8c5004d8b0cc1",
+   "fr": "f8a9a2467a62dfda9122b60ef9c7f7323baad793",
+   "gr": "07989e38451ed1a1fa69165e41a32b32787e024f",
+   "it": "f82605a131ee2ad5d64e237b1166b114980ac94a",
+   "es": "fed083a6d4449d86f98273a37f5b9b6d1b36856e",
+   "jp": "893ae3ada9db255989856ba96f3784baa4a98066"
+  },
+  {
+   "field": 408,
+   "us": "44f15cf0a24a475fe74f2ca1c032a4e9331a0dbd",
+   "uk": "44f15cf0a24a475fe74f2ca1c032a4e9331a0dbd",
+   "fr": "cdb66db58eede919d8c7eefd4c8b45e488823b9f",
+   "gr": "2495202b2e41f526cc0e561d4abee3c3fc8a7e20",
+   "it": "bb8896ec8c1bd6fe1fedcb86443934053158731e",
+   "es": "440795290b8c4b7fee9d7307e3735db04dc2bedc",
+   "jp": "4ec655d5e42a9bff62cbe5aaebedd0eeb456a8cf"
+  },
+  {
+   "field": 557,
+   "us": "e30308fb5596bd607d45dbcc8afe7f1f51454c05",
+   "uk": "e30308fb5596bd607d45dbcc8afe7f1f51454c05",
+   "fr": "90b06fd8ad4f624d9b9ef314d58c86a48dc096dd",
+   "gr": "e822efb08a748c0c52de9c33693b43f2278c7ada",
+   "it": "228a1c5d13a472fa8eaad5494ed56fc8557f2148",
+   "es": "b9144c55f848d73411bca838851a173eb6ef1e19",
+   "jp": "d9562a618b3bab921297d0b8c23f8a4fd22b4121"
+  },
+  {
+   "field": 565,
+   "us": "dfde7bcc9d39922d09b34a56cf25e024280e3141",
+   "uk": "dfde7bcc9d39922d09b34a56cf25e024280e3141",
+   "fr": "86de1d240716c57ea9e7bd212bedc372b9c43688",
+   "gr": "bf3508adcd7ae9df77f8eb481b1f87897fb19dac",
+   "it": "c941a6cd77f132bcb52623ec2f4710a66a036a5e",
+   "es": "73903588457b46327c9e9d4ca7118cad7defbecf",
+   "jp": "7124edffbf10d973daa46fe1f446ba146e806d1d"
+  },
+  {
+   "field": 805,
+   "us": "560b3db9ab6d9a4b495bba52f360bb0a40cc95c9",
+   "uk": "560b3db9ab6d9a4b495bba52f360bb0a40cc95c9",
+   "fr": "4fd0b794a835cf174c5b83edfa7170d1542392a5",
+   "gr": "c2da5f7a836ce9c802cdd17e3799d3aa92720b65",
+   "it": "710e6656a6cba70cc06bc4aab3219ade0e643041",
+   "es": "4777e699f73075470ccef6efddeb4fe17a13bf40",
+   "jp": "7d122d7c9c3891d12164a1f76a40aa0f92a36622"
+  },
+  {
+   "field": 808,
+   "us": "9b1336aa25799f58a90c83e833e2c88f0d5b9bad",
+   "uk": "9b1336aa25799f58a90c83e833e2c88f0d5b9bad",
+   "fr": "d12cc8e4e3b904f27d1054b4cb241a590f2c83bb",
+   "gr": "bb3757631cada135e8b470e674dba7606430de8b",
+   "it": "83b6af69ef16df3a0fdf7c76871d34c68027ef5d",
+   "es": "eb6fd82c844bd860b2d96b0ab3d24b827b8b626f",
+   "jp": "2ad45a0bae466ee89f73b880b4310a022b3d7d12"
+  },
+  {
+   "field": 912,
+   "us": "24a5c1a0f3df665f6296a9dd1c99ba612593b7de",
+   "uk": "24a5c1a0f3df665f6296a9dd1c99ba612593b7de",
+   "fr": "7a97b7f98104a718c5219fd320ccc1d148971d32",
+   "gr": "5f0b38d3f0c91954e093937cf5068ab64c848cd0",
+   "it": "4a43a70aa51abefecc86d1aa3b9fa230a2d0c238",
+   "es": "b398df384224887be5315af3c14c334b488359f8",
+   "jp": "0f63d9243b4e6d46be18c30a6c9f31f408cee86b"
+  },
+  {
+   "field": 914,
+   "us": "e65225cc523399715d0a31fe442f761f492e6eb6",
+   "uk": "e65225cc523399715d0a31fe442f761f492e6eb6",
+   "fr": "ce20ab76f258383f4a2a7b6a001a5ad193d40674",
+   "gr": "942c470b04641ca34c8afc2810ef12c46937aa9b",
+   "it": "979c77c2d0ffaaf4344688b19eedc2495f820a3a",
+   "es": "22adfc4cc478e460b858453f5bd50b517042af40",
+   "jp": "c74b246de2ff4230d36d9829160664e9cd19911a"
+  },
+  {
+   "field": 1006,
+   "us": "e2f3794257a4c71e1aded1d74272163cadcb9ef9",
+   "uk": "e2f3794257a4c71e1aded1d74272163cadcb9ef9",
+   "fr": "ccf8b06381dabedba524dfc8a0a4314f3cbe365e",
+   "gr": "035d56086b301a6cdab86b719258ea9f813e021b",
+   "it": "e6dd7075b95e86e8af07585b6014bd4daa5e2b45",
+   "es": "131794cb2bc706ad6ed28d5282599f74b54e3a1b",
+   "jp": "0fadca68aefc7db373f0caee4cdd42e20d413c16"
+  },
+  {
+   "field": 1209,
+   "us": "a98dcb1c419c6732135ca116dcd2725562e7a42a",
+   "uk": "a98dcb1c419c6732135ca116dcd2725562e7a42a",
+   "fr": "f36733376853c6aeb7bc5f37d3f1128b3e339f2c",
+   "gr": "4782bc64272575de687e69491fb9e68f9bf306ee",
+   "it": "fb66901686b3244aef12d22ae133dbe4563e4cc6",
+   "es": "8dba0703370c6bcc1f6d1678e07f42809a0cdd89",
+   "jp": "b188381b6d003efb1068fdcdfa25b58578daa021"
+  },
+  {
+   "field": 1312,
+   "us": "730527f0d7769ec068e478fa493b23b6e69146bc",
+   "uk": "730527f0d7769ec068e478fa493b23b6e69146bc",
+   "fr": "97078b2e9985e9cfe57b0dc5b210fd1a8a139771",
+   "gr": "1b803d906fb2c8a7fd20596941993ebb7d66ac42",
+   "it": "95881df86811f992cd9329fe6ae41c4da1aeb839",
+   "es": "a89d79f09fe3d92de816cad9c2eab31143832fb6",
+   "jp": "9cdef0a0a491a84a2aa7255e6c739fc7e93bf680"
+  },
+  {
+   "field": 1460,
+   "us": "de61dacab79697cd2374ae2983f143e57b5c0c27",
+   "uk": "ae890c72480a52fb293f698b01a33cffd0381479",
+   "fr": "a22272009b9df3daa580b5bd4fd98607b18ff88c",
+   "gr": "3718648efe3b6d8d7b53e22d45ac542becf1095e",
+   "it": "bd965f3f105b1653b179bb97c629dbd8654ac861",
+   "es": "ff397f8934fd01206bb895b1be143864b39ba5c8",
+   "jp": "fb54dbb9544aedec4a10e945fb31f74e2cda964d"
+  },
+  {
+   "field": 1551,
+   "us": "76ca09ea0519faf9cc9bc1bfbbaaad04b8f7cb20",
+   "uk": "76ca09ea0519faf9cc9bc1bfbbaaad04b8f7cb20",
+   "fr": "95248b05b0aab477ace52830979de8c9723418ec",
+   "gr": "f34bbada6a66f776bba70595715d86417d012c7e",
+   "it": "e4b41ea5715233e233f626dfab0505b3a1cce125",
+   "es": "64536e096e58f4ca697b57f9850d8d4346a3614e",
+   "jp": "1af90ecdc89b544f097c2aae970be2a6bd3cda1f"
+  },
+  {
+   "field": 1553,
+   "us": "24c62b3eed1be6067560a441b278fb0aa68ac1f5",
+   "uk": "24c62b3eed1be6067560a441b278fb0aa68ac1f5",
+   "fr": "00fc242d631dd438213f3416058193976d9f490d",
+   "gr": "204c808676fa54cb4d28e643ebaaad4c7cc9ad8d",
+   "it": "49ac83d8e28dd0830c1c3fa9e165a3657d529a69",
+   "es": "341024b3f44715b56c5bf5cdb62c8c29427da81d",
+   "jp": "2eab06a7b7a9102e9d7ddff9bc9276c5addbfd12"
+  },
+  {
+   "field": 1863,
+   "us": "223c71755a812f00e0220d68ac2aaa71008b6407",
+   "uk": "223c71755a812f00e0220d68ac2aaa71008b6407",
+   "fr": "8f355f8d247b06812d0c4718eb86db9b1eb23aae",
+   "gr": "ffb9cf91cb69a90f7fb6fe643adbbb6bfa982585",
+   "it": "9abdc135daa4e674a57eae880aef57b6ddc8f373",
+   "es": "e8b0684c7b2af56c45ce6694796c0dc6aba3e995",
+   "jp": "f5d8cd5b3695d072e87887d95112f866bd3980ef"
+  },
+  {
+   "field": 1912,
+   "us": "40272f13194fc97f587eff38049b03e9fc86cd4a",
+   "uk": "ed12352fb3355347ecf1404ebf8d7d43e60ca037",
+   "fr": "6782983bdd40d48687740aa8d8f7d2a067b998e7",
+   "gr": "fc0777692c18af79a1fe25d10979a111f7a3130d",
+   "it": "c8b23124e9be140f5f90ea8d2357284c4358416c",
+   "es": "e9780188d1dbf42a5f2c8ca383fea05518c55900",
+   "jp": "31c6bd73152e70e7fa6e46e5361c1ec425d199d0"
+  },
+  {
+   "field": 1914,
+   "us": "5a81648e8176374235687e6209147470f59f41d7",
+   "uk": "42365a7634bbae3f71b4a1782cd7c2d25dea180f",
+   "fr": "fe0c9afbc561de27e5b93b4d09f7e0af3ea9086a",
+   "gr": "9ccb955843676fd3151118a71be801de0b24f89b",
+   "it": "5633ab502e718f16922719d1cd6f237bebb53809",
+   "es": "59ae2ff4fb97286757164c7d4a30b65e695242cc",
+   "jp": "e29c3e42e6713870ccfb84a3a7fc6c2b8afe2d0d"
+  },
+  {
+   "field": 1950,
+   "us": "d766bac62196abb545ced4d70387cdb41f941797",
+   "uk": "825574913d3562b740fafcad04f4ae1ccf57cddb",
+   "fr": "dc3b0251e460f43f9df3bc66853edbd986a632ba",
+   "gr": "ac73ae302db567963db28d87aa8dcf6ce47f9926",
+   "it": "5b22f425b1b0b4e174278d0215b3c852147690d8",
+   "es": "fe38e253a94684023465dcd5048d3d8488c39b1d",
+   "jp": "38433407057508cfb03cc8b43680eff400ab26da"
+  },
+  {
+   "field": 1952,
+   "us": "9d409f6b5d154a0ccd5e915797bffe9a562f4641",
+   "uk": "a69ac9f817b1b551d7ea835ec86f654f0c9b62f5",
+   "fr": "0c86f17bf3348a27fb991de714f5a8295d38d56c",
+   "gr": "52460b42b20418b3c1a95e0e4efb2eb48748bf2c",
+   "it": "8687bb0f70dc8b7338486cc5c50e08fc72adc3fb",
+   "es": "ff22cbbde05d8b73f4e11fc5d9603ed52d9c269f",
+   "jp": "8eb4613ad6d4b5a6affedc3c3161132de8b075fd"
+  },
+  {
+   "field": 2112,
+   "us": "6971aaf0f1840608359bdd10e658409768731a58",
+   "uk": "6971aaf0f1840608359bdd10e658409768731a58",
+   "fr": "89447b9d1a87e0cbf98f88b0089243658347ea03",
+   "gr": "53f4c3a4bd330da2f825c5c209373343a0f8eb95",
+   "it": "2aac3d04f497c9048fdfa68a5ace2998f19826f5",
+   "es": "caa17409da49d8275c463333715692089168569a",
+   "jp": "3de273a179142213ca9a19c27e7c7dbbd27124e8"
+  },
+  {
+   "field": 2212,
+   "us": "9d63571962efe6b293dd2e46664cf5c861f8fa2f",
+   "uk": "422d83b9c1d47076029e733d9c2243b4a3a2b23d",
+   "fr": "0765686b9dc1d28d57029519b1b30fec3726c8c8",
+   "gr": "a05701b5ebec4cd1dd291e8574322a3075ad5d2b",
+   "it": "ca01c34800cb6c95eb819f8bd091d96d09c9f4c1",
+   "es": "eb4ffdc8a9134613a8631843f8ccd9eb4a59e4cf",
+   "jp": "5463a5113f7c19ee385e947450c9f9aa869fdb0b"
+  },
+  {
+   "field": 2353,
+   "us": "fcc32fc91b1ba4a09cce00b81577ca5531c3ba5b",
+   "uk": "fcc32fc91b1ba4a09cce00b81577ca5531c3ba5b",
+   "fr": "e46ec1ff7dc09cf7ec533ca6f943d78553695ddf",
+   "gr": "5d7413fd484031b009151e497f2dcccea6753c86",
+   "it": "fb8852b61f1cd5ca1b8a3ecfceeaf100161af994",
+   "es": "a80aad9a205633b9eabf09c2adee44c10fdc994c",
+   "jp": "0cdc524b327924f6dcac0ca0e89b4b91c560e0d2"
+  },
+  {
+   "field": 2456,
+   "us": "28b79d0ad51eb58f5490ea84cc6a38a0d3e72904",
+   "uk": "28b79d0ad51eb58f5490ea84cc6a38a0d3e72904",
+   "fr": "2c65fdf99923918134529b29c9fc8c81b70810d8",
+   "gr": "37c6b03b58e8c2252e2865a35db4a3ae05c0943d",
+   "it": "20bcd62ae54fde2d5303522e896c7f0616679f4e",
+   "es": "5ec1918b2d30d6d64dfb9f0f7f1389cc6d0a357e",
+   "jp": "d6b8352dd988207f97c568d4f03038a4c4c5b78e"
+  },
+  {
+   "field": 2505,
+   "us": "c4eadbacb3d7657ce17dec5de98cfca2123e6efe",
+   "uk": "f8289cd3e3a26f68a6251386e4702e41d086b711",
+   "fr": "fc651934b9bcab7a4f6138972d924d86a775fb97",
+   "gr": "7885fec0b34ab8c2dee839d89eafcf4316411777",
+   "it": "0dd38680f56ea7c6099b29aa68ef3159a06c5781",
+   "es": "254dd3b9f25947d6de097a29e937172f89e0a90e",
+   "jp": "72dc24c37c7e9f63dad917aa77787f59033fca82"
+  },
+  {
+   "field": 2507,
+   "us": "fda05b7f38b8df1b22d907c716cf55dad3707ee8",
+   "uk": "fda05b7f38b8df1b22d907c716cf55dad3707ee8",
+   "fr": "669f8351be0bae307f89b31719062a6d37b68669",
+   "gr": "9bc6894b451e71bbe72bdc8b6be8ab77ab84fd44",
+   "it": "0cd2fc68db990324d657bba4bc7e20eca5ab5131",
+   "es": "c0d3c47e179b7b10f9ca3b668f6ac56ceb1fa6b6",
+   "jp": "ac33987d898a687f4e01ae65db3ec1a7bbf0a8ca"
+  },
+  {
+   "field": 2602,
+   "us": "099b66bb8652ad21b5683d52358cfcc4c531ef8e",
+   "uk": "099b66bb8652ad21b5683d52358cfcc4c531ef8e",
+   "fr": "4ef481e84e375f21c47dbb0525ea3babd1d627aa",
+   "gr": "5220355347f14fe4a29c522ff08a0fee53c6a793",
+   "it": "55a0ac1ceae8872772a773ee56cd935aa9268082",
+   "es": "18ec1754f9a0561575927aa092617a235a5b8946",
+   "jp": "d1fb591ae1b55e0aa520cf3ce192f6b0b503d988"
+  },
+  {
+   "field": 2605,
+   "us": "f74c5e1b7ba174bf5b377ca3277717ff0060b2de",
+   "uk": "f74c5e1b7ba174bf5b377ca3277717ff0060b2de",
+   "fr": "b5c70402c74e4799ceb714cc28c63faaa50ffba6",
+   "gr": "9ff88b9437f30d1b929c4f3bba4a06895cc2ad44",
+   "it": "2b16ba656370b11b877acab68f49b71e2884cae7",
+   "es": "f6d23ec8788b7f74287c4e2292d4276bd8bb3064",
+   "jp": "461ac5d15a625f1beecb5bbabce16011448eef03"
+  },
+  {
+   "field": 2702,
+   "us": "ce64026daaa198a4970a8d3db6db64b84f186f8a",
+   "uk": "ce64026daaa198a4970a8d3db6db64b84f186f8a",
+   "fr": "93c28d09fcb5beefd680f5cf2ef68bd8c5b731e0",
+   "gr": "e8752476bd3558cc067285084650b6af32ecd469",
+   "it": "0ab5b4ea891520499bb4af3a83a0cfa8ee5415ab",
+   "es": "31b3c7d601c61a5ec263ab03b8648863f4dbe285",
+   "jp": "91476eea163d961510b732024985f2320de93b7f"
+  },
+  {
+   "field": 2853,
+   "us": "12c66111973abfd4b9bec0042f618b62c13e16cb",
+   "uk": "12c66111973abfd4b9bec0042f618b62c13e16cb",
+   "fr": "3407c22b55dcaf3ae9ed31fcaaad0d6ab06745a7",
+   "gr": "1fdfdeb93b3819a6eab6bba78a14e1900e6d49fe",
+   "it": "e476eba816a5566993620c8e185dc4290b3536b3",
+   "es": "ae9811227d78059cb7ec3cc8e588271c42028aa2",
+   "jp": "9dbc3f2996071d879747865487453d7fd3f9fb06"
+  },
+  {
+   "field": 2918,
+   "us": "66a10a095419a927298a8df93cb95bde71083276",
+   "uk": "66a10a095419a927298a8df93cb95bde71083276",
+   "fr": "ccf95893e6e4bd47ad3a8ca8807f76b5951d05e4",
+   "gr": "e1949bc8131f7b9f8de08cb6b1bedea9f19ad7d8",
+   "it": "2a94ad65a276dbae726d3014c50d595177ad29f9",
+   "es": "857a0a9894ce419b64b3c676e98061942ae5fb56",
+   "jp": "3135a776a4c532b10490ba63e5e0041ca3532c4e"
+  },
+  {
+   "field": 2955,
+   "us": "81babf40ed2401e2abf044965682b12f60fec926",
+   "uk": "81babf40ed2401e2abf044965682b12f60fec926",
+   "fr": "e0e6d005da80a785d6a21ea505a3e170e924164a",
+   "gr": "5dd2945f627a609a867b5d3aba7a4c86005a62b8",
+   "it": "1ea9fde984440c30bd320b54d88a48e20f4b2cbc",
+   "es": "1819737d6ad6b80807f3791d2591ebcac8e1cf86",
+   "jp": "2256d2da8ad6e0d106e02f3a881b18e26b36e5a5"
+  },
+  {
+   "field": 3059,
+   "us": "35d6fc7283ea9124e0f5ac5121495b173c6d6b30",
+   "uk": "35d6fc7283ea9124e0f5ac5121495b173c6d6b30",
+   "fr": "111d6734bfae51d6aa339f0c667cc105039a95eb",
+   "gr": "a8738dc8769af9f7443498842df28edb1710b3b4",
+   "it": "91b42209cb48e4b29ccd5fa6729d635069eb4529",
+   "es": "862a442df6f4571fa5819b93e9bfdf58cdbba52e",
+   "jp": "7f23f9090914eacc32245f835cfc1258efbde850"
+  }
+ ],
+ "op_classes": {
+  "names": [
+   null,
+   "exit",
+   "battle",
+   "window",
+   "choice",
+   "menu",
+   "fmv",
+   "ate",
+   "item_party",
+   "flex_state",
+   "spawn",
+   "tile_bg",
+   "sps",
+   "walkmesh",
+   "timer",
+   "world",
+   "control_swap"
+  ],
+  "table": [
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   10,
+   10,
+   10,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   2,
+   10,
+   0,
+   0,
+   3,
+   3,
+   3,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   6,
+   10,
+   2,
+   1,
+   16,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   2,
+   0,
+   0,
+   0,
+   2,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   8,
+   8,
+   2,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   3,
+   3,
+   0,
+   0,
+   2,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   11,
+   3,
+   0,
+   0,
+   14,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   5,
+   11,
+   11,
+   11,
+   0,
+   0,
+   0,
+   4,
+   14,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   11,
+   0,
+   0,
+   0,
+   2,
+   14,
+   3,
+   0,
+   0,
+   0,
+   11,
+   0,
+   0,
+   3,
+   3,
+   0,
+   0,
+   0,
+   13,
+   0,
+   0,
+   0,
+   1,
+   0,
+   1,
+   0,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   1,
+   0,
+   5,
+   8,
+   3,
+   3,
+   5,
+   12,
+   8,
+   8,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   11,
+   11,
+   11,
+   0,
+   15,
+   0,
+   0,
+   0,
+   0,
+   11,
+   11,
+   13,
+   0,
+   0,
+   8,
+   8,
+   3,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   7,
+   11,
+   8,
+   12,
+   2,
+   0,
+   8,
+   8,
+   0,
+   8,
+   2,
+   0,
+   3,
+   11,
+   2,
+   11,
+   11,
+   0,
+   8,
+   0,
+   3,
+   0,
+   11,
+   0,
+   0,
+   0,
+   8,
+   8,
+   8,
+   8,
+   1,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   1,
+   8,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   0,
+   8,
+   8,
+   8,
+   8,
+   8,
+   0,
+   0,
+   0,
+   9,
+   9,
+   11,
+   8,
+   8,
+   0
+  ]
+ },
+ "selftest": {
+  "crc": [
+   {
+    "text": "",
+    "crc": "0x00000000"
+   },
+   {
+    "text": "123456789",
+    "crc": "0xcbf43926"
+   },
+   {
+    "text": "The quick brown fox jumps over the lazy dog",
+    "crc": "0x414fa339"
+   }
+  ],
+  "blobs": [
+   {
+    "name": "A",
+    "hex": "010300000c0002000e00030011000400057f04010203040506070804"
+   },
+   {
+    "name": "A+",
+    "hex": "010300000c0002000e00030011000400057f0401020304050607080400"
+   },
+   {
+    "name": "B",
+    "hex": "01020300080003000b0004000004"
+   },
+   {
+    "name": "C",
+    "hex": "010200000b00010008000a0b0401020304"
+   },
+   {
+    "name": "D",
+    "hex": "01090000"
+   },
+   {
+    "name": "E",
+    "hex": ""
+   },
+   {
+    "name": "T",
+    "hex": "0104000010000800160003001600020012000004057a027f2201040004"
+   },
+   {
+    "name": "P",
+    "hex": "01010300c80004"
+   }
+  ],
+  "slice": [
+   {
+    "blob": "A",
+    "tag": 0,
+    "start": 14,
+    "len": 2,
+    "crc": "0x25b5d7fb"
+   },
+   {
+    "blob": "A",
+    "tag": 2,
+    "start": 16,
+    "len": 3,
+    "crc": "0x5640bad9"
+   },
+   {
+    "blob": "A",
+    "tag": 3,
+    "start": 19,
+    "len": 9,
+    "crc": "0x3e5ed723"
+   },
+   {
+    "blob": "A",
+    "tag": 9,
+    "start": -1,
+    "len": -1,
+    "crc": null
+   },
+   {
+    "blob": "A+",
+    "tag": 3,
+    "start": 19,
+    "len": 10,
+    "crc": "0x705bc028"
+   },
+   {
+    "blob": "B",
+    "tag": 3,
+    "start": 10,
+    "len": 3,
+    "crc": "0xf84871ce"
+   },
+   {
+    "blob": "C",
+    "tag": 1,
+    "start": 10,
+    "len": 3,
+    "crc": "0x164f4116"
+   },
+   {
+    "blob": "C",
+    "tag": 0,
+    "start": 13,
+    "len": 4,
+    "crc": "0xb63cfbcd"
+   },
+   {
+    "blob": "D",
+    "tag": 0,
+    "start": -1,
+    "len": -1,
+    "crc": null
+   },
+   {
+    "blob": "E",
+    "tag": 0,
+    "start": -1,
+    "len": -1,
+    "crc": null
+   },
+   {
+    "blob": "T",
+    "tag": 0,
+    "start": 18,
+    "len": 2,
+    "crc": "0x46b4d6e6"
+   },
+   {
+    "blob": "T",
+    "tag": 2,
+    "start": 20,
+    "len": 4,
+    "crc": "0xbd70cc87"
+   },
+   {
+    "blob": "T",
+    "tag": 3,
+    "start": 24,
+    "len": 5,
+    "crc": "0xc5fb80d9"
+   },
+   {
+    "blob": "T",
+    "tag": 8,
+    "start": 24,
+    "len": 0,
+    "crc": "0x00000000"
+   },
+   {
+    "blob": "T",
+    "tag": 5,
+    "start": -1,
+    "len": -1,
+    "crc": null
+   },
+   {
+    "blob": "P",
+    "tag": 3,
+    "start": 202,
+    "len": 0,
+    "crc": "0x00000000"
+   }
+  ],
+  "flip": [
+   {
+    "blob": "T",
+    "tag": 3,
+    "at": 2,
+    "crc": "0xc439eaee"
+   },
+   {
+    "blob": "T",
+    "tag": 3,
+    "at": 5,
+    "crc": "0xc5fb80d9"
+   },
+   {
+    "blob": "A",
+    "tag": 3,
+    "at": 0,
+    "crc": "0x2925c360"
+   },
+   {
+    "blob": "A",
+    "tag": 3,
+    "at": 8,
+    "crc": "0x4959e7b5"
+   }
+  ],
+  "match": [
+   {
+    "blob": "A",
+    "tag": 3,
+    "len": 9,
+    "crc": "0x3e5ed723",
+    "ok": true
+   },
+   {
+    "blob": "A+",
+    "tag": 3,
+    "len": 9,
+    "crc": "0x3e5ed723",
+    "ok": false
+   },
+   {
+    "blob": "A",
+    "tag": 3,
+    "len": 9,
+    "crc": "0x3e5ed722",
+    "ok": false
+   }
+  ],
+  "toy": [
+   {
+    "name": "toy1",
+    "rows": [
+     {
+      "field": 114,
+      "entry": 9,
+      "kind": "ladder",
+      "funcs": [
+       {
+        "role": "region",
+        "entry": 9,
+        "tag": 3,
+        "uid": 0,
+        "len": 102,
+        "crc": "0xf4e530de"
+       },
+       {
+        "role": "ctrl",
+        "entry": 11,
+        "tag": 17,
+        "uid": 250,
+        "len": 644,
+        "crc": "0x0ec1a3e4"
+       }
+      ]
+     }
+    ],
+    "table_crc": "0xdbf99d93"
+   },
+   {
+    "name": "toy3",
+    "rows": [
+     {
+      "field": 114,
+      "entry": 9,
+      "kind": "ladder",
+      "funcs": [
+       {
+        "role": "region",
+        "entry": 9,
+        "tag": 3,
+        "uid": 0,
+        "len": 102,
+        "crc": "0xf4e530de"
+       },
+       {
+        "role": "ctrl",
+        "entry": 11,
+        "tag": 17,
+        "uid": 250,
+        "len": 644,
+        "crc": "0x0ec1a3e4"
+       }
+      ]
+     },
+     {
+      "field": 207,
+      "entry": 10,
+      "kind": "ladder",
+      "funcs": [
+       {
+        "role": "region",
+        "entry": 10,
+        "tag": 3,
+        "uid": 0,
+        "len": 102,
+        "crc": "0x5472f911"
+       },
+       {
+        "role": "ctrl",
+        "entry": 15,
+        "tag": 50,
+        "uid": 250,
+        "len": 657,
+        "crc": "0x8c63cbe3"
+       },
+       {
+        "role": "seq",
+        "entry": 3,
+        "tag": 0,
+        "uid": 0,
+        "len": 42,
+        "crc": "0xe0262dce"
+       },
+       {
+        "role": "seq",
+        "entry": 4,
+        "tag": 0,
+        "uid": 0,
+        "len": 38,
+        "crc": "0xc1a5853a"
+       }
+      ]
+     },
+     {
+      "field": 301,
+      "entry": 7,
+      "kind": "jump",
+      "funcs": [
+       {
+        "role": "region",
+        "entry": 7,
+        "tag": 3,
+        "uid": 0,
+        "len": 101,
+        "crc": "0x81ac1ae1"
+       },
+       {
+        "role": "fixed_ctrl",
+        "entry": 20,
+        "tag": 26,
+        "uid": 20,
+        "len": 90,
+        "crc": "0xdbb0de95"
+       }
+      ]
+     }
+    ],
+    "table_crc": "0x822000d4"
+   }
+  ]
+ }
+}

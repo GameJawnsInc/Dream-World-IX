@@ -339,7 +339,21 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # `leave_song_live` stays false and BeforeFieldEvents' stop has nothing to stop), and the seat (no host state frame:
                        # the s154 SeatRule's inputs are the engine's; SeatSelfTest is its proof). The in-game benches are
                        # coop_battle_song.py (solo) and coop_world_party_duo.py (duo).
-                       "returnsong": ("s154", ())}
+                       "returnsong": ("s154", ()),
+                       # [ff9mapkit netsync s156] GUEST TRAVERSAL R0-R2 (studies/field-coop/GUEST-TRAVERSAL.md): ONE sub-verb, `guestlocal`
+                       # (selftest role, the role refused first: `act|shadow|off|mutate <0-65535>|clear|teleport`), and `netsync.guestlocal`
+                       # as netsync's LAST key, after `world` (NETSYNC_TOP_CAP_KEYS); s155 added no harness key, so this rung's calibration
+                       # is caps_through(NETSYNC_S154_RUNG). WHAT THE STAND-IN MODELS (FakeGame's s156 section): the block at the agent's
+                       # sentinels but for its live reads (`mode` -- the lever on the selftest role only, else "act" --, `lever`, the
+                       # table counts and digest from the kit's committed JSON, `selftest` once the proof block ran), the lever and the
+                       # mutate's read-back, HarnessLever's two refusals in its words, the release (the lever none, a mutate disarmed, its
+                       # line only when something was set; counters never reset), and `teleport` (a call: on a field with control the
+                       # selftest snap -- the player moved by the mirror offset, 250 x by default, `tp_last` "ok" -- else the s155
+                       # decline's reason; on the world map the s144 seam). WHAT IT CANNOT: a quad press (no region, no CRC re-hash, no
+                       # verdict -- `guest_local_note` books one as GuestPress's Note would), a ladder, a jump or a carry (no flight, no
+                       # trip wire, no held talk), and a climb's teleport refusal (`tp_refusals` stays 0). The in-game bench is
+                       # coop_guest_traversal.py (solo).
+                       "guestlocal": ("s156", ("guestlocal",))}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -377,12 +391,16 @@ NETSYNC_S145_CAPS = frozenset(("worlddio",))
 #: [ff9mapkit netsync s154] The return-song rung (its calibration, the deployed s153 -- no harness key since s145 -- is
 #: ``caps_through("worlddio")``).
 NETSYNC_S154_CAPS = frozenset(("returnsong",))
+#: [ff9mapkit netsync s156] The guest-traversal rung (its calibration, the deployed s155 -- which added no harness key -- is
+#: ``caps_through(NETSYNC_S154_RUNG)``).
+NETSYNC_S156_CAPS = frozenset(("guestlocal",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
-#: Session.NETSYNC_DRESS_SUBVERBS, the gate widened to it).
+#: Session.NETSYNC_DRESS_SUBVERBS, the gate widened to it). [ff9mapkit netsync s156] ...and `guestlocal` LAST (its own table,
+#: Session.NETSYNC_GUESTLOCAL_SUBVERBS).
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench",
-                             "actbench", "selfdress")
+                             "actbench", "selfdress", "guestlocal")
 #: [ff9mapkit netsync B4] The keys each battle capability adds, by `netsync.battle` sub-object, in the agent's order
 #: (AppendNetsyncBattle / AppendBattleEnd / AppendEndLeave) -- `end_leave` and `declined` are the two keys whose values
 #: are themselves fixed sub-objects (:data:`NETSYNC_BATTLE_END_LEAVE_KEYS`, :data:`NETSYNC_BATTLE_DECLINED_KEYS`).
@@ -464,6 +482,9 @@ NETSYNC_BATTLE_CAP_KEYS = {
     # [ff9mapkit netsync s154] nothing under `netsync.battle`: `boot_song` / `leave_song_live` sit in `netsync.diorama`
     # (NETSYNC_DIORAMA_CAP_KEYS)
     "returnsong": {},
+    # [ff9mapkit netsync s156] nothing under `netsync.battle`: `guestlocal` is a TOP-LEVEL netsync block (NETSYNC_TOP_CAP_KEYS),
+    # netsync's LAST key, its keys NETSYNC_GUESTLOCAL_KEYS
+    "guestlocal": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -486,7 +507,8 @@ NETSYNC_DIORAMA_NESTED_KEYS = {"swirl": {"intro": ("swirl_clamp",)}}
 #: between `diorama` and `battle` (AppendSession, AppendMenuRefusal); [ff9mapkit netsync s138] and `dress` AFTER `battle`
 #: (AppendDress: netsync's LAST key).
 NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",), "dressinstr": ("dress",),
-                        "worldwait": ("world",)}                 # [ff9mapkit netsync s144] netsync's LAST key, after `dress`
+                        "worldwait": ("world",),                 # [ff9mapkit netsync s144] netsync's LAST key, after `dress`
+                        "guestlocal": ("guestlocal",)}           # [ff9mapkit netsync s156] ...and `guestlocal` after `world`
 #: [ff9mapkit netsync s145] The blocks a capability adds INSIDE an older TOP-LEVEL `netsync` block, by that block: s145's `dio`,
 #: `netsync.world`'s last (AppendWorldDio, after `waitline`)
 NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)}}
@@ -562,6 +584,74 @@ NETSYNC_WORLD_REJOIN_KEYS = tuple(BW.WORLD_REJOIN_SENTINELS)
 NETSYNC_WORLD_WAITLINE_KEYS = tuple(BW.WORLD_WAITLINE_SENTINELS)
 NETSYNC_SESSION_FOLLOW_KEYS = tuple(BW.SESSION_FOLLOW_SENTINELS)
 NETSYNC_MENU_REFUSAL_KEYS = ("now", "count", "lines", "silent", "last_state", "last_field", "age_ms", "muted")
+#: [ff9mapkit netsync s156] `netsync.guestlocal` (AppendGuestLocal), in the agent's order, at its catch-line sentinels (contract
+#: 4.2): the verdict counters in NetSyncGuestLocal.VerdictNames order, and the five fixed sub-objects (`last`, `verdicts`,
+#: `flight`, `trips`, `mutate` -- always written whole, never null). The live agent reads `mode` ("act" at rest), `rows` / `funcs`
+#: / `table_crc` (the compiled table) and `selftest` (once the proof block ran) where the catch line has its sentinels.
+NETSYNC_GUESTLOCAL_VERDICTS = ("allow", "shadow", "lever_off", "not_field", "special", "no_row", "unverified", "wrong_body",
+                               "own_story", "no_control", "in_flight", "warp", "host_scene", "busy")
+NETSYNC_GUESTLOCAL_LAST_SENTINELS = {"seq": 0, "field": -1, "entry": -1, "verdict": None, "reason": None, "kind": None,
+                                     "hashed": 0, "age_ms": -1}
+NETSYNC_GUESTLOCAL_FLIGHT_SENTINELS = {"field": -1, "entry": -1, "kind": None, "region_uid": -1, "body_uid": -1, "age_ms": -1,
+                                       "seen_off": False, "body_open": False, "body_ran": False, "seq_open": False}
+NETSYNC_GUESTLOCAL_TRIPS_SENTINELS = {"total": 0, "op": 0, "glob": 0, "last": None}
+NETSYNC_GUESTLOCAL_MUTATE_SENTINELS = {"armed": False, "index": -1, "spent": False, "hit": False, "hashed": 0}
+NETSYNC_GUESTLOCAL_SENTINELS = {
+    "mode": None, "lever": None, "rows": -1, "funcs": -1, "table_crc": None, "selftest": None,
+    "last": NETSYNC_GUESTLOCAL_LAST_SENTINELS, "verdicts": {v: 0 for v in NETSYNC_GUESTLOCAL_VERDICTS}, "in_flight": False,
+    "flight": NETSYNC_GUESTLOCAL_FLIGHT_SENTINELS, "climbs": 0, "ended": 0, "bailed": 0, "aborted": 0, "abort_why": None,
+    "long_climbs": 0, "boots_mid_climb": 0, "trips": NETSYNC_GUESTLOCAL_TRIPS_SENTINELS, "tp_calls": 0, "tp_refusals": 0,
+    "tp_last": None, "talk_queued": 0, "talk_held": 0, "talk_applied_after_climb": 0, "talk_expired": 0,
+    "mutate": NETSYNC_GUESTLOCAL_MUTATE_SENTINELS}
+NETSYNC_GUESTLOCAL_KEYS = tuple(NETSYNC_GUESTLOCAL_SENTINELS)
+#: [ff9mapkit netsync s156] NetSyncGuestLocal.HarnessLever: the lever's modes (ModeNames order), the ops (the driver's
+#: Session.NETSYNC_GUESTLOCAL_OPS), the mutate's byte-index bound and its two refusals, in its words (contract 4.1)
+NETSYNC_GUESTLOCAL_MODES = ("act", "shadow", "off")
+NETSYNC_GUESTLOCAL_OPS = NETSYNC_GUESTLOCAL_MODES + ("mutate", "clear", "teleport")
+NETSYNC_GUESTLOCAL_MUTATE_MAX = 65535
+NETSYNC_GUESTLOCAL_ROLE_REFUSAL = "netsync guestlocal: needs the selftest role (netsync selftest 1)"
+NETSYNC_GUESTLOCAL_USAGE = "netsync guestlocal: expected act|shadow|off|mutate <0-65535>|clear|teleport"
+#: [ff9mapkit netsync s156] the lever's lines (contract 5, L16) -- every op's, and the release's (only when something was set)
+GUESTLOCAL_LOG_MODE = {
+    "act": "[NetSync] harness: guest traversal ACT (released with the harness)",
+    "shadow": "[NetSync] harness: guest traversal SHADOW (verdicts computed and logged, every press declined as s155) "
+              "(released with the harness)",
+    "off": "[NetSync] harness: guest traversal OFF -- CALIBRATION: the s155 spectator gate (every quad press declined, nothing "
+           "hashed, no new line) (released with the harness)"}
+GUESTLOCAL_LOG_MUTATE = ("[NetSync] harness: guest traversal mutate armed -- the next re-hash feeds byte {n} of its input flipped "
+                         "(the live script is never touched)")
+GUESTLOCAL_LOG_CLEAR = "[NetSync] harness: guest traversal cleared (act, no mutate, the verdict lines re-armed)"
+GUESTLOCAL_LOG_RELEASE = "[NetSync] harness: guest traversal back to act, the mutate disarmed (released with the harness)"
+#: [ff9mapkit netsync s156] the proof line's head (contract 5, L1) and the bench's parse of it (contract 6.3: R and M are never
+#: checked against literals); the stand-in's R / M are the contract's 6.4 row and 6.5 mutant counts as it tallies them -- a
+#: stand-in's numbers, never the engine's
+PROOF_GUEST_TRAVERSAL = "guest traversal selftest: "
+GUESTLOCAL_PROOF_RE = (r"guest traversal selftest: OK \((\d+) rows, (\d+) mutants caught, (\d+) table rows / (\d+) functions, "
+                       r"table crc (0x[0-9a-f]{8})\)")
+FAKE_GUESTLOCAL_SELFTEST_ROWS = 133
+FAKE_GUESTLOCAL_MUTANTS = 30
+#: [ff9mapkit netsync s156] the kit's committed table (the generator's JSON: its `counts` and `table_crc` are what the compiled
+#: NetSyncGuestLocalTable carries -- the stand-in reads them, never a literal)
+GUEST_TRAVERSAL_JSON = Path(__file__).resolve().parents[2] / "ff9mapkit" / "ff9mapkit" / "data" / "guest_traversal.json"
+#: [ff9mapkit netsync s156] the s155 field teleport's words (NetSyncClient.TeleportToHostImpl) the stand-in's `teleport` speaks
+TP_FIELD_PENDING = "a warp is already in flight"
+TP_FIELD_NO_CONTROL = "user control is off (dialogue/event/transition)"
+TP_FIELD_NO_ACTOR = "no controlled field actor"
+TP_FIELD_SNAP_LOG = "[NetSync] teleport-to-host: snapped onto the selftest mirror"
+#: [ff9mapkit netsync s156] NetSyncClient's default SelfTestOffset (the selftest mirror beside the player: dx, dz)
+FAKE_SELFTEST_OFFSET = (250.0, 0.0)
+
+
+def guest_traversal_table(path=None) -> tuple:
+    """[ff9mapkit netsync s156] (rows, funcs, table_crc) from the kit's committed guest-traversal JSON -- what the compiled
+    NetSyncGuestLocalTable carries (render_cs is a pure function of it); (-1, -1, None) when the file is absent or unreadable
+    (the agent's sentinels)."""
+    try:
+        doc = json.loads(Path(path or GUEST_TRAVERSAL_JSON).read_text(encoding="utf-8"))
+        rows, funcs, crc = int(doc["counts"]["rows"]), int(doc["counts"]["funcs"]), str(doc["table_crc"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return -1, -1, None
+    return rows, funcs, crc
 #: [ff9mapkit netsync s131] `netsync.battle.peer.expired`, in AppendPeerExpired's order (battlewire.PeerLane.doc).
 NETSYNC_PEER_EXPIRED_KEYS = tuple(BW.PEER_EXPIRED_SENTINELS)
 #: [ff9mapkit netsync s133] `netsync.battle.act.host` and its fixed sub-objects, in AppendAct's order
@@ -2000,6 +2090,14 @@ class FakeGame:
                      "wait_why": None, "returns": 0, "last_return": None, "last_world": -1, "by_wire": False,
                      "wire_nonce": -1, "seen_nonce": -1, "decl_nonce": -1, "decl_why": None, "wait_nonce": -1,
                      "hold_why": None, "stale_frames": 0, "pending_count": None, "unfrozen": False}
+        #: [ff9mapkit netsync s156] GUEST TRAVERSAL (the `guestlocal` rung; see its NETSYNC_BATTLE_CAPS note): NetSyncGuestLocal's
+        #: harness state (the lever, the mutate, the counters, the last verdict, the teleport outcome). The test seams: the
+        #: compiled table's (rows, funcs, table_crc) (``guest_local_table``; None = the kit's committed JSON), the selftest
+        #: mirror's offset (``selftest_offset``: NetSyncClient's [Netsync] SelfTestOffset, 250,0 by default) and
+        #: :meth:`guest_local_note` (one verdict booked as GuestPress's Note books it -- never a press).
+        self._gl = self._gl_fresh()
+        self.guest_local_table: tuple | None = None
+        self.selftest_offset = FAKE_SELFTEST_OFFSET
         #: H9: True -- ``warp`` refuses unless ui_state is "FieldHUD", as the agent does (Ff9mkDebugMenu.Warp is false
         #: off the field HUD, and HarnessAgent throws "warp refused (not on a field?)"): nothing is written, nothing
         #: moves. False (the default): today's fake, a warp from any state.
@@ -5310,6 +5408,8 @@ class FakeGame:
             self._battle_bench_verb(sub, args, arg, out_of_range)
         elif sub == "selfdress":
             self._selfdress(args)                       # [ff9mapkit netsync s139] the host dress rule's bench
+        elif sub == "guestlocal":
+            self._guestlocal(args)                      # [ff9mapkit netsync s156] the guest-traversal gate's bench
 
     def _release_netsync(self) -> None:
         """ReleaseNetsyncOverride, on `reset`, disarm and fault. [ff9mapkit netsync F3.3] DIO-1: a diorama THIS harness
@@ -5373,7 +5473,9 @@ class FakeGame:
             if "dressinstr" in caps:
                 doc["dress"] = self._dress_doc()        # [ff9mapkit netsync s138] netsync's LAST key, after `battle`
             if "worldwait" in caps:
-                doc["world"] = self._world_doc()        # [ff9mapkit netsync s144] ...and `world` after it, the LAST key
+                doc["world"] = self._world_doc()        # [ff9mapkit netsync s144] ...and `world` after it
+            if "guestlocal" in caps:
+                doc["guestlocal"] = self._guestlocal_doc()   # [ff9mapkit netsync s156] ...and `guestlocal`, the LAST key
             return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
@@ -5838,6 +5940,133 @@ class FakeGame:
             else:
                 self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_WORLD_DIORAMA, BW.WORLD_DIORAMA_SELFTEST_ROWS))
             self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_WORLD_WATCHER, BW.WORLD_WATCHER_SELFTEST_ROWS))
+
+    # -- [ff9mapkit netsync s156] GUEST TRAVERSAL R0-R2 (the `guestlocal` rung; see NETSYNC_BATTLE_CAPS for what it models) --------
+    # NetSyncGuestLocal's HARNESS half only: the lever (`act|shadow|off`, read live through EffectiveMode on the selftest role),
+    # the one-shot mutate's read-back, HarnessLever's refusals, `clear`, the release, `teleport` (RequestTeleportToHost's field
+    # path on the selftest role: the snap onto the mirror, or the s155 decline) and the block. NOT MODELLED -- the stand-in has
+    # no region, no `.eb` and no walkmesh: a quad press, its CRC re-hash and verdict (GuestPress), a ladder, a jump or a carry
+    # (the flight, its end on control, the trip wires), the climb-scoped talk hold and a climb's teleport refusal. A judge
+    # tested here drives the verdict bookkeeping through :meth:`guest_local_note`, never a press.
+    @staticmethod
+    def _gl_fresh() -> dict:
+        """NetSyncGuestLocal's harness statics at process start (the catch line's sentinels where they agree)."""
+        return {"lever": None, "selftest": None, "last": dict(NETSYNC_GUESTLOCAL_LAST_SENTINELS), "last_rt": None,
+                "verdicts": {v: 0 for v in NETSYNC_GUESTLOCAL_VERDICTS},
+                "counts": {k: 0 for k in ("climbs", "ended", "bailed", "aborted", "long_climbs", "boots_mid_climb",
+                                          "tp_calls", "tp_refusals", "talk_queued", "talk_held", "talk_applied_after_climb",
+                                          "talk_expired")},
+                "abort_why": None, "tp_last": None, "trips": dict(NETSYNC_GUESTLOCAL_TRIPS_SENTINELS),
+                "mutate": dict(NETSYNC_GUESTLOCAL_MUTATE_SENTINELS)}
+
+    def _gl_rung(self) -> bool:
+        return "guestlocal" in self._nb_caps()
+
+    def _gl_mode(self) -> str:
+        """NetSyncGuestLocal.EffectiveMode's name: the lever when one is set AND the selftest role, else "act"."""
+        lever = self._gl["lever"]
+        return lever if lever is not None and self._nb_role() else "act"
+
+    def _gl_table_now(self) -> tuple:
+        return tuple(self.guest_local_table) if self.guest_local_table is not None else guest_traversal_table()
+
+    def _guestlocal(self, args: list) -> None:
+        """HarnessLever (the agent's `case "guestlocal"`): the ROLE first, then the op and its arity / n -- one usage line for
+        every malformed form, in its words. Every op logs its L16 line."""
+        if not self._nb_role():
+            raise RuntimeError(NETSYNC_GUESTLOCAL_ROLE_REFUSAL)
+        g = self._gl
+        n = len(args)                                   # the agent's s.Args: "guestlocal" first
+        op = args[1].strip().lower() if n > 1 else ""
+        if op in NETSYNC_GUESTLOCAL_MODES and n == 2:
+            g["lever"] = op
+            self._mlog(GUESTLOCAL_LOG_MODE[op])
+        elif op == "mutate" and n == 3 and re.fullmatch(r"[+-]?[0-9]+", args[2]) \
+                and 0 <= int(args[2]) <= NETSYNC_GUESTLOCAL_MUTATE_MAX:      # Int32.TryParse(NumberStyles.Integer)
+            g["mutate"] = dict(NETSYNC_GUESTLOCAL_MUTATE_SENTINELS, armed=True, index=int(args[2]))
+            self._mlog(GUESTLOCAL_LOG_MUTATE.format(n=int(args[2])))
+        elif op == "clear" and n == 2:
+            g["lever"] = None
+            g["mutate"] = dict(NETSYNC_GUESTLOCAL_MUTATE_SENTINELS)    # disarmed AND forgotten (the counters stay)
+            self._mlog(GUESTLOCAL_LOG_CLEAR)
+        elif op == "teleport" and n == 2:
+            self._gl_teleport()
+        else:
+            raise RuntimeError(NETSYNC_GUESTLOCAL_USAGE)
+
+    def _gl_teleport(self) -> None:
+        """`guestlocal teleport`: `tp_calls` +1, NetSyncClient.RequestTeleportToHost (TeleportToHostImpl's order: a follow warp
+        in flight, the world map -- the s144 seam --, control, the controlled field actor, then the selftest role's snap onto
+        the mirror: the player moved by ``selftest_offset``), and `tp_last` = HarnessTpOutcome ("ok" once a snap cleared the
+        decline latch, else the latch's reason; null with no co-op client). No climb flies here, so none refuses it."""
+        g, wj = self._gl, self._wj
+        g["counts"]["tp_calls"] += 1
+        if wj["pending"] >= 0:
+            self._tp_world_decline(TP_FIELD_PENDING)
+        elif self._ww() and self._world_strict():
+            self.teleport_to_host()
+        elif not self.control:
+            self._tp_world_decline(TP_FIELD_NO_CONTROL)
+        elif self.ui_state != "FieldHUD" or not self.has_position:
+            self._tp_world_decline(TP_FIELD_NO_ACTOR)
+        elif self._nb_role():
+            dx, dz = self.selftest_offset
+            self.player[0] += float(dx)
+            self.player[2] += float(dz)
+            wj["tp"] = None
+            self._mlog(TP_FIELD_SNAP_LOG)
+        else:
+            self._tp_world_decline(BW.TP_WORLD_NOT_LIVE)
+        g["tp_last"] = None if not self.netsync["instance"] else ("ok" if wj["tp"] is None else wj["tp"])
+
+    def _gl_release(self) -> None:
+        """NetSyncGuestLocal.HarnessRelease: the lever none, a mutate disarmed (its read-back kept), the line latch cleared --
+        its line only when a lever or a mutate was set. The counters are never reset."""
+        g = self._gl
+        was = g["lever"] is not None or g["mutate"]["armed"]
+        g["lever"] = None
+        g["mutate"]["armed"] = False
+        if was:
+            self._mlog(GUESTLOCAL_LOG_RELEASE)
+
+    def _gl_proof(self) -> None:
+        """The proof block's guest traversal line (contract L1; NetSyncClient's C1, once per process): the stand-in's row and
+        mutant tallies, the compiled table's counts and digest (the kit's committed JSON) -- `selftest` "ok" from then on."""
+        rows, funcs, crc = self._gl_table_now()
+        self._gl["selftest"] = "ok"
+        self._mlog(f"[NetSync] {PROOF_GUEST_TRAVERSAL}OK ({FAKE_GUESTLOCAL_SELFTEST_ROWS} rows, {FAKE_GUESTLOCAL_MUTANTS} "
+                   f"mutants caught, {rows} table rows / {funcs} functions, table crc {crc})")
+
+    def guest_local_note(self, verdict: str, *, field: int = -1, entry: int = -1, kind: str | None = None,
+                         reason: str | None = None, hashed: int = 0) -> None:
+        """[ff9mapkit netsync s156] Test seam: ONE verdict booked as GuestPress's Note books it -- `verdicts.<verdict>` +1 in
+        every mode, and (every verdict but lever_off / not_field) `last` rewritten with `seq` +1 -- for a judge to read. It is
+        NOT a press: no row, no re-hash, no mutate spent, no climb (the stand-in cannot fly one)."""
+        g = self._gl
+        if verdict not in g["verdicts"]:
+            raise ValueError(f"guest_local_note: no verdict {verdict!r} ({'|'.join(NETSYNC_GUESTLOCAL_VERDICTS)})")
+        g["verdicts"][verdict] += 1
+        if verdict in ("lever_off", "not_field"):
+            return
+        g["last"] = {"seq": g["last"]["seq"] + 1, "field": int(field), "entry": int(entry), "verdict": verdict,
+                     "reason": reason, "kind": kind, "hashed": int(hashed), "age_ms": 0}
+        g["last_rt"] = self.rt
+
+    def _guestlocal_doc(self) -> dict:
+        """AppendGuestLocal: the harness state above, `flight` at its sentinels (no climb flies here), `in_flight` false."""
+        g = self._gl
+        rows, funcs, crc = self._gl_table_now()
+        last = dict(g["last"])
+        last["age_ms"] = -1 if g["last_rt"] is None else max(0, int((self.rt - g["last_rt"]) * 1000))
+        c = g["counts"]
+        return {"mode": self._gl_mode(), "lever": g["lever"], "rows": rows, "funcs": funcs, "table_crc": crc,
+                "selftest": g["selftest"], "last": last, "verdicts": dict(g["verdicts"]), "in_flight": False,
+                "flight": dict(NETSYNC_GUESTLOCAL_FLIGHT_SENTINELS), "climbs": c["climbs"], "ended": c["ended"],
+                "bailed": c["bailed"], "aborted": c["aborted"], "abort_why": g["abort_why"], "long_climbs": c["long_climbs"],
+                "boots_mid_climb": c["boots_mid_climb"], "trips": dict(g["trips"]), "tp_calls": c["tp_calls"],
+                "tp_refusals": c["tp_refusals"], "tp_last": g["tp_last"], "talk_queued": c["talk_queued"],
+                "talk_held": c["talk_held"], "talk_applied_after_climb": c["talk_applied_after_climb"],
+                "talk_expired": c["talk_expired"], "mutate": dict(g["mutate"])}
 
     # -- [ff9mapkit netsync s144] WORLD-MAP CO-OP (the `worldwait` rung; see NETSYNC_BATTLE_CAPS for what it models) ----------
     # The engine's pieces, each through battlewire's twin of its pure step: THE FREEZE (NetSyncField.WorldFreezeNow / Hold /
@@ -8353,6 +8582,8 @@ class FakeGame:
             self._mlog("[NetSync] " + BW.proof_ok(head, n))
         if "dresshost" in caps:                             # [ff9mapkit netsync s139] right after the trance line
             self._dress_proof()
+        if "guestlocal" in caps:                            # [ff9mapkit netsync s156] the block's last modelled line
+            self._gl_proof()
 
     # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
     def _nb_caps(self) -> frozenset:
@@ -8844,6 +9075,9 @@ class FakeGame:
         if self._wdx["lever"] != BW.WORLD_WARM_ON and "warm_lever_stuck" not in self.world_dio_faults:
             self._mlog("[NetSync] " + BW.LOG_WORLD_WARM_RELEASED)
             self._wdx["lever"] = BW.WORLD_WARM_ON
+        # [ff9mapkit netsync s156] NetSyncGuestLocal.HarnessRelease, LAST (HarnessReleaseBench's new last line): the lever none, a
+        # mutate disarmed, the line latch cleared -- its line only when a lever or a mutate was set
+        self._gl_release()
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an

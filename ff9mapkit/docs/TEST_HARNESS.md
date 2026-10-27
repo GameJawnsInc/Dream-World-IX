@@ -438,6 +438,34 @@ field-gate bench ON. Never press Confirm on the quit prompt `endbench quit on` o
 (EncodeManifest / DecodeManifest, LevelAfter, LearnSchedule) and the replay's pure decisions (ArmVerdict,
 FollowVerdict, SongVerdict, ...), each evaluated against the engine SelfTest's own rows.
 
+Guest traversal (s156, `studies/field-coop/GUEST-TRAVERSAL.md`) lets a following guest climb a stock ladder,
+take a jump or a carry on its own copy of the room, but only for a row on the CRC-checked allowlist. It adds one
+block, `netsync.guestlocal`, as netsync's LAST key after `world`, and one sub-verb, `guestlocal`. It stays on
+protocol 5: the capability is that block's presence, read as `State.coop_guest_local`. The driver refuses
+`guestlocal` on an engine without the block ("this engine publishes no `netsync.guestlocal` (s156)") before it
+spends the step. On the selftest role it also refuses a malformed op in the engine's own words. The engine checks
+the role first:
+
+```python
+g.guestlocal("shadow")      # every verdict computed, counted and logged; every press declined as s155
+g.guestlocal("off")         # CALIBRATION: the s155 spectator gate byte for byte (only verdicts.lever_off moves)
+g.guestlocal("mutate", 3)   # ONE-SHOT: the next re-hash feeds byte 3 of its input flipped (the script is untouched)
+g.guestlocal("clear")       # act, the mutate disarmed and forgotten, the verdict lines re-armed
+g.guestlocal("teleport")    # the F11 / held L3 path no injected input reaches: tp_calls +1, tp_last its outcome
+```
+
+Every key has a typed accessor: `guest_local_mode`, `_lever`, `_rows`, `_funcs`, `_table_crc`, `_selftest`,
+`_last`, `_verdicts`, `_in_flight`, `_flight`, `_climbs` ... `_mutate`. `State.NETSYNC_GUESTLOCAL_ACCESSORS`
+maps every key to its accessor. An absent key reads None and a null string reads `""`.
+
+Compare `rows`, `funcs` and `table_crc` with the kit's committed table (`ff9mapkit.guest_traversal.load()`),
+never with a literal. The counters, `verdicts.*` included, count in every mode and are never reset, so assert on
+deltas. Judge a press only after `last.seq` has moved and `last.field` is this field. The flight ends on control,
+not on the region. The lever is read live on the selftest role only, and every lever and a mutate are released on
+disarm, fault and `reset`. The stand-in (`fakegame`) models the block, the lever, the mutate's read-back, the
+refusals and `teleport`. It cannot model a press, a ladder or a jump: its `guest_local_note` seam books one
+verdict for a judge to read. The in-game bench is `scenarios/coop_guest_traversal.py` (solo, undressed).
+
 ## Walking, and why every measurement settles first
 
 `walk_to(x, z)` steers on the published position rather than counting frames, and it calibrates

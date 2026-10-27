@@ -398,6 +398,19 @@ def _world_prop(path: str, kind, doc: str) -> property:
     return property(get)
 
 
+def _guestlocal_prop(path: str, kind, doc: str) -> property:
+    """[ff9mapkit netsync s156] One ``netsync.guestlocal`` key (guest traversal's block, netsync's LAST key, after `world`) as a
+    read-only :class:`State` property, carrying its path under ``netsync.guestlocal`` for its own table
+    (:attr:`State.NETSYNC_GUESTLOCAL_ACCESSORS`) -- the house reading (absent = None, "this engine cannot"; a null string reads
+    ""; a dict is copied)."""
+    def get(self):
+        return self._ns_path("guestlocal." + path, kind)
+    get.__doc__ = doc
+    get.__name__ = "guest_local_" + path.replace(".", "_")
+    get.guestlocal_path = path
+    return property(get)
+
+
 def _follow_prop(key: str, kind, doc: str) -> property:
     """[ff9mapkit netsync s144] One ``netsync.session.follow`` key (the follow's own state, AppendSessionFollow) as a read-only
     :class:`State` property, carrying its key for its own table (:attr:`State.NETSYNC_FOLLOW_ACCESSORS` -- never
@@ -743,6 +756,72 @@ class State:
                                                                        "latched) still plays unpaused beside a different current one "
                                                                        "(a battle song left over the restored world song) -- read "
                                                                        "past BeforeWorldEvents' 500 ms stop fade.")
+
+    # ---- [ff9mapkit netsync s156] GUEST TRAVERSAL R0-R2 (studies/field-coop/GUEST-TRAVERSAL.md): `netsync.guestlocal`, netsync's
+    # LAST key (additive under 5 -- absent = None, "this engine cannot": an s155 agent publishes none of it). Counters are per
+    # PROCESS -- read DELTAS; judge a press only after `last.seq` moved and `last.field` is this field (THE PRE-INIT SAMPLE).
+    @property
+    def coop_guest_local(self) -> bool | None:
+        """s156: guest traversal (``netsync.guestlocal.mode`` present). False = an engine whose following guest declines every
+        quad press (the s155 spectator gate: no climb, no jump) and which answers `netsync guestlocal` with "unknown sub-verb";
+        None = no ``netsync`` block."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._ns_path("guestlocal.mode", str) is not None
+
+    @property
+    def guest_local_block(self) -> dict | None:
+        """s156: the whole ``netsync.guestlocal`` block, copied (None = absent)."""
+        return self._ns_path("guestlocal", dict)
+
+    guest_local_mode = _guestlocal_prop("mode", str, "s156: the gate's EFFECTIVE mode -- 'act' | 'shadow' | 'off' (the lever on "
+                                                     "the selftest role only, else 'act'; '' = the catch line).")
+    guest_local_lever = _guestlocal_prop("lever", str, "s156: the `guestlocal` lever AS SET -- 'act' | 'shadow' | 'off' ('' = "
+                                                       "none: the shipping act; released with the harness and by `clear`).")
+    guest_local_rows = _guestlocal_prop("rows", int, "s156: the compiled table's row count (NetSyncGuestLocalTable.RowCount; -1 "
+                                                     "= unreadable) -- compare it with the kit's committed JSON, never a literal.")
+    guest_local_funcs = _guestlocal_prop("funcs", int, "s156: the compiled table's function count (FuncCount; -1 = unreadable).")
+    guest_local_table_crc = _guestlocal_prop("table_crc", str, "s156: the compiled TableCrc as '0x' + 8 lowercase hex digits -- "
+                                                               "the same text as the JSON's `table_crc` ('' = unreadable).")
+    guest_local_selftest = _guestlocal_prop("selftest", str, "s156: 'ok' | 'fail: <the first failing row>' ('' = the proof "
+                                                             "block has not run).")
+    guest_local_last = _guestlocal_prop("last", dict, "s156: the last verdict GuestPress booked, copied -- {seq (monotonic), "
+                                                      "field (EFFECTIVE id), entry, verdict, reason, kind, hashed, age_ms}; "
+                                                      "lever_off / not_field never rewrite it.")
+    guest_local_verdicts = _guestlocal_prop("verdicts", dict, "s156: one counter per verdict (VerdictNames order), counted in "
+                                                              "EVERY mode, off included -- monotonic, read DELTAS.")
+    guest_local_in_flight = _guestlocal_prop("in_flight", bool, "s156: a climb accepted on my copy has not ended "
+                                                                "(NetSyncGuestLocalArmed.On; it ends on CONTROL).")
+    guest_local_flight = _guestlocal_prop("flight", dict, "s156: that climb, copied -- {field, entry, kind, region_uid, "
+                                                          "body_uid, age_ms, seen_off, body_open, body_ran, seq_open}; its "
+                                                          "sentinels (-1 / null / false) while none is armed.")
+    guest_local_climbs = _guestlocal_prop("climbs", int, "s156: climbs accepted (Begin) -- monotonic, read DELTAS.")
+    guest_local_ended = _guestlocal_prop("ended", int, "s156: climbs that ended (Landed or Bailed) -- monotonic.")
+    guest_local_bailed = _guestlocal_prop("bailed", int, "s156: of those, the handler never took control or moved the body -- "
+                                                         "monotonic.")
+    guest_local_aborted = _guestlocal_prop("aborted", int, "s156: records dropped untracked (a battle, a load, the spectator "
+                                                           "gate falling) -- monotonic.")
+    guest_local_abort_why = _guestlocal_prop("abort_why", str, "s156: the last abort's StaleWhy ('' = none yet).")
+    guest_local_long_climbs = _guestlocal_prop("long_climbs", int, "s156: climbs still in flight after 30 s (counted and logged "
+                                                                   "once; no watchdog) -- monotonic.")
+    guest_local_boots_mid_climb = _guestlocal_prop("boots_mid_climb", int, "s156: host battle boots that landed mid-climb "
+                                                                           "(logged; unproven in game until R3) -- monotonic.")
+    guest_local_trips = _guestlocal_prop("trips", dict, "s156: the telemetry-only trip wires, copied -- {total, op, glob, last}.")
+    guest_local_tp_calls = _guestlocal_prop("tp_calls", int, "s156: `guestlocal teleport` calls -- monotonic.")
+    guest_local_tp_refusals = _guestlocal_prop("tp_refusals", int, "s156: teleports a climb in flight refused -- monotonic.")
+    guest_local_tp_last = _guestlocal_prop("tp_last", str, "s156: the last `guestlocal teleport` outcome -- 'ok' | the decline's "
+                                                           "reason ('' = none yet).")
+    guest_local_talk_queued = _guestlocal_prop("talk_queued", int, "s156: relayed talk starts deferred while a guest press was "
+                                                                   "queued (once per climb) -- monotonic.")
+    guest_local_talk_held = _guestlocal_prop("talk_held", int, "s156: relayed talk starts held while a climb was in flight -- "
+                                                               "monotonic.")
+    guest_local_talk_applied_after_climb = _guestlocal_prop("talk_applied_after_climb", int,
+                                                            "s156: held starts applied after the climb ended -- monotonic.")
+    guest_local_talk_expired = _guestlocal_prop("talk_expired", int, "s156: held starts dropped (a newer one, the field or the "
+                                                                     "scene changed, the TTL, a dropped climb, a decline) -- "
+                                                                     "monotonic.")
+    guest_local_mutate = _guestlocal_prop("mutate", dict, "s156: the one-shot `mutate` lever, copied -- {armed, index (-1 = "
+                                                          "none), spent, hit, hashed}.")
 
     @property
     def on_field(self) -> bool:
@@ -3324,6 +3403,10 @@ State.NETSYNC_DRESS_ACCESSORS = {p.fget.dress_path: name for name, p in vars(Sta
 #: block's own table (never NETSYNC_TOP_ACCESSORS, whose law pins `session` / `menu_refusal`).
 State.NETSYNC_WORLD_ACCESSORS = {p.fget.world_path: name for name, p in vars(State).items()
                                  if isinstance(p, property) and hasattr(p.fget, "world_path")}
+#: [ff9mapkit netsync s156] Every ``netsync.guestlocal`` key (its FIRST level; the dicts are read whole) -> its State accessor --
+#: guest traversal's own table (the whole block is :attr:`State.guest_local_block`, outside it).
+State.NETSYNC_GUESTLOCAL_ACCESSORS = {p.fget.guestlocal_path: name for name, p in vars(State).items()
+                                      if isinstance(p, property) and hasattr(p.fget, "guestlocal_path")}
 #: [ff9mapkit netsync s144] Every ``netsync.session.follow`` key -> its State accessor (the follow block's own table).
 State.NETSYNC_FOLLOW_ACCESSORS = {p.fget.follow_key: name for name, p in vars(State).items()
                                   if isinstance(p, property) and hasattr(p.fget, "follow_key")}

@@ -8408,18 +8408,18 @@ class Session:
     #: (HarnessAgent `case "netsync"`, s96; [ff9mapkit netsync F3.3] + s97 `dioboot`/`dioleave`, s98 `host`,
     #: s99 `tap-record`/`replay`; [ff9mapkit netsync B4] + s100 `guestslots`/`bcmd`/`hostgates`, s101
     #: `containment`/`bctl`, s102 `bmenu`; [ff9mapkit netsync B5] + s103 `endbench`; [ff9mapkit netsync B4] s106 INSERTS
-    #: `bbench` before `endbench`; [ff9mapkit netsync s133] + `actbench`; [ff9mapkit netsync s139] + `selfdress`). Pinned to
-    #: the patch stack by test_harness_netsync.py.
+    #: `bbench` before `endbench`; [ff9mapkit netsync s133] + `actbench`; [ff9mapkit netsync s139] + `selfdress`;
+    #: [ff9mapkit netsync s156] + `guestlocal`, at the END). Pinned to the patch stack by test_harness_netsync.py.
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
                         "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
                         "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench",
-                        "endbench", "actbench", "selfdress")
+                        "endbench", "actbench", "selfdress", "guestlocal")
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
     #: "authority", s96) -- the F3.3 and B4/B5 ones included (they build on it). An F3 engine answers them "unknown
-    #: sub-verb" only AFTER the step is spent.
+    #: sub-verb" only AFTER the step is spent. [ff9mapkit netsync s156] + `guestlocal`, at the END.
     NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
                                   "host", "tap-record", "replay", "guestslots", "bcmd", "hostgates", "containment",
-                                  "bctl", "bmenu", "bbench", "endbench", "actbench", "selfdress")
+                                  "bctl", "bmenu", "bbench", "endbench", "actbench", "selfdress", "guestlocal")
     #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
     #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
     #: engine without it, the key it reads, the patch that added it, and what the verb is.
@@ -8504,6 +8504,23 @@ class Session:
     NETSYNC_SELFDRESS_SELF_REFUSALS = {"off_mask": "netsync selfdress self off: takes no mask",
                                        "auto_mask": "netsync selfdress self auto: mask {mask} is outside 0-15 (party "
                                                     "slots 0-3)"}
+    #: [ff9mapkit netsync s156] GUEST TRAVERSAL R0-R2's sub-verb (studies/field-coop/GUEST-TRAVERSAL.md), told by
+    #: ``netsync.guestlocal``'s PRESENCE (its own table -- the block is netsync's LAST key, after `world`, never under
+    #: `netsync.battle` or `netsync.dress`): the State capability accessor, the key it reads, the patch, what the verb is.
+    NETSYNC_GUESTLOCAL_SUBVERBS = {
+        "guestlocal": ("coop_guest_local", "netsync.guestlocal", "s156", "the s156 guest-traversal gate bench"),
+    }
+    #: [ff9mapkit netsync s156] `guestlocal <op>` (NetSyncGuestLocal.HarnessLever), in the engine's order: the lever's three
+    #: modes, the one-shot `mutate <n 0-65535>`, `clear`, and `teleport` (the F11 / held L3 path through
+    #: NetSyncClient.RequestTeleportToHost). Every op is selftest-role only (the role refused FIRST) and released with the
+    #: harness (NetSyncBattle.HarnessReleaseBench -> NetSyncGuestLocal.HarnessRelease).
+    NETSYNC_GUESTLOCAL_OPS = ("act", "shadow", "off", "mutate", "clear", "teleport")
+    #: [ff9mapkit netsync s156] the mutate lever's byte-index range (the hash input's byte n; HarnessLever's own bound)
+    NETSYNC_GUESTLOCAL_MUTATE_MAX = 65535
+    #: [ff9mapkit netsync s156] HarnessLever's two refusals, in its words (contract 4.1): the role, then ONE usage line for an
+    #: unknown op, a wrong arity, and a non-integer or out-of-range n
+    NETSYNC_GUESTLOCAL_ROLE_REFUSAL = "netsync guestlocal: needs the selftest role (netsync selftest 1)"
+    NETSYNC_GUESTLOCAL_USAGE = "netsync guestlocal: expected act|shadow|off|mutate <0-65535>|clear|teleport"
     #: [ff9mapkit netsync B4] `bmenu <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncBattle.HarnessStockMenu, s102).
     NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
@@ -8854,6 +8871,13 @@ class Session:
         its eight only after it); on s141 a malformed value is refused before the step in PolishUsage's words. It is
         released with the harness and by ``selfdress clear`` (back on).
 
+        [ff9mapkit netsync s156] guest traversal R0-R2 adds ONE sub-verb, ``guestlocal`` (selftest role), told by
+        ``netsync.guestlocal`` (:attr:`State.coop_guest_local`; NETSYNC_GUESTLOCAL_SUBVERBS, the gate widened to it):
+        ``guestlocal act|shadow|off`` (the lever), ``mutate <n 0-65535>`` (one-shot), ``clear`` and ``teleport`` (the F11
+        path) -- :meth:`guestlocal`. On an s155 (or older) engine it is refused before the step ("this engine publishes no
+        `netsync.guestlocal` (s156)"); on the selftest role an unknown op, a wrong arity or a bad n is refused before the
+        step in HarnessLever's words (NETSYNC_GUESTLOCAL_USAGE). Every lever and a mutate are released with the harness.
+
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
         without the contract (``unknown sub-verb``), an F3.3 or B4/B5 sub-verb on an engine without its
@@ -8883,6 +8907,7 @@ class Session:
             f33 = self.NETSYNC_F33_SUBVERBS.get(sub)
             nb = self.NETSYNC_BATTLE_SUBVERBS.get(sub)
             nd = self.NETSYNC_DRESS_SUBVERBS.get(sub)           # [ff9mapkit netsync s139] the dress sub-verbs' own table
+            ng = self.NETSYNC_GUESTLOCAL_SUBVERBS.get(sub)      # [ff9mapkit netsync s156] guest traversal's own table
             if not authority:
                 if st.netsync is None:
                     have = "publishes no `netsync` block"
@@ -8897,11 +8922,19 @@ class Session:
                         f"dialogue contract (memoria-patch s96)" if nb else
                         f"a co-op field-model verb ({nd[3]}, memoria-patch {nd[2]}) on the F3.2 host-authoritative "
                         f"dialogue contract (memoria-patch s96)" if nd else
+                        f"a co-op field verb ({ng[3]}, memoria-patch {ng[2]}) on the F3.2 host-authoritative "
+                        f"dialogue contract (memoria-patch s96)" if ng else
                         "an F3.2 host-authoritative dialogue verb (memoria-patch s96)")
                 raise HarnessError(
                     f"netsync {sub}: the deployed engine {have}; `{sub}` is {what}. Rebuild the DLL, or update "
                     f"the driver.")
-            cap = f33 or nb or nd                               # [ff9mapkit netsync s139] + the dress table
+            cap = f33 or nb or nd or ng                         # [ff9mapkit netsync s139] + the dress table; s156 + guestlocal's
+            if ng is not None and not getattr(st, ng[0]):
+                # [ff9mapkit netsync s156] the contract's words: an s155 engine answers "unknown sub-verb" only after the step
+                raise HarnessError(
+                    f"netsync {sub}: this engine publishes no `{ng[1]}` ({ng[2]}) -- `{sub}` is {ng[3]} (memoria-patch "
+                    f"{ng[2]}); it would answer \"netsync: unknown sub-verb '{sub}'\" only after the step. Not sent. Rebuild "
+                    f"the DLL, or update the driver.")
             if cap is not None and not getattr(st, cap[0]):
                 # [ff9mapkit netsync F3.3] the contract tag stays "authority" across s96-s105, so a capability is its key's
                 # PRESENCE: an engine without it answers "unknown sub-verb" only after the step
@@ -8996,6 +9029,12 @@ class Session:
             # [ff9mapkit netsync s139] HarnessSelfDress' own order: the ROLE first (the agent's gate, so on another role the
             # step goes out and its refusal comes back), then the op (lowercased), then its value -- in its words
             why = self._selfdress_refusal(st, args)
+            if why is not None:
+                raise HarnessError(why)
+        elif sub == "guestlocal":
+            # [ff9mapkit netsync s156] HarnessLever's own order: the ROLE first (the engine's gate, so on another role the step goes
+            # out and its refusal comes back), then the op and its arity / n -- in its words
+            why = self._guestlocal_refusal(st, args)
             if why is not None:
                 raise HarnessError(why)
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
@@ -9183,6 +9222,38 @@ class Session:
         harness. Returns a fresh state (``netsync.dress.ghost``: the levers as set, `mode`, what the ghost wears and its
         visibility)."""
         return self.netsync("selfdress", op, *args, timeout=timeout)
+
+    # -- [ff9mapkit netsync s156] guest traversal's bench -------------------------------------------------------------
+    def _guestlocal_refusal(self, st, args) -> str | None:
+        """HarnessLever's refusal of an unknown op, a wrong arity or a bad ``mutate`` index, in its words (None = well made,
+        or this machine is not the selftest role: then the ENGINE refuses, with its role words -- its order is role, then
+        op). The forms: ``act|shadow|off|clear|teleport`` alone, ``mutate <n>`` with ONE decimal integer n in 0..65535 as
+        Int32.TryParse(NumberStyles.Integer) reads it (an optional sign: "+3" and "-0" pass; a hex form, a fraction or a
+        second token is the usage line)."""
+        ns = st.netsync if isinstance(st.netsync, dict) else {}
+        if ns.get("selftest") is not True:
+            return None
+        n = len(args) + 1                                   # the agent's s.Args: "guestlocal" first
+        op = str(args[0]).strip().lower() if args else ""
+        if op not in self.NETSYNC_GUESTLOCAL_OPS:
+            return self.NETSYNC_GUESTLOCAL_USAGE
+        if op == "mutate":
+            val = str(args[1]).strip() if len(args) > 1 else ""
+            if n != 3 or not re.fullmatch(r"[+-]?[0-9]+", val) or not 0 <= int(val) <= self.NETSYNC_GUESTLOCAL_MUTATE_MAX:
+                return self.NETSYNC_GUESTLOCAL_USAGE
+        elif n != 2:
+            return self.NETSYNC_GUESTLOCAL_USAGE
+        return None
+
+    def guestlocal(self, op: str, *args, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s156] ``netsync guestlocal <op> [n]`` (selftest role): ``act|shadow|off`` (the lever: shadow =
+        every verdict computed and logged, every press declined as s155; off = CALIBRATION, the s155 spectator gate byte for
+        byte -- only ``verdicts.lever_off`` moves), ``mutate <n 0-65535>`` (ONE-SHOT: the next re-hash feeds byte n of its
+        input flipped; the live script is never touched), ``clear`` (act, no mutate, the verdict lines re-armed; the counters
+        are never reset -- read DELTAS) and ``teleport`` (the F11 / held L3 path: ``tp_calls`` +1, ``tp_last`` its outcome)
+        -- through :meth:`netsync`'s gates (refused before the step on an engine without ``netsync.guestlocal``). Returns a
+        fresh state; read it back through the ``guest_local_*`` accessors."""
+        return self.netsync("guestlocal", op, *args, timeout=timeout)
 
     def act_trance_grace(self, on: bool, *, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s137] ``actbench trancegrace on|off``: the trance burst timing's calibration lever (off = the
