@@ -85,7 +85,7 @@ index 731f4ce..3b7ee21 100644
                  if (bench)
                  {
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
-index b455c93..3fc6e02 100644
+index b455c93..a8058c3 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
 @@ -22,7 +22,8 @@ namespace Memoria.Netsync
@@ -212,7 +212,7 @@ index b455c93..3fc6e02 100644
              InBy[why]++;
 -            Log.Message("[NetSync] step-out: IN on field " + field + " after " + ms + " ms (" + (wasDressed ? "the body is back" : "undressed")
 +            Log.Message("[NetSync] step-out: IN on field " + field + " after " + ms + " ms (" + (!wasDressed ? "undressed" : gone
-+                        ? "the body is gone" : "the body is back")
++                        ? "the body is gone" : "the body is back")   // [ff9mapkit netsync s159] gone = unlinked
                          + ") -- " + InNames[why]);
          }
  
@@ -221,7 +221,7 @@ index b455c93..3fc6e02 100644
          // ================================================================ the harness (HarnessAgent.AppendStepOut, the `stepout` sub-verb)
  
 -        internal static String HarnessLeverName { get { return _lever == 1 ? "off" : null; } }
-+        internal static String HarnessLeverName { get { return _lever == 1 ? "off" : _lever == 2 ? "ctl" : null; } }
++        internal static String HarnessLeverName { get { return _lever == 1 ? "off" : _lever == 2 ? "ctl" : null; } }   // [ff9mapkit netsync s159] ctl
          internal static Int32 HarnessField { get { return _active ? _field : -1; } }
          internal static Int32 HarnessUid { get { return _active ? _uid : -1; } }
          internal static Boolean HarnessDressed { get { return _active && _dressed; } }
@@ -345,7 +345,7 @@ index b455c93..3fc6e02 100644
              }
 -            _lever = op == "off" ? 1 : 0;
 -            Log.Message("[NetSync] harness: step-out " + (op == "off" ? "OFF -- CALIBRATION: never step out (released with the harness)" : "ACT"));
-+            _lever = op == "off" ? 1 : op == "ctl" ? 2 : 0;
++            _lever = op == "off" ? 1 : op == "ctl" ? 2 : 0;             // [ff9mapkit netsync s159] + ctl
 +            Log.Message("[NetSync] harness: step-out " + (op == "off" ? "OFF -- CALIBRATION: never step out (released with the harness)"
 +                        : op == "ctl" ? "CTL -- CALIBRATION: anchor on the controlled actor, s158's rule (released with the harness)"
 +                        : "ACT"));
