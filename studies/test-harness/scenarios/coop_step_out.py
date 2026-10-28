@@ -99,7 +99,10 @@ HANG_S = 2.4                             # the mid-ladder hang: past DwellMs (1.
 CLIMB_S = 15.0
 LAND_S = 6.0
 IN_BY_S = 1.5                            # an IN must land this soon after control (StepInMs 500 + the publish cadence)
-DEBOUNCE_MIN_S = 0.4                     # ...and not before this (StepInMs 500, less two publishes)
+DEBOUNCE_MIN_S = 0.4                     # ...and not before this (StepInMs 500, less two publishes), measured from the LAST
+                                         # control-off sample ([ff9mapkit netsync s159] the flip lies after it: a stalled publish
+                                         # across the flip once read 0.40 on a correct engine -- the D-UP false red of the s159 bench)
+LAND_GAP_MAX_S = 0.3                     # a publish stall across the flip longer than this leaves the debounce unmeasurable (red)
 RELIGHT_S = 0.25                         # the body's renderers come back at the next logic tick after the IN
 DWELL_MIN_S, DWELL_MAX_S = 1.4, 2.3      # OUT by the dwell: never before 1.5 s of base (less a publish), and not long after
 NDWELL_MAX_S = 1.4                       # N-DWELL discriminates only when its control-off span is shorter than this
@@ -336,10 +339,12 @@ def judge_out_dressed(samples, shadow_rest, spec=None) -> tuple:
                      + (f"; WRONG: {bad[:8]}" if bad else ""))
 
 
-def judge_in(after, land_t: float | None, b0, *, dressed: bool) -> tuple:
+def judge_in(after, land_t: float | None, b0, *, dressed: bool, gap: float = 0.0) -> tuple:
     """The IN half: the first sample after control with active false lands DEBOUNCE_MIN_S..IN_BY_S after control, with in_why.control
     +1, the mask and the mirror back; the body's renderers are on by RELIGHT_S after it (a logic tick) and stay on; the stand-in is
-    gone."""
+    gone. [ff9mapkit netsync s159] ``gap`` = the seconds from the last control-off sample to the first control-on one: control came
+    back inside it, so the debounce's floor is measured from the last OFF sample (``dt + gap``); a gap over LAND_GAP_MAX_S leaves it
+    unmeasurable (red, never a silent green)."""
     if land_t is None:
         return False, "no landing (control never came back)"
     first_in = next((s for s in after if so_get(so(s), "active") is False), None)
@@ -349,7 +354,7 @@ def judge_in(after, land_t: float | None, b0, *, dressed: bool) -> tuple:
     b = so(first_in)
     later = [s for s in after if s["_t"] >= dt + RELIGHT_S]
     every = lambda pred: bool(later) and all(pred(s) for s in later)               # noqa: E731
-    parts = [("debounce", DEBOUNCE_MIN_S <= dt <= IN_BY_S),
+    parts = [("debounce", gap <= LAND_GAP_MAX_S and DEBOUNCE_MIN_S <= dt + gap and dt <= IN_BY_S),
              ("in_why.control +1", so_get(b, "in_why.control", 0) == so_get(b0, "in_why.control", 0) + 1),
              ("wire_mask back", every(lambda s: isinstance(so_get(so(s), "wire_mask"), int) and so_get(so(s), "wire_mask") > 0)),
              ("mirror shown", every(mirror_shown)),
@@ -357,7 +362,8 @@ def judge_in(after, land_t: float | None, b0, *, dressed: bool) -> tuple:
     if dressed:
         parts.append(("stand-in gone", all(so_get(so(s), "standin.on") is False for s in after if s["_t"] >= dt)))
     ok = all(v for _, v in parts)
-    return ok, f"IN {dt:.2f} s after control; " + ", ".join(f"{k} {'ok' if v else 'NO'}" for k, v in parts)
+    return ok, (f"IN {dt:.2f} s after control ({dt + gap:.2f} s after the last control-off sample); "
+                + ", ".join(f"{k} {'ok' if v else 'NO'}" for k, v in parts))
 
 
 def judge_shadow_debounce(after, shadow_rest) -> tuple:
@@ -576,10 +582,13 @@ def hang_climb(g, ctx: Ctx, leg: str, fid: int, direction: str, *, bench: bool, 
     c = gt.climb_hold(g, spec, direction, t0)
     res["samples"] += c["samples"]
     res["crossed"] = c["crossed"]
-    tail, hit = cb.watch(g, lambda s: control(s), LAND_S)
+    seen_at = {}                                           # [ff9mapkit netsync s159] each sample's receive time (the land gap)
+    tail, hit = cb.watch(g, lambda s: control(s), LAND_S, on_sample=lambda s: seen_at.__setitem__(s.frame, time.time()))
     res["samples"] += _stamp(tail, t0)
     res["land"] = dict(cb.raw(hit)) if hit is not None else None
     res["land_at"] = time.time() if hit is not None else None
+    offs = [seen_at[s.frame] for s in tail if not control(s) and s.frame in seen_at]
+    res["land_gap"] = (seen_at.get(hit.frame, res["land_at"]) - offs[-1]) if (hit is not None and offs) else 0.0
     res["after"] = watch_after(g, res["land_at"]) if res["land_at"] is not None else []
     try:
         hostscene(g, False)
@@ -760,7 +769,7 @@ def _u_up(g, ctx, led):
     if ctx.calibrate:
         ctx.marks["U-UP"] = samples
     ok1, why1 = judge_out_undressed(samples)
-    ok2, why2 = judge_in(res.get("after") or [], res.get("land_at"), res["b0"], dressed=False)
+    ok2, why2 = judge_in(res.get("after") or [], res.get("land_at"), res["b0"], dressed=False, gap=res.get("land_gap", 0.0))
     led.check("U-UP", ok1 and ok2, f"OUT: {why1} || IN: {why2}")
 
 
@@ -879,7 +888,7 @@ def _d_climb(g, ctx, led, leg: str, direction: str):
     if ctx.calibrate:
         ctx.marks[leg] = samples
     ok1, why1 = judge_out_dressed(samples, res.get("shadow_rest"), gt.LADDERS[207])
-    ok2, why2 = judge_in(res.get("after") or [], res.get("land_at"), res["b0"], dressed=True)
+    ok2, why2 = judge_in(res.get("after") or [], res.get("land_at"), res["b0"], dressed=True, gap=res.get("land_gap", 0.0))
     ok3, why3 = judge_shadow_debounce(res.get("after") or [], res.get("shadow_rest"))
     led.check(leg, ok1 and ok2 and ok3, f"OUT: {why1} || IN: {why2} || SHADOW: {why3}; shadow at rest {res.get('shadow_rest')!r}")
 

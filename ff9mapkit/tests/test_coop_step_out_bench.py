@@ -330,3 +330,21 @@ OUT = {"ctl": so.catalog(False, True)["K-CAL"], "off": so.catalog(True)["K-CAL"]
 ''')
     assert out["pred"] == ["M-352"] and out["ctl"].endswith("exactly M-352 red") and out["off_has"] and out["claim"]
     assert "M-352" in out["off"] and out["where"] == [352, 3, 2505], out
+
+
+def test_the_in_debounce_is_measured_from_the_last_control_off_sample():
+    """[ff9mapkit netsync s159] A publish stall across control's return made a correct engine read IN 0.40 s after control (the s159
+    bench's D-UP false red): the floor is measured from the last OFF sample (dt + gap). A no-debounce engine still reads red under the
+    same stall, and a stall over LAND_GAP_MAX_S is unmeasurable (red)."""
+    out = _child(_FIXTURES + r'''
+def after(t_in):
+    rows = [st(active=True, control=True, inc=1, t=0.02), st(active=True, control=True, inc=1, t=t_in - 0.03)]
+    rows += [st(active=False, control=True, inc=2, wire=31, shown=31, body=6, t=t_in + 0.05 * k) for k in range(12)]
+    return rows
+b0 = {"in_why": {"control": 1}}                   # the stepout block at rest (judge_in reads so(b0))
+j = lambda t_in, gap: so.judge_in(after(t_in), 1.0, b0, dressed=False, gap=gap)[0]
+OUT = {"stall_correct": j(0.40, 0.171), "no_stall_short": j(0.30, 0.04), "stall_no_debounce": j(0.05, 0.171),
+       "long_stall": j(0.40, 0.45), "plain": j(0.50, 0.04)}
+''')
+    assert out == {"stall_correct": True, "no_stall_short": False, "stall_no_debounce": False, "long_stall": False,
+                   "plain": True}, out
