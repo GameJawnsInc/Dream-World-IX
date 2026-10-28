@@ -298,7 +298,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Co-op dialogue — ★★ F3.2 no warp + lock TWO-MACHINE PROVEN; F3.3 warm battle return + v14 ring + key relay TWO-MACHINE PROVEN (s97-s99) → `studies/field-coop/F1-BUILD.md`
 - Battle co-op (menu, start sync, Wait, flee/defeat, cut hold, replay, guest model, leader guard) — ★★ s133-s143 built, s133-s135 owner-confirmed; next s142 → `studies/battle-coop/R3-GROUP2-BUILD.md`
 - World-map co-op (the host drives; the frozen guest rejoins the next field and boots their battles warm) — ★★ s144 + s145 deployed, solo/T2/duo proven → `studies/world-coop/S145-DESIGN.md`
-- Guest traversal (the guest climbs ladders/jumps on its own copy) — ★★ R0-R3 + s157 climb clips two-PC proven; s158 step-out's 352 fix s159 next → `studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`
+- Guest traversal (the guest climbs ladders/jumps on its own copy) — ★★ R0-R3 + s157 two-PC proven; s158-s159 scene step-out benched, 352 replay next → `studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`
 - Fort Condor fit (rung 5) — data-table substrate proven on bench 30415; awaiting owner ratification
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
