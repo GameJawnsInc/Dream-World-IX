@@ -62,18 +62,36 @@ and behaves as today. An older host never sends kind 3.
   reader is the pending press's uid, the field matches, and the read's mask asks for Select. MISC-08's mask still
   removes the guest's own Select first.
 - **Served, not consumed.** A served key is spent whether or not the guest's gate is true, so one serve proves nothing.
-  The press is served to that reader on every key tick until the guest's own ATE window opens (the `NewMesWin` hook on
-  the guest: the ATE caption, opened by that uid on that field), then retired. Success is proven by the lock's own
-  "win 1 text 98 opened locked" line and the relay's "opened my copy's ATE menu" line, never by a serve count. It
-  expires unopened after 5 s, at any field load, at a session reset, or when the lever is off.
+  The press is served to that reader on every key tick until the guest's own ATE MENU opens (the `NewMesWin` hook on
+  the guest: the ATE caption on a choice window, opened by that uid on that field; a title card never retires a press),
+  then retired. Success is proven by the lock's own "win 1 text 98 opened locked" line and the relay's "opened my
+  copy's ATE menu" line, never by a serve count.
+- **The press's life** (pure rules `PressKeep`, `PressLanding`, `PressExpiry`). It is kept while its field is mine, my
+  follow-warp's, or the host's (or the host's field is unknown for a moment): the dialogue inbox's own retention rule,
+  so the press never outlives the host's choice event for its menu. It survives a landing on its own field (a chained
+  ATE: the guest still in the last ATE's tail on 350 while the host, back on 352, opens the menu again) and is dropped
+  by a landing anywhere else. It expires 5 s after the first tick I stand on its field with my control on (a long
+  control-off arrival or tail does not use it up), and 20 s after it arrived in any case.
+- **One press at a time, and no stale choices.** A newer press replaces an older one. When the guest's menu opens, every
+  queued event for that window key older than the press is dropped (`NetSyncDialog.DropStaleChoices`): it answered a
+  host menu this copy never opened (the host cancelled and re-opened while the guest lagged), and the lock would
+  otherwise hand it to this menu first.
 - Once the menu is open it is an ordinary locked choice: the host's CHO event picks the row, its title is locked and
-  closes on the host's close event.
+  closes on the host's close event. **If the host's row is masked on the guest's menu** (its availability mask
+  diverged), the menu closes with Cancel instead of its default row: the default is another ATE the host never picked,
+  whose title, fade and `Field()` would play on the guest alone. Every census ATE menu enables Cancel.
 
 ### The episode: let the guest's own script carry it to the ATE and back
 
 From the moment the guest's copy opens its ATE menu from a relayed press, the guest is in an **ATE episode**:
+- **Before the pick** (a late guest: its control came back after the host already picked and left). While a press is
+  pending for the guest's field, or its menu is open with the guest's control off, and the host's choice for that very
+  menu is already queued and is not Cancel, the follow waits, up to 5 s from the first held tick. The intent fast-path
+  also waits one Update whenever ring events have arrived but are not merged yet, so a press and its pick that ride the
+  same frame as the host's intent (after a lane stall) are seen first.
 - **Hub phase** (on the menu's field). It notes whether the menu was closed by the host's own choice event (the lock's
-  `ApplyEvents`, a closing CHO on an ATE-caption window). Only then:
+  `ApplyEvents`, a closing CHO on an ATE-caption window) that landed EXACTLY (not the masked-row fallback) and is not
+  Cancel. Only then:
   - **The own jump passes.** The copy's own `Field(dest)` passes `RedirectGuestFieldJump` (one line, "my copy's own
     Field(dest) passes: the host's pick"). Today it can bounce: the host's position lane reads field 0 while it loads
     350, so `dest == LastHostField` fails and the guest would reload 352 first (the double load the brief forbids). The
@@ -88,17 +106,27 @@ From the moment the guest's copy opens its ATE menu from a relayed press, the gu
   "a host event for my field still waiting", as Finding 4 words it; that let the follow's black fade cut the last
   second of the ATE, after its last line and before its own `Field()`.
 - **The end.** Any other field load, the second landing, my control back for 1 s (the host picked Cancel, or the scene
-  ended in place), the session ending, or the lever.
+  ended in place), a session reset, or the lever. Not an epoch change: a host's transport reset mid-ATE still runs the
+  picked branch, and the keep rule drops a real relaunch's press on its own.
 
-The cap keeps every hold bounded: a guest copy that diverged gets today's follow after 8 s.
+The caps keep every hold bounded: a guest copy that diverged gets today's follow after 5-8 s.
+
+**The hub pass is destination-blind on purpose.** A rule that also required `dest == the host's announced field` was
+considered and dropped: the guest's own `Field(350)` and the host's intent frame are produced about 5 frames apart, so the
+own jump can run before the intent arrives, and the stricter rule would then bounce it into a 352 reload, the double load
+the brief forbids. The exact, non-Cancel pick is the guard instead: the guest's copy runs the host's case on the host's
+mirrored state.
 
 ### The step-out on the ATE menu: no
 
 The s158 step-out would fire on the guest's menu (a fresh line with control off), darken a dressed guest and show a
-Zidane stand-in for as long as the host browses the menu; the host's option C already hides the guest's ghost while the
-host's own menu is up. The menu and the title card are system captions over a still room, not a party scene. So:
-- ATE-caption windows (`Dialog.CapType == ActiveTimeEvent`) are never a fresh line (`NetSyncWindowSnapshot.AnyFresh`,
-  shared by both screens' rules);
+Zidane stand-in for as long as the host browses the menu. On s158 the host's option C also hides the guest's ghost while
+the host's own menu is up (that menu is a fresh line on the host). The menu and the title card are system captions over a
+still room, not a party scene. So, on BOTH screens:
+- ATE-caption script windows (lockable, `Dialog.CapType == ActiveTimeEvent`; a pooled UI dialog can keep a stale
+  caption type, so the caption alone is not enough) are never a fresh line (`NetSyncWindowSnapshot.AnyFresh`,
+  shared by the guest's start rule and the host's option C). A behaviour change on the host: from s161 the guest's ghost
+  stays visible while the host browses its ATE menu and reads the title card;
 - while one is open on my copy, the step-out's base does not hold (a new term, "an ATE caption is open"), so the dwell
   cannot start it either.
 The scene on the destination field is an ordinary scene: the step-out applies there as before.
@@ -126,6 +154,31 @@ no overlap: s160 rides a new state section (9); s161 is ring kind 3.
 - `netsync.ate` (the harness state's netsync LAST key): the lever, the pending press, the episode phase and flags, and
   cumulative counters (relayed, served ticks, opened, expired, own jumps passed, holds).
 - `NetSyncAte.SelfTest` rows for every pure rule, each with a mutant, in the selftest block after the step-out's line.
+
+## Pre-build review, round 1
+
+One reviewer read the first cut (three lenses: the relay and episode, the netsync machinery around it, vanilla/host/solo
+safety) and reported ten findings. Each was then checked by two verifiers with different lenses (a code trace; real-play
+reachability plus an attack on the proposed fix). All held at least in part; three proposed fixes were rejected by a
+verifier and replaced:
+
+| # | Finding | Verdict | Resolution |
+|---|---|---|---|
+| F1 | A chained ATE's press, or one that arrives while the guest follows onto its field, is lost (expired on a field mismatch, dropped at every landing) | confirmed, reachable | The keep / landing / expiry rules above. A first fix (an on-field TTL alone) lost in-place chains and could outlive the choice event; replaced by the inbox's own retention rule plus a control-on live clock |
+| F2 | The hub pass is destination-blind and `by_host` was set on the masked-row fallback and on Cancel | confirmed (precondition rare in mirrored play) | `by_host` only on an exact, non-Cancel pick; a masked host row closes with Cancel. The proposed "dest must match the intent" clause was dropped (see above) |
+| F3 | Nothing holds the follow before the pick lands | confirmed | The pending / pre-pick holds above, narrowed to "the host's pick for this menu is already queued and is not Cancel", plus the one-Update ring deferral |
+| F4 | A newer press drops an unopened one, and the lock then hands the earlier menu's Cancel to the guest's only menu | confirmed | Drop the menu key's older choice events when it opens. A FIFO of presses was rejected: it replays every cancelled menu and still misaligns after an expiry |
+| F5 | An epoch change does not reset the relay | partly: harmless on a relaunch | No reset (it would break a host reconfigure mid-ATE); the comment now says so |
+| F6 | A pooled UI dialog with a stale ATE caption suppresses the step-out | confirmed | Require a lockable (script) window |
+| F7 | The hold allocated a string every held frame; the intent was read every frame | confirmed | Two Int32s for the log dedup; the intent is read only at a jump |
+| F8 | `OwnReloadLanded` was never cleared | confirmed | Cleared at the episode's end and published only while the destination phase lives |
+| F9 | The tap-record pass was not limited to field mode | confirmed (bench only) | `gMode == 1` |
+| F10 | Host option C no longer hides the guest's ghost during the host's ATE menu | intended | Stated as a behaviour change above |
+
+The self-test grew to 83 rows and 26 mutants. It now also runs OFFLINE: the built `Assembly-CSharp.dll` loads under
+PowerShell's .NET Framework with an assembly resolver pointed at the game's `Managed` folder, and
+`NetSyncAte.SelfTest`, `NetSyncStepOut.SelfTest` and `NetSyncDialog.SelfTest` are invoked by reflection (all three
+pass: 83/26, 37/12, and the dialogue proof). The pure rules touch no Unity state, so no game is needed.
 
 ## Census, second count
 
