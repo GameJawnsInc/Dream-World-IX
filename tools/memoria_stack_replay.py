@@ -129,6 +129,10 @@ DEFAULT_FILES = [
     "Assembly-CSharp/Memoria/Netsync/NetSyncGuestLocalTable.cs",
     "Assembly-CSharp/Global/EBin.cs",
     "Assembly-CSharp/Global/Event/Engine/EventEngine.ProcessEvents.cs",
+    # [ff9mapkit netsync s158] the party-scene step-out: its new file (created from /dev/null); every stock hook site it touches
+    # (ProcessEvents.cs's SetRenderer, PosObj.cs, NetSyncSelfDress.cs, NetSyncClient.cs, NetSyncBattle.cs, HarnessAgent.cs, the
+    # csproj) is listed above
+    "Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs",
 ]
 
 # [ff9mapkit netsync s157] GENERATED files are only ever replaced WHOLE (the kit renders them from a JSON twin; their pins

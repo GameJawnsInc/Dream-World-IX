@@ -38,6 +38,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   saying disc 4 kept its own ground, an edit's Accept included.
 - An edit whose later step cannot be put back on top is cancelled and says why; it used to stop silently.
 
+### Fixed — co-op: the guest no longer appears twice in story scenes (engine patch s158)
+From `studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Finding 3 of the first two-PC session.
+- **During a host scene the guest steps out on both screens.** Both copies run the scene, so the guest's character
+  used to stand inside Zidane (Dali 359: two Steiners, one inside Zidane). Now, while the host is on the guest's field
+  with control off and the guest's own control is off, the guest's body and its ghost on the host hide. It happens at
+  once when a new line opens, else after 1.5 s, so a door's fade-in never flashes it. The guest comes back 0.5 s after
+  its control returns, on a field change, or when the session ends.
+- **A dressed guest sees the solo scene.** Its own screen draws Zidane in the body's place, at the body's position and
+  in Zidane's own clip at the body's frame, so a guest playing Steiner watches the scene as a solo player would.
+- **The host also hides the guest's ghost in its own plain scenes**, even when the guest still has control. Talking to
+  an NPC, opening a chest or reading a sign keeps the guest visible.
+- Not covered: party members met in free roam, a talk that turns into a party cutscene, and a scene with no line
+  shorter than 1.5 s. The step-out is a pop, not a fade.
+- Both PCs need the s158 engine. A guest on s157 never steps out, and a host on s157 can still show an s158 guest's
+  ghost during a scene.
+
 ### Fixed — co-op: a dressed guest climbs in its own clips, and a stopped climber's ghost holds still (engine patch s157)
 From `studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Findings 1 and 2 of the first two-PC session.
 - **A guest dressed as another character climbs ladders and takes jumps in that character's own animations.** Steiner

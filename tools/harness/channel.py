@@ -791,6 +791,19 @@ class State:
         """s156: the whole ``netsync.guestlocal`` block, copied (None = absent)."""
         return self._ns_path("guestlocal", dict)
 
+    # ---- [ff9mapkit netsync s158] THE PARTY-SCENE STEP-OUT (studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md Finding 3): `netsync.stepout`,
+    # netsync's LAST key (after `guestlocal`). Key PRESENCE is the capability.
+    @property
+    def coop_step_out(self) -> bool:
+        """s158: the party-scene step-out (``netsync.stepout.outs`` present). False = an engine whose guest never steps out of a
+        host scene and which answers `netsync stepout` with "unknown sub-verb"."""
+        return self._ns_path("stepout.outs", int) is not None
+
+    @property
+    def step_out(self) -> dict | None:
+        """s158: the whole ``netsync.stepout`` block, copied (None = absent)."""
+        return self._ns_path("stepout", dict)
+
     guest_local_mode = _guestlocal_prop("mode", str, "s156: the gate's EFFECTIVE mode -- 'act' | 'shadow' | 'off' (the lever on "
                                                      "the selftest role only, else 'act'; '' = the catch line).")
     guest_local_lever = _guestlocal_prop("lever", str, "s156: the `guestlocal` lever AS SET -- 'act' | 'shadow' | 'off' ('' = "

@@ -166,6 +166,159 @@ It still leaves a few things untouched:
 **This is a taste call for the owner** before it is built: during host scenes the guest does not see themselves.
 The owner already wants plain NPC talks to keep the guest visible.
 
+**Owner decisions (2026-10-27):**
+- step out on both screens (A + C + E), as recommended;
+- pop, not fade;
+- the host hides the guest's ghost during its own plain scenes, even when the guest still has control (C);
+- no free-roam rule (F) this round.
+
+### Build: engine patch s158 (`memoria-patches/s158-netsync-step-out.patch`)
+
+The number is s158 because another round took s157. The code is `NetSyncStepOut` plus hooks in `NetSyncClient`,
+`NetSyncSelfDress`, `SetRenderer`, `PosObj` and the harness.
+
+The guest's rule:
+- **Start.** Every base term must hold: a following, mirroring guest on a field; the host on my field with its control
+  off; my control off; no guest climb in flight; not a relayed talk; the lever not off. Then the guest steps out at once
+  when a fresh line opens on its own copy, and otherwise after a 1.5 s dwell. (The pre-build review dropped an earlier
+  host-scene shortcut; see below.)
+- **The arrival law.** A door's fade-in has control off on both copies and no line. The dwell keeps it from stepping
+  out. Without it, a dressed guest would flash Zidane at every parallel arrival.
+- **End.** My control back for 500 ms, a field change, the controlled body changing, the session ending, or the lever.
+  It also ends at once when a relayed talk or a guest climb starts inside the episode. The host's state does not end it,
+  because the guest's copy may still be playing the tail of the scene.
+- **The talk test** is the guest's own copy. A relay accept owns the control-off episode it starts. Before the accept,
+  the host's section-5 nonce equal to `_talkSceneNonce` also counts as a talk.
+
+While the guest is stepped out:
+- its wire mask is 0, so the host's ghost of it hides;
+- its own screen hides the host's ghost;
+- a dressed body's meshes go dark through a flag4 term, but the blob shadow keeps stock's flag4, because it sits under
+  the stand-in;
+- a Zidane stand-in (the body's `netDressSrc` model) follows the body. It copies the body's local position, rotation
+  and scale. It plays the body's raw source clip at the body's own normalized time, takes the body's room tint, and
+  shows only when stock would show the body. It runs in its own `LateUpdate`, after the logic tick and the smoothing
+  pass. The raw clip is recorded in `PosObj.netRawAnims` wherever `NetSyncSelfDress` maps one: the slot setters,
+  `RunAnimation`, the dress-time slot store and the jump;
+- an undressed body stays visible, because it already is the solo protagonist.
+
+The host's side:
+- a zero wire mask now hides the ghost in every dress branch. Before s158, only the same-model branch read it;
+- while the host's sticky scene is up and was not raised by a relayed talk (`StartSceneAt` marks those), the guest's
+  ghost hides.
+
+Accepted gaps:
+- a prop held by a dressed body hides with it;
+- the head focus is not copied to the stand-in;
+- free-roam doubles (F);
+- a talk that turns into a party cutscene (G);
+- a scene with no line, shorter than the dwell, shows the double for its length;
+- the pop.
+
+### Pre-build review (2026-10-27)
+
+Before the first build, six reviewers each read the private engine copy through one lens: visibility, the trigger, the
+stand-in, the wire and the host, the harness and bench, and stock safety. Two skeptics then tried to refute each serious
+finding, and a completeness critic looked for misses. 34 of 36 findings survived, and the critic added 4. Fixed before the
+build:
+- **The client's no-mask ghost branch never came back.** A guest whose own GhostAs dresses the host's ghost as a model
+  equal to neither body lost the ghost for the rest of the field after its first step-out. The branch now re-asserts the
+  spawn look every frame.
+- **The episode carried on through a relayed talk.** A talk or a guest climb accepted inside the 500 ms debounce
+  re-dropped control, so a plain NPC talk stayed stepped out. Both now end the episode at once. Talk ownership is also
+  scoped to its field.
+- **OUT drew the body and the stand-in together** for one logic tick. `SetRenderer` runs only inside a tick, so a dressed
+  body now goes dark in the same frame. StepIn re-evaluates the actors that were under the body, so a prop detached
+  mid-episode lights again.
+- **The host's scene and a HUD strip started step-outs.** On a field with a persistent strip, the sticky scene rises at
+  every control-off beat, and AnyEtbLine counts the strip. The start is now a **fresh line**: a lockable, non-inhibited
+  window that was not open when the base began. The host-scene shortcut is gone. Option C uses the same fresh-line rule
+  against the host's control-off edge, and the card button (`Request(obj, 1, 8)`, never relayed) counts as an NPC
+  interaction.
+- **The stand-in copies the body's material state every frame:** shader, render queue, `_Slice` and the `_Color` rgb. So
+  stock's wading slices (2800, 2951, Evil Forest) and blend fades (2928) reach it. While out, it also takes the source
+  rig's eye height, so the speaker's window points at its head. A spawn fault can no longer leak a model.
+- **Smaller fixes:**
+  - the talk-lane check gets `_talkSceneTalk`'s guard;
+  - stale harness reads are gone: `ghost.hide` and `host_plain_scene` are written every frame;
+  - the stand-in's published clip time is read off its own AnimationState.
+- **Bench defects fixed:**
+  - the mirror witness is `dress.ghost.shown_mask`; `hidden` is a list of renderer paths, never a bool;
+  - the shadow is judged against stock's own switch (`shadow_off`), because the 207 ladder turns the shadow off itself;
+  - IN allows one logic tick for the relight;
+  - the time and clip checks could not fail, so they now need a ZDN ladder clip mid-ladder and a moving clip time;
+  - the distance check allows one frame of motion (80 u);
+  - the climbs hang past the dwell, and a new N-DWELL leg checks that a short climb never steps out.
+
+Accepted and documented: a mirror floor reflects the dressed body; multi-binder fields keep the double; the dress rig's
+footsteps keep sounding under the stand-in; a prop attached mid-episode stays at the dark rig's hand; a loco
+`RunAnimation` can colour which walk variant the stand-in plays.
+
+**Second round, on the code the first round added** (three lenses, two skeptics each; 14 of 15 survived). Fixed:
+- **Option C hid the guest at stock chests, hidden pickups and button-polled signs and posters.** These are an IsButton
+  poll in a tag-2 `_Range` function and never reach EventCollision. A control-off episode that begins within 300 ms of
+  Confirm, Cancel or Special now counts as an interaction.
+- **The inhibit flag was unstable.** `[TIME]` and `[INCS]` set FlagButtonInh only at the label's first render. Only
+  `[NFOC]` is never fresh now; it is the one tag that also clears `FlagResetChoice`, at Show.
+- **The snapshots anchor on control.** The host's is taken every control-on frame, so a line opened in the DisableMove
+  tick counts. The guest's is anchored on its own control, not the whole base, so a line its copy opened before a host
+  term held still counts.
+- **A promoted quad blinked the guest's ghost for one frame**, because StartSceneAt ran after option C's per-frame read.
+  It now clears that read.
+- **StepIn is synchronous.** The stand-in hides and the darkened renderers relight in the same frame. The source eye is
+  restored even when the field (and the go) is gone.
+- **The bench:**
+  - IN's mask and mirror checks get the relight grace;
+  - the ladder witness needs the loop's own `LADDER_1_2`, since a lost raw record plays the mount clip;
+  - the shadow is judged in the step-in debounce, where a dark-term leak would show;
+  - N-DWELL raises the host scene once mounted and judges the dwell clock (`base.age_ms`);
+  - the part hold before the hang is measured in game units, not frames;
+  - the body's clip time is read live.
+
+**Third round, on the second round's code** (two lenses, two skeptics each; 5 of 5 survived). Four of them were one
+mechanism: the 300 ms held-input press exemption. It could miss the tap that the same tick consumed, by Unity's update
+order (NetSyncClient is added at runtime). It also counted a held Cancel, which is stock's walk/run modifier, so a host
+walking into a story trigger escaped option C. The exemption now sits where the script consumes the press:
+`TapScriptKeyIfHost` already sees every host script button read, and a control-on read that hit Confirm or Special arms
+`NoteHostInteraction`, so the scene that rises within 2 s is an interaction. The fifth was a bench bug: N-DWELL read the
+lever's never-armed base as a red, which made K-CAL unreachable; under the lever it now judges only "never out". The
+findings went 34, then 14, then 5, all from one mechanism now replaced by a 10-line check at the script's own read, so the
+review is closed. The in-game bench and the two-PC session are the next instruments.
+
+### Built, deployed and solo-benched (2026-10-28)
+
+s158 was written against s156 in a private copy while s157 ran, then merged three-way onto the s157 engine: s157's
+lines first, s158's after. The merge met one real interaction. When s157's twin guard falls back (`TwinMissed`), the
+body plays the fallback, not the twin. s158's raw record now follows what the body plays, so the stand-in's
+last-play key still matches.
+
+The engine is deployed as `Assembly-CSharp.dll` `1958ac7cfa492238`. Revert set `20261028-013714`.
+
+- **`coop_step_out.py` reads 12/12.**
+  - U-UP (undressed on 114) steps out by the dwell at 1.50 s and back in 0.50 s after control.
+  - D-UP and D-DN (dressed as Steiner on 207) do the same, with the body dark on every out sample.
+  - The stand-in is `GEO_MAIN_F0_ZDN` playing `LADDER_1_2`, 0 u from the body, at the body's clip time to within 0.001.
+  - The shadow follows stock's own switch.
+  - N-REST, N-CLIMB, N-TALK and N-DWELL never step out; N-DWELL's longest base was 0.92 s.
+- **The calibration (`COOP_CALIBRATE=1`) reads 11/14.** Exactly U-UP, D-UP and D-DN go red, each on its marker.
+- **The stills** (`.harness-runs/20261028-020435-s158-stills/`, an unjudged lab):
+  - at rest, Steiner and his mirror ghost side by side;
+  - mid-ladder after the dwell, only Zidane on the rungs in his own clip;
+  - at the top, both back.
+- **The regression set is green on s158:**
+  - coop_guest_traversal 28/28;
+  - coop_climb_anim 21/21;
+  - coop_self_dress 65/65;
+  - coop_talk_relay 28/28;
+  - coop_dialogue_authority 147/147;
+  - the duos coop_dress_wire 22/22 and coop_follow_race_duo 21/21.
+
+  The shared install is live-configured as a host and refuses the selftest role, so the three single-game dialogue
+  and dress benches ran on the host instance root.
+
+Not proven: the two-PC session. The bench fakes the host's scene bit and reads the selftest mirror, so a real host's
+option C and a real guest's mask over the relay are first seen there.
+
 ## Finding 4: the guest lags the host's F1 high speed through conversations
 
 **Cause.** F1 is stock Memoria's High Speed booster (`UIKeyTrigger.cs:237-256`). `FastForwardFactor` returns
@@ -253,5 +406,10 @@ reliable here: the guest's copy runs ahead into the scene's own `Field(114)`, wh
    `memoria-patches/README.md`, the s157 row. Next: the two-PC check on 114 undressed and 207/408 dressed, both PCs
    on s157.
 2. **The party-scene step-out** (Finding 3, A+C+E), after the owner's taste call.
+   **Status: BUILT, DEPLOYED and SOLO-BENCHED as engine patch s158 (2026-10-28), on top of s157.**
+   `coop_step_out.py` reads 12/12, and its lever calibration reds exactly its three predicted rows. The stills show
+   only Zidane on the 207 rungs while a Steiner-dressed guest is stepped out. Detail and the gates:
+   `memoria-patches/README.md`, the s158 row. Next: the two-PC check of 359 (Dali, where Steiner walks in) and one
+   scene where party members emerge from Zidane, both PCs on s158. That session can run item 1's s157 checks too.
 3. **The host's field rate on the wire, plus the capped follow-hold** (Finding 4).
 4. **The same-field reload** (Finding 5): backlog. It has real stock cases, so it is not only debug hygiene.
