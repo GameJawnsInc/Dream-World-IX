@@ -466,8 +466,8 @@ FieldTPS 30; candidates 1 and 3 need it on). A short video settles it.
   guest serves the press once to that chest's next control-on read). Risks: 301's chest latch is off on the guest's copy, so
   prove it on a latch-free chest first; the guest's item grant is session-scoped; the same tap covers pickups and signs; a
   version gate for older guests.
-  **Designed as engine s161 (tentative), 2026-10-28: `CHEST-RELAY.md`.** Owner decisions: chests only (stock models 75/91/
-  701/702, 140 of the 186 stock tag-2 button spots), and the guest kneels like stock. It waits for s159 and s160 to build.
+  **Designed as engine s160, 2026-10-28: `CHEST-RELAY.md`.** Owner decisions: chests only (stock models 75/91/701/702,
+  140 of the 186 stock tag-2 button spots), and the guest kneels like stock. It builds after s159; the ATE round is s161.
 - **ATEs: the guest sees the "ATE" icon but never the menu or the title.** Each copy draws the icon itself. The menu opens only
   on a Select read with control ON, which the host never relays and the guest masks on purpose (MISC-08). So the guest's copy
   never opens the choice window (text 98), and the title card and the white fade inside that branch never run. The ATE's

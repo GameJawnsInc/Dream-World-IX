@@ -1,8 +1,8 @@
-# The chest relay: a guest sees the host open a stock chest (engine s161)
+# The chest relay: a guest sees the host open a stock chest (engine s160)
 
-**Status: DESIGNED 2026-10-28, not built.** It waits for s159 (the step-out and bench fixes) and s160 (the ATE
-menu and title) to build, because s160 adds a guest serve in the same `FilterScriptButtons` branch.
-The s-number is tentative (owner, 2026-10-28).
+**Status: DESIGNED 2026-10-28, drafted and compile-checked, not built.** The owner set the order on 2026-10-28:
+s159 (the step-out anchor and bench fixes), then this round as s160, then the ATE menu and title as s161, which
+rebases onto it (`netsync-round-queue.md` in the top session's notes).
 
 ## The defect
 
@@ -144,10 +144,10 @@ body returns before `IsButton`. It degrades to today's behaviour with a log line
   - `netsync chest serve on|off`: off = the serve never answers, so the body runs and the read stays masked.
   - `netsync chest request on|off`: off = no forced `Request`, so only a body the stock range request runs is
     served.
-- **Keys:** `netsync.chest` (LAST, after whatever s160 adds): lever states, last uid, armed, served, expired,
+- **Keys:** `netsync.chest` (LAST, after s158's `stepout`, or after whatever s159 adds): lever states, last uid, armed, served, expired,
   declined, and the host's armed / promoted / dropped counts.
 - **An unknown sub-verb throws on an older engine.** A driver probes `netsync.chest` before sending, so a
-  pre-s161 engine can never misparse it.
+  pre-s160 engine can never misparse it.
 
 ## Bench plan (solo first)
 
@@ -174,7 +174,7 @@ log line or published state:
 - the guest's window 7 opens, and the host's Confirm closes both;
 - the host's ghost of the guest stays visible (option C), and the guest does not step out;
 - the guest's autosave bytes are unchanged.
-- **The version gate:** a third leg with the guest root on the s160 DLL. No window opens there, there is no
+- **The version gate:** a third leg with the guest root on the s159 DLL. No window opens there, there is no
   tag-3 `Request` line, and the guest is neither moved nor frozen.
 
 **Two-PC (the owner):** 352's chest from the Dali save, outside the night scene, first undressed, then dressed.
@@ -182,12 +182,12 @@ Then 301, expected to stay as today (the latch) with the not-served line in the 
 
 ## Order and coordination
 
-1. s159 builds, then s160. s161 is drafted against the s158 clone in a private copy and replayed onto the shared
-   clone only after s160 is captured. Its files: `NetSyncClient.cs` (the arm, the promotion kind, the section,
+1. s159 builds first. s160 is drafted against the s158 clone in a private copy (compile-clean, 2026-10-28) and replayed
+   onto the shared clone only after s159 is captured and released in the queue. Its files: `NetSyncClient.cs` (the arm, the promotion kind, the section,
    the accept, the serve state), `NetSyncField.cs` (the serve call), `NetSyncState.cs` (the id and the codec
    pin), and `HarnessAgent.cs` (the sub-verb and the key).
-2. s160 serves a control-on Select to the ATE reader. If its serve is a general (reader, bits, one-shot) store,
-   s161 uses it instead of adding a second one.
+2. s161 (the ATE round) serves a control-on Select to the ATE reader in the same `FilterScriptButtons` branch. It
+   rebases onto s160, so it can reuse s160's one-shot serve instead of adding a second one.
 3. Bench solo, then ask the owner for the two-PC check.
 
 ## Follow-ups (not this round)
