@@ -38,6 +38,19 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   saying disc 4 kept its own ground, an edit's Accept included.
 - An edit whose later step cannot be put back on top is cancelled and says why; it used to stop silently.
 
+### Fixed — co-op: a dressed guest climbs in its own clips, and a stopped climber's ghost holds still (engine patch s157)
+From `studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Findings 1 and 2 of the first two-PC session.
+- **A guest dressed as another character climbs ladders and takes jumps in that character's own animations.** Steiner
+  used to slide up the rungs standing stiff in his idle pose (the "pencil"). The engine maps each of Zidane's ladder
+  and jump clips to the worn character's own: the same clip when that character has it, else its nearest plain jump.
+  A character with no matching clip keeps the old idle pose. The table holds ids and frame counts only.
+- **A ghost whose climber stops on a ladder stops too.** The 30 Hz position message now carries the animation frame
+  (2 more bytes, no protocol bump), and the other screen shows that frame instead of looping the clip.
+- The guest-traversal table in the engine is the kit's 80-row table again (the 1209 monster-patrolled ladder is
+  refused in game too).
+- Both PCs need the s157 engine for both fixes to show. With one PC still on s156 the pair still works, but the
+  ghosts loop their clips as before.
+
 ### Added — co-op: the guest climbs ladders and takes jumps on its own (engine patch s156)
 From `studies/field-coop/GUEST-TRAVERSAL.md`, rungs R0-R2.
 - **A following guest can use the room's own ladders, jumps and carries**, the ones that only move the player, instead
@@ -55,7 +68,7 @@ From `studies/field-coop/GUEST-TRAVERSAL.md`, rungs R0-R2.
   save data, poll any key but the directions, or carry the guest onto ground none of the room's entrances reach where
   stepping on a spot or meeting a monster starts something. That refuses six stock rows the census allowed (two stone
   switches in 2702, one in 353, two in 2507, a monster-patrolled ladder in 1209). The deployed engine predates the last
-  rule and still allows the 1209 ladder until its next rebuild; the monster's battle is skipped on the guest's screen.
+  rule and still allows the 1209 ladder (the monster's battle is skipped on the guest's screen); s157 refuses it too.
   What still gets through, on the guest's screen only, is listed in the study with its engine follow-up.
 
 ### Fixed — co-op: the rest of the fix-first list (engine patch s154, the kit's own host code)

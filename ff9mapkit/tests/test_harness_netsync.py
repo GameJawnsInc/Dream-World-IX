@@ -869,9 +869,29 @@ def _unworlded(doc: dict) -> dict:
     return out
 
 
+def _unghosted(doc: dict) -> dict:
+    """[ff9mapkit netsync s157] A `netsync` document without s157's TOP-LEVEL block -- `ghostframe`, netsync's LAST key (after
+    `guestlocal`; FG.NETSYNC_TOP_CAP_KEYS' `dresstwin` row): the ghost frame's half of s157's catch-line change. [ff9mapkit netsync s158] (and without s158's block:
+    :func:`_unstepped` -- so every un-X strips everything newer than its patch)"""
+    return {k: v for k, v in _unstepped(doc).items() if k not in FG.NETSYNC_TOP_CAP_KEYS["dresstwin"]}   # [ff9mapkit netsync s158]
+
+
+def _untwinned(doc: dict) -> dict:
+    """[ff9mapkit netsync s157] A `netsync` document without s157's catch-line keys -- the twin keys inside `dress.self`
+    (BW.DRESS_TWIN_KEYS, AppendDressTwin, after `polish`) and the ghost frame's `ghostframe` block (:func:`_unghosted`): the
+    catch line as s156 wrote it -- s157 added those and nothing else."""
+    doc = _unghosted(doc)
+    d = doc.get("dress")
+    if not isinstance(d, dict) or not isinstance(d.get("self"), dict):
+        return doc
+    out = dict(doc)
+    out["dress"] = dict(d, self={k: v for k, v in d["self"].items() if k not in BW.DRESS_TWIN_KEYS})
+    return out
+
+
 def _unstepped(doc: dict) -> dict:
     """[ff9mapkit netsync s158] A `netsync` document without s158's catch-line block -- `stepout`, netsync's LAST key (after
-    `guestlocal`; FG.NETSYNC_TOP_CAP_KEYS' `stepout` row): the catch line as s156 / s157 wrote it -- s158 added that one block and
+    s157's `ghostframe`; FG.NETSYNC_TOP_CAP_KEYS' `stepout` row): the catch line as s157 wrote it -- s158 added that one block and
     nothing else."""
     return {k: v for k, v in doc.items() if k not in FG.NETSYNC_TOP_CAP_KEYS["stepout"]}
 
@@ -879,8 +899,9 @@ def _unstepped(doc: dict) -> dict:
 def _untraversed(doc: dict) -> dict:
     """[ff9mapkit netsync s156] A `netsync` document without s156's catch-line block -- `guestlocal`, netsync's LAST key (after
     `world`; FG.NETSYNC_TOP_CAP_KEYS' `guestlocal` row): the catch line as s154 / s155 wrote it -- s156 added that one block and
-    nothing else. [ff9mapkit netsync s158] (and without s158's block: _unstepped)"""
-    return {k: v for k, v in _unstepped(doc).items() if k not in FG.NETSYNC_TOP_CAP_KEYS["guestlocal"]}
+    nothing else. [ff9mapkit netsync s157] (and without s157's keys: _untwinned) [ff9mapkit netsync s158] (and s158's block: the chain)"""
+    doc = _untwinned(doc)
+    return {k: v for k, v in doc.items() if k not in FG.NETSYNC_TOP_CAP_KEYS["guestlocal"]}
 
 
 def _unsonged(doc: dict) -> dict:
@@ -915,8 +936,8 @@ def _unguarded(doc: dict) -> dict:
             if isinstance(battle.get(sub), dict):
                 battle[sub] = {k: v for k, v in battle[sub].items() if k != "guard"}
         out["battle"] = battle
-    if isinstance(doc.get("dress"), dict):
-        out["dress"] = {k: v for k, v in doc["dress"].items() if k != "guard"}
+    if isinstance(out.get("dress"), dict):            # [ff9mapkit netsync s157] off `out` (the twin keys already stripped)
+        out["dress"] = {k: v for k, v in out["dress"].items() if k != "guard"}
     return out
 
 
@@ -2184,8 +2205,8 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     # [ff9mapkit netsync s156] ...through s155 (s154's catch line, frozen) `world` is the last; s156's `guestlocal` follows it
     s155_top = list(_catch_doc_in("s155"))
     assert s155_top[s155_top.index("battle"):] == ["battle", "dress", "world"], s155_top
-    # [ff9mapkit netsync s158] ...and s158's `stepout` after `guestlocal`
-    assert top[top.index("battle"):] == ["battle", "dress", "world", "guestlocal", "stepout"], top
+    # [ff9mapkit netsync s157] + `ghostframe`; [ff9mapkit netsync s158] ...and s158's `stepout` after it
+    assert top[top.index("battle"):] == ["battle", "dress", "world", "guestlocal", "ghostframe", "stepout"], top
     assert tuple(prev_doc["dress"]) == tuple(k for keys in FG.NETSYNC_DRESS_CAP_KEYS.values() for k in keys)
     assert tuple(prev_doc["dress"]["ghost"]) == FG.NETSYNC_DRESS_GHOST_KEYS == tuple(BW.DRESS_GHOST_SENTINELS)
     # ...the LIVE union, which is every dress rung's FROZEN row in ladder order (a probe / stand-in reads its rung's row)
@@ -6544,6 +6565,11 @@ def _gl_proof_text() -> str:
             f"{rows} table rows / {funcs} functions, table crc {crc})")
 
 
+def _gf_proof_text() -> str:
+    """[ff9mapkit netsync s157] The stand-in's ghost frame proof line: its own row / mutant tallies (a stand-in's numbers)."""
+    return f"{FG.PROOF_GHOST_FRAME}OK ({FG.FAKE_GHOSTFRAME_SELFTEST_ROWS} rows, {FG.FAKE_GHOSTFRAME_MUTANTS} mutants caught)"
+
+
 #: [ff9mapkit netsync s145] THE s145-s155 PROOF BLOCK: the watcher line's 32 rows (its eight host_world rows), the freeze line's
 #: 46, and the two world-diorama lines after the overlay text line ([ff9mapkit netsync s156] the s156 stand-in adds its guest
 #: traversal line after them; the s154 lines are not modelled)
@@ -6565,9 +6591,14 @@ _PROOF_S145 = [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, BW
 
 
 @pytest.mark.parametrize("caps,want", [
-    # [ff9mapkit netsync s158] THE LIVE STAND-IN IS s158: the s145 block, the guest traversal line, then the step-out line
-    ("live", _PROOF_S145 + [_gl_proof_text(), _so_proof_text()]),
-    # [ff9mapkit netsync s158] s156 / s157 (s158's calibration red): no step-out line
+    # [ff9mapkit netsync s156] THE LIVE STAND-IN IS s156: the s145 block, then the guest traversal line
+    # [ff9mapkit netsync s157] THE LIVE STAND-IN IS s157: then the dress twin line, then the ghost frame line
+    # [ff9mapkit netsync s158] THE LIVE STAND-IN IS s158: then the step-out line, the block's last
+    ("live", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
+                            _so_proof_text()]),
+    # [ff9mapkit netsync s158] s157 (s158's calibration red): no step-out line
+    ("s157", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text()]),
+    # [ff9mapkit netsync s157] s156 (s157's calibration red): no dress twin line, no ghost frame line
     ("s156", _PROOF_S145 + [_gl_proof_text()]),
     # [ff9mapkit netsync s156] s154 / s155 (s156's calibration red): no guest traversal line
     ("s154", _PROOF_S145),
@@ -6665,7 +6696,9 @@ def test_the_proof_block_carries_the_rounds_lines_per_engine(game, caps, want):
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_MENU}"')) \
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_DRESS}"')) \
         and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_SELF_DRESS}"')) \
-        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_DRESS_POLISH}"'))   # [s139-s141]
+        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_DRESS_POLISH}"')) \
+        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {BW.PROOF_DRESS_TWIN}"')) \
+        and net_lines("NetSyncClient.cs", re.escape(f'Log.Message("[NetSync] {FG.PROOF_GHOST_FRAME}"'))   # [s139-s141] [s157]
 
 
 def _mlog_lines(fake, needle: str) -> list:
@@ -15285,6 +15318,8 @@ DRESS_CONTAINERS = {"ghost": "s138",
                     "self": "s140", "self.law_off": "s140",
                     # [ff9mapkit netsync s141] the polish's `attach_last` (a fixed sub-object inside `self`)
                     "self.attach_last": "s141",
+                    # [ff9mapkit netsync s157] the twin rows' `twin_last` (a fixed sub-object inside `self`)
+                    "self.twin_last": "s157",
                     # [ff9mapkit netsync s143] the leader guard at the field dress sites (`dress`'s LAST key)
                     "guard": "s143"}
 #: [ff9mapkit netsync s138] the `netsync.dress` records that may be published null where their accessor reads None (the
@@ -15356,8 +15391,7 @@ def test_the_dress_block_is_netsyncs_last_key_at_the_catch_lines_sentinels():
     # [ff9mapkit netsync s144] `dress` is the last key through s143 (frozen); the live line closes with s144's `world` after it
     assert list(_catch_doc_in("s143"))[-2:] == ["battle", "dress"]
     # [ff9mapkit netsync s156] ...and s156's `guestlocal` after `world`
-    # [ff9mapkit netsync s158] ...and s158's `stepout` after `guestlocal`
-    assert list(nothing)[-5:] == ["battle", "dress", "world", "guestlocal", "stepout"] and nothing["dress"] == BW.DRESS_SENTINELS
+    assert list(nothing)[-6:] == ["battle", "dress", "world", "guestlocal", "ghostframe", "stepout"] and nothing["dress"] == BW.DRESS_SENTINELS   # [ff9mapkit netsync s157] [s158]
     s138 = _catch_doc_in("s138")
     assert list(s138["dress"]) == list(BW.DRESS_KEYS_BY_RUNG["dressinstr"]) == ["ghost", "party"]
     assert list(s138["dress"]["ghost"]) == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"])
@@ -15501,7 +15535,9 @@ def test_the_live_dress_writers_are_their_level_homes_in_ladder_order(game):
     # ghost writer line is net-present ONCE in the live stack
     # ([ff9mapkit netsync s141] `light_row` reads its witness off NetSyncSelfDress: the ghost's tint row ApplyGhostLighting set;
     # `light_rgb` the tint it wrote, an IntList off NetSyncClient.HarnessGhostLightRgb)
-    ghost_line = re.compile(r'^(?:Bool|Num|Str|StrList|IntList)\(sb, "(\w+)", Try\(.*(?:NetSyncClient\.Harness(?:Ghost|Dress)|'
+    # ([ff9mapkit netsync s157] NOT `netsync.ghostframe`'s writers: AppendGhostFrame reads NetSyncClient.HarnessGhostFrame* -- its
+    # `wire_anim` / `clip` share a ghost key's NAME, never its getter)
+    ghost_line = re.compile(r'^(?:Bool|Num|Str|StrList|IntList)\(sb, "(\w+)", Try\(.*(?:NetSyncClient\.Harness(?:Ghost(?!Frame)|Dress)|'
                             r'NetSyncSelfDress\.GhostLightRow)')
     ghost, seen = [], set()
     for rung in BW.DRESS_GHOST_KEYS_BY_RUNG:
@@ -15613,7 +15649,10 @@ def test_each_dress_rungs_keys_are_ones_its_patch_added():
     the capability accessor reads a key its own patch added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
     rungs = list(FG.NETSYNC_DRESS_CAP_KEYS)
-    assert rungs == names[names.index("acttrance") + 1:][:len(rungs)] and rungs[0] == "dressinstr"
+    # [ff9mapkit netsync s157] s138-s143's dress rungs follow `acttrance` contiguously; s157's `dresstwin` rides the ladder's
+    # end, right after s156's `guestlocal`
+    assert rungs[:-1] == names[names.index("acttrance") + 1:][:len(rungs) - 1] and rungs[0] == "dressinstr"
+    assert rungs[-1] == "dresstwin" == names[names.index("guestlocal") + 1]
     assert FG.NETSYNC_S138_CAPS == frozenset(("dressinstr",)) and FG.NETSYNC_BATTLE_CAPS["dressinstr"] == ("s138", ())
     assert FG.NETSYNC_TOP_CAP_KEYS["dressinstr"] == ("dress",)
     for rung, keys in FG.NETSYNC_DRESS_CAP_KEYS.items():
@@ -15676,7 +15715,8 @@ def test_every_dress_key_has_an_accessor_and_every_accessor_a_key():
     for path, name in table.items():
         flat = "coop_dress_" + path.replace(".", "_")
         assert name == (flat + "_block" if path in DRESS_CONTAINERS else flat), (path, name)
-    reserved = {"coop_dress_instr", "coop_dress_host", "coop_dress_self", "coop_dress_polish"}
+    reserved = {"coop_dress_instr", "coop_dress_host", "coop_dress_self", "coop_dress_polish",
+                "coop_dress_twin"}                      # [ff9mapkit netsync s157] the twin rows' capability
     assert not (set(table.values()) & reserved), set(table.values()) & reserved
     assert isinstance(getattr(State, "coop_dress_instr"), property) and not hasattr(State.coop_dress_instr.fget,
                                                                                      "dress_path")
@@ -15771,7 +15811,7 @@ def test_a_fresh_stand_in_publishes_the_agents_dress_block(game):
     s155 = FakeGame(game)
     s155.netsync_caps = FG.caps_through(FG.NETSYNC_S154_RUNG)
     assert list(s155._netsync_doc())[-2:] == ["dress", "world"]
-    assert list(doc)[-4:] == ["dress", "world", "guestlocal", "stepout"] and list(doc["dress"]) == list(nothing["dress"])   # [s158]
+    assert list(doc)[-5:] == ["dress", "world", "guestlocal", "ghostframe", "stepout"] and list(doc["dress"]) == list(nothing["dress"])   # [ff9mapkit netsync s157] [s158]
     assert doc["dress"]["ghost"] == nothing["dress"]["ghost"] == BW.DRESS_GHOST_SENTINELS
     # the default stand-in carries every dress rung: the union of their frozen rows, in ladder order
     assert list(doc["dress"]["ghost"]) == [k for row in BW.DRESS_GHOST_KEYS_BY_RUNG.values() for k in row]
@@ -15779,7 +15819,8 @@ def test_a_fresh_stand_in_publishes_the_agents_dress_block(game):
     # [ff9mapkit netsync s140] `self` -- its sentinels but the two the LIVE statics start at: the knob (SelfDress absent = 1)
     # and the gate (on unless the selftest role's `gate 0`)
     # [ff9mapkit netsync s141] ...then the polish keys, at their sentinels but the lever's live default (`polish` on)
-    assert doc["dress"]["self"] == dict(BW.DRESS_SELF_LIVE_SENTINELS, knob=True, gate=True, polish=True), \
+    assert doc["dress"]["self"] == dict(BW.DRESS_SELF_LIVE_SENTINELS, knob=True, gate=True, polish=True,
+                                        twin_rows=BW.TWIN_ROW_COUNT, twin="on"), \
         doc["dress"]["self"]
     assert doc["dress"]["party"] == [0, 1, -1, -1] == [m["char"] if m else -1 for m in fake.save_party]
     assert _battle_text("sb.Append(Try(() => PartyIndexOf(slot), -2).ToString(CultureInfo.InvariantCulture));")
@@ -16034,7 +16075,7 @@ def test_the_s138_benchs_tables_are_its_docstring():
                              ["model", "geo", "clip", "rig", "playing", "body"]]
     assert got["probes"] == {str(k): v for k, v in BW.DRESS_PROBES.items()} == {
         "138": "netsync.dress.ghost", "139": "netsync.dress.codec", "140": "netsync.dress.self",
-        "141": "netsync.dress.self.steps"}
+        "141": "netsync.dress.self.steps", "157": "netsync.dress.self.twins"}   # [ff9mapkit netsync s157]
     assert _s138_probe() == got["consts"][3]
     doc = got["doc"]
     for cid in ("INI", "OR", "S0", "P0", "PRE", "I1", "I2", "I3", "I4", "I5", "I6", "I7", "I8", "I9", "R"):
@@ -16748,8 +16789,11 @@ def test_the_selfdress_ops_and_usage_are_the_engines_in_its_order():
     value (the driver mirrors that: it sends for the agent's own role refusal, and refuses an op / value before the step only
     on the selftest role)."""
     # [ff9mapkit netsync s141] the LIVE list is s141's (+ polish); s140's and s139's own lists, each off its own patch
+    # [ff9mapkit netsync s157] the LIVE list is s157's (+ twin); s141's off its own patch
     assert _agent_selfdress_ops() == Session.NETSYNC_SELFDRESS_OPS == FG.NETSYNC_SELFDRESS_OPS == BW.SELFDRESS_OPS == \
-        ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law", "polish")
+        ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law", "polish", "twin")
+    assert _agent_selfdress_ops([_patch_bytes("s141")]) == Session.NETSYNC_SELFDRESS_OPS_S141 == \
+        FG.NETSYNC_SELFDRESS_OPS_S141 == BW.SELFDRESS_OPS_S141
     assert _agent_selfdress_ops([_patch_bytes("s140")]) == Session.NETSYNC_SELFDRESS_OPS_S140 == \
         FG.NETSYNC_SELFDRESS_OPS_S140 == BW.SELFDRESS_OPS_S140 == ("ghost", "empty", "rule", "wire", "clear", "self",
                                                                    "gate", "law")
@@ -16758,24 +16802,32 @@ def test_the_selfdress_ops_and_usage_are_the_engines_in_its_order():
                                                                                             "wire", "clear")
     assert FG.selfdress_ops(FG.caps_through("dresshost")) == BW.SELFDRESS_OPS_S139 and FG.selfdress_ops(S138_CAPS_) == ()
     assert FG.selfdress_ops(FG.caps_through("dressself")) == BW.SELFDRESS_OPS_S140
-    assert FG.selfdress_ops(FG.caps_through("dresspolish")) == BW.SELFDRESS_OPS
-    # s140 adds `self` / `gate` / `law` on `netsync.dress.self`, s141 `polish` on `netsync.dress.self.steps`:
-    # R3-FIELD-MODEL-AUDIT.md 3.1 + O6
-    assert set(Session.NETSYNC_SELFDRESS_OP_CAPS) == set(BW.SELFDRESS_SELF_OPS + BW.SELFDRESS_POLISH_OPS) == \
-        {"self", "gate", "law", "polish"}
+    assert FG.selfdress_ops(FG.caps_through("dresspolish")) == BW.SELFDRESS_OPS_S141
+    assert FG.selfdress_ops(FG.caps_through("dresstwin")) == BW.SELFDRESS_OPS                      # [ff9mapkit netsync s157]
+    # s140 adds `self` / `gate` / `law` on `netsync.dress.self`, s141 `polish` on `netsync.dress.self.steps`, [s157] `twin` on
+    # `netsync.dress.self.twins`: R3-FIELD-MODEL-AUDIT.md 3.1 + O6
+    assert set(Session.NETSYNC_SELFDRESS_OP_CAPS) == set(BW.SELFDRESS_SELF_OPS + BW.SELFDRESS_POLISH_OPS
+                                                         + BW.SELFDRESS_TWIN_OPS) == {"self", "gate", "law", "polish", "twin"}
     assert {v[:3] for v in Session.NETSYNC_SELFDRESS_OP_CAPS.values()} == {
-        ("coop_dress_self", "netsync.dress.self", "s140"), ("coop_dress_polish", "netsync.dress.self.steps", "s141")}
+        ("coop_dress_self", "netsync.dress.self", "s140"), ("coop_dress_polish", "netsync.dress.self.steps", "s141"),
+        ("coop_dress_twin", "netsync.dress.self.twins", "s157")}
     client = _stack_text("NetSyncClient.cs")
     for op, text in Session.NETSYNC_SELFDRESS_USAGE.items():
-        if op in BW.SELFDRESS_SELF_OPS + BW.SELFDRESS_POLISH_OPS:
+        if op in BW.SELFDRESS_SELF_OPS + BW.SELFDRESS_POLISH_OPS + BW.SELFDRESS_TWIN_OPS:   # [s157] + twin (TwinUsage)
             continue                                   # [ff9mapkit netsync s140] test_the_s140_selfdress_ops_are_the_engines
-            #                                            (and [s141] test_the_s141_polish_op_is_the_engines_in_its_order)
+            #                                            (and [s141] test_the_s141_polish_op_is_the_engines_in_its_order;
+            #                                            [s157] `twin`'s refusal is `why = NetSyncSelfDress.TwinUsage;`, below)
         if op in ("ghost", "empty"):
             assert any('why = "netsync selfdress " + op + ": expected `" + op + " <mask 0-15>|off`";' in ln
                        for ln in client), op
             assert text == f"netsync selfdress {op}: expected `{op} <mask 0-15>|off`"
         else:
             assert any(f'why = "{text}";' in ln for ln in client), (op, text)
+    # [ff9mapkit netsync s157] `twin`'s usage is ONE constant (the arity and TrySetTwin's value alike), quoted by the driver
+    assert f'internal const String TwinUsage = "{BW.TWIN_USAGE}";' in " ".join(_stack_text("NetSyncSelfDress.cs"))
+    assert BW.TWIN_USAGE == Session.NETSYNC_SELFDRESS_USAGE["twin"]
+    assert sum(_strip_comment(ln) == "why = NetSyncSelfDress.TwinUsage;" for ln in client) == 1
+    assert "return NetSyncSelfDress.TrySetTwin(val, out why);" in client
     body = _s139_block("NetSyncClient.cs", "public static Boolean HarnessSelfDress(", "internal static void HarnessReleaseDress(")
     role = body.index("if (!IsSelfTestRole)")
     assert body[role + 2] == 'why = "netsync selfdress: needs the selftest role (netsync selftest 1)";'
@@ -16804,7 +16856,7 @@ DRESS_REFUSALS = [
     ("netsync selfdress: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["selfdress", "ghost", "2"])),
     ("netsync selfdress: needs the selftest role (netsync selftest 1)", lambda f: f._netsync(["selfdress", "bogus"])),
     ("netsync selfdress: unknown op '", lambda f: _sd(f)._netsync(["selfdress", "bogus"])),
-    ("' (ghost|empty|rule|wire|clear|self|gate|law|polish)", lambda f: _sd(f)._netsync(["selfdress"])),   # [s141] live
+    ("' (ghost|empty|rule|wire|clear|self|gate|law|polish|twin)", lambda f: _sd(f)._netsync(["selfdress"])),   # [s157] live
     ("netsync selfdress ", lambda f: _sd(f)._netsync(["selfdress", "ghost", "16"])),
     (": expected `", lambda f: _sd(f)._netsync(["selfdress", "empty", "-1"])),
     (" <mask 0-15>|off`", lambda f: _sd(f)._netsync(["selfdress", "ghost"])),
@@ -16848,6 +16900,11 @@ DRESS_REFUSALS = [
     ("netsync selfdress polish: expected `polish on|off`", lambda f: _sd(f)._netsync(["selfdress", "polish", "on", "x"])),
     ("netsync selfdress polish: expected `polish on|off`", lambda f: _sd(f)._netsync(["selfdress", "polish", "1"])),
     ("netsync selfdress polish: expected `polish on|off`", lambda f: _sd(f)._netsync(["selfdress", "polish", "maybe"])),
+    # [ff9mapkit netsync s157] the twin rows' lever -- the arity (HarnessSelfDress' `n != 3`), then TrySetTwin's value
+    ("netsync selfdress twin: expected `twin on|off|miss`", lambda f: _sd(f)._netsync(["selfdress", "twin"])),
+    ("netsync selfdress twin: expected `twin on|off|miss`", lambda f: _sd(f)._netsync(["selfdress", "twin", "on", "x"])),
+    ("netsync selfdress twin: expected `twin on|off|miss`", lambda f: _sd(f)._netsync(["selfdress", "twin", "1"])),
+    ("netsync selfdress twin: expected `twin on|off|miss`", lambda f: _sd(f)._netsync(["selfdress", "twin", "maybe"])),
 ]
 
 
@@ -16864,6 +16921,7 @@ def test_the_stand_in_refuses_selfdress_in_the_agents_words(game, fragment, prov
     assert fake._dress_bench == {"mask": -1, "empty": -1, "rule": None, "wire": -1, "wire_anim": -1}   # nothing changed
     assert fake._self_levers == {"spec": None, "mask": -1, "gate_off": False, "law_off": 0}       # [s140] ...nor here
     assert fake._polish_off is False                                                               # [s141] ...nor here
+    assert fake._twin_lever == BW.TWIN_LEVER_ON                                                    # [s157] ...nor here
 
 
 def test_the_driver_refuses_selfdress_before_the_step_in_the_engines_order(game):
@@ -16895,10 +16953,12 @@ def test_the_driver_refuses_selfdress_before_the_step_in_the_engines_order(game)
             g.netsync("selftest", 1)
             # [ff9mapkit netsync s140] the default stand-in is s140's: its eight ops (s139's five on the calibration engine)
             # [ff9mapkit netsync s141] ...now s141's nine (`polish` an op: its refusal is a malformed value)
-            ops = "ghost|empty|rule|wire|clear|self|gate|law|polish"
+            # [ff9mapkit netsync s157] ...now s157's ten (`twin` an op: its refusal is a malformed value)
+            ops = "ghost|empty|rule|wire|clear|self|gate|law|polish|twin"
             for args, why in ((("bogus",), f"netsync selfdress: unknown op 'bogus' ({ops})"),
                               ((), f"netsync selfdress: unknown op '' ({ops})"),
                               (("polish", "1"), "netsync selfdress polish: expected `polish on|off`"),
+                              (("twin", "1"), "netsync selfdress twin: expected `twin on|off|miss`"),   # [s157]
                               (("ghost", 16), "netsync selfdress ghost: expected `ghost <mask 0-15>|off`"),
                               (("empty",), "netsync selfdress empty: expected `empty <mask 0-15>|off`"),
                               (("ghost", "0x2"), "netsync selfdress ghost: expected `ghost <mask 0-15>|off`"),
@@ -17126,7 +17186,7 @@ _DRESS_TWINS = {          # C# method -> (the twin, the C# parameter names it ta
     "GhostAnim": "ghost_anim", "DressCharId": "dress_char_id", "DressSectionBody": "dress_section_body",
     "TryParseDressSection": "parse_dress_section", "MoogleWhenEmpty": "moogle_when_empty", "DressMode": "dress_mode",
     "DressModeOff": "dress_mode_off", "LocoAnim": "loco_anim", "ClassifyLoco": "classify_loco",
-    "RigForModel": "rig_for_model"}
+    "RigForModel": "rig_for_model", "GhostAnimRule": "ghost_anim_rule"}   # [ff9mapkit netsync s157]
 
 
 def test_the_dress_twins_take_the_engines_parameters_in_its_order():
@@ -19334,7 +19394,11 @@ _SELF_TWINS = {"Byte LocoClassOf": "loco_class_of", "Int32 MapRigAnim": "map_rig
                "Int32 BFrameTarget": "bframe_target", "Boolean LawOnRule": "law_on_rule", "Int32 SkipRule": "skip_rule",
                "Boolean ExcludedFieldId": "excluded_field_id", "Int32 SetModelRule": "set_model_rule",
                "Byte[] BenchFrame": "bench_frame", "String ArmDecision": "arm_decision", "Boolean IsOwnClip": "is_own_clip",
-               "String RigGeo": "rig_geo", "Boolean ParseDefinesPlayer": "parse_defines_player"}
+               "String RigGeo": "rig_geo", "Boolean ParseDefinesPlayer": "parse_defines_player",
+               # [ff9mapkit netsync s157] the twin rows' pure rules
+               "Int32 TwinRigAnim": "twin_rig_anim", "Int32 MapRigAnimTwin": "map_rig_anim_twin",
+               "Boolean TwinOnRule": "twin_on_rule", "Boolean TwinMissRule": "twin_miss_rule",
+               "Int32 TwinValueRule": "twin_value_rule"}
 
 
 def test_the_s140_twins_take_the_engines_parameters_in_its_order():
@@ -19347,6 +19411,59 @@ def test_the_s140_twins_take_the_engines_parameters_in_its_order():
             inner = sig[sig.index("(") + 1:sig.rindex(")")]
             cs = [_snake(p.split()[-1]) for p in inner.split(",") if p.strip() and p.split()[0] != "out"]
             assert cs == _twin_params(getattr(BW, twin)), (method, cs, _twin_params(getattr(BW, twin)))
+
+
+def test_the_s157_twin_table_is_the_engines_row_for_row():
+    """[ff9mapkit netsync s157] NetSyncSelfDress.TwinRows and TwinSpots ARE battlewire's TWIN_ROWS / TWIN_SPOTS, row for row
+    (off the live stack); every spot holds on the Python twin and none with the twin law off; the same-suffix NAME SEARCH, a
+    twin at every site and a law-blind twin each fail a spot (the proof's mutants, in Python); the composed map is s140's
+    wherever no row applies; GhostAnim's twin rule; the proof has 11 rows."""
+    sd = "\n".join(t for _h, _k, t in _new_side("NetSyncSelfDress.cs", _patch_bytes("s157")))   # FILE order
+    assert all(ln in _stack_text("NetSyncSelfDress.cs") for ln in sd.splitlines()
+               if ln.startswith(("{", "internal const Int32 Twin")) and len(ln) > 24)   # ...and still net-present
+    body = sd[sd.index("internal static readonly UInt16[,] TwinRows ="):]
+    body = body[:body.index("};")]
+    rows = tuple(tuple(int(x) for x in m) for m in re.findall(r"\{\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+)\s*\}", body))
+    assert rows == BW.TWIN_ROWS and len(rows) == BW.TWIN_ROW_COUNT == 55
+    assert len({t for *_x, t in BW.TWIN_ROWS}) == BW.TWIN_CLIP_COUNT == len(BW.TWIN_FRAMES) == 37
+    assert f"internal const Int32 TwinRowCount = {BW.TWIN_ROW_COUNT};" in sd
+    assert f"internal const Int32 TwinClipCount = {BW.TWIN_CLIP_COUNT};" in sd
+    spots = sd[sd.index("private static readonly Int32[,] TwinSpots ="):]
+    spots = spots[:spots.index("};")]
+    sites = ("SitePlay", "SiteIdle", "SiteWalk", "SiteRun", "SiteTurnL", "SiteTurnR", "SiteSleep", "SiteJump")
+    cs_spots = tuple((int(r), int(a), sites.index(s), int(w)) for r, a, s, w in
+                     re.findall(r"\{\s*(-?\d+),\s*(-?\d+),\s*(Site\w+),\s*(-?\d+)\s*\}", spots))
+    assert cs_spots == BW.TWIN_SPOTS and len(cs_spots) == 32
+    for rig, raw, site, want in BW.TWIN_SPOTS:
+        assert BW.twin_rig_anim(rig, raw, site, True) == want, (rig, raw, site)
+        assert BW.twin_rig_anim(rig, raw, site, False) == 0
+    # the proof's mutants, each caught by a spot
+    any_site = lambda r, a, _s, law: BW.twin_rig_anim(r, a, BW.SITE_PLAY, law)          # noqa: E731
+    law_blind = lambda r, a, s, _law: BW.twin_rig_anim(r, a, s, True)                    # noqa: E731
+
+    from ff9mapkit._animdb_all import ANIMATIONS
+    first_id = {}
+    for i, n in ANIMATIONS.items():                     # AnimationDB.TryGetKey: the FIRST id a name has (file order)
+        first_id.setdefault(n, i)
+
+    def name_search(r, a, s, law):                      # the runtime same-suffix search the closed table replaces
+        geo, name = BW.rig_geo(r), BW.anim_name(a)
+        if not law or s not in (BW.SITE_PLAY, BW.SITE_JUMP) or geo is None or BW.loco_class_of(name) != 7:
+            return 0
+        return first_id.get("ANH" + geo[3:] + "_" + name.split("_", 4)[4], 0)
+    for mutant in (any_site, law_blind, name_search):
+        caught = any(mutant(r, a, s, True) != w or mutant(r, a, s, False) != 0 for r, a, s, w in BW.TWIN_SPOTS)
+        assert caught, mutant
+    assert BW.anim_name(12031) == "ANH_MAIN_F0_STN_JUMP_2" != BW.anim_name(BW.twin_rig_anim(3, 3519, BW.SITE_JUMP, True))
+    assert BW.map_rig_anim_twin(3, 10539, BW.SITE_WALK, True, True) == BW.map_rig_anim(3, 10539, BW.SITE_WALK, True)
+    assert BW.map_rig_anim_twin(3, 10539, BW.SITE_PLAY, True, False) == BW.rig_row(3)["idle_alias"] == 2002
+    assert BW.map_rig_anim_twin(4, 10539, BW.SITE_PLAY, True, True) == BW.map_rig_anim(4, 10539, BW.SITE_PLAY, True)
+    assert BW.ghost_anim(5489, 3, 98, BW.LOCO_OTHER, 10539) == 10741
+    assert BW.ghost_anim_rule(5489, 3, 98, BW.LOCO_OTHER, 10539, False) == 2001
+    assert BW.ghost_anim(5489, 3, 5489, BW.LOCO_OTHER, 10539) == 10539          # the wire's own body: raw, never a twin
+    block = sd[sd.index("internal static Boolean TwinSelfTest(out String detail)"):]
+    block = block[:block.index("_twinSelfTestVerdict = fail == null")]
+    assert block.count("Row(") == BW.DRESS_TWIN_SELFTEST_ROWS == 11
 
 
 def test_the_s140_dress_auto_table_is_the_engines_row_for_row():
@@ -20050,7 +20167,10 @@ def test_the_client_arms_at_the_field_load_and_clears_at_its_boundaries():
                  "Int32 mapped = MapAnim(actor, raw, site);",
                  "Int32 mapped = BFrameTarget(BodyRig(po), id, LawOn(LawBFrame), LawOn(LawAlias));",
                  "if (rigIdx < 0 || !LawOn(LawTimeline) || !IsGesture(rigIdx, raw))",
-                 "if (!LawOn(LawAttach))", "return MapRigAnim(rigIdx, id, site, LawOn(LawAlias));",
+                 "if (!LawOn(LawAttach))",
+                 # [ff9mapkit netsync s157] MapAnim composes the twin step: the proven pure map, then s140's MapRigAnim inside it
+                 "return MapRigAnimTwin(rigIdx, id, site, LawOn(LawAlias), TwinOn);",
+                 "return twin != 0 ? twin : MapRigAnim(rigIdx, id, site, aliasLaw);",
                  "return LawOnRule(_lawOff, law, NetSyncClient.IsSelfTestRole);",
                  "get { return !_benchGateOff || !NetSyncClient.IsSelfTestRole; }"):
         assert frag in sd, frag
@@ -20259,7 +20379,8 @@ def test_an_s139_stand_in_publishes_no_s140_key_and_the_dressself_rung_every_one
                 assert list(d) == ["ghost", "party", "codec", "rig_idle_frames", "mirror_party", "self", "guard"]
                 assert st.coop_dress_self and st.coop_dress_rig_idle_frames == RIG_IDLE_FRAMES_CENSUS_13
                 # [ff9mapkit netsync s141] the default stand-in is s141's: s140's keys, then the polish keys
-                assert list(d["self"]) == list(BW.DRESS_SELF_KEYS) + list(BW.DRESS_POLISH_KEYS)
+                # [ff9mapkit netsync s157] ...then the twin keys (the default stand-in is s157's)
+                assert list(d["self"]) == list(BW.DRESS_SELF_KEYS) + list(BW.DRESS_POLISH_KEYS) + list(BW.DRESS_TWIN_KEYS)
                 assert st.coop_dress_self_selftest == "ok"
                 assert _mlog_lines(fake, "dress codec selftest: OK (38 rows)")
                 assert _mlog_lines(fake, "self-dress selftest: OK (29 rows)")
@@ -22274,6 +22395,7 @@ def test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self_and_ghost():
                                                                                                              "worlddio",
                                                                                                              "returnsong",
                                                                                                              "guestlocal",
+                                                                                                             "dresstwin",   # [ff9mapkit netsync s157]
                                                                                                              "stepout"]   # [s158]
     assert FG.NETSYNC_BATTLE_CAPS["dresspolish"] == ("s141", ()) and FG.NETSYNC_S141_CAPS == frozenset(("dresspolish",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresspolish"] == {} and "dresspolish" not in FG.NETSYNC_BATTLE_NESTED_KEYS
@@ -22319,7 +22441,7 @@ def test_the_s141_catch_line_closes_self_with_the_polish_sentinels():
     _a, b = _literals(catch[0])
     esc = lambda d: json.dumps(d, separators=(",", ":")).replace('"', '\\"')     # noqa: E731
     assert '\\"hidden\\":null,\\"light_row\\":-1,\\"light_rgb\\":null},\\"party\\":[-1,-1,-1,-1]' in b, b[-2200:]
-    assert b.endswith(esc(BW.DRESS_SELF_LIVE_SENTINELS) + "}}"), b[-900:]
+    assert b.endswith(esc(BW.DRESS_SELF_SENTINELS_S141) + "}}"), b[-900:]   # [ff9mapkit netsync s157] s141's own row (frozen)
     assert b.endswith('\\"selftest\\":null,\\"steps\\":[],\\"steps_dropped\\":0,\\"steps_passed\\":0,\\"steps_fired\\":0,'
                       '\\"steps_fired_player\\":0,\\"light_row\\":-1,\\"light_rgb\\":null,\\"light_floor\\":-1,'
                       '\\"mesh_drops\\":0,'
@@ -22523,7 +22645,8 @@ def test_each_engine_answers_selfdress_polish_in_its_own_words(game, stage):
     _sd(fake)
     if stage == "s141":
         fake._netsync(["selfdress", "polish", "off"])
-        assert fake._dress_doc()["self"]["polish"] is False and FG.selfdress_ops(caps) == BW.SELFDRESS_OPS
+        # [ff9mapkit netsync s157] an s141 engine prints s141's nine (the live list adds `twin`)
+        assert fake._dress_doc()["self"]["polish"] is False and FG.selfdress_ops(caps) == BW.SELFDRESS_OPS_S141
         return
     with pytest.raises(RuntimeError) as err:
         fake._netsync(["selfdress", "polish", "off"])
@@ -24137,7 +24260,8 @@ def test_an_s140_stand_in_publishes_no_s141_key_and_the_dresspolish_rung_every_o
             st = g.wait_for(lambda s: s.coop_dress_self_selftest == "ok", timeout=5.0, what="the proof block")
             d = st.netsync_dress
             if has:
-                assert list(d["self"]) == list(BW.DRESS_SELF_KEYS) + list(BW.DRESS_POLISH_KEYS)
+                # [ff9mapkit netsync s157] the default stand-in is s157's: the twin keys follow the polish keys
+                assert list(d["self"]) == list(BW.DRESS_SELF_KEYS) + list(BW.DRESS_POLISH_KEYS) + list(BW.DRESS_TWIN_KEYS)
                 assert list(d["ghost"])[-2:] == ["light_row", "light_rgb"] and st.coop_dress_polish is True
                 assert _mlog_lines(fake, "dress polish selftest: OK (20 rows)")
             else:
@@ -25375,7 +25499,9 @@ def test_the_s156_agent_prints_guestlocal_last_and_the_driver_and_the_stand_in_a
     assert Session.NETSYNC_SUBVERBS[-2] == "guestlocal" == FG.NETSYNC_SUBVERBS[-2] == _agent_subverbs()[-2]
     assert Session.NETSYNC_AUTHORITY_SUBVERBS[-2] == "guestlocal" and FG.NETSYNC_BATTLE_VERB_ORDER[-2] == "guestlocal"
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-2] == "guestlocal" and names[-3] == FG.NETSYNC_S154_RUNG
+    # [ff9mapkit netsync s157] ...LAST until s157's `dresstwin` rung joined after it; [ff9mapkit netsync s158] and s158's `stepout`
+    assert names[names.index("guestlocal") - 1] == FG.NETSYNC_S154_RUNG and names[names.index("guestlocal") + 1:] == ["dresstwin",
+                                                                                                       "stepout"]
     assert FG.NETSYNC_BATTLE_CAPS["guestlocal"] == ("s156", ("guestlocal",)) and FG.NETSYNC_S156_CAPS == frozenset(("guestlocal",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["guestlocal"] == {} and FG.NETSYNC_TOP_CAP_KEYS["guestlocal"] == ("guestlocal",)
     assert "guestlocal" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "guestlocal" not in FG.NETSYNC_DIORAMA_CAP_KEYS
@@ -25432,11 +25558,11 @@ def test_the_s156_catch_line_closes_netsync_with_the_guestlocal_sentinels():
     AppendNetsyncWorld."""
     b = _gl_catch_tail()
     esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
-    # [ff9mapkit netsync s158] ...and `stepout` after it, netsync's LAST key
-    assert b.endswith('"boot_song_live":false}},"guestlocal":' + esc(FG.NETSYNC_GUESTLOCAL_SENTINELS) + ',"stepout":'
-                      + esc(FG.NETSYNC_STEPOUT_SENTINELS) + "}"), b[-1600:]
+    assert b.endswith('"boot_song_live":false}},"guestlocal":' + esc(FG.NETSYNC_GUESTLOCAL_SENTINELS)
+                      + ',"ghostframe":' + esc(FG.NETSYNC_GHOSTFRAME_SENTINELS)   # [ff9mapkit netsync s157]
+                      + ',"stepout":' + esc(FG.NETSYNC_STEPOUT_SENTINELS) + "}"), b[-1600:]   # [s158]
     nothing = _agent_netsync_nothing()[0]
-    assert list(nothing)[-3:] == ["world", "guestlocal", "stepout"]
+    assert list(nothing)[-4:] == ["world", "guestlocal", "ghostframe", "stepout"]
     gl = nothing["guestlocal"]
     assert gl == FG.NETSYNC_GUESTLOCAL_SENTINELS
     assert tuple(gl) == FG.NETSYNC_GUESTLOCAL_KEYS == GL_CONTRACT_KEYS
@@ -25451,7 +25577,9 @@ def test_the_s156_catch_line_closes_netsync_with_the_guestlocal_sentinels():
     assert gl["in_flight"] is False and (gl["abort_why"], gl["tp_last"]) == (None, None)
     assert all(gl[k] == 0 for k in ("climbs", "ended", "bailed", "aborted", "long_climbs", "boots_mid_climb", "tp_calls",
                                     "tp_refusals", "talk_queued", "talk_held", "talk_applied_after_climb", "talk_expired"))
-    assert _untraversed(nothing) == _catch_doc_in("s155") == _catch_doc_in("s154") and _catch_doc_in("s156") == _unstepped(nothing)   # [s158]
+    assert _untraversed(nothing) == _catch_doc_in("s155") == _catch_doc_in("s154") and _catch_doc_in("s156") == _untwinned(nothing)
+    assert _catch_doc_in("s157") == _unstepped(nothing)          # [ff9mapkit netsync s157]
+    assert _catch_doc_in("s158") == nothing                      # [ff9mapkit netsync s158] the live line is s158's
     # AppendGuestLocal, off the s156 patch, statement by statement
     body = _cs_block("HarnessAgent.cs", "private static void AppendGuestLocal(StringBuilder sb)", stop='sb.Append("}}");')
     text = " ".join(body)
@@ -25708,6 +25836,507 @@ def test_the_stand_in_logs_the_guest_traversal_proof_line_and_reads_selftest_ok(
 
 
 # =========================================================================================================================
+# [ff9mapkit netsync s157] THE TWIN ROWS (studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md Finding 2): a dressed body's Zidane
+# ladder / jump plays the rig's OWN clip from one closed table (NetSyncSelfDress.TwinRows) -- the `dresstwin` rung. Pinned to
+# the s157 patch: `netsync.dress.self` gains the twin keys after `polish` (no new `netsync.dress` key, no sub-verb),
+# `selfdress` gains `twin on|off|miss`, the proof block gains "dress twin selftest: OK (11 rows)" after the guest traversal
+# line (the ghost frame's line, the same patch's, follows it: the s157 GHOST FRAME section at the end of this file). Every pin
+# reads the LIVE stack's s157 patch: until the lead captures it these read red ("exactly one live patch carries it").
+# =========================================================================================================================
+S156_CAPS_ = FG.caps_through("guestlocal")                     # [ff9mapkit netsync s157] s157's calibration engine
+
+
+def _s157_added(file_name: str) -> list:
+    """The lines the s157 patch ADDS to ``file_name``, stripped."""
+    return [t for _h, k, t in _new_side(file_name, _patch_bytes("s157")) if k == "+"]
+
+
+def _twin_flat_keys() -> list:
+    """AppendDressTwin's key order with `twin_last`'s three written inside its braces."""
+    flat = [k for k in BW.DRESS_TWIN_KEYS if k != "twin_last"]
+    at = list(BW.DRESS_TWIN_KEYS).index("twin_last")
+    flat[at:at] = list(BW.DRESS_TWIN_LAST_KEYS)
+    return flat
+
+
+def test_the_dresstwin_rung_is_s157s_and_its_keys_sit_in_self():
+    """THE LEVEL HOME for s157: the `dresstwin` rung rides the ONE ladder LAST (right after s156's `guestlocal`), adds no
+    sub-verb and nothing under `netsync.battle`, and no new `netsync.dress` key -- its nine keys sit INSIDE `self` after
+    `polish` (read off the s156 and s157 catch lines); the probe ladder's 157 rung reads `self.twins`; s157's calibration is
+    the prefix through `guestlocal`; the capability accessor reads True on s157's catch line and False on s156's; the `twin`
+    op's capability key is a key s157 added."""
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    assert names[-1] == "dresstwin" and names[-2] == "guestlocal"
+    assert FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and FG.NETSYNC_S157_CAPS == frozenset(("dresstwin",))
+    assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and "dresstwin" not in FG.NETSYNC_BATTLE_NESTED_KEYS
+    # [ff9mapkit netsync s157] ...the ONE rung's other half, the ghost frame, adds ONE top-level block (its own pins below)
+    assert FG.NETSYNC_TOP_CAP_KEYS["dresstwin"] == ("ghostframe",) and "dresstwin" not in FG.NETSYNC_DIORAMA_CAP_KEYS
+    assert FG.NETSYNC_DRESS_CAP_KEYS["dresstwin"] == BW.DRESS_KEYS_BY_RUNG["dresstwin"] == ()
+    assert FG.NETSYNC_DRESS_NESTED_KEYS["dresstwin"] == {"self": BW.DRESS_TWIN_KEYS}
+    assert BW.DRESS_TWIN_KEYS == ("twin_rows", "twins", "twin_misses", "twin_last", "ghost_clip_misses", "twin_clips_on_disc",
+                                  "twin_clip_missing", "twin", "twin_selftest")
+    assert BW.DRESS_TWIN_LAST_KEYS == ("src", "twin", "site") == tuple(BW.DRESS_TWIN_SENTINELS["twin_last"])
+    was, now = _catch_doc_in("s156")["dress"], _catch_doc_in("s157")["dress"]
+    assert list(now) == list(was) and now["ghost"] == was["ghost"]           # no new `netsync.dress` key, `ghost` untouched
+    assert [k for k in now["self"] if k not in was["self"]] == list(BW.DRESS_TWIN_KEYS)
+    assert list(now["self"])[:len(was["self"])] == list(was["self"])         # appended after `polish`, s141's untouched
+    assert {k: now["self"][k] for k in BW.DRESS_TWIN_KEYS} == BW.DRESS_TWIN_SENTINELS
+    assert S156_CAPS_ == FG.caps_through("guestlocal") and "dresstwin" not in S156_CAPS_
+    assert BW.DRESS_PROBES[157] == "netsync.dress.self.twins" and max(BW.DRESS_PROBES) == 157
+    assert State({"frame": 1, "netsync": _catch_doc_in("s157")}).coop_dress_twin is True
+    assert State({"frame": 1, "netsync": _catch_doc_in("s156")}).coop_dress_twin is False
+    assert State({"frame": 1}).coop_dress_twin is None
+    assert FG.netsync_subverbs(FG.caps_through("dresstwin")) == FG.netsync_subverbs(S156_CAPS_)   # no new sub-verb
+    attr, key, patch, _what = Session.NETSYNC_SELFDRESS_OP_CAPS["twin"]
+    assert (attr, key, patch) == ("coop_dress_twin", "netsync.dress.self.twins", "s157")
+    path = key[len("netsync.dress."):].split(".")
+    assert path[0] in FG.NETSYNC_DRESS_NESTED_KEYS["dresstwin"] and path[1] in FG.NETSYNC_DRESS_NESTED_KEYS["dresstwin"][
+        path[0]] and BW.DRESS_PROBES[157] == key
+
+
+def test_the_s157_catch_line_closes_self_with_the_twin_sentinels():
+    """THE CATCH-LITERAL RE-PIN for s157: the live line stays ONE line of exactly two literals around NetsyncF3Retired; its
+    SECOND literal closes `self` with the twin keys at their sentinels after `polish` (counts 0, `twin_last` {-1, -1, -1},
+    the measured pair -1, `twin` / `twin_selftest` null) and `guard` follows; it is s156's line with exactly those keys
+    added (:func:`_untwinned`). AppendDressTwin writes BW.DRESS_TWIN_SENTINELS' keys in order -- `twin_last`'s three inside
+    its braces --, each through its own Try and a NetSyncSelfDress getter at its sentinel; AppendDressSelf calls it after
+    AppendDressPolish; it is published in EVERY role; the harness protocol stays 5."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', [_patch_bytes("s157")])
+    assert len(catch) == 1 and catch[0].count(".Append(") == 3 and ".Append(NetsyncF3Retired)" in catch[0], catch
+    _a, b = _literals(catch[0])
+    esc = lambda d: json.dumps(d, separators=(",", ":")).replace('"', '\\"')     # noqa: E731
+    assert esc(BW.DRESS_SELF_LIVE_SENTINELS) + ',\\"guard\\":{' in b, b[-1400:]
+    assert ('\\"polish\\":false,\\"twin_rows\\":0,\\"twins\\":0,\\"twin_misses\\":0,\\"twin_last\\":{\\"src\\":-1,'
+            '\\"twin\\":-1,\\"site\\":-1},\\"ghost_clip_misses\\":0,\\"twin_clips_on_disc\\":-1,\\"twin_clip_missing\\":-1,'
+            '\\"twin\\":null,\\"twin_selftest\\":null},\\"guard\\":{') in b, b[-1400:]
+    nothing = _agent_netsync_nothing()[0]
+    assert _catch_doc_in("s157") == nothing and _untwinned(nothing) == _catch_doc_in("s156")
+    assert nothing["dress"]["self"] == BW.DRESS_SELF_LIVE_SENTINELS and nothing["dress"] == BW.DRESS_SENTINELS
+    body = _cs_block("HarnessAgent.cs", "private static void AppendDressTwin(StringBuilder sb)", stop="}")
+    text = " ".join(body)
+    keys = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', text)
+    assert keys == _twin_flat_keys(), keys
+    assert 'sb.Append("\\"twin_last\\":{");' in text
+    calls = [t for t in body if re.match(r"(?:Bool|Num|Str)\(sb, ", t)]
+    assert len(calls) == len(keys) and all(re.search(r"Try\(\(\) => (?:\(Int64\))?Memoria\.Netsync\.NetSyncSelfDress\.", t)
+                                           for t in calls), calls
+    sent = [BW.DRESS_TWIN_SENTINELS["twin_last"][k] if i in range(3, 6) else
+            BW.DRESS_TWIN_SENTINELS[k] for i, k in enumerate(_twin_flat_keys())]   # `twin` is a leaf AND the lever's key
+    for t, want in zip(calls, sent):
+        if want is None:
+            assert t.startswith("Str("), t
+        else:
+            assert t.startswith("Num(") and f", {want}L)" in t, t
+    assert "IsSelfTestRole" not in text                        # published in EVERY role (a host reads its sentinels)
+    assert _added_after("s157", "HarnessAgent.cs", "AppendDressPolish(sb);", "AppendDressTwin(sb);")
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+    sd = " ".join(_stack_text("NetSyncSelfDress.cs"))
+    for frag in ('internal static String HarnessTwin { get { return _twinLever == TwinLeverOff ? "off" : _twinLever == '
+                 'TwinLeverMiss ? "miss" : "on"; } }',
+                 "internal static String TwinSelfTestVerdict { get { return _twinSelfTestVerdict; } }",
+                 "Twins = TwinMisses = GhostClipMisses = 0;", "TwinLastSrc = TwinLast = TwinLastSite = -1;"):
+        assert frag in sd, frag
+    honolulu = " ".join(_stack_text("HonoluluFieldMain.cs"))
+    assert "Memoria.Netsync.NetSyncSelfDress.OnTwinLoadReset();" in honolulu
+    assert _added_after("s157", "HonoluluFieldMain.cs", "NetSyncSelfDress.OnSoundTableReset();", "OnTwinLoadReset();")
+
+
+def test_state_reads_the_twin_rows_absent_as_cannot_never_as_nothing():
+    """On s156's catch block every twin accessor reads None and `coop_dress_twin` False; on s157's the sentinels and True (a
+    null string "", `twin_last` a copied dict); a published block reads its values, a mistyped value None."""
+    old = State({"frame": 1, "netsync": _catch_doc_in("s156")})
+    live = State({"frame": 1, "netsync": _catch_doc_in("s157")})
+    table = State.NETSYNC_DRESS_ACCESSORS
+    mine = {p: n for p, n in table.items() if p.startswith("self.") and p.split(".")[1] in BW.DRESS_TWIN_KEYS}
+    assert len(mine) == len(BW.DRESS_TWIN_KEYS) + len(BW.DRESS_TWIN_LAST_KEYS), sorted(mine)
+    for path, name in mine.items():
+        assert getattr(old, name) is None, name
+        assert getattr(live, name) is not None, name
+    assert (old.coop_dress_twin, live.coop_dress_twin) == (False, True)
+    assert (live.coop_dress_self_twin_rows, live.coop_dress_self_twins, live.coop_dress_self_twin,
+            live.coop_dress_self_twin_selftest, live.coop_dress_self_twin_last_block,
+            live.coop_dress_self_twin_last_src) == (0, 0, "", "", {"src": -1, "twin": -1, "site": -1}, -1)
+    doc = _catch_doc_in("s157")
+    doc["dress"]["self"].update(twin_rows=55, twins=3, twin_last={"src": 10687, "twin": 10745, "site": 7}, twin="miss",
+                                twin_clips_on_disc=37, twin_selftest="ok", twin_misses="x")
+    st = State({"frame": 1, "netsync": doc})
+    got = st.coop_dress_self_twin_last_block
+    assert (st.coop_dress_self_twin_rows, st.coop_dress_self_twins, st.coop_dress_self_twin, st.coop_dress_self_twin_selftest,
+            st.coop_dress_self_twin_clips_on_disc, st.coop_dress_self_twin_last_twin, st.coop_dress_self_twin_last_site) == (
+        55, 3, "miss", "ok", 37, 10745, 7)
+    assert got == {"src": 10687, "twin": 10745, "site": 7} and got is not doc["dress"]["self"]["twin_last"]
+    assert st.coop_dress_self_twin_misses is None                                # mistyped
+
+
+def test_the_s157_twin_op_is_the_engines_in_its_order():
+    """HarnessSelfDress' s157 case, read off the live stack, IS what the driver and the stand-in refuse: the ROLE first,
+    then the op, then the value -- `twin`: `n != 3` -> TwinUsage, then TrySetTwin (DressMode's trim + lower, `on` / `off` /
+    `miss`, anything else TwinUsage and nothing changed); the unknown-op list is s157's (`twin` last). TwinUsage, TrySetTwin's
+    lines, HarnessTwin (`twin` AS SET), TwinOn / TwinForcedMiss (the selftest role only) and the release (the lever back on,
+    the release line's text unchanged) are battlewire's words and rules."""
+    body = _cs_block("NetSyncClient.cs", 'case "twin":', stop="default:")
+    text = " ".join(_strip_comment(t) for t in body)
+    for frag in ("if (n != 3)", "why = NetSyncSelfDress.TwinUsage;", "return false;",
+                 "return NetSyncSelfDress.TrySetTwin(val, out why);"):
+        assert frag in text, frag
+    assert text.index("if (n != 3)") < text.index("return NetSyncSelfDress.TrySetTwin(val, out why);")
+    order = " ".join(_strip_comment(t) for t in _s157_added("NetSyncClient.cs"))
+    assert order.index('case "twin":') < order.index("why = \"netsync selfdress: unknown op '\"")
+    client = " ".join(_stack_text("NetSyncClient.cs"))
+    assert ("why = \"netsync selfdress: unknown op '\" + op + \"' (" + "|".join(BW.SELFDRESS_OPS) + ")\";") in client
+    assert BW.SELFDRESS_OPS == BW.SELFDRESS_OPS_S141 + ("twin",) and FG.NETSYNC_SELFDRESS_OPS_S141 == BW.SELFDRESS_OPS_S141
+    assert FG.selfdress_ops(S156_CAPS_) == BW.SELFDRESS_OPS_S141
+    sd = " ".join(_stack_text("NetSyncSelfDress.cs"))
+    assert f'internal const String TwinUsage = "{BW.TWIN_USAGE}";' in sd
+    assert BW.TWIN_USAGE == Session.NETSYNC_SELFDRESS_USAGE["twin"]
+    for frag in ("Int32 v = TwinValueRule(val);", "why = TwinUsage;", "_twinLever = v;",
+                 'return v == "on" ? TwinLeverOn : v == "off" ? TwinLeverOff : v == "miss" ? TwinLeverMiss : -1;',
+                 "get { return _twinLever != TwinLeverOff || !NetSyncClient.IsSelfTestRole; }",
+                 "get { return _twinLever == TwinLeverMiss && NetSyncClient.IsSelfTestRole; }",
+                 "return lever != TwinLeverOff || !selfTestRole;", "return lever == TwinLeverMiss && selfTestRole;",
+                 "internal const Int32 TwinLeverOn = 0, TwinLeverOff = 1, TwinLeverMiss = 2;",
+                 "any = any || _twinLever != TwinLeverOn;", "_twinLever = TwinLeverOn;"):
+        assert frag in sd, frag
+    assert (BW.TWIN_LEVER_ON, BW.TWIN_LEVER_OFF, BW.TWIN_LEVER_MISS) == (0, 1, 2)
+    for val, want in (("on", 0), (" OFF ", 1), ("Miss", 2), ("maybe", -1), (None, -1), ("1", -1), ("", -1)):
+        assert BW.twin_value_rule(val) == want, val
+    for lever, role, on, miss in ((0, True, True, False), (1, True, False, False), (2, True, True, True),
+                                  (1, False, True, False), (2, False, True, False)):
+        assert (BW.twin_on_rule(lever, role), BW.twin_miss_rule(lever, role)) == (on, miss), (lever, role)
+    added = [_strip_comment(t) for t in _s157_added("NetSyncSelfDress.cs")]
+    words = "".join("".join(_literals(t)) for t in added)
+    for log in (BW.TWIN_ON_LOG, BW.TWIN_OFF_LOG, BW.TWIN_MISS_LOG):
+        assert log[len("[NetSync] harness: selfdress twin "):] in words, log
+    # the miss line the guard logs (once per load) is battlewire's
+    miss = " ".join(added)
+    assert '"[NetSync] self-dress: twin " + mapped + " for " + raw + " is not on the body"' in miss
+    assert BW.twin_miss_line(10745, 10687, 2002, forced=True) == ("[NetSync] self-dress: twin 10745 for 10687 is not on the "
+                                                                 "body (the `twin miss` lever) -- playing 2002 (s140's "
+                                                                 "fallback)")
+
+
+def test_the_s157_hooks_spend_the_twin_where_the_spec_says():
+    """The twin step is SPENT at the stock sites, off the live stack: MapAnim composes it (the s140 map inside it),
+    MapAndAttach runs the clip-present guard after its attach, AttachDress's jump store composes it and its guard re-stores
+    s140's alias for a twin whose clip is not on the body, GhostAnim reads the live twin law through GhostAnimRule on a
+    plain-Zidane wire body only, and DriveGhost never records a clip that did not attach (GetClip, the codebase's presence
+    idiom) -- a dressed ghost plays its rig's idle, an undressed one keeps its clip."""
+    sd = " ".join(_strip_comment(t) for t in _stack_text("NetSyncSelfDress.cs"))
+    for frag in ("return MapRigAnimTwin(rigIdx, id, site, LawOn(LawAlias), TwinOn);",
+                 "mapped = TwinAttached(actor, rigIdx, raw, site, mapped);",
+                 "actor.jump = (UInt16)MapRigAnimTwin(rigIdx, actor.netJumpSrc, SiteJump, alias, TwinOn);",
+                 "if (actor.jump != 0 && actor.jump == TwinRigAnim(rigIdx, actor.netJumpSrc, SiteJump, TwinOn)",
+                 "&& (!HasClip(go, actor.jump) || TwinForcedMiss))",
+                 "actor.jump = (UInt16)MapRigAnim(rigIdx, actor.netJumpSrc, SiteJump, alias);",
+                 "return twin != 0 ? twin : MapRigAnim(rigIdx, id, site, aliasLaw);",
+                 "if (!twinLaw || (site != SitePlay && site != SiteJump))",
+                 "return anim != null && FF9DBAll.AnimationDB.TryGetValue(id, out name) && name != null && anim.GetClip(name) "
+                 "!= null;"):
+        assert frag in sd, frag
+    # the guard runs AFTER the stock-site attach, inside MapAndAttach's try (a fault still takes FaultFallback)
+    assert _added_after("s157", "NetSyncSelfDress.cs",
+                        "AnimationFactory.AddAnimWithAnimatioName(actor.go, FF9DBAll.AnimationDB.GetValue(mapped));",
+                        "mapped = TwinAttached(actor, rigIdx, raw, site, mapped);")
+    vis = " ".join(_strip_comment(t) for t in _stack_text("NetSyncVisitor.cs"))
+    assert "return GhostAnimRule(dressModel, dressRig, wireModel, wireLoco, wireAnim, NetSyncSelfDress.TwinOn);" in vis
+    assert ("Int32 twin = wireModel == PlainZidaneModel ? NetSyncSelfDress.TwinRigAnim(dressRig, wireAnim, "
+            "NetSyncSelfDress.SitePlay, twinLaw) : 0;") in vis
+    client = [_strip_comment(t) for t in _s157_added("NetSyncClient.cs")]
+    joined = " ".join(client)
+    for frag in ("if (_ghostMissClips.Contains(clip) || !GhostClipAttaches(clip, animId))", "clip = GhostMissFallback();",
+                 "if (clip == null || clip == _ghostClip || _ghostMissClips.Contains(clip))",
+                 "if (_ghostAnim.GetClip(clip) == null)", "GhostNoteMiss(clip, false);",
+                 "if (_ghostAnim.GetClip(clip) != null && !forced)",
+                 "Boolean forced = NetSyncSelfDress.TwinForcedMiss && NetSyncSelfDress.IsTwinTarget(animId);",
+                 "GhostNoteMiss(clip, forced);", "if (!String.IsNullOrEmpty(clip) && _ghostMissClips.Count < GhostMissCap)",
+                 "NetSyncSelfDress.GhostClipMisses++;", "_ghostMissClips.Clear();", "_ghostMissForced = false;"):
+        assert frag in joined, frag
+    assert not any("_ghostAnim[clip] != null" in t or "_ghostAnim[clip] == null" in t for t in client)   # GetClip only
+    assert sum(t == "_ghostMissClips.Clear();" for t in client) == 3    # EnsureGhost, DespawnGhost, the lever's retry
+    assert not any("_ghostMissClip " in t or "_ghostMissClip=" in t for t in client)   # the one-slot memo is gone (S157-review GF-3)
+    # [ff9mapkit netsync s157] the PAIRED host's twin needs a peer that sends the frame (S157-review COMPAT-1): a 37-B guest keeps
+    # s156's idle; the selftest mirror (its frame is mine) keeps GhostAnim
+    assert "NetSyncVisitor.GhostTwinLaw(NetSyncSelfDress.TwinOn, rs.HasFrame))" in joined
+    assert "? NetSyncVisitor.GhostAnimRule(dressModel, dressRig, rs.Model, rs.Loco, rs.Anim," in joined
+    assert "return twinOn && peerHasFrame;" in vis
+    assert BW.ghost_twin_law(True, True) and not any((BW.ghost_twin_law(True, False), BW.ghost_twin_law(False, True)))
+    assert BW.ghost_anim_rule(5489, 3, 98, BW.LOCO_OTHER, 10539, BW.ghost_twin_law(True, False)) == 2001
+    # [ff9mapkit netsync s157] THE BODY'S MISS MEMO (S157-review body-miss): a twin whose clip failed this load skips the attach
+    for frag in ("if (mapped != raw && TwinKnownMissing(rigIdx, raw, site, mapped))",
+                 "return TwinMissed(actor, rigIdx, raw, site, mapped);", "NoteTwinMiss(mapped);", "NoteTwinMiss(actor.jump);",
+                 "if (twin != 0 && !TwinForcedMiss)", "_twinMissIds.Clear();",
+                 "return mapped != 0 && !TwinForcedMiss && _twinMissIds.Contains(mapped) && mapped == TwinRigAnim(rigIdx, raw, "
+                 "site, TwinOn);"):
+        assert frag in sd, frag
+    assert _added_after("s157", "NetSyncSelfDress.cs", "Int32 mapped = MapAnim(actor, raw, site);",
+                        "if (mapped != raw && TwinKnownMissing(rigIdx, raw, site, mapped))")
+
+
+def test_the_stand_in_models_the_twin_lever_counts_and_proof_line(game):
+    """The stand-in's s157: `self` publishes the twin keys at the live defaults (twin_rows 55, `twin` "on"); MapAnim's twin
+    step on a dressed controlled body counts `twins` / `twin_last` (the jump slot too), `twin off` is s140's alias with no
+    count, `twin miss` the alias with `twin_misses` and ONE miss line; a refusal changes nothing; `selfdress clear` puts the
+    lever back on; the proof block's twin line comes right before its LAST, the ghost frame line (twin_clips_on_disc 37 after
+    it); an s156 stand-in has no twin
+    key and refuses `twin` with s141's op list."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        g.wait_frames(6)
+        st = g.state
+        assert (st.coop_dress_twin, st.coop_dress_self_twin_rows, st.coop_dress_self_twin) == (True, 55, "on")
+        assert (st.coop_dress_self_twin_selftest, st.coop_dress_self_twin_clips_on_disc) == ("ok", 37)
+        lines = _proof_lines(fake)
+        assert lines and lines[-2].split("[NetSync] ", 1)[1] == BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS)
+        assert lines[-1].split("[NetSync] ", 1)[1] == _gf_proof_text()      # [ff9mapkit netsync s157] the ghost frame's, LAST
+        fake._self_body = {"rig": 3, "slots": {}}                     # a dressed Steiner (the map keys on the BODY's rig)
+        assert fake._self_map(10539, BW.SITE_PLAY) == 10741 and fake._self_map(10687, BW.SITE_JUMP) == 10745
+        assert fake._self_map(10539, BW.SITE_WALK) == BW.map_rig_anim(3, 10539, BW.SITE_WALK, True)   # a slot: no twin
+        doc = fake._netsync_doc()["dress"]["self"]
+        assert (doc["twins"], doc["twin_misses"], doc["twin_last"]) == (2, 0, {"src": 10687, "twin": 10745, "site": 7})
+        g.selfdress_twin("off")
+        assert g.state.coop_dress_self_twin == "off" and fake._self_map(10539, BW.SITE_PLAY) == 2002
+        assert fake._netsync_doc()["dress"]["self"]["twins"] == 2
+        g.selfdress_twin("miss")
+        assert fake._self_map(10539, BW.SITE_PLAY) == 2002 and fake._self_map(10687, BW.SITE_JUMP) == 2002
+        doc = fake._netsync_doc()["dress"]["self"]
+        assert (doc["twin"], doc["twins"], doc["twin_misses"]) == ("miss", 2, 2)
+        assert len(_mlog_lines(fake, "[NetSync] self-dress: twin ")) == 1
+        with pytest.raises(HarnessError, match=re.escape(BW.TWIN_USAGE)):
+            g.selfdress("twin", "maybe")
+        assert fake._twin_lever == BW.TWIN_LEVER_MISS
+        g.selfdress("clear")
+        assert g.state.coop_dress_self_twin == "on" and _mlog_lines(fake, BW.SELF_RELEASE_LINE)
+        fake._twin_on_load()
+        assert fake._netsync_doc()["dress"]["self"]["twin_last"] == {"src": -1, "twin": -1, "site": -1}
+    old = FakeGame(game)
+    old.netsync_caps = S156_CAPS_
+    _sd(old)
+    assert not set(BW.DRESS_TWIN_KEYS) & set(old._netsync_doc()["dress"]["self"])
+    with pytest.raises(RuntimeError, match=re.escape("(" + "|".join(BW.SELFDRESS_OPS_S141) + ")")):
+        old._netsync(["selfdress", "twin", "off"])
+
+
+# =========================================================================================================================
+# [ff9mapkit netsync s157] THE GHOST FRAME (studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md Finding 1): the sender's animFrame /
+# frameN as two TRAILING type-0 bytes (37 -> 39 B, the wire stays v14) and the ghost SAMPLING its clip like the engine
+# (NetSyncClient.DriveGhost) -- the same ONE s157 rung, `dresstwin`. Pinned to the s157 patch: `netsync.ghostframe` is
+# netsync's LAST key (after `guestlocal`), `bench` gains the named op `ghostframe on|off` (no sub-verb), the proof block gains
+# "ghost frame selftest: OK (69 rows, 15 mutants caught)" as its LAST line (after the dress twin line).
+# =========================================================================================================================
+GF_TAG = "[ff9mapkit netsync s157]"
+
+
+def test_the_s157_ghostframe_block_closes_netsync_on_the_dresstwin_rung():
+    """THE s157 GHOST-FRAME PINS: the ghost frame rides s157's ONE rung (`dresstwin`, LAST, after s156's `guestlocal` -- Spec B's
+    `climbanim` name is not a second rung), adds no sub-verb, nothing under `netsync.battle` and ONE top-level block,
+    `ghostframe`, netsync's LAST key; the live catch line closes with its sentinels (the stand-in's); s156's document is the
+    live one less it and the twin keys; AppendGhostFrame writes the same keys in the same order, each through its own Try and
+    a NetSyncClient getter at its sentinel, in EVERY role, called right after AppendGuestLocal; the `bench ghostframe` op is
+    told by `netsync.ghostframe`; the protocol stays 5."""
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    assert names[-1] == "dresstwin" and FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and "climbanim" not in names
+    assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and FG.NETSYNC_TOP_CAP_KEYS["dresstwin"] == ("ghostframe",)
+    assert FG.netsync_subverbs(FG.caps_through("dresstwin")) == FG.netsync_subverbs(S156_CAPS_) == FG.NETSYNC_SUBVERBS
+    esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
+    assert _gl_catch_tail().endswith(',"ghostframe":' + esc(FG.NETSYNC_GHOSTFRAME_SENTINELS) + "}")
+    nothing = _agent_netsync_nothing()[0]
+    assert list(nothing)[-1] == "ghostframe" and nothing["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS
+    assert tuple(nothing["ghostframe"]) == FG.NETSYNC_GHOSTFRAME_KEYS
+    assert "ghostframe" not in _catch_doc_in("s156") and list(_unghosted(nothing)) == list(_catch_doc_in("s156"))
+    assert _untwinned(nothing) == _catch_doc_in("s156") and _catch_doc_in("s157") == nothing
+    body = _cs_block("HarnessAgent.cs", "private static void AppendGhostFrame(StringBuilder sb)", stop='sb.Append("}");')
+    text = " ".join(body)
+    assert re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', text) == list(FG.NETSYNC_GHOSTFRAME_KEYS)
+    assert 'sb.Append("\\"ghostframe\\":{");' in body
+    calls = [t for t in body if re.match(r"(?:Bool|Num|Str)\(sb, ", t)]
+    assert len(calls) == len(FG.NETSYNC_GHOSTFRAME_KEYS), calls
+    for t, (k, want) in zip(calls, FG.NETSYNC_GHOSTFRAME_SENTINELS.items()):
+        assert re.search(r"Try\(\(\) => (?:\(Int64\))?Memoria\.Netsync\.NetSyncClient\.Harness", t), t
+        if want is None:
+            assert t.startswith("Str("), t
+        elif isinstance(want, bool):
+            assert t.startswith("Bool(") and ", false)" in t, t
+        else:
+            assert t.startswith("Num(") and (f", {want}L)" in t or f", {want}f)" in t), (k, t)
+    assert "IsSelfTestRole" not in text                        # published in EVERY role (a host reads its ghost's frame)
+    assert _added_after("s157", "HarnessAgent.cs", "AppendGuestLocal(sb);", "AppendGhostFrame(sb);")
+    assert Session.NETSYNC_BENCH_OPS["ghostframe"][:3] == ("coop_ghost_frame", "netsync.ghostframe", "s157")
+    assert _key_is_the_patchs("netsync.ghostframe", "dresstwin")
+    assert State({"frame": 1, "netsync": nothing}).coop_ghost_frame is True
+    assert State({"frame": 1, "netsync": _catch_doc_in("s156")}).coop_ghost_frame is False
+    assert State({"frame": 1}).coop_ghost_frame is None
+    assert State({"frame": 1, "netsync": nothing}).ghost_frame_block == FG.NETSYNC_GHOSTFRAME_SENTINELS
+    assert any(GF_TAG in ln and "the ghost frame" in ln for ln in _stack_text("HarnessAgent.cs"))
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+
+
+def test_the_s157_bench_ghostframe_op_is_the_agents_and_released_with_the_harness():
+    """`bench ghostframe on|off`, read off the live stack: a named op of `bench` after `worldwarm` (the arity / value first, an
+    ArgumentOutOfRangeException in the stand-in's words, then NetSyncClient.HarnessBenchGhostFrame -- the selftest role, its
+    refusal and log lines the stand-in's), the lever read LIVE on the selftest role only, released LAST by HarnessReleaseBench
+    (after s156's guest-traversal release), and the release line only when the lever was pulled."""
+    case = " ".join(_strip_comment(t) for t in _cs_block("HarnessAgent.cs", 'if (bnop == "ghostframe")', stop="break;"))
+    for frag in ('if (s.Args.Length != 3 || (gf != "on" && gf != "off"))',
+                 'throw new ArgumentOutOfRangeException("netsync bench ghostframe", "expected `netsync bench ghostframe on|off`");',
+                 'if (!Memoria.Netsync.NetSyncClient.HarnessBenchGhostFrame(gf == "on", out why))',
+                 'throw new InvalidOperationException(why ?? "netsync bench ghostframe refused");'):
+        assert frag in case, frag
+    assert _added_after("s157", "HarnessAgent.cs", '"netsync bench worldwarm refused"', 'if (bnop == "ghostframe")')
+    client = " ".join(_strip_comment(t) for t in _s157_added("NetSyncClient.cs"))
+    words = "".join("".join(_literals(t)) for t in _s157_added("NetSyncClient.cs"))
+    assert "private static Boolean GhostFrameLeverOff { get { return _benchGhostFrameOff && IsSelfTestRole; } }" in client
+    assert 'why = "netsync bench ghostframe: needs the selftest role (netsync selftest 1)";' in client
+    for log in (FG.GHOSTFRAME_LOG_ON, FG.GHOSTFRAME_LOG_OFF, FG.GHOSTFRAME_LOG_RELEASE):
+        assert log[len("[NetSync] harness: ghost frame-follow "):] in words, log
+    assert _added_after("s157", "NetSyncBattle.cs", "NetSyncGuestLocal.HarnessRelease();", "NetSyncClient.HarnessReleaseGhostFrame();")
+
+
+def test_the_s157_ghost_frame_is_spent_where_the_spec_says():
+    """The ghost frame is SPENT at its sites, off the live stack: both transports and the one live sender widen SetLocal with
+    the controlled actor's animFrame / frameN (the relay's pre-field sentinel and the off-field send write frameN 0); both
+    DriveGhost callers pass the sender's frame and the DRESS rig (the paired ghost: -1 undressed; the selftest mirror: its own
+    frame, present only while its wire clip IS my clip); DriveGhost decides follow / free EVERY frame -- the verdict through
+    GhostFrameWhy with the id-based twin test (FollowsWireAnim) on a clip that attached -- and every non-follow path restores
+    speed 1; EnsureGhost and DespawnGhost reset the follow state; the proof block's LAST line is the ghost frame's."""
+    sock = " ".join(_strip_comment(t) for t in _stack_text("NetSyncSocket.cs"))
+    for frag in ("public Boolean HasFrame;", "public Byte AnimFrame;", "public Byte FrameN;",
+                 "void SetLocal(Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Byte loco, Vector3 pos, Quaternion rot, Byte animFrame,",
+                 "NetSyncWire.BuildPosPayload(field, anim, model, meshVis, loco, pos, rot, animFrame, frameN)));"):
+        assert frag in sock, frag
+    relay = " ".join(_strip_comment(t) for t in _stack_text("NetSyncRelay.cs"))
+    assert "NetSyncWire.BuildPosPayload(65535, 0, 0, 0, 0, Vector3.zero, Quaternion.identity, 0, 0)));" in relay
+    assert "NetSyncWire.BuildPosPayload(field, anim, model, meshVis, loco, pos, rot, animFrame, frameN)));" in relay
+    client = [_strip_comment(t) for t in _s157_added("NetSyncClient.cs")]
+    joined = " ".join(client)
+    for frag in ("local.animFrame, local.frameN);", "_socket.SetLocal(0, 0, 0, 0, 0, Vector3.zero, Quaternion.identity, 0, 0);",
+                 "DriveGhost(rs.Pos, rs.Rot, animId, rs.Anim, rs.HasFrame, rs.AnimFrame, rs.FrameN, rs.Loco,",
+                 "dressModel != 0 ? dressRig : -1);",
+                 "DriveGhost(stMirror, me.fieldMapActor.transform.localRotation, stAnim, stWireAnim, stWireAnim == me.anim,",
+                 "me.animFrame, me.frameN, stLoco, stRig);",
+                 "Byte wireFrameN, Byte wireLoco, Int32 dressRig)",
+                 "Int32 why = NetSyncVisitor.GhostFrameWhy(!GhostFrameLeverOff, hasFrame, wireFrameN, wireLoco,",
+                 "!missed && NetSyncVisitor.FollowsWireAnim(animId, wireAnim, dressRig, wireLoco));",
+                 "GhostFrameFollow(clip, started, wireFrame, wireFrameN, a);", "GhostFrameFree(clip, why);",
+                 "st.speed = 0f;", "st.time = NetSyncVisitor.GhostFrameTime(_gfShown, n, st.length);", "_ghostAnim.Sample();",
+                 "Int32 kind = NetSyncVisitor.GhostFrameStep(_gfLastWire, f, n, out step);",
+                 "_gfShown = NetSyncVisitor.GhostFrameEase(_gfShown, _gfTarget, a);",
+                 "Boolean gfOk = NetSyncVisitor.GhostFrameSelfTest(out gfDetail);"):
+        assert frag in joined, frag
+    # the s156 early return (`clip == _ghostClip` -> return, the loop that kept a stopped climber climbing) is gone
+    assert not any("String.IsNullOrEmpty(clip) || clip == _ghostClip" in t for t in _stack_text("NetSyncClient.cs"))
+    assert sum(t == "GhostFrameReset();" for t in client) == 2                            # EnsureGhost, DespawnGhost
+    assert sum(t == "GhostFrameFree(_ghostClip, NetSyncVisitor.GfWhyClip);" for t in client) == 4   # the four early returns
+    assert _added_after("s157", "NetSyncClient.cs", "NetSyncSelfDress.MeasureTwinClips();",
+                        'Log.Message("[NetSync] ghost frame selftest: "')
+    vis = " ".join(_strip_comment(t) for t in _stack_text("NetSyncVisitor.cs"))
+    assert "return resolvedAnim != Rigs[dressRig].Idle && resolvedAnim != Rigs[dressRig].IdleAlias;" in vis
+    assert "FollowsWireClip" not in vis and "ClipSuffixStart" not in vis               # the NAME test is not shipped
+
+
+def test_the_s157_ghost_frame_twins_hold_to_the_engines_rows_and_spec_as_twin_table():
+    """battlewire's ghost-frame twins (BW.ghost_frame_*, BW.follows_wire_anim) answer the engine selftest's own rows, and the
+    id-based twin test FOLLOWS every one of Spec A's twin rows (BW.TWIN_ROWS through BW.ghost_anim_rule on a dressed plain-Zidane
+    wire, the twin law on) and NONE of them with the twin law off (the idle: owner decision 4) -- the name test's 18 'nearest
+    played jump' rows included."""
+    O = BW.LOCO_OTHER
+    f = BW.follows_wire_anim
+    follow = off = 0
+    for rig, a, b, twin in BW.TWIN_ROWS:
+        model = BW.RIGS[rig][0]
+        for src in (a, b):
+            res = BW.ghost_anim_rule(model, rig, BW.PLAIN_ZIDANE_MODEL, O, src, True)
+            assert res == twin and f(res, src, rig, O), (rig, src, res)
+            follow += 1
+            res_off = BW.ghost_anim_rule(model, rig, BW.PLAIN_ZIDANE_MODEL, O, src, False)
+            assert not f(res_off, src, rig, O), (rig, src, res_off)
+            off += 1
+    assert follow == off == 2 * BW.TWIN_ROW_COUNT
+    # the two 'nearest played jump' rows the skeptic named (a NAME test would free-run them): Steiner's ZDN_JUMP -> STN_JUMP_1
+    # and ZDN_JUMP_2 -> STN_JUMP_3
+    assert BW.TWIN_BY_KEY[(3, 206)] == 12034 and f(12034, 206, 3, O)
+    assert BW.TWIN_BY_KEY[(3, 3519)] == 12032 and f(12032, 3519, 3, O)
+    # a dress on the wire's OWN body plays the raw wire anim (followed); a CLIENT's s138 translation plays the idle (never)
+    assert f(BW.ghost_anim_rule(5489, 3, 5489, O, 10741, True), 10741, 3, O)
+    assert not f(BW.loco_anim(3, O), 10539, 3, O)
+    assert BW.ghost_frame_why(True, True, 12, O, f(10741, 10539, 3, O)) == BW.GF_FOLLOW
+    assert BW.ghost_frame_why(True, True, 12, O, f(2002, 10539, 3, O)) == BW.GF_WHY_CLIP
+    assert BW.GF_WHY_NAMES[BW.ghost_frame_why(False, True, 12, O, True)] == "lever"
+
+
+def test_the_stand_in_models_the_ghostframe_block_its_lever_and_its_release(game):
+    """The stand-in's s157 ghost frame: `netsync.ghostframe` at the agent's sentinels (no ghost is drawn here) but for `lever_off`
+    and `selftest` ("ok" once the proof block ran -- its line the block's LAST, after the dress twin line); `bench ghostframe
+    off|on` sets the lever in the engine's log words; a wrong arity / value is refused before any change in the agent's
+    ArgumentOutOfRangeException shape; another role is refused by `bench`'s own gate; every harness release puts the lever
+    back on, its line only when it was pulled; an s156 stand-in has no block and reads `bench ghostframe` as `bench 1`."""
+    fake = FakeGame(game)
+    doc = fake._netsync_doc()
+    assert list(doc)[-1] == "ghostframe" and doc["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS
+    with pytest.raises(RuntimeError, match=re.escape("netsync bench: needs the selftest role (netsync selftest 1)")):
+        fake._netsync(["bench", "ghostframe", "off"])
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        g.wait_frames(6)
+        st = g.state
+        assert st.coop_ghost_frame is True and st.ghost_frame_block == dict(FG.NETSYNC_GHOSTFRAME_SENTINELS, selftest="ok")
+        lines = _proof_lines(fake)
+        assert lines[-1].split("[NetSync] ", 1)[1] == _gf_proof_text()
+        assert lines[-2].split("[NetSync] ", 1)[1] == BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS)
+        m = re.search(FG.GHOSTFRAME_PROOF_RE, lines[-1])
+        assert m and (int(m.group(1)), int(m.group(2))) == (FG.FAKE_GHOSTFRAME_SELFTEST_ROWS, FG.FAKE_GHOSTFRAME_MUTANTS) == (69, 15)
+        st = g.netsync("bench", "ghostframe", "off")
+        assert st.netsync["ghostframe"]["lever_off"] is True and st.netsync["bench"] is False and _mlog_lines(fake, FG.GHOSTFRAME_LOG_OFF)
+        for bad in (("ghostframe",), ("ghostframe", "maybe"), ("ghostframe", "on", "x")):
+            with pytest.raises(HarnessError, match=re.escape("expected `netsync bench ghostframe on|off`")):
+                g.netsync("bench", *bad)
+        assert fake._gf["lever_off"] is True
+        g.netsync("bench", "ghostframe", "on")
+        assert g.state.netsync["ghostframe"]["lever_off"] is False and _mlog_lines(fake, FG.GHOSTFRAME_LOG_ON)
+        assert not _mlog_lines(fake, FG.GHOSTFRAME_LOG_RELEASE)
+        g.netsync("bench", "ghostframe", "off")
+        g.netsync("selftest", 0)                               # a harness release
+        assert fake._gf["lever_off"] is False and len(_mlog_lines(fake, FG.GHOSTFRAME_LOG_RELEASE)) == 1
+        g.netsync("selftest", 1)
+        g.netsync("selftest", 0)                               # nothing pulled: no line
+        assert len(_mlog_lines(fake, FG.GHOSTFRAME_LOG_RELEASE)) == 1
+    old = FakeGame(game)
+    old.netsync_caps = S156_CAPS_
+    _sd(old)
+    assert "ghostframe" not in old._netsync_doc() and list(old._netsync_doc())[-1] == "guestlocal"
+    old._netsync(["bench", "ghostframe", "off"])                # what that engine would DO with it: `bench 1`
+    assert old.netsync["bench"] is True
+
+
+def test_the_driver_never_sends_bench_ghostframe_to_an_s156_engine(game):
+    """THE HAZARD: an s156 engine parses `bench ghostframe ...` as `bench 1` (Arg's fallback) and turns the FIELD-GATE bench ON.
+    The driver probes `netsync.ghostframe` first and refuses before the step, naming the patch; the s157 engine takes it."""
+    fake = FakeGame(game)
+    fake.netsync_caps = S156_CAPS_
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        assert g.state.coop_ghost_frame is False
+        n = len(fake.executed)
+        with pytest.raises(HarnessError, match=r"^netsync bench ghostframe: the deployed engine publishes no "
+                                               r"`netsync\.ghostframe` .*\(memoria-patch s157\); an engine before it "
+                                               r"reads `bench ghostframe` as `bench 1`"):
+            g.netsync("bench", "ghostframe", "off")
+        assert len(fake.executed) == n and g.state.netsync["bench"] is False
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.netsync("selftest", 1)
+        st = g.netsync("bench", "ghostframe", "off")
+        assert fake.executed[-1] == ["netsync", "bench", "ghostframe", "off"] and st.netsync["bench"] is False
+        assert st.netsync["ghostframe"]["lever_off"] is True
+
+
+# =========================================================================== [ff9mapkit netsync F3.3] s97-s99
 # [ff9mapkit netsync s158] THE PARTY-SCENE STEP-OUT (studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md Finding 3) -- the harness half:
 # the `stepout` sub-verb (selftest role, NetSyncStepOut.HarnessLever), `netsync.stepout` (netsync's LAST key, AppendStepOut), the
 # driver's gate and accessors, the stand-in's block. Every pin reads the LIVE stack's s158 patch.
@@ -25715,19 +26344,19 @@ def test_the_stand_in_logs_the_guest_traversal_proof_line_and_reads_selftest_ok(
 
 
 def test_the_s158_agent_prints_stepout_last_and_the_driver_and_the_stand_in_agree():
-    """`stepout` is APPENDED to the agent's "unknown sub-verb" literal (after `guestlocal`), and to the driver's and the stand-in's
-    lists in the same place; it rides the ONE ladder as its own LAST rung (`stepout`, s158, right after s156's `guestlocal`), adds
+    """`stepout` is APPENDED to the agent's "unknown sub-verb" literal (after s156's `guestlocal`; s157 added no sub-verb), and to the driver's and the stand-in's
+    lists in the same place; it rides the ONE ladder as its own LAST rung (`stepout`, s158, right after s157's `dresstwin`), adds
     nothing under `netsync.battle` / `netsync.diorama` and one TOP-LEVEL block, `stepout`; the driver keys it on its own table
     (Session.NETSYNC_STEPOUT_SUBVERBS) through the same gate as `guestlocal`; the agent's case calls HarnessLever once."""
-    assert _subverbs_in("s158") == _subverbs_in("s156") + ("stepout",)
+    assert _subverbs_in("s158") == _subverbs_in("s157") + ("stepout",) and _subverbs_in("s157") == _subverbs_in("s156")
     assert Session.NETSYNC_SUBVERBS[-1] == "stepout" == FG.NETSYNC_SUBVERBS[-1] == _agent_subverbs()[-1]
     assert Session.NETSYNC_AUTHORITY_SUBVERBS[-1] == "stepout" and FG.NETSYNC_BATTLE_VERB_ORDER[-1] == "stepout"
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-1] == "stepout" and names[-2] == "guestlocal"
+    assert names[-1] == "stepout" and names[-2] == "dresstwin"
     assert FG.NETSYNC_BATTLE_CAPS["stepout"] == ("s158", ("stepout",)) and FG.NETSYNC_S158_CAPS == frozenset(("stepout",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["stepout"] == {} and FG.NETSYNC_TOP_CAP_KEYS["stepout"] == ("stepout",)
     assert "stepout" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "stepout" not in FG.NETSYNC_DIORAMA_CAP_KEYS
-    cal = FG.caps_through("guestlocal")
+    cal = FG.caps_through("dresstwin")
     assert "stepout" not in cal and FG.netsync_subverbs(cal) + ("stepout",) == FG.NETSYNC_SUBVERBS
     assert Session.NETSYNC_STEPOUT_SUBVERBS == {
         "stepout": ("coop_step_out", "netsync.stepout", "s158", "the s158 party-scene step-out bench")}
@@ -25762,15 +26391,15 @@ def test_the_s158_lever_words_are_the_engines():
 
 
 def test_the_s158_catch_line_closes_netsync_with_the_stepout_sentinels():
-    """THE CATCH-LITERAL PIN for s158: the SECOND literal closes with `,"stepout":{...}` right after guestlocal's closing brace and
+    """THE CATCH-LITERAL PIN for s158: the SECOND literal closes with `,"stepout":{...}` right after ghostframe's closing brace and
     before netsync's, every key at its sentinel in FG.NETSYNC_STEPOUT_SENTINELS' order; s158 added that block and nothing else (the
-    live document less it is s156's); AppendStepOut writes the same keys in the same order, called right after AppendGuestLocal."""
+    live document less it is s157's); AppendStepOut writes the same keys in the same order, called right after s157's AppendGhostFrame."""
     b = _gl_catch_tail()
     esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
     assert b.endswith(',"stepout":' + esc(FG.NETSYNC_STEPOUT_SENTINELS) + "}"), b[-1200:]
     nothing = _agent_netsync_nothing()[0]
-    assert list(nothing)[-2:] == ["guestlocal", "stepout"] and nothing["stepout"] == FG.NETSYNC_STEPOUT_SENTINELS
-    assert _catch_doc_in("s156") == _unstepped(nothing) and _catch_doc_in("s158") == nothing
+    assert list(nothing)[-2:] == ["ghostframe", "stepout"] and nothing["stepout"] == FG.NETSYNC_STEPOUT_SENTINELS
+    assert _catch_doc_in("s157") == _unstepped(nothing) and _catch_doc_in("s158") == nothing
     added = _so_patch_added()
     start = added.index("private static void AppendStepOut(")
     body = added[start:added.index("NetSyncStepOut.SelfTestVerdict));", start) + 40]
@@ -25788,11 +26417,11 @@ def test_the_s158_catch_line_closes_netsync_with_the_stepout_sentinels():
     assert names == flat, names
 
 
-def test_the_driver_refuses_stepout_before_the_step_on_an_s156_engine(game):
-    """On the calibration engine (the ladder through `guestlocal`) `stepout` is refused BEFORE the step, naming the key and the
+def test_the_driver_refuses_stepout_before_the_step_on_an_s157_engine(game):
+    """On the calibration engine (the ladder through `dresstwin`) `stepout` is refused BEFORE the step, naming the key and the
     patch, quoting the stand-in's own "unknown sub-verb" line."""
     fake = FakeGame(game)
-    fake.netsync_caps = FG.caps_through("guestlocal")
+    fake.netsync_caps = FG.caps_through("dresstwin")
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)

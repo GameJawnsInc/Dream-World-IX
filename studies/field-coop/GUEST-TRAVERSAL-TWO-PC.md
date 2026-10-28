@@ -365,6 +365,12 @@ reliable here: the guest's copy runs ahead into the scene's own `Field(114)`, wh
    selftest role with `selfdress self steiner` on a 207 ladder and the 408 jumps, judged by a twin counter, the
    harness `rig` read and `game_snap` stills, and made red by a lever. Then two-PC on 114 undressed and 207/408
    dressed, one change per test.
+   **Status: BUILT, DEPLOYED and SOLO-BENCHED as engine patch s157 (2026-10-28).** `coop_climb_anim.py` reads
+   21/21, each lever's calibration reds exactly its predicted rows, and the s156 DLL reds the four twin rows on
+   the idle alias; the wire half `coop_climb_anim_peer.py` reads 9/9 (s156: 3/5). The stills show Steiner gripping
+   the 207 rungs and kicking through his own jump on 408, where s156 stood him upright. Detail and the gates:
+   `memoria-patches/README.md`, the s157 row. Next: the two-PC check on 114 undressed and 207/408 dressed, both PCs
+   on s157.
 2. **The party-scene step-out** (Finding 3, A+C+E), after the owner's taste call.
 3. **The host's field rate on the wire, plus the capped follow-hold** (Finding 4).
 4. **The same-field reload** (Finding 5): backlog. It has real stock cases, so it is not only debug hygiene.

@@ -135,6 +135,12 @@ DEFAULT_FILES = [
     "Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs",
 ]
 
+# [ff9mapkit netsync s157] GENERATED files are only ever replaced WHOLE (the kit renders them from a JSON twin; their pins
+# catch a hand edit or a stale render): `emit` writes a created one from /dev/null as before, and a changed one as ONE hunk
+# that removes every old line and adds every new one, no context line -- so the newest patch carrying it holds the whole file
+# (test_guest_traversal_table.py's whole-lineage pin reads exactly that shape).
+WHOLE_FILES = {"Assembly-CSharp/Memoria/Netsync/NetSyncGuestLocalTable.cs"}
+
 # Same-number ties, pinned explicitly.
 TIE_ORDER = {
     "s48-debug-vehicle-rows.patch": 0, "s48-sfx-output-capture.patch": 1,
@@ -313,6 +319,30 @@ def emit_section(out, lhs_dir, rhs_dir, f, tree_bytes, live_bytes, created):
     return b"\n".join(lines)
 
 
+def whole_section(f, tree_bytes, live_bytes):
+    """[ff9mapkit netsync s157] One section replacing ``f`` WHOLE (WHOLE_FILES): every old line removed, every new line added,
+    ONE hunk, no context. Each line keeps its own ending (a CRLF file's lines end CR LF in the patch, as git emits them under
+    core.autocrlf=false); a side with no final newline gets git's marker after its last line. b"" when nothing changed."""
+    if tree_bytes == live_bytes:
+        return b""
+    old = re.findall(rb"[^\n]*\n|[^\n]+$", tree_bytes)   # LF-terminated lines: a bare CR stays inside its line, as git keeps it
+    new = re.findall(rb"[^\n]*\n|[^\n]+$", live_bytes)
+
+    def side(sign, lines):
+        out = b"".join(sign + ln for ln in lines)
+        if lines and not lines[-1].endswith(b"\n"):
+            out += b"\n\\ No newline at end of file\n"
+        return out
+
+    def rng(lines):
+        return b"%d,%d" % (1 if lines else 0, len(lines))
+
+    fb = f.encode()
+    head = (b"diff --git a/" + fb + b" b/" + fb + b"\n--- a/" + fb + b"\n+++ b/" + fb
+            + b"\n@@ -" + rng(old) + b" +" + rng(new) + b" @@\n")
+    return head + side(b"-", old) + side(b"+", new)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("mode", choices=["diag", "snapshot", "emit"])
@@ -384,7 +414,10 @@ def main():
             created = not (rp.work / f).exists()
             tb = b"" if created else (rp.work / f).read_bytes()
             lb = rp.live(f, strip)
-            sec = emit_section(out, lhs, rhs, f, bom_match(tb, lb), lb, created)
+            if f in WHOLE_FILES and not created:                 # [ff9mapkit netsync s157] a generated file: WHOLE
+                sec = whole_section(f, bom_match(tb, lb), lb)
+            else:
+                sec = emit_section(out, lhs, rhs, f, bom_match(tb, lb), lb, created)
             if not sec:
                 print(f"  (no delta) {f}")
             patch += sec

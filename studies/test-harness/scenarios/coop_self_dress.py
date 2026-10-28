@@ -1082,6 +1082,12 @@ LEGS = {
           "old": {stage: (S141_OLD_PREDICTED, ()) for stage in (137, 138, 139, 140)},
           "lever": {mode: (reds, ()) for mode, reds in S141_LEVER_PREDICTED.items()}},
 }
+# [ff9mapkit netsync s157] LEG L -- THE TWIN ROWS (a dressed body's Zidane ladder / jump plays the rig's own clip; NOT YET
+# REGISTERED -- register it in LEGS after leg F, and append "L" to the kit's leg-list pins). Its `old` row at stages 137-156:
+# every L check reads "cannot" (the probe finds no `self.twins`); its `lever` rows: `twin-off` -> the L1 L2 L4 clip and twin
+# counter checks red, `twin-miss` -> the L1 L4 clip checks red and the miss checks green, `law-timeline` -> L1's frame_n and
+# landing red, L2 green (moot: the same length). Steps: the s157 twin spec's bench plan (its Q1-Q6; `Q` itself is the kit's
+# deliberately-unknown leg name, so the leg is L).
 #: [ff9mapkit netsync s140] + "self", AFTER the bench phase (leg I's 30801 read follows the seed's warp there): the stock
 #: field again, every leg-G lever released, leg S -- [ff9mapkit netsync s141] then leg F's stock-field rows
 PHASES = ("stock", "seed", "seeded", "bench", "self", "close")

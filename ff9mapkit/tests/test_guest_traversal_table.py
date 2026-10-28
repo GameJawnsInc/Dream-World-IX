@@ -427,37 +427,69 @@ def test_render_cs_is_ascii_crlf_and_a_pure_function_of_the_json():
     assert G.render_cs(moved) != cs
 
 
-def _added_generated_file():
-    """The LAST live patch's section for NetSyncGuestLocalTable.cs: (patch name, its '+' lines, its other lines, the
-    section's raw bytes). The lines are CRLF-normalised and the '\\ No newline' marker dropped -- the BYTES pin
-    (:func:`_check_capture_bytes`) reads the raw section."""
-    last = None
+def _table_sections() -> list:
+    """[ff9mapkit netsync s157] Every live patch's section for NetSyncGuestLocalTable.cs, in stack order: (patch name, its
+    '+' lines, its other hunk lines, its '@@' count, its header lines, the section's raw bytes). Only the lines AFTER the
+    first '@@' are hunk lines (a removed line whose text starts '-- ' is never mistaken for a header); the lines are
+    CRLF-normalised and the '\\ No newline' marker dropped -- the BYTES pin (:func:`_check_capture_bytes`) reads the raw
+    section."""
+    out = []
     for name in msr.stack():
         if name in msr.DEAD:
             continue
         for path, sec in msr.sections((msr.PATCHES / name).read_bytes()):
-            if path and path.replace("\\", "/").rsplit("/", 1)[-1] == G.CS_NAME:
-                last = (name, sec)
-    if last is None:
+            if not (path and path.replace("\\", "/").rsplit("/", 1)[-1] == G.CS_NAME):
+                continue
+            body = sec.decode("ascii", "replace").replace("\r\n", "\n").split("\n")
+            at = next((k for k, ln in enumerate(body) if ln.startswith("@@")), len(body))
+            hunk = [ln for ln in body[at:] if not ln.startswith(("@@", "\\ No newline"))]
+            added = [ln[1:] for ln in hunk if ln.startswith("+")]
+            other = [ln for ln in hunk if ln and not ln.startswith("+")]
+            out.append((name, added, other, sum(1 for ln in body[at:] if ln.startswith("@@")), body[:at], sec))
+    return out
+
+
+def _check_whole_lineage(secs) -> list:
+    """[ff9mapkit netsync s157] THE WHOLE-FILE LAW across the stack (a generated file is only ever replaced WHOLE): the FIRST
+    section is a creation from /dev/null (one hunk, nothing but '+' lines: s156), and every LATER one replaces the version
+    before it WHOLE -- one hunk whose other lines are exactly that version's lines removed, in order, and no context line
+    (tools/memoria_stack_replay.py's WHOLE_FILES emits that shape: s157 on). Returns the lines the NEWEST section removes
+    (the previous version; [] for a creation)."""
+    assert secs, "no live patch carries the generated table"
+    prev = None
+    for name, added, other, hunks, head, _sec in secs:
+        assert hunks == 1, f"{name}: the generated table's section has {hunks} hunks, not one (replaced WHOLE)"
+        if prev is None:
+            assert "--- /dev/null" in head and other == [], \
+                f"{name}: the generated table's first section is not a creation from /dev/null ({other[:2]})"
+        else:
+            assert other == ["-" + ln for ln in prev], \
+                f"{name}: the generated table is not replaced WHOLE -- its section must remove exactly the previous " \
+                f"version, with no context line ({[ln for ln in other if not ln.startswith('-')][:2] or len(other)})"
+        prev = added
+    return [ln for ln in secs[-2][1]] if len(secs) > 1 else []
+
+
+def _added_generated_file():
+    """The NEWEST live patch's section for NetSyncGuestLocalTable.cs: (patch name, its '+' lines, its other lines, the
+    section's raw bytes, the lines it must remove). [ff9mapkit netsync s157] The lineage is checked here
+    (:func:`_check_whole_lineage`); the last element is the previous version's lines ([] for a creation), which the main
+    pin holds the section's other lines to -- so a seam-fed section is judged by the main pin itself."""
+    secs = _table_sections()
+    if not secs:
         return None
-    name, sec = last
-    body = sec.decode("ascii", "replace").replace("\r\n", "\n").split("\n")
-    hunk = [ln for ln in body if not ln.startswith(("diff --git", "index ", "--- ", "+++ ", "new file mode",
-                                                    "@@", "\\ No newline"))]
-    added = [ln[1:] for ln in hunk if ln.startswith("+")]
-    other = [ln for ln in hunk if ln and not ln.startswith("+")]
-    return name, added, other, sec
+    removed = _check_whole_lineage(secs)
+    name, added, other, _hunks, _head, sec = secs[-1]
+    return name, added, other, sec, removed
 
 
-#: THE DEPLOYED-AHEAD PIN: the rows the captured engine table ships beyond the JSON, each with its why. AT THE NEXT
-#: ENGINE CAPTURE (the generator writes the engine tree, the lead re-captures the patch from it) EMPTY THIS -- the pin
-#: is then exact equality with render_cs(json) again
-S156_DEPLOYED_AHEAD = {
-    "1209:5": {"evt": "EVT_ALEX2_AC_PRISON_B",
-               "why": "refused by R15's walker bound since round 3, after the engine was captured; the next capture "
-                      "drops it; on a guest its worst case is a bump whose Battle the engine already skips for a "
-                      "mirroring guest (EventEngine.DoEventCode.cs ENCOUNT: NetSyncClient.IsMirroringStory returns 0)"},
-}
+#: THE DEPLOYED-AHEAD PIN: the rows the NEWEST captured engine table ships beyond the JSON, each with its why.
+#: [ff9mapkit netsync s157] EMPTY: s157 re-captured the table whole from the generator's output (render_cs of the committed
+#: JSON), so s156's one row ahead (1209:5 EVT_ALEX2_AC_PRISON_B, refused by R15's walker bound after the s156 capture) is
+#: gone and the pin is exact equality. A capture that ever ships ahead of the kit again pins its rows here, each with its
+#: why ({"<field>:<entry>": {"evt": ..., "why": ...}}); while it is empty :func:`_pinned_probe` keeps the pinned-row
+#: mutations live.
+DEPLOYED_AHEAD = {}
 _ROW_NOTE_RE = re.compile(r"new GuestLocalRow\((\d+), (\d+), \d+, \d+, \d+\),?   // \d+:\d+ \w+ ?(.*)$", re.M)
 
 
@@ -522,19 +554,23 @@ def _check_capture_bytes(sec: bytes, full: dict) -> None:
         "the captured file's bytes are not render_cs(json + the pinned rows)"
 
 
-def test_the_s156_patch_carries_render_cs_of_the_json_and_only_the_pinned_rows_ahead():
-    """THE PIN THAT ORDERS THE WORK: the engine's generated table is render_cs(json) verbatim, captured whole in the
-    LAST live patch touching it (a generated file is only ever replaced WHOLE -- no context or removed lines) -- exact
-    about everything but :data:`S156_DEPLOYED_AHEAD`, the rows a deployed engine still ships after the kit refused
-    them (_check_deployed_ahead). AT THE NEXT CAPTURE: regenerate the engine tree (`py -m ff9mapkit.guest_traversal
-    --write --cs ...`), re-capture the patch from it, and EMPTY S156_DEPLOYED_AHEAD -- this is exact equality again."""
+def test_the_newest_table_patch_carries_render_cs_of_the_json_and_only_the_pinned_rows_ahead():
+    """THE PIN THAT ORDERS THE WORK: the engine's generated table is render_cs(json) verbatim, captured WHOLE in the
+    NEWEST live patch touching it -- a creation from /dev/null (s156) or one hunk replacing the previous version whole
+    (s157 on: every old line removed, no context line; _check_whole_lineage) -- exact about everything but
+    :data:`DEPLOYED_AHEAD`, the rows a deployed engine still ships after the kit refused them (_check_deployed_ahead).
+    AT EVERY RE-CAPTURE: regenerate the engine tree (`py -m ff9mapkit.guest_traversal --write --cs ...`), emit the patch
+    with tools/memoria_stack_replay.py (WHOLE_FILES writes the table whole) and keep DEPLOYED_AHEAD exact.
+    [ff9mapkit netsync s157] the pin is empty: exact equality."""
     got = _added_generated_file()
     if got is None:
-        pytest.fail("s156 not captured: no live memoria-patches/*.patch adds Memoria/Netsync/NetSyncGuestLocalTable.cs "
-                    "yet -- capture s156 from the engine tree the generator wrote")
-    name, added, other, sec = got
-    assert other == [], f"{name}: the generated file must be replaced WHOLE, but its section has {other[:3]}"
-    _check_capture_bytes(sec, _check_deployed_ahead(added, _obj(), S156_DEPLOYED_AHEAD))
+        pytest.fail("not captured: no live memoria-patches/*.patch adds Memoria/Netsync/NetSyncGuestLocalTable.cs -- "
+                    "capture it from the engine tree the generator wrote")
+    name, added, other, sec, removed = got
+    assert other == ["-" + ln for ln in removed], \
+        f"{name}: the generated file must be replaced WHOLE (the previous version removed, no context line), but its " \
+        f"section has {[ln for ln in other if not ln.startswith('-')][:3] or len(other)}"
+    _check_capture_bytes(sec, _check_deployed_ahead(added, _obj(), DEPLOYED_AHEAD))
 
 
 def _flip_hex(line: str, after: str) -> str:
@@ -548,8 +584,8 @@ def _pinned_probe():
     JSON's first row moved to refused and pinned (green), so the pinned-row mutations stay live."""
     got = _added_generated_file()
     if got is None:
-        pytest.fail("s156 not captured")
-    added, obj, ahead = list(got[1]), copy.deepcopy(_obj()), copy.deepcopy(S156_DEPLOYED_AHEAD)
+        pytest.fail("the table is not captured")
+    added, obj, ahead = list(got[1]), copy.deepcopy(_obj()), copy.deepcopy(DEPLOYED_AHEAD)
     if not ahead:
         r = obj["rows"].pop(0)
         obj["refused"].append(dict(r, refusal="R15 walk-in: probe"))
@@ -649,7 +685,7 @@ def test_the_capture_bytes_pin_can_fail(how):
     last two."""
     got = _added_generated_file()
     if got is None:
-        pytest.fail("s156 not captured")
+        pytest.fail("the table is not captured")
     added, obj, ahead = _pinned_probe()
     full = _check_deployed_ahead(added, obj, ahead)
     sec = got[3]
@@ -681,28 +717,61 @@ def test_the_capture_bytes_pin_can_fail(how):
         _check_deployed_ahead(relined, obj, ahead)       # the line pin cannot see it
 
 
-@pytest.mark.parametrize("how", ["lf_only", "marker_after_crlf", "context_line"])
+@pytest.mark.parametrize("how", ["lf_only", "marker_after_crlf", "context_line", "removes_one_line_fewer",
+                                 "removes_another_line"])
 def test_the_main_pin_reads_the_capture_bytes_and_the_whole_section(how, monkeypatch):
     """THE MAIN PIN is wired to both checks, not only the line pin: fed through its own seam (_added_generated_file) an
-    LF-only capture, a capture ending in git's '\\ No newline' marker (the lines unchanged), or a section carrying a
-    context line, it turns red -- the can_fail tests above call the helpers directly, so only this shows the main test
-    calls them."""
+    LF-only capture, a capture ending in git's '\\ No newline' marker (the lines unchanged), a section carrying a
+    context line, or [ff9mapkit netsync s157] a replacement removing one line fewer than the previous version or a line
+    the previous version never had, it turns red -- the can_fail tests above call the helpers directly, so only this
+    shows the main test calls them."""
     got = _added_generated_file()
     if got is None:
-        pytest.fail("s156 not captured")
-    name, added, other, sec = got
-    test_the_s156_patch_carries_render_cs_of_the_json_and_only_the_pinned_rows_ahead()   # green as captured
+        pytest.fail("the table is not captured")
+    name, added, other, sec, removed = got
+    test_the_newest_table_patch_carries_render_cs_of_the_json_and_only_the_pinned_rows_ahead()   # green as captured
     at = sec.index(b"\n+", sec.index(b"\n@@")) + 1
     head, body = sec[:at], sec[at:]
     if how == "lf_only":
-        bad = (name, added, other, head + body.replace(b"\r\n", b"\n"))
+        bad = (name, added, other, head + body.replace(b"\r\n", b"\n"), removed)
     elif how == "marker_after_crlf":
-        bad = (name, added, other, head + body + b"\\ No newline at end of file\n")
+        bad = (name, added, other, head + body + b"\\ No newline at end of file\n", removed)
+    elif how == "context_line":
+        bad = (name, added, other + [" a context line"], sec, removed)
     else:
-        bad = (name, added, other + [" a context line"], sec)
+        assert removed, "s157 replaced the s156 table WHOLE: the newest section removes the previous version"
+        bad = (name, added, other[:-1] if how == "removes_one_line_fewer" else other[:-1] + ["-X" + other[-1][1:]], sec,
+               removed)
     monkeypatch.setitem(globals(), "_added_generated_file", lambda: bad)
     with pytest.raises(AssertionError):
-        test_the_s156_patch_carries_render_cs_of_the_json_and_only_the_pinned_rows_ahead()
+        test_the_newest_table_patch_carries_render_cs_of_the_json_and_only_the_pinned_rows_ahead()
+
+
+@pytest.mark.parametrize("how", ["first_not_creation", "first_has_context", "later_context_line", "later_removes_too_few",
+                                 "later_removes_other_text", "later_two_hunks"])
+def test_the_whole_lineage_law_can_fail(how):
+    """[ff9mapkit netsync s157] THE WHOLE-FILE LAW can fail: on the live lineage (s156 creates the table, s157 replaces it
+    whole) each mutation -- the first section not from /dev/null, a context line in the creation, a context line in the
+    replacement, a replacement removing one line fewer than the previous version or a line it never had, a replacement
+    in two hunks -- turns _check_whole_lineage red, and the lineage as captured is green."""
+    secs = _table_sections()
+    assert len(secs) >= 2, f"the table's lineage is {[s[0] for s in secs]}: s157 replaces s156's table whole"
+    _check_whole_lineage(secs)                                                     # green as captured
+    bad = [list(s) for s in secs]
+    if how == "first_not_creation":
+        bad[0][4] = [h.replace("--- /dev/null", "--- a/" + G.CS_NAME) for h in bad[0][4]]
+    elif how == "first_has_context":
+        bad[0][2] = bad[0][2] + [" " + bad[0][1][0]]
+    elif how == "later_context_line":
+        bad[-1][2] = bad[-1][2] + [" " + bad[-1][1][0]]
+    elif how == "later_removes_too_few":
+        bad[-1][2] = bad[-1][2][:-1]
+    elif how == "later_removes_other_text":
+        bad[-1][2] = bad[-1][2][:1] + ["-X" + bad[-1][2][1][1:]] + bad[-1][2][2:]
+    else:
+        bad[-1][3] = 2
+    with pytest.raises(AssertionError):
+        _check_whole_lineage([tuple(s) for s in bad])
 
 
 def _added_lines_of(fname: str) -> list:

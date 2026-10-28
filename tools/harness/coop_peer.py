@@ -16,6 +16,10 @@ benched as the host OR as the guest:
                      position frame at 30 Hz on the host's field (the engine's own WriteLoop cadence), optionally a
                      type-3 control frame carrying an s114 fmt-1 report on the host's current battle nonce
                      (``--report live``) -- and it RECORDS every frame the host sends to a tape (``--tap FILE``).
+                     [ff9mapkit netsync s157] Its type-0 frame carries the s157 trailing [animFrame][frameN] the way
+                     ``--frame`` says (echo: the host's own; none: a pre-s157 37-byte guest; F/N [--frame-step S]: a pinned
+                     or stepping frame), with ``--anim`` / ``--loco`` pinning the clip and its class -- the GHOST FRAME's wire
+                     bench: the host's ghost of this guest frame-follows exactly these bytes (netsync.ghostframe).
   replay-host        the GUEST game dials in (role=guest). This tool replays a recorded host tape with its original
                      timing. ``--blackhole-at T --blackhole-for N`` keeps the TCP open and sends NOTHING for N s -- what
                      a Wi-Fi cut looks like behind the decoupled bridge (netsync_bridge.py's docstring: the loopback hop
@@ -121,10 +125,22 @@ STALE_S = 2.0
 TICK_S = 0.033
 #: NetSyncRelay's constructor sentinel: field 65535 = "not on a field yet" (the peer filters it as "not here")
 FIELD_SENTINEL = 65535
+#: [ff9mapkit netsync s157] serve-guest's EDGE line for the host's type-0 trailer (GuestModel.on_host_frame: logged when the host
+#: starts or stops sending it, never per frame) -- the ghost frame's WIRE-half witness in a run's --log: an s157 host always sends
+#: 39 B (frameN 0 on its field-0 / 65535 sentinels), an s156-or-older host 37 B (no line: an unframed host is the starting state)
+HOST_TRAILER_LINE = "host type-0: {n} B -- the s157 frame bytes (frame {f} of {fn})"
+HOST_NO_TRAILER_LINE = "host type-0: {n} B -- no frame bytes"
 
 # BuildPosPayload: field u16, anim u16, model u16, meshVis u16, loco u8, pos 3f, rot 4f (x y z w) -- 37 bytes, LE.
 _POS = struct.Struct("<HHHHB3f4f")
 POS_LEN = _POS.size
+# [ff9mapkit netsync s157] ...then the sender's controlled actor's animFrame and frameN as TRAILING bytes, [animFrame u8][frameN u8]
+# -> 39 bytes (NetSyncWire.PosLenFrame; POS_LEN stays the 37-byte record every v14 reader requires, NetSyncWire.PosLenBase). No
+# version bump: a v14 reader takes the first 37 bytes and ignores the rest; an s157 reader reads a 37-byte frame as "no frame".
+# An s157 engine ALWAYS writes 39 (frameN 0 = no frame: its field-0 / 65535 sentinels); build_pos_payload writes 37 unless a
+# frame is given -- the pre-s157 peer, the wire half's calibration red.
+_POS_FRAME = struct.Struct("<BB")
+POS_FRAME_LEN = POS_LEN + _POS_FRAME.size
 # NetSyncBattle.SampleOwnBattle / ParseView's head: seq u16, mapNo u16, guestSlots u8, patNum u8, startType u8,
 # flags u8, nonce u8, songId u16 (v10), unitCount u8 -- the unit records and the 0xB5 trailer follow.
 _BATTLE_HEAD = struct.Struct("<HHBBBBBHB")
@@ -165,20 +181,29 @@ def frame_header_text(message) -> str:
 
 
 def build_pos_payload(field: int, anim: int = 0, model: int = 0, mesh_vis: int = 0, loco: int = 0,
-                      pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0, 1.0)) -> bytes:
-    """NetSyncWire.BuildPosPayload (37 bytes; ``(UInt16)field`` truncates as the C# cast does)."""
-    return _POS.pack(int(field) & 0xFFFF, int(anim) & 0xFFFF, int(model) & 0xFFFF, int(mesh_vis) & 0xFFFF,
+                      pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0, 1.0), anim_frame=None, frame_n=None) -> bytes:
+    """NetSyncWire.BuildPosPayload (37 bytes; ``(UInt16)field`` truncates as the C# cast does). [ff9mapkit netsync s157] With
+    ``anim_frame`` or ``frame_n`` given (the other None reads 0), the s157 record: + ``[animFrame u8][frameN u8]``, 39 bytes --
+    what an s157 engine always writes; with neither, the pre-s157 37 bytes."""
+    base = _POS.pack(int(field) & 0xFFFF, int(anim) & 0xFFFF, int(model) & 0xFFFF, int(mesh_vis) & 0xFFFF,
                      int(loco) & 0xFF, *(float(v) for v in pos), *(float(v) for v in rot))
+    if anim_frame is None and frame_n is None:
+        return base
+    return base + _POS_FRAME.pack(int(anim_frame or 0) & 0xFF, int(frame_n or 0) & 0xFF)
 
 
 def parse_pos_payload(payload) -> dict | None:
-    """NetSyncWire.TryParsePosPayload: None under 37 bytes (bytes past the 37th are ignored, as the engine ignores them)."""
+    """NetSyncWire.TryParsePosPayload: None under 37 bytes. [ff9mapkit netsync s157] ``has_frame`` = the payload carries the
+    s157 trailer (39 bytes or more: ``anim_frame`` / ``frame_n``, both None on a 37-byte pre-s157 frame); bytes past the 39th
+    are ignored, as the engine ignores them."""
     data = bytes(payload or b"")
     if len(data) < POS_LEN:
         return None
     f, anim, model, mesh, loco, px, py, pz, rx, ry, rz, rw = _POS.unpack_from(data)
+    has = len(data) >= POS_FRAME_LEN
+    af, fn = _POS_FRAME.unpack_from(data, POS_LEN) if has else (None, None)
     return {"field": f, "anim": anim, "model": model, "mesh_vis": mesh, "loco": loco,
-            "pos": (px, py, pz), "rot": (rx, ry, rz, rw)}
+            "pos": (px, py, pz), "rot": (rx, ry, rz, rw), "has_frame": has, "anim_frame": af, "frame_n": fn}
 
 
 def build_pos_frame(field: int, **kw) -> bytes:
@@ -227,7 +252,8 @@ def describe_frame(wtype: int, payload) -> str:
         p = parse_pos_payload(payload)
         if p:
             x, y, z = p["pos"]
-            return f"{name} field {p['field']} model {p['model']} anim {p['anim']} at ({x:.0f}, {y:.0f}, {z:.0f})"
+            return (f"{name} field {p['field']} model {p['model']} anim {p['anim']} at ({x:.0f}, {y:.0f}, {z:.0f})"
+                    + (f" frame {p['anim_frame']}/{p['frame_n']}" if p["has_frame"] else ""))   # [ff9mapkit netsync s157]
     elif wtype == TYPE_BATTLE:
         h = parse_battle_head(payload)
         if h:
@@ -830,6 +856,8 @@ class GuestModel:
     * type 0 -- every tick, ``[field][anim][model][meshVis][loco][pos][rot]``: ``field`` None mirrors the host's own
       field (0 while it fights, the 65535 sentinel until its first frame -- what a following guest's diorama and a
       pre-field engine send), with its model/anim/loco and its position plus ``offset``; an int pins a field.
+      [ff9mapkit netsync s157] + the trailing ``[animFrame][frameN]`` per ``frame`` (see __init__), and ``anim`` / ``loco``
+      pin those two bytes instead of mirroring the host's.
     * type 3 -- only while the host's battle lane is LIVE (its seq advanced within 2 s: NetSyncBattle.Pump's freshness
       rule, keyed on the seq, not on receipt) -- the guest Pump's ``live && !inBattle`` branch. ``report`` None sends
       none; ``"legacy"`` the pre-R3 2-byte ``[0][menu]``; a boot state the s114 ``[0][menu][1][nonce][boot]`` naming
@@ -837,9 +865,20 @@ class GuestModel:
       booting), then ``report``."""
 
     def __init__(self, *, field: int | None = None, offset=(0.0, 0.0, 0.0), report=None, menu: int = 0,
-                 live_after: float = 0.0):
+                 live_after: float = 0.0, anim: int | None = None, loco: int | None = None, frame="echo",
+                 frame_step: int = 0):
         self._lock = threading.Lock()
         self.field = field
+        # [ff9mapkit netsync s157] THE GHOST FRAME's wire-half knobs (the HOST's ghost of this guest frame-follows what they send):
+        # ``anim`` / ``loco`` None mirror the host's own, an int pins it (a ladder clip id; loco 0 = Other, the only class an s157
+        # ghost follows); ``frame`` "echo" sends the host's own trailer when its frame had one (a pre-s157 host: 37 bytes, as
+        # before), "none" always 37 bytes (a pre-s157 guest: the calibration red), (f, n) a pinned frame, advanced by
+        # ``frame_step`` per tick (30 Hz) mod n -- negative runs backwards, so it crosses the seam both ways.
+        self.anim = None if anim is None else int(anim) & 0xFFFF
+        self.loco = None if loco is None else int(loco) & 0xFF
+        self.frame = frame
+        self.frame_step = int(frame_step)
+        self._frame_now = int(frame[0]) if isinstance(frame, tuple) else None
         self.offset = tuple(float(v) for v in offset)
         self.report = report
         self.menu = int(menu) & 0xFF
@@ -866,6 +905,10 @@ class GuestModel:
                     was = self.host_pos["field"] if self.host_pos else None
                     if p["field"] != was:
                         ev.append(f"host pos: field {p['field']} (was {_field_text(was)})")
+                    # [ff9mapkit netsync s157] the trailer's EDGE (HOST_TRAILER_LINE / HOST_NO_TRAILER_LINE), never per frame
+                    if p["has_frame"] != bool(self.host_pos and self.host_pos.get("has_frame")):
+                        ev.append(HOST_TRAILER_LINE.format(n=len(payload), f=p["anim_frame"], fn=p["frame_n"]) if p["has_frame"]
+                                  else HOST_NO_TRAILER_LINE.format(n=len(payload)))
                     self.host_pos, self.host_pos_t = p, now
                     if not self._pos_live:
                         self._pos_live = True
@@ -913,6 +956,21 @@ class GuestModel:
         with self._lock:
             return self.view is not None and self.view_t is not None and now - self.view_t < STALE_S
 
+    def _frame_kw(self, hp) -> dict:
+        """[ff9mapkit netsync s157] This tick's trailing frame (call with the lock held): {} (the 37-byte pre-s157 record), the
+        host's own (``echo``: only when its frame carried one), or the pin -- which then advances by ``frame_step``, mod its n."""
+        if self.frame == "none":
+            return {}
+        if self.frame == "echo":
+            if not hp.get("has_frame"):
+                return {}
+            return {"anim_frame": hp["anim_frame"], "frame_n": hp["frame_n"]}
+        n = int(self.frame[1])
+        now = self._frame_now
+        if n > 0 and self.frame_step:
+            self._frame_now = (now + self.frame_step) % n
+        return {"anim_frame": now, "frame_n": n}
+
     def pos_frame(self) -> bytes:
         with self._lock:
             hp = self.host_pos
@@ -924,8 +982,9 @@ class GuestModel:
                 return build_pos_frame(field)
             x, y, z = hp["pos"]
             dx, dy, dz = self.offset
-            return build_pos_frame(field, anim=hp["anim"], model=hp["model"], mesh_vis=hp["mesh_vis"],
-                                   loco=hp["loco"], pos=(x + dx, y + dy, z + dz), rot=hp["rot"])
+            return build_pos_frame(field, anim=hp["anim"] if self.anim is None else self.anim, model=hp["model"],
+                                   mesh_vis=hp["mesh_vis"], loco=hp["loco"] if self.loco is None else self.loco,
+                                   pos=(x + dx, y + dy, z + dz), rot=hp["rot"], **self._frame_kw(hp))   # [ff9mapkit netsync s157]
 
     def control_payload(self, now: float) -> bytes | None:
         if self.report is None or not self.lane_live(now):
@@ -1623,6 +1682,18 @@ def _parse_field(text: str):
     return v
 
 
+def _parse_frame(text: str):
+    """[ff9mapkit netsync s157] ``--frame``: "echo" | "none" | "F/N" (two bytes, 0-255 each: F past N and N 0 / 1 / 255 are
+    allowed on purpose -- the engine's clamp and its three frame-count guards are what they drive)."""
+    t = text.strip().lower()
+    if t in ("echo", "none"):
+        return t
+    m = re.fullmatch(r"(\d+)\s*/\s*(\d+)", t)
+    if not m or int(m.group(1)) > 255 or int(m.group(2)) > 255:
+        raise argparse.ArgumentTypeError("--frame is echo, none or F/N (each 0-255)")
+    return int(m.group(1)), int(m.group(2))
+
+
 def _parse_menu(text: str) -> int:
     t = text.strip().lower()
     if t in MENU_NAMES:
@@ -1635,7 +1706,8 @@ def _parse_menu(text: str) -> int:
 
 def _model_from(args) -> GuestModel:
     return GuestModel(field=args.field, offset=args.offset, report=REPORTS[args.report], menu=args.menu,
-                      live_after=args.live_after)
+                      live_after=args.live_after, anim=args.anim, loco=args.loco, frame=args.frame,   # [ff9mapkit netsync s157]
+                      frame_step=args.frame_step)
 
 
 def _guest_lines(args) -> list:
@@ -1645,7 +1717,18 @@ def _guest_lines(args) -> list:
     return [f"position: type-0 at 30 Hz on {'the HOST field (mirrored)' if args.field is None else f'field {args.field}'}"
             f"{'' if args.offset == (0.0, 0.0, 0.0) else f', offset {args.offset}'}",
             f"report: {report}",
+            f"frame: {_frame_text(args)}",                                   # [ff9mapkit netsync s157]
             f"tap: {args.tap or 'off (pass --tap FILE to record the host)'}"]
+
+
+def _frame_text(args) -> str:
+    """[ff9mapkit netsync s157] The banner's type-0 anim / loco / trailing-frame line."""
+    frame = {"echo": "echo (the host's own trailer; 37 B from a pre-s157 host)",
+             "none": "none (always 37 B: a pre-s157 guest -- the calibration red)"}.get(args.frame) if isinstance(args.frame, str) else None
+    if frame is None:
+        frame = f"pinned {args.frame[0]}/{args.frame[1]}" + (f", {args.frame_step:+d} per tick" if args.frame_step else "")
+    return (f"{frame}; anim {'mirrored' if args.anim is None else args.anim}, "
+            f"loco {'mirrored' if args.loco is None else args.loco}")
 
 
 class ServeGuest:
@@ -2530,6 +2613,16 @@ def _add_guest_options(p) -> None:
                    help="the type-0 field: 'mirror' (default: the host's own, 0 in its battles) or a fixed id")
     p.add_argument("--offset", type=_parse_offset, default=(0.0, 0.0, 0.0), metavar="DX,DY,DZ",
                    help="added to the mirrored host position (the ghost's spot on the host's screen)")
+    # [ff9mapkit netsync s157] THE GHOST FRAME's wire half: what the host's ghost of this guest is asked to frame-follow
+    p.add_argument("--anim", type=lambda t: int(t, 0), default=None, metavar="ID",
+                   help="pin the type-0 anim id (default: the host's own, mirrored) -- e.g. 10539, Zidane's LADDER_1_2")
+    p.add_argument("--loco", type=int, choices=range(6), default=None, metavar="0-5",
+                   help="pin the type-0 loco byte (default: the host's own; 0 = Other, the only class an s157 ghost follows)")
+    p.add_argument("--frame", type=_parse_frame, default="echo", metavar="echo|none|F/N",
+                   help="the type-0 trailing frame: echo (default: the host's own; 37 B from a pre-s157 host), none (always "
+                        "37 B: a pre-s157 guest, the calibration red) or F/N pinned")
+    p.add_argument("--frame-step", type=int, default=0, metavar="S",
+                   help="with --frame F/N: advance F by S per tick (30 Hz), mod N -- negative runs backwards (the seam both ways)")
     p.add_argument("--tap", metavar="FILE", help="record every frame both ways to this tape (.f9tape)")
     p.add_argument("--status", type=float, default=5.0, metavar="S", help="a status line every S s (default 5)")
     p.add_argument("--log", metavar="FILE", help="tee every line to this file too")

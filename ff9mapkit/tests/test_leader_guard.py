@@ -465,7 +465,9 @@ def test_the_keys_are_additive_with_their_sentinels_and_the_lever_is_released():
     # [ff9mapkit netsync s144] the END is s143's own (frozen): s144 appends `world` after `dress`, netsync's new last key
     assert _catch_line(_upto("s143")).endswith(
         '"polish":false},"guard":{"leader":-1,"raw":-1,"effective":-1,"moved_from":-1,"moved_to":-1}}}");')
-    assert '"polish":false},"guard":{"leader":-1,"raw":-1,"effective":-1,"moved_from":-1,"moved_to":-1}},"world":{' in lit
+    # [ff9mapkit netsync s157] ...and s157 closes `self` with its twin keys (after `polish`): `guard` still follows `self`
+    assert ('"polish":false,"twin_rows":0,' in lit and
+            '"twin_selftest":null},"guard":{"leader":-1,"raw":-1,"effective":-1,"moved_from":-1,"moved_to":-1}},"world":{' in lit)
     agent_all = " ".join(_stack("HarnessAgent.cs"))
     for key in ("leader", "raw", "effective", "moved_from", "moved_to", "off", "line", "line_shown", "leader_model", "nonce"):
         assert f'"{key}", Memoria.Netsync.NetSyncBattle.Harness' in agent_all, key

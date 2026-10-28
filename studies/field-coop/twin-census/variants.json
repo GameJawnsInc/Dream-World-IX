@@ -1,0 +1,707 @@
+{
+ "Zidane": [
+  {
+   "suffix": "JUMP",
+   "ids": [
+    206,
+    106
+   ],
+   "first": 206,
+   "frames": 28,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP1",
+   "ids": [
+    179
+   ],
+   "first": 179,
+   "frames": null,
+   "engine_on_disc": false
+  },
+  {
+   "suffix": "JUMP_1",
+   "ids": [
+    10447,
+    10446
+   ],
+   "first": 10447,
+   "frames": 27,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_2",
+   "ids": [
+    3520,
+    3519
+   ],
+   "first": 3520,
+   "frames": 35,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_3",
+   "ids": [
+    10445,
+    10444
+   ],
+   "first": 10445,
+   "frames": 45,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_KICK_1",
+   "ids": [
+    12933,
+    12934
+   ],
+   "first": 12933,
+   "frames": 26,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_KICK_2",
+   "ids": [
+    12931,
+    12932
+   ],
+   "first": 12931,
+   "frames": 28,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_OUCH",
+   "ids": [
+    12930,
+    12929
+   ],
+   "first": 12930,
+   "frames": 54,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_1",
+   "ids": [
+    10687,
+    10686
+   ],
+   "first": 10687,
+   "frames": 8,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_2",
+   "ids": [
+    10539,
+    10538
+   ],
+   "first": 10539,
+   "frames": 12,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_3",
+   "ids": [
+    10685,
+    10684
+   ],
+   "first": 10685,
+   "frames": 14,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_2_1",
+   "ids": [
+    11455,
+    11454
+   ],
+   "first": 11455,
+   "frames": 11,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_2_3",
+   "ids": [
+    11453,
+    11452
+   ],
+   "first": 11453,
+   "frames": 12,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_TOUCH",
+   "ids": [
+    6224,
+    6222
+   ],
+   "first": 6224,
+   "frames": 60,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "SWORD_JUMP",
+   "ids": [
+    3506,
+    3505
+   ],
+   "first": 3506,
+   "frames": 45,
+   "engine_on_disc": true
+  }
+ ],
+ "Vivi": [
+  {
+   "suffix": "JUMP_1",
+   "ids": [
+    11671,
+    11670
+   ],
+   "first": 11671,
+   "frames": 28,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_2",
+   "ids": [
+    11673,
+    11672
+   ],
+   "first": 11673,
+   "frames": 27,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_3",
+   "ids": [
+    11675,
+    11674
+   ],
+   "first": 11675,
+   "frames": 27,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_1",
+   "ids": [
+    10281,
+    10280
+   ],
+   "first": 10281,
+   "frames": 8,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_2",
+   "ids": [
+    10277,
+    10276
+   ],
+   "first": 10277,
+   "frames": 12,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_3",
+   "ids": [
+    10279,
+    10278
+   ],
+   "first": 10279,
+   "frames": 14,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_2_1",
+   "ids": [
+    10437,
+    10436
+   ],
+   "first": 10437,
+   "frames": 11,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_2_3",
+   "ids": [
+    10435,
+    10434
+   ],
+   "first": 10435,
+   "frames": 12,
+   "engine_on_disc": true
+  }
+ ],
+ "Garnet": [
+  {
+   "suffix": "JUMP_1",
+   "ids": [
+    10439,
+    10438
+   ],
+   "first": 10439,
+   "frames": 28,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_2",
+   "ids": [
+    10441,
+    10440
+   ],
+   "first": 10441,
+   "frames": 35,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_3",
+   "ids": [
+    10443,
+    10442
+   ],
+   "first": 10443,
+   "frames": 45,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_1",
+   "ids": [
+    194,
+    178
+   ],
+   "first": 194,
+   "frames": 8,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_2",
+   "ids": [
+    159,
+    157
+   ],
+   "first": 159,
+   "frames": 12,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_3",
+   "ids": [
+    167,
+    165
+   ],
+   "first": 167,
+   "frames": 14,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_2_1",
+   "ids": [
+    177,
+    176
+   ],
+   "first": 177,
+   "frames": 11,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_2_3",
+   "ids": [
+    163,
+    161
+   ],
+   "first": 163,
+   "frames": 12,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_SUP",
+   "ids": [
+    6220,
+    6218
+   ],
+   "first": 6220,
+   "frames": 60,
+   "engine_on_disc": true
+  }
+ ],
+ "Steiner": [
+  {
+   "suffix": "JUMP",
+   "ids": [
+    7242,
+    7241
+   ],
+   "first": 7242,
+   "frames": 46,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_1",
+   "ids": [
+    12035,
+    12034
+   ],
+   "first": 12035,
+   "frames": 20,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_2",
+   "ids": [
+    12031,
+    12030
+   ],
+   "first": 12031,
+   "frames": 46,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_3",
+   "ids": [
+    12033,
+    12032
+   ],
+   "first": 12033,
+   "frames": 42,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_1",
+   "ids": [
+    10745,
+    10744
+   ],
+   "first": 10745,
+   "frames": 10,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_2",
+   "ids": [
+    10741,
+    10740
+   ],
+   "first": 10741,
+   "frames": 13,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_3",
+   "ids": [
+    10743,
+    10742
+   ],
+   "first": 10743,
+   "frames": 13,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_2_1",
+   "ids": [
+    481,
+    480
+   ],
+   "first": 481,
+   "frames": 11,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_2_3",
+   "ids": [
+    432,
+    406
+   ],
+   "first": 432,
+   "frames": 11,
+   "engine_on_disc": true
+  }
+ ],
+ "Freya": [
+  {
+   "suffix": "JUMP_1",
+   "ids": [
+    12864,
+    12863
+   ],
+   "first": 12864,
+   "frames": 27,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_2",
+   "ids": [
+    12868,
+    12867
+   ],
+   "first": 12868,
+   "frames": 35,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_3",
+   "ids": [
+    12872,
+    12871
+   ],
+   "first": 12872,
+   "frames": 45,
+   "engine_on_disc": true
+  }
+ ],
+ "Quina": [
+  {
+   "suffix": "JUMP_1",
+   "ids": [
+    3937,
+    3935
+   ],
+   "first": 3937,
+   "frames": 30,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_2",
+   "ids": [
+    3942,
+    3939
+   ],
+   "first": 3942,
+   "frames": 33,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_3",
+   "ids": [
+    3945,
+    3943
+   ],
+   "first": 3945,
+   "frames": 30,
+   "engine_on_disc": true
+  }
+ ],
+ "Eiko": [
+  {
+   "suffix": "JUMP_1",
+   "ids": [
+    3056,
+    3054
+   ],
+   "first": 3056,
+   "frames": 27,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_2",
+   "ids": [
+    3059,
+    3058
+   ],
+   "first": 3059,
+   "frames": 35,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_3",
+   "ids": [
+    3063,
+    3061
+   ],
+   "first": 3063,
+   "frames": 35,
+   "engine_on_disc": true
+  }
+ ],
+ "Amarant": [
+  {
+   "suffix": "CATCH_JUMP",
+   "ids": [
+    12156,
+    12143
+   ],
+   "first": 12156,
+   "frames": 40,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_1",
+   "ids": [
+    3033,
+    3031
+   ],
+   "first": 3033,
+   "frames": 34,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_2",
+   "ids": [
+    3037,
+    3035
+   ],
+   "first": 3037,
+   "frames": 40,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_3",
+   "ids": [
+    3041,
+    3039
+   ],
+   "first": 3041,
+   "frames": 46,
+   "engine_on_disc": true
+  }
+ ],
+ "moogle": [
+  {
+   "suffix": "GIZ_JUMP",
+   "ids": [
+    4987,
+    4986
+   ],
+   "first": 4987,
+   "frames": 45,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP",
+   "ids": [
+    2917,
+    2916
+   ],
+   "first": 2917,
+   "frames": 30,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "SAVE_JUMP",
+   "ids": [
+    6503,
+    6504
+   ],
+   "first": 6503,
+   "frames": 42,
+   "engine_on_disc": true
+  }
+ ],
+ "Cinna": [
+  {
+   "suffix": "JUMP",
+   "ids": [
+    9889,
+    9888
+   ],
+   "first": 9889,
+   "frames": 40,
+   "engine_on_disc": true
+  }
+ ],
+ "Marcus": [
+  {
+   "suffix": "JUMP_3",
+   "ids": [
+    12011,
+    12010
+   ],
+   "first": 12011,
+   "frames": 45,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_1",
+   "ids": [
+    12630,
+    12629
+   ],
+   "first": 12630,
+   "frames": 8,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_2",
+   "ids": [
+    12626,
+    12625
+   ],
+   "first": 12626,
+   "frames": 12,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "LADDER_1_3",
+   "ids": [
+    12628,
+    12627
+   ],
+   "first": 12628,
+   "frames": 14,
+   "engine_on_disc": true
+  }
+ ],
+ "Blank": [
+  {
+   "suffix": "JUMP",
+   "ids": [
+    5041,
+    5040
+   ],
+   "first": 5041,
+   "frames": 30,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "SWORD_JUMP",
+   "ids": [
+    977,
+    976
+   ],
+   "first": 977,
+   "frames": 30,
+   "engine_on_disc": true
+  }
+ ],
+ "Beatrix": [
+  {
+   "suffix": "ESCAPE_JUMP",
+   "ids": [
+    8566,
+    8564
+   ],
+   "first": 8566,
+   "frames": 38,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_1",
+   "ids": [
+    8572,
+    8570
+   ],
+   "first": 8572,
+   "frames": 27,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_2",
+   "ids": [
+    8575,
+    8573
+   ],
+   "first": 8575,
+   "frames": 35,
+   "engine_on_disc": true
+  },
+  {
+   "suffix": "JUMP_3",
+   "ids": [
+    8578,
+    8576
+   ],
+   "first": 8578,
+   "frames": 35,
+   "engine_on_disc": true
+  }
+ ]
+}

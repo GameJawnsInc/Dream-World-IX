@@ -757,6 +757,23 @@ class State:
                                                                        "(a battle song left over the restored world song) -- read "
                                                                        "past BeforeWorldEvents' 500 ms stop fade.")
 
+    # ---- [ff9mapkit netsync s157] THE GHOST FRAME (studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md Finding 1): `netsync.ghostframe`,
+    # netsync's LAST key (additive under 5 -- absent = None, "this engine cannot": an s156 agent publishes none of it). Counters are
+    # per PROCESS -- read DELTAS; judge a held pose over 2+ consecutive publishes.
+    @property
+    def coop_ghost_frame(self) -> bool | None:
+        """s157: the ghost frame (``netsync.ghostframe.follow`` present). False = an engine whose ghost free-runs every clip at
+        speed 1 (a stopped climber's ghost keeps climbing) and which reads `bench ghostframe` as `bench 1`; None = no ``netsync``
+        block."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._ns_path("ghostframe.follow", bool) is not None
+
+    @property
+    def ghost_frame_block(self) -> dict | None:
+        """s157: the whole ``netsync.ghostframe`` block, copied (None = absent)."""
+        return self._ns_path("ghostframe", dict)
+
     # ---- [ff9mapkit netsync s156] GUEST TRAVERSAL R0-R2 (studies/field-coop/GUEST-TRAVERSAL.md): `netsync.guestlocal`, netsync's
     # LAST key (additive under 5 -- absent = None, "this engine cannot": an s155 agent publishes none of it). Counters are per
     # PROCESS -- read DELTAS; judge a press only after `last.seq` moved and `last.field` is this field (THE PRE-INIT SAMPLE).
@@ -2977,6 +2994,44 @@ class State:
                                                                       "material `_Color`, read live: the tint ApplyGhostLighting "
                                                                       "WROTE (beside the row it decided on); None = no ghost "
                                                                       "or no renderer -- or an engine before s141.")
+
+    # ---- [ff9mapkit netsync s157] THE TWIN ROWS: `netsync.dress.self` gains the twin keys after `polish`. The capability is
+    # `self.twins`' PRESENCE (:attr:`coop_dress_twin`; the probe ladder's 157 rung). Counts are PER FIELD LOAD; `twin_last` is
+    # a FIXED sub-object (a `_block` accessor plus one per leaf, the s141 `attach_last` precedent).
+    @property
+    def coop_dress_twin(self) -> bool | None:
+        """s157: the twin rows (``netsync.dress.self.twins``; the ``selfdress twin`` op). False = an engine whose dressed body
+        plays the idle alias for every Zidane ladder / jump (s156 and older -- it answers `selfdress twin` with "unknown op
+        ... (ghost|empty|rule|wire|clear|self|gate|law|polish)")."""
+        if not isinstance(self.netsync, dict):
+            return None
+        return self._dress_path("self.twins", int) is not None
+
+    coop_dress_self_twin_rows = _dress_prop("self.twin_rows", int, "s157: the twin table's size (55; every role).")
+    coop_dress_self_twins = _dress_prop("self.twins", int, "s157: per load, dressed RunAnimation / jump-slot ops that played a "
+                                                           "twin with its clip on the body.")
+    coop_dress_self_twin_misses = _dress_prop("self.twin_misses", int, "s157: per load, twin rows whose clip was not on the "
+                                                                       "body (s140's alias played; the `twin miss` lever "
+                                                                       "included).")
+    coop_dress_self_twin_last_block = _dress_prop("self.twin_last", dict, "s157: the whole ``twin_last`` block, copied (a FIXED "
+                                                                           "sub-object: the last twin played this load).")
+    coop_dress_self_twin_last_src = _dress_prop("self.twin_last.src", int, "s157: the raw (Zidane) id of the last twin played "
+                                                                           "this load; -1 = none.")
+    coop_dress_self_twin_last_twin = _dress_prop("self.twin_last.twin", int, "s157: ...the twin id it played; -1.")
+    coop_dress_self_twin_last_site = _dress_prop("self.twin_last.site", int, "s157: ...its site (0 RunAnimation, 7 the jump "
+                                                                             "slot); -1.")
+    coop_dress_self_ghost_clip_misses = _dress_prop("self.ghost_clip_misses", int, "s157: per load, ghost clips that did not "
+                                                                                   "attach (never recorded as ghost.clip).")
+    coop_dress_self_twin_clips_on_disc = _dress_prop("self.twin_clips_on_disc", int, "s157: distinct twin clips that loaded the "
+                                                                                     "AnimationFactory way (oracle 37); -1 = "
+                                                                                     "not measured.")
+    coop_dress_self_twin_clip_missing = _dress_prop("self.twin_clip_missing", int, "s157: the first twin id whose clip did not "
+                                                                                   "load (MeasureTwinClips); -1 = none / not "
+                                                                                   "measured.")
+    coop_dress_self_twin = _dress_prop("self.twin", str, "s157: the `selfdress twin on|off|miss` lever AS SET (\"on\" the "
+                                                         "default; it acts on the selftest role only).")
+    coop_dress_self_twin_selftest = _dress_prop("self.twin_selftest", str, "s157: the twin proof's verdict (null until the "
+                                                                           "proof block ran; \"ok\" | \"fail: <row>\").")
 
     # ---- [ff9mapkit netsync s143] THE LEADER GUARD (owner decision 2026-10-19: the guest never commands the host's leader --
     # GuestSlots stays positional, but a bit landing on the character the host walks as moves to the next member, wrapping,

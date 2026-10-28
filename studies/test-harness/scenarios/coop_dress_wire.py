@@ -402,18 +402,20 @@ def rewarp_guest(guest, want_model: int, timeout: float = None, *, fresh_load: b
 
 
 def want_host_ghost(host_party, wire_model: int, wire_anim: int, guest_slots: int = HOST_GUEST_SLOTS,
-                    leader: int = -1) -> dict:
+                    leader: int = -1, *, has_frame: bool = True) -> dict:
     """(PURE) What THE HOST'S TRANSPORT SITE makes its ghost of the guest wear and play: HostDress (the s139 rule for the
     host's GhostAs and ``guest_slots`` over its party, [ff9mapkit netsync s143] after the leader guard with ``leader`` --
     FieldGuardMask, `auto` only; -1 = none; moogleWhenEmpty on the host) behind GhostGuard on the guest's wire body, the anim
-    GhostAnim over the guest's loco byte (its sender classifies its own anim on its own model)."""
+    GhostAnim over the guest's loco byte (its sender classifies its own anim on its own model). [ff9mapkit netsync s157] the
+    twin row only for a guest that sends the s157 frame (``has_frame``; GhostTwinLaw: a 37-B pre-s157 guest keeps s156's idle)."""
     chars = BW.live_slot_chars(host_party)
     mask = BW.field_guard_mask(HOST_GHOST_AS, int(guest_slots), chars, int(leader))[0]
     m, rig = BW.resolve_dress_rule(HOST_GHOST_AS, int(mask), BW.moogle_when_empty("host", False), chars)
     dress = BW.ghost_guard(m, wire_model)
     rig = rig if dress else -1
     loco = BW.classify_loco(wire_model, wire_anim)
-    return {"model": dress or wire_model, "rig": rig, "anim": BW.ghost_anim(dress, rig, wire_model, loco, wire_anim)}
+    anim = BW.ghost_anim_rule(dress, rig, wire_model, loco, wire_anim, BW.ghost_twin_law(True, has_frame))
+    return {"model": dress or wire_model, "rig": rig, "anim": anim}
 
 
 def _host_pick(samples: list, guest_slots: int, hold: int):
