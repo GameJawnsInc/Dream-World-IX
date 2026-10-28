@@ -121,7 +121,10 @@ From the moment the guest's copy opens its ATE menu from a relayed press, the gu
   352, or 17 for its own reload on a same-field ATE, while the host's mid-tail snapshot still says 16 and would replay the
   ATE). When the exit beat a host still in the ATE, the **exit hold** keeps the follow out of the ATE field until the host
   stands on another field (at most 20 s): without it the serial follow pulled the guest straight back into the ATE field
-  with the host's entrance 16, replaying the ATE. A gateway walk is never the ATE's own exit: control on, or a region runs
+  with the host's entrance 16, replaying the ATE. "Still in the ATE" means the host has not left the field since the
+  guest's landing AND still carries the entrance the guest's ATE ran on (stock writes the tail's entrance on the frame of
+  its own `Field()`); a host that walked back in by a gateway does not arm it. While it stands, the guest's own jumps (a
+  walk into the held field, a bounced gateway) keep their own entrance, since the host's snapshot still says 16. A gateway walk is never the ATE's own exit: control on, or a region runs
   the jump (every stock and kit gateway runs `ExitField` first, so control alone never tells it). Any line open on the ATE
   field counts as progress until it leaves, and the tail's clocks stop while the link is down or the host is stalled.
   It is never bounced into a reload of the ATE field. A rewrite seeds the host's entrance and commits the move, as the
@@ -196,7 +199,8 @@ no overlap: s160 rides a new state section (9); s161 is ring kind 3.
   step-out exemption off.
 - `netsync.ate` (the harness state's netsync LAST key): the lever, the pending press, the episode phase and flags, and
   cumulative counters (relayed, served ticks, opened, expired, own jumps passed, holds).
-- `NetSyncAte.SelfTest` rows for every pure rule, each with a mutant, in the selftest block after the step-out's line.
+- `NetSyncAte.SelfTest` rows for every pure rule, each with a mutant, in the selftest block after s160's chest relay line
+  (the block's last line).
 
 ## Pre-build review, round 1
 
@@ -286,6 +290,21 @@ a mutant restoring round 3's behaviour.
 Not bench-proven: the exit hold and the chain need a guest ahead of its host, or a host that finishes one ATE and
 starts the next while the guest is still in the first. Neither bench drives two speeds. Both are covered by the
 self-test rows only, plus the two-PC checklist's "guest ahead" line.
+
+## Pre-build review, round 5
+
+Round 5 read the round-4 diff and the rebase onto s159 + s160 rev 3, with one finder per lens, then verifiers. Four findings,
+all low:
+
+| # | Finding | Resolution |
+|---|---|---|
+| R5-0 | While the exit hold stood, the guest's own walk into the held field passed through the follow allowance and landed with the host's entrance 16 (the ATE replayed); any bounced gateway's reload took that 16 too | While the hold stands, the guest's own jumps keep their own entrance. Bouncing the walk instead was rejected: the bounce reloads the hub with the host's 16, which on 350 stages "Vivi, Confused" |
+| R5-1 | The exit hold also armed for a late copy whose host had walked back into the ATE field by a gateway: the guest was stranded on the hub for up to 20 s with nothing to protect | The hold arms only while the host's entrance is still the one the guest's ATE ran on (read once at the jump; unknown on either side still arms). A census of the HW exports: 23 of 7,177 entrance-then-`Field()` pairs have any wait between them, none in Dali |
+| R5-2 | Since s160 every chest accept runs the relay-accept purge, which could drop the pending press's queued answer; the chest serve and the ATE serve can then fire in one key tick | The purge spares the pending press's own menu key (newer than the press), not its whole field. NOT done: making the ATE serve yield to a chest or talk start accepted on the same field. Its reach is unverified (it needs control to come back from an object that runs after the menu's code entry) and it would read s160's private serve state; the cost is a relayed chest or talk the guest's copy misses while a cancelled menu flashes |
+| R5-3 | The kit rung still pins s158's order (`stepout`, `ate`); with s160 the engine's order is `stepout`, `chest`, `ate`, and the AppendAte header said "after `stepout`" | The engine comment is fixed; the kit re-pins after s160's kit reaches master (the merge order: s160's branch into master, then master into this branch) |
+
+The self-test grew to 156 rows and 58 mutants (offline, on the rebased tree: 156/58, step-out 44/15 with s159's rows, the
+dialogue proof).
 
 ## Census, second count
 
