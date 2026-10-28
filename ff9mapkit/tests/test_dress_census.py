@@ -460,7 +460,7 @@ def test_every_stock_jump_window_keeps_stocks_ticks_on_every_rig():
     ft = _json("bframe_sites.json")["frame_table"]["clips"]
     jw = _json("loco_table.json")["evidence"]["jump_windows"]["by_name"]
     by_name = {v["name"]: (int(k), int(v["src_frames"])) for k, v in ft.items() if v.get("src_frames")}
-    covered, names, held = 0, [], {}
+    covered, names, held, held_twin = 0, [], {}, {}
     for suffix, row in sorted(jw.items()):
         hit = by_name.get("ANH_MAIN_F0_ZDN_" + suffix)
         if hit is None:
@@ -473,15 +473,63 @@ def test_every_stock_jump_window_keeps_stocks_ticks_on_every_rig():
             for j0, j1 in row["windows"]:
                 stock = BW.jump_ticks(src, j0, j1)
                 assert BW.jump_ticks(BW.jump_frame_n(rig, raw, frames_of), j0, j1) == stock, (suffix, rig, j0, j1)
+                # [ff9mapkit netsync s157] `twin off` (s140's slot) keeps stock's ticks too
+                assert BW.jump_ticks(BW.jump_frame_n(rig, raw, frames_of, twin_law=False), j0, j1) == stock, (suffix, rig)
                 covered += 1
                 if suffix == "LADDER_1_1":
-                    held[rig] = BW.jump_ticks(BW.jump_frame_n(rig, raw, frames_of, keep=False), j0, j1)[1]
+                    held[rig] = BW.jump_ticks(BW.jump_frame_n(rig, raw, frames_of, keep=False, twin_law=False), j0, j1)[1]
+                    held_twin[rig] = BW.jump_ticks(BW.jump_frame_n(rig, raw, frames_of, keep=False), j0, j1)[1]
     assert {"LADDER_1_1", "LADDER_2_3", "LADDER_1_3", "LADDER_2_1", "JUMP_3"} <= set(names), names
     assert covered >= 12 * 6, covered
     # the mutant: no KeepJumpTimeline -> the landing runs to the ALIAS's end (its frames - 7) on every rig
     assert set(held) == set(range(1, BW.RIG_ROW_COUNT)) and all(
         held[r] == BW.rig_frames(r, "idle_alias") - 1 - 7 > 0 for r in held), held
     assert BW.jump_ticks(8, 2, 6) == (1, 0) and min(held.values()) == 22 and max(held.values()) == 64, held
+    # [ff9mapkit netsync s157] ...and with the twin rows: Vivi / Garnet / Steiner hold their LADDER_1_1 twin (8 / 8 / 10 frames:
+    # 0 / 0 / 2 ticks without the hook -- moot where the twin is the source's length), every other rig its alias, as s140
+    assert {r: held_twin[r] for r in (1, 2, 3)} == {1: 0, 2: 0, 3: 2}, held_twin
+    assert all(held_twin[r] == held[r] for r in held if r not in (1, 2, 3)), held_twin
+
+
+def test_the_twin_jump_slot_keeps_the_source_timeline():
+    """[ff9mapkit netsync s157] THE TWIN ROWS NEVER MOVE THE TIMELINE: for every twin row's source (both ids) on its rig, the jump
+    slot with KeepJumpTimeline runs on the SOURCE count (stock's ticks on every window), and only without the hook (`law timeline
+    off`) on the twin's own count (TWIN_FRAMES) -- the red the bench's C3 lever shows in game.
+
+    Two halves (the s157 review's K5). THE LOGIC: each source's count is a SENTINEL no real clip has (frame counts are bytes; 300+
+    is none of them, nor the twin's, nor the alias's), so the keep branch returning the twin's or the alias's count is red on EVERY
+    row -- a dummy count equal to a 27-frame twin made six rows unable to tell the two apart. THE NUMBERS: the census's REAL source
+    counts (twin_rows.json `fs`: SOURCE_FRAMES holds only the s140 bench's four clips) give stock's ticks on every stock window of the
+    source (jumpwindows.json), or -- for a source no SetJumpAnimation names (ZDN_JUMP, LADDER_1_2) -- on every class-7 source's
+    window that fits the clip."""
+    for i, (rig, a, b, twin) in enumerate(BW.TWIN_ROWS):
+        for j, raw in enumerate((a, b)):
+            src = 300 + 2 * i + j                                   # a sentinel count: no clip, twin or alias has it
+            assert src not in (BW.TWIN_FRAMES[twin], BW.rig_frames(rig, "idle_alias")), (rig, raw)
+            def frames_of(x, raw=raw, src=src, rig=rig):
+                return src if x == raw else BW.rig_clip_frames(rig, x)
+            assert BW.jump_frame_n(rig, raw, frames_of) == src, (rig, raw)
+            assert BW.jump_frame_n(rig, raw, frames_of, keep=False) == BW.TWIN_FRAMES[twin], (rig, raw)
+            assert BW.jump_frame_n(rig, raw, frames_of, keep=False, twin_law=False) == BW.rig_frames(rig, "idle_alias")
+    twin_census = REPO / "studies" / "field-coop" / "twin-census"
+    rows = json.loads((twin_census / "twin_rows.json").read_text(encoding="utf-8"))
+    windows = json.loads((twin_census / "jumpwindows.json").read_text(encoding="utf-8"))
+    assert sorted((r["rig"], r["src"], r["src2"], r["twin"]) for r in rows) == sorted(BW.TWIN_ROWS)
+    every = sorted({(w[0], w[1]) for r in rows for sid in (r["src"], r["src2"]) for w in windows.get(str(sid), [])})
+    checked = 0
+    for r in rows:
+        rig, fs = r["rig"], r["fs"]
+        assert isinstance(fs, int) and 2 <= fs <= 254, r                   # every source has its REAL count
+        own = sorted({(w[0], w[1]) for sid in (r["src"], r["src2"]) for w in windows.get(str(sid), [])})
+        wins = own or [w for w in every if w[1] + 1 < fs]
+        assert wins, r
+        for raw in (r["src"], r["src2"]):
+            def frames_of(x, raw=raw, fs=fs, rig=rig):
+                return fs if x == raw else BW.rig_clip_frames(rig, x)
+            for j0, j1 in wins:
+                assert BW.jump_ticks(BW.jump_frame_n(rig, raw, frames_of), j0, j1) == BW.jump_ticks(fs, j0, j1), (r, j0, j1)
+                checked += 1
+    assert checked >= 2 * len(BW.TWIN_ROWS), checked
 
 
 def test_the_census_jump_timeline_is_the_engines(census):
@@ -505,7 +553,9 @@ def test_the_census_jump_timeline_is_the_engines(census):
 
         def frames_of(a):
             return src if a == raw else BW.rig_clip_frames(r["rig"], a)
-        return BW.jump_frame_n(r["rig"], raw, frames_of, keep=law != "timeline_off")
+        # [ff9mapkit netsync s157] the census models the s140 jump slot: the DLL under `selfdress twin off` (the twin rows' own
+        # timeline pin is test_the_twin_jump_slot_keeps_the_source_timeline)
+        return BW.jump_frame_n(r["rig"], raw, frames_of, keep=law != "timeline_off", twin_law=False)
 
     def drift(tf):
         return [(k, c["id"], r["rig"], law) for k, c in cands for r in rigs for law in laws

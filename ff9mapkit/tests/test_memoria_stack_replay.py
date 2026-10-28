@@ -87,3 +87,28 @@ def test_every_replayed_patch_parses_into_applicable_sections():
         if not paths or any(not p or p.startswith("/") or ":" in p for p in paths):
             bad[name] = paths
     assert not bad, f"live patches the replay would silently skip (no repo-relative +++ header): {bad}"
+
+def test_a_generated_file_is_emitted_whole():
+    """[ff9mapkit netsync s157] WHOLE_FILES: a changed generated file (the guest-traversal table) is emitted as ONE hunk that
+    removes every old line and adds every new one, no context line, each line keeping its own CRLF -- the shape
+    test_guest_traversal_table's whole-lineage pin reads; nothing changed is no section; a side with no final newline
+    carries git's marker; and emit takes this path for every WHOLE file that already exists (a created one stays a
+    /dev/null creation)."""
+    import inspect
+    f = "Assembly-CSharp/Memoria/Netsync/NetSyncGuestLocalTable.cs"
+    assert f in msr.WHOLE_FILES and f in msr.DEFAULT_FILES
+    old, new = b"// a\r\nrow 1\r\nrow 2\r\n", b"// a\r\nrow 1\r\nrow 3\r\nrow 4\r\n"
+    sec = msr.whole_section(f, old, new)
+    lines = sec.split(b"\n")
+    assert lines[:4] == [b"diff --git a/" + f.encode() + b" b/" + f.encode(), b"--- a/" + f.encode(),
+                         b"+++ b/" + f.encode(), b"@@ -1,3 +1,4 @@"]
+    body = re.findall(rb"[^\n]*\n", sec)[4:]
+    assert [ln for ln in body if ln[:1] not in (b"-", b"+")] == []                    # no context line
+    assert b"".join(ln[1:] for ln in body if ln.startswith(b"-")) == old
+    assert b"".join(ln[1:] for ln in body if ln.startswith(b"+")) == new
+    assert body.index(next(ln for ln in body if ln.startswith(b"+"))) == 3           # every removal first
+    assert msr.whole_section(f, old, old) == b""
+    torn = msr.whole_section(f, old, b"row 9")                                         # no final newline
+    assert torn.endswith(b"+row 9\n\\ No newline at end of file\n") and b"@@ -1,3 +1,1 @@" in torn
+    src = inspect.getsource(msr.main)
+    assert "if f in WHOLE_FILES and not created:" in src and "sec = whole_section(f, bom_match(tb, lb), lb)" in src

@@ -7493,18 +7493,35 @@ DRESS_POLISH_SENTINELS = {"steps": [], "steps_dropped": 0, "steps_passed": 0, "s
                           "attach_notes": 0,
                           "attach_last": {"uid": -1, "bone_in": -1, "bone_out": -1, "parent": None}, "polish": False}
 DRESS_POLISH_KEYS = tuple(DRESS_POLISH_SENTINELS)
+#: [ff9mapkit netsync s157] THE TWIN ROWS' keys inside `netsync.dress.self`, after `polish` -- AppendDressTwin's order and
+#: sentinels: counts 0 (`twins` / `twin_misses` / `ghost_clip_misses` PER FIELD LOAD; `twin_rows` the table size, live 55),
+#: `twin_last` a FIXED sub-object {src, twin, site} at -1, `twin_clips_on_disc` / `twin_clip_missing` -1 (measured once by the
+#: proof block; live oracle 37 / -1), `twin` null (the lever AS SET; live default "on") and `twin_selftest` null.
+DRESS_TWIN_LAST_KEYS = ("src", "twin", "site")
+DRESS_TWIN_SENTINELS = {"twin_rows": 0, "twins": 0, "twin_misses": 0, "twin_last": {"src": -1, "twin": -1, "site": -1},
+                        "ghost_clip_misses": 0, "twin_clips_on_disc": -1, "twin_clip_missing": -1, "twin": None,
+                        "twin_selftest": None}
+DRESS_TWIN_KEYS = tuple(DRESS_TWIN_SENTINELS)
 #: [ff9mapkit netsync s141] Each rung's OWN keys inside `netsync.dress.self`, frozen at its patch (the stand-in publishes its
-#: rungs' rows; the live catch the union, in this order): s140 AppendDressSelf's, s141 AppendDressPolish's.
-DRESS_SELF_KEYS_BY_RUNG = {"dressself": tuple(DRESS_SELF_SENTINELS), "dresspolish": DRESS_POLISH_KEYS}
+#: rungs' rows; the live catch the union, in this order): s140 AppendDressSelf's, s141 AppendDressPolish's,
+#: [ff9mapkit netsync s157] s157 AppendDressTwin's.
+DRESS_SELF_KEYS_BY_RUNG = {"dressself": tuple(DRESS_SELF_SENTINELS), "dresspolish": DRESS_POLISH_KEYS,
+                           "dresstwin": DRESS_TWIN_KEYS}
 
 
 def _copy_sentinel(v):
     return dict(v) if isinstance(v, dict) else list(v) if isinstance(v, list) else v
 
 
-#: [ff9mapkit netsync s141] the LIVE `netsync.dress.self` at its sentinels: s140's keys, then s141's polish keys.
-DRESS_SELF_LIVE_SENTINELS = {**{k: _copy_sentinel(v) for k, v in DRESS_SELF_SENTINELS.items()},
+#: [ff9mapkit netsync s157] `netsync.dress.self` AS s141 WROTE IT (s140's keys, then the polish keys) -- FROZEN: the s141
+#: catch-line re-pin reads it (the LIVE `self` now ends with s157's twin keys, :data:`DRESS_SELF_LIVE_SENTINELS`).
+DRESS_SELF_SENTINELS_S141 = {**{k: _copy_sentinel(v) for k, v in DRESS_SELF_SENTINELS.items()},
                              **{k: _copy_sentinel(v) for k, v in DRESS_POLISH_SENTINELS.items()}}
+#: [ff9mapkit netsync s141] the LIVE `netsync.dress.self` at its sentinels: s140's keys, then s141's polish keys.
+#: [ff9mapkit netsync s157] ...then s157's twin keys (:data:`DRESS_TWIN_SENTINELS`, AppendDressTwin, after `polish`).
+DRESS_SELF_LIVE_SENTINELS = {**{k: _copy_sentinel(v) for k, v in DRESS_SELF_SENTINELS.items()},
+                             **{k: _copy_sentinel(v) for k, v in DRESS_POLISH_SENTINELS.items()},
+                             **{k: _copy_sentinel(v) for k, v in DRESS_TWIN_SENTINELS.items()}}   # [ff9mapkit netsync s157]
 #: `netsync.dress` at the catch line's sentinels (its SECOND literal): `ghost`, then `party` ([-1 x 4]: the block failed).
 #: The live `party` is a LIVE read of FF9.party.member[i].Index (PARTY_EMPTY / PARTY_UNREADABLE as above) -- never
 #: NetSyncParty.Slots, where the selftest mirror seats its "BENCH" stand-in (the s134 lesson).
@@ -7529,12 +7546,15 @@ DRESS_KEYS_BY_RUNG = {"dressinstr": ("ghost", "party"), "dresshost": ("codec", "
                       # (:data:`DRESS_SELF_KEYS_BY_RUNG`, :data:`DRESS_GHOST_KEYS_BY_RUNG`)
                       "dresspolish": (),
                       # [ff9mapkit netsync s143] `guard` (a fixed sub-object, :data:`DRESS_GUARD_SENTINELS`), after `self`
-                      "leaderguard": ("guard",)}
+                      "leaderguard": ("guard",),
+                      # [ff9mapkit netsync s157] no new `netsync.dress` key: the twin keys sit INSIDE `self`
+                      "dresstwin": ()}
 #: [ff9mapkit netsync s138] THE DRESS PROBE LADDER: the key each dress patch is told by (R3-FIELD-MODEL-AUDIT.md 3.1 names
 #: them) -- s138 its own fixed `ghost`, s139 `codec` (appended to `netsync.dress`), s140 `self` (a fixed sub-object), s141
 #: `self.steps` (a key inside it). An engine is the HIGHEST rung whose key it publishes, every rung below present too.
 DRESS_PROBES = {138: "netsync.dress.ghost", 139: "netsync.dress.codec", 140: "netsync.dress.self",
-                141: "netsync.dress.self.steps"}
+                141: "netsync.dress.self.steps",
+                157: "netsync.dress.self.twins"}                 # [ff9mapkit netsync s157] the twin rows
 #: NetSyncClient.FallbackGeo: what EnsureGhost BUILDS when the asked-for id does not resolve or load (`ghost.geo`).
 GHOST_FALLBACK_GEO = "GEO_MAIN_F0_ZDN"
 #: THE RIG SPACE (`ghost.rig`; s140's `self.rig`): -1 = undressed / no ghost, 0-7 = the CharacterId rows (Zidane ..
@@ -7705,7 +7725,10 @@ SELFDRESS_SELF_OPS = ("self", "gate", "law")
 #: list: + `polish` (the dress polish's calibration lever, NetSyncSelfDress.TrySetPolish).
 SELFDRESS_OPS_S140 = SELFDRESS_OPS_S139 + SELFDRESS_SELF_OPS
 SELFDRESS_POLISH_OPS = ("polish",)
-SELFDRESS_OPS = SELFDRESS_OPS_S140 + SELFDRESS_POLISH_OPS
+#: [ff9mapkit netsync s157] s141's nine (an s141-s156 engine answers `twin` with it), then the LIVE list: + `twin`.
+SELFDRESS_OPS_S141 = SELFDRESS_OPS_S140 + SELFDRESS_POLISH_OPS
+SELFDRESS_TWIN_OPS = ("twin",)
+SELFDRESS_OPS = SELFDRESS_OPS_S141 + SELFDRESS_TWIN_OPS
 SELFDRESS_RULES = ("s138", "s139")
 
 
@@ -7863,10 +7886,89 @@ def ghost_guard(dress_model: int, wire_model: int) -> int:
 
 def ghost_anim(dress_model: int, dress_rig: int, wire_model: int, wire_loco: int, wire_anim: int) -> int:
     """NetSyncVisitor.GhostAnim: a dress on a body OTHER than the wire's plays the dressed rig's loco clip for the wire's
-    loco class; a ghost on the wire's OWN body plays the RAW wire anim (a gesture or a break clip is never flattened)."""
+    loco class; a ghost on the wire's OWN body plays the RAW wire anim (a gesture or a break clip is never flattened).
+    [ff9mapkit netsync s157] ...a Zidane ladder / jump on a PLAIN-ZIDANE wire body plays the dressed rig's twin row first
+    (:func:`ghost_anim_rule` with the twin law on -- the engine reads the `twin` lever live)."""
+    return ghost_anim_rule(dress_model, dress_rig, wire_model, wire_loco, wire_anim, True)
+
+
+def ghost_twin_law(twin_on: bool, peer_has_frame: bool) -> bool:
+    """[ff9mapkit netsync s157] NetSyncVisitor.GhostTwinLaw: the PAIRED host's twin law -- the law on AND a peer that sends the s157
+    frame (RemoteState.HasFrame; a 37-B pre-s157 guest keeps s156's idle, never its rig's real climb looping at speed 1)."""
+    return bool(twin_on) and bool(peer_has_frame)
+
+
+def ghost_anim_rule(dress_model: int, dress_rig: int, wire_model: int, wire_loco: int, wire_anim: int, twin_law) -> int:
+    """[ff9mapkit netsync s157] NetSyncVisitor.GhostAnimRule, the pure body (the paired host passes :func:`ghost_twin_law`)."""
     if dress_model and dress_model != wire_model:
-        return loco_anim(dress_rig, wire_loco)
+        twin = twin_rig_anim(dress_rig, wire_anim, SITE_PLAY, twin_law) if wire_model == PLAIN_ZIDANE_MODEL else 0
+        return twin if twin else loco_anim(dress_rig, wire_loco)
     return wire_anim
+
+
+# ---- [ff9mapkit netsync s157] THE GHOST FRAME's pure rules (studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md Finding 1) -- the twins of
+# NetSyncVisitor.GhostFrameWhy / FrameUsable / FollowsWireAnim / GhostFrameStep / GhostFrameEase / GhostFrameTime, so a bench predicts
+# the ghost's verdict, its seam crossings and its snaps from the frames it sends (coop_peer --frame) and judges netsync.ghostframe.
+GF_FOLLOW, GF_WHY_LEVER, GF_WHY_NO_FRAME, GF_WHY_FRAME_N, GF_WHY_LOCO, GF_WHY_CLIP = range(6)
+GF_WHY_NAMES = {GF_WHY_LEVER: "lever", GF_WHY_NO_FRAME: "no_frame", GF_WHY_FRAME_N: "frame_n", GF_WHY_LOCO: "loco",
+                GF_WHY_CLIP: "clip"}
+GF_STEP_DIRECT, GF_STEP_WRAP, GF_STEP_SNAP = range(3)
+
+
+def ghost_frame_usable(frame_n: int) -> bool:
+    """NetSyncVisitor.FrameUsable: a frame count the engine samples (0 = no frame, 1 = a fixed pose, 255 = GetCharAnimFrame's -1)."""
+    v = int(frame_n) & 0xFF
+    return v >= 2 and v != 255
+
+
+def ghost_frame_why(lever_on: bool, has_frame: bool, frame_n: int, loco: int, follows: bool) -> int:
+    """NetSyncVisitor.GhostFrameWhy, in its precedence order (lever, frame, count, loco, twin)."""
+    if not lever_on:
+        return GF_WHY_LEVER
+    if not has_frame:
+        return GF_WHY_NO_FRAME
+    if not ghost_frame_usable(frame_n):
+        return GF_WHY_FRAME_N
+    if loco != LOCO_OTHER:
+        return GF_WHY_LOCO
+    return GF_FOLLOW if follows else GF_WHY_CLIP
+
+
+def follows_wire_anim(resolved: int, wire: int, dress_rig: int, wire_loco: int) -> bool:
+    """NetSyncVisitor.FollowsWireAnim: the raw wire anim, or a DRESSED rig's answer for an Other wire anim that is neither its idle
+    nor its idle alias (a twin row, same-suffix or nearest-played-jump)."""
+    if resolved == wire:
+        return True
+    r = rig_row(dress_rig)
+    if not resolved or wire_loco != LOCO_OTHER or r is None:
+        return False
+    return resolved not in (r["idle"], r["idle_alias"])
+
+
+def ghost_frame_step(last: int, nxt: int, n: int) -> tuple:
+    """NetSyncVisitor.GhostFrameStep -> ``(kind, step)``: under a QUARTER cycle is continuous, directly or across the loop seam
+    (11 -> 0 of 12 is +1); a DIRECT step of up to two frames under half a short clip is continuous too (1 -> 3 of 8, 1 -> 2 of 4:
+    two coalesced sender ticks ease instead of popping); anything else snaps (1 -> 7 of 8, the take-off to the landing)."""
+    if n < 2 or not 0 <= last < n or not 0 <= nxt < n:
+        return GF_STEP_SNAP, 0
+    d = nxt - last
+    if 4 * abs(d) < n or (abs(d) <= 2 and 2 * abs(d) < n):
+        return GF_STEP_DIRECT, d
+    w = d - n if d > 0 else d + n
+    if 4 * abs(w) < n:
+        return GF_STEP_WRAP, w
+    return GF_STEP_SNAP, 0
+
+
+def ghost_frame_ease(shown: float, target: float, a: float) -> float:
+    """NetSyncVisitor.GhostFrameEase: one render frame's ease, landing ON the target within a thousandth of a frame."""
+    s = shown + (target - shown) * a
+    return target if abs(target - s) < 0.001 else s
+
+
+def ghost_frame_time(shown: float, n: int, length: float) -> float:
+    """NetSyncVisitor.GhostFrameTime: PlayAnimationViaEventScript's k / n * length."""
+    return shown / n * length if n > 0 else 0.0
 
 
 def dress_char_id(model: int, rig_idx: int) -> int:
@@ -8087,7 +8189,7 @@ def visibility_mask(renderers, hidden) -> int:
 # ---- THE SELFTEST DRESS SITE (NetSyncClient's selftest branch, s139): the mirror IS the guest, this machine its host
 def selftest_dress(*, ghost_as, guest_slots: int, me_model: int, me_anim: int, party, role="selftest",
                    selftest_role: bool = True, enabled: bool = True, bench_mask: int = -1, empty_mask: int = -1,
-                   rule=None, wire: int = -1, wire_anim: int = -1, leader: int = -1) -> dict:
+                   rule=None, wire: int = -1, wire_anim: int = -1, leader: int = -1, twin_law: bool = True) -> dict:
     """What the selftest mirror's ghost WEARS and PLAYS this frame (NetSyncClient's selftest dress site, s139, its
     `selfdress` levers read on the selftest role only) -> {"model", "rig", "anim", "mask"}: ``model`` is EnsureGhost's
     model (the dress, else the wire body), ``rig`` its rig (-1 undressed), ``anim`` DriveGhost's clip id, ``mask`` which
@@ -8101,16 +8203,18 @@ def selftest_dress(*, ghost_as, guest_slots: int, me_model: int, me_anim: int, p
     site's guard takes (NetSyncBattle.LeaderForGuard -- the CharacterId of my own controlled body; -1 = none known, the
     `bench leaderguard off` lever, or an engine before s143: the default, so every pre-s143 caller reads as before) -- under
     the s139 rule (never `rule s138`) and mode `auto` the mask goes through the leader guard over the site's RAW slots first
-    (NetSyncClient.FieldGuardMask, :func:`field_guard_mask`)."""
+    (NetSyncClient.FieldGuardMask, :func:`field_guard_mask`). [ff9mapkit netsync s157] ``twin_law``: GhostAnim's live twin
+    law (NetSyncSelfDress.TwinOn -- False only under the selftest role's `selfdress twin off`, or on an engine before s157:
+    s139's rule, :func:`ghost_anim_rule`); the default True is the s157 engine with the lever on."""
     return _selftest_dress_in(sys.modules[__name__], ghost_as=ghost_as, guest_slots=guest_slots, me_model=me_model,
                               me_anim=me_anim, party=party, role=role, selftest_role=selftest_role, enabled=enabled,
                               bench_mask=bench_mask, empty_mask=empty_mask, rule=rule, wire=wire, wire_anim=wire_anim,
-                              leader=leader)
+                              leader=leader, twin_law=twin_law)
 
 
 def _selftest_dress_in(R, *, ghost_as, guest_slots: int, me_model: int, me_anim: int, party, role="selftest",
                        selftest_role: bool = True, enabled: bool = True, bench_mask: int = -1, empty_mask: int = -1,
-                       rule=None, wire: int = -1, wire_anim: int = -1, leader: int = -1) -> dict:
+                       rule=None, wire: int = -1, wire_anim: int = -1, leader: int = -1, twin_law: bool = True) -> dict:
     """[ff9mapkit netsync s140] :func:`selftest_dress` over one stage's rules ``R`` (this module = the live engine, or
     :data:`S139`): its rig table, ClassifyLoco / RigForModel / LocoAnim and the host rule ResolveDressRule."""
     bench = bool(selftest_role)
@@ -8140,7 +8244,10 @@ def _selftest_dress_in(R, *, ghost_as, guest_slots: int, me_model: int, me_anim:
         anim = R.loco_anim(rig, st_loco) if dress else wire_anim
         mask = "local" if (dress == 0 and st_wire == me_model) or dress == me_model else "all"
     else:
-        anim = R.ghost_anim(dress, rig, st_wire, st_loco, wire_anim)
+        # [ff9mapkit netsync s157] GhostAnim with its live twin law (a stage with no twin rows -- :data:`S139` -- has s139's rule)
+        rule_fn = getattr(R, "ghost_anim_rule", None)
+        anim = (rule_fn(dress, rig, st_wire, st_loco, wire_anim, twin_law) if rule_fn is not None
+                else R.ghost_anim(dress, rig, st_wire, st_loco, wire_anim))
         if dress == 0 or dress == st_wire:
             mask = "local" if st_wire == me_model else "rest"
         elif dress == me_model:
@@ -8541,25 +8648,162 @@ def mutant_body_rig_on_arm(want_rig, net_self_dress) -> int:
     return want_rig if net_self_dress else -1
 
 
-def map_anim(net_self_dress, id_, site, alias_law: bool = True) -> int:
+def map_anim(net_self_dress, id_, site, alias_law: bool = True, twin_law: bool = True) -> int:
     """NetSyncSelfDress.MapAnim -- keyed on the BODY (amendment 5, :func:`body_rig`): ``net_self_dress`` is the body's
     PosObj.netSelfDress (rig + 1; 0 = undressed -> the id unchanged), never the arm's WantRig. MapAndAttach -- every
-    stock-site hook's map -- calls it."""
+    stock-site hook's map -- calls it. [ff9mapkit netsync s157] through :func:`map_rig_anim_twin` (the twin row first,
+    else s140's :func:`map_rig_anim`); ``twin_law`` False = the `selfdress twin off` lever."""
     rig = body_rig(net_self_dress)
     if rig < 0:
         return id_
-    return map_rig_anim(rig, id_, site, alias_law)
+    return map_rig_anim_twin(rig, id_, site, alias_law, twin_law)
 
 
-def jump_frame_n(rig_idx, raw, frames_of, *, keep: bool = True, alias_law: bool = True) -> int | None:
+# ---- (2b) [ff9mapkit netsync s157] THE TWIN ROWS (NetSyncSelfDress.TwinRows / TwinRigAnim / MapRigAnimTwin)
+#: The same-suffix twin table, row for row the engine's (a test pins the C# literal to this tuple): (rig, the source id stock
+#: names, the source's other id -- the same NAME --, the twin id). Generated by studies/field-coop/twin-census/gen_table.py
+#: (twin_rows.json): (1) the rig's same-suffix clip when on disc AND stock-played; (2) a JUMP whose same suffix is unplayed or
+#: absent -> the rig's stock-played plain jump nearest in frame count (a tie: the lower suffix); (3) else no row (the idle
+#: alias, owner decision 4). 55 rows over 37 twin clips.
+TWIN_ROWS = (
+    (1, 10687, 10686, 10281),   # Vivi ZDN_LADDER_1_1 -> VIV_LADDER_1_1, 8 -> 8 (same)
+    (1, 10539, 10538, 10277),   # Vivi ZDN_LADDER_1_2 -> VIV_LADDER_1_2, 12 -> 12 (same)
+    (1, 10685, 10684, 10279),   # Vivi ZDN_LADDER_1_3 -> VIV_LADDER_1_3, 14 -> 14 (same)
+    (1, 11455, 11454, 10437),   # Vivi ZDN_LADDER_2_1 -> VIV_LADDER_2_1, 11 -> 11 (same)
+    (1, 11453, 11452, 10435),   # Vivi ZDN_LADDER_2_3 -> VIV_LADDER_2_3, 12 -> 12 (same)
+    (1, 206, 106, 11670),       # Vivi ZDN_JUMP -> VIV_JUMP_1, 28 -> 28 (nearest)
+    (1, 10446, 10447, 11670),   # Vivi ZDN_JUMP_1 -> VIV_JUMP_1, 27 -> 28 (same)
+    (1, 3519, 3520, 11673),     # Vivi ZDN_JUMP_2 -> VIV_JUMP_2, 35 -> 27 (same)
+    (1, 10444, 10445, 11674),   # Vivi ZDN_JUMP_3 -> VIV_JUMP_3, 45 -> 27 (same)
+    (2, 10687, 10686, 194),     # Garnet ZDN_LADDER_1_1 -> GRN_LADDER_1_1, 8 -> 8 (same)
+    (2, 10539, 10538, 159),     # Garnet ZDN_LADDER_1_2 -> GRN_LADDER_1_2, 12 -> 12 (same)
+    (2, 10685, 10684, 167),     # Garnet ZDN_LADDER_1_3 -> GRN_LADDER_1_3, 14 -> 14 (same)
+    (2, 11455, 11454, 177),     # Garnet ZDN_LADDER_2_1 -> GRN_LADDER_2_1, 11 -> 11 (same)
+    (2, 11453, 11452, 163),     # Garnet ZDN_LADDER_2_3 -> GRN_LADDER_2_3, 12 -> 12 (same)
+    (2, 206, 106, 10438),       # Garnet ZDN_JUMP -> GRN_JUMP_1, 28 -> 28 (nearest)
+    (2, 10446, 10447, 10438),   # Garnet ZDN_JUMP_1 -> GRN_JUMP_1, 27 -> 28 (same)
+    (2, 3519, 3520, 10438),     # Garnet ZDN_JUMP_2 -> GRN_JUMP_1, 35 -> 28 (nearest)
+    (2, 10444, 10445, 10442),   # Garnet ZDN_JUMP_3 -> GRN_JUMP_3, 45 -> 45 (same)
+    (3, 10687, 10686, 10745),   # Steiner ZDN_LADDER_1_1 -> STN_LADDER_1_1, 8 -> 10 (same)
+    (3, 10539, 10538, 10741),   # Steiner ZDN_LADDER_1_2 -> STN_LADDER_1_2, 12 -> 13 (same)
+    (3, 10685, 10684, 10743),   # Steiner ZDN_LADDER_1_3 -> STN_LADDER_1_3, 14 -> 13 (same)
+    (3, 11455, 11454, 481),     # Steiner ZDN_LADDER_2_1 -> STN_LADDER_2_1, 11 -> 11 (same)
+    (3, 11453, 11452, 432),     # Steiner ZDN_LADDER_2_3 -> STN_LADDER_2_3, 12 -> 11 (same)
+    (3, 206, 106, 12034),       # Steiner ZDN_JUMP -> STN_JUMP_1, 28 -> 20 (nearest)
+    (3, 10446, 10447, 12034),   # Steiner ZDN_JUMP_1 -> STN_JUMP_1, 27 -> 20 (same)
+    (3, 3519, 3520, 12032),     # Steiner ZDN_JUMP_2 -> STN_JUMP_3, 35 -> 42 (nearest)
+    (3, 10444, 10445, 12032),   # Steiner ZDN_JUMP_3 -> STN_JUMP_3, 45 -> 42 (same)
+    (4, 206, 106, 12863),       # Freya ZDN_JUMP -> FRJ_JUMP_1, 28 -> 27 (nearest)
+    (4, 10446, 10447, 12863),   # Freya ZDN_JUMP_1 -> FRJ_JUMP_1, 27 -> 27 (same)
+    (4, 3519, 3520, 12867),     # Freya ZDN_JUMP_2 -> FRJ_JUMP_2, 35 -> 35 (same)
+    (4, 10444, 10445, 12871),   # Freya ZDN_JUMP_3 -> FRJ_JUMP_3, 45 -> 45 (same)
+    (5, 206, 106, 3935),        # Quina ZDN_JUMP -> KUI_JUMP_1, 28 -> 30 (nearest)
+    (5, 10446, 10447, 3935),    # Quina ZDN_JUMP_1 -> KUI_JUMP_1, 27 -> 30 (same)
+    (5, 3519, 3520, 3939),      # Quina ZDN_JUMP_2 -> KUI_JUMP_2, 35 -> 33 (same)
+    (5, 10444, 10445, 3943),    # Quina ZDN_JUMP_3 -> KUI_JUMP_3, 45 -> 30 (same)
+    (6, 206, 106, 3054),        # Eiko ZDN_JUMP -> EIK_JUMP_1, 28 -> 27 (nearest)
+    (6, 10446, 10447, 3054),    # Eiko ZDN_JUMP_1 -> EIK_JUMP_1, 27 -> 27 (same)
+    (6, 3519, 3520, 3058),      # Eiko ZDN_JUMP_2 -> EIK_JUMP_2, 35 -> 35 (same)
+    (6, 10444, 10445, 3061),    # Eiko ZDN_JUMP_3 -> EIK_JUMP_3, 45 -> 35 (same)
+    (7, 206, 106, 3031),        # Amarant ZDN_JUMP -> SLM_JUMP_1, 28 -> 34 (nearest)
+    (7, 10446, 10447, 3031),    # Amarant ZDN_JUMP_1 -> SLM_JUMP_1, 27 -> 34 (same)
+    (7, 3519, 3520, 3035),      # Amarant ZDN_JUMP_2 -> SLM_JUMP_2, 35 -> 40 (same)
+    (7, 10444, 10445, 3039),    # Amarant ZDN_JUMP_3 -> SLM_JUMP_3, 45 -> 46 (same)
+    (8, 206, 106, 2917),        # moogle ZDN_JUMP -> MOG_JUMP, 28 -> 30 (same)
+    (8, 10446, 10447, 2917),    # moogle ZDN_JUMP_1 -> MOG_JUMP, 27 -> 30 (nearest)
+    (8, 3519, 3520, 2917),      # moogle ZDN_JUMP_2 -> MOG_JUMP, 35 -> 30 (nearest)
+    (8, 10444, 10445, 2917),    # moogle ZDN_JUMP_3 -> MOG_JUMP, 45 -> 30 (nearest)
+    (9, 206, 106, 9889),        # Cinna ZDN_JUMP -> CNA_JUMP, 28 -> 40 (same)
+    (9, 10446, 10447, 9889),    # Cinna ZDN_JUMP_1 -> CNA_JUMP, 27 -> 40 (nearest)
+    (9, 3519, 3520, 9889),      # Cinna ZDN_JUMP_2 -> CNA_JUMP, 35 -> 40 (nearest)
+    (9, 10444, 10445, 9889),    # Cinna ZDN_JUMP_3 -> CNA_JUMP, 45 -> 40 (nearest)
+    (10, 206, 106, 12011),      # Marcus ZDN_JUMP -> MRC_JUMP_3, 28 -> 45 (nearest)
+    (10, 10446, 10447, 12011),  # Marcus ZDN_JUMP_1 -> MRC_JUMP_3, 27 -> 45 (nearest)
+    (10, 3519, 3520, 12011),    # Marcus ZDN_JUMP_2 -> MRC_JUMP_3, 35 -> 45 (nearest)
+    (10, 10444, 10445, 12011),  # Marcus ZDN_JUMP_3 -> MRC_JUMP_3, 45 -> 45 (same)
+)
+TWIN_ROW_COUNT = 55
+TWIN_CLIP_COUNT = 37
+TWIN_BY_KEY = {(r, s): t for r, a, b, t in TWIN_ROWS for s in (a, b)}
+#: each twin clip's frame count (GetCharAnimFrame's formula off p0data5; twin_rows.json `ft`): what a dressed body's jump
+#: slot runs on under `law timeline off` (:func:`jump_frame_n` through :func:`rig_clip_frames`)
+TWIN_FRAMES = {159: 12, 163: 12, 167: 14, 177: 11, 194: 8, 432: 11, 481: 11, 2917: 30, 3031: 34, 3035: 40, 3039: 46, 3054: 27,
+               3058: 35, 3061: 35, 3935: 30, 3939: 33, 3943: 30, 9889: 40, 10277: 12, 10279: 14, 10281: 8, 10435: 12,
+               10437: 11, 10438: 28, 10442: 45, 10741: 13, 10743: 13, 10745: 10, 11670: 28, 11673: 27, 11674: 27,
+               12011: 45, 12032: 42, 12034: 20, 12863: 27, 12867: 35, 12871: 45}
+TWIN_LEVER_ON, TWIN_LEVER_OFF, TWIN_LEVER_MISS = 0, 1, 2
+TWIN_LEVER_NAMES = ("on", "off", "miss")
+TWIN_USAGE = "netsync selfdress twin: expected `twin on|off|miss`"
+TWIN_ON_LOG = ("[NetSync] harness: selfdress twin on -- the s157 twin rows (a dressed body's Zidane ladder / jump plays the "
+               "rig's own clip)")
+TWIN_OFF_LOG = ("[NetSync] harness: selfdress twin OFF -- CALIBRATION: the twin rows are bypassed on this selftest role (s140's "
+                "idle alias; the ghost's s139 idle)")
+TWIN_MISS_LOG = ("[NetSync] harness: selfdress twin MISS -- CALIBRATION: every twin's clip reads NOT attached on this selftest "
+                 "role (the guard plays s140's alias; the ghost its rig's idle)")
+#: NetSyncSelfDress.TwinSpots, row for row: (rig, raw, site, want)
+TWIN_SPOTS = ((3, 10539, 0, 10741), (3, 10687, 7, 10745), (1, 11453, 7, 10435), (2, 10684, 7, 167), (3, 10446, 7, 12034),
+              (4, 10444, 7, 12871), (8, 206, 0, 2917), (9, 106, 7, 9889), (10, 10444, 7, 12011), (3, 3519, 7, 12032),
+              (3, 206, 0, 12034), (2, 3520, 7, 10438), (1, 106, 0, 11670), (5, 206, 7, 3935), (8, 10446, 7, 2917),
+              (10, 3519, 7, 12011), (11, 10446, 7, 0), (12, 10444, 7, 0), (10, 10539, 0, 0), (4, 10687, 7, 0), (0, 10539, 0, 0),
+              (13, 10539, 0, 0), (-1, 10539, 0, 0), (3, 179, 7, 0), (3, 6224, 0, 0), (3, 10741, 0, 0), (3, 10539, 1, 0),
+              (3, 10539, 2, 0), (3, 10539, 3, 0), (3, 10539, 4, 0), (3, 10539, 5, 0), (3, 10539, 6, 0))
+
+
+def twin_rig_anim(rig_idx, id_, site, twin_law) -> int:
+    """NetSyncSelfDress.TwinRigAnim: the rig's twin row of the raw id at RunAnimation / the jump slot; 0 = no row, another
+    site, or the twin law off."""
+    if not twin_law or site not in (SITE_PLAY, SITE_JUMP):
+        return 0
+    return TWIN_BY_KEY.get((rig_idx, id_), 0)
+
+
+def map_rig_anim_twin(rig_idx, id_, site, alias_law, twin_law) -> int:
+    """NetSyncSelfDress.MapRigAnimTwin: the twin row first, else s140's :func:`map_rig_anim` unchanged."""
+    t = twin_rig_anim(rig_idx, id_, site, twin_law)
+    return t if t else map_rig_anim(rig_idx, id_, site, alias_law)
+
+
+def twin_miss_line(twin, raw, fallback, *, forced: bool) -> str:
+    """[ff9mapkit netsync s157] NetSyncSelfDress.TwinAttached's one line per load: a twin row whose clip is not on the body
+    (``forced``: the selftest `twin miss` lever) plays ``fallback`` -- s140's MapRigAnim, the idle alias."""
+    return ("[NetSync] self-dress: twin " + str(twin) + " for " + str(raw) + " is not on the body"
+            + (" (the `twin miss` lever)" if forced else "") + " -- playing " + str(fallback) + " (s140's fallback)")
+
+
+def twin_on_rule(lever, self_test_role) -> bool:
+    """NetSyncSelfDress.TwinOnRule: the twin is on unless the SELFTEST role set `twin off`."""
+    return lever != TWIN_LEVER_OFF or not self_test_role
+
+
+def twin_miss_rule(lever, self_test_role) -> bool:
+    """NetSyncSelfDress.TwinMissRule: `twin miss` forces the guard's miss on the selftest role only."""
+    return lever == TWIN_LEVER_MISS and bool(self_test_role)
+
+
+def twin_value_rule(val) -> int:
+    """NetSyncSelfDress.TwinValueRule: DressMode's trim + lower-case, then on 0 / off 1 / miss 2; -1 = refused."""
+    v = dress_mode(val)
+    return TWIN_LEVER_NAMES.index(v) if v in TWIN_LEVER_NAMES else -1
+
+
+def try_set_twin(val) -> tuple:
+    """NetSyncSelfDress.TrySetTwin: (ok, why, lever) -- a refusal changes nothing."""
+    v = twin_value_rule(val)
+    return (False, TWIN_USAGE, None) if v < 0 else (True, None, v)
+
+
+def jump_frame_n(rig_idx, raw, frames_of, *, keep: bool = True, alias_law: bool = True, twin_law: bool = True) -> int | None:
     """[ff9mapkit netsync s140] The frame count a dressed body's JUMP SLOT runs on at PREJUMP / POSTJUMP / SETVY3
     (EventEngine.ExecAnim(actor.jump), then NetSyncSelfDress.KeepJumpTimeline): the slot holds the mapped id (the idle alias
     for every JUMP / LADDER / OTHER id), ExecAnim sets frameN to ITS count, and KeepJumpTimeline (``keep``: the law on and the
     hook present) puts back the SOURCE clip's (``raw``) for a gesture. ``frames_of(id)`` is the frame count oracle (None =
-    unknown). Undressed (rig -1): the raw clip's own count -- stock."""
+    unknown). Undressed (rig -1): the raw clip's own count -- stock. [ff9mapkit netsync s157] The slot holds the TWIN row when
+    the rig has one (:func:`map_rig_anim_twin`; ``twin_law`` False = the `selfdress twin off` lever, s140's alias): with
+    ``keep`` the SOURCE count still wins (the raw id stays a gesture) -- only without the hook does the twin's own count
+    show."""
     if rig_row(rig_idx) is None:
         return frames_of(raw)
-    mapped = map_rig_anim(rig_idx, raw, SITE_JUMP, alias_law)
+    mapped = map_rig_anim_twin(rig_idx, raw, SITE_JUMP, alias_law, twin_law)   # [ff9mapkit netsync s157] + the twin step
     if keep and mapped != raw and is_gesture(rig_idx, raw):
         return frames_of(raw)
     return frames_of(mapped)
@@ -8855,6 +9099,8 @@ def rig_clip_frames(rig_idx, anim) -> int | None:
         for col in RIG_FRAME_COLUMNS:
             if r[col] == anim and anim != 0:
                 return rig_frames(rig_idx, col)
+        if anim in TWIN_FRAMES and is_own_clip(rig_idx, anim_name(anim)):   # [ff9mapkit netsync s157] the rig's twin clips
+            return TWIN_FRAMES[anim]
     return SOURCE_FRAMES.get(anim)
 
 
@@ -9247,6 +9493,13 @@ SELF_RELEASE_LINE = "selfdress self / gate / law / polish levers released ("
 #: No verdict key publishes it (audit 3.1 lists none): the line is the record.
 PROOF_DRESS_POLISH = "dress polish selftest: "
 DRESS_POLISH_SELFTEST_ROWS = 20
+#: [ff9mapkit netsync s157] The proof block's s157 twin line (NetSyncClient, after s156's guest traversal line; the ghost
+#: frame line follows it, the block's LAST): NetSyncSelfDress.TwinSelfTest's rows; its verdict publishes as
+#: `netsync.dress.self.twin_selftest`.
+PROOF_DRESS_TWIN = "dress twin selftest: "
+DRESS_TWIN_SELFTEST_ROWS = 11
+DRESS_TWIN_SELFTEST_OK = "ok"
+DRESS_TWIN_SELFTEST_FAIL = "fail: "
 
 
 def _rig_cols(rig) -> dict | None:

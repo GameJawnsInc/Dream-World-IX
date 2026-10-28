@@ -4,7 +4,7 @@
 PCs (2026-10-27: climbs, the talk hold, the cold return mid-climb, the F11 refusal); R4-R5 open.** The two-PC
 session's results and its five findings (ghosts that never pause, the dressed "pencil" glide, the doubled party
 member in scenes, the F1 lag, the host's same-field reload) are in
-[`GUEST-TRAVERSAL-TWO-PC.md`](GUEST-TRAVERSAL-TWO-PC.md). The design below was written 2026-10-25 from a read-only multi-agent pass (census, design,
+[`GUEST-TRAVERSAL-TWO-PC.md`](GUEST-TRAVERSAL-TWO-PC.md). Findings 1 and 2 are fixed by engine patch s157 (deployed and solo-benched 2026-10-28; the two-PC check is next). The design below was written 2026-10-25 from a read-only multi-agent pass (census, design,
 adversarial critique) over the live engine tree `C:\gd\FFIX\Memoria` at the netsync s145 tip. Cites are
 `file:line` against that tree, which other sessions edit, so lines can drift.
 
@@ -16,8 +16,9 @@ adversarial critique) over the live engine tree `C:\gd\FFIX\Memoria` at the nets
   `ff9mapkit/ff9mapkit/data/guest_traversal.json` owns the counts; the engine compiles its C# twin
   `NetSyncGuestLocalTable.cs` (ids, lengths and CRC-32s only). Of the census's 86 LOCO-ONLY rows, the kit ships 80;
   6 are refused by the ship filters the census lacked. The deployed s156 engine was captured before R15 and still
-  carries the sixth, 1209:5: `S156_DEPLOYED_AHEAD` in `tests/test_guest_traversal_table.py` pins that one row as
-  deployed-ahead (the patch must equal the JSON plus exactly the pinned rows), and the next engine capture empties it.
+  carries the sixth, 1209:5. s157 (deployed 2026-10-28) re-captures the table whole from the JSON, so the pin
+  `DEPLOYED_AHEAD` in `tests/test_guest_traversal_table.py` (s156's `S156_DEPLOYED_AHEAD`) is empty: the newest patch
+  carrying the table must equal render_cs of the JSON exactly, replaced whole.
   - **R11, the latch audit, path-aware:** a variable the climb writes must not be READ by any other function on any
     control-flow path before it is written there (a read-modify-write is a read; a partial-width write covers only
     its own bits), unless the reader is load-once. 2702 e15/e19 (entry 21's stone functions read the latch first),

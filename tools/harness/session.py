@@ -8468,7 +8468,10 @@ class Session:
     #: :attr:`NETSYNC_SELFDRESS_OPS_S139` (and answers an s140 op "unknown op" with it). [ff9mapkit netsync s141] + `polish`
     #: (the dress polish's calibration lever, on `netsync.dress.self.steps`): an s140 engine prints
     #: :attr:`NETSYNC_SELFDRESS_OPS_S140` (and answers `polish` "unknown op" with it).
-    NETSYNC_SELFDRESS_OPS = ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law", "polish")
+    #: [ff9mapkit netsync s157] + `twin` (the twin rows' calibration lever, on `netsync.dress.self.twins`): an s141-s156 engine
+    #: prints :attr:`NETSYNC_SELFDRESS_OPS_S141` (and answers `twin` "unknown op" with it).
+    NETSYNC_SELFDRESS_OPS = ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law", "polish", "twin")
+    NETSYNC_SELFDRESS_OPS_S141 = ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law", "polish")
     NETSYNC_SELFDRESS_OPS_S140 = ("ghost", "empty", "rule", "wire", "clear", "self", "gate", "law")
     NETSYNC_SELFDRESS_OPS_S139 = ("ghost", "empty", "rule", "wire", "clear")
     #: [ff9mapkit netsync s140] the ops a LATER patch added, each told by its own key: (the State capability accessor, the key,
@@ -8481,7 +8484,11 @@ class Session:
            for op in ("self", "gate", "law")},
         "polish": ("coop_dress_polish", "netsync.dress.self.steps", "s141",
                    "the s141 dress polish's calibration lever (`polish off` bypasses MapFootstep, the mesh-op drop, the prop "
-                   "remap and both lighting fallbacks together)")}
+                   "remap and both lighting fallbacks together)"),
+        # [ff9mapkit netsync s157] + `twin` -> ("coop_dress_twin", "netsync.dress.self.twins", "s157")
+        "twin": ("coop_dress_twin", "netsync.dress.self.twins", "s157",
+                 "the s157 twin rows' calibration lever (`twin off` = s140's idle alias for every Zidane ladder / jump, "
+                 "`twin miss` = the clip-present guard's red)")}
     #: [ff9mapkit netsync s139] HarnessSelfDress' refusal of a malformed op, in its words (after the role and the op).
     #: [ff9mapkit netsync s140] + `self` (NetSyncSelfDress.SelfUsage: the spec forms and the fifteen names), `gate`, `law`
     #: (NetSyncSelfDress.LawUsage); `self`'s two value refusals are :attr:`NETSYNC_SELFDRESS_SELF_REFUSALS`.
@@ -8500,6 +8507,8 @@ class Session:
         "law": "netsync selfdress law: expected `law bframe|attach|alias|timeline on|off`",
         # [ff9mapkit netsync s141] NetSyncSelfDress.PolishUsage (the arity and TrySetPolish's value alike)
         "polish": "netsync selfdress polish: expected `polish on|off`",
+        # [ff9mapkit netsync s157] NetSyncSelfDress.TwinUsage (the arity and TrySetTwin's value alike)
+        "twin": "netsync selfdress twin: expected `twin on|off|miss`",
     }
     NETSYNC_SELFDRESS_SELF_REFUSALS = {"off_mask": "netsync selfdress self off: takes no mask",
                                        "auto_mask": "netsync selfdress self auto: mask {mask} is outside 0-15 (party "
@@ -8616,6 +8625,9 @@ class Session:
         "worldwarm": ("coop_world_dio", "netsync.world.dio", "s145",
                       "the s145 world warm-return calibration lever (off = every world boot declines, cold = the cold "
                       "reference)"),
+        # [ff9mapkit netsync s157] the ghost frame-follow's lever -- the same hazard (an s156 engine reads it as `bench 1`)
+        "ghostframe": ("coop_ghost_frame", "netsync.ghostframe", "s157",
+                       "the s157 ghost frame-follow calibration lever (off = the s156 ghost: every clip free-runs at speed 1)"),
     }
     #: [ff9mapkit netsync s133] `actbench <op>` (NetSyncBattle.HarnessActBench), in the engine's order -- the list its
     #: "unknown op" refusal prints -- and the `tape` op's values (`rec|stop|clear|info`, + `dump <from> <count>`, the paged
@@ -9135,7 +9147,8 @@ class Session:
         val = str(args[1]).strip().lower() if len(args) > 1 else ""
         # [ff9mapkit netsync s140] the list THIS engine prints: s140's eight, an s139 engine's five -- [ff9mapkit netsync
         # s141] s141's nine (+ `polish`)
-        ops = (self.NETSYNC_SELFDRESS_OPS if st.coop_dress_polish else
+        ops = (self.NETSYNC_SELFDRESS_OPS if st.coop_dress_twin else                       # [ff9mapkit netsync s157]
+               self.NETSYNC_SELFDRESS_OPS_S141 if st.coop_dress_polish else
                self.NETSYNC_SELFDRESS_OPS_S140 if st.coop_dress_self else self.NETSYNC_SELFDRESS_OPS_S139)
         cap = self.NETSYNC_SELFDRESS_OP_CAPS.get(op)
         if cap is not None and not getattr(st, cap[0]):
@@ -9185,6 +9198,8 @@ class Session:
                 return usage["law"]
         if op == "polish" and (n != 3 or val not in ("on", "off")):
             return usage["polish"]                     # [ff9mapkit netsync s141] the arity, then TrySetPolish's value
+        if op == "twin" and (n != 3 or val not in ("on", "off", "miss")):
+            return usage["twin"]                       # [ff9mapkit netsync s157] the arity, then TrySetTwin's value
         return None
 
     def selfdress_self(self, spec, mask: int | None = None, *, timeout: float = 20.0) -> State:
@@ -9214,6 +9229,13 @@ class Session:
         s141 DLL. Read back as ``netsync.dress.self.polish`` (as set). Set it, THEN load the field: the footstep ops run at a
         load and the tint recomputes on a floor change. Released with the harness (back on)."""
         return self.selfdress("polish", "on" if on else "off", timeout=timeout)
+
+    def selfdress_twin(self, mode: str, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s157] ``netsync selfdress twin on|off|miss`` (selftest role): off = CALIBRATION -- s140's idle alias for
+        every Zidane ladder / jump (MapAnim, AttachDress, the ghost's GhostAnim); miss = CALIBRATION -- the twin maps but its clip
+        reads NOT attached (the clip-present guard plays the alias, the ghost its rig's idle). Read back as
+        ``netsync.dress.self.twin`` (as set). Set it, THEN load. Released with the harness (back on)."""
+        return self.selfdress("twin", str(mode), timeout=timeout)
 
     def selfdress(self, op: str, *args, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s139] ``netsync selfdress <op> [value]`` (selftest role): ``ghost <mask 0-15>|off``,
