@@ -367,7 +367,7 @@ def judge_never(samples, *, lever: bool, why_not: str, need) -> tuple:
     return True, f"never out over {len(samples)} samples; {len(named)} of {len(hits)} armed samples name {why_not!r}"
 
 
-def judge_short(samples) -> tuple:
+def judge_short(samples, *, lever: bool = False) -> tuple:
     """N-DWELL: (verdict, why) -- verdict None = not discriminating (the base's dwell clock reached NDWELL_MAX_S). The span is the
     base's own age (base.age_ms: the dwell clock), never the control-off span: the base arms only when every term holds."""
     if not off_samples(samples):
@@ -378,6 +378,8 @@ def judge_short(samples) -> tuple:
     outs = actives(samples)
     if outs:
         return False, f"stepped OUT (why {so_get(so(outs[0]), 'why')!r}) after a base of {top:.2f} s"
+    if lever:
+        return True, f"never out over {len(samples)} samples (the lever: the base never arms, its clock reads -1)"
     if top < NDWELL_MIN_S:
         return False, f"the base never armed for {NDWELL_MIN_S} s (longest {top:.2f} s): the leg proves nothing"
     if top >= NDWELL_MAX_S:
@@ -730,7 +732,7 @@ def _d_climb(g, ctx, led, leg: str, direction: str):
 
 def _n_dwell(g, ctx, led):
     res = hang_climb(g, ctx, "N-DWELL", 207, "down", bench=False, scene_before=False, scene_on_mount=True, hang=False)
-    verdict, why = judge_short(res.get("samples") or [])
+    verdict, why = judge_short(res.get("samples") or [], lever=ctx.calibrate)
     if verdict is None:
         led.unreached(["N-DWELL"], why)
         return

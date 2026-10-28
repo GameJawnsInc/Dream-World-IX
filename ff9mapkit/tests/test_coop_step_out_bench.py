@@ -193,9 +193,12 @@ OUT = {"good": so.judge_short(short)[0],
        "stepped_out": so.judge_short(short[:2] + [st(active=True, t=1.1)] + short[3:])[0],
        "long": so.judge_short(long_)[0],
        "never_armed": so.judge_short(never_armed)[0],
+       "lever_never_armed_is_green": so.judge_short(never_armed, lever=True)[0],
+       "lever_stepped_out": so.judge_short(short[:2] + [st(active=True, t=1.1)] + short[3:], lever=True)[0],
        "no_climb": so.judge_short([st(control=True, active=False, t=0.0)])[0]}
 ''')
-    assert out == {"good": True, "stepped_out": False, "long": None, "never_armed": False, "no_climb": False}, out
+    assert out == {"good": True, "stepped_out": False, "long": None, "never_armed": False, "lever_never_armed_is_green": True,
+                   "lever_stepped_out": False, "no_climb": False}, out
 
 
 def test_the_debounce_shadow_judge_can_fail():

@@ -275,6 +275,16 @@ footsteps keep sounding under the stand-in; a prop attached mid-episode stays at
   - the part hold before the hang is measured in game units, not frames;
   - the body's clip time is read live.
 
+**Third round, on the second round's code** (two lenses, two skeptics each; 5 of 5 survived). Four of them were one
+mechanism: the 300 ms held-input press exemption. It could miss the tap that the same tick consumed, by Unity's update
+order (NetSyncClient is added at runtime). It also counted a held Cancel, which is stock's walk/run modifier, so a host
+walking into a story trigger escaped option C. The exemption now sits where the script consumes the press:
+`TapScriptKeyIfHost` already sees every host script button read, and a control-on read that hit Confirm or Special arms
+`NoteHostInteraction`, so the scene that rises within 2 s is an interaction. The fifth was a bench bug: N-DWELL read the
+lever's never-armed base as a red, which made K-CAL unreachable; under the lever it now judges only "never out". The
+findings went 34, then 14, then 5, all from one mechanism now replaced by a 10-line check at the script's own read, so the
+review is closed. The in-game bench and the two-PC session are the next instruments.
+
 ## Finding 4: the guest lags the host's F1 high speed through conversations
 
 **Cause.** F1 is stock Memoria's High Speed booster (`UIKeyTrigger.cs:237-256`). `FastForwardFactor` returns
