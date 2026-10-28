@@ -106,13 +106,19 @@ From the moment the guest's copy opens its ATE menu from a relayed press, the gu
     guest's own white fade and title. One line per held destination.
 - **Destination phase.** At the next field load, if it is the own jump's destination, the episode moves there (a
   same-field ATE lands on the same id: the landing, not the id, decides). There the follow holds while my control is
-  off, up to 8 s from the first held tick: Finding 4's capped follow-hold, scoped here to the ATE episode. The guest's
-  copy shows 324/325 from the host's events, runs its own fade and music load, and takes its own scripted `Field()` out,
-  which goes WHERE THE HOST IS: the host's announced field, else the field it stands on, else the hub when nothing is
-  known. It is never bounced into a reload of the ATE field (a host at 3x speed can leave the hub before the guest's
-  tail ends). A rewrite seeds the host's entrance and commits the move, as the world redirect does. A first cut also
-  required "a host event for my field still waiting", as Finding 4 words it; that let the follow's black fade cut the
-  last second of the ATE, after its last line and before its own `Field()`.
+  off and its copy keeps making progress on the ATE field (the landing, a host line applied, a window opened) within 8 s,
+  at most 30 s from the first held tick: Finding 4's capped follow-hold, scoped here to the ATE episode and counted by
+  progress (a 3x host announces its departure long before the guest's last line). The guest's copy shows 324/325 from the
+  host's events, runs its own fade and music load, and takes its own scripted `Field()` out:
+  - a press waiting on that destination with its pick queued (a chained ATE) keeps the jump on course;
+  - else it goes where the host is (its announced field, else the field it stands on), but never back into the ATE field
+    itself while the host has not left it since the guest's landing: the host is still in this ATE and the guest's exit
+    just beat the host's intent frame;
+  - else it takes its own destination, keeping its own entrance through the landing's mirror (350's tail writes 17 for
+    352, while the host's mid-tail snapshot still says 16).
+  It is never bounced into a reload of the ATE field. A rewrite seeds the host's entrance and commits the move, as the
+  world redirect does. A first cut also required "a host event for my field still waiting", as Finding 4 words it; that
+  let the follow's black fade cut the last second of the ATE, after its last line and before its own `Field()`.
 - **Before the pick** (a late guest: its control came back after the host already picked and left). PREPICK: while its
   menu is open (control off) and the host's pick for it is already queued and is not that menu's cancel row, the
   follow waits, up to 2 s from the menu's open (the open tween, MinShowMs and IsChoiceReady). PENDING: while a press
@@ -147,6 +153,7 @@ field; on the host, the relayed menu's field until the next load):
   cannot start it either;
 - an active step-out steps in when the guest's ATE menu opens (a new reason, "ate": the guest's control came back under
   the step-in debounce and the served Select reopened the menu at once).
+On the host the latch ends the first frame its control is back (a Cancel or Leave row), as well as at the next load.
 
 Any other ATE-caption window is an ordinary line: a kit compulsory-ATE cutscene (`[cutscene] ate = true`) gives every
 line the ATE caption, and those scenes keep the step-out. The scene on the destination field is an ordinary scene.
@@ -220,6 +227,26 @@ proposed fix, the better fix was taken:
 
 The self-test grew to 108 rows and 37 mutants (offline: all three self-tests pass). The rows name each earlier rule a
 round rejected, and a mutant restores it, so a regression to a first cut reds the proof line.
+
+## Pre-build review, round 3
+
+Three lenses again: the round-2 fixes themselves; regressions outside the ATE; and an end-to-end dry run of the real
+352 -> 350 -> 352 sequence (host at 1x and at 3x) and of both benches, row by row. Eleven findings, two verifiers each:
+
+| # | Finding | Resolution |
+|---|---|---|
+| R3-0, 3, 8 (high) | Round 2's destination rewrite sent the guest's own exit back into a reload of the ATE field while the host was still in it (the guest's `Field(352)` beat the host's intent frame; the host lane read 350) | Never route back into the ATE field unless the host has stood there since the landing and then left it (`EpHostStep`); with nothing better known, the copy's own destination with its own entrance |
+| R3-1 | A kit menu's reported cancel row is a real ATE, so the pre-pick holds never fired there | Only a census-shaped Cancel (row 15) holds nothing; on any other menu every row holds (a Leave row costs a late guest at most 5 s) |
+| R3-2 | The destination rewrite could route away from a field where a chained press waited | A press waiting on the destination with its pick queued keeps the jump on course |
+| R3-4 | The kit harness still pinned round 1's proof line and step-out reasons | The kit rung follows the final engine (below) |
+| R3-5 | The host's caption latch lasted until the next load, so a later kit compulsory-ATE scene on that visit lost option C | The latch ends the first host frame its control is back |
+| R3-6 | The step-out reads ran unguarded in host-only play | Both answer at once when nothing is armed |
+| R3-7 (high, bench) | The duo bench poked the host's gate before the warp, and 352's own load wipes it | Gate after both copies settle (host last), read the bytes back through watched story bits, and prove the load wiped them first |
+| R3-9 | The tail hold's 8 s cap ran from the host's departure, so a 3x host still cut the closing lines | The tail counts by progress (8 s since the last line or window), 30 s overall |
+| R3-10 (bench) | No bench row tested the host half of the caption exemption | Duo row D9: the host's `host_plain_scene` stays false through its menu and title, and its `ate.stepout_exempt` reads true at the menu |
+
+The self-test grew to 122 rows and 43 mutants. The offline run caught a gap the row tables had: a mutant restoring
+round 1's fixed "row 15 is Cancel" rule survived every row until a row with row 15 on a kit menu was added.
 
 ## Census, second count
 

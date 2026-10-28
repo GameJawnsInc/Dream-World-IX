@@ -6,12 +6,15 @@ plays the owner's two-PC check end to end with a real host and a real client: 35
 title card and white fade on BOTH copies, the guest's own Field(350) with the follow held, the ATE on 350, its closing lines (324,
 325, 324) on the guest, and the guest's own way back to 352 with the follow held again.
 
-THE SETUP. Paired on 250; the host pokes the ATE gate into the story bytes (byte 238 = 1, word 241 = 2: the "Vivi, Confused" row)
-and warps to 352 (entrance 0, scenario 2600); the guest follows and its landing mirror carries the bytes. Both copies then have
-their gate (Code2 never writes 238/241 here: its arm needs flag 2102). The host is driven at 1x: it presses Select, picks the row,
-closes the title, then pages every line on 350 as soon as it is ready.
+THE SETUP. Paired on 250; the host warps to 352 (entrance 0, scenario 2600) and the guest follows. 352's own load CLEARS the gate
+(Zidane_Init writes byte 238 = 0 and word 241 = 0 when no ATE is unlocked: a New Game's VARL bits), so the gate is poked AFTER both
+copies settle -- the guest first, the host last, right before its press: byte 238 = 1, word 241 = 2 (the "Vivi, Confused" row).
+Nothing on an idle 352 rewrites them (the other writes are scripted event cases). Both copies watch bytes 238, 241 and 242 (the
+watch adds to duo.py's marker watch). The host is driven at 1x: it presses Select, picks the row, closes the title, then pages
+every line on 350 as soon as it is ready.
 
-  D0      both on 352 with control (the guest by ONE follow), the gate bytes equal on both.
+  D0      both on 352 with control (the guest by ONE follow); the host's own 238 read 0 after its load (the instrument: the load did
+          wipe it), and after the pokes both copies read 238 = 1, 241 = 2, 242 = 0.
   D1      THE MENU: the host's 'ATE relay: my ATE menu (win 1 text 98) opened from uid U's Select -- relayed (seq S)'; the guest's
           'opened my copy's ATE menu (win 1 text 98' and 'win 1 text 98 opened locked'.
   D2      THE PICK: the guest's 'win 1 text 98 closed (host seq N, choice 1)' and 'the host's choice 1 closed my copy's ATE menu'.
@@ -23,10 +26,13 @@ closes the title, then pages every line on 350 as soon as it is ready.
           dropped all three).
   D7      THE WAY BACK: the guest's 'the follow to field 352 waits -- my copy still plays the ATE', no follow to 352 fired, ONE
           'Map: 352' after the ATE, the episode over on the landing.
-  D8      the host saw the guest's ghost through its own menu (a step-out never hid it there): no guest step-out OUT while an ATE
-          caption was up on the guest (corroboration of the solo S1, on a client).
+  D8      no guest step-out OUT while an ATE caption was up on the guest (the solo S1, on a client).
+  D9      THE HOST HALF of the caption exemption: sampled on the host while its menu is up and again while its title card is up,
+          `netsync.stepout.host_plain_scene` reads false (option C does not hide the guest's ghost over the relay's own captions) and,
+          while the menu is up, `netsync.ate.stepout_exempt` reads true (the positive control: the latch is set). A missing sample is
+          red.
 
-THE CALIBRATION (COOP_CALIBRATE=1): run on the s160 DLL (no `netsync.ate`). PREDICTED_S160 = D1, D2, D3, D4, D7 red. D5 is green
+THE CALIBRATION (COOP_CALIBRATE=1): run on the s160 DLL (no `netsync.ate`). PREDICTED_S160 = D1, D2, D3, D4, D7, D9 red. D5 is green
 there too (the FOLLOW lands the guest on 350 with the host's entrance, as on 2026-10-28). D6 and D8 are maybes: at 1x the follow
 may land the guest early enough to show some closing lines, and with no menu on the guest there is no caption to step out on. A
 red outside those voids the run.
@@ -48,6 +54,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _coop_battle as cb                                          # noqa: E402 - Ledger, CALIBRATE
+from harness import duo as duo_mod                                 # noqa: E402 - watched_byte
 
 HarnessError = cb.HarnessError
 CALIBRATE = cb.CALIBRATE
@@ -71,8 +78,10 @@ CLAIMS = {
     "D6": "the guest showed the ATE's closing lines (324 and 325 opened locked, closed by the host's events)",
     "D7": "the guest went back to 352 by its own Field(): the follow waited, none fired, one load of 352",
     "D8": "no guest step-out OUT while an ATE caption was up on the guest",
+    "D9": "the host's option C keeps the guest's ghost through its relayed menu and title (host_plain_scene false; the host's "
+          "ate.stepout_exempt true while the menu is up)",
 }
-PREDICTED_S160 = ("D1", "D2", "D3", "D4", "D7")
+PREDICTED_S160 = ("D1", "D2", "D3", "D4", "D7", "D9")
 MAYBE_S160 = ("D6", "D8")
 CAL_ID = "D-CAL"
 
@@ -141,6 +150,19 @@ def _gate(g) -> None:
     g.poke(B_ROWS_HI, (ROWS >> 8) & 0xFF)
 
 
+GATE_BYTES = (B_AVAIL, B_ROWS_LO, B_ROWS_HI)
+
+
+def _watch_gate(g) -> None:
+    """Publish bytes 238, 241, 242 in every state sample (the agent's watch ADDS to its list: duo.py's marker watch stays)."""
+    g.watch(*(b * 8 + i for b in GATE_BYTES for i in range(8)))
+
+
+def _gate_reads(g) -> tuple:
+    st = g.state
+    return tuple(duo_mod.watched_byte(st, b) for b in GATE_BYTES)
+
+
 def run_duo(d) -> None:
     led = cb.Ledger(_DuoG(d), catalog(CALIBRATE), finals=(CAL_ID,) if CALIBRATE else (), width=1400)
     strict, d.strict = d.strict, False
@@ -166,18 +188,25 @@ def _run(d, led) -> None:
     if not cb.has(guest.state, "netsync.ate.opened"):
         d.note("the guest's engine publishes no `netsync.ate` (s161): the s160 run -- every relay row is red by design")
 
-    # ---- D0: the gate into the host's story bytes, then 352 for both
-    _gate(host)
+    # ---- D0: both to 352, then the gate (352's own load clears it): the guest first, the host last, right before its press
+    for g in (host, guest):
+        _watch_gate(g)
     g0, h0 = len(d.lines("guest")), len(d.lines("host"))
     host.warp(HUB, entrance=0, scenario=SCENARIO)
     ok_h = _settle_on(host, HUB, ARRIVE_S)
     ok_g = _settle_on(guest, HUB, ARRIVE_S)
-    _gate(guest)                                         # belt and braces: the landing mirror already carried them
+    host_before = _gate_reads(host)[0]                   # the instrument: 352's load wiped the host's 238 (else the gate proves nothing)
+    _gate(guest)
+    _gate(host)
+    want = (1, ROWS & 0xFF, (ROWS >> 8) & 0xFF)
+    rh = cb.poll(host, lambda s: tuple(duo_mod.watched_byte(s, b) for b in GATE_BYTES) == want, 3.0, "the host's gate bytes")
+    rg = cb.poll(guest, lambda s: tuple(duo_mod.watched_byte(s, b) for b in GATE_BYTES) == want, 3.0, "the guest's gate bytes")
     gm = _msgs(d, "guest", g0)
     loads = _count(gm, f"Map: {HUB} ")
-    led.check("D0", ok_h and ok_g and loads == 1,
+    led.check("D0", ok_h and ok_g and loads == 1 and host_before == 0 and rh is not None and rg is not None,
               f"host on {_field(host)} ctl {host.state.control}, guest on {_field(guest)} ctl {guest.state.control}, guest "
-              f"'Map: {HUB}' x{loads}; {_grep(gm, 'following the peer', 'Map:', limit=300)}")
+              f"'Map: {HUB}' x{loads}; host 238 after its load {host_before!r}; gate host {_gate_reads(host)} guest "
+              f"{_gate_reads(guest)}; {_grep(gm, 'following the peer', 'Map:', limit=300)}")
     if not (ok_h and ok_g):
         raise HarnessError("D0: the pair never settled on 352")
 
@@ -188,11 +217,18 @@ def _run(d, led) -> None:
     if menu is None:
         raise HarnessError("D1: the host's ATE menu never opened (the gate bytes?)")
     _wait(guest, lambda s: False, 1.5, "a moment for the guest's copy")    # the relay + the guest's serve
+    host_menu = host.state                               # D9: the host's view with its relayed menu up
     landed = host.choose_landed(PICK)
     title = _wait(host, lambda s: s.dialog_open and "Vivi" in (s.text or ""), 5.0, "the host's title card")
     if title is not None:
         host.wait_frames(25)
         host.press("confirm", 4)
+    plain_menu = cb.path(host_menu, "netsync.stepout.host_plain_scene")
+    plain_title = cb.path(title, "netsync.stepout.host_plain_scene") if title is not None else None
+    exempt_menu = cb.path(host_menu, "netsync.ate.stepout_exempt")
+    led.check("D9", plain_menu is False and plain_title is False and exempt_menu is True,
+              f"host_plain_scene menu {plain_menu!r} title {plain_title!r} (None = no sample); ate.stepout_exempt at the menu "
+              f"{exempt_menu!r}")
     # ---- D4/D5: both to 350
     _wait(host, lambda s: s.field_id == DEST, JUMP_S, "the host on 350")
     _wait(guest, lambda s: s.field_id == DEST, JUMP_S, "the guest on 350")
