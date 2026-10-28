@@ -383,7 +383,16 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # calibration is caps_through("stepout"). WHAT THE STAND-IN MODELS: the block at its sentinels, the `ctl` lever
                        # and its release, the s158 engine's usage for `ctl`. WHAT IT CANNOT: an anchor (no field actors here). The
                        # in-game leg is coop_step_out.py's M-352 (Dali's inn night scene: control on Dagger, the dressed Zidane speaks).
-                       "stepanchor": ("s159", ())}
+                       "stepanchor": ("s159", ()),
+                       # [ff9mapkit netsync s160] THE CHEST RELAY (studies/field-coop/CHEST-RELAY.md): ONE sub-verb, `chest` (selftest
+                       # role, the role refused first: `<uid> [confirm|special]` or `serve|request on|off`), and `netsync.chest` as
+                       # netsync's LAST key, after `stepout` (NETSYNC_TOP_CAP_KEYS); its calibration is caps_through("stepanchor").
+                       # WHAT THE STAND-IN MODELS (FakeGame's s160 section): the block at the agent's sentinels but for its live reads
+                       # (`serve_off` / `request_off` as set, `selftest` once the proof block ran), HarnessChest's two refusals in its
+                       # words, the bench gate, the fabricated start's line, and the release (the levers off, its line only when one
+                       # was set). WHAT IT CANNOT: a chest -- no event engine, so no accept, no serve, no expiry (the counters stay
+                       # 0; NetSyncClient.ChestSelfTest proves the rules). The in-game bench is coop_chest_relay.py (solo).
+                       "chest": ("s160", ("chest",))}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -431,13 +440,16 @@ NETSYNC_S157_CAPS = frozenset(("dresstwin",))
 NETSYNC_S158_CAPS = frozenset(("stepout",))
 #: [ff9mapkit netsync s159] The step-out anchor rung (its calibration, the s158 engine, is ``caps_through("stepout")``).
 NETSYNC_S159_CAPS = frozenset(("stepanchor",))
+#: [ff9mapkit netsync s160] The chest-relay rung (its calibration, the s159 engine, is ``caps_through("stepanchor")``).
+NETSYNC_S160_CAPS = frozenset(("chest",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
 #: Session.NETSYNC_DRESS_SUBVERBS, the gate widened to it). [ff9mapkit netsync s156] ...and `guestlocal` LAST (its own table,
 #: Session.NETSYNC_GUESTLOCAL_SUBVERBS). [ff9mapkit netsync s158] ...and `stepout` after it (Session.NETSYNC_STEPOUT_SUBVERBS).
+#: [ff9mapkit netsync s160] ...and `chest` after it (Session.NETSYNC_CHEST_SUBVERBS).
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench",
-                             "actbench", "selfdress", "guestlocal", "stepout")
+                             "actbench", "selfdress", "guestlocal", "stepout", "chest")
 #: [ff9mapkit netsync B4] The keys each battle capability adds, by `netsync.battle` sub-object, in the agent's order
 #: (AppendNetsyncBattle / AppendBattleEnd / AppendEndLeave) -- `end_leave` and `declined` are the two keys whose values
 #: are themselves fixed sub-objects (:data:`NETSYNC_BATTLE_END_LEAVE_KEYS`, :data:`NETSYNC_BATTLE_DECLINED_KEYS`).
@@ -529,6 +541,8 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "stepout": {},
     # [ff9mapkit netsync s159] nothing under `netsync.battle`: `anchor` is `netsync.stepout`'s last key (NETSYNC_TOP_NESTED_KEYS)
     "stepanchor": {},
+    # [ff9mapkit netsync s160] nothing under `netsync.battle`: `chest` is a TOP-LEVEL netsync block after `stepout`
+    "chest": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -554,7 +568,8 @@ NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",),
                         "worldwait": ("world",),                 # [ff9mapkit netsync s144] netsync's LAST key, after `dress`
                         "guestlocal": ("guestlocal",),           # [ff9mapkit netsync s156] ...and `guestlocal` after `world`
                         "dresstwin": ("ghostframe",),           # [ff9mapkit netsync s157] ...and `ghostframe` after `guestlocal`
-                        "stepout": ("stepout",)}                 # [ff9mapkit netsync s158] ...and `stepout` after `ghostframe`
+                        "stepout": ("stepout",),                  # [ff9mapkit netsync s158] ...and `stepout` after `ghostframe`
+                        "chest": ("chest",)}                     # [ff9mapkit netsync s160] ...and `chest` after `stepout`
 #: [ff9mapkit netsync s145] The blocks a capability adds INSIDE an older TOP-LEVEL `netsync` block, by that block: s145's `dio`,
 #: `netsync.world`'s last (AppendWorldDio, after `waitline`)
 NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)},
@@ -742,6 +757,27 @@ FAKE_STEPOUT_MUTANTS = 15                               # [ff9mapkit netsync s15
 FAKE_STEPOUT_SELFTEST_ROWS_S158 = 37
 FAKE_STEPOUT_MUTANTS_S158 = 12
 STEPOUT_DWELL_MS = 1500                                 # NetSyncStepOut.DwellMs (THE ARRIVAL LAW)
+#: [ff9mapkit netsync s160] `netsync.chest` (HarnessAgent.AppendChest), in the agent's order, at its catch-line sentinels.
+NETSYNC_CHEST_SENTINELS = {
+    "serve_off": False, "request_off": False, "armed": False, "active": False, "uid": -1, "script_bits": -1, "age_ms": -1,
+    "accepted": 0, "served": 0, "expired": 0, "declined": 0, "last_uid": -1, "why": None, "selftest": None,
+    "host": {"stamped": 0, "riding": False},
+}
+NETSYNC_CHEST_KEYS = tuple(NETSYNC_CHEST_SENTINELS)
+NETSYNC_CHEST_LEVERS = ("serve", "request")
+NETSYNC_CHEST_PRESSES = ("confirm", "special")
+NETSYNC_CHEST_ROLE_REFUSAL = "netsync chest: needs the selftest role (netsync selftest 1)"
+NETSYNC_CHEST_USAGE = "netsync chest: expected `chest <uid> [confirm|special]` or `chest serve|request on|off`"
+NETSYNC_CHEST_BENCH_REFUSAL = "netsync chest: the field-gate bench is OFF (netsync bench 1)"
+CHEST_LOG_LEVER_OFF = "[NetSync] harness: chest {w} OFF -- CALIBRATION (released with the harness)"
+CHEST_LOG_LEVER_ON = "[NetSync] harness: chest {w} ON"
+CHEST_LOG_RELEASE = "[NetSync] harness: chest levers released (serve + request on)"
+CHEST_LOG_FABRICATED = "[NetSync] chest bench: fabricated SectionChest chest {u} field {f} nonce {n} press {p} -- applying"
+PROOF_CHEST = "chest relay selftest: "
+CHEST_PROOF_RE = r"chest relay selftest: OK \((\d+) rows, (\d+) mutants caught\)"
+FAKE_CHEST_SELFTEST_ROWS = 37                           # NetSyncClient.ChestSelfTest's rows (ChestRows counts them)
+FAKE_CHEST_MUTANTS = 6
+CHEST_PRESS_COMPACT = {"confirm": 64, "special": 256}  # NetSyncField.CompactKeys: b6 Confirm, b8 Special
 STEPOUT_STEP_IN_MS = 500                                # NetSyncStepOut.StepInMs
 #: [ff9mapkit netsync s156] the kit's committed table (the generator's JSON: its `counts` and `table_crc` are what the compiled
 #: NetSyncGuestLocalTable carries -- the stand-in reads them, never a literal)
@@ -2221,6 +2257,7 @@ class FakeGame:
         #: :meth:`guest_local_note` (one verdict booked as GuestPress's Note books it -- never a press).
         self._gl = self._gl_fresh()
         self._so = {"lever": None, "selftest": None}     # [ff9mapkit netsync s158] NetSyncStepOut's harness statics
+        self._ch = {"serve_off": False, "request_off": False, "selftest": None, "nonce": 0}   # [ff9mapkit netsync s160]
         self.guest_local_table: tuple | None = None
         self.selftest_offset = FAKE_SELFTEST_OFFSET
         #: [ff9mapkit netsync s157] THE GHOST FRAME (the `dresstwin` rung): the `bench ghostframe` lever as set and the proof line's
@@ -5550,6 +5587,8 @@ class FakeGame:
             self._guestlocal(args)                      # [ff9mapkit netsync s156] the guest-traversal gate's bench
         elif sub == "stepout":
             self._stepout(args)                         # [ff9mapkit netsync s158] the party-scene step-out's lever
+        elif sub == "chest":
+            self._chest(args)                           # [ff9mapkit netsync s160] the chest relay's bench
 
     def _release_netsync(self) -> None:
         """ReleaseNetsyncOverride, on `reset`, disarm and fault. [ff9mapkit netsync F3.3] DIO-1: a diorama THIS harness
@@ -5619,7 +5658,9 @@ class FakeGame:
             if "dresstwin" in caps:
                 doc["ghostframe"] = self._ghostframe_doc()   # [ff9mapkit netsync s157] ...and `ghostframe` after `guestlocal`
             if "stepout" in caps:
-                doc["stepout"] = self._stepout_doc()    # [ff9mapkit netsync s158] ...and `stepout`, the LAST key
+                doc["stepout"] = self._stepout_doc()    # [ff9mapkit netsync s158] ...and `stepout`
+            if "chest" in caps:
+                doc["chest"] = self._chest_doc()        # [ff9mapkit netsync s160] ...and `chest`, the LAST key
             return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
@@ -6267,6 +6308,43 @@ class FakeGame:
         doc["selftest"] = self._so["selftest"]
         if "stepanchor" not in self.netsync_caps:
             del doc["anchor"]                           # [ff9mapkit netsync s159] an s158 engine has no `anchor`
+        return doc
+
+    # -- [ff9mapkit netsync s160] THE CHEST RELAY (the `chest` rung; see NETSYNC_BATTLE_CAPS for what it models) ---------------
+    # NetSyncClient.HarnessChest's HARNESS half only: the levers, the refusals, the bench gate, the fabricated start's line, the
+    # release, the proof line and the block. NOT MODELLED: a chest (no event engine: no accept, serve or expiry).
+    def _chest(self, args: list) -> None:
+        """HarnessChest (the agent's `case \"chest\"`): the ROLE first, then a lever or a start -- one usage line otherwise."""
+        if not self._nb_role():
+            raise RuntimeError(NETSYNC_CHEST_ROLE_REFUSAL)
+        a = [str(x).strip().lower() for x in args[1:]]
+        if a and a[0] in NETSYNC_CHEST_LEVERS:
+            if len(a) != 2 or a[1] not in ("on", "off"):
+                raise RuntimeError(NETSYNC_CHEST_USAGE)
+            self._ch[a[0] + "_off"] = a[1] == "off"
+            self._mlog((CHEST_LOG_LEVER_OFF if a[1] == "off" else CHEST_LOG_LEVER_ON).format(w=a[0]))
+            return
+        if not a or len(a) > 2 or not a[0].isdigit() or not 0 <= int(a[0]) <= 0xFFFF \
+                or (len(a) == 2 and a[1] not in NETSYNC_CHEST_PRESSES):
+            raise RuntimeError(NETSYNC_CHEST_USAGE)
+        if not self.netsync["bench"]:
+            raise RuntimeError(NETSYNC_CHEST_BENCH_REFUSAL)
+        self._ch["nonce"] = (self._ch["nonce"] + 1) & 0xFF
+        self._mlog(CHEST_LOG_FABRICATED.format(u=int(a[0]), f=self.field_id, n=self._ch["nonce"],
+                                               p=CHEST_PRESS_COMPACT[a[1] if len(a) == 2 else "confirm"]))
+
+    def _ch_release(self) -> None:
+        """NetSyncClient.HarnessReleaseChest: both levers on -- its line only when one was off."""
+        if self._ch["serve_off"] or self._ch["request_off"]:
+            self._mlog(CHEST_LOG_RELEASE)
+        self._ch["serve_off"] = self._ch["request_off"] = False
+
+    def _chest_doc(self) -> dict:
+        """AppendChest: the sentinels but for the levers as set and `selftest` (no chest runs here)."""
+        doc = json.loads(json.dumps(NETSYNC_CHEST_SENTINELS))
+        doc["serve_off"] = self._ch["serve_off"]
+        doc["request_off"] = self._ch["request_off"]
+        doc["selftest"] = self._ch["selftest"]
         return doc
 
     # -- [ff9mapkit netsync s144] WORLD-MAP CO-OP (the `worldwait` rung; see NETSYNC_BATTLE_CAPS for what it models) ----------
@@ -8831,8 +8909,11 @@ class FakeGame:
             self._twin_proof()
             self._gf["selftest"] = "ok"                     # [ff9mapkit netsync s157] ...then the ghost frame line
             self._mlog(f"[NetSync] {PROOF_GHOST_FRAME}OK ({FAKE_GHOSTFRAME_SELFTEST_ROWS} rows, {FAKE_GHOSTFRAME_MUTANTS} mutants caught)")
-        if "stepout" in caps:                               # [ff9mapkit netsync s158] the block's last modelled line
+        if "stepout" in caps:                               # [ff9mapkit netsync s158] after the ghost frame line
             self._so_proof()
+        if "chest" in caps:                                 # [ff9mapkit netsync s160] the block's last modelled line
+            self._ch["selftest"] = "ok"
+            self._mlog(f"[NetSync] {PROOF_CHEST}OK ({FAKE_CHEST_SELFTEST_ROWS} rows, {FAKE_CHEST_MUTANTS} mutants caught)")
 
     # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
     def _nb_caps(self) -> frozenset:
@@ -9332,8 +9413,10 @@ class FakeGame:
         if self._gf["lever_off"]:
             self._mlog(GHOSTFRAME_LOG_RELEASE)
         self._gf["lever_off"] = False
-        # [ff9mapkit netsync s158] NetSyncStepOut.HarnessRelease, LAST: the lever none -- its line only when one was set
+        # [ff9mapkit netsync s158] NetSyncStepOut.HarnessRelease: the lever none -- its line only when one was set
         self._so_release()
+        # [ff9mapkit netsync s160] NetSyncClient.HarnessReleaseChest, LAST: both levers on -- its line only when one was off
+        self._ch_release()
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an
