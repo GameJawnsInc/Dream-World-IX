@@ -317,4 +317,12 @@ their totals are about double (1,152 / 305); the field count (150) and the verdi
 
 ## Status
 
-Design. Not built.
+**Built, deployed and solo-benched (2026-10-28).** `memoria-patches/s161-netsync-ate-relay.patch`, live `Assembly-CSharp.dll`
+`f42f0c051302b459` (revert to s160: `py tools/restore_memoria_dll.py 20261028-163601`), rebased onto s159 + s160 rev 3.
+- `coop_ate_relay.py` 14/14 on the shipping rule. `COOP_CALIBRATE=1` (`ate off`): exactly T-TTL, P-QUEUE, P-MENU, P-PICK,
+  P-TITLE, P-JUMP, P-LAND, S1 red, each with its marker. `COOP_CALIBRATE=noexempt`: exactly S1 red.
+- The live proof line: "ATE relay selftest: OK (156 rows, 58 mutants caught, ...)".
+- Not run: the duo bench (`coop_ate_relay_duo.py`).
+- Next: the owner's two-PC check on 352, in the combined s159 + s160 + s161 session (the checklist is in the round queue
+  note). Not proven by any bench: the exit hold and the chained-ATE carry (a guest ahead of its host), and round 5's
+  deferred serve yield.

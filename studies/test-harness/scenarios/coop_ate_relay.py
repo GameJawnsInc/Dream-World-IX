@@ -18,7 +18,7 @@ R9 tap-record lane (bench 1, lock 0, `tap-record 1`: this copy plays the host, i
 own jump out) is not on the selftest role: NetSyncAte.SelfTest's rows and the two-PC check carry it.
 
   K0      provenance; a fresh process; newgame; warp 352 (entrance 0, scenario 2600) with control; noencounter; `netsync selftest 1`.
-  K1      "ATE relay selftest: OK (55 rows, 16 mutants caught, ...)" within 20 s; `netsync.ate.selftest` "ok".
+  K1      "ATE relay selftest: OK (156 rows, 58 mutants caught, ...)" within 20 s; `netsync.ate.selftest` "ok".
   K2      `netsync.ate` at rest: lever null, host_armed false, pending.on false, episode.phase null.
   R-N0    RECORDING, byte 238 = 0 (the ATE unavailable): a Select press is NOTED (arms +1: the raw read ran) and relays nothing (no
           'ATE relay RECORDED' line, relayed +0, no window, the tape still empty).
@@ -90,7 +90,7 @@ LOG_RELEASE = "[NetSync] harness: ATE relay lever released (act)"
 CLAIMS = {
     "K0": "the forced selftest role on 352 (newgame, warp 352 at scenario 2600 with control, noencounter, `netsync selftest 1`); "
           "a fresh process",
-    "K1": "the s161 proof line 'ATE relay selftest: OK (55 rows, 16 mutants caught, ...)' within 20 s, and "
+    "K1": "the s161 proof line 'ATE relay selftest: OK (156 rows, 58 mutants caught, ...)' within 20 s, and "
           "`netsync.ate.selftest` 'ok'",
     "K2": "`netsync.ate` at rest: lever null, host_armed false, pending.on false, episode.phase null",
     "R-N0": "recording with the ATE unavailable (byte 238 = 0): a Select is noted (arms +1) and relays nothing (no RECORDED ATE "
