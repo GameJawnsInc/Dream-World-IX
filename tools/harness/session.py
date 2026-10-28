@@ -8541,6 +8541,8 @@ class Session:
     NETSYNC_STEPOUT_OPS = ("act", "off", "ctl", "clear")      # [ff9mapkit netsync s159] + `ctl`
     NETSYNC_STEPOUT_ROLE_REFUSAL = "netsync stepout: needs the selftest role (netsync selftest 1)"
     NETSYNC_STEPOUT_USAGE = "netsync stepout: expected act|off|ctl|clear"
+    NETSYNC_STEPOUT_OPS_S158 = ("act", "off", "clear")                       # [ff9mapkit netsync s159] an s158 engine's
+    NETSYNC_STEPOUT_USAGE_S158 = "netsync stepout: expected act|off|clear"
     #: [ff9mapkit netsync s159] the ops a LATER patch added, told by their own keys (an s158 engine answers `ctl` with its usage
     #: line after the step; the driver refuses it before, naming the patch): the State accessor, the key, the patch, what it is.
     NETSYNC_STEPOUT_OP_CAPS = {
@@ -9069,17 +9071,22 @@ class Session:
                 raise HarnessError(why)
         elif sub == "stepout":
             # [ff9mapkit netsync s158] NetSyncStepOut.HarnessLever's order: the ROLE first (the engine refuses it), then one op alone
+            # [ff9mapkit netsync s159] off the role the engine's own refusal comes back (the step goes out); on it, an op a later patch
+            # added is refused before the step naming its key and patch, then the usage line in THIS engine's words
             ns = st.netsync if isinstance(st.netsync, dict) else {}
             op = str(args[0]).strip().lower() if args else ""
-            if ns.get("selftest") is True and (len(args) != 1 or op not in self.NETSYNC_STEPOUT_OPS):
-                raise HarnessError(self.NETSYNC_STEPOUT_USAGE)
-            need = self.NETSYNC_STEPOUT_OP_CAPS.get(op) if len(args) == 1 else None
-            if need is not None and not getattr(st, need[0]):
-                # [ff9mapkit netsync s159] an op a later patch added: refused before the step, naming the key and the patch
-                attr, key, patch, what = need
-                raise HarnessError(
-                    f"netsync stepout {op}: the deployed engine publishes no `{key}` -- {what} is memoria-patch {patch}; an "
-                    f"engine before it answers \"netsync stepout: expected act|off|clear\". Not sent. Rebuild the DLL.")
+            if ns.get("selftest") is True:
+                anchor = bool(st.coop_step_out_anchor)
+                ops = self.NETSYNC_STEPOUT_OPS if anchor else self.NETSYNC_STEPOUT_OPS_S158
+                usage = self.NETSYNC_STEPOUT_USAGE if anchor else self.NETSYNC_STEPOUT_USAGE_S158
+                need = self.NETSYNC_STEPOUT_OP_CAPS.get(op) if len(args) == 1 else None
+                if need is not None and not getattr(st, need[0]):
+                    attr, key, patch, what = need
+                    raise HarnessError(
+                        f"netsync stepout {op}: the deployed engine publishes no `{key}` -- {what} is memoria-patch {patch}; an "
+                        f"engine before it answers \"{self.NETSYNC_STEPOUT_USAGE_S158}\". Not sent. Rebuild the DLL.")
+                if len(args) != 1 or op not in ops:
+                    raise HarnessError(usage)
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
             # [ff9mapkit netsync s145] THE WORLD DIOBOOT: a diorama boots from a live world map from s145 on (warm only: the engine's
             # pre-Arm verdict refuses anything a stock world battle could not return warm from). An s144 engine refuses it after

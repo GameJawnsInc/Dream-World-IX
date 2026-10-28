@@ -26595,8 +26595,11 @@ def test_the_s159_anchor_is_spent_where_the_spec_says():
     for frag in ("if (ctlUid >= 0 && ctlDressed)", "return ctlUid;", "if (dressedUid >= 0 && dressedLive)", "return dressedUid;",
                  "if (LeverCtl)", "return ctl;",
                  "if (NetSyncSelfDress.LoadHasDress && NetSyncSelfDress.DressUid >= 0)",
-                 "dressed = ee.FindObjByUID(NetSyncSelfDress.DressUid) as Actor;",
+                 "dressed = FindLive(ee, NetSyncSelfDress.DressUid) as Actor;",
                  "Boolean dressedLive = dressed != null && dressed.netSelfDress != 0 && dressed.go != null;",
+                 "Int32 uid = AnchorRule(ctl != null ? ctl.uid : -1, ctlDressed, dressed != null ? dressed.uid : -1, dressedLive);",
+                 "for (ObjList l = ee != null ? ee.GetActiveObjList() : null; l != null; l = l.next)",
+                 "|| !ReferenceEquals(FindLive(PersistenSingleton<EventEngine>.Instance, _body.uid), _body);",
                  "Boolean ctlBound = ee == null || ee.GetControlChar() != null;",
                  "&& ctlBound, LeverOff, hostHere,",
                  "internal static Int32 HarnessBodyRendsOn { get { return RendsOn(HarnessAnchorActor); } }",
@@ -26617,6 +26620,13 @@ def test_the_s159_lever_words_are_the_engines():
     """The `ctl` op: the new usage line and the CTL line are NetSyncStepOut's; the lever's name reads "ctl"."""
     added = " ".join(_s159_added("NetSyncStepOut.cs"))
     assert f'why = "{FG.NETSYNC_STEPOUT_USAGE}";' in added
+    assert 'op != "act" && op != "off" && op != "ctl" && op != "clear"))' in added      # the op is ACCEPTED, not only named
+    for case in ('case "anchor_ctl": m.Anchor = (c, cd, d, dl) => c; break;',
+                 'case "dress_live_blind": m.Anchor = (c, cd, d, dl) => c >= 0 && cd ? c : d >= 0 ? d : c; break;',
+                 'case "dress_first": m.Anchor = (c, cd, d, dl) => d >= 0 && dl ? d : c; break;'):
+        assert case in added, case                      # each mutant is built, not only listed
+    assert Session.NETSYNC_STEPOUT_USAGE_S158 == FG.NETSYNC_STEPOUT_USAGE_S158 and Session.NETSYNC_STEPOUT_OPS_S158 == \
+        FG.NETSYNC_STEPOUT_OPS_S158
     assert FG.STEPOUT_LOG_CTL.replace("[NetSync] harness: step-out ", "") in added
     assert '_lever == 2 ? "ctl" : null' in added and 'op == "ctl" ? 2 : 0' in added
     assert Session.NETSYNC_STEPOUT_USAGE == FG.NETSYNC_STEPOUT_USAGE
@@ -26624,13 +26634,23 @@ def test_the_s159_lever_words_are_the_engines():
 
 def test_the_driver_refuses_stepout_ctl_before_the_step_on_an_s158_engine(game):
     """On the calibration engine (the ladder through `stepout`) `stepout ctl` is refused BEFORE the step, naming the key and the
-    patch; the s158 stand-in, sent it anyway, answers its own usage line; the s159 stand-in takes it."""
+    patch; the s158 stand-in, sent it anyway, answers its own usage line; the s159 stand-in takes it. Off the role the step goes out
+    and the engine's ROLE refusal comes back; on it, the driver's usage line is THIS engine's (s158's words on s158)."""
     fake = FakeGame(game)
     fake.netsync_caps = FG.caps_through("stepout")
     with session(game, fake) as g:
         g.newgame(settle=0)
         g.warp(FIELD)
+        with pytest.raises(HarnessError, match=re.escape(FG.NETSYNC_STEPOUT_ROLE_REFUSAL)):
+            g.stepout("ctl")                            # the role first: the engine's words, not the capability gate's
         g.netsync("selftest", 1)
+        for bad in (("bogus",), ("off", "1"), ()):
+            n = len(fake.executed)
+            with pytest.raises(HarnessError) as err:
+                g.netsync("stepout", *bad)
+            with pytest.raises(RuntimeError) as eng:
+                fake._netsync(["stepout", *bad])
+            assert str(err.value) == FG.NETSYNC_STEPOUT_USAGE_S158 == str(eng.value) and len(fake.executed) == n, bad
         assert g.state.coop_step_out is True and g.state.coop_step_out_anchor is False
         n = len(fake.executed)
         with pytest.raises(HarnessError, match=r"^netsync stepout ctl: the deployed engine publishes no `netsync\.stepout\.anchor` "

@@ -85,7 +85,7 @@ index 731f4ce..3b7ee21 100644
                  if (bench)
                  {
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
-index b455c93..70d9a05 100644
+index b455c93..3fc6e02 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
 @@ -22,7 +22,8 @@ namespace Memoria.Netsync
@@ -133,7 +133,7 @@ index b455c93..70d9a05 100644
  
          // ---------------------------------------------------------------- the episode
          private static Boolean _active;
-@@ -272,6 +285,38 @@ namespace Memoria.Netsync
+@@ -272,6 +285,49 @@ namespace Memoria.Netsync
              return HideNone;
          }
  
@@ -149,8 +149,9 @@ index b455c93..70d9a05 100644
 +        }
 +
 +        // [ff9mapkit netsync s159] AnchorRule over the live engine (ServiceStepOut, every frame; the harness reads). The dressed body is
-+        // looked up in activeObj (FindObjByUID: TerminateEntry unlinks it at once) and only while this load has dressed one
-+        // (DressUid is not reset per load). The `ctl` lever answers the controlled actor (s158's rule). Never throws.
++        // looked up in activeObj (FindLive: TerminateEntry unlinks it at once) and only while this load has dressed one (DressUid is
++        // not reset per load); the rule decides its liveness (its dress and its go). The `ctl` lever answers the controlled actor
++        // (s158's rule). Never throws (GetControlChar and FindLive are null-safe on the context).
 +        internal static Actor Anchor(EventEngine ee)
 +        {
 +            if (ee == null)
@@ -160,19 +161,29 @@ index b455c93..70d9a05 100644
 +                return ctl;
 +            Actor dressed = null;
 +            if (NetSyncSelfDress.LoadHasDress && NetSyncSelfDress.DressUid >= 0)
-+                dressed = ee.FindObjByUID(NetSyncSelfDress.DressUid) as Actor;
++                dressed = FindLive(ee, NetSyncSelfDress.DressUid) as Actor;
 +            Boolean ctlDressed = ctl != null && ctl.netSelfDress != 0 && ctl.go != null;
 +            Boolean dressedLive = dressed != null && dressed.netSelfDress != 0 && dressed.go != null;
-+            Int32 uid = AnchorRule(ctl != null ? ctl.uid : -1, ctlDressed, dressedLive ? dressed.uid : -1, dressedLive);
++            Int32 uid = AnchorRule(ctl != null ? ctl.uid : -1, ctlDressed, dressed != null ? dressed.uid : -1, dressedLive);
 +            if (uid < 0)
 +                return null;
 +            return ctl != null && ctl.uid == uid ? ctl : dressed;
 +        }
 +
++        // [ff9mapkit netsync s159] FindObjByUID's walk over the NULL-SAFE list: FindObjByUID dereferences the context, which
++        // ReplaceLoadMap nulls for the old field's whole fade-out (a save load, the exit ramp). Null when nothing is live.
++        private static Obj FindLive(EventEngine ee, Int32 uid)
++        {
++            for (ObjList l = ee != null ? ee.GetActiveObjList() : null; l != null; l = l.next)
++                if (l.obj != null && l.obj.uid == uid)
++                    return l.obj;
++            return null;
++        }
++
          // THE SOURCE CLIP of a body: undressed plays its own; dressed -- the last play when that is what plays, the matching slot's raw,
          // the jump slot's source, a ZDN clip as itself, else the source rig's idle.
          internal static Int32 SourceAnimRule(Int32 cur, Boolean dressed, UInt16[] raws, UInt16 idle, UInt16 walk, UInt16 run, UInt16 turnl,
-@@ -446,8 +491,11 @@ namespace Memoria.Netsync
+@@ -446,8 +502,11 @@ namespace Memoria.Netsync
                          StepIn(end);
                      return;
                  }
@@ -186,15 +197,16 @@ index b455c93..70d9a05 100644
                  BaseWhyNotNow = whyNot;
                  if (whyNot != null)
                  {
-@@ -542,6 +590,7 @@ namespace Memoria.Netsync
+@@ -542,6 +601,8 @@ namespace Memoria.Netsync
          private static void StepIn(Int32 why)
          {
              Boolean wasDressed = _dressed;
-+            Boolean gone = _body == null || _body.go == null;   // [ff9mapkit netsync s159] a TerminateEntry'd anchor is gone, not back
++            Boolean gone = _body == null || _body.go == null   // [ff9mapkit netsync s159] a TerminateEntry'd anchor is gone, not back:
++                           || !ReferenceEquals(FindLive(PersistenSingleton<EventEngine>.Instance, _body.uid), _body);   // the unlink, not Destroy
              Int32 field = _field;
              Int32 ms = Environment.TickCount - _outTick;
              _active = false;
-@@ -581,7 +630,8 @@ namespace Memoria.Netsync
+@@ -581,7 +642,8 @@ namespace Memoria.Netsync
              _backArmed = false;
              Ins++;
              InBy[why]++;
@@ -204,7 +216,7 @@ index b455c93..70d9a05 100644
                          + ") -- " + InNames[why]);
          }
  
-@@ -902,7 +952,7 @@ namespace Memoria.Netsync
+@@ -902,7 +964,7 @@ namespace Memoria.Netsync
  
          // ================================================================ the harness (HarnessAgent.AppendStepOut, the `stepout` sub-verb)
  
@@ -213,7 +225,7 @@ index b455c93..70d9a05 100644
          internal static Int32 HarnessField { get { return _active ? _field : -1; } }
          internal static Int32 HarnessUid { get { return _active ? _uid : -1; } }
          internal static Boolean HarnessDressed { get { return _active && _dressed; } }
-@@ -957,44 +1007,79 @@ namespace Memoria.Netsync
+@@ -957,44 +1019,79 @@ namespace Memoria.Netsync
              }
          }
  
@@ -266,7 +278,7 @@ index b455c93..70d9a05 100644
 -                    if (r != null && r.enabled)
 -                        n++;
 -                return n;
-+                Actor a = ee.FindObjByUID(NetSyncSelfDress.DressUid) as Actor;
++                Actor a = FindLive(ee, NetSyncSelfDress.DressUid) as Actor;
 +                return a != null && a.netSelfDress != 0 && a.go != null ? a.uid : -1;
 +            }
 +        }
@@ -308,7 +320,7 @@ index b455c93..70d9a05 100644
                  if (a == null)
                      return -1;
                  FF9Char ch = FF9StateSystem.Common.FF9.FF9GetCharPtr((Int32)a.uid);
-@@ -1002,8 +1087,9 @@ namespace Memoria.Netsync
+@@ -1002,8 +1099,9 @@ namespace Memoria.Netsync
              }
          }
  
@@ -320,7 +332,7 @@ index b455c93..70d9a05 100644
          internal static Boolean HarnessLever(String[] args, out String why)
          {
              why = null;
-@@ -1013,13 +1099,15 @@ namespace Memoria.Netsync
+@@ -1013,13 +1111,15 @@ namespace Memoria.Netsync
                  return false;
              }
              String op = args != null && args.Length > 1 && args[1] != null ? args[1].ToLowerInvariant() : "";
@@ -340,7 +352,7 @@ index b455c93..70d9a05 100644
              return true;
          }
  
-@@ -1041,6 +1129,7 @@ namespace Memoria.Netsync
+@@ -1041,6 +1141,7 @@ namespace Memoria.Netsync
          private delegate Int32 HideFn(UInt16 mask, Boolean plain, Boolean stepOut);
          private delegate Int32 SrcFn(Int32 cur, Boolean dressed, UInt16[] raws, UInt16 idle, UInt16 walk, UInt16 run, UInt16 turnl,
                                       UInt16 turnr, UInt16 sleep, UInt16 jump, UInt16 jumpSrc, String name, Int32 srcIdle);
@@ -348,7 +360,7 @@ index b455c93..70d9a05 100644
  
          private sealed class Rules
          {
-@@ -1050,6 +1139,7 @@ namespace Memoria.Netsync
+@@ -1050,6 +1151,7 @@ namespace Memoria.Netsync
              public WireFn Wire = WireMaskRule;
              public HideFn Hide = GhostHideRule;
              public SrcFn Src = SourceAnimRule;
@@ -356,13 +368,14 @@ index b455c93..70d9a05 100644
          }
  
          // Every row, against one rule set; the failing rows' names go to `fails`.
-@@ -1105,6 +1195,16 @@ namespace Memoria.Netsync
+@@ -1105,6 +1207,17 @@ namespace Memoria.Netsync
              row(r.Src(77, true, raws, 10, 11, 0, 0, 0, 0, 90, 600, "ANH_MAIN_F0_ZDN_X", 200) == 77, "src.zdn_name");
              row(r.Src(77, true, raws, 10, 11, 0, 0, 0, 0, 90, 600, "ANH_MAIN_F0_STN_X", 200) == 200, "src.fallback");
              row(r.Src(10, true, null, 10, 11, 0, 0, 0, 0, 90, 0, null, 200) == 200, "src.no_record");
 +            // [ff9mapkit netsync s159] the anchor: the dressed controlled actor; a co-actor binder holds control (352: Dagger 19, the
-+            // dressed Zidane 17) -> the dressed body; control null (a TerminateEntry'd binder) -> the dressed body; nothing dressed ->
-+            // control; the dressed body dead (359's TerminateEntry(6) tail) -> control, else none; two dressed -> the controlled one
++            // dressed Zidane 17) -> the dressed body; control null (a TerminateEntry'd binder) -> the dressed body; nothing dressed (or
++            // a TerminateEntry'd dressed body, never found: 359's tail) -> control, else none; the dressed body found but its dress or
++            // its go lost -> control; two dressed -> the controlled one
 +            row(r.Anchor(17, true, 17, true) == 17, "anchor.ctl_dressed");
 +            row(r.Anchor(19, false, 17, true) == 17, "anchor.co_binder");
 +            row(r.Anchor(-1, false, 17, true) == 17, "anchor.no_ctl");
@@ -373,7 +386,7 @@ index b455c93..70d9a05 100644
              return n;
          }
  
-@@ -1126,13 +1226,17 @@ namespace Memoria.Netsync
+@@ -1126,13 +1239,17 @@ namespace Memoria.Netsync
                  case "scene_blind": m.Hide = (mask, plain, so) => so ? HideStepOut : mask == 0 ? HideMask : HideNone; break;
                  case "play_blind": m.Src = (cur, d, raws, i, w, ru, tl, tr, sl, j, js, nm, si) => SourceAnimRule(cur, d, null, i, w, ru, tl, tr, sl, j, js, nm, si); break;
                  case "dress_blind": m.Src = (cur, d, raws, i, w, ru, tl, tr, sl, j, js, nm, si) => SourceAnimRule(cur, true, raws, i, w, ru, tl, tr, sl, j, js, nm, si); break;

@@ -44,9 +44,12 @@ Vivi), 207 DRESSED (`selfdress self steiner` before the warp: Zidane's player ob
             longest base age (base.age_ms) under 1.4 s and at least 0.2 s, and never out (THE ARRIVAL LAW in game); a longer one
             reads not-reached.
   D-DN      the D-UP extras on the climb down (the start pose regained by a bench-0 stock climb up, no host scene).
-  M-352     [ff9mapkit netsync s159] THE ANCHOR (GUEST-TRAVERSAL-TWO-PC.md Finding 6): `selfdress self steiner`, warp 352 entrance 3
-            at scenario 2505 (Dali's inn night scene: Zidane_Init dresses the Zidane entry but skips its bind, Dagger_Init takes
-            control -- s140's D3), hostscene 1. Witnessed first (else not reached): dress.self.ctl_elsewhere +1 on 352 and
+  M-352     [ff9mapkit netsync s159] THE ANCHOR (GUEST-TRAVERSAL-TWO-PC.md Finding 6): `selfdress self steiner`, the control latch
+            VAR_GlobBool_158 cleared (`flag 158 0`: 351's inn rest clears it before Field(352), so 352's Main_Init never EnableMoves;
+            a debug warp from 207 would inherit it set and give control), a RAW warp 352 entrance 3 at scenario 2505 (Session.warp
+            waits for control, which the night scene never gives), hostscene 1 (Dali's inn night scene: Zidane_Init dresses the
+            Zidane entry but skips its bind, Dagger_Init takes control -- s140's D3). Witnessed first (else not reached):
+            dress.self.ctl_elsewhere +1 on 352 and
             stepout.anchor's ctl_uid != dressed_uid. Then OUT on the DRESSED body (stepout.uid == anchor.dressed_uid, dressed true)
             with its renderers 0 on every out sample, a GEO_MAIN_F0_ZDN stand-in shown, the controlled actor still lit
             (anchor.ctl_rends_on > 0), wire_mask 0, the mirror hidden. s158 stepped out on Dagger, undressed, and left Steiner lit.
@@ -154,6 +157,7 @@ CAL_CTL = CAL_MODE == "anchor"
 PREDICTED_CTL = ("M-352",)
 CTL_MARKER = "out on the controlled actor (uid == anchor.ctl_uid, not anchor.dressed_uid) and undressed"
 M352_FIELD, M352_ENTRANCE, M352_SCENARIO = 352, 3, 2505     # Dali's inn night scene (351's rest sets entrance 3)
+M352_LATCH = 158                                           # VAR_GlobBool_158: 352's Main_Init EnableMoves only when it is set
 M352_ARRIVE_S = 15.0                                       # the warp to the D3 shape (Dagger_Init's bind after the dress)
 M352_HOLD_S = 4.0                                          # past the dwell (the night scene's first line is ~7 s in)
 FINALS = ("K-R", "K-CAL-M", "K-CAL")
@@ -833,12 +837,14 @@ def _field_352(g, ctx: Ctx, led: cb.Ledger) -> None:
     try:
         g.poke(13, 0)
         g.poke(14, 0)
+        g.flag(M352_LATCH, False)                          # the real path's latch: 352 keeps control off (no EnableMove)
     except (HarnessError, AttributeError) as err:
-        g.note(f"warp {M352_FIELD}: the env-slot poke refused ({str(err)[:120]})")
-    try:
-        g.warp(M352_FIELD, entrance=M352_ENTRANCE, scenario=M352_SCENARIO)
-    except HarnessError as err:
-        led.unreached(["M-352"], f"warp {M352_FIELD} entrance {M352_ENTRANCE} failed: {str(err)[:200]}")
+        led.unreached(["M-352"], f"warp {M352_FIELD}: the env-slot / latch pokes refused ({str(err)[:160]})")
+        return
+    # a RAW warp step: Session.warp waits for control (wait_playable), which the night scene never gives (cutscene_check.py)
+    ok, why = cb.try_send(g, f"warp {M352_FIELD} {M352_ENTRANCE} {M352_SCENARIO}")
+    if not ok:
+        led.unreached(["M-352"], f"warp {M352_FIELD} entrance {M352_ENTRANCE} refused: {why}")
         return
     st = cb.poll(g, lambda s: d3_shape(s, M352_FIELD, before), M352_ARRIVE_S, "352's D3 shape (control on a co-actor)")
     if st is None:
@@ -859,10 +865,12 @@ def _field_352(g, ctx: Ctx, led: cb.Ledger) -> None:
     ctx.marks["M-352"] = samples
     ok, why = judge_m352(samples)
     led.check("M-352", ok, why)
-    try:
-        _arrive(g, 114)                                    # a field change ends the episode (in_why.field); K-R reads at rest
-    except HarnessError as err:
-        g.note(f"the warp back to 114 raised: {str(err)[:160]}")
+    # the night scene never gives control back and the host's state never ends an episode: the `off` lever ends it (in_why.lever)
+    # before K-R's reset, and the end is witnessed (an episode left out is NOTED -- K-R's reset would end it as "session")
+    ok, why = _ns(g, "stepout", "off")
+    st = cb.poll(g, lambda s: so_get(so(s), "active") is False, 3.0, "the M-352 episode ended") if ok else None
+    if st is None:
+        g.note(f"M-352: the episode did not end on the off lever ({why or 'still active after 3 s'}); K-R's reset ends it")
 
 
 def _d_climb(g, ctx, led, leg: str, direction: str):

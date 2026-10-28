@@ -307,6 +307,21 @@ OUT = {"shape": f(), "old_ce": so.d3_shape(ma(), 352, 1), "other_field": f(ce_fi
                    "marker": True, "marker_dressed": False, "marker_anchor": False, "marker_never": False}, out
 
 
+def test_the_m352_leg_never_waits_for_control_and_clears_the_latch():
+    """M-352 reaches the night scene by a RAW warp step (Session.warp waits for control the scene never gives), after clearing
+    VAR_GlobBool_158 (the real path's latch: set, 352's Main_Init EnableMoves and the step-out never starts), and ends its episode
+    on the off lever, witnessed -- never a warp back whose verdict is dropped."""
+    out = _child(r'''
+import inspect
+src = inspect.getsource(so._field_352)
+OUT = {"raw": 'cb.try_send(g, f"warp {M352_FIELD} {M352_ENTRANCE} {M352_SCENARIO}")' in src, "no_warp": "g.warp(" not in src,
+       "latch": "g.flag(M352_LATCH, False)" in src and so.M352_LATCH == 158,
+       "latch_first": src.index("g.flag(M352_LATCH, False)") < src.index("cb.try_send(g, f\"warp"),
+       "ends": '_ns(g, "stepout", "off")' in src and "_arrive(" not in src}
+''')
+    assert out == {"raw": True, "no_warp": True, "latch": True, "latch_first": True, "ends": True}, out
+
+
 def test_the_anchor_calibration_predicts_m352_alone():
     """COOP_CALIBRATE=anchor: K-CAL / K-CAL-M name M-352 alone; the off lever's predicted reds gain M-352 (never out there either)."""
     out = _child(r'''
