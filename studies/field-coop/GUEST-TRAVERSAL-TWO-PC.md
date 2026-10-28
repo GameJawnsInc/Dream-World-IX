@@ -472,7 +472,7 @@ FieldTPS 30; candidates 1 and 3 need it on). A short video settles it.
   closing lines on 350 were also queued and dropped on the guest when the host's intent pulled it back. Lane: relay the host's
   ATE press keyed on the host's own menu actually opening (not the raw Select read: `&&` does not short-circuit, so the read
   runs every frame), serve it Select-only to the same reader on the guest, and let the guest's own `Field(350)` through
-  `RedirectGuestFieldJump`.
+  `RedirectGuestFieldJump`. **Now engine patch s161: design, census and status in `ATE-RELAY.md`.**
 - **Noticed:** from the ATE's arrival on 350 the host re-armed the guest's dress as the moogle fallback (`section 8 model 220
   charId 255`) until 350 re-armed Steiner at 11:09:13; the cause is not traced. And on 350 and 359 the step-out started on
   window 6 text 51, which opens at those arrivals.
