@@ -8409,19 +8409,20 @@ class Session:
     #: s99 `tap-record`/`replay`; [ff9mapkit netsync B4] + s100 `guestslots`/`bcmd`/`hostgates`, s101
     #: `containment`/`bctl`, s102 `bmenu`; [ff9mapkit netsync B5] + s103 `endbench`; [ff9mapkit netsync B4] s106 INSERTS
     #: `bbench` before `endbench`; [ff9mapkit netsync s133] + `actbench`; [ff9mapkit netsync s139] + `selfdress`;
-    #: [ff9mapkit netsync s156] + `guestlocal`, at the END; [ff9mapkit netsync s158] + `stepout` after it). Pinned to the
-    #: patch stack by test_harness_netsync.py.
+    #: [ff9mapkit netsync s156] + `guestlocal`, at the END; [ff9mapkit netsync s158] + `stepout` after it; [ff9mapkit netsync
+    #: s160] + `chest` after it). Pinned to the patch stack by test_harness_netsync.py.
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
                         "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
                         "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench",
-                        "endbench", "actbench", "selfdress", "guestlocal", "stepout")
+                        "endbench", "actbench", "selfdress", "guestlocal", "stepout", "chest")
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
     #: "authority", s96) -- the F3.3 and B4/B5 ones included (they build on it). An F3 engine answers them "unknown
     #: sub-verb" only AFTER the step is spent. [ff9mapkit netsync s156] + `guestlocal`, at the END. [ff9mapkit netsync s158] +
-    #: `stepout` after it.
+    #: `stepout` after it. [ff9mapkit netsync s160] + `chest` after it.
     NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
                                   "host", "tap-record", "replay", "guestslots", "bcmd", "hostgates", "containment",
-                                  "bctl", "bmenu", "bbench", "endbench", "actbench", "selfdress", "guestlocal", "stepout")
+                                  "bctl", "bmenu", "bbench", "endbench", "actbench", "selfdress", "guestlocal", "stepout",
+                                  "chest")
     #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
     #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
     #: engine without it, the key it reads, the patch that added it, and what the verb is.
@@ -8549,6 +8550,16 @@ class Session:
         "ctl": ("coop_step_out_anchor", "netsync.stepout.anchor", "s159",
                 "the step-out anchor's calibration lever (anchor on the controlled actor, s158's rule)"),
     }
+    #: [ff9mapkit netsync s160] THE CHEST RELAY's sub-verb (studies/field-coop/CHEST-RELAY.md), told by ``netsync.chest``'s PRESENCE
+    #: (netsync's LAST key, after `stepout`): the State capability accessor, the key, the patch, what the verb is -- and
+    #: NetSyncClient.HarnessChest's levers, presses and two refusals, in its words (the ROLE first, then one usage line).
+    NETSYNC_CHEST_SUBVERBS = {
+        "chest": ("coop_chest_relay", "netsync.chest", "s160", "the s160 chest relay bench"),
+    }
+    NETSYNC_CHEST_LEVERS = ("serve", "request")
+    NETSYNC_CHEST_PRESSES = ("confirm", "special")
+    NETSYNC_CHEST_ROLE_REFUSAL = "netsync chest: needs the selftest role (netsync selftest 1)"
+    NETSYNC_CHEST_USAGE = "netsync chest: expected `chest <uid> [confirm|special]` or `chest serve|request on|off`"
     #: [ff9mapkit netsync B4] `bmenu <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncBattle.HarnessStockMenu, s102).
     NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
@@ -8940,6 +8951,7 @@ class Session:
             nd = self.NETSYNC_DRESS_SUBVERBS.get(sub)           # [ff9mapkit netsync s139] the dress sub-verbs' own table
             ng = self.NETSYNC_GUESTLOCAL_SUBVERBS.get(sub)      # [ff9mapkit netsync s156] guest traversal's own table
             ng = ng or self.NETSYNC_STEPOUT_SUBVERBS.get(sub)   # [ff9mapkit netsync s158] ...and the step-out's, the same gate
+            ng = ng or self.NETSYNC_CHEST_SUBVERBS.get(sub)     # [ff9mapkit netsync s160] ...and the chest relay's
             if not authority:
                 if st.netsync is None:
                     have = "publishes no `netsync` block"
@@ -9087,6 +9099,12 @@ class Session:
                         f"engine before it answers \"{self.NETSYNC_STEPOUT_USAGE_S158}\". Not sent. Rebuild the DLL.")
                 if len(args) != 1 or op not in ops:
                     raise HarnessError(usage)
+        elif sub == "chest":
+            # [ff9mapkit netsync s160] NetSyncClient.HarnessChest's order: the ROLE first (off it, the engine's own refusal comes
+            # back: the step goes out), then `serve|request on|off` or `<uid 0-65535> [confirm|special]` -- one usage line otherwise
+            ns = st.netsync if isinstance(st.netsync, dict) else {}
+            if ns.get("selftest") is True and self._chest_refusal(args) is not None:
+                raise HarnessError(self.NETSYNC_CHEST_USAGE)
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
             # [ff9mapkit netsync s145] THE WORLD DIOBOOT: a diorama boots from a live world map from s145 on (warm only: the engine's
             # pre-Arm verdict refuses anything a stock world battle could not return warm from). An s144 engine refuses it after
@@ -9314,6 +9332,24 @@ class Session:
         -- through :meth:`netsync`'s gates (refused before the step on an engine without ``netsync.guestlocal``). Returns a
         fresh state; read it back through the ``guest_local_*`` accessors."""
         return self.netsync("guestlocal", op, *args, timeout=timeout)
+
+    def _chest_refusal(self, args) -> str | None:
+        """[ff9mapkit netsync s160] HarnessChest's parse (on the selftest role): None when the args are a lever or a start."""
+        a = [str(x).strip().lower() for x in args]
+        if a and a[0] in self.NETSYNC_CHEST_LEVERS:
+            return None if len(a) == 2 and a[1] in ("on", "off") else self.NETSYNC_CHEST_USAGE
+        if not a or len(a) > 2 or not a[0].isdigit() or not 0 <= int(a[0]) <= 0xFFFF:
+            return self.NETSYNC_CHEST_USAGE
+        if len(a) == 2 and a[1] not in self.NETSYNC_CHEST_PRESSES:
+            return self.NETSYNC_CHEST_USAGE
+        return None
+
+    def chest(self, *args, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s160] ``netsync chest <uid> [confirm|special]`` (selftest role + the field-gate bench): a section-9
+        start for that chest through the real codec onto the guest's accept path; ``chest serve|request on|off``: the
+        calibration levers (off = the read stays masked / no forced Request). Through :meth:`netsync`'s gates (refused before
+        the step on an engine without ``netsync.chest``). Returns a fresh state; read it back through :attr:`State.chest_relay`."""
+        return self.netsync("chest", *args, timeout=timeout)
 
     def stepout(self, op: str, *, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s158] ``netsync stepout act|off|clear`` (selftest role): off = CALIBRATION, never step out (a live

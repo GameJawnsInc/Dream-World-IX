@@ -1,6 +1,7 @@
 # The chest relay: a guest sees the host open a stock chest (engine s160)
 
-**Status: DESIGNED, REVIEWED and DRAFTED (rev 2, compile-checked on a private clone copy), 2026-10-28. Not built.**
+**Status: DESIGNED, REVIEWED, VERIFIED and MERGED ONTO s159 IN THE SHARED CLONE (rev 3, compile-clean, captured as
+`memoria-patches/s160-netsync-chest-relay.patch`), 2026-10-28. Not yet built or deployed.**
 The owner set the order on 2026-10-28:
 1. s159, the step-out anchor and bench fixes;
 2. this round, as s160;
@@ -53,10 +54,11 @@ name and undercounted to 186 / 140 / 9; the pre-build review caught it.
   Bubble(1); if (IsButton(655360)) {...` followed by an item, gil or card grant and `WindowSync(7, …)`.
   - No chest checks facing, and no chest entry has a tag 3.
   - The exception is 704:13 (the Gizamaluke bell chest): no latch, and a `GetItemCount(268) == 0` branch.
-- **Out of scope, 17 chest entries that never poll:**
-  - 13 have Init/Loop only.
+- **Out of scope, 17 chest entries that never poll in tag 2:**
+  - 13 have no tag-2 body (an Init, often a Loop, sometimes other story functions).
   - 4 Burmecia chests (754/755/761/762) open on touch, with no button.
-  - 1254:18 is opened through a region's choice, so only the quad path can carry it.
+- **Also out of reach:** 1254:18. It polls, so it counts among the 207, but it is permanently latched and opened through a
+  region's choice, so only the quad path can carry it.
 - **Latch classes of the 207:**
   - **191 latch-free.** 190 have the template latch functions but nothing calls them; 704:13 has no latch.
   - **9 story-driven.** Scene brackets: 352:15, 802:18, 1707:4/5. Story-state gates: 450:20, 1606:26/27, 1608:7, 2214:7.
@@ -181,8 +183,13 @@ The serve sits in `NetSyncField.FilterScriptButtons`, at the top of the spectato
   4. `Wait(2)`, `AddItem`, then `WindowSync(7, 0, <Received Item!>)`.
 - Stamped at the press, the guest's copy runs one network delay behind the host's. Both windows are open together, and the
   host's `ADV` closes both: the lock holds the guest's from its first frame.
-- `GetItemCount` answers from the host's bag as it was at the press (R8's wraps, refreshed from the frame that carried
-  the start). So the "Cannot carry another Item" branch and 704:13's branch match the host's.
+- `GetItemCount` answers from the host's bag as it was at the press, so the "Cannot carry another Item" branch and
+  704:13's branch match the host's. This holds however late the guest accepts.
+  - R8 refreshes a chest's wraps from the frame that FIRST carried the start: `NoteTalkScene` keeps it as
+    `_talkStartState`, and the climb hold keeps its own copy in `_heldStartState`.
+  - It never reads the newest frame. The start rides 4 s, and frames after the host's `AddItem` carry the post-grant bag
+    next to the same start. Rev 2 read the newest frame, so a deferred or held accept diverged; the verification caught it.
+  - A talk start still reads the newest frame, as before. That is pre-existing behaviour, left for a later round.
 - **The item grant stays session-scoped.** This holds only while mirroring, hence the decline above.
   - `AddItem` lands in the guest's live bag. The Continue slot is frozen for the session (the pairing autosave), and the
     exit ramp reloads it.
@@ -212,11 +219,13 @@ The serve sits in `NetSyncField.FilterScriptButtons`, at the top of the spectato
     and the kind by section (a lengthened section 6 stays a talk).
   - Each mutant must fail a row: a sorted-table tag map, no swap, any reader served, a serve never spent, every 70x model
     a chest, and the kind by length. An escaped mutant is named.
-- **`NetSyncState.SelfTest`** gains section-9 rows in production order: a section after 9 reads back exactly, and a frame
-  with section 9 BEFORE the story applies the whole story.
-- **The kit rung (not yet written; it waits for s159's to merge):**
+- **`NetSyncState.SelfTest`** gains section-9 rows:
+  - a section AFTER 9 reads back exactly, as 7 and 8 trail the start lane in production;
+  - a frame with section 9 BEFORE the story still applies the whole story.
+  The walk never reads ids, so the trailing probe's id (5) does not matter.
+- **The kit rung (written on top of s159's, 2026-10-28):**
   - `tools/harness/session.py`: `chest` in `NETSYNC_SUBVERBS`, a `NETSYNC_CHEST_SUBVERBS` row, and a `chest()` helper.
-  - `tools/harness/channel.py`: a `coop_chest` capability accessor and the block.
+  - `tools/harness/channel.py`: the `coop_chest_relay` capability accessor and the `chest_relay` block.
   - `tools/harness/fakegame.py`: the s160 rung after s159's `stepanchor`, the catch sentinels, the refusals in the
     engine's words, and the release.
   - Pins in `ff9mapkit/tests/test_harness_netsync.py`.
@@ -267,11 +276,20 @@ published state:
   relay: host opened chest 9");
 - the guest accepts within about 1 RTT, and its window 7 opens while the host's is still open;
 - the host's Confirm closes both;
-- the same nonce is applied once;
+- the same nonce is applied once, judged by the counters: for each `host.stamped` +1 the guest shows `accepted` +1,
+  `expired` +0 and exactly one "opening chest" line. A second application of an already-opened chest shows no second
+  window, so the window alone cannot judge it.
 - the host's ghost of the guest stays visible (option C), and the guest does not step out;
 - the guest's autosave bytes are unchanged.
-- **The version gate:** a third leg with the guest root on the s159 DLL. No window opens there, there is no tag-3
-  `Request` line, and the guest is neither moved nor frozen.
+- **The version gate** cannot run as a duo leg: an instance root junctions `x64\FF9_Data\Managed` to the install, so
+  both games always run the same DLL. It is proven in three other ways:
+  1. **By construction.** An s159 guest reads only section 6 for a start, and a chest-only frame carries none. The
+     pre-build review's wire lens checked every old reader of the state payload for unknown-id handling.
+  2. **In the engine.** `NetSyncState.SelfTest`'s section-9 rows: a talk reader finds nothing, the section after 9 reads
+     back, and the story walk steps over a leading 9.
+  3. **Against the old binary.** A compiled-DLL worker probe in the style of s155's `p8_fbx_share` loads a COPY of the
+     s159 `Assembly-CSharp.dll` and feeds its `NetSyncState.TryReadSection` / `ApplyStoryTo` a frame carrying section 9.
+     This is planned, not yet written.
 
 **Two-PC (the owner):** field 352, Dali Inn, **ChestA entry 16**:
 - (875, -279), flag `VARL_GenBool_7278`, an Antidote, text 52;
@@ -295,6 +313,15 @@ Alternatives, all latch-free and created unconditionally:
 A six-lens adversarial review (host, guest, wire, script, timing, harness) read the rev-1 draft. Each finding went to three
 refute-by-default skeptics, then a completeness critic and its own two skeptics; 88 agents in all. 26 findings survived
 and one was refuted.
+
+**Rev 3, after a 38-agent fix verification of rev 2** (2026-10-28):
+- 22 of the 26 findings were resolved, 1 correctly deferred, and 3 shared one residual: R8 on a late accept. Two new
+  regressions survived two skeptics each:
+  - R8 read the newest frame, not the first. Fixed above.
+  - The bench's `_talkPendingChest` flag outlived its body, so a later `netsync talk` would be routed as a chest and
+    throw every tick. Now every bench inject sets the lane's kind, and a chest body shorter than 7 bytes declines
+    instead of throwing.
+- Three stale rev-1 "promoted at its window" comments are fixed.
 
 **Fixed in rev 2:**
 - stamping at the press;

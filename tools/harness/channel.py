@@ -817,6 +817,19 @@ class State:
         """s159: ``netsync.stepout.anchor`` {uid, ctl_uid, dressed_uid, ctl_rends_on}, copied (None = absent)."""
         return self._ns_path("stepout.anchor", dict)
 
+    # ---- [ff9mapkit netsync s160] THE CHEST RELAY (studies/field-coop/CHEST-RELAY.md): `netsync.chest`, netsync's LAST key (after
+    # `stepout`). Key PRESENCE is the capability.
+    @property
+    def coop_chest_relay(self) -> bool:
+        """s160: the chest relay (``netsync.chest.served`` present). False = an engine whose following guest never opens the
+        host's stock chest and which answers `netsync chest` with "unknown sub-verb"."""
+        return self._ns_path("chest.served", int) is not None
+
+    @property
+    def chest_relay(self) -> dict | None:
+        """s160: the whole ``netsync.chest`` block, copied (None = absent)."""
+        return self._ns_path("chest", dict)
+
     guest_local_mode = _guestlocal_prop("mode", str, "s156: the gate's EFFECTIVE mode -- 'act' | 'shadow' | 'off' (the lever on "
                                                      "the selftest role only, else 'act'; '' = the catch line).")
     guest_local_lever = _guestlocal_prop("lever", str, "s156: the `guestlocal` lever AS SET -- 'act' | 'shadow' | 'off' ('' = "
