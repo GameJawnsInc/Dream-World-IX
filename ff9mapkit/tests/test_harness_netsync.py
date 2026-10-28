@@ -896,6 +896,16 @@ def _unstepped(doc: dict) -> dict:
     return {k: v for k, v in doc.items() if k not in FG.NETSYNC_TOP_CAP_KEYS["stepout"]}
 
 
+def _unanchored(doc: dict) -> dict:
+    """[ff9mapkit netsync s159] A `netsync` document without s159's catch-line key -- `anchor`, `netsync.stepout`'s LAST key
+    (FG.NETSYNC_TOP_NESTED_KEYS' `stepanchor` row): the catch line as s158 wrote it -- s159 added that key and nothing else."""
+    out = dict(doc)
+    if isinstance(doc.get("stepout"), dict):
+        drop = FG.NETSYNC_TOP_NESTED_KEYS["stepanchor"]["stepout"]
+        out["stepout"] = {k: v for k, v in doc["stepout"].items() if k not in drop}
+    return out
+
+
 def _untraversed(doc: dict) -> dict:
     """[ff9mapkit netsync s156] A `netsync` document without s156's catch-line block -- `guestlocal`, netsync's LAST key (after
     `world`; FG.NETSYNC_TOP_CAP_KEYS' `guestlocal` row): the catch line as s154 / s155 wrote it -- s156 added that one block and
@@ -6551,9 +6561,12 @@ def _proof_lines(fake) -> list:
     return [ln for ln in fake.memoria_log.read_text(encoding="utf-8").splitlines() if "selftest: " in ln]
 
 
-def _so_proof_text() -> str:
-    """[ff9mapkit netsync s158] The stand-in's step-out proof line: its own row / mutant tallies, the dwell and the step-in."""
-    return (f"{FG.PROOF_STEP_OUT}OK ({FG.FAKE_STEPOUT_SELFTEST_ROWS} rows, {FG.FAKE_STEPOUT_MUTANTS} mutants caught, "
+def _so_proof_text(rows: int | None = None, mutants: int | None = None) -> str:
+    """[ff9mapkit netsync s158] The stand-in's step-out proof line: its own row / mutant tallies, the dwell and the step-in.
+    [ff9mapkit netsync s159] (an s158 engine's: its own tallies)"""
+    rows = FG.FAKE_STEPOUT_SELFTEST_ROWS if rows is None else rows
+    mutants = FG.FAKE_STEPOUT_MUTANTS if mutants is None else mutants
+    return (f"{FG.PROOF_STEP_OUT}OK ({rows} rows, {mutants} mutants caught, "
             f"dwell {FG.STEPOUT_DWELL_MS} ms, step-in {FG.STEPOUT_STEP_IN_MS} ms)")
 
 
@@ -6596,6 +6609,9 @@ _PROOF_S145 = [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, BW
     # [ff9mapkit netsync s158] THE LIVE STAND-IN IS s158: then the step-out line, the block's last
     ("live", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
                             _so_proof_text()]),
+    # [ff9mapkit netsync s159] s158 (s159's calibration red): the step-out line's s158 tallies
+    ("s158", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
+                            _so_proof_text(FG.FAKE_STEPOUT_SELFTEST_ROWS_S158, FG.FAKE_STEPOUT_MUTANTS_S158)]),
     # [ff9mapkit netsync s158] s157 (s158's calibration red): no step-out line
     ("s157", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text()]),
     # [ff9mapkit netsync s157] s156 (s157's calibration red): no dress twin line, no ghost frame line
@@ -22396,7 +22412,8 @@ def test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self_and_ghost():
                                                                                                              "returnsong",
                                                                                                              "guestlocal",
                                                                                                              "dresstwin",   # [ff9mapkit netsync s157]
-                                                                                                             "stepout"]   # [s158]
+                                                                                                             "stepout",   # [s158]
+                                                                                                             "stepanchor"]   # [s159]
     assert FG.NETSYNC_BATTLE_CAPS["dresspolish"] == ("s141", ()) and FG.NETSYNC_S141_CAPS == frozenset(("dresspolish",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresspolish"] == {} and "dresspolish" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     assert FG.NETSYNC_DRESS_CAP_KEYS["dresspolish"] == BW.DRESS_KEYS_BY_RUNG["dresspolish"] == ()
@@ -25501,7 +25518,8 @@ def test_the_s156_agent_prints_guestlocal_last_and_the_driver_and_the_stand_in_a
     names = list(FG.NETSYNC_BATTLE_CAPS)
     # [ff9mapkit netsync s157] ...LAST until s157's `dresstwin` rung joined after it; [ff9mapkit netsync s158] and s158's `stepout`
     assert names[names.index("guestlocal") - 1] == FG.NETSYNC_S154_RUNG and names[names.index("guestlocal") + 1:] == ["dresstwin",
-                                                                                                       "stepout"]
+                                                                                                       "stepout",
+                                                                                                       "stepanchor"]   # [s159]
     assert FG.NETSYNC_BATTLE_CAPS["guestlocal"] == ("s156", ("guestlocal",)) and FG.NETSYNC_S156_CAPS == frozenset(("guestlocal",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["guestlocal"] == {} and FG.NETSYNC_TOP_CAP_KEYS["guestlocal"] == ("guestlocal",)
     assert "guestlocal" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "guestlocal" not in FG.NETSYNC_DIORAMA_CAP_KEYS
@@ -25579,7 +25597,8 @@ def test_the_s156_catch_line_closes_netsync_with_the_guestlocal_sentinels():
                                     "tp_refusals", "talk_queued", "talk_held", "talk_applied_after_climb", "talk_expired"))
     assert _untraversed(nothing) == _catch_doc_in("s155") == _catch_doc_in("s154") and _catch_doc_in("s156") == _untwinned(nothing)
     assert _catch_doc_in("s157") == _unstepped(nothing)          # [ff9mapkit netsync s157]
-    assert _catch_doc_in("s158") == nothing                      # [ff9mapkit netsync s158] the live line is s158's
+    assert _catch_doc_in("s158") == _unanchored(nothing)         # [ff9mapkit netsync s158]
+    assert _catch_doc_in("s159") == nothing                      # [ff9mapkit netsync s159] the live line is s159's
     # AppendGuestLocal, off the s156 patch, statement by statement
     body = _cs_block("HarnessAgent.cs", "private static void AppendGuestLocal(StringBuilder sb)", stop='sb.Append("}}");')
     text = " ".join(body)
@@ -25866,7 +25885,7 @@ def test_the_dresstwin_rung_is_s157s_and_its_keys_sit_in_self():
     the prefix through `guestlocal`; the capability accessor reads True on s157's catch line and False on s156's; the `twin`
     op's capability key is a key s157 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[names.index("dresstwin") - 1] == "guestlocal" and names[names.index("dresstwin") + 1:] == ["stepout"]   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it
+    assert names[names.index("dresstwin") - 1] == "guestlocal" and names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor"]   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it
     assert FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and FG.NETSYNC_S157_CAPS == frozenset(("dresstwin",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and "dresstwin" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     # [ff9mapkit netsync s157] ...the ONE rung's other half, the ghost frame, adds ONE top-level block (its own pins below)
@@ -26138,7 +26157,7 @@ def test_the_s157_ghostframe_block_closes_netsync_on_the_dresstwin_rung():
     a NetSyncClient getter at its sentinel, in EVERY role, called right after AppendGuestLocal; the `bench ghostframe` op is
     told by `netsync.ghostframe`; the protocol stays 5."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[names.index("dresstwin") + 1:] == ["stepout"] and FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and "climbanim" not in names   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it
+    assert names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor"] and FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and "climbanim" not in names   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and FG.NETSYNC_TOP_CAP_KEYS["dresstwin"] == ("ghostframe",)
     assert FG.netsync_subverbs(FG.caps_through("dresstwin")) == FG.netsync_subverbs(S156_CAPS_) == FG.NETSYNC_SUBVERBS[:-1]   # [s158] less `stepout`
     esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
@@ -26355,7 +26374,8 @@ def test_the_s158_agent_prints_stepout_last_and_the_driver_and_the_stand_in_agre
     assert Session.NETSYNC_SUBVERBS[-1] == "stepout" == FG.NETSYNC_SUBVERBS[-1] == _agent_subverbs()[-1]
     assert Session.NETSYNC_AUTHORITY_SUBVERBS[-1] == "stepout" and FG.NETSYNC_BATTLE_VERB_ORDER[-1] == "stepout"
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-1] == "stepout" and names[-2] == "dresstwin"
+    # [ff9mapkit netsync s159] ...LAST until s159's `stepanchor` rung joined after it
+    assert names[names.index("stepout") - 1] == "dresstwin" and names[names.index("stepout") + 1:] == ["stepanchor"]
     assert FG.NETSYNC_BATTLE_CAPS["stepout"] == ("s158", ("stepout",)) and FG.NETSYNC_S158_CAPS == frozenset(("stepout",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["stepout"] == {} and FG.NETSYNC_TOP_CAP_KEYS["stepout"] == ("stepout",)
     assert "stepout" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "stepout" not in FG.NETSYNC_DIORAMA_CAP_KEYS
@@ -26369,7 +26389,9 @@ def test_the_s158_agent_prints_stepout_last_and_the_driver_and_the_stand_in_agre
     case = " ".join(_cs_block("HarnessAgent.cs", 'case "stepout":', stop="break;"))
     assert "Memoria.Netsync.NetSyncStepOut.HarnessLever(s.Args, out why)" in case
     assert 'throw new InvalidOperationException(why ?? "netsync stepout refused");' in case
-    assert Session.NETSYNC_STEPOUT_OPS == FG.NETSYNC_STEPOUT_OPS == ("act", "off", "clear")
+    # [ff9mapkit netsync s159] + `ctl` (s158's own ops: FG.NETSYNC_STEPOUT_OPS_S158)
+    assert Session.NETSYNC_STEPOUT_OPS == FG.NETSYNC_STEPOUT_OPS == ("act", "off", "ctl", "clear")
+    assert FG.NETSYNC_STEPOUT_OPS_S158 == ("act", "off", "clear")
     assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
 
 
@@ -26382,7 +26404,7 @@ def _so_patch_added() -> str:
 def test_the_s158_lever_words_are_the_engines():
     """HarnessLever's two refusals and the lever's / release's lines (the stand-in's and the driver's) are NetSyncStepOut's."""
     added = _so_patch_added()
-    for words in (FG.NETSYNC_STEPOUT_ROLE_REFUSAL, FG.NETSYNC_STEPOUT_USAGE, FG.STEPOUT_LOG_RELEASE.replace("[NetSync] ", ""),
+    for words in (FG.NETSYNC_STEPOUT_ROLE_REFUSAL, FG.NETSYNC_STEPOUT_USAGE_S158, FG.STEPOUT_LOG_RELEASE.replace("[NetSync] ", ""),
                   "harness: step-out ", FG.STEPOUT_LOG_OFF.replace("[NetSync] harness: step-out ", ""), FG.PROOF_STEP_OUT):
         assert words in added, words
     # the ACT line is composed: the head literal, then `: "ACT")` in the same expression
@@ -26402,7 +26424,7 @@ def test_the_s158_catch_line_closes_netsync_with_the_stepout_sentinels():
     assert b.endswith(',"stepout":' + esc(FG.NETSYNC_STEPOUT_SENTINELS) + "}"), b[-1200:]
     nothing = _agent_netsync_nothing()[0]
     assert list(nothing)[-2:] == ["ghostframe", "stepout"] and nothing["stepout"] == FG.NETSYNC_STEPOUT_SENTINELS
-    assert _catch_doc_in("s157") == _unstepped(nothing) and _catch_doc_in("s158") == nothing
+    assert _catch_doc_in("s157") == _unstepped(nothing) and _catch_doc_in("s158") == _unanchored(nothing)   # [s159]
     added = _so_patch_added()
     start = added.index("private static void AppendStepOut(")
     body = added[start:added.index("NetSyncStepOut.SelfTestVerdict));", start) + 40]
@@ -26410,6 +26432,8 @@ def test_the_s158_catch_line_closes_netsync_with_the_stepout_sentinels():
     for k, v in FG.NETSYNC_STEPOUT_SENTINELS.items():
         if k in ("out_why", "in_why"):
             continue                                    # written by loops over OutNames / InNames
+        if k == "anchor":
+            continue                                    # [ff9mapkit netsync s159] s159's (its own pin below)
         if k == "ghost":
             flat += ["hide", "edges"]                   # `by` by a loop over HideNames
         elif isinstance(v, dict):
@@ -26490,3 +26514,178 @@ def test_the_stand_in_models_the_stepout_lever_its_refusals_and_its_release(game
         assert fake.memoria_log.read_text(encoding="utf-8").count(FG.STEPOUT_LOG_RELEASE) == before + 1
         fake._release_netsync()
         assert fake.memoria_log.read_text(encoding="utf-8").count(FG.STEPOUT_LOG_RELEASE) == before + 1
+
+
+# =========================================================================================================================
+# [ff9mapkit netsync s159] THE ANCHOR (studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md Finding 6): the step-out acts on the guest's
+# DRESSED body, not the controlled actor (Dali 352's inn night scene: Dagger holds control while the dressed Zidane entry speaks).
+# The `stepanchor` rung: `anchor` as `netsync.stepout`'s last key, one `stepout` op (`ctl`, the calibration), the proof line's seven
+# rows and three mutants. Every pin reads the LIVE stack's s159 patch.
+# =========================================================================================================================
+
+
+def _s159_added(file_name: str) -> list:
+    """The lines the s159 patch ADDS to ``file_name``, stripped."""
+    return [t for _h, k, t in _new_side(file_name, _patch_bytes("s159")) if k == "+"]
+
+
+def _anchor_rule(ctl: int, ctl_dressed: bool, dressed: int, dressed_live: bool) -> int:
+    """NetSyncStepOut.AnchorRule's twin (the engine's own body is pinned below)."""
+    if ctl >= 0 and ctl_dressed:
+        return ctl
+    if dressed >= 0 and dressed_live:
+        return dressed
+    return ctl
+
+
+def test_the_s159_rung_adds_the_anchor_inside_stepout_and_no_sub_verb():
+    """`stepanchor` rides the ONE ladder LAST (right after s158's `stepout`), adds nothing under `netsync.battle`, no top-level block,
+    no sub-verb -- its one key, `anchor`, sits INSIDE `netsync.stepout` as the block's last; s159's calibration is the prefix through
+    `stepout`; the capability accessor reads True on s159's catch line and False on s158's; the `ctl` op's capability key is the key
+    s159 added."""
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    assert names[-1] == "stepanchor" and names[-2] == "stepout"
+    assert FG.NETSYNC_BATTLE_CAPS["stepanchor"] == ("s159", ()) and FG.NETSYNC_S159_CAPS == frozenset(("stepanchor",))
+    assert FG.NETSYNC_BATTLE_CAP_KEYS["stepanchor"] == {} and "stepanchor" not in FG.NETSYNC_TOP_CAP_KEYS
+    assert FG.NETSYNC_TOP_NESTED_KEYS["stepanchor"] == {"stepout": ("anchor",)}
+    assert FG.netsync_subverbs(FG.caps_through("stepanchor")) == FG.netsync_subverbs(FG.caps_through("stepout"))
+    was, now = _catch_doc_in("s158")["stepout"], _catch_doc_in("s159")["stepout"]
+    assert list(now) == list(was) + ["anchor"] and {k: now[k] for k in was} == was
+    assert now["anchor"] == FG.NETSYNC_STEPOUT_SENTINELS["anchor"] == {"uid": -1, "ctl_uid": -1, "dressed_uid": -1, "ctl_rends_on": -1}
+    assert FG.NETSYNC_STEPOUT_KEYS_S158 == tuple(was) and FG.NETSYNC_STEPOUT_ANCHOR_KEYS == tuple(now["anchor"])
+    assert State({"frame": 1, "netsync": _catch_doc_in("s159")}).coop_step_out_anchor is True
+    assert State({"frame": 1, "netsync": _catch_doc_in("s158")}).coop_step_out_anchor is False
+    assert State({"frame": 1, "netsync": _catch_doc_in("s159")}).step_out_anchor == now["anchor"]
+    attr, key, patch, _what = Session.NETSYNC_STEPOUT_OP_CAPS["ctl"]
+    assert (attr, key, patch) == ("coop_step_out_anchor", "netsync.stepout.anchor", "s159")
+    assert isinstance(getattr(State, attr), property) and patch == FG.NETSYNC_BATTLE_CAPS["stepanchor"][0]
+
+
+def test_the_s159_catch_line_closes_stepout_with_the_anchor_sentinels():
+    """THE CATCH-LITERAL PIN for s159: the live line closes `stepout` with `,"anchor":{...}` at its sentinels, then netsync's close;
+    s159 added that key and nothing else (the live document less it is s158's); AppendStepOut writes the anchor's keys in order
+    right after `selftest`, each through its own Try and a NetSyncStepOut getter at its sentinel; the harness protocol stays 5."""
+    b = _gl_catch_tail()
+    esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
+    assert b.endswith(',"selftest":null,"anchor":' + esc(FG.NETSYNC_STEPOUT_SENTINELS["anchor"]) + "}}"), b[-400:]
+    nothing = _agent_netsync_nothing()[0]
+    assert _catch_doc_in("s159") == nothing and _unanchored(nothing) == _catch_doc_in("s158")
+    body = " ".join(_s159_added("HarnessAgent.cs"))
+    start = body.index('sb.Append("\\"anchor\\":{");')
+    keys = re.findall(r'Num\(sb, "(\w+)", Try\(\(\) => \(Int64\)Memoria\.Netsync\.NetSyncStepOut\.(\w+), -1L\)\)', body[start:])
+    assert [k for k, _g in keys] == list(FG.NETSYNC_STEPOUT_ANCHOR_KEYS), keys
+    assert [g for _k, g in keys] == ["HarnessAnchorUid", "HarnessCtlUid", "HarnessDressedUid", "HarnessCtlRendsOn"]
+    assert _added_after("s159", "HarnessAgent.cs", 'Str(sb, "selftest", Try(() => Memoria.Netsync.NetSyncStepOut.SelfTestVerdict));',
+                        'sb.Append("\\"anchor\\":{");')
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+
+
+def test_the_s159_anchor_is_spent_where_the_spec_says():
+    """ServiceStepOut hands Tick the ANCHOR (NetSyncStepOut.Anchor), not GetControlChar(); Anchor looks the dressed body up in
+    activeObj only while this load dressed one, and the `ctl` lever answers the controlled actor; a START still needs a bound
+    control (s158's timing); the harness's body reads judge the anchor; AnchorRule's body is its Python twin's; the seven rows and
+    three mutants are the engine's, and every row's verdict is the twin's."""
+    client = [_strip_comment(t) for t in _s159_added("NetSyncClient.cs")]
+    assert any("Actor local = onField && ee != null ? NetSyncStepOut.Anchor(ee) : null;" in t for t in client), client
+    stack = " ".join(_strip_comment(t) for t in _stack_text("NetSyncClient.cs"))
+    start = stack.index("private void ServiceStepOut(")
+    svc = stack[start:stack.index("NetSyncStepOut.Tick(", start)]
+    assert "GetControlChar()" not in svc
+    so = " ".join(_strip_comment(t) for t in _stack_text("NetSyncStepOut.cs"))
+    for frag in ("if (ctlUid >= 0 && ctlDressed)", "return ctlUid;", "if (dressedUid >= 0 && dressedLive)", "return dressedUid;",
+                 "if (LeverCtl)", "return ctl;",
+                 "if (NetSyncSelfDress.LoadHasDress && NetSyncSelfDress.DressUid >= 0)",
+                 "dressed = FindLive(ee, NetSyncSelfDress.DressUid) as Actor;",
+                 "Boolean dressedLive = dressed != null && dressed.netSelfDress != 0 && dressed.go != null;",
+                 "Int32 uid = AnchorRule(ctl != null ? ctl.uid : -1, ctlDressed, dressed != null ? dressed.uid : -1, dressedLive);",
+                 "for (ObjList l = ee != null ? ee.GetActiveObjList() : null; l != null; l = l.next)",
+                 "|| !ReferenceEquals(FindLive(PersistenSingleton<EventEngine>.Instance, _body.uid), _body);",
+                 "Boolean ctlBound = ee == null || ee.GetControlChar() != null;",
+                 "&& ctlBound, LeverOff, hostHere,",
+                 "internal static Int32 HarnessBodyRendsOn { get { return RendsOn(HarnessAnchorActor); } }",
+                 "get { return _active ? _body : Anchor(PersistenSingleton<EventEngine>.Instance); }",
+                 "internal static Boolean LeverCtl { get { return _lever == 2 && NetSyncClient.IsSelfTestRole; } }"):
+        assert frag in so, frag
+    rows = re.findall(r'row\(r\.Anchor\((-?\d+), (true|false), (-?\d+), (true|false)\) == (-?\d+), "(anchor\.\w+)"\);', so)
+    assert [r[5] for r in rows] == ["anchor.ctl_dressed", "anchor.co_binder", "anchor.no_ctl", "anchor.no_dress",
+                                    "anchor.dressed_gone", "anchor.none", "anchor.both_dressed"]
+    for c, cd, d, dl, want, name in rows:
+        assert _anchor_rule(int(c), cd == "true", int(d), dl == "true") == int(want), name
+    assert '"anchor_ctl", "dress_live_blind", "dress_first" };' in so
+    assert FG.FAKE_STEPOUT_SELFTEST_ROWS == FG.FAKE_STEPOUT_SELFTEST_ROWS_S158 + len(rows) == 44
+    assert FG.FAKE_STEPOUT_MUTANTS == FG.FAKE_STEPOUT_MUTANTS_S158 + 3 == 15
+
+
+def test_the_s159_lever_words_are_the_engines():
+    """The `ctl` op: the new usage line and the CTL line are NetSyncStepOut's; the lever's name reads "ctl"."""
+    added = " ".join(_s159_added("NetSyncStepOut.cs"))
+    assert f'why = "{FG.NETSYNC_STEPOUT_USAGE}";' in added
+    assert 'op != "act" && op != "off" && op != "ctl" && op != "clear"))' in added      # the op is ACCEPTED, not only named
+    for case in ('case "anchor_ctl": m.Anchor = (c, cd, d, dl) => c; break;',
+                 'case "dress_live_blind": m.Anchor = (c, cd, d, dl) => c >= 0 && cd ? c : d >= 0 ? d : c; break;',
+                 'case "dress_first": m.Anchor = (c, cd, d, dl) => d >= 0 && dl ? d : c; break;'):
+        assert case in added, case                      # each mutant is built, not only listed
+    assert Session.NETSYNC_STEPOUT_USAGE_S158 == FG.NETSYNC_STEPOUT_USAGE_S158 and Session.NETSYNC_STEPOUT_OPS_S158 == \
+        FG.NETSYNC_STEPOUT_OPS_S158
+    assert FG.STEPOUT_LOG_CTL.replace("[NetSync] harness: step-out ", "") in added
+    assert '_lever == 2 ? "ctl" : null' in added and 'op == "ctl" ? 2 : 0' in added
+    assert Session.NETSYNC_STEPOUT_USAGE == FG.NETSYNC_STEPOUT_USAGE
+
+
+def test_the_driver_refuses_stepout_ctl_before_the_step_on_an_s158_engine(game):
+    """On the calibration engine (the ladder through `stepout`) `stepout ctl` is refused BEFORE the step, naming the key and the
+    patch; the s158 stand-in, sent it anyway, answers its own usage line; the s159 stand-in takes it. Off the role the step goes out
+    and the engine's ROLE refusal comes back; on it, the driver's usage line is THIS engine's (s158's words on s158)."""
+    fake = FakeGame(game)
+    fake.netsync_caps = FG.caps_through("stepout")
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        with pytest.raises(HarnessError, match=re.escape(FG.NETSYNC_STEPOUT_ROLE_REFUSAL)):
+            g.stepout("ctl")                            # the role first: the engine's words, not the capability gate's
+        g.netsync("selftest", 1)
+        for bad in (("bogus",), ("off", "1"), ()):
+            n = len(fake.executed)
+            with pytest.raises(HarnessError) as err:
+                g.netsync("stepout", *bad)
+            with pytest.raises(RuntimeError) as eng:
+                fake._netsync(["stepout", *bad])
+            assert str(err.value) == FG.NETSYNC_STEPOUT_USAGE_S158 == str(eng.value) and len(fake.executed) == n, bad
+        assert g.state.coop_step_out is True and g.state.coop_step_out_anchor is False
+        n = len(fake.executed)
+        with pytest.raises(HarnessError, match=r"^netsync stepout ctl: the deployed engine publishes no `netsync\.stepout\.anchor` "
+                                               r".*memoria-patch s159"):
+            g.stepout("ctl")
+        assert len(fake.executed) == n
+        with pytest.raises(RuntimeError, match=re.escape(FG.NETSYNC_STEPOUT_USAGE_S158)):
+            fake._netsync(["stepout", "ctl"])
+        assert "anchor" not in fake._netsync_doc()["stepout"]
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        assert g.stepout("ctl").step_out["lever"] == "ctl"
+
+
+def test_the_stand_in_models_the_anchor_block_and_the_ctl_lever(game):
+    """The stand-in's s159: `stepout.anchor` at its sentinels; `ctl` sets the lever in the engine's words, `act` / `clear` clear it, the
+    release clears it with its line; the proof line carries s159's tallies (s158's on the calibration engine)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        g.wait_frames(10)
+        doc = fake._netsync_doc()["stepout"]
+        assert list(doc)[-1] == "anchor" and doc["anchor"] == FG.NETSYNC_STEPOUT_SENTINELS["anchor"]
+        assert g.stepout("ctl").step_out["lever"] == "ctl" and _mlog_lines(fake, FG.STEPOUT_LOG_CTL)
+        assert g.stepout("act").step_out["lever"] is None
+        g.stepout("ctl")
+        before = fake.memoria_log.read_text(encoding="utf-8").count(FG.STEPOUT_LOG_RELEASE)
+        fake._release_netsync()
+        assert fake._netsync_doc()["stepout"]["lever"] is None
+        assert fake.memoria_log.read_text(encoding="utf-8").count(FG.STEPOUT_LOG_RELEASE) == before + 1
+    lines = _mlog_lines(fake, "[NetSync] " + FG.PROOF_STEP_OUT)
+    assert lines and lines[-1].split("[NetSync] ", 1)[1] == _so_proof_text() and "(44 rows, 15 mutants caught" in lines[-1]
+
