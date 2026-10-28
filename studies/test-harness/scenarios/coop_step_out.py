@@ -35,11 +35,14 @@ Vivi), 207 DRESSED (`selfdress self steiner` before the warp: Zidane's player ob
   D-ARM     207 DRESSED: `selfdress self steiner` then warp 207 -> dress.self.why "dressed" on the controlled body; no stand-in.
   D-UP      207 DRESSED, bench 0, hostscene 1, the stock climb up with a mid-ladder hang: OUT by the dwell with dressed true, body_rends_on 0
             on EVERY out sample (the edge is synchronous), the shadow equal to stock's own switch (shadow_off), a stand-in shown wearing
-            GEO_MAIN_F0_ZDN, a ZDN LADDER clip on a mid-ladder sample, its own clip time moving and within 0.25 of the body's, within
-            80 u of the body (one frame of ladder motion), wire_mask 0, the mirror hidden; IN after control: the body back within a
-            logic tick of the IN, the stand-in gone.
-  N-DWELL   207, the stock climb DOWN with no hang under hostscene 1: when its control-off span is under 1.4 s, never out (THE ARRIVAL
-            LAW in game); a longer span reads not-reached, never green.
+            GEO_MAIN_F0_ZDN, the loop's own clip (ANH_MAIN_F0_ZDN_LADDER_1_2: RunAnimation 10539 in Zidane_50's loop, both ways -- a
+            lost raw record plays the MOUNT clip) on a mid-ladder sample, its own clip time moving and within 0.25 of the body's (read
+            live), within 80 u of the body (one frame of ladder motion), wire_mask 0, the mirror hidden; THE SHADOW in the step-in
+            debounce (active, control back, stock's switch on again after EnableShadow): drawn -- a shadow that went dark with the
+            body would show there; IN after control: the body, the mask and the mirror back within a logic tick, the stand-in gone.
+  N-DWELL   207, the stock climb DOWN with no hang, hostscene raised once MOUNTED (the base, and its dwell clock, start there): its
+            longest base age (base.age_ms) under 1.4 s and at least 0.2 s, and never out (THE ARRIVAL LAW in game); a longer one
+            reads not-reached.
   D-DN      the D-UP extras on the climb down (the start pose regained by a bench-0 stock climb up, no host scene).
   K-R       `reset` releases the lever (its line when the calibration held one); re-read with the role: lever null.
 
@@ -77,7 +80,8 @@ SELFTEST_S = 20.0
 REST_HOLD_S = 2.0                        # N-REST's window
 TALK_HOLD_S = 1.9                        # N-TALK's window once the line is open (past the 1.5 s dwell)
 MOUNT_S = 3.0                            # a press to the mount (TimedTurn + the mount jump)
-PART_HOLD_FRAMES = 18                    # a short held climb before the hang (a few 20 u steps)
+PART_MOVE_U = 50.0                       # a short held climb before the hang: about 3 of the loop's 20 u steps (207 has 13)
+PART_HOLD_MAX_S = 1.0                    # ...measured in game units, never in frames (the render rate varies: review r2)
 HANG_S = 2.4                             # the mid-ladder hang: past DwellMs (1.5 s) from control off, with margin
 CLIMB_S = 15.0
 LAND_S = 6.0
@@ -100,7 +104,8 @@ LOG_OUT = "[NetSync] step-out: OUT on field "
 LOG_IN = "[NetSync] step-out: IN on field "
 LOG_RELEASE = "[NetSync] harness: step-out lever released (act)"
 STANDIN_GEO = "GEO_MAIN_F0_ZDN"
-LADDER_CLIP = "_ZDN_LADDER_"
+LADDER_LOOP_CLIP = "ANH_MAIN_F0_ZDN_LADDER_1_2"        # 207's Zidane_50 loop: RunAnimation(10539) every iteration, up and down
+NDWELL_MIN_S = 0.2                                   # N-DWELL's base must have armed (else the leg proves nothing)
 
 CLAIMS = {
     "K0": "the forced selftest role on 114 (newgame, warp 114, noencounter, `netsync selftest 1`, `bench 0`); a fresh process "
@@ -119,11 +124,11 @@ CLAIMS = {
               "sample has why_not 'a relayed talk owns my copy'; talk_accepts +1",
     "D-ARM": "207 DRESSED: `selfdress self steiner` then warp 207 -> dress.self.why 'dressed' on the controlled body; no stand-in",
     "D-UP": "207 DRESSED, the stock climb up with a mid-ladder hang under hostscene 1: OUT by the dwell with dressed true, body dark "
-            "on every out sample, the shadow = stock's switch, a stand-in shown as GEO_MAIN_F0_ZDN on a ZDN LADDER clip mid-ladder, "
-            "its time moving and within 0.25 of the body's, within 80 u of the body, wire_mask 0, the mirror hidden; IN after "
-            "control: the body back within a logic tick, the stand-in gone",
-    "N-DWELL": "207, a stock climb down with NO hang under hostscene 1: a control-off span under 1.4 s never steps out (THE ARRIVAL "
-               "LAW in game)",
+            "on every out sample, the shadow = stock's switch, a stand-in shown as GEO_MAIN_F0_ZDN playing the loop's LADDER_1_2 "
+            "mid-ladder, its time moving and within 0.25 of the body's, within 80 u of the body, wire_mask 0, the mirror hidden; the "
+            "shadow drawn in the step-in debounce; IN after control: body, mask and mirror back within a logic tick, the stand-in gone",
+    "N-DWELL": "207, a stock climb down with NO hang, hostscene raised once mounted: a base held 0.2-1.4 s never steps out (THE "
+               "ARRIVAL LAW in game)",
     "D-DN": "207 DRESSED, the stock climb down with a mid-ladder hang: the D-UP extras",
     "K-R": "`reset` releases the lever (its line when the calibration held one); re-read with the role: lever null",
 }
@@ -274,7 +279,7 @@ def judge_out_dressed(samples, shadow_rest, spec=None) -> tuple:
         clips.add(clip)
         if not (isinstance(clip, str) and "_ZDN_" in clip):
             bad.append(f"stand-in clip {clip!r}")
-        if isinstance(clip, str) and LADDER_CLIP in clip and _on_ladder(s, spec):
+        if clip == LADDER_LOOP_CLIP and _on_ladder(s, spec):
             ladder_clip = True
         d = so_get(b, "standin.dpos")
         if not isinstance(d, (int, float)) or d < 0 or d > DPOS_MAX:
@@ -290,7 +295,7 @@ def judge_out_dressed(samples, shadow_rest, spec=None) -> tuple:
         else:
             bad.append(f"norm {n!r} / body_norm {bn!r}")
     if spec is not None and not ladder_clip:
-        bad.append(f"no mid-ladder sample played a {LADDER_CLIP} clip")
+        bad.append(f"no mid-ladder sample played the loop clip {LADDER_LOOP_CLIP}")
     if len(norms) < 2:
         bad.append(f"the stand-in's clip time never moved ({sorted(norms)})")
     ok_d, why_d = judge_dwell(samples)
@@ -314,17 +319,36 @@ def judge_in(after, land_t: float | None, b0, *, dressed: bool) -> tuple:
     dt = first_in["_t"]
     b = so(first_in)
     later = [s for s in after if s["_t"] >= dt + RELIGHT_S]
-    body_back = bool(later) and all(isinstance(so_get(so(s), "body_rends_on"), int) and so_get(so(s), "body_rends_on") > 0
-                                    for s in later)
+    every = lambda pred: bool(later) and all(pred(s) for s in later)               # noqa: E731
     parts = [("debounce", DEBOUNCE_MIN_S <= dt <= IN_BY_S),
              ("in_why.control +1", so_get(b, "in_why.control", 0) == so_get(b0, "in_why.control", 0) + 1),
-             ("wire_mask back", isinstance(so_get(b, "wire_mask"), int) and so_get(b, "wire_mask") > 0),
-             ("mirror shown", mirror_shown(first_in)),
-             ("body on", body_back)]
+             ("wire_mask back", every(lambda s: isinstance(so_get(so(s), "wire_mask"), int) and so_get(so(s), "wire_mask") > 0)),
+             ("mirror shown", every(mirror_shown)),
+             ("body on", every(lambda s: isinstance(so_get(so(s), "body_rends_on"), int) and so_get(so(s), "body_rends_on") > 0))]
     if dressed:
         parts.append(("stand-in gone", all(so_get(so(s), "standin.on") is False for s in after if s["_t"] >= dt)))
     ok = all(v for _, v in parts)
     return ok, f"IN {dt:.2f} s after control; " + ", ".join(f"{k} {'ok' if v else 'NO'}" for k, v in parts)
+
+
+def judge_shadow_debounce(after, shadow_rest) -> tuple:
+    """THE SHADOW, where it can fail: the step-in debounce (active, control back), on samples whose stock switch (shadow_off) reads 0
+    twice in a row (EnableShadow ran: one tick for its needUpdate) -- the blob shadow must be drawn. A shadow that followed the body's
+    dark term would read 0 there. A field that draws no shadow at rest cannot judge it (a pass with that note)."""
+    if shadow_rest != 1:
+        return True, f"the field draws no shadow at rest ({shadow_rest!r}): not judged"
+    judged, bad, prev = 0, 0, None
+    for s in after:
+        b = so(s)
+        off = so_get(b, "shadow_off")
+        if so_get(b, "active") is True and control(s) and off == 0 and prev == 0:
+            judged += 1
+            if so_get(b, "shadow") != 1:
+                bad += 1
+        prev = off
+    if judged == 0:
+        return False, "no debounce sample with stock's shadow switch on: the shadow was never judged"
+    return bad == 0, f"{judged} debounce samples with stock's switch on, {bad} with the shadow dark"
 
 
 def judge_never(samples, *, lever: bool, why_not: str, need) -> tuple:
@@ -344,15 +368,21 @@ def judge_never(samples, *, lever: bool, why_not: str, need) -> tuple:
 
 
 def judge_short(samples) -> tuple:
-    """N-DWELL: (verdict, why) -- verdict None = not discriminating (the control-off span reached the dwell)."""
-    offs = off_samples(samples)
-    if not offs:
+    """N-DWELL: (verdict, why) -- verdict None = not discriminating (the base's dwell clock reached NDWELL_MAX_S). The span is the
+    base's own age (base.age_ms: the dwell clock), never the control-off span: the base arms only when every term holds."""
+    if not off_samples(samples):
         return False, "control never went off"
-    span = offs[-1]["_t"] - offs[0]["_t"]
+    ages = [so_get(so(s), "base.age_ms") for s in samples]
+    ages = [a for a in ages if isinstance(a, int) and a >= 0]
+    top = max(ages) / 1000.0 if ages else 0.0
     outs = actives(samples)
-    if span >= NDWELL_MAX_S:
-        return None, f"the control-off span was {span:.2f} s (>= {NDWELL_MAX_S} s): not a short episode"
-    return (not outs), f"control off {span:.2f} s; {'stepped OUT (why ' + repr(so_get(so(outs[0]), 'why')) + ')' if outs else 'never out'}"
+    if outs:
+        return False, f"stepped OUT (why {so_get(so(outs[0]), 'why')!r}) after a base of {top:.2f} s"
+    if top < NDWELL_MIN_S:
+        return False, f"the base never armed for {NDWELL_MIN_S} s (longest {top:.2f} s): the leg proves nothing"
+    if top >= NDWELL_MAX_S:
+        return None, f"the base held {top:.2f} s (>= {NDWELL_MAX_S} s): not a short episode"
+    return True, f"the base held {top:.2f} s at most and never stepped out"
 
 
 def off_marker(samples) -> tuple:
@@ -439,12 +469,17 @@ def hang_climb(g, ctx: Ctx, leg: str, fid: int, direction: str, *, bench: bool, 
         hostscene(g, True)
     button = spec["buttons"][direction]
     if hang:
-        g.hold(button, PART_HOLD_FRAMES)
-        res["samples"] += _stamp(cb.hold_for(g, PART_HOLD_FRAMES / 30.0 + 0.2), t0)
+        y0 = (gt.pos(g.state) or (0.0, float(mount[1]), 0.0))[1]
+        g.hold(button, 600)
         try:
-            g.release(button)
-        except HarnessError:
-            pass
+            part, _hit = cb.watch(g, lambda s: abs(((gt.pos(s) or (0.0, y0, 0.0))[1]) - y0) >= PART_MOVE_U or control(s),
+                                  PART_HOLD_MAX_S)
+        finally:
+            try:
+                g.release(button)
+            except HarnessError:
+                pass
+        res["samples"] += _stamp(part, t0)
         res["samples"] += _stamp(cb.hold_for(g, HANG_S), t0)
     c = gt.climb_hold(g, spec, direction, t0)
     res["samples"] += c["samples"]
@@ -689,11 +724,12 @@ def _d_climb(g, ctx, led, leg: str, direction: str):
         ctx.marks[leg] = samples
     ok1, why1 = judge_out_dressed(samples, res.get("shadow_rest"), gt.LADDERS[207])
     ok2, why2 = judge_in(res.get("after") or [], res.get("land_at"), res["b0"], dressed=True)
-    led.check(leg, ok1 and ok2, f"OUT: {why1} || IN: {why2}; shadow at rest {res.get('shadow_rest')!r}")
+    ok3, why3 = judge_shadow_debounce(res.get("after") or [], res.get("shadow_rest"))
+    led.check(leg, ok1 and ok2 and ok3, f"OUT: {why1} || IN: {why2} || SHADOW: {why3}; shadow at rest {res.get('shadow_rest')!r}")
 
 
 def _n_dwell(g, ctx, led):
-    res = hang_climb(g, ctx, "N-DWELL", 207, "down", bench=False, scene_before=True, hang=False)
+    res = hang_climb(g, ctx, "N-DWELL", 207, "down", bench=False, scene_before=False, scene_on_mount=True, hang=False)
     verdict, why = judge_short(res.get("samples") or [])
     if verdict is None:
         led.unreached(["N-DWELL"], why)

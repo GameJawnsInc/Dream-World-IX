@@ -254,6 +254,27 @@ Accepted and documented: a mirror floor reflects the dressed body; multi-binder 
 footsteps keep sounding under the stand-in; a prop attached mid-episode stays at the dark rig's hand; a loco
 `RunAnimation` can colour which walk variant the stand-in plays.
 
+**Second round, on the code the first round added** (three lenses, two skeptics each; 14 of 15 survived). Fixed:
+- **Option C hid the guest at stock chests, hidden pickups and button-polled signs and posters.** These are an IsButton
+  poll in a tag-2 `_Range` function and never reach EventCollision. A control-off episode that begins within 300 ms of
+  Confirm, Cancel or Special now counts as an interaction.
+- **The inhibit flag was unstable.** `[TIME]` and `[INCS]` set FlagButtonInh only at the label's first render. Only
+  `[NFOC]` is never fresh now; it is the one tag that also clears `FlagResetChoice`, at Show.
+- **The snapshots anchor on control.** The host's is taken every control-on frame, so a line opened in the DisableMove
+  tick counts. The guest's is anchored on its own control, not the whole base, so a line its copy opened before a host
+  term held still counts.
+- **A promoted quad blinked the guest's ghost for one frame**, because StartSceneAt ran after option C's per-frame read.
+  It now clears that read.
+- **StepIn is synchronous.** The stand-in hides and the darkened renderers relight in the same frame. The source eye is
+  restored even when the field (and the go) is gone.
+- **The bench:**
+  - IN's mask and mirror checks get the relight grace;
+  - the ladder witness needs the loop's own `LADDER_1_2`, since a lost raw record plays the mount clip;
+  - the shadow is judged in the step-in debounce, where a dark-term leak would show;
+  - N-DWELL raises the host scene once mounted and judges the dwell clock (`base.age_ms`);
+  - the part hold before the hang is measured in game units, not frames;
+  - the body's clip time is read live.
+
 ## Finding 4: the guest lags the host's F1 high speed through conversations
 
 **Cause.** F1 is stock Memoria's High Speed booster (`UIKeyTrigger.cs:237-256`). `FastForwardFactor` returns

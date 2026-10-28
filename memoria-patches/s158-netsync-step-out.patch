@@ -258,10 +258,10 @@ index 5810426..859771c 100644
  
          // ============================================================================ harness surface (s143)
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-index 7406bb4..ab6102c 100644
+index 7406bb4..f8fdb04 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-@@ -331,6 +331,16 @@ namespace Memoria.Netsync
+@@ -331,6 +331,20 @@ namespace Memoria.Netsync
          private Byte _benchSceneNonce;                   // F3.2 bench: bumps on each simulated scene rise (the events' Scene stamp)
          // F3.2 HOST (S2): the sticky scene behind section 5 -- see NetSyncDialog.HostSceneMachine.
          private readonly NetSyncDialog.HostSceneMachine _hostScene = new NetSyncDialog.HostSceneMachine();
@@ -275,10 +275,14 @@ index 7406bb4..ab6102c 100644
 +        private Int32 _hostInteractTick;
 +        private Boolean _hostCtlPrev = true;
 +        private readonly NetSyncWindowSnapshot _hostWindows = new NetSyncWindowSnapshot();
++        private Boolean _hostPressArmed;                 // Confirm / Cancel / Special held on a control-on frame
++        private Int32 _hostPressTick;
++        private Boolean _hostCtlOffByPress;              // this control-off episode began within HostPressMs of such a press: an interaction
++        private const Int32 HostPressMs = 300;
          // F3.2 HOST: a scene edge awaits its out-of-band push. [ff9mapkit netsync F3.3] volatile: a ring tap (possibly the
          // VA thread) sets it too; the push itself (BuildStateFrame) only ever runs on the main thread (host Update).
          private volatile Boolean _dlgDirty;
-@@ -1669,6 +1679,7 @@ namespace Memoria.Netsync
+@@ -1669,6 +1683,7 @@ namespace Memoria.Netsync
                      // too, so a bench lock can never go stale across a battle or a load (the early returns below).
                      BenchSceneEdge(fld);
                      ServiceDialogAuthority(new RemoteState { Valid = false }, fld, onField);
@@ -286,7 +290,7 @@ index 7406bb4..ab6102c 100644
                      if (!inScope)
                      {
                          DespawnGhost();
-@@ -1809,6 +1820,10 @@ namespace Memoria.Netsync
+@@ -1809,6 +1824,10 @@ namespace Memoria.Netsync
                          Boolean glOk = NetSyncGuestLocal.SelfTest(out glDetail);
                          Log.Message("[NetSync] guest traversal selftest: "
                                      + (glOk ? "OK (" + glDetail + ")" : "FAIL (" + glDetail + ")"));
@@ -297,7 +301,7 @@ index 7406bb4..ab6102c 100644
                      }
                      // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
                      // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
-@@ -1878,6 +1893,10 @@ namespace Memoria.Netsync
+@@ -1878,6 +1897,10 @@ namespace Memoria.Netsync
                              ApplyGhostMask(LocalMeshMask(me));
                          else
                              ApplyGhostMask(_ghostRestMask);          // [ff9mapkit netsync s139] neither mask rule: CreateModel's own hides
@@ -308,7 +312,7 @@ index 7406bb4..ab6102c 100644
                          ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
                      }
                      // F2 L1 BENCH (selftest): DebugHostEventFlag simulates "the host is in a scene" -- its edges
-@@ -1923,7 +1942,7 @@ namespace Memoria.Netsync
+@@ -1923,7 +1946,7 @@ namespace Memoria.Netsync
                  if (local != null && local.fieldMapActor != null)
                  {
                      Transform pt = local.fieldMapActor.transform;
@@ -317,7 +321,7 @@ index 7406bb4..ab6102c 100644
                                       NetSyncVisitor.ClassifyLoco(local.model, local.anim),
                                       pt.localPosition, pt.localRotation);
                  }
-@@ -2019,6 +2038,7 @@ namespace Memoria.Netsync
+@@ -2019,6 +2042,7 @@ namespace Memoria.Netsync
                  ServiceEventCoLocate(rs, fld, onField);                  // F2 L1: log the host's dialogue-scene edge (F3.2: never moves/freezes)
                  ServiceDialogAuthority(rs, fld, onField);                // F3.2 C2: lock every line from open; the host's events drive it (F3.3: from the section-7 ring)
                  FollowHostTick(rs, followFld, onField, onWorld);         // visitor mode: chase the peer's field [ff9mapkit netsync s144] + the world rejoin
@@ -325,7 +329,7 @@ index 7406bb4..ab6102c 100644
                  if (local != null && rs.Valid && rs.Field == fld)
                  {
                      _ghostLastPairedTick = Environment.TickCount;   // s56: ghost blip-grace baseline (last paired frame)
-@@ -2057,6 +2077,14 @@ namespace Memoria.Netsync
+@@ -2057,6 +2081,14 @@ namespace Memoria.Netsync
                              ApplyGhostMask(LocalMeshMask(local));
                          else if (hostRule)
                              ApplyGhostMask(_ghostRestMask);      // [ff9mapkit netsync s139] neither rule: CreateModel's own hides (one hairstyle)
@@ -340,7 +344,7 @@ index 7406bb4..ab6102c 100644
                          ServiceGhostLighting(ee);                // the tint tracks light-zone changes live
                      }
                      AutoTeleportTick(local, rs.Pos, false);    // F1: recover a separated guest (self-gated)
-@@ -6482,6 +6510,12 @@ namespace Memoria.Netsync
+@@ -6482,6 +6514,15 @@ namespace Memoria.Netsync
              DropQuadStart(null);             // F3.2: an armed quad start too (silent)
              _benchSceneLogged = false;
              _hostScene.Reset();              // F3.2 C2: the sticky scene (and its nonce) dies with the session
@@ -348,12 +352,15 @@ index 7406bb4..ab6102c 100644
 +            _hostSceneFresh = false;
 +            _hostInteractArmed = false;
 +            _hostWindows.Clear();
++            _hostPressArmed = false;
++            _hostCtlOffByPress = false;
++            _hostCtlPrev = true;
 +            HostPlainSceneNow = false;
 +            NetSyncStepOut.Reset();          // [ff9mapkit netsync s158] a step-out in progress steps in (its body is lit again)
              _hostEventFlag = 0;
              _hostEventNonce = 0;
              _lastIntentNonce = -1;
-@@ -6669,6 +6703,15 @@ namespace Memoria.Netsync
+@@ -6669,6 +6710,15 @@ namespace Memoria.Netsync
                  Boolean anyLine = !_hostScene.Active && onField && !ctl && NetSyncDialog.AnyEtbLine(true);   // read only when it can matter
                  String why;
                  Int32 edge = _hostScene.Step(onField, fld, ctl, worldMap, anyLine, Environment.TickCount, out why);
@@ -369,7 +376,7 @@ index 7406bb4..ab6102c 100644
                  if (edge == 1)
                      Log.Message("[NetSync] host scene: rose (nonce " + _hostScene.Nonce + ", field " + fld + ") -- " + why);
                  else if (edge == 2)
-@@ -6694,6 +6737,79 @@ namespace Memoria.Netsync
+@@ -6694,6 +6744,93 @@ namespace Memoria.Netsync
              }
          }
  
@@ -416,19 +423,33 @@ index 7406bb4..ab6102c 100644
 +            }
 +        }
 +
-+        // [ff9mapkit netsync s158] option C's fresh-line witness, every host frame: a snapshot of the open windows at my control's falling
-+        // edge; while the sticky scene is up, a lockable non-inhibited window not among them marks it fresh. HostPlainSceneNow = up, not a
-+        // talk's, fresh -- read by the paired block and the harness (never stale: written every host frame, false off a scene).
++        // [ff9mapkit netsync s158] option C's witnesses, every host frame. THE FRESH LINE: the open windows are snapshot on EVERY control-on
++        // frame and frozen when control falls, so a line opened in the DisableMove tick (two logic ticks in one frame: F1, a hitch) is
++        // fresh and a strip open with control on is old; while the sticky scene is up, a lockable non-[NFOC] window not among them marks it
++        // fresh. THE PRESS: a control-off episode that begins within HostPressMs of Confirm / Cancel / Special held with control on is an
++        // interaction (a chest, a hidden pickup, a Range-polled sign or poster -- an IsButton poll in a tag-2 function, which never reaches
++        // EventCollision's Request), never a plain scene. HostPlainSceneNow = up, not a talk's, fresh, not pressed -- read by the paired
++        // block and the harness (never stale: written every host frame, false off a scene).
 +        private void HostSceneLineTick(Boolean ctl)
 +        {
-+            if (!ctl && _hostCtlPrev)
++            Int32 now = Environment.TickCount;
++            if (ctl)
++            {
 +                _hostWindows.Take();
-+            else if (ctl && !_hostCtlPrev)
-+                _hostWindows.Clear();
++                UInt32 keys = 0;
++                try { keys = ETb.GetInputs(); } catch { }
++                if ((keys & (EventInput.Confirm | EventInput.Cancel | EventInput.Special)) != 0)
++                {
++                    _hostPressArmed = true;
++                    _hostPressTick = now;            // tick-baseline law: armed bool + delta
++                }
++            }
++            else if (_hostCtlPrev)
++                _hostCtlOffByPress = _hostPressArmed && now - _hostPressTick < HostPressMs;
 +            _hostCtlPrev = ctl;
 +            if (_hostScene.Active && !_hostSceneFresh && !ctl && _hostWindows.AnyFresh())
 +                _hostSceneFresh = true;
-+            HostPlainSceneNow = _hostScene.Active && !_hostSceneTalk && _hostSceneFresh;
++            HostPlainSceneNow = _hostScene.Active && !_hostSceneTalk && _hostSceneFresh && !_hostCtlOffByPress;
 +        }
 +
 +        // [ff9mapkit netsync s158] EventCollision's card-button branch (Request(obj, 1, 8): an NPC's Tetra Master prompt, never relayed):
@@ -449,16 +470,17 @@ index 7406bb4..ab6102c 100644
          // [ff9mapkit netsync F3.2] S2: a relayed talk (the NPC press) or a promoted quad starts a scene of its OWN
          // from the press -- an active one ends first -- so each relayed start carries a fresh nonce: the guest's
          // relay-accept purge (NetSyncDialog.PurgeAtRelayAccept) keys on it. The caller pushes the frame.
-@@ -6703,6 +6819,8 @@ namespace Memoria.Netsync
+@@ -6703,6 +6840,9 @@ namespace Memoria.Netsync
              if (_hostScene.StartAt(fld))
                  Log.Message("[NetSync] host scene: ended (nonce " + old + ") -- a new talk started");
              Log.Message("[NetSync] host scene: rose (nonce " + _hostScene.Nonce + ", field " + fld + ") -- a talk started");
 +            _hostSceneTalk = true;           // [ff9mapkit netsync s158] a relayed talk's scene: the guest stays visible (owner: plain NPC talks keep it)
 +            _hostSceneFresh = false;         // [ff9mapkit netsync s158]
++            HostPlainSceneNow = false;       // [ff9mapkit netsync s158] ServiceQuadPromotion runs after UpdateHostScene: the paired block reads this one
              _hostEventFlag = 1;
              _hostEventNonce = _hostScene.Nonce;
          }
-@@ -8173,6 +8291,7 @@ namespace Memoria.Netsync
+@@ -8173,6 +8313,7 @@ namespace Memoria.Netsync
                  {
                      _relayAcceptTick = Environment.TickCount;   // tick-baseline law: armed bool + delta
                      _relayAcceptArmed = true;
@@ -496,10 +518,10 @@ index 7d48eff..dc2ba64 100644
                      actor.idle = actor.idle != 0 ? (UInt16)MapRigAnim(rigIdx, actor.idle, SiteIdle, alias) : rig.Idle;
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
 new file mode 100644
-index 0000000..79d08ea
+index 0000000..7e8bfc1
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
-@@ -0,0 +1,1155 @@
+@@ -0,0 +1,1182 @@
 +using System;
 +using System.Collections.Generic;
 +using Memoria.Prime;
@@ -537,7 +559,8 @@ index 0000000..79d08ea
 +    //          queue, _Slice, _Color rgb: a slice or a blend stock writes on the body reaches it), shown only when the body's STOCK
 +    //          visibility says so; the body's eye takes the source's height while out (the speaker's window points at the stand-in's head).
 +    //          The stand-in runs in its own LateUpdate (NetSyncStandIn), after HonoBehaviorSystem's Update has run the logic tick and the
-+    //          smoothing pass. An UNDRESSED body is already the solo protagonist: it stays.
++    //          smoothing pass. An UNDRESSED body is already the solo protagonist: it stays. StepIn is synchronous too: the stand-in hides
++    //          and the darkened renderers relight in the same frame (when stock shows the body), stock's next pass refining them.
 +    // THE FIX, host side (NetSyncClient's paired block): a ZERO wire mask hides the ghost in every dress branch (today only the
 +    //   same-model branch read it), and while my sticky scene is up, was not raised by a relayed talk or an NPC's card button
 +    //   (StartSceneAt / NoteHostInteraction), and has shown a FRESH LINE since my control went off, the guest's ghost hides (option C).
@@ -567,7 +590,10 @@ index 0000000..79d08ea
 +    }
 +
 +    // THE FRESH-LINE SNAPSHOT: the lockable ETb windows open at one moment (a pooled Dialog is reused, so each is kept with its TextId);
-+    // AnyFresh = a lockable, NON-inhibited window open now that was not among them. Main thread only; allocation-free after construction.
++    // AnyFresh = a lockable window open now that was not among them and is not a [NFOC] strip -- the one tag that inhibits the window AT
++    // SHOW (DialogBoxSymbols: FlagButtonInh AND FlagResetChoice = false, which nothing else clears; Dialog.Reset sets it back). [TIME] /
++    // [INCS] set FlagButtonInh only at the label's first render, so the plain flag reads a self-closing scene line by Update order. Main
++    // thread only; allocation-free after construction.
 +    internal sealed class NetSyncWindowSnapshot
 +    {
 +        private readonly Dialog[] _open = new Dialog[16];
@@ -606,8 +632,8 @@ index 0000000..79d08ea
 +            for (Int32 k = 0; k < list.Count; k++)
 +            {
 +                Dialog d = list[k];
-+                if (!NetSyncDialog.IsLockable(d) || d.FlagButtonInh)
-+                    continue;
++                if (!NetSyncDialog.IsLockable(d) || (d.FlagButtonInh && !d.FlagResetChoice))
++                    continue;                           // not a script line, or a [NFOC] strip
 +                Boolean old = false;
 +                for (Int32 j = 0; j < _n && !old; j++)
 +                    old = ReferenceEquals(_open[j], d) && _text[j] == d.TextId;
@@ -659,7 +685,10 @@ index 0000000..79d08ea
 +        private static Int16 _eyeKept;                 // the dressed body's own eye, restored at StepIn
 +        private static Int16 _eyeSet;                  // the source eye written at StepOut (restored only while it still stands)
 +        private static readonly List<Obj> _children = new List<Obj>();   // the actors under the body at StepOut (attached props)
-+        private static readonly NetSyncWindowSnapshot _baseWindows = new NetSyncWindowSnapshot();
++        private static readonly NetSyncWindowSnapshot _baseWindows = new NetSyncWindowSnapshot();   // the windows open at MY last control-on frame
++        private static Int32 _snapField = -1;
++        private static Boolean[] _bodyWasOn;                // the dressed body's renderers' enables at the darken (restored at StepIn)
++        private static Renderer[] _bodyRends;
 +
 +        // ---------------------------------------------------------------- the stand-in
 +        private static GameObject _standin;
@@ -902,6 +931,16 @@ index 0000000..79d08ea
 +                    _talkArmed = false;                 // the talk's episode is over, its handler never took control, or the field changed
 +                Boolean climb = NetSyncGuestLocalArmed.On && NetSyncGuestLocal.InFlightNow(ee);
 +                Boolean talk = _talkArmed || talkLane;
++                if (eligible && onField)
++                {
++                    if (fld != _snapField)
++                    {
++                        _baseWindows.Clear();           // a new field: no window of the last one is old here
++                        _snapField = fld;
++                    }
++                    if (myCtl)
++                        _baseWindows.Take();            // frozen from the frame my control falls: a strip open with control on is old
++                }
 +                InEligible = eligible;
 +                InHostHere = hostHere;
 +                InHostCtlOff = hostCtlOff;
@@ -936,16 +975,13 @@ index 0000000..79d08ea
 +                if (whyNot != null)
 +                {
 +                    InLine = false;
-+                    if (_baseArmed)
-+                        _baseWindows.Clear();
 +                    _baseArmed = false;
 +                    return;
 +                }
 +                if (!_baseArmed)
 +                {
 +                    _baseArmed = true;
-+                    _baseSince = now;
-+                    _baseWindows.Take();                // what is open as the base begins is never a fresh line (a HUD strip)
++                    _baseSince = now;                   // the dwell's clock; the fresh-line snapshot is my control's (above)
 +                }
 +                Boolean line = _baseWindows.AnyFresh();
 +                InLine = line;
@@ -973,7 +1009,6 @@ index 0000000..79d08ea
 +            _outWhy = why;
 +            _backArmed = false;
 +            _baseArmed = false;
-+            _baseWindows.Clear();
 +            _stockVisible = ((Int32)local.flags & 1) == 1 && local.frontCamera;
 +            Outs++;
 +            OutBy[why]++;
@@ -1003,9 +1038,15 @@ index 0000000..79d08ea
 +                        _children.Add(fma.actor);
 +                Renderer[] rends = body.go.GetComponentsInChildren<Renderer>();
 +                _bodyRend = rends.Length > 0 ? rends[0] : null;
-+                foreach (Renderer r in rends)
-+                    if (r != null)
-+                        r.enabled = false;
++                _bodyRends = rends;
++                _bodyWasOn = new Boolean[rends.Length];
++                for (Int32 k = 0; k < rends.Length; k++)
++                {
++                    if (rends[k] == null)
++                        continue;
++                    _bodyWasOn[k] = rends[k].enabled;
++                    rends[k].enabled = false;
++                }
 +                NetSyncVisitor.Rig src;
 +                if (NetSyncVisitor.TryGetRig(0, out src) && src.Eye != 0)
 +                {
@@ -1030,11 +1071,16 @@ index 0000000..79d08ea
 +            NetSyncStepOutArmed.On = false;
 +            try
 +            {
++                if (_body != null && _eyeSwapped && _body.eye == _eyeSet)
++                    _body.eye = _eyeKept;               // a PosObj field: restored even when the field (and the go) is gone
++                ShowStandIn(false);                     // the stand-in leaves THIS frame (its GameObject is disposed by the system later)
 +                if (_body != null && _body.go != null)
 +                {
-+                    _body.tempFlag = -1;                // the body's stock visibility comes back at the next SetRenderer pass
-+                    if (_eyeSwapped && _body.eye == _eyeSet)
-+                        _body.eye = _eyeKept;
++                    if (wasDressed && _stockVisible && _bodyRends != null && _bodyWasOn != null)
++                        for (Int32 k = 0; k < _bodyRends.Length && k < _bodyWasOn.Length; k++)
++                            if (_bodyRends[k] != null && _bodyWasOn[k])
++                                _bodyRends[k].enabled = true;   // THE EDGE, synchronous: what the darken turned off (stock's pass refines it)
++                    _body.tempFlag = -1;                // the body's stock visibility is re-applied at the next SetRenderer pass
 +                }
 +                for (Int32 k = 0; k < _children.Count; k++)
 +                    if (_children[k] != null)
@@ -1047,6 +1093,8 @@ index 0000000..79d08ea
 +            _children.Clear();
 +            _eyeSwapped = false;
 +            _bodyRend = null;
++            _bodyRends = null;
++            _bodyWasOn = null;
 +            DespawnStandIn();
 +            _body = null;
 +            _uid = -1;
@@ -1075,6 +1123,7 @@ index 0000000..79d08ea
 +            _talkArmed = false;
 +            _baseArmed = false;
 +            _baseWindows.Clear();
++            _snapField = -1;
 +        }
 +
 +        // ================================================================ the hooks
@@ -1389,7 +1438,7 @@ index 0000000..79d08ea
 +        internal static String HarnessStandinGeo { get { return _standin != null ? _standinGeo : null; } }
 +        internal static String HarnessStandinClip { get { return _standin != null ? _standinClip : null; } }
 +        internal static Int32 HarnessStandinSrc { get { return _standin != null ? _standinSrc : -1; } }
-+        internal static Single HarnessBodyNorm { get { return _standin != null ? _bodyNorm : -1f; } }
++        internal static Single HarnessBodyNorm { get { return _standin != null && _body != null && _body.go != null ? BodyNorm(_body, _body.go) : -1f; } }
 +        internal static Boolean HarnessTalkArmed { get { return _talkArmed; } }
 +        internal static String HarnessGhostHideName { get { return Time.frameCount - _hideFrame <= 2 ? HideNames[GhostHideNow] : null; } }
 +

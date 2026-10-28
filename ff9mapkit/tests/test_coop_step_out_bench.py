@@ -38,7 +38,8 @@ _FIXTURES = r'''
 LAD = {"mount_bottom": (115, -9, 161), "mount_top": (284, -269, 203), "lo": -269, "hi": -9}
 MID = (200.0, 139.0, 182.0)     # on 207's ladder path, mid-height in the published frame (y negated by gt.pos)
 def st(active=True, control=False, dressed=False, why="dwell", wire=0, shown=0, body=6, shadow=1, shadow_off=0, stock_visible=True,
-       standin=None, why_not=None, line=False, host_ctl_off=True, my_ctl_off=None, climb=False, talk=False, t=None, inc=0, pos=None):
+       standin=None, why_not=None, line=False, host_ctl_off=True, my_ctl_off=None, climb=False, talk=False, t=None, inc=0, pos=None,
+       age=-1):
     my_ctl_off = (not control) if my_ctl_off is None else my_ctl_off
     s = {"player": {"control": control},
          "netsync": {"dress": {"ghost": {"shown_mask": shown, "hidden": [] if shown else ["a/b"]}},
@@ -47,7 +48,7 @@ def st(active=True, control=False, dressed=False, why="dwell", wire=0, shown=0, 
                                  "standin": standin or {"on": False, "shown": False},
                                  "in_why": {"control": inc},
                                  "base": {"why_not": why_not, "line": line, "host_ctl_off": host_ctl_off,
-                                          "my_ctl_off": my_ctl_off, "climb": climb, "talk": talk}}}}
+                                          "my_ctl_off": my_ctl_off, "climb": climb, "talk": talk, "age_ms": age}}}}
     if pos is not None:
         s["player"].update(x=pos[0], y=pos[1], z=pos[2])
     if t is not None:
@@ -125,6 +126,7 @@ OUT = {"good": G(drs()),
        "wrong_geo": G(drs(standin=si(geo="GEO_MAIN_F0_STN"))),
        "rig_clip": G(drs(standin=si(clip="ANH_MAIN_F0_STN_IDLE"))),
        "idle_on_the_ladder": G(drs(standin=si(clip="ANH_MAIN_F0_ZDN_IDLE"))),
+       "mount_clip_on_the_ladder": G(drs(standin=si(clip="ANH_MAIN_F0_ZDN_LADDER_1_1"))),
        "trails": G(drs(standin=si(dpos=120.0))),
        "off_time": G([r if i < 3 else dict(r, netsync=dict(r["netsync"], stepout=dict(r["netsync"]["stepout"],
                       standin=dict(r["netsync"]["stepout"]["standin"], norm=0.9)))) for i, r in enumerate(drs())]),
@@ -143,8 +145,9 @@ def test_the_in_judge_needs_the_debounce_the_counter_and_the_body_after_a_tick()
 b0 = {"in_why": {"control": 2}}
 def after(t_in, inc=3, wire=31, shown=31, body=6, standin=None, body_first=None):
     rows = [st(active=True, control=True, t=0.05, inc=2), st(active=True, control=True, t=t_in - 0.05, inc=2)]
-    first_body = body if body_first is None else body_first
-    rows.append(st(active=False, control=True, t=t_in, inc=inc, wire=wire, shown=shown, body=first_body, standin=standin or {"on": False}))
+    dark_first = body_first is not None                  # the first IN publish before the relight: mask, mirror and body all dark
+    rows.append(st(active=False, control=True, t=t_in, inc=inc, wire=0 if dark_first else wire, shown=0 if dark_first else shown,
+                   body=body_first if dark_first else body, standin=standin or {"on": False}))
     rows.append(st(active=False, control=True, t=t_in + 0.3, inc=inc, wire=wire, shown=shown, body=body, standin=standin or {"on": False}))
     return rows
 OUT = {"good": so.judge_in(after(0.55), 1.0, b0, dressed=True)[0],
@@ -181,14 +184,30 @@ OUT = {"good": so.judge_never(ok_s, lever=False, why_not=so.WHY_NOT_CLIMB, need=
 
 def test_a_short_climb_never_steps_out_and_a_long_one_is_never_green():
     out = _child(_FIXTURES + r'''
-short = [st(control=True, active=False, t=0.0), st(active=False, t=0.2), st(active=False, t=1.1), st(control=True, active=False, t=1.3)]
-long_ = [st(control=True, active=False, t=0.0), st(active=False, t=0.2), st(active=False, t=1.9), st(control=True, active=False, t=2.0)]
+short = [st(control=True, active=False, t=0.0), st(active=False, t=0.2, age=300), st(active=False, t=1.1, age=900),
+         st(control=True, active=False, t=1.3)]
+long_ = [st(control=True, active=False, t=0.0), st(active=False, t=0.2, age=300), st(active=False, t=1.9, age=1450),
+         st(control=True, active=False, t=2.0)]
+never_armed = [st(control=True, active=False, t=0.0), st(active=False, t=0.4, age=-1), st(control=True, active=False, t=0.9)]
 OUT = {"good": so.judge_short(short)[0],
        "stepped_out": so.judge_short(short[:2] + [st(active=True, t=1.1)] + short[3:])[0],
        "long": so.judge_short(long_)[0],
+       "never_armed": so.judge_short(never_armed)[0],
        "no_climb": so.judge_short([st(control=True, active=False, t=0.0)])[0]}
 ''')
-    assert out == {"good": True, "stepped_out": False, "long": None, "no_climb": False}, out
+    assert out == {"good": True, "stepped_out": False, "long": None, "never_armed": False, "no_climb": False}, out
+
+
+def test_the_debounce_shadow_judge_can_fail():
+    """THE SHADOW where a dark-term leak shows: the step-in debounce, stock's switch back on (two samples) -- drawn, or red."""
+    out = _child(_FIXTURES + r'''
+deb = lambda shadow, off=0: [st(active=True, control=True, shadow=shadow, shadow_off=off, t=0.1 * k) for k in range(4)]
+OUT = {"good": so.judge_shadow_debounce(deb(1), 1)[0],
+       "leaked_dark": so.judge_shadow_debounce(deb(0), 1)[0],
+       "vacuous": so.judge_shadow_debounce(deb(0, off=1), 1)[0],
+       "no_shadow_field": so.judge_shadow_debounce(deb(-1, off=-1), -1)[0]}
+''')
+    assert out == {"good": True, "leaked_dark": False, "vacuous": False, "no_shadow_field": True}, out
 
 
 def test_the_lever_marker_needs_every_part():
