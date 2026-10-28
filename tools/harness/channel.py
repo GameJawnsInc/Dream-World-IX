@@ -804,6 +804,19 @@ class State:
         """s158: the whole ``netsync.stepout`` block, copied (None = absent)."""
         return self._ns_path("stepout", dict)
 
+    # ---- [ff9mapkit netsync s159] THE ANCHOR (GUEST-TRAVERSAL-TWO-PC.md Finding 6): `netsync.stepout.anchor`, the block's LAST key.
+    @property
+    def coop_step_out_anchor(self) -> bool:
+        """s159: the step-out anchors on the guest's DRESSED body (``netsync.stepout.anchor`` present). False = an engine that
+        anchors on the controlled actor (s158: a co-actor binder leaves the dressed body lit) and answers `stepout ctl` with
+        its usage line."""
+        return self._ns_path("stepout.anchor", dict) is not None
+
+    @property
+    def step_out_anchor(self) -> dict | None:
+        """s159: ``netsync.stepout.anchor`` {uid, ctl_uid, dressed_uid, ctl_rends_on}, copied (None = absent)."""
+        return self._ns_path("stepout.anchor", dict)
+
     guest_local_mode = _guestlocal_prop("mode", str, "s156: the gate's EFFECTIVE mode -- 'act' | 'shadow' | 'off' (the lever on "
                                                      "the selftest role only, else 'act'; '' = the catch line).")
     guest_local_lever = _guestlocal_prop("lever", str, "s156: the `guestlocal` lever AS SET -- 'act' | 'shadow' | 'off' ('' = "

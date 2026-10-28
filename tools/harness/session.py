@@ -8538,9 +8538,15 @@ class Session:
     NETSYNC_STEPOUT_SUBVERBS = {
         "stepout": ("coop_step_out", "netsync.stepout", "s158", "the s158 party-scene step-out bench"),
     }
-    NETSYNC_STEPOUT_OPS = ("act", "off", "clear")
+    NETSYNC_STEPOUT_OPS = ("act", "off", "ctl", "clear")      # [ff9mapkit netsync s159] + `ctl`
     NETSYNC_STEPOUT_ROLE_REFUSAL = "netsync stepout: needs the selftest role (netsync selftest 1)"
-    NETSYNC_STEPOUT_USAGE = "netsync stepout: expected act|off|clear"
+    NETSYNC_STEPOUT_USAGE = "netsync stepout: expected act|off|ctl|clear"
+    #: [ff9mapkit netsync s159] the ops a LATER patch added, told by their own keys (an s158 engine answers `ctl` with its usage
+    #: line after the step; the driver refuses it before, naming the patch): the State accessor, the key, the patch, what it is.
+    NETSYNC_STEPOUT_OP_CAPS = {
+        "ctl": ("coop_step_out_anchor", "netsync.stepout.anchor", "s159",
+                "the step-out anchor's calibration lever (anchor on the controlled actor, s158's rule)"),
+    }
     #: [ff9mapkit netsync B4] `bmenu <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncBattle.HarnessStockMenu, s102).
     NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
@@ -9067,6 +9073,13 @@ class Session:
             op = str(args[0]).strip().lower() if args else ""
             if ns.get("selftest") is True and (len(args) != 1 or op not in self.NETSYNC_STEPOUT_OPS):
                 raise HarnessError(self.NETSYNC_STEPOUT_USAGE)
+            need = self.NETSYNC_STEPOUT_OP_CAPS.get(op) if len(args) == 1 else None
+            if need is not None and not getattr(st, need[0]):
+                # [ff9mapkit netsync s159] an op a later patch added: refused before the step, naming the key and the patch
+                attr, key, patch, what = need
+                raise HarnessError(
+                    f"netsync stepout {op}: the deployed engine publishes no `{key}` -- {what} is memoria-patch {patch}; an "
+                    f"engine before it answers \"netsync stepout: expected act|off|clear\". Not sent. Rebuild the DLL.")
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
             # [ff9mapkit netsync s145] THE WORLD DIOBOOT: a diorama boots from a live world map from s145 on (warm only: the engine's
             # pre-Arm verdict refuses anything a stock world battle could not return warm from). An s144 engine refuses it after
@@ -9298,7 +9311,9 @@ class Session:
     def stepout(self, op: str, *, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s158] ``netsync stepout act|off|clear`` (selftest role): off = CALIBRATION, never step out (a live
         step-out steps in); act / clear = the shipping rule -- through :meth:`netsync`'s gates (refused before the step on an
-        engine without ``netsync.stepout``). Returns a fresh state; read it back through :attr:`State.step_out`."""
+        engine without ``netsync.stepout``). [ff9mapkit netsync s159] ``ctl`` = CALIBRATION, anchor on the controlled actor
+        (s158's rule; refused before the step on an engine without ``netsync.stepout.anchor``). Returns a fresh state; read it
+        back through :attr:`State.step_out`."""
         return self.netsync("stepout", op, timeout=timeout)
 
     def act_trance_grace(self, on: bool, *, timeout: float = 20.0) -> State:

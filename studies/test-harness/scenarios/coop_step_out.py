@@ -44,11 +44,20 @@ Vivi), 207 DRESSED (`selfdress self steiner` before the warp: Zidane's player ob
             longest base age (base.age_ms) under 1.4 s and at least 0.2 s, and never out (THE ARRIVAL LAW in game); a longer one
             reads not-reached.
   D-DN      the D-UP extras on the climb down (the start pose regained by a bench-0 stock climb up, no host scene).
+  M-352     [ff9mapkit netsync s159] THE ANCHOR (GUEST-TRAVERSAL-TWO-PC.md Finding 6): `selfdress self steiner`, warp 352 entrance 3
+            at scenario 2505 (Dali's inn night scene: Zidane_Init dresses the Zidane entry but skips its bind, Dagger_Init takes
+            control -- s140's D3), hostscene 1. Witnessed first (else not reached): dress.self.ctl_elsewhere +1 on 352 and
+            stepout.anchor's ctl_uid != dressed_uid. Then OUT on the DRESSED body (stepout.uid == anchor.dressed_uid, dressed true)
+            with its renderers 0 on every out sample, a GEO_MAIN_F0_ZDN stand-in shown, the controlled actor still lit
+            (anchor.ctl_rends_on > 0), wire_mask 0, the mirror hidden. s158 stepped out on Dagger, undressed, and left Steiner lit.
   K-R       `reset` releases the lever (its line when the calibration held one); re-read with the role: lever null.
 
-THE CALIBRATION (COOP_CALIBRATE=1): `stepout off` is pulled right after K2 and HELD. PREDICTED_OFF = U-UP, D-UP, D-DN red, each with
-OFF_MARKER (control went off past the dwell, never active, base.why_not "the stepout lever is off"); the negatives judge only "never
-out" under the lever. K-CAL-M (judged before K-CAL) is green only when every predicted red carries its marker.
+THE CALIBRATION (COOP_CALIBRATE=1): `stepout off` is pulled right after K2 and HELD. PREDICTED_OFF = U-UP, D-UP, D-DN, M-352 red, each
+with OFF_MARKER (control went off past the dwell, never active, base.why_not "the stepout lever is off"); the negatives judge only
+"never out" under the lever. K-CAL-M (judged before K-CAL) is green only when every predicted red carries its marker.
+[ff9mapkit netsync s159] THE ANCHOR CALIBRATION (COOP_CALIBRATE=anchor): `stepout ctl` (s158's rule: anchor on the controlled actor)
+is pulled right after K2 and HELD. PREDICTED_CTL = M-352 red alone (everywhere else the anchor IS the controlled actor), with
+CTL_MARKER (out on the controlled actor -- uid == anchor.ctl_uid, not the dressed body -- and undressed).
 
 NOT PROVEN HERE (selftest rows only, or the two-PC session): the FRESH-LINE start (no local talk is reachable solo: the bench's only
 line is a relayed one, which the talk term blocks), the end on a talk or a climb started inside the episode (a relayed talk needs
@@ -61,6 +70,7 @@ stand-in's lighting, slice and blend copies (no stock slice on 207/114).
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 import time
@@ -130,16 +140,31 @@ CLAIMS = {
     "N-DWELL": "207, a stock climb down with NO hang, hostscene raised once mounted: a base held 0.2-1.4 s never steps out (THE "
                "ARRIVAL LAW in game)",
     "D-DN": "207 DRESSED, the stock climb down with a mid-ladder hang: the D-UP extras",
+    "M-352": "352 entrance 3 at 2505 DRESSED (Dali's inn night scene: control on Dagger, the Zidane entry dressed), hostscene 1: "
+             "witnessed by dress.self.ctl_elsewhere +1 on 352 and anchor.ctl_uid != anchor.dressed_uid; OUT on the DRESSED body "
+             "(uid == anchor.dressed_uid, dressed true) with its renderers 0 on every out sample, a GEO_MAIN_F0_ZDN stand-in shown, "
+             "the controlled actor lit (anchor.ctl_rends_on > 0), wire_mask 0, the mirror hidden",
     "K-R": "`reset` releases the lever (its line when the calibration held one); re-read with the role: lever null",
 }
-PREDICTED_OFF = ("U-UP", "D-UP", "D-DN")
+PREDICTED_OFF = ("U-UP", "D-UP", "D-DN", "M-352")
 OFF_MARKER = "control off past the dwell; never active; base.why_not 'the stepout lever is off'"
+# [ff9mapkit netsync s159] the anchor calibration (COOP_CALIBRATE=anchor: the `stepout ctl` lever, s158's rule)
+CAL_MODE = os.environ.get("COOP_CALIBRATE", "").strip().lower()
+CAL_CTL = CAL_MODE == "anchor"
+PREDICTED_CTL = ("M-352",)
+CTL_MARKER = "out on the controlled actor (uid == anchor.ctl_uid, not anchor.dressed_uid) and undressed"
+M352_FIELD, M352_ENTRANCE, M352_SCENARIO = 352, 3, 2505     # Dali's inn night scene (351's rest sets entrance 3)
+M352_ARRIVE_S = 15.0                                       # the warp to the D3 shape (Dagger_Init's bind after the dress)
+M352_HOLD_S = 4.0                                          # past the dwell (the night scene's first line is ~7 s in)
 FINALS = ("K-R", "K-CAL-M", "K-CAL")
 
 
-def catalog(calibrate: bool) -> dict:
+def catalog(calibrate: bool, ctl: bool = False) -> dict:
     cat = dict(CLAIMS)
-    if calibrate:
+    if ctl:                                                 # [ff9mapkit netsync s159] the anchor calibration
+        cat["K-CAL-M"] = "every predicted red carries its marker: " + CTL_MARKER
+        cat["K-CAL"] = "the anchor calibration: exactly " + ", ".join(PREDICTED_CTL) + " red"
+    elif calibrate:
         cat["K-CAL-M"] = "every predicted red carries its marker: " + OFF_MARKER
         cat["K-CAL"] = "the lever calibration: exactly " + ", ".join(PREDICTED_OFF) + " red"
     return cat
@@ -387,6 +412,67 @@ def judge_short(samples, *, lever: bool = False) -> tuple:
     return True, f"the base held {top:.2f} s at most and never stepped out"
 
 
+def anchor_of(x) -> dict:
+    """[ff9mapkit netsync s159] `netsync.stepout.anchor` ({} when absent: an s158 engine)."""
+    a = so_get(so(x), "anchor")
+    return a if isinstance(a, dict) else {}
+
+
+def d3_shape(x, field: int, ctl_elsewhere_before: int) -> bool:
+    """M-352's precondition: on ``field``, a NEW ctl_elsewhere there (a co-actor bound control after the dress), and the anchor block
+    names two different bodies (the controlled actor, the live dressed one)."""
+    a = anchor_of(x)
+    ce = cb.path(x, "netsync.dress.self.ctl_elsewhere")
+    cef = cb.path(x, "netsync.dress.self.ctl_elsewhere_field")
+    ctl, dressed = a.get("ctl_uid"), a.get("dressed_uid")
+    return (gt.field_of(x) == field and isinstance(ce, int) and ce > ctl_elsewhere_before and cef == field
+            and isinstance(ctl, int) and isinstance(dressed, int) and ctl >= 0 and dressed >= 0 and ctl != dressed)
+
+
+def judge_m352(samples) -> tuple:
+    """[ff9mapkit netsync s159] M-352: OUT, and every out sample acts on the DRESSED body -- uid == anchor.dressed_uid, dressed,
+    its renderers 0, a ZDN stand-in shown -- while the controlled actor (anchor.ctl_uid) stays lit, the wire mask is 0 and the mirror
+    hidden."""
+    outs = actives(samples)
+    if not outs:
+        return False, f"never OUT over {len(samples)} samples (why_not {sorted({str(so_get(so(s), 'base.why_not')) for s in samples})})"
+    bad = []
+    for s in outs:
+        b, a = so(s) or {}, anchor_of(s)
+        dressed_uid, ctl_uid = a.get("dressed_uid"), a.get("ctl_uid")
+        if not (isinstance(dressed_uid, int) and dressed_uid >= 0 and b.get("uid") == dressed_uid and dressed_uid != ctl_uid):
+            bad.append(f"uid {b.get('uid')!r} (dressed {dressed_uid!r}, ctl {ctl_uid!r})")
+        elif b.get("dressed") is not True:
+            bad.append("undressed")
+        elif b.get("body_rends_on") != 0:
+            bad.append(f"body_rends_on {b.get('body_rends_on')!r}")
+        elif not (isinstance(a.get("ctl_rends_on"), int) and a["ctl_rends_on"] > 0):
+            bad.append(f"ctl_rends_on {a.get('ctl_rends_on')!r}")
+        elif b.get("wire_mask") != 0:
+            bad.append(f"wire_mask {b.get('wire_mask')!r}")
+        elif not mirror_hidden(s):
+            bad.append(f"mirror shown (shown_mask {mirror_mask(s)!r})")
+    if bad:
+        return False, f"{len(bad)} of {len(outs)} out samples wrong: {bad[0]}"
+    shown = [s for s in outs if so_get(so(s), "standin.shown") is True and so_get(so(s), "standin.geo") == STANDIN_GEO]
+    if not shown:
+        return False, f"OUT on the dressed body but no {STANDIN_GEO} stand-in shown on any of {len(outs)} out samples"
+    first = outs[0]
+    return True, (f"OUT ({so_get(so(first), 'why')!r}) on the dressed uid {so_get(so(first), 'uid')!r}, control on uid "
+                  f"{anchor_of(first).get('ctl_uid')!r} lit ({anchor_of(first).get('ctl_rends_on')!r} renderers); {len(outs)} out "
+                  f"samples, the body dark on every one, the stand-in shown on {len(shown)}")
+
+
+def ctl_marker(samples) -> tuple:
+    """[ff9mapkit netsync s159] the anchor calibration's marker: out on the controlled actor, undressed, never the dressed body."""
+    outs = actives(samples)
+    on_ctl = [s for s in outs if so_get(so(s), "uid") == anchor_of(s).get("ctl_uid") != anchor_of(s).get("dressed_uid")]
+    undressed = [s for s in on_ctl if so_get(so(s), "dressed") is False]
+    parts = [("out", bool(outs)), ("on the controlled actor", bool(on_ctl) and len(on_ctl) == len(outs)),
+             ("undressed", bool(undressed) and len(undressed) == len(on_ctl))]
+    return all(v for _, v in parts), ", ".join(f"{k} {'ok' if v else 'NO'}" for k, v in parts)
+
+
 def off_marker(samples) -> tuple:
     offs = off_samples(samples)
     span = (offs[-1]["_t"] - offs[0]["_t"]) if offs else 0.0
@@ -499,10 +585,11 @@ def hang_climb(g, ctx: Ctx, leg: str, fid: int, direction: str, *, bench: bool, 
 
 
 def run(g, field: int | None = None):
-    calibrate = cb.CALIBRATE
+    ctl_cal = CAL_CTL                                      # [ff9mapkit netsync s159] COOP_CALIBRATE=anchor: the `ctl` lever
+    calibrate = cb.CALIBRATE and not ctl_cal               # the `off` lever (COOP_CALIBRATE=1)
     st0 = cb.poll(g, lambda s: s.netsync is not None, 15.0, "the netsync block (protocol 5)") or g.state
     ctx = Ctx(calibrate)
-    led = cb.Ledger(g, catalog(calibrate), finals=FINALS, width=1600)
+    led = cb.Ledger(g, catalog(calibrate, ctl_cal), finals=FINALS, width=1600)
     if field is not None:
         g.note(f"--field {field} is ignored: the bench picks its own fields (114 -> 207)")
     if not cb.has(st0, PROBE):
@@ -519,8 +606,15 @@ def run(g, field: int | None = None):
             ctx.lever_held = ok and st is not None
             g.note(f"CALIBRATION: `stepout off` {'taken' if ok else 'REFUSED: ' + why}, held for the whole run; predicted red "
                    f"{', '.join(PREDICTED_OFF)}")
+        if ctl_cal:
+            ok, why = _ns(g, "stepout", "ctl")
+            st = cb.poll(g, lambda s: so_get(so(s), "lever") == "ctl", 3.0, "the ctl lever read back")
+            ctx.lever_held = ok and st is not None
+            g.note(f"ANCHOR CALIBRATION: `stepout ctl` {'taken' if ok else 'REFUSED: ' + why}, held for the whole run; predicted "
+                   f"red {', '.join(PREDICTED_CTL)}")
         _field_114(g, ctx, led)
         _field_207(g, ctx, led)
+        _field_352(g, ctx, led)                            # [ff9mapkit netsync s159]
     except HarnessError as err:
         g.note(f"the run raised: {str(err)[:400]}")
         led.close(f"not reached: the run raised ({str(err)[:200]})")
@@ -535,8 +629,14 @@ def run(g, field: int | None = None):
             _k_r(g, ctx, led)
         else:
             led.unreached(["K-R"], "K0 refused")
-        g.note(f"Memoria.log archived: {cb.archive_log(g, 'step-out-' + ('lever' if calibrate else 'plain'))}")
-        if calibrate:
+        g.note(f"Memoria.log archived: {cb.archive_log(g, 'step-out-' + ('anchor' if ctl_cal else 'lever' if calibrate else 'plain'))}")
+        if ctl_cal:                                        # [ff9mapkit netsync s159]
+            led.close("not reached: the run ended before this check")
+            marks_ok = all(leg in ctx.marks and ctl_marker(ctx.marks[leg])[0] for leg in PREDICTED_CTL)
+            led.check("K-CAL-M", marks_ok, "; ".join(f"{leg}: {ctl_marker(ctx.marks[leg])[1] if leg in ctx.marks else 'NO RUN'}"
+                                                     for leg in PREDICTED_CTL))
+            led.judge_calibration("K-CAL", PREDICTED_CTL)
+        elif calibrate:
             led.close("not reached: the run ended before this check")
             marks_ok = all(leg in ctx.marks and off_marker(ctx.marks[leg])[0] for leg in PREDICTED_OFF)
             led.check("K-CAL-M", marks_ok, "; ".join(f"{leg}: {off_marker(ctx.marks[leg])[1] if leg in ctx.marks else 'NO RUN'}"
@@ -717,6 +817,52 @@ def _field_207(g, ctx: Ctx, led: cb.Ledger) -> None:
     _guard(g, led, "D-UP", 207, lambda: _d_climb(g, ctx, led, "D-UP", "up"))
     _guard(g, led, "N-DWELL", 207, lambda: _n_dwell(g, ctx, led))
     _guard(g, led, "D-DN", 207, lambda: _d_climb(g, ctx, led, "D-DN", "down"))
+
+
+def _field_352(g, ctx: Ctx, led: cb.Ledger) -> None:
+    """[ff9mapkit netsync s159] M-352: the anchor on Dali's inn night scene (a co-actor binder holds control)."""
+    if "M-352" not in led.catalog:
+        return
+    gt.set_bench(g, False)
+    ok, why = _ns(g, "selfdress", "self", "steiner")
+    if not ok:
+        led.unreached(["M-352"], f"`selfdress self steiner` refused: {why}")
+        return
+    before = cb.path(g.state, "netsync.dress.self.ctl_elsewhere")
+    before = before if isinstance(before, int) else 0
+    try:
+        g.poke(13, 0)
+        g.poke(14, 0)
+    except (HarnessError, AttributeError) as err:
+        g.note(f"warp {M352_FIELD}: the env-slot poke refused ({str(err)[:120]})")
+    try:
+        g.warp(M352_FIELD, entrance=M352_ENTRANCE, scenario=M352_SCENARIO)
+    except HarnessError as err:
+        led.unreached(["M-352"], f"warp {M352_FIELD} entrance {M352_ENTRANCE} failed: {str(err)[:200]}")
+        return
+    st = cb.poll(g, lambda s: d3_shape(s, M352_FIELD, before), M352_ARRIVE_S, "352's D3 shape (control on a co-actor)")
+    if st is None:
+        x = g.state
+        led.unreached(["M-352"], f"no D3 shape on {M352_FIELD}: field {gt.field_of(x)!r}, ctl_elsewhere "
+                                 f"{cb.path(x, 'netsync.dress.self.ctl_elsewhere')!r} (before {before}) on "
+                                 f"{cb.path(x, 'netsync.dress.self.ctl_elsewhere_field')!r}, anchor {anchor_of(x)!r}")
+        return
+    try:
+        hostscene(g, True)
+        t0 = time.time()
+        samples = _stamp(cb.hold_for(g, M352_HOLD_S), t0)
+    finally:
+        try:
+            hostscene(g, False)
+        except HarnessError:
+            pass
+    ctx.marks["M-352"] = samples
+    ok, why = judge_m352(samples)
+    led.check("M-352", ok, why)
+    try:
+        _arrive(g, 114)                                    # a field change ends the episode (in_why.field); K-R reads at rest
+    except HarnessError as err:
+        g.note(f"the warp back to 114 raised: {str(err)[:160]}")
 
 
 def _d_climb(g, ctx, led, leg: str, direction: str):

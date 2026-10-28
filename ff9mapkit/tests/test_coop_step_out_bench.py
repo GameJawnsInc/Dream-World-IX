@@ -261,3 +261,57 @@ OUT = {"words": [so.WHY_NOT_HOST_CONTROL, so.WHY_NOT_MY_CONTROL, so.WHY_NOT_CLIM
 ''')
     missing = [w for w in out["words"] if w not in added]
     assert not missing, missing
+
+
+# ================================================================================================ [ff9mapkit netsync s159] THE ANCHOR
+_M352 = r'''
+def ma(active=True, uid=17, dressed=True, body=0, ctl=19, dressed_uid=17, ctl_rends=5, wire=0, shown=0, standin=None, why="dwell",
+       ctl_elsewhere=1, ce_field=352, field=352, why_not=None):
+    s = st(active=active, dressed=dressed, why=why, wire=wire, shown=shown, body=body, standin=standin or GOOD_SI, why_not=why_not)
+    s["netsync"]["stepout"]["uid"] = uid if active else -1
+    s["netsync"]["stepout"]["anchor"] = {"uid": uid, "ctl_uid": ctl, "dressed_uid": dressed_uid, "ctl_rends_on": ctl_rends}
+    s["netsync"]["dress"]["self"] = {"ctl_elsewhere": ctl_elsewhere, "ctl_elsewhere_field": ce_field}
+    s["field"] = {"id": field}                   # the engine publishes `field` as a block (gt.field_of)
+    return s
+def run(**kw):
+    rows = [ma(active=False, why_not=None)] + [ma(**kw) for _ in range(4)]
+    return so.judge_m352(rows)[0]
+'''
+
+
+def test_the_m352_judge_can_go_red_on_each_part():
+    """M-352 is green only when every OUT sample acts on the DRESSED body (not the controlled one), dark, with a ZDN stand-in shown,
+    the controlled actor lit, the mask 0 and the mirror hidden -- and red when it never steps out."""
+    out = _child(_FIXTURES + _M352 + r'''
+bad_si = dict(GOOD_SI); bad_si["geo"] = "GEO_MAIN_F0_STN"
+OUT = {"good": run(), "on_ctl": run(uid=19), "undressed": run(dressed=False), "body_lit": run(body=4),
+       "ctl_dark": run(ctl_rends=0), "ctl_none": run(ctl_rends=-1), "mask": run(wire=31), "mirror": run(shown=31),
+       "wrong_standin": run(standin=bad_si), "same_body": run(ctl=17), "never": so.judge_m352([ma(active=False)] * 3)[0]}
+''')
+    assert out == {"good": True, "on_ctl": False, "undressed": False, "body_lit": False, "ctl_dark": False, "ctl_none": False,
+                   "mask": False, "mirror": False, "wrong_standin": False, "same_body": False, "never": False}, out
+
+
+def test_the_m352_precondition_and_the_anchor_marker_can_fail():
+    """d3_shape needs 352, a NEW ctl_elsewhere there and two different bodies; the anchor calibration's marker needs an OUT on the
+    controlled actor, undressed, on every out sample."""
+    out = _child(_FIXTURES + _M352 + r'''
+f = lambda **kw: so.d3_shape(ma(**kw), 352, 0)
+mk = lambda **kw: so.ctl_marker([ma(active=False)] + [ma(**kw)] * 3)[0]
+OUT = {"shape": f(), "old_ce": so.d3_shape(ma(), 352, 1), "other_field": f(ce_field=351), "same": f(ctl=17),
+       "no_ctl": f(ctl=-1), "not_here": f(field=351),
+       "marker": mk(uid=19, dressed=False), "marker_dressed": mk(uid=19, dressed=True), "marker_anchor": mk(uid=17, dressed=False),
+       "marker_never": so.ctl_marker([ma(active=False)] * 3)[0]}
+''')
+    assert out == {"shape": True, "old_ce": False, "other_field": False, "same": False, "no_ctl": False, "not_here": False,
+                   "marker": True, "marker_dressed": False, "marker_anchor": False, "marker_never": False}, out
+
+
+def test_the_anchor_calibration_predicts_m352_alone():
+    """COOP_CALIBRATE=anchor: K-CAL / K-CAL-M name M-352 alone; the off lever's predicted reds gain M-352 (never out there either)."""
+    out = _child(r'''
+OUT = {"ctl": so.catalog(False, True)["K-CAL"], "off": so.catalog(True)["K-CAL"], "pred": list(so.PREDICTED_CTL),
+       "off_has": "M-352" in so.PREDICTED_OFF, "claim": "M-352" in so.CLAIMS, "where": [so.M352_FIELD, so.M352_ENTRANCE, so.M352_SCENARIO]}
+''')
+    assert out["pred"] == ["M-352"] and out["ctl"].endswith("exactly M-352 red") and out["off_has"] and out["claim"]
+    assert "M-352" in out["off"] and out["where"] == [352, 3, 2505], out

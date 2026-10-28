@@ -1,0 +1,394 @@
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 5f84f5e..adc5232 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -364,6 +364,11 @@ namespace Memoria.Harness
+         // and `netsync` gains one sub-verb, `stepout` (selftest role only, role first): `act|off|clear` -- off = CALIBRATION, never step
+         // out (a live step-out steps in) -- NetSyncStepOut.HarnessLever, released with the harness (NetSyncBattle.HarnessReleaseBench ->
+         // NetSyncStepOut.HarnessRelease). A driver checks for `netsync.stepout`; the wire stays v14.
++        // [ff9mapkit netsync s159] (THE ANCHOR: GUEST-TRAVERSAL-TWO-PC.md Finding 6), also additive under 5: `netsync.stepout` gains
++        // `anchor` {uid, ctl_uid, dressed_uid, ctl_rends_on} as its LAST key (see AppendStepOut; key PRESENCE is the capability),
++        // `body_rends_on` / `shadow` / `shadow_off` read the anchor body (the controlled actor's before), the proof line gains seven
++        // rows and three mutants, and `stepout` gains one op, `ctl` (CALIBRATION: anchor on the controlled actor, s158's rule; an s158
++        // engine answers it with "expected act|off|clear"). A driver checks for `netsync.stepout.anchor`; the wire stays v14.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -3930,8 +3935,8 @@ namespace Memoria.Harness
+                 // target -1, steps / wraps / snaps / restores 0) -- AppendGhostFrame's keys at their sentinels.
+                 // [ff9mapkit netsync s158] netsync gains `stepout` after s157's `ghostframe`, its LAST key -- AppendStepOut's keys at their
+                 // sentinels (lever / why / why_not / geo / clip / hide / last_fault / selftest null, the flags false, the ids, ages, masks
+-                // and norms -1, the counters 0).
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null},\"boot_song\":-1,\"leave_song_live\":false},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false,\"overlay_text\":null,\"follow\":{\"pending\":-1,\"warped_to\":-1,\"candidate\":-1,\"world_armed\":-1,\"on_world\":false,\"host_world\":false,\"host_title\":false,\"hold\":-1}},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1,\"guard\":{\"leader\":-1,\"raw\":0,\"effective\":0,\"moved_from\":-1,\"moved_to\":-1,\"off\":false,\"line\":null,\"line_shown\":false,\"leader_model\":-1,\"chars\":[-1,-1,-1,-1],\"nonce\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"guard\":{\"nonce\":-1,\"mask\":-1,\"line\":null,\"shown\":false},\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false,\"twin_rows\":0,\"twins\":0,\"twin_misses\":0,\"twin_last\":{\"src\":-1,\"twin\":-1,\"site\":-1},\"ghost_clip_misses\":0,\"twin_clips_on_disc\":-1,\"twin_clip_missing\":-1,\"twin\":null,\"twin_selftest\":null},\"guard\":{\"leader\":-1,\"raw\":-1,\"effective\":-1,\"moved_from\":-1,\"moved_to\":-1}},\"world\":{\"freeze\":{\"on\":false,\"why\":null,\"off\":false,\"released\":false,\"edges\":0,\"skips\":0,\"keys\":0,\"map\":0,\"location\":0,\"battles\":0},\"rejoin\":{\"latch\":false,\"arms\":0,\"lands\":0,\"timeouts\":0,\"redirects\":0,\"rearms\":0,\"why\":null,\"last\":-1},\"waitline\":{\"line\":null,\"fallback\":false,\"away_ms\":-1},\"dio\":{\"booted_world\":false,\"boot_world\":-1,\"boot\":null,\"prev_mode_at_boot\":-1,\"lever\":null,\"declines\":0,\"decline_why\":null,\"decline_durable\":false,\"visit_decline\":null,\"wait_why\":null,\"returns\":0,\"last_return\":null,\"last_world\":-1,\"resuming\":false,\"suspend_song\":-1,\"song_sid\":-1,\"boot_song_live\":false}},\"guestlocal\":{\"mode\":null,\"lever\":null,\"rows\":-1,\"funcs\":-1,\"table_crc\":null,\"selftest\":null,\"last\":{\"seq\":0,\"field\":-1,\"entry\":-1,\"verdict\":null,\"reason\":null,\"kind\":null,\"hashed\":0,\"age_ms\":-1},\"verdicts\":{\"allow\":0,\"shadow\":0,\"lever_off\":0,\"not_field\":0,\"special\":0,\"no_row\":0,\"unverified\":0,\"wrong_body\":0,\"own_story\":0,\"no_control\":0,\"in_flight\":0,\"warp\":0,\"host_scene\":0,\"busy\":0},\"in_flight\":false,\"flight\":{\"field\":-1,\"entry\":-1,\"kind\":null,\"region_uid\":-1,\"body_uid\":-1,\"age_ms\":-1,\"seen_off\":false,\"body_open\":false,\"body_ran\":false,\"seq_open\":false},\"climbs\":0,\"ended\":0,\"bailed\":0,\"aborted\":0,\"abort_why\":null,\"long_climbs\":0,\"boots_mid_climb\":0,\"trips\":{\"total\":0,\"op\":0,\"glob\":0,\"last\":null},\"tp_calls\":0,\"tp_refusals\":0,\"tp_last\":null,\"talk_queued\":0,\"talk_held\":0,\"talk_applied_after_climb\":0,\"talk_expired\":0,\"mutate\":{\"armed\":false,\"index\":-1,\"spent\":false,\"hit\":false,\"hashed\":0}},\"ghostframe\":{\"lever_off\":false,\"follow\":false,\"why\":null,\"has_frame\":false,\"wire_anim\":-1,\"wire_frame\":-1,\"wire_frame_n\":-1,\"wire_loco\":-1,\"clip\":null,\"speed\":-1,\"time\":-1,\"length\":-1,\"shown\":-1,\"target\":-1,\"steps\":0,\"wraps\":0,\"snaps\":0,\"restores\":0,\"selftest\":null},\"stepout\":{\"lever\":null,\"active\":false,\"field\":-1,\"uid\":-1,\"dressed\":false,\"why\":null,\"age_ms\":-1,\"base\":{\"eligible\":false,\"host_here\":false,\"host_ctl_off\":false,\"my_ctl_off\":false,\"climb\":false,\"talk\":false,\"line\":false,\"host_scene\":false,\"why_not\":null,\"age_ms\":-1},\"talk_armed\":false,\"outs\":0,\"ins\":0,\"out_why\":{\"line\":0,\"dwell\":0},\"in_why\":{\"control\":0,\"field\":0,\"body\":0,\"session\":0,\"lever\":0,\"talk\":0,\"climb\":0},\"wire_mask\":-1,\"stock_visible\":false,\"body_rends_on\":-1,\"shadow\":-1,\"shadow_off\":-1,\"standin\":{\"on\":false,\"shown\":false,\"geo\":null,\"clip\":null,\"src_anim\":-1,\"norm\":-1,\"body_norm\":-1,\"dpos\":-1,\"rends_on\":-1,\"spawns\":0,\"frames\":0,\"missing_clip\":0},\"ghost\":{\"hide\":null,\"edges\":0,\"by\":{\"mask0\":0,\"host_scene\":0,\"step_out\":0}},\"host_plain_scene\":false,\"talk_accepts\":0,\"faults\":0,\"last_fault\":null,\"selftest\":null}}");
++                // and norms -1, the counters 0). [ff9mapkit netsync s159] ...and `anchor` {uid, ctl_uid, dressed_uid, ctl_rends_on} -1 last.
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null},\"boot_song\":-1,\"leave_song_live\":false},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false,\"overlay_text\":null,\"follow\":{\"pending\":-1,\"warped_to\":-1,\"candidate\":-1,\"world_armed\":-1,\"on_world\":false,\"host_world\":false,\"host_title\":false,\"hold\":-1}},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1,\"guard\":{\"leader\":-1,\"raw\":0,\"effective\":0,\"moved_from\":-1,\"moved_to\":-1,\"off\":false,\"line\":null,\"line_shown\":false,\"leader_model\":-1,\"chars\":[-1,-1,-1,-1],\"nonce\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"guard\":{\"nonce\":-1,\"mask\":-1,\"line\":null,\"shown\":false},\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false,\"twin_rows\":0,\"twins\":0,\"twin_misses\":0,\"twin_last\":{\"src\":-1,\"twin\":-1,\"site\":-1},\"ghost_clip_misses\":0,\"twin_clips_on_disc\":-1,\"twin_clip_missing\":-1,\"twin\":null,\"twin_selftest\":null},\"guard\":{\"leader\":-1,\"raw\":-1,\"effective\":-1,\"moved_from\":-1,\"moved_to\":-1}},\"world\":{\"freeze\":{\"on\":false,\"why\":null,\"off\":false,\"released\":false,\"edges\":0,\"skips\":0,\"keys\":0,\"map\":0,\"location\":0,\"battles\":0},\"rejoin\":{\"latch\":false,\"arms\":0,\"lands\":0,\"timeouts\":0,\"redirects\":0,\"rearms\":0,\"why\":null,\"last\":-1},\"waitline\":{\"line\":null,\"fallback\":false,\"away_ms\":-1},\"dio\":{\"booted_world\":false,\"boot_world\":-1,\"boot\":null,\"prev_mode_at_boot\":-1,\"lever\":null,\"declines\":0,\"decline_why\":null,\"decline_durable\":false,\"visit_decline\":null,\"wait_why\":null,\"returns\":0,\"last_return\":null,\"last_world\":-1,\"resuming\":false,\"suspend_song\":-1,\"song_sid\":-1,\"boot_song_live\":false}},\"guestlocal\":{\"mode\":null,\"lever\":null,\"rows\":-1,\"funcs\":-1,\"table_crc\":null,\"selftest\":null,\"last\":{\"seq\":0,\"field\":-1,\"entry\":-1,\"verdict\":null,\"reason\":null,\"kind\":null,\"hashed\":0,\"age_ms\":-1},\"verdicts\":{\"allow\":0,\"shadow\":0,\"lever_off\":0,\"not_field\":0,\"special\":0,\"no_row\":0,\"unverified\":0,\"wrong_body\":0,\"own_story\":0,\"no_control\":0,\"in_flight\":0,\"warp\":0,\"host_scene\":0,\"busy\":0},\"in_flight\":false,\"flight\":{\"field\":-1,\"entry\":-1,\"kind\":null,\"region_uid\":-1,\"body_uid\":-1,\"age_ms\":-1,\"seen_off\":false,\"body_open\":false,\"body_ran\":false,\"seq_open\":false},\"climbs\":0,\"ended\":0,\"bailed\":0,\"aborted\":0,\"abort_why\":null,\"long_climbs\":0,\"boots_mid_climb\":0,\"trips\":{\"total\":0,\"op\":0,\"glob\":0,\"last\":null},\"tp_calls\":0,\"tp_refusals\":0,\"tp_last\":null,\"talk_queued\":0,\"talk_held\":0,\"talk_applied_after_climb\":0,\"talk_expired\":0,\"mutate\":{\"armed\":false,\"index\":-1,\"spent\":false,\"hit\":false,\"hashed\":0}},\"ghostframe\":{\"lever_off\":false,\"follow\":false,\"why\":null,\"has_frame\":false,\"wire_anim\":-1,\"wire_frame\":-1,\"wire_frame_n\":-1,\"wire_loco\":-1,\"clip\":null,\"speed\":-1,\"time\":-1,\"length\":-1,\"shown\":-1,\"target\":-1,\"steps\":0,\"wraps\":0,\"snaps\":0,\"restores\":0,\"selftest\":null},\"stepout\":{\"lever\":null,\"active\":false,\"field\":-1,\"uid\":-1,\"dressed\":false,\"why\":null,\"age_ms\":-1,\"base\":{\"eligible\":false,\"host_here\":false,\"host_ctl_off\":false,\"my_ctl_off\":false,\"climb\":false,\"talk\":false,\"line\":false,\"host_scene\":false,\"why_not\":null,\"age_ms\":-1},\"talk_armed\":false,\"outs\":0,\"ins\":0,\"out_why\":{\"line\":0,\"dwell\":0},\"in_why\":{\"control\":0,\"field\":0,\"body\":0,\"session\":0,\"lever\":0,\"talk\":0,\"climb\":0},\"wire_mask\":-1,\"stock_visible\":false,\"body_rends_on\":-1,\"shadow\":-1,\"shadow_off\":-1,\"standin\":{\"on\":false,\"shown\":false,\"geo\":null,\"clip\":null,\"src_anim\":-1,\"norm\":-1,\"body_norm\":-1,\"dpos\":-1,\"rends_on\":-1,\"spawns\":0,\"frames\":0,\"missing_clip\":0},\"ghost\":{\"hide\":null,\"edges\":0,\"by\":{\"mask0\":0,\"host_scene\":0,\"step_out\":0}},\"host_plain_scene\":false,\"talk_accepts\":0,\"faults\":0,\"last_fault\":null,\"selftest\":null,\"anchor\":{\"uid\":-1,\"ctl_uid\":-1,\"dressed_uid\":-1,\"ctl_rends_on\":-1}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -4766,7 +4771,8 @@ namespace Memoria.Harness
+         // [ff9mapkit netsync s158] `netsync.stepout` -- THE PARTY-SCENE STEP-OUT (NetSyncStepOut), netsync's LAST key (after
+         // s157's `ghostframe`), additive under protocol 5, published in EVERY role (a host reads its option-C and zero-mask hides here). Key
+         // PRESENCE is the capability (an s156 / s157 engine publishes none). Harness-only reads; counters monotonic per process (DELTAS).
+-        //   lever            the `stepout` lever AS SET (null = none: the shipping rule; "off" = never step out)
++        //   lever            the `stepout` lever AS SET (null = none: the shipping rule; "off" = never step out; [ff9mapkit netsync s159]
++        //                    "ctl" = anchor on the controlled actor, s158's rule)
+         //   active / field / uid / dressed / why / age_ms   the episode now (`why`: "line" | "scene" | "dwell"; sentinels while none)
+         //   base             the last Tick's inputs -- eligible, host_here, host_ctl_off, my_ctl_off, climb, talk, line, host_scene --
+         //                    `why_not` (the FIRST failing base term, BaseWhyNot's words; null while it holds or an episode runs) and
+@@ -4776,7 +4782,8 @@ namespace Memoria.Harness
+         //                    "session" | "lever" | "talk" | "climb")
+         //   wire_mask        the mask last handed to the wire (live SetLocal) or to the selftest mirror: 0 while stepped out
+         //   stock_visible    while out, the body's STOCK visibility (flag4 && frontCamera) the stand-in follows
+-        //   body_rends_on    the CONTROLLED body's enabled renderers (0 while a dressed body is out); `shadow` its blob shadow (1/0/-1)
++        //   body_rends_on    the ANCHOR body's enabled renderers (0 while a dressed body is out; [s159] the controlled body's before);
++        //                    `shadow` its blob shadow (1/0/-1)
+         //                    and `shadow_off` stock's own shadow switch on it (FF9Char attr bit 16: 1 off, 0 on, -1 none)
+         //   standin          the Zidane stand-in: on, shown, geo, clip, src_anim (the source clip id SourceAnim chose), norm (its sampled
+         //                    normalized time, read off its AnimationState at the publish), body_norm (the body's, as Follow last
+@@ -4787,6 +4794,9 @@ namespace Memoria.Harness
+         //   host_plain_scene the host's option-C read, every host frame (its sticky scene up, not a relayed talk's or a card button's,
+         //                    and a fresh line shown since its control went off)
+         //   talk_accepts / faults / last_fault / selftest   (selftest: null until the proof block ran, then "ok" | "fail: <row>")
++        //   anchor           [ff9mapkit netsync s159] the body the episode acts on (NetSyncStepOut.Anchor): `uid` the anchor now (the
++        //                    episode's while one runs; -1 none), `ctl_uid` the controlled actor, `dressed_uid` the body dressed on
++        //                    this load while it lives (-1), `ctl_rends_on` the controlled actor's enabled renderers (-1 none)
+         private static void AppendStepOut(StringBuilder sb)
+         {
+             sb.Append("\"stepout\":{");
+@@ -4863,8 +4873,13 @@ namespace Memoria.Harness
+             Num(sb, "talk_accepts", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.TalkAccepts, 0L)); sb.Append(",");
+             Num(sb, "faults", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.Faults, 0L)); sb.Append(",");
+             Str(sb, "last_fault", Try(() => Memoria.Netsync.NetSyncStepOut.LastFault)); sb.Append(",");
+-            Str(sb, "selftest", Try(() => Memoria.Netsync.NetSyncStepOut.SelfTestVerdict));
+-            sb.Append("}");
++            Str(sb, "selftest", Try(() => Memoria.Netsync.NetSyncStepOut.SelfTestVerdict)); sb.Append(",");
++            sb.Append("\"anchor\":{");                                                                      // [ff9mapkit netsync s159]
++            Num(sb, "uid", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.HarnessAnchorUid, -1L)); sb.Append(",");
++            Num(sb, "ctl_uid", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.HarnessCtlUid, -1L)); sb.Append(",");
++            Num(sb, "dressed_uid", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.HarnessDressedUid, -1L)); sb.Append(",");
++            Num(sb, "ctl_rends_on", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.HarnessCtlRendsOn, -1L));
++            sb.Append("}}");
+         }
+ 
+         // [ff9mapkit netsync R3 s121] `netsync.menu_refusal` -- THE AUDIBLE MENU REFUSAL (guest side; NetSyncField.RefuseMainMenu, from
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 731f4ce..3b7ee21 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -6792,7 +6792,7 @@ namespace Memoria.Netsync
+         {
+             try
+             {
+-                Actor local = onField && ee != null ? ee.GetControlChar() as Actor : null;
++                Actor local = onField && ee != null ? NetSyncStepOut.Anchor(ee) : null;   // [ff9mapkit netsync s159] the ANCHOR: the dressed body
+                 Boolean eligible, hostHere, hostCtlOff, hostScene, talkLane;
+                 if (bench)
+                 {
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
+index b455c93..70d9a05 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
+@@ -22,7 +22,8 @@ namespace Memoria.Netsync
+     //          strip that outlives control is never one), else after DwellMs of the base. THE ARRIVAL LAW: a door's fade-in is control-off
+     //          on both copies with no line, and it must never step out (a dressed guest would flash Zidane at every arrival). The host's
+     //          sticky scene is NOT a start: on a field with a persistent strip it rises at every control-off beat (review 2026-10-27).
+-    //   END    (EndRule) my control back for StepInMs, the field or the controlled body changing, the session ending, the lever, and AT
++    //   END    (EndRule) my control back for StepInMs, the field or the ANCHOR changing ([ff9mapkit netsync s159]: the dressed body gone
++    //          or changed -- never a mere control rebind), the session ending, the lever, and AT
+     //          ONCE a relayed talk or a guest climb my copy starts inside the episode (both need my control back, so both land in the
+     //          debounce window: without this term the episode carried on through a plain NPC talk). The host's state is NOT an end
+     //          input: my copy may lag the host's scene, and its tail is still the scene.
+@@ -41,9 +42,19 @@ namespace Memoria.Netsync
+     //   same-model branch read it), and while my sticky scene is up, was not raised by a relayed talk or an NPC's card button
+     //   (StartSceneAt / NoteHostInteraction), and has shown a FRESH LINE since my control went off, the guest's ghost hides (option C).
+     // Accepted, not fixed: a prop attached to a dressed body mid-episode stays at the dark rig's hand; the head focus and a mirror floor's
+-    // reflection are not copied; the dress rig's footsteps keep sounding under the stand-in; the multi-binder fields (control on another
+-    // entry than the dressed one) keep the double; free-roam doubles (F); a talk that turns into a party cutscene (G); a scene with no
+-    // fresh line shorter than DwellMs shows the double for its length; the pop.
++    // reflection are not copied; the dress rig's footsteps keep sounding under the stand-in; free-roam doubles (F); a talk that turns
++    // into a party cutscene (G); a scene with no fresh line shorter than DwellMs shows the double for its length; the pop.
++    //
++    // [ff9mapkit netsync s159] THE ANCHOR (GUEST-TRAVERSAL-TWO-PC.md Finding 6, the second two-PC session): s158 anchored the episode on
++    // the CONTROLLED actor. On Dali 352's inn night scene (entrance 3) Zidane_Init dresses the Zidane entry (uid 17) but skips its own
++    // DefinePlayerCharacter, and Dagger_Init binds control to uid 19 (a co-actor binder, s140's D3): the step-out went OUT on Dagger,
++    // undressed, and left the dressed uid 17 lit as a second Steiner speaking all of Zidane's lines. The episode now anchors on the
++    // guest's DRESSED body (AnchorRule / Anchor): the controlled actor when it is dressed, else the live body dressed on this load
++    // (NetSyncSelfDress.DressUid, found in activeObj: a terminated body is never found), else the controlled actor (undressed: the wire
++    // mask and the ghost hide only). A control rebind is no longer an end; the anchor's death, a lost go or a lost dress still is.
++    // A START still needs a controlled actor, as in s158, so the dwell never arms on a load before its bind (THE ARRIVAL LAW keeps
++    // s158's timing).
++    // The undressed controlled actor (Dagger) is never touched. The `stepout ctl` lever is s158's rule (CALIBRATION).
+     //
+     // Vanilla, a host and solo play pay one static read per hook site (NetSyncStepOutArmed.On, which only StepOut sets); nothing goes on
+     // the wire but the mask the lane already carries (wire v14 unchanged). Every hook catches its own faults (`netsync.stepout.faults`).
+@@ -138,8 +149,10 @@ namespace Memoria.Netsync
+         private const String SourceGeoFallback = "GEO_MAIN_F0_ZDN";
+ 
+         // ---------------------------------------------------------------- the lever (selftest role only; released with the harness)
+-        private static Int32 _lever;                   // 0 none (act), 1 off (CALIBRATION: never step out)
++        private static Int32 _lever;                   // 0 none (act), 1 off (CALIBRATION: never step out), 2 ctl ([ff9mapkit netsync s159]
++                                                       // CALIBRATION: anchor on the controlled actor, s158's rule)
+         internal static Boolean LeverOff { get { return _lever == 1 && NetSyncClient.IsSelfTestRole; } }
++        internal static Boolean LeverCtl { get { return _lever == 2 && NetSyncClient.IsSelfTestRole; } }   // [ff9mapkit netsync s159]
+ 
+         // ---------------------------------------------------------------- the episode
+         private static Boolean _active;
+@@ -272,6 +285,38 @@ namespace Memoria.Netsync
+             return HideNone;
+         }
+ 
++        // [ff9mapkit netsync s159] THE ANCHOR: the uid the episode acts on -- the controlled actor when it is dressed; else the body
++        // dressed on this load while it lives (a co-actor binder holds control: 352's night scene); else the controlled actor. -1 = none.
++        internal static Int32 AnchorRule(Int32 ctlUid, Boolean ctlDressed, Int32 dressedUid, Boolean dressedLive)
++        {
++            if (ctlUid >= 0 && ctlDressed)
++                return ctlUid;
++            if (dressedUid >= 0 && dressedLive)
++                return dressedUid;
++            return ctlUid;
++        }
++
++        // [ff9mapkit netsync s159] AnchorRule over the live engine (ServiceStepOut, every frame; the harness reads). The dressed body is
++        // looked up in activeObj (FindObjByUID: TerminateEntry unlinks it at once) and only while this load has dressed one
++        // (DressUid is not reset per load). The `ctl` lever answers the controlled actor (s158's rule). Never throws.
++        internal static Actor Anchor(EventEngine ee)
++        {
++            if (ee == null)
++                return null;
++            Actor ctl = ee.GetControlChar() as Actor;
++            if (LeverCtl)
++                return ctl;
++            Actor dressed = null;
++            if (NetSyncSelfDress.LoadHasDress && NetSyncSelfDress.DressUid >= 0)
++                dressed = ee.FindObjByUID(NetSyncSelfDress.DressUid) as Actor;
++            Boolean ctlDressed = ctl != null && ctl.netSelfDress != 0 && ctl.go != null;
++            Boolean dressedLive = dressed != null && dressed.netSelfDress != 0 && dressed.go != null;
++            Int32 uid = AnchorRule(ctl != null ? ctl.uid : -1, ctlDressed, dressedLive ? dressed.uid : -1, dressedLive);
++            if (uid < 0)
++                return null;
++            return ctl != null && ctl.uid == uid ? ctl : dressed;
++        }
++
+         // THE SOURCE CLIP of a body: undressed plays its own; dressed -- the last play when that is what plays, the matching slot's raw,
+         // the jump slot's source, a ZDN clip as itself, else the source rig's idle.
+         internal static Int32 SourceAnimRule(Int32 cur, Boolean dressed, UInt16[] raws, UInt16 idle, UInt16 walk, UInt16 run, UInt16 turnl,
+@@ -446,8 +491,11 @@ namespace Memoria.Netsync
+                         StepIn(end);
+                     return;
+                 }
+-                String whyNot = BaseWhyNot(eligible && onField && local != null && local.go != null, LeverOff, hostHere, hostCtlOff,
+-                                           !myCtl, climb, talk);
++                // [ff9mapkit netsync s159] a START still needs a controlled actor (s158's timing: the dwell never arms on a load before
++                // its bind, THE ARRIVAL LAW unchanged); the episode then acts on the anchor, and a later control loss is no end
++                Boolean ctlBound = ee == null || ee.GetControlChar() != null;
++                String whyNot = BaseWhyNot(eligible && onField && local != null && local.go != null && ctlBound, LeverOff, hostHere,
++                                           hostCtlOff, !myCtl, climb, talk);
+                 BaseWhyNotNow = whyNot;
+                 if (whyNot != null)
+                 {
+@@ -542,6 +590,7 @@ namespace Memoria.Netsync
+         private static void StepIn(Int32 why)
+         {
+             Boolean wasDressed = _dressed;
++            Boolean gone = _body == null || _body.go == null;   // [ff9mapkit netsync s159] a TerminateEntry'd anchor is gone, not back
+             Int32 field = _field;
+             Int32 ms = Environment.TickCount - _outTick;
+             _active = false;
+@@ -581,7 +630,8 @@ namespace Memoria.Netsync
+             _backArmed = false;
+             Ins++;
+             InBy[why]++;
+-            Log.Message("[NetSync] step-out: IN on field " + field + " after " + ms + " ms (" + (wasDressed ? "the body is back" : "undressed")
++            Log.Message("[NetSync] step-out: IN on field " + field + " after " + ms + " ms (" + (!wasDressed ? "undressed" : gone
++                        ? "the body is gone" : "the body is back")
+                         + ") -- " + InNames[why]);
+         }
+ 
+@@ -902,7 +952,7 @@ namespace Memoria.Netsync
+ 
+         // ================================================================ the harness (HarnessAgent.AppendStepOut, the `stepout` sub-verb)
+ 
+-        internal static String HarnessLeverName { get { return _lever == 1 ? "off" : null; } }
++        internal static String HarnessLeverName { get { return _lever == 1 ? "off" : _lever == 2 ? "ctl" : null; } }
+         internal static Int32 HarnessField { get { return _active ? _field : -1; } }
+         internal static Int32 HarnessUid { get { return _active ? _uid : -1; } }
+         internal static Boolean HarnessDressed { get { return _active && _dressed; } }
+@@ -957,44 +1007,79 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // The CONTROLLED body's enabled renderers (-1 = no body): 0 while a dressed body is stepped out.
+-        internal static Int32 HarnessBodyRendsOn
++        // [ff9mapkit netsync s159] The body the harness judges: the episode's while one runs, else the anchor now (== the controlled
++        // actor everywhere s158 was right).
++        private static Actor HarnessAnchorActor
++        {
++            get { return _active ? _body : Anchor(PersistenSingleton<EventEngine>.Instance); }
++        }
++
++        private static Int32 RendsOn(Actor a)
++        {
++            if (a == null || a.go == null)
++                return -1;
++            Int32 n = 0;
++            foreach (Renderer r in a.go.GetComponentsInChildren<Renderer>())
++                if (r != null && r.enabled)
++                    n++;
++            return n;
++        }
++
++        // The ANCHOR body's enabled renderers (-1 = no body): 0 while a dressed body is stepped out. [ff9mapkit netsync s159] was the
++        // controlled actor's.
++        internal static Int32 HarnessBodyRendsOn { get { return RendsOn(HarnessAnchorActor); } }
++
++        // [ff9mapkit netsync s159] `stepout.anchor`: the anchor now (-1 none), the controlled actor and the body dressed on this load
++        // (-1 when none lives), and the controlled actor's enabled renderers (an undressed co-actor binder stays lit).
++        internal static Int32 HarnessAnchorUid { get { Actor a = HarnessAnchorActor; return a != null ? a.uid : -1; } }
++        internal static Int32 HarnessCtlUid
+         {
+             get
+             {
+                 EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+                 Actor a = ee != null ? ee.GetControlChar() as Actor : null;
+-                if (a == null || a.go == null)
++                return a != null ? a.uid : -1;
++            }
++        }
++        internal static Int32 HarnessDressedUid
++        {
++            get
++            {
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                if (ee == null || !NetSyncSelfDress.LoadHasDress || NetSyncSelfDress.DressUid < 0)
+                     return -1;
+-                Int32 n = 0;
+-                foreach (Renderer r in a.go.GetComponentsInChildren<Renderer>())
+-                    if (r != null && r.enabled)
+-                        n++;
+-                return n;
++                Actor a = ee.FindObjByUID(NetSyncSelfDress.DressUid) as Actor;
++                return a != null && a.netSelfDress != 0 && a.go != null ? a.uid : -1;
++            }
++        }
++        internal static Int32 HarnessCtlRendsOn
++        {
++            get
++            {
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                return RendsOn(ee != null ? ee.GetControlChar() as Actor : null);
+             }
+         }
+ 
+-        // The controlled body's blob shadow: 1 drawn, 0 not, -1 no shadow (the step-out keeps it on the STOCK flag4).
++        // The anchor body's blob shadow: 1 drawn, 0 not, -1 no shadow (the step-out keeps it on the STOCK flag4). [s159] the anchor's.
+         internal static Int32 HarnessShadowOn
+         {
+             get
+             {
+-                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+-                Actor a = ee != null ? ee.GetControlChar() as Actor : null;
++                Actor a = HarnessAnchorActor;
+                 if (a == null || a.fieldMapActor == null || a.fieldMapActor.shadowMeshRenderer == null)
+                     return -1;
+                 return a.fieldMapActor.shadowMeshRenderer.enabled ? 1 : 0;
+             }
+         }
+ 
+-        // Stock's own shadow switch on the controlled body (DisableShadow / EnableShadow: FF9Char attr bit 16): 1 off, 0 on, -1 none. The
+-        // bench judges `shadow` against it -- a stock climb turns the shadow off itself.
++        // Stock's own shadow switch on the anchor body (DisableShadow / EnableShadow: FF9Char attr bit 16): 1 off, 0 on, -1 none. The
++        // bench judges `shadow` against it -- a stock climb turns the shadow off itself. [s159] the anchor's.
+         internal static Int32 HarnessShadowOff
+         {
+             get
+             {
+-                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+-                Actor a = ee != null ? ee.GetControlChar() as Actor : null;
++                Actor a = HarnessAnchorActor;
+                 if (a == null)
+                     return -1;
+                 FF9Char ch = FF9StateSystem.Common.FF9.FF9GetCharPtr((Int32)a.uid);
+@@ -1002,8 +1087,9 @@ namespace Memoria.Netsync
+             }
+         }
+ 
+-        // `netsync stepout act|off|clear` (selftest role only, the role refused first). off = CALIBRATION: the base fails on the lever and
+-        // a live step-out steps in; act / clear = the shipping rule. Counters are never reset (read DELTAS).
++        // `netsync stepout act|off|ctl|clear` (selftest role only, the role refused first). off = CALIBRATION: the base fails on the lever
++        // and a live step-out steps in; [ff9mapkit netsync s159] ctl = CALIBRATION: the anchor is the controlled actor (s158's rule);
++        // act / clear = the shipping rule. Counters are never reset (read DELTAS).
+         internal static Boolean HarnessLever(String[] args, out String why)
+         {
+             why = null;
+@@ -1013,13 +1099,15 @@ namespace Memoria.Netsync
+                 return false;
+             }
+             String op = args != null && args.Length > 1 && args[1] != null ? args[1].ToLowerInvariant() : "";
+-            if (args == null || args.Length != 2 || (op != "act" && op != "off" && op != "clear"))
++            if (args == null || args.Length != 2 || (op != "act" && op != "off" && op != "ctl" && op != "clear"))
+             {
+-                why = "netsync stepout: expected act|off|clear";
++                why = "netsync stepout: expected act|off|ctl|clear";
+                 return false;
+             }
+-            _lever = op == "off" ? 1 : 0;
+-            Log.Message("[NetSync] harness: step-out " + (op == "off" ? "OFF -- CALIBRATION: never step out (released with the harness)" : "ACT"));
++            _lever = op == "off" ? 1 : op == "ctl" ? 2 : 0;
++            Log.Message("[NetSync] harness: step-out " + (op == "off" ? "OFF -- CALIBRATION: never step out (released with the harness)"
++                        : op == "ctl" ? "CTL -- CALIBRATION: anchor on the controlled actor, s158's rule (released with the harness)"
++                        : "ACT"));
+             return true;
+         }
+ 
+@@ -1041,6 +1129,7 @@ namespace Memoria.Netsync
+         private delegate Int32 HideFn(UInt16 mask, Boolean plain, Boolean stepOut);
+         private delegate Int32 SrcFn(Int32 cur, Boolean dressed, UInt16[] raws, UInt16 idle, UInt16 walk, UInt16 run, UInt16 turnl,
+                                      UInt16 turnr, UInt16 sleep, UInt16 jump, UInt16 jumpSrc, String name, Int32 srcIdle);
++        private delegate Int32 AnchorFn(Int32 ctlUid, Boolean ctlDressed, Int32 dressedUid, Boolean dressedLive);   // [s159]
+ 
+         private sealed class Rules
+         {
+@@ -1050,6 +1139,7 @@ namespace Memoria.Netsync
+             public WireFn Wire = WireMaskRule;
+             public HideFn Hide = GhostHideRule;
+             public SrcFn Src = SourceAnimRule;
++            public AnchorFn Anchor = AnchorRule;        // [ff9mapkit netsync s159]
+         }
+ 
+         // Every row, against one rule set; the failing rows' names go to `fails`.
+@@ -1105,6 +1195,16 @@ namespace Memoria.Netsync
+             row(r.Src(77, true, raws, 10, 11, 0, 0, 0, 0, 90, 600, "ANH_MAIN_F0_ZDN_X", 200) == 77, "src.zdn_name");
+             row(r.Src(77, true, raws, 10, 11, 0, 0, 0, 0, 90, 600, "ANH_MAIN_F0_STN_X", 200) == 200, "src.fallback");
+             row(r.Src(10, true, null, 10, 11, 0, 0, 0, 0, 90, 0, null, 200) == 200, "src.no_record");
++            // [ff9mapkit netsync s159] the anchor: the dressed controlled actor; a co-actor binder holds control (352: Dagger 19, the
++            // dressed Zidane 17) -> the dressed body; control null (a TerminateEntry'd binder) -> the dressed body; nothing dressed ->
++            // control; the dressed body dead (359's TerminateEntry(6) tail) -> control, else none; two dressed -> the controlled one
++            row(r.Anchor(17, true, 17, true) == 17, "anchor.ctl_dressed");
++            row(r.Anchor(19, false, 17, true) == 17, "anchor.co_binder");
++            row(r.Anchor(-1, false, 17, true) == 17, "anchor.no_ctl");
++            row(r.Anchor(11, false, -1, false) == 11, "anchor.no_dress");
++            row(r.Anchor(19, false, 17, false) == 19, "anchor.dressed_gone");
++            row(r.Anchor(-1, false, -1, false) == -1, "anchor.none");
++            row(r.Anchor(17, true, 30, true) == 17, "anchor.both_dressed");
+             return n;
+         }
+ 
+@@ -1126,13 +1226,17 @@ namespace Memoria.Netsync
+                 case "scene_blind": m.Hide = (mask, plain, so) => so ? HideStepOut : mask == 0 ? HideMask : HideNone; break;
+                 case "play_blind": m.Src = (cur, d, raws, i, w, ru, tl, tr, sl, j, js, nm, si) => SourceAnimRule(cur, d, null, i, w, ru, tl, tr, sl, j, js, nm, si); break;
+                 case "dress_blind": m.Src = (cur, d, raws, i, w, ru, tl, tr, sl, j, js, nm, si) => SourceAnimRule(cur, true, raws, i, w, ru, tl, tr, sl, j, js, nm, si); break;
++                // [ff9mapkit netsync s159] s158's rule (control only); a dead dressed body still anchors; the dressed load body first
++                case "anchor_ctl": m.Anchor = (c, cd, d, dl) => c; break;
++                case "dress_live_blind": m.Anchor = (c, cd, d, dl) => c >= 0 && cd ? c : d >= 0 ? d : c; break;
++                case "dress_first": m.Anchor = (c, cd, d, dl) => d >= 0 && dl ? d : c; break;
+             }
+             return m;
+         }
+ 
+         private static readonly String[] MutantNames = { "no_dwell", "no_debounce", "end_talk_blind", "end_climb_blind", "climb_blind",
+                                                          "talk_blind", "host_control_blind", "wire_leak", "mask_blind", "scene_blind",
+-                                                         "play_blind", "dress_blind" };
++                                                         "play_blind", "dress_blind", "anchor_ctl", "dress_live_blind", "dress_first" };
+ 
+         internal static Boolean SelfTest(out String detail)
+         {

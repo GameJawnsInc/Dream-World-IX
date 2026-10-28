@@ -376,7 +376,14 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # none, its line only when one was set). WHAT IT CANNOT: an episode -- no renderer, no stand-in model, no wire mask,
                        # no host view (the base's inputs, the dwell, the ghost hide are the engine's; NetSyncStepOut.SelfTest proves the
                        # rules). The in-game bench is coop_step_out.py (solo).
-                       "stepout": ("s158", ("stepout",))}
+                       "stepout": ("s158", ("stepout",)),
+                       # [ff9mapkit netsync s159] THE ANCHOR (GUEST-TRAVERSAL-TWO-PC.md Finding 6): no sub-verb, one `stepout` op (`ctl`:
+                       # CALIBRATION, anchor on the controlled actor -- s158's rule), `anchor` {uid, ctl_uid, dressed_uid, ctl_rends_on}
+                       # as `netsync.stepout`'s LAST key (NETSYNC_TOP_NESTED_KEYS), the proof line's seven rows and three mutants; its
+                       # calibration is caps_through("stepout"). WHAT THE STAND-IN MODELS: the block at its sentinels, the `ctl` lever
+                       # and its release, the s158 engine's usage for `ctl`. WHAT IT CANNOT: an anchor (no field actors here). The
+                       # in-game leg is coop_step_out.py's M-352 (Dali's inn night scene: control on Dagger, the dressed Zidane speaks).
+                       "stepanchor": ("s159", ())}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -422,6 +429,8 @@ NETSYNC_S156_CAPS = frozenset(("guestlocal",))
 NETSYNC_S157_CAPS = frozenset(("dresstwin",))
 #: [ff9mapkit netsync s158] The step-out rung (its calibration, the s157 engine, is ``caps_through("dresstwin")``).
 NETSYNC_S158_CAPS = frozenset(("stepout",))
+#: [ff9mapkit netsync s159] The step-out anchor rung (its calibration, the s158 engine, is ``caps_through("stepout")``).
+NETSYNC_S159_CAPS = frozenset(("stepanchor",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -518,6 +527,8 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "dresstwin": {},
     # [ff9mapkit netsync s158] nothing under `netsync.battle`: `stepout` is a TOP-LEVEL netsync block after `ghostframe`
     "stepout": {},
+    # [ff9mapkit netsync s159] nothing under `netsync.battle`: `anchor` is `netsync.stepout`'s last key (NETSYNC_TOP_NESTED_KEYS)
+    "stepanchor": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -546,7 +557,8 @@ NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",),
                         "stepout": ("stepout",)}                 # [ff9mapkit netsync s158] ...and `stepout` after `ghostframe`
 #: [ff9mapkit netsync s145] The blocks a capability adds INSIDE an older TOP-LEVEL `netsync` block, by that block: s145's `dio`,
 #: `netsync.world`'s last (AppendWorldDio, after `waitline`)
-NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)}}
+NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)},
+                           "stepanchor": {"stepout": ("anchor",)}}     # [ff9mapkit netsync s159] `netsync.stepout`'s last
 #: [ff9mapkit netsync s138] The keys each dress rung adds INSIDE `netsync.dress`, in AppendDress's order (s139 appends
 #: `codec` and `rig_idle_frames`, s140 `self`) -- the dress key law: every one under `netsync.dress`, never `netsync.battle`
 #: (the action-replay audit's 4.3).
@@ -702,21 +714,33 @@ NETSYNC_STEPOUT_SENTINELS = {
     "wire_mask": -1, "stock_visible": False, "body_rends_on": -1, "shadow": -1, "shadow_off": -1,
     "standin": NETSYNC_STEPOUT_STANDIN_SENTINELS,
     "ghost": {"hide": None, "edges": 0, "by": {k: 0 for k in NETSYNC_STEPOUT_HIDE_WHY}}, "host_plain_scene": False,
-    "talk_accepts": 0, "faults": 0, "last_fault": None, "selftest": None}
+    "talk_accepts": 0, "faults": 0, "last_fault": None, "selftest": None,
+    # [ff9mapkit netsync s159] THE ANCHOR, the block's LAST key: the body the episode acts on, the controlled actor, the body dressed on
+    # this load while it lives, the controlled actor's enabled renderers (all -1 on the catch line)
+    "anchor": {"uid": -1, "ctl_uid": -1, "dressed_uid": -1, "ctl_rends_on": -1}}
 NETSYNC_STEPOUT_KEYS = tuple(NETSYNC_STEPOUT_SENTINELS)
-#: [ff9mapkit netsync s158] NetSyncStepOut.HarnessLever: the ops and its two refusals, in its words; the lever's lines
-NETSYNC_STEPOUT_OPS = ("act", "off", "clear")
+NETSYNC_STEPOUT_ANCHOR_KEYS = tuple(NETSYNC_STEPOUT_SENTINELS["anchor"])          # [ff9mapkit netsync s159]
+NETSYNC_STEPOUT_KEYS_S158 = tuple(k for k in NETSYNC_STEPOUT_KEYS if k != "anchor")   # [ff9mapkit netsync s159] s158's block
+#: [ff9mapkit netsync s158] NetSyncStepOut.HarnessLever: the ops and its two refusals, in its words; the lever's lines.
+#: [ff9mapkit netsync s159] + `ctl` (an s158 engine answers it with its own usage line: NETSYNC_STEPOUT_USAGE_S158)
+NETSYNC_STEPOUT_OPS = ("act", "off", "ctl", "clear")
+NETSYNC_STEPOUT_OPS_S158 = ("act", "off", "clear")
 NETSYNC_STEPOUT_ROLE_REFUSAL = "netsync stepout: needs the selftest role (netsync selftest 1)"
-NETSYNC_STEPOUT_USAGE = "netsync stepout: expected act|off|clear"
+NETSYNC_STEPOUT_USAGE = "netsync stepout: expected act|off|ctl|clear"
+NETSYNC_STEPOUT_USAGE_S158 = "netsync stepout: expected act|off|clear"
 STEPOUT_LOG_OFF = "[NetSync] harness: step-out OFF -- CALIBRATION: never step out (released with the harness)"
+STEPOUT_LOG_CTL = ("[NetSync] harness: step-out CTL -- CALIBRATION: anchor on the controlled actor, s158's rule (released with the "
+                   "harness)")                          # [ff9mapkit netsync s159]
 STEPOUT_LOG_ACT = "[NetSync] harness: step-out ACT"
 STEPOUT_LOG_RELEASE = "[NetSync] harness: step-out lever released (act)"
 #: [ff9mapkit netsync s158] the proof line's head and the bench's parse of it; the stand-in's N / M are NetSyncStepOut.SelfTest's
 #: own tallies as the stand-in counts them (36 rows + the live source-rig row; 12 mutants) -- a stand-in's numbers
 PROOF_STEP_OUT = "step-out selftest: "
 STEPOUT_PROOF_RE = r"step-out selftest: OK \((\d+) rows, (\d+) mutants caught, dwell (\d+) ms, step-in (\d+) ms\)"
-FAKE_STEPOUT_SELFTEST_ROWS = 37
-FAKE_STEPOUT_MUTANTS = 12
+FAKE_STEPOUT_SELFTEST_ROWS = 44                         # [ff9mapkit netsync s159] + the seven anchor rows (s158: 37)
+FAKE_STEPOUT_MUTANTS = 15                               # [ff9mapkit netsync s159] + anchor_ctl, dress_live_blind, dress_first (s158: 12)
+FAKE_STEPOUT_SELFTEST_ROWS_S158 = 37
+FAKE_STEPOUT_MUTANTS_S158 = 12
 STEPOUT_DWELL_MS = 1500                                 # NetSyncStepOut.DwellMs (THE ARRIVAL LAW)
 STEPOUT_STEP_IN_MS = 500                                # NetSyncStepOut.StepInMs
 #: [ff9mapkit netsync s156] the kit's committed table (the generator's JSON: its `counts` and `table_crc` are what the compiled
@@ -6213,11 +6237,13 @@ class FakeGame:
         """HarnessLever (the agent's `case "stepout"`): the ROLE first, then one op alone -- one usage line otherwise."""
         if not self._nb_role():
             raise RuntimeError(NETSYNC_STEPOUT_ROLE_REFUSAL)
+        anchor = "stepanchor" in self.netsync_caps      # [ff9mapkit netsync s159] `ctl` and its usage line
+        ops, usage = (NETSYNC_STEPOUT_OPS, NETSYNC_STEPOUT_USAGE) if anchor else (NETSYNC_STEPOUT_OPS_S158, NETSYNC_STEPOUT_USAGE_S158)
         op = args[1].strip().lower() if len(args) > 1 else ""
-        if len(args) != 2 or op not in NETSYNC_STEPOUT_OPS:
-            raise RuntimeError(NETSYNC_STEPOUT_USAGE)
-        self._so["lever"] = "off" if op == "off" else None
-        self._mlog(STEPOUT_LOG_OFF if op == "off" else STEPOUT_LOG_ACT)
+        if len(args) != 2 or op not in ops:
+            raise RuntimeError(usage)
+        self._so["lever"] = op if op in ("off", "ctl") else None
+        self._mlog(STEPOUT_LOG_OFF if op == "off" else STEPOUT_LOG_CTL if op == "ctl" else STEPOUT_LOG_ACT)
 
     def _so_release(self) -> None:
         """NetSyncStepOut.HarnessRelease: the lever none -- its line only when one was set."""
@@ -6228,7 +6254,10 @@ class FakeGame:
     def _so_proof(self) -> None:
         """The proof block's step-out line (once per process): the stand-in's tallies -- `selftest` "ok" from then on."""
         self._so["selftest"] = "ok"
-        self._mlog(f"[NetSync] {PROOF_STEP_OUT}OK ({FAKE_STEPOUT_SELFTEST_ROWS} rows, {FAKE_STEPOUT_MUTANTS} mutants caught, "
+        anchor = "stepanchor" in self.netsync_caps      # [ff9mapkit netsync s159] the anchor rows and mutants
+        rows, mutants = ((FAKE_STEPOUT_SELFTEST_ROWS, FAKE_STEPOUT_MUTANTS) if anchor
+                         else (FAKE_STEPOUT_SELFTEST_ROWS_S158, FAKE_STEPOUT_MUTANTS_S158))
+        self._mlog(f"[NetSync] {PROOF_STEP_OUT}OK ({rows} rows, {mutants} mutants caught, "
                    f"dwell {STEPOUT_DWELL_MS} ms, step-in {STEPOUT_STEP_IN_MS} ms)")
 
     def _stepout_doc(self) -> dict:
@@ -6236,6 +6265,8 @@ class FakeGame:
         doc = json.loads(json.dumps(NETSYNC_STEPOUT_SENTINELS))
         doc["lever"] = self._so["lever"]
         doc["selftest"] = self._so["selftest"]
+        if "stepanchor" not in self.netsync_caps:
+            del doc["anchor"]                           # [ff9mapkit netsync s159] an s158 engine has no `anchor`
         return doc
 
     # -- [ff9mapkit netsync s144] WORLD-MAP CO-OP (the `worldwait` rung; see NETSYNC_BATTLE_CAPS for what it models) ----------
