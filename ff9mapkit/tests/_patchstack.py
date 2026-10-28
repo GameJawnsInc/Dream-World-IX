@@ -92,6 +92,61 @@ def net_lines_ordered(file_name, pattern, patches=None) -> list:
     return rows
 
 
+_HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def stack_file(file_name, patches=None) -> list:
+    """[ff9mapkit netsync s157] The file the live stack BUILDS, every line in order (EOL stripped), for a file the stack itself
+    CREATES (its first section is a ``/dev/null`` creation: every ``Memoria/Netsync/*.cs``) -- read off THIS branch's
+    ``memoria-patches/``, never the shared clone (whose working tree holds whatever round another session is building: a pin read
+    from it reds every branch whose stack predates that round). Each hunk applies the way ``git apply`` applies it: its old lines
+    (context and removed) must match exactly, at the header's position or the nearest exact match -- a hunk that matches nowhere,
+    or a file the stack does not create, raises (AssertionError)."""
+    if patches is None:
+        patches = live_patches()
+    rows = None
+    for blob in patches:
+        for path, sec in msr.sections(blob):
+            if not path or path.replace("\\", "/").rsplit("/", 1)[-1] != file_name:
+                continue
+            lines = [ln[:-1] if ln.endswith("\r") else ln for ln in sec.decode("utf-8", "replace").split("\n")]
+            if rows is None:
+                assert any(ln.startswith("--- /dev/null") for ln in lines[:6]), f"{file_name}: the stack does not create it"
+                rows = []
+            offset, k = 0, 0
+            while k < len(lines):
+                m = _HUNK_RE.match(lines[k])
+                k += 1
+                if not m:
+                    continue
+                a = int(m.group(1))
+                n_old = int(m.group(2)) if m.group(2) is not None else 1
+                n_new = int(m.group(4)) if m.group(4) is not None else 1
+                old, new = [], []
+                while k < len(lines) and (len(old) < n_old or len(new) < n_new):
+                    ln = lines[k]
+                    k += 1
+                    if ln.startswith("\\"):
+                        continue                               # "\ No newline at end of file"
+                    tag, body = (ln[:1], ln[1:]) if ln else (" ", "")
+                    assert tag in (" ", "-", "+"), (file_name, ln[:60])
+                    if tag != "+":
+                        old.append(body)
+                    if tag != "-":
+                        new.append(body)
+                assert (len(old), len(new)) == (n_old, n_new), (file_name, m.group(0))
+                want = (a - 1 if n_old else a) + offset
+                at = want if rows[want:want + n_old] == old else None
+                if at is None:
+                    hits = [i for i in range(len(rows) - n_old + 1) if rows[i:i + n_old] == old]
+                    assert hits, f"{file_name}: hunk {m.group(0)} matches nowhere in the stack's file"
+                    at = min(hits, key=lambda i: abs(i - want))
+                rows[at:at + n_old] = new
+                offset = at - (a - 1 if n_old else a) + n_new - n_old
+    assert rows is not None, f"{file_name}: no live patch touches it"
+    return rows
+
+
 def touches(file_name, patches=None) -> bool:
     """True when any live patch has a section for ``file_name`` -- a file no patch touches runs stock code."""
     if patches is None:

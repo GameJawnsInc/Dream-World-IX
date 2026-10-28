@@ -1,7 +1,10 @@
 # Guest traversal: letting a following guest climb stock ladders and take jumps
 
-**Status: R0-R2 BUILT and in-game proven on the solo bench (engine patch s156, 2026-10-26); R3-R5 open; no
-two-PC session yet.** The design below was written 2026-10-25 from a read-only multi-agent pass (census, design,
+**Status: R0-R2 BUILT and in-game proven on the solo bench (engine patch s156, 2026-10-26); R3 PROVEN on two
+PCs (2026-10-27: climbs, the talk hold, the cold return mid-climb, the F11 refusal); R4-R5 open.** The two-PC
+session's results and its five findings (ghosts that never pause, the dressed "pencil" glide, the doubled party
+member in scenes, the F1 lag, the host's same-field reload) are in
+[`GUEST-TRAVERSAL-TWO-PC.md`](GUEST-TRAVERSAL-TWO-PC.md). Findings 1 and 2 are fixed by engine patch s157 (deployed and solo-benched 2026-10-28; the two-PC check is next). The design below was written 2026-10-25 from a read-only multi-agent pass (census, design,
 adversarial critique) over the live engine tree `C:\gd\FFIX\Memoria` at the netsync s145 tip. Cites are
 `file:line` against that tree, which other sessions edit, so lines can drift.
 
@@ -13,8 +16,9 @@ adversarial critique) over the live engine tree `C:\gd\FFIX\Memoria` at the nets
   `ff9mapkit/ff9mapkit/data/guest_traversal.json` owns the counts; the engine compiles its C# twin
   `NetSyncGuestLocalTable.cs` (ids, lengths and CRC-32s only). Of the census's 86 LOCO-ONLY rows, the kit ships 80;
   6 are refused by the ship filters the census lacked. The deployed s156 engine was captured before R15 and still
-  carries the sixth, 1209:5: `S156_DEPLOYED_AHEAD` in `tests/test_guest_traversal_table.py` pins that one row as
-  deployed-ahead (the patch must equal the JSON plus exactly the pinned rows), and the next engine capture empties it.
+  carries the sixth, 1209:5. s157 (deployed 2026-10-28) re-captures the table whole from the JSON, so the pin
+  `DEPLOYED_AHEAD` in `tests/test_guest_traversal_table.py` (s156's `S156_DEPLOYED_AHEAD`) is empty: the newest patch
+  carrying the table must equal render_cs of the JSON exactly, replaced whole.
   - **R11, the latch audit, path-aware:** a variable the climb writes must not be READ by any other function on any
     control-flow path before it is written there (a read-modify-write is a read; a partial-width write covers only
     its own bits), unless the reader is load-once. 2702 e15/e19 (entry 21's stone functions read the latch first),
@@ -270,11 +274,13 @@ The critique's fix splits these by what the handler does:
 ### Host view
 
 - The 30 Hz position lane already carries the climber's height, so the ghost rises with the ladder.
-- But `DriveGhost` loops the climb clip at speed 1 (`NetSyncClient.cs:9096-9104`), so a climber who stops
-  halfway keeps climbing in place on the other screen. Set the clip speed from the ghost's vertical
-  velocity, applied to the host's ghost, the guest's ghost and the selftest mirror.
-- An undressed guest that the host dresses as its puppet character plays that character's idle. A loco
-  byte cannot carry a ladder pose without a wire bump; accept it.
+- But `DriveGhost` loops the climb clip at speed 1 (`NetSyncClient.cs:10523-10563` at s156), so a climber who
+  stops halfway keeps climbing in place on the other screen. SEEN on two PCs, 2026-10-27. The fix now
+  recommended is the anim frame as trailing type-0 bytes, sampled like the engine
+  (`GUEST-TRAVERSAL-TWO-PC.md` finding 1); the vertical-velocity speed is the no-wire fallback.
+- An undressed guest that the host dresses as its puppet character plays that character's idle.
+  **Corrected 2026-10-27:** the raw anim id already rides the wire (`NetSyncClient.cs:1926`), so a twin
+  clip reaches the ghost with no wire bump (finding 2).
 
 ## 4. Rungs (one in-game test each)
 
@@ -283,7 +289,7 @@ The critique's fix splits these by what the handler does:
 | R0 ★ | Generator + the table + `VerdictRule` self-test with mutants. Split pin test: an install-free half compares the committed table to committed verdict JSON; an install-gated half re-derives CRCs in the gate worktree (**the worktree skip trap**) | offline |
 | R1 ★ | SHADOW mode: the DLL computes and logs verdicts, the gate still declines | bench 114, undressed; `guestlocal mutate` must read "unverified bytes"; `guestlocal off` = today's exact decline line (calibration red) |
 | R2 ★ | ACT on LOCO-ONLY: ladders, jumps, carries | bench 114 up and down; Async 408; multi-node 207; F11 mid-climb declines; host-scene refusal |
-| R3 | The race, TTL retention and cold diorama return mid-climb | **duo harness, not bench**: the bench has no live talk lane. Each check must first be shown to fail with its fix removed |
+| R3 ★ | The race, TTL retention and cold diorama return mid-climb | **duo harness, not bench**: the bench has no live talk lane. Each check must first be shown to fail with its fix removed. PROVEN on two PCs by the owner, 2026-10-27 (`GUEST-TRAVERSAL-TWO-PC.md`); the calibration-red duo legs were not run |
 | R4 | The "!" at both sites + the refusal buzz | bench |
 | R5 | The s95 relay split above | duo harness; two-machine Pandemonium lift |
 | later | LOCO+LATCH (11 rows): only where every latch reader is a region or player gate | Ice Path 301 / Chocobo's Paradise 2955 |

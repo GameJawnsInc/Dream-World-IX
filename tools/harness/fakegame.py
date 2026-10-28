@@ -353,7 +353,21 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # verdict -- `guest_local_note` books one as GuestPress's Note would), a ladder, a jump or a carry (no flight, no
                        # trip wire, no held talk), and a climb's teleport refusal (`tp_refusals` stays 0). The in-game bench is
                        # coop_guest_traversal.py (solo).
-                       "guestlocal": ("s156", ("guestlocal",))}
+                       "guestlocal": ("s156", ("guestlocal",)),
+                       # [ff9mapkit netsync s157] the twin rows: no sub-verb, one `selfdress` op (`twin on|off|miss`); the twin keys
+                       # inside `netsync.dress.self` after `polish`; the proof block's last line. WHAT THE STAND-IN MODELS: the keys at
+                       # the live defaults (twin_rows 55, twin "on"), the lever and its release, the proof line, twin_clips_on_disc 37
+                       # after the proof block, and MapAnim's twin step on the controlled body (BW.map_rig_anim_twin). WHAT IT CANNOT:
+                       # a real clip (the attach guard never misses here but under `twin miss`), the ghost's DriveGhost.
+                       # [ff9mapkit netsync s157] ...and THE GHOST FRAME (GUEST-TRAVERSAL-TWO-PC.md Finding 1; the same ONE rung for the
+                       # ONE patch): one `bench` named op (`ghostframe on|off`, selftest role only), `netsync.ghostframe` as netsync's
+                       # LAST key, after `guestlocal` (NETSYNC_TOP_CAP_KEYS), and the proof block's LAST line (after the dress twin
+                       # line); its calibration is caps_through("guestlocal"). WHAT THE STAND-IN MODELS: the block at the agent's
+                       # sentinels but for `lever_off` (the lever as set) and `selftest` (once the proof block ran); the lever's
+                       # refusals and release. WHAT IT CANNOT: a ghost (no peer model is drawn), so `follow`, the wire reads, the
+                       # AnimationState and the counters stay at their sentinels. The in-game wire bench is coop_peer serve-guest
+                       # --frame (the host's ghost of a fake guest); the solo GF-* legs (the selftest mirror) have no scenario yet.
+                       "dresstwin": ("s157", ())}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -394,6 +408,9 @@ NETSYNC_S154_CAPS = frozenset(("returnsong",))
 #: [ff9mapkit netsync s156] The guest-traversal rung (its calibration, the deployed s155 -- which added no harness key -- is
 #: ``caps_through(NETSYNC_S154_RUNG)``).
 NETSYNC_S156_CAPS = frozenset(("guestlocal",))
+#: [ff9mapkit netsync s157] The climb-animation rung -- the twin rows and the ghost frame, ONE rung for the ONE patch (its
+#: calibration, s156, is ``caps_through("guestlocal")``).
+NETSYNC_S157_CAPS = frozenset(("dresstwin",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -485,6 +502,9 @@ NETSYNC_BATTLE_CAP_KEYS = {
     # [ff9mapkit netsync s156] nothing under `netsync.battle`: `guestlocal` is a TOP-LEVEL netsync block (NETSYNC_TOP_CAP_KEYS),
     # netsync's LAST key, its keys NETSYNC_GUESTLOCAL_KEYS
     "guestlocal": {},
+    # [ff9mapkit netsync s157] nothing under `netsync.battle`: the twin keys sit inside `netsync.dress.self` (NETSYNC_DRESS_NESTED_KEYS)
+    # and `ghostframe` is a TOP-LEVEL netsync block (NETSYNC_TOP_CAP_KEYS), netsync's LAST key, its keys NETSYNC_GHOSTFRAME_KEYS
+    "dresstwin": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -508,7 +528,8 @@ NETSYNC_DIORAMA_NESTED_KEYS = {"swirl": {"intro": ("swirl_clamp",)}}
 #: (AppendDress: netsync's LAST key).
 NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",), "dressinstr": ("dress",),
                         "worldwait": ("world",),                 # [ff9mapkit netsync s144] netsync's LAST key, after `dress`
-                        "guestlocal": ("guestlocal",)}           # [ff9mapkit netsync s156] ...and `guestlocal` after `world`
+                        "guestlocal": ("guestlocal",),           # [ff9mapkit netsync s156] ...and `guestlocal` after `world`
+                        "dresstwin": ("ghostframe",)}            # [ff9mapkit netsync s157] ...and `ghostframe` after `guestlocal`
 #: [ff9mapkit netsync s145] The blocks a capability adds INSIDE an older TOP-LEVEL `netsync` block, by that block: s145's `dio`,
 #: `netsync.world`'s last (AppendWorldDio, after `waitline`)
 NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)}}
@@ -522,7 +543,9 @@ NETSYNC_DRESS_NESTED_KEYS: dict = {"dresshost": {"ghost": BW.DRESS_GHOST_KEYS_BY
                                    # [ff9mapkit netsync s141] `ghost.light_row` (its end) and the polish keys inside `self`
                                    # (after `selftest`) -- the rung's whole surface: NETSYNC_DRESS_CAP_KEYS' row is empty
                                    "dresspolish": {"ghost": BW.DRESS_GHOST_KEYS_BY_RUNG["dresspolish"],
-                                                   "self": BW.DRESS_SELF_KEYS_BY_RUNG["dresspolish"]}}
+                                                   "self": BW.DRESS_SELF_KEYS_BY_RUNG["dresspolish"]},
+                                   # [ff9mapkit netsync s157] the twin keys inside `self` (after `polish`)
+                                   "dresstwin": {"self": BW.DRESS_SELF_KEYS_BY_RUNG["dresstwin"]}}
 #: [ff9mapkit netsync s138] `netsync.dress.ghost` as the LIVE stack writes it, in AppendDress's order (a FIXED sub-object:
 #: always whole, never null) -- the union of every rung's frozen row (BW.DRESS_GHOST_KEYS_BY_RUNG), read only by the
 #: live-catch pins; a per-rung reader (the probe, the stand-in) takes its rung's row.
@@ -604,6 +627,12 @@ NETSYNC_GUESTLOCAL_SENTINELS = {
     "tp_last": None, "talk_queued": 0, "talk_held": 0, "talk_applied_after_climb": 0, "talk_expired": 0,
     "mutate": NETSYNC_GUESTLOCAL_MUTATE_SENTINELS}
 NETSYNC_GUESTLOCAL_KEYS = tuple(NETSYNC_GUESTLOCAL_SENTINELS)
+#: [ff9mapkit netsync s157] `netsync.ghostframe` (AppendGhostFrame), in the agent's order, at its catch-line sentinels
+NETSYNC_GHOSTFRAME_SENTINELS = {"lever_off": False, "follow": False, "why": None, "has_frame": False, "wire_anim": -1,
+                                "wire_frame": -1, "wire_frame_n": -1, "wire_loco": -1, "clip": None, "speed": -1, "time": -1,
+                                "length": -1, "shown": -1, "target": -1, "steps": 0, "wraps": 0, "snaps": 0, "restores": 0,
+                                "selftest": None}
+NETSYNC_GHOSTFRAME_KEYS = tuple(NETSYNC_GHOSTFRAME_SENTINELS)
 #: [ff9mapkit netsync s156] NetSyncGuestLocal.HarnessLever: the lever's modes (ModeNames order), the ops (the driver's
 #: Session.NETSYNC_GUESTLOCAL_OPS), the mutate's byte-index bound and its two refusals, in its words (contract 4.1)
 NETSYNC_GUESTLOCAL_MODES = ("act", "shadow", "off")
@@ -630,6 +659,16 @@ GUESTLOCAL_PROOF_RE = (r"guest traversal selftest: OK \((\d+) rows, (\d+) mutant
                        r"table crc (0x[0-9a-f]{8})\)")
 FAKE_GUESTLOCAL_SELFTEST_ROWS = 133
 FAKE_GUESTLOCAL_MUTANTS = 30
+#: [ff9mapkit netsync s157] the ghost frame's proof line, its log lines (NetSyncClient.HarnessBenchGhostFrame / HarnessReleaseGhostFrame)
+#: and the stand-in's tallies -- the engine's measured 69 rows / 15 mutants (NetSyncVisitor.GhostFrameSelfTest off the built DLL)
+PROOF_GHOST_FRAME = "ghost frame selftest: "
+GHOSTFRAME_PROOF_RE = r"ghost frame selftest: OK \((\d+) rows, (\d+) mutants caught\)"
+FAKE_GHOSTFRAME_SELFTEST_ROWS = 69
+FAKE_GHOSTFRAME_MUTANTS = 15
+GHOSTFRAME_LOG_ON = "[NetSync] harness: ghost frame-follow ON"
+GHOSTFRAME_LOG_OFF = ("[NetSync] harness: ghost frame-follow OFF -- CALIBRATION: the s156 ghost (every clip free-runs at speed 1: a "
+                      "stopped climber's ghost keeps climbing)")
+GHOSTFRAME_LOG_RELEASE = "[NetSync] harness: ghost frame-follow back ON (released with the harness)"
 #: [ff9mapkit netsync s156] the kit's committed table (the generator's JSON: its `counts` and `table_crc` are what the compiled
 #: NetSyncGuestLocalTable carries -- the stand-in reads them, never a literal)
 GUEST_TRAVERSAL_JSON = Path(__file__).resolve().parents[2] / "ff9mapkit" / "ff9mapkit" / "data" / "guest_traversal.json"
@@ -751,14 +790,17 @@ def actbench_ops(caps) -> tuple:
 NETSYNC_SELFDRESS_OPS = BW.SELFDRESS_OPS
 NETSYNC_SELFDRESS_OPS_S139 = BW.SELFDRESS_OPS_S139
 NETSYNC_SELFDRESS_OPS_S140 = BW.SELFDRESS_OPS_S140     # [ff9mapkit netsync s141] s140's eight (no `polish`)
+NETSYNC_SELFDRESS_OPS_S141 = BW.SELFDRESS_OPS_S141     # [ff9mapkit netsync s157] s141's nine (no `twin`): an s141-s156 engine
 
 
 def selfdress_ops(caps) -> tuple:
     """[ff9mapkit netsync s139] The `selfdress` ops an engine with these capabilities has (s139: ghost, empty, rule, wire,
     clear; none before it -- the sub-verb itself is unknown there). [ff9mapkit netsync s140] + self, gate, law.
-    [ff9mapkit netsync s141] + polish."""
-    if "dresspolish" in caps:
+    [ff9mapkit netsync s141] + polish. [ff9mapkit netsync s157] + twin."""
+    if "dresstwin" in caps:                              # [ff9mapkit netsync s157] + twin
         return NETSYNC_SELFDRESS_OPS
+    if "dresspolish" in caps:
+        return NETSYNC_SELFDRESS_OPS_S141
     if "dressself" in caps:
         return NETSYNC_SELFDRESS_OPS_S140
     return NETSYNC_SELFDRESS_OPS_S139 if "dresshost" in caps else ()
@@ -1784,6 +1826,14 @@ class FakeGame:
         self.mapconfigs: dict = dict(FAKE_MAPCONFIGS)
         self.light_floor: int = 0
         self._polish_off = False
+        #: [ff9mapkit netsync s157] THE TWIN ROWS: the `twin` lever (NetSyncSelfDress._twinLever), the per-load counters and
+        #: `twin_last` (OnTwinLoadReset's), the proof's `twin_clips_on_disc` (-1 until the proof block ran) and its verdict
+        self._twin_lever = BW.TWIN_LEVER_ON
+        self._twin_counts: dict = {"twins": 0, "twin_misses": 0, "ghost_clip_misses": 0}
+        self._twin_last: dict = {"src": -1, "twin": -1, "site": -1}
+        self._twin_logged_miss = False
+        self._twin_clips = -1
+        self._twin_verdict: str | None = None
         self._polish_table: list = []
         self._polish_counts: dict = dict.fromkeys(POLISH_COUNT_KEYS, 0)
         self._polish_light_row = -1
@@ -2098,6 +2148,9 @@ class FakeGame:
         self._gl = self._gl_fresh()
         self.guest_local_table: tuple | None = None
         self.selftest_offset = FAKE_SELFTEST_OFFSET
+        #: [ff9mapkit netsync s157] THE GHOST FRAME (the `dresstwin` rung): the `bench ghostframe` lever as set and the proof line's
+        #: verdict -- the stand-in draws no ghost, so every other `netsync.ghostframe` key stays at its sentinel
+        self._gf = {"lever_off": False, "selftest": None}
         #: H9: True -- ``warp`` refuses unless ui_state is "FieldHUD", as the agent does (Ff9mkDebugMenu.Warp is false
         #: off the field HUD, and HarnessAgent throws "warp refused (not on a field?)"): nothing is written, nothing
         #: moves. False (the default): today's fake, a warp from any state.
@@ -5174,6 +5227,16 @@ class FakeGame:
                 self._nb.leaderguard_off_lever = lg == "off"
                 self._mlog("[NetSync] " + (BW.LOG_GUARD_OFF if lg == "off" else BW.LOG_GUARD_ON))
                 return
+            if sub == "bench" and bnop == "ghostframe" and "dresstwin" in self._nb_caps():
+                # [ff9mapkit netsync s157] the ghost frame-follow's lever (an older agent reads it as `bench 1`)
+                gf = args[2].lower() if len(args) > 2 else ""
+                if len(args) != 3 or gf not in ("on", "off"):
+                    raise out_of_range("netsync bench ghostframe", "expected `netsync bench ghostframe on|off`")
+                if not self._nb_role():
+                    raise RuntimeError("netsync bench ghostframe: needs the selftest role (netsync selftest 1)")
+                self._gf["lever_off"] = gf == "off"
+                self._mlog(GHOSTFRAME_LOG_OFF if gf == "off" else GHOSTFRAME_LOG_ON)
+                return
             r3_op = {"intro": "intro", "cfg": "intro", "swirl": "swirl", "waitparity": "waitparity",
                      "ctl": "waitparity", "boot": "starthold", "starthold": "starthold"}.get(bnop)
             if sub == "bench" and r3_op is not None and r3_op in self._nb_caps():
@@ -5476,6 +5539,8 @@ class FakeGame:
                 doc["world"] = self._world_doc()        # [ff9mapkit netsync s144] ...and `world` after it
             if "guestlocal" in caps:
                 doc["guestlocal"] = self._guestlocal_doc()   # [ff9mapkit netsync s156] ...and `guestlocal`, the LAST key
+            if "dresstwin" in caps:
+                doc["ghostframe"] = self._ghostframe_doc()   # [ff9mapkit netsync s157] ...and `ghostframe`, the LAST key
             return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
@@ -5727,7 +5792,9 @@ class FakeGame:
         b, faults, role = self._dress_bench, self.dress_faults, self._nb_role()
         site_mask = self._dress_site_mask if "clear_publishes_only" in faults else b["mask"]
         kw = dict(me_model=me_model, me_anim=me_anim, party=self._dress_party(), role="selftest", selftest_role=role,
-                  enabled=True, empty_mask=b["empty"], rule=b["rule"], wire=b["wire"], wire_anim=b["wire_anim"])
+                  enabled=True, empty_mask=b["empty"], rule=b["rule"], wire=b["wire"], wire_anim=b["wire_anim"],
+                  # [ff9mapkit netsync s157] GhostAnim's twin law, read live (NetSyncSelfDress.TwinOn); none before s157
+                  twin_law="dresstwin" in self._nb_caps() and BW.twin_on_rule(self._twin_lever, role))
         if self._lg():
             # [ff9mapkit netsync s143] FieldGuardMask at the selftest mirror site (`auto` only, never under `rule s138`): the
             # leader the guard takes, and the resolution `netsync.dress.guard` publishes
@@ -5881,6 +5948,15 @@ class FakeGame:
             self._dress_release("selfdress clear")
         elif op in BW.SELFDRESS_SELF_OPS and self._self_rung():
             self._selfdress_s140(args)                  # [ff9mapkit netsync s140] self / gate / law
+        elif op in BW.SELFDRESS_TWIN_OPS and "dresstwin" in self._nb_caps():
+            # [ff9mapkit netsync s157] `twin on|off|miss`: the arity, then TrySetTwin's value (a refusal changes nothing)
+            if n != 3:
+                raise RuntimeError(BW.TWIN_USAGE)
+            ok, why, lever = BW.try_set_twin(args[2])
+            if not ok:
+                raise RuntimeError(why)
+            self._twin_lever = lever
+            self._mlog((BW.TWIN_ON_LOG, BW.TWIN_OFF_LOG, BW.TWIN_MISS_LOG)[lever])
         elif op in BW.SELFDRESS_POLISH_OPS and self._polish_rung():
             # [ff9mapkit netsync s141] `polish on|off`: the arity, then TrySetPolish's value (its words; a refusal changes
             # nothing)
@@ -6051,6 +6127,13 @@ class FakeGame:
         g["last"] = {"seq": g["last"]["seq"] + 1, "field": int(field), "entry": int(entry), "verdict": verdict,
                      "reason": reason, "kind": kind, "hashed": int(hashed), "age_ms": 0}
         g["last_rt"] = self.rt
+
+    def _ghostframe_doc(self) -> dict:
+        """[ff9mapkit netsync s157] AppendGhostFrame: the sentinels (no ghost is drawn here) but for the lever as set and the
+        proof line's verdict."""
+        doc = dict(NETSYNC_GHOSTFRAME_SENTINELS)
+        doc.update(lever_off=self._gf["lever_off"], selftest=self._gf["selftest"])
+        return doc
 
     def _guestlocal_doc(self) -> dict:
         """AppendGuestLocal: the harness state above, `flight` at its sentinels (no climb flies here), `in_flight` false."""
@@ -7713,7 +7796,20 @@ class FakeGame:
             return anim
         rig = int(self._self_arm["rig"]) if "map_on_arm" in self.dress_faults else self._self_rig()
         alias = self._self_law_on(BW.LAW_ALIAS) and "slot_fallback" not in self.dress_faults
-        return BW.map_rig_anim(rig, anim, site, alias)
+        twin = "dresstwin" in self._nb_caps() and BW.twin_on_rule(self._twin_lever, self._nb_role())   # [ff9mapkit netsync s157]
+        mapped = BW.map_rig_anim_twin(rig, anim, site, alias, twin)
+        if twin and mapped and mapped == BW.twin_rig_anim(rig, anim, site, True):
+            # [ff9mapkit netsync s157] MapAndAttach's clip-present guard: `twin miss` plays s140's answer (twin_misses); else counted
+            if BW.twin_miss_rule(self._twin_lever, self._nb_role()):
+                self._twin_counts["twin_misses"] += 1
+                fallback = BW.map_rig_anim(rig, anim, site, alias)
+                if not self._twin_logged_miss:
+                    self._twin_logged_miss = True
+                    self._mlog(BW.twin_miss_line(mapped, anim, fallback, forced=True))
+                return fallback
+            self._twin_counts["twins"] += 1
+            self._twin_last = {"src": int(anim), "twin": int(mapped), "site": int(site)}
+        return mapped
 
     def _self_set_arm(self, why: str, model: int, char: int, rig: int, src) -> None:
         self._self_arm = {"arm": why == BW.WHY_ARMED, "model": model, "char": char, "rig": rig, "why": why, "from": src}
@@ -7769,6 +7865,7 @@ class FakeGame:
             if "no_warm_attach" not in self.dress_faults:
                 self._self_attach(warm=True)            # the warm return: site (b)
         self._polish_on_load(cold)                      # [ff9mapkit netsync s141] the per-load reset, then the footstep ops
+        self._twin_on_load()                            # [ff9mapkit netsync s157] OnTwinLoadReset (beside OnSoundTableReset)
         self._self_bench_ready()
 
     def _self_zidanes(self, *, late: bool, before: bool | None = None) -> list:
@@ -8204,6 +8301,10 @@ class FakeGame:
             any_set = any_set or self._polish_off
             if not ("polish_release_keeps" in self.dress_faults and cause != "selfdress clear"):
                 self._polish_off = False
+        if "dresstwin" in self._nb_caps():
+            # [ff9mapkit netsync s157] ...and the twin lever back on (its default); the release line's text is unchanged
+            any_set = any_set or self._twin_lever != BW.TWIN_LEVER_ON
+            self._twin_lever = BW.TWIN_LEVER_ON
         if self._self_arm["from"] == "bench":
             self._self_set_arm("cleared", -1, -1, -1, None)
         if any_set:
@@ -8230,7 +8331,31 @@ class FakeGame:
                 "law_off": {n: bool(lv["law_off"] & (1 << i)) for i, n in enumerate(BW.LAW_NAMES)},
                 "selftest": self._self_verdict,
                 # [ff9mapkit netsync s141] AppendDressPolish, inside `self` after `selftest`
-                **(self._polish_doc() if self._polish_rung() else {})}
+                **(self._polish_doc() if self._polish_rung() else {}),
+                # [ff9mapkit netsync s157] AppendDressTwin, inside `self` after `polish`
+                **(self._twin_doc() if "dresstwin" in self._nb_caps() else {})}
+
+    def _twin_doc(self) -> dict:
+        """[ff9mapkit netsync s157] HarnessAgent.AppendDressTwin (inside `self`, after `polish`; every role), in its order."""
+        c = self._twin_counts
+        return {"twin_rows": BW.TWIN_ROW_COUNT, "twins": c["twins"], "twin_misses": c["twin_misses"],
+                "twin_last": dict(self._twin_last), "ghost_clip_misses": c["ghost_clip_misses"],
+                "twin_clips_on_disc": self._twin_clips, "twin_clip_missing": -1,
+                "twin": BW.TWIN_LEVER_NAMES[self._twin_lever], "twin_selftest": self._twin_verdict}
+
+    def _twin_on_load(self) -> None:
+        """[ff9mapkit netsync s157] NetSyncSelfDress.OnTwinLoadReset: the per-load twin counters and `twin_last` back to their
+        sentinels (the lever and the measured clip count are never reset by a load)."""
+        self._twin_counts = {"twins": 0, "twin_misses": 0, "ghost_clip_misses": 0}
+        self._twin_last = {"src": -1, "twin": -1, "site": -1}
+        self._twin_logged_miss = False
+
+    def _twin_proof(self) -> None:
+        """[ff9mapkit netsync s157] The proof block's dress twin line (after s156's guest traversal line; the ghost frame line
+        follows it, the block's LAST), once per process."""
+        self._twin_verdict = BW.DRESS_TWIN_SELFTEST_OK
+        self._twin_clips = BW.TWIN_CLIP_COUNT
+        self._mlog("[NetSync] " + BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS))
 
     def _self_proof(self) -> None:
         """The proof block's s140 line (right after the rig idle frames line), once per process."""
@@ -8584,6 +8709,10 @@ class FakeGame:
             self._dress_proof()
         if "guestlocal" in caps:                            # [ff9mapkit netsync s156] the block's last modelled line
             self._gl_proof()
+        if "dresstwin" in caps:                             # [ff9mapkit netsync s157] after the guest traversal line
+            self._twin_proof()
+            self._gf["selftest"] = "ok"                     # [ff9mapkit netsync s157] ...then the ghost frame line, the block's LAST
+            self._mlog(f"[NetSync] {PROOF_GHOST_FRAME}OK ({FAKE_GHOSTFRAME_SELFTEST_ROWS} rows, {FAKE_GHOSTFRAME_MUTANTS} mutants caught)")
 
     # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
     def _nb_caps(self) -> frozenset:
@@ -9078,6 +9207,11 @@ class FakeGame:
         # [ff9mapkit netsync s156] NetSyncGuestLocal.HarnessRelease, LAST (HarnessReleaseBench's new last line): the lever none, a
         # mutate disarmed, the line latch cleared -- its line only when a lever or a mutate was set
         self._gl_release()
+        # [ff9mapkit netsync s157] NetSyncClient.HarnessReleaseGhostFrame, LAST (HarnessReleaseBench's new last line): the lever back
+        # on, its line only when it was pulled
+        if self._gf["lever_off"]:
+            self._mlog(GHOSTFRAME_LOG_RELEASE)
+        self._gf["lever_off"] = False
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an

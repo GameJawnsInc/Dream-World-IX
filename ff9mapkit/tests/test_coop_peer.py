@@ -13,6 +13,7 @@ under ``-n 6``).
 """
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import io
 import pathlib
@@ -27,14 +28,13 @@ import pytest
 
 from ff9mapkit import netsync_bridge as NB
 
-from ._patchstack import net_lines
+from ._patchstack import net_lines, stack_file
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
 from harness import battlewire as BW                               # noqa: E402
 from harness import coop_peer as CP                                # noqa: E402
 
-CLONE_NETSYNC = pathlib.Path(r"C:\gd\FFIX\Memoria\Assembly-CSharp\Memoria\Netsync")
 TIMEOUT = 5.0
 
 
@@ -81,6 +81,8 @@ POS_FIXTURE = bytes.fromhex(
     "00 00 00 3F"             # rot.z  0.5
     "00 00 80 3F"             # rot.w  1.0
 )
+# [ff9mapkit netsync s157] the same record + the trailing [animFrame 7][frameN 12]: len 39 (0x27) -- an s157 engine's frame.
+POS_FRAME_FIXTURE = bytes.fromhex("F9 0E 00 27 00") + POS_FIXTURE[5:] + bytes([7, 12])
 # A type-1 head as SampleOwnBattle writes it: seq u16, mapNo u16, guestSlots, patNum, startType, flags, nonce,
 # songId u16 (v10), unitCount -- then (none here) the unit records.
 BATTLE_FIXTURE = bytes.fromhex("F9 0E 01 0C 00" "02 01" "9C 01" "02" "01" "00" "0B" "07" "FF FF" "00")
@@ -104,6 +106,23 @@ def test_pos_field_truncates_like_the_csharp_cast():
     # (UInt16)field: the int is truncated, never range-checked
     assert CP.parse_pos_payload(CP.build_pos_payload(0x1_00FA))["field"] == 250
     assert CP.parse_pos_payload(CP.build_pos_payload(CP.FIELD_SENTINEL))["field"] == 65535
+
+
+def test_pos_frame_s157_trailer_round_trips_and_a_v14_frame_still_parses():
+    """[ff9mapkit netsync s157] The ghost frame's trailer: 39 bytes built and read as NetSyncWire does, a 37-byte pre-s157 frame
+    still parsed with no frame, bytes past the 39th ignored (the forward rule), 36 refused (the v14 rule)."""
+    built = CP.build_pos_frame(250, anim=0x0102, model=0x0304, mesh_vis=0x0506, loco=3, pos=(1.5, -2.0, 3.0),
+                               rot=(0.0, 0.0, 0.5, 1.0), anim_frame=7, frame_n=12)
+    assert built == POS_FRAME_FIXTURE and len(built) == CP.HEADER_SIZE + CP.POS_FRAME_LEN == 44
+    p = CP.parse_pos_payload(CP.parse_frame(built)[1])
+    assert (p["has_frame"], p["anim_frame"], p["frame_n"], p["field"], p["anim"], p["loco"]) == (True, 7, 12, 250, 0x0102, 3)
+    old = CP.parse_pos_payload(CP.parse_frame(POS_FIXTURE)[1])
+    assert (old["has_frame"], old["anim_frame"], old["frame_n"], old["field"]) == (False, None, None, 250)
+    assert CP.parse_pos_payload(POS_FRAME_FIXTURE[5:] + b"\xAA\x55")["anim_frame"] == 7
+    assert CP.parse_pos_payload(POS_FIXTURE[5:-1]) is None
+    assert len(CP.build_pos_payload(0, frame_n=0)) == CP.POS_FRAME_LEN and CP.build_pos_payload(0, frame_n=0)[-2:] == b"\x00\x00"
+    assert "frame 7/12" in CP.describe_frame(CP.TYPE_POS, CP.parse_frame(built)[1])
+    assert "frame" not in CP.describe_frame(CP.TYPE_POS, CP.parse_frame(POS_FIXTURE)[1])
 
 
 def test_battle_head_and_control_frame_fixtures():
@@ -168,24 +187,52 @@ def _method_body(text, signature):
     return text[i:j]
 
 
-@pytest.mark.skipif(not (CLONE_NETSYNC / "NetSyncSocket.cs").is_file(), reason="no shared Memoria clone")
-def test_pos_payload_write_order_matches_the_clone_source():
-    """BuildPosPayload's BinaryWriter order (the clone's working tree IS the applied stack)."""
-    text = (CLONE_NETSYNC / "NetSyncSocket.cs").read_text(encoding="utf-8").replace("\r\n", "\n")
+def _stack_source(file_name, patches=None):
+    """[ff9mapkit netsync s157] ``file_name`` as THIS branch's memoria-patches/ build it (tests/_patchstack.stack_file: no clone, so
+    CI pins it too). Never the shared clone: its working tree holds whatever round another session is building (the s157 review's
+    K1 -- the clone's s157 BuildPosPayload turned master's 37-B pin red with no merge behind it)."""
+    return "\n".join(stack_file(file_name, patches)) + "\n"
+
+
+def test_pos_payload_write_order_matches_the_stack_source():
+    """BuildPosPayload's BinaryWriter order, TryParsePosPayload's trailer read and BuildFrame's header, off the live stack."""
+    text = _stack_source("NetSyncSocket.cs")
     body = _method_body(text, "public static Byte[] BuildPosPayload(")
     assert "Int32 field, UInt16 anim, UInt16 model, UInt16 meshVis, Byte loco, Vector3 pos, Quaternion rot" in body
-    assert "new Byte[37]" in body and CP.POS_LEN == 37
+    assert "Byte animFrame, Byte frameN" in body                                   # [ff9mapkit netsync s157]
+    assert "new Byte[PosLenFrame]" in body
     assert re.findall(r"bw\.Write\(([^;]+?)\);", body) == [
         "(UInt16)field", "anim", "model", "meshVis", "loco", "pos.x", "pos.y", "pos.z", "rot.x", "rot.y", "rot.z",
-        "rot.w"]
+        "rot.w", "animFrame", "frameN"]
+    lens = dict(re.findall(r"public const Int32 (PosLen\w+) = (\d+);", text))
+    assert lens == {"PosLenBase": str(CP.POS_LEN), "PosLenFrame": str(CP.POS_FRAME_LEN)} and (CP.POS_LEN, CP.POS_FRAME_LEN) == (37, 39)
+    parse = _method_body(text, "public static Boolean TryParsePosPayload(")
+    assert "payload.Length < PosLenBase" in parse and "payload.Length >= PosLenFrame" in parse
+    assert re.findall(r"rs\.(AnimFrame|FrameN) = br\.ReadByte\(\);", parse) == ["AnimFrame", "FrameN"]
     frame = _method_body(text, "public static Byte[] BuildFrame(")
     assert re.findall(r"frame\[(\d)\] = ([^;]+);", frame) == [
         ("0", "Magic"), ("1", "Version"), ("2", "type"), ("3", "(Byte)(len & 0xFF)"), ("4", "(Byte)((len >> 8) & 0xFF)")]
 
 
-@pytest.mark.skipif(not (CLONE_NETSYNC / "NetSyncBattle.cs").is_file(), reason="no shared Memoria clone")
-def test_battle_head_read_order_matches_the_clone_source():
-    text = (CLONE_NETSYNC / "NetSyncBattle.cs").read_text(encoding="utf-8").replace("\r\n", "\n")
+def test_the_stack_source_is_this_branchs_stack():
+    """The read can fail: the stack WITHOUT the s157 patch builds s156's 37-B writer (no trailer), so the pin above reads the
+    branch's own memoria-patches/, and a hunk that applies nowhere raises."""
+    from ._patchstack import msr
+    names = [n for n in msr.stack() if n not in msr.DEAD]
+    s157 = [n for n in names if n.startswith("s157-")]
+    assert len(s157) == 1, s157
+    older = [(msr.PATCHES / n).read_bytes() for n in names[:names.index(s157[0])]]
+    body = _method_body(_stack_source("NetSyncSocket.cs", older), "public static Byte[] BuildPosPayload(")
+    assert "new Byte[37]" in body and "animFrame" not in body
+    sec = next(s for p, s in msr.sections((msr.PATCHES / s157[0]).read_bytes()) if p and p.endswith("/NetSyncSocket.cs"))
+    assert "new Byte[PosLenFrame]" in _method_body(_stack_source("NetSyncSocket.cs", older + [sec]),
+                                                   "public static Byte[] BuildPosPayload(")
+    with pytest.raises(AssertionError, match="matches nowhere"):
+        stack_file("NetSyncSocket.cs", older + [sec, sec])          # s157's hunks a second time: their old lines are gone
+
+
+def test_battle_head_read_order_matches_the_stack_source():
+    text = _stack_source("NetSyncBattle.cs")
     body = _method_body(text, "private static BattleView ParseView(Byte[] payload)")
     head = body[:body.index("for (Int32 i = 0; i < count")]
     reads = re.findall(r"(?:view\.(\w+)|Byte (openFlags)|Int32 (count)) = br\.Read(\w+)\(\)", head)
@@ -490,6 +537,57 @@ def test_guest_model_mirrors_the_host_field_and_starts_on_the_sentinel():
     pinned = CP.GuestModel(field=30003)
     pinned.on_host_frame(CP.TYPE_POS, CP.build_pos_payload(250), 0.0)
     assert CP.parse_pos_payload(CP.parse_frame(pinned.outgoing(0.0)[0])[1])["field"] == 30003
+
+
+def test_the_host_frame_trailer_edge_is_logged_once_each_way():
+    """[ff9mapkit netsync s157] serve-guest logs the host's type-0 trailer as an EDGE -- the ghost frame's wire-half witness the
+    peer bench greps: the first 39-byte frame (an s157 host), then a 37-byte one (an s156 host), never per frame; a host that
+    only ever sends 37 bytes logs none (the unframed starting state)."""
+    m = CP.GuestModel()
+    ev = m.on_host_frame(CP.TYPE_POS, CP.build_pos_payload(207, anim_frame=5, frame_n=12), 0.0)
+    assert [e for e in ev if "type-0" in e] == ["host type-0: 39 B -- the s157 frame bytes (frame 5 of 12)"]
+    assert [e for e in ev if "type-0" in e] == [CP.HOST_TRAILER_LINE.format(n=CP.POS_FRAME_LEN, f=5, fn=12)]
+    assert not [e for e in m.on_host_frame(CP.TYPE_POS, CP.build_pos_payload(207, anim_frame=6, frame_n=12), 0.1)
+                if "type-0" in e]                                                   # the next frame: no line
+    assert [e for e in m.on_host_frame(CP.TYPE_POS, CP.build_pos_payload(207), 0.2) if "type-0" in e] == \
+        ["host type-0: 37 B -- no frame bytes"]
+    assert [e for e in m.on_host_frame(CP.TYPE_POS, CP.build_pos_payload(0, anim_frame=0, frame_n=0), 0.3)
+            if "type-0" in e] == [CP.HOST_TRAILER_LINE.format(n=39, f=0, fn=0)]     # a sentinel frame still carries it
+    s156 = CP.GuestModel()
+    assert not [e for t in (0.0, 0.1) for e in s156.on_host_frame(CP.TYPE_POS, CP.build_pos_payload(207), t)
+                if "type-0" in e]
+
+
+def test_guest_model_echoes_pins_steps_or_drops_the_ghost_frame():
+    """[ff9mapkit netsync s157] The fake guest's trailing frame: echoed from an s157 host (37 bytes from an older one), always
+    dropped under ``frame="none"``, pinned and stepped across the seam both ways, with ``anim`` / ``loco`` pinned."""
+    hostf = CP.build_pos_payload(250, anim=10539, model=98, loco=0, anim_frame=11, frame_n=12)
+    echo = CP.GuestModel()
+    echo.on_host_frame(CP.TYPE_POS, hostf, 0.0)
+    p = CP.parse_pos_payload(CP.parse_frame(echo.outgoing(0.0)[0])[1])
+    assert (p["anim"], p["loco"], p["has_frame"], p["anim_frame"], p["frame_n"]) == (10539, 0, True, 11, 12)
+    old = CP.GuestModel()
+    old.on_host_frame(CP.TYPE_POS, CP.build_pos_payload(250, anim=7, model=98), 0.0)     # a pre-s157 host
+    assert len(CP.parse_frame(old.outgoing(0.0)[0])[1]) == CP.POS_LEN
+    none = CP.GuestModel(frame="none")
+    none.on_host_frame(CP.TYPE_POS, hostf, 0.0)
+    assert len(CP.parse_frame(none.outgoing(0.0)[0])[1]) == CP.POS_LEN
+    pin = CP.GuestModel(anim=10539, loco=0, frame=(10, 12), frame_step=1)
+    pin.on_host_frame(CP.TYPE_POS, CP.build_pos_payload(250, anim=200, model=98, loco=1), 0.0)
+    seen = [CP.parse_pos_payload(CP.parse_frame(pin.outgoing(t)[0])[1]) for t in (0.0, 0.033, 0.066)]
+    assert [(q["anim"], q["loco"], q["anim_frame"], q["frame_n"]) for q in seen] == [
+        (10539, 0, 10, 12), (10539, 0, 11, 12), (10539, 0, 0, 12)]                       # 11 -> 0: the seam
+    back = CP.GuestModel(frame=(0, 12), frame_step=-1)
+    back.on_host_frame(CP.TYPE_POS, hostf, 0.0)
+    assert [CP.parse_pos_payload(CP.parse_frame(back.outgoing(0.0)[0])[1])["anim_frame"] for _ in range(2)] == [0, 11]
+
+
+def test_frame_option_parses_echo_none_and_a_pin():
+    assert (CP._parse_frame("echo"), CP._parse_frame(" NONE "), CP._parse_frame("3/12"), CP._parse_frame("0/255")) == (
+        "echo", "none", (3, 12), (0, 255))
+    for bad in ("12", "3/256", "-1/12", "x/y"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            CP._parse_frame(bad)
 
 
 def _battle_payload(seq, nonce):

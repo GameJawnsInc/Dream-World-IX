@@ -1,0 +1,55 @@
+            {  1, 10687, 10686, 10281 },   // Vivi     ZDN_LADDER_1_1 -> VIV_LADDER_1_1  8 ->  8  same suffix
+            {  1, 10539, 10538, 10277 },   // Vivi     ZDN_LADDER_1_2 -> VIV_LADDER_1_2 12 -> 12  same suffix
+            {  1, 10685, 10684, 10279 },   // Vivi     ZDN_LADDER_1_3 -> VIV_LADDER_1_3 14 -> 14  same suffix
+            {  1, 11455, 11454, 10437 },   // Vivi     ZDN_LADDER_2_1 -> VIV_LADDER_2_1 11 -> 11  same suffix
+            {  1, 11453, 11452, 10435 },   // Vivi     ZDN_LADDER_2_3 -> VIV_LADDER_2_3 12 -> 12  same suffix
+            {  1,   206,   106, 11670 },   // Vivi     ZDN_JUMP       -> VIV_JUMP_1     28 -> 28  nearest played jump
+            {  1, 10446, 10447, 11670 },   // Vivi     ZDN_JUMP_1     -> VIV_JUMP_1     27 -> 28  same suffix
+            {  1,  3519,  3520, 11673 },   // Vivi     ZDN_JUMP_2     -> VIV_JUMP_2     35 -> 27  same suffix
+            {  1, 10444, 10445, 11674 },   // Vivi     ZDN_JUMP_3     -> VIV_JUMP_3     45 -> 27  same suffix
+            {  2, 10687, 10686,   194 },   // Garnet   ZDN_LADDER_1_1 -> GRN_LADDER_1_1  8 ->  8  same suffix
+            {  2, 10539, 10538,   159 },   // Garnet   ZDN_LADDER_1_2 -> GRN_LADDER_1_2 12 -> 12  same suffix
+            {  2, 10685, 10684,   167 },   // Garnet   ZDN_LADDER_1_3 -> GRN_LADDER_1_3 14 -> 14  same suffix
+            {  2, 11455, 11454,   177 },   // Garnet   ZDN_LADDER_2_1 -> GRN_LADDER_2_1 11 -> 11  same suffix
+            {  2, 11453, 11452,   163 },   // Garnet   ZDN_LADDER_2_3 -> GRN_LADDER_2_3 12 -> 12  same suffix
+            {  2,   206,   106, 10438 },   // Garnet   ZDN_JUMP       -> GRN_JUMP_1     28 -> 28  nearest played jump
+            {  2, 10446, 10447, 10438 },   // Garnet   ZDN_JUMP_1     -> GRN_JUMP_1     27 -> 28  same suffix
+            {  2,  3519,  3520, 10438 },   // Garnet   ZDN_JUMP_2     -> GRN_JUMP_1     35 -> 28  nearest played jump
+            {  2, 10444, 10445, 10442 },   // Garnet   ZDN_JUMP_3     -> GRN_JUMP_3     45 -> 45  same suffix
+            {  3, 10687, 10686, 10745 },   // Steiner  ZDN_LADDER_1_1 -> STN_LADDER_1_1  8 -> 10  same suffix
+            {  3, 10539, 10538, 10741 },   // Steiner  ZDN_LADDER_1_2 -> STN_LADDER_1_2 12 -> 13  same suffix
+            {  3, 10685, 10684, 10743 },   // Steiner  ZDN_LADDER_1_3 -> STN_LADDER_1_3 14 -> 13  same suffix
+            {  3, 11455, 11454,   481 },   // Steiner  ZDN_LADDER_2_1 -> STN_LADDER_2_1 11 -> 11  same suffix
+            {  3, 11453, 11452,   432 },   // Steiner  ZDN_LADDER_2_3 -> STN_LADDER_2_3 12 -> 11  same suffix
+            {  3,   206,   106, 12034 },   // Steiner  ZDN_JUMP       -> STN_JUMP_1     28 -> 20  nearest played jump
+            {  3, 10446, 10447, 12034 },   // Steiner  ZDN_JUMP_1     -> STN_JUMP_1     27 -> 20  same suffix
+            {  3,  3519,  3520, 12032 },   // Steiner  ZDN_JUMP_2     -> STN_JUMP_3     35 -> 42  nearest played jump
+            {  3, 10444, 10445, 12032 },   // Steiner  ZDN_JUMP_3     -> STN_JUMP_3     45 -> 42  same suffix
+            {  4,   206,   106, 12863 },   // Freya    ZDN_JUMP       -> FRJ_JUMP_1     28 -> 27  nearest played jump
+            {  4, 10446, 10447, 12863 },   // Freya    ZDN_JUMP_1     -> FRJ_JUMP_1     27 -> 27  same suffix
+            {  4,  3519,  3520, 12867 },   // Freya    ZDN_JUMP_2     -> FRJ_JUMP_2     35 -> 35  same suffix
+            {  4, 10444, 10445, 12871 },   // Freya    ZDN_JUMP_3     -> FRJ_JUMP_3     45 -> 45  same suffix
+            {  5,   206,   106,  3935 },   // Quina    ZDN_JUMP       -> KUI_JUMP_1     28 -> 30  nearest played jump
+            {  5, 10446, 10447,  3935 },   // Quina    ZDN_JUMP_1     -> KUI_JUMP_1     27 -> 30  same suffix
+            {  5,  3519,  3520,  3939 },   // Quina    ZDN_JUMP_2     -> KUI_JUMP_2     35 -> 33  same suffix
+            {  5, 10444, 10445,  3943 },   // Quina    ZDN_JUMP_3     -> KUI_JUMP_3     45 -> 30  same suffix
+            {  6,   206,   106,  3054 },   // Eiko     ZDN_JUMP       -> EIK_JUMP_1     28 -> 27  nearest played jump
+            {  6, 10446, 10447,  3054 },   // Eiko     ZDN_JUMP_1     -> EIK_JUMP_1     27 -> 27  same suffix
+            {  6,  3519,  3520,  3058 },   // Eiko     ZDN_JUMP_2     -> EIK_JUMP_2     35 -> 35  same suffix
+            {  6, 10444, 10445,  3061 },   // Eiko     ZDN_JUMP_3     -> EIK_JUMP_3     45 -> 35  same suffix
+            {  7,   206,   106,  3031 },   // Amarant  ZDN_JUMP       -> SLM_JUMP_1     28 -> 34  nearest played jump
+            {  7, 10446, 10447,  3031 },   // Amarant  ZDN_JUMP_1     -> SLM_JUMP_1     27 -> 34  same suffix
+            {  7,  3519,  3520,  3035 },   // Amarant  ZDN_JUMP_2     -> SLM_JUMP_2     35 -> 40  same suffix
+            {  7, 10444, 10445,  3039 },   // Amarant  ZDN_JUMP_3     -> SLM_JUMP_3     45 -> 46  same suffix
+            {  8,   206,   106,  2917 },   // moogle   ZDN_JUMP       -> MOG_JUMP       28 -> 30  same suffix
+            {  8, 10446, 10447,  2917 },   // moogle   ZDN_JUMP_1     -> MOG_JUMP       27 -> 30  nearest played jump
+            {  8,  3519,  3520,  2917 },   // moogle   ZDN_JUMP_2     -> MOG_JUMP       35 -> 30  nearest played jump
+            {  8, 10444, 10445,  2917 },   // moogle   ZDN_JUMP_3     -> MOG_JUMP       45 -> 30  nearest played jump
+            {  9,   206,   106,  9889 },   // Cinna    ZDN_JUMP       -> CNA_JUMP       28 -> 40  same suffix
+            {  9, 10446, 10447,  9889 },   // Cinna    ZDN_JUMP_1     -> CNA_JUMP       27 -> 40  nearest played jump
+            {  9,  3519,  3520,  9889 },   // Cinna    ZDN_JUMP_2     -> CNA_JUMP       35 -> 40  nearest played jump
+            {  9, 10444, 10445,  9889 },   // Cinna    ZDN_JUMP_3     -> CNA_JUMP       45 -> 40  nearest played jump
+            { 10,   206,   106, 12011 },   // Marcus   ZDN_JUMP       -> MRC_JUMP_3     28 -> 45  nearest played jump
+            { 10, 10446, 10447, 12011 },   // Marcus   ZDN_JUMP_1     -> MRC_JUMP_3     27 -> 45  nearest played jump
+            { 10,  3519,  3520, 12011 },   // Marcus   ZDN_JUMP_2     -> MRC_JUMP_3     35 -> 45  nearest played jump
+            { 10, 10444, 10445, 12011 },   // Marcus   ZDN_JUMP_3     -> MRC_JUMP_3     45 -> 45  same suffix

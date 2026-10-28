@@ -64,7 +64,9 @@ case MAPJUMP:  // 0x2B "Field"
   already standing on the destination, the guest's gateway IS the follow (better arrival positioning
   than the follow-warp). `LastHostField` is a new cached static on NetSyncClient (updated each Update
   from `rs.Valid ? rs.Field : -1`; -1 in selftest/stale → bench always bounces).
-- `dest != current` guards a genuine same-field scripted Field(current) (rare; leave it vanilla).
+- `dest != current` guards a genuine same-field scripted Field(current) (leave it vanilla). Not rare: 174
+  stock calls in 82 field scripts, mostly same-field ATEs (census 2026-10-27,
+  `GUEST-TRAVERSAL-TWO-PC.md` finding 5).
 - Known accepted consequences: the guest bounces to the field's default entry (auto/manual TP brings
   them back to the host in seconds); the both-walk-through-together case costs one extra reload when
   the guest treads the region before the host's new field hits the wire; a spawn-inside-gateway

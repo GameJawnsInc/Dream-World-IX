@@ -164,7 +164,8 @@ in that README, is **staging/choreography only**:
 Engine patch s156 lets a following co-op guest climb a stock ladder or take a stock jump on its own
 copy of the room, but only when the bytes it is about to run are the ones the kit verified. The kit's
 record of those bytes is `data/guest_traversal.json` (package data), and its engine twin is the
-generated `Memoria/Netsync/NetSyncGuestLocalTable.cs` in the s156 patch. Neither holds game bytes:
+generated `Memoria/Netsync/NetSyncGuestLocalTable.cs`, created by the s156 patch and replaced whole by s157's
+re-capture. Neither holds game bytes:
 
 - **What they hold:** field ids, entry and tag indices, byte lengths, and **CRC‑32 digests** of the
   stock `.eb` functions a press runs. Every function is 8 bytes or longer (the generator refuses a

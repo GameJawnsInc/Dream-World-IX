@@ -1,0 +1,1586 @@
+{
+ "5040": {
+  "name": "BLN_JUMP",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "5041": {
+  "name": "BLN_JUMP",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "976": {
+  "name": "BLN_SWORD_JUMP",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "977": {
+  "name": "BLN_SWORD_JUMP",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   63
+  ],
+  "ex": [
+   "test2_14.txt:1474 f63 SetJumpAnimation"
+  ]
+ },
+ "8564": {
+  "name": "BTX_ESCAPE_JUMP",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "8566": {
+  "name": "BTX_ESCAPE_JUMP",
+  "ops": {
+   "SetJumpAnimation": 2
+  },
+  "nfields": 2,
+  "fields": [
+   1110,
+   1202
+  ],
+  "ex": [
+   "test2_308.txt:2505 f1110 SetJumpAnimation",
+   "test2_315.txt:3049 f1202 SetJumpAnimation"
+  ]
+ },
+ "8570": {
+  "name": "BTX_JUMP_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "8572": {
+  "name": "BTX_JUMP_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "8573": {
+  "name": "BTX_JUMP_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "8575": {
+  "name": "BTX_JUMP_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "8576": {
+  "name": "BTX_JUMP_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "8578": {
+  "name": "BTX_JUMP_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "9888": {
+  "name": "CNA_JUMP",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "9889": {
+  "name": "CNA_JUMP",
+  "ops": {
+   "SetJumpAnimation": 3,
+   "RunAnimation": 3
+  },
+  "nfields": 3,
+  "fields": [
+   53,
+   56,
+   809
+  ],
+  "ex": [
+   "test2_234.txt:1069 f809 SetJumpAnimation",
+   "test2_4.txt:774 f53 SetJumpAnimation",
+   "test2_7.txt:169 f56 RunAnimation"
+  ]
+ },
+ "3054": {
+  "name": "EIK_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 8,
+   "RunAnimation": 1
+  },
+  "nfields": 8,
+  "fields": [
+   1600,
+   1601,
+   1606,
+   1652,
+   1657,
+   1750,
+   2651,
+   2652
+  ],
+  "ex": [
+   "test2_443.txt:5233 f1600 SetJumpAnimation",
+   "test2_443.txt:5316 f1600 RunAnimation",
+   "test2_444.txt:3883 f1601 SetJumpAnimation"
+  ]
+ },
+ "3056": {
+  "name": "EIK_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   1650
+  ],
+  "ex": [
+   "test2_454.txt:1889 f1650 SetJumpAnimation"
+  ]
+ },
+ "3058": {
+  "name": "EIK_JUMP_2",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   1600
+  ],
+  "ex": [
+   "test2_443.txt:5209 f1600 SetJumpAnimation"
+  ]
+ },
+ "3059": {
+  "name": "EIK_JUMP_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "3061": {
+  "name": "EIK_JUMP_3",
+  "ops": {
+   "SetJumpAnimation": 8
+  },
+  "nfields": 8,
+  "fields": [
+   1600,
+   1757,
+   1861,
+   1910,
+   1916,
+   1917,
+   2000,
+   2456
+  ],
+  "ex": [
+   "test2_443.txt:5251 f1600 SetJumpAnimation",
+   "test2_475.txt:1851 f1757 SetJumpAnimation",
+   "test2_521.txt:3711 f1861 SetJumpAnimation"
+  ]
+ },
+ "3063": {
+  "name": "EIK_JUMP_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12863": {
+  "name": "FRJ_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 3
+  },
+  "nfields": 3,
+  "fields": [
+   1202,
+   1223,
+   2552
+  ],
+  "ex": [
+   "test2_315.txt:2710 f1202 SetJumpAnimation",
+   "test2_336.txt:1802 f1223 SetJumpAnimation",
+   "test2_679.txt:770 f2552 SetJumpAnimation"
+  ]
+ },
+ "12864": {
+  "name": "FRJ_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   567
+  ],
+  "ex": [
+   "test2_145.txt:3420 f567 SetJumpAnimation"
+  ]
+ },
+ "12867": {
+  "name": "FRJ_JUMP_2",
+  "ops": {
+   "SetJumpAnimation": 3
+  },
+  "nfields": 3,
+  "fields": [
+   1150,
+   1866,
+   2661
+  ],
+  "ex": [
+   "test2_309.txt:1913 f1150 SetJumpAnimation",
+   "test2_526.txt:2269 f1866 SetJumpAnimation",
+   "test2_702.txt:382 f2661 SetJumpAnimation"
+  ]
+ },
+ "12868": {
+  "name": "FRJ_JUMP_2",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   766
+  ],
+  "ex": [
+   "test2_208.txt:1312 f766 SetJumpAnimation"
+  ]
+ },
+ "12871": {
+  "name": "FRJ_JUMP_3",
+  "ops": {
+   "SetJumpAnimation": 8
+  },
+  "nfields": 8,
+  "fields": [
+   559,
+   1150,
+   1202,
+   1910,
+   1916,
+   1917,
+   2661,
+   3004
+  ],
+  "ex": [
+   "test2_137.txt:4758 f559 SetJumpAnimation",
+   "test2_309.txt:1679 f1150 SetJumpAnimation",
+   "test2_315.txt:2744 f1202 SetJumpAnimation"
+  ]
+ },
+ "12872": {
+  "name": "FRJ_JUMP_3",
+  "ops": {
+   "SetJumpAnimation": 1,
+   "RunAnimation": 1
+  },
+  "nfields": 2,
+  "fields": [
+   567,
+   1108
+  ],
+  "ex": [
+   "test2_145.txt:3432 f567 SetJumpAnimation",
+   "test2_306.txt:4622 f1108 RunAnimation"
+  ]
+ },
+ "10438": {
+  "name": "GRN_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 7
+  },
+  "nfields": 6,
+  "fields": [
+   404,
+   805,
+   1652,
+   1654,
+   1757,
+   1812
+  ],
+  "ex": [
+   "test2_107.txt:1321 f404 SetJumpAnimation",
+   "test2_232.txt:497 f805 SetJumpAnimation",
+   "test2_232.txt:517 f805 SetJumpAnimation"
+  ]
+ },
+ "10439": {
+  "name": "GRN_JUMP_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10440": {
+  "name": "GRN_JUMP_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10441": {
+  "name": "GRN_JUMP_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10442": {
+  "name": "GRN_JUMP_3",
+  "ops": {
+   "SetJumpAnimation": 7
+  },
+  "nfields": 7,
+  "fields": [
+   910,
+   954,
+   955,
+   1254,
+   1910,
+   1916,
+   1917
+  ],
+  "ex": [
+   "test2_250.txt:589 f910 SetJumpAnimation",
+   "test2_264.txt:491 f954 SetJumpAnimation",
+   "test2_265.txt:1043 f955 SetJumpAnimation"
+  ]
+ },
+ "10443": {
+  "name": "GRN_JUMP_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "178": {
+  "name": "GRN_LADDER_1_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "194": {
+  "name": "GRN_LADDER_1_1",
+  "ops": {
+   "SetJumpAnimation": 9
+  },
+  "nfields": 7,
+  "fields": [
+   353,
+   356,
+   912,
+   914,
+   916,
+   1950,
+   1952
+  ],
+  "ex": [
+   "test2_252.txt:2425 f912 SetJumpAnimation",
+   "test2_254.txt:1565 f914 SetJumpAnimation",
+   "test2_254.txt:1659 f914 SetJumpAnimation"
+  ]
+ },
+ "157": {
+  "name": "GRN_LADDER_1_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "159": {
+  "name": "GRN_LADDER_1_2",
+  "ops": {
+   "RunAnimation": 19,
+   "SetJumpAnimation": 1
+  },
+  "nfields": 10,
+  "fields": [
+   353,
+   356,
+   357,
+   454,
+   912,
+   914,
+   916,
+   950,
+   1950,
+   1952
+  ],
+  "ex": [
+   "test2_100.txt:1509 f357 RunAnimation",
+   "test2_100.txt:1604 f357 RunAnimation",
+   "test2_100.txt:1633 f357 RunAnimation"
+  ]
+ },
+ "165": {
+  "name": "GRN_LADDER_1_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "167": {
+  "name": "GRN_LADDER_1_3",
+  "ops": {
+   "SetJumpAnimation": 6
+  },
+  "nfields": 5,
+  "fields": [
+   357,
+   912,
+   914,
+   916,
+   1950
+  ],
+  "ex": [
+   "test2_100.txt:1612 f357 SetJumpAnimation",
+   "test2_252.txt:2508 f912 SetJumpAnimation",
+   "test2_254.txt:1636 f914 SetJumpAnimation"
+  ]
+ },
+ "176": {
+  "name": "GRN_LADDER_2_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "177": {
+  "name": "GRN_LADDER_2_1",
+  "ops": {
+   "SetJumpAnimation": 7
+  },
+  "nfields": 6,
+  "fields": [
+   357,
+   454,
+   912,
+   914,
+   916,
+   1950
+  ],
+  "ex": [
+   "test2_100.txt:1561 f357 SetJumpAnimation",
+   "test2_116.txt:820 f454 SetJumpAnimation",
+   "test2_252.txt:2441 f912 SetJumpAnimation"
+  ]
+ },
+ "161": {
+  "name": "GRN_LADDER_2_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "163": {
+  "name": "GRN_LADDER_2_3",
+  "ops": {
+   "SetJumpAnimation": 9
+  },
+  "nfields": 8,
+  "fields": [
+   353,
+   356,
+   912,
+   914,
+   916,
+   950,
+   1950,
+   1952
+  ],
+  "ex": [
+   "test2_252.txt:2493 f912 SetJumpAnimation",
+   "test2_254.txt:1677 f914 SetJumpAnimation",
+   "test2_254.txt:1756 f914 SetJumpAnimation"
+  ]
+ },
+ "3935": {
+  "name": "KUI_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 3
+  },
+  "nfields": 3,
+  "fields": [
+   1550,
+   1607,
+   2914
+  ],
+  "ex": [
+   "test2_435.txt:2063 f1550 SetJumpAnimation",
+   "test2_450.txt:3954 f1607 SetJumpAnimation",
+   "test2_774.txt:1473 f2914 SetJumpAnimation"
+  ]
+ },
+ "3937": {
+  "name": "KUI_JUMP_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "3939": {
+  "name": "KUI_JUMP_2",
+  "ops": {
+   "SetJumpAnimation": 2
+  },
+  "nfields": 2,
+  "fields": [
+   1052,
+   1607
+  ],
+  "ex": [
+   "test2_289.txt:2149 f1052 SetJumpAnimation",
+   "test2_450.txt:4023 f1607 SetJumpAnimation"
+  ]
+ },
+ "3942": {
+  "name": "KUI_JUMP_2",
+  "ops": {
+   "RunAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   1607
+  ],
+  "ex": [
+   "test2_450.txt:3839 f1607 RunAnimation"
+  ]
+ },
+ "3943": {
+  "name": "KUI_JUMP_3",
+  "ops": {
+   "SetJumpAnimation": 6
+  },
+  "nfields": 6,
+  "fields": [
+   1005,
+   1603,
+   1910,
+   1916,
+   1917,
+   2554
+  ],
+  "ex": [
+   "test2_273.txt:1115 f1005 SetJumpAnimation",
+   "test2_446.txt:2679 f1603 SetJumpAnimation",
+   "test2_537.txt:1151 f1910 SetJumpAnimation"
+  ]
+ },
+ "3945": {
+  "name": "KUI_JUMP_3",
+  "ops": {
+   "RunAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   1607
+  ],
+  "ex": [
+   "test2_450.txt:3852 f1607 RunAnimation"
+  ]
+ },
+ "4986": {
+  "name": "MOG_GIZ_JUMP",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "4987": {
+  "name": "MOG_GIZ_JUMP",
+  "ops": {
+   "RunAnimation": 2
+  },
+  "nfields": 2,
+  "fields": [
+   306,
+   705
+  ],
+  "ex": [
+   "test2_189.txt:614 f705 RunAnimation",
+   "test2_86.txt:967 f306 RunAnimation"
+  ]
+ },
+ "2916": {
+  "name": "MOG_JUMP",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "2917": {
+  "name": "MOG_JUMP",
+  "ops": {
+   "SetJumpAnimation": 6,
+   "RunAnimation": 5
+  },
+  "nfields": 7,
+  "fields": [
+   253,
+   262,
+   351,
+   407,
+   706,
+   853,
+   1607
+  ],
+  "ex": [
+   "test2_110.txt:329 f407 SetJumpAnimation",
+   "test2_190.txt:1798 f706 RunAnimation",
+   "test2_190.txt:1818 f706 RunAnimation"
+  ]
+ },
+ "6503": {
+  "name": "MOG_SAVE_JUMP",
+  "ops": {
+   "SetJumpAnimation": 58,
+   "RunAnimation": 117
+  },
+  "nfields": 59,
+  "fields": [
+   115,
+   150,
+   206,
+   253,
+   300,
+   306,
+   351,
+   407,
+   554,
+   602,
+   611,
+   662
+  ],
+  "ex": [
+   "test2_110.txt:299 f407 SetJumpAnimation",
+   "test2_110.txt:480 f407 RunAnimation",
+   "test2_110.txt:515 f407 RunAnimation"
+  ]
+ },
+ "6504": {
+  "name": "MOG_SAVE_JUMP",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12010": {
+  "name": "MRC_JUMP_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12011": {
+  "name": "MRC_JUMP_3",
+  "ops": {
+   "SetJumpAnimation": 3
+  },
+  "nfields": 3,
+  "fields": [
+   910,
+   954,
+   2114
+  ],
+  "ex": [
+   "test2_250.txt:834 f910 SetJumpAnimation",
+   "test2_264.txt:701 f954 SetJumpAnimation",
+   "test2_574.txt:3704 f2114 SetJumpAnimation"
+  ]
+ },
+ "12629": {
+  "name": "MRC_LADDER_1_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12630": {
+  "name": "MRC_LADDER_1_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12625": {
+  "name": "MRC_LADDER_1_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12626": {
+  "name": "MRC_LADDER_1_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12627": {
+  "name": "MRC_LADDER_1_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12628": {
+  "name": "MRC_LADDER_1_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "3031": {
+  "name": "SLM_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   3007
+  ],
+  "ex": [
+   "test2_802.txt:327 f3007 SetJumpAnimation"
+  ]
+ },
+ "3033": {
+  "name": "SLM_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   1605
+  ],
+  "ex": [
+   "test2_448.txt:4531 f1605 SetJumpAnimation"
+  ]
+ },
+ "3035": {
+  "name": "SLM_JUMP_2",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   1866
+  ],
+  "ex": [
+   "test2_526.txt:2585 f1866 SetJumpAnimation"
+  ]
+ },
+ "3037": {
+  "name": "SLM_JUMP_2",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   1250
+  ],
+  "ex": [
+   "test2_341.txt:1837 f1250 SetJumpAnimation"
+  ]
+ },
+ "3039": {
+  "name": "SLM_JUMP_3",
+  "ops": {
+   "SetJumpAnimation": 4
+  },
+  "nfields": 4,
+  "fields": [
+   1605,
+   1910,
+   1916,
+   1917
+  ],
+  "ex": [
+   "test2_448.txt:4305 f1605 SetJumpAnimation",
+   "test2_537.txt:1295 f1910 SetJumpAnimation",
+   "test2_543.txt:1294 f1916 SetJumpAnimation"
+  ]
+ },
+ "3041": {
+  "name": "SLM_JUMP_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "7241": {
+  "name": "STN_JUMP",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "7242": {
+  "name": "STN_JUMP",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12034": {
+  "name": "STN_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   355
+  ],
+  "ex": [
+   "test2_98.txt:1815 f355 SetJumpAnimation"
+  ]
+ },
+ "12035": {
+  "name": "STN_JUMP_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12030": {
+  "name": "STN_JUMP_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12031": {
+  "name": "STN_JUMP_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "12032": {
+  "name": "STN_JUMP_3",
+  "ops": {
+   "SetJumpAnimation": 5
+  },
+  "nfields": 5,
+  "fields": [
+   910,
+   954,
+   1910,
+   1916,
+   1917
+  ],
+  "ex": [
+   "test2_250.txt:691 f910 SetJumpAnimation",
+   "test2_264.txt:595 f954 SetJumpAnimation",
+   "test2_537.txt:1009 f1910 SetJumpAnimation"
+  ]
+ },
+ "12033": {
+  "name": "STN_JUMP_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10744": {
+  "name": "STN_LADDER_1_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10745": {
+  "name": "STN_LADDER_1_1",
+  "ops": {
+   "SetJumpAnimation": 3
+  },
+  "nfields": 3,
+  "fields": [
+   307,
+   912,
+   1209
+  ],
+  "ex": [
+   "test2_252.txt:2689 f912 SetJumpAnimation",
+   "test2_322.txt:785 f1209 SetJumpAnimation",
+   "test2_87.txt:2438 f307 SetJumpAnimation"
+  ]
+ },
+ "10740": {
+  "name": "STN_LADDER_1_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10741": {
+  "name": "STN_LADDER_1_2",
+  "ops": {
+   "RunAnimation": 4
+  },
+  "nfields": 4,
+  "fields": [
+   307,
+   912,
+   916,
+   1209
+  ],
+  "ex": [
+   "test2_252.txt:2748 f912 RunAnimation",
+   "test2_256.txt:754 f916 RunAnimation",
+   "test2_322.txt:844 f1209 RunAnimation"
+  ]
+ },
+ "10742": {
+  "name": "STN_LADDER_1_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10743": {
+  "name": "STN_LADDER_1_3",
+  "ops": {
+   "SetJumpAnimation": 3
+  },
+  "nfields": 3,
+  "fields": [
+   307,
+   912,
+   1209
+  ],
+  "ex": [
+   "test2_252.txt:2772 f912 SetJumpAnimation",
+   "test2_322.txt:867 f1209 SetJumpAnimation",
+   "test2_87.txt:2462 f307 SetJumpAnimation"
+  ]
+ },
+ "480": {
+  "name": "STN_LADDER_2_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "481": {
+  "name": "STN_LADDER_2_1",
+  "ops": {
+   "SetJumpAnimation": 3
+  },
+  "nfields": 3,
+  "fields": [
+   912,
+   916,
+   1209
+  ],
+  "ex": [
+   "test2_252.txt:2705 f912 SetJumpAnimation",
+   "test2_256.txt:734 f916 SetJumpAnimation",
+   "test2_322.txt:801 f1209 SetJumpAnimation"
+  ]
+ },
+ "406": {
+  "name": "STN_LADDER_2_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "432": {
+  "name": "STN_LADDER_2_3",
+  "ops": {
+   "SetJumpAnimation": 3
+  },
+  "nfields": 3,
+  "fields": [
+   912,
+   916,
+   1209
+  ],
+  "ex": [
+   "test2_252.txt:2757 f912 SetJumpAnimation",
+   "test2_256.txt:758 f916 SetJumpAnimation",
+   "test2_322.txt:852 f1209 SetJumpAnimation"
+  ]
+ },
+ "11670": {
+  "name": "VIV_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 6
+  },
+  "nfields": 6,
+  "fields": [
+   103,
+   116,
+   1251,
+   1652,
+   1864,
+   2456
+  ],
+  "ex": [
+   "test2_25.txt:2856 f103 SetJumpAnimation",
+   "test2_342.txt:2135 f1251 SetJumpAnimation",
+   "test2_38.txt:1482 f116 SetJumpAnimation"
+  ]
+ },
+ "11671": {
+  "name": "VIV_JUMP_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "11672": {
+  "name": "VIV_JUMP_2",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   1150
+  ],
+  "ex": [
+   "test2_309.txt:1494 f1150 SetJumpAnimation"
+  ]
+ },
+ "11673": {
+  "name": "VIV_JUMP_2",
+  "ops": {
+   "SetJumpAnimation": 1,
+   "RunAnimation": 1
+  },
+  "nfields": 2,
+  "fields": [
+   766,
+   1108
+  ],
+  "ex": [
+   "test2_208.txt:1186 f766 SetJumpAnimation",
+   "test2_306.txt:4288 f1108 RunAnimation"
+  ]
+ },
+ "11674": {
+  "name": "VIV_JUMP_3",
+  "ops": {
+   "SetJumpAnimation": 7
+  },
+  "nfields": 6,
+  "fields": [
+   955,
+   1150,
+   1654,
+   1910,
+   1916,
+   1917
+  ],
+  "ex": [
+   "test2_265.txt:929 f955 SetJumpAnimation",
+   "test2_309.txt:1188 f1150 SetJumpAnimation",
+   "test2_458.txt:454 f1654 SetJumpAnimation"
+  ]
+ },
+ "11675": {
+  "name": "VIV_JUMP_3",
+  "ops": {
+   "SetJumpAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   251
+  ],
+  "ex": [
+   "test2_68.txt:1820 f251 SetJumpAnimation"
+  ]
+ },
+ "10280": {
+  "name": "VIV_LADDER_1_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10281": {
+  "name": "VIV_LADDER_1_1",
+  "ops": {
+   "RunAnimation": 2,
+   "SetJumpAnimation": 5
+  },
+  "nfields": 6,
+  "fields": [
+   114,
+   115,
+   307,
+   1225,
+   1863,
+   1865
+  ],
+  "ex": [
+   "test2_338.txt:1488 f1225 RunAnimation",
+   "test2_36.txt:912 f114 RunAnimation",
+   "test2_36.txt:1145 f114 SetJumpAnimation"
+  ]
+ },
+ "10276": {
+  "name": "VIV_LADDER_1_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10277": {
+  "name": "VIV_LADDER_1_2",
+  "ops": {
+   "RunAnimation": 11,
+   "SetStandAnimation": 1
+  },
+  "nfields": 8,
+  "fields": [
+   114,
+   115,
+   307,
+   454,
+   1225,
+   1863,
+   1865,
+   1914
+  ],
+  "ex": [
+   "test2_116.txt:652 f454 RunAnimation",
+   "test2_116.txt:659 f454 RunAnimation",
+   "test2_338.txt:1490 f1225 RunAnimation"
+  ]
+ },
+ "10278": {
+  "name": "VIV_LADDER_1_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10279": {
+  "name": "VIV_LADDER_1_3",
+  "ops": {
+   "SetJumpAnimation": 6,
+   "RunAnimation": 2
+  },
+  "nfields": 7,
+  "fields": [
+   114,
+   115,
+   307,
+   454,
+   1225,
+   1863,
+   1865
+  ],
+  "ex": [
+   "test2_116.txt:663 f454 SetJumpAnimation",
+   "test2_338.txt:1492 f1225 RunAnimation",
+   "test2_36.txt:933 f114 RunAnimation"
+  ]
+ },
+ "10436": {
+  "name": "VIV_LADDER_2_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10437": {
+  "name": "VIV_LADDER_2_1",
+  "ops": {
+   "SetJumpAnimation": 5
+  },
+  "nfields": 5,
+  "fields": [
+   114,
+   115,
+   454,
+   1863,
+   1865
+  ],
+  "ex": [
+   "test2_116.txt:630 f454 SetJumpAnimation",
+   "test2_36.txt:1161 f114 SetJumpAnimation",
+   "test2_37.txt:3460 f115 SetJumpAnimation"
+  ]
+ },
+ "10434": {
+  "name": "VIV_LADDER_2_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10435": {
+  "name": "VIV_LADDER_2_3",
+  "ops": {
+   "SetJumpAnimation": 5
+  },
+  "nfields": 5,
+  "fields": [
+   114,
+   115,
+   1863,
+   1865,
+   1914
+  ],
+  "ex": [
+   "test2_36.txt:1212 f114 SetJumpAnimation",
+   "test2_37.txt:3511 f115 SetJumpAnimation",
+   "test2_523.txt:1306 f1863 SetJumpAnimation"
+  ]
+ },
+ "106": {
+  "name": "ZDN_JUMP",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "206": {
+  "name": "ZDN_JUMP",
+  "ops": {
+   "RunAnimation": 1
+  },
+  "nfields": 1,
+  "fields": [
+   956
+  ],
+  "ex": [
+   "test2_266.txt:1046 f956 RunAnimation"
+  ]
+ },
+ "179": {
+  "name": "ZDN_JUMP1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10446": {
+  "name": "ZDN_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 39,
+   "RunAnimation": 1
+  },
+  "nfields": 29,
+  "fields": [
+   259,
+   403,
+   404,
+   407,
+   408,
+   507,
+   766,
+   808,
+   1017,
+   1018,
+   1050,
+   1100
+  ],
+  "ex": [
+   "test2_106.txt:1343 f403 SetJumpAnimation",
+   "test2_107.txt:1012 f404 SetJumpAnimation",
+   "test2_110.txt:2812 f407 SetJumpAnimation"
+  ]
+ },
+ "10447": {
+  "name": "ZDN_JUMP_1",
+  "ops": {
+   "SetJumpAnimation": 6
+  },
+  "nfields": 6,
+  "fields": [
+   301,
+   310,
+   2260,
+   2602,
+   2605,
+   2926
+  ],
+  "ex": [
+   "test2_625.txt:492 f2260 SetJumpAnimation",
+   "test2_684.txt:760 f2602 SetJumpAnimation",
+   "test2_687.txt:1026 f2605 SetJumpAnimation"
+  ]
+ },
+ "3519": {
+  "name": "ZDN_JUMP_2",
+  "ops": {
+   "SetJumpAnimation": 17
+  },
+  "nfields": 17,
+  "fields": [
+   402,
+   407,
+   408,
+   454,
+   615,
+   752,
+   759,
+   762,
+   766,
+   1014,
+   1052,
+   1150
+  ],
+  "ex": [
+   "test2_105.txt:1086 f402 SetJumpAnimation",
+   "test2_110.txt:2830 f407 SetJumpAnimation",
+   "test2_111.txt:1470 f408 SetJumpAnimation"
+  ]
+ },
+ "3520": {
+  "name": "ZDN_JUMP_2",
+  "ops": {
+   "RunAnimation": 1,
+   "SetJumpAnimation": 3
+  },
+  "nfields": 4,
+  "fields": [
+   1108,
+   1460,
+   2934,
+   3059
+  ],
+  "ex": [
+   "test2_306.txt:4014 f1108 RunAnimation",
+   "test2_420.txt:1971 f1460 SetJumpAnimation",
+   "test2_794.txt:298 f2934 SetJumpAnimation"
+  ]
+ },
+ "10444": {
+  "name": "ZDN_JUMP_3",
+  "ops": {
+   "SetJumpAnimation": 35
+  },
+  "nfields": 28,
+  "fields": [
+   53,
+   55,
+   206,
+   259,
+   307,
+   407,
+   408,
+   615,
+   755,
+   955,
+   1005,
+   1150
+  ],
+  "ex": [
+   "test2_110.txt:2848 f407 SetJumpAnimation",
+   "test2_111.txt:1413 f408 SetJumpAnimation",
+   "test2_170.txt:1252 f615 SetJumpAnimation"
+  ]
+ },
+ "10445": {
+  "name": "ZDN_JUMP_3",
+  "ops": {
+   "RunAnimation": 4,
+   "SetJumpAnimation": 4
+  },
+  "nfields": 6,
+  "fields": [
+   56,
+   767,
+   768,
+   1460,
+   2504,
+   3059
+  ],
+  "ex": [
+   "test2_209.txt:943 f767 RunAnimation",
+   "test2_210.txt:1421 f768 RunAnimation",
+   "test2_420.txt:2008 f1460 SetJumpAnimation"
+  ]
+ },
+ "10686": {
+  "name": "ZDN_LADDER_1_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10687": {
+  "name": "ZDN_LADDER_1_1",
+  "ops": {
+   "SetJumpAnimation": 51
+  },
+  "nfields": 40,
+  "fields": [
+   207,
+   307,
+   353,
+   356,
+   404,
+   504,
+   557,
+   565,
+   706,
+   801,
+   1006,
+   1017
+  ],
+  "ex": [
+   "test2_107.txt:1191 f404 SetJumpAnimation",
+   "test2_124.txt:1454 f504 SetJumpAnimation",
+   "test2_135.txt:1298 f557 SetJumpAnimation"
+  ]
+ },
+ "10538": {
+  "name": "ZDN_LADDER_1_2",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10539": {
+  "name": "ZDN_LADDER_1_2",
+  "ops": {
+   "RunAnimation": 125
+  },
+  "nfields": 47,
+  "fields": [
+   207,
+   307,
+   353,
+   356,
+   357,
+   404,
+   454,
+   504,
+   507,
+   557,
+   565,
+   706
+  ],
+  "ex": [
+   "test2_100.txt:1282 f357 RunAnimation",
+   "test2_100.txt:1402 f357 RunAnimation",
+   "test2_100.txt:1431 f357 RunAnimation"
+  ]
+ },
+ "10684": {
+  "name": "ZDN_LADDER_1_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "10685": {
+  "name": "ZDN_LADDER_1_3",
+  "ops": {
+   "SetJumpAnimation": 53
+  },
+  "nfields": 35,
+  "fields": [
+   207,
+   307,
+   357,
+   507,
+   557,
+   565,
+   1006,
+   1050,
+   1100,
+   1312,
+   1420,
+   1455
+  ],
+  "ex": [
+   "test2_100.txt:1410 f357 SetJumpAnimation",
+   "test2_127.txt:927 f507 SetJumpAnimation",
+   "test2_135.txt:1380 f557 SetJumpAnimation"
+  ]
+ },
+ "11454": {
+  "name": "ZDN_LADDER_2_1",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "11455": {
+  "name": "ZDN_LADDER_2_1",
+  "ops": {
+   "SetJumpAnimation": 52
+  },
+  "nfields": 35,
+  "fields": [
+   207,
+   307,
+   357,
+   454,
+   557,
+   565,
+   1006,
+   1050,
+   1100,
+   1312,
+   1420,
+   1455
+  ],
+  "ex": [
+   "test2_100.txt:1359 f357 SetJumpAnimation",
+   "test2_116.txt:523 f454 SetJumpAnimation",
+   "test2_135.txt:1314 f557 SetJumpAnimation"
+  ]
+ },
+ "11452": {
+  "name": "ZDN_LADDER_2_3",
+  "ops": {},
+  "nfields": 0,
+  "fields": [],
+  "ex": []
+ },
+ "11453": {
+  "name": "ZDN_LADDER_2_3",
+  "ops": {
+   "SetJumpAnimation": 54
+  },
+  "nfields": 39,
+  "fields": [
+   207,
+   307,
+   353,
+   356,
+   404,
+   504,
+   557,
+   565,
+   706,
+   801,
+   1006,
+   1017
+  ],
+  "ex": [
+   "test2_107.txt:1253 f404 SetJumpAnimation",
+   "test2_124.txt:1516 f504 SetJumpAnimation",
+   "test2_135.txt:1365 f557 SetJumpAnimation"
+  ]
+ }
+}

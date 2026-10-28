@@ -333,6 +333,22 @@ s154 row has the details.
     - the guest keeps a copy of the shared save (via the Workspace, never the Continue slot);
     - head-to-head Tetra Master (XL; needs deterministic card RNG).
 
+### From the 2026-10-27 two-PC session
+
+Causes, fix options and censuses: [`../field-coop/GUEST-TRAVERSAL-TWO-PC.md`](../field-coop/GUEST-TRAVERSAL-TWO-PC.md).
+
+21. **Ghosts free-run every clip (M).** The wire carries the anim id but no frame, so a climber who stops
+    keeps climbing on the other screen. Send the frame as trailing type-0 bytes.
+22. **Dressed guests glide through ladders and jumps (M).** Self-dress sends every ladder/jump clip to the
+    idle alias. Add same-suffix twin rows; ship with item 21.
+23. **The guest's character appears twice in story scenes (M-L, owner taste call).** Both copies walk their
+    player object along the same path. Recommended: the guest steps out on both screens, and its own
+    screen draws Zidane from its own copy's clock.
+24. **The guest lags the host's F1 high speed and loses the last lines at the follow (M).** Relay the host's
+    field rate in an additive section, plus a capped follow-hold.
+25. **A host reload of the field it is on leaves the guest mid-scene (M, backlog).** Not debug-only: 174
+    stock self-jumps in 82 fields. Publish a load generation; the guest follow-reloads.
+
 ### Maintenance
 
 - **Consolidate the netsync stack (L, quiet window).** It is 45,930 lines in 14 files, with 593 hook
