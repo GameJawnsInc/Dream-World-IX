@@ -285,6 +285,40 @@ lever's never-armed base as a red, which made K-CAL unreachable; under the lever
 findings went 34, then 14, then 5, all from one mechanism now replaced by a 10-line check at the script's own read, so the
 review is closed. The in-game bench and the two-PC session are the next instruments.
 
+### Built, deployed and solo-benched (2026-10-28)
+
+s158 was written against s156 in a private copy while s157 ran, then merged three-way onto the s157 engine: s157's
+lines first, s158's after. The merge met one real interaction. When s157's twin guard falls back (`TwinMissed`), the
+body plays the fallback, not the twin. s158's raw record now follows what the body plays, so the stand-in's
+last-play key still matches.
+
+The engine is deployed as `Assembly-CSharp.dll` `1958ac7cfa492238`. Revert set `20261028-013714`.
+
+- **`coop_step_out.py` reads 12/12.**
+  - U-UP (undressed on 114) steps out by the dwell at 1.50 s and back in 0.50 s after control.
+  - D-UP and D-DN (dressed as Steiner on 207) do the same, with the body dark on every out sample.
+  - The stand-in is `GEO_MAIN_F0_ZDN` playing `LADDER_1_2`, 0 u from the body, at the body's clip time to within 0.001.
+  - The shadow follows stock's own switch.
+  - N-REST, N-CLIMB, N-TALK and N-DWELL never step out; N-DWELL's longest base was 0.92 s.
+- **The calibration (`COOP_CALIBRATE=1`) reads 11/14.** Exactly U-UP, D-UP and D-DN go red, each on its marker.
+- **The stills** (`.harness-runs/20261028-020435-s158-stills/`, an unjudged lab):
+  - at rest, Steiner and his mirror ghost side by side;
+  - mid-ladder after the dwell, only Zidane on the rungs in his own clip;
+  - at the top, both back.
+- **The regression set is green on s158:**
+  - coop_guest_traversal 28/28;
+  - coop_climb_anim 21/21;
+  - coop_self_dress 65/65;
+  - coop_talk_relay 28/28;
+  - coop_dialogue_authority 147/147;
+  - the duos coop_dress_wire 22/22 and coop_follow_race_duo 21/21.
+
+  The shared install is live-configured as a host and refuses the selftest role, so the three single-game dialogue
+  and dress benches ran on the host instance root.
+
+Not proven: the two-PC session. The bench fakes the host's scene bit and reads the selftest mirror, so a real host's
+option C and a real guest's mask over the relay are first seen there.
+
 ## Finding 4: the guest lags the host's F1 high speed through conversations
 
 **Cause.** F1 is stock Memoria's High Speed booster (`UIKeyTrigger.cs:237-256`). `FastForwardFactor` returns
@@ -372,5 +406,10 @@ reliable here: the guest's copy runs ahead into the scene's own `Field(114)`, wh
    `memoria-patches/README.md`, the s157 row. Next: the two-PC check on 114 undressed and 207/408 dressed, both PCs
    on s157.
 2. **The party-scene step-out** (Finding 3, A+C+E), after the owner's taste call.
+   **Status: BUILT, DEPLOYED and SOLO-BENCHED as engine patch s158 (2026-10-28), on top of s157.**
+   `coop_step_out.py` reads 12/12, and its lever calibration reds exactly its three predicted rows. The stills show
+   only Zidane on the 207 rungs while a Steiner-dressed guest is stepped out. Detail and the gates:
+   `memoria-patches/README.md`, the s158 row. Next: the two-PC check of 359 (Dali, where Steiner walks in) and one
+   scene where party members emerge from Zidane, both PCs on s158. That session can run item 1's s157 checks too.
 3. **The host's field rate on the wire, plus the capped follow-hold** (Finding 4).
 4. **The same-field reload** (Finding 5): backlog. It has real stock cases, so it is not only debug hygiene.
