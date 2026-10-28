@@ -1,7 +1,15 @@
 # The chest relay: a guest sees the host open a stock chest (engine s160)
 
-**Status: DESIGNED, REVIEWED, VERIFIED and MERGED ONTO s159 IN THE SHARED CLONE (rev 3, compile-clean, captured as
-`memoria-patches/s160-netsync-chest-relay.patch`), 2026-10-28. Not yet built or deployed.**
+**Status: BUILT, DEPLOYED, SOLO-BENCHED and DUO-PROVEN (rev 3, 2026-10-28).** Captured as
+`memoria-patches/s160-netsync-chest-relay.patch`, with its README row. Live `Assembly-CSharp.dll` `413a59c9f432f2e7`; to revert
+to s159, `py tools/restore_memoria_dll.py 20261028-142523`.
+- **Solo** (`coop_chest_relay.py`): 10/10. Each lever's calibration went red exactly where predicted:
+  - `serve`: 7/11, with C1, C2, C3 and C7 red;
+  - `request`: 8/11, with C1, C3 and C7 red.
+- **Duo** (`coop_chest_relay_duo.py`): 19/19. The host's real Confirm stamps one start, and the guest accepts and serves it
+  once. Both "Received Leather Hat!" windows are open 1.80 s after the press, and the host's Confirm closes both.
+- **Regressions:** talk relay 28/28, dialogue authority 147/147, guest traversal 28/28, step-out 13/13.
+- **Still owed:** the owner's two-PC check, in the combined s159–s161 session. The checklist is in `netsync-round-queue.md`.
 The owner set the order on 2026-10-28:
 1. s159, the step-out anchor and bench fixes;
 2. this round, as s160;
