@@ -393,6 +393,90 @@ The cost to accept: on a same-field ATE, the guest takes two fades.
 field. The guest's own ~ Reload field is the faster manual re-sync. The `~` "release dialogue lock" escape is NOT
 reliable here: the guest's copy runs ahead into the scene's own `Field(114)`, which bounces into a 359 reload.
 
+## The second two-PC session (2026-10-28, s157 + s158)
+
+Both PCs ran `Assembly-CSharp.dll` `1958ac7c…` (s158 on top of s157) over the relay, with the guest dressed as Steiner.
+The logs are archived in `.harness-runs/twopc-s158-20261028/` in the main repo and in `C:\gd\SCRATCH\guest-traversal\logs\`
+(`desktop-host.20261028-105911.log`, `laptop-guest.20261028-105941.log`). Each finding below was traced by one agent and
+checked by skeptics asked to refute it; the corrections are folded in.
+
+| Check | Owner | Verdict |
+|---|---|---|
+| 114 ladder (undressed) | "looked good" | s157's ghost frame: **two-PC confirmed** |
+| 207 ladders and 408 jumps (dressed as Steiner) | "looked good" | s157's twin clips: **two-PC confirmed** |
+| 359 (Steiner walks in) | no defect reported | stepped out on the first line, as designed |
+| 352 (the Dali inn night scene) | "Zidane was replaced by Steiner in the scene on the guest" | **s158 defect**, below |
+| An emergence scene | not tested | open |
+| After a dialogue box closes | "animation jitter sometimes on the guest" | open, below |
+
+### Finding 6: 352's night scene keeps the guest's Steiner in Zidane's part
+
+**Cause (confirmed).** s158 anchors the episode on the controlled actor (`ServiceStepOut` passes `ee.GetControlChar()`;
+`StepOut` takes `_body = local` and `_dressed = local.netSelfDress != 0`). 352's first load is entrance 3, the night scene
+351's inn rest starts. There Zidane_Init dresses uid 17 as Steiner but skips its own `DefinePlayerCharacter` (test2_95.txt:1502),
+and Dagger_Init binds control to uid 19 (:3196-3217); the guest log says so ("binds control to uid 19 -- not the dressed body
+(uid 17): a co-actor binder, accepted (D3)"). So the step-out went OUT on Dagger, undressed ("the body stays"), and nothing
+darkened uid 17. It stood lit as a second Steiner beside the real one (entry 20) and spoke all of Zidane's window-4 lines, 28
+lines over two minutes. The episode ended "body" when Steiner_Loop's `TerminateEntry(19)` zeroed control. The entrance-4 reload
+bound control to Zidane and stepped out correctly. The root is shared with s140: the D3 dress of a Zidane entry that is not the
+binder was accepted there, and s158's header listed "multi-binder fields keep the double" as a gap. This is the first real scene
+to hit it. Exposure: 165 stock fields have a non-player entry that also binds control in an Init (the s140 audit's count), and any
+field where a co-actor binds after the dress is exposed during its scenes.
+
+359 behaved as designed: its dressed Zidane (uid 6) was the only binder, and the 11:01:57 "IN ... -- body" was Steiner_Bis_Loop's
+`TerminateEntry(6)`, which disposes the body. The IN line's wording ("the body is back") is wrong for a disposed body.
+
+**Fix (s159).** Anchor the episode on the guest's DRESSED body: the controlled actor if it is dressed, else the live
+`NetSyncSelfDress.DressUid` body on this load (`LoadHasDress`, found through `FindObjByUID` so a terminated body is never
+found), else the controlled actor. A control change is then no longer an end for a dressed episode; the "body" end fires only
+when the dressed body is disposed, loses its go or its dress. The stand-in, the darken and relight, the Renderer hook, the eye swap
+(the speaker window anchors on uid 17 here) are already keyed on `_body`. The wire mask and the ghost hide need no change. The
+harness reads that use `GetControlChar()` (`HarnessBodyRendsOn`, `HarnessShadowOn/Off`) move to the anchor; the IN line says "the
+body is gone" for a disposed body. New selftest rows for the anchor rule (dressed is control, dressed is not control, control
+null, no dress, dressed body dead, both dressed) each with a mutant, and a bench leg M-352: `selfdress self steiner`, warp 352
+entrance 3 at scenario 2505, `hostscene 1`, witnessed by `dress.self.ctl_elsewhere` (red on s158: uid 19, undressed, uid 17 lit).
+The anchor also starts the base on loads whose bind comes later than the dress, so N-DWELL gets a deferred-bind row.
+
+### Finding 7: animation jitter on the guest after a dialogue box closes (open)
+
+The logs cannot say which character jittered. The candidates, by fit:
+1. **The Zidane stand-in flashes a wrong frame for one logic tick (new in s158).** On a dressed body every Zidane gesture is
+   remapped to the rig's idle alias, and the alias shares the idle's clip name. Memoria's frame smoother keys on the clip name,
+   so a new gesture reads as a time jump inside one clip, and the stand-in samples its new Zidane clip at that stale smoothed
+   time. A looped Talk_x_2 that a box close cuts off at an arbitrary point, then Talk_x_3, is the classic after-close shape
+   (351's step-out had the most of them). Fix lane: Follow samples the body's logical frame for the tick a new play starts (a
+   per-body play counter bumped at RunAnimation catches same-id and alias-to-alias starts).
+2. **The step-in hand-off.** About 1 s after the scene's last box closes, the stand-in hides, Steiner relights and the host's
+   ghost reappears at the host's own position and frame: one Zidane swaps for a slightly different one. Its timing fits exactly.
+3. **A visible dressed body's gestures on the idle alias (s140's alias law),** smoothed the same way. 352's scene showed it for
+   two minutes.
+4. **s157's ghost frame-follow** on the host's ghost; unlikely while stepped out, since the ghost is hidden then.
+
+Needed from the owner: which character jittered (the Zidane stand-in, the guest's Steiner, or the host's ghost), whether it was
+mid-scene or only as a scene ended, and the laptop's `Memoria.ini` `[Graphics] FieldFPS` (smoothing is off when it equals
+FieldTPS 30; candidates 1 and 3 need it on). A short video settles it.
+
+### For later patches (traced, not built)
+
+- **Chests: the guest sees no lid and no item window** (301, and again on 352). A stock chest opens in its tag-2 `_Range` body,
+  which polls Confirm with control on. That never reaches the talk relay (`EmitTalkStartIfHost`) or the key relay
+  (`TapScriptKeyIfHost` relays only control-off reads), so the guest's copy never runs the open, and the host's "Received Item!"
+  window ages out on the guest after 20 s. This is F3.2's designed-in gap B, not a regression. Lane: a tag-2 "poll start"
+  relay modeled on quad promotion (the host arms on its control-on Confirm read of the chest, promotes when the window rises; the
+  guest serves the press once to that chest's next control-on read). Risks: 301's chest latch is off on the guest's copy, so
+  prove it on a latch-free chest first; the guest's item grant is session-scoped; the same tap covers pickups and signs; a
+  version gate for older guests.
+- **ATEs: the guest sees the "ATE" icon but never the menu or the title.** Each copy draws the icon itself. The menu opens only
+  on a Select read with control ON, which the host never relays and the guest masks on purpose (MISC-08). So the guest's copy
+  never opens the choice window (text 98), and the title card and the white fade inside that branch never run. The ATE's
+  closing lines on 350 were also queued and dropped on the guest when the host's intent pulled it back. Lane: relay the host's
+  ATE press keyed on the host's own menu actually opening (not the raw Select read: `&&` does not short-circuit, so the read
+  runs every frame), serve it Select-only to the same reader on the guest, and let the guest's own `Field(350)` through
+  `RedirectGuestFieldJump`.
+- **Noticed:** from the ATE's arrival on 350 the host re-armed the guest's dress as the moogle fallback (`section 8 model 220
+  charId 255`) until 350 re-armed Steiner at 11:09:13; the cause is not traced. And on 350 and 359 the step-out started on
+  window 6 text 51, which opens at those arrivals.
+
 ## Order of work
 
 1. **One engine round: Finding 2's twin rows plus Finding 1's frame on the ghost lane.** Bench solo first: the
@@ -403,13 +487,14 @@ reliable here: the guest's copy runs ahead into the scene's own `Field(114)`, wh
    21/21, each lever's calibration reds exactly its predicted rows, and the s156 DLL reds the four twin rows on
    the idle alias; the wire half `coop_climb_anim_peer.py` reads 9/9 (s156: 3/5). The stills show Steiner gripping
    the 207 rungs and kicking through his own jump on 408, where s156 stood him upright. Detail and the gates:
-   `memoria-patches/README.md`, the s157 row. Next: the two-PC check on 114 undressed and 207/408 dressed, both PCs
-   on s157.
+   `memoria-patches/README.md`, the s157 row. **Two-PC confirmed (2026-10-28):** 114 undressed and 207/408 dressed
+   "looked good".
 2. **The party-scene step-out** (Finding 3, A+C+E), after the owner's taste call.
    **Status: BUILT, DEPLOYED and SOLO-BENCHED as engine patch s158 (2026-10-28), on top of s157.**
    `coop_step_out.py` reads 12/12, and its lever calibration reds exactly its three predicted rows. The stills show
    only Zidane on the 207 rungs while a Steiner-dressed guest is stepped out. Detail and the gates:
-   `memoria-patches/README.md`, the s158 row. Next: the two-PC check of 359 (Dali, where Steiner walks in) and one
-   scene where party members emerge from Zidane, both PCs on s158. That session can run item 1's s157 checks too.
+   `memoria-patches/README.md`, the s158 row. **Two-PC (2026-10-28):** 359 worked; 352's night scene kept the guest's
+   Steiner in Zidane's part (Finding 6: anchor on the dressed body, s159 next); a post-dialogue jitter is open (Finding 7);
+   the emergence scene is untested.
 3. **The host's field rate on the wire, plus the capped follow-hold** (Finding 4).
 4. **The same-field reload** (Finding 5): backlog. It has real stock cases, so it is not only debug hygiene.
