@@ -100,7 +100,9 @@ From the moment the guest's copy opens its ATE menu from a relayed press, the gu
   - **The own jump passes.** The copy's own `Field(dest)` passes `RedirectGuestFieldJump` (one line, "my copy's own
     Field(dest) passes: the host's pick"). Before s161 it could bounce: the host's position lane reads field 0 while it
     loads 350, so `dest == LastHostField` fails and the guest would reload 352 first (the double load the brief
-    forbids). The check runs before the `dest == myField` pass, so a same-field ATE records its own jump too.
+    forbids). The check runs before the `dest == myField` pass, so a same-field ATE records its own jump too. It keeps
+    the copy's own entrance (16) through the landing's mirror, so a late copy whose host already wrote a later entrance
+    still plays the ATE.
   - **The follow holds** while my control is off, up to 8 s counted from the title card's close (an open title card
     restarts the clock, at most 20 s after the pick): the host's intent toward 350 would otherwise black-fade over the
     guest's own white fade and title. One line per held destination.
@@ -111,14 +113,27 @@ From the moment the guest's copy opens its ATE menu from a relayed press, the gu
   progress (a 3x host announces its departure long before the guest's last line). The guest's copy shows 324/325 from the
   host's events, runs its own fade and music load, and takes its own scripted `Field()` out:
   - a press waiting on that destination with its pick queued (a chained ATE) keeps the jump on course;
-  - else it goes where the host is (its announced field, else the field it stands on), but never back into the ATE field
-    itself while the host has not left it since the guest's landing: the host is still in this ATE and the guest's exit
-    just beat the host's intent frame;
-  - else it takes its own destination, keeping its own entrance through the landing's mirror (350's tail writes 17 for
-    352, while the host's mid-tail snapshot still says 16).
+  - else it goes where the host is (its announced field, else the field it stands on, if this install has it), but never
+    back into the ATE field itself while the host has not left it since the guest's landing: the host is still in this
+    ATE and the guest's exit just beat the host's intent frame;
+  - else it takes its own destination.
+  Every pass that is not rewritten keeps the copy's own entrance through the landing's mirror (350's tail writes 17 for
+  352, or 17 for its own reload on a same-field ATE, while the host's mid-tail snapshot still says 16 and would replay the
+  ATE). When the exit beat a host still in the ATE, the **exit hold** keeps the follow out of the ATE field until the host
+  stands on another field (at most 20 s): without it the serial follow pulled the guest straight back into the ATE field
+  with the host's entrance 16, replaying the ATE. A gateway walk is never the ATE's own exit: control on, or a region runs
+  the jump (every stock and kit gateway runs `ExitField` first, so control alone never tells it). Any line open on the ATE
+  field counts as progress until it leaves, and the tail's clocks stop while the link is down or the host is stalled.
   It is never bounced into a reload of the ATE field. A rewrite seeds the host's entrance and commits the move, as the
   world redirect does. A first cut also required "a host event for my field still waiting", as Finding 4 words it; that
   let the follow's black fade cut the last second of the ATE, after its last line and before its own `Field()`.
+- **A chained ATE.** When the host finishes first, returns to the hub, opens the next ATE and leaves for it while the
+  guest is still in the last one, the guest's pending press is dropped (neither copy is on its field). If the host's pick
+  for it was already queued, the drop records the host's new field: the guest's own exit is rewritten there (with the
+  host's entrance, so the ATE plays), and that landing carries the episode, so the second ATE's tail keeps its hold and
+  the never-reload rule. The guest misses only the second menu, its title and its white fade. Routing the guest back
+  through the hub to open the menu was rejected: the hub's landing would mirror the host's mid-ATE story, which can clear
+  the menu's gate.
 - **Before the pick** (a late guest: its control came back after the host already picked and left). PREPICK: while its
   menu is open (control off) and the host's pick for it is already queued and is not that menu's cancel row, the
   follow waits, up to 2 s from the menu's open (the open tween, MinShowMs and IsChoiceReady). PENDING: while a press
@@ -126,8 +141,9 @@ From the moment the guest's copy opens its ATE menu from a relayed press, the gu
   held tick; this row also applies beside a live episode (a newer press after a Cancel, a chained ATE). The intent
   fast-path also waits one Update whenever ring events have arrived but are not merged yet, so a press and its pick
   that ride the same frame as the host's intent (after a lane stall) are seen first.
-- **The end.** Any other field load, the second landing, my control back for 1 s (the host picked Cancel, or the scene
-  ended in place), a session reset, or the lever. Not an epoch change: a host's transport reset mid-ATE still runs the
+- **The end.** Any other field load, the second landing (unless it is the chained ATE's), my control back for 1 s (the
+  host picked Cancel, or the scene ended in place), a session reset, or the lever. The exit hold outlives the episode and
+  ends on its own. Not an epoch change: a host's transport reset mid-ATE still runs the
   picked branch, and the keep rule drops a real relaunch's press on its own.
 
 The caps keep every hold bounded: a guest copy that diverged gets today's follow after 2-8 s.
@@ -247,6 +263,29 @@ Three lenses again: the round-2 fixes themselves; regressions outside the ATE; a
 
 The self-test grew to 122 rows and 43 mutants. The offline run caught a gap the row tables had: a mutant restoring
 round 1's fixed "row 15 is Cancel" rule survived every row until a row with row 15 on a kit menu was added.
+
+## Pre-build review, round 4
+
+Round 4 read only the round-3 changes, with two lenses: the round-3 fixes themselves, and an end-to-end walk of the
+352 -> 350 -> 352 sequence with the host and guest at different speeds. Seven findings, two verifiers each:
+
+| # | Finding | Resolution |
+|---|---|---|
+| R4-0 (medium) | The guest's own exit to 352 while the host was still on 350 left nothing holding the follow: it pulled the guest back into 350 with the host's entrance 16 and replayed the ATE (reachable on menu ATEs whose tail after the last line is long; 350's is under the follow's debounce) | The exit hold, kept inside the relay (the s144 world hold is untouched): armed on that exit, it holds follows into the ATE field until the host stands elsewhere, 20 s at most |
+| R4-1 (low) | A host field this install lacks dropped the jump to the old bounce, a reload of the ATE field | An unusable field is skipped; the jump falls through to its own destination with its own entrance |
+| R4-2 (low) | A late guest that never saw the host on the ATE field cannot read its later departure | No change to `EpHostStep`: the proposed "start at Seen" reopens R3-0 for a guest that lands while the host's lane still reads the hub. The hub pass now keeps the copy's own entrance, so a late copy plays its ATE; the leftover is one extra load |
+| R4-3 (low) | The "control on = a gateway walk" test never matches, because every gateway runs `ExitField` first | A region-run jump (the executing object is a region quad) is a gateway too; a debounced control latch was rejected because kit cutscenes hand control back for two frames at their landing |
+| R4-4 (medium) | A same-field ATE's own exit landed with the host's entrance 16 and replayed the ATE | Every pass that is not rewritten keeps the copy's own entrance (the hub pass too) |
+| R4-5 (medium) | A chained ATE's press was dropped once the host stood on the next ATE's field, so the guest landed in it with no hold for its tail | The chain carry above. Keeping the press alive through the tail was rejected (it widens every clock and mirrors a mid-ATE story into the hub) |
+| R4-6 (low) | A link outage spent the tail's progress clock, so the follow cut the closing lines as the link came back | The tail's clocks stop while the session is not live; an open line counts as progress until it leaves |
+
+The self-test grew to 146 rows and 53 mutants (offline: 146/53, step-out 37/12, the dialogue proof). The new rules
+(`JumpUsable`, `OwnEntranceRule`, `ExitHoldArms`, `ExitHoldEnds`, `ChainRecords`, the chained `LandingStep`) each have
+a mutant restoring round 3's behaviour.
+
+Not bench-proven: the exit hold and the chain need a guest ahead of its host, or a host that finishes one ATE and
+starts the next while the guest is still in the first. Neither bench drives two speeds. Both are covered by the
+self-test rows only, plus the two-PC checklist's "guest ahead" line.
 
 ## Census, second count
 
