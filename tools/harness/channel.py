@@ -830,6 +830,19 @@ class State:
         """s160: the whole ``netsync.chest`` block, copied (None = absent)."""
         return self._ns_path("chest", dict)
 
+    # ---- [ff9mapkit netsync s161] THE ATE RELAY (studies/field-coop/ATE-RELAY.md): `netsync.ate`, netsync's LAST key (after
+    # s160's `chest`), published in EVERY role. Key PRESENCE is the capability.
+    @property
+    def coop_ate_relay(self) -> bool:
+        """s161: the ATE relay (``netsync.ate.opened`` present). False = an engine whose guest never opens its copy's ATE menu from
+        the host's press (the s160 rule) and which answers `netsync ate` with "unknown sub-verb"."""
+        return self._ns_path("ate.opened", int) is not None
+
+    @property
+    def ate_relay(self) -> dict | None:
+        """s161: the whole ``netsync.ate`` block, copied (None = absent)."""
+        return self._ns_path("ate", dict)
+
     guest_local_mode = _guestlocal_prop("mode", str, "s156: the gate's EFFECTIVE mode -- 'act' | 'shadow' | 'off' (the lever on "
                                                      "the selftest role only, else 'act'; '' = the catch line).")
     guest_local_lever = _guestlocal_prop("lever", str, "s156: the `guestlocal` lever AS SET -- 'act' | 'shadow' | 'off' ('' = "

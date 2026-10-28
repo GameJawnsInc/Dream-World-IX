@@ -133,6 +133,11 @@ DEFAULT_FILES = [
     # (ProcessEvents.cs's SetRenderer, PosObj.cs, NetSyncSelfDress.cs, NetSyncClient.cs, NetSyncBattle.cs, HarnessAgent.cs, the
     # csproj) is listed above
     "Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs",
+    # [ff9mapkit netsync s161] the ATE relay: its new file (created from /dev/null) and its one stock hook site not yet listed -- ETb.cs
+    # (NewMesWin's window hook: the first netsync patch to touch it; s65's fork gate touched it before); NetSyncClient.cs, NetSyncField.cs, NetSyncDialog.cs,
+    # NetSyncStepOut.cs, NetSyncBattle.cs, HarnessAgent.cs and the csproj are listed above
+    "Assembly-CSharp/Memoria/Netsync/NetSyncAte.cs",
+    "Assembly-CSharp/Global/ETb/ETb.cs",
 ]
 
 # [ff9mapkit netsync s157] GENERATED files are only ever replaced WHOLE (the kit renders them from a JSON twin; their pins

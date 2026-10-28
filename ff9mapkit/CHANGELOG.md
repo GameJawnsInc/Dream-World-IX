@@ -38,6 +38,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   saying disc 4 kept its own ground, an edit's Accept included.
 - An edit whose later step cannot be put back on top is cancelled and says why; it used to stop silently.
 
+### Fixed — co-op: the guest sees the host's Active Time Events (engine patch s161)
+From the 2026-10-28 two-PC session (`studies/field-coop/ATE-RELAY.md`).
+- **When the host opens an Active Time Event, the guest's game opens the same ATE menu.** It closes on the host's pick, then
+  the guest sees the title card, the white fade and the ATE's own lines, and walks back with the host. Before, the guest
+  only saw the ATE notice; its game was then carried to the next field without the scene.
+- The guest presses nothing: the host chooses for both.
+- Both PCs need the s161 engine. With an older guest, nothing changes.
+
 ### Fixed — co-op: the step-out follows the guest's own body when another character holds control (engine patch s159)
 From the second two-PC session (`studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Finding 6).
 - **In a scene where the game hands control to another party member, the guest now steps out too.** In Dali's inn night

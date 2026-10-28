@@ -8410,19 +8410,20 @@ class Session:
     #: `containment`/`bctl`, s102 `bmenu`; [ff9mapkit netsync B5] + s103 `endbench`; [ff9mapkit netsync B4] s106 INSERTS
     #: `bbench` before `endbench`; [ff9mapkit netsync s133] + `actbench`; [ff9mapkit netsync s139] + `selfdress`;
     #: [ff9mapkit netsync s156] + `guestlocal`, at the END; [ff9mapkit netsync s158] + `stepout` after it; [ff9mapkit netsync
-    #: s160] + `chest` after it). Pinned to the patch stack by test_harness_netsync.py.
+    #: s160] + `chest` after it. [ff9mapkit netsync s161] + `ate` after that). Pinned to the patch stack by test_harness_netsync.py.
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
                         "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
                         "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench",
-                        "endbench", "actbench", "selfdress", "guestlocal", "stepout", "chest")
+                        "endbench", "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate")
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
     #: "authority", s96) -- the F3.3 and B4/B5 ones included (they build on it). An F3 engine answers them "unknown
     #: sub-verb" only AFTER the step is spent. [ff9mapkit netsync s156] + `guestlocal`, at the END. [ff9mapkit netsync s158] +
-    #: `stepout` after it. [ff9mapkit netsync s160] + `chest` after it.
+    #: `stepout` after it. [ff9mapkit netsync s160] + `chest` after it. [ff9mapkit netsync s161] +
+    #: `ate` after that.
     NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
                                   "host", "tap-record", "replay", "guestslots", "bcmd", "hostgates", "containment",
                                   "bctl", "bmenu", "bbench", "endbench", "actbench", "selfdress", "guestlocal", "stepout",
-                                  "chest")
+                                  "chest", "ate")
     #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
     #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
     #: engine without it, the key it reads, the patch that added it, and what the verb is.
@@ -8560,6 +8561,15 @@ class Session:
     NETSYNC_CHEST_PRESSES = ("confirm", "special")
     NETSYNC_CHEST_ROLE_REFUSAL = "netsync chest: needs the selftest role (netsync selftest 1)"
     NETSYNC_CHEST_USAGE = "netsync chest: expected `chest <uid> [confirm|special]` or `chest serve|request on|off`"
+    #: [ff9mapkit netsync s161] THE ATE RELAY's sub-verb (studies/field-coop/ATE-RELAY.md), told by ``netsync.ate``'s PRESENCE
+    #: (netsync's LAST key, after s160's `chest`): the State capability accessor, the key, the patch, what the verb is -- and
+    #: NetSyncAte.HarnessLever's ops and two refusals, in its words.
+    NETSYNC_ATE_SUBVERBS = {
+        "ate": ("coop_ate_relay", "netsync.ate", "s161", "the s161 ATE relay bench"),
+    }
+    NETSYNC_ATE_OPS = ("act", "off", "noexempt", "clear")
+    NETSYNC_ATE_ROLE_REFUSAL = "netsync ate: needs the selftest role (netsync selftest 1)"
+    NETSYNC_ATE_USAGE = "netsync ate: expected act|off|noexempt|clear"
     #: [ff9mapkit netsync B4] `bmenu <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncBattle.HarnessStockMenu, s102).
     NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
@@ -8952,6 +8962,7 @@ class Session:
             ng = self.NETSYNC_GUESTLOCAL_SUBVERBS.get(sub)      # [ff9mapkit netsync s156] guest traversal's own table
             ng = ng or self.NETSYNC_STEPOUT_SUBVERBS.get(sub)   # [ff9mapkit netsync s158] ...and the step-out's, the same gate
             ng = ng or self.NETSYNC_CHEST_SUBVERBS.get(sub)     # [ff9mapkit netsync s160] ...and the chest relay's
+            ng = ng or self.NETSYNC_ATE_SUBVERBS.get(sub)       # [ff9mapkit netsync s161] ...and the ATE relay's, the same gate
             if not authority:
                 if st.netsync is None:
                     have = "publishes no `netsync` block"
@@ -9105,6 +9116,12 @@ class Session:
             ns = st.netsync if isinstance(st.netsync, dict) else {}
             if ns.get("selftest") is True and self._chest_refusal(args) is not None:
                 raise HarnessError(self.NETSYNC_CHEST_USAGE)
+        elif sub == "ate":
+            # [ff9mapkit netsync s161] NetSyncAte.HarnessLever's order: the ROLE first (the engine refuses it), then one op alone
+            ns = st.netsync if isinstance(st.netsync, dict) else {}
+            op = str(args[0]).strip().lower() if args else ""
+            if ns.get("selftest") is True and (len(args) != 1 or op not in self.NETSYNC_ATE_OPS):
+                raise HarnessError(self.NETSYNC_ATE_USAGE)
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
             # [ff9mapkit netsync s145] THE WORLD DIOBOOT: a diorama boots from a live world map from s145 on (warm only: the engine's
             # pre-Arm verdict refuses anything a stock world battle could not return warm from). An s144 engine refuses it after
@@ -9358,6 +9375,14 @@ class Session:
         (s158's rule; refused before the step on an engine without ``netsync.stepout.anchor``). Returns a fresh state; read it
         back through :attr:`State.step_out`."""
         return self.netsync("stepout", op, timeout=timeout)
+
+    def ate(self, op: str, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s161] ``netsync ate act|off|noexempt|clear`` (selftest role): off = CALIBRATION, the s160 rule (no host
+        arm, no serve, no own-jump pass, no hold, no exemption); noexempt = CALIBRATION, the relay on with the s158 step-out on the
+        ATE menu; act / clear = the shipping rule -- through :meth:`netsync`'s gates (refused before the step on an engine without
+        ``netsync.ate``). Counters are never reset (read DELTAS). Returns a fresh state; read it back through
+        :attr:`State.ate_relay`."""
+        return self.netsync("ate", op, timeout=timeout)
 
     def act_trance_grace(self, on: bool, *, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s137] ``actbench trancegrace on|off``: the trance burst timing's calibration lever (off = the
