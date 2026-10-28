@@ -376,7 +376,16 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # none, its line only when one was set). WHAT IT CANNOT: an episode -- no renderer, no stand-in model, no wire mask,
                        # no host view (the base's inputs, the dwell, the ghost hide are the engine's; NetSyncStepOut.SelfTest proves the
                        # rules). The in-game bench is coop_step_out.py (solo).
-                       "stepout": ("s158", ("stepout",))}
+                       "stepout": ("s158", ("stepout",)),
+                       # [ff9mapkit netsync s161] THE ATE RELAY (studies/field-coop/ATE-RELAY.md): ONE sub-verb, `ate` (selftest role,
+                       # the role refused first: `act|off|noexempt|clear`), `netsync.ate` as netsync's LAST key, after s158's `stepout`
+                       # (NETSYNC_TOP_CAP_KEYS), and the proof block's LAST line (after the step-out line); its calibration is
+                       # caps_through("stepout"). WHAT THE STAND-IN MODELS (FakeGame's s161 section): the block at the agent's sentinels
+                       # but for its live reads (`lever` as set, `selftest` once the proof block ran), HarnessLever's two refusals in its
+                       # words, its lines, and the release (the lever none, its line only when one was set). WHAT IT CANNOT: a press or an
+                       # episode -- no host Select arm, no ATE-caption window (ETb.NewMesWin), no ring kind 3, no serve, no own jump, no
+                       # hold (NetSyncAte.SelfTest proves the rules), so `pending`, `episode` and the counters stay at their sentinels.
+                       "ate": ("s161", ("ate",))}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -422,13 +431,17 @@ NETSYNC_S156_CAPS = frozenset(("guestlocal",))
 NETSYNC_S157_CAPS = frozenset(("dresstwin",))
 #: [ff9mapkit netsync s158] The step-out rung (its calibration, the s157 engine, is ``caps_through("dresstwin")``).
 NETSYNC_S158_CAPS = frozenset(("stepout",))
+#: [ff9mapkit netsync s161] The ATE relay rung (its calibration, the s158 engine -- the last rung before it on this ladder -- is
+#: ``caps_through("stepout")``).
+NETSYNC_S161_CAPS = frozenset(("ate",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
 #: Session.NETSYNC_DRESS_SUBVERBS, the gate widened to it). [ff9mapkit netsync s156] ...and `guestlocal` LAST (its own table,
 #: Session.NETSYNC_GUESTLOCAL_SUBVERBS). [ff9mapkit netsync s158] ...and `stepout` after it (Session.NETSYNC_STEPOUT_SUBVERBS).
+#: [ff9mapkit netsync s161] ...and `ate` after that (Session.NETSYNC_ATE_SUBVERBS).
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench",
-                             "actbench", "selfdress", "guestlocal", "stepout")
+                             "actbench", "selfdress", "guestlocal", "stepout", "ate")
 #: [ff9mapkit netsync B4] The keys each battle capability adds, by `netsync.battle` sub-object, in the agent's order
 #: (AppendNetsyncBattle / AppendBattleEnd / AppendEndLeave) -- `end_leave` and `declined` are the two keys whose values
 #: are themselves fixed sub-objects (:data:`NETSYNC_BATTLE_END_LEAVE_KEYS`, :data:`NETSYNC_BATTLE_DECLINED_KEYS`).
@@ -518,6 +531,8 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "dresstwin": {},
     # [ff9mapkit netsync s158] nothing under `netsync.battle`: `stepout` is a TOP-LEVEL netsync block after `ghostframe`
     "stepout": {},
+    # [ff9mapkit netsync s161] nothing under `netsync.battle`: `ate` is a TOP-LEVEL netsync block after `stepout`
+    "ate": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -543,7 +558,8 @@ NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",),
                         "worldwait": ("world",),                 # [ff9mapkit netsync s144] netsync's LAST key, after `dress`
                         "guestlocal": ("guestlocal",),           # [ff9mapkit netsync s156] ...and `guestlocal` after `world`
                         "dresstwin": ("ghostframe",),           # [ff9mapkit netsync s157] ...and `ghostframe` after `guestlocal`
-                        "stepout": ("stepout",)}                 # [ff9mapkit netsync s158] ...and `stepout` after `ghostframe`
+                        "stepout": ("stepout",),                 # [ff9mapkit netsync s158] ...and `stepout` after `ghostframe`
+                        "ate": ("ate",)}                         # [ff9mapkit netsync s161] ...and `ate` after `stepout`
 #: [ff9mapkit netsync s145] The blocks a capability adds INSIDE an older TOP-LEVEL `netsync` block, by that block: s145's `dio`,
 #: `netsync.world`'s last (AppendWorldDio, after `waitline`)
 NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)}}
@@ -719,6 +735,43 @@ FAKE_STEPOUT_SELFTEST_ROWS = 37
 FAKE_STEPOUT_MUTANTS = 12
 STEPOUT_DWELL_MS = 1500                                 # NetSyncStepOut.DwellMs (THE ARRIVAL LAW)
 STEPOUT_STEP_IN_MS = 500                                # NetSyncStepOut.StepInMs
+#: [ff9mapkit netsync s161] `netsync.ate` (AppendAte), in the agent's order, at its catch-line sentinels: the lever, the host's arm,
+#: the relayed press on this copy (`pending`), the episode (`episode`: its phase, PhaseNames, and flags), the step-out exemption,
+#: then the cumulative counters, the last episode's end, the faults and the selftest verdict. The live agent reads `lever` (as set)
+#: and `selftest` (once the proof block ran); everything else is an episode's, at its sentinel where the catch line has it.
+NETSYNC_ATE_PENDING_SENTINELS = {"on": False, "seq": -1, "field": -1, "uid": -1, "win": -1, "text": -1, "serves": 0, "age_ms": -1}
+NETSYNC_ATE_EPISODE_SENTINELS = {"phase": None, "field": -1, "win": -1, "text": -1, "by_host": False, "pick": -1, "own_jump": -1,
+                                 "own_reload_landed": False}
+NETSYNC_ATE_COUNTERS = ("arms", "relayed", "ingested", "served", "opened", "expired", "dropped", "mismatched", "picks", "own_jumps",
+                        "holds", "hold_caps", "episodes")
+NETSYNC_ATE_SENTINELS = {
+    "lever": None, "host_armed": False, "pending": NETSYNC_ATE_PENDING_SENTINELS, "episode": NETSYNC_ATE_EPISODE_SENTINELS,
+    "stepout_exempt": False, **{k: 0 for k in NETSYNC_ATE_COUNTERS}, "last_end": None, "faults": 0, "last_fault": None,
+    "selftest": None}
+NETSYNC_ATE_KEYS = tuple(NETSYNC_ATE_SENTINELS)
+NETSYNC_ATE_PHASES = (None, "hub", "dest")              # NetSyncAte.PhaseNames
+#: [ff9mapkit netsync s161] NetSyncAte.HarnessLever: the ops and its two refusals, in its words; the lever's lines (HarnessLeverName:
+#: null = act / clear, the shipping rule; "off" = the s160 rule; "noexempt" = the relay on, the s158 step-out on the ATE menu)
+NETSYNC_ATE_OPS = ("act", "off", "noexempt", "clear")
+NETSYNC_ATE_ROLE_REFUSAL = "netsync ate: needs the selftest role (netsync selftest 1)"
+NETSYNC_ATE_USAGE = "netsync ate: expected act|off|noexempt|clear"
+ATE_LOG_OFF = "[NetSync] harness: ATE relay OFF -- CALIBRATION: the s160 rule (released with the harness)"
+ATE_LOG_NOEXEMPT = "[NetSync] harness: ATE relay NOEXEMPT -- CALIBRATION: the s158 step-out on the ATE menu (released with the harness)"
+ATE_LOG_ACT = "[NetSync] harness: ATE relay ACT"
+ATE_LOG_RELEASE = "[NetSync] harness: ATE relay lever released (act)"
+#: [ff9mapkit netsync s161] the proof line's head and the bench's parse of it; the stand-in's N / M are NetSyncAte.SelfTest's own
+#: tallies (83 rows; 26 mutants, MutantNames) -- a stand-in's numbers -- then its six constants
+PROOF_ATE_RELAY = "ATE relay selftest: "
+ATE_PROOF_RE = (r"ATE relay selftest: OK \((\d+) rows, (\d+) mutants caught, arm (\d+) key ticks, press (\d+)/(\d+) ms, "
+                r"pre (\d+) ms, hub (\d+) ms, tail (\d+) ms\)")
+FAKE_ATE_SELFTEST_ROWS = 83
+FAKE_ATE_MUTANTS = 26
+ATE_ARM_TICKS = 2                                       # NetSyncAte.ArmTicks (the host's Select hit opens its ATE window within)
+ATE_PRESS_TTL_MS = 5000                                 # NetSyncAte.PressTtlMs (unopened on its field with my control on)
+ATE_PRESS_CAP_MS = 20000                                # NetSyncAte.PressCapMs (unopened since it arrived, whatever)
+ATE_PRE_HOLD_MS = 5000                                  # NetSyncAte.PreHoldMs (before the pick, for my late copy's menu)
+ATE_HUB_HOLD_MS = 8000                                  # NetSyncAte.HubHoldMs (from the host's pick)
+ATE_TAIL_HOLD_MS = 8000                                 # NetSyncAte.TailHoldMs (on the ATE's field)
 #: [ff9mapkit netsync s156] the kit's committed table (the generator's JSON: its `counts` and `table_crc` are what the compiled
 #: NetSyncGuestLocalTable carries -- the stand-in reads them, never a literal)
 GUEST_TRAVERSAL_JSON = Path(__file__).resolve().parents[2] / "ff9mapkit" / "ff9mapkit" / "data" / "guest_traversal.json"
@@ -2197,6 +2250,7 @@ class FakeGame:
         #: :meth:`guest_local_note` (one verdict booked as GuestPress's Note books it -- never a press).
         self._gl = self._gl_fresh()
         self._so = {"lever": None, "selftest": None}     # [ff9mapkit netsync s158] NetSyncStepOut's harness statics
+        self._ar = {"lever": None, "selftest": None}     # [ff9mapkit netsync s161] NetSyncAte's harness statics
         self.guest_local_table: tuple | None = None
         self.selftest_offset = FAKE_SELFTEST_OFFSET
         #: [ff9mapkit netsync s157] THE GHOST FRAME (the `dresstwin` rung): the `bench ghostframe` lever as set and the proof line's
@@ -5526,6 +5580,8 @@ class FakeGame:
             self._guestlocal(args)                      # [ff9mapkit netsync s156] the guest-traversal gate's bench
         elif sub == "stepout":
             self._stepout(args)                         # [ff9mapkit netsync s158] the party-scene step-out's lever
+        elif sub == "ate":
+            self._ate(args)                             # [ff9mapkit netsync s161] the ATE relay's lever
 
     def _release_netsync(self) -> None:
         """ReleaseNetsyncOverride, on `reset`, disarm and fault. [ff9mapkit netsync F3.3] DIO-1: a diorama THIS harness
@@ -5595,7 +5651,9 @@ class FakeGame:
             if "dresstwin" in caps:
                 doc["ghostframe"] = self._ghostframe_doc()   # [ff9mapkit netsync s157] ...and `ghostframe` after `guestlocal`
             if "stepout" in caps:
-                doc["stepout"] = self._stepout_doc()    # [ff9mapkit netsync s158] ...and `stepout`, the LAST key
+                doc["stepout"] = self._stepout_doc()    # [ff9mapkit netsync s158] ...and `stepout` after `ghostframe`
+            if "ate" in caps:
+                doc["ate"] = self._ate_doc()            # [ff9mapkit netsync s161] ...and `ate`, the LAST key
             return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
@@ -6236,6 +6294,39 @@ class FakeGame:
         doc = json.loads(json.dumps(NETSYNC_STEPOUT_SENTINELS))
         doc["lever"] = self._so["lever"]
         doc["selftest"] = self._so["selftest"]
+        return doc
+
+    # -- [ff9mapkit netsync s161] THE ATE RELAY (the `ate` rung; see NETSYNC_BATTLE_CAPS for what it models) ---------------------
+    # NetSyncAte's HARNESS half only: the lever, HarnessLever's refusals, the release, the proof line and the block. NOT MODELLED: a
+    # press or an episode (the stand-in has no ATE-caption window, no ring kind 3, no serve, no own jump and no hold).
+    def _ate(self, args: list) -> None:
+        """HarnessLever (the agent's `case "ate"`): the ROLE first, then one op alone -- one usage line otherwise."""
+        if not self._nb_role():
+            raise RuntimeError(NETSYNC_ATE_ROLE_REFUSAL)
+        op = args[1].strip().lower() if len(args) > 1 else ""
+        if len(args) != 2 or op not in NETSYNC_ATE_OPS:
+            raise RuntimeError(NETSYNC_ATE_USAGE)
+        self._ar["lever"] = op if op in ("off", "noexempt") else None
+        self._mlog(ATE_LOG_OFF if op == "off" else ATE_LOG_NOEXEMPT if op == "noexempt" else ATE_LOG_ACT)
+
+    def _ar_release(self) -> None:
+        """NetSyncAte.HarnessRelease: the lever none -- its line only when one was set."""
+        if self._ar["lever"] is not None:
+            self._mlog(ATE_LOG_RELEASE)
+        self._ar["lever"] = None
+
+    def _ar_proof(self) -> None:
+        """The proof block's ATE relay line (once per process): the stand-in's tallies -- `selftest` "ok" from then on."""
+        self._ar["selftest"] = "ok"
+        self._mlog(f"[NetSync] {PROOF_ATE_RELAY}OK ({FAKE_ATE_SELFTEST_ROWS} rows, {FAKE_ATE_MUTANTS} mutants caught, "
+                   f"arm {ATE_ARM_TICKS} key ticks, press {ATE_PRESS_TTL_MS}/{ATE_PRESS_CAP_MS} ms, pre {ATE_PRE_HOLD_MS} ms, "
+                   f"hub {ATE_HUB_HOLD_MS} ms, tail {ATE_TAIL_HOLD_MS} ms)")
+
+    def _ate_doc(self) -> dict:
+        """AppendAte: the sentinels but for `lever` and `selftest` (no press or episode runs here)."""
+        doc = json.loads(json.dumps(NETSYNC_ATE_SENTINELS))
+        doc["lever"] = self._ar["lever"]
+        doc["selftest"] = self._ar["selftest"]
         return doc
 
     # -- [ff9mapkit netsync s144] WORLD-MAP CO-OP (the `worldwait` rung; see NETSYNC_BATTLE_CAPS for what it models) ----------
@@ -8800,8 +8891,10 @@ class FakeGame:
             self._twin_proof()
             self._gf["selftest"] = "ok"                     # [ff9mapkit netsync s157] ...then the ghost frame line
             self._mlog(f"[NetSync] {PROOF_GHOST_FRAME}OK ({FAKE_GHOSTFRAME_SELFTEST_ROWS} rows, {FAKE_GHOSTFRAME_MUTANTS} mutants caught)")
-        if "stepout" in caps:                               # [ff9mapkit netsync s158] the block's last modelled line
+        if "stepout" in caps:                               # [ff9mapkit netsync s158] after the ghost frame line
             self._so_proof()
+        if "ate" in caps:                                   # [ff9mapkit netsync s161] the block's last modelled line
+            self._ar_proof()
 
     # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
     def _nb_caps(self) -> frozenset:
@@ -9301,8 +9394,10 @@ class FakeGame:
         if self._gf["lever_off"]:
             self._mlog(GHOSTFRAME_LOG_RELEASE)
         self._gf["lever_off"] = False
-        # [ff9mapkit netsync s158] NetSyncStepOut.HarnessRelease, LAST: the lever none -- its line only when one was set
+        # [ff9mapkit netsync s158] NetSyncStepOut.HarnessRelease: the lever none -- its line only when one was set
         self._so_release()
+        # [ff9mapkit netsync s161] NetSyncAte.HarnessRelease, LAST: the lever none -- its line only when one was set
+        self._ar_release()
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an
