@@ -1,0 +1,1086 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 3b7ee21..f85e59b 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -445,6 +445,10 @@ namespace Memoria.Netsync
+         // after the host's NEXT scene rose (C2-BRK-1). NoteTalkScene records it every tick the lane is read.
+         private Int32 _talkSceneTalk = -1;               // the talk nonce _talkSceneNonce belongs to (-1 = none)
+         private Int32 _talkSceneNonce = -1;              // its scene nonce (-1 = no section 5 in that frame)
++        // [ff9mapkit netsync s160] ...and that FIRST frame itself: a chest's R8 refresh reads the bag from it (the host stamped at the
++        // press, before its AddItem), never the newest frame -- a deferred or climb-held accept lands after the host's grant
++        private Byte[] _talkStartState;
++        private Byte[] _heldStartState;                  // [ff9mapkit netsync s160] the same frame, kept with the s156 climb hold
+         private Boolean _relayAcceptArmed;               // F3.2 GUEST: TRUE once _relayAcceptTick holds a real tick (tick-baseline law)
+         private Int32 _relayAcceptTick;                  // F3.2 GUEST: tick of the last ACCEPTED relayed start (C2's RelayOwnMs claim)
+         // [ff9mapkit netsync s156] GUEST (and the bench): the guest-traversal host-scene term's per-field half, cached by ServiceDialogAuthority
+@@ -468,6 +472,40 @@ namespace Memoria.Netsync
+         private const Single QuadMovedDist = 100f;
+         private Boolean _quadHasMoveBase;                // TRUE once _quadMoveBase holds a position
+         private Vector3 _quadMoveBase;                   // the player at the press, then at each control-ON sample after it
++        // [ff9mapkit netsync s160] THE CHEST RELAY (studies/field-coop/CHEST-RELAY.md; owner 2026-10-28: chests only, the guest kneels
++        // like stock). A stock chest opens in its tag-2 `_Range` body, which polls Confirm|Special with control ON -- never through
++        // EventCollision's Request funnel, so EmitTalkStartIfHost never saw it, and the key relay takes control-off reads only. HOST:
++        // TapScriptKeyIfHost's control-on branch STAMPS a chest start the moment a stock chest model, running its tag 2, reads a press
++        // edge (ArmChestStart): every stock chest body is committed to its window from that IsButton, so -- unlike a quad -- there is
++        // nothing to promote, and stamping at the press keeps the guest's copy one network delay behind (not one turn + kneel + lid)
++        // and carries the host's bag from BEFORE the grant (R8: the copy's GetItemCount branch matches). The start rides section 9
++        // (NetSyncState.SectionChest) INSTEAD of section 6: an older guest never reads it, so it can never replay a chest as a tag-3
++        // Request (the version gate). GUEST: ApplyChestStart arms a ONE-SHOT serve for that chest and, unless the stock range request
++        // already queued the body, requests its tag 2 on my copy; NetSyncField.FilterScriptButtons hands the press to that reader's
++        // next control-on read (TakeChestServe). The kind travels by SECTION, never by body length (section 6's forward rule).
++        private const Int32 ChestServeMs = 2000;         // an armed serve no read took (a latch on my copy: 301, 951) expires, one line
++        private Boolean _talkChest;                      // HOST: the riding start is a chest's -- section 9, not section 6
++        private UInt16 _talkBits;                        // HOST: its press (compact, layout-neutral: NetSyncField.CompactKeys of the PHYSICAL bits)
++        private Int32 _chestStampTick = -1, _chestStampUid = -1, _chestStampField = -1;   // HOST: the last stamp's key tick (repeat reads fold in)
++        private Int32 _chestStamped;                     // HOST telemetry (netsync.chest.host.stamped)
++        private Boolean _talkPendingChest;               // SELFTEST bench: _talkPending is a chest body (section 9)
++        private Int32 _heldStartNonce = -1;              // GUEST: the start nonce handed to the s156 climb hold (NetSyncGuestLocal.HoldTalk) ...
++        private Boolean _heldStartChest;                 // ... and its kind (the hold keeps the body, not the section it came from)
++        // GUEST: the one-shot serve. Main thread only (ApplyChestStart arms it from Update; the EBin read takes it).
++        private static Boolean _serveArmed;
++        private static Int32 _serveField = -1, _serveUid = -1, _serveTick;   // _serveTick: armed tick (tick-baseline law: read only while armed)
++        private static UInt32 _serveBits;                // the press in MY script layout (what my chest's IsButton tests)
++        private static Boolean _serveActive;             // a read took it on _serveKeyTick; the next key tick spends it
++        private static Int32 _serveKeyTick;
++        private static Int32 _chestServed, _chestExpired, _chestDeclined, _chestAccepted, _chestLastUid = -1;   // GUEST telemetry
++        private static String _chestLastWhy;
++        private static String _chestSelfTest;            // null until the proof block ran, then "ok" | "fail: <row or mutant>"
++        // SELFTEST levers AS SET (harness `netsync chest serve|request on|off`); read only through the role-checked getters below (the
++        // s156-s158 leaked-lever law: a lever acts on the selftest role only, so one that outlives a release never reaches a live guest).
++        private static Boolean _benchChestServeOff;      // the serve never answers: the body runs, the read stays masked
++        private static Boolean _benchChestRequestOff;    // no forced Request: only a body the stock range request queued is served
++        internal static Boolean ChestServeLeverOff { get { return _benchChestServeOff && IsSelfTestRole; } }
++        internal static Boolean ChestRequestLeverOff { get { return _benchChestRequestOff && IsSelfTestRole; } }
+ 
+         // The redirect decision for a spectator guest's MAPJUMP (called from the opcode handler
+         // with SpectatorField already true). Returns true when dest was rewritten to a same-field
+@@ -1051,9 +1089,8 @@ namespace Memoria.Netsync
+                 Byte[] lane = null;              // the talk section this tick (ServiceTalkFollow's split)
+                 if (_role == "client")
+                 {
+-                    Byte[] body;
+-                    if (i._dlgLastState != null && NetSyncState.TryReadSection(i._dlgLastState, NetSyncState.SectionTalk, out body))
+-                        lane = body;
++                    Boolean laneChest;
++                    lane = ReadStartLane(i._dlgLastState, out laneChest);   // [ff9mapkit netsync s160] a talk, else a chest start (null = neither)
+                 }
+                 else if (IsSelfTestRole && NetSyncField.BenchGates)
+                     lane = i._talkPending;
+@@ -1854,6 +1891,10 @@ namespace Memoria.Netsync
+                         Boolean soOk = NetSyncStepOut.SelfTest(out soDetail);
+                         Log.Message("[NetSync] step-out selftest: "
+                                     + (soOk ? "OK (" + soDetail + ")" : "FAIL (" + soDetail + ")"));
++                        String chDetail;                 // [ff9mapkit netsync s160] the chest relay (after the step-out line, the block's LAST now): the models, the tag map, the layout swap, the serve rule, the length law, their mutants
++                        Boolean chOk = ChestSelfTest(out chDetail);
++                        Log.Message("[NetSync] chest relay selftest: "
++                                    + (chOk ? "OK (" + chDetail + ")" : "FAIL (" + chDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+@@ -1938,6 +1979,7 @@ namespace Memoria.Netsync
+                     // log in BenchSceneEdge (top of this branch). F3.2: the dialogue lock bench ran there too.
+                     if (NetSyncGuestLocalArmed.On)       // [ff9mapkit netsync s156] D8a: my climb's control sample BEFORE the talk relay (its end, its queued tick)
+                         NetSyncGuestLocal.Sample();
++                    ServiceChestServe(fld);                   // [ff9mapkit netsync s160] a serve no read took expires (one line)
+                     ServiceTalkFollow(new RemoteState { Valid = false }, fld, true);     // F3.1 bench: apply a fabricated talk start
+                     LastHostField = -1;                       // no wire in selftest -- the gateway redirect always bounces
+                     AutoTeleportTick(me, stMirror, true);     // F1 bench arm (self-gates on BenchGates inside)
+@@ -2070,6 +2112,7 @@ namespace Memoria.Netsync
+                 ServiceIntentFollow(rs, followFld, onField, onWorld);    // F2: parallel intent fast-path (ahead of the serial debounce) [ff9mapkit netsync s144] + the world branch
+                 if (NetSyncGuestLocalArmed.On)                           // [ff9mapkit netsync s156] D8a: my climb's control sample BEFORE the talk relay (its end, its queued tick)
+                     NetSyncGuestLocal.Sample();
++                ServiceChestServe(onField ? fld : -1);                   // [ff9mapkit netsync s160] a serve no read took expires; off-field ends it
+                 ServiceTalkFollow(rs, fld, onField);                     // F3.1: replay the host's tag-3 start on my copy (no snap, F3.2)
+                 ServiceEventCoLocate(rs, fld, onField);                  // F2 L1: log the host's dialogue-scene edge (F3.2: never moves/freezes)
+                 ServiceDialogAuthority(rs, fld, onField);                // F3.2 C2: lock every line from open; the host's events drive it (F3.3: from the section-7 ring)
+@@ -6546,10 +6589,17 @@ namespace Memoria.Netsync
+             _talkPending = null;
+             _talkDeferNonce = -1;            // F3.2: a deferred start dies with the session
+             _talkSceneTalk = -1;             // F3.2 C2: and the scene each start belonged to
++            _talkStartState = null;          // [ff9mapkit netsync s160] ...and the frame that first carried it
++            _heldStartState = null;          // [ff9mapkit netsync s160]
+             _talkSceneNonce = -1;
+             _relayAcceptArmed = false;
+             _autoTpHostSceneArmed = false;   // F3.2: the auto-teleport's host-scene grace too
+             DropQuadStart(null);             // F3.2: an armed quad start too (silent)
++            _talkChest = false;              // [ff9mapkit netsync s160] a riding chest start dies with the session (_talkUid -1 above)
++            _talkPendingChest = false;       // [ff9mapkit netsync s160]
++            _heldStartNonce = -1;            // [ff9mapkit netsync s160] the held start's kind record
++            _chestStampTick = -1;            // [ff9mapkit netsync s160]
++            ClearChestServe(null);           // [ff9mapkit netsync s160] ...and an armed serve on my copy (silent)
+             _benchSceneLogged = false;
+             _hostScene.Reset();              // F3.2 C2: the sticky scene (and its nonce) dies with the session
+             _hostSceneTalk = false;          // [ff9mapkit netsync s158] ...and its talk mark, the fresh-line witness, the card press
+@@ -6628,7 +6678,9 @@ namespace Memoria.Netsync
+             all = NetSyncState.AppendSection(all, NetSyncState.SectionEvent,
+                 new Byte[] { _hostEventFlag, _hostEventNonce });
+             if (_talkUid >= 0 && Environment.TickCount - _talkSince < TalkRelayTtlMs)
+-                all = NetSyncState.AppendSection(all, NetSyncState.SectionTalk, TalkSectionBody(_talkField, _talkUid, _talkNonce));
++                all = _talkChest   // [ff9mapkit netsync s160] a chest start rides section 9 INSTEAD (one start on the lane; an old guest sees none)
++                    ? NetSyncState.AppendSection(all, NetSyncState.SectionChest, ChestSectionBody(_talkField, _talkUid, _talkNonce, _talkBits))
++                    : NetSyncState.AppendSection(all, NetSyncState.SectionTalk, TalkSectionBody(_talkField, _talkUid, _talkNonce));
+             // [ff9mapkit netsync F3.3] R2: the dialogue section rides EVERY host frame (the ring is the delivery channel;
+             // the slot's 33 ms re-send is what makes it loss-proof). Sections 5 and 7 leave in ONE snapshot, so the scene
+             // flag can never overtake or drain an event. MAIN THREAD (every caller of BuildStateFrame is).
+@@ -7167,6 +7219,8 @@ namespace Memoria.Netsync
+                     // a held Cancel (stock's walk / run modifier); no Update order can miss it (this IS the tick that drops control).
+                     if (_role == "host" && (keys & readMask & (EventInput.Confirm | EventInput.Special)) != 0)
+                         NoteHostInteraction();
++                    if (_role == "host")
++                        i.ArmChestStart(ee, keys, readMask, reader, held);   // [ff9mapkit netsync s160] a stock chest's own press, stamped at once (its body is committed to its window)
+                     return;                          // control-off reads only (the KEY relay below)
+                 }
+                 UInt32 hit = keys & readMask & NetSyncField.HostOwnedKeys;
+@@ -7456,7 +7510,8 @@ namespace Memoria.Netsync
+                 v.HostField = !bench && rs.Valid ? rs.Field : -1;
+                 v.HostSceneUp = sceneUp;
+                 v.TalkLiveHere = bench ? (_talkPending != null && (_talkPending[0] | (_talkPending[1] << 8)) == myField)
+-                                       : SectionFieldIs(state, NetSyncState.SectionTalk, 5, myField);
++                                       : (SectionFieldIs(state, NetSyncState.SectionTalk, 5, myField)
++                                          || SectionFieldIs(state, NetSyncState.SectionChest, ChestBodyLen, myField));   // [ff9mapkit netsync s160] a chest start is a talk here
+                 v.HostHere = bench ? (onField && hostOnFieldBit) : (onField && rs.Valid && rs.Field == myField);
+                 v.CoLocated = v.HostHere && (hv == null || (hr & HrLine) == 0);   // [ff9mapkit netsync s144] HostFlagReads
+                 v.HostElsewhere = !bench && rs.Valid && rs.Field > 0 && rs.Field != 65535 && rs.Field != myField
+@@ -7540,6 +7595,7 @@ namespace Memoria.Netsync
+             ResetWorldWatchDedup();          // [ff9mapkit netsync s145] fix1: ...and the world watcher's per-fight decline / wait latches
+             _talkDeferNonce = -1;            // a deferred start of the old host is gone with it
+             _talkSceneTalk = -1;             // ...and the scene record keyed on its (restarting) talk nonce
++            _talkStartState = null;          // [ff9mapkit netsync s160] ...and its first frame
+             _talkSceneNonce = -1;
+             NetSyncBattle.GuestLineForget(); // [ff9mapkit netsync s143] ...and the guest's battle line latch (its battle nonce and seq restart)
+             Log.Message("[NetSync] host epoch changed -- talk/intent/event/diorama dedup reset (the host's first new start is not 'already seen')");
+@@ -7624,10 +7680,12 @@ namespace Memoria.Netsync
+         {
+             if (state == null)
+                 return;
+-            Byte[] body;
+-            if (!NetSyncState.TryReadSection(state, NetSyncState.SectionTalk, out body) || body == null || body.Length < 5)
++            Boolean chest;
++            Byte[] body = ReadStartLane(state, out chest);   // [ff9mapkit netsync s160] a talk, else a chest start (one nonce space)
++            if (body == null)
+             {
+                 _talkSceneTalk = -1;
++                _talkStartState = null;                  // [ff9mapkit netsync s160]
+                 return;
+             }
+             if (body[4] == _talkSceneTalk)
+@@ -7637,6 +7695,7 @@ namespace Memoria.Netsync
+             ReadHostScene(state, out up, out nonce);
+             _talkSceneTalk = body[4];
+             _talkSceneNonce = nonce;
++            _talkStartState = state;                     // [ff9mapkit netsync s160] the frame that first carried this start
+         }
+ 
+         // [ff9mapkit netsync F3.2] TRUE when `section` (4 = intent, 6 = talk; both open with [field u16 LE]) is on
+@@ -8019,6 +8078,38 @@ namespace Memoria.Netsync
+             return new Byte[] { (Byte)(fld & 0xFF), (Byte)((fld >> 8) & 0xFF), (Byte)(uid & 0xFF), (Byte)((uid >> 8) & 0xFF), nonce };
+         }
+ 
++        // [ff9mapkit netsync s160] section 9's body: the talk body's first five bytes ([field u16][uid u16][nonce u8]), then the press
++        // [bits u16 LE] (NetSyncField.CompactKeys of the PHYSICAL press: the host's JP swap undone). At least ChestBodyLen bytes; a
++        // reader takes the first seven and ignores the rest (section 6's forward rule, kept).
++        internal const Int32 ChestBodyLen = 7;
++
++        private static Byte[] ChestSectionBody(Int32 fld, Int32 uid, Byte nonce, UInt16 bits)
++        {
++            return new Byte[] { (Byte)(fld & 0xFF), (Byte)((fld >> 8) & 0xFF), (Byte)(uid & 0xFF), (Byte)((uid >> 8) & 0xFF), nonce,
++                                (Byte)(bits & 0xFF), (Byte)((bits >> 8) & 0xFF) };
++        }
++
++        // [ff9mapkit netsync s160] the start lane of a host frame: section 6 (a talk), else section 9 (a chest) -- the host rides at
++        // most one -- and `chest` says WHICH SECTION it came from. The kind is never read off a body's length: section 6 keeps its
++        // forward rule (a later host may lengthen it; an older guest reads the first five bytes). Every guest reader of the lane goes
++        // through here (ServiceTalkFollow, NoteTalkScene, GuestHostSceneWhy's lane; the dialogue view's TalkLiveHere reads both
++        // sections itself), so a chest start defers, holds, purges and claims a step-out exactly as a talk start does. Null = neither.
++        private static Byte[] ReadStartLane(Byte[] state, out Boolean chest)
++        {
++            Byte[] body;
++            chest = false;
++            if (state == null)
++                return null;
++            if (NetSyncState.TryReadSection(state, NetSyncState.SectionTalk, out body) && body != null && body.Length >= 5)
++                return body;
++            if (NetSyncState.TryReadSection(state, NetSyncState.SectionChest, out body) && body != null && body.Length >= ChestBodyLen)
++            {
++                chest = true;
++                return body;
++            }
++            return null;
++        }
++
+         // HOST tap (EventCollision.CheckNPCInput / CheckQuadInput, at the Request accept): stamp the start,
+         // push the state frame out-of-band so it leaves at the press, not the next 7 Hz tick. Role-gated
+         // first, never throws -- vanilla and a guest are untouched.
+@@ -8056,9 +8147,18 @@ namespace Memoria.Netsync
+         // [ff9mapkit netsync F3.2] C2 S2: the start opens a host scene of its own (StartSceneAt) BEFORE the frame is
+         // built, so the talk section and its fresh scene nonce leave in the same push.
+         private void StampTalk(Int32 uid, Int32 fld)
++        {
++            StampTalk(uid, fld, false, 0);
++        }
++
++        // [ff9mapkit netsync s160] chest = the start rides section 9 with its press bits (stamped at the press); the nonce, the scene and
++        // the push are the talk's own, so a chest start supersedes and is superseded exactly like one.
++        private void StampTalk(Int32 uid, Int32 fld, Boolean chest, UInt16 bits)
+         {
+             _talkField = fld;
+             _talkUid = uid;
++            _talkChest = chest;              // [ff9mapkit netsync s160]
++            _talkBits = bits;                // [ff9mapkit netsync s160]
+             _talkNonce = (Byte)(_talkNonce + 1);
+             _talkSince = Environment.TickCount;
+             StartSceneAt(fld);
+@@ -8068,7 +8168,91 @@ namespace Memoria.Netsync
+                 _socket.SetLocalState(frame);
+                 _storyTick = Environment.TickCount;
+             }
+-            Log.Message("[NetSync] talk relay: host started obj " + uid + " on field " + fld + " (nonce " + _talkNonce + ")");
++            Log.Message(chest   // [ff9mapkit netsync s160] the chest's own line; a talk's stays byte-for-byte
++                ? "[NetSync] chest relay: host opened chest " + uid + " on field " + fld + " (nonce " + _talkNonce + ", press " + bits + ")"
++                : "[NetSync] talk relay: host started obj " + uid + " on field " + fld + " (nonce " + _talkNonce + ")");
++        }
++
++        // [ff9mapkit netsync s160] THE CHEST STOCK MODELS (studies/field-coop/chest-census/census.py, keyed by entry: 224 entries use
++        // them, every one a chest, and 207 of those poll Confirm/Special in tag 2). Owner 2026-10-28: chests only -- the 46 other
++        // stock tag-2 button spots (pickups, signs, menus, button gateways) stay host-only.
++        internal static Boolean IsStockChestModel(UInt16 model)
++        {
++            return model == 75 || model == 91 || model == 701 || model == 702;
++        }
++
++        // [ff9mapkit netsync s160] (pure) the tag of the function `ip` sits in: the largest `2 + offset` at or below it in the entry's
++        // function table ([?][count u8] then count x [tag u16 LE][offset u16 LE] -- the table EventEngine.GetIP reads; never assumed
++        // sorted). -1 = no table, a truncated one, or ip before every function.
++        internal static Int32 TagAtIp(Byte[] ebData, Int32 ip)
++        {
++            if (ebData == null || ebData.Length < 2)
++                return -1;
++            Int32 count = ebData[1];
++            Int32 best = -1, bestStart = -1;
++            for (Int32 k = 0; k < count; k++)
++            {
++                Int32 at = 2 + 4 * k;
++                if (at + 3 >= ebData.Length)
++                    break;
++                Int32 tag = ebData[at] | (ebData[at + 1] << 8);
++                Int32 start = 2 + (ebData[at + 2] | (ebData[at + 3] << 8));
++                if (start <= ip && start > bestStart)
++                {
++                    best = tag;
++                    bestStart = start;
++                }
++            }
++            return best;
++        }
++
++        // [ff9mapkit netsync s160] (pure) the physical Confirm a script sees: Confirm, or Cancel under the JP scripts' layout (ETb
++        // .ProcessJapaneseLayout -- the JP exports poll Cancel|Special, 589824), plus Special.
++        internal static UInt32 ChestPressBits(Boolean jp)
++        {
++            return EventInput.Special | (jp ? EventInput.Cancel : EventInput.Confirm);
++        }
++
++        // [ff9mapkit netsync s160] HOST (TapScriptKeyIfHost's control-on branch, the s158 site where the script consumes the press): a
++        // stock chest model, running its tag 2 (the _Range body, read off the reader's ip -- the reader is EBin's gExec), read a
++        // Confirm/Special PRESS edge with my control on. Its body is committed to its window from here (every stock chest: the census),
++        // so the start is STAMPED NOW -- the out-of-band push leaves at the press, carrying the bag from before AddItem. A held read
++        // counts on its press tick only; a second read by the same chest in the same key tick (`IsButton(A) || IsButton(B)` reads
++        // both: `||` does not short-circuit) is the same press. An armed quad start is superseded (the lane carries one start). The bits
++        // go on the wire layout-neutral (my JP swap undone). Main thread (EBin); never throws.
++        private void ArmChestStart(EventEngine ee, UInt32 keys, UInt32 readMask, Obj reader, Boolean held)
++        {
++            try
++            {
++                if (_socket == null || ee == null || ee.gMode != 1)
++                    return;
++                Boolean jp = Memoria.Assets.Localization.CurrentSymbol == "JP";
++                UInt32 press = keys & readMask & ChestPressBits(jp);
++                if (press == 0)
++                    return;
++                if (held && (ETb.KeyOn(jp) & press) == 0)
++                    return;                              // a held read: its press tick only
++                PosObj po = reader as PosObj;
++                if (po == null || !IsStockChestModel(po.model) || TagAtIp(reader.ebData, reader.ip) != 2)
++                    return;
++                Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++                Int32 uid = reader.uid;
++                if (fld <= 0)
++                    return;
++                if (_chestStampTick == NetSyncField.KeyTick && _chestStampUid == uid && _chestStampField == fld)
++                    return;                              // the same press, read again this key tick
++                _chestStampTick = NetSyncField.KeyTick;
++                _chestStampUid = uid;
++                _chestStampField = fld;
++                if (_quadArmed)
++                    DropQuadStart("superseded by a chest");   // the section carries ONE start: the chest's wins (its body is committed)
++                _chestStamped++;
++                StampTalk(uid, fld, true, NetSyncField.CompactKeys(NetSyncField.LayoutSwap(press, jp)));
++            }
++            catch (Exception err)
++            {
++                Log.Error(err, "[NetSync] chest stamp failed");
++            }
+         }
+ 
+         // [ff9mapkit netsync F3.2] HOST: arm a quad start. Snapshots the ETb windows ALREADY open at the press
+@@ -8245,6 +8429,8 @@ namespace Memoria.Netsync
+             Byte[] body = null;
+             Byte[] state = null;
+             Boolean bench = false;
++            Boolean chest = false;                       // [ff9mapkit netsync s160] the start's kind, by the SECTION it rode (ReadStartLane)
++            Boolean fromHold = false;                    // [ff9mapkit netsync s160] the s156 climb hold fed it (its kind and first frame are the hold's)
+             if (_role == "client")
+             {
+                 if (_socket == null || !_followHost || _followWarpPending >= 0)
+@@ -8254,8 +8440,7 @@ namespace Memoria.Netsync
+                 // here and then, once the next tick saw the new epoch and reset _lastTalkNonce, replayed.
+                 state = _dlgLastState;
+                 NoteTalkScene(state);                    // F3.2 C2: the scene this start belongs to (the accept purge keys on it)
+-                if (state == null || !NetSyncState.TryReadSection(state, NetSyncState.SectionTalk, out body) || body == null || body.Length < 5)
+-                    body = null;                         // absent: only the expiry check below runs
++                body = ReadStartLane(state, out chest);  // [ff9mapkit netsync s160] a talk (section 6), else a chest (section 9); absent: only the expiry check below runs
+             }
+             else if (IsSelfTestRole && NetSyncField.BenchGates)
+             {
+@@ -8264,6 +8449,7 @@ namespace Memoria.Netsync
+                 if (_talkPending != null && Environment.TickCount - _talkPendingSince >= TalkRelayTtlMs)
+                     _talkPending = null;
+                 body = _talkPending;
++                chest = _talkPendingChest;               // [ff9mapkit netsync s160] `netsync chest` fabricates a section-9 body
+             }
+             else
+                 return;
+@@ -8286,7 +8472,14 @@ namespace Memoria.Netsync
+                     }
+                     else
+                         ReadHostScene(state, out glUp, out glScene);
++                    Byte[] laneBody = body;
+                     body = NetSyncGuestLocal.TalkLane(body, glUp, glScene, TalkRelayTtlMs);
++                    // [ff9mapkit netsync s160] the HELD body comes back without its section: its kind is the one recorded at the hold
++                    if (!ReferenceEquals(body, laneBody))
++                    {
++                        fromHold = body != null;
++                        chest = body != null && body.Length >= 5 && body[4] == _heldStartNonce && _heldStartChest;
++                    }
+                 }
+                 // F3.2: a start I deferred has left the lane (host TTL) or been replaced by a newer one.
+                 if (_talkDeferNonce >= 0 && (body == null || body[4] != _talkDeferNonce))
+@@ -8322,19 +8515,26 @@ namespace Memoria.Netsync
+                 if (ee == null)
+                     return;
+                 String deferWhy;
+-                Int32 r = ApplyTalkStart(ee, uid, out deferWhy);   // 1 started, 0 defer, -1 declined
++                Int32 r = chest ? ApplyChestStart(ee, uid, body, out deferWhy, bench)   // [ff9mapkit netsync s160] the tag-2 twin
++                                : ApplyTalkStart(ee, uid, out deferWhy);   // 1 started, 0 defer, -1 declined
+                 if (r == 0)
+                 {
+                     // nonce stays UNMARKED (the host TTL bounds it; bench: _talkPending kept) -- log once per nonce
+                     if (_talkDeferNonce != nonce)
+-                        Log.Message("[NetSync] talk relay: start " + nonce + " (obj " + uid + ") deferred -- " + deferWhy);
++                        Log.Message(chest ? "[NetSync] chest relay: start " + nonce + " (chest " + uid + ") deferred -- " + deferWhy   // [ff9mapkit netsync s160]
++                                          : "[NetSync] talk relay: start " + nonce + " (obj " + uid + ") deferred -- " + deferWhy);
+                     _talkDeferNonce = nonce;
+                     // [ff9mapkit netsync s156] D8b: deferred while my own climb is in flight -- HELD past the lane's TTL (one slot, the
+                     // newest nonce wins; a no-op for the nonce already held), keyed to the host scene this start belongs to (live:
+                     // NoteTalkScene's record, -1 = unseen; bench: the simulated scene's nonce while it is up)
+                     if (NetSyncGuestLocalArmed.On)
++                    {
+                         NetSyncGuestLocal.HoldTalk(body, bench ? (DebugHostEventFlag != 0 ? _benchSceneNonce : -1)
+                                                                : (_talkSceneTalk == nonce ? _talkSceneNonce : -1));
++                        _heldStartNonce = nonce;                 // [ff9mapkit netsync s160] the hold keeps the body: remember its kind
++                        _heldStartChest = chest;
++                        _heldStartState = _talkSceneTalk == nonce && _talkStartState != null ? _talkStartState : state;   // ...and its first frame
++                    }
+                     return;
+                 }
+                 NetSyncGuestLocal.NoteTalkResult(nonce, r);   // [ff9mapkit netsync s156] D8b: a HELD start applied after my climb (or declined) -- counted, one line, the slot cleared; any other nonce: nothing
+@@ -8351,7 +8551,10 @@ namespace Memoria.Netsync
+                     // runs (Request only queued it). The wraps otherwise answer from my last field load, so the same visit's
+                     // Tent/Chocograph branch diverged from the host's (test2_110.txt:546-556). Live + mirroring only.
+                     if (!bench && state != null && IsMirroringStory)
+-                        NetSyncParty.ParseSections(state);
++                        NetSyncParty.ParseSections(!chest ? state                                                   // [ff9mapkit netsync s160] a CHEST reads the
++                                                   : fromHold && _heldStartState != null ? _heldStartState          // bag of the frame that FIRST
++                                                   : _talkSceneTalk == nonce && _talkStartState != null ? _talkStartState   // carried it (stamped at the
++                                                   : state);                                                        // press, before the host's AddItem)
+                     // [ff9mapkit netsync F3.2] S5 step 3: at the accept, events from an EARLIER host scene whose window
+                     // is not open are stale (the 14.2% duplicate-key reopens). The host stamped this start with a scene
+                     // of its own (StartSceneAt) in the frame that first carried it -- NoteTalkScene kept that nonce. Not
+@@ -8430,6 +8633,198 @@ namespace Memoria.Netsync
+             return -1;
+         }
+ 
++        // [ff9mapkit netsync s160] THE CHEST REPLAY (ApplyTalkStart's tag-2 twin): arm the one-shot serve for this chest, then make sure
++        // its tag-2 body runs on my copy -- the stock range request queues it only while my player stands in push range
++        // (EventCollision.CollisionRequest, at the END of each ProcessEvents pass), so out of range I Request it myself and the chest
++        // opens wherever I stand; its own script turns and kneels my character toward it (owner 2026-10-28: kneel like stock). In range
++        // the stock request has ALREADY queued the body between passes (level 1, ip at its tag-2 entry, not yet started): that body
++        // takes the serve on the next pass, so I arm and request nothing. Declined (nonce consumed, one line): no such object, not a
++        // stock chest with a tag 2 on my copy, no Confirm/Special in the press, or -- live -- my story is not mirrored (the opened
++        // flag and the item would land in MY save: the session exit ramp arms only while mirroring; GuestPress's storyOk). Deferred as
++        // a talk is: no controlled actor, my control off, my own climb in flight, or the chest busy in another handler. 1 / 0 / -1.
++        private Int32 ApplyChestStart(EventEngine ee, Int32 uid, Byte[] body, out String deferWhy, Boolean bench)
++        {
++            deferWhy = null;
++            if (body == null || body.Length < ChestBodyLen)
++            {
++                _chestDeclined++;
++                _chestLastUid = uid;
++                _chestLastWhy = "a malformed chest start (" + (body != null ? body.Length : 0) + " bytes)";
++                Log.Message("[NetSync] chest relay: " + _chestLastWhy + " for uid " + uid + " -- ignored");
++                return -1;
++            }
++            Obj obj = ee.FindObjByUID(uid);
++            PosObj po = obj as PosObj;
++            Boolean jp = Memoria.Assets.Localization.CurrentSymbol == "JP";
++            UInt32 bits = NetSyncField.LayoutSwap(NetSyncField.ExpandKeys(body[5] | (body[6] << 8)), jp) & ChestPressBits(jp);
++            String declineWhy = obj == null ? "no object with uid " + uid + " on this field"
++                              : po == null || !IsStockChestModel(po.model) ? "obj " + uid + " is not a stock chest on my copy (model " + (po != null ? po.model : -1) + ")"
++                              : ee.GetIP(obj.sid, 2, obj.ebData) == ee.nil ? "chest " + uid + " has no tag-2 handler on my copy"
++                              : bits == 0 ? "chest " + uid + "'s start carries no Confirm/Special"
++                              : !bench && !IsMirroringStory ? "my story is not mirroring the host's -- chest " + uid + " would open in my own save"
++                              : null;
++            if (declineWhy != null)
++            {
++                _chestDeclined++;
++                _chestLastUid = uid;
++                _chestLastWhy = declineWhy;
++                Log.Message("[NetSync] chest relay: " + declineWhy + " -- ignored");
++                return -1;
++            }
++            if (!(ee.GetControlChar() is Actor))
++            {
++                deferWhy = "no controlled actor yet";
++                return 0;
++            }
++            if (!ee.GetUserControl())
++            {
++                deferWhy = "my copy of a talk/scene still holds control";   // the body's `ifnot(IsMovementEnabled) return` would bail
++                return 0;
++            }
++            if (NetSyncGuestLocalArmed.On)
++            {
++                String glWhy = NetSyncGuestLocal.TalkDeferWhy(ee);
++                if (glWhy != null)
++                {
++                    deferWhy = glWhy;
++                    return 0;
++                }
++            }
++            Boolean queued = obj.level == 1 && obj.ip == ee.GetIP(obj.sid, 2, obj.ebData);   // the stock range request's, not yet run
++            if (obj.level <= 1 && !queued)
++            {
++                deferWhy = "the chest is busy in another handler on my copy";   // Request needs `level < p.level`
++                return 0;
++            }
++            Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++            ArmChestServe(fld, uid, bits);
++            String how;
++            if (queued)
++                how = "its body is already queued by the stock range request (I stand in push range)";
++            else if (ChestRequestLeverOff)
++                how = "serve armed WITHOUT a Request (CALIBRATION lever: only a body the stock range request queues is served)";
++            else
++            {
++                ee.Request(obj, 1, 2, false);            // tag 2 exists (GetIP above) and level > 1, so this queues it
++                how = "tag 2 requested";
++            }
++            _chestAccepted++;
++            _chestLastUid = uid;
++            _chestLastWhy = "accepted";
++            Log.Message("[NetSync] chest relay: opening chest " + uid + " on my copy of field " + fld + " (press " + (body[5] | (body[6] << 8))
++                        + ", script bits 0x" + bits.ToString("X") + ") -- " + how);
++            return 1;
++        }
++
++        // [ff9mapkit netsync s160] THE ONE-SHOT SERVE. Main thread only.
++        private static void ArmChestServe(Int32 fld, Int32 uid, UInt32 bits)
++        {
++            if (_serveArmed)
++                ClearChestServe("a newer chest start replaced it");
++            _serveField = fld;
++            _serveUid = uid;
++            _serveBits = bits;
++            _serveTick = Environment.TickCount;          // tick-baseline law: read only while armed
++            _serveActive = false;
++            _serveArmed = true;
++        }
++
++        // `why` != null logs the one "not served" line and counts an expiry (null = silent: spent, or a session reset).
++        private static void ClearChestServe(String why)
++        {
++            if (_serveArmed && !_serveActive && why != null)
++            {
++                _chestExpired++;
++                _chestLastUid = _serveUid;
++                _chestLastWhy = why;
++                Log.Message("[NetSync] chest relay: chest start uid " + _serveUid + " not served (" + why + ")");
++            }
++            _serveArmed = false;
++            _serveActive = false;
++        }
++
++        // [ff9mapkit netsync s160] (pure) THE SERVE RULE: what a control-on read by `uid` (mask `readMask`, on `fld`, in key tick
++        // `tick`) receives from an armed serve, and the serve's next state. 0 = not this read. A taken serve answers every read by
++        // its reader in the SAME key tick (TakeRelayedScriptKey's rule: one press, however often the body reads it); the next key
++        // tick spends it.
++        internal static UInt32 ChestServeRule(Boolean armed, Boolean active, Int32 activeTick, Int32 sFld, Int32 sUid, UInt32 sBits,
++                                              Int32 fld, Int32 uid, UInt32 readMask, Int32 tick, out Boolean take, out Boolean spend)
++        {
++            take = false;
++            spend = false;
++            if (!armed)
++                return 0;
++            if (active)
++            {
++                if (tick != activeTick)
++                {
++                    spend = true;
++                    return 0;
++                }
++                return uid == sUid ? sBits : 0u;
++            }
++            if (fld != sFld || uid != sUid || (readMask & sBits) == 0)
++                return 0;
++            take = true;
++            return sBits;
++        }
++
++        // [ff9mapkit netsync s160] NetSyncField.FilterScriptButtons' spectator CONTROL-ON branch (field mode): the host's chest press
++        // for this reader, else 0. One static read on the hot path when nothing is armed. Never throws.
++        internal static UInt32 TakeChestServe(Obj reader, UInt32 readMask)
++        {
++            if (!_serveArmed)
++                return 0;
++            try
++            {
++                if (reader == null || ChestServeLeverOff)
++                    return 0;                            // the CALIBRATION lever: the body runs, the read stays masked
++                Boolean take, spend;
++                UInt32 got = ChestServeRule(_serveArmed, _serveActive, _serveKeyTick, _serveField, _serveUid, _serveBits,
++                                            FF9StateSystem.Common.FF9.fldMapNo, reader.uid, readMask, NetSyncField.KeyTick, out take, out spend);
++                if (spend)
++                {
++                    ClearChestServe(null);
++                    return 0;
++                }
++                if (take)
++                {
++                    _serveActive = true;
++                    _serveKeyTick = NetSyncField.KeyTick;
++                    _chestServed++;
++                    _chestLastUid = _serveUid;
++                    _chestLastWhy = "served";
++                    Log.Message("[NetSync] chest relay: served the host's press to chest " + _serveUid + " on my copy (script bits 0x"
++                                + _serveBits.ToString("X") + ", " + (Environment.TickCount - _serveTick) + " ms after the accept)");
++                }
++                return got;
++            }
++            catch
++            {
++                return 0;
++            }
++        }
++
++        // [ff9mapkit netsync s160] GUEST Update (and the selftest bench), before ServiceTalkFollow: a serve no read took in
++        // ChestServeMs, or one armed on a field I left, ends with one line; a taken one is spent once its key tick has passed.
++        private static void ServiceChestServe(Int32 fld)
++        {
++            if (!_serveArmed)
++                return;
++            if (_serveActive)
++            {
++                if (NetSyncField.KeyTick != _serveKeyTick)
++                    ClearChestServe(null);
++                return;
++            }
++            if (fld != _serveField)
++                ClearChestServe("the field changed");
++            else if (Environment.TickCount - _serveTick > ChestServeMs)
++                ClearChestServe(ChestServeLeverOff
++                    ? "the serve lever is off (CALIBRATION): my copy's read stayed masked"
++                    : "my copy's handler never polled it in " + ChestServeMs + " ms -- a latch, a gate, or my control fell");
++        }
++
+         // SELFTEST bench / harness `netsync talk <uid>`: fabricate the section through the REAL codec and
+         // hand it to the same apply path (no snap -- F3.2: the live path has none either). It defers and
+         // expires exactly as a live start does (TalkRelayTtlMs from the inject stands in for the host TTL).
+@@ -8460,6 +8855,7 @@ namespace Memoria.Netsync
+                     return false;
+                 }
+                 i._talkPending = body;
++                i._talkPendingChest = false;             // [ff9mapkit netsync s160] a talk body: the bench lane's kind follows its latest inject
+                 i._talkPendingSince = Environment.TickCount;   // [ff9mapkit netsync F3.2] the bench's TTL clock (host TTL parity)
+                 Log.Message("[NetSync] talk bench: fabricated SectionTalk obj " + uid + " field " + fld + " nonce " + nonce + " -- applying");
+                 return true;
+@@ -8471,6 +8867,253 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync s160] THE PROOF (the selftest block's LAST line, "chest relay selftest: OK (N rows, M mutants caught)", and
++        // `netsync.chest.selftest`): every pure rule the relay stands on, as rows over one bundle of functions; each mutant swaps ONE
++        // function for a plausible wrong one and must fail at least one row (a check that cannot fail is not a check).
++        private delegate Int32 TagFn(Byte[] eb, Int32 ip);
++        private delegate UInt32 SwapFn(UInt32 bits, Boolean jp);
++        private delegate UInt32 ServeFn(Boolean armed, Boolean active, Int32 activeTick, Int32 sFld, Int32 sUid, UInt32 sBits,
++                                        Int32 fld, Int32 uid, UInt32 readMask, Int32 tick, out Boolean take, out Boolean spend);
++        private delegate Boolean ModelFn(UInt16 model);
++        private delegate Byte[] LaneFn(Byte[] state, out Boolean chest);
++
++        private static Boolean ChestRow(ref Int32 rows, Boolean ok)
++        {
++            rows++;
++            return ok;
++        }
++
++        // null = every row held; else the first failing row's words. `rows` counts the rows run.
++        private static String ChestRows(TagFn tag, SwapFn swap, ServeFn serve, ModelFn model, LaneFn lane, out Int32 rows)
++        {
++            rows = 0;
++            UInt16[] yes = { 75, 91, 701, 702 };
++            UInt16[] no = { 0, 74, 76, 90, 92, 700, 703, 65535 };
++            foreach (UInt16 m in yes)
++                if (!ChestRow(ref rows, model(m))) return "model " + m + " is a stock chest";
++            foreach (UInt16 m in no)
++                if (!ChestRow(ref rows, !model(m))) return "model " + m + " is not a chest";
++            // an UNSORTED table: tag 0 at 0x10, tag 2 at 0x40, tag 1 at 0x20 (GetIP's start = 2 + offset)
++            Byte[] eb = { 0, 3, 0, 0, 0x10, 0, 2, 0, 0x40, 0, 1, 0, 0x20, 0 };
++            if (!ChestRow(ref rows, tag(eb, 0x13) == 0)) return "ip 0x13 sits in tag 0";
++            if (!ChestRow(ref rows, tag(eb, 0x22) == 1)) return "ip 0x22 sits in tag 1 (a later table row)";
++            if (!ChestRow(ref rows, tag(eb, 0x45) == 2)) return "ip 0x45 sits in tag 2";
++            if (!ChestRow(ref rows, tag(eb, 0x05) == -1)) return "ip before every function has no tag";
++            if (!ChestRow(ref rows, tag(null, 0x45) == -1 && tag(new Byte[] { 0, 9, 0 }, 0x45) == -1)) return "no / a truncated table has no tag";
++            UInt32 cf = EventInput.Confirm, cx = EventInput.Cancel, sp = EventInput.Special;
++            if (!ChestRow(ref rows, swap(cf | sp, false) == (cf | sp))) return "no swap off JP";
++            if (!ChestRow(ref rows, swap(cf | sp, true) == (cx | sp))) return "JP: a lone Confirm reads as Cancel";
++            if (!ChestRow(ref rows, swap(cx, true) == cf)) return "JP: a lone Cancel reads as Confirm";
++            if (!ChestRow(ref rows, swap(cf | cx, true) == (cf | cx))) return "JP: both stay both";
++            if (!ChestRow(ref rows, swap(swap(cf, true), false) == cx && swap(swap(cx, true), true) == cx)) return "the swap is its own inverse";
++            if (!ChestRow(ref rows, (swap(swap(cx, true), true) & ChestPressBits(true)) != 0)) return "a JP host's chest press serves a JP guest's chest";
++            if (!ChestRow(ref rows, (swap(swap(cx, true), false) & ChestPressBits(false)) != 0)) return "a JP host's chest press serves an English guest's chest";
++            if (!ChestRow(ref rows, (swap(swap(cf, false), true) & ChestPressBits(true)) != 0)) return "an English host's chest press serves a JP guest's chest";
++            Boolean take, spend;
++            if (!ChestRow(ref rows, serve(false, false, 0, 5, 9, cf, 5, 9, cf | sp, 1, out take, out spend) == 0 && !take)) return "nothing armed serves nothing";
++            if (!ChestRow(ref rows, serve(true, false, 0, 5, 9, cf, 5, 8, cf | sp, 1, out take, out spend) == 0 && !take)) return "another reader is not served";
++            if (!ChestRow(ref rows, serve(true, false, 0, 5, 9, cf, 6, 9, cf | sp, 1, out take, out spend) == 0 && !take)) return "another field is not served";
++            if (!ChestRow(ref rows, serve(true, false, 0, 5, 9, cf, 5, 9, cx, 1, out take, out spend) == 0 && !take)) return "a read whose mask misses the press is not served";
++            if (!ChestRow(ref rows, serve(true, false, 0, 5, 9, cf, 5, 9, cf | sp, 1, out take, out spend) == cf && take && !spend)) return "the chest's read takes the press";
++            if (!ChestRow(ref rows, serve(true, true, 1, 5, 9, cf, 5, 9, cf | sp, 1, out take, out spend) == cf && !take && !spend)) return "its second read in the same key tick sees the same press";
++            if (!ChestRow(ref rows, serve(true, true, 1, 5, 9, cf, 5, 8, cf | sp, 1, out take, out spend) == 0)) return "another reader in that tick sees nothing";
++            if (!ChestRow(ref rows, serve(true, true, 1, 5, 9, cf, 5, 9, cf | sp, 2, out take, out spend) == 0 && spend)) return "the next key tick spends it";
++            // THE KIND RIDES THE SECTION: a chest start is a chest by section 9 alone -- a LONGER section 6 (the forward rule) stays a
++            // talk, and a frame carrying both (never sent) reads as the talk.
++            Boolean k;
++            Byte[] b6 = NetSyncState.AppendSection(null, NetSyncState.SectionTalk, new Byte[] { 0xA3, 0x0F, 7, 0, 3, 0x40, 0, 1 });
++            Byte[] b9 = NetSyncState.AppendSection(null, NetSyncState.SectionChest, ChestSectionBody(4003, 9, 4, 0x40));
++            Byte[] r = lane(b6, out k);
++            if (!ChestRow(ref rows, r != null && r.Length == 8 && !k)) return "a lengthened section 6 is still a talk";
++            r = lane(b9, out k);
++            if (!ChestRow(ref rows, r != null && r.Length == ChestBodyLen && k && r[2] == 9 && r[4] == 4)) return "section 9 is a chest";
++            r = lane(NetSyncState.AppendSection(b9, NetSyncState.SectionTalk, TalkSectionBody(4003, 7, 5)), out k);
++            if (!ChestRow(ref rows, r != null && !k && r[2] == 7)) return "a frame with both reads the talk";
++            r = lane(NetSyncState.AppendSection(null, NetSyncState.SectionChest, new Byte[] { 0xA3, 0x0F, 9, 0, 4, 0x40 }), out k);
++            if (!ChestRow(ref rows, r == null && !k)) return "a short section 9 is no start";
++            return null;
++        }
++
++        internal static Boolean ChestSelfTest(out String detail)
++        {
++            try
++            {
++                Int32 rows;
++                String fail = ChestRows(TagAtIp, NetSyncField.LayoutSwap, ChestServeRule, IsStockChestModel, ReadStartLane, out rows);
++                if (fail != null)
++                {
++                    detail = "row " + rows + ": " + fail;
++                    _chestSelfTest = "fail: " + detail;
++                    return false;
++                }
++                // the mutants: a tag map that assumes a sorted table, no JP swap, a serve with no reader check, a serve never spent,
++                // "any model 70x is a chest", and the kind read off the body's length
++                TagFn sorted = (eb, ip) =>
++                {
++                    if (eb == null || eb.Length < 2) return -1;
++                    for (Int32 q = 0; q < eb[1] && 2 + 4 * q + 3 < eb.Length; q++)
++                        if (2 + (eb[2 + 4 * q + 2] | (eb[2 + 4 * q + 3] << 8)) <= ip && (q + 1 >= eb[1] || 2 + 4 * (q + 1) + 3 >= eb.Length || 2 + (eb[2 + 4 * (q + 1) + 2] | (eb[2 + 4 * (q + 1) + 3] << 8)) > ip))
++                            return eb[2 + 4 * q] | (eb[2 + 4 * q + 1] << 8);
++                    return -1;
++                };
++                SwapFn noSwap = (b, jp) => b;
++                ServeFn anyReader = (Boolean a, Boolean ac, Int32 at, Int32 sf, Int32 su, UInt32 sb, Int32 f, Int32 u, UInt32 m, Int32 t, out Boolean tk, out Boolean sp)
++                    => ChestServeRule(a, ac, at, sf, u, sb, f, u, m, t, out tk, out sp);
++                ServeFn neverSpent = (Boolean a, Boolean ac, Int32 at, Int32 sf, Int32 su, UInt32 sb, Int32 f, Int32 u, UInt32 m, Int32 t, out Boolean tk, out Boolean sp)
++                    => ChestServeRule(a, ac, t, sf, su, sb, f, u, m, t, out tk, out sp);
++                ModelFn wide = m => IsStockChestModel(m) || (m >= 700 && m <= 709);
++                LaneFn byLength = (Byte[] st, out Boolean ch) =>
++                {
++                    Byte[] got = ReadStartLane(st, out ch);
++                    ch = got != null && got.Length >= ChestBodyLen;
++                    return got;
++                };
++                String[] names = { "sorted-table tag map", "no JP swap", "any reader served", "never spent", "every 70x model a chest", "kind by length" };
++                Int32 ignored;
++                String[] outcomes =
++                {
++                    ChestRows(sorted, NetSyncField.LayoutSwap, ChestServeRule, IsStockChestModel, ReadStartLane, out ignored),
++                    ChestRows(TagAtIp, noSwap, ChestServeRule, IsStockChestModel, ReadStartLane, out ignored),
++                    ChestRows(TagAtIp, NetSyncField.LayoutSwap, anyReader, IsStockChestModel, ReadStartLane, out ignored),
++                    ChestRows(TagAtIp, NetSyncField.LayoutSwap, neverSpent, IsStockChestModel, ReadStartLane, out ignored),
++                    ChestRows(TagAtIp, NetSyncField.LayoutSwap, ChestServeRule, wide, ReadStartLane, out ignored),
++                    ChestRows(TagAtIp, NetSyncField.LayoutSwap, ChestServeRule, IsStockChestModel, byLength, out ignored),
++                };
++                Int32 caught = 0;
++                String escaped = null;
++                for (Int32 q = 0; q < outcomes.Length; q++)
++                {
++                    if (outcomes[q] != null)
++                        caught++;
++                    else if (escaped == null)
++                        escaped = names[q];
++                }
++                if (escaped != null)
++                {
++                    detail = rows + " rows, " + caught + " mutants caught; mutant ESCAPED: " + escaped;
++                    _chestSelfTest = "fail: mutant " + escaped + " escaped";
++                    return false;
++                }
++                detail = rows + " rows, " + caught + " mutants caught";
++                _chestSelfTest = "ok";
++                return true;
++            }
++            catch (Exception err)
++            {
++                detail = "threw: " + err.Message;
++                _chestSelfTest = "fail: " + detail;
++                return false;
++            }
++        }
++
++        // [ff9mapkit netsync s160] the harness `netsync chest ...` sub-verb (HarnessAgent), the ROLE refused first (the s156/s158 order),
++        // then the ops:
++        //   `chest <uid> [confirm|special]`  SELFTEST BENCH (the field-gate bench on): a SECTION 9 frame through the real codec, its body
++        //                                     handed to the same accept path (ServiceTalkFollow -> ApplyChestStart) with the talk bench's
++        //                                     TTL parity; the press is the PHYSICAL one, as a host sends it;
++        //   `chest serve on|off`             CALIBRATION: off = the body runs on my copy, its read stays masked;
++        //   `chest request on|off`           CALIBRATION: off = no forced Request (only a body the stock range request queued).
++        // The levers are released with the harness (NetSyncBattle.HarnessReleaseBench -> HarnessReleaseChest).
++        internal const String ChestRoleRefusal = "netsync chest: needs the selftest role (netsync selftest 1)";
++        internal const String ChestUsage = "netsync chest: expected `chest <uid> [confirm|special]` or `chest serve|request on|off`";
++
++        public static Boolean HarnessChest(String[] args, out String why)
++        {
++            why = null;
++            NetSyncClient i = _instance;
++            if (i == null || !IsSelfTestRole)
++            {
++                why = ChestRoleRefusal;
++                return false;
++            }
++            String a1 = args != null && args.Length > 1 && args[1] != null ? args[1].ToLowerInvariant() : "";
++            String a2 = args != null && args.Length > 2 && args[2] != null ? args[2].ToLowerInvariant() : null;
++            if (a1 == "serve" || a1 == "request")
++            {
++                if (args.Length != 3 || (a2 != "on" && a2 != "off"))
++                {
++                    why = ChestUsage;
++                    return false;
++                }
++                if (a1 == "serve")
++                    _benchChestServeOff = a2 == "off";
++                else
++                    _benchChestRequestOff = a2 == "off";
++                Log.Message("[NetSync] harness: chest " + a1 + " " + (a2 == "off" ? "OFF -- CALIBRATION (released with the harness)" : "ON"));
++                return true;
++            }
++            Int32 uid;
++            if (!Int32.TryParse(a1, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out uid)
++                || uid < 0 || uid > 0xFFFF || args.Length > 3 || (a2 != null && a2 != "confirm" && a2 != "special"))
++            {
++                why = ChestUsage;
++                return false;
++            }
++            if (!NetSyncField.BenchGates)
++            {
++                why = "netsync chest: the field-gate bench is OFF (netsync bench 1)";
++                return false;
++            }
++            try
++            {
++                Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
++                Byte nonce = (Byte)(i._talkNonce + 1);
++                i._talkNonce = nonce;
++                UInt16 bits = NetSyncField.CompactKeys(a2 == "special" ? EventInput.Special : EventInput.Confirm);
++                Byte[] frame = NetSyncState.AppendSection(null, NetSyncState.SectionChest, ChestSectionBody(fld, uid, nonce, bits));
++                Boolean chest;
++                Byte[] body = ReadStartLane(frame, out chest);
++                if (body == null || !chest)
++                {
++                    why = "netsync chest: codec round-trip FAILED";
++                    return false;
++                }
++                i._talkPending = body;
++                i._talkPendingChest = true;
++                i._talkPendingSince = Environment.TickCount;
++                Log.Message("[NetSync] chest bench: fabricated SectionChest chest " + uid + " field " + fld + " nonce " + nonce + " press " + bits + " -- applying");
++                return true;
++            }
++            catch (Exception err)
++            {
++                why = "netsync chest: " + err.Message;
++                return false;
++            }
++        }
++
++        internal static void HarnessReleaseChest()
++        {
++            if (_benchChestServeOff || _benchChestRequestOff)
++                Log.Message("[NetSync] harness: chest levers released (serve + request on)");
++            _benchChestServeOff = false;
++            _benchChestRequestOff = false;
++        }
++
++        // [ff9mapkit netsync s160] the `netsync.chest` reads (HarnessAgent.AppendChest builds the block with the agent's own helpers).
++        internal static Boolean HarnessChestServeOffAsSet { get { return _benchChestServeOff; } }
++        internal static Boolean HarnessChestRequestOffAsSet { get { return _benchChestRequestOff; } }
++        internal static Boolean HarnessChestArmed { get { return _serveArmed; } }
++        internal static Boolean HarnessChestActive { get { return _serveArmed && _serveActive; } }
++        internal static Int32 HarnessChestUid { get { return _serveArmed ? _serveUid : -1; } }
++        internal static Int64 HarnessChestScriptBits { get { return _serveArmed ? (Int64)_serveBits : -1L; } }
++        internal static Int32 HarnessChestAgeMs { get { return _serveArmed ? Environment.TickCount - _serveTick : -1; } }
++        internal static Int32 HarnessChestAccepted { get { return _chestAccepted; } }
++        internal static Int32 HarnessChestServed { get { return _chestServed; } }
++        internal static Int32 HarnessChestExpired { get { return _chestExpired; } }
++        internal static Int32 HarnessChestDeclined { get { return _chestDeclined; } }
++        internal static Int32 HarnessChestLastUid { get { return _chestLastUid; } }
++        internal static String HarnessChestLastWhy { get { return _chestLastWhy; } }
++        internal static String HarnessChestSelfTest { get { return _chestSelfTest; } }
++        internal static Int32 HarnessChestStamped { get { NetSyncClient i = _instance; return i != null ? i._chestStamped : 0; } }
++        internal static Boolean HarnessChestRiding
++        {
++            get
++            {
++                NetSyncClient i = _instance;
++                return i != null && i._talkChest && i._talkUid >= 0 && Environment.TickCount - i._talkSince < TalkRelayTtlMs;
++            }
++        }
++
+         // ===== s83 HARNESS ENTRY POINTS (Memoria.Harness.HarnessAgent, the `netsync` verbs) ==========
+         // The F1-F3 solo benches are ~ debug-menu buttons -- IMGUI, which no injected controller input
+         // can press -- so the harness needs the SAME static entry points the buttons call. Plus one
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
+index 3de336a..4c17cb2 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncField.cs
+@@ -857,6 +857,15 @@ namespace Memoria.Netsync
+                     return keys;
+                 if (ee.GetUserControl())
+                 {
++                    // [ff9mapkit netsync s160] THE CHEST SERVE (studies/field-coop/CHEST-RELAY.md): the host opened a stock chest and my
++                    // copy accepted its start (NetSyncClient.ApplyChestStart) -- that chest's tag-2 read gets the host's press, once.
++                    // My own Confirm / Special / Select stay masked below; every other reader is untouched. Field mode only.
++                    if (ee.gMode == 1)
++                    {
++                        UInt32 served = NetSyncClient.TakeChestServe(reader, readMask);
++                        if (served != 0)
++                            return ControlOnScriptKeys(keys, false) | served;
++                    }
+                     // [ff9mapkit netsync s144] THE WORLD FREEZE's key mask: on the world map a FROZEN guest's control-on world polls
+                     // lose every host-owned key -- the free-roam dispatchers poll Confirm, Cancel, Special, Menu, Navi and RT, so
+                     // Cancel (dismount / disembark / land) and Triangle (deck -> the interior Field()) closed only now. Directions,
+@@ -981,6 +990,23 @@ namespace Memoria.Netsync
+             return (UInt16)c;
+         }
+ 
++        // [ff9mapkit netsync s160] (pure) the JP scripts' Confirm/Cancel swap (ETb.ProcessJapaneseLayout's rule, which is private):
++        // a lone Confirm becomes Cancel and a lone Cancel Confirm; both or neither stay. Its own inverse, so it maps script bits to
++        // physical ones and back. The chest relay sends the PHYSICAL press, so a JP-language guest's chest (polling Cancel|Special)
++        // is served by an English host's Confirm. jp false: unchanged.
++        internal static UInt32 LayoutSwap(UInt32 bits, Boolean jp)
++        {
++            if (!jp)
++                return bits;
++            Boolean c = (bits & EventInput.Confirm) != 0;
++            Boolean x = (bits & EventInput.Cancel) != 0;
++            if (c && !x)
++                return (bits & ~EventInput.Confirm) | EventInput.Cancel;
++            if (x && !c)
++                return (bits & ~EventInput.Cancel) | EventInput.Confirm;
++            return bits;
++        }
++
+         public static UInt32 ExpandKeys(Int32 compact)
+         {
+             UInt32 keys = 0;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
+index 3e39ad5..1e76e6b 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
+@@ -42,6 +42,10 @@ namespace Memoria.Netsync
+                                                 //      epoch, heartbeat, flags, its open windows and a 32-event ring
+                                                 //      (NetSyncDialog.HostRing.BuildSection / TryParseHostSection). Rides
+                                                 //      this latest slot, re-sent every write tick, so a lost frame heals.
++        public const Byte SectionChest = 9;     // [ff9mapkit netsync s160] [field u16 LE][uid u16 LE][nonce u8][bits u16 LE] -- the host
++                                                //      OPENED a stock chest (its tag-2 body read the press; stamped at once). Rides
++                                                //      INSTEAD of section 6 while live: an older guest reads no talk, so it never replays a
++                                                //      chest as a tag-3 Request (the version gate). Section 8 is the dress (NetSyncVisitor).
+         private const Int32 StoryLen = 2048;    // FF9StateSystem.EventState.gEventGlobal is Byte[2048]
+         private const Int32 MaskLo = 2032;      // coop cells 2032-2039 + reserved 2033/2038-2039 + scratch 2040
+         private const Int32 MaskHi = 2041;      // ... never carried; the guest keeps its own
+@@ -285,6 +289,38 @@ namespace Memoria.Netsync
+                 return false;
+             if ((talkBody[0] | (talkBody[1] << 8)) != probeField || (talkBody[2] | (talkBody[3] << 8)) != 7 || talkBody[4] != probeNonce)
+                 return false;
++            // [ff9mapkit netsync s160] a chest start rides section 9 ([field][uid][nonce][bits u16], 7 bytes), with a section AFTER it (as
++            // BuildStateFrame appends 7 and 8 after the start lane; the walk never reads ids): it reads back whole, a section-6 reader
++            // finds no talk in a chest-only frame (an older guest replays nothing -- the version gate), and a reader of a section placed
++            // AFTER section 9 still gets its exact bytes (an older guest's walk steps over id 9 to reach 7 and 8). A frame that carries
++            // section 9 BEFORE the story still applies the whole story.
++            Byte[] chest9 = new Byte[] { (Byte)(probeField & 0xFF), (Byte)((probeField >> 8) & 0xFF), 9, 0, probeNonce, 0x40, 0 };
++            Byte[] withChest = AppendSection(AppendSection(payload, SectionChest, chest9), SectionEvent, new Byte[] { 1, (Byte)(probeNonce + 1) });
++            Byte[] chestBody;
++            if (!TryReadSection(withChest, SectionChest, out chestBody) || chestBody == null || chestBody.Length != 7
++                || (chestBody[2] | (chestBody[3] << 8)) != 9 || chestBody[4] != probeNonce || (chestBody[5] | (chestBody[6] << 8)) != 0x40)
++                return false;
++            Byte[] noTalk;
++            if (TryReadSection(withChest, SectionTalk, out noTalk) || noTalk != null)
++                return false;                    // an old guest's talk reader must find nothing in a chest-only frame
++            Byte[] afterChest;
++            if (!TryReadSection(withChest, SectionEvent, out afterChest) || afterChest == null || afterChest.Length != 2
++                || afterChest[0] != 1 || afterChest[1] != (Byte)(probeNonce + 1))
++                return false;                    // the section after 9 reads back exactly
++            Byte[] chestFirst = AppendSection(null, SectionChest, chest9);
++            Byte[] chestThenStory = new Byte[chestFirst.Length + payload.Length];
++            Array.Copy(chestFirst, 0, chestThenStory, 0, chestFirst.Length);
++            Array.Copy(payload, 0, chestThenStory, chestFirst.Length, payload.Length);
++            Byte[] chestScratch = new Byte[StoryLen];
++            if (!ApplyStoryTo(chestThenStory, chestScratch))
++                return false;                    // the story walk steps over a leading section 9
++            for (Int32 i = 0; i < StoryLen; i++)
++            {
++                if (i >= MaskLo && i <= MaskHi)
++                    continue;
++                if (chestScratch[i] != g[i])
++                    return false;
++            }
+             Byte[] absentBody;
+             if (TryReadSection(withSections, 200, out absentBody) || absentBody != null)
+                 return false;                    // an unknown id must decline, not fabricate
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 4461a8e..323a7e2 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -6835,6 +6835,7 @@ namespace Memoria.Netsync
+             NetSyncGuestLocal.HarnessRelease();         // [ff9mapkit netsync s156] the guest-traversal lever back to act, the mutate disarmed, the verdict lines re-armed
+             NetSyncClient.HarnessReleaseGhostFrame();   // [ff9mapkit netsync s157] the ghost frame-follow lever back on (`bench ghostframe`)
+             NetSyncStepOut.HarnessRelease();            // [ff9mapkit netsync s158] the step-out lever back to act
++            NetSyncClient.HarnessReleaseChest();        // [ff9mapkit netsync s160] the chest relay's serve / request levers back on
+         }
+ 
+         // ============================================================================ harness surface (s143)
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index adc5232..20817ee 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -369,6 +369,14 @@ namespace Memoria.Harness
+         // `body_rends_on` / `shadow` / `shadow_off` read the anchor body (the controlled actor's before), the proof line gains seven
+         // rows and three mutants, and `stepout` gains one op, `ctl` (CALIBRATION: anchor on the controlled actor, s158's rule; an s158
+         // engine answers it with "expected act|off|clear"). A driver checks for `netsync.stepout.anchor`; the wire stays v14.
++        // [ff9mapkit netsync s160] (THE CHEST RELAY: studies/field-coop/CHEST-RELAY.md), also additive under 5: `netsync` gains `chest` as
++        // its LAST key, after `stepout` (AppendChest; key PRESENCE is the capability), the selftest proof block gains
++        // "chest relay selftest: OK (N rows, M mutants caught)" as its LAST line, after the step-out line (NetSyncClient.ChestSelfTest),
++        // and `netsync` gains one sub-verb, `chest` (selftest role only, the role refused first): `chest <uid> [confirm|special]` fabricates a section-9 start
++        // through the real codec onto the guest's accept path; `chest serve|request on|off` are the calibration levers (released with
++        // the harness: NetSyncBattle.HarnessReleaseBench -> NetSyncClient.HarnessReleaseChest). An s159 engine answers `chest` with
++        // "unknown sub-verb": a driver checks for `netsync.chest`. The state lane gains section 9 (an old guest skips it by id); the
++        // wire stays v14.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -2166,8 +2174,22 @@ namespace Memoria.Harness
+                                 throw new InvalidOperationException(why ?? "netsync stepout refused");
+                             break;
+                         }
++                        case "chest":
++                        {
++                            // [ff9mapkit netsync s160] -- the chest relay's guest half, solo (NetSyncClient.HarnessChest), the ROLE refused first
++                            // ("netsync chest: needs the selftest role (netsync selftest 1)"), then the op:
++                            //   `chest <uid> [confirm|special]`  a section-9 start for that chest, through the real codec, onto the accept
++                            //                                     path (the field-gate bench on); the press is the PHYSICAL one;
++                            //   `chest serve on|off`              CALIBRATION: off = the body runs on my copy, its read stays masked;
++                            //   `chest request on|off`            CALIBRATION: off = no forced Request (only a body the stock range request queued).
++                            // Anything else answers "netsync chest: expected `chest <uid> [confirm|special]` or `chest serve|request on|off`".
++                            // Read back: `netsync.chest` (AppendChest). The levers are released with the harness (NetSyncBattle.HarnessReleaseBench).
++                            if (!Memoria.Netsync.NetSyncClient.HarnessChest(s.Args, out why))
++                                throw new InvalidOperationException(why ?? "netsync chest refused");
++                            break;
++                        }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu|bbench|endbench|actbench|selfdress|guestlocal|stepout)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu|bbench|endbench|actbench|selfdress|guestlocal|stepout|chest)");
+                     }
+                     Block(2);
+                     break;
+@@ -3896,6 +3918,7 @@ namespace Memoria.Harness
+                 sb.Append(","); AppendGuestLocal(sb);   // [ff9mapkit netsync s156]
+                 sb.Append(","); AppendGhostFrame(sb);   // [ff9mapkit netsync s157]
+                 sb.Append(","); AppendStepOut(sb);      // [ff9mapkit netsync s158]
++                sb.Append(","); AppendChest(sb);        // [ff9mapkit netsync s160] netsync's LAST key
+             }
+             catch (Exception)
+             {
+@@ -3936,7 +3959,10 @@ namespace Memoria.Harness
+                 // [ff9mapkit netsync s158] netsync gains `stepout` after s157's `ghostframe`, its LAST key -- AppendStepOut's keys at their
+                 // sentinels (lever / why / why_not / geo / clip / hide / last_fault / selftest null, the flags false, the ids, ages, masks
+                 // and norms -1, the counters 0). [ff9mapkit netsync s159] ...and `anchor` {uid, ctl_uid, dressed_uid, ctl_rends_on} -1 last.
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null},\"boot_song\":-1,\"leave_song_live\":false},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false,\"overlay_text\":null,\"follow\":{\"pending\":-1,\"warped_to\":-1,\"candidate\":-1,\"world_armed\":-1,\"on_world\":false,\"host_world\":false,\"host_title\":false,\"hold\":-1}},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1,\"guard\":{\"leader\":-1,\"raw\":0,\"effective\":0,\"moved_from\":-1,\"moved_to\":-1,\"off\":false,\"line\":null,\"line_shown\":false,\"leader_model\":-1,\"chars\":[-1,-1,-1,-1],\"nonce\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"guard\":{\"nonce\":-1,\"mask\":-1,\"line\":null,\"shown\":false},\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false,\"twin_rows\":0,\"twins\":0,\"twin_misses\":0,\"twin_last\":{\"src\":-1,\"twin\":-1,\"site\":-1},\"ghost_clip_misses\":0,\"twin_clips_on_disc\":-1,\"twin_clip_missing\":-1,\"twin\":null,\"twin_selftest\":null},\"guard\":{\"leader\":-1,\"raw\":-1,\"effective\":-1,\"moved_from\":-1,\"moved_to\":-1}},\"world\":{\"freeze\":{\"on\":false,\"why\":null,\"off\":false,\"released\":false,\"edges\":0,\"skips\":0,\"keys\":0,\"map\":0,\"location\":0,\"battles\":0},\"rejoin\":{\"latch\":false,\"arms\":0,\"lands\":0,\"timeouts\":0,\"redirects\":0,\"rearms\":0,\"why\":null,\"last\":-1},\"waitline\":{\"line\":null,\"fallback\":false,\"away_ms\":-1},\"dio\":{\"booted_world\":false,\"boot_world\":-1,\"boot\":null,\"prev_mode_at_boot\":-1,\"lever\":null,\"declines\":0,\"decline_why\":null,\"decline_durable\":false,\"visit_decline\":null,\"wait_why\":null,\"returns\":0,\"last_return\":null,\"last_world\":-1,\"resuming\":false,\"suspend_song\":-1,\"song_sid\":-1,\"boot_song_live\":false}},\"guestlocal\":{\"mode\":null,\"lever\":null,\"rows\":-1,\"funcs\":-1,\"table_crc\":null,\"selftest\":null,\"last\":{\"seq\":0,\"field\":-1,\"entry\":-1,\"verdict\":null,\"reason\":null,\"kind\":null,\"hashed\":0,\"age_ms\":-1},\"verdicts\":{\"allow\":0,\"shadow\":0,\"lever_off\":0,\"not_field\":0,\"special\":0,\"no_row\":0,\"unverified\":0,\"wrong_body\":0,\"own_story\":0,\"no_control\":0,\"in_flight\":0,\"warp\":0,\"host_scene\":0,\"busy\":0},\"in_flight\":false,\"flight\":{\"field\":-1,\"entry\":-1,\"kind\":null,\"region_uid\":-1,\"body_uid\":-1,\"age_ms\":-1,\"seen_off\":false,\"body_open\":false,\"body_ran\":false,\"seq_open\":false},\"climbs\":0,\"ended\":0,\"bailed\":0,\"aborted\":0,\"abort_why\":null,\"long_climbs\":0,\"boots_mid_climb\":0,\"trips\":{\"total\":0,\"op\":0,\"glob\":0,\"last\":null},\"tp_calls\":0,\"tp_refusals\":0,\"tp_last\":null,\"talk_queued\":0,\"talk_held\":0,\"talk_applied_after_climb\":0,\"talk_expired\":0,\"mutate\":{\"armed\":false,\"index\":-1,\"spent\":false,\"hit\":false,\"hashed\":0}},\"ghostframe\":{\"lever_off\":false,\"follow\":false,\"why\":null,\"has_frame\":false,\"wire_anim\":-1,\"wire_frame\":-1,\"wire_frame_n\":-1,\"wire_loco\":-1,\"clip\":null,\"speed\":-1,\"time\":-1,\"length\":-1,\"shown\":-1,\"target\":-1,\"steps\":0,\"wraps\":0,\"snaps\":0,\"restores\":0,\"selftest\":null},\"stepout\":{\"lever\":null,\"active\":false,\"field\":-1,\"uid\":-1,\"dressed\":false,\"why\":null,\"age_ms\":-1,\"base\":{\"eligible\":false,\"host_here\":false,\"host_ctl_off\":false,\"my_ctl_off\":false,\"climb\":false,\"talk\":false,\"line\":false,\"host_scene\":false,\"why_not\":null,\"age_ms\":-1},\"talk_armed\":false,\"outs\":0,\"ins\":0,\"out_why\":{\"line\":0,\"dwell\":0},\"in_why\":{\"control\":0,\"field\":0,\"body\":0,\"session\":0,\"lever\":0,\"talk\":0,\"climb\":0},\"wire_mask\":-1,\"stock_visible\":false,\"body_rends_on\":-1,\"shadow\":-1,\"shadow_off\":-1,\"standin\":{\"on\":false,\"shown\":false,\"geo\":null,\"clip\":null,\"src_anim\":-1,\"norm\":-1,\"body_norm\":-1,\"dpos\":-1,\"rends_on\":-1,\"spawns\":0,\"frames\":0,\"missing_clip\":0},\"ghost\":{\"hide\":null,\"edges\":0,\"by\":{\"mask0\":0,\"host_scene\":0,\"step_out\":0}},\"host_plain_scene\":false,\"talk_accepts\":0,\"faults\":0,\"last_fault\":null,\"selftest\":null,\"anchor\":{\"uid\":-1,\"ctl_uid\":-1,\"dressed_uid\":-1,\"ctl_rends_on\":-1}}}");
++                // [ff9mapkit netsync s160] netsync gains `chest` after s158's `stepout`, its LAST key -- AppendChest's keys at their
++                // sentinels (the levers / armed / active / riding false, uid / script_bits / age_ms / last_uid -1, why / selftest null, the
++                // counters 0).
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null},\"boot_song\":-1,\"leave_song_live\":false},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false,\"overlay_text\":null,\"follow\":{\"pending\":-1,\"warped_to\":-1,\"candidate\":-1,\"world_armed\":-1,\"on_world\":false,\"host_world\":false,\"host_title\":false,\"hold\":-1}},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1,\"guard\":{\"leader\":-1,\"raw\":0,\"effective\":0,\"moved_from\":-1,\"moved_to\":-1,\"off\":false,\"line\":null,\"line_shown\":false,\"leader_model\":-1,\"chars\":[-1,-1,-1,-1],\"nonce\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"guard\":{\"nonce\":-1,\"mask\":-1,\"line\":null,\"shown\":false},\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false,\"twin_rows\":0,\"twins\":0,\"twin_misses\":0,\"twin_last\":{\"src\":-1,\"twin\":-1,\"site\":-1},\"ghost_clip_misses\":0,\"twin_clips_on_disc\":-1,\"twin_clip_missing\":-1,\"twin\":null,\"twin_selftest\":null},\"guard\":{\"leader\":-1,\"raw\":-1,\"effective\":-1,\"moved_from\":-1,\"moved_to\":-1}},\"world\":{\"freeze\":{\"on\":false,\"why\":null,\"off\":false,\"released\":false,\"edges\":0,\"skips\":0,\"keys\":0,\"map\":0,\"location\":0,\"battles\":0},\"rejoin\":{\"latch\":false,\"arms\":0,\"lands\":0,\"timeouts\":0,\"redirects\":0,\"rearms\":0,\"why\":null,\"last\":-1},\"waitline\":{\"line\":null,\"fallback\":false,\"away_ms\":-1},\"dio\":{\"booted_world\":false,\"boot_world\":-1,\"boot\":null,\"prev_mode_at_boot\":-1,\"lever\":null,\"declines\":0,\"decline_why\":null,\"decline_durable\":false,\"visit_decline\":null,\"wait_why\":null,\"returns\":0,\"last_return\":null,\"last_world\":-1,\"resuming\":false,\"suspend_song\":-1,\"song_sid\":-1,\"boot_song_live\":false}},\"guestlocal\":{\"mode\":null,\"lever\":null,\"rows\":-1,\"funcs\":-1,\"table_crc\":null,\"selftest\":null,\"last\":{\"seq\":0,\"field\":-1,\"entry\":-1,\"verdict\":null,\"reason\":null,\"kind\":null,\"hashed\":0,\"age_ms\":-1},\"verdicts\":{\"allow\":0,\"shadow\":0,\"lever_off\":0,\"not_field\":0,\"special\":0,\"no_row\":0,\"unverified\":0,\"wrong_body\":0,\"own_story\":0,\"no_control\":0,\"in_flight\":0,\"warp\":0,\"host_scene\":0,\"busy\":0},\"in_flight\":false,\"flight\":{\"field\":-1,\"entry\":-1,\"kind\":null,\"region_uid\":-1,\"body_uid\":-1,\"age_ms\":-1,\"seen_off\":false,\"body_open\":false,\"body_ran\":false,\"seq_open\":false},\"climbs\":0,\"ended\":0,\"bailed\":0,\"aborted\":0,\"abort_why\":null,\"long_climbs\":0,\"boots_mid_climb\":0,\"trips\":{\"total\":0,\"op\":0,\"glob\":0,\"last\":null},\"tp_calls\":0,\"tp_refusals\":0,\"tp_last\":null,\"talk_queued\":0,\"talk_held\":0,\"talk_applied_after_climb\":0,\"talk_expired\":0,\"mutate\":{\"armed\":false,\"index\":-1,\"spent\":false,\"hit\":false,\"hashed\":0}},\"ghostframe\":{\"lever_off\":false,\"follow\":false,\"why\":null,\"has_frame\":false,\"wire_anim\":-1,\"wire_frame\":-1,\"wire_frame_n\":-1,\"wire_loco\":-1,\"clip\":null,\"speed\":-1,\"time\":-1,\"length\":-1,\"shown\":-1,\"target\":-1,\"steps\":0,\"wraps\":0,\"snaps\":0,\"restores\":0,\"selftest\":null},\"stepout\":{\"lever\":null,\"active\":false,\"field\":-1,\"uid\":-1,\"dressed\":false,\"why\":null,\"age_ms\":-1,\"base\":{\"eligible\":false,\"host_here\":false,\"host_ctl_off\":false,\"my_ctl_off\":false,\"climb\":false,\"talk\":false,\"line\":false,\"host_scene\":false,\"why_not\":null,\"age_ms\":-1},\"talk_armed\":false,\"outs\":0,\"ins\":0,\"out_why\":{\"line\":0,\"dwell\":0},\"in_why\":{\"control\":0,\"field\":0,\"body\":0,\"session\":0,\"lever\":0,\"talk\":0,\"climb\":0},\"wire_mask\":-1,\"stock_visible\":false,\"body_rends_on\":-1,\"shadow\":-1,\"shadow_off\":-1,\"standin\":{\"on\":false,\"shown\":false,\"geo\":null,\"clip\":null,\"src_anim\":-1,\"norm\":-1,\"body_norm\":-1,\"dpos\":-1,\"rends_on\":-1,\"spawns\":0,\"frames\":0,\"missing_clip\":0},\"ghost\":{\"hide\":null,\"edges\":0,\"by\":{\"mask0\":0,\"host_scene\":0,\"step_out\":0}},\"host_plain_scene\":false,\"talk_accepts\":0,\"faults\":0,\"last_fault\":null,\"selftest\":null,\"anchor\":{\"uid\":-1,\"ctl_uid\":-1,\"dressed_uid\":-1,\"ctl_rends_on\":-1}},\"chest\":{\"serve_off\":false,\"request_off\":false,\"armed\":false,\"active\":false,\"uid\":-1,\"script_bits\":-1,\"age_ms\":-1,\"accepted\":0,\"served\":0,\"expired\":0,\"declined\":0,\"last_uid\":-1,\"why\":null,\"selftest\":null,\"host\":{\"stamped\":0,\"riding\":false}}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -4768,6 +4794,43 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync s160] `netsync.chest` -- THE CHEST RELAY (studies/field-coop/CHEST-RELAY.md), netsync's LAST key (after
++        // s158's `stepout`), additive under protocol 5, published in EVERY role (a host reads its stamps here). Key PRESENCE is the capability
++        // (an s159 engine publishes none and answers `netsync chest` "unknown sub-verb"). Harness-only reads; counters monotonic per process
++        // (read DELTAS).
++        //   serve_off / request_off   the calibration levers AS SET (they act on the selftest role only)
++        //   armed / active / uid / script_bits / age_ms   the guest's one-shot serve now: armed by an accepted chest start, active once a
++        //                    read took it (spent the next key tick); `script_bits` the press in MY script layout (what my chest's IsButton
++        //                    tests: 0x20000 Confirm, 0x10000 Cancel under the JP scripts, 0x80000 Special); sentinels while none
++        //   accepted / served / expired / declined   the guest's chest starts: accepted (serve armed, body requested or already queued),
++        //                    served (a read took the press), expired (no read in ChestServeMs, the field changed, or replaced),
++        //                    declined (no such chest, not a stock chest model, no tag 2, no press bits, or my story not mirrored)
++        //   last_uid / why   the chest the last of those four named, and its words ("accepted" | "served" | the expiry / decline line)
++        //   selftest         null until the proof block ran, then "ok" | "fail: <row or mutant>"
++        //   host             `stamped` the chest starts this process stamped as a host; `riding` a chest start is on the lane now
++        private static void AppendChest(StringBuilder sb)
++        {
++            sb.Append("\"chest\":{");
++            Bool(sb, "serve_off", Try(() => Memoria.Netsync.NetSyncClient.HarnessChestServeOffAsSet, false)); sb.Append(",");
++            Bool(sb, "request_off", Try(() => Memoria.Netsync.NetSyncClient.HarnessChestRequestOffAsSet, false)); sb.Append(",");
++            Bool(sb, "armed", Try(() => Memoria.Netsync.NetSyncClient.HarnessChestArmed, false)); sb.Append(",");
++            Bool(sb, "active", Try(() => Memoria.Netsync.NetSyncClient.HarnessChestActive, false)); sb.Append(",");
++            Num(sb, "uid", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessChestUid, -1L)); sb.Append(",");
++            Num(sb, "script_bits", Try(() => Memoria.Netsync.NetSyncClient.HarnessChestScriptBits, -1L)); sb.Append(",");
++            Num(sb, "age_ms", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessChestAgeMs, -1L)); sb.Append(",");
++            Num(sb, "accepted", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessChestAccepted, 0L)); sb.Append(",");
++            Num(sb, "served", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessChestServed, 0L)); sb.Append(",");
++            Num(sb, "expired", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessChestExpired, 0L)); sb.Append(",");
++            Num(sb, "declined", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessChestDeclined, 0L)); sb.Append(",");
++            Num(sb, "last_uid", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessChestLastUid, -1L)); sb.Append(",");
++            Str(sb, "why", Try(() => Memoria.Netsync.NetSyncClient.HarnessChestLastWhy)); sb.Append(",");
++            Str(sb, "selftest", Try(() => Memoria.Netsync.NetSyncClient.HarnessChestSelfTest)); sb.Append(",");
++            sb.Append("\"host\":{");
++            Num(sb, "stamped", Try(() => (Int64)Memoria.Netsync.NetSyncClient.HarnessChestStamped, 0L)); sb.Append(",");
++            Bool(sb, "riding", Try(() => Memoria.Netsync.NetSyncClient.HarnessChestRiding, false));
++            sb.Append("}}");
++        }
++
+         // [ff9mapkit netsync s158] `netsync.stepout` -- THE PARTY-SCENE STEP-OUT (NetSyncStepOut), netsync's LAST key (after
+         // s157's `ghostframe`), additive under protocol 5, published in EVERY role (a host reads its option-C and zero-mask hides here). Key
+         // PRESENCE is the capability (an s156 / s157 engine publishes none). Harness-only reads; counters monotonic per process (DELTAS).

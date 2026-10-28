@@ -804,8 +804,34 @@ class State:
         """s158: the whole ``netsync.stepout`` block, copied (None = absent)."""
         return self._ns_path("stepout", dict)
 
+    # ---- [ff9mapkit netsync s159] THE ANCHOR (GUEST-TRAVERSAL-TWO-PC.md Finding 6): `netsync.stepout.anchor`, the block's LAST key.
+    @property
+    def coop_step_out_anchor(self) -> bool:
+        """s159: the step-out anchors on the guest's DRESSED body (``netsync.stepout.anchor`` present). False = an engine that
+        anchors on the controlled actor (s158: a co-actor binder leaves the dressed body lit) and answers `stepout ctl` with
+        its usage line."""
+        return self._ns_path("stepout.anchor", dict) is not None
+
+    @property
+    def step_out_anchor(self) -> dict | None:
+        """s159: ``netsync.stepout.anchor`` {uid, ctl_uid, dressed_uid, ctl_rends_on}, copied (None = absent)."""
+        return self._ns_path("stepout.anchor", dict)
+
+    # ---- [ff9mapkit netsync s160] THE CHEST RELAY (studies/field-coop/CHEST-RELAY.md): `netsync.chest`, netsync's LAST key (after
+    # `stepout`). Key PRESENCE is the capability.
+    @property
+    def coop_chest_relay(self) -> bool:
+        """s160: the chest relay (``netsync.chest.served`` present). False = an engine whose following guest never opens the
+        host's stock chest and which answers `netsync chest` with "unknown sub-verb"."""
+        return self._ns_path("chest.served", int) is not None
+
+    @property
+    def chest_relay(self) -> dict | None:
+        """s160: the whole ``netsync.chest`` block, copied (None = absent)."""
+        return self._ns_path("chest", dict)
+
     # ---- [ff9mapkit netsync s161] THE ATE RELAY (studies/field-coop/ATE-RELAY.md): `netsync.ate`, netsync's LAST key (after
-    # s158's `stepout`), published in EVERY role. Key PRESENCE is the capability.
+    # s160's `chest`), published in EVERY role. Key PRESENCE is the capability.
     @property
     def coop_ate_relay(self) -> bool:
         """s161: the ATE relay (``netsync.ate.opened`` present). False = an engine whose guest never opens its copy's ATE menu from

@@ -426,16 +426,52 @@ field where a co-actor binds after the dress is exposed during its scenes.
 359 behaved as designed: its dressed Zidane (uid 6) was the only binder, and the 11:01:57 "IN ... -- body" was Steiner_Bis_Loop's
 `TerminateEntry(6)`, which disposes the body. The IN line's wording ("the body is back") is wrong for a disposed body.
 
-**Fix (s159).** Anchor the episode on the guest's DRESSED body: the controlled actor if it is dressed, else the live
-`NetSyncSelfDress.DressUid` body on this load (`LoadHasDress`, found through `FindObjByUID` so a terminated body is never
-found), else the controlled actor. A control change is then no longer an end for a dressed episode; the "body" end fires only
-when the dressed body is disposed, loses its go or its dress. The stand-in, the darken and relight, the Renderer hook, the eye swap
-(the speaker window anchors on uid 17 here) are already keyed on `_body`. The wire mask and the ghost hide need no change. The
-harness reads that use `GetControlChar()` (`HarnessBodyRendsOn`, `HarnessShadowOn/Off`) move to the anchor; the IN line says "the
-body is gone" for a disposed body. New selftest rows for the anchor rule (dressed is control, dressed is not control, control
-null, no dress, dressed body dead, both dressed) each with a mutant, and a bench leg M-352: `selfdress self steiner`, warp 352
-entrance 3 at scenario 2505, `hostscene 1`, witnessed by `dress.self.ctl_elsewhere` (red on s158: uid 19, undressed, uid 17 lit).
-The anchor also starts the base on loads whose bind comes later than the dress, so N-DWELL gets a deferred-bind row.
+**Fix: engine patch s159 (built, deployed and solo-benched 2026-10-28).**
+The episode now acts on the guest's DRESSED body, picked in this order:
+- the controlled actor, if it is dressed;
+- else the body dressed on this load (`NetSyncSelfDress.DressUid`), while it lives;
+- else the controlled actor.
+
+"Lives" means three things:
+- the body is still in the active object list (`FindLive`, a null-safe walk: a TerminateEntry'd body is unlinked at once);
+- it still wears its dress;
+- it still has its go.
+
+A control rebind no longer ends an episode; the anchor's death, or a lost go or dress, still does. A start still needs a
+controlled actor, as in s158, so the arrival law keeps its timing on loads that bind after the dress. The stand-in, the darken
+and relight, the Renderer hook and the eye swap were already keyed on the episode's body. On 352 the eye swap matters: the speaker
+window anchors on uid 17. The wire mask and the ghost hide are unchanged. The IN line now says "the body is gone" when the anchor
+was unlinked.
+
+The harness:
+- `netsync.stepout.anchor` {uid, ctl_uid, dressed_uid, ctl_rends_on} is a new key;
+- `body_rends_on` and the shadow reads now judge the anchor;
+- a `stepout ctl` lever puts s158's rule back, for calibration;
+- the proof line has 44 rows and 15 mutants.
+
+The bench leg M-352 clears 352's control latch (`flag 158 0`), as 351's inn rest does. Without that, 352's Main_Init gives
+control and the step-out never starts. It then warps with a raw step, because `Session.warp` waits for control that the night scene never
+gives, and raises the host scene. The witness is a new `ctl_elsewhere` on 352 with two different bodies in `anchor`.
+
+Results on s159 (`029b2456…`, then the tagged `09bc8ec6…`), one game at a time on an idle machine:
+- the bench reads 13/13;
+- `COOP_CALIBRATE=anchor` reds exactly M-352, on its marker: OUT on the controlled uid 19, with the dressed uid 17 left lit;
+- `COOP_CALIBRATE=1` reds exactly U-UP, D-UP, D-DN and M-352.
+- the regressions are green: guest traversal 28/28, climb anim 21/21, self-dress 65/65, and the duos dress-wire 22/22 and
+  follow race 21/21.
+
+A pre-build review (four lenses, two skeptics per finding) upheld 6 of 11 findings. All six were fixed:
+- the leg's latch and raw warp;
+- the null-safe lookup;
+- the rule owning liveness;
+- the "gone" wording;
+- the driver's role-first words.
+
+One bench judge was also fixed. The step-in debounce is now measured from the last control-off sample, because a 171 ms publish
+stall made a correct engine read 0.40 s.
+
+**A bench law learned here:** never bench while the test suite runs. With six pytest workers busy the frame rate swung between
+35 and 84 fps, and timing legs went red on a correct engine. On an idle machine, every red was exactly a predicted one.
 
 ### Finding 7: animation jitter on the guest after a dialogue box closes (open)
 
@@ -466,6 +502,8 @@ FieldTPS 30; candidates 1 and 3 need it on). A short video settles it.
   guest serves the press once to that chest's next control-on read). Risks: 301's chest latch is off on the guest's copy, so
   prove it on a latch-free chest first; the guest's item grant is session-scoped; the same tap covers pickups and signs; a
   version gate for older guests.
+  **Designed as engine s160, 2026-10-28: `CHEST-RELAY.md`.** Owner decisions: chests only (stock models 75/91/701/702,
+  140 of the 186 stock tag-2 button spots), and the guest kneels like stock. It builds after s159; the ATE round is s161.
 - **ATEs: the guest sees the "ATE" icon but never the menu or the title.** Each copy draws the icon itself. The menu opens only
   on a Select read with control ON, which the host never relays and the guest masks on purpose (MISC-08). So the guest's copy
   never opens the choice window (text 98), and the title card and the white fade inside that branch never run. The ATE's
@@ -494,7 +532,8 @@ FieldTPS 30; candidates 1 and 3 need it on). A short video settles it.
    `coop_step_out.py` reads 12/12, and its lever calibration reds exactly its three predicted rows. The stills show
    only Zidane on the 207 rungs while a Steiner-dressed guest is stepped out. Detail and the gates:
    `memoria-patches/README.md`, the s158 row. **Two-PC (2026-10-28):** 359 worked; 352's night scene kept the guest's
-   Steiner in Zidane's part (Finding 6: anchor on the dressed body, s159 next); a post-dialogue jitter is open (Finding 7);
-   the emergence scene is untested.
+   Steiner in Zidane's part (Finding 6); a post-dialogue jitter is open (Finding 7); the emergence scene is untested.
+   **s159 (2026-10-28): the step-out anchors on the dressed body; built, deployed and solo-benched (M-352 green, both
+   calibrations exact). Next: the two-PC replay of 352's night scene.**
 3. **The host's field rate on the wire, plus the capped follow-hold** (Finding 4).
 4. **The same-field reload** (Finding 5): backlog. It has real stock cases, so it is not only debug hygiene.

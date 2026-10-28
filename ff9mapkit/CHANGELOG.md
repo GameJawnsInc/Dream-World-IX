@@ -38,6 +38,15 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   saying disc 4 kept its own ground, an edit's Accept included.
 - An edit whose later step cannot be put back on top is cancelled and says why; it used to stop silently.
 
+### Fixed — co-op: the step-out follows the guest's own body when another character holds control (engine patch s159)
+From the second two-PC session (`studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Finding 6).
+- **In a scene where the game hands control to another party member, the guest now steps out too.** In Dali's inn night
+  scene the game gives control to Garnet while Zidane speaks. s158 stepped out the controlled Garnet (who has nothing to hide),
+  so the guest's Steiner stayed in Zidane's part beside the real Steiner. The step-out now acts on the guest's dressed body
+  wherever control sits, so the guest sees Zidane there.
+- Nothing changes in scenes where Zidane holds control.
+- Both PCs need the s159 engine.
+
 ### Fixed — co-op: the guest no longer appears twice in story scenes (engine patch s158)
 From `studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Finding 3 of the first two-PC session.
 - **During a host scene the guest steps out on both screens.** Both copies run the scene, so the guest's character
