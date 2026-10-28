@@ -47,8 +47,9 @@ own Select stays masked; only the host's relayed press is added.
 - `ETb.NewMesWin` (one hook line, behind a static armed flag) sees every window open. When a window with the ATE caption
   (`flags & winATE`) opens, and the object running the script (gExec) is the reader that hit Select within the last two
   key ticks on this field, the host appends a new ring event, **kind 3 = ATE PRESS**: `[uid][menu text id][menu window
-  id]`. That is the host's own menu actually opening. The title card (text 100) is opened by the same reader seconds
-  later, past the two-tick window, and a compulsory grey ATE's title has no Select hit at all: neither is relayed.
+  id][the menu's cancel row]`. That is the host's own menu actually opening. The title card (text 100) is opened by the
+  same reader seconds later, past the two-tick window, and a compulsory grey ATE's title has no Select hit at all:
+  neither is relayed.
 - The tap-record bench (`netsync tap-record 1`) records the event to the tape like every other tap.
 
 Wire: section 7's ring, v14 unchanged. An older guest logs "unknown kind 3 -- ignored" (`NetSyncDialog.IngestRing`)
@@ -57,7 +58,7 @@ and behaves as today. An older host never sends kind 3.
 ### Guest: serve the press to the same reader until its own menu opens
 
 - The ring merge hands a kind-3 event to the ATE relay as a PENDING PRESS: field, reader uid, the host's menu (window,
-  text), the seq.
+  text, cancel row), the seq.
 - `FilterScriptButtons`' control-on branch (field mode only, not the world map) ORs `Select` into the read when the
   reader is the pending press's uid, the field matches, and the read's mask asks for Select. MISC-08's mask still
   removes the guest's own Select first.
@@ -66,70 +67,89 @@ and behaves as today. An older host never sends kind 3.
   the guest: the ATE caption on a choice window, opened by that uid on that field; a title card never retires a press),
   then retired. Success is proven by the lock's own "win 1 text 98 opened locked" line and the relay's "opened my
   copy's ATE menu" line, never by a serve count.
-- **The press's life** (pure rules `PressKeep`, `PressLanding`, `PressExpiry`). It is kept while its field is mine, my
-  follow-warp's, or the host's (or the host's field is unknown for a moment): the dialogue inbox's own retention rule,
-  so the press never outlives the host's choice event for its menu. It survives a landing on its own field (a chained
-  ATE: the guest still in the last ATE's tail on 350 while the host, back on 352, opens the menu again) and is dropped
-  by a landing anywhere else. It expires 5 s after the first tick I stand on its field with my control on (a long
-  control-off arrival or tail does not use it up), and 20 s after it arrived in any case.
+- **The press's life** (pure rules `PressKeep`, `PressHoldsEvent`, `PressRoundTripOver`, `PressLanding`,
+  `PressExpiry`):
+  - kept while its field is mine, my follow-warp's or the host's, or while the host's field is unknown (a relay blip
+    reads -1, a load reads 0); meanwhile the inbox keeps the host's later events for that field (its pick and title
+    close), so the press and its answer live and die together;
+  - kept across a landing on its own field (a chained ATE: the guest still in the last ATE's tail on 350 while the
+    host, back on 352, opens the menu again), dropped by a landing anywhere else;
+  - dropped once the host has left its field for a real field and stood on it again: the host's ATE is over, and a
+    menu opened now would replay it with the host's later entrance;
+  - dropped when the dialogue session goes off (the inbox and its baseline are gone, so its answer cannot arrive);
+  - expired 5 s after the first tick I stand on its field with my control on (a long control-off arrival or tail does
+    not use it up), and 20 s after it arrived in any case.
 - **One press at a time, and no stale choices.** A newer press replaces an older one. When the guest's menu opens, every
   queued event for that window key older than the press is dropped (`NetSyncDialog.DropStaleChoices`): it answered a
   host menu this copy never opened (the host cancelled and re-opened while the guest lagged), and the lock would
   otherwise hand it to this menu first.
 - Once the menu is open it is an ordinary locked choice: the host's CHO event picks the row, its title is locked and
   closes on the host's close event. **If the host's row is masked on the guest's menu** (its availability mask
-  diverged), the menu closes with Cancel instead of its default row: the default is another ATE the host never picked,
-  whose title, fade and `Field()` would play on the guest alone. Every census ATE menu enables Cancel.
+  diverged), a census-shaped menu (Cancel on its own row 15) closes with Cancel instead of its default row: the default
+  is another ATE the host never picked, whose title, fade and `Field()` would play on the guest alone. Any other menu (a
+  kit `[ate]` with no decline row) keeps the stock fallback.
 
 ### The episode: let the guest's own script carry it to the ATE and back
 
 From the moment the guest's copy opens its ATE menu from a relayed press, the guest is in an **ATE episode**:
-- **Before the pick** (a late guest: its control came back after the host already picked and left). While a press is
-  pending for the guest's field, or its menu is open with the guest's control off, and the host's choice for that very
-  menu is already queued and is not Cancel, the follow waits, up to 5 s from the first held tick. The intent fast-path
-  also waits one Update whenever ring events have arrived but are not merged yet, so a press and its pick that ride the
-  same frame as the host's intent (after a lane stall) are seen first.
-- **Hub phase** (on the menu's field). It notes whether the menu was closed by the host's own choice event (the lock's
-  `ApplyEvents`, a closing CHO on an ATE-caption window) that landed EXACTLY (not the masked-row fallback) and is not
-  Cancel. Only then:
+- **The pick.** The lock closing the menu on the host's EXACT row is the host's pick (not the masked-row fallback). A
+  Cancel or Leave row is not told apart by its index (a kit menu with no decline row puts Cancel on a real row): the
+  pick LAPSES the first tick the guest's control is back, because such a branch hands control back, while a branch that
+  jumps never does before its `Field()`.
+- **Hub phase** (on the menu's field). While the pick stands:
   - **The own jump passes.** The copy's own `Field(dest)` passes `RedirectGuestFieldJump` (one line, "my copy's own
-    Field(dest) passes: the host's pick"). Today it can bounce: the host's position lane reads field 0 while it loads
-    350, so `dest == LastHostField` fails and the guest would reload 352 first (the double load the brief forbids). The
-    check runs before the `dest == myField` pass, so a same-field ATE records its own jump too.
-  - **The follow holds** while my control is off, up to 8 s from the host's pick: the host's intent toward 350 would
-    otherwise black-fade over the guest's own white fade and title. One line per held destination.
+    Field(dest) passes: the host's pick"). Before s161 it could bounce: the host's position lane reads field 0 while it
+    loads 350, so `dest == LastHostField` fails and the guest would reload 352 first (the double load the brief
+    forbids). The check runs before the `dest == myField` pass, so a same-field ATE records its own jump too.
+  - **The follow holds** while my control is off, up to 8 s counted from the title card's close (an open title card
+    restarts the clock, at most 20 s after the pick): the host's intent toward 350 would otherwise black-fade over the
+    guest's own white fade and title. One line per held destination.
 - **Destination phase.** At the next field load, if it is the own jump's destination, the episode moves there (a
   same-field ATE lands on the same id: the landing, not the id, decides). There the follow holds while my control is
   off, up to 8 s from the first held tick: Finding 4's capped follow-hold, scoped here to the ATE episode. The guest's
-  copy shows 324/325 from the host's events, runs its own fade and music load, and takes its own `Field(352)`, which
-  passes as the host's announced destination (the live intent's field) or `LastHostField`. A first cut also required
-  "a host event for my field still waiting", as Finding 4 words it; that let the follow's black fade cut the last
-  second of the ATE, after its last line and before its own `Field()`.
+  copy shows 324/325 from the host's events, runs its own fade and music load, and takes its own scripted `Field()` out,
+  which goes WHERE THE HOST IS: the host's announced field, else the field it stands on, else the hub when nothing is
+  known. It is never bounced into a reload of the ATE field (a host at 3x speed can leave the hub before the guest's
+  tail ends). A rewrite seeds the host's entrance and commits the move, as the world redirect does. A first cut also
+  required "a host event for my field still waiting", as Finding 4 words it; that let the follow's black fade cut the
+  last second of the ATE, after its last line and before its own `Field()`.
+- **Before the pick** (a late guest: its control came back after the host already picked and left). PREPICK: while its
+  menu is open (control off) and the host's pick for it is already queued and is not that menu's cancel row, the
+  follow waits, up to 2 s from the menu's open (the open tween, MinShowMs and IsChoiceReady). PENDING: while a press
+  waits on the guest's field and its pick is queued (not the cancel row), the follow waits, up to 5 s from the first
+  held tick; this row also applies beside a live episode (a newer press after a Cancel, a chained ATE). The intent
+  fast-path also waits one Update whenever ring events have arrived but are not merged yet, so a press and its pick
+  that ride the same frame as the host's intent (after a lane stall) are seen first.
 - **The end.** Any other field load, the second landing, my control back for 1 s (the host picked Cancel, or the scene
   ended in place), a session reset, or the lever. Not an epoch change: a host's transport reset mid-ATE still runs the
   picked branch, and the keep rule drops a real relaunch's press on its own.
 
-The caps keep every hold bounded: a guest copy that diverged gets today's follow after 5-8 s.
+The caps keep every hold bounded: a guest copy that diverged gets today's follow after 2-8 s.
 
 **The hub pass is destination-blind on purpose.** A rule that also required `dest == the host's announced field` was
 considered and dropped: the guest's own `Field(350)` and the host's intent frame are produced about 5 frames apart, so the
 own jump can run before the intent arrives, and the stricter rule would then bounce it into a 352 reload, the double load
-the brief forbids. The exact, non-Cancel pick is the guard instead: the guest's copy runs the host's case on the host's
-mirrored state.
+the brief forbids. The exact pick, standing only while control stays off, is the guard instead: the guest's copy runs the
+host's case on the host's mirrored state.
 
 ### The step-out on the ATE menu: no
 
 The s158 step-out would fire on the guest's menu (a fresh line with control off), darken a dressed guest and show a
 Zidane stand-in for as long as the host browses the menu. On s158 the host's option C also hides the guest's ghost while
 the host's own menu is up (that menu is a fresh line on the host). The menu and the title card are system captions over a
-still room, not a party scene. So, on BOTH screens:
-- ATE-caption script windows (lockable, `Dialog.CapType == ActiveTimeEvent`; a pooled UI dialog can keep a stale
-  caption type, so the caption alone is not enough) are never a fresh line (`NetSyncWindowSnapshot.AnyFresh`,
-  shared by the guest's start rule and the host's option C). A behaviour change on the host: from s161 the guest's ghost
-  stays visible while the host browses its ATE menu and reads the title card;
+still room, not a party scene. So, on BOTH screens, for the RELAY'S OWN captions only (the guest's hub phase on its
+field; on the host, the relayed menu's field until the next load):
+- an ATE-caption script window (lockable, `Dialog.CapType == ActiveTimeEvent`; a pooled UI dialog can keep a stale
+  caption type, so the caption alone is not enough) is never a fresh line (`NetSyncWindowSnapshot.AnyFresh`, shared by
+  the guest's start rule and the host's option C). A behaviour change on the host: from s161 the guest's ghost stays
+  visible while the host browses its ATE menu and reads the title card;
 - while one is open on my copy, the step-out's base does not hold (a new term, "an ATE caption is open"), so the dwell
-  cannot start it either.
-The scene on the destination field is an ordinary scene: the step-out applies there as before.
+  cannot start it either;
+- an active step-out steps in when the guest's ATE menu opens (a new reason, "ate": the guest's control came back under
+  the step-in debounce and the served Select reopened the menu at once).
+
+Any other ATE-caption window is an ordinary line: a kit compulsory-ATE cutscene (`[cutscene] ate = true`) gives every
+line the ATE caption, and those scenes keep the step-out. The scene on the destination field is an ordinary scene.
 
 ### Same-field ATEs (the 71 `Field(own)` rows)
 
@@ -179,6 +199,27 @@ The self-test grew to 83 rows and 26 mutants. It now also runs OFFLINE: the buil
 PowerShell's .NET Framework with an assembly resolver pointed at the game's `Managed` folder, and
 `NetSyncAte.SelfTest`, `NetSyncStepOut.SelfTest` and `NetSyncDialog.SelfTest` are invoked by reflection (all three
 pass: 83/26, 37/12, and the dialogue proof). The pure rules touch no Unity state, so no game is needed.
+
+## Pre-build review, round 2
+
+Three finders read the revised diff (the new state machine; the seams with the existing netsync code; safety and cost),
+then two verifiers checked each finding. Ten findings, all at least partly confirmed; where a verifier rejected the
+proposed fix, the better fix was taken:
+
+| # | Finding | Resolution |
+|---|---|---|
+| R2-0 | A newer pending press got no hold while an older episode lived (a Cancel and re-press, a chained ATE) | The PENDING row also applies beside a live episode, after the episode rows (never stacking ahead of them) |
+| R2-1, R2-7 | In the destination phase the copy's own jump back bounced into a reload of the ATE field when the host had already left the hub (a 3x host) | The scripted jump goes where the host is (announced field, standing field, else the hub); a gateway walk (control on) is not touched |
+| R2-2 | A very late copy's own jump landed with the host's later entrance and lost the ATE | A press whose host made a round trip off its field is dropped (the host's ATE is over) |
+| R2-3 | PREPICK shared PENDING's clock and could cap in the half second before the queued pick applied | PREPICK has its own 2 s clock from the menu's open |
+| R2-4 | The press could outlive its answer (the inbox's field rule dropped the pick while the keep rule tolerated an unknown host field) | The inbox keeps the pending press's later events for its field; the press drops when the dialogue session goes off. Dropping the blip tolerance instead was rejected: it loses a chained press on a 2 s relay blip |
+| R2-5 | The hub hold timed out 8 s after the pick while the host still read the title card | An open title card restarts the clock, capped 20 s after the pick |
+| R2-6 | An active step-out stayed out through the menu and title | Step in on the menu's open (reason "ate") |
+| R2-8 | The caption exemption covered every ATE-caption window, so kit compulsory-ATE cutscenes lost the step-out | Only the relay's own captions are exempt |
+| R2-9 | Kit `[ate]` menus have no fixed Cancel row 15 | Any exact pick, lapsing with control back; the cancel row travels in kind 3's fourth byte and is read per menu; the Cancel fallback only on the census shape |
+
+The self-test grew to 108 rows and 37 mutants (offline: all three self-tests pass). The rows name each earlier rule a
+round rejected, and a mutant restores it, so a regression to a first cut reds the proof line.
 
 ## Census, second count
 
