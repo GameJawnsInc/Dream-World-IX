@@ -26339,7 +26339,7 @@ def test_the_driver_never_sends_bench_ghostframe_to_an_s156_engine(game):
         assert st.netsync["ghostframe"]["lever_off"] is True
 
 
-# =========================================================================== [ff9mapkit netsync F3.3] s97-s99
+# =========================================================================================================================
 # [ff9mapkit netsync s158] THE PARTY-SCENE STEP-OUT (studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md Finding 3) -- the harness half:
 # the `stepout` sub-verb (selftest role, NetSyncStepOut.HarnessLever), `netsync.stepout` (netsync's LAST key, AppendStepOut), the
 # driver's gate and accessors, the stand-in's block. Every pin reads the LIVE stack's s158 patch.
@@ -26418,6 +26418,21 @@ def test_the_s158_catch_line_closes_netsync_with_the_stepout_sentinels():
             flat.append(k)
     names = re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', body)
     assert names == flat, names
+
+
+def test_the_s158_lines_sit_right_after_s157s():
+    """The rebase onto s157 put each s158 call site right behind s157's, and the stand-in mirrors that order: the netsync
+    document (AppendStepOut after AppendGhostFrame), the harness release (NetSyncStepOut.HarnessRelease after the ghost
+    frame's), the proof block (the step-out line after the ghost frame line). And the merge's one new interaction: s157's
+    TwinMissed re-records the fallback it plays, so the stand-in's last-PLAY key is what the body plays."""
+    assert _added_after("s158", "HarnessAgent.cs", "AppendGhostFrame(sb);", "AppendStepOut(sb);")
+    assert _added_after("s158", "NetSyncBattle.cs", "NetSyncClient.HarnessReleaseGhostFrame();", "NetSyncStepOut.HarnessRelease();")
+    assert _added_after("s158", "NetSyncClient.cs", 'Log.Message("[NetSync] ghost frame selftest: "',
+                        "Boolean soOk = NetSyncStepOut.SelfTest(out soDetail);")
+    assert _added_after("s158", "NetSyncSelfDress.cs", "AttachId(actor.go, fallback);",
+                        "NetSyncStepOut.NoteRaw(actor, site, raw, fallback);")
+    assert _added_after("s158", "NetSyncSelfDress.cs", "Int32 mapped = MapAnim(actor, raw, site);",
+                        "NetSyncStepOut.NoteRaw(actor, site, raw, mapped);")
 
 
 def test_the_driver_refuses_stepout_before_the_step_on_an_s157_engine(game):
