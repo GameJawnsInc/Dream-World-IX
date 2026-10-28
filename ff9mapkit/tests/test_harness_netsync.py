@@ -25866,7 +25866,7 @@ def test_the_dresstwin_rung_is_s157s_and_its_keys_sit_in_self():
     the prefix through `guestlocal`; the capability accessor reads True on s157's catch line and False on s156's; the `twin`
     op's capability key is a key s157 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-1] == "dresstwin" and names[-2] == "guestlocal"
+    assert names[names.index("dresstwin") - 1] == "guestlocal" and names[names.index("dresstwin") + 1:] == ["stepout"]   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it
     assert FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and FG.NETSYNC_S157_CAPS == frozenset(("dresstwin",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and "dresstwin" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     # [ff9mapkit netsync s157] ...the ONE rung's other half, the ghost frame, adds ONE top-level block (its own pins below)
@@ -25910,7 +25910,7 @@ def test_the_s157_catch_line_closes_self_with_the_twin_sentinels():
             '\\"twin\\":-1,\\"site\\":-1},\\"ghost_clip_misses\\":0,\\"twin_clips_on_disc\\":-1,\\"twin_clip_missing\\":-1,'
             '\\"twin\\":null,\\"twin_selftest\\":null},\\"guard\\":{') in b, b[-1400:]
     nothing = _agent_netsync_nothing()[0]
-    assert _catch_doc_in("s157") == nothing and _untwinned(nothing) == _catch_doc_in("s156")
+    assert _catch_doc_in("s157") == _unstepped(nothing) and _untwinned(nothing) == _catch_doc_in("s156")   # [s158]
     assert nothing["dress"]["self"] == BW.DRESS_SELF_LIVE_SENTINELS and nothing["dress"] == BW.DRESS_SENTINELS
     body = _cs_block("HarnessAgent.cs", "private static void AppendDressTwin(StringBuilder sb)", stop="}")
     text = " ".join(body)
@@ -26089,8 +26089,9 @@ def test_the_stand_in_models_the_twin_lever_counts_and_proof_line(game):
         assert (st.coop_dress_twin, st.coop_dress_self_twin_rows, st.coop_dress_self_twin) == (True, 55, "on")
         assert (st.coop_dress_self_twin_selftest, st.coop_dress_self_twin_clips_on_disc) == ("ok", 37)
         lines = _proof_lines(fake)
-        assert lines and lines[-2].split("[NetSync] ", 1)[1] == BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS)
-        assert lines[-1].split("[NetSync] ", 1)[1] == _gf_proof_text()      # [ff9mapkit netsync s157] the ghost frame's, LAST
+        assert lines and lines[-3].split("[NetSync] ", 1)[1] == BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS)
+        assert lines[-2].split("[NetSync] ", 1)[1] == _gf_proof_text()      # [ff9mapkit netsync s157] the ghost frame's, LAST
+        assert lines[-1].split("[NetSync] ", 1)[1] == _so_proof_text()      # [ff9mapkit netsync s158] ...until the step-out line
         fake._self_body = {"rig": 3, "slots": {}}                     # a dressed Steiner (the map keys on the BODY's rig)
         assert fake._self_map(10539, BW.SITE_PLAY) == 10741 and fake._self_map(10687, BW.SITE_JUMP) == 10745
         assert fake._self_map(10539, BW.SITE_WALK) == BW.map_rig_anim(3, 10539, BW.SITE_WALK, True)   # a slot: no twin
@@ -26137,16 +26138,17 @@ def test_the_s157_ghostframe_block_closes_netsync_on_the_dresstwin_rung():
     a NetSyncClient getter at its sentinel, in EVERY role, called right after AppendGuestLocal; the `bench ghostframe` op is
     told by `netsync.ghostframe`; the protocol stays 5."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-1] == "dresstwin" and FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and "climbanim" not in names
+    assert names[names.index("dresstwin") + 1:] == ["stepout"] and FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and "climbanim" not in names   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and FG.NETSYNC_TOP_CAP_KEYS["dresstwin"] == ("ghostframe",)
-    assert FG.netsync_subverbs(FG.caps_through("dresstwin")) == FG.netsync_subverbs(S156_CAPS_) == FG.NETSYNC_SUBVERBS
+    assert FG.netsync_subverbs(FG.caps_through("dresstwin")) == FG.netsync_subverbs(S156_CAPS_) == FG.NETSYNC_SUBVERBS[:-1]   # [s158] less `stepout`
     esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
-    assert _gl_catch_tail().endswith(',"ghostframe":' + esc(FG.NETSYNC_GHOSTFRAME_SENTINELS) + "}")
+    assert _gl_catch_tail().endswith(',"ghostframe":' + esc(FG.NETSYNC_GHOSTFRAME_SENTINELS) + ',"stepout":'
+                                     + esc(FG.NETSYNC_STEPOUT_SENTINELS) + "}")   # [ff9mapkit netsync s158] s158's block follows
     nothing = _agent_netsync_nothing()[0]
-    assert list(nothing)[-1] == "ghostframe" and nothing["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS
+    assert list(nothing)[-2:] == ["ghostframe", "stepout"] and nothing["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS   # [s158]
     assert tuple(nothing["ghostframe"]) == FG.NETSYNC_GHOSTFRAME_KEYS
     assert "ghostframe" not in _catch_doc_in("s156") and list(_unghosted(nothing)) == list(_catch_doc_in("s156"))
-    assert _untwinned(nothing) == _catch_doc_in("s156") and _catch_doc_in("s157") == nothing
+    assert _untwinned(nothing) == _catch_doc_in("s156") and _catch_doc_in("s157") == _unstepped(nothing)   # [s158]
     body = _cs_block("HarnessAgent.cs", "private static void AppendGhostFrame(StringBuilder sb)", stop='sb.Append("}");')
     text = " ".join(body)
     assert re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', text) == list(FG.NETSYNC_GHOSTFRAME_KEYS)
@@ -26274,7 +26276,7 @@ def test_the_stand_in_models_the_ghostframe_block_its_lever_and_its_release(game
     back on, its line only when it was pulled; an s156 stand-in has no block and reads `bench ghostframe` as `bench 1`."""
     fake = FakeGame(game)
     doc = fake._netsync_doc()
-    assert list(doc)[-1] == "ghostframe" and doc["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS
+    assert list(doc)[-2:] == ["ghostframe", "stepout"] and doc["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS   # [s158]
     with pytest.raises(RuntimeError, match=re.escape("netsync bench: needs the selftest role (netsync selftest 1)")):
         fake._netsync(["bench", "ghostframe", "off"])
     with session(game, fake) as g:
@@ -26285,9 +26287,10 @@ def test_the_stand_in_models_the_ghostframe_block_its_lever_and_its_release(game
         st = g.state
         assert st.coop_ghost_frame is True and st.ghost_frame_block == dict(FG.NETSYNC_GHOSTFRAME_SENTINELS, selftest="ok")
         lines = _proof_lines(fake)
-        assert lines[-1].split("[NetSync] ", 1)[1] == _gf_proof_text()
-        assert lines[-2].split("[NetSync] ", 1)[1] == BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS)
-        m = re.search(FG.GHOSTFRAME_PROOF_RE, lines[-1])
+        assert lines[-1].split("[NetSync] ", 1)[1] == _so_proof_text()         # [ff9mapkit netsync s158] the step-out line, LAST
+        assert lines[-2].split("[NetSync] ", 1)[1] == _gf_proof_text()
+        assert lines[-3].split("[NetSync] ", 1)[1] == BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS)
+        m = re.search(FG.GHOSTFRAME_PROOF_RE, lines[-2])
         assert m and (int(m.group(1)), int(m.group(2))) == (FG.FAKE_GHOSTFRAME_SELFTEST_ROWS, FG.FAKE_GHOSTFRAME_MUTANTS) == (69, 15)
         st = g.netsync("bench", "ghostframe", "off")
         assert st.netsync["ghostframe"]["lever_off"] is True and st.netsync["bench"] is False and _mlog_lines(fake, FG.GHOSTFRAME_LOG_OFF)
@@ -26348,7 +26351,7 @@ def test_the_s158_agent_prints_stepout_last_and_the_driver_and_the_stand_in_agre
     lists in the same place; it rides the ONE ladder as its own LAST rung (`stepout`, s158, right after s157's `dresstwin`), adds
     nothing under `netsync.battle` / `netsync.diorama` and one TOP-LEVEL block, `stepout`; the driver keys it on its own table
     (Session.NETSYNC_STEPOUT_SUBVERBS) through the same gate as `guestlocal`; the agent's case calls HarnessLever once."""
-    assert _subverbs_in("s158") == _subverbs_in("s157") + ("stepout",) and _subverbs_in("s157") == _subverbs_in("s156")
+    assert _subverbs_in("s158") == _subverbs_in("s156") + ("stepout",)          # s157 added no sub-verb
     assert Session.NETSYNC_SUBVERBS[-1] == "stepout" == FG.NETSYNC_SUBVERBS[-1] == _agent_subverbs()[-1]
     assert Session.NETSYNC_AUTHORITY_SUBVERBS[-1] == "stepout" and FG.NETSYNC_BATTLE_VERB_ORDER[-1] == "stepout"
     names = list(FG.NETSYNC_BATTLE_CAPS)
