@@ -38,11 +38,15 @@ with neither control nor a dialog, and a stall of more than half a second are no
 calibrated 60 fps (``source == "default"``), which only SIZING may lean on -- a site whose error cannot be undone
 must wait for ``ready``.
 
-WHAT THIS DOES NOT KNOW. FastForwardFactor (the F1 speed-mode cheat, FPSManager.cs:83/95/97) is unpublished by
-today's engine, and ``[Graphics] FieldTPS`` is read from the ini, not observed -- only a published ``ticks`` counter
-measures the tick rate itself. A driver that sees movement outrun :meth:`Rate.reach` should say so loudly, naming
-those two and the Run/Walk option (``cfg.move``, FieldMapActorController.cs:198: it inverts what Cancel does, so a
-press held as a walk runs), never guess. (Dash-inhibit -- :197, a run hold walks on a field that forbids running --
+WHAT THIS DOES NOT KNOW. FastForwardFactor (the F1 speed-mode cheat, FPSManager.cs:83/95/97) is unpublished by an
+engine before s163; [ff9mapkit netsync s163] from s163 on the agent publishes it as the top-level ``ff`` (the REAL getter:
+the player's F1, a movie, or a following guest's speed mirror) and the clock multiplies its tick rate by the newest one
+published (:meth:`TickClock._fast_forward`, as it does the timescale), and a factor above 1 widens the reach's tail to one
+frame's ticks (:meth:`Rate.tail_ticks`; at 1x it stays TAIL_TICKS). ``[Graphics] FieldTPS`` is read from the ini, not
+observed -- only a published ``ticks`` counter measures the tick rate itself. A driver that sees movement outrun
+:meth:`Rate.reach` should say so loudly, naming those two (the factor where no ``ff`` is published) and the Run/Walk
+option (``cfg.move``, FieldMapActorController.cs:198: it inverts what Cancel does, so a press held as a walk runs),
+never guess. (Dash-inhibit -- :197, a run hold walks on a field that forbids running --
 only ever SHORTENS a run; the agent publishes it, ``input.dash_inh``, and the driver reads it as the gait.) Nor does
 a Rate know a HITCH inside a press: one long frame is caught up in that frame's ticks (FPSManager.cs:94-99), up to
 about ten, which no render rate foresees -- :meth:`TickClock.excess_ticks` says afterwards what one added.
@@ -182,9 +186,12 @@ class Rate:
     ``fps`` is the median render rate, ``fps_lo`` / ``fps_hi`` the spread it is known within (p25 / p75 of the pair
     rates, widened :data:`MTIME_WIDEN` on mtime): an upper bound on ticks divides by ``fps_lo``, a lower bound by
     ``fps_hi``. ``tick_hz`` is field ticks per second -- ``[Graphics] FieldTPS`` x the published timescale, or
-    MEASURED when ``source`` is ``"ticks"``. ``samples`` is the pairs the estimate used, ``frame`` the newest frame
+    MEASURED when ``source`` is ``"ticks"`` ([ff9mapkit netsync s163] x the published ``ff``, the live FastForwardFactor, when
+    an s163+ engine publishes one). ``samples`` is the pairs the estimate used, ``frame`` the newest frame
     in it (-1 for the default). ``stale``: measured, but before an UNOBSERVED STRETCH (:data:`STALE_GAP_SECONDS`) --
-    sizing may still use it, nothing that must be judged may (``ready`` is False). Frozen, and checked at
+    sizing may still use it, nothing that must be judged may (``ready`` is False). [ff9mapkit netsync s163] ``ff`` is the
+    published FastForwardFactor the estimate was made under (1 when none is: an engine before s163, or the booster off) --
+    already inside ``tick_hz``; it gates only :meth:`tail_ticks`. Frozen, and checked at
     construction: a Rate whose spread does not contain its own median, or whose rates are not positive, is refused
     rather than planned by."""
 
@@ -196,9 +203,10 @@ class Rate:
     samples: int = 0
     frame: int = -1
     stale: bool = False
+    ff: float = 1.0                                 # [ff9mapkit netsync s163] the published FastForwardFactor (1 = none)
 
     def __post_init__(self):
-        for name in ("fps", "fps_lo", "fps_hi", "tick_hz"):
+        for name in ("fps", "fps_lo", "fps_hi", "tick_hz", "ff"):
             v = getattr(self, name)
             if not (isinstance(v, (int, float)) and math.isfinite(v) and v > 0):
                 raise ValueError(f"Rate.{name} must be a positive finite number, not {v!r}")
@@ -208,9 +216,9 @@ class Rate:
             raise ValueError(f"Rate.source must be one of {SOURCES}, not {self.source!r}")
 
     @classmethod
-    def default(cls, tick_hz: float = DEFAULT_FIELD_TPS) -> "Rate":
+    def default(cls, tick_hz: float = DEFAULT_FIELD_TPS, ff: float = 1.0) -> "Rate":
         """The calibrated 60 fps, spread-free -- what a clock answers before it has measured anything."""
-        return cls(DEFAULT_FPS, DEFAULT_FPS, DEFAULT_FPS, float(tick_hz))
+        return cls(DEFAULT_FPS, DEFAULT_FPS, DEFAULT_FPS, float(tick_hz), ff=float(ff))
 
     @property
     def ready(self) -> bool:
@@ -244,8 +252,20 @@ class Rate:
         (ticks_most + TAIL_TICKS)``. At 60 fps with an even ``frames`` this is the old ``(frames + 2) x speed``; an
         odd one holds a tick more in one phase than the old model credited. On flat ground, and without a HITCH in
         the press (see TAIL_TICKS): a rule judged at it holds through every jitter of a steady render loop, not
-        through a frame that stalls 120 ms -- which no rate measured before the press can foresee."""
-        return _gait_calls(gait) * STEP_PER_CALL * (self.ticks_most(frames) + TAIL_TICKS)
+        through a frame that stalls 120 ms -- which no rate measured before the press can foresee. [ff9mapkit netsync s163] The
+        tail is :meth:`tail_ticks` -- TAIL_TICKS exactly wherever no ``ff`` above 1 is published (every regime before s163)."""
+        return _gait_calls(gait) * STEP_PER_CALL * (self.ticks_most(frames) + self.tail_ticks())
+
+    def tail_ticks(self) -> int:
+        """[ff9mapkit netsync s163] The ticks :meth:`reach` adds after a press: TAIL_TICKS, or -- under a published ``ff`` above 1
+        (the booster: 3 at 60 fps is 1.5 ticks a frame) -- one frame's ticks, ``ceil(tick_hz / fps_lo)``, when that is more: the
+        tail is the published position lagging its own frame's ticks, and the factor puts more than the one tick measured at 1x
+        into that frame. GATED on the factor, never on the rate alone: at 1x the tail stays the measured TAIL_TICKS at ANY render
+        rate -- a ~30 fps render whose fps_lo sits a hair under a 30 Hz FieldTPS (29.7: ``ceil(30 / 29.7)`` is 2) or a 25 fps one
+        keeps the bound it had before s163 (the review: no earlier bound moves, and none was measured there)."""
+        if self.ff <= 1.0:
+            return TAIL_TICKS
+        return max(TAIL_TICKS, _ceil(self.tick_hz / self.fps_lo))
 
     # -- the lower bound: anything that must be SURE ----------------------------------------------------------------
     def ticks_sure(self, frames: int) -> int:
@@ -291,7 +311,8 @@ class Rate:
         """The estimate as a record carries it (a press's ``record["fps"]``, env.json, a rate-change line)."""
         return {"fps": round(self.fps, 3), "fps_lo": round(self.fps_lo, 3), "fps_hi": round(self.fps_hi, 3),
                 "tick_hz": round(self.tick_hz, 3), "per_frame": round(self.per_frame(), 4), "source": self.source,
-                "samples": self.samples, "frame": self.frame, "stale": self.stale}
+                "samples": self.samples, "frame": self.frame, "stale": self.stale,
+                "ff": round(self.ff, 3)}                    # [ff9mapkit netsync s163] the factor the tail is gated on
 
     def describe(self) -> str:
         """One line for a log: ``31.2 fps (30.5-31.9, mtime, 24 pairs to frame 5334), 0.962 ticks a frame at 30 Hz``
@@ -301,7 +322,8 @@ class Rate:
         else:
             where = f"{self.source}, {self.samples} pairs to frame {self.frame}" + (", STALE" if self.stale else "")
         return (f"{self.fps:.1f} fps ({self.fps_lo:.1f}-{self.fps_hi:.1f}, {where}), "
-                f"{self.per_frame():.3f} ticks a frame at {self.tick_hz:g} Hz")
+                f"{self.per_frame():.3f} ticks a frame at {self.tick_hz:g} Hz"
+                + (f" (ff {self.ff:g})" if self.ff != 1.0 else ""))   # [ff9mapkit netsync s163] a booster's factor, when one is published
 
 
 #: Unity's cap on one frame's ``Time.deltaTime`` (``Time.maximumDeltaTime``, 1/3 s by default; Memoria never sets it
@@ -369,11 +391,12 @@ def _num(v) -> float | None:
 class _Sample:
     """One distinct published frame: its number, whether it can be paired (on a field, steady), and its clocks."""
 
-    __slots__ = ("frame", "field", "steady", "rt", "ticks", "mtime", "timescale")
+    __slots__ = ("frame", "field", "steady", "rt", "ticks", "mtime", "timescale", "ff")
 
-    def __init__(self, frame, field, steady, rt, ticks, mtime, timescale):
+    def __init__(self, frame, field, steady, rt, ticks, mtime, timescale, ff=None):
         self.frame, self.field, self.steady = frame, field, steady
         self.rt, self.ticks, self.mtime, self.timescale = rt, ticks, mtime, timescale
+        self.ff = ff                                # [ff9mapkit netsync s163] the published FastForwardFactor (None = absent)
 
 
 class _Pair:
@@ -476,7 +499,7 @@ class TickClock:
         settled = ((rt is not None and rt0 is not None and rt - rt0 >= ARRIVAL_SECONDS)
                    or (mtime is not None and mt0 is not None and mtime - mt0 >= ARRIVAL_SECONDS))
         self._samples.append(_Sample(f, st.field_id, eligible and settled, rt, _num(raw.get("ticks")), mtime,
-                                     _num(raw.get("timescale"))))
+                                     _num(raw.get("timescale")), _num(raw.get("ff"))))   # [ff9mapkit netsync s163] + `ff`
 
     # -- the estimate -----------------------------------------------------------------------------------------------
     def rate(self) -> Rate:
@@ -489,7 +512,7 @@ class TickClock:
             self._last = est
         last = self._last
         if last is None:
-            return Rate.default(self.field_tps * self._timescale())
+            return Rate.default(self.field_tps * self._timescale() * self._fast_forward(), ff=self._fast_forward())
         if est is None:
             last = self._checked(last)
         if last.frame < self._stale_from:
@@ -522,7 +545,7 @@ class TickClock:
         before = self._reported
         if before is None:
             self._reported = now
-            return Rate.default(now.tick_hz), now
+            return Rate.default(now.tick_hz, ff=now.ff), now
         moved = max(abs(now.fps / before.fps - 1.0), abs(now.per_frame() / before.per_frame() - 1.0))
         if moved > CHANGE_FRACTION:
             self._reported = now
@@ -535,6 +558,15 @@ class TickClock:
         for s in reversed(self._samples):
             if s.timescale is not None and s.timescale > 0:
                 return s.timescale
+        return 1.0
+
+    def _fast_forward(self) -> float:
+        """[ff9mapkit netsync s163] The newest published ``ff`` (SettingsState.FastForwardFactor: FPSManager runs that many
+        main-loop updates a frame, so the field ticks a second too), 1 when none is -- an engine before s163, or -1 (unreadable).
+        Like the timescale it is the NEWEST one: a window that straddles a booster edge is read at the factor now standing."""
+        for s in reversed(self._samples):
+            if s.ff is not None and s.ff > 0:
+                return s.ff
         return 1.0
 
     @staticmethod
@@ -644,9 +676,10 @@ class TickClock:
                 return None
             tick_hz = ticks / secs
         else:
-            tick_hz = self.field_tps * self._timescale()
+            tick_hz = self.field_tps * self._timescale() * self._fast_forward()   # [ff9mapkit netsync s163] x `ff`
         return Rate(fps=fps, fps_lo=min(fps, q1), fps_hi=max(fps, q3),
-                    tick_hz=tick_hz, source=pairs[-1].source, samples=len(pairs), frame=pairs[-1].end)
+                    tick_hz=tick_hz, source=pairs[-1].source, samples=len(pairs), frame=pairs[-1].end,
+                    ff=self._fast_forward())               # [ff9mapkit netsync s163] measured or not: the tail's gate
 
     # -- after the fact ---------------------------------------------------------------------------------------------
     def excess_ticks(self, f0: int, f1: int, rate: Rate) -> float:

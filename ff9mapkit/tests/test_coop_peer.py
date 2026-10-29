@@ -1151,6 +1151,88 @@ def test_dress_reads_section_8_off_a_hosts_tape(tmp_path, capsys):
     assert CP.strip_section(payload, BW.SECTION_DRESS) == CP.parse_frame(_host_state_frame(None))[1]
 
 
+def _speed_host_frame(speed=None, *, where: str = "before7", dress=None, twice: bool = False, cut: int = 0) -> bytes:
+    """[ff9mapkit netsync s163] A host type-5 frame as an s163 BuildStateFrame composes it: the story, the party sections,
+    section 5, section 10 (``speed``; None = an s162-or-older host) -- ``where`` it rides: "before7" (s163's order), "after7",
+    "last" (after section 8) or "first" (before section 5) -- section 7, then section 8 (``dress``) last; ``twice`` rides
+    section 10 a second time, ``cut`` truncates the payload."""
+    head = [(BW.SECTION_STORY, bytes((i * 3) & 0xFF for i in range(BW.STORY_LEN))), (BW.SECTION_PARTY, _party_body()),
+            (BW.SECTION_BAG, bytes(range(20)))]
+    five, seven = [(BW.SECTION_EVENT, bytes((1, 7)))], [(BW.SECTION_DIALOG, bytes(range(90, 150)))]
+    eight = [] if dress is None else [(BW.SECTION_DRESS, dress)]
+    ten = [] if speed is None else [(BW.SECTION_SPEED, speed)] * (2 if twice else 1)
+    order = {"before7": head + five + ten + seven + eight, "after7": head + five + seven + ten + eight,
+             "last": head + five + seven + eight + ten, "first": head + ten + five + seven + eight}[where]
+    payload = b""
+    for sid, body in order:
+        payload = BW.append_section(payload, sid, body)
+    return CP.build_frame(CP.TYPE_STATE, payload[:len(payload) - cut] if cut else payload)
+
+
+def test_speed_reads_section_10_off_a_hosts_tape(tmp_path, capsys):
+    """[ff9mapkit netsync s163] `coop_peer.py speed` -- section 10 (the host's booster SETTING and FieldTPS) ON A REAL WIRE, modelled
+    on `dress`: on an s163 host's tape every type-5 frame carries ONE section 10 after section 5, BEFORE section 7, with section 8
+    still right after 7 and last; its body parses (setting, TPS), the settings are counted and the boosted frames named; the old
+    readers' twins land the same story, party sections and sections 4-9 with it stripped, and step past it -- exit 0. RED (exit
+    1) on an s162 host (none), section 10 after section 7, after section 8, before section 5, twice, a short or zero body, a cut
+    frame, the wrong body, and an old-reader twin that would consume id 10."""
+    boost, plain, dress = BW.speed_section_body(3, 30), BW.speed_section_body(1, 30), bytes((0x08, 0x00, 0x01))
+    good = tmp_path / "s163.f9tape"
+    _dress_tape(good, [_speed_host_frame(boost, dress=dress) for _ in range(3)] + [_speed_host_frame(plain) for _ in range(2)])
+    _h, records, _t = CP.read_tape(good)
+    d = CP.tape_speed(records)
+    assert (d["frames"], d["with10"], d["ordered"], d["malformed"], d["old_diff"], d["boosted"], d["ok"]) == \
+        (5, 5, 5, 0, 0, 3, True), d
+    assert d["bodies"] == {"03 1E": 3, "01 1E": 2} and d["settings"] == {3: 3, 1: 2}
+    assert CP.main(["speed", str(good)]) == 0
+    out = capsys.readouterr().out
+    assert "with section 10: 5 (in s163's order: 5, malformed: 0)" in out and "1 x2, 3 x3 (3 frame(s) boosted)" in out
+    assert "VERDICT: OK" in out
+    assert CP.main(["speed", str(good), "--expect", "03 1e"]) == 1                    # two frames carry 01 1e
+    same = tmp_path / "same.f9tape"
+    _dress_tape(same, [_speed_host_frame(boost) for _ in range(3)])
+    assert CP.main(["speed", str(same), "--expect", "03 1e"]) == 0 and CP.main(["speed", str(same), "--expect", "03 3c"]) == 1
+    _h, recs, _t = CP.read_tape(same)
+    assert CP.tape_speed(recs, lambda p: boost)["ok"] and not CP.tape_speed(recs, lambda p: plain)["ok"]
+    capsys.readouterr()
+    for name, frames in (("s162", [_speed_host_frame(None)] * 3),
+                         ("after7", [_speed_host_frame(boost, where="after7")] * 3),
+                         ("last", [_speed_host_frame(boost, where="last", dress=dress)] * 3),   # section 8 no longer last
+                         ("first", [_speed_host_frame(boost, where="first")] * 3),            # before section 5
+                         ("twice", [_speed_host_frame(boost, twice=True)] * 3),
+                         ("short", [_speed_host_frame(bytes((3,)))] * 3),
+                         ("zero", [_speed_host_frame(bytes((0, 30)))] * 3),
+                         ("cut", [_speed_host_frame(boost), _speed_host_frame(boost, cut=1)])):
+        path = tmp_path / f"{name}.f9tape"
+        _dress_tape(path, frames)
+        assert CP.main(["speed", str(path)]) == 1, name
+        out = capsys.readouterr().out
+        assert "VERDICT: FAIL" in out, name
+        if name == "s162":
+            assert "none -- an s162-or-older host" in out
+    assert CP.main(["speed", str(tmp_path / "missing.f9tape")]) == 2
+    # the old-reader check can fail: a walker twin that would consume section 10 reads the frame differently
+    real = BW.old_party_sections
+    try:
+        BW.old_party_sections = lambda p: [(s, b) for s, b in BW.walk_sections(p)[0] if s in (1, 2, 3, 10)]
+        bad = CP.tape_speed(records)
+    finally:
+        BW.old_party_sections = real
+    assert bad["old_diff"] == 5 and not bad["ok"] and bad["first_bad"].startswith("an old reader differs")
+    payload = CP.parse_frame(_speed_host_frame(boost, dress=dress))[1]
+    assert CP.strip_section(payload, BW.SECTION_SPEED) == CP.parse_frame(_speed_host_frame(None, dress=dress))[1]
+    assert BW.read_host_speed(payload) == (True, 3, 30)
+    # the order law on its own: one 10, after 5 / 6 / 9, before 7, with 8 (when it rides) right after 7 and last
+    S5, S6, S7, S8, S9, S10 = (BW.SECTION_EVENT, BW.SECTION_TALK, BW.SECTION_DIALOG, BW.SECTION_DRESS, BW.SECTION_CHEST,
+                               BW.SECTION_SPEED)
+    for ids, want in (([0, 1, 5, 10, 7, 8], True), ([0, 5, 6, 10, 7], True), ([5, 9, 10, 7, 8], True), ([10, 7], True),
+                      ([5, 7, 10, 8], False), ([5, 10, 7], True), ([10, 5, 7], False), ([5, 10, 9, 7], False),
+                      ([5, 10, 10, 7], False), ([5, 10, 8, 7], False), ([5, 10, 7, 8, 10], False), ([5, 10], False),
+                      ([5, 10, 7, 0, 8], False)):
+        ids = [{5: S5, 6: S6, 7: S7, 8: S8, 9: S9, 10: S10}.get(i, i) for i in ids]
+        assert CP.speed_order_ok(ids) is want, ids
+
+
 def test_dress_finds_a_relative_tape_in_the_tape_home(tmp_path, monkeypatch, capsys):
     """[ff9mapkit netsync s139] The review's rwire-1: the s139 acceptance's step 3 names the s117 tape RELATIVELY
     (``.harness-runs/coop-tapes/<name>``) while the bench says to run from a WORKTREE, which has no tapes -- `dress` read

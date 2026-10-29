@@ -2533,6 +2533,107 @@ def _dress_expect(args):
         party = [int(x) for x in args.party.split(",")]
         return rules.host_dress_section(args.ghost_as, int(args.guest_slots), "host", False, party, **kw)
     return frame_expect(args.ghost_as, int(args.guest_slots), rules, leader)
+
+
+# ======================================================================================== [ff9mapkit netsync s163] section 10
+def speed_order_ok(ids) -> bool:
+    """[ff9mapkit netsync s163] A host state frame's section ids in the order s163 builds them (NetSyncSpeed.SelfTest's
+    live.frame_order row, with sections 5 / 8 optional on a tape): ONE section 10, after section 5 and the start lane (6 or 9)
+    when they ride, before section 7 -- and section 8, when it rides, right after 7 and last (DressSelfTest, :func:`tape_dress`)."""
+    ids = list(ids)
+    if ids.count(BW.SECTION_SPEED) != 1 or BW.SECTION_DIALOG not in ids:
+        return False
+    k, k7 = ids.index(BW.SECTION_SPEED), ids.index(BW.SECTION_DIALOG)
+    before = [i for i, sid in enumerate(ids) if sid in (BW.SECTION_EVENT, BW.SECTION_TALK, BW.SECTION_CHEST)]
+    if any(i > k for i in before) or k > k7:
+        return False
+    if BW.SECTION_DRESS in ids:
+        k8 = ids.index(BW.SECTION_DRESS)
+        return k8 == k7 + 1 and k8 == len(ids) - 1
+    return True
+
+
+def tape_speed(records, expect=None) -> dict:
+    """[ff9mapkit netsync s163] Section 10 on a tape's HOST type-5 frames (PURE over the records), modelled on :func:`tape_dress`:
+    how many frames, how many carry section 10, how many in s163's ORDER (:func:`speed_order_ok`: one section 10 after 5 and the
+    start lane, before 7, with 8 still right after 7 and last), how many bodies the reader refuses (battlewire.parse_speed_body:
+    under 2 B or a zero byte), the bodies seen (hex -> count) and the host settings they say (setting -> count), and how many frames
+    an OLD guest reads differently with section 10 present than stripped (its story, its party sections, each of sections 4-9:
+    battlewire's s103 walker twins) or cannot step past it (a SENTINEL section appended after must still read). ``expect``: None,
+    the body every frame must carry (bytes), or a function ``payload -> bytes`` giving each frame's OWN expected body (``disagree``
+    counts the frames whose body is not theirs). ``ok`` -- the wire carries section 10 as s163 says: at least one frame, every one
+    with section 10 in order, every body parsed, no old-reader difference, and every body the expected one. ``boosted`` -- frames
+    whose setting is above 1 (the host's booster on)."""
+    frames = [payload for _r, wtype, payload in host_frames(records) if wtype == TYPE_STATE]
+    out = {"frames": len(frames), "with10": 0, "ordered": 0, "malformed": 0, "old_diff": 0, "bodies": {}, "settings": {},
+           "boosted": 0, "disagree": 0, "first_bad": None, "first_disagree": None, "first_order": None}
+    per_frame = callable(expect)
+    old_ids = (BW.SECTION_INTENT, BW.SECTION_EVENT, BW.SECTION_TALK, BW.SECTION_DIALOG, BW.SECTION_DRESS, BW.SECTION_CHEST)
+    for payload in frames:
+        secs, truncated = BW.walk_sections(payload)
+        ids = [sid for sid, _b in secs]
+        if BW.SECTION_SPEED not in ids:
+            continue
+        out["with10"] += 1
+        body = secs[ids.index(BW.SECTION_SPEED)][1]
+        if not truncated and speed_order_ok(ids):
+            out["ordered"] += 1
+        elif out["first_order"] is None:
+            out["first_order"] = "section ids " + ",".join(str(i) for i in ids) + (" (truncated)" if truncated else "")
+        ok_body, setting, _tps = BW.parse_speed_body(body)
+        if not ok_body:
+            out["malformed"] += 1
+        else:
+            out["settings"][setting] = out["settings"].get(setting, 0) + 1
+            out["boosted"] += setting > 1
+        key = BW.hex_bytes(body)
+        out["bodies"][key] = out["bodies"].get(key, 0) + 1
+        if per_frame:
+            mine = expect(payload)
+            if mine is None or bytes(body) != bytes(mine):
+                out["disagree"] += 1
+                if out["first_disagree"] is None:
+                    out["first_disagree"] = (f"section 10 {key} where the frame's own expectation is "
+                                             f"{BW.hex_bytes(mine) if mine is not None else 'none'}")
+        bare = strip_section(payload, BW.SECTION_SPEED)
+        past = BW.append_section(payload, SENTINEL_SECTION, SENTINEL_BODY)
+        same = (BW.old_apply_story(payload) == BW.old_apply_story(bare)
+                and BW.old_party_sections(payload) == BW.old_party_sections(bare)
+                and all(BW.old_try_read_section(payload, sid) == BW.old_try_read_section(bare, sid) for sid in old_ids)
+                and BW.old_try_read_section(past, SENTINEL_SECTION) == SENTINEL_BODY
+                and BW.old_apply_story(past) == BW.old_apply_story(payload)
+                and BW.old_party_sections(past) == BW.old_party_sections(payload))
+        if not same:
+            out["old_diff"] += 1
+            if out["first_bad"] is None:
+                out["first_bad"] = f"an old reader differs on a frame with section 10 {key}"
+    n = out["with10"]
+    want = None if expect is None or per_frame else BW.hex_bytes(expect)
+    out["ok"] = bool(out["frames"]) and n == out["frames"] == out["ordered"] and not out["malformed"] \
+        and not out["old_diff"] and not out["disagree"] and (want is None or out["bodies"] == {want: n})
+    return out
+
+
+def tape_speed_lines(path, expect=None) -> tuple:
+    """[ff9mapkit netsync s163] (ok, the ``speed`` report's lines) for a tape file (``expect`` as :func:`tape_speed`)."""
+    header, records, torn = read_tape(path)
+    d = tape_speed(records, expect)
+    want = "" if expect is None or callable(expect) else f" (want {BW.hex_bytes(expect)})"
+    lines = [f"tape {path}", f"host type-5 frames: {d['frames']}; with section 10: {d['with10']} (in s163's order: {d['ordered']}, "
+             f"malformed: {d['malformed']})" + (f"; TORN tail {torn} B" if torn else "")
+             + (f" -- first out of order: {d['first_order']}" if d["first_order"] else ""),
+             "section 10 bodies: " + (", ".join(f"{k} x{v}" for k, v in d["bodies"].items()) or "none -- an s162-or-older host")
+             + want,
+             "host booster settings: " + (", ".join(f"{s} x{v}" for s, v in sorted(d["settings"].items())) or "none")
+             + f" ({d['boosted']} frame(s) boosted)",
+             f"old-guest readers (story, party sections, sections 4-9, a section past it) with section 10 vs stripped: "
+             f"{d['with10'] - d['old_diff']} identical, {d['old_diff']} different"
+             + (f" ({d['first_bad']})" if d["first_bad"] else ""),
+             "VERDICT: " + ("OK -- section 10 rides every host state frame, before section 7, and an old guest skips it"
+                            if d["ok"] else "FAIL")]
+    return d["ok"], lines
+
+
 def tape_home() -> Path:
     """Where the recorded tapes live: COOP_TAPE_DIR, else <the MAIN repo>/.harness-runs/coop-tapes -- the rule
     studies/test-harness/scenarios/_coop_peer_bench.tape_dir() records them by (gitignored, outliving any worktree). The
@@ -2592,6 +2693,23 @@ def cmd_dress(args) -> int:
         return 2
     try:
         ok, lines = tape_dress_lines(found, _dress_expect(args))
+    except (OSError, TapeError, ValueError) as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        return 2
+    for line in lines:
+        print(line)
+    return 0 if ok else 1
+
+
+def cmd_speed(args) -> int:
+    """[ff9mapkit netsync s163] The ``speed`` verb: :func:`tape_speed_lines` on a resolved tape (``--expect HEX``: one body)."""
+    found, tried = resolve_tape(args.tape)
+    if found is None:
+        print(f"ERROR: no tape {args.tape!r} -- tried {', '.join(str(t) for t in tried)}", file=sys.stderr)
+        return 2
+    try:
+        expect = bytes(int(t, 16) for t in args.expect.replace("-", " ").split()) if args.expect else None
+        ok, lines = tape_speed_lines(found, expect)
     except (OSError, TapeError, ValueError) as err:
         print(f"ERROR: {err}", file=sys.stderr)
         return 2
@@ -2707,6 +2825,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "host's section 8 names whom its leader guard hands the guest (with --ghost-as auto); omitted = "
                         "the positional rule (an s139-s141 host)")
     p.set_defaults(func=cmd_dress)
+
+    p = sub.add_parser("speed", help="[s163] section 10 (the host's booster) on a tape's host state frames: present, before "
+                                     "section 7 with 8 still last, its body, skipped by the old readers")
+    p.add_argument("tape", help="the tape (resolved as `dress` resolves it)")
+    p.add_argument("--expect", metavar="HEX", help="the body every frame must carry, e.g. '03 1e' (setting 3, FieldTPS 30)")
+    p.set_defaults(func=cmd_speed)
 
     p = sub.add_parser("offer", help="[s143] the type-1 header's guest mask (the host's offer) on every battle frame from "
                                      "the first Ready one on")

@@ -604,6 +604,14 @@ factor on a following guest while its copy plays the host's scene or an ATE epis
 - every two-PC lane was proven at 1x.
 Ship the log split (which clock released the hold) either way.
 
+**Status: BUILT, DEPLOYED and SOLO-BENCHED as engine patch s163 (2026-10-29), on top of s162.** As built it differs
+from the sketch above: the wire carries the host's booster SETTING, not its effective factor, and the guest applies its
+OWN SpeedFactor, only while its control is off (`SPEED-MIRROR.md`, The rule and Revision 3). `coop_speed_mirror.py`
+reads 13/13 (host 5 above my SpeedFactor 3, so a factor of 3 is provably mine), and its `speed off` calibration reads
+10/15, exactly S-ON, S-LATCH, S-BACK, S-BATTLE and S-OFF red. Design and the accepted risks: `SPEED-MIRROR.md`; detail and the gates:
+`memoria-patches/README.md`, the s163 row. The log split shipped in s162. The duo (`coop_speed_mirror_duo.py`, this ATE
+with the host at 3x) and the two-PC replay are next. Finding 4's capped follow-hold for NON-ATE scenes is still open.
+
 ### Also noticed (the owner saw none of these)
 
 - **351's inn rest loaded 351 twice before 352.** The guest's own `Field(352)` ran while the host was mid-load, so
@@ -638,4 +646,7 @@ Ship the log split (which clock released the hold) either way.
    calibrations exact). Two-PC confirmed in the third session.** **s162 (2026-10-29): Finding 9's landing start; built,
    deployed and solo-benched (S-LAND green, its noland calibration exact).** Next: the duo, then two-PC.
 3. **The host's field rate on the wire, plus the capped follow-hold** (Finding 4; seen again in an ATE as Finding 10).
+   **s163 (2026-10-29): the rate half -- the host's booster setting on the wire (state section 10) and mirrored on a
+   following guest during the host's scenes; built, deployed and solo-benched (13/13, its `speed off` calibration exact).**
+   Next: the duo, then two-PC. The capped follow-hold for non-ATE scenes is not built.
 4. **The same-field reload** (Finding 5): backlog. It has real stock cases, so it is not only debug hygiene.

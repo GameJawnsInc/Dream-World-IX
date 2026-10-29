@@ -66,7 +66,7 @@ or solo game pays one bool read and never type-initializes NetSync code from FPS
   each edge, which also re-pitches SFX.
 
 `StockFastForwardFactor` is the only "own factor" anything reads (Tick, the log, the harness), so the mirror never reads
-its own output. The raw flag is never written: a 1x host with a 3x guest still runs the guest at 3x (README step 3 stays
+its own output. The mirror never changes the raw flag (each edge re-writes the player's own value): a 1x host with a 3x guest still runs the guest at 3x (README step 3 stays
 testable), and the guest's battles keep the guest's own speed. One guest log line per edge, naming the factor and why.
 
 ## Levers and harness
@@ -96,9 +96,10 @@ testable), and the guest's battles keep the guest's own speed. One guest log lin
   stock), `ModeRule`, and the section-10 codec (round trip; an old reader skips it; a truncated body is refused).
   Mutants include: always refuse; each term dropped; a level-triggered end (the host's control back ends it); own read
   through the seamed getter; `>=` vs `>` on the setting; an idle MBG vetoing.
-- Solo bench `coop_speed_mirror.py` (selftest role): with `host 3` and `hostscene 1`, my control off: `factor_now` 3,
-  `fast_mode` on, `raw` false; `hostscene 0` with my control still off keeps it (the latch); control back past 500 ms, a
-  battle, the world map and `off` read 1; `speedmode 1` with `host 1` still reads 3 (the guest's own F1).
+- Solo bench `coop_speed_mirror.py` (selftest role): with `host 5` (above my own SpeedFactor 3, so a factor of 3 is provably
+  mine, not the host's) and `hostscene 1`, my control off: `factor_now` 3, `fast_mode` on, `raw` false; `hostscene 0` with my
+  control still off keeps it (the latch); control back past 500 ms, a battle, the world map and `off` read 1; `speedmode 1`
+  with `host 1` still reads 3 (the guest's own F1).
 - Duo bench `coop_speed_mirror_duo.py`, pinned to Finding 10's ATE (351 -> 450 "Dagger Tries"): the host at 3x through
   `speedmode 1`; the guest's copy keeps pace -- no tail hold released by "the tail hold's progress clock", no host seq
   dropped as another field's, the guest back on 351 within a few seconds of the host. Its CALIBRATION (rev 3) is
@@ -111,7 +112,9 @@ testable), and the guest's battles keep the guest's own speed. One guest log lin
   596`), the Prima Vista 3x fixes (`DoEventCode.cs:1846`), TimerUI's countdown with the `SpeedTimer` cheat on
   (`TimerUI.cs:213`), the booster HUD icon, and stock's own force-off points (the ending fields, field 2934), which the
   mirror follows only when the host's setting drops a frame later.
-- A SpeedFactor or FieldTPS mismatch between the machines disables the mirror (logged once) rather than overshoot.
+- A guest whose SpeedFactor x FieldTPS is higher than the host's (or whose SpeedFactor is 1) gets no mirror (logged
+  once per settings combination, at the first scene it skips) rather than overshoot; a LOWER guest rate mirrors at its
+  own slower factor and can still fall behind.
 - HostHoldsInput cannot tell the host's scene from its own climb, jump or unserved chest, so a coincident guest
   control-off beat (a door fade-in) can start the mirror; the latch then ends it with my control back.
 - At equal speed the guest can now finish an ATE first, which leans on s161's exit hold (proven by self-test only).

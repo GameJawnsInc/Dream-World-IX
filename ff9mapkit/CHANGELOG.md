@@ -38,6 +38,22 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   saying disc 4 kept its own ground, an edit's Accept included.
 - An edit whose later step cannot be put back on top is cancelled and says why; it used to stop silently.
 
+### Fixed — co-op: a host playing at 3x no longer leaves the guest behind in a scene (engine patch s163)
+From the third two-PC session (`studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Finding 10); the owner chose "match host
+speed". Design: `studies/field-coop/SPEED-MIRROR.md`. Only the guest's side is proven so far, on the solo bench: one
+game, with a stand-in host whose scene, not an ATE, starts the mirror. The checks that would show the guest keeping up
+(two games on one PC, then two PCs) are still to come.
+- **While the host plays a scene or an ATE with its booster on, the following guest's copy plays it at booster speed
+  too.** Before, a 1x guest fell behind: in "Dagger Tries" its copy was cut at line 162 (the scene's lines are numbered
+  153 to 175) and came home about 11 s after the host.
+- It applies only while the guest's own control is off in the host's scene. Free roam, battles and the world map stay
+  at the guest's own speed, and the guest's own booster still works there (inside a mirrored scene, turning it off
+  does not slow the scene).
+- Both PCs need the same `[Cheats] SpeedFactor` and `[Graphics] FieldTPS`. If the guest's SpeedFactor x FieldTPS is
+  higher than the host's, or its SpeedFactor is 1, the mirror stays off, and the first scene it skips logs why on the
+  guest. If it is lower, the mirror runs at the guest's own slower speed, and the guest can still fall behind.
+- The host's engine sends its booster setting and the guest's engine mirrors it, so install s163 on both PCs.
+
 ### Fixed — co-op: no double character at the start of an Active Time Event (engine patch s162)
 From the third two-PC session (`studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Finding 9).
 - **When the guest's game arrives in an ATE, the guest steps out at once.** Before, both screens showed the other

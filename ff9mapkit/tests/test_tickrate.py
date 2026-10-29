@@ -61,9 +61,11 @@ def _window_counts(ticks, n, start=60):
 
 # --------------------------------------------------------------------------- a published ring, synthesised
 def _st(frame, *, rt=None, mtime=None, field=350, control=True, dialog=False, fading=False, ui="FieldHUD",
-        ticks=None, timescale=None):
+        ticks=None, timescale=None, ff=None):
     raw = {"frame": frame, "field": {"id": field}, "ui_state": ui, "fading": fading,
            "player": {"control": control}, "dialog": {"open": dialog}}
+    if ff is not None:
+        raw["ff"] = ff                                # [ff9mapkit netsync s163] the published FastForwardFactor
     if rt is not None:
         raw["rt"] = rt
     if ticks is not None:
@@ -406,6 +408,68 @@ def test_the_published_timescale_scales_the_tick_rate():
     for i in range(200):
         clock.observe(_st(2 * i, rt=i * 2 / 60.0, timescale=0.5))
     assert clock.rate().tick_hz == pytest.approx(15.0) and clock.rate().per_frame() == pytest.approx(0.25)
+
+
+def test_the_published_fast_forward_factor_scales_the_tick_rate():
+    """[ff9mapkit netsync s163] An s163+ engine publishes SettingsState.FastForwardFactor as the top-level ``ff`` (the player's F1,
+    a movie, a following guest's speed mirror): FPSManager runs that many main-loop updates a frame, so the reach model multiplies
+    the ini's tick rate by the NEWEST one published -- 3 at 60 fps is 1.5 ticks a frame, and a reach three times the 1x one; an
+    absent or unreadable (-1) factor reads 1; with the timescale they multiply; a measured tick counter needs neither."""
+    clock = T.TickClock(field_tps=30.0)
+    assert clock.rate().tick_hz == pytest.approx(30.0)
+    for i in range(200):
+        clock.observe(_st(2 * i, rt=i * 2 / 60.0, ff=3))
+    r = clock.rate()
+    assert r.ready and r.tick_hz == pytest.approx(90.0) and r.per_frame() == pytest.approx(1.5)
+    one = T.Rate(r.fps, r.fps_lo, r.fps_hi, tick_hz=30.0, source=r.source)
+    assert r.ticks_most(20) == 3 * one.ticks_most(20)
+    # the tail: a frame of publish lag now holds 1.5 ticks -- two, where the 1x frame's half tick kept TAIL_TICKS
+    assert (r.ff, one.ff) == (3.0, 1.0) and r.as_dict()["ff"] == 3.0 and "(ff 3)" in r.describe()
+    assert (r.tail_ticks(), one.tail_ticks()) == (2, T.TAIL_TICKS) and r.reach(4, "run") == 60.0 * (6 + 2)
+    clock.observe(_st(400, rt=400 / 60.0, ff=1))
+    assert clock.rate().tick_hz == pytest.approx(30.0)                # the newest factor: the booster went off
+    assert clock.rate().ff == 1.0 and clock.rate().tail_ticks() == T.TAIL_TICKS
+    clock.observe(_st(402, rt=402 / 60.0, ff=-1))
+    assert clock.rate().tick_hz == pytest.approx(30.0)                # -1 (unreadable) skips to the last readable one
+    fresh = T.TickClock(field_tps=30.0)
+    fresh.observe(_st(2, rt=2 / 60.0, ff=3))
+    assert not fresh.rate().ready and fresh.rate().tick_hz == pytest.approx(90.0)   # the default already multiplies
+    assert fresh.rate().ff == 3.0 and fresh.rate().tail_ticks() == 2                 # ...and carries the factor its tail is gated on
+    both = T.TickClock(field_tps=30.0)
+    for i in range(200):
+        both.observe(_st(2 * i, rt=i * 2 / 60.0, ff=3, timescale=0.5))
+    assert both.rate().tick_hz == pytest.approx(45.0)
+    old = T.TickClock(field_tps=30.0)
+    for i in range(200):
+        old.observe(_st(2 * i, rt=i * 2 / 60.0))
+    assert old.rate().tick_hz == pytest.approx(30.0)                  # an engine before s163: no `ff`, the ini's rate
+    counted, ticks = T.TickClock(), 0.0
+    for i in range(200):
+        counted.observe(_st(2 * i, rt=i * 2 / 60.0, ticks=ticks, ff=3))
+        ticks += 3.0
+    assert counted.rate().source == "ticks" and counted.rate().tick_hz == pytest.approx(90.0)   # measured: ff not applied twice
+    assert counted.rate().ff == 3.0 and counted.rate().tail_ticks() == 2              # ...but still the tail's gate
+
+
+def test_the_wider_tail_is_gated_on_a_published_factor_never_on_the_rate_alone():
+    """[ff9mapkit netsync s163] (the review) Rate.tail_ticks widens past TAIL_TICKS only under a published ``ff`` above 1: at 1x
+    every render rate keeps the bound it had before s163 -- 60, 31.2 and 30 fps as before, and ALSO a ~30 fps render whose fps_lo sits
+    a hair under the 30 Hz FieldTPS (29.7: ceil(30 / 29.7) would be 2) and a 25 fps one (24.5), where an ungated ceil would have moved
+    reach(4, "run") from 360 to 420 with no booster anywhere. Under ff 3 the same renders hold one frame's ticks: 2 at 60 fps, 4 at
+    ~30 and at 25."""
+    one = lambda fps, lo, hi: T.Rate(fps, lo, hi, tick_hz=30.0, source="rt", samples=20, frame=1)               # noqa: E731
+    three = lambda fps, lo, hi: T.Rate(fps, lo, hi, tick_hz=90.0, source="rt", samples=20, frame=1, ff=3.0)     # noqa: E731
+    renders = {"60": (60.0, 59.0, 61.0), "31.2": (31.2, 30.4, 32.0), "30": (30.0, 30.0, 30.0), "30-": (30.0, 29.7, 31.0),
+               "25": (25.0, 24.5, 25.5)}
+    assert {k: one(*v).tail_ticks() for k, v in renders.items()} == {k: T.TAIL_TICKS for k in renders}
+    assert {k: one(*v).reach(4, "run") for k, v in renders.items()} == {"60": 240.0, "31.2": 300.0, "30": 300.0, "30-": 360.0,
+                                                                        "25": 360.0}
+    assert {k: three(*v).tail_ticks() for k, v in renders.items()} == {"60": 2, "31.2": 3, "30": 3, "30-": 4, "25": 4}
+    assert three(60.0, 59.0, 61.0).reach(4, "run") == 60.0 * (7 + 2)
+    # a timescale above 1 raises tick_hz with no factor published: a regime before s163, so its tail does not move either
+    assert T.Rate(25.0, 24.5, 25.5, tick_hz=60.0, source="rt", samples=20, frame=1).tail_ticks() == T.TAIL_TICKS
+    with pytest.raises(ValueError):
+        T.Rate(60.0, 60.0, 60.0, ff=0.0)
 
 
 def test_a_frame_counter_that_goes_back_is_a_new_launch():

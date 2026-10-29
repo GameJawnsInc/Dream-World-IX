@@ -12006,3 +12006,236 @@ def vehicle_status(mode, wld, *, world_hud=True, sys_mode=3, bee=False, loaded=T
     if int(mode) >= int(rows):
         return False, f"mode {mode}: no physics row (w_moveCHRControl has {rows} rows)"
     return True, f"movement mode -> {mode}  {vehicle_name(mode)}   (close the menu and move)"
+
+
+# =========================================================================== [ff9mapkit netsync s163] THE HOST'S SPEED ON A FOLLOWING GUEST
+# studies/field-coop/SPEED-MIRROR.md (rev 3); the patch memoria-patches/s163-netsync-speed-mirror.patch. A host on the F1 booster plays
+# a scene or an ATE at 3x while its following guest's copy plays the same script at 1x (GUEST-TRAVERSAL-TWO-PC.md Finding 10: "Dagger
+# Tries" cut at line 162 of 175). The host now rides its booster SETTING and its FieldTPS in state-lane section 10, and a following
+# guest's copy runs the host's scene at its OWN SpeedFactor through a LATCH (NetSyncSpeed). These are section 10's codec and the
+# mirror's PURE rules, statement for statement (NetSyncSpeed.cs, named beside each); tests/test_harness_netsync.py evaluates every row
+# the engine's SelfTest tables against them (and each of its mutants must miss one), and the stand-in (fakegame.py) runs its bench
+# latch through them.
+
+# ---- section 10 (NetSyncState.SectionSpeed): [setting u8][fieldTps u8] on EVERY host frame, BEFORE section 7 -- the order is
+# [0,1,2,3,(4),5,(6|9),10,7,8] (section 8 stays right after 7 and last: DressSelfTest, coop_peer's `dress` tape). An older guest
+# steps over it by its length; an older host never sends it.
+SECTION_SPEED = 10
+SECTION_CHEST = 9                        # NetSyncState.SectionChest (s160): the chest start, riding INSTEAD of section 6 while live
+SPEED_BODY_LEN = 2                       # NetSyncSpeed.BodyLen: a longer body is read forward, a shorter one refused
+#: NetSyncSpeed.SrcNames (`netsync.speed.src`): where the guest's cache came from
+SPEED_SRC_NONE, SPEED_SRC_WIRE, SPEED_SRC_BENCH = 0, 1, 2
+SPEED_SRC_NAMES = ("none", "wire", "bench")
+#: NetSyncSpeed.EndNames (`netsync.speed.last_end`; the `end_why` counters' keys from index 1): EndRule's reasons, then `reset`
+SPEED_END_NONE, SPEED_END_LEVER, SPEED_END_SESSION, SPEED_END_LANDING, SPEED_END_FIELD, SPEED_END_SCENE = 0, 1, 2, 3, 4, 5
+SPEED_END_CLIMB, SPEED_END_MOVIE, SPEED_END_HOST, SPEED_END_RATE, SPEED_END_CONTROL, SPEED_END_RESET = 6, 7, 8, 9, 10, 11
+SPEED_END_NAMES = (None, "lever", "session", "landing", "field", "scene", "climb", "movie", "host", "rate", "control", "reset")
+#: FactorRule's refusals (a factor > 1 is the mirror's)
+SPEED_REFUSE_OVERSHOOT, SPEED_REFUSE_HOST_OFF, SPEED_REFUSE_OWN_ONE, SPEED_REFUSE_NO_TPS = 0, -1, -2, -3
+#: StartRule's words (`netsync.speed.why_not`), one per term, in its order -- WhyRate / WhyOwnOne / WhyNoTps share the factor's slot
+SPEED_WHY_ELIGIBLE = "not a following, mirroring guest"
+SPEED_WHY_LEVER = "the speed lever is off"
+SPEED_WHY_FIELD = "not on a live field"
+SPEED_WHY_CONTROL = "I have control"
+SPEED_WHY_STALE = "the host's lane is stale"
+SPEED_WHY_HOST = "the host's booster is off"
+SPEED_WHY_CLIMB = "my guest climb is in flight"
+SPEED_WHY_MOVIE = "a movie is playing"
+SPEED_WHY_SCENE = "my copy does not play the host's scene"
+SPEED_WHY_RATE = "my rate would overshoot the host's (SpeedFactor x FieldTPS)"
+SPEED_WHY_OWN_ONE = "my [Cheats] SpeedFactor is 1 (nothing to mirror)"
+SPEED_WHY_NO_TPS = "a FieldTPS is unknown (mine or the host's)"
+SPEED_WHY_NOT_TICKED = "not ticked"      # NetSyncSpeed.WhyNotNow before the first Tick (and after a Reset)
+#: NetSyncSpeed.StartOrder / EndOrder: the cascade's terms in order (the selftest's `start.order_k` / `end.order_k` rows)
+SPEED_START_ORDER = (SPEED_WHY_ELIGIBLE, SPEED_WHY_LEVER, SPEED_WHY_FIELD, SPEED_WHY_CONTROL, SPEED_WHY_STALE, SPEED_WHY_HOST,
+                     SPEED_WHY_CLIMB, SPEED_WHY_MOVIE, SPEED_WHY_SCENE, SPEED_WHY_RATE)
+SPEED_END_ORDER = (SPEED_END_LEVER, SPEED_END_SESSION, SPEED_END_LANDING, SPEED_END_FIELD, SPEED_END_SCENE, SPEED_END_CLIMB,
+                   SPEED_END_MOVIE, SPEED_END_HOST, SPEED_END_RATE, SPEED_END_CONTROL)
+#: NetSyncStepOut.StepInMs: the latch's debounce (EndRule's control term reads the step-out's own constant)
+SPEED_STEP_IN_MS = 500
+#: Tick's START reasons (the ON line's tail), by the PlaysHostScene term that held first: (a), (b), (c)
+SPEED_START_WHY_HOST = "the host plays its scene here (its control is off)"
+SPEED_START_WHY_ATE = "my copy plays the ATE episode here"
+SPEED_START_WHY_TALK = "a relayed talk owns my copy here"
+
+
+def speed_clamp(v: int) -> int:
+    """NetSyncSpeed.Clamp: a byte that is never 0 (1-255)."""
+    v = int(v)
+    return 1 if v < 1 else 255 if v > 255 else v
+
+
+def speed_host_setting_rule(raw: bool, speed_factor: int) -> int:
+    """NetSyncSpeed.HostSettingRule: section 10's setting -- the booster as SET (the raw flag), never the live factor."""
+    return speed_clamp(speed_factor) if raw else 1
+
+
+def speed_tps_rule(tps: int) -> int:
+    """NetSyncSpeed.TpsRule: a FieldTPS byte (the host's into section 10, the guest's own before FactorRule: the same clamp)."""
+    return speed_clamp(tps)
+
+
+def speed_section_body(setting: int, tps: int) -> bytes:
+    """NetSyncSpeed.SectionBody, the ONE encoder (BuildStateFrame and the bench lever): [setting][tps], each clamped."""
+    return bytes((speed_clamp(setting), speed_clamp(tps)))
+
+
+def parse_speed_body(body) -> tuple:
+    """NetSyncSpeed.ParseBody -> (ok, setting, tps): at least SPEED_BODY_LEN bytes, neither byte 0 (the encoder never writes
+    one) -- else malformed: (False, 1, 0), absent. A longer body is read forward."""
+    if body is None or len(body) < SPEED_BODY_LEN or body[0] == 0 or body[1] == 0:
+        return False, 1, 0
+    return True, int(body[0]), int(body[1])
+
+
+def read_host_speed(payload) -> tuple:
+    """NetSyncSpeed.ReadHostSpeed -> (ok, setting, tps): a state payload's section 10 through the real section walk
+    (:func:`old_try_read_section`: a truncated frame refuses whole). (False, 1, 0) = absent."""
+    if payload is None:
+        return False, 1, 0
+    body = old_try_read_section(payload, SECTION_SPEED)
+    if body is None:
+        return False, 1, 0
+    return parse_speed_body(body)
+
+
+def speed_cache_rule(have_frame: bool, parsed: bool, new_setting: int, new_tps: int, setting: int, tps: int, src: int) -> tuple:
+    """NetSyncSpeed.CacheRule -> (setting, tps, src, stale): a FRESH frame replaces the cache (its section 10, or absent: setting
+    1, tps 0, src none) and is never stale; a NULL state (no frame for ~2 s) is NO NEWS -- the cache stands, marked stale (the
+    host's link, never its booster: rev 3's "a stale lane is not an end")."""
+    if not have_frame:
+        return setting, tps, src, True
+    if parsed:
+        return new_setting, new_tps, SPEED_SRC_WIRE, False
+    return 1, 0, SPEED_SRC_NONE, False
+
+
+def speed_movie_playing(mbg_exists: bool, finished_for_booster: bool) -> bool:
+    """NetSyncSpeed.MoviePlaying: stock's own booster lock -- an MBG that played and is not skipped (an idle one never vetoes)."""
+    return bool(mbg_exists) and not finished_for_booster
+
+
+def speed_plays_host_scene(fld: int, view_field: int, host_holds: bool, ate_field: int, talk_field: int) -> bool:
+    """NetSyncSpeed.PlaysHostScene: (a) the host's control-off view cached for THIS field, (b) the ATE episode's field, (c) the
+    relayed talk's field (-1 = none for each); never field 0."""
+    return fld > 0 and ((view_field == fld and bool(host_holds)) or ate_field == fld or talk_field == fld)
+
+
+def speed_factor_rule(g: int, my_tps: int, host_setting: int, host_tps: int) -> int:
+    """NetSyncSpeed.FactorRule: my OWN SpeedFactor ``g`` (the SFX pitch law) while it does not overshoot the host's rate
+    (``g * my_tps <= host_setting * host_tps``); else the refusal, in order: host off, my own 1, a TPS unknown, overshoot."""
+    if host_setting <= 1:
+        return SPEED_REFUSE_HOST_OFF
+    if g <= 1:
+        return SPEED_REFUSE_OWN_ONE
+    if my_tps <= 0 or host_tps <= 0:
+        return SPEED_REFUSE_NO_TPS
+    return g if g * my_tps <= host_setting * host_tps else SPEED_REFUSE_OVERSHOOT
+
+
+def speed_start_rule(eligible: bool, lever_off: bool, live_field: bool, my_ctl_off: bool, stale: bool, host_setting: int,
+                     climb: bool, movie: bool, fld: int, view_field: int, host_holds: bool, ate_field: int, talk_field: int,
+                     factor: int) -> str | None:
+    """NetSyncSpeed.StartRule: None when every term holds, else the FIRST failing term's words, in this order."""
+    if not eligible:
+        return SPEED_WHY_ELIGIBLE
+    if lever_off:
+        return SPEED_WHY_LEVER
+    if not live_field:
+        return SPEED_WHY_FIELD
+    if not my_ctl_off:
+        return SPEED_WHY_CONTROL
+    if stale:
+        return SPEED_WHY_STALE
+    if host_setting <= 1:
+        return SPEED_WHY_HOST
+    if climb:
+        return SPEED_WHY_CLIMB
+    if movie:
+        return SPEED_WHY_MOVIE
+    if not speed_plays_host_scene(fld, view_field, host_holds, ate_field, talk_field):
+        return SPEED_WHY_SCENE
+    if factor <= 1:
+        return (SPEED_WHY_OWN_ONE if factor == SPEED_REFUSE_OWN_ONE else SPEED_WHY_NO_TPS if factor == SPEED_REFUSE_NO_TPS
+                else SPEED_WHY_RATE)
+    return None
+
+
+def speed_end_rule(lever_off: bool, eligible: bool, live_field: bool, same_field: bool, landed: bool, climb: bool, movie: bool,
+                   host_setting: int, factor: int, host_scene: bool, my_ctl: bool, ctl_back_ms: int,
+                   step_in_ms: int = SPEED_STEP_IN_MS) -> int:
+    """NetSyncSpeed.EndRule: a LATCH -- never on the host's control, position or link (``host_scene`` is read by NO term; the
+    lane's staleness is not an input). ``ctl_back_ms`` = how long my control has been back (-1 = it is off)."""
+    if lever_off:
+        return SPEED_END_LEVER
+    if not eligible:
+        return SPEED_END_SESSION
+    if landed:
+        return SPEED_END_LANDING
+    if not same_field:
+        return SPEED_END_FIELD
+    if not live_field:
+        return SPEED_END_SCENE
+    if climb:
+        return SPEED_END_CLIMB
+    if movie:
+        return SPEED_END_MOVIE
+    if host_setting <= 1:
+        return SPEED_END_HOST
+    if factor <= 1:
+        return SPEED_END_RATE
+    if my_ctl and ctl_back_ms >= step_in_ms:
+        return SPEED_END_CONTROL
+    return SPEED_END_NONE
+
+
+def speed_hold_rule(standing: bool, my_ctl_off: bool) -> bool:
+    """NetSyncSpeed.HoldRule: the factor applies only while the latch stands AND my control is off (free roam stays at my own
+    speed: rev 3)."""
+    return bool(standing) and bool(my_ctl_off)
+
+
+def speed_getter_rule(stock: int, applied: bool, field_scene: bool, armed_field: int, fld: int, factor: int) -> int:
+    """NetSyncSpeed.GetterRule (SettingsState.FastForwardFactor's seam): the mirror's factor over stock's, only while it applies,
+    on the field scene, on its own field; never below stock."""
+    return factor if applied and field_scene and armed_field > 0 and armed_field == fld and factor > stock else stock
+
+
+def speed_mode_rule(on: bool, applied: bool, field_scene: bool, armed_field: int, fld: int) -> bool:
+    """NetSyncSpeed.ModeRule (SettingsState.SetFastForward's seam): FAST MODE for my own booster, or the mirror applying here (the
+    getter's three tests). The raw flag is never this."""
+    return bool(on) or (bool(applied) and bool(field_scene) and armed_field > 0 and armed_field == fld)
+
+
+def speed_end_words(end: int, fld: int, scene: str | None = None) -> str:
+    """NetSyncSpeed.EndWords: the OFF line's tail for an end reason. ``scene`` is SceneNow() (SceneDirector.CurrentScene) and is
+    REQUIRED for `scene`: that end fires only once the copy has left the field scene, so its words never name FieldMap -- no default
+    stands in for the scene the copy is actually in (the review: a stand-in once printed "(FieldMap)" over a BattleMapDebug)."""
+    if end == SPEED_END_SCENE and not scene:
+        raise ValueError("speed_end_words(SPEED_END_SCENE, ...) needs the scene the copy is in (SceneNow), never a default")
+    return {SPEED_END_LEVER: "the speed lever is off", SPEED_END_SESSION: "no longer a following, mirroring guest",
+            SPEED_END_LANDING: f"field {fld} loaded", SPEED_END_FIELD: f"I left the field (now {fld})",
+            SPEED_END_SCENE: f"I left the field scene ({scene})", SPEED_END_CLIMB: "my guest climb started",
+            SPEED_END_MOVIE: "a movie started", SPEED_END_HOST: "the host's booster is off",
+            SPEED_END_RATE: "the host's rate no longer covers mine (SpeedFactor x FieldTPS)",
+            SPEED_END_CONTROL: f"my control is back ({SPEED_STEP_IN_MS} ms)"}.get(end, "reset")
+
+
+# ---- the engine's speed-mirror lines (Log.Message writes them whole, "[NetSync] " included)
+def speed_log_on(fld: int, factor: int, host_setting: int, host_tps: int, g: int, my_tps: int, own: int, why: str) -> str:
+    """NetSyncSpeed.Start's line (the guest's ON edge)."""
+    return (f"[NetSync] speed mirror: ON on field {fld} -- factor {factor} (the host's booster {host_setting} x {host_tps} TPS covers "
+            f"my {g} x {my_tps}; my own factor {own}) -- {why}")
+
+
+def speed_log_off(field: int, ms: int, own: int, why: str) -> str:
+    """NetSyncSpeed.Stop's line (the guest's OFF edge)."""
+    return f"[NetSync] speed mirror: OFF on field {field} after {ms} ms -- factor back to {own} (my own) -- {why}"
+
+
+def speed_log_host(setting: int, tps: int) -> str:
+    """NetSyncSpeed.HostTick's line (one per host booster edge)."""
+    if setting > 1:
+        return (f"[NetSync] speed mirror (host): my booster is ON (setting {setting}, FieldTPS {tps}) -- section 10 tells a "
+                f"following guest to play my scenes at it")
+    return "[NetSync] speed mirror (host): my booster is OFF -- section 10 reads setting 1 (a following guest's mirror ends)"
