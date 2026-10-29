@@ -38,6 +38,14 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   saying disc 4 kept its own ground, an edit's Accept included.
 - An edit whose later step cannot be put back on top is cancelled and says why; it used to stop silently.
 
+### Fixed — co-op: no double character at the start of an Active Time Event (engine patch s162)
+From the third two-PC session (`studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Finding 9).
+- **When the guest's game arrives in an ATE, the guest steps out at once.** Before, both screens showed the other
+  player's character for about a second, until the ATE's first line ("2 Vivis"). Now neither screen draws it.
+- Ordinary doors and gateways are unchanged: the guest still walks in visibly.
+- The log now says which timer let a lagging guest's ATE go: "made no progress for 8 s" or the 30 s cap.
+- The fix is in the guest's engine; install s162 on both PCs as usual.
+
 ### Fixed — co-op: the guest sees the host's Active Time Events (engine patch s161)
 From the 2026-10-28 two-PC session (`studies/field-coop/ATE-RELAY.md`).
 - **When the host opens an Active Time Event, the guest's game opens the same ATE menu.** It closes on the host's pick, then

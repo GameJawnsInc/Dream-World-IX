@@ -817,6 +817,21 @@ class State:
         """s159: ``netsync.stepout.anchor`` {uid, ctl_uid, dressed_uid, ctl_rends_on}, copied (None = absent)."""
         return self._ns_path("stepout.anchor", dict)
 
+    # ---- [ff9mapkit netsync s162] THE LANDING START (GUEST-TRAVERSAL-TWO-PC.md Finding 9): `netsync.stepout.landing_wire` (after
+    # `wire_mask`), `base.landing` (after `host_scene`) and `out_why.ate`. Key PRESENCE is the capability.
+    @property
+    def coop_step_out_landing(self) -> bool:
+        """s162: the ATE relay's own-jump landing starts the step-out at once and zeroes the wire mask (``netsync.stepout.landing_wire``
+        present). False = an engine whose landing waits for a line or the dwell (s161: the peer shows twice for ~1 s on the ATE's
+        field) and which answers `stepout noland` with its usage line."""
+        return self._ns_path("stepout.landing_wire", bool) is not None
+
+    @property
+    def step_out_landing(self) -> bool | None:
+        """s162: the landing term at the last WireMask (``netsync.stepout.landing_wire``: it zeroes wire_mask and hides the host's
+        ghost); None = absent."""
+        return self._ns_path("stepout.landing_wire", bool)
+
     # ---- [ff9mapkit netsync s160] THE CHEST RELAY (studies/field-coop/CHEST-RELAY.md): `netsync.chest`, netsync's LAST key (after
     # `stepout`). Key PRESENCE is the capability.
     @property

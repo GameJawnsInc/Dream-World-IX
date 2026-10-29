@@ -85,10 +85,31 @@ OUT = {"good": so.judge_dwell(und())[0],
        "too_soon": so.judge_dwell(seq(lambda k, t: st(t=t), t_out=0.9))[0],
        "too_late": so.judge_dwell(seq(lambda k, t: st(t=t), t_out=3.0))[0],
        "by_line": so.judge_dwell(und(why="line"))[0],
+       "by_ate": so.judge_dwell(und(why="ate"))[0],     # [ff9mapkit netsync s162] THE ARRIVAL LAW rows never accept a landing start
+       "by_ate_late": so.judge_dwell(seq(lambda k, t: st(t=t, why="ate"), t_out=1.8))[0],
        "never": so.judge_dwell(und(active=False))[0]}
 ''')
     assert out.pop("good") is True, out
     assert not any(out.values()), out
+
+
+def test_k1_parses_every_generations_proof_line_and_judges_no_literal():
+    """[ff9mapkit netsync s162] K1 parses the step-out proof line of every engine generation the stand-in models -- s158 (37 / 12),
+    s159-s161 (44 / 15), s162 (56 / 20, the landing start's twelve rows and five mutants) -- and judges only the dwell and the
+    step-in it prints, never N or M; a line with another dwell is red. The bench's own ARRIVAL-LAW constants are unchanged."""
+    out = _child(r'''
+from harness import fakegame as FG
+line = lambda r, m, d=FG.STEPOUT_DWELL_MS: f"[NetSync] {FG.PROOF_STEP_OUT}OK ({r} rows, {m} mutants caught, dwell {d} ms, step-in {FG.STEPOUT_STEP_IN_MS} ms)"
+gens = [(FG.FAKE_STEPOUT_SELFTEST_ROWS_S158, FG.FAKE_STEPOUT_MUTANTS_S158), (FG.FAKE_STEPOUT_SELFTEST_ROWS_S161, FG.FAKE_STEPOUT_MUTANTS_S161),
+        (FG.FAKE_STEPOUT_SELFTEST_ROWS, FG.FAKE_STEPOUT_MUTANTS)]
+k1 = lambda ln: (lambda m: m is not None and m.group(3) == "1500" and m.group(4) == "500")(so.PROOF_RX.search(ln))
+OUT = {"gens": [list(g) for g in gens], "parsed": [k1(line(r, m)) for r, m in gens], "other_dwell": k1(line(52, 19, 1000)),
+       "same_rx": so.PROOF_RX.pattern == FG.STEPOUT_PROOF_RE, "dwell": [so.DWELL_MIN_S, so.DWELL_MAX_S, so.NDWELL_MAX_S],
+       "out_why": list(FG.NETSYNC_STEPOUT_OUT_WHY)}
+''')
+    assert out["gens"] == [[37, 12], [44, 15], [56, 20]], out
+    assert out["parsed"] == [True, True, True] and out["other_dwell"] is False and out["same_rx"], out
+    assert out["dwell"] == [1.4, 2.3, 1.4] and out["out_why"] == ["line", "dwell", "ate"], out
 
 
 def test_the_undressed_out_judge_can_go_red():

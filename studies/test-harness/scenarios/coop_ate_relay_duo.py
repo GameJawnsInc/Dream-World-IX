@@ -1,4 +1,5 @@
 """s161 -- THE ATE RELAY, the TWO-GAME bench (tools/harness/duo.py; studies/field-coop/ATE-RELAY.md). [ff9mapkit netsync s161]
+[ff9mapkit netsync s162] + THE LANDING START (GUEST-TRAVERSAL-TWO-PC.md Finding 9): rows D10-D12, D8's hub slice, the calibrations.
 
 Two real FF9s on this desktop, paired by duo.py (the guest FOLLOWING, its state mirror ARMED). The solo bench (coop_ate_relay.py)
 proves the relay, the serve, the lock's pick and the own jump on the selftest role; it cannot reach the GUEST TRANSPORT. This bench
@@ -26,19 +27,42 @@ every line on 350 as soon as it is ready.
           dropped all three).
   D7      THE WAY BACK: the guest's 'the follow to field 352 waits -- my copy still plays the ATE', no follow to 352 fired, ONE
           'Map: 352' after the ATE, the episode over on the landing.
-  D8      no guest step-out OUT while an ATE caption was up on the guest (the solo S1, on a client).
+  D8      no guest step-out OUT while an ATE caption was up on the guest (the solo S1, on a client). [ff9mapkit netsync s162] THE
+          HUB SLICE: from the press to the FIRST of the guest's 'my copy's own Field(350) landed' and its 'Map: 350' (s162's landing
+          OUT comes right after the landed line and can precede 'Map: 350', logged at LateUpdate) -- the menu and the title only.
   D9      THE HOST HALF of the caption exemption: sampled on the host while its menu is up and again while its title card is up,
           `netsync.stepout.host_plain_scene` reads false (option C does not hide the guest's ghost over the relay's own captions) and,
           while the menu is up, `netsync.ate.stepout_exempt` reads true (the positive control: the latch is set). A missing sample is
           red.
+  D10     [ff9mapkit netsync s162] THE LANDING START on the guest (the solo S-LAND, on a client): after its 'my copy's own Field(350)
+          landed' and before its 'win 4 text 321 opened locked', ONE 'step-out: OUT on field 350 (...) -- ate' (the first OUT on 350),
+          and the guest's `stepout.out_why.ate` rose over the run (an absent key is red).
+  D11     [ff9mapkit netsync s162] THE HOST'S SCREEN: every distinct host frame is read from the title's close (not from the moment
+          the bench sees the guest's landed line -- a late log flush must not empty the window) until WATCH_TAIL_S after the guest's
+          first ATE line, and judged on 350 only. Every sample that drives the guest's ghost (`stepout.ghost.hide` non-null) hides it
+          FOR THE GUEST'S ZERO WIRE MASK ('mask0' -- not the host's own option C, 'host_scene', which only rises on the host's own
+          line), no sample shows it (`dress.ghost.shown_mask` > 0), and at least MIN_DRIVEN samples drove it (else vacuous: red). The
+          guest's landed line must have been seen (the gate: else no landing happened, red).
+  D12     [ff9mapkit netsync s162] THE GUEST'S SCREEN, D11's mirror: the guest's own frames over the same window, judged on 350.
+          Every sample that drives the host's ghost hides it by 'landing' (the landing term, before the step-out's base holds) or
+          'step_out' (the episode, once it does), none shows it, at least MIN_DRIVEN drove it. The guest's paired block runs only
+          with its body bound on the host's field (else the ghost is despawned: hide null, not judged).
 
 THE CALIBRATION (COOP_CALIBRATE=1): run on the s160 DLL (no `netsync.ate`). PREDICTED_S160 = D1, D2, D3, D4, D7, D9 red. D5 is green
 there too (the FOLLOW lands the guest on 350 with the host's entrance, as on 2026-10-28). D6 and D8 are maybes: at 1x the follow
 may land the guest early enough to show some closing lines, and with no menu on the guest there is no caption to step out on. A
-red outside those voids the run.
+red outside those voids the run. [ff9mapkit netsync s162] + D10, D11 and D12 (no own-jump landing: the guest never logs one).
+[ff9mapkit netsync s162] COOP_CALIBRATE=s161: run on the s161 DLL. PREDICTED_S161 = D10, D11, D12 red (no `out_why.ate`, the OUT
+waits for 321's line; until then the guest's wire mask is non-zero, so the host's ghost of it is SHOWN or hidden only by the host's
+own option C, never 'mask0' -- and the guest's GhostHide sees the host's non-zero mask with no step-out, so it SHOWS the host's
+ghost); D1-D9 stay green (s161's own 22/22, D8 on the hub slice).
+[ff9mapkit netsync s162] COOP_CALIBRATE=noland is REFUSED AT LOAD, before the pair boots: `stepout noland` is a SELFTEST-ROLE lever
+(NetSyncStepOut.LeverNoLand reads IsSelfTestRole) and the duo's guest is a CLIENT, so it could never be taken -- the duo calibrates
+s162 by DLL swap (COOP_CALIBRATE=s161); the solo bench carries the noland lever.
 
     py tools/harness/duo.py studies/test-harness/scenarios/coop_ate_relay_duo.py
     COOP_CALIBRATE=1 py tools/harness/duo.py studies/test-harness/scenarios/coop_ate_relay_duo.py     (on the s160 DLL)
+    COOP_CALIBRATE=s161 py tools/harness/duo.py studies/test-harness/scenarios/coop_ate_relay_duo.py  (on the s161 DLL)
 
 Prereqs as duo.py's: no FF9 running from either root, no controller connected, nobody at the keyboard (THE UNATTENDED LAW).
 NOT PROVEN HERE: a same-field ATE (no bench field carries one with a reachable gate); the host faster than 1x (Finding 4's rate).
@@ -54,6 +78,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _coop_battle as cb                                          # noqa: E402 - Ledger, CALIBRATE
+import coop_ate_relay as solo                                      # noqa: E402 - [s162] the landing's shared log judge
 from harness import duo as duo_mod                                 # noqa: E402 - watched_byte
 
 HarnessError = cb.HarnessError
@@ -67,6 +92,13 @@ MENU_S = 5.0
 JUMP_S = 20.0
 ATE_S = 150.0                            # the whole ATE on 350 at 1x, paged as fast as the host's lines allow
 BACK_S = 25.0
+LAND_WATCH_S = JUMP_S + 8.0              # [ff9mapkit netsync s162] the title's close to the guest's first ATE line
+#: [ff9mapkit netsync s162] D11/D12's window runs this long past the guest's first ATE line: long enough for MIN_DRIVEN samples when
+#: the host loads 350 late (a longer tail never hides a red: the window's START is the title's close, and every sample is judged)
+WATCH_TAIL_S = 2.0
+MIN_DRIVEN = 3                           # [ff9mapkit netsync s162] D11 / D12 need this many samples that drove the peer's ghost
+HOST_HIDES = ("mask0",)                  # [ff9mapkit netsync s162] D11: the guest's zero wire mask, never the host's option C
+GUEST_HIDES = ("landing", "step_out")    # [ff9mapkit netsync s162] D12: the landing term, then the episode
 
 CLAIMS = {
     "D0": "both on 352 with control (the guest by ONE follow), the gate bytes equal on both",
@@ -80,17 +112,82 @@ CLAIMS = {
     "D8": "no guest step-out OUT while an ATE caption was up on the guest",
     "D9": "the host's option C keeps the guest's ghost through its relayed menu and title (host_plain_scene false; the host's "
           "ate.stepout_exempt true while the menu is up)",
+    "D10": "THE LANDING START on the guest (s162): one 'step-out: OUT on field 350 (...) -- ate' after its landed line and before "
+           "its 321 (the first OUT on 350); its stepout.out_why.ate rose",
+    "D11": "THE HOST'S SCREEN from the title's close to 2 s past the guest's first ATE line (the guest's landing seen): every host "
+           "sample on 350 that drives the guest's ghost hides it by the guest's zero wire mask ('mask0'), none shows it, at least 3 "
+           "drove it",
+    "D12": "THE GUEST'S SCREEN over the same window: every guest sample on 350 that drives the host's ghost hides it by 'landing' "
+           "or 'step_out', none shows it, at least 3 drove it",
 }
-PREDICTED_S160 = ("D1", "D2", "D3", "D4", "D7", "D9")
+PREDICTED_S160 = ("D1", "D2", "D3", "D4", "D7", "D9",
+                  "D10", "D11", "D12")              # [ff9mapkit netsync s162] no own-jump landing on s160
 MAYBE_S160 = ("D6", "D8")
+PREDICTED_S161 = ("D10", "D11", "D12")              # [ff9mapkit netsync s162] the s161 DLL
 CAL_ID = "D-CAL"
+#: [ff9mapkit netsync s162] COOP_CALIBRATE's values: None (no calibration), "s160" (1 or anything else: the s160 DLL), "s161" (the
+#: s161 DLL); "noland" is refused at load (calibration())
+CAL_PREDICTED = {"s160": (PREDICTED_S160, MAYBE_S160), "s161": (PREDICTED_S161, ())}
+NOLAND_REFUSAL = ("coop_ate_relay_duo: COOP_CALIBRATE=noland is refused -- `stepout noland` is a selftest-role lever and the duo's "
+                  "guest is a client, so the engine could never take it. Calibrate s162 on the duo with COOP_CALIBRATE=s161 on the "
+                  "swapped-in s161 DLL; the solo bench (coop_ate_relay.py) carries the noland lever.")
 
 
-def catalog(calibrate: bool) -> dict:
+def calibration() -> str | None:
+    v = os.environ.get("COOP_CALIBRATE", "").strip().lower()
+    if v in ("", "0"):
+        return None
+    if v == "noland":                                   # [ff9mapkit netsync s162] at load: before duo.py boots the pair
+        raise SystemExit(NOLAND_REFUSAL)
+    return v if v == "s161" else "s160"
+
+
+CAL_MODE = calibration()
+
+
+def catalog(calibrate) -> dict:
+    """``calibrate``: a CAL_PREDICTED mode, or True (the s160 run, as before s162), or falsy."""
     cat = dict(CLAIMS)
-    if calibrate:
-        cat[CAL_ID] = "the s160 calibration: exactly " + ", ".join(PREDICTED_S160) + " red (maybe " + ", ".join(MAYBE_S160) + ")"
+    mode = "s160" if calibrate is True else calibrate
+    if mode:
+        predicted, maybe = CAL_PREDICTED[mode]
+        what = {"s160": "the s160 calibration", "s161": "the s161 calibration (the s161 DLL)"}[mode]
+        cat[CAL_ID] = f"{what}: exactly " + ", ".join(predicted) + " red" + (" (maybe " + ", ".join(maybe) + ")" if maybe else "")
     return cat
+
+
+def judge_ghost(samples, t_land, t_first, allowed, who: str) -> tuple:
+    """[ff9mapkit netsync s162] D11 / D12 (PURE): ``samples`` = one game's distinct frames from the title's close
+    ({t, field, hide, shown, plain}, ``t`` in seconds since the close); ``t_land`` / ``t_first`` = when the guest's landed / first
+    ATE line was seen (same clock; None = never). Judged: the samples on 350 up to WATCH_TAIL_S past the first line. Green only when
+    the landing was seen, the window ran through the first line, at least MIN_DRIVEN of them drove the peer's ghost, every one hid it
+    by a reason in ``allowed``, and none showed it."""
+    if t_land is None:
+        return False, "the guest never logged its landing: no window"
+    if t_first is None:
+        return False, f"the guest's first ATE line never came: the window ({len(samples)} {who} samples) did not run through it"
+    end = t_first + WATCH_TAIL_S
+    win = [x for x in samples if x.get("field") == DEST and x.get("t", 0.0) <= end]
+    driven = [x for x in win if x.get("hide") is not None]
+    shown = [x for x in win if isinstance(x.get("shown"), int) and not isinstance(x.get("shown"), bool) and x["shown"] > 0]
+    wrong = [x for x in driven if x.get("hide") not in allowed]
+    hides = sorted({str(x.get("hide")) for x in win})
+    ok = len(driven) >= MIN_DRIVEN and not shown and not wrong
+    first_bad = (wrong or shown or [None])[0]
+    return ok, (f"{len(win)} {who} samples on {DEST} up to {end:.2f} s after the title's close (landing seen at {t_land:.2f} s, "
+                f"first line at {t_first:.2f} s), {len(driven)} drove the ghost (want >= {MIN_DRIVEN}), {len(wrong)} not "
+                f"{'/'.join(allowed)}, {len(shown)} SHOWN; hides seen {hides}"
+                + (f"; first bad at +{first_bad.get('t', 0.0):.2f} s: {first_bad}" if first_bad else ""))
+
+
+def judge_host_ghost(samples, t_land, t_first) -> tuple:
+    """[ff9mapkit netsync s162] D11: the host's screen -- the guest's ghost hidden by the guest's zero wire mask only."""
+    return judge_ghost(samples, t_land, t_first, HOST_HIDES, "host")
+
+
+def judge_guest_ghost(samples, t_land, t_first) -> tuple:
+    """[ff9mapkit netsync s162] D12: the guest's screen -- the host's ghost hidden by the landing term or the episode."""
+    return judge_ghost(samples, t_land, t_first, GUEST_HIDES, "guest")
 
 
 class _DuoG:
@@ -163,8 +260,42 @@ def _gate_reads(g) -> tuple:
     return tuple(duo_mod.watched_byte(st, b) for b in GATE_BYTES)
 
 
+def _ghost_read(st, t: float) -> dict:
+    return {"t": t, "field": st.field_id, "hide": cb.path(st, "netsync.stepout.ghost.hide"),
+            "shown": cb.path(st, "netsync.dress.ghost.shown_mask"), "plain": cb.path(st, "netsync.stepout.host_plain_scene")}
+
+
+def _landing_watch(d, host, guest, g1: int, timeout: float) -> dict:
+    """[ff9mapkit netsync s162] From the title's close: read every distinct HOST and GUEST frame (field, `stepout.ghost.hide`,
+    `dress.ghost.shown_mask`, `host_plain_scene`), each stamped with its seconds since the close, and poll the guest's log for its
+    landed line and its first ATE line (same clock); stop WATCH_TAIL_S past the first ATE line or at ``timeout``. Sampling from the
+    close, not from the landed line, keeps a late log flush from emptying the window."""
+    out = {"t_land": None, "t_first": None, "host": [], "guest": []}
+    t0 = time.time()
+    deadline = t0 + timeout
+    seen = {"host": None, "guest": None}
+    stop = None
+    while time.time() < deadline:
+        now = time.time()
+        for role, g in (("host", host), ("guest", guest)):
+            st = g.state
+            if st.frame != seen[role]:
+                seen[role] = st.frame
+                out[role].append(_ghost_read(st, now - t0))
+        gm = _msgs(d, "guest", g1)
+        if out["t_land"] is None and _count(gm, solo.LANDED) > 0:
+            out["t_land"] = now - t0
+        if out["t_land"] is not None and out["t_first"] is None and _count(gm, solo.FIRST_LINE_LOCKED) > 0:
+            out["t_first"] = now - t0
+            stop = now + WATCH_TAIL_S
+        if stop is not None and now >= stop:
+            break
+        time.sleep(0.02)
+    return out
+
+
 def run_duo(d) -> None:
-    led = cb.Ledger(_DuoG(d), catalog(CALIBRATE), finals=(CAL_ID,) if CALIBRATE else (), width=1400)
+    led = cb.Ledger(_DuoG(d), catalog(CAL_MODE), finals=(CAL_ID,) if CAL_MODE else (), width=1400)
     strict, d.strict = d.strict, False
     try:
         _run(d, led)
@@ -176,9 +307,10 @@ def run_duo(d) -> None:
             d.note(f"logs archived: {d.archive('ate-relay')}")
         except Exception as err:                            # noqa: BLE001 - teardown must not mask the verdicts
             d.note(f"archive failed: {err}")
-        if CALIBRATE:
+        if CAL_MODE:
             led.close("not reached: the run ended before this check")
-            led.judge_calibration(CAL_ID, PREDICTED_S160, maybe=MAYBE_S160)
+            predicted, maybe = CAL_PREDICTED[CAL_MODE]
+            led.judge_calibration(CAL_ID, predicted, maybe=maybe)
         led.close(final=True)
         d.strict = strict
 
@@ -209,6 +341,7 @@ def _run(d, led) -> None:
               f"{_gate_reads(guest)}; {_grep(gm, 'following the peer', 'Map:', limit=300)}")
     if not (ok_h and ok_g):
         raise HarnessError("D0: the pair never settled on 352")
+    ate0 = cb.path(guest.state, "netsync.stepout.out_why.ate")    # [ff9mapkit netsync s162] D10's baseline (None: s161 or older)
 
     # ---- D1-D3: the host's menu, its pick, its title
     g1, h1 = len(d.lines("guest")), len(d.lines("host"))
@@ -229,7 +362,8 @@ def _run(d, led) -> None:
     led.check("D9", plain_menu is False and plain_title is False and exempt_menu is True,
               f"host_plain_scene menu {plain_menu!r} title {plain_title!r} (None = no sample); ate.stepout_exempt at the menu "
               f"{exempt_menu!r}")
-    # ---- D4/D5: both to 350
+    # ---- D4/D5: both to 350 -- [ff9mapkit netsync s162] both games' views of the peer's ghost, read from the title's close (D11/D12)
+    watch = _landing_watch(d, host, guest, g1, LAND_WATCH_S)
     _wait(host, lambda s: s.field_id == DEST, JUMP_S, "the host on 350")
     _wait(guest, lambda s: s.field_id == DEST, JUMP_S, "the guest on 350")
     t_g = time.time() + 8.0
@@ -249,9 +383,22 @@ def _run(d, led) -> None:
               and _count(gm, "bounced to a reload") == 0 and _count(gm, f"Map: {DEST} ") == 1,
               f"Map: {DEST} x{_count(gm, f'Map: {DEST} ')}; {_grep(gm, 'Field(', 'following the peer', 'bounced', 'waits', limit=500)}")
     led.check("D5", _count(gm, "win 4 text 321 opened locked") >= 1, _grep(gm, "text 321", "Map:", limit=300))
-    # D8 reads the guest's log from the press to the landing on 350 (the menu and the title are the only captions there)
-    land = next((i for i, m in enumerate(gm) if f"Map: {DEST} " in m), len(gm))
+    # D8 reads the guest's log from the press to the landing on 350 (the menu and the title are the only captions there) --
+    # [ff9mapkit netsync s162] the HUB SLICE: up to the FIRST of the landed line and 'Map: 350' (the landing's OUT follows the former)
+    land = solo.hub_end(gm)
     led.check("D8", _count(gm[:land], "step-out: OUT on field") == 0, _grep(gm[:land], "step-out", limit=300))
+    # [ff9mapkit netsync s162] D10: the guest's landing OUT by `ate`, between its landed line and its first ATE line; its counter
+    ok10, parts10, reasons = solo.landing_out(gm)
+    rose, top = solo.counter_rose(ate0, [guest.state], "netsync.stepout.out_why.ate")
+    parts10 = parts10 + [("out_why.ate rose", rose)]
+    led.check("D10", ok10 and rose, ", ".join(f"{k} {'ok' if v else 'NO'}" for k, v in parts10)
+              + f"; OUTs on {DEST} {reasons}; out_why.ate {ate0!r} -> {top!r}; {_grep(gm, 'landed', 'step-out', 'text 321', limit=500)}")
+    # [ff9mapkit netsync s162] D11: the host's screen from the guest's landing through its first ATE line
+    ok11, why11 = judge_host_ghost(watch["host"], watch["t_land"], watch["t_first"])
+    led.check("D11", ok11, why11)
+    # [ff9mapkit netsync s162] D12: the guest's screen over the same window
+    ok12, why12 = judge_guest_ghost(watch["guest"], watch["t_land"], watch["t_first"])
+    led.check("D12", ok12, why12)
 
     # ---- D6/D7: the host pages the ATE on 350 at 1x; the guest's copy follows the lines and its own way back
     g2 = len(d.lines("guest"))

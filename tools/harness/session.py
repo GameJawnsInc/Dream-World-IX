@@ -8540,16 +8540,21 @@ class Session:
     NETSYNC_STEPOUT_SUBVERBS = {
         "stepout": ("coop_step_out", "netsync.stepout", "s158", "the s158 party-scene step-out bench"),
     }
-    NETSYNC_STEPOUT_OPS = ("act", "off", "ctl", "clear")      # [ff9mapkit netsync s159] + `ctl`
+    NETSYNC_STEPOUT_OPS = ("act", "off", "ctl", "noland", "clear")   # [ff9mapkit netsync s159] + `ctl`; [s162] + `noland`
     NETSYNC_STEPOUT_ROLE_REFUSAL = "netsync stepout: needs the selftest role (netsync selftest 1)"
-    NETSYNC_STEPOUT_USAGE = "netsync stepout: expected act|off|ctl|clear"
+    NETSYNC_STEPOUT_USAGE = "netsync stepout: expected act|off|ctl|noland|clear"
+    NETSYNC_STEPOUT_OPS_S161 = ("act", "off", "ctl", "clear")                # [ff9mapkit netsync s162] an s159-s161 engine's
+    NETSYNC_STEPOUT_USAGE_S161 = "netsync stepout: expected act|off|ctl|clear"
     NETSYNC_STEPOUT_OPS_S158 = ("act", "off", "clear")                       # [ff9mapkit netsync s159] an s158 engine's
     NETSYNC_STEPOUT_USAGE_S158 = "netsync stepout: expected act|off|clear"
     #: [ff9mapkit netsync s159] the ops a LATER patch added, told by their own keys (an s158 engine answers `ctl` with its usage
     #: line after the step; the driver refuses it before, naming the patch): the State accessor, the key, the patch, what it is.
+    #: [ff9mapkit netsync s162] + `noland` (an s159-s161 engine answers it with ITS usage line, NETSYNC_STEPOUT_USAGE_S161)
     NETSYNC_STEPOUT_OP_CAPS = {
         "ctl": ("coop_step_out_anchor", "netsync.stepout.anchor", "s159",
                 "the step-out anchor's calibration lever (anchor on the controlled actor, s158's rule)"),
+        "noland": ("coop_step_out_landing", "netsync.stepout.landing_wire", "s162",
+                   "the ATE landing start's calibration lever (no landing term, s161's rule)"),
     }
     #: [ff9mapkit netsync s160] THE CHEST RELAY's sub-verb (studies/field-coop/CHEST-RELAY.md), told by ``netsync.chest``'s PRESENCE
     #: (netsync's LAST key, after `stepout`): the State capability accessor, the key, the patch, what the verb is -- and
@@ -9099,15 +9104,19 @@ class Session:
             ns = st.netsync if isinstance(st.netsync, dict) else {}
             op = str(args[0]).strip().lower() if args else ""
             if ns.get("selftest") is True:
-                anchor = bool(st.coop_step_out_anchor)
-                ops = self.NETSYNC_STEPOUT_OPS if anchor else self.NETSYNC_STEPOUT_OPS_S158
-                usage = self.NETSYNC_STEPOUT_USAGE if anchor else self.NETSYNC_STEPOUT_USAGE_S158
+                # [ff9mapkit netsync s162] the ops BY GENERATION: `noland` on the landing rung, `ctl` on the anchor rung, else s158's
+                if st.coop_step_out_landing:
+                    ops, usage = self.NETSYNC_STEPOUT_OPS, self.NETSYNC_STEPOUT_USAGE
+                elif st.coop_step_out_anchor:
+                    ops, usage = self.NETSYNC_STEPOUT_OPS_S161, self.NETSYNC_STEPOUT_USAGE_S161
+                else:
+                    ops, usage = self.NETSYNC_STEPOUT_OPS_S158, self.NETSYNC_STEPOUT_USAGE_S158
                 need = self.NETSYNC_STEPOUT_OP_CAPS.get(op) if len(args) == 1 else None
                 if need is not None and not getattr(st, need[0]):
                     attr, key, patch, what = need
                     raise HarnessError(
                         f"netsync stepout {op}: the deployed engine publishes no `{key}` -- {what} is memoria-patch {patch}; an "
-                        f"engine before it answers \"{self.NETSYNC_STEPOUT_USAGE_S158}\". Not sent. Rebuild the DLL.")
+                        f"engine before it answers \"{usage}\". Not sent. Rebuild the DLL.")
                 if len(args) != 1 or op not in ops:
                     raise HarnessError(usage)
         elif sub == "chest":
@@ -9372,8 +9381,9 @@ class Session:
         """[ff9mapkit netsync s158] ``netsync stepout act|off|clear`` (selftest role): off = CALIBRATION, never step out (a live
         step-out steps in); act / clear = the shipping rule -- through :meth:`netsync`'s gates (refused before the step on an
         engine without ``netsync.stepout``). [ff9mapkit netsync s159] ``ctl`` = CALIBRATION, anchor on the controlled actor
-        (s158's rule; refused before the step on an engine without ``netsync.stepout.anchor``). Returns a fresh state; read it
-        back through :attr:`State.step_out`."""
+        (s158's rule; refused before the step on an engine without ``netsync.stepout.anchor``). [ff9mapkit netsync s162] ``noland`` =
+        CALIBRATION, no ATE landing term (s161's rule; refused before the step on an engine without ``netsync.stepout.landing_wire``).
+        Returns a fresh state; read it back through :attr:`State.step_out`."""
         return self.netsync("stepout", op, timeout=timeout)
 
     def ate(self, op: str, *, timeout: float = 20.0) -> State:
