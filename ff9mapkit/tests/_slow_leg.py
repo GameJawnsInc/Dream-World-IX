@@ -109,6 +109,10 @@ LEGS = {
         "test_a_world_diorama_that_leaves_mid_fight_on_an_allowed_why_reds_its_boot_row",     # [fix-r1] the leave's bound
         "test_a_cold_return_at_the_spawn_still_reds_place",                                   # [fix-r1] PLACE can fail
     ),
+    # [ff9mapkit netsync s163] coop_speed_mirror.py's whole solo bench on a real-time stand-in: plain, its calibration, the s162 engine
+    "test_coop_speed_mirror_bench.py": (
+        "test_the_solo_bench_runs_green_on_the_s163_stand_in_calibrates_exactly_and_reds_on_s162",
+    ),
 }
 
 #: test_harness.py's story-trace drives and rehearsals, O4 to O8 (the rungs with a rehearsal), when they take ``game``

@@ -858,6 +858,42 @@ class State:
         """s161: the whole ``netsync.ate`` block, copied (None = absent)."""
         return self._ns_path("ate", dict)
 
+    # ---- [ff9mapkit netsync s163] THE HOST'S SPEED ON A FOLLOWING GUEST (studies/field-coop/SPEED-MIRROR.md): `netsync.speed`, netsync's
+    # LAST key (after s161's `ate`), published in EVERY role, and the top-level `ff` (after `scenario`). Key PRESENCE is the capability.
+    @property
+    def coop_speed_mirror(self) -> bool:
+        """s163: the speed mirror (``netsync.speed.edges_on`` present). False = an engine whose guest never runs the host's scene at
+        the host's booster (s162's rule), which answers `netsync speed` with "unknown sub-verb" and `speedmode` with "unknown op"."""
+        return self._ns_path("speed.edges_on", int) is not None
+
+    @property
+    def speed_mirror(self) -> dict | None:
+        """s163: the whole ``netsync.speed`` block, copied (None = absent)."""
+        return self._ns_path("speed", dict)
+
+    @property
+    def speed_mirror_on(self) -> bool | None:
+        """s163: the LATCH stands (``netsync.speed.mirror``); None = absent."""
+        return self._ns_path("speed.mirror", bool)
+
+    @property
+    def speed_applied(self) -> bool | None:
+        """s163: the mirror's factor applies NOW (``netsync.speed.applied``: the latch with my control off -- false through the
+        StepInMs debounce after my control returns, so free roam is my own speed); None = absent."""
+        return self._ns_path("speed.applied", bool)
+
+    @property
+    def speed_factor_now(self) -> int | None:
+        """s163: the REAL getter as AppendSpeed read it (``netsync.speed.factor_now``; -1 = unreadable); None = absent."""
+        return self._ns_path("speed.factor_now", int)
+
+    @property
+    def ff(self) -> int | None:
+        """s163: SettingsState.FastForwardFactor, the LIVE booster factor (the top-level ``ff``: the player's F1, a movie, or a
+        following guest's speed mirror) -- the main-loop updates FPSManager runs a frame, what harness.tickrate's reach model
+        multiplies by. -1 = unreadable; None = an engine before s163 (it publishes none)."""
+        return self._top_int(None, "ff")
+
     guest_local_mode = _guestlocal_prop("mode", str, "s156: the gate's EFFECTIVE mode -- 'act' | 'shadow' | 'off' (the lever on "
                                                      "the selftest role only, else 'act'; '' = the catch line).")
     guest_local_lever = _guestlocal_prop("lever", str, "s156: the `guestlocal` lever AS SET -- 'act' | 'shadow' | 'off' ('' = "

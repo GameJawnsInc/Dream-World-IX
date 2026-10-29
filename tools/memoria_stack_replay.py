@@ -138,6 +138,11 @@ DEFAULT_FILES = [
     # NetSyncStepOut.cs, NetSyncBattle.cs, HarnessAgent.cs and the csproj are listed above
     "Assembly-CSharp/Memoria/Netsync/NetSyncAte.cs",
     "Assembly-CSharp/Global/ETb/ETb.cs",
+    # [ff9mapkit netsync s163] the speed mirror: its new file (created from /dev/null) and its one stock hook site not yet listed --
+    # SettingsState.cs (the FastForwardFactor getter's mirror term + the speedmode seam; s37 and s40 touched it before, unlisted);
+    # NetSyncState.cs, NetSyncAte.cs, NetSyncStepOut.cs, NetSyncBattle.cs, NetSyncClient.cs, HarnessAgent.cs and the csproj are listed above
+    "Assembly-CSharp/Memoria/Netsync/NetSyncSpeed.cs",
+    "Assembly-CSharp/Global/SettingsState.cs",
 ]
 
 # [ff9mapkit netsync s157] GENERATED files are only ever replaced WHOLE (the kit renders them from a JSON twin; their pins

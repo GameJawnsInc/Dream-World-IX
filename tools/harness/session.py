@@ -1489,7 +1489,7 @@ class Session:
         if rate.ready:
             return rate
         fast = self.UNMEASURED_FPS
-        return Rate(fast, fast, fast, rate.tick_hz)
+        return Rate(fast, fast, fast, rate.tick_hz, ff=rate.ff)   # [ff9mapkit netsync s163] the factor inside tick_hz rides along
 
     def _measured_rate(self) -> Rate | None:
         """A MEASURED rate (``Rate.ready``): the clock's own at once when it has one, else after reading the game
@@ -8410,20 +8410,21 @@ class Session:
     #: `containment`/`bctl`, s102 `bmenu`; [ff9mapkit netsync B5] + s103 `endbench`; [ff9mapkit netsync B4] s106 INSERTS
     #: `bbench` before `endbench`; [ff9mapkit netsync s133] + `actbench`; [ff9mapkit netsync s139] + `selfdress`;
     #: [ff9mapkit netsync s156] + `guestlocal`, at the END; [ff9mapkit netsync s158] + `stepout` after it; [ff9mapkit netsync
-    #: s160] + `chest` after it. [ff9mapkit netsync s161] + `ate` after that). Pinned to the patch stack by test_harness_netsync.py.
+    #: s160] + `chest` after it. [ff9mapkit netsync s161] + `ate` after that. [ff9mapkit netsync s163] + `speed` after it). Pinned to
+    #: the patch stack by test_harness_netsync.py.
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
                         "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
                         "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench",
-                        "endbench", "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate")
+                        "endbench", "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate", "speed")
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
     #: "authority", s96) -- the F3.3 and B4/B5 ones included (they build on it). An F3 engine answers them "unknown
     #: sub-verb" only AFTER the step is spent. [ff9mapkit netsync s156] + `guestlocal`, at the END. [ff9mapkit netsync s158] +
     #: `stepout` after it. [ff9mapkit netsync s160] + `chest` after it. [ff9mapkit netsync s161] +
-    #: `ate` after that.
+    #: `ate` after that. [ff9mapkit netsync s163] + `speed` after it.
     NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
                                   "host", "tap-record", "replay", "guestslots", "bcmd", "hostgates", "containment",
                                   "bctl", "bmenu", "bbench", "endbench", "actbench", "selfdress", "guestlocal", "stepout",
-                                  "chest", "ate")
+                                  "chest", "ate", "speed")
     #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
     #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
     #: engine without it, the key it reads, the patch that added it, and what the verb is.
@@ -8575,6 +8576,20 @@ class Session:
     NETSYNC_ATE_OPS = ("act", "off", "noexempt", "clear")
     NETSYNC_ATE_ROLE_REFUSAL = "netsync ate: needs the selftest role (netsync selftest 1)"
     NETSYNC_ATE_USAGE = "netsync ate: expected act|off|noexempt|clear"
+    #: [ff9mapkit netsync s163] THE SPEED MIRROR's sub-verb (studies/field-coop/SPEED-MIRROR.md), told by ``netsync.speed``'s PRESENCE
+    #: (netsync's LAST key, after s161's `ate`): the State capability accessor, the key, the patch, what the verb is -- and
+    #: NetSyncSpeed.HarnessLever's ops and two refusals, in its words: `act|off|clear` on ANY role (the duo's calibration runs on a
+    #: client: both duo games share one DLL), `host <1-255>` on the selftest role only (it fabricates a host frame; that op's ROLE is
+    #: the engine's first refusal, whatever its arity). The top-level `speedmode 1|0` is told by the same key (an s162 agent answers
+    #: it "unknown op 'speedmode'").
+    NETSYNC_SPEED_SUBVERBS = {
+        "speed": ("coop_speed_mirror", "netsync.speed", "s163", "the s163 speed mirror's lever"),
+    }
+    NETSYNC_SPEED_OPS = ("act", "off", "clear")
+    NETSYNC_SPEED_HOST_OP = "host"
+    NETSYNC_SPEED_HOST_RANGE = (1, 255)
+    NETSYNC_SPEED_ROLE_REFUSAL = "netsync speed host: needs the selftest role (netsync selftest 1)"
+    NETSYNC_SPEED_USAGE = "netsync speed: expected act|off|clear (any role) or host <1-255> (the selftest role)"
     #: [ff9mapkit netsync B4] `bmenu <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncBattle.HarnessStockMenu, s102).
     NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
@@ -8968,6 +8983,7 @@ class Session:
             ng = ng or self.NETSYNC_STEPOUT_SUBVERBS.get(sub)   # [ff9mapkit netsync s158] ...and the step-out's, the same gate
             ng = ng or self.NETSYNC_CHEST_SUBVERBS.get(sub)     # [ff9mapkit netsync s160] ...and the chest relay's
             ng = ng or self.NETSYNC_ATE_SUBVERBS.get(sub)       # [ff9mapkit netsync s161] ...and the ATE relay's, the same gate
+            ng = ng or self.NETSYNC_SPEED_SUBVERBS.get(sub)     # [ff9mapkit netsync s163] ...and the speed mirror's
             if not authority:
                 if st.netsync is None:
                     have = "publishes no `netsync` block"
@@ -9131,6 +9147,13 @@ class Session:
             op = str(args[0]).strip().lower() if args else ""
             if ns.get("selftest") is True and (len(args) != 1 or op not in self.NETSYNC_ATE_OPS):
                 raise HarnessError(self.NETSYNC_ATE_USAGE)
+        elif sub == "speed":
+            # [ff9mapkit netsync s163] NetSyncSpeed.HarnessLever's order: `host` off the selftest role is the ENGINE's first refusal (the
+            # step goes out and its words come back, whatever the arity); every other form is judged on ANY role -- `act|off|clear`
+            # alone, or `host <1-255>` on the role -- and refused before the step in its one usage line
+            ns = st.netsync if isinstance(st.netsync, dict) else {}
+            if self._speed_refusal(args, ns.get("selftest") is True) is not None:
+                raise HarnessError(self.NETSYNC_SPEED_USAGE)
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
             # [ff9mapkit netsync s145] THE WORLD DIOBOOT: a diorama boots from a live world map from s145 on (warm only: the engine's
             # pre-Arm verdict refuses anything a stock world battle could not return warm from). An s144 engine refuses it after
@@ -9393,6 +9416,48 @@ class Session:
         ``netsync.ate``). Counters are never reset (read DELTAS). Returns a fresh state; read it back through
         :attr:`State.ate_relay`."""
         return self.netsync("ate", op, timeout=timeout)
+
+    def _speed_refusal(self, args, selftest_role: bool) -> str | None:
+        """[ff9mapkit netsync s163] HarnessLever's usage verdict on ``args`` (the words after `speed`): None when the step goes out --
+        a well-formed op, or `host` off the selftest role (whose ROLE refusal is the engine's, whatever its arity) -- else the usage
+        line. `host <n>` takes Int32.TryParse's integer, 1-255."""
+        a = [str(x).strip() for x in args]
+        op = a[0].lower() if a else ""
+        if op == self.NETSYNC_SPEED_HOST_OP:
+            if not selftest_role:
+                return None
+            lo, hi = self.NETSYNC_SPEED_HOST_RANGE
+            try:
+                ok = len(a) == 2 and lo <= int(a[1]) <= hi
+            except ValueError:
+                ok = False
+            return None if ok else self.NETSYNC_SPEED_USAGE
+        return None if len(a) == 1 and op in self.NETSYNC_SPEED_OPS else self.NETSYNC_SPEED_USAGE
+
+    def speed(self, op: str, n: int | None = None, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s163] ``netsync speed act|off|clear`` (ANY role): off = CALIBRATION, s162's rule (never mirror; a standing
+        mirror ends at the next tick); act = the shipping rule; clear = act, the bench host forgotten. ``speed("host", n)`` = ``netsync
+        speed host <n>`` (the selftest role only, n 1-255): a bench host -- section 10 = [n][my FieldTPS] through the real codec into
+        the guest's cache (src "bench"; with ``hostscene 1`` as the host's control-off scene). Through :meth:`netsync`'s gates (refused
+        before the step on an engine without ``netsync.speed``; off the selftest role `host` gets the engine's own role refusal).
+        Counters are never reset (read DELTAS). Returns a fresh state; read it back through :attr:`State.speed_mirror`."""
+        args = (op,) if n is None else (op, int(n))
+        return self.netsync("speed", *args, timeout=timeout)
+
+    def speedmode(self, on: bool = True, *, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s163] ``speedmode 1|0`` (ANY role; the s94 ``noencounter`` precedent): the REAL F1 booster path --
+        CallBoosterButtonFuntion(HighSpeedMode, on): the raw flag, FAST MODE, the SFX re-pitch -- and its HUD icon. In memory only;
+        ``reset``, the disarm and a fault switch it off again, only when the harness switched it on (a player's own F1 already on is
+        never taken). Refused BEFORE the step on an engine without ``netsync.speed`` (an s162 agent answers "unknown op
+        'speedmode'" after it). Returns a fresh state: ``netsync.speed.raw`` / ``own_factor`` and the top-level ``ff``."""
+        st = self.state
+        if not st.coop_speed_mirror:
+            _attr, key, patch, _what = self.NETSYNC_SPEED_SUBVERBS["speed"]
+            raise HarnessError(
+                f"speedmode: the deployed engine publishes no `{key}` -- `speedmode` is memoria-patch {patch} (the speed mirror's "
+                f"F1 booster verb); an engine before it answers \"unknown op 'speedmode'\". Not sent. Rebuild the DLL.")
+        self.send(f"speedmode {1 if on else 0}", timeout=timeout)
+        return self.state
 
     def act_trance_grace(self, on: bool, *, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s137] ``actbench trancegrace on|off``: the trance burst timing's calibration lever (off = the

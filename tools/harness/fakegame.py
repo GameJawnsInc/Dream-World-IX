@@ -412,7 +412,30 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # a landing -- no ATE episode, no DEST latch or its spend, no step-out episode, no wire mask and no ghost here (the
                        # stand-in models neither episode), so `base.landing` and `landing_wire` stay false and the two counters 0
                        # (NetSyncStepOut.SelfTest / NetSyncAte.SelfTest prove the rules).
-                       "ateland": ("s162", ())}
+                       "ateland": ("s162", ()),
+                       # [ff9mapkit netsync s163] THE HOST'S SPEED ON A FOLLOWING GUEST (studies/field-coop/SPEED-MIRROR.md, rev 3;
+                       # GUEST-TRAVERSAL-TWO-PC.md Finding 10: "Dagger Tries" cut behind a 3x host): ONE sub-verb, `speed` (`act|off|clear`
+                       # on ANY role -- off = CALIBRATION, s162's rule -- and `host <1-255>` on the selftest role only, that op's role
+                       # refused first), ONE top-level verb on any role, `speedmode 1|0` (the real F1 booster path), `netsync.speed` as
+                       # netsync's LAST key, after s161's `ate` (NETSYNC_TOP_CAP_KEYS), the top-level `ff` after `scenario` (the live
+                       # FastForwardFactor), state-lane section 10 (battlewire.SECTION_SPEED) and the proof block's LAST line (after the
+                       # ATE relay's); its calibration is caps_through("ateland"). WHAT THE STAND-IN MODELS (FakeGame's s163 section): the
+                       # block in AppendSpeed's order -- the lever as set, HarnessLever's two refusals in its words, its lines, the
+                       # release (its line only when a lever or a bench host was set); the bench host (`host <n>`: section 10 =
+                       # [n][FieldTPS] through battlewire's codec into the cache, src "bench", forgotten on `clear`, the release and off
+                       # the role) and the bench lane's CacheRule (`netsync bench 1`: a NEW bench section 7 -- the lock on -- is a fresh
+                       # frame with no section 10 and forgets a wire host; the lock off or `stale 1` is a null state and marks the cache
+                       # stale; a frozen host's re-sent section notes nothing); `speedmode` (the raw flag, the ownership, the release on
+                       # `reset` and the disarm, the event row); the stock factor, the getter and the mode seams (`own_factor`, `factor_now`,
+                       # `mode_wanted`, `fast_mode` one frame behind, the top-level `ff`, and the clock's field ticks at FIELD_TPS x the
+                       # live factor); THE BENCH LATCH on the selftest role through battlewire's twins (eligible as the bench's step-out
+                       # reads it, `hostscene 1` = the host's control-off scene on my field, my control, the field scope, a playing MBG
+                       # movie; StartRule / EndRule / FactorRule / HoldRule; the ON / OFF lines, the edges, `end_why`, the mismatch line
+                       # once per tuple; a field change while it stands ends it as the load's OnLanding would); the proof line's tallies.
+                       # WHAT IT CANNOT: a live host lane or section 7 view (a client role never ticks the latch here: `why_not` stays at
+                       # its last word), an ATE episode or a relayed talk (terms (b) / (c)), a guest climb, a host's own section 10 on the
+                       # wire, the SFX re-pitch, stock's SetFastForward re-runs at scene loads and HUD clears, a fault.
+                       "speed": ("s163", ("speed",))}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -467,15 +490,17 @@ NETSYNC_S160_CAPS = frozenset(("chest",))
 NETSYNC_S161_CAPS = frozenset(("ate",))
 #: [ff9mapkit netsync s162] The landing-start rung (its calibration, the s161 engine, is ``caps_through("ate")``).
 NETSYNC_S162_CAPS = frozenset(("ateland",))
+#: [ff9mapkit netsync s163] The speed-mirror rung (its calibration, the s162 engine, is ``caps_through("ateland")``).
+NETSYNC_S163_CAPS = frozenset(("speed",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
 #: Session.NETSYNC_DRESS_SUBVERBS, the gate widened to it). [ff9mapkit netsync s156] ...and `guestlocal` LAST (its own table,
 #: Session.NETSYNC_GUESTLOCAL_SUBVERBS). [ff9mapkit netsync s158] ...and `stepout` after it (Session.NETSYNC_STEPOUT_SUBVERBS).
 #: [ff9mapkit netsync s160] ...and `chest` after it (Session.NETSYNC_CHEST_SUBVERBS). [ff9mapkit netsync s161] ...and `ate`
-#: after that (Session.NETSYNC_ATE_SUBVERBS).
+#: after that (Session.NETSYNC_ATE_SUBVERBS). [ff9mapkit netsync s163] ...and `speed` after it (Session.NETSYNC_SPEED_SUBVERBS).
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench",
-                             "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate")
+                             "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate", "speed")
 #: [ff9mapkit netsync B4] The keys each battle capability adds, by `netsync.battle` sub-object, in the agent's order
 #: (AppendNetsyncBattle / AppendBattleEnd / AppendEndLeave) -- `end_leave` and `declined` are the two keys whose values
 #: are themselves fixed sub-objects (:data:`NETSYNC_BATTLE_END_LEAVE_KEYS`, :data:`NETSYNC_BATTLE_DECLINED_KEYS`).
@@ -573,6 +598,8 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "ate": {},
     # [ff9mapkit netsync s162] nothing under `netsync.battle`: its four keys sit inside `netsync.stepout` (NETSYNC_TOP_NESTED_KEYS)
     "ateland": {},
+    # [ff9mapkit netsync s163] nothing under `netsync.battle`: `speed` is a TOP-LEVEL netsync block after `ate`
+    "speed": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -600,7 +627,8 @@ NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",),
                         "dresstwin": ("ghostframe",),           # [ff9mapkit netsync s157] ...and `ghostframe` after `guestlocal`
                         "stepout": ("stepout",),                  # [ff9mapkit netsync s158] ...and `stepout` after `ghostframe`
                         "chest": ("chest",),                     # [ff9mapkit netsync s160] ...and `chest` after `stepout`
-                        "ate": ("ate",)}                         # [ff9mapkit netsync s161] ...and `ate` after `chest`
+                        "ate": ("ate",),                         # [ff9mapkit netsync s161] ...and `ate` after `chest`
+                        "speed": ("speed",)}                     # [ff9mapkit netsync s163] ...and `speed` after `ate`
 #: [ff9mapkit netsync s145] The blocks a capability adds INSIDE an older TOP-LEVEL `netsync` block, by that block: s145's `dio`,
 #: `netsync.world`'s last (AppendWorldDio, after `waitline`)
 NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)},
@@ -884,6 +912,57 @@ ATE_PREPICK_HOLD_MS = 2000                              # NetSyncAte.PrepickHold
 ATE_HUB_CAPTION_CAP_MS = 20000                          # NetSyncAte.HubCaptionCapMs (an open title card restarts the hub hold)
 ATE_TAIL_CAP_MS = 30000                                 # NetSyncAte.TailCapMs (the tail hold, from its first held tick)
 ATE_EXIT_HOLD_MS = 20000                                # NetSyncAte.ExitHoldMs (my own exit beat the host out of the ATE field)
+#: [ff9mapkit netsync s163] `netsync.speed` (AppendSpeed), in the agent's order, at its catch-line sentinels: the host's section 10 as
+#: this copy's cache holds it (`host_setting` / `host_tps` / `host_seen` / `host_stale` / `src`), my own factor (`own_factor`: stock's
+#: getter body), the latch (`mirror`) and its hold (`applied`), the real getter (`factor_now`), the mode seam (`mode_wanted`, `fast_mode`),
+#: the raw flag, StartRule's first failing term (`why_not`), the edges, the last end, the faults, the ends by reason (`end_why`,
+#: battlewire.SPEED_END_NAMES from index 1), the lever and the selftest verdict. A LIVE engine reads `host_setting` 1, `host_tps` -1,
+#: `src` "none", `own_factor` / `factor_now` 1 and `why_not` "not ticked" where the catch line has -1 / null.
+NETSYNC_SPEED_END_WHY = tuple(n for n in BW.SPEED_END_NAMES if n is not None)
+NETSYNC_SPEED_SENTINELS = {
+    "host_setting": -1, "host_tps": -1, "host_seen": False, "host_stale": False, "src": None, "own_factor": -1, "mirror": False,
+    "applied": False, "factor_now": -1, "mode_wanted": False, "fast_mode": False, "raw": False, "why_not": None, "edges_on": 0,
+    "edges_off": 0, "last_end": None, "faults": 0, "last_fault": None, "end_why": {k: 0 for k in NETSYNC_SPEED_END_WHY},
+    "lever": None, "selftest": None}
+NETSYNC_SPEED_KEYS = tuple(NETSYNC_SPEED_SENTINELS)
+#: [ff9mapkit netsync s163] NetSyncSpeed.HarnessLever: `act|off|clear` on ANY role, `host <1-255>` on the selftest role only (that op's
+#: ROLE refused first, whatever its arity), one usage line otherwise; HarnessLeverName: null = act / clear (the shipping rule), "off" =
+#: CALIBRATION (s162's rule, never mirror). An s162 engine answers `netsync speed` with its unknown-sub-verb line and `speedmode` with
+#: "unknown op 'speedmode'".
+NETSYNC_SPEED_OPS = ("act", "off", "clear")             # any role
+NETSYNC_SPEED_HOST_OP = "host"                          # the selftest role only: `host <n>`, n 1-255
+NETSYNC_SPEED_HOST_RANGE = (1, 255)
+NETSYNC_SPEED_ROLE_REFUSAL = "netsync speed host: needs the selftest role (netsync selftest 1)"
+NETSYNC_SPEED_USAGE = "netsync speed: expected act|off|clear (any role) or host <1-255> (the selftest role)"
+NETSYNC_SPEED_READBACK_REFUSAL = "netsync speed: the bench host's section 10 did not read back"   # never on the real codec
+SPEED_LOG_OFF = "[NetSync] harness: speed mirror OFF -- CALIBRATION: s162's rule, never mirror (released with the harness)"
+SPEED_LOG_ACT = "[NetSync] harness: speed mirror ACT"
+SPEED_LOG_CLEAR = "[NetSync] harness: speed mirror CLEAR -- the shipping rule, the bench host forgotten"
+SPEED_LOG_HOST = ("[NetSync] harness: speed mirror's bench host -- section 10 = setting {s} x {t} TPS through the real codec "
+                  "(released with the harness)")
+SPEED_LOG_RELEASE = "[NetSync] harness: speed mirror lever released (act; the bench host forgotten)"
+#: [ff9mapkit netsync s163] the mismatch line (NetSyncSpeed.NoteMismatch), one per (G, myTps, setting, hostTps) tuple, for an eligible
+#: guest whose every other START term held -- by FactorRule's refusal
+SPEED_LOG_MISMATCH = {
+    BW.SPEED_REFUSE_OWN_ONE: ("[NetSync] speed mirror: my [Cheats] SpeedFactor is {g} -- nothing to mirror (the host's booster {s} x {t} "
+                              "TPS plays on at its own rate)"),
+    BW.SPEED_REFUSE_NO_TPS: "[NetSync] speed mirror: a FieldTPS is unknown (mine {m}, the host's {t}) -- the mirror stays off",
+    BW.SPEED_REFUSE_OVERSHOOT: ("[NetSync] speed mirror: my rate {g} x {m} TPS would overshoot the host's {s} x {t} -- the mirror stays "
+                                "off ([Cheats] SpeedFactor or [Graphics] FieldTPS differ between the machines)")}
+#: [ff9mapkit netsync s163] `speedmode 1|0` (HarnessAgent, the s94 `noencounter` precedent): the event row it writes (Event("speedmode",
+#: "on", "1"|"0")); `reset`, the disarm and a fault switch it off again only when the harness switched it on
+SPEEDMODE_EVENT = "speedmode"
+#: [ff9mapkit netsync s163] the stand-in's own machine: [Cheats] SpeedFactor (SettingsState.FastForwardGameSpeed, Memoria's default 3;
+#: the booster's factor -- `own_factor` with `speedmode 1`, the mirror's factor G) and its FieldTPS (FIELD_TPS: TpsRule's byte)
+FAKE_SPEED_FACTOR = 3
+#: [ff9mapkit netsync s163] the proof line's head and the bench's parse of it; the stand-in's N / M are NetSyncSpeed.SelfTest's own
+#: tallies: 112 rule rows (92 tabled + the ten start.order / ten end.order cascade rows) + the two live rows on the REAL host frame
+#: (live.frame_carries_10, live.frame_order) = 114; 66 mutants (MutantNames) -- a stand-in's numbers -- then the step-in it reads
+#: (NetSyncStepOut.StepInMs). The step-out and ATE relay lines keep s162's tallies (s163 adds rows to neither).
+PROOF_SPEED_MIRROR = "speed mirror selftest: "
+SPEED_PROOF_RE = r"speed mirror selftest: OK \((\d+) rows, (\d+) mutants caught, step-in (\d+) ms\)"
+FAKE_SPEED_SELFTEST_ROWS = 114
+FAKE_SPEED_MUTANTS = 66
 #: [ff9mapkit netsync s156] the kit's committed table (the generator's JSON: its `counts` and `table_crc` are what the compiled
 #: NetSyncGuestLocalTable carries -- the stand-in reads them, never a literal)
 GUEST_TRAVERSAL_JSON = Path(__file__).resolve().parents[2] / "ff9mapkit" / "ff9mapkit" / "data" / "guest_traversal.json"
@@ -1747,7 +1826,9 @@ class FakeGame:
             raise ValueError(f"publish takes only {PUBLISHED_CLOCKS}, not {publish!r}")
         #: FastForwardFactor (the F1 speed-mode cheat: Memoria.ini [Cheats] SpeedFactor): field ticks a second are
         #: FIELD_TPS x this (FPSManager.cs:95-97), and the engine publishes it nowhere -- a driver sees it only as
-        #: movement that outruns its rate. 1 = off.
+        #: movement that outruns its rate. 1 = off. [ff9mapkit netsync s163] An s163 engine publishes its LIVE factor as the
+        #: top-level `ff` (`speedmode 1`, a following guest's speed mirror: :meth:`_ff_live`); this knob stays the factor a
+        #: driver CANNOT see (an older engine's F1, a rate set outside the harness) -- the clock runs at FIELD_TPS x both.
         self.fast_forward = 1.0
         self._tick_mode = ticks
         self._render_fps = self._positive_fps(render_fps)
@@ -2364,6 +2445,7 @@ class FakeGame:
         self._so = {"lever": None, "selftest": None}     # [ff9mapkit netsync s158] NetSyncStepOut's harness statics
         self._ch = {"serve_off": False, "request_off": False, "selftest": None, "nonce": 0}   # [ff9mapkit netsync s160]
         self._ar = {"lever": None, "selftest": None}     # [ff9mapkit netsync s161] NetSyncAte's harness statics
+        self._sp = self._sp_fresh()                      # [ff9mapkit netsync s163] NetSyncSpeed's statics + the booster's raw flag
         self.guest_local_table: tuple | None = None
         self.selftest_offset = FAKE_SELFTEST_OFFSET
         #: [ff9mapkit netsync s157] THE GHOST FRAME (the `dresstwin` rung): the `bench ghostframe` lever as set and the proof line's
@@ -2816,8 +2898,9 @@ class FakeGame:
 
     @property
     def tick_hz(self) -> float:
-        """Field ticks a second: FIELD_TPS x `fast_forward`."""
-        return FIELD_TPS * self.fast_forward
+        """Field ticks a second: FIELD_TPS x `fast_forward`. [ff9mapkit netsync s163] x the LIVE (published) factor: `speedmode 1`'s
+        SpeedFactor, or the speed mirror's while it applies (FakeGame._ff_live: 1 when neither stands)."""
+        return FIELD_TPS * self.fast_forward * self._ff_live()
 
     def hitch(self, seconds: float, *, frame: int | None = None) -> None:
         """Make ``frame`` (default: the next) take ``seconds`` more virtual time -- a stall the engine catches up in
@@ -2836,7 +2919,7 @@ class FakeGame:
         self.rt = self._rt_anchor + self._rt_frames / self._render_fps
         self._dt = 1.0 / self._render_fps + extra
         if self._tick_mode == "quantized":
-            self._acc.fast_forward = self.fast_forward
+            self._acc.fast_forward = self.fast_forward * self._ff_live()   # [ff9mapkit netsync s163] x the live (published) factor
             n = self._acc.advance(self._dt)
             self._frame_ticks, self._steps = float(n), [1.0] * n
         else:
@@ -2943,6 +3026,7 @@ class FakeGame:
             self._advance_clock()
         else:
             self._hold_frame()
+        self._ctl_at_tick = bool(self.control)   # [ff9mapkit netsync s163] what NetSyncClient's Tick reads (see _step_speed)
         try:
             self._poll_arm()
             if self.armed:
@@ -2961,6 +3045,7 @@ class FakeGame:
                 self._step_selftest_proof()  # [ff9mapkit netsync R3] the selftest overlay + the proof block's R3 lines
                 self._service_turn()        # s90: end, or cut, an in-place turn
                 self._step_netsync()        # s96: the F3.2 guest's dialogue lock (bench only)
+                self._step_speed()          # [ff9mapkit netsync s163] the speed mirror (after the step-out: its bench latch)
                 self._step_script_poll()    # [ff9mapkit netsync F3.3] R5: the open polled line's script button-poll
                 self._step_diorama()        # [ff9mapkit netsync F3.3] DIO-1: a booted diorama's leave and return
                 self._step_dress()          # [ff9mapkit netsync s138] the selftest mirror's ghost: one frame behind
@@ -3035,6 +3120,7 @@ class FakeGame:
         else:
             self._story_stop()                 # the trace is dormant unless armed
             self._release_netsync()            # the override is process-local: it dies with the run
+            self._speedmode_release()          # [ff9mapkit netsync s163] a `speedmode 1` the harness set goes off with the disarm
             self._publish(force=True)          # a final document that says it stood down
             self._event("disarmed")
 
@@ -3274,9 +3360,14 @@ class FakeGame:
             self._release_netsync()
             self._story_stop()                 # one scenario's trace must not run on into the next
             self.no_encounter = False          # s94: reset switches the booster off again
+            self._speedmode_release()          # [ff9mapkit netsync s163] a `speedmode 1` the harness set goes off
             self._block(2)
         elif op == "noencounter":                      # s94: the F4 booster, set directly
             self.no_encounter = num(0, 1) != 0
+        elif op == "speedmode" and "speed" in self._nb_caps():
+            # [ff9mapkit netsync s163] the F1 booster as a verb, any role (Arg(s, 0, 1): a bare or unparseable value is on); an s162
+            # agent answers "unknown op 'speedmode'" (the else below)
+            self._speedmode(num(0, 1) != 0)
         elif op == "timescale":
             if real(0, 1.0) <= 0.0:
                 raise RuntimeError("timescale must be positive")
@@ -4566,6 +4657,17 @@ class FakeGame:
             self.choice["selected"] = self.menu_index
 
     # -- publication ---------------------------------------------------------------------------
+    def _scene_published(self) -> str:
+        """The doc's `scene` (SceneDirector.CurrentScene as the stand-in publishes it): a world boot's swirl (s145 fix3), a booted
+        diorama's battle (F3.3 DIO-1: BattleUI's own recipe), else FieldMap -- the world map, the title and an ordinary battle
+        included (the stand-in never modelled their scene names). [ff9mapkit netsync s163] One owner: the speed mirror's OFF line
+        builds on it (:meth:`_sp_scene_now`)."""
+        if self._wdio_swirl is not None:
+            return "SwirlScene"
+        if self._dio["booted"] and self.battle_active:
+            return "BattleMapDebug"
+        return "FieldMap"
+
     def _publish(self, force: bool = False) -> None:
         if not force and self.frame - self.publish_frame < self.state_every:
             return
@@ -4586,14 +4688,13 @@ class FakeGame:
             "save_path": str(self.dir / "save" / "SavedData_ww.dat"),
             "save_sandboxed": self.save_sandboxed,
             # [ff9mapkit netsync F3.3] DIO-1: a booted diorama's battle is the debug scene (BattleUI's own recipe)
-            "ui_state": self.ui_state, "scene": "SwirlScene" if self._wdio_swirl is not None    # [s145 fix3] a world boot's swirl
-                                                 else "BattleMapDebug" if self._dio["booted"] and self.battle_active
-                                                 else "FieldMap", "fading": False,
+            "ui_state": self.ui_state, "scene": self._scene_published(), "fading": False,   # [s145 fix3] a world boot's swirl
             # [ff9mapkit netsync s144] the world map's own mode (FF9StateSystem.mode 3) and, after it, `gmode` (EventEngine.gMode)
             "sys_mode": 3 if ww and self.ui_state == "WorldHUD" else 1,
             **({"gmode": self._wt["gmode"]} if ww else {}),
             **({"prev_mode": self._prev_mode} if self._wdio() else {}),   # [ff9mapkit netsync s145] FF9StateSystem.prevMode
             "scenario": self.scenario,
+            **({"ff": self._ff_pub(self._ff_live())} if "speed" in self._nb_caps() else {}),   # [ff9mapkit netsync s163] the live factor
             "field": {"id": self.field_id, "name": f"FBG_FAKE_{self.field_id}",
                       **({"entrance": self._field_entrance()} if ww else {})},   # [ff9mapkit netsync s144] FieldEntrance
             "world": {**self.world, **(self._world_live_doc() if ww else {})},   # [ff9mapkit netsync s144] AppendWorldLive
@@ -5697,6 +5798,8 @@ class FakeGame:
             self._chest(args)                           # [ff9mapkit netsync s160] the chest relay's bench
         elif sub == "ate":
             self._ate(args)                             # [ff9mapkit netsync s161] the ATE relay's lever
+        elif sub == "speed":
+            self._speed(args)                           # [ff9mapkit netsync s163] the speed mirror's levers
 
     def _release_netsync(self) -> None:
         """ReleaseNetsyncOverride, on `reset`, disarm and fault. [ff9mapkit netsync F3.3] DIO-1: a diorama THIS harness
@@ -5729,6 +5832,7 @@ class FakeGame:
                   pending=None, lock=False, stale=False)
         self._guest.release()
         self._bench.release()
+        self._sp_reset("the co-op session reset")   # [ff9mapkit netsync s163] the reconfigure's NetSyncSpeed.Reset: a standing latch ends
         self._tap_record = False
         self._tape.clear()
         self._replay, self._replay_next = [], 0
@@ -5770,7 +5874,9 @@ class FakeGame:
             if "chest" in caps:
                 doc["chest"] = self._chest_doc()        # [ff9mapkit netsync s160] ...and `chest`
             if "ate" in caps:
-                doc["ate"] = self._ate_doc()            # [ff9mapkit netsync s161] ...and `ate`, the LAST key
+                doc["ate"] = self._ate_doc()            # [ff9mapkit netsync s161] ...and `ate`
+            if "speed" in caps:
+                doc["speed"] = self._speed_doc()        # [ff9mapkit netsync s163] ...and `speed`, the LAST key
             return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
@@ -6511,6 +6617,272 @@ class FakeGame:
         doc["lever"] = self._ar["lever"]
         doc["selftest"] = self._ar["selftest"]
         return doc
+
+    # -- [ff9mapkit netsync s163] THE HOST'S SPEED ON A FOLLOWING GUEST (the `speed` rung; see NETSYNC_BATTLE_CAPS for what it models) --
+    # NetSyncSpeed's harness half (the lever, HarnessLever's refusals, the bench host, the release, the proof line, the block), the bench
+    # lane's CacheRule, `speedmode`, the getter and mode seams, and THE BENCH LATCH on the selftest role (the step-out's bench `eligible`
+    # is true there; `hostscene 1` is the host's control-off scene on my field) -- every decision through battlewire's twins. NOT
+    # MODELLED: a live host lane (a client never ticks the latch here), an ATE episode or a relayed talk, a guest climb, a fault.
+    @staticmethod
+    def _sp_fresh() -> dict:
+        """NetSyncSpeed's statics at process start, plus the booster's RAW flag and the harness's `speedmode` ownership
+        (HarnessAgent._speedModeByHarness), HonoBehaviorSystem's fast mode (`mode_next` -> `fast_mode` one frame later) and the bench
+        lane's last observed section (`seen`: NetSyncClient._dlgLastState, by reference)."""
+        return {"lever": None, "selftest": None, "host_setting": 1, "host_tps": 0, "src": BW.SPEED_SRC_NONE, "stale": False,
+                "standing": False, "applied": False, "field": -1, "factor": 0, "since_ms": 0, "back_armed": False,
+                "back_since": 0, "mismatch": None, "edges_on": 0, "edges_off": 0, "end_by": [0] * len(BW.SPEED_END_NAMES),
+                "last_end": None, "why_not": BW.SPEED_WHY_NOT_TICKED, "raw": False, "mode_by_harness": False,
+                "mode_next": False, "mode_frame": -1, "fast_mode": False, "seen": None}
+
+    def _speed(self, args: list) -> None:
+        """HarnessLever (the agent's `case "speed"`): `host` off the selftest role refused FIRST (whatever its arity), then `act|off|
+        clear` alone or `host <1-255>` -- one usage line otherwise. Counters are never reset."""
+        sp = self._sp
+        op = args[1].lower() if len(args) > 1 else ""
+        if op == NETSYNC_SPEED_HOST_OP and not self._nb_role():
+            raise RuntimeError(NETSYNC_SPEED_ROLE_REFUSAL)
+        n = None
+        if op == NETSYNC_SPEED_HOST_OP and len(args) == 3:
+            try:
+                n = int(args[2])                         # Int32.TryParse(NumberStyles.Integer, InvariantCulture)
+            except ValueError:
+                n = None
+        lo, hi = NETSYNC_SPEED_HOST_RANGE
+        ok = (n is not None and lo <= n <= hi) if op == NETSYNC_SPEED_HOST_OP else (len(args) == 2 and op in NETSYNC_SPEED_OPS)
+        if not ok:
+            raise RuntimeError(NETSYNC_SPEED_USAGE)
+        if op == NETSYNC_SPEED_HOST_OP:
+            # a bench host: section 10 = [n][my FieldTPS] through the real encoder and the real section walk into the same cache
+            frame = BW.append_section(b"", BW.SECTION_SPEED, BW.speed_section_body(n, BW.speed_tps_rule(FIELD_TPS)))
+            got, setting, tps = BW.read_host_speed(frame)
+            if not got:
+                raise RuntimeError(NETSYNC_SPEED_READBACK_REFUSAL)
+            sp.update(host_setting=setting, host_tps=tps, src=BW.SPEED_SRC_BENCH, stale=False)
+            self._mlog(SPEED_LOG_HOST.format(s=setting, t=tps))
+            return
+        sp["lever"] = "off" if op == "off" else None
+        if op == "clear" and sp["src"] == BW.SPEED_SRC_BENCH:
+            self._sp_forget_host()
+        self._mlog(SPEED_LOG_OFF if op == "off" else SPEED_LOG_CLEAR if op == "clear" else SPEED_LOG_ACT)
+
+    def _sp_forget_host(self) -> None:
+        """NetSyncSpeed.ForgetHost: the cache back to absent (setting 1, tps 0, src none, never stale)."""
+        self._sp.update(host_setting=1, host_tps=0, src=BW.SPEED_SRC_NONE, stale=False)
+
+    def _sp_release(self) -> None:
+        """NetSyncSpeed.HarnessRelease (every role): the lever back to act, the bench host forgotten -- its line only when one of
+        them was set (a standing latch ends at the next tick on the host's setting 1, or at the reconfigure's Reset)."""
+        sp = self._sp
+        if sp["lever"] is not None or sp["src"] == BW.SPEED_SRC_BENCH:
+            self._mlog(SPEED_LOG_RELEASE)
+        sp["lever"] = None
+        if sp["src"] == BW.SPEED_SRC_BENCH:
+            self._sp_forget_host()
+
+    def _sp_reset(self, why: str) -> None:
+        """NetSyncSpeed.Reset (the session boundary -- here the harness release's reconfigure): a standing latch ends (`reset`), the
+        cache is forgotten (a bench host survives only on the selftest role), the mismatch line and `why_not` re-arm."""
+        sp = self._sp
+        if sp["standing"]:
+            self._sp_stop(BW.SPEED_END_RESET, why)
+        if sp["src"] != BW.SPEED_SRC_BENCH or not self._nb_role():
+            self._sp_forget_host()
+        sp["mismatch"] = None
+        sp["why_not"] = BW.SPEED_WHY_NOT_TICKED
+
+    def _sp_proof(self) -> None:
+        """The proof block's speed mirror line (once per process): the stand-in's tallies -- `selftest` "ok" from then on."""
+        self._sp["selftest"] = "ok"
+        self._mlog(f"[NetSync] {PROOF_SPEED_MIRROR}OK ({FAKE_SPEED_SELFTEST_ROWS} rows, {FAKE_SPEED_MUTANTS} mutants caught, "
+                   f"step-in {STEPOUT_STEP_IN_MS} ms)")
+
+    # ---- the seams: stock's getter body, the REAL getter, SetFastForward
+    def _sp_stock(self) -> int:
+        """SettingsState.StockFastForwardFactor: [Cheats] SpeedFactor while the raw flag stands (`speedmode 1`), else 1 (the
+        stand-in's `fast_forward` knob is the factor a driver cannot see: never published, multiplied in by the clock alone)."""
+        sp = getattr(self, "_sp", None)
+        return FAKE_SPEED_FACTOR if sp is not None and sp["raw"] else 1
+
+    def _ff_live(self):
+        """SettingsState.FastForwardFactor, the REAL getter (what FPSManager runs a frame): stock's, or -- while the latch's factor
+        APPLIES (HoldRule), on the field scene, on its own field -- GetterRule's max (battlewire.speed_getter_rule)."""
+        sp = getattr(self, "_sp", None)
+        stock = self._sp_stock()
+        if sp is None or not sp["applied"]:
+            return stock
+        return BW.speed_getter_rule(stock, True, self._selftest_in_scope(), sp["field"], self.field_id, sp["factor"])
+
+    @staticmethod
+    def _ff_pub(v) -> int:
+        """A factor as the agent's Num writes it (an Int32)."""
+        return int(v)
+
+    def _sp_mode_wanted(self) -> bool:
+        """NetSyncSpeed.HarnessModeWanted: ModeRule without my own booster."""
+        sp = self._sp
+        return BW.speed_mode_rule(False, sp["applied"], self._selftest_in_scope(), sp["field"], self.field_id)
+
+    def _sp_set_fast_forward(self, on: bool) -> None:
+        """SettingsState.SetFastForward(on): the raw flag keeps the player's own value; FAST MODE runs for ModeRule (the mirror's
+        seam: on || the latch applying here), copied into HonoBehaviorSystem one frame later (`fast_mode`)."""
+        sp = self._sp
+        sp["raw"] = bool(on)
+        mode = bool(on)
+        if sp["applied"]:
+            mode = BW.speed_mode_rule(on, True, self._selftest_in_scope(), sp["field"], self.field_id)
+        sp["mode_next"], sp["mode_frame"] = mode, self.frame
+
+    def _speedmode(self, on: bool) -> None:
+        """HarnessAgent `speedmode 1|0` (any role): ownership recorded BEFORE the booster call, and only when this verb turns the
+        booster on from off (a player's own F1 already on is never taken); CallBoosterButtonFuntion(HighSpeedMode, on) -> the raw
+        flag and FAST MODE; the event row."""
+        sp = self._sp
+        if not on:
+            sp["mode_by_harness"] = False
+        elif not sp["raw"]:
+            sp["mode_by_harness"] = True
+        self._sp_set_fast_forward(on)
+        self._event(SPEEDMODE_EVENT, on="1" if on else "0")
+
+    def _speedmode_release(self) -> None:
+        """HarnessAgent.ReleaseSpeedMode (`reset`, the disarm, a fault): the booster off through the same path -- only when the
+        harness switched it on."""
+        sp = self._sp
+        if not sp["mode_by_harness"]:
+            return
+        sp["mode_by_harness"] = False
+        if sp["raw"]:
+            self._sp_set_fast_forward(False)
+
+    # ---- the tick (NetSyncClient.ServiceSpeed -> NetSyncSpeed.Tick on the selftest role; NoteHostFrame through the bench lane)
+    def _step_speed(self) -> None:
+        """Every frame: HonoBehaviorSystem copies the fast mode set on an earlier frame; then, on the `speed` rung, a bench host never
+        outlives the selftest role, and on that role the bench lane's cache step and THE LATCH through battlewire's twins. The cache
+        step is ObserveHostDialog's new-frame branch (NoteHostFrame) on `netsync bench 1`, fed what _step_netsync's BenchHostTick
+        left: a NEW bench section 7 (the bench lock on) is a fresh frame with no section 10 and forgets a wire host; the lock off
+        (BenchHostTick nulls _benchState: no bench host on the "lane") or `stale 1` (DebugLinkDead) is a null state, every tick:
+        stale; a frozen host's re-sent section (`host freeze`: the same reference) is no frame at all -- nothing noted."""
+        sp = self._sp
+        if sp["mode_frame"] < self.frame:
+            sp["fast_mode"] = sp["mode_next"]
+        if "speed" not in self._nb_caps():
+            return
+        role = self._nb_role()
+        if sp["src"] == BW.SPEED_SRC_BENCH and not role:
+            self._sp_forget_host()
+        if not role:
+            return
+        ns = self.netsync
+        if ns["bench"]:
+            state = None if ns["stale"] else self._bench.state   # ObserveHostDialog(DebugLinkDead ? null : _benchState)
+            if state is None or state is not sp["seen"]:  # a new reference IS a new frame (ReferenceEquals); null every tick
+                sp["seen"] = state
+                if sp["src"] == BW.SPEED_SRC_BENCH:
+                    sp["stale"] = False                  # the bench host owns the cache (NoteHostFrame's early return)
+                else:
+                    st, tp, src, stale = BW.speed_cache_rule(state is not None, False, 1, 0, sp["host_setting"], sp["host_tps"],
+                                                             sp["src"])
+                    sp.update(host_setting=st, host_tps=tp, src=src, stale=stale)
+        fld = self.field_id
+        now = int(self.rt * 1000)
+        live = self._selftest_in_scope()
+        # THE ORDER SKEW (measured live, the first s163 solo run, at every harness flip): HarnessAgent runs a `control` step and
+        # publishes its ack in the same Update, so no NetSyncSpeed.Tick falls between them -- that publish shows the new control with
+        # the verdict made under the old one, whichever Update runs first. This speed step reads the frame-start control (captured
+        # before _drain) and the frame publishes at its end, which reproduces it -- but _drain has no ack publish, so the stand-in shows
+        # the stale publish only when the step drains on a publish frame (every flip at the bench's stateevery 2; 4-5 of 12 at 3).
+        my_ctl = getattr(self, "_ctl_at_tick", bool(self.control))
+        movie = self._movie is not None
+        host_holds = bool(ns["l1"])                     # `hostscene 1`: DebugHostEventFlag, the host's scene on my field
+        lever_off = sp["lever"] == "off"
+        g = BW.speed_clamp(FAKE_SPEED_FACTOR)
+        my_tps = BW.speed_tps_rule(FIELD_TPS)
+        factor = BW.speed_factor_rule(g, my_tps, sp["host_setting"], sp["host_tps"])
+        scene = BW.speed_plays_host_scene(fld, fld, host_holds, -1, -1)
+        if sp["standing"] and fld != sp["field"] and live:
+            # NoteFieldLanding's OnLanding: the load ends a standing latch before the new copy runs a frame at the old verdict
+            end = BW.speed_end_rule(lever_off, True, True, True, True, False, movie, sp["host_setting"], sp["factor"], scene, False,
+                                    -1)
+            self._sp_stop(end, BW.speed_end_words(end, fld, self._sp_scene_now()))
+        if not sp["standing"]:
+            why = BW.speed_start_rule(True, lever_off, live, not my_ctl, sp["stale"], sp["host_setting"], False, movie, fld, fld,
+                                      host_holds, -1, -1, factor)
+            sp["why_not"] = why
+            if why in (BW.SPEED_WHY_RATE, BW.SPEED_WHY_OWN_ONE, BW.SPEED_WHY_NO_TPS):
+                self._sp_mismatch(g, my_tps, factor)
+            elif why is None:
+                self._sp_start(fld, factor, g, my_tps, BW.SPEED_START_WHY_HOST)
+            return
+        if my_ctl:
+            if not sp["back_armed"]:
+                sp["back_armed"], sp["back_since"] = True, now
+        else:
+            sp["back_armed"] = False
+        end = BW.speed_end_rule(lever_off, True, live, fld == sp["field"], False, False, movie, sp["host_setting"], factor, scene,
+                                my_ctl, now - sp["back_since"] if sp["back_armed"] else -1)
+        sp["why_not"] = None
+        if end != BW.SPEED_END_NONE:
+            self._sp_stop(end, BW.speed_end_words(end, fld, self._sp_scene_now()))
+            return
+        applied = BW.speed_hold_rule(True, not my_ctl)
+        if applied != sp["applied"]:
+            sp["applied"] = applied                     # my control came back (withheld) or fell again: free roam is my own speed
+            self._sp_set_fast_forward(sp["raw"])
+
+    def _sp_scene_now(self) -> str:
+        """NetSyncSpeed.SceneNow (SceneDirector.CurrentScene) for the OFF line's `scene` end, which fires only off the field scene: the
+        published scene where it names one (a booted diorama's BattleMapDebug, a world boot's SwirlScene); where the doc still says
+        FieldMap off the field scene (:meth:`_scene_published` never modelled them), the engine's own WorldMap, Title or BattleMap."""
+        scene = self._scene_published()
+        if scene != "FieldMap":
+            return scene
+        if self.ui_state == "WorldHUD":
+            return "WorldMap"
+        if self.ui_state == "Title":
+            return "Title"
+        return "BattleMap" if self.battle_active else scene
+
+    def _sp_start(self, fld: int, factor: int, g: int, my_tps: int, why: str) -> None:
+        """NetSyncSpeed.Start: the latch up with its factor APPLIED (START needs my control off), the ON line, SetFastForward."""
+        sp = self._sp
+        sp.update(standing=True, applied=True, field=fld, factor=factor, since_ms=int(self.rt * 1000), back_armed=False)
+        sp["edges_on"] += 1
+        self._mlog(BW.speed_log_on(fld, factor, sp["host_setting"], sp["host_tps"], g, my_tps, self._ff_pub(self._sp_stock()), why))
+        self._sp_set_fast_forward(sp["raw"])
+
+    def _sp_stop(self, end: int, why: str) -> None:
+        """NetSyncSpeed.Stop: the latch down (the getter and the mode read stock from here on), the edge by reason, the OFF line."""
+        sp = self._sp
+        field, ms = sp["field"], int(self.rt * 1000) - sp["since_ms"]
+        sp.update(standing=False, applied=False, field=-1, factor=0, back_armed=False)
+        sp["edges_off"] += 1
+        if 0 < end < len(sp["end_by"]):
+            sp["end_by"][end] += 1
+        sp["last_end"] = BW.SPEED_END_NAMES[end] if 0 < end < len(BW.SPEED_END_NAMES) else None
+        self._sp_set_fast_forward(sp["raw"])
+        self._mlog(BW.speed_log_off(field, ms, self._ff_pub(self._sp_stock()), why))
+
+    def _sp_mismatch(self, g: int, my_tps: int, factor: int) -> None:
+        """NetSyncSpeed.NoteMismatch: one line per (G, myTps, setting, hostTps), by FactorRule's refusal."""
+        sp = self._sp
+        key = (g, my_tps, sp["host_setting"], sp["host_tps"])
+        if key == sp["mismatch"]:
+            return
+        sp["mismatch"] = key
+        self._mlog(SPEED_LOG_MISMATCH[factor].format(g=g, m=my_tps, s=sp["host_setting"], t=sp["host_tps"]))
+
+    def _speed_doc(self) -> dict:
+        """AppendSpeed, in its order (NETSYNC_SPEED_KEYS): the cache, my own factor, the latch, the getter, the mode, the raw flag,
+        `why_not`, the edges and ends, the lever, the selftest verdict (the stand-in has no fault: `faults` 0, `last_fault` null)."""
+        sp = self._sp
+        seen = sp["src"] != BW.SPEED_SRC_NONE
+        return {"host_setting": sp["host_setting"], "host_tps": sp["host_tps"] if seen else -1, "host_seen": seen,
+                "host_stale": sp["stale"], "src": BW.SPEED_SRC_NAMES[sp["src"]], "own_factor": self._ff_pub(self._sp_stock()),
+                "mirror": sp["standing"], "applied": sp["applied"], "factor_now": self._ff_pub(self._ff_live()),
+                "mode_wanted": self._sp_mode_wanted(), "fast_mode": sp["fast_mode"], "raw": sp["raw"], "why_not": sp["why_not"],
+                "edges_on": sp["edges_on"], "edges_off": sp["edges_off"], "last_end": sp["last_end"], "faults": 0,
+                "last_fault": None, "end_why": {n: sp["end_by"][i] for i, n in enumerate(BW.SPEED_END_NAMES) if n is not None},
+                "lever": sp["lever"], "selftest": sp["selftest"]}
 
     # -- [ff9mapkit netsync s144] WORLD-MAP CO-OP (the `worldwait` rung; see NETSYNC_BATTLE_CAPS for what it models) ----------
     # The engine's pieces, each through battlewire's twin of its pure step: THE FREEZE (NetSyncField.WorldFreezeNow / Hold /
@@ -9079,8 +9451,10 @@ class FakeGame:
         if "chest" in caps:                                 # [ff9mapkit netsync s160] after the step-out line
             self._ch["selftest"] = "ok"
             self._mlog(f"[NetSync] {PROOF_CHEST}OK ({FAKE_CHEST_SELFTEST_ROWS} rows, {FAKE_CHEST_MUTANTS} mutants caught)")
-        if "ate" in caps:                                   # [ff9mapkit netsync s161] the block's last modelled line (after the chest line)
+        if "ate" in caps:                                   # [ff9mapkit netsync s161] after the chest line
             self._ar_proof()
+        if "speed" in caps:                                 # [ff9mapkit netsync s163] the block's last modelled line (after the ATE relay's)
+            self._sp_proof()
 
     # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
     def _nb_caps(self) -> frozenset:
@@ -9584,8 +9958,11 @@ class FakeGame:
         self._so_release()
         # [ff9mapkit netsync s160] NetSyncClient.HarnessReleaseChest, both levers on -- its line only when one was off
         self._ch_release()
-        # [ff9mapkit netsync s161] NetSyncAte.HarnessRelease, LAST: the lever none -- its line only when one was set
+        # [ff9mapkit netsync s161] NetSyncAte.HarnessRelease: the lever none -- its line only when one was set
         self._ar_release()
+        # [ff9mapkit netsync s163] NetSyncSpeed.HarnessRelease, LAST: the lever back to act, the bench host forgotten -- its line only
+        # when a lever or a bench host was set
+        self._sp_release()
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an

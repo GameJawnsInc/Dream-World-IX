@@ -10515,6 +10515,27 @@ def test_a_free_press_that_outruns_the_rate_is_loud(game):
         assert "3 presses in a row" in str(err.value), err.value
 
 
+def test_a_published_speed_mode_is_the_rate_the_driver_plans_by(game):
+    """[ff9mapkit netsync s163] The same F1 speed mode, PUBLISHED: an s163 engine writes FastForwardFactor as the top-level `ff`
+    (here `speedmode 1`, the harness's own booster verb), Session's TickClock multiplies the ini's tick rate by it, so every
+    probe stays within its reach and nothing is loud; switched off again, the rate is the ini's."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        boot(g)
+        g.warp(30810)
+        assert g.rate(require=True).tick_hz == pytest.approx(30.0)
+        g.speedmode(True)
+        g.wait_frames(40)
+        assert g.state.ff == 3 and fake.tick_hz == pytest.approx(90.0)
+        rate = g.rate(require=True)
+        assert rate.tick_hz == pytest.approx(90.0) and rate.per_frame() == pytest.approx(1.5), rate.describe()
+        g.calibrate_axes(recalibrate=True)                             # within the reach: not loud
+        assert g._strikes == []
+        g.speedmode(False)
+        g.wait_frames(40)
+        assert g.state.ff == 1 and g.rate(require=True).tick_hz == pytest.approx(30.0)
+
+
 def test_the_push_lock_opens_at_120_fps(game):
     """The walk-through lock needs 27 MovePC calls into him unbroken -- 14 run TICKS. At 120 fps a frame holds a quarter
     of one, so the 27 FRAMES a 30u-a-frame driver held made about 13 calls and never opened it: a passable body read as

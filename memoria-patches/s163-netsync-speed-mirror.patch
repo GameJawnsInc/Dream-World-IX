@@ -1,0 +1,1612 @@
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSpeed.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSpeed.cs
+new file mode 100644
+index e69de29..c8d8322 100644
+--- /dev/null
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSpeed.cs
+@@ -0,0 +1,1132 @@
++using System;
++using System.Collections.Generic;
++using Assets.Scripts.Common;   // SceneDirector
++using Memoria.Prime;
++
++namespace Memoria.Netsync
++{
++    // [ff9mapkit netsync s163] THE HOST'S SPEED ON A FOLLOWING GUEST (studies/field-coop/SPEED-MIRROR.md, revision 2; the owner's call after
++    // the third two-PC session: "match host speed"). THE DEFECT (GUEST-TRAVERSAL-TWO-PC.md Finding 10, and the rate half of Finding 4): a host
++    // on the F1 booster plays a scene or an ATE at 3x while its following guest's copy plays the same script at 1x, so the host's scripted
++    // Field() beats the guest's last lines by whole seconds -- "Dagger Tries" (351 -> 450) was cut at line 162 of 175. The booster is
++    // SettingsState.FastForwardFactor: FPSManager.AdvanceUpdateCounter runs that many main-loop updates a frame, so every walk, wait and
++    // timer scales with it; SetFastForward drives HonoBehaviorSystem's FAST MODE (typing, dialog waits, bubbles) and re-pitches the SFX.
++    //
++    // HOST   every state frame carries section 10 = [setting u8][fieldTps u8] (HostSectionBody, from BuildStateFrame, BEFORE section 7: the
++    //        order is [0,1,2,3,(4),5,(6|9),10,7,8] -- DressSelfTest and the kit's coop_peer `dress` tape want 8 right after 7 and last): its
++    //        booster SETTING (HostSettingRule: IsFastForward ? SpeedFactor : 1, clamped 1-255 -- never the live factor, which reads 1 at every
++    //        load, in battle and on the world map, exactly when a 3x host has just left the guest's field) and its [Graphics] FieldTPS
++    //        (clamped 1-255). One log line per booster edge (HostTick, which also has the frame pushed at once).
++    // GUEST  ObserveHostDialog's new-frame branch caches section 10 (NoteHostFrame through CacheRule): a FRESH frame replaces the cache -- a
++    //        missing id or a malformed body forgets the host (setting 1) -- while a NULL state (no frame for ~2 s: GetRemoteState's staleness)
++    //        is NO NEWS: the cache stands, marked stale (a dead link is never the host's booster). Tick (every Update, right after
++    //        ServiceStepOut) runs the mirror, a LATCH (s158's law: my copy trails the host, and its tail is still the scene -- it never ends on
++    //        the host's control, position or link):
++    //   START  StartRule, every term: a following, mirroring guest (the step-out's `eligible`), the lever not off, a live field (gMode 1 and
++    //          the field scene), my control off, the host's lane fresh, the host's setting > 1, no guest climb in flight, no movie playing
++    //          (stock's own booster lock: MoviePlaying), my copy plays the host's scene (PlaysHostScene: (a) the host on my field with its
++    //          control off -- section 7's view cached for THIS field, the step-out's hostCtlOff; (b) the s161 ATE episode in flight here; (c)
++    //          a relayed talk or chest accept owns my control-off episode here -- the step-out's talk latch), and the factor fits.
++    //   END    EndRule, any: the lever; eligibility lost; a landing; a field change; the field scene left (a battle's swirl, the world map);
++    //          a guest climb starting; a movie starting; the host's setting dropping to 1 (or its rate no longer covering mine); my
++    //          control back for the step-out's StepInMs. The host's control and its lane's staleness are NO input.
++    //   HOLD   the factor APPLIES only while my control is off (HoldRule): free roam stays at my own speed, so the StepInMs debounce after my
++    //          control returns runs at my own factor while the latch waits to end. Each apply / withhold flip re-runs SetFastForward.
++    //   FACTOR FactorRule: my OWN [Cheats] SpeedFactor G, clamped 1-255 as the host clamps its own (AllSoundDispatchPlayer keeps one pitch
++    //          bool per sound against exactly that value, so any other factor strands pitches), only when it does not overshoot the host:
++    //          G * myTps <= setting * hostTps. Otherwise the mirror refuses (its own words: my SpeedFactor 1, a TPS unknown, an overshoot),
++    //          and an eligible guest that would otherwise start logs the mismatch once.
++    // THE SEAMS (Global/SettingsState.cs), never the raw flag: the getter keeps stock's body as StockFastForwardFactor and returns GetterRule
++    //        (max(stock, Factor) while the factor applies, on the field scene, on its own field: a verdict from another field reads nothing);
++    //        SetFastForward(on) writes the raw flag with the player's own value and turns FAST MODE on for ModeRule (on || the same three
++    //        tests), so stock's re-runs at every scene load (UIManager) and HUD clear (EventHUD) keep the mirror's mode, and the Auction /
++    //        Pandemonium branch still refuses it there. Each edge calls SetFastForward(the raw flag): the mode and the SFX re-pitch.
++    //        StockFastForwardFactor is the only "own factor" read here: the mirror never decides on its own output.
++    //        Accepted (SPEED-MIRROR.md "Risks"): stock readers of the RAW flag keep 1x behaviour under the mirror (SceneDirector's fade
++    //        frames, the Prima Vista 3x fixes, TimerUI's SpeedTimer, UIScene / MainMenuUI / HUDMessage, the booster HUD icon).
++    //
++    // Vanilla and solo play pay one bool read in the getter (NetSyncSpeedArmed.Applied, written only by this file). The wire stays v14 (every
++    // engine and kit walker skips an unknown id by its length; an old host never sends 10); the harness protocol stays 5. Main thread only.
++
++    // The holder the stock seams read (SettingsState.FastForwardFactor, SetFastForward) -- plain static fields, NO initializer, so FPSManager's
++    // per-frame read never type-initializes NetSync code. Written only by NetSyncSpeed.Publish. Standing = the latch (NoteFieldLanding reads
++    // it); Applied = the latch with my control off (HoldRule: the only bool the seams gate on).
++    internal static class NetSyncSpeedArmed
++    {
++        internal static Boolean Standing;
++        internal static Boolean Applied;
++        internal static Int32 Factor;
++        internal static Int32 Field;
++    }
++
++    public static class NetSyncSpeed
++    {
++        // ---------------------------------------------------------------- the section-10 codec
++        internal const Int32 BodyLen = 2;              // [setting u8][fieldTps u8]; a longer body is read forward, a shorter one refused
++
++        // ---------------------------------------------------------------- names
++        internal const Int32 EndNone = 0, EndLever = 1, EndSession = 2, EndLanding = 3, EndField = 4, EndScene = 5, EndClimb = 6, EndMovie = 7,
++                             EndHost = 8, EndRate = 9, EndControl = 10, EndReset = 11;
++        internal static readonly String[] EndNames = { null, "lever", "session", "landing", "field", "scene", "climb", "movie", "host", "rate",
++                                                       "control", "reset" };
++        internal const Int32 SrcNone = 0, SrcWire = 1, SrcBench = 2;
++        internal static readonly String[] SrcNames = { "none", "wire", "bench" };
++        // FactorRule's refusals (a factor > 1 is the mirror's)
++        internal const Int32 RefuseOvershoot = 0, RefuseHostOff = -1, RefuseOwnOne = -2, RefuseNoTps = -3;
++
++        // StartRule's words (the harness `why_not`), one per term, in its order
++        internal const String WhyEligible = "not a following, mirroring guest";
++        internal const String WhyLever = "the speed lever is off";
++        internal const String WhyField = "not on a live field";
++        internal const String WhyControl = "I have control";
++        internal const String WhyStale = "the host's lane is stale";
++        internal const String WhyHost = "the host's booster is off";
++        internal const String WhyClimb = "my guest climb is in flight";
++        internal const String WhyMovie = "a movie is playing";
++        internal const String WhyScene = "my copy does not play the host's scene";
++        internal const String WhyRate = "my rate would overshoot the host's (SpeedFactor x FieldTPS)";
++        internal const String WhyOwnOne = "my [Cheats] SpeedFactor is 1 (nothing to mirror)";
++        internal const String WhyNoTps = "a FieldTPS is unknown (mine or the host's)";
++
++        // ---------------------------------------------------------------- the lever (ANY role; released with the harness)
++        private static Int32 _lever;                   // 0 act, 1 off (CALIBRATION: s162's rule, never mirror)
++        internal static Boolean LeverOff { get { return _lever == 1; } }
++
++        // ---------------------------------------------------------------- GUEST: the host's section 10 (setting 1 / tps 0 = absent)
++        private static Int32 _hostSetting = 1, _hostTps;
++        private static Int32 _src;                     // SrcNone / SrcWire / SrcBench (`netsync speed host <n>`, the selftest role)
++        private static Boolean _stale;                 // the last observed state was NULL: no news since the cached frame
++
++        // ---------------------------------------------------------------- GUEST: the mirror
++        private static Boolean _standing;              // the latch
++        private static Boolean _applied;               // HoldRule: the latch with my control off (the seams' gate)
++        private static Int32 _field = -1, _factor, _since;   // _since read only while _standing (tick-baseline law)
++        private static Boolean _backArmed;
++        private static Int32 _backSince;
++        private static Boolean _landed;
++        private static Boolean _inEligible, _inClimb, _inMovie, _inScene;   // the last Tick's inputs (OnLanding's evaluation)
++        private static Int64 _mismatchKey = -1;        // the (G, myTps, setting, hostTps) a mismatch line last named: one line per tuple
++
++        // ---------------------------------------------------------------- HOST
++        private static Int32 _hostLastSetting = 1;     // the setting the last booster edge line named
++
++        // ---------------------------------------------------------------- counters (cumulative per process; read DELTAS)
++        internal static Int32 EdgesOn, EdgesOff, Faults;
++        internal static readonly Int32[] EndBy = new Int32[12];   // by EndRule reason (EndNames), plus `reset`
++        internal static String LastFault, LastEnd, SelfTestVerdict;
++        internal static String WhyNotNow = "not ticked";
++
++        // ================================================================ the pure rules (SelfTest tables every one)
++
++        // HOST: section 10's setting -- the booster as SET (the raw flag), never the live factor. Clamped to a byte, never 0.
++        internal static Int32 HostSettingRule(Boolean raw, Int32 speedFactor)
++        {
++            return raw ? Clamp(speedFactor) : 1;
++        }
++
++        // A FieldTPS byte (1-255): the host's into section 10, and the guest's own before FactorRule (the same clamp both sides).
++        internal static Int32 TpsRule(Int32 tps)
++        {
++            return Clamp(tps);
++        }
++
++        // GUEST: the section-10 cache step per observed state. A FRESH frame replaces it (its section parsed: the host's values; else
++        // absent: setting 1, tps 0, src none) and clears the stale mark; a NULL state (no frame for ~2 s) is no news -- the cache stands,
++        // marked stale (the host's link, never its booster).
++        internal static void CacheRule(Boolean haveFrame, Boolean parsed, Int32 newSetting, Int32 newTps, ref Int32 setting, ref Int32 tps,
++                                       ref Int32 src, out Boolean stale)
++        {
++            stale = !haveFrame;
++            if (!haveFrame)
++                return;
++            if (parsed)
++            {
++                setting = newSetting;
++                tps = newTps;
++                src = SrcWire;
++            }
++            else
++            {
++                setting = 1;
++                tps = 0;
++                src = SrcNone;
++            }
++        }
++
++        // GUEST: is a movie playing? Stock's own booster lock (UIKeyTrigger.HandleBoosterButton): an MBG exists on every field (created
++        // lazily), so only one that has played and is not skipped counts -- an idle MBG never vetoes.
++        internal static Boolean MoviePlaying(Boolean mbgExists, Boolean finishedForBooster)
++        {
++            return mbgExists && !finishedForBooster;
++        }
++
++        // GUEST: does my copy play the host's scene on field `fld`? (a) the host's control-off view cached for THIS field, (b) the ATE
++        // episode's field, (c) the relayed talk's field (-1 = none for each).
++        internal static Boolean PlaysHostScene(Int32 fld, Int32 viewField, Boolean hostHolds, Int32 ateField, Int32 talkField)
++        {
++            return fld > 0 && ((viewField == fld && hostHolds) || ateField == fld || talkField == fld);
++        }
++
++        // GUEST: the mirror's factor -- my OWN SpeedFactor G (the SFX pitch law), only while it does not overshoot the host's rate. A factor
++        // > 1 is the mirror's; else the refusal, in this order: RefuseHostOff (the host's booster off), RefuseOwnOne (my own SpeedFactor 1),
++        // RefuseNoTps (a FieldTPS unknown), RefuseOvershoot (G * myTps > setting * hostTps).
++        internal static Int32 FactorRule(Int32 g, Int32 myTps, Int32 hostSetting, Int32 hostTps)
++        {
++            if (hostSetting <= 1)
++                return RefuseHostOff;
++            if (g <= 1)
++                return RefuseOwnOne;
++            if (myTps <= 0 || hostTps <= 0)
++                return RefuseNoTps;
++            return (Int64)g * myTps <= (Int64)hostSetting * hostTps ? g : RefuseOvershoot;
++        }
++
++        // GUEST: THE START -- null when every term holds, else the FIRST failing term's words, in this order.
++        internal static String StartRule(Boolean eligible, Boolean leverOff, Boolean liveField, Boolean myCtlOff, Boolean stale, Int32 hostSetting,
++                                         Boolean climb, Boolean movie, Int32 fld, Int32 viewField, Boolean hostHolds, Int32 ateField, Int32 talkField,
++                                         Int32 factor)
++        {
++            if (!eligible)
++                return WhyEligible;
++            if (leverOff)
++                return WhyLever;
++            if (!liveField)
++                return WhyField;
++            if (!myCtlOff)
++                return WhyControl;
++            if (stale)
++                return WhyStale;
++            if (hostSetting <= 1)
++                return WhyHost;
++            if (climb)
++                return WhyClimb;
++            if (movie)
++                return WhyMovie;
++            if (!PlaysHostScene(fld, viewField, hostHolds, ateField, talkField))
++                return WhyScene;
++            if (factor <= 1)
++                return factor == RefuseOwnOne ? WhyOwnOne : factor == RefuseNoTps ? WhyNoTps : WhyRate;
++            return null;
++        }
++
++        // GUEST: THE END -- a LATCH: never on the host's control, position or link (`hostScene` is read by NO term: my copy may trail the
++        // host's scene, and its tail is still the scene; the lane's staleness is not even an input). ctlBackMs = how long my control has been
++        // back (-1 = it is off).
++        internal static Int32 EndRule(Boolean leverOff, Boolean eligible, Boolean liveField, Boolean sameField, Boolean landed, Boolean climb,
++                                      Boolean movie, Int32 hostSetting, Int32 factor, Boolean hostScene, Boolean myCtl, Int32 ctlBackMs)
++        {
++            if (leverOff)
++                return EndLever;
++            if (!eligible)
++                return EndSession;
++            if (landed)
++                return EndLanding;
++            if (!sameField)
++                return EndField;
++            if (!liveField)
++                return EndScene;
++            if (climb)
++                return EndClimb;
++            if (movie)
++                return EndMovie;
++            if (hostSetting <= 1)
++                return EndHost;
++            if (factor <= 1)
++                return EndRate;
++            if (myCtl && ctlBackMs >= NetSyncStepOut.StepInMs)
++                return EndControl;
++            return EndNone;
++        }
++
++        // GUEST: THE HOLD -- the factor applies only while the latch stands AND my control is off (free roam stays at my own speed; the
++        // StepInMs debounce after my control returns runs at my own factor while the latch waits to end).
++        internal static Boolean HoldRule(Boolean standing, Boolean myCtlOff)
++        {
++            return standing && myCtlOff;
++        }
++
++        // THE GETTER SEAM (SettingsState.FastForwardFactor): the mirror's factor over stock's, only while it applies, on the field scene, on
++        // its own field (a verdict from another field reads nothing). In battle, on the world map, in a movie: stock. Never below stock.
++        internal static Int32 GetterRule(Int32 stock, Boolean applied, Boolean fieldScene, Int32 armedField, Int32 fld, Int32 factor)
++        {
++            return applied && fieldScene && armedField > 0 && armedField == fld && factor > stock ? factor : stock;
++        }
++
++        // THE MODE SEAM (SettingsState.SetFastForward): FAST MODE for my own booster, or the mirror applying here (the getter's three tests).
++        // The raw flag is never this: it keeps the player's own value.
++        internal static Boolean ModeRule(Boolean on, Boolean applied, Boolean fieldScene, Int32 armedField, Int32 fld)
++        {
++            return on || (applied && fieldScene && armedField > 0 && armedField == fld);
++        }
++
++        // The section-10 body (the ONE encoder: BuildStateFrame and the bench lever).
++        internal static Byte[] SectionBody(Int32 setting, Int32 tps)
++        {
++            return new Byte[] { (Byte)Clamp(setting), (Byte)Clamp(tps) };
++        }
++
++        // The section-10 reader: at least BodyLen bytes, neither byte 0 (the encoder never writes one) -- else malformed (refused: absent).
++        internal static Boolean ParseBody(Byte[] body, out Int32 setting, out Int32 tps)
++        {
++            setting = 1;
++            tps = 0;
++            if (body == null || body.Length < BodyLen || body[0] == 0 || body[1] == 0)
++                return false;
++            setting = body[0];
++            tps = body[1];
++            return true;
++        }
++
++        // A state payload's section 10 through the real section walk (NetSyncState.TryReadSection: a truncated frame refuses whole). False =
++        // absent: setting 1, tps 0.
++        internal static Boolean ReadHostSpeed(Byte[] state, out Int32 setting, out Int32 tps)
++        {
++            Byte[] body;
++            if (state == null || !NetSyncState.TryReadSection(state, NetSyncState.SectionSpeed, out body))
++            {
++                setting = 1;
++                tps = 0;
++                return false;
++            }
++            return ParseBody(body, out setting, out tps);
++        }
++
++        private static Int32 Clamp(Int32 v)
++        {
++            return v < 1 ? 1 : v > 255 ? 255 : v;
++        }
++
++        // ================================================================ HOST
++
++        // BuildStateFrame (every host frame, the 7 Hz publish and every out-of-band push): section 10's body, read LIVE. Null on a fault (the
++        // section then does not ride; the frame never fails for it).
++        internal static Byte[] HostSectionBody()
++        {
++            try
++            {
++                SettingsState s = FF9StateSystem.Settings;
++                return SectionBody(HostSettingRule(s != null && s.IsFastForward, SettingsState.FastForwardGameSpeed),
++                                   TpsRule(Configuration.Graphics.FieldTPS));
++            }
++            catch (Exception err)
++            {
++                NoteFault("host section", err);
++                return null;
++            }
++        }
++
++        // The host's Update (before UpdateHostScene): one line per booster edge. TRUE = the setting changed (the caller pushes the frame now).
++        internal static Boolean HostTick()
++        {
++            try
++            {
++                SettingsState s = FF9StateSystem.Settings;
++                Int32 setting = HostSettingRule(s != null && s.IsFastForward, SettingsState.FastForwardGameSpeed);
++                if (setting == _hostLastSetting)
++                    return false;
++                _hostLastSetting = setting;
++                Log.Message(setting > 1
++                    ? "[NetSync] speed mirror (host): my booster is ON (setting " + setting + ", FieldTPS " + TpsRule(Configuration.Graphics.FieldTPS)
++                      + ") -- section 10 tells a following guest to play my scenes at it"
++                    : "[NetSync] speed mirror (host): my booster is OFF -- section 10 reads setting 1 (a following guest's mirror ends)");
++                return true;
++            }
++            catch (Exception err)
++            {
++                NoteFault("host tick", err);
++                return false;
++            }
++        }
++
++        // ================================================================ GUEST
++
++        // NetSyncClient.ObserveHostDialog's new-frame branch (a live guest's every new state payload, and every null one; the bench's too):
++        // the host's section 10 through CacheRule. The bench host (`netsync speed host <n>`) owns the cache on the selftest role until
++        // `clear` or the release (never stale).
++        internal static void NoteHostFrame(Byte[] state)
++        {
++            try
++            {
++                if (_src == SrcBench && NetSyncClient.IsSelfTestRole)
++                {
++                    _stale = false;
++                    return;
++                }
++                Int32 setting, tps;
++                Boolean parsed = ReadHostSpeed(state, out setting, out tps);
++                CacheRule(state != null, parsed, setting, tps, ref _hostSetting, ref _hostTps, ref _src, out _stale);
++            }
++            catch (Exception err)
++            {
++                NoteFault("frame", err);
++                ForgetHost();
++            }
++        }
++
++        // NetSyncClient.ServiceSpeed, every Update right after ServiceStepOut (every role; a host and a solo bench refuse at the first term):
++        // `eligible` = the step-out's, `viewField` / `hostHolds` = the section-7 control-off view it read (bench: `hostscene 1` on my field).
++        internal static void Tick(EventEngine ee, Boolean eligible, Boolean onField, Int32 fld, Int32 viewField, Boolean hostHolds)
++        {
++            try
++            {
++                if (_src == SrcBench && !NetSyncClient.IsSelfTestRole)
++                    ForgetHost();                       // a bench host never outlives the selftest role
++                SettingsState s = FF9StateSystem.Settings;
++                Int32 now = Environment.TickCount;
++                Boolean myCtl = ee == null || ee.GetUserControl();
++                Boolean liveField = onField && SceneDirector.IsFieldScene();
++                Boolean climb = NetSyncGuestLocalArmed.On && NetSyncGuestLocal.InFlightNow(ee);
++                Boolean mbg = !MBG.IsNull;
++                Boolean movie = MoviePlaying(mbg, !mbg || MBG.Instance.IsFinishedForDisableBooster());
++                Int32 g = Clamp(SettingsState.FastForwardGameSpeed);   // the same clamp the host's section 10 takes
++                Int32 myTps = TpsRule(Configuration.Graphics.FieldTPS);
++                Int32 factor = FactorRule(g, myTps, _hostSetting, _hostTps);
++                Int32 ateField = NetSyncAte.EpisodeFieldNow;
++                Int32 talkField = NetSyncStepOut.TalkFieldNow;
++                Boolean scene = PlaysHostScene(fld, viewField, hostHolds, ateField, talkField);
++                _inEligible = eligible;
++                _inClimb = climb;
++                _inMovie = movie;
++                _inScene = scene;
++                if (!_standing)
++                {
++                    String whyNot = StartRule(eligible, LeverOff, liveField, !myCtl, _stale, _hostSetting, climb, movie, fld, viewField, hostHolds,
++                                              ateField, talkField, factor);
++                    WhyNotNow = whyNot;
++                    if (whyNot == WhyRate || whyNot == WhyOwnOne || whyNot == WhyNoTps)
++                        NoteMismatch(g, myTps, factor);  // every other term held: an eligible guest that would otherwise start
++                    else if (whyNot == null)
++                        Start(s, fld, factor, g, myTps, viewField == fld && hostHolds ? "the host plays its scene here (its control is off)"
++                                                       : ateField == fld ? "my copy plays the ATE episode here"
++                                                       : "a relayed talk owns my copy here");
++                    return;
++                }
++                if (myCtl)
++                {
++                    if (!_backArmed)
++                    {
++                        _backArmed = true;
++                        _backSince = now;               // tick-baseline law: armed bool + delta
++                    }
++                }
++                else
++                    _backArmed = false;
++                Int32 end = EndRule(LeverOff, eligible, liveField, fld == _field, _landed, climb, movie, _hostSetting, factor, scene, myCtl,
++                                    _backArmed ? now - _backSince : -1);
++                WhyNotNow = null;
++                if (end != EndNone)
++                {
++                    Stop(s, end, EndWords(end, fld));
++                    return;
++                }
++                Boolean applied = HoldRule(true, !myCtl);
++                if (applied != _applied)
++                {
++                    _applied = applied;                 // my control came back (withheld) or fell again (applied): free roam is my own speed
++                    Publish();
++                    try
++                    {
++                        s.SetFastForward(s.IsFastForward);   // FAST MODE and the SFX pitch follow the flip; the raw flag keeps my own
++                    }
++                    catch (Exception err)
++                    {
++                        NoteFault("hold edge", err);
++                    }
++                }
++            }
++            catch (Exception err)
++            {
++                NoteFault("tick", err);
++                if (_standing)
++                    Stop(null, EndReset, "a tick fault (fail open: the getter reads stock)");
++            }
++        }
++
++        // NetSyncClient.NoteFieldLanding (every field load, every role): a standing mirror ends AT the load -- before the new copy's Main_Init
++        // runs a frame at the old verdict (a same-field reload keeps the id). The landing term with the last Tick's other inputs.
++        internal static void OnLanding(Int32 landed)
++        {
++            try
++            {
++                if (!_standing)
++                    return;
++                _landed = true;
++                Int32 end = EndRule(LeverOff, _inEligible, true, true, true, _inClimb, _inMovie, _hostSetting, _factor, _inScene, false, -1);
++                Stop(null, end, EndWords(end, landed));
++            }
++            catch (Exception err)
++            {
++                NoteFault("landing", err);
++                if (_standing)
++                    Stop(null, EndReset, "a landing fault (fail open: the getter reads stock)");
++            }
++        }
++
++        // The session boundary (NetSyncClient.ResetIntentAndL1State: OnDestroy, a redial, a reconfigure, the harness release): a standing
++        // mirror ends, the host's cache is forgotten (the bench host is the lever's: HarnessRelease), the host's edge line re-arms.
++        internal static void Reset(String why)
++        {
++            try
++            {
++                if (_standing)
++                    Stop(null, EndReset, why);
++            }
++            catch (Exception err)
++            {
++                NoteFault("reset", err);
++            }
++            if (_src != SrcBench || !NetSyncClient.IsSelfTestRole)
++                ForgetHost();
++            _hostLastSetting = 1;
++            _mismatchKey = -1;
++            WhyNotNow = "not ticked";
++        }
++
++        // START fails OPEN: an edge that throws stops the mirror it just raised (the holder back to stock, the edge re-run in Stop's own try).
++        private static void Start(SettingsState s, Int32 fld, Int32 factor, Int32 g, Int32 myTps, String why)
++        {
++            _standing = true;
++            _applied = true;                            // START needs my control off: HoldRule applies it at once
++            _field = fld;
++            _factor = factor;
++            _since = Environment.TickCount;
++            _backArmed = false;
++            _landed = false;
++            EdgesOn++;
++            Publish();                                  // the holder first: SetFastForward's ModeRule reads it
++            Int32 own = -1;
++            try
++            {
++                own = s.StockFastForwardFactor;
++            }
++            catch (Exception err)
++            {
++                NoteFault("own factor", err);
++            }
++            Log.Message("[NetSync] speed mirror: ON on field " + fld + " -- factor " + factor + " (the host's booster " + _hostSetting + " x " + _hostTps
++                        + " TPS covers my " + g + " x " + myTps + "; my own factor " + own + ") -- " + why);
++            try
++            {
++                s.SetFastForward(s.IsFastForward);      // FAST MODE on (ModeRule) + the SFX re-pitch; the raw flag keeps my own value
++            }
++            catch (Exception err)
++            {
++                NoteFault("start edge", err);
++                Stop(null, EndReset, "a start-edge fault (fail open: the getter reads stock)");
++            }
++        }
++
++        private static void Stop(SettingsState s, Int32 end, String why)
++        {
++            Int32 field = _field;
++            Int32 ms = Environment.TickCount - _since;
++            _standing = false;
++            _applied = false;
++            _field = -1;
++            _factor = 0;
++            _backArmed = false;
++            _landed = false;
++            EdgesOff++;
++            if (end > 0 && end < EndBy.Length)
++                EndBy[end]++;
++            LastEnd = end > 0 && end < EndNames.Length ? EndNames[end] : null;
++            Publish();                                  // the holder first: the getter and the mode read stock from here on
++            Int32 own = -1;
++            try
++            {
++                if (s == null)
++                    s = FF9StateSystem.Settings;
++                own = s.StockFastForwardFactor;
++                s.SetFastForward(s.IsFastForward);      // FAST MODE back to my own booster, the SFX re-pitched
++            }
++            catch (Exception err)
++            {
++                NoteFault("end edge", err);
++            }
++            Log.Message("[NetSync] speed mirror: OFF on field " + field + " after " + ms + " ms -- factor back to " + own + " (my own) -- " + why);
++        }
++
++        private static String EndWords(Int32 end, Int32 fld)
++        {
++            switch (end)
++            {
++                case EndLever: return "the speed lever is off";
++                case EndSession: return "no longer a following, mirroring guest";
++                case EndLanding: return "field " + fld + " loaded";
++                case EndField: return "I left the field (now " + fld + ")";
++                case EndScene: return "I left the field scene (" + SceneNow() + ")";
++                case EndClimb: return "my guest climb started";
++                case EndMovie: return "a movie started";
++                case EndHost: return "the host's booster is off";
++                case EndRate: return "the host's rate no longer covers mine (SpeedFactor x FieldTPS)";
++                case EndControl: return "my control is back (" + NetSyncStepOut.StepInMs + " ms)";
++                default: return "reset";
++            }
++        }
++
++        private static String SceneNow()
++        {
++            try
++            {
++                return PersistenSingleton<SceneDirector>.Instance.CurrentScene ?? "none";
++            }
++            catch
++            {
++                return "unknown";
++            }
++        }
++
++        // One line per (G, myTps, setting, hostTps), only for an eligible guest whose every other START term held: the host's booster is on,
++        // but my rate does not fit it.
++        private static void NoteMismatch(Int32 g, Int32 myTps, Int32 factor)
++        {
++            Int64 key = ((Int64)(g & 0xFFFF) << 48) | ((Int64)(myTps & 0xFFFF) << 32) | ((Int64)(_hostSetting & 0xFF) << 8) | (Int64)(_hostTps & 0xFF);
++            if (key == _mismatchKey)
++                return;
++            _mismatchKey = key;
++            Log.Message(factor == RefuseOwnOne
++                ? "[NetSync] speed mirror: my [Cheats] SpeedFactor is " + g + " -- nothing to mirror (the host's booster " + _hostSetting + " x "
++                  + _hostTps + " TPS plays on at its own rate)"
++                : factor == RefuseNoTps
++                ? "[NetSync] speed mirror: a FieldTPS is unknown (mine " + myTps + ", the host's " + _hostTps + ") -- the mirror stays off"
++                : "[NetSync] speed mirror: my rate " + g + " x " + myTps + " TPS would overshoot the host's " + _hostSetting + " x " + _hostTps
++                  + " -- the mirror stays off ([Cheats] SpeedFactor or [Graphics] FieldTPS differ between the machines)");
++        }
++
++        private static void Publish()
++        {
++            if (_standing)
++            {
++                NetSyncSpeedArmed.Factor = _factor;
++                NetSyncSpeedArmed.Field = _field;
++                NetSyncSpeedArmed.Standing = true;
++                NetSyncSpeedArmed.Applied = _applied;   // last: Applied never reads true with a stale field
++            }
++            else
++            {
++                NetSyncSpeedArmed.Applied = false;      // first
++                NetSyncSpeedArmed.Standing = false;
++                NetSyncSpeedArmed.Factor = 0;
++                NetSyncSpeedArmed.Field = -1;
++            }
++        }
++
++        private static void ForgetHost()
++        {
++            _hostSetting = 1;
++            _hostTps = 0;
++            _src = SrcNone;
++            _stale = false;
++        }
++
++        private static readonly HashSet<String> _faultSites = new HashSet<String>();
++
++        private static void NoteFault(String site, Exception err)
++        {
++            Faults++;
++            LastFault = site + ": " + (err != null ? err.Message : "?");
++            if (_faultSites.Count < 16 && _faultSites.Add(site))
++                Log.Error(err, "[NetSync] speed mirror: " + site + " fault (logged once per site; the getter reads stock)");
++        }
++
++        // ================================================================ the harness (HarnessAgent.AppendSpeed, the `speed` sub-verb)
++
++        internal static String HarnessLeverName { get { return _lever == 1 ? "off" : null; } }
++        internal static Int32 HarnessHostSetting { get { return _hostSetting; } }
++        internal static Int32 HarnessHostTps { get { return _src != SrcNone ? _hostTps : -1; } }
++        internal static Boolean HarnessHostSeen { get { return _src != SrcNone; } }
++        internal static Boolean HarnessHostStale { get { return _stale; } }
++        internal static String HarnessSrc { get { return SrcNames[_src]; } }
++        internal static Boolean HarnessMirror { get { return _standing; } }
++        internal static Boolean HarnessApplied { get { return _applied; } }
++        internal static Int32 HarnessOwnFactor { get { return FF9StateSystem.Settings.StockFastForwardFactor; } }
++        internal static Int32 HarnessFactorNow { get { return FF9StateSystem.Settings.FastForwardFactor; } }
++        internal static Boolean HarnessRaw { get { return FF9StateSystem.Settings.IsFastForward; } }
++        internal static Boolean HarnessFastMode { get { return HonoBehaviorSystem.Instance.IsFastForwardModeActive(); } }
++        internal static Boolean HarnessModeWanted
++        {
++            get
++            {
++                return ModeRule(false, NetSyncSpeedArmed.Applied, SceneDirector.IsFieldScene(), NetSyncSpeedArmed.Field,
++                                FF9StateSystem.Common.FF9.fldMapNo);
++            }
++        }
++
++        // `netsync speed act|off|clear` on ANY role (the duo's calibration runs on a client: both games share one DLL), `netsync speed host <n>`
++        // on the selftest role only (it fabricates a host frame; that op's role refused first). off = CALIBRATION: s162's rule on this copy (a
++        // standing mirror ends at the next Tick, by EndRule's lever term); host <n> (1-255) = a bench host: section 10 = [n][my FieldTPS]
++        // through the real encoder and the real section walk into the same cache (the solo bench's host, with `hostscene 1` as its control-off
++        // scene); act = the shipping rule; clear = act, the bench host forgotten. Counters are never reset (read DELTAS). Released with the
++        // harness on every role (NetSyncBattle.HarnessReleaseBench runs on every HarnessSelfTest(false), above its forced-role return).
++        internal static Boolean HarnessLever(String[] args, out String why)
++        {
++            why = null;
++            String op = args != null && args.Length > 1 && args[1] != null ? args[1].ToLowerInvariant() : "";
++            if (op == "host" && !NetSyncClient.IsSelfTestRole)
++            {
++                why = "netsync speed host: needs the selftest role (netsync selftest 1)";
++                return false;
++            }
++            Int32 n = 0;
++            Boolean ok = op == "host"
++                ? args.Length == 3 && Int32.TryParse(args[2], System.Globalization.NumberStyles.Integer,
++                                                      System.Globalization.CultureInfo.InvariantCulture, out n) && n >= 1 && n <= 255
++                : args != null && args.Length == 2 && (op == "act" || op == "off" || op == "clear");
++            if (!ok)
++            {
++                why = "netsync speed: expected act|off|clear (any role) or host <1-255> (the selftest role)";
++                return false;
++            }
++            if (op == "host")
++            {
++                Int32 tps = TpsRule(Configuration.Graphics.FieldTPS);
++                Byte[] frame = NetSyncState.AppendSection(null, NetSyncState.SectionSpeed, SectionBody(n, tps));
++                Int32 setting, readTps;
++                if (!ReadHostSpeed(frame, out setting, out readTps))
++                {
++                    why = "netsync speed: the bench host's section 10 did not read back";
++                    return false;
++                }
++                _hostSetting = setting;
++                _hostTps = readTps;
++                _src = SrcBench;
++                _stale = false;
++                Log.Message("[NetSync] harness: speed mirror's bench host -- section 10 = setting " + setting + " x " + readTps
++                            + " TPS through the real codec (released with the harness)");
++                return true;
++            }
++            _lever = op == "off" ? 1 : 0;
++            if (op == "clear" && _src == SrcBench)
++                ForgetHost();
++            Log.Message("[NetSync] harness: speed mirror " + (op == "off" ? "OFF -- CALIBRATION: s162's rule, never mirror (released with the harness)"
++                        : op == "clear" ? "CLEAR -- the shipping rule, the bench host forgotten" : "ACT"));
++            return true;
++        }
++
++        // NetSyncBattle.HarnessReleaseBench (every role): the lever back to act, the bench host forgotten (a standing mirror ends at the next
++        // Tick on the host's setting 1, or at once through the reconfigure's Reset).
++        internal static void HarnessRelease()
++        {
++            if (_lever != 0 || _src == SrcBench)
++                Log.Message("[NetSync] harness: speed mirror lever released (act; the bench host forgotten)");
++            _lever = 0;
++            if (_src == SrcBench)
++                ForgetHost();
++        }
++
++        // ================================================================ THE PROOF (the selftest proof block: "speed mirror selftest: OK (N rows, M mutants caught, step-in S ms)")
++
++        private delegate Int32 HostSetFn(Boolean raw, Int32 speedFactor);
++        private delegate Int32 TpsFn(Int32 tps);
++        private delegate void CacheFn(Boolean haveFrame, Boolean parsed, Int32 newSetting, Int32 newTps, ref Int32 setting, ref Int32 tps,
++                                      ref Int32 src, out Boolean stale);
++        private delegate Boolean MovieFn(Boolean mbgExists, Boolean finished);
++        private delegate Int32 FactorFn(Int32 g, Int32 myTps, Int32 hostSetting, Int32 hostTps);
++        private delegate String StartFn(Boolean eligible, Boolean leverOff, Boolean liveField, Boolean myCtlOff, Boolean stale, Int32 hostSetting,
++                                        Boolean climb, Boolean movie, Int32 fld, Int32 viewField, Boolean hostHolds, Int32 ateField, Int32 talkField,
++                                        Int32 factor);
++        private delegate Int32 EndFn(Boolean leverOff, Boolean eligible, Boolean liveField, Boolean sameField, Boolean landed, Boolean climb,
++                                     Boolean movie, Int32 hostSetting, Int32 factor, Boolean hostScene, Boolean myCtl, Int32 ctlBackMs);
++        private delegate Boolean HoldFn(Boolean standing, Boolean myCtlOff);
++        private delegate Int32 GetterFn(Int32 stock, Boolean applied, Boolean fieldScene, Int32 armedField, Int32 fld, Int32 factor);
++        private delegate Boolean ModeFn(Boolean on, Boolean applied, Boolean fieldScene, Int32 armedField, Int32 fld);
++        private delegate Byte[] BodyFn(Int32 setting, Int32 tps);
++        private delegate Boolean ParseFn(Byte[] body, out Int32 setting, out Int32 tps);
++
++        private sealed class Rules
++        {
++            public HostSetFn HostSet = HostSettingRule;
++            public TpsFn Tps = TpsRule;
++            public CacheFn Cache = CacheRule;
++            public MovieFn Movie = MoviePlaying;
++            public FactorFn Factor = FactorRule;
++            public StartFn Start = StartRule;
++            public EndFn End = EndRule;
++            public HoldFn Hold = HoldRule;
++            public GetterFn Getter = GetterRule;
++            public ModeFn Mode = ModeRule;
++            public BodyFn Body = SectionBody;
++            public ParseFn Parse = ParseBody;
++        }
++
++        // A frame's section 10 through the real section walk and the rule set's reader (absent = setting 1, tps 0).
++        private static Boolean ReadWith(Rules r, Byte[] frame, out Int32 setting, out Int32 tps)
++        {
++            Byte[] body;
++            if (frame == null || !NetSyncState.TryReadSection(frame, NetSyncState.SectionSpeed, out body))
++            {
++                setting = 1;
++                tps = 0;
++                return false;
++            }
++            return r.Parse(body, out setting, out tps);
++        }
++
++        // One cache step from (setting, tps, src) through the rule set's CacheRule: true when it lands on the expected four.
++        private static Boolean CacheIs(Rules r, Int32 setting, Int32 tps, Int32 src, Boolean haveFrame, Boolean parsed, Int32 newSetting,
++                                       Int32 newTps, Int32 wantSetting, Int32 wantTps, Int32 wantSrc, Boolean wantStale)
++        {
++            Boolean stale;
++            r.Cache(haveFrame, parsed, newSetting, newTps, ref setting, ref tps, ref src, out stale);
++            return setting == wantSetting && tps == wantTps && src == wantSrc && stale == wantStale;
++        }
++
++        // The section ids of a section-tagged frame in order (null = truncated).
++        private static List<Int32> SectionIds(Byte[] frame)
++        {
++            if (frame == null)
++                return null;
++            List<Int32> ids = new List<Int32>();
++            Int32 off = 0;
++            while (off + 3 <= frame.Length)
++            {
++                Int32 len = frame[off + 1] | (frame[off + 2] << 8);
++                if (off + 3 + len > frame.Length)
++                    return null;
++                ids.Add(frame[off]);
++                off += 3 + len;
++            }
++            return off == frame.Length ? ids : null;
++        }
++
++        private static Boolean Same(Byte[] a, Byte[] b)
++        {
++            if (a == null || b == null || a.Length != b.Length)
++                return false;
++            for (Int32 k = 0; k < a.Length; k++)
++                if (a[k] != b[k])
++                    return false;
++            return true;
++        }
++
++        // StartRule's and EndRule's words / reasons in their order (the cascade rows pin it).
++        private static readonly String[] StartOrder = { WhyEligible, WhyLever, WhyField, WhyControl, WhyStale, WhyHost, WhyClimb, WhyMovie, WhyScene,
++                                                        WhyRate };
++        private static readonly Int32[] EndOrder = { EndLever, EndSession, EndLanding, EndField, EndScene, EndClimb, EndMovie, EndHost, EndRate,
++                                                     EndControl };
++
++        // Every row, against one rule set (synthetic ids: my field 351, another 350; G 3, 30 TPS).
++        private static Int32 Rows(Rules r, List<String> fails)
++        {
++            Int32 n = 0;
++            Action<Boolean, String> row = (ok, name) => { n++; if (!ok) fails.Add(name); };
++            Int32 step = NetSyncStepOut.StepInMs;
++            // the host's setting: the booster as SET, clamped to a byte, never 0; a FieldTPS byte
++            row(r.HostSet(false, 3) == 1, "host_setting.booster_off");
++            row(r.HostSet(true, 3) == 3, "host_setting.booster_on");
++            row(r.HostSet(true, 0) == 1, "host_setting.clamp_low");
++            row(r.HostSet(true, 999) == 255, "host_setting.clamp_high");
++            row(r.Tps(30) == 30, "tps.as_is");
++            row(r.Tps(0) == 1, "tps.clamp_low");
++            row(r.Tps(1000) == 255, "tps.clamp_high");
++            // the cache: a NULL state is no news (kept, stale); a fresh frame replaces it (its section, or absent = forget), never stale
++            row(CacheIs(r, 3, 30, SrcWire, false, false, 1, 0, 3, 30, SrcWire, true), "cache.null_state_keeps_the_host");
++            row(CacheIs(r, 1, 0, SrcNone, false, false, 1, 0, 1, 0, SrcNone, true), "cache.null_state_before_any_frame");
++            row(CacheIs(r, 3, 30, SrcWire, true, true, 5, 60, 5, 60, SrcWire, false), "cache.fresh_frame_replaces");
++            row(CacheIs(r, 1, 0, SrcNone, true, true, 3, 30, 3, 30, SrcWire, false), "cache.first_frame");
++            row(CacheIs(r, 3, 30, SrcWire, true, false, 1, 0, 1, 0, SrcNone, false), "cache.fresh_frame_without_10_forgets");
++            // the movie: stock's own booster lock -- an MBG that played and is not skipped; an idle one (every field has one) never
++            row(r.Movie(true, false), "movie.playing");
++            row(!r.Movie(true, true), "movie.idle_mbg");
++            row(!r.Movie(false, true), "movie.no_mbg");
++            row(!r.Movie(false, false), "movie.no_mbg_whatever_the_flag");
++            // the factor: my own G within the host's rate; the refusals in their order, each named
++            row(r.Factor(3, 30, 3, 30) == 3, "factor.equal");
++            row(r.Factor(3, 30, 5, 30) == 3, "factor.host_faster_is_still_mine");
++            row(r.Factor(3, 30, 3, 60) == 3, "factor.host_more_tps");
++            row(r.Factor(2, 60, 4, 30) == 2, "factor.cross_equal_rate");
++            row(r.Factor(5, 30, 3, 30) == RefuseOvershoot, "factor.overshooting_g");
++            row(r.Factor(3, 60, 3, 30) == RefuseOvershoot, "factor.overshooting_tps");
++            row(r.Factor(3, 30, 1, 30) == RefuseHostOff, "factor.host_1");
++            row(r.Factor(1, 30, 3, 30) == RefuseOwnOne, "factor.my_own_1");
++            row(r.Factor(3, 30, 3, 0) == RefuseNoTps, "factor.host_tps_unknown");
++            row(r.Factor(3, 0, 3, 30) == RefuseNoTps, "factor.my_tps_unknown");
++            row(r.Factor(1, 30, 1, 30) == RefuseHostOff, "factor.order_host_before_own");
++            row(r.Factor(1, 0, 3, 0) == RefuseOwnOne, "factor.order_own_before_tps");
++            // the start: every term holds -> start (each of (a) / (b) / (c) alone); each term failing alone names itself
++            row(r.Start(true, false, true, true, false, 3, false, false, 351, 351, true, -1, -1, 3) == null, "start.a_host_scene_here");
++            row(r.Start(true, false, true, true, false, 3, false, false, 351, 351, false, 351, -1, 3) == null, "start.b_ate_episode_here");
++            row(r.Start(true, false, true, true, false, 3, false, false, 351, 351, false, -1, 351, 3) == null, "start.c_relayed_talk_here");
++            row(r.Start(false, false, true, true, false, 3, false, false, 351, 351, true, -1, -1, 3) == WhyEligible, "start.not_eligible");
++            row(r.Start(true, true, true, true, false, 3, false, false, 351, 351, true, -1, -1, 3) == WhyLever, "start.lever");
++            row(r.Start(true, false, false, true, false, 3, false, false, 351, 351, true, -1, -1, 3) == WhyField, "start.not_a_live_field");
++            row(r.Start(true, false, true, false, false, 3, false, false, 351, 351, true, -1, -1, 3) == WhyControl, "start.my_control");
++            row(r.Start(true, false, true, true, true, 3, false, false, 351, 351, true, -1, -1, 3) == WhyStale, "start.stale_lane");
++            row(r.Start(true, false, true, true, false, 1, false, false, 351, 351, true, -1, -1, 3) == WhyHost, "start.host_1");
++            row(r.Start(true, false, true, true, false, 3, true, false, 351, 351, true, -1, -1, 3) == WhyClimb, "start.climb");
++            row(r.Start(true, false, true, true, false, 3, false, true, 351, 351, true, -1, -1, 3) == WhyMovie, "start.movie");
++            row(r.Start(true, false, true, true, false, 3, false, false, 351, 351, false, -1, -1, 3) == WhyScene, "start.host_here_with_control_on");
++            row(r.Start(true, false, true, true, false, 3, false, false, 351, 350, true, -1, -1, 3) == WhyScene, "start.host_view_for_another_field");
++            row(r.Start(true, false, true, true, false, 3, false, false, 351, 351, false, 350, -1, 3) == WhyScene, "start.ate_on_another_field");
++            row(r.Start(true, false, true, true, false, 3, false, false, 351, 351, false, -1, 350, 3) == WhyScene, "start.talk_on_another_field");
++            row(r.Start(true, false, true, true, false, 3, false, false, 0, 0, true, 0, 0, 3) == WhyScene, "start.field_zero");
++            row(r.Start(true, false, true, true, false, 3, false, false, 351, 351, true, -1, -1, RefuseOvershoot) == WhyRate, "start.rate_overshoot");
++            row(r.Start(true, false, true, true, false, 3, false, false, 351, 351, true, -1, -1, RefuseOwnOne) == WhyOwnOne, "start.rate_my_own_1");
++            row(r.Start(true, false, true, true, false, 3, false, false, 351, 351, true, -1, -1, RefuseNoTps) == WhyNoTps, "start.rate_tps_unknown");
++            // THE ORDER: terms 0..k-1 holding and k..9 failing name term k (every adjacent swap is caught)
++            for (Int32 k = 0; k < StartOrder.Length; k++)
++            {
++                Int32 at = k;
++                Func<Int32, Boolean> bad = i => i >= at;
++                row(r.Start(!bad(0), bad(1), !bad(2), !bad(3), bad(4), bad(5) ? 1 : 3, bad(6), bad(7), 351, bad(8) ? 350 : 351, !bad(8), -1, -1,
++                            bad(9) ? RefuseOvershoot : 3) == StartOrder[k], "start.order_" + k);
++            }
++            // the end: the latch -- each term alone; the host's control back while mine is off keeps it; mine back under StepInMs keeps it
++            row(r.End(false, true, true, true, false, false, false, 3, 3, true, false, -1) == EndNone, "end.holds");
++            row(r.End(true, true, true, true, false, false, false, 3, 3, true, false, -1) == EndLever, "end.lever");
++            row(r.End(false, false, true, true, false, false, false, 3, 3, true, false, -1) == EndSession, "end.eligibility_lost");
++            row(r.End(false, true, true, true, true, false, false, 3, 3, true, false, -1) == EndLanding, "end.landing");
++            row(r.End(false, true, true, false, false, false, false, 3, 3, true, false, -1) == EndField, "end.field_change");
++            row(r.End(false, true, false, true, false, false, false, 3, 3, true, false, -1) == EndScene, "end.field_scene_left");
++            row(r.End(false, true, true, true, false, true, false, 3, 3, true, false, -1) == EndClimb, "end.climb_started");
++            row(r.End(false, true, true, true, false, false, true, 3, 3, true, false, -1) == EndMovie, "end.movie_started");
++            row(r.End(false, true, true, true, false, false, false, 1, RefuseHostOff, true, false, -1) == EndHost, "end.host_1");
++            row(r.End(false, true, true, true, false, false, false, 3, RefuseOvershoot, true, false, -1) == EndRate, "end.rate");
++            row(r.End(false, true, true, true, false, false, false, 3, 3, true, true, step) == EndControl, "end.my_control_back");
++            row(r.End(false, true, true, true, false, false, false, 3, 3, true, true, step - 1) == EndNone, "end.my_control_under_step_in");
++            row(r.End(false, true, true, true, false, false, false, 3, 3, false, false, -1) == EndNone, "end.host_control_back_mine_off");
++            row(r.End(false, true, true, true, false, false, false, 3, 3, false, true, step - 1) == EndNone, "end.host_back_mine_debouncing");
++            for (Int32 k = 0; k < EndOrder.Length; k++)
++            {
++                Int32 at = k;
++                Func<Int32, Boolean> bad = i => i >= at;
++                row(r.End(bad(0), !bad(1), !bad(4), !bad(3), bad(2), bad(5), bad(6), bad(7) ? 1 : 3, bad(8) ? RefuseOvershoot : 3, true, bad(9),
++                          bad(9) ? step : -1) == EndOrder[k], "end.order_" + k);
++            }
++            // the hold: the factor applies only with the latch standing AND my control off
++            row(r.Hold(true, true), "hold.latch_my_control_off");
++            row(!r.Hold(true, false), "hold.latch_my_control_back");
++            row(!r.Hold(false, true), "hold.no_latch");
++            // the getter: applied on its field = G; battle, another field, not applied = stock; never below stock
++            row(r.Getter(1, true, true, 351, 351, 3) == 3, "getter.applied_on_its_field");
++            row(r.Getter(1, true, false, 351, 351, 3) == 1, "getter.battle_scene");
++            row(r.Getter(3, true, false, 351, 351, 5) == 3, "getter.non_field_scene_with_a_higher_factor");
++            row(r.Getter(1, true, true, 351, 350, 3) == 1, "getter.another_field");
++            row(r.Getter(1, false, true, 351, 351, 3) == 1, "getter.not_applied");
++            row(r.Getter(3, false, true, -1, 351, 0) == 3, "getter.own_f1_no_mirror");
++            row(r.Getter(3, true, true, 351, 351, 3) == 3, "getter.own_f1_with_mirror");
++            row(r.Getter(5, true, true, 351, 351, 3) == 5, "getter.stock_above_the_factor");
++            row(r.Getter(1, true, true, 0, 0, 3) == 1, "getter.field_zero");
++            // the mode: my own booster, or the mirror applying here; never another field, the battle scene or withheld
++            row(r.Mode(true, false, true, -1, 351), "mode.own_booster");
++            row(r.Mode(false, true, true, 351, 351), "mode.applied_here");
++            row(!r.Mode(false, true, true, 351, 350), "mode.applied_another_field");
++            row(!r.Mode(false, true, false, 351, 351), "mode.applied_battle_scene");
++            row(!r.Mode(false, false, true, 351, 351), "mode.withheld");
++            row(!r.Mode(false, true, true, 0, 0), "mode.field_zero");
++            // the section-10 codec: hand-checked bytes, the round trip through the real section walk, an old reader skipping it, a
++            // truncated or malformed body refused (absent = 1), a longer one read forward
++            row(Same(r.Body(3, 30), new Byte[] { 0x03, 0x1E }), "codec.hand_bytes");
++            row(Same(r.Body(0, 300), new Byte[] { 0x01, 0xFF }), "codec.clamps");
++            Int32 cs, ct;
++            row(ReadWith(r, NetSyncState.AppendSection(null, NetSyncState.SectionSpeed, r.Body(3, 30)), out cs, out ct) && cs == 3 && ct == 30,
++                "codec.round_trip");
++            row(ReadWith(r, NetSyncState.AppendSection(null, NetSyncState.SectionSpeed, r.Body(200, 60)), out cs, out ct) && cs == 200 && ct == 60,
++                "codec.round_trip_wide");
++            Byte[] s5 = { 1, 9 }, s7 = { 0xAA, 0xBB, 0xCC }, s8 = { 0x6B, 0x00, 0x0C };
++            Byte[] frame = NetSyncState.AppendSection(NetSyncState.AppendSection(NetSyncState.AppendSection(NetSyncState.AppendSection(null,
++                NetSyncState.SectionEvent, s5), NetSyncState.SectionSpeed, r.Body(3, 30)), NetSyncState.SectionDialog, s7), NetSyncVisitor.SectionDress, s8);
++            Byte[] b5, b7, b8, b6;
++            row(NetSyncState.TryReadSection(frame, NetSyncState.SectionEvent, out b5) && Same(b5, s5)
++                && NetSyncState.TryReadSection(frame, NetSyncState.SectionDialog, out b7) && Same(b7, s7)
++                && NetSyncState.TryReadSection(frame, NetSyncVisitor.SectionDress, out b8) && Same(b8, s8)
++                && !NetSyncState.TryReadSection(frame, NetSyncState.SectionTalk, out b6), "codec.old_reader_steps_over_10");
++            row(ReadWith(r, frame, out cs, out ct) && cs == 3 && ct == 30, "codec.reads_among_sections");
++            row(!ReadWith(r, NetSyncState.AppendSection(null, NetSyncState.SectionEvent, s5), out cs, out ct) && cs == 1, "codec.absent_is_1");
++            row(!ReadWith(r, null, out cs, out ct) && cs == 1, "codec.null_state_reads_absent");
++            row(!ReadWith(r, NetSyncState.AppendSection(null, NetSyncState.SectionSpeed, new Byte[] { 3 }), out cs, out ct) && cs == 1,
++                "codec.truncated_body_refused");
++            Byte[] full = NetSyncState.AppendSection(null, NetSyncState.SectionSpeed, r.Body(3, 30));
++            Byte[] cut = new Byte[full.Length - 1];
++            Array.Copy(full, 0, cut, 0, cut.Length);
++            row(!ReadWith(r, cut, out cs, out ct) && cs == 1, "codec.truncated_frame_refused");
++            row(!ReadWith(r, NetSyncState.AppendSection(null, NetSyncState.SectionSpeed, new Byte[] { 0, 30 }), out cs, out ct) && cs == 1,
++                "codec.zero_setting_refused");
++            row(!ReadWith(r, NetSyncState.AppendSection(null, NetSyncState.SectionSpeed, new Byte[] { 3, 0 }), out cs, out ct) && cs == 1,
++                "codec.zero_tps_refused");
++            row(ReadWith(r, NetSyncState.AppendSection(null, NetSyncState.SectionSpeed, new Byte[] { 3, 30, 7 }), out cs, out ct) && cs == 3 && ct == 30,
++                "codec.longer_read_forward");
++            return n;
++        }
++
++        // The mutants, each a plausible wrong rule the rows must catch.
++        private static Rules Mutant(String name)
++        {
++            Rules m = new Rules();
++            switch (name)
++            {
++                case "host_setting_live_blind": m.HostSet = (raw, sf) => Clamp(sf); break;                                  // the setting without the flag
++                case "host_setting_unclamped": m.HostSet = (raw, sf) => raw ? sf : 1; break;
++                case "tps_unclamped": m.Tps = (t) => t; break;
++                case "cache_null_forgets": m.Cache = (Boolean hf, Boolean p, Int32 ns, Int32 nt, ref Int32 st, ref Int32 tp, ref Int32 sr, out Boolean sl) =>
++                    { CacheRule(true, p, ns, nt, ref st, ref tp, ref sr, out sl); sl = !hf; }; break;                          // rev 1: a dead link = the booster off
++                case "cache_fresh_absent_keeps": m.Cache = (Boolean hf, Boolean p, Int32 ns, Int32 nt, ref Int32 st, ref Int32 tp, ref Int32 sr, out Boolean sl) =>
++                    { sl = !hf; if (hf && p) { st = ns; tp = nt; sr = SrcWire; } }; break;
++                case "cache_never_stale": m.Cache = (Boolean hf, Boolean p, Int32 ns, Int32 nt, ref Int32 st, ref Int32 tp, ref Int32 sr, out Boolean sl) =>
++                    { CacheRule(hf, p, ns, nt, ref st, ref tp, ref sr, out sl); sl = false; }; break;
++                case "cache_stale_sticks": m.Cache = (Boolean hf, Boolean p, Int32 ns, Int32 nt, ref Int32 st, ref Int32 tp, ref Int32 sr, out Boolean sl) =>
++                    { CacheRule(hf, p, ns, nt, ref st, ref tp, ref sr, out sl); sl = true; }; break;
++                case "movie_idle_mbg_vetoes": m.Movie = (ex, fin) => ex; break;                                              // an idle MBG vetoing
++                case "movie_exists_blind": m.Movie = (ex, fin) => !fin; break;
++                case "factor_tps_blind": m.Factor = (g, mt, hs, ht) => hs <= 1 ? RefuseHostOff : g <= 1 ? RefuseOwnOne : g <= hs ? g : RefuseOvershoot; break;
++                case "factor_strict": m.Factor = (g, mt, hs, ht) => FactorRule(g, mt, hs, ht) > 1 && (Int64)g * mt == (Int64)hs * ht ? RefuseOvershoot : FactorRule(g, mt, hs, ht); break;
++                case "factor_host_rate": m.Factor = (g, mt, hs, ht) => FactorRule(g, mt, hs, ht) > 1 ? hs : FactorRule(g, mt, hs, ht); break;   // the host's factor, not mine
++                case "factor_no_cap": m.Factor = (g, mt, hs, ht) => hs <= 1 ? RefuseHostOff : g <= 1 ? RefuseOwnOne : g; break;
++                case "factor_my_tps_blind": m.Factor = (g, mt, hs, ht) => FactorRule(g, mt <= 0 ? 1 : mt, hs, ht); break;
++                case "factor_order_swapped": m.Factor = (g, mt, hs, ht) => g <= 1 ? RefuseOwnOne : FactorRule(g, mt, hs, ht); break;
++                case "start_always_refuses": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => WhyEligible; break;
++                case "start_eligible_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(true, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa); break;
++                case "start_lever_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, false, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa); break;
++                case "start_field_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, true, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa); break;
++                case "start_control_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, true, sl, hs, c, mv, f, vf, hh, af, tf, fa); break;
++                case "start_stale_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, false, hs, c, mv, f, vf, hh, af, tf, fa); break;
++                case "start_host_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, 3, c, mv, f, vf, hh, af, tf, fa); break;
++                case "start_setting_ge": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs >= 1 ? 2 : hs, c, mv, f, vf, hh, af, tf, fa); break;   // `>=` for `>`
++                case "start_climb_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, false, mv, f, vf, hh, af, tf, fa); break;
++                case "start_movie_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, c, false, f, vf, hh, af, tf, fa); break;
++                case "start_scene_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, c, mv, f, f, true, af, tf, fa); break;
++                case "start_view_field_blind": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, c, mv, f, f, hh, af, tf, fa); break;
++                case "start_host_control_blind": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, c, mv, f, vf, vf == f, af, tf, fa); break;
++                case "start_a_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, c, mv, f, vf, false, af, tf, fa); break;
++                case "start_b_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, c, mv, f, vf, hh, -1, tf, fa); break;
++                case "start_c_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, -1, fa); break;
++                case "start_ate_field_blind": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af > 0 ? f : af, tf, fa); break;
++                case "start_talk_field_blind": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf > 0 ? f : tf, fa); break;
++                case "start_rate_dropped": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, 3); break;
++                case "start_rate_words_merged": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => StartRule(e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa > 1 ? fa : RefuseOvershoot); break;   // rev 1's one "would overshoot"
++                case "start_climb_before_host": m.Start = (e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa) => e && !l && lf && mc && !sl && c ? WhyClimb : StartRule(e, l, lf, mc, sl, hs, c, mv, f, vf, hh, af, tf, fa); break;
++                case "end_level_triggered": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => !sc ? EndHost : EndRule(l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms); break;   // the host's control back ends it
++                case "end_lever_dropped": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(false, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms); break;
++                case "end_eligible_dropped": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(l, true, lf, sf, ld, c, mv, hs, fa, sc, mc, ms); break;
++                case "end_landing_dropped": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(l, e, lf, sf, false, c, mv, hs, fa, sc, mc, ms); break;
++                case "end_field_dropped": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(l, e, lf, true, ld, c, mv, hs, fa, sc, mc, ms); break;
++                case "end_scene_dropped": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(l, e, true, sf, ld, c, mv, hs, fa, sc, mc, ms); break;
++                case "end_climb_dropped": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(l, e, lf, sf, ld, false, mv, hs, fa, sc, mc, ms); break;
++                case "end_movie_dropped": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(l, e, lf, sf, ld, c, false, hs, fa, sc, mc, ms); break;
++                case "end_host_dropped": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(l, e, lf, sf, ld, c, mv, 3, fa, sc, mc, ms); break;
++                case "end_rate_dropped": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(l, e, lf, sf, ld, c, mv, hs, 3, sc, mc, ms); break;
++                case "end_control_dropped": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(l, e, lf, sf, ld, c, mv, hs, fa, sc, false, ms); break;
++                case "end_no_debounce": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, mc ? NetSyncStepOut.StepInMs : ms); break;
++                case "end_rate_before_host": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => EndRule(l, e, lf, sf, ld, c, mv, fa <= 1 ? 3 : hs, fa, sc, mc, ms); break;   // names a host-off end "rate"
++                case "end_field_before_landing": m.End = (l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms) => !l && e && !sf ? EndField : EndRule(l, e, lf, sf, ld, c, mv, hs, fa, sc, mc, ms); break;
++                case "hold_latch_only": m.Hold = (sd, mo) => sd; break;                                                     // rev 1: the debounce at 3x
++                case "hold_control_only": m.Hold = (sd, mo) => mo; break;
++                case "getter_field_blind": m.Getter = (st, ap, fs, af, f, fa) => GetterRule(st, ap, fs, f, f, fa); break;
++                case "getter_scene_blind": m.Getter = (st, ap, fs, af, f, fa) => GetterRule(st, ap, true, af, f, fa); break;
++                case "getter_applied_blind": m.Getter = (st, ap, fs, af, f, fa) => GetterRule(st, true, fs, af, f, fa); break;
++                case "getter_never": m.Getter = (st, ap, fs, af, f, fa) => st; break;
++                case "getter_no_max": m.Getter = (st, ap, fs, af, f, fa) => ap && fs && af > 0 && af == f ? fa : st; break;   // the factor below stock
++                case "getter_zero_field": m.Getter = (st, ap, fs, af, f, fa) => ap && fs && af == f && fa > st ? fa : st; break;
++                case "mode_applied_blind": m.Mode = (on, ap, fs, af, f) => on; break;
++                case "mode_field_blind": m.Mode = (on, ap, fs, af, f) => ModeRule(on, ap, fs, f, f); break;
++                case "mode_scene_blind": m.Mode = (on, ap, fs, af, f) => ModeRule(on, ap, true, af, f); break;
++                case "mode_zero_field": m.Mode = (on, ap, fs, af, f) => on || (ap && fs && af == f); break;
++                case "codec_writer_swapped": m.Body = (st, tp) => new Byte[] { (Byte)Clamp(tp), (Byte)Clamp(st) }; break;
++                case "codec_reader_swapped": m.Parse = (Byte[] b, out Int32 st, out Int32 tp) => { Boolean ok = ParseBody(b, out tp, out st); return ok; }; break;
++                case "codec_short_accepted": m.Parse = (Byte[] b, out Int32 st, out Int32 tp) =>
++                {
++                    st = b != null && b.Length > 0 && b[0] != 0 ? b[0] : 1;
++                    tp = b != null && b.Length > 1 ? b[1] : 30;
++                    return b != null && b.Length > 0 && b[0] != 0;
++                }; break;
++                case "codec_zero_accepted": m.Parse = (Byte[] b, out Int32 st, out Int32 tp) =>
++                {
++                    st = b != null && b.Length >= BodyLen ? b[0] : 1;
++                    tp = b != null && b.Length >= BodyLen ? b[1] : 0;
++                    return b != null && b.Length >= BodyLen;
++                }; break;
++            }
++            return m;
++        }
++
++        private static readonly String[] MutantNames = { "host_setting_live_blind", "host_setting_unclamped", "tps_unclamped", "cache_null_forgets",
++                                                         "cache_fresh_absent_keeps", "cache_never_stale", "cache_stale_sticks", "movie_idle_mbg_vetoes",
++                                                         "movie_exists_blind",
++                                                         "factor_tps_blind", "factor_strict", "factor_host_rate", "factor_no_cap", "factor_my_tps_blind",
++                                                         "factor_order_swapped", "start_always_refuses", "start_eligible_dropped", "start_lever_dropped",
++                                                         "start_field_dropped", "start_control_dropped", "start_stale_dropped", "start_host_dropped",
++                                                         "start_setting_ge", "start_climb_dropped", "start_movie_dropped", "start_scene_dropped",
++                                                         "start_view_field_blind", "start_host_control_blind", "start_a_dropped", "start_b_dropped",
++                                                         "start_c_dropped", "start_ate_field_blind", "start_talk_field_blind", "start_rate_dropped",
++                                                         "start_rate_words_merged", "start_climb_before_host", "end_level_triggered", "end_lever_dropped",
++                                                         "end_eligible_dropped", "end_landing_dropped", "end_field_dropped", "end_scene_dropped",
++                                                         "end_climb_dropped", "end_movie_dropped", "end_host_dropped", "end_rate_dropped",
++                                                         "end_control_dropped", "end_no_debounce", "end_rate_before_host", "end_field_before_landing",
++                                                         "hold_latch_only", "hold_control_only", "getter_field_blind", "getter_scene_blind",
++                                                         "getter_applied_blind", "getter_never", "getter_no_max", "getter_zero_field",
++                                                         "mode_applied_blind", "mode_field_blind", "mode_scene_blind", "mode_zero_field",
++                                                         "codec_writer_swapped", "codec_reader_swapped", "codec_short_accepted", "codec_zero_accepted" };
++
++        // `hostFrame` = the REAL host frame builder (NetSyncClient.BuildStateFrame(true, true)): its section 10 reads back as this machine's
++        // setting, and its order is [.., 5, (6|9), 10, 7, 8] with 8 right after 7 and last -- two live rows, counted once (never per mutant).
++        internal static Boolean SelfTest(out String detail, Func<Byte[]> hostFrame)
++        {
++            try
++            {
++                List<String> fails = new List<String>();
++                Int32 rows = Rows(new Rules(), fails);
++                if (fails.Count > 0)
++                {
++                    detail = "row " + fails[0] + " failed (" + fails.Count + " of " + rows + ")";
++                    SelfTestVerdict = "fail: " + fails[0];
++                    return false;
++                }
++                Byte[] real = hostFrame != null ? hostFrame() : null;
++                SettingsState s = FF9StateSystem.Settings;
++                Int32 rs, rt;
++                rows++;
++                if (!(real != null && s != null && ReadHostSpeed(real, out rs, out rt)
++                      && rs == HostSettingRule(s.IsFastForward, SettingsState.FastForwardGameSpeed) && rt == TpsRule(Configuration.Graphics.FieldTPS)))
++                {
++                    detail = "row live.frame_carries_10 failed (BuildStateFrame's host frame has no section 10 reading this machine's setting)";
++                    SelfTestVerdict = "fail: live.frame_carries_10";
++                    return false;
++                }
++                List<Int32> ids = SectionIds(real);
++                Int32 i5 = ids != null ? ids.IndexOf(NetSyncState.SectionEvent) : -1;
++                Int32 i10 = ids != null ? ids.IndexOf(NetSyncState.SectionSpeed) : -1;
++                Int32 i7 = ids != null ? ids.IndexOf(NetSyncState.SectionDialog) : -1;
++                Int32 i8 = ids != null ? ids.IndexOf(NetSyncVisitor.SectionDress) : -1;
++                Int32 i6 = ids != null ? Math.Max(ids.IndexOf(NetSyncState.SectionTalk), ids.IndexOf(NetSyncState.SectionChest)) : -1;
++                rows++;
++                if (!(ids != null && i5 >= 0 && i5 < i10 && i6 < i10 && i10 < i7 && i8 == i7 + 1 && i8 == ids.Count - 1
++                      && ids.LastIndexOf(NetSyncState.SectionSpeed) == i10))
++                {
++                    detail = "row live.frame_order failed (" + (ids == null ? "the frame does not walk" : "ids " + String.Join(",", IdsText(ids))) + ")";
++                    SelfTestVerdict = "fail: live.frame_order";
++                    return false;
++                }
++                Int32 caught = 0;
++                for (Int32 k = 0; k < MutantNames.Length; k++)
++                {
++                    List<String> mf = new List<String>();
++                    Rows(Mutant(MutantNames[k]), mf);
++                    if (mf.Count == 0)
++                    {
++                        detail = "mutant " + MutantNames[k] + " was not caught";
++                        SelfTestVerdict = "fail: mutant " + MutantNames[k];
++                        return false;
++                    }
++                    caught++;
++                }
++                detail = rows + " rows, " + caught + " mutants caught, step-in " + NetSyncStepOut.StepInMs + " ms";
++                SelfTestVerdict = "ok";
++                return true;
++            }
++            catch (Exception err)
++            {
++                detail = "threw: " + err.Message;
++                SelfTestVerdict = "fail: threw";
++                return false;
++            }
++        }
++
++        private static String[] IdsText(List<Int32> ids)
++        {
++            String[] t = new String[ids.Count];
++            for (Int32 k = 0; k < ids.Count; k++)
++                t[k] = ids[k].ToString(System.Globalization.CultureInfo.InvariantCulture);
++            return t;
++        }
++    }
++}
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
+index 1e76e6b..1690fff 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncState.cs
+@@ -46,6 +46,10 @@ namespace Memoria.Netsync
+                                                 //      OPENED a stock chest (its tag-2 body read the press; stamped at once). Rides
+                                                 //      INSTEAD of section 6 while live: an older guest reads no talk, so it never replays a
+                                                 //      chest as a tag-3 Request (the version gate). Section 8 is the dress (NetSyncVisitor).
++        public const Byte SectionSpeed = 10;    // [ff9mapkit netsync s163] [setting u8][fieldTps u8] -- the host's booster SETTING (IsFastForward ?
++                                                //      SpeedFactor : 1, clamped 1-255; never the live factor) and its [Graphics] FieldTPS, on EVERY
++                                                //      host frame, BEFORE section 7 ([0,1,2,3,(4),5,(6|9),10,7,8]: 8 stays right after 7 and last).
++                                                //      A following guest's speed mirror reads it (NetSyncSpeed); an older guest skips it by length.
+         private const Int32 StoryLen = 2048;    // FF9StateSystem.EventState.gEventGlobal is Byte[2048]
+         private const Int32 MaskLo = 2032;      // coop cells 2032-2039 + reserved 2033/2038-2039 + scratch 2040
+         private const Int32 MaskHi = 2041;      // ... never carried; the guest keeps its own
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncAte.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncAte.cs
+index 2efb4d0..84be269 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncAte.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncAte.cs
+@@ -1029,6 +1029,18 @@ namespace Memoria.Netsync
+             catch { return false; }
+         }
+ 
++        // [ff9mapkit netsync s163] NetSyncSpeed's START term (b): the field the episode is in flight on (-1 = none; unarmed or the ate lever
++        // off: none). One static read while unarmed.
++        internal static Int32 EpisodeFieldNow
++        {
++            get
++            {
++                if (!NetSyncAteArmed.On)
++                    return -1;
++                return !LeverOff && _phase != PhaseNone ? _epField : -1;
++            }
++        }
++
+         private static Boolean RelayOwnsCaptions()
+         {
+             Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
+index cf1fcfa..7d3308f 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
+@@ -229,6 +229,10 @@ namespace Memoria.Netsync
+ 
+         internal static Boolean Active { get { return _active; } }
+ 
++        // [ff9mapkit netsync s163] NetSyncSpeed's START term (c): the field whose control-off episode a relayed talk or chest accept owns (the
++        // talk latch, as this frame's Tick left it; -1 = none).
++        internal static Int32 TalkFieldNow { get { return _talkArmed ? _talkField : -1; } }
++
+         // ================================================================ the pure rules (SelfTest tables every one)
+ 
+         // THE BASE: null when every term holds, else the FIRST term that fails, in this order.
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+index 806a2e0..aa328ed 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncBattle.cs
+@@ -6837,6 +6837,7 @@ namespace Memoria.Netsync
+             NetSyncStepOut.HarnessRelease();            // [ff9mapkit netsync s158] the step-out lever back to act
+             NetSyncClient.HarnessReleaseChest();        // [ff9mapkit netsync s160] the chest relay's serve / request levers back on
+             NetSyncAte.HarnessRelease();                // [ff9mapkit netsync s161] the ATE relay lever back to act
++            NetSyncSpeed.HarnessRelease();              // [ff9mapkit netsync s163] the speed mirror lever back to act, the bench host forgotten
+         }
+ 
+         // ============================================================================ harness surface (s143)
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+index 3b4db84..61241bf 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
+@@ -1781,6 +1781,7 @@ namespace Memoria.Netsync
+                     if (NetSyncAteArmed.On)                   // [ff9mapkit netsync s161] the bench guest's ATE press life + the episode's end (no host lane: -1)
+                         NetSyncAte.Tick(ee == null || ee.GetUserControl(), onField, fld, -1, -1, false);
+                     ServiceStepOut(ee, fld, onField, new RemoteState { Valid = false }, true);   // [ff9mapkit netsync s158] every selftest tick: an episode ends off-field too
++                    ServiceSpeed(ee, fld, onField, true);     // [ff9mapkit netsync s163] the speed mirror, after the step-out (its eligibility, its talk latch): every tick, off-field too
+                     if (!inScope)
+                     {
+                         DespawnGhost();
+@@ -1943,6 +1944,10 @@ namespace Memoria.Netsync
+                         Boolean ateOk = NetSyncAte.SelfTest(out ateDetail);
+                         Log.Message("[NetSync] ATE relay selftest: "
+                                     + (ateOk ? "OK (" + ateDetail + ")" : "FAIL (" + ateDetail + ")"));
++                        String spDetail;                 // [ff9mapkit netsync s163] the speed mirror (after the ATE relay's line, the block's LAST now): the host setting, the stale-lane cache, the movie lock, the factor, the latch's start and end and their order, the hold, the getter and mode seams, the section-10 codec, the real frame's order, their mutants (NetSyncSpeed)
++                        Boolean spOk = NetSyncSpeed.SelfTest(out spDetail, () => BuildStateFrame(true, true));
++                        Log.Message("[NetSync] speed mirror selftest: "
++                                    + (spOk ? "OK (" + spDetail + ")" : "FAIL (" + spDetail + ")"));
+                     }
+                     // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
+                     // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
+@@ -2089,6 +2094,8 @@ namespace Memoria.Netsync
+                 {
+                     if (_intentActive && fld == _intentField && onField)
+                         _intentActive = false;
++                    if (NetSyncSpeed.HostTick())             // [ff9mapkit netsync s163] a booster edge: one line, and section 10 leaves this Update
++                        _dlgDirty = true;
+                     UpdateHostScene(ee, fld, onField);        // [ff9mapkit netsync F3.2] S2: the STICKY scene (replaces UpdateHostEventFlag)
+                     ServiceQuadPromotion(ee, fld, onField);   // [ff9mapkit netsync F3.2] relay a quad start once its window opens
+                 }
+@@ -2171,6 +2178,7 @@ namespace Memoria.Netsync
+                     NetSyncAte.Tick(ee == null || ee.GetUserControl(), onField, fld, _followWarpPending, LastHostField, AtePressWaitsOn(-1));
+                 FollowHostTick(rs, followFld, onField, onWorld);         // visitor mode: chase the peer's field [ff9mapkit netsync s144] + the world rejoin
+                 ServiceStepOut(ee, fld, onField, rs, false);             // [ff9mapkit netsync s158] the party-scene step-out (after the dialogue view it reads)
++                ServiceSpeed(ee, fld, onField, false);                   // [ff9mapkit netsync s163] the host's speed on my copy (after the step-out: its eligibility, its talk latch)
+                 if (local != null && rs.Valid && rs.Field == fld)
+                 {
+                     _ghostLastPairedTick = Environment.TickCount;   // s56: ghost blip-grace baseline (last paired frame)
+@@ -5785,6 +5793,8 @@ namespace Memoria.Netsync
+                 Int32 fld = FF9StateSystem.Common.FF9.fldMapNo;
+                 if (NetSyncAteArmed.On)
+                     NetSyncAte.OnLanding(fld);   // [ff9mapkit netsync s161] a pending ATE press never survives a load; the episode moves or ends
++                if (NetSyncSpeedArmed.Standing)
++                    NetSyncSpeed.OnLanding(fld);   // [ff9mapkit netsync s163] the speed mirror ends AT the load (a same-field reload keeps the id)
+                 EventEngine ee = PersistenSingleton<EventEngine>.Instance;
+                 Boolean fromWorld = ee != null && ee.gMode == 3;   // NoteWorldLanding's own read (StartEvents writes gMode next)
+                 Int32 keep, rearm;
+@@ -6696,6 +6706,7 @@ namespace Memoria.Netsync
+             _hostWindows.Clear();
+             HostPlainSceneNow = false;
+             NetSyncStepOut.Reset();          // [ff9mapkit netsync s158] a step-out in progress steps in (its body is lit again)
++            NetSyncSpeed.Reset("the co-op session reset");   // [ff9mapkit netsync s163] a standing speed mirror ends; the host's section-10 cache goes
+             _hostEventFlag = 0;
+             _hostEventNonce = 0;
+             _lastIntentNonce = -1;
+@@ -6773,6 +6784,11 @@ namespace Memoria.Netsync
+             // [ff9mapkit netsync F3.3] R2: the dialogue section rides EVERY host frame (the ring is the delivery channel;
+             // the slot's 33 ms re-send is what makes it loss-proof). Sections 5 and 7 leave in ONE snapshot, so the scene
+             // flag can never overtake or drain an event. MAIN THREAD (every caller of BuildStateFrame is).
++            // [ff9mapkit netsync s163] section 10, THE HOST'S BOOSTER ([setting u8][fieldTps u8]: NetSyncSpeed.HostSectionBody, read live), on
++            // EVERY host frame, BEFORE section 7 -- the order is [0,1,2,3,(4),5,(6|9),10,7,8], so section 8 stays right after 7 and last
++            // (DressSelfTest, the kit's coop_peer `dress` tape). Additive under wire v14: every reader skips an unknown id by its length. +5 B.
++            if (hostSections)
++                all = NetSyncState.AppendSection(all, NetSyncState.SectionSpeed, NetSyncSpeed.HostSectionBody());
+             if (hostSections)
+                 all = NetSyncState.AppendSection(all, NetSyncState.SectionDialog,
+                     _hostRing.BuildSection(_hostHeartbeat, HostDialogFlags(), _hostScene.Nonce, _hostScene.Field, _hostOpen, _hostOpenN));
+@@ -6931,6 +6947,7 @@ namespace Memoria.Netsync
+ 
+         private void ServiceStepOut(EventEngine ee, Int32 fld, Boolean onField, RemoteState rs, Boolean bench)
+         {
++            _soEligible = false;                         // [ff9mapkit netsync s163] a faulted input read hands the speed mirror an end, never a start
+             try
+             {
+                 Actor local = onField && ee != null ? NetSyncStepOut.Anchor(ee) : null;   // [ff9mapkit netsync s159] the ANCHOR: the dressed body
+@@ -6955,6 +6972,7 @@ namespace Memoria.Netsync
+                     ReadHostScene(_dlgLastState, out up, out nonce);
+                     talkLane = up && _talkSceneTalk >= 0 && nonce >= 0 && nonce == _talkSceneNonce;   // the record's own guard (a retired one never matches)
+                 }
++                _soEligible = eligible;                  // [ff9mapkit netsync s163] the speed mirror's START term is this very `eligible`
+                 NetSyncStepOut.Tick(ee, eligible, onField, fld, local, hostHere, hostCtlOff, hostScene, talkLane);
+             }
+             catch (Exception err)
+@@ -6963,6 +6981,20 @@ namespace Memoria.Netsync
+             }
+         }
+ 
++        // [ff9mapkit netsync s163] THE SPEED MIRROR's inputs (NetSyncSpeed.Tick, every Update right after ServiceStepOut, every role: a host or a
++        // non-following guest refuses at the first term). `eligible` = the step-out's own (_soEligible, written by ServiceStepOut this very
++        // frame); the host's control-off view = the step-out's hostCtlOff, decomposed so the rule sees its field -- LIVE: the section-7 view
++        // ServiceDialogAuthority cached (_glSceneField / _glHostHoldsInput: HostHoldsInput already needs the host on my field); BENCH (the
++        // selftest role): `hostscene 1` is the host's control-off scene on my field. Faults are the mirror's own (Tick never throws).
++        private Boolean _soEligible;
++
++        private void ServiceSpeed(EventEngine ee, Int32 fld, Boolean onField, Boolean bench)
++        {
++            Int32 viewField = bench ? fld : _glSceneField;
++            Boolean hostHolds = bench ? DebugHostEventFlag != 0 : _glHostHoldsInput;
++            NetSyncSpeed.Tick(ee, _soEligible, onField, fld, viewField, hostHolds);
++        }
++
+         // [ff9mapkit netsync s158] option C's fresh-line witness, every host frame: the open windows are snapshot on EVERY control-on frame
+         // and frozen when control falls, so a line opened in the DisableMove tick (two logic ticks in one frame: F1, a hitch) is fresh and a
+         // strip open with control on is old; while the sticky scene is up, a lockable non-[NFOC] window not among them marks it fresh. An
+@@ -7773,6 +7805,7 @@ namespace Memoria.Netsync
+                         body = null;
+                     if (_dlg.Observe(body, now) == NetSyncDialog.ObsEpochChanged)
+                         ResetGuestDedupForEpoch();
++                    NetSyncSpeed.NoteHostFrame(state);   // [ff9mapkit netsync s163] section 10 (the host's booster) into the speed mirror's cache (a fresh frame without it = 1; a null state = no news, stale)
+                 }
+                 _dlg.StallStep(now);
+             }
+diff --git a/Assembly-CSharp/Global/SettingsState.cs b/Assembly-CSharp/Global/SettingsState.cs
+index 1b66a73..a2a2064 100644
+--- a/Assembly-CSharp/Global/SettingsState.cs
++++ b/Assembly-CSharp/Global/SettingsState.cs
+@@ -68,12 +68,30 @@ public class SettingsState : MonoBehaviour
+         get
+         {
+             String str = PersistenSingleton<SceneDirector>.Instance.CurrentScene;
+-            if (str == "Movie" || IsFastForward && str != "QuadMist")
+-                return FastForwardGameSpeed;
+-            return 1;
++            Int32 stock = StockFastForwardFactorIn(str);
++            // [ff9mapkit netsync s163] THE GETTER SEAM (studies/field-coop/SPEED-MIRROR.md): a following co-op guest's speed mirror -- the
++            // host's booster on the host's scene -- runs my copy at my OWN SpeedFactor (NetSyncSpeed.GetterRule: while it applies -- the latch
++            // with my control off --, on the field scene, on its own field; free roam, battle, the world map and every other field read stock).
++            // Vanilla, a host and solo play pay this ONE bool read (the holder has no initializer: FPSManager's per-frame read never
++            // type-initializes NetSync code).
++            if (!Memoria.Netsync.NetSyncSpeedArmed.Applied)
++                return stock;
++            return Memoria.Netsync.NetSyncSpeed.GetterRule(stock, true, str == SceneDirector.FieldMapSceneName, Memoria.Netsync.NetSyncSpeedArmed.Field,
++                                                           FF9StateSystem.Common.FF9.fldMapNo, Memoria.Netsync.NetSyncSpeedArmed.Factor);
+         }
+     }
+ 
++    // [ff9mapkit netsync s163] the stock getter's body, kept whole: the player's OWN factor (its booster, or a movie) -- the only "own factor"
++    // anything reads (the speed mirror's log and the harness), so the mirror never reads its own output.
++    public Int32 StockFastForwardFactor => StockFastForwardFactorIn(PersistenSingleton<SceneDirector>.Instance.CurrentScene);
++
++    private Int32 StockFastForwardFactorIn(String str)
++    {
++        if (str == "Movie" || IsFastForward && str != "QuadMist")
++            return FastForwardGameSpeed;
++        return 1;
++    }
++
+     public SettingsState()
+     {
+         Boolean[] flagArray = new Boolean[8];
+@@ -326,6 +344,12 @@ public class SettingsState : MonoBehaviour
+     public void SetFastForward(Boolean isFastForward)
+     {
+         FF9StateSystem.Settings.IsBoosterButtonActive[1] = isFastForward;
++        // [ff9mapkit netsync s163] THE MODE SEAM: the raw flag above keeps the player's own value; FAST MODE also runs while a following guest's
++        // speed mirror applies here (NetSyncSpeed.ModeRule: the getter's three tests), so stock's re-runs at every scene load (UIManager) and
++        // HUD clear (EventHUD) keep the mirror's mode, and the Auction / Pandemonium branch below still refuses it, as on the host.
++        if (Memoria.Netsync.NetSyncSpeedArmed.Applied)
++            isFastForward = Memoria.Netsync.NetSyncSpeed.ModeRule(isFastForward, true, SceneDirector.IsFieldScene(),
++                                                                  Memoria.Netsync.NetSyncSpeedArmed.Field, FF9StateSystem.Common.FF9.fldMapNo);
+         if (isFastForward)
+         {
+             if (PersistenSingleton<UIManager>.Instance.UnityScene == UIManager.Scene.Field)
+diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+index 2f9f192..7ec7569 100644
+--- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
++++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
+@@ -383,6 +383,18 @@ namespace Memoria.Harness
+         // `ate` (selftest role only, role first): `act|off|noexempt|clear` -- off = CALIBRATION, the s160 rule; noexempt = the relay on with
+         // the s158 step-out on the ATE menu -- NetSyncAte.HarnessLever, released with the harness (NetSyncBattle.HarnessReleaseBench ->
+         // NetSyncAte.HarnessRelease). A driver checks for `netsync.ate`; the wire stays v14 (ring kind 3 rides section 7).
++        // [ff9mapkit netsync s163] (THE HOST'S SPEED ON A FOLLOWING GUEST: studies/field-coop/SPEED-MIRROR.md), also additive under 5:
++        // `netsync` gains `speed` as its LAST key, after s161's `ate` (see AppendSpeed; key PRESENCE is the capability), the top-level doc
++        // gains `ff` after `scenario` (SettingsState.FastForwardFactor, the REAL getter: what FPSManager runs now), the selftest proof block
++        // gains, as its LAST line after the ATE relay's, "speed mirror selftest: OK (N rows, M mutants caught, step-in S ms)"
++        // (NetSyncSpeed.SelfTest), `netsync` gains one sub-verb, `speed`: `act|off|clear` on ANY role (the duo's calibration runs on a
++        // client: both duo games share one DLL) -- off = CALIBRATION, s162's rule (never mirror) -- and `host <1-255>` on the selftest role
++        // only (that op's role refused first: it fabricates a host frame, section 10 through the real codec into the guest's cache) --
++        // NetSyncSpeed.HarnessLever, released with the harness on every role (NetSyncBattle.HarnessReleaseBench -> NetSyncSpeed.HarnessRelease),
++        // and one top-level verb on ANY role, `speedmode 1|0` (the s94 `noencounter` precedent: the REAL F1 booster path, switched off again
++        // by `reset`, the disarm and a fault when the harness switched it on). A driver checks for `netsync.speed` (an s162 engine answers
++        // `netsync speed` with "unknown sub-verb" and `speedmode` with "unknown op"); the state lane gains section 10 (an older guest skips
++        // it by length); the wire stays v14.
+         public const Int32 ProtocolVersion = 5;
+ 
+         // ---- arming ----------------------------------------------------------------------------
+@@ -681,6 +693,7 @@ namespace Memoria.Harness
+                 Time.timeScale = 1f;
+                 try { RedirectSaves(false); } catch (Exception) { }
+                 ReleaseNetsyncOverride();
++                ReleaseSpeedMode();             // [ff9mapkit netsync s163] a `speedmode 1` the harness set goes off (never throws)
+                 StoryTrace.Stop();              // dormant unless armed: a faulted agent traces nothing
+                 try { PublishState(true); } catch (Exception) { }
+                 Memoria.Prime.Log.Message("[ff9mk harness] FAULTED and disarmed: " + err);
+@@ -740,6 +753,7 @@ namespace Memoria.Harness
+                 Time.timeScale = 1f;
+                 RedirectSaves(false);
+                 ReleaseNetsyncOverride();
++                ReleaseSpeedMode();             // [ff9mapkit netsync s163] a `speedmode 1` the harness set goes off with the disarm
+                 // s88: the trace is dormant unless armed -- stop it (counts, the `off` epoch, a last
+                 // append) rather than let a disarmed game keep writing story.jsonl.
+                 StoryTrace.Stop();
+@@ -1279,6 +1293,25 @@ namespace Memoria.Harness
+                     break;
+                 }
+ 
++                // [ff9mapkit netsync s163] THE F1 BOOSTER AS A VERB (the `noencounter` precedent): `speedmode 1|0` runs the REAL booster path --
++                // SettingsState.CallBoosterButtonFuntion(HighSpeedMode, on): the raw flag, HonoBehaviorSystem's FAST MODE, the SFX re-pitch --
++                // and sets the HUD icon, on ANY role (the speed-mirror duo puts its host at 3x with it). Not gated on [Cheats] SpeedMode: the
++                // harness is a dev tool. In memory only (never saved); `reset`, the disarm and a fault switch it off again -- only when the
++                // harness switched it on (ReleaseSpeedMode). Ownership is recorded BEFORE the booster / HUD calls, and only when this verb
++                // turns the booster on from off (a player's own F1 already on is never taken), so a throw cannot leave it on unowned.
++                case "speedmode":
++                {
++                    Boolean on = Arg(s, 0, 1) != 0;
++                    if (!on)
++                        _speedModeByHarness = false;
++                    else if (!FF9StateSystem.Settings.IsFastForward)
++                        _speedModeByHarness = true;
++                    FF9StateSystem.Settings.CallBoosterButtonFuntion(BoosterType.HighSpeedMode, on);
++                    PersistenSingleton<UIManager>.Instance.Booster.SetBoosterHudIcon(BoosterType.HighSpeedMode, on);
++                    Event("speedmode", "on", on ? "1" : "0");
++                    break;
++                }
++
+                 case "shot":
+                     _shotsPending++;
+                     StartCoroutine(CaptureShot(s.Args.Length > 0 ? s.Args[0] : "shot"));
+@@ -1306,6 +1339,7 @@ namespace Memoria.Harness
+                         FF9StateSystem.Settings.CallBoosterButtonFuntion(BoosterType.NoRandomEncounter, false);   // s94
+                         PersistenSingleton<UIManager>.Instance.Booster.SetBoosterHudIcon(BoosterType.NoRandomEncounter, false);
+                     }
++                    ReleaseSpeedMode();         // [ff9mapkit netsync s163] a `speedmode 1` the harness set goes off
+                     Event("reset");
+                     Block(2);
+                     break;
+@@ -2208,8 +2242,26 @@ namespace Memoria.Harness
+                                 throw new InvalidOperationException(why ?? "netsync ate refused");
+                             break;
+                         }
++                        case "speed":
++                        {
++                            // [ff9mapkit netsync s163] -- the speed mirror's levers (NetSyncSpeed.HarnessLever):
++                            //   `speed off`       ANY role -- CALIBRATION: s162's rule (never mirror; a standing mirror ends at the next tick);
++                            //                     a client may run it (the duo's calibration: both duo games share one DLL);
++                            //   `speed act`       ANY role -- the shipping rule; `speed clear` ANY role -- the shipping rule, the bench host
++                            //                     forgotten. Counters are never reset (read DELTAS);
++                            //   `speed host <n>`  the selftest role only, that op's role refused FIRST ("netsync speed host: needs the selftest
++                            //                     role (netsync selftest 1)") -- a bench host (n 1-255): section 10 = [n][my FieldTPS] through
++                            //                     the real encoder and section walk into the guest's cache (src "bench"; with `hostscene 1` as
++                            //                     the host's control-off scene).
++                            // Anything else answers "netsync speed: expected act|off|clear (any role) or host <1-255> (the selftest role)".
++                            // Read back: `netsync.speed` (AppendSpeed). The lever and the bench host are released with the harness on every
++                            // role (NetSyncBattle.HarnessReleaseBench runs on every HarnessSelfTest(false), above its forced-role return).
++                            if (!Memoria.Netsync.NetSyncSpeed.HarnessLever(s.Args, out why))
++                                throw new InvalidOperationException(why ?? "netsync speed refused");
++                            break;
++                        }
+                         default:
+-                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu|bbench|endbench|actbench|selfdress|guestlocal|stepout|chest|ate)");
++                            throw new NotSupportedException("netsync: unknown sub-verb '" + sub + "' (selftest|bench|l1|hostscene|lock|stale|unlock|click|drag|advance|choice|unmatched|talk|dioboot|dioleave|host|tap-record|replay|guestslots|bcmd|hostgates|containment|bctl|bmenu|bbench|endbench|actbench|selfdress|guestlocal|stepout|chest|ate|speed)");
+                     }
+                     Block(2);
+                     break;
+@@ -2226,6 +2278,28 @@ namespace Memoria.Harness
+         // [ff9mapkit netsync F3.2] a bench dialogue lock swallowing their Confirm (HarnessSelfTest(false)
+         // clears the lock + link-dead levers too). A session the harness did NOT force (a human's own
+         // ini-configured selftest) is left alone.
++        // [ff9mapkit netsync s163] `speedmode 1` switched the F1 booster on (the harness's own, never the player's): `reset`, the disarm and a
++        // fault switch it off through the same real path, only while this holds. Never throws (the fault path calls it).
++        private static Boolean _speedModeByHarness;
++        private static void ReleaseSpeedMode()
++        {
++            if (!_speedModeByHarness)
++                return;
++            _speedModeByHarness = false;
++            try
++            {
++                if (FF9StateSystem.Settings.IsFastForward)
++                {
++                    FF9StateSystem.Settings.CallBoosterButtonFuntion(BoosterType.HighSpeedMode, false);
++                    PersistenSingleton<UIManager>.Instance.Booster.SetBoosterHudIcon(BoosterType.HighSpeedMode, false);
++                }
++            }
++            catch (Exception err)
++            {
++                Memoria.Prime.Log.Message("[ff9mk harness] speedmode release failed: " + err.Message);
++            }
++        }
++
+         private static Boolean _dioramaByHarness;   // [ff9mapkit netsync F3.3] `netsync dioboot` booted the live diorama
+         // [ff9mapkit netsync F3.3] a release found the harness diorama still up: the role release waits for its teardown
+         private static Boolean _dioramaReleasePending;
+@@ -2873,6 +2947,10 @@ namespace Memoria.Harness
+             // (`netsync.world.dio.prev_mode_at_boot` is what it replaced). -1 = unreadable.
+             Num(sb, "prev_mode", Try(() => (Int32)PersistenSingleton<FF9StateSystem>.Instance.prevMode, -1)); sb.Append(",");   // [ff9mapkit netsync s145]
+             Num(sb, "scenario", Try(() => FF9StateSystem.EventState.ScenarioCounter, -1)); sb.Append(",");
++            // [ff9mapkit netsync s163] the LIVE booster factor (SettingsState.FastForwardFactor, the real getter -- the player's F1, a movie, or a
++            // following guest's speed mirror): the main-loop updates FPSManager runs a frame, so a kit tick-rate reach model multiplies by it.
++            // -1 = unreadable.
++            Num(sb, "ff", Try(() => FF9StateSystem.Settings.FastForwardFactor, -1)); sb.Append(",");
+ 
+             // field
+             Int32 fld = Try(() => (Int32)FF9StateSystem.Common.FF9.fldMapNo, -1);
+@@ -3939,7 +4017,8 @@ namespace Memoria.Harness
+                 sb.Append(","); AppendGhostFrame(sb);   // [ff9mapkit netsync s157]
+                 sb.Append(","); AppendStepOut(sb);      // [ff9mapkit netsync s158]
+                 sb.Append(","); AppendChest(sb);        // [ff9mapkit netsync s160]
+-                sb.Append(","); AppendAte(sb);          // [ff9mapkit netsync s161] netsync's LAST key (after s160's chest)
++                sb.Append(","); AppendAte(sb);          // [ff9mapkit netsync s161] (after s160's chest)
++                sb.Append(","); AppendSpeed(sb);        // [ff9mapkit netsync s163] netsync's LAST key (after s161's ate)
+             }
+             catch (Exception)
+             {
+@@ -3988,7 +4067,11 @@ namespace Memoria.Harness
+                 // selftest null, the flags false, the ids and ages -1, serves and the counters 0).
+                 // [ff9mapkit netsync s162] `stepout` gains `base.landing` (false) after `host_scene`, `out_why.ate` (0), `landing_wire` (false)
+                 // after `wire_mask`, and `ghost.by.landing` (0) -- the ATE relay's landing term, in the live order.
+-                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null},\"boot_song\":-1,\"leave_song_live\":false},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false,\"overlay_text\":null,\"follow\":{\"pending\":-1,\"warped_to\":-1,\"candidate\":-1,\"world_armed\":-1,\"on_world\":false,\"host_world\":false,\"host_title\":false,\"hold\":-1}},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1,\"guard\":{\"leader\":-1,\"raw\":0,\"effective\":0,\"moved_from\":-1,\"moved_to\":-1,\"off\":false,\"line\":null,\"line_shown\":false,\"leader_model\":-1,\"chars\":[-1,-1,-1,-1],\"nonce\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"guard\":{\"nonce\":-1,\"mask\":-1,\"line\":null,\"shown\":false},\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false,\"twin_rows\":0,\"twins\":0,\"twin_misses\":0,\"twin_last\":{\"src\":-1,\"twin\":-1,\"site\":-1},\"ghost_clip_misses\":0,\"twin_clips_on_disc\":-1,\"twin_clip_missing\":-1,\"twin\":null,\"twin_selftest\":null},\"guard\":{\"leader\":-1,\"raw\":-1,\"effective\":-1,\"moved_from\":-1,\"moved_to\":-1}},\"world\":{\"freeze\":{\"on\":false,\"why\":null,\"off\":false,\"released\":false,\"edges\":0,\"skips\":0,\"keys\":0,\"map\":0,\"location\":0,\"battles\":0},\"rejoin\":{\"latch\":false,\"arms\":0,\"lands\":0,\"timeouts\":0,\"redirects\":0,\"rearms\":0,\"why\":null,\"last\":-1},\"waitline\":{\"line\":null,\"fallback\":false,\"away_ms\":-1},\"dio\":{\"booted_world\":false,\"boot_world\":-1,\"boot\":null,\"prev_mode_at_boot\":-1,\"lever\":null,\"declines\":0,\"decline_why\":null,\"decline_durable\":false,\"visit_decline\":null,\"wait_why\":null,\"returns\":0,\"last_return\":null,\"last_world\":-1,\"resuming\":false,\"suspend_song\":-1,\"song_sid\":-1,\"boot_song_live\":false}},\"guestlocal\":{\"mode\":null,\"lever\":null,\"rows\":-1,\"funcs\":-1,\"table_crc\":null,\"selftest\":null,\"last\":{\"seq\":0,\"field\":-1,\"entry\":-1,\"verdict\":null,\"reason\":null,\"kind\":null,\"hashed\":0,\"age_ms\":-1},\"verdicts\":{\"allow\":0,\"shadow\":0,\"lever_off\":0,\"not_field\":0,\"special\":0,\"no_row\":0,\"unverified\":0,\"wrong_body\":0,\"own_story\":0,\"no_control\":0,\"in_flight\":0,\"warp\":0,\"host_scene\":0,\"busy\":0},\"in_flight\":false,\"flight\":{\"field\":-1,\"entry\":-1,\"kind\":null,\"region_uid\":-1,\"body_uid\":-1,\"age_ms\":-1,\"seen_off\":false,\"body_open\":false,\"body_ran\":false,\"seq_open\":false},\"climbs\":0,\"ended\":0,\"bailed\":0,\"aborted\":0,\"abort_why\":null,\"long_climbs\":0,\"boots_mid_climb\":0,\"trips\":{\"total\":0,\"op\":0,\"glob\":0,\"last\":null},\"tp_calls\":0,\"tp_refusals\":0,\"tp_last\":null,\"talk_queued\":0,\"talk_held\":0,\"talk_applied_after_climb\":0,\"talk_expired\":0,\"mutate\":{\"armed\":false,\"index\":-1,\"spent\":false,\"hit\":false,\"hashed\":0}},\"ghostframe\":{\"lever_off\":false,\"follow\":false,\"why\":null,\"has_frame\":false,\"wire_anim\":-1,\"wire_frame\":-1,\"wire_frame_n\":-1,\"wire_loco\":-1,\"clip\":null,\"speed\":-1,\"time\":-1,\"length\":-1,\"shown\":-1,\"target\":-1,\"steps\":0,\"wraps\":0,\"snaps\":0,\"restores\":0,\"selftest\":null},\"stepout\":{\"lever\":null,\"active\":false,\"field\":-1,\"uid\":-1,\"dressed\":false,\"why\":null,\"age_ms\":-1,\"base\":{\"eligible\":false,\"host_here\":false,\"host_ctl_off\":false,\"my_ctl_off\":false,\"climb\":false,\"talk\":false,\"line\":false,\"host_scene\":false,\"landing\":false,\"why_not\":null,\"age_ms\":-1},\"talk_armed\":false,\"outs\":0,\"ins\":0,\"out_why\":{\"line\":0,\"dwell\":0,\"ate\":0},\"in_why\":{\"control\":0,\"field\":0,\"body\":0,\"session\":0,\"lever\":0,\"talk\":0,\"climb\":0,\"ate\":0},\"wire_mask\":-1,\"landing_wire\":false,\"stock_visible\":false,\"body_rends_on\":-1,\"shadow\":-1,\"shadow_off\":-1,\"standin\":{\"on\":false,\"shown\":false,\"geo\":null,\"clip\":null,\"src_anim\":-1,\"norm\":-1,\"body_norm\":-1,\"dpos\":-1,\"rends_on\":-1,\"spawns\":0,\"frames\":0,\"missing_clip\":0},\"ghost\":{\"hide\":null,\"edges\":0,\"by\":{\"mask0\":0,\"host_scene\":0,\"step_out\":0,\"landing\":0}},\"host_plain_scene\":false,\"talk_accepts\":0,\"faults\":0,\"last_fault\":null,\"selftest\":null,\"anchor\":{\"uid\":-1,\"ctl_uid\":-1,\"dressed_uid\":-1,\"ctl_rends_on\":-1}},\"chest\":{\"serve_off\":false,\"request_off\":false,\"armed\":false,\"active\":false,\"uid\":-1,\"script_bits\":-1,\"age_ms\":-1,\"accepted\":0,\"served\":0,\"expired\":0,\"declined\":0,\"last_uid\":-1,\"why\":null,\"selftest\":null,\"host\":{\"stamped\":0,\"riding\":false}},\"ate\":{\"lever\":null,\"host_armed\":false,\"pending\":{\"on\":false,\"seq\":-1,\"field\":-1,\"uid\":-1,\"win\":-1,\"text\":-1,\"serves\":0,\"age_ms\":-1},\"episode\":{\"phase\":null,\"field\":-1,\"win\":-1,\"text\":-1,\"by_host\":false,\"pick\":-1,\"own_jump\":-1,\"own_reload_landed\":false},\"stepout_exempt\":false,\"arms\":0,\"relayed\":0,\"ingested\":0,\"served\":0,\"opened\":0,\"expired\":0,\"dropped\":0,\"mismatched\":0,\"picks\":0,\"own_jumps\":0,\"holds\":0,\"hold_caps\":0,\"episodes\":0,\"last_end\":null,\"faults\":0,\"last_fault\":null,\"selftest\":null}}");
++                // [ff9mapkit netsync s163] netsync gains `speed` after s161's `ate`, its LAST key -- AppendSpeed's keys at their sentinels, in the
++                // live order (host_setting / host_tps / own_factor / factor_now -1, host_seen / host_stale / mirror / applied / mode_wanted /
++                // fast_mode / raw false, src / why_not / last_end / last_fault / lever / selftest null, edges_on / edges_off / faults 0, and
++                // `end_why` {lever, session, landing, field, scene, climb, movie, host, rate, control, reset} all 0).
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null},\"boot_song\":-1,\"leave_song_live\":false},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false,\"overlay_text\":null,\"follow\":{\"pending\":-1,\"warped_to\":-1,\"candidate\":-1,\"world_armed\":-1,\"on_world\":false,\"host_world\":false,\"host_title\":false,\"hold\":-1}},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1,\"guard\":{\"leader\":-1,\"raw\":0,\"effective\":0,\"moved_from\":-1,\"moved_to\":-1,\"off\":false,\"line\":null,\"line_shown\":false,\"leader_model\":-1,\"chars\":[-1,-1,-1,-1],\"nonce\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"guard\":{\"nonce\":-1,\"mask\":-1,\"line\":null,\"shown\":false},\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false,\"twin_rows\":0,\"twins\":0,\"twin_misses\":0,\"twin_last\":{\"src\":-1,\"twin\":-1,\"site\":-1},\"ghost_clip_misses\":0,\"twin_clips_on_disc\":-1,\"twin_clip_missing\":-1,\"twin\":null,\"twin_selftest\":null},\"guard\":{\"leader\":-1,\"raw\":-1,\"effective\":-1,\"moved_from\":-1,\"moved_to\":-1}},\"world\":{\"freeze\":{\"on\":false,\"why\":null,\"off\":false,\"released\":false,\"edges\":0,\"skips\":0,\"keys\":0,\"map\":0,\"location\":0,\"battles\":0},\"rejoin\":{\"latch\":false,\"arms\":0,\"lands\":0,\"timeouts\":0,\"redirects\":0,\"rearms\":0,\"why\":null,\"last\":-1},\"waitline\":{\"line\":null,\"fallback\":false,\"away_ms\":-1},\"dio\":{\"booted_world\":false,\"boot_world\":-1,\"boot\":null,\"prev_mode_at_boot\":-1,\"lever\":null,\"declines\":0,\"decline_why\":null,\"decline_durable\":false,\"visit_decline\":null,\"wait_why\":null,\"returns\":0,\"last_return\":null,\"last_world\":-1,\"resuming\":false,\"suspend_song\":-1,\"song_sid\":-1,\"boot_song_live\":false}},\"guestlocal\":{\"mode\":null,\"lever\":null,\"rows\":-1,\"funcs\":-1,\"table_crc\":null,\"selftest\":null,\"last\":{\"seq\":0,\"field\":-1,\"entry\":-1,\"verdict\":null,\"reason\":null,\"kind\":null,\"hashed\":0,\"age_ms\":-1},\"verdicts\":{\"allow\":0,\"shadow\":0,\"lever_off\":0,\"not_field\":0,\"special\":0,\"no_row\":0,\"unverified\":0,\"wrong_body\":0,\"own_story\":0,\"no_control\":0,\"in_flight\":0,\"warp\":0,\"host_scene\":0,\"busy\":0},\"in_flight\":false,\"flight\":{\"field\":-1,\"entry\":-1,\"kind\":null,\"region_uid\":-1,\"body_uid\":-1,\"age_ms\":-1,\"seen_off\":false,\"body_open\":false,\"body_ran\":false,\"seq_open\":false},\"climbs\":0,\"ended\":0,\"bailed\":0,\"aborted\":0,\"abort_why\":null,\"long_climbs\":0,\"boots_mid_climb\":0,\"trips\":{\"total\":0,\"op\":0,\"glob\":0,\"last\":null},\"tp_calls\":0,\"tp_refusals\":0,\"tp_last\":null,\"talk_queued\":0,\"talk_held\":0,\"talk_applied_after_climb\":0,\"talk_expired\":0,\"mutate\":{\"armed\":false,\"index\":-1,\"spent\":false,\"hit\":false,\"hashed\":0}},\"ghostframe\":{\"lever_off\":false,\"follow\":false,\"why\":null,\"has_frame\":false,\"wire_anim\":-1,\"wire_frame\":-1,\"wire_frame_n\":-1,\"wire_loco\":-1,\"clip\":null,\"speed\":-1,\"time\":-1,\"length\":-1,\"shown\":-1,\"target\":-1,\"steps\":0,\"wraps\":0,\"snaps\":0,\"restores\":0,\"selftest\":null},\"stepout\":{\"lever\":null,\"active\":false,\"field\":-1,\"uid\":-1,\"dressed\":false,\"why\":null,\"age_ms\":-1,\"base\":{\"eligible\":false,\"host_here\":false,\"host_ctl_off\":false,\"my_ctl_off\":false,\"climb\":false,\"talk\":false,\"line\":false,\"host_scene\":false,\"landing\":false,\"why_not\":null,\"age_ms\":-1},\"talk_armed\":false,\"outs\":0,\"ins\":0,\"out_why\":{\"line\":0,\"dwell\":0,\"ate\":0},\"in_why\":{\"control\":0,\"field\":0,\"body\":0,\"session\":0,\"lever\":0,\"talk\":0,\"climb\":0,\"ate\":0},\"wire_mask\":-1,\"landing_wire\":false,\"stock_visible\":false,\"body_rends_on\":-1,\"shadow\":-1,\"shadow_off\":-1,\"standin\":{\"on\":false,\"shown\":false,\"geo\":null,\"clip\":null,\"src_anim\":-1,\"norm\":-1,\"body_norm\":-1,\"dpos\":-1,\"rends_on\":-1,\"spawns\":0,\"frames\":0,\"missing_clip\":0},\"ghost\":{\"hide\":null,\"edges\":0,\"by\":{\"mask0\":0,\"host_scene\":0,\"step_out\":0,\"landing\":0}},\"host_plain_scene\":false,\"talk_accepts\":0,\"faults\":0,\"last_fault\":null,\"selftest\":null,\"anchor\":{\"uid\":-1,\"ctl_uid\":-1,\"dressed_uid\":-1,\"ctl_rends_on\":-1}},\"chest\":{\"serve_off\":false,\"request_off\":false,\"armed\":false,\"active\":false,\"uid\":-1,\"script_bits\":-1,\"age_ms\":-1,\"accepted\":0,\"served\":0,\"expired\":0,\"declined\":0,\"last_uid\":-1,\"why\":null,\"selftest\":null,\"host\":{\"stamped\":0,\"riding\":false}},\"ate\":{\"lever\":null,\"host_armed\":false,\"pending\":{\"on\":false,\"seq\":-1,\"field\":-1,\"uid\":-1,\"win\":-1,\"text\":-1,\"serves\":0,\"age_ms\":-1},\"episode\":{\"phase\":null,\"field\":-1,\"win\":-1,\"text\":-1,\"by_host\":false,\"pick\":-1,\"own_jump\":-1,\"own_reload_landed\":false},\"stepout_exempt\":false,\"arms\":0,\"relayed\":0,\"ingested\":0,\"served\":0,\"opened\":0,\"expired\":0,\"dropped\":0,\"mismatched\":0,\"picks\":0,\"own_jumps\":0,\"holds\":0,\"hold_caps\":0,\"episodes\":0,\"last_end\":null,\"faults\":0,\"last_fault\":null,\"selftest\":null},\"speed\":{\"host_setting\":-1,\"host_tps\":-1,\"host_seen\":false,\"host_stale\":false,\"src\":null,\"own_factor\":-1,\"mirror\":false,\"applied\":false,\"factor_now\":-1,\"mode_wanted\":false,\"fast_mode\":false,\"raw\":false,\"why_not\":null,\"edges_on\":0,\"edges_off\":0,\"last_end\":null,\"faults\":0,\"last_fault\":null,\"end_why\":{\"lever\":0,\"session\":0,\"landing\":0,\"field\":0,\"scene\":0,\"climb\":0,\"movie\":0,\"host\":0,\"rate\":0,\"control\":0,\"reset\":0},\"lever\":null,\"selftest\":null}}");
+                 return;
+             }
+             outer.Append("\"netsync\":{").Append(sb).Append("}");
+@@ -5032,6 +5115,67 @@ namespace Memoria.Harness
+             sb.Append("}");
+         }
+ 
++        // [ff9mapkit netsync s163] `netsync.speed` -- THE HOST'S SPEED ON A FOLLOWING GUEST (NetSyncSpeed; studies/field-coop/SPEED-MIRROR.md),
++        // netsync's LAST key (after s161's `ate`), additive under protocol 5, published in EVERY role (a host reads its own booster through
++        // own_factor / raw; its section 10 is on the wire, not here). Key PRESENCE is the capability (an s162 engine publishes none). Each key
++        // through its own Try; harness-only reads; counters monotonic per process (DELTAS). AppendNetsync's catch line carries the same keys
++        // at their sentinels.
++        //   host_setting     the host's booster setting as this copy's cache holds it (1 = absent: no frame yet, an old host, a malformed body)
++        //   host_tps         the host's [Graphics] FieldTPS from section 10 (-1 = absent)
++        //   host_seen        the cache holds a section 10 (src is not "none")
++        //   host_stale       the last observed state was NULL (no frame for ~2 s): the cache stands as no news, and no mirror STARTS on it
++        //   src              "wire" (the last fresh host frame carried it) | "bench" (`netsync speed host <n>`) | "none"
++        //   own_factor       the player's OWN factor: SettingsState.StockFastForwardFactor (its booster, or a movie) -- never the mirror's
++        //   mirror           the LATCH stands (NetSyncSpeedArmed.Standing)
++        //   applied          the factor applies now (NetSyncSpeedArmed.Applied: the latch with my control off -- HoldRule); false through
++        //                    the StepInMs debounce after my control returns, so free roam is my own speed
++        //   factor_now       the REAL getter (SettingsState.FastForwardFactor): what FPSManager runs now (the top-level `ff`)
++        //   mode_wanted      the mirror wants FAST MODE here now (NetSyncSpeed.ModeRule without my own booster)
++        //   fast_mode        HonoBehaviorSystem's fast mode (typing, dialog waits, bubbles) -- it follows an edge one Update later
++        //   raw              the booster's RAW flag (IsBoosterButtonActive[1]): the player's own; the mirror never writes it
++        //   why_not          StartRule's first failing term while the mirror is off (null while it stands; "not ticked" before the first tick)
++        //   edges_on / edges_off   the mirror's starts / ends
++        //   last_end         the last end's reason (EndNames: "lever" | "session" | "landing" | "field" | "scene" | "climb" | "movie" |
++        //                    "host" | "rate" | "control" | "reset"; null before the first end)
++        //   faults / last_fault   the mirror's own faults (each fails open to stock) and the last one's site and message (null = none)
++        //   end_why          the ends by reason, the same names (counters)
++        //   lever            the `speed` lever AS SET (null = act: the shipping rule; "off" = CALIBRATION, s162's rule) -- any role
++        //   selftest         null until the proof block ran, then "ok" | "fail: <row or mutant>"
++        private static void AppendSpeed(StringBuilder sb)
++        {
++            sb.Append("\"speed\":{");
++            Num(sb, "host_setting", Try(() => (Int64)Memoria.Netsync.NetSyncSpeed.HarnessHostSetting, -1L)); sb.Append(",");
++            Num(sb, "host_tps", Try(() => (Int64)Memoria.Netsync.NetSyncSpeed.HarnessHostTps, -1L)); sb.Append(",");
++            Bool(sb, "host_seen", Try(() => Memoria.Netsync.NetSyncSpeed.HarnessHostSeen, false)); sb.Append(",");
++            Bool(sb, "host_stale", Try(() => Memoria.Netsync.NetSyncSpeed.HarnessHostStale, false)); sb.Append(",");
++            Str(sb, "src", Try(() => Memoria.Netsync.NetSyncSpeed.HarnessSrc)); sb.Append(",");
++            Num(sb, "own_factor", Try(() => (Int64)Memoria.Netsync.NetSyncSpeed.HarnessOwnFactor, -1L)); sb.Append(",");
++            Bool(sb, "mirror", Try(() => Memoria.Netsync.NetSyncSpeed.HarnessMirror, false)); sb.Append(",");
++            Bool(sb, "applied", Try(() => Memoria.Netsync.NetSyncSpeed.HarnessApplied, false)); sb.Append(",");
++            Num(sb, "factor_now", Try(() => (Int64)Memoria.Netsync.NetSyncSpeed.HarnessFactorNow, -1L)); sb.Append(",");
++            Bool(sb, "mode_wanted", Try(() => Memoria.Netsync.NetSyncSpeed.HarnessModeWanted, false)); sb.Append(",");
++            Bool(sb, "fast_mode", Try(() => Memoria.Netsync.NetSyncSpeed.HarnessFastMode, false)); sb.Append(",");
++            Bool(sb, "raw", Try(() => Memoria.Netsync.NetSyncSpeed.HarnessRaw, false)); sb.Append(",");
++            Str(sb, "why_not", Try(() => Memoria.Netsync.NetSyncSpeed.WhyNotNow)); sb.Append(",");
++            Num(sb, "edges_on", Try(() => (Int64)Memoria.Netsync.NetSyncSpeed.EdgesOn, 0L)); sb.Append(",");
++            Num(sb, "edges_off", Try(() => (Int64)Memoria.Netsync.NetSyncSpeed.EdgesOff, 0L)); sb.Append(",");
++            Str(sb, "last_end", Try(() => Memoria.Netsync.NetSyncSpeed.LastEnd)); sb.Append(",");
++            Num(sb, "faults", Try(() => (Int64)Memoria.Netsync.NetSyncSpeed.Faults, 0L)); sb.Append(",");
++            Str(sb, "last_fault", Try(() => Memoria.Netsync.NetSyncSpeed.LastFault)); sb.Append(",");
++            sb.Append("\"end_why\":{");
++            for (Int32 i = 1; i < Memoria.Netsync.NetSyncSpeed.EndNames.Length; i++)
++            {
++                Int32 at = i;
++                if (at > 1)
++                    sb.Append(",");
++                Num(sb, Memoria.Netsync.NetSyncSpeed.EndNames[at], Try(() => (Int64)Memoria.Netsync.NetSyncSpeed.EndBy[at], 0L));
++            }
++            sb.Append("},");
++            Str(sb, "lever", Try(() => Memoria.Netsync.NetSyncSpeed.HarnessLeverName)); sb.Append(",");
++            Str(sb, "selftest", Try(() => Memoria.Netsync.NetSyncSpeed.SelfTestVerdict));
++            sb.Append("}");
++        }
++
+         // [ff9mapkit netsync R3 s121] `netsync.menu_refusal` -- THE AUDIBLE MENU REFUSAL (guest side; NetSyncField.RefuseMainMenu, from
+         // UIKeyTrigger's Menu-key branch when the s38 gate refuses a mirroring guest): `now` (what a Menu press would do right now --
+         // "open" stock's main menu | "off" stock's own refusal, IsMenuControlEnable false | "audible" a mirroring guest on FieldHUD
+diff --git a/Assembly-CSharp/Assembly-CSharp.csproj b/Assembly-CSharp/Assembly-CSharp.csproj
+index e095141..651ea22 100644
+--- a/Assembly-CSharp/Assembly-CSharp.csproj
++++ b/Assembly-CSharp/Assembly-CSharp.csproj
+@@ -1407,6 +1407,7 @@
+     <Compile Include="Memoria\Netsync\NetSyncGuestLocalTable.cs" /> <!-- [ff9mapkit netsync s156] GENERATED by the kit from the user's install: CRCs only -->
+     <Compile Include="Memoria\Netsync\NetSyncStepOut.cs" /> <!-- [ff9mapkit netsync s158] the party-scene step-out: the rules, the episode, the Zidane stand-in, the levers, its selftest -->
+     <Compile Include="Memoria\Netsync\NetSyncAte.cs" /> <!-- [ff9mapkit netsync s161] the ATE relay: the host's menu press, the guest's serve, the episode, the lever, its selftest -->
++    <Compile Include="Memoria\Netsync\NetSyncSpeed.cs" /> <!-- [ff9mapkit netsync s163] the host's speed on a following guest: section 10, the latch, the getter / mode seams' rules, the lever, its selftest -->
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\BinaryExpression.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\EvaluationVisitor.cs" />
+     <Compile Include="NCalc\Evaluant.Calculator\Domain\Function.cs" />
