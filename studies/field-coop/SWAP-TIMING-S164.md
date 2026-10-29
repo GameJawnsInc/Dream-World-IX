@@ -1,6 +1,6 @@
 # Field-swap timing, round 1 (engine round s164)
 
-**Status: rev 2, DESIGN (2026-10-29). Not built.** The owner chose round 1 of `FIELD-SWAP-TIMING.md` §4, with the 12-tick follow fade for a guest that is not already faded. This document combines five item specs into one round: A, the instrument; B, the orphan hold and the lever scheme; C, the own pass; PIN and LIFE; D and E, the fade. Rev 2 applies the owner's resolution of every finding from the three reviews of rev 1 (timing-race T1-T14, regression R1-R9, proof-bench F1-F14).
+**Status: rev 3, DESIGN (2026-10-29). Not built.** The owner chose round 1 of `FIELD-SWAP-TIMING.md` §4, with the 12-tick follow fade for a guest that is not already faded. This document combines five item specs into one round: A, the instrument; B, the orphan hold and the lever scheme; C, the own pass; PIN and LIFE; D and E, the fade. Rev 2 applied the owner's resolution of every finding from the three reviews of rev 1 (timing-race T1-T14, regression R1-R9, proof-bench F1-F14). Rev 3 applies the findings against rev 2 that survived adversarial verification (§ What changed from rev 2).
 
 It builds on s163 (`Assembly-CSharp.dll` `7687fb583c0e6189`). Engine cites are against `C:\gd\FFIX\Memoria\Assembly-CSharp` at s163 (stock `6b8bb2d5` plus the stack through s163). Field-script cites are against the HW exports in `C:\gd\FFIX\reference\test2\` (`reference/field-manifest.tsv`: 350 = `test2_93`, 351 = `test2_94`, 352 = `test2_95`, 359 = `test2_102`, 450 = `test2_112`). Kit cites are against this worktree. An engine claim with no label was read in the code. **INFER** marks a deduction, and each one names the bench row that settles it.
 
@@ -14,10 +14,10 @@ It builds on s163 (`Assembly-CSharp.dll` `7687fb583c0e6189`). Engine cites are a
 
 **Expected after round 1 (§4):**
 - No bounce reload when the intent arrives before the own jump.
-- Scripted transitions land 0.1-0.3 s after the host.
+- Scripted transitions land 0.1-0.3 s after the host when the last line before the exit stayed fully shown on the host for at least the copy's lag + 350 ms. A faster host carries the copy's catch-up lag into the landing: a host close on a line still typing is held until the page has shown `MinShowMs` (`NetSyncDialog.cs:51, :1337-1343`), and the exit script runs a fixed chain from that close (P7).
 - Gateway walks land about 0.5 s behind (12 ticks).
 - Every 3x follow is about 630 ms shorter.
-- No flash.
+- No flash, except on an Add-mode (white) exit, which keeps today's flash (risk 18, G4).
 
 ## What changed from rev 1
 
@@ -61,6 +61,46 @@ It builds on s163 (`Assembly-CSharp.dll` `7687fb583c0e6189`). Engine cites are a
 | F13 | CAL dwells at least LineWindowMs + 1 s per field. K-RELEASE re-arms (`netsync selftest 1`, `bench 1`, `stateevery 1`) before its final follow | CAL; K-RELEASE |
 | F14 | `BodyThereRule` is shared by the host path and the selftest branch. Rows b1-b4 (`r-bench`), mutant `body_any_actor` | LIFE |
 
+## What changed from rev 2
+
+The ids are the findings against rev 2 that survived verification (high and medium first, then the low ones). Where a finding could be closed by removing a mechanism, rev 3 removed it.
+
+| Id | Resolution | Where |
+|---|---|---|
+| S1 | Applied, by removal. R6's battle term is dropped. Every field battle goes through `SwirlScene` (`HonoluluFieldMain.cs:337`; `SceneDirector.cs:556-560`), where `gMode` still reads 1 and the FieldMap is gone, so the term could never fire. Rev-1 R6 was also not a regression: `_Swirl` waits at least 2 frames on the live field before it loads (`SceneDirector.cs:556-557`), so s163's clear and LIFE's Keep both see the landing. Rows `r-battle`, `r-battle-cap`, `r-battle-old` and mutants `life_battle_left`, `life_battle_no_cap` are removed; row `r-swirl` pins the swirl's EndLeft; DL-LEFT stays, annotated. PIN's b5 term goes too: no battle frame carries section 4 | LIFE; PIN; duo LEFT; risk 25 |
+| S2 | Applied with a different fix. `Due` no longer reads `_dlg.RingAhead`, which is always false at :1668. A Black verdict must survive one dialogue pass. The first Update that judges the commit ready returns `Prime` (a Wait). Only the next Update commits; its backlog read includes everything observed at :2168 and merged at :2176 in between. Rows `black_primes_first` and `prime_then_black`; mutant `due_no_prime` replaces `due_ring_ahead_free`; F-FAST gains the live `fade.last.primed` clause | D+E; D+E rows; F-FAST |
+| S3 | Applied with a different fix, the skeptics' simpler one. "Watched" by receive-seq continuity is gone. The host stamps its own boundary: section 4's body gains a fourth byte whose bit 0 means "built after my landing hook" (`_intentLanding != Pending`). The guest pins the first frame of a nonce whose bit is clear. A stall, a re-send, bunching, the relay, a reconnect or a bridge cut can no longer mislabel a frame, because the label rides in the frame. An s163 host's 3-byte section reads as landed, so the guest stages the latest frame. `InSeq`, `seqGap`, the off-field upgrade, `PinOffFieldRule`, the b3/lane `landSeen` INFER, pinbench `skip`/`offfield` and row P-RESCUE are removed; pinbench gains `landed` (P-LATE), and DP-UP becomes DP-HALT, which checks that later pre-landing frames carry the same story | A transport probe; PIN; levers; state; solo P; duo; risks 22, 24 |
+| V1 | Applied. The split gets a target: `NetSyncState.ApplyStorySplitTo(story, party, target)`, with `ApplyStorySplit` as its live wrapper. `BenchPinLanding` calls `ApplyStorySplitTo` on a scratch array, so P-PARTY runs the shipped split. Live SelfTest row `pin_split_applies`; a kit source test pins the :929 expression. The leak half is resolved as G2 | PIN; SelfTest; kit side |
+| V2 | As S2 | D+E |
+| V3 | Applied. The selftest `GuestTick(fld, -1)` moves to right after `ServiceSpeed` (`NetSyncClient.cs:1784`), before the `inScope` return, so it runs on every selftest tick, as the client's call does. C-CACHE also requires that no "field 352 loaded" line prints. A kit source test pins the placement | C; C-CACHE; kit side |
+| V4 | Applied, in the skeptics' form. The read clock keeps running through a hold; the word "pauses" is corrected. B-BLIP2 opens a fresh line and blips first at t0 + 1.0 s. Green is exactly one relock, then the auto-close on the first orphaned sample at or after t0 + AutoReadMs (+0.3 s). Every B sub-leg after B-RELEASE opens its own line. S5 is tightened to the same tick | B; B rows; solo B legs |
+| V5 | Applied. A new CAL sub-leg, ARRIVE, warps the host onto a scratch copy of the bench field with `[camera] entry_settle = 68`, about 2.27 s of wordless control-off on both copies. DA-ARRIVE gains an exposure reach clause on `netsync.stepout.base.age_ms`; the CAL2 and DESK arrivals stay as regression watches. ARRIVE predicts a dwell OUT at act, so by R2's own rule the arrival guard must land before ship | Duo CAL; DA-ARRIVE; gates; owner decision 8 |
+| G1 | As V5. The speed-mirror half is a more frequent case of a risk s163 already accepted (`SPEED-MIRROR.md:120-121`); risk 14 says so, with no new row | Duo; risk 14 |
+| G2 | Applied. `BenchPinLanding` sets a swap-owned `_pinBenchMirror` before its parse. It does not use `NetSyncParty.BenchMirrorArmed`, which would turn a later diorama's seat into SeatBench (`NetSyncDiorama.cs:2918-2921`). `HarnessRelease` and `swap clear` call `NetSyncParty.Clear()` when the flag is set, and the release line names it. P-PARTY reads `mirror_party` before leg P's closing `swap clear`, and null after it | PIN bench; release; P-PARTY |
+| P2 | As V4 | Solo B legs |
+| P3 | Applied. The solo `pin` lever is scoped to P-PIN and P-PARTY (`swap pin act` before the guards), and the duo's to MARK and the 1.2 s MENU run. DP-MARK and DP-DEFER are REACHED only when the landing's held entry was `pre` (`pin.last_use_quality`); otherwise they are UNREACHED with the reason | Solo P; duo; state |
+| P4 | Applied. C-PEND's reach is keyed on the own-jump edge (`last.own_t`, with `session.follow.pending` 352 in the sample before it), never on the pass line, and its `own` red has an explicit marker. A predicted-red row that reads UNREACHED fails its calibration | Solo C; the reach rules |
+| P5 | As V3 | C |
+| P6 | Applied. At scenario 2600, entrance 15, the desk scene leaves through `Dagger_Loop` case 23 (`test2_94.txt:3850-3879`). After text 139 closes, it runs `Wait(100)`, `Wait(30)`, `FadeFilter(6,30)`, `Wait(30)`, entrance 3, `Field(352)`, and lands on 352's text 142 (`test2_95.txt:64-69, 1430-1435, 1649-1654`). Δ is anchored at text 139's close. Leg C's `fade old` rationale and DC-WON are re-derived from ActionRule's 12-tick Join/Hurry split | Solo C; duo REST; predictions |
+| P7 | Applied. DC-B(a)'s gap is judged net of the copy's measured lag at text 139, and the raw gap is reported; the 0.1-0.3 s expectation is qualified. DESK states its re-press cadence. DC-B(b) reports its reach rate across D and needs one REACHED run for `own` | Duo DESK, REST; The problem |
+| P8 | Applied. The stand-in test runs legs K, A and B only. On an engine, a solo P, L or F leg whose op was acked but whose key stayed at its sentinel is red ("the engine never ran X"), never UNREACHED. DA-LANE gains a reach floor: one reached transition per leg, else red. Source tests pin the three call sites | Kit side; the reach rules |
+| I2 | Applied, in the skeptics' form. `OwnFieldPass` keeps its Boolean, writes `_ownLastTerm` and prints nothing. `NoteOwnJump` is the single printer and runs after `JoinRule`: it prints C's pass line, C's refusal line with the final verdict's outcome words, or L-OWN. L-OWN gains a Through outcome; builder rows cover a refusal followed by each verdict | A; C; A rows |
+| I4 | Applied. The release half is resolved as G2. Frame B is built through the real encoder: `SnapshotAll()` under the `SlotSource` seam (`NetSyncParty.cs:81, 497-499`), restored in a finally, so no section-1 byte walker is needed | Levers |
+| I5 | Applied, in the skeptics' form. Whether to keep the read clock is decided at the hold's falling edge: `KeepRead = (why == Control)`, consumed by the next re-orphan. A Busy, Event, Relay, Left or Forgot end restores s163's restart. `CtlRelocked` is renamed `KeepRead`. Scenario S6, mutant `relock_keeps_after_busy` | B |
+| I6 | Applied by S3. The landed bit rides in the frame, so the first frame after a reconnect (post-landing) reads late. The redial sentence is corrected: an in-transport reconnect or a bridge cut keeps the frames object | A transport probe; PIN |
+| S4 | Applied by S3: no lane term remains | PIN |
+| S5 | Applied in part: the `CtlRelocked` half as I5, the wording as V4. "Credit the held time" is declined: on B-BLIP2's schedule a pause would also close after one relock, and R5 wants the running clock | B |
+| V6 | Applied. DC-WON's prediction is re-derived from ActionRule. A new judged row, DF-GRACE (DESK: a Join start ends by `own`), falsifies the `Wait(25)` resume-tick INFER | Duo |
+| V7 | Applied by S3 (no receive-seq plumbing remains) and P3 (the DP reach clause). DP-STALL is declined: a stall now matters only when it spans the host's landing, which row c3 and the live codec row cover | PIN; duo |
+| G4 | Applied, the cheap option. Outcome 5 and risk 18 name the Add-mode (white) exception; the start line logs the slot's mode | The problem; D+E log; risk 18 |
+| P9 | Applied. battlewire gains `_i64()` / `_i32()` two's-complement helpers for every fixed-width twin; a kit test asserts the `ms_naive` twin differs at `tsc_40_days` | Kit side |
+| P10 | Applied. Leg C's Δ and DL-DEFER are timed from state keys (`last.own_t`, `last.follow_t`, and the close and menu samples' `clock.now_ms`) | Solo C; DL-DEFER |
+| P11 | Applied. F-RECHECK sends `lock 1`, and each F sub-leg's lock state is stated. L-WIRE and the undefined `intent.wire` are removed; the live `frame_carries_4` row carries the claim | Solo F, L; state |
+| I7 | Applied: `(Byte)0` in the conditional | B call sites |
+| I8 | Applied. One hunk per edge: the `next` end and the `reset` end are each one `NoteIntentEnd` call that A and LIFE share; `NoteEmit` loses `was` | A; LIFE |
+| I9 | Applied. `HoldVerdict` is `internal static` and pure over every clock; `HoldInputsNow` gathers the live inputs for both callers; the sweep saves and restores NetSyncAte's statics | C; SelfTest |
+| I10 | Applied: `StartSceneAt` :7038 "ended" and :7039 "rose", both stamped; the :7038 form joins `S163_FORMS` | A; kit side |
+
 ## Conflicts between the specs, and what this document chose
 
 | # | Conflict | Chosen | Why |
@@ -70,8 +110,8 @@ It builds on s163 (`Assembly-CSharp.dll` `7687fb583c0e6189`). Engine cites are a
 | 3 | Lever roles: A and PIN-LIFE any role; C client or selftest; B a role table | B's table. Guest-side levers are refused on a host. `life` is refused on a client. `stamps` and `clear` are legal on any role | A calibration sent to the wrong duo game then fails at the step instead of reading as an unpredicted green |
 | 4 | Leaked-lever guard: C role-checks in its getter, PIN-LIFE relies on the release alone, A, B and D+E proposed a getter that also reads the harness-armed flag | The s163 shape. The role is checked when the lever is SET (the refusal order below). Every lever is released on every role by `NetSyncSwap.HarnessRelease()`, called from `NetSyncBattle.HarnessReleaseBench` after s163's `NetSyncSpeed.HarnessRelease()` (`NetSyncBattle.cs:6758, 6840`). Getters are plain. No Netsync file reads HarnessAgent | `HarnessReleaseBench` runs on every `HarnessSelfTest(false)`, above its forced-role return (`NetSyncClient.cs:9403-9407`): disarm, fault, `reset`, and the release a harness diorama defers to its teardown (`HarnessAgent.cs:2353-2361`). While that diorama holds the release, the selftest role is held too (`HarnessAgent.cs:2317-2325`), so a getter that added the harness-armed flag to `IsSelfTestRole` would guard nothing there. s163 already ships an any-role lever on the release alone (`NetSyncSpeed.LeverOff`, `NetSyncSpeed.cs:91-93`). The residual (a throw inside `HarnessReleaseBench` before this round's call) is shared with every netsync lever since s133 (risk 20) |
 | 5 | `delay` range: A 0-5000, B 0-2000 | 0-2000 | The delay holds a black screen with control off. 2000 still covers DA-CAL's +200 and A-DELAY's +300 |
-| 6 | Three guest readers of section 4 (A's seen edge, C's cache, PIN's capture) at three call sites | One site: `NetSyncSwap.NoteHostFrame`, in `ObserveHostDialog`'s new-frame branch, right after `NetSyncSpeed.NoteHostFrame` (`NetSyncClient.cs:7808`) | It runs every client Update (`:2167-2168`). It runs after `_dlg.Observe` has read section 7 (PIN needs b3) and after `LastHostField` is set (`:2166`, PIN's landing-seen lane term), and before `ServiceIntentFollow` (`:2170`), so a follow started this Update already has its cache and its pin. C's cache aging runs in `NetSyncSwap.GuestTick`, right after `:2168` |
-| 7 | C asked for the pin's frame to live in its cache record | Kept separate; both written at the one site | The cache ages out at 2000 ms and clears once the host's lane moves past. A pin lives until it is consumed, superseded for a field no follow targets, or aged (2500 ms from the host's landing as seen), and must survive a "host past" clear |
+| 6 | Three guest readers of section 4 (A's seen edge, C's cache, PIN's capture) at three call sites | One site: `NetSyncSwap.NoteHostFrame`, in `ObserveHostDialog`'s new-frame branch, right after `NetSyncSpeed.NoteHostFrame` (`NetSyncClient.cs:7808`) | It runs every client Update (`:2167-2168`). It runs before `ServiceIntentFollow` (`:2170`), so a follow started this Update already has its cache and its pin. PIN reads only section 4 (the nonce, the field and the host's landed bit), so it needs nothing else from the frame. C's cache aging runs in `NetSyncSwap.GuestTick`, right after `:2168` |
+| 7 | C asked for the pin's frame to live in its cache record | Kept separate; both written at the one site | The cache ages out at 2000 ms and clears once the host's lane moves past. A pin lives until it is consumed, superseded for a field no follow targets, or aged (2500 ms from the first frame I saw with the host's landed bit), and must survive a "host past" clear |
 | 8 | Two lines for one own jump (A's L-OWN and C's pass line) | Exactly one line per own jump. C's pass or refusal line if C decided, else A's instrument line | One line per edge. Line classes are told apart by prefix (§ Log classes) |
 | 9 | `stamps off`: A wanted "the exact s163 log" | It removes stamps, the waited/shown tails and every `[NetSync] swap` line. Behaviour lines from B-E still print, without stamps | An instrument lever must never silence a behaviour change |
 | 10 | Intent end words: A has landed/next/session; LIFE has stands/left/elsewhere/cap/old/reset | One vocabulary: `stands \| left \| elsewhere \| cap \| old \| next \| reset` | A's "landed" is the s163 self-clear, which is `old`. "session" is `reset`. LIFE's "replaced" is `next` |
@@ -80,7 +120,7 @@ It builds on s163 (`Assembly-CSharp.dll` `7687fb583c0e6189`). Engine cites are a
 | 13 | E as a lever: B had `cut old`, D+E had none | `swap fade long`: D stays on, and the fast path fades 24 ticks | E is its own mechanism, so it gets its own calibration |
 | 14 | D+E's five departures from the task | All five taken. The owner took the defaults on two: the backlog path without the flash (owner default 1), and Hurry instead of a literal "never re-init" (owner default 2) | Each keeps today's timing bound, and each has a lever or a follow-up that restores the alternative |
 | 15 | C2 | Dropped | C's writer found it unsound (§C, "C2") |
-| 16 | Five solo scenario files proposed | One solo scenario, `coop_field_swap_timing.py`, with legs selected by `COOP_LEGS`, plus the duo | LIFE's tape rows (T-*) are read from the duo's two state blocks instead. T-STORY becomes an engine counter (`pin.last_upgrade_diff`), so `coop_peer.py` does not change |
+| 16 | Five solo scenario files proposed | One solo scenario, `coop_field_swap_timing.py`, with legs selected by `COOP_LEGS`, plus the duo | LIFE's tape rows (T-*) are read from the duo's two state blocks instead. T-STORY becomes an engine counter (`pin.max_pre_diff`, the halted-VM check; rev 2 named it `pin.last_upgrade_diff`), so `coop_peer.py` does not change |
 | 17 | Bounce counters in both A and C | One `counts.bounces`, incremented at the bounce branch | One owner per number |
 | 18 | Driver capability name: A `coop_swap_timing`, B `coop_field_swap` | `coop_field_swap` | It matches the scenario names |
 
@@ -209,7 +249,7 @@ The line builders `LandedLine`, `CommitLine`, `OwnLine`, `ClosedLine` and `Clock
   - `Int64 SetStateWatched(Byte[] payload)`: sets the state slot exactly as `SetLocalState` does and arms the watch at that frame's set seq, under ONE acquisition of the frames lock, and returns the seq (T12, F10). The writer thread therefore cannot send the frame between the set and the arm.
   - `StateProbe ReadStateProbe();`
   - `void WatchStateSeqs(Int64 from, Int64 to);` (used to close the watch).
-- `public struct StateProbe` is read all at once under the frames lock. Its fields: `SetSeq`, `SentSeq`, `Sends`, `Unsent`, `WatchFrom`, `WatchTo`, `WatchSends`, `WatchFirstTs`, `WatchLastTs` (raw swap-clock ticks, -1 = none), `FromSent`, `FromReplaced`, `InState` (the latest received payload), `InStateTs` (-1 = none), `InSeq` (the receive seq of `InState`).
+- `public struct StateProbe` is read all at once under the frames lock. Its fields: `SetSeq`, `SentSeq`, `Sends`, `Unsent`, `WatchFrom`, `WatchTo`, `WatchSends`, `WatchFirstTs`, `WatchLastTs` (raw swap-clock ticks, -1 = none), `FromSent`, `FromReplaced`, `InState` (the latest received payload), `InStateTs` (-1 = none).
 - **`SetState` (:314):**
   - a slot replaced before any write counts `Unsent++`;
   - the watch's first frame replaced unsent sets `FromReplaced`;
@@ -218,30 +258,30 @@ The line builders `LandedLine`, `CommitLine`, `OwnLine`, `ClosedLine` and `Clock
   - sets `SentSeq = SetSeq` and increments `Sends`;
   - inside the watch window it also increments `WatchSends` and records the first and last send ticks;
   - it sets `FromSent` when `SetSeq == WatchFrom`.
-- **`Accept`, `TypeState` (:436-438):** increments `InSeq` (a count of TypeState payloads received on this transport) and records `InStateTs` from the swap clock's raw counter, beside `_inStateTick`. PIN's receive-seq continuity reads `InSeq` (T6).
+- **`Accept`, `TypeState` (:436-438):** records `InStateTs` from the swap clock's raw counter, beside `_inStateTick`. Rev 3 removes rev 2's receive counter (`InSeq`): PIN no longer judges by arrival (S3).
 - `NetSyncSocket` (:609 area) and `NetSyncRelay.cs` (:121 area) forward the new members to `_frames`.
-- A redial creates a new `NetSyncFrames`. The host probe keeps a reference to the transport it read from (the precedent at `NetSyncBattle.cs:3152`) and shows -1 when that transport is stale. The guest's receive-seq memory resets with it (the next first frame reads Late).
+- **What renews the frames object.** `_frames` is a readonly field created once per transport (`NetSyncSocket.cs:549`, `NetSyncRelay.cs:47`). A config redial (`ApplyConfigChange`, `NetSyncClient.cs:1397-1400`) or `OnDestroy` (:2354-2355) drops the transport, and `Update` builds a new one (:2059-2062). An in-transport reconnect does not: `ClientLoop` and the relay's connect loop reuse the object and only call `ClearRemote` (`NetSyncSocket.cs:718-757`; `NetSyncRelay.cs:189-194`), and behind the local bridge the game's hop stays up through an upstream cut (`NetSyncClient.cs:671-673`). The host probe keeps a reference to the transport it read from (the precedent at `NetSyncBattle.cs:3152`) and shows -1 when that transport is stale. Nothing on the guest depends on the frames object's life.
 
 ### Call sites (every hunk tagged `[ff9mapkit netsync s164]`)
 
 | Site | Hunk |
 |---|---|
-| `EmitFieldIntentIfHost` (:6734-6755) | Gains an overload `EmitFieldIntentIfHost(Int32 dest, Int32 site)`; the one-argument form (called by MAPJUMP, `DoEventCode.cs:1040`) passes `mapjump`. Capture `was = _intentActive` before :6745. The out-of-band write at :6748 becomes `oobSeq = i._socket.SetStateWatched(frame)` (a throw falls back to `SetLocalState(frame)` and records oob unknown). Then `t = NoteEmit(dest, nonce, site, oobSeq, frame != null, was)`, which opens or joins the host record (Emit), sets the writer to Host, and stamps `host_fps` and `emit_dt_us`. The line at :6749 gains `+ Stamp(t)` |
+| `EmitFieldIntentIfHost` (:6734-6755) | Gains an overload `EmitFieldIntentIfHost(Int32 dest, Int32 site)`; the one-argument form (called by MAPJUMP, `DoEventCode.cs:1040`) passes `mapjump`. **One hunk owns the `next` end (I8):** after the guards (:6739-6742) and before :6743, `if (i._intentActive) NetSyncSwap.NoteIntentEnd(IntentEndNext, i._socket)`, which counts `ends.next` and `replaced`, closes the watch and prints LIFE's "replaced" line; LIFE's L1 is this same call. The out-of-band write at :6748 becomes `oobSeq = i._socket.SetStateWatched(frame)` (a throw falls back to `SetLocalState(frame)` and records oob unknown). Then `t = NoteEmit(dest, nonce, site, oobSeq, frame != null)`, which opens or joins the host record (Emit), sets the writer to Host, and stamps `host_fps` and `emit_dt_us`. The line at :6749 gains `+ Stamp(t)` |
 | `Ff9mkDebugMenu.ServicePendingWarp` (:2452) | `EmitFieldIntentIfHost(mapNo)` becomes `EmitFieldIntentIfHost(mapNo, NetSyncSwap.SiteDebugWarp)` (F4) |
 | Host intent end (LIFE's `HostIntentLifeStep`, replacing :2095-2096) | `NoteIntentUpdate()` each Update while active. On the end: `NoteIntentEnd(why, _socket)` records `end_t` and `last_life_ms` and closes the watch at `SetSeq + 1` |
-| `BuildStateFrame`, the `if (_intentActive)` append (~:6780) | `NoteIntentFrame()`, which counts host frames that carry section 4 |
-| `ResetIntentAndL1State` (:6676-6726) | Before :6680, an active intent ends as `reset`. Then `NetSyncSwap.Reset("the co-op session reset")` closes the record as `reset` and forgets the seen nonce |
+| `BuildStateFrame`, the `if (_intentActive)` append (:6775-6777) | The body becomes `NetSyncSwap.IntentSectionBody(_intentField, _intentNonce, landed)`, four bytes: s163's three, then a flags byte whose bit 0 (`IntentFlagLanded`) is set when `_intentLanding != Pending \|\| _intentFaulted` (PIN, "The host's half"). Then `NoteIntentFrame(landed)`, which counts host frames that carry section 4 and those that carry the bit |
+| `ResetIntentAndL1State` (:6676-6726) | **One hunk owns the `reset` end (I8):** before :6680, `if (_intentActive) NetSyncSwap.NoteIntentEnd(IntentEndReset, _socket)`; LIFE's L5 is this same call. Then `NetSyncSwap.Reset("the co-op session reset")` closes the record as `reset` and forgets the seen nonce |
 | `EmitDialogTap` live line (:7370) | `+ Stamp()` (voice-thread safe: it reads static booleans and the clock). The recorded line at :7362 is untouched |
-| `UpdateHostScene` :6915 "rose", :6917 "ended"; `StampTalk` :7039 | `+ Stamp()` |
+| `UpdateHostScene` :6915 "rose", :6917 "ended"; `StartSceneAt` (:7034, called from `StampTalk` :8385) :7038 "ended" and :7039 "rose" | `+ Stamp()` on all four (I10) |
 | `ScanHostOpenSet` (:6840-6885) | Keep the (Id, TextId) of the first lockable window that is not Inh. Before `_hostLineOpen = line` (:6881), on a rising edge on a field: `NoteFirstLine(NowMs(), fld, win, text)`. No log line; the stamped "scene rose" line covers it |
-| `ObserveHostDialog` new-frame branch (:7800-7809) | After :7808: `NetSyncSwap.NoteHostFrame(state, now, myField, onWorld, following, LastHostField, offField)`. This is the one guest site (row 6 above). Item A's part: on `SeenRule` it records seen_t, the nonce, `recv_seq` and arrived_t (`TicksToMs(probe.InStateTs)` when `ReferenceEquals(probe.InState, state)`, else -1), then applies `JoinRule(Seen)`. Each further copy of the same nonce increments `copies`. `ObserveHostDialog` runs before `ServiceIntentFollow` (:2168, :2170), so seen_t ≤ follow_t |
+| `ObserveHostDialog` new-frame branch (:7800-7809) | After :7808: `NetSyncSwap.NoteHostFrame(state, now, myField, onWorld, following, LastHostField, offField)`. This is the one guest site (row 6 above). Item A's part: on `SeenRule` it records seen_t, the nonce and arrived_t (`TicksToMs(probe.InStateTs)` when `ReferenceEquals(probe.InState, state)`, else -1), then applies `JoinRule(Seen)`. Each further copy of the same nonce increments `copies`. `ObserveHostDialog` runs before `ServiceIntentFollow` (:2168, :2170), so seen_t ≤ follow_t |
 | `ResetGuestDedupForEpoch` (:7822-7838) | `ForgetHostNonce()` |
 | `StartFollowWarp(Int32 dest)` (:4665) | Becomes `StartFollowWarp(Int32 dest, Int32 via)`: `_followStartT = NoteFollow(dest, via, fldMapNo); _followDelayFrom = -1;`. Callers: `FollowHostTick` :4649-4650 (serial); `ServiceIntentFollow` :7189 (intent); `DebugInjectIntentImpl` :7280-7281 (intent, plus `NoteBenchSeen` after the codec round trip at :7259). Each caller's line gains the stamp. D replaces the wipe inside (§D+E) |
 | `SameFieldKickTick` (:6586-6592) | `_followStartT = NowMs(); _followDelayFrom = -1;`. A kick never touches the record |
 | `ServiceFollowWarp` (:6602-6668) | After D's `Due` returns not-Wait, `Due` latches the verdict and its time `due_t`. Then `if (!NetSyncSwap.CommitDelayAllows(ref _followDelayFrom)) return;` (`DelayRule`; fails open to true). The drop lines (:6635, :6651-6655) gain the stamp, preceded by `NoteDrop(...)`. After the write (:6662-6666): `NoteCommit(mapNo, kick, _followStartT, dueWord, delayMs)`, which writes the L-COMMIT line, records `commit_t`, sets the writer (Follow or Kick) and applies `JoinRule(Commit)` |
 | `NoteFieldLanding` lines (:5826-5831), `NoteFollowWaits` (:4783) | `+ Stamp()` |
 | `ApplyStoryBeforeEvents` (:874) | After `NoteFieldLanding`: `NetSyncSwap.OnFieldLoad(fldMapNo)`. It sets via = `LandViaRule(...)` (the landing consumes the writer) and applies `JoinRule(Land)`. It prints L-LAND only when the landing joined a record or via is follow, kick, own, bounce or host. A landing via `follow` whose record holds no own edge increments `counts.follow_won` (F2) |
-| `RedirectGuestFieldJump` (:516-597) | Today's body becomes `RedirectGuestFieldJumpCore(ref dest, ref verdict, ref why)`. The wrapper stamps `OwnJumpT = NowMs()`, runs the core, then calls `NoteOwnJump(asked, dest, myField, verdict, why, LastHostField, t)` (rule list below the table) |
+| `RedirectGuestFieldJump` (:516-597) | Today's body becomes `RedirectGuestFieldJumpCore(ref dest, ref verdict, ref why)`. The wrapper stamps `OwnJumpT = NowMs()`, sets `NetSyncSwap._ownLastTerm = 0`, runs the core, then calls `NoteOwnJump(asked, dest, myField, verdict, why, LastHostField, t)` (rule list below the table) |
 | `NetSyncAte.cs` :609, :622, :638 | `+ Stamp(NetSyncSwap.OwnJumpT)` |
 | `NetSyncDialog.cs` | Details below the table |
 | `Update` (:1669-1670) | After `if (!_enabled) return;`: `NetSyncSwap.Tick()`. It runs `CloseRule`'s window and stale checks, and costs one bool test when nothing is open |
@@ -251,6 +291,7 @@ The line builders `LandedLine`, `CommitLine`, `OwnLine`, `ClosedLine` and `Clock
 **The verdict each return of `RedirectGuestFieldJumpCore` records:**
 - gMode 3 (:524-525): World, with no record and no line in round 1;
 - the s161 ATE pass (:542-554): Ate, or AteRedirect when redirected;
+- C's pass (the new `OwnFieldPass` return before :557): Pass / `pending`, `committed`, `intent` or `cache`;
 - `dest == myField` (:557): Reload / `same-field`;
 - `dest == LastHostField` (:557): Pass / `host-field`;
 - `EndingPasses` (:563): Pass / `ending`;
@@ -258,7 +299,7 @@ The line builders `LandedLine`, `CommitLine`, `OwnLine`, `ClosedLine` and `Clock
 - the bounce (:589-594): Bounce / `not-host`;
 - the catch (:596): Pass / `fault`.
 
-**What `NoteOwnJump` does.** It applies `JoinRule(Own, Bounce ? asked : final, ...)`. For a bounce it sets the writer to (Bounce, myField); otherwise to (Own, final). It increments `counts.bounces` on Bounce. Then it prints the one own-jump line (§C decides which). READ: today's bounce line is `DeclineOnce`, which is latched once per field (`NetSyncField.cs:578-600`); it is kept.
+**What `NoteOwnJump` does.** It applies `JoinRule(Own, Bounce ? asked : final, ...)`. For a bounce it sets the writer to (Bounce, myField); otherwise to (Own, final). It increments `counts.bounces` on Bounce. Then it prints the one own-jump line, and it is the only place that prints one (I2). It runs after the core and after `JoinRule`, so the verdict and the record number are final. By `_ownLastTerm`, which `OwnFieldPass` wrote during the core: above 0, C's pass line; below 0, C's refusal line, ending with the outcome words of the core's final verdict; 0, L-OWN. It clears `_ownLastTerm` after printing. READ: today's bounce line is `DeclineOnce`, which is latched once per field (`NetSyncField.cs:578-600`); it is kept.
 
 **The `NetSyncDialog.cs` hunks:**
 - `DlgEvent` gains `Int64 SeenT = -1`; `Win` gains `Int64 PageT = -1`.
@@ -285,11 +326,12 @@ Out of round 1: gMode-3 own jumps and the world rejoin are not recorded. Their l
 - **L-COMMIT:**
   - `[NetSync] swap: follow-warp to field D committed M ms after its start (black|timer|fallback|recheck[; +N ms delay]) (swap #K) (t T ms)`
   - for a kick: `[NetSync] swap: the same-field kick on field D committed M ms after its start (t T ms)`
-- **L-OWN** (only for the s163 verdicts, and only when C printed nothing): `[NetSync] swap: own Field(D) on field F -- <outcome> (swap #K) (t T ms)`. The outcome is one of:
+- **L-OWN** (only for the s163 verdicts, and only when `_ownLastTerm` is 0): `[NetSync] swap: own Field(D) on field F -- <outcome> (swap #K) (t T ms)`. The outcome is one of (the same words end C's refusal line):
   - `passes (the host's field)`
   - `passes (a same-field reload)`
   - `passes (the ending)`
   - `passes (a read fault: the vanilla jump)`
+  - `let through (the bounce budget is spent)`
   - `bounced to a reload of F (not the host's field: the host's lane reads field H)`
 
   ` (swap #K)` is left out when the jump joined no record.
@@ -347,12 +389,16 @@ NetSyncDialog.CtlHoldKind(Byte cls, Int32 actNew, Int32 actOld)            // lo
 NetSyncDialog.HoldEndWhy(Boolean present, Boolean claimed, Boolean relayOwned, Boolean hostHere, Boolean settledLong, Boolean hostHolds)
   !present -> Closed; claimed -> Event; relayOwned -> Relay; !hostHere -> Left; !settledLong -> Busy; !hostHolds -> Control; else None
   (Forgot is written directly by ForgetWindows / ResetAll; Left must come before Control: HostHoldsInput needs HostHere)
-NetSyncDialog.OrphanSinceRule(Boolean relocked, Int32 kept, Int32 now)      relocked ? kept : now          // R5
-  (a window re-orphaned after a control relock keeps the reading clock it first orphaned with: a relock pauses
-   the read, it never restarts it)
+NetSyncDialog.OrphanSinceRule(Boolean keepRead, Int32 kept, Int32 now)      keepRead ? kept : now          // R5
+  (a window re-orphaned straight off a CONTROL hold keeps the reading clock it first orphaned with. The clock keeps
+   running through the hold: held time counts toward the read, and the hold only defers the confirm to the next
+   orphaned tick. Any other hold end restarts the clock, as s163 does. I5)
+NetSyncDialog.KeepReadRule(Int32 endWhy)                                     endWhy == Control
 ```
 
-**R5, why the read clock is kept.** `OrphToOrphaned` sets `w.OrphanSince = v.Now` (`NetSyncDialog.cs:1538-1541`), and the auto-confirm waits `AutoReadMs` from the later of the completed page and `OrphanSince` (`:1680-1683`). Under act, every host control blip on my field relocks an orphaned window. Without the rule, a host that keeps losing control more often than every 2 s (its own climbs, MOVQ walks) would hold a genuinely guest-only line indefinitely. With it, the line auto-closes no later than its first orphaning + `AutoReadMs` + the time it was held.
+**R5, why the read clock is kept.** `OrphToOrphaned` sets `w.OrphanSince = v.Now` (`NetSyncDialog.cs:1538-1541`), and the auto-confirm waits `AutoReadMs` from the later of the completed page and `OrphanSince` (`:1680-1683`). Under act, every host control blip on my field relocks an orphaned window. Without the rule, a host that keeps losing control more often than every 2 s (its own climbs, MOVQ walks) would hold a genuinely guest-only line indefinitely. With it, a page that is already complete auto-confirms on the first orphaned tick at or after its first orphaning + `AutoReadMs`; first orphaning + `AutoReadMs` + the summed held time is only a loose ceiling. A relock does not move `CompleteSince` (`:1255-1269`), and `HostHoldsInput` stays out of the settle clock, so the window re-orphans on the first tick the host's control is back.
+
+**Which hold end keeps the clock (I5).** Only a hold that ends because the host's control came back (`HoldEndWhy` = Control) keeps it. A host scene that rises during the hold (Busy), a host event (Event), a relayed start (Relay), the host leaving (Left), or a teardown (Closed, Forgot) ends the hold some other way, and the next re-orphan restarts the clock at `v.Now`, exactly as s163 does for those relocks. So a host cutscene that turns control off before its first line no longer leaves a stale kept clock behind it.
 
 **Unchanged:**
 - `SettleClock` (:2418-2475), `OrphanStep` (:1663-1684), `KeyHostHalf`, the chip, and the key idle purge.
@@ -365,14 +411,14 @@ NetSyncDialog.OrphanSinceRule(Boolean relocked, Int32 kept, Int32 now)      relo
   - `settled = OrphanSettled(_settle.Long, d.FlagButtonInh, v.HostHoldsInput, leverOld)`;
   - `OrphanStep` is unchanged.
   - Then, under act, inside a try: compute `actOld` with the old rule, `kind = CtlHoldKind(w.Cls, act, actOld)`, and `StepCtlHold(w, kind, eventPending, ref v)`. A fault calls `CtlFault`. All of this runs before `if (act == OrphNone) continue;` (:1529).
-  - The `OrphToOrphaned` branch (:1541) becomes `w.OrphanSince = OrphanSinceRule(w.CtlRelocked, w.OrphanKept, v.Now);`.
-- **`StepCtlHold`:**
-  - On the rising edge it sets `w.CtlHeld` and `w.CtlHeldSince` and counts a hold or a relock. On a relock it also sets `w.CtlRelocked = true` and `w.OrphanKept = w.OrphanSince`. It logs the hold line for a hold only; a relock uses the existing line.
-  - On the falling edge it computes `HoldEndWhy`, records `last_hold_ms` and `last_end`, and logs the end line.
+  - The `OrphToOrphaned` branch (:1541) becomes `w.OrphanSince = OrphanSinceRule(w.KeepRead, w.OrphanKept, v.Now); w.KeepRead = false;` (the flag is consumed by the re-orphan it was set for).
+- **`StepCtlHold`** runs before the `OrphToOrphaned` branch in the same tick (above), so a hold's falling edge always decides before the re-orphan reads the flag:
+  - On the rising edge it sets `w.CtlHeld` and `w.CtlHeldSince` and counts a hold or a relock. On a relock it also stores `w.OrphanKept = w.OrphanSince`. It logs the hold line for a hold only; a relock uses the existing line.
+  - On the falling edge it computes `HoldEndWhy`, sets `w.KeepRead = KeepReadRule(why)`, records `last_hold_ms` and `last_end`, and logs the end line.
   - After the loop it sets `holding` to the count of held windows.
 - **The OrphToLocked line (:1550-1551)** gains a case after `eventPending`: `kind == CtlRelock ? " held -- the host's control is off on my field"`.
 - **New fields:**
-  - `Win` gains `Boolean CtlHeld, CtlRelocked; Int32 CtlHeldSince, OrphanKept`;
+  - `Win` gains `Boolean CtlHeld, KeepRead; Int32 CtlHeldSince, OrphanKept`;
   - `NetSyncDialog` gains `Boolean _ctlFaulted`, sticky per session and cleared in `ResetAll`.
 - **Window teardown:**
   - the `Track` removal loop (:1281-1289) ends a hold as Closed before `RemoveAt`;
@@ -381,7 +427,7 @@ NetSyncDialog.OrphanSinceRule(Boolean relocked, Int32 kept, Int32 now)      relo
   - :7767 becomes `v.HostHoldsInput = HostHoldsRule(v.HostHere, hv != null, hr)`;
   - **:7780 is an ADDITION, never a replacement (R8).** The existing line `_glHostHoldsInput = v.HostHoldsInput;` stays exactly as it is; it feeds s156's `GuestHostSceneWhy` (:1142-1143), s158's step-out `hostCtlOff` (:6968) and s163's `hostHolds` (:6994). The new line goes after it: `NetSyncSwap.HostHoldsNow = v.HostHoldsInput;   // [ff9mapkit netsync s164]`. The session-off path (:7680) sets `NetSyncSwap.HostHoldsNow = false`. A kit source test asserts the original line is still present.
 - **`BenchHostTick` (:7859):**
-  - the section-7 flag becomes `DebugHostEventFlag != 0 ? HfScene : (NetSyncSwap.BenchHostCtlOff ? 0 : HfControl)`;
+  - the section-7 flag becomes `Byte f = DebugHostEventFlag != 0 ? NetSyncDialog.HfScene : (NetSyncSwap.BenchHostCtlOff ? (Byte)0 : NetSyncDialog.HfControl);` (the `(Byte)0` keeps the inner conditional a Byte; a bare `0` makes it an int and fails with CS0266, I7);
   - the step-out's and the speed mirror's bench inputs keep reading `DebugHostEventFlag` (:6959-6960, :6994), so their benches do not change.
 - **The dialogue selftest's `KeyScript` row (:3228-3229):**
   - `OrphanSettled(true, false, true, false)` must be false: "key: a plain line is orphaned while the host holds input on my field (Finding 11)";
@@ -447,11 +493,12 @@ void OwnPassBook(Int32 term, Int32 dest, ref Int32 pending, ref Int32 committed,
 Boolean OwnPassKeepsOwn(Int32 term, Boolean exitHoldKeepsOwn)   term > 0 && exitHoldKeepsOwn
 ```
 
-There is also a side-effect-free ATE query. It is a refactor, not a new rule. `NetSyncAte.HoldsFollow` (`NetSyncAte.cs:670-745`) splits into two parts:
-- a private `HoldVerdict(...)`, which is the exit-hold term (:674) followed by `FollowHoldRule`;
+There is also a side-effect-free ATE query. It is a refactor, not a new rule. `NetSyncAte.HoldsFollow` (`NetSyncAte.cs:670-745`) splits into three parts (I9):
+- `internal static HoldVerdict(...)`, pure: the exit-hold term (:674) followed by `FollowHoldRule`, with every clock delta (`_preArmed`/`_preSince`, `_tailArmed`/`_tailSince`/`_tailProgress`, `_openTick`, `_pickTick`, read at :670-700), the phase, pending, the exit-hold field and the lever passed as arguments;
+- `internal static HoldInputsNow(dest, myCtl, myField, pressQueued, choiceQueued)`, which gathers those live inputs once; both `HoldsFollow` and the new quiet query call it;
 - the existing arming, logging and counters, kept byte-identical.
 
-A new `HoldsFollowQuiet(...)` returns -1 on a fault, 0 for no hold and 1 for held. It arms nothing and logs nothing. **Its equivalence is proven, not assumed (F7):** the SelfTest row `quiet_equals_loud` sweeps the full input grid (exit-hold field set or unset and equal or not to `dest`, the lever, `myCtl`, `myField` against the press field, `pressQueued`, `choiceQueued`, each clock armed and unarmed, past and short of its bound) through `HoldVerdict` and `HoldsFollowQuiet` and requires equal answers at every point. The mutant `quiet_no_exit_hold` (`HoldsFollowQuiet` without the :674 term) must fail it. s161's unchanged proof counts (165 rows / 65 mutants) still test the loud path.
+A new `HoldsFollowQuiet(...)` (`HoldVerdict(HoldInputsNow(...))`) returns -1 on a fault, 0 for no hold and 1 for held. It arms nothing and logs nothing. **Its equivalence is proven, not assumed (F7):** the SelfTest row `quiet_equals_loud` has two halves. (1) It drives `HoldVerdict` over the full input grid (exit-hold field set or unset and equal or not to `dest`, the lever, `myCtl`, `myField` against the press field, `pressQueued`, `choiceQueued`, each clock armed and unarmed, past and short of its bound) against the s161 rule twins. (2) For each grid point it writes NetSyncAte's statics, compares `HoldsFollowQuiet` with `HoldsFollow`, and restores every static in a try/finally, so no stale exit-hold field or tail clock survives the proof. The mutant `quiet_no_exit_hold` (`HoldsFollowQuiet` without the :674 term) must fail it. s161's unchanged proof counts (165 rows / 65 mutants) still test the loud path.
 
 ### Call sites and state
 
@@ -459,7 +506,7 @@ A new `HoldsFollowQuiet(...)` returns -1 on a fault, 0 for no hold and 1 for hel
   - on Write it sets field, nonce, `src = myField`, `host_from` (`LastHostField` when it is a real field other than `secField`, else -1) and the tick;
   - on Skip it clears a standing cache as "superseded";
   - on the world map, or when not following, it clears ("the world map" / "not following").
-- **`NetSyncSwap.GuestTick(myField, LastHostField)`** runs after :2168 on a client, and after :2039 on the selftest role. It runs `IntentCacheVerdict` and clears the cache with the reason when the cache no longer stands. A Left clear whose new `myField` equals the cached field appends " (the cached field)" (T7): fldMapNo flips inside the MAPJUMP tick (R1), so this Update-rate clear always runs before the new field's landing hook.
+- **`NetSyncSwap.GuestTick(myField, hostLane)`** runs on every Update of both roles, on a field or not: on a client right after :2168 as `GuestTick(fld, LastHostField)`, which no `onField` return precedes; on the selftest role right after `ServiceSpeed` (`NetSyncClient.cs:1784`) as `GuestTick(fld, -1)`, beside the other every-tick selftest calls and before the branch's `if (!inScope) return` and player-spawn return (:1785-1794). The lane is passed as -1 there explicitly: the selftest branch writes `LastHostField = -1` only at :2039, later in the same tick (V3, P5). `GuestTick` runs `IntentCacheVerdict` and clears the cache with the reason when the cache no longer stands. It reads only `fldMapNo` and the cache, so it needs neither the old map nor the new player. A Left clear whose new `myField` equals the cached field appends " (the cached field)" (T7). `fldMapNo` flips inside the MAPJUMP tick (R1), and the old scene goes at `ChangeScene` while the new field's landing hook waits for the first `HonoUpdate` after `IsReady` (`SceneDirector.cs:276-284`; `HonoluluFieldMain.cs:203-210, 150`), so this every-Update clear runs before the landing hook on both roles, in either Unity order and at any frame rate. A kit source test pins the selftest placement.
 - **Clears that also forget the nonce:**
   - `ResetIntentAndL1State` ("the session reset");
   - `ResetGuestDedupForEpoch` ("the host epoch changed");
@@ -477,8 +524,8 @@ A new `HoldsFollowQuiet(...)` returns -1 on a fault, 0 for no hold and 1 for hel
     - `usable = eventIDToFBGID.ContainsKey(dest)`;
     - `worldHeld = HoldHoldsFor(dest)` (:5353);
     - `ateHeld = NetSyncAteArmed.On && AteHoldsNow(dest)`. `AteHoldsNow` is new: the inputs of `AteHoldsFollow` (:5376-5381) passed to `HoldsFollowQuiet`. A result of -1 counts as a fault, and the old rule decides.
-  - **On a refusal (below 0):** count it, and print C's refusal line with the old rule's outcome appended (one line per jump).
-  - **On a pass (above 0):** `OwnPassBook` runs in its own try. On Pending it sets `_followWarpPending = -1`, `_followCommittedTo = dest`, calls `NoteMoveCommitted()` and `NetSyncFollowFade.Clear("own")`, and increments `converted`. Then `KeepOwnEntranceFor(dest)` runs if `OwnPassKeepsOwn`. Then the counters, the pass line, and `return true`.
+  - **On a refusal (below 0):** count it, write `_ownLastTerm` (-1 RefusedWorld, -2 RefusedAte) and return false. It prints nothing: the old rule below decides the outcome, and `NoteOwnJump` prints C's refusal line with that outcome after the core returns (I2).
+  - **On a pass (above 0):** `OwnPassBook` runs in its own try. On Pending it sets `_followWarpPending = -1`, `_followCommittedTo = dest`, calls `NoteMoveCommitted()` and `NetSyncFollowFade.Clear("own")`, and increments `converted`. Then `KeepOwnEntranceFor(dest)` runs if `OwnPassKeepsOwn`. Then the counters and `OwnPassBook`'s state, `_ownLastTerm = term`, and `return true`; `NoteOwnJump` prints the pass line.
   - There is no `SeedHostEntrance`, because dest is unchanged.
 - **Not changed by C:**
   - **s154:** C never starts a follow. After a pass `fldMapNo` already equals dest (R1), so `ServiceIntentFollow` marks the nonce seen (:7145-7148). A converted record lands with committed equal to the landed field, which reads `LandNone`. A half-booked pass is still caught by `LandArrived`.
@@ -542,25 +589,22 @@ A later C2 would need two things, each with its own review: a lockstep guard, an
 
 ```
 const PinMaxAgeMs = 2500, PinBlindCapMs = 10000          // PinBlindCapMs = LIFE's IntentLoadCapMs
-// codes: Keep -1 (no change), Here -2 (not stored; counted; the nonce marked spent), None 0, Watched 1, OffField 2, Late 3
+const IntentFlagLanded = 0x01                             // section 4's fourth byte, bit 0
+// codes: Keep -1 (no change), Here -2 (not stored; counted; the nonce marked spent), None 0, Pre 1, Late 2
 
-Int32 PinCaptureRule(Boolean spent, Boolean here, Int32 heldQuality, Boolean landSeen, Int32 frameNonce, Boolean frameOffField,
-                     Int64 seqGap)
-  // heldQuality / landSeen: the held entry for frameNonce, if any; seqGap: this frame's receive seq minus the last observed
-  // frame's (1 = no unseen frame between them; -1 = no prior observation or the observed frame is not the latest received)
-  frameNonce < 0                                -> Keep        (no section 4)
-  spent                                         -> Keep        (T1: consumed, dropped, aged or refused here; until another nonce)
-  heldQuality == None && here                   -> Here        (R4: I already stand on the announced field)
-  frameOffField: heldQuality == OffField        -> Keep
-                 heldQuality != None && landSeen -> Keep        (a battle's off-field frame after the host's landing never upgrades)
-                 else                           -> OffField    (store; a same-nonce Watched/Late is upgraded)
-  heldQuality != None                           -> Keep        (same nonce on a field: a later frame may be post-Main_Init)
-  seqGap == 1                                   -> Watched     (T6: the first frame of the nonce that reached me)
-  else                                          -> Late
+Byte[] IntentSectionBody(Int32 field, Byte nonce, Boolean landed)
+  { field & 0xFF, (field >> 8) & 0xFF, nonce, landed ? IntentFlagLanded : 0 }    // s163's three bytes, then the flags byte
+Boolean IntentLandedOf(Byte[] body)
+  body.Length < 4 || (body[3] & IntentFlagLanded) != 0     // no flags byte (an s163 host) reads as landed: fail safe
 
-Boolean PinOffFieldRule(Boolean haveSection7, Int32 hr)
-  haveSection7 && (hr & HrOnField) == 0 && (hr & HrBattle) == 0
-  // a battle frame is never off-field: R6 keeps section 4 through a battle on the intent field, and those frames are post-Main_Init
+Int32 PinCaptureRule(Boolean spent, Boolean here, Int32 heldQuality, Int32 frameNonce, Boolean frameLanded)
+  // heldQuality: the held entry for frameNonce, if any
+  frameNonce < 0                      -> Keep    (no section 4)
+  spent                               -> Keep    (T1: consumed, dropped, aged or refused here; until another nonce)
+  heldQuality == None && here         -> Here    (R4: I already stand on the announced field)
+  heldQuality != None                 -> Keep    (one entry per nonce: a later pre-landing frame is only compared)
+  frameLanded                         -> Late    (the first frame of the nonce I saw was built after the host's landing hook)
+  else                                -> Pre     (built between the host's MAPJUMP and its landing hook: its Main_Init input)
 
 Boolean PinTargeted(Int32 pinField, Int32 pending, Int32 committed, Int32 warpedTo)
   pinField > 0 && (pinField == pending || pinField == committed || pinField == warpedTo)
@@ -570,7 +614,7 @@ Boolean PinDropOnNew(Int32 heldField, Boolean targeted, Int32 newField)
   // a held pin for the same field is superseded by the newer nonce
 
 Int32 PinAgeRule(Boolean landSeen, Int32 sinceLandSeenMs, Int32 sinceCaptureMs)
-  landSeen -> sinceLandSeenMs                                  (T6: the age counts from the host's landing as I saw it)
+  landSeen -> sinceLandSeenMs                                  (the age counts from the host's landing as I first saw it)
   sinceCaptureMs >= PinBlindCapMs -> sinceCaptureMs            (the backstop: a landing never seen in 10 s)
   else -> 0                                                    (a pin captured before the host's landing is not aged yet)
 
@@ -583,26 +627,32 @@ void LandingFrames(Int32 verdict, Byte[] pin, Byte[] latest, out Byte[] story, o
   story = verdict == Pin ? pin : latest;  party = latest;  dress = latest          (R1)
 ```
 
+**The host's half (S3).** The host knows exactly when its own `Main_Init` can have run, so it says so in the frame instead of letting the guest infer it from arrival.
+- `BuildStateFrame`'s section-4 append writes `IntentSectionBody(_intentField, _intentNonce, landed)` with `landed = _intentLanding != Pending || _intentFaulted` (A's call-site row).
+- `_intentLanding` leaves Pending in LIFE's L2, the first statement of `ApplyStoryBeforeEvents` on the host, which runs before `StartEvents` runs `Main_Init` (`HonoluluFieldMain.cs:150-151`). The out-of-band frame (:6746) is built after L1 sets Pending (L1 runs after :6745), so it carries the bit clear.
+- A frame built after the hook but before `Main_Init` has finished is marked landed. That is conservative: the guest then stages the latest frame, which is s163's behaviour. A faulted life marks every frame landed, for the same reason.
+- **Wire compatibility.** Section 4 grows from 3 to 4 bytes inside wire v14. Every s163 reader treats `body.Length < 3` as the short case and reads only bytes 0-2 (`NetSyncClient.cs:7065, 7139, 7259`; `SectionFieldIs(state, SectionIntent, 3, myField)` at :7753), so an s163 guest ignores the flags byte. The engine's codec proof checks a 3-byte probe frame it builds itself (`NetSyncState.cs:276-283`) and is unaffected. The kit's tape readers list section 4 by id only (`coop_peer.py:2268, 2571`). An s164 guest reading an s163 host's 3-byte section gets `IntentLandedOf` true and stages the latest frame. The cost is one byte per host frame while section 4 rides.
+
 **The inputs, defined.**
-- `frameOffField` = `PinOffFieldRule(section 7 present, HostFlagReads(flags))`: b3 (`HfOnField`) clear and b5 (`HfBattle`, the host's `gMode == 2`, `NetSyncClient.cs:6820-6821`) clear in this frame (`NetSyncDialog.cs:95`; `HostFlagReads`, `NetSyncClient.cs:6155-6165`). A frame with no section 7 reads false. The b5 term closes a hole found while applying R6: a `Main_Init` that starts a battle at once, with no load-window frame observed and the host's lane never naming the field, would otherwise let a battle frame upgrade the pin before `landSeen` is set.
-- INFER: the out-of-band frame is built inside the MAPJUMP tick, where `_hostOnField` still holds the source field's value from the last `ScanHostOpenSet` (`NetSyncClient.cs:6878-6882`), so it carries b3 **set**. Only frames built between the old map's teardown and the new map's first live Update read b3 clear. Both kinds are pre-`Main_Init`. DP-UP and its reach clause measure how often an off-field frame is seen at all.
-- `seqGap` uses the probe's `InSeq` (§ transport): when `ReferenceEquals(probe.InState, state)`, the observed frame's receive seq is `InSeq`; otherwise a newer payload landed between the read and the probe, and `seqGap` is -1. A guest main-thread stall (its own blocking `LoadLevel`, `SceneDirector.cs:394-402`) leaves frames received but unseen, so the first observed frame of the nonce reads Late unless it was built off-field (T6).
-- `landSeen` (per held entry) is set at the first observation after capture of either a b3 rising edge (a b3-clear frame observed, then a b3-set frame), or the host's position lane naming the pin's field (`LastHostField == pinField`, set at `:2166` before `NoteHostFrame`). The lane term is needed because the out-of-band frame already reads b3 set and a fast load may show no b3-clear frame at all (INFER; `pin.land_seen_by` counts each term).
+- `frameLanded` = `IntentLandedOf(section 4's body)`.
+- **Why a bit in the frame, not arrival.** Every frame the host builds between its MAPJUMP and its landing hook is pre-`Main_Init`: MAPJUMP halts the VM for the rest of that frame, and no field script runs until the new field's `StartEvents` (Why pin). The bit labels a frame by what the host had done when it built it. So the guest's own stalls, the writer's re-sends (`NetSyncSocket.cs:386`), receive bunching, the relay, an in-transport reconnect (the first frame after it is post-landing and reads Late) and a bridge's upstream cut all leave the label true. The one case it cannot rescue is a guest that observes no pre-landing frame of the nonce at all: its own stall spans the host's whole load, or the link was down then. That guest captures Late and stages the latest frame, as s163 does.
+- `landSeen` (per held entry) is set at the first observation, after capture, of a frame with that entry's nonce and the bit set; for a Late capture it is set at the capture itself. It is the host's own landing, as the guest first learns of it.
 - `here` = `myField > 0 && secField == myField`.
 - `fromWorld` = the landing comes from the world map, read as `ee.gMode == 3` at the landing hook, the same read `LandingFollowCandidate` takes (`NetSyncClient.cs:5757`). World rejoins commit at once and land 1-3 s later (`:5599-5615, 5638-5640`), straddling `PinMaxAgeMs`, so round 1 stages the latest frame there (R3).
+- **The halted-VM premise, measured.** For a held Pre entry, each later frame of the same nonce with the bit clear is compared with the pin (`StoryDiff`, below): `pin.pre_frames` counts them and `pin.max_pre_diff` keeps the largest difference. DP-HALT judges that difference is 0.
 
 ### Call sites
 
 - **Capture.** In `NoteHostFrame`, on a client, for each new frame:
-  - read the probe's `InSeq` and compute `seqGap` against `_pinLastRecvSeq` (armed only after a first observation), then store this frame's seq;
-  - update every held entry's `landSeen` (b3 rising edge or the lane);
+  - read section 4's field, nonce and `IntentLandedOf`;
+  - for each held entry with this nonce: with the bit set and `landSeen` false, set `landSeen` and its tick; with the bit clear and quality Pre, count `pre_frames` and update `max_pre_diff`;
   - if the frame carries a nonce different from `_pinSpentNonce`, clear `_pinSpentNonce` (T1: "until a different nonce arrives");
-  - run `PinCaptureRule` with the held entry for the frame's nonce. On `Here`, count `pin.here` and mark the nonce spent. On a store of a NEW nonce, first run `PinDropOnNew` over the held entries (a dropped pin logs "dropped unused" and its nonce is spent), then store in the free slot: frame reference, nonce, field, quality, capture tick, `landSeen = false`. An upgrade keeps the entry's capture tick and records `last_upgrade_diff = StoryDiff(held, frame)`;
+  - run `PinCaptureRule` with the held entry for the frame's nonce. On `Here`, count `pin.here` and mark the nonce spent. On a store of a NEW nonce, first run `PinDropOnNew` over the held entries (a dropped pin logs "dropped unused" and its nonce is spent), then store in the free slot: frame reference, nonce, field, quality, capture tick, and `landSeen = (quality == Late)`;
   - received frames are fresh arrays that nothing mutates (`NetSyncSocket.cs:436-439`), so keeping the reference is safe.
-- **The map.** At most two entries `{field -> frame, nonce, quality, captureTick, landSeen, landSeenTick, sawOffField}`. One follow runs at a time, so at most one entry is targeted; after `PinDropOnNew` a new nonce always finds a slot.
+- **The map.** At most two entries `{field -> frame, nonce, quality, captureTick, landSeen, landSeenTick}`. One follow runs at a time, so at most one entry is targeted; after `PinDropOnNew` a new nonce always finds a slot.
 - **`ApplyStoryImpl` (:896-947).** After the `host == null` return (:928), `Byte[] latest = host`:
   - `entry = the held entry for fldMapNo, or any held entry if none` (so `other` is counted);
-  - `verdict = PinUseRule(PinLeverOld || _pinFaulted, fromWorld, entry.quality, entry.field, PinAgeRule(...), fld, out why)`, then `LandingFrames(verdict, entry.frame, latest, out story, out party, out dress)`;
+  - `verdict = PinUseRule(PinLeverOld || _pinFaulted, fromWorld, entry.quality, entry.field, PinAgeRule(...), fld, out why)`, then `LandingFrames(verdict, entry.frame, latest, out story, out party, out dress)`; record `pin.last_use_quality` = the entry's quality (`none` when no entry), whatever the verdict, so a bench can read the capture's quality under the lever too (P3);
   - when a pin was held for this field, compute `StoryDiff(pin, latest)` (the section-0 bytes that differ outside the 2032-2041 mask) and log the verdict;
   - **:929** `if (NetSyncState.ApplyStory(host))` becomes:
     ```
@@ -611,29 +661,35 @@ void LandingFrames(Int32 verdict, Byte[] pin, Byte[] latest, out Byte[] story, o
     if (!ok && !ReferenceEquals(story, latest)) { <log "did not apply">; ok = NetSyncState.ApplyStory(latest); }
     if (ok) { ...the s163 body, unchanged... }
     ```
-  - **`NetSyncState.ApplyStorySplit(Byte[] storyFrame, Byte[] partyFrame)`** is new, beside `ApplyStory` (`NetSyncState.cs:98-111`), which stays untouched: `applied = ApplyStoryTo(storyFrame, g)`; the same story-trace epoch; `if (applied) NetSyncParty.ParseSections(partyFrame)`. With both arguments equal it is `ApplyStory`.
+    A kit source test pins this expression, `ApplyStorySplit(story, party)` (V1).
+  - **`NetSyncState.ApplyStorySplitTo(Byte[] storyFrame, Byte[] partyFrame, Byte[] target)`** is new, beside `ApplyStory` (`NetSyncState.cs:98-111`), which stays untouched: `applied = ApplyStoryTo(storyFrame, target)`, then `if (applied) NetSyncParty.ParseSections(partyFrame)`. **`ApplyStorySplit(storyFrame, partyFrame)`** is its live-array wrapper, the way `ApplyStory` wraps `ApplyStoryTo`: it targets `gEventGlobal` and adds the same story-trace epoch. With both frames equal the split applies exactly what `ApplyStory` applies (V1).
   - **:938** `NetSyncSelfDress.ArmFromState(host)` is left as it is: the dress is always the latest frame, which is `host`.
   - With the lever at `old`, story == party == dress == latest, which is byte-for-byte s163.
   - `RestorePassEntrance` (:939) and `NoteLandingEntrance` (:879) are unchanged.
 - **Consumption.** In `ApplyStoryBeforeEvents`, right after :877: `ConsumePinAt(fldMapNo)`. It runs on every load, whether or not the apply ran: each entry with `PinConsumed` true is removed and its nonce marked spent.
 - **Clears:** `ResetIntentAndL1State` ("the co-op session reset"); `ResetGuestDedupForEpoch` ("the host epoch changed"): both drop every entry and mark spent the nonce on the latest received frame, so a section 4 still live across the reset is not re-captured (row c15); the exit ramp, before :1661, silently.
-- **The selftest bench.** At the top of `ApplyStoryImpl`, `if (IsSelfTestRole) BenchPinLanding();`. It does nothing unless `swap pinbench` armed it. It runs the same `PinUseRule` and `LandingFrames` into a scratch buffer and copies only the marker flag's byte into the live array, then parses the bench's party frame through the real `ParseSections` (P-PARTY).
+- **The selftest bench (V1, G2).** At the top of `ApplyStoryImpl`, `if (IsSelfTestRole) BenchPinLanding();`. It does nothing unless `swap pinbench` armed it.
+  - It runs the same `PinUseRule` and `LandingFrames`.
+  - It sets `_pinBenchMirror = true`, then calls `NetSyncState.ApplyStorySplitTo(story, party, scratch)`: the shipped split with a scratch target, so the party half goes through the real `ParseSections` exactly as the live hunk's does. The flag is set before the call because the parse can arm the mirror and then fail (the DIO-6 placement, `NetSyncParty.cs:500`).
+  - It copies only the marker flag's byte from the scratch array into the live array.
+  - The parse leaves `NetSyncParty.MirrorActive` set (`NetSyncParty.cs:248-249`), and the read wraps answer from it on any role. So the release and `swap clear` call `NetSyncParty.Clear()` whenever `_pinBenchMirror` is set (§ The lever scheme), restoring the law that a selftest machine never stays MirrorActive (`NetSyncClient.cs:10726`). The flag is the pin bench's own: `NetSyncParty.BenchMirrorArmed` is not reused, because with the mirror active it turns a later diorama's seat into SeatBench (`NetSyncDiorama.cs:2918-2921`).
 - **New fields:**
-  - the two-entry map, `_pinSpentNonce`, `_pinLastRecvSeq`, `_pinObsArmed`;
+  - the two-entry map, `_pinSpentNonce`;
   - counters and last-use fields;
-  - `_pinFaulted`, sticky, which reads as `old`.
+  - `_pinFaulted`, sticky, which reads as `old`;
+  - `_pinBenchMirror`.
 
 ### Log lines (behaviour)
 
-- `[NetSync] story pin: intent N's frame kept for field D (watched|built off-field) (t T ms)`
-- `[NetSync] story pin: intent N's frame for field D upgraded to one built off-field (the story differs at B bytes) (t T ms)`
-- `[NetSync] story pin: intent N's first frame came after K unseen frames -- not kept (a landing on field D stages the latest frame) (t T ms)`
+- `[NetSync] story pin: intent N's frame kept for field D (built before the host's landing) (t T ms)`
+- `[NetSync] story pin: intent N's first frame I saw was built after the host's landing -- kept as late (a landing on field D stages the latest frame) (t T ms)`
+- `[NetSync] story pin: intent N's later frame from before the host's landing differs from the pin at B story bytes (the halted-VM premise) (t T ms)`, printed only when B > 0
 - `[NetSync] story pin: intent N names field D, where I already stand -- not kept (t T ms)`
 - `[NetSync] story pin: intent N0's frame for field D0 dropped unused (intent N arrived) (t T ms)`
 - `[NetSync] story pin: field D stages intent N's frame for its story, the latest frame for its party and dress (age A ms; the latest differs at B story bytes) (t T ms)`
 - `[NetSync] story pin: field D stages the latest frame -- <why> (t T ms)`, where why is one of:
   - `the pin is A ms old (over 2500)`
-  - `intent N's first frame came late`
+  - `intent N's first frame came after the host's landing`
   - `a world-map landing (round 1 stages the latest there)`
   - `the lever (s163's rule)`
 
@@ -663,46 +719,45 @@ Int32 IntentLandingStep(Int32 landing, Boolean active, Int32 intentField, Int32 
   !active || landing != Pending -> landing (it never flips back)
   loadedField == intentField -> OnIntent;  else -> Elsewhere   (the disc-change rewrite, HonoluluFieldMain.cs:306-310)
 Int32 IntentLifeRule(Boolean oldRule, Int32 sinceEmitMs, Int32 sinceLandMs, Int32 landing, Boolean onIntentField,
-                     Boolean battleOnIntent, Boolean bodyThere)
+                     Boolean bodyThere)
   oldRule -> onIntentField ? EndOld : Keep                    (s163's :2095, verbatim)
   landing == Elsewhere -> EndElsewhere
   landing == Pending -> sinceEmitMs >= IntentLoadCapMs ? EndCap : Keep     (onIntentField ignored here: the R1 fix)
-  battleOnIntent -> sinceEmitMs >= IntentLoadCapMs ? EndCap : Keep         (R6: a battle that started on the intent field)
-  !onIntentField -> EndLeft                                   (the world map, the title, a battle elsewhere)
+  !onIntentField -> EndLeft                                   (the world map, the title, any battle: its swirl reads off the field)
   bodyThere && sinceEmitMs >= IntentMinLifeMs && sinceLandMs >= LandTailMs -> EndStands      (T13)
   else -> Keep
 Boolean BodyThereRule(Boolean inScope, Boolean haveActor, Boolean haveMapActor)   inScope && haveActor && haveMapActor   (F14)
 ```
 
-In one line: section 4 lives from the emit until the host has loaded the announced field, its body stands there, 2 s have passed since the emit and 1 s since the landing. It ends early when the host lands elsewhere, leaves after landing (a battle on the intent field does not count as leaving, up to the cap), or never lands within 10 s.
+In one line: section 4 lives from the emit until the host has loaded the announced field, its body stands there, 2 s have passed since the emit and 1 s since the landing. It ends early when the host lands elsewhere, leaves after landing (a battle counts as leaving), or never lands within 10 s.
 
 **The inputs, defined.**
 - `onIntentField = onField && fld == _intentField` (`onField` as computed at :1684).
 - `sinceLandMs = sinceEmitMs - _intentLandedMs` once landed.
-- `battleOnIntent = ee != null && ee.gMode == 2 && fld == _intentField`: the host's own battle read, the one section 7's b5 uses (`NetSyncClient.cs:6820-6821`). `fldMapNo` keeps the field through a battle (`HonoluluFieldMain.cs:448-450` writes `btlMapNo`). R6 is a SelfTest-only claim in round 1 (rows `r-battle`, `r-battle-cap`, `r-battle-old`): no field whose `Main_Init` starts a battle at once is pinned, so there is no DL-BATTLE duo leg.
+- **A battle ends section 4 (S1; rev 2's R6 term is removed).** The field-to-battle change always goes through the swirl: the field's shutdown sets `FF9Sys.mode = 2` (`HonoluluFieldMain.cs:448-452`) and calls `SceneDirector.Replace("BattleMap", SwirlInBlack, true)` (:337). `_Swirl` waits at least 2 frames on the live field, then loads `SwirlScene` (`SceneDirector.cs:547-560`); `BattleMap`, and the battle's `StartEvents` that writes `gMode = 2`, come only after it. So in the first `SwirlScene` Update `gMode` still reads 1 and the FieldMap is gone (INFER: Unity's null overload), `onIntentField` is false, and the rule ends the intent as Left before the publish. Rev 2's `battleOnIntent = gMode == 2` could never be true while the intent was live. Nor is a battle a regression against s163: those 2+ pre-swirl frames on the live field are where s163's :2095 clear runs, and where LIFE keeps the intent (row `r-swirl` pins the swirl frame). A guest that deferred on the source field and is still deferred when the host's battle starts falls back to the serial follow, exactly as on s163 (risk 25).
 - `bodyThere = BodyThereRule(inScope, actor != null, actor.fieldMapActor != null)` with `actor = ee.GetControlChar() as Actor`, read the way the host path reads `local` (:2073-2085). On the host it is `local != null` after :2085. On the selftest role the same rule runs inside the selftest branch, which never reaches :2073 (it returns at :2041) (F14).
 
 **Order independence, proven without a lever (T2).** Two pure rows carry it: `r-order` (act, the emit frame itself, landing Pending, the host already reading the intent field with its body there: Keep) and `r-order-old` (the same input under s163's rule: EndOld, the R1 hole). The act rule never reads "is the old map alive", so it gives the same answer under either Unity order and at any frame rate. The in-game measurement is DA-PROBE on the DESK and REST MAPJUMP legs under `swap life old`, which records `last_life_ms`, `intent.host_fps` and `intent.emit_dt_us` for every scripted exit.
 
 **Chosen over "about 2 s, or until the new field reports, whichever comes first"** (that rule is the mutant `life_body_or_min`):
 - The guest's deferrals (a menu, the s144 hold, the s161 holds, `FieldTransitionNow`; :7162-7187) must outlive the host's landing to fire by intent, which is what the comment at :7124 already promises. `LandTailMs` guarantees that even when the host's load takes 2 s or more (T13).
-- The cost is 6 bytes per frame.
+- The cost is 7 bytes per frame while section 4 rides: the 3-byte section header, s163's 3-byte body and PIN's flags byte (`NetSyncState.cs:145-157`).
 
 ### Call sites
 
 - **L1, `EmitFieldIntentIfHost`:**
-  - before :6743, an intent still active ends as `next` and logs "replaced";
+  - before :6743, an intent still active ends as `next` and logs "replaced". This is the one `NoteIntentEnd(IntentEndNext, ...)` call of A's call-site row, not a second hunk (I8);
   - after :6745, set `_intentEmitTick`, `_intentLanding = Pending`, `_intentSite = site`, and `_intentLandedMs` and `_intentBodyMs` to -1;
   - after :6748, `if (!LifeOld) _storyTick = Environment.TickCount;` (consistency with :7057).
 - **L2, `ApplyStoryBeforeEvents`:** the first statement inside `if (_instance != null)` (:872), before :873, is `NoteIntentLanding(fldMapNo)`.
   - It runs on the host, or on the selftest role while `swap lifebench` is armed.
   - It runs before `StartEvents`, so before the host's `Main_Init`.
   - World emits already name `ForkSiblingField(dest)` (`DoEventCode.cs:1040`).
-- **L3, `Update`:** :2095-2096 becomes `if (_intentActive) HostIntentLifeStep(fld, onField, ee, local != null);`, at the same position, before `HostTick`, `UpdateHostScene` and the publish (:2097-2111). So no frame built after an end carries section 4.
+- **L3, `Update`:** :2095-2096 becomes `if (_intentActive) HostIntentLifeStep(fld, onField, local != null);`, at the same position, before `HostTick`, `UpdateHostScene` and the publish (:2097-2111). So no frame built after an end carries section 4.
   - It records `_intentBodyMs` at the first Update with the body on the field after landing.
   - A fault logs once and falls back to the s163 clause for this intent.
 - **L4, the selftest branch:** while `swap lifebench` is armed, the same step runs before :2039 with the branch's own `onField` and `BodyThereRule(...)`.
-- **L5:** `ResetIntentAndL1State` resets the life fields and ends an active intent as `reset`.
+- **L5:** `ResetIntentAndL1State` resets the life fields and ends an active intent as `reset`, through the one `NoteIntentEnd(IntentEndReset, ...)` call of A's call-site row (I8).
 - **New fields:** `_intentEmitTick`, `_intentLanding`, `_intentLandedMs`, `_intentBodyMs`, `_intentSite`, `_intentFaulted`, plus counters.
 
 **Other readers of section 4, checked against the longer life:**
@@ -711,8 +766,8 @@ In one line: section 4 lives from the emit until the host has loaded the announc
 - `HostElsewhere` (:7752-7753);
 - `HostIntentAndEntranceNow` and `DestJump` (:7075-7090; `NetSyncAte.cs:259-271`);
 - the s144 world branch (:7150-7161): a refused world arm defers with the nonce unmarked (:7158-7159) and can now fire up to 2-3 s after the host's body stands on D, where the serial floor took over after about 0.4 s before. `coop_world_wait`, `coop_world_battle` and `coop_world_party_duo` join the regression gates for this (R3);
-- the `coop_peer` decoders (`coop_peer.py:2539-2553`);
-- PIN's capture: frames during a battle on the intent field carry nonce n with b3 clear; `PinOffFieldRule` reads them as not off-field (b5 set, row o3), and the `landSeen` term also keeps them from upgrading a pin (row c18).
+- the `coop_peer` tape readers (`coop_peer.py:2268, 2571`), which list section 4 by id only;
+- PIN's capture: every frame after the host's landing hook carries the landed bit, so however long section 4 lives, a later frame is never pinned (PIN, "The host's half").
 
 No other side effect was found. The bounce's source reload now re-follows by intent instead of the serial 1.2 s debounce.
 
@@ -726,7 +781,6 @@ No other side effect was found. The bounce's source reload now re-follows by int
   - `I left it`
   - `I landed elsewhere`
   - `no landing in 10 s`
-  - `a battle on it outlasted 10 s`
   - `s163's rule (lever)`
   - `the session reset`
 
@@ -773,12 +827,16 @@ Int32 ActionRule(Int32 path, Int32 view, Int32 ticksLeft, Int32 lever, out Int32
 Int32 GraceRule(Int32 action)                      action == Join ? JoinGraceTicks : 0
 void  BlackTicksRule(Boolean black, ref Boolean armed, ref Int32 since, Int32 keyTick, out Int32 blackTicks)
   black && !armed -> armed = true, since = keyTick;  black -> blackTicks = keyTick - since;  !black -> armed = false, blackTicks = -1
-Int32 DueRule(Int32 path, Boolean timerOut, Int32 view, Int32 blackTicks, Int32 grace, Int32 backlogNow, Boolean ringAhead, Int32 lever)
+Int32 DueRule(Int32 path, Boolean timerOut, Int32 view, Int32 blackTicks, Int32 grace, Int32 backlogNow, Boolean primed, Int32 lever)
   path != Fast -> timerOut ? Timer : Wait
-  held = (backlogNow != None || ringAhead) && lever not in {NoGate, NoRecheck}     (BkUnknown and an unmerged ring hold: T9)
+  held = backlogNow != None && lever not in {NoGate, NoRecheck}     (BkUnknown holds)
   held -> timerOut ? Recheck : Wait
-  view == Black && blackTicks >= grace -> Black (also when timerOut);  else timerOut ? Fallback : Wait
-  invariant (the s42 never-abandon law): timerOut never yields Wait
+  ready = view == Black && blackTicks >= grace
+  ready && (primed || timerOut) -> Black
+  ready -> Prime                     (a Wait: the verdict must survive one dialogue pass before it commits, T9 / S2)
+  else timerOut ? Fallback : Wait
+  invariant (the s42 never-abandon law): timerOut never yields Wait or Prime
+  // primed = the previous Update's Due for this follow returned Prime; any other verdict clears it
 Boolean ReassertRule(Int32 path, Boolean reasserted, Boolean timerOut, Int32 view)
   path in {Fast, Backlog} && !reasserted && !timerOut && view == Visible
 ```
@@ -797,9 +855,9 @@ Boolean ReassertRule(Int32 path, Boolean reasserted, Boolean timerOut, Int32 vie
 - **Open** is a locked input-taking line with nothing queued.
 - Inh windows are excluded everywhere (:1335-1336).
 
-**Why `Due` also holds on an unmerged ring (T9).** `Due` runs at the top of `Update` (:1668), so `BacklogNow` reads the inbox merged by the PREVIOUS Update's dialogue pass (:2176). A host event that rode in with this Update's frame is not merged yet. `_dlg.RingAhead` (`NetSyncDialog.cs:2214-2216`) says exactly that, and s161 already defers the follow's START one Update on it (`NetSyncClient.cs:7172-7179`). Counting it as held costs at most one Update.
+**Why a Black verdict waits one dialogue pass (T9, rev 3's S2).** `Due` runs at the top of `Update` (`NetSyncClient.cs:1668`), before this Update observes the host's frame (:2168) and merges it (:2176). So when `Due` reads `BacklogNow`, it sees the inbox as of the PREVIOUS Update's merge, and a host event that reached the socket since then has not even been observed. Rev 2 read `_dlg.RingAhead` (`NetSyncDialog.cs:2216-2219`) for that, but `RingAhead` needs `_mergedStamp != _viewStamp`, and every Update that observes also merges before the next `Due` (`NetSyncDialog.cs:817, 891-893`; `NetSyncClient.cs:7716, 7720`), so at :1668 it is always false. s161's own use works only because `ServiceIntentFollow` (:2170) sits between the observe and the merge (:7172-7179). Rev 3 drops the input. Instead, the first Update that finds the commit ready (black, grace spent, no hold) returns `Prime`, which waits. That Update's :2168 observes the latest frame, and the section-7 ring is cumulative (`HeadSeq`), so its :2176 merges every host event that reached the socket before the black was first judged. The next Update's `Due` re-reads `BacklogNow` with those events in the inbox: a hold now reads Line, Ahead or Key and waits for the timer (Recheck), and a clear backlog commits (Black). The cost is one Update per follow on the Fast path. At the 0.9 s timer the prime is skipped, as the s42 law requires; today's timer commit has no backlog check at all. An event that reaches the socket after the black was first judged can still meet a commit, the same one-frame race any commit has.
 
-**Why the grace is 3 game ticks (T4).** Within one main-loop tick `ServiceEvents` runs before `ServiceFade` (`HonoluluFieldMain.cs:242, 298`). A stock exit runs `FadeFilter(6,24)` in tick t0's `ServiceEvents`; the slot first reads black after the 24th `ServiceFade`, at the end of tick t0+23 (`SceneDirector.cs:653-663`: `_curFrame` steps once per call and the target colour is exact at call 24). The script's `Wait(25)` then resumes it in tick t0+25 (INFER: the resume tick of `Wait(n)` relative to the issuing tick), whose `ServiceEvents` runs `Field(N)` and whose `changeScene` starts the load. `BlackTicksRule` arms in the first `Update` after t0+23 and counts `KeyTick`, which steps once per `ServiceEvents` (`EventEngine.cs:120`, `NetSyncField.cs:939`). So the copy's own `Field()` lands 2 ticks after the first black read. A grace of 3 lets a `Field()` up to one tick late still win; the commit-to-changeScene law (§C) covers a `Field()` in the tick after the commit. DF-FLASH's action and DC-WON's `follow_won` count on DESK (359's `Main_11`: `FadeFilter(6,24)`, `Wait(25)`, `Field(351)`, `test2_102.txt:290-301`) settle the INFER. The tick count scales with the booster and stops while paused. The grace is 0 when we ran the fade ourselves, because then the copy is not exiting.
+**Why the grace is 3 game ticks (T4).** Within one main-loop tick `ServiceEvents` runs before `ServiceFade` (`HonoluluFieldMain.cs:242, 298`). A stock exit runs `FadeFilter(6,24)` in tick t0's `ServiceEvents`; the slot first reads black after the 24th `ServiceFade`, at the end of tick t0+23 (`SceneDirector.cs:653-663`: `_curFrame` steps once per call and the target colour is exact at call 24). The script's `Wait(25)` then resumes it in tick t0+25 (INFER: the resume tick of `Wait(n)` relative to the issuing tick), whose `ServiceEvents` runs `Field(N)` and whose `changeScene` starts the load. `BlackTicksRule` arms in the first `Update` after t0+23 and counts `KeyTick`, which steps once per `ServiceEvents` (`EventEngine.cs:120`, `NetSyncField.cs:939`). So the copy's own `Field()` lands 2 ticks after the first black read. A grace of 3, plus the one-Update prime, lets a `Field()` up to one tick late still win; the commit-to-changeScene law (§C) covers a `Field()` in the tick after the commit. DF-GRACE (a Join start on DESK ends by `own`) settles the INFER, with DC-WON's `follow_won` count as the report (359's `Main_11`: `FadeFilter(6,24)`, `Wait(25)`, `Field(351)`, `test2_102.txt:290-301`). The tick count scales with the booster and stops while paused. The grace is 0 when we ran the fade ourselves, because then the copy is not exiting.
 
 ### Call sites
 
@@ -820,11 +878,11 @@ Boolean ReassertRule(Int32 path, Boolean reasserted, Boolean timerOut, Int32 vie
   if (due == NetSyncFollowFade.DueWait) return;
   if (!NetSyncSwap.CommitDelayAllows(ref _followDelayFrom)) return;                          // [ff9mapkit netsync s164] A's calibration
   ```
-  - `Due` reads `_dlg.RingAhead` with the backlog. It latches its first non-Wait verdict and its swap-clock time (`due_t`) for the follow, so A's delay can hold it without the verdict being re-judged. It logs the due line once.
+  - `Due` keeps `primed` for the follow (set when it returns `Prime`, cleared by any other verdict) and treats `Prime` as Wait. It latches its first commit verdict (Black, Timer, Fallback or Recheck) and its swap-clock time (`due_t`) for the follow, so A's delay can hold it without the verdict being re-judged. It logs the due line once.
   - `ServiceFollowWarp` runs *before* the enabled gate (:1664-1669). With `!_enabled`, a null `_dlg` or any fault, `Due` returns `timerOut ? Timer : Wait`, which is today's behaviour.
   - The s154 guard and the write are unchanged. `NetSyncFollowFade.Ended(mapNo, due)` records `last` right after the guard's step try (:6627).
 - **`NetSyncFollowFade.Clear(by)`** runs where a pending follow ends without a commit: `NoteFieldLanding` (:5810, "landing"), C's conversion ("own"), `NoteGuestWorldJump`'s world-exit cancel (:5854, "world": a following copy's own `WorldMap()` inside the fade, `NetSyncClient.cs:5849-5857`), and `TitleTick` (:5188, "title"). No session reset ends a follow: by the s42 rule a follow in flight always finishes (`NetSyncClient.cs:1664-1668`) (T14, R7).
-- **Per-follow statics** (read only while `_path >= 0`): `_path`, `_action`, `_frames`, `_viewStart`, `_leftStart`, `_backlogStart`, `_startKeyTick`, `_startMs`, `_blackArmed`, `_blackSince`, `_reasserted`, `_held`, `_dueLatched`, `_dueT`. There are also the last-follow fields and the counters.
+- **Per-follow statics** (read only while `_path >= 0`): `_path`, `_action`, `_frames`, `_viewStart`, `_leftStart`, `_backlogStart`, `_startKeyTick`, `_startMs`, `_blackArmed`, `_blackSince`, `_reasserted`, `_held`, `_primed`, `_dueLatched`, `_dueT`. There are also the last-follow fields and the counters.
 
 **Interactions.**
 - **s154:** the start gates are unchanged, and the commit guard runs on every non-Wait verdict.
@@ -834,7 +892,7 @@ Boolean ReassertRule(Int32 path, Boolean reasserted, Boolean timerOut, Int32 vie
 
 ### Log lines (behaviour)
 
-- **Fast start:** `[NetSync] follow fade: to field D -- fast: the screen reads <view>[ (L ticks left)]; <joining its own fade (no re-init) | hurrying it to black in n ticks from where it is (no flash) | fading to black in n ticks>; the commit waits for black (no later than 0.9 s) (t T ms)`
+- **Fast start:** `[NetSync] follow fade: to field D -- fast: the screen reads <view> (<sub|add>)[ (L ticks left)]; <joining its own fade (no re-init) | hurrying it to black in n ticks from where it is (no flash) | fading to black in n ticks>; the commit waits for black (no later than 0.9 s) (t T ms)`
 - **Backlog start:** `[NetSync] follow fade: to field D -- today's timing: field F has a backlog (<reason>); <action words, 24>; the commit waits 0.9 s (t T ms)`. The reason is one of:
   - `a host close queued for a line still open here`
   - `a host event for a line not open here yet`
@@ -846,11 +904,11 @@ Boolean ReassertRule(Int32 path, Boolean reasserted, Boolean timerOut, Int32 vie
   - `the fade slot was unreadable`
   - `the backlog was unreadable`
 - **Due:** `[NetSync] follow fade: field D due after M ms / t ticks -- <due words> (t T ms)`, where the due words are one of:
-  - `the screen reads black[ after the 3-tick grace]`
+  - `the screen reads black[ after the 3-tick grace][, one dialogue pass later]` (the tail prints when the verdict came through `Prime`)
   - `today's 0.9 s timer`
   - `the 0.9 s fallback: the fade never read black (<view>, darkest channel c)`
   - `today's 0.9 s timer: a backlog rose mid-fade (<reason>)`
-- **Backlog mid-fade:** `[NetSync] follow fade: a backlog rose mid-fade on field F (<reason>) -- the commit waits for today's 0.9 s timer (t T ms)`. The reasons gain `host events not merged here yet` for a held ring.
+- **Backlog mid-fade:** `[NetSync] follow fade: a backlog rose mid-fade on field F (<reason>) -- the commit waits for today's 0.9 s timer (t T ms)`.
 - **Reassert:** `[NetSync] follow fade: the fade slot turned away from black mid-follow (<view>, darkest channel c) -- fading to black again in n ticks from where it is (once per follow) (t T ms)`
 - **World cancel:** none of its own; s144's existing cancel line (`NetSyncClient.cs:5852-5853`) covers it, and `fade.last.by` reads `world`.
 
@@ -869,16 +927,16 @@ Dispatch: in `HarnessAgent.cs`, a new `case "swap"` after `case "speed"` (:2245-
 | `pin` | `act\|old` | client, selftest | PIN. `old` = every landing stages the latest frame (the capture still runs, so state shows what the pin would have done) |
 | `life` | `act\|old` | host, selftest | LIFE. `old` = s163's self-clear at :2095, and no publish-clock reset |
 | `fade` | `act\|old\|long\|nogate\|norecheck\|nohurry` | client, selftest | D+E. `old` = today's start and commit; `long` = D with a 24-tick fast fade (E off); `nogate` = no backlog gate (the refuted rule); `norecheck` = the gate checked at the start only; `nohurry` = a fade already heading to black is never re-paced |
-| `clear` | none | any | Every lever back to act, stamps on, delay 0, hostctl on, bench state forgotten |
+| `clear` | none | any | Every lever back to act, stamps on, delay 0, hostctl on, bench state forgotten; a party mirror the pin bench armed is cleared (`NetSyncParty.Clear()` when `_pinBenchMirror` is set) |
 | `hostctl` | `off\|on` | selftest | B's bench host: section 7 with b1 and b0 clear (it stands here with its control off and no scene) |
 | `intent` | `<field>` | selftest, needs `bench 1` | Section 4 through the real codec into the seen record and the bench cache, then `DebugInjectIntentImpl` (:7239-7289), which starts a real follow. It captures no pin |
 | `cache` | `<field>` | selftest | Section 4 through the real codec into C's cache only (src my field, `host_from` -1, `bench` true) |
-| `pinbench` | `<field> <flag> [age <ms>] [skip <n> [offfield]] [party <slot> <char>] [to <field>]` | selftest, needs `bench 1` | Frame A = `SnapshotAll()` plus section 4 through the real encoder and the real `PinCaptureRule`. `skip <n>` makes A's receive seq jump by n + 1 (n unseen frames: Late unless `offfield`); `age <ms>` marks the host's landing seen that long ago. Frame B = a copy of A with `<flag>` set, and with party slot `<slot>` set to CharacterId `<char>` when `party` is given, standing in as the latest frame. Then `StartFollowWarp` |
+| `pinbench` | `<field> <flag> [age <ms>] [landed] [party <slot> <char>] [to <field>]` | selftest, needs `bench 1` | Frame A = `SnapshotAll()` plus section 4 (`IntentSectionBody`, the bit clear) through the real `AppendSection` and the real `PinCaptureRule`. `landed` builds A with the landed bit set (the first frame the guest saw was built after the host's landing: Late); `age <ms>` marks the host's landing seen that long ago. Frame B, standing in as the latest frame, is `SnapshotAll()` taken through the real encoder with `<flag>` set in its section 0; with `party`, that `SnapshotAll()` runs with `NetSyncParty.SlotSource` pointing slot `<slot>` at `ff9.player[<char>]` (the SelfTestMirror idiom, `NetSyncParty.cs:497-499`), restored in a finally, so slot `<slot>` carries a self-consistent CharacterId, name and v9 block from the real codec (I4). Then `StartFollowWarp` |
 | `lifebench` | `<field>` | selftest | A bench emit (field, nonce, active, tick, Pending, site `bench`) with no socket, then a debug warp. The hook and the per-Update step run in the selftest branch, before :2039 |
 | `blackout` | `<1-255>\|off` | selftest | `InitFade(Sub, n, white)` stands in for the copy's own `FadeFilter`. `off` runs `InitFade(Sub, 1, black)` |
 
 **Refusal order.** For a known op the role comes first, as in s163's `speed host`:
-1. An unknown op gets the usage line: `netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, orphan act|old, own act|old|nocache, pin act|old or fade act|old|long|nogate|norecheck|nohurry (a client or the selftest role); life act|old (the host or the selftest role); hostctl off|on, intent <field>, cache <field>, pinbench <field> <flag> [age <ms>] [skip <n> [offfield]] [party <slot> <char>] [to <field>], lifebench <field> or blackout <1-255>|off (the selftest role)`
+1. An unknown op gets the usage line: `netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, orphan act|old, own act|old|nocache, pin act|old or fade act|old|long|nogate|norecheck|nohurry (a client or the selftest role); life act|old (the host or the selftest role); hostctl off|on, intent <field>, cache <field>, pinbench <field> <flag> [age <ms>] [landed] [party <slot> <char>] [to <field>], lifebench <field> or blackout <1-255>|off (the selftest role)`
 2. Co-op off, for every op except `clear`: `netsync swap: co-op is off -- no role to act on`
 3. A guest-side op on a host: `netsync swap <op>: a guest-side lever (a client or the selftest role) -- this game is the host`
 4. A host-side op on a client: `netsync swap <op>: a host-side lever (the host or the selftest role) -- this game is a client`
@@ -903,6 +961,7 @@ Every bench op acts only on `IsSelfTestRole`.
 
 **Release.** `NetSyncSwap.HarnessRelease()` runs from `NetSyncBattle.HarnessReleaseBench` right after s163's `NetSyncSpeed.HarnessRelease()` (`NetSyncBattle.cs:6840`), on every role. `HarnessReleaseBench` runs on every `HarnessSelfTest(false)` above its forced-role return (`NetSyncClient.cs:9403-9407`): disarm, fault, `reset`, and a release deferred to a harness diorama's teardown (`HarnessAgent.cs:2353-2361`).
 - It sets everything to act, forgets the bench cache, the pin bench and the life bench, and turns the bench host's control back on.
+- When `_pinBenchMirror` is set it calls `NetSyncParty.Clear()` and resets the flag (G2). It is gated on that flag, never on the role: `HarnessReleaseBench` runs on every role (`NetSyncBattle.cs:6758, 6840`), and an ungated clear would wipe a live guest's real party mirror on `reset`. `reset` itself never clears the party mirror (`ApplyConfigChange`, `NetSyncClient.cs:1392-1436`, calls no `NetSyncParty.Clear`), which is why the release must.
 - A blackout is undone with `InitFade(Sub, 1, black)`.
 - It logs one line, and only when something was set.
 - `reset` also tears down a forced selftest role (`NetSyncClient.cs:9415-9431`, `_enabled = false` at :9426), so a solo leg that follows again after a release re-arms first (K-RELEASE, F13).
@@ -925,14 +984,14 @@ Every bench op acts only on `IsSelfTestRole`.
   - `NORECHECK -- CALIBRATION: the backlog read at the start only (released with the harness)`
   - `NOHURRY -- CALIBRATION: a fade already heading to black is never re-paced (released with the harness)`
   - `ACT`
-- `[NetSync] harness: swap CLEAR -- every lever act, stamps on, delay 0, the bench host's control on, bench state forgotten`
+- `[NetSync] harness: swap CLEAR -- every lever act, stamps on, delay 0, the bench host's control on, bench state forgotten[; the pin bench's party mirror cleared]`
 - `[NetSync] harness: swap hostctl OFF -- the bench host stands on my field with its control off, no scene (section 7 b1 and b0 clear)` and `... ON`
 - `[NetSync] harness: swap intent -- a bench host's section 4 for field D (nonce N) through the real codec (the selftest role)`
 - `[NetSync] harness: swap cache -- section 4 = field D nonce N through the real codec, cached on field F`
-- `[NetSync] harness: swap pinbench -- intent N's frame for field D through the real codec (flag B: pin P, latest L[; party slot S: pin C0, latest C1][; K unseen frames][; landing seen A ms ago])`
+- `[NetSync] harness: swap pinbench -- intent N's frame for field D through the real codec (flag B: pin P, latest L[; party slot S: pin C0, latest C1][; built after the host's landing][; landing seen A ms ago])`
 - `[NetSync] harness: swap lifebench -- a bench emit for field D (nonce N), no socket`
 - `[NetSync] harness: swap blackout N -- the fade slot heads to black in N ticks (a copy's own FadeFilter stand-in)` and `... swap blackout OFF -- the fade slot back to visible`
-- Release: `[NetSync] harness: swap levers released (every lever act, stamps on, delay 0, the bench host's control on, bench state forgotten)`
+- Release: `[NetSync] harness: swap levers released (every lever act, stamps on, delay 0, the bench host's control on, bench state forgotten[; the pin bench's party mirror cleared])`
 
 ---
 
@@ -957,28 +1016,29 @@ Every bench op acts only on `IsSelfTestRole`.
              "due_t":-1, "commit_t":-1, "commit_field":-1, "commit_why":null, "delay_ms":0, "drop_t":-1, "drop_why":null,
              "reloads":0, "reload_t":-1, "land_t":-1, "land_field":-1, "land_via":null, "story":null,
              "fade_path":null, "fade_ticks":-1, "line_t":-1, "line_win":-1, "line_text":-1, "close_t":-1, "close_why":null},
-  "seen":   {"nonce":-1, "field":-1, "src":-1, "host_from":-1, "first_t":-1, "last_t":-1, "arrived_t":-1, "recv_seq":-1, "copies":0},
+  "seen":   {"nonce":-1, "field":-1, "src":-1, "host_from":-1, "first_t":-1, "last_t":-1, "arrived_t":-1, "copies":0},
   "intent": {"active":false, "field":-1, "nonce":-1, "site":null, "emit_t":-1, "age_ms":-1, "host_fps":-1, "emit_dt_us":-1,
              "landing":null, "landed_ms":-1, "body_ms":-1,
-             "wire":false, "frames":0, "updates":0, "sends":0, "first_sent_t":-1, "last_sent_t":-1, "oob":null,
+             "frames":0, "landed_frames":0, "updates":0, "sends":0, "first_sent_t":-1, "last_sent_t":-1, "oob":null,
              "end_t":-1, "last_end":null, "last_life_ms":-1, "last_site":null, "emits":0, "replaced":0, "oob_lost":0, "short":0,
              "ends":{"stands":0,"left":0,"elsewhere":0,"cap":0,"old":0,"next":0,"reset":0}, "faults":0},
-  "slot":   {"set_seq":-1, "sent_seq":-1, "sends":-1, "unsent":-1, "in_seq":-1},
+  "slot":   {"set_seq":-1, "sent_seq":-1, "sends":-1, "unsent":-1},
   "orphan": {"host_holds":false, "holding":0, "holds":0, "relocks":0, "last_hold_ms":-1, "last_end":null, "faults":0},
   "own":    {"passes":0, "by":{"pending":0,"committed":0,"intent":0,"cache":0}, "converted":0,
              "refused":{"world":0,"ate":0}, "host_lane":-1,
              "last":{"dest":-1, "from":-1, "lane":-1, "term":null, "keep_own":false},
              "cache":{"field":-1, "nonce":-1, "src":-1, "host_from":-1, "age_ms":-1, "stands":false, "bench":false,
                       "writes":0, "clears":0, "last_clear":null}, "faults":0},
-  "pin":    {"held":[], "spent":-1, "captures":0, "late":0, "upgrades":0, "last_upgrade_diff":-1, "dropped":0, "here":0,
-             "used":0, "aged":0, "other":0, "world":0, "lever_latest":0, "land_seen_by":{"edge":0,"lane":0},
-             "last_use":null, "last_use_field":-1, "last_use_age_ms":-1, "last_diff":-1, "last_diff_first":-1, "last_party":null,
-             "faults":0, "bench":{"armed":false, "flag":-1, "chosen":null, "party_slot":-1, "party_char":-1}},
-  "fade":   {"view_now":null, "mode_now":null, "cur_now":-1, "left_now":-1, "backlog_now":null, "ring_ahead":false,
+  "pin":    {"held":[], "spent":-1, "captures":0, "late":0, "pre_frames":0, "max_pre_diff":-1, "dropped":0, "here":0,
+             "used":0, "aged":0, "other":0, "world":0, "lever_latest":0,
+             "last_use":null, "last_use_quality":null, "last_use_field":-1, "last_use_age_ms":-1, "last_diff":-1, "last_diff_first":-1,
+             "last_party":null, "faults":0,
+             "bench":{"armed":false, "flag":-1, "chosen":null, "landed":false, "party_slot":-1, "party_char":-1, "mirror":false}},
+  "fade":   {"view_now":null, "mode_now":null, "cur_now":-1, "left_now":-1, "backlog_now":null, "primed":false,
              "path":null, "action":null, "frames":-1, "view_start":null, "left_start":-1, "backlog_start":null,
              "age_ms":-1, "age_ticks":-1, "black_ticks":-1, "reasserted":false, "held":false,
              "last":{"field":-1, "path":null, "action":null, "by":null, "due_t":-1, "ms":-1, "ticks":-1, "frames":-1,
-                     "view_start":null, "backlog_start":null},
+                     "view_start":null, "mode_start":null, "backlog_start":null, "primed":false},
              "starts":{"fast":0,"backlog":0,"old":0,"kick":0},
              "ends":{"black":0,"timer":0,"fallback":0,"recheck":0,"landing":0,"own":0,"world":0,"title":0},
              "reasserts":0, "faults":0},
@@ -988,7 +1048,7 @@ Every bench op acts only on `IsSelfTestRole`.
 }
 ```
 
-Each `pin.held` entry is `{"field", "nonce", "quality", "land_seen", "age_ms", "capture_ms"}` (`age_ms` = `PinAgeRule` now). `fade.last.ms` and `fade.last.ticks` measure the follow's start to its **due** verdict (`fade.last.due_t`); the commit is `last.commit_t`, and `last.commit_t - last.due_t` is A's delay (F6).
+Each `pin.held` entry is `{"field", "nonce", "quality", "land_seen", "age_ms", "capture_ms"}` (`age_ms` = `PinAgeRule` now). `pin.bench.mirror` reads `_pinBenchMirror`. `fade.last.primed` is true when the follow's Black verdict came through `Prime` (S2), and `intent.landed_frames` counts host frames that carried the landed bit (S3). `fade.last.ms` and `fade.last.ticks` measure the follow's start to its **due** verdict (`fade.last.due_t`); the commit is `last.commit_t`, and `last.commit_t - last.due_t` is A's delay (F6).
 
 **Value vocabularies:**
 
@@ -1000,8 +1060,9 @@ Each `pin.held` entry is `{"field", "nonce", "quality", "land_seen", "age_ms", "
 | `last.story` | `pin`, `latest` |
 | `intent.site`, `intent.last_site` | `mapjump`, `debugwarp`, `bench` |
 | `intent.landing` | `pending`, `on_intent`, `elsewhere` |
-| `pin.held[].quality` | `watched`, `offfield`, `late` |
+| `pin.held[].quality`, `pin.last_use_quality` | `pre`, `late` (`none` in `last_use_quality` when no entry was held) |
 | `pin.last_use` | `pin`, `none`, `other`, `late`, `aged`, `world`, `lever`, `skipped_stale` |
+| `fade.last.mode_start` | `sub`, `add` |
 | `pin.last_party` | `latest` (round 1 never stages the party from the pin) |
 | `fade.path` | `fast`, `backlog`, `old`, `kick` |
 | `fade.action` | `join`, `hurry`, `fade`, `wipe` |
@@ -1018,8 +1079,9 @@ Existing keys the benches read: `netsync.host_flags` (section 7), `host_settled_
 
 `NetSyncSwap.SelfTest(out String detail, Func<Byte[]> frameWithIntent)` runs every rule's rows and then every mutant. Each mutant restores a rejected rule and must fail at least one row.
 - The template is `NetSyncSpeed.SelfTest` (`NetSyncSpeed.cs:717, 1112`).
-- `frameWithIntent` is supplied by `NetSyncClient`. It saves and restores `_intentActive`, `_intentField` and `_intentNonce` in a try/finally around `BuildStateFrame(true, true)`, the s163 delegate precedent (:1948).
-- D+E's rows live in `NetSyncFollowFade.SelfTestRows(ref rows, ref fails)` and are called from it. C's `quiet_equals_loud` sweep calls `NetSyncAte`'s internal `HoldVerdict` and `HoldsFollowQuiet`.
+- `frameWithIntent` is supplied by `NetSyncClient`. It saves and restores `_intentActive`, `_intentField`, `_intentNonce` and `_intentLanding` in a try/finally around `BuildStateFrame(true, true)`, the s163 delegate precedent (:1948).
+- D+E's rows live in `NetSyncFollowFade.SelfTestRows(ref rows, ref fails)` and are called from it. C's `quiet_equals_loud` sweep drives `NetSyncAte`'s `internal static HoldVerdict` and compares `HoldsFollowQuiet` with `HoldsFollow` under a save and restore of NetSyncAte's statics (I9).
+- The live row `pin_split_applies` parses a party, so it runs only when the party mirror is idle (it fails closed when `NetSyncParty.MirrorActive` or `BenchMirrorArmed` is set, like `PartyParsesAlike`, `NetSyncClient.cs:10730`) and calls `NetSyncParty.Clear()` in its finally.
 
 The proof block (after :1950) gets one new last line:
 
@@ -1036,13 +1098,13 @@ fade 12 / 24 ticks / 900 ms, join grace 3 ticks, black floor 248, ahead 3000 ms)
 
 | Item | Rules | Rows (about) | Mutants |
 |---|---|---|---|
-| A | TicksToMs, stamp, parse, waited, JoinRule, OpenClosesRule, CloseRule, LandViaRule, DelayRule, OobVerdict, SeenRule, slot (live on a real `new NetSyncFrames()`), line builders | 100 | 27 |
-| B | OrphanSettled ×16, HostHoldsRule ×8, the composite `OrphanStep(OrphanSettled)` ×12 under act and old, CtlHoldKind, HoldEndWhy, OrphanSinceRule, scenarios S1-S5 | 62 | 11 |
+| A | TicksToMs, stamp, parse, waited, JoinRule, OpenClosesRule, CloseRule, LandViaRule, DelayRule, OobVerdict, SeenRule, slot (live on a real `new NetSyncFrames()`), line builders | 102 | 27 |
+| B | OrphanSettled ×16, HostHoldsRule ×8, the composite `OrphanStep(OrphanSettled)` ×12 under act and old, CtlHoldKind, HoldEndWhy, OrphanSinceRule, KeepReadRule, scenarios S1-S6 | 66 | 12 |
 | C | OwnFieldPassRule, OwnJumpVerdictRule, IntentCacheStep, IntentCacheVerdict, OwnPassBook, OwnPassKeepsOwn, the s154 sequence rows, `quiet_equals_loud`, the codec (live) | 79 | 32 |
-| LIFE | IntentLifeRule, BodyThereRule, IntentLandingStep, live `frame_carries_4` | 30 | 15 |
-| PIN | PinCaptureRule, PinOffFieldRule, PinUseRule, PinConsumed, PinDropOnNew, PinTargeted, PinAgeRule, LandingFrames, one sequence row, live `pin_applies_verbatim` | 53 | 22 |
-| D+E | View, Backlog with its cascade, counting, Path, Action, Grace, BlackTicks, Due with the `never_past_the_timer` sweep, Reassert, live `slot_reads` and `today_constants` | 103 | 42 |
-| **Total** | | **about 427** | **about 149** |
+| LIFE | IntentLifeRule, BodyThereRule, IntentLandingStep, live `frame_carries_4` | 28 | 13 |
+| PIN | PinCaptureRule, IntentSectionBody / IntentLandedOf, PinUseRule, PinConsumed, PinDropOnNew, PinTargeted, PinAgeRule, LandingFrames, one sequence row, live `pin_applies_verbatim` and `pin_split_applies` | 48 | 19 |
+| D+E | View, Backlog with its cascade, counting, Path, Action, Grace, BlackTicks, Due with the `never_past_the_timer` sweep, Reassert, live `slot_reads` and `today_constants` | 102 | 43 |
+| **Total** | | **about 425** | **about 146** |
 
 Following s163 rev 3, the build drops any mutant that only renames another; every term keeps a row that kills it.
 
@@ -1059,8 +1121,8 @@ Rows (the A spec's inputs; ids as the spec writer gave them):
 - **delay** (delayMs, followT, readyT, now): `off`, `not_ready`, `inside` (200, 0, 900, 1099 → false), `edge` (… 1100 → true), `from_verdict_not_follow` (200, 0, 900, 900 → false), `negative_is_off`.
 - **oob:** (T,F,F) → Unknown, (T,F,T) → Sent, (T,T,F) → Overwritten, (T,T,T) → Sent, (F,-,-) → None.
 - **seen:** `new`, `same`, `absent`.
-- **slot** (live on a real `new NetSyncFrames()`): `oob_sent` (`SetStateWatched(A)`, Collect → FromSent, WatchSends 1), `oob_overwritten` (`SetStateWatched(A)`, Set B → FromReplaced, not FromSent), `window_closed` (… `WatchStateSeqs(from, seq + 1)`, Set C, Collect → WatchSends unchanged), `unsent_count` (Set A, Set B → Unsent 1), `watched_is_atomic` (`SetStateWatched` returns the seq it armed: `WatchFrom == SetSeq` read back in one probe), `in_seq_counts` (two Accepts of TypeState → `InSeq` +2).
-- **lines:** each builder against its exemplar (landed, commit, kick commit, own pass, own bounce, both close lines, clock), and each builder's `off` row.
+- **slot** (live on a real `new NetSyncFrames()`): `oob_sent` (`SetStateWatched(A)`, Collect → FromSent, WatchSends 1), `oob_overwritten` (`SetStateWatched(A)`, Set B → FromReplaced, not FromSent), `window_closed` (… `WatchStateSeqs(from, seq + 1)`, Set C, Collect → WatchSends unchanged), `unsent_count` (Set A, Set B → Unsent 1), `watched_is_atomic` (`SetStateWatched` returns the seq it armed: `WatchFrom == SetSeq` read back in one probe).
+- **lines:** each builder against its exemplar (landed, commit, kick commit, own pass, own bounce, both close lines, clock), and each builder's `off` row. Three rows build the own-jump line for a C refusal followed by each verdict the old rule can reach (`own_refusal_host`: pass host-field; `own_refusal_through`: through; `own_refusal_bounce`: bounce). Each yields exactly one line that starts `[NetSync] own Field(` and ends with that verdict's outcome words (I2).
 
 | Mutant | Restores | Caught by |
 |---|---|---|
@@ -1101,7 +1163,8 @@ Rows:
 - **CtlHoldKind** on composites 1, 8 and 10, plus one unreachable combination (→ CtlNone).
 - **HoldEndWhy:** 6 rows; the key one (present, unclaimed, no relay, not here, not long, not holds) → Left.
 - **OrphanSinceRule:** `since.fresh` (F, -, 5000 → 5000), `since.relock_keeps` (T, 1000, 5000 → 1000).
-- **Scenarios** (deltas only, across the Int32 tick wrap; `SettleClock` and the composite stepped per 100 ms tick): S1 the leap (the host lands co-located, control off, no scene; under act never ToOrphaned to t0+30000, under old ToOrphaned at t0+OrphanGraceMs); S2 control back at t1 (ToOrphaned on t1's tick, Confirm at t1+AutoReadMs); S3 one blip (no Confirm through t1+AutoReadMs+2000); S4 a scene rising during the hold (Busy, then Event); **S5 repeated blips** (an orphaned line, its read clock from t0; control off for 0.5 s every 1.5 s for 6 s: Confirm no later than t0 + AutoReadMs + the summed held time).
+- **KeepReadRule:** `keep.control` (Control → T), `keep.busy` (Busy → F), `keep.left` (Left → F).
+- **Scenarios** (deltas only, across the Int32 tick wrap; `SettleClock` and the composite stepped per 100 ms tick): S1 the leap (the host lands co-located, control off, no scene; under act never ToOrphaned to t0+30000, under old ToOrphaned at t0+OrphanGraceMs); S2 control back at t1 (ToOrphaned on t1's tick, Confirm at t1+AutoReadMs); S3 one blip (no Confirm through t1+AutoReadMs+2000); S4 a scene rising during the hold (Busy, then Event); **S5 repeated blips** (a fresh, complete, single-page line orphaned at t0; control off for 0.5 s every 1.5 s from t0 + 1.0 s: exactly one relock, then Confirm on the first orphaned tick at or after t0 + AutoReadMs, V4); **S6 a control hold that turns into a scene** (orphaned at t0; control off at t0 + 0.5 s, the relock; a host scene rises at t0 + 1.0 s, so the hold ends Busy; the scene falls and the host settles at t1: the re-orphan restarts the clock, and Confirm comes no earlier than the re-orphan + AutoReadMs, I5).
 
 | Mutant | Restores | Caught by |
 |---|---|---|
@@ -1116,6 +1179,7 @@ Rows:
 | `end_why_control_first` | "control is back" before "left" | the HoldEndWhy Left row |
 | `relock_dropped` | the hold applies to Locked only | composite 8 |
 | `relock_restarts_read` | a re-orphan restarts the read clock (rev 1) | since.relock_keeps, S5 |
+| `relock_keeps_after_busy` | every hold end keeps the read clock (rev 2's sticky flag) | keep.busy, S6 |
 
 ### C: rows and mutants
 
@@ -1166,36 +1230,34 @@ Rows (my field 351, dest 352, another 350, a third 353):
 
 ### LIFE: rows and mutants
 
-`IntentLifeRule(oldRule, sinceEmit, sinceLand, landing, onIntentField, battleOnIntent, bodyThere)`; P = Pending, On = OnIntent, E = Elsewhere; "-" = not read.
+`IntentLifeRule(oldRule, sinceEmit, sinceLand, landing, onIntentField, bodyThere)`; P = Pending, On = OnIntent, E = Elsewhere; "-" = not read.
 
 | Row | Inputs | Expected |
 |---|---|---|
-| r1 | old, 0, -, P, T, F, F | EndOld |
-| r2 | old, 0, -, P, F, F, F | Keep |
-| r3 (R1: the shutdown frame) | act, 16, -, P, T, F, T | Keep |
-| r4 | act, 9999, -, P, F, F, F | Keep |
-| r5 | act, 10000, -, P, F, F, F | EndCap |
-| r6 | act, 0, -, E, F, F, F | EndElsewhere |
-| r7 | act, 1999, 1500, On, T, F, T | Keep |
-| r8 | act, 2000, 1000, On, T, F, T | EndStands |
-| r9 | act, 5000, 4000, On, T, F, F | Keep |
-| r9b | act, 30000, 29000, On, T, F, F | Keep |
-| r10 | act, 500, 100, On, F, F, F | EndLeft |
-| r11 | act, 30000, 29000, On, T, F, T | EndStands |
-| r12 | act, 100, 50, On, F, F, T | EndLeft |
-| r-slowload (T13) | act, 2300, 0, On, T, F, T | Keep |
-| r-slowload2 (T13) | act, 3300, 1000, On, T, F, T | EndStands |
-| r-battle (R6) | act, 1500, 600, On, F, T, F | Keep |
-| r-battle-cap (R6) | act, 10000, 9000, On, F, T, F | EndCap |
-| r-battle-old (R6) | old, 1500, -, On, F, T, F | Keep |
-| r-order (T2) | act, 0, -, P, T, F, T | Keep |
-| r-order-old (T2) | old, 0, -, P, T, F, T | EndOld (the R1 hole) |
+| r1 | old, 0, -, P, T, F | EndOld |
+| r2 | old, 0, -, P, F, F | Keep |
+| r3 (R1: the shutdown frame) | act, 16, -, P, T, T | Keep |
+| r4 | act, 9999, -, P, F, F | Keep |
+| r5 | act, 10000, -, P, F, F | EndCap |
+| r6 | act, 0, -, E, F, F | EndElsewhere |
+| r7 | act, 1999, 1500, On, T, T | Keep |
+| r8 | act, 2000, 1000, On, T, T | EndStands |
+| r9 | act, 5000, 4000, On, T, F | Keep |
+| r9b | act, 30000, 29000, On, T, F | Keep |
+| r10 | act, 500, 100, On, F, F | EndLeft |
+| r11 | act, 30000, 29000, On, T, T | EndStands |
+| r12 | act, 100, 50, On, F, T | EndLeft |
+| r-slowload (T13) | act, 2300, 0, On, T, T | Keep |
+| r-slowload2 (T13) | act, 3300, 1000, On, T, T | EndStands |
+| r-swirl (S1) | act, 1200, 800, On, F, F | EndLeft (the swirl's first frame: the FieldMap gone, `gMode` still 1) |
+| r-order (T2) | act, 0, -, P, T, T | Keep |
+| r-order-old (T2) | old, 0, -, P, T, T | EndOld (the R1 hole) |
 
 `BodyThereRule(inScope, haveActor, haveMapActor)` (F14, the `r-bench` rows): b1 (T, T, T) → T; b2 (T, T, F) → F (the player actor before its `fieldMapActor` binds); b3 (F, T, T) → F; b4 (T, F, F) → F.
 
 `IntentLandingStep(landing, active, intentField, loadedField)`: l1 (P, T, D, D) → On; l2 (P, T, D, E) → Elsewhere; l3 (On, T, D, E) → On; l4 (P, F, D, D) → P; l5 (Elsewhere, T, D, D) → Elsewhere.
 
-Live: `live.frame_carries_4`: `BuildStateFrame(true, true)` with `_intentActive` true reads back section 4 (field, nonce) and a section 7 whose b3 parses through `HostFlagReads`; it reads back no section 4 after the step ends the intent.
+Live: `live.frame_carries_4`: `BuildStateFrame(true, true)` with `_intentActive` true reads back section 4 (field, nonce) with the landed bit clear while `_intentLanding` is Pending and set once it is OnIntent (S3), and a section 7 whose b3 parses through `HostFlagReads`; it reads back no section 4 after the step ends the intent. This row replaces rev 2's L-WIRE bench row (P11).
 
 | Mutant | Restores | Caught by |
 |---|---|---|
@@ -1207,94 +1269,83 @@ Live: `live.frame_carries_4`: `BuildStateFrame(true, true)` with `_intentActive`
 | `life_no_cap` | no 10 s cap | r5 |
 | `life_cap_after_landing` | the cap also after landing | r9b |
 | `life_elsewhere_ignored` | Elsewhere treated as On | r6 |
-| `life_left_ignored` | no "left" clause | r10, r12 |
+| `life_left_ignored` | no "left" clause | r10, r12, r-swirl |
 | `life_no_land_tail` | no 1 s since the landing (rev 1) | r-slowload |
-| `life_battle_left` | a battle on the intent field ends it as left (rev 1) | r-battle |
-| `life_battle_no_cap` | a battle keeps it with no cap | r-battle-cap |
 | `body_any_actor` | `bodyThere` without the `fieldMapActor` | b2 |
 | `landing_any_load_is_intent` | any load counts as the intent field | l2 |
 | `landing_rearms` | a later load re-evaluates the landing | l3 |
 
 ### PIN: rows and mutants
 
-`PinCaptureRule(spent, here, heldQuality, landSeen, frameNonce, frameOffField, seqGap)`; W = Watched, Off = OffField; n = the frame's nonce.
+`PinCaptureRule(spent, here, heldQuality, frameNonce, frameLanded)`; n = the frame's nonce. Rev 3 keeps the ids of the T1 rows (c13-c15) and the R4 rows (c16-c17); c8-c12 and c18, rev 2's off-field and receive-seq rows, are retired with their mechanism (S3).
 
 | Row | Inputs | Expected |
 |---|---|---|
-| c1 | F, F, None, F, -1, F, 1 | Keep (no section 4) |
-| c2 | F, F, None, F, n, F, 1 | Watched |
-| c3 (T6) | F, F, None, F, n, F, 2 | Late (one unseen frame) |
-| c4 (T6) | F, F, None, F, n, F, -1 | Late (no prior observation) |
-| c5 (T6) | F, F, None, F, n, T, 9 | OffField (a stall, but built off-field) |
-| c6 | F, F, W, F, n, F, 1 | Keep |
-| c7 | F, F, W, F, n, T, 1 | OffField (upgrade) |
-| c8 | F, F, Late, F, n, T, 1 | OffField |
-| c9 | F, F, Late, F, n, F, 1 | Keep |
-| c10 | F, F, Off, F, n, T, 1 | Keep |
-| c11 | F, F, Off, F, n, F, 1 | Keep |
-| c12 | F, F, None, F, n2, F, 1 (a new nonce after a held Off of n) | Watched |
-| c13 (T1) | T, F, None, F, n, F, 1 (after its consumption) | Keep |
-| c14 (T1) | T, F, None, F, n, T, 1 | Keep (spent beats off-field) |
-| c15 (T1) | T, F, None, F, n, F, 1 (after an epoch reset, section 4 still live) | Keep |
-| c16 (R4) | F, T, None, F, n, F, 1 | Here |
-| c17 (R4) | F, T, None, F, n, T, 1 | Here |
-| c18 (R6 × T6) | F, F, W, T, n, T, 1 (a battle's off-field frame after the landing) | Keep |
+| c1 | F, F, None, -1, F | Keep (no section 4) |
+| c2 | F, F, None, n, F | Pre |
+| c3 (S3) | F, F, None, n, T | Late (the first frame I saw was built after the host's landing) |
+| c4 | F, F, Pre, n, F | Keep (a later pre-landing frame: compared, never replaces) |
+| c5 | F, F, Pre, n, T | Keep (a post-landing frame never replaces the pin) |
+| c6 | F, F, Late, n, F | Keep |
+| c7 | F, F, None, n2, F (a new nonce while n is held) | Pre |
+| c13 (T1) | T, F, None, n, F (after its consumption) | Keep |
+| c14 (T1) | T, F, None, n, T | Keep (spent beats everything) |
+| c15 (T1) | T, F, None, n, F (after an epoch reset, section 4 still live) | Keep |
+| c16 (R4) | F, T, None, n, F | Here |
+| c17 (R4) | F, T, None, n, T | Here (here is judged before the landed bit) |
 
-`PinOffFieldRule(haveSection7, hr)`: o1 (T, 0) → T; o2 (T, HrOnField) → F; o3 (T, HrBattle) → F (a battle frame is never off-field); o4 (F, 0) → F.
+`IntentSectionBody` / `IntentLandedOf` (S3): `body.round_trip` (`IntentSectionBody(352, 7, false)` → bytes 96, 1, 7, 0, and `IntentLandedOf` false); `landed.flag_set` (…, 7, 1 → T); `landed.s163_body` (the 3-byte body 96, 1, 7 → T: an s163 host reads as landed); `landed.other_bits` (…, 7, 2 → F: only bit 0 counts).
 
 `PinUseRule(leverOld, fromWorld, quality, pinField, ageMs, fld)`:
 
 | Row | Inputs | Expected |
 |---|---|---|
-| u1 | T, F, W, D, 500, D | Latest / lever |
+| u1 | T, F, Pre, D, 500, D | Latest / lever |
 | u2 | F, F, None, -1, -1, D | Latest / none |
-| u3 | F, F, W, D, 1200, D | Pin |
-| u4 | F, F, Off, D, 2500, D | Pin |
-| u5 | F, F, Off, D, 2501, D | Latest / aged |
-| u6 | F, F, W, D, 500, E | Latest / other |
+| u3 | F, F, Pre, D, 1200, D | Pin |
+| u4 | F, F, Pre, D, 2500, D | Pin |
+| u5 | F, F, Pre, D, 2501, D | Latest / aged |
+| u6 | F, F, Pre, D, 500, E | Latest / other |
 | u7 | F, F, Late, D, 500, D | Latest / late |
-| u8 | F, F, W, D, -1, D | Latest / aged |
-| u9 (R3) | F, T, W, D, 500, D | Latest / world |
-| u10 | T, T, W, D, 500, D | Latest / lever (the lever first) |
+| u8 | F, F, Pre, D, -1, D | Latest / aged |
+| u9 (R3) | F, T, Pre, D, 500, D | Latest / world |
+| u10 | T, T, Pre, D, 500, D | Latest / lever (the lever first) |
 
-`PinConsumed(quality, pinField, fld)`: k1 (W, D, D) → T; k2 (W, D, E) → F (the bounce reload keeps the pin); k3 (Late, D, D) → T; k4 (None, -1, D) → F.
+`PinConsumed(quality, pinField, fld)`: k1 (Pre, D, D) → T; k2 (Pre, D, E) → F (the bounce reload keeps the pin); k3 (Late, D, D) → T; k4 (None, -1, D) → F.
 
 `PinDropOnNew(heldField, targeted, newField)` (T5): d1 (D, T, E) → F (the chain: a follow to D is pending when E's nonce arrives; both kept); d2 (D, F, E) → T; d3 (D, T, D) → T (superseded by a newer nonce for the same field); d4 (D, F, D) → T.
 
 `PinTargeted(pinField, pending, committed, warpedTo)` (T5): t1 (D, D, -1, -1) → T; t2 (D, -1, D, -1) → T; t3 (D, -1, -1, D) → T; t4 (D, E, E, E) → F; t5 (-1, -1, -1, -1) → F.
 
-`PinAgeRule(landSeen, sinceLandSeen, sinceCapture)` (T6): a1 (T, 1200, 3000) → 1200; a2 (F, -, 2000) → 0; a3 (F, -, 10000) → 10000; a4 (T, 2600, 2650) → 2600.
+`PinAgeRule(landSeen, sinceLandSeen, sinceCapture)` (T6; `landSeen` is exact since S3): a1 (T, 1200, 3000) → 1200; a2 (F, -, 2000) → 0; a3 (F, -, 10000) → 10000; a4 (T, 2600, 2650) → 2600.
 
 `LandingFrames` (R1): f1 Pin → story = pin, party = latest, dress = latest; f2 Latest → story = party = dress = latest.
 
-Sequence: `seq.upgrade_keeps_capture_tick`: Watched at t0, an off-field upgrade at t0+5000, the landing never seen, the guest's landing at t0+10100 → age 10100 (blind) → Latest / aged.
+Sequence: `seq.landing_ages_the_pin`: a Pre capture at t0; a later pre-landing frame at t0+200 (Keep; `pre_frames` +1, diff 0); the first landed frame at t0+400 (Keep; `landSeen` at t0+400); the guest's landing at t0+1600 → age 1200 → Pin; the same with the guest's landing at t0+3000 → age 2600 → Latest / aged.
 
-Live: `live.pin_applies_verbatim`: `ApplyStoryTo(the pinned real frame, scratch)` equals its section 0 outside the mask, and `StoryDiff` of a frame against itself is 0.
+Live: `live.pin_applies_verbatim`: `ApplyStoryTo(the pinned real frame, scratch)` equals its section 0 outside the mask, and `StoryDiff` of a frame against itself is 0. `live.pin_split_applies` (V1): `ApplyStorySplitTo(pin, latest, scratch)` on two real frames whose section 0 differs at the marker byte and whose party slot 1 differs (the second built under the `SlotSource` seam): the scratch array equals the pin's section 0 outside the mask, and `NetSyncParty.Slots` equal the latest frame's party; then `Clear()`.
 
 | Mutant | Restores | Caught by |
 |---|---|---|
 | `pin_latest_always` | today | u3 |
-| `pin_last_frame` | the newest frame of a nonce wins | c6 |
-| `pin_no_gap_guard` | no receive-seq check | c3 |
-| `pin_offfield_blind` | b3 ignored | c5, c7, c8 |
+| `pin_last_frame` | the newest frame of a nonce wins | c4, c5 |
+| `pin_landed_blind` | the landed bit ignored: every first frame is kept (rev 2's arrival guess, at its worst) | c3 |
+| `pin_unknown_is_pre` | an s163 host's 3-byte section reads as built before the landing | landed.s163_body |
+| `pin_any_bit_lands` | any flags bit reads as landed | landed.other_bits |
 | `pin_any_field` | the field ignored | u6 |
 | `pin_never_ages` | the age ignored | u5 |
-| `pin_late_used` | Late treated as Watched | u7 |
+| `pin_late_used` | Late treated as Pre | u7 |
 | `pin_consumed_anywhere` | consumed at any landing | k2 |
-| `pin_upgrade_resets_age` | an upgrade restamps the capture tick | seq.upgrade_keeps_capture_tick |
 | `dress_follows_story` | the dress from the pinned frame | f1 |
 | `party_follows_story` | the party wraps from the pinned frame (rev 1) | f1 |
-| `pin_offfield_replaces_offfield` | churn between off-field frames | c10 |
 | `pin_recapture_after_consume` | no spent-nonce memory (rev 1) | c13 |
 | `pin_single_slot` | one slot: a new nonce always replaces | d1 |
 | `pin_target_pending_only` | only a pending follow targets a field | t2, t3 |
-| `pin_age_from_capture` | the age from the capture (rev 1) | a1, a2 |
+| `pin_age_from_capture` | the age from the capture (rev 1) | a1, a2, seq.landing_ages_the_pin |
 | `pin_blind_never_ages` | no backstop when the landing is never seen | a3 |
-| `pin_upgrade_after_landing` | an off-field frame upgrades after the landing | c18 |
 | `pin_kept_when_here` | a pin for the field I stand on | c16 |
 | `pin_used_from_world` | the pin used at a world-rejoin landing | u9 |
-| `pin_here_after_offfield` | `here` checked after the off-field upgrade | c17 |
-| `pin_battle_is_offfield` | a battle frame (b3 clear, b5 set) counts as off-field | o3 |
+| `pin_here_after_landed` | `here` judged after the landed bit | c17 |
 
 ### D+E: rows and mutants
 
@@ -1330,7 +1381,7 @@ Ids: my field 351, another 350; frames 12 and 24.
 
 `BlackTicksRule`: `first_black_arms_0` (black, unarmed, keyTick 100 → armed, since 100, 0); `black_counts` (armed since 100, keyTick 103 → 3); `leaving_black_disarms` (not black → unarmed, -1); `rearm_at_0` (black again at 110 → since 110, 0); `keytick_wrap` (since Int32.MaxValue − 1, keyTick Int32.MinValue + 1 → 3).
 
-`DueRule(path, timerOut, view, blackTicks, grace, backlogNow, ringAhead, lever)`:
+`DueRule(path, timerOut, view, blackTicks, grace, backlogNow, primed, lever)`:
 
 | Row | Inputs | Expected |
 |---|---|---|
@@ -1339,22 +1390,21 @@ Ids: my field 351, another 350; frames 12 and 24.
 | kick_timer | Kick, T, Black, 5, 0, None, F, Act | Timer |
 | backlog_black_waits | Backlog, F, Black, 5, 3, Line, F, Act | Wait |
 | backlog_timer | Backlog, T, Black, 5, 3, Line, F, Act | Timer |
-| fast_black_no_grace | Fast, F, Black, 0, 0, None, F, Act | Black |
+| black_primes_first (T9) | Fast, F, Black, 0, 0, None, F, Act | Prime (our own fade: no grace, but one dialogue pass) |
 | fast_black_in_grace | Fast, F, Black, 2, 3, None, F, Act | Wait |
-| fast_black_grace_spent | Fast, F, Black, 3, 3, None, F, Act | Black |
+| fast_black_grace_spent | Fast, F, Black, 3, 3, None, F, Act | Prime |
+| prime_then_black (T9) | Fast, F, Black, 3, 3, None, T, Act | Black |
 | fast_black_in_grace_at_timer | Fast, T, Black, 1, 3, None, F, Act | Fallback |
-| fast_black_spent_and_timer_is_black | Fast, T, Black, 3, 3, None, F, Act | Black |
+| fast_black_spent_and_timer_is_black | Fast, T, Black, 3, 3, None, F, Act | Black (no prime at the timer) |
 | fast_heading_waits | Fast, F, Heading, -1, 0, None, F, Act | Wait |
 | fast_fallback_heading | Fast, T, Heading, -1, 0, None, F, Act | Fallback |
 | fast_fallback_visible | Fast, T, Visible, -1, 0, None, F, Act | Fallback |
-| recheck_holds | Fast, F, Black, 3, 3, Line, F, Act | Wait |
+| recheck_holds | Fast, F, Black, 3, 3, Line, T, Act | Wait (a hold beats a prime) |
 | recheck_at_timer | Fast, T, Black, 3, 3, Line, F, Act | Recheck |
 | recheck_unknown_holds | Fast, F, Black, 3, 3, Unknown, F, Act | Wait |
-| nogate_ignores_recheck | Fast, F, Black, 3, 3, Line, F, NoGate | Black |
-| norecheck_ignores_recheck | Fast, F, Black, 3, 3, Line, F, NoRecheck | Black |
-| ring_ahead_waits (T9) | Fast, F, Black, 3, 3, None, T, Act | Wait |
-| ring_ahead_at_timer (T9) | Fast, T, Black, 3, 3, None, T, Act | Recheck |
-| never_past_the_timer | every path, view, backlog, ringAhead and lever with timerOut T | never Wait (one sweep row) |
+| nogate_ignores_recheck | Fast, F, Black, 3, 3, Line, T, NoGate | Black |
+| norecheck_ignores_recheck | Fast, F, Black, 3, 3, Line, T, NoRecheck | Black |
+| never_past_the_timer | every path, view, backlog, primed and lever with timerOut T | never Wait, never Prime (one sweep row) |
 
 `ReassertRule(path, reasserted, timerOut, view)`: `fast_visible_once` (Fast, F, F, Visible) → T; `backlog_visible_once` (Backlog, F, F, Visible) → T; `spent` (Fast, T, F, Visible) → F; `after_timer` (Fast, F, T, Visible) → F; `old_never` (Old, F, F, Visible) → F; `kick_never` (Kick, …) → F; `heading_no` (Fast, F, F, Heading) → F; `black_no` (Fast, F, F, Black) → F.
 
@@ -1391,14 +1441,15 @@ Live, counted once: `slot_reads` (`NetSyncReadFade` returns true), `today_consta
 | `act_black_wipes` | a black screen wipes | fast_black_joins |
 | `act_fast_24` | E not taken | fast_visible_fades_12 |
 | `act_backlog_12` | E with a backlog | backlog_visible_fades_24 |
-| `due_wall_only` | D not taken | fast_black_grace_spent |
+| `due_wall_only` | D not taken | prime_then_black |
 | `due_backlog_commits_on_black` | the refuted early commit | backlog_black_waits |
 | `due_no_recheck` | no recheck | recheck_holds |
 | `due_no_grace` | no grace | fast_black_in_grace |
 | `due_no_fallback` | the s42 strand | fast_fallback_heading, never_past_the_timer |
 | `due_recheck_past_timer` | G's hold, not round 1 | recheck_at_timer |
 | `due_unknown_backlog_free` | an unreadable backlog does not hold | recheck_unknown_holds |
-| `due_ring_ahead_free` | an unmerged ring does not hold (rev 1) | ring_ahead_waits |
+| `due_no_prime` | a Black verdict commits in the Update that first judges it (rev 2) | black_primes_first, fast_black_grace_spent |
+| `due_prime_at_timer` | the prime also waits at the timer | fast_black_spent_and_timer_is_black, never_past_the_timer |
 | `grace_on_own_fade` | a grace after our own fade | fade_0 |
 | `reassert_never` | no reassert | fast_visible_once |
 | `reassert_every_tick` | reassert on every tick | spent |
@@ -1411,9 +1462,10 @@ Live, counted once: `slot_reads` (`NetSyncReadFade` returns true), `today_consta
 
 - **`tools/harness/battlewire.py`** gains a section `[ff9mapkit netsync s164] FIELD-SWAP TIMING`:
   - every constant and name table;
-  - twins for every pure rule: A's 13 (`swap_ticks_to_ms` ... `swap_oob_verdict`), B's `swap_orphan_settled`, `swap_host_holds`, `swap_ctl_hold_kind`, `swap_hold_end_why` and `swap_orphan_since`, C's `own_field_pass_rule`, `own_jump_verdict_rule`, `intent_cache_step`, `intent_cache_verdict`, `own_pass_book` and `own_pass_keeps_own`, LIFE's `intent_landing_step`, `intent_life_rule` and `body_there_rule`, PIN's `pin_capture_rule`, `pin_targeted`, `pin_drop_on_new`, `pin_age_rule`, `pin_use_rule`, `pin_consumed` and `landing_frames` (three outputs), and D+E's nine;
+  - twins for every pure rule: A's 13 (`swap_ticks_to_ms` ... `swap_oob_verdict`), B's `swap_orphan_settled`, `swap_host_holds`, `swap_ctl_hold_kind`, `swap_hold_end_why`, `swap_orphan_since` and `swap_keep_read`, C's `own_field_pass_rule`, `own_jump_verdict_rule`, `intent_cache_step`, `intent_cache_verdict`, `own_pass_book` and `own_pass_keeps_own`, LIFE's `intent_landing_step`, `intent_life_rule` and `body_there_rule`, PIN's `intent_section_body`, `intent_landed_of`, `pin_capture_rule`, `pin_targeted`, `pin_drop_on_new`, `pin_age_rule`, `pin_use_rule`, `pin_consumed` and `landing_frames` (three outputs), and D+E's nine;
+  - `_i64(x)` and `_i32(x)`, two's-complement wrap helpers. Every twin whose engine form is fixed-width uses them: `swap_ticks_to_ms` and its mutants, `BlackTicksRule`, and B's tick scenarios across the Int32 wrap. Python's integers do not overflow, so without them the `ms_naive` twin equals `swap_ticks_to_ms` on every row (P9);
   - every log builder, including the refusal line with its `[NetSync] own Field(` prefix (R9);
-  - `S163_FORMS`, the s163 regex of every line that gains a stamp;
+  - `S163_FORMS`, the s163 regex of every line that gains a stamp, including `StartSceneAt`'s "host scene: ended (nonce N) -- a new talk started" (:7038) beside its "rose" line (I10);
   - the lever ops, the refusal and usage strings, and the proof regex.
 - **`tools/harness/channel.py`:**
   - `qpc_ms()`: kernel32 `QueryPerformanceCounter` / `QueryPerformanceFrequency` through ctypes, through the same split arithmetic as `TicksToMs`. It returns None off Windows;
@@ -1427,9 +1479,9 @@ Live, counted once: `slot_reads` (`NetSyncReadFade` returns true), `today_consta
     - the block, with `hz` and `hires` matching the source;
     - the levers and the release;
     - `swap intent` through `_field_follow_fire` / `_field_follow_land` (`fakegame.py:8034-8062`), with the record (seen, follow, due, commit, land via follow, closed by window), `swap delay` between `due_t` and `commit_t`, and stamps on those lines;
-    - B's orphan model on the twins (`fakegame.py:13482-13490`), including `swap_orphan_since`, and the bench host emitting 0 under `hostctl off` (:13546);
+    - B's orphan model on the twins (`fakegame.py:13482-13490`), extended with `swap_orphan_since` and `swap_keep_read`, and the bench host emitting 0 under `hostctl off` (:13546);
     - its `host_intent` already persists until replaced (:7959-7963).
-  - **What it cannot model:** the slot and host probes, a bounce (it has no MAPJUMP), a pin (it has no story frames), `lifebench`, or the fade slot. Those keys stay at their sentinels.
+  - **What it cannot model:** the slot and host probes, a bounce (it has no MAPJUMP), a pin (it has no story frames), `lifebench`, or the fade slot. Those keys stay at their sentinels, so the stand-in is run only on the legs it models (below).
 - **`tools/harness/session.py`:**
   - `swap` after `speed` in `NETSYNC_SUBVERBS` (:8415) and `NETSYNC_AUTHORITY_SUBVERBS` (:8424);
   - `NETSYNC_SWAP_SUBVERBS = {"swap": ("coop_field_swap", "netsync.swap", "s164", "the s164 field-swap levers")}` next to the speed table (:8585), and in the `ng = ng or ...` chain (:8986);
@@ -1437,7 +1489,7 @@ Live, counted once: `slot_reads` (`NetSyncReadFade` returns true), `today_consta
   - `_swap_refusal(args, selftest_role)` as a pre-step check, modelled on `_speed_refusal` (:9420).
   - The driver reads the target game's `netsync.role` before sending a role-bound op, and checks each duo Session separately.
 - **`ff9mapkit/tests/test_harness_netsync.py`:**
-  - every SelfTest row evaluated against the twins, and every mutant failing at least one row (the mutant tables above are the oracle);
+  - every SelfTest row evaluated against the twins, and every mutant failing at least one row (the mutant tables above are the oracle); one test asserts the `ms_naive` twin differs from `swap_ticks_to_ms` at `tsc_40_days` (P9);
   - the stand-in's block, levers, refusals, release and proof line;
   - LV-4: the stand-in at `caps_through("speed")` refuses `netsync swap ...` before any step;
   - the B twin's KeyScript flip;
@@ -1448,9 +1500,15 @@ Live, counted once: `slot_reads` (`NetSyncReadFade` returns true), `today_consta
   - each solo and duo calibration word reds exactly its registered rows offline, each with its marker, and every other row stays green;
   - the duo refuses an unknown `COOP_CALIBRATE` word at load, before `duo.py` boots the pair; so does the solo bench;
   - K-CLOCK's three outcomes: green on the seam, VOID-making on `src stopwatch`, SKIP with a reason when `qpc_ms()` is None;
-  - DA-LANE reads `arrived_t == -1` as UNREACHED, never red;
-  - the solo run is green on the stand-in for legs K, A and B (the legs it models); legs C, P, L and F report UNREACHED there by construction (their keys sit at sentinels), and the test asserts exactly that;
-  - source tests: the engine still carries `_glHostHoldsInput = v.HostHoldsInput;` next to the new `NetSyncSwap.HostHoldsNow` line (R8), and the refusal literal starts `[NetSync] own Field(` (R9).
+  - DA-LANE reads a transition with `arrived_t == -1` as UNREACHED for that transition, and a leg with no reached transition as red (P8);
+  - the solo run on the stand-in uses `COOP_LEGS=KAB`, the legs it models, and is green there. Legs C, P, L and F are not run on the stand-in: on an engine their sentinel keys after an acked op are red, so a stand-in run of them proves nothing (P8);
+  - source tests, each a literal the build must keep:
+    - the engine still carries `_glHostHoldsInput = v.HostHoldsInput;` next to the new `NetSyncSwap.HostHoldsNow` line (R8);
+    - the refusal literal starts `[NetSync] own Field(` (R9), and its builder is called only from `NoteOwnJump` (I2);
+    - the :929 hunk reads `NetSyncState.ApplyStorySplit(story, party)` (V1);
+    - the selftest branch calls `NetSyncSwap.GuestTick(fld, -1)` before its `if (!inScope)` return (V3);
+    - `NetSyncSwap.HarnessRelease` calls `NetSyncParty.Clear()` under `_pinBenchMirror` (G2);
+    - the three call sites the solo legs depend on exist: `NetSyncFollowFade.Ended(` in `ServiceFollowWarp`, `BenchPinLanding()` in `ApplyStoryImpl`, and `NoteIntentLanding(fldMapNo)` in `ApplyStoryBeforeEvents` (P8).
 - **Evidence scripts:** `studies/field-coop/swap-timing/final.py:26`, `conv.py:20` and `drift.py:15` get the tolerant stamp tail.
 - **`coop_follow_race_duo.py`:**
   - the tolerant tail at :208;
@@ -1461,17 +1519,22 @@ Live, counted once: `slot_reads` (`NetSyncReadFade` returns true), `today_consta
 
 ## Benches
 
+**Reach rules (P4, P8).** Three kinds of row, each with its own meaning of "not reached":
+- **Deterministic rows** (every solo row, and the duo's leg-level rows). A row whose op was acked but whose key is still at its sentinel afterwards is red, "the engine never ran X". This is the house `Ledger.unreached`, which records a failed check (`_coop_battle.py:216-219`). A setup clause (leg C's first line, C-PEND's pending sample) that misses marks the run VOID with its reason; it never turns a red into UNREACHED.
+- **Probabilistic duo rows** (DA-LANE per transition, DF-FLASH, DF-GRACE, DF-PACE, DP-HALT, DP-PARTY, DC-B(b), DP-MARK, DP-DEFER and DA-ARRIVE's watches). Each records its reach count, is judged only on reached runs or transitions, and is never red merely for being UNREACHED, except where a floor is stated: DA-LANE needs at least one reached transition per leg (the follow race's "none reached = red", `coop_follow_race_duo.py:717-718`), and DA-ARRIVE's ARRIVE leg must reach its exposure.
+- **Calibrations.** A row that a word must red, but which reads UNREACHED, fails that calibration's exactness check; it is never counted as "not green". A calibration whose predicted reds all read UNREACHED is VOID, never a pass.
+
 ### Solo: `studies/test-harness/scenarios/coop_field_swap_timing.py`
 
 One game on the selftest role (`netsync selftest 1`, `bench 1`, `stateevery 1`). `COOP_LEGS` picks legs from K, A, B, C, P, L and F; leg K always runs. HOME is the bench field and AWAY is 30602, which is registered and walkable. A harness `warp` never reaches `RedirectGuestFieldJump`, because it goes through `SetNextMap` (`Ff9mkDebugMenu.cs:2453-2455`). So own-jump rows use a real script `Field()`.
 
 **Leg C's setup, pre-registered (F8).** `warp(351, entrance=15, scenario=2600)`, `swap fade old` (T8), `lock 1`, the bench pages each line as it opens.
 - Entrance 15 with a scenario below 2990 other than 2840 builds 351's desk scene: the party and the innkeeper pair are created (`test2_94.txt:60-76`), and `Zidane_Init`'s case 15 sets `VAR_GlobInt16_48 = 1` (`:3230-3234`), which starts the scene at its first line, win 3 text 129 (`:3304-3317`). The fourth two-PC session ran 359 and this desk scene at 2600 and, after a reload of 359, at 0 (`twopc-s163-20261029` host log lines 50 and 56); the s158 session ran them at 2505 (its host log lines 67 and 77).
-- The scene ends in the rest exit: `FadeFilter(6,24)`, `FadeFilter(6,8)`, `Wait(136)`, entrance 5, `Field(352)` (`test2_94.txt:3486-3539`). That `Field(352)` is the own jump.
+- **The exit (P6).** The scene's chain is `VAR_GlobInt16_48` 1 → 6 → 8 → 9 → 11 → 12 → 13. At 13, `Zidane_Loop` case +12 opens win 3 text 139, waits for it (`WaitWindow(3)`), runs Dagger's script 19 and sets 48 = 23 (`test2_94.txt:3372-3386`). `Dagger_Loop` case 23 then runs `Wait(100)`, `Wait(30)`, `FadeFilter(6,30)` (a Sub fade to black, `EventEngine.DoEventCode.cs:632-647`), `Wait(30)`, the gil and global writes, entrance 3 and `Field(352)` (`test2_94.txt:3850-3879`). That `Field(352)` is the own jump. Text 140 does not gate it, and the slot reads black only about 1-2 ticks before it. The rest exit through `Zidane_Loop` case +16 (entrance 5, :3461-3539) needs 48 = 17, which only the scenario-2840 innkeeper (entry 6) writes (:1093-1110), so it does not run here. 352's entrance 3 builds the party and opens win 4 text 142 (`test2_95.txt:64-69, 1430-1435, 1649-1654`). The s163 host log agrees: texts 129-140 with none of entry 6's, then intent 352, then text 142 (`twopc-s163-20261029` desktop-host lines 69-87).
 - The leg warps straight to 351, not through 359: on the selftest role `LastHostField` is -1 (:2039), so 359's own `Field(351)` would bounce.
 - REACHED only when "win 3 text 129 opened locked" logs within 30 s of the warp's landing; otherwise the leg is VOID.
-- A dry run under `own old` measures Δ from the scene's last line close to the own jump (A's stamps).
-- **Why `fade old`.** Under D+E the 351 screen is black for about 4.5 s before `Field(352)`, so a follow started inside it joins, commits after the 3-tick grace and pre-empts the own jump (F2). Under `fade old` the follow stays pending for 0.9 s across the own jump, which is the case C's Pending term exists for.
+- A dry run under `own old` measures Δ from text 139's close to the own jump, from state, not log stamps (P10): the first sample whose `netsync.windows` no longer lists (win 3, text 139), by its `clock.now_ms`, to `last.own_t`. About 161 ticks plus Dagger's script 19 are expected (INFER).
+- **Why `fade old` (P6).** C-PEND aims the intent at the own jump − 0.45 s, about 13 ticks before `Field(352)`. Under D+E the copy's `FadeFilter(6,30)` then has about 12-13 ticks left, right on ActionRule's Join/Hurry split (`ticksLeft <= 12` joins, so the copy's own jump wins by Pending; 13 hurries to black in 12 ticks and the follow commits first). Pending versus Committed would be a coin flip. Under `fade old` the follow stays pending for 0.9 s across the own jump, which is the case C's Pending term exists for.
 
 | Row | Leg and setup | Green | Calibration word |
 |---|---|---|---|
@@ -1487,46 +1550,49 @@ One game on the selftest role (`netsync selftest 1`, `bench 1`, `stateevery 1`).
 | B-HOST | B: dialogue bench field with the keeper (`coop_dialogue_authority.py`'s `_open_by_relay`), `lock 1`; a fresh line opened by relay under `hostscene 1`, then `swap hostctl off`, then `hostscene 0` | Within 2 frames: `host_flags & 0x03 == 0` with b3 set, `orphan.host_holds` true, `levers.hostctl_off` true, `host_settled_ms ≥ 0` | none |
 | B-HOLD | B | Held for at least OrphanGraceMs + AutoReadMs + 2 s: every sample `locked`; `host_settled_ms ≥ 2000`; `orphan_closes` Δ0; `holds` +1; one hold line; no "is not on the host's screen" line | `orphan` |
 | B-RELEASE | B: `swap hostctl on` | `orphaned` within 0.5 s; the end line "(the host's control is back)" with N within ±0.3 s of the sampled hold; `last_end` `control`; the auto-close AutoReadMs later; `orphan_closes` +1 | `orphan` |
-| B-BLIP | B: on, then off 1.0 s later | Orphaned, then locked; one relock line; `relocks` +1; no auto-close through AutoReadMs + 1 s | `orphan` |
-| B-BLIP2 | B: on (the line orphans at t0), then off for 0.5 s every 1.5 s for 6 s, then on | `relocks` +4; the auto-close lands no later than t0 + AutoReadMs + the summed held time + 0.3 s (R5) | `orphan` |
-| B-SCENE | B: then `hostscene 1` | The end line "(the host is busy (a scene or a line))"; the bench host's ADV closes the line "closed (host seq" | `orphan` |
-| B-CTLON | B: `hostctl on`, `hostscene 0` | Orphans OrphanGraceMs after settle and auto-closes; `holds` +0 | none (regression) |
+| B-BLIP | B: a fresh line by relay (as B-HOST), then on, then off 1.0 s later | Orphaned, then locked; one relock line; `relocks` +1; no auto-close through AutoReadMs + 1 s | `orphan` |
+| B-SCENE | B: B-BLIP's held line, then `hostscene 1` | The end line "(the host is busy (a scene or a line))"; the bench host's ADV closes the line "closed (host seq" | `orphan` |
+| B-BLIP2 | B: a fresh single-page line by relay; on (the line orphans at t0); then off for 0.5 s at t0 + 1.0, 2.5, 4.0 and 5.5 s; then on (V4, P2) | Exactly one relock line before the close (`relocks` +1); the auto-close on the first orphaned sample at or after t0 + AutoReadMs, by t0 + AutoReadMs + 0.3 s; `orphan_closes` +1; nothing more counted after it. The rejected restart rule (`relock_restarts_read`) shows as `relocks` ≥ 2 or a close later than t0 + AutoReadMs + 0.8 s | `orphan` (`relocks` +0: the old rule never relocks a plain line) |
+| B-CTLON | B: a fresh line by relay, `hostctl on`, `hostscene 0` | Orphans OrphanGraceMs after settle and auto-closes; `holds` +0 | none (regression) |
 | C-BOUNCE | C, no injection | The own jump bounces: `own_verdict` bounce, `own_why` not-host, `counts.bounces` +1, `reloads` +1, a landing on 351 via `bounce` with the record still open; `own.passes` +0 | none (gate; falsified by `via.bounce` / `join.land_source_reload`) |
-| C-CACHE | C: `swap cache 352` at the last line's close + Δ − 1.0 s | The cache write line, then `own Field(352) passes on field 351 -- the host's announced field (cache)`; `by.cache` +1; one `Map: 352`; `bounces` +0; then `intent cache: field 352 cleared -- I left field 351 (now 352) (the cached field)` (T7) | `own`, `nocache` |
-| C-PEND | C: `swap intent 352` aimed at the own jump − 0.45 s (inside the old path's 0.9 s pending window). REACHED when a pending 352 is sampled right before the pass line | `(pending)`; `converted` +1; one load; `fade.ends.own` +1; none of the s154 "cancelled", "dropped" or "never landed" lines | `own` |
+| C-CACHE | C: `swap cache 352` at text 139's close + Δ − 1.0 s | The cache write line, then `own Field(352) passes on field 351 -- the host's announced field (cache)`; `by.cache` +1; one `Map: 352`; `bounces` +0; then `intent cache: field 352 cleared -- I left field 351 (now 352) (the cached field)` (T7) and no "field 352 loaded" clear (the backstop firing first means `GuestTick` ran too late, V3) | `own`, `nocache` |
+| C-PEND | C: `swap intent 352` aimed at the own jump − 0.45 s (inside the old path's 0.9 s pending window). REACHED when `last.own_t` is set with `own_dest` 352 from field 351 and the last state sample before `own_t` reads `session.follow.pending` = 352 (`HarnessAgent.cs:4638`), whatever the verdict (P4); otherwise VOID | `(pending)`; `converted` +1; one load; `fade.ends.own` +1; none of the s154 "cancelled", "dropped" or "never landed" lines | `own` (the marker: `own_verdict` bounce and `own_why` not-host with pending 352, the L-OWN "bounced to a reload of 351" line and no `(pending)` line) |
 | C-AGE | C: the cache injected ≥ 3 s before the jump | The "aged 2000 ms" clear, then a bounce | none (control) |
 | C-SRC | C: a cache on another field, then a warp to 351 | The Left clear for that field, then a bounce | none (control) |
 | P-PIN | P: `flag 8720 0`, `watch 8720`, `swap pinbench 30602 8720` | Flag 8720 = 0 after the landing; "stages intent N's frame for its story ... (age A ms; the latest differs at 1 story bytes)"; `pin.last_use` `pin`; `last.story` `pin` | `pin` |
 | P-AGED | P: `age 3000` | Flag = 1; why `aged` | none (guard) |
 | P-OTHER | P: `to <E>` | Flag = 1; the held entry still names 30602; `pin.other` +1 | none (guard) |
-| P-LATE | P: `skip 3` | Flag = 1; why `late` | none (guard) |
-| P-RESCUE | P: `skip 3 offfield` | Flag = 0 (the pin) | `pin` |
-| P-PARTY | P: `swap pinbench 30602 8720 party 1 <c>`, where `<c>` differs from slot 1's current CharacterId | Flag 8720 = 0 (the story from the pin) AND `netsync.dress.mirror_party[1]` = `<c>` (the party from the latest frame); `pin.last_party` `latest` (R1) | `pin` (the flag half reds; the party half stays green under both rules) |
+| P-LATE | P: `landed` | Flag = 1; why `late`; `pin.last_use_quality` `late` (S3) | none (guard) |
+| P-PARTY | P: `swap pinbench 30602 8720 party 1 <c>`, where `<c>` differs from slot 1's current CharacterId; then the leg's closing `swap clear` | Flag 8720 = 0 (the story from the pin) AND `netsync.dress.mirror_party[1]` = `<c>` (the party from the latest frame), sampled before the `swap clear`; `pin.last_party` `latest` (R1); after the `swap clear`, `netsync.dress.mirror_party` reads null and the clear line names the pin bench's party mirror (G2) | `pin` (the flag half reds; the party half and the clear stay green under both rules) |
 | L-LAND | L: `swap lifebench 30602` | At the hook: `intent.landing` `on_intent` with the intent still active (the "I landed" line) | none |
 | L-STANDS | L | `last_end` `stands`; `last_life_ms` − max(2000, `landed_ms` + 1000) in [0, 400] | `life` |
-| L-WIRE | L | `intent.wire` true while active, false after the end | none (guard) |
-| F-FAST | F: `swap intent 30602` | `fade.last` = fast / fade / 12; by `black`; ticks 12-13; ms < 600 | `fade`, `long` |
-| F-3X | F: `speedmode 1` | ms < 250; ticks 12-13 | `fade`, `long` |
+| F-FAST | F: `swap intent 30602` | `fade.last` = fast / fade / 12; by `black`; `fade.last.primed` true (the commit came one dialogue pass after the black was first judged, S2); ticks 12-14; ms < 600 | `fade`, `long` |
+| F-3X | F: `speedmode 1` | ms < 250; ticks 12-16 (the prime's one frame is 3 ticks at 3x) | `fade`, `long` |
 | F-BLACK | F: `swap blackout 1`, wait 3 frames, then intent | view_start `black`, action `join`, by `black`, `black_ticks ≥ 3`, ms < 250; no sample from start to due with `cur_now` < 248 | `fade` (wipe; `cur_now` dips under 128) |
-| F-JOIN | F: `blackout 8`, then intent | `heading`, left ≤ 8, `join`; due within left + 3 + 1 ticks | `fade` |
-| F-HURRY | F: `blackout 60`, then intent | `hurry` with frames 12; due by `black` within 13 ticks; `cur_now` never drops | `fade`, `long`, `nohurry` |
+| F-JOIN | F: `blackout 8`, then intent | `heading`, left ≤ 8, `join`; due within left + 3 + 2 ticks (the grace, then the prime) | `fade` |
+| F-HURRY | F: `blackout 60`, then intent | `hurry` with frames 12; due by `black` within 14 ticks; `cur_now` never drops | `fade`, `long`, `nohurry` |
 | F-OPEN | F: `lock 1`; talk to the talk-relay bench NPC (the line opens locked); intent | backlog_start `open`, path `backlog`, by `timer`, ms ≥ 885 | `fade`, `nogate` |
 | F-AHEAD | F: `lock 1`, `netsync unmatched`, intent within 1 s | backlog_start `ahead`; by `timer` | `fade`, `nogate` |
 | F-AGED | F: as F-AHEAD, but wait 3.2 s first | path `fast` (the age cap) | `fade` |
-| F-RECHECK | F: intent, then `netsync unmatched` in the same batch | path `fast`, `held`, by `recheck`, ms ≥ 885 | `fade`, `nogate`, `norecheck` |
+| F-RECHECK | F: `lock 1` (`netsync unmatched` needs the bench dialogue lock, `NetSyncClient.cs:10963-10965`), intent, then `netsync unmatched` in the same batch | path `fast`, `held`, by `recheck`, ms ≥ 885 | `fade`, `nogate`, `norecheck` |
 | F-REASSERT | F: intent, then `swap blackout off` 3 ticks into the fade (F12) | One reassert line; `fade.reasserts` +1; by `black` | `fade`. Not run under `long` (a 24-tick re-fade lands on the 0.9 s timer: a coin flip) |
 | F-KEY | F: `lock 1`, a bench host key for my field (`netsync host key ...`, `HarnessAgent.cs:1760-1773`), intent before the copy plays it (F12) | backlog_start `key`, path `backlog`, by `timer`, ms ≥ 885 | `fade`, `nogate` |
+
+**Lines, locks and order across the sub-legs.**
+- **B.** B-RELEASE's auto-close consumes B-HOST's line. Every later B sub-leg opens a fresh line by relay, except B-SCENE, which continues B-BLIP's held line (V4).
+- **P.** The sub-legs run P-PIN, P-AGED, P-OTHER, P-LATE, P-PARTY, and the leg ends with `swap clear`, which clears the party mirror the pin bench armed (G2), so legs L and F and anything later in the process start with the mirror idle.
+- **F.** F-OPEN, F-AHEAD, F-AGED, F-RECHECK and F-KEY send `lock 1`; every other F sub-leg sends `lock 0` first, so no lock state leaks from leg C or from the sub-leg before (P11).
 
 **Solo calibrations, pre-registered.** Each word turns exactly these rows red; every other row stays green:
 
 | Word | Lever | Red rows |
 |---|---|---|
-| `stamps` | `swap stamps off` | A-STAMP |
+| `stamps` | `swap stamps off` | A-STAMP (leg C's Δ and C-PEND's aim are timed from state keys, so they stay as they are, P10) |
 | `delay` | leg 2 sends `delay 0` but still expects +300 | A-DELAY |
 | `orphan` | `swap orphan old` | B-HOLD, B-RELEASE, B-BLIP, B-BLIP2, B-SCENE |
 | `own` | `swap own old` | C-CACHE, C-PEND |
 | `nocache` | `swap own nocache` | C-CACHE |
-| `pin` | `swap pin old` | P-PIN, P-RESCUE, P-PARTY |
+| `pin` | `swap pin old`, sent only around the P-PIN and P-PARTY pinbench calls; `swap pin act` before P-AGED, P-OTHER and P-LATE, so the guards keep judging their own why (P3) | P-PIN, P-PARTY |
 | `life` | `swap life old` | L-STANDS |
 | `fade` | `swap fade old` (leg C keeps its own `fade old`) | F-FAST, F-3X, F-BLACK, F-JOIN, F-HURRY, F-OPEN, F-AHEAD, F-AGED, F-RECHECK, F-REASSERT, F-KEY |
 | `long` | `swap fade long` | F-FAST, F-3X, F-HURRY |
@@ -1546,14 +1612,14 @@ Two real games on this desktop through `tools/harness/duo.py`, with `stateevery 
 
 | Leg | Host setup | Shape | Rows |
 |---|---|---|---|
-| CAL | `warp(250, entrance=0)`, then `warp(30602, entrance=0)` and back; the guest idle and visible; each field held at least LineWindowMs + 1 s = 11 s (F13). Sub-legs: CAL0 the guest on `fade old`; CAL1 `fade old` and `delay 200`; CAL2 act; CAL3 act and the guest on `speedmode 1` | the follow race's FE1 shape (debug warps) | DA-LANE, DA-CAL, DA-JOIN, DL-LIFE, DL-NOREG, DC-FE, DF-FAST, DF-3X, DA-ARRIVE (CAL2; CAL0 its control), DA-PROBE-X |
-| DESK | `warp(359, entrance=0, scenario=2600)`; the guest follows; the host pages each line D after it opens, D ∈ {0.3, 1.0, 2.5} | FT-A: 359's scene runs at any scenario (`test2_102.txt` reads none) and ends in `Main_11`: `PreloadField(5,351)`, `FadeFilter(6,24)`, `Wait(25)`, entrance 15, `Field(351)` (`:271-301`, called from `:648`); 351 entrance 15 builds the desk scene (see leg C), first line win 3 text 129 | DA-LINES, DF-FLASH, DF-PACE, DA-PROBE, DA-ARRIVE, DC-WON |
-| REST | continues each DESK run: the desk scene's own end (`Zidane_Loop`'s rest exit, `test2_94.txt:3486-3539`) to 352 entrance 5, first line win 4 text 142. Sub-legs: REST (act) and REST-OLD (the guest sends `swap fade old` before the desk scene's last line) | FT-B | DC-B(a) (REST), DC-B(b) (REST-OLD), DP-UP, DP-DRESS, DA-PROBE, DC-WON |
+| CAL | `warp(250, entrance=0)`, then `warp(30602, entrance=0)` and back; the guest idle and visible; each field held at least LineWindowMs + 1 s = 11 s (F13). Sub-legs: CAL0 the guest on `fade old`; CAL1 `fade old` and `delay 200`; CAL2 act; CAL3 act and the guest on `speedmode 1`; **ARRIVE** (V5, G1): from 250, `warp(ARRIVE_ID, entrance=0)` and back, at act and again with the guest on `fade old`. ARRIVE_ID is a scratch copy of the bench field, `studies/movement/bench/lockt2-arrive.field.toml` (a copy of `lockt2.field.toml`, never the shared 30602), with `[camera] entry_settle = 68`. The kit compiles that as `DisableMove` and `Wait(68)` before `Main_Init`'s control grant on both copies (`build.py:8494-8507`, `content/entry_settle.py`), so each copy's arrival holds control off for 68 ticks, about 2.27 s at 30 TPS, with no line. The id comes from the dev scratch band and is read against the live `DictionaryPatch.txt` at build time; it is deployed with an explicit `--id`, and its first deploy needs a relaunch. Record also that 30602 itself leaves `entry_settle` at its "auto" default (`lockt2.field.toml:58`), which a review run resolved to a 50-frame hold, so CAL2's own arrivals overlap about 1.2-1.35 s | the follow race's FE1 shape (debug warps) | DA-LANE, DA-CAL, DA-JOIN, DL-LIFE, DL-NOREG, DC-FE, DF-FAST, DF-3X, DA-ARRIVE (ARRIVE the gate; CAL2 a watch, CAL0 its control), DA-PROBE-X |
+| DESK | `warp(359, entrance=0, scenario=2600)`; the guest follows; the host presses confirm D after each line opens and again every D until the line closes, D ∈ {0.3, 1.0, 2.5}: a press on a line still typing only finishes it and emits nothing, since the host taps only on a confirm that advances (`NetSyncClient.cs:7293-7294`) | FT-A: 359's scene runs at any scenario (`test2_102.txt` reads none) and ends in `Main_11`: `PreloadField(5,351)`, `FadeFilter(6,24)`, `Wait(25)`, entrance 15, `Field(351)` (`:271-301`, called from `:648`); 351 entrance 15 builds the desk scene (see leg C), first line win 3 text 129 | DA-LINES, DF-FLASH, DF-GRACE, DF-PACE, DA-PROBE, DA-ARRIVE (a watch), DC-WON |
+| REST | continues each DESK run: the desk scene's own end, `Dagger_Loop` case 23 after text 139 closes (`test2_94.txt:3372-3386, 3850-3879`: `FadeFilter(6,30)`, `Wait(30)`, entrance 3, `Field(352)`; leg C has the detail), to 352 entrance 3, first line win 4 text 142 (`test2_95.txt:64-69, 1430-1435, 1649-1654`) (P6). Sub-legs: REST (act) and REST-OLD (the guest sends `swap fade old` before text 139 closes), each at every D | FT-B | DC-B(a) (REST), DC-B(b) (REST-OLD), DP-HALT, DP-DRESS, DA-PROBE, DC-WON |
 | CAT | `warp(350, entrance=0, scenario=2600)` (the session's 350 value), the guest by one follow; pokes below | 350 to 351 "Cat's Eye" | DB-SHAPE, DB-BIT, DB-HOLD, DB-ORDER |
 | OWN | s163's recipe: the host's byte 238 poked and read back, then `warp(351, entrance=0, scenario=2600)`; the gate bytes 238 = 1, 241 = 4, 242 = 0 on both, the guest first (`coop_speed_mirror_duo.py:427-429, 551-553`); pick choice 2 | FT-OWN: 351 to 450 "Dagger Tries" | DC-OWN |
-| MENU | The guest holds its main menu across the host's MAPJUMP and closes it 1.2 s after the emit (and 3.5 s in the aged variant); the host marks flag 8720 during the menu | | DL-DEFER, DP-DEFER, DP-AGED |
+| MENU | The guest holds its main menu across the host's MAPJUMP and closes it 1.2 s after the emit (and 3.5 s in the aged variant); the host marks flag 8720 during the menu. Under the `pin` word the guest's `swap pin old` covers the 1.2 s run only (P3) | | DL-DEFER, DP-DEFER, DP-AGED |
 | MARK | The host exits to D; once the host's body stands on D, the bench sends `flag 8720 1` to the host. The guest runs `swap fade long` for this leg, to widen the window | | DP-MARK |
-| LEFT | The host's harness `battle` 0.8 s after its landing | | DL-LEFT |
+| LEFT | The host's harness `battle` 0.8 s after its landing. The battle goes through the swirl, whose first frame ends section 4 as Left (S1, row `r-swirl`) | | DL-LEFT |
 | OPEN | The host opens an NPC line (relayed locked to the guest) and warps with it up | | DF-OPEN |
 | every leg | the host's `dress.party` sampled at each emit and after each landing | | DP-PARTY (reach-gated) |
 | LEVERS | Raw sends | | LVD-ROLE, LVD-LIFE |
@@ -1570,9 +1636,9 @@ Two real games on this desktop through `tools/harness/duo.py`, with `stateevery 
 | Row | Green | Calibration word |
 |---|---|---|
 | DK-CLOCK | K-CLOCK holds on both games (F11a) | none (the precondition above) |
-| DA-LANE | Order, per transition: emit_t ≤ intent.first_sent_t ≤ seen.arrived_t ≤ seen.first_t ≤ follow_t ≤ due_t ≤ commit_t ≤ the guest's land_t. A transition whose `arrived_t` is -1 or whose first send the watch missed is UNREACHED for that transition, never red (F10). Reported, not judged (T12): first_sent_t − emit_t, seen_t − arrived_t, follow_t − seen_t, the landing gap and the first-line gap | none (gate on order) |
+| DA-LANE | Order, per transition: emit_t ≤ intent.first_sent_t ≤ seen.arrived_t ≤ seen.first_t ≤ follow_t ≤ due_t ≤ commit_t ≤ the guest's land_t. A transition whose `arrived_t` is -1 or whose first send the watch missed is UNREACHED for that transition (F10). The floor (P8): each of CAL, DESK and REST needs at least one reached transition, else DA-LANE is red "not reached: arrived_t was -1 on every transition", with reached/total in the detail. Reported, not judged (T12): first_sent_t − emit_t, seen_t − arrived_t, follow_t − seen_t, the landing gap and the first-line gap | none (gate on order) |
 | DA-CAL | CAL1: `commit_t - due_t` = 200 ms ± 1 frame within each follow. Reported: CAL0's commit − follow (0.885-0.912 s predicted) and CAL1 − CAL0 | `delay` (CAL1 sends `delay 0` but still expects +200) |
-| DA-PROBE | MAPJUMP legs only (DESK, REST), per intent with `intent.last_site` `mapjump` (a sample from another site is refused): frames, updates and sends ≥ 1; oob `sent` or `overwritten`; 1 ≤ the guest's `seen.copies` ≤ the host's `sends`; `last_end` `stands` under act. Predictions below (F4) | none (gate on consistency) |
+| DA-PROBE | MAPJUMP legs only (DESK, REST), per intent with `intent.last_site` `mapjump` (a sample from another site is refused): frames, updates and sends ≥ 1; oob `sent` or `overwritten`; 1 ≤ the guest's `seen.copies` ≤ the host's `sends`; `last_end` `stands` under act; the host's `intent.landed_frames` Δ ≥ 1 (frames after its landing carry the bit, S3). Reported: the guest's `pin.last_use_quality` per transition. Predictions below (F4) | none (gate on consistency) |
 | DA-PROBE-X | CAL: the same keys on debug-warp emits | exploratory, reported only |
 | DA-JOIN | One record per transition on each copy (ids +1); the guest's nonce equals the host's; the guest's land_via `follow`, the host's `host`; both closed by `line` or `window` | none (gate) |
 | DL-LIFE | The guest's seen span (last_t − first_t) is 1800-2700 ms; the host's "ended ... I stand on it" line | `life` (span about the host's load) |
@@ -1582,11 +1648,12 @@ Two real games on this desktop through `tools/harness/duo.py`, with `stateevery 
 | DF-3X | CAL3: ticks 12-13; commit − follow ≤ 0.22 s | `fade`, `long` |
 | DA-LINES | Every edge line on both logs stamped; for each host tap seq S: tap_t ≤ queued_t ≤ closed_t; "waited X ms" = closed_t − queued_t ± 1 ms; "shown Y ms" ≤ closed_t − that page's open stamp | `stamps` (both games) |
 | DF-FLASH | REACHED when `view_start` is `heading` or `black`. Action `join`, or C's own pass ends it (by `own`); no `cur_now` dip from the follow start to the first of (due, field load). Otherwise UNREACHED, never red | `fade` (wipe and the dip) |
+| DF-GRACE | DESK at act (V6). REACHED when `fade.last.view_start` is `black`, or `heading` with `left_start` ≤ 12 (the Join action). Green: `fade.last.by` `own`, the copy's own `Field(351)` passing by the Pending term inside the 3-tick grace and the prime. Otherwise UNREACHED | none (it falsifies the `Wait(25)` resume-tick INFER the grace rests on) |
 | DF-PACE | At D = 0.3, REACHED only when the copy lags at the intent: backlog_start `line` or `ahead`; by `timer`; the guest's last close for 359 logged before the commit. Otherwise UNREACHED | `fade`, `nogate` |
-| DC-B(a) | REST at act, on any path. REACHED when the guest saw the intent before its own jump or made no own jump before its landing. Green: one guest load of 352; `bounces` +0; guest landing − host landing ≤ 0.3 s. An own jump before the intent (the s158 shape) is recorded as "C2 not built" and not judged (F2) | none (behaviour gate) |
-| DC-B(b) | REST-OLD (the guest on `fade old`). REACHED when the guest saw the intent before its own jump (`own.cache.field` 352, or a pending 352 sampled first) and its `host_lane` read 0 or 351 then. Green: an own pass (pending, committed, intent or cache), `converted` +1 when the term is pending, one load, `bounces` +0 | `own` (a bounce, a second load) |
+| DC-B(a) | REST at act, on any path. REACHED when the guest saw the intent before its own jump or made no own jump before its landing. Green: one guest load of 352; `bounces` +0; guest landing − host landing ≤ max(0, L139) + 0.3 s, where L139 = the guest's close of text 139 − the host's close of it, each read as that game's first state sample no longer listing (win 3, text 139), by its `clock.now_ms` (P7, P10). Reported: the raw landing gap and L139. An own jump before the intent (the s158 shape) is recorded as "C2 not built" and not judged (F2) | none (behaviour gate) |
+| DC-B(b) | REST-OLD (the guest on `fade old`), at every D. REACHED when `last.own_t` is set with `own_dest` 352 and the guest's last sample before it shows the intent seen (`own.cache.field` 352, or `session.follow.pending` 352) with `own.host_lane` 0 or 351 (P4). Green: an own pass (pending, committed, intent or cache), `converted` +1 when the term is pending, one load, `bounces` +0. Reported: the reach count across the D values (the own jump and the host's body race, P7) | `own` (the marker: a bounce and a second load). It needs at least one REACHED run; none reached makes the calibration VOID |
 | DC-WON | DESK, REST and REST-OLD: `counts.follow_won` Δ and own passes by term, per leg (F2) | reported, never judged |
-| DP-UP | REACHED when `pin.upgrades` Δ ≥ 1 across the MAPJUMP exits, else UNREACHED (F11c). Green: every such upgrade reads `last_upgrade_diff` 0 (the "VM halted" premise) | none (gate) |
+| DP-HALT | REACHED when `pin.pre_frames` Δ ≥ 1 across the MAPJUMP exits (a later pre-landing frame of a held nonce was compared), else UNREACHED (F11c). Green: `pin.max_pre_diff` stays 0, the halted-VM premise the pin rests on (S3) | none (gate) |
 | DP-DRESS | After the 351 → 352 landing, the guest's `dress.self.want_char` matches the latest frame's leader (no double) | none (the mutant `dress_follows_story` carries it) |
 | DP-PARTY | REACHED only on a landing whose host `dress.party` differs between the emit and the host's landing. Green: the guest's `dress.mirror_party` after its landing equals the host's post-landing party (the latest frame), not the emit-time one (R1). UNREACHED otherwise | none (P-PARTY and the mutant `party_follows_story` carry the claim) |
 | DB-SHAPE | The guest logs its own `Field(351)` passing (the host's pick, choice 3, on field 350), and its first state sample listing window (win 7, text 113) comes at least 4.5 s before its first sample with `host_flags` b0 set on 351, both on the guest's own `clock.now_ms` (F11b). If text 118 opens first, the else path ran and the run is VOID | none (reach guard) |
@@ -1594,39 +1661,40 @@ Two real games on this desktop through `tools/harness/duo.py`, with `stateevery 
 | DB-HOLD | One "win 7 text 113 held -- the host's control is off on my field" line, then the end line at the host's 113 open, predicted "(a host event claims it)"; no "113 is not on the host's screen"; `orphan_closes` Δ0 across 351 | `orphan` |
 | DB-ORDER | The guest's 113-117 each close "closed (host seq N)", with N strictly increasing and equal to the host's tap seq for the same text; no "dropped -- it is for field 351" | `orphan` |
 | DC-OWN | One load; the term or the lane recorded | none (regression) |
-| DL-DEFER | The guest's "intent: following the peer to field D (parallel)" within 200 ms of its menu closing | `life` (host; the serial follow's line instead) |
-| DP-DEFER | REACHED only when that landing came by the intent (`last.follow_via` `intent`) with the pin's age < 2500 ms: flag 8720 = 0. VOID under `life` | `pin` |
+| DL-DEFER | The guest's follow starts by the intent within 200 ms of its menu closing: `last.follow_t` (with `last.follow_via` `intent`) minus the `clock.now_ms` of the guest's first sample with its menu closed (P10) | `life` (host; the serial follow instead) |
+| DP-DEFER | REACHED only when that landing came by the intent (`last.follow_via` `intent`) with the pin's age < 2500 ms and `pin.last_use_quality` `pre` (P3); a `late` capture is UNREACHED with the reason "the first frame I saw came after the host's landing", and `pin.late` per leg is reported. Green: flag 8720 = 0. VOID under `life` | `pin` |
 | DP-AGED | Menu held to 3.5 s: flag = 1, why `aged` | none (guard) |
-| DP-MARK | VOID unless the host's first sample with flag 8720 = 1 (its `clock.now_ms`) precedes the guest's `last.land_t` by ≥ 300 ms (F11b). Flag = 0, the pin line, `last_diff` ≥ 1 | `pin` |
-| DL-LEFT | The host logs "ended ... I left it"; the guest's `seen.last_t` stops within 300 ms of the battle start | none (guard) |
+| DP-MARK | VOID unless the host's first sample with flag 8720 = 1 (its `clock.now_ms`) precedes the guest's `last.land_t` by ≥ 300 ms (F11b). REACHED only when `pin.last_use_quality` reads `pre` (P3); a `late` capture is UNREACHED with its reason. Green: flag = 0, the pin line, `last_diff` ≥ 1 | `pin` |
+| DL-LEFT | The host logs "ended ... I left it" at the battle's swirl (its first `SwirlScene` frame, S1); the guest's `seen.last_t` stops within 300 ms of the battle start | none (guard; row `r-swirl` pins the rule) |
 | DF-OPEN | The guest's backlog_start `open`, path `backlog`, by `timer` ≥ 0.885 s. If the harness `warp` refuses with a window up, DF-PACE stands in as the backlog row | `fade`, `nogate` |
-| DA-ARRIVE | CAL2 and DESK, REACHED only when the guest is dressed at the landing (`dress.self.want_char` ≥ 0 and not Zidane). Green: from the guest's landing until its control returns, no `step-out: OUT ... -- dwell` line and, on CAL2 (no line at all), `netsync.stepout.active` never true. On DESK an OUT by `line` at the desk scene's first line is lawful. Reported: the host-to-guest control-off overlap at each arrival, from both games' `player.control` samples (R2) | none. `fade old` (CAL0, a DESK run with the guest on `fade old`) is its control and must be green too |
+| DA-ARRIVE | **ARRIVE, the gate (V5, G1).** REACHED when the measured overlap (the host's first control-true sample after its landing minus the guest's landing, both on the swap clock) is at least DwellMs + 100 ms at act; a leg that does not reach its own exposure is red ("not reached"), never green. Green: from the guest's landing until its control returns, no `step-out: OUT ... -- dwell` line and `netsync.stepout.active` never true; the guest's peak `netsync.stepout.base.age_ms` (`HarnessAgent.cs:4996`) is reported. The guest need not be dressed: the OUT is the defect, the stand-in's flash only its visible form. **CAL2 and DESK, watches.** REACHED only when the guest is dressed at the landing (`dress.self.want_char` ≥ 0 and not Zidane). Green: no dwell OUT; on DESK an OUT by `line` at the desk scene's first line is lawful. Reported on every arrival: the overlap, from both games' `player.control` samples (R2) | none. `fade old` on the same arrivals (ARRIVE with the guest on `fade old`, CAL0, a DESK run on `fade old`) is the control and must be green |
 | LVD-ROLE | `swap life old` to the guest gives the host-side refusal; `swap orphan old` to the host gives the guest-side refusal; `swap hostctl off` to either gives the selftest refusal | none |
 | LVD-LIFE | `swap life old` to the host reads back `levers.life` `old`, and the host's `reset` releases it | none |
 
-**DA-ARRIVE's red is a defect, not a calibration.** No arrival guard is pre-built in round 1. A red at act means the tighter landing feeds s158's ARRIVAL LAW (`NetSyncStepOut.cs:22-23`; `DwellMs = 1500` at :147; `StartRule` :261-268) past its dwell, and it must be fixed before ship. The planned fix is a landing-scoped arrival guard behind its own lever: a dwell counted from max(the base start, my landing + the host's arrival lead), never a retuned `DwellMs`.
+**DA-ARRIVE's red is a defect, not a calibration.** At a wordless arrival both copies run the same control-off script from their own landings, so the step-out base (the host here, its control off, mine off: `NetSyncStepOut.cs:239-256`) lasts about A − lag, where A is the host's control-off time after its landing. A dwell OUT needs that base to reach `DwellMs = 1500` (:147; `StartRule` :261-268; the base re-arms its clock whenever a term fails, :556-567). So the arrivals that newly step out under s158's ARRIVAL LAW (:22-23) are those with A between 1.5 s + the act lag (about 0.45-0.5 s) and 1.5 s + s163's lag (about 1.04 s). ARRIVE puts A at about 2.27 s by construction. **Pre-registered prediction on round 1's code: RED at act** (a base of about 1.8 s), green on `fade old` (about 1.25 s). By R2's ruling a red at act must be fixed before ship, so the arrival guard is now a ship blocker, not a hope (owner decision 8). The planned fix is unchanged: a landing-scoped arrival guard behind its own lever, a dwell counted from max(the base start, my landing + the host's arrival lead), never a retuned `DwellMs`. It changes s158's step-out, so it gets its own short spec and review before it is built; ARRIVE then becomes that lever's calibration (guard off red, guard on green).
 
 **Duo calibrations, pre-registered.** Each word turns exactly these rows red:
 
 | Word | Lever | Red rows |
 |---|---|---|
-| `stamps` | both games: `swap stamps off` | DA-LINES (DB-SHAPE and DP-MARK read `clock.now_ms` and stay as they are) |
+| `stamps` | both games: `swap stamps off` | DA-LINES (DB-SHAPE, DP-MARK, DL-DEFER and DC-B(a)'s L139 read `clock.now_ms` and state keys, and stay as they are) |
 | `delay` | CAL1 sends `delay 0` | DA-CAL |
 | `orphan` | guest: `swap orphan old`, from before the pick | DB-HOLD, DB-ORDER |
-| `own` | guest: `swap own old`, on REST-OLD only; CAL and DESK hold `own act` (T4) | DC-B(b) |
+| `own` | guest: `swap own old`, on REST-OLD only; CAL and DESK hold `own act` (T4) | DC-B(b), on its REACHED runs (at least one, P4, P7) |
 | `nocache` | guest: `swap own nocache`, on REST-OLD only | none: a control. When the intent is seen in time the Pending term decides before the cache term is reached, so DC-B(b) stays green; the cache term's red is solo C-CACHE |
-| `pin` | guest: `swap pin old` | DP-MARK, DP-DEFER |
+| `pin` | guest: `swap pin old`, on the MARK leg and the 1.2 s MENU run only, so DP-AGED (the 3.5 s run) keeps judging `aged` (P3). Their reach reads `pin.last_use_quality`, which records the capture's quality under the lever too | DP-MARK, DP-DEFER |
 | `life` | host: `swap life old` | DL-LIFE, DL-DEFER (DP-DEFER goes VOID; DC-B(a) stays green; DA-PROBE records the s163 life as a measurement) |
-| `fade` | guest: `swap fade old` (the CAL sub-legs keep their own levers) | DF-FAST, DF-3X, DF-FLASH, DF-OPEN, and DF-PACE if reached |
+| `fade` | guest: `swap fade old` (the CAL sub-legs keep their own levers) | DF-FAST, DF-3X, DF-FLASH, DF-OPEN, and DF-PACE if reached (DF-GRACE reads UNREACHED: the Old path never joins) |
 | `long` | guest: `swap fade long` | DF-FAST, DF-3X |
 | `nogate` | guest: `swap fade nogate` | DF-OPEN, and DF-PACE if reached |
 
 **Pre-registered predictions:**
 - **DA-CAL:** CAL0 0.885-0.912 s (the s163 measurement, reported); CAL1 `commit_t - due_t` = 200 ms ± 1 frame.
-- **DF-FAST:** commit − follow about 0.40 s (12 ticks at 30 TPS, plus up to 1 tick). Landings about 0.5 s apart instead of about 0.95 s (§1: 1.04 s − 0.47 s).
+- **DF-FAST:** commit − follow about 0.40 s (12 ticks at 30 TPS, plus up to 1 tick and the prime's one frame). Landings about 0.5 s apart instead of about 0.95 s (§1: 1.04 s − 0.47 s).
 - **DF-3X:** about 0.15 s.
-- **DC-B(a):** the guest lands at most 0.3 s after the host, with no reload.
-- **DC-WON (INFER):** at act, a copy within 3 ticks of the host passes by its own `Field()`; a copy further behind lands by the follow.
+- **DC-B(a) (P7):** no reload, and the guest lands within L139 + 0.3 s of the host. At D = 2.5 the host reads text 139 for longer than the copy's lag + 350 ms, so L139 is about the lane latency and the gap is within 0.3 s outright. At D = 0.3 the copy catches up through `MinShowMs`, so L139 is about the latency + 0.35 s and the raw gap about 0.4 s.
+- **DC-WON (P6, V6; INFER on the resume tick):** on DESK (`FadeFilter(6,24)`, `Wait(25)`) and REST (`FadeFilter(6,30)`, `Wait(30)`) the copy's own `Field()` runs about 1-2 ticks after its slot first reads black. At act, when the follow starts with the copy's slot black, or heading with 12 ticks or fewer left (Join: the 3-tick grace, then the prime), the own jump wins by the Pending term (`converted` +1, `fade.last.by` `own`; DF-GRACE judges this on DESK). With more than 12 ticks left (Hurry) or a visible slot (Fade, grace 0), the follow commits first (`follow_won` +1). On the Backlog path the commit waits for the 0.9 s timer, so an own jump inside it wins. An own jump before the intent arrives is s158's shape.
+- **DA-ARRIVE (V5, G1):** on ARRIVE, RED at act on round 1's code (base about 1.8 s), green on `fade old` (about 1.25 s); CAL2's overlap about 1.2-1.35 s (green, close under the dwell); DESK green (its OUT, if any, is by line).
 - **DA-PROBE (MAPJUMP legs):**
   - Under act: `last_life_ms` 2000-2400, `sends` about `last_life_ms` over the measured write period.
   - Under `life` (the s163 rule): `last_end` `old`, `last_life_ms` 250-600 (the host's load), `updates` 1-2, `frames` 1-3.
@@ -1651,17 +1719,17 @@ Every hunk is tagged `[ff9mapkit netsync s164]`.
 | `Memoria\Netsync\NetSyncSwap.cs` (new) | file | A's rules and record, the QPC clock, C's rules, PIN, LIFE, the levers, the state readers, the SelfTest |
 | `Memoria\Netsync\NetSyncFollowFade.cs` (new) | file | D+E's rules, the per-follow state, `Begin` / `Due` / `Ended` / `Clear` |
 | `Assembly-CSharp.csproj` | 1 | two includes |
-| `Memoria\Netsync\NetSyncClient.cs` | about 62 | A about 29, B 4, C about 10, PIN about 10, LIFE about 10, D+E about 6 (partly shared sites) |
-| `Memoria\Netsync\NetSyncDialog.cs` | about 22 | A's stamps, PageT and SeenT; B's rule, hold tracking, `OrphanSinceRule`, OrphToLocked wording, teardown and KeyScript row; D's `BacklogNow` |
-| `Memoria\Netsync\NetSyncAte.cs` | about 6 | A's three stamps; C's `HoldVerdict` / `HoldsFollowQuiet` split (byte-identical) |
-| `Memoria\Netsync\NetSyncSocket.cs` | about 9 | interface (three members), struct, frame fields, `SetStateWatched`, SetState, CollectOutgoing, Accept (`InSeq`), forwarders |
+| `Memoria\Netsync\NetSyncClient.cs` | about 60 | A about 28, B 4, C about 10, PIN about 9, LIFE about 9, D+E about 6 (partly shared sites; one hunk each for the `next` and `reset` ends) |
+| `Memoria\Netsync\NetSyncDialog.cs` | about 22 | A's stamps, PageT and SeenT; B's rule, hold tracking, `OrphanSinceRule` / `KeepReadRule`, OrphToLocked wording, teardown and KeyScript row; D's `BacklogNow` |
+| `Memoria\Netsync\NetSyncAte.cs` | about 7 | A's three stamps; C's `HoldVerdict` / `HoldInputsNow` / `HoldsFollowQuiet` split (the loud path byte-identical) |
+| `Memoria\Netsync\NetSyncSocket.cs` | about 8 | interface (three members), struct, frame fields, `SetStateWatched`, SetState, CollectOutgoing, Accept (`InStateTs`), forwarders |
 | `Memoria\Netsync\NetSyncRelay.cs` | 3 | forwarders |
-| `Memoria\Netsync\NetSyncState.cs` | 1 | `ApplyStorySplit` |
+| `Memoria\Netsync\NetSyncState.cs` | 1 | `ApplyStorySplitTo` and its live wrapper `ApplyStorySplit` |
 | `Memoria\Netsync\NetSyncBattle.cs` | 1 | the release (after :6840) |
 | `Memoria\Harness\HarnessAgent.cs` | about 6 | `case "swap"`, the unknown-sub-verb literal, `AppendSwap` and its call, the catch literal, the ProtocolVersion paragraph |
 | `Assets\Scripts\Common\SceneDirector.cs` (stock) | 1 | the read-only `NetSyncReadFade` |
 | `Global\UI\UIKey\Ff9mkDebugMenu.cs` | 2 | `NetSyncWarpPending`; the emit site argument at :2452 |
-| **Total** | **about 115 hunks in 12 files, plus 2 new files** | |
+| **Total** | **about 114 hunks in 12 files, plus 2 new files** | |
 
 **Kit files:**
 - `tools/harness/{battlewire.py, fakegame.py, session.py, channel.py}`
@@ -1670,13 +1738,14 @@ Every hunk is tagged `[ff9mapkit netsync s164]`.
 - `studies/field-coop/swap-timing/{final.py, conv.py, drift.py}`
 - `studies/test-harness/scenarios/coop_follow_race_duo.py`
 - new: `studies/test-harness/scenarios/coop_field_swap_timing.py` and `coop_field_swap_timing_duo.py`
+- new: `studies/movement/bench/lockt2-arrive.field.toml`, ARRIVE's scratch copy of the bench field with `[camera] entry_settle = 68`, deployed at a scratch id with an explicit `--id` (V5)
 - at build: `memoria-patches/s164-netsync-field-swap-timing.patch` with its README row, and `ff9mapkit/CHANGELOG.md`
 
 **Gates before the README row:**
 - the proof line OK;
 - `test_coop_field_swap_timing_bench.py` and the domain tests green;
 - the solo bench green, with every calibration word turning exactly its rows red;
-- the duo green with DK-CLOCK holding, with the same; DA-ARRIVE green at act;
+- the duo green with DK-CLOCK holding, with the same; DA-ARRIVE green at act on ARRIVE, which round 1's code is predicted to fail until the arrival guard lands (owner decision 8);
 - the regression set:
   - from rev 1: `coop_ate_relay` (s161's counts unchanged: 165 rows / 65 mutants), `coop_step_out`, `coop_chest_relay`, `coop_guest_traversal`, `coop_self_dress`, `coop_climb_anim`, `coop_speed_mirror` and `coop_dialogue_authority`;
   - added for LIFE and PIN (R3): `coop_world_wait`, `coop_world_battle`, `coop_world_party_duo`, `coop_session_edges`, `coop_session_edges_duo`, `coop_ramp_title`, `coop_talk_relay`, `coop_dialogue_lockstep`, `coop_diorama_return`, `coop_ate_relay_duo` and `coop_chest_relay_duo`;
@@ -1704,21 +1773,22 @@ Every hunk is tagged `[ff9mapkit netsync s164]`.
 11. **A `Main_Init` that rewrites FieldEntrance** (bytes 2-3) would make the pin's entrance differ from the latest frame's. Under the pin, my copy replays what the host did.
 12. **The `HoldsFollow` split must stay byte-identical** (C). s161's counts check the loud path; `quiet_equals_loud` checks the quiet one.
 13. **Under s161's exit hold, a C pass keeps my copy's own entrance** (owner default 4). The exit hold itself is proven by self-test only (`ATE-RELAY.md:290`).
-14. **Earlier landings and the step-out.** The tighter gap lengthens the overlap of the two copies' arrival control-off phases, which s158's arrival law guards only by its 1500 ms dwell; Finding 9's dressed double also shows for longer. DA-ARRIVE watches both; a red at act is a defect to fix before ship, with the arrival guard above as the planned fix.
-15. **Bodyless destinations keep section 4** until the host leaves or emits again (6 bytes a frame). A disc change now ends section 4 at the hook.
+14. **Earlier landings and the step-out.** The tighter gap lengthens the overlap of the two copies' arrival control-off phases, which s158's arrival law guards only by its 1500 ms dwell; Finding 9's dressed double also shows for longer. Every wordless arrival whose control-off lasts between about 2.0 s and 2.5 s newly steps out at act. ARRIVE reproduces that by construction and is predicted red, so the arrival guard is a ship blocker (owner decision 8). The speed mirror's start has no dwell either (`NetSyncSpeed.cs:165-168, 185-210`): a door fade-in can start it, which s163 already accepted (`SPEED-MIRROR.md:120-121`; its latch ends the mirror with my control back). Earlier landings make that more frequent, with no new row.
+15. **Bodyless destinations keep section 4** until the host leaves or emits again (7 bytes a frame). A disc change now ends section 4 at the hook.
 16. **Log census.** Every `$`-anchored reader in the repo is fixed. Readers outside it, such as the owner's own scripts, are unknown.
 17. **Kit churn:** about 20 tail-order asserts, plus the sub-verb regex.
-18. **A copy fade that re-inits the slot mid-follow (T10, deferred to round 2).** A copy's own `FadeFilter` started after the follow's fade re-inits the slot with its own frame count; black can then land after the 0.9 s timer and the commit cuts from a half-dark screen, the same outcome as today. The measure is the due line "the 0.9 s fallback: the fade never read black (<view>, ...)".
+18. **A copy fade that re-inits the slot mid-follow (T10, deferred to round 2), and the Add-mode exit (G4).** A copy's own `FadeFilter` started after the follow's fade re-inits the slot with its own frame count; black can then land after the 0.9 s timer and the commit cuts from a half-dark screen, the same outcome as today. The measure is the due line "the 0.9 s fallback: the fade never read black (<view>, ...)". Separately, a copy fading to WHITE (an Add-mode `FadeFilter`, `EventEngine.DoEventCode.cs:647`; for example before `Field()` in `test2_480.txt:132` and `test2_781.txt:234, 454`) reads Visible, so the Fast path's Fade switches the slot to Sub (`SceneDirector.cs:604, 645`) and the white overlay snaps back before fading to black: today's flash, not a regression, but an exception to "no flash". The fast start line logs the slot's mode, so the stamps count it.
 19. **The divergent copy in the commit window (T4).** A copy whose own `Field(N)` names a field other than the follow's runs in the tick after the commit and bounces: one reload and a second follow, as today. A matching `Field()` passes by the Committed term.
 20. **Levers rest on the release alone (F9).** A throw inside `HarnessReleaseBench` before `NetSyncSwap.HarnessRelease()` would leave a lever set until restart, the same exposure every netsync lever has had since s133.
 21. **World-rejoin landings stage the latest frame in round 1 (R3).** A world script's writes after its MAPJUMP reach the guest exactly as on s163.
-22. **The pin's landing-seen lane term (INFER).** It rests on the out-of-band frame carrying b3 set; `pin.land_seen_by` reports which term fired, and DP-UP's reach clause shows how often an off-field frame exists at all.
+22. **The landed bit lengthens section 4 by one byte inside wire v14 (S3).** Every s163 reader takes the first three bytes and treats a longer body as ordinary (PIN, "The host's half"). An s164 guest under an s163 host gets no bit, reads every frame as landed and stages the latest frame, which is s163's behaviour. A frame built after the host's landing hook but before its `Main_Init` finished is also read as landed: conservative, never a wrong pin.
 23. **DP-PARTY is not deterministically reachable on the duo.** No harness verb changes a real host's party or bag at a chosen moment. P-PARTY (solo, through the real `ParseSections`) and the mutant `party_follows_story` carry the claim; a host-side party poke is a build-round follow-up if the owner wants the duo row reached on purpose.
-24. **No main-thread stall lever.** T6's stall case is covered by rows c3-c5 and by pinbench `skip <n>` through the real `PinCaptureRule`, not by a real stall: no harness verb blocks the game thread, and one is not cheap to make safe.
+24. **A guest that sees no pre-landing frame stages the latest frame.** With the landed bit, a guest stall, a re-send or a reconnect can no longer mislabel a frame. A guest whose own stall (or link outage) spans the host's whole load, from MAPJUMP to the landing hook, observes no frame with the bit clear, captures Late and stages the latest frame, as s163 does. `pin.late` and `pin.last_use_quality` count it; DP-MARK and DP-DEFER read such a run as UNREACHED, not red.
+25. **A battle on the new field ends section 4 at its swirl (S1).** A guest still deferred on the source field when the host's battle starts falls back to the serial follow, exactly as on s163. Rev 2's battle-keep could never fire (the swirl reads `gMode` 1 with the FieldMap gone) and is removed rather than rebuilt on `FF9Sys.mode`; rebuilding it would also have needed a PIN guard against swirl frames.
 
 ## Owner decisions (defaults taken)
 
-Rev 1 left seven questions open. The owner took a default for each; every default names the lever or follow-up that reverses it.
+Rev 1 left seven questions open. The owner took a default for each; every default names the lever or follow-up that reverses it. Rev 3 adds question 8.
 
 1. **The backlog path without the flash: yes.** With a backlog the follow keeps today's exact timing (24-tick length, 0.9 s timer), but a screen already black or going black is not forced back to visible first. Reversed by `swap fade old`, which restores today's wipe on every path. A backlog-only wipe lever was considered (F12) and not built.
 2. **Hurry, not a literal "never re-init".** A copy fade slower than the follow's budget is re-paced to black from where it is, without a flash. Reversed by `swap fade nohurry`, which keeps the literal rule reachable.
@@ -1727,23 +1797,26 @@ Rev 1 left seven questions open. The owner took a default for each; every defaul
 5. **The entry-write census runs during the build round** (offline: the 817 exports' `Main_Init` and first tag-1 writes classed as set, read-modify-write, once-gated, random-gated or bytes 2-3). `pin.last_diff` measures in play, and `swap pin old` restores the latest frame.
 6. **(Removed.)** Rev 1 asked whether to accept a first Netsync read of the harness-armed flag. Rev 2 follows the s163 lever shape and reads nothing from the harness (F9; § The lever scheme).
 7. **C2 in a later round.** It needs a lockstep guard and an "own-ahead landing" law (keep my copy's own story when no intent frame exists for the landed field), each with its own review.
+8. **The arrival guard (new in rev 3; default taken: R2's own ruling).** ARRIVE makes DA-ARRIVE's red at act certain on round 1's code. The default keeps R2's rule that a red at act is fixed before ship: the round builds, the first duo run confirms the predicted red, and the planned landing-scoped guard (its own lever, its own short spec and review) lands before the README row, with ARRIVE as its calibration. Reversed by accepting risk 14 instead, which demotes ARRIVE to a reported number and needs an offline census of the HW exports' wordless arrival control-off lengths to size the exposure.
 
 ## Sources
 
 - `studies/field-coop/FIELD-SWAP-TIMING.md` (the measurements, options, corrections and recommendation; workflow `wf_87a54375-399`).
 - The five item specs of this round's workflow: A instrument, B orphan and levers, C own pass, PIN-LIFE, D+E fade.
 - The three reviews of rev 1: timing-race (T1-T14), regression (R1-R9), proof-bench (F1-F14), with the owner's resolution of each.
+- The reviews of rev 2 and their adversarial verification (S1-S5, V1-V7, G1-G4, P2-P11, I2-I10), applied as § What changed from rev 2.
 - `studies/field-coop/SPEED-MIRROR.md`, `ff9mapkit/tests/test_coop_speed_mirror_bench.py` and `studies/test-harness/scenarios/coop_speed_mirror_duo.py` (the s163 shape).
 - Engine reads at s163:
   - `NetSyncClient.cs` (:215-216, 516-597, 858-947, 1140-1144, 1650-1690, 1940-1951, 2028-2111, 2160-2180, 4655-4675, 5599-5640, 5750-5779, 5832-5860, 6150-6165, 6598-6672, 6728-6756, 6800-6830, 6874-6885, 7155-7192, 7740-7839, 8780-8796, 9371-9432);
-  - `NetSyncDialog.cs` (:1180-1201, 1505-1553, 1674-1686, 2214-2216, 3228-3229);
+  - `NetSyncDialog.cs` (:50-55, 88-96, 815-818, 889-894, 1180-1201, 1335-1346, 1505-1553, 1674-1686, 2214-2220, 3228-3229);
   - `NetSyncSocket.cs` (:37-76, 280-449, 609, 794-802);
-  - `NetSyncState.cs` (:85-125); `NetSyncParty.cs` (:1-40, 215-230);
-  - `NetSyncAte.cs` (:668-680); `NetSyncSpeed.cs` (:12-44, 88-100); `NetSyncStepOut.cs` (:18-26, 147, 239-270, 606);
+  - `NetSyncState.cs` (:37, 79-125, 145-157, 270-290); `NetSyncParty.cs` (:1-40, 76-98, 215-252, 486-512); `NetSyncDiorama.cs` (:2915-2927);
+  - `NetSyncAte.cs` (:668-702); `NetSyncSpeed.cs` (:12-44, 88-100); `NetSyncStepOut.cs` (:18-26, 144-150, 236-272, 545-575, 606); `NetSyncRelay.cs` (:47, 187-195);
   - `NetSyncBattle.cs` (:6758-6841);
-  - `HarnessAgent.cs` (:398-406, 1188-1226, 1594-1612, 1760-1774, 2238-2337, 2350-2365, 4010-4077, 4117-4120, 4168);
-  - `HonoluluFieldMain.cs` (:10-20, 226-320, 440-450); `HonoBehaviorSystem.cs` (:10-40, 90-125); `SceneDirector.cs` (:248-290, 392-404, 512-540, 636-680);
+  - `HarnessAgent.cs` (:398-406, 1188-1226, 1594-1612, 1760-1774, 2238-2337, 2350-2365, 4010-4077, 4117-4120, 4168, 4634-4641, 4990-4997);
+  - `HonoluluFieldMain.cs` (:10-20, 148-152, 200-212, 226-340, 440-452); `HonoBehaviorSystem.cs` (:10-40, 90-125); `SceneDirector.cs` (:248-290, 392-404, 512-565, 636-680);
   - `FPSManager.cs` (:1-110); `QuitUI.cs` (:50-58); `Ff9mkDebugMenu.cs` (:854-858, 1338-1344, 2418-2460);
-  - `EventEngine.DoEventCode.cs` (:1014-1044); `Memoria/Speedrun/AutoSplitterPipe.cs` (:168-174).
-- HW exports (`C:\gd\FFIX\reference\test2\`): `test2_93.txt` (350: :336-352, 444-473, 560-620), `test2_94.txt` (351: :56-80, 840-910, 1115-1116, 2645-2715, 3222-3240, 3285-3320, 3480-3540, 3855-3880), `test2_102.txt` (359: :1-60, 138-170, 271-310, 648); `studies/story-trace/research/design-5-claim-checks.md:10`.
+  - `EventEngine.DoEventCode.cs` (:632-648, 1014-1044); `Memoria/Speedrun/AutoSplitterPipe.cs` (:168-174).
+- HW exports (`C:\gd\FFIX\reference\test2\`): `test2_93.txt` (350: :336-352, 444-473, 560-620), `test2_94.txt` (351: :56-80, 840-910, 1090-1112, 1115-1116, 2645-2715, 3222-3240, 3285-3320, 3370-3390, 3460-3540, 3848-3881), `test2_95.txt` (352: :60-72, 1428-1450, 1636-1658), `test2_102.txt` (359: :1-60, 138-170, 271-310, 648); `studies/story-trace/research/design-5-claim-checks.md:10`.
+- Kit reads: `ff9mapkit/ff9mapkit/build.py` (:8494-8507), `studies/movement/bench/lockt2.field.toml` (:58), `tools/harness/coop_peer.py` (:2268, 2571), `studies/test-harness/scenarios/_coop_battle.py` (:214-220), `coop_follow_race_duo.py` (:715-719); the s163 two-PC host log (`twopc-s163-20261029/desktop-host...log`, lines 69-88).
 - The two-PC logs: `.harness-runs/twopc-{r3-20261027, s158-20261028, s161-20261028, s163-20261029}` (main repo).
