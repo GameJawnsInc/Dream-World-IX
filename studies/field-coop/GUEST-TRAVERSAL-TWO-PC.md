@@ -606,7 +606,7 @@ Ship the log split (which clock released the hold) either way.
 
 **Status: BUILT, DEPLOYED and SOLO-BENCHED as engine patch s163 (2026-10-29), on top of s162.** As built it differs
 from the sketch above: the wire carries the host's booster SETTING, not its effective factor, and the guest applies its
-OWN SpeedFactor, only while its control is off (`SPEED-MIRROR.md`, The rule). `coop_speed_mirror.py`
+OWN SpeedFactor, only while its control is off (`SPEED-MIRROR.md`, The rule and Revision 3). `coop_speed_mirror.py`
 reads 13/13 (host 5 above my SpeedFactor 3, so a factor of 3 is provably mine), and its `speed off` calibration reads
 10/15, exactly S-ON, S-LATCH, S-BACK, S-BATTLE and S-OFF red. Design and the accepted risks: `SPEED-MIRROR.md`; detail and the gates:
 `memoria-patches/README.md`, the s163 row. The log split shipped in s162. The duo (`coop_speed_mirror_duo.py`, this ATE

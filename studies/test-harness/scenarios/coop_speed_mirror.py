@@ -247,7 +247,8 @@ def settled(samples, on: bool) -> list:
     too: ``watch`` opens on the current publish, which IS the flip's own when the window opens on a `control` step. Two such publishes
     in a row stay red. Load-bearing for S-F1 and S-STALE only: S-HOST's window has no flip, and on S-WORLD (the field term) and under
     the calibration (the lever term) a term that StartRule checks before control already names the flip's own publish; they carry it
-    so every control-filtered why_not judge reads the same way."""
+    so the five judges that can see a flip (S-HOST, S-F1, S-STALE, S-WORLD, the marker) read the same way. S-OFF does not: its
+    control stays off and its window opens on the Block-2 lever ack."""
     return [s for i, s in enumerate(samples) if ctl(s) == on and i > 0 and ctl(samples[i - 1]) == on]
 
 

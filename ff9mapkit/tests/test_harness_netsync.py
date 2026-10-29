@@ -28407,7 +28407,8 @@ def test_the_stand_in_runs_the_bench_latch(game):
 def test_the_stand_in_ticks_the_speed_mirror_on_the_frame_start_control(game):
     """THE ORDER SKEW, pinned on the stand-in whatever the publish phase: the frame that runs `control 0` ticks the speed mirror on
     the frame-start control (HarnessAgent acks `control` with a publish before any NetSyncSpeed.Tick read the new one); the next frame
-    ticks on the new control. Reverting `_ctl_at_tick` to the live control reds the middle assert."""
+    ticks on the new control. Capturing `_ctl_at_tick` after `_drain`, or reading the live control in `_step_speed`, reds the middle
+    assert; the sentinel proves that frame's speed step really ticked."""
     fake = FakeGame(game)
     with session(game, fake) as g:
         g.newgame(settle=0)
@@ -28418,10 +28419,12 @@ def test_the_stand_in_ticks_the_speed_mirror_on_the_frame_start_control(game):
         g.wait_frames(4)
         fake._stop.set()
         fake._thread.join(timeout=5)
+        assert not fake._thread.is_alive()
         fake.returncode = 0          # the loop is stopped: Session.stop must not wait 15 s on a `quit` nobody drains
         assert fake.control is True and fake._sp["why_not"] == BW.SPEED_WHY_CONTROL
-        fake._execute(["control", "0"])
-        fake._step_speed()
+        fake._sp["why_not"] = "sentinel"
+        fake.queue.append(["control", "0"])
+        fake._frame_once()
         assert (fake.control, fake._speed_doc()["why_not"]) == (False, BW.SPEED_WHY_CONTROL)
         fake._frame_once()
         assert fake._speed_doc()["why_not"] == BW.SPEED_WHY_HOST

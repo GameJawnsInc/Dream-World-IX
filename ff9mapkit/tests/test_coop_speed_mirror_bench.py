@@ -324,9 +324,11 @@ OUT = {"good": j(), "cal": j([edit(s, why_not=WL) for s in W], "off"), "field_bl
 def test_the_order_skew_drops_one_publish_per_flip_and_no_more():
     """THE ORDER SKEW (the first s163 solo run, S-F1 and S-STALE red on it): HarnessAgent runs a `control` step and publishes its ack in
     the same Update, so that publish shows the new control with the speed block NetSyncSpeed's last Tick decided under the old one.
-    Every judge that reads why_not over a control-filtered window drops that ONE publish (and a window's opening one), and two lagging
-    publishes in a row stay red. Live, only S-F1 and S-STALE need it; the S-HOST, S-WORLD and marker cases pin that the same filter
-    rides every such judge (there an earlier StartRule term names the flip's own publish, so their lag fixtures cannot occur live)."""
+    The five judges that read why_not over a control-filtered window that can hold a flip (S-HOST, S-F1, S-STALE, S-WORLD and the
+    calibration's marker; S-OFF's control stays off) drop that ONE publish (and a window's opening one), and two lagging publishes in
+    a row stay red. Live, only S-F1 and S-STALE need it; the S-HOST, S-WORLD and marker cases pin that the same filter rides all five
+    (S-HOST's window has no control flip, and on S-WORLD and under the calibration an earlier StartRule term, the field or the
+    lever, names the flip's own publish, so their lag fixtures cannot occur live)."""
     out = _child(_SOLO + r'''
 lag = lambda w, n=1, **kw: [smp(0.01 * i, why=w, **kw) for i in range(n)]    # n control-off publishes still reading the old why_not
 pre = [smp(0.1 + 0.1 * i, host=1, why=WH) for i in range(5)]
