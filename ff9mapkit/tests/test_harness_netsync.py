@@ -19,7 +19,7 @@ import sys
 
 import pytest
 
-from ._patchstack import msr, net_lines, net_lines_ordered
+from ._patchstack import msr, net_added, net_lines, net_lines_ordered, stack_file   # [ff9mapkit netsync s162] + the two
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
@@ -892,13 +892,32 @@ def _untwinned(doc: dict) -> dict:
 def _unrelayed(doc: dict) -> dict:
     """[ff9mapkit netsync s161] A `netsync` document without s161's catch-line block -- `ate`, netsync's LAST key (after s160's
     `chest`; FG.NETSYNC_TOP_CAP_KEYS' `ate` row) and `stepout.in_why`'s `ate` (NETSYNC_TOP_NESTED_KEYS' `ate` row): the catch line as
-    s160 wrote it -- s161 added that block and that key and nothing else."""
+    s160 wrote it -- s161 added that block and that key and nothing else. [ff9mapkit netsync s162] (and without s162's keys:
+    :func:`_unlanded`)"""
+    doc = _unlanded(doc)
     out = {k: v for k, v in doc.items() if k not in FG.NETSYNC_TOP_CAP_KEYS["ate"]}
     so = doc.get("stepout")
     if isinstance(so, dict) and isinstance(so.get("in_why"), dict):
         drop = FG.NETSYNC_TOP_NESTED_KEYS["ate"]["stepout.in_why"]
         out["stepout"] = dict(so, in_why={k: v for k, v in so["in_why"].items() if k not in drop})
     return out
+
+
+def _unlanded(doc: dict) -> dict:
+    """[ff9mapkit netsync s162] A `netsync` document without s162's catch-line keys -- the landing term's four, all INSIDE
+    `netsync.stepout` (FG.NETSYNC_TOP_NESTED_KEYS' `ateland` row): `base.landing`, `landing_wire`, `out_why.ate` and
+    `ghost.by.landing` -- the catch line as s161 wrote it: s162 added those and nothing else."""
+    so = doc.get("stepout")
+    if not isinstance(so, dict):
+        return dict(doc)
+    rows = FG.NETSYNC_TOP_NESTED_KEYS["ateland"]
+    new = {k: v for k, v in so.items() if k not in rows["stepout"]}
+    for sub in ("base", "out_why"):
+        if isinstance(new.get(sub), dict):
+            new[sub] = {k: v for k, v in new[sub].items() if k not in rows["stepout." + sub]}
+    if isinstance(new.get("ghost"), dict) and isinstance(new["ghost"].get("by"), dict):
+        new["ghost"] = dict(new["ghost"], by={k: v for k, v in new["ghost"]["by"].items() if k not in rows["stepout.ghost.by"]})
+    return dict(doc, stepout=new)
 
 
 def _unstepped(doc: dict) -> dict:
@@ -919,7 +938,8 @@ def _unanchored(doc: dict) -> dict:
     """[ff9mapkit netsync s159] A `netsync` document without s159's catch-line key -- `anchor`, `netsync.stepout`'s LAST key
     (FG.NETSYNC_TOP_NESTED_KEYS' `stepanchor` row): the catch line as s158 wrote it -- s159 added that key and nothing else.
     [ff9mapkit netsync s160] (and without s160's block: :func:`_unchested`) [ff9mapkit netsync s161] (and s161's: the stepout
-    block it strips from is the one _unchested already took s161's `in_why.ate` out of)"""
+    block it strips from is the one _unchested already took s161's `in_why.ate` out of -- [ff9mapkit netsync s162] and s162's
+    `base.landing` / `landing_wire` / `out_why.ate`, through _unrelayed's _unlanded)"""
     out = _unchested(doc)
     if isinstance(out.get("stepout"), dict):
         drop = FG.NETSYNC_TOP_NESTED_KEYS["stepanchor"]["stepout"]
@@ -6592,11 +6612,16 @@ def _proof_lines(fake) -> list:
 
 def _so_proof_text(rows: int | None = None, mutants: int | None = None) -> str:
     """[ff9mapkit netsync s158] The stand-in's step-out proof line: its own row / mutant tallies, the dwell and the step-in.
-    [ff9mapkit netsync s159] (an s158 engine's: its own tallies)"""
+    [ff9mapkit netsync s159] (an s158 engine's: its own tallies) [ff9mapkit netsync s162] (an s159-s161 engine's: _SO_S161)"""
     rows = FG.FAKE_STEPOUT_SELFTEST_ROWS if rows is None else rows
     mutants = FG.FAKE_STEPOUT_MUTANTS if mutants is None else mutants
     return (f"{FG.PROOF_STEP_OUT}OK ({rows} rows, {mutants} mutants caught, "
             f"dwell {FG.STEPOUT_DWELL_MS} ms, step-in {FG.STEPOUT_STEP_IN_MS} ms)")
+
+
+#: [ff9mapkit netsync s162] the tallies an engine BEFORE s162 prints: the step-out line's (s159-s161), the ATE relay line's (s161)
+_SO_S161 = (FG.FAKE_STEPOUT_SELFTEST_ROWS_S161, FG.FAKE_STEPOUT_MUTANTS_S161)
+_AR_S161 = (FG.FAKE_ATE_SELFTEST_ROWS_S161, FG.FAKE_ATE_MUTANTS_S161)
 
 
 def _ch_proof_text() -> str:
@@ -6604,10 +6629,13 @@ def _ch_proof_text() -> str:
     return f"{FG.PROOF_CHEST}OK ({FG.FAKE_CHEST_SELFTEST_ROWS} rows, {FG.FAKE_CHEST_MUTANTS} mutants caught)"
 
 
-def _ar_proof_text() -> str:
+def _ar_proof_text(rows: int | None = None, mutants: int | None = None) -> str:
     """[ff9mapkit netsync s161] The stand-in's ATE relay proof line: its own row / mutant tallies, then the arm, the press (its TTL
-    and its cap), the pending and pre-pick holds, the hub hold (and its title cap), the tail hold (and its cap), the exit hold."""
-    return (f"{FG.PROOF_ATE_RELAY}OK ({FG.FAKE_ATE_SELFTEST_ROWS} rows, {FG.FAKE_ATE_MUTANTS} mutants caught, "
+    and its cap), the pending and pre-pick holds, the hub hold (and its title cap), the tail hold (and its cap), the exit hold.
+    [ff9mapkit netsync s162] (an s161 engine's: its own tallies, _AR_S161)"""
+    rows = FG.FAKE_ATE_SELFTEST_ROWS if rows is None else rows
+    mutants = FG.FAKE_ATE_MUTANTS if mutants is None else mutants
+    return (f"{FG.PROOF_ATE_RELAY}OK ({rows} rows, {mutants} mutants caught, "
             f"arm {FG.ATE_ARM_TICKS} key ticks, press {FG.ATE_PRESS_TTL_MS}/{FG.ATE_PRESS_CAP_MS} ms, pending {FG.ATE_PRE_HOLD_MS} ms, "
             f"prepick {FG.ATE_PREPICK_HOLD_MS} ms, hub {FG.ATE_HUB_HOLD_MS}/{FG.ATE_HUB_CAPTION_CAP_MS} ms, "
             f"tail {FG.ATE_TAIL_HOLD_MS}/{FG.ATE_TAIL_CAP_MS} ms, exit {FG.ATE_EXIT_HOLD_MS} ms)")
@@ -6652,14 +6680,18 @@ _PROOF_S145 = [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, BW
     # [ff9mapkit netsync s158] THE LIVE STAND-IN IS s158: then the step-out line
     # [ff9mapkit netsync s160] THE LIVE STAND-IN IS s160: then the chest relay line
     # [ff9mapkit netsync s161] THE LIVE STAND-IN IS s161: then the ATE relay line, the block's last
+    # [ff9mapkit netsync s162] THE LIVE STAND-IN IS s162: no new line -- the step-out and ATE relay lines carry s162's tallies
     ("live", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
                             _so_proof_text(), _ch_proof_text(), _ar_proof_text()]),
+    # [ff9mapkit netsync s162] s161 (s162's calibration red): the step-out line's s159-s161 tallies, the ATE relay line's s161 ones
+    ("s161", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
+                            _so_proof_text(*_SO_S161), _ch_proof_text(), _ar_proof_text(*_AR_S161)]),
     # [ff9mapkit netsync s161] s160 (s161's calibration red): no ATE relay line
     ("s160", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
-                            _so_proof_text(), _ch_proof_text()]),
+                            _so_proof_text(*_SO_S161), _ch_proof_text()]),
     # [ff9mapkit netsync s160] s159 (s160's calibration red): no chest relay line
     ("s159", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
-                            _so_proof_text()]),
+                            _so_proof_text(*_SO_S161)]),
     # [ff9mapkit netsync s159] s158 (s159's calibration red): the step-out line's s158 tallies
     ("s158", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
                             _so_proof_text(FG.FAKE_STEPOUT_SELFTEST_ROWS_S158, FG.FAKE_STEPOUT_MUTANTS_S158)]),
@@ -22469,7 +22501,8 @@ def test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self_and_ghost():
                                                                                                              "stepout",   # [s158]
                                                                                                              "stepanchor",   # [s159]
                                                                                                              "chest",   # [s160]
-                                                                                                             "ate"]   # [s161]
+                                                                                                             "ate",   # [s161]
+                                                                                                             "ateland"]   # [s162]
     assert FG.NETSYNC_BATTLE_CAPS["dresspolish"] == ("s141", ()) and FG.NETSYNC_S141_CAPS == frozenset(("dresspolish",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresspolish"] == {} and "dresspolish" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     assert FG.NETSYNC_DRESS_CAP_KEYS["dresspolish"] == BW.DRESS_KEYS_BY_RUNG["dresspolish"] == ()
@@ -25580,7 +25613,8 @@ def test_the_s156_agent_prints_guestlocal_last_and_the_driver_and_the_stand_in_a
                                                                                                        "stepout",
                                                                                                        "stepanchor",   # [s159]
                                                                                                        "chest",   # [s160]
-                                                                                                       "ate"]   # [s161]
+                                                                                                       "ate",   # [s161]
+                                                                                                       "ateland"]   # [s162]
     assert FG.NETSYNC_BATTLE_CAPS["guestlocal"] == ("s156", ("guestlocal",)) and FG.NETSYNC_S156_CAPS == frozenset(("guestlocal",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["guestlocal"] == {} and FG.NETSYNC_TOP_CAP_KEYS["guestlocal"] == ("guestlocal",)
     assert "guestlocal" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "guestlocal" not in FG.NETSYNC_DIORAMA_CAP_KEYS
@@ -25663,7 +25697,8 @@ def test_the_s156_catch_line_closes_netsync_with_the_guestlocal_sentinels():
     assert _catch_doc_in("s158") == _unanchored(nothing)         # [ff9mapkit netsync s158]
     assert _catch_doc_in("s159") == _unchested(nothing)          # [ff9mapkit netsync s159]
     assert _catch_doc_in("s160") == _unrelayed(nothing)          # [ff9mapkit netsync s160]
-    assert _catch_doc_in("s161") == nothing                      # [ff9mapkit netsync s161] the live line is s161's
+    assert _catch_doc_in("s161") == _unlanded(nothing)           # [ff9mapkit netsync s161]
+    assert _catch_doc_in("s162") == nothing                      # [ff9mapkit netsync s162] the live line is s162's
     # AppendGuestLocal, off the s156 patch, statement by statement
     body = _cs_block("HarnessAgent.cs", "private static void AppendGuestLocal(StringBuilder sb)", stop='sb.Append("}}");')
     text = " ".join(body)
@@ -25950,7 +25985,7 @@ def test_the_dresstwin_rung_is_s157s_and_its_keys_sit_in_self():
     the prefix through `guestlocal`; the capability accessor reads True on s157's catch line and False on s156's; the `twin`
     op's capability key is a key s157 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[names.index("dresstwin") - 1] == "guestlocal" and names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate"]   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160] [s161]
+    assert names[names.index("dresstwin") - 1] == "guestlocal" and names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate", "ateland"]   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160] [s161] [s162]
     assert FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and FG.NETSYNC_S157_CAPS == frozenset(("dresstwin",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and "dresstwin" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     # [ff9mapkit netsync s157] ...the ONE rung's other half, the ghost frame, adds ONE top-level block (its own pins below)
@@ -26224,7 +26259,7 @@ def test_the_s157_ghostframe_block_closes_netsync_on_the_dresstwin_rung():
     a NetSyncClient getter at its sentinel, in EVERY role, called right after AppendGuestLocal; the `bench ghostframe` op is
     told by `netsync.ghostframe`; the protocol stays 5."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate"] and FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and "climbanim" not in names   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160]
+    assert names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate", "ateland"] and FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and "climbanim" not in names   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160]
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and FG.NETSYNC_TOP_CAP_KEYS["dresstwin"] == ("ghostframe",)
     assert FG.netsync_subverbs(FG.caps_through("dresstwin")) == FG.netsync_subverbs(S156_CAPS_) == FG.NETSYNC_SUBVERBS[:-3]   # [s158] less `stepout` [s160] and `chest` [s161] and `ate`
     esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
@@ -26448,7 +26483,7 @@ def test_the_s158_agent_prints_stepout_last_and_the_driver_and_the_stand_in_agre
     assert Session.NETSYNC_AUTHORITY_SUBVERBS[-3] == "stepout" and FG.NETSYNC_BATTLE_VERB_ORDER[-3] == "stepout"
     names = list(FG.NETSYNC_BATTLE_CAPS)
     # [ff9mapkit netsync s159] ...LAST until s159's `stepanchor` rung joined after it
-    assert names[names.index("stepout") - 1] == "dresstwin" and names[names.index("stepout") + 1:] == ["stepanchor", "chest", "ate"]   # [s160] [s161]
+    assert names[names.index("stepout") - 1] == "dresstwin" and names[names.index("stepout") + 1:] == ["stepanchor", "chest", "ate", "ateland"]   # [s160] [s161] [s162]
     assert FG.NETSYNC_BATTLE_CAPS["stepout"] == ("s158", ("stepout",)) and FG.NETSYNC_S158_CAPS == frozenset(("stepout",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["stepout"] == {} and FG.NETSYNC_TOP_CAP_KEYS["stepout"] == ("stepout",)
     assert "stepout" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "stepout" not in FG.NETSYNC_DIORAMA_CAP_KEYS
@@ -26459,11 +26494,17 @@ def test_the_s158_agent_prints_stepout_last_and_the_driver_and_the_stand_in_agre
     attr, key, patch, _what = Session.NETSYNC_STEPOUT_SUBVERBS["stepout"]
     assert key == "netsync." + FG.NETSYNC_TOP_CAP_KEYS["stepout"][0] and patch == FG.NETSYNC_BATTLE_CAPS["stepout"][0]
     assert isinstance(getattr(State, attr), property)
-    case = " ".join(_cs_block("HarnessAgent.cs", 'case "stepout":', stop="break;"))
+    # [ff9mapkit netsync s162] s162 rewrote the case's comment lines in a hunk that does not hold `case "stepout":`, so the block is read
+    # from its HarnessLever call down (s158's lines, never rewritten) and anchored to the case by s158's own hunk
+    case = " ".join(_cs_block("HarnessAgent.cs", "if (!Memoria.Netsync.NetSyncStepOut.HarnessLever(s.Args, out why))", stop="break;"))
+    assert _added_after("s158", "HarnessAgent.cs", 'case "stepout":', "if (!Memoria.Netsync.NetSyncStepOut.HarnessLever(s.Args, out why))")
+    assert net_lines("HarnessAgent.cs", r'^[+-]\s*case "stepout":') == ['case "stepout":']
     assert "Memoria.Netsync.NetSyncStepOut.HarnessLever(s.Args, out why)" in case
     assert 'throw new InvalidOperationException(why ?? "netsync stepout refused");' in case
-    # [ff9mapkit netsync s159] + `ctl` (s158's own ops: FG.NETSYNC_STEPOUT_OPS_S158)
-    assert Session.NETSYNC_STEPOUT_OPS == FG.NETSYNC_STEPOUT_OPS == ("act", "off", "ctl", "clear")
+    # [ff9mapkit netsync s159] + `ctl` (s158's own ops: FG.NETSYNC_STEPOUT_OPS_S158); [ff9mapkit netsync s162] + `noland` (s159-s161's:
+    # FG.NETSYNC_STEPOUT_OPS_S161)
+    assert Session.NETSYNC_STEPOUT_OPS == FG.NETSYNC_STEPOUT_OPS == ("act", "off", "ctl", "noland", "clear")
+    assert Session.NETSYNC_STEPOUT_OPS_S161 == FG.NETSYNC_STEPOUT_OPS_S161 == ("act", "off", "ctl", "clear")
     assert FG.NETSYNC_STEPOUT_OPS_S158 == ("act", "off", "clear")
     assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
 
@@ -26504,13 +26545,18 @@ def test_the_s158_catch_line_closes_netsync_with_the_stepout_sentinels():
     start = added.index("private static void AppendStepOut(")
     body = added[start:added.index("NetSyncStepOut.SelfTestVerdict));", start) + 40]
     flat = []
+    landing = FG.NETSYNC_TOP_NESTED_KEYS["ateland"]     # [ff9mapkit netsync s162] s162's keys (their own pin below)
     for k, v in FG.NETSYNC_STEPOUT_SENTINELS.items():
         if k in ("out_why", "in_why"):
             continue                                    # written by loops over OutNames / InNames
         if k == "anchor":
             continue                                    # [ff9mapkit netsync s159] s159's (its own pin below)
+        if k in landing["stepout"]:
+            continue                                    # [ff9mapkit netsync s162] `landing_wire`
         if k == "ghost":
             flat += ["hide", "edges"]                   # `by` by a loop over HideNames
+        elif k == "base":
+            flat += [x for x in v if x not in landing["stepout.base"]]   # [ff9mapkit netsync s162] less `landing`
         elif isinstance(v, dict):
             flat += list(v)
         else:
@@ -26620,7 +26666,7 @@ def test_the_s159_rung_adds_the_anchor_inside_stepout_and_no_sub_verb():
     s159 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
     # [ff9mapkit netsync s160] ...LAST until s160's `chest` rung joined after it
-    assert names[names.index("stepanchor") - 1] == "stepout" and names[names.index("stepanchor") + 1:] == ["chest", "ate"]   # [s161]
+    assert names[names.index("stepanchor") - 1] == "stepout" and names[names.index("stepanchor") + 1:] == ["chest", "ate", "ateland"]   # [s161] [s162]
     assert FG.NETSYNC_BATTLE_CAPS["stepanchor"] == ("s159", ()) and FG.NETSYNC_S159_CAPS == frozenset(("stepanchor",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["stepanchor"] == {} and "stepanchor" not in FG.NETSYNC_TOP_CAP_KEYS
     assert FG.NETSYNC_TOP_NESTED_KEYS["stepanchor"] == {"stepout": ("anchor",)}
@@ -26690,15 +26736,16 @@ def test_the_s159_anchor_is_spent_where_the_spec_says():
                                     "anchor.dressed_gone", "anchor.none", "anchor.both_dressed"]
     for c, cd, d, dl, want, name in rows:
         assert _anchor_rule(int(c), cd == "true", int(d), dl == "true") == int(want), name
-    assert '"anchor_ctl", "dress_live_blind", "dress_first" };' in so
-    assert FG.FAKE_STEPOUT_SELFTEST_ROWS == FG.FAKE_STEPOUT_SELFTEST_ROWS_S158 + len(rows) == 44
-    assert FG.FAKE_STEPOUT_MUTANTS == FG.FAKE_STEPOUT_MUTANTS_S158 + 3 == 15
+    assert '"anchor_ctl", "dress_live_blind", "dress_first"' in so      # [ff9mapkit netsync s162] s162 appends after them
+    # [ff9mapkit netsync s162] s159's tallies are an s159-s161 engine's (the _S161 pair; s162 adds its own: its section below)
+    assert FG.FAKE_STEPOUT_SELFTEST_ROWS_S161 == FG.FAKE_STEPOUT_SELFTEST_ROWS_S158 + len(rows) == 44
+    assert FG.FAKE_STEPOUT_MUTANTS_S161 == FG.FAKE_STEPOUT_MUTANTS_S158 + 3 == 15
 
 
 def test_the_s159_lever_words_are_the_engines():
     """The `ctl` op: the new usage line and the CTL line are NetSyncStepOut's; the lever's name reads "ctl"."""
     added = " ".join(_s159_added("NetSyncStepOut.cs"))
-    assert f'why = "{FG.NETSYNC_STEPOUT_USAGE}";' in added
+    assert f'why = "{FG.NETSYNC_STEPOUT_USAGE_S161}";' in added            # [ff9mapkit netsync s162] s159's line is s161's usage
     assert 'op != "act" && op != "off" && op != "ctl" && op != "clear"))' in added      # the op is ACCEPTED, not only named
     for case in ('case "anchor_ctl": m.Anchor = (c, cd, d, dl) => c; break;',
                  'case "dress_live_blind": m.Anchor = (c, cd, d, dl) => c >= 0 && cd ? c : d >= 0 ? d : c; break;',
@@ -26706,6 +26753,7 @@ def test_the_s159_lever_words_are_the_engines():
         assert case in added, case                      # each mutant is built, not only listed
     assert Session.NETSYNC_STEPOUT_USAGE_S158 == FG.NETSYNC_STEPOUT_USAGE_S158 and Session.NETSYNC_STEPOUT_OPS_S158 == \
         FG.NETSYNC_STEPOUT_OPS_S158
+    assert Session.NETSYNC_STEPOUT_USAGE_S161 == FG.NETSYNC_STEPOUT_USAGE_S161      # [ff9mapkit netsync s162]
     assert FG.STEPOUT_LOG_CTL.replace("[NetSync] harness: step-out ", "") in added
     assert '_lever == 2 ? "ctl" : null' in added and 'op == "ctl" ? 2 : 0' in added
     assert Session.NETSYNC_STEPOUT_USAGE == FG.NETSYNC_STEPOUT_USAGE
@@ -26766,7 +26814,8 @@ def test_the_stand_in_models_the_anchor_block_and_the_ctl_lever(game):
         assert fake._netsync_doc()["stepout"]["lever"] is None
         assert fake.memoria_log.read_text(encoding="utf-8").count(FG.STEPOUT_LOG_RELEASE) == before + 1
     lines = _mlog_lines(fake, "[NetSync] " + FG.PROOF_STEP_OUT)
-    assert lines and lines[-1].split("[NetSync] ", 1)[1] == _so_proof_text() and "(44 rows, 15 mutants caught" in lines[-1]
+    # [ff9mapkit netsync s162] the LIVE stand-in is s162's: its tallies (an s159-s161 stand-in's 44 / 15: the s162 section)
+    assert lines and lines[-1].split("[NetSync] ", 1)[1] == _so_proof_text() and "(56 rows, 20 mutants caught" in lines[-1]
 
 
 
@@ -26794,7 +26843,7 @@ def test_the_s160_agent_prints_chest_last_and_the_driver_and_the_stand_in_agree(
     assert Session.NETSYNC_SUBVERBS[-2] == "chest" == FG.NETSYNC_SUBVERBS[-2] == _agent_subverbs()[-2]
     assert Session.NETSYNC_AUTHORITY_SUBVERBS[-2] == "chest" and FG.NETSYNC_BATTLE_VERB_ORDER[-2] == "chest"
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-2] == "chest" and names[-3] == "stepanchor" and names[-1] == "ate"   # [s161]
+    assert names[-3] == "chest" and names[-4] == "stepanchor" and names[-2:] == ["ate", "ateland"]   # [s161] [s162]
     assert FG.NETSYNC_BATTLE_CAPS["chest"] == ("s160", ("chest",)) and FG.NETSYNC_S160_CAPS == frozenset(("chest",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["chest"] == {} and FG.NETSYNC_TOP_CAP_KEYS["chest"] == ("chest",)
     assert "chest" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "chest" not in FG.NETSYNC_DIORAMA_CAP_KEYS
@@ -26943,7 +26992,7 @@ def test_the_s161_agent_prints_ate_last_and_the_driver_and_the_stand_in_agree():
     assert Session.NETSYNC_SUBVERBS[-1] == "ate" == FG.NETSYNC_SUBVERBS[-1] == _agent_subverbs()[-1]
     assert Session.NETSYNC_AUTHORITY_SUBVERBS[-1] == "ate" and FG.NETSYNC_BATTLE_VERB_ORDER[-1] == "ate"
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-1] == "ate" and names[-2] == "chest"
+    assert names[-2] == "ate" and names[-3] == "chest" and names[-1] == "ateland"   # [ff9mapkit netsync s162] ...LAST until s162
     assert FG.NETSYNC_BATTLE_CAPS["ate"] == ("s161", ("ate",)) and FG.NETSYNC_S161_CAPS == frozenset(("ate",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["ate"] == {} and FG.NETSYNC_TOP_CAP_KEYS["ate"] == ("ate",)
     assert "ate" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "ate" not in FG.NETSYNC_DIORAMA_CAP_KEYS
@@ -27001,7 +27050,8 @@ def test_the_s161_lever_words_are_the_engines():
     assert ('+ " ms, pending " + PreHoldMs + " ms, prepick " + PrepickHoldMs + " ms, hub " + HubHoldMs + "/" + HubCaptionCapMs') in added
     assert '+ " ms, tail " + TailHoldMs + "/" + TailCapMs + " ms, exit " + ExitHoldMs + " ms";' in added
     start = added.index("MutantNames = {")
-    assert len(re.findall(r'"(\w+)"', added[start:added.index("};", start)])) == FG.FAKE_ATE_MUTANTS == 58
+    # [ff9mapkit netsync s162] s161's own 58 (the _S161 pair; s162 appends three: its section below)
+    assert len(re.findall(r'"(\w+)"', added[start:added.index("};", start)])) == FG.FAKE_ATE_MUTANTS_S161 == 58
 
 
 def test_the_s161_catch_line_closes_netsync_with_the_ate_sentinels():
@@ -27018,7 +27068,7 @@ def test_the_s161_catch_line_closes_netsync_with_the_ate_sentinels():
     assert tuple(nothing["ate"]) == FG.NETSYNC_ATE_KEYS
     assert nothing["ate"]["pending"] == FG.NETSYNC_ATE_PENDING_SENTINELS
     assert nothing["ate"]["episode"] == FG.NETSYNC_ATE_EPISODE_SENTINELS
-    assert _catch_doc_in("s160") == _unrelayed(nothing) and _catch_doc_in("s161") == nothing
+    assert _catch_doc_in("s160") == _unrelayed(nothing) and _catch_doc_in("s161") == _unlanded(nothing)   # [s162]
     added = _ar_patch_added()
     start = added.index("private static void AppendAte(")
     body = added[start:added.index("NetSyncAte.SelfTestVerdict));", start) + 40]
@@ -27108,7 +27158,9 @@ def test_the_stand_in_models_the_ate_lever_its_refusals_and_its_release(game):
                                                             FG.ATE_PRESS_TTL_MS, FG.ATE_PRESS_CAP_MS, FG.ATE_PRE_HOLD_MS,
                                                             FG.ATE_PREPICK_HOLD_MS, FG.ATE_HUB_HOLD_MS, FG.ATE_HUB_CAPTION_CAP_MS,
                                                             FG.ATE_TAIL_HOLD_MS, FG.ATE_TAIL_CAP_MS, FG.ATE_EXIT_HOLD_MS)
-        assert (FG.FAKE_ATE_SELFTEST_ROWS, FG.FAKE_ATE_MUTANTS) == (156, 58)
+        # [ff9mapkit netsync s162] the LIVE stand-in's: + the latch's five rows, its spend's four, seven mutants (s161's 156 / 58)
+        assert (FG.FAKE_ATE_SELFTEST_ROWS, FG.FAKE_ATE_MUTANTS) == (165, 65)
+        assert (FG.FAKE_ATE_SELFTEST_ROWS_S161, FG.FAKE_ATE_MUTANTS_S161) == (156, 58)
         assert lines[-2].split("[NetSync] ", 1)[1] == _ch_proof_text()   # [ff9mapkit netsync s160] the chest relay line before it
         for bad in (("bogus",), ("off", "1"), ()):
             n = len(fake.executed)
@@ -27141,3 +27193,414 @@ def test_the_stand_in_models_the_ate_lever_its_refusals_and_its_release(game):
         tail = [ln for ln in fake.memoria_log.read_text(encoding="utf-8").splitlines()
                 if FG.STEPOUT_LOG_RELEASE in ln or FG.ATE_LOG_RELEASE in ln][-2:]
         assert [FG.STEPOUT_LOG_RELEASE in tail[0], FG.ATE_LOG_RELEASE in tail[1]] == [True, True], tail
+
+
+# =========================================================================================================================
+# [ff9mapkit netsync s162] THE LANDING START (studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md Finding 9: on the ATE relay's destination
+# field both copies control the same protagonist, and each screen drew the peer's ghost as that character for ~1 s until the first
+# line started the step-out). The ATE relay's own-jump DEST landing arms a latch (NetSyncAte.LandingLatchRule); while it stands the
+# step-out starts at once when its base holds (OutAte, reason `ate`), the wire mask reads 0 and the guest's screen hides the host's
+# ghost from the landing's first frame (NetSyncStepOut.LandingRule / WireMaskRule / LandingNow; its own hide reason `landing`); my
+# control back on the ATE field for StepInMs spends the latch (NetSyncAte.LandingLatchSpends). The `ateland` rung: four keys inside
+# `netsync.stepout` (`base.landing`, `landing_wire`, `out_why.ate`, `ghost.by.landing`), one `stepout` op (`noland`, the calibration:
+# s161's rule), the step-out line's twelve rows and five mutants, the ATE relay line's nine rows and seven mutants. Every pin reads the
+# LIVE stack's s162 patch.
+# =========================================================================================================================
+
+
+def _s162_added(file_name: str) -> list:
+    """The lines the s162 patch ADDS to ``file_name``, stripped."""
+    return [t for _h, k, t in _new_side(file_name, _patch_bytes("s162")) if k == "+"]
+
+
+def _built(file_name: str) -> str:
+    """[ff9mapkit netsync s162] A file the stack CREATES (NetSyncStepOut.cs, NetSyncAte.cs) as the live stack builds it, in FILE
+    order, comments stripped, one line per space -- so a fragment spanning lines reads in the order the engine has them
+    (:func:`_stack_text` groups repeated lines and cannot)."""
+    return " ".join(t for t in (_strip_comment(ln.strip()) for ln in stack_file(file_name)) if t)
+
+
+#: NetSyncStepOut's start reasons (OutNone .. OutAte) and NetSyncAte's phases, as the engine numbers them (pinned off the stack below)
+_OUT = {"OutNone": 0, "OutLine": 1, "OutDwell": 2, "OutAte": 3}
+_PHASE = {"PhaseNone": 0, "PhaseHub": 1, "PhaseDest": 2}
+_HIDE = {"HideNone": 0, "HideMask": 1, "HideHostScene": 2, "HideStepOut": 3, "HideLanding": 4}
+
+
+def _start_rule(line: bool, age: int, ate: bool) -> int:
+    """NetSyncStepOut.StartRule's twin: the ATE relay's landing at once, a fresh line at once, else the dwell (THE ARRIVAL LAW)."""
+    if ate:
+        return _OUT["OutAte"]
+    if line:
+        return _OUT["OutLine"]
+    return _OUT["OutDwell"] if age >= FG.STEPOUT_DWELL_MS else _OUT["OutNone"]
+
+
+def _wire_rule(active: bool, landing: bool, mask: int) -> int:
+    """NetSyncStepOut.WireMaskRule's twin: stepped out, or the landing term standing, the host is told nothing of me is visible."""
+    return 0 if active or landing else mask
+
+
+def _landing_rule(eligible: bool, lever_off: bool, lever_noland: bool, latch_here: bool) -> bool:
+    """NetSyncStepOut.LandingRule's twin: a following, mirroring guest, neither lever, the latch standing on my field."""
+    return eligible and not lever_off and not lever_noland and latch_here
+
+
+def _latch_rule(latch: bool, phase: int, ep_field: int, fld: int) -> bool:
+    """NetSyncAte.LandingLatchRule's twin: armed, in DEST, on the ATE's own field (never field 0)."""
+    return latch and phase == _PHASE["PhaseDest"] and fld > 0 and fld == ep_field
+
+
+def _spend_rule(my_ctl: bool, on_field: bool, fld: int, ep_field: int, back_ms: int) -> bool:
+    """NetSyncAte.LandingLatchSpends' twin: my control back on the ATE field for the step-out's own StepInMs."""
+    return my_ctl and on_field and fld == ep_field and back_ms >= FG.STEPOUT_STEP_IN_MS
+
+
+def _hide_rule(mask: int, plain: bool, step_out: bool, landing: bool) -> int:
+    """NetSyncStepOut.GhostHideRule's twin: my step-out, then [s162] my landing term, then a zero mask, then a host's plain scene."""
+    if step_out:
+        return _HIDE["HideStepOut"]
+    if landing:
+        return _HIDE["HideLanding"]
+    if mask == 0:
+        return _HIDE["HideMask"]
+    return _HIDE["HideHostScene"] if plain else _HIDE["HideNone"]
+
+
+def _s162_rows() -> dict:
+    """The s162 rule rows as the LIVE stack's two SelfTests table them, each parsed into (args..., want, name): StartRule,
+    WireMaskRule, LandingRule and GhostHideRule (NetSyncStepOut.cs), LandingLatchRule and LandingLatchSpends (NetSyncAte.cs)."""
+    so = _built("NetSyncStepOut.cs")
+    ate = _built("NetSyncAte.cs")
+    b = lambda v: v == "true"                                                # noqa: E731
+    age = lambda v: {"0": 0, "DwellMs - 1": FG.STEPOUT_DWELL_MS - 1, "DwellMs": FG.STEPOUT_DWELL_MS}[v.strip()]   # noqa: E731
+    start = [(b(l_), age(a), b(t), _OUT[w], n) for l_, a, t, w, n in
+             re.findall(r'row\(r\.Start\((true|false), ([^,]+), (true|false)\) == (Out\w+), "(start\.\w+)"\);', so)]
+    wire = [(b(a), b(l_), int(m, 0), int(w, 0), n) for a, l_, m, w, n in
+            re.findall(r'row\(r\.Wire\((true|false), (true|false), (0x[0-9A-Fa-f]+)\) == (0x[0-9A-Fa-f]+|0), "(wire\.\w+)"\);', so)]
+    land = [(b(e), b(lo), b(nl), b(lt), neg != "!", n) for neg, e, lo, nl, lt, n in
+            re.findall(r'row\((!?)r\.Land\((true|false), (true|false), (true|false), (true|false)\), "(land\.\w+)"\);', so)]
+    latch = [(b(lt), _PHASE[ph], int(ef), int(f), neg != "!", n) for neg, lt, ph, ef, f, n in
+             re.findall(r'row\((!?)r\.Latch\((true|false), (Phase\w+), (\d+), (\d+)\), "(latch\.\w+)"\);', ate)]
+    hide = [(int(m, 0), b(p), b(o), b(la), _HIDE[w], n) for m, p, o, la, w, n in
+            re.findall(r'row\(r\.Hide\((0x[0-9A-Fa-f]+|0), (true|false), (true|false), (true|false)\) == (Hide\w+), "(hide\.\w+)"\);', so)]
+    ms = lambda v: {"NetSyncStepOut.StepInMs": FG.STEPOUT_STEP_IN_MS, "NetSyncStepOut.StepInMs - 1": FG.STEPOUT_STEP_IN_MS - 1,
+                    "-1": -1}[v.strip()]                                     # noqa: E731
+    spend = [(b(c), b(o), int(f), int(ef), ms(t), neg != "!", n) for neg, c, o, f, ef, t, n in
+             re.findall(r'row\((!?)r\.Spend\((true|false), (true|false), (\d+), (\d+), ([^)]+)\), "(spend\.\w+)"\);', ate)]
+    return {"start": start, "wire": wire, "land": land, "latch": latch, "hide": hide, "spend": spend}
+
+
+def test_the_s162_rung_adds_the_landing_keys_inside_stepout_and_no_sub_verb():
+    """`ateland` rides the ONE ladder LAST (right after s161's `ate`), adds nothing under `netsync.battle`, no top-level block, no
+    sub-verb -- its four keys sit INSIDE `netsync.stepout`: `base.landing` right after `host_scene`, `landing_wire` right after
+    `wire_mask` (both inserted mid-block), `out_why.ate` and `ghost.by.landing` as their blocks' last; s162's calibration is the
+    prefix through `ate`; the
+    capability accessor reads True on s162's catch line and False on s161's; the `noland` op's capability key is a key s162 added."""
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    assert names[-1] == "ateland" and names[-2] == "ate"
+    assert FG.NETSYNC_BATTLE_CAPS["ateland"] == ("s162", ()) and FG.NETSYNC_S162_CAPS == frozenset(("ateland",))
+    assert FG.NETSYNC_BATTLE_CAP_KEYS["ateland"] == {} and "ateland" not in FG.NETSYNC_TOP_CAP_KEYS
+    assert "ateland" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "ateland" not in FG.NETSYNC_DIORAMA_CAP_KEYS
+    assert FG.NETSYNC_TOP_NESTED_KEYS["ateland"] == {"stepout.base": ("landing",), "stepout": ("landing_wire",),
+                                                     "stepout.out_why": ("ate",), "stepout.ghost.by": ("landing",)}
+    assert "ateland" not in FG.NETSYNC_DRESS_CAP_KEYS
+    assert FG.netsync_subverbs(FG.caps_through("ateland")) == FG.netsync_subverbs(FG.caps_through("ate")) == FG.NETSYNC_SUBVERBS
+    assert not net_lines("HarnessAgent.cs", r"netsync: unknown sub-verb", [_patch_bytes("s162")])     # no sub-verb
+    was, now = _catch_doc_in("s161")["stepout"], _catch_doc_in("s162")["stepout"]
+    at = list(was).index("wire_mask") + 1
+    assert list(now) == list(was)[:at] + ["landing_wire"] + list(was)[at:] and now["landing_wire"] is False
+    at = list(was["base"]).index("host_scene") + 1
+    assert list(now["base"]) == list(was["base"])[:at] + ["landing"] + list(was["base"])[at:] and now["base"]["landing"] is False
+    assert list(now["out_why"]) == list(was["out_why"]) + ["ate"] and now["out_why"]["ate"] == 0
+    assert list(now["ghost"]["by"]) == list(was["ghost"]["by"]) + ["landing"] and now["ghost"]["by"]["landing"] == 0
+    assert {k: v for k, v in now["ghost"].items() if k != "by"} == {k: v for k, v in was["ghost"].items() if k != "by"}
+    assert tuple(now["ghost"]["by"]) == FG.NETSYNC_STEPOUT_HIDE_WHY and tuple(was["ghost"]["by"]) == FG.NETSYNC_STEPOUT_HIDE_WHY[:-1]
+    assert {k: v for k, v in now.items() if k not in ("landing_wire", "base", "out_why", "ghost")} == \
+        {k: v for k, v in was.items() if k not in ("base", "out_why", "ghost")}
+    assert tuple(now["out_why"]) == FG.NETSYNC_STEPOUT_OUT_WHY and tuple(was["out_why"]) == FG.NETSYNC_STEPOUT_OUT_WHY[:-1]
+    assert State({"frame": 1, "netsync": _catch_doc_in("s162")}).coop_step_out_landing is True
+    assert State({"frame": 1, "netsync": _catch_doc_in("s161")}).coop_step_out_landing is False
+    assert State({"frame": 1, "netsync": _catch_doc_in("s162")}).step_out_landing is False
+    assert State({"frame": 1, "netsync": _catch_doc_in("s161")}).step_out_landing is None
+    attr, key, patch, _what = Session.NETSYNC_STEPOUT_OP_CAPS["noland"]
+    assert (attr, key, patch) == ("coop_step_out_landing", "netsync.stepout.landing_wire", "s162")
+    assert isinstance(getattr(State, attr), property) and patch == FG.NETSYNC_BATTLE_CAPS["ateland"][0]
+    for k in ("netsync.stepout.landing_wire", "netsync.stepout.base.landing", "netsync.stepout.out_why.ate",
+              "netsync.stepout.ghost.by.landing"):
+        assert _key_is_the_patchs(k, "ateland") and not _key_is_the_patchs(k, "ate"), k
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+
+
+def test_the_s162_catch_line_carries_the_landing_sentinels():
+    """THE CATCH-LITERAL PIN for s162: the live line carries `base.landing` false right after `host_scene`, `landing_wire` false
+    right after `wire_mask`, `out_why.ate` 0 and `ghost.by.landing` 0 as their blocks' last; s162 added those and nothing else (the
+    live document less them is s161's); AppendStepOut writes `landing` right after `host_scene` and `landing_wire` right after
+    `wire_mask`, each through its own Try whose fallback is the sentinel, and `out_why` / `ghost.by` by their loops over OutNames /
+    HideNames, whose last names are now `ate` / `landing`."""
+    b = _gl_catch_tail()
+    assert '"host_scene":false,"landing":false,"why_not":null' in b, b[-2600:]
+    assert '"wire_mask":-1,"landing_wire":false,"stock_visible":false' in b, b[-2600:]
+    assert '"out_why":{"line":0,"dwell":0,"ate":0}' in b, b[-2600:]
+    assert '"by":{"mask0":0,"host_scene":0,"step_out":0,"landing":0}' in b, b[-2600:]
+    nothing = _agent_netsync_nothing()[0]
+    assert nothing["stepout"] == FG.NETSYNC_STEPOUT_SENTINELS
+    assert _catch_doc_in("s162") == nothing and _unlanded(nothing) == _catch_doc_in("s161")
+    assert _added_after("s162", "HarnessAgent.cs", 'Bool(sb, "host_scene", Try(() => Memoria.Netsync.NetSyncStepOut.InHostScene, false));',
+                        'Bool(sb, "landing", Try(() => Memoria.Netsync.NetSyncStepOut.InLanding, false));')
+    assert _added_after("s162", "HarnessAgent.cs", 'Num(sb, "wire_mask", Try(() => (Int64)Memoria.Netsync.NetSyncStepOut.WireMaskNow, -1L));',
+                        'Bool(sb, "landing_wire", Try(() => Memoria.Netsync.NetSyncStepOut.LandingNow, false));')
+    so = _built("NetSyncStepOut.cs")
+    assert 'internal static readonly String[] OutNames = { null, "line", "dwell", "ate" };' in so
+    assert (None,) + FG.NETSYNC_STEPOUT_OUT_WHY == (None, "line", "dwell", "ate")
+    assert "internal static readonly Int32[] OutBy = new Int32[4];" in so
+    assert 'internal static readonly String[] HideNames = { null, "mask0", "host_scene", "step_out", "landing" };' in so
+    assert (None,) + FG.NETSYNC_STEPOUT_HIDE_WHY == (None, "mask0", "host_scene", "step_out", "landing")
+    assert "internal static readonly Int32[] HideBy = new Int32[5];" in so and "internal const Int32 HideLanding = 4;" in so
+    assert "internal const Int32 OutAte = 3;" in so and "internal const Int32 OutNone = 0, OutLine = 1, OutDwell = 2;" in so
+    assert "internal const Int32 PhaseNone = 0, PhaseHub = 1, PhaseDest = 2;" in _built("NetSyncAte.cs")
+
+
+def test_the_s162_rules_are_their_twins_and_every_mutant_is_caught():
+    """StartRule / WireMaskRule / LandingRule / GhostHideRule / LandingLatchRule / LandingLatchSpends' bodies are their Python twins'
+    (LandingTermNow composes the term once); every row the two SelfTests table holds under the twin; each s162 mutant (and the four
+    older ones s162 rewrote) fails at least one row; the stand-in's tallies are the engine's: the step-out rows grew by the patch's net
+    twelve `row(` lines (44 -> 56) and MutantNames is 20 long; the ATE relay's by its nine latch / spend rows (156 -> 165) and
+    MutantNames is 65 long."""
+    so = _built("NetSyncStepOut.cs")
+    ate = _built("NetSyncAte.cs")
+    for frag in ("internal static Int32 StartRule(Boolean freshLine, Int32 baseAgeMs, Boolean ateLanding)",
+                 "if (ateLanding) return OutAte; if (freshLine) return OutLine; if (baseAgeMs >= DwellMs)",
+                 "internal static UInt16 WireMaskRule(Boolean active, Boolean landing, UInt16 mask)",
+                 "return active || landing ? (UInt16)0 : mask;",
+                 "internal static Boolean LandingRule(Boolean eligible, Boolean leverOff, Boolean leverNoLand, Boolean latchHere)",
+                 "return eligible && !leverOff && !leverNoLand && latchHere;",
+                 "private static Boolean LandingTermNow(Boolean eligible, Int32 fld)",
+                 "return eligible && LandingRule(true, LeverOff, LeverNoLand, NetSyncAte.LandingLatchHere(fld));",
+                 "internal static Int32 GhostHideRule(UInt16 wireMask, Boolean hostPlainScene, Boolean myStepOut, Boolean myLanding)",
+                 "if (myStepOut) return HideStepOut; if (myLanding) return HideLanding; if (wireMask == 0) return HideMask; "
+                 "if (hostPlainScene) return HideHostScene;"):
+        assert frag in so, frag
+    for frag in ("internal static Boolean LandingLatchRule(Boolean latch, Int32 phase, Int32 epField, Int32 fld)",
+                 "return latch && phase == PhaseDest && fld > 0 && fld == epField;",
+                 "internal static Boolean LandingLatchSpends(Boolean myCtl, Boolean onField, Int32 fld, Int32 epField, Int32 backMs)",
+                 "return myCtl && onField && fld == epField && backMs >= NetSyncStepOut.StepInMs;"):
+        assert frag in ate, frag
+    rows = _s162_rows()
+    assert [r[-1] for r in rows["start"]] == ["start.line_now", "start.arrival_0", "start.arrival_dwell_minus_1", "start.dwell",
+                                              "start.line_first", "start.ate_landing", "start.ate_landing_over_line",
+                                              "start.ate_landing_past_dwell"]
+    assert [r[-1] for r in rows["wire"]] == ["wire.out", "wire.in", "wire.landing", "wire.out_and_landing"]
+    assert [r[-1] for r in rows["land"]] == ["land.all", "land.not_eligible", "land.lever_off", "land.lever_noland", "land.no_latch"]
+    assert [r[-1] for r in rows["hide"]] == ["hide.step_out", "hide.mask0", "hide.host_scene", "hide.none", "hide.landing",
+                                             "hide.step_out_over_landing"]
+    assert [r[-1] for r in rows["latch"]] == ["latch.dest_here", "latch.hub", "latch.other_field", "latch.unarmed", "latch.field_zero"]
+    assert [r[-1] for r in rows["spend"]] == ["spend.ctl_back_here", "spend.debounce", "spend.ctl_off", "spend.other_field"]
+
+    def fails(start=_start_rule, wire=_wire_rule, land=_landing_rule, latch=_latch_rule, hide=_hide_rule, spend=_spend_rule) -> list:
+        bad = [n for l_, a, t, w, n in rows["start"] if start(l_, a, t) != w]
+        bad += [n for a, l_, m, w, n in rows["wire"] if wire(a, l_, m) != w]
+        bad += [n for e, lo, nl, lt, w, n in rows["land"] if land(e, lo, nl, lt) != w]
+        bad += [n for lt, ph, ef, f, w, n in rows["latch"] if latch(lt, ph, ef, f) != w]
+        bad += [n for m, p, o, la, w, n in rows["hide"] if hide(m, p, o, la) != w]
+        bad += [n for c, o, f, ef, t, w, n in rows["spend"] if spend(c, o, f, ef, t) != w]
+        return bad
+
+    assert fails() == []                                # every row holds under the twins
+    mutants = {   # the engine's MutantRules, case for case (each lambda pinned below)
+        "no_dwell": dict(start=lambda line, age, land: _OUT["OutAte"] if land else _OUT["OutLine"] if line else _OUT["OutDwell"]),
+        "wire_leak": dict(wire=lambda a, land, mask: mask),
+        "ate_landing_blind": dict(start=lambda line, age, land: _start_rule(line, age, False)),
+        "landing_every_arrival": dict(start=lambda line, age, land: _start_rule(line, age, True)),
+        "landing_wire_blind": dict(wire=lambda a, land, mask: _wire_rule(a, False, mask)),
+        "landing_gate_blind": dict(land=lambda e, lo, nl, latch: latch),
+        "landing_hide_blind": dict(hide=lambda m, p, o, la: _hide_rule(m, p, o, False)),
+        "mask_blind": dict(hide=lambda m, p, o, la: _HIDE["HideStepOut"] if o else _HIDE["HideLanding"] if la
+                           else _HIDE["HideHostScene"] if p else _HIDE["HideNone"]),
+        "scene_blind": dict(hide=lambda m, p, o, la: _HIDE["HideStepOut"] if o else _HIDE["HideLanding"] if la
+                            else _HIDE["HideMask"] if m == 0 else _HIDE["HideNone"]),
+        "latch_field_blind": dict(latch=lambda lt, ph, ef, f: lt and ph == _PHASE["PhaseDest"]),
+        "latch_phase_blind": dict(latch=lambda lt, ph, ef, f: lt and f > 0 and f == ef),
+        "latch_input_blind": dict(latch=lambda lt, ph, ef, f: ph == _PHASE["PhaseDest"] and f > 0 and f == ef),
+        "latch_zero_blind": dict(latch=lambda lt, ph, ef, f: lt and ph == _PHASE["PhaseDest"] and f == ef),
+        "latch_spend_never": dict(spend=lambda c, o, f, ef, ms: False),
+        "latch_spend_no_debounce": dict(spend=lambda c, o, f, ef, ms: c and o and f == ef),
+        "latch_spend_any_field": dict(spend=lambda c, o, f, ef, ms: c and o and ms >= FG.STEPOUT_STEP_IN_MS)}
+    for name, kw in mutants.items():
+        assert fails(**kw), name                        # each mutant is CAUGHT by a row
+    for case in ('case "no_dwell": m.Start = (line, age, land) => land ? OutAte : line ? OutLine : OutDwell; break;',
+                 'case "wire_leak": m.Wire = (a, land, mask) => mask; break;',
+                 'case "ate_landing_blind": m.Start = (line, age, land) => StartRule(line, age, false); break;',
+                 'case "landing_every_arrival": m.Start = (line, age, land) => StartRule(line, age, true); break;',
+                 'case "landing_wire_blind": m.Wire = (a, land, mask) => WireMaskRule(a, false, mask); break;',
+                 'case "landing_gate_blind": m.Land = (e, lo, nl, latch) => latch; break;',
+                 'case "landing_hide_blind": m.Hide = (mask, plain, so, la) => GhostHideRule(mask, plain, so, false); break;',
+                 'case "mask_blind": m.Hide = (mask, plain, so, la) => so ? HideStepOut : la ? HideLanding : plain ? HideHostScene : '
+                 'HideNone; break;',
+                 'case "scene_blind": m.Hide = (mask, plain, so, la) => so ? HideStepOut : la ? HideLanding : mask == 0 ? HideMask : '
+                 'HideNone; break;'):
+        assert case in so, case                         # each mutant is BUILT, not only listed
+    for case in ('case "latch_field_blind": m.Latch = (l, ph, ef, f) => l && ph == PhaseDest; break;',
+                 'case "latch_phase_blind": m.Latch = (l, ph, ef, f) => l && f > 0 && f == ef; break;',
+                 'case "latch_input_blind": m.Latch = (l, ph, ef, f) => ph == PhaseDest && f > 0 && f == ef; break;',
+                 'case "latch_zero_blind": m.Latch = (l, ph, ef, f) => l && ph == PhaseDest && f == ef; break;',
+                 'case "latch_spend_never": m.Spend = (c, o, f, ef, ms) => false; break;',
+                 'case "latch_spend_no_debounce": m.Spend = (c, o, f, ef, ms) => c && o && f == ef; break;',
+                 'case "latch_spend_any_field": m.Spend = (c, o, f, ef, ms) => c && o && ms >= NetSyncStepOut.StepInMs; break;'):
+        assert case in ate, case
+    so_names = re.search(r"MutantNames = \{([^}]*)\};", so)
+    ate_names = re.search(r"MutantNames = \{([^}]*)\};", ate)
+    assert so_names and ate_names
+    so_list, ate_list = re.findall(r'"(\w+)"', so_names.group(1)), re.findall(r'"(\w+)"', ate_names.group(1))
+    assert so_list[-5:] == ["ate_landing_blind", "landing_every_arrival", "landing_wire_blind", "landing_gate_blind",
+                            "landing_hide_blind"]
+    assert ate_list[-7:] == ["latch_field_blind", "latch_phase_blind", "latch_input_blind", "latch_zero_blind", "latch_spend_never",
+                             "latch_spend_no_debounce", "latch_spend_any_field"]
+    assert len(so_list) == FG.FAKE_STEPOUT_MUTANTS == FG.FAKE_STEPOUT_MUTANTS_S161 + 5 == 20
+    assert len(ate_list) == FG.FAKE_ATE_MUTANTS == FG.FAKE_ATE_MUTANTS_S161 + 7 == 65
+    patch = [_patch_bytes("s162")]
+    so_rows = net_added("NetSyncStepOut.cs", r"\brow\(!?r\.", patch)
+    ate_rows = net_added("NetSyncAte.cs", r"\brow\(!?r\.", patch)
+    assert so_rows == 12 and FG.FAKE_STEPOUT_SELFTEST_ROWS == FG.FAKE_STEPOUT_SELFTEST_ROWS_S161 + so_rows == 56
+    assert ate_rows == 9 and FG.FAKE_ATE_SELFTEST_ROWS == FG.FAKE_ATE_SELFTEST_ROWS_S161 + ate_rows == 165
+
+
+def test_the_s162_term_is_spent_where_the_spec_says():
+    """The landing latch arms on the DEST landing and is spent by my control back on the ATE field for StepInMs (LandingLatchSpends)
+    or the episode's end; Tick composes the term (LandingTermNow: eligible AND on the field, both levers, the latch on THIS field),
+    publishes it (InLanding) and hands it to StartRule -- the base must still hold for the START; WireMask composes the same term off
+    the last Tick's eligibility and this frame's field, publishes it (LandingNow) and zeroes the mask; the guest's ghost hide reads it
+    as its own argument (reason `landing`; never the host's: `!hostRule`), and a frame with no body clears it; the latch's accessor is
+    off when the relay is unarmed or its lever is off."""
+    so = _built("NetSyncStepOut.cs")
+    ate = _built("NetSyncAte.cs")
+    client = " ".join(_strip_comment(t) for t in _stack_text("NetSyncClient.cs"))
+    for frag in ("Boolean landing = LandingTermNow(eligible && onField, fld);",
+                 "InLanding = landing;", "Int32 start = StartRule(line, now - _baseSince, landing);",
+                 "landing = LandingTermNow(InEligible, FF9StateSystem.Common.FF9.fldMapNo);",
+                 "LandingNow = landing;", "UInt16 m = WireMaskRule(_active, landing, mask);",
+                 "Int32 h = GhostHideRule(wireMask, hostPlainScene, myStepOut, myLanding);",
+                 "internal static Boolean LeverNoLand { get { return _lever == 3 && NetSyncClient.IsSelfTestRole; } }"):
+        assert frag in so, frag
+    tick = so[so.index("internal static void Tick("):so.index("Int32 start = StartRule(")]
+    assert tick.index("Boolean landing = LandingTermNow(") < tick.index("String whyNot = BaseWhyNot(")   # the base still gates the start
+    assert "if (whyNot != null) { InLine = false; _baseArmed = false; return; }" in tick
+    for frag in ("_landStart = true;", "return !LeverOff && LandingLatchRule(_landStart, _phase, _epField, fld);",
+                 "if (!NetSyncAteArmed.On) return false;",
+                 "if (_landStart && LandingLatchSpends(myCtl, onField, fld, _epField, now - _backSince)) _landStart = false;"):
+        assert frag in ate, frag
+    added = [_strip_comment(t) for t in _s162_added("NetSyncAte.cs")]
+    assert sum(t.strip() == "_landStart = false;" for t in added) == 2    # the spend (control back for StepInMs); EndEpisode
+    assert _added_after("s162", "NetSyncAte.cs", "_backArmed = false;", "_landStart = true;")
+    # the guest's screen hides the host's ghost for its landing term (its own argument: reason `landing`), never the host's own
+    assert "!hostRule && NetSyncStepOut.LandingNow))" in client and "NetSyncStepOut.LandingNow = false;" in client
+    assert "if (NetSyncStepOut.GhostHide(NetSyncStepOut.WireMask(LocalMeshMask(me)), false, false, false))" in client
+
+
+def test_the_s162_lever_words_are_the_engines():
+    """The `noland` op: the new usage line, the op ACCEPTED in HarnessLever's check, its lever value and name, and the NOLAND line are
+    NetSyncStepOut's (the stand-in's and the driver's); an s159-s161 engine's usage is s159's line."""
+    added = " ".join(_s162_added("NetSyncStepOut.cs"))
+    assert f'why = "{FG.NETSYNC_STEPOUT_USAGE}";' in added
+    ops = [t for t in _s162_added("NetSyncStepOut.cs") if 'op != "act"' in t]
+    assert len(ops) == 1 and tuple(re.findall(r'op != "(\w+)"', ops[0])) == FG.NETSYNC_STEPOUT_OPS, ops
+    assert '_lever = op == "off" ? 1 : op == "ctl" ? 2 : op == "noland" ? 3 : 0;' in added
+    assert '_lever == 2 ? "ctl" : _lever == 3 ? "noland" : null' in added
+    assert FG.STEPOUT_LOG_NOLAND.replace("[NetSync] harness: step-out ", "") in added
+    assert FG.NETSYNC_STEPOUT_USAGE_S161 in " ".join(_s159_added("NetSyncStepOut.cs"))
+    assert Session.NETSYNC_STEPOUT_USAGE == FG.NETSYNC_STEPOUT_USAGE == "netsync stepout: expected act|off|ctl|noland|clear"
+    # the agent's own `case "stepout":` comment names the new usage line (s162 rewrote s158's stale "expected act|off|clear")
+    assert any(f'Anything else answers "{FG.NETSYNC_STEPOUT_USAGE}".' in t for t in _s162_added("HarnessAgent.cs"))
+    assert Session.NETSYNC_STEPOUT_USAGE_S161 == FG.NETSYNC_STEPOUT_USAGE_S161
+
+
+def test_the_driver_refuses_stepout_noland_before_the_step_on_an_s161_engine(game):
+    """On the calibration engine (the ladder through `ate`) `stepout noland` is refused BEFORE the step, naming the key and the patch
+    and quoting THIS engine's usage line; the s161 stand-in, sent it anyway, answers that line; its block carries no landing key and
+    its proof lines s161's tallies. Off the role the engine's ROLE refusal comes back. On s158 the quoted line is s158's. The s162
+    stand-in takes it."""
+    fake = FakeGame(game)
+    fake.netsync_caps = FG.caps_through("ate")
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        with pytest.raises(HarnessError, match=re.escape(FG.NETSYNC_STEPOUT_ROLE_REFUSAL)):
+            g.stepout("noland")                         # the role first: the engine's words, not the capability gate's
+        g.netsync("selftest", 1)
+        g.wait_frames(10)
+        for bad in (("bogus",), ("off", "1"), ()):
+            n = len(fake.executed)
+            with pytest.raises(HarnessError) as err:
+                g.netsync("stepout", *bad)
+            with pytest.raises(RuntimeError) as eng:
+                fake._netsync(["stepout", *bad])
+            assert str(err.value) == FG.NETSYNC_STEPOUT_USAGE_S161 == str(eng.value) and len(fake.executed) == n, bad
+        st = g.state
+        assert st.coop_step_out_anchor is True and st.coop_step_out_landing is False and st.step_out_landing is None
+        n = len(fake.executed)
+        with pytest.raises(HarnessError) as err:
+            g.stepout("noland")
+        msg = str(err.value)
+        assert msg.startswith("netsync stepout noland: the deployed engine publishes no `netsync.stepout.landing_wire`"), msg
+        assert "memoria-patch s162" in msg and f'answers "{FG.NETSYNC_STEPOUT_USAGE_S161}"' in msg and len(fake.executed) == n
+        with pytest.raises(RuntimeError, match=re.escape(FG.NETSYNC_STEPOUT_USAGE_S161)):
+            fake._netsync(["stepout", "noland"])
+        assert g.stepout("ctl").step_out["lever"] == "ctl"       # s159's op still taken there
+        doc = fake._netsync_doc()["stepout"]
+        assert "landing_wire" not in doc and "landing" not in doc["base"] and tuple(doc["out_why"]) == ("line", "dwell")
+        assert tuple(doc["ghost"]["by"]) == ("mask0", "host_scene", "step_out")
+        lines = [ln.split("[NetSync] ", 1)[1] for ln in _proof_lines(fake)]
+        assert _so_proof_text(*_SO_S161) in lines and _ar_proof_text(*_AR_S161) in lines
+        assert _so_proof_text() not in lines and _ar_proof_text() not in lines
+    fake = FakeGame(game)
+    fake.netsync_caps = FG.caps_through("stepout")
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        with pytest.raises(HarnessError) as err:
+            g.stepout("noland")
+        assert "memoria-patch s162" in str(err.value) and f'answers "{FG.NETSYNC_STEPOUT_USAGE_S158}"' in str(err.value)
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        assert g.stepout("noland").step_out["lever"] == "noland"
+
+
+def test_the_stand_in_models_the_landing_keys_and_the_noland_lever(game):
+    """The stand-in's s162: `base.landing` false after `host_scene`, `landing_wire` false after `wire_mask`, `out_why.ate` and
+    `ghost.by.landing` 0 last;
+    the capability accessors read them; `noland` sets the lever in the engine's words, `act` / `clear` clear it, the release clears it
+    with its line; the proof block's step-out and ATE relay lines carry s162's tallies, through the benches' own parses."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        g.netsync("selftest", 1)
+        g.wait_frames(10)
+        st = g.state
+        doc = st.step_out
+        assert doc["base"]["landing"] is False and list(doc["base"])[list(doc["base"]).index("host_scene") + 1] == "landing"
+        assert doc["landing_wire"] is False and list(doc)[list(doc).index("wire_mask") + 1] == "landing_wire"
+        assert doc["out_why"] == {"line": 0, "dwell": 0, "ate": 0} and list(doc)[-1] == "anchor"
+        assert doc["ghost"]["by"] == {"mask0": 0, "host_scene": 0, "step_out": 0, "landing": 0} and doc["ghost"]["hide"] is None
+        assert st.coop_step_out_landing is True and st.step_out_landing is False
+        assert {k: v for k, v in doc.items() if k not in ("lever", "selftest")} == \
+            {k: v for k, v in FG.NETSYNC_STEPOUT_SENTINELS.items() if k not in ("lever", "selftest")}
+        before = len(_mlog_lines(fake, FG.STEPOUT_LOG_NOLAND))
+        assert g.stepout("NOLAND").step_out["lever"] == "noland" and len(_mlog_lines(fake, FG.STEPOUT_LOG_NOLAND)) == before + 1
+        assert g.stepout("act").step_out["lever"] is None
+        assert g.stepout("noland").step_out["lever"] == "noland"
+        assert g.stepout("clear").step_out["lever"] is None
+        g.stepout("noland")
+        rel = len(_mlog_lines(fake, FG.STEPOUT_LOG_RELEASE))
+        fake._release_netsync()
+        assert fake._netsync_doc()["stepout"]["lever"] is None and len(_mlog_lines(fake, FG.STEPOUT_LOG_RELEASE)) == rel + 1
+    lines = _proof_lines(fake)
+    so_line = next(ln for ln in lines if FG.PROOF_STEP_OUT in ln)
+    ar_line = next(ln for ln in lines if FG.PROOF_ATE_RELAY in ln)
+    m = re.search(FG.STEPOUT_PROOF_RE, so_line)
+    assert m and tuple(int(x) for x in m.groups()) == (56, 20, FG.STEPOUT_DWELL_MS, FG.STEPOUT_STEP_IN_MS), so_line
+    m = re.search(FG.ATE_PROOF_RE, ar_line)
+    assert m and tuple(int(x) for x in m.groups())[:2] == (165, 65), ar_line

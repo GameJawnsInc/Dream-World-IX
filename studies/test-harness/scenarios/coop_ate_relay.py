@@ -1,4 +1,5 @@
 """s161 -- THE ATE RELAY (studies/field-coop/ATE-RELAY.md, memoria-patches s161), the SOLO bench. [ff9mapkit netsync s161]
+[ff9mapkit netsync s162] + THE LANDING START (GUEST-TRAVERSAL-TWO-PC.md Finding 9): row S-LAND and the `noland` calibration.
 
 THE DEFECT (the 2026-10-28 two-PC session, Dali 352, "Vivi, Confused"). Each copy draws the ATE icon itself, but the menu opens
 only on a Select read with control ON (352's Code1 loop: `usercontrol == 1 && byte238 == 1 && B_KEYON(Select)`), which the host
@@ -9,7 +10,9 @@ THE FIX (s161). The host NOTES its control-on Select hit and relays it (ring kin
 window (its own menu actually opening -- `&&` does not short-circuit, so the raw read runs every frame). The guest serves Select to
 that reader's control-on reads every key tick until its OWN ATE menu opens (served is not success: the proof is the open), and once
 the lock closes that menu on the host's own choice, the copy's own Field() passes the gateway redirect. ATE captions never start
-the step-out.
+the step-out. [ff9mapkit netsync s162] THE LANDING START: the copy's own-jump DEST landing arms a latch, so its step-out starts AT
+ONCE when its base holds (reason `ate`), before the ATE's first line (s161 waited for that line or the 1.5 s dwell: the peer showed
+twice for ~1 s on the ATE's field), and its wire mask reads 0 from the landing.
 
 THE BENCH. One instance root, the selftest role, real field 352 at scenario 2600 with its ATE gate set directly: byte 238 = 1 (the
 availability Code2 would write) and word 241 = 2 (the enabled rows: "Vivi, Confused"; the window adds Cancel). The HOST half is the
@@ -18,7 +21,8 @@ R9 tap-record lane (bench 1, lock 0, `tap-record 1`: this copy plays the host, i
 own jump out) is not on the selftest role: NetSyncAte.SelfTest's rows and the two-PC check carry it.
 
   K0      provenance; a fresh process; newgame; warp 352 (entrance 0, scenario 2600) with control; noencounter; `netsync selftest 1`.
-  K1      "ATE relay selftest: OK (156 rows, 58 mutants caught, ...)" within 20 s; `netsync.ate.selftest` "ok".
+  K1      "ATE relay selftest: OK (N rows, M mutants caught, ...)" within 20 s (s162: 165 / 65; s161: 156 / 58 -- N and M are never
+          judged against literals); `netsync.ate.selftest` "ok".
   K2      `netsync.ate` at rest: lever null, host_armed false, pending.on false, episode.phase null.
   R-N0    RECORDING, byte 238 = 0 (the ATE unavailable): a Select press is NOTED (arms +1: the raw read ran) and relays nothing (no
           'ATE relay RECORDED' line, relayed +0, no window, the tape still empty).
@@ -37,7 +41,12 @@ own jump out) is not on the selftest role: NetSyncAte.SelfTest's rows and the tw
   P-LAND  ...ONE load of 350 ('Map: 350' once), 'my copy's own Field(350) landed', and the ATE's first line 'win 4 text 321 opened
           locked' (the copy plays the ATE on 350, entrance 16).
   S1      ...the step-out never went OUT from the replay to the landing, and while the menu or the title was up the step-out's base
-          read the ATE term (`stepout.base.why_not` == NetSyncAte.StepOutTerm, `ate.stepout_exempt` true).
+          read the ATE term (`stepout.base.why_not` == NetSyncAte.StepOutTerm, `ate.stepout_exempt` true). [ff9mapkit netsync s162]
+          THE HUB SLICE: S1 reads the lines up to the copy's landing -- the FIRST of 'my copy's own Field(350) landed' and 'Map: 350'
+          (Map is logged at LateUpdate, so s162's landing OUT can precede it) -- so it judges only the menu and the title on 352.
+  S-LAND  [ff9mapkit netsync s162] THE LANDING START: after 'my copy's own Field(350) landed' and before the ATE's first line ('win 4
+          text 321 opened locked'), ONE 'step-out: OUT on field 350 (...) -- ate' -- the first OUT on 350 --, `stepout.out_why.ate`
+          rose over the replay, and a sample on 350 read `stepout.landing_wire` true (the landing term zeroing the wire mask).
   K-R     `reset` releases the lever (its line when a calibration held one); re-read with the role: lever null.
 
 THE CALIBRATIONS (COOP_CALIBRATE), each pulled right after R-REC (the tape is recorded on the shipping rule, so the lever's reds
@@ -45,11 +54,23 @@ are the GUEST half's alone) and held to the end:
   COOP_CALIBRATE=1 (or off)   `ate off`: the s160 rule on the guest. PREDICTED_OFF = T-TTL, P-QUEUE, P-MENU, P-PICK, P-TITLE,
                               P-JUMP, P-LAND, S1 red, each with OFF_MARKER (the 'ignored -- the ate lever is off' line, no menu).
   COOP_CALIBRATE=noexempt     `ate noexempt`: the relay on, the s158 step-out on the ATE menu. PREDICTED_NOEXEMPT = S1 red with
-                              NOEXEMPT_MARKER (a step-out OUT while the menu was up).
+                              NOEXEMPT_MARKER (a step-out OUT on 352 inside the hub slice while the menu was up -- an OUT at the
+                              landing, on 350, never satisfies it). S-LAND stays green: the field change ends that episode (IN --
+                              field) and the landing starts a fresh one by `ate`.
+  [ff9mapkit netsync s162]
+  COOP_CALIBRATE=noland       `stepout noland`: the relay on, the step-out without the landing term (s161's rule). PREDICTED_NOLAND =
+                              S-LAND red with NOLAND_MARKER (no OUT by `ate`; the OUT on 350 waited -- by `line` or `dwell` -- after the
+                              landing). `ate off` also reds S-LAND (PREDICTED_OFF: no episode, so no landing).
+  THE s161 DLL (no `out_why.ate`, no landing keys, the step-out waits for 321's line), run PLAIN: exactly S-LAND red (absent key, an
+  OUT by `line`) -- PREDICTED_S161, a prediction with no lever. `COOP_CALIBRATE=noland` there is refused by the driver before the
+  step (no `netsync.stepout.landing_wire`): K-CAL-M reds on the lever not taken, and so does K-CAL (it counts K-CAL-M's red as an
+  unpredicted one).
+  Any other COOP_CALIBRATE value is REFUSED (calibration()), never mapped to `ate off`.
 
     py tools/play.py studies/test-harness/scenarios/coop_ate_relay.py --instance C:\\gd\\ff9-inst\\host
     COOP_CALIBRATE=1 py tools/play.py studies/test-harness/scenarios/coop_ate_relay.py --instance C:\\gd\\ff9-inst\\host
     COOP_CALIBRATE=noexempt py tools/play.py studies/test-harness/scenarios/coop_ate_relay.py --instance C:\\gd\\ff9-inst\\host
+    COOP_CALIBRATE=noland py tools/play.py studies/test-harness/scenarios/coop_ate_relay.py --instance C:\\gd\\ff9-inst\\host
 """
 from __future__ import annotations
 
@@ -83,14 +104,20 @@ ARRIVE_S = 25.0
 MENU_S = 4.0
 REPLAY_S = 20.0
 TTL_WAIT_S = 7.5                         # PressTtlMs (5 s) and a margin
+LAND_TAIL_S = 1.0                        # [ff9mapkit netsync s162] after 321 opened: a noland OUT by `line` logs within a tick of it
 STEP_TERM = "an ATE caption is open on my copy (the menu or its title card)"
 PROOF_RX = re.compile(r"ATE relay selftest: OK \((\d+) rows, (\d+) mutants caught")
 LOG_RELEASE = "[NetSync] harness: ATE relay lever released (act)"
+LOG_RELEASE_STEPOUT = "[NetSync] harness: step-out lever released (act)"      # [ff9mapkit netsync s162] the noland lever's release
+# [ff9mapkit netsync s162] THE LANDING START's words (NetSyncAte.OnLanding, NetSyncStepOut.StepOut: "... -- " + OutNames[why])
+LANDED = f"ATE relay: my copy's own Field({DEST}) landed"
+OUT_RX = re.compile(r"step-out: OUT on field (\d+) \(.*\) -- (\w+)\s*$")
+FIRST_LINE_LOCKED = "dialogue lock: win %d text %d opened locked" % FIRST_LINE
 
 CLAIMS = {
     "K0": "the forced selftest role on 352 (newgame, warp 352 at scenario 2600 with control, noencounter, `netsync selftest 1`); "
           "a fresh process",
-    "K1": "the s161 proof line 'ATE relay selftest: OK (156 rows, 58 mutants caught, ...)' within 20 s, and "
+    "K1": "the proof line 'ATE relay selftest: OK (N rows, M mutants caught, ...)' (s162: 165 rows, 65 mutants) within 20 s, and "
           "`netsync.ate.selftest` 'ok'",
     "K2": "`netsync.ate` at rest: lever null, host_armed false, pending.on false, episode.phase null",
     "R-N0": "recording with the ATE unavailable (byte 238 = 0): a Select is noted (arms +1) and relays nothing (no RECORDED ATE "
@@ -106,14 +133,23 @@ CLAIMS = {
     "P-TITLE": "the title card opened locked and closed on the host's event",
     "P-JUMP": "my copy's own Field(350) passed ('the host's pick (choice 1) on field 352'), no bounce",
     "P-LAND": "one load of 350, the relay's landed line, and the ATE's first line 'win 4 text 321 opened locked'",
-    "S1": "no step-out OUT from the replay to the landing; while an ATE caption was up the base read the ATE term and "
-          "ate.stepout_exempt was true",
+    "S1": "no step-out OUT from the replay to the landing (the hub slice: up to the first of the landed line and 'Map: 350'); "
+          "while an ATE caption was up the base read the ATE term and ate.stepout_exempt was true",
+    "S-LAND": "THE LANDING START (s162): after the copy's landed line and before 'win 4 text 321 opened locked', one 'step-out: OUT "
+              "on field 350 (...) -- ate' (the first OUT on 350); stepout.out_why.ate rose; a 350 sample read stepout.landing_wire "
+              "true",
     "K-R": "`reset` releases the lever (its line when a calibration held one); re-read with the role: lever null",
 }
-PREDICTED_OFF = ("T-TTL", "P-QUEUE", "P-MENU", "P-PICK", "P-TITLE", "P-JUMP", "P-LAND", "S1")
+PREDICTED_OFF = ("T-TTL", "P-QUEUE", "P-MENU", "P-PICK", "P-TITLE", "P-JUMP", "P-LAND", "S1",
+                 "S-LAND")                              # [ff9mapkit netsync s162] no episode, no landing
 PREDICTED_NOEXEMPT = ("S1",)
+PREDICTED_NOLAND = ("S-LAND",)                          # [ff9mapkit netsync s162]
+#: [ff9mapkit netsync s162] a PLAIN run on the swapped-in s161 DLL (a prediction, not a lever -- no COOP_CALIBRATE value selects it:
+#: no `out_why.ate`, no landing keys, the OUT waits for 321)
+PREDICTED_S161 = ("S-LAND",)
 OFF_MARKER = "the guest ignored the press ('ignored -- the ate lever is off') and no ATE menu opened"
-NOEXEMPT_MARKER = "a step-out OUT while the ATE menu was up"
+NOEXEMPT_MARKER = "a step-out OUT on 352 inside the hub slice while the ATE menu was up"
+NOLAND_MARKER = "no step-out OUT by `ate`; the OUT on 350 waited (by `line` or `dwell`) after the landing"
 FINALS = ("K-R", "K-CAL-M", "K-CAL")
 
 
@@ -121,16 +157,33 @@ def calibration() -> str | None:
     v = os.environ.get("COOP_CALIBRATE", "").strip().lower()
     if v in ("", "0"):
         return None
-    return "noexempt" if v == "noexempt" else "off"
+    if v in ("noexempt", "noland"):                    # [ff9mapkit netsync s162] + noland
+        return v
+    if v in ("1", "off", "true", "yes", "on"):
+        return "off"
+    # [ff9mapkit netsync s162] never map an unknown word to `ate off` (the duo's "s161" is a DLL swap, not a solo lever)
+    raise HarnessError(f"COOP_CALIBRATE={v!r}: the solo bench takes 1/off, noexempt or noland (the s161 DLL takes no lever: run it "
+                       f"plain and expect PREDICTED_S161)")
+
+
+#: [ff9mapkit netsync s162] each calibration's lever: the sub-verb and the op it sends (noland is the STEP-OUT's lever)
+LEVERS = {"off": ("ate", "off"), "noexempt": ("ate", "noexempt"), "noland": ("stepout", "noland")}
+
+
+def predicted_of(cal: str) -> tuple:
+    return {"off": PREDICTED_OFF, "noexempt": PREDICTED_NOEXEMPT, "noland": PREDICTED_NOLAND}[cal]
+
+
+def marker_of(cal: str) -> str:
+    return {"off": OFF_MARKER, "noexempt": NOEXEMPT_MARKER, "noland": NOLAND_MARKER}[cal]
 
 
 def catalog(cal: str | None) -> dict:
     cat = dict(CLAIMS)
     if cal is not None:
-        marker = OFF_MARKER if cal == "off" else NOEXEMPT_MARKER
-        predicted = PREDICTED_OFF if cal == "off" else PREDICTED_NOEXEMPT
-        cat["K-CAL-M"] = "every predicted red carries its marker: " + marker
-        cat["K-CAL"] = f"the `ate {cal}` calibration: exactly " + ", ".join(predicted) + " red"
+        sub, op = LEVERS[cal]
+        cat["K-CAL-M"] = "the lever was taken and every predicted red carries its marker: " + marker_of(cal)
+        cat["K-CAL"] = f"the `{sub} {op}` calibration: exactly " + ", ".join(predicted_of(cal)) + " red"
     return cat
 
 
@@ -209,6 +262,64 @@ def judge_land(lines) -> tuple:
                                                       f"{cb.grep(lines, 'Map:', 'landed', 'text 321', limit=400)}")
 
 
+def hub_end(lines) -> int:
+    """[ff9mapkit netsync s162] Where the hub phase ends in a replay's lines: the FIRST of the copy's landed line and 'Map: 350' (Map is
+    logged at LateUpdate, so s162's landing OUT -- right after the landed line -- can precede it); len(lines) when neither came."""
+    return min(next((i for i, ln in enumerate(lines) if needle in ln), len(lines)) for needle in (LANDED, f"Map: {DEST} "))
+
+
+def hub_slice(lines) -> list:
+    """[ff9mapkit netsync s162] The replay's lines through the menu and the title on 352, up to the landing (:func:`hub_end`)."""
+    return list(lines[:hub_end(lines)])
+
+
+def outs_of(lines) -> list:
+    """[ff9mapkit netsync s162] Every step-out OUT line as (index, field, reason) -- the reason is NetSyncStepOut.OutNames' word."""
+    out = []
+    for i, ln in enumerate(lines):
+        m = OUT_RX.search(ln)
+        if m:
+            out.append((i, int(m.group(1)), m.group(2)))
+    return out
+
+
+def landing_out(lines) -> tuple:
+    """[ff9mapkit netsync s162] (ok, parts, OUT reasons on 350) -- the LOG half of THE LANDING START, shared with the duo bench (its
+    guest's lines): the landed line; the ATE's first line after it; ONE OUT on 350 by `ate`, the first OUT on 350 after the landing,
+    between the two lines."""
+    land = next((i for i, ln in enumerate(lines) if LANDED in ln), None)
+    first = next((i for i, ln in enumerate(lines) if FIRST_LINE_LOCKED in ln and (land is None or i > land)), None)
+    on_dest = [(i, why) for i, f, why in outs_of(lines) if f == DEST]
+    ates = [i for i, why in on_dest if why == "ate"]
+    after = [(i, why) for i, why in on_dest if land is not None and i > land]
+    parts = [("landed", land is not None), ("321 after it", first is not None),
+             ("one OUT by ate on 350", len(ates) == 1),
+             ("it is the first OUT on 350 after the landing", bool(after) and after[0][1] == "ate"),
+             ("between the landing and 321", len(ates) == 1 and land is not None and first is not None and land < ates[0] < first)]
+    return all(v for _, v in parts), parts, [why for _i, why in on_dest]
+
+
+def counter_rose(before, samples, dotted: str) -> tuple:
+    """[ff9mapkit netsync s162] (rose, the highest later value): an int counter read at ``dotted`` rose above ``before`` on some sample
+    -- an ABSENT key (an older engine) is never a 0 that stayed."""
+    now = [cb.path(s, dotted) for s in samples]
+    now = [v for v in now if isinstance(v, int) and not isinstance(v, bool)]
+    good = isinstance(before, int) and not isinstance(before, bool) and bool(now) and max(now) > before
+    return good, (max(now) if now else None)
+
+
+def judge_landing(lines, ate0, samples) -> tuple:
+    """[ff9mapkit netsync s162] S-LAND (PURE): :func:`landing_out` on the replay's lines; ``ate0`` (stepout.out_why.ate before the
+    replay) rose on some sample; a sample on 350 read `stepout.landing_wire` true."""
+    ok, parts, reasons = landing_out(lines)
+    rose, top = counter_rose(ate0, samples, "netsync.stepout.out_why.ate")
+    wire = any(field_of(s) == DEST and cb.path(s, "netsync.stepout.landing_wire") is True for s in samples)
+    parts = parts + [("out_why.ate rose", rose), ("landing_wire on 350", wire)]
+    return all(v for _, v in parts), (", ".join(f"{k} {'ok' if v else 'NO'}" for k, v in parts)
+                                      + f"; OUTs on {DEST} {reasons}; out_why.ate {ate0!r} -> {top!r}; "
+                                      f"{cb.grep(lines, 'landed', 'step-out', 'text 321', limit=500)}")
+
+
 def judge_s1(lines, samples) -> tuple:
     outs = cb.count(lines, "step-out: OUT on field")
     term = [s for s in samples if cb.path(s, "netsync.stepout.base.why_not") == STEP_TERM]
@@ -224,9 +335,27 @@ def off_marker(lines) -> tuple:
 
 
 def noexempt_marker(lines) -> tuple:
-    out = cb.count(lines, "step-out: OUT on field")
-    menu = opened_locked(lines, MENU_WIN, MENU_TEXT)
-    return out >= 1 and menu >= 1, f"OUT lines {out}, menus opened {menu}"
+    """The noexempt marker: an OUT on 352 while the menu was up -- read off the HUB SLICE only ([ff9mapkit netsync s162] s162's landing
+    OUT on 350 sits after the landed line, so it can never stand in for the menu's: the marker still discriminates)."""
+    hub = hub_slice(lines)
+    out = sum(1 for _i, f, _w in outs_of(hub) if f == HUB)
+    menu = opened_locked(hub, MENU_WIN, MENU_TEXT)
+    return out >= 1 and menu >= 1, f"OUT lines on {HUB} in the hub slice {out}, menus opened {menu}"
+
+
+def noland_marker(lines) -> tuple:
+    """[ff9mapkit netsync s162] The noland marker: no OUT by `ate` anywhere, and the OUT on 350 WAITED -- an OUT on 350 by `line` or
+    `dwell` after the landed line (s161's rule: the peer showed until the first line)."""
+    land = next((i for i, ln in enumerate(lines) if LANDED in ln), None)
+    outs = outs_of(lines)
+    ates = [i for i, _f, why in outs if why == "ate"]
+    waited = [why for i, f, why in outs if f == DEST and why in ("line", "dwell") and land is not None and i > land]
+    return not ates and bool(waited), (f"OUTs by ate {len(ates)}, waited OUTs on {DEST} {waited}, landed "
+                                       f"{'seen' if land is not None else 'NO'}")
+
+
+def marker_judge(cal: str):
+    return {"off": off_marker, "noexempt": noexempt_marker, "noland": noland_marker}[cal]
 
 
 # --------------------------------------------------------------------------------------------- the run
@@ -235,6 +364,7 @@ class Ctx:
         self.cal = cal
         self.k0_ok = False
         self.lever_held = False
+        self.lever_sub = "ate"           # [ff9mapkit netsync s162] the sub-verb whose lever the calibration holds (noland: `stepout`)
         self.marks: dict = {}            # leg -> its fresh log lines (the calibration markers read them)
 
 
@@ -306,11 +436,13 @@ def run(g, field: int | None = None):
         _guard(g, led, "R-N0", lambda: _r_n0(g, ctx, led))
         _guard(g, led, "R-REC", lambda: _r_rec(g, ctx, led))
         if cal is not None:
-            ok, why = _ns(g, "ate", cal)
-            st = cb.poll(g, lambda s: ate_get(s, "lever") == cal, 3.0, f"the {cal} lever read back")
+            sub, op = LEVERS[cal]                        # [ff9mapkit netsync s162] noland is the STEP-OUT's lever
+            ctx.lever_sub = sub
+            ok, why = _ns(g, sub, op)
+            st = cb.poll(g, lambda s: cb.path(s, f"netsync.{sub}.lever") == op, 3.0, f"the {op} lever read back")
             ctx.lever_held = ok and st is not None
-            g.note(f"CALIBRATION: `ate {cal}` {'taken' if ok else 'REFUSED: ' + why}, held to the end (after the recording); "
-                   f"predicted red {', '.join(PREDICTED_OFF if cal == 'off' else PREDICTED_NOEXEMPT)}")
+            g.note(f"CALIBRATION: `{sub} {op}` {'taken' if ok else 'REFUSED: ' + why}, held to the end (after the recording); "
+                   f"predicted red {', '.join(predicted_of(cal))}")
         _guard(g, led, "T-TTL", lambda: _t_ttl(g, ctx, led))
         _guard(g, led, "P-QUEUE", lambda: _replay(g, ctx, led))
     except HarnessError as err:
@@ -329,11 +461,12 @@ def run(g, field: int | None = None):
         g.note(f"Memoria.log archived: {cb.archive_log(g, 'ate-relay-' + (cal or 'plain'))}")
         if cal is not None:
             led.close("not reached: the run ended before this check")
-            predicted = PREDICTED_OFF if cal == "off" else PREDICTED_NOEXEMPT
-            judge = off_marker if cal == "off" else noexempt_marker
-            marks_ok = all(leg in ctx.marks and judge(ctx.marks[leg])[0] for leg in predicted)
-            led.check("K-CAL-M", marks_ok, "; ".join(f"{leg}: {judge(ctx.marks[leg])[1] if leg in ctx.marks else 'NO RUN'}"
-                                                     for leg in predicted))
+            predicted = predicted_of(cal)
+            judge = marker_judge(cal)
+            # [ff9mapkit netsync s162] a lever the engine (or the driver) refused never calibrates: the marker row is red without it
+            marks_ok = ctx.lever_held and all(leg in ctx.marks and judge(ctx.marks[leg])[0] for leg in predicted)
+            led.check("K-CAL-M", marks_ok, f"lever {'taken' if ctx.lever_held else 'NOT TAKEN'}; " + "; ".join(
+                f"{leg}: {judge(ctx.marks[leg])[1] if leg in ctx.marks else 'NO RUN'}" for leg in predicted))
             led.judge_calibration("K-CAL", predicted)
         led.close(final=True)
 
@@ -479,19 +612,20 @@ def _replay(g, ctx: Ctx, led: cb.Ledger) -> None:
     _gate(g, 1)
     g.wait_frames(10)
     at = cb.mark(g)
+    ate0 = cb.path(g.state, "netsync.stepout.out_why.ate")   # [ff9mapkit netsync s162] S-LAND's baseline (None: an s161 engine)
     _must(g, "replay")
     samples, hit = cb.watch(g, lambda s: field_of(s) == DEST and opened_locked(cb.new(g, at), *FIRST_LINE) >= 1, REPLAY_S)
-    cb.hold_for(g, 0.5)
+    samples += cb.hold_for(g, LAND_TAIL_S)               # [ff9mapkit netsync s162] long enough for a waited OUT (noland) to log
     lines = cb.new(g, at)
-    for leg in ("P-QUEUE", "P-MENU", "P-PICK", "P-TITLE", "P-JUMP", "P-LAND", "S1"):
+    for leg in ("P-QUEUE", "P-MENU", "P-PICK", "P-TITLE", "P-JUMP", "P-LAND", "S1", "S-LAND"):
         ctx.marks[leg] = lines
     by_host_seen = any(ate_get(s, "episode.by_host") is True for s in samples)
     caption_samples = [s for s in samples if field_of(s) == HUB and dialog_open(s)]
-    land_at = next((i for i, ln in enumerate(lines) if f"Map: {DEST} " in ln), len(lines))
     for leg, (ok, detail) in (("P-QUEUE", judge_queue(lines)), ("P-MENU", judge_menu(lines)),
                               ("P-PICK", judge_pick(lines, by_host_seen)), ("P-TITLE", judge_title(lines)),
                               ("P-JUMP", judge_jump(lines)), ("P-LAND", judge_land(lines)),
-                              ("S1", judge_s1(lines[:land_at], caption_samples))):
+                              ("S1", judge_s1(hub_slice(lines), caption_samples)),   # [ff9mapkit netsync s162] the hub slice
+                              ("S-LAND", judge_landing(lines, ate0, samples))):
         led.check(leg, ok, detail)
     if hit is None:
         g.note(f"the replay never reached {DEST}'s first ATE line in {REPLAY_S:.0f} s: field {field_of(g.state)}")
@@ -508,12 +642,12 @@ def _k_r(g, ctx: Ctx, led: cb.Ledger) -> None:
     try:
         _ns(g, "selftest", 1)
         st = cb.poll(g, lambda s: bool((s.netsync or {}).get("selftest")), 5.0, "the role again") or g.state
-        lever = ate_get(st, "lever")
+        lever = cb.path(st, f"netsync.{ctx.lever_sub}.lever")   # [ff9mapkit netsync s162] the held lever's own block
         _ns(g, "selftest", 0)
     except HarnessError as err:
         led.check("K-R", False, f"the re-read raised: {str(err)[:200]}")
         return
-    line = cb.count(lines, LOG_RELEASE) > 0
+    line = cb.count(lines, LOG_RELEASE_STEPOUT if ctx.lever_sub == "stepout" else LOG_RELEASE) > 0   # [ff9mapkit netsync s162]
     ok = lever is None and (line or not ctx.lever_held)
-    led.check("K-R", ok, f"lever {lever!r} after the release; release line {'seen' if line else 'absent'} (a lever "
+    led.check("K-R", ok, f"{ctx.lever_sub} lever {lever!r} after the release; release line {'seen' if line else 'absent'} (a lever "
                          f"{'was' if ctx.lever_held else 'was not'} held into it)")

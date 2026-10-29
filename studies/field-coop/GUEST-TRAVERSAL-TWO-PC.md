@@ -571,7 +571,11 @@ StartRule waits for a fresh line or DwellMs 1500. The ATE landing is treated lik
 window opened on 450 (guest ghost GRN 20:51:31, OUT at 20:51:32). It opens at every scene start (301, 352 night), unnoticed
 where the two bodies are different characters. It is not FieldFPS: every clock on this path is `Environment.TickCount`.
 
-**Fix (planned, engine round s162):** the ATE relay's own-jump landing (`NetSyncAte.OnLanding`, next phase DEST) arms a one-shot latch; StartRule
+**Status: BUILT, DEPLOYED and SOLO-BENCHED as engine patch s162 (2026-10-29).** `coop_ate_relay.py` S-LAND reads one
+`step-out: OUT on field 350 (...) -- ate` between the copy's landed line and line 321; detail, calibrations and the gates in
+`memoria-patches/README.md`, the s162 row. The duo (D10-D12: both screens) and the two-PC replay are next.
+
+**Fix (as designed for engine round s162; built with a debounced spend and a `landing` hide reason, see the README row):** the ATE relay's own-jump landing (`NetSyncAte.OnLanding`, next phase DEST) arms a one-shot latch; StartRule
 starts at once while it stands and the base holds (new reason `ate`), and the wire mask reads 0 from the landing, gated on
 `eligible && !LeverOff`, so the guest's first packet on the ATE field already hides it on the host. THE ARRIVAL LAW stays for
 every other landing: a DEST landing needs the host's exact pick with control still off, so it is never a door. A copy carried
@@ -631,6 +635,7 @@ Ship the log split (which clock released the hold) either way.
    `memoria-patches/README.md`, the s158 row. **Two-PC (2026-10-28):** 359 worked; 352's night scene kept the guest's
    Steiner in Zidane's part (Finding 6); a post-dialogue jitter is open (Finding 7); the emergence scene is untested.
    **s159 (2026-10-28): the step-out anchors on the dressed body; built, deployed and solo-benched (M-352 green, both
-   calibrations exact). Two-PC confirmed in the third session.** Next: Finding 9's landing start.
+   calibrations exact). Two-PC confirmed in the third session.** **s162 (2026-10-29): Finding 9's landing start; built,
+   deployed and solo-benched (S-LAND green, its noland calibration exact).** Next: the duo, then two-PC.
 3. **The host's field rate on the wire, plus the capped follow-hold** (Finding 4; seen again in an ATE as Finding 10).
 4. **The same-field reload** (Finding 5): backlog. It has real stock cases, so it is not only debug hygiene.

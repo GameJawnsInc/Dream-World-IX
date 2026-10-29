@@ -401,7 +401,18 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # words, its lines, and the release (the lever none, its line only when one was set). WHAT IT CANNOT: a press or an
                        # episode -- no host Select arm, no ATE-caption window (ETb.NewMesWin), no ring kind 3, no serve, no own jump, no
                        # hold (NetSyncAte.SelfTest proves the rules), so `pending`, `episode` and the counters stay at their sentinels.
-                       "ate": ("s161", ("ate",))}
+                       "ate": ("s161", ("ate",)),
+                       # [ff9mapkit netsync s162] THE LANDING START (GUEST-TRAVERSAL-TWO-PC.md Finding 9: the peer showed twice for ~1 s
+                       # at an ATE's landing): no sub-verb, one `stepout` op (`noland`: CALIBRATION, no landing term -- s161's rule), four
+                       # keys INSIDE `netsync.stepout` -- `base.landing` (after `host_scene`), `landing_wire` (after `wire_mask`),
+                       # `out_why.ate` (OutAte, its last) and `ghost.by.landing` (HideLanding, its last) -- (NETSYNC_TOP_NESTED_KEYS), the
+                       # step-out proof line's twelve rows and five mutants and the ATE relay line's nine rows and seven mutants; its
+                       # calibration is caps_through("ate"). WHAT THE STAND-IN MODELS: the four keys at their sentinels, the `noland` lever,
+                       # its line and its release, an s159-s161 engine's usage line for `noland`, both proof lines' tallies. WHAT IT CANNOT:
+                       # a landing -- no ATE episode, no DEST latch or its spend, no step-out episode, no wire mask and no ghost here (the
+                       # stand-in models neither episode), so `base.landing` and `landing_wire` stay false and the two counters 0
+                       # (NetSyncStepOut.SelfTest / NetSyncAte.SelfTest prove the rules).
+                       "ateland": ("s162", ())}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -454,6 +465,8 @@ NETSYNC_S160_CAPS = frozenset(("chest",))
 #: [ff9mapkit netsync s161] The ATE relay rung (its calibration, the s160 engine -- the last rung before it on this ladder -- is
 #: ``caps_through("chest")``).
 NETSYNC_S161_CAPS = frozenset(("ate",))
+#: [ff9mapkit netsync s162] The landing-start rung (its calibration, the s161 engine, is ``caps_through("ate")``).
+NETSYNC_S162_CAPS = frozenset(("ateland",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -558,6 +571,8 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "chest": {},
     # [ff9mapkit netsync s161] nothing under `netsync.battle`: `ate` is a TOP-LEVEL netsync block after `chest`
     "ate": {},
+    # [ff9mapkit netsync s162] nothing under `netsync.battle`: its four keys sit inside `netsync.stepout` (NETSYNC_TOP_NESTED_KEYS)
+    "ateland": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -590,7 +605,12 @@ NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",),
 #: `netsync.world`'s last (AppendWorldDio, after `waitline`)
 NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)},
                            "stepanchor": {"stepout": ("anchor",)},     # [ff9mapkit netsync s159] `netsync.stepout`'s last
-                           "ate": {"stepout.in_why": ("ate",)}}        # [ff9mapkit netsync s161] InAte, `in_why`'s last
+                           "ate": {"stepout.in_why": ("ate",)},        # [ff9mapkit netsync s161] InAte, `in_why`'s last
+                           # [ff9mapkit netsync s162] the landing term: `base.landing` after `host_scene` and `landing_wire` after
+                           # `wire_mask` (both INSERTED mid-block, not appended), OutAte (`out_why`'s last) and HideLanding
+                           # (`ghost.by`'s last)
+                           "ateland": {"stepout.base": ("landing",), "stepout": ("landing_wire",), "stepout.out_why": ("ate",),
+                                       "stepout.ghost.by": ("landing",)}}
 #: [ff9mapkit netsync s138] The keys each dress rung adds INSIDE `netsync.dress`, in AppendDress's order (s139 appends
 #: `codec` and `rig_idle_frames`, s140 `self`) -- the dress key law: every one under `netsync.dress`, never `netsync.battle`
 #: (the action-replay audit's 4.3).
@@ -731,20 +751,28 @@ GHOSTFRAME_LOG_RELEASE = "[NetSync] harness: ghost frame-follow back ON (release
 #: inputs, the edge counters by StartRule / EndRule reason (OutNames / InNames order), the stand-in, the ghost's hide verdict and
 #: its edges by reason (HideNames order). The live agent reads `lever` (as set), `selftest` (once the proof block ran), the
 #: base's inputs and `why_not` (every tick), `wire_mask`, `body_rends_on` and `shadow` where the catch line has its sentinels.
-NETSYNC_STEPOUT_OUT_WHY = ("line", "dwell")
+#: [ff9mapkit netsync s162] + the landing term: `base.landing` (InLanding, the last Tick's), `landing_wire` (LandingNow, the last live
+#: WireMask's), `out_why.ate` (OutAte: the ATE relay's own-jump landing started it) and `ghost.by.landing` (HideLanding: the guest's
+#: screen hid the host's ghost for its landing term, before its step-out).
+NETSYNC_STEPOUT_OUT_WHY = ("line", "dwell",
+                           "ate")                # [ff9mapkit netsync s162] OutAte: the ATE relay's DEST landing (NetSyncAte's latch)
 NETSYNC_STEPOUT_IN_WHY = ("control", "field", "body", "session", "lever", "talk", "climb",
                           "ate")                 # [ff9mapkit netsync s161] InAte: the guest's ATE menu opened mid-episode
-NETSYNC_STEPOUT_HIDE_WHY = ("mask0", "host_scene", "step_out")
+NETSYNC_STEPOUT_HIDE_WHY = ("mask0", "host_scene", "step_out",
+                            "landing")           # [ff9mapkit netsync s162] HideLanding: a guest's landing term, before its step-out
 NETSYNC_STEPOUT_BASE_SENTINELS = {"eligible": False, "host_here": False, "host_ctl_off": False, "my_ctl_off": False,
-                                  "climb": False, "talk": False, "line": False, "host_scene": False, "why_not": None,
-                                  "age_ms": -1}
+                                  "climb": False, "talk": False, "line": False, "host_scene": False,
+                                  "landing": False,      # [ff9mapkit netsync s162] InLanding, after `host_scene`
+                                  "why_not": None, "age_ms": -1}
 NETSYNC_STEPOUT_STANDIN_SENTINELS = {"on": False, "shown": False, "geo": None, "clip": None, "src_anim": -1, "norm": -1,
                                      "body_norm": -1, "dpos": -1, "rends_on": -1, "spawns": 0, "frames": 0, "missing_clip": 0}
 NETSYNC_STEPOUT_SENTINELS = {
     "lever": None, "active": False, "field": -1, "uid": -1, "dressed": False, "why": None, "age_ms": -1,
     "base": NETSYNC_STEPOUT_BASE_SENTINELS, "talk_armed": False, "outs": 0, "ins": 0,
     "out_why": {k: 0 for k in NETSYNC_STEPOUT_OUT_WHY}, "in_why": {k: 0 for k in NETSYNC_STEPOUT_IN_WHY},
-    "wire_mask": -1, "stock_visible": False, "body_rends_on": -1, "shadow": -1, "shadow_off": -1,
+    "wire_mask": -1,
+    "landing_wire": False,                      # [ff9mapkit netsync s162] LandingNow, after `wire_mask`
+    "stock_visible": False, "body_rends_on": -1, "shadow": -1, "shadow_off": -1,
     "standin": NETSYNC_STEPOUT_STANDIN_SENTINELS,
     "ghost": {"hide": None, "edges": 0, "by": {k: 0 for k in NETSYNC_STEPOUT_HIDE_WHY}}, "host_plain_scene": False,
     "talk_accepts": 0, "faults": 0, "last_fault": None, "selftest": None,
@@ -753,25 +781,38 @@ NETSYNC_STEPOUT_SENTINELS = {
     "anchor": {"uid": -1, "ctl_uid": -1, "dressed_uid": -1, "ctl_rends_on": -1}}
 NETSYNC_STEPOUT_KEYS = tuple(NETSYNC_STEPOUT_SENTINELS)
 NETSYNC_STEPOUT_ANCHOR_KEYS = tuple(NETSYNC_STEPOUT_SENTINELS["anchor"])          # [ff9mapkit netsync s159]
-NETSYNC_STEPOUT_KEYS_S158 = tuple(k for k in NETSYNC_STEPOUT_KEYS if k != "anchor")   # [ff9mapkit netsync s159] s158's block
+#: [ff9mapkit netsync s162] the landing term's top-level key (`base.landing` and `out_why.ate` sit in fixed sub-objects)
+NETSYNC_STEPOUT_LANDING_KEYS = ("landing_wire",)
+NETSYNC_STEPOUT_KEYS_S158 = tuple(k for k in NETSYNC_STEPOUT_KEYS          # [ff9mapkit netsync s159] s158's block
+                                  if k != "anchor" and k not in NETSYNC_STEPOUT_LANDING_KEYS)   # [s162] (no landing_wire)
 #: [ff9mapkit netsync s158] NetSyncStepOut.HarnessLever: the ops and its two refusals, in its words; the lever's lines.
 #: [ff9mapkit netsync s159] + `ctl` (an s158 engine answers it with its own usage line: NETSYNC_STEPOUT_USAGE_S158)
-NETSYNC_STEPOUT_OPS = ("act", "off", "ctl", "clear")
+#: [ff9mapkit netsync s162] + `noland` before `clear` (an s159-s161 engine answers it with its own: NETSYNC_STEPOUT_USAGE_S161)
+NETSYNC_STEPOUT_OPS = ("act", "off", "ctl", "noland", "clear")
+NETSYNC_STEPOUT_OPS_S161 = ("act", "off", "ctl", "clear")
 NETSYNC_STEPOUT_OPS_S158 = ("act", "off", "clear")
 NETSYNC_STEPOUT_ROLE_REFUSAL = "netsync stepout: needs the selftest role (netsync selftest 1)"
-NETSYNC_STEPOUT_USAGE = "netsync stepout: expected act|off|ctl|clear"
+NETSYNC_STEPOUT_USAGE = "netsync stepout: expected act|off|ctl|noland|clear"
+NETSYNC_STEPOUT_USAGE_S161 = "netsync stepout: expected act|off|ctl|clear"
 NETSYNC_STEPOUT_USAGE_S158 = "netsync stepout: expected act|off|clear"
 STEPOUT_LOG_OFF = "[NetSync] harness: step-out OFF -- CALIBRATION: never step out (released with the harness)"
 STEPOUT_LOG_CTL = ("[NetSync] harness: step-out CTL -- CALIBRATION: anchor on the controlled actor, s158's rule (released with the "
                    "harness)")                          # [ff9mapkit netsync s159]
+STEPOUT_LOG_NOLAND = ("[NetSync] harness: step-out NOLAND -- CALIBRATION: no ATE landing term, s161's rule (released with the "
+                      "harness)")                       # [ff9mapkit netsync s162]
 STEPOUT_LOG_ACT = "[NetSync] harness: step-out ACT"
 STEPOUT_LOG_RELEASE = "[NetSync] harness: step-out lever released (act)"
 #: [ff9mapkit netsync s158] the proof line's head and the bench's parse of it; the stand-in's N / M are NetSyncStepOut.SelfTest's
 #: own tallies as the stand-in counts them (36 rows + the live source-rig row; 12 mutants) -- a stand-in's numbers
 PROOF_STEP_OUT = "step-out selftest: "
 STEPOUT_PROOF_RE = r"step-out selftest: OK \((\d+) rows, (\d+) mutants caught, dwell (\d+) ms, step-in (\d+) ms\)"
-FAKE_STEPOUT_SELFTEST_ROWS = 44                         # [ff9mapkit netsync s159] + the seven anchor rows (s158: 37)
-FAKE_STEPOUT_MUTANTS = 15                               # [ff9mapkit netsync s159] + anchor_ctl, dress_live_blind, dress_first (s158: 12)
+FAKE_STEPOUT_SELFTEST_ROWS = 56                         # [ff9mapkit netsync s162] + start.ate_landing / _over_line / _past_dwell,
+                                                        # wire.landing / out_and_landing, land.* (five), hide.landing /
+                                                        # step_out_over_landing -- twelve rows (s159-s161: 44)
+FAKE_STEPOUT_MUTANTS = 20                               # [ff9mapkit netsync s162] + ate_landing_blind, landing_every_arrival,
+                                                        # landing_wire_blind, landing_gate_blind, landing_hide_blind (s159-s161: 15)
+FAKE_STEPOUT_SELFTEST_ROWS_S161 = 44                    # [ff9mapkit netsync s159] + the seven anchor rows (s158: 37)
+FAKE_STEPOUT_MUTANTS_S161 = 15                          # [ff9mapkit netsync s159] + anchor_ctl, dress_live_blind, dress_first
 FAKE_STEPOUT_SELFTEST_ROWS_S158 = 37
 FAKE_STEPOUT_MUTANTS_S158 = 12
 STEPOUT_DWELL_MS = 1500                                 # NetSyncStepOut.DwellMs (THE ARRIVAL LAW)
@@ -822,12 +863,17 @@ ATE_LOG_NOEXEMPT = "[NetSync] harness: ATE relay NOEXEMPT -- CALIBRATION: the s1
 ATE_LOG_ACT = "[NetSync] harness: ATE relay ACT"
 ATE_LOG_RELEASE = "[NetSync] harness: ATE relay lever released (act)"
 #: [ff9mapkit netsync s161] the proof line's head and the bench's parse of it; the stand-in's N / M are NetSyncAte.SelfTest's own
-#: tallies (156 rows; 58 mutants, MutantNames) -- a stand-in's numbers -- then its ten constants
+#: tallies (156 rows; 58 mutants, MutantNames) -- a stand-in's numbers -- then its ten constants. [ff9mapkit netsync s162] + the
+#: landing latch's five rows (latch.dest_here / hub / other_field / unarmed / field_zero) and its spend's four (spend.ctl_back_here /
+#: debounce / ctl_off / other_field), and seven mutants (latch_field_blind / phase_blind / input_blind / zero_blind,
+#: latch_spend_never / no_debounce / any_field): 165 / 65 (an s161 engine's: the _S161 pair)
 PROOF_ATE_RELAY = "ATE relay selftest: "
 ATE_PROOF_RE = (r"ATE relay selftest: OK \((\d+) rows, (\d+) mutants caught, arm (\d+) key ticks, press (\d+)/(\d+) ms, "
                 r"pending (\d+) ms, prepick (\d+) ms, hub (\d+)/(\d+) ms, tail (\d+)/(\d+) ms, exit (\d+) ms\)")
-FAKE_ATE_SELFTEST_ROWS = 156
-FAKE_ATE_MUTANTS = 58
+FAKE_ATE_SELFTEST_ROWS = 165
+FAKE_ATE_MUTANTS = 65
+FAKE_ATE_SELFTEST_ROWS_S161 = 156
+FAKE_ATE_MUTANTS_S161 = 58
 ATE_ARM_TICKS = 2                                       # NetSyncAte.ArmTicks (the host's Select hit opens its ATE window within)
 ATE_PRESS_TTL_MS = 5000                                 # NetSyncAte.PressTtlMs (unopened on its field with my control on)
 ATE_PRESS_CAP_MS = 20000                                # NetSyncAte.PressCapMs (unopened since it arrived, whatever)
@@ -6342,13 +6388,23 @@ class FakeGame:
         """HarnessLever (the agent's `case "stepout"`): the ROLE first, then one op alone -- one usage line otherwise."""
         if not self._nb_role():
             raise RuntimeError(NETSYNC_STEPOUT_ROLE_REFUSAL)
-        anchor = "stepanchor" in self.netsync_caps      # [ff9mapkit netsync s159] `ctl` and its usage line
-        ops, usage = (NETSYNC_STEPOUT_OPS, NETSYNC_STEPOUT_USAGE) if anchor else (NETSYNC_STEPOUT_OPS_S158, NETSYNC_STEPOUT_USAGE_S158)
+        ops, usage = self._so_ops()
         op = args[1].strip().lower() if len(args) > 1 else ""
         if len(args) != 2 or op not in ops:
             raise RuntimeError(usage)
-        self._so["lever"] = op if op in ("off", "ctl") else None
-        self._mlog(STEPOUT_LOG_OFF if op == "off" else STEPOUT_LOG_CTL if op == "ctl" else STEPOUT_LOG_ACT)
+        self._so["lever"] = op if op in ("off", "ctl", "noland") else None
+        self._mlog(STEPOUT_LOG_OFF if op == "off" else STEPOUT_LOG_CTL if op == "ctl"
+                   else STEPOUT_LOG_NOLAND if op == "noland" else STEPOUT_LOG_ACT)
+
+    def _so_ops(self) -> tuple:
+        """HarnessLever's ops and usage line BY GENERATION: [ff9mapkit netsync s162] `noland` (the landing rung), [ff9mapkit
+        netsync s159] `ctl` (the anchor rung), else s158's three."""
+        caps = self.netsync_caps
+        if "ateland" in caps:
+            return NETSYNC_STEPOUT_OPS, NETSYNC_STEPOUT_USAGE
+        if "stepanchor" in caps:
+            return NETSYNC_STEPOUT_OPS_S161, NETSYNC_STEPOUT_USAGE_S161
+        return NETSYNC_STEPOUT_OPS_S158, NETSYNC_STEPOUT_USAGE_S158
 
     def _so_release(self) -> None:
         """NetSyncStepOut.HarnessRelease: the lever none -- its line only when one was set."""
@@ -6359,8 +6415,9 @@ class FakeGame:
     def _so_proof(self) -> None:
         """The proof block's step-out line (once per process): the stand-in's tallies -- `selftest` "ok" from then on."""
         self._so["selftest"] = "ok"
-        anchor = "stepanchor" in self.netsync_caps      # [ff9mapkit netsync s159] the anchor rows and mutants
-        rows, mutants = ((FAKE_STEPOUT_SELFTEST_ROWS, FAKE_STEPOUT_MUTANTS) if anchor
+        caps = self.netsync_caps                        # [ff9mapkit netsync s159] the anchor rows and mutants; [s162] the landing's
+        rows, mutants = ((FAKE_STEPOUT_SELFTEST_ROWS, FAKE_STEPOUT_MUTANTS) if "ateland" in caps
+                         else (FAKE_STEPOUT_SELFTEST_ROWS_S161, FAKE_STEPOUT_MUTANTS_S161) if "stepanchor" in caps
                          else (FAKE_STEPOUT_SELFTEST_ROWS_S158, FAKE_STEPOUT_MUTANTS_S158))
         self._mlog(f"[NetSync] {PROOF_STEP_OUT}OK ({rows} rows, {mutants} mutants caught, "
                    f"dwell {STEPOUT_DWELL_MS} ms, step-in {STEPOUT_STEP_IN_MS} ms)")
@@ -6374,6 +6431,12 @@ class FakeGame:
             del doc["anchor"]                           # [ff9mapkit netsync s159] an s158 engine has no `anchor`
         if "ate" not in self.netsync_caps:
             del doc["in_why"]["ate"]                    # [ff9mapkit netsync s161] an s160 engine has no InAte
+        if "ateland" not in self.netsync_caps:          # [ff9mapkit netsync s162] an s161 engine has no landing term
+            del doc["base"]["landing"]
+            del doc["out_why"]["ate"]
+            del doc["ghost"]["by"]["landing"]
+            for k in NETSYNC_STEPOUT_LANDING_KEYS:
+                del doc[k]
         return doc
 
     # -- [ff9mapkit netsync s160] THE CHEST RELAY (the `chest` rung; see NETSYNC_BATTLE_CAPS for what it models) ---------------
@@ -6435,7 +6498,9 @@ class FakeGame:
     def _ar_proof(self) -> None:
         """The proof block's ATE relay line (once per process): the stand-in's tallies -- `selftest` "ok" from then on."""
         self._ar["selftest"] = "ok"
-        self._mlog(f"[NetSync] {PROOF_ATE_RELAY}OK ({FAKE_ATE_SELFTEST_ROWS} rows, {FAKE_ATE_MUTANTS} mutants caught, "
+        rows, mutants = ((FAKE_ATE_SELFTEST_ROWS, FAKE_ATE_MUTANTS) if "ateland" in self.netsync_caps   # [ff9mapkit netsync s162]
+                         else (FAKE_ATE_SELFTEST_ROWS_S161, FAKE_ATE_MUTANTS_S161))
+        self._mlog(f"[NetSync] {PROOF_ATE_RELAY}OK ({rows} rows, {mutants} mutants caught, "
                    f"arm {ATE_ARM_TICKS} key ticks, press {ATE_PRESS_TTL_MS}/{ATE_PRESS_CAP_MS} ms, pending {ATE_PRE_HOLD_MS} ms, "
                    f"prepick {ATE_PREPICK_HOLD_MS} ms, hub {ATE_HUB_HOLD_MS}/{ATE_HUB_CAPTION_CAP_MS} ms, "
                    f"tail {ATE_TAIL_HOLD_MS}/{ATE_TAIL_CAP_MS} ms, exit {ATE_EXIT_HOLD_MS} ms)")
