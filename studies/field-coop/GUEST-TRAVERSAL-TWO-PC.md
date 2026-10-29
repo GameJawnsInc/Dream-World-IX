@@ -515,6 +515,101 @@ FieldTPS 30; candidates 1 and 3 need it on). A short video settles it.
   charId 255`) until 350 re-armed Steiner at 11:09:13; the cause is not traced. And on 350 and 359 the step-out started on
   window 6 text 51, which opens at those arrivals.
 
+## The third two-PC session (2026-10-28, s159 + s160 + s161)
+
+Both PCs ran `Assembly-CSharp.dll` `f42f0c05…` over the relay, host GuestSlots 2, GhostAs auto, the guest dressed as Steiner
+from pairing on 408. The logs are archived in `.harness-runs/twopc-s161-20261028/` in the main repo
+(`desktop-host.20261028-204100.log`, `laptop-guest.20261028-204059.log`; the host clock runs about 1-1.5 s ahead). Each
+finding was traced by one agent and checked by a skeptic asked to refute it; all three root causes survived, and the
+corrections are folded in.
+
+| Check | Owner | Verdict |
+|---|---|---|
+| 302 chest 15 (s160) | "good" | **two-PC confirmed**, but the guest was dressed, not undressed as the README said |
+| 301 chest 15 (s160) | "good, no text window or animation" | host-only, as predicted (`not served`) |
+| 352 night scene (s159) | "good, shows Zidane on guest now" | **two-PC confirmed** |
+| 352 morning chest 16 (s160) | "chest is good", but "why is the guest Steiner when the party is just Zidane" | **confirmed**; the dress question is Finding 8 |
+| 352 ATE "Vivi, Confused" (s161) | "worked", "2 Vivis for the first ~1s" | **confirmed**; the double is Finding 9 |
+| Back on 352 after the ATE | "the guest was the Moogle instead of Steiner" | Finding 8 |
+| ATE Cancel (s161), on 351 twice | "worked" | **confirmed** |
+| Guest ahead (README step 3, the GUEST at 3x) | not run | still self-test only |
+| "Dagger Tries" 351->450->351 with the HOST at 3x | "the guest played out the ATE at normal speed ... didn't warp back until the ATE completed" | Finding 10 |
+
+### Finding 8: the guest's dress lags a scripted party change by one door
+
+The two dress notes are one mechanism, seen from both sides.
+
+- At pairing, the host's party slot 1 (GuestSlots 2) held Steiner, so section 8 said Steiner and both screens showed him.
+- 352's wake-up reload (20:47:21) still had Steiner in slot 1. After the wake-up lines 175-178, Zidane_Loop case 28 runs
+  `RemoveParty(2)`, `RemoveParty(1)`, `RemoveParty(3)` and sets scenario 2600 (test2_95.txt:2004-2207, :2322; host log
+  20:47:40). The party is now [Zidane], mid-field, with no load. RemoveParty nulls the slot in place (ff9play.cs:156-163).
+- From that frame the host's section 8 is the moogle (220, charId 255): the empty-slot rule, which is the owner's own goal
+  ("a moogle if 1-person party", R3-FIELD-MODEL-AUDIT.md:7; box B21).
+- But the guest reads section 8 only at a field load (`ArmFromState`, only from the ApplyStory success branch), and a dressed
+  body keeps its dress until its next `SetModel` (THE TEARDOWN LAW). So the morning chest showed a stale Steiner on both
+  screens. The host's ghost passes the guest's dressed wire body through (`GhostGuard(220, 5489) = 0`), so the host agreed.
+  This is box B22 ("the laptop changes at its next door"), applied to a scripted RemoveParty instead of a menu reorder.
+- The next door was the ATE's landing on 350. The arm read the moogle there (laptop log 20:48:24) and stays the moogle,
+  correctly by B21, while Zidane walks Dali alone; nothing refills slot 1 on 351, 352 or 450.
+- On 350 the host's ghost showed Vivi, not the moogle: the guest's copy controls an undressed Vivi (self-dress acts only on
+  `SetModel(98)`), and GhostGuard passes a non-98 wire body through.
+
+So the moogle is the design, and the Steiner at the morning chest is the lag. Closing the lag needs a live mid-field re-skin of
+the guest's controlled body (high risk under the teardown law) or a same-field reload. The alternative rule, a sticky last
+member when an owned slot empties, changes B19 and B21, duplicates the member where the story puts him on the map, and
+disagrees with battle's "You: watching" (NetSyncBattle.cs:985-1003). The default moogle duplicates too: 351 inits a
+Moogle_Male with model 220 (test2_94.txt:89). **Owner decision pending.**
+
+### Finding 9: the peer shows twice for about 1 s at an ATE's landing
+
+On 350 both copies control the same undressed Vivi. Each screen spawned the peer's ghost as Vivi at the landing (laptop
+20:48:24, host 20:48:25), and neither ghost hid until the first line opened: the guest's step-out went OUT on text 321 ("--
+line", 20:48:25), and the host's option C rose on its own first line (20:48:26). The step-out has no landing input: in the
+DEST phase s161 feeds it nothing (ATE-RELAY.md: "the scene on the destination field is an ordinary scene"), so s158's
+StartRule waits for a fresh line or DwellMs 1500. The ATE landing is treated like a door arrival (THE ARRIVAL LAW). The same
+window opened on 450 (guest ghost GRN 20:51:31, OUT at 20:51:32). It opens at every scene start (301, 352 night), unnoticed
+where the two bodies are different characters. It is not FieldFPS: every clock on this path is `Environment.TickCount`.
+
+**Fix (planned):** the ATE relay's own-jump landing (`NetSyncAte.OnLanding`, next phase DEST) arms a one-shot latch; StartRule
+starts at once while it stands and the base holds (new reason `ate`), and the wire mask reads 0 from the landing, gated on
+`eligible && !LeverOff`, so the guest's first packet on the ATE field already hides it on the host. THE ARRIVAL LAW stays for
+every other landing: a DEST landing needs the host's exact pick with control still off, so it is never a door. A copy carried
+in by the follow (no DEST) keeps today's window. Bench slices that cut at the first `Map: 350` (coop_ate_relay S1,
+coop_ate_relay_duo D8) must re-slice at the landing line; the kit mirrors (fakegame.py out_why, the selftest row counts) move.
+
+### Finding 10: a 3x host leaves a 1x guest behind in an ATE (Finding 4, in an ATE)
+
+The host played "Dagger Tries" at 3x (FieldTPS 30, SpeedFactor 3; the line gaps run about 3:1). Both copies reached 450 within
+a second. The host paged 153-175 in about 16 s and left at 20:51:52; the guest at 1x had shown 153-161. Its follow then
+held on the tail hold, and let go at 20:52:01 by the **8 s no-progress clock** (`TailHoldMs`), not the 30 s cap: progress
+counts only lines and windows, and stock 450 plays a 9 s wordless beat between texts 161 and 162 (the Old Lady walks twice
+with a MoveCamera, Dagger plays Kyorokyoro_2 and Wait(45); test2_112.txt:727-738, :2775-2782). The log line says "ran past
+the tail hold's cap" for either clock (NetSyncAte.cs:672-681). The guest was cut at line 162 of 175, and seqs 88-101 were
+dropped as another field's. Text 162's window was briefly re-tracked over 351 after the load, which is likely why the
+owner saw the ATE as "completed". The host waited about 11 s for the guest's ghost on 351.
+
+**Fix (planned, owner taste pending):** Finding 4's rate relay is the cause-level fix. Mirror the host's effective field
+factor on a following guest while its copy plays the host's scene or an ATE episode: an additive state section 10, a
+`FastForwardFactor` seam re-asserted every tick, never writing the guest's own booster flag. Its traps, from the skeptic:
+- stock SetFastForward also drives `MBG.SetFastForward`, and a type-1 in-field movie turns the booster off on the raw flag;
+- `BattlePlayerCharacter` reads the factor once at a battle boot, so the scope must be read live in the getter;
+- "host here with control off" cannot tell the host's scene from the guest's own climb, talk or chest;
+- at equal speed the guest can now get ahead, into the exit-hold regime proven only by self-test;
+- every two-PC lane was proven at 1x.
+Ship the log split (which clock released the hold) either way.
+
+### Also noticed (the owner saw none of these)
+
+- **351's inn rest loaded 351 twice before 352.** The guest's own `Field(352)` ran while the host was mid-load, so
+  `RedirectGuestFieldJump` bounced it into a 351 reload (the non-ATE pass compares only against `LastHostField`), which
+  cancelled the parallel follow; the serial follow then loaded 352. The known class CLA-11 (F3.2-DESIGN.md:1029). Probably
+  an extra fade.
+- **A sub-second orphan chip on 352's last morning line** (text 178): `NetSyncDialog.Orphans` does not skip a window
+  ApplyEvents already closed (`ClosedByUs`). Cosmetic; a fix must bound the skip, because a voiced choice departs late.
+- **301's debug reload at scenario 0:** the host's same-field intent is dropped on the guest; it played in step only
+  because the guest walked into an exit. Debug-only.
+- **`DeclineOnceAt` latches the bounce line per field,** so "no bounce line" proves nothing on 351 after 20:45:37.
+
 ## Order of work
 
 1. **One engine round: Finding 2's twin rows plus Finding 1's frame on the ghost lane.** Bench solo first: the
@@ -534,6 +629,6 @@ FieldTPS 30; candidates 1 and 3 need it on). A short video settles it.
    `memoria-patches/README.md`, the s158 row. **Two-PC (2026-10-28):** 359 worked; 352's night scene kept the guest's
    Steiner in Zidane's part (Finding 6); a post-dialogue jitter is open (Finding 7); the emergence scene is untested.
    **s159 (2026-10-28): the step-out anchors on the dressed body; built, deployed and solo-benched (M-352 green, both
-   calibrations exact). Next: the two-PC replay of 352's night scene.**
-3. **The host's field rate on the wire, plus the capped follow-hold** (Finding 4).
+   calibrations exact). Two-PC confirmed in the third session.** Next: Finding 9's landing start.
+3. **The host's field rate on the wire, plus the capped follow-hold** (Finding 4; seen again in an ATE as Finding 10).
 4. **The same-field reload** (Finding 5): backlog. It has real stock cases, so it is not only debug hygiene.
