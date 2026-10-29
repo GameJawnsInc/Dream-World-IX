@@ -253,6 +253,13 @@ def verify_deploy(output_dir, managed=MANAGED, dlls=DLLS):
 
 
 def main(argv):
+    # argv is sys.argv-SHAPED: argv[0] is the program name and is sliced off below. A caller passing
+    # flags only loses its FIRST flag -- and when that flag is --no-deploy, the compile-check becomes
+    # a real build that backs up and DEPLOYS (2026-10-29: an unreviewed s163 went live that way).
+    if not argv or argv[0].startswith("-"):
+        print(f"!!! REFUSED: main() takes sys.argv-shaped args (argv[0] = the program name), got "
+              f"{argv!r} -- call main(['build_memoria.py', ...]). Nothing built.")
+        return 2
     ap = argparse.ArgumentParser(description="Build the local Memoria engine through the safety "
                                              "rails (pre-build backup, exact msbuild flags, "
                                              "post-deploy verification).")
