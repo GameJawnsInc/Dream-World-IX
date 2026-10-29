@@ -571,7 +571,7 @@ StartRule waits for a fresh line or DwellMs 1500. The ATE landing is treated lik
 window opened on 450 (guest ghost GRN 20:51:31, OUT at 20:51:32). It opens at every scene start (301, 352 night), unnoticed
 where the two bodies are different characters. It is not FieldFPS: every clock on this path is `Environment.TickCount`.
 
-**Status: BUILT, DEPLOYED, SOLO- AND DUO-BENCHED as engine patch s162 (2026-10-29).** `coop_ate_relay.py` S-LAND reads one
+**Status: BUILT, DEPLOYED, SOLO- AND DUO-BENCHED as engine patch s162 (2026-10-29); TWO-PC CONFIRMED in the fourth session ("no 2 Vivis").** `coop_ate_relay.py` S-LAND reads one
 `step-out: OUT on field 350 (...) -- ate` between the copy's landed line and line 321; detail, calibrations and the gates in
 `memoria-patches/README.md`, the s162 row. The duo (on the s163 DLL) reads 25/25: D10 the OUT by `ate` at the landing, D11
 and D12 neither screen shows the peer on 350; its s161-DLL calibration reds exactly D10-D12, with both screens showing
@@ -606,7 +606,7 @@ factor on a following guest while its copy plays the host's scene or an ATE epis
 - every two-PC lane was proven at 1x.
 Ship the log split (which clock released the hold) either way.
 
-**Status: BUILT, DEPLOYED, SOLO- AND DUO-BENCHED as engine patch s163 (2026-10-29), on top of s162.** As built it differs
+**Status: BUILT, DEPLOYED, SOLO- AND DUO-BENCHED as engine patch s163 (2026-10-29), on top of s162; TWO-PC CONFIRMED in the fourth session.** As built it differs
 from the sketch above: the wire carries the host's booster SETTING, not its effective factor, and the guest applies its
 OWN SpeedFactor, only while its control is off (`SPEED-MIRROR.md`, The rule and Revision 3). `coop_speed_mirror.py`
 reads 13/13 (host 5 above my SpeedFactor 3, so a factor of 3 is provably mine), and its `speed off` calibration reads
@@ -616,7 +616,8 @@ with the host at 3x, two real games on one PC) reads 22/22: the guest's copy rea
 release and was back on 351 0.39 s after the host (here ~11 s); with `netsync speed off` on the guest it reds exactly
 D4-D8, the copy cut at 162 and 7.58 s late -- this finding's shape. A first duo run read 21/22, D1 red on the bench
 host's own slow paging (see the README row); the host paging that passed still took ~20 s against the owner's ~16 s,
-so the owner's own pace is the two-PC replay's to show. The two-PC replay is next. Finding 4's capped
+so the owner's own pace is the two-PC replay's to show. The fourth session showed it: the owner paged 162-169 in about
+5 s at 3x, and the copy left 450 within about a second of the host. Finding 4's capped
 follow-hold for NON-ATE scenes is still open.
 
 ### Also noticed (the owner saw none of these)
@@ -630,6 +631,58 @@ follow-hold for NON-ATE scenes is still open.
 - **301's debug reload at scenario 0:** the host's same-field intent is dropped on the guest; it played in step only
   because the guest walked into an exit. Debug-only.
 - **`DeclineOnceAt` latches the bounce line per field,** so "no bounce line" proves nothing on 351 after 20:45:37.
+
+## The fourth two-PC session (2026-10-29, s162 + s163)
+
+Both PCs ran `Assembly-CSharp.dll` `7687fb58…` (s163, which carries s162) over the relay, host GuestSlots 2, GhostAs auto,
+the guest dressed as Steiner. The logs are archived in `.harness-runs/twopc-s163-20261029/` in the main repo and in
+`C:\gd\SCRATCH\guest-traversal\logs\` (`desktop-host.20261029-144923.log`, `laptop-guest.20261029-145240.log`; the host
+clock runs about 1-2 s ahead).
+
+| Check | Owner | Verdict |
+|---|---|---|
+| 352 -> 350 "Vivi, Confused" at 1x (s162) | "no 2 Vivis" | **two-PC confirmed**: the guest's OUT by `ate` at its landing on 350 (14:55:00), a second before line 321 opened |
+| 351 -> 450 "Dagger Tries", the HOST at 3x (s163) | "3x host -> guest automatically goes 3x speed" | **two-PC confirmed** (below) |
+| 350 -> 351 "Cat's Eye", the GUEST at 3x (s161's exit hold, the package's step 3) | "3x guest -> waits for host's prompts" | **two-PC confirmed** (below) |
+| The same "Cat's Eye" run | the guest's copy left the cat's first line while the host was still on it | Finding 11 |
+
+**"Dagger Tries" (s163).** The guest logged an ON on 351 when the ATE menu opened and an ON on 450 at factor 3. The owner
+turned the host's booster off and on mid-scene, and the guest's mirror ended ("the host's booster is off", 14:56:38) and
+started again with it (14:56:41). The owner paged 162-169 in about 5 s, and every host close was applied as it arrived.
+Line 175 opened locked, and the copy's own `Field(351)` came within about a second of the host's leaving (guest 14:57:05,
+host 14:57:07). No line dropped and no tail hold released. The guest also turned its own booster on mid-scene: the mirror
+kept the scene at 3 and the OFF line put back the guest's own value ("factor back to 3 (my own)").
+
+**"Cat's Eye" (s161's exit hold).** The guest ran its own booster at 3 (the log reads factor 3), the host at 1x. The copy's
+lines waited for the host's pages, it took its own exit to 350 first ("the host is still on field 351: the follow back into
+it waits until it leaves"), and the hold ended when the host left 351 for 350. Each field loaded once each way, and the ATE
+did not replay.
+
+### Finding 11: a guest ahead of its host closes a host line itself ("Cat's Eye" on 351)
+
+The guest's copy, at 3x, landed on 351 before the host's copy and opened the cat's first line (text 113) about 2 s after
+landing (guest 14:57:17). The host's copy, at 1x, was still playing the cat's leap onto the desk, with its control off and
+no window open; its scene rose about 7 s after its own landing (host 14:57:24) and closed 113 at 14:57:30. The guest's
+orphan watchdog read the host as idle: no host scene since its field change, for at least `OrphanGraceMs` (2000). It
+classed 113 as an orphan and closed it at reading pace (14:57:17 -> 14:57:20). Text 114 then opened and started the same
+way, until the host's scene rose ("held -- the host is busy again"). The host's later close of 113 (seq 91) matched no
+window and was dropped at the next field change. From 114 on, the two stayed in step.
+
+Not an engine bug. `NetSyncDialog.OrphanSettled` (`NetSyncDialog.cs:1198`) counts the co-located host's control being
+off (`HostHoldsInput`, section 7 b1) only for a script-polled line (`FlagButtonInh`); a plain line ignores it, so a host
+cutscene that has not reached its first line yet looks idle. Before, a guest was rarely ahead of its host (it trails the
+host's load). A guest booster makes it reachable, and so would any field-swap tightening that lets the guest arrive first.
+
+**Fix sketch (traced, not built):** a plain locked line is not orphaned while the host stands on my field with its control
+off, the same term the polled line already uses. The cost: a genuine orphan during a long host cutscene waits until the
+host's control comes back. A cap needs a number to justify it; "Dagger Tries" at 3x against 1x would put the guest about
+20 s ahead.
+
+### Also noticed (the owner reported none of these)
+
+- **Joining mid-scene.** The guest paired while the host's 351 inn scene was already past line 131. Its copy restarted the
+  scene at 129, which no host event could close (the ring baselined at seq 10, after 129's close), so it sat on 129 for
+  24 s while the host's 132-140 queued. All of them dropped at the follow to 352.
 
 ## Order of work
 
@@ -652,9 +705,15 @@ follow-hold for NON-ATE scenes is still open.
    **s159 (2026-10-28): the step-out anchors on the dressed body; built, deployed and solo-benched (M-352 green, both
    calibrations exact). Two-PC confirmed in the third session.** **s162 (2026-10-29): Finding 9's landing start; built,
    deployed and solo-benched (S-LAND green, its noland calibration exact); duo 25/25 on the s163 DLL, its s161-DLL
-   calibration exact.** Next: two-PC.
+   calibration exact. Two-PC confirmed in the fourth session.**
 3. **The host's field rate on the wire, plus the capped follow-hold** (Finding 4; seen again in an ATE as Finding 10).
    **s163 (2026-10-29): the rate half -- the host's booster setting on the wire (state section 10) and mirrored on a
    following guest during the host's scenes; built, deployed and solo-benched (13/13, its `speed off` calibration exact);
-   duo 22/22, its calibration exact.** Next: two-PC. The capped follow-hold for non-ATE scenes is not built.
+   duo 22/22, its calibration exact. Two-PC confirmed in the fourth session.** The capped follow-hold for non-ATE scenes
+   is not built.
 4. **The same-field reload** (Finding 5): backlog. It has real stock cases, so it is not only debug hygiene.
+5. **Field-swap timing, second pass** (the owner, after the fourth session): the guest's copy starts a scene about 1 s
+   behind the host's after a field change, and stays behind until the host rests on a line. Designed in
+   `FIELD-SWAP-TIMING.md`: about 90% of it is the guest's 0.9 s follow timer, which starts only after the host's own
+   fade has ended; plus a bounce reload on 2 of the 5 scripted Dali exits.
+6. **Finding 11's orphan hold** (a guest ahead of its host): traced, not built; it rides the next engine round.

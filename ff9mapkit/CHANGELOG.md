@@ -43,8 +43,9 @@ From the third two-PC session (`studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, F
 speed". Design: `studies/field-coop/SPEED-MIRROR.md`. Proven for an ATE with two games on one PC replaying "Dagger Tries", the
 host at 3x (it paged the scene in ~20 s; the owner took ~16 s): the guest's copy reached the last line and was back
 0.4 s after the host (with the mirror turned off, its copy was cut at line 162 again and came back 7.6 s late). An
-ordinary scene has been checked only on the one-game bench, and a relayed talk only in the engine's self-test; the
-two-PC check is still to come.
+ordinary scene has been checked only on the one-game bench, and a relayed talk only in the engine's self-test.
+Confirmed on two PCs in the owner's fourth session: with the host at 3x, the guest's copy played "Dagger Tries" at 3x
+and left 450 within about a second of the host.
 - **While the host plays a scene or an ATE with its booster on, the following guest's copy plays it at booster speed
   too.** Before, a 1x guest fell behind: in "Dagger Tries" its copy was cut at line 162 (the scene's lines are numbered
   153 to 175) and came home about 11 s after the host.
@@ -57,7 +58,8 @@ two-PC check is still to come.
 - The host's engine sends its booster setting and the guest's engine mirrors it, so install s163 on both PCs.
 
 ### Fixed — co-op: no double character at the start of an Active Time Event (engine patch s162)
-From the third two-PC session (`studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Finding 9).
+From the third two-PC session (`studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Finding 9); confirmed on two PCs in the
+fourth ("no 2 Vivis").
 - **When the guest's game arrives in an ATE, the guest steps out at once.** Before, both screens showed the other
   player's character for about a second, until the ATE's first line ("2 Vivis"). Now neither screen draws it.
 - Ordinary doors and gateways are unchanged: the guest still walks in visibly.
