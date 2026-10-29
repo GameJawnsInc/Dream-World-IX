@@ -713,5 +713,7 @@ host's control comes back. A cap needs a number to justify it; "Dagger Tries" at
    is not built.
 4. **The same-field reload** (Finding 5): backlog. It has real stock cases, so it is not only debug hygiene.
 5. **Field-swap timing, second pass** (the owner, after the fourth session): the guest's copy starts a scene about 1 s
-   behind the host's after a field change, and stays behind until the host rests on a line.
+   behind the host's after a field change, and stays behind until the host rests on a line. Designed in
+   `FIELD-SWAP-TIMING.md`: about 90% of it is the guest's 0.9 s follow timer, which starts only after the host's own
+   fade has ended; plus a bounce reload on 2 of the 5 scripted Dali exits.
 6. **Finding 11's orphan hold** (a guest ahead of its host): traced, not built; it rides the next engine round.
