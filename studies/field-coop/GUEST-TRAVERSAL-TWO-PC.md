@@ -558,7 +558,8 @@ So the moogle is the design, and the Steiner at the morning chest is the lag. Cl
 the guest's controlled body (high risk under the teardown law) or a same-field reload. The alternative rule, a sticky last
 member when an owned slot empties, changes B19 and B21, duplicates the member where the story puts him on the map, and
 disagrees with battle's "You: watching" (NetSyncBattle.cs:985-1003). The default moogle duplicates too: 351 inits a
-Moogle_Male with model 220 (test2_94.txt:89). **Owner decision pending.**
+Moogle_Male with model 220 (test2_94.txt:89). **OWNER-DECIDED (2026-10-28): the moogle, as now.** B21 stands, and B22's
+one-door lag now covers a scripted RemoveParty too. No engine change.
 
 ### Finding 9: the peer shows twice for about 1 s at an ATE's landing
 
@@ -570,7 +571,7 @@ StartRule waits for a fresh line or DwellMs 1500. The ATE landing is treated lik
 window opened on 450 (guest ghost GRN 20:51:31, OUT at 20:51:32). It opens at every scene start (301, 352 night), unnoticed
 where the two bodies are different characters. It is not FieldFPS: every clock on this path is `Environment.TickCount`.
 
-**Fix (planned):** the ATE relay's own-jump landing (`NetSyncAte.OnLanding`, next phase DEST) arms a one-shot latch; StartRule
+**Fix (planned, engine round s162):** the ATE relay's own-jump landing (`NetSyncAte.OnLanding`, next phase DEST) arms a one-shot latch; StartRule
 starts at once while it stands and the base holds (new reason `ate`), and the wire mask reads 0 from the landing, gated on
 `eligible && !LeverOff`, so the guest's first packet on the ATE field already hides it on the host. THE ARRIVAL LAW stays for
 every other landing: a DEST landing needs the host's exact pick with control still off, so it is never a door. A copy carried
@@ -588,7 +589,8 @@ the tail hold's cap" for either clock (NetSyncAte.cs:672-681). The guest was cut
 dropped as another field's. Text 162's window was briefly re-tracked over 351 after the load, which is likely why the
 owner saw the ATE as "completed". The host waited about 11 s for the guest's ghost on 351.
 
-**Fix (planned, owner taste pending):** Finding 4's rate relay is the cause-level fix. Mirror the host's effective field
+**OWNER-DECIDED (2026-10-28): match the host's speed** (over "snap back with the host" and "let the guest finish"). Engine
+round s163. Finding 4's rate relay is the cause-level fix. Mirror the host's effective field
 factor on a following guest while its copy plays the host's scene or an ATE episode: an additive state section 10, a
 `FastForwardFactor` seam re-asserted every tick, never writing the guest's own booster flag. Its traps, from the skeptic:
 - stock SetFastForward also drives `MBG.SetFastForward`, and a type-1 in-field movie turns the booster off on the raw flag;
