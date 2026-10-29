@@ -179,6 +179,20 @@ def test_full_backup_set_age_requires_every_target(tmp_path):
 
 # ---------------------------------------------------------------- --no-deploy honesty
 
+def test_an_argv_without_the_program_name_is_refused(tmp_path, capsys, monkeypatch):
+    """The 2026-10-29 incident: a tee wrapper called main(["--no-deploy", "--clone", ...]). main()
+    slices argv[1:] like sys.argv, so --no-deploy was eaten as the program name and the
+    'compile-check' took a backup and DEPLOYED an unreviewed build over the live install."""
+    runner = _Runner()
+    clone, bkp, _ = _wire(monkeypatch, tmp_path, runner)
+    for argv in (["--no-deploy", "--clone", str(clone)], []):
+        rc = bm.main(argv)
+        assert rc == 2
+        assert "REFUSED" in capsys.readouterr().out
+    assert runner.msbuild_calls() == []                        # nothing built, so nothing deployed
+    assert list(pathlib.Path(bkp).iterdir()) == []             # and no deploy-path backup taken
+
+
 def test_no_deploy_refused_when_the_csproj_cannot_honor_it(tmp_path, capsys, monkeypatch):
     runner = _Runner()
     _wire(monkeypatch, tmp_path, runner)
