@@ -324,8 +324,10 @@ their totals are about double (1,152 / 305); the field count (150) and the verdi
 - The live proof line: "ATE relay selftest: OK (156 rows, 58 mutants caught, ...)".
 - The duo bench (`coop_ate_relay_duo.py`, two real games, 352 -> 350 -> 352 at 1x): 22/22 -- the menu, the pick, the title,
   the own jump with one load, the ATE and its closing lines locked to the host, the own way back with the follow held and
-  never fired, no step-out over a caption, the host's option C. Its s160 calibration has not been run (it needs the live
-  DLL swapped to s160).
+  never fired, no step-out over a caption, the host's option C. Its s160 calibration (the live DLL swapped to s160 for
+  the run, then s161 restored byte-exact): 17/23, exactly D1, D2, D3, D4, D7, D9 red, as predicted. On s160 the follow
+  carries the guest to 350 with the host's entrance, so its copy still plays the ATE there (D5, D6 green): the
+  menu, the title, the own exits and the host's option C are what s161 adds.
 - Next: the owner's two-PC check on 352, in the combined s159 + s160 + s161 session (the checklist is in the round queue
   note). Not proven by any bench: the exit hold and the chained-ATE carry (a guest ahead of its host), and round 5's
   deferred serve yield.
