@@ -40,9 +40,11 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
 
 ### Fixed — co-op: a host playing at 3x no longer leaves the guest behind in a scene (engine patch s163)
 From the third two-PC session (`studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Finding 10); the owner chose "match host
-speed". Design: `studies/field-coop/SPEED-MIRROR.md`. Only the guest's side is proven so far, on the solo bench: one
-game, with a stand-in host whose scene, not an ATE, starts the mirror. The checks that would show the guest keeping up
-(two games on one PC, then two PCs) are still to come.
+speed". Design: `studies/field-coop/SPEED-MIRROR.md`. Proven for an ATE with two games on one PC replaying "Dagger Tries", the
+host at 3x (it paged the scene in ~20 s; the owner took ~16 s): the guest's copy reached the last line and was back
+0.4 s after the host (with the mirror turned off, its copy was cut at line 162 again and came back 7.6 s late). An
+ordinary scene has been checked only on the one-game bench, and a relayed talk only in the engine's self-test; the
+two-PC check is still to come.
 - **While the host plays a scene or an ATE with its booster on, the following guest's copy plays it at booster speed
   too.** Before, a 1x guest fell behind: in "Dagger Tries" its copy was cut at line 162 (the scene's lines are numbered
   153 to 175) and came home about 11 s after the host.

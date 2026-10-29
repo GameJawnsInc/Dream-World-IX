@@ -104,7 +104,9 @@ testable), and the guest's battles keep the guest's own speed. One guest log lin
   `speedmode 1`; the guest's copy keeps pace -- no tail hold released by "the tail hold's progress clock", no host seq
   dropped as another field's, the guest back on 351 within a few seconds of the host. Its CALIBRATION (rev 3) is
   `netsync speed off` on the guest with the same DLL (a swap to s162 would take `speedmode` from the host too), which
-  must red exactly those rows.
+  must red exactly those rows. RAN 2026-10-29: 22/22 (the guest back 0.39 s after the host), the calibration 19/24 with
+  exactly D4-D8 red. The host's paging pace is part of the instrument: at 0.5 s a press the host took 26.9 s on 450 and
+  D1's 24 s bound went red; at 0.2 s (38 presses) paging took ~20 s, still slower than the owner's ~16 s, and the 450 span of 22.0 s, near Finding 10's ~21 s, held the bound. The owner's faster paging is left to the two-PC check.
 
 ## Risks accepted
 

@@ -559,7 +559,7 @@ OUT = {"d5": du.judge_hold(GM)[0], "d5_prog": du.judge_hold(GM + [REL_PROG])[0],
        "d8_follow": du.judge_gap(GM + [FOLLOW], 22.0, 23.0)[0], "d8_never": du.judge_gap(GM, 22.0, None)[0],
        "d8_host_never": du.judge_gap(GM, None, 23.0)[0], "gap": du.GAP_MAX_S, "span": du.HOST_SPAN_MAX_S, "page": du.PAGE_S}
 ''')
-    assert (out.pop("gap"), out.pop("span"), out.pop("page")) == (4.0, 24.0, 0.5)
+    assert (out.pop("gap"), out.pop("span"), out.pop("page")) == (4.0, 24.0, 0.2)
     for k in ("d5", "d6", "d7", "d8", "d8_leads", "d8_edge"):
         assert out.pop(k), (k, out)
     assert not any(out.values()), out
