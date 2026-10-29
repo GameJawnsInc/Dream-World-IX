@@ -22,11 +22,17 @@ is 450's way home: OglopA_Loop's `switchex (VAR_GenInt16_239)` case 2 sets entra
 351's Zidane_Init case 17 restores the saved spot. On 450 (test2_112.txt) the ATE is Dagger_Loop case 0: Wait(35), the first line
 WindowSync(3, 128, 153) "I wonder...", the last WindowAsync(3, 128, 175) "Aaahhh!" (Dagger's window 3; the Old Lady speaks in 6).
 
-THE HOST'S PACE. The host presses Confirm PAGE_S (0.5 s) after a window opened and again every PAGE_S while it stays up -- the owner's
-own pace in Finding 10 (153-175, 23 lines, in ~16 s at 3x). A first press on a line still typing only finishes its text, so the host
-never closes a line before it is whole: a correct 3x guest (whose lock waits for its own copy's typing and MinShowMs 350) then trails
-by the lane's latency alone, never by a growing backlog. A slower host would let the 1x calibration guest past 450's wordless beat
-before the tail arms (D1's span bound guards it).
+THE HOST'S PACE. The host presses Confirm PAGE_S (0.2 s) after a window opened and again every PAGE_S while it stays up. That is the
+fastest pace this bench has run, and it is still slower than the owner's in Finding 10 (153-175, 23 lines, paged in ~16 s at 3x; the
+host left 450 after ~21 s). Measured: at PAGE_S 0.5 each press landed ~0.6 s after the last (PAGE_S + a ~0.1 s round trip), and 29
+presses took 153-175 to 25 s and the host's 450 span to 26.9 s (D1 red at 24 s, every host sample at ff 3). At PAGE_S 0.2 each press
+landed ~0.3 s after the last, but more first presses fell on a line still typing: 38 presses (40 in the calibration) paged 153-175 in
+~20 s -- not the ~16 s that 0.3 s off each of 29 presses predicted -- and the 450 span read 22.0 s (22.7 s), near Finding 10's ~21 s,
+the quantity D1 bounds. The harness publishes no typing-done state for a plain line, so a one-press-per-whole-line pacer would need an
+engine round. A first press on a line still typing only finishes its text, so the host never closes a line before it is whole: a
+correct 3x guest (whose lock waits for its own copy's typing and MinShowMs 350) then trails by the lane's latency plus at most
+MinShowMs' excess over a press gap per line (~0.05 s at a ~0.3 s gap). A slower host would let the 1x calibration guest past 450's
+wordless beat before the tail arms (D1's span bound guards it).
 
   D0      both on 351 with control (the guest by ONE follow); the host's own 238, poked to 1 (and read back) BEFORE its warp, read 0
           after its load (the instrument: the load did wipe it -- a 0 that was 0 already would prove nothing), and after the pokes
@@ -51,7 +57,7 @@ before the tail arms (D1's span bound guards it).
   D8      THE GAP: the guest's first sample on 351 after 450 lands at most GAP_MAX_S (4 s) after the host's, and by its own exit (no
           'following the peer to field 351'). Why 4 s: under the mirror both copies run 450 at the same factor, so the guest trails by
           its landing offset (Finding 10: within a second), plus the lock's per-line delivery (a state frame and the hop, ~0.15-0.3 s,
-          NOT cumulative while the guest's line is ready before the host's next close arrives -- the host's paging keeps it so),
+          cumulative only by MinShowMs' excess over the host's press gap, ~0.05 s a line at PAGE_S 0.2 -- see THE HOST'S PACE),
           plus the same scripted exit at the same factor: ~1.5 s expected, 4 s with margin. At 1x the same measure read ~11 s
           (Finding 10), and the s162 rule cannot get back on its own at all: a 1x copy needs ~3x the host's ATE, so the follow carries
           it once a tail clock lets go -- part two reds whatever the clock.
@@ -111,7 +117,7 @@ BEAT_LAST = 161                          # the last Dagger line before 450's 9 s
 ARRIVE_S = 30.0
 MENU_S = 5.0
 WIRE_S = 3.0
-PAGE_S = 0.5                             # the host presses Confirm this long after a line opened, and again every PAGE_S (Finding 10's pace)
+PAGE_S = 0.2                             # the host presses Confirm this long after a line opened, and again every PAGE_S (measured: 153-175 in ~20 s, span 22.0 s; the owner: ~16 s)
 ATE_S = 150.0                            # the title's close to both back on 351 (a cap: the 3x ATE runs ~20 s)
 BACK_S = 40.0                            # after the host's 351 load: the 1x calibration guest is carried in by a release (8-30 s)
 SETTLE_S = 1.5                           # after both are back: the guest's late lines land

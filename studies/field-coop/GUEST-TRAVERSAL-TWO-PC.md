@@ -571,9 +571,11 @@ StartRule waits for a fresh line or DwellMs 1500. The ATE landing is treated lik
 window opened on 450 (guest ghost GRN 20:51:31, OUT at 20:51:32). It opens at every scene start (301, 352 night), unnoticed
 where the two bodies are different characters. It is not FieldFPS: every clock on this path is `Environment.TickCount`.
 
-**Status: BUILT, DEPLOYED and SOLO-BENCHED as engine patch s162 (2026-10-29).** `coop_ate_relay.py` S-LAND reads one
+**Status: BUILT, DEPLOYED, SOLO- AND DUO-BENCHED as engine patch s162 (2026-10-29).** `coop_ate_relay.py` S-LAND reads one
 `step-out: OUT on field 350 (...) -- ate` between the copy's landed line and line 321; detail, calibrations and the gates in
-`memoria-patches/README.md`, the s162 row. The duo (D10-D12: both screens) and the two-PC replay are next.
+`memoria-patches/README.md`, the s162 row. The duo (on the s163 DLL) reads 25/25: D10 the OUT by `ate` at the landing, D11
+and D12 neither screen shows the peer on 350; its s161-DLL calibration reds exactly D10-D12, with both screens showing
+the peer (the guest's from +0.91 s; the "2 Vivis"). The two-PC replay is next.
 
 **Fix (as designed for engine round s162; built with a debounced spend and a `landing` hide reason, see the README row):** the ATE relay's own-jump landing (`NetSyncAte.OnLanding`, next phase DEST) arms a one-shot latch; StartRule
 starts at once while it stands and the base holds (new reason `ate`), and the wire mask reads 0 from the landing, gated on
@@ -604,13 +606,18 @@ factor on a following guest while its copy plays the host's scene or an ATE epis
 - every two-PC lane was proven at 1x.
 Ship the log split (which clock released the hold) either way.
 
-**Status: BUILT, DEPLOYED and SOLO-BENCHED as engine patch s163 (2026-10-29), on top of s162.** As built it differs
+**Status: BUILT, DEPLOYED, SOLO- AND DUO-BENCHED as engine patch s163 (2026-10-29), on top of s162.** As built it differs
 from the sketch above: the wire carries the host's booster SETTING, not its effective factor, and the guest applies its
 OWN SpeedFactor, only while its control is off (`SPEED-MIRROR.md`, The rule and Revision 3). `coop_speed_mirror.py`
 reads 13/13 (host 5 above my SpeedFactor 3, so a factor of 3 is provably mine), and its `speed off` calibration reads
 10/15, exactly S-ON, S-LATCH, S-BACK, S-BATTLE and S-OFF red. Design and the accepted risks: `SPEED-MIRROR.md`; detail and the gates:
 `memoria-patches/README.md`, the s163 row. The log split shipped in s162. The duo (`coop_speed_mirror_duo.py`, this ATE
-with the host at 3x) and the two-PC replay are next. Finding 4's capped follow-hold for NON-ATE scenes is still open.
+with the host at 3x, two real games on one PC) reads 22/22: the guest's copy reached 175 with no drop and no tail
+release and was back on 351 0.39 s after the host (here ~11 s); with `netsync speed off` on the guest it reds exactly
+D4-D8, the copy cut at 162 and 7.58 s late -- this finding's shape. A first duo run read 21/22, D1 red on the bench
+host's own slow paging (see the README row); the host paging that passed still took ~20 s against the owner's ~16 s,
+so the owner's own pace is the two-PC replay's to show. The two-PC replay is next. Finding 4's capped
+follow-hold for NON-ATE scenes is still open.
 
 ### Also noticed (the owner saw none of these)
 
@@ -644,9 +651,10 @@ with the host at 3x) and the two-PC replay are next. Finding 4's capped follow-h
    Steiner in Zidane's part (Finding 6); a post-dialogue jitter is open (Finding 7); the emergence scene is untested.
    **s159 (2026-10-28): the step-out anchors on the dressed body; built, deployed and solo-benched (M-352 green, both
    calibrations exact). Two-PC confirmed in the third session.** **s162 (2026-10-29): Finding 9's landing start; built,
-   deployed and solo-benched (S-LAND green, its noland calibration exact).** Next: the duo, then two-PC.
+   deployed and solo-benched (S-LAND green, its noland calibration exact); duo 25/25 on the s163 DLL, its s161-DLL
+   calibration exact.** Next: two-PC.
 3. **The host's field rate on the wire, plus the capped follow-hold** (Finding 4; seen again in an ATE as Finding 10).
    **s163 (2026-10-29): the rate half -- the host's booster setting on the wire (state section 10) and mirrored on a
-   following guest during the host's scenes; built, deployed and solo-benched (13/13, its `speed off` calibration exact).**
-   Next: the duo, then two-PC. The capped follow-hold for non-ATE scenes is not built.
+   following guest during the host's scenes; built, deployed and solo-benched (13/13, its `speed off` calibration exact);
+   duo 22/22, its calibration exact.** Next: two-PC. The capped follow-hold for non-ATE scenes is not built.
 4. **The same-field reload** (Finding 5): backlog. It has real stock cases, so it is not only debug hygiene.
