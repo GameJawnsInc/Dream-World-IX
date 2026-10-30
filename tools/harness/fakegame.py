@@ -7327,9 +7327,10 @@ class FakeGame:
     def _sw_orphans(self, w: dict, now: int, *, settled_long: bool, holds: bool, pending: bool, host_has_it: bool,
                     host_here: bool) -> None:
         """One tracked window's Orphans step on the `swap` rung: battlewire.swap_orphan_window_tick (OrphanSettled under the `orphan`
-        lever, OrphanStep, then -- under act -- CtlHoldKind and StepCtlHold BEFORE the re-orphan reads KeepRead), its counters and lines
-        (the hold line, the OrphToLocked line -- a relock's in the hold words, stamped -- the end line), then the action on the
-        stand-in's window. ``now`` is the guest's clock (B keeps TickCount); the stamps are the swap clock's."""
+        lever, OrphanStep, then -- under act -- CtlHoldKind, and StepCtlHold under either lever, BEFORE the re-orphan reads KeepRead),
+        its counters and lines (the hold line, the OrphToLocked line -- every alternative stamped, B deviation 5; a relock's in the
+        hold words -- the end line), then the action on the stand-in's window. ``now`` is the guest's clock (B keeps TickCount); the
+        stamps are the swap clock's."""
         sw, g = self._sw, self._guest
         cls = BW.DIALOG_CLS_ORPHANED if w["cls"] == "orphaned" else BW.DIALOG_CLS_LOCKED
         wb = w.get("swap_b")
@@ -7356,15 +7357,15 @@ class FakeGame:
             self._mlog(BW.swap_place_stamp(f"{head} is not on the host's screen (host idle {max(g.settled_ms, 0) // 1000}s) -- closing "
                                            f"it at reading pace", on, self._sw_now()))
         elif act == BW.DIALOG_ORPH_TO_LOCKED:
-            w["cls"] = "locked"
+            w["cls"] = "locked"               # B deviation 5: the WHOLE OrphToLocked line is stamped (all four alternatives)
             if host_has_it:
-                self._mlog(f"{head} held -- the host has it open")
+                self._mlog(BW.swap_place_stamp(f"{head} held -- the host has it open", on, self._sw_now()))
             elif pending:
-                self._mlog(f"{head} held -- a late host event arrived")
+                self._mlog(BW.swap_place_stamp(f"{head} held -- a late host event arrived", on, self._sw_now()))
             elif out["kind"] == BW.SWAP_CTL_RELOCK:
                 self._mlog(BW.swap_log_orphan_hold(on, win, text, self._sw_now()))
             else:
-                self._mlog(f"{head} held -- the host is busy again")
+                self._mlog(BW.swap_place_stamp(f"{head} held -- the host is busy again", on, self._sw_now()))
         elif act == BW.DIALOG_ORPH_TO_LOCAL:
             w["cls"] = "local"
         elif act == BW.DIALOG_ORPH_CONFIRM:

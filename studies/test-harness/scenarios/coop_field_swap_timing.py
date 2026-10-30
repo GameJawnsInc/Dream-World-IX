@@ -50,8 +50,10 @@ leg K always runs, and the legs run in K A B C P L F order.
              then the warp). Each attempt starts from HOME (a field change between attempts: the bounce budget's spacing).
   P-*        the pin bench: `flag 8720 0`, `watch 8720`, `swap pinbench 30602 8720 [age 3000 | to 30604 | landed | party 1 <c>]`;
              the leg ends with `swap clear` (P-PARTY reads the party mirror before it and null after it, G2).
-  L-*        `swap lifebench 30602`: the landing hook reads on_intent with the intent active; then `last_end` stands with
-             last_life_ms - max(2000, landed_ms + 1000) in [0, 400].
+  L-*        `swap lifebench 30602`: the landing hook's 'I landed' line and intent.landed_ms >= 0 (both outlive the intent's end;
+             the on_intent sample with the intent active is reported, never required); then `last_end` stands with
+             last_life_ms - max(2000, landed_ms + 1000) in [0, 400]. Under `life`, an intent s163's rule ended before the hook ran
+             (last_end old, no line, landed_ms -1: the R1 hole) leaves L-LAND VOID.
   F-*        eleven fade follows to 30602 (blackout / speedmode / lock / unmatched / a host key set up as the design registers).
 
 THE REACH RULES (P4, P8). Every solo row is DETERMINISTIC: an op that was acked but whose key is still at its sentinel afterwards is
@@ -203,10 +205,11 @@ CLAIMS = {
     "P-LATE": "`landed`: flag 8720 = 1, pin.last_use late, pin.last_use_quality late",
     "P-PARTY": "`party 1 <c>`: flag 8720 = 0 and dress.mirror_party[1] = c before the leg's `swap clear`, pin.last_party latest; after "
                "it mirror_party null and the clear line names the pin bench's party mirror",
-    "L-LAND": "`swap lifebench 30602`: at the hook intent.landing on_intent with the intent active, the 'I landed' line",
+    "L-LAND": "`swap lifebench 30602`: the 'I landed' line and intent.landed_ms >= 0 (the on_intent sample with the intent active is "
+              "reported, not required); VOID under `life` when s163's rule ended the intent before the hook",
     "L-STANDS": "intent.last_end stands; last_life_ms - max(2000, landed_ms + 1000) in [0, 400]",
     "F-FAST": "fade.last fast / fade / 12, by black, primed, ticks 12-14, ms < 600",
-    "F-3X": "speedmode 1: fade.last ms < 250, ticks 12-16",
+    "F-3X": "speedmode 1: fade.last ms < 250, ticks 12-17",
     "F-BLACK": "blackout 1 first: view_start black, action join, by black, black_ticks >= 3, ms < 250, no cur_now under 248 to the due",
     "F-JOIN": "blackout 8 first: heading, left <= 8, join, due within left + 3 + 2 ticks",
     "F-HURRY": "blackout 60 first: hurry with frames 12, by black within 14 ticks, cur_now never drops",
@@ -398,9 +401,15 @@ def lines_with(lines, needle: str) -> list:
 
 
 # --------------------------------------------------------------------------------------------- K judges (pure)
+#: review fix F09's diagnostic line, once per SelfTest call before the proof line: REPORTED in K-PROOF's detail, never judged (it
+#: records the Unity Mono figure; it has no class, no stamp and no `selftest: ` text)
+PROOF_COST = "[NetSync] field swap proof cost: "
+
+
 def judge_proof(lines, verdict) -> tuple:
     """K-PROOF: the swap proof line OK (battlewire.SWAP_PROOF_RE: every constant pinned; N and M never against literals), no FAIL,
-    the published verdict 'ok', and the dialogue selftest's OK line (B changes its KeyScript row) with no FAIL."""
+    the published verdict 'ok', and the dialogue selftest's OK line (B changes its KeyScript row) with no FAIL. The proof's cost line
+    (PROOF_COST) is reported in the detail, never judged."""
     rx = re.compile(BW.SWAP_PROOF_RE)
     ok_line = [ln for ln in lines if rx.search(ln)]
     fail = [ln for ln in lines if BW.PROOF_FIELD_SWAP + "FAIL (" in ln]
@@ -409,8 +418,10 @@ def judge_proof(lines, verdict) -> tuple:
     m = rx.search(ok_line[0]) if ok_line else None
     parts = [("the OK line", len(ok_line) == 1), ("no FAIL line", not fail), ("selftest 'ok'", verdict == "ok"),
              ("the dialogue selftest OK", bool(dlg_ok)), ("no dialogue FAIL", not dlg_fail)]
+    cost = [ln.split(PROOF_COST, 1)[1] for ln in lines if PROOF_COST in ln]
     return _verdict(parts, f"verdict {verdict!r}" + (f"; rows {m.group(1)}, mutants {m.group(2)}, clock {m.group(3)} {m.group(4)} Hz "
-                                                      f"{m.group(5)}" if m else "") + f"; {cb.grep(lines, 'selftest: FAIL')}")
+                                                      f"{m.group(5)}" if m else "") + f"; {cb.grep(lines, 'selftest: FAIL')}"
+                           + (f"; proof cost {cost[-1]}" if cost else "; no proof cost line (an engine before review fix F09)"))
 
 
 def judge_clock(reads, have_kit: bool) -> tuple:
@@ -887,12 +898,44 @@ def judge_p_party(flag, pin, mirror_before, c: int, mirror_after, clear_lines) -
 
 
 # --------------------------------------------------------------------------------------------- L judges (pure)
+def _l_landed_line(dest: int):
+    return re.compile(rf"\[NetSync\] transition intent \d+: I landed on field {dest} after -?\d+ ms -- section 4 stays until my body "
+                      r"stands there, 2 s since the emit and 1 s since this landing")
+
+
+def _l_landed_ms(samples) -> int:
+    return max([v for v in (ival(sget(s, "intent.landed_ms")) for s in samples) if v is not None] or [-1])
+
+
 def judge_l_land(samples, lines, dest: int = AWAY) -> tuple:
+    """L-LAND (PURE): the landing hook's evidence that OUTLIVES the intent's end -- the 'I landed' line (NoteIntentLanded prints it
+    at the hook under either lever) and `intent.landed_ms` >= 0 in some sample (`_intentLandedMs` survives the end; only the next
+    emit or a session reset clears it). The sample with `intent.landing` on_intent and the intent active is REPORTED, never
+    required: `intent.landing` reads null once the intent ends, and under `swap life old` s163's rule ends it at the first L4 step
+    once the body is bound, which can run in the hook's own frame (StartEvents and updateModelsToBeAdded follow the hook), so that
+    sample may never be published -- and L-LAND is lever `none` (`life` reddens only L-STANDS)."""
     hook = [s for s in samples if sget(s, "intent.landing") == "on_intent" and sget(s, "intent.active") is True]
-    rx = re.compile(rf"\[NetSync\] transition intent \d+: I landed on field {dest} after -?\d+ ms -- section 4 stays until my body "
-                    r"stands there, 2 s since the emit and 1 s since this landing")
-    parts = [("on_intent with the intent active", bool(hook)), ("the 'I landed' line", any(rx.fullmatch(unstamped(ln)) for ln in lines))]
-    return _verdict(parts, f"landing {sorted({str(sget(s, 'intent.landing')) for s in samples})}; {cb.grep(lines, 'transition intent')}")
+    landed = _l_landed_ms(samples)
+    rx = _l_landed_line(dest)
+    parts = [("the 'I landed' line", any(rx.fullmatch(unstamped(ln)) for ln in lines)), ("intent.landed_ms >= 0", landed >= 0)]
+    return _verdict(parts, f"landing {sorted({str(sget(s, 'intent.landing')) for s in samples})}; on_intent with the intent active "
+                           f"{'seen' if hook else 'not seen (reported, not required)'}; landed_ms {landed}; "
+                           f"{cb.grep(lines, 'transition intent')}")
+
+
+def l_land_void(samples, lines, cal: str | None, dest: int = AWAY) -> str | None:
+    """L-LAND's VOID reason (PURE), or None. Only under the `life` calibration (`swap life old`): the run ends with last_end old, no
+    'I landed' line and landed_ms -1 in every sample -- s163's rule ended the intent BEFORE the landing hook ran (the R1 hole), so
+    the hook had no live intent to land. VOID counts neither as an unpredicted red nor as a pass; under any other word the same
+    evidence is a real red."""
+    if cal != "life":
+        return None
+    fin = samples[-1] if samples else {}
+    rx = _l_landed_line(dest)
+    if sget(fin, "intent.last_end") == "old" and _l_landed_ms(samples) < 0 and not any(rx.fullmatch(unstamped(ln)) for ln in lines):
+        return ("s163's rule (`swap life old`) ended the intent before the landing hook ran (last_end old, no 'I landed' line, "
+                "landed_ms -1): the R1 hole")
+    return None
 
 
 def judge_l_stands(samples) -> tuple:
@@ -949,7 +992,7 @@ def judge_fade(row: str, samples, lines=(), b0=None) -> tuple:
         parts = _fade_parts(fl, {"path": "fast", "action": "fade", "frames": BW.FADE_FAST_FRAMES, "by": "black", "primed": True},
                             {"ticks": (12, 14), "ms": (None, 599)})
     elif row == "F-3X":
-        parts = _fade_parts(fl, {}, {"ms": (None, 249), "ticks": (12, 16)})
+        parts = _fade_parts(fl, {}, {"ms": (None, 249), "ticks": (12, 17)})    # == duo DF-3X (the Prime at 3x, a 2-tick batch)
     elif row == "F-BLACK":
         bt = max([v for v in (ival(sget(s, "fade.black_ticks")) for s in samples) if v is not None] or [-1])
         parts = _fade_parts(fl, {"view_start": "black", "action": "join", "by": "black"}, {"ms": (None, 249)})
@@ -1852,8 +1895,12 @@ def _leg_l(g, ctx: Ctx, led: cb.Ledger) -> None:
         samples, _ = watch(g, BW.INTENT_LOAD_CAP_MS / 1000.0 + 3.0, until=lambda s: sget(s, "intent.last_end") is not None
                            and sget(s, "intent.active") is False and (ival(sget(s, "intent.end_t")) or -1) >= 0, t0=t0)
         lines = cb.new(g, at)
-        ok, detail = judge_l_land(samples, lines)
-        led.check("L-LAND", ok, detail)
+        why = l_land_void(samples, lines, ctx.cal)
+        if why:
+            _void(led, ctx, ["L-LAND"], why)
+        else:
+            ok, detail = judge_l_land(samples, lines)
+            led.check("L-LAND", ok, detail)
         ctx.marks["L-STANDS"] = {"intent": sget(samples[-1], "intent") if samples else {}}
         ok, detail = judge_l_stands(samples)
         led.check("L-STANDS", ok, detail)

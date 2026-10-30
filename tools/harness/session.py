@@ -8612,6 +8612,10 @@ class Session:
                           "hostctl": ("off", "on")}
     NETSYNC_SWAP_DELAY_RANGE = (0, 2000)
     NETSYNC_SWAP_BLACKOUT_RANGE = (1, 255)
+    NETSYNC_SWAP_FIELD_RANGE = (1, 65534)            # NetSyncSwap.ParseField: section 4's u16, never its 65535 sentinel
+    NETSYNC_SWAP_FLAG_RANGE = (0, 2048 * 8 - 1)      # NetSyncSwap.MaxStoryFlag: gEventGlobal's last bit
+    NETSYNC_SWAP_SLOT_RANGE = (0, 3)                 # `party <slot> <char>`: a party slot...
+    NETSYNC_SWAP_CHAR_RANGE = (0, 255)               # ...and a CharacterId (a byte)
     NETSYNC_SWAP_USAGE = ("netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, orphan act|old, own act|old|nocache, "
                           "pin act|old or fade act|old|long|nogate|norecheck|nohurry (a client or the selftest role); life act|old (the "
                           "host or the selftest role); hostctl off|on, intent <field>, cache <field>, pinbench <field> <flag> [age <ms>] "
@@ -9534,35 +9538,41 @@ class Session:
         v = int(s)
         return v if -(1 << 31) <= v < (1 << 31) else None
 
+    @classmethod
+    def _swap_in(cls, v, rng) -> bool:
+        """NetSyncSwap.ParseInt's range half: a parsed value inside ``rng`` (inclusive)."""
+        return v is not None and rng[0] <= v <= rng[1]
+
     def _swap_pinbench_ok(self, rest) -> bool:
-        """`pinbench <field> <flag> [age <ms>] [landed] [party <slot> <char>] [to <field>]` (the words after `pinbench`): the optional
-        parts in the usage's order; field and `to` > 0, flag / age / char >= 0, slot 0-3."""
+        """`pinbench <field> <flag> [age <ms>] [landed] [party <slot> <char>] [to <field>]` (the words after `pinbench`) --
+        NetSyncSwap.ParsePinBench: field and `to` 1-65534, flag 0-16383, age 0-Int32.MaxValue, slot 0-3, char 0-255; the optional
+        parts in ANY order, each keyword (lowercased) at most once; a repeat, an unknown token, or a missing or out-of-range value
+        fails."""
         a = [str(x).strip() for x in rest]
         if len(a) < 2:
             return False
         field, flag = self._swap_int(a[0]), self._swap_int(a[1])
-        if field is None or flag is None or field <= 0 or flag < 0:
+        if not self._swap_in(field, self.NETSYNC_SWAP_FIELD_RANGE) or not self._swap_in(flag, self.NETSYNC_SWAP_FLAG_RANGE):
             return False
+        seen = set()
         i = 2
-        if i < len(a) and a[i].lower() == "age":
-            age = self._swap_int(a[i + 1]) if i + 1 < len(a) else None
-            if age is None or age < 0:
+        while i < len(a):
+            k = a[i].lower()
+            v1 = self._swap_int(a[i + 1]) if i + 1 < len(a) else None
+            v2 = self._swap_int(a[i + 2]) if i + 2 < len(a) else None
+            if k == "age" and k not in seen and self._swap_in(v1, (0, (1 << 31) - 1)):
+                i += 2
+            elif k == "landed" and k not in seen:
+                i += 1
+            elif (k == "party" and k not in seen and self._swap_in(v1, self.NETSYNC_SWAP_SLOT_RANGE)
+                  and self._swap_in(v2, self.NETSYNC_SWAP_CHAR_RANGE)):
+                i += 3
+            elif k == "to" and k not in seen and self._swap_in(v1, self.NETSYNC_SWAP_FIELD_RANGE):
+                i += 2
+            else:
                 return False
-            i += 2
-        if i < len(a) and a[i].lower() == "landed":
-            i += 1
-        if i < len(a) and a[i].lower() == "party":
-            slot = self._swap_int(a[i + 1]) if i + 1 < len(a) else None
-            char = self._swap_int(a[i + 2]) if i + 2 < len(a) else None
-            if slot is None or char is None or not 0 <= slot <= 3 or char < 0:
-                return False
-            i += 3
-        if i < len(a) and a[i].lower() == "to":
-            to = self._swap_int(a[i + 1]) if i + 1 < len(a) else None
-            if to is None or to <= 0:
-                return False
-            i += 2
-        return i == len(a)
+            seen.add(k)
+        return True
 
     def _swap_args_ok(self, args) -> bool:
         """Step 7 of the refusal order -- arity and range -- for a KNOWN op (``args`` = the words after `swap`, the op first)."""
@@ -9579,7 +9589,7 @@ class Session:
             return n is not None and lo <= n <= hi
         if op in ("intent", "cache", "lifebench"):
             n = self._swap_int(rest[0]) if len(rest) == 1 else None
-            return n is not None and n > 0
+            return self._swap_in(n, self.NETSYNC_SWAP_FIELD_RANGE)     # NetSyncSwap.ParseField
         if op == "blackout":
             if len(rest) != 1:
                 return False

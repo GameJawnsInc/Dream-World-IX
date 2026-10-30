@@ -148,7 +148,8 @@ CAL0_PRED_MS = (885, 912)                # reported (the s163 measurement)
 DF_FAST_MS = (350, 600)
 DF_FAST_GAIN_MS = 300                    # the host-to-guest landing gap shorter than CAL0's by this
 DF_3X_MS = 220
-DF_3X_TICKS = (12, 13)
+DF_3X_TICKS = (12, 17)                   # == solo F-3X: the Prime's one frame is up to 3 ticks at 3x; a 2-tick batch can push
+                                         # the first black read to 14, so the commit's read lands at 17
 DL_LIFE_SPAN_MS = (1800, 2700)
 DC_B_SLACK_MS = 300
 DL_DEFER_MS = 200
@@ -209,7 +210,7 @@ CLAIMS = {
     "DC-FE": "no `[NetSync] own Field(` line on the guest across CAL; own.passes +0",
     "DF-FAST": "CAL2: fade.last fast / fade / 12, by black; commit - follow 0.35-0.60 s; the host-to-guest landing gap shorter than "
                "CAL0's by >= 0.3 s",
-    "DF-3X": "CAL3 (the guest's speedmode 1): fade.last.ticks 12-13; commit - follow <= 0.22 s",
+    "DF-3X": "CAL3 (the guest's speedmode 1): fade.last.ticks 12-17; commit - follow <= 0.22 s",
     "DA-ARRIVE": "ARRIVE at act reaches its exposure (overlap >= DwellMs + 100 ms, base.age_ms >= DwellMs) with no dwell OUT; the "
                  "fade-old controls (ARRIVE on fade old, CAL0) green; the dressed watches (CAL2, DESK) green",
     "DA-LINES": "DESK: every edge line on both logs stamped; per host tap seq S: tap_t <= queued_t <= closed_t, 'waited X ms' = "

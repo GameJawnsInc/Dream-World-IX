@@ -534,6 +534,22 @@ OUT = {"good": j(), "other_counts_stopwatch": j([other, DLG_OK]),
     assert not any(out.values()), out
 
 
+def test_k_proof_reports_the_proof_cost_line_and_never_judges_it():
+    """Review fix F09's `[NetSync] field swap proof cost: ...` line (once per SelfTest call, before the proof line) is reported in
+    K-PROOF's detail -- the Unity Mono figure on the bench's record -- and never judged: green with or without it, and it is no proof
+    or FAIL line (no `selftest: ` text, no class)."""
+    out = _child(_FIX + r'''
+cost = L("[NetSync] field swap proof cost: 41 ms on this thread (quiet_equals_loud on 104 rule sets: verdict grid swept 1x, live "
+         "hold grid 2x)")
+with_cost, without = so.judge_proof([cost, PROOF, DLG_OK], "ok"), so.judge_proof([PROOF, DLG_OK], "ok")
+OUT = {"with": list(with_cost), "without": list(without), "red_still_red": so.judge_proof([cost, DLG_OK], "ok")[0],
+       "cls": BW.swap_line_class(so.unstamped(cost.split("|M| ", 1)[-1]))}
+''')
+    assert out["with"][0] is True and out["without"][0] is True and out["red_still_red"] is False, out
+    assert "; proof cost 41 ms on this thread (quiet_equals_loud on 104 rule sets: verdict grid swept 1x, live hold grid 2x)" in out["with"][1]
+    assert "no proof cost line" in out["without"][1] and out["cls"] is None, out
+
+
 def test_k_clock_has_three_outcomes_and_is_never_a_ledger_row():
     """K-CLOCK: GREEN on the stand-in's clock seam (FG.swap_clock_read over channel.qpc_read: the kit's qpc_ms() a few ms ahead of each
     sample, within its age + 100 ms); UNFIT on `src stopwatch` (the seam with no QPC: every cross-game row VOID in the duo), on a sample
@@ -781,7 +797,9 @@ OUT = {"good": [cb_(), cc(), cp(), ca(), cs(), reach[0]],
 def test_p_and_l_judges_can_go_red_on_each_part():
     """P-PIN (the flag from the pin, the stages line at 1 story byte, last_use, last.story), P-AGED / P-LATE (the latest frame's flag and
     the pin's why / quality), P-OTHER (the held entry, the count), P-PARTY (the story from the pin AND the party from the latest frame,
-    then the clear: G2); L-LAND (the hook's on_intent with the intent active, the line) and L-STANDS (stands, the life's bound)."""
+    then the clear: G2); L-LAND (the 'I landed' line and landed_ms >= 0, the evidence that outlives the intent's end; the on_intent
+    sample with the intent active is reported, not required, so `life old` ending the intent in the hook's own frame stays green; the
+    R1 hole under `life` is VOID, never red) and L-STANDS (stands, the life's bound)."""
     out = _child(_FIX + r'''
 e = {k: p_ev(k) for k in ("pin", "aged", "other", "late", "party")}
 pp = lambda flag=False, pin=e["pin"]["pin"], last=e["pin"]["last"], lines=e["pin"]["lines"]: so.judge_p_pin(flag, pin, last, lines)[0]
@@ -796,7 +814,16 @@ ls, ll = lsim(False)
 lo, llo = lsim(True)
 land = lambda S_=ls, lines=ll: so.judge_l_land(S_, lines)[0]
 stands = lambda S_=ls: so.judge_l_stands(S_)[0]
-OUT = {"good": [pp(), pa(), pl(), po(), pr(), land(), stands(), land(lo, llo)],
+hookless = [s for s in lo if not (so.sget(s, "intent.landing") == "on_intent" and so.sget(s, "intent.active") is True)]
+r1 = [ed(s, sw={"intent.landed_ms": -1}) for s in lo]
+r1_lines = [ln for ln in llo if "I landed" not in ln]
+OUT = {"good": [pp(), pa(), pl(), po(), pr(), land(), stands(), land(lo, llo),
+                land(hookless, llo), land([ed(s, sw={"intent.active": False}) for s in ls]),
+                land([ed(s, sw={"intent.landing": None}) for s in ls])],
+       "void": [so.l_land_void(r1, r1_lines, "life"), so.l_land_void(r1, r1_lines, None), so.l_land_void(r1, r1_lines, "fade"),
+                so.l_land_void(lo, llo, "life"), so.l_land_void(r1, llo, "life"), so.l_land_void(lo, r1_lines, "life"),
+                so.l_land_void(ls, ll, "life")],
+       "hookless": [len(hookless) < len(lo), so.judge_l_land(hookless, llo)[1]],
        "bad": {"p_flag": pp(flag=True), "p_flag_unread": pp(flag=None), "p_no_line": pp(lines=e["pin"]["lines"][:1]), "p_bytes": pp(lines=stage_b2),
                "p_use": pp(pin=pin2(e["pin"]["pin"], last_use="aged")), "p_story": pp(last=rec(story="latest")),
                "a_flag": pa(flag=False), "a_why": pa(pin=pin2(e["aged"]["pin"], last_use="pin")),
@@ -804,14 +831,19 @@ OUT = {"good": [pp(), pa(), pl(), po(), pr(), land(), stands(), land(lo, llo)],
                "o_flag": po(flag=False), "o_held": po(pin=pin2(e["other"]["pin"], held=[])), "o_count": po(o0=3),
                "r_flag": pr(flag=True), "r_party_from_pin": pr(mb=[0, 1, -1, -1]), "r_no_mirror": pr(mb=None), "r_last_party": pr(pin=pin2(e["party"]["pin"], last_party="pin")),
                "r_mirror_kept": pr(ma=[0, 2, -1, -1]), "r_clear_line": pr(cl=[L(BW.swap_harness_clear(False))]),
-               "land_inactive": land([ed(s, sw={"intent.active": False}) for s in ls]), "land_pending": land([ed(s, sw={"intent.landing": "pending"}) for s in ls]),
-               "land_no_line": land(lines=[ln for ln in ll if "I landed" not in ln]),
+               "land_unlanded": land([ed(s, sw={"intent.landed_ms": -1}) for s in ls]), "land_no_samples": land([]),
+               "land_no_line": land(lines=[ln for ln in ll if "I landed" not in ln]), "land_r1": land(r1, r1_lines),
+               "land_other_field": land(lines=[ln.replace(f"field {AW} after", f"field {HM} after") for ln in ll]),
                "stands_old": stands(lo), "stands_late": stands(ls[:-1] + [ed(ls[-1], sw={"intent.last_life_ms": 2600})]),
                "stands_early": stands(ls[:-1] + [ed(ls[-1], sw={"intent.last_life_ms": 1300})]),
                "stands_unlanded": stands([ed(s, sw={"intent.landed_ms": -1}) for s in ls])}}
 ''')
     assert all(out["good"]), out
     assert not any(out["bad"].values()), {k: v for k, v in out["bad"].items() if v}
+    v = out["void"]
+    assert isinstance(v[0], str) and "R1 hole" in v[0] and "before the landing hook" in v[0], v      # only `life`, only the R1 shape
+    assert v[1:] == [None] * 6, v
+    assert out["hookless"][0] and "not seen (reported, not required)" in out["hookless"][1], out["hookless"]
 
 
 # ------------------------------------------------------------------------------------------------ F
@@ -836,7 +868,7 @@ bad = {"sentinel": jf("F-FAST", ev["F-FAST"][0][:-1] + [ed(ev["F-FAST"][0][-1], 
        "field": jf("F-FAST", fl("F-FAST", field=HM)), "fast_path": jf("F-FAST", fl("F-FAST", path="old")), "fast_action": jf("F-FAST", fl("F-FAST", action="join")),
        "fast_frames": jf("F-FAST", fl("F-FAST", frames=24)), "fast_by": jf("F-FAST", fl("F-FAST", by="fallback")), "fast_primed": jf("F-FAST", fl("F-FAST", primed=False)),
        "fast_ticks": jf("F-FAST", fl("F-FAST", ticks=15)), "fast_ms": jf("F-FAST", fl("F-FAST", ms=600)),
-       "3x_ms": jf("F-3X", fl("F-3X", ms=250)), "3x_ticks": jf("F-3X", fl("F-3X", ticks=17)), "3x_low": jf("F-3X", fl("F-3X", ticks=11)),
+       "3x_ms": jf("F-3X", fl("F-3X", ms=250)), "3x_ticks": jf("F-3X", fl("F-3X", ticks=18)), "3x_low": jf("F-3X", fl("F-3X", ticks=11)),
        "black_view": jf("F-BLACK", fl("F-BLACK", view_start="heading")), "black_action": jf("F-BLACK", fl("F-BLACK", action="wipe")),
        "black_ticks": jf("F-BLACK", [ed(s, sw={"fade.black_ticks": min(2, s["netsync"]["swap"]["fade"]["black_ticks"])}) for s in ev["F-BLACK"][0]]),
        "black_dip": jf("F-BLACK", mid("F-BLACK", "fade.cur_now", 120)), "black_ms": jf("F-BLACK", fl("F-BLACK", ms=250)),
@@ -854,10 +886,12 @@ bad = {"sentinel": jf("F-FAST", ev["F-FAST"][0][:-1] + [ed(ev["F-FAST"][0][-1], 
        "reassert_no_line": jf("F-REASSERT", lines=[]), "reassert_two": jf("F-REASSERT", lines=ev["F-REASSERT"][1] * 2),
        "reassert_count": jf("F-REASSERT", b0=block(fade__reasserts=5)), "reassert_by": jf("F-REASSERT", fl("F-REASSERT", by="timer")),
        "key_backlog": jf("F-KEY", fl("F-KEY", backlog_start="ahead")), "key_path": jf("F-KEY", fl("F-KEY", path="fast")), "key_ms": jf("F-KEY", fl("F-KEY", ms=100))}
-OUT = {"good": good, "bad": bad}
+OUT = {"good": good, "bad": bad, "edge": [jf("F-3X", fl("F-3X", ticks=v)) for v in (12, 17)],
+       "ticks_3x": so.sget(ev["F-3X"][0][-1], "fade.last.ticks")}
 ''')
     assert all(v[0] for v in out["good"].values()), {k: v[1] for k, v in out["good"].items() if not v[0]}
     assert not any(out["bad"].values()), {k: v for k, v in out["bad"].items() if v}
+    assert out["edge"] == [True, True] and out["ticks_3x"] == 15, out          # F-3X 12-17 (== duo DF-3X); the Prime at 3x reads 15
 
 
 # ------------------------------------------------------------------------------------------------ the calibrations
@@ -1384,8 +1418,12 @@ def cal_shape(sub, word):
     action, frames = BW.fade_action_rule(path, BW.FADE_VIEW_VISIBLE, -1, lv)
     if path == BW.FADE_PATH_OLD:
         return "old", "wipe", frames, "timer", (300 if speed else 900), 27, delay
-    ticks = frames + 1
-    return "fast", BW.FADE_ACT_NAMES[action], frames, "black", round((ticks * 1000 / 30) / (3 if speed else 1)) + 10, ticks, delay
+    # the D+E Prime: the first Update that reads black only primes, the next commits. At 1x (one tick a frame) black reads at
+    # `frames` and the commit one tick later; at 3x (three ticks a frame) black reads at the first batch end >= `frames` (12) and
+    # the commit one batch later (15), the solo F-3X fixture's value
+    step = 3 if speed else 1
+    ticks = -(-frames // step) * step + step
+    return "fast", BW.FADE_ACT_NAMES[action], frames, "black", round((ticks * 1000 / 30) / step) + 10, ticks, delay
 
 
 def cal_tr(i, sub, dest, word=None, kind=None, on=True, gate_out=True):
@@ -1800,7 +1838,8 @@ OUT = {"guard": j(A("gate"), ctl)[0], "defect": j(A("gate", lines=1, cnt=1, acti
 def test_cal_judges_can_go_red_on_each_part():
     """DA-CAL (CAL1's +200 within a frame), DA-JOIN (ids, nonce, vias, closes), DL-LIFE (the seen span and the host's 'I stand on it'),
     DL-NOREG (one follow line / commit / landing, no cancel), DC-FE (no own Field() line, passes +0), DF-FAST (fast / fade / 12 by
-    black, 0.35-0.60 s, the landing-gap gain) and DF-3X (ticks 12-13, <= 0.22 s): green on the plain evidence, each part alone red."""
+    black, 0.35-0.60 s, the landing-gap gain) and DF-3X (ticks 12-17, <= 0.22 s; CAL3 reads 15 at 3x, the Prime's one 3-tick frame):
+    green on the plain evidence, each part alone red."""
     out = _duo_child(r'''
 import copy
 cal = cal_trs()
@@ -1842,11 +1881,17 @@ OUT = {"good": [du.judge_da_cal(c0, g1, 33.0)[0], du.judge_da_join(flat)[0], du.
            "fast_slow": du.judge_df_fast(mod(cal["CAL2"], 0, "last.commit_t", cal["CAL2"][0]["g"]["last"]["follow_t"] + 700), cal["CAL0"])[0],
            "fast_gain": du.judge_df_fast(cal["CAL2"], cal["CAL2"])[0],
            "3x_ticks": du.judge_df_3x(mod(cal["CAL3"], 0, "fade.last.ticks", 24))[0],
+           "3x_high": du.judge_df_3x(mod(cal["CAL3"], 0, "fade.last.ticks", 18))[0],
+           "3x_low": du.judge_df_3x(mod(cal["CAL3"], 0, "fade.last.ticks", 11))[0],
            "3x_slow": du.judge_df_3x(mod(cal["CAL3"], 1, "last.commit_t", cal["CAL3"][1]["g"]["last"]["follow_t"] + 300))[0],
-           "3x_none": du.judge_df_3x([])[0]}}
+           "3x_none": du.judge_df_3x([])[0]},
+       "cal3_ticks": [t["g"]["fade"]["last"]["ticks"] for t in cal["CAL3"]], "window": list(du.DF_3X_TICKS),
+       "edge": [du.judge_df_3x(mod(cal["CAL3"], 0, "fade.last.ticks", v))[0] for v in (12, 17)]}
 ''')
     assert out["good"] == ["green"] * 7, out
     assert all(v == "red" for v in out["bad"].values()), out["bad"]
+    assert out["cal3_ticks"] == [15, 15] and out["window"] == [12, 17], out        # the real 3x value, inside DF-3X (== solo F-3X)
+    assert out["edge"] == ["green", "green"], out
 
 
 def test_desk_judges_can_go_red_on_each_part_and_read_unreached_as_never_red():

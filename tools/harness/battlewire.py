@@ -12509,6 +12509,11 @@ def _swap_edge_text(v) -> str:
     return "-" if v is None or v < 0 else f"+{int(v)}"
 
 
+def _swap_count_text(v) -> str:
+    """NetSyncSwap.Count: a count as a bare integer, "-" for an unknown one (None or < 0)."""
+    return "-" if v is None or v < 0 else str(int(v))
+
+
 #: L-CLOSE's guest edges, in its order (the keys of ``edges``; a missing edge prints "-")
 SWAP_CLOSE_EDGES = ("seen", "follow", "own", "due", "commit", "landed", "first line")
 
@@ -12516,10 +12521,10 @@ SWAP_CLOSE_EDGES = ("seen", "follow", "own", "due", "commit", "landed", "first l
 def swap_log_closed_guest(on: bool, k: int, dest: int, frm: int, close: int, via: int, edges: dict, open_by: str, follows: int,
                           bounces: int, reloads: int, t: int, close_n: int = -1) -> str | None:
     """L-CLOSE (guest): the whole record on one line -- each edge as ms after the record's first edge. A record closed before any
-    landing (stale, superseded) has no via: "no landing"."""
+    landing (stale, superseded) has no via: "not landed" (NetSyncSwap.ClosedLine)."""
     if not on:
         return None
-    via_words = SWAP_VIA_WORDS[SWAP_VIA_NAMES[via]] if via else "no landing"
+    via_words = SWAP_VIA_WORDS[SWAP_VIA_NAMES[via]] if via else "not landed"
     parts = ", ".join(f"{e} {_swap_edge_text(edges.get(e))}" for e in SWAP_CLOSE_EDGES)
     return swap_place_stamp(f"[NetSync] swap #{k} to field {dest} (from {frm}) closed by {swap_close_words(close, close_n)}: {via_words};"
                             f" {parts} ms after its first edge ({open_by}); follows {follows}, bounces {bounces}, reloads {reloads}", on, t)
@@ -12531,13 +12536,16 @@ SWAP_OOB_WORDS = {SWAP_OOB_UNKNOWN: "unknown", SWAP_OOB_SENT: "sent", SWAP_OOB_O
 
 def swap_log_closed_host(on: bool, k: int, dest: int, frm: int, close: int, site: int, landed, first_line, updates: int, frames: int,
                          sends: int, span_ms: int, oob: int, t: int, close_n: int = -1) -> str | None:
-    """L-CLOSE (host): its own transition, and section 4's life on the wire."""
+    """L-CLOSE (host): its own transition, and section 4's life on the wire. The counts print as NetSyncSwap.Count does: "-" for an
+    unknown one (a record field still at its -1 default, e.g. a close whose intent figures never matched); emit is +0 (a host record
+    opens at its own emit)."""
     if not on:
         return None
+    c = _swap_count_text
     return swap_place_stamp(f"[NetSync] swap #{k} to field {dest} (from {frm}) closed by {swap_close_words(close, close_n)}: via my own "
                             f"transition ({SWAP_SITE_NAMES[site]}); emit +0, landed {_swap_edge_text(landed)}, first line "
-                            f"{_swap_edge_text(first_line)} ms; section 4: {updates} Updates, {frames} frames, {sends} sends over "
-                            f"{span_ms} ms, the out-of-band frame {SWAP_OOB_WORDS[oob]}", on, t)
+                            f"{_swap_edge_text(first_line)} ms; section 4: {c(updates)} Updates, {c(frames)} frames, {c(sends)} sends "
+                            f"over {c(span_ms)} ms, the out-of-band frame {SWAP_OOB_WORDS[oob]}", on, t)
 
 
 def swap_utc_text(utc_ms: int) -> str:
@@ -12784,9 +12792,12 @@ def swap_orphan_window_tick(w: dict, *, settled_long: bool, inh: bool = False, h
                             relay_owned: bool = False, ready: bool = True, host_here: bool = True, now: int = 0,
                             lever_old: bool = False, present: bool = True, rules=None) -> dict:
     """One window's s164 step inside NetSyncDialog.Orphans (:1526): the orphan idle (OrphanSettled), OrphanStep, then -- under act --
-    the old rule's verdict, CtlHoldKind and StepCtlHold (the hold's rising edge counts it; a relock keeps OrphanKept = OrphanSince; the
-    falling edge decides HoldEndWhy and KeepRead) BEFORE the re-orphan reads KeepRead, then the action. ``present`` False = the window
-    left the list (Track's removal: a held window ends Closed). Returns {act, kind, end, held_ms}; mutates ``w``.
+    the old rule's verdict and CtlHoldKind, and StepCtlHold under EITHER lever (the hold's rising edge counts it; a relock keeps
+    OrphanKept = OrphanSince; the falling edge decides HoldEndWhy and KeepRead) BEFORE the re-orphan reads KeepRead, then the action.
+    Under old the kind is always None, so no hold rises and a standing one ENDS; a HoldEndWhy of None (the old rule agrees now: the
+    lever, or a line turned polled mid-hold) ends it as Forgot -- engine B deviation 4 (StepCtlHold, NetSyncSwap.HoldTick).
+    ``present`` False = the window left the list (Track's removal: a held window ends Closed). Returns {act, kind, end, held_ms};
+    mutates ``w``.
 
     KeepRead is kept only for a hold that began as a RELOCK: a line held straight from Locked never orphaned, so it has no read clock to
     keep (the design's S2 -- Confirm at t1 + AutoReadMs after control returns -- needs exactly that)."""
@@ -12809,19 +12820,21 @@ def swap_orphan_window_tick(w: dict, *, settled_long: bool, inh: bool = False, h
         holds = False                                       # (the rejected hold cap only)
     args = (event_pending, relay_owned, inh, ready, w["complete_since"], w["orphan_since"], now)
     act = r.step(w["cls"], r.settle(w["cls"], settled_long, inh, holds, lever_old), *args)
+    kind = SWAP_CTL_NONE
     if not lever_old:
         act_old = r.step(w["cls"], r.settle(w["cls"], settled_long, inh, holds, True), *args)
         kind = r.kind(w["cls"], act, act_old)
         out["kind"] = kind
-        if kind != SWAP_CTL_NONE and not w["ctl_held"]:
-            w.update(ctl_held=True, ctl_held_since=now, held_kind=kind)
-            if kind == SWAP_CTL_RELOCK:
-                w["orphan_kept"] = w["orphan_since"]
-                w["relocks"] += 1
-            else:
-                w["holds"] += 1
-        elif kind == SWAP_CTL_NONE and w["ctl_held"]:
-            fall(r.end_why(True, event_pending, relay_owned, host_here, settled_long, holds))
+    if kind != SWAP_CTL_NONE and not w["ctl_held"]:
+        w.update(ctl_held=True, ctl_held_since=now, held_kind=kind)
+        if kind == SWAP_CTL_RELOCK:
+            w["orphan_kept"] = w["orphan_since"]
+            w["relocks"] += 1
+        else:
+            w["holds"] += 1
+    elif kind == SWAP_CTL_NONE and w["ctl_held"]:
+        why = r.end_why(True, event_pending, relay_owned, host_here, settled_long, holds)
+        fall(why if why != SWAP_HOLD_END_NONE else SWAP_HOLD_END_FORGOT)     # None: the old rule agrees now (B deviation 4)
     out["act"] = act
     if act == DIALOG_ORPH_TO_ORPHANED:
         w["cls"] = DIALOG_CLS_ORPHANED
@@ -13450,6 +13463,10 @@ SWAP_OP_WORDS = {"stamps": ("on", "off"), "orphan": ("act", "old"), "own": OWN_L
                  "fade": FADE_LEVER_NAMES, "hostctl": ("off", "on")}
 SWAP_DELAY_RANGE = (0, 2000)             # the delay holds a black screen with control off (conflict row 5)
 SWAP_BLACKOUT_RANGE = (1, 255)
+SWAP_FIELD_RANGE = (1, 65534)            # NetSyncSwap.ParseField: a field id section 4 can carry (u16, never its 65535 sentinel)
+SWAP_FLAG_RANGE = (0, 2048 * 8 - 1)      # NetSyncSwap.MaxStoryFlag: gEventGlobal's last bit (`pinbench <flag>`)
+SWAP_SLOT_RANGE = (0, 3)                 # `party <slot> <char>`: a party slot
+SWAP_CHAR_RANGE = (0, 255)               # ...and a CharacterId (a byte)
 SWAP_BENCH_GATED_OPS = ("intent", "pinbench")       # also need `netsync bench 1`
 SWAP_USAGE = ("netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, orphan act|old, own act|old|nocache, pin act|old "
               "or fade act|old|long|nogate|norecheck|nohurry (a client or the selftest role); life act|old (the host or the selftest "
@@ -13486,36 +13503,41 @@ def _swap_int(s) -> int | None:
     return v if -(1 << 31) <= v < (1 << 31) else None
 
 
+def _swap_in(v, rng) -> bool:
+    """NetSyncSwap.ParseInt's range half: a parsed value inside ``rng`` (inclusive)."""
+    return v is not None and rng[0] <= v <= rng[1]
+
+
 def swap_parse_pinbench(args) -> dict | None:
     """`pinbench <field> <flag> [age <ms>] [landed] [party <slot> <char>] [to <field>]` (the words after `pinbench`) -> its parts, or None
-    (the usage line). The optional parts come in the usage's order; field and `to` > 0, flag / age / char >= 0, slot 0-3."""
+    (the usage line) -- NetSyncSwap.ParsePinBench: field and `to` 1-65534 (SWAP_FIELD_RANGE), flag 0-16383 (SWAP_FLAG_RANGE), age
+    0-Int32.MaxValue, slot 0-3, char 0-255. The optional parts come in ANY order, each keyword (lowercased) at most once; a repeat, an
+    unknown token, or a missing or out-of-range value is the usage line."""
     a = [str(x).strip() for x in args]
     if len(a) < 2:
         return None
     field, flag = _swap_int(a[0]), _swap_int(a[1])
-    if field is None or flag is None or field <= 0 or flag < 0:
+    if not _swap_in(field, SWAP_FIELD_RANGE) or not _swap_in(flag, SWAP_FLAG_RANGE):
         return None
     out = {"field": field, "flag": flag, "age": -1, "landed": False, "party": None, "to": -1}
+    seen = set()
     i = 2
-    if i < len(a) and a[i].lower() == "age":
-        age = _swap_int(a[i + 1]) if i + 1 < len(a) else None
-        if age is None or age < 0:
+    while i < len(a):
+        k = a[i].lower()
+        v1 = _swap_int(a[i + 1]) if i + 1 < len(a) else None
+        v2 = _swap_int(a[i + 2]) if i + 2 < len(a) else None
+        if k == "age" and k not in seen and _swap_in(v1, (0, (1 << 31) - 1)):
+            out["age"], i = v1, i + 2
+        elif k == "landed" and k not in seen:
+            out["landed"], i = True, i + 1
+        elif k == "party" and k not in seen and _swap_in(v1, SWAP_SLOT_RANGE) and _swap_in(v2, SWAP_CHAR_RANGE):
+            out["party"], i = (v1, v2), i + 3
+        elif k == "to" and k not in seen and _swap_in(v1, SWAP_FIELD_RANGE):
+            out["to"], i = v1, i + 2
+        else:
             return None
-        out["age"], i = age, i + 2
-    if i < len(a) and a[i].lower() == "landed":
-        out["landed"], i = True, i + 1
-    if i < len(a) and a[i].lower() == "party":
-        slot = _swap_int(a[i + 1]) if i + 1 < len(a) else None
-        char = _swap_int(a[i + 2]) if i + 2 < len(a) else None
-        if slot is None or char is None or not 0 <= slot <= 3 or char < 0:
-            return None
-        out["party"], i = (slot, char), i + 3
-    if i < len(a) and a[i].lower() == "to":
-        to = _swap_int(a[i + 1]) if i + 1 < len(a) else None
-        if to is None or to <= 0:
-            return None
-        out["to"], i = to, i + 2
-    return out if i == len(a) else None
+        seen.add(k)
+    return out
 
 
 def swap_args_ok(args) -> bool:
@@ -13532,7 +13554,7 @@ def swap_args_ok(args) -> bool:
         return n is not None and SWAP_DELAY_RANGE[0] <= n <= SWAP_DELAY_RANGE[1]
     if op in ("intent", "cache", "lifebench"):
         n = _swap_int(rest[0]) if len(rest) == 1 else None
-        return n is not None and n > 0
+        return _swap_in(n, SWAP_FIELD_RANGE)                # NetSyncSwap.ParseField
     if op == "blackout":
         if len(rest) != 1:
             return False

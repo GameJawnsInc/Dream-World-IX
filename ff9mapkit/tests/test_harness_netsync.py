@@ -28855,6 +28855,24 @@ def test_s164_a_instrument_rows_are_the_twins_and_every_mutant_is_caught():
     _sw_prove(rows, _swa_make, mutants)
 
 
+def test_s164_l_close_builders_word_an_unlanded_record_and_unknown_counts_as_the_engine():
+    """NetSyncSwap.ClosedLine's two forms where the design is silent: a guest record closed before any landing (stale, superseded)
+    reads "not landed" (`NameOf(ViaWords, ..) ?? "not landed"`), and the host form prints each section-4 count through Count -- the
+    bare integer, "-" for an unknown one (a record field still at its -1 default)."""
+    edges = {"seen": 0, "follow": None, "own": None, "due": None, "commit": None, "landed": None, "first line": None}
+    assert BW.swap_log_closed_guest(True, 2, 352, 351, BW.SWAP_CLOSE_SUPERSEDED, BW.SWAP_VIA_NONE, edges, "seen", 0, 0, 0, 9000, 3) == (
+        "[NetSync] swap #2 to field 352 (from 351) closed by superseded by swap #3: not landed; seen +0, follow -, own -, due -, "
+        "commit -, landed -, first line - ms after its first edge (seen); follows 0, bounces 0, reloads 0 (t 9000 ms)")
+    assert ": not landed; " in BW.swap_log_closed_guest(True, 2, 352, 351, BW.SWAP_CLOSE_STALE, BW.SWAP_VIA_NONE, edges, "seen", 0, 0,
+                                                         0, 9000)
+    assert BW.swap_log_closed_host(True, 9, 352, 351, BW.SWAP_CLOSE_RESET, BW.SWAP_SITE_BENCH, -1, -1, -1, -1, -1, -1,
+                                   BW.SWAP_OOB_UNKNOWN, 9000).endswith(
+        "emit +0, landed -, first line - ms; section 4: - Updates, - frames, - sends over - ms, the out-of-band frame unknown (t 9000 ms)")
+    assert ("section 4: 1 Updates, 0 frames, - sends over 0 ms" in
+            BW.swap_log_closed_host(True, 9, 352, 351, BW.SWAP_CLOSE_RESET, BW.SWAP_SITE_BENCH, -1, -1, 1, 0, None, 0,
+                                    BW.SWAP_OOB_NONE, 9000))
+
+
 def test_s164_ms_naive_differs_from_swap_ticks_to_ms_at_tsc_40_days():
     """P9: Python's integers never overflow, so without _i64 the naive ``ts * 1000 / freq`` equals the split form on every row; with
     it (C#'s unchecked Int64), the naive form wraps at a 3 GHz counter after 40 days and the split form does not."""
@@ -29094,9 +29112,39 @@ def test_s164_b_twin_keyscript_flip():
                 assert (S(sl, inh, h, False) != S(sl, inh, h, True)) == (sl and not inh and h)
 
 
+def test_s164_b_twin_a_standing_hold_ends_forgot_under_the_lever_or_a_polled_line():
+    """swap_orphan_window_tick follows engine B deviation 4 (NetSyncDialog.StepCtlHold, the C# twin NetSyncSwap.HoldTick): the falling
+    edge runs under EITHER lever, and a HoldEndWhy of None (the old rule agrees now) ends the hold as Forgot. (a) A held plain line,
+    then `swap orphan old`: the hold ends on that tick, `forgot`, and no new hold rises under the lever. (b) A held line whose
+    FlagButtonInh turns on mid-hold (a script-polled line): the same end. KeepRead stays off (a Forgot end keeps no read clock)."""
+    def held():
+        w = BW.swap_orphan_window(BW.DIALOG_CLS_LOCKED, 0, 0)
+        out = BW.swap_orphan_window_tick(w, settled_long=True, host_holds=True, now=1000)
+        assert out["kind"] == BW.SWAP_CTL_HOLD and w["ctl_held"] and w["holds"] == 1, out
+        return w
+
+    w = held()                                                          # (a) the lever flips mid-hold
+    out = BW.swap_orphan_window_tick(w, settled_long=True, host_holds=True, now=1700, lever_old=True)
+    assert out["end"] == BW.SWAP_HOLD_END_FORGOT and out["held_ms"] == 700 and out["kind"] == BW.SWAP_CTL_NONE, out
+    assert not w["ctl_held"] and not w["keep_read"] and out["act"] == BW.DIALOG_ORPH_TO_ORPHANED, (out, w)
+    out = BW.swap_orphan_window_tick(w, settled_long=True, host_holds=True, now=1800, lever_old=True)
+    assert out["end"] == BW.SWAP_HOLD_END_NONE and not w["ctl_held"] and w["holds"] == 1, (out, w)
+    w = held()                                                          # (b) the line turns script-polled mid-hold
+    out = BW.swap_orphan_window_tick(w, settled_long=True, inh=True, host_holds=True, now=1400)
+    assert out["end"] == BW.SWAP_HOLD_END_FORGOT and out["held_ms"] == 400 and out["kind"] == BW.SWAP_CTL_NONE, out
+    assert not w["ctl_held"] and not w["keep_read"] and out["act"] == BW.DIALOG_ORPH_NONE, (out, w)
+    # a fixed lever with no mid-hold inh flip is unchanged: the control end still reads `control`
+    w = held()
+    out = BW.swap_orphan_window_tick(w, settled_long=True, host_holds=False, now=1500)
+    assert out["end"] == BW.SWAP_HOLD_END_CONTROL, out
+
+
 def test_s164_b_twins_rest_on_the_live_s163_dialogue_code():
     """OrphanStep, the SettleClock, the dialogue's class / step constants and HostHoldsInput's :7767 expression -- the s163 code B's
-    composites and scenarios run through -- are battlewire's twins, read off the live stack (s164 leaves each of them alone)."""
+    composites and scenarios run through -- are battlewire's twins, read off the live stack. s164 leaves the dialogue code alone; it
+    extracts the :7767 expression, unchanged, into NetSyncClient.HostHoldsRule (the body BW.swap_host_holds twins), so once the s164
+    patch is live the pin reads the call and the rule's body instead of the inline line. (R8's `_glHostHoldsInput` line stays pinned
+    by test_coop_field_swap_timing_bench.py.)"""
     dlg = " ".join(t for t in (_strip_comment(ln.strip()) for ln in stack_file("NetSyncDialog.cs")) if t)
     for frag in ("if (cls == ClsLocked) { if (!settledLong || eventPending || relayOwned) return OrphNone; return inh ? OrphToLocal : "
                  "OrphToOrphaned; } if (cls != ClsOrphaned) return OrphNone; if (eventPending || !settledLong) return OrphToLocked; if "
@@ -29113,7 +29161,12 @@ def test_s164_b_twins_rest_on_the_live_s163_dialogue_code():
                  f"internal const Int32 OffFieldMaxMs = {BW.DIALOG_OFF_FIELD_MAX_MS};"):
         assert frag in dlg, frag
     cli = " ".join(t for t in (_strip_comment(ln.strip()) for ln in stack_file("NetSyncClient.cs")) if t)
-    assert "v.HostHoldsInput = v.HostHere && hv != null && (hr & HrControl) == 0;" in cli
+    if _s164_live():
+        assert "v.HostHoldsInput = HostHoldsRule(v.HostHere, hv != null, hr);" in cli
+        assert "internal static Boolean HostHoldsRule(Boolean hostHere, Boolean haveView, Int32 hr)" in cli
+        assert "return hostHere && haveView && (hr & HrControl) == 0;" in cli
+    else:
+        assert "v.HostHoldsInput = v.HostHere && hv != null && (hr & HrControl) == 0;" in cli
     assert f"HrMenu = 16, HrControl = {BW.HR_CONTROL};" in cli
 
 
@@ -29953,9 +30006,21 @@ def test_s164_lever_refusal_order_usage_and_ops():
             (["blackout", "off"], "selftest", False, None), (["blackout", "0"], "selftest", False, U),
             (["blackout", "255"], "selftest", False, None), (["lifebench", "30602"], "selftest", False, None),
             (["pinbench", "30602", "8720", "age", "3000", "landed", "party", "1", "3", "to", "350"], "selftest", True, None),
-            (["pinbench", "30602", "8720", "to", "350", "age", "3000"], "selftest", True, U),   # the usage's order
+            (["pinbench", "30602", "8720", "to", "350", "age", "3000"], "selftest", True, None),   # ParsePinBench: ANY order
             (["pinbench", "30602", "8720", "party", "4", "3"], "selftest", True, U),
-            (["pinbench", "30602"], "selftest", True, U)):
+            (["pinbench", "30602"], "selftest", True, U),
+            # [ff9mapkit netsync s164] the engine's bounds (ParseField 1-65534, MaxStoryFlag 16383, a CharacterId byte), each keyword once
+            (["intent", "65535"], "selftest", True, U), (["cache", "65535"], "selftest", False, U),
+            (["lifebench", "65535"], "selftest", False, U), (["pinbench", "65535", "8720"], "selftest", True, U),
+            (["pinbench", "30602", "8720", "to", "65535"], "selftest", True, U), (["pinbench", "30602", "16384"], "selftest", True, U),
+            (["pinbench", "30602", "8720", "party", "1", "256"], "selftest", True, U),
+            (["pinbench", "30602", "8720", "age", "1", "age", "2"], "selftest", True, U),
+            (["pinbench", "30602", "8720", "landed", "landed"], "selftest", True, U),
+            (["pinbench", "30602", "8720", "LANDED", "To", "350"], "selftest", True, None),
+            (["intent", "65534"], "selftest", True, None), (["cache", "65534"], "selftest", False, None),
+            (["lifebench", "65534"], "selftest", False, None), (["pinbench", "65534", "16383"], "selftest", True, None),
+            (["pinbench", "30602", "8720", "to", "65534"], "selftest", True, None),
+            (["pinbench", "30602", "8720", "party", "3", "255"], "selftest", True, None)):
         assert BW.swap_lever_refusal(args, role, bench) == want, (args, role, bench)
     assert tuple(BW.SWAP_OP_ROLES) == BW.SWAP_OPS and len(BW.SWAP_OPS) == 14
     assert {op for op, r in BW.SWAP_OP_ROLES.items() if r == BW.SWAP_ROLE_ANY} == {"stamps", "clear"}
@@ -29968,6 +30033,10 @@ def test_s164_lever_refusal_order_usage_and_ops():
             assert ("CALIBRATION" in line) == (w not in ("act", "on") and op != "hostctl"), line
     assert BW.swap_parse_pinbench(["30602", "8720", "party", "1", "3"]) == {"field": 30602, "flag": 8720, "age": -1, "landed": False,
                                                                            "party": (1, 3), "to": -1}
+    assert BW.swap_parse_pinbench(["30602", "8720", "to", "350", "landed", "party", "2", "9", "age", "3000"]) == {
+        "field": 30602, "flag": 8720, "age": 3000, "landed": True, "party": (2, 9), "to": 350}
+    assert BW.SWAP_FIELD_RANGE == (1, 65534) and BW.SWAP_FLAG_RANGE == (0, 16383) and BW.SWAP_CHAR_RANGE == (0, 255)
+    assert BW.SWAP_SLOT_RANGE == (0, 3)
     assert BW.swap_harness_clear(True).endswith("bench state forgotten; the pin bench's party mirror cleared")
     assert BW.swap_harness_release(False) == ("[NetSync] harness: swap levers released (every lever act, stamps on, delay 0, the bench "
                                               "host's control on, bench state forgotten)")
@@ -30054,7 +30123,14 @@ _SW_ARG_FORMS = (
     ("pinbench", "30602", "8720"), ("pinbench", "30602", "8720", "age", "3000", "landed", "party", "1", "5", "to", "352"),
     ("pinbench", "30602", "8720", "to", "352", "age", "1"), ("pinbench", "30602"), ("pinbench", "30602", "8720", "party", "4", "1"),
     ("lifebench", "30602"), ("lifebench", "x"), ("blackout", "off"), ("blackout", "0"), ("blackout", "255"), ("blackout", "256"),
-    ("blackout",))
+    ("blackout",),
+    # [ff9mapkit netsync s164] the engine's bounds and ParsePinBench's any-order, once-each options
+    ("intent", "65534"), ("intent", "65535"), ("cache", "65535"), ("lifebench", "65534"), ("lifebench", "65535"),
+    ("pinbench", "65534", "16383"), ("pinbench", "65535", "8720"), ("pinbench", "30602", "16384"), ("pinbench", "30602", "-1"),
+    ("pinbench", "30602", "8720", "to", "65535"), ("pinbench", "30602", "8720", "party", "3", "255"),
+    ("pinbench", "30602", "8720", "party", "1", "256"), ("pinbench", "30602", "8720", "age", "1", "age", "2"),
+    ("pinbench", "30602", "8720", "landed", "Age", "5", "TO", "352"), ("pinbench", "30602", "8720", "landed", "landed"),
+    ("pinbench", "30602", "8720", "age"), ("pinbench", "30602", "8720", "party", "1"), ("pinbench", "30602", "8720", "x"))
 
 
 def test_s164_kit2_the_swap_rung_rides_the_ladder_and_the_driver_and_the_stand_in_agree():
@@ -30112,6 +30188,8 @@ def test_s164_kit2_the_drivers_refusal_order_is_battlewires():
     assert S.NETSYNC_SWAP_BENCH_GATED_OPS == BW.SWAP_BENCH_GATED_OPS
     assert S.NETSYNC_SWAP_WORDS == {op: tuple(w) for op, w in BW.SWAP_OP_WORDS.items()}
     assert S.NETSYNC_SWAP_DELAY_RANGE == BW.SWAP_DELAY_RANGE and S.NETSYNC_SWAP_BLACKOUT_RANGE == BW.SWAP_BLACKOUT_RANGE
+    assert S.NETSYNC_SWAP_FIELD_RANGE == BW.SWAP_FIELD_RANGE and S.NETSYNC_SWAP_FLAG_RANGE == BW.SWAP_FLAG_RANGE
+    assert S.NETSYNC_SWAP_SLOT_RANGE == BW.SWAP_SLOT_RANGE and S.NETSYNC_SWAP_CHAR_RANGE == BW.SWAP_CHAR_RANGE
     assert S.NETSYNC_SWAP_USAGE == BW.SWAP_USAGE == FG.NETSYNC_SWAP_USAGE
     assert S.NETSYNC_SWAP_COOP_OFF == BW.SWAP_REFUSAL_COOP_OFF == FG.NETSYNC_SWAP_COOP_OFF
     for op in S.NETSYNC_SWAP_OPS:
@@ -30496,7 +30574,7 @@ def test_s164_kit2_swap_delay_holds_the_commit_and_the_record_closes(game):
         g.swap("intent", AWAY_SW2)
         st = g.wait_for(lambda s: s.swap_last["id"] == 3, timeout=4.0, what="record #3")
         assert st.swap_block["counts"]["closed"]["superseded"] == 1
-        assert _mlog_lines(fake, "[NetSync] swap #2 to field %d (from %d) closed by superseded by swap #3: no landing;" % (FIELD, AWAY_SW))
+        assert _mlog_lines(fake, "[NetSync] swap #2 to field %d (from %d) closed by superseded by swap #3: not landed;" % (FIELD, AWAY_SW))
         g.swap("delay", 0)
         st = g.wait_for(lambda s: s.swap_last["state"] == "landed" and s.field_id == AWAY_SW2, timeout=6.0, what="record #3's landing")
         assert st.swap_last["land_via"] == "follow"
@@ -30551,7 +30629,7 @@ def test_s164_kit2_b_the_bench_host_holds_a_plain_line_under_hostctl_off(game):
         assert not _mlog_lines(fake, "is not on the host's screen")
         t_on = rt(g.swap("hostctl", "on"))
         st = g.wait_for(lambda s: s.dialogue_orphan_closes == closes + 1, timeout=6.0, what="the release, then the auto-close")
-        assert rt(st) - t_on >= G.AUTO_READ_MS / 1000.0 - 0.1    # orphaned at the release: its read clock starts there
+        assert rt(st) - t_on >= G.AUTO_READ_MS / 1000.0 - 0.1 - 1e-6    # orphaned at the release: its read clock starts there (1e-6: frame-quantized float)
         orphan = st.swap_block["orphan"]
         assert orphan["last_end"] == "control" and orphan["holding"] == 0 and orphan["last_hold_ms"] >= G.AUTO_READ_MS
         end = _mlog_lines(fake, f"[NetSync] dialogue orphan: win {win} text {text} -- the control hold ends after ")
@@ -30608,3 +30686,43 @@ def test_s164_kit2_b_a_relock_keeps_the_read_clock_and_a_teardown_ends_the_hold(
         st = g.wait_for(lambda s: s.swap_block["orphan"]["last_end"] == "forgot", timeout=4.0, what="the lock letting go")
         assert st.swap_block["orphan"]["holding"] == 0
         assert _mlog_lines(fake, f"({BW.SWAP_HOLD_END_WORDS[BW.SWAP_HOLD_END_FORGOT]}) (t ")
+
+
+def test_s164_kit2_b_the_stand_ins_orphan_lines_are_the_engines(game):
+    """The stand-in's Orphans step prints NetSyncDialog's lines. B deviation 5: the WHOLE OrphToLocked line is stamped, so each of its
+    four alternatives ("the host has it open", "a late host event arrived", the relock's hold words, "the host is busy again") ends
+    " (t T ms)" while stamps are on and carries no stamp under `swap stamps off`. B deviation 4 (the twin's falling edge under either
+    lever): a held line, then `swap orphan old`, ends the hold on that tick as Forgot ("the lock let go"), `last_end` forgot."""
+    fake = FakeGame(game)
+    sw = fake._sw
+    stamp = re.compile(r" \(t -?\d+ ms\)$")
+    win, text = 7, 113
+    head = f"[NetSync] dialogue orphan: win {win} text {text} held -- "
+
+    def locked(stamps_off, **kw):
+        sw["stamps_off"] = stamps_off
+        w = {"cls": "orphaned", "complete_ms": 0, "orphan_ms": 0, "key": (30602, win, text)}
+        fake._sw_orphans(w, 5000, host_here=True, **kw)
+        assert w["cls"] == "locked", (kw, w)
+
+    cases = (("the host has it open", dict(settled_long=True, holds=False, pending=True, host_has_it=True)),
+             ("a late host event arrived", dict(settled_long=True, holds=False, pending=True, host_has_it=False)),
+             ("the host's control is off on my field", dict(settled_long=True, holds=True, pending=False, host_has_it=False)),
+             ("the host is busy again", dict(settled_long=False, holds=False, pending=False, host_has_it=False)))
+    for words, kw in cases:
+        for off in (False, True):
+            locked(off, **kw)
+            got = _mlog_lines(fake, head + words)
+            assert got, (words, off)
+            assert bool(stamp.search(got[-1])) is (not off), (words, off, got[-1])
+    sw["stamps_off"] = False
+    # B deviation 4: a held plain line, then the lever -> Forgot on that tick
+    w = {"cls": "locked", "complete_ms": 0, "orphan_ms": 0, "key": (30602, win, 114)}
+    fake._sw_orphans(w, 1000, settled_long=True, holds=True, pending=False, host_has_it=False, host_here=True)
+    assert sw["holding"] == 1
+    sw["orphan_old"] = True
+    fake._sw_orphans(w, 1600, settled_long=True, holds=True, pending=False, host_has_it=False, host_here=True)
+    assert sw["holding"] == 0 and sw["last_end"] == "forgot" and sw["last_hold_ms"] == 600, sw
+    end = _mlog_lines(fake, f"[NetSync] dialogue orphan: win {win} text 114 -- the control hold ends after 600 ms "
+                            f"({BW.SWAP_HOLD_END_WORDS[BW.SWAP_HOLD_END_FORGOT]}) (t ")
+    assert len(end) == 1, end
