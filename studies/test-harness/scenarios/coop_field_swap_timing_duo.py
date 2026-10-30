@@ -34,7 +34,10 @@ THE LEGS (every warp, scenario and poke is data below; COOP_LEGS picks them by n
           run); the host marks flag 8720 once its landing hook ran (intent.landed_ms >= 0). A mirroring guest has NO main menu (s38's
           spectator-field refusal, s121's buzz: the first duo run's MENU leg timed out on it), and an intent follow defers on any
           state but FieldHUD -- Pause is reachable there. A Pause that never opens is a setup miss (VOID). Rows DL-DEFER, DP-DEFER,
-          DP-AGED.
+          DP-AGED. [s164] Fix round 3: the cancel goes out without waiting, and DL-DEFER brackets the close off the guest's ring
+          (the last Pause sample, the first off it), never off the watch an awaited press starves; DL-DEFER reds and DP-DEFER is
+          UNREACHED unless the record was seen while paused, and a guest that never lands on AWAY reds DL-DEFER (VOID when its
+          Pause never closed).
   MARK    the host exits to AWAY; once its landing hook ran (intent.landed_ms >= 0 -- its body stands only ~1.77 s after the
           landing on 30602, after the guest's landing: the first duo run's -986 ms) the bench sends `flag 8720 1` to the host; the
           guest on `swap fade long` for the leg. Row DP-MARK.
@@ -51,7 +54,9 @@ THE LEGS (every warp, scenario and poke is data below; COOP_LEGS picks them by n
 THE REACH RULES (P4, P8). Deterministic rows are red when their key never moved. PROBABILISTIC rows -- DA-LANE per transition,
 DA-GUARD per landing, DF-FLASH, DF-GRACE, DF-PACE, DP-HALT, DP-PARTY, DC-B(b), DP-MARK and DP-DEFER -- are judged only on their
 reached runs and are NEVER RED merely for being UNREACHED: such a row records GREEN with an "UNREACHED" detail and is kept out of every
-calibration count (DA-ARRIVE's watches are reported apart, never judged). The floors: DA-LANE needs at least one reached transition in
+calibration count (DA-ARRIVE's watches are reported apart, never judged). [s164] Fix round 3: DF-FLASH and DF-GRACE reach only a follow
+whose copy could still exit (desk_follow_reach: its own jump not spent before the follow) -- a post-bounce follow on the reload's
+load-black is the s158 shape, listed apart, never judged. The floors: DA-LANE needs at least one reached transition in
 each of CAL, DESK and REST ("not reached: arrived_t was -1 on every transition"); DA-GUARD needs at least one landing whose host transition sent a landed frame across
 CAL2, CAL3, DESK and REST ("not reached: no landing sent a landed frame"; UNREACHED under the `life` word, its declared unreach); and
 DA-ARRIVE's ARRIVE run must reach its EXPOSURE -- the overlap (the host's first control-true sample after its landing minus the
@@ -200,13 +205,19 @@ CAL_HOLD_S = (BW.SWAP_LINE_WINDOW_MS + 1000) / 1000.0     # each CAL field held 
 CAL_DELAY_MS = 200
 CAL0_PRED_MS = (885, 912)                # reported (the s163 measurement)
 DF_FAST_MS = (350, 600)
-DF_FAST_GAIN_MS = 300                    # the host-to-guest landing gap shorter than CAL0's by this
+DF_FAST_GAIN_MS = 300                    # the guest's commit after the host's landing shorter than CAL0's by this (net of its own load)
 DF_3X_MS = 220
 DF_3X_TICKS = (12, 17)                   # == solo F-3X: the Prime's one frame is up to 3 ticks at 3x; a 2-tick batch can push
                                          # the first black read to 14, so the commit's read lands at 17
 DL_LIFE_SPAN_MS = (1800, 2700)
 DC_B_SLACK_MS = 300
 DL_DEFER_MS = 200
+DL_BRACKET_FRAMES = 3                    # [s164] fix round 3: DL-DEFER's Pause bracket wider than this many frames (+1 ms) bounds the
+                                         # lag too loosely: VOID, but only where the close's place inside it decides the verdict
+DL_PLACE_FRAMES = 2                      # [s164] fix round 3: a follow INSIDE the bracket is placed off Pause only when the bracket
+                                         # spans at most this many frames on the ring's frame counter (one unsampled frame), else VOID
+DESK_REC_KEYS = ("id", "seen_t", "follow_t", "follows", "own_t", "own_verdict", "bounces", "reload_t")   # [s164] the 351 record's
+                                         # edges in each DESK fade dict (desk_follow_reach; own_verdict / bounces / reload_t reported)
 DP_DEFER_AGE_MS = BW.PIN_MAX_AGE_MS      # 2500
 DP_MARK_LEAD_MS = 300
 DL_LEFT_MS = 300
@@ -269,8 +280,8 @@ CLAIMS = {
     "DL-NOREG": "per CAL transition: exactly one parallel-follow line, one commit and one landing, no 'follow-warp ... cancelled', no "
                 "second follow for the nonce",
     "DC-FE": "no `[NetSync] own Field(` line on the guest across CAL; own.passes +0",
-    "DF-FAST": "CAL2: fade.last fast / fade / 12, by black; commit - follow 0.35-0.60 s; the host-to-guest landing gap shorter than "
-               "CAL0's by >= 0.3 s",
+    "DF-FAST": "CAL2: fade.last fast / fade / 12, by black; commit - follow 0.35-0.60 s; the guest's commit after the host's landing "
+               "shorter than CAL0's by >= 0.3 s (the landing gap net of the guest's own load; the landing gain reported)",
     "DF-3X": "CAL3 (the guest's speedmode 1): fade.last.ticks 12-17; commit - follow <= 0.22 s",
     "DA-ARRIVE": "THE ARRIVAL GUARD's calibration: ARRIVE at act reaches its exposure (overlap >= DwellMs + 100 ms and (raw base.age_ms "
                  ">= DwellMs or a dwell OUT)) with no dwell OUT and stepout.active never true, attributable to the guard (arrive.last "
@@ -282,10 +293,13 @@ CLAIMS = {
                 "landing (UNREACHED under `life`); lead_ms and host.seen_t - the host's landing reported",
     "DA-LINES": "DESK: every edge line on both logs stamped; per host tap seq S: tap_t <= queued_t <= closed_t, 'waited X ms' = "
                 "closed_t - queued_t +- 1 ms, 'shown Y ms' <= closed_t - that page's open stamp",
-    "DF-FLASH": "DESK (REACHED on view_start heading or black): action join or hurry -- a wipe is red whatever ends it (a hurry ends "
-                "by black or own -- never a 0.9 s cut: fallback, recheck or timer), no cur_now dip from the follow start to the first of "
-                "(due, field load)",
-    "DF-GRACE": "DESK at act (REACHED on the Join action: view black, or heading with <= 12 ticks left): fade.last.by own",
+    "DF-FLASH": "DESK (REACHED on view_start heading or black, on DF-GRACE's follow whose copy could still exit): action join or hurry "
+                "-- a wipe is red whatever ends it (a hurry ends by black or own -- never a 0.9 s cut: fallback, recheck or timer), no "
+                "cur_now dip from the follow start to the first of (due, field load)",
+    "DF-GRACE": "DESK at act (REACHED on the Join action: view black, or heading with <= 12 ticks left -- on a follow whose copy could "
+                "still exit: the record followed, fade.last names 351, and its own jump was not spent before the follow, last.own_t "
+                "unset or >= last.follow_t; a post-bounce join on the reload's load-black is the s158 shape, listed apart): "
+                "fade.last.by own",
     "DF-PACE": "D = 0.3 (REACHED when the copy lags: backlog_start line or ahead): path backlog, by timer, the guest's last close for "
                "359 before the commit",
     "DA-PROBE": "MAPJUMP intents (DESK, REST): frames / updates / sends >= 1, oob sent or overwritten, 1 <= the guest's seen copies <= "
@@ -308,10 +322,16 @@ CLAIMS = {
     "DB-ORDER": "the guest's 113-117 each 'closed (host seq N)', N strictly increasing and the host's tap seq for the same text; no "
                 "'dropped -- it is for field 351'",
     "DC-OWN": "351 -> 450 'Dagger Tries': one load of 450, the own jump's term or lane recorded",
-    "DL-DEFER": "the guest's follow starts by the intent within 200 ms of its Pause closing (last.follow_t - the Pause's close on "
-                "clock.now_ms; a mirroring guest has no main menu)",
-    "DP-DEFER": "REACHED when that landing came by the intent with the pin < 2500 ms old, quality pre, the host's mark in the latest "
-                "frame: flag 8720 = 0 (the pin's story)",
+    "DL-DEFER": "the record seen while paused (else red 'not reached': the cancel goes 1.2 s after the emit, inside the intent's "
+                "life) and the guest landed on AWAY (else red; VOID when its Pause never closed or its ring is empty): the guest's "
+                "follow starts by the intent within 200 ms of its Pause closing, never while paused -- bracketed off the guest's ring "
+                "(the last Pause sample, the first off it; VOID with no Pause sample; by the intent VOID with no sample after the last "
+                "Pause sample, on a follow inside the bracket past 1 unsampled frame of the ring's frame counter, and VOID wider than 3 "
+                "frames + 1 ms -- DA-CAL's measured frame, else the ring's own median step -- only where the close's place inside it "
+                "decides the verdict): no Pause sample of this record with follow_t >= 0, last.follow_t >= the last Pause sample, and "
+                "last.follow_t - the last Pause sample <= 200 ms on clock.now_ms (a mirroring guest has no main menu)",
+    "DP-DEFER": "REACHED when the record was seen while paused and that landing came by the intent with the pin < 2500 ms old, quality "
+                "pre, the host's mark in the latest frame: flag 8720 = 0 (the pin's story)",
     "DP-AGED": "the Pause held to 3.5 s: flag 8720 = 1, pin.last_use aged",
     "DP-MARK": "VOID unless the host's mark precedes the guest's landing by >= 300 ms; REACHED on quality pre: flag 8720 = 0, the "
                "pin line, last_diff >= 1",
@@ -354,7 +374,8 @@ MARKERS = {
     "delay": "CAL1's commit - due within 1 frame of 0 and last.delay_ms 0 (the lever was 0)",
     "orphan": "s163's rule on the held control: orphan.holds +0 across 351 and the 113 line orphaned ('is not on the host's screen') "
               "or auto-closed",
-    "own": "on a reached REST-OLD run: own_verdict bounce and a second load of 352",
+    "own": "on a reached REST-OLD run: own_verdict bounce and counts.bounces +1 (s163's rule reloads my own field, 351; the follow then "
+           "loads 352 once)",
     "nocache": "the lever read back (a control: no predicted red)",
     "pin": "flag 8720 = 1 with pin.last_use lever and pin.last_use_quality pre (the capture still ran)",
     "life": "DL-LIFE: the host's intent.last_end old (span about the host's load); DL-DEFER: the serial follow (follow_via serial)",
@@ -1058,6 +1079,13 @@ def _landing_gap(tr) -> int | None:
     return _minus(tr.get("g_land_t"), tr.get("h_land_t"))
 
 
+def _commit_gap(tr) -> int | None:
+    """[ff9mapkit netsync s164] the guest's commit after the host's landing (cross-game): the landing gap net of the guest's OWN load.
+    The fade governs the commit, never the load -- and on one PC the fast path's load overlaps the host's own (the guarded `own` run's
+    CAL2 return loaded in 656 ms against ~300, commit on time), so DF-FAST's gain reads here and the landing gain is reported."""
+    return _minus(ival(_path(tr.get("g") or {}, "last.commit_t")), tr.get("h_land_t"))
+
+
 def fresh_fade(tr) -> bool:
     """THE REACH RULE (PURE): a transition's fade.last is ITS follow's record -- due_t past the one in the transition's first guest
     sample (``g0``). A record left over from the previous transition means the guest never ran this follow (the solo F judges' term)."""
@@ -1079,13 +1107,18 @@ def judge_df_fast(cal2, cal0, clock_ok: bool = True) -> tuple:
         if not ok:
             bad.append(f"-> {tr.get('dest')}: fade.last {fl.get('path')}/{fl.get('action')}/{fl.get('frames')} by {fl.get('by')}, "
                        f"commit - follow {cf}")
-    g2 = [x for x in (_landing_gap(tr) for tr in cal2 or []) if x is not None]
-    g0 = [x for x in (_landing_gap(tr) for tr in cal0 or []) if x is not None]
-    gain = round(statistics.mean(g0) - statistics.mean(g2)) if g0 and g2 else None
+    def gaps(trs, fn):
+        return [x for x in (fn(tr) for tr in trs or []) if x is not None]
+    c2, c0 = gaps(cal2, _commit_gap), gaps(cal0, _commit_gap)
+    g2, g0 = gaps(cal2, _landing_gap), gaps(cal0, _landing_gap)
+    gain = round(statistics.mean(c0) - statistics.mean(c2)) if c0 and c2 else None
+    lgain = round(statistics.mean(g0) - statistics.mean(g2)) if g0 and g2 else None
     parts = [("CAL2 transitions", bool(cal2)), ("fast / fade / 12, by black, commit - follow 0.35-0.60 s", not bad)]
     if clock_ok:
-        parts.append((f"landing gap shorter than CAL0's by >= {DF_FAST_GAIN_MS} ms", gain is not None and gain >= DF_FAST_GAIN_MS))
-    rep = f"landing gaps CAL2 {g2} vs CAL0 {g0} (gain {gain} ms){'' if clock_ok else ' -- VOID: DK-CLOCK unfit (the gap clause)'}"
+        parts.append((f"the guest's commit after the host's landing shorter than CAL0's by >= {DF_FAST_GAIN_MS} ms",
+                      gain is not None and gain >= DF_FAST_GAIN_MS))
+    rep = (f"commit gaps CAL2 {c2} vs CAL0 {c0} (gain {gain} ms); reported: landing gaps CAL2 {g2} vs CAL0 {g0} (gain {lgain} ms)"
+           f"{'' if clock_ok else ' -- VOID: DK-CLOCK unfit (the gap clause)'}")
     return _res(parts, "; ".join(bad[:2] + [rep]))
 
 
@@ -1305,37 +1338,106 @@ def _status_over(results, none_why: str) -> tuple:
     return (R if bad else G), f"{len(reached)} of {len(results)} reached; " + "; ".join(r[2] for r in (bad or reached)[:3])
 
 
+def own_spent_before(g, stamp: str) -> bool:
+    """[ff9mapkit netsync s164] THE s158 SHAPE (PURE), one definition for DC-B(a) and the DESK fade rows (fix round 3): the record's own
+    jump -- `last.own_t`, its FIRST own Field() -- was spent before ``stamp``, a `last.*` key of the SAME record on the same swap clock
+    (DC-B(a) reads it at `last.seen_t`, DF-GRACE / DF-FLASH at `last.follow_t`): True when own_t is set and the stamp is unset or later.
+    The temporal test only, never `last.own_verdict` (the record's LAST verdict) nor `last.bounces` (any bounce in the record): a copy
+    that WAS exiting -- a follow pending, its own Field() then refused (HoldHoldsFor, the quiet ATE hold) and bounced AFTER follow_t, a
+    re-armed second follow -- keeps own_t >= follow_t, and that is the very red DF-GRACE exists to catch."""
+    own, at = _t(g, "last.own_t"), _t(g, stamp)
+    return own is not None and (at is None or own < at)
+
+
+def desk_name(f) -> str:
+    """A DESK run's name in a fade row's detail: its D, and REST-OLD (desk_evidence's ``old``, report only)."""
+    return f"D {f.get('D')}{' REST-OLD' if f.get('old') else ''}"
+
+
+def desk_follow_reach(f) -> tuple:
+    """[ff9mapkit netsync s164] Fix round 3: the DESK fade rows' shared precondition (PURE), ``f`` one DESK fade dict (desk_evidence's:
+    ``fade`` the guest's fade.last, ``last`` the 351 record's own edges) -> (state, why). "judge" only on a follow whose copy could
+    still exit: the record followed (last.follow_t set), fade.last is this follow's (field 351 -- fade.last is ONE global last-follow
+    block, so a 351 transition with no follow, or with fade.last naming another field, would be judged on an earlier follow's), and its
+    own jump was not spent before the follow (own_spent_before(f, "last.follow_t") false: last.own_t unset or >= last.follow_t). Else
+    "nofollow", "stale" (a follow whose fade.last names another field: the row is VOID unless a judged run is red) or "s158": the copy
+    ran ahead of the host, its own Field(351) bounced to a reload of 359 BEFORE the follow, and the follow then Joined the reloaded
+    field's idle load-black, which ViewRule reads Black -- the copy was not exiting, so own can never end it (the guarded duo's act
+    D 2.5 and `arrive` D 1.0 x2 / D 2.5 reds: Reassert, then recheck or timer -- DC-WON's s158 shape, risk 8's reload)."""
+    fl = f.get("fade") or {}
+    if _t(f, "last.follow_t") is None:
+        return "nofollow", f"no follow on this record (fade.last names field {fl.get('field')}: an earlier follow's)"
+    if ival(fl.get("field")) != REST_FROM:
+        return "stale", f"the record followed but fade.last names field {fl.get('field')}, not {REST_FROM} (a stale last-follow block)"
+    if own_spent_before(f, "last.follow_t"):
+        on = "on the reload's load-black" if fl.get("view_start") == "black" else f"from a {fl.get('view_start')} reload"
+        return "s158", (f"post-bounce {fl.get('action')} {on} (s158 shape, risk 8): by {fl.get('by')} (own {_t(f, 'last.own_t')} < "
+                        f"follow {_t(f, 'last.follow_t')}, bounces {_path(f, 'last.bounces')})")
+    return "judge", ""
+
+
+def _desk_fade_rows(fades, one, none_why: str) -> tuple:
+    """[ff9mapkit netsync s164] Fix round 3: DF-FLASH / DF-GRACE over the DESK runs (PURE). ``one(f)`` -> (reached, ok, why) judges a run
+    desk_follow_reach lets through; every other run is listed apart, never judged (an s158-shape follow, a record with no follow), and
+    a stale fade.last makes the row VOID (that follow's own verdict is unread: a stale block can hide a red). [ff9mapkit netsync s164]
+    Fix round 3 review: the judged runs are read FIRST -- a red on one of them stands (nothing a stale run hides can turn the row
+    green), with the stale runs named in its detail; VOID only when no judged run is red."""
+    res, apart, stale = [], [], []
+    for f in fades or []:
+        state, why = desk_follow_reach(f)
+        if state == "judge":
+            reached, ok, det = one(f)
+            res.append((reached, ok, f"{desk_name(f)}: {det}"))
+            continue
+        (stale if state == "stale" else apart).append(f"{desk_name(f)}: {why}")
+        res.append((False, True, ""))
+    st, det = _status_over(res, none_why)
+    if stale:
+        why = f"fade.last is not this record's follow on {len(stale)} run(s): {'; '.join(stale[:2])}"
+        if st != R:
+            return V, why
+        det += f"; {why}"
+    return st, det + (f"; listed apart, never judged: {'; '.join(apart)}" if apart else "")
+
+
 def judge_df_flash(fades) -> tuple:
-    """DF-FLASH (PURE): ``fades`` [{D, fade (fade.last), cur}] -- REACHED on view_start heading or black. Green: no cur_now dip and the
-    action join or hurry (a join C's own pass ends, by own, is still a join). [ff9mapkit netsync s164] A HURRY is lawful (the first duo
+    """DF-FLASH (PURE): ``fades`` [{D, old, fade (fade.last), cur, last}] -- REACHED on view_start heading or black. Green: no cur_now
+    dip and the action join or hurry (a join C's own pass ends, by own, is still a join). [ff9mapkit netsync s164] A HURRY is lawful (the first duo
     run's D 0.3 red): ActionRule hurries a Heading start with more than FastFrames left, InitFade continues from the current colour (no
     flash), and SWAP-TIMING's DC-WON row predicts it; on a heading or black start only Old / Kick wipe. A hurry must still end by black
     or own -- one that the 0.9 s fallback ended (by fallback: the fade never read black, risk 18) -- or recheck / timer -- red. A WIPE
     is red whatever ends the follow (review round 2): Begin's FF9Wipe_FadeOutEx resets the slot to visible BEFORE NoteFollow stamps
     follow_t, so the cur window opens on the rise and its dip is a sub-millisecond coin flip; the old `or by own` escape greened exactly
     that wipe (the `fade` word's DESK, where the copy's own Field(351) lands inside the timer). [ff9mapkit netsync s164] The detail
-    names each run by D and REST-OLD (desk_evidence's ``old``, report only: REST-OLD's lever goes out on 351, after this follow)."""
-    res = []
-    for f in fades or []:
+    names each run by D and REST-OLD (desk_evidence's ``old``, report only: REST-OLD's lever goes out on 351, after this follow).
+    [ff9mapkit netsync s164] Fix round 3: DF-GRACE's precondition (desk_follow_reach) gates the reach too -- a post-bounce follow's
+    green was vacuous: the reloaded 359's first event tick brightens the slot (255 -> 191/207) one Update after Begin, and the cur
+    window opens at the first sample after follow_t, so that brighten is never compared against the black start. Such follows are
+    listed apart, never judged."""
+    def one(f):
         fl = f.get("fade") or {}
-        reached = fl.get("view_start") in ("heading", "black")
         act = fl.get("action")
         ok = act in ("join", "hurry") and not dipped(f.get("cur")) and (act != "hurry" or fl.get("by") in ("black", "own"))
-        res.append((reached, ok, f"D {f.get('D')}{' REST-OLD' if f.get('old') else ''}: {fl.get('view_start')}/{fl.get('path')}/"
-                                 f"{fl.get('action')} by {fl.get('by')}, dip {dipped(f.get('cur'))}"))
-    return _status_over(res, "no follow started on a heading or black screen")
+        return (fl.get("view_start") in ("heading", "black"), ok,
+                f"{fl.get('view_start')}/{fl.get('path')}/{fl.get('action')} by {fl.get('by')}, dip {dipped(f.get('cur'))}")
+    return _desk_fade_rows(fades, one, "no follow started on a heading or black screen")
 
 
 def judge_df_grace(fades) -> tuple:
-    """DF-GRACE (PURE): REACHED on the Join action (view black, or heading with <= 12 ticks left); green: ended by own."""
-    res = []
-    for f in fades or []:
+    """DF-GRACE (PURE): REACHED on the Join action (view black, or heading with <= 12 ticks left); green: ended by own. [ff9mapkit
+    netsync s164] Fix round 3 (the guarded duo's reds, every one a follow that started on 359 AFTER a bounce reload): only on a follow
+    whose copy could still exit -- desk_follow_reach: the record followed, fade.last is field 351's, and its own jump was not spent
+    before the follow (last.own_t unset or >= last.follow_t: GraceRule's grace exists because the copy is exiting, its own Field() may
+    still win). A post-bounce Join on the reload's idle load-black can never end by own (the bounce spent that Field(351); the reloaded
+    359 replays from text 105, ~40 s from the next): listed apart, never judged -- the s158 shape DC-B(a) already sets aside (one
+    definition, own_spent_before). The detail names REST-OLD."""
+    def one(f):
         fl = f.get("fade") or {}
         left = ival(fl.get("left_start")) if "left_start" in fl else ival(f.get("left"))
         reached = fl.get("action") == "join" and (fl.get("view_start") == "black" or (fl.get("view_start") == "heading" and left is not None
                                                                                        and 0 <= left <= BW.FADE_FAST_FRAMES))
-        res.append((reached, fl.get("by") == "own", f"D {f.get('D')}: {fl.get('view_start')} left {left}, by {fl.get('by')}"))
-    return _status_over(res, "no Join start on DESK")
+        return reached, fl.get("by") == "own", f"{fl.get('view_start')} left {left}, by {fl.get('by')}"
+    return _desk_fade_rows(fades, one, "no Join start on DESK")
 
 
 def judge_df_pace(fades) -> tuple:
@@ -1381,15 +1483,17 @@ def judge_da_probe(trs, life_old: bool = False) -> tuple:
 
 
 def dcb_a_reached(g) -> bool:
-    seen, own = _t(g, "last.seen_t"), _t(g, "last.own_t")
-    return own is None or (seen is not None and seen <= own)
+    """DC-B(a)'s reach (PURE): the intent seen before any own jump, or no own jump -- not the s158 shape at `last.seen_t`
+    ([ff9mapkit netsync s164] fix round 3: own_spent_before, the one definition the DESK fade rows share at `last.follow_t`)."""
+    return not own_spent_before(g, "last.seen_t")
 
 
 def judge_dc_b_a(runs, clock_ok: bool = True) -> tuple:
     """DC-B(a) (PURE): REST at act [{D, g, g0, maps, l139, g_land_t, h_land_t}]. An own jump before the intent (the s158 shape) is
     recorded "C2 not built" and not judged; every run that shape is VOID. The gap clause is cross-game (dropped when unfit); an L139
-    never read makes the row VOID."""
-    judged, c2, bad, rep = 0, 0, [], []
+    never read leaves that run's gap clause unjudged -- the row VOID only when no judged run is red (fix round 3 review: the loads and
+    bounces terms read whatever L139 did, so one unread run never hides another run's red)."""
+    judged, c2, bad, rep, unread = 0, 0, [], [], []
     for r in runs or []:
         g = r.get("g") or {}
         if not dcb_a_reached(g):
@@ -1397,15 +1501,21 @@ def judge_dc_b_a(runs, clock_ok: bool = True) -> tuple:
             continue
         judged += 1
         l139, gap = ival(r.get("l139")), _minus(r.get("g_land_t"), r.get("h_land_t"))
-        if clock_ok and l139 is None:
-            return V, f"D {r.get('D')}: L139 unread (a game's state never listed (win 3, text 139) and then dropped it)"
         bounces = _delta(r.get("g0"), g, "counts.bounces")
-        ok = r.get("maps") == 1 and bounces == 0 and (not clock_ok or (gap is not None and gap <= max(0, l139) + DC_B_SLACK_MS))
+        if clock_ok and l139 is None:
+            unread.append(r.get("D"))
+            gap_ok = True                                # unjudged here: the row reads VOID below unless a judged term is red
+        else:
+            gap_ok = not clock_ok or (gap is not None and gap <= max(0, l139) + DC_B_SLACK_MS)
+        ok = r.get("maps") == 1 and bounces == 0 and gap_ok
         rep.append(f"D {r.get('D')}: gap {gap} ms, L139 {l139} ms")
         if not ok:
             bad.append(f"D {r.get('D')}: loads {r.get('maps')}, bounces +{bounces}, gap {gap} vs max(0, {l139}) + {DC_B_SLACK_MS}")
     if not judged:
         return V, f"every REST run took the s158 shape (an own jump before the intent: C2 not built) -- {c2} run(s)"
+    if unread and not bad:
+        more = f" (and D {', '.join(str(d) for d in unread[1:])})" if len(unread) > 1 else ""
+        return V, f"D {unread[0]}: L139 unread (a game's state never listed (win 3, text 139) and then dropped it){more}"
     return (R if bad else G), (f"judged {judged}, C2 not built {c2}; {'; '.join(bad[:2])}; reported: {'; '.join(rep)}"
                                + ("" if clock_ok else "; the gap clause VOID (DK-CLOCK unfit)"))
 
@@ -1553,23 +1663,149 @@ def judge_dc_own(ev) -> tuple:
                 f"{_path(g, 'own.last.lane')}")
 
 
-def judge_dl_defer(ev, fms: float = FRAME_MS_DEFAULT) -> tuple:
+def ring_since(g, frame) -> list:
+    """[ff9mapkit netsync s164] Fix round 3: every publish the Session's ring kept after ``frame`` (Session.states_since: EVERY read any
+    harness call made on that session -- an awaited press's own _await_ack polls included), slimmed, oldest first (coop_follow_race_duo's
+    _reads idiom); [] for a driver without a ring or an unread frame."""
+    fn = getattr(g, "states_since", None)
+    if fn is None or ival(frame) is None:
+        return []
+    return [slim(x) for x in fn(frame) or []]
+
+
+def pause_bracket(ring, rid) -> dict:
+    """[ff9mapkit netsync s164] Fix round 3: the guest's Pause close as a BRACKET (PURE) off ``ring`` (ring_since from before the Pause
+    press: samples the MENU hook's press could not starve). last_on_t: the clock.now_ms of the ring's LAST sample on Pause; close_t: the
+    next sample's (off Pause by construction); width: close_t - last_on_t. ``rid`` is the record DL-DEFER judges -- rec_block's
+    last.id, never the newest sample's (the record before it reads Pause with its own follow_t: the guarded duo's #44) -- and
+    paused_follow says whether a Pause sample of that record reads last.follow_t >= 0. [ff9mapkit netsync s164] Fix round 3 review:
+    on_frame / close_frame are the same two samples' frame counters (slim keeps `frame`), which place a follow inside the bracket by
+    frames, never by ms (frame-time jitter cannot move them). None where unread."""
+    xs = list(ring or [])
+    on = [i for i, x in enumerate(xs) if cb.raw(x).get("ui_state") == PAUSE_UI]
+    last_on_t = so.now_ms(xs[on[-1]]) if on else None
+    nxt = xs[on[-1] + 1] if on and on[-1] + 1 < len(xs) else None
+    close = so.now_ms(nxt) if nxt is not None else None
+    mine = [xs[i] for i in on if rid is not None and ival(so.sget(xs[i], "last.id")) == rid]
+    return {"last_on_t": last_on_t, "close_t": close, "width": _minus(close, last_on_t), "paused": len(on), "mine": len(mine),
+            "paused_follow": any(_t(so.swb(x), "last.follow_t") is not None for x in mine),
+            "on_frame": ival(cb.raw(xs[on[-1]]).get("frame")) if on else None,
+            "close_frame": ival(cb.raw(nxt).get("frame")) if nxt is not None else None}
+
+
+def seen_paused(g, b: dict) -> bool:
+    """[ff9mapkit netsync s164] Fix round 3: DL-DEFER's and DP-DEFER's reach (PURE) -- the record (``g``, rec_block's) was seen while
+    the guest was paused: its own last.seen_t at or before the bracket's last Pause sample (never seen.first_t: seen.* is the
+    latest-seen slot, and a later intent can overwrite it before rec_block's last sample). An intent that arrived after the close:
+    DL-DEFER reds, DP-DEFER is UNREACHED."""
+    seen, on = _t(g, "last.seen_t"), b.get("last_on_t")
+    return seen is not None and on is not None and seen <= on
+
+
+def cal_frame(marks) -> float | None:
+    """[ff9mapkit netsync s164] Fix round 3 review: DA-CAL's MEASURED frame off ctx.marks (PURE), DL-DEFER's cap frame -- None when CAL
+    did not run, died before measuring (--keep-going) or measured no transition (ctx.fms then carries the 1/30 s fallback, which is
+    no measurement: a no-CAL MENU run's cap read ~6 of the duo's 17 ms frames). None lets judge_dl_defer read the ring's own step."""
+    f = (marks.get("DA-CAL") or {}).get("frame") if isinstance(marks, dict) else None
+    ok = isinstance(f, (int, float)) and not isinstance(f, bool) and f > 0 and f != FRAME_MS_DEFAULT
+    return float(f) if ok else None
+
+
+def judge_dl_defer(ev, fms: float | None = None) -> tuple:
+    """DL-DEFER (PURE): ``ev`` {g (rec_block's record on AWAY), ring (ring_since from before the Pause press), landed (_menu_run's: the
+    guest landed on AWAY)}; ``fms`` DA-CAL's MEASURED frame (cal_frame), None for the ring's own median step. [ff9mapkit netsync s164]
+    Fix round 3: the close is BRACKETED off the guest's ring, never read off the watch. The MENU hook's awaited cancel starved the
+    watch's samples for the press's accept-to-ack span (~134 ms: the 6-frame hold, the release, the ack poll -- s157's law, a
+    synchronous harness call inside a watch starves it), so the watch's "first sample off Pause" came at the ack: the guarded duo's
+    -131 / -132 ms, an instrument red (the engine's gate, NetSyncClient's State != FieldHUD, and ui_state read ONE UIManager field).
+    [ff9mapkit netsync s164] Fix round 3 review: a run whose guest never lands on AWAY is red -- the deferred follow never came (a ring
+    whose Pause samples aged out is that shape: cb.poll saw the Pause open, so it closed) -- and VOID when its ring ends on Pause (the
+    Pause never closed: a setup miss) or is empty. VOID when the ring holds no Pause sample (the bracket is unread). The record must be
+    seen while paused (seen_paused): else red "not reached" -- the bench holds the intent live across the Pause (the cancel goes
+    MENU_SHORT_S after the emit), so an unseen record is the engine's (P8), never UNREACHED. Green: the follow by the intent; no Pause
+    sample of THIS record reads follow_t >= 0; follow_t at or after the last Pause sample; follow_t - the last Pause sample <=
+    DL_DEFER_MS -- an upper bound on the lag past the close, which can only overstate it (a hole in the ring makes close_t late and
+    would UNDERstate it). With the follow by the intent, VOID only where the close's place inside the bracket decides the verdict: no
+    sample after the last Pause sample; a follow inside the bracket that is not placed off Pause -- placed at most DL_PLACE_FRAMES
+    frames apart on the ring's frame counter (one unsampled frame, the pre-round one-frame tolerance; by ms, within the close sample's
+    own frame, only when a frame is unread); or a bracket wider than DL_BRACKET_FRAMES frames + 1 ms -- fms, else the ring's step,
+    never the 1/30 s default -- which bounds how far follow - the last Pause sample overstates the lag. A red the ring already decides
+    (a Pause sample of this record with follow_t >= 0, follow_t unset, before the last Pause sample, or more than DL_DEFER_MS past the
+    first sample off it) and a placed follow within DL_DEFER_MS of the last Pause sample (green) are judged whatever the width.
+    Reported: the bracket, its frames and follow - close (the triage's d: act -16, `arrive` +1)."""
     g = ev.get("g") or {}
-    d = _minus(_t(g, "last.follow_t"), ival(ev.get("menu_close_t")))
-    return _res([("the follow came by the intent", _path(g, "last.follow_via") == "intent"),
-                 (f"within {DL_DEFER_MS} ms of the Pause's close", d is not None and -fms <= d <= DL_DEFER_MS)],
-                f"follow_via {_path(g, 'last.follow_via')!r}, follow - Pause close {d} ms")
+    rid = ival(_path(g, "last.id"))
+    b = pause_bracket(ev.get("ring"), rid)
+    on, close, width = b["last_on_t"], b["close_t"], b["width"]
+    fr_on, fr_close = b["on_frame"], b["close_frame"]
+    ft, via = _t(g, "last.follow_t"), _path(g, "last.follow_via")
+    rep = (f"follow_via {via!r}; bracket: the last Pause sample {on}, the first off it {close} ({width} ms wide); follow {ft}: follow - "
+           f"last Pause {_minus(ft, on)} ms, follow - close {_minus(ft, close)} ms; record {rid} seen {_t(g, 'last.seen_t')} (open "
+           f"{_t(g, 'last.open_t')}), on Pause in {b['mine']} of {b['paused']} Pause sample(s); frames {fr_on} -> {fr_close}")
+    if ev.get("landed") is False:    # [ff9mapkit netsync s164] fix round 3 review: the watch timed out with the guest off AWAY
+        if not ev.get("ring"):
+            return V, f"the guest never landed on AWAY and its ring is empty: unread; {rep}"
+        if on is not None and close is None:
+            return V, f"the guest never landed on AWAY and its ring ends on Pause: the Pause never closed (a setup miss); {rep}"
+        return R, f"the guest never landed on AWAY after its Pause closed: the deferred follow never came; {rep}"
+    if on is None:
+        return V, f"the guest's ring holds no Pause sample: the bracket is unread; {rep}"
+    if not seen_paused(g, b):        # [s164] fix round 3 review: red, never UNREACHED -- the bench owns the intent's life (P8)
+        return R, (f"not reached: record {rid} was not seen while paused (seen {_t(g, 'last.seen_t')}, the last Pause sample {on}): "
+                   f"the intent is live across the Pause by construction (the cancel goes {MENU_SHORT_S:g} s after the emit), so the "
+                   f"paused guest never ingested section 4 in time -- the engine never ran the defer (P8); {rep}")
+    f, src = (so.frame_ms(ev.get("ring") or []), "the ring's") if fms is None else (fms, "CAL's")
+    cap = DL_BRACKET_FRAMES * f + 1
+    # [s164] fix round 3 review: the never-while-paused term from where the follow FALLS -- at or after the first sample off Pause, or
+    # inside a bracket of at most DL_PLACE_FRAMES frames (by ms only when a frame counter is unread)
+    if ft is None or close is None:
+        placed = False
+    elif ft >= close:
+        placed = True
+    elif fr_on is not None and fr_close is not None:
+        placed = fr_close - fr_on <= DL_PLACE_FRAMES
+    else:
+        placed = ft >= close - f
+    decided = (b["paused_follow"] or ft is None or ft < on or (close is not None and ft - close > DL_DEFER_MS)
+               or (placed and ft - on <= DL_DEFER_MS))
+    if via == "intent" and not decided:
+        if width is None or width > cap:
+            why = ("no sample after the last Pause sample" if close is None else
+                   f"{width} ms wide; the cap {cap:.0f} ms is {DL_BRACKET_FRAMES} frames of {f:.1f} ms ({src}) + 1")
+            return V, f"the bracket cannot decide the {'lag' if placed else 'never-while-paused'} term ({why}); {rep}"
+        if not placed:
+            span = (f"{fr_close - fr_on - 1} unsampled frames between frames {fr_on} and {fr_close}; at most "
+                    f"{DL_PLACE_FRAMES - 1} is placed" if fr_on is not None and fr_close is not None else
+                    f"{close - ft} ms before the first sample off Pause, past its own frame of {f:.1f} ms ({src}); a frame unread")
+            return V, f"the bracket cannot decide the never-while-paused term (the follow falls inside it: {span}); {rep}"
+    return _res([("the follow came by the intent", via == "intent"),
+                 ("no Pause sample of this record with follow_t >= 0", not b["paused_follow"]),
+                 ("the follow at or after the last Pause sample", ft is not None and ft >= on),
+                 (f"follow - the last Pause sample <= {DL_DEFER_MS} ms (the lag's upper bound)", ft is not None and ft - on <= DL_DEFER_MS)],
+                rep)
 
 
 def judge_dp_defer(ev, life_word: bool = False) -> tuple:
     """DP-DEFER (PURE): REACHED on a landing by the intent with the pin < 2500 ms old, quality pre and the host's mark in the latest
-    frame (pin.last_diff >= 1: the stage was falsifiable); a late capture is UNREACHED; VOID under the `life` word."""
+    frame (pin.last_diff >= 1: the stage was falsifiable); a late capture is UNREACHED; VOID under the `life` word. [ff9mapkit netsync
+    s164] Fix round 3: DL-DEFER's seen-while-paused term as its reach -- the record seen while paused (seen_paused, off ``ev["ring"]``'s
+    bracket; DL-DEFER reds without it); else UNREACHED (an intent that arrived after the close deferred nothing); a ring with no Pause
+    sample is VOID (whether it deferred is unread). [ff9mapkit netsync s164] Fix round 3 review: a run whose guest never landed on
+    AWAY is VOID (whether the pin held is unread; DL-DEFER owns that red), never an UNREACHED that names no record."""
     if life_word:
         return V, "the `life` word: the deferred follow fires serially (s163's life), so the landing never comes by the intent"
+    if ev.get("landed") is False:
+        return V, "no landing on AWAY: whether the pin held is unread (DL-DEFER reds the missing follow)"
     g = ev.get("g") or {}
     pin = _path(g, "pin") or {}
     if pin.get("last_use_quality") == "late":
         return U, f"the first frame I saw came after the host's landing (pin.late {pin.get('late')})"
+    b = pause_bracket(ev.get("ring"), ival(_path(g, "last.id")))
+    if b["last_on_t"] is None:
+        return V, "the guest's ring holds no Pause sample: whether the follow deferred is unread"
+    if not seen_paused(g, b):
+        return U, (f"not reached: record {_path(g, 'last.id')} was not seen while paused (seen {_t(g, 'last.seen_t')}, the last Pause "
+                   f"sample {b['last_on_t']}): no defer tested")
     age = ival(pin.get("last_use_age_ms"))
     reached = (_path(g, "last.follow_via") == "intent" and age is not None and 0 <= age < DP_DEFER_AGE_MS and pin.get("last_use_quality") == "pre"
                and (ival(pin.get("last_diff")) or 0) >= 1)
@@ -1697,8 +1933,11 @@ def marker(word: str, row: str, ev) -> tuple:
                  ("113 orphaned or auto-closed", bool(so.not_on_screen(gl, CAT_FIRST)) or bool(auto))]
     elif word == "own":
         runs = [r for r in ev.get("runs") or [] if dcb_b_reached(r.get("g") or {}, r.get("pre"))]
-        parts = [("a reached run", bool(runs)), ("a bounce and a second load", any(
-            _path(r.get("g"), "last.own_verdict") == "bounce" and (r.get("maps") or 0) >= 2 for r in runs))]
+        # [ff9mapkit netsync s164] the duo `own` word's live run: s163's rule bounces the own Field(352) to a RELOAD OF 351 (the
+        # guest's own field), then the follow loads 352 once -- so the lever's signature is the bounce reload, never a second load of 352
+        parts = [("a reached run", bool(runs)), ("a bounce reload", any(
+            _path(r.get("g"), "last.own_verdict") == "bounce" and (_delta(r.get("g0"), r.get("g"), "counts.bounces") or 0) >= 1
+            for r in runs))]
     elif word == "pin":
         pin = _path(ev.get("g"), "pin") or {}
         parts = [("flag 8720 = 1", ev.get("flag") is True), ("pin.last_use lever", pin.get("last_use") == "lever"),
@@ -2204,9 +2443,10 @@ def desk_runs(word: str | None) -> list:
 
 def desk_evidence(D: float, rest_old: bool, hs, gs, hl, gl, word: str | None = None) -> dict:
     """One DESK run's evidence off its samples (pure): the three transitions, the 351 follow's fade, DC-B's inputs, DP-HALT's,
-    DP-DRESS's, DA-LINES' lines and DC-WON's counts. [ff9mapkit netsync s164] The 351 transition reads the guest's samples only up to its
-    352 landing: the desk scene never gives control back on 351 (it runs straight into the 352 MAPJUMP), so a window "to control"
-    ran on through 352 and blamed 352's lawful dwell OUT (a 7.9 s wordless party scene) on the 351 arrival -- the first duo run's five
+    DP-DRESS's, DA-LINES' lines and DC-WON's counts ([ff9mapkit netsync s164] fix round 3: the fade dict carries the 351 record's own
+    edges, ``last`` -- DESK_REC_KEYS -- for desk_follow_reach). [ff9mapkit netsync s164] The 351 transition reads the guest's samples
+    only up to its 352 landing: the desk scene never gives control back on 351 (it runs straight into the 352 MAPJUMP), so a window
+    "to control" ran on through 352 and blamed 352's lawful dwell OUT (a 7.9 s wordless party scene) on the 351 arrival -- the first duo run's five
     DESK watch OUTs. No 352 landing: the whole tail, as before. DP-DRESS's expected value is the host's section-8 pick
     (section8_pick), never its leader."""
     hs, gs = list(hs or []), list(gs or [])
@@ -2233,7 +2473,8 @@ def desk_evidence(D: float, rest_old: bool, hs, gs, hl, gl, word: str | None = N
     expect = section8_pick(so.nget(h352[-1], "dress.party"), so.nget(h352[-1], "dress.guard.effective")) if h352 else None
     return {"D": D, "old": rest_old, "t359": t359, "t351": t351, "t352": t352,
             "fade": {"D": D, "old": rest_old, "fade": fl, "cur": cur, "commit_t": _t(g, "last.commit_t"),
-                     "last_close_t": last_close_on(gs, DESK_FIELD)},             # [s164] `old`: DF-FLASH's detail names REST-OLD
+                     "last_close_t": last_close_on(gs, DESK_FIELD),              # [s164] `old`: DF-FLASH's detail names REST-OLD
+                     "last": {k: _path(g, "last." + k) for k in DESK_REC_KEYS}},  # [s164] fix round 3: desk_follow_reach's edges
             "rest": {"D": D, "g": g3, "g0": g0_rest, "maps": so.maps(gl, REST_DEST), "pre": pre,
                      "l139": _minus(close_t(gs, DESK_LAST), host_close_t(hs, gs, DESK_LAST)),
                      "g_land_t": t352["g_land_t"], "h_land_t": t352["h_land_t"]},
@@ -2432,7 +2673,11 @@ def _leg_own(d, ctx: Ctx, led: cb.Ledger) -> None:
 def _menu_run(d, ctx: Ctx, hold_s: float, *, short: bool) -> dict:
     """[ff9mapkit netsync s164] The guest holds its PAUSE screen across the host's exit (its MAIN menu is refused by design on a
     mirroring guest: s38 spectator-field, s121 -- the first duo run's 15 s timeout) and closes it with cancel (Pause is a toggle: a
-    second `pause` press could reopen it after the close menu_close_t keyed on); the host marks 8720 at its landing hook."""
+    second `pause` press could reopen it after the close menu_close_t keyed on); the host marks 8720 at its landing hook.
+    [ff9mapkit netsync s164] Fix round 3: the hook's cancel is sent without waiting, and DL-DEFER's close is bracketed off the guest's
+    ring (ring_since from ``f0``, the frame before the Pause press: every read the session made, read right after the watch's
+    until, before the hold), never off the watch -- an awaited press starved the watch for its accept-to-ack span (the guarded duo's
+    -131 / -132 ms; s157's law)."""
     host, guest = d.host, d.guest
     _seat(d, HOME)
     why = menu_pre_void(cb.path(guest.state, "netsync.menu_refusal.now", None))
@@ -2450,6 +2695,7 @@ def _menu_run(d, ctx: Ctx, hold_s: float, *, short: bool) -> dict:
     if life_old:
         _lever(host, ctx, "life", "old", word_lever=True)
     try:
+        f0 = guest.state.frame                           # [s164] fix round 3: the ring's floor (DL-DEFER's bracket reads after it)
         guest.press("pause", 6)
         if cb.poll(guest, lambda s: s.ui_state == PAUSE_UI, PAUSE_OPEN_S, "the guest's Pause") is None:
             raise HarnessError(f"VOID (a setup miss): the guest's Pause never opened in {PAUSE_OPEN_S:g} s (ui_state "
@@ -2470,16 +2716,19 @@ def _menu_run(d, ctx: Ctx, hold_s: float, *, short: bool) -> dict:
                 host.flag(P_FLAG, True)                    # the host marks 8720 at its landing hook (after the pin's frames)
             if (role == "guest" and state["emit_wall"] is not None and time.time() >= state["emit_wall"] + hold_s
                     and x.get("ui_state") == PAUSE_UI and time.time() - state["pressed"] >= 0.6):
-                state["pressed"] = time.time()             # one cancel at a time: the watch keeps sampling (menu_close_t reads it)
-                guest.press("cancel", 6)                   # PauseUI.OnKeyCancel hides it; a stray cancel on FieldHUD does nothing
+                state["pressed"] = time.time()             # one cancel at a time (the 0.6 s re-press guard), sent WITHOUT waiting:
+                guest.send("press cancel 6", wait=False)   # an awaited press starves this watch for its accept-to-ack span (s157);
+                # PauseUI.OnKeyCancel hides it; a stray cancel on FieldHUD does nothing. DL-DEFER's bracket reads the ring either way
         w.hooks.append(step)
         host.send(f"warp {AWAY} -1 -1", wait=False)
         w.until(lambda w: _fid(w.last("guest")) == AWAY and w.last("guest").get("ui_state") != PAUSE_UI and state["pressed"] > 0,
                 FOLLOW_S + hold_s + 5.0)
+        ring = ring_since(guest, f0)                     # [s164] fix round 3: before the hold (300 distinct frames: ~9 s on the duo)
         w.hold(1.0)
         gi = land_idx(w.s["guest"], AWAY)
         on = [x for x in w.s["guest"][gi or 0:] if _fid(x) == AWAY]
-        ev = {"g": rec_block(w.s["guest"], gi), "menu_close_t": menu_close_t(w.s["guest"]),
+        ev = {"g": rec_block(w.s["guest"], gi), "ring": ring,
+              "landed": gi is not None,                  # [s164] fix round 3 review: the until times out quietly (DL-DEFER's red)
               "flag": (cb.raw(on[-1]).get("flags") or {}).get(str(P_FLAG)) if on else None, "gl": _msgs(d, "guest", ag)}
         tr = tr_evidence("MENU", f"MENU{hold_s}", AWAY, HOME, w.s["host"], w.s["guest"])
         ctx.all_trs.append(tr)
@@ -2499,7 +2748,7 @@ def _leg_menu(d, ctx: Ctx, led: cb.Ledger) -> None:
     ev = _menu_run(d, ctx, MENU_SHORT_S, short=True)
     ctx.marks["DL-DEFER"] = {"g": ev["g"]}
     ctx.marks["DP-DEFER"] = {"g": ev["g"], "flag": ev["flag"]}
-    record(led, ctx, "DL-DEFER", judge_dl_defer(ev, ctx.fms))
+    record(led, ctx, "DL-DEFER", judge_dl_defer(ev, cal_frame(ctx.marks)))   # [s164] fix round 3 review: never the 1/30 s default
     record(led, ctx, "DP-DEFER", judge_dp_defer(ev, life_word=ctx.cal == "life"))
     ev2 = _menu_run(d, ctx, MENU_AGED_S, short=False)
     record(led, ctx, "DP-AGED", judge_dp_aged(ev2))

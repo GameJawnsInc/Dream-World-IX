@@ -2047,8 +2047,7 @@ def desk_run(k, D, old, word=None, on=True):
     if old:
         if word == "own":
             g3 = dict(g3, last=dict(g3["last"], own_verdict="bounce", own_why="not-host", land_via="bounce"))
-            g3["counts"] = dict(g3["counts"], bounces=1)
-            maps = 2
+            g3["counts"] = dict(g3["counts"], bounces=1)   # s163's rule: the bounce reloads 351, then the follow loads 352 once
         else:
             g3["last"] = dict(g3["last"], own_verdict="pass", own_why="pending")
             g3["own"] = dict(g3["own"], passes=1, converted=1, last=dict(g3["own"]["last"], term="pending"))
@@ -2058,8 +2057,10 @@ def desk_run(k, D, old, word=None, on=True):
     pre = Sx(T + 120000 + 150, 351, pending=352, sw={"own.host_lane": 351})
     commit_t = t351["g"]["last"]["commit_t"]
     return {"D": D, "old": old, "t359": t359, "t351": t351, "t352": t352,
-            "fade": {"D": D, "fade": fl, "cur": cur, "commit_t": commit_t if commit_t >= 0 else None,
-                     "last_close_t": (commit_t - 300) if commit_t >= 0 else None},
+            "fade": {"D": D, "old": old, "fade": fl, "cur": cur, "commit_t": commit_t if commit_t >= 0 else None,
+                     "last_close_t": (commit_t - 300) if commit_t >= 0 else None,
+                     # [s164] fix round 3: the 351 record's own edges (desk_evidence's `last`): the follow, then the copy's own jump
+                     "last": {k: t351["g"]["last"].get(k) for k in du.DESK_REC_KEYS}},
             "rest": {"D": D, "g": g3, "g0": g0, "maps": maps, "pre": pre, "l139": 150, "g_land_t": t352["g_land_t"],
                      "h_land_t": t352["h_land_t"]},
             "halt": {"g0": block(pin__pre_frames=4), "g": block(pin__pre_frames=6, pin__max_pre_diff=0)},
@@ -2092,19 +2093,48 @@ def cat_ev(word=None, on=True, else_path=False):
 
 # ---- MENU / MARK / LEFT / OPEN / OWN / LEVERS
 MC = 9000000
+MENU_RID, MENU_SEEN = 45, MC - 1200
+MENU_F0 = 500000                                         # [s164] fix round 3 review: the last Pause sample's frame in menu_ring
+
+
+def menu_ring(rid=MENU_RID, seen=MENU_SEEN, last_on=MC - 10, close=MC + 7, follow=MC + 60, step=17, paused_follow=False,
+              close_frames=None):
+    """[s164] Fix round 3: the guest's ring across the MENU Pause as DL-DEFER reads it (ring_since from before the Pause press, slimmed):
+    the record before (rid - 1) on Pause with ITS follow_t >= 0 (the guarded duo's #44: an unkeyed check reds falsely), record ``rid``
+    seen at ``seen`` while paused, the last Pause sample at ``last_on``, the first off it at ``close`` (FieldHUD), then this record's
+    follow at ``follow`` (follow_t -1 on every sample before it; ``paused_follow`` stamps it on this record's Pause samples too).
+    [s164] Fix round 3 review: every sample carries its frame on the ``step`` clock (S() would derive t // 33): the last Pause sample
+    is frame MENU_F0, the first off it ``close_frames`` later (default: the bracket's width in steps, at least 1)."""
+    xs = []
+    cf = close_frames if close_frames is not None else max(1, round((close - last_on) / step))
+    for t in range(last_on - ((last_on - (seen - 300)) // step) * step, last_on + 1, step):
+        mine = t >= seen
+        sw = {"last.id": rid if mine else rid - 1, "last.seen_t": seen if mine else seen - 3000,
+              "last.follow_t": (follow if paused_follow else -1) if mine else seen - 3000}
+        xs.append(du.slim(Sx(t, du.HOME, ui="Pause", sw=sw, frame=MENU_F0 + (t - last_on) // step)))
+    t, k = close, 0
+    while t <= max(close, follow) + 2 * step:
+        xs.append(du.slim(Sx(t, du.HOME, frame=MENU_F0 + cf + k,
+                             sw={"last.id": rid, "last.seen_t": seen, "last.follow_t": follow if t >= follow else -1})))
+        t, k = t + step, k + 1
+    return xs
 
 
 def menu_ev(word=None, aged=False):
+    """[s164] Fix round 3: the record (last.id 45, seen while paused) and the guest's ring (menu_ring) DL-DEFER / DP-DEFER bracket the
+    close off (the watch's menu_close_t is no longer evidence)."""
     if aged:
         return {"g": block(last__follow_via="intent", last__follow_t=MC + 3550, pin__last_use="aged", pin__last_use_quality="pre",
                            pin__last_use_age_ms=3100), "menu_close_t": MC + 3500, "flag": True}
     if word == "life":
-        g = block(last__follow_via="serial", last__follow_t=MC + 1300, pin__last_use="none", pin__last_use_quality="none")
-        return {"g": g, "menu_close_t": MC, "flag": True}
+        g = block(last__id=MENU_RID, last__seen_t=MENU_SEEN, last__open_t=MENU_SEEN, last__follow_via="serial", last__follow_t=MC + 1300,
+                  pin__last_use="none", pin__last_use_quality="none")
+        return {"g": g, "ring": menu_ring(follow=MC + 1300), "flag": True}
     lever = word == "pin"
-    g = block(last__follow_via="intent", last__follow_t=MC + 60, last__land_t=MC + 600, pin__last_use="lever" if lever else "pin",
-              pin__last_use_quality="pre", pin__last_use_age_ms=1300, pin__last_diff=1, pin__late=0)
-    return {"g": g, "menu_close_t": MC, "flag": lever}
+    g = block(last__id=MENU_RID, last__seen_t=MENU_SEEN, last__open_t=MENU_SEEN, last__follow_via="intent", last__follow_t=MC + 60,
+              last__land_t=MC + 600, pin__last_use="lever" if lever else "pin", pin__last_use_quality="pre", pin__last_use_age_ms=1300,
+              pin__last_diff=1, pin__late=0)
+    return {"g": g, "ring": menu_ring(), "flag": lever}
 
 
 def mark_ev(word=None, on=True):
@@ -2587,6 +2617,8 @@ OUT = {"good": [du.judge_da_lines(runs)[0], du.judge_df_flash(fades)[0], du.judg
                "b_a_loads": du.judge_dc_b_a([dict(r, maps=2) for r in rest])[0],
                "b_a_gap": du.judge_dc_b_a([dict(r, g_land_t=r["h_land_t"] + 150 + 301) for r in rest])[0],
                "b_a_bounce": du.judge_dc_b_a([dict(r, g0=block(counts__bounces=0), g=dict(r["g"], counts=dict(r["g"]["counts"], bounces=1))) for r in rest])[0],
+               # [s164] fix round 3 review: one run's unread L139 never hides another run's red (the old early VOID did)
+               "b_a_unread_hides": du.judge_dc_b_a([dict(rest[0], l139=None)] + [dict(r, maps=2) for r in rest[1:]])[0],
                "b_b_bounce": du.judge_dc_b_b(last(rold, own_verdict="bounce", own_why="not-host"))[0],
                "b_b_conv": du.judge_dc_b_b([dict(r, g=dict(r["g"], own=dict(r["g"]["own"], converted=0))) for r in rold])[0],
                "b_b_loads": du.judge_dc_b_b([dict(r, maps=2) for r in rold])[0],
@@ -2605,6 +2637,101 @@ OUT = {"good": [du.judge_da_lines(runs)[0], du.judge_df_flash(fades)[0], du.judg
     claim = out["flash_claim"]                                  # [s164] review round 2: no by-own escape; the 0.9 s cuts named
     assert "or ended by own" not in claim and "a wipe is red whatever ends it" in claim, claim
     assert all(w in claim for w in ("fallback", "recheck", "timer")), claim
+
+
+def test_desk_fade_rows_reach_only_a_follow_whose_copy_could_still_exit():
+    """[s164] Fix round 3 (the guarded duo's DF-GRACE reds: act D 2.5 by recheck, `arrive` D 1.0 by timer twice and D 2.5 by recheck --
+    every one a follow that started on 359 AFTER a bounce reload, Joining the reloaded field's idle load-black, which own can never
+    end). DF-GRACE and DF-FLASH reach only a follow whose copy could still exit (desk_follow_reach): the record followed, fade.last names
+    351, and its own jump was not spent before the follow (last.own_t unset or >= last.follow_t) -- the TEMPORAL test only. A post-bounce
+    black Join by recheck is UNREACHED for both rows, listed apart in the s158-shape words; a genuine black Join by recheck or timer (no
+    own jump, or one at or after the follow) is RED; a Join whose own jump bounced AFTER follow_t, with a second follow, is RED (no
+    own_verdict / bounces clause: refuter 2's case); own at the follow's own ms by own is green; a record with no follow is never judged
+    and a follow whose fade.last names another field is VOID. DC-B(a) shares the one definition (own_spent_before, at last.seen_t: its
+    reach is unchanged). The guarded runs' six DESK follows each, rebuilt from the guest Memoria.log close lines: act reaches 4 of 6
+    and `arrive` 1 of 6, every reached one by own -- both rows green, the post-bounce follows listed apart. [s164] Fix round 3 review:
+    the stale VOID yields to a judged red -- a genuine DF-GRACE red (a black Join by recheck) or DF-FLASH red (a wipe) next to a stale
+    run stays RED with the stale run named in its detail; a green run next to a stale one is still VOID."""
+    out = _duo_child(r'''
+def F(D=2.5, old=False, view="black", path="fast", action="join", by="recheck", left=0, field=351, follow=1558, own=1000, follows=1,
+      bounces=1, verdict="bounce", reload=1188, seen=None, cur=None):
+    """One DESK fade dict in desk_evidence's shape: the guest's fade.last and the 351 record's own edges (-1 = never)."""
+    return {"D": D, "old": old, "cur": list(cur or []),
+            "fade": {"field": field, "view_start": view, "path": path, "action": action, "by": by, "left_start": left},
+            "last": {"id": 30, "seen_t": follow if seen is None else seen, "follow_t": follow, "follows": follows, "own_t": own,
+                     "own_verdict": verdict, "bounces": bounces, "reload_t": reload}}
+post = F()                                           # the guarded act D 2.5: own Field(351) bounced 558 ms before the follow
+genuine = F(own=-1, verdict=None, bounces=0, reload=-1)               # a black Join with no own jump: the copy could still exit
+late_bounce = F(follow=1000, own=1050, follows=2, verdict="bounce", reload=1400, by="timer")    # refused own pass bounced AFTER follow_t
+T = 10000
+def run(rows):
+    return [F(D=D, old=old, view=view, path=path, action=action, left=left, by=by, follow=follow, own=own, bounces=b,
+              verdict="bounce" if b else ("pass" if own >= 0 else None), reload=own + 325 if b else -1)
+            for D, old, view, path, action, left, by, follow, own, b in rows]
+# the guarded duo's DESK follows (guest Memoria.log close lines: seen / follow / own after the first edge, bounces)
+ACT = run([(0.3, False, "black", "fast", "join", 0, "own", T, T, 0), (0.3, True, "heading", "fast", "join", 6, "own", T, T + 250, 0),
+           (1.0, False, "visible", "backlog", "fade", -1, "timer", T + 1167, T, 1),
+           (1.0, True, "black", "fast", "join", 0, "own", T, T + 32, 0),
+           (2.5, False, "black", "fast", "join", 0, "recheck", T + 558, T, 1),
+           (2.5, True, "heading", "fast", "join", 9, "own", T, T + 351, 0)])
+ARRIVE = run([(0.3, False, "visible", "fast", "fade", -1, "black", T, -1, 0), (0.3, True, "visible", "fast", "fade", -1, "black", T, -1, 0),
+              (1.0, False, "black", "backlog", "join", 0, "timer", T + 659, T, 1),
+              (1.0, True, "black", "backlog", "join", 0, "timer", T + 557, T, 1),
+              (2.5, False, "black", "fast", "join", 0, "recheck", T + 542, T, 1),
+              (2.5, True, "heading", "fast", "join", 9, "own", T, T + 351, 0)])
+cases = [(-1, -1), (5, -1), (5, 5), (5, 6), (6, 5)]
+OUT = {"post": [list(du.judge_df_grace([post])), list(du.judge_df_flash([post]))],
+       "red": {"genuine_recheck": du.judge_df_grace([genuine])[0], "genuine_timer": du.judge_df_grace([F(own=-1, verdict=None, bounces=0,
+               reload=-1, path="backlog", by="timer")])[0],
+               "own_after_follow_timer": du.judge_df_grace([F(follow=1000, own=1100, verdict="pass", bounces=0, reload=-1, by="timer")])[0],
+               "late_bounce": du.judge_df_grace([late_bounce])[0],
+               "one_of_three": du.judge_df_grace([post, F(follow=1000, own=1000, by="own", verdict="pass", bounces=0, reload=-1), genuine])[0]},
+       "late_bounce_why": du.judge_df_grace([late_bounce])[1],
+       "at_follow_own": du.judge_df_grace([F(follow=1000, own=1000, by="own", verdict="pass", bounces=0, reload=-1)])[0],
+       "nofollow": list(du.judge_df_grace([F(follow=-1, field=359, by="own")])),
+       "stale": [list(du.judge_df_grace([F(follow=1000, own=-1, field=359, by="own")])),
+                 du.judge_df_flash([F(follow=1000, own=-1, field=359, by="own"), genuine])[0]],
+       "reach": [du.desk_follow_reach(f)[0] for f in (post, genuine, late_bounce, F(follow=-1), F(follow=1000, own=-1, field=359))],
+       "shared": [[du.dcb_a_reached(block(last__own_t=o, last__seen_t=s)) for o, s in cases],
+                  [o < 0 or (s >= 0 and s <= o) for o, s in cases],
+                  [du.own_spent_before(block(last__own_t=o, last__follow_t=s), "last.follow_t") for o, s in cases]],
+       "act": [list(du.judge_df_grace(ACT)), list(du.judge_df_flash(ACT))],
+       "arrive": [list(du.judge_df_grace(ARRIVE)), list(du.judge_df_flash(ARRIVE))],
+       # [s164] fix round 3 review: a judged red beside a stale run stands; a green beside one is VOID
+       "stale_red": [list(du.judge_df_grace([genuine, F(follow=1000, own=-1, field=359, by="own")])),
+                     list(du.judge_df_flash([F(own=-1, verdict=None, bounces=0, reload=-1, action="wipe", by="timer"),
+                                             F(follow=1000, own=-1, field=359, by="own")]))],
+       "stale_green": du.judge_df_grace([F(follow=1000, own=1000, by="own", verdict="pass", bounces=0, reload=-1),
+                                         F(follow=1000, own=-1, field=359, by="own")])[0],
+       "claims": [du.CLAIMS["DF-GRACE"], du.CLAIMS["DF-FLASH"]]}
+''')
+    apart = "post-bounce join on the reload's load-black (s158 shape, risk 8): by recheck"
+    for st, why in out["post"]:
+        assert st == "unreached" and f"listed apart, never judged: D 2.5: {apart}" in why, (st, why)
+    assert all(v == "red" for v in out["red"].values()), out["red"]
+    assert out["late_bounce_why"] == "1 of 1 reached; D 2.5: black left 0, by timer", out["late_bounce_why"]
+    assert out["at_follow_own"] == "green", out
+    assert out["nofollow"][0] == "unreached" and "D 2.5: no follow on this record (fade.last names field 359" in out["nofollow"][1], out
+    assert out["stale"][0][0] == "void" and "fade.last names field 359, not 351" in out["stale"][0][1] and out["stale"][1] == "void", out
+    assert out["reach"] == ["s158", "judge", "judge", "nofollow", "stale"], out["reach"]
+    dcb, old_formula, spent = out["shared"]
+    assert dcb == old_formula == [True, False, True, False, True] and spent == [False, True, False, True, False], out["shared"]
+    (ga, gad), (fa, fad) = out["act"]
+    assert ga == fa == "green" and gad.startswith("4 of 6 reached;") and fad.startswith("4 of 6 reached;"), out["act"]
+    assert f"D 2.5: {apart}" in gad and "D 1.0: post-bounce fade from a visible reload (s158 shape, risk 8): by timer" in gad, gad
+    assert "D 0.3 REST-OLD: heading left 6, by own" in gad and "D 1.0 REST-OLD: black left 0, by own" in gad, gad
+    (ga, gad), (fa, fad) = out["arrive"]
+    assert ga == fa == "green" and gad.startswith("1 of 6 reached; D 2.5 REST-OLD: heading left 9, by own;"), out["arrive"]
+    assert fad.startswith("1 of 6 reached; D 2.5 REST-OLD: heading/fast/join by own, dip False;"), fad
+    assert "D 1.0: post-bounce join on the reload's load-black (s158 shape, risk 8): by timer" in gad, gad
+    assert "D 1.0 REST-OLD: post-bounce join on the reload's load-black (s158 shape, risk 8): by timer" in gad and f"D 2.5: {apart}" in gad, gad
+    for st, why in out["stale_red"]:
+        assert st == "red" and why.startswith("1 of 2 reached; D 2.5: "), (st, why)
+        assert "; fade.last is not this record's follow on 1 run(s): D 2.5: the record followed but fade.last names field 359" in why, why
+    assert out["stale_green"] == "void", out["stale_green"]
+    grace, flash = out["claims"]
+    assert "last.own_t unset or >= last.follow_t" in grace and "fade.last names 351" in grace and "s158 shape" in grace, grace
+    assert "DF-GRACE's follow whose copy could still exit" in flash, flash
 
 
 def test_cat_judges_read_the_orphan_steppers_hold():
@@ -2750,6 +2877,169 @@ OUT = {"good": [du.judge_dc_own(own)[0], du.judge_dl_defer(m)[0], du.judge_dp_de
     assert out["left_race"][1].startswith("race (P8): section 4 ended 'stands' at 9799800, 200 ms after the host's pre-send"), out
     assert "100 ms before the battle start (off FieldMap)" in out["left_race"][1], out["left_race"]
     assert all(v == "red" for v in out["bad"].values()), out["bad"]
+
+
+def test_dl_defer_brackets_the_pause_close_off_the_guests_ring():
+    """[s164] Fix round 3 (the guarded duo's DL-DEFER reds, -131 / -132 ms): the MENU hook's awaited cancel starved the watch for its
+    accept-to-ack span, so the watch's "first sample off Pause" came at the ack. DL-DEFER now brackets the close off the guest's ring
+    (ring_since from the frame before the Pause press): the last Pause sample and the first off it. Re-judged on the two guarded runs'
+    saved rings (record 45 seen while paused; act 255529460 / 255529488 with the follow at 255529472, `arrive` 256473056 / 256473089
+    with 256473090): green, follow - close -16 / +1 ms, brackets 28 / 33 ms (2 frames each). Green on the follow by the intent, no
+    Pause sample of THIS record (rec_block's last.id) with follow_t >= 0 -- the record before reads Pause with its own follow_t and is
+    never read -- follow_t >= the last Pause sample, and follow_t - the last Pause sample <= 200 ms (the lag's upper bound): each part
+    red alone. VOID on a ring with no Pause sample (both rows) or, by the intent, a bracket with no close or wider than 3 frames + 1 ms
+    -- the awaited press's hole reads VOID, never a false red; by the serial follow a wide bracket is red. The hook's cancel goes out
+    without waiting (its 0.6 s re-press guard kept), the ring is read after the watch's until and before its hold, and the false "the
+    watch keeps sampling" comment is gone. [s164] Fix round 3 review: (F1) a guest that never lands on AWAY (_menu_run's `landed`) is
+    RED -- its Pause samples aged out of the ring, or the Pause closed and no follow came -- and VOID when its ring ends on Pause or is
+    empty (DP-DEFER VOID too); (P8) a record not seen while paused (seen after the last Pause sample, or unset) is RED "not reached" for
+    DL-DEFER, which leaves PROBABILISTIC, and stays UNREACHED for DP-DEFER; (F2) the width VOIDs only a verdict the close's place
+    decides -- a paused follow, an unset follow, one before the last Pause sample or more than 200 ms past the first sample off it are
+    red on any bracket, a follow past the close within 200 ms of the last Pause sample green, and a follow inside the bracket or a lag
+    the width leaves open VOID; (F3) the cap's frame is DA-CAL's measured one (cal_frame: never the 1/30 s fallback), else the ring's
+    own median step -- an 80 ms bracket is VOID on the ring's 17 ms and judged on CAL's 33.3 -- and a follow INSIDE the bracket is
+    placed by the ring's frame counter (at most 2 frames apart: a 3-frame bracket is VOID even under the cap, a 2-frame bracket whose
+    close frame ran long is green), by ms within the close sample's own frame only when a frame counter is unread."""
+    out = _duo_child(r'''
+import copy
+import inspect
+m = menu_ev()
+ring = m["ring"]
+def ev(rg, **kw):
+    e = dict(m, ring=rg, g=copy.deepcopy(m["g"]))
+    e["g"]["last"].update(kw)
+    return e
+def dead(rg):                                            # [s164] fix round 3 review: the watch timed out with the guest off AWAY
+    return dict(ev(rg), g={}, landed=False)
+# the guarded duo's two MENU runs, off their saved guest rings (guest/states-FAILED-2.jsonl): record 45 seen while paused, the last
+# Pause sample, the first sample off it, the follow (act: in the unsampled frame between them; `arrive`: 1 ms after the close)
+ACT = {"seen": 255528237, "last_on": 255529460, "close": 255529488, "follow": 255529472}
+ARR = {"seen": 256471839, "last_on": 256473056, "close": 256473089, "follow": 256473090}
+act = ev(menu_ring(**ACT), seen_t=ACT["seen"], follow_t=ACT["follow"])
+arr = ev(menu_ring(**ARR), seen_t=ARR["seen"], follow_t=ARR["follow"])
+def starve(rg, follow=MC + 60):                          # an awaited press's ~134 ms hole after the last Pause: 8 frames of 17 ms
+    return ([x for x in rg if not (MC - 10 < so.now_ms(x) < MC + 121)]
+            + [du.slim(Sx(MC + 126, du.HOME, frame=MENU_F0 + 8,
+                          sw={"last.id": MENU_RID, "last.seen_t": MENU_SEEN, "last.follow_t": follow}))])
+starved = starve(ring)
+three = menu_ring(close=MC + 41)                         # the review's 3-frame bracket: 51 ms, under the ring's 52 ms cap
+long_close = menu_ring(close=MC + 30, close_frames=2)    # a 2-frame bracket whose close frame ran 23 ms
+wide80 = menu_ring(close=MC + 70, follow=MC + 195)       # an 80 ms bracket: inside the old 1/30 s cap (101), past the ring's (52)
+def unframed(rg):
+    return [dict(x, frame=None) for x in rg]
+FakeG = type("FakeG", (), {"states_since": lambda self, f: [Sx(100, du.HOME, ui="Pause"), Sx(117, du.HOME)]})
+mr = inspect.getsource(du._menu_run)
+lm = inspect.getsource(du._leg_menu)
+hook = mr.split("def step(", 1)[1].split("w.hooks.append(step)", 1)[0]
+b = du.pause_bracket(ring, MENU_RID)
+ba = du.pause_bracket(act["ring"], MENU_RID)
+OUT = {"good": [du.judge_dl_defer(m)[0], du.judge_dl_defer(act, 17.0)[0], du.judge_dl_defer(arr, 17.0)[0], du.judge_dp_defer(m)[0],
+                du.judge_dp_defer(act)[0], du.judge_dp_defer(arr)[0]],
+       "act": du.judge_dl_defer(act, 17.0)[1], "arr": du.judge_dl_defer(arr, 17.0)[1],
+       "bracket": [b["last_on_t"] - MC, b["close_t"] - MC, b["width"], b["paused_follow"], b["paused"] > b["mine"] > 0],
+       "frames": [b["on_frame"], b["close_frame"] - b["on_frame"], ba["close_frame"] - ba["on_frame"], du.pause_bracket([], 45)["on_frame"],
+                  du.pause_bracket([x for x in ring if x["ui_state"] == "Pause"], 45)["close_frame"]],
+       "keyed": [du.pause_bracket(ring, MENU_RID - 1)["paused_follow"], du.pause_bracket(ring, MENU_RID)["paused_follow"]],
+       # placed past the close within 200 ms of the last Pause sample: green on any bracket (the starved one included)
+       "edge": [du.judge_dl_defer(ev(ring, follow_t=MC + 190))[0], du.judge_dl_defer(ev(ring, follow_t=MC - 10))[0],
+                du.judge_dl_defer(ev(starved, follow_t=MC + 130))[0]],
+       "placed": [du.judge_dl_defer(ev(long_close, follow_t=MC + 10))[0], du.judge_dl_defer(ev(unframed(long_close), follow_t=MC + 15))[0],
+                  du.judge_dl_defer(dict(m, landed=True))[0]],
+       "bad": {"paused_follow": du.judge_dl_defer(ev(menu_ring(follow=MC - 100, paused_follow=True), follow_t=MC - 100))[0],
+               "paused_follow_alone": du.judge_dl_defer(ev(menu_ring(follow=MC - 100, paused_follow=True), follow_t=MC + 60))[0],
+               "before_last_on": du.judge_dl_defer(ev(ring, follow_t=MC - 50))[0],
+               "late": du.judge_dl_defer(ev(ring, follow_t=MC + 191))[0],
+               "serial": du.judge_dl_defer(ev(ring, follow_via="serial"))[0],
+               "wide_serial": du.judge_dl_defer(ev(starved, follow_via="serial"))[0],
+               "dp_flag": du.judge_dp_defer(dict(m, flag=True))[0],
+               # [s164] fix round 3 review (F2): the reds the ring decides, on the starved bracket
+               "wide_paused_follow": du.judge_dl_defer(ev(starve(menu_ring(follow=MC - 100, paused_follow=True), MC - 100),
+                                                          follow_t=MC - 100))[0],
+               "wide_before_last_on": du.judge_dl_defer(ev(starved, follow_t=MC - 50))[0],
+               "wide_past_close": du.judge_dl_defer(ev(starved, follow_t=MC + 126 + 201))[0],
+               "wide_unset": du.judge_dl_defer(ev(starved, follow_t=-1))[0],
+               # (P8) the old judge's verdict pinned; (F3) the 80 ms bracket judged on CAL's 33.3 ms frame; (F1) never landed
+               "unseen_serial": du.judge_dl_defer(ev(ring, seen_t=-1, follow_via="serial"))[0],
+               "cap_judged": du.judge_dl_defer(ev(wide80, follow_t=MC + 195), 33.3)[0],
+               "landed_aged_out": du.judge_dl_defer(dead([x for x in ring if x["ui_state"] != "Pause"]))[0],
+               "landed_closed": du.judge_dl_defer(dead(ring))[0]},
+       "unseen": [du.judge_dl_defer(ev(ring, seen_t=MC - 9))[0], du.judge_dl_defer(ev(ring, seen_t=-1))[0]],
+       "unreached": [du.judge_dp_defer(ev(ring, seen_t=MC - 9))[0], du.judge_dp_defer(ev(ring, seen_t=-1))[0]],
+       "unreached_why": [du.judge_dl_defer(ev(ring, seen_t=MC - 9))[1], du.judge_dp_defer(ev(ring, seen_t=MC - 9))[1]],
+       "void": [du.judge_dl_defer(ev([]))[0], du.judge_dl_defer(ev([x for x in ring if x["ui_state"] == "Pause"]))[0],
+                du.judge_dl_defer(ev(starved))[0], du.judge_dl_defer(ev(starved), 17.0)[0], du.judge_dp_defer(ev([]))[0],
+                du.judge_dp_defer(m, life_word=True)[0]],
+       "wide_void": [du.judge_dl_defer(ev(starved, follow_t=MC + 100))[0], du.judge_dl_defer(ev(starved, follow_t=MC + 126 + 150))[0],
+                     du.judge_dl_defer(ev(three, follow_t=MC - 5))[0], du.judge_dl_defer(ev(wide80, follow_t=MC + 195))[0],
+                     du.judge_dl_defer(ev(wide80, follow_t=MC + 195), 17.0)[0],
+                     du.judge_dl_defer(ev(unframed(long_close), follow_t=MC + 10))[0]],
+       "landed_void": [du.judge_dl_defer(dead([x for x in ring if x["ui_state"] == "Pause"]))[0], du.judge_dl_defer(dead([]))[0],
+                       du.judge_dp_defer(dead(ring))[0]],
+       "void_why": [du.judge_dl_defer(ev([]))[1], du.judge_dl_defer(ev(starved))[1],
+                    du.judge_dl_defer(ev(starved, follow_t=MC + 126 + 150))[1], du.judge_dl_defer(ev(three, follow_t=MC - 5))[1],
+                    du.judge_dl_defer(ev(wide80, follow_t=MC + 195))[1], du.judge_dl_defer(ev(wide80, follow_t=MC + 195), 17.0)[1],
+                    du.judge_dl_defer(dead([x for x in ring if x["ui_state"] == "Pause"]))[1],
+                    du.judge_dl_defer(ev(unframed(long_close), follow_t=MC + 10))[1]],
+       "landed_why": du.judge_dl_defer(dead(ring))[1],
+       "cal_frame": [du.cal_frame({}), du.cal_frame({"DA-CAL": {"frame": du.FRAME_MS_DEFAULT}}), du.cal_frame({"DA-CAL": {"frame": 17.0}}),
+                     du.cal_frame({"DA-CAL": {"cal1": []}}), du.cal_frame(None)],
+       "ring_since": [du.ring_since(object(), 5), du.ring_since(FakeG(), None),
+                      [x["ui_state"] for x in du.ring_since(FakeG(), 0)], "slot" in du.ring_since(FakeG(), 0)[0]["netsync"]["swap"]],
+       "src": ["f0 = guest.state.frame" in mr, mr.index("f0 = guest.state.frame") < mr.index('guest.press("pause", 6)'),
+               'guest.send("press cancel 6", wait=False)' in hook, 'press("cancel"' not in hook, "keeps sampling" not in mr,
+               'time.time() - state["pressed"] >= 0.6' in hook,
+               mr.index("w.until(") < mr.index("ring = ring_since(guest, f0)") < mr.index("w.hold(1.0)"), '"ring": ring' in mr,
+               '"landed": gi is not None' in mr, "judge_dl_defer(ev, cal_frame(ctx.marks))" in lm, "ctx.fms" not in lm],
+       "claims": [du.CLAIMS["DL-DEFER"], du.CLAIMS["DP-DEFER"]], "consts": [du.DL_DEFER_MS, du.DL_BRACKET_FRAMES, du.DL_PLACE_FRAMES],
+       "prob": ["DL-DEFER" in du.PROBABILISTIC, "DP-DEFER" in du.PROBABILISTIC]}
+''')
+    assert out["good"] == ["green"] * 6, out["good"]
+    act, arr = out["act"], out["arr"]
+    assert "the last Pause sample 255529460, the first off it 255529488 (28 ms wide)" in act, act
+    assert "follow - last Pause 12 ms, follow - close -16 ms" in act and "record 45 seen 255528237" in act, act
+    assert "the last Pause sample 256473056, the first off it 256473089 (33 ms wide)" in arr, arr
+    assert "follow - last Pause 34 ms, follow - close 1 ms" in arr, arr
+    assert out["bracket"] == [-10, 7, 17, False, True], out["bracket"]
+    assert out["frames"] == [500000, 1, 2, None, None], out["frames"]
+    assert out["keyed"] == [True, False], out["keyed"]       # the record before reads Pause with its own follow_t: never read
+    assert out["edge"] == ["green"] * 3 and out["placed"] == ["green"] * 3, (out["edge"], out["placed"])
+    assert all(v == "red" for v in out["bad"].values()), out["bad"]
+    assert out["unseen"] == ["red", "red"] and out["unreached"] == ["unreached"] * 2, (out["unseen"], out["unreached"])
+    assert out["unreached_why"][0].startswith("not reached: record 45 was not seen while paused (seen 8999991, the last Pause sample "
+                                              "8999990): the intent is live across the Pause by construction (the cancel goes 1.2 s "
+                                              "after the emit)"), out["unreached_why"]
+    assert "-- the engine never ran the defer (P8); " in out["unreached_why"][0], out["unreached_why"]
+    assert out["unreached_why"][1].startswith("not reached: record 45 was not seen while paused (seen 8999991, the last Pause sample "
+                                              "8999990)"), out["unreached_why"]
+    assert out["void"] == ["void"] * 6 and out["wide_void"] == ["void"] * 6, (out["void"], out["wide_void"])
+    assert out["landed_void"] == ["void"] * 3, out["landed_void"]
+    vw = out["void_why"]
+    assert vw[0].startswith("the guest's ring holds no Pause sample: the bracket is unread"), vw
+    assert vw[1].startswith("the bracket cannot decide the never-while-paused term (136 ms wide; the cap 52 ms is 3 frames of 17.0 ms "
+                            "(the ring's) + 1)"), vw
+    assert vw[2].startswith("the bracket cannot decide the lag term (136 ms wide; the cap 52 ms is 3 frames of 17.0 ms (the ring's) "
+                            "+ 1)"), vw
+    assert vw[3].startswith("the bracket cannot decide the never-while-paused term (the follow falls inside it: 2 unsampled frames "
+                            "between frames 500000 and 500003; at most 1 is placed)"), vw
+    assert vw[4].startswith("the bracket cannot decide the lag term (80 ms wide; the cap 52 ms is 3 frames of 17.0 ms (the ring's) "
+                            "+ 1)"), vw
+    assert vw[5].startswith("the bracket cannot decide the lag term (80 ms wide; the cap 52 ms is 3 frames of 17.0 ms (CAL's) + 1)"), vw
+    assert vw[6].startswith("the guest never landed on AWAY and its ring ends on Pause: the Pause never closed (a setup miss)"), vw
+    assert vw[7].startswith("the bracket cannot decide the never-while-paused term (the follow falls inside it: 20 ms before the "
+                            "first sample off Pause, past its own frame of 17.0 ms (the ring's); a frame unread)"), vw
+    assert out["landed_why"].startswith("the guest never landed on AWAY after its Pause closed: the deferred follow never came"), out
+    assert out["cal_frame"] == [None, None, 17.0, None, None], out["cal_frame"]
+    assert out["ring_since"] == [[], [], ["Pause", "FieldHUD"], False], out["ring_since"]
+    assert all(out["src"]), out["src"]
+    dl, dp = out["claims"]
+    assert dl.startswith("the record seen while paused (else red 'not reached': the cancel goes 1.2 s after the emit"), dl
+    assert "landed on AWAY (else red; VOID when its Pause never closed or its ring is empty)" in dl and "REACHED" not in dl, dl
+    assert "bracketed off the guest's ring" in dl and "no Pause sample of this record with follow_t >= 0" in dl, dl
+    assert "VOID wider than 3 frames + 1 ms" in dl and "only where the close's place inside it decides the verdict" in dl, dl
+    assert "by the intent VOID with no sample after the last Pause sample" in dl and "1 unsampled frame" in dl, dl
+    assert "DA-CAL's measured frame, else the ring's own median step" in dl, dl
+    assert dp.startswith("REACHED when the record was seen while paused and that landing came by the intent"), dp
+    assert out["consts"] == [200, 3, 2] and out["prob"] == [False, True], out
 
 
 def test_each_duo_calibration_word_reds_exactly_its_rows_with_its_marker():
@@ -2985,7 +3275,9 @@ def test_desk_evidence_holds_the_351_window_across_a_real_bounce_reload():
     step-out window (only control back ON 351 does, even with a control-true read off the field), so a genuine dwell OUT on the
     reloaded copy still counts -- reported as a watch at act, red on the control-desk under `fade`; run 6's control-true sample ends
     the window there (its base peak the landing's alone). The window before fix round 1 (the whole tail) reads 352's OUT on the plain
-    reload: the fixture can catch the old defect. Report only: the DESK fade dict carries `old`, and DF-FLASH's detail names REST-OLD."""
+    reload: the fixture can catch the old defect. Report only: the DESK fade dict carries `old`, and DF-FLASH's detail names REST-OLD.
+    [s164] Fix round 3: the fade dict carries the 351 record's own edges (`last`, DESK_REC_KEYS); a record that never followed is never
+    judged, whatever fade.last reads (one global last-follow block: an earlier follow's)."""
     out = _duo_child(_DA_A + r'''
 def reload_streams(case):
     hs, gs = [], []
@@ -3025,7 +3317,8 @@ arr = {c: du.arrival_of(e["t351"], e["t351"]["kind"]) for c, e in ev.items()}
 af = du.arrival_of(evf["t351"], evf["t351"]["kind"])
 hs0, gs0 = reload_streams("flip")
 g359 = du.land_idx(gs0, du.DESK_FIELD)
-join = {"view_start": "black", "action": "join", "by": "own"}
+join = {"field": 351, "view_start": "black", "action": "join", "by": "own"}
+FOLLOWED = {"follow_t": 3000, "own_t": 3000, "follows": 1}      # [s164] fix round 3: a record that followed, its own pass at the follow
 OUT = {c: [e["t351"]["g_land_t"], e["t351"]["dwell_count"], e["t351"]["base_peak"], e["t351"]["active"], e["t351"]["kind"],
            e["t352"]["g_land_t"], e["t352"]["dwell_count"], du._out(arr[c])] for c, e in ev.items()}
 OUT.update({"fade": [evf["t351"]["kind"], evf["t351"]["dwell_count"], du._out(af)],
@@ -3034,8 +3327,10 @@ OUT.update({"fade": [evf["t351"]["kind"], evf["t351"]["dwell_count"], du._out(af
                       for c in ("flip", "genuine", "ctl")],
             "whole_tail": du.tr_evidence("DESK", "D1.0", du.REST_FROM, du.DESK_FIELD, hs0[g359:], gs0[g359:])["dwell_count"],
             "old": [ev["flip"]["fade"]["old"], evo["fade"]["old"]],
-            "flash": du.judge_df_flash([dict(evo["fade"], fade=join, cur=[])])[1],
-            "flash_act": du.judge_df_flash([dict(ev["flip"]["fade"], fade=join, cur=[])])[1]})
+            "flash": du.judge_df_flash([dict(evo["fade"], fade=join, cur=[], last=FOLLOWED)])[1],
+            "flash_act": du.judge_df_flash([dict(ev["flip"]["fade"], fade=join, cur=[], last=FOLLOWED)])[1],
+            "flash_nofollow": list(du.judge_df_flash([dict(ev["flip"]["fade"], fade=join, cur=[])])),
+            "last_keys": [sorted(ev["flip"]["fade"]["last"]), ev["flip"]["fade"]["last"]["follow_t"]]})
 ''')
     # [the 351 landing, its dwell_count, its base peak, stepout.active, kind, the 352 landing, 352's dwell_count, _out]
     assert out["flip"] == [3000, 0, 1350, False, "watch-desk", 6000, 1, False], out["flip"]      # the re-armed peak, never 352's 1500
@@ -3048,6 +3343,10 @@ OUT.update({"fade": [evf["t351"]["kind"], evf["t351"]["dwell_count"], du._out(af
     assert out["old"] == [False, True], out["old"]
     assert out["flash"].endswith("D 0.3 REST-OLD: black/None/join by own, dip False"), out["flash"]
     assert "D 1.0: black/None/join by own" in out["flash_act"] and "REST-OLD" not in out["flash_act"], out["flash_act"]
+    # [s164] fix round 3: the streams' record never followed (follow_t -1): listed apart, never judged
+    assert out["flash_nofollow"][0] == "unreached", out["flash_nofollow"]
+    assert "listed apart, never judged: D 1.0: no follow on this record" in out["flash_nofollow"][1], out["flash_nofollow"]
+    assert out["last_keys"] == [sorted(["id", "seen_t", "follow_t", "follows", "own_t", "own_verdict", "bounces", "reload_t"]), -1], out
 
 
 def test_the_menu_mark_and_left_legs_read_the_engines_timing():
@@ -3428,6 +3727,43 @@ def test_the_design_doc_carries_fix_round_2():
     assert len(items) == 5, items
     for i, word in enumerate(("7.9 s wordless", "bounce reload", "Garnet ghost", "239 ms", "DC-B/DF-PACE")):
         assert word in items[i], (word, items[i])
+
+
+def test_the_design_doc_carries_fix_round_3():
+    """[s164] Fix round 3's doc half (SWAP-TIMING-S164.md): the DF-GRACE row states its precondition (a follow whose copy could still
+    exit: the record followed, fade.last.field 351, last.own_t unset or >= last.follow_t, the temporal test only), names the reload's
+    idle load-black and cross-references DC-WON; DF-FLASH takes that reach; DL-DEFER is the ring bracket with the seen-while-paused
+    reach, no lower bound and the 3-frame VOID; DP-DEFER takes the reach; DC-WON names the post-bounce follow; the copy-ahead 359 bounce
+    item is UPDATED with the traced mechanism, not closed (still five items, the noticeability still referred to DC-B/DF-PACE); the
+    rev-4 change table carries both fixes. [s164] Fix round 3 review: DL-DEFER reds a record not seen while paused (P8, never
+    UNREACHED) and a guest that never lands on AWAY, places a follow inside the bracket by the ring's frame counter (at most 2 frames:
+    the old "No lower bound" is gone), names its cap's frame and VOIDs a wide bracket only where the close's place decides; DP-DEFER
+    names the term DL-DEFER reds without; the Probabilistic list drops DL-DEFER; DF-GRACE's stale VOID yields to a judged red."""
+    doc = (REPO / "studies" / "field-coop" / "SWAP-TIMING-S164.md").read_text(encoding="utf-8")
+    duo = doc.split("### Duo:", 1)[1].split("\n---\n", 1)[0]
+    rows = {ln.split("|")[1].strip(): ln for ln in duo.splitlines() if ln.startswith("| ")}
+    grace, flash, defer, pdefer = rows["DF-GRACE"], rows["DF-FLASH"], rows["DL-DEFER"], rows["DP-DEFER"]
+    assert "`last.own_t` unset or >= `last.follow_t`" in grace and "`fade.last.field` is 351" in grace, grace
+    assert "never `last.own_verdict` or `last.bounces`" in grace and "idle load-black" in grace, grace
+    assert "DC-WON" in grace and "(s158 shape, risk 8)" in grace and "listed apart, never judged" in grace, grace
+    assert "DF-GRACE's precondition admits" in flash and "grace-INFER" in flash and "REST-OLD" in flash, flash
+    assert defer.split("|")[2].strip().startswith("The record must be seen while paused"), defer
+    assert "`Session.states_since`" in defer and "No lower bound" not in defer and "3 frames + 1 ms" in defer, defer
+    assert "first sample with its Pause closed" not in defer and "-16 / +1 ms" in defer, defer
+    assert 'else red "not reached"' in defer and "never UNREACHED" in defer and "never lands on AWAY is red" in defer, defer
+    assert "at most 2 frames on the ring's frame counter" in defer and "never the 1/30 s default" in defer, defer
+    assert "the verdict depends on where the close falls" in defer and "the bracket has no close" in defer, defer
+    assert "REACHED only when the record was seen while paused (the term DL-DEFER reds without" in pdefer, pdefer
+    assert "unless a judged run is red" in grace, grace
+    prob = next(ln for ln in doc.splitlines() if ln.startswith("- **Probabilistic duo rows**"))
+    assert "DL-DEFER" not in prob and "DP-MARK and DP-DEFER; from fix round 3, DP-DEFER needs the record seen while paused" in prob, prob
+    won = next(ln for ln in duo.splitlines() if ln.startswith("- **DC-WON"))
+    assert "an own jump that bounced before the follow started" in won and "never `own`" in won, won
+    items = [ln for ln in duo.split("**Open items from the first duo run", 1)[1].splitlines()[1:] if ln.startswith("- ")]
+    assert len(items) == 5 and "untriaged" not in items[4], items
+    assert "idle load-black" in items[4] and "DC-B/DF-PACE" in items[4] and "still open" in items[4], items[4]
+    changed = doc.split("## What changed from rev 3", 1)[1].split("\n## ", 1)[0]
+    assert "| DF-GRACE, DF-FLASH | Fix round 3" in changed and "| DL-DEFER, DP-DEFER | Fix round 3" in changed, changed[-1500:]
 
 
 def test_the_duo_run_has_the_registered_shape():
