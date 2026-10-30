@@ -2,20 +2,25 @@
 # (studies/field-coop/SWAP-TIMING-S164.md rev 3, "## Benches" / "### Duo", leg CAL; studies/test-harness/scenarios/
 # coop_field_swap_timing_duo.py, ARRIVE_ID).
 #
-# THE ONE CHANGE: `[camera] entry_settle = 68`. The kit compiles it as DisableMove ; Wait(68) before Main_Init's control grant
-# (build.py's entry_settle seam, content/entry_settle.py), so each copy's ARRIVAL holds its control off for 68 ticks -- about 2.27 s
-# at 30 TPS -- with NO line. That puts A (the host's control-off time after its landing) at ~2.27 s by construction: the step-out
-# base (the host here, its control off, mine off) then lasts ~A - the follow's lag, past DwellMs (1500) at act (~1.8 s) and short
-# of it on `swap fade old` (~1.25 s) -- DA-ARRIVE's exposure (the pre-registered prediction: RED at act on round 1's code, green
-# on fade old). 30602 itself keeps its "auto" default (a review run resolved it to a 50-frame hold: CAL2's arrivals overlap only
-# ~1.2-1.35 s, a watch, never the gate).
+# THE ONE CHANGE: `[camera] entry_settle = 64`. The kit compiles it as DisableMove ; Wait(64) before Main_Init's control grant
+# (build.py's entry_settle seam, content/entry_settle.py), so each copy's ARRIVAL holds its control off for 64 ticks -- about 2.13 s
+# at 30 TPS -- with NO line. That puts A (the host's control-off time after its landing) at ~2.13 s + O by construction (O, the
+# landing hook to the grant, ~0-180 ms from CAL2): the step-out base (the host here, its control off, mine off) then lasts ~A - the
+# follow's lag, past DwellMs (1500) at act (~1.65 s nominal: round 1 steps out) and short of it on `swap fade old` -- DA-ARRIVE's
+# exposure. With THE ARRIVAL GUARD (studies/field-coop/ARRIVAL-GUARD-S164.md rev 2, folded into s164) the dwell counts from the
+# host's landing + 1040 ms, so at act the guarded dwell peaks ~1.0-1.475 s: guard off (`arrive` word) RED, guard on GREEN.
+# RETUNED from 68 (owner question 3, taken): at 68, E = A + d7 spanned 2267-2663 ms and the green missed whenever O + d7 - dx >= 273
+# ms (a publish-phase flake on a correct guard); at 64, E spans 2133-2529 ms and inside O <= 180 ms, d7 <= 216 ms neither side misses
+# (65 leaves a 7 ms corner on the green side, 63 a zero margin on the red). The retune rule is pre-registered, read from CAL2 (a
+# watch), never from ARRIVE's own outcome. 30602 itself keeps its "auto" default (a review run resolved it to a 50-frame hold:
+# CAL2's arrivals overlap only ~1.2-1.35 s, a watch, never the gate).
 #
 # NEVER the shared 30602: everything else here is lockt2.field.toml verbatim (its books, its cutscene behind flag 9150 -- 0 on a
 # fresh save, so it never plays -- and its control talker). The duo turns random encounters off on both games (`noencounter`),
 # so its [encounter] line never fires during a bench arrival.
 #
 # Deploy (once, by the operator -- a bench never deploys or launches anything; a NEW id registers at the first deploy, so it
-# needs ONE game relaunch afterwards):
+# needs ONE game relaunch afterwards; the 68 -> 64 retune of the already-registered id needs only the redeploy, no relaunch):
 #     py tools/deploy_field.py studies/movement/bench/lockt2-arrive.field.toml --id 30611 --mod-folder FF9CustomMap-msgs
 # 30611 was read free against every live FF9CustomMap*/DictionaryPatch.txt when this file was written (the -msgs folder holds
 # 30601-30610, LOCKT2 among them). Re-read the registrations before deploying: they change as sessions deploy.
@@ -27,7 +32,7 @@ area = 11
 
 [camera]
 pitch = 40
-entry_settle = 68              # the ARRIVE hold: DisableMove ; Wait(68) before Main_Init's grant (~2.27 s at 30 TPS), no line
+entry_settle = 64              # the ARRIVE hold: DisableMove ; Wait(64) before Main_Init's grant (~2.13 s at 30 TPS), no line
 
 [walkmesh]
 quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]

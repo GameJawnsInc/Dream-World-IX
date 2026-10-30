@@ -10,19 +10,21 @@ fade-aware follow and its 12-tick fade -- all behind ONE lever scheme, `netsync 
 THE BENCH. One game on the selftest role (`netsync selftest 1`, `bench 1`, `stateevery 1`). HOME is the dialogue bench field 30801
 (its keeper's journal menu is the line leg B opens by relay, `coop_dialogue_authority.py`'s `_open_by_relay`); AWAY is 30602 (LOCKT2,
 registered and walkable). A harness `warp` never reaches RedirectGuestFieldJump (it goes through SetNextMap), so own-jump rows use a
-REAL script Field(): leg C's 351 desk scene. `COOP_LEGS` picks legs from K, A, B, C, P, L and F (letters, any order, e.g. `KAB`);
-leg K always runs, and the legs run in K A B C P L F order.
+REAL script Field(): leg C's 351 desk scene. `COOP_LEGS` picks legs from K, A, B, C, P, L, F and G (letters, any order, e.g. `KAB`);
+leg K always runs, and the legs run in K A B C P L F G order.
 
   K-PROOF    the proof line `field swap selftest: OK (N rows, M mutants caught, clock ...)` (battlewire.SWAP_PROOF_RE pins every
              constant; N and M are never judged against literals), `netsync.swap.selftest` "ok", the dialogue selftest still OK.
   K-CLOCK    a LOAD-TIME PRECONDITION, never a red row and never in the ledger: >= 20 samples with 0 <= kit qpc_ms() - clock.now_ms
              <= the sample's age (kit wall ms - clock.utc_ms) + 100 ms, src "qpc", hz and hires published. GREEN, UNFIT (with its
              reason: the instrument is unfit for the duo, DK-CLOCK) or SKIP (off Windows, qpc_ms() None) -- logged as a note.
-  K-REFUSE   (bench still off) `swap delay 5000` and `swap orphan maybe` get the usage line; `swap intent 30602` the bench refusal;
-             after `netsync selftest 0`, `swap orphan old` gets "co-op is off". Then the re-arm.
-  K-LEVER    each op's ack line and its read-back in `levers`; `act` restores; `clear` restores every lever (its CLEAR line).
-  K-RELEASE  every lever set, then `reset`: one release line and everything back; a second `reset` logs nothing; the re-arm and
-             one `swap intent 30602`: `last.commit_t - last.due_t` <= 1 frame (no delay leaked).
+  K-REFUSE   (bench still off) `swap delay 5000`, `swap orphan maybe` and `swap arrivebench 30602` (out of -1000..5000) get the usage
+             line; `swap intent 30602` the bench refusal; after `netsync selftest 0`, `swap orphan old` gets "co-op is off". Then the re-arm.
+  K-LEVER    each op's ack line and its read-back in `levers` (`arrive act|old` in `levers.arrive`; `arrivebench <L>` in
+             `arrive.bench` {armed, lead_ms}); `act` restores; `clear` restores every lever and forgets the arrival bench (its CLEAR line).
+  K-RELEASE  every lever set (the arrival bench armed too), then `reset`: one release line and everything back, the bench forgotten; a
+             second `reset` logs nothing; the re-arm and one `swap intent 30602`: `last.commit_t - last.due_t` <= 1 frame (no delay
+             leaked) and that landing wrote no bench record (`arrive.host.bench` false: the release forgot the arm).
   A-FOLLOW   `swap intent 30602`: one record (id +1) opened by `seen`, seen_t <= follow_t <= due_t <= commit_t <= land_t,
              follow_via intent, land_via follow, land_field 30602, closed by `line` or `window`.
   A-STAMP    each edge line's stamp (the follow line, L-COMMIT, L-LAND, L-CLOSE) exactly equals the record's own t.
@@ -57,7 +59,8 @@ leg K always runs, and the legs run in K A B C P L F order.
              the on_intent sample with the intent active is reported, never required); then `last_end` stands, body_ms >= 0, the
              harness's own body read (harness_body_ms: the first 30602 sample with landed_ms >= 0 and `player.uid` set, as
              clock.now_ms - intent.emit_t), body_ms <= harness_body_ms + 100, and last_life_ms - max(2000, landed_ms + 1000,
-             body_ms) in [0, 400]. (First-run fix, run 20261030-024220: rev 3's bound left out the body term; 30602's auto
+             body_ms) in [-16, 400] (guard-round live fix: one TickCount step for the two emit-tick baselines, see
+             L_LIFE_TICK_SLACK_MS). (First-run fix, run 20261030-024220: rev 3's bound left out the body term; 30602's auto
              entry_settle hold binds the body ~1.7 s past the landing hook -- landed 1172, body 2891. body_ms is stamped by the very
              step that ends the intent, so the harness's GetControlChar read is the independent anchor: a late step cannot hide
              behind its own stamp.) Under `life`, an intent s163's rule ended before the hook ran (last_end old, no line, landed_ms
@@ -67,10 +70,38 @@ leg K always runs, and the legs run in K A B C P L F order.
              starts on the heading fade); a follow that still starts black is a setup miss, VOID. F-OPEN / F-RECHECK / F-KEY judge
              ms >= 900 - the measured start frame: a harness-started follow's first debit is its start frame's own Time.deltaTime.
              (Both first-run fixes, run 20261030-024220.)
+  G-*        THE ARRIVAL GUARD (studies/field-coop/ARRIVAL-GUARD-S164.md rev 2, owner decision 8, folded into s164), engine-only. Each
+             row from HOME: `hostscene 1` (it survives the load), `swap arrivebench L` when the row has a lead, the warp to ARRIVE_ID
+             30611 (lockt2-arrive: entry_settle 64, ~2.13 s of wordless control-off), sampled until my control has been back 1 s, then
+             `hostscene 0`. NO `swap clear` between rows, on purpose: HOME's landing gives every row a fresh landing number, so a row's
+             bench record is stale at the next ARRIVE landing (G-OFF after G-INERT is the live proof of the stale rule). Timed from
+             STATE, never from s158's unstamped OUT line (a solo warp joins no swap record: `last.land_t` does not move): the landing
+             = `arrive.land_t`; the OUT instant = clock.now_ms - stepout.age_ms at the first active sample; B - G = (clock.now_ms -
+             arrive.land_t) - stepout.base.age_ms at the episode's own base (the last episode sample with a base, else the first base
+             sample; +- a frame and TickCount's 16 ms). HOME's own landing arms an unanchored guard too (the selftest role, R names
+             30611): each row waits for it to spend (arrive.armed false) before its counter block b0, so no row's deltas carry HOME's
+             spend at any frame rate (the race fired above ~44 fps).
+             G-HOLD  (L 0)     reach: raw base peak >= 1500 or a dwell OUT; no dwell OUT; ends.spared +1; last.end spared; guarded
+                               dwell peak < 1500 (~A - K, 1090-1270); spends.control +1 within StepInMs + 0.3 s of control back.
+             G-DELAY (L 600)   one OUT by dwell at land + [1880, 2090] (Hs + K + D = G + 1940); ends.delayed +1; last.shift_ms =
+                               440 - (B - G) +- a frame + 16.
+             G-LATE  (L -400)  written at G + 400 (the late form): late true, late_arms +1 (G-DELAY's record is stale), every
+                               episode.shift_ms 1040 EXACTLY (the cap binds; uncapped ~1390), no OUT before my control returns.
+             G-INERT (L 1500)  OUT by dwell at land + [1500, 1700]; shift_ms 0; held +0 (a control).
+             G-OFF   (none)    arrive.host.field 30611 with host.bench (G-INERT's record still stands) AND lead_ms null (stale: it
+                               never anchors); OUT by dwell at the base start + [1500 - 16, 1500 + a frame + 16]; unanchored +1 at the
+                               OUT's spend (a control). VOID when G-INERT never wrote its record.
+             ARRIVE_ID must be registered on this root, else every G row reads "not reached" with its deploy command (CAL's shape).
 
 THE REACH RULES (P4, P8). Every solo row is DETERMINISTIC: an op that was acked but whose key is still at its sentinel afterwards is
 RED ("the engine never ran X"). A setup clause that misses (leg C's first line, C-PEND's pending sample, the keeper's uid, F-JOIN's
 heading screen) marks the rows VOID with the reason -- recorded red, never green, and never counted as a calibration's predicted red.
+Leg G (P8 extended): an acked `arrivebench` that never read a FRESH bench record (`arrive.host.bench` for 30611 with an
+`arrive.host.nonce` other than the row's start -- the previous row's record stands, so presence alone could never fail), a row whose
+`arrive.field` never read 30611, or (G-HOLD, G-DELAY, G-LATE, the lever act at the landing) whose `arrive.episode.on` never read true
+is RED, "the engine never ran the guard"; a warp that never landed, a hold that never took my control, G-HOLD's base short of
+DwellMs with no OUT, and G-OFF with no fresh G-INERT record are setup misses (VOID); HOME's guard never spending (armed 3 s after
+control on HOME) leaves the row UNREACHED.
 
 THE CALIBRATIONS (COOP_CALIBRATE=<word>, refused AT LOAD when unknown: tools/play.py imports the scenario before its Session launches
 FF9, so a refused word never costs a boot). Each word turns EXACTLY its registered rows red, each with its marker (K-CAL-M), and K-CAL
@@ -88,17 +119,21 @@ judges the exactness (a predicted red that reads UNREACHED fails it; all predict
     nogate    `swap fade nogate` (leg F)                        F-OPEN, F-AHEAD, F-RECHECK, F-KEY
     norecheck `swap fade norecheck` (leg F)                     F-RECHECK
     nohurry   `swap fade nohurry` (leg F)                       F-HURRY
+    arrive    `swap arrive old` before G-HOLD, G-DELAY, G-LATE   G-HOLD, G-DELAY, G-LATE
+              (leg G; `act` again before G-INERT)
 
 A word whose rows lie in no leg COOP_LEGS selects is refused at load too. An engine that publishes no `netsync.swap` (s163 or older)
-is refused before any leg: every row closes red with that reason.
+is refused before any leg: every row closes red with that reason; one that publishes no `netsync.swap.arrive` (s164 before the
+arrival guard) has leg G refused the same way.
 
-THE STAND-IN (tools/harness/fakegame.py, the `swap` rung) models K, A and B only: on an engine, a C, P, L or F leg's sentinel keys
+THE STAND-IN (tools/harness/fakegame.py, the `swap` rung) models K, A and B only: on an engine, a C, P, L, F or G leg's sentinel keys
 after an acked op are red, so a stand-in run of them proves nothing (P8). ff9mapkit/tests/test_coop_field_swap_timing_bench.py runs
 COOP_LEGS=KAB there.
 
     py tools/play.py studies/test-harness/scenarios/coop_field_swap_timing.py --instance C:\\gd\\ff9-inst\\host
     COOP_LEGS=KAB py tools/play.py studies/test-harness/scenarios/coop_field_swap_timing.py --instance C:\\gd\\ff9-inst\\host
     COOP_CALIBRATE=orphan COOP_LEGS=KB py tools/play.py studies/test-harness/scenarios/coop_field_swap_timing.py
+    COOP_CALIBRATE=arrive COOP_LEGS=KG py tools/play.py studies/test-harness/scenarios/coop_field_swap_timing.py
 """
 from __future__ import annotations
 
@@ -140,6 +175,10 @@ P_OTHER = 30604                          # P-OTHER's `to <E>`: a registered benc
 P_AGE_MS = 3000
 L_BODY_SLACK_MS = 100                    # L-STANDS: the engine's body_ms may trail the harness's own body read by this (~3 frames: the
                                          # control char exists before its fieldMapActor binds, BodyThereRule; TickCount vs QPC)
+L_LIFE_TICK_SLACK_MS = 16                # L-STANDS' lower bound (guard-round live fix, run s164g-act: gap -15): the life step decides on
+                                         # NetSyncClient._intentEmitTick (body_ms is that baseline) but last_life_ms reads NetSyncSwap.
+                                         # _ipEmitTick, stamped later in the same emit -- two TickCount reads one tick apart when they
+                                         # straddle a ~15.6 ms step, so a life that ended ON the body reads one tick short of it
 
 GRACE_MS = BW.DIALOG_ORPHAN_GRACE_MS     # NetSyncDialog.OrphanGraceMs (2000)
 AUTO_READ_MS = BW.DIALOG_AUTO_READ_MS    # NetSyncDialog.AutoReadMs (2000)
@@ -164,10 +203,28 @@ CLOCK_MIN = 20
 CLOCK_SLACK_MS = 100
 CLOCK_WATCH_S = 4.0
 REST_LEVERS = {"stamps": (None, "on"), "orphan": (None, "act"), "own": (None, "act"), "pin": (None, "act"), "life": (None, "act"),
-               "fade": (None, "act")}
+               "fade": (None, "act"), "arrive": (None,)}   # [s164] `levers.arrive`: null (act) | "old" -- levers' LAST key
 FADE_START_AGE_MS = 2                    # the follow's START sample: fade.path set with fade.age_ms at most this
 FADE_START_PHASE_MS = 3                  # the DrainQueue -> ServiceFollowWarp phase inside the start frame (~1 ms) and the QPC read
-LEGS = "KABCPLF"
+LEGS = "KABCPLFG"
+
+# [ff9mapkit netsync s164] THE ARRIVAL GUARD (leg G; studies/field-coop/ARRIVAL-GUARD-S164.md rev 2): the words are battlewire's twins
+ARRIVE_KEY = KEY + ".arrive"             # key PRESENCE is the guard's capability (protocol 5, additive; swap's LAST key)
+ARRIVE_ID = 30611                        # lockt2-arrive (entry_settle 64): the duo's ARRIVE field, deployed with its explicit id
+ARRIVE_TOML = "studies/movement/bench/lockt2-arrive.field.toml"
+ARRIVE_FOLDER = "FF9CustomMap-msgs"
+K_LEAD_MS = BW.ARRIVAL_LEAD_MS           # K, NetSyncSwap.ArrivalLeadMs (1040): s163's measured landing gap
+DWELL_MS = BW.ARRIVE_DWELL_MS            # NetSyncStepOut.DwellMs (THE ARRIVAL LAW, 1500)
+STEP_IN_MS = BW.ARRIVE_STEP_IN_MS        # NetSyncStepOut.StepInMs (500): the guard's debounced control spend
+TICK_MS = 16                             # Environment.TickCount's resolution: a TickCount age read against the QPC swap clock
+G_ROWS = ("G-HOLD", "G-DELAY", "G-LATE", "G-INERT", "G-OFF")
+G_LEADS = {"G-HOLD": 0, "G-DELAY": 600, "G-LATE": -400, "G-INERT": 1500, "G-OFF": None}   # `swap arrivebench <L>`; None = no bench
+G_EPISODE_ROWS = ("G-HOLD", "G-DELAY", "G-LATE")   # P8: an episode must run (the lever act at the landing)
+G_DELAY_OUT_MS = (1880, 2090)            # G-DELAY's OUT instant - arrive.land_t (Hs + K + D = G + 1940)
+G_INERT_OUT_MS = (1500, 1700)            # G-INERT's (B + D: the guard inert)
+G_SPEND_LATE_MS = 300                    # G-HOLD: spends.control within StepInMs + this of my control back
+G_CTL_BACK_MS = 1000                     # each row samples until my control has been back this long
+G_RUN_S = 25.0                           # one row's budget (the load, ~2.13 s of hold, the 1 s tail)
 
 LEG_ROWS = {
     "K": ("K-PROOF", "K-REFUSE", "K-LEVER", "K-RELEASE"),
@@ -177,17 +234,20 @@ LEG_ROWS = {
     "P": ("P-PIN", "P-AGED", "P-OTHER", "P-LATE", "P-PARTY"),
     "L": ("L-LAND", "L-STANDS"),
     "F": ("F-FAST", "F-3X", "F-BLACK", "F-JOIN", "F-HURRY", "F-OPEN", "F-AHEAD", "F-AGED", "F-RECHECK", "F-REASSERT", "F-KEY"),
+    "G": G_ROWS,
 }
 F_ROWS = LEG_ROWS["F"]
 
 CLAIMS = {
     "K-PROOF": "the proof line 'field swap selftest: OK (N rows, M mutants caught, clock ...)' with every constant, "
                "`netsync.swap.selftest` 'ok', and the dialogue selftest still OK",
-    "K-REFUSE": "`swap delay 5000` / `swap orphan maybe` get the usage line; `swap intent 30602` before `bench 1` the bench refusal; "
-                "`swap orphan old` after `netsync selftest 0` 'co-op is off'",
-    "K-LEVER": "each op's ack line and its read-back in `levers`; act restores; `clear` restores every lever with its CLEAR line",
-    "K-RELEASE": "every lever set, then `reset`: one release line and everything back; a second `reset` logs nothing; re-armed, one "
-                 "`swap intent 30602` commits within 1 frame of its due (no delay leaked)",
+    "K-REFUSE": "`swap delay 5000` / `swap orphan maybe` / `swap arrivebench 30602` get the usage line; `swap intent 30602` before "
+                "`bench 1` the bench refusal; `swap orphan old` after `netsync selftest 0` 'co-op is off'",
+    "K-LEVER": "each op's ack line and its read-back in `levers` (`arrivebench` in `arrive.bench`); act restores; `clear` restores every "
+               "lever and forgets the arrival bench, with its CLEAR line",
+    "K-RELEASE": "every lever set (the arrival bench armed), then `reset`: one release line and everything back, the bench forgotten; a "
+                 "second `reset` logs nothing; re-armed, one `swap intent 30602` commits within 1 frame of its due (no delay leaked) and "
+                 "writes no bench record",
     "A-FOLLOW": "`swap intent 30602`: one record (id +1) opened by `seen`, seen <= follow <= due <= commit <= land, follow_via intent, "
                 "land_via follow, land_field 30602, closed by `line` or `window`",
     "A-STAMP": "each edge line's stamp (follow, L-COMMIT, L-LAND, L-CLOSE) exactly equals the record's own t",
@@ -225,7 +285,7 @@ CLAIMS = {
     "L-LAND": "`swap lifebench 30602`: the 'I landed' line and intent.landed_ms >= 0 (the on_intent sample with the intent active is "
               "reported, not required); VOID under `life` when s163's rule ended the intent before the hook",
     "L-STANDS": "intent.last_end stands; body_ms >= 0; harness_body_ms read; body_ms <= harness_body_ms + 100; "
-                "last_life_ms - max(2000, landed_ms + 1000, body_ms) in [0, 400]",
+                "last_life_ms - max(2000, landed_ms + 1000, body_ms) in [-16, 400] (two emit-tick baselines, one tick apart)",
     "F-FAST": "fade.last fast / fade / 12, by black, primed, ticks 12-14, ms < 600",
     "F-3X": "speedmode 1: fade.last ms < 250, ticks 12-17",
     "F-BLACK": "blackout 1 first: view_start black, action join, by black, black_ticks >= 3, ms < 250, no cur_now under 248 to the due",
@@ -238,6 +298,15 @@ CLAIMS = {
     "F-RECHECK": "`netsync unmatched` right after the intent: path fast, held, by recheck, ms >= 900 - the start frame",
     "F-REASSERT": "`swap blackout off` 3 ticks into the fade: one reassert line, fade.reasserts +1, by black",
     "F-KEY": "a bench host key for my field: backlog_start key, path backlog, by timer, ms >= 900 - the start frame",
+    "G-HOLD": "`arrivebench 0` (reach: raw base peak >= 1500 or a dwell OUT): no dwell OUT on 30611, ends.spared +1, last.end spared, "
+              "guarded dwell peak < 1500, spends.control +1 within StepInMs + 0.3 s of control back",
+    "G-DELAY": "`arrivebench 600`: one OUT by dwell at arrive.land_t + 1880-2090 ms, ends.delayed +1, last.shift_ms = 440 - (B - G) "
+               "+- a frame + 16",
+    "G-LATE": "`arrivebench -400` (written at G + 400): late true, late_arms +1, every episode.shift_ms 1040 exactly (the cap), no OUT "
+              "before my control returns",
+    "G-INERT": "`arrivebench 1500`: OUT by dwell at arrive.land_t + 1500-1700 ms, shift_ms 0, held +0",
+    "G-OFF": "no bench: arrive.host.field 30611 with host.bench (G-INERT's stale record) and lead_ms null; OUT by dwell at the base "
+             "start + 1500 (s158 exactly); unanchored +1 at the OUT's spend",
 }
 
 #: word -> (the lever, its registered red rows) -- SWAP-TIMING-S164.md "Solo calibrations, pre-registered"
@@ -254,6 +323,7 @@ WORDS = {
     "nogate": ("`swap fade nogate` (leg F)", ("F-OPEN", "F-AHEAD", "F-RECHECK", "F-KEY")),
     "norecheck": ("`swap fade norecheck` (leg F)", ("F-RECHECK",)),
     "nohurry": ("`swap fade nohurry` (leg F)", ("F-HURRY",)),
+    "arrive": ("`swap arrive old` before G-HOLD, G-DELAY and G-LATE (leg G; `act` again before G-INERT)", ("G-HOLD", "G-DELAY", "G-LATE")),
 }
 FINALS = ("K-CAL-M", "K-CAL")
 
@@ -270,7 +340,7 @@ def calibration() -> str | None:
 
 
 def legs_selected() -> str:
-    """COOP_LEGS read AT LOAD: letters from K A B C P L F (any order, case-insensitive, commas / spaces ignored); empty = every leg.
+    """COOP_LEGS read AT LOAD: letters from K A B C P L F G (any order, case-insensitive, commas / spaces ignored); empty = every leg.
     Leg K always runs. An unknown letter is refused before the game boots."""
     raw = os.environ.get("COOP_LEGS", "").strip().upper().replace(",", "").replace(" ", "")
     if not raw:
@@ -278,7 +348,7 @@ def legs_selected() -> str:
     bad = sorted({c for c in raw if c not in LEGS})
     if bad:
         raise SystemExit(f"coop_field_swap_timing: COOP_LEGS={raw!r} is refused -- unknown leg(s) {', '.join(bad)} (legs: K A B C P L "
-                         f"F); refused before the game boots.")
+                         f"F G); refused before the game boots.")
     return "".join(c for c in LEGS if c == "K" or c in raw)
 
 
@@ -482,18 +552,36 @@ def judge_clock(reads, have_kit: bool) -> tuple:
 
 
 def lever_want(op: str, word: str):
-    """What `levers` must read after `swap <op> <word>`: (key, the acceptable values)."""
+    """What `levers` must read after `swap <op> <word>`: (key, the acceptable values). [s164] `arrive` reads `levers.arrive` (null for
+    act); `arrivebench` is no lever -- its read-back is the bench's arm (bench_want, under `arrive.bench`)."""
     if op == "delay":
         return "delay_ms", (int(word),)
     if op == "hostctl":
         return "hostctl_off", (word == "off",)
     if op == "stamps":
         return "stamps", ("off",) if word == "off" else REST_LEVERS["stamps"]
+    if op == "arrivebench":
+        return "arrive_bench", (int(word),)
     return op, REST_LEVERS[op] if word == "act" else (word,)
 
 
 def lever_line(op: str, word: str) -> str:
-    return BW.swap_harness_delay(int(word)) if op == "delay" else BW.swap_harness_lever_line(op, word)
+    if op == "delay":
+        return BW.swap_harness_delay(int(word))
+    if op == "arrivebench":                              # [s164] THE ARRIVAL GUARD's bench ack (unstamped: a harness line)
+        return BW.swap_harness_arrivebench(int(word))
+    return BW.swap_harness_lever_line(op, word)
+
+
+def bench_want(word: str, bench) -> bool:
+    """[s164] `swap arrivebench <L>`'s read-back (PURE): `arrive.bench` armed with lead_ms L (one-shot at my next landing)."""
+    b = bench if isinstance(bench, dict) else {}
+    return b.get("armed") is True and ival(b.get("lead_ms")) == int(word)
+
+
+def bench_at_rest(bench) -> bool:
+    """[s164] `arrive.bench` forgotten (PURE): `clear` and the release drop the arm (ForgetArriveBench)."""
+    return isinstance(bench, dict) and bench.get("armed") is False and bench.get("lead_ms") is None
 
 
 def levers_at_rest(lv) -> bool:
@@ -501,9 +589,10 @@ def levers_at_rest(lv) -> bool:
             and ival(lv.get("delay_ms")) == 0 and lv.get("hostctl_off") is False)
 
 
-def judge_levers(steps, rest_levers, clear_lines) -> tuple:
-    """K-LEVER (PURE): ``steps`` = [{op, word, ok, why, lines, levers}] -- each acked, its ack line logged, its read-back; then
-    ``rest_levers`` (after `clear`) all at rest and ``clear_lines`` holding the CLEAR line."""
+def judge_levers(steps, rest_levers, clear_lines, rest_bench=None) -> tuple:
+    """K-LEVER (PURE): ``steps`` = [{op, word, ok, why, lines, levers, bench}] -- each acked, its ack line logged, its read-back (an
+    `arrivebench` step's in ``bench``: `arrive.bench`); then ``rest_levers`` (after `clear`) all at rest, ``rest_bench`` (the arrival
+    bench after `clear`) forgotten and ``clear_lines`` holding the CLEAR line."""
     bad = []
     for s in steps:
         key, vals = lever_want(s["op"], s["word"])
@@ -513,18 +602,24 @@ def judge_levers(steps, rest_levers, clear_lines) -> tuple:
             bad.append(f"{s['op']} {s['word']}: refused ({str(s.get('why'))[:80]})")
         elif not any(core(ln) == line for ln in s.get("lines") or ()):
             bad.append(f"{s['op']} {s['word']}: no ack line")
+        elif s["op"] == "arrivebench":
+            if not bench_want(s["word"], s.get("bench")):
+                bad.append(f"arrivebench {s['word']}: arrive.bench {s.get('bench')!r}")
         elif lv.get(key, "?") not in vals:
             bad.append(f"{s['op']} {s['word']}: levers.{key} {lv.get(key, '?')!r}")
     parts = [("every op acked, logged and read back", bool(steps) and not bad),
              ("clear: every lever at rest", levers_at_rest(rest_levers)),
+             ("clear: the arrival bench forgotten", bench_at_rest(rest_bench)),
              ("the CLEAR line", any(core(ln) == BW.swap_harness_clear(False) for ln in clear_lines or ()))]
-    return _verdict(parts, f"{len(steps)} ops; " + ("; ".join(bad[:4]) or "none bad") + f"; rest {rest_levers!r}"[:300])
+    return _verdict(parts, f"{len(steps)} ops; " + ("; ".join(bad[:4]) or "none bad") + f"; rest {rest_levers!r}, bench {rest_bench!r}"[:340])
 
 
 def judge_refuse(res: dict) -> tuple:
-    """K-REFUSE (PURE): ``res`` = {name: why} for the four sends (why "" when it ACTED)."""
+    """K-REFUSE (PURE): ``res`` = {name: why} for the five sends (why "" when it ACTED). [s164] `arrivebench 30602` (outside
+    -1000..5000) gets the usage line on the selftest role."""
     parts = [("delay 5000: the usage line", BW.SWAP_USAGE in (res.get("delay") or "")),
              ("orphan maybe: the usage line", BW.SWAP_USAGE in (res.get("word") or "")),
+             ("arrivebench 30602: the usage line", BW.SWAP_USAGE in (res.get("arrivebench") or "")),
              ("intent before bench 1: the bench refusal", BW.swap_refusal_bench("intent") in (res.get("bench") or "")),
              ("orphan old with co-op off: 'co-op is off'", BW.SWAP_REFUSAL_COOP_OFF in (res.get("off") or ""))]
     return _verdict(parts, "; ".join(f"{k}: {str(v)[:90]!r}" for k, v in res.items()))
@@ -536,19 +631,24 @@ def commit_minus_due(rec) -> int | None:
     return c - d if c is not None and d is not None and c >= 0 and d >= 0 else None
 
 
-def judge_release(rel_lines, levers_after, second_lines, rec, fms: float) -> tuple:
-    """K-RELEASE (PURE): one release line (no pin-bench mirror tail: no pin bench ran), every lever at rest after the `reset`, the
-    second `reset` silent, and the re-armed follow committing within one measured frame of its due (no delay leaked)."""
+def judge_release(rel_lines, levers_after, second_lines, rec, fms: float, bench_after=None, host_bench_after=None) -> tuple:
+    """K-RELEASE (PURE): one release line (no pin-bench mirror tail: no pin bench ran), every lever at rest after the `reset` and the
+    arrival bench forgotten (``bench_after``: `arrive.bench`), the second `reset` silent, and the re-armed follow committing within one
+    measured frame of its due (no delay leaked) with no bench record written at its landing (``host_bench_after``: `arrive.host.bench`
+    after it -- an arm the release left standing would write one there)."""
     want = BW.swap_harness_release(False)
     n = sum(1 for ln in rel_lines if core(ln).startswith("[NetSync] harness: swap levers released ("))
     cmd = commit_minus_due(rec)
     parts = [("one release line", n == 1 and any(core(ln) == want for ln in rel_lines)),
              ("every lever back", levers_at_rest(levers_after)),
+             ("the arrival bench forgotten", bench_at_rest(bench_after)),
              ("a second reset logs nothing", not any("harness: swap levers released" in ln for ln in second_lines)),
              ("the follow committed", cmd is not None),
              ("no delay leaked (commit - due <= 1 frame)", cmd is not None and 0 <= cmd <= fms + 1),
-             ("last.delay_ms 0", ival((rec or {}).get("delay_ms")) == 0)]
-    return _verdict(parts, f"commit - due {cmd} ms (frame {fms:.1f}); levers {levers_after!r}"[:400])
+             ("last.delay_ms 0", ival((rec or {}).get("delay_ms")) == 0),
+             ("its landing wrote no bench record (arrive.host.bench false)", host_bench_after is False)]
+    return _verdict(parts, f"commit - due {cmd} ms (frame {fms:.1f}); levers {levers_after!r}; bench {bench_after!r}, host.bench "
+                           f"{host_bench_after!r}"[:440])
 
 
 # --------------------------------------------------------------------------------------------- A judges (pure)
@@ -977,7 +1077,9 @@ def judge_l_stands(samples) -> tuple:
     """L-STANDS (PURE): ``samples`` across the life; landed_ms is read from the samples (it may reset at the end), body_ms from the
     final sample (it survives the end: only the next emit or a session reset clears it). First-run fix (run 20261030-024220): the
     bound carries the body term, and body_ms -- stamped by the very step that ends the intent -- must not trail the harness's own read
-    (l_harness_body_ms) by more than L_BODY_SLACK_MS, so a late step cannot read green behind its own stamp."""
+    (l_harness_body_ms) by more than L_BODY_SLACK_MS, so a late step cannot read green behind its own stamp. Guard-round live fix (run
+    s164g-act, gap -15): the gap's floor is -L_LIFE_TICK_SLACK_MS, not 0 -- body_ms and the life's end decision share the client's
+    emit tick, last_life_ms the swap's, read one TickCount step later when the emit straddles a step."""
     fin = samples[-1] if samples else {}
     life = ival(sget(fin, "intent.last_life_ms"))
     landed = max([v for v in (ival(sget(s, "intent.landed_ms")) for s in samples) if v is not None] or [-1])
@@ -990,7 +1092,8 @@ def judge_l_stands(samples) -> tuple:
              ("harness_body read", hb >= 0),
              (f"body <= harness_body + {L_BODY_SLACK_MS} (the engine saw my body no later than the harness)",
               body >= 0 and hb >= 0 and body <= hb + L_BODY_SLACK_MS),
-             ("life - max(2000, landed + 1000, body) in [0, 400]", gap is not None and 0 <= gap <= 400)]
+             (f"life - max(2000, landed + 1000, body) in [-{L_LIFE_TICK_SLACK_MS}, 400]",
+              gap is not None and -L_LIFE_TICK_SLACK_MS <= gap <= 400)]
     return _verdict(parts, f"last_end {sget(fin, 'intent.last_end')!r}, life {life} ms, landed {landed} ms, body {body} ms, "
                            f"harness_body {hb} ms, gap {gap}")
 
@@ -1123,6 +1226,213 @@ def judge_fade(row: str, samples, lines=(), b0=None) -> tuple:
     return _verdict(parts, "; ".join([_fade_detail(fl)] + extra))
 
 
+# --------------------------------------------------------------------------------------------- G judges (pure) [ff9mapkit netsync s164]
+# THE ARRIVAL GUARD (ARRIVAL-GUARD-S164.md "### Solo"): the dwell of a wordless base counts from max(B, min(Hs + K, B + K)) -- never
+# earlier than s158, never more than K past the base's start. `swap arrivebench L` writes the host-landing record R through the real
+# codec (L >= 0 at my landing: Hs = G - L; L < 0 at G + |L|: the late form). Every G row is timed from STATE.
+def fid(x) -> int | None:
+    return ival((cb.raw(x).get("field") or {}).get("id"))
+
+
+def ctl_of(x):
+    """`player.control` (True / False), None when unpublished."""
+    v = (cb.raw(x).get("player") or {}).get("control")
+    return v if isinstance(v, bool) else None
+
+
+class CtlBack:
+    """A G row's stop (the watch's ``until``): my control OFF on ``dest`` (the arrival's hold), then back for G_CTL_BACK_MS on the swap
+    clock (a control-off sample in between restarts it)."""
+
+    def __init__(self, dest: int = ARRIVE_ID, hold_ms: int = G_CTL_BACK_MS):
+        self.dest, self.hold_ms, self.off, self.since = dest, hold_ms, False, None
+
+    def __call__(self, s) -> bool:
+        if fid(s) != self.dest:
+            return False
+        c = ctl_of(s)
+        if c is False:
+            self.off, self.since = True, None
+            return False
+        n = now_ms(s)
+        if c is True and self.off and n is not None:
+            self.since = n if self.since is None else self.since
+            return n - self.since >= self.hold_ms
+        return False
+
+
+def _dlt(b0, b1, dotted: str) -> int | None:
+    x, y = ival(cb.path(b0, dotted)), ival(cb.path(b1, dotted))
+    return y - x if x is not None and y is not None else None
+
+
+def g_reads(samples, b0=None, step0=None, dest: int = ARRIVE_ID) -> dict:
+    """One G row's measures (PURE): ``samples`` the row's publishes (raw), ``b0`` the swap block and ``step0`` the `netsync.stepout`
+    block before the warp. Timed from STATE -- never s158's OUT line (unstamped, NetSyncStepOut.cs:606) and never `last.land_t` (a solo
+    warp joins no swap record): the landing = `arrive.land_t` (the guard's own swap-clock landing); the OUT instant = clock.now_ms -
+    stepout.age_ms at the first active sample (coop_step_out.py's pattern); B - G = (clock.now_ms - arrive.land_t) -
+    stepout.base.age_ms at the episode's own base (the last episode sample with a base; else the first base sample: one episode = one
+    base, and s158 re-arms the base on any one-frame BaseWhyNot miss); the counters as deltas against ``b0``. ``bench_seen`` is a
+    FRESH bench record only: R is never cleared between G rows and every bench write takes R's nonce + 1 (ArriveBenchRecord), so a
+    record for ``dest`` whose `arrive.host.nonce` differs from ``b0``'s is this attempt's write (``b0`` unread: present is enough)."""
+    on = [s for s in samples or [] if fid(s) == dest]
+    mine = [s for s in on if ival(sget(s, "arrive.field")) == dest]
+    m0 = mine[0] if mine else None
+    land_t = ival(sget(m0, "arrive.land_t")) if m0 is not None else None
+    land_t = land_t if land_t is not None and land_t >= 0 else None
+    i_off = next((i for i, s in enumerate(on) if ctl_of(s) is False), None)
+    back = next((s for s in on[i_off:] if ctl_of(s) is True), None) if i_off is not None else None
+    back_t = now_ms(back) if back is not None else None
+    bases = [(s, b) for s, b in ((s, ival(nget(s, "stepout.base.age_ms"))) for s in on) if b is not None and b >= 0]
+    s_b, b_b = next(((s, b) for s, b in reversed(bases) if sget(s, "arrive.episode.on") is True), bases[0] if bases else (None, None))
+    n0 = ival(cb.path(b0, "arrive.host.nonce")) if b0 is not None else None
+    fresh = lambda s: (sget(s, "arrive.host.bench") is True and ival(sget(s, "arrive.host.field")) == dest   # noqa: E731
+                       and ival(sget(s, "arrive.host.nonce")) is not None and (n0 is None or ival(sget(s, "arrive.host.nonce")) != n0))
+    n_b = now_ms(s_b) if s_b is not None else None
+    base_t = n_b - b_b if n_b is not None else None
+    out_s = next((s for s in on if nget(s, "stepout.active") is True), None)
+    age = ival(nget(out_s, "stepout.age_ms")) if out_s is not None else None
+    n_out = now_ms(out_s) if out_s is not None else None
+    out_t = n_out - age if n_out is not None and age is not None and age >= 0 else None
+    eps = [s for s in on if sget(s, "arrive.episode.on") is True]
+    shifts = [v for v in (ival(sget(s, "arrive.episode.shift_ms")) for s in eps) if v is not None]
+    dwells = [v for v in (ival(sget(s, "arrive.episode.dwell_ms")) for s in eps) if v is not None]
+    sp0 = ival(cb.path(b0, "arrive.spends.control"))
+    sp = next((s for s in samples or [] if sp0 is not None and (ival(sget(s, "arrive.spends.control")) or -1) > sp0), None)
+    fin = swb(samples[-1]) if samples else None
+    leads = [sget(s, "arrive.lead_ms") for s in mine]
+    last = (sget(samples[-1], "arrive.last") if samples else None) or {}
+    dw1 = ival(nget(samples[-1], "stepout.out_why.dwell")) if samples else None
+    dw0 = ival(cb.path(step0, "out_why.dwell"))
+    return {"landed": bool(on), "field_seen": bool(mine), "k": ival(sget(m0 if m0 is not None else (samples or [None])[-1],
+                                                                          "arrive.arrival_lead_ms")),
+            "land_t": land_t, "ctl_off": i_off is not None, "back_t": back_t, "fms": frame_ms(on),
+            "base_peak": max((b for _s, b in bases), default=None), "base_t": base_t,
+            "b_minus_g": base_t - land_t if base_t is not None and land_t is not None else None,
+            "out": out_s is not None, "out_why": nget(out_s, "stepout.why") if out_s is not None else None, "out_t": out_t,
+            "out_before_back": out_s is not None and (back_t is None or (n_out is not None and n_out <= back_t)),
+            "dwell_outs": dw1 - dw0 if dw1 is not None and dw0 is not None else None,
+            "episode": bool(eps), "shifts": shifts, "dwell_peak": max(dwells, default=None),
+            "lever": sget(m0, "levers.arrive", "?") if m0 is not None else "?",
+            "armed": sget(m0, "arrive.armed") if m0 is not None else None,
+            "bench_seen": any(fresh(s) for s in mine),
+            "host_field": ival(sget(m0, "arrive.host.field")) if m0 is not None else None,
+            "host_bench": sget(m0, "arrive.host.bench") if m0 is not None else None,
+            "lead0": ival(leads[0]) if leads else None, "lead": next((ival(v) for v in reversed(leads) if ival(v) is not None), None),
+            "leads_null": bool(leads) and all(v is None for v in leads), "late": any(sget(s, "arrive.late") is True for s in mine),
+            "spend_t": now_ms(sp) if sp is not None else None, "last": dict(last) if isinstance(last, dict) else {},
+            **{k: _dlt(b0, fin, "arrive." + p) for k, p in (("spared", "ends.spared"), ("delayed", "ends.delayed"), ("held", "held"),
+                                                            ("late_arms", "late_arms"), ("arms", "arms"), ("unanchored", "unanchored"),
+                                                            ("spends_out", "spends.out"), ("spends_control", "spends.control"))}}
+
+
+def g_dwell_out(gx: dict) -> bool:
+    return gx.get("out") is True and gx.get("out_why") == "dwell"
+
+
+def arrive_shift_rule(b_minus_g, lead_ms) -> int | None:
+    """The shift the guard owes an anchored arrival read in time or late (PURE; ArriveDwellAgeRule solved for base - dwell):
+    min(K, max(0, K - (B - Hs))) with B - Hs = (B - G) + lead_ms (lead_ms = G - Hs). None when either input is unread."""
+    if ival(b_minus_g) is None or ival(lead_ms) is None:
+        return None
+    return min(K_LEAD_MS, max(0, K_LEAD_MS - (b_minus_g + lead_ms)))
+
+
+def g_void(row: str, gx: dict, inert_wrote: bool = True) -> str | None:
+    """A G row's setup miss (PURE), or None: VOID is recorded red, never green, never a calibration's predicted red."""
+    if not gx.get("landed"):
+        return f"the warp to {ARRIVE_ID} never landed"
+    if not gx.get("ctl_off"):
+        return f"my control never went off on {ARRIVE_ID} (the ARRIVE hold never ran -- is {ARRIVE_ID} lockt2-arrive?)"
+    if gx.get("back_t") is None:
+        return f"my control never came back on {ARRIVE_ID} within the row's budget"
+    if row == "G-HOLD" and not ((ival(gx.get("base_peak")) or -1) >= DWELL_MS or g_dwell_out(gx)):
+        return (f"not reached: the raw base peaked at {gx.get('base_peak')} ms with no dwell OUT (< DwellMs {DWELL_MS}: ARRIVE's hold is "
+                f"too short for the row)")
+    if row == "G-OFF" and not inert_wrote:
+        return "G-INERT's bench record never stood (its row did not run or wrote none): G-OFF has no stale record to refuse"
+    return None
+
+
+def g_p8(row: str, gx: dict, acked) -> list:
+    """THE REACH RULE extended to G (P8): an acked `arrivebench` that never read a FRESH bench record (`arrive.host.bench` for 30611
+    with an `arrive.host.nonce` other than the row's start: the previous row's record stands, so presence alone cannot fail), an
+    `arrive.field` that never read 30611, or (G-HOLD / G-DELAY / G-LATE with the lever act at the landing) an `episode.on` never read
+    true -- the engine never ran the guard."""
+    parts = []
+    if G_LEADS[row] is not None:
+        parts += [("arrivebench acked", acked is True),
+                  ("the bench wrote R (a fresh arrive.host.nonce for 30611)", gx.get("bench_seen") is True)]
+    parts.append((f"arrive.field read {ARRIVE_ID}", gx.get("field_seen") is True))
+    if row in G_EPISODE_ROWS and gx.get("lever") is None:
+        parts.append(("an episode ran (arrive.episode.on)", gx.get("episode") is True))
+    return parts
+
+
+def _g_detail(gx: dict) -> str:
+    lt, last = gx.get("land_t"), gx.get("last") or {}
+    rel = lambda t: (t - lt) if t is not None and lt is not None else None            # noqa: E731
+    ob = (gx["out_t"] - gx["base_t"]) if gx.get("out_t") is not None and gx.get("base_t") is not None else None
+    return (f"land_t {lt}, B - G {gx.get('b_minus_g')}, raw base peak {gx.get('base_peak')}, guarded dwell peak {gx.get('dwell_peak')}, "
+            f"shifts {sorted(set(gx.get('shifts') or []))[:4]}, lead {gx.get('lead0')} -> {gx.get('lead')}{' late' if gx.get('late') else ''}, "
+            f"OUT {gx.get('out_why')!r} at land + {rel(gx.get('out_t'))} (base start + {ob}), control back at land + "
+            f"{rel(gx.get('back_t'))}, spend at land + {rel(gx.get('spend_t'))}; last {last.get('field')}/{last.get('end')!r} shift "
+            f"{last.get('shift_ms')}; deltas spared {gx.get('spared')} delayed {gx.get('delayed')} held {gx.get('held')} late_arms "
+            f"{gx.get('late_arms')} unanchored {gx.get('unanchored')} out {gx.get('spends_out')} control {gx.get('spends_control')}; lever "
+            f"{gx.get('lever')!r}, armed {gx.get('armed')}, host {gx.get('host_field')}/{gx.get('host_bench')}")
+
+
+def judge_g(row: str, gx: dict, acked=None) -> tuple:
+    """Every G row (PURE) on g_reads' measures (``acked``: its `arrivebench` acked; None for G-OFF). The rows as ARRIVAL-GUARD-S164.md
+    registers them; a failing P8 part names the defect "the engine never ran the guard"."""
+    fms = float(gx.get("fms") or FRAME_MS_DEFAULT)
+    tol = fms + TICK_MS
+    lt, last = gx.get("land_t"), gx.get("last") or {}
+    d_out = (gx["out_t"] - lt) if gx.get("out_t") is not None and lt is not None else None
+    on_me = ival(last.get("field")) == ARRIVE_ID
+    p8 = g_p8(row, gx, acked)
+    if row == "G-HOLD":
+        sb = (gx["spend_t"] - gx["back_t"]) if gx.get("spend_t") is not None and gx.get("back_t") is not None else None
+        parts = [(f"no dwell OUT on {ARRIVE_ID}", not g_dwell_out(gx)), ("ends.spared +1", gx.get("spared") == 1),
+                 ("last.end spared on 30611", on_me and last.get("end") == "spared"),
+                 (f"guarded dwell peak < {DWELL_MS}", gx.get("dwell_peak") is not None and gx["dwell_peak"] < DWELL_MS),
+                 (f"spends.control +1 within StepInMs + {G_SPEND_LATE_MS} ms of control back",
+                  gx.get("spends_control") == 1 and sb is not None and -fms <= sb <= STEP_IN_MS + G_SPEND_LATE_MS)]
+    elif row == "G-DELAY":
+        want = arrive_shift_rule(gx.get("b_minus_g"), G_LEADS[row])          # 440 - (B - G) at the bench's lead 600
+        parts = [("one OUT by dwell", g_dwell_out(gx) and gx.get("dwell_outs") == 1),
+                 (f"OUT instant - arrive.land_t in [{G_DELAY_OUT_MS[0]}, {G_DELAY_OUT_MS[1]}]",
+                  d_out is not None and G_DELAY_OUT_MS[0] <= d_out <= G_DELAY_OUT_MS[1]),
+                 ("ends.delayed +1", gx.get("delayed") == 1), ("last.end delayed on 30611", on_me and last.get("end") == "delayed"),
+                 ("last.shift_ms = 440 - (B - G) +- a frame + 16", want is not None and ival(last.get("shift_ms")) is not None
+                  and abs(last["shift_ms"] - want) <= tol)]
+    elif row == "G-LATE":
+        sh = gx.get("shifts") or []
+        parts = [("late true", gx.get("late") is True), ("late_arms +1", gx.get("late_arms") == 1),
+                 (f"every episode.shift_ms {K_LEAD_MS} exactly (the cap; uncapped ~1390)", bool(sh) and all(v == K_LEAD_MS for v in sh)),
+                 ("no OUT before my control returns", not gx.get("out_before_back"))]
+    elif row == "G-INERT":
+        sh = list(gx.get("shifts") or []) + ([last["shift_ms"]] if on_me and ival(last.get("shift_ms")) is not None else [])
+        parts = [("one OUT by dwell", g_dwell_out(gx) and gx.get("dwell_outs") == 1),
+                 (f"OUT instant - arrive.land_t in [{G_INERT_OUT_MS[0]}, {G_INERT_OUT_MS[1]}]",
+                  d_out is not None and G_INERT_OUT_MS[0] <= d_out <= G_INERT_OUT_MS[1]),
+                 ("shift_ms 0", bool(sh) and all(v == 0 for v in sh)), ("held +0", gx.get("held") == 0)]
+    elif row == "G-OFF":
+        ob = (gx["out_t"] - gx["base_t"]) if gx.get("out_t") is not None and gx.get("base_t") is not None else None
+        parts = [("arrive.host.field 30611 with host.bench (G-INERT's record stands)",
+                  gx.get("host_field") == ARRIVE_ID and gx.get("host_bench") is True),
+                 ("lead_ms null (the stale record does not anchor)", gx.get("leads_null") is True),
+                 (f"OUT by dwell at the base start + DwellMs (s158 exactly: {DWELL_MS - TICK_MS}..{DWELL_MS} + a frame + {TICK_MS})",
+                  g_dwell_out(gx) and ob is not None and DWELL_MS - TICK_MS <= ob <= DWELL_MS + tol),
+                 ("unanchored +1 at the OUT's spend", gx.get("unanchored") == 1 and gx.get("spends_out") == 1)]
+    else:
+        raise KeyError(row)
+    parts.append((f"arrival_lead_ms {K_LEAD_MS} (the bench's K)", gx.get("k") == K_LEAD_MS))
+    ok = all(v for _, v in p8 + parts)
+    head = "" if all(v for _, v in p8) else "the engine never ran the guard: "
+    return ok, head + _fmt(p8 + parts) + "; " + _g_detail(gx)
+
+
 # --------------------------------------------------------------------------------------------- the calibration (pure)
 MARKERS = {
     "stamps": "the record's edges set (follow, commit, land) with no '(t N ms)' on the follow line and no `[NetSync] swap` line",
@@ -1137,6 +1447,7 @@ MARKERS = {
     "nogate": "fade.last path fast with a backlog that would have gated (or, F-RECHECK, never held)",
     "norecheck": "fade.last path fast, never held, by black",
     "nohurry": "fade.last action join on a heading screen with more than 12 ticks left",
+    "arrive": "a dwell OUT on 30611 with levers.arrive old and arrive.armed false at that landing (s158's dwell from the base start)",
 }
 
 
@@ -1180,6 +1491,11 @@ def marker(word: str, row: str, ev) -> tuple:
                  ("pin.last_use_quality pre", pin.get("last_use_quality") == "pre")]
     elif word == "life":
         parts = [("intent.last_end old", (ev.get("intent") or {}).get("last_end") == "old")]
+    elif word == "arrive":                               # [s164] THE ARRIVAL GUARD's calibration: round 1's rule at that landing
+        gx = ev.get("gx") or {}
+        parts = [("levers.arrive old at the landing", gx.get("lever") == "old"),
+                 ("arrive.armed false at that landing", gx.get("armed") is False),
+                 (f"a dwell OUT on {ARRIVE_ID}", g_dwell_out(gx))]
     else:                                                # the fade words
         fl = ev.get("fade") or {}
         if word == "fade":
@@ -1224,6 +1540,7 @@ class Ctx:
         self.lever_taken = False
         self.delta_ms: int | None = None
         self.fms = FRAME_MS_DEFAULT
+        self.g_record = False                            # [s164] G-INERT's bench record stood (G-OFF's stale record)
 
 
 def _ns(g, sub: str, *args) -> tuple:
@@ -1374,7 +1691,7 @@ def run(g, field: int | None = None):
         if not ctx.ready:
             return
         _leg_k(g, ctx, led)
-        for leg, fn in (("A", _leg_a), ("B", _leg_b), ("C", _leg_c), ("P", _leg_p), ("L", _leg_l), ("F", _leg_f)):
+        for leg, fn in (("A", _leg_a), ("B", _leg_b), ("C", _leg_c), ("P", _leg_p), ("L", _leg_l), ("F", _leg_f), ("G", _leg_g)):
             if leg in legs:
                 _guard(g, ctx, led, LEG_ROWS[leg], lambda fn=fn: fn(g, ctx, led))
     except HarnessError as err:
@@ -1481,7 +1798,8 @@ def _k_clock(g, ctx: Ctx) -> None:
 
 def _k_refuse(g, ctx: Ctx, led: cb.Ledger) -> None:
     res = {}
-    for name, args in (("delay", ("delay", 5000)), ("word", ("orphan", "maybe")), ("bench", ("intent", AWAY))):
+    for name, args in (("delay", ("delay", 5000)), ("word", ("orphan", "maybe")), ("arrivebench", ("arrivebench", AWAY)),
+                       ("bench", ("intent", AWAY))):
         res[name] = _try_full(g, "swap", *args)
     _must(g, "selftest", 0)
     cb.poll(g, lambda s: not (s.netsync or {}).get("forced"), 5.0, "the role down")
@@ -1494,9 +1812,18 @@ def _k_refuse(g, ctx: Ctx, led: cb.Ledger) -> None:
 K_LEVER_SEQ = (("stamps", "off"), ("stamps", "on"), ("delay", "300"), ("delay", "0"), ("orphan", "old"), ("orphan", "act"),
                ("own", "old"), ("own", "nocache"), ("own", "act"), ("pin", "old"), ("pin", "act"), ("life", "old"), ("life", "act"),
                ("fade", "old"), ("fade", "long"), ("fade", "nogate"), ("fade", "norecheck"), ("fade", "nohurry"), ("fade", "act"),
-               ("hostctl", "off"), ("hostctl", "on"))
+               ("hostctl", "off"), ("hostctl", "on"),
+               ("arrive", "old"), ("arrive", "act"), ("arrivebench", "600"), ("arrivebench", "-400"))   # [s164] THE ARRIVAL GUARD
 K_SET_ALL = (("stamps", "off"), ("delay", "500"), ("orphan", "old"), ("own", "nocache"), ("pin", "old"), ("life", "old"),
-             ("fade", "long"), ("hostctl", "off"))
+             ("fade", "long"), ("hostctl", "off"), ("arrive", "old"), ("arrivebench", "1500"))
+
+
+def _lever_met(op: str, word: str, s) -> bool:
+    """A K step's read-back reached (an `arrivebench` step reads the bench's arm under `arrive.bench`)."""
+    if op == "arrivebench":
+        return bench_want(word, sget(s, "arrive.bench"))
+    key, vals = lever_want(op, word)
+    return sget(s, "levers." + key, "?") in vals
 
 
 def _k_lever(g, ctx: Ctx, led: cb.Ledger) -> None:
@@ -1505,16 +1832,17 @@ def _k_lever(g, ctx: Ctx, led: cb.Ledger) -> None:
         at = cb.mark(g)
         ok, why = _ns(g, "swap", op, word)
         lines = cb.wait_log(g, at, lever_line(op, word), timeout=2.0) if ok else cb.new(g, at)
-        st = cb.poll(g, lambda s, op=op, word=word: sget(s, "levers." + lever_want(op, word)[0], "?") in lever_want(op, word)[1], 2.0,
-                     f"levers after {op} {word}") or g.state
-        steps.append({"op": op, "word": word, "ok": ok, "why": why, "lines": lines, "levers": sget(st, "levers")})
-    for op, word in (("orphan", "old"), ("delay", "200"), ("fade", "long"), ("hostctl", "off")):
+        st = cb.poll(g, lambda s, op=op, word=word: _lever_met(op, word, s), 2.0, f"levers after {op} {word}") or g.state
+        steps.append({"op": op, "word": word, "ok": ok, "why": why, "lines": lines, "levers": sget(st, "levers"),
+                      "bench": sget(st, "arrive.bench")})
+    for op, word in (("orphan", "old"), ("delay", "200"), ("fade", "long"), ("hostctl", "off"), ("arrive", "old"), ("arrivebench", "600")):
         _ns(g, "swap", op, word)
     at = cb.mark(g)
     _ns(g, "swap", "clear")
     clear_lines = cb.wait_log(g, at, "harness: swap CLEAR", timeout=2.0)
-    st = cb.poll(g, lambda s: levers_at_rest(sget(s, "levers")), 2.0, "every lever at rest after clear") or g.state
-    ok, detail = judge_levers(steps, sget(st, "levers"), clear_lines)
+    st = cb.poll(g, lambda s: levers_at_rest(sget(s, "levers")) and bench_at_rest(sget(s, "arrive.bench")), 2.0,
+                 "every lever at rest after clear") or g.state
+    ok, detail = judge_levers(steps, sget(st, "levers"), clear_lines, sget(st, "arrive.bench"))
     led.check("K-LEVER", ok, detail)
 
 
@@ -1524,8 +1852,9 @@ def _k_release(g, ctx: Ctx, led: cb.Ledger) -> None:
     at = cb.mark(g)
     cb.release(g)
     rel = cb.wait_log(g, at, "harness: swap levers released", timeout=3.0)
-    st = cb.poll(g, lambda s: levers_at_rest(sget(s, "levers")), 3.0, "the levers released") or g.state
-    after = sget(st, "levers")
+    st = cb.poll(g, lambda s: levers_at_rest(sget(s, "levers")) and bench_at_rest(sget(s, "arrive.bench")), 3.0,
+                 "the levers released") or g.state
+    after, bench_after = sget(st, "levers"), sget(st, "arrive.bench")
     at2 = cb.mark(g)
     cb.release(g)
     g.wait_frames(20)
@@ -1534,7 +1863,8 @@ def _k_release(g, ctx: Ctx, led: cb.Ledger) -> None:
     _home(g)
     samples, _lines, rec = _follow_to(g, AWAY)
     ctx.fms = frame_ms(samples)
-    ok, detail = judge_release(rel, after, second, rec, ctx.fms)
+    host_bench = sget(samples[-1] if samples else g.state, "arrive.host.bench")
+    ok, detail = judge_release(rel, after, second, rec, ctx.fms, bench_after, host_bench)
     led.check("K-RELEASE", ok, detail)
 
 
@@ -2112,3 +2442,99 @@ def _f_one(g, ctx: Ctx, led: cb.Ledger, row: str, spec: dict) -> None:
         return
     ok, detail = judge_fade(row, samples, lines, b0)
     led.check(row, ok, detail)
+
+
+# ---- G (engine only: the stand-in models no landing, no record and no episode) [ff9mapkit netsync s164] THE ARRIVAL GUARD
+def arrive_deploy_command() -> str:
+    """ARRIVE_ID's one-time deploy, with its explicit id (never the shared default slot): the operator's step, then ONE relaunch."""
+    return f"py tools/deploy_field.py {ARRIVE_TOML} --id {ARRIVE_ID} --mod-folder {ARRIVE_FOLDER}"
+
+
+def _g_lever(g, word: str) -> bool:
+    """`swap arrive <word>` read back in `levers.arrive` (read at my NEXT landing: set before the warp)."""
+    _swap(g, "arrive", word)
+    key, vals = lever_want("arrive", word)
+    return cb.poll(g, lambda s: sget(s, "levers." + key, "?") in vals, 3.0, f"levers.arrive after `arrive {word}`") is not None
+
+
+def _leg_g(g, ctx: Ctx, led: cb.Ledger) -> None:
+    """Leg G: G-HOLD, G-DELAY, G-LATE, G-INERT, G-OFF in that order, each from HOME. NO `swap clear` between rows (HOME's landing makes
+    each row's bench record stale at the next ARRIVE landing: G-OFF after G-INERT is the stale rule's live proof). The warp is the
+    step's ack only (Session.warp waits for control, which ARRIVE's hold keeps off) -- and it is sent only once ARRIVE_ID reads
+    registered on this root (a warp to an unregistered id hangs the game on a null .eb)."""
+    if not cb.has(g.state, ARRIVE_KEY):
+        _unreached(led, ctx, G_ROWS, "this engine publishes no `netsync.swap.arrive` (an s164 build before the arrival guard) -- leg G "
+                                     "refused")
+        return
+    try:
+        reg = g.registered_fields()[0]
+    except (HarnessError, OSError, AttributeError) as err:
+        _unreached(led, ctx, G_ROWS, f"the registrations are unreadable ({str(err)[:120]}): a warp to an unregistered {ARRIVE_ID} would hang "
+                                     f"the game -- leg G not run")
+        return
+    if ARRIVE_ID not in reg:
+        _unreached(led, ctx, G_ROWS, f"ARRIVE_ID {ARRIVE_ID} is not registered on this root (deploy: {arrive_deploy_command()}, then "
+                                     f"relaunch)")
+        return
+    word = ctx.cal == "arrive"
+    lever = None                                         # the `arrive` lever as last set (None: never set this leg -- act)
+    try:
+        for row in G_ROWS:
+            if row not in led.catalog or row in led.done:
+                continue
+            want = "old" if word and row in WORDS["arrive"][1] else "act"
+            if want != (lever or "act"):
+                _home(g)
+                back = _g_lever(g, want)
+                lever = want
+                if want == "old" and back:
+                    ctx.lever_taken = True
+            _guard(g, ctx, led, (row,), lambda row=row: _g_one(g, ctx, led, row))
+    finally:
+        for step in (("hostscene", 0), ("swap", "arrive", "act")):
+            _ns(g, *step)
+        try:
+            _home(g)
+        except HarnessError:
+            pass
+
+
+def _g_one(g, ctx: Ctx, led: cb.Ledger, row: str) -> None:
+    """One G row: from HOME, `hostscene 1` (it survives the load: DebugHostEventFlag clears only at the selftest disarm), `swap
+    arrivebench L` when the row has one, the warp to ARRIVE_ID, the samples until my control has been back G_CTL_BACK_MS, `hostscene
+    0`. Judged from state (g_reads / judge_g); a setup miss VOIDs the row (g_void). HOME's own landing arms a guard too (unanchored:
+    R names 30611), spent at control + StepInMs: b0 waits for arrive.armed false, else HOME's spend could land in this row's deltas
+    (spends.control 2 on G-HOLD, unanchored 2 on G-OFF). No `arrive.field == HOME` term: a faulted guard leaves arrive.field stale
+    (and the stand-in at -1) with armed false -- that must read P8 red, never UNREACHED."""
+    lead = G_LEADS[row]
+    _home(g)
+    if cb.poll(g, lambda s: sget(s, "arrive.armed") is False, 3.0, "HOME's arrival guard spent") is None:
+        raise HarnessError("HOME's arrival guard never spent (armed 3 s after control on HOME) -- the row's deltas would carry HOME's "
+                           "spend")
+    b0 = _block(g)
+    step0 = dict(nget(g.state, "stepout") or {})
+    _must(g, "hostscene", 1)
+    acked = None
+    try:
+        if lead is not None:
+            why = _try_full(g, "swap", "arrivebench", lead)
+            acked = why == ""
+            if not acked:
+                g.note(f"{row}: `swap arrivebench {lead}` refused: {why[:200]}")
+        at = cb.mark(g)
+        t0 = time.time()
+        g.send(f"warp {ARRIVE_ID} 0 -1")
+        samples, _hit = watch(g, G_RUN_S, until=CtlBack(ARRIVE_ID), t0=t0)
+    finally:
+        _ns(g, "hostscene", 0)
+    lines = cb.new(g, at)
+    gx = g_reads(samples, b0, step0)
+    ctx.marks[row] = {"gx": gx, "lines": lines}
+    if row == "G-INERT":
+        ctx.g_record = gx.get("bench_seen") is True
+    why = g_void(row, gx, ctx.g_record)
+    if why:
+        _void(led, ctx, [row], why)
+        return
+    ok, detail = judge_g(row, gx, acked)
+    led.check(row, ok, detail + f"; {cb.grep(lines, 'arrival guard', limit=300)}")

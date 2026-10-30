@@ -9,47 +9,67 @@ deferred follow, and Finding 11's orphan hold on the Cat's Eye. Every guest-side
 the host game; both games load one DLL through the instance junction, so every calibration is a LEVER, never a DLL swap.
 
 THE CLOCK PRECONDITION (F1, F11a). DK-CLOCK runs first: K-CLOCK (the solo's judge_clock) must hold on BOTH games. It is a note,
-never a red row (KIT-3's K-CLOCK precedent); when it fails, every CROSS-GAME row -- DA-LANE, DB-BIT, DP-MARK, DL-LEFT and DA-ARRIVE
-whole; DC-B(a)'s gap, DF-FAST's gap and DA-LINES' host-tap clause as clauses -- is VOID with the reason. Rows inside one game still
-judge.
+never a red row (KIT-3's K-CLOCK precedent); when it fails, every CROSS-GAME row -- DA-LANE, DB-BIT, DP-MARK and DL-LEFT whole;
+DC-B(a)'s gap, DF-FAST's gap, DA-LINES' host-tap clause, DA-ARRIVE's overlap clause and its cross-game reports, and DA-GUARD's seen -
+landing report as clauses -- is VOID with the reason. Rows inside one game still judge.
 
 THE LEGS (every warp, scenario and poke is data below; COOP_LEGS picks them by name, default all):
   CAL     warp 30602 and back on each sub-leg, each field held LineWindowMs + 1 s (F13): CAL0 the guest on `fade old`; CAL1 `fade
           old` + `delay 200`; CAL2 act; CAL3 act + the guest's `speedmode 1`; ARRIVE: warp ARRIVE_ID (30611, the scratch copy
-          studies/movement/bench/lockt2-arrive.field.toml with `[camera] entry_settle = 68`) and back, at act and again on `fade old`.
-          Rows DA-CAL, DA-JOIN, DL-LIFE, DL-NOREG, DC-FE, DF-FAST, DF-3X, DA-ARRIVE (DA-LANE and DA-PROBE-X take its transitions).
+          studies/movement/bench/lockt2-arrive.field.toml with `[camera] entry_settle = 64`, retuned from 68: ARRIVAL-GUARD-S164.md
+          "Predicted numbers") and back, at act and again on `fade old`.
+          Rows DA-CAL, DA-JOIN, DL-LIFE, DL-NOREG, DC-FE, DF-FAST, DF-3X, DA-ARRIVE (DA-LANE, DA-GUARD and DA-PROBE-X take its
+          transitions).
   DESK    `warp 359 0 2600`, the guest follows; the host confirms D after each line opens and every D until it closes, D in {0.3,
           1.0, 2.5}; 359's Main_11 MAPJUMPs to 351, whose entrance 15 builds the desk scene (first line win 3 text 129). REST
           continues each run: text 139's close -> Dagger_Loop case 23 -> Field(352) (first line win 4 text 142). Six runs: at each D
           one with REST at act and one REST-OLD (the guest sends `swap fade old` before text 139 closes). Rows DA-LINES, DF-FLASH,
-          DF-GRACE, DF-PACE, DA-PROBE, DC-B(a), DC-B(b), DP-HALT, DP-DRESS (and DA-ARRIVE's DESK watch, DC-WON, DA-LANE).
+          DF-GRACE, DF-PACE, DA-PROBE, DC-B(a), DC-B(b), DP-HALT, DP-DRESS (and DA-ARRIVE's DESK watch, DC-WON, DA-LANE, DA-GUARD).
   CAT     both on 350 by one follow; the guest at its own booster (`speedmode 1`), the host at 1x; the Cat's Eye menu gate on both
           (238 = 1, 241 = 8, 242 = 0, the guest first), the leap gate on the HOST only (297 | 1, flag 2075 = 0, read back first);
           the host picks choice 3 and pages 113-117. Rows DB-SHAPE, DB-BIT, DB-HOLD, DB-ORDER.
   OWN     s163's recipe: the host's 238 poked and read back, `warp 351 0 2600`, the gate (238 = 1, 241 = 4, 242 = 0) on both, the
           guest first; choice 2 ("Dagger Tries"). Row DC-OWN.
-  MENU    the guest holds its main menu across the host's exit and closes it 1.2 s after the emit (3.5 s in the aged run); the host
-          marks flag 8720 once it has landed. Rows DL-DEFER, DP-DEFER, DP-AGED.
-  MARK    the host exits to AWAY; once its body stands there the bench sends `flag 8720 1` to the host; the guest on `swap fade long`
-          for the leg. Row DP-MARK.
-  LEFT    the host's harness `battle` 0.8 s after its landing (the swirl ends section 4 as Left), then it flees. Row DL-LEFT.
+  MENU    the guest holds its PAUSE screen across the host's exit and closes it (cancel) 1.2 s after the emit (3.5 s in the aged
+          run); the host marks flag 8720 once its landing hook ran (intent.landed_ms >= 0). A mirroring guest has NO main menu (s38's
+          spectator-field refusal, s121's buzz: the first duo run's MENU leg timed out on it), and an intent follow defers on any
+          state but FieldHUD -- Pause is reachable there. A Pause that never opens is a setup miss (VOID). Rows DL-DEFER, DP-DEFER,
+          DP-AGED.
+  MARK    the host exits to AWAY; once its landing hook ran (intent.landed_ms >= 0 -- its body stands only ~1.77 s after the
+          landing on 30602, after the guest's landing: the first duo run's -986 ms) the bench sends `flag 8720 1` to the host; the
+          guest on `swap fade long` for the leg. Row DP-MARK.
+  LEFT    from AWAY the host exits to HOME (250: its body binds 245-540 ms after the landing, so the 2 s emit floor ends section 4
+          and the swirl falls inside its life -- on 30602 control and the body come back as it ends "stands"); once the guest has
+          landed too, the host's harness `battle` 0.8 s after its landing hook on the swap clock (the swirl ends section 4 as
+          Left). Then it escapes, the fight last (a wipe Game-Overs both games): up to LEFT_FLEE_TRIES attempts, each Zidane's
+          Flee at a host prompt (else the bumper roll), re-rolled only while the party holds half its HP; the leg returns once
+          the host AND the guest are back on the field with control, never with a battle left running for OPEN. Row DL-LEFT.
   OPEN    on 30602 the host opens the control NPC's line (relayed locked) and warps with it up. Row DF-OPEN.
   LEVERS  raw sends. Rows LVD-ROLE, LVD-LIFE (last: the host's `reset`).
   every   the host's dress.party at each emit and after each landing. Row DP-PARTY (reach-gated).
 
 THE REACH RULES (P4, P8). Deterministic rows are red when their key never moved. PROBABILISTIC rows -- DA-LANE per transition,
-DF-FLASH, DF-GRACE, DF-PACE, DP-HALT, DP-PARTY, DC-B(b), DP-MARK, DP-DEFER and DA-ARRIVE's watches -- are judged only on their reached
-runs and are NEVER RED merely for being UNREACHED: such a row records GREEN with an "UNREACHED" detail and is kept out of every
-calibration count. The floors: DA-LANE needs at least one reached transition in each of CAL, DESK and REST ("not reached: arrived_t was
--1 on every transition"), and DA-ARRIVE's ARRIVE run must reach its EXPOSURE -- the overlap (the host's first control-true sample after
-its landing minus the guest's landing, both on the swap clock) at least DwellMs + 100 ms AND the guest's peak
-`netsync.stepout.base.age_ms` between its landing and its control at least DwellMs -- or DA-ARRIVE is red "not reached", never green.
-A VOID (an unfit clock, a setup clause that missed, the Cat's else path) records RED with a "VOID:" detail (KIT-3's solo convention)
-and is likewise never counted as a calibration's predicted red.
+DA-GUARD per landing, DF-FLASH, DF-GRACE, DF-PACE, DP-HALT, DP-PARTY, DC-B(b), DP-MARK and DP-DEFER -- are judged only on their
+reached runs and are NEVER RED merely for being UNREACHED: such a row records GREEN with an "UNREACHED" detail and is kept out of every
+calibration count (DA-ARRIVE's watches are reported apart, never judged). The floors: DA-LANE needs at least one reached transition in
+each of CAL, DESK and REST ("not reached: arrived_t was -1 on every transition"); DA-GUARD needs at least one landing whose host transition sent a landed frame across
+CAL2, CAL3, DESK and REST ("not reached: no landing sent a landed frame"; UNREACHED under the `life` word, its declared unreach); and
+DA-ARRIVE's ARRIVE run must reach its EXPOSURE -- the overlap (the host's first control-true sample after its landing minus the
+guest's landing, both on the swap clock) at least DwellMs + 100 ms AND (the guest's raw peak `netsync.stepout.base.age_ms` between
+its landing and its control at least DwellMs OR a dwell OUT: HarnessBaseAgeMs reads -1 while a step-out is active, so an OUT run's
+published peak sits within a frame of 1500 on either side) -- or DA-ARRIVE is red "not reached", never green. A VOID (an unfit
+clock, a setup clause that missed, the Cat's else path) records RED with a "VOID:" detail (KIT-3's solo convention) and is likewise
+never counted as a calibration's predicted red.
 
-DA-ARRIVE IS A DEFECT, NOT A CALIBRATION: pre-registered RED at act on round 1's code (a ~1.8 s base, past DwellMs 1500), green on
-`fade old` (~1.25 s). Until the landing-scoped arrival guard ships, a plain run reads DA-ARRIVE red. It is BASELINE_RED: every
-calibration reports it apart and never counts it as the word's.
+DA-ARRIVE IS THE ARRIVAL GUARD'S CALIBRATION (studies/field-coop/ARRIVAL-GUARD-S164.md rev 2, owner decision 8, folded into s164):
+guard off (the `arrive` word: the guest on `swap arrive old` for the ARRIVE act run) RED, guard on GREEN. At act the raw base runs
+~1.58-2.08 s (round 1 would step out) while the guarded dwell peaks ~1.0-1.475 s; the green must be ATTRIBUTABLE to the guard
+(arrive.last.field 30611, last.end spared, ends.spared +>= 1, levers.arrive null), and a red names its cause: "the guard never
+anchored" (lead_ms null), "guard defect" (the episode's shift off its rule min(K, max(0, K - (B - Hs))) by more than a frame + 16 ms),
+or "margin miss" (a dwell OUT with the guard anchored and its shift right: retune ARRIVE, not a guard defect). BASELINE_RED is empty.
+The fade-old controls are judged with the gate; the dressed WATCHES (CAL2, DESK) are listed apart and reported, never folded into the
+verdict (the first duo run: five DESK "watch" OUTs were 352's lawful 7.9 s wordless scene read through a 351 window that never ended
+-- desk_evidence now ends the 351 window at the 352 landing -- and a watch red would break the `arrive` word's exactness).
 
 THE CALIBRATIONS (COOP_CALIBRATE=<word>, refused AT LOAD when unknown -- duo.py imports the scenario before it boots the pair). Each
 word turns EXACTLY its registered rows red, each with its marker (D-CAL-M); D-CAL judges the exactness (a predicted red that reads
@@ -61,20 +81,27 @@ UNREACHED or VOID fails it; every predicted red UNREACHED is VOID, never a pass)
     own      guest `swap own old` on REST-OLD only                     DC-B(b) (on its reached runs; none reached = VOID)
     nocache  guest `swap own nocache` on REST-OLD only                 none (a control)
     pin      guest `swap pin old` on MARK and the 1.2 s MENU run       DP-MARK, DP-DEFER
-    life     host `swap life old` on CAL, DESK and the 1.2 s MENU run  DL-LIFE, DL-DEFER (DP-DEFER VOID; DA-PROBE records)
+    life     host `swap life old` on CAL (both ARRIVE runs keep `life  DL-LIFE, DL-DEFER (DP-DEFER VOID; DA-PROBE records;
+             act`), DESK and the 1.2 s MENU run                        DA-GUARD UNREACHED)
     fade     guest `swap fade old` wherever it would run act           DF-FAST, DF-3X, DF-FLASH, DF-OPEN, DF-PACE if reached
     long     guest `swap fade long` the same                           DF-FAST, DF-3X
     nogate   guest `swap fade nogate` the same                         DF-OPEN, DF-PACE if reached
+    arrive   guest `swap arrive old` before the ARRIVE act run only    DA-ARRIVE
+             (`act` after it)
 
 ("wherever it would run act": CAL2, CAL3, the DESK runs and REST at act, MENU and OPEN; CAL0, CAL1 and both ARRIVE runs keep their
-registered levers, REST-OLD keeps `old`, MARK keeps `long`.)
+registered levers, REST-OLD keeps `old`, MARK keeps `long`.) THE `life` SCOPE (a correction, ARRIVAL-GUARD-S164.md "### Duo"): under
+`life old` the host sends no landed frame, so the guard could not anchor and DA-ARRIVE would go red, breaking the word's exactness --
+the host holds `life act` for the two ARRIVE runs and is back on `old` for any CAL sub-leg after them (cal_life).
 
 THE ARRIVE FIELD is DATA here (ARRIVE_ID, ARRIVE_TOML, ARRIVE_FOLDER). A bench never deploys or launches anything inside a run (a NEW
-id registers only at a relaunch anyway): the operator deploys it once, with the explicit id, through
+id registers only at a relaunch anyway; a RETUNE of an already-registered id needs only the redeploy): the operator deploys it once,
+with the explicit id, through
 
     py studies/test-harness/scenarios/coop_field_swap_timing_duo.py deploy        (runs deploy_field.py with --id 30611)
 
-and relaunches; CAL refuses DA-ARRIVE "not reached" with that command when ARRIVE_ID is not registered on both roots.
+and relaunches; CAL refuses DA-ARRIVE "not reached" with that command when ARRIVE_ID is not registered on both roots -- a setup
+miss, VOID (red, never a calibration's predicted red: under `arrive`, D-CAL reads VOID, never exact).
 
     py tools/harness/duo.py studies/test-harness/scenarios/coop_field_swap_timing_duo.py --keep-going
     COOP_LEGS=CAL,DESK py tools/harness/duo.py studies/test-harness/scenarios/coop_field_swap_timing_duo.py --keep-going
@@ -114,11 +141,15 @@ KEY = "netsync.swap"
 PROBE = KEY + ".clock"                   # key PRESENCE is the capability (protocol 5, additive)
 
 HOME, AWAY = 250, 30602                  # duo.py's pairing field / LOCKT2 (the -msgs folder)
-ARRIVE_ID = 30611                        # the scratch copy of LOCKT2 with entry_settle 68 (read free against every live
+ARRIVE_ID = 30611                        # the scratch copy of LOCKT2 with entry_settle 64 (read free against every live
                                          # FF9CustomMap*/DictionaryPatch.txt; the -msgs folder holds 30601-30610)
 ARRIVE_TOML = "studies/movement/bench/lockt2-arrive.field.toml"
 ARRIVE_FOLDER = "FF9CustomMap-msgs"
-ARRIVE_SETTLE_TICKS = 68                 # its [camera] entry_settle: ~2.27 s of control off at 30 TPS, no line
+ARRIVE_SETTLE_TICKS = 64                 # its [camera] entry_settle: ~2.13 s of control off at 30 TPS, no line (retuned from 68: at 68
+                                         # E = A + d7 spanned 2267-2663 ms and the green missed at O + d7 - dx >= 273 ms; at 64 it spans
+                                         # 2133-2529 and neither side misses inside O <= 180, d7 <= 216 -- ARRIVAL-GUARD-S164.md)
+ARRIVE_AUTO_HOLD_MS = 1667               # 30602's own "auto" entry_settle as a review run resolved it (50 ticks): CAL2's hold
+ARRIVE_RETUNE_CENTRE_MS = 2320           # the retune rule's window centre in E (D + L + bind .. D + K + dx at L ~0.5)
 DESK_FIELD, DESK_SCENARIO = 359, 2600    # 359's scene runs at any scenario; Main_11 -> Field(351) entrance 15
 REST_FROM, REST_DEST = 351, 352
 DESK_FIRST, DESK_LAST, REST_FIRST = (3, 129), (3, 139), (4, 142)
@@ -134,14 +165,37 @@ LEAP_BYTE, LEAP_FLAG = 297, 2075         # Cat_Loop's leap needs 297 & 1 and 207
 OWN_HUB, OWN_DEST, OWN_PICK = 351, 450, 2
 P_FLAG = 8720                            # >= FIRST_SAFE_FLAG (8712)
 MENU_SHORT_S, MENU_AGED_S = 1.2, 3.5
+PAUSE_UI = "Pause"                       # the MENU leg's held state (UIManager.UIState): a mirroring guest has no main menu
+MENU_PRE_OK = ("open", "audible")        # `netsync.menu_refusal.now` with the scene branch live on a field HUD (menu_pre_void)
+PAUSE_OPEN_S = 5.0
 LEFT_BATTLE_S = 0.8
-BATTLE_SCENE = duo_mod.BENCH_SCENE       # 67: BSC_EF_R007, one Goblin (LOCKT2's own encounter)
+LEFT_BATTLE_MS = round(LEFT_BATTLE_S * 1000)      # the same hold on the swap clock: the host's emit_t + landed_ms + this
+BATTLE_SCENE = duo_mod.BENCH_SCENE       # 67: BSC_EF_R007, one Goblin (LOCKT2's own encounter; duo.py's bench battle on 250)
+LEFT_FIGHT_S = 120.0                     # LEFT's fallback fight, the last resort once no escape ended it (never leave it running)
+LEFT_ESCAPE_S = 45.0                     # [s164] a True flee is the SysEscape QUEUED: the run-off, the result and the close fade follow
+                                         # (flee_check.py's 45 s for the battle scene to go)
+LEFT_FIELD_S = 45.0                      # [s164] LEFT's battle over: the host's field HUD with control (ui_state lags past scene-gone)
+LEFT_FLEE_TRIES = 4                      # [s164] escape attempts before the fight: scene_info.no_gameover is false, so a wipe Game-Overs
+                                         # BOTH games (the first duo run's one lost 60 s roll left Dagger at 7 HP to the Lv5 Goblin)
+LEFT_PROMPTS = 4                         # [s164] host command prompts per attempt (a party of four: Zidane's turn comes round in them)
+LEFT_TURN_S = 20.0                       # [s164] one attempt's wait for each LATER host command prompt (its first: LEFT_FIRST_TURN_S)
+LEFT_FIRST_TURN_S = 45.0                 # [s164] an attempt's FIRST prompt wait: wait_battle returns before the intro (~7 s), the s114
+                                         # start hold (up to BW.START_HOLD_MS, 8 s) and the ATB fill (up to ~7.5 s); H1 waits 60 s
+LEFT_ROLL_S = 60.0                       # [s164] the bumper hold's window when no prompt took Flee (flee()'s own default)
+LEFT_REROLL_PCT = 50                     # [s164] re-roll only while the living members hold this share of the whole party's max HP (a
+                                         # dead member's max still counts): the first run's one lost hold cost 112 of 355 (the Goblin's
+                                         # four turns), so a second leaves ~37% for the fight
+LEFT_GUEST_S = 45.0                      # [s164] the guest's diorama Leave and its field HUD with control, after the host's return
 OPEN_NPC = (0.0, -350.0)                 # LOCKT2's control talker
 OPEN_STAND = (0.0, -470.0)
 PAGE_S = 0.2                             # CAT / OWN: the host's confirm pace (s163's)
 
 DWELL_MS = 1500                          # NetSyncStepOut.DwellMs (THE ARRIVAL LAW)
 ARRIVE_MARGIN_MS = 100
+K_LEAD_MS = BW.ARRIVAL_LEAD_MS           # [s164] THE ARRIVAL GUARD's K (NetSyncSwap.ArrivalLeadMs, 1040)
+TICK_MS = 16                             # Environment.TickCount's resolution (the guard's B - G is read against the QPC swap clock)
+ARRIVE_THIN_MS = 1450                    # a green ARRIVE whose guarded dwell peaks past this is reported "margin thin" (< 50 ms to D)
+ARRIVE_CTL_SHIFT_MS = 100                # the fade-old controls' shift, reported against this (~K - (B - Hs) at s163's gap)
 CAL_HOLD_S = (BW.SWAP_LINE_WINDOW_MS + 1000) / 1000.0     # each CAL field held LineWindowMs + 1 s (F13)
 CAL_DELAY_MS = 200
 CAL0_PRED_MS = (885, 912)                # reported (the s163 measurement)
@@ -162,6 +216,7 @@ DIP_TOL = 8                              # a cur_now step down by more than this
 FRAME_MS_DEFAULT = 1000.0 / 30
 ZIDANE = 0
 SEAT_S = 40.0
+SEAT_FIELD_S = 10.0                      # [s164] a seat's grace for the host's battle scene to go / its field HUD before the warp
 ARRIVE_S = 30.0
 DESK_S = 240.0                           # one DESK run: HOME -> 359 -> its scene -> 351 -> the desk scene -> 352
 CAT_S = 150.0
@@ -185,14 +240,19 @@ LEG_ROWS = {
     "LEVERS": ("LVD-ROLE", "LVD-LIFE"),
 }
 LANE_LABELS = ("CAL", "DESK", "REST")    # DA-LANE's floor: one reached transition in each
-#: the cross-game rows (F11a): VOID whole under an unfit clock (DC-B(a), DF-FAST, DA-LINES lose a clause instead)
-CROSS_GAME = ("DA-LANE", "DB-BIT", "DP-MARK", "DL-LEFT", "DA-ARRIVE")
+#: the cross-game rows (F11a): VOID whole under an unfit clock (DC-B(a), DF-FAST, DA-LINES and DA-ARRIVE lose a clause instead --
+#: DA-ARRIVE its overlap clause and its cross-game reports, ARRIVAL-GUARD-S164.md; DA-GUARD its seen - landing report)
+CROSS_GAME = ("DA-LANE", "DB-BIT", "DP-MARK", "DL-LEFT")
 #: the probabilistic rows (never red merely for being UNREACHED)
-PROBABILISTIC = ("DA-LANE", "DF-FLASH", "DF-GRACE", "DF-PACE", "DP-HALT", "DP-PARTY", "DC-B(b)", "DP-MARK", "DP-DEFER", "DA-ARRIVE")
+PROBABILISTIC = ("DA-LANE", "DF-FLASH", "DF-GRACE", "DF-PACE", "DP-HALT", "DP-PARTY", "DC-B(b)", "DP-MARK", "DP-DEFER", "DA-ARRIVE",
+                 "DA-GUARD")
 #: rows only reported, never judged (notes, never ledger rows -- K-CLOCK's precedent)
 REPORTED = ("DK-CLOCK", "DC-WON", "DA-PROBE-X")
-#: a pre-registered defect: red on round 1's code at act whatever the word (never counted as a calibration's red)
-BASELINE_RED = ("DA-ARRIVE",)
+#: pre-registered defects (red whatever the word, never counted as a calibration's red): none -- [s164] THE ARRIVAL GUARD made
+#: DA-ARRIVE a calibration (the `arrive` word reds it, guard on is green)
+BASELINE_RED = ()
+#: [s164] DA-GUARD's landings: each act intent landing in CAL2, CAL3, DESK and REST (guard_scope)
+GUARD_SUBS = ("CAL2", "CAL3")
 #: rows judged after the legs that feed them (DA-ARRIVE takes DESK's 351 arrivals as its DESK watch)
 LATE_ROWS = ("DA-ARRIVE",)
 
@@ -212,12 +272,19 @@ CLAIMS = {
     "DF-FAST": "CAL2: fade.last fast / fade / 12, by black; commit - follow 0.35-0.60 s; the host-to-guest landing gap shorter than "
                "CAL0's by >= 0.3 s",
     "DF-3X": "CAL3 (the guest's speedmode 1): fade.last.ticks 12-17; commit - follow <= 0.22 s",
-    "DA-ARRIVE": "ARRIVE at act reaches its exposure (overlap >= DwellMs + 100 ms, base.age_ms >= DwellMs) with no dwell OUT; the "
-                 "fade-old controls (ARRIVE on fade old, CAL0) green; the dressed watches (CAL2, DESK) green",
+    "DA-ARRIVE": "THE ARRIVAL GUARD's calibration: ARRIVE at act reaches its exposure (overlap >= DwellMs + 100 ms and (raw base.age_ms "
+                 ">= DwellMs or a dwell OUT)) with no dwell OUT and stepout.active never true, attributable to the guard (arrive.last "
+                 "30611 spared, ends.spared +>= 1, levers.arrive null); a red names its cause (never anchored / guard defect / margin "
+                 "miss); the fade-old controls (ARRIVE on fade old, CAL0) green; the dressed watches' (CAL2, DESK) dwell OUTs listed apart "
+                 "and reported, never folded into the verdict",
+    "DA-GUARD": "each act intent landing in CAL2, CAL3, DESK and REST whose host transition sent a landed frame (the host's "
+                "intent.landed_frames >= 1): the guest's arrive.lead_ms non-null for it before its control returns; at least one such "
+                "landing (UNREACHED under `life`); lead_ms and host.seen_t - the host's landing reported",
     "DA-LINES": "DESK: every edge line on both logs stamped; per host tap seq S: tap_t <= queued_t <= closed_t, 'waited X ms' = "
                 "closed_t - queued_t +- 1 ms, 'shown Y ms' <= closed_t - that page's open stamp",
-    "DF-FLASH": "DESK (REACHED on view_start heading or black): action join or ended by own, no cur_now dip from the follow start to "
-                "the first of (due, field load)",
+    "DF-FLASH": "DESK (REACHED on view_start heading or black): action join or hurry -- a wipe is red whatever ends it (a hurry ends "
+                "by black or own -- never a 0.9 s cut: fallback, recheck or timer), no cur_now dip from the follow start to the first of "
+                "(due, field load)",
     "DF-GRACE": "DESK at act (REACHED on the Join action: view black, or heading with <= 12 ticks left): fade.last.by own",
     "DF-PACE": "D = 0.3 (REACHED when the copy lags: backlog_start line or ahead): path backlog, by timer, the guest's last close for "
                "359 before the commit",
@@ -228,29 +295,36 @@ CLAIMS = {
     "DC-B(b)": "REST-OLD (REACHED on an own jump to 352 with the intent seen before it, the lane on 0 or 351): an own pass, converted "
                "+1 on the pending term, one load, bounces +0",
     "DP-HALT": "REACHED when pin.pre_frames rose across the MAPJUMP exits: pin.max_pre_diff stays 0 (the halted-VM premise)",
-    "DP-DRESS": "after the 351 -> 352 landing the guest's dress.self.want_char is the latest frame's leader",
+    "DP-DRESS": "after the 351 -> 352 landing the guest's dress.self.want_char is the latest frame's section-8 pick (the host's "
+                "dress.guard.effective over its dress.party, ResolveAuto's walk; 255 the moogle), never the host's leader (no double)",
     "DB-SHAPE": "the guest's own Field(351) passes on the host's pick (choice 3, field 350); its first sample listing (win 7, text 113) "
-                ">= 4.5 s before its first with host_flags b0 on 351 (text 118 first: the else path, VOID)",
-    "DB-BIT": "between the guest's 113 open and the host's scene rise: every guest sample host_flags b1 clear with b3 set, the lane on "
-              "351, orphan.host_holds; every host sample control false",
+                ">= 4.5 s before host_flags b0 RISES on 351 (a b0 sample after a b0-clear 351 sample at or before that 113 listing: "
+                "the 350 scene's sticky tail is not the rise) (text 118 first: the else path, VOID)",
+    "DB-BIT": "between the guest's 113 open and the host's scene rise (the host_flags b0 RISE on 351, DB-SHAPE's; a rise that precedes "
+              "113 is red): every guest sample host_flags b1 clear with b3 set, the lane on 351, orphan.host_holds; every host sample "
+              "control false",
     "DB-HOLD": "one 'win 7 text 113 held -- the host's control is off on my field' line, then its end line at the host's claim "
                "(predicted 'a host event claims it'); no 'is not on the host's screen'; orphan_closes +0 across 351",
     "DB-ORDER": "the guest's 113-117 each 'closed (host seq N)', N strictly increasing and the host's tap seq for the same text; no "
                 "'dropped -- it is for field 351'",
     "DC-OWN": "351 -> 450 'Dagger Tries': one load of 450, the own jump's term or lane recorded",
-    "DL-DEFER": "the guest's follow starts by the intent within 200 ms of its menu closing (last.follow_t - the menu's close on "
-                "clock.now_ms)",
+    "DL-DEFER": "the guest's follow starts by the intent within 200 ms of its Pause closing (last.follow_t - the Pause's close on "
+                "clock.now_ms; a mirroring guest has no main menu)",
     "DP-DEFER": "REACHED when that landing came by the intent with the pin < 2500 ms old, quality pre, the host's mark in the latest "
                 "frame: flag 8720 = 0 (the pin's story)",
-    "DP-AGED": "the menu held to 3.5 s: flag 8720 = 1, pin.last_use aged",
+    "DP-AGED": "the Pause held to 3.5 s: flag 8720 = 1, pin.last_use aged",
     "DP-MARK": "VOID unless the host's mark precedes the guest's landing by >= 300 ms; REACHED on quality pre: flag 8720 = 0, the "
                "pin line, last_diff >= 1",
-    "DL-LEFT": "the host's 'ended ... I left it' at its battle's swirl; the guest's seen.last_t stops within 300 ms of the battle start",
+    "DL-LEFT": "on HOME, REACHED when the host's last sample before its battle's send read intent.active for that nonce (else VOID), "
+               "and VOID when it then ended 'stands' after that read and no later than the battle start (the race); an intent still "
+               "active once the battle came up is red; green: the host's 'ended ... I left it' line for that nonce and "
+               "intent.last_end left, the guest saw that nonce, and its seen.last_t is no later than 300 ms past the battle start (the "
+               "host's first sample off FieldMap; intent.end_t on a Left end when that sample is unread)",
     "DF-OPEN": "a host line up across its warp: the guest's backlog_start open, path backlog, by timer, ms >= 885",
     "DP-PARTY": "REACHED on a landing whose host party changed between its emit and its landing: the guest's mirror_party is the "
                 "host's post-landing party",
-    "LVD-ROLE": "`swap life old` to the guest: the host-side refusal; `swap orphan old` to the host: the guest-side refusal; `swap "
-                "hostctl off` to either: the selftest refusal",
+    "LVD-ROLE": "`swap life old` to the guest: the host-side refusal; `swap orphan old` and `swap arrive old` to the host: the "
+                "guest-side refusal; `swap hostctl off` to either and `swap arrivebench 0` to the guest: the selftest refusal",
     "LVD-LIFE": "`swap life old` to the host reads back levers.life old, and the host's `reset` releases it",
 }
 
@@ -262,15 +336,17 @@ WORDS = {
     "own": ("guest: `swap own old`, on REST-OLD only (CAL and DESK hold `own act`)", ("DC-B(b)",), ()),
     "nocache": ("guest: `swap own nocache`, on REST-OLD only (a control: nothing turns red)", (), ()),
     "pin": ("guest: `swap pin old` on MARK and the 1.2 s MENU run only (DP-AGED keeps judging `aged`)", ("DP-MARK", "DP-DEFER"), ()),
-    "life": ("host: `swap life old` on CAL, DESK and the 1.2 s MENU run", ("DL-LIFE", "DL-DEFER"), ()),
+    "life": ("host: `swap life old` on CAL (both ARRIVE runs keep `life act`: the guard's anchor needs the host's landed frame), DESK "
+             "and the 1.2 s MENU run", ("DL-LIFE", "DL-DEFER"), ()),
     "fade": ("guest: `swap fade old` wherever it would run act", ("DF-FAST", "DF-3X", "DF-FLASH", "DF-OPEN"), ("DF-PACE",)),
     "long": ("guest: `swap fade long` wherever it would run act", ("DF-FAST", "DF-3X"), ()),
     "nogate": ("guest: `swap fade nogate` wherever it would run act", ("DF-OPEN",), ("DF-PACE",)),
+    "arrive": ("guest: `swap arrive old` before the ARRIVE act run only (`act` after it): THE ARRIVAL GUARD off", ("DA-ARRIVE",), ()),
 }
 #: the legs each word's lever acts on (a word whose legs COOP_LEGS leaves out is refused at load)
 WORD_LEGS = {"stamps": LEGS, "delay": ("CAL",), "orphan": ("CAT",), "own": ("DESK",), "nocache": ("DESK",), "pin": ("MARK", "MENU"),
              "life": ("CAL", "DESK", "MENU"), "fade": ("CAL", "DESK", "MENU", "OPEN"), "long": ("CAL", "DESK", "MENU", "OPEN"),
-             "nogate": ("CAL", "DESK", "MENU", "OPEN")}
+             "nogate": ("CAL", "DESK", "MENU", "OPEN"), "arrive": ("CAL",)}
 FADE_WORDS = {"fade": "old", "long": "long", "nogate": "nogate"}
 FINALS = ("D-CAL-M", "D-CAL")
 MARKERS = {
@@ -285,6 +361,7 @@ MARKERS = {
     "fade": "fade.last.path old (today's start and commit)",
     "long": "fade.last path fast with frames 24 (E off)",
     "nogate": "fade.last path fast with a backlog seen (the gate never read)",
+    "arrive": "a dwell OUT on 30611 with levers.arrive old and arrive.armed false at that landing",
 }
 
 
@@ -327,7 +404,7 @@ def _legs(legs) -> tuple:
 
 def catalog_rows(cal: str | None, legs) -> list:
     legs = _legs(legs)
-    rows = ["DA-LANE"] if any(leg in legs for leg in ("CAL", "DESK")) else []
+    rows = ["DA-LANE", "DA-GUARD"] if any(leg in legs for leg in ("CAL", "DESK")) else []
     for leg in LEGS:
         if leg in legs:
             rows += list(LEG_ROWS[leg])
@@ -546,6 +623,53 @@ def is_dwell_out(line: str) -> bool:
     return c.startswith("[NetSync] step-out: OUT on field ") and c.endswith(" -- dwell")
 
 
+def arrive_evidence(gs, gi_: int | None, g_ctl_i: int | None, dest: int) -> dict:
+    """[ff9mapkit netsync s164] THE ARRIVAL GUARD over one guest landing (PURE; `netsync.swap.arrive`, ARRIVAL-GUARD-S164.md "Lever,
+    state, log"), read from the landing to the guest's control: ``lever`` / ``armed`` at the landing (the lever is read there), ``lead``
+    the first non-null lead_ms (G - Hs; negative when late) -- DA-GUARD's anchor before my control returns --, ``lead_ep`` / ``shift``
+    / ``late`` at the last sample a hold ran (episode.on: the lead the episode's shift was made with), ``dwell_peak`` the guarded
+    dwell's peak, ``b_minus_g`` (clock.now_ms - arrive.land_t) - stepout.base.age_ms at the episode's own base (the last episode sample
+    with a base -- the same publish as ``shift`` when it carries one; else the first base sample: one episode = one base, and s158
+    re-arms the base on any one-frame BaseWhyNot miss, so the first base can predate the episode's), ``seen_t`` R's swap-clock write
+    (arrive.host.seen_t), ``base_end_t`` the first sample after the base with none (and no step-out active)."""
+    if gi_ is None:
+        return {}
+    gs = list(gs or [])
+    end = g_ctl_i + 1 if g_ctl_i is not None else len(gs)
+    win = gs[gi_:end]
+    mine = [x for x in win if ival(so.sget(x, "arrive.field")) == dest]
+    m0 = mine[0] if mine else None
+    first = next((x for x in mine if ival(so.sget(x, "arrive.lead_ms")) is not None), None)
+    eps = [x for x in win if so.sget(x, "arrive.episode.on") is True]
+    ep = eps[-1] if eps else None
+    dwells = [v for v in (ival(so.sget(x, "arrive.episode.dwell_ms")) for x in eps) if v is not None]
+    land_t = ival(so.sget(m0, "arrive.land_t")) if m0 is not None else None
+    age_of = lambda x: ival(_path(x, "netsync.stepout.base.age_ms"))                                          # noqa: E731
+    has_base = lambda x: age_of(x) is not None and age_of(x) >= 0         # noqa: E731 - a base 0 ms old is a base (never `or -1`)
+    epb = next((x for x in reversed(eps) if has_base(x)), None)
+    bsrc = epb if epb is not None else next((x for x in win if has_base(x)), None)
+    bmg = None
+    if bsrc is not None and land_t is not None and land_t >= 0 and so.now_ms(bsrc) is not None:
+        bmg = so.now_ms(bsrc) - land_t - ival(_path(bsrc, "netsync.stepout.base.age_ms"))
+    base_end, seen_base = None, False
+    for x in gs[gi_:]:
+        b = ival(_path(x, "netsync.stepout.base.age_ms"))
+        if b is not None and b >= 0:
+            seen_base = True
+        elif seen_base and _path(x, "netsync.stepout.active") is not True:
+            base_end = so.now_ms(x)
+            break
+    at = ep if ep is not None else first
+    return {"lever": so.sget(m0, "levers.arrive", "?") if m0 is not None else "?",
+            "armed": so.sget(m0, "arrive.armed") if m0 is not None else None,
+            "lead": ival(so.sget(first, "arrive.lead_ms")) if first is not None else None,
+            "lead_ep": ival(so.sget(at, "arrive.lead_ms")) if at is not None else None,
+            "late": so.sget(at, "arrive.late") is True if at is not None else False,
+            "shift": ival(so.sget(ep, "arrive.episode.shift_ms")) if ep is not None else None,
+            "dwell_peak": max(dwells, default=None), "b_minus_g": bmg, "land_t": land_t,
+            "seen_t": ival(so.sget(at, "arrive.host.seen_t")) if at is not None else None, "base_end_t": base_end}
+
+
 def tr_evidence(lane: str, sub: str, dest: int, frm: int, hs, gs, hl=(), gl=(), kind: str | None = None) -> dict:
     """One transition off the leg window's samples of each game (raw dicts; `netsync.swap` present), in the ENGINE's shapes: the host
     and guest record blocks at their most advanced sample (``h`` / ``g``), the host's intent block for that emit (``hi``), the blocks
@@ -578,14 +702,26 @@ def tr_evidence(lane: str, sub: str, dest: int, frm: int, hs, gs, hl=(), gl=(), 
             "party_emit": _path(sample_at(hs, _t(h, "last.emit_t")), "netsync.dress.party"),
             "party_land": _path(land_h, "netsync.dress.party"),
             "mirror_after": _path(on_dest[-1], "netsync.dress.mirror_party") if on_dest else None,
+            "arrive": arrive_evidence(gs, gi_, g_ctl_i, dest),             # [s164] THE ARRIVAL GUARD at this landing
             "hl": list(hl or []), "gl": list(gl or [])}
 
 
 def arrival_of(tr: dict, kind: str) -> dict:
-    """DA-ARRIVE's view of one arrival: gate | control | watch | watch-desk | control-desk."""
+    """DA-ARRIVE's view of one arrival: gate | control | watch | watch-desk | control-desk. [s164] With THE ARRIVAL GUARD's evidence
+    (arrive_evidence) and its classified episode off the record's last sample (``g``: arrive.last, ends.spared's delta from ``g0``),
+    and the reports: the landing gap L, A (the host's control-true after its landing - its landing, one game), dx (R's write - the
+    host's landing) and d7 (the guest's base end - the host's control-true), both cross-game."""
+    ga = tr.get("arrive") or {}
+    g, g0 = tr.get("g") or {}, tr.get("g0") or {}
     return {"kind": kind, "sub": tr.get("sub"), "dest": tr.get("dest"), "overlap": tr.get("overlap"), "base_peak": tr.get("base_peak"),
             "dwell_lines": sum(1 for ln in tr.get("gl") or () if is_dwell_out(ln)), "dwell_count": tr.get("dwell_count") or 0,
-            "active": bool(tr.get("active")), "dressed": bool(tr.get("dressed"))}
+            "active": bool(tr.get("active")), "dressed": bool(tr.get("dressed")),
+            "lever": ga.get("lever", "?"), "armed": ga.get("armed"), "lead": ival(ga.get("lead")), "lead_ep": ival(ga.get("lead_ep")),
+            "late": ga.get("late") is True, "shift": ival(ga.get("shift")), "dwell_peak": ival(ga.get("dwell_peak")),
+            "b_minus_g": ival(ga.get("b_minus_g")), "last_field": ival(_path(g, "arrive.last.field")),
+            "last_end": _path(g, "arrive.last.end"), "spared": _delta(g0, g, "arrive.ends.spared"),
+            "gap": _minus(tr.get("g_land_t"), tr.get("h_land_t")), "A": _minus(tr.get("h_ctl_t"), tr.get("h_land_t")),
+            "dx": _minus(ga.get("seen_t"), tr.get("h_land_t")), "d7": _minus(ga.get("base_end_t"), tr.get("h_ctl_t"))}
 
 
 def fade_cur_window(gs, follow_t: int | None, due_t: int | None, dest: int) -> list:
@@ -623,14 +759,91 @@ def last_close_on(samples, fld: int) -> int | None:
 
 
 def menu_close_t(gs) -> int | None:
-    """The clock.now_ms of the guest's first sample off its main menu after one on it."""
+    """The clock.now_ms of the guest's first sample off its Pause screen after one on it ([ff9mapkit netsync s164] the MENU leg holds
+    Pause: a mirroring guest's MAIN menu is refused by design -- s38 spectator-field, s121's audible refusal)."""
     on = False
     for x in gs or []:
-        if cb.raw(x).get("ui_state") == "MainMenu":
+        if cb.raw(x).get("ui_state") == PAUSE_UI:
             on = True
         elif on:
             return so.now_ms(x)
     return None
+
+
+def menu_pre_void(now) -> str | None:
+    """[ff9mapkit netsync s164] MENU's pre-guard (PURE): ``now`` the guest's `netsync.menu_refusal.now` (what a Menu press would do right
+    now, s121) -> the VOID reason, or None to go on. "audible" is a MIRRORING guest's normal FieldHUD read -- its MAIN menu refused, the
+    reason the leg holds Pause -- and "open" a guest with no mirror: both leave UIKeyTrigger's scene branch live, so Pause can open.
+    Any other read ("dialog": a window up, the press takes the dialogue path; "off": the scene's own MENUOFF; "silent": off FieldHUD;
+    "": no UIManager) is a setup miss before any press. Unread (None) goes on: the Pause poll is the gate then."""
+    if now is None or now in MENU_PRE_OK:
+        return None
+    return (f"VOID (a setup miss): the guest's menu_refusal.now reads {now!r} before the leg -- its key never reaches the scene branch "
+            f"where Pause opens (a mirroring guest's MAIN menu is refused by design: s38 spectator-field, s121)")
+
+
+def host_landed_on(x, dest: int, e0: int | None = None) -> bool:
+    """[ff9mapkit netsync s164] The host's LANDING HOOK on ``dest`` (PURE): on dest with intent.landed_ms >= 0 (set at the hook as ms
+    after the emit, reset to -1 at each emit -- field.id flips BEFORE the hook) for an intent other than the one emitted at ``e0``
+    (the pre-warp read). MARK's and MENU's post-landing mark and LEFT's landing anchor."""
+    lm, e = ival(so.sget(x, "intent.landed_ms")), ival(so.sget(x, "intent.emit_t"))
+    return _fid(x) == dest and lm is not None and lm >= 0 and e is not None and e >= 0 and (e0 is None or e != e0)
+
+
+def section8_pick(party, eff) -> int | None:
+    """[ff9mapkit netsync s164] DP-DRESS's expected value (PURE): the charId the HOST's section 8 names for the guest -- HostDress's
+    leader guard has already run (``eff`` = `dress.guard.effective`, the post-guard mask), then ResolveAutoCore's walk over the host's
+    party (battlewire.resolve_auto with the host's moogle-when-empty) and DressCharId: the first owned, occupied slot's CharacterId
+    (Zidane is 0: a member, never "empty"), 255 the moogle (no owned member) -- an unreadable (-2) or custom (12+) slot ships 255 too
+    (model 0, no dress). None when the mask or the party is unread."""
+    e = ival(eff)
+    if e is None or e < 0 or not isinstance(party, list):
+        return None
+    model, rig = BW.resolve_auto(e, BW.moogle_when_empty("host", False), party)
+    return BW.dress_char_id(model, rig)
+
+
+def intent_probe(x) -> dict:
+    """[ff9mapkit netsync s164] DL-LEFT's read of one host sample (PURE): its intent's active / nonce and its clock.now_ms (the swap
+    clock), plus the last end it reports."""
+    return {"active": so.sget(x, "intent.active") if x else None, "nonce": ival(so.sget(x, "intent.nonce")) if x else None,
+            "now_ms": so.now_ms(x) if x else None, "end_t": ival(so.sget(x, "intent.end_t")) if x else None,
+            "last_end": so.sget(x, "intent.last_end") if x else None}
+
+
+def first_off_field_t(samples) -> int | None:
+    """[ff9mapkit netsync s164] DL-LEFT's battle start (PURE): the clock.now_ms of the first sample whose scene has left FieldMap -- the
+    host's own anchor of its battle, independent of the intent's end_t."""
+    return next((so.now_ms(x) for x in samples or [] if cb.raw(x).get("scene") not in (None, "FieldMap")), None)
+
+
+def left_party_hp(x) -> tuple:
+    """[ff9mapkit netsync s164] LEFT's party HP off one battle sample (PURE; a State or a raw sample): (the living players' hp, every
+    player's hp_max) over battle.units, the enemy left out; (None, None) when no player with a max is listed. ``alive`` is the Death
+    status bit (channel.State.units), so a dead member's HP never counts."""
+    units = [u for u in cb.battle(x).get("units") or [] if isinstance(u, dict) and u.get("player")]
+    mx = sum(ival(u.get("hp_max")) or 0 for u in units)
+    if mx <= 0:
+        return None, None
+    return sum(ival(u.get("hp")) or 0 for u in units if u.get("alive") is not False), mx
+
+
+def left_may_reroll(x, pct: int = LEFT_REROLL_PCT) -> bool:
+    """[ff9mapkit netsync s164] Another escape attempt before LEFT's fallback fight (PURE): True while the living members' HP is at
+    least ``pct``% of every player's max HP (a dead member's max still counts, so a death pulls the party toward the fight). A lost
+    attempt is time the Goblin hits a party that never acts (the first duo run's one 60 s bumper hold: 355 -> 243 HP, Dagger at 7) and
+    a wipe Game-Overs both games, so the re-rolls stop while the fight still has HP to spend. An unread roster re-rolls
+    (LEFT_FLEE_TRIES bounds it)."""
+    hp, mx = left_party_hp(x)
+    return hp is None or hp * 100 >= pct * mx
+
+
+def guest_back_on(x, field: int) -> bool:
+    """[ff9mapkit netsync s164] The guest home from its diorama of the host's battle (PURE; a State or a raw sample): no diorama booted
+    (netsync.diorama.booted), its field HUD on ``field``, control. Control alone is no return: a booted diorama publishes
+    player.control true on BattleHUD with field.id still its boot field (the first duo run's guest from 06:00:04, BattleMapDebug on
+    30602); the return's field load bumps diorama.returns (last_return warm or cold, last_return_field)."""
+    return (cb.dio(x).get("booted") is not True and cb.raw(x).get("ui_state") == "FieldHUD" and _fid(x) == field and _ctl(x))
 
 
 # --------------------------------------------------------------------------------------------- the lines (pure)
@@ -887,34 +1100,173 @@ def judge_df_3x(cal3) -> tuple:
                                                     not bad)], "; ".join(bad[:2]))
 
 
-def arrive_reached(a: dict) -> bool:
+def _dwell_out(a: dict) -> bool:
+    return (a.get("dwell_lines") or 0) > 0 or (a.get("dwell_count") or 0) > 0
+
+
+def arrive_reached(a: dict, clock_ok: bool = True) -> bool:
+    """THE EXPOSURE (a kit fix, ARRIVAL-GUARD-S164.md "### Duo"): the overlap >= DwellMs + 100 AND (the raw base peak >= DwellMs OR a
+    dwell OUT) -- HarnessBaseAgeMs reads -1 while a step-out is active (NetSyncStepOut.cs:1049), so an OUT run's published peak sits
+    within a frame of 1500 on either side; at act a raw peak >= D means round 1 would have stepped out on this very run. The overlap
+    is cross-game: under an unfit clock (``clock_ok`` False) the reach is judged on the in-game clause alone."""
     ov, bp = ival(a.get("overlap")), ival(a.get("base_peak"))
-    return ov is not None and ov >= DWELL_MS + ARRIVE_MARGIN_MS and bp is not None and bp >= DWELL_MS
+    exposed = (bp is not None and bp >= DWELL_MS) or _dwell_out(a)
+    return exposed and (not clock_ok or (ov is not None and ov >= DWELL_MS + ARRIVE_MARGIN_MS))
 
 
 def _out(a: dict) -> bool:
     desk = (a.get("kind") or "").endswith("-desk")
-    return (a.get("dwell_lines") or 0) > 0 or (a.get("dwell_count") or 0) > 0 or (bool(a.get("active")) and not desk)
+    return _dwell_out(a) or (bool(a.get("active")) and not desk)
 
 
-def judge_da_arrive(arrivals, clock_ok: bool = True, clock_why: str = "") -> tuple:
-    """DA-ARRIVE (PURE): ``arrivals`` (arrival_of). The gate (ARRIVE at act) must REACH its exposure -- the overlap >= DwellMs + 100
-    AND the guest's peak netsync.stepout.base.age_ms >= DwellMs -- else red "not reached". Judged: the reached gates, every control
-    (the guest on fade old), the dressed watches; any dwell OUT is red (on DESK an OUT by line is lawful: only the dwell counts)."""
+def arrive_shift_rule(b_minus_g, lead_ms) -> int | None:
+    """The shift THE ARRIVAL GUARD owes an anchored arrival (PURE): min(K, max(0, K - (B - Hs))), B - Hs = (B - G) + lead_ms."""
+    return so.arrive_shift_rule(b_minus_g, lead_ms)
+
+
+def arrive_gate_verdict(a: dict, fms: float = FRAME_MS_DEFAULT) -> tuple:
+    """One REACHED gate (ARRIVE at act) -> (green, why): the named reds in order -- the guard off at the landing (levers.arrive old:
+    the `arrive` word's red), "the guard never anchored: no landed frame seen" (lead_ms null), "guard defect" (the episode's shift off
+    its rule by more than a frame + 16 ms, or no episode at all on an anchored landing), "margin miss" (a dwell OUT -- or a step-out --
+    with the guard anchored and its shift right: s163's own instant passed) -- then the ATTRIBUTABLE green: arrive.last.field 30611 with
+    last.end spared, ends.spared +>= 1, levers.arrive null."""
+    out, lever = _out(a), a.get("lever")
+    if lever is not None:
+        return False, (f"the guard was off at this landing (levers.arrive {lever!r}, armed {a.get('armed')}): s158's dwell from the base "
+                       f"start{' -- a dwell OUT' if _dwell_out(a) else ''}")
+    lead = ival(a.get("lead"))
+    if lead is None:
+        return False, "the guard never anchored: no landed frame seen (lead_ms null at the ARRIVE landing)"
+    shift = ival(a.get("shift"))
+    rule = arrive_shift_rule(a.get("b_minus_g"), a.get("lead_ep") if ival(a.get("lead_ep")) is not None else lead)
+    if shift is None:
+        return False, f"guard defect: no episode ran on an anchored landing (armed {a.get('armed')}, lead {lead} ms; the rule gives {rule} ms)"
+    if rule is None or abs(shift - rule) > fms + TICK_MS:
+        return False, f"guard defect: shift {shift} ms, the rule gives {rule} ms (B - G {a.get('b_minus_g')}, lead {a.get('lead_ep')} ms)"
+    if out:
+        return False, (f"margin miss: the guard shifted {shift} ms as its rule says, and this arrival's control-off still ran past Hs + K + "
+                       f"D (s163's own instant) -- retune ARRIVE's entry_settle, not a guard defect")
+    parts = [(f"arrive.last.field {ARRIVE_ID}", a.get("last_field") == ARRIVE_ID), ("last.end spared", a.get("last_end") == "spared"),
+             ("ends.spared +>= 1", (ival(a.get("spared")) or 0) >= 1), ("levers.arrive null", lever is None)]
+    dp = ival(a.get("dwell_peak"))
+    thin = f"; margin thin: the guarded dwell peaked {dp} ms (> {ARRIVE_THIN_MS})" if dp is not None and dp > ARRIVE_THIN_MS else ""
+    return all(v for _, v in parts), "the guard's green: " + _fmt(parts) + f" (shift {shift} = rule {rule} ms){thin}"
+
+
+def _lead_word(a: dict) -> str:
+    lead = ival(a.get("lead"))
+    return "null" if lead is None else f"{lead} ({'late' if lead < 0 or a.get('late') else 'in time'})"
+
+
+def arrive_report(arrivals, clock_ok: bool = True) -> str:
+    """DA-ARRIVE's reports (never judged): per arrival the overlap (cross-game), the raw base peak, the guarded dwell peak, the shift,
+    lead_ms and its sign; for the gate A (one game), dx and d7 (cross-game); the fade-old controls' shift against ~100 ms; a DESK OUT
+    by line with a shift is a guarded line start ("never delays a line", on real bytes); the cross-check of ARRIVE's guarded peak
+    against ARRIVE-OLD's raw base peak (two independent d7 draws: reported only)."""
+    cg = lambda v: v if clock_ok else "VOID"                                           # noqa: E731
+    out = []
+    arrive_first = sorted(arrivals or [], key=lambda a: 0 if a.get("kind") == "gate" else 1 if a.get("sub") == "ARRIVE-OLD" else 2)
+    for a in arrive_first:
+        k = a.get("kind") or ""
+        s = (f"{k} {a.get('sub')} -> {a.get('dest')}: overlap {cg(a.get('overlap'))}, raw base peak {a.get('base_peak')}, guarded peak "
+             f"{a.get('dwell_peak')}, shift {a.get('shift')}, lead {_lead_word(a)}{', DWELL OUT' if _out(a) else ''}")
+        if k == "gate":
+            s += f", A {a.get('A')}, dx {cg(a.get('dx'))}, d7 {cg(a.get('d7'))}"
+        elif k.startswith("control") and ival(a.get("shift")) is not None:
+            s += f" (control shift {'<=' if a['shift'] <= ARRIVE_CTL_SHIFT_MS else '>'} {ARRIVE_CTL_SHIFT_MS})"
+        if k.endswith("-desk") and a.get("active") and not _dwell_out(a) and (ival(a.get("shift")) or 0) > 0:
+            s += " (a guarded line start)"
+        out.append(s)
+    gate = next((a for a in arrivals or [] if a.get("kind") == "gate"), None)
+    ctl = next((a for a in arrivals or [] if a.get("kind") == "control" and a.get("sub") == "ARRIVE-OLD"), None)
+    if gate is not None and ctl is not None:                 # right after the two ARRIVE entries (a long report is cut at its end)
+        out.insert(2, f"cross-check (reported only): ARRIVE's guarded peak {gate.get('dwell_peak')} vs ARRIVE-OLD's raw base peak "
+                      f"{ctl.get('base_peak')}")
+    return "; ".join(out)
+
+
+def arrive_retune(arrivals, clock_ok: bool = True) -> str:
+    """THE RETUNE RULE, pre-registered (ARRIVAL-GUARD-S164.md "### Duo"; reported, never judged), read from CAL2's arrivals on AWAY --
+    a watch, never ARRIVE's own outcome: O = overlap + L - 1667 ms (30602's auto hold), d7 their median; ARRIVE's E = settle/30 + O + d7
+    must sit in [D + L + bind, D + K + dx], else entry_settle becomes round((2320 - O - d7) / 33.3), the window's centre."""
     if not clock_ok:
-        return _void_clock(clock_why or "the instrument is unfit")
+        return "retune check VOID (DK-CLOCK unfit: O, L, dx and d7 are cross-game)"
+    cal2 = [a for a in arrivals or [] if a.get("sub") == "CAL2" and a.get("dest") == AWAY]
+    rows = [(a["overlap"] + a["gap"] - ARRIVE_AUTO_HOLD_MS, a["gap"], a.get("d7"), a.get("dx"), a.get("b_minus_g")) for a in cal2
+            if ival(a.get("overlap")) is not None and ival(a.get("gap")) is not None]
+    d7s = [r[2] for r in rows if ival(r[2]) is not None]
+    if not rows or not d7s:
+        return "retune check: CAL2's O / d7 unread"
+    med = lambda xs, dflt=0: statistics.median(xs) if xs else dflt                   # noqa: E731
+    o, d7, gap = med([r[0] for r in rows]), med(d7s), med([r[1] for r in rows])
+    bind, dx = med([r[4] for r in rows if ival(r[4]) is not None]), med([r[3] for r in rows if ival(r[3]) is not None])
+    e = round(ARRIVE_SETTLE_TICKS * 1000 / 30 + o + d7)
+    lo, hi = DWELL_MS + gap + bind, DWELL_MS + K_LEAD_MS + dx
+    if lo <= e < hi:
+        return f"retune check (CAL2): O {round(o)} ms, d7 {round(d7)} ms -> E {e} ms inside [{round(lo)}, {round(hi)}): keep {ARRIVE_SETTLE_TICKS}"
+    return (f"retune check (CAL2): O {round(o)} ms, d7 {round(d7)} ms -> E {e} ms OUTSIDE [{round(lo)}, {round(hi)}): RETUNE entry_settle to "
+            f"{round((ARRIVE_RETUNE_CENTRE_MS - o - d7) / (1000 / 30))} before ARRIVE is judged again")
+
+
+def judge_da_arrive(arrivals, clock_ok: bool = True, clock_why: str = "", fms: float = FRAME_MS_DEFAULT) -> tuple:
+    """DA-ARRIVE (PURE), THE ARRIVAL GUARD's calibration: ``arrivals`` (arrival_of). The gate (ARRIVE at act) must REACH its exposure
+    (arrive_reached) -- else red "not reached" -- and each reached gate passes arrive_gate_verdict (no dwell OUT, stepout.active never
+    true, the green attributable to the guard; else its named red). Judged too: every control (the guest on fade old), where any dwell
+    OUT is red (on DESK an OUT by line is lawful: only the dwell counts). [ff9mapkit netsync s164] The dressed WATCHES (CAL2, DESK) are
+    listed apart and REPORTED, never folded into the verdict: the gate is the guard's calibration (the `arrive` word reds exactly
+    DA-ARRIVE), and the first duo run's five DESK watch OUTs were 352's lawful wordless scene read through a 351 window that never
+    closed (desk_evidence's fix) -- a watch red would have been an unpredicted red no calibration could tell from the gate's. An unfit
+    clock VOIDs only the overlap clause and the cross-game reports: the in-game clauses still judge."""
     arrivals = list(arrivals or [])
     gates = [a for a in arrivals if a.get("kind") == "gate"]
-    reached = [a for a in gates if arrive_reached(a)]
-    rep = "; ".join(f"{a.get('kind')} {a.get('sub')} -> {a.get('dest')}: overlap {a.get('overlap')}, base peak {a.get('base_peak')}"
-                    f"{', DWELL OUT' if _out(a) else ''}" for a in arrivals)[:900]
+    reached = [a for a in gates if arrive_reached(a, clock_ok)]
+    rep = (arrive_retune(arrivals, clock_ok) + "; " + arrive_report(arrivals, clock_ok))[:1100]
+    void = "" if clock_ok else f"; the overlap clause and the cross-game reports VOID ({_void_clock(clock_why or 'the instrument is unfit')[1]})"
     if not reached:
-        return R, f"not reached: ARRIVE at act never reached its exposure (overlap >= {DWELL_MS + ARRIVE_MARGIN_MS} ms, base.age_ms >= {DWELL_MS} ms) -- {rep}"
-    judged = reached + [a for a in arrivals if (a.get("kind") or "").startswith("control")]
-    judged += [a for a in arrivals if (a.get("kind") or "").startswith("watch") and a.get("dressed")]
-    bad = [a for a in judged if _out(a)]
-    names = ", ".join(f"{a.get('kind')}/{a.get('sub')}" for a in bad)
-    return (R if bad else G), f"gates reached {len(reached)}/{len(gates)}; judged {len(judged)}, dwell OUTs {len(bad)} ({names}); {rep}"
+        return R, (f"not reached: ARRIVE at act never reached its exposure (overlap >= {DWELL_MS + ARRIVE_MARGIN_MS} ms"
+                   f"{' VOID' if not clock_ok else ''}, and raw base.age_ms >= {DWELL_MS} ms or a dwell OUT) -- {rep}{void}")
+    verdicts = [arrive_gate_verdict(a, fms) for a in reached]
+    judged = [a for a in arrivals if (a.get("kind") or "").startswith("control")]
+    watches = [a for a in arrivals if (a.get("kind") or "").startswith("watch") and a.get("dressed")]
+    bad, wout = [a for a in judged if _out(a)], [a for a in watches if _out(a)]
+    names = lambda xs: ", ".join(f"{a.get('kind')}/{a.get('sub')}" for a in xs) or "none"     # noqa: E731
+    ok = all(v for v, _w in verdicts) and not bad
+    return (G if ok else R), (f"gates reached {len(reached)}/{len(gates)}: " + "; ".join(w for _v, w in verdicts)
+                              + f"; controls judged {len(judged)}, dwell OUTs {len(bad)} ({names(bad)}); watches (reported apart, never "
+                                f"judged): dressed {len(watches)}, OUTs {len(wout)} ({names(wout)}); {rep}{void}")
+
+
+def guard_scope(tr: dict) -> bool:
+    """DA-GUARD's landings: each act intent landing in CAL2, CAL3, DESK and REST."""
+    return (tr.get("lane") == "CAL" and tr.get("sub") in GUARD_SUBS) or tr.get("lane") in ("DESK", "REST")
+
+
+def judge_da_guard(trs, life_word: bool = False, clock_ok: bool = True) -> tuple:
+    """DA-GUARD (PURE; probabilistic, one game): the anchor DA-ARRIVE's green depends on, across ordinary landings. A landing in scope
+    (guard_scope) is REACHED when its host transition sent a landed frame (the host's intent.landed_frames >= 1: per intent, reset at
+    its emit); green when the guest's arrive.lead_ms read non-null for it before its control returned (arrive_evidence's ``lead``).
+    Any other landing is UNREACHED, never red. THE FLOOR (DA-LANE's, P8): at least one reached landing, else red "not reached: no
+    landing sent a landed frame" -- UNREACHED instead under the `life` word (its declared unreach: `life old` sends no landed frame).
+    Reported: lead_ms per landing and host.seen_t - the host's landing (cross-game: VOID under an unfit clock)."""
+    res = []
+    for tr in trs or []:
+        if not guard_scope(tr):
+            continue
+        lf = ival((tr.get("hi") or {}).get("landed_frames"))
+        ga = tr.get("arrive") or {}
+        lead = ival(ga.get("lead"))
+        dx = _minus(ga.get("seen_t"), tr.get("h_land_t")) if clock_ok else "VOID"
+        res.append((lf is not None and lf >= 1, lead is not None,
+                    f"{tr.get('lane')}/{tr.get('sub')} -> {tr.get('dest')}: landed_frames {lf}, lead_ms {lead}"
+                    f"{' (late)' if ga.get('late') else ''}, seen - host landing {dx}"))
+    reached = [r for r in res if r[0]]
+    if not reached:
+        if life_word:
+            return U, f"the `life` word's declared unreach: no landing sent a landed frame (0 of {len(res)})"
+        return R, f"not reached: no landing sent a landed frame (0 of {len(res)} in CAL2, CAL3, DESK and REST)"
+    bad = [r for r in reached if not r[1]]
+    return (R if bad else G), (f"{len(reached)} of {len(res)} reached, {len(bad)} never anchored; "
+                               + "; ".join(r[2] for r in (bad or reached)[:6]))
 
 
 def judge_da_lines(runs, clock_ok: bool = True) -> tuple:
@@ -954,14 +1306,23 @@ def _status_over(results, none_why: str) -> tuple:
 
 
 def judge_df_flash(fades) -> tuple:
-    """DF-FLASH (PURE): ``fades`` [{D, fade (fade.last), cur}] -- REACHED on view_start heading or black."""
+    """DF-FLASH (PURE): ``fades`` [{D, fade (fade.last), cur}] -- REACHED on view_start heading or black. Green: no cur_now dip and the
+    action join or hurry (a join C's own pass ends, by own, is still a join). [ff9mapkit netsync s164] A HURRY is lawful (the first duo
+    run's D 0.3 red): ActionRule hurries a Heading start with more than FastFrames left, InitFade continues from the current colour (no
+    flash), and SWAP-TIMING's DC-WON row predicts it; on a heading or black start only Old / Kick wipe. A hurry must still end by black
+    or own -- one that the 0.9 s fallback ended (by fallback: the fade never read black, risk 18) -- or recheck / timer -- red. A WIPE
+    is red whatever ends the follow (review round 2): Begin's FF9Wipe_FadeOutEx resets the slot to visible BEFORE NoteFollow stamps
+    follow_t, so the cur window opens on the rise and its dip is a sub-millisecond coin flip; the old `or by own` escape greened exactly
+    that wipe (the `fade` word's DESK, where the copy's own Field(351) lands inside the timer). [ff9mapkit netsync s164] The detail
+    names each run by D and REST-OLD (desk_evidence's ``old``, report only: REST-OLD's lever goes out on 351, after this follow)."""
     res = []
     for f in fades or []:
         fl = f.get("fade") or {}
         reached = fl.get("view_start") in ("heading", "black")
-        ok = (fl.get("action") == "join" or fl.get("by") == "own") and not dipped(f.get("cur"))
-        res.append((reached, ok, f"D {f.get('D')}: {fl.get('view_start')}/{fl.get('path')}/{fl.get('action')} by {fl.get('by')}, "
-                                 f"dip {dipped(f.get('cur'))}"))
+        act = fl.get("action")
+        ok = act in ("join", "hurry") and not dipped(f.get("cur")) and (act != "hurry" or fl.get("by") in ("black", "own"))
+        res.append((reached, ok, f"D {f.get('D')}{' REST-OLD' if f.get('old') else ''}: {fl.get('view_start')}/{fl.get('path')}/"
+                                 f"{fl.get('action')} by {fl.get('by')}, dip {dipped(f.get('cur'))}"))
     return _status_over(res, "no follow started on a heading or black screen")
 
 
@@ -1082,18 +1443,37 @@ def judge_dp_halt(runs) -> tuple:
 
 
 def judge_dp_dress(runs) -> tuple:
-    """DP-DRESS (PURE): [{want, leader}] after each 351 -> 352 landing; VOID when the host's leader or the guest's dress was unread."""
-    pairs = [(ival(r.get("want")), ival(r.get("leader"))) for r in runs or []]
-    if not pairs or any(w is None or w < 0 or ld is None or ld < 0 for w, ld in pairs):
-        return V, f"the guest's want_char / the host's leader unread on some landing (self-dress off?): {pairs}"
-    return _res([("want_char = the latest frame's leader", all(w == ld for w, ld in pairs))], f"(want, leader) {pairs}")
+    """DP-DRESS (PURE): [{want, expect, leader}] after each 351 -> 352 landing -- ``want`` the guest's dress.self.want_char, ``expect``
+    the latest frame's section-8 pick (section8_pick off the host's last 352 sample), ``leader`` the host's dress.guard.leader. Green:
+    want == expect on every landing, and want never the host's leader (no double). [ff9mapkit netsync s164] The first duo run read
+    (want 3, leader 2) six times -- the guard's Steiner beside the host's Garnet, the correct latest-frame dress -- against a judge that
+    wanted want == leader, the double itself. VOID when want, expect or leader is unread (a leader -1 is the `bench leaderguard off`
+    lever's positional rule; the DESK leg never sends it, so here -1 is unread)."""
+    trip = [(ival(r.get("want")), ival(r.get("expect")), ival(r.get("leader"))) for r in runs or []]
+    if not trip or any(v is None or v < 0 for t in trip for v in t):
+        return V, f"the guest's want_char / the host's section-8 pick / its leader unread on some landing (self-dress off?): {trip}"
+    return _res([("want_char = the latest frame's section-8 pick (the guard's)", all(w == e for w, e, _ld in trip)),
+                 ("never the host's leader (no double)", all(w != ld for w, _e, ld in trip))], f"(want, expect, leader) {trip}")
 
 
 def cat_t0(gs) -> tuple:
-    """(the guest's first (win 7, text 113) listing t, its first sample on 351 with host_flags b0 set, the else path ran)."""
+    """(the guest's first (win 7, text 113) listing t, the host_flags b0 RISE on 351, the else path ran). [ff9mapkit netsync s164] The
+    RISE is the first b0 sample on 351 after an ARMING b0-clear 351 sample at or before that 113 listing: b0 carries no field, the
+    host's 350 scene (the ATE menu's lines) is sticky until the host stands on a live 351 (HostSceneMachine.Step), and the guest's own
+    Field(351) lands before that -- so its first 351 samples carry that scene's b0 (the first duo run anchored on it: -2598 ms). A
+    clear seen only after 113 cannot arm: an early real rise that fell and rose again would otherwise read its late re-rise as the
+    rise (a false green) -- None, red."""
     t113, t118 = first_listing_t(gs, CAT_FIRST), first_listing_t(gs, CAT_ELSE)
-    b0 = next((so.now_ms(x) for x in gs or [] if _fid(x) == REST_FROM and (ival(so.nget(x, "host_flags")) or -1) >= 0
-               and ival(so.nget(x, "host_flags")) & 0x01), None)
+    b0, armed = None, False
+    for x in gs or []:
+        hf, n = ival(so.nget(x, "host_flags")), so.now_ms(x)
+        if _fid(x) != REST_FROM or hf is None or hf < 0:
+            continue
+        if not hf & 0x01:
+            armed = armed or (t113 is not None and n is not None and n <= t113)
+        elif armed:
+            b0 = n
+            break
     return t113, b0, t118 is not None and (t113 is None or t118 < t113)
 
 
@@ -1104,8 +1484,8 @@ def judge_db_shape(ev) -> tuple:
     passes = [ln for ln in ev.get("gl") or [] if (m := _RX["ate_hub_pass"].fullmatch(_strip(ln)[0]))
               and (int(m.group(1)), int(m.group(2)), int(m.group(3))) == (REST_FROM, CAT_PICK, CAT_FIELD)]
     parts = [("the own Field(351) passes on the host's pick (choice 3, field 350)", len(passes) >= 1),
-             ("113 listed >= 4.5 s before host_flags b0 on 351", t113 is not None and tb0 is not None and tb0 - t113 >= 4500)]
-    return _res(parts, f"113 at {t113}, b0 at {tb0} ({_minus(tb0, t113)} ms)")
+             ("113 listed >= 4.5 s before the host_flags b0 rise on 351", t113 is not None and tb0 is not None and tb0 - t113 >= 4500)]
+    return _res(parts, f"113 at {t113}, b0 rise at {tb0} ({_minus(tb0, t113)} ms)")
 
 
 def judge_db_bit(ev, clock_ok: bool = True, clock_why: str = "") -> tuple:
@@ -1115,7 +1495,9 @@ def judge_db_bit(ev, clock_ok: bool = True, clock_why: str = "") -> tuple:
     if else_path:
         return V, "text 118 opened first: 350's else path ran"
     if t113 is None or tb0 is None:
-        return R, f"no window: 113 at {t113}, b0 at {tb0}"
+        return R, f"no window: 113 at {t113}, b0 rise at {tb0} (no b0 rise on 351 after an arming clear at or before 113)"
+    if tb0 < t113:                                       # [s164] named, never read as an inverted, empty window
+        return R, f"rise precedes 113: the host's b0 rise at {tb0} came {t113 - tb0} ms before the guest's 113 listing at {t113}"
     inw = lambda x: so.now_ms(x) is not None and t113 <= so.now_ms(x) < tb0           # noqa: E731
     gw, hw = [x for x in ev.get("gs") or [] if inw(x)], [x for x in ev.get("hs") or [] if inw(x)]
     hf = lambda x: ival(so.nget(x, "host_flags")) if ival(so.nget(x, "host_flags")) is not None else -1   # noqa: E731
@@ -1175,8 +1557,8 @@ def judge_dl_defer(ev, fms: float = FRAME_MS_DEFAULT) -> tuple:
     g = ev.get("g") or {}
     d = _minus(_t(g, "last.follow_t"), ival(ev.get("menu_close_t")))
     return _res([("the follow came by the intent", _path(g, "last.follow_via") == "intent"),
-                 (f"within {DL_DEFER_MS} ms of the menu's close", d is not None and -fms <= d <= DL_DEFER_MS)],
-                f"follow_via {_path(g, 'last.follow_via')!r}, follow - menu close {d} ms")
+                 (f"within {DL_DEFER_MS} ms of the Pause's close", d is not None and -fms <= d <= DL_DEFER_MS)],
+                f"follow_via {_path(g, 'last.follow_via')!r}, follow - Pause close {d} ms")
 
 
 def judge_dp_defer(ev, life_word: bool = False) -> tuple:
@@ -1218,16 +1600,42 @@ def judge_dp_mark(ev, clock_ok: bool = True, clock_why: str = "") -> tuple:
 
 
 def judge_dl_left(ev, clock_ok: bool = True, clock_why: str = "") -> tuple:
+    """DL-LEFT (PURE): ``ev`` {n (the nonce of the host's warp to HOME, read at its landing hook), pre (intent_probe of the host's last
+    sample before its battle's send), h / g (each game's swap block once the battle is up), hl, dest, swirl_t (first_off_field_t: the
+    host's own battle start)}. [ff9mapkit netsync s164] THE REACH GATE (P8, the first duo run): VOID when the pre-send sample did not
+    read intent.active for nonce n -- the swirl never fell inside section 4's life (that run sent its battle 0.8 s after the host's
+    control on 30602, ~1.7 s after the intent had ended "stands"); an intent n still active once the battle is up is RED ("the swirl
+    never ended section 4"), never VOID. Compared on the swap clock (the pre sample's clock.now_ms against intent.end_t). The battle
+    start is swirl_t, falling back to intent.end_t on a Left end. THE RACE (review round 2, P8): intent n ending "stands" -- its lawful
+    end, IntentLifeRule's max(emit + 2 s, landing + 1 s) -- AFTER the pre-send read and no later than the swirl (off FieldMap) is the
+    send racing the life's end, VOID; a "stands" after the swirl (off the field), any other end, or an unread swirl_t stays judged.
+    Judged, past both VOIDs and the red: the host's "ended ... I left it" line for n on dest, intent.last_end "left", the guest's
+    seen.nonce n with seen.last_t no later than DL_LEFT_MS past the battle start. WHEN the Left end fell against the swirl is not
+    compared (no end_t <= swirl_t clause: unproven here; S1's rule is pinned by the engine's row r-swirl)."""
     if not clock_ok:
         return _void_clock(clock_why or "the instrument is unfit")
-    h, g = ev.get("h") or {}, ev.get("g") or {}
-    n, start = ival(_path(h, "intent.nonce")), ival(ev.get("start_t"))
+    h, g, pre = ev.get("h") or {}, ev.get("g") or {}, ev.get("pre") or {}
+    n, dest = ival(ev.get("n")), ev.get("dest", HOME)
+    last_end, end_t, pre_t = _path(h, "intent.last_end"), _t(h, "intent.end_t"), ival(pre.get("now_ms"))
+    pre_s = f"pre-send (active {pre.get('active')!r}, nonce {pre.get('nonce')}, t {pre_t})"
+    if n is None or pre.get("active") is not True or ival(pre.get("nonce")) != n:
+        return V, (f"setup miss (P8): the host's {pre_s} is not intent {n} live -- section 4 ended {last_end!r} at {end_t}, "
+                   f"{_minus(pre_t, end_t)} ms before the send: the swirl never fell inside its life")
+    if _path(h, "intent.active") is True and ival(_path(h, "intent.nonce")) == n:
+        return R, f"the swirl never ended section 4: intent {n} still active once the battle came up ({pre_s}; last_end {last_end!r})"
+    swirl = ival(ev.get("swirl_t"))
+    if (ival(_path(h, "intent.nonce")) == n and last_end == "stands" and end_t is not None and pre_t is not None
+            and swirl is not None and pre_t < end_t <= swirl):
+        return V, (f"race (P8): section 4 ended 'stands' at {end_t}, {end_t - pre_t} ms after the host's {pre_s} and {swirl - end_t} "
+                   f"ms before the battle start (off FieldMap): the swirl fell outside its life")
+    start = swirl if swirl is not None else (end_t if last_end == "left" else None)
     last = _t(g, "seen.last_t")
-    parts = [("the host's 'ended ... I left it' line", bool(stands_lines(ev.get("hl"), n, ev.get("dest", AWAY), BW.INTENT_END_LEFT))),
-             ("intent.last_end left", _path(h, "intent.last_end") == "left"),
+    parts = [("the host's 'ended ... I left it' line", bool(stands_lines(ev.get("hl"), n, dest, BW.INTENT_END_LEFT))),
+             ("intent.last_end left", last_end == "left"),
              ("the guest saw that nonce", ival(_path(g, "seen.nonce")) == n and last is not None),
              (f"seen.last_t within {DL_LEFT_MS} ms of the battle start", last is not None and start is not None and last <= start + DL_LEFT_MS)]
-    return _res(parts, f"nonce {n}, battle start {start}, seen.last_t {last}")
+    return _res(parts, f"nonce {n}, last_end {last_end!r} at {end_t}, {pre_s}, battle start {start} "
+                       f"({'off FieldMap' if swirl is not None else 'end_t'}), seen.last_t {last}")
 
 
 def judge_df_open(ev) -> tuple:
@@ -1250,10 +1658,14 @@ def judge_dp_party(trs) -> tuple:
 
 
 def judge_lvd_role(res: dict) -> tuple:
+    """LVD-ROLE (PURE): ``res`` {name: the refusal in full ("" when it acted)}. [s164] THE ARRIVAL GUARD's two: `swap arrive old` to the
+    host (a guest-side lever) and `swap arrivebench 0` to the client (the selftest role's)."""
     parts = [("guest life old: the host-side refusal", BW.swap_refusal_host_side("life") in (res.get("guest_life") or "")),
              ("host orphan old: the guest-side refusal", BW.swap_refusal_guest_side("orphan") in (res.get("host_orphan") or "")),
              ("host hostctl off: the selftest refusal", BW.swap_refusal_selftest("hostctl") in (res.get("host_hostctl") or "")),
-             ("guest hostctl off: the selftest refusal", BW.swap_refusal_selftest("hostctl") in (res.get("guest_hostctl") or ""))]
+             ("guest hostctl off: the selftest refusal", BW.swap_refusal_selftest("hostctl") in (res.get("guest_hostctl") or "")),
+             ("host arrive old: the guest-side refusal", BW.swap_refusal_guest_side("arrive") in (res.get("host_arrive") or "")),
+             ("guest arrivebench 0: the selftest refusal", BW.swap_refusal_selftest("arrivebench") in (res.get("guest_arrivebench") or ""))]
     return _res(parts, "; ".join(f"{k}: {str(v)[:90]!r}" for k, v in res.items()))
 
 
@@ -1299,6 +1711,11 @@ def marker(word: str, row: str, ev) -> tuple:
             parts = [("the serial follow", _path(ev.get("g"), "last.follow_via") == "serial")]
     elif word == "nocache":
         parts = [("no predicted red", False)]
+    elif word == "arrive":                               # [s164] THE ARRIVAL GUARD off at the ARRIVE act landing: round 1's dwell OUT
+        a = ev.get("gate") or {}
+        parts = [(f"a dwell OUT on {ARRIVE_ID}", a.get("dest") == ARRIVE_ID and _dwell_out(a)),
+                 ("levers.arrive old at that landing", a.get("lever") == "old"),
+                 ("arrive.armed false at that landing", a.get("armed") is False)]
     else:                                                # the fade words
         fades = [f.get("fade") or {} for f in ev.get("fades") or []]
         if word == "fade":
@@ -1402,7 +1819,8 @@ def slim(st) -> dict:
                                     "out_why": dict(sto.get("out_why") or {})},
                         "dress": {"party": dr.get("party"), "mirror_party": dr.get("mirror_party"),
                                   "self": {"want_char": (dr.get("self") or {}).get("want_char")},
-                                  "guard": {"leader": (dr.get("guard") or {}).get("leader")}},
+                                  "guard": {"leader": (dr.get("guard") or {}).get("leader"),       # [s164] DP-DRESS's
+                                            "effective": (dr.get("guard") or {}).get("effective")}},  # section-8 pick reads it
                         "swap": sw}}
 
 
@@ -1517,11 +1935,21 @@ def _settled(d, field: int) -> bool:
 
 def _seat(d, field: int) -> None:
     """Both on ``field`` with control and no follow in flight: the host warps there and the guest follows (a guest left elsewhere
-    after SEAT_S is warped there itself, noted)."""
+    after SEAT_S is warped there itself, noted). [ff9mapkit netsync s164] A battle still up on the host SEAT_FIELD_S on (a prior leg's
+    leftover: the first duo run's LEFT flee lost its roll) raises with that cause -- a setup miss (VOID), never SEAT_S burned on a
+    seat. The host's warp goes only on its field HUD (review round 2): the engine refuses `warp` off FieldHUD and a wait=False send
+    never surfaces it (ui_state lags as BattleResult past the battle scene), so no field HUD within SEAT_FIELD_S raises with the
+    state it read."""
+    host = d.host
+    if host.state.in_battle and cb.poll(host, lambda s: not s.in_battle, SEAT_FIELD_S, "the host's battle scene to go") is None:
+        raise HarnessError(f"a battle is still up on the host (a prior leg's leftover), not a seat miss on {field}")
     if _settled(d, field):
         return
-    if d.host.state.field_id != field:
-        d.host.send(f"warp {field} -1 -1", wait=False)
+    if host.state.field_id != field:
+        if cb.poll(host, lambda s: s.on_field, SEAT_FIELD_S, "the host's field HUD before its seat warp") is None:
+            raise HarnessError(f"the host is on {host.state.ui_state!r}, not FieldHUD, after {SEAT_FIELD_S:g} s: its seat warp to "
+                               f"{field} would be refused (a setup miss, not a seat miss)")
+        host.send(f"warp {field} -1 -1", wait=False)
     deadline = time.time() + SEAT_S
     while time.time() < deadline and not _settled(d, field):
         st = d.host.state
@@ -1635,10 +2063,11 @@ def _run(d, led: cb.Ledger, ctx: Ctx) -> None:
         if leg in ctx.legs:
             _guard(d, ctx, led, tuple(r for r in LEG_ROWS[leg] if r not in LATE_ROWS), lambda fn=fn: fn(d, ctx, led))
     if "CAL" in ctx.legs:                                # after DESK: its 351 arrivals are DA-ARRIVE's DESK watch
-        record(led, ctx, "DA-ARRIVE", judge_da_arrive(ctx.arrivals, ctx.clock_ok, ctx.clock_why))
+        record(led, ctx, "DA-ARRIVE", judge_da_arrive(ctx.arrivals, ctx.clock_ok, ctx.clock_why, ctx.fms))
     if any(leg in ctx.legs for leg in ("CAL", "DESK")):
         legs = tuple(x for x in LANE_LABELS if (x == "CAL" and "CAL" in ctx.legs) or (x != "CAL" and "DESK" in ctx.legs))
         record(led, ctx, "DA-LANE", judge_da_lane(ctx.lane, legs, ctx.clock_ok, ctx.clock_why))
+        record(led, ctx, "DA-GUARD", judge_da_guard(ctx.lane, life_word=ctx.cal == "life", clock_ok=ctx.clock_ok))   # [s164]
     record(led, ctx, "DP-PARTY", judge_dp_party(ctx.all_trs))
     if "LEVERS" in ctx.legs:
         _guard(d, ctx, led, LEG_ROWS["LEVERS"], lambda: _leg_levers(d, ctx, led))
@@ -1687,6 +2116,21 @@ def cal_subs(word: str | None) -> list:
             ("ARRIVE", "act", 0, False, ARRIVE_ID, "gate", "watch"), ("ARRIVE-OLD", "old", 0, False, ARRIVE_ID, "control", "control")]
 
 
+def cal_life(name: str) -> str:
+    """[s164] THE `life` SCOPE (a correction, ARRIVAL-GUARD-S164.md "### Duo"): the host's `life` lever on a CAL sub-leg under the
+    `life` word -- `old` (s163's self-clear) everywhere but the two ARRIVE runs, which keep `act`: under `life old` the host sends no
+    landed frame, the guard could not anchor, and DA-ARRIVE would go red (the word's exactness broken)."""
+    return "act" if name in ("ARRIVE", "ARRIVE-OLD") else "old"
+
+
+def cal_arrive(name: str, word: str | None) -> str | None:
+    """[s164] The guest's `arrive` lever before a CAL sub-leg: under the `arrive` word `old` (read back) before the ARRIVE act run only
+    and `act` before the next (ARRIVE-OLD) -- the lever is read AT the landing; None = not sent (the lever stays act)."""
+    if word != "arrive":
+        return None
+    return {"ARRIVE": "old", "ARRIVE-OLD": "act"}.get(name)
+
+
 def _leg_cal(d, ctx: Ctx, led: cb.Ledger) -> None:
     host, guest = d.host, d.guest
     _seat(d, HOME)
@@ -1695,14 +2139,19 @@ def _leg_cal(d, ctx: Ctx, led: cb.Ledger) -> None:
     if not arrive_ok:
         d.note(f"ARRIVE_ID {ARRIVE_ID} is not registered on both roots -- deploy it once: {deploy_command()} (then relaunch)")
     by: dict = {}
-    if life:
-        _lever(host, ctx, "life", "old", word_lever=True)
+    life_now = None                                      # the host's `life` lever as last sent under the `life` word
     try:
         for name, fade, delay, speed, dest, k_out, k_home in cal_subs(ctx.cal):
             if dest == ARRIVE_ID and not arrive_ok:
                 continue
+            if life and cal_life(name) != life_now:      # [s164] the `life` scope: `act` for the ARRIVE runs, `old` elsewhere
+                life_now = cal_life(name)
+                _lever(host, ctx, "life", life_now, word_lever=life_now == "old")
             _lever(guest, ctx, "fade", fade, word_lever=(ctx.cal in FADE_WORDS and name in ("CAL2", "CAL3")))
             _lever(guest, ctx, "delay", delay, word_lever=(ctx.cal == "delay" and name == "CAL1"))
+            arrive_word = cal_arrive(name, ctx.cal)
+            if arrive_word is not None:                  # [s164] THE ARRIVAL GUARD off for the ARRIVE act run only
+                _lever(guest, ctx, "arrive", arrive_word, word_lever=arrive_word == "old")
             if speed:
                 guest.speedmode(True)
             try:
@@ -1713,6 +2162,8 @@ def _leg_cal(d, ctx: Ctx, led: cb.Ledger) -> None:
                     ctx.all_trs.append(tr)
                     if kind:
                         ctx.arrivals.append(arrival_of(tr, kind))
+                        if kind == "gate":
+                            ctx.marks["DA-ARRIVE"] = {"gate": ctx.arrivals[-1]}
                     ctx.probe_x.append(f"{name} -> {to}: site {probe_site(tr['hi'])}, frames "
                                        f"{tr['hi'].get('frames')}, updates {tr['hi'].get('updates')}, sends {tr['hi'].get('sends')}, "
                                        f"oob {tr['hi'].get('oob')!r}, life {tr['hi'].get('last_life_ms')} ({tr['hi'].get('last_end')})")
@@ -1724,6 +2175,8 @@ def _leg_cal(d, ctx: Ctx, led: cb.Ledger) -> None:
     finally:
         if life:
             _ns(host, "swap", "life", "act")
+        if ctx.cal == "arrive":
+            _ns(guest, "swap", "arrive", "act")
     cal = [tr for k in ("CAL0", "CAL1", "CAL2", "CAL3") for tr in by.get(k, [])]
     ctx.fms = min([tr["fms"] for tr in cal] or [FRAME_MS_DEFAULT])
     cal1 = [tr["g"] for tr in by.get("CAL1", [])]
@@ -1738,9 +2191,9 @@ def _leg_cal(d, ctx: Ctx, led: cb.Ledger) -> None:
     record(led, ctx, "DC-FE", judge_dc_fe([ln for tr in cal for ln in tr["gl"]], cal[0]["g0"] if cal else {}, cal[-1]["g"] if cal else {}))
     record(led, ctx, "DF-FAST", judge_df_fast(by.get("CAL2", []), by.get("CAL0", []), ctx.clock_ok))
     record(led, ctx, "DF-3X", judge_df_3x(by.get("CAL3", [])))
-    if not arrive_ok:
-        record(led, ctx, "DA-ARRIVE", (R, f"not reached: ARRIVE_ID {ARRIVE_ID} is not registered on both roots (deploy: "
-                                          f"{deploy_command()}, then relaunch)"))
+    if not arrive_ok:                                    # a setup miss: VOID (ctx.void), never a calibration's predicted red
+        _lost(led, ctx, ("DA-ARRIVE",), f"ARRIVE_ID {ARRIVE_ID} is not registered on both roots (deploy: {deploy_command()}, then "
+                                        f"relaunch)")
 
 
 # ---- DESK + REST
@@ -1751,13 +2204,19 @@ def desk_runs(word: str | None) -> list:
 
 def desk_evidence(D: float, rest_old: bool, hs, gs, hl, gl, word: str | None = None) -> dict:
     """One DESK run's evidence off its samples (pure): the three transitions, the 351 follow's fade, DC-B's inputs, DP-HALT's,
-    DP-DRESS's, DA-LINES' lines and DC-WON's counts."""
+    DP-DRESS's, DA-LINES' lines and DC-WON's counts. [ff9mapkit netsync s164] The 351 transition reads the guest's samples only up to its
+    352 landing: the desk scene never gives control back on 351 (it runs straight into the 352 MAPJUMP), so a window "to control"
+    ran on through 352 and blamed 352's lawful dwell OUT (a 7.9 s wordless party scene) on the 351 arrival -- the first duo run's five
+    DESK watch OUTs. No 352 landing: the whole tail, as before. DP-DRESS's expected value is the host's section-8 pick
+    (section8_pick), never its leader."""
     hs, gs = list(hs or []), list(gs or [])
     h359, g359 = land_idx(hs, DESK_FIELD) or 0, land_idx(gs, DESK_FIELD) or 0
     h351, g351 = land_idx(hs, REST_FROM, h359), land_idx(gs, REST_FROM, g359)
+    g352 = land_idx(gs, REST_DEST, g351 if g351 is not None else g359)
+    end351 = g352 if g352 is not None and g352 > g359 else None    # gs[g359:None] = the whole tail
     act_fade = FADE_WORDS.get(word, "act")
     t359 = tr_evidence("DESK", f"D{D}", DESK_FIELD, HOME, hs, gs)
-    t351 = tr_evidence("DESK", f"D{D}", REST_FROM, DESK_FIELD, hs[h359:], gs[g359:],
+    t351 = tr_evidence("DESK", f"D{D}", REST_FROM, DESK_FIELD, hs[h359:], gs[g359:end351],
                        kind="control-desk" if act_fade == "old" else "watch-desk")
     t352 = tr_evidence("REST", f"D{D}{'-OLD' if rest_old else ''}", REST_DEST, REST_FROM, hs[h351 or 0:], gs[g351 or 0:])
     g = t351["g"]
@@ -1770,17 +2229,16 @@ def desk_evidence(D: float, rest_old: bool, hs, gs, hl, gl, word: str | None = N
     g0_rest = dict(so.swb(gs[g351]) or {}) if g351 is not None else {}
     on352 = [x for x in gs if _fid(x) == REST_DEST]
     h352 = [x for x in hs if _fid(x) == REST_DEST]
-    leader = ival(so.nget(h352[-1], "dress.guard.leader")) if h352 else None
-    if (leader is None or leader < 0) and h352:
-        party = so.nget(h352[-1], "dress.party") or []
-        leader = ival(party[0]) if party else None
+    leader = ival(so.nget(h352[-1], "dress.guard.leader")) if h352 else None      # no party[0] fallback: the leader is no slot 0
+    expect = section8_pick(so.nget(h352[-1], "dress.party"), so.nget(h352[-1], "dress.guard.effective")) if h352 else None
     return {"D": D, "old": rest_old, "t359": t359, "t351": t351, "t352": t352,
-            "fade": {"D": D, "fade": fl, "cur": cur, "commit_t": _t(g, "last.commit_t"), "last_close_t": last_close_on(gs, DESK_FIELD)},
+            "fade": {"D": D, "old": rest_old, "fade": fl, "cur": cur, "commit_t": _t(g, "last.commit_t"),
+                     "last_close_t": last_close_on(gs, DESK_FIELD)},             # [s164] `old`: DF-FLASH's detail names REST-OLD
             "rest": {"D": D, "g": g3, "g0": g0_rest, "maps": so.maps(gl, REST_DEST), "pre": pre,
                      "l139": _minus(close_t(gs, DESK_LAST), host_close_t(hs, gs, DESK_LAST)),
                      "g_land_t": t352["g_land_t"], "h_land_t": t352["h_land_t"]},
             "halt": {"g0": dict(so.swb(gs[0]) or {}) if gs else {}, "g": dict(so.swb(gs[-1]) or {}) if gs else {}},
-            "dress": {"want": ival(so.nget(on352[-1], "dress.self.want_char")) if on352 else None, "leader": leader},
+            "dress": {"want": ival(so.nget(on352[-1], "dress.self.want_char")) if on352 else None, "expect": expect, "leader": leader},
             "lines": {"hl": list(hl or []), "gl": list(gl or [])},
             "won": {"desk": (_delta(t359["g0"], t351["g"], "counts.follow_won"), _path(t351["g"], "own.by")),
                     "rest": (_delta(g0_rest, g3, "counts.follow_won"), _path(g3, "own.by"))}}
@@ -1972,8 +2430,14 @@ def _leg_own(d, ctx: Ctx, led: cb.Ledger) -> None:
 
 # ---- MENU
 def _menu_run(d, ctx: Ctx, hold_s: float, *, short: bool) -> dict:
+    """[ff9mapkit netsync s164] The guest holds its PAUSE screen across the host's exit (its MAIN menu is refused by design on a
+    mirroring guest: s38 spectator-field, s121 -- the first duo run's 15 s timeout) and closes it with cancel (Pause is a toggle: a
+    second `pause` press could reopen it after the close menu_close_t keyed on); the host marks 8720 at its landing hook."""
     host, guest = d.host, d.guest
     _seat(d, HOME)
+    why = menu_pre_void(cb.path(guest.state, "netsync.menu_refusal.now", None))
+    if why:
+        raise HarnessError(why)
     act_fade = FADE_WORDS.get(ctx.cal, "act")
     _lever(guest, ctx, "fade", act_fade, word_lever=act_fade != "act")
     host.flag(P_FLAG, False)
@@ -1986,7 +2450,10 @@ def _menu_run(d, ctx: Ctx, hold_s: float, *, short: bool) -> dict:
     if life_old:
         _lever(host, ctx, "life", "old", word_lever=True)
     try:
-        guest.open_menu()
+        guest.press("pause", 6)
+        if cb.poll(guest, lambda s: s.ui_state == PAUSE_UI, PAUSE_OPEN_S, "the guest's Pause") is None:
+            raise HarnessError(f"VOID (a setup miss): the guest's Pause never opened in {PAUSE_OPEN_S:g} s (ui_state "
+                               f"{guest.state.ui_state!r})")
         ag = len(d.lines("guest"))
         w = _Watch(d)
         w.pump()
@@ -1998,16 +2465,16 @@ def _menu_run(d, ctx: Ctx, hold_s: float, *, short: bool) -> dict:
             if role == "host" and state["emit_wall"] is None and e is not None and e >= 0 and e != e0:
                 n = so.now_ms(x)
                 state["emit_wall"] = time.time() - ((n - e) / 1000.0 if n is not None else 0.0)
-            if role == "host" and not state["marked"] and _fid(x) == AWAY:
+            if role == "host" and not state["marked"] and host_landed_on(x, AWAY, e0):
                 state["marked"] = True
-                host.flag(P_FLAG, True)                    # the host marks 8720 once it has landed (after the pin's frames)
+                host.flag(P_FLAG, True)                    # the host marks 8720 at its landing hook (after the pin's frames)
             if (role == "guest" and state["emit_wall"] is not None and time.time() >= state["emit_wall"] + hold_s
-                    and x.get("ui_state") == "MainMenu" and time.time() - state["pressed"] >= 0.6):
+                    and x.get("ui_state") == PAUSE_UI and time.time() - state["pressed"] >= 0.6):
                 state["pressed"] = time.time()             # one cancel at a time: the watch keeps sampling (menu_close_t reads it)
-                guest.press("cancel", 6)
+                guest.press("cancel", 6)                   # PauseUI.OnKeyCancel hides it; a stray cancel on FieldHUD does nothing
         w.hooks.append(step)
         host.send(f"warp {AWAY} -1 -1", wait=False)
-        w.until(lambda w: _fid(w.last("guest")) == AWAY and w.last("guest").get("ui_state") != "MainMenu" and state["pressed"] > 0,
+        w.until(lambda w: _fid(w.last("guest")) == AWAY and w.last("guest").get("ui_state") != PAUSE_UI and state["pressed"] > 0,
                 FOLLOW_S + hold_s + 5.0)
         w.hold(1.0)
         gi = land_idx(w.s["guest"], AWAY)
@@ -2018,6 +2485,8 @@ def _menu_run(d, ctx: Ctx, hold_s: float, *, short: bool) -> dict:
         ctx.all_trs.append(tr)
         return ev
     finally:
+        if guest.state.ui_state == PAUSE_UI:            # never leave the guest paused for the next leg
+            guest.press("cancel", 6)
         if pin_old:
             _ns(guest, "swap", "pin", "act")
         if life_old:
@@ -2049,15 +2518,18 @@ def _leg_mark(d, ctx: Ctx, led: cb.Ledger) -> None:
     try:
         ag = len(d.lines("guest"))
         w = _Watch(d)
+        w.pump()
+        e0 = ival(so.sget(w.last("host"), "intent.emit_t"))
         state = {"marked": False}
 
         def mark(role: str, x: dict) -> None:
-            if role == "host" and not state["marked"] and _fid(x) == AWAY and (
-                    (ival(so.sget(x, "intent.body_ms")) or -1) >= 0 or _ctl(x)):
+            # [s164] at the host's LANDING HOOK (intent.landed_ms >= 0), not its body / control: on 30602 those come ~1.77 s after
+            # the landing, ~1 s after the guest's own (the first duo run's -986 ms); at the hook + an ack the mark leads the guest's
+            # `fade long` landing by ~0.6 s -- still a post-landing write the pin must exclude
+            if role == "host" and not state["marked"] and host_landed_on(x, AWAY, e0):
                 state["marked"] = True
-                host.flag(P_FLAG, True)                    # once the host's body stands on D
+                host.flag(P_FLAG, True)
         w.hooks.append(mark)
-        w.pump()
         host.send(f"warp {AWAY} -1 -1", wait=False)
         w.until(lambda w: _fid(w.last("guest")) == AWAY and _closed(w.last("guest")), FOLLOW_S + 12.0)
         gi = land_idx(w.s["guest"], AWAY)
@@ -2078,29 +2550,136 @@ def _leg_mark(d, ctx: Ctx, led: cb.Ledger) -> None:
 
 # ---- LEFT
 def _leg_left(d, ctx: Ctx, led: cb.Ledger) -> None:
+    """[ff9mapkit netsync s164] From AWAY the host exits to HOME; once the guest has landed too, the battle goes out LEFT_BATTLE_S after
+    the host's landing hook on the swap clock (emit_t + landed_ms + 800), the watch pumped through the battle start (swirl_t, the
+    host's first sample off FieldMap) -- on 250 the 2 s emit floor ends section 4, so the swirl falls inside its life. The battle is
+    always ended (_end_left_battle), whatever raised: the next leg seats on a field."""
     host, guest = d.host, d.guest
-    _seat(d, HOME)
+    _seat(d, AWAY)
     ah = len(d.lines("host"))
     w = _Watch(d)
     w.pump()
-    host.send(f"warp {AWAY} -1 -1", wait=False)
-    if not w.until(lambda w: _fid(w.last("host")) == AWAY and _ctl(w.last("host")), ARRIVE_S):
-        raise HarnessError("the host never landed on 30602")
-    w.hold(LEFT_BATTLE_S)
+    e0 = ival(so.sget(w.last("host"), "intent.emit_t"))
     try:
-        host.start_battle(BATTLE_SCENE)
+        host.send(f"warp {HOME} -1 -1", wait=False)
+        if not w.until(lambda w: host_landed_on(w.last("host"), HOME, e0), ARRIVE_S):
+            raise HarnessError("VOID (a setup miss): the host's landing hook never ran on 250 (intent.landed_ms never read)")
+        hx = w.last("host")
+        n = ival(so.sget(hx, "intent.nonce"))
+        em, lm = ival(so.sget(hx, "intent.emit_t")), ival(so.sget(hx, "intent.landed_ms"))
+        land_at = em + lm if em is not None and lm is not None else None      # the landing hook on the swap clock
+        if not w.until(lambda w: _fid(w.last("guest")) == HOME, FOLLOW_S):
+            raise HarnessError("VOID (a setup miss): the guest never landed on 250 behind the host")
+        past = lambda n: n is not None and n >= land_at + LEFT_BATTLE_MS                                     # noqa: E731
+        w.until(lambda w: land_at is None or past(so.now_ms(w.last("host"))), LEFT_BATTLE_S + 5.0)
+        if host.state.ui_state != "FieldHUD":
+            raise HarnessError(f"VOID (a setup miss): the host is on {host.state.ui_state!r}, not FieldHUD, at the battle's send")
+        w.pump()
+        pre = intent_probe(w.last("host"))
+        k = len(w.s["host"])
+        before = host.state.battle_epoch
+        host.send(f"battle {BATTLE_SCENE} -1")         # start_battle's own send, the watch pumped through the swirl
+        w.until(lambda w: first_off_field_t(w.s["host"][k:]) is not None, 30.0)
+        host.wait_battle(timeout=60.0, after_epoch=before)
+        w.pump()
+        h = dict(so.swb(host.state) or {})
+        ev = {"n": n, "pre": pre, "h": h, "g": dict(so.swb(guest.state) or {}), "hl": _msgs(d, "host", ah), "dest": HOME,
+              "swirl_t": first_off_field_t(w.s["host"][k:])}
+        record(led, ctx, "DL-LEFT", judge_dl_left(ev, ctx.clock_ok, ctx.clock_why))
     finally:
-        hs = host.state
-        gs = guest.state
-    h = dict(so.swb(hs) or {})
-    ev = {"h": h, "g": dict(so.swb(gs) or {}), "hl": _msgs(d, "host", ah), "dest": AWAY,
-          "start_t": _t(h, "intent.end_t") if _path(h, "intent.last_end") == "left" else next(
-              (so.now_ms(x) for x in w.s["host"] if cb.raw(x).get("scene") not in (None, "FieldMap")), None)}
-    record(led, ctx, "DL-LEFT", judge_dl_left(ev, ctx.clock_ok, ctx.clock_why))
+        _end_left_battle(d)
+
+
+def _end_left_battle(d) -> None:
+    """[ff9mapkit netsync s164] Never leave LEFT's battle running (the first duo run's flee lost its stock level-ratio roll and OPEN
+    burned SEAT_S on a host still in BattleMap). [ff9mapkit netsync s164] Review round 2: a True flee is the SysEscape QUEUED, not
+    the party gone -- the run-off, the escape result and the close fade are seconds more of BattleMap, and OPEN's _seat read that as
+    a leftover (DF-OPEN VOID on the likelier branch) -- so it waits LEFT_ESCAPE_S for the battle scene to go, and an escape queued but
+    never run (dequeued outside PHASE_NORMAL) is re-rolled. Every branch returns only on the host's field HUD with control
+    (LEFT_FIELD_S, else noted): leave_battle stops at scene-gone while ui_state still reads BattleResult.
+    [ff9mapkit netsync s164] Fix round 2, ESCAPE FIRST, THE FIGHT LAST: scene_info.no_gameover is false, so a wipe Game-Overs BOTH games
+    and voids every later leg -- the first run's one lost 60 s roll left Dagger at 7 HP against the Lv5 Goblin. Up to LEFT_FLEE_TRIES
+    escape attempts (_left_escape: Zidane's Flee at a host prompt, else the bumper roll), each queued escape given LEFT_ESCAPE_S for
+    the battle scene to go, a re-roll only while the party holds LEFT_REROLL_PCT of its HP (left_may_reroll); only then the fight
+    (finish=False, then the result screens with stop_on_field: never a Confirm into a loading field). THE WARM RETURN: past the host's
+    field HUD it also waits LEFT_GUEST_S for the GUEST back from its diorama on that field with control (guest_back_on) -- OPEN's seat
+    warps the host off HOME at once, and a guest still in its diorama Leave defers that follow (DF-OPEN VOID). Each wait that runs out
+    is noted, never raised."""
+    host = d.host
+    if not host.state.in_battle:
+        return
+    tried, why = [], f"no escape ended it in {LEFT_FLEE_TRIES} attempt(s)"
+    for attempt in range(LEFT_FLEE_TRIES):
+        st = host.state
+        if not st.in_battle:
+            break
+        if attempt and not left_may_reroll(st):
+            hp, mx = left_party_hp(st)
+            why = f"the party is down to {hp} of {mx} HP after {attempt} attempt(s): no re-roll"
+            break
+        if _left_escape(d, tried) and cb.poll(host, lambda s: not s.in_battle, LEFT_ESCAPE_S,
+                                              "the battle scene to go after LEFT's escape") is None:
+            tried.append(f"queued, but the battle never ended in {LEFT_ESCAPE_S:g} s")
+    if host.state.in_battle:
+        d.note(f"LEFT: {why} ({'; '.join(tried)[:240]}) -- fighting it out, the last resort")
+        try:
+            host.fight(timeout=LEFT_FIGHT_S, finish=False)
+            host.leave_battle(stop_on_field=True)
+        except HarnessError as err:
+            d.note(f"LEFT: the fallback fight failed ({str(err)[:160]})")
+    back = cb.poll(host, lambda s: not s.in_battle and s.on_field and s.control, LEFT_FIELD_S,
+                   "the host's field HUD after LEFT's battle")
+    if back is None:
+        d.note(f"LEFT: the host never came back to its field HUD with control in {LEFT_FIELD_S:g} s after the battle")
+        return
+    fld = back.field_id
+    if cb.poll(d.guest, lambda s: guest_back_on(s, fld), LEFT_GUEST_S, f"the guest back on {fld} after LEFT's battle") is None:
+        g = d.guest.state
+        d.note(f"LEFT: the guest was not back on {fld} with control in {LEFT_GUEST_S:g} s after the host's return (diorama booted "
+               f"{cb.dio(g).get('booted')!r}, ui {cb.raw(g).get('ui_state')!r}, field {_fid(g)}) -- OPEN seats from there")
+    time.sleep(0.5)
+
+
+def _left_escape(d, tried: list) -> bool:
+    """[ff9mapkit netsync s164] ONE escape attempt in LEFT's battle, coop_battle_flee_defeat's H1 shape (S12c-H1, green on this scene,
+    30602 and this party in its three archived runs): at each host command prompt (up to LEFT_PROMPTS; the first within
+    LEFT_FIRST_TURN_S, as wait_battle returns before the intro and the s114 start hold -- H1 waits 60 s -- each later one within
+    LEFT_TURN_S) the prompted slot uses Flee -- Zidane's skill: FleeScript queues the SysEscape outright whenever the scene allows
+    running, no roll -- and a slot without it Defends (the Goblin's hits halved while Zidane's turn comes round). No prompt, or none
+    that took Flee, falls to the bumper hold (flee(): the stock level-ratio roll, one LEFT_ROLL_S window). The guest's Steiner
+    (GuestSlots 0x2) needs no move: the host's HUD never prompts a live guest's slot (NetSyncBattle.IsGuestOwnedSlot; a stale guest's slot reverts to the
+    host's prompts) and an idle guest's Wait-mode freeze is capped per turn -- every duo host fight leaves it so (coop_session_edges_duo,
+    coop_world_party_duo). True when an escape was commanded, is queued, or the battle is already over; each step goes to ``tried``."""
+    host = d.host
+    for i in range(LEFT_PROMPTS):
+        st = host.state
+        if not st.in_battle or cb.battle(st).get("escaping"):
+            return True
+        try:
+            slot = host.wait_turn(timeout=LEFT_TURN_S if i else LEFT_FIRST_TURN_S)
+        except HarnessError as err:
+            tried.append(f"no prompt ({str(err)[:60]})")
+            break
+        try:
+            host.act("Flee", slot=slot)
+            tried.append(f"slot {slot}: Flee")
+            return True
+        except HarnessError as err:
+            tried.append(f"slot {slot}: no Flee ({str(err)[:60]})")
+        try:
+            host.act("Defend", slot=slot)
+        except HarnessError as err:
+            tried.append(f"slot {slot}: no Defend ({str(err)[:60]})")
+    st = host.state
+    if not st.in_battle or cb.battle(st).get("escaping"):
+        return True
     try:
-        host.flee()
+        fled = host.flee(timeout=LEFT_ROLL_S)
     except HarnessError as err:
-        d.note(f"LEFT: the host's flee failed ({str(err)[:160]})")
+        tried.append(f"bumper roll failed ({str(err)[:80]})")
+        return False
+    tried.append("bumper roll " + ("landed" if fled else "lost"))
+    return fled
 
 
 # ---- OPEN
@@ -2140,7 +2719,9 @@ def _leg_open(d, ctx: Ctx, led: cb.Ledger) -> None:
 def _leg_levers(d, ctx: Ctx, led: cb.Ledger) -> None:
     host, guest = d.host, d.guest
     res = {"guest_life": so._try_full(guest, "swap", "life", "old"), "host_orphan": so._try_full(host, "swap", "orphan", "old"),
-           "host_hostctl": so._try_full(host, "swap", "hostctl", "off"), "guest_hostctl": so._try_full(guest, "swap", "hostctl", "off")}
+           "host_hostctl": so._try_full(host, "swap", "hostctl", "off"), "guest_hostctl": so._try_full(guest, "swap", "hostctl", "off"),
+           "host_arrive": so._try_full(host, "swap", "arrive", "old"),                   # [s164] THE ARRIVAL GUARD: a guest-side lever
+           "guest_arrivebench": so._try_full(guest, "swap", "arrivebench", 0)}          # ...and the selftest role's bench
     record(led, ctx, "LVD-ROLE", judge_lvd_role(res))
     acked = so._try_full(host, "swap", "life", "old") == ""
     st = cb.poll(host, lambda s: so.sget(s, "levers.life") == "old", 3.0, "the host's life lever") or host.state

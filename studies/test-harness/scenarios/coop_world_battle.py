@@ -207,6 +207,16 @@ COOPPARTY so its slot 1 is the guest's; keyed by the GUEST's stage -- both roots
   (The race -- the host entering the Ice Cavern within 2 s of its victory, the shared latch serializing the leave and the
   rejoin -- is NOT benched here: an owner duo check.)
 
+[ff9mapkit netsync s164] THE ARRIVAL GUARD's WORLD EXCLUSION (ARRIVAL-GUARD-S164.md "Kit and hunks", Regression gates; review
+finding 3): every world rejoin row here (WB-300, HF-REJOIN, D3) folds in coop_world_wait.judge_arrive_world (cw.with_arrive). On the
+guest's own publish, from the row's base to its last sample on the rejoin field: `netsync.swap.arrive.world` +1 or more, `arms` +0,
+and the guard's `field` that field (a landing off the world map is never armed: ArmWorld). `lead_ms` is reported in the detail and
+a note, never judged: it is the world-gap INFER's reading (at or above K = 1040 the gap did not shrink; below it, or late, is the
+trigger to arm world rejoins in a later round; null = never anchored, which is what every T2 tape recorded before s164 reads). The
+clause is not judged on an engine with no `netsync.swap.arrive` (any engine before s164, or s164 before the guard: every
+calibration prediction stands) or on the stand-in, which numbers no landing. coop_world_wait.py's docstring has the full
+statement. The decline leg's rejoin into 300 is not gated: its window is cut at the rejoin, and it judges no rejoin row.
+
 SWIRL-HANG (decision 11): wherever a leg starts a battle or boots a diorama from the world map, a game that goes QUIET with its
 last state on SwirlScene (no publish for QUIET_S) is an INSTRUMENT row (<PFX>-SWIRL, its detail 'SWIRL-HANG'): Memoria.log and
 output_log.txt archived into the run dir, a frame grabbed (tools/game_snap.ps1 -Id <the game's pid>), the leg stopped (the rows
@@ -509,7 +519,9 @@ T2_CHECKS = {
                        "digest A's and the camera kept (CAM's judge: A's on the first world ticks, then stock's follow from it), "
                        "MUSIC on the sound instances, and no window over the return but the world's own prompts",
         "S145-WB-300": "the host's entry: the guest rejoins 300 (FieldHUD 300, lands +1, the landed line) and no second return "
-                       "is counted there (diorama / dio returns unmoved, last_return_field never 300)",
+                       "is counted there (diorama / dio returns unmoved, last_return_field never 300); [s164] THE ARRIVAL "
+                       "GUARD's world exclusion (an engine with netsync.swap.arrive): arrive.world +1 or more, arms +0, "
+                       "arrive.field 300 -- lead_ms reported (the world-gap INFER)",
         "S145-WB-SWIRL": "the instrument: the guest's boot never hung in the swirl (SWIRL-HANG: logs, a frame, the leg stopped)",
     },
     "held": {
@@ -525,7 +537,9 @@ T2_CHECKS = {
                        "here, A being the landing), the MAP digest A's and the camera kept (CAM's judge), MUSIC on the sound "
                        "instances, no window over the return but the world's own prompts",
         "S145-HF-REJOIN": "decision 10: after the return the rejoin RESUMES -- FieldHUD 6603 (lands +1, the landed line) and no "
-                          "second return counted there (diorama / dio returns unmoved, last_return_field never 6603)",
+                          "second return counted there (diorama / dio returns unmoved, last_return_field never 6603); [s164] "
+                          "THE ARRIVAL GUARD's world exclusion (an engine with netsync.swap.arrive): arrive.world +1 or more, "
+                          "arms +0, arrive.field 6603 -- lead_ms reported (the world-gap INFER)",
         "S145-HF-SWIRL": "the instrument: the guest's boot never hung in the swirl",
     },
     "decline": {
@@ -595,7 +609,8 @@ DUO_CHECKS = {
                "own load), still frozen; battle_prob Main_Reinit's, the MAP digest A's and the camera kept (CAM's judge), MUSIC on "
                "the sound instances, no window over the return but the world's own prompts",
     "S145-D3": "coop_world_wait's D3: the host enters the Ice Cavern -> the guest rejoins 300 (THE BRACKET LAW) and no second "
-               "return is counted there",
+               "return is counted there; [s164] THE ARRIVAL GUARD's world exclusion (an engine with netsync.swap.arrive): "
+               "arrive.world +1 or more, arms +0, arrive.field 300 -- lead_ms reported (the world-gap INFER)",
     "S145-D-SWIRL": "the instrument: neither game's battle start hung in the swirl",
 }
 DUO_ORDER = ("S145-D0", "S145-D1", "S145-D2", "S145-DB", "S145-DP", "S145-DR", "S145-D3", "S145-D-SWIRL")
@@ -2832,7 +2847,10 @@ def _t2_rejoin(g, led: cb.Ledger, ctx: _T2, p: str, leg: str) -> None:
     _until(g, ctx, lambda s: s.ui_state == "FieldHUD" and s.field_id == field, REJOIN_S)
     cb.hold_for(g, 1.5)
     _sample(g, ctx)
-    led.check(cid, *judge_rejoin_300([s for ts, s in ctx.samples if ts >= t0], base, _msgs(ctx, t0), field=field))
+    samples, lines = [s for ts, s in ctx.samples if ts >= t0], _msgs(ctx, t0)
+    arrive = cw.judge_arrive_world(samples, base, lines, field=field)   # [ff9mapkit netsync s164] the guard's world exclusion
+    led.check(cid, *cw.with_arrive(judge_rejoin_300(samples, base, lines, field=field), arrive))
+    _note(g, f"s164 ARRIVAL GUARD on the world rejoin into {field}: {arrive[1]}")
 
 
 # ---------------------------------------------------------------------------------------------- the duo
@@ -3079,5 +3097,7 @@ def _duo(d, check, rest) -> None:
     n_ok, n_why = cw.judge_rejoin_land(samples, gbase, lines3, field=ICE_CAVERN)
     r_ok, r_why = judge_rejoin_300(samples, after if after is not None else gbase, lines3)
     mir = _s(samples[-1], "mirroring") if samples else None
-    check("S145-D3", a_ok and n_ok and r_ok and mir is True, f"ARM {a_why}; LAND {n_why}; NO SECOND RETURN {r_why}; "
-                                                              f"mirroring {mir!r}")
+    arrive = cw.judge_arrive_world(samples, gbase, lines3, field=ICE_CAVERN)   # [ff9mapkit netsync s164] the world exclusion
+    check("S145-D3", *cw.with_arrive((a_ok and n_ok and r_ok and mir is True, f"ARM {a_why}; LAND {n_why}; NO SECOND RETURN "
+                                                                               f"{r_why}; mirroring {mir!r}"), arrive))
+    d.note(f"s164 ARRIVAL GUARD on the world rejoin into {ICE_CAVERN}: {arrive[1]}")
