@@ -143,6 +143,12 @@ DEFAULT_FILES = [
     # NetSyncState.cs, NetSyncAte.cs, NetSyncStepOut.cs, NetSyncBattle.cs, NetSyncClient.cs, HarnessAgent.cs and the csproj are listed above
     "Assembly-CSharp/Memoria/Netsync/NetSyncSpeed.cs",
     "Assembly-CSharp/Global/SettingsState.cs",
+    # [ff9mapkit netsync s164] the field-swap timing round: its two new files (created from /dev/null) and its one stock hook site
+    # not yet listed -- SceneDirector.cs (the follow fade's NetSyncReadFade read); NetSyncClient.cs, NetSyncDialog.cs, NetSyncAte.cs,
+    # NetSyncSocket.cs, NetSyncRelay.cs, NetSyncState.cs, NetSyncBattle.cs, HarnessAgent.cs, Ff9mkDebugMenu.cs and the csproj are listed above
+    "Assembly-CSharp/Memoria/Netsync/NetSyncSwap.cs",
+    "Assembly-CSharp/Memoria/Netsync/NetSyncFollowFade.cs",
+    "Assembly-CSharp/Assets/Scripts/Common/SceneDirector.cs",
 ]
 
 # [ff9mapkit netsync s157] GENERATED files are only ever replaced WHOLE (the kit renders them from a JSON twin; their pins
