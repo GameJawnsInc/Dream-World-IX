@@ -806,6 +806,25 @@ OUT = {"good": [cb_(), cc(), cp(), ca(), cs(), reach[0]],
     assert not any(out["bad"].values()), {k: v for k, v in out["bad"].items() if v}
 
 
+def test_c_done_waits_for_this_attempts_own_jump():
+    """c_done (the leg C watch's stop): only THIS attempt's record (last.id past the id before the warp) with an own Field(352) that
+    stood on 352 or reloaded after it. Second-run fix (run 20261030-040045): the previous attempt's record (still `last`, own_t /
+    own_dest 352 / reload_t all set) ended every later watch at its first sample, before any injection."""
+    out = _child(_FIX + r'''
+jumped = {"last.own_t": 5000, "last.own_dest": 352, "last.reload_t": 5400}
+w = lambda **kw: dict(jumped, **{"last." + k: v for k, v in kw.items()})
+OUT = {"own_jump_reloaded": so.c_done(S(5500, field=351, sw=w(id=5)), 4),
+       "own_jump_on_352": so.c_done(S(5500, field=352, sw=w(id=5, reload_t=-1)), 4),
+       "stale_record": so.c_done(S(100, field=351, sw=w(id=4)), 4),
+       "no_own_jump": so.c_done(S(5500, field=351, sw=w(id=5, own_t=-1, own_dest=-1, reload_t=-1)), 4),
+       "other_dest": so.c_done(S(5500, field=351, sw=w(id=5, own_dest=351)), 4),
+       "before_reload": so.c_done(S(5100, field=351, sw=w(id=5, reload_t=-1)), 4),
+       "wired": "c_done(s, id0)" in __import__("inspect").getsource(so._c_attempt)}
+''')
+    assert out["own_jump_reloaded"] and out["own_jump_on_352"] and out["wired"], out
+    assert not any(out[k] for k in ("stale_record", "no_own_jump", "other_dest", "before_reload")), out
+
+
 def test_p_and_l_judges_can_go_red_on_each_part():
     """P-PIN (the flag from the pin, the stages line at 1 story byte, last_use, last.story), P-AGED / P-LATE (the latest frame's flag and
     the pin's why / quality), P-OTHER (the held entry, the count), P-PARTY (the story from the pin AND the party from the latest frame,
@@ -1981,7 +2000,10 @@ OUT = {"good": [du.judge_da_cal(c0, g1, 33.0)[0], du.judge_da_join(flat)[0], du.
            "3x_high": du.judge_df_3x(mod(cal["CAL3"], 0, "fade.last.ticks", 18))[0],
            "3x_low": du.judge_df_3x(mod(cal["CAL3"], 0, "fade.last.ticks", 11))[0],
            "3x_slow": du.judge_df_3x(mod(cal["CAL3"], 1, "last.commit_t", cal["CAL3"][1]["g"]["last"]["follow_t"] + 300))[0],
-           "3x_none": du.judge_df_3x([])[0]},
+           "3x_none": du.judge_df_3x([])[0],
+           # THE REACH RULE: a transition whose fade.last is not past its first guest sample's (a leftover record) is never green
+           "fast_stale": du.judge_df_fast(mod(cal["CAL2"], 0, "fade.last.due_t", cal["CAL2"][0]["g"]["fade"]["last"]["due_t"], where="g0"), cal["CAL0"])[0],
+           "3x_stale": du.judge_df_3x(mod(cal["CAL3"], 0, "fade.last.due_t", cal["CAL3"][0]["g"]["fade"]["last"]["due_t"], where="g0"))[0]},
        "cal3_ticks": [t["g"]["fade"]["last"]["ticks"] for t in cal["CAL3"]], "window": list(du.DF_3X_TICKS),
        "edge": [du.judge_df_3x(mod(cal["CAL3"], 0, "fade.last.ticks", v))[0] for v in (12, 17)]}
 ''')

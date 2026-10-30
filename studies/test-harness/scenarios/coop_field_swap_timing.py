@@ -1816,6 +1816,19 @@ def c_last(samples, id0: int) -> dict:
     return (sget(s, "last") if s is not None else None) or (sget(samples[-1], "last") if samples else None) or {}
 
 
+def c_done(s, id0: int) -> bool:
+    """An attempt's own jump has played out (PURE): THIS attempt's record (``last.id`` past ``id0``, the id before the warp) carries
+    an own Field(352), and the sample stands on 352 or after its bounce reload. Second-run fix (run 20261030-040045): without the id
+    term the previous attempt's record (still `last`: own_t, own_dest 352, reload_t all set) ended every later watch at its first
+    sample, before any injection -- C-CACHE / C-AGE 'never injected', C-PEND unreached, C-SRC's b1 read before its own jump."""
+    if (ival(sget(s, "last.id")) or 0) <= id0:
+        return False
+    t = ival(sget(s, "last.own_t"))
+    if t is None or t < 0 or ival(sget(s, "last.own_dest")) != C_DEST:
+        return False
+    return s.get("field", {}).get("id") == C_DEST or (ival(sget(s, "last.reload_t")) or -1) >= t
+
+
 def _c_attempt(g, ctx: Ctx, mode: str) -> dict:
     """One desk-scene run from HOME: ``mode`` dry | cache | pend | age | src. -> {reached, why, samples, lines, b0, b1, last, pager}.
     The record before (a bounce leaves it open) would JOIN this one's own edge inside RecordSpanMs, so its span runs out first."""
@@ -1849,12 +1862,7 @@ def _c_attempt(g, ctx: Ctx, mode: str) -> dict:
         return {"reached": False, "why": f"'{first_line}' never logged within {C_REACH_S:.0f} s of the landing", "lines": reach,
                 "samples": [], "b0": b0, "b1": _block(g), "last": sget(g.state, "last") or {}, "pager": pager}
 
-    def done(s) -> bool:
-        t = ival(sget(s, "last.own_t"))
-        if t is None or t < 0 or ival(sget(s, "last.own_dest")) != C_DEST:
-            return False
-        return s.get("field", {}).get("id") == C_DEST or (ival(sget(s, "last.reload_t")) or -1) >= t
-    samples, hit = watch(g, C_RUN_S, until=done, t0=t0, on_sample=pager)
+    samples, hit = watch(g, C_RUN_S, until=lambda s: c_done(s, id0), t0=t0, on_sample=pager)
     more, _ = watch(g, 1.5, t0=t0)                      # the landing's own lines and clears settle
     samples += more
     lines = cb.new(g, at)

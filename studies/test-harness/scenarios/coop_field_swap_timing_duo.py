@@ -845,6 +845,14 @@ def _landing_gap(tr) -> int | None:
     return _minus(tr.get("g_land_t"), tr.get("h_land_t"))
 
 
+def fresh_fade(tr) -> bool:
+    """THE REACH RULE (PURE): a transition's fade.last is ITS follow's record -- due_t past the one in the transition's first guest
+    sample (``g0``). A record left over from the previous transition means the guest never ran this follow (the solo F judges' term)."""
+    due = ival(_path(tr.get("g") or {}, "fade.last.due_t"))
+    due0 = ival(_path(tr.get("g0") or {}, "fade.last.due_t"))
+    return due is not None and due > (due0 if due0 is not None else -1)
+
+
 def judge_df_fast(cal2, cal0, clock_ok: bool = True) -> tuple:
     """DF-FAST (PURE): each CAL2 transition's fade.last and commit - follow; the landing gap against CAL0's (cross-game: dropped,
     with the reason, under an unfit clock)."""
@@ -853,7 +861,7 @@ def judge_df_fast(cal2, cal0, clock_ok: bool = True) -> tuple:
         g = tr.get("g") or {}
         fl = _path(g, "fade.last") or {}
         cf = commit_minus_follow(g)
-        ok = (fl.get("path") == "fast" and fl.get("action") == "fade" and ival(fl.get("frames")) == BW.FADE_FAST_FRAMES
+        ok = (fresh_fade(tr) and fl.get("path") == "fast" and fl.get("action") == "fade" and ival(fl.get("frames")) == BW.FADE_FAST_FRAMES
               and fl.get("by") == "black" and cf is not None and DF_FAST_MS[0] <= cf <= DF_FAST_MS[1])
         if not ok:
             bad.append(f"-> {tr.get('dest')}: fade.last {fl.get('path')}/{fl.get('action')}/{fl.get('frames')} by {fl.get('by')}, "
@@ -873,7 +881,7 @@ def judge_df_3x(cal3) -> tuple:
     for tr in cal3 or []:
         g = tr.get("g") or {}
         ticks, cf = ival(_path(g, "fade.last.ticks")), commit_minus_follow(g)
-        if not (ticks is not None and DF_3X_TICKS[0] <= ticks <= DF_3X_TICKS[1] and cf is not None and 0 <= cf <= DF_3X_MS):
+        if not (fresh_fade(tr) and ticks is not None and DF_3X_TICKS[0] <= ticks <= DF_3X_TICKS[1] and cf is not None and 0 <= cf <= DF_3X_MS):
             bad.append(f"-> {tr.get('dest')}: ticks {ticks}, commit - follow {cf}, path {_path(g, 'fade.last.path')}")
     return _res([("CAL3 transitions", bool(cal3)), (f"ticks {DF_3X_TICKS[0]}-{DF_3X_TICKS[1]}, commit - follow <= {DF_3X_MS} ms",
                                                     not bad)], "; ".join(bad[:2]))
