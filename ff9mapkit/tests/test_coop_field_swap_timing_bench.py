@@ -44,7 +44,8 @@ def _run_child(code: str, env_extra: dict | None = None) -> subprocess.Completed
             + "\nprint('@@' + json.dumps(OUT))\n")
     env = {k: v for k, v in os.environ.items() if k not in ("COOP_CALIBRATE", "COOP_LEGS")}
     env.update(env_extra or {})
-    return subprocess.run([sys.executable, "-X", "utf8", "-c", full], capture_output=True, text=True, cwd=str(SCEN), timeout=180,
+    # the script rides STDIN (`-`), not `-c`: a few children sit near Windows' 32767-character command line (WinError 206)
+    return subprocess.run([sys.executable, "-X", "utf8", "-"], input=full, capture_output=True, text=True, cwd=str(SCEN), timeout=180,
                           env=env)
 
 
@@ -389,25 +390,36 @@ def p_rows(word=None):
 
 
 # ---- L: intent_landing_step at the hook, intent_life_rule every Update
-def lsim(old=False, land_at=400, body_at=500, T=4000):
+def lsim(old=False, land_at=400, body_at=500, T=4000, step_at=0):
+    """One lifebench intent emitted at t 0 (intent.emit_t 0 on the swap clock). ``body_at`` the control char's binding on AW: the
+    harness's own `player.uid` reads 1 from then (and on HM before the landing: the old field's body), None between; ``step_at`` the
+    first Update the engine's life step runs (a LATE step: its body stamp and its end both wait for it). The step stamps
+    intent.body_ms as IntentLifeStepCore does -- the first step with the landing on_intent, on the field and the body there."""
     samples, lines = [], []
-    active, landing, landed_ms, end, life, end_t = True, BW.INTENT_LANDING_PENDING, -1, None, -1, -1
+    active, landing, landed_ms, end, life, end_t, body_ms = True, BW.INTENT_LANDING_PENDING, -1, None, -1, -1, -1
+
+    def put(now, fld, sw):
+        s = S(now, field=fld, sw=dict(sw, **{"intent.emit_t": 0, "intent.body_ms": body_ms}))
+        s["player"]["uid"] = 1 if now < land_at or now >= body_at else None
+        samples.append(s)
     for now in range(0, T + 1, DT):
         if active and landing == BW.INTENT_LANDING_PENDING and now >= land_at:
             landing = BW.intent_landing_step(landing, True, AW, AW)
             landed_ms = now
             lines.append(L(BW.life_log_landed(True, 1, AW, now, now)))
-            samples.append(S(now, field=AW, sw={"intent.active": True, "intent.landing": BW.INTENT_LANDING_NAMES[landing],
-                                                 "intent.landed_ms": landed_ms, "intent.field": AW}))
-        if active:
-            v = BW.intent_life_rule(old, now, now - landed_ms if landed_ms >= 0 else -1, landing, landing != 0 and now >= land_at,
-                                    now >= body_at)
+            put(now, AW, {"intent.active": True, "intent.landing": BW.INTENT_LANDING_NAMES[landing], "intent.landed_ms": landed_ms,
+                          "intent.field": AW})
+        if active and now >= step_at:
+            on_intent, there = landing != 0 and now >= land_at, now >= body_at
+            if landing == BW.INTENT_LANDING_ON_INTENT and body_ms < 0 and on_intent and there:
+                body_ms = now
+            v = BW.intent_life_rule(old, now, now - landed_ms if landed_ms >= 0 else -1, landing, on_intent, there)
             if v != BW.INTENT_LIFE_KEEP:
                 active, end, life, end_t = False, BW.INTENT_END_NAMES[v], now, now
                 lines.append(L(BW.life_log_ended(True, 1, AW, now, v, now)))
-        samples.append(S(now, field=AW if now >= land_at else HM,
-                         sw={"intent.active": active, "intent.landing": BW.INTENT_LANDING_NAMES[landing], "intent.landed_ms": landed_ms,
-                             "intent.last_end": end, "intent.last_life_ms": life, "intent.end_t": end_t}))
+        put(now, AW if now >= land_at else HM,
+            {"intent.active": active, "intent.landing": BW.INTENT_LANDING_NAMES[landing], "intent.landed_ms": landed_ms,
+             "intent.last_end": end, "intent.last_life_ms": life, "intent.end_t": end_t})
     return samples, lines
 
 
@@ -417,7 +429,7 @@ def l_rows(word=None):
 
 
 # ---- F: the D+E rules, an Update at a time
-F_SETUP = {"F-FAST": dict(), "F-3X": dict(speed=3), "F-BLACK": dict(view="black"), "F-JOIN": dict(view="heading", left=8),
+F_SETUP = {"F-FAST": dict(), "F-3X": dict(speed=3), "F-BLACK": dict(view="black"), "F-JOIN": dict(view="heading", left=7),
            "F-HURRY": dict(view="heading", left=60), "F-OPEN": dict(backlog="open"), "F-AHEAD": dict(backlog="ahead"),
            "F-AGED": dict(), "F-RECHECK": dict(mid="ahead"), "F-REASSERT": dict(reassert_at=3), "F-KEY": dict(backlog="key")}
 
@@ -799,7 +811,9 @@ def test_p_and_l_judges_can_go_red_on_each_part():
     the pin's why / quality), P-OTHER (the held entry, the count), P-PARTY (the story from the pin AND the party from the latest frame,
     then the clear: G2); L-LAND (the 'I landed' line and landed_ms >= 0, the evidence that outlives the intent's end; the on_intent
     sample with the intent active is reported, not required, so `life old` ending the intent in the hook's own frame stays green; the
-    R1 hole under `life` is VOID, never red) and L-STANDS (stands, the life's bound)."""
+    R1 hole under `life` is VOID, never red) and L-STANDS (stands, body_ms read, the harness's own body read, body_ms no later than
+    it + 100 ms, and the life's bound with the body term -- the first-run fix: a body 1.7 s past the landing is green, a late step
+    hiding behind its own stamp reds on the anchor alone, an end before the body reds on the bound)."""
     out = _child(_FIX + r'''
 e = {k: p_ev(k) for k in ("pin", "aged", "other", "late", "party")}
 pp = lambda flag=False, pin=e["pin"]["pin"], last=e["pin"]["last"], lines=e["pin"]["lines"]: so.judge_p_pin(flag, pin, last, lines)[0]
@@ -817,9 +831,13 @@ stands = lambda S_=ls: so.judge_l_stands(S_)[0]
 hookless = [s for s in lo if not (so.sget(s, "intent.landing") == "on_intent" and so.sget(s, "intent.active") is True)]
 r1 = [ed(s, sw={"intent.landed_ms": -1}) for s in lo]
 r1_lines = [ln for ln in llo if "I landed" not in ln]
+lb, _lbl = lsim(body_at=400 + 1700)                      # the body binds 1.7 s past the landing (30602's auto entry_settle hold)
+lrun, _lrl = lsim(land_at=1172, body_at=2891)            # run 20261030-024220's shape: landed 1172, body 2891
+step_late, _sll = lsim(body_at=2200, step_at=2891)       # the masking class: the harness sees the body at 2200, the step runs late
 OUT = {"good": [pp(), pa(), pl(), po(), pr(), land(), stands(), land(lo, llo),
                 land(hookless, llo), land([ed(s, sw={"intent.active": False}) for s in ls]),
-                land([ed(s, sw={"intent.landing": None}) for s in ls])],
+                land([ed(s, sw={"intent.landing": None}) for s in ls]), stands(lb), stands(lrun)],
+       "lb": so.judge_l_stands(lb)[1], "step_late": so.judge_l_stands(step_late)[1],
        "void": [so.l_land_void(r1, r1_lines, "life"), so.l_land_void(r1, r1_lines, None), so.l_land_void(r1, r1_lines, "fade"),
                 so.l_land_void(lo, llo, "life"), so.l_land_void(r1, llo, "life"), so.l_land_void(lo, r1_lines, "life"),
                 so.l_land_void(ls, ll, "life")],
@@ -836,9 +854,19 @@ OUT = {"good": [pp(), pa(), pl(), po(), pr(), land(), stands(), land(lo, llo),
                "land_other_field": land(lines=[ln.replace(f"field {AW} after", f"field {HM} after") for ln in ll]),
                "stands_old": stands(lo), "stands_late": stands(ls[:-1] + [ed(ls[-1], sw={"intent.last_life_ms": 2600})]),
                "stands_early": stands(ls[:-1] + [ed(ls[-1], sw={"intent.last_life_ms": 1300})]),
-               "stands_unlanded": stands([ed(s, sw={"intent.landed_ms": -1}) for s in ls])}}
+               "stands_unlanded": stands([ed(s, sw={"intent.landed_ms": -1}) for s in ls]),
+               "stands_step_late": stands(step_late),
+               "stands_before_body": stands(lb[:-1] + [ed(lb[-1], sw={"intent.last_life_ms": so.sget(lb[-1], "intent.body_ms") - 60})]),
+               "stands_body_unread": stands([ed(s, sw={"intent.body_ms": -1}) for s in ls]),
+               "stands_harness_unread": stands([ed(s, top={"player.uid": None}) for s in ls]),
+               "stands_harness_home_only": stands([ed(s, top={"player.uid": None}) if s["field"]["id"] == AW else s for s in ls])}}
 ''')
     assert all(out["good"]), out
+    # the body term: lsim(body_at=land + 1700) ends on the body, gap 0, the harness reading it in the same Update
+    assert "body 2112 ms, harness_body 2112 ms, gap 0" in out["lb"], out["lb"]
+    # the masking class reds ONLY on the independent anchor: its 3-term bound alone reads green (gap 0 behind the step's own stamp)
+    sl = out["step_late"]
+    assert "the engine saw my body no later than the harness) NO" in sl and "in [0, 400] ok" in sl and "gap 0" in sl, sl
     assert not any(out["bad"].values()), {k: v for k, v in out["bad"].items() if v}
     v = out["void"]
     assert isinstance(v[0], str) and "R1 hole" in v[0] and "before the landing hook" in v[0], v      # only `life`, only the R1 shape
@@ -850,7 +878,9 @@ OUT = {"good": [pp(), pa(), pl(), po(), pr(), land(), stands(), land(lo, llo),
 def test_f_judges_are_green_on_the_act_rules_and_can_go_red_on_each_part():
     """Every F row on the D+E twins under act is green; each row's parts red alone: the sentinel ("the engine never ran the follow
     fade"), another field, path / action / frames / by / primed, ticks and ms bounds, F-BLACK's black_ticks and its cur_now dip, F-JOIN's
-    left and grace, F-HURRY's drop, F-RECHECK's hold, F-REASSERT's line and count."""
+    left and grace, F-HURRY's drop, F-RECHECK's hold, F-REASSERT's line and count. The first-run fixes (run 20261030-024220): the timer
+    rows' floor is 900 - the measured start frame (900 - 2 frames with no start pair), so the run's F-KEY (882 ms on a 37 ms start
+    frame) is green and 859 red; F-JOIN on a black start is a setup miss (fade_void: VOID), never on a heading one."""
     out = _child(_FIX + r'''
 ev = {r: fsim(r) for r in so.F_ROWS}
 def jf(r, samples=None, lines=None, b0=None):
@@ -877,7 +907,7 @@ bad = {"sentinel": jf("F-FAST", ev["F-FAST"][0][:-1] + [ed(ev["F-FAST"][0][-1], 
        "hurry_action": jf("F-HURRY", fl("F-HURRY", action="join")), "hurry_frames": jf("F-HURRY", fl("F-HURRY", frames=24)),
        "hurry_ticks": jf("F-HURRY", fl("F-HURRY", ticks=15)), "hurry_drop": jf("F-HURRY", mid("F-HURRY", "fade.cur_now", 0, 5)),
        "open_backlog": jf("F-OPEN", fl("F-OPEN", backlog_start="none")), "open_path": jf("F-OPEN", fl("F-OPEN", path="fast")),
-       "open_by": jf("F-OPEN", fl("F-OPEN", by="black")), "open_ms": jf("F-OPEN", fl("F-OPEN", ms=880)),
+       "open_by": jf("F-OPEN", fl("F-OPEN", by="black")), "open_ms": jf("F-OPEN", fl("F-OPEN", ms=800)),
        "ahead_backlog": jf("F-AHEAD", fl("F-AHEAD", backlog_start="open")), "ahead_by": jf("F-AHEAD", fl("F-AHEAD", by="black")),
        "ahead_path": jf("F-AHEAD", fl("F-AHEAD", path="old")),
        "aged_path": jf("F-AGED", fl("F-AGED", path="backlog")),
@@ -885,13 +915,70 @@ bad = {"sentinel": jf("F-FAST", ev["F-FAST"][0][:-1] + [ed(ev["F-FAST"][0][-1], 
        "recheck_held": jf("F-RECHECK", [ed(s, sw={"fade.held": False}) for s in ev["F-RECHECK"][0]]), "recheck_ms": jf("F-RECHECK", fl("F-RECHECK", ms=800)),
        "reassert_no_line": jf("F-REASSERT", lines=[]), "reassert_two": jf("F-REASSERT", lines=ev["F-REASSERT"][1] * 2),
        "reassert_count": jf("F-REASSERT", b0=block(fade__reasserts=5)), "reassert_by": jf("F-REASSERT", fl("F-REASSERT", by="timer")),
-       "key_backlog": jf("F-KEY", fl("F-KEY", backlog_start="ahead")), "key_path": jf("F-KEY", fl("F-KEY", path="fast")), "key_ms": jf("F-KEY", fl("F-KEY", ms=100))}
+       "key_backlog": jf("F-KEY", fl("F-KEY", backlog_start="ahead")), "key_path": jf("F-KEY", fl("F-KEY", path="fast")), "key_ms": jf("F-KEY", fl("F-KEY", ms=100)),
+       "join_black_judged": jf("F-JOIN", fl("F-JOIN", view_start="black")),
+       # THE REACH RULE: a record left over from the previous row (due_t not past the pre-intent block's) never passes -- each row
+       # whose other terms a stale record could satisfy
+       "stale_aged": jf("F-AGED", b0=block(fade__reasserts=4, fade__last__due_t=so.ival(so.sget(ev["F-AGED"][0][-1], "fade.last.due_t")))),
+       "stale_fast": jf("F-FAST", b0=block(fade__reasserts=4, fade__last__due_t=so.ival(so.sget(ev["F-FAST"][0][-1], "fade.last.due_t")) + 1)),
+       "stale_key": jf("F-KEY", b0=block(fade__reasserts=4, fade__last__due_t=so.ival(so.sget(ev["F-KEY"][0][-1], "fade.last.due_t"))))}
+# the frame-aware floor (first-run fix): the start sample (fade.path set, age <= 2) and the one before it give the start frame dt0
+def started(r, dt0, age=1, ms=None):
+    s = ev[r][0] if ms is None else fl(r, ms=ms)
+    return [S(so.now_ms(s[0]) - dt0, field=HM)] + [ed(s[0], sw={"fade.age_ms": age})] + s[1:]
+floor = {"fallback": so.fade_timer_min_ms(ev["F-OPEN"][0]), "pair": so.fade_timer_min_ms(started("F-KEY", 37)),
+         "late_start": so.fade_timer_min_ms(started("F-KEY", 37, age=60)), "no_samples": so.fade_timer_min_ms([])}
+# run 20261030-024220's F-KEY: Begin on a 37 ms start frame, due after 882 ms -- green on the new floor (860), red under it
+key_run = [jf("F-KEY", started("F-KEY", 37, ms=882)), jf("F-KEY", started("F-KEY", 37, ms=859)), jf("F-RECHECK", started("F-RECHECK", 37, ms=885)),
+           jf("F-OPEN", started("F-OPEN", 30, ms=894))]
+void = {"black": so.fade_void("F-JOIN", fl("F-JOIN", view_start="black")), "heading": so.fade_void("F-JOIN", ev["F-JOIN"][0]),
+        "f_black": so.fade_void("F-BLACK", ev["F-BLACK"][0]), "empty": so.fade_void("F-JOIN", []),
+        "unset": so.fade_void("F-JOIN", ev["F-JOIN"][0][:-1] + [ed(ev["F-JOIN"][0][-1], sw={"fade.last": SENT["fade"]["last"]})])}
 OUT = {"good": good, "bad": bad, "edge": [jf("F-3X", fl("F-3X", ticks=v)) for v in (12, 17)],
-       "ticks_3x": so.sget(ev["F-3X"][0][-1], "fade.last.ticks")}
+       "ticks_3x": so.sget(ev["F-3X"][0][-1], "fade.last.ticks"), "floor": floor, "key_run": key_run, "void": void,
+       "join_left": ev["F-JOIN"][3]["left"]}
 ''')
     assert all(v[0] for v in out["good"].values()), {k: v[1] for k, v in out["good"].items() if not v[0]}
     assert not any(out["bad"].values()), {k: v for k, v in out["bad"].items() if v}
     assert out["edge"] == [True, True] and out["ticks_3x"] == 15, out          # F-3X 12-17 (== duo DF-3X); the Prime at 3x reads 15
+    # 900 - dt0 - 3 on a start pair; 900 - 2 measured frames (fsim DT 33) with no pair, or a first path sample past age 2
+    assert out["floor"] == {"fallback": 900 - 66, "pair": 900 - 37 - 3, "late_start": 900 - 66, "no_samples": int(900 - 2 * 1000.0 / 30)}, out["floor"]
+    assert out["key_run"] == [True, False, True, True], out["key_run"]
+    # F-JOIN's setup miss: a black start VOIDs (judge_fade alone reds it: join_black_judged); a heading start, F-BLACK's lawful black
+    # start and an unset fade.last never VOID (the last stays a red: "the engine never ran the follow fade")
+    v = out["void"]
+    assert isinstance(v["black"], str) and v["black"].startswith("the blackout finished before the follow began (left 0)"), v
+    assert v["heading"] is None and v["f_black"] is None and v["empty"] is None and v["unset"] is None, v
+    assert out["join_left"] == 7, out                                          # the one-request start: Block(2) frames after the blackout
+
+
+def test_the_first_run_anchors_read_only_their_own_evidence():
+    """The first-run fixes' evidence (run 20261030-024220), each read off its OWN record. L-STANDS' harness anchor skips the flip
+    samples -- field.id already 30602 with the OLD field's player still published before the landing hook (landed_ms -1; the run's F
+    legs show three) -- or the old body would read as mine at the flip. F-JOIN's VOID needs THIS follow's record (fade.last.due_t past
+    the block's before the intent): F-BLACK's record left over means the engine never ran the follow, judge_fade's red, never a setup
+    miss. (Its own child: the L and F judge tests' command lines sit near Windows' 32767-character limit.)"""
+    out = _child(_FIX + r'''
+ls, _ll = lsim(False)
+flipped = [ed(s, top={"field.id": AW}) if s["field"]["id"] == HM and so.now_ms(s) >= 400 - 3 * DT else s for s in ls]
+ev = fsim("F-JOIN")
+due0 = so.ival(so.cb.path(ev[2], "fade.last.due_t"))
+def black(**kw):
+    s = ev[0]
+    return s[:-1] + [ed(s[-1], sw={"fade.last": dict(so.sget(s[-1], "fade.last"), view_start="black", **kw)})]
+OUT = {"stands": so.judge_l_stands(flipped)[0],
+       "hb": [so.l_harness_body_ms(ls), so.l_harness_body_ms(flipped),
+              sum(1 for s in flipped if s["field"]["id"] == AW and s["player"]["uid"] is not None and so.sget(s, "intent.landed_ms") == -1)],
+       "void": [so.fade_void("F-JOIN", black(), ev[2]), so.fade_void("F-JOIN", black(due_t=due0), ev[2]),
+                so.fade_void("F-JOIN", black(due_t=due0), None)],
+       "stale_judged": so.judge_fade("F-JOIN", black(due_t=due0), ev[1], ev[2])[0]}
+''')
+    assert out["stands"] is True, out
+    assert out["hb"] == [528, 528, 3], out["hb"]                 # three pre-hook flip samples; the anchor reads the first post-hook body
+    v = out["void"]
+    assert isinstance(v[0], str) and v[0].startswith("the blackout finished before the follow began (left 0)"), v
+    assert v[1] is None and isinstance(v[2], str), v             # a stale record never VOIDs; with no block the record is taken as read
+    assert out["stale_judged"] is False, out                     # ...and stays judge_fade's red
 
 
 # ------------------------------------------------------------------------------------------------ the calibrations
@@ -1004,11 +1091,14 @@ def test_the_solo_run_has_the_registered_shape():
     joins a same-destination edge to any live record inside RecordSpanMs); each C attempt starts from HOME on `fade old` with the word's
     own lever (`own old` on the dry run); the pin lever only around P-PIN and P-PARTY (`pin act` before the guards); P ends with `swap
     clear`; the F sub-legs' lock states as registered (P11); leg C's setup misses VOID its rows, never red; an engine without
-    `netsync.swap` is refused before any leg."""
+    `netsync.swap` is refused before any leg. The first-run fixes (run 20261030-024220): leg C's warp is the step's ack only (Session.warp
+    waits for control, which the desk scene keeps off to its own Field(352)); B-CTLON waits out RelayOwnMs under hostscene 1 before the
+    settle; F-JOIN sends its blackout and the intent in ONE request (F-HURRY keeps its own setup) and a black start VOIDs it."""
     out = _child(r'''
 import inspect, re
 src = {n: inspect.getsource(getattr(so, n)) for n in ("run", "_leg_k", "_k_refuse", "_leg_a", "_c_attempt", "_leg_c", "_leg_p", "_leg_f",
-                                                      "_setup", "c_own_word")}
+                                                      "_setup", "c_own_word", "_b_ctlon", "_f_follow", "_f_one")}
+ct = src["_b_ctlon"]
 f = src["_leg_f"]
 locks = dict(re.findall(r'\("(F-[A-Z0-9]+)", dict\(lock=(True|False)', f))
 OUT = {"refuse_first": src["_leg_k"].index("_k_refuse") < src["_leg_k"].index("_k_lever") and "_arm(g)" in src["_k_refuse"]
@@ -1016,6 +1106,13 @@ OUT = {"refuse_first": src["_leg_k"].index("_k_refuse") < src["_leg_k"].index("_
        "setup_no_bench": '"bench"' not in src["_setup"],
        "span_a": src["_leg_a"].count("_span_clear(g)") == 2, "span_c": "_span_clear(g)" in src["_c_attempt"],
        "c_fade_old": '_swap(g, "fade", "old")' in src["_c_attempt"], "c_own": '_swap(g, "own", c_own_word(mode, ctx.cal))' in src["_c_attempt"],
+       "c_warp_ack_only": "g.warp(" not in src["_c_attempt"],
+       "ctlon_relay_own": "watch(g, (RELAY_OWN_MS + 300) / 1000.0)" in ct and so.RELAY_OWN_MS == BW.DIALOG_RELAY_OWN_MS == 3000
+       and ct.index("_open_line(g, ctx)") < ct.index("RELAY_OWN_MS") < ct.index("t_settle = ") < ct.index('_must(g, "hostscene", 0)'),
+       "f_join_lead": '("F-JOIN", dict(lock=False, lead=(("blackout", 8),), teardown=off))' in f and "blackout(8)" not in f,
+       "f_hurry_kept": '("F-HURRY", dict(lock=False, setup=blackout(60), teardown=off))' in f,
+       "f_lead_one_request": 'g.send(*(f"netsync swap ' in src["_f_follow"] and 'f"netsync swap intent {AWAY}")' in src["_f_follow"],
+       "f_void_wired": src["_f_one"].index("fade_void(row, samples, b0)") < src["_f_one"].index("judge_fade(") and "_void(led, ctx, [row], why)" in src["_f_one"],
        "own_words": [so.c_own_word(m, w) for m, w in (("dry", None), ("dry", "nocache"), ("cache", None), ("cache", "own"), ("pend", "nocache"))],
        "c_void": "_void(led, ctx, LEG_ROWS[\"C\"]" in src["_leg_c"],
        "pin_scope": src["_leg_p"].count('_swap(g, "pin", "old")') == 2 and src["_leg_p"].count('_swap(g, "pin", "act")') == 1,

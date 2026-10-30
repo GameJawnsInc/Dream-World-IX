@@ -41,7 +41,10 @@ leg K always runs, and the legs run in K A B C P L F order.
              the line "closed (host seq".
   B-BLIP2    a fresh single-page line orphaned at t0, off for 0.5 s at t0 + 1.0 / 2.5 / 4.0 / 5.5 s: exactly one relock line before
              the close (relocks +1), the auto-close by t0 + AutoReadMs + 0.3 s, orphan_closes +1, nothing counted after it.
-  B-CTLON    a fresh line, `hostctl on`, `hostscene 0`: orphans OrphanGraceMs after the settle and auto-closes; holds +0.
+  B-CTLON    a fresh line by relay, held under hostscene 1 until RelayOwnMs (3 s) has lapsed since the relayed start, then
+             `hostctl on`, `hostscene 0`: orphans OrphanGraceMs after the settle and auto-closes; holds +0. (First-run fix, run
+             20261030-024220: a relayed start claims every locked window for RelayOwnMs, so a settle inside it orphans at the accept
+             + 3 s, not the settle + 2 s; the hold lets only the settle clock gate the orphan.)
   C-*        the 351 desk scene (warp 351 entrance 15 scenario 2600, `swap fade old` (T8), `lock 1`, the bench pages each line):
              REACHED only when "win 3 text 129 opened locked" logs within 30 s (else the leg is VOID). A dry run under `own old`
              measures Delta (text 139's close to the own jump, from state) and carries C-BOUNCE; then C-CACHE (`swap cache 352` at
@@ -51,14 +54,23 @@ leg K always runs, and the legs run in K A B C P L F order.
   P-*        the pin bench: `flag 8720 0`, `watch 8720`, `swap pinbench 30602 8720 [age 3000 | to 30604 | landed | party 1 <c>]`;
              the leg ends with `swap clear` (P-PARTY reads the party mirror before it and null after it, G2).
   L-*        `swap lifebench 30602`: the landing hook's 'I landed' line and intent.landed_ms >= 0 (both outlive the intent's end;
-             the on_intent sample with the intent active is reported, never required); then `last_end` stands with
-             last_life_ms - max(2000, landed_ms + 1000) in [0, 400]. Under `life`, an intent s163's rule ended before the hook ran
-             (last_end old, no line, landed_ms -1: the R1 hole) leaves L-LAND VOID.
+             the on_intent sample with the intent active is reported, never required); then `last_end` stands, body_ms >= 0, the
+             harness's own body read (harness_body_ms: the first 30602 sample with landed_ms >= 0 and `player.uid` set, as
+             clock.now_ms - intent.emit_t), body_ms <= harness_body_ms + 100, and last_life_ms - max(2000, landed_ms + 1000,
+             body_ms) in [0, 400]. (First-run fix, run 20261030-024220: rev 3's bound left out the body term; 30602's auto
+             entry_settle hold binds the body ~1.7 s past the landing hook -- landed 1172, body 2891. body_ms is stamped by the very
+             step that ends the intent, so the harness's GetControlChar read is the independent anchor: a late step cannot hide
+             behind its own stamp.) Under `life`, an intent s163's rule ended before the hook ran (last_end old, no line, landed_ms
+             -1: the R1 hole) leaves L-LAND VOID.
   F-*        eleven fade follows to 30602 (blackout / speedmode / lock / unmatched / a host key set up as the design registers).
+             F-JOIN sends `swap blackout 8` and the intent in ONE request (the queue runs them Block(2) frames apart: the follow
+             starts on the heading fade); a follow that still starts black is a setup miss, VOID. F-OPEN / F-RECHECK / F-KEY judge
+             ms >= 900 - the measured start frame: a harness-started follow's first debit is its start frame's own Time.deltaTime.
+             (Both first-run fixes, run 20261030-024220.)
 
 THE REACH RULES (P4, P8). Every solo row is DETERMINISTIC: an op that was acked but whose key is still at its sentinel afterwards is
-RED ("the engine never ran X"). A setup clause that misses (leg C's first line, C-PEND's pending sample, the keeper's uid) marks the
-rows VOID with the reason -- recorded red, never green, and never counted as a calibration's predicted red.
+RED ("the engine never ran X"). A setup clause that misses (leg C's first line, C-PEND's pending sample, the keeper's uid, F-JOIN's
+heading screen) marks the rows VOID with the reason -- recorded red, never green, and never counted as a calibration's predicted red.
 
 THE CALIBRATIONS (COOP_CALIBRATE=<word>, refused AT LOAD when unknown: tools/play.py imports the scenario before its Session launches
 FF9, so a refused word never costs a boot). Each word turns EXACTLY its registered rows red, each with its marker (K-CAL-M), and K-CAL
@@ -126,9 +138,12 @@ C_CACHE_LEAD_S, C_PEND_LEAD_S, C_AGE_LEAD_S = 1.0, 0.45, 3.2
 P_FLAG = 8720                            # >= FIRST_SAFE_FLAG (8712): the pin bench's story flag
 P_OTHER = 30604                          # P-OTHER's `to <E>`: a registered bench field other than 30602 (COOPPARTY)
 P_AGE_MS = 3000
+L_BODY_SLACK_MS = 100                    # L-STANDS: the engine's body_ms may trail the harness's own body read by this (~3 frames: the
+                                         # control char exists before its fieldMapActor binds, BodyThereRule; TickCount vs QPC)
 
 GRACE_MS = BW.DIALOG_ORPHAN_GRACE_MS     # NetSyncDialog.OrphanGraceMs (2000)
 AUTO_READ_MS = BW.DIALOG_AUTO_READ_MS    # NetSyncDialog.AutoReadMs (2000)
+RELAY_OWN_MS = BW.DIALOG_RELAY_OWN_MS    # NetSyncDialog.RelayOwnMs (3000): a relayed start's claim on every locked window
 EARLY_MS = 80                            # a lower bound's allowance: TickCount's ~16 ms resolution + a frame + the publish
 LATE_MS = 600                            # an upper bound's allowance: a tick + the publish + our poll
 HOLD_S = (GRACE_MS + AUTO_READ_MS + 2000) / 1000.0
@@ -150,7 +165,8 @@ CLOCK_SLACK_MS = 100
 CLOCK_WATCH_S = 4.0
 REST_LEVERS = {"stamps": (None, "on"), "orphan": (None, "act"), "own": (None, "act"), "pin": (None, "act"), "life": (None, "act"),
                "fade": (None, "act")}
-FADE_TIMER_MIN_MS = 885                  # the 0.9 s timer as measured (T12: 0.885-0.912 s)
+FADE_START_AGE_MS = 2                    # the follow's START sample: fade.path set with fade.age_ms at most this
+FADE_START_PHASE_MS = 3                  # the DrainQueue -> ServiceFollowWarp phase inside the start frame (~1 ms) and the QPC read
 LEGS = "KABCPLF"
 
 LEG_ROWS = {
@@ -189,7 +205,8 @@ CLAIMS = {
                "closes it 'closed (host seq'",
     "B-BLIP2": "a single-page line orphaned at t0, off 0.5 s at t0 + 1.0/2.5/4.0/5.5: one relock line, relocks +1, the auto-close by "
                "t0 + AutoReadMs + 0.3 s, orphan_closes +1, nothing counted after it",
-    "B-CTLON": "hostctl on, hostscene 0: the line orphans OrphanGraceMs after the settle and auto-closes; holds +0",
+    "B-CTLON": "a fresh line by relay held under hostscene 1 until RelayOwnMs (3 s) has lapsed since the relayed start, then hostctl on, "
+               "hostscene 0: the line orphans OrphanGraceMs after the settle and auto-closes; holds +0",
     "C-BOUNCE": "the dry run (no injection): the own jump bounces (own_verdict bounce, own_why not-host), bounces +1, a landing on 351 "
                 "via a bounce reload with the record still open (reloads +1), own.passes +0",
     "C-CACHE": "`swap cache 352` before the jump: the cache write line, the '(cache)' pass line, by.cache +1, one 'Map: 352', bounces "
@@ -207,18 +224,20 @@ CLAIMS = {
                "it mirror_party null and the clear line names the pin bench's party mirror",
     "L-LAND": "`swap lifebench 30602`: the 'I landed' line and intent.landed_ms >= 0 (the on_intent sample with the intent active is "
               "reported, not required); VOID under `life` when s163's rule ended the intent before the hook",
-    "L-STANDS": "intent.last_end stands; last_life_ms - max(2000, landed_ms + 1000) in [0, 400]",
+    "L-STANDS": "intent.last_end stands; body_ms >= 0; harness_body_ms read; body_ms <= harness_body_ms + 100; "
+                "last_life_ms - max(2000, landed_ms + 1000, body_ms) in [0, 400]",
     "F-FAST": "fade.last fast / fade / 12, by black, primed, ticks 12-14, ms < 600",
     "F-3X": "speedmode 1: fade.last ms < 250, ticks 12-17",
     "F-BLACK": "blackout 1 first: view_start black, action join, by black, black_ticks >= 3, ms < 250, no cur_now under 248 to the due",
-    "F-JOIN": "blackout 8 first: heading, left <= 8, join, due within left + 3 + 2 ticks",
+    "F-JOIN": "blackout 8 and the intent in one request: heading, left <= 8, join, due within left + 3 + 2 ticks (a follow that "
+              "starts black is a setup miss: VOID)",
     "F-HURRY": "blackout 60 first: hurry with frames 12, by black within 14 ticks, cur_now never drops",
-    "F-OPEN": "a locked line open: backlog_start open, path backlog, by timer, ms >= 885",
+    "F-OPEN": "a locked line open: backlog_start open, path backlog, by timer, ms >= 900 - the start frame",
     "F-AHEAD": "`netsync unmatched` within 1 s: backlog_start ahead, path backlog, by timer",
     "F-AGED": "`netsync unmatched` 3.2 s earlier: path fast (the age cap)",
-    "F-RECHECK": "`netsync unmatched` right after the intent: path fast, held, by recheck, ms >= 885",
+    "F-RECHECK": "`netsync unmatched` right after the intent: path fast, held, by recheck, ms >= 900 - the start frame",
     "F-REASSERT": "`swap blackout off` 3 ticks into the fade: one reassert line, fade.reasserts +1, by black",
-    "F-KEY": "a bench host key for my field: backlog_start key, path backlog, by timer, ms >= 885",
+    "F-KEY": "a bench host key for my field: backlog_start key, path backlog, by timer, ms >= 900 - the start frame",
 }
 
 #: word -> (the lever, its registered red rows) -- SWAP-TIMING-S164.md "Solo calibrations, pre-registered"
@@ -938,15 +957,42 @@ def l_land_void(samples, lines, cal: str | None, dest: int = AWAY) -> str | None
     return None
 
 
+def l_harness_body_ms(samples, dest: int = AWAY) -> int:
+    """L-STANDS' INDEPENDENT body anchor (PURE): the earliest sample on ``dest`` with intent.landed_ms >= 0 (the hook has run -- the
+    old field's player, still published on the flip sample itself, is left out) and the harness's own `player.uid` set (HarnessAgent's
+    GetControlChar read, not the engine's step), as clock.now_ms - intent.emit_t; -1 when there is none."""
+    for s in samples:
+        landed = ival(sget(s, "intent.landed_ms"))
+        if (s.get("field") or {}).get("id") != dest or landed is None or landed < 0:
+            continue
+        if ival((s.get("player") or {}).get("uid")) is None:
+            continue
+        n, e = now_ms(s), ival(sget(s, "intent.emit_t"))
+        if n is not None and e is not None and e >= 0:
+            return n - e
+    return -1
+
+
 def judge_l_stands(samples) -> tuple:
-    """L-STANDS (PURE): ``samples`` across the life; landed_ms is read from the samples (it may reset at the end)."""
+    """L-STANDS (PURE): ``samples`` across the life; landed_ms is read from the samples (it may reset at the end), body_ms from the
+    final sample (it survives the end: only the next emit or a session reset clears it). First-run fix (run 20261030-024220): the
+    bound carries the body term, and body_ms -- stamped by the very step that ends the intent -- must not trail the harness's own read
+    (l_harness_body_ms) by more than L_BODY_SLACK_MS, so a late step cannot read green behind its own stamp."""
     fin = samples[-1] if samples else {}
     life = ival(sget(fin, "intent.last_life_ms"))
     landed = max([v for v in (ival(sget(s, "intent.landed_ms")) for s in samples) if v is not None] or [-1])
-    gap = life - max(BW.INTENT_MIN_LIFE_MS, landed + BW.INTENT_LAND_TAIL_MS) if life is not None and landed >= 0 else None
-    parts = [("last_end stands", sget(fin, "intent.last_end") == "stands"), ("landed_ms read", landed >= 0),
-             ("life - max(2000, landed + 1000) in [0, 400]", gap is not None and 0 <= gap <= 400)]
-    return _verdict(parts, f"last_end {sget(fin, 'intent.last_end')!r}, life {life} ms, landed {landed} ms, gap {gap}")
+    body = ival(sget(fin, "intent.body_ms"))
+    body = body if body is not None else -1
+    hb = l_harness_body_ms(samples)
+    gap = (life - max(BW.INTENT_MIN_LIFE_MS, landed + BW.INTENT_LAND_TAIL_MS, body) if life is not None and landed >= 0 and body >= 0
+           else None)
+    parts = [("last_end stands", sget(fin, "intent.last_end") == "stands"), ("landed_ms read", landed >= 0), ("body_ms read", body >= 0),
+             ("harness_body read", hb >= 0),
+             (f"body <= harness_body + {L_BODY_SLACK_MS} (the engine saw my body no later than the harness)",
+              body >= 0 and hb >= 0 and body <= hb + L_BODY_SLACK_MS),
+             ("life - max(2000, landed + 1000, body) in [0, 400]", gap is not None and 0 <= gap <= 400)]
+    return _verdict(parts, f"last_end {sget(fin, 'intent.last_end')!r}, life {life} ms, landed {landed} ms, body {body} ms, "
+                           f"harness_body {hb} ms, gap {gap}")
 
 
 # --------------------------------------------------------------------------------------------- F judges (pure)
@@ -959,6 +1005,26 @@ def fade_window(samples) -> list:
         return []
     t0 = t1 - ms
     return [s for s in samples if now_ms(s) is not None and t0 <= now_ms(s) <= t1]
+
+
+def fade_timer_min_ms(samples) -> int:
+    """F-OPEN / F-RECHECK / F-KEY's floor on fade.last.ms (PURE), first-run fix (run 20261030-024220). `swap intent` starts the follow
+    inside HarnessAgent.Update, BEFORE NetSyncClient.Update, so that frame's ServiceFollowWarp already debits a whole Time.deltaTime
+    that elapsed before Begin stamped the swap clock: Begin -> due = 900 - the start frame's deltaTime + overshoot. The floor is
+    900 - dt0 - FADE_START_PHASE_MS, dt0 the clock.now_ms gap between the first sample with fade.path set (fade.age_ms <=
+    FADE_START_AGE_MS: the start frame itself) and the sample before it; with no such pair, 900 - 2 measured frames. (s163's
+    0.885-0.912 s is the live-lane duo, FIELD-SWAP-TIMING.md §1: there the follow starts after ServiceFollowWarp, with no start-frame
+    debit.)"""
+    for i, s in enumerate(samples):
+        if sget(s, "fade.path") is None:
+            continue
+        age = ival(sget(s, "fade.age_ms"))
+        if i > 0 and age is not None and 0 <= age <= FADE_START_AGE_MS:
+            a, b = now_ms(samples[i - 1]), now_ms(s)
+            if a is not None and b is not None and b > a:
+                return int(BW.FADE_OLD_WAIT_MS - (b - a) - FADE_START_PHASE_MS)
+        break
+    return int(BW.FADE_OLD_WAIT_MS - 2 * frame_ms(samples))
 
 
 def _fade_parts(fl, want: dict, ranges: dict) -> list:
@@ -978,6 +1044,23 @@ def _fade_detail(fl) -> str:
     f = fl if isinstance(fl, dict) else {}
     return ("fade.last " + ", ".join(f"{k} {f.get(k)!r}" for k in ("path", "action", "frames", "by", "primed", "ms", "ticks",
                                                                     "view_start", "backlog_start")))
+
+
+def fade_void(row: str, samples, b0=None) -> str | None:
+    """An F row's VOID reason (PURE), or None. F-JOIN registers a HEADING screen (`blackout 8`, then the intent): a follow that starts
+    on a screen already black (fade.last.view_start black) never met the case the row exists for -- a SETUP MISS (first-run fix, run
+    20261030-024220: three driver round trips let the 8-tick fade finish first). VOID is recorded red, never green, and never counts
+    as a calibration's predicted red; a heading start that then acts or commits wrongly stays RED in judge_fade. Only THIS follow's
+    record counts (``b0`` the swap block before the intent: fade.last.due_t past its due_t) -- a record left over from F-BLACK means
+    the engine never ran this follow, judge_fade's red, never a setup miss."""
+    if row != "F-JOIN":
+        return None
+    fl = sget(samples[-1], "fade.last") if samples else None
+    due0 = ival(cb.path(b0, "fade.last.due_t")) if b0 is not None else None
+    fresh = isinstance(fl, dict) and (due0 is None or (ival(fl.get("due_t")) or -1) > due0)
+    if fresh and fl.get("view_start") == "black":
+        return f"the blackout finished before the follow began (left 0): {_fade_detail(fl)}"
+    return None
 
 
 def judge_fade(row: str, samples, lines=(), b0=None) -> tuple:
@@ -1012,14 +1095,14 @@ def judge_fade(row: str, samples, lines=(), b0=None) -> tuple:
                       and all(b >= a for a, b in zip(cur, cur[1:]))))
         extra.append(f"cur_now {cur[:12]}")
     elif row == "F-OPEN":
-        parts = _fade_parts(fl, {"backlog_start": "open", "path": "backlog", "by": "timer"}, {"ms": (FADE_TIMER_MIN_MS, None)})
+        parts = _fade_parts(fl, {"backlog_start": "open", "path": "backlog", "by": "timer"}, {"ms": (fade_timer_min_ms(samples), None)})
     elif row == "F-AHEAD":                               # path backlog too: under `fade old` the start still READS the backlog
         parts = _fade_parts(fl, {"backlog_start": "ahead", "path": "backlog", "by": "timer"}, {})
     elif row == "F-AGED":
         parts = _fade_parts(fl, {"path": "fast"}, {})
     elif row == "F-RECHECK":
         held = any(sget(s, "fade.held") is True for s in samples)
-        parts = _fade_parts(fl, {"path": "fast", "by": "recheck"}, {"ms": (FADE_TIMER_MIN_MS, None)})
+        parts = _fade_parts(fl, {"path": "fast", "by": "recheck"}, {"ms": (fade_timer_min_ms(samples), None)})
         parts.append(("held", held))
     elif row == "F-REASSERT":
         rl = [ln for ln in lines if core(ln).startswith("[NetSync] follow fade: the fade slot turned away from black mid-follow (")]
@@ -1027,9 +1110,16 @@ def judge_fade(row: str, samples, lines=(), b0=None) -> tuple:
         parts += [("one reassert line", len(rl) == 1),
                   ("fade.reasserts +1", rose(cb.path(b0, "fade.reasserts"), sget(fin, "fade.reasserts")))]
     elif row == "F-KEY":
-        parts = _fade_parts(fl, {"backlog_start": "key", "path": "backlog", "by": "timer"}, {"ms": (FADE_TIMER_MIN_MS, None)})
+        parts = _fade_parts(fl, {"backlog_start": "key", "path": "backlog", "by": "timer"}, {"ms": (fade_timer_min_ms(samples), None)})
     else:
         raise KeyError(row)
+    # THE REACH RULE (P8): only THIS follow's record counts -- fade.last.due_t past the swap block's before the intent. A record left
+    # over from the previous F row means the engine never ran this follow; without the term a stale record could pass (or carry a
+    # calibration's predicted red). ``b0`` None (a pure caller with no pre-intent block) keeps the term out.
+    due0 = ival(cb.path(b0, "fade.last.due_t")) if b0 is not None else None
+    if due0 is not None:
+        parts.insert(0, ("this follow's record (fade.last.due_t past the one before the intent)",
+                         isinstance(fl, dict) and (ival(fl.get("due_t")) or -1) > due0))
     return _verdict(parts, "; ".join([_fade_detail(fl)] + extra))
 
 
@@ -1662,6 +1752,9 @@ def _b_blip2(g, ctx: Ctx, led: cb.Ledger) -> None:
 
 def _b_ctlon(g, ctx: Ctx, led: cb.Ledger) -> None:
     key = _open_line(g, ctx)
+    # first-run fix (run 20261030-024220): the relayed start's RelayOwnMs claim lapses under hostscene 1 -- the line stays locked
+    # (no settle while the scene is up), so the orphan below is gated by the settle clock alone (OrphanStep's relayOwned term)
+    watch(g, (RELAY_OWN_MS + 300) / 1000.0)
     _swap(g, "hostctl", "on")
     b0 = bcount(g.state)
     t_settle = now_ms(g.state)
@@ -1745,7 +1838,10 @@ def _c_attempt(g, ctx: Ctx, mode: str) -> dict:
     id0 = ival(cb.path(b0, "last.id")) or 0
     at = cb.mark(g)
     t0 = time.time()
-    g.warp(C_FIELD, entrance=C_ENTRANCE, scenario=C_SCENARIO)
+    # first-run fix (run 20261030-024220): the step's ACK only -- Session.warp waits for control, and the desk scene holds control off
+    # until its own Field(352) has bounced and reloaded 351, so the pager and the watch would start after the whole scene (the duo
+    # sends the same warp this way); the poll below waits for the landing
+    g.send(f"warp {C_FIELD} {C_ENTRANCE} {C_SCENARIO}")
     first_line = f"dialogue lock: win {C_FIRST[0]} text {C_FIRST[1]} opened locked"
     cb.poll(g, lambda s: s.field_id == C_FIELD and s.on_field, ARRIVE_S, "351's landing")
     reach = cb.wait_log(g, at, first_line, timeout=C_REACH_S)
@@ -1909,7 +2005,9 @@ def _leg_l(g, ctx: Ctx, led: cb.Ledger) -> None:
 
 
 # ---- F (engine only: the stand-in has no fade slot)
-def _f_follow(g, ctx: Ctx, row: str, *, lock: bool, setup=None, mid=None, teardown=None) -> tuple:
+def _f_follow(g, ctx: Ctx, row: str, *, lock: bool, setup=None, lead=(), mid=None, teardown=None) -> tuple:
+    """One F follow. ``lead`` = `swap` steps sent in ONE request with the intent (first-run fix, run 20261030-024220): the agent's
+    queue runs them Block(2) frames apart, so no driver round trip sits between the lead and the follow's start."""
     _home(g)
     _must(g, "lock", 1 if lock else 0)
     if setup is not None:
@@ -1922,7 +2020,10 @@ def _f_follow(g, ctx: Ctx, row: str, *, lock: bool, setup=None, mid=None, teardo
     at = cb.mark(g)
     t0 = time.time()
     try:
-        _swap(g, "intent", AWAY)
+        if lead:
+            g.send(*(f"netsync swap {' '.join(str(a) for a in st)}" for st in lead), f"netsync swap intent {AWAY}")
+        else:
+            _swap(g, "intent", AWAY)
         if mid is not None:
             mid()
         samples, _ = watch(g, FOLLOW_S, until=lambda s: (ival(sget(s, "fade.last.due_t")) or -1) > due0 and landed_after(s, AWAY, c0),
@@ -1951,7 +2052,7 @@ def _leg_f(g, ctx: Ctx, led: cb.Ledger) -> None:
         ("F-FAST", dict(lock=False)),
         ("F-3X", dict(lock=False, setup=lambda: g.speedmode(True), teardown=lambda: g.speedmode(False))),
         ("F-BLACK", dict(lock=False, setup=blackout(1), teardown=off)),
-        ("F-JOIN", dict(lock=False, setup=blackout(8), teardown=off)),
+        ("F-JOIN", dict(lock=False, lead=(("blackout", 8),), teardown=off)),     # one request: the 8-tick fade still heading
         ("F-HURRY", dict(lock=False, setup=blackout(60), teardown=off)),
         ("F-OPEN", dict(lock=True, setup=talk, teardown=lambda: _f_clear(g))),
         ("F-AHEAD", dict(lock=True, setup=unmatched(0.0))),
@@ -1997,5 +2098,9 @@ def _f_one(g, ctx: Ctx, led: cb.Ledger, row: str, spec: dict) -> None:
     ctx.marks[row] = {"fade": fl, "held": any(sget(s, "fade.held") is True for s in samples),
                       "left": next((v for v in (ival(sget(s, "fade.left_start")) for s in samples) if v is not None and v >= 0), None),
                       "window": len(win)}
+    why = fade_void(row, samples, b0)
+    if why:
+        _void(led, ctx, [row], why)
+        return
     ok, detail = judge_fade(row, samples, lines, b0)
     led.check(row, ok, detail)

@@ -156,7 +156,8 @@ DL_DEFER_MS = 200
 DP_DEFER_AGE_MS = BW.PIN_MAX_AGE_MS      # 2500
 DP_MARK_LEAD_MS = 300
 DL_LEFT_MS = 300
-FADE_TIMER_MIN_MS = 885                  # the 0.9 s timer as measured (T12)
+FADE_TIMER_MIN_MS = 885                  # the 0.9 s timer as measured (s163 live-lane duo, FIELD-SWAP-TIMING.md §1): the guest's follow
+                                         # starts after ServiceFollowWarp, so no start-frame debit (the solo bench's harness start has one)
 DIP_TOL = 8                              # a cur_now step down by more than this is a dip (the flash)
 FRAME_MS_DEFAULT = 1000.0 / 30
 ZIDANE = 0

@@ -15687,6 +15687,9 @@ def test_the_live_dress_writers_are_their_level_homes_in_ladder_order(game):
     assert keys == ladder(FG.NETSYNC_PLAYER_CAP_KEYS) == list(BW.PLAYER_DRESS_KEYS), keys
     idiom = [t for t in _stack_text("HarnessAgent.cs")
              if t.startswith("NumOrNull(sb, ") or re.match(r'(?:Str|Bool)\(sb, "\w+", (?:has \?|Try\(\(\) => IsClipPlaying)', t)]
+    if _s164_live():    # [ff9mapkit netsync s164] the swap record writer (AppendSwapLast) shares the `has ?` idiom -- not a player key
+        swap = set(_cs_block("HarnessAgent.cs", "private static void AppendSwapLast(", stop="private static void AppendSwapIntent(StringBuilder sb)"))
+        idiom = [t for t in idiom if t not in swap]
     assert idiom and set(idiom) <= set(lines), sorted(set(idiom) - set(lines))
     const = net_lines("HarnessAgent.cs", r'private const String PlayerDressNull = "')
     assert len(const) == 1 and list(json.loads("{" + _literals(const[0])[0].replace('\\"', '"') + "}")) == keys
@@ -29158,7 +29161,8 @@ def test_s164_b_twins_rest_on_the_live_s163_dialogue_code():
                  "internal const Int32 OrphNone = 0, OrphToOrphaned = 1, OrphToLocal = 2, OrphToLocked = 3, OrphConfirm = 4;",
                  f"internal const Int32 OrphanGraceMs = {BW.DIALOG_ORPHAN_GRACE_MS};", f"internal const Int32 AutoReadMs = {BW.DIALOG_AUTO_READ_MS};",
                  f"internal const Int32 HostElsewhereMs = {BW.DIALOG_HOST_ELSEWHERE_MS};",
-                 f"internal const Int32 OffFieldMaxMs = {BW.DIALOG_OFF_FIELD_MAX_MS};"):
+                 f"internal const Int32 OffFieldMaxMs = {BW.DIALOG_OFF_FIELD_MAX_MS};",
+                 f"internal const Int32 RelayOwnMs = {BW.DIALOG_RELAY_OWN_MS};"):
         assert frag in dlg, frag
     cli = " ".join(t for t in (_strip_comment(ln.strip()) for ln in stack_file("NetSyncClient.cs")) if t)
     if _s164_live():

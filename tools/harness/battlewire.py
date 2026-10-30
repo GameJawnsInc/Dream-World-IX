@@ -12650,6 +12650,7 @@ DIALOG_ORPHAN_GRACE_MS = 2000            # NetSyncDialog.OrphanGraceMs
 DIALOG_AUTO_READ_MS = 2000               # NetSyncDialog.AutoReadMs
 DIALOG_HOST_ELSEWHERE_MS = 5000          # NetSyncDialog.HostElsewhereMs
 DIALOG_OFF_FIELD_MAX_MS = 20000          # NetSyncDialog.OffFieldMaxMs
+DIALOG_RELAY_OWN_MS = 3000               # NetSyncDialog.RelayOwnMs (a just-accepted relayed start claims every locked window)
 #: CtlHoldKind's kinds (logs and state only)
 SWAP_CTL_NONE, SWAP_CTL_HOLD, SWAP_CTL_RELOCK = 0, 1, 2
 #: HoldEndWhy's ends (`orphan.last_end`); Forgot is written directly by ForgetWindows / ResetAll
