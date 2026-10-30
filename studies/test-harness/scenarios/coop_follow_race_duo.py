@@ -205,7 +205,9 @@ def catalog(calibrate: bool = CALIBRATE) -> dict:
 #: section; a reworded line only drops a note). `ghost` is duo.py's own matcher, verbatim.
 MINE = {
     "ghost": DUO_MATCHERS["ghost"],
-    "intent": re.compile(r"^\[NetSync\] intent: following the peer to field (\d+) \(parallel\)$"),
+    # [ff9mapkit netsync s164] the tolerant stamp tail: an s164 engine ends this line with " (t T ms)" (SWAP-TIMING-S164.md, Log
+    # classes); group 2 is the stamp, None on an older engine
+    "intent": re.compile(r"^\[NetSync\] intent: following the peer to field (\d+) \(parallel\)(?: \(t (\d+) ms\))?$"),
     "drop_world": re.compile(r"^\[NetSync\] follow-warp to field (\d+) dropped: the field left for the world map inside its "
                              r"fade"),
     # [ff9mapkit netsync s154] the commit guard, the landing step, the start defer (the follow's and the same-field kick's
@@ -834,7 +836,22 @@ def run_duo(d) -> None:
         d.strict = strict
 
 
+def _swap_fade(d, word: str) -> None:
+    """[ff9mapkit netsync s164] FE1, FE2 and FD model a follow whose commit falls 0.9 game-seconds after its start (today's fade):
+    on an engine that publishes `netsync.swap` the guest runs them on `swap fade old` (SWAP-TIMING-S164.md, "## Kit side"), and
+    `act` again after. FS needs no lever: the guest's own harness warp is in flight there, and D's own-warp term keeps the Old path
+    (Ff9mkDebugMenu.NetSyncWarpPending). An older engine has no such lever and is left alone."""
+    try:
+        if not cb.has(d.guest.state, "netsync.swap"):
+            return
+        ok, why = cb.try_ns(d.guest, "swap", "fade", word)
+        d.note(f"s164: the guest's `swap fade {word}` " + ("taken" if ok else f"REFUSED: {why[:200]}"))
+    except HarnessError as err:
+        d.note(f"s164: the guest's `swap fade {word}` failed: {str(err)[:200]}")
+
+
 def _restore(d) -> None:
+    _swap_fade(d, "act")
     for step in ((lambda: d.guest.timescale(1.0)), (lambda: d.guest.state_every(2))):
         try:
             step()
@@ -862,15 +879,19 @@ def _run(d, led, ctx) -> None:
         return
     try:
         g.state_every(1)
+        _swap_fade(d, "old")                                # [ff9mapkit netsync s164] FE1 / FE2 model today's 0.9 s commit
         ctx.window[AWAY] = _leg_follow(d, led, "FE1", AWAY)
         _settle(d, AWAY)
         ctx.window[HOME] = _leg_follow(d, led, "FE2", HOME)
+        _swap_fade(d, "act")                                # FS runs at act (D's own-warp term)
         d.note(f"measured load stalls (wall, the conservative clock -- a record: the races are aimed in GAME time, THE "
                f"CLOCK LAW): {ctx.window}")
         _seat(d, HOME)
         _leg_race(d, led, ctx, "FS")
         _seat(d, HOME)
+        _swap_fade(d, "old")                                # [ff9mapkit netsync s164] FD models today's 0.9 s commit too
         _leg_race(d, led, ctx, "FD")
+        _swap_fade(d, "act")
     finally:
         _restore(d)
 

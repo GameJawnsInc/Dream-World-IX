@@ -1037,8 +1037,11 @@ def encode_manifest(m: dict) -> bytes:
     return bytes(out)
 
 
-def _i32(data: bytes, at: int) -> int:
-    v = int.from_bytes(data[at:at + 4], "little")
+def _i32(data, at: int | None = None) -> int:
+    """A two's-complement Int32. ``_i32(data, at)``: the little-endian Int32 at ``data[at:at + 4]`` (the manifest's reader).
+    [ff9mapkit netsync s164] ``_i32(x)``: the integer ``x`` wrapped to Int32 the way unchecked C# arithmetic wraps it -- the
+    fixed-width twins' helper beside :func:`_i64` (SWAP-TIMING-S164.md P9: the Int32 tick wrap of BlackTicksRule and B's scenarios)."""
+    v = int.from_bytes(data[at:at + 4], "little") if at is not None else int(data) & 0xFFFFFFFF
     return v - (1 << 32) if v & 0x80000000 else v
 
 
@@ -12239,3 +12242,1438 @@ def speed_log_host(setting: int, tps: int) -> str:
         return (f"[NetSync] speed mirror (host): my booster is ON (setting {setting}, FieldTPS {tps}) -- section 10 tells a "
                 f"following guest to play my scenes at it")
     return "[NetSync] speed mirror (host): my booster is OFF -- section 10 reads setting 1 (a following guest's mirror ends)"
+
+
+# =========================================================================== [ff9mapkit netsync s164] FIELD-SWAP TIMING
+# studies/field-coop/SWAP-TIMING-S164.md (rev 3): round 1 of FIELD-SWAP-TIMING.md section 4, five items in one engine round -- A the
+# instrument (millisecond swap stamps on the QPC clock, one swap RECORD per transition), B Finding 11's orphan hold, C the guest's own
+# Field() passing on the host's announced field (and its intent cache), PIN the story pin, LIFE the host's intent lifetime, D+E the
+# fade-aware follow and its 12-tick fade. Here: every constant and name table, the PURE rules as the design writes them (NetSyncSwap /
+# NetSyncFollowFade / NetSyncDialog, named beside each), every log line's builder, S163_FORMS (the s163 text of each line that gains a
+# stamp), the `netsync swap` lever's ops, refusals and usage, and the proof line's regex. tests/test_harness_netsync.py evaluates every
+# row of the design's SelfTest tables against these twins, and each mutant (a twin that restores a rejected rule) must miss the rows the
+# design names. The engine is written against the same design; until its stack carries NetSyncSwap.cs these twins ARE the oracle.
+
+
+def _i64(x) -> int:
+    """[ff9mapkit netsync s164] ``x`` wrapped to Int64 the way unchecked C# arithmetic wraps it (P9). Python's integers never overflow,
+    so a twin of fixed-width arithmetic without this hides the overflow the engine has (the ``ms_naive`` mutant equals
+    :func:`swap_ticks_to_ms` on every row). Its Int32 sibling is :func:`_i32` (the manifest reader's, one-argument form)."""
+    v = int(x) & 0xFFFFFFFFFFFFFFFF
+    return v - (1 << 64) if v & (1 << 63) else v
+
+
+def _cdiv(a: int, b: int) -> int:
+    """C#'s integer division: truncates toward zero (Python's ``//`` floors -- they differ on a negative quotient)."""
+    a, b = int(a), int(b)
+    q = abs(a) // abs(b)
+    return q if (a >= 0) == (b > 0) else -q
+
+
+def _cmod(a: int, b: int) -> int:
+    """C#'s ``%``: the remainder takes the dividend's sign (paired with :func:`_cdiv`)."""
+    return int(a) - _cdiv(a, b) * int(b)
+
+
+# ---- item A: the clock, the record and its name tables (NetSyncSwap)
+SWAP_LINE_WINDOW_MS = 10000              # how long a landed swap waits for its first line
+SWAP_RECORD_SPAN_MS = 30000              # how long a record can collect edges for the same field
+#: Edges (code = index; `last.*_t` keys and log words)
+SWAP_EDGE_EMIT, SWAP_EDGE_SEEN, SWAP_EDGE_FOLLOW, SWAP_EDGE_OWN, SWAP_EDGE_COMMIT, SWAP_EDGE_DROP, SWAP_EDGE_LAND, SWAP_EDGE_LINE = range(1, 9)
+SWAP_EDGE_NAMES = (None, "emit", "seen", "follow", "own", "commit", "drop", "land", "line")
+#: Record states (`last.state`; None 0 publishes null)
+SWAP_REC_NONE, SWAP_REC_OPEN, SWAP_REC_LANDED, SWAP_REC_DONE = 0, 1, 2, 3
+SWAP_REC_NAMES = (None, "open", "landed", "done")
+#: JoinRule's verdicts
+SWAP_JOIN_IGNORE, SWAP_JOIN_OPEN, SWAP_JOIN_JOIN, SWAP_JOIN_RELOAD = 0, 1, 2, 3
+SWAP_JOIN_NAMES = ("ignore", "open", "join", "reload")
+#: Writers: the last write of the next field before a load (LandViaRule's writeKind)
+SWAP_WRITE_NONE, SWAP_WRITE_FOLLOW, SWAP_WRITE_KICK, SWAP_WRITE_OWN, SWAP_WRITE_BOUNCE, SWAP_WRITE_HOST = 0, 1, 2, 3, 4, 5
+#: Via (`last.land_via`): a writer's via has the writer's code; then Same and Other
+SWAP_VIA_NONE, SWAP_VIA_FOLLOW, SWAP_VIA_KICK, SWAP_VIA_OWN, SWAP_VIA_BOUNCE, SWAP_VIA_HOST, SWAP_VIA_SAME, SWAP_VIA_OTHER = range(8)
+SWAP_VIA_NAMES = (None, "follow", "kick", "own", "bounce", "host", "same", "other")
+SWAP_VIA_WORDS = {"follow": "via the follow", "kick": "via the same-field kick", "own": "via my own Field()",
+                  "bounce": "via a bounce reload", "host": "via my own transition", "same": "a reload of the same field",
+                  "other": "another load"}
+#: Close reasons (`last.close_why`, the `counts.closed` keys)
+SWAP_CLOSE_NONE, SWAP_CLOSE_LINE, SWAP_CLOSE_WINDOW, SWAP_CLOSE_STALE, SWAP_CLOSE_SUPERSEDED, SWAP_CLOSE_NEXT, SWAP_CLOSE_RESET = range(7)
+SWAP_CLOSE_NAMES = (None, "line", "window", "stale", "superseded", "next", "reset")
+#: Own-jump verdicts and reasons (`last.own_verdict` / `last.own_why`)
+SWAP_OWN_VERDICTS = ("pass", "bounce", "through", "reload", "ate", "ate-redirect", "world")
+SWAP_OWN_REASONS_S163 = ("host-field", "same-field", "ending", "budget", "not-host", "fault", "ate")
+SWAP_OWN_REASONS_C = ("pending", "committed", "intent", "cache")
+SWAP_OWN_REFUSALS = ("refused-world", "refused-ate")
+#: Commit reasons (D's due words; `last.commit_why`)
+SWAP_COMMIT_WHYS = ("black", "timer", "fallback", "recheck")
+#: Out-of-band frame verdicts (`intent.oob`; Unknown publishes null)
+SWAP_OOB_UNKNOWN, SWAP_OOB_SENT, SWAP_OOB_OVERWRITTEN, SWAP_OOB_NONE = 0, 1, 2, 3
+SWAP_OOB_NAMES = (None, "sent", "overwritten", "none")
+#: Emit sites (`intent.site`; NetSyncSwap.SiteDebugWarp is the debug menu's)
+SWAP_SITE_MAPJUMP, SWAP_SITE_DEBUGWARP, SWAP_SITE_BENCH = 0, 1, 2
+SWAP_SITE_NAMES = ("mapjump", "debugwarp", "bench")
+#: Clock sources (`clock.src`)
+SWAP_CLOCK_QPC, SWAP_CLOCK_STOPWATCH = "qpc", "stopwatch"
+SWAP_CLOCK_SRCS = (SWAP_CLOCK_QPC, SWAP_CLOCK_STOPWATCH)
+
+
+def swap_ticks_to_ms(ts: int, freq: int) -> int:
+    """NetSyncSwap.TicksToMs: a raw counter in ms through the split form ``(ts / freq) * 1000 + (ts % freq) * 1000 / freq`` (Int64, C#
+    division): no overflow at a 3 GHz counter after 40 days, exact at 3.579545 MHz; -1 for a bad frequency or a negative count."""
+    ts, freq = _i64(ts), _i64(freq)
+    if freq <= 0 or ts < 0:
+        return -1
+    return _i64(_i64(_cdiv(ts, freq) * 1000) + _cdiv(_i64(_cmod(ts, freq) * 1000), freq))
+
+
+def swap_stamp_text(on: bool, t: int) -> str:
+    """NetSyncSwap.StampText: " (t T ms)" while stamps are on and ``t`` is a stamp, else ""."""
+    return f" (t {int(t)} ms)" if on and t >= 0 else ""
+
+
+def swap_place_stamp(line: str, on: bool, t: int) -> str:
+    """Where the stamp goes (the Log classes law): at the very END of the Log.Message statement, after any closing ")" -- so every literal
+    a kit source test checks survives (test_coop_speed_mirror_bench.py:667, test_world_coop.py:684)."""
+    return line + swap_stamp_text(on, t)
+
+
+def swap_waited_shown_text(on: bool, t: int, seen_t: int, page_t: int) -> str:
+    """NetSyncSwap.WaitedShownText: the applied close's tail " -- waited W ms, shown S ms" (W from the event's arrival, S from its page's
+    stamp), only while stamps are on and every input is a stamp."""
+    if not on or t < 0 or seen_t < 0 or page_t < 0:
+        return ""
+    return f" -- waited {int(t) - int(seen_t)} ms, shown {int(t) - int(page_t)} ms"
+
+
+_SWAP_STAMP_SUFFIX = re.compile(r"(.*) \(t (\d+) ms\)", re.S)
+_SWAP_WAITED_SUFFIX = re.compile(r"(.*) -- waited (-?\d+) ms, shown (-?\d+) ms", re.S)
+
+
+def swap_parse_stamp(line: str) -> tuple:
+    """NetSyncSwap.ParseStamp -> (ok, t, bare): only a FINAL " (t <digits> ms)" suffix is a stamp; (False, -1, line) otherwise."""
+    m = _SWAP_STAMP_SUFFIX.fullmatch(line or "")
+    if m is None:
+        return False, -1, line
+    return True, int(m.group(2)), m.group(1)
+
+
+def swap_parse_waited_shown(bare: str) -> tuple:
+    """NetSyncSwap.ParseWaitedShown -> (ok, waited, shown, core): the same suffix-only rule for the waited/shown tail."""
+    m = _SWAP_WAITED_SUFFIX.fullmatch(bare or "")
+    if m is None:
+        return False, -1, -1, bare
+    return True, int(m.group(2)), int(m.group(3)), m.group(1)
+
+
+def swap_strip_line(line: str) -> tuple:
+    """A logged line (Memoria's prefix already cut) -> (core, t, waited, shown): its stamp, then its waited/shown tail, removed; -1 for
+    each part it does not carry. ``core`` is what A-WORD matches against :data:`S163_FORMS`."""
+    _ok, t, bare = swap_parse_stamp(line)
+    _ok2, waited, shown, core = swap_parse_waited_shown(bare)
+    return core, t, waited, shown
+
+
+def swap_join_rule(edge: int, edge_field: int, my_field: int, kick: bool, rec_state: int, rec_dest: int, rec_from: int,
+                   rec_open_t: int, now: int) -> int:
+    """NetSyncSwap.JoinRule: does an edge open a record, join it, count a reload, or nothing. The s42 pairing reload (the kick) is never a
+    swap; a load never OPENS a record; a line joins only a landed record for its field; a record collects edges for RecordSpanMs."""
+    if kick:
+        return SWAP_JOIN_IGNORE
+    live = rec_state in (SWAP_REC_OPEN, SWAP_REC_LANDED, SWAP_REC_DONE)
+    in_span = live and _i64(now - rec_open_t) < SWAP_RECORD_SPAN_MS
+    same = in_span and edge_field == rec_dest
+    if edge == SWAP_EDGE_LAND:
+        if rec_state == SWAP_REC_OPEN and in_span and edge_field == rec_dest:
+            return SWAP_JOIN_JOIN
+        if rec_state == SWAP_REC_OPEN and in_span and edge_field == rec_from:
+            return SWAP_JOIN_RELOAD
+        if rec_state == SWAP_REC_LANDED and same:
+            return SWAP_JOIN_RELOAD
+        return SWAP_JOIN_IGNORE
+    if edge == SWAP_EDGE_LINE:
+        return SWAP_JOIN_JOIN if rec_state == SWAP_REC_LANDED and edge_field == rec_dest else SWAP_JOIN_IGNORE
+    if edge == SWAP_EDGE_OWN:
+        if edge_field == my_field:
+            return SWAP_JOIN_RELOAD if rec_state == SWAP_REC_OPEN and in_span and my_field == rec_from else SWAP_JOIN_IGNORE
+        return SWAP_JOIN_JOIN if same else SWAP_JOIN_OPEN
+    if edge == SWAP_EDGE_SEEN:
+        if same:
+            return SWAP_JOIN_JOIN
+        return SWAP_JOIN_IGNORE if edge_field == my_field else SWAP_JOIN_OPEN
+    return SWAP_JOIN_JOIN if same else SWAP_JOIN_OPEN          # Emit / Follow / Commit / Drop
+
+
+def swap_open_closes_rule(rec_state: int) -> int:
+    """NetSyncSwap.OpenClosesRule: what a NEW record does to the one before it -- an open one is superseded, a landed one is closed by
+    the next swap; anything else needs no close."""
+    return {SWAP_REC_OPEN: SWAP_CLOSE_SUPERSEDED, SWAP_REC_LANDED: SWAP_CLOSE_NEXT}.get(rec_state, SWAP_CLOSE_NONE)
+
+
+def swap_close_rule(rec_state: int, first_line: bool, open_t: int, land_t: int, now: int) -> int:
+    """NetSyncSwap.CloseRule (Tick): a landed record closes at its first line or after LineWindowMs; an open one goes stale after
+    RecordSpanMs; a line never closes an open record, and a landing never closes one."""
+    if rec_state == SWAP_REC_LANDED and first_line:
+        return SWAP_CLOSE_LINE
+    if rec_state == SWAP_REC_LANDED and _i64(now - land_t) >= SWAP_LINE_WINDOW_MS:
+        return SWAP_CLOSE_WINDOW
+    if rec_state == SWAP_REC_OPEN and _i64(now - open_t) >= SWAP_RECORD_SPAN_MS:
+        return SWAP_CLOSE_STALE
+    return SWAP_CLOSE_NONE
+
+
+def swap_land_via_rule(fld: int, write_kind: int, write_dest: int, rec_dest: int, prev_field: int) -> int:
+    """NetSyncSwap.LandViaRule: how a load came -- the writer's via when the last write named this field, a same-field reload, or another
+    load. ``rec_dest`` is never read (s154's recorded-at-the-source law, NetSyncClient.cs:216-218)."""
+    if write_kind != SWAP_WRITE_NONE and write_dest == fld:
+        return write_kind                                  # a writer's via has the writer's code
+    return SWAP_VIA_SAME if fld == prev_field else SWAP_VIA_OTHER
+
+
+def swap_delay_rule(delay_ms: int, follow_t: int, ready_t: int, now: int) -> bool:
+    """NetSyncSwap.DelayRule (A's calibration): the commit waits ``delay_ms`` past its own verdict (``ready_t``; the caller stamps it =
+    now when it is -1). ``follow_t`` is never read: the delay counts from the commit verdict, never from the follow's start."""
+    if delay_ms <= 0:
+        return True
+    if ready_t < 0:
+        return False
+    return _i64(now - ready_t) >= delay_ms
+
+
+def swap_seen_rule(have_section: bool, nonce: int, last_seen: int) -> bool:
+    """NetSyncSwap.SeenRule: a section 4 whose nonce differs from the last one seen is a new Seen edge (a copy is not)."""
+    return bool(have_section) and nonce != last_seen
+
+
+def swap_oob_verdict(was_set: bool, replaced: bool, sent: bool) -> int:
+    """NetSyncSwap.OobVerdict: the emit's out-of-band frame -- none set, sent, overwritten unsent, else unknown."""
+    if not was_set:
+        return SWAP_OOB_NONE
+    if sent:
+        return SWAP_OOB_SENT
+    return SWAP_OOB_OVERWRITTEN if replaced else SWAP_OOB_UNKNOWN
+
+
+def swap_close_words(close: int, n: int = -1) -> str:
+    """L-CLOSE's "closed by" words; ``n`` = the swap that superseded / followed it."""
+    return {SWAP_CLOSE_LINE: "its first line", SWAP_CLOSE_WINDOW: "the 10 s line window", SWAP_CLOSE_STALE: "never landed in 30 s",
+            SWAP_CLOSE_SUPERSEDED: f"superseded by swap #{n}", SWAP_CLOSE_NEXT: f"the next swap (#{n})",
+            SWAP_CLOSE_RESET: "the session reset"}[close]
+
+
+def swap_record_tag(k: int) -> str:
+    """" (swap #K)", left out when the edge joined no record (k <= 0)."""
+    return f" (swap #{int(k)})" if k > 0 else ""
+
+
+def swap_own_outcome_words(verdict: str, why: str, my_field: int = -1, lane: int = -1) -> str | None:
+    """The own-jump outcome words for an s163 verdict (L-OWN's tail, and the end of C's refusal line); None for a verdict L-OWN never
+    prints (ate, ate-redirect, world -- and C's own passes, which print their own line)."""
+    return {("pass", "host-field"): "passes (the host's field)", ("reload", "same-field"): "passes (a same-field reload)",
+            ("pass", "ending"): "passes (the ending)", ("pass", "fault"): "passes (a read fault: the vanilla jump)",
+            ("through", "budget"): "let through (the bounce budget is spent)",
+            ("bounce", "not-host"): (f"bounced to a reload of {my_field} (not the host's field: the host's lane reads field {lane})")
+            }.get((verdict, why))
+
+
+# ---- item A's instrument lines (NetSyncSwap.LandedLine / CommitLine / OwnLine / ClosedLine / ClockLine): pure, None with stamps off
+def swap_log_commit(on: bool, dest: int, ms: int, why: str, delay_ms: int, k: int, t: int) -> str | None:
+    """L-COMMIT: the follow's commit, its due word and A's delay."""
+    if not on:
+        return None
+    delay = f"; +{int(delay_ms)} ms delay" if delay_ms > 0 else ""
+    return swap_place_stamp(f"[NetSync] swap: follow-warp to field {dest} committed {ms} ms after its start ({why}{delay})"
+                            f"{swap_record_tag(k)}", on, t)
+
+
+def swap_log_kick_commit(on: bool, dest: int, ms: int, t: int) -> str | None:
+    """L-COMMIT for the same-field kick (it never touches a record)."""
+    if not on:
+        return None
+    return swap_place_stamp(f"[NetSync] swap: the same-field kick on field {dest} committed {ms} ms after its start", on, t)
+
+
+def swap_log_own(on: bool, dest: int, fld: int, outcome: str, k: int, t: int) -> str | None:
+    """L-OWN: an own Field() an s163 verdict decided (only when C wrote no term)."""
+    if not on:
+        return None
+    return swap_place_stamp(f"[NetSync] swap: own Field({dest}) on field {fld} -- {outcome}{swap_record_tag(k)}", on, t)
+
+
+def swap_log_landed(on: bool, fld: int, via: int, k: int, t: int) -> str | None:
+    """L-LAND: a landing that joined a record, or came via follow / kick / own / bounce / host."""
+    if not on:
+        return None
+    return swap_place_stamp(f"[NetSync] swap: landed on field {fld} {SWAP_VIA_WORDS[SWAP_VIA_NAMES[via]]}{swap_record_tag(k)}", on, t)
+
+
+def _swap_edge_text(v) -> str:
+    return "-" if v is None or v < 0 else f"+{int(v)}"
+
+
+#: L-CLOSE's guest edges, in its order (the keys of ``edges``; a missing edge prints "-")
+SWAP_CLOSE_EDGES = ("seen", "follow", "own", "due", "commit", "landed", "first line")
+
+
+def swap_log_closed_guest(on: bool, k: int, dest: int, frm: int, close: int, via: int, edges: dict, open_by: str, follows: int,
+                          bounces: int, reloads: int, t: int, close_n: int = -1) -> str | None:
+    """L-CLOSE (guest): the whole record on one line -- each edge as ms after the record's first edge. A record closed before any
+    landing (stale, superseded) has no via: "no landing"."""
+    if not on:
+        return None
+    via_words = SWAP_VIA_WORDS[SWAP_VIA_NAMES[via]] if via else "no landing"
+    parts = ", ".join(f"{e} {_swap_edge_text(edges.get(e))}" for e in SWAP_CLOSE_EDGES)
+    return swap_place_stamp(f"[NetSync] swap #{k} to field {dest} (from {frm}) closed by {swap_close_words(close, close_n)}: {via_words};"
+                            f" {parts} ms after its first edge ({open_by}); follows {follows}, bounces {bounces}, reloads {reloads}", on, t)
+
+
+#: L-CLOSE (host)'s out-of-band words, by OobVerdict
+SWAP_OOB_WORDS = {SWAP_OOB_UNKNOWN: "unknown", SWAP_OOB_SENT: "sent", SWAP_OOB_OVERWRITTEN: "OVERWRITTEN", SWAP_OOB_NONE: "none"}
+
+
+def swap_log_closed_host(on: bool, k: int, dest: int, frm: int, close: int, site: int, landed, first_line, updates: int, frames: int,
+                         sends: int, span_ms: int, oob: int, t: int, close_n: int = -1) -> str | None:
+    """L-CLOSE (host): its own transition, and section 4's life on the wire."""
+    if not on:
+        return None
+    return swap_place_stamp(f"[NetSync] swap #{k} to field {dest} (from {frm}) closed by {swap_close_words(close, close_n)}: via my own "
+                            f"transition ({SWAP_SITE_NAMES[site]}); emit +0, landed {_swap_edge_text(landed)}, first line "
+                            f"{_swap_edge_text(first_line)} ms; section 4: {updates} Updates, {frames} frames, {sends} sends over "
+                            f"{span_ms} ms, the out-of-band frame {SWAP_OOB_WORDS[oob]}", on, t)
+
+
+def swap_utc_text(utc_ms: int) -> str:
+    """L-CLOCK's wall time, ``yyyy-MM-dd HH:mm:ss.fff`` (UTC)."""
+    import datetime
+    d = datetime.datetime(1970, 1, 1) + datetime.timedelta(milliseconds=int(utc_ms))
+    return d.strftime("%Y-%m-%d %H:%M:%S.") + f"{d.microsecond // 1000:03d}"
+
+
+def swap_log_clock(on: bool, t: int, utc_ms: int, src: str, ticks: int, hz: int, hires: bool, dt_ms, target_fps, fps) -> str | None:
+    """L-CLOCK, once at the transport's start. It carries ``t`` inside, so it takes no stamp suffix (the design's form)."""
+    if not on:
+        return None
+    return (f"[NetSync] swap clock: t {t} ms = {swap_utc_text(utc_ms)} UTC (src {src}: {ticks} ticks at {hz} Hz, "
+            f"{'high-res' if hires else 'LOW-RES'}; frame dt {dt_ms} ms, target fps {target_fps}, fps {fps})")
+
+
+def swap_log_fault(item: str, site: str, msg: str) -> str:
+    """The fault class (once per site; every fault fails open to today's behaviour)."""
+    return f"[NetSync] field swap fault ({item} at {site}): {msg}"
+
+
+#: The Log classes (prefix -> class): the instrument class is not printed under `swap stamps off`; behaviour lines print without stamps
+SWAP_LINE_CLASSES = (("[NetSync] swap: ", "instrument"), ("[NetSync] swap #", "instrument"), ("[NetSync] swap clock: ", "instrument"),
+                     ("[NetSync] dialogue orphan: ", "behaviour"), ("[NetSync] own Field(", "behaviour"),
+                     ("[NetSync] intent cache: ", "behaviour"), ("[NetSync] story pin: ", "behaviour"),
+                     ("[NetSync] transition intent ", "behaviour"), ("[NetSync] follow fade: ", "behaviour"),
+                     ("[NetSync] field swap fault (", "fault"), ("[NetSync] harness: swap ", "harness"))
+
+
+def swap_line_class(line: str) -> str | None:
+    """The § Log classes class of a line by its prefix, or None (an s163 line, or no s164 class)."""
+    return next((c for p, c in SWAP_LINE_CLASSES if (line or "").startswith(p)), None)
+
+
+# ---- S163_FORMS: the s163 text of every line that gains a stamp (and the applied close its waited/shown tail) -- read from the live
+# stack's s163 NetSyncClient.cs / NetSyncDialog.cs / NetSyncAte.cs at the design's cites. A-WORD: every stamped line, its stamp and tail
+# removed (:func:`swap_strip_line`), matches its form. The more specific form of a pair comes first (:func:`swap_s163_form`).
+_FW = r"(?:follow-warp to field \d+|the same-field kick on field \d+)"
+S163_FORMS = {
+    "intent_emit": r"\[NetSync\] transition intent -> field (\d+) \(nonce (\d+)\)",                                        # :6749
+    "scene_ended_talk": r"\[NetSync\] host scene: ended \(nonce (\d+)\) -- a new talk started",                            # :7038 (I10)
+    "scene_rose_talk": r"\[NetSync\] host scene: rose \(nonce (\d+), field (\d+)\) -- a talk started",                     # :7039
+    "scene_rose": r"\[NetSync\] host scene: rose \(nonce (\d+), field (\d+)\) -- (.+)",                                    # :6915
+    "scene_ended": r"\[NetSync\] host scene: ended \(nonce (\d+)\) -- (.+)",                                               # :6917
+    "dialog_tap": (r"\[NetSync\] dialog tap( \(voice close\))?: win (\d+) text (\d+) kind (\d+) idx (-?\d+) page (-?\d+)( closes)?"
+                   r" seq (\d+)"),                                                                                          # :7370
+    "follow_serial": r"\[NetSync\] following the peer to field (\d+)",                                                     # :4650
+    "follow_intent": r"\[NetSync\] intent: following the peer to field (\d+) \(parallel\)",                                # :7190, :7282
+    "drop_world": (r"\[NetSync\] follow-warp to field (\d+) dropped: the field left for the world map inside its fade \(the world "
+                   r"rejoin takes over\)"),                                                                                 # :6635
+    "drop_kick_in_flight": (r"\[NetSync\] the same-field kick on field (\d+) dropped: (.+) -- the load already in flight is the "
+                            r"boundary the kick wanted \(the kick re-arms if that load skips the mirror\)"),                # :6651
+    "drop_in_flight": (r"\[NetSync\] follow-warp to field (\d+) dropped: (.+) -- the load already in flight ends this fade; the "
+                       r"follow re-arms on the field it lands on"),                                                         # :6654
+    "landing_arrived": r"\[NetSync\] " + _FW + r" cancelled: this load already landed on it \(no second load\)",          # :5826
+    "landing_superseded": (r"\[NetSync\] " + _FW + r" cancelled: field (\d+) loaded first \(its fade ended with that field\) -- "
+                           r"(.+)"),                                                                                        # :5828
+    "landing_never": (r"\[NetSync\] " + _FW + r" never landed \(field (\d+) loaded instead: its commit was wiped or overwritten\) -- "
+                      r"(.+)"),                                                                                             # :5830
+    "follow_waits_kick": (r"\[NetSync\] the same-field kick on field (\d+) waits: (.+) \(this field is already changing scene -- "
+                          r"that load is the boundary the kick wants\)"),                                                   # :4783
+    "follow_waits": (r"\[NetSync\] the follow to field (\d+) waits: (.+) \(this field is already changing scene -- the follow "
+                     r"re-arms where it lands\)"),                                                                          # :4785
+    "ate_hub_pass": (r"\[NetSync\] ATE relay: my copy's own Field\((\d+)\) passes -- the host's pick \(choice (-?\d+)\) on field "
+                     r"(\d+)( \(a same-field ATE: one reload\))? \(my copy's own entrance\)"),                              # NetSyncAte :609
+    "ate_redirect": (r"\[NetSync\] ATE relay: my copy's own Field\((\d+)\) goes to the host's field (\d+) instead \(the host left "
+                     r"the ATE on field (\d+) for it\)"),                                                                   # NetSyncAte :622
+    "ate_dest_pass": (r"\[NetSync\] ATE relay: my copy's own Field\((\d+)\) passes -- (the host's next ATE menu waits there|the "
+                      r"host's field|the ATE's own exit) \(my copy's own entrance\)(; the host is still on field (\d+): the follow "
+                      r"back into it waits until it leaves \(up to (\d+) s\))?"),                                           # NetSyncAte :638
+    "dlg_queued": (r"\[NetSync\] dialogue: host seq (\d+) queued \(field (\d+) win (\d+) text (\d+) kind (\d+) (?:choice (-?\d+)|"
+                   r"page (-?\d+))( closes)?\)"),                                                                           # NetSyncDialog :974
+    "dlg_opened_locked": r"\[NetSync\] dialogue lock: win (\d+) text (\d+) opened locked \(the host drives it\)",          # :1247
+    "dlg_closed_by_script": r"\[NetSync\] dialogue: win (\d+) text (\d+) closed by its own script/timer",                  # :1286
+    "dlg_late_event": (r"\[NetSync\] dialogue: late host event for win (\d+) text (\d+) \(host seq (\d+)\) -- back under the "
+                       r"host"),                                                                                            # :1333
+    "dlg_page_noop": (r"\[NetSync\] dialogue: host seq (\d+) turned a page win (\d+) text (\d+) does not have here \(host page "
+                      r"(-?\d+), mine (-?\d+)/(\d+)\) -- consumed, no-op"),                                                 # :1357
+    "dlg_catchup": (r"\[NetSync\] dialogue: host seq (\d+) closed win (\d+) text (\d+) on the host -- paging on to its close here "
+                    r"\(page (-?\d+) of (\d+)\)"),                                                                          # :1400
+    "dlg_applied": (r"\[NetSync\] dialogue: win (\d+) text (\d+) (closed|advanced) \(host seq (\d+)(?:, choice (-?\d+))?\)"),  # :1410 (+ tail)
+    "orphan_orphaned": (r"\[NetSync\] dialogue orphan: win (\d+) text (\d+) is not on the host's screen \(host idle (\d+)s\) -- "
+                        r"closing it at reading pace"),                                                                     # :1543
+    "orphan_held": (r"\[NetSync\] dialogue orphan: win (\d+) text (\d+) held -- (the host has it open|a late host event arrived|"
+                    r"the host is busy again)"),                                                                            # :1550 (s163's three)
+    "orphan_auto_closed": r"\[NetSync\] dialogue orphan: win (\d+) text (\d+) auto-closed \(host idle (\d+)s, choice (-?\d+)\)",  # :1589
+}
+_S163_FORMS_RE = {name: re.compile(rx) for name, rx in S163_FORMS.items()}
+
+
+def swap_s163_form(core: str) -> str | None:
+    """The name of the first :data:`S163_FORMS` form ``core`` matches whole (a stamp and tail already removed), or None."""
+    return next((name for name, rx in _S163_FORMS_RE.items() if rx.fullmatch(core or "")), None)
+
+
+# ---- item B: Finding 11's orphan hold (NetSyncDialog). The dialogue's own class / step constants, for the composite rows
+DIALOG_CLS_LOCKED, DIALOG_CLS_ORPHANED, DIALOG_CLS_LOCAL = 0, 1, 2                  # NetSyncDialog.ClsLocked / ClsOrphaned / ClsLocal
+DIALOG_ORPH_NONE, DIALOG_ORPH_TO_ORPHANED, DIALOG_ORPH_TO_LOCAL, DIALOG_ORPH_TO_LOCKED, DIALOG_ORPH_CONFIRM = 0, 1, 2, 3, 4
+DIALOG_ORPH_NAMES = ("none", "to_orphaned", "to_local", "to_locked", "confirm")
+DIALOG_ORPHAN_GRACE_MS = 2000            # NetSyncDialog.OrphanGraceMs
+DIALOG_AUTO_READ_MS = 2000               # NetSyncDialog.AutoReadMs
+DIALOG_HOST_ELSEWHERE_MS = 5000          # NetSyncDialog.HostElsewhereMs
+DIALOG_OFF_FIELD_MAX_MS = 20000          # NetSyncDialog.OffFieldMaxMs
+#: CtlHoldKind's kinds (logs and state only)
+SWAP_CTL_NONE, SWAP_CTL_HOLD, SWAP_CTL_RELOCK = 0, 1, 2
+#: HoldEndWhy's ends (`orphan.last_end`); Forgot is written directly by ForgetWindows / ResetAll
+SWAP_HOLD_END_NONE, SWAP_HOLD_END_CLOSED, SWAP_HOLD_END_EVENT, SWAP_HOLD_END_RELAY, SWAP_HOLD_END_LEFT = 0, 1, 2, 3, 4
+SWAP_HOLD_END_BUSY, SWAP_HOLD_END_CONTROL, SWAP_HOLD_END_FORGOT = 5, 6, 7
+SWAP_HOLD_END_NAMES = (None, "closed", "event", "relay", "left", "busy", "control", "forgot")
+SWAP_HOLD_END_WORDS = {SWAP_HOLD_END_CLOSED: "the window closed", SWAP_HOLD_END_EVENT: "a host event claims it",
+                       SWAP_HOLD_END_RELAY: "a relayed start claims it", SWAP_HOLD_END_LEFT: "the host left my field",
+                       SWAP_HOLD_END_BUSY: "the host is busy (a scene or a line)", SWAP_HOLD_END_CONTROL: "the host's control is back",
+                       SWAP_HOLD_END_FORGOT: "the lock let go"}
+
+
+def swap_orphan_settled(settled_long: bool, inh: bool, host_holds_input: bool, lever_old: bool) -> bool:
+    """NetSyncDialog.OrphanSettled (replaces :1194-1201): act = settled long AND the host not holding input on my field (Finding 11: a
+    plain line waits out the host's control-off stretch too); old (the `swap orphan old` lever, or a fault) = s163's C3KEYS-4 rule."""
+    if lever_old:
+        return bool(settled_long) and not (inh and host_holds_input)
+    return bool(settled_long) and not host_holds_input
+
+
+def swap_host_holds(host_here: bool, have_view: bool, hr: int) -> bool:
+    """NetSyncClient.HostHoldsRule: a byte-identical extraction of :7767 -- the host stands HERE with section 7's control bit clear."""
+    return bool(host_here) and bool(have_view) and (int(hr) & HR_CONTROL) == 0
+
+
+def swap_ctl_hold_kind(cls: int, act_new: int, act_old: int) -> int:
+    """NetSyncDialog.CtlHoldKind (logs and state only): a Locked line the old rule would orphan is HELD; an Orphaned line the new rule
+    relocks (where the old one left it, or confirmed it) is a RELOCK."""
+    if act_new == act_old:
+        return SWAP_CTL_NONE
+    if cls == DIALOG_CLS_LOCKED and act_new == DIALOG_ORPH_NONE and act_old == DIALOG_ORPH_TO_ORPHANED:
+        return SWAP_CTL_HOLD
+    if cls == DIALOG_CLS_ORPHANED and act_new == DIALOG_ORPH_TO_LOCKED and act_old in (DIALOG_ORPH_NONE, DIALOG_ORPH_CONFIRM):
+        return SWAP_CTL_RELOCK
+    return SWAP_CTL_NONE
+
+
+def swap_hold_end_why(present: bool, claimed: bool, relay_owned: bool, host_here: bool, settled_long: bool, host_holds: bool) -> int:
+    """NetSyncDialog.HoldEndWhy: why a control hold ended, in order -- Left before Control (HostHoldsInput needs HostHere)."""
+    if not present:
+        return SWAP_HOLD_END_CLOSED
+    if claimed:
+        return SWAP_HOLD_END_EVENT
+    if relay_owned:
+        return SWAP_HOLD_END_RELAY
+    if not host_here:
+        return SWAP_HOLD_END_LEFT
+    if not settled_long:
+        return SWAP_HOLD_END_BUSY
+    if not host_holds:
+        return SWAP_HOLD_END_CONTROL
+    return SWAP_HOLD_END_NONE
+
+
+def swap_orphan_since(keep_read: bool, kept: int, now: int) -> int:
+    """NetSyncDialog.OrphanSinceRule (R5): a window re-orphaned straight off a CONTROL hold keeps the reading clock it first orphaned
+    with (the clock keeps running through the hold); any other re-orphan restarts it at now (Int32 ticks)."""
+    return _i32(kept) if keep_read else _i32(now)
+
+
+def swap_keep_read(end_why: int) -> bool:
+    """NetSyncDialog.KeepReadRule (I5): only a hold that ended because the host's control came back keeps the read clock."""
+    return end_why == SWAP_HOLD_END_CONTROL
+
+
+def dialog_orphan_step(cls: int, settled_long: bool, event_pending: bool, relay_owned: bool, inh: bool, ready: bool,
+                       complete_since: int, orphan_since: int, now: int) -> int:
+    """NetSyncDialog.OrphanStep (s163, unchanged by s164): one window's orphan action per tick -- wrap-safe Int32 deltas only."""
+    if cls == DIALOG_CLS_LOCKED:
+        if not settled_long or event_pending or relay_owned:
+            return DIALOG_ORPH_NONE
+        return DIALOG_ORPH_TO_LOCAL if inh else DIALOG_ORPH_TO_ORPHANED
+    if cls != DIALOG_CLS_ORPHANED:
+        return DIALOG_ORPH_NONE
+    if event_pending or not settled_long:
+        return DIALOG_ORPH_TO_LOCKED
+    if inh:
+        return DIALOG_ORPH_TO_LOCAL
+    if not ready:
+        return DIALOG_ORPH_NONE
+    since = orphan_since if _i32(orphan_since - complete_since) > 0 else complete_since
+    return DIALOG_ORPH_CONFIRM if _i32(now - since) >= DIALOG_AUTO_READ_MS else DIALOG_ORPH_NONE
+
+
+class DialogSettleClock:
+    """NetSyncDialog.SettleClock (s163, unchanged): HostSettled and its OrphanGraceMs hold; every leg an armed bool + an Int32 delta.
+    HostHoldsInput stays OUT of it (s164 keeps that: moving it in would change KeyHostHalf and the s153 re-ask breaker's memory)."""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self) -> None:
+        self._else_armed = self._off_armed = self._set_armed = False
+        self._else_since = self._off_since = self._set_since = 0
+        self.settled = self.long = False
+        self.settled_ms = -1
+
+    def step(self, scene_down: bool, talk_live: bool, co_located: bool, elsewhere: bool, off_field: bool, now: int) -> None:
+        if elsewhere:
+            if not self._else_armed:
+                self._else_armed, self._else_since = True, now
+        else:
+            self._else_armed = False
+        if off_field:
+            if not self._off_armed:
+                self._off_armed, self._off_since = True, now
+        else:
+            self._off_armed = False
+        where = (co_located or (self._else_armed and _i32(now - self._else_since) >= DIALOG_HOST_ELSEWHERE_MS)
+                 or (self._off_armed and _i32(now - self._off_since) >= DIALOG_OFF_FIELD_MAX_MS))
+        self.settled = bool(scene_down) and not talk_live and where
+        if self.settled:
+            if not self._set_armed:
+                self._set_armed, self._set_since = True, now
+            self.settled_ms = _i32(now - self._set_since)
+        else:
+            self._set_armed = False
+            self.settled_ms = -1
+        self.long = self.settled and self.settled_ms >= DIALOG_ORPHAN_GRACE_MS
+
+
+def swap_orphan_settle(cls: int, settled_long: bool, inh: bool, host_holds: bool, lever_old: bool) -> bool:
+    """The orphan idle one window reads (``cls`` is unused by the shipping rule -- the seam the ``relock_dropped`` mutant needs)."""
+    return swap_orphan_settled(settled_long, inh, host_holds, lever_old)
+
+
+#: The rule set :func:`swap_orphan_window_tick` composes (a mutant replaces one; ``cap_ms`` is the rejected hold cap, None = none)
+SWAP_ORPHAN_RULES = SimpleNamespace(settle=swap_orphan_settle, step=dialog_orphan_step, kind=swap_ctl_hold_kind,
+                                    end_why=swap_hold_end_why, since=swap_orphan_since, keep=swap_keep_read, cap_ms=None)
+
+
+def swap_orphan_window(cls: int = DIALOG_CLS_LOCKED, complete_since: int = 0, orphan_since: int = 0) -> dict:
+    """A tracked window's B state (NetSyncDialog.Win's s164 fields: CtlHeld, KeepRead, CtlHeldSince, OrphanKept), for
+    :func:`swap_orphan_window_tick`."""
+    return {"cls": cls, "complete_since": complete_since, "orphan_since": orphan_since, "ctl_held": False, "ctl_held_since": 0,
+            "held_kind": SWAP_CTL_NONE, "keep_read": False, "orphan_kept": 0, "holds": 0, "relocks": 0}
+
+
+def swap_orphan_window_tick(w: dict, *, settled_long: bool, inh: bool = False, host_holds: bool = False, event_pending: bool = False,
+                            relay_owned: bool = False, ready: bool = True, host_here: bool = True, now: int = 0,
+                            lever_old: bool = False, present: bool = True, rules=None) -> dict:
+    """One window's s164 step inside NetSyncDialog.Orphans (:1526): the orphan idle (OrphanSettled), OrphanStep, then -- under act --
+    the old rule's verdict, CtlHoldKind and StepCtlHold (the hold's rising edge counts it; a relock keeps OrphanKept = OrphanSince; the
+    falling edge decides HoldEndWhy and KeepRead) BEFORE the re-orphan reads KeepRead, then the action. ``present`` False = the window
+    left the list (Track's removal: a held window ends Closed). Returns {act, kind, end, held_ms}; mutates ``w``.
+
+    KeepRead is kept only for a hold that began as a RELOCK: a line held straight from Locked never orphaned, so it has no read clock to
+    keep (the design's S2 -- Confirm at t1 + AutoReadMs after control returns -- needs exactly that)."""
+    r = rules or SWAP_ORPHAN_RULES
+    out = {"act": DIALOG_ORPH_NONE, "kind": SWAP_CTL_NONE, "end": SWAP_HOLD_END_NONE, "held_ms": -1}
+
+    def fall(why: int) -> None:
+        out["end"], out["held_ms"] = why, _i32(now - w["ctl_held_since"])
+        w["keep_read"] = bool(r.keep(why)) and w["held_kind"] == SWAP_CTL_RELOCK
+        w["ctl_held"] = False
+
+    if not present:
+        if w["ctl_held"]:
+            fall(SWAP_HOLD_END_CLOSED)
+        return out
+    if w["cls"] == DIALOG_CLS_LOCAL:
+        return out
+    holds = host_holds
+    if r.cap_ms is not None and w["ctl_held"] and _i32(now - w["ctl_held_since"]) >= r.cap_ms:
+        holds = False                                       # (the rejected hold cap only)
+    args = (event_pending, relay_owned, inh, ready, w["complete_since"], w["orphan_since"], now)
+    act = r.step(w["cls"], r.settle(w["cls"], settled_long, inh, holds, lever_old), *args)
+    if not lever_old:
+        act_old = r.step(w["cls"], r.settle(w["cls"], settled_long, inh, holds, True), *args)
+        kind = r.kind(w["cls"], act, act_old)
+        out["kind"] = kind
+        if kind != SWAP_CTL_NONE and not w["ctl_held"]:
+            w.update(ctl_held=True, ctl_held_since=now, held_kind=kind)
+            if kind == SWAP_CTL_RELOCK:
+                w["orphan_kept"] = w["orphan_since"]
+                w["relocks"] += 1
+            else:
+                w["holds"] += 1
+        elif kind == SWAP_CTL_NONE and w["ctl_held"]:
+            fall(r.end_why(True, event_pending, relay_owned, host_here, settled_long, holds))
+    out["act"] = act
+    if act == DIALOG_ORPH_TO_ORPHANED:
+        w["cls"] = DIALOG_CLS_ORPHANED
+        w["orphan_since"] = r.since(w["keep_read"], w["orphan_kept"], now)
+        w["keep_read"] = False                              # consumed by the re-orphan it was set for
+    elif act == DIALOG_ORPH_TO_LOCKED:
+        w["cls"] = DIALOG_CLS_LOCKED
+    elif act == DIALOG_ORPH_TO_LOCAL:
+        w["cls"] = DIALOG_CLS_LOCAL
+    return out
+
+
+# ---- item B's lines (behaviour: printed under `stamps off`, without the stamp)
+def swap_log_orphan_hold(on: bool, win: int, text: int, t: int) -> str:
+    """The hold line (a hold from Locked), and -- the same words -- the OrphToLocked line's new suffix on a relock."""
+    return swap_place_stamp(f"[NetSync] dialogue orphan: win {win} text {text} held -- the host's control is off on my field", on, t)
+
+
+def swap_log_orphan_hold_end(on: bool, win: int, text: int, ms: int, why: int, t: int) -> str:
+    """The hold's end line."""
+    return swap_place_stamp(f"[NetSync] dialogue orphan: win {win} text {text} -- the control hold ends after {ms} ms "
+                            f"({SWAP_HOLD_END_WORDS[why]})", on, t)
+
+
+# ---- item C: the own pass and its intent cache (NetSyncSwap)
+FLDSCRPT_EVTNO_ENDING = 16000            # FF9Define.FLDSCRPT_EVTNO_ENDING
+OWN_LEVER_ACT, OWN_LEVER_OLD, OWN_LEVER_NOCACHE = 0, 1, 2
+OWN_LEVER_NAMES = ("act", "old", "nocache")
+#: OwnFieldPassRule's terms (`own.last.term`, `own.by`); a refusal is negative and means today's rule decides
+OWN_TERM_NONE, OWN_TERM_PENDING, OWN_TERM_COMMITTED, OWN_TERM_INTENT, OWN_TERM_CACHE = 0, 1, 2, 3, 4
+OWN_TERM_REFUSED_WORLD, OWN_TERM_REFUSED_ATE = -1, -2
+OWN_TERM_NAMES = {OWN_TERM_PENDING: "pending", OWN_TERM_COMMITTED: "committed", OWN_TERM_INTENT: "intent", OWN_TERM_CACHE: "cache"}
+OWN_REFUSAL_WORDS = {OWN_TERM_REFUSED_WORLD: "the source-field hold holds it", OWN_TERM_REFUSED_ATE: "the ATE relay holds the follow to it"}
+INTENT_CACHE_MS = 2000                   # = LIFE's IntentMinLifeMs
+INTENT_CACHE_KEEP, INTENT_CACHE_WRITE, INTENT_CACHE_SKIP = 0, 1, 2
+INTENT_CACHE_NONE, INTENT_CACHE_LEFT, INTENT_CACHE_AGED, INTENT_CACHE_HOST_PAST, INTENT_CACHE_STANDS = 0, 1, 2, 3, 4
+
+
+def _real_field(f: int, my_field: int) -> bool:
+    return f > 0 and f != 65535 and f != my_field and f != FLDSCRPT_EVTNO_ENDING
+
+
+def own_field_pass_rule(lever: int, following: bool, my_field: int, dest: int, usable: bool, pending: int, kick: bool, committed: int,
+                        live_intent: int, cache_field: int, cache_stands: bool, world_held: bool, ate_held: bool) -> int:
+    """NetSyncSwap.OwnFieldPassRule: the copy's own Field(dest) passes on the host's ANNOUNCED field -- the pending follow (not the kick),
+    the committed one, the live intent, then the standing cache (not under `nocache`), in that order. A refusal is reported only when a
+    term matched (the s144 world hold, then the s161 ATE hold) and means today's rule decides."""
+    if lever == OWN_LEVER_OLD or not following:
+        return OWN_TERM_NONE
+    if dest <= 0 or dest == 65535 or dest == my_field or dest == FLDSCRPT_EVTNO_ENDING or not usable:
+        return OWN_TERM_NONE                                # the same-field pass and EndingPasses own these
+    if pending == dest and not kick:
+        term = OWN_TERM_PENDING
+    elif committed == dest:
+        term = OWN_TERM_COMMITTED
+    elif live_intent == dest:
+        term = OWN_TERM_INTENT
+    elif lever != OWN_LEVER_NOCACHE and cache_stands and cache_field == dest:
+        term = OWN_TERM_CACHE
+    else:
+        return OWN_TERM_NONE
+    if world_held:
+        return OWN_TERM_REFUSED_WORLD
+    if ate_held:
+        return OWN_TERM_REFUSED_ATE
+    return term
+
+
+def own_jump_verdict_rule(lever: int, following: bool, my_field: int, dest: int, lane: int, usable: bool, pending: int, kick: bool,
+                          committed: int, live_intent: int, cache_field: int, cache_stands: bool) -> tuple:
+    """NetSyncSwap.OwnJumpVerdictRule -> (verdict, why): the redirect core's decision with no hold, no ending and budget to spare -- C
+    first, then s163's lane pass, else the bounce (the `commit_then_own_same_tick` rows, T4)."""
+    term = own_field_pass_rule(lever, following, my_field, dest, usable, pending, kick, committed, live_intent, cache_field, cache_stands,
+                               False, False)
+    if term > 0:
+        return "pass", OWN_TERM_NAMES[term]
+    if dest == my_field:
+        return "reload", "same-field"
+    if dest == lane:
+        return "pass", "host-field"
+    return "bounce", "not-host"
+
+
+def intent_cache_step(cache_field: int, cache_nonce: int, sec_field: int, sec_nonce: int, my_field: int) -> int:
+    """NetSyncSwap.IntentCacheStep: a section 4 frame against the cache -- a cleared nonce stays spent (Keep); a new nonce for a real
+    field other than mine caches (Write); any other new nonce records the nonce and supersedes a standing cache (Skip). Nonces compare by
+    ``!=`` (255 -> 0 writes)."""
+    if sec_nonce < 0 or sec_nonce == cache_nonce:
+        return INTENT_CACHE_KEEP
+    if _real_field(sec_field, my_field) and my_field > 0:
+        return INTENT_CACHE_WRITE
+    return INTENT_CACHE_SKIP
+
+
+def intent_cache_verdict(cache_field: int, cache_src: int, host_from: int, age_ms: int, my_field: int, host_lane: int) -> int:
+    """NetSyncSwap.IntentCacheVerdict: does the cache still stand -- I left its source field, it aged IntentCacheMs, or the host's lane
+    stands on a field past it (never the stale source-field frame: R4, nor the field the host came from, nor a sentinel lane)."""
+    if cache_field <= 0:
+        return INTENT_CACHE_NONE
+    if my_field != cache_src:
+        return INTENT_CACHE_LEFT
+    if age_ms < 0 or age_ms >= INTENT_CACHE_MS:
+        return INTENT_CACHE_AGED
+    if host_lane > 0 and host_lane != 65535 and host_lane != cache_field and host_lane != cache_src and host_lane != host_from:
+        return INTENT_CACHE_HOST_PAST
+    return INTENT_CACHE_STANDS
+
+
+def own_pass_book(term: int, dest: int, pending: int, committed: int) -> tuple:
+    """NetSyncSwap.OwnPassBook -> (pending, committed, bend): a Pending pass converts the follow -- its fade becomes this commit (one load);
+    every other code changes nothing."""
+    if term == OWN_TERM_PENDING:
+        return -1, dest, True
+    return pending, committed, False
+
+
+def own_pass_keeps_own(term: int, exit_hold_keeps_own: bool) -> bool:
+    """NetSyncSwap.OwnPassKeepsOwn: a pass keeps my copy's own entrance only under the ATE exit hold (else the host's, as seeded)."""
+    return term > 0 and bool(exit_hold_keeps_own)
+
+
+# ---- the s154 landing rules C's sequence rows run after the book (NetSyncClient.FollowLandingStep / LandingRearm, s154, unchanged)
+LAND_NONE, LAND_ARRIVED, LAND_SUPERSEDED, LAND_LATCH_VOID = 0, 1, 2, 3
+
+
+def follow_landing_step(landed: int, pending: int, committed: int, warped_to: int, from_world: bool) -> tuple:
+    """NetSyncClient.FollowLandingStep -> (code, keep_warped_to, rearm): the follow at a field landing (s154)."""
+    keep = -1 if warped_to >= 0 and warped_to != landed else warped_to
+    if pending >= 0:
+        if pending == landed:
+            return LAND_ARRIVED, keep, -1
+        return LAND_SUPERSEDED, keep, (-1 if from_world else pending)
+    if committed >= 0 and committed != landed:
+        return LAND_LATCH_VOID, keep, (-1 if from_world else committed)
+    return LAND_NONE, keep, -1
+
+
+def landing_rearm(code: int, rearm: int, kick: bool) -> int:
+    """NetSyncClient.LandingRearm: the landing's re-arm as NoteFieldLanding spends it -- never for the kick."""
+    return -1 if code == LAND_NONE or kick else rearm
+
+
+# ---- item C's lines (behaviour)
+OWN_PASS_TAILS = {OWN_TERM_PENDING: "; my follow's fade becomes this commit (one load)",
+                  OWN_TERM_COMMITTED: "; my follow already committed to it", OWN_TERM_INTENT: ""}
+
+
+def own_log_pass(on: bool, dest: int, fld: int, term: int, k: int, t: int, announced_ms: int = -1, keep_own: bool = False) -> str:
+    """C's pass line (NoteOwnJump, when OwnFieldPass wrote a term above 0)."""
+    tail = f"; announced {announced_ms} ms ago" if term == OWN_TERM_CACHE else OWN_PASS_TAILS[term]
+    own = " -- my copy's own entrance (the ATE exit hold)" if keep_own else ""
+    return swap_place_stamp(f"[NetSync] own Field({dest}) passes on field {fld} -- the host's announced field ({OWN_TERM_NAMES[term]})"
+                            f"{tail}{own}{swap_record_tag(k)}", on, t)
+
+
+def own_log_refusal(on: bool, dest: int, fld: int, term: int, refusal: int, outcome: str, k: int, t: int) -> str:
+    """C's refusal line (R9): the literal starts ``[NetSync] own Field(`` exactly as the pass line does; it ends with the outcome words of
+    the verdict today's rule reached (I2)."""
+    return swap_place_stamp(f"[NetSync] own Field({dest}) on field {fld} matches the host's announced field ({OWN_TERM_NAMES[term]}) but "
+                            f"{OWN_REFUSAL_WORDS[refusal]} -- the old redirect rule decides: {outcome}{swap_record_tag(k)}", on, t)
+
+
+#: The refusal line's literal head (R9); battlewire's builder and the source test pin it
+OWN_REFUSAL_PREFIX = "[NetSync] own Field("
+
+
+def swap_log_own_jump(on: bool, last_term: int, dest: int, fld: int, verdict: str, why: str, lane: int, k: int, t: int, *,
+                      term: int = OWN_TERM_NONE, announced_ms: int = -1, keep_own: bool = False) -> str | None:
+    """NetSyncSwap.NoteOwnJump, the ONE printer of an own jump (I2): by ``last_term`` (OwnFieldPass's ``_ownLastTerm``) -- above 0, C's
+    pass line; below 0, C's refusal line for the matched ``term``, ending with the final verdict's outcome words; 0, L-OWN (instrument:
+    None with stamps off, and None for a verdict L-OWN never prints)."""
+    if last_term > 0:
+        return own_log_pass(on, dest, fld, last_term, k, t, announced_ms, keep_own)
+    words = swap_own_outcome_words(verdict, why, fld, lane)
+    if last_term < 0:
+        return own_log_refusal(on, dest, fld, term, last_term, words, k, t)
+    return None if words is None else swap_log_own(on, dest, fld, words, k, t)
+
+
+#: the cache clear's fixed reasons
+INTENT_CACHE_CLEAR_WORDS = ("aged 2000 ms", "the session reset", "the host epoch changed", "not following", "the world map", "the title",
+                            "the harness release")
+
+
+def intent_cache_left_reason(src: int, now_field: int, cached: int) -> str:
+    """The Left clear's reason; " (the cached field)" when the field I moved to is the cached one (T7)."""
+    return f"I left field {src} (now {now_field})" + (" (the cached field)" if now_field == cached else "")
+
+
+def intent_cache_log_write(on: bool, field: int, nonce: int, src: int, lane: int, t: int) -> str:
+    """The cache write line."""
+    return swap_place_stamp(f"[NetSync] intent cache: field {field} (nonce {nonce}) cached on field {src} (host lane {lane})", on, t)
+
+
+def intent_cache_log_clear(on: bool, field: int, reason: str, t: int) -> str:
+    """The cache clear line; ``reason`` from :data:`INTENT_CACHE_CLEAR_WORDS` or a builder (left / loaded / host past / superseded)."""
+    return swap_place_stamp(f"[NetSync] intent cache: field {field} cleared -- {reason}", on, t)
+
+
+def intent_cache_loaded_reason(n: int) -> str:
+    return f"field {n} loaded"
+
+
+def intent_cache_host_past_reason(h: int) -> str:
+    return f"the host stands on field {h} (past it)"
+
+
+def intent_cache_superseded_reason(n: int, g: int) -> str:
+    return f"superseded (the host's intent nonce {n}: field {g})"
+
+
+# ---- LIFE: the host's intent lifetime (NetSyncSwap)
+INTENT_MIN_LIFE_MS = 2000                # = the guest lane's staleness (NetSyncSocket.cs:292, NetSyncRelay.cs:30)
+INTENT_LAND_TAIL_MS = 1000               # T13: section 4 outlives the host's landing by at least this
+INTENT_LOAD_CAP_MS = 10000
+#: `intent.landing` (null while no intent is active)
+INTENT_LANDING_PENDING, INTENT_LANDING_ON_INTENT, INTENT_LANDING_ELSEWHERE = 0, 1, 2
+INTENT_LANDING_NAMES = ("pending", "on_intent", "elsewhere")
+#: IntentLifeRule's verdicts and the one end vocabulary (`intent.last_end`, the `ends` keys from index 1)
+INTENT_LIFE_KEEP, INTENT_END_STANDS, INTENT_END_LEFT, INTENT_END_ELSEWHERE, INTENT_END_CAP, INTENT_END_OLD = 0, 1, 2, 3, 4, 5
+INTENT_END_NEXT, INTENT_END_RESET = 6, 7
+INTENT_END_NAMES = (None, "stands", "left", "elsewhere", "cap", "old", "next", "reset")
+INTENT_END_WORDS = {INTENT_END_STANDS: "I stand on it (my body there, 2 s on the wire, 1 s since my landing)", INTENT_END_LEFT: "I left it",
+                    INTENT_END_ELSEWHERE: "I landed elsewhere", INTENT_END_CAP: "no landing in 10 s",
+                    INTENT_END_OLD: "s163's rule (lever)", INTENT_END_RESET: "the session reset"}
+
+
+def intent_landing_step(landing: int, active: bool, intent_field: int, loaded_field: int) -> int:
+    """NetSyncSwap.IntentLandingStep (the host's field-load hook, before Main_Init): Pending becomes OnIntent or Elsewhere once, and never
+    flips back."""
+    if not active or landing != INTENT_LANDING_PENDING:
+        return landing
+    return INTENT_LANDING_ON_INTENT if loaded_field == intent_field else INTENT_LANDING_ELSEWHERE
+
+
+def intent_life_rule(old_rule: bool, since_emit_ms: int, since_land_ms: int, landing: int, on_intent_field: bool, body_there: bool) -> int:
+    """NetSyncSwap.IntentLifeRule: section 4 lives from the emit until the host has loaded the announced field, its body stands there,
+    2 s have passed since the emit and 1 s since the landing; early on landing elsewhere, leaving after landing (a battle's swirl reads
+    off the field) or no landing in 10 s. It never reads "is the old map alive" (the R1 fix); the lever is s163's :2095 verbatim."""
+    if old_rule:
+        return INTENT_END_OLD if on_intent_field else INTENT_LIFE_KEEP
+    if landing == INTENT_LANDING_ELSEWHERE:
+        return INTENT_END_ELSEWHERE
+    if landing == INTENT_LANDING_PENDING:
+        return INTENT_END_CAP if since_emit_ms >= INTENT_LOAD_CAP_MS else INTENT_LIFE_KEEP
+    if not on_intent_field:
+        return INTENT_END_LEFT
+    if body_there and since_emit_ms >= INTENT_MIN_LIFE_MS and since_land_ms >= INTENT_LAND_TAIL_MS:
+        return INTENT_END_STANDS
+    return INTENT_LIFE_KEEP
+
+
+def body_there_rule(in_scope: bool, have_actor: bool, have_map_actor: bool) -> bool:
+    """NetSyncSwap.BodyThereRule (F14, shared by the host path and the selftest branch): the control char is an Actor whose fieldMapActor
+    has bound."""
+    return bool(in_scope) and bool(have_actor) and bool(have_map_actor)
+
+
+def life_log_replaced(on: bool, n0: int, d0: int, n: int, ms: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] transition intent {n0} to field {d0} replaced by intent {n} after {ms} ms", on, t)
+
+
+def life_log_landed(on: bool, n: int, d: int, ms: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] transition intent {n}: I landed on field {d} after {ms} ms -- section 4 stays until my body stands "
+                            f"there, 2 s since the emit and 1 s since this landing", on, t)
+
+
+def life_log_landed_elsewhere(on: bool, n: int, f: int, d: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] transition intent {n}: I landed on field {f}, not {d} -- section 4 ends", on, t)
+
+
+def life_log_ended(on: bool, n: int, d: int, ms: int, why: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] transition intent {n} to field {d} ended after {ms} ms -- {INTENT_END_WORDS[why]}", on, t)
+
+
+# ---- PIN: the story pin (NetSyncSwap)
+PIN_MAX_AGE_MS = 2500
+PIN_BLIND_CAP_MS = 10000                 # = LIFE's IntentLoadCapMs
+INTENT_FLAG_LANDED = 0x01                # section 4's fourth byte, bit 0: "built after my landing hook"
+#: PinCaptureRule's codes; the held entry's quality (`pin.held[].quality`, `pin.last_use_quality`: "none" when no entry was held)
+PIN_KEEP, PIN_HERE, PIN_NONE, PIN_PRE, PIN_LATE = -1, -2, 0, 1, 2
+PIN_QUALITY_NAMES = {PIN_NONE: "none", PIN_PRE: "pre", PIN_LATE: "late"}
+#: PinUseRule's verdicts and its why (`pin.last_use`: "pin" for a Pin verdict, else the why)
+PIN_USE_LATEST, PIN_USE_PIN = 0, 1
+PIN_WHY_LEVER, PIN_WHY_WORLD, PIN_WHY_NONE, PIN_WHY_OTHER, PIN_WHY_LATE, PIN_WHY_AGED = "lever", "world", "none", "other", "late", "aged"
+PIN_LAST_USE_NAMES = ("pin", "none", "other", "late", "aged", "world", "lever", "skipped_stale")
+
+
+def intent_section_body(field: int, nonce: int, landed: bool) -> bytes:
+    """NetSyncSwap.IntentSectionBody: section 4's body -- s163's three bytes (field LE, nonce), then the flags byte (S3)."""
+    return bytes((field & 0xFF, (field >> 8) & 0xFF, nonce & 0xFF, INTENT_FLAG_LANDED if landed else 0))
+
+
+def intent_landed_of(body) -> bool:
+    """NetSyncSwap.IntentLandedOf: bit 0 of the flags byte; NO flags byte (an s163 host's 3-byte body) reads as landed -- fail safe (the
+    guest then stages the latest frame, s163's behaviour)."""
+    return body is None or len(body) < 4 or (body[3] & INTENT_FLAG_LANDED) != 0
+
+
+def pin_capture_rule(spent: bool, here: bool, held_quality: int, frame_nonce: int, frame_landed: bool) -> int:
+    """NetSyncSwap.PinCaptureRule: one new host frame against the pin map (``held_quality`` = the held entry for this nonce, if any). A
+    spent nonce stays spent (T1); here is judged before the landed bit (R4); one entry per nonce; the FIRST frame of a nonce I saw is
+    Pre when the host built it before its landing hook (its Main_Init input), else Late."""
+    if frame_nonce < 0:
+        return PIN_KEEP
+    if spent:
+        return PIN_KEEP
+    if held_quality == PIN_NONE and here:
+        return PIN_HERE
+    if held_quality != PIN_NONE:
+        return PIN_KEEP
+    return PIN_LATE if frame_landed else PIN_PRE
+
+
+def pin_targeted(pin_field: int, pending: int, committed: int, warped_to: int) -> bool:
+    """NetSyncSwap.PinTargeted: a follow targets the pin's field (pending, committed or warped-to: T5)."""
+    return pin_field > 0 and (pin_field == pending or pin_field == committed or pin_field == warped_to)
+
+
+def pin_drop_on_new(held_field: int, targeted: bool, new_field: int) -> bool:
+    """NetSyncSwap.PinDropOnNew: when a new nonce is stored, a held pin for ANOTHER field survives only while a follow targets it (the
+    chain, T5); one for the same field is superseded by the newer nonce."""
+    return True if held_field == new_field else not targeted
+
+
+def pin_age_rule(land_seen: bool, since_land_seen_ms: int, since_capture_ms: int) -> int:
+    """NetSyncSwap.PinAgeRule: the pin's age counts from the host's landing as I first saw it (T6); a landing never seen in
+    PinBlindCapMs ages from the capture (the backstop); else a pin captured before the host's landing is not aged yet (0)."""
+    if land_seen:
+        return since_land_seen_ms
+    if since_capture_ms >= PIN_BLIND_CAP_MS:
+        return since_capture_ms
+    return 0
+
+
+def pin_use_rule(lever_old: bool, from_world: bool, quality: int, pin_field: int, age_ms: int, fld: int) -> tuple:
+    """NetSyncSwap.PinUseRule -> (verdict, why): stage the pin's story only for a Pre pin of THIS field, not aged past PinMaxAgeMs, off a
+    field landing (R3: a world rejoin stages the latest) and not under the lever; ``why`` is None for a Pin verdict."""
+    if lever_old:
+        return PIN_USE_LATEST, PIN_WHY_LEVER
+    if from_world:
+        return PIN_USE_LATEST, PIN_WHY_WORLD
+    if quality == PIN_NONE:
+        return PIN_USE_LATEST, PIN_WHY_NONE
+    if pin_field != fld:
+        return PIN_USE_LATEST, PIN_WHY_OTHER
+    if quality == PIN_LATE:
+        return PIN_USE_LATEST, PIN_WHY_LATE
+    if age_ms < 0 or age_ms > PIN_MAX_AGE_MS:
+        return PIN_USE_LATEST, PIN_WHY_AGED
+    return PIN_USE_PIN, None
+
+
+def pin_consumed(quality: int, pin_field: int, fld: int) -> bool:
+    """NetSyncSwap.PinConsumed: a landing on the pin's field consumes it (a bounce's reload of the source field keeps it for the follow)."""
+    return quality != PIN_NONE and pin_field == fld
+
+
+def landing_frames(verdict: int, pin, latest) -> tuple:
+    """NetSyncSwap.LandingFrames -> (story, party, dress): the story from the pin under a Pin verdict; the party wraps (sections 1-3) and
+    the dress (section 8) ALWAYS from the latest frame (R1)."""
+    return (pin if verdict == PIN_USE_PIN else latest), latest, latest
+
+
+def pin_log_kept(on: bool, n: int, d: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] story pin: intent {n}'s frame kept for field {d} (built before the host's landing)", on, t)
+
+
+def pin_log_late(on: bool, n: int, d: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] story pin: intent {n}'s first frame I saw was built after the host's landing -- kept as late (a "
+                            f"landing on field {d} stages the latest frame)", on, t)
+
+
+def pin_log_pre_differs(on: bool, n: int, b: int, t: int) -> str | None:
+    """Printed only when B > 0 (the halted-VM premise broken)."""
+    if b <= 0:
+        return None
+    return swap_place_stamp(f"[NetSync] story pin: intent {n}'s later frame from before the host's landing differs from the pin at {b} "
+                            f"story bytes (the halted-VM premise)", on, t)
+
+
+def pin_log_here(on: bool, n: int, d: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] story pin: intent {n} names field {d}, where I already stand -- not kept", on, t)
+
+
+def pin_log_dropped(on: bool, n0: int, d0: int, n: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] story pin: intent {n0}'s frame for field {d0} dropped unused (intent {n} arrived)", on, t)
+
+
+def pin_log_stages(on: bool, d: int, n: int, age_ms: int, b: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] story pin: field {d} stages intent {n}'s frame for its story, the latest frame for its party and "
+                            f"dress (age {age_ms} ms; the latest differs at {b} story bytes)", on, t)
+
+
+def pin_latest_why_words(why: str, age_ms: int = -1, n: int = -1) -> str:
+    """The "stages the latest frame" line's why (it prints only when a pin for this field was held)."""
+    return {PIN_WHY_AGED: f"the pin is {age_ms} ms old (over {PIN_MAX_AGE_MS})",
+            PIN_WHY_LATE: f"intent {n}'s first frame came after the host's landing",
+            PIN_WHY_WORLD: "a world-map landing (round 1 stages the latest there)", PIN_WHY_LEVER: "the lever (s163's rule)"}[why]
+
+
+def pin_log_latest(on: bool, d: int, why_words: str, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] story pin: field {d} stages the latest frame -- {why_words}", on, t)
+
+
+def pin_log_not_applied(on: bool, n: int, d: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] story pin: intent {n}'s frame did not apply -- the latest frame stages field {d}", on, t)
+
+
+# ---- D+E: the fade-aware follow and the 12-tick fade (NetSyncFollowFade)
+FADE_FAST_FRAMES = 12                    # stock's own default (SceneDirector.cs:694-697, 711)
+FADE_OLD_FRAMES = 24                     # = NetSyncClient.FollowFadeFrames (:215)
+FADE_OLD_WAIT_S = 0.9                    # = NetSyncClient.FollowFadeWait (:216)
+FADE_OLD_WAIT_MS = 900
+FADE_JOIN_GRACE_TICKS = 3
+FADE_BLACK_FLOOR = 248
+FADE_AHEAD_MAX_MS = 3000
+#: the fade slot's mode (FadeMode: Add = 0, Sub = 1; NetSyncReadFade refuses anything outside 0-1)
+FADE_MODE_ADD, FADE_MODE_SUB = 0, 1
+FADE_MODE_NAMES = ("add", "sub")
+FADE_VIEW_UNKNOWN, FADE_VIEW_VISIBLE, FADE_VIEW_HEADING, FADE_VIEW_BLACK = 0, 1, 2, 3
+FADE_VIEW_NAMES = ("unknown", "visible", "heading", "black")
+FADE_BK_NONE, FADE_BK_LINE, FADE_BK_AHEAD, FADE_BK_KEY, FADE_BK_OPEN, FADE_BK_UNKNOWN = 0, 1, 2, 3, 4, 5
+FADE_BK_NAMES = ("none", "line", "ahead", "key", "open", "unknown")
+FADE_BK_WORDS = {FADE_BK_LINE: "a host close queued for a line still open here", FADE_BK_AHEAD: "a host event for a line not open here yet",
+                 FADE_BK_KEY: "a relayed host key not yet played here", FADE_BK_OPEN: "a locked line open here"}
+FADE_PATH_FAST, FADE_PATH_BACKLOG, FADE_PATH_OLD, FADE_PATH_KICK = 0, 1, 2, 3
+FADE_PATH_NAMES = ("fast", "backlog", "old", "kick")
+FADE_ACT_JOIN, FADE_ACT_HURRY, FADE_ACT_FADE, FADE_ACT_WIPE = 0, 1, 2, 3
+FADE_ACT_NAMES = ("join", "hurry", "fade", "wipe")
+FADE_DUE_WAIT, FADE_DUE_PRIME, FADE_DUE_BLACK, FADE_DUE_TIMER, FADE_DUE_FALLBACK, FADE_DUE_RECHECK = 0, 1, 2, 3, 4, 5
+FADE_DUE_NAMES = ("wait", "prime", "black", "timer", "fallback", "recheck")
+#: `fade.last.by` / the `fade.ends` keys: the four commit verdicts, then the ends without a commit (NetSyncFollowFade.Clear's `by`)
+FADE_END_NAMES = ("black", "timer", "fallback", "recheck", "landing", "own", "world", "title")
+FADE_LEVER_ACT, FADE_LEVER_OLD, FADE_LEVER_LONG, FADE_LEVER_NOGATE, FADE_LEVER_NORECHECK, FADE_LEVER_NOHURRY = 0, 1, 2, 3, 4, 5
+FADE_LEVER_NAMES = ("act", "old", "long", "nogate", "norecheck", "nohurry")
+#: the Old start's why
+FADE_OLD_WHY_LEVER, FADE_OLD_WHY_OWN_WARP, FADE_OLD_WHY_SLOT, FADE_OLD_WHY_BACKLOG = 0, 1, 2, 3
+FADE_OLD_WHY_WORDS = ("CALIBRATION: swap fade old", "my own warp is in flight", "the fade slot was unreadable", "the backlog was unreadable")
+
+
+def fade_view_rule(read_ok: bool, mode: int, cur_min: int, target_min: int, ticks_left: int) -> int:
+    """NetSyncFollowFade.ViewRule: what the one fade slot shows -- an Add white is never black; Sub reads black at the floor, heading when
+    its target is black with ticks left, else visible (a dim idle slot, or one heading to a dim target)."""
+    if not read_ok:
+        return FADE_VIEW_UNKNOWN
+    if mode != FADE_MODE_SUB:
+        return FADE_VIEW_VISIBLE
+    if cur_min >= FADE_BLACK_FLOOR:
+        return FADE_VIEW_BLACK
+    if target_min >= FADE_BLACK_FLOOR and ticks_left > 0:
+        return FADE_VIEW_HEADING
+    return FADE_VIEW_VISIBLE
+
+
+from collections import namedtuple                                      # noqa: E402
+
+#: CountBacklog's facts: a host event in the inbox, and a live window (``cls`` None = an untracked live lockable line: counts as Locked)
+FadeEvt = namedtuple("FadeEvt", "field win text seen tried", defaults=(False,))
+FadeWin = namedtuple("FadeWin", "field win text cls inh", defaults=(False,))
+
+
+def fade_count_backlog(ev, wins, my_field: int, now: int, engaged: bool, key_here: bool) -> tuple:
+    """NetSyncFollowFade.CountBacklog -> (backlog, on_open, ahead, line_open): events for MY field on a live window that is neither Local
+    nor Inh (Tried counts), events for my field on no live window at all younger than AheadMaxMs (one on a Local or Inh window is
+    ignored, never counted ahead), and -- while the lock is engaged -- a live Locked, not Inh window on my field."""
+    on_open = ahead = 0
+    for e in ev:
+        if e.field != my_field:
+            continue
+        match = [w for w in wins if (w.field, w.win, w.text) == (e.field, e.win, e.text)]
+        if not match:
+            if _i32(now - e.seen) < FADE_AHEAD_MAX_MS:
+                ahead += 1
+        elif any(w.cls != DIALOG_CLS_LOCAL and not w.inh for w in match):
+            on_open += 1
+    line_open = bool(engaged) and any(w.field == my_field and w.cls in (None, DIALOG_CLS_LOCKED) and not w.inh for w in wins)
+    return fade_backlog_rule(True, on_open, ahead, key_here, line_open), on_open, ahead, line_open
+
+
+def fade_backlog_rule(read_ok: bool, on_open: int, ahead: int, key_here: bool, line_open: bool) -> int:
+    """NetSyncFollowFade.BacklogRule: the cascade Line > Ahead > Key > Open; an unreadable backlog is Unknown (it holds, and sends the
+    start to the Old path)."""
+    if not read_ok:
+        return FADE_BK_UNKNOWN
+    if on_open > 0:
+        return FADE_BK_LINE
+    if ahead > 0:
+        return FADE_BK_AHEAD
+    if key_here:
+        return FADE_BK_KEY
+    if line_open:
+        return FADE_BK_OPEN
+    return FADE_BK_NONE
+
+
+def fade_path_rule(kick: bool, lever: int, own_warp: bool, view: int, backlog: int) -> int:
+    """NetSyncFollowFade.PathRule: the kick keeps its path; the lever, my own debug warp in flight or an unreadable slot / backlog take
+    today's (fail open); a backlog takes today's timing unless `nogate`; else the fast path."""
+    if kick:
+        return FADE_PATH_KICK
+    if lever == FADE_LEVER_OLD or own_warp or view == FADE_VIEW_UNKNOWN or backlog == FADE_BK_UNKNOWN:
+        return FADE_PATH_OLD
+    if backlog != FADE_BK_NONE and lever != FADE_LEVER_NOGATE:
+        return FADE_PATH_BACKLOG
+    return FADE_PATH_FAST
+
+
+def fade_action_rule(path: int, view: int, ticks_left: int, lever: int) -> tuple:
+    """NetSyncFollowFade.ActionRule -> (action, frames): E's 12 ticks on the fast path (24 under `long` and off it); Old and the kick wipe
+    (today's flash); a black slot is joined, a heading one joined when it lands within ``frames`` (or under `nohurry`), else hurried; a
+    visible one faded."""
+    frames = FADE_FAST_FRAMES if path == FADE_PATH_FAST and lever != FADE_LEVER_LONG else FADE_OLD_FRAMES
+    if path in (FADE_PATH_OLD, FADE_PATH_KICK):
+        return FADE_ACT_WIPE, FADE_OLD_FRAMES
+    if view == FADE_VIEW_BLACK:
+        return FADE_ACT_JOIN, frames
+    if view == FADE_VIEW_HEADING and (ticks_left <= frames or lever == FADE_LEVER_NOHURRY):
+        return FADE_ACT_JOIN, frames
+    if view == FADE_VIEW_HEADING:
+        return FADE_ACT_HURRY, frames
+    return FADE_ACT_FADE, frames
+
+
+def fade_grace_rule(action: int) -> int:
+    """NetSyncFollowFade.GraceRule: 3 game ticks after a Join (the copy's own Field() may still win); 0 when we ran the fade ourselves."""
+    return FADE_JOIN_GRACE_TICKS if action == FADE_ACT_JOIN else 0
+
+
+def fade_black_ticks_rule(black: bool, armed: bool, since: int, key_tick: int) -> tuple:
+    """NetSyncFollowFade.BlackTicksRule -> (armed, since, black_ticks): game ticks the slot has read black (Int32 KeyTick deltas, wrap-safe);
+    leaving black disarms (-1)."""
+    if black and not armed:
+        armed, since = True, key_tick
+    if black:
+        return armed, since, _i32(key_tick - since)
+    return False, since, -1
+
+
+def fade_due_rule(path: int, timer_out: bool, view: int, black_ticks: int, grace: int, backlog_now: int, primed: bool, lever: int) -> int:
+    """NetSyncFollowFade.DueRule: off the fast path today's timer; a backlog (Unknown holds) waits for the timer and rechecks; a ready
+    black (grace spent) PRIMES first and commits one dialogue pass later (S2) -- or at once at the timer; else the timer's fallback.
+    Invariant (s42, never abandon): with ``timer_out`` it never yields Wait or Prime."""
+    if path != FADE_PATH_FAST:
+        return FADE_DUE_TIMER if timer_out else FADE_DUE_WAIT
+    held = backlog_now != FADE_BK_NONE and lever not in (FADE_LEVER_NOGATE, FADE_LEVER_NORECHECK)
+    if held:
+        return FADE_DUE_RECHECK if timer_out else FADE_DUE_WAIT
+    ready = view == FADE_VIEW_BLACK and black_ticks >= grace
+    if ready and (primed or timer_out):
+        return FADE_DUE_BLACK
+    if ready:
+        return FADE_DUE_PRIME
+    return FADE_DUE_FALLBACK if timer_out else FADE_DUE_WAIT
+
+
+def fade_reassert_rule(path: int, reasserted: bool, timer_out: bool, view: int) -> bool:
+    """NetSyncFollowFade.ReassertRule: once per follow, a fast or backlog follow whose slot turned visible mid-fade fades again."""
+    return path in (FADE_PATH_FAST, FADE_PATH_BACKLOG) and not reasserted and not timer_out and view == FADE_VIEW_VISIBLE
+
+
+def fade_action_words(action: int, frames: int) -> str:
+    """The start lines' action words."""
+    return {FADE_ACT_JOIN: "joining its own fade (no re-init)",
+            FADE_ACT_HURRY: f"hurrying it to black in {frames} ticks from where it is (no flash)",
+            FADE_ACT_FADE: f"fading to black in {frames} ticks"}[action]
+
+
+def fade_log_fast_start(on: bool, dest: int, view: int, mode: int, ticks_left: int, action: int, frames: int, t: int) -> str:
+    left = f" ({ticks_left} ticks left)" if view == FADE_VIEW_HEADING else ""
+    return swap_place_stamp(f"[NetSync] follow fade: to field {dest} -- fast: the screen reads {FADE_VIEW_NAMES[view]} "
+                            f"({FADE_MODE_NAMES[mode]}){left}; {fade_action_words(action, frames)}; the commit waits for black (no later "
+                            f"than 0.9 s)", on, t)
+
+
+def fade_log_backlog_start(on: bool, dest: int, fld: int, backlog: int, action: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] follow fade: to field {dest} -- today's timing: field {fld} has a backlog "
+                            f"({FADE_BK_WORDS[backlog]}); {fade_action_words(action, FADE_OLD_FRAMES)}; the commit waits 0.9 s", on, t)
+
+
+def fade_log_old_start(on: bool, dest: int, why: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] follow fade: to field {dest} -- today's rule ({FADE_OLD_WHY_WORDS[why]}): FF9Wipe_FadeOutEx(24), "
+                            f"the commit at 0.9 s", on, t)
+
+
+def fade_due_words(due: int, grace: int = 0, primed: bool = False, view: int = FADE_VIEW_UNKNOWN, darkest: int = -1,
+                   backlog: int = FADE_BK_NONE) -> str:
+    """The due line's words (the black tails: the grace when one ran, the prime when the verdict came through Prime)."""
+    if due == FADE_DUE_BLACK:
+        return ("the screen reads black" + (f" after the {grace}-tick grace" if grace > 0 else "")
+                + (", one dialogue pass later" if primed else ""))
+    if due == FADE_DUE_TIMER:
+        return "today's 0.9 s timer"
+    if due == FADE_DUE_FALLBACK:
+        return f"the 0.9 s fallback: the fade never read black ({FADE_VIEW_NAMES[view]}, darkest channel {darkest})"
+    if due == FADE_DUE_RECHECK:
+        return f"today's 0.9 s timer: a backlog rose mid-fade ({FADE_BK_WORDS[backlog]})"
+    raise ValueError(f"no due words for {FADE_DUE_NAMES[due]} (Wait and Prime never log)")
+
+
+def fade_log_due(on: bool, dest: int, ms: int, ticks: int, words: str, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] follow fade: field {dest} due after {ms} ms / {ticks} ticks -- {words}", on, t)
+
+
+def fade_log_backlog_mid(on: bool, fld: int, backlog: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] follow fade: a backlog rose mid-fade on field {fld} ({FADE_BK_WORDS[backlog]}) -- the commit waits "
+                            f"for today's 0.9 s timer", on, t)
+
+
+def fade_log_reassert(on: bool, view: int, darkest: int, frames: int, t: int) -> str:
+    return swap_place_stamp(f"[NetSync] follow fade: the fade slot turned away from black mid-follow ({FADE_VIEW_NAMES[view]}, darkest "
+                            f"channel {darkest}) -- fading to black again in {frames} ticks from where it is (once per follow)", on, t)
+
+
+# ---- the lever scheme: `netsync swap <op> [arg]` (NetSyncSwap.HarnessLever; HarnessAgent's `case "swap"`)
+SWAP_ROLE_ANY, SWAP_ROLE_GUEST, SWAP_ROLE_HOST, SWAP_ROLE_SELFTEST = "any", "guest", "host", "selftest"
+#: the ops in the design's table order, and each one's role class
+SWAP_OPS = ("stamps", "delay", "orphan", "own", "pin", "life", "fade", "clear", "hostctl", "intent", "cache", "pinbench", "lifebench",
+            "blackout")
+SWAP_OP_ROLES = {"stamps": SWAP_ROLE_ANY, "delay": SWAP_ROLE_GUEST, "orphan": SWAP_ROLE_GUEST, "own": SWAP_ROLE_GUEST,
+                 "pin": SWAP_ROLE_GUEST, "life": SWAP_ROLE_HOST, "fade": SWAP_ROLE_GUEST, "clear": SWAP_ROLE_ANY,
+                 "hostctl": SWAP_ROLE_SELFTEST, "intent": SWAP_ROLE_SELFTEST, "cache": SWAP_ROLE_SELFTEST, "pinbench": SWAP_ROLE_SELFTEST,
+                 "lifebench": SWAP_ROLE_SELFTEST, "blackout": SWAP_ROLE_SELFTEST}
+#: the word-valued ops' words (each op takes exactly one)
+SWAP_OP_WORDS = {"stamps": ("on", "off"), "orphan": ("act", "old"), "own": OWN_LEVER_NAMES, "pin": ("act", "old"), "life": ("act", "old"),
+                 "fade": FADE_LEVER_NAMES, "hostctl": ("off", "on")}
+SWAP_DELAY_RANGE = (0, 2000)             # the delay holds a black screen with control off (conflict row 5)
+SWAP_BLACKOUT_RANGE = (1, 255)
+SWAP_BENCH_GATED_OPS = ("intent", "pinbench")       # also need `netsync bench 1`
+SWAP_USAGE = ("netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, orphan act|old, own act|old|nocache, pin act|old "
+              "or fade act|old|long|nogate|norecheck|nohurry (a client or the selftest role); life act|old (the host or the selftest "
+              "role); hostctl off|on, intent <field>, cache <field>, pinbench <field> <flag> [age <ms>] [landed] [party <slot> <char>] "
+              "[to <field>], lifebench <field> or blackout <1-255>|off (the selftest role)")
+SWAP_REFUSAL_COOP_OFF = "netsync swap: co-op is off -- no role to act on"
+
+
+def swap_refusal_guest_side(op: str) -> str:
+    return f"netsync swap {op}: a guest-side lever (a client or the selftest role) -- this game is the host"
+
+
+def swap_refusal_host_side(op: str) -> str:
+    return f"netsync swap {op}: a host-side lever (the host or the selftest role) -- this game is a client"
+
+
+def swap_refusal_selftest(op: str) -> str:
+    return f"netsync swap {op}: needs the selftest role (netsync selftest 1)"
+
+
+def swap_refusal_bench(op: str) -> str:
+    return f"netsync swap {op}: needs the field-gate bench (netsync bench 1)"
+
+
+_SWAP_INT = re.compile(r"\s*[+-]?\d+\s*")
+
+
+def _swap_int(s) -> int | None:
+    """Int32.TryParse (NumberStyles.Integer, invariant): optional whitespace and sign, decimal digits, in Int32 range -- else None."""
+    s = str(s)
+    if not _SWAP_INT.fullmatch(s):
+        return None
+    v = int(s)
+    return v if -(1 << 31) <= v < (1 << 31) else None
+
+
+def swap_parse_pinbench(args) -> dict | None:
+    """`pinbench <field> <flag> [age <ms>] [landed] [party <slot> <char>] [to <field>]` (the words after `pinbench`) -> its parts, or None
+    (the usage line). The optional parts come in the usage's order; field and `to` > 0, flag / age / char >= 0, slot 0-3."""
+    a = [str(x).strip() for x in args]
+    if len(a) < 2:
+        return None
+    field, flag = _swap_int(a[0]), _swap_int(a[1])
+    if field is None or flag is None or field <= 0 or flag < 0:
+        return None
+    out = {"field": field, "flag": flag, "age": -1, "landed": False, "party": None, "to": -1}
+    i = 2
+    if i < len(a) and a[i].lower() == "age":
+        age = _swap_int(a[i + 1]) if i + 1 < len(a) else None
+        if age is None or age < 0:
+            return None
+        out["age"], i = age, i + 2
+    if i < len(a) and a[i].lower() == "landed":
+        out["landed"], i = True, i + 1
+    if i < len(a) and a[i].lower() == "party":
+        slot = _swap_int(a[i + 1]) if i + 1 < len(a) else None
+        char = _swap_int(a[i + 2]) if i + 2 < len(a) else None
+        if slot is None or char is None or not 0 <= slot <= 3 or char < 0:
+            return None
+        out["party"], i = (slot, char), i + 3
+    if i < len(a) and a[i].lower() == "to":
+        to = _swap_int(a[i + 1]) if i + 1 < len(a) else None
+        if to is None or to <= 0:
+            return None
+        out["to"], i = to, i + 2
+    return out if i == len(a) else None
+
+
+def swap_args_ok(args) -> bool:
+    """Step 7, arity and range, for a KNOWN op (``args`` = the words after `swap`, op first)."""
+    a = [str(x).strip() for x in args]
+    op = a[0].lower() if a else ""
+    rest = a[1:]
+    if op == "clear":
+        return not rest
+    if op in SWAP_OP_WORDS:
+        return len(rest) == 1 and rest[0].lower() in SWAP_OP_WORDS[op]
+    if op == "delay":
+        n = _swap_int(rest[0]) if len(rest) == 1 else None
+        return n is not None and SWAP_DELAY_RANGE[0] <= n <= SWAP_DELAY_RANGE[1]
+    if op in ("intent", "cache", "lifebench"):
+        n = _swap_int(rest[0]) if len(rest) == 1 else None
+        return n is not None and n > 0
+    if op == "blackout":
+        if len(rest) != 1:
+            return False
+        if rest[0].lower() == "off":
+            return True
+        n = _swap_int(rest[0])
+        return n is not None and SWAP_BLACKOUT_RANGE[0] <= n <= SWAP_BLACKOUT_RANGE[1]
+    if op == "pinbench":
+        return swap_parse_pinbench(rest) is not None
+    return False
+
+
+def swap_lever_refusal(args, role: str | None, bench_gate: bool = False) -> str | None:
+    """NetSyncSwap.HarnessLever's refusal ORDER -> None (the op acts) or the refusal: (1) an unknown op, the usage line; (2) co-op off
+    (``role`` None), for every op but `clear`; (3) a guest-side op on a host; (4) a host-side op on a client; (5) a bench op off the
+    selftest role; (6) `intent` / `pinbench` without `netsync bench 1`; (7) bad arity or range, the usage line. ``role`` is "host",
+    "client", "selftest" or None; ``args`` the words after `swap`."""
+    a = [str(x).strip() for x in args]
+    op = a[0].lower() if a else ""
+    if op not in SWAP_OP_ROLES:
+        return SWAP_USAGE
+    if role is None and op != "clear":
+        return SWAP_REFUSAL_COOP_OFF
+    cls = SWAP_OP_ROLES[op]
+    if cls == SWAP_ROLE_GUEST and role == "host":
+        return swap_refusal_guest_side(op)
+    if cls == SWAP_ROLE_HOST and role == "client":
+        return swap_refusal_host_side(op)
+    if cls == SWAP_ROLE_SELFTEST and role != "selftest":
+        return swap_refusal_selftest(op)
+    if op in SWAP_BENCH_GATED_OPS and not bench_gate:
+        return swap_refusal_bench(op)
+    return None if swap_args_ok(a) else SWAP_USAGE
+
+
+# ---- the harness lines (never stamped)
+SWAP_HARNESS_STAMPS_OFF = ("[NetSync] harness: swap stamps OFF -- CALIBRATION: no '(t N ms)' stamps, no waited/shown tails, no swap lines "
+                           "(released with the harness)")
+SWAP_HARNESS_STAMPS_ON = "[NetSync] harness: swap stamps ON"
+SWAP_HARNESS_ORPHAN_OLD = ("[NetSync] harness: swap orphan OLD -- CALIBRATION: s163's orphan rule, a plain line ignores the host's control "
+                           "(released with the harness)")
+SWAP_HARNESS_ORPHAN_ACT = "[NetSync] harness: swap orphan ACT"
+SWAP_HARNESS_OWN_OLD = ("[NetSync] harness: swap own OLD -- CALIBRATION: s163's rule, an own Field() passes only on my field or the host's "
+                        "lane field (released with the harness)")
+SWAP_HARNESS_OWN_NOCACHE = ("[NetSync] harness: swap own NOCACHE -- CALIBRATION: the pending, committed and live-intent terms only "
+                            "(released with the harness)")
+SWAP_HARNESS_OWN_ACT = "[NetSync] harness: swap own ACT"
+SWAP_HARNESS_PIN_OLD = ("[NetSync] harness: swap pin OLD -- CALIBRATION: s163's rule, every landing stages the latest frame (released with "
+                        "the harness)")
+SWAP_HARNESS_PIN_ACT = "[NetSync] harness: swap pin ACT"
+SWAP_HARNESS_LIFE_OLD = ("[NetSync] harness: swap life OLD -- CALIBRATION: s163's self-clear, no publish-clock reset (released with the "
+                         "harness)")
+SWAP_HARNESS_LIFE_ACT = "[NetSync] harness: swap life ACT"
+SWAP_HARNESS_FADE = {
+    "old": ("[NetSync] harness: swap fade OLD -- CALIBRATION: today's rule (FF9Wipe_FadeOutEx(24), the commit at 0.9 s; released with "
+            "the harness)"),
+    "long": "[NetSync] harness: swap fade LONG -- CALIBRATION: the fast follow fades 24 ticks, not 12 (released with the harness)",
+    "nogate": ("[NetSync] harness: swap fade NOGATE -- CALIBRATION: the fast follow with no backlog gate (the refuted rule; released with "
+               "the harness)"),
+    "norecheck": "[NetSync] harness: swap fade NORECHECK -- CALIBRATION: the backlog read at the start only (released with the harness)",
+    "nohurry": ("[NetSync] harness: swap fade NOHURRY -- CALIBRATION: a fade already heading to black is never re-paced (released with "
+                "the harness)"),
+    "act": "[NetSync] harness: swap fade ACT"}
+SWAP_HARNESS_HOSTCTL_OFF = ("[NetSync] harness: swap hostctl OFF -- the bench host stands on my field with its control off, no scene "
+                            "(section 7 b1 and b0 clear)")
+SWAP_HARNESS_HOSTCTL_ON = "[NetSync] harness: swap hostctl ON"
+SWAP_HARNESS_BLACKOUT_OFF = "[NetSync] harness: swap blackout OFF -- the fade slot back to visible"
+#: what `clear` and the release reset, and the pin bench's party-mirror tail (G2)
+_SWAP_RESET_WORDS = "every lever act, stamps on, delay 0, the bench host's control on, bench state forgotten"
+_SWAP_MIRROR_TAIL = "; the pin bench's party mirror cleared"
+
+
+def swap_harness_delay(n: int) -> str:
+    return (f"[NetSync] harness: swap delay {n} ms -- CALIBRATION: the follow's commit waits {n} ms past its own verdict (released with "
+            f"the harness)")
+
+
+def swap_harness_lever_line(op: str, word: str) -> str:
+    """The ack line of a word-valued lever op (stamps / orphan / own / pin / life / fade / hostctl)."""
+    return {("stamps", "off"): SWAP_HARNESS_STAMPS_OFF, ("stamps", "on"): SWAP_HARNESS_STAMPS_ON,
+            ("orphan", "old"): SWAP_HARNESS_ORPHAN_OLD, ("orphan", "act"): SWAP_HARNESS_ORPHAN_ACT,
+            ("own", "old"): SWAP_HARNESS_OWN_OLD, ("own", "nocache"): SWAP_HARNESS_OWN_NOCACHE, ("own", "act"): SWAP_HARNESS_OWN_ACT,
+            ("pin", "old"): SWAP_HARNESS_PIN_OLD, ("pin", "act"): SWAP_HARNESS_PIN_ACT,
+            ("life", "old"): SWAP_HARNESS_LIFE_OLD, ("life", "act"): SWAP_HARNESS_LIFE_ACT,
+            ("hostctl", "off"): SWAP_HARNESS_HOSTCTL_OFF, ("hostctl", "on"): SWAP_HARNESS_HOSTCTL_ON,
+            **{("fade", w): line for w, line in SWAP_HARNESS_FADE.items()}}[(op, word.lower())]
+
+
+def swap_harness_clear(mirror: bool) -> str:
+    return f"[NetSync] harness: swap CLEAR -- {_SWAP_RESET_WORDS}{_SWAP_MIRROR_TAIL if mirror else ''}"
+
+
+def swap_harness_release(mirror: bool) -> str:
+    """HarnessRelease's one line (logged only when something was set)."""
+    return f"[NetSync] harness: swap levers released ({_SWAP_RESET_WORDS}{_SWAP_MIRROR_TAIL if mirror else ''})"
+
+
+def swap_harness_intent(dest: int, nonce: int) -> str:
+    return (f"[NetSync] harness: swap intent -- a bench host's section 4 for field {dest} (nonce {nonce}) through the real codec (the "
+            f"selftest role)")
+
+
+def swap_harness_cache(dest: int, nonce: int, fld: int) -> str:
+    return f"[NetSync] harness: swap cache -- section 4 = field {dest} nonce {nonce} through the real codec, cached on field {fld}"
+
+
+def swap_harness_pinbench(nonce: int, dest: int, flag: int, pin: int, latest: int, party=None, landed: bool = False,
+                          age_ms: int = -1) -> str:
+    """``party`` = (slot, pin char, latest char) or None."""
+    tail = (f"; party slot {party[0]}: pin {party[1]}, latest {party[2]}" if party else "") + \
+           ("; built after the host's landing" if landed else "") + (f"; landing seen {age_ms} ms ago" if age_ms >= 0 else "")
+    return (f"[NetSync] harness: swap pinbench -- intent {nonce}'s frame for field {dest} through the real codec (flag {flag}: pin {pin}, "
+            f"latest {latest}{tail})")
+
+
+def swap_harness_lifebench(dest: int, nonce: int) -> str:
+    return f"[NetSync] harness: swap lifebench -- a bench emit for field {dest} (nonce {nonce}), no socket"
+
+
+def swap_harness_blackout(n: int) -> str:
+    return f"[NetSync] harness: swap blackout {n} -- the fade slot heads to black in {n} ticks (a copy's own FadeFilter stand-in)"
+
+
+# ---- the proof line (NetSyncSwap.SelfTest; the proof block's last line)
+PROOF_FIELD_SWAP = "field swap selftest: "
+_SWAP_PROOF_CONSTANTS = (f"line window {SWAP_LINE_WINDOW_MS} ms, span {SWAP_RECORD_SPAN_MS} ms, cache {INTENT_CACHE_MS} ms, intent life "
+                         f"{INTENT_MIN_LIFE_MS} ms / land tail {INTENT_LAND_TAIL_MS} ms / cap {INTENT_LOAD_CAP_MS} ms, pin age "
+                         f"{PIN_MAX_AGE_MS} ms / blind {PIN_BLIND_CAP_MS} ms, fade {FADE_FAST_FRAMES} / {FADE_OLD_FRAMES} ticks / "
+                         f"{FADE_OLD_WAIT_MS} ms, join grace {FADE_JOIN_GRACE_TICKS} ticks, black floor {FADE_BLACK_FLOOR}, ahead "
+                         f"{FADE_AHEAD_MAX_MS} ms")
+#: the kit regex: every constant pinned; captures N rows, M mutants, the clock source, H Hz and the resolution
+SWAP_PROOF_RE = (re.escape(PROOF_FIELD_SWAP) + r"OK \((\d+) rows, (\d+) mutants caught, clock (qpc|stopwatch) (\d+) Hz "
+                 r"(high-res|low-res), " + re.escape(_SWAP_PROOF_CONSTANTS) + r"\)")
+
+
+def swap_proof_text(rows: int, mutants: int, src: str, hz: int, hires: bool) -> str:
+    """The proof line's OK text (the engine prefixes Memoria's stamp and ``[NetSync] ``); the source and resolution never fail it."""
+    return (f"{PROOF_FIELD_SWAP}OK ({int(rows)} rows, {int(mutants)} mutants caught, clock {src} {int(hz)} Hz "
+            f"{'high-res' if hires else 'low-res'}, {_SWAP_PROOF_CONSTANTS})")
+
+
+def swap_proof_fail_text(row: str | None = None, mutant: str | None = None) -> str:
+    """``FAIL (row <id>)`` or ``FAIL (mutant <id> survived)``."""
+    return f"{PROOF_FIELD_SWAP}FAIL ({'row ' + row if row is not None else 'mutant ' + str(mutant) + ' survived'})"

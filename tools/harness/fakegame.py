@@ -45,7 +45,7 @@ from pathlib import Path
 #: permanently in a compatibility mode it is not meant to be testing. It was a second literal
 #: until rev 4, and a second literal is a skew waiting for someone to bump only one of them: that
 #: is exactly what happened, and 23 tests failed reporting the wrong cause.
-from .channel import BUTTONS, DIRECTIONS, PROTOCOL
+from .channel import BUTTONS, DIRECTIONS, PROTOCOL, qpc_read, ticks_to_ms   # [ff9mapkit netsync s164] + the swap clock's seam
 from .tickrate import CALLS_PER_TICK, DEFAULT_FIELD_TPS, MAX_DELTA_TIME, TickAccumulator
 # [ff9mapkit netsync B4] the battle lane's codec and pure decisions -- the stand-in fabricates through the same functions
 # the tests pin to the engine (its `endbench` round trip, ClassifyEnd, the presentation and exit verdicts)
@@ -435,7 +435,27 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # WHAT IT CANNOT: a live host lane or section 7 view (a client role never ticks the latch here: `why_not` stays at
                        # its last word), an ATE episode or a relayed talk (terms (b) / (c)), a guest climb, a host's own section 10 on the
                        # wire, the SFX re-pitch, stock's SetFastForward re-runs at scene loads and HUD clears, a fault.
-                       "speed": ("s163", ("speed",))}
+                       "speed": ("s163", ("speed",)),
+                       # [ff9mapkit netsync s164] FIELD-SWAP TIMING, ROUND 1 (studies/field-coop/SWAP-TIMING-S164.md, rev 3): ONE sub-verb,
+                       # `swap <op> [arg]` (the round's one lever scheme: each op's ROLE checked when it is set -- battlewire's
+                       # swap_lever_refusal is the order), `netsync.swap` as netsync's LAST key, after s163's `speed` (NETSYNC_TOP_CAP_KEYS),
+                       # and the proof block's LAST line (after the speed mirror's); its calibration is caps_through("speed"). WHAT THE
+                       # STAND-IN MODELS (FakeGame's s164 section): the block in AppendSwap's order at the catch line's sentinels but for its
+                       # live reads -- the swap clock through THE CLOCK SEAM (`swap_qpc`: channel.qpc_read on Windows, src "qpc" and its real
+                       # Hz; None -> int(rt * 1000), src "stopwatch", 1000 Hz, low-res), the levers as set and their release (one line, only
+                       # when something was set), `clear`, every refusal in the engine's words; `swap intent <field>` through the real
+                       # section-4 codec into the seen edge, then the bench follow (the fade's FIELD_FOLLOW_FADE_FRAMES, the commit's
+                       # "timer" verdict, `swap delay` between `due_t` and `commit_t` on the swap clock, the landing one frame later) with
+                       # THE RECORD on battlewire's twins (JoinRule, OpenClosesRule, CloseRule's window and stale closes, LandViaRule; every
+                       # field load is OnFieldLoad's), its lines stamped (L-COMMIT, L-LAND, L-CLOSE), the session reset's `reset` close;
+                       # B's orphan hold on the twins (OrphanSettled under the lever, CtlHoldKind, HoldEndWhy, OrphanSinceRule,
+                       # KeepReadRule: battlewire.swap_orphan_window_tick), its hold / relock / end lines, and the bench host's section 7
+                       # with b1 and b0 clear under `hostctl off`. WHAT IT CANNOT (their keys stay at their sentinels): the slot and host
+                       # probes (`slot`, `intent`), a bounce or any own Field() (no MAPJUMP), C's cache and own pass, a pin (no story frames),
+                       # LIFE, the fade slot (D+E: `fade`), a first-line close; `cache`, `pinbench`, `lifebench` and `blackout` pass the
+                       # engine's refusal order and are then refused in the stand-in's own words (SWAP_STANDIN_REFUSAL), so a stand-in run of
+                       # legs C, P, L or F fails loud instead of reading green.
+                       "swap": ("s164", ("swap",))}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -492,6 +512,8 @@ NETSYNC_S161_CAPS = frozenset(("ate",))
 NETSYNC_S162_CAPS = frozenset(("ateland",))
 #: [ff9mapkit netsync s163] The speed-mirror rung (its calibration, the s162 engine, is ``caps_through("ateland")``).
 NETSYNC_S163_CAPS = frozenset(("speed",))
+#: [ff9mapkit netsync s164] The field-swap rung (its calibration, the s163 engine, is ``caps_through("speed")``).
+NETSYNC_S164_CAPS = frozenset(("swap",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -499,8 +521,9 @@ NETSYNC_S163_CAPS = frozenset(("speed",))
 #: Session.NETSYNC_GUESTLOCAL_SUBVERBS). [ff9mapkit netsync s158] ...and `stepout` after it (Session.NETSYNC_STEPOUT_SUBVERBS).
 #: [ff9mapkit netsync s160] ...and `chest` after it (Session.NETSYNC_CHEST_SUBVERBS). [ff9mapkit netsync s161] ...and `ate`
 #: after that (Session.NETSYNC_ATE_SUBVERBS). [ff9mapkit netsync s163] ...and `speed` after it (Session.NETSYNC_SPEED_SUBVERBS).
+#: [ff9mapkit netsync s164] ...and `swap` after that (Session.NETSYNC_SWAP_SUBVERBS).
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench",
-                             "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate", "speed")
+                             "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate", "speed", "swap")
 #: [ff9mapkit netsync B4] The keys each battle capability adds, by `netsync.battle` sub-object, in the agent's order
 #: (AppendNetsyncBattle / AppendBattleEnd / AppendEndLeave) -- `end_leave` and `declined` are the two keys whose values
 #: are themselves fixed sub-objects (:data:`NETSYNC_BATTLE_END_LEAVE_KEYS`, :data:`NETSYNC_BATTLE_DECLINED_KEYS`).
@@ -600,6 +623,8 @@ NETSYNC_BATTLE_CAP_KEYS = {
     "ateland": {},
     # [ff9mapkit netsync s163] nothing under `netsync.battle`: `speed` is a TOP-LEVEL netsync block after `ate`
     "speed": {},
+    # [ff9mapkit netsync s164] nothing under `netsync.battle`: `swap` is a TOP-LEVEL netsync block after `speed`
+    "swap": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -628,7 +653,8 @@ NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",),
                         "stepout": ("stepout",),                  # [ff9mapkit netsync s158] ...and `stepout` after `ghostframe`
                         "chest": ("chest",),                     # [ff9mapkit netsync s160] ...and `chest` after `stepout`
                         "ate": ("ate",),                         # [ff9mapkit netsync s161] ...and `ate` after `chest`
-                        "speed": ("speed",)}                     # [ff9mapkit netsync s163] ...and `speed` after `ate`
+                        "speed": ("speed",),                     # [ff9mapkit netsync s163] ...and `speed` after `ate`
+                        "swap": ("swap",)}                       # [ff9mapkit netsync s164] ...and `swap` after `speed`
 #: [ff9mapkit netsync s145] The blocks a capability adds INSIDE an older TOP-LEVEL `netsync` block, by that block: s145's `dio`,
 #: `netsync.world`'s last (AppendWorldDio, after `waitline`)
 NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)},
@@ -963,6 +989,100 @@ PROOF_SPEED_MIRROR = "speed mirror selftest: "
 SPEED_PROOF_RE = r"speed mirror selftest: OK \((\d+) rows, (\d+) mutants caught, step-in (\d+) ms\)"
 FAKE_SPEED_SELFTEST_ROWS = 114
 FAKE_SPEED_MUTANTS = 66
+#: [ff9mapkit netsync s164] `netsync.swap` (AppendSwap), in the agent's order, at its catch-line sentinels (SWAP-TIMING-S164.md "The
+#: `netsync.swap` state block"): the swap clock, the levers as set (null = act / on), whether a record is open, the record (`last`), the
+#: guest's seen nonce, the host's section-4 probe and LIFE (`intent`), the transport's slot probe, B's orphan hold, C's own pass and
+#: cache, the story pin, D+E's follow fade, the counters, the faults and the selftest verdict. Every `*_t` -1 = never (a swap-clock
+#: value), counters 0, names null, flags false.
+NETSYNC_SWAP_SENTINELS = {
+    "clock": {"now_ms": -1, "utc_ms": -1, "ticks": -1, "hz": -1, "src": None, "hires": False, "fps": -1, "target_fps": -1},
+    "levers": {"stamps": None, "delay_ms": 0, "orphan": None, "own": None, "pin": None, "life": None, "fade": None, "hostctl_off": False},
+    "open": False,
+    "last": {"id": 0, "role": None, "from": -1, "dest": -1, "state": None, "open_by": None, "open_t": -1,
+             "emit_t": -1, "nonce": -1, "seen_t": -1, "arrived_t": -1, "seen_copies": 0,
+             "follow_t": -1, "follow_via": None, "follows": 0,
+             "own_t": -1, "own_dest": -1, "own_verdict": None, "own_why": None, "owns": 0, "bounces": 0,
+             "due_t": -1, "commit_t": -1, "commit_field": -1, "commit_why": None, "delay_ms": 0, "drop_t": -1, "drop_why": None,
+             "reloads": 0, "reload_t": -1, "land_t": -1, "land_field": -1, "land_via": None, "story": None,
+             "fade_path": None, "fade_ticks": -1, "line_t": -1, "line_win": -1, "line_text": -1, "close_t": -1, "close_why": None},
+    "seen": {"nonce": -1, "field": -1, "src": -1, "host_from": -1, "first_t": -1, "last_t": -1, "arrived_t": -1, "copies": 0},
+    "intent": {"active": False, "field": -1, "nonce": -1, "site": None, "emit_t": -1, "age_ms": -1, "host_fps": -1, "emit_dt_us": -1,
+               "landing": None, "landed_ms": -1, "body_ms": -1,
+               "frames": 0, "landed_frames": 0, "updates": 0, "sends": 0, "first_sent_t": -1, "last_sent_t": -1, "oob": None,
+               "end_t": -1, "last_end": None, "last_life_ms": -1, "last_site": None, "emits": 0, "replaced": 0, "oob_lost": 0, "short": 0,
+               "ends": {"stands": 0, "left": 0, "elsewhere": 0, "cap": 0, "old": 0, "next": 0, "reset": 0}, "faults": 0},
+    "slot": {"set_seq": -1, "sent_seq": -1, "sends": -1, "unsent": -1},
+    "orphan": {"host_holds": False, "holding": 0, "holds": 0, "relocks": 0, "last_hold_ms": -1, "last_end": None, "faults": 0},
+    "own": {"passes": 0, "by": {"pending": 0, "committed": 0, "intent": 0, "cache": 0}, "converted": 0,
+            "refused": {"world": 0, "ate": 0}, "host_lane": -1,
+            "last": {"dest": -1, "from": -1, "lane": -1, "term": None, "keep_own": False},
+            "cache": {"field": -1, "nonce": -1, "src": -1, "host_from": -1, "age_ms": -1, "stands": False, "bench": False,
+                      "writes": 0, "clears": 0, "last_clear": None}, "faults": 0},
+    "pin": {"held": [], "spent": -1, "captures": 0, "late": 0, "pre_frames": 0, "max_pre_diff": -1, "dropped": 0, "here": 0,
+            "used": 0, "aged": 0, "other": 0, "world": 0, "lever_latest": 0,
+            "last_use": None, "last_use_quality": None, "last_use_field": -1, "last_use_age_ms": -1, "last_diff": -1, "last_diff_first": -1,
+            "last_party": None, "faults": 0,
+            "bench": {"armed": False, "flag": -1, "chosen": None, "landed": False, "party_slot": -1, "party_char": -1, "mirror": False}},
+    "fade": {"view_now": None, "mode_now": None, "cur_now": -1, "left_now": -1, "backlog_now": None, "primed": False,
+             "path": None, "action": None, "frames": -1, "view_start": None, "left_start": -1, "backlog_start": None,
+             "age_ms": -1, "age_ticks": -1, "black_ticks": -1, "reasserted": False, "held": False,
+             "last": {"field": -1, "path": None, "action": None, "by": None, "due_t": -1, "ms": -1, "ticks": -1, "frames": -1,
+                      "view_start": None, "mode_start": None, "backlog_start": None, "primed": False},
+             "starts": {"fast": 0, "backlog": 0, "old": 0, "kick": 0},
+             "ends": {"black": 0, "timer": 0, "fallback": 0, "recheck": 0, "landing": 0, "own": 0, "world": 0, "title": 0},
+             "reasserts": 0, "faults": 0},
+    "counts": {"transitions": 0, "landings": 0, "own_jumps": 0, "bounces": 0, "follow_won": 0,
+               "closed": {"line": 0, "window": 0, "stale": 0, "superseded": 0, "next": 0, "reset": 0}},
+    "faults": 0, "last_fault": None, "selftest": None}
+NETSYNC_SWAP_KEYS = tuple(NETSYNC_SWAP_SENTINELS)
+#: [ff9mapkit netsync s164] NetSyncSwap.HarnessLever (battlewire's lever names, the one source): the ops in the design's table order,
+#: each op's role class, the usage line and co-op refusal (the role / bench refusals are battlewire's builders); the levers' published
+#: values are null for act (on) and the word otherwise ("off" for `stamps`). An s163 engine answers `netsync swap` with its unknown-sub-verb
+#: line.
+NETSYNC_SWAP_OPS = BW.SWAP_OPS
+NETSYNC_SWAP_OP_ROLES = BW.SWAP_OP_ROLES
+NETSYNC_SWAP_USAGE = BW.SWAP_USAGE
+NETSYNC_SWAP_COOP_OFF = BW.SWAP_REFUSAL_COOP_OFF
+#: [ff9mapkit netsync s164] the four bench ops the stand-in cannot model: after the engine's whole refusal order (role, bench gate, arity)
+#: each is refused in the stand-in's own words, so a solo leg C / P / L / F run on the stand-in fails loud (P8) rather than reading green
+SWAP_STANDIN_UNMODELLED = {"cache": "intent cache (C's own pass)", "pinbench": "story frames (the pin)",
+                           "lifebench": "host emit (LIFE)", "blackout": "fade slot (D+E)"}
+SWAP_STANDIN_REFUSAL = "netsync swap {op}: the stand-in does not model the {op} bench (it has no {what}) -- run that leg on the engine"
+#: [ff9mapkit netsync s164] the intent bench's lines (NetSyncClient.DebugInjectIntentImpl, the `swap intent` path), verbatim
+SWAP_INTENT_BENCH_FABRICATED = "[NetSync] intent bench: fabricated SectionIntent field {field} nonce {nonce} -> fast-path"
+SWAP_INTENT_BENCH_NOT_FOLLOWABLE = "[NetSync] intent bench: field {field} is not a followable destination"
+SWAP_INTENT_BENCH_NOT_INSTALLED = "[NetSync] intent bench: field {field} is not on this install"
+SWAP_INTENT_BENCH_CODEC_FAILED = "[NetSync] intent bench: codec round-trip FAILED"
+SWAP_INTENT_FOLLOW_LINE = "[NetSync] intent: following the peer to field {field} (parallel)"
+SWAP_INTENT_NEVER_SEEN = ("netsync swap intent: field {field} never reached the seen record (the intent bench's own line says "
+                          "why)")
+#: [ff9mapkit netsync s164] the follow's commit verdict the stand-in's bench follow reaches: its fade's timer (the engine's word before
+#: D+E's fade-aware due -- the stand-in models no fade slot)
+SWAP_STANDIN_DUE = "timer"
+#: [ff9mapkit netsync s164] `last.follow_via` (NetSyncSwap.FollowViaNames: intent | serial) -- the bench follow is an intent follow
+SWAP_FOLLOW_VIA_INTENT, SWAP_FOLLOW_VIA_SERIAL = "intent", "serial"
+#: [ff9mapkit netsync s164] the proof line (battlewire's head and regex, one source); the stand-in's N / M are the design's tallies
+#: ("about 425 rows / 146 mutants", SWAP-TIMING-S164.md "SelfTest: one proof line") -- a stand-in's numbers -- then the clock seam's
+#: source, Hz and resolution, and every constant
+PROOF_FIELD_SWAP = BW.PROOF_FIELD_SWAP
+SWAP_PROOF_RE = BW.SWAP_PROOF_RE
+FAKE_SWAP_SELFTEST_ROWS = 425
+FAKE_SWAP_MUTANTS = 146
+#: [ff9mapkit netsync s164] THE CLOCK SEAM's fallback: a Stopwatch-sourced stand-in counts the virtual clock in ms (1000 Hz, low-res)
+SWAP_STOPWATCH_HZ = 1000
+
+
+def swap_clock_read(qpc, rt: float) -> tuple:
+    """[ff9mapkit netsync s164] THE CLOCK SEAM (F5): (now_ms, ticks, hz, src, hires) as the stand-in publishes `netsync.swap.clock` --
+    from ``qpc`` (a callable answering (ticks, hz) or None: channel.qpc_read by default) through TicksToMs's split arithmetic, src
+    "qpc", hires = a counter of 1 MHz or better; when it is None or answers None, from the virtual clock ``rt`` (int(rt * 1000) ms),
+    src "stopwatch", 1000 Hz, low-res. K-CLOCK is therefore green offline on Windows and a SKIP with its reason off it."""
+    got = qpc() if qpc is not None else None
+    if got is not None:
+        ticks, hz = int(got[0]), int(got[1])
+        return ticks_to_ms(ticks, hz), ticks, hz, BW.SWAP_CLOCK_QPC, hz >= 1_000_000
+    ms = int(rt * 1000)
+    return ms, ms, SWAP_STOPWATCH_HZ, BW.SWAP_CLOCK_STOPWATCH, False
 #: [ff9mapkit netsync s156] the kit's committed table (the generator's JSON: its `counts` and `table_crc` are what the compiled
 #: NetSyncGuestLocalTable carries -- the stand-in reads them, never a literal)
 GUEST_TRAVERSAL_JSON = Path(__file__).resolve().parents[2] / "ff9mapkit" / "ff9mapkit" / "data" / "guest_traversal.json"
@@ -2446,6 +2566,11 @@ class FakeGame:
         self._ch = {"serve_off": False, "request_off": False, "selftest": None, "nonce": 0}   # [ff9mapkit netsync s160]
         self._ar = {"lever": None, "selftest": None}     # [ff9mapkit netsync s161] NetSyncAte's harness statics
         self._sp = self._sp_fresh()                      # [ff9mapkit netsync s163] NetSyncSpeed's statics + the booster's raw flag
+        self._sw = self._sw_fresh()                      # [ff9mapkit netsync s164] NetSyncSwap's statics (levers, record, B's hold)
+        #: [ff9mapkit netsync s164] THE CLOCK SEAM (F5): a callable answering the swap clock's raw (ticks, hz) -- channel.qpc_read, the
+        #: same QPC the engine P/Invokes, so K-CLOCK compares like with like on Windows -- or None / one answering None (off Windows, or
+        #: a test of the fallback): then the stand-in stamps int(rt * 1000) with src "stopwatch" (:func:`swap_clock_read`)
+        self.swap_qpc = qpc_read
         self.guest_local_table: tuple | None = None
         self.selftest_offset = FAKE_SELFTEST_OFFSET
         #: [ff9mapkit netsync s157] THE GHOST FRAME (the `dresstwin` rung): the `bench ghostframe` lever as set and the proof line's
@@ -3046,6 +3171,7 @@ class FakeGame:
                 self._service_turn()        # s90: end, or cut, an in-place turn
                 self._step_netsync()        # s96: the F3.2 guest's dialogue lock (bench only)
                 self._step_speed()          # [ff9mapkit netsync s163] the speed mirror (after the step-out: its bench latch)
+                self._step_swap()           # [ff9mapkit netsync s164] the swap record's Tick, the bench follow, every field load
                 self._step_script_poll()    # [ff9mapkit netsync F3.3] R5: the open polled line's script button-poll
                 self._step_diorama()        # [ff9mapkit netsync F3.3] DIO-1: a booted diorama's leave and return
                 self._step_dress()          # [ff9mapkit netsync s138] the selftest mirror's ghost: one frame behind
@@ -5800,6 +5926,8 @@ class FakeGame:
             self._ate(args)                             # [ff9mapkit netsync s161] the ATE relay's lever
         elif sub == "speed":
             self._speed(args)                           # [ff9mapkit netsync s163] the speed mirror's levers
+        elif sub == "swap":
+            self._swap(args)                            # [ff9mapkit netsync s164] the field-swap round's one lever scheme
 
     def _release_netsync(self) -> None:
         """ReleaseNetsyncOverride, on `reset`, disarm and fault. [ff9mapkit netsync F3.3] DIO-1: a diorama THIS harness
@@ -5830,9 +5958,11 @@ class FakeGame:
                   bench=False, l1=False, l1_pinned=False, l1_forced_control=False, suppress=False,
                   align_win=-1, align_text=-1, applied_seq=-1, wait_armed=False, wait_ms=-1,
                   pending=None, lock=False, stale=False)
+        self._sw_window_gone(self._guest.win, BW.SWAP_HOLD_END_FORGOT)   # [ff9mapkit netsync s164] ResetAll's EndCtlHolds(Forgot)
         self._guest.release()
         self._bench.release()
         self._sp_reset("the co-op session reset")   # [ff9mapkit netsync s163] the reconfigure's NetSyncSpeed.Reset: a standing latch ends
+        self._sw_reset()                            # [ff9mapkit netsync s164] ResetIntentAndL1State's NetSyncSwap.Reset: the record closes
         self._tap_record = False
         self._tape.clear()
         self._replay, self._replay_next = [], 0
@@ -5876,7 +6006,9 @@ class FakeGame:
             if "ate" in caps:
                 doc["ate"] = self._ate_doc()            # [ff9mapkit netsync s161] ...and `ate`
             if "speed" in caps:
-                doc["speed"] = self._speed_doc()        # [ff9mapkit netsync s163] ...and `speed`, the LAST key
+                doc["speed"] = self._speed_doc()        # [ff9mapkit netsync s163] ...and `speed`
+            if "swap" in caps:
+                doc["swap"] = self._swap_doc()          # [ff9mapkit netsync s164] ...and `swap`, the LAST key
             return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
@@ -6883,6 +7015,406 @@ class FakeGame:
                 "edges_on": sp["edges_on"], "edges_off": sp["edges_off"], "last_end": sp["last_end"], "faults": 0,
                 "last_fault": None, "end_why": {n: sp["end_by"][i] for i, n in enumerate(BW.SPEED_END_NAMES) if n is not None},
                 "lever": sp["lever"], "selftest": sp["selftest"]}
+
+    # -- [ff9mapkit netsync s164] FIELD-SWAP TIMING, ROUND 1 (the `swap` rung; see NETSYNC_BATTLE_CAPS for what it models) ---------------
+    # NetSyncSwap's harness half (the levers, HarnessLever's refusal order through battlewire.swap_lever_refusal, `clear`, the release,
+    # the proof line, the block), THE CLOCK SEAM (:func:`swap_clock_read`), item A's record on the bench follow `swap intent` starts
+    # (every rule through battlewire's twins: JoinRule, OpenClosesRule, CloseRule, LandViaRule, DelayRule; every field load is
+    # OnFieldLoad's) and item B's orphan hold inside the guest's dialogue tick (battlewire.swap_orphan_window_tick). NOT MODELLED (their
+    # keys stay at the catch line's sentinels): the slot and host probes, own jumps, C's cache, the pin, LIFE, the fade slot, a
+    # first-line close -- and the four bench ops that would need them are refused (SWAP_STANDIN_REFUSAL).
+    @staticmethod
+    def _sw_fresh() -> dict:
+        """NetSyncSwap's statics at process start: the levers (act), the record (none) and its writer, the seen nonce, the bench
+        follow in flight, B's hold counters, the counters by close reason."""
+        return {"stamps_off": False, "delay_ms": 0, "orphan_old": False, "own": None, "pin_old": False, "life_old": False, "fade": None,
+                "hostctl_off": False, "selftest": None,
+                "rec": None, "rec_ids": 0, "open": False, "write_kind": BW.SWAP_WRITE_NONE, "write_dest": -1, "prev_field": -1,
+                "visit": None, "seen": dict(NETSYNC_SWAP_SENTINELS["seen"]), "intent_nonce": 0, "due_t": -1,
+                "follow": None, "land": None,
+                "host_holds": False, "holding": 0, "holds": 0, "relocks": 0, "last_hold_ms": -1, "last_end": None,
+                "transitions": 0, "landings": 0, "follow_won": 0,
+                "closed": {n: 0 for n in BW.SWAP_CLOSE_NAMES if n is not None}}
+
+    def _sw_role(self) -> str | None:
+        """The role NetSyncSwap.HarnessLever reads: None = co-op off (HarnessEnabled false), "selftest" (IsSelfTestRole), else the
+        configured role ("host" | "client")."""
+        ns = self.netsync
+        if not ns["enabled"]:
+            return None
+        return "selftest" if ns["selftest"] else ns["role"]
+
+    def _sw_session(self) -> bool:
+        """NetSyncClient.SwapSessionRole (instrument lines only): enabled AND (the selftest role, or a host / client with a live
+        transport -- the stand-in's followed client)."""
+        ns = self.netsync
+        if not ns["enabled"]:
+            return False
+        if self._nb_role():
+            return True
+        cf = self.coop_follow
+        return ns["role"] in ("host", "client") and cf is not None and bool(cf.get("connected"))
+
+    def _sw_clock(self) -> tuple:
+        """(now_ms, ticks, hz, src, hires): THE CLOCK SEAM, read now (each edge reads it once: its line's stamp and its key agree)."""
+        return swap_clock_read(self.swap_qpc, self.rt)
+
+    def _sw_now(self) -> int:
+        return self._sw_clock()[0]
+
+    def _sw_on(self) -> bool:
+        """NetSyncSwap.StampsOn (the `stamps` lever: off = no stamps, no tails, no instrument lines)."""
+        return not self._sw["stamps_off"]
+
+    def _sw_log(self, line) -> None:
+        """An INSTRUMENT line (a builder answers None with stamps off), printed only on SwapSessionRole."""
+        if line is not None and self._sw_session():
+            self._mlog(line)
+
+    def _sw_bench_host_ctl_off(self) -> bool:
+        """NetSyncSwap.BenchHostCtlOff: the `hostctl off` bench state AND the selftest role (bench state, not a lever)."""
+        return bool(self._sw["hostctl_off"]) and self._nb_role()
+
+    # ---- the lever (HarnessAgent's `case "swap"` -> NetSyncSwap.HarnessLever)
+    def _swap(self, args: list) -> None:
+        """HarnessLever: battlewire's refusal order (unknown op; co-op off but for `clear`; a guest-side op on a host; a host-side op on
+        a client; a bench op off the selftest role; `intent` / `pinbench` without `netsync bench 1`; arity and range), then the op --
+        its ack line (never stamped). Counters are never reset."""
+        sw, ns = self._sw, self.netsync
+        rest = [str(x).strip() for x in args[1:]]
+        why = BW.swap_lever_refusal(rest, self._sw_role(), bool(ns["bench"]))
+        if why is not None:
+            raise RuntimeError(why)
+        op = rest[0].lower()
+        word = rest[1].lower() if len(rest) > 1 else ""
+        if op in ("stamps", "orphan", "own", "pin", "life", "fade", "hostctl"):
+            if op == "stamps":
+                sw["stamps_off"] = word == "off"
+            elif op == "orphan":
+                sw["orphan_old"] = word == "old"
+            elif op == "own":
+                sw["own"] = None if word == "act" else word
+            elif op == "pin":
+                sw["pin_old"] = word == "old"
+            elif op == "life":
+                sw["life_old"] = word == "old"
+            elif op == "fade":
+                sw["fade"] = None if word == "act" else word
+            else:
+                sw["hostctl_off"] = word == "off"
+            self._mlog(BW.swap_harness_lever_line(op, word))
+        elif op == "delay":
+            sw["delay_ms"] = int(rest[1])
+            self._mlog(BW.swap_harness_delay(sw["delay_ms"]))
+        elif op == "clear":
+            mirror = self._sw_release_levers()
+            self._mlog(BW.swap_harness_clear(mirror))
+        elif op == "intent":
+            self._sw_intent(int(rest[1]))
+        else:
+            raise RuntimeError(SWAP_STANDIN_REFUSAL.format(op=op, what=SWAP_STANDIN_UNMODELLED[op]))
+
+    def _sw_any_lever(self) -> bool:
+        sw = self._sw
+        return bool(sw["stamps_off"] or sw["delay_ms"] != 0 or sw["orphan_old"] or sw["own"] is not None or sw["pin_old"]
+                    or sw["life_old"] or sw["fade"] is not None or sw["hostctl_off"])
+
+    def _sw_release_levers(self) -> bool:
+        """ReleaseLevers (`clear` and the release): every lever act, stamps on, delay 0, the bench host's control on, bench state
+        forgotten. True when the pin bench's party mirror was cleared -- never here (the stand-in refuses `pinbench`)."""
+        self._sw.update(stamps_off=False, delay_ms=0, orphan_old=False, own=None, pin_old=False, life_old=False, fade=None,
+                        hostctl_off=False)
+        return False
+
+    def _sw_release(self) -> None:
+        """NetSyncSwap.HarnessRelease (every role, right after NetSyncSpeed.HarnessRelease): its one line only when something was set."""
+        any_set = self._sw_any_lever()
+        mirror = self._sw_release_levers()
+        if any_set:
+            self._mlog(BW.swap_harness_release(mirror))
+
+    def _sw_reset(self) -> None:
+        """NetSyncSwap.Reset (the session boundary, ResetIntentAndL1State): an open record closes as `reset`, the seen nonce is
+        forgotten (the published `seen.nonce` reads it), the due stamp with it."""
+        sw = self._sw
+        if sw["open"]:
+            self._sw_close(BW.SWAP_CLOSE_RESET, 0, self._sw_now())
+        sw["seen"]["nonce"] = -1
+        sw["due_t"] = -1
+
+    def _sw_proof(self) -> None:
+        """The proof block's field swap line (once per process; the block's LAST line): the stand-in's tallies, the clock seam's source,
+        Hz and resolution, every constant -- `selftest` "ok" from then on."""
+        self._sw["selftest"] = "ok"
+        _now, _ticks, hz, src, hires = self._sw_clock()
+        self._mlog("[NetSync] " + BW.swap_proof_text(FAKE_SWAP_SELFTEST_ROWS, FAKE_SWAP_MUTANTS, src, hz, hires))
+
+    # ---- A: the record (main thread; every rule a battlewire twin)
+    @staticmethod
+    def _sw_state_code(r) -> int:
+        return BW.SWAP_REC_NONE if r is None else BW.SWAP_REC_NAMES.index(r["state"])
+
+    def _sw_join(self, edge: int, edge_field: int, my_field: int, kick: bool, now: int) -> int:
+        r = self._sw["rec"]
+        if r is None:
+            return BW.swap_join_rule(edge, edge_field, my_field, kick, BW.SWAP_REC_NONE, -1, -1, -1, now)
+        return BW.swap_join_rule(edge, edge_field, my_field, kick, self._sw_state_code(r), r["dest"], r["from"], r["open_t"], now)
+
+    def _sw_open(self, edge: int, frm: int, dest: int, now: int) -> dict:
+        """A new record: the previous one closes first (OpenClosesRule), naming this one."""
+        sw = self._sw
+        if sw["rec"] is not None:
+            c = BW.swap_open_closes_rule(self._sw_state_code(sw["rec"]))
+            if c != BW.SWAP_CLOSE_NONE:
+                self._sw_close(c, sw["rec_ids"] + 1, now)
+        sw["rec_ids"] += 1
+        r = dict(NETSYNC_SWAP_SENTINELS["last"])
+        r.update({"id": sw["rec_ids"], "role": "guest", "from": frm, "dest": dest, "state": BW.SWAP_REC_NAMES[BW.SWAP_REC_OPEN],
+                  "open_by": BW.SWAP_EDGE_NAMES[edge], "open_t": now})
+        sw["rec"], sw["open"] = r, True
+        sw["transitions"] += 1
+        return r
+
+    def _sw_close(self, why: int, by_id: int, now: int) -> None:
+        """Close: the record done, its close reason counted, L-CLOSE (guest) -- each edge as ms after its first."""
+        sw = self._sw
+        r = sw["rec"]
+        if r is None or not sw["open"]:
+            return
+        r.update(state=BW.SWAP_REC_NAMES[BW.SWAP_REC_DONE], close_t=now, close_why=BW.SWAP_CLOSE_NAMES[why])
+        sw["open"] = False
+        sw["closed"][BW.SWAP_CLOSE_NAMES[why]] += 1
+        rel = lambda t: t - r["open_t"] if t >= 0 else -1                                          # noqa: E731
+        edges = {"seen": rel(r["seen_t"]), "follow": rel(r["follow_t"]), "own": rel(r["own_t"]), "due": rel(r["due_t"]),
+                 "commit": rel(r["commit_t"]), "landed": rel(r["land_t"]), "first line": rel(r["line_t"])}
+        via = BW.SWAP_VIA_NAMES.index(r["land_via"]) if r["land_via"] else BW.SWAP_VIA_NONE
+        self._sw_log(BW.swap_log_closed_guest(self._sw_on(), r["id"], r["dest"], r["from"], why, via, edges, r["open_by"] or "-",
+                                              r["follows"], r["bounces"], r["reloads"], now, close_n=by_id))
+
+    def _sw_tick(self, now: int) -> None:
+        """NetSyncSwap.Tick (every Update after the enabled gate): CloseRule's line window and stale span."""
+        sw = self._sw
+        if not sw["open"]:
+            return
+        r = sw["rec"]
+        c = BW.swap_close_rule(self._sw_state_code(r), False, r["open_t"], r["land_t"], now)
+        if c != BW.SWAP_CLOSE_NONE:
+            self._sw_close(c, 0, now)
+
+    def _sw_seen_edge(self, field: int, nonce: int, my_field: int, t: int) -> None:
+        """SeenEdge (NoteBenchSeen: no transport -- arrived_t -1, host_from -1): the seen block, then JoinRule(Seen)."""
+        sw = self._sw
+        sw["seen"] = {"nonce": nonce, "field": field, "src": my_field, "host_from": -1, "first_t": t, "last_t": t, "arrived_t": -1,
+                      "copies": 1}
+        v = self._sw_join(BW.SWAP_EDGE_SEEN, field, my_field, False, t)
+        if v == BW.SWAP_JOIN_IGNORE:
+            return
+        r = self._sw_open(BW.SWAP_EDGE_SEEN, my_field, field, t) if v == BW.SWAP_JOIN_OPEN else sw["rec"]
+        if r["seen_t"] < 0:
+            r["seen_t"], r["arrived_t"] = t, -1
+        r["nonce"] = nonce
+        r["seen_copies"] += 1
+
+    def _sw_follow_edge(self, dest: int, via: str, my_field: int) -> int:
+        """NoteFollow (StartFollowWarp): the follow edge; returns its t (the caller's _followStartT and its line's stamp)."""
+        sw = self._sw
+        t = self._sw_now()
+        sw["due_t"] = -1
+        v = self._sw_join(BW.SWAP_EDGE_FOLLOW, dest, my_field, False, t)
+        if v != BW.SWAP_JOIN_IGNORE:
+            r = self._sw_open(BW.SWAP_EDGE_FOLLOW, my_field, dest, t) if v == BW.SWAP_JOIN_OPEN else sw["rec"]
+            if r["follow_t"] < 0:
+                r["follow_t"], r["follow_via"] = t, via
+            r["follows"] += 1
+        return t
+
+    def _sw_commit(self, map_no: int, start_t: int, due: str, delay_ms: int) -> int:
+        """NoteCommit (after ServiceFollowWarp's write): the writer Follow, the commit edge with its due stamp, L-COMMIT."""
+        sw = self._sw
+        t = self._sw_now()
+        due_t, sw["due_t"] = sw["due_t"], -1
+        sw["write_kind"], sw["write_dest"] = BW.SWAP_WRITE_FOLLOW, map_no
+        v = self._sw_join(BW.SWAP_EDGE_COMMIT, map_no, self.field_id, False, t)
+        r = None if v == BW.SWAP_JOIN_IGNORE else (self._sw_open(BW.SWAP_EDGE_COMMIT, self.field_id, map_no, t)
+                                                   if v == BW.SWAP_JOIN_OPEN else sw["rec"])
+        if r is not None:
+            r.update(due_t=due_t, commit_t=t, commit_field=map_no, commit_why=due, delay_ms=delay_ms)
+        self._sw_log(BW.swap_log_commit(self._sw_on(), map_no, t - start_t if start_t >= 0 and t >= 0 else -1, due, delay_ms,
+                                        r["id"] if r is not None else 0, t))
+        return t
+
+    def _sw_field_load(self, fld: int) -> None:
+        """OnFieldLoad (ApplyStoryBeforeEvents, every field load): the landing consumes the writer (LandViaRule) and applies
+        JoinRule(Land); L-LAND when it joined a record or came by a writer. A landing via the follow with no own edge is a follow win."""
+        sw = self._sw
+        t = self._sw_now()
+        r = sw["rec"]
+        via = BW.swap_land_via_rule(fld, sw["write_kind"], sw["write_dest"], r["dest"] if r is not None else -1, sw["prev_field"])
+        sw["write_kind"], sw["write_dest"], sw["prev_field"] = BW.SWAP_WRITE_NONE, -1, fld
+        sw["landings"] += 1
+        v = self._sw_join(BW.SWAP_EDGE_LAND, fld, fld, via == BW.SWAP_VIA_KICK, t)
+        if v == BW.SWAP_JOIN_JOIN:
+            r.update(state=BW.SWAP_REC_NAMES[BW.SWAP_REC_LANDED], land_t=t, land_field=fld, land_via=BW.SWAP_VIA_NAMES[via])
+            if via == BW.SWAP_VIA_FOLLOW and r["own_t"] < 0:
+                sw["follow_won"] += 1
+        elif v == BW.SWAP_JOIN_RELOAD:
+            r["reloads"] += 1
+            r["reload_t"] = t
+        joined = v in (BW.SWAP_JOIN_JOIN, BW.SWAP_JOIN_RELOAD)
+        if not joined and via in (BW.SWAP_VIA_SAME, BW.SWAP_VIA_OTHER):
+            return
+        self._sw_log(BW.swap_log_landed(self._sw_on(), fld, via, r["id"] if joined else 0, t))
+
+    def _sw_intent(self, dest: int) -> None:
+        """`swap intent <field>` -> NetSyncClient.DebugInjectIntent: section 4 = [field LE][nonce] through the real codec (battlewire's
+        append / read twins), NoteBenchSeen (the seen edge), the bench's lines, then -- a followable, installed field -- StartFollowWarp
+        (SetUserControl(false), the follow edge, the fade's FIELD_FOLLOW_FADE_FRAMES); then the harness line."""
+        sw = self._sw
+        sw["intent_nonce"] = (sw["intent_nonce"] + 1) & 0xFF
+        nonce = sw["intent_nonce"]
+        frame = BW.append_section(b"", BW.SECTION_INTENT, bytes((dest & 0xFF, (dest >> 8) & 0xFF, nonce)))
+        body = BW.old_try_read_section(frame, BW.SECTION_INTENT)
+        if body is None or len(body) < 3:
+            self._mlog(SWAP_INTENT_BENCH_CODEC_FAILED)
+            raise RuntimeError(SWAP_INTENT_NEVER_SEEN.format(field=dest))
+        rt_dest = body[0] | (body[1] << 8)
+        self._sw_seen_edge(rt_dest, body[2], self.field_id, self._sw_now())
+        self._mlog(SWAP_INTENT_BENCH_FABRICATED.format(field=rt_dest, nonce=nonce))
+        if rt_dest <= 0 or rt_dest == BW.FLDSCRPT_EVTNO_ENDING:
+            self._mlog(SWAP_INTENT_BENCH_NOT_FOLLOWABLE.format(field=rt_dest))
+        elif not self._field_registered(rt_dest):
+            self._mlog(SWAP_INTENT_BENCH_NOT_INSTALLED.format(field=rt_dest))
+        else:
+            self.control = False                      # StartFollowWarp: SetUserControl(false), then the fade
+            start_t = self._sw_follow_edge(rt_dest, SWAP_FOLLOW_VIA_INTENT, self.field_id)
+            sw["follow"] = {"dest": rt_dest, "start_t": start_t, "due_frame": self.frame + FIELD_FOLLOW_FADE_FRAMES, "ready_t": -1}
+            self._mlog(SWAP_INTENT_FOLLOW_LINE.format(field=rt_dest) + BW.swap_stamp_text(self._sw_on(), start_t))
+        self._mlog(BW.swap_harness_intent(dest, nonce))
+
+    # ---- the per-frame half (NetSyncClient.Update after its enabled gate)
+    def _step_swap(self) -> None:
+        """Every frame on the `swap` rung while co-op is enabled: NetSyncSwap.Tick (the line window, the stale span); a committed bench
+        follow LANDS (one frame after its commit: the load at the next main-loop tick); every field load is OnFieldLoad (a new visit:
+        a warp, a gateway, a reload, a battle's return); then ServiceFollowWarp's second half for the bench follow -- its fade done,
+        the verdict ("timer") stamps `due_t`, `swap delay` holds the commit that many swap-clock ms past it (DelayRule), the commit."""
+        if "swap" not in self._nb_caps():
+            return
+        sw = self._sw
+        if not self.netsync["enabled"]:
+            sw["visit"] = self._visit                 # (Update returns before any of it; a later enable counts no stale load)
+            return
+        self._sw_tick(self._sw_now())
+        if sw["land"] is not None:
+            dest, sw["land"] = sw["land"], None
+            self._field_follow_land(dest)
+        if sw["visit"] is None:
+            sw["visit"] = self._visit
+        elif sw["visit"] != self._visit:
+            sw["visit"] = self._visit
+            self._sw_field_load(self.field_id)
+        f = sw["follow"]
+        if f is not None and self.frame >= f["due_frame"]:
+            t = self._sw_now()
+            if f["ready_t"] < 0:
+                f["ready_t"] = t                      # CommitDelayAllows' first call: the verdict's own time
+                sw["due_t"] = t
+            if BW.swap_delay_rule(sw["delay_ms"], -1, f["ready_t"], t):
+                sw["follow"] = None
+                self._sw_commit(f["dest"], f["start_t"], SWAP_STANDIN_DUE, sw["delay_ms"])
+                sw["land"] = f["dest"]
+
+    # ---- B: Finding 11's orphan hold (NetSyncDialog.Orphans' s164 half), inside the guest's dialogue tick
+    def _sw_orphans(self, w: dict, now: int, *, settled_long: bool, holds: bool, pending: bool, host_has_it: bool,
+                    host_here: bool) -> None:
+        """One tracked window's Orphans step on the `swap` rung: battlewire.swap_orphan_window_tick (OrphanSettled under the `orphan`
+        lever, OrphanStep, then -- under act -- CtlHoldKind and StepCtlHold BEFORE the re-orphan reads KeepRead), its counters and lines
+        (the hold line, the OrphToLocked line -- a relock's in the hold words, stamped -- the end line), then the action on the
+        stand-in's window. ``now`` is the guest's clock (B keeps TickCount); the stamps are the swap clock's."""
+        sw, g = self._sw, self._guest
+        cls = BW.DIALOG_CLS_ORPHANED if w["cls"] == "orphaned" else BW.DIALOG_CLS_LOCKED
+        wb = w.get("swap_b")
+        if wb is None:
+            wb = w["swap_b"] = BW.swap_orphan_window(cls, w["complete_ms"], w["orphan_ms"])
+        wb.update(cls=cls, complete_since=w["complete_ms"], orphan_since=w["orphan_ms"])
+        holds0, relocks0 = wb["holds"], wb["relocks"]
+        out = BW.swap_orphan_window_tick(wb, settled_long=settled_long, inh=bool(self.dialog_inh), host_holds=holds,
+                                         event_pending=pending, ready=self._dialog_ready(), host_here=host_here, now=now,
+                                         lever_old=sw["orphan_old"])
+        _fld, win, text = w["key"]
+        on = self._sw_on()
+        if wb["holds"] > holds0:
+            sw["holds"] += 1
+            self._mlog(BW.swap_log_orphan_hold(on, win, text, self._sw_now()))
+        if wb["relocks"] > relocks0:
+            sw["relocks"] += 1
+        if out["end"] != BW.SWAP_HOLD_END_NONE:
+            self._sw_hold_ended(win, text, out["end"], out["held_ms"])
+        act = out["act"]
+        head = f"[NetSync] dialogue orphan: win {win} text {text}"
+        if act == BW.DIALOG_ORPH_TO_ORPHANED:
+            w.update(cls="orphaned", orphan_ms=wb["orphan_since"])
+            self._mlog(BW.swap_place_stamp(f"{head} is not on the host's screen (host idle {max(g.settled_ms, 0) // 1000}s) -- closing "
+                                           f"it at reading pace", on, self._sw_now()))
+        elif act == BW.DIALOG_ORPH_TO_LOCKED:
+            w["cls"] = "locked"
+            if host_has_it:
+                self._mlog(f"{head} held -- the host has it open")
+            elif pending:
+                self._mlog(f"{head} held -- a late host event arrived")
+            elif out["kind"] == BW.SWAP_CTL_RELOCK:
+                self._mlog(BW.swap_log_orphan_hold(on, win, text, self._sw_now()))
+            else:
+                self._mlog(f"{head} held -- the host is busy again")
+        elif act == BW.DIALOG_ORPH_TO_LOCAL:
+            w["cls"] = "local"
+        elif act == BW.DIALOG_ORPH_CONFIRM:
+            advanced, closes, pick = self._guest_orphan_confirm(w, now)
+            if advanced and closes:
+                self._mlog(BW.swap_place_stamp(f"{head} auto-closed (host idle {max(g.settled_ms, 0) // 1000}s, choice "
+                                               f"{-1 if pick is None else pick})", on, self._sw_now()))
+        sw["holding"] = 1 if wb["ctl_held"] else 0
+
+    def _sw_hold_ended(self, win: int, text: int, why: int, ms: int) -> None:
+        """StepCtlHold's falling edge (or a teardown's): `last_hold_ms`, `last_end`, the end line."""
+        sw = self._sw
+        sw["last_hold_ms"], sw["last_end"] = int(ms), BW.SWAP_HOLD_END_NAMES[why]
+        sw["holding"] = 0
+        self._mlog(BW.swap_log_orphan_hold_end(self._sw_on(), win, text, int(ms), why, self._sw_now()))
+
+    def _sw_window_gone(self, w, why: int) -> None:
+        """A held window leaves the guest's list: Track's removal ends its hold Closed; ForgetWindows / ResetAll (a session drop, the
+        lock letting go, the release) write Forgot directly (EndCtlHolds). Nothing for a window that holds nothing."""
+        if w is None or "swap" not in self._nb_caps():
+            return
+        wb = w.get("swap_b")
+        if wb is None or not wb["ctl_held"]:
+            return
+        held_ms = BW._i32(self._guest_now() - wb["ctl_held_since"])
+        wb["ctl_held"], wb["keep_read"] = False, False
+        _fld, win, text = w["key"]
+        self._sw_hold_ended(win, text, why, held_ms)
+
+    def _swap_doc(self) -> dict:
+        """AppendSwap, in its order (NETSYNC_SWAP_KEYS): the catch line's sentinels but for the stand-in's live reads -- the clock seam,
+        the levers as set, `open`, the record, the seen block, B's orphan counters, the counters, the selftest verdict."""
+        sw = self._sw
+        doc = json.loads(json.dumps(NETSYNC_SWAP_SENTINELS))
+        now_ms, ticks, hz, src, hires = self._sw_clock()
+        doc["clock"].update(now_ms=now_ms, utc_ms=int(time.time() * 1000), ticks=ticks, hz=hz, src=src, hires=hires,
+                            fps=int(round(self._render_fps)), target_fps=-1)
+        doc["levers"].update(stamps="off" if sw["stamps_off"] else None, delay_ms=sw["delay_ms"],
+                             orphan="old" if sw["orphan_old"] else None, own=sw["own"], pin="old" if sw["pin_old"] else None,
+                             life="old" if sw["life_old"] else None, fade=sw["fade"], hostctl_off=bool(sw["hostctl_off"]))
+        doc["open"] = bool(sw["open"])
+        if sw["rec"] is not None:
+            doc["last"] = {k: sw["rec"][k] for k in NETSYNC_SWAP_SENTINELS["last"]}
+        doc["seen"] = dict(sw["seen"])
+        doc["orphan"].update(host_holds=bool(sw["host_holds"]), holding=sw["holding"], holds=sw["holds"], relocks=sw["relocks"],
+                             last_hold_ms=sw["last_hold_ms"], last_end=sw["last_end"])
+        doc["counts"].update(transitions=sw["transitions"], landings=sw["landings"], follow_won=sw["follow_won"],
+                             closed=dict(sw["closed"]))
+        doc["selftest"] = sw["selftest"]
+        return doc
 
     # -- [ff9mapkit netsync s144] WORLD-MAP CO-OP (the `worldwait` rung; see NETSYNC_BATTLE_CAPS for what it models) ----------
     # The engine's pieces, each through battlewire's twin of its pure step: THE FREEZE (NetSyncField.WorldFreezeNow / Hold /
@@ -9453,8 +9985,10 @@ class FakeGame:
             self._mlog(f"[NetSync] {PROOF_CHEST}OK ({FAKE_CHEST_SELFTEST_ROWS} rows, {FAKE_CHEST_MUTANTS} mutants caught)")
         if "ate" in caps:                                   # [ff9mapkit netsync s161] after the chest line
             self._ar_proof()
-        if "speed" in caps:                                 # [ff9mapkit netsync s163] the block's last modelled line (after the ATE relay's)
+        if "speed" in caps:                                 # [ff9mapkit netsync s163] after the ATE relay's line
             self._sp_proof()
+        if "swap" in caps:                                  # [ff9mapkit netsync s164] the block's last modelled line (after the speed mirror's)
+            self._sw_proof()
 
     # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
     def _nb_caps(self) -> frozenset:
@@ -9960,9 +10494,12 @@ class FakeGame:
         self._ch_release()
         # [ff9mapkit netsync s161] NetSyncAte.HarnessRelease: the lever none -- its line only when one was set
         self._ar_release()
-        # [ff9mapkit netsync s163] NetSyncSpeed.HarnessRelease, LAST: the lever back to act, the bench host forgotten -- its line only
-        # when a lever or a bench host was set
+        # [ff9mapkit netsync s163] NetSyncSpeed.HarnessRelease: the lever back to act, the bench host forgotten -- its line only when a
+        # lever or a bench host was set
         self._sp_release()
+        # [ff9mapkit netsync s164] NetSyncSwap.HarnessRelease, LAST (right after the speed mirror's, on every role): every lever act, stamps
+        # on, delay 0, the bench host's control on -- its line only when something was set
+        self._sw_release()
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an
@@ -13308,10 +13845,12 @@ class FakeGame:
         if not self._dialog_open():
             if g.win is not None:
                 g.unbind_key_cursors(g.win["gen"])
+                self._sw_window_gone(g.win, BW.SWAP_HOLD_END_CLOSED)   # [ff9mapkit netsync s164] Track's removal ends a hold Closed
             g.win = None
         elif g.win is None or g.win["gen"] != self._dialog_gen:
             if g.win is not None:
                 g.unbind_key_cursors(g.win["gen"])
+                self._sw_window_gone(g.win, BW.SWAP_HOLD_END_CLOSED)   # [ff9mapkit netsync s164] (the old window closed under the new)
             g.win = {"gen": self._dialog_gen, "key": (self.field_id, self.dialog_id, self.dialog_text_id),
                      "cls": "locked", "page": self._dialog_page, "complete_ms": now, "orphan_ms": now}
             if g.own_polls_field == self.field_id:
@@ -13402,6 +13941,8 @@ class FakeGame:
             g.live_armed = False                          # spent: the grace runs once
         if not (base and (live or g.live_armed)):
             g.session_prev = False
+            self._sw_window_gone(g.win, BW.SWAP_HOLD_END_FORGOT)   # [ff9mapkit netsync s164] ForgetWindows' EndCtlHolds(Forgot)
+            self._sw["host_holds"] = False                # [ff9mapkit netsync s164] the session-off path: HostHoldsNow = false
             g.forget()                                    # drain-and-discard: every line is local
             return
         on_field = self._guest_on_field()
@@ -13429,12 +13970,18 @@ class FakeGame:
         co_located = host_here and (hv is None or not hf & HF_LINE)
         host_menu = hv is not None and on_field_bit and not battle_bit and bool(hf & HF_MENU)
         holds_input = host_here and hv is not None and not hf & HF_CONTROL
+        if "swap" in self._nb_caps():
+            # [ff9mapkit netsync s164] :7767 through its twin (HostHoldsRule: here, a view, b1 clear), and the :7780 ADDITION --
+            # NetSyncSwap.HostHoldsNow, what `orphan.host_holds` publishes
+            holds_input = BW.swap_host_holds(host_here, hv is not None, BW.host_flag_reads(hf))
+            self._sw["host_holds"] = holds_input
         g.purge(self.field_id, now, self.dialog_inh)
         if keys:
             self._purge_keys(now, engaged, scene_up, holds_input)
         if not engaged:
             if g.win is not None:
                 g.unbind_key_cursors(g.win["gen"])
+                self._sw_window_gone(g.win, BW.SWAP_HOLD_END_FORGOT)   # [ff9mapkit netsync s164] the lock let go of it
             g.win, g.settled_since, g.settled_ms = None, None, -1
             g.own_polls_field = -1
             g.mirror_cursor = -1
@@ -13493,7 +14040,11 @@ class FakeGame:
         if w is not None and w["cls"] != "local":
             host_has_it = host_here and hv is not None and any((o["win"], o["text"]) == w["key"][1:] for o in hv["open"])
             pending = g.earliest(w["key"]) is not None or host_has_it      # R4: the host's open set claims it too
-            if w["cls"] == "locked":
+            if "swap" in self._nb_caps():
+                # [ff9mapkit netsync s164] B: OrphanSettled under the lever, then OrphanStep, CtlHoldKind and StepCtlHold -- on the twins
+                self._sw_orphans(w, now, settled_long=settled_long, holds=holds_input, pending=pending, host_has_it=host_has_it,
+                                 host_here=host_here)
+            elif w["cls"] == "locked":
                 if settled and not pending:
                     if self.dialog_inh:
                         w["cls"] = "local"                # a script-polled line: handed back
@@ -13504,20 +14055,7 @@ class FakeGame:
             elif self.dialog_inh:
                 w["cls"] = "local"
             elif self._dialog_ready() and now - max(w["orphan_ms"], w["complete_ms"]) >= g.AUTO_READ_MS:
-                # reading pace: confirm it as the host would -- a choice takes its CANCEL row, else its default
-                # (NetSyncDialog.OrphanChoice(d.CancelChoice, d.DefaultChoice)); the cancel row is the beat's, as
-                # SetupChoose builds it (:func:`choice_cancel`)
-                closes = self.choice is not None or bool(self._beats) or len(self.texts) <= 1
-                pick = None
-                if self._beats and self.choice is not None:
-                    cancel = choice_cancel(self._beats[0])
-                    pick = cancel if cancel >= 0 else int(self._beats[0].get("default", 0))
-                if self._host_confirm(pick):
-                    if closes:
-                        g.orphan_closes += 1
-                    self._guest_track(now)
-                else:
-                    w["orphan_ms"] = now                  # one attempt per AutoReadMs, never per tick
+                self._guest_orphan_confirm(w, now)
         if keys:
             # R5: the script-key lock's host half -- the host busy (not settled OrphanGraceMs) or holding input here, and
             # never on a field whose Local lines still own their polls (C3KEYS-4)
@@ -13525,6 +14063,25 @@ class FakeGame:
             if g.own_polls_field >= 0 and not (g.win is not None and g.win["cls"] == "local"):
                 g.own_polls_field = -1                    # no Local line left to own a poll
         g.chip = g.chip_for(self.dialog_inh, scene_up and host_here, battle=battle_bit, menu=host_menu)
+
+    def _guest_orphan_confirm(self, w: dict, now: int) -> tuple:
+        """OrphConfirm: reading pace -- confirm the orphaned page as the host would: a choice takes its CANCEL row, else its default
+        (NetSyncDialog.OrphanChoice(d.CancelChoice, d.DefaultChoice)); the cancel row is the beat's, as SetupChoose builds it
+        (:func:`choice_cancel`). A confirm that does not take re-arms the read clock (one attempt per AutoReadMs, never per tick).
+        Returns (advanced, closes, pick) -- [ff9mapkit netsync s164] the auto-closed line's words."""
+        g = self._guest
+        closes = self.choice is not None or bool(self._beats) or len(self.texts) <= 1
+        pick = None
+        if self._beats and self.choice is not None:
+            cancel = choice_cancel(self._beats[0])
+            pick = cancel if cancel >= 0 else int(self._beats[0].get("default", 0))
+        if self._host_confirm(pick):
+            if closes:
+                g.orphan_closes += 1
+            self._guest_track(now)
+            return True, closes, pick
+        w["orphan_ms"] = now                              # one attempt per AutoReadMs, never per tick
+        return False, closes, pick
 
     # -- [ff9mapkit netsync F3.3] C3: the bench HOST (s98) ------------------------------------------------------------
     def _bench_host_tick(self) -> None:
@@ -13543,7 +14100,9 @@ class FakeGame:
         if self._cap("keys"):
             self._service_replay()
         b.heartbeat = (b.heartbeat + 1) & 0xFFFF
-        f = HF_SCENE if ns["l1"] else HF_CONTROL
+        # [ff9mapkit netsync s164] B's bench host under `swap hostctl off` (NetSyncSwap.BenchHostCtlOff: the lever AND the selftest role):
+        # it stands on my field with its control off and no scene -- b1 and b0 both clear (a scene, `hostscene 1`, still wins)
+        f = HF_SCENE if ns["l1"] else (0 if self._sw_bench_host_ctl_off() else HF_CONTROL)
         if any(not o["flags"] & WF_INH for o in b.open):
             f |= HF_LINE
         f |= (HF_BATTLE | HF_MENU) if b.battle else HF_ON_FIELD

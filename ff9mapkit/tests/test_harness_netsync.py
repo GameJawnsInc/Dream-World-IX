@@ -128,8 +128,11 @@ def test_the_driver_and_the_stand_in_speak_the_agents_sub_verbs():
     """The driver refuses a sub-verb before spending a step, so its list IS a gate: it must be the agent's, in the
     agent's order -- and the F3.2-only ones are exactly what the F3 agent did not have."""
     agent = _agent_subverbs()
-    assert Session.NETSYNC_SUBVERBS == agent == FG.NETSYNC_SUBVERBS
-    assert set(Session.NETSYNC_AUTHORITY_SUBVERBS) == set(agent) - set(FG.NETSYNC_SUBVERBS_F3)
+    # [ff9mapkit netsync s164] the LIVE agent is the stand-in AT the live stack's rung (s163's until the s164 patch lands); the driver's
+    # list is the newest stand-in's -- a sub-verb ahead of the live agent is gated by its capability key (`netsync.swap`), never sent
+    assert Session.NETSYNC_SUBVERBS == FG.NETSYNC_SUBVERBS and agent == FG.netsync_subverbs(_live_caps())
+    assert agent == Session.NETSYNC_SUBVERBS[:len(agent)]
+    assert set(Session.NETSYNC_AUTHORITY_SUBVERBS) == set(Session.NETSYNC_SUBVERBS) - set(FG.NETSYNC_SUBVERBS_F3)
 
 
 def test_the_stand_in_publishes_the_agents_netsync_keys(game):
@@ -137,6 +140,7 @@ def test_the_stand_in_publishes_the_agents_netsync_keys(game):
     the agent's values -- and an F3 stand-in none of the F3.2 ones."""
     nothing, pinned = _agent_netsync_nothing()
     fake = FakeGame(game)
+    fake.netsync_caps = _live_caps()                         # [ff9mapkit netsync s164] the stand-in AT the live stack's rung
     doc = fake._netsync_doc()
     assert set(doc) == set(nothing), (set(doc) ^ set(nothing))
     assert {k: doc[k] for k in pinned} == pinned == FG.NETSYNC_F3_PINNED
@@ -344,6 +348,7 @@ def test_talk_publishes_nothing_the_engine_does_not(game):
     nothing, _pinned = _agent_netsync_nothing()
     for contract in ("authority", None):
         fake = FakeGame(game)
+        fake.netsync_caps = _live_caps()                     # [ff9mapkit netsync s164] the stand-in AT the live stack's rung
         fake.netsync_dialogue = contract
         fake.field_id = FIELD
         fake._netsync(["selftest", "1"])
@@ -413,7 +418,7 @@ def test_netsync_refuses_an_unknown_sub_verb_before_spending_a_step(game):
         seq = g.state.seq
         with pytest.raises(HarnessError, match=r"unknown sub-verb 'tape' \(selftest\|bench\|l1\|hostscene.*"
                                                r"\|tap-record\|replay\|.*\|bmenu\|bbench\|endbench\|actbench"
-                                               r"\|selfdress\|guestlocal\|stepout\|chest\|ate\|speed\)"):    # [ff9mapkit netsync s139] [s156] [s158] [s160] [s161] [s163]
+                                               r"\|selfdress\|guestlocal\|stepout\|chest\|ate\|speed\|swap\)"):    # [ff9mapkit netsync s139] [s156] [s158] [s160] [s161] [s163] [s164]
             g.netsync("tape", 1)
         assert g.state.seq == seq and not any(s[:1] == ["netsync"] for s in fake.executed)
 
@@ -925,8 +930,45 @@ def _unlanded(doc: dict) -> dict:
 def _unsped(doc: dict) -> dict:
     """[ff9mapkit netsync s163] A `netsync` document without s163's catch-line block -- `speed`, netsync's LAST key (after s161's
     `ate`; FG.NETSYNC_TOP_CAP_KEYS' `speed` row): the catch line as s162 wrote it -- s163 added that one block and nothing else (its
-    top-level `ff` is outside `netsync`)."""
-    return {k: v for k, v in doc.items() if k not in FG.NETSYNC_TOP_CAP_KEYS["speed"]}
+    top-level `ff` is outside `netsync`). [ff9mapkit netsync s164] (and without s164's block: :func:`_unswapped`)"""
+    return {k: v for k, v in _unswapped(doc).items() if k not in FG.NETSYNC_TOP_CAP_KEYS["speed"]}
+
+
+def _unswapped(doc: dict) -> dict:
+    """[ff9mapkit netsync s164] A `netsync` document without s164's catch-line block -- `swap`, netsync's LAST key (after s163's
+    `speed`; FG.NETSYNC_TOP_CAP_KEYS' `swap` row): the catch line as s163 wrote it -- s164 adds that one block and nothing else."""
+    return {k: v for k, v in doc.items() if k not in FG.NETSYNC_TOP_CAP_KEYS["swap"]}
+
+
+def _s164_live() -> bool:
+    """[ff9mapkit netsync s164] Whether the LIVE patch stack carries the s164 patch yet. The engine side of the round is built
+    concurrently with the kit, so until its patch lands the live agent is s163's: every pin that compares the kit with the live agent
+    (its sub-verb list, its catch line's tail) compares it with the stand-in AT the live rung -- exact either way, and it starts
+    demanding `swap` the moment the s164 patch is on the stack."""
+    return any(n.startswith("s164-") and n not in msr.DEAD for n in msr.stack())
+
+
+def _live_caps() -> frozenset:
+    """[ff9mapkit netsync s164] The stand-in's capability set at the LIVE stack's rung (s164's once its patch lands, else s163's)."""
+    return FG.caps_through("swap" if _s164_live() else "speed")
+
+
+def _sw_live_tail(*names: str) -> list:
+    """[ff9mapkit netsync s164] A tail of `netsync`'s keys (or the agent's sub-verbs) as the LIVE agent writes it: ``names``, through
+    s163's `speed`, then s164's `swap` once its patch is live."""
+    return list(names) + (["swap"] if _s164_live() else [])
+
+
+def _sw_agent_index(i: int) -> int:
+    """[ff9mapkit netsync s164] The LIVE agent's index for the driver's negative sub-verb index ``i``: the same once the s164 patch is
+    live, else one further toward the end (an s163 agent has no trailing `swap`)."""
+    return i if _s164_live() else i + 1
+
+
+def _sw_live_catch_tail() -> str:
+    """[ff9mapkit netsync s164] What the LIVE catch line writes after s163's `speed` block: nothing on s163, s164's `swap` block at its
+    sentinels once the s164 patch is live."""
+    return (',"swap":' + json.dumps(FG.NETSYNC_SWAP_SENTINELS, separators=(",", ":"))) if _s164_live() else ""
 
 
 def _unstepped(doc: dict) -> dict:
@@ -2171,6 +2213,8 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     prev_verbs, prev_doc = _subverbs_in("s99"), _catch_doc_in("s99")
     assert "battle" not in prev_doc
     for cap, (patch, verbs) in FG.NETSYNC_BATTLE_CAPS.items():
+        if cap not in _live_caps():
+            continue                # [ff9mapkit netsync s164] a rung whose patch is not on the live stack yet (the engine is concurrent)
         lines = net_lines("HarnessAgent.cs", r"netsync: unknown sub-verb", [_patch_bytes(patch)])
         verbs_now = _subverbs_in(patch) if lines else prev_verbs
         assert verbs_now == FG.netsync_subverbs(_caps_at(patch)), (patch, verbs_now)
@@ -2195,7 +2239,7 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
             assert {**Session.NETSYNC_BATTLE_SUBVERBS, **Session.NETSYNC_DRESS_SUBVERBS,
                     **Session.NETSYNC_GUESTLOCAL_SUBVERBS, **Session.NETSYNC_STEPOUT_SUBVERBS,
                     **Session.NETSYNC_CHEST_SUBVERBS, **Session.NETSYNC_ATE_SUBVERBS,
-                    **Session.NETSYNC_SPEED_SUBVERBS}[verb][2] == patch, verb   # [s158] [s160] [s161] [s163]
+                    **Session.NETSYNC_SPEED_SUBVERBS, **Session.NETSYNC_SWAP_SUBVERBS}[verb][2] == patch, verb   # [s158] [s160] [s161] [s163] [s164]
         # [ff9mapkit netsync R3] the keys added INSIDE an older fixed sub-object, and to / inside `netsync.diorama`
         nested = {}
         for path in [c for c in BATTLE_CONTAINERS if c in _leaves_paths(was)]:
@@ -2210,7 +2254,8 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
                       if isinstance(dio_w[k], dict) and set(dio_n[k]) - set(dio_w[k])}
         assert dio_nested == FG.NETSYNC_DIORAMA_NESTED_KEYS.get(cap, {}), (patch, dio_nested)
         prev_verbs, prev_doc = verbs_now, doc_now
-    assert prev_verbs == _agent_subverbs() == FG.NETSYNC_SUBVERBS == Session.NETSYNC_SUBVERBS
+    assert prev_verbs == _agent_subverbs() == FG.netsync_subverbs(_live_caps())     # [ff9mapkit netsync s164] the live rung's
+    assert FG.NETSYNC_SUBVERBS == Session.NETSYNC_SUBVERBS
     battle = _battle_of(prev_doc)
     end = battle["end"]
     assert tuple(end["end_leave"]) == FG.NETSYNC_BATTLE_END_LEAVE_KEYS
@@ -2272,9 +2317,9 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert s155_top[s155_top.index("battle"):] == ["battle", "dress", "world"], s155_top
     # [ff9mapkit netsync s157] + `ghostframe`; [ff9mapkit netsync s158] ...and s158's `stepout` after it; [ff9mapkit netsync s160]
     # ...and s160's `chest` after that, [ff9mapkit netsync s161] and s161's `ate`
-    # [ff9mapkit netsync s163] ...and s163's `speed` after that
-    assert top[top.index("battle"):] == ["battle", "dress", "world", "guestlocal", "ghostframe", "stepout", "chest", "ate",
-                                         "speed"], top
+    # [ff9mapkit netsync s163] ...and s163's `speed` after that; [ff9mapkit netsync s164] ...and s164's `swap` once its patch is live
+    assert top[top.index("battle"):] == _sw_live_tail("battle", "dress", "world", "guestlocal", "ghostframe", "stepout", "chest", "ate",
+                                                      "speed"), top
     assert tuple(prev_doc["dress"]) == tuple(k for keys in FG.NETSYNC_DRESS_CAP_KEYS.values() for k in keys)
     assert tuple(prev_doc["dress"]["ghost"]) == FG.NETSYNC_DRESS_GHOST_KEYS == tuple(BW.DRESS_GHOST_SENTINELS)
     # ...the LIVE union, which is every dress rung's FROZEN row in ladder order (a probe / stand-in reads its rung's row)
@@ -2283,8 +2328,9 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert tuple(k for row in BW.DRESS_GHOST_KEYS_BY_RUNG.values() for k in row) == tuple(BW.DRESS_GHOST_SENTINELS)
     assert set(Session.NETSYNC_BATTLE_SUBVERBS) | set(Session.NETSYNC_DRESS_SUBVERBS) | \
         set(Session.NETSYNC_GUESTLOCAL_SUBVERBS) | set(Session.NETSYNC_STEPOUT_SUBVERBS) | \
-        set(Session.NETSYNC_CHEST_SUBVERBS) | set(Session.NETSYNC_ATE_SUBVERBS) | set(Session.NETSYNC_SPEED_SUBVERBS) == \
-        {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}            # [ff9mapkit netsync s139] + the dress table [s158]
+        set(Session.NETSYNC_CHEST_SUBVERBS) | set(Session.NETSYNC_ATE_SUBVERBS) | set(Session.NETSYNC_SPEED_SUBVERBS) | \
+        set(Session.NETSYNC_SWAP_SUBVERBS) == \
+        {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}            # [ff9mapkit netsync s139] + the dress table [s158] [s164]
     assert not set(Session.NETSYNC_BATTLE_SUBVERBS) & set(Session.NETSYNC_DRESS_SUBVERBS)
     # [ff9mapkit netsync s156] + guest traversal's table, disjoint from both
     assert not set(Session.NETSYNC_GUESTLOCAL_SUBVERBS) & (set(Session.NETSYNC_BATTLE_SUBVERBS) |
@@ -3029,7 +3075,7 @@ def test_netsync_refuses_a_battle_verb_its_engine_lacks_before_spending_a_step(g
             _attr, key, patch, _what = {**Session.NETSYNC_BATTLE_SUBVERBS, **Session.NETSYNC_DRESS_SUBVERBS,
                                         **Session.NETSYNC_GUESTLOCAL_SUBVERBS, **Session.NETSYNC_STEPOUT_SUBVERBS,
                                         **Session.NETSYNC_CHEST_SUBVERBS, **Session.NETSYNC_ATE_SUBVERBS,
-                                        **Session.NETSYNC_SPEED_SUBVERBS}[verb]
+                                        **Session.NETSYNC_SPEED_SUBVERBS, **Session.NETSYNC_SWAP_SUBVERBS}[verb]   # [s164]
             with pytest.raises(HarnessError, match=rf"^netsync {verb}: (?:the deployed|this) engine publishes no "
                                                    rf"`{re.escape(key)}` .*\(memoria-patch {patch}\); it would answer "
                                                    rf"\"netsync: unknown sub-verb '{verb}'\" only after the step"):
@@ -6662,6 +6708,13 @@ def _sp_proof_text() -> str:
             f"step-in {FG.STEPOUT_STEP_IN_MS} ms)")
 
 
+def _sw_proof_text(fake=None) -> str:
+    """[ff9mapkit netsync s164] The stand-in's field swap proof line: its tallies (the design's), then THE CLOCK SEAM's source, Hz and
+    resolution (``fake``'s seam; a default stand-in's, channel.qpc_read, when None), then every constant (battlewire's builder)."""
+    _now, _ticks, hz, src, hires = FG.swap_clock_read(FG.qpc_read if fake is None else fake.swap_qpc, 0.0)
+    return BW.swap_proof_text(FG.FAKE_SWAP_SELFTEST_ROWS, FG.FAKE_SWAP_MUTANTS, src, hz, hires)
+
+
 def _gl_proof_text() -> str:
     """[ff9mapkit netsync s156] The stand-in's guest traversal proof line (contract L1): its own row / mutant tallies, then the
     compiled table's counts and digest as the kit's committed JSON carries them (never a literal)."""
@@ -6703,7 +6756,11 @@ _PROOF_S145 = [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, BW
     # [ff9mapkit netsync s161] THE LIVE STAND-IN IS s161: then the ATE relay line, the block's last
     # [ff9mapkit netsync s162] THE LIVE STAND-IN IS s162: no new line -- the step-out and ATE relay lines carry s162's tallies
     # [ff9mapkit netsync s163] THE LIVE STAND-IN IS s163: then the speed mirror line, the block's last (s162's tallies kept)
+    # [ff9mapkit netsync s164] THE LIVE STAND-IN IS s164: then the field swap line, the block's last (its clock the seam's)
     ("live", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
+                            _so_proof_text(), _ch_proof_text(), _ar_proof_text(), _sp_proof_text(), _sw_proof_text()]),
+    # [ff9mapkit netsync s164] s163 (s164's calibration red): no field swap line
+    ("s163", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
                             _so_proof_text(), _ch_proof_text(), _ar_proof_text(), _sp_proof_text()]),
     # [ff9mapkit netsync s163] s162 (s163's calibration red): no speed mirror line
     ("s162", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
@@ -15515,7 +15572,7 @@ def test_the_dress_block_is_netsyncs_last_key_at_the_catch_lines_sentinels():
     # [ff9mapkit netsync s144] `dress` is the last key through s143 (frozen); the live line closes with s144's `world` after it
     assert list(_catch_doc_in("s143"))[-2:] == ["battle", "dress"]
     # [ff9mapkit netsync s156] ...and s156's `guestlocal` after `world`
-    assert list(nothing)[-9:] == ["battle", "dress", "world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed"] and nothing["dress"] == BW.DRESS_SENTINELS   # [ff9mapkit netsync s157] [s158] [s160] [s161] [s163]
+    assert list(nothing)[list(nothing).index("battle"):] == _sw_live_tail("battle", "dress", "world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed") and nothing["dress"] == BW.DRESS_SENTINELS   # [ff9mapkit netsync s157] [s158] [s160] [s161] [s163] [s164]
     s138 = _catch_doc_in("s138")
     assert list(s138["dress"]) == list(BW.DRESS_KEYS_BY_RUNG["dressinstr"]) == ["ghost", "party"]
     assert list(s138["dress"]["ghost"]) == list(BW.DRESS_GHOST_KEYS_BY_RUNG["dressinstr"])
@@ -15935,7 +15992,7 @@ def test_a_fresh_stand_in_publishes_the_agents_dress_block(game):
     s155 = FakeGame(game)
     s155.netsync_caps = FG.caps_through(FG.NETSYNC_S154_RUNG)
     assert list(s155._netsync_doc())[-2:] == ["dress", "world"]
-    assert list(doc)[-8:] == ["dress", "world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed"] and list(doc["dress"]) == list(nothing["dress"])   # [ff9mapkit netsync s157] [s158] [s160] [s161] [s163]
+    assert list(doc)[-9:] == ["dress", "world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed", "swap"] and list(doc["dress"]) == list(nothing["dress"])   # [ff9mapkit netsync s157] [s158] [s160] [s161] [s163] [s164]
     assert doc["dress"]["ghost"] == nothing["dress"]["ghost"] == BW.DRESS_GHOST_SENTINELS
     # the default stand-in carries every dress rung: the union of their frozen rows, in ladder order
     assert list(doc["dress"]["ghost"]) == [k for row in BW.DRESS_GHOST_KEYS_BY_RUNG.values() for k in row]
@@ -16891,9 +16948,10 @@ def test_the_s139_agent_prints_selfdress_last_and_the_driver_and_the_stand_in_ag
     # [ff9mapkit netsync s160] ...and s160 appended `chest` after `stepout`
     # [ff9mapkit netsync s161] ...and s161 appended `ate` after `chest`
     # [ff9mapkit netsync s163] ...and s163 appended `speed` after `ate`
-    assert Session.NETSYNC_SUBVERBS[-7:-5] == ("actbench", "selfdress") == FG.NETSYNC_SUBVERBS[-7:-5]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-7:-5] == ("actbench", "selfdress")
-    assert FG.NETSYNC_BATTLE_VERB_ORDER[-7:-5] == ("actbench", "selfdress")
+    # [ff9mapkit netsync s164] ...and s164 appended `swap` after `speed`
+    assert Session.NETSYNC_SUBVERBS[-8:-6] == ("actbench", "selfdress") == FG.NETSYNC_SUBVERBS[-8:-6]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-8:-6] == ("actbench", "selfdress")
+    assert FG.NETSYNC_BATTLE_VERB_ORDER[-8:-6] == ("actbench", "selfdress")
     assert FG.netsync_subverbs(FG.caps_through(FG.NETSYNC_S154_RUNG))[-2:] == ("actbench", "selfdress")
     assert FG.NETSYNC_BATTLE_CAPS["dresshost"] == ("s139", ("selfdress",)) and FG.NETSYNC_S139_CAPS == frozenset(("dresshost",))
     assert FG.netsync_subverbs(FG.caps_through("dressinstr"))[-1] == "actbench"
@@ -19256,8 +19314,8 @@ def test_the_dressself_rung_is_s140s_and_its_key_is_self():
     assert State({"frame": 1}).coop_dress_self is None
     assert FG.netsync_subverbs(FG.caps_through("dressself")) == FG.netsync_subverbs(S139_CAPS_)   # no new sub-verb
     # ...and the agent's list is s139's ([ff9mapkit netsync s156] until s156 appended `guestlocal`: the prefix through s155)
-    assert _subverbs_in("s139") == _agent_subverbs()[:-5] and _agent_subverbs()[-5:] == ("guestlocal", "stepout", "chest", "ate",
-                                                                                       "speed")   # [s158] [s160] [s161] [s163]
+    tail = tuple(_sw_live_tail("guestlocal", "stepout", "chest", "ate", "speed"))             # [s158] [s160] [s161] [s163] [s164]
+    assert _subverbs_in("s139") == _agent_subverbs()[:-len(tail)] and _agent_subverbs()[-len(tail):] == tail
     # the op-capability key law (audit 3.1's table for `self` / `gate`, O6's `law`): a key the patch added
     # ([ff9mapkit netsync s141] s141's `polish` rides its own rung: test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self)
     s140_ops = {op: v for op, v in Session.NETSYNC_SELFDRESS_OP_CAPS.items() if v[2] == "s140"}
@@ -22533,7 +22591,7 @@ def test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self_and_ghost():
                                                                                                              "chest",   # [s160]
                                                                                                              "ate",   # [s161]
                                                                                                              "ateland",   # [s162]
-                                                                                                             "speed"]   # [s163]
+                                                                                                             "speed", "swap"]   # [s163] [s164]
     assert FG.NETSYNC_BATTLE_CAPS["dresspolish"] == ("s141", ()) and FG.NETSYNC_S141_CAPS == frozenset(("dresspolish",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresspolish"] == {} and "dresspolish" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     assert FG.NETSYNC_DRESS_CAP_KEYS["dresspolish"] == BW.DRESS_KEYS_BY_RUNG["dresspolish"] == ()
@@ -25635,8 +25693,8 @@ def test_the_s156_agent_prints_guestlocal_last_and_the_driver_and_the_stand_in_a
     # [ff9mapkit netsync s158] ...LAST until s158 appended `stepout` after it
     # [ff9mapkit netsync s160] ...and s160 appended `chest` after that
     # [ff9mapkit netsync s161] ...and s161 appended `ate` after that
-    assert Session.NETSYNC_SUBVERBS[-5] == "guestlocal" == FG.NETSYNC_SUBVERBS[-5] == _agent_subverbs()[-5]   # [s161] [s163]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-5] == "guestlocal" and FG.NETSYNC_BATTLE_VERB_ORDER[-5] == "guestlocal"
+    assert Session.NETSYNC_SUBVERBS[-6] == "guestlocal" == FG.NETSYNC_SUBVERBS[-6] == _agent_subverbs()[_sw_agent_index(-6)]   # [s161] [s163] [s164]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-6] == "guestlocal" and FG.NETSYNC_BATTLE_VERB_ORDER[-6] == "guestlocal"
     names = list(FG.NETSYNC_BATTLE_CAPS)
     # [ff9mapkit netsync s157] ...LAST until s157's `dresstwin` rung joined after it; [ff9mapkit netsync s158] and s158's `stepout`;
     # [ff9mapkit netsync s161] and s161's `ate`
@@ -25646,14 +25704,14 @@ def test_the_s156_agent_prints_guestlocal_last_and_the_driver_and_the_stand_in_a
                                                                                                        "chest",   # [s160]
                                                                                                        "ate",   # [s161]
                                                                                                        "ateland",   # [s162]
-                                                                                                       "speed"]   # [s163]
+                                                                                                       "speed", "swap"]   # [s163] [s164]
     assert FG.NETSYNC_BATTLE_CAPS["guestlocal"] == ("s156", ("guestlocal",)) and FG.NETSYNC_S156_CAPS == frozenset(("guestlocal",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["guestlocal"] == {} and FG.NETSYNC_TOP_CAP_KEYS["guestlocal"] == ("guestlocal",)
     assert "guestlocal" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "guestlocal" not in FG.NETSYNC_DIORAMA_CAP_KEYS
     assert "guestlocal" not in FG.NETSYNC_TOP_NESTED_KEYS and "guestlocal" not in FG.NETSYNC_DRESS_CAP_KEYS
     cal = FG.caps_through(FG.NETSYNC_S154_RUNG)
-    assert "guestlocal" not in cal and FG.netsync_subverbs(cal) + ("guestlocal", "stepout", "chest", "ate", "speed") == \
-        FG.NETSYNC_SUBVERBS   # [s158] [s160] [s161] [s163]
+    assert "guestlocal" not in cal and FG.netsync_subverbs(cal) + ("guestlocal", "stepout", "chest", "ate", "speed", "swap") == \
+        FG.NETSYNC_SUBVERBS   # [s158] [s160] [s161] [s163] [s164]
     assert not net_lines("HarnessAgent.cs", r".", [_patch_bytes("s155")])     # s155 touched no harness line
     assert Session.NETSYNC_GUESTLOCAL_SUBVERBS == {
         "guestlocal": ("coop_guest_local", "netsync.guestlocal", "s156", "the s156 guest-traversal gate bench")}
@@ -25708,9 +25766,9 @@ def test_the_s156_catch_line_closes_netsync_with_the_guestlocal_sentinels():
                       + ',"ghostframe":' + esc(FG.NETSYNC_GHOSTFRAME_SENTINELS)   # [ff9mapkit netsync s157]
                       + ',"stepout":' + esc(FG.NETSYNC_STEPOUT_SENTINELS)                      # [s158]
                       + ',"chest":' + esc(FG.NETSYNC_CHEST_SENTINELS)                          # [ff9mapkit netsync s160]
-                      + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + "}"), b[-2600:]   # [ff9mapkit netsync s161]
+                      + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + _sw_live_catch_tail() + "}"), b[-2600:]   # [ff9mapkit netsync s161]
     nothing = _agent_netsync_nothing()[0]
-    assert list(nothing)[-7:] == ["world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed"]   # [s160] [s161] [s163]
+    assert list(nothing)[list(nothing).index("world"):] == _sw_live_tail("world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed")   # [s160] [s161] [s163] [s164]
     gl = nothing["guestlocal"]
     assert gl == FG.NETSYNC_GUESTLOCAL_SENTINELS
     assert tuple(gl) == FG.NETSYNC_GUESTLOCAL_KEYS == GL_CONTRACT_KEYS
@@ -25732,7 +25790,7 @@ def test_the_s156_catch_line_closes_netsync_with_the_guestlocal_sentinels():
     assert _catch_doc_in("s160") == _unrelayed(nothing)          # [ff9mapkit netsync s160]
     assert _catch_doc_in("s161") == _unlanded(nothing)           # [ff9mapkit netsync s161]
     assert _catch_doc_in("s162") == _unsped(nothing)             # [ff9mapkit netsync s162]
-    assert _catch_doc_in("s163") == nothing                      # [ff9mapkit netsync s163] the live line is s163's
+    assert _catch_doc_in("s163") == _unswapped(nothing)          # [ff9mapkit netsync s163] [s164] the live line is s163's (s164's less `swap`)
     # AppendGuestLocal, off the s156 patch, statement by statement
     body = _cs_block("HarnessAgent.cs", "private static void AppendGuestLocal(StringBuilder sb)", stop='sb.Append("}}");')
     text = " ".join(body)
@@ -26019,7 +26077,7 @@ def test_the_dresstwin_rung_is_s157s_and_its_keys_sit_in_self():
     the prefix through `guestlocal`; the capability accessor reads True on s157's catch line and False on s156's; the `twin`
     op's capability key is a key s157 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[names.index("dresstwin") - 1] == "guestlocal" and names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate", "ateland", "speed"]   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160] [s161] [s162] [s163]
+    assert names[names.index("dresstwin") - 1] == "guestlocal" and names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate", "ateland", "speed", "swap"]   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160] [s161] [s162] [s163]
     assert FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and FG.NETSYNC_S157_CAPS == frozenset(("dresstwin",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and "dresstwin" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     # [ff9mapkit netsync s157] ...the ONE rung's other half, the ghost frame, adds ONE top-level block (its own pins below)
@@ -26242,6 +26300,8 @@ def test_the_stand_in_models_the_twin_lever_counts_and_proof_line(game):
         assert (st.coop_dress_twin, st.coop_dress_self_twin_rows, st.coop_dress_self_twin) == (True, 55, "on")
         assert (st.coop_dress_self_twin_selftest, st.coop_dress_self_twin_clips_on_disc) == ("ok", 37)
         lines = _proof_lines(fake)
+        assert lines and lines[-1].split("[NetSync] ", 1)[1] == _sw_proof_text(fake)   # [ff9mapkit netsync s164] the field swap line, LAST
+        lines = lines[:-1]                                                 # ...and the block as s163 closed it, before that line
         assert lines and lines[-6].split("[NetSync] ", 1)[1] == BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS)
         assert lines[-5].split("[NetSync] ", 1)[1] == _gf_proof_text()      # [ff9mapkit netsync s157] the ghost frame's, LAST
         assert lines[-4].split("[NetSync] ", 1)[1] == _so_proof_text()      # [ff9mapkit netsync s158] ...until the step-out line
@@ -26294,16 +26354,16 @@ def test_the_s157_ghostframe_block_closes_netsync_on_the_dresstwin_rung():
     a NetSyncClient getter at its sentinel, in EVERY role, called right after AppendGuestLocal; the `bench ghostframe` op is
     told by `netsync.ghostframe`; the protocol stays 5."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate", "ateland", "speed"] and FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and "climbanim" not in names   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160]
+    assert names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate", "ateland", "speed", "swap"] and FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and "climbanim" not in names   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160]
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and FG.NETSYNC_TOP_CAP_KEYS["dresstwin"] == ("ghostframe",)
-    assert FG.netsync_subverbs(FG.caps_through("dresstwin")) == FG.netsync_subverbs(S156_CAPS_) == FG.NETSYNC_SUBVERBS[:-4]   # [s158] less `stepout` [s160] and `chest` [s161] and `ate` [s163] and `speed`
+    assert FG.netsync_subverbs(FG.caps_through("dresstwin")) == FG.netsync_subverbs(S156_CAPS_) == FG.NETSYNC_SUBVERBS[:-5]   # [s158] less `stepout` [s160] and `chest` [s161] and `ate` [s163] and `speed` [s164] and `swap`
     esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
     assert _gl_catch_tail().endswith(',"ghostframe":' + esc(FG.NETSYNC_GHOSTFRAME_SENTINELS) + ',"stepout":'
                                      + esc(FG.NETSYNC_STEPOUT_SENTINELS)   # [ff9mapkit netsync s158] s158's block follows
                                      + ',"chest":' + esc(FG.NETSYNC_CHEST_SENTINELS)   # [ff9mapkit netsync s160] ...then s160's
-                                     + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + "}")   # [ff9mapkit netsync s161] ...and s161's
+                                     + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + _sw_live_catch_tail() + "}")   # [ff9mapkit netsync s161] ...and s161's
     nothing = _agent_netsync_nothing()[0]
-    assert list(nothing)[-5:] == ["ghostframe", "stepout", "chest", "ate", "speed"] and nothing["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS   # [s158] [s160] [s161] [s163]
+    assert list(nothing)[list(nothing).index("ghostframe"):] == _sw_live_tail("ghostframe", "stepout", "chest", "ate", "speed") and nothing["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS   # [s158] [s160] [s161] [s163] [s164]
     assert tuple(nothing["ghostframe"]) == FG.NETSYNC_GHOSTFRAME_KEYS
     assert "ghostframe" not in _catch_doc_in("s156") and list(_unghosted(nothing)) == list(_catch_doc_in("s156"))
     assert _untwinned(nothing) == _catch_doc_in("s156") and _catch_doc_in("s157") == _unstepped(nothing)   # [s158]
@@ -26434,7 +26494,7 @@ def test_the_stand_in_models_the_ghostframe_block_its_lever_and_its_release(game
     back on, its line only when it was pulled; an s156 stand-in has no block and reads `bench ghostframe` as `bench 1`."""
     fake = FakeGame(game)
     doc = fake._netsync_doc()
-    assert list(doc)[-5:] == ["ghostframe", "stepout", "chest", "ate", "speed"] and doc["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS   # [s158] [s160] [s161] [s163]
+    assert list(doc)[-6:] == ["ghostframe", "stepout", "chest", "ate", "speed", "swap"] and doc["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS   # [s158] [s160] [s161] [s163] [s164]
     with pytest.raises(RuntimeError, match=re.escape("netsync bench: needs the selftest role (netsync selftest 1)")):
         fake._netsync(["bench", "ghostframe", "off"])
     with session(game, fake) as g:
@@ -26445,7 +26505,9 @@ def test_the_stand_in_models_the_ghostframe_block_its_lever_and_its_release(game
         st = g.state
         assert st.coop_ghost_frame is True and st.ghost_frame_block == dict(FG.NETSYNC_GHOSTFRAME_SENTINELS, selftest="ok")
         lines = _proof_lines(fake)
-        assert lines[-1].split("[NetSync] ", 1)[1] == _sp_proof_text()         # [ff9mapkit netsync s163] the speed mirror line, LAST
+        assert lines[-1].split("[NetSync] ", 1)[1] == _sw_proof_text(fake)     # [ff9mapkit netsync s164] the field swap line, LAST
+        lines = lines[:-1]                                                 # ...and the block as s163 closed it, before that line
+        assert lines[-1].split("[NetSync] ", 1)[1] == _sp_proof_text()         # [ff9mapkit netsync s163] the speed mirror line
         assert lines[-2].split("[NetSync] ", 1)[1] == _ar_proof_text()         # [ff9mapkit netsync s161] the ATE relay line
         assert lines[-3].split("[NetSync] ", 1)[1] == _ch_proof_text()         # [ff9mapkit netsync s160] the chest relay line
         assert lines[-4].split("[NetSync] ", 1)[1] == _so_proof_text()         # [ff9mapkit netsync s158] the step-out line
@@ -26515,16 +26577,16 @@ def test_the_s158_agent_prints_stepout_last_and_the_driver_and_the_stand_in_agre
     (Session.NETSYNC_STEPOUT_SUBVERBS) through the same gate as `guestlocal`; the agent's case calls HarnessLever once."""
     assert _subverbs_in("s158") == _subverbs_in("s156") + ("stepout",)          # s157 added no sub-verb
     # [ff9mapkit netsync s160] ...LAST until s160 appended `chest` after it; [ff9mapkit netsync s161] and s161 `ate` after that
-    assert Session.NETSYNC_SUBVERBS[-4] == "stepout" == FG.NETSYNC_SUBVERBS[-4] == _agent_subverbs()[-4]   # [s163]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-4] == "stepout" and FG.NETSYNC_BATTLE_VERB_ORDER[-4] == "stepout"
+    assert Session.NETSYNC_SUBVERBS[-5] == "stepout" == FG.NETSYNC_SUBVERBS[-5] == _agent_subverbs()[_sw_agent_index(-5)]   # [s163] [s164]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-5] == "stepout" and FG.NETSYNC_BATTLE_VERB_ORDER[-5] == "stepout"
     names = list(FG.NETSYNC_BATTLE_CAPS)
     # [ff9mapkit netsync s159] ...LAST until s159's `stepanchor` rung joined after it
-    assert names[names.index("stepout") - 1] == "dresstwin" and names[names.index("stepout") + 1:] == ["stepanchor", "chest", "ate", "ateland", "speed"]   # [s160] [s161] [s162] [s163]
+    assert names[names.index("stepout") - 1] == "dresstwin" and names[names.index("stepout") + 1:] == ["stepanchor", "chest", "ate", "ateland", "speed", "swap"]   # [s160] [s161] [s162] [s163] [s164]
     assert FG.NETSYNC_BATTLE_CAPS["stepout"] == ("s158", ("stepout",)) and FG.NETSYNC_S158_CAPS == frozenset(("stepout",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["stepout"] == {} and FG.NETSYNC_TOP_CAP_KEYS["stepout"] == ("stepout",)
     assert "stepout" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "stepout" not in FG.NETSYNC_DIORAMA_CAP_KEYS
     cal = FG.caps_through("dresstwin")
-    assert "stepout" not in cal and FG.netsync_subverbs(cal) + ("stepout", "chest", "ate", "speed") == FG.NETSYNC_SUBVERBS   # [s160] [s161] [s163]
+    assert "stepout" not in cal and FG.netsync_subverbs(cal) + ("stepout", "chest", "ate", "speed", "swap") == FG.NETSYNC_SUBVERBS   # [s160] [s161] [s163] [s164]
     assert Session.NETSYNC_STEPOUT_SUBVERBS == {
         "stepout": ("coop_step_out", "netsync.stepout", "s158", "the s158 party-scene step-out bench")}
     attr, key, patch, _what = Session.NETSYNC_STEPOUT_SUBVERBS["stepout"]
@@ -26574,9 +26636,9 @@ def test_the_s158_catch_line_closes_netsync_with_the_stepout_sentinels():
     # [ff9mapkit netsync s160] `stepout` is followed by s160's `chest` block, [ff9mapkit netsync s161] then s161's `ate`, [ff9mapkit
     # netsync s163] then s163's `speed`, which closes netsync
     assert b.endswith(',"stepout":' + esc(FG.NETSYNC_STEPOUT_SENTINELS) + ',"chest":' + esc(FG.NETSYNC_CHEST_SENTINELS)
-                      + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + "}"), b[-2600:]
+                      + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + _sw_live_catch_tail() + "}"), b[-2600:]
     nothing = _agent_netsync_nothing()[0]
-    assert list(nothing)[-5:] == ["ghostframe", "stepout", "chest", "ate", "speed"] and nothing["stepout"] == FG.NETSYNC_STEPOUT_SENTINELS   # [s160] [s161] [s163]
+    assert list(nothing)[list(nothing).index("ghostframe"):] == _sw_live_tail("ghostframe", "stepout", "chest", "ate", "speed") and nothing["stepout"] == FG.NETSYNC_STEPOUT_SENTINELS   # [s160] [s161] [s163] [s164]
     assert _catch_doc_in("s157") == _unstepped(nothing) and _catch_doc_in("s158") == _unanchored(nothing)   # [s159]
     added = _so_patch_added()
     start = added.index("private static void AppendStepOut(")
@@ -26703,7 +26765,7 @@ def test_the_s159_rung_adds_the_anchor_inside_stepout_and_no_sub_verb():
     s159 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
     # [ff9mapkit netsync s160] ...LAST until s160's `chest` rung joined after it
-    assert names[names.index("stepanchor") - 1] == "stepout" and names[names.index("stepanchor") + 1:] == ["chest", "ate", "ateland", "speed"]   # [s161] [s162] [s163]
+    assert names[names.index("stepanchor") - 1] == "stepout" and names[names.index("stepanchor") + 1:] == ["chest", "ate", "ateland", "speed", "swap"]   # [s161] [s162] [s163] [s164]
     assert FG.NETSYNC_BATTLE_CAPS["stepanchor"] == ("s159", ()) and FG.NETSYNC_S159_CAPS == frozenset(("stepanchor",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["stepanchor"] == {} and "stepanchor" not in FG.NETSYNC_TOP_CAP_KEYS
     assert FG.NETSYNC_TOP_NESTED_KEYS["stepanchor"] == {"stepout": ("anchor",)}
@@ -26729,7 +26791,7 @@ def test_the_s159_catch_line_closes_stepout_with_the_anchor_sentinels():
     # [ff9mapkit netsync s160] `stepout` closes with the anchor, then s160's `chest` block, [ff9mapkit netsync s161] then s161's `ate`
     # block, [ff9mapkit netsync s163] then s163's `speed` block closes netsync
     assert b.endswith(',"selftest":null,"anchor":' + esc(FG.NETSYNC_STEPOUT_SENTINELS["anchor"]) + '},"chest":'
-                      + esc(FG.NETSYNC_CHEST_SENTINELS) + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + "}"), b[-1400:]
+                      + esc(FG.NETSYNC_CHEST_SENTINELS) + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + _sw_live_catch_tail() + "}"), b[-1400:]
     nothing = _agent_netsync_nothing()[0]
     assert _catch_doc_in("s159") == _unchested(nothing) and _unanchored(nothing) == _catch_doc_in("s158")   # [s160]
     body = " ".join(_s159_added("HarnessAgent.cs"))
@@ -26877,10 +26939,10 @@ def test_the_s160_agent_prints_chest_last_and_the_driver_and_the_stand_in_agree(
     NetSyncClient.HarnessChest once."""
     assert _subverbs_in("s160") == _subverbs_in("s158") + ("chest",)
     # [ff9mapkit netsync s161] ...LAST until s161 appended `ate` after it
-    assert Session.NETSYNC_SUBVERBS[-3] == "chest" == FG.NETSYNC_SUBVERBS[-3] == _agent_subverbs()[-3]   # [s163]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-3] == "chest" and FG.NETSYNC_BATTLE_VERB_ORDER[-3] == "chest"
+    assert Session.NETSYNC_SUBVERBS[-4] == "chest" == FG.NETSYNC_SUBVERBS[-4] == _agent_subverbs()[_sw_agent_index(-4)]   # [s163] [s164]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-4] == "chest" and FG.NETSYNC_BATTLE_VERB_ORDER[-4] == "chest"
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-4] == "chest" and names[-5] == "stepanchor" and names[-3:] == ["ate", "ateland", "speed"]   # [s161] [s162] [s163]
+    assert names[-5] == "chest" and names[-6] == "stepanchor" and names[-4:] == ["ate", "ateland", "speed", "swap"]   # [s161] [s162] [s163] [s164]
     assert FG.NETSYNC_BATTLE_CAPS["chest"] == ("s160", ("chest",)) and FG.NETSYNC_S160_CAPS == frozenset(("chest",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["chest"] == {} and FG.NETSYNC_TOP_CAP_KEYS["chest"] == ("chest",)
     assert "chest" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "chest" not in FG.NETSYNC_DIORAMA_CAP_KEYS
@@ -26904,9 +26966,9 @@ def test_the_s160_catch_line_closes_netsync_with_the_chest_sentinels():
     b = _gl_catch_tail()
     esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
     # [ff9mapkit netsync s161] ...then s161's `ate`, [ff9mapkit netsync s163] then s163's `speed` closes netsync
-    assert b.endswith(',"chest":' + esc(FG.NETSYNC_CHEST_SENTINELS) + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + "}"), b[-1200:]
+    assert b.endswith(',"chest":' + esc(FG.NETSYNC_CHEST_SENTINELS) + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + _sw_live_catch_tail() + "}"), b[-1200:]
     nothing = _agent_netsync_nothing()[0]
-    assert list(nothing)[-4:-2] == ["stepout", "chest"] and nothing["chest"] == FG.NETSYNC_CHEST_SENTINELS   # [s161] [s163]
+    assert list(nothing)[list(nothing).index("stepout"):] == _sw_live_tail("stepout", "chest", "ate", "speed") and nothing["chest"] == FG.NETSYNC_CHEST_SENTINELS   # [s161] [s163] [s164]
     assert _catch_doc_in("s160") == _unrelayed(nothing) and _unchested(nothing) == _catch_doc_in("s159")   # [s161]
     added = " ".join(_s160_added("HarnessAgent.cs"))
     start = added.index("private static void AppendChest(")
@@ -27026,16 +27088,16 @@ def test_the_s161_agent_prints_ate_last_and_the_driver_and_the_stand_in_agree():
     keys it on its own table (Session.NETSYNC_ATE_SUBVERBS) through the same gate as `guestlocal`, whose capability accessor reads
     True on s161's catch line and False on s160's; the agent's case calls HarnessLever once; the protocol stays 5."""
     assert _subverbs_in("s161") == _subverbs_in("s160") + ("ate",)
-    assert Session.NETSYNC_SUBVERBS[-2] == "ate" == FG.NETSYNC_SUBVERBS[-2] == _agent_subverbs()[-2]   # [ff9mapkit netsync s163]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-2] == "ate" and FG.NETSYNC_BATTLE_VERB_ORDER[-2] == "ate"
+    assert Session.NETSYNC_SUBVERBS[-3] == "ate" == FG.NETSYNC_SUBVERBS[-3] == _agent_subverbs()[_sw_agent_index(-3)]   # [ff9mapkit netsync s163] [s164]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-3] == "ate" and FG.NETSYNC_BATTLE_VERB_ORDER[-3] == "ate"
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-3] == "ate" and names[-4] == "chest" and names[-2:] == ["ateland", "speed"]   # [ff9mapkit netsync s162] ...LAST until s162 [s163]
+    assert names[-4] == "ate" and names[-5] == "chest" and names[-3:] == ["ateland", "speed", "swap"]   # [ff9mapkit netsync s162] ...LAST until s162 [s163] [s164]
     assert FG.NETSYNC_BATTLE_CAPS["ate"] == ("s161", ("ate",)) and FG.NETSYNC_S161_CAPS == frozenset(("ate",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["ate"] == {} and FG.NETSYNC_TOP_CAP_KEYS["ate"] == ("ate",)
     assert "ate" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "ate" not in FG.NETSYNC_DIORAMA_CAP_KEYS
     assert FG.NETSYNC_TOP_NESTED_KEYS["ate"] == {"stepout.in_why": ("ate",)} and "ate" not in FG.NETSYNC_DRESS_CAP_KEYS
     cal = FG.caps_through("chest")
-    assert "ate" not in cal and FG.netsync_subverbs(cal) + ("ate", "speed") == FG.NETSYNC_SUBVERBS   # [ff9mapkit netsync s163]
+    assert "ate" not in cal and FG.netsync_subverbs(cal) + ("ate", "speed", "swap") == FG.NETSYNC_SUBVERBS   # [ff9mapkit netsync s163] [s164]
     assert Session.NETSYNC_ATE_SUBVERBS == {"ate": ("coop_ate_relay", "netsync.ate", "s161", "the s161 ATE relay bench")}
     attr, key, patch, _what = Session.NETSYNC_ATE_SUBVERBS["ate"]
     assert key == "netsync." + FG.NETSYNC_TOP_CAP_KEYS["ate"][0] and patch == FG.NETSYNC_BATTLE_CAPS["ate"][0]
@@ -27098,9 +27160,9 @@ def test_the_s161_catch_line_closes_netsync_with_the_ate_sentinels():
     fallback is the catch line's sentinel (none = null), called right after s160's AppendChest."""
     b = _gl_catch_tail()
     esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
-    assert b.endswith(',"chest":' + esc(FG.NETSYNC_CHEST_SENTINELS) + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + "}"), b[-1800:]
+    assert b.endswith(',"chest":' + esc(FG.NETSYNC_CHEST_SENTINELS) + ',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + _sw_live_catch_tail() + "}"), b[-1800:]
     nothing = _agent_netsync_nothing()[0]
-    assert list(nothing)[-4:] == ["stepout", "chest", "ate", "speed"] and nothing["ate"] == FG.NETSYNC_ATE_SENTINELS   # [ff9mapkit netsync s163]
+    assert list(nothing)[list(nothing).index("stepout"):] == _sw_live_tail("stepout", "chest", "ate", "speed") and nothing["ate"] == FG.NETSYNC_ATE_SENTINELS   # [ff9mapkit netsync s163] [s164]
     assert list(nothing["stepout"]["in_why"])[-1] == "ate" and nothing["stepout"]["in_why"]["ate"] == 0
     assert tuple(nothing["ate"]) == FG.NETSYNC_ATE_KEYS
     assert nothing["ate"]["pending"] == FG.NETSYNC_ATE_PENDING_SENTINELS
@@ -27187,8 +27249,10 @@ def test_the_stand_in_models_the_ate_lever_its_refusals_and_its_release(game):
         g.wait_frames(10)
         st = g.state
         assert st.coop_ate_relay is True and st.ate_relay == dict(FG.NETSYNC_ATE_SENTINELS, selftest="ok")
-        assert list(st.netsync)[-2:] == ["ate", "speed"]       # [ff9mapkit netsync s163] ...LAST until s163's `speed`
+        assert list(st.netsync)[-3:] == ["ate", "speed", "swap"]   # [ff9mapkit netsync s163] ...LAST until s163's `speed` [s164] and `swap`
         lines = _proof_lines(fake)
+        assert lines[-1].split("[NetSync] ", 1)[1] == _sw_proof_text(fake)   # [ff9mapkit netsync s164] the field swap line, LAST
+        lines = lines[:-1]                                               # ...and the block as s163 closed it, before that line
         assert lines[-2].split("[NetSync] ", 1)[1] == _ar_proof_text()   # [ff9mapkit netsync s163] the speed mirror line after it
         m = re.search(FG.ATE_PROOF_RE, lines[-2])
         assert m and tuple(int(x) for x in m.groups()) == (FG.FAKE_ATE_SELFTEST_ROWS, FG.FAKE_ATE_MUTANTS, FG.ATE_ARM_TICKS,
@@ -27334,7 +27398,7 @@ def test_the_s162_rung_adds_the_landing_keys_inside_stepout_and_no_sub_verb():
     prefix through `ate`; the
     capability accessor reads True on s162's catch line and False on s161's; the `noland` op's capability key is a key s162 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-2] == "ateland" and names[-3] == "ate" and names[-1] == "speed"   # [ff9mapkit netsync s163] ...LAST until s163
+    assert names[-3] == "ateland" and names[-4] == "ate" and names[-2:] == ["speed", "swap"]   # [ff9mapkit netsync s163] ...LAST until s163 [s164]
     assert FG.NETSYNC_BATTLE_CAPS["ateland"] == ("s162", ()) and FG.NETSYNC_S162_CAPS == frozenset(("ateland",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["ateland"] == {} and "ateland" not in FG.NETSYNC_TOP_CAP_KEYS
     assert "ateland" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "ateland" not in FG.NETSYNC_DIORAMA_CAP_KEYS
@@ -27342,7 +27406,7 @@ def test_the_s162_rung_adds_the_landing_keys_inside_stepout_and_no_sub_verb():
                                                      "stepout.out_why": ("ate",), "stepout.ghost.by": ("landing",)}
     assert "ateland" not in FG.NETSYNC_DRESS_CAP_KEYS
     assert FG.netsync_subverbs(FG.caps_through("ateland")) == FG.netsync_subverbs(FG.caps_through("ate")) == \
-        FG.NETSYNC_SUBVERBS[:-1]                    # [ff9mapkit netsync s163] (less s163's `speed`)
+        FG.NETSYNC_SUBVERBS[:-2]                    # [ff9mapkit netsync s163] (less s163's `speed`) [s164] (and s164's `swap`)
     assert not net_lines("HarnessAgent.cs", r"netsync: unknown sub-verb", [_patch_bytes("s162")])     # no sub-verb
     was, now = _catch_doc_in("s161")["stepout"], _catch_doc_in("s162")["stepout"]
     at = list(was).index("wire_mask") + 1
@@ -27676,16 +27740,16 @@ def test_the_s163_agent_prints_speed_last_and_the_driver_and_the_stand_in_agree(
     catch line and False on s162's; the agent's case calls HarnessLever once; s163's calibration is the prefix through `ateland`;
     the protocol stays 5."""
     assert _subverbs_in("s163") == _subverbs_in("s161") + ("speed",)       # (s162 printed s161's list: no sub-verb)
-    assert Session.NETSYNC_SUBVERBS[-1] == "speed" == FG.NETSYNC_SUBVERBS[-1] == _agent_subverbs()[-1]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-1] == "speed" and FG.NETSYNC_BATTLE_VERB_ORDER[-1] == "speed"
+    assert Session.NETSYNC_SUBVERBS[-2] == "speed" == FG.NETSYNC_SUBVERBS[-2] == _agent_subverbs()[_sw_agent_index(-2)]   # [s164]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-2] == "speed" and FG.NETSYNC_BATTLE_VERB_ORDER[-2] == "speed"
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-1] == "speed" and names[-2] == "ateland"
+    assert names[-2] == "speed" and names[-3] == "ateland" and names[-1] == "swap"   # [ff9mapkit netsync s164] ...LAST until s164
     assert FG.NETSYNC_BATTLE_CAPS["speed"] == ("s163", ("speed",)) and FG.NETSYNC_S163_CAPS == frozenset(("speed",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["speed"] == {} and FG.NETSYNC_TOP_CAP_KEYS["speed"] == ("speed",)
     assert "speed" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "speed" not in FG.NETSYNC_DIORAMA_CAP_KEYS
     assert "speed" not in FG.NETSYNC_TOP_NESTED_KEYS and "speed" not in FG.NETSYNC_DRESS_CAP_KEYS
     cal = FG.caps_through("ateland")
-    assert "speed" not in cal and FG.netsync_subverbs(cal) + ("speed",) == FG.NETSYNC_SUBVERBS
+    assert "speed" not in cal and FG.netsync_subverbs(cal) + ("speed", "swap") == FG.NETSYNC_SUBVERBS   # [ff9mapkit netsync s164]
     assert Session.NETSYNC_SPEED_SUBVERBS == {"speed": ("coop_speed_mirror", "netsync.speed", "s163",
                                                         "the s163 speed mirror's lever")}
     attr, key, patch, _what = Session.NETSYNC_SPEED_SUBVERBS["speed"]
@@ -27714,12 +27778,12 @@ def test_the_s163_catch_line_closes_netsync_with_the_speed_sentinels():
     right after s161's AppendAte."""
     b = _gl_catch_tail()
     esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
-    assert b.endswith(',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + "}"), b[-1800:]
+    assert b.endswith(',"ate":' + esc(FG.NETSYNC_ATE_SENTINELS) + ',"speed":' + esc(FG.NETSYNC_SPEED_SENTINELS) + _sw_live_catch_tail() + "}"), b[-1800:]
     nothing = _agent_netsync_nothing()[0]
-    assert list(nothing)[-3:] == ["chest", "ate", "speed"] and nothing["speed"] == FG.NETSYNC_SPEED_SENTINELS
+    assert list(nothing)[list(nothing).index("chest"):] == _sw_live_tail("chest", "ate", "speed") and nothing["speed"] == FG.NETSYNC_SPEED_SENTINELS   # [s164]
     assert tuple(nothing["speed"]) == FG.NETSYNC_SPEED_KEYS
     assert tuple(nothing["speed"]["end_why"]) == FG.NETSYNC_SPEED_END_WHY == BW.SPEED_END_NAMES[1:]
-    assert _catch_doc_in("s162") == _unsped(nothing) and _catch_doc_in("s163") == nothing
+    assert _catch_doc_in("s162") == _unsped(nothing) and _catch_doc_in("s163") == _unswapped(nothing)   # [ff9mapkit netsync s164]
     added = "\n".join(_s163_added("HarnessAgent.cs"))
     start = added.index("private static void AppendSpeed(")
     body = added[start:added.index("NetSyncSpeed.SelfTestVerdict));", start) + 40]
@@ -28240,7 +28304,7 @@ def test_the_stand_in_models_the_speed_lever_its_refusals_and_its_release(game):
         st = g.state
         assert st.coop_speed_mirror is True and st.ff == 1 and list(st.raw)[list(st.raw).index("scenario") + 1] == "ff"
         doc = st.speed_mirror
-        assert tuple(doc) == FG.NETSYNC_SPEED_KEYS and list(st.netsync)[-1] == "speed"
+        assert tuple(doc) == FG.NETSYNC_SPEED_KEYS and list(st.netsync)[-2:] == ["speed", "swap"]   # [ff9mapkit netsync s164] `swap` LAST
         assert doc == dict(FG.NETSYNC_SPEED_SENTINELS, host_setting=1, src="none", own_factor=1, factor_now=1,
                            why_not=BW.SPEED_WHY_NOT_TICKED)
         # off the selftest role: act|off|clear are the any-role ops; host is the engine's role refusal, after the step
@@ -28264,6 +28328,8 @@ def test_the_stand_in_models_the_speed_lever_its_refusals_and_its_release(game):
         g.wait_frames(10)
         assert g.state.speed_mirror["selftest"] == "ok"
         lines = _proof_lines(fake)
+        assert lines[-1].split("[NetSync] ", 1)[1] == _sw_proof_text(fake)   # [ff9mapkit netsync s164] the field swap line, LAST
+        lines = lines[:-1]                                               # ...and the block as s163 closed it, before that line
         assert lines[-1].split("[NetSync] ", 1)[1] == _sp_proof_text()
         m = re.search(FG.SPEED_PROOF_RE, lines[-1])
         assert m and tuple(int(x) for x in m.groups()) == (FG.FAKE_SPEED_SELFTEST_ROWS, FG.FAKE_SPEED_MUTANTS, FG.STEPOUT_STEP_IN_MS)
@@ -28483,3 +28549,2062 @@ def test_the_stand_ins_bench_lane_notes_a_frame_only_while_the_lock_builds_one(g
         g.netsync("stale", 0)
         g.wait_for(lambda s: s.speed_mirror["host_stale"] is False, timeout=4.0, what="the frozen section, a new reference")
         assert fake._sp["seen"] is frozen
+
+
+# =========================================================================================================================
+# [ff9mapkit netsync s164] FIELD-SWAP TIMING -- KIT-1: battlewire's twins (studies/field-coop/SWAP-TIMING-S164.md, rev 3). Every
+# row of the design's SelfTest tables ("## SelfTest: one proof line", per item) is evaluated against battlewire's twins, and every
+# mutant -- a twin variant that restores the rejected rule -- must fail AT LEAST the rows the design's "Caught by" column names. The
+# engine is being written against the same design, so these rows are the design's, not the stack's; the live-only rows (a real
+# NetSyncFrames, BuildStateFrame, ApplyStoryTo, NetSyncReadFade, HoldsFollowQuiet) are listed in _SW_ENGINE_ONLY and stay with the
+# engine's own proof. Where the twins rest on s163 code s164 leaves alone (OrphanStep, SettleClock, FollowLandingStep, the follow
+# fade's constants, s163's OrphanSettled), that code is pinned to the patch that wrote it.
+# =========================================================================================================================
+
+
+#: The design's live rows and the one live mutant: engine-only (they need a real NetSyncFrames / BuildStateFrame / codec / fade slot /
+#: NetSyncAte statics). Recorded here so a reader sees what the kit rows do NOT cover.
+_SW_ENGINE_ONLY = {
+    "rows": ("clock.monotonic", "clock.source", "slot.oob_sent", "slot.oob_overwritten", "slot.window_closed", "slot.unsent_count",
+             "slot.watched_is_atomic", "quiet_equals_loud", "live.frame_carries_4", "live.pin_applies_verbatim", "live.pin_split_applies",
+             "slot_reads"),
+    "mutants": ("quiet_no_exit_hold",)}
+
+
+def _sw_ns(base: dict, over: dict) -> SimpleNamespace:
+    ns = dict(base)
+    unknown = set(over) - set(ns)
+    assert not unknown, unknown
+    ns.update(over)
+    return SimpleNamespace(**ns)
+
+
+def _sw_fails(rows: list, R) -> list:
+    """Every row (name, check(R) -> bool) that the rule set ``R`` fails. A check that RAISES is not swallowed: a mutant with a broken
+    signature would otherwise fail every row and read as caught."""
+    return [name for name, check in rows if not bool(check(R))]
+
+
+def _sw_prove(rows: list, make, mutants: dict) -> None:
+    """Every row holds under the twins; each mutant fails at least one row, and every row the design names for it."""
+    names = [n for n, _c in rows]
+    assert len(names) == len(set(names)), [n for n in names if names.count(n) > 1]
+    assert _sw_fails(rows, make()) == []
+    for mname, (over, caught) in mutants.items():
+        assert caught and all(c in names for c in caught), (mname, caught)
+        bad = _sw_fails(rows, make(**over))
+        assert bad, mname + " survived"
+        assert all(c in bad for c in caught), (mname, [c for c in caught if c not in bad], bad)
+
+
+def _sw_arg(fn, i, v):
+    """``fn`` with positional argument ``i`` replaced (``v`` a value, or a function of all the arguments)."""
+    return lambda *a: fn(*[(v(*a) if callable(v) else v) if j == i else x for j, x in enumerate(a)])
+
+
+# ---- A: the instrument ---------------------------------------------------------------------------------------------------
+_SWA_LINES = dict(commit=BW.swap_log_commit, kick=BW.swap_log_kick_commit, own=BW.swap_log_own, landed=BW.swap_log_landed,
+                  closed_guest=BW.swap_log_closed_guest, closed_host=BW.swap_log_closed_host, clock=BW.swap_log_clock)
+
+
+def _swa_make(**over):
+    base = dict(Ms=BW.swap_ticks_to_ms, Stamp=BW.swap_stamp_text, Place=BW.swap_place_stamp, Waited=BW.swap_waited_shown_text,
+                Parse=BW.swap_parse_stamp, ParseWS=BW.swap_parse_waited_shown, Join=BW.swap_join_rule, Opens=BW.swap_open_closes_rule,
+                Close=BW.swap_close_rule, Via=BW.swap_land_via_rule, Delay=BW.swap_delay_rule, Oob=BW.swap_oob_verdict,
+                Seen=BW.swap_seen_rule, Lines=SimpleNamespace(**_SWA_LINES), OwnJump=BW.swap_log_own_jump)
+    return _sw_ns(base, over)
+
+
+_S163_INTENT = "[NetSync] transition intent -> field 352 (nonce 7)"
+_S163_QUEUED = "[NetSync] dialogue: host seq 12 queued (field 351 win 3 text 139 kind 1 page 0 closes)"
+_S163_TAP = "[NetSync] dialog tap: win 3 text 139 kind 1 idx 0 page 0 closes seq 12"
+_S163_CLOSED = "[NetSync] dialogue: win 3 text 139 closed (host seq 12)"
+
+
+def _swa_round_trip(R, line: str, form: str, t: int = 1234) -> bool:
+    ok, got, bare = R.Parse(R.Place(line, True, t))
+    return ok and got == t and bare == line and BW.swap_s163_form(bare) == form
+
+
+def _swa_round_trip_closed(R) -> bool:
+    ok, t, bare = R.Parse(R.Place(_S163_CLOSED + R.Waited(True, 5000, 4880, 2650), True, 5000))
+    ok2, waited, shown, core = R.ParseWS(bare)
+    return ok and ok2 and t == 5000 and (waited, shown) == (120, 2350) and core == _S163_CLOSED and BW.swap_s163_form(core) == "dlg_applied"
+
+
+def _swa_refusal_row(R, verdict: str, why: str, lane: int) -> bool:
+    words = BW.swap_own_outcome_words(verdict, why, 351, lane)
+    line = R.OwnJump(True, BW.OWN_TERM_REFUSED_WORLD, 352, 351, verdict, why, lane, 4, 8000, term=BW.OWN_TERM_PENDING)
+    core = BW.swap_strip_line(line)[0]
+    return (line.startswith(BW.OWN_REFUSAL_PREFIX) and line.count(BW.OWN_REFUSAL_PREFIX) == 1 and words is not None
+            and core.endswith(words + " (swap #4)") and "the source-field hold holds it" in core)
+
+
+_SWA_GUEST_EDGES = {"seen": 0, "follow": 3, "own": None, "due": 405, "commit": 410, "landed": 820, "first line": 2900}
+
+
+def _swa_rows() -> list:
+    J, O, L, D = BW.SWAP_JOIN_JOIN, BW.SWAP_JOIN_OPEN, BW.SWAP_JOIN_RELOAD, BW.SWAP_JOIN_IGNORE
+    NONE, OPEN, LANDED, DONE = BW.SWAP_REC_NONE, BW.SWAP_REC_OPEN, BW.SWAP_REC_LANDED, BW.SWAP_REC_DONE
+    rows = []
+    for name, ts, f, want in (("zero", 0, 10**7, 0), ("sub_ms", 9999, 10**7, 0), ("one_ms", 10000, 10**7, 1),
+                              ("mono_100ns", 12345678901, 10**7, 1234567), ("acpi_exact", 3579545 * 7, 3579545, 7000),
+                              ("acpi_remainder", 3579545 * 7 + 3580, 3579545, 7001), ("acpi_long", 3579545 * 1000, 3579545, 1000000),
+                              ("tsc_40_days", 40 * 86400 * 3_000_000_000, 3_000_000_000, 3456000000), ("bad_freq", 5, 0, -1)):
+        rows.append((f"clock.{name}", lambda R, ts=ts, f=f, want=want: R.Ms(ts, f) == want))
+    for name, on, t, want in (("on", True, 5, " (t 5 ms)"), ("off", False, 5, ""), ("negative", True, -1, ""),
+                              ("big", True, 123456789012, " (t 123456789012 ms)")):
+        rows.append((f"stamp.{name}", lambda R, on=on, t=t, want=want: R.Stamp(on, t) == want))
+    rows += [
+        ("parse.round_trip_intent", lambda R: _swa_round_trip(R, _S163_INTENT, "intent_emit")),
+        ("parse.round_trip_queued", lambda R: _swa_round_trip(R, _S163_QUEUED, "dlg_queued")),
+        ("parse.round_trip_tap", lambda R: _swa_round_trip(R, _S163_TAP, "dialog_tap")),
+        ("parse.round_trip_closed", _swa_round_trip_closed),
+        ("parse.no_stamp", lambda R: R.Parse("[NetSync] dialogue: win 3 text 139 closed (host seq 12)")[0] is False),
+        ("parse.inner_not_suffix", lambda R: R.Parse("x (t 5 ms) y")[0] is False),
+        ("parse.garbage", lambda R: R.Parse("x (t 5a ms)")[0] is False),
+        ("waited.off", lambda R: R.Waited(False, 5000, 4880, 2650) == ""),
+        ("waited.no_seen", lambda R: R.Waited(True, 5000, -1, 2650) == ""),
+        ("waited.no_page", lambda R: R.Waited(True, 5000, 4880, -1) == ""),
+    ]
+    S, Fo, Em, Ow, Co, La, Li = (BW.SWAP_EDGE_SEEN, BW.SWAP_EDGE_FOLLOW, BW.SWAP_EDGE_EMIT, BW.SWAP_EDGE_OWN, BW.SWAP_EDGE_COMMIT,
+                                 BW.SWAP_EDGE_LAND, BW.SWAP_EDGE_LINE)
+    for name, args, want in (
+            ("seen_opens", (S, 352, False, NONE, -1, -1, 0, 1000), O),
+            ("seen_my_field_ignored", (S, 351, False, NONE, -1, -1, 0, 1000), D),
+            ("seen_joins_landed", (S, 352, False, LANDED, 352, 351, 0, 1000), J),
+            ("seen_joins_done_in_span", (S, 352, False, DONE, 352, 351, 0, 29999), J),
+            ("follow_joins", (Fo, 352, False, OPEN, 352, 351, 0, 100), J),
+            ("follow_other_dest_opens", (Fo, 353, False, OPEN, 352, 351, 0, 100), O),
+            ("emit_opens", (Em, 352, False, NONE, -1, -1, 0, 0), O),
+            ("own_opens", (Ow, 352, False, NONE, -1, -1, 0, 0), O),
+            ("own_same_field_reload", (Ow, 351, False, OPEN, 352, 351, 0, 500), L),
+            ("own_same_field_no_record", (Ow, 351, False, NONE, -1, -1, 0, 500), D),
+            ("kick_ignored", (Fo, 351, True, NONE, -1, -1, 0, 0), D),
+            ("kick_commit_ignored", (Co, 351, True, OPEN, 352, 351, 0, 100), D),
+            ("land_dest", (La, 352, False, OPEN, 352, 351, 0, 900), J),
+            ("land_source_reload", (La, 351, False, OPEN, 352, 351, 0, 900), L),
+            ("land_dest_again", (La, 352, False, LANDED, 352, 351, 0, 2000), L),
+            ("land_never_opens", (La, 352, False, NONE, -1, -1, 0, 0), D),
+            ("land_elsewhere", (La, 353, False, OPEN, 352, 351, 0, 900), D),
+            ("line_landed", (Li, 352, False, LANDED, 352, 351, 0, 3000), J),
+            ("line_open_ignored", (Li, 352, False, OPEN, 352, 351, 0, 300), D),
+            ("line_done_ignored", (Li, 352, False, DONE, 352, 351, 0, 3000), D),
+            ("span_expired_opens", (Fo, 352, False, OPEN, 352, 351, 0, 30000), O)):
+        e, f, kick, st, dest, frm, ot, now = args
+        rows.append((f"join.{name}", lambda R, e=e, f=f, kick=kick, st=st, dest=dest, frm=frm, ot=ot, now=now, want=want:
+                     R.Join(e, f, 351, kick, st, dest, frm, ot, now) == want))
+    for name, st, want in (("open", OPEN, BW.SWAP_CLOSE_SUPERSEDED), ("landed", LANDED, BW.SWAP_CLOSE_NEXT), ("done", DONE, BW.SWAP_CLOSE_NONE)):
+        rows.append((f"opens.{name}", lambda R, st=st, want=want: R.Opens(st) == want))
+    for name, args, want in (("line", (LANDED, True, 0, 1000, 1500), BW.SWAP_CLOSE_LINE),
+                             ("window_not_yet", (LANDED, False, 0, 0, 9999), BW.SWAP_CLOSE_NONE),
+                             ("window", (LANDED, False, 0, 0, 10000), BW.SWAP_CLOSE_WINDOW),
+                             ("open_not_stale", (OPEN, False, 0, -1, 29999), BW.SWAP_CLOSE_NONE),
+                             ("open_stale", (OPEN, False, 0, -1, 30000), BW.SWAP_CLOSE_STALE),
+                             ("line_on_open_ignored", (OPEN, True, 0, -1, 100), BW.SWAP_CLOSE_NONE),
+                             ("none", (NONE, True, 0, 0, 99999), BW.SWAP_CLOSE_NONE)):
+        rows.append((f"close.{name}", lambda R, args=args, want=want: R.Close(*args) == want))
+    W = BW
+    for name, args, want in (("follow", (352, W.SWAP_WRITE_FOLLOW, 352, 352, 351), W.SWAP_VIA_FOLLOW),
+                             ("follow_wiped", (351, W.SWAP_WRITE_FOLLOW, 352, 352, 351), W.SWAP_VIA_SAME),
+                             ("bounce", (351, W.SWAP_WRITE_BOUNCE, 351, 352, 351), W.SWAP_VIA_BOUNCE),
+                             ("own_on_dest", (352, W.SWAP_WRITE_OWN, 352, 352, 351), W.SWAP_VIA_OWN),
+                             ("host", (352, W.SWAP_WRITE_HOST, 352, 352, 351), W.SWAP_VIA_HOST),
+                             ("kick", (351, W.SWAP_WRITE_KICK, 351, -1, 351), W.SWAP_VIA_KICK),
+                             ("same", (351, W.SWAP_WRITE_NONE, -1, -1, 351), W.SWAP_VIA_SAME),
+                             ("other", (353, W.SWAP_WRITE_NONE, -1, -1, 351), W.SWAP_VIA_OTHER),
+                             ("dest_only", (352, W.SWAP_WRITE_NONE, -1, 352, 351), W.SWAP_VIA_OTHER)):
+        rows.append((f"via.{name}", lambda R, args=args, want=want: R.Via(*args) == want))
+    for name, args, want in (("off", (0, 0, -1, 0), True), ("not_ready", (200, 0, -1, 900), False), ("inside", (200, 0, 900, 1099), False),
+                             ("edge", (200, 0, 900, 1100), True), ("from_verdict_not_follow", (200, 0, 900, 900), False),
+                             ("negative_is_off", (-5, 0, -1, 0), True)):
+        rows.append((f"delay.{name}", lambda R, args=args, want=want: R.Delay(*args) is want))
+    for name, args, want in (("TFF", (True, False, False), W.SWAP_OOB_UNKNOWN), ("TFT", (True, False, True), W.SWAP_OOB_SENT),
+                             ("TTF", (True, True, False), W.SWAP_OOB_OVERWRITTEN), ("TTT", (True, True, True), W.SWAP_OOB_SENT)):
+        rows.append((f"oob.{name}", lambda R, args=args, want=want: R.Oob(*args) == want))
+    rows.append(("oob.F--", lambda R: all(R.Oob(False, r, s) == W.SWAP_OOB_NONE for r in (False, True) for s in (False, True))))
+    for name, args, want in (("new", (True, 5, 4), True), ("same", (True, 5, 5), False), ("absent", (False, 5, 4), False)):
+        rows.append((f"seen.{name}", lambda R, args=args, want=want: R.Seen(*args) is want))
+    host_words = BW.swap_own_outcome_words("pass", "host-field")
+    bounce_words = BW.swap_own_outcome_words("bounce", "not-host", 351, 0)
+    rows += [
+        ("lines.landed", lambda R: R.Lines.landed(True, 352, W.SWAP_VIA_FOLLOW, 4, 123456)
+         == "[NetSync] swap: landed on field 352 via the follow (swap #4) (t 123456 ms)"),
+        ("lines.landed.off", lambda R: R.Lines.landed(False, 352, W.SWAP_VIA_FOLLOW, 4, 123456) is None),
+        ("lines.commit", lambda R: R.Lines.commit(True, 352, 412, "black", 0, 4, 123000)
+         == "[NetSync] swap: follow-warp to field 352 committed 412 ms after its start (black) (swap #4) (t 123000 ms)"),
+        ("lines.commit_delay", lambda R: R.Lines.commit(True, 352, 712, "black", 300, 4, 123300)
+         == "[NetSync] swap: follow-warp to field 352 committed 712 ms after its start (black; +300 ms delay) (swap #4) (t 123300 ms)"),
+        ("lines.commit.off", lambda R: R.Lines.commit(False, 352, 412, "black", 0, 4, 123000) is None),
+        ("lines.kick_commit", lambda R: R.Lines.kick(True, 351, 905, 5000)
+         == "[NetSync] swap: the same-field kick on field 351 committed 905 ms after its start (t 5000 ms)"),
+        ("lines.kick_commit.off", lambda R: R.Lines.kick(False, 351, 905, 5000) is None),
+        ("lines.own_pass", lambda R: R.Lines.own(True, 352, 351, host_words, 4, 7000)
+         == "[NetSync] swap: own Field(352) on field 351 -- passes (the host's field) (swap #4) (t 7000 ms)"),
+        ("lines.own_bounce", lambda R: R.Lines.own(True, 352, 351, bounce_words, 0, 7000)
+         == ("[NetSync] swap: own Field(352) on field 351 -- bounced to a reload of 351 (not the host's field: the host's lane reads "
+             "field 0) (t 7000 ms)")),
+        ("lines.own.off", lambda R: R.Lines.own(False, 352, 351, host_words, 4, 7000) is None),
+        ("lines.closed_guest", lambda R: R.Lines.closed_guest(True, 4, 352, 351, W.SWAP_CLOSE_LINE, W.SWAP_VIA_FOLLOW, _SWA_GUEST_EDGES,
+                                                              "seen", 1, 0, 0, 130000)
+         == ("[NetSync] swap #4 to field 352 (from 351) closed by its first line: via the follow; seen +0, follow +3, own -, due +405, "
+             "commit +410, landed +820, first line +2900 ms after its first edge (seen); follows 1, bounces 0, reloads 0 (t 130000 ms)")),
+        ("lines.closed_guest.off", lambda R: R.Lines.closed_guest(False, 4, 352, 351, W.SWAP_CLOSE_LINE, W.SWAP_VIA_FOLLOW,
+                                                                  _SWA_GUEST_EDGES, "seen", 1, 0, 0, 130000) is None),
+        ("lines.closed_host", lambda R: R.Lines.closed_host(True, 9, 352, 351, W.SWAP_CLOSE_WINDOW, W.SWAP_SITE_MAPJUMP, 390, None, 70, 70,
+                                                            66, 2310, W.SWAP_OOB_SENT, 140000)
+         == ("[NetSync] swap #9 to field 352 (from 351) closed by the 10 s line window: via my own transition (mapjump); emit +0, landed "
+             "+390, first line - ms; section 4: 70 Updates, 70 frames, 66 sends over 2310 ms, the out-of-band frame sent (t 140000 ms)")),
+        ("lines.closed_host.off", lambda R: R.Lines.closed_host(False, 9, 352, 351, W.SWAP_CLOSE_WINDOW, W.SWAP_SITE_MAPJUMP, 390, None,
+                                                                70, 70, 66, 2310, W.SWAP_OOB_SENT, 140000) is None),
+        ("lines.clock", lambda R: R.Lines.clock(True, 123456, 1234, "qpc", 9876543210, 10000000, True, "16.7", -1, 60)
+         == ("[NetSync] swap clock: t 123456 ms = 1970-01-01 00:00:01.234 UTC (src qpc: 9876543210 ticks at 10000000 Hz, high-res; frame "
+             "dt 16.7 ms, target fps -1, fps 60)")),
+        ("lines.clock.off", lambda R: R.Lines.clock(False, 123456, 1234, "qpc", 9876543210, 10000000, True, "16.7", -1, 60) is None),
+        ("lines.own_refusal_host", lambda R: _swa_refusal_row(R, "pass", "host-field", 352)),
+        ("lines.own_refusal_through", lambda R: _swa_refusal_row(R, "through", "budget", 0)),
+        ("lines.own_refusal_bounce", lambda R: _swa_refusal_row(R, "bounce", "not-host", 0)),
+    ]
+    return rows
+
+
+def _swa_force_on(fn):
+    return lambda on, *a, **k: fn(True, *a, **k)
+
+
+def _swa_stamp_inside(line: str, on: bool, t: int) -> str:
+    i = line.rfind(")")
+    s = BW.swap_stamp_text(on, t)
+    return line + s if i < 0 else line[:i] + s + line[i:]
+
+
+def _swa_parse_anywhere(line: str) -> tuple:
+    m = re.search(r" \(t (\d+) ms\)", line or "")
+    return (False, -1, line) if m is None else (True, int(m.group(1)), line[:m.start()] + line[m.end():])
+
+
+def _swa_mutants() -> dict:
+    Jr, Cl, Vi, Oo = BW.swap_join_rule, BW.swap_close_rule, BW.swap_land_via_rule, BW.swap_oob_verdict
+    EM, SE, FO, OW, CO, DR, LA, LI = (BW.SWAP_EDGE_EMIT, BW.SWAP_EDGE_SEEN, BW.SWAP_EDGE_FOLLOW, BW.SWAP_EDGE_OWN, BW.SWAP_EDGE_COMMIT,
+                                      BW.SWAP_EDGE_DROP, BW.SWAP_EDGE_LAND, BW.SWAP_EDGE_LINE)
+    IG, OP, JO = BW.SWAP_JOIN_IGNORE, BW.SWAP_JOIN_OPEN, BW.SWAP_JOIN_JOIN
+
+    def ms_naive(ts, f):
+        ts, f = BW._i64(ts), BW._i64(f)
+        return -1 if f <= 0 or ts < 0 else BW._cdiv(BW._i64(ts * 1000), f)
+
+    def ms_freq_truncated(ts, f):
+        return -1 if f <= 0 or ts < 0 else BW._cdiv(ts, BW._cdiv(f, 1000))
+
+    def ms_whole_seconds(ts, f):
+        return -1 if f <= 0 or ts < 0 else BW._i64(BW._cdiv(ts, f) * 1000)
+
+    def join_any_dest(e, f, my, k, st, d, fr, o, n):
+        sub = st != BW.SWAP_REC_NONE and e in (EM, SE, FO, OW, CO, DR) and f != my
+        return Jr(e, d if sub else f, my, k, st, d, fr, o, n)
+
+    return {
+        "ms_naive": (dict(Ms=ms_naive), ["clock.tsc_40_days"]),
+        "ms_freq_truncated": (dict(Ms=ms_freq_truncated), ["clock.acpi_long"]),
+        "ms_whole_seconds": (dict(Ms=ms_whole_seconds), ["clock.mono_100ns"]),
+        "stamp_lever_blind": (dict(Stamp=lambda on, t: f" (t {t} ms)" if t >= 0 else ""), ["stamp.off"]),
+        "stamp_negative_printed": (dict(Stamp=lambda on, t: f" (t {t} ms)" if on else ""), ["stamp.negative"]),
+        "stamp_inside": (dict(Place=_swa_stamp_inside), ["parse.round_trip_closed"]),
+        "parse_anywhere": (dict(Parse=_swa_parse_anywhere), ["parse.inner_not_suffix"]),
+        "waited_negative_printed": (dict(Waited=lambda on, t, s, p: f" -- waited {t - s} ms, shown {t - p} ms" if on else ""),
+                                    ["waited.no_seen"]),
+        "join_any_dest": (dict(Join=join_any_dest), ["join.follow_other_dest_opens"]),
+        "landing_opens": (dict(Join=lambda e, *a: OP if e == LA and Jr(e, *a) == IG else Jr(e, *a)), ["join.land_never_opens"]),
+        "kick_joins": (dict(Join=_sw_arg(Jr, 3, False)), ["join.kick_ignored"]),
+        "seen_opens_my_field": (dict(Join=lambda e, f, my, *a: OP if e == SE and f == my and Jr(e, f, my, *a) == IG else Jr(e, f, my, *a)),
+                                ["join.seen_my_field_ignored"]),
+        "span_forever": (dict(Join=lambda e, f, my, k, st, d, fr, o, n: Jr(e, f, my, k, st, d, fr, o, o)), ["join.span_expired_opens"]),
+        "line_any_state": (dict(Join=lambda e, f, my, k, st, d, *a: JO if e == LI and st != BW.SWAP_REC_NONE and f == d
+                                else Jr(e, f, my, k, st, d, *a)), ["join.line_open_ignored"]),
+        "own_reload_opens": (dict(Join=lambda e, f, my, *a: OP if e == OW and f == my and Jr(e, f, my, *a) == IG else Jr(e, f, my, *a)),
+                             ["join.own_same_field_no_record"]),
+        "open_leaves_previous_open": (dict(Opens=lambda st: BW.SWAP_CLOSE_NONE if st == BW.SWAP_REC_OPEN else BW.swap_open_closes_rule(st)),
+                                      ["opens.open"]),
+        "via_by_dest": (dict(Via=lambda fld, wk, wd, rd, prev: BW.SWAP_VIA_FOLLOW if fld == rd else BW.SWAP_VIA_SAME if fld == prev
+                             else BW.SWAP_VIA_OTHER), ["via.own_on_dest"]),
+        "via_any_writer": (dict(Via=lambda fld, wk, wd, rd, prev: wk if wk != BW.SWAP_WRITE_NONE else Vi(fld, wk, wd, rd, prev)),
+                           ["via.follow_wiped"]),
+        "close_on_landing": (dict(Close=lambda st, *a: BW.SWAP_CLOSE_WINDOW if st == BW.SWAP_REC_LANDED and not a[0] else Cl(st, *a)),
+                             ["close.window_not_yet"]),
+        "close_on_any_line": (dict(Close=lambda st, fl, *a: BW.SWAP_CLOSE_LINE if fl and st == BW.SWAP_REC_OPEN else Cl(st, fl, *a)),
+                              ["close.line_on_open_ignored"]),
+        "stale_never": (dict(Close=lambda *a: BW.SWAP_CLOSE_NONE if Cl(*a) == BW.SWAP_CLOSE_STALE else Cl(*a)), ["close.open_stale"]),
+        "delay_from_follow": (dict(Delay=lambda d, f, r, n: True if d <= 0 else n - f >= d), ["delay.from_verdict_not_follow"]),
+        "delay_ignored": (dict(Delay=lambda d, f, r, n: True), ["delay.inside"]),
+        "oob_replace_is_send": (dict(Oob=lambda s, r, sn: Oo(s, r, sn or r)), ["oob.TTF"]),
+        "oob_none_is_unknown": (dict(Oob=lambda s, r, sn: BW.SWAP_OOB_UNKNOWN if not s else Oo(s, r, sn)), ["oob.F--"]),
+        "seen_every_frame": (dict(Seen=lambda h, n, last: bool(h)), ["seen.same"]),
+        "lines_ignore_stamps_lever": (dict(Lines=SimpleNamespace(**{k: _swa_force_on(f) for k, f in _SWA_LINES.items()})),
+                                      ["lines.landed.off", "lines.commit.off", "lines.kick_commit.off", "lines.own.off",
+                                       "lines.closed_guest.off", "lines.closed_host.off", "lines.clock.off"]),
+    }
+
+
+def test_s164_a_instrument_rows_are_the_twins_and_every_mutant_is_caught():
+    """Item A's SelfTest rows (clock, stamp, parse, waited, join, opens / closes, close, via, delay, oob, seen and the line builders --
+    the slot rows are the engine's, on a real NetSyncFrames) hold under battlewire's twins; each of A's 27 mutants fails the rows the
+    design names (ms_naive only through _i64: P9)."""
+    rows, mutants = _swa_rows(), _swa_mutants()
+    assert len(mutants) == 27
+    assert len([n for n, _c in rows if n.startswith("join.")]) == 21
+    _sw_prove(rows, _swa_make, mutants)
+
+
+def test_s164_ms_naive_differs_from_swap_ticks_to_ms_at_tsc_40_days():
+    """P9: Python's integers never overflow, so without _i64 the naive ``ts * 1000 / freq`` equals the split form on every row; with
+    it (C#'s unchecked Int64), the naive form wraps at a 3 GHz counter after 40 days and the split form does not."""
+    ts, f = 40 * 86400 * 3_000_000_000, 3_000_000_000
+    naive = _swa_mutants()["ms_naive"][0]["Ms"]
+    assert BW.swap_ticks_to_ms(ts, f) == 3456000000
+    assert naive(ts, f) != BW.swap_ticks_to_ms(ts, f) and naive(ts, f) < 0
+    assert ts * 1000 // f == 3456000000                                      # Python's own arithmetic hides the overflow
+    assert all(naive(t, g) == BW.swap_ticks_to_ms(t, g) for t, g in ((12345678901, 10**7), (3579545 * 7 + 3580, 3579545)))
+    assert BW._i64(2**63) == -(2**63) and BW._i64(-1) == -1 and BW._i32(2**31) == -(2**31) and BW._i32(b"\xff\xff\xff\xff", 0) == -1
+    assert BW._cdiv(-7, 2) == -3 and BW._cmod(-7, 2) == -1 and BW._cdiv(7, 2) == 3
+
+
+# ---- B: Finding 11's orphan hold -----------------------------------------------------------------------------------------
+def _swb_make(**over):
+    base = dict(Settled=BW.swap_orphan_settled, HostHolds=BW.swap_host_holds, Kind=BW.swap_ctl_hold_kind, EndWhy=BW.swap_hold_end_why,
+                Since=BW.swap_orphan_since, Keep=BW.swap_keep_read, Step=BW.dialog_orphan_step, Settle=None, cap_ms=None, regrace=False)
+    R = _sw_ns(base, over)
+    if R.Settle is None:
+        R.Settle = lambda cls, sl, inh, h, lo, _s=R.Settled: _s(sl, inh, h, lo)
+    R.orphan = SimpleNamespace(settle=R.Settle, step=R.Step, kind=R.Kind, end_why=R.EndWhy, since=R.Since, keep=R.Keep, cap_ms=R.cap_ms)
+    return R
+
+
+_B_LOCKED, _B_ORPHANED, _B_LOCAL = BW.DIALOG_CLS_LOCKED, BW.DIALOG_CLS_ORPHANED, BW.DIALOG_CLS_LOCAL
+#: The 12 composites OrphanStep(cls, OrphanSettled(...)): (cls, settledLong, inh, holds, eventPending, relayOwned, ready) -> (act, old).
+#: "past AutoReadMs": completeSince 0, orphanSince 1000, now 5000. Composite 11's old column reads ToLocked, not the design's ToLocal:
+#: under old, (settledLong, inh, holds) = (T, T, T) settles FALSE (the design's own R-B1 table), so OrphanStep relocks (deviation).
+_B_N, _B_TO, _B_TL, _B_TK, _B_CF = (BW.DIALOG_ORPH_NONE, BW.DIALOG_ORPH_TO_ORPHANED, BW.DIALOG_ORPH_TO_LOCAL, BW.DIALOG_ORPH_TO_LOCKED,
+                                    BW.DIALOG_ORPH_CONFIRM)
+_B_COMPOSITES = {
+    1: ((_B_LOCKED, True, False, True, False, False, True), (_B_N, _B_TO)),
+    2: ((_B_LOCKED, True, False, False, False, False, True), (_B_TO, _B_TO)),
+    3: ((_B_LOCKED, True, False, True, True, False, True), (_B_N, _B_N)),
+    4: ((_B_LOCKED, True, False, True, False, True, True), (_B_N, _B_N)),
+    5: ((_B_LOCKED, False, False, False, False, False, True), (_B_N, _B_N)),
+    6: ((_B_LOCKED, True, True, True, False, False, True), (_B_N, _B_N)),
+    7: ((_B_LOCKED, True, True, False, False, False, True), (_B_TL, _B_TL)),
+    8: ((_B_ORPHANED, True, False, True, False, False, True), (_B_TK, _B_CF)),
+    9: ((_B_ORPHANED, True, False, False, False, False, True), (_B_CF, _B_CF)),
+    10: ((_B_ORPHANED, True, False, True, False, False, False), (_B_TK, _B_N)),
+    11: ((_B_ORPHANED, True, True, True, False, False, True), (_B_TK, _B_TK)),
+    12: ((_B_LOCAL, True, False, True, False, False, True), (_B_N, _B_N)),
+}
+
+
+def _swb_comp(R, k: int, lever_old: bool) -> int:
+    (cls, sl, inh, holds, ev, relay, ready), _want = _B_COMPOSITES[k]
+    return R.Step(cls, R.Settle(cls, sl, inh, holds, lever_old), ev, relay, inh, ready, 0, 1000, 5000)
+
+
+def _swb_kind(R, k: int) -> int:
+    return R.Kind(_B_COMPOSITES[k][0][0], _swb_comp(R, k, False), _swb_comp(R, k, True))
+
+
+#: the scenarios' start: the Int32 tick wrap falls ~4 s in
+_B_T0 = BW._i32(2**31 - 1 - 4000)
+
+
+def _swb_run(R, script, until: int, *, open_dt: int = 0, lever_old: bool = False) -> list:
+    """B's scenarios, stepped per 100 ms tick from _B_T0 (Int32 deltas across the wrap): the settle clock, then one window -- opened at
+    ``open_dt``, its single page complete at once -- through swap_orphan_window_tick. ``script(dt)`` -> {holds, scene, ev, co}. Stops at
+    the auto-confirm (a single-page line closes). Returns [(dt, out, cls)]."""
+    clock, w, events = BW.DialogSettleClock(), None, []
+    for dt in range(0, until + 1, 100):
+        now = BW._i32(_B_T0 + dt)
+        s = script(dt)
+        holds, co = bool(s.get("holds")), s.get("co", True)
+        scene_down = not s.get("scene", False)
+        if R.regrace:
+            scene_down = scene_down and not holds                    # (the rejected rule: control rides the settle clock)
+        clock.step(scene_down, False, co, False, False, now)
+        if dt < open_dt:
+            continue
+        if w is None:
+            w = BW.swap_orphan_window(_B_LOCKED, complete_since=now, orphan_since=now)
+        out = BW.swap_orphan_window_tick(w, settled_long=clock.long, host_holds=R.HostHolds(co, True, 0 if holds else BW.HR_CONTROL),
+                                         event_pending=bool(s.get("ev")), host_here=co, now=now, lever_old=lever_old, rules=R.orphan)
+        events.append((dt, out, w["cls"]))
+        if out["act"] == _B_CF:
+            break
+    return events
+
+
+def _swb_first(events, pred) -> int | None:
+    return next((dt for dt, out, _c in events if pred(out)), None)
+
+
+def _swb_s1(R) -> bool:
+    """S1 the leap: the host lands co-located, control off, no scene -- under act never orphaned to t0 + 30000; under old orphaned at
+    t0 + OrphanGraceMs."""
+    act = _swb_run(R, lambda dt: {"holds": True}, 30000)
+    old = _swb_run(R, lambda dt: {"holds": True}, 30000, lever_old=True)
+    return (_swb_first(act, lambda o: o["act"] == _B_TO) is None
+            and _swb_first(old, lambda o: o["act"] == _B_TO) == BW.DIALOG_ORPHAN_GRACE_MS)
+
+
+def _swb_s2(R) -> bool:
+    """S2 control back at t1 = t0 + 30000: orphaned on t1's tick, confirmed at t1 + AutoReadMs."""
+    ev = _swb_run(R, lambda dt: {"holds": dt < 30000}, 40000)
+    return (_swb_first(ev, lambda o: o["act"] == _B_TO) == 30000
+            and _swb_first(ev, lambda o: o["act"] == _B_CF) == 30000 + BW.DIALOG_AUTO_READ_MS)
+
+
+def _swb_s3(R) -> bool:
+    """S3 one blip: control back at t1 for 500 ms, then off again -- orphaned at t1, relocked at t1 + 500, no confirm through
+    t1 + AutoReadMs + 2000."""
+    ev = _swb_run(R, lambda dt: {"holds": not 30000 <= dt < 30500}, 30000 + BW.DIALOG_AUTO_READ_MS + 2000)
+    return (_swb_first(ev, lambda o: o["act"] == _B_TO) == 30000
+            and _swb_first(ev, lambda o: o["kind"] == BW.SWAP_CTL_RELOCK) == 30500
+            and _swb_first(ev, lambda o: o["act"] == _B_CF) is None)
+
+
+def _swb_s4(R) -> bool:
+    """S4 a hold that a scene, then a host event, ends: a scene rising during the hold ends it Busy; a host event for the line ends it
+    Event."""
+    busy = _swb_run(R, lambda dt: {"holds": True, "scene": dt >= 5000}, 6000)
+    event = _swb_run(R, lambda dt: {"holds": True, "ev": dt >= 5000}, 6000)
+    return (_swb_first(busy, lambda o: o["kind"] == BW.SWAP_CTL_HOLD) == BW.DIALOG_ORPHAN_GRACE_MS
+            and _swb_first(busy, lambda o: o["end"] != BW.SWAP_HOLD_END_NONE) == 5000
+            and [o["end"] for _d, o, _c in busy if o["end"]] == [BW.SWAP_HOLD_END_BUSY]
+            and [o["end"] for _d, o, _c in event if o["end"]] == [BW.SWAP_HOLD_END_EVENT])
+
+
+def _swb_s5(R) -> bool:
+    """S5 repeated blips: a fresh, complete, single-page line orphaned at t0 (the window opens with the host already settled); control
+    off for 0.5 s every 1.5 s from t0 + 1.0 s -- exactly one relock, then the confirm on the first orphaned tick at or after
+    t0 + AutoReadMs (V4)."""
+    t0 = 2000
+
+    def script(dt):
+        k = dt - t0 - 1000
+        return {"holds": k >= 0 and k % 1500 < 500 and dt < t0 + 6000}
+    ev = _swb_run(R, script, t0 + 9000, open_dt=t0)
+    relocks = sum(1 for _d, o, _c in ev if o["kind"] == BW.SWAP_CTL_RELOCK and o["act"] == _B_TK)
+    return (_swb_first(ev, lambda o: o["act"] == _B_TO) == t0 and relocks == 1
+            and _swb_first(ev, lambda o: o["act"] == _B_CF) == t0 + BW.DIALOG_AUTO_READ_MS)
+
+
+def _swb_s6(R) -> bool:
+    """S6 a control hold that turns into a scene: orphaned at t0, control off at t0 + 0.5 s (the relock), a host scene at t0 + 1.0 s
+    ends the hold Busy; the scene falls with control back at t0 + 1.5 s and the host settles at t1 -- the re-orphan restarts the read
+    clock: the confirm comes no earlier than the re-orphan + AutoReadMs (I5)."""
+    t0 = 2000
+    ev = _swb_run(R, lambda dt: {"holds": t0 + 500 <= dt < t0 + 1500, "scene": t0 + 1000 <= dt < t0 + 1500}, t0 + 9000, open_dt=t0)
+    reorphan = next((d for d, o, _c in ev if o["act"] == _B_TO and d > t0), None)
+    confirm = _swb_first(ev, lambda o: o["act"] == _B_CF)
+    return ([o["end"] for _d, o, _c in ev if o["end"]] == [BW.SWAP_HOLD_END_BUSY]
+            and _swb_first(ev, lambda o: o["kind"] == BW.SWAP_CTL_RELOCK) == t0 + 500
+            and reorphan == t0 + 1500 + BW.DIALOG_ORPHAN_GRACE_MS and confirm is not None
+            and confirm >= reorphan + BW.DIALOG_AUTO_READ_MS)
+
+
+def _swb_rows() -> list:
+    rows = []
+    T, F = True, False
+    table = {(T, F, F): (T, T), (T, F, T): (F, T), (T, T, F): (T, T), (T, T, T): (F, F)}
+    for sl in (T, F):
+        for inh in (T, F):
+            for holds in (T, F):
+                act, old = table.get((sl, inh, holds), (F, F))
+                tag = "".join("T" if b else "F" for b in (sl, inh, holds))
+                rows.append((f"rb1.{tag}.act", lambda R, a=(sl, inh, holds), want=act: R.Settled(*a, False) is want))
+                rows.append((f"rb1.{tag}.old", lambda R, a=(sl, inh, holds), want=old: R.Settled(*a, True) is want))
+    for here in (T, F):
+        for view in (T, F):
+            for hr in (0, BW.HR_CONTROL):
+                tag = ("T" if here else "F") + ("T" if view else "F") + ("0" if hr == 0 else "C")
+                rows.append((f"rb2.{tag}", lambda R, a=(here, view, hr), want=(here and view and hr == 0): R.HostHolds(*a) is want))
+    for k, (_inp, (act, old)) in _B_COMPOSITES.items():
+        rows.append((f"comp.{k}", lambda R, k=k, act=act, old=old: _swb_comp(R, k, False) == act and _swb_comp(R, k, True) == old))
+    rows += [("kind.c1", lambda R: _swb_kind(R, 1) == BW.SWAP_CTL_HOLD), ("kind.c8", lambda R: _swb_kind(R, 8) == BW.SWAP_CTL_RELOCK),
+             ("kind.c10", lambda R: _swb_kind(R, 10) == BW.SWAP_CTL_RELOCK),
+             ("kind.unreachable", lambda R: R.Kind(_B_LOCKED, _B_TL, _B_TO) == BW.SWAP_CTL_NONE)]
+    for name, args, want in (("closed", (F, F, F, T, T, T), BW.SWAP_HOLD_END_CLOSED), ("event", (T, T, F, T, T, T), BW.SWAP_HOLD_END_EVENT),
+                             ("relay", (T, F, T, T, T, T), BW.SWAP_HOLD_END_RELAY), ("left", (T, F, F, F, F, F), BW.SWAP_HOLD_END_LEFT),
+                             ("busy", (T, F, F, T, F, T), BW.SWAP_HOLD_END_BUSY), ("control", (T, F, F, T, T, F), BW.SWAP_HOLD_END_CONTROL)):
+        rows.append((f"end.{name}", lambda R, args=args, want=want: R.EndWhy(*args) == want))
+    rows += [("since.fresh", lambda R: R.Since(False, 1000, 5000) == 5000), ("since.relock_keeps", lambda R: R.Since(True, 1000, 5000) == 1000),
+             ("keep.control", lambda R: R.Keep(BW.SWAP_HOLD_END_CONTROL) is True),
+             ("keep.busy", lambda R: R.Keep(BW.SWAP_HOLD_END_BUSY) is False),
+             ("keep.left", lambda R: R.Keep(BW.SWAP_HOLD_END_LEFT) is False),
+             ("S1", _swb_s1), ("S2", _swb_s2), ("S3", _swb_s3), ("S4", _swb_s4), ("S5", _swb_s5), ("S6", _swb_s6)]
+    return rows
+
+
+def _swb_mutants() -> dict:
+    St, Hh, Ew = BW.swap_orphan_settled, BW.swap_host_holds, BW.swap_hold_end_why
+    return {
+        "orphan_polled_only": (dict(Settled=lambda sl, inh, h, lo: St(sl, inh, h, True)), ["rb1.TFT.act"]),
+        "orphan_holds_alone": (dict(Settled=lambda sl, inh, h, lo: St(sl, inh, h, True) if lo else not h), ["rb1.FFF.act"]),
+        "orphan_lever_ignored": (dict(Settled=lambda sl, inh, h, lo: St(sl, inh, h, False)), ["rb1.TFT.old"]),
+        "orphan_old_is_c2": (dict(Settled=lambda sl, inh, h, lo: bool(sl) if lo else St(sl, inh, h, False)), ["rb1.TTT.old"]),
+        "holds_without_here": (dict(HostHolds=lambda here, view, hr: Hh(True, view, hr)), ["rb2.FT0"]),
+        "holds_without_view": (dict(HostHolds=lambda here, view, hr: Hh(here, True, hr)), ["rb2.TF0"]),
+        "hold_capped": (dict(cap_ms=8000), ["S1"]),
+        "hold_restarts_grace": (dict(regrace=True), ["S2"]),
+        "end_why_control_first": (dict(EndWhy=lambda p, c, r, here, sl, h: BW.SWAP_HOLD_END_CONTROL if p and not c and not r and not h
+                                       else Ew(p, c, r, here, sl, h)), ["end.left"]),
+        "relock_dropped": (dict(Settle=lambda cls, sl, inh, h, lo: St(sl, inh, h, lo or cls != _B_LOCKED)), ["comp.8"]),
+        "relock_restarts_read": (dict(Since=lambda keep, kept, now: BW._i32(now)), ["since.relock_keeps", "S5"]),
+        "relock_keeps_after_busy": (dict(Keep=lambda why: why != BW.SWAP_HOLD_END_NONE), ["keep.busy", "S6"]),
+    }
+
+
+def test_s164_b_orphan_hold_rows_are_the_twins_and_every_mutant_is_caught():
+    """Item B's rows: R-B1 (OrphanSettled x 16 under act and old), R-B2 (HostHoldsRule x 8), the 12 composites OrphanStep(OrphanSettled)
+    under act and old, CtlHoldKind on composites 1 / 8 / 10 plus an unreachable one, HoldEndWhy, OrphanSinceRule, KeepReadRule and the
+    scenarios S1-S6 (the settle clock and the window stepped per 100 ms tick across the Int32 wrap) hold under battlewire's twins; each
+    of B's 12 mutants fails the rows the design names."""
+    rows, mutants = _swb_rows(), _swb_mutants()
+    assert len(mutants) == 12 and len([n for n, _c in rows if n.startswith("rb1.")]) == 16
+    assert len([n for n, _c in rows if n.startswith("rb2.")]) == 8 and len([n for n, _c in rows if n.startswith("comp.")]) == 12
+    _sw_prove(rows, _swb_make, mutants)
+
+
+def test_s164_b_twin_keyscript_flip():
+    """The dialogue selftest's KeyScript row (:3228-3229) under s164: OrphanSettled(true, false, true, false) is FALSE -- "key: a plain
+    line is orphaned while the host holds input on my field (Finding 11)" -- and the old lever (true) keeps it true; every other term
+    gains `false` with its s163 truth. The old lever IS s163's three-argument rule, as the s99 patch wrote it (body and row)."""
+    S = BW.swap_orphan_settled
+    assert not S(True, False, True, False)                                  # the flip: Finding 11
+    assert S(True, False, True, True)                                       # ...not under the lever
+    assert not S(True, True, True, False) and S(True, True, False, False) and not S(False, True, False, False)
+    # s163's own row, through the old lever: OrphanSettled(true, true, true) || !OrphanSettled(true, true, false) ||
+    # !OrphanSettled(true, false, true) || OrphanSettled(false, true, false) must be false
+    assert not (S(True, True, True, True) or not S(True, True, False, True) or not S(True, False, True, True)
+                or S(False, True, False, True))
+    s99 = " ".join(t for _h, k, t in _new_side("NetSyncDialog.cs", _patch_bytes("s99")) if k == "+")
+    assert "internal static Boolean OrphanSettled(Boolean settledLong, Boolean inh, Boolean hostHoldsInput)" in s99
+    assert "return settledLong && !(inh && hostHoldsInput);" in s99
+    assert ("if (OrphanSettled(true, true, true) || !OrphanSettled(true, true, false) || !OrphanSettled(true, false, true) "
+            "|| OrphanSettled(false, true, false))") in s99
+    for sl in (True, False):                                                 # act differs from old exactly on the Finding 11 row
+        for inh in (True, False):
+            for h in (True, False):
+                assert (S(sl, inh, h, False) != S(sl, inh, h, True)) == (sl and not inh and h)
+
+
+def test_s164_b_twins_rest_on_the_live_s163_dialogue_code():
+    """OrphanStep, the SettleClock, the dialogue's class / step constants and HostHoldsInput's :7767 expression -- the s163 code B's
+    composites and scenarios run through -- are battlewire's twins, read off the live stack (s164 leaves each of them alone)."""
+    dlg = " ".join(t for t in (_strip_comment(ln.strip()) for ln in stack_file("NetSyncDialog.cs")) if t)
+    for frag in ("if (cls == ClsLocked) { if (!settledLong || eventPending || relayOwned) return OrphNone; return inh ? OrphToLocal : "
+                 "OrphToOrphaned; } if (cls != ClsOrphaned) return OrphNone; if (eventPending || !settledLong) return OrphToLocked; if "
+                 "(inh) return OrphToLocal; if (!ready) return OrphNone;",
+                 "Int32 since = (orphanSince - completeSince) > 0 ? orphanSince : completeSince; return now - since >= AutoReadMs ? "
+                 "OrphConfirm : OrphNone;",
+                 "Boolean where = coLocated || (_elseArmed && now - _elseSince >= HostElsewhereMs) || (_offArmed && now - _offSince >= "
+                 "OffFieldMaxMs); Settled = sceneDown && !talkLive && where;",
+                 "Long = Settled && SettledMs >= OrphanGraceMs;",
+                 "internal const Byte ClsLocked = 0, ClsOrphaned = 1, ClsLocal = 2;",
+                 "internal const Int32 OrphNone = 0, OrphToOrphaned = 1, OrphToLocal = 2, OrphToLocked = 3, OrphConfirm = 4;",
+                 f"internal const Int32 OrphanGraceMs = {BW.DIALOG_ORPHAN_GRACE_MS};", f"internal const Int32 AutoReadMs = {BW.DIALOG_AUTO_READ_MS};",
+                 f"internal const Int32 HostElsewhereMs = {BW.DIALOG_HOST_ELSEWHERE_MS};",
+                 f"internal const Int32 OffFieldMaxMs = {BW.DIALOG_OFF_FIELD_MAX_MS};"):
+        assert frag in dlg, frag
+    cli = " ".join(t for t in (_strip_comment(ln.strip()) for ln in stack_file("NetSyncClient.cs")) if t)
+    assert "v.HostHoldsInput = v.HostHere && hv != null && (hr & HrControl) == 0;" in cli
+    assert f"HrMenu = 16, HrControl = {BW.HR_CONTROL};" in cli
+
+
+# ---- C: the own pass and its intent cache --------------------------------------------------------------------------------
+def _swc_make(**over):
+    base = dict(Pass=BW.own_field_pass_rule, Verdict=BW.own_jump_verdict_rule, Step=BW.intent_cache_step, Cache=BW.intent_cache_verdict,
+                Book=BW.own_pass_book, Keeps=BW.own_pass_keeps_own, Land=BW.follow_landing_step, Rearm=BW.landing_rearm)
+    return _sw_ns(base, over)
+
+
+#: OwnFieldPassRule's defaults: lever act, following, my 351, dest 352, usable, nothing pending / committed / live / cached, no holds
+_C_PASS = dict(lever=BW.OWN_LEVER_ACT, following=True, my_field=351, dest=352, usable=True, pending=-1, kick=False, committed=-1,
+               live_intent=-1, cache_field=-1, cache_stands=False, world_held=False, ate_held=False)
+
+
+def _swc_pass(R, **kw) -> int:
+    a = dict(_C_PASS, **kw)
+    return R.Pass(*(a[k] for k in _C_PASS))
+
+
+def _swc_verdict(R, **kw) -> tuple:
+    a = dict(_C_PASS, lane=351)
+    a.update(kw)
+    return R.Verdict(a["lever"], a["following"], a["my_field"], a["dest"], a["lane"], a["usable"], a["pending"], a["kick"], a["committed"],
+                     a["live_intent"], a["cache_field"], a["cache_stands"])
+
+
+def _swc_rows() -> list:
+    P, C, I, K, N = BW.OWN_TERM_PENDING, BW.OWN_TERM_COMMITTED, BW.OWN_TERM_INTENT, BW.OWN_TERM_CACHE, BW.OWN_TERM_NONE
+    RW, RA = BW.OWN_TERM_REFUSED_WORLD, BW.OWN_TERM_REFUSED_ATE
+    OLD, NOC = BW.OWN_LEVER_OLD, BW.OWN_LEVER_NOCACHE
+    cache = dict(cache_field=352, cache_stands=True)
+    rows = []
+    for name, kw, want in (
+            ("pass.pending", dict(pending=352), P), ("pass.committed", dict(committed=352), C), ("pass.intent", dict(live_intent=352), I),
+            ("pass.cache", cache, K),
+            ("order.pending_first", dict(pending=352, committed=352, live_intent=352, **cache), P),
+            ("order.committed_before_intent", dict(committed=352, live_intent=352, **cache), C),
+            ("order.intent_before_cache", dict(live_intent=352, **cache), I),
+            ("none.nothing", {}, N), ("none.pending_other_field", dict(pending=350), N), ("none.intent_other_field", dict(live_intent=350), N),
+            ("none.cache_other_field", dict(cache_field=350, cache_stands=True), N),
+            ("none.cache_not_standing", dict(cache_field=352, cache_stands=False), N), ("none.kick", dict(pending=352, kick=True), N),
+            ("none.my_field", dict(dest=351, pending=351), N), ("none.ending", dict(dest=16000, live_intent=16000), N),
+            ("none.unusable", dict(usable=False, pending=352), N), ("none.dest_0", dict(dest=0, pending=0), N),
+            ("none.dest_65535", dict(dest=65535, pending=65535), N), ("none.not_following", dict(following=False, pending=352), N),
+            ("lever.off_pending", dict(lever=OLD, pending=352), N), ("lever.off_intent", dict(lever=OLD, live_intent=352), N),
+            ("lever.nocache_cache", dict(lever=NOC, **cache), N), ("lever.nocache_keeps_pending", dict(lever=NOC, pending=352), P),
+            ("lever.nocache_keeps_intent", dict(lever=NOC, live_intent=352), I),
+            ("refuse.world", dict(pending=352, world_held=True), RW), ("refuse.ate", dict(pending=352, ate_held=True), RA),
+            ("refuse.world_before_ate", dict(pending=352, world_held=True, ate_held=True), RW),
+            ("refuse.only_on_a_match", dict(world_held=True, ate_held=True), N),
+            ("refuse.lever_off_quiet", dict(lever=OLD, pending=352, world_held=True), N)):
+        rows.append((name, lambda R, kw=kw, want=want: _swc_pass(R, **kw) == want))
+    rows += [
+        ("s1", lambda R: _swc_verdict(R, committed=352, lane=351) == ("pass", "committed")),
+        ("s2", lambda R: _swc_verdict(R, lever=OLD, committed=352, lane=351) == ("bounce", "not-host")),
+        ("s3", lambda R: _swc_verdict(R, pending=352, lane=351) == ("pass", "pending") and R.Book(P, 352, 352, -1) == (-1, 352, True)),
+        ("s4", lambda R: _swc_verdict(R, committed=352, dest=353, lane=351) == ("bounce", "not-host")),
+        ("s5", lambda R: _swc_verdict(R, committed=352, lane=352) == ("pass", "committed")),
+    ]
+    KE, WR, SK = BW.INTENT_CACHE_KEEP, BW.INTENT_CACHE_WRITE, BW.INTENT_CACHE_SKIP
+    for name, args, want in (("write.first", (-1, -1, 352, 7, 351), WR), ("write.new_nonce", (352, 7, 352, 8, 351), WR),
+                             ("write.wrapped_nonce", (352, 255, 352, 0, 351), WR), ("write.after_reset", (-1, -1, 352, 0, 351), WR),
+                             ("keep.same_nonce", (352, 7, 352, 7, 351), KE), ("keep.spent_nonce", (-1, 7, 352, 7, 351), KE),
+                             ("keep.no_section", (352, 7, -1, -1, 351), KE), ("skip.my_field", (-1, 5, 351, 8, 351), SK),
+                             ("skip.supersedes", (352, 7, 351, 8, 351), SK), ("skip.ending", (-1, 5, 16000, 8, 351), SK),
+                             ("skip.no_field", (-1, 5, 352, 8, -1), SK)):
+        rows.append((name, lambda R, args=args, want=want: R.Step(*args) == want))
+    ST, HP, LE, AG, NO = BW.INTENT_CACHE_STANDS, BW.INTENT_CACHE_HOST_PAST, BW.INTENT_CACHE_LEFT, BW.INTENT_CACHE_AGED, BW.INTENT_CACHE_NONE
+    # IntentCacheVerdict(cacheField, cacheSrc, hostFrom, ageMs, myField, hostLane)
+    for name, args, want in (("stands.stale_source_frame", (352, 351, 350, 500, 351, 351), ST),
+                             ("stands.lane_0", (352, 351, -1, 500, 351, 0), ST), ("stands.lane_65535", (352, 351, -1, 500, 351, 65535), ST),
+                             ("stands.lane_minus1", (352, 351, -1, 500, 351, -1), ST),
+                             ("stands.lane_on_cached", (352, 351, -1, 500, 351, 352), ST),
+                             ("stands.lagging_guest_stale_source", (352, 349, 351, 500, 349, 351), ST),
+                             ("stands.hostfrom_unknown_src_exempt", (352, 351, -1, 500, 351, 351), ST),
+                             ("host_past", (352, 351, -1, 500, 351, 353), HP), ("left", (352, 351, -1, 500, 352, 352), LE),
+                             ("aged_at_cap", (352, 351, -1, 2000, 351, 351), AG), ("stands_below_cap", (352, 351, -1, 1999, 351, 351), ST),
+                             ("none", (-1, 351, -1, 500, 351, 351), NO), ("negative_age", (352, 351, -1, -1, 351, 351), AG),
+                             ("order.left_before_aged", (352, 351, -1, 3000, 352, 351), LE),
+                             ("order.aged_before_host_past", (352, 351, -1, 3000, 351, 353), AG)):
+        rows.append(("cv." + name, lambda R, args=args, want=want: R.Cache(*args) == want))
+    rows += [
+        ("book.pending_converts", lambda R: R.Book(P, 352, 352, -1)[:2] == (-1, 352)),
+        ("book.pending_bends", lambda R: R.Book(P, 352, 352, -1)[2] is True),
+        ("book.committed_unchanged", lambda R: R.Book(C, 352, -1, 352) == (-1, 352, False)),
+        ("book.intent_no_bend", lambda R: R.Book(I, 352, -1, -1) == (-1, -1, False)),
+        ("book.cache_no_bend", lambda R: R.Book(K, 352, -1, -1) == (-1, -1, False)),
+        ("book.refused_no_change", lambda R: R.Book(RW, 352, 352, -1) == (352, -1, False) and R.Book(RA, 352, 352, -1) == (352, -1, False)),
+        ("entrance.host_by_default", lambda R: R.Keeps(P, False) is False),
+        ("entrance.exit_hold_keeps_own", lambda R: R.Keeps(P, True) is True),
+        ("entrance.none_never", lambda R: R.Keeps(N, True) is False),
+        ("seq.pending_pass_lands_clean", lambda R: (lambda p, c, _b: R.Land(352, p, c, 352, False)[:2] == (BW.LAND_NONE, 352))(
+            *R.Book(P, 352, 352, -1))),
+        ("seq.commit_idle", lambda R: (lambda p, c, _b: R.Land(352, p, c, 352, False)[0] == BW.LAND_NONE)(*R.Book(C, 352, -1, 352))),
+        ("seq.overwrite_still_rearms", lambda R: (lambda p, c, _b: R.Land(351, p, c, 352, False) == (BW.LAND_LATCH_VOID, -1, 352))(
+            *R.Book(P, 352, 352, -1))),
+        ("seq.intent_pass_landing", lambda R: (lambda p, c, _b: R.Land(352, p, c, -1, False) == (BW.LAND_NONE, -1, -1))(
+            *R.Book(I, 352, -1, -1))),
+        ("seq.kick_never_rearms_follow", lambda R: (lambda code, _k, rearm: code == BW.LAND_SUPERSEDED and R.Rearm(code, rearm, True) == -1
+                                                    and R.Rearm(code, rearm, False) == 351)(*R.Land(352, 351, -1, -1, False))),
+        ("codec.intent_section_round_trip", lambda R: (lambda body: body is not None and body[:3] == bytes((96, 1, 7))
+                                                       and (body[0] | body[1] << 8) == 352)(
+            BW.old_try_read_section(BW.append_section(b"", BW.SECTION_INTENT, BW.intent_section_body(352, 7, False)), BW.SECTION_INTENT))),
+    ]
+    return rows
+
+
+def _swc_mutants() -> dict:
+    Pa, Ca, Cs = BW.own_field_pass_rule, BW.intent_cache_verdict, BW.intent_cache_step
+    P, C, I, K, N = BW.OWN_TERM_PENDING, BW.OWN_TERM_COMMITTED, BW.OWN_TERM_INTENT, BW.OWN_TERM_CACHE, BW.OWN_TERM_NONE
+    RW, RA = BW.OWN_TERM_REFUSED_WORLD, BW.OWN_TERM_REFUSED_ATE
+
+    def s163_verdict(lever, fol, my, dest, lane, *rest):
+        return ("reload", "same-field") if dest == my else ("pass", "host-field") if dest == lane else ("bounce", "not-host")
+
+    def lane_first(lever, fol, my, dest, lane, *rest):
+        return s163_verdict(lever, fol, my, dest, lane) if dest in (my, lane) else BW.own_jump_verdict_rule(lever, fol, my, dest, lane, *rest)
+
+    def dest_blind(lever, fol, my, dest, usable, pending, kick, committed, live, cf, cs, wh, ah):
+        if lever == BW.OWN_LEVER_OLD or not fol or dest <= 0 or dest == 65535 or dest == my or dest == 16000 or not usable:
+            return N
+        t = (P if pending > 0 and not kick else C if committed > 0 else I if live > 0
+             else K if lever != BW.OWN_LEVER_NOCACHE and cs and cf > 0 else N)
+        return N if t == N else RW if wh else RA if ah else t
+
+    def no_world(*a):
+        return Pa(*a[:11], False, a[12])
+
+    def no_ate(*a):
+        return Pa(*a[:12], False)
+
+    def refuse_without_match(*a):
+        t = Pa(*a)
+        return RW if t == N and a[11] and a[0] != BW.OWN_LEVER_OLD else RA if t == N and a[12] and a[0] != BW.OWN_LEVER_OLD else t
+
+    def cache_first(*a):
+        lever, fol, my, dest, usable, pending, kick, committed, live, cf, cs, wh, ah = a
+        if Pa(*a) == I and lever != BW.OWN_LEVER_NOCACHE and cs and cf == dest:
+            return RW if wh else RA if ah else K
+        return Pa(*a)
+
+    def refusal_order(*a):
+        t = Pa(*a[:11], False, False)
+        return RA if t > 0 and a[12] else RW if t > 0 and a[11] else t
+
+    def step_no_supersede(cf, cn, sf, sn, my):
+        v = Cs(cf, cn, sf, sn, my)
+        return BW.INTENT_CACHE_KEEP if v == BW.INTENT_CACHE_SKIP and cf > 0 else v
+
+    return {
+        "pass_s163": (dict(Pass=lambda *a: N, Verdict=s163_verdict), ["pass.pending", "s1"]),
+        "pass_dest_blind": (dict(Pass=dest_blind), ["none.pending_other_field"]),
+        "pass_kick_counts": (dict(Pass=_sw_arg(Pa, 6, False)), ["none.kick"]),
+        "pass_no_world_recheck": (dict(Pass=no_world), ["refuse.world"]),
+        "pass_no_ate_recheck": (dict(Pass=no_ate), ["refuse.ate"]),
+        "pass_refuse_without_match": (dict(Pass=refuse_without_match), ["refuse.only_on_a_match"]),
+        "pass_following_blind": (dict(Pass=_sw_arg(Pa, 1, True)), ["none.not_following"]),
+        "pass_usable_blind": (dict(Pass=_sw_arg(Pa, 4, True)), ["none.unusable"]),
+        "pass_ending": (dict(Pass=lambda *a: I if a[3] == 16000 and a[8] == 16000 and a[1] and a[0] != BW.OWN_LEVER_OLD else Pa(*a)),
+                        ["none.ending"]),
+        "pass_cache_unchecked": (dict(Pass=_sw_arg(Pa, 10, True)), ["none.cache_not_standing"]),
+        "pass_nocache_blind": (dict(Pass=_sw_arg(Pa, 0, lambda *a: BW.OWN_LEVER_ACT if a[0] == BW.OWN_LEVER_NOCACHE else a[0])),
+                               ["lever.nocache_cache"]),
+        "pass_nocache_all": (dict(Pass=lambda *a: N if a[0] == BW.OWN_LEVER_NOCACHE else Pa(*a)), ["lever.nocache_keeps_pending"]),
+        "pass_order_cache_first": (dict(Pass=cache_first), ["order.intent_before_cache"]),
+        "pass_refusal_order": (dict(Pass=refusal_order), ["refuse.world_before_ate"]),
+        "lane_before_own_pass": (dict(Verdict=lane_first), ["s5"]),
+        "stands_source_frame_clears": (dict(Cache=lambda cf, src, hf, age, my, lane: BW.INTENT_CACHE_HOST_PAST
+                                            if Ca(cf, src, hf, age, my, lane) == BW.INTENT_CACHE_STANDS and lane > 0 and lane != 65535
+                                            and lane != cf else Ca(cf, src, hf, age, my, lane)), ["cv.stands.stale_source_frame"]),
+        "stands_src_blind": (dict(Cache=lambda cf, src, hf, age, my, lane: Ca(cf, my, hf, age, my, lane)), ["cv.left"]),
+        "stands_no_cap": (dict(Cache=lambda cf, src, hf, age, my, lane: Ca(cf, src, hf, min(age, 0) if age < 0 else 0, my, lane)),
+                          ["cv.aged_at_cap"]),
+        "stands_cap_inclusive": (dict(Cache=lambda cf, src, hf, age, my, lane: Ca(cf, src, hf, age - 1 if age > 0 else age, my, lane)),
+                                 ["cv.aged_at_cap"]),
+        "stands_hostfrom_blind": (dict(Cache=_sw_arg(Ca, 2, -1)), ["cv.stands.lagging_guest_stale_source"]),
+        "stands_sentinel_clears": (dict(Cache=lambda cf, src, hf, age, my, lane: BW.INTENT_CACHE_HOST_PAST if lane in (0, 65535)
+                                        and Ca(cf, src, hf, age, my, 353) == BW.INTENT_CACHE_HOST_PAST else Ca(cf, src, hf, age, my, lane)),
+                                   ["cv.stands.lane_0", "cv.stands.lane_65535"]),
+        "step_same_nonce_refreshes": (dict(Step=lambda cf, cn, sf, sn, my: Cs(cf, -2, sf, sn, my) if sn == cn and sn >= 0
+                                           else Cs(cf, cn, sf, sn, my)), ["keep.same_nonce"]),
+        "step_caches_my_field": (dict(Step=lambda cf, cn, sf, sn, my: BW.INTENT_CACHE_WRITE if sf == my and sn >= 0 and sn != cn and my > 0
+                                      else Cs(cf, cn, sf, sn, my)), ["skip.my_field"]),
+        "step_caches_ending": (dict(Step=lambda cf, cn, sf, sn, my: BW.INTENT_CACHE_WRITE if sf == 16000 and sn >= 0 and sn != cn
+                                    else Cs(cf, cn, sf, sn, my)), ["skip.ending"]),
+        "step_no_supersede": (dict(Step=step_no_supersede), ["skip.supersedes"]),
+        "step_wrap_blind": (dict(Step=lambda cf, cn, sf, sn, my: BW.INTENT_CACHE_KEEP if sn >= 0 and cn >= 0 and sn <= cn
+                                 else Cs(cf, cn, sf, sn, my)), ["write.wrapped_nonce"]),
+        "book_leave_pending": (dict(Book=lambda term, dest, p, c: (p, dest, True) if term == P else (p, c, False)),
+                               ["book.pending_converts"]),
+        "book_no_bend": (dict(Book=lambda term, dest, p, c: BW.own_pass_book(term, dest, p, c)[:2] + (False,)), ["book.pending_bends"]),
+        "book_bend_always": (dict(Book=lambda term, dest, p, c: BW.own_pass_book(term, dest, p, c)[:2] + (term > 0,)),
+                             ["book.committed_unchanged"]),
+        "entrance_always_own": (dict(Keeps=lambda term, keep: term > 0), ["entrance.host_by_default"]),
+        "entrance_exit_hold_blind": (dict(Keeps=lambda term, keep: False), ["entrance.exit_hold_keeps_own"]),
+    }
+
+
+def test_s164_c_own_pass_rows_are_the_twins_and_every_mutant_is_caught():
+    """Item C's rows: OwnFieldPassRule (29), OwnJumpVerdictRule's commit_then_own_same_tick s1-s5 (T4), IntentCacheStep (11),
+    IntentCacheVerdict (15), OwnPassBook and OwnPassKeepsOwn, the s154 sequence rows after the book, and section 4's codec through the
+    real section walk hold under battlewire's twins; each of C's 31 kit mutants fails the rows the design names (quiet_no_exit_hold and
+    quiet_equals_loud are the engine's: NetSyncAte's statics)."""
+    rows, mutants = _swc_rows(), _swc_mutants()
+    assert len(mutants) == 31 and "quiet_no_exit_hold" in _SW_ENGINE_ONLY["mutants"]
+    assert len([n for n, _c in rows if n.split(".")[0] in ("pass", "order", "none", "lever", "refuse")]) == 29
+    assert len([n for n, _c in rows if n.startswith("cv.")]) == 15
+    _sw_prove(rows, _swc_make, mutants)
+
+
+def test_s164_c_the_s154_landing_twins_are_the_live_stacks():
+    """C's sequence rows run the real s154 landing rules: battlewire's FollowLandingStep / LandingRearm twins are the live stack's, body
+    for body, verdict codes included (s164 leaves them alone)."""
+    cli = " ".join(t for t in (_strip_comment(ln.strip()) for ln in stack_file("NetSyncClient.cs")) if t)
+    for frag in ("internal const Int32 LandNone = 0, LandArrived = 1, LandSuperseded = 2, LandLatchVoid = 3;",
+                 "keepWarpedTo = warpedTo >= 0 && warpedTo != landed ? -1 : warpedTo; rearm = -1; if (pending >= 0) { if (pending == landed) "
+                 "return LandArrived; if (!fromWorld) rearm = pending; return LandSuperseded; } if (committed >= 0 && committed != landed) "
+                 "{ if (!fromWorld) rearm = committed; return LandLatchVoid; } return LandNone;",
+                 "return code == LandNone || kick ? -1 : rearm;"):
+        assert frag in cli, frag
+    assert (BW.LAND_NONE, BW.LAND_ARRIVED, BW.LAND_SUPERSEDED, BW.LAND_LATCH_VOID) == (0, 1, 2, 3)
+    assert BW.follow_landing_step(352, 352, -1, -1, False) == (BW.LAND_ARRIVED, -1, -1)
+    assert BW.follow_landing_step(353, 352, -1, -1, True) == (BW.LAND_SUPERSEDED, -1, -1)       # off the world: never a pre-aged re-arm
+
+
+# ---- LIFE: the host's intent lifetime --------------------------------------------------------------------------------------
+def _swl_make(**over):
+    return _sw_ns(dict(Life=BW.intent_life_rule, Body=BW.body_there_rule, Landing=BW.intent_landing_step), over)
+
+
+def _swl_rows() -> list:
+    P, On, E = BW.INTENT_LANDING_PENDING, BW.INTENT_LANDING_ON_INTENT, BW.INTENT_LANDING_ELSEWHERE
+    K, ST, LE, EL, CA, OL = (BW.INTENT_LIFE_KEEP, BW.INTENT_END_STANDS, BW.INTENT_END_LEFT, BW.INTENT_END_ELSEWHERE, BW.INTENT_END_CAP,
+                             BW.INTENT_END_OLD)
+    T, F, X = True, False, -1                                                # X: "-" (not read)
+    rows = []
+    for name, args, want in (("r1", (T, 0, X, P, T, F), OL), ("r2", (T, 0, X, P, F, F), K), ("r3", (F, 16, X, P, T, T), K),
+                             ("r4", (F, 9999, X, P, F, F), K), ("r5", (F, 10000, X, P, F, F), CA), ("r6", (F, 0, X, E, F, F), EL),
+                             ("r7", (F, 1999, 1500, On, T, T), K), ("r8", (F, 2000, 1000, On, T, T), ST),
+                             ("r9", (F, 5000, 4000, On, T, F), K), ("r9b", (F, 30000, 29000, On, T, F), K),
+                             ("r10", (F, 500, 100, On, F, F), LE), ("r11", (F, 30000, 29000, On, T, T), ST),
+                             ("r12", (F, 100, 50, On, F, T), LE), ("r-slowload", (F, 2300, 0, On, T, T), K),
+                             ("r-slowload2", (F, 3300, 1000, On, T, T), ST), ("r-swirl", (F, 1200, 800, On, F, F), LE),
+                             ("r-order", (F, 0, X, P, T, T), K), ("r-order-old", (T, 0, X, P, T, T), OL)):
+        rows.append((name, lambda R, args=args, want=want: R.Life(*args) == want))
+    for name, args, want in (("b1", (T, T, T), T), ("b2", (T, T, F), F), ("b3", (F, T, T), F), ("b4", (T, F, F), F)):
+        rows.append((name, lambda R, args=args, want=want: R.Body(*args) is want))
+    for name, args, want in (("l1", (P, T, 352, 352), On), ("l2", (P, T, 352, 353), E), ("l3", (On, T, 352, 353), On),
+                             ("l4", (P, F, 352, 352), P), ("l5", (E, T, 352, 352), E)):
+        rows.append((name, lambda R, args=args, want=want: R.Landing(*args) == want))
+    return rows
+
+
+def _swl_mutants() -> dict:
+    Li, P, On, E = BW.intent_life_rule, BW.INTENT_LANDING_PENDING, BW.INTENT_LANDING_ON_INTENT, BW.INTENT_LANDING_ELSEWHERE
+    ST, CA = BW.INTENT_END_STANDS, BW.INTENT_END_CAP
+
+    def life(old, se, sl, landing, on, body, *, no_min=False, no_body=False, body_or_min=False, no_cap=False, cap_after=False,
+             no_left=False, no_tail=False):
+        if old:
+            return Li(old, se, sl, landing, on, body)
+        if landing == E:
+            return BW.INTENT_END_ELSEWHERE
+        if landing == P:
+            return CA if se >= BW.INTENT_LOAD_CAP_MS and not no_cap else BW.INTENT_LIFE_KEEP
+        if cap_after and se >= BW.INTENT_LOAD_CAP_MS:
+            return CA
+        if not on and not no_left:
+            return BW.INTENT_END_LEFT
+        if body_or_min:
+            return ST if on and (body or se >= BW.INTENT_MIN_LIFE_MS) else BW.INTENT_LIFE_KEEP
+        if ((body or no_body) and (se >= BW.INTENT_MIN_LIFE_MS or no_min) and (sl >= BW.INTENT_LAND_TAIL_MS or no_tail)) and on:
+            return ST
+        return BW.INTENT_LIFE_KEEP
+
+    def mut(**flags):
+        return lambda *a: life(*a, **flags)
+    return {
+        "life_s163_self_clear": (dict(Life=lambda old, se, sl, ld, on, body: BW.INTENT_END_OLD if on else BW.INTENT_LIFE_KEEP),
+                                 ["r3", "r7", "r9", "r-order"]),
+        "life_no_min": (dict(Life=mut(no_min=True)), ["r7"]),
+        "life_no_body": (dict(Life=mut(no_body=True)), ["r9"]),
+        "life_body_or_min": (dict(Life=mut(body_or_min=True)), ["r7", "r9"]),
+        "life_min_only": (dict(Life=lambda old, se, sl, ld, on, body: Li(old, se, sl, ld, on, body) if old
+                               else ST if se >= BW.INTENT_MIN_LIFE_MS else BW.INTENT_LIFE_KEEP), ["r4"]),
+        "life_no_cap": (dict(Life=mut(no_cap=True)), ["r5"]),
+        "life_cap_after_landing": (dict(Life=mut(cap_after=True)), ["r9b"]),
+        "life_elsewhere_ignored": (dict(Life=lambda old, se, sl, ld, on, body: Li(old, se, sl, On if ld == E else ld, on, body)), ["r6"]),
+        "life_left_ignored": (dict(Life=mut(no_left=True)), ["r10", "r12", "r-swirl"]),
+        "life_no_land_tail": (dict(Life=mut(no_tail=True)), ["r-slowload"]),
+        "body_any_actor": (dict(Body=lambda sc, a, m: bool(sc) and bool(a)), ["b2"]),
+        "landing_any_load_is_intent": (dict(Landing=lambda ld, act, f, lf: BW.intent_landing_step(ld, act, f, f)), ["l2"]),
+        "landing_rearms": (dict(Landing=lambda ld, act, f, lf: BW.intent_landing_step(P if act and ld != P else ld, act, f, lf)), ["l3"]),
+    }
+
+
+def test_s164_life_rows_are_the_twins_and_every_mutant_is_caught():
+    """LIFE's rows: IntentLifeRule (r1-r12, the T13 slow loads, the S1 swirl, the T2 order pair), BodyThereRule (b1-b4, F14) and
+    IntentLandingStep (l1-l5) hold under battlewire's twins; each of LIFE's 13 mutants fails the rows the design names (live
+    frame_carries_4 is the engine's)."""
+    rows, mutants = _swl_rows(), _swl_mutants()
+    assert len(mutants) == 13 and len(rows) == 27
+    _sw_prove(rows, _swl_make, mutants)
+
+
+# ---- PIN: the story pin ----------------------------------------------------------------------------------------------------
+def _swp_make(**over):
+    return _sw_ns(dict(Capture=BW.pin_capture_rule, Body=BW.intent_section_body, Landed=BW.intent_landed_of, Use=BW.pin_use_rule,
+                       Consumed=BW.pin_consumed, Drop=BW.pin_drop_on_new, Targeted=BW.pin_targeted, Age=BW.pin_age_rule,
+                       Frames=BW.landing_frames), over)
+
+
+def _swp_seq(R) -> bool:
+    """seq.landing_ages_the_pin: a Pre capture at t0; a later pre-landing frame at t0+200 (Keep: compared); the first landed frame at
+    t0+400 (Keep; the host's landing seen there); the guest's landing at t0+1600 -> age 1200 -> Pin; at t0+3000 -> age 2600 -> aged."""
+    held = R.Capture(False, False, BW.PIN_NONE, 7, False)
+    if held != BW.PIN_PRE or R.Capture(False, False, held, 7, False) != BW.PIN_KEEP or R.Capture(False, False, held, 7, True) != BW.PIN_KEEP:
+        return False
+    land_t = 400
+    a1, a2 = R.Age(True, 1600 - land_t, 1600), R.Age(True, 3000 - land_t, 3000)
+    return (a1 == 1200 and R.Use(False, False, held, 352, a1, 352) == (BW.PIN_USE_PIN, None)
+            and a2 == 2600 and R.Use(False, False, held, 352, a2, 352) == (BW.PIN_USE_LATEST, BW.PIN_WHY_AGED))
+
+
+def _swp_rows() -> list:
+    KE, HE, NO, PR, LA = BW.PIN_KEEP, BW.PIN_HERE, BW.PIN_NONE, BW.PIN_PRE, BW.PIN_LATE
+    T, F, n, n2 = True, False, 7, 8
+    rows = []
+    for name, args, want in (("c1", (F, F, NO, -1, F), KE), ("c2", (F, F, NO, n, F), PR), ("c3", (F, F, NO, n, T), LA),
+                             ("c4", (F, F, PR, n, F), KE), ("c5", (F, F, PR, n, T), KE), ("c6", (F, F, LA, n, F), KE),
+                             ("c7", (F, F, NO, n2, F), PR), ("c13", (T, F, NO, n, F), KE), ("c14", (T, F, NO, n, T), KE),
+                             ("c15", (T, F, NO, n, F), KE), ("c16", (F, T, NO, n, F), HE), ("c17", (F, T, NO, n, T), HE)):
+        rows.append((name, lambda R, args=args, want=want: R.Capture(*args) == want))
+    rows += [("body.round_trip", lambda R: R.Body(352, 7, False) == bytes((96, 1, 7, 0)) and R.Landed(R.Body(352, 7, False)) is False),
+             ("landed.flag_set", lambda R: R.Landed(bytes((96, 1, 7, 1))) is True),
+             ("landed.s163_body", lambda R: R.Landed(bytes((96, 1, 7))) is True),
+             ("landed.other_bits", lambda R: R.Landed(bytes((96, 1, 7, 2))) is False)]
+    L, PI = BW.PIN_USE_LATEST, BW.PIN_USE_PIN
+    for name, args, want in (("u1", (T, F, PR, 352, 500, 352), (L, BW.PIN_WHY_LEVER)), ("u2", (F, F, NO, -1, -1, 352), (L, BW.PIN_WHY_NONE)),
+                             ("u3", (F, F, PR, 352, 1200, 352), (PI, None)), ("u4", (F, F, PR, 352, 2500, 352), (PI, None)),
+                             ("u5", (F, F, PR, 352, 2501, 352), (L, BW.PIN_WHY_AGED)), ("u6", (F, F, PR, 352, 500, 353), (L, BW.PIN_WHY_OTHER)),
+                             ("u7", (F, F, LA, 352, 500, 352), (L, BW.PIN_WHY_LATE)), ("u8", (F, F, PR, 352, -1, 352), (L, BW.PIN_WHY_AGED)),
+                             ("u9", (F, T, PR, 352, 500, 352), (L, BW.PIN_WHY_WORLD)), ("u10", (T, T, PR, 352, 500, 352), (L, BW.PIN_WHY_LEVER))):
+        rows.append((name, lambda R, args=args, want=want: tuple(R.Use(*args)) == want))
+    for name, args, want in (("k1", (PR, 352, 352), T), ("k2", (PR, 352, 353), F), ("k3", (LA, 352, 352), T), ("k4", (NO, -1, 352), F)):
+        rows.append((name, lambda R, args=args, want=want: R.Consumed(*args) is want))
+    for name, args, want in (("d1", (352, T, 353), F), ("d2", (352, F, 353), T), ("d3", (352, T, 352), T), ("d4", (352, F, 352), T)):
+        rows.append((name, lambda R, args=args, want=want: R.Drop(*args) is want))
+    for name, args, want in (("t1", (352, 352, -1, -1), T), ("t2", (352, -1, 352, -1), T), ("t3", (352, -1, -1, 352), T),
+                             ("t4", (352, 353, 353, 353), F), ("t5", (-1, -1, -1, -1), F)):
+        rows.append((name, lambda R, args=args, want=want: R.Targeted(*args) is want))
+    for name, args, want in (("a1", (T, 1200, 3000), 1200), ("a2", (F, -1, 2000), 0), ("a3", (F, -1, 10000), 10000), ("a4", (T, 2600, 2650), 2600)):
+        rows.append((name, lambda R, args=args, want=want: R.Age(*args) == want))
+    pin, latest = b"PIN", b"LATEST"
+    rows += [("f1", lambda R: tuple(R.Frames(PI, pin, latest)) == (pin, latest, latest)),
+             ("f2", lambda R: tuple(R.Frames(L, pin, latest)) == (latest, latest, latest)),
+             ("seq.landing_ages_the_pin", _swp_seq)]
+    return rows
+
+
+def _swp_mutants() -> dict:
+    Cap, Use, Lo = BW.pin_capture_rule, BW.pin_use_rule, BW.intent_landed_of
+    NO, PR, LA, HE, KE = BW.PIN_NONE, BW.PIN_PRE, BW.PIN_LATE, BW.PIN_HERE, BW.PIN_KEEP
+    return {
+        "pin_latest_always": (dict(Use=lambda *a: (BW.PIN_USE_LATEST, BW.PIN_WHY_LEVER)), ["u3"]),
+        "pin_last_frame": (dict(Capture=lambda sp, here, q, fn, fl: (LA if fl else PR) if q != NO and fn >= 0 and not sp else Cap(sp, here, q, fn, fl)),
+                           ["c4", "c5"]),
+        "pin_landed_blind": (dict(Capture=lambda sp, here, q, fn, fl: Cap(sp, here, q, fn, False)), ["c3"]),
+        "pin_unknown_is_pre": (dict(Landed=lambda b: b is not None and len(b) >= 4 and (b[3] & 1) != 0), ["landed.s163_body"]),
+        "pin_any_bit_lands": (dict(Landed=lambda b: b is None or len(b) < 4 or b[3] != 0), ["landed.other_bits"]),
+        "pin_any_field": (dict(Use=lambda lo, fw, q, pf, age, fld: Use(lo, fw, q, fld, age, fld)), ["u6"]),
+        "pin_never_ages": (dict(Use=lambda lo, fw, q, pf, age, fld: Use(lo, fw, q, pf, 0, fld)), ["u5"]),
+        "pin_late_used": (dict(Use=lambda lo, fw, q, pf, age, fld: Use(lo, fw, PR if q == LA else q, pf, age, fld)), ["u7"]),
+        "pin_consumed_anywhere": (dict(Consumed=lambda q, pf, fld: q != NO), ["k2"]),
+        "dress_follows_story": (dict(Frames=lambda v, p, l: (BW.landing_frames(v, p, l)[0], l, BW.landing_frames(v, p, l)[0])), ["f1"]),
+        "party_follows_story": (dict(Frames=lambda v, p, l: (BW.landing_frames(v, p, l)[0], BW.landing_frames(v, p, l)[0], l)), ["f1"]),
+        "pin_recapture_after_consume": (dict(Capture=lambda sp, here, q, fn, fl: Cap(False, here, q, fn, fl)), ["c13"]),
+        "pin_single_slot": (dict(Drop=lambda hf, tg, nf: True), ["d1"]),
+        "pin_target_pending_only": (dict(Targeted=lambda pf, p, c, w: pf > 0 and pf == p), ["t2", "t3"]),
+        "pin_age_from_capture": (dict(Age=lambda ls, sl, sc: sc), ["a1", "a2", "seq.landing_ages_the_pin"]),
+        "pin_blind_never_ages": (dict(Age=lambda ls, sl, sc: sl if ls else 0), ["a3"]),
+        "pin_kept_when_here": (dict(Capture=lambda sp, here, q, fn, fl: Cap(sp, False, q, fn, fl)), ["c16"]),
+        "pin_used_from_world": (dict(Use=lambda lo, fw, q, pf, age, fld: Use(lo, False, q, pf, age, fld)), ["u9"]),
+        "pin_here_after_landed": (dict(Capture=lambda sp, here, q, fn, fl: LA if fl and not sp and q == NO and fn >= 0 else Cap(sp, here, q, fn, fl)),
+                                  ["c17"]),
+    }
+
+
+def test_s164_pin_rows_are_the_twins_and_every_mutant_is_caught():
+    """PIN's rows: PinCaptureRule (c1-c7, the T1 spent rows c13-c15, the R4 here rows c16-c17), IntentSectionBody / IntentLandedOf (S3),
+    PinUseRule (u1-u10), PinConsumed, PinDropOnNew and PinTargeted (T5), PinAgeRule (T6), LandingFrames (R1: three outputs) and the
+    sequence row hold under battlewire's twins; each of PIN's 19 mutants fails the rows the design names (the two live rows are the
+    engine's)."""
+    rows, mutants = _swp_rows(), _swp_mutants()
+    assert len(mutants) == 19 and len(rows) == 46
+    _sw_prove(rows, _swp_make, mutants)
+
+
+# ---- D+E: the fade-aware follow and the 12-tick fade ----------------------------------------------------------------------
+def _swf_make(**over):
+    return _sw_ns(dict(View=BW.fade_view_rule, Count=BW.fade_count_backlog, Backlog=BW.fade_backlog_rule, Path=BW.fade_path_rule,
+                       Action=BW.fade_action_rule, Grace=BW.fade_grace_rule, Black=BW.fade_black_ticks_rule, Due=BW.fade_due_rule,
+                       Reassert=BW.fade_reassert_rule), over)
+
+
+def _swf_count(R, ev=(), wins=(), engaged=True, key=False) -> tuple:
+    return tuple(R.Count(list(ev), list(wins), 351, 10000, engaged, key))
+
+
+def _swf_rows() -> list:
+    V = BW
+    UN, VI, HE, BL = V.FADE_VIEW_UNKNOWN, V.FADE_VIEW_VISIBLE, V.FADE_VIEW_HEADING, V.FADE_VIEW_BLACK
+    ADD, SUB = V.FADE_MODE_ADD, V.FADE_MODE_SUB
+    rows = []
+    for name, args, want in (("unreadable", (False, SUB, 255, 255, 0), UN), ("add_white_is_not_black", (True, ADD, 255, 255, 0), VI),
+                             ("add_heading_white", (True, ADD, 0, 255, 10), VI), ("sub_black_idle", (True, SUB, 255, 255, 0), BL),
+                             ("sub_black_at_floor", (True, SUB, 248, 255, 3), BL), ("sub_below_floor_heading", (True, SUB, 247, 255, 1), HE),
+                             ("sub_heading_from_visible", (True, SUB, 0, 255, 24), HE),
+                             ("sub_fade_in_starting_reads_black", (True, SUB, 255, 0, 16), BL),
+                             ("sub_dim_idle", (True, SUB, 120, 255, 0), VI), ("sub_heading_to_dim", (True, SUB, 0, 200, 10), VI),
+                             ("sub_visible_idle", (True, SUB, 0, 0, 0), VI)):
+        rows.append((f"view.{name}", lambda R, args=args, want=want: R.View(*args) == want))
+    BN, BLI, BAH, BKE, BOP, BUN = V.FADE_BK_NONE, V.FADE_BK_LINE, V.FADE_BK_AHEAD, V.FADE_BK_KEY, V.FADE_BK_OPEN, V.FADE_BK_UNKNOWN
+    T, F = True, False
+    for name, args, want in (("unreadable", (F, 0, 0, F, F), BUN), ("none", (T, 0, 0, F, F), BN), ("line", (T, 1, 0, F, F), BLI),
+                             ("ahead", (T, 0, 1, F, F), BAH), ("key", (T, 0, 0, T, F), BKE), ("open", (T, 0, 0, F, T), BOP),
+                             ("line_over_ahead", (T, 1, 1, T, T), BLI), ("ahead_over_key", (T, 0, 1, T, T), BAH),
+                             ("key_over_open", (T, 0, 0, T, T), BKE), ("unknown_over_all", (F, 1, 1, T, T), BUN)):
+        rows.append((f"backlog.{name}", lambda R, args=args, want=want: R.Backlog(*args) == want))
+    E, W, LK, OR, LO = V.FadeEvt, V.FadeWin, V.DIALOG_CLS_LOCKED, V.DIALOG_CLS_ORPHANED, V.DIALOG_CLS_LOCAL
+    for name, kw, check in (
+            ("event_on_open_line", dict(ev=[E(351, 3, 129, 9000)], wins=[W(351, 3, 129, LK)]), lambda c: c[1:3] == (1, 0)),
+            ("tried_event_counts", dict(ev=[E(351, 3, 129, 9000, True)], wins=[W(351, 3, 129, LK)]), lambda c: c[1] == 1),
+            ("ahead_young", dict(ev=[E(351, 3, 130, 8000)]), lambda c: c[1:3] == (0, 1)),
+            ("key_for_my_field", dict(key=True), lambda c: c[0] == BKE),
+            ("locked_line_open", dict(wins=[W(351, 3, 129, LK)]), lambda c: c[3] is True and c[0] == BOP),
+            ("untracked_live_line_counts", dict(wins=[W(351, 3, 129, None)]), lambda c: c[3] is True),
+            ("event_for_warp_field", dict(ev=[E(350, 3, 129, 9000)], wins=[W(350, 3, 129, LK)]), lambda c: c[1:3] == (0, 0)),
+            ("event_on_inh_line", dict(ev=[E(351, 3, 129, 9000)], wins=[W(351, 3, 129, LK, True)]), lambda c: c[1:3] == (0, 0)),
+            ("event_on_local_line", dict(ev=[E(351, 3, 129, 9000)], wins=[W(351, 3, 129, LO)]), lambda c: c[1:3] == (0, 0)),
+            ("ahead_aged", dict(ev=[E(351, 3, 130, 7000)]), lambda c: c[2] == 0),
+            ("key_for_other_field", dict(key=False), lambda c: c[0] == BN),
+            ("orphaned_line", dict(wins=[W(351, 3, 129, OR)]), lambda c: c[3] is False),
+            ("inh_line", dict(wins=[W(351, 3, 129, LK, True)]), lambda c: c[3] is False),
+            ("lock_off", dict(wins=[W(351, 3, 129, LK)], engaged=False), lambda c: c[3] is False)):
+        rows.append((f"count.{name}", lambda R, kw=kw, check=check: check(_swf_count(R, **kw))))
+    KI, OL, FA, BA = V.FADE_PATH_KICK, V.FADE_PATH_OLD, V.FADE_PATH_FAST, V.FADE_PATH_BACKLOG
+    ACT, OLD, LONG, NOG, NOR, NOH = (V.FADE_LEVER_ACT, V.FADE_LEVER_OLD, V.FADE_LEVER_LONG, V.FADE_LEVER_NOGATE, V.FADE_LEVER_NORECHECK,
+                                     V.FADE_LEVER_NOHURRY)
+    for name, args, want in (("kick", (T, ACT, F, VI, BN), KI), ("kick_over_nogate", (T, NOG, F, VI, BLI), KI),
+                             ("lever_old", (F, OLD, F, VI, BN), OL), ("own_warp_old", (F, ACT, T, VI, BN), OL),
+                             ("view_unknown_old", (F, ACT, F, UN, BN), OL), ("backlog_unknown_old", (F, ACT, F, VI, BUN), OL),
+                             ("backlog_unknown_even_nogate", (F, NOG, F, VI, BUN), OL),
+                             ("backlog_line", (F, ACT, F, VI, BLI), BA), ("backlog_ahead", (F, ACT, F, VI, BAH), BA),
+                             ("backlog_key", (F, ACT, F, VI, BKE), BA), ("backlog_open", (F, ACT, F, VI, BOP), BA),
+                             ("nogate_ignores_backlog", (F, NOG, F, VI, BLI), FA), ("norecheck_keeps_start_gate", (F, NOR, F, VI, BLI), BA),
+                             ("nohurry_keeps_gate", (F, NOH, F, VI, BLI), BA), ("fast_visible", (F, ACT, F, VI, BN), FA),
+                             ("fast_heading", (F, ACT, F, HE, BN), FA), ("fast_black", (F, ACT, F, BL, BN), FA)):
+        rows.append((f"path.{name}", lambda R, args=args, want=want: R.Path(*args) == want))
+    JO, HU, FD, WI = V.FADE_ACT_JOIN, V.FADE_ACT_HURRY, V.FADE_ACT_FADE, V.FADE_ACT_WIPE
+    for name, args, want in (("old_wipes_24", (OL, BL, 0, ACT), (WI, 24)), ("kick_wipes_24", (KI, VI, 0, ACT), (WI, 24)),
+                             ("fast_black_joins", (FA, BL, 0, ACT), (JO, 12)), ("fast_heading_12_joins", (FA, HE, 12, ACT), (JO, 12)),
+                             ("fast_heading_13_hurries", (FA, HE, 13, ACT), (HU, 12)), ("fast_visible_fades_12", (FA, VI, 0, ACT), (FD, 12)),
+                             ("backlog_black_joins", (BA, BL, 0, ACT), (JO, 24)), ("backlog_heading_24_joins", (BA, HE, 24, ACT), (JO, 24)),
+                             ("backlog_heading_25_hurries", (BA, HE, 25, ACT), (HU, 24)),
+                             ("backlog_visible_fades_24", (BA, VI, 0, ACT), (FD, 24)),
+                             ("nohurry_heading_60_joins", (FA, HE, 60, NOH), (JO, 12)), ("long_visible_fades_24", (FA, VI, 0, LONG), (FD, 24))):
+        rows.append((f"action.{name}", lambda R, args=args, want=want: tuple(R.Action(*args)) == want))
+    for name, a, want in (("join_3", JO, 3), ("fade_0", FD, 0), ("hurry_0", HU, 0)):
+        rows.append((f"grace.{name}", lambda R, a=a, want=want: R.Grace(a) == want))
+    imax, imin = 2**31 - 1, -(2**31)
+    for name, args, want in (("first_black_arms_0", (T, F, 0, 100), (T, 100, 0)), ("black_counts", (T, T, 100, 103), (T, 100, 3)),
+                             ("leaving_black_disarms", (F, T, 100, 104), (F, 100, -1)), ("rearm_at_0", (T, F, 100, 110), (T, 110, 0)),
+                             ("keytick_wrap", (T, T, imax - 1, imin + 1), (T, imax - 1, 3))):
+        rows.append((f"black.{name}", lambda R, args=args, want=want: tuple(R.Black(*args)) == want))
+    DW, DP, DB, DT, DF, DR = V.FADE_DUE_WAIT, V.FADE_DUE_PRIME, V.FADE_DUE_BLACK, V.FADE_DUE_TIMER, V.FADE_DUE_FALLBACK, V.FADE_DUE_RECHECK
+    for name, args, want in (("old_waits_on_black", (OL, F, BL, 5, 0, BN, F, ACT), DW), ("old_timer", (OL, T, VI, -1, 0, BN, F, ACT), DT),
+                             ("kick_timer", (KI, T, BL, 5, 0, BN, F, ACT), DT), ("backlog_black_waits", (BA, F, BL, 5, 3, BLI, F, ACT), DW),
+                             ("backlog_timer", (BA, T, BL, 5, 3, BLI, F, ACT), DT), ("black_primes_first", (FA, F, BL, 0, 0, BN, F, ACT), DP),
+                             ("fast_black_in_grace", (FA, F, BL, 2, 3, BN, F, ACT), DW),
+                             ("fast_black_grace_spent", (FA, F, BL, 3, 3, BN, F, ACT), DP),
+                             ("prime_then_black", (FA, F, BL, 3, 3, BN, T, ACT), DB),
+                             ("fast_black_in_grace_at_timer", (FA, T, BL, 1, 3, BN, F, ACT), DF),
+                             ("fast_black_spent_and_timer_is_black", (FA, T, BL, 3, 3, BN, F, ACT), DB),
+                             ("fast_heading_waits", (FA, F, HE, -1, 0, BN, F, ACT), DW),
+                             ("fast_fallback_heading", (FA, T, HE, -1, 0, BN, F, ACT), DF),
+                             ("fast_fallback_visible", (FA, T, VI, -1, 0, BN, F, ACT), DF),
+                             ("recheck_holds", (FA, F, BL, 3, 3, BLI, T, ACT), DW), ("recheck_at_timer", (FA, T, BL, 3, 3, BLI, F, ACT), DR),
+                             ("recheck_unknown_holds", (FA, F, BL, 3, 3, BUN, F, ACT), DW),
+                             ("nogate_ignores_recheck", (FA, F, BL, 3, 3, BLI, T, NOG), DB),
+                             ("norecheck_ignores_recheck", (FA, F, BL, 3, 3, BLI, T, NOR), DB)):
+        rows.append((f"due.{name}", lambda R, args=args, want=want: R.Due(*args) == want))
+
+    def never_past_the_timer(R) -> bool:
+        return all(R.Due(p, True, v, bt, g, bk, pr, lv) not in (DW, DP)
+                   for p in (FA, BA, OL, KI) for v in (UN, VI, HE, BL) for bt in (-1, 0, 2, 3, 5) for g in (0, 3)
+                   for bk in (BN, BLI, BAH, BKE, BOP, BUN) for pr in (F, T) for lv in (ACT, OLD, LONG, NOG, NOR, NOH))
+    rows.append(("due.never_past_the_timer", never_past_the_timer))
+    for name, args, want in (("fast_visible_once", (FA, F, F, VI), T), ("backlog_visible_once", (BA, F, F, VI), T), ("spent", (FA, T, F, VI), F),
+                             ("after_timer", (FA, F, T, VI), F), ("old_never", (OL, F, F, VI), F), ("kick_never", (KI, F, F, VI), F),
+                             ("heading_no", (FA, F, F, HE), F), ("black_no", (FA, F, F, BL), F)):
+        rows.append((f"reassert.{name}", lambda R, args=args, want=want: R.Reassert(*args) is want))
+    return rows
+
+
+def _swf_count_mut(ev, wins, my, now, engaged, key, *, any_field=False, inh=False, local=False, no_cap=False, orphan=False,
+                   lock_blind=False) -> tuple:
+    """CountBacklog with one rejected rule restored (the count_* mutants)."""
+    on_open = ahead = 0
+    for e in ev:
+        if e.field != my and not any_field:
+            continue
+        match = [w for w in wins if (w.field, w.win, w.text) == (e.field, e.win, e.text)]
+        if not match:
+            ahead += 1 if (no_cap or BW._i32(now - e.seen) < BW.FADE_AHEAD_MAX_MS) else 0
+        elif any((w.cls != BW.DIALOG_CLS_LOCAL or local) and (not w.inh or inh) for w in match):
+            on_open += 1
+    classes = (None, BW.DIALOG_CLS_LOCKED, BW.DIALOG_CLS_ORPHANED) if orphan else (None, BW.DIALOG_CLS_LOCKED)
+    line_open = (engaged or lock_blind) and any(w.field == my and w.cls in classes and not w.inh for w in wins)
+    return BW.fade_backlog_rule(True, on_open, ahead, key, line_open), on_open, ahead, line_open
+
+
+def _swf_due_mut(path, to, view, bt, grace, bk, primed, lever, *, wall_only=False, backlog_black=False, no_recheck=False,
+                 no_grace=False, no_fallback=False, recheck_past=False, unknown_free=False, no_prime=False, prime_at_timer=False) -> int:
+    """DueRule with one rejected rule restored (the due_* mutants)."""
+    V = BW
+    if wall_only:
+        return V.FADE_DUE_TIMER if to else V.FADE_DUE_WAIT
+    if path != V.FADE_PATH_FAST:
+        if backlog_black and path == V.FADE_PATH_BACKLOG and view == V.FADE_VIEW_BLACK:
+            return V.FADE_DUE_BLACK
+        return V.FADE_DUE_TIMER if to else V.FADE_DUE_WAIT
+    held = (bk != V.FADE_BK_NONE and not (unknown_free and bk == V.FADE_BK_UNKNOWN)
+            and lever not in (V.FADE_LEVER_NOGATE, V.FADE_LEVER_NORECHECK) and not no_recheck)
+    if held:
+        return V.FADE_DUE_WAIT if recheck_past or not to else V.FADE_DUE_RECHECK
+    ready = view == V.FADE_VIEW_BLACK and (bt >= grace or (no_grace and bt >= 0))
+    if ready and (primed or no_prime or (to and not prime_at_timer)):
+        return V.FADE_DUE_BLACK
+    if ready:
+        return V.FADE_DUE_PRIME
+    return V.FADE_DUE_WAIT if no_fallback or not to else V.FADE_DUE_FALLBACK
+
+
+def _swf_mutants() -> dict:
+    Vw, Bk, Pt, Ac, Bt, Rs = (BW.fade_view_rule, BW.fade_backlog_rule, BW.fade_path_rule, BW.fade_action_rule, BW.fade_black_ticks_rule,
+                              BW.fade_reassert_rule)
+    VI, HE, BL = BW.FADE_VIEW_VISIBLE, BW.FADE_VIEW_HEADING, BW.FADE_VIEW_BLACK
+    BN, BLI, BAH, BUN = BW.FADE_BK_NONE, BW.FADE_BK_LINE, BW.FADE_BK_AHEAD, BW.FADE_BK_UNKNOWN
+    FA, KI, OL = BW.FADE_PATH_FAST, BW.FADE_PATH_KICK, BW.FADE_PATH_OLD
+    JO, HU, WI = BW.FADE_ACT_JOIN, BW.FADE_ACT_HURRY, BW.FADE_ACT_WIPE
+
+    def cnt(**flags):
+        return lambda ev, wins, my, now, eng, key: _swf_count_mut(ev, wins, my, now, eng, key, **flags)
+
+    def due(**flags):
+        return lambda *a: _swf_due_mut(*a, **flags)
+
+    def view_target_blind(ok, mode, cur, tgt, left):
+        return Vw(ok, mode, cur, 255, left) if ok and mode == BW.FADE_MODE_SUB and cur < BW.FADE_BLACK_FLOOR else Vw(ok, mode, cur, tgt, left)
+
+    return {
+        "view_add_white_black": (dict(View=lambda ok, mode, *a: Vw(ok, BW.FADE_MODE_SUB, *a) if ok else Vw(ok, mode, *a)),
+                                 ["view.add_white_is_not_black"]),
+        "view_exact_255": (dict(View=lambda ok, mode, cur, tgt, left: Vw(ok, mode, cur if cur >= 255 else min(cur, BW.FADE_BLACK_FLOOR - 1),
+                                                                         tgt, left)), ["view.sub_black_at_floor"]),
+        "view_target_blind": (dict(View=view_target_blind), ["view.sub_heading_to_dim"]),
+        "view_idle_heading": (dict(View=lambda ok, mode, cur, tgt, left: Vw(ok, mode, cur, tgt, max(left, 1))), ["view.sub_dim_idle"]),
+        "view_fade_in_not_black": (dict(View=lambda ok, mode, cur, tgt, left: HE if Vw(ok, mode, cur, tgt, left) == BL and left > 0
+                                        and tgt < BW.FADE_BLACK_FLOOR else Vw(ok, mode, cur, tgt, left)),
+                                   ["view.sub_fade_in_starting_reads_black"]),
+        "view_unknown_visible": (dict(View=lambda ok, *a: VI if not ok else Vw(ok, *a)), ["view.unreadable"]),
+        "backlog_line_only": (dict(Backlog=lambda ok, on, ah, key, lo: Bk(ok, on, 0, False, False)), ["backlog.ahead"]),
+        "backlog_no_ahead": (dict(Backlog=lambda ok, on, ah, key, lo: Bk(ok, on, 0, key, lo)), ["backlog.ahead"]),
+        "backlog_no_key": (dict(Backlog=lambda ok, on, ah, key, lo: Bk(ok, on, ah, False, lo)), ["backlog.key"]),
+        "backlog_no_open": (dict(Backlog=lambda ok, on, ah, key, lo: Bk(ok, on, ah, key, False)), ["backlog.open"]),
+        "backlog_unknown_none": (dict(Backlog=lambda ok, *a: BN if not ok else Bk(ok, *a)), ["backlog.unreadable"]),
+        "backlog_order_swapped": (dict(Backlog=lambda ok, on, ah, key, lo: BAH if ok and ah > 0 else Bk(ok, on, ah, key, lo)),
+                                  ["backlog.line_over_ahead"]),
+        "count_any_field": (dict(Count=cnt(any_field=True)), ["count.event_for_warp_field"]),
+        "count_inh": (dict(Count=cnt(inh=True)), ["count.event_on_inh_line"]),
+        "count_local": (dict(Count=cnt(local=True)), ["count.event_on_local_line"]),
+        "count_no_age_cap": (dict(Count=cnt(no_cap=True)), ["count.ahead_aged"]),
+        "count_orphan": (dict(Count=cnt(orphan=True)), ["count.orphaned_line"]),
+        "count_lock_blind": (dict(Count=cnt(lock_blind=True)), ["count.lock_off"]),
+        "path_no_gate": (dict(Path=lambda k, lv, ow, v, bk: Pt(k, lv, ow, v, BN if bk != BUN else bk)), ["path.backlog_line"]),
+        "path_kick_fast": (dict(Path=lambda k, *a: Pt(False, *a)), ["path.kick"]),
+        "path_fault_fast": (dict(Path=lambda k, lv, ow, v, bk: Pt(k, lv, ow, VI if v == BW.FADE_VIEW_UNKNOWN else v, BN if bk == BUN else bk)),
+                            ["path.view_unknown_old", "path.backlog_unknown_old"]),
+        "path_own_warp_blind": (dict(Path=lambda k, lv, ow, v, bk: Pt(k, lv, False, v, bk)), ["path.own_warp_old"]),
+        "path_lever_blind": (dict(Path=lambda k, lv, ow, v, bk: Pt(k, BW.FADE_LEVER_ACT if lv == BW.FADE_LEVER_OLD else lv, ow, v, bk)),
+                             ["path.lever_old"]),
+        "act_always_wipe": (dict(Action=lambda p, v, left, lv: (WI, 24)), ["action.fast_visible_fades_12"]),
+        "act_reinit_heading": (dict(Action=lambda p, v, left, lv: (HU, Ac(p, v, left, lv)[1]) if Ac(p, v, left, lv)[0] == JO and v == HE
+                                    else Ac(p, v, left, lv)), ["action.fast_heading_12_joins"]),
+        "act_never_hurry": (dict(Action=lambda p, v, left, lv: (JO, Ac(p, v, left, lv)[1]) if Ac(p, v, left, lv)[0] == HU
+                                 else Ac(p, v, left, lv)), ["action.fast_heading_13_hurries"]),
+        "act_black_wipes": (dict(Action=lambda p, v, left, lv: (WI, 24) if v == BL else Ac(p, v, left, lv)), ["action.fast_black_joins"]),
+        "act_fast_24": (dict(Action=lambda p, v, left, lv: Ac(p, v, left, BW.FADE_LEVER_LONG if lv == BW.FADE_LEVER_ACT else lv)),
+                        ["action.fast_visible_fades_12"]),
+        "act_backlog_12": (dict(Action=lambda p, v, left, lv: Ac(FA, v, left, lv) if p == BW.FADE_PATH_BACKLOG else Ac(p, v, left, lv)),
+                           ["action.backlog_visible_fades_24"]),
+        "due_wall_only": (dict(Due=due(wall_only=True)), ["due.prime_then_black"]),
+        "due_backlog_commits_on_black": (dict(Due=due(backlog_black=True)), ["due.backlog_black_waits"]),
+        "due_no_recheck": (dict(Due=due(no_recheck=True)), ["due.recheck_holds"]),
+        "due_no_grace": (dict(Due=due(no_grace=True)), ["due.fast_black_in_grace"]),
+        "due_no_fallback": (dict(Due=due(no_fallback=True)), ["due.fast_fallback_heading", "due.never_past_the_timer"]),
+        "due_recheck_past_timer": (dict(Due=due(recheck_past=True)), ["due.recheck_at_timer"]),
+        "due_unknown_backlog_free": (dict(Due=due(unknown_free=True)), ["due.recheck_unknown_holds"]),
+        "due_no_prime": (dict(Due=due(no_prime=True)), ["due.black_primes_first", "due.fast_black_grace_spent"]),
+        "due_prime_at_timer": (dict(Due=due(prime_at_timer=True)), ["due.fast_black_spent_and_timer_is_black", "due.never_past_the_timer"]),
+        "grace_on_own_fade": (dict(Grace=lambda a: BW.FADE_JOIN_GRACE_TICKS), ["grace.fade_0"]),
+        "reassert_never": (dict(Reassert=lambda *a: False), ["reassert.fast_visible_once"]),
+        "reassert_every_tick": (dict(Reassert=lambda p, rs, to, v: Rs(p, False, to, v)), ["reassert.spent"]),
+        "reassert_old_path": (dict(Reassert=lambda p, rs, to, v: Rs(FA if p in (OL, KI) else p, rs, to, v)), ["reassert.old_never"]),
+        "blackticks_no_disarm": (dict(Black=lambda b, a, s, k: (a, s, BW._i32(k - s)) if not b and a else Bt(b, a, s, k)),
+                                 ["black.leaving_black_disarms"]),
+    }
+
+
+def test_s164_de_fade_rows_are_the_twins_and_every_mutant_is_caught():
+    """D+E's rows: ViewRule, BacklogRule and its cascade, CountBacklog over synthetic facts, PathRule, ActionRule, GraceRule,
+    BlackTicksRule (the Int32 KeyTick wrap through _i32), DueRule with the `never_past_the_timer` sweep (the s42 never-abandon law) and
+    ReassertRule hold under battlewire's twins; each of D+E's 43 mutants fails the rows the design names (slot_reads is the engine's)."""
+    rows, mutants = _swf_rows(), _swf_mutants()
+    assert len(mutants) == 43 and len([n for n, _c in rows if n.startswith("due.")]) == 20
+    _sw_prove(rows, _swf_make, mutants)
+
+
+def test_s164_de_today_constants_are_the_live_follow_fades():
+    """`today_constants`: OldFrames == FollowFadeFrames and OldWaitS == FollowFadeWait, read off the live stack's NetSyncClient.cs (the
+    Old path is byte-identical to today's follow fade); E's fast fade is stock's own 12-frame default."""
+    cli = " ".join(t for t in (_strip_comment(ln.strip()) for ln in stack_file("NetSyncClient.cs")) if t)
+    assert f"private const Int32 FollowFadeFrames = {BW.FADE_OLD_FRAMES};" in cli
+    assert f"private const Single FollowFadeWait = {BW.FADE_OLD_WAIT_S}f;" in cli
+    assert BW.FADE_OLD_WAIT_MS == round(BW.FADE_OLD_WAIT_S * 1000) == 900
+    assert (BW.FADE_FAST_FRAMES, BW.FADE_JOIN_GRACE_TICKS, BW.FADE_BLACK_FLOOR, BW.FADE_AHEAD_MAX_MS) == (12, 3, 248, 3000)
+    assert (BW.FADE_MODE_ADD, BW.FADE_MODE_SUB) == (0, 1)                    # FadeMode { None = -1, Add, Sub }
+
+
+# ---- the item lines, S163_FORMS, the lever and the proof line --------------------------------------------------------------
+def test_s164_behaviour_lines_print_without_stamps_and_instrument_lines_do_not_print():
+    """§ Log classes: a behaviour line prints under `swap stamps off`, without its stamp; an instrument line does not print; every
+    stamped line ends with " (t T ms)" after any closing ")" (the stamp never lands inside a literal a kit source test checks); each
+    builder's line is in its class by prefix."""
+    behaviour = [
+        lambda on: BW.swap_log_orphan_hold(on, 7, 113, 900), lambda on: BW.swap_log_orphan_hold_end(on, 7, 113, 2400, BW.SWAP_HOLD_END_EVENT, 900),
+        lambda on: BW.own_log_pass(on, 352, 351, BW.OWN_TERM_CACHE, 4, 900, announced_ms=640),
+        lambda on: BW.own_log_refusal(on, 352, 351, BW.OWN_TERM_PENDING, BW.OWN_TERM_REFUSED_ATE,
+                                      BW.swap_own_outcome_words("through", "budget"), 4, 900),
+        lambda on: BW.intent_cache_log_write(on, 352, 7, 351, 351, 900),
+        lambda on: BW.intent_cache_log_clear(on, 352, BW.intent_cache_left_reason(351, 352, 352), 900),
+        lambda on: BW.pin_log_kept(on, 7, 352, 900), lambda on: BW.pin_log_stages(on, 352, 7, 1200, 1, 900),
+        lambda on: BW.pin_log_latest(on, 352, BW.pin_latest_why_words(BW.PIN_WHY_AGED, age_ms=2600), 900),
+        lambda on: BW.life_log_landed(on, 7, 352, 390, 900), lambda on: BW.life_log_ended(on, 7, 352, 2210, BW.INTENT_END_STANDS, 900),
+        lambda on: BW.fade_log_fast_start(on, 352, BW.FADE_VIEW_HEADING, BW.FADE_MODE_SUB, 9, BW.FADE_ACT_JOIN, 12, 900),
+        lambda on: BW.fade_log_due(on, 352, 410, 13, BW.fade_due_words(BW.FADE_DUE_BLACK, grace=3, primed=True), 900)]
+    for b in behaviour:
+        on, off = b(True), b(False)
+        assert on.endswith(" (t 900 ms)") and off == on[:-len(" (t 900 ms)")] and BW.swap_line_class(on) == "behaviour", on
+    instrument = [lambda on: BW.swap_log_landed(on, 352, BW.SWAP_VIA_OWN, 4, 900), lambda on: BW.swap_log_kick_commit(on, 351, 905, 900),
+                  lambda on: BW.swap_log_closed_host(on, 9, 352, 351, BW.SWAP_CLOSE_RESET, BW.SWAP_SITE_BENCH, -1, -1, 1, 1, 0, 0,
+                                                     BW.SWAP_OOB_NONE, 900)]
+    for b in instrument:
+        assert b(False) is None and BW.swap_line_class(b(True)) == "instrument" and b(True).endswith(" (t 900 ms)")
+    assert BW.swap_line_class(BW.swap_harness_release(True)) == "harness"
+    assert BW.swap_line_class(BW.swap_log_fault("PIN", "ApplyStoryImpl", "x")) == "fault"
+    assert BW.swap_line_class("[NetSync] transition intent -> field 352 (nonce 7)") == "behaviour"   # the s163 line keeps its class
+    assert BW.swap_log_own_jump(False, 0, 352, 351, "pass", "host-field", 352, 4, 900) is None     # L-OWN is instrument
+    assert BW.swap_log_own_jump(True, 0, 352, 351, "ate", "ate", 352, 4, 900) is None              # the ATE prints its own line
+    assert BW.swap_log_own_jump(False, BW.OWN_TERM_PENDING, 352, 351, "pass", "pending", 352, 4, 900) == (
+        "[NetSync] own Field(352) passes on field 351 -- the host's announced field (pending); my follow's fade becomes this commit (one "
+        "load) (swap #4)")
+    assert BW.own_log_pass(True, 352, 351, BW.OWN_TERM_INTENT, 0, -1, keep_own=True) == (
+        "[NetSync] own Field(352) passes on field 351 -- the host's announced field (intent) -- my copy's own entrance (the ATE exit hold)")
+    assert BW.pin_log_pre_differs(True, 7, 0, 900) is None and BW.pin_log_pre_differs(True, 7, 2, 900).endswith("(t 900 ms)")
+
+
+def test_s164_the_refusal_literal_starts_like_the_pass_line_r9():
+    """R9: C's refusal line starts ``[NetSync] own Field(`` exactly as its pass line does (rev 1 doubled the prefix); NoteOwnJump is the
+    one printer (I2) -- a refusal followed by each verdict the old rule can reach yields exactly one line, ending with that verdict's
+    outcome words."""
+    assert BW.OWN_REFUSAL_PREFIX == "[NetSync] own Field("
+    for refusal, words in ((BW.OWN_TERM_REFUSED_WORLD, "the source-field hold holds it"),
+                           (BW.OWN_TERM_REFUSED_ATE, "the ATE relay holds the follow to it")):
+        for verdict, why, lane in (("pass", "host-field", 352), ("through", "budget", 0), ("bounce", "not-host", 0), ("pass", "fault", 0)):
+            line = BW.swap_log_own_jump(True, refusal, 352, 351, verdict, why, lane, 5, 4321, term=BW.OWN_TERM_COMMITTED)
+            assert line.startswith("[NetSync] own Field(352) on field 351 matches the host's announced field (committed) but " + words)
+            assert line.count("[NetSync]") == 1 and line.endswith(BW.swap_own_outcome_words(verdict, why, 351, lane) + " (swap #5) (t 4321 ms)")
+    assert BW.swap_log_own_jump(True, BW.OWN_TERM_REFUSED_WORLD, 352, 351, "bounce", "not-host", 0, 5, 1, term=BW.OWN_TERM_CACHE).startswith(
+        BW.own_log_pass(True, 352, 351, BW.OWN_TERM_CACHE, 5, 1, announced_ms=1)[:len(BW.OWN_REFUSAL_PREFIX) + 4])
+
+
+#: Each S163_FORMS form: an example line as the s163 code builds it, and the ADJACENT string literals of its C# concatenation (read off
+#: the live stack's file, so a drift on the engine side reds the form)
+_S163_FORM_PINS = {
+    "intent_emit": ("[NetSync] transition intent -> field 352 (nonce 7)", "NetSyncClient.cs",
+                    ["[NetSync] transition intent -> field ", " (nonce ", ")"]),
+    "scene_ended_talk": ("[NetSync] host scene: ended (nonce 3) -- a new talk started", "NetSyncClient.cs",
+                         ["[NetSync] host scene: ended (nonce ", ") -- a new talk started"]),
+    "scene_rose_talk": ("[NetSync] host scene: rose (nonce 4, field 351) -- a talk started", "NetSyncClient.cs",
+                        ["[NetSync] host scene: rose (nonce ", ", field ", ") -- a talk started"]),
+    "scene_rose": ("[NetSync] host scene: rose (nonce 4, field 351) -- a blocking window", "NetSyncClient.cs",
+                   ["[NetSync] host scene: rose (nonce ", ", field ", ") -- "]),
+    "scene_ended": ("[NetSync] host scene: ended (nonce 4) -- the window closed", "NetSyncClient.cs",
+                    ["[NetSync] host scene: ended (nonce ", ") -- "]),
+    "dialog_tap": ("[NetSync] dialog tap (voice close): win 3 text 139 kind 1 idx 0 page 0 closes seq 12", "NetSyncClient.cs",
+                   ["[NetSync] dialog tap", " (voice close)", "", ": win ", " text ", " kind ", " idx ", " page ", " closes", "", " seq "]),
+    "follow_serial": ("[NetSync] following the peer to field 351", "NetSyncClient.cs", ["[NetSync] following the peer to field "]),
+    "follow_intent": ("[NetSync] intent: following the peer to field 352 (parallel)", "NetSyncClient.cs",
+                      ["[NetSync] intent: following the peer to field ", " (parallel)"]),
+    "drop_world": ("[NetSync] follow-warp to field 352 dropped: the field left for the world map inside its fade (the world rejoin takes "
+                   "over)", "NetSyncClient.cs", ["[NetSync] follow-warp to field ", " dropped: the field left for the world map inside its "
+                                                 "fade (the ", "world rejoin takes over)"]),
+    "drop_kick_in_flight": ("[NetSync] the same-field kick on field 351 dropped: a field change is in flight -- the load already in "
+                            "flight is the boundary the kick wanted (the kick re-arms if that load skips the mirror)", "NetSyncClient.cs",
+                            ["[NetSync] the same-field kick on field ", " dropped: ", " -- the load already in flight ",
+                             "is the boundary the kick wanted (the kick re-arms if that load skips the mirror)"]),
+    "drop_in_flight": ("[NetSync] follow-warp to field 352 dropped: a field change is in flight -- the load already in flight ends this "
+                       "fade; the follow re-arms on the field it lands on", "NetSyncClient.cs",
+                       ["[NetSync] follow-warp to field ", " dropped: ", " -- the load already in flight ends this ",
+                        "fade; the follow re-arms on the field it lands on"]),
+    "landing_arrived": ("[NetSync] follow-warp to field 352 cancelled: this load already landed on it (no second load)", "NetSyncClient.cs",
+                        ["[NetSync] ", " cancelled: this load already landed on it (no second load)"]),
+    "landing_superseded": ("[NetSync] the same-field kick on field 351 cancelled: field 350 loaded first (its fade ended with that field) "
+                           "-- the kick re-arms if this load skips the mirror", "NetSyncClient.cs",
+                           ["[NetSync] ", " cancelled: field ", " loaded first (its fade ended with that field) -- "]),
+    "landing_never": ("[NetSync] follow-warp to field 352 never landed (field 351 loaded instead: its commit was wiped or overwritten) -- "
+                      "its latch is cleared and the follow re-arms here", "NetSyncClient.cs",
+                      ["[NetSync] ", " never landed (field ", " loaded instead: its commit was wiped or overwritten) -- ", "",
+                       "its latch is cleared and "]),
+    "follow_waits_kick": ("[NetSync] the same-field kick on field 351 waits: a load (this field is already changing scene -- that load "
+                          "is the boundary the kick wants)", "NetSyncClient.cs",
+                          ["[NetSync] the same-field kick on field ", " waits: ",
+                           " (this field is already changing scene -- that load is the boundary the kick wants)"]),
+    "follow_waits": ("[NetSync] the follow to field 352 waits: a load (this field is already changing scene -- the follow re-arms where "
+                     "it lands)", "NetSyncClient.cs", ["[NetSync] the follow to field ", " waits: ",
+                                                       " (this field is already changing scene -- the follow re-arms where it lands)"]),
+    "ate_hub_pass": ("[NetSync] ATE relay: my copy's own Field(351) passes -- the host's pick (choice 2) on field 351 (a same-field ATE: "
+                     "one reload) (my copy's own entrance)", "NetSyncAte.cs",
+                     ["[NetSync] ATE relay: my copy's own Field(", ") passes -- the host's pick (choice ", ") on field ",
+                      " (a same-field ATE: one reload)", "", " (my copy's own entrance)"]),
+    "ate_redirect": ("[NetSync] ATE relay: my copy's own Field(450) goes to the host's field 352 instead (the host left the ATE on field "
+                     "351 for it)", "NetSyncAte.cs", ["[NetSync] ATE relay: my copy's own Field(", ") goes to the host's field ",
+                                                      " instead (the host left the ATE on field ", " for it)"]),
+    "ate_dest_pass": ("[NetSync] ATE relay: my copy's own Field(450) passes -- the ATE's own exit (my copy's own entrance); the host is "
+                      "still on field 351: the follow back into it waits until it leaves (up to 6 s)", "NetSyncAte.cs",
+                      ["[NetSync] ATE relay: my copy's own Field(", ") passes -- "]),
+    "dlg_queued": ("[NetSync] dialogue: host seq 12 queued (field 351 win 3 text 139 kind 1 page 0 closes)", "NetSyncDialog.cs",
+                   ["[NetSync] dialogue: host seq ", " queued (field ", " win ", " text ", " kind ", " choice ", " page ", " closes",
+                    "", ")"]),
+    "dlg_opened_locked": ("[NetSync] dialogue lock: win 3 text 129 opened locked (the host drives it)", "NetSyncDialog.cs",
+                          ["[NetSync] dialogue lock: win ", " text ", " opened locked (the host drives it)"]),
+    "dlg_closed_by_script": ("[NetSync] dialogue: win 3 text 129 closed by its own script/timer", "NetSyncDialog.cs",
+                             ["[NetSync] dialogue: win ", " text ", " closed by its own script/timer"]),
+    "dlg_late_event": ("[NetSync] dialogue: late host event for win 3 text 129 (host seq 9) -- back under the host", "NetSyncDialog.cs",
+                       ["[NetSync] dialogue: late host event for win ", " text ", " (host seq ", ") -- back under the host"]),
+    "dlg_page_noop": ("[NetSync] dialogue: host seq 9 turned a page win 3 text 129 does not have here (host page 2, mine 1/1) -- "
+                      "consumed, no-op", "NetSyncDialog.cs",
+                      ["[NetSync] dialogue: host seq ", " turned a page win ", " text ", " does not have here (host page ", ", mine ",
+                       "/", ") -- consumed, no-op"]),
+    "dlg_catchup": ("[NetSync] dialogue: host seq 9 closed win 3 text 129 on the host -- paging on to its close here (page 1 of 3)",
+                    "NetSyncDialog.cs", ["[NetSync] dialogue: host seq ", " closed win ", " text ",
+                                         " on the host -- paging on to its close here (page ", " of ", ")"]),
+    "dlg_applied": ("[NetSync] dialogue: win 3 text 129 advanced (host seq 9, choice 1)", "NetSyncDialog.cs",
+                    ["[NetSync] dialogue: win ", " text ", " closed", " advanced", " (host seq ", ", choice ", "", ")"]),
+    "orphan_orphaned": ("[NetSync] dialogue orphan: win 7 text 113 is not on the host's screen (host idle 2s) -- closing it at reading pace",
+                        "NetSyncDialog.cs", ["[NetSync] dialogue orphan: win ", " text ", " is not on the host's screen (host idle ",
+                                             "s) -- closing it at reading pace"]),
+    "orphan_held": ("[NetSync] dialogue orphan: win 7 text 113 held -- the host is busy again", "NetSyncDialog.cs",
+                    [" held -- the host has it open", " held -- a late host event arrived", " held -- the host is busy again"]),
+    "orphan_auto_closed": ("[NetSync] dialogue orphan: win 7 text 113 auto-closed (host idle 4s, choice -1)", "NetSyncDialog.cs",
+                           ["[NetSync] dialogue orphan: win ", " text ", " auto-closed (host idle ", "s, choice ", ")"]),
+}
+
+
+def _sw_file_literals(file_name: str) -> list:
+    """Every string literal of the live stack's ``file_name``, in file order (comments stripped line by line)."""
+    out = []
+    for ln in stack_file(file_name):
+        out += _literals(_strip_comment(ln.strip()))
+    return out
+
+
+def test_s164_s163_forms_are_the_live_stacks_lines():
+    """S163_FORMS (I10 adds StartSceneAt's :7038 "ended" beside its :7039 "rose"): each form matches an example line whole and names it
+    first (swap_s163_form), its C# concatenation's adjacent literals are in the live stack's file, a stamped and tailed copy strips
+    back to the s163 text (A-WORD), and a stamp INSIDE the line (before its last ")") no longer matches its form."""
+    assert set(_S163_FORM_PINS) == set(BW.S163_FORMS)
+    assert {"scene_ended_talk", "scene_rose_talk"} <= set(BW.S163_FORMS)
+    lits = {f: _sw_file_literals(f) for f in ("NetSyncClient.cs", "NetSyncDialog.cs", "NetSyncAte.cs")}
+    for name, (example, file_name, pieces) in _S163_FORM_PINS.items():
+        assert re.fullmatch(BW.S163_FORMS[name], example), name
+        assert BW.swap_s163_form(example) == name, (name, BW.swap_s163_form(example))
+        L = lits[file_name]
+        if name == "orphan_held":                                            # a conditional: each alternative is its own literal
+            assert all(p in L for p in pieces), name
+        else:
+            assert any(L[i:i + len(pieces)] == pieces for i in range(len(L) - len(pieces) + 1)), (name, pieces)
+        stamped = BW.swap_place_stamp(example + BW.swap_waited_shown_text(name == "dlg_applied", 900, 800, 700), True, 900)
+        core, t, waited, shown = BW.swap_strip_line(stamped)
+        assert core == example and t == 900 and (waited, shown) == ((100, 200) if name == "dlg_applied" else (-1, -1)), name
+        if example.endswith(")"):
+            inside = example[:example.rfind(")")] + " (t 900 ms)" + example[example.rfind(")"):]
+            assert BW.swap_s163_form(BW.swap_strip_line(inside)[0]) != name or name in ("scene_rose", "scene_ended"), name
+    # the s164 lines are not s163 forms
+    assert BW.swap_s163_form(BW.swap_log_orphan_hold(False, 7, 113, -1)) is None
+    assert BW.swap_s163_form(BW.life_log_landed(False, 7, 352, 390, -1)) is None
+
+
+def test_s164_lever_refusal_order_usage_and_ops():
+    """The lever scheme (`netsync swap <op> [arg]`): for a known op the ROLE comes first -- unknown op -> usage; co-op off (every op but
+    `clear`); a guest-side op on a host; a host-side op on a client; a bench op off the selftest role; `intent` / `pinbench` without
+    `netsync bench 1`; then arity and range -> usage. K-REFUSE's four refusals are its rows."""
+    U, OFF = BW.SWAP_USAGE, BW.SWAP_REFUSAL_COOP_OFF
+    for args, role, bench, want in (
+            (["frob"], "client", True, U), (["frob"], None, False, U), ([], "selftest", True, U),
+            (["orphan", "old"], None, False, OFF), (["clear"], None, False, None), (["stamps", "off"], None, False, OFF),
+            (["orphan", "old"], "host", False, BW.swap_refusal_guest_side("orphan")),
+            (["orphan", "maybe"], "host", False, BW.swap_refusal_guest_side("orphan")),       # the role before the arity
+            (["fade", "long"], "host", False, BW.swap_refusal_guest_side("fade")),
+            (["life", "old"], "client", False, BW.swap_refusal_host_side("life")),
+            (["life", "old"], "host", False, None), (["life", "old"], "selftest", False, None),
+            (["hostctl", "off"], "client", False, BW.swap_refusal_selftest("hostctl")),
+            (["hostctl", "off"], "host", False, BW.swap_refusal_selftest("hostctl")),
+            (["blackout", "8"], "client", True, BW.swap_refusal_selftest("blackout")),
+            (["intent", "30602"], "selftest", False, BW.swap_refusal_bench("intent")),        # K-REFUSE: before `bench 1`
+            (["intent", "30602"], "selftest", True, None),
+            (["pinbench", "30602", "8720"], "selftest", False, BW.swap_refusal_bench("pinbench")),
+            (["cache", "352"], "selftest", False, None),                                       # the cache needs no gate
+            (["delay", "5000"], "client", False, U), (["orphan", "maybe"], "selftest", False, U),   # K-REFUSE: the usage line
+            (["delay", "2000"], "client", False, None), (["delay", "0"], "selftest", False, None), (["delay", "-1"], "client", False, U),
+            (["delay", "2_000"], "client", False, U), (["delay"], "client", False, U), (["stamps", "off", "x"], "host", False, U),
+            (["stamps", "off"], "host", False, None), (["clear", "x"], "client", False, U),
+            (["own", "nocache"], "client", False, None), (["fade", "norecheck"], "selftest", False, None),
+            (["blackout", "off"], "selftest", False, None), (["blackout", "0"], "selftest", False, U),
+            (["blackout", "255"], "selftest", False, None), (["lifebench", "30602"], "selftest", False, None),
+            (["pinbench", "30602", "8720", "age", "3000", "landed", "party", "1", "3", "to", "350"], "selftest", True, None),
+            (["pinbench", "30602", "8720", "to", "350", "age", "3000"], "selftest", True, U),   # the usage's order
+            (["pinbench", "30602", "8720", "party", "4", "3"], "selftest", True, U),
+            (["pinbench", "30602"], "selftest", True, U)):
+        assert BW.swap_lever_refusal(args, role, bench) == want, (args, role, bench)
+    assert tuple(BW.SWAP_OP_ROLES) == BW.SWAP_OPS and len(BW.SWAP_OPS) == 14
+    assert {op for op, r in BW.SWAP_OP_ROLES.items() if r == BW.SWAP_ROLE_ANY} == {"stamps", "clear"}
+    assert {op for op, r in BW.SWAP_OP_ROLES.items() if r == BW.SWAP_ROLE_HOST} == {"life"}
+    assert BW.SWAP_USAGE.startswith("netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, ")
+    for op, words in BW.SWAP_OP_WORDS.items():
+        for w in words:
+            line = BW.swap_harness_lever_line(op, w)
+            assert line.startswith(f"[NetSync] harness: swap {op} {w.upper()}") and BW.swap_line_class(line) == "harness", (op, w)
+            assert ("CALIBRATION" in line) == (w not in ("act", "on") and op != "hostctl"), line
+    assert BW.swap_parse_pinbench(["30602", "8720", "party", "1", "3"]) == {"field": 30602, "flag": 8720, "age": -1, "landed": False,
+                                                                           "party": (1, 3), "to": -1}
+    assert BW.swap_harness_clear(True).endswith("bench state forgotten; the pin bench's party mirror cleared")
+    assert BW.swap_harness_release(False) == ("[NetSync] harness: swap levers released (every lever act, stamps on, delay 0, the bench "
+                                              "host's control on, bench state forgotten)")
+    assert BW.swap_harness_pinbench(7, 30602, 8720, 0, 1, party=(1, 0, 3), landed=True, age_ms=3000) == (
+        "[NetSync] harness: swap pinbench -- intent 7's frame for field 30602 through the real codec (flag 8720: pin 0, latest 1; party "
+        "slot 1: pin 0, latest 3; built after the host's landing; landing seen 3000 ms ago)")
+
+
+def test_s164_the_proof_line_pins_every_constant():
+    """The proof line (the block's LAST): `field swap selftest: OK (N rows, M mutants caught, clock qpc|stopwatch H Hz
+    high-res|low-res, ...)` -- the kit regex pins every constant and captures N, M, the source, H and the resolution; a changed constant
+    or a FAIL line does not match."""
+    text = BW.swap_proof_text(425, 146, "qpc", 10000000, True)
+    m = re.fullmatch(BW.SWAP_PROOF_RE, text)
+    assert m and m.groups() == ("425", "146", "qpc", "10000000", "high-res")
+    assert text == ("field swap selftest: OK (425 rows, 146 mutants caught, clock qpc 10000000 Hz high-res, line window 10000 ms, span "
+                    "30000 ms, cache 2000 ms, intent life 2000 ms / land tail 1000 ms / cap 10000 ms, pin age 2500 ms / blind 10000 ms, fade "
+                    "12 / 24 ticks / 900 ms, join grace 3 ticks, black floor 248, ahead 3000 ms)")
+    m = re.fullmatch(BW.SWAP_PROOF_RE, BW.swap_proof_text(1, 0, "stopwatch", 1000, False))
+    assert m and m.group(3) == "stopwatch" and m.group(5) == "low-res"
+    assert not re.fullmatch(BW.SWAP_PROOF_RE, text.replace("black floor 248", "black floor 255"))
+    assert not re.fullmatch(BW.SWAP_PROOF_RE, BW.swap_proof_fail_text(row="join.land_dest"))
+    assert BW.swap_proof_fail_text(row="r7") == "field swap selftest: FAIL (row r7)"
+    assert BW.swap_proof_fail_text(mutant="pin_single_slot") == "field swap selftest: FAIL (mutant pin_single_slot survived)"
+    assert re.search(BW.SWAP_PROOF_RE, "2026-10-29 12:00:00 [NetSync] " + text)       # found inside a logged line
+
+
+def test_s164_name_tables_match_the_state_vocabularies():
+    """The value vocabularies of the `netsync.swap` block (§ The state block) are battlewire's name tables, in their keys' order."""
+    assert BW.SWAP_REC_NAMES[1:] == ("open", "landed", "done")
+    assert BW.INTENT_LANDING_NAMES == ("pending", "on_intent", "elsewhere")
+    assert BW.INTENT_END_NAMES[1:] == ("stands", "left", "elsewhere", "cap", "old", "next", "reset")      # `intent.ends` keys
+    assert BW.SWAP_CLOSE_NAMES[1:] == ("line", "window", "stale", "superseded", "next", "reset")          # `counts.closed` keys
+    assert BW.SWAP_HOLD_END_NAMES[1:] == ("closed", "event", "relay", "left", "busy", "control", "forgot")
+    assert BW.FADE_END_NAMES == ("black", "timer", "fallback", "recheck", "landing", "own", "world", "title")
+    assert BW.FADE_PATH_NAMES == ("fast", "backlog", "old", "kick") and BW.FADE_ACT_NAMES == ("join", "hurry", "fade", "wipe")
+    assert BW.SWAP_SITE_NAMES == ("mapjump", "debugwarp", "bench") and BW.SWAP_CLOCK_SRCS == ("qpc", "stopwatch")
+    assert set(BW.PIN_QUALITY_NAMES.values()) == {"none", "pre", "late"}
+    assert set(BW.PIN_LAST_USE_NAMES) == {"pin", "none", "other", "late", "aged", "world", "lever", "skipped_stale"}
+    assert {BW.PIN_WHY_LEVER, BW.PIN_WHY_WORLD, BW.PIN_WHY_NONE, BW.PIN_WHY_OTHER, BW.PIN_WHY_LATE, BW.PIN_WHY_AGED} < set(BW.PIN_LAST_USE_NAMES)
+    assert tuple(BW.OWN_TERM_NAMES.values()) == BW.SWAP_OWN_REASONS_C                                    # `own.by` keys
+    assert BW.SWAP_COMMIT_WHYS == BW.FADE_END_NAMES[:4] == BW.FADE_DUE_NAMES[2:]
+    assert set(BW.SWAP_VIA_WORDS) == set(BW.SWAP_VIA_NAMES[1:])
+    assert BW.SWAP_OOB_NAMES[1:] == ("sent", "overwritten", "none")
+    assert BW.OWN_LEVER_NAMES == ("act", "old", "nocache") and BW.FADE_LEVER_NAMES[0] == "act"
+    assert BW.INTENT_CACHE_MS == BW.INTENT_MIN_LIFE_MS and BW.PIN_BLIND_CAP_MS == BW.INTENT_LOAD_CAP_MS
+
+
+# =========================================================================================================================
+# [ff9mapkit netsync s164] FIELD-SWAP TIMING -- KIT-2: the driver (session.py: `swap`, its table, the refusal order, the pre-step check),
+# the State accessors and the kit's swap clock (channel.py: qpc_read / ticks_to_ms / qpc_ms), and the stand-in (fakegame.py: the
+# `swap` rung -- the block, THE CLOCK SEAM, the levers, the refusals, the release, the proof line, `swap intent` through the record,
+# B's orphan hold). The engine is written concurrently, so every kit-vs-agent pin reads the LIVE stack through _s164_live(): s163's
+# agent until the s164 patch lands, s164's after -- exact either way.
+# =========================================================================================================================
+
+import time                                                              # noqa: E402
+
+#: a stock field (10-3100: registered on every install) -- the bench follow's destination, and a second one
+AWAY_SW, AWAY_SW2 = 100, 101
+
+
+def _design_swap_block() -> dict:
+    """The `netsync.swap` block exactly as SWAP-TIMING-S164.md prints it (§ The `netsync.swap` state block's code fence)."""
+    text = (REPO / "studies" / "field-coop" / "SWAP-TIMING-S164.md").read_text(encoding="utf-8")
+    start = text.index('"swap": {\n  "clock":')
+    end = text.index("\n```", start)
+    return json.loads("{" + text[start:end] + "}")["swap"]
+
+
+def _sw_session():
+    """A bare Session for its pure helpers (no game: the class attributes and classmethods only)."""
+    return Session.__new__(Session)
+
+
+#: the refusal sweep's argument forms (the words after `swap`)
+_SW_ARG_FORMS = (
+    (), ("bogus",), ("stamps",), ("stamps", "on"), ("stamps", "off"), ("STAMPS", "OFF"), ("stamps", "maybe"), ("stamps", "on", "1"),
+    ("delay", "0"), ("delay", "2000"), ("delay", "2001"), ("delay", "-1"), ("delay", "x"), ("delay", " 5 "), ("delay", "+5"),
+    ("delay", "300", "1"), ("delay", "2_000"), ("orphan", "old"), ("orphan", "act"), ("orphan", "maybe"), ("own", "nocache"),
+    ("own", "old"), ("own", "fast"), ("pin", "act"), ("pin", "old"), ("life", "old"), ("life",), ("fade", "nohurry"),
+    ("fade", "norecheck"), ("fade", "fast"), ("clear",), ("Clear",), ("clear", "1"), ("hostctl", "off"), ("hostctl", "1"),
+    ("intent", "30602"), ("intent", "0"), ("intent",), ("intent", "1", "2"), ("cache", "352"), ("cache", "-3"),
+    ("pinbench", "30602", "8720"), ("pinbench", "30602", "8720", "age", "3000", "landed", "party", "1", "5", "to", "352"),
+    ("pinbench", "30602", "8720", "to", "352", "age", "1"), ("pinbench", "30602"), ("pinbench", "30602", "8720", "party", "4", "1"),
+    ("lifebench", "30602"), ("lifebench", "x"), ("blackout", "off"), ("blackout", "0"), ("blackout", "255"), ("blackout", "256"),
+    ("blackout",))
+
+
+def test_s164_kit2_the_swap_rung_rides_the_ladder_and_the_driver_and_the_stand_in_agree():
+    """`swap` is APPENDED to the driver's and the stand-in's sub-verb lists (after s163's `speed`) and rides the ONE ladder as its own
+    LAST rung (`swap`, s164): nothing under `netsync.battle` / `netsync.diorama`, no key inside an older block, one TOP-LEVEL block,
+    `swap`. The driver keys it on its own table (Session.NETSYNC_SWAP_SUBVERBS) through the same gate as `speed`; its capability
+    accessor reads True on a document with the block and False on s163's catch line; s164's calibration is the prefix through `speed`.
+    The stand-in's sentinels are the design's block, key for key. The LIVE agent agrees with the stand-in at the live stack's rung."""
+    assert Session.NETSYNC_SUBVERBS[-2:] == ("speed", "swap") == FG.NETSYNC_SUBVERBS[-2:]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-1] == "swap" and FG.NETSYNC_BATTLE_VERB_ORDER[-2:] == ("speed", "swap")
+    names = list(FG.NETSYNC_BATTLE_CAPS)
+    assert names[-2:] == ["speed", "swap"]
+    assert FG.NETSYNC_BATTLE_CAPS["swap"] == ("s164", ("swap",)) and FG.NETSYNC_S164_CAPS == frozenset(("swap",))
+    assert FG.NETSYNC_BATTLE_CAP_KEYS["swap"] == {} and FG.NETSYNC_TOP_CAP_KEYS["swap"] == ("swap",)
+    assert "swap" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "swap" not in FG.NETSYNC_DIORAMA_CAP_KEYS
+    assert "swap" not in FG.NETSYNC_TOP_NESTED_KEYS and "swap" not in FG.NETSYNC_DRESS_CAP_KEYS
+    cal = FG.caps_through("speed")
+    assert "swap" not in cal and FG.netsync_subverbs(cal) + ("swap",) == FG.NETSYNC_SUBVERBS
+    assert Session.NETSYNC_SWAP_SUBVERBS == {"swap": ("coop_field_swap", "netsync.swap", "s164", "the s164 field-swap levers")}
+    attr, key, patch, _what = Session.NETSYNC_SWAP_SUBVERBS["swap"]
+    assert key == "netsync." + FG.NETSYNC_TOP_CAP_KEYS["swap"][0] and patch == FG.NETSYNC_BATTLE_CAPS["swap"][0]
+    assert isinstance(getattr(State, attr), property)
+    assert getattr(State({"frame": 1, "netsync": dict(_catch_doc_in("s163"), swap=FG.NETSYNC_SWAP_SENTINELS)}), attr) is True
+    assert getattr(State({"frame": 1, "netsync": _unswapped(_catch_doc_in("s163"))}), attr) is False
+    assert getattr(State({"frame": 1}), attr) is False
+    # the stand-in's sentinels ARE the design's block (every key, every sentinel, the order) -- the catch line the engine must print
+    design = _design_swap_block()
+    assert FG.NETSYNC_SWAP_SENTINELS == design and json.dumps(FG.NETSYNC_SWAP_SENTINELS) == json.dumps(design)
+    assert FG.NETSYNC_SWAP_KEYS == ("clock", "levers", "open", "last", "seen", "intent", "slot", "orphan", "own", "pin", "fade", "counts",
+                                    "faults", "last_fault", "selftest")
+    assert tuple(FG.NETSYNC_SWAP_SENTINELS["counts"]["closed"]) == BW.SWAP_CLOSE_NAMES[1:]
+    assert tuple(FG.NETSYNC_SWAP_SENTINELS["intent"]["ends"]) == BW.INTENT_END_NAMES[1:]
+    assert tuple(FG.NETSYNC_SWAP_SENTINELS["fade"]["ends"]) == BW.FADE_END_NAMES
+    assert tuple(FG.NETSYNC_SWAP_SENTINELS["own"]["by"]) == BW.SWAP_OWN_REASONS_C
+    # the live agent, at the live stack's rung (s163's until the s164 patch lands)
+    assert _agent_subverbs() == FG.netsync_subverbs(_live_caps())
+    if _s164_live():
+        assert _subverbs_in("s164") == _subverbs_in("s163") + ("swap",)
+        assert _catch_doc_in("s164")["swap"] == FG.NETSYNC_SWAP_SENTINELS
+        assert _catch_doc_in("s163") == _unswapped(_catch_doc_in("s164"))
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+
+
+def test_s164_kit2_the_drivers_refusal_order_is_battlewires():
+    """Session's swap table is battlewire's, verbatim: the ops (the design's order), each op's role class, its words and ranges, the
+    usage line and the four refusals. Its whole refusal order (_swap_verdict) is battlewire.swap_lever_refusal on every argument form,
+    role and bench gate; the PRE-STEP check (_swap_refusal) refuses exactly the usage verdicts (an unknown op, or a bad arity / range on a
+    role and gate that would let the op through) -- a role, co-op or bench refusal is the engine's, so the step goes out."""
+    S = Session
+    assert S.NETSYNC_SWAP_OPS == BW.SWAP_OPS == FG.NETSYNC_SWAP_OPS
+    roles = {**{op: BW.SWAP_ROLE_ANY for op in S.NETSYNC_SWAP_ANY_OPS}, **{op: BW.SWAP_ROLE_GUEST for op in S.NETSYNC_SWAP_GUEST_OPS},
+             **{op: BW.SWAP_ROLE_HOST for op in S.NETSYNC_SWAP_HOST_OPS},
+             **{op: BW.SWAP_ROLE_SELFTEST for op in S.NETSYNC_SWAP_SELFTEST_OPS}}
+    assert roles == BW.SWAP_OP_ROLES == FG.NETSYNC_SWAP_OP_ROLES and sorted(roles) == sorted(S.NETSYNC_SWAP_OPS)
+    assert S.NETSYNC_SWAP_BENCH_GATED_OPS == BW.SWAP_BENCH_GATED_OPS
+    assert S.NETSYNC_SWAP_WORDS == {op: tuple(w) for op, w in BW.SWAP_OP_WORDS.items()}
+    assert S.NETSYNC_SWAP_DELAY_RANGE == BW.SWAP_DELAY_RANGE and S.NETSYNC_SWAP_BLACKOUT_RANGE == BW.SWAP_BLACKOUT_RANGE
+    assert S.NETSYNC_SWAP_USAGE == BW.SWAP_USAGE == FG.NETSYNC_SWAP_USAGE
+    assert S.NETSYNC_SWAP_COOP_OFF == BW.SWAP_REFUSAL_COOP_OFF == FG.NETSYNC_SWAP_COOP_OFF
+    for op in S.NETSYNC_SWAP_OPS:
+        assert S.NETSYNC_SWAP_GUEST_SIDE.format(op=op) == BW.swap_refusal_guest_side(op)
+        assert S.NETSYNC_SWAP_HOST_SIDE.format(op=op) == BW.swap_refusal_host_side(op)
+        assert S.NETSYNC_SWAP_SELFTEST_ONLY.format(op=op) == BW.swap_refusal_selftest(op)
+        assert S.NETSYNC_SWAP_BENCH_ONLY.format(op=op) == BW.swap_refusal_bench(op)
+    s = _sw_session()
+    seen = set()
+    for args in _SW_ARG_FORMS:
+        for role in (None, "host", "client", "selftest"):
+            for bench in (False, True):
+                want = BW.swap_lever_refusal(list(args), role, bench)
+                assert s._swap_verdict(args, role, bench) == want, (args, role, bench)
+                assert s._swap_refusal(args, role, bench) == (want if want == S.NETSYNC_SWAP_USAGE else None), (args, role, bench)
+                seen.add(want if want is None or want in (S.NETSYNC_SWAP_USAGE, S.NETSYNC_SWAP_COOP_OFF) else want.split(":")[1])
+    # the sweep reaches every outcome of the order (an act, the usage line, co-op off, and each of the four role / gate refusals)
+    assert {None, S.NETSYNC_SWAP_USAGE, S.NETSYNC_SWAP_COOP_OFF, " a guest-side lever (a client or the selftest role) -- this game is the host",
+            " a host-side lever (the host or the selftest role) -- this game is a client", " needs the selftest role (netsync selftest 1)",
+            " needs the field-gate bench (netsync bench 1)"} <= seen
+    # the role read off a published block: co-op off, the selftest role, a configured role
+    assert Session._swap_role(State({"frame": 1, "netsync": {"enabled": False, "role": "host", "selftest": False}})) is None
+    assert Session._swap_role(State({"frame": 1, "netsync": {"enabled": True, "role": "selftest", "selftest": True}})) == "selftest"
+    assert Session._swap_role(State({"frame": 1, "netsync": {"enabled": True, "role": "client", "selftest": False}})) == "client"
+    assert Session._swap_role(State({"frame": 1})) is None
+    assert Session._swap_bench(State({"frame": 1, "netsync": {"bench": True}})) is True
+    assert Session._swap_bench(State({"frame": 1, "netsync": {"bench": 1}})) is False
+
+
+def test_s164_kit2_the_swap_clock_reads_qpc_through_the_split_arithmetic(monkeypatch):
+    """channel.ticks_to_ms is TicksToMs's split form (the design's clock rows, on battlewire's fixed-width twin too); qpc_read / qpc_ms
+    read kernel32's QueryPerformanceCounter on Windows (monotonic, the frequency positive), and answer None off Windows or when the call
+    fails -- K-CLOCK's SKIP, never a red. FG.swap_clock_read is the stand-in's seam: qpc with its real Hz, else the virtual clock's ms
+    with src "stopwatch"."""
+    from harness import channel
+    rows = [((0, 10**7), 0), ((9999, 10**7), 0), ((10000, 10**7), 1), ((12345678901, 10**7), 1234567), ((3579545 * 7, 3579545), 7000),
+            ((3579545 * 7 + 3580, 3579545), 7001), ((3579545 * 1000, 3579545), 1000000),
+            ((40 * 86400 * 3 * 10**9, 3 * 10**9), 3456000000), ((5, 0), -1), ((-1, 10**7), -1)]
+    for (ts, freq), want in rows:
+        assert channel.ticks_to_ms(ts, freq) == want == BW.swap_ticks_to_ms(ts, freq), (ts, freq)
+    got = channel.qpc_read()
+    if os.name == "nt":
+        assert got is not None and got[0] > 0 and got[1] > 0
+        a = channel.qpc_ms()
+        b = channel.qpc_ms()
+        assert a is not None and 0 <= b - a < 1000 and abs(channel.ticks_to_ms(*got) - a) < 60000
+    else:
+        assert got is None and channel.qpc_ms() is None
+    with monkeypatch.context() as m:
+        m.setattr(channel.os, "name", "posix")
+        off = (channel.qpc_read(), channel.qpc_ms())
+    assert off == (None, None)
+
+    class _NoFreq:                                        # a QueryPerformanceFrequency that reports no counter
+        @staticmethod
+        def QueryPerformanceFrequency(_p):
+            return 0
+
+        @staticmethod
+        def QueryPerformanceCounter(_p):
+            return 1
+
+    with monkeypatch.context() as m:
+        m.setattr(channel.os, "name", "nt")
+        m.setattr(channel, "_kernel32", lambda: _NoFreq())
+        assert channel.qpc_read() is None and channel.qpc_ms() is None
+    assert FG.swap_clock_read(lambda: (25_000_000, 10_000_000), 9.9) == (2500, 25_000_000, 10_000_000, "qpc", True)
+    assert FG.swap_clock_read(lambda: (5000, 1000), 9.9) == (5000, 5000, 1000, "qpc", False)          # a sub-MHz counter: low-res
+    assert FG.swap_clock_read(None, 12.3456) == (12345, 12345, 1000, "stopwatch", False)
+    assert FG.swap_clock_read(lambda: None, 2.0) == (2000, 2000, 1000, "stopwatch", False)
+
+
+def test_s164_kit2_the_state_accessors_read_the_swap_block():
+    """State.coop_field_swap is `netsync.swap.clock`'s presence; swap_block / swap_last / swap_seen / swap_intent / swap_pin /
+    swap_clock are COPIES of their sub-blocks (None when absent or not an object)."""
+    block = json.loads(json.dumps(FG.NETSYNC_SWAP_SENTINELS))
+    st = State({"frame": 1, "netsync": {"enabled": True, "swap": block}})
+    assert st.coop_field_swap is True and st.swap_block == FG.NETSYNC_SWAP_SENTINELS
+    for attr, sub in (("swap_last", "last"), ("swap_seen", "seen"), ("swap_intent", "intent"), ("swap_pin", "pin"),
+                      ("swap_clock", "clock")):
+        got = getattr(st, attr)
+        assert got == FG.NETSYNC_SWAP_SENTINELS[sub], attr
+        got["mutated"] = True
+        assert "mutated" not in st.raw["netsync"]["swap"][sub], attr      # a copy
+    for doc in ({"frame": 1}, {"frame": 1, "netsync": None}, {"frame": 1, "netsync": {"swap": None}},
+                {"frame": 1, "netsync": {"swap": {"clock": 5}}}):
+        st = State(doc)
+        assert st.coop_field_swap is False and st.swap_clock is None and st.swap_last is None
+
+
+def test_s164_kit2_lv4_the_driver_refuses_swap_before_the_step_on_an_s163_engine(game):
+    """LV-4: on the calibration engine (the ladder through `speed`) every `netsync swap ...` -- any op, any arity, on any role -- is
+    refused BEFORE the step, naming the key and the patch and quoting what the engine would answer after it; the s163 stand-in, sent it
+    anyway, answers its own "unknown sub-verb" line; it publishes no `netsync.swap` and its proof block closes on the speed mirror's."""
+    fake = FakeGame(game)
+    fake.netsync_caps = FG.caps_through("speed")
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        st = g.state
+        assert st.coop_field_swap is False and st.swap_block is None and list(st.netsync)[-1] == "speed"
+        for selftest in (False, True):
+            if selftest:
+                g.netsync("selftest", 1)
+                g.netsync("bench", 1)
+            for args in (("stamps", "off"), ("clear",), ("intent", str(AWAY_SW)), ("life", "old"), ("bogus",), ()):
+                before = len(fake.executed)
+                with pytest.raises(HarnessError) as err:
+                    g.netsync("swap", *args)
+                msg = str(err.value)
+                assert "this engine publishes no `netsync.swap` (s164)" in msg and len(fake.executed) == before, (args, msg)
+                assert "it would answer \"netsync: unknown sub-verb 'swap'\" only after the step" in msg, msg
+            with pytest.raises(HarnessError, match=re.escape("this engine publishes no `netsync.swap` (s164)")):
+                g.swap("stamps", "off")
+        with pytest.raises(RuntimeError, match=re.escape("netsync: unknown sub-verb 'swap' (")):
+            fake._netsync(["swap", "clear"])
+        g.wait_frames(10)
+        assert "swap" not in fake._netsync_doc() and list(fake._netsync_doc())[-1] == "speed"
+        lines = _proof_lines(fake)
+        assert lines and lines[-1].split("[NetSync] ", 1)[1] == _sp_proof_text()   # the speed mirror line closes s163's block
+        assert not any(FG.PROOF_FIELD_SWAP in ln for ln in lines)
+
+
+def test_s164_kit2_the_stand_in_publishes_the_swap_block_on_the_clock_seam(game):
+    """The stand-in's `netsync.swap`: netsync's LAST key, in AppendSwap's order, every sub-block at the catch line's sentinels but for its
+    live reads. Its clock is THE SEAM: on Windows src "qpc" with the counter's real Hz -- K-CLOCK's relation holds (the kit's qpc_ms()
+    never behind the published now_ms, and within the sample's age); with the seam cut (None) src "stopwatch", 1000 Hz, low-res, now_ms
+    the virtual clock's ms."""
+    from harness import channel
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        st = g.state
+        assert st.coop_field_swap is True and list(st.netsync)[-2:] == ["speed", "swap"]
+        doc = st.swap_block
+        assert tuple(doc) == FG.NETSYNC_SWAP_KEYS
+        for k, v in FG.NETSYNC_SWAP_SENTINELS.items():
+            if isinstance(v, dict):
+                assert tuple(doc[k]) == tuple(v), k
+        live = ("clock", "selftest")
+        assert {k: v for k, v in doc.items() if k not in live} == {k: v for k, v in FG.NETSYNC_SWAP_SENTINELS.items() if k not in live}
+        clock = doc["clock"]
+        if channel.qpc_read() is not None:
+            assert clock["src"] == "qpc" and clock["hz"] == channel.qpc_read()[1] and clock["hires"] is (clock["hz"] >= 1_000_000)
+            assert clock["now_ms"] == channel.ticks_to_ms(clock["ticks"], clock["hz"]) and clock["ticks"] > 0
+            k0 = channel.qpc_ms()
+            st = g.state
+            k1 = channel.qpc_ms()
+            now_ms = st.swap_clock["now_ms"]
+            assert now_ms <= k1 and k1 - now_ms <= 2000 + (k1 - k0), (k0, now_ms, k1)   # K-CLOCK: never ahead, within the age
+        assert abs(clock["utc_ms"] - time.time() * 1000) < 60000
+        assert clock["fps"] == int(round(fake.render_fps)) and clock["target_fps"] == -1
+        fake.swap_qpc = None
+        g.wait_frames(3)
+        st = g.state
+        clock = st.swap_clock
+        assert (clock["src"], clock["hz"], clock["hires"]) == ("stopwatch", 1000, False)
+        assert abs(clock["now_ms"] - int(rt(st) * 1000)) <= 1 and clock["ticks"] == clock["now_ms"]
+
+
+def test_s164_kit2_the_stand_in_models_the_swap_levers_their_refusals_and_clear(game):
+    """Each lever op acks in its line and reads back in `levers` (null = act / on); `clear` puts every lever back with its line; a
+    malformed op is refused BEFORE the step by the driver and in the same words by the stand-in; a role, co-op or bench refusal comes
+    back FROM the step in the engine's words (a followed client refuses `life`, a host refuses the guest-side `orphan`, co-op off
+    refuses all but `clear`); the four bench ops the stand-in cannot model pass the engine's whole order first, then fail loud."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        on_bench(g)
+        cases = [("stamps", "off", "stamps", "off"), ("stamps", "on", "stamps", None), ("orphan", "old", "orphan", "old"),
+                 ("orphan", "act", "orphan", None), ("own", "old", "own", "old"), ("own", "nocache", "own", "nocache"),
+                 ("own", "act", "own", None), ("pin", "old", "pin", "old"), ("pin", "act", "pin", None),
+                 ("life", "old", "life", "old"), ("life", "act", "life", None), ("hostctl", "off", "hostctl_off", True),
+                 ("hostctl", "on", "hostctl_off", False)]
+        cases += [("fade", w, "fade", None if w == "act" else w) for w in BW.FADE_LEVER_NAMES[1:] + ("act",)]
+        for op, word, key, value in cases:
+            line = BW.swap_harness_lever_line(op, word)
+            before = len(_mlog_lines(fake, line))
+            assert g.swap(op, word).swap_block["levers"][key] == value, (op, word)
+            assert len(_mlog_lines(fake, line)) == before + 1, (op, word)
+        assert g.swap("delay", 300).swap_block["levers"]["delay_ms"] == 300
+        assert _mlog_lines(fake, BW.swap_harness_delay(300))
+        g.swap("orphan", "old")
+        g.swap("fade", "long")
+        g.swap("stamps", "off")
+        clears = len(_mlog_lines(fake, BW.swap_harness_clear(False)))
+        assert g.swap("clear").swap_block["levers"] == FG.NETSYNC_SWAP_SENTINELS["levers"]
+        assert len(_mlog_lines(fake, BW.swap_harness_clear(False))) == clears + 1
+        # malformed: the usage line, before the step (the driver) and in the same words (the stand-in)
+        for bad in (("delay", "5000"), ("orphan", "maybe"), ("bogus",), ("stamps",), ("clear", "1"), (), ("intent", "0")):
+            n = len(fake.executed)
+            with pytest.raises(HarnessError, match=re.escape(FG.NETSYNC_SWAP_USAGE)):
+                g.netsync("swap", *bad)
+            assert len(fake.executed) == n, bad
+            with pytest.raises(RuntimeError, match=re.escape(FG.NETSYNC_SWAP_USAGE)):
+                fake._netsync(["swap", *bad])
+        # the four bench ops the stand-in cannot model: the engine's order first, then the stand-in's own refusal (the step went out)
+        for args in (("cache", "352"), ("pinbench", str(AWAY_SW), "8720"), ("lifebench", str(AWAY_SW)), ("blackout", "8")):
+            n = len(fake.executed)
+            with pytest.raises(HarnessError, match=re.escape(FG.SWAP_STANDIN_REFUSAL.format(
+                    op=args[0], what=FG.SWAP_STANDIN_UNMODELLED[args[0]]))):
+                g.netsync("swap", *args)
+            assert len(fake.executed) == n + 1, args
+        # the bench gate: `intent` without `bench 1` is the engine's refusal (the step goes out)
+        g.netsync("bench", 0)
+        n = len(fake.executed)
+        with pytest.raises(HarnessError, match=re.escape(BW.swap_refusal_bench("intent"))):
+            g.swap("intent", AWAY_SW)
+        assert len(fake.executed) == n + 1
+        # co-op off: every op but `clear` -- even a malformed one -- is the engine's co-op refusal (the step goes out)
+        g.netsync("selftest", 0)
+        for args in (("orphan", "old"), ("delay", "5000"), ("stamps", "on")):
+            n = len(fake.executed)
+            with pytest.raises(HarnessError, match=re.escape(FG.NETSYNC_SWAP_COOP_OFF)):
+                g.netsync("swap", *args)
+            assert len(fake.executed) == n + 1, args
+        g.swap("clear")                                       # `clear` acts with co-op off
+        # a followed client: a guest-side op acts; the host-side `life` and the bench ops are the engine's role refusals
+        fake.follow_session(FIELD)
+        g.wait_frames(2)
+        assert g.swap("orphan", "old").swap_block["levers"]["orphan"] == "old"
+        for args, why in ((("life", "old"), BW.swap_refusal_host_side("life")), (("hostctl", "off"), BW.swap_refusal_selftest("hostctl")),
+                          (("cache", "352"), BW.swap_refusal_selftest("cache")), (("life", "old", "1"), BW.swap_refusal_host_side("life"))):
+            n = len(fake.executed)
+            with pytest.raises(HarnessError, match=re.escape(why)):
+                g.netsync("swap", *args)
+            assert len(fake.executed) == n + 1, args
+        # a host: the guest-side `orphan` is refused; `life` acts; a malformed `life` on the host is the usage line before the step
+        fake.netsync.update(enabled=True, role="host", selftest=False)
+        g.wait_frames(2)
+        n = len(fake.executed)
+        with pytest.raises(HarnessError, match=re.escape(BW.swap_refusal_guest_side("orphan"))):
+            g.swap("orphan", "act")
+        assert len(fake.executed) == n + 1
+        assert g.swap("life", "old").swap_block["levers"]["life"] == "old"
+        n = len(fake.executed)
+        with pytest.raises(HarnessError, match=re.escape(FG.NETSYNC_SWAP_USAGE)):
+            g.netsync("swap", "life", "old", "1")
+        assert len(fake.executed) == n
+
+
+def test_s164_kit2_the_release_clears_every_lever_once_right_after_the_speed_mirrors(game):
+    """NetSyncSwap.HarnessRelease rides `reset` (HarnessReleaseBench, every role, right after the speed mirror's release): every lever
+    set, then `reset` -- ONE release line, every lever back; a second `reset` logs nothing. Then the re-arm and one `swap intent`: no
+    delay leaked (the commit lands on its own verdict)."""
+    fake = FakeGame(game)
+    fake.swap_qpc = None                                      # the virtual clock: one frame is one known step
+    with session(game, fake) as g:
+        on_bench(g)
+        for op, word in (("stamps", "off"), ("delay", "300"), ("orphan", "old"), ("own", "old"), ("pin", "old"), ("life", "old"),
+                         ("fade", "old"), ("hostctl", "off")):
+            g.swap(op, word)
+        g.speed("off")
+        assert g.state.swap_block["levers"] == {"stamps": "off", "delay_ms": 300, "orphan": "old", "own": "old", "pin": "old",
+                                                "life": "old", "fade": "old", "hostctl_off": True}
+        rel = len(_mlog_lines(fake, BW.swap_harness_release(False)))
+        g.send("reset")
+        g.wait_frames(2)
+        assert fake._netsync_doc()["swap"]["levers"] == FG.NETSYNC_SWAP_SENTINELS["levers"]
+        assert len(_mlog_lines(fake, BW.swap_harness_release(False))) == rel + 1
+        tail = [ln for ln in fake.memoria_log.read_text(encoding="utf-8").splitlines()
+                if FG.SPEED_LOG_RELEASE in ln or BW.swap_harness_release(False) in ln][-2:]
+        assert [FG.SPEED_LOG_RELEASE in tail[0], BW.swap_harness_release(False) in tail[1]] == [True, True], tail
+        g.send("reset")
+        g.wait_frames(2)
+        assert len(_mlog_lines(fake, BW.swap_harness_release(False))) == rel + 1      # nothing set: no line
+        g.netsync("selftest", 1)                              # the re-arm (the release let the role go)
+        g.netsync("bench", 1)
+        g.swap("intent", AWAY_SW)
+        st = g.wait_for(lambda s: s.swap_last["state"] == "landed", timeout=6.0, what="the bench follow's landing")
+        last = st.swap_last
+        assert last["delay_ms"] == 0 and 0 <= last["commit_t"] - last["due_t"] <= 1000 / fake.render_fps + 1, last
+
+
+@pytest.mark.parametrize("cut", [False, True])
+def test_s164_kit2_the_proof_line_closes_the_block_after_the_speed_mirrors(game, cut):
+    """The proof block's LAST line is the field swap line: the stand-in's tallies, THE CLOCK SEAM's source / Hz / resolution and every
+    constant (battlewire's regex parses it); `swap.selftest` reads "ok"; the speed mirror's line is right before it. With the seam cut
+    the line names the stopwatch at 1000 Hz, low-res."""
+    fake = FakeGame(game)
+    if cut:
+        fake.swap_qpc = None
+    with session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(FIELD)
+        assert g.state.swap_block["selftest"] is None
+        g.netsync("selftest", 1)
+        g.wait_frames(10)
+        assert g.state.swap_block["selftest"] == "ok"
+        lines = _proof_lines(fake)
+        assert lines[-1].split("[NetSync] ", 1)[1] == _sw_proof_text(fake)
+        m = re.search(FG.SWAP_PROOF_RE, lines[-1])
+        assert m and (int(m.group(1)), int(m.group(2))) == (FG.FAKE_SWAP_SELFTEST_ROWS, FG.FAKE_SWAP_MUTANTS) == (425, 146)
+        _now, _ticks, hz, src, hires = FG.swap_clock_read(fake.swap_qpc, 0.0)
+        assert m.group(3, 4, 5) == (src, str(hz), "high-res" if hires else "low-res")
+        if cut:
+            assert m.group(3, 4, 5) == ("stopwatch", "1000", "low-res")
+        assert lines[-2].split("[NetSync] ", 1)[1] == _sp_proof_text()
+    src = (REPO / "tools" / "harness" / "fakegame.py").read_text(encoding="utf-8")
+    assert src.index("self._sp_proof()") < src.index("self._sw_proof()")
+    assert src.index("        self._sp_release()\n") < src.index("        self._sw_release()\n")
+    assert src.index("self._step_speed()") < src.index("self._step_swap()")
+
+
+def test_s164_kit2_swap_intent_follows_through_the_record(game):
+    """A-FOLLOW on the stand-in: `swap intent <field>` (selftest + `bench 1`) -- section 4 through the real codec into the seen edge (a
+    record opens by `seen`), the intent follow (its line stamped with `follow_t`), the fade, the "timer" verdict (`due_t`), the commit
+    (L-COMMIT), the landing one frame later (L-LAND via the follow): seen_t <= follow_t <= due_t <= commit_t <= land_t, every stamp
+    the record's own t; the counters move; a stamped line strips back to its s163 form (A-WORD)."""
+    fake = FakeGame(game)
+    with session(game, fake) as g:
+        on_bench(g)
+        c0 = g.state.swap_block["counts"]
+        harness = BW.swap_harness_intent(AWAY_SW, 1)
+        st = g.swap("intent", AWAY_SW)
+        assert _mlog_lines(fake, harness) and _mlog_lines(fake, FG.SWAP_INTENT_BENCH_FABRICATED.format(field=AWAY_SW, nonce=1))
+        seen = st.swap_seen
+        assert (seen["nonce"], seen["field"], seen["src"], seen["host_from"], seen["arrived_t"], seen["copies"]) == \
+            (1, AWAY_SW, FIELD, -1, -1, 1)
+        st = g.wait_for(lambda s: s.swap_last["state"] == "landed" and s.field_id == AWAY_SW, timeout=6.0, what="the landing")
+        last, counts = st.swap_last, st.swap_block["counts"]
+        assert (last["id"], last["role"], last["from"], last["dest"], last["open_by"], last["nonce"], last["seen_copies"]) == \
+            (1, "guest", FIELD, AWAY_SW, "seen", 1, 1)
+        assert (last["follow_via"], last["follows"], last["commit_field"], last["commit_why"], last["delay_ms"]) == \
+            ("intent", 1, AWAY_SW, FG.SWAP_STANDIN_DUE, 0)
+        assert (last["land_field"], last["land_via"], last["arrived_t"], last["own_t"]) == (AWAY_SW, "follow", -1, -1)
+        assert 0 <= last["open_t"] == last["seen_t"] <= last["follow_t"] <= last["due_t"] <= last["commit_t"] <= last["land_t"], last
+        assert st.swap_block["open"] is True and seen["first_t"] == last["seen_t"]
+        assert counts["transitions"] == c0["transitions"] + 1 and counts["landings"] == c0["landings"] + 1
+        assert counts["follow_won"] == c0["follow_won"] + 1
+        follow = FG.SWAP_INTENT_FOLLOW_LINE.format(field=AWAY_SW) + f" (t {last['follow_t']} ms)"
+        commit = BW.swap_log_commit(True, AWAY_SW, last["commit_t"] - last["follow_t"], "timer", 0, 1, last["commit_t"])
+        landed = BW.swap_log_landed(True, AWAY_SW, BW.SWAP_VIA_FOLLOW, 1, last["land_t"])
+        for line in (follow, commit, landed):
+            assert len(_mlog_lines(fake, line)) == 1, line
+        assert BW.swap_s163_form(BW.swap_strip_line(follow)[0]) == "follow_intent"         # A-WORD
+        assert BW.swap_line_class(commit) == BW.swap_line_class(landed) == "instrument"
+        # an intent for a field this install lacks: the seen edge only, the bench's own line, the harness line; nothing follows
+        g.warp(FIELD)
+        fake.unregistered_fields = {AWAY_SW2}
+        g.swap("intent", AWAY_SW2)
+        g.wait_frames(30)
+        st = g.state
+        assert _mlog_lines(fake, FG.SWAP_INTENT_BENCH_NOT_INSTALLED.format(field=AWAY_SW2))
+        assert st.field_id == FIELD and st.swap_last["dest"] == AWAY_SW2 and st.swap_last["follow_t"] == -1
+        assert st.swap_last["state"] == "open" and st.swap_seen["nonce"] == 2
+
+
+def test_s164_kit2_swap_delay_holds_the_commit_and_the_record_closes(game):
+    """On the stopwatch seam (the swap clock = the virtual clock): `swap delay 300` holds the commit exactly 300 ms past its verdict
+    (commit_t - due_t = 300 +- one frame; `last.delay_ms` 300; L-COMMIT names the delay); the landed record closes by the 10 s line
+    window (L-CLOSE, `counts.closed.window`); a record superseded while open closes by the next one's number; `stamps off` silences the
+    instrument lines (the record still runs); the session reset closes an open record as `reset` and forgets the seen nonce."""
+    fake = FakeGame(game)
+    fake.swap_qpc = None
+    with session(game, fake) as g:
+        on_bench(g)
+        frame_ms = 1000 / fake.render_fps
+        g.swap("delay", 300)
+        g.swap("intent", AWAY_SW)
+        st = g.wait_for(lambda s: s.swap_last["state"] == "landed", timeout=6.0, what="the delayed landing")
+        last = st.swap_last
+        assert last["delay_ms"] == 300 and 300 <= last["commit_t"] - last["due_t"] <= 300 + frame_ms + 1, last
+        assert _mlog_lines(fake, BW.swap_log_commit(True, AWAY_SW, last["commit_t"] - last["follow_t"], "timer", 300, 1, last["commit_t"]))
+        assert "; +300 ms delay) (swap #1)" in _mlog_lines(fake, "[NetSync] swap: follow-warp to field ")[-1]
+        g.swap("delay", 0)
+        fake.hitch(BW.SWAP_LINE_WINDOW_MS / 1000.0 + 0.5)
+        st = g.wait_for(lambda s: s.swap_last["state"] == "done", timeout=4.0, what="the line window's close")
+        last = st.swap_last
+        assert last["close_why"] == "window" and st.swap_block["counts"]["closed"]["window"] == 1 and st.swap_block["open"] is False
+        assert last["close_t"] - last["land_t"] >= BW.SWAP_LINE_WINDOW_MS
+        rel = lambda t: t - last["open_t"] if t >= 0 else -1                                  # noqa: E731
+        edges = {"seen": rel(last["seen_t"]), "follow": rel(last["follow_t"]), "own": -1, "due": rel(last["due_t"]),
+                 "commit": rel(last["commit_t"]), "landed": rel(last["land_t"]), "first line": -1}
+        close = BW.swap_log_closed_guest(True, 1, AWAY_SW, FIELD, BW.SWAP_CLOSE_WINDOW, BW.SWAP_VIA_FOLLOW, edges, "seen", 1, 0, 0,
+                                         last["close_t"])
+        assert len(_mlog_lines(fake, close)) == 1, close
+        # superseded: a second intent while the first is still open (its commit held 2 s) closes #2 by #3
+        g.swap("delay", 2000)
+        g.swap("intent", FIELD)
+        g.wait_for(lambda s: s.swap_last["id"] == 2 and s.swap_last["follow_t"] >= 0, timeout=4.0, what="record #2")
+        g.swap("intent", AWAY_SW2)
+        st = g.wait_for(lambda s: s.swap_last["id"] == 3, timeout=4.0, what="record #3")
+        assert st.swap_block["counts"]["closed"]["superseded"] == 1
+        assert _mlog_lines(fake, "[NetSync] swap #2 to field %d (from %d) closed by superseded by swap #3: no landing;" % (FIELD, AWAY_SW))
+        g.swap("delay", 0)
+        st = g.wait_for(lambda s: s.swap_last["state"] == "landed" and s.field_id == AWAY_SW2, timeout=6.0, what="record #3's landing")
+        assert st.swap_last["land_via"] == "follow"
+        # stamps off: no instrument line, an unstamped follow line -- the record still runs
+        g.swap("stamps", "off")
+        n_swap = len(_mlog_lines(fake, "[NetSync] swap"))
+        g.swap("intent", FIELD)
+        st = g.wait_for(lambda s: s.swap_last["id"] == 4 and s.swap_last["state"] == "landed", timeout=6.0, what="record #4")
+        assert len(_mlog_lines(fake, "[NetSync] swap")) == n_swap
+        assert _mlog_lines(fake, FG.SWAP_INTENT_FOLLOW_LINE.format(field=FIELD))[-1].endswith("(parallel)")
+        assert st.swap_block["counts"]["closed"]["next"] == 1          # #3 (landed) closed by the next swap
+        # the session reset: the open record closes `reset`, the seen nonce goes
+        g.netsync("selftest", 0)
+        g.wait_frames(2)
+        doc = fake._netsync_doc()["swap"]
+        assert doc["last"]["close_why"] == "reset" and doc["counts"]["closed"]["reset"] == 1 and doc["open"] is False
+        assert doc["seen"]["nonce"] == -1 and doc["seen"]["field"] == FIELD
+
+
+def _sw_window(g) -> dict:
+    st = g.wait_for(lambda s: s.dialogue_windows, timeout=4.0, what="the line to be tracked")
+    return st.dialogue_windows[0]
+
+
+def test_s164_kit2_b_the_bench_host_holds_a_plain_line_under_hostctl_off(game):
+    """B-HOST / B-HOLD / B-RELEASE on the stand-in: `swap hostctl off` + `hostscene 0` -- section 7 with b1 and b0 clear (b3 set),
+    `orphan.host_holds` true, the settle clock running; under act a plain locked line is HELD past OrphanGraceMs + AutoReadMs (one hold
+    line, `holds` +1, no orphaning, nothing closed); `hostctl on` ends the hold (`last_end` control, its end line), the line orphans
+    and auto-closes AutoReadMs later. Under `orphan old` the same line orphans at OrphanGraceMs and no hold is counted."""
+    fake = FakeGame(game)
+    G = FG._GuestDialog
+    with session(game, fake) as g:
+        on_bench(g)
+        fake.scene("A plain line.")
+        w = _sw_window(g)
+        win, text = w["win"], w["text"]
+        g.swap("hostctl", "off")
+        g.netsync("hostscene", 0)
+        st = g.wait_for(lambda s: s.swap_block["orphan"]["host_holds"] is True, timeout=4.0, what="the host holding input")
+        assert st.netsync["host_flags"] & 0x03 == 0 and st.netsync["host_flags"] & 0x08
+        assert st.swap_block["levers"]["hostctl_off"] is True
+        st = g.wait_for(lambda s: s.dialogue_host_settled_ms >= 0, timeout=4.0, what="the settle clock")
+        closes, holds0 = st.dialogue_orphan_closes, st.swap_block["orphan"]["holds"]
+        t0 = rt(st)
+        st = stays(g, lambda s: s.dialog_open and s.dialogue_windows[0]["cls"] == "locked",
+                   frames=int((G.ORPHAN_GRACE_MS + G.AUTO_READ_MS + 1000) * fake.render_fps / 1000), what="the held line orphaned")
+        assert rt(st) - t0 >= (G.ORPHAN_GRACE_MS + G.AUTO_READ_MS) / 1000.0
+        orphan = st.swap_block["orphan"]
+        assert orphan["holds"] == holds0 + 1 and orphan["holding"] == 1 and st.dialogue_orphan_closes == closes
+        hold = f"[NetSync] dialogue orphan: win {win} text {text} held -- the host's control is off on my field (t "
+        assert len(_mlog_lines(fake, hold)) == 1
+        assert not _mlog_lines(fake, "is not on the host's screen")
+        t_on = rt(g.swap("hostctl", "on"))
+        st = g.wait_for(lambda s: s.dialogue_orphan_closes == closes + 1, timeout=6.0, what="the release, then the auto-close")
+        assert rt(st) - t_on >= G.AUTO_READ_MS / 1000.0 - 0.1    # orphaned at the release: its read clock starts there
+        orphan = st.swap_block["orphan"]
+        assert orphan["last_end"] == "control" and orphan["holding"] == 0 and orphan["last_hold_ms"] >= G.AUTO_READ_MS
+        end = _mlog_lines(fake, f"[NetSync] dialogue orphan: win {win} text {text} -- the control hold ends after ")
+        assert len(end) == 1 and f"ms ({BW.SWAP_HOLD_END_WORDS[BW.SWAP_HOLD_END_CONTROL]}) (t " in end[0]
+        assert len(_mlog_lines(fake, f"[NetSync] dialogue orphan: win {win} text {text} is not on the host's screen (host idle ")) == 1
+        assert _mlog_lines(fake, f"[NetSync] dialogue orphan: win {win} text {text} auto-closed (host idle ")
+        # the calibration: `orphan old` is s163's rule -- the plain line orphans under the held control, no hold counted
+        g.swap("orphan", "old")
+        g.swap("hostctl", "off")
+        fake.scene("Another plain line.")
+        _sw_window(g)
+        st = g.wait_for(lambda s: s.dialogue_orphan_closes == closes + 2, timeout=6.0, what="the old rule's orphan and its close")
+        assert st.swap_block["orphan"]["holds"] == holds0 + 1 and st.swap_block["orphan"]["host_holds"] is True
+
+
+def test_s164_kit2_b_a_relock_keeps_the_read_clock_and_a_teardown_ends_the_hold(game):
+    """B-BLIP / B-BLIP2 on the stand-in: an ORPHANED line relocks when the bench host's control goes off (`relocks` +1, the OrphToLocked
+    line in the hold words, stamped) and re-orphans when it is back with the read clock it FIRST orphaned with (KeepRead off a Control
+    end): held past AutoReadMs, it auto-closes on the first orphaned tick -- the rejected restart rule would wait AutoReadMs more. A hold
+    that ends because the lock lets go ends `forgot` ("the lock let go"). The loop runs at its render rate (virtual = wall time), so a
+    driver round trip fits inside AutoReadMs."""
+    fake = FakeGame(game)
+    fake.fps = fake.render_fps
+    G = FG._GuestDialog
+    with session(game, fake) as g:
+        on_bench(g, hostscene=False)
+        fake.scene("A stray line.")
+        w = _sw_window(g)
+        win, text = w["win"], w["text"]
+        st = g.wait_for(lambda s: s.dialogue_windows and s.dialogue_windows[0]["cls"] == "orphaned", timeout=6.0, what="the orphan")
+        closes, relocks0 = st.dialogue_orphan_closes, st.swap_block["orphan"]["relocks"]
+        g.swap("hostctl", "off")
+        st = g.wait_for(lambda s: s.dialogue_windows and s.dialogue_windows[0]["cls"] == "locked", timeout=2.0, what="the relock")
+        assert st.swap_block["orphan"]["relocks"] == relocks0 + 1 and st.swap_block["orphan"]["holding"] == 1
+        assert st.dialogue_orphan_closes == closes
+        assert len(_mlog_lines(fake, f"[NetSync] dialogue orphan: win {win} text {text} held -- the host's control is off on my field "
+                                     f"(t ")) == 1
+        st = stays(g, lambda s: s.dialog_open and s.dialogue_windows[0]["cls"] == "locked",
+                   frames=int((G.AUTO_READ_MS + 300) * fake.render_fps / 1000), what="the relocked line closed")
+        t_on = rt(st)
+        g.swap("hostctl", "on")
+        st = g.wait_for(lambda s: not s.dialog_open, timeout=3.0, what="the auto-close on the kept read clock")
+        assert rt(st) - t_on <= 0.5, rt(st) - t_on               # the restart rule (relock_restarts_read) would wait AutoReadMs more
+        assert st.swap_block["orphan"]["last_end"] == "control" and st.dialogue_orphan_closes == closes + 1
+        assert st.swap_block["orphan"]["relocks"] == relocks0 + 1
+        # a teardown: a held line whose lock lets go ends `forgot`
+        g.netsync("hostscene", 1)
+        fake.scene("Held, then let go.")
+        _sw_window(g)
+        g.swap("hostctl", "off")
+        g.netsync("hostscene", 0)
+        st = g.wait_for(lambda s: s.swap_block["orphan"]["holding"] == 1, timeout=G.ORPHAN_GRACE_MS / 1000 + 4, what="the hold")
+        g.netsync("lock", 0)
+        st = g.wait_for(lambda s: s.swap_block["orphan"]["last_end"] == "forgot", timeout=4.0, what="the lock letting go")
+        assert st.swap_block["orphan"]["holding"] == 0
+        assert _mlog_lines(fake, f"({BW.SWAP_HOLD_END_WORDS[BW.SWAP_HOLD_END_FORGOT]}) (t ")

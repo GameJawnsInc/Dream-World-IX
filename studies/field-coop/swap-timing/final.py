@@ -2,6 +2,14 @@ import re, sys, glob, statistics as st
 BASE = r'C:/gd/Dream-World-IX/.harness-runs'
 TS = re.compile(r'^(\d\d)\.(\d\d)\.(\d{4}) (\d\d):(\d\d):(\d\d) ')
 THETA = {'twopc-r3-20261027': 0.17, 'twopc-s158-20261028': 1.40, 'twopc-s161-20261028': 1.50, 'twopc-s163-20261029': 1.87}
+# [ff9mapkit netsync s164] the tolerant stamp tail: an s164 engine ends a dialogue line with " (t T ms)" on its swap clock (QPC ms).
+# A stamp is preferred over the whole-second prefix when BOTH lines of a comparison carry one; their offset is then THETA_QPC (the
+# stamped session's clock offset -- drift.py measures it on the stamps; 0 when both games ran on one machine), never THETA.
+STAMP = re.compile(r' \(t (\d+) ms\)$')
+THETA_QPC = {}
+def stamp(line):
+    m = STAMP.search(line)
+    return int(m.group(1)) if m else None
 def parse(path):
     out = []
     for n, line in enumerate(open(path, encoding='utf-8', errors='replace')):
@@ -23,15 +31,15 @@ for sess in THETA:
     G = parse(glob.glob(f'{BASE}/{sess}/laptop-guest*.log')[0])
     taps = []
     for t, n, l in H:
-        m = re.search(r'dialog tap: win (\d+) text (\d+) .* seq (\d+)$', l)
-        if m: taps.append((t, n, int(m.group(1)), int(m.group(2)), int(m.group(3))))
+        m = re.search(r'dialog tap: win (\d+) text (\d+) .* seq (\d+)(?: \(t (\d+) ms\))?$', l)
+        if m: taps.append((t, n, int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)) if m.group(4) else None))
     opens = [(t, n, int(m.group(1)), int(m.group(2))) for t, n, l in G for m in [re.search(r'dialogue lock: win (\d+) text (\d+) opened locked', l)] if m]
     Q = {}; C = {}
     for t, n, l in G:
         m = re.search(r'dialogue: host seq (\d+) queued \(field (\d+)', l)
         if m: Q.setdefault(int(m.group(1)), (t, n, int(m.group(2))))
         m = re.search(r'dialogue: win \d+ text \d+ (?:closed|advanced) \(host seq (\d+)', l)
-        if m: C.setdefault(int(m.group(1)), (t, n))
+        if m: C.setdefault(int(m.group(1)), (t, n, stamp(l)))
     hi = [(t, n, int(re.search(r'field (\d+) \(nonce', l).group(1))) for t, n, l in H if 'transition intent ->' in l]
     for k, (t, n, f) in enumerate(hi):
         tend = hi[k + 1][0] if k + 1 < len(hi) else t + 300
@@ -60,14 +68,16 @@ for sess in THETA:
         # dialogue on f after the guest landing, host taps between landing and next intent
         ftaps = [x for x in taps if t <= x[0] <= tend]
         seqinfo = []
-        for (ht, hn, w, tx, s) in ftaps:
+        for (ht, hn, w, tx, s, hms_) in ftaps:
             if s not in Q or s not in C: seqinfo.append((s, '?', None)); continue
             nc = C[s][1]
             o = [x for x in opens if x[2] == w and x[3] == tx and x[1] < nc and x[0] >= Q[s][0] - 60]
             if not o: seqinfo.append((s, '?', None)); continue
             o = o[-1]
             order = 'W' if o[1] < Q[s][1] else 'B'   # W: guest waited (open before host close arrived); B: behind
-            seqinfo.append((s, order, C[s][0] + th - ht))
+            cms = C[s][2]
+            lag = (cms - hms_) / 1000.0 + THETA_QPC.get(sess, 0.0) if (hms_ is not None and cms is not None) else C[s][0] + th - ht
+            seqinfo.append((s, order, lag))
         conv = None
         for i, (s, o, cl) in enumerate(seqinfo):
             if o == 'W':
