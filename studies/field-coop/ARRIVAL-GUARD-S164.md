@@ -1,11 +1,13 @@
 # Arrival guard (s164 addendum)
 
-**Status: DESIGN rev 2 (2026-10-30), review round 1 applied (15 findings, § Review log). Not built.** This is owner decision 8 of
+**Status: BUILT (2026-10-30): engine compiled and deployed; folded into the re-captured s164 patch
+(`memoria-patches/s164-netsync-field-swap-timing.patch`); awaiting the first live run.** Design rev 2, review round 1 applied (15
+findings, § Review log); the build's departures from it are in the Build log. This is owner decision 8 of
 `SWAP-TIMING-S164.md` (rev 3, :1807): the landing-scoped arrival guard that DA-ARRIVE's predicted red at act makes a ship blocker
 (R2 :41, V5 :77, :1677-1681). It folds into s164 as one change tagged `[ff9mapkit netsync s164]`, lands before s164's README row,
 and ARRIVE becomes its calibration (guard off red, guard on green). Engine cites are against `C:\gd\FFIX\Memoria\Assembly-CSharp`
-with s164 applied; kit cites are against this worktree. **INFER** marks a deduction and names the row that settles it. It merges
-two independent designs; see the review log.
+with s164 applied, before the guard (the Build log has where the guard's hunks landed); kit cites are against this worktree.
+**INFER** marks a deduction and names the row that settles it. It merges two independent designs; see the review log.
 
 Constraints held: harness protocol 5, wire v14 with no new byte or section, no host code, `DwellMs`/`StartRule`/s158's proof line
 untouched, levers released with the harness, every pure rule tabled with killing mutants.
@@ -163,7 +165,7 @@ replacement to K past the base start, so a replacement mid-episode can only add 
 
 | Latch | Set | Read | Cleared |
 |---|---|---|---|
-| **R, the host-landing record** `{field, nonce, tick, seenTick, seenLanding, seenT, bench}` | `ArriveRecordEdge(body, field, nonce, now, bench)`, the shared writer. Live: `ArriveHostFrame` in `NoteHostFrame`'s section-4 branch, right after `PinHostFrame` (:1116), with PIN's client gate at that call (`state != null && HarnessEnabled && HarnessRole == "client"`, the form of :1397), and only when `ArriveHostEdgeRule(…, HostLandSeenOf(body))` holds; `tick = seenTick = now`, `seenLanding = _arriveLanding`. Bench: `arrivebench` (§ Lever) calls the same writer through the real codec | `ArriveAnchorRule` at my landing and at a late edge | Replaced by the next edge. `ForgetHostNonce` (:1186), `ResetSession` (:1059). The release drops a record the bench wrote. A replaced or stale R never touches a guard already anchored: the guard copies Hs |
+| **R, the host-landing record** `{field, nonce, tick, seenTick, seenLanding, seenT, bench}` | `ArriveRecordEdge(body, field, nonce, tick, seenTick, seenLanding, bench)` (as built), the shared writer. Live: `ArriveHostFrame` in `NoteHostFrame`'s section-4 branch, right after `PinHostFrame` (:1116), with PIN's client gate at that call (`state != null && HarnessEnabled && HarnessRole == "client"`, the form of :1397), and only when `ArriveHostEdgeRule(…, HostLandSeenOf(body))` holds; `tick = seenTick = now`, `seenLanding = _arriveLanding`. Bench: `arrivebench` (§ Lever) calls the same writer through the real codec | `ArriveAnchorRule` at my landing and at a late edge | Replaced by the next edge. `ForgetHostNonce` (:1186), `ResetSession` (:1059). The release drops a record the bench wrote. A replaced or stale R never touches a guard already anchored: the guard copies Hs |
 | **The guard** `{arm, armed, spent, field, landing, landTick, landT, anchored, hsTick, leadMs, late, armCounted, lateCounted, backArmed, backSince, logged}` | `ArriveLanding(fld)`, OnFieldLoad's first statement, at **every** landing (follow, own pass, kick, bounce, rejoin, battle return, ATE DEST, world). It numbers the landing, writes a bench record with lead ≥ 0 (§ Lever), then `arm = ArriveArmRule(roleOk, ArriveOld, LandingFromWorld())`, `armed = arm == ArmOn`, `anchored = ArriveAnchorRule(…)`, `hsTick`, `leadMs`, `late = false`; it resets `spent`, the counted flags, `backArmed`/`backSince` (a control-back carried over from the last field never spends the fresh guard) and the episode. The role and the lever are read **at the landing**, so a lever flip mid-episode waits for the next landing. A late edge for `field` (§ The lead) sets `anchored`, `hsTick`, `leadMs`, `late` | `ArriveHoldsRule(armed && !spent, anchored, field, fld)` | Spent by `ArriveSpendRule` in `ArriveTick` (`spent` = true; `leadMs` stays for the report). `ResetSession` / `ForgetHostNonce` (session). Replaced at the next landing |
 | **The episode** `{on, frame, baseStart, base, dwell, shift, held}` | `ArriveDwellAge` on each Tick where the hold applies and neither a line nor `ate` decided. `baseStart = now − baseAgeMs`; a different `baseStart` from the stored one is a new base: `ArriveEndRule(held, 0, true, false, OutNone)` classifies the old episode first, then a new one starts with `held` false | `ArriveTick` evaluates `ArriveEndRule(held, Time.frameCount − frame, false, NetSyncStepOut.Active, why)`, with `why` from `NetSyncStepOut.HarnessWhy` (:1047), before it evaluates the spend | At classification (`on` false; `last` takes its values and end) |
 
@@ -194,7 +196,8 @@ record from before my previous landing, or 10 s old, already gives an inert form
   - When nothing decided, it records the episode (a new base first ends the old one) and prints the held line once.
   - It has its own try: a throw sets the sticky fault, is logged once (item `ARRIVE`) and returns `baseAgeMs`.
 - **`NetSyncSwap.cs`** (every guard entry point has its own try with item `ARRIVE`: sticky fault, logged once per site, never
-  throws into its caller):
+  throws into its caller; as built, a set fault makes `ArriveLanding`, `ArriveHostFrame` and `ArriveTick` inert and drops the guard,
+  the episode and the bench, so `armed` reads false, while `ForgetArrive` and the readers still run):
   - `ArriveHostFrame(state, body, field, nonce, now)` in `NoteHostFrame`'s section-4 branch, right after `PinHostFrame` (:1116) and
     before `if (SeenRule(true, nonce, _seenNonce))`. Its own try keeps a guard fault out of item A's catch (:1138-1141), so A's seen
     edge always runs.
@@ -208,7 +211,8 @@ record from before my previous landing, or 10 s old, already gives an inert form
     can happen while a base holds.
   - `ArriveTick` reads the user control (the `PersistenSingleton<EventEngine>` read that `SwapNoteHostFrame` already makes),
     `NetSyncStepOut.Active`, `NetSyncStepOut.HarnessWhy` and `Time.frameCount`, and writes a late bench record. It never throws. On a
-    client it costs two bool reads per idle Update.
+    client it costs three bool reads per idle Update (as built: the guard, the episode and the bench, since the bench's late write runs
+    on an unarmed guard too).
   - `ForgetArrive("session")` in `ResetSession` and `ForgetHostNonce`.
 - **`NetSyncClient.cs`:** 0 hunks.
 - **A host or a solo game** never arms the guard and never reaches `ArriveDwellAge`, because its base fails on `eligible` first.
@@ -452,8 +456,9 @@ number (5 in every Anchor row).
 | `arrive_count_late_never` | count.late_first, count.late_after_arm | `arrive_count_unanchored_with_record` | count.spend_anchored |
 | `arrive_count_unarmed` | count.unarmed | | |
 
-- **The proof line** gains 75 rows and 37 mutants (fakegame's pins today: 425 / 146, `fakegame.py:1069-1070`, become 500 / 183) and
-  the tail `, arrival lead 1040 ms`.
+- **The proof line** gains 75 rows and 37 mutants (as built: the base is 426 / 146, not the 425 rows this spec counted, so the
+  line reads 501 / 183; fakegame pins both halves, `FAKE_SWAP_SELFTEST_ROWS_UNGUARDED` 426 and `FAKE_SWAP_ARRIVE_ROWS` 75,
+  `fakegame.py:1088-1093`) and the tail `, arrival lead 1040 ms`.
 - **s158's line does not move.**
 - **No `arrive_holds_line` mutant.** The line and `ate` precedence is structural: StartRule is unchanged and the hunk passes `line`
   and `landing` straight through. A kit source pin on the exact :570 line carries it, as s162's pin did
@@ -470,10 +475,14 @@ number (5 in every Anchor row).
 - **Engine-only.** The stand-in models no step-out episode (`fakegame.py:6623-6624`), no landing and no record. The docstring's
   stand-in paragraph (:95-97) becomes "models K, A and B only: on an engine, a C, P, L, F or G leg's sentinel keys after an acked op
   are red (P8)", and the kit test stays at `COOP_LEGS=KAB`.
-- **P8 extended to G.** On an engine, a G row whose `arrivebench` was acked but whose `arrive.host.bench` stayed false, or whose
-  `arrive.field` never read 30611, or (G-HOLD, G-DELAY, G-LATE) whose `episode.on` never read true, is red: "the engine never ran
-  the guard".
+- **P8 extended to G.** On an engine, a G row whose `arrivebench` was acked but which never read a FRESH bench record
+  (`arrive.host.bench` for 30611 with an `arrive.host.nonce` other than the row's start: the previous row's record stands, so presence
+  alone could never fail; with the start unread, presence suffices), or whose `arrive.field` never read 30611, or (G-HOLD, G-DELAY,
+  G-LATE, with `levers.arrive` act at the landing) whose `episode.on` never read true, is red: "the engine never ran the guard".
 - **Each row, starting from HOME:**
+  0. Wait up to 3 s for HOME's own guard to spend (`arrive.armed` false), then read the row's counter base. HOME's landing arms an
+     unanchored guard on the selftest role too, and above about 44 fps its spend could land inside the row's deltas. A guard that never
+     spends leaves the row UNREACHED; the wait reads no `arrive.field`, so a faulted guard still reads P8 red (as built).
   1. `hostscene 1`. It survives the load: `DebugHostEventFlag` is cleared only at the selftest disarm (`NetSyncClient.cs:10002`).
   2. `swap arrivebench L`, if the row has a lead.
   3. `warp(ARRIVE_ID, entrance=0)`.
@@ -487,17 +496,17 @@ number (5 in every Anchor row).
   - the OUT instant = `clock.now_ms − stepout.age_ms` at the first sample with `stepout.active` true and `why` `dwell`
     (`coop_step_out.py:233-245`'s pattern);
   - the landing = `swap.arrive.land_t`, the guard's own swap-clock landing;
-  - B − G = (`clock.now_ms` − `arrive.land_t`) − `stepout.base.age_ms` at the first sample with a base, ± one frame and TickCount's
-    16 ms;
+  - B − G = (`clock.now_ms` − `arrive.land_t`) − `stepout.base.age_ms` at the episode's own base (the last episode sample with a
+    base; the first base sample only when no episode sample has one; as built), ± one frame and TickCount's 16 ms;
   - (the guard's own `held the dwell OUT` end line is stamped, but lags the OUT by up to 2 frames: reported only).
 
 | Row | L | Green | Under `arrive` |
 |---|---|---|---|
-| **G-HOLD** | 0 | Reach: raw base peak ≥ 1500. No dwell OUT on 30611; `ends.spared` +1; `last.end` spared; dwell peak ≈ A − K ≈ 1090-1270 (< 1500); `spends.control` +1 within S + 0.3 s of control back | red: OUT at base ≈ 1500 |
-| **G-DELAY** | 600 | One OUT by dwell whose instant − `arrive.land_t` is in [1880, 2090] (Hs + K + D = G + 1940); `ends.delayed` +1; `last.shift_ms` = 440 − (B − G) ± 1 frame | red: OUT at ≈ land + 1550 |
+| **G-HOLD** | 0 | Reach: raw base peak ≥ 1500, or a dwell OUT (as built: the published base age reads -1 once a step-out is active). No dwell OUT on 30611; `ends.spared` +1; `last.end` spared; dwell peak ≈ A − K ≈ 1090-1270 (< 1500); `spends.control` +1 within [-1 frame, S + 0.3 s] of control back | red: OUT at base ≈ 1500 |
+| **G-DELAY** | 600 | One OUT by dwell whose instant − `arrive.land_t` is in [1880, 2090] (Hs + K + D = G + 1940); `ends.delayed` +1; `last.shift_ms` = 440 − (B − G) ± one frame + 16 ms (as built: B - G carries TickCount's resolution; the expected value is the full rule min(K, max(0, K - ((B - G) + 600)))) | red: OUT at ≈ land + 1550 |
 | **G-LATE** | −400 | `late` true and `late_arms` +1 (G-DELAY's record is stale: seen before HOME's landing); `episode.shift_ms` = **1040 exactly** (the cap binds; uncapped would read 1390); no OUT before my control returns | red: OUT at ≈ land + 1550 |
 | **G-INERT** | 1500 | OUT instant − `arrive.land_t` in [1500, 1700]; `shift_ms` 0; `held` +0 | green (a control) |
-| **G-OFF** | none | `arrive.host.field` = 30611 and `host.bench` true (G-INERT's record still stands) **and** `lead_ms` null: the stale record does not anchor; OUT by dwell at base 1500 (s158 exactly: OUT instant − B in [1500, 1500 + one frame + 16]); `unanchored` +1 at the OUT's spend | green (a control) |
+| **G-OFF** | none | `arrive.host.field` = 30611 and `host.bench` true (G-INERT's record still stands) **and** `lead_ms` null: the stale record does not anchor; OUT by dwell at base 1500 (s158 exactly: OUT instant − B in [1500 - 16, 1500 + one frame + 16], as built: the OUT instant and B mix the QPC swap clock with TickCount ages, so a true 1500 can read 1484); `unanchored` +1 at the OUT's spend | green (a control) |
 
 - **K-legs.** K-REFUSE, K-LEVER and K-RELEASE gain:
   - the `arrive` and `arrivebench` acks and the `levers.arrive` / `arrive.bench.armed` read-back;
@@ -516,7 +525,10 @@ number (5 in every Anchor row).
   data edit and a redeploy with `--id 30611` (already registered: no relaunch). § Predicted numbers has the window. The retune rule
   is pre-registered: if CAL2's measured O (overlap + L − 1667 ms) and its median δ7 would put 64's E outside
   [D + L + bind, D + K + δx], `entry_settle` becomes round((2320 − O − δ7) / 33.3), the window's centre, before ARRIVE is judged
-  again. It is read from CAL2, a watch, never from ARRIVE's own outcome.
+  again. It is read from CAL2, a watch, never from ARRIVE's own outcome. As built it is a reported string in DA-ARRIVE's detail,
+  never judged, and VOID under an unfit clock. 30611 was redeployed at 64 after the build (its installed files postdate the retune).
+- **An unregistered ARRIVE_ID** (as built) reads DA-ARRIVE "not reached" with the deploy command and records it VOID, a setup miss:
+  under the `arrive` word the calibration reads VOID, never the word's predicted red.
 - **DA-ARRIVE becomes the guard's calibration** (`judge_da_arrive`, :900).
   - **Reach (a kit fix).** `arrive_reached` (:890-892) becomes overlap ≥ D + 100 **and** (raw base peak ≥ D **or** a dwell OUT).
     `HarnessBaseAgeMs` reads −1 while a step-out is active (`NetSyncStepOut.cs:1049`), so on an OUT run the published peak sits
@@ -527,7 +539,8 @@ number (5 in every Anchor row).
   - **Named reds** (each read from the guest alone):
     - "the guard never anchored: no landed frame seen", when the ARRIVE landing's `lead_ms` is null;
     - "guard defect: shift S ms, the rule gives R ms", when the episode's `shift_ms` differs by more than one frame + 16 ms from
-      min(K, max(0, K − (B − Hs))), with B − Hs = (B − G) + `lead_ms`;
+      min(K, max(0, K − (B − Hs))), with B − Hs = (B − G) + `lead_ms` and B - G read at the episode's own base, as the solo's
+      leg G reads it (as built; the first base sample in the window could belong to a base that re-armed before the episode);
     - "margin miss: the guard shifted S ms as its rule says, and this arrival's control-off still ran past Hs + K + D (s163's own
       instant) -- retune ARRIVE's entry_settle, not a guard defect", for a dwell OUT with the guard anchored and its shift right.
       A margin miss is red (the gate is not passed) but names the field, not the guard.
@@ -542,8 +555,11 @@ number (5 in every Anchor row).
     raw base peak or a dwell OUT, the green, the named reds). It leaves `CROSS_GAME` (:188) and joins DC-B(a), DF-FAST and DA-LINES,
     which lose a clause instead.
   - **Controls** (ARRIVE on `fade old`, CAL0) stay green, with `shift_ms` ≤ about 100 reported.
-  - **Watches.** CAL2 and DESK stay watches. On DESK an OUT by line is lawful; when `shift_ms` > 0 at it, it is reported as a
-    guarded line start ("never delays a line", on real bytes).
+  - **Watches.** CAL2 and DESK stay watches, reported apart and never judged (as built, the duo's fix round): their dressed dwell
+    OUTs are listed in the detail but never change the verdict, so a watch red cannot break the `arrive` word's exactness. The
+    first duo run's five DESK watch OUTs were 352's lawful 7.9 s wordless scene, read through a 351 window that never ended; the
+    351 arrival's window now ends at the 352 landing. On DESK an OUT by line is lawful; when `shift_ms` > 0 at it, it is reported as
+    a guarded line start ("never delays a line", on real bytes).
 - **`BASELINE_RED = ()`** (:195).
 - **The new word `arrive`.** The guest sends `swap arrive old` (read back) before the ARRIVE act run only, and `act` after it.
   - Red rows: **DA-ARRIVE**.
@@ -585,7 +601,10 @@ number (5 in every Anchor row).
   - The kit has **no** step-out rule twins (rev 1 cited `fakegame.py:852-894`, which holds the stepout lever and proof constants);
     nothing step-out changes there.
 - **`tools/harness/fakegame.py`:** the `arrive` block at its sentinels, `levers.arrive`, both ops acked (harness half), and
-  `FAKE_SWAP_SELFTEST_ROWS` / `FAKE_SWAP_MUTANTS` 500 / 183. `SWAP_STANDIN_UNMODELLED` unchanged.
+  `FAKE_SWAP_SELFTEST_ROWS` / `FAKE_SWAP_MUTANTS` 501 / 183 (as built; see SelfTest). `SWAP_STANDIN_UNMODELLED` unchanged.
+- **`tools/harness/session.py`** (as built; this list left it out): `arrive` and `arrivebench` in `NETSYNC_SWAP_OPS` and the
+  role sets, `NETSYNC_SWAP_WORDS["arrive"]`, `NETSYNC_SWAP_ARRIVEBENCH_RANGE = (-1000, 5000)` and the new usage literal; without
+  them the driver refuses both ops itself, with the old usage line, before anything reaches the stand-in or the engine.
 - **`ff9mapkit/tests/test_harness_netsync.py`:**
   - The :27583 pin becomes the s164 line.
   - New source pins:
@@ -617,7 +636,8 @@ number (5 in every Anchor row).
   - `coop_ate_relay` S-LAND and `coop_ate_relay_duo` D10-D12 unchanged (`ate` decides first);
   - `coop_speed_mirror`;
   - `coop_world_wait` (s144) and `coop_world_battle` (s145): green, `arrive.world` Δ ≥ 1 per world rejoin, `arms` +0 on them,
-    `lead_ms` reported (the INFER on the world gap);
+    `lead_ms` reported (the INFER on the world gap). As built, the clause folds into every world-rejoin row (no new row id) and
+    also requires `arrive.field` = the rejoin field; the Build log has its not-judged cases;
   - s164's existing regression set.
   - INFER: no regression row changes. The ATE noland marker (`coop_ate_relay.py:352`) accepts a line or a dwell OUT with no
     timing.
@@ -639,7 +659,8 @@ number (5 in every Anchor row).
 - **No 3x scaling.** K, D and the base are all wall-clock TickCount, as in s158.
 - **No census** of wordless arrival lengths (decision 8's alternative). `ends.spared`, `ends.delayed` and `held` measure it in play.
 - **No change to the speed mirror's undwelled start** (risk 14's second half, G1).
-- **Doc follow-ups for `SWAP-TIMING-S164.md` rev 4:**
+- **Doc follow-ups for `SWAP-TIMING-S164.md` rev 4** (all applied in its rev 4, under What changed from rev 3; the fence went with the
+  kit, and the `HarnessAgent.cs` cite is :5039 once the guard's own hunks are in):
   - risk 14's band (1.5 + L to 2.54 s; the own-pass late-read band 2.54 s to L + 2.54 s; the unanchored and world residuals);
   - decision 8 pointing here, with this addendum's reading of "the host's arrival lead";
   - the R2, V5 and DA-ARRIVE rows and the calibration table (`arrive`, the `life` scope, DA-GUARD, DA-ARRIVE's named reds, its
@@ -693,7 +714,68 @@ correction to its window arithmetic.
 | 14 | low | Seam name clash, rows not buildable as written, a sentinel collision, wrap twins | **Fixed.** The rules live in a nested `ArriveRules` with seam `DwellAge` (PIN owns `Rules.Age`, :2931); Holds and Spend rows carry concrete ids; `episode.on` plus null values replace the −1 sentinel; `_i32` in every Int32-delta twin and row dwellage.wrap (C#'s unchecked wrap reads 1600) with mutant `arrive_age_long_math` |
 | 15 | low | DA-ARRIVE can VOID whole; the `arrive` word lacks `WORD_LEGS` | **Fixed.** DA-ARRIVE leaves `CROSS_GAME` and loses only its overlap clause under an unfit clock; `WORD_LEGS["arrive"] = ("CAL",)`; DA-GUARD in `PROBABILISTIC` |
 
+## Build log
+
+**2026-10-30, build.** Rev 2 was built as three parts (engine, kit, bench). An adversarial review of the build confirmed 9 findings
+(1 blocker, 1 major, 7 minor), all fixed, and a critic pass closed the world-bench gap. The engine compiled clean (0 errors) and
+was deployed, with the live DLLs backed up first (set 20261030-080923). `memoria-patches/s164-netsync-field-swap-timing.patch` was
+re-captured with the guard, and ARRIVE (30611) was redeployed at 64. The first duo run (run 20261030-054437), on round 1's code,
+had confirmed ARRIVE's predicted red at 68 (`SWAP-TIMING-S164.md` rev 4, under DA-ARRIVE). Nothing has run live on the guard yet: the
+proof line, leg G, DA-ARRIVE and DA-GUARD are its first live checks. The owner questions' defaults were taken (Open for the review). `NetSyncClient.cs` has 0 hunks.
+
+Where the hunks landed (the clone with s164 and the guard):
+
+| Hunk | Spec | Built |
+|---|---|---|
+| The behaviour hunk | `NetSyncStepOut.cs:570` | :576-578 (the two s164 comment lines replace the old trailing s162 comment) |
+| The header paragraph | `NetSyncStepOut` | :68-73 |
+| `ItemArrive`, `ItemNames`; `FaultsBy` | :203; :365 | :203-204; :394 |
+| The state (R, the guard, the episode, `last`, the counters, the fault) | beside PIN | :364-387 |
+| The pure rules | beside PIN | :794-903 (`ArrivalLeadMs` :806) |
+| `ForgetArrive("session")` | `ResetSession`, `ForgetHostNonce` | :1214, :1333 |
+| `ArriveHostFrame(...)` | after `PinHostFrame` (:1116) | :1257 |
+| `ArriveTick(myField)` | `GuestTick`'s first statement (:1299) | :1444; `GuestTick`'s doc block now names the guard's reads and writes (review) |
+| The live guard | | `ArriveLanding` :1977 to `ArriveFault` :2339 |
+| `ArriveLanding(fld)` | `OnFieldLoad`'s first statement (:1978) | :2511 |
+| `Usage`, `OpRole`, the lever cases | :2284, :2291 | :2816, :2836 and :2846, :3018 and :3027 |
+| The release | `HarnessRelease`, `ReleaseLevers` | :3159, and `ForgetArriveBench` :2329 |
+| The state readers | | :3326-3359 |
+| The proof | beside D+E's (:4287, :4309) | `ArriveRules` :4646, `RowsArrive` :4665, `ArriveMutantNames` :4858, `MutantsArrive` :4873; called at :5138 and :5169; the tail :5183 |
+| `HarnessAgent.cs` | the ProtocolVersion paragraph, :4107, :5254-5263 | :407-413, the catch literal :4114-4117, `levers.arrive` :5275, `AppendSwapArrive` :5324 and :5342 |
+
+Departures from this spec (each passage above that it contradicted now says "as built"):
+
+| # | Part | As built | Why |
+|---|---|---|---|
+| 1 | Engine, proof | 501 rows / 183 mutants, not 500: the base counted from the code is 426 rows (NetSyncSwap 324 with 11 live rows, plus D+E's 102) and 146 mutants (103 + 43); the guard adds 74 pure rows, the live `arrive_codec` row and 37 mutants | The spec miscounted the base |
+| 2 | Engine, R's writer | `ArriveRecordEdge(body, field, nonce, tick, seenTick, seenLanding, bench)`. The late step is split out as `ArriveAfterEdge` -> `ArriveLateEdge` and runs only for writes made after my landing (a live frame, or a negative bench lead) | A bench write with lead >= 0 cannot re-anchor the previous guard on a same-field reload |
+| 3 | Engine, episode | An episode still on at the next landing is classified first (framesSinceDwell forced to 3, with the step-out's live Active and why), then reset | A held episode whose base died in a load still counts its end |
+| 4 | Engine, the fault | The sticky fault makes `ArriveLanding`, `ArriveHostFrame` and `ArriveTick` inert and clears the live guard, the episode and the bench (`armed` reads false); `ForgetArrive` and the readers still run; its line ends with NoteFault's " (logged once per site)" | The guard fails open to s158 for the rest of the process |
+| 5 | Engine, counters | Counting needs armed and not spent, so a late edge after a spend counts nothing; it still updates `lead_ms` and `late` for the report on any guard | The counters follow the spec's "armed guards only" |
+| 6 | Engine, cost | `ArriveTick` reads three bools per idle Update, not two | The bench's late write must run on an unarmed guard (G-LATE under the solo `arrive` word) |
+| 7 | Engine, bench | A negative-lead bench whose late write has not fired by my next landing is dropped (one-shot); its bench line prints the actual offset | One-shot means one landing |
+| 8 | Engine, `last` | `last` takes every classified episode, unheld ones too (end null); only held ends bump `ends` and print | G-INERT can read `last.shift_ms` 0 with `last.end` null |
+| 9 | Engine, mutants | Ordered by rule (Seen ... Count), not by the two-column table; `live.arrive_codec` reads no seam, so no mutant decides it | |
+| 10 | Engine, `ForgetArrive("session")` | Spends a live guard and forgets R, but leaves the bench arm alone | The release owns the bench |
+| 11 | Kit, battlewire / fakegame | Extra names: `ARRIVE_DWELL_MS`, `ARRIVE_STEP_IN_MS`, `ARRIVE_OUT_*`, `SWAP_ARRIVE_RULES`, `ARRIVE_EPISODE_FRESH_FRAMES`, `ARRIVE_LINE_PREFIX`; `FG.NETSYNC_SWAP_ARRIVE_KEYS`; fakegame keeps both halves of the totals | battlewire has no step-out twins and cannot import fakegame |
+| 12 | Kit, twins | `arrive_log_anchor` takes an explicit `late` flag; `swap_arrive_spend` and `swap_arrive_count` wrap their Int32 inputs through `_i32` too | The engine picks the wording from its late flag, not from the lead's sign |
+| 13 | Kit, the driver (review: blocker) | `tools/harness/session.py` gains both ops, the `arrive` word, the arrivebench range and the usage literal | The kit list left it out, so the driver refused both ops itself |
+| 14 | Kit, tests (review) | The row table is hand-written and also checked against `RowsArrive` parsed from the live stack; the 146-mutant base is read off the patch stack with an anchored pattern (unanchored, the swap list reads the guard's 37) | A base checked only against itself could never fail |
+| 15 | Bench, leg G's P8 (review: major) | Requires a FRESH bench record: a new `arrive.host.nonce` for 30611 against the row's start | No `swap clear` between rows, so the previous row's record always stood |
+| 16 | Bench, HOME's spend (review) | Each row first waits up to 3 s for HOME's own guard to spend (`arrive.armed` false) before its counter base; a timeout is UNREACHED | HOME's unanchored guard could spend inside a row's deltas above about 44 fps |
+| 17 | Bench, B - G (review) | Read at the episode's own base on both benches (else the first base sample); a base 0 ms old counts as a base | The first base sample can belong to a base that re-armed before the episode |
+| 18 | Bench, G-OFF | Its s158 window is [1500 - 16, 1500 + one frame + 16] | The OUT instant and B mix the QPC clock with TickCount ages (16 ms resolution) |
+| 19 | Bench, G-DELAY | `last.shift_ms` within one frame + 16 ms of the full rule min(K, max(0, K - ((B - G) + 600))) | B - G carries TickCount's resolution |
+| 20 | Bench, leg G terms | G-HOLD reaches on a raw base peak >= 1500 or a dwell OUT, and spends within [-1 frame, S + 0.3 s]; G-DELAY and G-INERT need exactly one OUT by dwell; G-DELAY also `last.end` delayed; G-OFF also `spends.out` +1; every G row pins `arrival_lead_ms` 1040 (a plain red); P8's episode clause applies only with `levers.arrive` act at the landing | Each term closes a way a row could read green on the wrong run |
+| 21 | Bench, K legs | K's arrive checks are unconditional (an engine without the guard reds K; leg G alone is refused when `netsync.swap.arrive` is absent); K-RELEASE also requires `arrive.host.bench` false on its closing follow | Live proof that the release forgot the bench arm |
+| 22 | Bench, duo | `life` scope as a per-sub-leg lever (old except the two ARRIVE runs); DA-ARRIVE's tolerance uses the run's frame time; under `arrive` its red reads "the guard was off at this landing" ahead of the named reds; DA-GUARD's scope counts every CAL2, CAL3, DESK and REST landing, REST-OLD included, per intent; the retune rule is a reported string | Equivalent to the spec, read per intent |
+| 23 | Bench, an unregistered ARRIVE_ID (review) | Recorded VOID (a setup miss), never the `arrive` word's predicted red | With `BASELINE_RED` empty, a plain red would have passed the word |
+| 24 | Bench, the duo's watches (the duo's fix round) | Reported apart, never judged; the DESK watch's 351 window ends at the 352 landing | The first duo run's five DESK watch OUTs were 352's lawful scene |
+| 25 | World gates (critic) | `coop_world_wait` and `coop_world_battle` fold the clause into every world-rejoin row (S144-RJ-LAND, S144-D3; S145-WB-300, S145-HF-REJOIN, S145-D3) and also require `arrive.field` = the rejoin field. Not judged on an engine with no `netsync.swap.arrive`, or on a publisher that numbered no landing (the stand-in); a faulted guard is judged, red. `lead_ms` is reported in a note | No new row id, so every catalog and calibration set stays as it was |
+
 ## Open for the review
+
+The build took the default on all three (Build log); each stays reversible as stated.
 
 1. **Owner: decision 8's reading.** The spec reads "my landing + the host's arrival lead" as the lead the host is owed, K − (G − Hs),
    which adds `ArrivalLeadMs` (K = 1040, a seed tied to s163's n = 23 measurement and not to `OldWaitS`) and makes the guard

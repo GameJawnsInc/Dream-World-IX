@@ -145,7 +145,8 @@ DEFAULT_FILES = [
     "Assembly-CSharp/Global/SettingsState.cs",
     # [ff9mapkit netsync s164] the field-swap timing round: its two new files (created from /dev/null) and its one stock hook site
     # not yet listed -- SceneDirector.cs (the follow fade's NetSyncReadFade read); NetSyncClient.cs, NetSyncDialog.cs, NetSyncAte.cs,
-    # NetSyncSocket.cs, NetSyncRelay.cs, NetSyncState.cs, NetSyncBattle.cs, HarnessAgent.cs, Ff9mkDebugMenu.cs and the csproj are listed above
+    # NetSyncSocket.cs, NetSyncRelay.cs, NetSyncState.cs, NetSyncBattle.cs, HarnessAgent.cs, Ff9mkDebugMenu.cs and the csproj are listed above;
+    # so is NetSyncStepOut.cs (s158's entry: the arrival guard's one StartRule hunk and its header paragraph)
     "Assembly-CSharp/Memoria/Netsync/NetSyncSwap.cs",
     "Assembly-CSharp/Memoria/Netsync/NetSyncFollowFade.cs",
     "Assembly-CSharp/Assets/Scripts/Common/SceneDirector.cs",

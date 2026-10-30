@@ -12253,6 +12253,8 @@ def speed_log_host(setting: int, tps: int) -> str:
 # stamp), the `netsync swap` lever's ops, refusals and usage, and the proof line's regex. tests/test_harness_netsync.py evaluates every
 # row of the design's SelfTest tables against these twins, and each mutant (a twin that restores a rejected rule) must miss the rows the
 # design names. The engine is written against the same design; until its stack carries NetSyncSwap.cs these twins ARE the oracle.
+# [ff9mapkit netsync s164] ...and THE ARRIVAL GUARD (owner decision 8, folded into s164: studies/field-coop/ARRIVAL-GUARD-S164.md rev 2),
+# after PIN below: its constants, its ten pure rules (the Int32-delta ones through _i32), its lines, the `arrive` / `arrivebench` ops.
 
 
 def _i64(x) -> int:
@@ -12573,7 +12575,8 @@ SWAP_LINE_CLASSES = (("[NetSync] swap: ", "instrument"), ("[NetSync] swap #", "i
                      ("[NetSync] dialogue orphan: ", "behaviour"), ("[NetSync] own Field(", "behaviour"),
                      ("[NetSync] intent cache: ", "behaviour"), ("[NetSync] story pin: ", "behaviour"),
                      ("[NetSync] transition intent ", "behaviour"), ("[NetSync] follow fade: ", "behaviour"),
-                     ("[NetSync] field swap fault (", "fault"), ("[NetSync] harness: swap ", "harness"))
+                     ("[NetSync] field swap fault (", "fault"), ("[NetSync] harness: swap ", "harness"),
+                     ("[NetSync] arrival guard: ", "behaviour"))     # [ff9mapkit netsync s164] THE ARRIVAL GUARD (ARRIVE_LINE_PREFIX)
 
 
 def swap_line_class(line: str) -> str | None:
@@ -13245,6 +13248,205 @@ def pin_log_not_applied(on: bool, n: int, d: int, t: int) -> str:
     return swap_place_stamp(f"[NetSync] story pin: intent {n}'s frame did not apply -- the latest frame stages field {d}", on, t)
 
 
+# ---- THE ARRIVAL GUARD (NetSyncSwap, beside PIN; studies/field-coop/ARRIVAL-GUARD-S164.md: owner decision 8 of SWAP-TIMING-S164.md,
+# read as "the lead the host is owed"). Round 1 lands a following guest ~0.5 s behind its host (s163: 1.04 s), so at a WORDLESS arrival
+# s158's step-out base lasts about A - L and THE ARRIVAL LAW's DwellMs steps out of every arrival whose control-off runs 1.5 + L to
+# 2.54 s. THE GUARD: at my landing a wordless base's dwell counts from max(B, min(Hs + K, B + K)) -- Hs the host's landing as I first saw
+# it (section 4's landed bit), K = ARRIVAL_LEAD_MS, B the base's start: never earlier than s158, never more than K past the base's start,
+# s163's instant measured from the host's landing whatever my lag. The base, its age, a line and s162's `ate` start are untouched; a world
+# rejoin is never armed. Int32 TickCount deltas wrap in the engine (unchecked), so every twin that takes one wraps it through _i32 (P9):
+# `dwellage.wrap` reads 1600 here as in C#. The kit has no step-out rule twins -- the step-out's numbers these rules read are named here.
+ARRIVAL_LEAD_MS = 1040                   # K: s163's measured landing gap, n = 23 (NetSyncSwap.ArrivalLeadMs; a seed, risk 7)
+ARRIVE_LEAD_NONE = -(1 << 31)            # NetSyncSwap.LeadNone (Int32.MinValue): `lead_ms` null -- this landing never anchored
+ARRIVE_DWELL_MS = 1500                   # NetSyncStepOut.DwellMs (THE ARRIVAL LAW; = fakegame.STEPOUT_DWELL_MS)
+ARRIVE_STEP_IN_MS = 500                  # NetSyncStepOut.StepInMs (the guard's debounced spend; = fakegame.STEPOUT_STEP_IN_MS)
+#: NetSyncStepOut's start reasons as ArriveEndRule reads them (OutNone .. OutAte; NetSyncStepOut.OutNames, `stepout.why`)
+ARRIVE_OUT_NONE, ARRIVE_OUT_LINE, ARRIVE_OUT_DWELL, ARRIVE_OUT_ATE = 0, 1, 2, 3
+ARRIVE_OUT_NAMES = (None, "line", "dwell", "ate")
+#: ArriveArmRule's verdicts, read AT my landing (only On arms; World is counted in `arrive.world`)
+ARRIVE_ARM_ON, ARRIVE_ARM_ROLE, ARRIVE_ARM_LEVER, ARRIVE_ARM_WORLD = 0, 1, 2, 3
+ARRIVE_ARM_NAMES = ("on", "role", "lever", "world")
+#: ArriveSpendRule's verdicts; `arrive.spends` keys from index 1 (NetSyncSwap.ArriveSpendNames)
+ARRIVE_SPEND_NONE, ARRIVE_SPEND_CONTROL, ARRIVE_SPEND_FIELD, ARRIVE_SPEND_OUT, ARRIVE_SPEND_SESSION = 0, 1, 2, 3, 4
+ARRIVE_SPEND_NAMES = (None, "control", "field", "out", "session")
+ARRIVE_SPEND_WORDS = {ARRIVE_SPEND_CONTROL: "my control is back", ARRIVE_SPEND_OUT: "a step-out started",
+                      ARRIVE_SPEND_FIELD: "the field changed", ARRIVE_SPEND_SESSION: "the session reset"}
+#: ArriveEndRule's verdicts (a HELD episode's end); `arrive.ends` keys from index 1 and `arrive.last.end` (NetSyncSwap.ArriveEndNames)
+ARRIVE_END_NONE, ARRIVE_END_SPARED, ARRIVE_END_DELAYED, ARRIVE_END_LINE, ARRIVE_END_ATE = 0, 1, 2, 3, 4
+ARRIVE_END_NAMES = (None, "spared", "delayed", "line", "ate")
+#: ArriveCountRule's events and its counter bits (each bit names the `arrive` counter it bumps)
+ARRIVE_EV_LANDING, ARRIVE_EV_LATE_EDGE, ARRIVE_EV_SPEND = 0, 1, 2
+ARRIVE_COUNT_NONE, ARRIVE_COUNT_ARM, ARRIVE_COUNT_LATE_ARM, ARRIVE_COUNT_UNANCHORED = 0, 1, 2, 4
+ARRIVE_COUNT_NAMES = {ARRIVE_COUNT_ARM: "arms", ARRIVE_COUNT_LATE_ARM: "late_arms", ARRIVE_COUNT_UNANCHORED: "unanchored"}
+#: the levers: `swap arrive act|old` (a client or the selftest role; read AT my next landing) and `swap arrivebench <lead_ms>` (the
+#: selftest role; one-shot at my next landing: a lead >= 0 writes R before the anchor, a negative one writes it |lead| ms after my landing)
+ARRIVE_LEVER_NAMES = ("act", "old")
+ARRIVE_BENCH_RANGE = (-1000, 5000)       # NetSyncSwap.ArriveBenchMinMs / ArriveBenchMaxMs
+#: the field swap's fault items (NetSyncSwap.ItemNames; `FaultsBy` is sized by it) -- the guard's is ARRIVE (ItemArrive = 6), its sites
+#: the guard's entry points (each its own try; the fault is sticky and fails open to s158's dwell from the base start)
+SWAP_ITEM_NAMES = ("A", "B", "C", "PIN", "LIFE", "D+E", "ARRIVE")
+ARRIVE_ITEM = SWAP_ITEM_NAMES[6]
+ARRIVE_FAULT_SITES = ("landing", "host frame", "tick", "dwell", "forget session")
+ARRIVE_FAULT_FALLBACK = "s158's dwell from the base start from here"
+#: `arrive.episode.on`: a hold ran within the last this-many frames (GhostHide's freshness idiom; ArriveEndRule's stale end is one more)
+ARRIVE_EPISODE_FRESH_FRAMES = 2
+
+
+def swap_host_land_seen_of(b) -> bool:
+    """NetSyncSwap.HostLandSeenOf: did the host build this section-4 body after its landing hook? STRICT -- an s163 host's 3-byte body
+    is NO landing here (:func:`intent_landed_of` reads it landed: PIN's fail-safe, which here would be an early anchor). Bit 0 only."""
+    return b is not None and len(b) >= 4 and (b[3] & INTENT_FLAG_LANDED) != 0
+
+
+def swap_arrive_edge(last_nonce: int, last_field: int, nonce: int, field: int, landed: bool) -> bool:
+    """NetSyncSwap.ArriveHostEdgeRule: R's edge -- the FIRST landed frame per (nonce, field): a new nonce, or the same nonce naming
+    another field (a chain)."""
+    return bool(landed) and nonce >= 0 and field > 0 and (nonce != last_nonce or field != last_field)
+
+
+def swap_arrive_arm(role_ok: bool, lever_old: bool, from_world: bool) -> int:
+    """NetSyncSwap.ArriveArmRule, read at MY landing: the role (a client or the selftest role), then the lever (every landing), then a
+    world rejoin (R3's exclusion: LandingFromWorld, the read PIN takes)."""
+    if not role_ok:
+        return ARRIVE_ARM_ROLE
+    if lever_old:
+        return ARRIVE_ARM_LEVER
+    return ARRIVE_ARM_WORLD if from_world else ARRIVE_ARM_ON
+
+
+def swap_arrive_anchor(r_set: bool, r_field: int, r_seen_landing: int, r_since_ms: int, fld: int, landing: int) -> bool:
+    """NetSyncSwap.ArriveAnchorRule: does R anchor landing number ``landing`` on ``fld``? It names ``fld`` and was seen in THIS landing's
+    interval -- before it and after my previous landing (seen in landing - 1) less than INTENT_LOAD_CAP_MS before it, or after it (seen
+    in ``landing``: the late form). ``r_since_ms`` = my landing's tick - R's seen tick (an Int32 delta: _i32). A record from before my
+    previous landing is stale (a battle return, a reload)."""
+    return (bool(r_set) and fld > 0 and r_field == fld
+            and (r_seen_landing == landing or (r_seen_landing == _i32(landing - 1) and _i32(r_since_ms) < INTENT_LOAD_CAP_MS)))
+
+
+def swap_arrive_holds(armed: bool, anchored: bool, arm_field: int, fld: int) -> bool:
+    """NetSyncSwap.ArriveHoldsRule: the guard holds for this Tick -- armed (and not spent), anchored, on its own landing's field."""
+    return bool(armed) and bool(anchored) and arm_field == fld
+
+
+def swap_arrive_dwell_age(holds: bool, base_age_ms: int, since_host_ms: int) -> int:
+    """NetSyncSwap.ArriveDwellAgeRule: the age StartRule reads. Holding, the dwell counts from max(B, min(Hs + K, B + K)): at most the
+    base age (never an OUT earlier than s158), at least the base age - K (never more than K later, for any anchor: stale, future,
+    garbage, wrapped), inert for a base that starts at or after Hs + K, s158 exactly at s163's lag. Every delta Int32 (_i32)."""
+    b, sh = _i32(base_age_ms), _i32(since_host_ms)
+    if not holds:
+        return b
+    return min(b, max(_i32(sh - ARRIVAL_LEAD_MS), _i32(b - ARRIVAL_LEAD_MS)))
+
+
+def swap_arrive_held(held_already: bool, base_age_ms: int, dwell_age_ms: int) -> bool:
+    """NetSyncSwap.ArriveHeldRule: s158 would step out here and the guard holds -- the episode's held edge (its line prints once)."""
+    return not held_already and _i32(base_age_ms) >= ARRIVE_DWELL_MS and _i32(dwell_age_ms) < ARRIVE_DWELL_MS
+
+
+def swap_arrive_spend(armed: bool, arm_field: int, fld: int, my_ctl: bool, ctl_back_ms: int, step_out_active: bool) -> int:
+    """NetSyncSwap.ArriveSpendRule: the field changed, any step-out (line, dwell or ate), my control back for StepInMs (s162's debounced
+    spend) -- in that order. Each coincides with a base that has already failed, so the guard needs no time lapse."""
+    if not armed:
+        return ARRIVE_SPEND_NONE
+    if fld != arm_field:
+        return ARRIVE_SPEND_FIELD
+    if step_out_active:
+        return ARRIVE_SPEND_OUT
+    if my_ctl and _i32(ctl_back_ms) >= ARRIVE_STEP_IN_MS:
+        return ARRIVE_SPEND_CONTROL
+    return ARRIVE_SPEND_NONE
+
+
+def swap_arrive_end(held: bool, frames_since_dwell: int, new_base: bool, step_out_active: bool, out_why: int) -> int:
+    """NetSyncSwap.ArriveEndRule: a HELD episode's end (an unheld one is s158's own and has none). One episode = one base: a re-armed
+    base ends it (s158's own dwell restarted there too); frames_since_dwell > 2 is GhostHide's freshness idiom; an active step-out
+    precedes a re-armed base and names its own end by its why."""
+    if not held:
+        return ARRIVE_END_NONE
+    if step_out_active:
+        return {ARRIVE_OUT_DWELL: ARRIVE_END_DELAYED, ARRIVE_OUT_ATE: ARRIVE_END_ATE}.get(out_why, ARRIVE_END_LINE)
+    return ARRIVE_END_SPARED if new_base or frames_since_dwell > ARRIVE_EPISODE_FRESH_FRAMES else ARRIVE_END_NONE
+
+
+def swap_arrive_count(ev: int, armed: bool, anchored: bool, lead_ms: int, arm_counted: bool, late_counted: bool) -> int:
+    """NetSyncSwap.ArriveCountRule: the counters one guard event bumps (ARRIVE_COUNT_* bits), each at most once per landing, armed
+    (and unspent) guards only: the landing `arms` (anchored, lead < K); a late edge `late_arms` once and `arms` if not yet; a spend of a
+    never-anchored guard `unanchored`."""
+    if not armed:
+        return ARRIVE_COUNT_NONE
+    if ev == ARRIVE_EV_LANDING:
+        return ARRIVE_COUNT_ARM if anchored and _i32(lead_ms) < ARRIVAL_LEAD_MS else ARRIVE_COUNT_NONE
+    if ev == ARRIVE_EV_LATE_EDGE:
+        return (ARRIVE_COUNT_NONE if late_counted else ARRIVE_COUNT_LATE_ARM) | (ARRIVE_COUNT_NONE if arm_counted else ARRIVE_COUNT_ARM)
+    return ARRIVE_COUNT_UNANCHORED if ev == ARRIVE_EV_SPEND and not anchored else ARRIVE_COUNT_NONE
+
+
+#: the twins by NetSyncSwap.ArriveRules' seam names (the engine's own rule set: Seen, Edge, Arm, Anchor, Holds, DwellAge, Held, Spend,
+#: End, Count -- never `Age`, PIN's Rules.Age). DwellAge's seam takes a fourth input, the ms since MY landing, which the shipped body
+#: ignores: decision 8's two rejected readings are mutants of it (arrive_literal_lag: the origin 2G - Hs; arrive_from_my_landing: G + K)
+SWAP_ARRIVE_RULES = SimpleNamespace(Seen=swap_host_land_seen_of, Edge=swap_arrive_edge, Arm=swap_arrive_arm, Anchor=swap_arrive_anchor,
+                                    Holds=swap_arrive_holds,
+                                    DwellAge=lambda holds, base_age_ms, since_host_ms, since_mine_ms:
+                                    swap_arrive_dwell_age(holds, base_age_ms, since_host_ms),
+                                    Held=swap_arrive_held, Spend=swap_arrive_spend, End=swap_arrive_end, Count=swap_arrive_count)
+
+
+# ---- THE ARRIVAL GUARD's lines (behaviour: printed under `swap stamps off`, without the stamp; NetSyncSwap.Stamp())
+ARRIVE_LINE_PREFIX = "[NetSync] arrival guard: "
+
+
+def arrive_log_anchor(on: bool, fld: int, lead_ms: int, nonce: int, late: bool, t: int) -> str:
+    """The anchor line (at most once per landing; only an armed guard whose lead is under K): the in-time form at my landing, the late
+    form (``late``: the host's landing reached me -lead_ms ms after mine) at the guard's first late edge."""
+    if late:
+        core = (f"{ARRIVE_LINE_PREFIX}field {fld} -- the host's landing reached me {-int(lead_ms)} ms after mine (intent nonce {nonce}); a "
+                f"wordless control-off counts toward the dwell from {ARRIVAL_LEAD_MS} ms past its start")
+    else:
+        core = (f"{ARRIVE_LINE_PREFIX}field {fld} -- the host landed {int(lead_ms)} ms before me (intent nonce {nonce}); a wordless "
+                f"control-off counts toward the dwell from its landing + {ARRIVAL_LEAD_MS} ms")
+    return swap_place_stamp(core, on, t)
+
+
+def arrive_log_held(on: bool, fld: int, base_ms: int, dwell_ms: int, t: int) -> str:
+    """ArriveHeldRule's edge, once per episode."""
+    return swap_place_stamp(f"{ARRIVE_LINE_PREFIX}held the dwell on field {fld} -- the base is {base_ms} ms, its guarded dwell {dwell_ms} "
+                            f"ms (s158 would step out here)", on, t)
+
+
+def arrive_log_end(on: bool, end: int, fld: int, base_ms: int, dwell_ms: int, t: int) -> str | None:
+    """A HELD episode's end line (NetSyncSwap.ArriveEndLine; B and D are the episode's last recorded base and guarded dwell; the delayed
+    form's shift is the Int32 B - D); None for ARRIVE_END_NONE (an unheld episode prints nothing)."""
+    head = f"{ARRIVE_LINE_PREFIX}field {fld} -- "
+    if end == ARRIVE_END_NONE:
+        return None
+    if end == ARRIVE_END_SPARED:
+        core = f"spared a dwell OUT (base {base_ms} ms, guarded dwell {dwell_ms} ms)"
+    elif end == ARRIVE_END_DELAYED:
+        core = f"held the dwell OUT {_i32(base_ms - dwell_ms)} ms (it stepped out at base {base_ms} ms)"
+    elif end == ARRIVE_END_LINE:
+        core = f"a line started the step-out at base {base_ms} ms (guarded dwell {dwell_ms} ms)"
+    else:
+        core = f"s162's ATE landing started the step-out at base {base_ms} ms (guarded dwell {dwell_ms} ms)"
+    return swap_place_stamp(head + core, on, t)
+
+
+def arrive_log_spent(on: bool, fld: int, why: int, t: int) -> str:
+    """The spend line -- only for a guard that printed its anchor line (battle returns, save loads and world rejoins stay quiet)."""
+    return swap_place_stamp(f"{ARRIVE_LINE_PREFIX}spent on field {fld} -- {ARRIVE_SPEND_WORDS[why]}", on, t)
+
+
+def arrive_log_bench(on: bool, fld: int, lead_ms: int, t: int) -> str:
+    """`swap arrivebench`'s write of R (``lead_ms``: the armed lead for a lead >= 0; for a negative one the actual G - now at the
+    write -- the lead or a frame more negative)."""
+    return swap_place_stamp(f"{ARRIVE_LINE_PREFIX}bench -- the host's landing on field {fld} written {lead_ms} ms before mine (section 4 "
+                            f"through the real codec)", on, t)
+
+
+def arrive_log_fault(site: str, msg: str) -> str:
+    """The guard's fault line (NoteFault, item ARRIVE: sticky, once per site)."""
+    return f"{swap_log_fault(ARRIVE_ITEM, site, msg)} -- {ARRIVE_FAULT_FALLBACK} (logged once per site)"
+
+
 # ---- D+E: the fade-aware follow and the 12-tick fade (NetSyncFollowFade)
 FADE_FAST_FRAMES = 12                    # stock's own default (SceneDirector.cs:694-697, 711)
 FADE_OLD_FRAMES = 24                     # = NetSyncClient.FollowFadeFrames (:215)
@@ -13452,16 +13654,18 @@ def fade_log_reassert(on: bool, view: int, darkest: int, frames: int, t: int) ->
 
 # ---- the lever scheme: `netsync swap <op> [arg]` (NetSyncSwap.HarnessLever; HarnessAgent's `case "swap"`)
 SWAP_ROLE_ANY, SWAP_ROLE_GUEST, SWAP_ROLE_HOST, SWAP_ROLE_SELFTEST = "any", "guest", "host", "selftest"
-#: the ops in the design's table order, and each one's role class
+#: the ops in the design's table order, and each one's role class ([ff9mapkit netsync s164] THE ARRIVAL GUARD's two APPENDED: `arrive`
+#: guest-side, `arrivebench` the selftest role's -- neither needs `netsync bench 1`)
 SWAP_OPS = ("stamps", "delay", "orphan", "own", "pin", "life", "fade", "clear", "hostctl", "intent", "cache", "pinbench", "lifebench",
-            "blackout")
+            "blackout", "arrive", "arrivebench")
 SWAP_OP_ROLES = {"stamps": SWAP_ROLE_ANY, "delay": SWAP_ROLE_GUEST, "orphan": SWAP_ROLE_GUEST, "own": SWAP_ROLE_GUEST,
                  "pin": SWAP_ROLE_GUEST, "life": SWAP_ROLE_HOST, "fade": SWAP_ROLE_GUEST, "clear": SWAP_ROLE_ANY,
                  "hostctl": SWAP_ROLE_SELFTEST, "intent": SWAP_ROLE_SELFTEST, "cache": SWAP_ROLE_SELFTEST, "pinbench": SWAP_ROLE_SELFTEST,
-                 "lifebench": SWAP_ROLE_SELFTEST, "blackout": SWAP_ROLE_SELFTEST}
+                 "lifebench": SWAP_ROLE_SELFTEST, "blackout": SWAP_ROLE_SELFTEST,
+                 "arrive": SWAP_ROLE_GUEST, "arrivebench": SWAP_ROLE_SELFTEST}
 #: the word-valued ops' words (each op takes exactly one)
 SWAP_OP_WORDS = {"stamps": ("on", "off"), "orphan": ("act", "old"), "own": OWN_LEVER_NAMES, "pin": ("act", "old"), "life": ("act", "old"),
-                 "fade": FADE_LEVER_NAMES, "hostctl": ("off", "on")}
+                 "fade": FADE_LEVER_NAMES, "hostctl": ("off", "on"), "arrive": ARRIVE_LEVER_NAMES}
 SWAP_DELAY_RANGE = (0, 2000)             # the delay holds a black screen with control off (conflict row 5)
 SWAP_BLACKOUT_RANGE = (1, 255)
 SWAP_FIELD_RANGE = (1, 65534)            # NetSyncSwap.ParseField: a field id section 4 can carry (u16, never its 65535 sentinel)
@@ -13469,10 +13673,11 @@ SWAP_FLAG_RANGE = (0, 2048 * 8 - 1)      # NetSyncSwap.MaxStoryFlag: gEventGloba
 SWAP_SLOT_RANGE = (0, 3)                 # `party <slot> <char>`: a party slot
 SWAP_CHAR_RANGE = (0, 255)               # ...and a CharacterId (a byte)
 SWAP_BENCH_GATED_OPS = ("intent", "pinbench")       # also need `netsync bench 1`
-SWAP_USAGE = ("netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, orphan act|old, own act|old|nocache, pin act|old "
-              "or fade act|old|long|nogate|norecheck|nohurry (a client or the selftest role); life act|old (the host or the selftest "
-              "role); hostctl off|on, intent <field>, cache <field>, pinbench <field> <flag> [age <ms>] [landed] [party <slot> <char>] "
-              "[to <field>], lifebench <field> or blackout <1-255>|off (the selftest role)")
+#: [ff9mapkit netsync s164] + `arrive act|old` in the client list and `arrivebench <lead_ms>` in the selftest list (NetSyncSwap.Usage)
+SWAP_USAGE = ("netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, orphan act|old, own act|old|nocache, pin act|old, "
+              "fade act|old|long|nogate|norecheck|nohurry or arrive act|old (a client or the selftest role); life act|old (the host or the "
+              "selftest role); hostctl off|on, intent <field>, cache <field>, pinbench <field> <flag> [age <ms>] [landed] [party <slot> "
+              "<char>] [to <field>], lifebench <field>, blackout <1-255>|off or arrivebench <lead_ms> (the selftest role)")
 SWAP_REFUSAL_COOP_OFF = "netsync swap: co-op is off -- no role to act on"
 
 
@@ -13565,6 +13770,9 @@ def swap_args_ok(args) -> bool:
         return n is not None and SWAP_BLACKOUT_RANGE[0] <= n <= SWAP_BLACKOUT_RANGE[1]
     if op == "pinbench":
         return swap_parse_pinbench(rest) is not None
+    if op == "arrivebench":                                  # [ff9mapkit netsync s164] THE ARRIVAL GUARD: ParseInt(-1000..5000)
+        n = _swap_int(rest[0]) if len(rest) == 1 else None
+        return _swap_in(n, ARRIVE_BENCH_RANGE)
     return False
 
 
@@ -13572,7 +13780,8 @@ def swap_lever_refusal(args, role: str | None, bench_gate: bool = False) -> str 
     """NetSyncSwap.HarnessLever's refusal ORDER -> None (the op acts) or the refusal: (1) an unknown op, the usage line; (2) co-op off
     (``role`` None), for every op but `clear`; (3) a guest-side op on a host; (4) a host-side op on a client; (5) a bench op off the
     selftest role; (6) `intent` / `pinbench` without `netsync bench 1`; (7) bad arity or range, the usage line. ``role`` is "host",
-    "client", "selftest" or None; ``args`` the words after `swap`."""
+    "client", "selftest" or None; ``args`` the words after `swap`. [ff9mapkit netsync s164] THE ARRIVAL GUARD's `arrive` is guest-side
+    (a host gets (3)) and `arrivebench` the selftest role's (a client or a host gets (5)); its lead outside ARRIVE_BENCH_RANGE is (7)."""
     a = [str(x).strip() for x in args]
     op = a[0].lower() if a else ""
     if op not in SWAP_OP_ROLES:
@@ -13623,6 +13832,10 @@ SWAP_HARNESS_HOSTCTL_OFF = ("[NetSync] harness: swap hostctl OFF -- the bench ho
                             "(section 7 b1 and b0 clear)")
 SWAP_HARNESS_HOSTCTL_ON = "[NetSync] harness: swap hostctl ON"
 SWAP_HARNESS_BLACKOUT_OFF = "[NetSync] harness: swap blackout OFF -- the fade slot back to visible"
+#: [ff9mapkit netsync s164] THE ARRIVAL GUARD's lever lines (read at my next landing; released with the harness and `swap clear`)
+SWAP_HARNESS_ARRIVE_OLD = ("[NetSync] harness: swap arrive OLD -- CALIBRATION: s158's dwell from the base start at every landing, no "
+                           "arrival guard (released with the harness)")
+SWAP_HARNESS_ARRIVE_ACT = "[NetSync] harness: swap arrive ACT"
 #: what `clear` and the release reset, and the pin bench's party-mirror tail (G2)
 _SWAP_RESET_WORDS = "every lever act, stamps on, delay 0, the bench host's control on, bench state forgotten"
 _SWAP_MIRROR_TAIL = "; the pin bench's party mirror cleared"
@@ -13634,13 +13847,14 @@ def swap_harness_delay(n: int) -> str:
 
 
 def swap_harness_lever_line(op: str, word: str) -> str:
-    """The ack line of a word-valued lever op (stamps / orphan / own / pin / life / fade / hostctl)."""
+    """The ack line of a word-valued lever op (stamps / orphan / own / pin / life / fade / hostctl; [ff9mapkit netsync s164] arrive)."""
     return {("stamps", "off"): SWAP_HARNESS_STAMPS_OFF, ("stamps", "on"): SWAP_HARNESS_STAMPS_ON,
             ("orphan", "old"): SWAP_HARNESS_ORPHAN_OLD, ("orphan", "act"): SWAP_HARNESS_ORPHAN_ACT,
             ("own", "old"): SWAP_HARNESS_OWN_OLD, ("own", "nocache"): SWAP_HARNESS_OWN_NOCACHE, ("own", "act"): SWAP_HARNESS_OWN_ACT,
             ("pin", "old"): SWAP_HARNESS_PIN_OLD, ("pin", "act"): SWAP_HARNESS_PIN_ACT,
             ("life", "old"): SWAP_HARNESS_LIFE_OLD, ("life", "act"): SWAP_HARNESS_LIFE_ACT,
             ("hostctl", "off"): SWAP_HARNESS_HOSTCTL_OFF, ("hostctl", "on"): SWAP_HARNESS_HOSTCTL_ON,
+            ("arrive", "old"): SWAP_HARNESS_ARRIVE_OLD, ("arrive", "act"): SWAP_HARNESS_ARRIVE_ACT,
             **{("fade", w): line for w, line in SWAP_HARNESS_FADE.items()}}[(op, word.lower())]
 
 
@@ -13679,13 +13893,21 @@ def swap_harness_blackout(n: int) -> str:
     return f"[NetSync] harness: swap blackout {n} -- the fade slot heads to black in {n} ticks (a copy's own FadeFilter stand-in)"
 
 
+def swap_harness_arrivebench(lead_ms: int) -> str:
+    """[ff9mapkit netsync s164] THE ARRIVAL GUARD: `swap arrivebench <lead_ms>`'s ack (the bench's write of R at my next landing prints
+    :func:`arrive_log_bench`)."""
+    return (f"[NetSync] harness: swap arrivebench {lead_ms} -- my next landing gets a bench host that landed {lead_ms} ms before me (the "
+            f"selftest role; released with the harness)")
+
+
 # ---- the proof line (NetSyncSwap.SelfTest; the proof block's last line)
 PROOF_FIELD_SWAP = "field swap selftest: "
 _SWAP_PROOF_CONSTANTS = (f"line window {SWAP_LINE_WINDOW_MS} ms, span {SWAP_RECORD_SPAN_MS} ms, cache {INTENT_CACHE_MS} ms, intent life "
                          f"{INTENT_MIN_LIFE_MS} ms / land tail {INTENT_LAND_TAIL_MS} ms / cap {INTENT_LOAD_CAP_MS} ms, pin age "
                          f"{PIN_MAX_AGE_MS} ms / blind {PIN_BLIND_CAP_MS} ms, fade {FADE_FAST_FRAMES} / {FADE_OLD_FRAMES} ticks / "
                          f"{FADE_OLD_WAIT_MS} ms, join grace {FADE_JOIN_GRACE_TICKS} ticks, black floor {FADE_BLACK_FLOOR}, ahead "
-                         f"{FADE_AHEAD_MAX_MS} ms")
+                         f"{FADE_AHEAD_MAX_MS} ms"
+                         f", arrival lead {ARRIVAL_LEAD_MS} ms")    # [ff9mapkit netsync s164] THE ARRIVAL GUARD's K, the proof's tail
 #: the kit regex: every constant pinned; captures N rows, M mutants, the clock source, H Hz and the resolution
 SWAP_PROOF_RE = (re.escape(PROOF_FIELD_SWAP) + r"OK \((\d+) rows, (\d+) mutants caught, clock (qpc|stopwatch) (\d+) Hz "
                  r"(high-res|low-res), " + re.escape(_SWAP_PROOF_CONSTANTS) + r"\)")

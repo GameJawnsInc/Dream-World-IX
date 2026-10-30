@@ -454,7 +454,9 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # probes (`slot`, `intent`), a bounce or any own Field() (no MAPJUMP), C's cache and own pass, a pin (no story frames),
                        # LIFE, the fade slot (D+E: `fade`), a first-line close; `cache`, `pinbench`, `lifebench` and `blackout` pass the
                        # engine's refusal order and are then refused in the stand-in's own words (SWAP_STANDIN_REFUSAL), so a stand-in run of
-                       # legs C, P, L or F fails loud instead of reading green.
+                       # legs C, P, L or F fails loud instead of reading green. THE ARRIVAL GUARD (ARRIVAL-GUARD-S164.md, folded into s164):
+                       # the harness half only -- `arrive act|old` and `arrivebench <lead_ms>` ack, `levers.arrive`, `arrive.arrival_lead_ms`
+                       # and `arrive.bench` read back and release; no landing, R or episode, so leg G is engine-only (P8).
                        "swap": ("s164", ("swap",))}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
@@ -993,10 +995,14 @@ FAKE_SPEED_MUTANTS = 66
 #: `netsync.swap` state block"): the swap clock, the levers as set (null = act / on), whether a record is open, the record (`last`), the
 #: guest's seen nonce, the host's section-4 probe and LIFE (`intent`), the transport's slot probe, B's orphan hold, C's own pass and
 #: cache, the story pin, D+E's follow fade, the counters, the faults and the selftest verdict. Every `*_t` -1 = never (a swap-clock
-#: value), counters 0, names null, flags false.
+#: value), counters 0, names null, flags false. [ff9mapkit netsync s164] THE ARRIVAL GUARD (ARRIVAL-GUARD-S164.md "Lever, state, log",
+#: AppendSwapArrive): `levers` gains `arrive` (null | "old") as ITS last key, and `swap` gains `arrive` as ITS last key, after
+#: `selftest` -- at the catch line's sentinels: `arrival_lead_ms` -1 (live it reads K, 1040), every other value as at rest (the guarded
+#: `dwell_ms` can be negative, so the episode's and `last`'s ms read null, never a numeric sentinel).
 NETSYNC_SWAP_SENTINELS = {
     "clock": {"now_ms": -1, "utc_ms": -1, "ticks": -1, "hz": -1, "src": None, "hires": False, "fps": -1, "target_fps": -1},
-    "levers": {"stamps": None, "delay_ms": 0, "orphan": None, "own": None, "pin": None, "life": None, "fade": None, "hostctl_off": False},
+    "levers": {"stamps": None, "delay_ms": 0, "orphan": None, "own": None, "pin": None, "life": None, "fade": None, "hostctl_off": False,
+               "arrive": None},
     "open": False,
     "last": {"id": 0, "role": None, "from": -1, "dest": -1, "state": None, "open_by": None, "open_t": -1,
              "emit_t": -1, "nonce": -1, "seen_t": -1, "arrived_t": -1, "seen_copies": 0,
@@ -1033,8 +1039,19 @@ NETSYNC_SWAP_SENTINELS = {
              "reasserts": 0, "faults": 0},
     "counts": {"transitions": 0, "landings": 0, "own_jumps": 0, "bounces": 0, "follow_won": 0,
                "closed": {"line": 0, "window": 0, "stale": 0, "superseded": 0, "next": 0, "reset": 0}},
-    "faults": 0, "last_fault": None, "selftest": None}
+    "faults": 0, "last_fault": None, "selftest": None,
+    # [ff9mapkit netsync s164] THE ARRIVAL GUARD, swap's LAST key
+    "arrive": {"arrival_lead_ms": -1, "armed": False, "field": -1, "land_t": -1, "lead_ms": None, "late": False,
+               "host": {"field": -1, "nonce": -1, "seen_t": -1, "age_ms": -1, "bench": False},
+               "episode": {"on": False, "held": False, "base_ms": None, "dwell_ms": None, "shift_ms": None},
+               "last": {"field": -1, "lead_ms": None, "end": None, "base_ms": None, "dwell_ms": None, "shift_ms": None},
+               "arms": 0, "late_arms": 0, "unanchored": 0, "world": 0, "held": 0,
+               "ends": {n: 0 for n in BW.ARRIVE_END_NAMES[1:]}, "spends": {n: 0 for n in BW.ARRIVE_SPEND_NAMES[1:]},
+               "bench": {"armed": False, "lead_ms": None}, "faults": 0}}
 NETSYNC_SWAP_KEYS = tuple(NETSYNC_SWAP_SENTINELS)
+#: [ff9mapkit netsync s164] THE ARRIVAL GUARD's block, its keys in AppendSwapArrive's order (the stand-in publishes `arrival_lead_ms` live
+#: and the bench's arm; every other key stays at its sentinel: it models no landing, no record and no episode)
+NETSYNC_SWAP_ARRIVE_KEYS = tuple(NETSYNC_SWAP_SENTINELS["arrive"])
 #: [ff9mapkit netsync s164] NetSyncSwap.HarnessLever (battlewire's lever names, the one source): the ops in the design's table order,
 #: each op's role class, the usage line and co-op refusal (the role / bench refusals are battlewire's builders); the levers' published
 #: values are null for act (on) and the word otherwise ("off" for `stamps`). An s163 engine answers `netsync swap` with its unknown-sub-verb
@@ -1061,13 +1078,19 @@ SWAP_INTENT_NEVER_SEEN = ("netsync swap intent: field {field} never reached the 
 SWAP_STANDIN_DUE = "timer"
 #: [ff9mapkit netsync s164] `last.follow_via` (NetSyncSwap.FollowViaNames: intent | serial) -- the bench follow is an intent follow
 SWAP_FOLLOW_VIA_INTENT, SWAP_FOLLOW_VIA_SERIAL = "intent", "serial"
-#: [ff9mapkit netsync s164] the proof line (battlewire's head and regex, one source); the stand-in's N / M are the design's tallies
-#: ("about 425 rows / 146 mutants", SWAP-TIMING-S164.md "SelfTest: one proof line") -- a stand-in's numbers -- then the clock seam's
-#: source, Hz and resolution, and every constant
+#: [ff9mapkit netsync s164] the proof line (battlewire's head and regex, one source); the stand-in's N / M are the engine's tallies,
+#: counted from NetSyncSwap.SelfTest (the stand-in runs no rows), then the clock seam's source, Hz and resolution, and every constant
+#: (its tail THE ARRIVAL GUARD's K). Before the guard the engine printed 426 rows (NetSyncSwap's 324 with its 11 live rows, D+E's 102)
+#: and 146 mutants (103 + D+E's 43) -- the design's "about 425" was one row short; THE ARRIVAL GUARD adds RowsArrive's 75 rows (74 pure +
+#: live.arrive_codec) and MutantsArrive's 37 mutants (ARRIVAL-GUARD-S164.md "SelfTest"). s158's step-out line does not move.
 PROOF_FIELD_SWAP = BW.PROOF_FIELD_SWAP
 SWAP_PROOF_RE = BW.SWAP_PROOF_RE
-FAKE_SWAP_SELFTEST_ROWS = 425
-FAKE_SWAP_MUTANTS = 146
+FAKE_SWAP_SELFTEST_ROWS_UNGUARDED = 426
+FAKE_SWAP_MUTANTS_UNGUARDED = 146
+FAKE_SWAP_ARRIVE_ROWS = 75
+FAKE_SWAP_ARRIVE_MUTANTS = 37
+FAKE_SWAP_SELFTEST_ROWS = 501
+FAKE_SWAP_MUTANTS = 183
 #: [ff9mapkit netsync s164] THE CLOCK SEAM's fallback: a Stopwatch-sourced stand-in counts the virtual clock in ms (1000 Hz, low-res)
 SWAP_STOPWATCH_HZ = 1000
 
@@ -7022,13 +7045,19 @@ class FakeGame:
     # (every rule through battlewire's twins: JoinRule, OpenClosesRule, CloseRule, LandViaRule, DelayRule; every field load is
     # OnFieldLoad's) and item B's orphan hold inside the guest's dialogue tick (battlewire.swap_orphan_window_tick). NOT MODELLED (their
     # keys stay at the catch line's sentinels): the slot and host probes, own jumps, C's cache, the pin, LIFE, the fade slot, a
-    # first-line close -- and the four bench ops that would need them are refused (SWAP_STANDIN_REFUSAL).
+    # first-line close -- and the four bench ops that would need them are refused (SWAP_STANDIN_REFUSAL). [ff9mapkit netsync s164] THE
+    # ARRIVAL GUARD's harness half only: `arrive act|old` and `arrivebench <lead_ms>` ack in the engine's order and words, publish
+    # `levers.arrive`, `arrive.arrival_lead_ms` (K) and `arrive.bench` (armed, its lead), and the release / `clear` drop both. NOT MODELLED
+    # (the rest of `arrive` stays at its sentinels): a landing, R, an episode -- so a bench lead stays armed until the release (no landing
+    # writes it), and a solo leg G on the stand-in reads `arrive.host.bench` false after an acked op (P8: "the engine never ran the
+    # guard"). `arrivebench` is NOT refused (SWAP_STANDIN_UNMODELLED): K-LEVER reads its arm back on the stand-in.
     @staticmethod
     def _sw_fresh() -> dict:
         """NetSyncSwap's statics at process start: the levers (act), the record (none) and its writer, the seen nonce, the bench
-        follow in flight, B's hold counters, the counters by close reason."""
+        follow in flight, B's hold counters, the counters by close reason. [ff9mapkit netsync s164] THE ARRIVAL GUARD: its lever
+        (`arrive_old`) and the bench's armed lead (`arrive_bench`, None = not armed)."""
         return {"stamps_off": False, "delay_ms": 0, "orphan_old": False, "own": None, "pin_old": False, "life_old": False, "fade": None,
-                "hostctl_off": False, "selftest": None,
+                "hostctl_off": False, "selftest": None, "arrive_old": False, "arrive_bench": None,
                 "rec": None, "rec_ids": 0, "open": False, "write_kind": BW.SWAP_WRITE_NONE, "write_dest": -1, "prev_field": -1,
                 "visit": None, "seen": dict(NETSYNC_SWAP_SENTINELS["seen"]), "intent_nonce": 0, "due_t": -1,
                 "follow": None, "land": None,
@@ -7087,7 +7116,7 @@ class FakeGame:
             raise RuntimeError(why)
         op = rest[0].lower()
         word = rest[1].lower() if len(rest) > 1 else ""
-        if op in ("stamps", "orphan", "own", "pin", "life", "fade", "hostctl"):
+        if op in ("stamps", "orphan", "own", "pin", "life", "fade", "hostctl", "arrive"):
             if op == "stamps":
                 sw["stamps_off"] = word == "off"
             elif op == "orphan":
@@ -7100,9 +7129,14 @@ class FakeGame:
                 sw["life_old"] = word == "old"
             elif op == "fade":
                 sw["fade"] = None if word == "act" else word
+            elif op == "arrive":
+                sw["arrive_old"] = word == "old"            # [ff9mapkit netsync s164] THE ARRIVAL GUARD (read at a landing: none here)
             else:
                 sw["hostctl_off"] = word == "off"
             self._mlog(BW.swap_harness_lever_line(op, word))
+        elif op == "arrivebench":
+            sw["arrive_bench"] = int(rest[1])               # [ff9mapkit netsync s164] armed until the release: no landing writes it here
+            self._mlog(BW.swap_harness_arrivebench(sw["arrive_bench"]))
         elif op == "delay":
             sw["delay_ms"] = int(rest[1])
             self._mlog(BW.swap_harness_delay(sw["delay_ms"]))
@@ -7115,15 +7149,18 @@ class FakeGame:
             raise RuntimeError(SWAP_STANDIN_REFUSAL.format(op=op, what=SWAP_STANDIN_UNMODELLED[op]))
 
     def _sw_any_lever(self) -> bool:
+        """HarnessRelease's `any` ([ff9mapkit netsync s164] + THE ARRIVAL GUARD's lever and bench arm; the stand-in writes no R)."""
         sw = self._sw
         return bool(sw["stamps_off"] or sw["delay_ms"] != 0 or sw["orphan_old"] or sw["own"] is not None or sw["pin_old"]
-                    or sw["life_old"] or sw["fade"] is not None or sw["hostctl_off"])
+                    or sw["life_old"] or sw["fade"] is not None or sw["hostctl_off"]
+                    or sw["arrive_old"] or sw["arrive_bench"] is not None)
 
     def _sw_release_levers(self) -> bool:
         """ReleaseLevers (`clear` and the release): every lever act, stamps on, delay 0, the bench host's control on, bench state
-        forgotten. True when the pin bench's party mirror was cleared -- never here (the stand-in refuses `pinbench`)."""
+        forgotten ([ff9mapkit netsync s164] THE ARRIVAL GUARD's lever act and its bench forgotten: ForgetArriveBench). True when the pin
+        bench's party mirror was cleared -- never here (the stand-in refuses `pinbench`)."""
         self._sw.update(stamps_off=False, delay_ms=0, orphan_old=False, own=None, pin_old=False, life_old=False, fade=None,
-                        hostctl_off=False)
+                        hostctl_off=False, arrive_old=False, arrive_bench=None)
         return False
 
     def _sw_release(self) -> None:
@@ -7397,7 +7434,8 @@ class FakeGame:
 
     def _swap_doc(self) -> dict:
         """AppendSwap, in its order (NETSYNC_SWAP_KEYS): the catch line's sentinels but for the stand-in's live reads -- the clock seam,
-        the levers as set, `open`, the record, the seen block, B's orphan counters, the counters, the selftest verdict."""
+        the levers as set, `open`, the record, the seen block, B's orphan counters, the counters, the selftest verdict ([ff9mapkit
+        netsync s164] and THE ARRIVAL GUARD's `arrival_lead_ms` and `bench`)."""
         sw = self._sw
         doc = json.loads(json.dumps(NETSYNC_SWAP_SENTINELS))
         now_ms, ticks, hz, src, hires = self._sw_clock()
@@ -7405,7 +7443,11 @@ class FakeGame:
                             fps=int(round(self._render_fps)), target_fps=-1)
         doc["levers"].update(stamps="off" if sw["stamps_off"] else None, delay_ms=sw["delay_ms"],
                              orphan="old" if sw["orphan_old"] else None, own=sw["own"], pin="old" if sw["pin_old"] else None,
-                             life="old" if sw["life_old"] else None, fade=sw["fade"], hostctl_off=bool(sw["hostctl_off"]))
+                             life="old" if sw["life_old"] else None, fade=sw["fade"], hostctl_off=bool(sw["hostctl_off"]),
+                             arrive="old" if sw["arrive_old"] else None)
+        # [ff9mapkit netsync s164] THE ARRIVAL GUARD: K live, the bench's arm; the rest at its sentinels (no landing, R or episode here)
+        doc["arrive"]["arrival_lead_ms"] = BW.ARRIVAL_LEAD_MS
+        doc["arrive"]["bench"] = {"armed": sw["arrive_bench"] is not None, "lead_ms": sw["arrive_bench"]}
         doc["open"] = bool(sw["open"])
         if sw["rec"] is not None:
             doc["last"] = {k: sw["rec"][k] for k in NETSYNC_SWAP_SENTINELS["last"]}

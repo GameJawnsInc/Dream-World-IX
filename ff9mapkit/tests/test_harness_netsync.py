@@ -6709,8 +6709,9 @@ def _sp_proof_text() -> str:
 
 
 def _sw_proof_text(fake=None) -> str:
-    """[ff9mapkit netsync s164] The stand-in's field swap proof line: its tallies (the design's), then THE CLOCK SEAM's source, Hz and
-    resolution (``fake``'s seam; a default stand-in's, channel.qpc_read, when None), then every constant (battlewire's builder)."""
+    """[ff9mapkit netsync s164] The stand-in's field swap proof line: its tallies (the engine's, THE ARRIVAL GUARD's included), then THE
+    CLOCK SEAM's source, Hz and resolution (``fake``'s seam; a default stand-in's, channel.qpc_read, when None), then every constant
+    (battlewire's builder; its tail the guard's K)."""
     _now, _ticks, hz, src, hires = FG.swap_clock_read(FG.qpc_read if fake is None else fake.swap_qpc, 0.0)
     return BW.swap_proof_text(FG.FAKE_SWAP_SELFTEST_ROWS, FG.FAKE_SWAP_MUTANTS, src, hz, hires)
 
@@ -15689,7 +15690,9 @@ def test_the_live_dress_writers_are_their_level_homes_in_ladder_order(game):
              if t.startswith("NumOrNull(sb, ") or re.match(r'(?:Str|Bool)\(sb, "\w+", (?:has \?|Try\(\(\) => IsClipPlaying)', t)]
     if _s164_live():    # [ff9mapkit netsync s164] the swap record writer (AppendSwapLast) shares the `has ?` idiom -- not a player key
         swap = set(_cs_block("HarnessAgent.cs", "private static void AppendSwapLast(", stop="private static void AppendSwapIntent(StringBuilder sb)"))
-        idiom = [t for t in idiom if t not in swap]
+        # ...and THE ARRIVAL GUARD's writer (AppendSwapArrive) publishes its null-able ms through NumOrNull -- not a player key either
+        # (every one of its reads is a NetSyncSwap.HarnessArrive* accessor, which no player key reads)
+        idiom = [t for t in idiom if t not in swap and "Memoria.Netsync.NetSyncSwap.HarnessArrive" not in t]
     assert idiom and set(idiom) <= set(lines), sorted(set(idiom) - set(lines))
     const = net_lines("HarnessAgent.cs", r'private const String PlayerDressNull = "')
     assert len(const) == 1 and list(json.loads("{" + _literals(const[0])[0].replace('\\"', '"') + "}")) == keys
@@ -27579,8 +27582,12 @@ def test_the_s162_term_is_spent_where_the_spec_says():
     so = _built("NetSyncStepOut.cs")
     ate = _built("NetSyncAte.cs")
     client = " ".join(_strip_comment(t) for t in _stack_text("NetSyncClient.cs"))
+    # [ff9mapkit netsync s164] THE ARRIVAL GUARD's one behaviour hunk rewrites this call: StartRule reads the guarded age, and `line` and
+    # s162's `landing` still pass straight through (they decide before any age -- the precedence is structural, no mutant carries it)
+    start = ("Int32 start = StartRule(line, NetSyncSwap.ArriveDwellAge(fld, now, now - _baseSince, line || landing), landing);"
+             if _s164_live() else "Int32 start = StartRule(line, now - _baseSince, landing);")
     for frag in ("Boolean landing = LandingTermNow(eligible && onField, fld);",
-                 "InLanding = landing;", "Int32 start = StartRule(line, now - _baseSince, landing);",
+                 "InLanding = landing;", start,
                  "landing = LandingTermNow(InEligible, FF9StateSystem.Common.FF9.fldMapNo);",
                  "LandingNow = landing;", "UInt16 m = WireMaskRule(_active, landing, mask);",
                  "Int32 h = GhostHideRule(wireMask, hostPlainScene, myStepOut, myLanding);",
@@ -28570,7 +28577,8 @@ def test_the_stand_ins_bench_lane_notes_a_frame_only_while_the_lock_builds_one(g
 _SW_ENGINE_ONLY = {
     "rows": ("clock.monotonic", "clock.source", "slot.oob_sent", "slot.oob_overwritten", "slot.window_closed", "slot.unsent_count",
              "slot.watched_is_atomic", "quiet_equals_loud", "live.frame_carries_4", "live.pin_applies_verbatim", "live.pin_split_applies",
-             "slot_reads"),
+             "slot_reads",
+             "live.arrive_codec"),          # [ff9mapkit netsync s164] THE ARRIVAL GUARD's (the real section-4 codec; its other 74 rows are kit rows)
     "mutants": ("quiet_no_exit_hold",)}
 
 
@@ -30024,9 +30032,28 @@ def test_s164_lever_refusal_order_usage_and_ops():
             (["intent", "65534"], "selftest", True, None), (["cache", "65534"], "selftest", False, None),
             (["lifebench", "65534"], "selftest", False, None), (["pinbench", "65534", "16383"], "selftest", True, None),
             (["pinbench", "30602", "8720", "to", "65534"], "selftest", True, None),
-            (["pinbench", "30602", "8720", "party", "3", "255"], "selftest", True, None)):
+            (["pinbench", "30602", "8720", "party", "3", "255"], "selftest", True, None),
+            # [ff9mapkit netsync s164] THE ARRIVAL GUARD: `arrive` guest-side, `arrivebench` the selftest role's (no bench gate), its lead
+            # -1000..5000 (ParseInt: Int32.TryParse, whitespace and a sign allowed); the role before the arity (LVD-ROLE's two refusals)
+            (["arrive", "old"], "host", False, BW.swap_refusal_guest_side("arrive")),
+            (["arrive", "maybe"], "host", False, BW.swap_refusal_guest_side("arrive")),
+            (["arrive", "old"], "client", False, None), (["arrive", "act"], "selftest", False, None),
+            (["ARRIVE", "OLD"], "client", False, None), (["arrive", "old"], None, False, OFF),
+            (["arrive", "x"], "client", False, U), (["arrive"], "client", False, U), (["arrive", "old", "1"], "client", False, U),
+            (["arrivebench", "0"], "client", False, BW.swap_refusal_selftest("arrivebench")),
+            (["arrivebench", "0"], "host", True, BW.swap_refusal_selftest("arrivebench")),
+            (["arrivebench", "x"], "client", False, BW.swap_refusal_selftest("arrivebench")),
+            (["arrivebench", "0"], None, False, OFF),
+            (["arrivebench", "-1000"], "selftest", False, None), (["arrivebench", "5000"], "selftest", False, None),
+            (["arrivebench", "600"], "selftest", False, None), (["arrivebench", "+600"], "selftest", False, None),
+            (["arrivebench", "-1001"], "selftest", False, U), (["arrivebench", "5001"], "selftest", False, U),
+            (["arrivebench", "30602"], "selftest", True, U), (["arrivebench", "x"], "selftest", False, U),
+            (["arrivebench"], "selftest", False, U), (["arrivebench", "0", "1"], "selftest", False, U)):
         assert BW.swap_lever_refusal(args, role, bench) == want, (args, role, bench)
-    assert tuple(BW.SWAP_OP_ROLES) == BW.SWAP_OPS and len(BW.SWAP_OPS) == 14
+    assert tuple(BW.SWAP_OP_ROLES) == BW.SWAP_OPS and len(BW.SWAP_OPS) == 16                  # [ff9mapkit netsync s164] + 2
+    assert BW.SWAP_OPS[-2:] == ("arrive", "arrivebench") and "arrivebench" not in BW.SWAP_BENCH_GATED_OPS
+    assert (BW.SWAP_OP_ROLES["arrive"], BW.SWAP_OP_ROLES["arrivebench"]) == (BW.SWAP_ROLE_GUEST, BW.SWAP_ROLE_SELFTEST)
+    assert BW.SWAP_OP_WORDS["arrive"] == BW.ARRIVE_LEVER_NAMES == ("act", "old") and BW.ARRIVE_BENCH_RANGE == (-1000, 5000)
     assert {op for op, r in BW.SWAP_OP_ROLES.items() if r == BW.SWAP_ROLE_ANY} == {"stamps", "clear"}
     assert {op for op, r in BW.SWAP_OP_ROLES.items() if r == BW.SWAP_ROLE_HOST} == {"life"}
     assert BW.SWAP_USAGE.startswith("netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, ")
@@ -30052,16 +30079,19 @@ def test_s164_lever_refusal_order_usage_and_ops():
 def test_s164_the_proof_line_pins_every_constant():
     """The proof line (the block's LAST): `field swap selftest: OK (N rows, M mutants caught, clock qpc|stopwatch H Hz
     high-res|low-res, ...)` -- the kit regex pins every constant and captures N, M, the source, H and the resolution; a changed constant
-    or a FAIL line does not match."""
-    text = BW.swap_proof_text(425, 146, "qpc", 10000000, True)
+    or a FAIL line does not match. [ff9mapkit netsync s164] THE ARRIVAL GUARD: 501 rows / 183 mutants (426 / 146 + RowsArrive's 75 and
+    MutantsArrive's 37) and the tail ", arrival lead 1040 ms" -- a proof line without the tail (an engine before the guard) does not match."""
+    text = BW.swap_proof_text(501, 183, "qpc", 10000000, True)
     m = re.fullmatch(BW.SWAP_PROOF_RE, text)
-    assert m and m.groups() == ("425", "146", "qpc", "10000000", "high-res")
-    assert text == ("field swap selftest: OK (425 rows, 146 mutants caught, clock qpc 10000000 Hz high-res, line window 10000 ms, span "
+    assert m and m.groups() == ("501", "183", "qpc", "10000000", "high-res")
+    assert text == ("field swap selftest: OK (501 rows, 183 mutants caught, clock qpc 10000000 Hz high-res, line window 10000 ms, span "
                     "30000 ms, cache 2000 ms, intent life 2000 ms / land tail 1000 ms / cap 10000 ms, pin age 2500 ms / blind 10000 ms, fade "
-                    "12 / 24 ticks / 900 ms, join grace 3 ticks, black floor 248, ahead 3000 ms)")
+                    "12 / 24 ticks / 900 ms, join grace 3 ticks, black floor 248, ahead 3000 ms, arrival lead 1040 ms)")
     m = re.fullmatch(BW.SWAP_PROOF_RE, BW.swap_proof_text(1, 0, "stopwatch", 1000, False))
     assert m and m.group(3) == "stopwatch" and m.group(5) == "low-res"
     assert not re.fullmatch(BW.SWAP_PROOF_RE, text.replace("black floor 248", "black floor 255"))
+    assert not re.fullmatch(BW.SWAP_PROOF_RE, text.replace(", arrival lead 1040 ms)", ")"))           # the unguarded engine's line
+    assert not re.fullmatch(BW.SWAP_PROOF_RE, text.replace("arrival lead 1040", "arrival lead 1000"))
     assert not re.fullmatch(BW.SWAP_PROOF_RE, BW.swap_proof_fail_text(row="join.land_dest"))
     assert BW.swap_proof_fail_text(row="r7") == "field swap selftest: FAIL (row r7)"
     assert BW.swap_proof_fail_text(mutant="pin_single_slot") == "field swap selftest: FAIL (mutant pin_single_slot survived)"
@@ -30134,7 +30164,11 @@ _SW_ARG_FORMS = (
     ("pinbench", "30602", "8720", "to", "65535"), ("pinbench", "30602", "8720", "party", "3", "255"),
     ("pinbench", "30602", "8720", "party", "1", "256"), ("pinbench", "30602", "8720", "age", "1", "age", "2"),
     ("pinbench", "30602", "8720", "landed", "Age", "5", "TO", "352"), ("pinbench", "30602", "8720", "landed", "landed"),
-    ("pinbench", "30602", "8720", "age"), ("pinbench", "30602", "8720", "party", "1"), ("pinbench", "30602", "8720", "x"))
+    ("pinbench", "30602", "8720", "age"), ("pinbench", "30602", "8720", "party", "1"), ("pinbench", "30602", "8720", "x"),
+    # [ff9mapkit netsync s164] THE ARRIVAL GUARD's two ops: the words, the arity, the lead's range (and 30602, a field id, out of it)
+    ("arrive", "act"), ("arrive", "old"), ("arrive", "x"), ("arrive",), ("arrive", "old", "1"), ("arrivebench", "-1001"),
+    ("arrivebench", "-1000"), ("arrivebench", "5000"), ("arrivebench", "5001"), ("arrivebench", "x"), ("arrivebench",),
+    ("arrivebench", "0", "1"), ("arrivebench", "30602"))
 
 
 def test_s164_kit2_the_swap_rung_rides_the_ladder_and_the_driver_and_the_stand_in_agree():
@@ -30164,7 +30198,14 @@ def test_s164_kit2_the_swap_rung_rides_the_ladder_and_the_driver_and_the_stand_i
     design = _design_swap_block()
     assert FG.NETSYNC_SWAP_SENTINELS == design and json.dumps(FG.NETSYNC_SWAP_SENTINELS) == json.dumps(design)
     assert FG.NETSYNC_SWAP_KEYS == ("clock", "levers", "open", "last", "seen", "intent", "slot", "orphan", "own", "pin", "fade", "counts",
-                                    "faults", "last_fault", "selftest")
+                                    "faults", "last_fault", "selftest", "arrive")                    # [ff9mapkit netsync s164] + arrive
+    # [ff9mapkit netsync s164] THE ARRIVAL GUARD: `levers.arrive` is levers' LAST key; `arrive` at its sentinels (arrival_lead_ms -1)
+    assert list(FG.NETSYNC_SWAP_SENTINELS["levers"])[-2:] == ["hostctl_off", "arrive"] and FG.NETSYNC_SWAP_SENTINELS["levers"]["arrive"] is None
+    arrive = FG.NETSYNC_SWAP_SENTINELS["arrive"]
+    assert FG.NETSYNC_SWAP_ARRIVE_KEYS == ("arrival_lead_ms", "armed", "field", "land_t", "lead_ms", "late", "host", "episode", "last",
+                                           "arms", "late_arms", "unanchored", "world", "held", "ends", "spends", "bench", "faults")
+    assert arrive["arrival_lead_ms"] == -1 and tuple(arrive["ends"]) == BW.ARRIVE_END_NAMES[1:]
+    assert tuple(arrive["spends"]) == BW.ARRIVE_SPEND_NAMES[1:] and arrive["bench"] == {"armed": False, "lead_ms": None}
     assert tuple(FG.NETSYNC_SWAP_SENTINELS["counts"]["closed"]) == BW.SWAP_CLOSE_NAMES[1:]
     assert tuple(FG.NETSYNC_SWAP_SENTINELS["intent"]["ends"]) == BW.INTENT_END_NAMES[1:]
     assert tuple(FG.NETSYNC_SWAP_SENTINELS["fade"]["ends"]) == BW.FADE_END_NAMES
@@ -30194,6 +30235,7 @@ def test_s164_kit2_the_drivers_refusal_order_is_battlewires():
     assert S.NETSYNC_SWAP_DELAY_RANGE == BW.SWAP_DELAY_RANGE and S.NETSYNC_SWAP_BLACKOUT_RANGE == BW.SWAP_BLACKOUT_RANGE
     assert S.NETSYNC_SWAP_FIELD_RANGE == BW.SWAP_FIELD_RANGE and S.NETSYNC_SWAP_FLAG_RANGE == BW.SWAP_FLAG_RANGE
     assert S.NETSYNC_SWAP_SLOT_RANGE == BW.SWAP_SLOT_RANGE and S.NETSYNC_SWAP_CHAR_RANGE == BW.SWAP_CHAR_RANGE
+    assert S.NETSYNC_SWAP_ARRIVEBENCH_RANGE == BW.ARRIVE_BENCH_RANGE                  # [ff9mapkit netsync s164] THE ARRIVAL GUARD's bench
     assert S.NETSYNC_SWAP_USAGE == BW.SWAP_USAGE == FG.NETSYNC_SWAP_USAGE
     assert S.NETSYNC_SWAP_COOP_OFF == BW.SWAP_REFUSAL_COOP_OFF == FG.NETSYNC_SWAP_COOP_OFF
     for op in S.NETSYNC_SWAP_OPS:
@@ -30334,8 +30376,10 @@ def test_s164_kit2_the_stand_in_publishes_the_swap_block_on_the_clock_seam(game)
         for k, v in FG.NETSYNC_SWAP_SENTINELS.items():
             if isinstance(v, dict):
                 assert tuple(doc[k]) == tuple(v), k
-        live = ("clock", "selftest")
+        live = ("clock", "selftest", "arrive")
         assert {k: v for k, v in doc.items() if k not in live} == {k: v for k, v in FG.NETSYNC_SWAP_SENTINELS.items() if k not in live}
+        # [ff9mapkit netsync s164] THE ARRIVAL GUARD at rest: K live (the catch line's -1 is the sentinel), everything else its sentinel
+        assert doc["arrive"] == dict(FG.NETSYNC_SWAP_SENTINELS["arrive"], arrival_lead_ms=BW.ARRIVAL_LEAD_MS) and BW.ARRIVAL_LEAD_MS == 1040
         clock = doc["clock"]
         if channel.qpc_read() is not None:
             assert clock["src"] == "qpc" and clock["hz"] == channel.qpc_read()[1] and clock["hires"] is (clock["hz"] >= 1_000_000)
@@ -30367,7 +30411,8 @@ def test_s164_kit2_the_stand_in_models_the_swap_levers_their_refusals_and_clear(
                  ("orphan", "act", "orphan", None), ("own", "old", "own", "old"), ("own", "nocache", "own", "nocache"),
                  ("own", "act", "own", None), ("pin", "old", "pin", "old"), ("pin", "act", "pin", None),
                  ("life", "old", "life", "old"), ("life", "act", "life", None), ("hostctl", "off", "hostctl_off", True),
-                 ("hostctl", "on", "hostctl_off", False)]
+                 ("hostctl", "on", "hostctl_off", False),
+                 ("arrive", "old", "arrive", "old"), ("arrive", "act", "arrive", None)]       # [ff9mapkit netsync s164] THE ARRIVAL GUARD
         cases += [("fade", w, "fade", None if w == "act" else w) for w in BW.FADE_LEVER_NAMES[1:] + ("act",)]
         for op, word, key, value in cases:
             line = BW.swap_harness_lever_line(op, word)
@@ -30376,11 +30421,22 @@ def test_s164_kit2_the_stand_in_models_the_swap_levers_their_refusals_and_clear(
             assert len(_mlog_lines(fake, line)) == before + 1, (op, word)
         assert g.swap("delay", 300).swap_block["levers"]["delay_ms"] == 300
         assert _mlog_lines(fake, BW.swap_harness_delay(300))
+        # [ff9mapkit netsync s164] THE ARRIVAL GUARD's bench (the harness half): its arm and lead read back, the rest of `arrive` stays
+        # at rest -- the stand-in models no landing, so the arm stands until `clear` (on an engine the next landing spends it)
+        for lead in (600, -400, BW.ARRIVE_BENCH_RANGE[0], BW.ARRIVE_BENCH_RANGE[1]):
+            before = len(_mlog_lines(fake, BW.swap_harness_arrivebench(lead)))
+            arrive = g.swap("arrivebench", lead).swap_block["arrive"]
+            assert arrive["bench"] == {"armed": True, "lead_ms": lead} and len(_mlog_lines(fake, BW.swap_harness_arrivebench(lead))) == before + 1
+            assert arrive == dict(FG.NETSYNC_SWAP_SENTINELS["arrive"], arrival_lead_ms=BW.ARRIVAL_LEAD_MS, bench=arrive["bench"])
+        assert not _mlog_lines(fake, BW.ARRIVE_LINE_PREFIX)                    # no landing, no R, no episode: never a guard line
+        g.swap("arrive", "old")
         g.swap("orphan", "old")
         g.swap("fade", "long")
         g.swap("stamps", "off")
         clears = len(_mlog_lines(fake, BW.swap_harness_clear(False)))
-        assert g.swap("clear").swap_block["levers"] == FG.NETSYNC_SWAP_SENTINELS["levers"]
+        st = g.swap("clear")
+        assert st.swap_block["levers"] == FG.NETSYNC_SWAP_SENTINELS["levers"]
+        assert st.swap_block["arrive"]["bench"] == FG.NETSYNC_SWAP_SENTINELS["arrive"]["bench"]       # [ff9mapkit netsync s164] forgotten
         assert len(_mlog_lines(fake, BW.swap_harness_clear(False))) == clears + 1
         # malformed: the usage line, before the step (the driver) and in the same words (the stand-in)
         for bad in (("delay", "5000"), ("orphan", "maybe"), ("bogus",), ("stamps",), ("clear", "1"), (), ("intent", "0")):
@@ -30415,8 +30471,10 @@ def test_s164_kit2_the_stand_in_models_the_swap_levers_their_refusals_and_clear(
         fake.follow_session(FIELD)
         g.wait_frames(2)
         assert g.swap("orphan", "old").swap_block["levers"]["orphan"] == "old"
+        assert g.swap("arrive", "old").swap_block["levers"]["arrive"] == "old"        # [ff9mapkit netsync s164] guest-side: a client acts
         for args, why in ((("life", "old"), BW.swap_refusal_host_side("life")), (("hostctl", "off"), BW.swap_refusal_selftest("hostctl")),
-                          (("cache", "352"), BW.swap_refusal_selftest("cache")), (("life", "old", "1"), BW.swap_refusal_host_side("life"))):
+                          (("cache", "352"), BW.swap_refusal_selftest("cache")), (("life", "old", "1"), BW.swap_refusal_host_side("life")),
+                          (("arrivebench", "0"), BW.swap_refusal_selftest("arrivebench"))):      # [ff9mapkit netsync s164] LVD-ROLE
             n = len(fake.executed)
             with pytest.raises(HarnessError, match=re.escape(why)):
                 g.netsync("swap", *args)
@@ -30428,6 +30486,10 @@ def test_s164_kit2_the_stand_in_models_the_swap_levers_their_refusals_and_clear(
         with pytest.raises(HarnessError, match=re.escape(BW.swap_refusal_guest_side("orphan"))):
             g.swap("orphan", "act")
         assert len(fake.executed) == n + 1
+        # [ff9mapkit netsync s164] LVD-ROLE: `swap arrive old` sent to the host is the guest-side refusal, from the step
+        with pytest.raises(HarnessError, match=re.escape(BW.swap_refusal_guest_side("arrive"))):
+            g.swap("arrive", "old")
+        assert len(fake.executed) == n + 2
         assert g.swap("life", "old").swap_block["levers"]["life"] == "old"
         n = len(fake.executed)
         with pytest.raises(HarnessError, match=re.escape(FG.NETSYNC_SWAP_USAGE)):
@@ -30438,21 +30500,24 @@ def test_s164_kit2_the_stand_in_models_the_swap_levers_their_refusals_and_clear(
 def test_s164_kit2_the_release_clears_every_lever_once_right_after_the_speed_mirrors(game):
     """NetSyncSwap.HarnessRelease rides `reset` (HarnessReleaseBench, every role, right after the speed mirror's release): every lever
     set, then `reset` -- ONE release line, every lever back; a second `reset` logs nothing. Then the re-arm and one `swap intent`: no
-    delay leaked (the commit lands on its own verdict)."""
+    delay leaked (the commit lands on its own verdict). [ff9mapkit netsync s164] THE ARRIVAL GUARD's lever and bench ride the same
+    release, and the bench's arm alone earns it its line."""
     fake = FakeGame(game)
     fake.swap_qpc = None                                      # the virtual clock: one frame is one known step
     with session(game, fake) as g:
         on_bench(g)
         for op, word in (("stamps", "off"), ("delay", "300"), ("orphan", "old"), ("own", "old"), ("pin", "old"), ("life", "old"),
-                         ("fade", "old"), ("hostctl", "off")):
+                         ("fade", "old"), ("hostctl", "off"), ("arrive", "old"), ("arrivebench", "600")):   # [ff9mapkit netsync s164] + 2
             g.swap(op, word)
         g.speed("off")
         assert g.state.swap_block["levers"] == {"stamps": "off", "delay_ms": 300, "orphan": "old", "own": "old", "pin": "old",
-                                                "life": "old", "fade": "old", "hostctl_off": True}
+                                                "life": "old", "fade": "old", "hostctl_off": True, "arrive": "old"}
+        assert g.state.swap_block["arrive"]["bench"] == {"armed": True, "lead_ms": 600}
         rel = len(_mlog_lines(fake, BW.swap_harness_release(False)))
         g.send("reset")
         g.wait_frames(2)
         assert fake._netsync_doc()["swap"]["levers"] == FG.NETSYNC_SWAP_SENTINELS["levers"]
+        assert fake._netsync_doc()["swap"]["arrive"]["bench"] == FG.NETSYNC_SWAP_SENTINELS["arrive"]["bench"]   # [ff9mapkit netsync s164]
         assert len(_mlog_lines(fake, BW.swap_harness_release(False))) == rel + 1
         tail = [ln for ln in fake.memoria_log.read_text(encoding="utf-8").splitlines()
                 if FG.SPEED_LOG_RELEASE in ln or BW.swap_harness_release(False) in ln][-2:]
@@ -30466,6 +30531,14 @@ def test_s164_kit2_the_release_clears_every_lever_once_right_after_the_speed_mir
         st = g.wait_for(lambda s: s.swap_last["state"] == "landed", timeout=6.0, what="the bench follow's landing")
         last = st.swap_last
         assert last["delay_ms"] == 0 and 0 <= last["commit_t"] - last["due_t"] <= 1000 / fake.render_fps + 1, last
+        # [ff9mapkit netsync s164] THE ARRIVAL GUARD's bench arm ALONE is "something set" (HarnessRelease's `any`): its release line
+        # prints, and the arm is forgotten (ForgetArriveBench)
+        g.swap("arrivebench", "-400")
+        assert g.state.swap_block["arrive"]["bench"] == {"armed": True, "lead_ms": -400}
+        g.send("reset")
+        g.wait_frames(2)
+        assert len(_mlog_lines(fake, BW.swap_harness_release(False))) == rel + 2
+        assert fake._netsync_doc()["swap"]["arrive"]["bench"] == FG.NETSYNC_SWAP_SENTINELS["arrive"]["bench"]
 
 
 @pytest.mark.parametrize("cut", [False, True])
@@ -30486,7 +30559,9 @@ def test_s164_kit2_the_proof_line_closes_the_block_after_the_speed_mirrors(game,
         lines = _proof_lines(fake)
         assert lines[-1].split("[NetSync] ", 1)[1] == _sw_proof_text(fake)
         m = re.search(FG.SWAP_PROOF_RE, lines[-1])
-        assert m and (int(m.group(1)), int(m.group(2))) == (FG.FAKE_SWAP_SELFTEST_ROWS, FG.FAKE_SWAP_MUTANTS) == (425, 146)
+        # [ff9mapkit netsync s164] the engine's tallies with THE ARRIVAL GUARD's rows and mutants (and its tail, which the regex pins)
+        assert m and (int(m.group(1)), int(m.group(2))) == (FG.FAKE_SWAP_SELFTEST_ROWS, FG.FAKE_SWAP_MUTANTS) == (501, 183)
+        assert lines[-1].endswith(", arrival lead 1040 ms)")
         _now, _ticks, hz, src, hires = FG.swap_clock_read(fake.swap_qpc, 0.0)
         assert m.group(3, 4, 5) == (src, str(hz), "high-res" if hires else "low-res")
         if cut:
@@ -30730,3 +30805,517 @@ def test_s164_kit2_b_the_stand_ins_orphan_lines_are_the_engines(game):
     end = _mlog_lines(fake, f"[NetSync] dialogue orphan: win {win} text 114 -- the control hold ends after 600 ms "
                             f"({BW.SWAP_HOLD_END_WORDS[BW.SWAP_HOLD_END_FORGOT]}) (t ")
     assert len(end) == 1, end
+
+
+# =========================================================================================================================
+# [ff9mapkit netsync s164] THE ARRIVAL GUARD (studies/field-coop/ARRIVAL-GUARD-S164.md rev 2: owner decision 8 of SWAP-TIMING-S164.md,
+# read as "the lead the host is owed", folded into s164). The design's SelfTest table -- 74 pure rows -- against battlewire's twins,
+# each of its 37 mutants killed by the rows the design names; the twins against the LIVE stack's own table (NetSyncSwap.RowsArrive:
+# every row's expression holds for them, the same ids in the same order, live.arrive_codec the engine's alone) and its mutant list; the
+# twins' parameters and the rules' bodies; the hooks where the spec puts them (OnFieldLoad's first statement, NoteHostFrame right after
+# PinHostFrame, GuestTick's first statement, the two session clears, the release, SelfTest, the ONE NetSyncStepOut behaviour hunk); the
+# levers' and the lines' words; AppendSwapArrive against the sentinels; the proof totals. Every engine pin reads the live stack -- the
+# s164 patch as re-captured with the guard folded in.
+# =========================================================================================================================
+
+#: the guard table's ids: my field (30611, ARRIVE's), another (353), the landing number of every Anchor row; section 4's body for 30611
+#: (little-endian) and nonce 7 -- the flags byte follows
+_G_FLD, _G_OTHER, _G_N = 30611, 353, 5
+_G_BODY = (147, 119, 7)
+
+
+def _swg_make(**over):
+    return _sw_ns(vars(BW.SWAP_ARRIVE_RULES), over)
+
+
+def _swg_body(*flags) -> bytes:
+    return bytes(_G_BODY + flags)
+
+
+def _swg_rows() -> list:
+    """THE ARRIVAL GUARD's table (ARRIVAL-GUARD-S164.md "SelfTest"; the engine's ids, in its order): K 1040, D 1500, S 500, my field
+    30611, another 353, n = 5. The composition rows run the REAL StartRule's twin (the s162 section's _start_rule) on the guarded age:
+    a line and s162's `ate` still decide before any age."""
+    T, F, A, O, N = True, False, _G_FLD, _G_OTHER, _G_N
+    ON, OL, OD, OA = BW.ARRIVE_OUT_NONE, BW.ARRIVE_OUT_LINE, BW.ARRIVE_OUT_DWELL, BW.ARRIVE_OUT_ATE
+    LAND, LATE, SPEND, NONE_ = BW.ARRIVE_EV_LANDING, BW.ARRIVE_EV_LATE_EDGE, BW.ARRIVE_EV_SPEND, BW.ARRIVE_LEAD_NONE
+    C_ARM, C_LATE, C_UN, C_NO = BW.ARRIVE_COUNT_ARM, BW.ARRIVE_COUNT_LATE_ARM, BW.ARRIVE_COUNT_UNANCHORED, BW.ARRIVE_COUNT_NONE
+    b = _swg_body
+    rows = [
+        ("seen.landed", lambda R: R.Seen(b(0x01))), ("seen.pre", lambda R: not R.Seen(b(0x00))),
+        ("seen.s163", lambda R: not R.Seen(b()) and BW.intent_landed_of(b())), ("seen.null", lambda R: not R.Seen(None)),
+        ("seen.other_bit", lambda R: not R.Seen(b(0x02))), ("seen.bits", lambda R: R.Seen(b(0x03))),
+        ("edge.first", lambda R: R.Edge(-1, -1, 7, A, T)), ("edge.same", lambda R: not R.Edge(7, A, 7, A, T)),
+        ("edge.next_nonce", lambda R: R.Edge(7, A, 8, A, T)), ("edge.chain", lambda R: R.Edge(7, O, 7, A, T)),
+        ("edge.pre", lambda R: not R.Edge(-1, -1, 7, A, F)), ("edge.no_section", lambda R: not R.Edge(7, A, -1, A, T)),
+        ("edge.field0", lambda R: not R.Edge(7, A, 7, 0, T))]
+    for name, args, want in (("act", (T, F, F), BW.ARRIVE_ARM_ON), ("lever", (T, T, F), BW.ARRIVE_ARM_LEVER),
+                             ("role", (F, F, F), BW.ARRIVE_ARM_ROLE), ("world", (T, F, T), BW.ARRIVE_ARM_WORLD),
+                             ("lever_first", (T, T, T), BW.ARRIVE_ARM_LEVER)):
+        rows.append((f"arm.{name}", lambda R, args=args, want=want: R.Arm(*args) == want))
+    for name, args, want in (("in_time", (T, A, 4, 600, A, N), T), ("late", (T, A, 5, -400, A, N), T),
+                             ("stale", (T, A, 3, 600, A, N), F), ("other_field", (T, O, 4, 600, A, N), F),
+                             ("none", (F, A, 4, 600, A, N), F), ("old", (T, A, 4, 10000, A, N), F), ("old_edge", (T, A, 4, 9999, A, N), T)):
+        rows.append((f"anchor.{name}", lambda R, args=args, want=want: bool(R.Anchor(*args)) is want))
+    for name, args, want in (("all", (T, T, A, A), T), ("unarmed", (F, T, A, A), F), ("unanchored", (T, F, A, A), F),
+                             ("arm_field", (T, T, O, A), F)):
+        rows.append((f"holds.{name}", lambda R, args=args, want=want: bool(R.Holds(*args)) is want))
+    # DwellAge (holds, the base age, since the host's landing, since my landing -- the seam's fourth input, which the rule ignores)
+    for name, args, want in (("identity", (F, 1600, 0, 0), 1600), ("arrive", (T, 1750, 2300, 1800), 1260),
+                             ("arrive_late", (T, 1750, 1720, 1800), 710), ("scene_out", (T, 1990, 2540, 2040), 1500),
+                             ("scene_edge", (T, 1989, 2539, 2039), 1499), ("inert", (T, 1500, 2700, 1550), 1500),
+                             ("never_earlier", (T, 800, 5000, 4900), 800), ("cap_out", (T, 2540, 2190, 2590), 1500),
+                             ("cap_edge", (T, 2539, 2189, 2589), 1499), ("future", (T, 1600, -50000, 1650), 560),
+                             ("own_pass", (T, 1750, 2000, 1800), 960), ("fade_old", (T, 1500, 2590, 1550), 1500),
+                             ("wrap", (T, 1600, -(1 << 31), 1650), 1600)):
+        rows.append((f"dwellage.{name}", lambda R, args=args, want=want: R.DwellAge(*args) == want))
+    rows += [("start.arrive_act", lambda R: _start_rule(F, R.DwellAge(T, 1750, 2300, 1800), F) == ON),
+             ("start.arrive_old", lambda R: _start_rule(F, R.DwellAge(F, 1750, 2300, 1800), F) == OD),
+             ("start.line", lambda R: _start_rule(T, R.DwellAge(T, 0, 0, 0), F) == OL),
+             ("start.ate", lambda R: _start_rule(F, R.DwellAge(T, 0, 0, 0), T) == OA)]
+    for name, args, want in (("first", (F, 1500, 1000), T), ("once", (T, 1600, 1100), F), ("under", (F, 1499, 1000), F),
+                             ("not_held", (F, 1500, 1500), F)):
+        rows.append((f"held.{name}", lambda R, args=args, want=want: bool(R.Held(*args)) is want))
+    for name, args, want in (("none", (T, A, A, F, -1, F), BW.ARRIVE_SPEND_NONE), ("debounce", (T, A, A, T, 499, F), BW.ARRIVE_SPEND_NONE),
+                             ("control", (T, A, A, T, 500, F), BW.ARRIVE_SPEND_CONTROL), ("left", (T, A, O, F, -1, F), BW.ARRIVE_SPEND_FIELD),
+                             ("out", (T, A, A, F, -1, T), BW.ARRIVE_SPEND_OUT), ("unarmed", (F, A, O, T, 600, T), BW.ARRIVE_SPEND_NONE),
+                             ("order", (T, A, O, T, 600, T), BW.ARRIVE_SPEND_FIELD)):
+        rows.append((f"spend.{name}", lambda R, args=args, want=want: R.Spend(*args) == want))
+    for name, args, want in (("flicker", (T, 2, F, F, ON), BW.ARRIVE_END_NONE), ("stale", (T, 3, F, F, ON), BW.ARRIVE_END_SPARED),
+                             ("rebase", (T, 1, T, F, ON), BW.ARRIVE_END_SPARED), ("out_dwell", (T, 1, F, T, OD), BW.ARRIVE_END_DELAYED),
+                             ("out_line", (T, 1, F, T, OL), BW.ARRIVE_END_LINE), ("out_ate", (T, 1, F, T, OA), BW.ARRIVE_END_ATE),
+                             ("out_over_rebase", (T, 1, T, T, OD), BW.ARRIVE_END_DELAYED), ("unheld", (F, 3, T, T, OD), BW.ARRIVE_END_NONE)):
+        rows.append((f"end.{name}", lambda R, args=args, want=want: R.End(*args) == want))
+    for name, args, want in (("landing_arm", (LAND, T, T, 600, F, F), C_ARM), ("landing_far", (LAND, T, T, 1040, F, F), C_NO),
+                             ("landing_unanchored", (LAND, T, F, NONE_, F, F), C_NO),
+                             ("late_first", (LATE, T, T, -400, F, F), C_ARM | C_LATE), ("late_again", (LATE, T, T, -300, T, T), C_NO),
+                             ("late_after_arm", (LATE, T, T, -300, T, F), C_LATE), ("spend_unanchored", (SPEND, T, F, NONE_, F, F), C_UN),
+                             ("spend_anchored", (SPEND, T, T, 600, T, F), C_NO), ("unarmed", (SPEND, F, F, NONE_, F, F), C_NO)):
+        rows.append((f"count.{name}", lambda R, args=args, want=want: R.Count(*args) == want))
+    return rows
+
+
+def _swg_mutants() -> dict:
+    """The design's 37 mutants (in NetSyncSwap.ArriveMutantNames' order), each a twin variant restoring a rejected rule, and the rows
+    that must catch it. DwellAge's ``sm`` is the seam's ms since MY landing: decision 8's literal reading (the origin 2G - Hs) and "my
+    landing + K" are one-line reversals of the reading taken."""
+    K, i32 = BW.ARRIVAL_LEAD_MS, BW._i32
+    edge, arm, anchor, holds = BW.swap_arrive_edge, BW.swap_arrive_arm, BW.swap_arrive_anchor, BW.swap_arrive_holds
+    held, spend, end, count = BW.swap_arrive_held, BW.swap_arrive_spend, BW.swap_arrive_end, BW.swap_arrive_count
+    OL, OD, OA = BW.ARRIVE_OUT_LINE, BW.ARRIVE_OUT_DWELL, BW.ARRIVE_OUT_ATE
+    return {
+        "arrive_s163_body_lands": (dict(Seen=BW.intent_landed_of), ["seen.s163"]),
+        "arrive_any_bit": (dict(Seen=lambda b: b is not None and len(b) >= 4 and b[3] != 0), ["seen.other_bit"]),
+        "arrive_every_landed_frame": (dict(Edge=lambda ln, lf, nc, f, la: bool(la) and nc >= 0 and f > 0), ["edge.same"]),
+        "arrive_pre_landing_records": (dict(Edge=_sw_arg(edge, 4, True)), ["edge.pre"]),
+        "arrive_lever_blind": (dict(Arm=_sw_arg(arm, 1, False)), ["arm.lever"]),
+        "arrive_on_host": (dict(Arm=_sw_arg(arm, 0, True)), ["arm.role"]),
+        "arrive_from_world": (dict(Arm=_sw_arg(arm, 2, False)), ["arm.world"]),
+        "arrive_stale_record_anchors": (dict(Anchor=lambda s, f, sl, since, fld, ln: bool(s) and fld > 0 and f == fld
+                                             and (sl == ln or i32(since) < BW.INTENT_LOAD_CAP_MS)), ["anchor.stale"]),
+        "arrive_anchor_field_blind": (dict(Anchor=lambda s, f, sl, since, fld, ln: anchor(s, fld, sl, since, fld, ln)), ["anchor.other_field"]),
+        "arrive_late_never_anchors": (dict(Anchor=lambda s, f, sl, since, fld, ln: sl != ln and anchor(s, f, sl, since, fld, ln)),
+                                      ["anchor.late"]),
+        "arrive_anchor_no_window": (dict(Anchor=_sw_arg(anchor, 3, 0)), ["anchor.old"]),
+        "arrive_unarmed_holds": (dict(Holds=_sw_arg(holds, 0, True)), ["holds.unarmed"]),
+        "arrive_unanchored_holds": (dict(Holds=_sw_arg(holds, 1, True)), ["holds.unanchored"]),
+        "arrive_arm_field_blind": (dict(Holds=lambda a, an, af, fld: holds(a, an, fld, fld)), ["holds.arm_field"]),
+        "arrive_no_lead": (dict(DwellAge=lambda h, b, sh, sm: min(b, max(sh, i32(b - K))) if h else b), ["dwellage.arrive"]),
+        "arrive_add_lead_always": (dict(DwellAge=lambda h, b, sh, sm: i32(b - K) if h else b), ["dwellage.inert", "dwellage.fade_old"]),
+        "arrive_max_not_min": (dict(DwellAge=lambda h, b, sh, sm: max(b, max(i32(sh - K), i32(b - K))) if h else b),
+                               ["dwellage.never_earlier"]),
+        "arrive_no_cap": (dict(DwellAge=lambda h, b, sh, sm: min(b, i32(sh - K)) if h else b),
+                          ["dwellage.arrive_late", "dwellage.cap_out", "dwellage.future"]),
+        "arrive_literal_lag": (dict(DwellAge=lambda h, b, sh, sm: min(b, max(i32(2 * sm - sh), i32(b - K))) if h else b),
+                               ["dwellage.own_pass", "dwellage.fade_old"]),
+        "arrive_from_my_landing": (dict(DwellAge=lambda h, b, sh, sm: min(b, max(i32(sm - K), i32(b - K))) if h else b),
+                                   ["dwellage.fade_old", "dwellage.arrive"]),
+        "arrive_age_long_math": (dict(DwellAge=lambda h, b, sh, sm: i32(min(b, max(sh - K, b - K))) if h else b), ["dwellage.wrap"]),
+        "arrive_held_every_tick": (dict(Held=_sw_arg(held, 0, False)), ["held.once"]),
+        "arrive_spend_no_debounce": (dict(Spend=lambda a, af, f, c, bk, o: spend(a, af, f, c, BW.ARRIVE_STEP_IN_MS if c else bk, o)),
+                                     ["spend.debounce"]),
+        "arrive_never_spent": (dict(Spend=lambda *a: BW.ARRIVE_SPEND_NONE), ["spend.control"]),
+        "arrive_spend_field_blind": (dict(Spend=lambda a, af, f, c, bk, o: spend(a, af, af, c, bk, o)), ["spend.left"]),
+        "arrive_out_blind": (dict(Spend=_sw_arg(spend, 5, False)), ["spend.out"]),
+        "arrive_end_line_as_delayed": (dict(End=lambda h, fs, nb, o, w: end(h, fs, nb, o, OD if w == OL else w)), ["end.out_line"]),
+        "arrive_end_ate_unclassified": (dict(End=lambda h, fs, nb, o, w: end(h, fs, nb, o, OL if w == OA else w)), ["end.out_ate"]),
+        "arrive_end_spared_on_flicker": (dict(End=lambda h, fs, nb, o, w: end(h, 3 if fs >= 2 else fs, nb, o, w)), ["end.flicker"]),
+        "arrive_end_rebase_blind": (dict(End=_sw_arg(end, 2, False)), ["end.rebase"]),
+        "arrive_end_rebase_first": (dict(End=lambda h, fs, nb, o, w: BW.ARRIVE_END_SPARED if h and nb else end(h, fs, nb, o, w)),
+                                    ["end.out_over_rebase"]),
+        "arrive_end_unheld_classified": (dict(End=_sw_arg(end, 0, True)), ["end.unheld"]),
+        "arrive_count_arm_far": (dict(Count=lambda e, a, an, la, ac, lc: count(e, a, an, min(la, K - 1) if e == BW.ARRIVE_EV_LANDING else la,
+                                                                               ac, lc)), ["count.landing_far"]),
+        "arrive_count_late_every_edge": (dict(Count=_sw_arg(count, 5, False)), ["count.late_again"]),
+        "arrive_count_late_never": (dict(Count=lambda *a: count(*a) & ~BW.ARRIVE_COUNT_LATE_ARM), ["count.late_first", "count.late_after_arm"]),
+        "arrive_count_unanchored_with_record": (dict(Count=lambda e, a, an, la, ac, lc: count(e, a, False if e == BW.ARRIVE_EV_SPEND else an,
+                                                                                              la, ac, lc)), ["count.spend_anchored"]),
+        "arrive_count_unarmed": (dict(Count=_sw_arg(count, 1, True)), ["count.unarmed"]),
+    }
+
+
+def test_s164_arrive_rows_are_the_twins_and_every_mutant_is_caught():
+    """THE ARRIVAL GUARD's 74 pure rows (Seen 6, Edge 7, Arm 5, Anchor 7, Holds 4, DwellAge 13, Start 4, Held 4, Spend 7, End 8, Count 9;
+    live.arrive_codec is the engine's, on the real codec) hold under battlewire's twins -- DwellAge's `wrap` reads 1600 through _i32 as
+    C#'s unchecked delta does -- and each of the 37 mutants fails every row the design names."""
+    rows, mutants = _swg_rows(), _swg_mutants()
+    groups = {}
+    for n, _c in rows:
+        groups[n.split(".")[0]] = groups.get(n.split(".")[0], 0) + 1
+    assert groups == {"seen": 6, "edge": 7, "arm": 5, "anchor": 7, "holds": 4, "dwellage": 13, "start": 4, "held": 4, "spend": 7,
+                      "end": 8, "count": 9}
+    assert len(rows) + 1 == FG.FAKE_SWAP_ARRIVE_ROWS == 75 and len(mutants) == FG.FAKE_SWAP_ARRIVE_MUTANTS == 37
+    _sw_prove(rows, _swg_make, mutants)
+
+
+def test_s164_arrive_dwell_age_keeps_its_four_properties_over_a_sweep():
+    """ArriveDwellAgeRule's four properties (ARRIVAL-GUARD-S164.md § The rule) over a sweep that includes the Int32 extremes: never an
+    OUT earlier than s158 (at most the base age); never more than K later (at least the base age - K, for ANY anchor -- stale, future,
+    garbage or wrapped); inert for a base that starts at or after Hs + K; s158 exactly at s163's lag (B - Hs = K). Not holding is s158."""
+    K, lo, hi = BW.ARRIVAL_LEAD_MS, -(1 << 31), (1 << 31) - 1
+    for base in (0, 1, 499, 1039, 1040, 1041, 1499, 1500, 2540, 10000, 10 ** 6, hi):
+        for since_host in (lo, lo + K - 1, lo + K, -50000, -1, 0, 1, 1039, 1040, 1041, 1500, 2540, 2580, 3580, 10 ** 6, hi - K, hi):
+            d = BW.swap_arrive_dwell_age(True, base, since_host)
+            assert base - K <= d <= base, (base, since_host, d)
+            if since_host - base >= K:                          # the base starts at or after Hs + K
+                assert d == base, (base, since_host, d)
+            assert BW.swap_arrive_dwell_age(False, base, since_host) == base
+        if base + K <= hi:
+            assert BW.swap_arrive_dwell_age(True, base, base + K) == base                              # s163's lag
+    assert BW.swap_arrive_dwell_age(True, 1750, 1720) == 1750 - K                                       # the cap binds
+    assert BW.swap_arrive_dwell_age(True, 0, 0) == -K and BW.ARRIVAL_LEAD_MS == 1040                   # dwell_ms can read negative
+
+
+def _swg_engine_table() -> tuple:
+    """NetSyncSwap.RowsArrive as the LIVE stack writes it: its body (comments stripped, one line each) and its rows (expression, id)."""
+    lines = [_strip_comment(ln.strip()) for ln in stack_file("NetSyncSwap.cs")]
+    i = lines.index("private static Int32 RowsArrive(ArriveRules r, List<String> fails)")
+    j = lines.index("private static Boolean ArriveCodecRow()", i)
+    body = [ln for ln in lines[i:j] if ln]
+    rows = [(m.group(1), m.group(2)) for m in (re.fullmatch(r'row\((.*), "([\w.]+)"\);', ln) for ln in body) if m]
+    assert len(rows) == sum(ln.startswith("row(") for ln in body), [ln for ln in body if ln.startswith("row(")]
+    return body, rows
+
+
+def test_s164_arrive_twins_hold_every_row_of_the_engines_table():
+    """The twins against the ENGINE's own table: every row of NetSyncSwap.RowsArrive (read off the live stack, its expression run
+    through _cs_expr with the seams bound to battlewire's twins and StartRule to the s162 twin) holds; its ids are the kit table's, in
+    order, then live.arrive_codec (the real codec: the engine's alone); its locals are the table's ids; ArriveMutantNames is the kit's
+    mutant list, in order, each with its own case."""
+    body, rows = _swg_engine_table()
+    text = " ".join(body)
+    for frag in ("const Boolean T = true, F = false;", f"const Int32 A = {_G_FLD}, O = {_G_OTHER}, N = {_G_N};",
+                 "const Int32 ON = NetSyncStepOut.OutNone, OD = NetSyncStepOut.OutDwell, OL = NetSyncStepOut.OutLine, "
+                 "OA = NetSyncStepOut.OutAte;",
+                 "Byte[] landed = { 147, 119, 7, 0x01 }, pre = { 147, 119, 7, 0x00 }, s163 = { 147, 119, 7 }, other = { 147, 119, 7, 0x02 }, "
+                 "bits = { 147, 119, 7, 0x03 };"):
+        assert frag in text, frag
+    assert bytes(_G_BODY) == bytes((_G_FLD & 0xFF, _G_FLD >> 8, 7))
+    ns = dict(r=BW.SWAP_ARRIVE_RULES, T=True, F=False, A=_G_FLD, O=_G_OTHER, N=_G_N, ON=_OUT["OutNone"], OD=_OUT["OutDwell"],
+              OL=_OUT["OutLine"], OA=_OUT["OutAte"], landed=_swg_body(0x01), pre=_swg_body(0x00), s163=_swg_body(),
+              other=_swg_body(0x02), bits=_swg_body(0x03), IntentLandedOf=BW.intent_landed_of,
+              NetSyncStepOut=SimpleNamespace(StartRule=_start_rule, **_OUT), Int32=SimpleNamespace(MinValue=-(1 << 31)),
+              ArmOn=BW.ARRIVE_ARM_ON, ArmRole=BW.ARRIVE_ARM_ROLE, ArmLever=BW.ARRIVE_ARM_LEVER, ArmWorld=BW.ARRIVE_ARM_WORLD,
+              SpendNone=BW.ARRIVE_SPEND_NONE, SpendControl=BW.ARRIVE_SPEND_CONTROL, SpendField=BW.ARRIVE_SPEND_FIELD,
+              SpendOut=BW.ARRIVE_SPEND_OUT, SpendSession=BW.ARRIVE_SPEND_SESSION, EndNone=BW.ARRIVE_END_NONE,
+              EndSpared=BW.ARRIVE_END_SPARED, EndDelayed=BW.ARRIVE_END_DELAYED, EndLine=BW.ARRIVE_END_LINE, EndAte=BW.ARRIVE_END_ATE,
+              EvLanding=BW.ARRIVE_EV_LANDING, EvLateEdge=BW.ARRIVE_EV_LATE_EDGE, EvSpend=BW.ARRIVE_EV_SPEND,
+              CountNone=BW.ARRIVE_COUNT_NONE, CountArm=BW.ARRIVE_COUNT_ARM, CountLateArm=BW.ARRIVE_COUNT_LATE_ARM,
+              CountUnanchored=BW.ARRIVE_COUNT_UNANCHORED, LeadNone=BW.ARRIVE_LEAD_NONE)
+    names = []
+    for expr, name in rows:
+        if name == "live.arrive_codec":
+            assert expr == "ArriveCodecRow()", expr
+        else:
+            got = eval(_cs_expr(expr), ns)                                # noqa: S307 -- the stack's own selftest rows
+            assert got is True, f"row {name!r} ({expr}) is {got!r} for the twins"
+        names.append(name)
+    assert names == [n for n, _c in _swg_rows()] + ["live.arrive_codec"] and len(names) == FG.FAKE_SWAP_ARRIVE_ROWS
+    swap = _built("NetSyncSwap.cs")
+    m = re.search(r"ArriveMutantNames = \{([^}]*)\};", swap)
+    assert m, "ArriveMutantNames"
+    engine = re.findall(r'"(\w+)"', m.group(1))
+    assert engine == list(_swg_mutants()) and len(engine) == FG.FAKE_SWAP_ARRIVE_MUTANTS
+    for name in engine:
+        assert swap.count(f'case "{name}": m.') == 1, name
+    # the rule set's seams are named for its rules -- never `Age` (NetSyncSwap.Rules.Age is PIN's PinAgeRule) -- each bound to its rule
+    cls = swap[swap.index("private sealed class ArriveRules"):swap.index("private static Int32 RowsArrive(")]
+    seams = re.findall(r"public [\w<>\[\], ]+? (\w+) = ", cls)
+    assert seams == list(vars(BW.SWAP_ARRIVE_RULES)) == ["Seen", "Edge", "Arm", "Anchor", "Holds", "DwellAge", "Held", "Spend", "End",
+                                                          "Count"], seams
+    for seam, rule in (("Seen", "HostLandSeenOf"), ("Edge", "ArriveHostEdgeRule"), ("Arm", "ArriveArmRule"), ("Anchor", "ArriveAnchorRule"),
+                       ("Holds", "ArriveHoldsRule"), ("Held", "ArriveHeldRule"), ("Spend", "ArriveSpendRule"), ("End", "ArriveEndRule"),
+                       ("Count", "ArriveCountRule")):
+        assert f" {seam} = {rule};" in cls, seam
+    assert ("public Func<Boolean, Int32, Int32, Int32, Int32> DwellAge = (holds, baseAgeMs, sinceHostMs, sinceMineMs) => "
+            "ArriveDwellAgeRule(holds, baseAgeMs, sinceHostMs);") in cls
+
+
+def test_s164_arrive_twins_take_the_engines_parameters_and_bodies():
+    """Each guard twin's parameters ARE its C# rule's, in order (camelCase -> snake_case), and each rule's body is the one the twin
+    mirrors (read off the live stack, comments stripped) -- with the constants and name tables the twins read."""
+    for method, fn in (("Boolean HostLandSeenOf", BW.swap_host_land_seen_of), ("Boolean ArriveHostEdgeRule", BW.swap_arrive_edge),
+                       ("Int32 ArriveArmRule", BW.swap_arrive_arm), ("Boolean ArriveAnchorRule", BW.swap_arrive_anchor),
+                       ("Boolean ArriveHoldsRule", BW.swap_arrive_holds), ("Int32 ArriveDwellAgeRule", BW.swap_arrive_dwell_age),
+                       ("Boolean ArriveHeldRule", BW.swap_arrive_held), ("Int32 ArriveSpendRule", BW.swap_arrive_spend),
+                       ("Int32 ArriveEndRule", BW.swap_arrive_end), ("Int32 ArriveCountRule", BW.swap_arrive_count)):
+        assert [_snake(p) for p in _cs_params("NetSyncSwap.cs", method)] == _twin_params(fn), method
+    swap = _built("NetSyncSwap.cs")
+    names = lambda t: "{ " + ", ".join("null" if n is None else f'"{n}"' for n in t) + " }"      # noqa: E731
+    for frag in (
+            f"internal const Int32 ArrivalLeadMs = {BW.ARRIVAL_LEAD_MS};", "internal const Int32 LeadNone = Int32.MinValue;",
+            f"internal const Int32 ArmOn = {BW.ARRIVE_ARM_ON}, ArmRole = {BW.ARRIVE_ARM_ROLE}, ArmLever = {BW.ARRIVE_ARM_LEVER}, "
+            f"ArmWorld = {BW.ARRIVE_ARM_WORLD};",
+            f"internal const Int32 SpendNone = {BW.ARRIVE_SPEND_NONE}, SpendControl = {BW.ARRIVE_SPEND_CONTROL}, SpendField = "
+            f"{BW.ARRIVE_SPEND_FIELD}, SpendOut = {BW.ARRIVE_SPEND_OUT}, SpendSession = {BW.ARRIVE_SPEND_SESSION};",
+            f"internal static readonly String[] ArriveSpendNames = {names(BW.ARRIVE_SPEND_NAMES)};",
+            f"internal const Int32 EndNone = {BW.ARRIVE_END_NONE}, EndSpared = {BW.ARRIVE_END_SPARED}, EndDelayed = {BW.ARRIVE_END_DELAYED}, "
+            f"EndLine = {BW.ARRIVE_END_LINE}, EndAte = {BW.ARRIVE_END_ATE};",
+            f"internal static readonly String[] ArriveEndNames = {names(BW.ARRIVE_END_NAMES)};",
+            f"internal const Int32 EvLanding = {BW.ARRIVE_EV_LANDING}, EvLateEdge = {BW.ARRIVE_EV_LATE_EDGE}, EvSpend = {BW.ARRIVE_EV_SPEND};",
+            f"internal const Int32 CountNone = {BW.ARRIVE_COUNT_NONE}, CountArm = {BW.ARRIVE_COUNT_ARM}, CountLateArm = "
+            f"{BW.ARRIVE_COUNT_LATE_ARM}, CountUnanchored = {BW.ARRIVE_COUNT_UNANCHORED};",
+            f"internal const Int32 ArriveBenchMinMs = {BW.ARRIVE_BENCH_RANGE[0]}, ArriveBenchMaxMs = {BW.ARRIVE_BENCH_RANGE[1]};",
+            "internal const Int32 ItemArrive = 6;", f"internal static readonly String[] ItemNames = {names(BW.SWAP_ITEM_NAMES)};",
+            "internal static readonly Int32[] FaultsBy = new Int32[7];", f"internal const Int32 IntentLoadCapMs = {BW.INTENT_LOAD_CAP_MS};",
+            # the ten rules' bodies
+            "return b != null && b.Length >= 4 && (b[3] & IntentFlagLanded) != 0;",
+            "return landed && nonce >= 0 && field > 0 && (nonce != lastNonce || field != lastField);",
+            "return !roleOk ? ArmRole : leverOld ? ArmLever : fromWorld ? ArmWorld : ArmOn;",
+            "return rSet && fld > 0 && rField == fld && (rSeenLanding == landing || (rSeenLanding == landing - 1 && rSinceMs < "
+            "IntentLoadCapMs));",
+            "return armed && anchored && armField == fld;",
+            "return holds ? Math.Min(baseAgeMs, Math.Max(unchecked(sinceHostMs - ArrivalLeadMs), unchecked(baseAgeMs - ArrivalLeadMs))) : "
+            "baseAgeMs;",
+            "return !heldAlready && baseAgeMs >= NetSyncStepOut.DwellMs && dwellAgeMs < NetSyncStepOut.DwellMs;",
+            "if (!armed) return SpendNone; if (fld != armField) return SpendField; if (stepOutActive) return SpendOut; if (myCtl && "
+            "ctlBackMs >= NetSyncStepOut.StepInMs) return SpendControl; return SpendNone;",
+            "if (!held) return EndNone; if (stepOutActive) return outWhy == NetSyncStepOut.OutDwell ? EndDelayed : outWhy == "
+            "NetSyncStepOut.OutAte ? EndAte : EndLine; return newBase || framesSinceDwell > 2 ? EndSpared : EndNone;",
+            "if (!armed) return CountNone; if (ev == EvLanding) return anchored && leadMs < ArrivalLeadMs ? CountArm : CountNone; if "
+            "(ev == EvLateEdge) return (lateCounted ? CountNone : CountLateArm) | (armCounted ? CountNone : CountArm); return ev == "
+            "EvSpend && !anchored ? CountUnanchored : CountNone;"):
+        assert frag in swap, frag
+    so = _built("NetSyncStepOut.cs")
+    assert f"internal const Int32 OutNone = {_OUT['OutNone']}, OutLine = {_OUT['OutLine']}, OutDwell = {_OUT['OutDwell']};" in so
+    assert f"internal const Int32 OutAte = {_OUT['OutAte']};" in so and f"OutNames = {names(BW.ARRIVE_OUT_NAMES)};" in so
+    assert (BW.ARRIVE_OUT_NONE, BW.ARRIVE_OUT_LINE, BW.ARRIVE_OUT_DWELL, BW.ARRIVE_OUT_ATE) == tuple(_OUT.values())
+    assert BW.ARRIVE_OUT_NAMES[1:] == FG.NETSYNC_STEPOUT_OUT_WHY
+    assert (BW.ARRIVE_DWELL_MS, BW.ARRIVE_STEP_IN_MS) == (FG.STEPOUT_DWELL_MS, FG.STEPOUT_STEP_IN_MS) == (1500, 500)
+    assert BW.ARRIVE_LEAD_NONE == -(1 << 31) and BW.ARRIVE_EPISODE_FRESH_FRAMES == 2
+
+
+def _swg_method(text: str, head: str) -> str:
+    """One method of a _built text: from ``head`` to the next member declaration."""
+    i = text.index(head)
+    ends = [k for k in (text.find(" internal static ", i + len(head)), text.find(" private static ", i + len(head))) if k > 0]
+    return text[i:min(ends)] if ends else text[i:]
+
+
+def test_s164_arrive_hooks_sit_where_the_spec_says():
+    """The guard's call sites (ARRIVAL-GUARD-S164.md § Hooks), each once: ArriveLanding is OnFieldLoad's FIRST statement (before
+    LandViaRule, Join and the unjoined ViaSame / ViaOther return, outside A's try); ArriveHostFrame follows PinHostFrame in
+    NoteHostFrame's section-4 branch, before A's seen edge, behind PIN's client gate; ArriveTick is GuestTick's FIRST statement (before
+    the cache's return); ResetSession and ForgetHostNonce forget it after ClearPins; ReleaseLevers drops the lever and the bench, and
+    HarnessRelease's `any` sees them; SelfTest runs RowsArrive after D+E's rows and MutantsArrive after D+E's mutants, and the proof
+    ends with the guard's K. NetSyncStepOut: ONE behaviour line (the StartRule call), nothing else of s158 / s162 touched; NetSyncClient:
+    no guard code at all."""
+    swap = _built("NetSyncSwap.cs")
+    load = _swg_method(swap, "internal static void OnFieldLoad(Int32 fld)")
+    assert load.startswith("internal static void OnFieldLoad(Int32 fld) { ArriveLanding(fld); Int64 t = NowMs(); try {"), load[:200]
+    assert load.index("ArriveLanding(fld);") < load.index("Int32 via = LandViaRule(") < load.index(
+        "if (!joined && (via == ViaSame || via == ViaOther))")
+    assert ("PinHostFrame(state, field, nonce, IntentLandedOf(body), myField); ArriveHostFrame(state, body, field, nonce, now); "
+            "Int64 t = NowMs(); if (SeenRule(true, nonce, _seenNonce))") in swap
+    gate = _swg_method(swap, "private static void ArriveHostFrame(")
+    assert ('if (state == null || !NetSyncClient.HarnessEnabled || NetSyncClient.HarnessRole != "client" || _arriveFaulted) return; '
+            "try { if (ArriveRecordEdge(body, field, nonce, now, now, _arriveLanding, false))") in gate
+    assert "internal static void GuestTick(Int32 myField, Int32 hostLane) { ArriveTick(myField); if (_icField <= 0) return;" in swap
+    for head in ("internal static void ResetSession(String why, Boolean logClose)", "internal static void ForgetHostNonce()"):
+        assert 'ClearPins(); ForgetArrive("session");' in _swg_method(swap, head), head
+    for call, n in (("ArriveLanding(fld);", 1), ("ArriveTick(myField);", 1), ("ArriveHostFrame(state, body, field, nonce, now);", 1),
+                    ('ForgetArrive("session");', 2)):
+        assert swap.count(call) == n, call
+    assert "_arriveOld = false; ForgetArriveBench();" in _swg_method(swap, "private static Boolean ReleaseLevers()")
+    assert ("|| _arriveOld || _arriveBench || (_arriveRecSet && _arriveRecBench); Boolean mirror = ReleaseLevers();"
+            in _swg_method(swap, "internal static void HarnessRelease()"))
+    st = _swg_method(swap, "internal static Boolean SelfTest(")
+    assert st.index("NetSyncFollowFade.SelfTestRows(ref rows, fails);") < st.index("rows += RowsArrive(new ArriveRules(), fails);") < \
+        st.index("if (fails.Count > 0)")
+    assert st.index("caught += NetSyncFollowFade.SelfTestMutants(out fadeSurvived);") < st.index("caught += MutantsArrive(out arriveSurvived);")
+    assert st.index('+ NetSyncFollowFade.AheadMaxMs + " ms" + ", arrival lead " + ArrivalLeadMs + " ms";') > 0
+    assert 'detail = "mutant " + arriveSurvived + " survived";' in st
+    # NetSyncStepOut: the s164 patch's code there is the ONE behaviour line (the rest of its hunk is comment), replacing s162's call
+    so = _built("NetSyncStepOut.cs")
+    line = "Int32 start = StartRule(line, NetSyncSwap.ArriveDwellAge(fld, now, now - _baseSince, line || landing), landing);"
+    assert so.count(line) == 1 and so.count("NetSyncSwap.ArriveDwellAge(") == 1
+    assert "internal static Int32 ArriveDwellAge(Int32 fld, Int32 now, Int32 baseAgeMs, Boolean decided)" in swap
+    s164 = _patch_bytes("s164")
+    added = [c for c in (_strip_comment(t) for _h, k, t in _new_side("NetSyncStepOut.cs", s164) if k == "+") if c]
+    removed = []
+    for path, sec in msr.sections(s164):
+        if path and path.replace("\\", "/").rsplit("/", 1)[-1] == "NetSyncStepOut.cs":
+            removed += [_strip_comment(ln[1:].strip()) for ln in sec.decode("utf-8", "replace").splitlines()
+                        if ln.startswith("-") and not ln.startswith("---")]
+    assert added == [line] and [r for r in removed if r] == ["Int32 start = StartRule(line, now - _baseSince, landing);"], (added, removed)
+    assert net_added("NetSyncStepOut.cs", r"\brow\(", [s164]) == 0           # no step-out row: s158's proof line does not move
+    # NetSyncClient: 0 hunks of the guard (its hooks are NetSyncSwap's own entry points)
+    guard = re.compile(r"\bArrive(?:Landing|HostFrame|Tick|DwellAge|Old|Bench)\b|NetSyncSwap\.(?:Arrive|HarnessArrive)")
+    assert not [t for _h, k, t in _new_side("NetSyncClient.cs", s164) if k == "+" and guard.search(_strip_comment(t))]
+
+
+def _swg_spliced(line: str, pieces: list, values: list, cs: str) -> None:
+    """``line`` is the engine's concatenation: ``pieces`` -- its C# literals, ADJACENT in ``cs`` and in order -- with ``values``
+    between them (None: two literals with nothing between, one literal split over lines)."""
+    assert len(values) == len(pieces) - 1, (pieces, values)
+    assert _cs_concat_of(pieces, cs), pieces
+    want = pieces[0] + "".join(("" if v is None else str(v)) + p for v, p in zip(values, pieces[1:]))
+    assert line == want, (line, want)
+
+
+def test_s164_arrive_levers_and_lines_are_the_engines():
+    """The usage line, the two ops (role class, words, the lead's range), the lever's getter, every guard line's and harness line's
+    words, the spend words, the end lines (each under its own end) and the fault line, read off the live stack's NetSyncSwap.cs; each
+    guard line is a behaviour line (printed under `swap stamps off`, without its stamp), never an s163 form."""
+    swap = _built("NetSyncSwap.cs")
+    lits = _sw_file_literals("NetSyncSwap.cs")
+    i = next(k for k, s in enumerate(lits) if s.startswith("netsync swap: expected stamps"))
+    acc, k = "", i
+    while len(acc) < len(BW.SWAP_USAGE) and k < len(lits):
+        acc += lits[k]
+        k += 1
+    assert acc == BW.SWAP_USAGE == FG.NETSYNC_SWAP_USAGE, acc
+    for frag in ('case "fade": case "arrive": return OpGuest;', 'case "blackout": case "arrivebench": return OpBench;',
+                 'case "arrive": if (args.Length != 3 || (a2 != "act" && a2 != "old")) break; _arriveOld = a2 == "old";',
+                 'case "arrivebench": if (args.Length != 3 || !ParseInt(args[2], ArriveBenchMinMs, ArriveBenchMaxMs, out n)) break; '
+                 '_arriveBench = true; _arriveBenchLead = n; _arriveBenchLanding = -1;',
+                 'internal static String HarnessArriveLever { get { return _arriveOld ? "old" : null; } }',
+                 'if ((op == "intent" || op == "pinbench") && !NetSyncField.BenchGates)'):      # `arrivebench` needs no bench gate
+        assert frag in swap, frag
+    assert BW.swap_lever_refusal(["arrivebench", "0"], "selftest", False) is None
+    # the harness lines
+    _swg_spliced(BW.SWAP_HARNESS_ARRIVE_OLD, ["[NetSync] harness: swap arrive OLD -- CALIBRATION: s158's dwell from the base start at "
+                                              "every landing, no arrival guard ", "(released with the harness)"], [None], swap)
+    _swg_spliced(BW.SWAP_HARNESS_ARRIVE_ACT, ["[NetSync] harness: swap arrive ACT"], [], swap)
+    _swg_spliced(BW.swap_harness_arrivebench(600), ["[NetSync] harness: swap arrivebench ", " -- my next landing gets a bench host that "
+                                                    "landed ", " ms before me (the selftest role; released with the harness)"], [600, 600], swap)
+    assert BW.swap_harness_lever_line("arrive", "OLD") == BW.SWAP_HARNESS_ARRIVE_OLD
+    # the guard's lines (stamps off: the stamp is the only difference)
+    K = BW.ARRIVAL_LEAD_MS
+    _swg_spliced(BW.arrive_log_anchor(False, _G_FLD, 600, 7, False, -1),
+                 ["[NetSync] arrival guard: field ", " -- the host landed ", " ms before me (intent nonce ",
+                  "); a wordless control-off counts toward the dwell from its landing + ", " ms"], [_G_FLD, 600, 7, K], swap)
+    _swg_spliced(BW.arrive_log_anchor(False, _G_FLD, -400, 7, True, -1),
+                 ["[NetSync] arrival guard: field ", " -- the host's landing reached me ", " ms after mine (intent ", "nonce ",
+                  "); a wordless control-off counts toward the dwell from ", " ms past its start"], [_G_FLD, 400, None, 7, K], swap)
+    _swg_spliced(BW.arrive_log_held(False, _G_FLD, 1600, 1100, -1),
+                 ["[NetSync] arrival guard: held the dwell on field ", " -- the base is ", " ms, its guarded dwell ",
+                  " ms (s158 would step out here)"], [_G_FLD, 1600, 1100], swap)
+    _swg_spliced(BW.arrive_log_bench(False, _G_FLD, 600, -1),
+                 ["[NetSync] arrival guard: bench -- the host's landing on field ", " written ", " ms before mine (section 4 through ",
+                  "the real codec)"], [_G_FLD, 600, None], swap)
+    for why, case in ((BW.ARRIVE_SPEND_CONTROL, "SpendControl"), (BW.ARRIVE_SPEND_OUT, "SpendOut"), (BW.ARRIVE_SPEND_FIELD, "SpendField"),
+                      (BW.ARRIVE_SPEND_SESSION, "SpendSession")):
+        words = BW.ARRIVE_SPEND_WORDS[why]
+        assert f'case {case}: return "{words}";' in swap, case
+        line = BW.arrive_log_spent(False, _G_FLD, why, -1)
+        assert line.endswith(" -- " + words)
+        _swg_spliced(line[:-len(words)], ["[NetSync] arrival guard: spent on field ", " -- "], [_G_FLD], swap)
+    head = f"[NetSync] arrival guard: field {_G_FLD} -- "
+    _swg_spliced(head, ["[NetSync] arrival guard: field ", " -- "], [_G_FLD], swap)
+    for end, case, pieces, values in (
+            (BW.ARRIVE_END_SPARED, "case EndSpared:", ["spared a dwell OUT (base ", " ms, guarded dwell ", " ms)"], [1600, 1100]),
+            (BW.ARRIVE_END_DELAYED, "case EndDelayed:", ["held the dwell OUT ", " ms (it stepped out at base ", " ms)"], [500, 1600]),
+            (BW.ARRIVE_END_LINE, "case EndLine:", ["a line started the step-out at base ", " ms (guarded dwell ", " ms)"], [1600, 1100]),
+            (BW.ARRIVE_END_ATE, "default:", ["s162's ATE landing started the step-out at base ", " ms (guarded dwell ", " ms)"],
+             [1600, 1100])):
+        line = BW.arrive_log_end(False, end, _G_FLD, 1600, 1100, -1)
+        assert line.startswith(head) and f'{case} return head + "{pieces[0]}"' in swap, case
+        _swg_spliced(line[len(head):], pieces, values, swap)
+    assert BW.arrive_log_end(True, BW.ARRIVE_END_NONE, _G_FLD, 1600, 1100, 900) is None       # an unheld episode prints nothing
+    assert BW.arrive_log_end(False, BW.ARRIVE_END_DELAYED, _G_FLD, 1600, 1100, -1).endswith("held the dwell OUT 500 ms (it stepped out "
+                                                                                             "at base 1600 ms)")
+    # the fault: NoteFault's line with the guard's item, its sites and its fallback (sticky, fails open to s158)
+    _swg_spliced(BW.arrive_log_fault("dwell", "boom"), ["[NetSync] field swap fault (", " at ", "): ", " -- ", " (logged once per site)"],
+                 [BW.ARRIVE_ITEM, "dwell", "boom", BW.ARRIVE_FAULT_FALLBACK], swap)
+    assert f'NoteFault(ItemArrive, site, err, "{BW.ARRIVE_FAULT_FALLBACK}");' in swap
+    for site in BW.ARRIVE_FAULT_SITES:
+        frag = 'ArriveFault("forget " + why, err);' if site == "forget session" else f'ArriveFault("{site}", err);'
+        assert swap.count(frag) == 1, site
+    # every guard line is a behaviour line: printed under `swap stamps off` without its stamp; never an s163 form
+    for b in (lambda on: BW.arrive_log_anchor(on, _G_FLD, 600, 7, False, 900), lambda on: BW.arrive_log_anchor(on, _G_FLD, -400, 7, True, 900),
+              lambda on: BW.arrive_log_held(on, _G_FLD, 1600, 1100, 900),
+              lambda on: BW.arrive_log_end(on, BW.ARRIVE_END_SPARED, _G_FLD, 1600, 1100, 900),
+              lambda on: BW.arrive_log_spent(on, _G_FLD, BW.ARRIVE_SPEND_CONTROL, 900), lambda on: BW.arrive_log_bench(on, _G_FLD, 600, 900)):
+        on, off = b(True), b(False)
+        assert on.endswith(" (t 900 ms)") and off == on[:-len(" (t 900 ms)")] and BW.swap_line_class(on) == "behaviour", on
+        assert off.startswith(BW.ARRIVE_LINE_PREFIX) and BW.swap_s163_form(BW.swap_strip_line(on)[0]) is None, on
+    assert BW.swap_line_class(BW.SWAP_HARNESS_ARRIVE_OLD) == BW.swap_line_class(BW.swap_harness_arrivebench(5)) == "harness"
+    assert BW.swap_line_class(BW.arrive_log_fault("tick", "x")) == "fault"
+
+
+def _swg_writer_tokens(block: dict) -> list:
+    """AppendSwapArrive's writes as the sentinels shape them: an object's opener, then its keys -- a Bool for a flag, a Str for `end`,
+    a NumOrNull for a null-able ms, a Num for every other number; `ends` / `spends` are written by a loop over their name table."""
+    out = []
+    for k, v in block.items():
+        if isinstance(v, dict):
+            out.append(("{", k))
+            out += [("loop", k)] if k in ("ends", "spends") else _swg_writer_tokens(v)
+        else:
+            out.append(("Bool" if isinstance(v, bool) else "Str" if k == "end" else "NumOrNull" if v is None else "Num", k))
+    return out
+
+
+def test_s164_arrive_the_writer_and_the_catch_line_are_the_sentinels():
+    """HarnessAgent: AppendSwapArrive writes the sentinels' keys in their order, each through the writer its value needs (the
+    null-able ms through NumOrNull, `end` through Str; `ends` / `spends` by a loop over ArriveEndNames / ArriveSpendNames, whose
+    names are battlewire's); `arrival_lead_ms` is NetSyncSwap.ArrivalLeadMs; `levers.arrive` is levers' LAST write and `arrive` swap's
+    LAST block; the null sentinel is NullNum; the catch line carries both at the sentinels (arrival_lead_ms -1); protocol 5."""
+    lines = [_strip_comment(ln.strip()) for ln in stack_file("HarnessAgent.cs")]
+    i = lines.index("private static void AppendSwapArrive(StringBuilder sb)")
+    j = lines.index("private static void AppendSwapLast(StringBuilder sb)", i)
+    text = " ".join(t for t in lines[i:j] if t)
+    tok = re.compile(r'\\"(\w+)\\":\{|(Bool|NumOrNull|Num|Str)\(sb, "(\w+)"|Arrive(End|Spend)Names\[at\]')
+    got = []
+    for m in tok.finditer(text):
+        got.append(("{", m.group(1)) if m.group(1) else (m.group(2), m.group(3)) if m.group(3) else ("loop", m.group(4).lower() + "s"))
+    assert got == [("{", "arrive")] + _swg_writer_tokens(FG.NETSYNC_SWAP_SENTINELS["arrive"]), got
+    assert 'Num(sb, "arrival_lead_ms", (Int64)Memoria.Netsync.NetSyncSwap.ArrivalLeadMs);' in text
+    assert text.count("NullNum") == 9 and "internal const Int64 ArriveNullMs = Int64.MinValue;" in _built("NetSyncSwap.cs")
+    agent = _built("HarnessAgent.cs")
+    assert "private const Int64 NullNum = Int64.MinValue;" in agent
+    assert ('Bool(sb, "hostctl_off", Try(() => Memoria.Netsync.NetSyncSwap.HarnessHostCtlOff, false)); sb.Append(","); '
+            'Str(sb, "arrive", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLever)); sb.Append("},");') in agent
+    assert ('Str(sb, "selftest", Try(() => Memoria.Netsync.NetSyncSwap.SelfTestVerdict)); sb.Append(","); AppendSwapArrive(sb); '
+            'sb.Append("}");') in agent
+    assert _catch_doc_in("s164")["swap"] == FG.NETSYNC_SWAP_SENTINELS
+    assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
+
+
+def test_s164_arrive_the_proof_totals_are_the_engines():
+    """The field swap proof line's totals: the unguarded engine's 426 rows / 146 mutants plus RowsArrive's rows and ArriveMutantNames'
+    mutants, counted off the live stack (75 / 37) -- 501 / 183, the stand-in's and the bench's; s158's step-out line does not move.
+    The MUTANT half is counted off the live stack in full: SelfTest sums NetSyncSwap.MutantNames (103), NetSyncFollowFade.MutantNames
+    (43, through SelfTestMutants) and ArriveMutantNames (37), and returns early on any survivor, so an OK line prints their sum. The
+    pattern is anchored on `String[] <name> = {`: unanchored, `MutantNames = {` first matches inside the earlier ArriveMutantNames.
+    The ROWS half's 426 is the live proof line's (`field swap selftest: OK (426 rows, ...)`), NOT checked from source: the unguarded
+    rows are built by loops, so only RowsArrive's 75 is counted here."""
+    _body, rows = _swg_engine_table()
+
+    def _names(file_name: str, array: str) -> list:
+        m = re.search(r"String\[\] " + array + r" = \{([^}]*)\};", _built(file_name))
+        assert m, (file_name, array)
+        return re.findall(r'"(\w+)"', m.group(1))
+
+    swap_n, fade_n, arrive_n = (len(_names("NetSyncSwap.cs", "MutantNames")), len(_names("NetSyncFollowFade.cs", "MutantNames")),
+                                len(_names("NetSyncSwap.cs", "ArriveMutantNames")))
+    assert (swap_n, fade_n, arrive_n) == (103, 43, 37)
+    assert FG.FAKE_SWAP_ARRIVE_ROWS == len(rows) == 75 and FG.FAKE_SWAP_ARRIVE_MUTANTS == arrive_n
+    assert FG.FAKE_SWAP_MUTANTS_UNGUARDED == swap_n + fade_n == 146
+    assert FG.FAKE_SWAP_MUTANTS == swap_n + fade_n + arrive_n == 183
+    assert FG.FAKE_SWAP_SELFTEST_ROWS_UNGUARDED == 426             # the live proof line's, not counted from source (see above)
+    assert (FG.FAKE_SWAP_SELFTEST_ROWS, FG.FAKE_SWAP_MUTANTS) == (FG.FAKE_SWAP_SELFTEST_ROWS_UNGUARDED + FG.FAKE_SWAP_ARRIVE_ROWS,
+                                                                  FG.FAKE_SWAP_MUTANTS_UNGUARDED + FG.FAKE_SWAP_ARRIVE_MUTANTS) == (501, 183)
+    assert re.fullmatch(FG.SWAP_PROOF_RE, BW.swap_proof_text(FG.FAKE_SWAP_SELFTEST_ROWS, FG.FAKE_SWAP_MUTANTS, "qpc", 10000000, True))
+    assert _so_proof_text() == "step-out selftest: OK (56 rows, 20 mutants caught, dwell 1500 ms, step-in 500 ms)"

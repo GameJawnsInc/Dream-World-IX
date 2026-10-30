@@ -26,10 +26,10 @@ index 4aae110..fc5a8bc 100644
              FF9StateSystem.Field.FF9Field.loc.map.nextMode = 1;
              PersistenSingleton<FF9StateSystem>.Instance.attr |= 8u;
 diff --git a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-index 7ec7569..86b6805 100644
+index 7ec7569..3e6f874 100644
 --- a/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
 +++ b/Assembly-CSharp/Memoria/Harness/HarnessAgent.cs
-@@ -395,6 +395,15 @@ namespace Memoria.Harness
+@@ -395,6 +395,22 @@ namespace Memoria.Harness
          // by `reset`, the disarm and a fault when the harness switched it on). A driver checks for `netsync.speed` (an s162 engine answers
          // `netsync speed` with "unknown sub-verb" and `speedmode` with "unknown op"); the state lane gains section 10 (an older guest skips
          // it by length); the wire stays v14.
@@ -42,10 +42,17 @@ index 7ec7569..86b6805 100644
 +        // (NetSyncBattle.HarnessReleaseBench -> NetSyncSwap.HarnessRelease). A driver checks for `netsync.swap` (an s163 engine answers
 +        // `netsync swap` with "unknown sub-verb 'swap'"). Every line the round stamps ends with " (t T ms)" (the swap clock, while stamps
 +        // are on); the wire stays v14 (section 4 grows one flags byte inside it, which every s163 reader skips).
++        // [ff9mapkit netsync s164] (THE ARRIVAL GUARD: studies/field-coop/ARRIVAL-GUARD-S164.md, folded into s164), also additive under 5:
++        // `netsync.swap` gains `arrive` as its LAST key, after `selftest` (see AppendSwapArrive; key PRESENCE is the capability), and
++        // `netsync.swap.levers` gains `arrive` as ITS last key, after `hostctl_off` (null | "old"); the field swap proof line's totals grow
++        // and it gains the tail ", arrival lead 1040 ms"; `netsync swap` gains two ops -- `arrive act|old` (a client or the selftest role;
++        // old = CALIBRATION: s158's dwell from the base start at every landing) and `arrivebench <lead_ms>` (the selftest role, -1000..5000:
++        // a bench host's landed section 4 through the real codec, one-shot at the next landing) -- both released with the harness on
++        // every role. The `netsync.stepout` block and the step-out proof line are unchanged; no new wire byte or section (the wire stays v14).
          public const Int32 ProtocolVersion = 5;
  
          // ---- arming ----------------------------------------------------------------------------
-@@ -2260,8 +2269,28 @@ namespace Memoria.Harness
+@@ -2260,8 +2276,28 @@ namespace Memoria.Harness
                                  throw new InvalidOperationException(why ?? "netsync speed refused");
                              break;
                          }
@@ -75,7 +82,7 @@ index 7ec7569..86b6805 100644
                      }
                      Block(2);
                      break;
-@@ -4018,7 +4047,8 @@ namespace Memoria.Harness
+@@ -4018,7 +4054,8 @@ namespace Memoria.Harness
                  sb.Append(","); AppendStepOut(sb);      // [ff9mapkit netsync s158]
                  sb.Append(","); AppendChest(sb);        // [ff9mapkit netsync s160]
                  sb.Append(","); AppendAte(sb);          // [ff9mapkit netsync s161] (after s160's chest)
@@ -85,7 +92,7 @@ index 7ec7569..86b6805 100644
              }
              catch (Exception)
              {
-@@ -4071,7 +4101,10 @@ namespace Memoria.Harness
+@@ -4071,7 +4108,13 @@ namespace Memoria.Harness
                  // live order (host_setting / host_tps / own_factor / factor_now -1, host_seen / host_stale / mirror / applied / mode_wanted /
                  // fast_mode / raw false, src / why_not / last_end / last_fault / lever / selftest null, edges_on / edges_off / faults 0, and
                  // `end_why` {lever, session, landing, field, scene, climb, movie, host, rate, control, reset} all 0).
@@ -93,11 +100,14 @@ index 7ec7569..86b6805 100644
 +                // [ff9mapkit netsync s164] netsync gains `swap` after s163's `speed`, its LAST key -- AppendSwap's keys at their sentinels, in the
 +                // live order (studies/field-coop/SWAP-TIMING-S164.md "The `netsync.swap` state block": clock, levers, open, last, seen, intent,
 +                // slot, orphan, own, pin, fade, counts, faults, last_fault, selftest; every `*_t` -1, counters 0, names null, flags false).
-+                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null},\"boot_song\":-1,\"leave_song_live\":false},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false,\"overlay_text\":null,\"follow\":{\"pending\":-1,\"warped_to\":-1,\"candidate\":-1,\"world_armed\":-1,\"on_world\":false,\"host_world\":false,\"host_title\":false,\"hold\":-1}},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1,\"guard\":{\"leader\":-1,\"raw\":0,\"effective\":0,\"moved_from\":-1,\"moved_to\":-1,\"off\":false,\"line\":null,\"line_shown\":false,\"leader_model\":-1,\"chars\":[-1,-1,-1,-1],\"nonce\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"guard\":{\"nonce\":-1,\"mask\":-1,\"line\":null,\"shown\":false},\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false,\"twin_rows\":0,\"twins\":0,\"twin_misses\":0,\"twin_last\":{\"src\":-1,\"twin\":-1,\"site\":-1},\"ghost_clip_misses\":0,\"twin_clips_on_disc\":-1,\"twin_clip_missing\":-1,\"twin\":null,\"twin_selftest\":null},\"guard\":{\"leader\":-1,\"raw\":-1,\"effective\":-1,\"moved_from\":-1,\"moved_to\":-1}},\"world\":{\"freeze\":{\"on\":false,\"why\":null,\"off\":false,\"released\":false,\"edges\":0,\"skips\":0,\"keys\":0,\"map\":0,\"location\":0,\"battles\":0},\"rejoin\":{\"latch\":false,\"arms\":0,\"lands\":0,\"timeouts\":0,\"redirects\":0,\"rearms\":0,\"why\":null,\"last\":-1},\"waitline\":{\"line\":null,\"fallback\":false,\"away_ms\":-1},\"dio\":{\"booted_world\":false,\"boot_world\":-1,\"boot\":null,\"prev_mode_at_boot\":-1,\"lever\":null,\"declines\":0,\"decline_why\":null,\"decline_durable\":false,\"visit_decline\":null,\"wait_why\":null,\"returns\":0,\"last_return\":null,\"last_world\":-1,\"resuming\":false,\"suspend_song\":-1,\"song_sid\":-1,\"boot_song_live\":false}},\"guestlocal\":{\"mode\":null,\"lever\":null,\"rows\":-1,\"funcs\":-1,\"table_crc\":null,\"selftest\":null,\"last\":{\"seq\":0,\"field\":-1,\"entry\":-1,\"verdict\":null,\"reason\":null,\"kind\":null,\"hashed\":0,\"age_ms\":-1},\"verdicts\":{\"allow\":0,\"shadow\":0,\"lever_off\":0,\"not_field\":0,\"special\":0,\"no_row\":0,\"unverified\":0,\"wrong_body\":0,\"own_story\":0,\"no_control\":0,\"in_flight\":0,\"warp\":0,\"host_scene\":0,\"busy\":0},\"in_flight\":false,\"flight\":{\"field\":-1,\"entry\":-1,\"kind\":null,\"region_uid\":-1,\"body_uid\":-1,\"age_ms\":-1,\"seen_off\":false,\"body_open\":false,\"body_ran\":false,\"seq_open\":false},\"climbs\":0,\"ended\":0,\"bailed\":0,\"aborted\":0,\"abort_why\":null,\"long_climbs\":0,\"boots_mid_climb\":0,\"trips\":{\"total\":0,\"op\":0,\"glob\":0,\"last\":null},\"tp_calls\":0,\"tp_refusals\":0,\"tp_last\":null,\"talk_queued\":0,\"talk_held\":0,\"talk_applied_after_climb\":0,\"talk_expired\":0,\"mutate\":{\"armed\":false,\"index\":-1,\"spent\":false,\"hit\":false,\"hashed\":0}},\"ghostframe\":{\"lever_off\":false,\"follow\":false,\"why\":null,\"has_frame\":false,\"wire_anim\":-1,\"wire_frame\":-1,\"wire_frame_n\":-1,\"wire_loco\":-1,\"clip\":null,\"speed\":-1,\"time\":-1,\"length\":-1,\"shown\":-1,\"target\":-1,\"steps\":0,\"wraps\":0,\"snaps\":0,\"restores\":0,\"selftest\":null},\"stepout\":{\"lever\":null,\"active\":false,\"field\":-1,\"uid\":-1,\"dressed\":false,\"why\":null,\"age_ms\":-1,\"base\":{\"eligible\":false,\"host_here\":false,\"host_ctl_off\":false,\"my_ctl_off\":false,\"climb\":false,\"talk\":false,\"line\":false,\"host_scene\":false,\"landing\":false,\"why_not\":null,\"age_ms\":-1},\"talk_armed\":false,\"outs\":0,\"ins\":0,\"out_why\":{\"line\":0,\"dwell\":0,\"ate\":0},\"in_why\":{\"control\":0,\"field\":0,\"body\":0,\"session\":0,\"lever\":0,\"talk\":0,\"climb\":0,\"ate\":0},\"wire_mask\":-1,\"landing_wire\":false,\"stock_visible\":false,\"body_rends_on\":-1,\"shadow\":-1,\"shadow_off\":-1,\"standin\":{\"on\":false,\"shown\":false,\"geo\":null,\"clip\":null,\"src_anim\":-1,\"norm\":-1,\"body_norm\":-1,\"dpos\":-1,\"rends_on\":-1,\"spawns\":0,\"frames\":0,\"missing_clip\":0},\"ghost\":{\"hide\":null,\"edges\":0,\"by\":{\"mask0\":0,\"host_scene\":0,\"step_out\":0,\"landing\":0}},\"host_plain_scene\":false,\"talk_accepts\":0,\"faults\":0,\"last_fault\":null,\"selftest\":null,\"anchor\":{\"uid\":-1,\"ctl_uid\":-1,\"dressed_uid\":-1,\"ctl_rends_on\":-1}},\"chest\":{\"serve_off\":false,\"request_off\":false,\"armed\":false,\"active\":false,\"uid\":-1,\"script_bits\":-1,\"age_ms\":-1,\"accepted\":0,\"served\":0,\"expired\":0,\"declined\":0,\"last_uid\":-1,\"why\":null,\"selftest\":null,\"host\":{\"stamped\":0,\"riding\":false}},\"ate\":{\"lever\":null,\"host_armed\":false,\"pending\":{\"on\":false,\"seq\":-1,\"field\":-1,\"uid\":-1,\"win\":-1,\"text\":-1,\"serves\":0,\"age_ms\":-1},\"episode\":{\"phase\":null,\"field\":-1,\"win\":-1,\"text\":-1,\"by_host\":false,\"pick\":-1,\"own_jump\":-1,\"own_reload_landed\":false},\"stepout_exempt\":false,\"arms\":0,\"relayed\":0,\"ingested\":0,\"served\":0,\"opened\":0,\"expired\":0,\"dropped\":0,\"mismatched\":0,\"picks\":0,\"own_jumps\":0,\"holds\":0,\"hold_caps\":0,\"episodes\":0,\"last_end\":null,\"faults\":0,\"last_fault\":null,\"selftest\":null},\"speed\":{\"host_setting\":-1,\"host_tps\":-1,\"host_seen\":false,\"host_stale\":false,\"src\":null,\"own_factor\":-1,\"mirror\":false,\"applied\":false,\"factor_now\":-1,\"mode_wanted\":false,\"fast_mode\":false,\"raw\":false,\"why_not\":null,\"edges_on\":0,\"edges_off\":0,\"last_end\":null,\"faults\":0,\"last_fault\":null,\"end_why\":{\"lever\":0,\"session\":0,\"landing\":0,\"field\":0,\"scene\":0,\"climb\":0,\"movie\":0,\"host\":0,\"rate\":0,\"control\":0,\"reset\":0},\"lever\":null,\"selftest\":null},\"swap\":{\"clock\":{\"now_ms\":-1,\"utc_ms\":-1,\"ticks\":-1,\"hz\":-1,\"src\":null,\"hires\":false,\"fps\":-1,\"target_fps\":-1},\"levers\":{\"stamps\":null,\"delay_ms\":0,\"orphan\":null,\"own\":null,\"pin\":null,\"life\":null,\"fade\":null,\"hostctl_off\":false},\"open\":false,\"last\":{\"id\":0,\"role\":null,\"from\":-1,\"dest\":-1,\"state\":null,\"open_by\":null,\"open_t\":-1,\"emit_t\":-1,\"nonce\":-1,\"seen_t\":-1,\"arrived_t\":-1,\"seen_copies\":0,\"follow_t\":-1,\"follow_via\":null,\"follows\":0,\"own_t\":-1,\"own_dest\":-1,\"own_verdict\":null,\"own_why\":null,\"owns\":0,\"bounces\":0,\"due_t\":-1,\"commit_t\":-1,\"commit_field\":-1,\"commit_why\":null,\"delay_ms\":0,\"drop_t\":-1,\"drop_why\":null,\"reloads\":0,\"reload_t\":-1,\"land_t\":-1,\"land_field\":-1,\"land_via\":null,\"story\":null,\"fade_path\":null,\"fade_ticks\":-1,\"line_t\":-1,\"line_win\":-1,\"line_text\":-1,\"close_t\":-1,\"close_why\":null},\"seen\":{\"nonce\":-1,\"field\":-1,\"src\":-1,\"host_from\":-1,\"first_t\":-1,\"last_t\":-1,\"arrived_t\":-1,\"copies\":0},\"intent\":{\"active\":false,\"field\":-1,\"nonce\":-1,\"site\":null,\"emit_t\":-1,\"age_ms\":-1,\"host_fps\":-1,\"emit_dt_us\":-1,\"landing\":null,\"landed_ms\":-1,\"body_ms\":-1,\"frames\":0,\"landed_frames\":0,\"updates\":0,\"sends\":0,\"first_sent_t\":-1,\"last_sent_t\":-1,\"oob\":null,\"end_t\":-1,\"last_end\":null,\"last_life_ms\":-1,\"last_site\":null,\"emits\":0,\"replaced\":0,\"oob_lost\":0,\"short\":0,\"ends\":{\"stands\":0,\"left\":0,\"elsewhere\":0,\"cap\":0,\"old\":0,\"next\":0,\"reset\":0},\"faults\":0},\"slot\":{\"set_seq\":-1,\"sent_seq\":-1,\"sends\":-1,\"unsent\":-1},\"orphan\":{\"host_holds\":false,\"holding\":0,\"holds\":0,\"relocks\":0,\"last_hold_ms\":-1,\"last_end\":null,\"faults\":0},\"own\":{\"passes\":0,\"by\":{\"pending\":0,\"committed\":0,\"intent\":0,\"cache\":0},\"converted\":0,\"refused\":{\"world\":0,\"ate\":0},\"host_lane\":-1,\"last\":{\"dest\":-1,\"from\":-1,\"lane\":-1,\"term\":null,\"keep_own\":false},\"cache\":{\"field\":-1,\"nonce\":-1,\"src\":-1,\"host_from\":-1,\"age_ms\":-1,\"stands\":false,\"bench\":false,\"writes\":0,\"clears\":0,\"last_clear\":null},\"faults\":0},\"pin\":{\"held\":[],\"spent\":-1,\"captures\":0,\"late\":0,\"pre_frames\":0,\"max_pre_diff\":-1,\"dropped\":0,\"here\":0,\"used\":0,\"aged\":0,\"other\":0,\"world\":0,\"lever_latest\":0,\"last_use\":null,\"last_use_quality\":null,\"last_use_field\":-1,\"last_use_age_ms\":-1,\"last_diff\":-1,\"last_diff_first\":-1,\"last_party\":null,\"faults\":0,\"bench\":{\"armed\":false,\"flag\":-1,\"chosen\":null,\"landed\":false,\"party_slot\":-1,\"party_char\":-1,\"mirror\":false}},\"fade\":{\"view_now\":null,\"mode_now\":null,\"cur_now\":-1,\"left_now\":-1,\"backlog_now\":null,\"primed\":false,\"path\":null,\"action\":null,\"frames\":-1,\"view_start\":null,\"left_start\":-1,\"backlog_start\":null,\"age_ms\":-1,\"age_ticks\":-1,\"black_ticks\":-1,\"reasserted\":false,\"held\":false,\"last\":{\"field\":-1,\"path\":null,\"action\":null,\"by\":null,\"due_t\":-1,\"ms\":-1,\"ticks\":-1,\"frames\":-1,\"view_start\":null,\"mode_start\":null,\"backlog_start\":null,\"primed\":false},\"starts\":{\"fast\":0,\"backlog\":0,\"old\":0,\"kick\":0},\"ends\":{\"black\":0,\"timer\":0,\"fallback\":0,\"recheck\":0,\"landing\":0,\"own\":0,\"world\":0,\"title\":0},\"reasserts\":0,\"faults\":0},\"counts\":{\"transitions\":0,\"landings\":0,\"own_jumps\":0,\"bounces\":0,\"follow_won\":0,\"closed\":{\"line\":0,\"window\":0,\"stale\":0,\"superseded\":0,\"next\":0,\"reset\":0}},\"faults\":0,\"last_fault\":null,\"selftest\":null}}");
++                // [ff9mapkit netsync s164] THE ARRIVAL GUARD: `swap.levers` gains `arrive` (null) after `hostctl_off`, and `swap` gains `arrive`
++                // after `selftest` -- AppendSwapArrive's keys at their sentinels, in the live order (arrival_lead_ms -1, every other value as at
++                // rest: flags false, ids and times -1, lead / episode / last values and end null, counters 0, bench unarmed).
++                outer.Append("\"netsync\":{\"enabled\":false,\"role\":null,\"instance\":false,\"selftest\":false,\"forced\":false,\"bench\":false,\"l1\":false,\"lock\":false,\"stale\":false,\"lock_engaged\":false,\"unlocked\":false,\"suppress\":false,").Append(NetsyncF3Retired).Append(",\"windows\":[],\"inbox\":{\"count\":0,\"heads\":[]},\"host_settled_ms\":-1,\"orphan_closes\":0,\"chip\":null,\"wire\":-1,\"epoch\":-1,\"head_seq\":-1,\"last_seen\":-1,\"gaps\":0,\"heartbeat\":-1,\"host_stalled\":false,\"host_flags\":-1,\"host_open\":[],\"cursor\":-1,\"key_ignored\":0,\"host_frozen\":false,\"host_menu\":false,\"host_battle\":false,\"key_tick\":-1,\"key_hold\":false,\"key_reader\":-1,\"keys\":[],\"key_served\":0,\"key_expired\":0,\"key_gaveup\":0,\"key_taps\":0,\"tap_record\":false,\"tape\":0,\"replay_left\":0,\"diorama\":{\"booted\":false,\"boot\":null,\"boot_why\":null,\"boot_field\":-1,\"boot_x\":null,\"boot_z\":null,\"primed\":false,\"returns\":0,\"last_return\":null,\"last_return_field\":-1,\"resuming\":false,\"intro\":{\"wire\":-1,\"applied\":null,\"own\":null,\"off\":false,\"calls\":0,\"normal_ms\":-1,\"swirl_frames\":-1,\"swirl_clamp\":{\"ini\":-1,\"clamp\":-1,\"src\":null,\"bench_local\":-1,\"diorama\":false,\"own\":-1,\"used\":-1,\"clamped\":false,\"dwell_ms\":-1,\"swirls\":0,\"dioramas\":0,\"clamps\":0}},\"live\":{\"latched\":false,\"ms\":-1,\"nonce\":-1},\"hold\":{\"state\":null,\"since_ms\":-1,\"cap_ms\":-1,\"settle_ms\":-1,\"holds\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"host_field\":-1,\"terminal\":false,\"why\":null},\"boot_song\":-1,\"leave_song_live\":false},\"session\":{\"grace_ms\":-1,\"state\":null,\"left_ms\":-1,\"out_ms\":-1,\"outages\":0,\"resumes\":0,\"gaveup\":0,\"last_ms\":-1,\"peer_alive\":false,\"seen_live\":false,\"mirroring\":false,\"ramp_pending\":false,\"ramp_cause\":null,\"overlay\":null,\"overlay_detail\":-1,\"ghost\":false,\"ghost_held\":false,\"overlay_text\":null,\"follow\":{\"pending\":-1,\"warped_to\":-1,\"candidate\":-1,\"world_armed\":-1,\"on_world\":false,\"host_world\":false,\"host_title\":false,\"hold\":-1}},\"menu_refusal\":{\"now\":null,\"count\":0,\"lines\":0,\"silent\":0,\"last_state\":null,\"last_field\":-1,\"age_ms\":-1,\"muted\":false},\"battle\":{\"host\":{\"gates_off\":false,\"guest_slots\":0,\"cmd_phase\":false,\"caps\":-1,\"ready_mask\":-1,\"cmd_refused\":0,\"cmd_dropped\":0,\"cmd_queued\":0,\"refused_why\":null,\"dropped_why\":null,\"roster_lag\":-1,\"loop_cmds\":0,\"end\":null,\"end_trail\":[],\"end_edges\":0,\"end_changes\":0,\"end_mode\":null,\"end_cmd\":null,\"manifest\":null,\"manifest_bytes\":0,\"manifest_captures\":0,\"manifest_skipped\":0,\"manifest_why\":null,\"manifest_mode\":null,\"overflow\":false,\"learned\":[],\"handback\":{\"off\":false,\"held\":-1,\"held_ms\":-1,\"owed\":false,\"g6_mask\":-1,\"captures\":0,\"returns\":0,\"deferred\":0,\"faults\":0,\"last\":null,\"lapse\":{\"active\":false,\"hold\":false,\"left_ms\":-1,\"count\":0,\"end_frame\":-1,\"reserve\":false},\"refused_report\":0,\"refused_now\":false,\"diorama_seen\":false},\"cfg\":{\"atb\":-1,\"skip_btl_camera\":-1,\"speed\":-1,\"swirl_frames\":-1},\"intro\":{\"off\":false,\"published\":-1,\"own_skip\":-1},\"wait\":{\"parity_off\":false,\"menu\":-1,\"open\":false,\"deep\":false,\"legacy_seen\":false},\"start_hold\":{\"off\":false,\"cap_ms\":-1,\"state\":null,\"nonce\":-1,\"why\":null,\"release\":null,\"held_ms\":-1,\"late_ms\":-1,\"count\":0,\"released\":{\"live\":0,\"declined\":0,\"link\":0,\"oldguest\":0,\"cap\":0,\"ended\":0},\"guest\":{\"r3\":false,\"lane_ms\":-1,\"fmt\":-1,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"flee_gil\":-1,\"guard\":{\"leader\":-1,\"raw\":0,\"effective\":0,\"moved_from\":-1,\"moved_to\":-1,\"off\":false,\"line\":null,\"line_shown\":false,\"leader_model\":-1,\"chars\":[-1,-1,-1,-1],\"nonce\":-1}},\"peer\":{\"live\":false,\"seq\":-1,\"nonce\":-1,\"caps\":-1,\"ready_mask\":-1,\"guard\":{\"nonce\":-1,\"mask\":-1,\"line\":null,\"shown\":false},\"end\":null,\"end_trail\":[],\"trailer_bad\":0,\"trailer_skipped\":0,\"trailer_why\":null,\"manifest_bad\":0,\"manifest_bad_why\":null,\"manifest_nonce\":-1,\"manifest_rx\":0,\"bench_manifest\":0,\"bench_manifest_note\":null,\"expired\":{\"seq\":-1,\"nonce\":-1,\"count\":0,\"refused\":0,\"frames\":0,\"ms\":-1}},\"menu\":{\"roster_slots\":[],\"r9_refused\":0,\"r9_total\":0,\"r9_cmd\":-1,\"r9_site\":null,\"guest_owned\":0,\"contained\":false,\"containment_off\":false,\"captures\":0,\"capture_refused\":0,\"capture_why\":null,\"capture_off\":false,\"outbox\":0,\"bench_open\":0,\"side_refused\":0,\"side_why\":null,\"captured\":null,\"mirrored\":[],\"roster_src\":null,\"roster_sig\":null,\"roster_gen\":0,\"roster_painted\":0,\"content_off\":0,\"content_hits\":{\"command\":0,\"grey\":0,\"ability\":0,\"bag\":0,\"count\":0,\"cast\":0,\"refresh\":0},\"content_faults\":0,\"content_why\":null,\"mute_held\":false,\"roster\":null,\"bench_roster\":null,\"stock_owns\":false,\"why\":null,\"knob\":-1,\"knob_bench\":-1,\"assist_slot\":-1,\"stranded\":[],\"pending\":null,\"pending_mask\":0,\"refused\":0,\"sent\":0,\"mirror\":{\"serving\":false,\"open\":0,\"fed\":0,\"accepted\":0,\"obsolete\":0,\"closed\":0,\"no_roster\":0,\"faulted\":false,\"fault_why\":null},\"feed\":null,\"ctl\":{\"menu\":-1,\"hex\":null,\"src\":null,\"nonce\":-1,\"boot\":-1,\"boot_name\":null}},\"end\":{\"injected\":false,\"held\":false,\"kind\":-1,\"kind_name\":null,\"action\":null,\"inject_phase\":-1,\"inject_seq\":-1,\"inject_ms\":-1,\"r8_hits\":0,\"r8_first_ms\":-1,\"w1_armed\":false,\"watchdog\":null,\"blocker\":null,\"why\":null,\"faulted\":false,\"hud_reasserts\":0,\"guest_mode\":null,\"ach_held\":0,\"ach_enemy_no\":-1,\"music\":-1,\"btl_flag\":-1,\"exit_mode\":null,\"end_leave\":{\"trigger\":null,\"latched_ms\":-1,\"tries\":0,\"deferred\":0,\"requested\":false,\"request_ms\":-1,\"why\":null,\"settled\":false,\"via\":null,\"stamp\":-1,\"stamp_host\":-1,\"stamped\":-1,\"stamped_was\":-1,\"music_shut\":false,\"music_why\":null,\"wipe_lifted\":false,\"reverted\":-1},\"declined\":{\"count\":0,\"nonce\":-1,\"why\":null},\"replay\":{\"mode\":null,\"armed\":false,\"pending\":false,\"opened\":false,\"live\":false,\"closed\":false,\"aborted\":false,\"abort_why\":null,\"refused\":false,\"verdict\":-1,\"why\":null,\"row_mask\":0,\"seated_mask\":0,\"manifest_rows\":0,\"host_state_at_arm\":-1,\"bench\":false,\"arm_ms\":-1,\"open_ms\":-1,\"close_ms\":-1,\"exit_waited\":false,\"exit_wait_ms\":-1,\"screen\":null,\"fp\":null},\"flee\":{\"r9b\":0,\"bypassed\":0,\"overload\":false,\"ability_flag\":false,\"gil_now\":-1,\"penalty\":-1,\"msg_gil\":-1},\"follow_msg\":null},\"act\":{\"host\":{\"on\":false,\"lever_off\":false,\"nonce\":-1,\"starts\":0,\"ends\":0,\"ext_impacts\":0,\"noid_impacts\":0,\"scripted\":0,\"open\":0,\"dropped\":0,\"wire_dropped\":0,\"unresolved\":0,\"scripted_takeover\":0,\"scripted_reentry\":0,\"restarted\":0,\"no_end\":0,\"cut\":0,\"edge_declined\":0,\"kinds\":{\"none\":0,\"seq\":0,\"enemy\":0,\"special\":0,\"common\":0,\"unknown\":0},\"vfx\":{\"checked\":0,\"drift\":0,\"unchecked\":0,\"why\":null},\"last\":null,\"loop\":{\"starts\":0,\"ends\":0,\"impacts\":0,\"impacts_ext\":0,\"stat\":0,\"ext_bad\":0,\"paired\":0,\"orphans\":0,\"caster_mismatch\":0,\"no_end\":0,\"cut\":0},\"tape\":{\"state\":null,\"frames\":0,\"starts\":0,\"ms\":-1,\"overflow\":0,\"page\":null}},\"guest\":{\"on\":false,\"why\":null,\"rework\":false,\"knob\":-1,\"host_caps\":-1,\"bit5\":false,\"levers\":{\"replay_off\":false,\"rework_off\":false,\"shortcircuit_off\":false,\"knob\":-1},\"inbox\":0,\"starts_rx\":0,\"ends_rx\":0,\"started\":0,\"queued\":0,\"waiting\":0,\"running\":0,\"declined\":0,\"declined_why\":null,\"stale\":0,\"backlog\":0,\"superseded\":0,\"noop\":0,\"dropped\":0,\"aborted\":0,\"abort_why\":null,\"aborts\":{\"pending\":0,\"host_end\":0,\"cap\":0,\"actor\":0,\"fault\":0,\"leave\":0,\"w3\":0,\"r8\":0,\"clear\":0},\"discarded\":{\"pending\":0,\"running\":0},\"ended\":0,\"faulted\":0,\"hits\":0,\"credits\":0,\"paired\":0,\"swing_skipped\":0,\"calc_while_booted\":0,\"var_refused\":0,\"old_host\":false,\"grace\":{\"armed\":0,\"mask\":0},\"hold_through\":0,\"end_held\":0,\"rx_dropped\":-1,\"battle_ms\":-1,\"paused_ms\":0,\"window\":{\"open\":false,\"restores\":0,\"limited\":0},\"last\":null,\"hold\":{\"on\":false,\"lifeskip\":false,\"held_now\":0,\"held\":0,\"queued_now\":0,\"queued\":0,\"rel_hit\":0,\"rel_late\":0,\"rel_end\":0,\"rel_hostdone\":0,\"rel_timeout\":0,\"rel_abort\":0,\"rel_replaced\":0,\"rel_declined\":0,\"rel_end_inject\":0,\"rel_queued\":0,\"superseded\":0,\"discarded\":0,\"life_mask\":0,\"mask_skips\":0,\"lag\":{\"n\":0,\"min\":-1,\"p50\":-1,\"max\":-1},\"figs\":[]},\"fallback\":{\"on\":false,\"clips\":0,\"deduped\":0,\"covered\":0,\"none\":0,\"guarded\":0,\"backlog\":0,\"collapsed\":0,\"parse_failed\":0,\"last\":null},\"trance\":{\"on\":false,\"gate\":false,\"deferred\":0,\"pending\":0,\"swaps_by_hit\":0,\"swaps_by_grace\":0,\"swaps_by_cap\":0,\"swaps_by_decline\":0,\"swaps_by_end\":0,\"swaps_by_inject\":0,\"moot\":0,\"dropped\":0,\"immediate\":0,\"on_arrival\":0,\"hit_unpaired\":0,\"hit_untrusted\":0,\"present\":0,\"last\":null}}}},\"dress\":{\"ghost\":{\"model\":-1,\"geo\":null,\"clip\":null,\"rig\":-1,\"playing\":false,\"body\":null,\"bench_mask\":-1,\"empty_mask\":-1,\"rule\":null,\"wire\":-1,\"wire_anim\":-1,\"mode\":null,\"rest_mask\":-1,\"shown_mask\":-1,\"hidden\":null,\"light_row\":-1,\"light_rgb\":null},\"party\":[-1,-1,-1,-1],\"codec\":null,\"rig_idle_frames\":[-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1],\"mirror_party\":null,\"self\":{\"knob\":false,\"armed\":false,\"src\":-1,\"want_model\":-1,\"want_char\":-1,\"want_rig\":-1,\"rig\":-1,\"why\":null,\"uid\":-1,\"net_byte\":-1,\"from\":null,\"confirmed\":0,\"ctl_elsewhere\":0,\"ctl_elsewhere_field\":-1,\"skip_npc\":0,\"skip_second\":0,\"remaps\":0,\"timeline_kept\":0,\"gate\":false,\"bframe_remaps\":0,\"src_attached\":0,\"src_list_clips\":0,\"attach_cold\":0,\"attach_warm\":0,\"faults\":0,\"parse_fallback\":0,\"defence_kept\":0,\"defence_dropped\":0,\"bench_self\":null,\"law_off\":{\"bframe\":false,\"attach\":false,\"alias\":false,\"timeline\":false},\"selftest\":null,\"steps\":[],\"steps_dropped\":0,\"steps_passed\":0,\"steps_fired\":0,\"steps_fired_player\":0,\"light_row\":-1,\"light_rgb\":null,\"light_floor\":-1,\"mesh_drops\":0,\"attach_remaps\":0,\"attach_notes\":0,\"attach_last\":{\"uid\":-1,\"bone_in\":-1,\"bone_out\":-1,\"parent\":null},\"polish\":false,\"twin_rows\":0,\"twins\":0,\"twin_misses\":0,\"twin_last\":{\"src\":-1,\"twin\":-1,\"site\":-1},\"ghost_clip_misses\":0,\"twin_clips_on_disc\":-1,\"twin_clip_missing\":-1,\"twin\":null,\"twin_selftest\":null},\"guard\":{\"leader\":-1,\"raw\":-1,\"effective\":-1,\"moved_from\":-1,\"moved_to\":-1}},\"world\":{\"freeze\":{\"on\":false,\"why\":null,\"off\":false,\"released\":false,\"edges\":0,\"skips\":0,\"keys\":0,\"map\":0,\"location\":0,\"battles\":0},\"rejoin\":{\"latch\":false,\"arms\":0,\"lands\":0,\"timeouts\":0,\"redirects\":0,\"rearms\":0,\"why\":null,\"last\":-1},\"waitline\":{\"line\":null,\"fallback\":false,\"away_ms\":-1},\"dio\":{\"booted_world\":false,\"boot_world\":-1,\"boot\":null,\"prev_mode_at_boot\":-1,\"lever\":null,\"declines\":0,\"decline_why\":null,\"decline_durable\":false,\"visit_decline\":null,\"wait_why\":null,\"returns\":0,\"last_return\":null,\"last_world\":-1,\"resuming\":false,\"suspend_song\":-1,\"song_sid\":-1,\"boot_song_live\":false}},\"guestlocal\":{\"mode\":null,\"lever\":null,\"rows\":-1,\"funcs\":-1,\"table_crc\":null,\"selftest\":null,\"last\":{\"seq\":0,\"field\":-1,\"entry\":-1,\"verdict\":null,\"reason\":null,\"kind\":null,\"hashed\":0,\"age_ms\":-1},\"verdicts\":{\"allow\":0,\"shadow\":0,\"lever_off\":0,\"not_field\":0,\"special\":0,\"no_row\":0,\"unverified\":0,\"wrong_body\":0,\"own_story\":0,\"no_control\":0,\"in_flight\":0,\"warp\":0,\"host_scene\":0,\"busy\":0},\"in_flight\":false,\"flight\":{\"field\":-1,\"entry\":-1,\"kind\":null,\"region_uid\":-1,\"body_uid\":-1,\"age_ms\":-1,\"seen_off\":false,\"body_open\":false,\"body_ran\":false,\"seq_open\":false},\"climbs\":0,\"ended\":0,\"bailed\":0,\"aborted\":0,\"abort_why\":null,\"long_climbs\":0,\"boots_mid_climb\":0,\"trips\":{\"total\":0,\"op\":0,\"glob\":0,\"last\":null},\"tp_calls\":0,\"tp_refusals\":0,\"tp_last\":null,\"talk_queued\":0,\"talk_held\":0,\"talk_applied_after_climb\":0,\"talk_expired\":0,\"mutate\":{\"armed\":false,\"index\":-1,\"spent\":false,\"hit\":false,\"hashed\":0}},\"ghostframe\":{\"lever_off\":false,\"follow\":false,\"why\":null,\"has_frame\":false,\"wire_anim\":-1,\"wire_frame\":-1,\"wire_frame_n\":-1,\"wire_loco\":-1,\"clip\":null,\"speed\":-1,\"time\":-1,\"length\":-1,\"shown\":-1,\"target\":-1,\"steps\":0,\"wraps\":0,\"snaps\":0,\"restores\":0,\"selftest\":null},\"stepout\":{\"lever\":null,\"active\":false,\"field\":-1,\"uid\":-1,\"dressed\":false,\"why\":null,\"age_ms\":-1,\"base\":{\"eligible\":false,\"host_here\":false,\"host_ctl_off\":false,\"my_ctl_off\":false,\"climb\":false,\"talk\":false,\"line\":false,\"host_scene\":false,\"landing\":false,\"why_not\":null,\"age_ms\":-1},\"talk_armed\":false,\"outs\":0,\"ins\":0,\"out_why\":{\"line\":0,\"dwell\":0,\"ate\":0},\"in_why\":{\"control\":0,\"field\":0,\"body\":0,\"session\":0,\"lever\":0,\"talk\":0,\"climb\":0,\"ate\":0},\"wire_mask\":-1,\"landing_wire\":false,\"stock_visible\":false,\"body_rends_on\":-1,\"shadow\":-1,\"shadow_off\":-1,\"standin\":{\"on\":false,\"shown\":false,\"geo\":null,\"clip\":null,\"src_anim\":-1,\"norm\":-1,\"body_norm\":-1,\"dpos\":-1,\"rends_on\":-1,\"spawns\":0,\"frames\":0,\"missing_clip\":0},\"ghost\":{\"hide\":null,\"edges\":0,\"by\":{\"mask0\":0,\"host_scene\":0,\"step_out\":0,\"landing\":0}},\"host_plain_scene\":false,\"talk_accepts\":0,\"faults\":0,\"last_fault\":null,\"selftest\":null,\"anchor\":{\"uid\":-1,\"ctl_uid\":-1,\"dressed_uid\":-1,\"ctl_rends_on\":-1}},\"chest\":{\"serve_off\":false,\"request_off\":false,\"armed\":false,\"active\":false,\"uid\":-1,\"script_bits\":-1,\"age_ms\":-1,\"accepted\":0,\"served\":0,\"expired\":0,\"declined\":0,\"last_uid\":-1,\"why\":null,\"selftest\":null,\"host\":{\"stamped\":0,\"riding\":false}},\"ate\":{\"lever\":null,\"host_armed\":false,\"pending\":{\"on\":false,\"seq\":-1,\"field\":-1,\"uid\":-1,\"win\":-1,\"text\":-1,\"serves\":0,\"age_ms\":-1},\"episode\":{\"phase\":null,\"field\":-1,\"win\":-1,\"text\":-1,\"by_host\":false,\"pick\":-1,\"own_jump\":-1,\"own_reload_landed\":false},\"stepout_exempt\":false,\"arms\":0,\"relayed\":0,\"ingested\":0,\"served\":0,\"opened\":0,\"expired\":0,\"dropped\":0,\"mismatched\":0,\"picks\":0,\"own_jumps\":0,\"holds\":0,\"hold_caps\":0,\"episodes\":0,\"last_end\":null,\"faults\":0,\"last_fault\":null,\"selftest\":null},\"speed\":{\"host_setting\":-1,\"host_tps\":-1,\"host_seen\":false,\"host_stale\":false,\"src\":null,\"own_factor\":-1,\"mirror\":false,\"applied\":false,\"factor_now\":-1,\"mode_wanted\":false,\"fast_mode\":false,\"raw\":false,\"why_not\":null,\"edges_on\":0,\"edges_off\":0,\"last_end\":null,\"faults\":0,\"last_fault\":null,\"end_why\":{\"lever\":0,\"session\":0,\"landing\":0,\"field\":0,\"scene\":0,\"climb\":0,\"movie\":0,\"host\":0,\"rate\":0,\"control\":0,\"reset\":0},\"lever\":null,\"selftest\":null},\"swap\":{\"clock\":{\"now_ms\":-1,\"utc_ms\":-1,\"ticks\":-1,\"hz\":-1,\"src\":null,\"hires\":false,\"fps\":-1,\"target_fps\":-1},\"levers\":{\"stamps\":null,\"delay_ms\":0,\"orphan\":null,\"own\":null,\"pin\":null,\"life\":null,\"fade\":null,\"hostctl_off\":false,\"arrive\":null},\"open\":false,\"last\":{\"id\":0,\"role\":null,\"from\":-1,\"dest\":-1,\"state\":null,\"open_by\":null,\"open_t\":-1,\"emit_t\":-1,\"nonce\":-1,\"seen_t\":-1,\"arrived_t\":-1,\"seen_copies\":0,\"follow_t\":-1,\"follow_via\":null,\"follows\":0,\"own_t\":-1,\"own_dest\":-1,\"own_verdict\":null,\"own_why\":null,\"owns\":0,\"bounces\":0,\"due_t\":-1,\"commit_t\":-1,\"commit_field\":-1,\"commit_why\":null,\"delay_ms\":0,\"drop_t\":-1,\"drop_why\":null,\"reloads\":0,\"reload_t\":-1,\"land_t\":-1,\"land_field\":-1,\"land_via\":null,\"story\":null,\"fade_path\":null,\"fade_ticks\":-1,\"line_t\":-1,\"line_win\":-1,\"line_text\":-1,\"close_t\":-1,\"close_why\":null},\"seen\":{\"nonce\":-1,\"field\":-1,\"src\":-1,\"host_from\":-1,\"first_t\":-1,\"last_t\":-1,\"arrived_t\":-1,\"copies\":0},\"intent\":{\"active\":false,\"field\":-1,\"nonce\":-1,\"site\":null,\"emit_t\":-1,\"age_ms\":-1,\"host_fps\":-1,\"emit_dt_us\":-1,\"landing\":null,\"landed_ms\":-1,\"body_ms\":-1,\"frames\":0,\"landed_frames\":0,\"updates\":0,\"sends\":0,\"first_sent_t\":-1,\"last_sent_t\":-1,\"oob\":null,\"end_t\":-1,\"last_end\":null,\"last_life_ms\":-1,\"last_site\":null,\"emits\":0,\"replaced\":0,\"oob_lost\":0,\"short\":0,\"ends\":{\"stands\":0,\"left\":0,\"elsewhere\":0,\"cap\":0,\"old\":0,\"next\":0,\"reset\":0},\"faults\":0},\"slot\":{\"set_seq\":-1,\"sent_seq\":-1,\"sends\":-1,\"unsent\":-1},\"orphan\":{\"host_holds\":false,\"holding\":0,\"holds\":0,\"relocks\":0,\"last_hold_ms\":-1,\"last_end\":null,\"faults\":0},\"own\":{\"passes\":0,\"by\":{\"pending\":0,\"committed\":0,\"intent\":0,\"cache\":0},\"converted\":0,\"refused\":{\"world\":0,\"ate\":0},\"host_lane\":-1,\"last\":{\"dest\":-1,\"from\":-1,\"lane\":-1,\"term\":null,\"keep_own\":false},\"cache\":{\"field\":-1,\"nonce\":-1,\"src\":-1,\"host_from\":-1,\"age_ms\":-1,\"stands\":false,\"bench\":false,\"writes\":0,\"clears\":0,\"last_clear\":null},\"faults\":0},\"pin\":{\"held\":[],\"spent\":-1,\"captures\":0,\"late\":0,\"pre_frames\":0,\"max_pre_diff\":-1,\"dropped\":0,\"here\":0,\"used\":0,\"aged\":0,\"other\":0,\"world\":0,\"lever_latest\":0,\"last_use\":null,\"last_use_quality\":null,\"last_use_field\":-1,\"last_use_age_ms\":-1,\"last_diff\":-1,\"last_diff_first\":-1,\"last_party\":null,\"faults\":0,\"bench\":{\"armed\":false,\"flag\":-1,\"chosen\":null,\"landed\":false,\"party_slot\":-1,\"party_char\":-1,\"mirror\":false}},\"fade\":{\"view_now\":null,\"mode_now\":null,\"cur_now\":-1,\"left_now\":-1,\"backlog_now\":null,\"primed\":false,\"path\":null,\"action\":null,\"frames\":-1,\"view_start\":null,\"left_start\":-1,\"backlog_start\":null,\"age_ms\":-1,\"age_ticks\":-1,\"black_ticks\":-1,\"reasserted\":false,\"held\":false,\"last\":{\"field\":-1,\"path\":null,\"action\":null,\"by\":null,\"due_t\":-1,\"ms\":-1,\"ticks\":-1,\"frames\":-1,\"view_start\":null,\"mode_start\":null,\"backlog_start\":null,\"primed\":false},\"starts\":{\"fast\":0,\"backlog\":0,\"old\":0,\"kick\":0},\"ends\":{\"black\":0,\"timer\":0,\"fallback\":0,\"recheck\":0,\"landing\":0,\"own\":0,\"world\":0,\"title\":0},\"reasserts\":0,\"faults\":0},\"counts\":{\"transitions\":0,\"landings\":0,\"own_jumps\":0,\"bounces\":0,\"follow_won\":0,\"closed\":{\"line\":0,\"window\":0,\"stale\":0,\"superseded\":0,\"next\":0,\"reset\":0}},\"faults\":0,\"last_fault\":null,\"selftest\":null,\"arrive\":{\"arrival_lead_ms\":-1,\"armed\":false,\"field\":-1,\"land_t\":-1,\"lead_ms\":null,\"late\":false,\"host\":{\"field\":-1,\"nonce\":-1,\"seen_t\":-1,\"age_ms\":-1,\"bench\":false},\"episode\":{\"on\":false,\"held\":false,\"base_ms\":null,\"dwell_ms\":null,\"shift_ms\":null},\"last\":{\"field\":-1,\"lead_ms\":null,\"end\":null,\"base_ms\":null,\"dwell_ms\":null,\"shift_ms\":null},\"arms\":0,\"late_arms\":0,\"unanchored\":0,\"world\":0,\"held\":0,\"ends\":{\"spared\":0,\"delayed\":0,\"line\":0,\"ate\":0},\"spends\":{\"control\":0,\"field\":0,\"out\":0,\"session\":0},\"bench\":{\"armed\":false,\"lead_ms\":null},\"faults\":0}}}");
                  return;
              }
              outer.Append("\"netsync\":{").Append(sb).Append("}");
-@@ -5176,6 +5209,389 @@ namespace Memoria.Harness
+@@ -5176,6 +5219,465 @@ namespace Memoria.Harness
              sb.Append("}");
          }
  
@@ -108,7 +118,8 @@ index 7ec7569..86b6805 100644
 +        // catch line carries the same keys at their sentinels, in this order.
 +        //   clock     now_ms / ticks / hz (read together), utc_ms (the wall clock beside them), src "qpc" | "stopwatch", hires, fps (the
 +        //             smoothed estimate) and target_fps (Application.targetFrameRate)
-+        //   levers    each lever AS SET (null = act); delay_ms; hostctl_off (the bench host's control, selftest state)
++        //   levers    each lever AS SET (null = act); delay_ms; hostctl_off (the bench host's control, selftest state); arrive ([ff9mapkit
++        //             netsync s164] THE ARRIVAL GUARD's lever, its LAST key)
 +        //   open      the last record is open or landed
 +        //   last      the last swap record (role "host" | "guest", state "open" | "landed" | "done", open_by an edge name, follow_via "intent" |
 +        //             "serial", own_verdict / own_why, land_via, commit_why, close_why; story = PIN's, fade_path / fade_ticks = D+E's)
@@ -120,6 +131,7 @@ index 7ec7569..86b6805 100644
 +        //   orphan (B), own (C), pin (PIN), fade (D+E)   their items' keys (at their sentinels until each item lands)
 +        //   counts    transitions (records opened), landings, own_jumps, bounces, follow_won, closed by reason
 +        //   faults / last_fault   every item's faults ("<item>@<site>: <msg>"); selftest null until the proof ran, then "ok" | "fail: ..."
++        //   arrive    [ff9mapkit netsync s164] THE ARRIVAL GUARD (AppendSwapArrive), swap's LAST key
 +        private static void AppendSwap(StringBuilder sb)
 +        {
 +            sb.Append("\"swap\":{");
@@ -151,7 +163,8 @@ index 7ec7569..86b6805 100644
 +            Str(sb, "pin", Try(() => Memoria.Netsync.NetSyncSwap.HarnessPinLever)); sb.Append(",");
 +            Str(sb, "life", Try(() => Memoria.Netsync.NetSyncSwap.HarnessLifeLever)); sb.Append(",");
 +            Str(sb, "fade", Try(() => Memoria.Netsync.NetSyncSwap.HarnessFadeLever)); sb.Append(",");
-+            Bool(sb, "hostctl_off", Try(() => Memoria.Netsync.NetSyncSwap.HarnessHostCtlOff, false));
++            Bool(sb, "hostctl_off", Try(() => Memoria.Netsync.NetSyncSwap.HarnessHostCtlOff, false)); sb.Append(",");
++            Str(sb, "arrive", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLever));   // [ff9mapkit netsync s164] THE ARRIVAL GUARD: levers' LAST key
 +            sb.Append("},");
 +            Bool(sb, "open", Try(() => Memoria.Netsync.NetSyncSwap.HarnessOpen, false)); sb.Append(",");
 +            AppendSwapLast(sb); sb.Append(",");
@@ -199,7 +212,80 @@ index 7ec7569..86b6805 100644
 +            sb.Append("}},");
 +            Num(sb, "faults", Try(() => (Int64)Memoria.Netsync.NetSyncSwap.Faults, 0L)); sb.Append(",");
 +            Str(sb, "last_fault", Try(() => Memoria.Netsync.NetSyncSwap.LastFault)); sb.Append(",");
-+            Str(sb, "selftest", Try(() => Memoria.Netsync.NetSyncSwap.SelfTestVerdict));
++            Str(sb, "selftest", Try(() => Memoria.Netsync.NetSyncSwap.SelfTestVerdict)); sb.Append(",");
++            AppendSwapArrive(sb);                       // [ff9mapkit netsync s164] THE ARRIVAL GUARD: swap's LAST key
++            sb.Append("}");
++        }
++
++        // [ff9mapkit netsync s164] `netsync.swap.arrive` -- THE ARRIVAL GUARD (NetSyncSwap; studies/field-coop/ARRIVAL-GUARD-S164.md "Lever,
++        // state, log"), swap's LAST key (after `selftest`), additive under protocol 5, published in EVERY role (a host's reads its rest
++        // values). Key PRESENCE is the capability. AppendNetsync's catch line carries the same keys at their sentinels: arrival_lead_ms -1,
++        // every other value exactly as at rest.
++        //   arrival_lead_ms   K (NetSyncSwap.ArrivalLeadMs, 1040)
++        //   armed / field / land_t   this landing's guard is armed and not spent; its landing (the field, its swap-clock t; -1 before any)
++        //   lead_ms / late    G - Hs for my last landing (negative = the host's landing reached me after mine), null = it never anchored;
++        //                     reported armed or not (a world rejoin, `arrive old`): it decides no verdict (DA-GUARD reads it)
++        //   host      R: field, nonce, seen_t (swap clock, when recorded), age_ms (now - its tick: the anchor), bench (a bench wrote it)
++        //   episode   on (a hold ran in the last 2 frames), held; base_ms / dwell_ms / shift_ms null while off (dwell_ms may be negative)
++        //   last      the last classified episode: field, lead_ms, end (spared | delayed | line | ate; null for an unheld one), base_ms /
++        //             dwell_ms / shift_ms (null before the first)
++        //   arms / late_arms / unanchored / world / held, ends, spends   counters (read DELTAS)
++        //   bench     armed (`swap arrivebench` waiting to write R), lead_ms (null unless armed); faults = item ARRIVE's
++        private static void AppendSwapArrive(StringBuilder sb)
++        {
++            sb.Append("\"arrive\":{");
++            Num(sb, "arrival_lead_ms", (Int64)Memoria.Netsync.NetSyncSwap.ArrivalLeadMs); sb.Append(",");
++            Bool(sb, "armed", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveArmed, false)); sb.Append(",");
++            Num(sb, "field", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveField, -1L)); sb.Append(",");
++            Num(sb, "land_t", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLandT, -1L)); sb.Append(",");
++            NumOrNull(sb, "lead_ms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLeadMs, NullNum)); sb.Append(",");
++            Bool(sb, "late", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLate, false)); sb.Append(",");
++            sb.Append("\"host\":{");
++            Num(sb, "field", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveHostField, -1L)); sb.Append(",");
++            Num(sb, "nonce", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveHostNonce, -1L)); sb.Append(",");
++            Num(sb, "seen_t", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveHostSeenT, -1L)); sb.Append(",");
++            Num(sb, "age_ms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveHostAgeMs, -1L)); sb.Append(",");
++            Bool(sb, "bench", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveHostBench, false));
++            sb.Append("},\"episode\":{");
++            Bool(sb, "on", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveEpisodeOn, false)); sb.Append(",");
++            Bool(sb, "held", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveEpisodeHeld, false)); sb.Append(",");
++            NumOrNull(sb, "base_ms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveEpisodeBaseMs, NullNum)); sb.Append(",");
++            NumOrNull(sb, "dwell_ms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveEpisodeDwellMs, NullNum)); sb.Append(",");
++            NumOrNull(sb, "shift_ms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveEpisodeShiftMs, NullNum));
++            sb.Append("},\"last\":{");
++            Num(sb, "field", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLastField, -1L)); sb.Append(",");
++            NumOrNull(sb, "lead_ms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLastLeadMs, NullNum)); sb.Append(",");
++            Str(sb, "end", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLastEnd)); sb.Append(",");
++            NumOrNull(sb, "base_ms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLastBaseMs, NullNum)); sb.Append(",");
++            NumOrNull(sb, "dwell_ms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLastDwellMs, NullNum)); sb.Append(",");
++            NumOrNull(sb, "shift_ms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLastShiftMs, NullNum));
++            sb.Append("},");
++            Num(sb, "arms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveArms, 0L)); sb.Append(",");
++            Num(sb, "late_arms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveLateArms, 0L)); sb.Append(",");
++            Num(sb, "unanchored", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveUnanchored, 0L)); sb.Append(",");
++            Num(sb, "world", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveWorld, 0L)); sb.Append(",");
++            Num(sb, "held", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveHeld, 0L)); sb.Append(",");
++            sb.Append("\"ends\":{");
++            for (Int32 i = 1; i < Memoria.Netsync.NetSyncSwap.ArriveEndNames.Length; i++)
++            {
++                Int32 at = i;
++                if (at > 1)
++                    sb.Append(",");
++                Num(sb, Memoria.Netsync.NetSyncSwap.ArriveEndNames[at], Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveEnds(at), 0L));
++            }
++            sb.Append("},\"spends\":{");
++            for (Int32 i = 1; i < Memoria.Netsync.NetSyncSwap.ArriveSpendNames.Length; i++)
++            {
++                Int32 at = i;
++                if (at > 1)
++                    sb.Append(",");
++                Num(sb, Memoria.Netsync.NetSyncSwap.ArriveSpendNames[at], Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveSpends(at), 0L));
++            }
++            sb.Append("},\"bench\":{");
++            Bool(sb, "armed", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveBenchArmed, false)); sb.Append(",");
++            NumOrNull(sb, "lead_ms", Try(() => Memoria.Netsync.NetSyncSwap.HarnessArriveBenchLeadMs, NullNum));
++            sb.Append("},");
++            Num(sb, "faults", Try(() => (Int64)Memoria.Netsync.NetSyncSwap.FaultsBy[Memoria.Netsync.NetSyncSwap.ItemArrive], 0L));
 +            sb.Append("}");
 +        }
 +
@@ -2441,6 +2527,34 @@ index 2b71260..668864f 100644
              NetSyncDialog q = new NetSyncDialog();
              q._quiet = true;
              q._ownPollsField = 350;
+diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
+index 7d3308f..0e786a7 100644
+--- a/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
++++ b/Assembly-CSharp/Memoria/Netsync/NetSyncStepOut.cs
+@@ -65,6 +65,12 @@ namespace Memoria.Netsync
+     // field for StepInMs (NetSyncAte.LandingLatchSpends). The `stepout noland` lever is s161's rule (CALIBRATION: no landing term); the
+     // `stepout ctl` lever keeps it. Accepted: a DEST body that binds before its dress attaches (a Wait between) steps out undressed.
+     //
++    // [ff9mapkit netsync s164] THE ARRIVAL GUARD (THE ARRIVAL LAW made lag-invariant, ARRIVAL-GUARD-S164.md): at my landing, a wordless
++    // base counts toward the dwell only from ArrivalLeadMs after the host's landing as I first saw it (section 4's landed bit), and never
++    // more than ArrivalLeadMs past its own start. The base and its age stay raw. It never starts an OUT earlier than s158, never holds a
++    // line or s162's `ate` start, never arms on a world rejoin, and is spent by a field change, any step-out, or my control back for
++    // StepInMs. `swap arrive old` = round 1's rule (CALIBRATION).
++    //
+     // Vanilla, a host and solo play pay one static read per hook site (NetSyncStepOutArmed.On, which only StepOut sets); nothing goes on
+     // the wire but the mask the lane already carries (wire v14 unchanged). Every hook catches its own faults (`netsync.stepout.faults`).
+ 
+@@ -567,7 +573,9 @@ namespace Memoria.Netsync
+                 }
+                 Boolean line = _baseWindows.AnyFresh();
+                 InLine = line;
+-                Int32 start = StartRule(line, now - _baseSince, landing);   // [ff9mapkit netsync s162] + the ATE relay's landing
++                // [ff9mapkit netsync s164] THE ARRIVAL GUARD (NetSyncSwap.ArriveDwellAge): at my landing a wordless base's dwell counts from the
++                // host's landing as I saw it + ArrivalLeadMs, at most ArrivalLeadMs past the base's start -- DwellMs, a line and s162's landing decide as before
++                Int32 start = StartRule(line, NetSyncSwap.ArriveDwellAge(fld, now, now - _baseSince, line || landing), landing);
+                 if (start != OutNone)
+                     StepOut(local, fld, start);
+             }
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncAte.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncAte.cs
 index 84be269..22be04e 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncAte.cs
@@ -2643,10 +2757,10 @@ index 84be269..22be04e 100644
                      Int32 capped = (_preArmed && preMs >= PreHoldMs) ? HoldPending
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncSwap.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncSwap.cs
 new file mode 100644
-index e69de29..36c787a 100644
+index e69de29..23e9a87 100644
 --- /dev/null
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncSwap.cs
-@@ -0,0 +1,4357 @@
+@@ -0,0 +1,5218 @@
 +using System;
 +using System.Collections.Generic;
 +using System.Globalization;
@@ -2849,7 +2963,8 @@ index e69de29..36c787a 100644
 +        internal static readonly String[] PinUseNames = { "pin", "none", "other", "late", "aged", "world", "lever" };
 +        // the fault line's items
 +        internal const Int32 ItemA = 0, ItemB = 1, ItemC = 2, ItemPin = 3, ItemLife = 4, ItemDE = 5;
-+        internal static readonly String[] ItemNames = { "A", "B", "C", "PIN", "LIFE", "D+E" };
++        internal const Int32 ItemArrive = 6;            // [ff9mapkit netsync s164] THE ARRIVAL GUARD (ARRIVAL-GUARD-S164.md)
++        internal static readonly String[] ItemNames = { "A", "B", "C", "PIN", "LIFE", "D+E", "ARRIVE" };   // [ff9mapkit netsync s164] + ARRIVE
 +
 +        // ================================================================ the levers (role checked when SET; released on every role)
 +        internal const Int32 OwnLeverAct = 0, OwnLeverOld = 1, OwnLeverNoCache = 2;
@@ -2866,6 +2981,9 @@ index e69de29..36c787a 100644
 +        private static Boolean _hostCtlOff;             // B's bench host: section 7 with b1 and b0 clear (bench state, not a lever)
 +        private static Boolean _blackout;               // `swap blackout <n>` left the fade slot heading to black
 +        private static Boolean _lifeBench;              // [ff9mapkit netsync s164] LIFE: `swap lifebench` armed the selftest role's hook and step
++        private static Boolean _arriveOld;              // [ff9mapkit netsync s164] THE ARRIVAL GUARD: round 1's rule at every landing (read AT the landing)
++        private static Boolean _arriveBench;            // [ff9mapkit netsync s164] THE ARRIVAL GUARD: `swap arrivebench` armed, one-shot at my next landing
++        private static Int32 _arriveBenchLead, _arriveBenchLanding = -1;   // ...its lead, and the landing a negative lead's late write waits on
 +
 +        internal static Boolean StampsOn { get { return !_stampsOff; } }
 +        internal static Int32 DelayMs { get { return _delayMs; } }
@@ -2876,6 +2994,7 @@ index e69de29..36c787a 100644
 +        internal static Int32 FadeLever { get { return _fade; } }
 +        internal static Boolean BenchHostCtlOff { get { return _hostCtlOff && NetSyncClient.IsSelfTestRole; } }   // bench state, not a lever
 +        internal static Boolean LifeBenchArmed { get { return _lifeBench && NetSyncClient.IsSelfTestRole; } }     // [ff9mapkit netsync s164] LIFE: bench state
++        internal static Boolean ArriveOld { get { return _arriveOld; } }                                          // [ff9mapkit netsync s164] THE ARRIVAL GUARD
 +
 +        // ================================================================ state other items write (the design places it here)
 +        internal static Boolean HostHoldsNow = false;   // B: the guest's view of the host holding input on my field (ObserveHostDialog)
@@ -3005,13 +3124,37 @@ index e69de29..36c787a 100644
 +        private static Byte[] _pinBenchLatest;
 +        internal const Int32 ProbePinFlag = 8720;       // the proof's marker flag (the P legs' own; FIRST_SAFE_FLAG band)
 +
++        // [ff9mapkit netsync s164] GUEST, THE ARRIVAL GUARD (`netsync.swap.arrive`; a client or the selftest role; main thread; "armed bool +
++        // delta"). R, the host-landing record: the host's newest landing as I first saw it (the first landed frame per (nonce, field)), the
++        // landing of mine it was seen in (_arriveLanding then) and whether a bench wrote it. Its ticks are read only while _arriveRecSet.
++        private static Boolean _arriveRecSet, _arriveRecBench;
++        private static Int32 _arriveRecField = -1, _arriveRecNonce = -1, _arriveRecTick, _arriveRecSeenTick, _arriveRecSeenLanding = -1;
++        private static Int64 _arriveRecSeenT = -1;
++        // The guard, rebuilt at EVERY landing of mine (ArriveLanding; the role, the lever and a world rejoin are read THERE): its landing
++        // (number, field, tick, swap-clock t), the anchor it COPIED from R (Hs, the lead G - Hs, late = anchored after my landing -- R's
++        // later replacement never touches it), the per-landing count latches, my control-back debounce and its anchor line.
++        // _arriveLive = armed && !spent: ArriveDwellAge's and ArriveTick's one read.
++        private static Int32 _arriveLanding;            // my landings, numbered (its own counter: every OnFieldLoad, before A's try)
++        private static Int32 _arriveGuardLanding = -1, _arriveField = -1, _arriveLandTick, _arriveHsTick, _arriveLeadMs = LeadNone, _arriveBackSince;
++        private static Int64 _arriveLandT = -1;
++        private static Boolean _arriveLive, _arriveAnchored, _arriveLate, _arriveArmCounted, _arriveLateCounted, _arriveBackArmed, _arriveLogged;
++        // The episode: one per base (one _baseSince) while the guard holds -- the frame it last ran (GhostHide's freshness idiom), the
++        // base's start, its field, its last base / guarded dwell, the lead it ran under and whether it held; `last` = the last classified.
++        private static Boolean _arriveEpOn, _arriveEpHeld;
++        private static Int32 _arriveEpFrame, _arriveEpBaseStart, _arriveEpField = -1, _arriveEpBase, _arriveEpDwell, _arriveEpLead = LeadNone;
++        private static Int32 _arriveLastField = -1, _arriveLastLead = LeadNone, _arriveLastEnd, _arriveLastBase, _arriveLastDwell;
++        private static Int32 _arriveArms, _arriveLateArms, _arriveUnanchored, _arriveWorld, _arriveHeld;   // per process; read DELTAS
++        private static readonly Int32[] _arriveEnds = new Int32[5];     // by ArriveEndNames
++        private static readonly Int32[] _arriveSpends = new Int32[5];   // by ArriveSpendNames
++        private static Boolean _arriveFaulted;          // sticky: s158's dwell from the base start for the rest of the process (PIN's _pinFaulted)
++
 +        // ================================================================ counters (cumulative per process; read DELTAS)
 +        internal static Int32 Transitions, Landings, OwnJumps, Bounces, FollowWon;
 +        internal static readonly Int32[] ClosedBy = new Int32[7];   // by CloseNames
 +        internal static Int32 IntentEmits, IntentReplaced, IntentOobLost, IntentShort, IntentFaults;
 +        internal static readonly Int32[] IntentEnds = new Int32[8]; // by IntentEndNames
 +        internal static Int32 Faults;
-+        internal static readonly Int32[] FaultsBy = new Int32[6];   // by ItemNames
++        internal static readonly Int32[] FaultsBy = new Int32[7];   // by ItemNames ([ff9mapkit netsync s164] + ARRIVE)
 +        internal static String LastFault, SelfTestVerdict;
 +
 +        // ================================================================ A: the pure rules (SelfTest tables every one)
@@ -3411,6 +3554,116 @@ index e69de29..36c787a 100644
 +            dress = latest;
 +        }
 +
++        // ================================================================ THE ARRIVAL GUARD: the pure rules ([ff9mapkit netsync s164],
++        // studies/field-coop/ARRIVAL-GUARD-S164.md: owner decision 8 of SWAP-TIMING-S164.md, read as "the lead the host is owed")
++        // THE DEFECT: round 1 lands a following guest ~0.5 s behind its host (s163: 1.04 s), so at a WORDLESS arrival -- both copies run the
++        // same control-off script from their own landings -- s158's step-out base (the host on my field, its control off, mine off) lasts
++        // about A - L, and THE ARRIVAL LAW's DwellMs, tuned at L = 1.04 s, now steps out of every arrival whose control-off runs 1.5 + L to
++        // 2.54 s: the flash of Zidane the law exists to stop (ARRIVE, 30611, red at act). THE GUARD: at my landing a wordless base's dwell
++        // counts from max(B, min(Hs + K, B + K)) -- Hs the host's landing as I first saw it (section 4's landed bit, S3), K = ArrivalLeadMs
++        // (s163's measured gap), B the base's start -- so a dwell OUT fires at s163's instant measured from the host's landing whatever my
++        // lag; never earlier than s158, never more than K past the base's start, whatever the anchor (stale, future, garbage, wrapped). It
++        // postpones an OUT, never prevents one: past the shift the guarded age grows 1:1. A line, s162's `ate` start, the base and its age
++        // (HarnessBaseAgeMs) are untouched; a world rejoin is never armed (R3's exclusion). Int32 TickCount deltas only (unchecked: the
++        // csproj sets no CheckForOverflowUnderflow, so a delta wraps; the battlewire twins use _i32).
++        internal const Int32 ArrivalLeadMs = 1040;      // K: s163's measured landing gap (FIELD-SWAP-TIMING.md section 1, n = 23); a seed (risk 7)
++        internal const Int32 LeadNone = Int32.MinValue; // `lead_ms` null: this landing never anchored
++        internal const Int32 ArmOn = 0, ArmRole = 1, ArmLever = 2, ArmWorld = 3;
++        internal const Int32 SpendNone = 0, SpendControl = 1, SpendField = 2, SpendOut = 3, SpendSession = 4;
++        internal static readonly String[] ArriveSpendNames = { null, "control", "field", "out", "session" };
++        internal const Int32 EndNone = 0, EndSpared = 1, EndDelayed = 2, EndLine = 3, EndAte = 4;
++        internal static readonly String[] ArriveEndNames = { null, "spared", "delayed", "line", "ate" };
++        internal const Int32 EvLanding = 0, EvLateEdge = 1, EvSpend = 2;
++        internal const Int32 CountNone = 0, CountArm = 1, CountLateArm = 2, CountUnanchored = 4;
++        internal const Int32 ArriveBenchMinMs = -1000, ArriveBenchMaxMs = 5000;   // `swap arrivebench <lead_ms>`'s range
++
++        // Did the host build this section-4 body after its landing hook? STRICT: an s163 host's 3-byte body is NO landing here
++        // (IntentLandedOf reads it landed -- PIN's fail-safe, which here would be an early anchor). Bit 0 only.
++        internal static Boolean HostLandSeenOf(Byte[] b)
++        {
++            return b != null && b.Length >= 4 && (b[3] & IntentFlagLanded) != 0;
++        }
++
++        // R's edge: the FIRST landed frame per (nonce, field) -- a new nonce, or the same nonce naming another field (a chain).
++        internal static Boolean ArriveHostEdgeRule(Int32 lastNonce, Int32 lastField, Int32 nonce, Int32 field, Boolean landed)
++        {
++            return landed && nonce >= 0 && field > 0 && (nonce != lastNonce || field != lastField);
++        }
++
++        // Read at MY landing: the role (a client or the selftest role), then the lever (every landing), then a world rejoin (R3's
++        // exclusion: LandingFromWorld, the read PIN takes).
++        internal static Int32 ArriveArmRule(Boolean roleOk, Boolean leverOld, Boolean fromWorld)
++        {
++            return !roleOk ? ArmRole : leverOld ? ArmLever : fromWorld ? ArmWorld : ArmOn;
++        }
++
++        // Does R anchor landing number `landing` on fld? It names fld and was seen in THIS landing's interval: before it and after my
++        // previous landing (seenLanding == landing - 1) no more than IntentLoadCapMs before it, or after it (seenLanding == landing: the
++        // late form). rSinceMs = my landing's tick - R's seen tick. A record from before my previous landing is stale (a battle return, a
++        // reload): it changes no verdict (the formula is inert past Hs + K), but `lead_ms`, `arms` and `unanchored` say what happened.
++        internal static Boolean ArriveAnchorRule(Boolean rSet, Int32 rField, Int32 rSeenLanding, Int32 rSinceMs, Int32 fld, Int32 landing)
++        {
++            return rSet && fld > 0 && rField == fld && (rSeenLanding == landing || (rSeenLanding == landing - 1 && rSinceMs < IntentLoadCapMs));
++        }
++
++        internal static Boolean ArriveHoldsRule(Boolean armed, Boolean anchored, Int32 armField, Int32 fld)
++        {
++            return armed && anchored && armField == fld;
++        }
++
++        // The dwell counts from max(B, min(Hs + K, B + K)): never earlier than s158 (at most the base age), never more than K later (at
++        // least the base age - K, for any anchor), inert for a base that starts at or after Hs + K, s158 exactly at s163's lag.
++        internal static Int32 ArriveDwellAgeRule(Boolean holds, Int32 baseAgeMs, Int32 sinceHostMs)
++        {
++            return holds ? Math.Min(baseAgeMs, Math.Max(unchecked(sinceHostMs - ArrivalLeadMs), unchecked(baseAgeMs - ArrivalLeadMs))) : baseAgeMs;
++        }
++
++        // s158 would step out here and the guard holds: the episode's held edge (its line prints once per episode).
++        internal static Boolean ArriveHeldRule(Boolean heldAlready, Int32 baseAgeMs, Int32 dwellAgeMs)
++        {
++            return !heldAlready && baseAgeMs >= NetSyncStepOut.DwellMs && dwellAgeMs < NetSyncStepOut.DwellMs;
++        }
++
++        // The guard's spend: the field changed, any step-out (by line, dwell or ate), my control back for StepInMs (s162's debounced spend,
++        // NetSyncAte.LandingLatchSpends). Each coincides with a base that has already failed, so the guard needs no time lapse.
++        internal static Int32 ArriveSpendRule(Boolean armed, Int32 armField, Int32 fld, Boolean myCtl, Int32 ctlBackMs, Boolean stepOutActive)
++        {
++            if (!armed)
++                return SpendNone;
++            if (fld != armField)
++                return SpendField;
++            if (stepOutActive)
++                return SpendOut;
++            if (myCtl && ctlBackMs >= NetSyncStepOut.StepInMs)
++                return SpendControl;
++            return SpendNone;
++        }
++
++        // A HELD episode's end (an unheld one is s158's own and has none). One episode = one base (one _baseSince): a re-armed base ends
++        // it, because s158's own dwell restarted there too. framesSinceDwell > 2 is GhostHide's freshness idiom (NetSyncStepOut.GhostHide):
++        // it classifies in the same frame whichever order ArriveTick and ServiceStepOut run in. An active step-out precedes a re-armed base.
++        internal static Int32 ArriveEndRule(Boolean held, Int32 framesSinceDwell, Boolean newBase, Boolean stepOutActive, Int32 outWhy)
++        {
++            if (!held)
++                return EndNone;
++            if (stepOutActive)
++                return outWhy == NetSyncStepOut.OutDwell ? EndDelayed : outWhy == NetSyncStepOut.OutAte ? EndAte : EndLine;
++            return newBase || framesSinceDwell > 2 ? EndSpared : EndNone;
++        }
++
++        // The counters one guard event bumps, each at most once per landing, armed guards only: EvLanding `arms` (anchored, lead < K);
++        // EvLateEdge (a fresh edge for the guard's field after its landing) `late_arms` once and `arms` if not yet; EvSpend `unanchored`.
++        internal static Int32 ArriveCountRule(Int32 ev, Boolean armed, Boolean anchored, Int32 leadMs, Boolean armCounted, Boolean lateCounted)
++        {
++            if (!armed)
++                return CountNone;
++            if (ev == EvLanding)
++                return anchored && leadMs < ArrivalLeadMs ? CountArm : CountNone;
++            if (ev == EvLateEdge)
++                return (lateCounted ? CountNone : CountLateArm) | (armCounted ? CountNone : CountArm);
++            return ev == EvSpend && !anchored ? CountUnanchored : CountNone;
++        }
++
 +        // ================================================================ A: the line builders (pure; an instrument line is null with stamps off)
 +
 +        // L-LAND
@@ -3721,6 +3974,7 @@ index e69de29..36c787a 100644
 +            _dueT = -1;
 +            ClearIntentCache("the session reset", true);   // [ff9mapkit netsync s164] C: the cache and its spent nonce go with the session
 +            ClearPins();                                   // [ff9mapkit netsync s164] PIN: "the co-op session reset" -- every held pin goes, a live section 4 spent
++            ForgetArrive("session");                       // [ff9mapkit netsync s164] THE ARRIVAL GUARD: a live guard is spent (session), R is forgotten
 +        }
 +
 +        // PIN's landing (`last.story`) and D+E's follow fade (`last.fade_path`, `last.fade_ticks`) on the live record.
@@ -3763,6 +4017,7 @@ index e69de29..36c787a 100644
 +                Int32 nonce = body[2];
 +                CacheHostFrame(field, nonce, myField, onWorld, following, lastHostField);   // [ff9mapkit netsync s164] C: the intent cache (its own try)
 +                PinHostFrame(state, field, nonce, IntentLandedOf(body), myField);   // [ff9mapkit netsync s164] PIN: the capture (its own try)
++                ArriveHostFrame(state, body, field, nonce, now);   // [ff9mapkit netsync s164] THE ARRIVAL GUARD: R, the host's landing as I first saw it (its own try)
 +                Int64 t = NowMs();
 +                if (SeenRule(true, nonce, _seenNonce))
 +                {
@@ -3838,6 +4093,7 @@ index e69de29..36c787a 100644
 +            _seenRec = null;
 +            ClearIntentCache("the host epoch changed", true);   // [ff9mapkit netsync s164] C: ...and the cache's spent nonce (its next one reads new)
 +            ClearPins();                                        // [ff9mapkit netsync s164] PIN: "the host epoch changed" -- every held pin goes (row c15)
++            ForgetArrive("session");                            // [ff9mapkit netsync s164] THE ARRIVAL GUARD: a live guard is spent (session), R is forgotten
 +        }
 +
 +        // ---------------------------------------------------------------- GUEST, C: the intent cache and the own pass ([ff9mapkit netsync s164])
@@ -3942,9 +4198,13 @@ index e69de29..36c787a 100644
 +        // NetSyncClient.Update, every Update of a client (right after ObserveHostDialog: GuestTick(fld, LastHostField)) and of the selftest
 +        // role (right after ServiceSpeed, before its scope returns: GuestTick(fld, -1)), on a field or not: the cache's verdict, and its clear
 +        // when it no longer stands. fldMapNo flips inside the MAPJUMP tick, so this clears a cache for the field my copy left before that
-+        // load's landing hook, in either Unity order. Reads only fldMapNo (the caller's) and the cache.
++        // load's landing hook, in either Unity order. C reads only fldMapNo (the caller's) and the cache.
++        // [ff9mapkit netsync s164] THE ARRIVAL GUARD: ArriveTick runs FIRST, before the cache's return (its own try, never throws): the late
++        // bench write, the episode's end and the guard's spend -- it also reads my user control, NetSyncStepOut.Active / HarnessWhy and
++        // Time.frameCount (its own doc block owns the detail).
 +        internal static void GuestTick(Int32 myField, Int32 hostLane)
 +        {
++            ArriveTick(myField);                        // [ff9mapkit netsync s164] THE ARRIVAL GUARD: FIRST, before the cache's return (its own try)
 +            if (_icField <= 0)
 +                return;
 +            try
@@ -4464,6 +4724,391 @@ index e69de29..36c787a 100644
 +            _pinBenchChosen = null;
 +        }
 +
++        // ---------------------------------------------------------------- GUEST, THE ARRIVAL GUARD ([ff9mapkit netsync s164], ARRIVAL-GUARD-S164.md)
++        // Every entry point has its own try with item ARRIVE: a throw sets the sticky fault (s158's dwell from the base start for the rest of
++        // the process, as PIN's _pinFaulted), is logged once per site and never reaches its caller. A host or a solo game never arms the
++        // guard (ArriveArmRule's role) and never reaches ArriveDwellAge (its base fails on `eligible` first).
++
++        // OnFieldLoad's FIRST statement, at EVERY landing (a follow, an own pass, a kick, a bounce, a rejoin, a battle return, an ATE DEST,
++        // the world map): before LandViaRule, Join, the unjoined ViaSame / ViaOther return and A's try, so no landing is skipped and a throw
++        // in A cannot leave the previous guard standing. The landing is numbered; an episode still on from the last field is classified (its
++        // base cannot survive a load); `swap arrivebench`'s lead >= 0 writes R now, before the anchor reads it (seen in the last landing's
++        // interval); then the new guard -- ArriveArmRule (the role, the lever, a world rejoin: read HERE, so a lever flip mid-episode waits
++        // for the next landing), ArriveAnchorRule against R, the lead G - Hs (LeadNone unanchored), every per-landing latch reset (a
++        // control-back carried over from the last field never spends the fresh guard), `world` and `arms` counted, and the anchor line (an
++        // armed guard anchored with a lead under K). Never throws.
++        private static void ArriveLanding(Int32 fld)
++        {
++            if (_arriveFaulted)
++                return;
++            try
++            {
++                Int32 now = Environment.TickCount;
++                Int32 landing = ++_arriveLanding;
++                if (_arriveEpOn)
++                    EndArriveEpisode(ArriveEndRule(_arriveEpHeld, 3, false, NetSyncStepOut.Active, ArriveOutWhy()));
++                if (_arriveBench)
++                {
++                    if (_arriveBenchLead >= 0)
++                    {
++                        _arriveBench = false;           // one-shot: R for the landed field, its tick `lead` before mine, seen in the last interval
++                        ArriveBenchRecord(fld, unchecked(now - _arriveBenchLead), now, landing - 1, _arriveBenchLead, false);
++                    }
++                    else if (_arriveBenchLanding < 0)
++                        _arriveBenchLanding = landing;  // a negative lead: ArriveTick writes it at my landing + |lead| (the late form)
++                    else
++                    {
++                        _arriveBench = false;           // its landing passed unwritten: one-shot
++                        _arriveBenchLanding = -1;
++                    }
++                }
++                Boolean roleOk = NetSyncClient.HarnessEnabled && (NetSyncClient.HarnessRole == "client" || NetSyncClient.IsSelfTestRole);
++                Int32 arm = ArriveArmRule(roleOk, _arriveOld, LandingFromWorld());
++                Boolean anchored = ArriveAnchorRule(_arriveRecSet, _arriveRecField, _arriveRecSeenLanding, unchecked(now - _arriveRecSeenTick), fld,
++                                                    landing);
++                _arriveGuardLanding = landing;
++                _arriveField = fld;
++                _arriveLandTick = now;
++                _arriveLandT = NowMs();
++                _arriveAnchored = anchored;
++                _arriveHsTick = anchored ? _arriveRecTick : 0;
++                _arriveLeadMs = anchored ? unchecked(now - _arriveRecTick) : LeadNone;
++                _arriveLate = false;
++                _arriveLive = arm == ArmOn;
++                _arriveArmCounted = false;
++                _arriveLateCounted = false;
++                _arriveBackArmed = false;
++                _arriveLogged = false;
++                if (arm == ArmWorld)
++                    _arriveWorld++;
++                ArriveCount(EvLanding);
++                if (_arriveLive && _arriveAnchored && _arriveLeadMs < ArrivalLeadMs)
++                    ArriveAnchorLine();
++            }
++            catch (Exception err)
++            {
++                ArriveFault("landing", err);
++            }
++        }
++
++        // NoteHostFrame's section-4 branch, right after PinHostFrame, with PIN's client gate (PinHostFrame's form): a body that carries the
++        // landed bit and is the first per (nonce, field) replaces R -- tick = seenTick = now (that Update's TickCount), seen in my current
++        // landing; a fresh edge for the guard's field after its landing re-anchors it (ArriveLateEdge). Its own try keeps a guard fault out
++        // of item A's catch, so A's seen edge always runs. Never throws.
++        private static void ArriveHostFrame(Byte[] state, Byte[] body, Int32 field, Int32 nonce, Int32 now)
++        {
++            if (state == null || !NetSyncClient.HarnessEnabled || NetSyncClient.HarnessRole != "client" || _arriveFaulted)
++                return;
++            try
++            {
++                if (ArriveRecordEdge(body, field, nonce, now, now, _arriveLanding, false))
++                    ArriveAfterEdge();
++            }
++            catch (Exception err)
++            {
++                ArriveFault("host frame", err);
++            }
++        }
++
++        // THE shared writer of R (the live frame and `swap arrivebench` through the real codec): HostLandSeenOf (an s163 host's 3-byte body
++        // is no landing) and ArriveHostEdgeRule (the first landed frame per (nonce, field)), then R is replaced. Returns whether it wrote.
++        private static Boolean ArriveRecordEdge(Byte[] body, Int32 field, Int32 nonce, Int32 tick, Int32 seenTick, Int32 seenLanding, Boolean bench)
++        {
++            if (!ArriveHostEdgeRule(_arriveRecNonce, _arriveRecField, nonce, field, HostLandSeenOf(body)))
++                return false;
++            _arriveRecSet = true;
++            _arriveRecField = field;
++            _arriveRecNonce = nonce;
++            _arriveRecTick = tick;
++            _arriveRecSeenTick = seenTick;
++            _arriveRecSeenLanding = seenLanding;
++            _arriveRecSeenT = NowMs();
++            _arriveRecBench = bench;
++            return true;
++        }
++
++        // A write after my landing (a live frame, a negative bench lead): a record seen in the guard's landing for the guard's field is a
++        // late edge (THE LEAD: the host's newest landing on my field is the one whose control-off script runs now).
++        private static void ArriveAfterEdge()
++        {
++            if (_arriveGuardLanding > 0 && _arriveRecSeenLanding == _arriveGuardLanding && _arriveRecField == _arriveField)
++                ArriveLateEdge();
++        }
++
++        // THE LEAD's late replacement: every fresh edge for the guard's field seen after its landing replaces the anchor (leadMs = G - Hs,
++        // negative; late) -- the cap bounds any replacement to K past the base's start, so a replacement mid-episode can only add
++        // suppression within the bound. `late_arms` once and `arms` if not yet (ArriveCountRule); the late line if no anchor line printed.
++        private static void ArriveLateEdge()
++        {
++            if (!ArriveAnchorRule(_arriveRecSet, _arriveRecField, _arriveRecSeenLanding, unchecked(_arriveLandTick - _arriveRecSeenTick), _arriveField,
++                                  _arriveGuardLanding))
++                return;
++            _arriveAnchored = true;
++            _arriveHsTick = _arriveRecTick;
++            _arriveLeadMs = unchecked(_arriveLandTick - _arriveRecTick);
++            _arriveLate = true;
++            ArriveCount(EvLateEdge);
++            if (_arriveLive && _arriveLeadMs < ArrivalLeadMs)
++                ArriveAnchorLine();
++        }
++
++        // `swap arrivebench`'s write: a bench host's section 4 for `fld` (IntentSectionBody, landed, a fresh nonce) through the REAL codec
++        // (AppendSection -> TryReadSection) into the live writer, as a bench record; `lead` = its tick's ms before my landing (the line).
++        // `afterLanding` (a negative lead) runs the late-edge path a live frame runs. A failed round trip throws (the caller's fault).
++        private static void ArriveBenchRecord(Int32 fld, Int32 tick, Int32 seenTick, Int32 seenLanding, Int32 lead, Boolean afterLanding)
++        {
++            Byte nonce = (Byte)(_arriveRecNonce + 1);  // never R's own nonce: ArriveHostEdgeRule would read the frame as a repeat
++            Byte[] frame = NetSyncState.AppendSection(null, NetSyncState.SectionIntent, IntentSectionBody(fld, nonce, true));
++            Byte[] body;
++            if (!NetSyncState.TryReadSection(frame, NetSyncState.SectionIntent, out body) || body == null || body.Length < 3)
++                throw new InvalidOperationException("the bench's section-4 codec round trip failed");
++            if (!ArriveRecordEdge(body, body[0] | (body[1] << 8), body[2], tick, seenTick, seenLanding, true))
++                throw new InvalidOperationException("the bench's section 4 read as no landed edge");
++            Log.Message("[NetSync] arrival guard: bench -- the host's landing on field " + fld + " written " + lead + " ms before mine (section 4 through "
++                        + "the real codec)" + Stamp());
++            if (afterLanding)
++                ArriveAfterEdge();
++        }
++
++        // ArriveCountRule on the guard as it stands (armed = _arriveLive): the counters and the per-landing latches.
++        private static void ArriveCount(Int32 ev)
++        {
++            Int32 c = ArriveCountRule(ev, _arriveLive, _arriveAnchored, _arriveLeadMs, _arriveArmCounted, _arriveLateCounted);
++            if ((c & CountArm) != 0)
++            {
++                _arriveArms++;
++                _arriveArmCounted = true;
++            }
++            if ((c & CountLateArm) != 0)
++            {
++                _arriveLateArms++;
++                _arriveLateCounted = true;
++            }
++            if ((c & CountUnanchored) != 0)
++                _arriveUnanchored++;
++        }
++
++        // The anchor line, at most once per landing (only an armed guard whose lead is under K reaches it): its in-time form at the
++        // landing, its late form at the first late edge.
++        private static void ArriveAnchorLine()
++        {
++            if (_arriveLogged)
++                return;
++            _arriveLogged = true;
++            Log.Message(_arriveLate
++                ? "[NetSync] arrival guard: field " + _arriveField + " -- the host's landing reached me " + (-(Int64)_arriveLeadMs) + " ms after mine (intent "
++                  + "nonce " + _arriveRecNonce + "); a wordless control-off counts toward the dwell from " + ArrivalLeadMs + " ms past its start" + Stamp()
++                : "[NetSync] arrival guard: field " + _arriveField + " -- the host landed " + _arriveLeadMs + " ms before me (intent nonce " + _arriveRecNonce
++                  + "); a wordless control-off counts toward the dwell from its landing + " + ArrivalLeadMs + " ms" + Stamp());
++        }
++
++        // GuestTick's FIRST statement (every client Update, before ServiceStepOut; every selftest tick, after it): `swap arrivebench`'s late
++        // write (a negative lead: the first tick at or after my landing + |lead|), then the episode's end (ArriveEndRule: a stale episode at
++        // framesSinceDwell 3, an active step-out at its first frame -- a client classifies an OUT one frame later; an unheld episode closes
++        // with no end), then the spend (ArriveSpendRule). Reads my user control (the EventEngine read SwapNoteHostFrame makes),
++        // NetSyncStepOut.Active / HarnessWhy and Time.frameCount. Idle: three bool reads. Never throws.
++        private static void ArriveTick(Int32 myField)
++        {
++            if (!_arriveLive && !_arriveEpOn && !_arriveBench)
++                return;
++            if (_arriveFaulted)
++                return;
++            try
++            {
++                Int32 now = Environment.TickCount;
++                if (_arriveBench && _arriveBenchLanding > 0 && _arriveBenchLanding == _arriveGuardLanding
++                    && unchecked(now - _arriveLandTick) >= -_arriveBenchLead)
++                {
++                    _arriveBench = false;
++                    _arriveBenchLanding = -1;
++                    ArriveBenchRecord(_arriveField, now, now, _arriveGuardLanding, unchecked(_arriveLandTick - now), true);
++                }
++                Boolean active = NetSyncStepOut.Active;
++                if (_arriveEpOn)
++                {
++                    Int32 frames = unchecked(UnityEngine.Time.frameCount - _arriveEpFrame);
++                    Int32 end = ArriveEndRule(_arriveEpHeld, frames, false, active, ArriveOutWhy());
++                    if (end != EndNone || active || frames > 2)
++                        EndArriveEpisode(end);
++                }
++                if (!_arriveLive)
++                    return;
++                EventEngine ee = PersistenSingleton<EventEngine>.Instance;
++                Boolean myCtl = ee == null || ee.GetUserControl();
++                if (myCtl)
++                {
++                    if (!_arriveBackArmed)
++                    {
++                        _arriveBackArmed = true;
++                        _arriveBackSince = now;         // tick-baseline law: armed bool + delta
++                    }
++                }
++                else
++                    _arriveBackArmed = false;
++                Int32 spend = ArriveSpendRule(_arriveLive, _arriveField, myField, myCtl, _arriveBackArmed ? unchecked(now - _arriveBackSince) : -1, active);
++                if (spend != SpendNone)
++                    SpendArrive(spend);
++            }
++            catch (Exception err)
++            {
++                ArriveFault("tick", err);
++            }
++        }
++
++        // NetSyncStepOut.HarnessWhy as its OutNames code (OutNone while no step-out is active).
++        private static Int32 ArriveOutWhy()
++        {
++            Int32 why = Array.IndexOf(NetSyncStepOut.OutNames, NetSyncStepOut.HarnessWhy);
++            return why > 0 ? why : NetSyncStepOut.OutNone;
++        }
++
++        // The spend: counted first (an armed guard whose landing never anchored: `unanchored`), then spent; the line only for a guard that
++        // printed its anchor line (battle returns, save loads and world rejoins stay quiet). `leadMs` stays for the report.
++        private static void SpendArrive(Int32 why)
++        {
++            ArriveCount(EvSpend);
++            _arriveLive = false;
++            if (why > 0 && why < _arriveSpends.Length)
++                _arriveSpends[why]++;
++            if (_arriveLogged)
++                Log.Message("[NetSync] arrival guard: spent on field " + _arriveField + " -- " + ArriveSpendWords(why) + Stamp());
++        }
++
++        private static String ArriveSpendWords(Int32 why)
++        {
++            switch (why)
++            {
++                case SpendControl: return "my control is back";
++                case SpendOut: return "a step-out started";
++                case SpendField: return "the field changed";
++                case SpendSession: return "the session reset";
++                default: return "?";
++            }
++        }
++
++        // An episode's classification: `last` takes its values and its end (EndNone = an unheld episode: no counter, no line); a held one
++        // counts its end and prints its end line.
++        private static void EndArriveEpisode(Int32 end)
++        {
++            _arriveEpOn = false;
++            _arriveLastField = _arriveEpField;
++            _arriveLastLead = _arriveEpLead;
++            _arriveLastEnd = end;
++            _arriveLastBase = _arriveEpBase;
++            _arriveLastDwell = _arriveEpDwell;
++            if (end <= EndNone || end >= _arriveEnds.Length)
++                return;
++            _arriveEnds[end]++;
++            Log.Message(ArriveEndLine(end, _arriveEpField, _arriveEpBase, _arriveEpDwell) + Stamp());
++        }
++
++        private static String ArriveEndLine(Int32 end, Int32 fld, Int32 baseMs, Int32 dwellMs)
++        {
++            String head = "[NetSync] arrival guard: field " + fld + " -- ";
++            switch (end)
++            {
++                case EndSpared: return head + "spared a dwell OUT (base " + baseMs + " ms, guarded dwell " + dwellMs + " ms)";
++                case EndDelayed: return head + "held the dwell OUT " + unchecked(baseMs - dwellMs) + " ms (it stepped out at base " + baseMs + " ms)";
++                case EndLine: return head + "a line started the step-out at base " + baseMs + " ms (guarded dwell " + dwellMs + " ms)";
++                default: return head + "s162's ATE landing started the step-out at base " + baseMs + " ms (guarded dwell " + dwellMs + " ms)";
++            }
++        }
++
++        // NetSyncStepOut.Tick's ONE behaviour hunk (the StartRule call, while the base holds and no step-out is active): the age StartRule
++        // reads. `baseAgeMs` unchanged unless the guard holds (ArriveHoldsRule: armed, not spent, anchored, on its own field) and no fault
++        // is set; else ArriveDwellAgeRule with sinceHost = now - Hs. When neither a line nor s162's landing decided (`decided`), the episode
++        // is recorded -- a different base start is a new base, so the old episode ends first (ArriveEndRule's re-armed base) -- and the held
++        // line prints once (ArriveHeldRule). Its own try: a throw sets the sticky fault, is logged once (item ARRIVE) and returns baseAgeMs
++        // (s158's rule). One bool read for a guest with no live guard.
++        internal static Int32 ArriveDwellAge(Int32 fld, Int32 now, Int32 baseAgeMs, Boolean decided)
++        {
++            if (!_arriveLive || _arriveFaulted)
++                return baseAgeMs;
++            try
++            {
++                if (!ArriveHoldsRule(_arriveLive, _arriveAnchored, _arriveField, fld))
++                    return baseAgeMs;
++                Int32 dwell = ArriveDwellAgeRule(true, baseAgeMs, unchecked(now - _arriveHsTick));
++                if (decided)
++                    return dwell;
++                Int32 baseStart = unchecked(now - baseAgeMs);
++                if (_arriveEpOn && baseStart != _arriveEpBaseStart)
++                    EndArriveEpisode(ArriveEndRule(_arriveEpHeld, 0, true, false, NetSyncStepOut.OutNone));
++                if (!_arriveEpOn)
++                {
++                    _arriveEpOn = true;
++                    _arriveEpHeld = false;
++                    _arriveEpBaseStart = baseStart;
++                    _arriveEpField = fld;
++                }
++                _arriveEpFrame = UnityEngine.Time.frameCount;
++                _arriveEpBase = baseAgeMs;
++                _arriveEpDwell = dwell;
++                _arriveEpLead = _arriveLeadMs;
++                if (ArriveHeldRule(_arriveEpHeld, baseAgeMs, dwell))
++                {
++                    _arriveEpHeld = true;
++                    _arriveHeld++;
++                    Log.Message("[NetSync] arrival guard: held the dwell on field " + fld + " -- the base is " + baseAgeMs + " ms, its guarded dwell " + dwell
++                                + " ms (s158 would step out here)" + Stamp());
++                }
++                return dwell;
++            }
++            catch (Exception err)
++            {
++                ArriveFault("dwell", err);
++                return baseAgeMs;
++            }
++        }
++
++        // ResetSession and ForgetHostNonce ("session"): a live guard is spent (SpendSession) and R is forgotten -- the guard already copied
++        // its anchor, so nothing it decided changes; the bench's arm is the release's. Never throws.
++        internal static void ForgetArrive(String why)
++        {
++            try
++            {
++                if (_arriveLive && !_arriveFaulted)
++                    SpendArrive(SpendSession);
++                ForgetArriveRecord();
++            }
++            catch (Exception err)
++            {
++                ArriveFault("forget " + why, err);
++            }
++        }
++
++        private static void ForgetArriveRecord()
++        {
++            _arriveRecSet = false;
++            _arriveRecBench = false;
++            _arriveRecField = -1;
++            _arriveRecNonce = -1;
++            _arriveRecSeenLanding = -1;
++            _arriveRecSeenT = -1;
++        }
++
++        // ReleaseLevers (`swap clear` and the release): the bench forgotten, and the record it wrote (never a live host's own). A guard it
++        // anchored keeps its copy (R's replacement never touches it).
++        private static void ForgetArriveBench()
++        {
++            _arriveBench = false;
++            _arriveBenchLead = 0;
++            _arriveBenchLanding = -1;
++            if (_arriveRecSet && _arriveRecBench)
++                ForgetArriveRecord();
++        }
++
++        // The sticky fault: the guard disarmed, the episode and the bench dropped, every entry point inert from here (s158's rule).
++        private static void ArriveFault(String site, Exception err)
++        {
++            _arriveFaulted = true;
++            _arriveLive = false;
++            _arriveEpOn = false;
++            _arriveBench = false;
++            _arriveBenchLanding = -1;
++            NoteFault(ItemArrive, site, err, "s158's dwell from the base start from here");
++        }
++
 +        // StartFollowWarp (the serial follow, the intent follow, the bench's): the follow edge. Returns its t (the caller's _followStartT and
 +        // its line's stamp).
 +        internal static Int64 NoteFollow(Int32 dest, Int32 via, Int32 myField)
@@ -4626,6 +5271,7 @@ index e69de29..36c787a 100644
 +        // JoinRule(Land). L-LAND prints when the landing joined a record or came by a writer.
 +        internal static void OnFieldLoad(Int32 fld)
 +        {
++            ArriveLanding(fld);                         // [ff9mapkit netsync s164] THE ARRIVAL GUARD: FIRST, at every landing (its own try; before the unjoined return)
 +            Int64 t = NowMs();
 +            try
 +            {
@@ -4931,9 +5577,10 @@ index e69de29..36c787a 100644
 +        // ================================================================ the harness: `netsync swap <op> [arg]` (HarnessAgent's `swap` case)
 +
 +        private const String Usage = "netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, orphan act|old, own act|old|nocache, "
-+                                     + "pin act|old or fade act|old|long|nogate|norecheck|nohurry (a client or the selftest role); life act|old (the host or "
-+                                     + "the selftest role); hostctl off|on, intent <field>, cache <field>, pinbench <field> <flag> [age <ms>] [landed] "
-+                                     + "[party <slot> <char>] [to <field>], lifebench <field> or blackout <1-255>|off (the selftest role)";
++                                     + "pin act|old, fade act|old|long|nogate|norecheck|nohurry or arrive act|old (a client or the selftest role); life act|old "
++                                     + "(the host or the selftest role); hostctl off|on, intent <field>, cache <field>, pinbench <field> <flag> [age <ms>] "
++                                     + "[landed] [party <slot> <char>] [to <field>], lifebench <field>, blackout <1-255>|off or arrivebench <lead_ms> (the "
++                                     + "selftest role)";   // [ff9mapkit netsync s164] + arrive, arrivebench
 +        private const Int32 OpUnknown = 0, OpAny = 1, OpGuest = 2, OpHost = 3, OpBench = 4;
 +        internal const Int32 MaxStoryFlag = 2048 * 8 - 1;   // gEventGlobal's last bit (`pinbench <flag>`)
 +
@@ -4949,6 +5596,7 @@ index e69de29..36c787a 100644
 +                case "own":
 +                case "pin":
 +                case "fade":
++                case "arrive":                          // [ff9mapkit netsync s164] THE ARRIVAL GUARD
 +                    return OpGuest;
 +                case "life":
 +                    return OpHost;
@@ -4958,6 +5606,7 @@ index e69de29..36c787a 100644
 +                case "pinbench":
 +                case "lifebench":
 +                case "blackout":
++                case "arrivebench":                     // [ff9mapkit netsync s164] THE ARRIVAL GUARD
 +                    return OpBench;
 +                default:
 +                    return OpUnknown;
@@ -5129,6 +5778,24 @@ index e69de29..36c787a 100644
 +                        if (args.Length != 3 || !ParseField(args[2], out n))
 +                            break;
 +                        return BenchLife(n, out why);          // [ff9mapkit netsync s164] LIFE
++                    case "arrive":                      // [ff9mapkit netsync s164] THE ARRIVAL GUARD: read at my next landing (set it before the warp)
++                        if (args.Length != 3 || (a2 != "act" && a2 != "old"))
++                            break;
++                        _arriveOld = a2 == "old";
++                        Log.Message(_arriveOld
++                            ? "[NetSync] harness: swap arrive OLD -- CALIBRATION: s158's dwell from the base start at every landing, no arrival guard "
++                              + "(released with the harness)"
++                            : "[NetSync] harness: swap arrive ACT");
++                        return true;
++                    case "arrivebench":                 // [ff9mapkit netsync s164] THE ARRIVAL GUARD: one-shot at my next landing (ArriveLanding / ArriveTick)
++                        if (args.Length != 3 || !ParseInt(args[2], ArriveBenchMinMs, ArriveBenchMaxMs, out n))
++                            break;
++                        _arriveBench = true;
++                        _arriveBenchLead = n;
++                        _arriveBenchLanding = -1;
++                        Log.Message("[NetSync] harness: swap arrivebench " + n + " -- my next landing gets a bench host that landed " + n
++                                    + " ms before me (the selftest role; released with the harness)");
++                        return true;
 +                    case "blackout":
 +                    {
 +                        if (args.Length != 3 || (a2 != "off" && !ParseInt(args[2], 1, 255, out n)))
@@ -5251,7 +5918,8 @@ index e69de29..36c787a 100644
 +                              || _blackout || _pinBenchMirror
 +                              || (_icBench && _icField > 0)    // [ff9mapkit netsync s164] C: a bench cache standing
 +                              || _lifeBench                    // [ff9mapkit netsync s164] LIFE: the life bench armed
-+                              || PinBenchSet;                  // [ff9mapkit netsync s164] PIN: the pin bench armed, or a pin it captured held
++                              || PinBenchSet                   // [ff9mapkit netsync s164] PIN: the pin bench armed, or a pin it captured held
++                              || _arriveOld || _arriveBench || (_arriveRecSet && _arriveRecBench);   // [ff9mapkit netsync s164] THE ARRIVAL GUARD
 +                Boolean mirror = ReleaseLevers();
 +                if (any)
 +                    Log.Message("[NetSync] harness: swap levers released (every lever act, stamps on, delay 0, the bench host's control on, bench state "
@@ -5282,6 +5950,8 @@ index e69de29..36c787a 100644
 +                NetSyncClient.EndLifeBench();           // as `reset` (gated on the bench's own site, never on the role; never throws)
 +            }
 +            ForgetPinBench();                           // [ff9mapkit netsync s164] PIN: the pin bench and the pins it captured (never a live guest's own)
++            _arriveOld = false;                         // [ff9mapkit netsync s164] THE ARRIVAL GUARD: the lever (read at the next landing), the bench and
++            ForgetArriveBench();                        // the record it wrote (never a live host's own)
 +            if (_blackout)
 +            {
 +                _blackout = false;
@@ -5413,6 +6083,43 @@ index e69de29..36c787a 100644
 +        internal static Boolean HarnessPinBenchLanded { get { return _pinBenchLanded; } }
 +        internal static Int64 HarnessPinBenchSlot { get { return _pinBenchSlot; } }
 +        internal static Int64 HarnessPinBenchChar { get { return _pinBenchChar; } }
++
++        // [ff9mapkit netsync s164] THE ARRIVAL GUARD: `netsync.swap.arrive` -- the guard (armed = armed and not spent; field / land_t its
++        // landing; lead_ms G - Hs, negative when late), R (age_ms = now - its tick, the anchor), the episode (on = a hold ran in the last 2
++        // frames; its values null while off), the last classified episode, the counters (read DELTAS) and the bench. ArriveNullMs =
++        // Int64.MinValue = HarnessAgent's NullNum: the key publishes null.
++        internal const Int64 ArriveNullMs = Int64.MinValue;
++        internal static String HarnessArriveLever { get { return _arriveOld ? "old" : null; } }
++        internal static Boolean HarnessArriveArmed { get { return _arriveLive; } }
++        internal static Int64 HarnessArriveField { get { return _arriveField; } }
++        internal static Int64 HarnessArriveLandT { get { return _arriveLandT; } }
++        internal static Int64 HarnessArriveLeadMs { get { return _arriveLeadMs == LeadNone ? ArriveNullMs : _arriveLeadMs; } }
++        internal static Boolean HarnessArriveLate { get { return _arriveLate; } }
++        internal static Int64 HarnessArriveHostField { get { return _arriveRecSet ? _arriveRecField : -1; } }
++        internal static Int64 HarnessArriveHostNonce { get { return _arriveRecSet ? _arriveRecNonce : -1; } }
++        internal static Int64 HarnessArriveHostSeenT { get { return _arriveRecSet ? _arriveRecSeenT : -1; } }
++        internal static Int64 HarnessArriveHostAgeMs { get { return _arriveRecSet ? (Int64)unchecked(Environment.TickCount - _arriveRecTick) : -1; } }
++        internal static Boolean HarnessArriveHostBench { get { return _arriveRecSet && _arriveRecBench; } }
++        internal static Boolean HarnessArriveEpisodeOn { get { return _arriveEpOn && unchecked(UnityEngine.Time.frameCount - _arriveEpFrame) <= 2; } }
++        internal static Boolean HarnessArriveEpisodeHeld { get { return HarnessArriveEpisodeOn && _arriveEpHeld; } }
++        internal static Int64 HarnessArriveEpisodeBaseMs { get { return HarnessArriveEpisodeOn ? _arriveEpBase : ArriveNullMs; } }
++        internal static Int64 HarnessArriveEpisodeDwellMs { get { return HarnessArriveEpisodeOn ? _arriveEpDwell : ArriveNullMs; } }
++        internal static Int64 HarnessArriveEpisodeShiftMs { get { return HarnessArriveEpisodeOn ? (Int64)_arriveEpBase - _arriveEpDwell : ArriveNullMs; } }
++        internal static Int64 HarnessArriveLastField { get { return _arriveLastField; } }
++        internal static Int64 HarnessArriveLastLeadMs { get { return _arriveLastField > 0 && _arriveLastLead != LeadNone ? _arriveLastLead : ArriveNullMs; } }
++        internal static String HarnessArriveLastEnd { get { return _arriveLastField > 0 ? NameOf(ArriveEndNames, _arriveLastEnd) : null; } }
++        internal static Int64 HarnessArriveLastBaseMs { get { return _arriveLastField > 0 ? _arriveLastBase : ArriveNullMs; } }
++        internal static Int64 HarnessArriveLastDwellMs { get { return _arriveLastField > 0 ? _arriveLastDwell : ArriveNullMs; } }
++        internal static Int64 HarnessArriveLastShiftMs { get { return _arriveLastField > 0 ? (Int64)_arriveLastBase - _arriveLastDwell : ArriveNullMs; } }
++        internal static Int64 HarnessArriveArms { get { return _arriveArms; } }
++        internal static Int64 HarnessArriveLateArms { get { return _arriveLateArms; } }
++        internal static Int64 HarnessArriveUnanchored { get { return _arriveUnanchored; } }
++        internal static Int64 HarnessArriveWorld { get { return _arriveWorld; } }
++        internal static Int64 HarnessArriveHeld { get { return _arriveHeld; } }
++        internal static Int64 HarnessArriveEnds(Int32 end) { return end > EndNone && end < _arriveEnds.Length ? _arriveEnds[end] : 0; }
++        internal static Int64 HarnessArriveSpends(Int32 why) { return why > SpendNone && why < _arriveSpends.Length ? _arriveSpends[why] : 0; }
++        internal static Boolean HarnessArriveBenchArmed { get { return _arriveBench; } }
++        internal static Int64 HarnessArriveBenchLeadMs { get { return _arriveBench ? _arriveBenchLead : ArriveNullMs; } }
 +
 +        internal static Int64 HarnessSeenNonce { get { return _seenNonce; } }
 +        internal static Int64 HarnessSeenField { get { return _seenField; } }
@@ -6687,6 +7394,263 @@ index e69de29..36c787a 100644
 +                   && ((NetSyncClient.HostFlagReads(v.Flags) & NetSyncClient.HrOnField) != 0) == ((v.Flags & NetSyncDialog.HfOnField) != 0);
 +        }
 +
++        // ---------------------------------------------------------------- THE ARRIVAL GUARD's proof ([ff9mapkit netsync s164],
++        // ARRIVAL-GUARD-S164.md "SelfTest": D+E's shape -- its own rule set, rows and mutants -- inside this file)
++
++        private delegate Boolean ArriveEdgeFn(Int32 lastNonce, Int32 lastField, Int32 nonce, Int32 field, Boolean landed);
++        private delegate Boolean ArriveAnchorFn(Boolean rSet, Int32 rField, Int32 rSeenLanding, Int32 rSinceMs, Int32 fld, Int32 landing);
++        private delegate Int32 ArriveSpendFn(Boolean armed, Int32 armField, Int32 fld, Boolean myCtl, Int32 ctlBackMs, Boolean stepOutActive);
++        private delegate Int32 ArriveEndFn(Boolean held, Int32 framesSinceDwell, Boolean newBase, Boolean stepOutActive, Int32 outWhy);
++        private delegate Int32 ArriveCountFn(Int32 ev, Boolean armed, Boolean anchored, Int32 leadMs, Boolean armCounted, Boolean lateCounted);
++
++        // The guard's rule set: its seams are named for its rules, never `Age` (Rules.Age is PIN's PinAgeRule). DwellAge carries a fourth
++        // input the shipped body ignores -- sinceMine, the ms since MY landing -- so decision 8's two rejected readings can be mutants
++        // (arrive_literal_lag: the origin 2G - Hs; arrive_from_my_landing: G + K), each a one-line reversal of the reading taken.
++        private sealed class ArriveRules
++        {
++            public Func<Byte[], Boolean> Seen = HostLandSeenOf;
++            public ArriveEdgeFn Edge = ArriveHostEdgeRule;
++            public Func<Boolean, Boolean, Boolean, Int32> Arm = ArriveArmRule;
++            public ArriveAnchorFn Anchor = ArriveAnchorRule;
++            public Func<Boolean, Boolean, Int32, Int32, Boolean> Holds = ArriveHoldsRule;
++            public Func<Boolean, Int32, Int32, Int32, Int32> DwellAge = (holds, baseAgeMs, sinceHostMs, sinceMineMs) => ArriveDwellAgeRule(holds, baseAgeMs, sinceHostMs);
++            public Func<Boolean, Int32, Int32, Boolean> Held = ArriveHeldRule;
++            public ArriveSpendFn Spend = ArriveSpendRule;
++            public ArriveEndFn End = ArriveEndRule;
++            public ArriveCountFn Count = ArriveCountRule;
++        }
++
++        // The guard's rows (K = 1040, D = 1500, S = 500; my field 30611, another 353; n = the landing number, 5 in every Anchor row; the
++        // twins' ids): Seen, Edge, Arm, Anchor, Holds, DwellAge (its four properties: never earlier than s158, never more than K past the
++        // base's start, inert past Hs + K, s158 exactly at s163's lag; `wrap` reads 1600 through the unchecked delta), the composition with
++        // the REAL NetSyncStepOut.StartRule (a line and `ate` still win before any age), Held, Spend, End, Count -- then live.arrive_codec
++        // (the REAL codec and rules, no seam: no mutant decides it).
++        private static Int32 RowsArrive(ArriveRules r, List<String> fails)
++        {
++            Int32 n = 0;
++            Action<Boolean, String> row = (ok, name) => { n++; if (!ok) fails.Add(name); };
++            const Boolean T = true, F = false;
++            const Int32 A = 30611, O = 353, N = 5;
++            const Int32 ON = NetSyncStepOut.OutNone, OD = NetSyncStepOut.OutDwell, OL = NetSyncStepOut.OutLine, OA = NetSyncStepOut.OutAte;
++            // HostLandSeenOf (section 4's body: 30611 LE, nonce 7, the flags byte)
++            Byte[] landed = { 147, 119, 7, 0x01 }, pre = { 147, 119, 7, 0x00 }, s163 = { 147, 119, 7 }, other = { 147, 119, 7, 0x02 },
++                   bits = { 147, 119, 7, 0x03 };
++            row(r.Seen(landed), "seen.landed");
++            row(!r.Seen(pre), "seen.pre");
++            row(!r.Seen(s163) && IntentLandedOf(s163), "seen.s163");           // PIN's fail-safe reads it landed; here it would anchor early
++            row(!r.Seen(null), "seen.null");
++            row(!r.Seen(other), "seen.other_bit");
++            row(r.Seen(bits), "seen.bits");
++            // ArriveHostEdgeRule (last nonce, last field, nonce, field, landed)
++            row(r.Edge(-1, -1, 7, A, T), "edge.first");
++            row(!r.Edge(7, A, 7, A, T), "edge.same");
++            row(r.Edge(7, A, 8, A, T), "edge.next_nonce");
++            row(r.Edge(7, O, 7, A, T), "edge.chain");
++            row(!r.Edge(-1, -1, 7, A, F), "edge.pre");
++            row(!r.Edge(7, A, -1, A, T), "edge.no_section");
++            row(!r.Edge(7, A, 7, 0, T), "edge.field0");
++            // ArriveArmRule (role ok, the lever old, from the world map)
++            row(r.Arm(T, F, F) == ArmOn, "arm.act");
++            row(r.Arm(T, T, F) == ArmLever, "arm.lever");
++            row(r.Arm(F, F, F) == ArmRole, "arm.role");
++            row(r.Arm(T, F, T) == ArmWorld, "arm.world");
++            row(r.Arm(T, T, T) == ArmLever, "arm.lever_first");
++            // ArriveAnchorRule (R set, R's field, the landing R was seen in, ms from R's seen tick to my landing, my field, my landing)
++            row(r.Anchor(T, A, 4, 600, A, N), "anchor.in_time");
++            row(r.Anchor(T, A, 5, -400, A, N), "anchor.late");
++            row(!r.Anchor(T, A, 3, 600, A, N), "anchor.stale");
++            row(!r.Anchor(T, O, 4, 600, A, N), "anchor.other_field");
++            row(!r.Anchor(F, A, 4, 600, A, N), "anchor.none");
++            row(!r.Anchor(T, A, 4, 10000, A, N), "anchor.old");
++            row(r.Anchor(T, A, 4, 9999, A, N), "anchor.old_edge");
++            // ArriveHoldsRule (armed, anchored, the guard's field, my field)
++            row(r.Holds(T, T, A, A), "holds.all");
++            row(!r.Holds(F, T, A, A), "holds.unarmed");
++            row(!r.Holds(T, F, A, A), "holds.unanchored");
++            row(!r.Holds(T, T, O, A), "holds.arm_field");
++            // DwellAge (holds, the base age, since the host's landing, since my landing)
++            row(r.DwellAge(F, 1600, 0, 0) == 1600, "dwellage.identity");
++            row(r.DwellAge(T, 1750, 2300, 1800) == 1260, "dwellage.arrive");
++            row(r.DwellAge(T, 1750, 1720, 1800) == 710, "dwellage.arrive_late");             // the cap
++            row(r.DwellAge(T, 1990, 2540, 2040) == 1500, "dwellage.scene_out");
++            row(r.DwellAge(T, 1989, 2539, 2039) == 1499, "dwellage.scene_edge");
++            row(r.DwellAge(T, 1500, 2700, 1550) == 1500, "dwellage.inert");
++            row(r.DwellAge(T, 800, 5000, 4900) == 800, "dwellage.never_earlier");
++            row(r.DwellAge(T, 2540, 2190, 2590) == 1500, "dwellage.cap_out");
++            row(r.DwellAge(T, 2539, 2189, 2589) == 1499, "dwellage.cap_edge");
++            row(r.DwellAge(T, 1600, -50000, 1650) == 560, "dwellage.future");
++            row(r.DwellAge(T, 1750, 2000, 1800) == 960, "dwellage.own_pass");                // an own pass read in time
++            row(r.DwellAge(T, 1500, 2590, 1550) == 1500, "dwellage.fade_old");
++            row(r.DwellAge(T, 1600, Int32.MinValue, 1650) == 1600, "dwellage.wrap");         // the delta wraps positive: inert
++            // the composition: the REAL StartRule on the guarded age
++            row(NetSyncStepOut.StartRule(F, r.DwellAge(T, 1750, 2300, 1800), F) == ON, "start.arrive_act");
++            row(NetSyncStepOut.StartRule(F, r.DwellAge(F, 1750, 2300, 1800), F) == OD, "start.arrive_old");
++            row(NetSyncStepOut.StartRule(T, r.DwellAge(T, 0, 0, 0), F) == OL, "start.line");
++            row(NetSyncStepOut.StartRule(F, r.DwellAge(T, 0, 0, 0), T) == OA, "start.ate");
++            // ArriveHeldRule (held already, the base age, the guarded dwell)
++            row(r.Held(F, 1500, 1000), "held.first");
++            row(!r.Held(T, 1600, 1100), "held.once");
++            row(!r.Held(F, 1499, 1000), "held.under");
++            row(!r.Held(F, 1500, 1500), "held.not_held");
++            // ArriveSpendRule (armed, the guard's field, my field, my control, ms it has been back, a step-out active)
++            row(r.Spend(T, A, A, F, -1, F) == SpendNone, "spend.none");
++            row(r.Spend(T, A, A, T, 499, F) == SpendNone, "spend.debounce");
++            row(r.Spend(T, A, A, T, 500, F) == SpendControl, "spend.control");
++            row(r.Spend(T, A, O, F, -1, F) == SpendField, "spend.left");
++            row(r.Spend(T, A, A, F, -1, T) == SpendOut, "spend.out");
++            row(r.Spend(F, A, O, T, 600, T) == SpendNone, "spend.unarmed");
++            row(r.Spend(T, A, O, T, 600, T) == SpendField, "spend.order");
++            // ArriveEndRule (held, frames since the dwell ran, a new base, a step-out active, its why)
++            row(r.End(T, 2, F, F, ON) == EndNone, "end.flicker");
++            row(r.End(T, 3, F, F, ON) == EndSpared, "end.stale");
++            row(r.End(T, 1, T, F, ON) == EndSpared, "end.rebase");
++            row(r.End(T, 1, F, T, OD) == EndDelayed, "end.out_dwell");
++            row(r.End(T, 1, F, T, OL) == EndLine, "end.out_line");
++            row(r.End(T, 1, F, T, OA) == EndAte, "end.out_ate");
++            row(r.End(T, 1, T, T, OD) == EndDelayed, "end.out_over_rebase");
++            row(r.End(F, 3, T, T, OD) == EndNone, "end.unheld");
++            // ArriveCountRule (event, armed, anchored, the lead, arms counted, late_arms counted)
++            row(r.Count(EvLanding, T, T, 600, F, F) == CountArm, "count.landing_arm");
++            row(r.Count(EvLanding, T, T, 1040, F, F) == CountNone, "count.landing_far");
++            row(r.Count(EvLanding, T, F, LeadNone, F, F) == CountNone, "count.landing_unanchored");
++            row(r.Count(EvLateEdge, T, T, -400, F, F) == (CountArm | CountLateArm), "count.late_first");
++            row(r.Count(EvLateEdge, T, T, -300, T, T) == CountNone, "count.late_again");
++            row(r.Count(EvLateEdge, T, T, -300, T, F) == CountLateArm, "count.late_after_arm");
++            row(r.Count(EvSpend, T, F, LeadNone, F, F) == CountUnanchored, "count.spend_unanchored");
++            row(r.Count(EvSpend, T, T, 600, T, F) == CountNone, "count.spend_anchored");
++            row(r.Count(EvSpend, F, F, LeadNone, F, F) == CountNone, "count.unarmed");
++            // live.arrive_codec
++            row(ArriveCodecRow(), "live.arrive_codec");
++            return n;
++        }
++
++        // live.arrive_codec: IntentSectionBody(30611, 7, true) and (..., false), and an s163-shaped 3-byte section, each through the REAL
++        // AppendSection -> TryReadSection, then the REAL HostLandSeenOf and ArriveHostEdgeRule (no R yet: -1, -1).
++        private static Boolean ArriveCodecRow()
++        {
++            try
++            {
++                Byte[][] frames =
++                {
++                    NetSyncState.AppendSection(null, NetSyncState.SectionIntent, IntentSectionBody(30611, 7, true)),
++                    NetSyncState.AppendSection(null, NetSyncState.SectionIntent, IntentSectionBody(30611, 7, false)),
++                    NetSyncState.AppendSection(null, NetSyncState.SectionIntent, new Byte[] { 147, 119, 7 }),
++                };
++                Int32[] lengths = { 4, 4, 3 };
++                Boolean[] lands = { true, false, false };
++                for (Int32 k = 0; k < frames.Length; k++)
++                {
++                    Byte[] body;
++                    if (!NetSyncState.TryReadSection(frames[k], NetSyncState.SectionIntent, out body) || body == null || body.Length != lengths[k])
++                        return false;
++                    Int32 field = body[0] | (body[1] << 8);
++                    Boolean seen = HostLandSeenOf(body);
++                    if (field != 30611 || body[2] != 7 || seen != lands[k] || ArriveHostEdgeRule(-1, -1, body[2], field, seen) != lands[k])
++                        return false;
++                    if (k == 2 && !IntentLandedOf(body))
++                        return false;                   // PIN's fail-safe still reads the s163 body landed
++                }
++                return true;
++            }
++            catch (Exception)
++            {
++                return false;
++            }
++        }
++
++        // The guard's mutants, each a rejected rule the guard's rows must catch (the design's table, every one; the row that kills it in
++        // the trailing comment).
++        private static ArriveRules MutantArrive(String name)
++        {
++            ArriveRules m = new ArriveRules();
++            switch (name)
++            {
++                case "arrive_s163_body_lands": m.Seen = IntentLandedOf; break;                                                      // seen.s163
++                case "arrive_any_bit": m.Seen = b => b != null && b.Length >= 4 && b[3] != 0; break;                                // seen.other_bit
++                case "arrive_every_landed_frame": m.Edge = (ln, lf, nc, f, l) => l && nc >= 0 && f > 0; break;                      // edge.same
++                case "arrive_pre_landing_records": m.Edge = (ln, lf, nc, f, l) => ArriveHostEdgeRule(ln, lf, nc, f, true); break;   // edge.pre
++                case "arrive_lever_blind": m.Arm = (ro, lo, w) => ArriveArmRule(ro, false, w); break;                               // arm.lever
++                case "arrive_on_host": m.Arm = (ro, lo, w) => ArriveArmRule(true, lo, w); break;                                    // arm.role
++                case "arrive_from_world": m.Arm = (ro, lo, w) => ArriveArmRule(ro, lo, false); break;                               // arm.world
++                case "arrive_stale_record_anchors": m.Anchor = (s, f, sl, since, fld, ln) =>                                        // anchor.stale: no landing test
++                    s && fld > 0 && f == fld && (sl == ln || since < IntentLoadCapMs); break;
++                case "arrive_anchor_field_blind": m.Anchor = (s, f, sl, since, fld, ln) => ArriveAnchorRule(s, fld, sl, since, fld, ln); break;   // anchor.other_field
++                case "arrive_late_never_anchors": m.Anchor = (s, f, sl, since, fld, ln) => sl != ln && ArriveAnchorRule(s, f, sl, since, fld, ln); break;   // anchor.late
++                case "arrive_anchor_no_window": m.Anchor = (s, f, sl, since, fld, ln) => ArriveAnchorRule(s, f, sl, 0, fld, ln); break;   // anchor.old
++                case "arrive_unarmed_holds": m.Holds = (a, an, af, fld) => ArriveHoldsRule(true, an, af, fld); break;               // holds.unarmed
++                case "arrive_unanchored_holds": m.Holds = (a, an, af, fld) => ArriveHoldsRule(a, true, af, fld); break;             // holds.unanchored
++                case "arrive_arm_field_blind": m.Holds = (a, an, af, fld) => ArriveHoldsRule(a, an, fld, fld); break;               // holds.arm_field
++                // DwellAge: h holds, b the base age, sh since the host's landing, sm since my landing
++                case "arrive_no_lead": m.DwellAge = (h, b, sh, sm) =>                                                               // dwellage.arrive: sinceHost unshifted
++                    h ? Math.Min(b, Math.Max(sh, unchecked(b - ArrivalLeadMs))) : b; break;
++                case "arrive_add_lead_always": m.DwellAge = (h, b, sh, sm) => h ? unchecked(b - ArrivalLeadMs) : b; break;          // dwellage.inert, fade_old: origin B + K
++                case "arrive_max_not_min": m.DwellAge = (h, b, sh, sm) =>                                                           // dwellage.never_earlier
++                    h ? Math.Max(b, Math.Max(unchecked(sh - ArrivalLeadMs), unchecked(b - ArrivalLeadMs))) : b; break;
++                case "arrive_no_cap": m.DwellAge = (h, b, sh, sm) => h ? Math.Min(b, unchecked(sh - ArrivalLeadMs)) : b; break;     // dwellage.arrive_late, cap_out, future
++                case "arrive_literal_lag": m.DwellAge = (h, b, sh, sm) =>                                                           // dwellage.own_pass, fade_old: origin 2G - Hs
++                    h ? Math.Min(b, Math.Max(unchecked(2 * sm - sh), unchecked(b - ArrivalLeadMs))) : b; break;
++                case "arrive_from_my_landing": m.DwellAge = (h, b, sh, sm) =>                                                       // dwellage.fade_old, arrive: origin G + K
++                    h ? Math.Min(b, Math.Max(unchecked(sm - ArrivalLeadMs), unchecked(b - ArrivalLeadMs))) : b; break;
++                case "arrive_age_long_math": m.DwellAge = (h, b, sh, sm) =>                                                         // dwellage.wrap: Int64, no wrap
++                    h ? (Int32)Math.Min((Int64)b, Math.Max((Int64)sh - ArrivalLeadMs, (Int64)b - ArrivalLeadMs)) : b; break;
++                case "arrive_held_every_tick": m.Held = (ha, b, d) => ArriveHeldRule(false, b, d); break;                           // held.once
++                case "arrive_spend_no_debounce": m.Spend = (a, af, f, c, bk, o) =>                                                  // spend.debounce
++                    ArriveSpendRule(a, af, f, c, c ? NetSyncStepOut.StepInMs : bk, o); break;
++                case "arrive_never_spent": m.Spend = (a, af, f, c, bk, o) => SpendNone; break;                                      // spend.control
++                case "arrive_spend_field_blind": m.Spend = (a, af, f, c, bk, o) => ArriveSpendRule(a, af, af, c, bk, o); break;     // spend.left
++                case "arrive_out_blind": m.Spend = (a, af, f, c, bk, o) => ArriveSpendRule(a, af, f, c, bk, false); break;          // spend.out
++                case "arrive_end_line_as_delayed": m.End = (h, fs, nb, o, w) =>                                                     // end.out_line
++                    ArriveEndRule(h, fs, nb, o, w == NetSyncStepOut.OutLine ? NetSyncStepOut.OutDwell : w); break;
++                case "arrive_end_ate_unclassified": m.End = (h, fs, nb, o, w) =>                                                    // end.out_ate
++                    ArriveEndRule(h, fs, nb, o, w == NetSyncStepOut.OutAte ? NetSyncStepOut.OutLine : w); break;
++                case "arrive_end_spared_on_flicker": m.End = (h, fs, nb, o, w) => ArriveEndRule(h, fs >= 2 ? 3 : fs, nb, o, w); break;   // end.flicker: threshold >= 2
++                case "arrive_end_rebase_blind": m.End = (h, fs, nb, o, w) => ArriveEndRule(h, fs, false, o, w); break;              // end.rebase
++                case "arrive_end_rebase_first": m.End = (h, fs, nb, o, w) => h && nb ? EndSpared : ArriveEndRule(h, fs, nb, o, w); break;   // end.out_over_rebase
++                case "arrive_end_unheld_classified": m.End = (h, fs, nb, o, w) => ArriveEndRule(true, fs, nb, o, w); break;         // end.unheld
++                case "arrive_count_arm_far": m.Count = (e, a, an, l, ac, lc) =>                                                     // count.landing_far: no lead < K
++                    ArriveCountRule(e, a, an, e == EvLanding ? Math.Min(l, ArrivalLeadMs - 1) : l, ac, lc); break;
++                case "arrive_count_late_every_edge": m.Count = (e, a, an, l, ac, lc) => ArriveCountRule(e, a, an, l, ac, false); break;   // count.late_again
++                case "arrive_count_late_never": m.Count = (e, a, an, l, ac, lc) => ArriveCountRule(e, a, an, l, ac, lc) & ~CountLateArm; break;   // count.late_first, late_after_arm
++                case "arrive_count_unanchored_with_record": m.Count = (e, a, an, l, ac, lc) =>                                      // count.spend_anchored
++                    ArriveCountRule(e, a, e == EvSpend ? false : an, l, ac, lc); break;
++                case "arrive_count_unarmed": m.Count = (e, a, an, l, ac, lc) => ArriveCountRule(e, true, an, l, ac, lc); break;     // count.unarmed
++            }
++            return m;
++        }
++
++        private static readonly String[] ArriveMutantNames = { "arrive_s163_body_lands", "arrive_any_bit", "arrive_every_landed_frame",
++                                                               "arrive_pre_landing_records", "arrive_lever_blind", "arrive_on_host", "arrive_from_world",
++                                                               "arrive_stale_record_anchors", "arrive_anchor_field_blind", "arrive_late_never_anchors",
++                                                               "arrive_anchor_no_window", "arrive_unarmed_holds", "arrive_unanchored_holds",
++                                                               "arrive_arm_field_blind", "arrive_no_lead", "arrive_add_lead_always", "arrive_max_not_min",
++                                                               "arrive_no_cap", "arrive_literal_lag", "arrive_from_my_landing", "arrive_age_long_math",
++                                                               "arrive_held_every_tick", "arrive_spend_no_debounce", "arrive_never_spent",
++                                                               "arrive_spend_field_blind", "arrive_out_blind", "arrive_end_line_as_delayed",
++                                                               "arrive_end_ate_unclassified", "arrive_end_spared_on_flicker", "arrive_end_rebase_blind",
++                                                               "arrive_end_rebase_first", "arrive_end_unheld_classified", "arrive_count_arm_far",
++                                                               "arrive_count_late_every_edge", "arrive_count_late_never",
++                                                               "arrive_count_unanchored_with_record", "arrive_count_unarmed" };
++
++        // SelfTest, after D+E's mutants: every guard mutant must fail at least one guard row. Returns the mutants caught; `survived` = the
++        // first that failed none (null = every one caught).
++        private static Int32 MutantsArrive(out String survived)
++        {
++            survived = null;
++            Int32 caught = 0;
++            for (Int32 k = 0; k < ArriveMutantNames.Length; k++)
++            {
++                List<String> mf = new List<String>();
++                RowsArrive(MutantArrive(ArriveMutantNames[k]), mf);
++                if (mf.Count == 0)
++                {
++                    survived = ArriveMutantNames[k];
++                    return caught;
++                }
++                caught++;
++            }
++            return caught;
++        }
++
 +        // The mutants, each a rejected rule the rows must catch.
 +        private static Rules Mutant(String name)
 +        {
@@ -6934,6 +7898,7 @@ index e69de29..36c787a 100644
 +                Int32 rows = Rows(new Rules(), fails);
 +                rows += LiveRows(fails, frameWithIntent);
 +                NetSyncFollowFade.SelfTestRows(ref rows, fails);   // [ff9mapkit netsync s164] D+E's rows and its two live rows (slot_reads, today_constants)
++                rows += RowsArrive(new ArriveRules(), fails);      // [ff9mapkit netsync s164] THE ARRIVAL GUARD's rows (and its live codec row)
 +                if (fails.Count > 0)
 +                {
 +                    detail = "row " + fails[0];
@@ -6962,13 +7927,23 @@ index e69de29..36c787a 100644
 +                    SelfTestVerdict = "fail: mutant " + fadeSurvived;
 +                    return false;
 +                }
++                // [ff9mapkit netsync s164] THE ARRIVAL GUARD's mutants, each against the guard's rows
++                String arriveSurvived;
++                caught += MutantsArrive(out arriveSurvived);
++                if (arriveSurvived != null)
++                {
++                    detail = "mutant " + arriveSurvived + " survived";
++                    SelfTestVerdict = "fail: mutant " + arriveSurvived;
++                    return false;
++                }
 +                detail = rows + " rows, " + caught + " mutants caught, clock " + NameOf(ClockNames, Clock.Src) + " " + Inv(Clock.Hz) + " Hz "
 +                         + (Clock.HiRes ? "high-res" : "low-res") + ", line window " + LineWindowMs + " ms, span " + RecordSpanMs + " ms, cache "
 +                         + IntentCacheMs + " ms, intent life " + IntentMinLifeMs + " ms / land tail " + LandTailMs + " ms / cap " + IntentLoadCapMs
 +                         + " ms, pin age " + PinMaxAgeMs + " ms / blind " + PinBlindCapMs + " ms, fade " + NetSyncFollowFade.FastFrames + " / "
 +                         + NetSyncFollowFade.OldFrames + " ticks / " + (Int32)Math.Round(NetSyncFollowFade.OldWaitS * 1000f) + " ms, join grace "
 +                         + NetSyncFollowFade.JoinGraceTicks + " ticks, black floor " + NetSyncFollowFade.BlackFloor + ", ahead "
-+                         + NetSyncFollowFade.AheadMaxMs + " ms";   // [ff9mapkit netsync s164] D+E's constants (A1's temporary literal replaced)
++                         + NetSyncFollowFade.AheadMaxMs + " ms"    // [ff9mapkit netsync s164] D+E's constants (A1's temporary literal replaced)
++                         + ", arrival lead " + ArrivalLeadMs + " ms";   // [ff9mapkit netsync s164] THE ARRIVAL GUARD's K
 +                SelfTestVerdict = "ok";
 +                return true;
 +            }

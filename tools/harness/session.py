@@ -8600,26 +8600,28 @@ class Session:
         "swap": ("coop_field_swap", "netsync.swap", "s164", "the s164 field-swap levers"),
     }
     NETSYNC_SWAP_OPS = ("stamps", "delay", "orphan", "own", "pin", "life", "fade", "clear", "hostctl", "intent", "cache", "pinbench",
-                        "lifebench", "blackout")
+                        "lifebench", "blackout", "arrive", "arrivebench")   # [ff9mapkit netsync s164] + THE ARRIVAL GUARD's two (appended)
     NETSYNC_SWAP_ANY_OPS = ("stamps", "clear")                                   # any role (`clear` even with co-op off)
-    NETSYNC_SWAP_GUEST_OPS = ("delay", "orphan", "own", "pin", "fade")           # a client or the selftest role
+    NETSYNC_SWAP_GUEST_OPS = ("delay", "orphan", "own", "pin", "fade", "arrive")   # a client or the selftest role
     NETSYNC_SWAP_HOST_OPS = ("life",)                                            # the host or the selftest role
-    NETSYNC_SWAP_SELFTEST_OPS = ("hostctl", "intent", "cache", "pinbench", "lifebench", "blackout")   # the selftest role only
+    NETSYNC_SWAP_SELFTEST_OPS = ("hostctl", "intent", "cache", "pinbench", "lifebench", "blackout", "arrivebench")   # the selftest role only
     NETSYNC_SWAP_BENCH_GATED_OPS = ("intent", "pinbench")                        # ...and `netsync bench 1`
     #: the word-valued ops' words (each takes exactly one)
     NETSYNC_SWAP_WORDS = {"stamps": ("on", "off"), "orphan": ("act", "old"), "own": ("act", "old", "nocache"), "pin": ("act", "old"),
                           "life": ("act", "old"), "fade": ("act", "old", "long", "nogate", "norecheck", "nohurry"),
-                          "hostctl": ("off", "on")}
+                          "hostctl": ("off", "on"), "arrive": ("act", "old")}
     NETSYNC_SWAP_DELAY_RANGE = (0, 2000)
     NETSYNC_SWAP_BLACKOUT_RANGE = (1, 255)
     NETSYNC_SWAP_FIELD_RANGE = (1, 65534)            # NetSyncSwap.ParseField: section 4's u16, never its 65535 sentinel
     NETSYNC_SWAP_FLAG_RANGE = (0, 2048 * 8 - 1)      # NetSyncSwap.MaxStoryFlag: gEventGlobal's last bit
     NETSYNC_SWAP_SLOT_RANGE = (0, 3)                 # `party <slot> <char>`: a party slot...
     NETSYNC_SWAP_CHAR_RANGE = (0, 255)               # ...and a CharacterId (a byte)
+    NETSYNC_SWAP_ARRIVEBENCH_RANGE = (-1000, 5000)   # [ff9mapkit netsync s164] `arrivebench <lead_ms>` (ArriveBenchMinMs / MaxMs)
     NETSYNC_SWAP_USAGE = ("netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, orphan act|old, own act|old|nocache, "
-                          "pin act|old or fade act|old|long|nogate|norecheck|nohurry (a client or the selftest role); life act|old (the "
-                          "host or the selftest role); hostctl off|on, intent <field>, cache <field>, pinbench <field> <flag> [age <ms>] "
-                          "[landed] [party <slot> <char>] [to <field>], lifebench <field> or blackout <1-255>|off (the selftest role)")
+                          "pin act|old, fade act|old|long|nogate|norecheck|nohurry or arrive act|old (a client or the selftest role); "
+                          "life act|old (the host or the selftest role); hostctl off|on, intent <field>, cache <field>, pinbench <field> "
+                          "<flag> [age <ms>] [landed] [party <slot> <char>] [to <field>], lifebench <field>, blackout <1-255>|off or "
+                          "arrivebench <lead_ms> (the selftest role)")
     NETSYNC_SWAP_COOP_OFF = "netsync swap: co-op is off -- no role to act on"
     NETSYNC_SWAP_GUEST_SIDE = "netsync swap {op}: a guest-side lever (a client or the selftest role) -- this game is the host"
     NETSYNC_SWAP_HOST_SIDE = "netsync swap {op}: a host-side lever (the host or the selftest role) -- this game is a client"
@@ -9600,6 +9602,9 @@ class Session:
             return n is not None and lo <= n <= hi
         if op == "pinbench":
             return self._swap_pinbench_ok(rest)
+        if op == "arrivebench":                          # [ff9mapkit netsync s164] THE ARRIVAL GUARD: ParseInt(-1000..5000)
+            n = self._swap_int(rest[0]) if len(rest) == 1 else None
+            return self._swap_in(n, self.NETSYNC_SWAP_ARRIVEBENCH_RANGE)
         return False
 
     def _swap_verdict(self, args, role: str | None, bench_gate: bool) -> str | None:
@@ -9632,13 +9637,16 @@ class Session:
     def swap(self, op: str, *args, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s164] ``netsync swap <op> [arg ...]`` -- FIELD-SWAP TIMING's one lever scheme: ``stamps on|off`` and
         ``clear`` on any role (`off` = CALIBRATION: no '(t N ms)' stamps, no waited/shown tails, no `[NetSync] swap` lines); ``delay
-        <0-2000>``, ``orphan act|old``, ``own act|old|nocache``, ``pin act|old``, ``fade act|old|long|nogate|norecheck|nohurry`` on a
-        client or the selftest role; ``life act|old`` on the host or the selftest role; the selftest benches ``hostctl off|on``,
-        ``intent <field>`` / ``pinbench ...`` (both also need `netsync bench 1`), ``cache <field>``, ``lifebench <field>``, ``blackout
-        <1-255>|off``. Through :meth:`netsync`'s gates (refused before the step on an engine without ``netsync.swap``; a malformed op
-        refused before it in the usage line's words; a role / co-op / bench refusal comes back from the engine). Every lever is
-        released with the harness on every role. Counters are never reset (read DELTAS). Returns a fresh state; read it back through
-        :attr:`State.swap_block`."""
+        <0-2000>``, ``orphan act|old``, ``own act|old|nocache``, ``pin act|old``, ``fade act|old|long|nogate|norecheck|nohurry``,
+        ``arrive act|old`` on a client or the selftest role; ``life act|old`` on the host or the selftest role; the selftest benches
+        ``hostctl off|on``, ``intent <field>`` / ``pinbench ...`` (both also need `netsync bench 1`), ``cache <field>``, ``lifebench
+        <field>``, ``blackout <1-255>|off``, ``arrivebench <lead_ms>`` (-1000..5000, no `netsync bench 1` needed). [ff9mapkit netsync
+        s164] THE ARRIVAL GUARD's two: ``arrive old`` = CALIBRATION (s158's dwell from the base start at every landing, no guard; read
+        at the landing, so set it before the warp); ``arrivebench`` = a one-shot bench host that landed <lead_ms> before my next
+        landing (a negative lead = the late edge, |lead| ms after it). Through :meth:`netsync`'s gates (refused before the step on an
+        engine without ``netsync.swap``; a malformed op refused before it in the usage line's words; a role / co-op / bench refusal
+        comes back from the engine). Every lever is released with the harness on every role. Counters are never reset (read DELTAS).
+        Returns a fresh state; read it back through :attr:`State.swap_block`."""
         return self.netsync("swap", op, *args, timeout=timeout)
 
     def act_trance_grace(self, on: bool, *, timeout: float = 20.0) -> State:
