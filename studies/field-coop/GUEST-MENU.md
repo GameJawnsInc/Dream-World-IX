@@ -5,6 +5,9 @@ the guest to open the main menu during a co-op session, so they can manage equip
 and items for the party they fight with. The specifics were not decided up front, so this study lays out
 the options and the considerations, and ends with the owner's decisions.
 
+**Owner decisions answered 2026-10-31** (§15). **Build held until s164's two-PC test:** rung 0 shares
+s164's follow code and needs a wire bump, so building it now would put two changes into one in-game test.
+
 Engine paths are relative to `Assembly-CSharp/` in the shared Memoria clone. **Line numbers come from that
 clone's working tree on 2026-10-30, which carries the patch stack through s163 and may carry s164 edits
 that were being built at the time.** Re-read before building.
@@ -19,18 +22,20 @@ Related:
 - [`../battle-coop/B4-B5-DESIGN.md`](../battle-coop/B4-B5-DESIGN.md): the guest's stock battle menu, the
   closest working precedent (stock UI on the guest, every commit caught and forwarded).
 
-## Recommendation summary
+## Decision summary (owner-answered 2026-10-31)
 
-| # | Area | Recommendation |
-|---|------|----------------|
+| # | Area | Decision |
+|---|------|----------|
 | 1 | Architecture | Option A: the stock menu on the guest, over a copy of the host's party; each confirm is forwarded and the host does the write |
 | 2 | First build | View-only menu (rung 0), then support abilities (rung 1) |
-| 3 | Characters | An owner decision; a host setting `[Netsync] GuestMenu = off/view/own/all` covers every answer |
-| 4 | Party order | Host only. It changes which characters the guest commands |
-| 5 | Item sort | Local to the guest's view; never reorders the host's bag |
-| 6 | Battle start while the guest is in the menu | Close the guest's menu at the host's battle cut |
-| 7 | Host leaves the field | Let the guest lag (the follow lane already waits) and say so on screen |
-| 8 | Where the copy lives | In the guest's real arrays, only while the menu is open, restored on close |
+| 3 | Characters | The whole party |
+| 4 | Both players in menus | Allowed; the host rechecks, so a stale guest action is refused with a buzz and a line |
+| 5 | Party order and row | Host only. Order changes which characters the guest commands |
+| 6 | Item sort | Sorts the guest's view only; never reorders the host's bag |
+| 7 | Battle start while the guest is in the menu | Close the guest's menu at the host's battle cut |
+| 8 | Host leaves the field while the guest is in the menu | Close the guest's menu at once, then follow (the owner's pick over the study's "lag and follow on close") |
+| 9 | Where the copy lives | In the guest's real arrays, only while the menu is open, restored on close |
+| 10 | What the host sees | A one-line message on each applied guest change |
 
 ## 1. Where it stands today
 
@@ -179,7 +184,7 @@ until the menu closes (`FieldHUD.cs:396` turns it back on). What that does to ea
 
 | Lane | Today's behaviour with a guest outside FieldHUD | Consequence |
 |---|---|---|
-| Follow the host to a new field | Waits (`NetSyncClient.cs` ~4878: `I'm mid-battle/menu/transition -- try again when free`) | The guest falls behind and follows on close. Workable; say so on screen |
+| Follow the host to a new field | Waits (`NetSyncClient.cs` ~4878: `I'm mid-battle/menu/transition -- try again when free`) | **Owner decision: close the guest's menu at once**, then the normal follow runs. The spec must pick the trigger against s164's follow code (the host's field-change intent or the s164 pin) and say whether field-to-world and world-to-field moves count too |
 | Host battle start | The diorama boot needs FieldHUD or WorldHUD (`NetSyncClient.cs:3515`) | The guest never boots. The host's gauges wait up to `StartHoldMs` (8000 ms, host side), then the host plays the guest's slots. **Close the guest's menu at the host's battle cut** |
 | World-map battle (s145) | Same WorldHUD gate | Same fix |
 | Talk relay, dialogue ring | Defers and keeps the host's events (TALK-7 catches up page by page) | Lags, then catches up |
@@ -261,8 +266,8 @@ The guest's body stands still while the guest is in the menu. Options, none buil
 
 | Rung | Scope | New pieces |
 |---|---|---|
-| 0 | View-only main menu on the guest | Lift the s38/s121 gate behind the setting; seat on open, restore on close; refuse every changing confirm; close on the host's battle cut; the missing wire fields (§9) |
-| 1 | Support abilities | Intent "set character C's support-ability set to S"; host helper with the learned and capacity checks |
+| 0 | View-only main menu on the guest | Lift the s38/s121 gate; seat on open, restore on close; refuse every changing confirm; close on the host's battle cut and on the host's field change; the missing wire fields (§9) |
+| 1 | Support abilities | Intent "set character C's support-ability set to S"; host helper with the learned and capacity checks; the host's one-line message per applied change |
 | 2 | Equip, remove, Optimize | Intent (character, slot, item); host helper modelled on `PLAYER_EQUIP` with the conservation check. Optimize sends its result as one batch |
 | 3 | Item use, field abilities, key items | Host helpers around `SFieldCalculator.FieldCalcMain` plus the remove; Gysahl Greens refused |
 | later | Order and row, shops | Only if the owner wants them (§5, §6) |
@@ -278,20 +283,22 @@ The guest's body stands still while the guest is in the menu. Options, none buil
 - **Fingerprint the guest's save after the copy is restored**, never while seated. That is the diorama's
   s110 law.
 
-## 15. Owner decisions
+## 15. Owner decisions (answered 2026-10-31)
 
-1. **Which characters** can the guest edit: the whole party, only theirs, or a host setting? (§5)
-2. **Both players in menus at once**, or one at a time? (§8)
-3. **The host leaves the field** while the guest is in the menu: lag and catch up (recommended), or
-   force-close after a delay? (§7)
-4. **The host starts a battle** while the guest is in the menu: close the guest's menu (recommended)?
-5. **First build:** view-only plus support abilities (recommended), or straight to equipment? (§13)
-6. **Party order and row:** host-only (recommended)? (§5)
-7. **Item sort:** local to the guest's view (recommended)? (§6)
-8. **The copy's lifetime:** only while the menu is open (recommended), or always while mirroring?
-   Always would also fix other split-world reads, but `ETb.GetPartyMember` feeds the party-actor spawn
-   at field load, so it changes which actors appear in the guest's scenes.
-9. **Host notification:** a marker, a toast, both or neither? (§12)
+1. **Which characters:** the whole party. (§5) No `GuestMenu` setting was asked for; whether the host
+   still gets an off switch is a spec question.
+2. **Both players in menus at once:** allowed. (§8)
+3. **The host leaves the field** while the guest is in the menu: **close the guest's menu at once**, then
+   follow. This overrides the study's recommendation to let the guest lag. (§7)
+4. **The host starts a battle** while the guest is in the menu: close the guest's menu at the battle cut.
+5. **First build:** view-only (rung 0), then support abilities (rung 1). (§13)
+6. **Party order and row:** host only. (§5)
+7. **Item sort:** sorts the guest's view only. (§6)
+8. **The copy's lifetime:** only while the menu is open, restored on close.
+9. **Host notification:** a one-line message on each applied guest change, from rung 1 on. No marker. (§12)
+
+Decisions 3 and 4 make one rule: **the guest's menu never outlives the host staying put.** Under
+Option A a forced close loses nothing, because every guest edit is already applied or refused on the host.
 
 ## 16. Traps carried from earlier studies
 
