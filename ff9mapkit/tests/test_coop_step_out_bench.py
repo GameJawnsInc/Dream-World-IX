@@ -406,7 +406,10 @@ def test_n_dwell_is_hitch_aware():
     took 1951 ms -- and the dwell (wall time, Environment.TickCount) expired inside the freeze: OUT by dwell at a published base of
     0.92 s. base_hitch_ms counts the gaps >= HITCH_MIN_MS over which the game's own frames ran under HITCH_FPS; a dwell OUT whose
     wall-clock base reached DwellMs only through them is not discriminating (None). A starved READER (a long gap, the frames ran
-    on), an OUT before DwellMs of wall time, an OUT with no freeze, an OUT by another reason, or the lever's OUT stays red."""
+    on), an OUT before DwellMs of wall time, an OUT with no freeze, an OUT by another reason, or the lever's OUT stays red.
+    THE FREEZE LAB (a 2 s suspension of the game in N-DWELL's base, in game) found the stall clause's two holes: it read the frozen
+    gap as "stood still 2078 ms", and it absolved an EARLY OUT whose climber stood still a while -- so a frozen gap is never a still
+    run, and no clause absolves an OUT before DwellMs of wall time."""
     out = _child(_FIXTURES + r"""
 def b(f, t, age, y, active=False, why="dwell"):
     return dict(st(active=active, why=why, t=t, age=age, pos=(100.0, y, 160.0)), frame=f)
@@ -417,10 +420,14 @@ starved = head + [b(3188, 3.231, 922, 0.0), b(3190, 3.29, -1, -40.0, active=True
 early = head[:8] + [b(3058, 1.40, -1, 130.0, active=True)]
 short_frz = head[:6] + [b(3054, 1.06, 400, 150.0), b(3056, 1.125, -1, 140.0, active=True)]
 by_line = frz[:-1] + [b(3072, 3.29, -1, -40.0, active=True, why="line")]
+frozen_still = head + [b(3070, 3.231, 2700, 30.0), b(3072, 3.29, -1, 30.0, active=True)]
+early_still = head[:6] + [b(3056, 1.06, 607, 190.0), b(3058, 1.125, 672, 170.0), b(3060, 1.20, -1, 150.0, active=True)]
 OUT = {"hitch": so.base_hitch_ms(frz), "frz": list(so.judge_short(frz)), "starved_hitch": so.base_hitch_ms(starved),
        "starved": so.judge_short(starved)[0], "early": so.judge_short(early)[0], "short_frz_hitch": so.base_hitch_ms(short_frz),
        "short_frz": so.judge_short(short_frz)[0], "by_line": so.judge_short(by_line)[0],
-       "lever": so.judge_short(frz, lever=True)[0], "none": so.base_hitch_ms(head[:1])}
+       "lever": so.judge_short(frz, lever=True)[0], "none": so.base_hitch_ms(head[:1]),
+       "frozen_still_stall": so.base_stall_ms(frozen_still), "frozen_still": so.judge_short(frozen_still)[1],
+       "early_still_stall": so.base_stall_ms(early_still), "early_still": so.judge_short(early_still)[0]}
 """)
     assert out["hitch"] == {"wall": 2837, "frozen": 1951, "gaps": [[3068, 3070, 1951]]}, out["hitch"]
     assert out["frz"][0] is None and "froze 1951 ms" in out["frz"][1] and "frames 3068 -> 3070" in out["frz"][1] \
@@ -429,3 +436,5 @@ OUT = {"hitch": so.base_hitch_ms(frz), "frz": list(so.judge_short(frz)), "starve
     assert out["early"] is False, out
     assert out["short_frz_hitch"]["frozen"] == 300 and out["short_frz_hitch"]["wall"] < 1500 and out["short_frz"] is False, out
     assert out["by_line"] is False and out["lever"] is False and out["none"] is None, out
+    assert out["frozen_still_stall"] == [0, 0] and "froze" in out["frozen_still"], out
+    assert out["early_still_stall"] == [300, 1] and out["early_still"] is False, out
