@@ -411,6 +411,30 @@ def _rec(led: cb.Ledger, cid: str, ok, why) -> None:
         led.check(cid, ok, why)
 
 
+def _rate_of(g) -> tuple:
+    """(fps, ready) of the session's measured render rate (Session.rate: never waits); (None, False) for a driver without one."""
+    fn = getattr(g, "rate", None)
+    if fn is None:
+        return None, False
+    try:
+        r = fn()
+    except Exception:                                    # noqa: BLE001 - no rate is no refusal
+        return None, False
+    return getattr(r, "fps", None), bool(getattr(r, "ready", False))
+
+
+def _rec_gf(g, ctx: Ctx, led: cb.Ledger, cid: str, ok, why) -> None:
+    """[ff9mapkit netsync s164] Hardening: a GF (frame-witness) row's record -- a RED at a degraded MEASURED render rate is VOID
+    (refused to judge, J.rate_refusal), never a verdict on the engine. A green stands at any rate (its floors held), and a
+    calibration's PREDICTED red is never voided (its own exactness check reads it)."""
+    if not ok and cid not in predicted(ctx.mode):
+        refuse = J.rate_refusal(*_rate_of(g))
+        if refuse is not None:
+            _rec(led, cid, False, f"VOID (refused to judge): {refuse}; the judge read: {why}")
+            return
+    _rec(led, cid, ok, why)
+
+
 def _mark(ctx: Ctx, row: str, rec: dict) -> None:
     if row in predicted(ctx.mode):
         ctx.marks[row] = rec
@@ -907,11 +931,11 @@ def _u114(g, ctx: Ctx, led: cb.Ledger, direction: str) -> None:
         rec = {"hang": res.get("hang") or [], "mid": res["climb_mid"]}
         _mark(ctx, "GF114-HOLD", rec)
         _mark(ctx, "GF114-TRACK", rec)
-        _rec(led, "GF114-HOLD", *J.judge_hold(res.get("hang") or [], wire_tol=0))
-        _rec(led, "GF114-TRACK", *J.judge_track(res["climb_mid"], min_wraps=1))
+        _rec_gf(g, ctx, led, "GF114-HOLD", *J.judge_hold(res.get("hang") or [], wire_tol=0))
+        _rec_gf(g, ctx, led, "GF114-TRACK", *J.judge_track(res["climb_mid"], min_wraps=1))
     else:
         _mark(ctx, "GF114-TRACK-DN", {"mid": res["climb_mid"]})
-        _rec(led, "GF114-TRACK-DN", *J.judge_track(res["climb_mid"], min_wraps=1))
+        _rec_gf(g, ctx, led, "GF114-TRACK-DN", *J.judge_track(res["climb_mid"], min_wraps=1))
 
 
 def _gf114_cal(g, ctx: Ctx, led: cb.Ledger) -> None:
@@ -1000,8 +1024,8 @@ def _tw207(g, ctx: Ctx, led: cb.Ledger, leg: str, direction: str, pose: str, *, 
         rec = {"hang": res.get("hang") or [], "mid": res["climb_mid"]}
         _mark(ctx, "GF207-HOLD", rec)
         _mark(ctx, "GF207-TRACK", rec)
-        _rec(led, "GF207-HOLD", *J.judge_hold(res.get("hang") or [], wire_tol=0))
-        _rec(led, "GF207-TRACK", *J.judge_track(res["climb_mid"]))
+        _rec_gf(g, ctx, led, "GF207-HOLD", *J.judge_hold(res.get("hang") or [], wire_tol=0))
+        _rec_gf(g, ctx, led, "GF207-TRACK", *J.judge_track(res["climb_mid"]))
 
 
 def _tw207_cal(g, ctx: Ctx, led: cb.Ledger, leg: str, lever: str, direction: str, pose: str) -> None:

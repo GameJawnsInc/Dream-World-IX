@@ -28,6 +28,22 @@ SELF = "netsync.dress.self"
 SPEED_EPS = 1e-3                       # AnimationState.speed: 0 while following, 1 free-running
 FRAME_EPS = 1e-3                       # shown / target are floats in the sender's frame units
 TIME_EPS = 0.002                       # seconds of AnimationState.time (B's GF-2 bound)
+#: [ff9mapkit netsync s164] Hardening: the render rate below which a GF row refuses to JUDGE a red (rate_refusal). The
+#: frame-witness floors (judge_hold's and judge_track's min_n 8) are sized on the bench's idle 60 fps; the s164 regression
+#: under the nightly gate's load rendered 30.7 fps and GF207-TRACK read "5 publishes with a frame witness (< 8)" on a
+#: correct engine (green idle, at 60.2).
+GF_FPS_FLOOR = 45.0
+
+
+def rate_refusal(fps, ready) -> str | None:
+    """Whether a GF row's RED may be judged at the measured render rate (PURE): None to judge; else the refusal's words. Only a
+    MEASURED rate (``ready``) refuses -- an unmeasured one never does (the judge stands as it read)."""
+    if not ready or not isinstance(fps, (int, float)) or isinstance(fps, bool) or fps <= 0:
+        return None
+    if fps >= GF_FPS_FLOOR:
+        return None
+    return (f"the render rate was {fps:.1f} fps (< {GF_FPS_FLOOR:g}): the frame-witness floors are sized at the idle 60, so a "
+            f"red here is the machine's load, not the engine's -- re-run idle (NEVER BENCH UNDER A RUNNING TEST SUITE)")
 
 #: every dotted path these judges read (the offline test pins each to a key the s157 agent publishes)
 READS = (

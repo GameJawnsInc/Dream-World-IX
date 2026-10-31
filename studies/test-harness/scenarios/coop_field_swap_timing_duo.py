@@ -224,6 +224,7 @@ DL_LEFT_MS = 300
 FADE_TIMER_MIN_MS = 885                  # the 0.9 s timer as measured (s163 live-lane duo, FIELD-SWAP-TIMING.md §1): the guest's follow
                                          # starts after ServiceFollowWarp, so no start-frame debit (the solo bench's harness start has one)
 DIP_TOL = 8                              # a cur_now step down by more than this is a dip (the flash)
+FLASH_BASE_MS = 100                      # [s164 hardening] DF-FLASH's pre-follow baseline read: at most this old (3 frames at 30 fps)
 FRAME_MS_DEFAULT = 1000.0 / 30
 ZIDANE = 0
 SEAT_S = 40.0
@@ -724,7 +725,56 @@ def tr_evidence(lane: str, sub: str, dest: int, frm: int, hs, gs, hl=(), gl=(), 
             "party_land": _path(land_h, "netsync.dress.party"),
             "mirror_after": _path(on_dest[-1], "netsync.dress.mirror_party") if on_dest else None,
             "arrive": arrive_evidence(gs, gi_, g_ctl_i, dest),             # [s164] THE ARRIVAL GUARD at this landing
+            "fade_rec": fade_record(g, gs, gl, dest),                     # [s164 hardening] persisted into duo.json
             "hl": list(hl or []), "gl": list(gl or [])}
+
+
+FADE_DARKEST_RX = re.compile(r"darkest channel (-?\d+)")
+
+
+def fade_record(g, gs, gl, dest: int) -> dict:
+    """[ff9mapkit netsync s164] Hardening: one transition's follow fade AS SAMPLED (PURE) -- the guest's fade.last for the record
+    (``g``: rec_block's), the follow's edges, its cur_now window and first-frame baseline, and the guest's own `follow fade:` lines
+    for this transition. Kept so a follow can be read after the run (the final s164 duo's 359 follows committed short of black on
+    the 0.9 s fallback, darkest 237-247 against the 248 floor, and nothing of their samples survived the run)."""
+    fl = dict(_path(g, "fade.last") or {})
+    ft = _t(g, "last.follow_t")
+    return {"last": fl, "follow_t": ft, "due_t": _t(fl, "due_t"), "commit_t": _t(g, "last.commit_t"),
+            "cur": fade_cur_window(gs, ft, _t(fl, "due_t"), dest), "cur_base": fade_cur_base(gs, ft, dest),
+            "lines": [ln for ln in gl or () if "follow fade:" in str(ln)]}
+
+
+def fade_report(trs) -> list:
+    """[ff9mapkit netsync s164] Hardening: every transition's fade as duo.json keeps it (PURE): the lane, the move, fade.last's
+    verdict (path / action / by / view_start / ms / ticks), the cur window's reach toward black (its peak against the 248 floor),
+    the darkest channel the due line names, and ``short`` -- committed by the 0.9 s fallback, the fade never read black. A
+    record with no follow (fade.last names another field: the ONE global last-follow block) keeps ``stale`` and no verdict."""
+    out = []
+    for tr in trs or []:
+        fr = tr.get("fade_rec") or {}
+        fl = fr.get("last") or {}
+        cur = [c for c in fr.get("cur") or [] if c is not None and c >= 0]
+        dk = [int(m.group(1)) for ln in fr.get("lines") or () for m in [FADE_DARKEST_RX.search(str(ln))] if m]
+        stale = fr.get("follow_t") is None or ival(fl.get("field")) != ival(tr.get("dest"))
+        out.append({"lane": tr.get("lane"), "sub": tr.get("sub"), "from": tr.get("from"), "dest": tr.get("dest"), "stale": stale,
+                    "follow_t": fr.get("follow_t"), "due_t": fr.get("due_t"), "commit_t": fr.get("commit_t"),
+                    "path": None if stale else fl.get("path"), "action": None if stale else fl.get("action"),
+                    "by": None if stale else fl.get("by"), "view_start": None if stale else fl.get("view_start"),
+                    "ms": None if stale else ival(fl.get("ms")), "ticks": None if stale else ival(fl.get("ticks")),
+                    "cur_base": fr.get("cur_base"), "cur_peak": max(cur) if cur else None, "cur_n": len(cur),
+                    "darkest": dk[-1] if dk else None, "short": (not stale) and fl.get("by") == "fallback",
+                    "cur": fr.get("cur") or [], "lines": list(fr.get("lines") or [])})
+    return out
+
+
+def fade_summary(rows) -> str:
+    """The note line over fade_report's rows (PURE): how many follows committed short of black, and which."""
+    judged = [r for r in rows if not r.get("stale")]
+    short = [r for r in judged if r.get("short")]
+    return (f"DF-SHORT (reported, never judged): {len(short)} of {len(judged)} follows committed on the 0.9 s fallback short of "
+            f"black (floor {BW.FADE_BLACK_FLOOR})" + ("".join(
+                f"; {r['lane']} {r['sub']} {r['from']}->{r['dest']}: darkest {r['darkest']}, cur peak {r['cur_peak']}, "
+                f"{r['view_start']}/{r['action']}" for r in short[:8])))
 
 
 def arrival_of(tr: dict, kind: str) -> dict:
@@ -758,6 +808,35 @@ def fade_cur_window(gs, follow_t: int | None, due_t: int | None, dest: int) -> l
             break
         out.append(ival(so.sget(x, "fade.cur_now")))
     return out
+
+
+def fade_cur_base(gs, follow_t: int | None, dest: int) -> int | None:
+    """[ff9mapkit netsync s164] Hardening: DF-FLASH's FIRST-FRAME BASELINE (PURE) -- `fade.cur_now` of the guest's LAST sample strictly
+    before the follow's start (``follow_t``), off ``dest``, at most FLASH_BASE_MS old: what the slot read just before Begin. The cur
+    window opens AT follow_t, so a flash already on the follow's first sampled frame had nothing before it to dip against (dipped()
+    compares neighbours); prefixed with this read it does. None when there is no such read (-1 is no read, an older read could
+    predate a lawful change of the slot)."""
+    if follow_t is None:
+        return None
+    base = None
+    for x in gs or []:
+        n = so.now_ms(x)
+        if n is None:
+            continue
+        if n >= follow_t:
+            break
+        if _fid(x) != dest:
+            base = (n, ival(so.sget(x, "fade.cur_now")))
+    if base is None or follow_t - base[0] > FLASH_BASE_MS or base[1] is None or base[1] < 0:
+        return None
+    return base[1]
+
+
+def flash_series(f) -> list:
+    """[ff9mapkit netsync s164] Hardening: the series DF-FLASH reads for a dip (PURE): the first-frame baseline (fade_cur_base, when
+    read), then the follow's cur window."""
+    base = ival(f.get("cur_base"))
+    return ([base] if base is not None and base >= 0 else []) + list(f.get("cur") or [])
 
 
 def dipped(cur) -> bool:
@@ -1413,13 +1492,16 @@ def judge_df_flash(fades) -> tuple:
     [ff9mapkit netsync s164] Fix round 3: DF-GRACE's precondition (desk_follow_reach) gates the reach too -- a post-bounce follow's
     green was vacuous: the reloaded 359's first event tick brightens the slot (255 -> 191/207) one Update after Begin, and the cur
     window opens at the first sample after follow_t, so that brighten is never compared against the black start. Such follows are
-    listed apart, never judged."""
+    listed apart, never judged. [ff9mapkit netsync s164] Hardening: that same FIRST-FRAME BLIND SPOT on a judged follow -- the
+    dip is read over flash_series: the guest's last pre-follow read (fade_cur_base, <= FLASH_BASE_MS before follow_t) and then
+    the window, so a flash already on the follow's first sampled frame dips against the colour the slot held before Begin."""
     def one(f):
         fl = f.get("fade") or {}
         act = fl.get("action")
-        ok = act in ("join", "hurry") and not dipped(f.get("cur")) and (act != "hurry" or fl.get("by") in ("black", "own"))
+        dip = dipped(flash_series(f))                    # [s164 hardening] from the pre-follow read: the first frame can dip
+        ok = act in ("join", "hurry") and not dip and (act != "hurry" or fl.get("by") in ("black", "own"))
         return (fl.get("view_start") in ("heading", "black"), ok,
-                f"{fl.get('view_start')}/{fl.get('path')}/{fl.get('action')} by {fl.get('by')}, dip {dipped(f.get('cur'))}")
+                f"{fl.get('view_start')}/{fl.get('path')}/{fl.get('action')} by {fl.get('by')}, dip {dip}" + (f" (base {f['cur_base']})" if f.get('cur_base') is not None else ""))
     return _desk_fade_rows(fades, one, "no follow started on a heading or black screen")
 
 
@@ -1673,6 +1755,21 @@ def ring_since(g, frame) -> list:
     return [slim(x) for x in fn(frame) or []]
 
 
+def ring_backfill(g, last, now) -> list:
+    """[ff9mapkit netsync s164] Hardening: the raw samples the session's ring kept strictly BETWEEN two frames the watch read
+    (``last`` < frame < ``now``), oldest first -- the ones an awaited call's own polls read while the watch was held (_Watch.pump).
+    [] for a driver without a ring, unread frames, or a counter that went backwards (a relaunch: nothing to bridge)."""
+    lo, hi = ival(last), ival(now)
+    fn = getattr(g, "states_since", None)
+    if fn is None or lo is None or hi is None or hi <= lo:
+        return []
+    try:
+        xs = fn(lo) or []
+    except Exception:                                    # noqa: BLE001 - a ring is evidence, never the run
+        return []
+    return [x for x in xs if isinstance(x, dict) and ival(x.get("frame")) is not None and lo < ival(x.get("frame")) < hi]
+
+
 def pause_bracket(ring, rid) -> dict:
     """[ff9mapkit netsync s164] Fix round 3: the guest's Pause close as a BRACKET (PURE) off ``ring`` (ring_since from before the Pause
     press: samples the MENU hook's press could not starve). last_on_t: the clock.now_ms of the ring's LAST sample on Pause; close_t: the
@@ -1807,8 +1904,14 @@ def judge_dp_defer(ev, life_word: bool = False) -> tuple:
         return U, (f"not reached: record {_path(g, 'last.id')} was not seen while paused (seen {_t(g, 'last.seen_t')}, the last Pause "
                    f"sample {b['last_on_t']}): no defer tested")
     age = ival(pin.get("last_use_age_ms"))
-    reached = (_path(g, "last.follow_via") == "intent" and age is not None and 0 <= age < DP_DEFER_AGE_MS and pin.get("last_use_quality") == "pre"
-               and (ival(pin.get("last_diff")) or 0) >= 1)
+    used = _path(g, "last.follow_via") == "intent" and age is not None and 0 <= age < DP_DEFER_AGE_MS and pin.get("last_use_quality") == "pre"
+    diff = ival(pin.get("last_diff"))
+    if used and (diff is None or diff < 0):
+        # [ff9mapkit netsync s164] Hardening: an UNWRITTEN diff (-1, the sentinel, or absent) on a landing that used a young pre pin
+        # is no "the stage was not falsifiable" -- it is unread. It read UNREACHED, which records green: a vacuous pass.
+        return V, (f"pin.last_diff unwritten ({pin.get('last_diff')!r}) on a landing by the intent with a pre pin {age} ms old: "
+                   f"whether the stage was falsifiable is unread")
+    reached = used and diff is not None and diff >= 1
     if not reached:
         return U, f"not reached: follow_via {_path(g, 'last.follow_via')!r}, age {age}, quality {pin.get('last_use_quality')!r}, diff {pin.get('last_diff')}"
     return _res([("flag 8720 = 0 (the pin's story)", ev.get("flag") is False)], f"flag {ev.get('flag')!r}; last_use {pin.get('last_use')!r}")
@@ -2064,7 +2167,15 @@ def slim(st) -> dict:
 
 
 class _Watch:
-    """Both games' publishes, every distinct frame each read sees (slim), with hooks run on each new sample."""
+    """Both games' publishes, every distinct frame each read sees (slim), with hooks run on each new sample.
+
+    [ff9mapkit netsync s164] Hardening: AN AWAITED HOOK STARVES THE WATCH (s157's law; fix round 3 measured ~134 ms accept-to-ack).
+    A hook's synchronous call -- _HostPager's `press("confirm")`, a lever -- holds the pump for its whole ack wait, so the next
+    `.state` read lands frames later and every "first sample off X" edge read off ``s`` (close_t, host_close_t, last_close_on,
+    first_off_field_t) moved late by the hole. Each pump now BACKFILLS from the session's StateRing (Session.states_since: every
+    read any harness call made, the awaited call's own ack polls included) before the latest read, so the series has no hole
+    an awaited call made: the last on-sample and the first off-sample of any edge are the ring's, a frame apart, never the
+    ack's. A driver without a ring (or a ring that kept nothing newer) degrades to the latest read alone, as before."""
 
     def __init__(self, d):
         self.d = d
@@ -2073,17 +2184,25 @@ class _Watch:
         self.t0 = time.time()
         self.hooks: list = []
 
+    def _take(self, role: str, raw) -> None:
+        x = slim(raw)
+        x["_t"] = time.time() - self.t0
+        self.s[role].append(x)
+        for h in list(self.hooks):
+            h(role, x)
+
     def pump(self) -> None:
         for role in ("host", "guest"):
-            st = (self.d.host if role == "host" else self.d.guest).state
+            g = self.d.host if role == "host" else self.d.guest
+            st = g.state
             if st.frame == self.seen[role]:
                 continue
+            last = self.seen[role]
+            if last is not None:                        # never before the watch's own first sample
+                for raw in ring_backfill(g, last, st.frame):
+                    self._take(role, raw)
             self.seen[role] = st.frame
-            x = slim(st)
-            x["_t"] = time.time() - self.t0
-            self.s[role].append(x)
-            for h in list(self.hooks):
-                h(role, x)
+            self._take(role, st)
 
     def until(self, cond, timeout: float, poll: float = 0.004) -> bool:
         deadline = time.time() + timeout
@@ -2245,6 +2364,7 @@ def run_duo(d) -> None:
                f"-- {ctx.clock_why}")
         d.note(f"DC-WON (reported, never judged): {'; '.join(ctx.won) or 'no DESK run'}")
         d.note(f"DA-PROBE-X (exploratory, reported only): {'; '.join(ctx.probe_x[:12]) or 'no CAL transition'}")
+        _keep_fades(d, ctx)
         try:
             d.note(f"logs archived: {d.archive('field-swap-' + (cal or 'plain'))}")
         except Exception as err:                            # noqa: BLE001 - teardown must not mask the verdicts
@@ -2263,6 +2383,24 @@ def run_duo(d) -> None:
             led.check("D-CAL", ok, detail)
         led.close(final=True)
         d.strict = strict
+
+
+#: the fade rows whose evidence (ctx.marks) duo.json keeps beside the per-transition fades
+FADE_ROWS = ("DF-FLASH", "DF-PACE", "DF-FAST", "DF-3X", "DF-OPEN")
+
+
+def _keep_fades(d, ctx: Ctx) -> None:
+    """[ff9mapkit netsync s164] Hardening: persist every transition's fade (fade_report) and the DF rows' own evidence into duo.json
+    (Duo.keep), and note the short-of-black count. Never raises: the verdicts are recorded after this."""
+    try:
+        rows = fade_report(ctx.all_trs)
+        d.note(fade_summary(rows))
+        keep = getattr(d, "keep", None)
+        if keep is not None:
+            keep("fades", rows)
+            keep("fade_marks", {r: ctx.marks[r] for r in FADE_ROWS if r in ctx.marks})
+    except Exception as err:                                # noqa: BLE001 - evidence, never the verdicts
+        d.note(f"the fade evidence was not kept: {err!r}"[:300])
 
 
 def _teardown(d, ctx: Ctx) -> None:
@@ -2473,6 +2611,7 @@ def desk_evidence(D: float, rest_old: bool, hs, gs, hl, gl, word: str | None = N
     expect = section8_pick(so.nget(h352[-1], "dress.party"), so.nget(h352[-1], "dress.guard.effective")) if h352 else None
     return {"D": D, "old": rest_old, "t359": t359, "t351": t351, "t352": t352,
             "fade": {"D": D, "old": rest_old, "fade": fl, "cur": cur, "commit_t": _t(g, "last.commit_t"),
+                     "cur_base": fade_cur_base(gs[g359:], _t(g, "last.follow_t"), REST_FROM),   # [s164 hardening] DF-FLASH's first frame
                      "last_close_t": last_close_on(gs, DESK_FIELD),              # [s164] `old`: DF-FLASH's detail names REST-OLD
                      "last": {k: _path(g, "last." + k) for k in DESK_REC_KEYS}},  # [s164] fix round 3: desk_follow_reach's edges
             "rest": {"D": D, "g": g3, "g0": g0_rest, "maps": so.maps(gl, REST_DEST), "pre": pre,

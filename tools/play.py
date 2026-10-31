@@ -42,6 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from harness import HarnessError, Session, ff9_pids                  # noqa: E402
+from harness.benchguard import bench_blockers, refuse_message        # noqa: E402
 from harness.suite import SuiteRunner, load_manifest, preflight_benches, render_preflight  # noqa: E402
 
 
@@ -274,6 +275,14 @@ def main(argv=None) -> int:
         ap.error("--suite runs its own list; do not combine it with a scenario or --smoke")
     if args.instance and args.game:
         ap.error("--instance names the root to run from; do not combine it with --game")
+
+    # NEVER BENCH UNDER A RUNNING TEST SUITE (harness/benchguard.py): before anything is loaded, claimed or launched.
+    refusals, notes = bench_blockers()
+    for n in notes:
+        print(f"[play] note: {n}")
+    if refusals:
+        print(refuse_message(refusals), file=sys.stderr)
+        return 2
 
     if args.suite:
         return run_suite(args)

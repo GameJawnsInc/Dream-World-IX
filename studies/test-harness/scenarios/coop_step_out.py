@@ -106,6 +106,8 @@ LAND_GAP_MAX_S = 0.3                     # a publish stall across the flip longe
 RELIGHT_S = 0.25                         # the body's renderers come back at the next logic tick after the IN
 DWELL_MIN_S, DWELL_MAX_S = 1.4, 2.3      # OUT by the dwell: never before 1.5 s of base (less a publish), and not long after
 NDWELL_MAX_S = 1.4                       # N-DWELL discriminates only when its control-off span is shorter than this
+DWELL_MS = 1500                          # NetSyncStepOut.DwellMs: an OUT fires as the base's clock reaches it
+STALL_MIN_MS = 250                       # [s164 hardening] a still run this long on the base is a stalled climb (base_stall_ms)
 DPOS_MAX = 80.0                          # one frame of ladder / mount motion: the copy runs in LateUpdate, the publish in an Update
 NORM_TOL = 0.25                          # the stand-in's own clip time vs the body's (sampled one Update apart)
 SC_UNARMED_207, SC_SAFE_207 = gt.SC_UNARMED_207, gt.SC_SAFE_207
@@ -402,9 +404,55 @@ def judge_never(samples, *, lever: bool, why_not: str, need) -> tuple:
     return True, f"never out over {len(samples)} samples; {len(named)} of {len(hits)} armed samples name {why_not!r}"
 
 
+def _pos3(s):
+    p = cb.path(s, "player") or {}
+    xyz = tuple(p.get(k) for k in ("x", "y", "z"))
+    return xyz if all(isinstance(v, (int, float)) for v in xyz) else None
+
+
+def base_stall_ms(samples) -> tuple:
+    """[ff9mapkit netsync s164] Hardening: the dwell-clock ms N-DWELL's climb spent STALLED (PURE) -> (ms, runs). A stall is a run of
+    consecutive base samples (base.age_ms >= 0) with the player's position unchanged, lasting STALL_MIN_MS or more on the base's
+    own clock, from the first sample that stood still to the last (or, into an OUT, to DwellMs: the OUT fires when the clock
+    reaches it, and its own sample reads -1). The s164 regression's red under the gate's load: the held climb key lapsed after
+    ~0.2 s (input.key_up false) and Zidane stood still mid-ladder from base 688 ms to the dwell OUT -- a hang the leg never asked
+    for, read as a short climb's dwell. Shorter still runs (the climb loop's own one-sample pauses) are motion, never a stall."""
+    total, runs, start, prev_pos = 0, 0, None, None
+    for s in samples:
+        b = so(s)
+        age = so_get(b, "base.age_ms")
+        out = so_get(b, "active") is True
+        pos = _pos3(s)
+        if out:
+            end = DWELL_MS
+        elif isinstance(age, int) and age >= 0:
+            end = age
+        else:
+            start, prev_pos = None, None                     # off the base: no run spans it
+            continue
+        if pos is not None and prev_pos is not None and pos == prev_pos:
+            if start is None:
+                start = prev_age
+        elif start is not None:
+            if prev_age - start >= STALL_MIN_MS:
+                total, runs = total + (prev_age - start), runs + 1
+            start = None
+        if out:
+            if start is not None and end - start >= STALL_MIN_MS:
+                total, runs = total + (end - start), runs + 1
+            return total, runs
+        prev_pos, prev_age = pos, end
+    if start is not None and prev_age - start >= STALL_MIN_MS:
+        total, runs = total + (prev_age - start), runs + 1
+    return total, runs
+
+
 def judge_short(samples, *, lever: bool = False) -> tuple:
     """N-DWELL: (verdict, why) -- verdict None = not discriminating (the base's dwell clock reached NDWELL_MAX_S). The span is the
-    base's own age (base.age_ms: the dwell clock), never the control-off span: the base arms only when every term holds."""
+    base's own age (base.age_ms: the dwell clock), never the control-off span: the base arms only when every term holds.
+    [ff9mapkit netsync s164] Hardening: STALL-AWARE -- an OUT whose base, less the time the climb stood still (base_stall_ms), was
+    under NDWELL_MAX_S is a stall carried to the dwell: not discriminating (None), never red. The OUT is lawful there (THE ARRIVAL
+    LAW counts wall time with control off, and a still climber is a hang); the leg's premise -- a SHORT climb, no hang -- failed."""
     if not off_samples(samples):
         return False, "control never went off"
     ages = [so_get(so(s), "base.age_ms") for s in samples]
@@ -412,6 +460,11 @@ def judge_short(samples, *, lever: bool = False) -> tuple:
     top = max(ages) / 1000.0 if ages else 0.0
     outs = actives(samples)
     if outs:
+        stall, runs = base_stall_ms(samples)
+        if not lever and runs and so_get(so(outs[0]), "why") == "dwell" and (DWELL_MS - stall) < NDWELL_MAX_S * 1000:
+            return None, (f"stepped OUT (why {so_get(so(outs[0]), 'why')!r}), but the climb stood still {stall} ms of the base "
+                          f"({runs} stall(s) >= {STALL_MIN_MS} ms: a held key that lapsed is a hang) -- moving, the base was "
+                          f"{(DWELL_MS - stall) / 1000.0:.2f} s: not a short episode, not a verdict")
         return False, f"stepped OUT (why {so_get(so(outs[0]), 'why')!r}) after a base of {top:.2f} s"
     if lever:
         return True, f"never out over {len(samples)} samples (the lever: the base never arms, its clock reads -1)"

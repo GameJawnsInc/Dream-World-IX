@@ -369,3 +369,32 @@ OUT = {"stall_correct": j(0.40, 0.171), "no_stall_short": j(0.30, 0.04), "stall_
 ''')
     assert out == {"stall_correct": True, "no_stall_short": False, "stall_no_debounce": False, "long_stall": False,
                    "plain": True}, out
+
+
+def test_n_dwell_is_stall_aware():
+    """[s164 hardening] N-DWELL under the gate's load: the held climb key lapsed after ~0.2 s and Zidane stood still mid-ladder from
+    base 688 ms to the dwell OUT (the s164 regression's ring: 812 ms still) -- read as "stepped OUT after a base of 0.92 s", a red on
+    a correct engine. base_stall_ms counts still runs >= STALL_MIN_MS on the base's clock (into an OUT, to DwellMs); a dwell OUT whose
+    moving base was under NDWELL_MAX_S is not discriminating (None: the leg records it 'not reached', never a dwell red). An OUT
+    while moving, a pause shorter than STALL_MIN_MS, an OUT by another reason, or the lever's OUT stays red."""
+    out = _child(_FIXTURES + r'''
+P0, P1, P2 = (200.0, 100.0, 182.0), (200.0, 120.0, 182.0), (200.0, 140.0, 182.0)
+def mv(k, age):
+    return st(active=False, t=0.2 + age / 1000.0, age=age, pos=(200.0, 100.0 + 20 * k, 182.0))
+lapse = ([st(control=True, active=False, t=0.0)] + [mv(k, 100 * (k + 1)) for k in range(4)]
+         + [st(active=False, t=0.6 + a / 1000.0, age=a, pos=(200.0, 160.0, 182.0)) for a in range(500, 1500, 100)]
+         + [st(active=True, t=1.8, pos=(200.0, 160.0, 182.0))])
+moving_out = [st(control=True, active=False, t=0.0)] + [mv(k, 100 * (k + 1)) for k in range(14)] + [st(active=True, t=1.8, pos=(200.0, 900.0, 182.0))]
+blip = [st(control=True, active=False, t=0.0)] + [mv(k, 100 * (k + 1)) for k in range(4)] + [
+    st(active=False, t=0.7, age=500, pos=(200.0, 160.0, 182.0)), st(active=False, t=0.8, age=600, pos=(200.0, 160.0, 182.0))] + [
+    mv(k, 100 * (k + 1)) for k in range(6, 14)] + [st(active=True, t=1.8, pos=(200.0, 900.0, 182.0))]
+by_line = lapse[:-1] + [st(active=True, why="line", t=1.8, pos=(200.0, 160.0, 182.0))]
+OUT = {"stall": so.base_stall_ms(lapse), "lapse": list(so.judge_short(lapse)), "moving_out": so.judge_short(moving_out)[0],
+       "blip_stall": so.base_stall_ms(blip), "blip": so.judge_short(blip)[0], "by_line": so.judge_short(by_line)[0],
+       "lever": so.judge_short(lapse, lever=True)[0], "no_pos": so.judge_short([dict(s, player={"control": s["player"]["control"]})
+                                                                                 for s in lapse])[0]}
+''')
+    assert out["stall"] == [1100, 1], out
+    assert out["lapse"][0] is None and "stood still 1100 ms" in out["lapse"][1] and "0.40 s" in out["lapse"][1], out["lapse"]
+    assert out["moving_out"] is False and out["blip_stall"] == [0, 0] and out["blip"] is False, out
+    assert out["by_line"] is False and out["lever"] is False and out["no_pos"] is False, out

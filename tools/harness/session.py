@@ -325,6 +325,9 @@ class Session:
         self._events = None                   # the install's field event bundle, opened on first key_prior
         self._last_error: str | None = None   # the agent's error latch as of the last successful ack
         self.engine_protocol: int | None = None   # what the DEPLOYED engine speaks, once it answers
+        #: the x64 Assembly-CSharp.dll this run drives ({path, exists, size, mtime, sha256}), hashed by write_env before the
+        #: launch; carried into report.json for harness/release_gate.py. None until hashed (or when there is no DLL to hash).
+        self.assembly_csharp: dict | None = None
         self._story_starts = 0                # storytrace() turned the s88 trace on this many times
         #: Prefix stamped onto every screenshot name. A suite sets it per scenario, because two
         #: scenarios both capturing "walk-before" otherwise overwrite each other's evidence in the
@@ -10279,6 +10282,11 @@ class Session:
         self._env_extra.update(extra)
         try:
             doc = build_env(self, **self._env_extra)
+            # the DLL this run drives, hashed BEFORE the game opens it (start() writes env first): report.json carries it too,
+            # so a release check reads every regression report for the final DLL's sha (harness/release_gate.py)
+            dll = (doc.get("engine") or {}).get("assembly_csharp")
+            if isinstance(dll, dict) and dll.get("sha256"):
+                self.assembly_csharp = dll
             path = self.run_dir / "env.json"
             path.write_text(json.dumps(doc, indent=2, default=str), encoding="utf-8")
             return path
@@ -10451,6 +10459,7 @@ class Session:
                          "scenario ran last and is deliberately not scored here."),
                 "driver_protocol": PROTOCOL,
                 "engine_protocol": self.engine_protocol,
+                "assembly_csharp": self.assembly_csharp,
                 "artifacts": self._artifact_index(),
                 "steps_recorded": self._steps_logged,
                 "steps_dropped": self._steps_dropped,
@@ -10481,6 +10490,8 @@ class Session:
             # a report that does not say so invites the result to be read as unconditional.
             "driver_protocol": PROTOCOL,
             "engine_protocol": self.engine_protocol,
+            # the DLL that was driven (write_env hashed it before the launch): the release gate's key (harness/release_gate.py)
+            "assembly_csharp": self.assembly_csharp,
             "checks_recorded": len(self.checks),
             "passed": verdict == "pass",
             "artifacts": self._artifact_index(),

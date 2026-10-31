@@ -253,3 +253,13 @@ Everything is idempotent; re-running any step is safe.
   not a slow test — see the memory's contention section before chasing anything.
 - **The task must never run concurrently with itself or a manual run** — it doesn't: the task is
   registered `IgnoreNew` and the runner exits gracefully when the lock is held.
+- **A live game bench refuses to start while the lock is held** — `tools/play.py` and
+  `tools/harness/duo.py` exit 2 (`tools/harness/benchguard.py`), and so on any live pytest
+  process. The s159 law is NEVER BENCH UNDER A RUNNING TEST SUITE: on 2026-10-30, under the
+  gate's `-n 6`, the s164 regression benches ran at 30 fps and went red on a correct engine.
+- **Never run `py -m pytest -n N` under bash `timeout`** (a session's own domain run included).
+  `timeout` kills the launcher but orphans the xdist workers, which keep the stdout pipe open,
+  so a `| tail` never returns. The orphans also keep loading the machine, and every bench
+  refuses until they are killed. Send the output to a log file instead:
+  `py -m pytest -q -n 6 <files> > run.log 2>&1`, then read the log. benchguard's refusal names
+  every live pytest pid and its command line, which is how you find an orphan.

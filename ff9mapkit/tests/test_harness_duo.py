@@ -296,12 +296,15 @@ def test_a_strict_red_stops_the_duo_and_still_cleans_up(duo_env, monkeypatch):
     try:
         with pytest.raises(D.DuoRed, match="C4"):
             with duo_env["make"](code="ff9-DUOTEST2") as d:
+                d.keep("fades", [{"lane": "DESK", "short": True}])    # [s164 hardening] evidence survives a red stop
                 d.pair()
     finally:
         eng.stop.set()
     assert [c["id"] for c in d.checks if not c["ok"]] == ["C4"]
     rep = json.loads((duo_env["tmp"] / "duo" / "duo.json").read_text(encoding="utf-8"))
     assert rep["verdict"] == "fail" and rep["raised"] is True
+    assert rep["evidence"] == {"fades": [{"lane": "DESK", "short": True}]}, rep.get("evidence")
+    assert sorted(rep["assembly_csharp"]) == ["guest", "host"], rep.get("assembly_csharp")   # release_gate.py's key
     assert rep["roots_verify_after"] == {"host": [], "guest": []}
     for r in D.ROLES:
         assert not (duo_env["roots"][r] / "x64" / "ff9harness" / "arm").exists()
