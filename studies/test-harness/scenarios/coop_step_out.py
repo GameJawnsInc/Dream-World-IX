@@ -108,6 +108,8 @@ DWELL_MIN_S, DWELL_MAX_S = 1.4, 2.3      # OUT by the dwell: never before 1.5 s 
 NDWELL_MAX_S = 1.4                       # N-DWELL discriminates only when its control-off span is shorter than this
 DWELL_MS = 1500                          # NetSyncStepOut.DwellMs: an OUT fires as the base's clock reaches it
 STALL_MIN_MS = 250                       # [s164 hardening] a still run this long on the base is a stalled climb (base_stall_ms)
+HITCH_MIN_MS = 250                       # [s164 hardening] a publish gap this long in which the game ran under HITCH_FPS is a freeze
+HITCH_FPS = 10.0                         # (base_hitch_ms; a starved READER sees a long gap too, but the game's frames ran on)
 DPOS_MAX = 80.0                          # one frame of ladder / mount motion: the copy runs in LateUpdate, the publish in an Update
 NORM_TOL = 0.25                          # the stand-in's own clip time vs the body's (sampled one Update apart)
 SC_UNARMED_207, SC_SAFE_207 = gt.SC_UNARMED_207, gt.SC_SAFE_207
@@ -414,9 +416,10 @@ def base_stall_ms(samples) -> tuple:
     """[ff9mapkit netsync s164] Hardening: the dwell-clock ms N-DWELL's climb spent STALLED (PURE) -> (ms, runs). A stall is a run of
     consecutive base samples (base.age_ms >= 0) with the player's position unchanged, lasting STALL_MIN_MS or more on the base's
     own clock, from the first sample that stood still to the last (or, into an OUT, to DwellMs: the OUT fires when the clock
-    reaches it, and its own sample reads -1). The s164 regression's red under the gate's load: the held climb key lapsed after
-    ~0.2 s (input.key_up false) and Zidane stood still mid-ladder from base 688 ms to the dwell OUT -- a hang the leg never asked
-    for, read as a short climb's dwell. Shorter still runs (the climb loop's own one-sample pauses) are motion, never a stall."""
+    reaches it, and its own sample reads -1). It guards a climb the harness did not drive -- a late or lost key leaves the climber
+    standing on the rungs, a hang the leg never asked for, read as a short climb's dwell. (The s164 regression's N-DWELL red was
+    NOT this: its climb ran clean; the game froze -- base_hitch_ms.) Shorter still runs (the climb loop's own one-sample pauses)
+    are motion, never a stall."""
     total, runs, start, prev_pos = 0, 0, None, None
     for s in samples:
         b = so(s)
@@ -447,12 +450,55 @@ def base_stall_ms(samples) -> tuple:
     return total, runs
 
 
+def _frame(s):
+    f = s.get("frame") if isinstance(s, dict) else getattr(s, "frame", None)
+    return f if isinstance(f, int) and not isinstance(f, bool) else None
+
+
+def base_hitch_ms(samples) -> dict | None:
+    """[ff9mapkit netsync s164] Hardening: the GAME's freezes inside N-DWELL's base, on the wall clock (PURE) -> {"wall", "frozen",
+    "gaps"}, or None when no base armed. ``wall``: the ms from the base's start (its first sample's read time less its age_ms) to the
+    first OUT sample, or to the base's last sample; ``frozen``: the ms of the gaps >= HITCH_MIN_MS between consecutive samples over
+    which the game ran under HITCH_FPS (its own frame counter); ``gaps``: [(frame_a, frame_b, ms)]. NetSyncStepOut's dwell is wall
+    time (Environment.TickCount), so a frozen game still ages the base. THE s164 REGRESSION'S N-DWELL RED (20261030-050027, under
+    the nightly gate's load): the climb ran clean (the key held from base 188 ms, released at the exit bound at 719 ms); then
+    frames 3068 -> 3070 took 1951 ms, every record read within 25 ms of its publish -- the game froze, not the reader -- and the
+    dwell expired inside the freeze: OUT by dwell at a published base of 0.92 s, a red on a correct engine."""
+    t_start, prev, wall, frozen, gaps = None, None, 0.0, 0.0, []
+    for s in samples:
+        t = s.get("_t") if isinstance(s, dict) else None
+        if not isinstance(t, (int, float)):
+            continue
+        b = so(s)
+        age = so_get(b, "base.age_ms")
+        out = so_get(b, "active") is True
+        armed = isinstance(age, int) and not isinstance(age, bool) and age >= 0
+        if t_start is None:
+            if armed and not out:
+                t_start, prev = t * 1000.0 - age, s
+            continue
+        if not (armed or out):
+            break                                        # the base ended without an OUT
+        fa, fb, gap = _frame(prev), _frame(s), (t - prev["_t"]) * 1000.0
+        if gap >= HITCH_MIN_MS and fa is not None and fb is not None and (fb - fa) * 1000.0 / gap < HITCH_FPS:
+            frozen += gap
+            gaps.append((fa, fb, round(gap)))
+        wall, prev = t * 1000.0 - t_start, s
+        if out:
+            break
+    if t_start is None:
+        return None
+    return {"wall": round(wall), "frozen": round(frozen), "gaps": gaps}
+
+
 def judge_short(samples, *, lever: bool = False) -> tuple:
     """N-DWELL: (verdict, why) -- verdict None = not discriminating (the base's dwell clock reached NDWELL_MAX_S). The span is the
     base's own age (base.age_ms: the dwell clock), never the control-off span: the base arms only when every term holds.
-    [ff9mapkit netsync s164] Hardening: STALL-AWARE -- an OUT whose base, less the time the climb stood still (base_stall_ms), was
-    under NDWELL_MAX_S is a stall carried to the dwell: not discriminating (None), never red. The OUT is lawful there (THE ARRIVAL
-    LAW counts wall time with control off, and a still climber is a hang); the leg's premise -- a SHORT climb, no hang -- failed."""
+    [ff9mapkit netsync s164] Hardening: HITCH- AND STALL-AWARE -- a dwell OUT is not discriminating (None), never red, when the
+    base reached DwellMs on the wall clock only through the game's freezes (base_hitch_ms: running, it was under NDWELL_MAX_S), or
+    when the base, less the time the climb stood still (base_stall_ms), was under NDWELL_MAX_S. The OUT is lawful there (THE
+    ARRIVAL LAW counts wall time with control off; a still climber is a hang); the leg's premise -- a SHORT base -- failed. An OUT
+    before DwellMs of wall time, or by another reason, stays red."""
     if not off_samples(samples):
         return False, "control never went off"
     ages = [so_get(so(s), "base.age_ms") for s in samples]
@@ -460,11 +506,18 @@ def judge_short(samples, *, lever: bool = False) -> tuple:
     top = max(ages) / 1000.0 if ages else 0.0
     outs = actives(samples)
     if outs:
+        dwell = not lever and so_get(so(outs[0]), "why") == "dwell"
+        h = base_hitch_ms(samples)
+        if dwell and h and h["frozen"] and h["wall"] >= DWELL_MS and h["wall"] - h["frozen"] < NDWELL_MAX_S * 1000:
+            return None, (f"stepped OUT (why 'dwell'), but the game froze {h['frozen']} ms mid-base "
+                          f"({', '.join(f'frames {a} -> {b} in {ms} ms' for a, b, ms in h['gaps'])}): the dwell is wall time, "
+                          f"{h['wall']} ms passed -- running, the base was {(h['wall'] - h['frozen']) / 1000.0:.2f} s: "
+                          f"not a short episode, not a verdict")
         stall, runs = base_stall_ms(samples)
-        if not lever and runs and so_get(so(outs[0]), "why") == "dwell" and (DWELL_MS - stall) < NDWELL_MAX_S * 1000:
+        if dwell and runs and (DWELL_MS - stall) < NDWELL_MAX_S * 1000:
             return None, (f"stepped OUT (why {so_get(so(outs[0]), 'why')!r}), but the climb stood still {stall} ms of the base "
-                          f"({runs} stall(s) >= {STALL_MIN_MS} ms: a held key that lapsed is a hang) -- moving, the base was "
-                          f"{(DWELL_MS - stall) / 1000.0:.2f} s: not a short episode, not a verdict")
+                          f"({runs} stall(s) >= {STALL_MIN_MS} ms: a climber standing on the rungs is a hang) -- moving, the base "
+                          f"was {(DWELL_MS - stall) / 1000.0:.2f} s: not a short episode, not a verdict")
         return False, f"stepped OUT (why {so_get(so(outs[0]), 'why')!r}) after a base of {top:.2f} s"
     if lever:
         return True, f"never out over {len(samples)} samples (the lever: the base never arms, its clock reads -1)"

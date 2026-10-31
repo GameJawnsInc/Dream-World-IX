@@ -372,9 +372,10 @@ OUT = {"stall_correct": j(0.40, 0.171), "no_stall_short": j(0.30, 0.04), "stall_
 
 
 def test_n_dwell_is_stall_aware():
-    """[s164 hardening] N-DWELL under the gate's load: the held climb key lapsed after ~0.2 s and Zidane stood still mid-ladder from
-    base 688 ms to the dwell OUT (the s164 regression's ring: 812 ms still) -- read as "stepped OUT after a base of 0.92 s", a red on
-    a correct engine. base_stall_ms counts still runs >= STALL_MIN_MS on the base's clock (into an OUT, to DwellMs); a dwell OUT whose
+    """[s164 hardening] N-DWELL when the harness does not drive the climb: a late or lost key leaves Zidane standing on the rungs, and
+    the base ages to a lawful dwell OUT -- read as "stepped OUT after a base of 0.92 s", a red on a correct engine. (The s164
+    regression's own N-DWELL red was a game freeze instead: test_n_dwell_is_hitch_aware.) base_stall_ms counts still runs
+    >= STALL_MIN_MS on the base's clock (into an OUT, to DwellMs); a dwell OUT whose
     moving base was under NDWELL_MAX_S is not discriminating (None: the leg records it 'not reached', never a dwell red). An OUT
     while moving, a pause shorter than STALL_MIN_MS, an OUT by another reason, or the lever's OUT stays red."""
     out = _child(_FIXTURES + r'''
@@ -398,3 +399,33 @@ OUT = {"stall": so.base_stall_ms(lapse), "lapse": list(so.judge_short(lapse)), "
     assert out["lapse"][0] is None and "stood still 1100 ms" in out["lapse"][1] and "0.40 s" in out["lapse"][1], out["lapse"]
     assert out["moving_out"] is False and out["blip_stall"] == [0, 0] and out["blip"] is False, out
     assert out["by_line"] is False and out["lever"] is False and out["no_pos"] is False, out
+
+
+def test_n_dwell_is_hitch_aware():
+    """[s164 hardening] THE s164 REGRESSION'S N-DWELL RED, read right: its climb ran clean, then the GAME froze -- frames 3068 -> 3070
+    took 1951 ms -- and the dwell (wall time, Environment.TickCount) expired inside the freeze: OUT by dwell at a published base of
+    0.92 s. base_hitch_ms counts the gaps >= HITCH_MIN_MS over which the game's own frames ran under HITCH_FPS; a dwell OUT whose
+    wall-clock base reached DwellMs only through them is not discriminating (None). A starved READER (a long gap, the frames ran
+    on), an OUT before DwellMs of wall time, an OUT with no freeze, an OUT by another reason, or the lever's OUT stays red."""
+    out = _child(_FIXTURES + r"""
+def b(f, t, age, y, active=False, why="dwell"):
+    return dict(st(active=active, why=why, t=t, age=age, pos=(100.0, y, 160.0)), frame=f)
+head = [dict(st(control=True, active=False, t=0.0), frame=3026)] + [b(3044 + 2 * k, 0.5 + 0.065 * k, 47 + 65 * k, 270.0 - 20 * k)
+                                                                    for k in range(13)]
+frz = head + [b(3070, 3.231, 922, 0.0), b(3072, 3.29, -1, -40.0, active=True)]
+starved = head + [b(3188, 3.231, 922, 0.0), b(3190, 3.29, -1, -40.0, active=True)]
+early = head[:8] + [b(3058, 1.40, -1, 130.0, active=True)]
+short_frz = head[:6] + [b(3054, 1.06, 400, 150.0), b(3056, 1.125, -1, 140.0, active=True)]
+by_line = frz[:-1] + [b(3072, 3.29, -1, -40.0, active=True, why="line")]
+OUT = {"hitch": so.base_hitch_ms(frz), "frz": list(so.judge_short(frz)), "starved_hitch": so.base_hitch_ms(starved),
+       "starved": so.judge_short(starved)[0], "early": so.judge_short(early)[0], "short_frz_hitch": so.base_hitch_ms(short_frz),
+       "short_frz": so.judge_short(short_frz)[0], "by_line": so.judge_short(by_line)[0],
+       "lever": so.judge_short(frz, lever=True)[0], "none": so.base_hitch_ms(head[:1])}
+""")
+    assert out["hitch"] == {"wall": 2837, "frozen": 1951, "gaps": [[3068, 3070, 1951]]}, out["hitch"]
+    assert out["frz"][0] is None and "froze 1951 ms" in out["frz"][1] and "frames 3068 -> 3070" in out["frz"][1] \
+        and "0.89 s" in out["frz"][1], out["frz"]
+    assert out["starved_hitch"]["frozen"] == 0 and out["starved"] is False, out
+    assert out["early"] is False, out
+    assert out["short_frz_hitch"]["frozen"] == 300 and out["short_frz_hitch"]["wall"] < 1500 and out["short_frz"] is False, out
+    assert out["by_line"] is False and out["lever"] is False and out["none"] is None, out
