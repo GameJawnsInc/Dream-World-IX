@@ -249,3 +249,57 @@ def test_the_sender_judge_reads_coop_peers_own_edge_lines():
     assert J.judge_sender(["host pos: field 207 (was none)", on])[0]
     assert not J.judge_sender(["host pos: field 207 (was none)"])[0]                         # an s156 host: no edge
     assert not J.judge_sender([on, "12:00:02 " + CP.HOST_NO_TRAILER_LINE.format(n=37)])[0]
+
+
+_REC_CHILD = r'''
+import importlib.util, json, sys, types
+tools, kit, scen = sys.argv[1:4]
+for p in (tools, kit, scen):
+    sys.path.insert(0, p)
+spec = importlib.util.spec_from_file_location("coop_climb_anim", scen + "/coop_climb_anim.py")
+ca = importlib.util.module_from_spec(spec)
+sys.modules["coop_climb_anim"] = ca
+spec.loader.exec_module(ca)
+class Led:
+    def __init__(self):
+        self.catalog, self.rows = dict(ca.CLAIMS), []
+    def check(self, cid, ok, why):
+        self.rows.append([bool(ok), str(why)])
+class G:
+    def __init__(self, fps, ready):
+        self.fps, self.ready = fps, ready
+    def rate(self):
+        return types.SimpleNamespace(fps=self.fps, ready=self.ready)
+def rec(mode, fps, ready, ok, g=None, cid="GF207-TRACK"):
+    led = Led()
+    ca._rec_gf(g if g is not None else G(fps, ready), types.SimpleNamespace(mode=mode), led, cid, ok, "5 publishes with a frame witness (< 8)")
+    return led.rows[0]
+OUT = {"loaded": rec("plain", 30.7, True, False), "idle": rec("plain", 60.2, True, False), "green": rec("plain", 30.7, True, True),
+       "unmeasured": rec("plain", 30.7, False, False), "predicted": rec("frame", 30.7, True, False),
+       "no_rate": rec("plain", None, False, False, g=object()), "hold": rec("plain", 31.0, True, False, cid="GF114-HOLD")}
+print("@@" + json.dumps(OUT))
+'''
+
+
+def test_a_gf_red_refuses_to_judge_at_a_degraded_frame_rate():
+    """[s164 hardening] The s164 regression under the nightly gate's load rendered 30.7 fps and GF207-TRACK read "5 publishes with a
+    frame witness (< 8)" on a correct engine (green idle, at 60.2): the frame-witness floors are sized at the idle 60. A GF row's RED
+    at a MEASURED rate under GF_FPS_FLOOR is now VOID (refused to judge), never a verdict on the engine; a green stands at any
+    rate, an unmeasured rate never refuses, and a calibration's PREDICTED red (the `frame` word's GF rows) is never voided."""
+    assert J.rate_refusal(60.2, True) is None and J.rate_refusal(J.GF_FPS_FLOOR, True) is None
+    assert J.rate_refusal(30.7, False) is None and J.rate_refusal(None, True) is None and J.rate_refusal(True, True) is None
+    why = J.rate_refusal(30.7, True)
+    assert why and "30.7 fps" in why and "re-run idle" in why, why
+    import json
+    import subprocess
+    scen = REPO / "studies" / "test-harness" / "scenarios"
+    r = subprocess.run([sys.executable, "-X", "utf8", "-c", _REC_CHILD, str(REPO / "tools"), str(REPO / "ff9mapkit"), str(scen)],
+                       capture_output=True, text=True, timeout=120, cwd=str(scen))
+    assert r.returncode == 0, r.stderr[-3000:]
+    out = json.loads(next(ln for ln in r.stdout.splitlines() if ln.startswith("@@"))[2:])
+    for k in ("loaded", "hold"):
+        assert out[k][0] is False and out[k][1].startswith("VOID (refused to judge): the render rate was"), (k, out[k])
+        assert "the judge read: 5 publishes with a frame witness (< 8)" in out[k][1], out[k]
+    assert out["green"] == [True, "5 publishes with a frame witness (< 8)"], out
+    for k in ("idle", "unmeasured", "predicted", "no_rate"):
+        assert out[k] == [False, "5 publishes with a frame witness (< 8)"], (k, out[k])

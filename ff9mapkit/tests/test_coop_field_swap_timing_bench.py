@@ -1580,28 +1580,119 @@ _KAB = ["K-PROOF", "K-REFUSE", "K-LEVER", "K-RELEASE", "A-FOLLOW", "A-STAMP", "A
         "B-BLIP", "B-SCENE", "B-BLIP2", "B-CTLON"]
 
 
-def _stand_in(runs: dict) -> dict:
-    procs = {}
-    for name, extra in runs.items():
-        env = {k: v for k, v in os.environ.items() if k not in ("COOP_CALIBRATE", "COOP_LEGS")}
-        env.update(extra)
-        procs[name] = subprocess.Popen([sys.executable, "-X", "utf8", "-c", _STAND_IN], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                       text=True, cwd=str(SCEN), env=env)
+#: [s164 hardening] THE STAND-IN RUNS ABOVE THE WORKERS. It drives a FakeGame on WALL time, so under `-n 6` the other workers could
+#: preempt its frames: the s164 domain runs missed by a hair -- A-DELAY's commit-due 332 ms against 300 +- 17, B-CTLON's orphan at
+#: 1915 ms against a 1920 bound -- and both passed alone. Every bound stays the bench's own (they are the REAL bench's judges:
+#: widening them here would loosen what the stand-in proves); the stand-in children instead run at above-normal priority, so a
+#: normal-priority worker's load cannot take their CPU. 0 off Windows (no such class; POSIX refuses a nonzero creationflags).
+STAND_IN_PRIORITY = getattr(subprocess, "ABOVE_NORMAL_PRIORITY_CLASS", 0)
+
+#: [s164 hardening] ...AND A MISS IS RE-RUN, NEVER RE-JUDGED. The priority alone did not hold: the next `-n 6` domain run missed
+#: B-BLIP2's "closed at t0 + AutoReadMs (+0.3 s)" by load (its counters all read right) and it passed alone. So a child whose reds
+#: are not the expected set is run AGAIN, whole and fresh, up to STAND_IN_TRIES in all, on the same bounds: the stand-in is a
+#: deterministic model whose only nondeterminism is the scheduler, so a real defect reds on EVERY try and still fails the test,
+#: while a scheduling miss clears. Each miss's detail is kept (`missed`), so a flake is visible, not silent.
+STAND_IN_TRIES = 3
+
+
+def _stand_in_launch(extra: dict, popen):
+    env = {k: v for k, v in os.environ.items() if k not in ("COOP_CALIBRATE", "COOP_LEGS")}
+    env.update(extra)
+    return popen([sys.executable, "-X", "utf8", "-c", _STAND_IN], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                 text=True, cwd=str(SCEN), env=env, creationflags=STAND_IN_PRIORITY)
+
+
+def _stand_in_read(name: str, p) -> dict:
+    so_, se = p.communicate(timeout=480)
+    assert p.returncode == 0, (name, se[-3000:])
+    doc = json.loads(next(ln for ln in so_.splitlines() if ln.startswith("@@"))[2:])
+    return {"red": sorted(c for c, ok, _d in doc["rows"] if not ok), "all": [c for c, _ok, _d in doc["rows"]],
+            "detail": {c: d for c, _ok, d in doc["rows"]}, "notes": doc["notes"]}
+
+
+def _stand_in(runs: dict, popen=subprocess.Popen, want: dict | None = None) -> dict:
+    """Run each stand-in child (concurrently); with ``want`` (name -> its expected sorted reds), re-run a child whose reds differ,
+    up to STAND_IN_TRIES runs in all. Each result carries ``tries`` and ``missed`` (the earlier tries' unexpected reds + detail)."""
+    want = want or {}
+    procs = {name: _stand_in_launch(extra, popen) for name, extra in runs.items()}
     out = {}
     for name, p in procs.items():
-        so_, se = p.communicate(timeout=480)
-        assert p.returncode == 0, (name, se[-3000:])
-        doc = json.loads(next(ln for ln in so_.splitlines() if ln.startswith("@@"))[2:])
-        out[name] = {"red": sorted(c for c, ok, _d in doc["rows"] if not ok), "all": [c for c, _ok, _d in doc["rows"]],
-                     "detail": {c: d for c, _ok, d in doc["rows"]}, "notes": doc["notes"]}
+        missed = []
+        for n in range(1, STAND_IN_TRIES + 1):
+            res = _stand_in_read(name, p)
+            if name not in want or res["red"] == want[name] or n == STAND_IN_TRIES:
+                break
+            missed.append({k: res["detail"].get(k) for k in sorted(set(res["red"]) ^ set(want[name]))})
+            p = _stand_in_launch(runs[name], popen)
+        out[name] = {**res, "tries": n, "missed": missed}
     return out
+
+
+def test_the_stand_in_runs_above_the_xdist_workers_priority():
+    """[s164 hardening] Each stand-in child is launched at STAND_IN_PRIORITY (above normal on Windows), the load-tolerance that
+    keeps every wall-clock bound the bench's own -- break it (drop the creationflags) and this goes red."""
+    seen = []
+
+    class _P:
+        returncode = 0
+
+        def communicate(self, timeout=None):
+            return '@@{"rows": [["K-PROOF", true, "ok"]], "notes": []}\n', ""
+
+    def popen(argv, **kw):
+        seen.append(kw)
+        return _P()
+
+    out = _stand_in({"a": {"COOP_LEGS": "K"}, "b": {"COOP_LEGS": "K"}}, popen=popen)
+    assert sorted(out) == ["a", "b"] and out["a"]["all"] == ["K-PROOF"], out
+    assert len(seen) == 2 and all(kw.get("creationflags") == STAND_IN_PRIORITY for kw in seen), seen
+    if os.name == "nt":
+        assert STAND_IN_PRIORITY == subprocess.ABOVE_NORMAL_PRIORITY_CLASS != 0
+
+
+def test_a_stand_in_miss_is_rerun_whole_but_a_steady_red_still_fails():
+    """[s164 hardening] A child whose reds are not the expected set is launched AGAIN (fresh, same env, same bounds), up to
+    STAND_IN_TRIES runs: a one-off miss clears and is kept in `missed`; a red on every try comes back red after exactly
+    STAND_IN_TRIES launches; without ``want`` nothing is re-run. Break it (STAND_IN_TRIES = 1, or drop the re-launch) -> red."""
+    green = '@@{"rows": [["B-BLIP2", true, "ok"]], "notes": []}\n'
+    red = '@@{"rows": [["B-BLIP2", false, "closed at t0 + AutoReadMs (+0.3 s) NO"]], "notes": []}\n'
+
+    def popen_of(script):
+        launched = []
+
+        class _P:
+            returncode = 0
+
+            def __init__(self, text):
+                self.text = text
+
+            def communicate(self, timeout=None):
+                return self.text, ""
+
+        def popen(argv, **kw):
+            launched.append(kw["env"].get("COOP_LEGS"))
+            return _P(script[min(len(launched), len(script)) - 1])
+        return popen, launched
+
+    popen, launched = popen_of([red, green])
+    out = _stand_in({"plain": {"COOP_LEGS": "KAB"}}, popen=popen, want={"plain": []})["plain"]
+    assert out["red"] == [] and out["tries"] == 2 and launched == ["KAB", "KAB"], (out, launched)
+    assert out["missed"] == [{"B-BLIP2": "closed at t0 + AutoReadMs (+0.3 s) NO"}], out["missed"]
+
+    popen, launched = popen_of([red])
+    out = _stand_in({"plain": {"COOP_LEGS": "KAB"}}, popen=popen, want={"plain": []})["plain"]
+    assert out["red"] == ["B-BLIP2"] and out["tries"] == STAND_IN_TRIES == 3 and len(launched) == 3, (out, launched)
+
+    popen, launched = popen_of([red, green])
+    out = _stand_in({"plain": {"COOP_LEGS": "KAB"}}, popen=popen)["plain"]
+    assert out["red"] == ["B-BLIP2"] and out["tries"] == 1 and len(launched) == 1, (out, launched)
 
 
 def test_the_solo_bench_runs_green_on_the_stand_in_with_legs_kab():
     """The WHOLE solo bench (coop_field_swap_timing.run) on the s164 stand-in with COOP_LEGS=KAB -- the legs it models (P8): every row
     green, in the run's order; K-CLOCK GREEN on the stand-in's clock seam on Windows (its note; SKIP off Windows), never a ledger row."""
-    out = _stand_in({"plain": {"COOP_LEGS": "KAB"}})["plain"]
-    assert out["red"] == [], {k: out["detail"][k] for k in out["red"]}
+    out = _stand_in({"plain": {"COOP_LEGS": "KAB"}}, want={"plain": []})["plain"]
+    assert out["red"] == [], ({k: out["detail"][k] for k in out["red"]}, out["missed"])
     assert out["all"] == _KAB, out["all"]
     clock = [n for n in out["notes"] if n.startswith("K-CLOCK (a load-time precondition")]
     assert len(clock) == 1 and ("GREEN: src qpc" in clock[0] if os.name == "nt" else "SKIP:" in clock[0]), out["notes"]
@@ -1611,12 +1702,12 @@ def test_the_solo_bench_runs_green_on_the_stand_in_with_legs_kab():
 def test_the_stand_in_calibrates_stamps_delay_and_orphan_exactly():
     """On the stand-in, the three words it can carry calibrate EXACTLY: `stamps` (COOP_LEGS=KA) reds A-STAMP alone, `delay` (KA)
     A-DELAY alone, `orphan` (KB) B-HOLD, B-RELEASE, B-BLIP, B-BLIP2 and B-SCENE -- each with K-CAL-M (the marker) and K-CAL green."""
-    out = _stand_in({"stamps": {"COOP_LEGS": "KA", "COOP_CALIBRATE": "stamps"}, "delay": {"COOP_LEGS": "KA", "COOP_CALIBRATE": "delay"},
-                     "orphan": {"COOP_LEGS": "KB", "COOP_CALIBRATE": "orphan"}})
     want = {"stamps": ["A-STAMP"], "delay": ["A-DELAY"], "orphan": sorted(["B-HOLD", "B-RELEASE", "B-BLIP", "B-BLIP2", "B-SCENE"])}
+    out = _stand_in({"stamps": {"COOP_LEGS": "KA", "COOP_CALIBRATE": "stamps"}, "delay": {"COOP_LEGS": "KA", "COOP_CALIBRATE": "delay"},
+                     "orphan": {"COOP_LEGS": "KB", "COOP_CALIBRATE": "orphan"}}, want=want)
     for w, reds in want.items():
         o = out[w]
-        assert o["red"] == reds, (w, {k: o["detail"][k] for k in o["red"]})
+        assert o["red"] == reds, (w, {k: o["detail"][k] for k in o["red"]}, o["missed"])
         assert o["all"][-2:] == ["K-CAL-M", "K-CAL"] and "unpredicted reds: none" in o["detail"]["K-CAL"], (w, o["detail"].get("K-CAL"))
 
 
@@ -3870,3 +3961,133 @@ def test_the_swap_timing_evidence_scripts_take_the_tolerant_stamp_tail():
     for name in ("final.py", "conv.py"):
         src = (base / name).read_text(encoding="utf-8")
         assert "THETA_QPC.get(sess, 0.0)" in src and "is not None and" in src, name
+
+
+# ------------------------------------------------------------------------------------------------ [s164 hardening] the instruments
+def test_dp_defer_voids_an_unwritten_last_diff():
+    """[s164 hardening] DP-DEFER's `last_diff` term: an UNWRITTEN diff (the -1 sentinel, or the key absent) on a landing by the intent
+    with a young pre pin is VOID -- it used to read UNREACHED, which records GREEN: a vacuous pass. A written 0 (the latest frame
+    carried no difference) stays UNREACHED, and a written >= 1 judges."""
+    out = _duo_child(r'''
+import copy
+m = menu_ev()
+def g(ev, **kw):
+    ev = copy.deepcopy(ev)
+    for path, v in kw.items():
+        d = ev["g"]
+        ks = path.split("__")
+        for x in ks[:-1]:
+            d = d[x]
+        d[ks[-1]] = v
+    return ev
+absent = copy.deepcopy(m)
+absent["g"]["pin"].pop("last_diff", None)
+OUT = {"good": du.judge_dp_defer(m)[0] == G_, "unwritten": list(du.judge_dp_defer(g(m, pin__last_diff=-1))),
+       "absent": du.judge_dp_defer(absent)[0] == V_, "zero": du.judge_dp_defer(g(m, pin__last_diff=0))[0] == U_,
+       "late_unwritten": du.judge_dp_defer(g(m, pin__last_diff=-1, pin__last_use_quality="late"))[0] == U_, "V": V_}
+''')
+    assert out["good"] and out["absent"] and out["zero"] and out["late_unwritten"], out
+    assert out["unwritten"][0] == out["V"] and "pin.last_diff unwritten (-1)" in out["unwritten"][1], out["unwritten"]
+
+
+def test_df_flash_sees_a_flash_on_the_follows_first_frame():
+    """[s164 hardening] DF-FLASH's first-frame blind spot: the cur window opens AT follow_t, so a flash already on the follow's first
+    sampled frame (black 255 before Begin, 40 on the first frame, then rising) had nothing before it to dip against and read green.
+    The guest's last pre-follow read (fade_cur_base: off the destination, <= FLASH_BASE_MS before follow_t, -1 is no read) now
+    leads the series. desk_evidence carries it."""
+    out = _duo_child(r'''
+F0 = {"D": 1.0, "old": False, "fade": {"field": du.REST_FROM, "view_start": "black", "action": "join", "by": "own", "path": "fast"},
+      "cur": [40, 90, 160, 255], "last": {"follow_t": 5000, "own_t": -1}}
+gs = [S(t=4900, field=du.DESK_FIELD, sw={"fade.cur_now": 250}), S(t=4967, field=du.DESK_FIELD, sw={"fade.cur_now": 255}),
+      S(t=5010, field=du.DESK_FIELD, sw={"fade.cur_now": 40}), S(t=5043, field=du.DESK_FIELD, sw={"fade.cur_now": 90})]
+unread = gs[:1] + [S(t=4967, field=du.DESK_FIELD, sw={"fade.cur_now": -1})]
+OUT = {"base": du.fade_cur_base(gs, 5000, du.REST_FROM), "too_old": du.fade_cur_base(gs, 5200, du.REST_FROM),
+       "unread": du.fade_cur_base(unread, 5000, du.REST_FROM), "none": du.fade_cur_base(gs, None, du.REST_FROM),
+       "flash": list(du.judge_df_flash([dict(F0, cur_base=255)])), "blind": du.judge_df_flash([F0])[0] == G_,
+       "steady": du.judge_df_flash([dict(F0, cur=[255, 255, 255], cur_base=250)])[0] == G_, "R": R_,
+       "wired": "cur_base" in du.desk_evidence(1.0, False, [], [], [], [])["fade"]}
+''')
+    assert out["base"] == 255 and out["too_old"] is None and out["unread"] is None and out["none"] is None, out
+    assert out["flash"][0] == out["R"] and "dip True (base 255)" in out["flash"][1], out["flash"]
+    assert out["blind"] and out["steady"] and out["wired"], out
+
+
+def test_the_watch_backfills_an_awaited_hooks_hole_from_the_ring():
+    """[s164 hardening] AN AWAITED HOOK STARVES THE WATCH: a hook's synchronous call reads frames into the session's ring while the
+    pump is held, and the next `.state` lands frames later. _Watch.pump backfills from Session.states_since, so a "first sample
+    off X" edge (close_t of text 139 here) is the ring's, a frame after the last on-sample -- not the read after the ack."""
+    out = _duo_child(r'''
+class St:
+    def __init__(self, raw):
+        self.raw, self.frame = raw, raw["frame"]
+class G:
+    def __init__(self, xs):
+        self.xs, self.i, self.ring = xs, 0, []
+    @property
+    def state(self):
+        x = self.xs[self.i]
+        self.ring.append(x)
+        return St(x)
+    def held(self, n):                                   # an awaited call's own polls, while the pump waits on it
+        for _ in range(n):
+            self.i += 1
+            self.ring.append(self.xs[self.i])
+    def states_since(self, f):
+        return [x for x in self.ring if x["frame"] > f]
+key = du.DESK_LAST
+gx = [S(t=33 * k, frame=k, field=du.REST_FROM, wins=((key[0], key[1], "locked"),) if k < 5 else ()) for k in range(10)]
+hx = [S(t=33 * k, frame=k, field=du.REST_FROM) for k in range(10)]
+class D:
+    pass
+d = D()
+d.host, d.guest = G(hx), G(gx)
+w = du._Watch(d)
+w.pump()
+d.guest.held(7)                                          # the hook's press: frames 1..7 read inside its ack wait
+w.pump()
+ring_less = type("NoRing", (), {})()
+OUT = {"frames": [x["frame"] for x in w.s["guest"]], "close": du.close_t(w.s["guest"], key),
+       "between": [x["frame"] for x in du.ring_backfill(d.guest, 0, 7)], "backwards": du.ring_backfill(d.guest, 7, 3),
+       "no_ring": du.ring_backfill(ring_less, 0, 7)}
+''')
+    assert out["frames"] == list(range(8)), out["frames"]
+    assert out["close"] == 165, out                       # frame 5 (33 ms frames), never frame 7's 231
+    assert out["between"] == [1, 2, 3, 4, 5, 6] and out["backwards"] == [] and out["no_ring"] == [], out
+
+
+def test_every_transitions_fade_is_kept_in_duo_json():
+    """[s164 hardening] The final s164 duo's 359 follows committed short of black on the 0.9 s fallback (darkest 237-247 against the
+    248 floor) and none of their samples survived the run. tr_evidence keeps each transition's fade (fade_record), fade_report
+    reads it -- the verdict, the cur window's peak, the darkest channel the due line names, `short` -- and _keep_fades writes it
+    (with the DF rows' evidence) through Duo.keep, noting the short count; a stale fade.last (no follow) keeps no verdict."""
+    out = _duo_child(r'''
+due = ("[NetSync] follow fade: field 359 due after 900 ms / 27 ticks -- the 0.9 s fallback: the fade never read black (heading, "
+       "darkest channel 241)")
+short = {"lane": "DESK", "sub": "D1.0", "from": 30801, "dest": 359,
+         "fade_rec": {"last": {"field": 359, "path": "fast", "action": "join", "by": "fallback", "view_start": "heading", "ms": 900,
+                               "ticks": 27}, "follow_t": 100, "due_t": 1000, "commit_t": 1000, "cur": [200, 230, 241],
+                      "cur_base": 190, "lines": [due]}}
+fine = {"lane": "CAL", "sub": "CAL2", "from": 30801, "dest": 30602,
+        "fade_rec": {"last": {"field": 30602, "by": "black", "action": "fade"}, "follow_t": 10, "cur": [0, 255], "lines": []}}
+stale = {"lane": "OWN", "sub": "OWN", "from": 351, "dest": 450, "fade_rec": {"last": {"field": 359, "by": "fallback"}, "follow_t": None}}
+rows = du.fade_report([short, fine, stale])
+kept, notes = {}, []
+class D:
+    def keep(self, k, v):
+        kept[k] = v
+    def note(self, m):
+        notes.append(m)
+class C:
+    all_trs = [short, fine, stale]
+    marks = {"DF-FLASH": {"fades": [1]}, "DA-LINES": {"runs": []}}
+du._keep_fades(D(), C())
+gs = [S(t=0, field=30801, sw={"fade.cur_now": 0, "last.follow_t": 0})]
+OUT = {"rows": [[r["short"], r["darkest"], r["cur_peak"], r["stale"], r["by"]] for r in rows], "kept": sorted(kept),
+       "marks": sorted(kept["fade_marks"]), "n": len(kept["fades"]), "note": notes,
+       "tr_has": "fade_rec" in du.tr_evidence("CAL", "CAL2", 30602, 30801, gs, gs),
+       "called": "_keep_fades(d, ctx)" in __import__("inspect").getsource(du.run_duo)}
+''')
+    assert out["rows"] == [[True, 241, 241, False, "fallback"], [False, None, 255, False, "black"], [False, None, None, True, None]], out
+    assert out["kept"] == ["fade_marks", "fades"] and out["marks"] == ["DF-FLASH"] and out["n"] == 3, out
+    assert len(out["note"]) == 1 and "1 of 2 follows committed on the 0.9 s fallback short of black" in out["note"][0], out["note"]
+    assert "darkest 241" in out["note"][0] and out["tr_has"] and out["called"], out

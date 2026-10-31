@@ -59,6 +59,7 @@ if __package__ in (None, ""):                         # run as a script: make `h
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     __package__ = "harness"
 
+from .benchguard import bench_blockers, refuse_message   # noqa: E402
 from .channel import HarnessError                    # noqa: E402
 from .instance import INSTANCES_HOME, Instance       # noqa: E402
 from .session import RUNS, Session                   # noqa: E402
@@ -412,6 +413,11 @@ class Duo:
         return bool(ok)
 
     # -- engine lines -----------------------------------------------------------------------------
+    def keep(self, name: str, value) -> None:
+        """Keep a scenario's EVIDENCE in duo.json under ``evidence[name]`` (written by stop(), whatever ended the run): the
+        samples a verdict was read from, so a row can be re-read after the run instead of re-benched. JSON-safe or str()'d."""
+        self._report.setdefault("evidence", {})[str(name)] = value
+
     def lines(self, role: str) -> list:
         return self.logs[role].lines()
 
@@ -739,7 +745,9 @@ class Duo:
                     "verdict": ("fail" if failed or not all(c["ok"] for c in self.checks) else
                                 "pass" if self.checks else "proved-nothing"),
                     "seconds": round(time.time() - self._started, 1) if self._started else None,
-                    "session_run_dirs": {r: str(g.run_dir) for r, g in self.sessions.items()}})
+                    "session_run_dirs": {r: str(g.run_dir) for r, g in self.sessions.items()},
+                    # each game's DLL as its Session hashed it before the launch: the release gate's key (release_gate.py)
+                    "assembly_csharp": {r: getattr(g, "assembly_csharp", None) for r, g in self.sessions.items()}})
         try:
             self.run_dir.mkdir(parents=True, exist_ok=True)
             (self.run_dir / "duo.json").write_text(json.dumps(rep, indent=1, default=str), encoding="utf-8")
@@ -804,6 +812,13 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if not a.smoke and not a.scenario:
         ap.error("give a duo scenario file or --smoke")
+    # NEVER BENCH UNDER A RUNNING TEST SUITE (benchguard): before the scenario loads, a port binds or a root is claimed.
+    refusals, notes = bench_blockers()
+    for n in notes:
+        print(f"[duo] note: {n}")
+    if refusals:
+        print(refuse_message(refusals), file=sys.stderr)
+        return 2
     scenario = load_scenario(Path(a.scenario)) if a.scenario else None
     bp = [int(x) for x in a.bridge_ports.split(",")]
     label = a.label or ("smoke" if a.smoke else Path(a.scenario).stem)
