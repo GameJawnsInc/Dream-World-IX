@@ -419,8 +419,9 @@ def base_stall_ms(samples) -> tuple:
     reaches it, and its own sample reads -1). It guards a climb the harness did not drive -- a late or lost key leaves the climber
     standing on the rungs, a hang the leg never asked for, read as a short climb's dwell. (The s164 regression's N-DWELL red was
     NOT this: its climb ran clean; the game froze -- base_hitch_ms.) Shorter still runs (the climb loop's own one-sample pauses)
-    are motion, never a stall."""
-    total, runs, start, prev_pos = 0, 0, None, None
+    are motion, never a stall. A FROZEN gap (_frozen: the game was not running) ends a run and is never counted -- the freeze lab
+    showed a 2 s process suspension read as "stood still 2078 ms"."""
+    total, runs, start, prev_pos, prev_s = 0, 0, None, None, None
     for s in samples:
         b = so(s)
         age = so_get(b, "base.age_ms")
@@ -433,6 +434,10 @@ def base_stall_ms(samples) -> tuple:
         else:
             start, prev_pos = None, None                     # off the base: no run spans it
             continue
+        if prev_s is not None and _frozen(prev_s, s):        # the game was not running: no still run spans the gap
+            if start is not None and prev_age - start >= STALL_MIN_MS:
+                total, runs = total + (prev_age - start), runs + 1
+            start, prev_pos = None, None
         if pos is not None and prev_pos is not None and pos == prev_pos:
             if start is None:
                 start = prev_age
@@ -444,7 +449,7 @@ def base_stall_ms(samples) -> tuple:
             if start is not None and end - start >= STALL_MIN_MS:
                 total, runs = total + (end - start), runs + 1
             return total, runs
-        prev_pos, prev_age = pos, end
+        prev_pos, prev_age, prev_s = pos, end, s
     if start is not None and prev_age - start >= STALL_MIN_MS:
         total, runs = total + (prev_age - start), runs + 1
     return total, runs
@@ -453,6 +458,16 @@ def base_stall_ms(samples) -> tuple:
 def _frame(s):
     f = s.get("frame") if isinstance(s, dict) else getattr(s, "frame", None)
     return f if isinstance(f, int) and not isinstance(f, bool) else None
+
+
+def _frozen(a, b) -> bool:
+    """Whether the game ran under HITCH_FPS (its own frame counter) over a read gap >= HITCH_MIN_MS between samples a -> b."""
+    ta, tb = (x.get("_t") if isinstance(x, dict) else None for x in (a, b))
+    fa, fb = _frame(a), _frame(b)
+    if not (isinstance(ta, (int, float)) and isinstance(tb, (int, float))) or fa is None or fb is None:
+        return False
+    gap = (tb - ta) * 1000.0
+    return gap >= HITCH_MIN_MS and (fb - fa) * 1000.0 / gap < HITCH_FPS
 
 
 def base_hitch_ms(samples) -> dict | None:
@@ -479,10 +494,10 @@ def base_hitch_ms(samples) -> dict | None:
             continue
         if not (armed or out):
             break                                        # the base ended without an OUT
-        fa, fb, gap = _frame(prev), _frame(s), (t - prev["_t"]) * 1000.0
-        if gap >= HITCH_MIN_MS and fa is not None and fb is not None and (fb - fa) * 1000.0 / gap < HITCH_FPS:
+        if _frozen(prev, s):
+            gap = (t - prev["_t"]) * 1000.0
             frozen += gap
-            gaps.append((fa, fb, round(gap)))
+            gaps.append((_frame(prev), _frame(s), round(gap)))
         wall, prev = t * 1000.0 - t_start, s
         if out:
             break
@@ -498,7 +513,8 @@ def judge_short(samples, *, lever: bool = False) -> tuple:
     base reached DwellMs on the wall clock only through the game's freezes (base_hitch_ms: running, it was under NDWELL_MAX_S), or
     when the base, less the time the climb stood still (base_stall_ms), was under NDWELL_MAX_S. The OUT is lawful there (THE
     ARRIVAL LAW counts wall time with control off; a still climber is a hang); the leg's premise -- a SHORT base -- failed. An OUT
-    before DwellMs of wall time, or by another reason, stays red."""
+    before DwellMs of wall time (base_hitch_ms' ``wall``) is the defect this leg exists for and stays red under BOTH clauses (the
+    freeze lab found the stall clause without that guard), as does an OUT by another reason."""
     if not off_samples(samples):
         return False, "control never went off"
     ages = [so_get(so(s), "base.age_ms") for s in samples]
@@ -506,9 +522,9 @@ def judge_short(samples, *, lever: bool = False) -> tuple:
     top = max(ages) / 1000.0 if ages else 0.0
     outs = actives(samples)
     if outs:
-        dwell = not lever and so_get(so(outs[0]), "why") == "dwell"
         h = base_hitch_ms(samples)
-        if dwell and h and h["frozen"] and h["wall"] >= DWELL_MS and h["wall"] - h["frozen"] < NDWELL_MAX_S * 1000:
+        dwell = not lever and so_get(so(outs[0]), "why") == "dwell" and bool(h) and h["wall"] >= DWELL_MS
+        if dwell and h["frozen"] and h["wall"] - h["frozen"] < NDWELL_MAX_S * 1000:
             return None, (f"stepped OUT (why 'dwell'), but the game froze {h['frozen']} ms mid-base "
                           f"({', '.join(f'frames {a} -> {b} in {ms} ms' for a, b, ms in h['gaps'])}): the dwell is wall time, "
                           f"{h['wall']} ms passed -- running, the base was {(h['wall'] - h['frozen']) / 1000.0:.2f} s: "
