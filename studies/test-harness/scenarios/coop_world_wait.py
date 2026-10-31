@@ -168,6 +168,23 @@ stage -- both roots junction one Managed, so the duo cannot mix DLLs):
       engine's rejoining line, `arms` and the landing, the detail saying 'overlay window shorter than a sample'. T2's
       RJ-ARM (the serial path, where the overlay IS sampled) keeps the strict read over every sample.
 
+[ff9mapkit netsync s164] THE ARRIVAL GUARD's WORLD EXCLUSION -- a regression gate folded into every world rejoin row here (RJ-LAND,
+D3) and coop_world_battle.py's (WB-300, HF-REJOIN, its D3): studies/field-coop/ARRIVAL-GUARD-S164.md "Kit and hunks" (Regression
+gates) and review finding 3. A landing of mine off the world map is NEVER armed: ArriveArmRule returns ArmWorld (R3's read: gMode 3
+at the landing hook) because s164 left the world rejoin's gap alone, so s158's law there is s163's. judge_arrive_world reads the
+GUEST's own publish, from the row's base to its last sample on the rejoin field: `netsync.swap.arrive.world` +1 or more, `arms` +0,
+and the guard's `field` that field (the count is THIS landing's). It REPORTS `lead_ms` (G - Hs: the host's landing as I first saw
+it, before mine), the reading that settles the spec's world-gap INFER: at or above K (ArrivalLeadMs 1040, battlewire's
+ARRIVAL_LEAD_MS) the gap did not shrink and arming there would change nothing; below K, or late, is the trigger to arm world rejoins
+in a later round; null = never anchored. A T2 tape recorded before s164 carries no landed frame, so only the duo (two live s164
+games) can settle it. The reading goes into the row's detail and a note, and is never judged. The clause is NOT JUDGED (green, and
+it says why) on an engine with no `netsync.swap.arrive` (any engine before s164, or s164 before the guard), so no calibration
+prediction moves (every calibration here runs on s143). It is
+also not judged on a publisher that numbered no landing at all (`land_t` -1 on the base and every sample, `faults` 0). That is the
+stand-in, which publishes only the guard's harness half. On an engine the landing hook runs at every landing, and its wiring is
+owned by coop_field_swap_timing.py's leg G (P8) and the kit's source pins. A red clause LEADS the row's detail, since the ledger's
+width cuts the tail; a green one closes it.
+
 CALIBRATION -- a check that cannot fail is not a check.
   * SOLO on s143 (the live DLL at writing, Assembly-CSharp be01339d49f6a87b) with COOP_CALIBRATE=1: no `netsync.world`, so
     the lever is never sent (the driver's NETSYNC_BENCH_OPS gate: an s143 agent reads `bench worldfreeze` as `bench 1`).
@@ -432,7 +449,9 @@ T2_CHECKS = {
         "S144-RJ-ARM": "the world arm: rejoin.arms +1 with last F (the tape's field), the overlay 'rejoining' (detail F) "
                        "with decision 7's words on a sample, 'rejoining the peer at field F from world map 9011' logged",
         "S144-RJ-LAND": "the witness: FieldHUD on F within LAND_S of the replay's start; rejoin.lands +1, "
-                        "follow.world_armed -1 at the end, 'world rejoin landed on field F' logged",
+                        "follow.world_armed -1 at the end, 'world rejoin landed on field F' logged; [s164] THE ARRIVAL GUARD's "
+                        "world exclusion (an engine with netsync.swap.arrive): arrive.world +1 or more, arms +0, arrive.field F "
+                        "-- lead_ms reported (the world-gap INFER)",
         "S144-RJ-MIRROR": "the arrival is a field follow's: 'state-mirror ARMED' after the landing, session.mirroring true, "
                           "the story marker reads the HOST's 0xA5 on F (the tape's byte, never the guest's own)",
     },
@@ -492,7 +511,9 @@ DUO_CHECKS = {
                "line on the world map, the hold released by the host's b6",
     "S144-D3": "the host enters the Ice Cavern (the tile, Confirm) -> the guest REJOINS from the world map: FieldHUD 300 "
                "within REJOIN_S, rejoin.arms and lands +1, the rejoining and landed lines, mirroring; the 'rejoining' "
-               "overlay only where a sample fell inside the armed window (THE BRACKET LAW)",
+               "overlay only where a sample fell inside the armed window (THE BRACKET LAW); [s164] THE ARRIVAL GUARD's world "
+               "exclusion (an engine with netsync.swap.arrive): arrive.world +1 or more, arms +0, arrive.field 300 -- lead_ms "
+               "reported (the world-gap INFER)",
 }
 DUO_PREDICTED = ("S144-D1", "S144-D2", "S144-D3")          # a GUEST before s144 (the duo cannot mix DLLs: both are)
 #: (the stand-in duo's guest is sampled inside its armed window -- its world exit is long: line_s143's D3 red is the
@@ -1012,6 +1033,82 @@ def judge_mirror(before, after, lines, *, field: int) -> tuple:
     return ok, (f"'state-mirror ARMED' {armed}x since the replay started; mirroring before the landing on "
                 f"{len(early)} sample(s) (want none), at the end {mir!r}; the marker on field {field} read "
                 f"{[hex(m) if isinstance(m, int) else m for m in marks]} (want 0x{pb.MARKER_VALUE:02X}, the host's)")
+
+
+# ---- [ff9mapkit netsync s164] THE ARRIVAL GUARD's WORLD EXCLUSION (ARRIVAL-GUARD-S164.md "Kit and hunks", Regression gates; review
+# finding 3): a landing of mine off the world map is never armed (ArriveArmRule's ArmWorld) -- it counts `world`, never `arms`
+ARRIVE = "netsync.swap.arrive"                             # the guard's block (key PRESENCE is the capability: s164 with the guard)
+ARRIVE_LINE = _bw().ARRIVE_LINE_PREFIX.replace("[NetSync] ", "")   # every guard line ('arrival guard: '; a world rejoin: none)
+
+
+def _a(x, key, default=None):
+    """[ff9mapkit netsync s164] A ``netsync.swap.arrive`` leaf (absent = ``default``: an engine without the arrival guard)."""
+    return cb.path(x, ARRIVE + "." + key, default)
+
+
+def _adelta(a, b, key):
+    """[ff9mapkit netsync s164] b's ``netsync.swap.arrive.<key>`` - a's; None when either is unread (never a zero)."""
+    va, vb = _num(_a(a, key)), _num(_a(b, key))
+    return None if va is None or vb is None else vb - va
+
+
+def arrive_world_infer(lead, host_field, field: int) -> str:
+    """[ff9mapkit netsync s164] (PURE) THE WORLD-GAP INFER's reading of one world rejoin's `lead_ms` -- REPORTED, never judged
+    (ARRIVAL-GUARD-S164.md "Worst case", Not armed: s164 left the world rejoin's gap alone, so s158's law there is s163's). At or
+    above K the gap did not shrink, and the guard would be inert there even if armed (the base starts at or after Hs + K). Below K,
+    or late (the host's landing reached me after mine), is SHORT: the trigger to arm world rejoins in a later round ("Not done").
+    Null means this landing never anchored, and ``host_field`` (the record R's field) says why."""
+    K = _bw().ARRIVAL_LEAD_MS
+    lv = _num(lead)
+    if lv is None:
+        why = ("no landed frame recorded: a pre-s164 host or tape" if host_field in (None, -1) else
+               f"the last record names field {host_field}" if host_field != field else
+               "its record is stale: seen before my previous landing, or past IntentLoadCapMs")
+        return f"lead_ms null -- this landing never anchored ({why}): the INFER unsettled on this run"
+    if lv < 0:
+        return (f"lead_ms {lv} -- late, the host's landing reached me {-lv} ms after mine: SHORT, below K {K} -- the trigger to "
+                "arm world rejoins in a later round")
+    if lv < K:
+        return f"lead_ms {lv} -- SHORT, below K {K}: the trigger to arm world rejoins in a later round"
+    return f"lead_ms {lv} >= K {K}: the world gap did not shrink (the INFER holds; arming there would change nothing)"
+
+
+def judge_arrive_world(samples, base, lines, *, field: int) -> tuple:
+    """[ff9mapkit netsync s164] THE ARRIVAL GUARD's WORLD EXCLUSION on one world rejoin (PURE), on the GUEST's own publishes:
+    ``base`` (before the rejoin) to the last of ``samples`` on FieldHUD ``field``. Green when `world` is +1 or more, `arms` is +0,
+    and the guard's `field` is ``field`` (the count is this landing's). `lead_ms` is reported through :func:`arrive_world_infer`,
+    together with the samples that read `armed` and the guard's lines in ``lines`` (a world rejoin stays quiet). NOT JUDGED (green,
+    and it says why) when the engine has no `netsync.swap.arrive` (any engine before s164, or s164 before the guard), or when no
+    landing was ever numbered (`land_t` -1 on the base and every sample, `faults` 0). The stand-in is such a publisher: it
+    publishes only the guard's harness half. On an engine the landing hook runs at every landing; leg G's P8 and the kit's
+    source pins own its wiring."""
+    pubs = [x for x in (base, *samples) if x is not None]
+    if not samples:
+        return True, "not judged: no sample"
+    if not cb.has(samples[-1], ARRIVE):
+        return True, f"not judged: no arrival guard on this engine (no `{ARRIVE}`)"
+    faults = max((_num(_a(x, "faults")) or 0 for x in pubs), default=0)
+    if faults == 0 and all(_num(_a(x, "land_t")) in (None, -1) for x in pubs):
+        return True, ("not judged: the guard numbered no landing (land_t -1 on the base and every sample, faults 0) -- a publisher "
+                      "of its harness half only (the stand-in)")
+    on = [s for s in samples if s.ui_state == "FieldHUD" and s.field_id == field]
+    if not on:
+        return False, f"not reached: never on FieldHUD {field}"
+    last = on[-1]
+    dw, da, fld = _adelta(base, last, "world"), _adelta(base, last, "arms"), _a(last, "field")
+    armed, n = sum(1 for s in on if _a(s, "armed") is True), cb.count(lines, ARRIVE_LINE)
+    ok = (dw or 0) >= 1 and da == 0 and fld == field
+    return ok, (f"world +{dw}, arms +{da} (want world +1 or more, arms +0: never armed off the world map), the guard's field "
+                f"{fld!r} (want {field}); {arrive_world_infer(_a(last, 'lead_ms'), _a(last, 'host.field'), field)}; armed on "
+                f"{armed} of {len(on)} sample(s), guard lines {n}x" + (f", faults {faults}" if faults else ""))
+
+
+def with_arrive(row: tuple, arrive: tuple) -> tuple:
+    """[ff9mapkit netsync s164] (PURE) A world-rejoin row's verdict with the arrival guard's world clause folded in: red when either
+    is red. The clause closes a green detail and LEADS a red one, because a ledger cuts a detail's tail at its width and a red
+    clause must stay visible."""
+    (ok, why), (a_ok, a_why) = row, arrive
+    return bool(ok) and bool(a_ok), (f"{why}; ARRIVE {a_why}" if a_ok else f"ARRIVE {a_why}; {why}")
 
 
 # ================================================================================================ the moves
@@ -1900,7 +1997,9 @@ def _leg_rejoin(g, led: cb.Ledger, ctx: _T2, p: str) -> None:
     samples = _after(ctx, t0)
     lines = [m for _t, _l, m in ctx.eng.lines()]
     led.check(f"{p}-ARM", *judge_rejoin_arm(samples, ctx.base, lines, field=F))
-    led.check(f"{p}-LAND", *judge_rejoin_land(samples, ctx.base, lines, field=F))
+    arrive = judge_arrive_world(samples, ctx.base, lines, field=F)    # [ff9mapkit netsync s164] THE ARRIVAL GUARD's world exclusion
+    led.check(f"{p}-LAND", *with_arrive(judge_rejoin_land(samples, ctx.base, lines, field=F), arrive))
+    g.note(f"s164 ARRIVAL GUARD on the world rejoin into {F}: {arrive[1]}")
     before = [s for ts, s in ctx.samples if landed is None or ts < landed]
     since = [m for t, _l, m in ctx.eng.lines() if t >= pb.floor_s(t0)]
     led.check(f"{p}-MIRROR", *judge_mirror(before, _after(ctx, landed) if landed else [], since, field=F))
@@ -2037,7 +2136,9 @@ def run_duo(d) -> None:
         a_ok, a_why = judge_rejoin_arm(samples, gbase, glines, field=ICE_CAVERN, bracket=True)   # THE BRACKET LAW
         n_ok, n_why = judge_rejoin_land(samples, gbase, glines, field=ICE_CAVERN)
         mir = _s(samples[-1], "mirroring") if samples else None
-        check("S144-D3", a_ok and n_ok and mir is True, f"ARM {a_why}; LAND {n_why}; mirroring {mir!r}")
+        arrive = judge_arrive_world(samples, gbase, glines, field=ICE_CAVERN)   # [ff9mapkit netsync s164] the world exclusion
+        check("S144-D3", *with_arrive((a_ok and n_ok and mir is True, f"ARM {a_why}; LAND {n_why}; mirroring {mir!r}"), arrive))
+        d.note(f"s164 ARRIVAL GUARD on the world rejoin into {ICE_CAVERN}: {arrive[1]}")
     finally:
         if calibrate:
             try:

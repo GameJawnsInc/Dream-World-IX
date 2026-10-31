@@ -1,0 +1,126 @@
+# LOCKT2-ARRIVE -- a SCRATCH copy of the movement-survey TIER-2 bench (lockt2.field.toml, 30602) for the s164 duo's ARRIVE sub-leg
+# (studies/field-coop/SWAP-TIMING-S164.md rev 3, "## Benches" / "### Duo", leg CAL; studies/test-harness/scenarios/
+# coop_field_swap_timing_duo.py, ARRIVE_ID).
+#
+# THE ONE CHANGE: `[camera] entry_settle = 64`. The kit compiles it as DisableMove ; Wait(64) before Main_Init's control grant
+# (build.py's entry_settle seam, content/entry_settle.py), so each copy's ARRIVAL holds its control off for 64 ticks -- about 2.13 s
+# at 30 TPS -- with NO line. That puts A (the host's control-off time after its landing) at ~2.13 s + O by construction (O, the
+# landing hook to the grant, ~0-180 ms from CAL2): the step-out base (the host here, its control off, mine off) then lasts ~A - the
+# follow's lag, past DwellMs (1500) at act (~1.65 s nominal: round 1 steps out) and short of it on `swap fade old` -- DA-ARRIVE's
+# exposure. With THE ARRIVAL GUARD (studies/field-coop/ARRIVAL-GUARD-S164.md rev 2, folded into s164) the dwell counts from the
+# host's landing + 1040 ms, so at act the guarded dwell peaks ~1.0-1.475 s: guard off (`arrive` word) RED, guard on GREEN.
+# RETUNED from 68 (owner question 3, taken): at 68, E = A + d7 spanned 2267-2663 ms and the green missed whenever O + d7 - dx >= 273
+# ms (a publish-phase flake on a correct guard); at 64, E spans 2133-2529 ms and inside O <= 180 ms, d7 <= 216 ms neither side misses
+# (65 leaves a 7 ms corner on the green side, 63 a zero margin on the red). The retune rule is pre-registered, read from CAL2 (a
+# watch), never from ARRIVE's own outcome. 30602 itself keeps its "auto" default (a review run resolved it to a 50-frame hold:
+# CAL2's arrivals overlap only ~1.2-1.35 s, a watch, never the gate).
+#
+# NEVER the shared 30602: everything else here is lockt2.field.toml verbatim (its books, its cutscene behind flag 9150 -- 0 on a
+# fresh save, so it never plays -- and its control talker). The duo turns random encounters off on both games (`noencounter`),
+# so its [encounter] line never fires during a bench arrival.
+#
+# Deploy (once, by the operator -- a bench never deploys or launches anything; a NEW id registers at the first deploy, so it
+# needs ONE game relaunch afterwards; the 68 -> 64 retune of the already-registered id needs only the redeploy, no relaunch):
+#     py tools/deploy_field.py studies/movement/bench/lockt2-arrive.field.toml --id 30611 --mod-folder FF9CustomMap-msgs
+# 30611 was read free against every live FF9CustomMap*/DictionaryPatch.txt when this file was written (the -msgs folder holds
+# 30601-30610, LOCKT2 among them). Re-read the registrations before deploying: they change as sessions deploy.
+
+[field]
+id = 30611
+name = "LOCKT2A"
+area = 11
+
+[camera]
+pitch = 40
+entry_settle = 64              # the ARRIVE hold: DisableMove ; Wait(64) before Main_Init's grant (~2.13 s at 30 TPS), no line
+
+[walkmesh]
+quad = [[-1200, -100], [1200, -100], [1200, -2100], [-1200, -2100]]
+
+[player]
+spawn = [0, -1900]
+
+[encounter]
+scene = "BSC_EF_R007"          # lockt2's own (the duo sends `noencounter` to both games)
+
+# --- NORTH-EAST book (lockt2's, verbatim) ---------------------------------------------------
+[[event]]
+name = "round1_fixed"
+zone = [[550, -1650], [850, -1650], [850, -1450], [550, -1450]]
+trigger = "action"
+bubble = true
+lock = false
+mask_buttons = ["directions"]
+message = "The round-1 shape, unlocked and dismissible. Try to walk NOW (dead). Dismiss me and walk again -- if you can, the missing EnableMove was the whole bug."
+unmask_buttons = ["directions"]
+once = false
+
+[[prop]]
+prop = "book"
+pos = [700, -1380]
+collision = false
+
+# --- MIDDLE book (lockt2's, verbatim) -------------------------------------------------------
+[[event]]
+name = "cycle"
+zone = [[-150, -1150], [150, -1150], [150, -950], [-150, -950]]
+trigger = "action"
+bubble = true
+mask_buttons = ["directions"]
+message = "Feet masked. TRY TO WALK -- dead. This window closes itself in ~3s and unmasks; then walk again."
+duration = 90
+unmask_buttons = ["directions"]
+once = false
+
+[[prop]]
+prop = "book"
+pos = [0, -880]
+collision = false
+
+# --- WEST book (lockt2's, verbatim) ---------------------------------------------------------
+[[event]]
+name = "freeze"
+zone = [[-850, -1150], [-550, -1150], [-550, -950], [-850, -950]]
+trigger = "action"
+bubble = true
+mask_buttons = ["directions"]
+message = "Masked, with NO unmask. Walking is dead -- and so is the menu (the engine ties the menu re-grant to the movement mask). But the LOCK did release: press Action TWICE right here -- the first press closes this window, the second re-opens it -- which only works if the engine is still dispatching your presses. Escape: ~ then Reload field."
+once = false
+
+[[prop]]
+prop = "book"
+pos = [-700, -880]
+collision = false
+
+# --- EAST book (lockt2's, verbatim) ---------------------------------------------------------
+[[event]]
+name = "arm_ending"
+zone = [[550, -1150], [850, -1150], [850, -950], [550, -950]]
+trigger = "action"
+bubble = true
+set_flag = [9150, 1]
+message = "ARMED -- and NOTHING changes yet: you can still walk. `stay_locked` ends a SCENE, and scenes run at field load, so it takes two steps. Open ~ then Reload field: on THAT load the entry scene plays and ends without giving control back, and only then are you frozen for good (no walking, no menu). Escape: ~ then Reload field again -- the scene disarms itself."
+once = false
+
+[[prop]]
+prop = "book"
+pos = [700, -880]
+collision = false
+
+# --- the armed reload's ending scene (lockt2's, verbatim; flag 9150 is 0 on a bench arrival) ----
+[[cutscene]]
+once = false
+requires_flag = 9150
+stay_locked = true
+steps = [
+  { say = "This is a stay_locked ending. When this window closes, control does NOT return: no walking, no menu -- the one-way latch is down (stock's 156). The ~ debug menu still opens; use Reload field to escape.", style = "notail" },
+  { set_flag = [9150, 0] },
+]
+
+# --- the back-row control talker (lockt2's, verbatim) ---------------------------------------
+[[npc]]
+name = "control"
+preset = "vivi"
+pos = [0, -350]
+dialogue = "I am the CONTROL: a normal held talk. Check me before and after a random battle -- the after-battle grant is gated now, and a free-roam battle must feel exactly like it always did."
+speaker = "Control"

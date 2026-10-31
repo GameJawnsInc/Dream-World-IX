@@ -770,7 +770,12 @@ def test_every_world_key_has_an_accessor_and_reads_its_sentinel():
     its sentinel's type at rest (a null string reads ""); on an s143 block every one reads None -- "this engine cannot" --
     and the capability False; the top-level keys outside netsync read None when absent."""
     nothing = _agent_nothing()
-    assert nothing["world"] == BW.WORLD_SENTINELS and list(nothing)[-7:] == ["world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed"]   # [ff9mapkit netsync s156] [ff9mapkit netsync s157] [s158] [s160] [s161] [s163]
+    # [ff9mapkit netsync s164] s164's `swap` is netsync's LAST key once its patch is on the live stack (after s163's `speed`)
+    live164 = any(n.startswith("s164-") and n not in msr.DEAD for n in msr.stack())
+    want = ["world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed"] + (["swap"] if live164 else [])
+    assert nothing["world"] == BW.WORLD_SENTINELS and list(nothing)[-len(want):] == want   # [ff9mapkit netsync s156] [ff9mapkit netsync s157] [s158] [s160] [s161] [s163] [s164]
+    if live164:
+        assert nothing["swap"] == FG.NETSYNC_SWAP_SENTINELS
     assert nothing["session"]["follow"] == BW.SESSION_FOLLOW_SENTINELS and nothing["session"]["overlay_text"] is None
     assert list(nothing["session"])[-2:] == list(BW.SESSION_KEYS_S144) and tuple(nothing["session"]) == FG.NETSYNC_SESSION_KEYS
     leaves = _leaves(nothing["world"])

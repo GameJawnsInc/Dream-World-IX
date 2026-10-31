@@ -216,6 +216,45 @@ def _kernel32():
     return _K32
 
 
+# -- [ff9mapkit netsync s164] THE SWAP CLOCK from the kit's side (studies/field-coop/SWAP-TIMING-S164.md "The clocks") --------------
+# NetSyncSwap.NowMs() reads kernel32's QueryPerformanceCounter / QueryPerformanceFrequency through a P/Invoke: ONE system-wide counter
+# from boot (Windows documents it so), so both duo games -- and this driver -- stamp on the same clock. K-CLOCK checks it on every run:
+# the kit reads the same counter here, through the same split arithmetic as TicksToMs, and compares it with each sample's
+# `netsync.swap.clock.now_ms`. Off Windows there is no such counter: None, and K-CLOCK is a SKIP with its reason (never a red).
+def qpc_read() -> tuple[int, int] | None:
+    """(ticks, hz): kernel32 QueryPerformanceCounter and QueryPerformanceFrequency, read now. None off Windows, or when either call fails
+    or reports a non-positive frequency (the engine's fallback case: it then stamps on a Stopwatch, `clock.src` "stopwatch")."""
+    if os.name != "nt":
+        return None
+    try:
+        k32 = _kernel32()
+        hz, ticks = ctypes.c_int64(0), ctypes.c_int64(0)
+        if not k32.QueryPerformanceFrequency(ctypes.byref(hz)) or hz.value <= 0:
+            return None
+        if not k32.QueryPerformanceCounter(ctypes.byref(ticks)) or ticks.value < 0:
+            return None
+    except (OSError, AttributeError, ValueError):
+        return None
+    return int(ticks.value), int(hz.value)
+
+
+def ticks_to_ms(ts: int, freq: int) -> int:
+    """NetSyncSwap.TicksToMs on the kit's side: ``(ts / freq) * 1000 + (ts % freq) * 1000 / freq`` -- the split form, which cannot
+    overflow an Int64 on a raw counter after months of uptime and is exact at 3.579545 MHz; -1 for a bad frequency or a negative count
+    (battlewire.swap_ticks_to_ms is the engine's fixed-width twin; on the non-negative inputs this takes they agree)."""
+    ts, freq = int(ts), int(freq)
+    if freq <= 0 or ts < 0:
+        return -1
+    return (ts // freq) * 1000 + (ts % freq) * 1000 // freq
+
+
+def qpc_ms() -> int | None:
+    """The swap clock NOW, in ms (:func:`ticks_to_ms` of :func:`qpc_read`) -- the value a live engine's `netsync.swap.clock.now_ms`
+    carries at the same instant when its `src` is "qpc". None off Windows (K-CLOCK: SKIP with the reason)."""
+    got = qpc_read()
+    return None if got is None else ticks_to_ms(*got)
+
+
 #: Names accepted for the virtual controller. Mirrors ParseControl in HarnessAgent.cs -- kept here as
 #: data so the driver can reject a typo locally instead of shipping it to the game and reading back an
 #: "unknown button" error three frames later.
@@ -893,6 +932,51 @@ class State:
         following guest's speed mirror) -- the main-loop updates FPSManager runs a frame, what harness.tickrate's reach model
         multiplies by. -1 = unreadable; None = an engine before s163 (it publishes none)."""
         return self._top_int(None, "ff")
+
+    # ---- [ff9mapkit netsync s164] FIELD-SWAP TIMING, ROUND 1 (studies/field-coop/SWAP-TIMING-S164.md): `netsync.swap`, netsync's LAST
+    # key (after s163's `speed`), published in EVERY role. Key PRESENCE is the capability (`clock` is its first block). Every `*_t` key is
+    # a swap-clock value (QPC ms, -1 = never: compare it with channel.qpc_ms() or another sample's `clock.now_ms`, never with `rt`);
+    # counters are per PROCESS -- read DELTAS.
+    @property
+    def coop_field_swap(self) -> bool:
+        """s164: the field-swap round (``netsync.swap.clock`` present). False = an engine without the swap clock, its record or its
+        levers (s163), which answers `netsync swap` with "unknown sub-verb"."""
+        return self._ns_path("swap.clock", dict) is not None
+
+    @property
+    def swap_block(self) -> dict | None:
+        """s164: the whole ``netsync.swap`` block, copied (None = absent)."""
+        return self._ns_path("swap", dict)
+
+    @property
+    def swap_last(self) -> dict | None:
+        """s164: ``netsync.swap.last`` -- the swap RECORD (A: one per transition; its edges' `*_t`, the landing's via, the close),
+        copied (None = absent)."""
+        return self._ns_path("swap.last", dict)
+
+    @property
+    def swap_seen(self) -> dict | None:
+        """s164: ``netsync.swap.seen`` -- the guest's last host section 4 by nonce (first / last seen, the transport's arrival stamp,
+        the copies), copied (None = absent)."""
+        return self._ns_path("swap.seen", dict)
+
+    @property
+    def swap_intent(self) -> dict | None:
+        """s164: ``netsync.swap.intent`` -- the host's section-4 probe and LIFE (its emit, its life on the wire, how it ended), copied
+        (None = absent)."""
+        return self._ns_path("swap.intent", dict)
+
+    @property
+    def swap_pin(self) -> dict | None:
+        """s164: ``netsync.swap.pin`` -- the guest's story pin (the held entries, how each landing staged its story), copied (None =
+        absent)."""
+        return self._ns_path("swap.pin", dict)
+
+    @property
+    def swap_clock(self) -> dict | None:
+        """s164: ``netsync.swap.clock`` {now_ms, utc_ms, ticks, hz, src "qpc"|"stopwatch", hires, fps, target_fps}, copied (None =
+        absent). K-CLOCK: 0 <= channel.qpc_ms() - now_ms <= the sample's age + 100 ms, with `src` "qpc"."""
+        return self._ns_path("swap.clock", dict)
 
     guest_local_mode = _guestlocal_prop("mode", str, "s156: the gate's EFFECTIVE mode -- 'act' | 'shadow' | 'off' (the lever on "
                                                      "the selftest role only, else 'act'; '' = the catch line).")

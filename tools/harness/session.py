@@ -8410,21 +8410,21 @@ class Session:
     #: `containment`/`bctl`, s102 `bmenu`; [ff9mapkit netsync B5] + s103 `endbench`; [ff9mapkit netsync B4] s106 INSERTS
     #: `bbench` before `endbench`; [ff9mapkit netsync s133] + `actbench`; [ff9mapkit netsync s139] + `selfdress`;
     #: [ff9mapkit netsync s156] + `guestlocal`, at the END; [ff9mapkit netsync s158] + `stepout` after it; [ff9mapkit netsync
-    #: s160] + `chest` after it. [ff9mapkit netsync s161] + `ate` after that. [ff9mapkit netsync s163] + `speed` after it). Pinned to
-    #: the patch stack by test_harness_netsync.py.
+    #: s160] + `chest` after it. [ff9mapkit netsync s161] + `ate` after that. [ff9mapkit netsync s163] + `speed` after it. [ff9mapkit
+    #: netsync s164] + `swap` after that). Pinned to the patch stack by test_harness_netsync.py.
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
                         "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
                         "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench",
-                        "endbench", "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate", "speed")
+                        "endbench", "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate", "speed", "swap")
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
     #: "authority", s96) -- the F3.3 and B4/B5 ones included (they build on it). An F3 engine answers them "unknown
     #: sub-verb" only AFTER the step is spent. [ff9mapkit netsync s156] + `guestlocal`, at the END. [ff9mapkit netsync s158] +
     #: `stepout` after it. [ff9mapkit netsync s160] + `chest` after it. [ff9mapkit netsync s161] +
-    #: `ate` after that. [ff9mapkit netsync s163] + `speed` after it.
+    #: `ate` after that. [ff9mapkit netsync s163] + `speed` after it. [ff9mapkit netsync s164] + `swap` after that.
     NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
                                   "host", "tap-record", "replay", "guestslots", "bcmd", "hostgates", "containment",
                                   "bctl", "bmenu", "bbench", "endbench", "actbench", "selfdress", "guestlocal", "stepout",
-                                  "chest", "ate", "speed")
+                                  "chest", "ate", "speed", "swap")
     #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
     #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
     #: engine without it, the key it reads, the patch that added it, and what the verb is.
@@ -8590,6 +8590,43 @@ class Session:
     NETSYNC_SPEED_HOST_RANGE = (1, 255)
     NETSYNC_SPEED_ROLE_REFUSAL = "netsync speed host: needs the selftest role (netsync selftest 1)"
     NETSYNC_SPEED_USAGE = "netsync speed: expected act|off|clear (any role) or host <1-255> (the selftest role)"
+    #: [ff9mapkit netsync s164] FIELD-SWAP TIMING's ONE lever scheme (studies/field-coop/SWAP-TIMING-S164.md "The lever scheme"), told by
+    #: ``netsync.swap``'s PRESENCE (netsync's LAST key, after s163's `speed`): the State capability accessor, the key, the patch, what
+    #: the verb is -- and NetSyncSwap.HarnessLever's ops (the design's table order), each op's ROLE class, its words and ranges, and its
+    #: refusals in its words. THE REFUSAL ORDER (the s163 shape: the role is checked when a lever is SET): (1) an unknown op, the usage
+    #: line; (2) co-op off, for every op but `clear`; (3) a guest-side op on a host; (4) a host-side op on a client; (5) a bench op off
+    #: the selftest role; (6) `intent` / `pinbench` without `netsync bench 1`; (7) bad arity or range, the usage line.
+    NETSYNC_SWAP_SUBVERBS = {
+        "swap": ("coop_field_swap", "netsync.swap", "s164", "the s164 field-swap levers"),
+    }
+    NETSYNC_SWAP_OPS = ("stamps", "delay", "orphan", "own", "pin", "life", "fade", "clear", "hostctl", "intent", "cache", "pinbench",
+                        "lifebench", "blackout", "arrive", "arrivebench")   # [ff9mapkit netsync s164] + THE ARRIVAL GUARD's two (appended)
+    NETSYNC_SWAP_ANY_OPS = ("stamps", "clear")                                   # any role (`clear` even with co-op off)
+    NETSYNC_SWAP_GUEST_OPS = ("delay", "orphan", "own", "pin", "fade", "arrive")   # a client or the selftest role
+    NETSYNC_SWAP_HOST_OPS = ("life",)                                            # the host or the selftest role
+    NETSYNC_SWAP_SELFTEST_OPS = ("hostctl", "intent", "cache", "pinbench", "lifebench", "blackout", "arrivebench")   # the selftest role only
+    NETSYNC_SWAP_BENCH_GATED_OPS = ("intent", "pinbench")                        # ...and `netsync bench 1`
+    #: the word-valued ops' words (each takes exactly one)
+    NETSYNC_SWAP_WORDS = {"stamps": ("on", "off"), "orphan": ("act", "old"), "own": ("act", "old", "nocache"), "pin": ("act", "old"),
+                          "life": ("act", "old"), "fade": ("act", "old", "long", "nogate", "norecheck", "nohurry"),
+                          "hostctl": ("off", "on"), "arrive": ("act", "old")}
+    NETSYNC_SWAP_DELAY_RANGE = (0, 2000)
+    NETSYNC_SWAP_BLACKOUT_RANGE = (1, 255)
+    NETSYNC_SWAP_FIELD_RANGE = (1, 65534)            # NetSyncSwap.ParseField: section 4's u16, never its 65535 sentinel
+    NETSYNC_SWAP_FLAG_RANGE = (0, 2048 * 8 - 1)      # NetSyncSwap.MaxStoryFlag: gEventGlobal's last bit
+    NETSYNC_SWAP_SLOT_RANGE = (0, 3)                 # `party <slot> <char>`: a party slot...
+    NETSYNC_SWAP_CHAR_RANGE = (0, 255)               # ...and a CharacterId (a byte)
+    NETSYNC_SWAP_ARRIVEBENCH_RANGE = (-1000, 5000)   # [ff9mapkit netsync s164] `arrivebench <lead_ms>` (ArriveBenchMinMs / MaxMs)
+    NETSYNC_SWAP_USAGE = ("netsync swap: expected stamps on|off or clear (any role); delay <0-2000>, orphan act|old, own act|old|nocache, "
+                          "pin act|old, fade act|old|long|nogate|norecheck|nohurry or arrive act|old (a client or the selftest role); "
+                          "life act|old (the host or the selftest role); hostctl off|on, intent <field>, cache <field>, pinbench <field> "
+                          "<flag> [age <ms>] [landed] [party <slot> <char>] [to <field>], lifebench <field>, blackout <1-255>|off or "
+                          "arrivebench <lead_ms> (the selftest role)")
+    NETSYNC_SWAP_COOP_OFF = "netsync swap: co-op is off -- no role to act on"
+    NETSYNC_SWAP_GUEST_SIDE = "netsync swap {op}: a guest-side lever (a client or the selftest role) -- this game is the host"
+    NETSYNC_SWAP_HOST_SIDE = "netsync swap {op}: a host-side lever (the host or the selftest role) -- this game is a client"
+    NETSYNC_SWAP_SELFTEST_ONLY = "netsync swap {op}: needs the selftest role (netsync selftest 1)"
+    NETSYNC_SWAP_BENCH_ONLY = "netsync swap {op}: needs the field-gate bench (netsync bench 1)"
     #: [ff9mapkit netsync B4] `bmenu <op>`, in the engine's order -- the list its "unknown op" refusal prints
     #: (NetSyncBattle.HarnessStockMenu, s102).
     NETSYNC_BMENU_OPS = ("open", "close", "closeall", "capture", "mainmenu")
@@ -8950,6 +8987,13 @@ class Session:
         `netsync.guestlocal` (s156)"); on the selftest role an unknown op, a wrong arity or a bad n is refused before the
         step in HarnessLever's words (NETSYNC_GUESTLOCAL_USAGE). Every lever and a mutate are released with the harness.
 
+        [ff9mapkit netsync s164] field-swap timing adds ONE sub-verb, ``swap <op> [arg]`` (the round's one lever scheme), told by
+        ``netsync.swap`` (:attr:`State.coop_field_swap`; NETSYNC_SWAP_SUBVERBS, the same gate) -- :meth:`swap`. On an s163 (or older)
+        engine it is refused before the step ("this engine publishes no `netsync.swap` (s164)"). Each op has a ROLE class (any /
+        guest-side / host-side / the selftest benches): the driver reads THIS game's `netsync` role and bench gate first, so the
+        engine's role, co-op and bench refusals come back from the step (a duo calibration sent to the wrong game fails there), while
+        an unknown op -- or a bad arity / range on a role that would let the op through -- is refused before it in the usage line.
+
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
         without the contract (``unknown sub-verb``), an F3.3 or B4/B5 sub-verb on an engine without its
@@ -8984,6 +9028,7 @@ class Session:
             ng = ng or self.NETSYNC_CHEST_SUBVERBS.get(sub)     # [ff9mapkit netsync s160] ...and the chest relay's
             ng = ng or self.NETSYNC_ATE_SUBVERBS.get(sub)       # [ff9mapkit netsync s161] ...and the ATE relay's, the same gate
             ng = ng or self.NETSYNC_SPEED_SUBVERBS.get(sub)     # [ff9mapkit netsync s163] ...and the speed mirror's
+            ng = ng or self.NETSYNC_SWAP_SUBVERBS.get(sub)      # [ff9mapkit netsync s164] ...and the field-swap levers', the same gate
             if not authority:
                 if st.netsync is None:
                     have = "publishes no `netsync` block"
@@ -9154,6 +9199,14 @@ class Session:
             ns = st.netsync if isinstance(st.netsync, dict) else {}
             if self._speed_refusal(args, ns.get("selftest") is True) is not None:
                 raise HarnessError(self.NETSYNC_SPEED_USAGE)
+        elif sub == "swap":
+            # [ff9mapkit netsync s164] NetSyncSwap.HarnessLever's order, judged against THIS game's role (read off its own state: each duo
+            # Session reads its own game): an unknown op, or -- when the role, co-op and the bench gate would all let the op through --
+            # a bad arity or range, is the usage line, refused before the step in its words; every role / co-op / bench refusal is the
+            # ENGINE's (the step goes out and its words come back), so a calibration sent to the wrong duo game fails at the step
+            why = self._swap_refusal(args, self._swap_role(st), self._swap_bench(st))
+            if why is not None:
+                raise HarnessError(why)
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
             # [ff9mapkit netsync s145] THE WORLD DIOBOOT: a diorama boots from a live world map from s145 on (warm only: the engine's
             # pre-Arm verdict refuses anything a stock world battle could not return warm from). An s144 engine refuses it after
@@ -9458,6 +9511,143 @@ class Session:
                 f"F1 booster verb); an engine before it answers \"unknown op 'speedmode'\". Not sent. Rebuild the DLL.")
         self.send(f"speedmode {1 if on else 0}", timeout=timeout)
         return self.state
+
+    @staticmethod
+    def _swap_role(st: State) -> str | None:
+        """[ff9mapkit netsync s164] The role NetSyncSwap.HarnessLever reads, off this game's own published `netsync` block: None when
+        co-op is off (`enabled` false: HarnessEnabled), "selftest" on the selftest role (IsSelfTestRole), else `role` ("host" |
+        "client")."""
+        ns = st.netsync if isinstance(st.netsync, dict) else {}
+        if ns.get("enabled") is not True:
+            return None
+        if ns.get("selftest") is True:
+            return "selftest"
+        role = ns.get("role")
+        return role if isinstance(role, str) and role else None
+
+    @staticmethod
+    def _swap_bench(st: State) -> bool:
+        """[ff9mapkit netsync s164] NetSyncField.BenchGates as published (`netsync.bench`): the gate `intent` and `pinbench` need."""
+        ns = st.netsync if isinstance(st.netsync, dict) else {}
+        return ns.get("bench") is True
+
+    @classmethod
+    def _swap_int(cls, s) -> int | None:
+        """Int32.TryParse(NumberStyles.Integer, InvariantCulture): optional whitespace and sign, decimal digits, in Int32 range."""
+        s = str(s)
+        if not re.fullmatch(r"\s*[+-]?\d+\s*", s):
+            return None
+        v = int(s)
+        return v if -(1 << 31) <= v < (1 << 31) else None
+
+    @classmethod
+    def _swap_in(cls, v, rng) -> bool:
+        """NetSyncSwap.ParseInt's range half: a parsed value inside ``rng`` (inclusive)."""
+        return v is not None and rng[0] <= v <= rng[1]
+
+    def _swap_pinbench_ok(self, rest) -> bool:
+        """`pinbench <field> <flag> [age <ms>] [landed] [party <slot> <char>] [to <field>]` (the words after `pinbench`) --
+        NetSyncSwap.ParsePinBench: field and `to` 1-65534, flag 0-16383, age 0-Int32.MaxValue, slot 0-3, char 0-255; the optional
+        parts in ANY order, each keyword (lowercased) at most once; a repeat, an unknown token, or a missing or out-of-range value
+        fails."""
+        a = [str(x).strip() for x in rest]
+        if len(a) < 2:
+            return False
+        field, flag = self._swap_int(a[0]), self._swap_int(a[1])
+        if not self._swap_in(field, self.NETSYNC_SWAP_FIELD_RANGE) or not self._swap_in(flag, self.NETSYNC_SWAP_FLAG_RANGE):
+            return False
+        seen = set()
+        i = 2
+        while i < len(a):
+            k = a[i].lower()
+            v1 = self._swap_int(a[i + 1]) if i + 1 < len(a) else None
+            v2 = self._swap_int(a[i + 2]) if i + 2 < len(a) else None
+            if k == "age" and k not in seen and self._swap_in(v1, (0, (1 << 31) - 1)):
+                i += 2
+            elif k == "landed" and k not in seen:
+                i += 1
+            elif (k == "party" and k not in seen and self._swap_in(v1, self.NETSYNC_SWAP_SLOT_RANGE)
+                  and self._swap_in(v2, self.NETSYNC_SWAP_CHAR_RANGE)):
+                i += 3
+            elif k == "to" and k not in seen and self._swap_in(v1, self.NETSYNC_SWAP_FIELD_RANGE):
+                i += 2
+            else:
+                return False
+            seen.add(k)
+        return True
+
+    def _swap_args_ok(self, args) -> bool:
+        """Step 7 of the refusal order -- arity and range -- for a KNOWN op (``args`` = the words after `swap`, the op first)."""
+        a = [str(x).strip() for x in args]
+        op = a[0].lower() if a else ""
+        rest = a[1:]
+        if op == "clear":
+            return not rest
+        if op in self.NETSYNC_SWAP_WORDS:
+            return len(rest) == 1 and rest[0].lower() in self.NETSYNC_SWAP_WORDS[op]
+        if op == "delay":
+            n = self._swap_int(rest[0]) if len(rest) == 1 else None
+            lo, hi = self.NETSYNC_SWAP_DELAY_RANGE
+            return n is not None and lo <= n <= hi
+        if op in ("intent", "cache", "lifebench"):
+            n = self._swap_int(rest[0]) if len(rest) == 1 else None
+            return self._swap_in(n, self.NETSYNC_SWAP_FIELD_RANGE)     # NetSyncSwap.ParseField
+        if op == "blackout":
+            if len(rest) != 1:
+                return False
+            if rest[0].lower() == "off":
+                return True
+            n = self._swap_int(rest[0])
+            lo, hi = self.NETSYNC_SWAP_BLACKOUT_RANGE
+            return n is not None and lo <= n <= hi
+        if op == "pinbench":
+            return self._swap_pinbench_ok(rest)
+        if op == "arrivebench":                          # [ff9mapkit netsync s164] THE ARRIVAL GUARD: ParseInt(-1000..5000)
+            n = self._swap_int(rest[0]) if len(rest) == 1 else None
+            return self._swap_in(n, self.NETSYNC_SWAP_ARRIVEBENCH_RANGE)
+        return False
+
+    def _swap_verdict(self, args, role: str | None, bench_gate: bool) -> str | None:
+        """[ff9mapkit netsync s164] NetSyncSwap.HarnessLever's WHOLE refusal order on ``args`` (the words after `swap`) for a game on
+        ``role`` ("host" | "client" | "selftest" | None = co-op off) with the field-gate bench ``bench_gate``: None = the op acts, else
+        the engine's own words (battlewire.swap_lever_refusal is the kit's twin; a test sweeps the two against each other)."""
+        a = [str(x).strip() for x in args]
+        op = a[0].lower() if a else ""
+        if op not in self.NETSYNC_SWAP_OPS:
+            return self.NETSYNC_SWAP_USAGE
+        if role is None and op != "clear":
+            return self.NETSYNC_SWAP_COOP_OFF
+        if op in self.NETSYNC_SWAP_GUEST_OPS and role == "host":
+            return self.NETSYNC_SWAP_GUEST_SIDE.format(op=op)
+        if op in self.NETSYNC_SWAP_HOST_OPS and role == "client":
+            return self.NETSYNC_SWAP_HOST_SIDE.format(op=op)
+        if op in self.NETSYNC_SWAP_SELFTEST_OPS and role != "selftest":
+            return self.NETSYNC_SWAP_SELFTEST_ONLY.format(op=op)
+        if op in self.NETSYNC_SWAP_BENCH_GATED_OPS and not bench_gate:
+            return self.NETSYNC_SWAP_BENCH_ONLY.format(op=op)
+        return None if self._swap_args_ok(a) else self.NETSYNC_SWAP_USAGE
+
+    def _swap_refusal(self, args, role: str | None, bench_gate: bool = False) -> str | None:
+        """[ff9mapkit netsync s164] The PRE-STEP check (the s163 `_speed_refusal` shape): None when the step goes out -- an op that acts,
+        or one the ENGINE refuses on its role, co-op or bench gate (steps 2-6: its words come back from the step) -- else the usage line
+        (step 1, an unknown op; step 7, a bad arity or range once steps 2-6 would pass), refused here in the engine's words."""
+        why = self._swap_verdict(args, role, bench_gate)
+        return why if why == self.NETSYNC_SWAP_USAGE else None
+
+    def swap(self, op: str, *args, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s164] ``netsync swap <op> [arg ...]`` -- FIELD-SWAP TIMING's one lever scheme: ``stamps on|off`` and
+        ``clear`` on any role (`off` = CALIBRATION: no '(t N ms)' stamps, no waited/shown tails, no `[NetSync] swap` lines); ``delay
+        <0-2000>``, ``orphan act|old``, ``own act|old|nocache``, ``pin act|old``, ``fade act|old|long|nogate|norecheck|nohurry``,
+        ``arrive act|old`` on a client or the selftest role; ``life act|old`` on the host or the selftest role; the selftest benches
+        ``hostctl off|on``, ``intent <field>`` / ``pinbench ...`` (both also need `netsync bench 1`), ``cache <field>``, ``lifebench
+        <field>``, ``blackout <1-255>|off``, ``arrivebench <lead_ms>`` (-1000..5000, no `netsync bench 1` needed). [ff9mapkit netsync
+        s164] THE ARRIVAL GUARD's two: ``arrive old`` = CALIBRATION (s158's dwell from the base start at every landing, no guard; read
+        at the landing, so set it before the warp); ``arrivebench`` = a one-shot bench host that landed <lead_ms> before my next
+        landing (a negative lead = the late edge, |lead| ms after it). Through :meth:`netsync`'s gates (refused before the step on an
+        engine without ``netsync.swap``; a malformed op refused before it in the usage line's words; a role / co-op / bench refusal
+        comes back from the engine). Every lever is released with the harness on every role. Counters are never reset (read DELTAS).
+        Returns a fresh state; read it back through :attr:`State.swap_block`."""
+        return self.netsync("swap", op, *args, timeout=timeout)
 
     def act_trance_grace(self, on: bool, *, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s137] ``actbench trancegrace on|off``: the trance burst timing's calibration lever (off = the

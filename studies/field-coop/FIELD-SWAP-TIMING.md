@@ -1,6 +1,6 @@
 # Field-swap timing, second pass
 
-**Status: DESIGN (2026-10-29). Nothing built.** The owner asked for this after the fourth two-PC session: "more options for
+**Status: round 1 BUILT as engine patch s164 (2026-10-30; `SWAP-TIMING-S164.md`): deployed and duo-proven, two PCs next. Round 2 not built.** The owner asked for this after the fourth two-PC session: "more options for
 tighter field-swap timing. the guest lags behind slightly, so some scenes the guest will be ~1s behind the host until they
 rest at the same dialogue. we looked at improving this before but it's worth a second pass".
 
