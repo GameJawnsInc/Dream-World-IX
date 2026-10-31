@@ -1,7 +1,7 @@
 # Arrival guard (s164 addendum)
 
 **Status: BUILT (2026-10-30): engine compiled and deployed; folded into the re-captured s164 patch
-(`memoria-patches/s164-netsync-field-swap-timing.patch`); awaiting the first live run.** Design rev 2, review round 1 applied (15
+(`memoria-patches/s164-netsync-field-swap-timing.patch`); proven on the duo (two games on one desktop): DA-ARRIVE green at act on ARRIVE and red exactly under the `arrive` word. DA-GUARD anchored every in-scope landing in 13 runs but one: a true late anchor after a slow host load on CAL3 -> 250, harmless because that arrival's control was already back. Next: two PCs.** Design rev 2, review round 1 applied (15
 findings, § Review log); the build's departures from it are in the Build log. This is owner decision 8 of
 `SWAP-TIMING-S164.md` (rev 3, :1807): the landing-scoped arrival guard that DA-ARRIVE's predicted red at act makes a ship blocker
 (R2 :41, V5 :77, :1677-1681). It folds into s164 as one change tagged `[ff9mapkit netsync s164]`, lands before s164's README row,

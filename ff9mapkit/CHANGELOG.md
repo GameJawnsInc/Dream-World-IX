@@ -38,6 +38,41 @@ versioning is [SemVer](https://semver.org). The Blender add-on has its own versi
   saying disc 4 kept its own ground, an edit's Accept included.
 - An edit whose later step cannot be put back on top is cancelled and says why; it used to stop silently.
 
+### Fixed — co-op: the guest lands right behind the host when the host changes field (engine patch s164)
+From the field-swap timing study (`studies/field-coop/FIELD-SWAP-TIMING.md`); the owner chose its round 1 with the 12-tick
+follow fade ("stock wipe speed, about 0.5 s faster"). Design: `studies/field-coop/SWAP-TIMING-S164.md` and
+`studies/field-coop/ARRIVAL-GUARD-S164.md`. Proven with two real games on one desktop (the duo bench: 45 of 45 checks, and every calibration word red exactly where predicted, the `pin` word on its re-run) and on the solo bench (43 of 43). Not yet played on two PCs.
+- **On a door or gateway the guest's screen now fades with the stock 12-tick wipe and lands about 0.43 s after the host,
+  not about 0.93 s.** It loads as soon as the screen is black instead of on a fixed 0.9 s timer. When the guest plays
+  at 3x, its screen no longer sits black for about 0.6 s after the fade.
+- **A scripted exit no longer reloads the room first once the host's exit has reached the guest.** On two PCs, 2 of the
+  5 scripted Dali exits bounced, both 351's inn rest to 352: the guest's game reloaded the room it was leaving before
+  following, which cost about 1.5 s and showed the room twice. When the host's exit reaches the guest's game before its
+  own copy of the scene gets to the exit (the third session's bounce), that exit now goes straight to the host's field
+  in one load. When the guest's copy gets there first (the second session's bounce, which the one-PC bench also hit at
+  the slowest host paging), it still reloads the room once and then follows: not fixed in this round.
+- **On a scripted exit the follow carries on the fade the guest's own scene already started** instead of restarting it
+  from a bright screen, so the flash at the start of the follow is gone. A fade to white still flashes.
+- **The guest arrives in the host's story state.** When the guest lands within about 2.5 s of the host's landing (the
+  normal case), its game now applies the story as the host's game had it when it left the old field, not a later one:
+  a story change the host's game makes after leaving no longer reaches the guest's arrival early (the bench checks it
+  with a story mark the host sets after it leaves). A later landing (for example a guest that held its pause screen
+  across the exit), a rejoin from the world map, or a host still on s163 gets the host's latest story, as before.
+- **A slow guest still follows the host's exit.** The host keeps its exit on the wire for at least 2 s, and 1 s past
+  its own landing, so a guest a second behind no longer falls back to the slower follow.
+- **The guest's line is no longer closed early while the host is still in the scene.** On 351 "Cat's Eye" the guest's
+  game closed the innkeeper's first line by itself before the host's game reached it (the fourth two-PC session's
+  Finding 11). Now the guest holds a line while the host's control is off on the same field, until the host's own line
+  closes it.
+- **Landing sooner does not make the guest step out at quiet arrivals.** On a field whose entry holds both players
+  still with no line, the guest's step-out now counts from the host's landing, so it comes about when it did when the
+  guest landed a second later.
+- The log stamps each field change to the millisecond and writes one summary line per change (`[NetSync] swap #N to field
+  F (from S) closed ...`), so a slow landing can be read from the log alone.
+- Both PCs need s164: the host keeps its exit on the wire longer and marks its landing, which the story fix and the
+  quiet-arrival fix read, and the guest's engine does the rest. Under an s163 host an s164 guest takes the host's latest
+  story, as s163 did, and does not hold its step-out at quiet arrivals.
+
 ### Fixed — co-op: a host playing at 3x no longer leaves the guest behind in a scene (engine patch s163)
 From the third two-PC session (`studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`, Finding 10); the owner chose "match host
 speed". Design: `studies/field-coop/SPEED-MIRROR.md`. Proven for an ATE with two games on one PC replaying "Dagger Tries", the
