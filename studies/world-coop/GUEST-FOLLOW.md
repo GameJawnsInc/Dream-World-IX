@@ -2,7 +2,8 @@
 
 The owner's ask (2026-11-01): the guest actually follows on the world map. Today it stands frozen where it walked out (s144)
 until the host's next field. This study lists what makes following tricky, the shapes it could take, and the decisions only
-the owner can make. Nothing is built.
+the owner can make. Nothing is built. **The owner decided (2026-11-01): two bodies**, the airships and the boat pull the
+guest aboard, Choco is one bird each, the guest's own entries are refused, and there is no leash (see Decided, below).
 
 The recon ran as one workflow: 4 read-only lanes (the world engine, the vehicles, the world scripts, netsync), a skeptic per
 lane who re-opened every citation, and a completeness critic. Its output is in the session scratchpad as `wf/recon.raw`
@@ -249,41 +250,84 @@ reloads its own save, or reload at once.
 | 4c: hidden walker under a vehicle ghost | a ghost airship over a walker it cannot see | foot row under a vehicle | risky fallback |
 | 1b: camera follows a ghost | the host's ghost, its own walker parked | ghost only | ruled out |
 
-## A possible order, if the owner picks the ride-along
+## Decided (the owner, 2026-11-01)
 
-1. **Follow OUT, plus the host marker (4b).** No wire change. Key the landing on `w_blockReady`, take the host's live pose,
-   check the same world from section 0. Benchable solo and on the duo (6603 → 9011). Fix the 9012 strand and put the save
-   guard at its call site here.
-2. **1a on foot on the foot-only worlds (9002, 9010, 9011).** The walker is carried inside the tick, under the smoother's
-   10-unit guard. Add the camera rule, a drive that yields to the shared world-transition latch, and a line while a
-   control-off window holds the guest. The wire gets type-0 trailing world bytes, additive under v14. Re-arm the
-   DeclineOnce world book at each world load, or the new refusal classes go silent on repeat visits.
-3. **1a on foot on the vehicle worlds.** Hide or re-place the guest's parked vehicle copies when the host moves them (the
-   twin rule).
-4. **Vehicles, one at a time.** The airships and the boat first, through the bridge round trip (stock, nearly free once
-   rung 1 exists) and/or 4a's reload. Choco last: frequent mounts make a black reload poor, so it probably needs a relay of
-   the stock mount case.
-5. **Optional: free walk on foot (3)** with ghosts both ways, if the owner wants two visible bodies.
+1. **Two bodies.** Each player sees the other walk on the world map. That is shape 2 on foot, with a vehicle rule per
+   vehicle (shape 3's division of labour). The ride-along shapes (1a, 4b as an end state, 4c) are not the goal. The
+   ride-along stays the mechanism for the airship leg only.
+2. **The airships and the boat: pulled aboard.** When the host boards, the guest's screen goes black and it reloads aboard
+   its own copy of the host's vehicle at the host's spot (shape 4a's reload). It rides along, and is set down at the host's
+   landing point. Both players see one vehicle; the guest is inside it, so the host draws no ghost of the guest.
+3. **Choco: each rides its own bird.** The guest may mount its own Choco copy, and each player sees the other on a ghost
+   chocobo. This supersedes the s144 call's "one party per chocobo" for Choco only. Digging and Dead Pepper stay host-only.
+4. **The guest's own location entry: refused with a buzz.** The guest stays outside, with a line saying its partner isn't
+   there. It enters a town only through the existing rejoin, when the host enters.
+5. **No leash.** The guest may roam anywhere on the host's world. A partner dot on the minimap and the full map shows
+   where the host is, and the rejoin pulls the guest in at the host's next stop.
 
-## Decisions for the owner
+## What the decisions mean
 
-1. **One body or two?** Stock draws only the leader on the world map. With a ride-along the guest watches the world through
-   that one body (cheap, and it matches stock). With two bodies each player sees the other walk (ghosts both ways, a dress
-   that mostly does not carry over, and every free-walk rule).
-2. May the guest do anything alone on the world map: walk, turn its camera, open the full map, open its menu? GUEST-MENU
-   named the world map as the natural place for the menu because the guest was idle there.
-3. Under a ride-along, should the guest's camera mirror the host's view, or stay its own and turnable?
-4. Vehicle transitions: is a several-second black reload per board or landing acceptable for the airships and the boat?
-   For Choco? Or must the guest see the stock take-off and landing?
-5. Choco: is the guest "on the same bird" (its own copy at the host's pose), or on a second bird beside the host?
-6. Content parity: enforce identical world content on both PCs (FF9CustomMap-world, Path D, TransportControls.csv), or
+- **Ghosts both ways** (section 4): a bare world model, re-placed from canonical coordinates after every wrap, grounded in
+  the render frame, with its own shadow and sampled animation. A ghost of a mounted player is two models (W0_003 in the
+  tier's colour plus W0_001 on its `*_CHO` clips). The dress maps to a world body: moogle → the world Mog (W0_011), Garnet
+  → Dagger (W0_002), everything else → Zidane (W0_001), unless the owner says otherwise.
+- **The world pose on the wire both ways, at 30 Hz.** Trailing bytes on the type-0 record, inside v14, with the lane's
+  Field kept at 0; canonical coordinates, the travel mode, the animation and the frame. Section 0 stays the host's coarse
+  source for the dot.
+- **The split key mask.** The s144 freeze lifts for directions and the camera. Confirm on an entrance cell is refused with
+  the stock buzz (102) and a line. Confirm near the guest's own Choco must still pass, to mount it, and so must the gold
+  chocobo's take-off. Inference, to settle in the design: the stock entrance poll already requires the Choco proximity
+  flag (Bit 812) to be clear, so the place byte set on an entrance cell (on foot or mounted) tells the Confirms apart. Special (dig, the world moogle), Select and Menu stay host-owned:
+  Menu covers the bridge exits and Dead Pepper. Cancel passes (dismounting the guest's own Choco, the gold chocobo's
+  landing).
+- **The guest's own Choco** obeys the guest's own terrain rows, so the gold chocobo can fly with the host. The guest's
+  Choco copy sits at its last mirrored spot, and the next field load re-mirrors it to the host's. While the guest rides,
+  s145's vehicle decline holds: if the host walks into a battle, a mounted guest sits that fight out on the digit panel.
+- **Pulled aboard** needs, in order: a claim check before the load (the vehicle exists on the guest's dispatcher under its
+  mirrored story, and both are on the same world); the host's LIVE pose (64-72 or the wire, never the stale 74-82); one
+  black world load; the guest's copy carried in-tick by the host's pose with the guest's input masked; then the set-down.
+  Landing into a town needs nothing new (the rejoin). A landing in the open needs a second black load onto foot at the
+  host's getoff-validated landing point, which must finish before the host's first possible encounter. Triangle to the
+  bridge needs nothing new either: the guest follows into the bridge field, and its own exit puts it aboard, once
+  following OUT exists. On 9009 there is no boat object, so a guest there waits on the ground.
+- **No leash** means the guest can be far from the host when the host enters a town or boards. Both the rejoin and the
+  pulled-aboard reload move the guest from anywhere, so nothing new is needed.
+
+## The order (two bodies)
+
+1. **Follow OUT, the partner dot, and two fixes.** The guest follows the host out of a field onto the world map; the dot
+   on the minimap and the full map, from section 0 (no wire change); the 9012 strand; the save guard at its call site.
+   Key the landing on `w_blockReady`, take the host's live pose, check the same world. The guest stays frozen on the world
+   map in this rung. Benchable solo and on the duo (6603 → 9011).
+2. **Free walk on foot with ghosts both ways, on the foot-only worlds (9002, 9010, 9011).** The world ghost and its dress
+   map, the world pose on type-0 both ways, the split mask and the entry refusal, the same-world rule, a world pairing rule
+   (a guest that pairs on the world map stays frozen until its first field mirror), the inbound lane-gap line on both
+   roles, and a WorldTPS mirror beside s163's FieldTPS. Re-arm the DeclineOnce world book at each world load.
+3. **Free walk on the vehicle worlds, with Choco.** The guest mounts its own Choco; the mounted ghost; the guest's parked
+   airship or boat copy hidden or re-placed when the host moves its own; the Choco-call rule (still open, below).
+4. **Pulled aboard: the airships, then the boat.** The claim check, the reload aboard, the carried copy, the set-down, the
+   encounter race. The kit's Southern Ring boat cannot be pulled aboard by a reload (it re-moors at home), so it waits on
+   the owner's scope call.
+
+## Still open for the owner
+
+1. When the host calls Choco with Gysahl Greens, where does the guest's bird come from? Its copy appears beside the guest,
+   or beside the host, or the guest rides only a bird it walks to (its menu is refused while mirroring, so it cannot call
+   one itself).
+2. A mounted guest when the host walks into a battle: sit it out (s145 today), or dismount it and boot the battle, which
+   needs an in-game check that a world battle starts and returns warm around that dismount.
+3. May the free-walking guest open the full map and its menu? s144 refuses the full map because opening and closing it
+   rewrites usercontrol, which the rejoin reads. GUEST-MENU named the world map as the menu's natural place.
+4. Is a second black load acceptable when the host lands in the open, or should the set-down drive the guest's own stock
+   landing case instead (unproven, below)?
+5. Content parity: enforce identical world content on both PCs (FF9CustomMap-world, Path D, TransportControls.csv), or
    detect a mismatch and refuse?
-7. The kit's own vehicles (the Southern Ring boat, the ferry voyage): in scope, or stock vehicles only?
-8. The host drops mid-flight: hold the guest until the grace ends, or reload its own save at once? Should a deliberate quit
+6. The kit's own vehicles (the Southern Ring boat, the ferry voyage): in scope, or stock vehicles only?
+7. The host drops mid-flight: hold the guest until the grace ends, or reload its own save at once? Should a deliberate quit
    send a goodbye word (backlog 15)?
-9. Should the host see anything of the guest on the world map (a marker, a "guest is loading" or "held by a window" line)?
-10. Wire: additive under v14, or ride the v15 bump with comms and the guest menu?
-11. Game knowledge:
+8. Should the host also get a line when the guest is loading or held by a window?
+9. Wire: additive under v14, or ride the v15 bump with comms and the guest menu?
+10. Game knowledge:
     - Which moments take control away mid-free-roam (WORLD05's 9605 arrival, the Invincible's one-time line, others)?
     - Can a host be aboard the Blue Narciss on 9009 in stock play? 9009 spawns no boat object.
     - Is model 452 the Chocobo's Air Garden?
@@ -297,3 +341,7 @@ reloads its own save, or reload at once.
 - Does writing the guest's request byte from C# run a stock board case to completion with the guest's input masked? The
   cases leave the byte latched when their preconditions fail.
 - A block-ready census after world frame 5, to confirm that every block is resident.
+- Does a world battle start and return warm around a mounted guest, if the owner wants a mounted guest dismounted for
+  the host's battle (open decision 2)?
+- Can the guest's own stock landing case run from C# at the host's landing point, to replace the second black load
+  (open decision 4)?

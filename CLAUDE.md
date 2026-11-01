@@ -297,7 +297,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Narrative-state ENGINE — ★★ rungs 0-2 + the chain/HUB lane PROVEN: New Game → hub pick → derived mid-story boot played the whole Dali morning and handed off to the real game at the zone edge → `studies/narrative-state/PLAN.md`
 - Co-op dialogue — ★★ F3.2 no warp + lock TWO-MACHINE PROVEN; F3.3 warm battle return + v14 ring + key relay TWO-MACHINE PROVEN (s97-s99) → `studies/field-coop/F1-BUILD.md`
 - Battle co-op (menu, start sync, Wait, flee/defeat, cut hold, replay, guest model, leader guard) — ★★ s133-s143 built, s133-s135 owner-confirmed; next s142 → `studies/battle-coop/R3-GROUP2-BUILD.md`
-- World-map co-op (the host drives; the frozen guest rejoins the next field and boots their battles warm) — ★★ s144 + s145 proven; next: guest follows (options) → `studies/world-coop/GUEST-FOLLOW.md`
+- World-map co-op (the host drives; the frozen guest rejoins the next field and boots their battles warm) — ★★ s144 + s145 proven; next: two-body free walk → `studies/world-coop/GUEST-FOLLOW.md`
 - Guest traversal (the guest climbs/jumps on its own copy) — ★★ R0-R3 + s157-s164 two-PC proven; queued: 14 door relay, 15 quit word → `studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`
 - Fort Condor fit (rung 5) — data-table substrate proven on bench 30415; awaiting owner ratification
   → `studies/fort-condor/PLAN.md`
