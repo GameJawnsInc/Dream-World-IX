@@ -673,7 +673,9 @@ off (`HostHoldsInput`, section 7 b1) only for a script-polled line (`FlagButtonI
 cutscene that has not reached its first line yet looks idle. Before, a guest was rarely ahead of its host (it trails the
 host's load). A guest booster makes it reachable, and so would any field-swap tightening that lets the guest arrive first.
 
-**Fix sketch (traced, not built):** a plain locked line is not orphaned while the host stands on my field with its control
+**Status: built in s164 as item B, and two-PC confirmed in the fifth session's check 4.**
+
+**Fix sketch (as traced before s164):** a plain locked line is not orphaned while the host stands on my field with its control
 off, the same term the polled line already uses. The cost: a genuine orphan during a long host cutscene waits until the
 host's control comes back. A cap needs a number to justify it; "Dagger Tries" at 3x against 1x would put the guest about
 20 s ahead.
@@ -687,87 +689,243 @@ host's control comes back. A cap needs a number to justify it; "Dagger Tries" at
 ## The fifth two-PC session (2026-10-31, s164)
 
 Both PCs ran `Assembly-CSharp.dll` `29f351aa…` (s164, the laptop package of 2026-10-30) over the relay, host GuestSlots 2,
-GhostAs auto, the guest dressed as a moogle. The owner loaded the 351 morning save, paired the guest on 350 (18:39:39)
-and warped the host to 359 at 18:40:49, as the package README asks. The logs are archived in
+GhostAs auto, the guest dressed by the host (see The guest's dress, below). The owner loaded the 351 morning save,
+paired the guest on 350 (18:39:39) and warped the host to 359 at 18:40:49, as the package README asks. The logs are archived in
 `.harness-runs/twopc-s164-20261031/` in the main repo (with the laptop's `Memoria.ini`) and in
 `C:\gd\SCRATCH\guest-traversal\logs\` (`desktop-host.20261031-183921.log`, `laptop-guest.20261031-183920.log`; the host
 clock runs about 1.5-2 s ahead). Neither log has a `field swap fault` line. The owner confirmed the Field Message speed
 setting is the same on both machines.
 
-**Results recorded only, not analysed.** Usage ran short, so the owner asked for the results and a handoff. The analysis
-workflow has not run, and every reading below is from a first pass over the two logs.
+**Analysed (2026-11-01).** Five agents read both logs end to end against the package README, the engine source at
+`29f351aa` (the clone with s158-s164 applied) and the stock scripts. A skeptic then tried to refute each of the four verdict
+sets, and its corrections are folded in. Every first-pass verdict held; the numbers below replace the first pass's. Cites
+without a file name are to the archived logs: `host:` is `desktop-host.20261031-183921.log`, `guest:` is
+`laptop-guest.20261031-183920.log`.
+
+**The guest's dress.** The host's section 8 set it, not a guest setting. It was the moogle while the party was Zidane alone,
+Steiner from the desk scene on 351 through 352's night scene (`section 8 model 5489 charId 3`, guest:168), and the moogle
+again from the ATE on 350 (18:44:23, guest:365). So check 2's 352 step-out was the README's Steiner case.
 
 | Check (package README) | Owner | Log |
 |---|---|---|
-| 1. Doors at 1x | (no remark) | **green.** Seven 1x follows (swaps #1-#7): all `fast:` starts reading visible, due 397-417 ms / 12 ticks, commit +397-417, landed +730-788 ms after the intent reached the guest. The host landed 290-339 ms after its emit. No `today's` start, no fallback |
-| 2. 359 -> desk scene -> the rest (351 -> 352) at 1x | (no remark) | **green.** 359 and the 359 -> 351 exit each loaded once by the follow, with no bounce. The rest: `fast: the screen reads heading (sub) (11 ticks left); joining its own fade (no re-init)`, then `own Field(352) passes on field 351 ... (one load)`; summary `via my own Field(); seen +0, follow +0, own +367 ... (seen); follows 1, bounces 0`. 352's arrival guard: `the host landed 94 ms before me`, `held the dwell ... base 1500 ms, its guarded dwell 710 ms`, `held the dwell OUT 790 ms (it stepped out at base 2313 ms)` |
-| 3. Doors with the guest at 3x | "looked good" | **green on the due line**, but two unpredicted bounces (below). 3x follows: due 149-150 ms / 13-14 ticks, landed +451-468. One follow in the middle (swap #16) ran at 1x pace (400 ms / 12 ticks), most likely with the guest's booster off at the time |
-| 4. "Cat's Eye" on 351, the guest at 3x (Finding 11) | "cat's eye was good" | **green.** `dialogue orphan: win 7 text 113 held -- the host's control is off on my field`, then `the control hold ends after 5110 ms (a host event claims it)`. No `auto-closed` line. The guest's copy then took the ATE's own exit to 350 first and waited there (`the host is still on field 351: the follow back into it waits`); the host came to 350 at 18:50:14 |
+| 1. Doors at 1x | (no remark) | **green.** Four doors: guest swaps #2-#5, which are host #1-#4. #16, a fifth door, ran at 1x pace inside check 3. Every start reads `fast: the screen reads visible`, and every due line ends `the screen reads black, one dialogue pass later`. Due 398-417 ms / 12 ticks, commit +399-417, landed +732-788 ms after the guest read the host's intent. The host landed 294-339 ms after its emit (the summary lines, on the swap clock). No `today's` start and no fallback anywhere in the log. Guest #1 is the pairing join, #6 follows the host's ~ warp to 359, and #7 is check 2's exit |
+| 2. 359 -> desk scene -> the rest (351 -> 352) at 1x | (no remark) | **green.** One follow reached 359 (#6) and one left it (#7, no bounce). #7's intent arrived `cached on field 359 (host lane 0)` (guest:158), which is the known 359 bounce's precondition, but the follow committed before the copy ran its own `Field(351)`. The desk scene played from its first line: 129-140 were closed by host seq 7-18 in order. The rest took one load: `joining its own fade (no re-init)`, then `own Field(352) passes ... (one load)`, and the summary ends `(seen); follows 1, bounces 0, reloads 0` (guest:233). 352's three guard lines came in the README's order |
+| 3. Doors with the guest at 3x | "looked good" | **green.** Seven 3x follows (#11-#15, #17, #18): due 149-150 ms / 13 ticks (#17: 14), landed 451-468 ms after the seen edge. During #16 the guest's script ticked 12 times in 400 ms, which is 30 per second, so the guest's own booster was off for that fade. The host stayed at 1x all session, and the speed mirror never applied. No line logs the guest's own booster edge. Two bounces on 352: Finding 13 |
+| 4. "Cat's Eye" on 351, the guest at 3x (Finding 11) | "cat's eye was good" | **green.** 113 opened locked and was `held -- the host's control is off on my field` (guest:578). The hold ended `(a host event claims it)` (guest:580) when the host's own 113 showed in the host's open-window set, after 5100 ms on the swap stamps (the line's 5110 ms is TickCount). Then 113-117 each closed by host seq 64-68, in order. No `auto-closed` line anywhere. The guest's 113 opened at most about 5.1 s before the host's |
 
-**What the arrival guard read on a real link** (the question check 2 left open). On the 1x door follows and the rest, the
-guard read `the host landed X ms before me`, X = 63-94 ms. On the copy's own `Field()` entries (the ATE picks and exits)
-and the 3x doors, it read `the host's landing reached me X ms after mine`, X = 63-391 ms. X = 63-94 ms on a 1x door does
-not match the summary arithmetic (the guest landing about 0.4 s plus the one-way latency after the host). Reconcile what X
-measures before quoting it as a landing gap.
+Neither log has a `field swap fault` line, nor any `|E|` line.
 
-### Finding 12: the guest's copy held a line about 2 s after the host closed it ("Vivi, Confused", 350, at 1x)
+For anyone pairing the two logs by swap number: the guest's numbers run one ahead of the host's through #8, then match
+from #9 to #20. Guest #1 is the pairing join, and the host's 352 -> 352 reload (host #8) opened no guest record. Swaps #11
+and #17 each fold a bounce and the host's later exit into one record. Their `landed +5091` and `+20364` are counted from the
+bounce, so they are not landing delays. Leave both out of landing statistics.
 
-The owner: a couple of lines into the ATE, they closed a line just before the children run away, and the guest kept that
-line up and played the run only later, at about the host's next close, as they recall it.
+### What the arrival guard's X measures
 
-**First-pass reading: a link stall, not a speed setting.** Taking the offset (guest time − host time) of each host close
-as it reached the guest (lines 322-325 on 350):
+**X is not a landing gap.** Both of its instants are on the guest's clock (`Environment.TickCount`):
+- "My landing" is the first statement of `NetSyncSwap.OnFieldLoad`. It runs in the new scene's first HonoUpdate after
+  `IsReady`, just before `StartEvents` (`NetSyncClient.cs:999`, `HonoluluFieldMain.cs:150`).
+- "The host landed" is the first guest Update that read a host frame whose section 4 carries the landed bit for that nonce
+  and field (`NetSyncSwap.cs:1257`, `:2041`).
+- The wording only says which came first (`NetSyncSwap.cs:2133-2139`).
 
-| Text | Host close (host clock) | Reached the guest, relative to the steady offset |
-|---|---|---|
-| 322 | 18:44:28 | +0.4 s (the guest's line opened 366 ms after the close arrived: `waited 366 ms`) |
-| **323** | 18:44:36 | **+2.2 s** (the guest showed 323 for 5100 ms) |
-| 324, 325, 324 | 18:44:44-18:44:57 | 0 (the steady offset) |
+On every 1x follow, the host's landed frame arrived while the guest's own scene load was blocking the main thread (250-275
+ms from the commit to the first post-load Update), and the first post-load Update read it. So X is the guest's own
+interval from that Update to its landing hook.
 
-At the same moment the guest logged `the host went silent (the hop is up: a cut or a stall upstream) ... the host is back
-after 344 ms ... outages=1` (guest 18:44:36), and the host re-spawned the guest's ghost on 350 at 18:44:38 (its first
-ghost on 350 spawned at 18:44:25). So both directions stalled about 2 s, and the host's close of 323 arrived about 2.2 s
-late. 323 is most likely the line before the children run away. This does not yet match the owner's memory of the
-guest catching up only at the NEXT close, which came 7.7 s later on the host. Settle that from the logs, or with a video
-of a repeat.
+All 19 guard lines (every X is a whole number of 15.625 ms TickCount ticks):
+- `the host landed X ms before me`: #2 78, #3 78, #4 93, #5 78, #6 63, #7 78, the rest #8 94, the 352 reload at 18:43:52 62
+  (no swap number), #16 94.
+- `the host's landing reached me X ms after mine`: the copy's own `Field()` entries #9 172, #10 156, #19 391; the 3x
+  follows #11 140, #12 63, #13 125, #14 79, #15 125, #17 187, #18 93.
 
-Settings the two machines do NOT share (not yet ruled out, though the stall explains the numbers): the laptop runs
-`[Font] Enabled = 1` (Alexandria/Garnet, size 24), and the desktop log reads `Pass through {Configuration.Font.Enabled =
-0}`. The laptop also runs `FieldFPS = 120` (target fps 120), while the desktop logs target fps -1. Both run
-`TextFadeDuration = 100` (the laptop's ini; the desktop's not read), `ForceMessageSpeed = -1`, `SpeedFactor = 3` and
-`FieldTPS = 30`.
+**The real two-PC landing gap.**
+- **Method.** For each nonce, d = the guest's swap-clock stamp of its first line naming the nonce, minus the host's stamp of
+  `transition intent -> field F (nonce N)`. Over the 18 nonces where the guest was not mid-load, d = 1100792342-1100792390
+  ms, so the clock offset is at most 1100792342. A round trip bounds it from below: the host spawned the guest's ghost on
+  352 within 18:47:08 (host:204), after the guest landed at t 1178020809, so the offset is above 1100792111. The one-way
+  latency is therefore 0-231 ms, or at most 116 ms if both directions are equal.
+- **1x doors (#2-#5, #16):** at least 439-503 ms, median 479, plus the latency: about 0.44-0.62 s. The duo's median was
+  426.5 ms (375-461), so the real link adds at least about 0.01-0.08 s plus the latency. It is still about half of s163's
+  0.93-1.04 s.
+- **The rest (#8):** at least 357 ms. **3x doors:** at least 116-186 ms.
+- The same mappings put the host's system clock 1678-1909 ms ahead of the laptop's. The transport probe wrote no lines: it
+  logs only on a swap's close.
 
-### Finding 13: two unpredicted copy-ahead bounces on 352 with the guest at 3x
+**The late anchor.** The sign split is where the design puts it. The in-time wording appeared on gaps of about 0.36 s or
+more, and the late wording on gaps of about 0.19 s or less (`ARRIVAL-GUARD-S164.md:28-31`). But the in-time wording does not
+mean an in-time read. On every 1x follow, the anchor waited out the guest's own load. It sat 332-383 ms plus the latency
+after the host's real landing (231 ms plus the latency on the rest), against the 50-90 ms the duo measured. A wordless
+step-out on a 1x door would therefore come about 2.87-2.92 s plus the latency after the host's landing. That is about 0.24-0.33 s
+later than an in-time anchor would give. The design already accepts that a late anchor means more suppression, bounded by
+the cap, and no arrival this session showed it on screen.
 
-Twice the guest's copy took its own `Field(351)` on 352 while the host still stood on 352:
-`gateway (bounced to a reload) suppressed (following guest) on field 352`, then `own Field(351) on field 352 -- bounced to a
-reload of 352 (not the host's field: the host's lane reads field 352)` (guest 18:46:58 and 18:48:46). They came 4.6 s and
-19.9 s before the host's own exit, and each reloaded 352 on the guest (the host re-spawned the guest's ghost at 18:47:00 and
-18:48:48). Their summaries (swaps #11 and #17) read `seen +4635` / `seen +19902 ... (own); follows 1, bounces 1, reloads 1`.
-The package README did not predict this on a door, and the owner reported nothing (each reload takes about 0.3 s).
-Open: what took the copy to 352's exit at 3x with no host exit in flight.
+**352's dwell.** The OUT came at landing + 2477 ms. The rule predicts + 2446 ms (the read tick + 2540); the extra 31 ms is one
+frame step plus tick rounding. 2.48 s is the README's "about 2.5 s minus X", at the top of the desktop's 1.9-2.5 s.
+Measured from the host's landing, it is about 2.80 s plus the latency.
 
-### Backlog from the owner (not s164 regressions)
+**The s164 row's NOT PROVEN list, against this session:**
+- **The two-PC follow gap:** measured, as above.
+- **`arrive.lead_ms`'s sign:** measured, with the meaning corrected as above.
+- **The laptop's Unity order:** read on 18 loads as a guest: `NetSyncClient.Update` runs before the per-scene
+  `HonoBehaviorSystem.Update`. The strongest evidence is the own passes: #8 and #10 cleared the intent cache 256 and 253 ms
+  after the pass, and the other order would clear it within one frame. Its consequence for a laptop host (LIFE under `swap
+  life old`) is not reached; that needs the laptop to host.
+- **Risk 14's band:** not reached. Doors gave control back 143-230 ms after landing, 352's night scene stepped out, and the
+  ATE entries stepped out by `ate`. Given the late anchor, the band on 1x doors runs about 2.54 s to 2.9 s plus the latency.
+
+Still open: the host's delay from its landing hook to its first landed frame (it publishes about every 164 ms), and the
+link latency. A host line stamped on the swap clock when it builds its first landed frame, the guest's read on the swap
+clock, and a logged round trip would settle both.
+
+### Finding 12: the guest held a line about 2.2 s after the host closed it: a 2.3 s link stall ("Vivi, Confused", 350, at 1x)
+
+The owner: a couple of lines into the ATE, they closed a line just before the children run away. The guest kept that line up
+and played the run only later, at about the host's next close, as they recall it.
+
+**Cause (confirmed): a 2.3 s link stall in both directions. It is not a speed, font or frame-rate effect.** For each host
+close, K = the guest's ingest stamp minus the host's tap stamp. That is the clock offset plus the one-way latency. Over the
+whole session K sits in a 46 ms band, 1100792346-1100792392, median 1100792373:
+
+| Seq (text) | Host tap | Guest ingest | K vs the median | Guest apply |
+|---|---|---|---|---|
+| 54 (98, a choice) | host:165 | guest:355 | +9 ms | waited 9 ms |
+| 55 (100) | host:166 | guest:359 | -11 ms | waited 0 ms |
+| 56 (322) | host:177 | guest:378 | +19 ms | waited 366 ms, shown 816 ms |
+| **57 (323)** | host:178 | guest:384 | **+2175 ms** | waited 0 ms, shown 5100 ms |
+| 58 (324) | host:180 | guest:387 | -15 ms | waited 0 ms, shown 2217 ms |
+| 59 (325) | host:181 | guest:390 | -4 ms | waited 0 ms, shown 4734 ms |
+| 60 (324) | host:182 | guest:393 | +3 ms | waited 0 ms, shown 3150 ms |
+
+- **323: +2175 ms late.** The first pass's +2.2 s holds. On time, 323 would have shown for about 2925 ms instead of 5100 ms.
+- **322 was on time.** The first pass's +0.4 s is overturned. The 366 ms is the guest's readability floor: a host close
+  fast-forwards a page that is still typing, then waits `MinShowMs` 350 ms from its completion (`NetSyncDialog.cs:51`). That
+  is why the waits cluster at 366, 367, 383 and 384 ms all session.
+- **The stall.** The guest calls the host silent once the position lane is more than 2000 ms stale, and "back after 344 ms"
+  counts from that moment (`NetSyncClient.cs:4102`, `:4127`). So the guest received nothing for about 2344 ms. The last frame
+  that got through left the host about 168 ms before the 323 tap, and 2344 - 168 = 2176, which matches seq 57's lateness.
+  The guest applied the close in the same update it arrived in, so nothing on the guest added delay. The relay writer is its
+  own thread, re-sending the latest slots every 33 ms (`NetSyncRelay.cs:265-277`), so a hitch in the host's game thread
+  cannot cause this.
+- **The other direction.** The host has no outage clock, and its ghost despawns without a line. Its re-spawn of the
+  guest's ghost at 18:44:38 (host:179) is the only host re-spawn this session that matches no field event on either log. That
+  fits a guest-to-host stall of over 2000 ms (inferred: a null host control actor or a field mismatch would also despawn it).
+- **Where.** Both games dial `ws://127.0.0.1:49201`, a ws-to-wss bridge on each PC that forwards to the public relay. "The
+  hop is up" means only the guest game's loopback link to its own bridge, so the stall sat further out. The bridge's own
+  notes record upstream EOFs from a relay wobble, and on a redial it drops game-to-relay frames rather than queueing them
+  (`netsync_bridge.py:20-24`, `:97-99`). That is the leading candidate. These logs cannot tell. The desktop's bridge-log
+  folder holds only 2026-10-15 files; the laptop's was not checked.
+- **The settings** (the laptop's `[Font] Enabled = 1` and `FieldFPS = 120`) are ruled out. The delay came before the close
+  reached the guest, and those settings act only after.
+
+**Which line, and the run.** It was 323, Gudo's line in window 6 (`test2_93.txt`). Two of the three children run off while
+323 is still up, on both copies: the girl (case 16) and the other boy (case 17). Only Gudo's own run waits. It is case 18,
+which needs the beat to reach 18 and then `WaitWindow(6)`. So the guest held back Gudo's run. On the guest it ran about 2.2 s
+late, ending about 2.2 s before the host's next close. The guest caught up at that close: the host's close of 324 arrived on
+time, so the guest showed 324 for only 2217 ms. So the owner's "at about the host's next close" describes the catch-up, not
+when the run played. When the host's own run started is not known: the host logs no opens or beats.
+
+**Is a 2 s hiccup normal here?** Across all five two-PC sessions (about 53 minutes paired), the guest logged 4 outages
+mid-session, each a total silence of about 2.16-2.34 s:
+- 10-27 15:07:34 (back after 172 ms): it delayed a host intent;
+- 10-28 morning, 10:59:59 and 11:00:59, 60 s apart (156 and 188 ms): the first delayed a close;
+- 10-31 18:44:36 (344 ms): this one.
+
+10-28 evening and 10-29 logged none, though the first ~3 minutes of 10-29's pairing have no archived guest log. So about one
+stall every 13 minutes is this link's norm so far, not an s164 regression. A stall longer than about 5 s would free the
+guest to close the line itself: the lock lets go once the link reads dead for 3 s past the 2 s staleness.
+
+**Open.** Where the stall sat: the bridge consoles from both PCs, the relay's log for 22:44:34-38 UTC, or an engine line on
+both roles for any inbound gap over about 500 ms would settle it. How long the guest-to-host stall lasted. Whether 10-28's
+60 s spacing repeats.
+
+### Finding 13: the guest walked into 352's exit twice and was bounced, as designed
+
+Twice the guest's copy took its own `Field(351)` on 352 while the host still stood on 352 (guest 18:46:58 and 18:48:46).
+The guest read the host's own exits 4635 ms and 19902 ms later, and each bounce reloaded 352 on the guest in 302 and 317 ms.
+
+**The path.** A script's `Field()` (MAPJUMP) calls `RedirectGuestFieldJump` on a following guest. No ATE verdict printed, and
+s164's own pass found nothing to match: no follow was pending, the host had no live intent, and nothing was cached for 351.
+351 was neither the guest's field nor the host's lane, so the copy bounced to a reload, as it has since s163. The
+`gateway (bounced to a reload) suppressed` line printed only before the first bounce. Its latch keeps the last field per
+class and never re-arms, so a second bounce on the same field prints only s164's `swap: own` line.
+
+**Which call.** 352 has three `Field(351)` sites (`test2_95.txt`):
+- ATE choices +3 and +4 (:403, :433). Excluded: a following guest's own Select is masked (`NetSyncField.cs:905-911`), and no
+  ATE serve line appears near either bounce.
+- `Region14_Range` (:1107), the south door. It needs only control, then runs a 24-frame fade to black, `Wait(25)`, sets
+  entrance 6 and calls `Field(351)`.
+
+So it was the door. That is an inference by elimination: no line names the runner.
+
+**What put the body in the door.** Entrances 2 and 6 place the body at (-16, -720), about 43 units north of the door's
+polygon (top vertex (8, -756)). The engine tests the region every tick while control is on. A body placed inside would have
+fired as soon as control came back. Instead the bounces came 121 s after #10's landing and 47 s after #16's, so the body was
+moved there long after it landed. The candidates:
+- **netsync movers:** a teleport would log a line, and AutoTeleport is off in the laptop's ini. Excluded.
+- **the host's ghost:** a bare model with no actor, so it cannot push. Excluded.
+- **stock scripts:** no 352 code at entrances 2, 6 or 17 walks the player. Zidane_Loop's stale case 2 does place him inside
+  the door, but it opens window 4 and runs at landing. Excluded.
+- **the self-dress and the booster:** the region test reads position only. Excluded.
+- **the laptop's own movement input:** this remains. Both bounces fall in windows where the laptop's player switched the
+  booster on: 1x at #7 (18:41:47) then 3x at #11 (18:47:03), and 1x at #16 (18:47:58) then 3x at #17 (18:49:05). So someone was
+  at the laptop each time. Check 3 also says "Walk a few doors", and one short press south from the spawn reaches the door.
+
+No line records local input, so this is the best-supported reading, not a proof. **It is not a copy-ahead and not an s164
+regression.** Any following guest who walks into a gateway has been bounced this way since F1. No earlier session bounced on
+352. 3x did not cause the trigger; at most it carried a walking body farther per second.
+
+**Harm.** One fade to black and a 0.3 s reload. Main_Init re-runs the music, the ambient sound, the chests, the regions and the
+ATE mask. The counter stays 2600, and no story byte changes.
+
+**Owed.** The owner's word on whether the laptop's player walked on 352. For the next build: the own-jump line could name the
+runner (cid, sid, tag), the body's (x, y), the control state, whether a direction key was down recently, and the booster flag.
+Then one line would tell a guest's walk from a scripted placement.
+
+### Backlog from the owner (not s164 regressions; traced, unverified)
 
 - **14. 351's drawn door does not play its open animation on the guest** when the host walks through it.
+  - **Cause.** The door is a tile animation, `RunTileAnimationEx(0, 0, 4)`, started in 351's `Region18_Range`, the gateway to
+    352 (`test2_94.txt:3144-3205`, the call at :3183). The engine runs a region body only for the controlled player
+    (`EventEngine.ProcessEvents.cs:187-191`). On the guest that is the guest's own body. The host's body there is a bare
+    `CreateModel` ghost, not an event actor (`NetSyncClient.cs:90-94`), so the guest's copy never runs `Region18_Range` for
+    the host. The host's intent leaves only at the `Field()` commit, after its door animation and fade. The first crossing
+    (the scripted inn walk, #8) ran on the guest's own copy, and its script starts the door too (:3394). So the free walks
+    (#12, #14, #16) are the likely cases; which crossing the owner saw is unconfirmed.
+  - **Fix model.** It is the s160 chest relay's cause again: a tag-2 `_Range` body that runs only for the player. Model the
+    fix on that relay. The host stamps the moment its copy enters the region, and the guest plays the animation before its
+    follow fade reads black.
+  - **Reach.** At most 85 of the 817 exports have a region body with both a tile animation and a `Field(`.
+  - **Scope.** Cosmetic only.
 - **15. The guest waits out the full 40 s grace when the host quits on purpose** (host quit 18:50:32; the guest ended the
-  session at 18:51:13, `silent for 40015 ms, past the 40 s grace`, then the exit ramp reloaded its own autosave). With no
-  menu the guest cannot quit to the title meanwhile. The owner expects this to be fixed with the guest menu work
-  (`GUEST-MENU.md`). A cheaper half: the host sends a session-end word on `RaiseQuitEvent`, so a deliberate quit ends the
-  guest's grace at once.
+  session at 18:51:13, `silent for 40015 ms, past the 40 s grace`, then the exit ramp reloaded its own autosave).
+  - **Cause.** The host's deliberate quit sends nothing. The path runs `ConfirmQuit`, `Application.Quit`, then
+    `RaiseQuitEvent` (`UIKeyTrigger.cs:412-432`), and NetSync does not subscribe to `GameLoopManager.Quit`. The relay
+    transport's `Stop` closes the stream with no close frame (`NetSyncRelay.cs:93-97`). The wire has no session-end type
+    (`NetSyncSocket.cs:193-200`; `NetSyncEnd.cs` is the battle end block). The relay parks the dropped leg for its 60 s
+    rejoin, and the guest's own link stays up, so the guest sees an ordinary outage.
+  - **The cheap half.** At the quit, the host pushes one in-band session-end word out of band. The guest takes it straight into
+    the existing give-up and exit ramp. It has to be in band, because the guest's bridge redials and would hide a relay
+    close. A missed word falls back to today's 40 s, so it fails safe. It may need a flush before the window is destroyed.
+  - **The guest-menu work.** `GUEST-MENU.md` has no quit or leave decision, so the word can ship before it. A guest
+    choosing to leave during a grace stays with the menu work.
 
-### Handoff: the next session
+### Next
 
-1. Run the analysis this session skipped (the owner deferred it to save usage): read both archived logs end to end against
-   `swap-timing/TWO-PC-CHECKS-S164.md`, with a workflow plus adversarial verification. Confirm or overturn each first-pass
-   verdict above.
-2. Finding 12: confirm the link stall on both logs (the host side has no "silent" line, so look for what it logged
-   around 18:44:36-38), and settle which line the owner saw held. If it is the stall, the open question is whether a 2 s
-   relay hiccup on this link is normal. If not, compare the font and FieldFPS settings.
-3. Finding 13: trace what put the guest's copy on 352's `Field(351)` at 3x (the guest pressed nothing).
-4. Reconcile the arrival guard's X (63-94 ms) with the landing gap, then record the two-PC rows in
-   `memoria-patches/README.md`'s s164 row and in `SWAP-TIMING-S164.md`'s status.
-5. Queue 14 and 15 in the round queue: 15 with the guest-menu work, 14 as its own item.
+1. **The owner:** did the laptop's player walk the guest on 352 during check 3 (Finding 13)? If not, Finding 13 is a real
+   defect and needs the runner line above.
+2. **Log-only asks for the next engine round:**
+   - a line on the guest's own booster edge (`UIKeyTrigger`, `PauseUI` and `BoosterSlider` toggle it silently);
+   - the own-jump runner line (Finding 13);
+   - an inbound lane-gap line on both roles for any gap over about 500 ms, on the swap clock (Finding 12);
+   - a host swap-clock stamp on its first landed frame (the arrival guard).
+3. **Queued in the round queue:** 14 as its own item (a door relay modeled on s160), and 15's session-end word, which does not
+   wait for the guest-menu work.
+4. **Still not reached:**
+   - the laptop as host (LIFE under `swap life old`);
+   - risk 14's band;
+   - the s158 shape on a real link (an own jump before the intent);
+   - the emergence scene (Finding 3).
 
 ## Order of work
 
@@ -801,4 +959,8 @@ Open: what took the copy to 352's exit at 3x with no host exit in flight.
    behind the host's after a field change, and stays behind until the host rests on a line. Designed in
    `FIELD-SWAP-TIMING.md`: about 90% of it is the guest's 0.9 s follow timer, which starts only after the host's own
    fade has ended; plus a bounce reload on 2 of the 5 scripted Dali exits.
-6. **Finding 11's orphan hold** (a guest ahead of its host): traced, not built; it rides the next engine round.
+   **s164 (2026-10-30): round 1, built, deployed, solo- and duo-benched. Two-PC run in the fifth session (2026-10-31),
+   analysed 2026-11-01: checks 1-4 green; the 1x door gap is at least 0.44-0.50 s plus the link latency.**
+6. **Finding 11's orphan hold** (a guest ahead of its host): **built in s164 (item B); two-PC confirmed in the fifth
+   session's check 4.**
+7. **Queued after the fifth session:** 14, a door relay modeled on s160; and 15, a session-end word on the host's quit.
