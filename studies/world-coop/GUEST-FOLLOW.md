@@ -281,8 +281,8 @@ reloads its own save, or reload at once.
   Menu covers the bridge exits and Dead Pepper. Cancel passes (dismounting the guest's own Choco, the gold chocobo's
   landing).
 - **The guest's own Choco** obeys the guest's own terrain rows, so the gold chocobo can fly with the host. The guest's
-  Choco copy sits at its last mirrored spot, and the next field load re-mirrors it to the host's. While the guest rides,
-  s145's vehicle decline holds: if the host walks into a battle, a mounted guest sits that fight out on the digit panel.
+  Choco copy sits at its last mirrored spot, and the next field load re-mirrors it to the host's. Today s145's vehicle
+  decline would make a mounted guest sit the host's battle out; decision 7 dismounts it instead.
 - **Pulled aboard** needs, in order: a claim check before the load (the vehicle exists on the guest's dispatcher under its
   mirrored story, and both are on the same world); the host's LIVE pose (64-72 or the wire, never the stale 74-82); one
   black world load; the guest's copy carried in-tick by the host's pose with the guest's input masked; then the set-down.
@@ -304,33 +304,34 @@ reloads its own save, or reload at once.
    (a guest that pairs on the world map stays frozen until its first field mirror), the inbound lane-gap line on both
    roles, and a WorldTPS mirror beside s163's FieldTPS. Re-arm the DeclineOnce world book at each world load.
 3. **Free walk on the vehicle worlds, with Choco.** The guest mounts its own Choco; the mounted ghost; the guest's parked
-   airship or boat copy hidden or re-placed when the host moves its own; the Choco-call rule (still open, below).
+   airship or boat copy hidden or re-placed when the host moves its own; the Choco call (decision 6); the dismount for the host's battle (decision 7).
 4. **Pulled aboard: the airships, then the boat.** The claim check, the reload aboard, the carried copy, the set-down, the
    encounter race. The kit's Southern Ring boat cannot be pulled aboard by a reload (it re-moors at home), so it waits on
    the owner's scope call.
 
+## Decided, second round (the owner, 2026-11-01)
+
+6. **The Choco call.** When the host calls Choco with Gysahl Greens, the guest's own copy runs in from off screen to the
+   GUEST, the way stock's bird runs in next to the caller. Mechanism to settle in rung 3: the guest's own request-1 case
+   (Choco's arrival script) run at the guest's spot; whether it works off a chocobo track is unproven.
+7. **A mounted guest when the host's battle starts: dismounted**, then it boots the battle. Needs the in-game check below.
+8. **The full map and the menu for a free-walking guest: undecided.** Until a rung decides it, the s144 refusal of the full
+   map stays, and the menu stays GUEST-MENU's track.
+9. **A second black load when the host lands in the open: acceptable.**
+10. **The same world content on both PCs is required.** Rung 2 adds a world fingerprint at pairing (the dispatchers, the
+    override set, TransportControls.csv, the WorldScene list) and keeps a mismatched pair on the s144 freeze, with a line.
+11. **The kit's own vehicles (the Southern Ring boat, the ferry voyage): not yet.** A guest stays frozen through them.
+12. **The host drops mid-flight: the guest waits aboard the unpiloted airship** (input still masked, hovering) until the
+    exit ramp reloads its own save.
+13. **A host-side line while the guest is loading or held by a window: yes, probably.** Rung 2 or later.
+14. **Wire: v15**, shared with the comms lane, the guest menu and B4.2. Rung 1 needs no wire change.
+
 ## Still open for the owner
 
-1. When the host calls Choco with Gysahl Greens, where does the guest's bird come from? Its copy appears beside the guest,
-   or beside the host, or the guest rides only a bird it walks to (its menu is refused while mirroring, so it cannot call
-   one itself).
-2. A mounted guest when the host walks into a battle: sit it out (s145 today), or dismount it and boot the battle, which
-   needs an in-game check that a world battle starts and returns warm around that dismount.
-3. May the free-walking guest open the full map and its menu? s144 refuses the full map because opening and closing it
-   rewrites usercontrol, which the rejoin reads. GUEST-MENU named the world map as the menu's natural place.
-4. Is a second black load acceptable when the host lands in the open, or should the set-down drive the guest's own stock
-   landing case instead (unproven, below)?
-5. Content parity: enforce identical world content on both PCs (FF9CustomMap-world, Path D, TransportControls.csv), or
-   detect a mismatch and refuse?
-6. The kit's own vehicles (the Southern Ring boat, the ferry voyage): in scope, or stock vehicles only?
-7. The host drops mid-flight: hold the guest until the grace ends, or reload its own save at once? Should a deliberate quit
-   send a goodbye word (backlog 15)?
-8. Should the host also get a line when the guest is loading or held by a window?
-9. Wire: additive under v14, or ride the v15 bump with comms and the guest menu?
-10. Game knowledge:
-    - Which moments take control away mid-free-roam (WORLD05's 9605 arrival, the Invincible's one-time line, others)?
-    - Can a host be aboard the Blue Narciss on 9009 in stock play? 9009 spawns no boat object.
-    - Is model 452 the Chocobo's Air Garden?
+- The game-knowledge questions (the owner is reviewing them):
+  - Which moments take control away mid-free-roam (WORLD05's 9605 arrival, the Invincible's one-time line, others)?
+  - Can a host be aboard the Blue Narciss on 9009 in stock play? 9009 spawns no boat object.
+  - Is model 452 the Chocobo's Air Garden?
 
 ## Open: needs an in-game look
 
@@ -341,7 +342,7 @@ reloads its own save, or reload at once.
 - Does writing the guest's request byte from C# run a stock board case to completion with the guest's input masked? The
   cases leave the byte latched when their preconditions fail.
 - A block-ready census after world frame 5, to confirm that every block is resident.
-- Does a world battle start and return warm around a mounted guest, if the owner wants a mounted guest dismounted for
-  the host's battle (open decision 2)?
-- Can the guest's own stock landing case run from C# at the host's landing point, to replace the second black load
-  (open decision 4)?
+- Does a world battle start and return warm around a guest dismounted for the host's battle (decision 7)?
+- Can the guest's own stock landing case run from C# at the host's landing point? It would replace the second black
+  load (decision 9 accepts the load, so this is optional).
+- Does the guest's own Choco arrival run off a chocobo track (decision 6)?
