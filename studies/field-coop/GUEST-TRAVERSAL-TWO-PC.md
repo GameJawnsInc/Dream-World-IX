@@ -839,7 +839,7 @@ guest to close the line itself: the lock lets go once the link reads dead for 3 
 both roles for any inbound gap over about 500 ms would settle it. How long the guest-to-host stall lasted. Whether 10-28's
 60 s spacing repeats.
 
-### Finding 13: the guest walked into 352's exit twice and was bounced, as designed
+### Finding 13: the guest walked into 352's exit twice and was bounced, as designed (owner-confirmed)
 
 Twice the guest's copy took its own `Field(351)` on 352 while the host still stood on 352 (guest 18:46:58 and 18:48:46).
 The guest read the host's own exits 4635 ms and 19902 ms later, and each bounce reloaded 352 on the guest in 302 and 317 ms.
@@ -871,14 +871,14 @@ moved there long after it landed. The candidates:
   booster on: 1x at #7 (18:41:47) then 3x at #11 (18:47:03), and 1x at #16 (18:47:58) then 3x at #17 (18:49:05). So someone was
   at the laptop each time. Check 3 also says "Walk a few doors", and one short press south from the spawn reaches the door.
 
-No line records local input, so this is the best-supported reading, not a proof. **It is not a copy-ahead and not an s164
-regression.** Any following guest who walks into a gateway has been bounced this way since F1. No earlier session bounced on
+No line records local input, so the logs alone could not prove it. **The owner confirmed it (2026-11-01):** they walked the
+guest through a door twice, by accident, and were warped back in. **It is not a copy-ahead and not an s164 regression.** Any following guest who walks into a gateway has been bounced this way since F1. No earlier session bounced on
 352. 3x did not cause the trigger; at most it carried a walking body farther per second.
 
 **Harm.** One fade to black and a 0.3 s reload. Main_Init re-runs the music, the ambient sound, the chests, the regions and the
 ATE mask. The counter stays 2600, and no story byte changes.
 
-**Owed.** The owner's word on whether the laptop's player walked on 352. For the next build: the own-jump line could name the
+**Closed.** Nothing to fix. For a later build, as a nice-to-have: the own-jump line could name the
 runner (cid, sid, tag), the body's (x, y), the control state, whether a direction key was down recently, and the booster flag.
 Then one line would tell a guest's walk from a scripted placement.
 
@@ -912,8 +912,7 @@ Then one line would tell a guest's walk from a scripted placement.
 
 ### Next
 
-1. **The owner:** did the laptop's player walk the guest on 352 during check 3 (Finding 13)? If not, Finding 13 is a real
-   defect and needs the runner line above.
+1. **Finding 13: closed.** The owner confirmed two accidental walks through 352's door on the guest (2026-11-01).
 2. **Log-only asks for the next engine round:**
    - a line on the guest's own booster edge (`UIKeyTrigger`, `PauseUI` and `BoosterSlider` toggle it silently);
    - the own-jump runner line (Finding 13);
