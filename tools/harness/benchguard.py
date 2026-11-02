@@ -15,7 +15,9 @@ Two signals; either one refuses:
   worker (xdist's ``exec(eval(sys.stdin.readline()))`` bootstrap), this process and its parent excepted. Each is named with
   its pid and command line, so an ORPHANED xdist worker -- a ``timeout``-killed launcher leaves its workers alive
   (tools/nightly_gate.md) -- can be found and killed. A probe that cannot list processes says so and refuses nothing (the
-  lock is still read).
+  lock is still read). A listed process that has EXITED is only noted: on Windows an exited process stays in the process
+  table while any other process holds a handle to it (2026-11-02: an xdist worker whose launcher died lingered at 0 MB,
+  "no running instance" to taskkill, and refused every bench), so liveness is its exit code, never its listing.
 
 Only the CLI entry points call this (``tools/play.py`` and ``tools/harness/duo.py``'s ``main``). The offline suite drives
 Session and Duo directly UNDER pytest, so the guard never sits in ``Session.start``.
@@ -50,7 +52,9 @@ def gate_lock_path() -> Path:
 
 def pid_alive(pid: int) -> bool:
     """Windows-safe liveness (nightly_gate.pid_alive's probe). NEVER os.kill(pid, 0) on Windows: that TERMINATES. Off Windows,
-    signal 0 is the probe. Can't tell -> True (assume alive: refuse rather than bench under a live gate)."""
+    signal 0 is the probe. Can't tell -> True (assume alive: refuse rather than bench under a live gate). On Windows an
+    opened process is alive only while its exit code reads STILL_ACTIVE (259): an exited process whose object another
+    handle keeps open still opens."""
     if os.name != "nt":
         try:
             os.kill(int(pid), 0)
@@ -64,8 +68,14 @@ def pid_alive(pid: int) -> bool:
     except (OSError, AttributeError):
         return True
     if h:
-        ctypes.windll.kernel32.CloseHandle(h)
-        return True
+        code = ctypes.c_ulong(0)
+        try:
+            read = ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+        except (OSError, AttributeError):
+            read = 0
+        finally:
+            ctypes.windll.kernel32.CloseHandle(h)
+        return not read or code.value == 259                                   # STILL_ACTIVE (unreadable -> alive)
     return ctypes.get_last_error() == 5                                        # ERROR_ACCESS_DENIED: exists, protected
 
 
@@ -163,7 +173,12 @@ def bench_blockers(*, lock: Path | None = None, procs=list_processes, alive=pid_
     if rows is None:
         notes.append("the process probe could not list processes: a live pytest run is unchecked")
     else:
-        live = [(pid, cmd) for pid, _ppid, cmd in rows if pid not in me and is_pytest(cmd)]
+        found = [(pid, cmd) for pid, _ppid, cmd in rows if pid not in me and is_pytest(cmd)]
+        live = [(pid, cmd) for pid, cmd in found if alive(pid)]
+        for pid, cmd in found:
+            if (pid, cmd) not in live:
+                notes.append(f"an exited pytest process is still listed (pid {pid}: a handle held elsewhere keeps its entry) "
+                             f"-- ignored")
         if live:
             shown = "; ".join(f"pid {pid}: {cmd[:160]}" for pid, cmd in live[:6])
             refusals.append(f"{len(live)} pytest process(es) are running ({shown}{'; ...' if len(live) > 6 else ''}). Wait for "
