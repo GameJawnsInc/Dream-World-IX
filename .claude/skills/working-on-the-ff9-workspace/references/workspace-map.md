@@ -54,7 +54,14 @@ drift:none|synced|ahead|campaign                     script:tree|panel
 behavior:guide|bare|wizard|branchwiz|doc|compiled|edit|stage|sweep|siege|sim
 trace:bare|traced|contacts|regions                   place:bare|fork|refused|regions
 floorplan:bare|rooms|door|refused                    form:encounter|encounter-named|music|npc
+panes:shut|reopened
 ```
+
+`panes:*` drags the central splitter's outer panes shut (the `[0, N, 0]` a real prefs layout carries) and
+open again over the SHOWCASE example, and PRINTS the native Tab walk: a stop at 0 px is focus landing in
+a pane nobody can see. A collapsed QSplitter pane is parked off-screen, never hidden, so its widgets stay
+on the Tab chain unless something hides them — `shell._collapsible_pane` hides the pane's BODY and leaves
+the handle live.
 
 `form:*` renders the field editor's LOGIC FORMS over a writable copy of the boletta example (guided
 forced OFF, so `advanced` fields are inline instead of inside a collapsed drawer) and grabs
@@ -107,6 +114,7 @@ Output: `tools/scroll_out/gui_snaps/<name>_<theme>_<scale>.png`.
 | Removing a `QGroupBox` | Qt derives a control's screen-reader name from the enclosing groupbox title — 13 names silently stripped | `setBuddy`, and re-run the a11y suite |
 | `ExtraSelection` on `QPlainTextEdit` | It belongs to `QTextEdit`; PySide6 has no such attribute | Paint the highlight yourself |
 | A silent hang with no output | Almost always an unstubbed modal | `faulthandler.dump_traceback_later` |
+| A `QSplitter` pane dragged shut | Parked off-screen at 0 px, NEVER hidden — `isVisible()` stays True and its widgets stay on the Tab chain (the Inspector was a 0x675 stop on every tab). Hiding the pane instead hides its HANDLE, and then it can never reopen | `shell._collapsible_pane`: hide a wrapper's BODY while the wrapper is 0 px, with `retainSizeWhenHidden` so the pane's minimum (setGeo's collapse test, `_repair_central_split`'s floor) never reads 0 |
 | A screen-fixed overlay parented to a `QGraphicsView` VIEWPORT | Qt scrolls via `QWidget::scroll`, which MOVES viewport children — every fit/zoom/pan dragged the floorplan's corner chips from C++ (no Python override sees it) until the zoom hint clipped at the canvas edge | Re-pin in a `scrollContentsBy` override (floorplandoc's `_place_hint`; still latent in mapview/backdrop/behaviordoc/worlddoc) |
 | A PARKED (hidden, alive) widget's armed `QTimer` | `qt_drain` parks widgets alive, so a pending single-shot fires in whichever LATER test next runs an event loop — the shell's 3s thumb-release timer fired ~40 tests after its own test, spawned a worker that imported UnityPy→numpy, and `pytest.approx`'s lock-free `sys.modules` peek hit the half-imported module: ONE roaming failure per run, self-warming via the real thumb cache | `qt_drain` stops every parked widget's timers; a GUI module that builds a Workspace pins `FF9MAPKIT_NO_THUMBS=1` at module top (the sibling modules' pattern) |
 

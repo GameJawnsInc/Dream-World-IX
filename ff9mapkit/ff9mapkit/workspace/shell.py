@@ -1679,6 +1679,7 @@ class Workspace(QMainWindow):
 
         split = QSplitter(Qt.Horizontal)
         vsplit.addWidget(split)
+        self._pane_bodies = {}                     # outer pane -> the body that hides while it is shut
 
         tree_col = QWidget()                       # the tree + its filter box, one splitter pane
         tv = QVBoxLayout(tree_col)
@@ -1725,7 +1726,7 @@ class Workspace(QMainWindow):
         for _navsig in (_navmodel.rowsInserted, _navmodel.rowsRemoved, _navmodel.modelReset):
             _navsig.connect(self._sync_nav_stack)
         self._sync_nav_stack()
-        split.addWidget(tree_col)
+        split.addWidget(self._collapsible_pane(tree_col))
 
         self.tabs = _RailTabs()
         self.tabs.setDocumentMode(True)
@@ -1910,9 +1911,12 @@ class Workspace(QMainWindow):
         insp_scroll.setWidgetResizable(True)
         insp_scroll.setFrameShape(QFrame.Shape.NoFrame)
         insp_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        insp_scroll.setMaximumWidth(420)            # an info panel -- cap it so long content can't balloon it
         insp_scroll.setWidget(insp)
-        split.addWidget(insp_scroll)
+        insp_pane = self._collapsible_pane(insp_scroll)
+        insp_pane.setMaximumWidth(420)              # an info panel -- cap it so long content can't balloon it
+        #                                             (on the PANE: the splitter sizes the wrapper, and a cap
+        #                                             left on the scroll area would strand a void beside it)
+        split.addWidget(insp_pane)
         self._insp_scroll = insp_scroll
         # The field card BAKES its thumbnail width into rich text at render time (a QLabel <img> has no
         # max-width), so the pane's width at render is part of the card. A later resize re-bakes it,
@@ -8150,6 +8154,32 @@ class Workspace(QMainWindow):
         self._nav_stack.setCurrentWidget(self._nav_empty if empty else self.tree)
         self.tree_filter.setVisible(not empty)
 
+    def _collapsible_pane(self, body):
+        """Wrap an OUTER pane of the central splitter so dragging it shut takes it off the keyboard too.
+
+        QSplitter collapses a pane by parking it off-screen at 0 px (`QSplitterPrivate::setGeo`) and never
+        hide()s it, so `isVisible()` stays True and every widget inside stays in the Tab chain. Measured from
+        a real layout ([0, 1918, 0]): Tab walked into the 0x675 Inspector scroll area on every tab, and into
+        the navigator's filter and tree, and the focus ring went with it where nobody could see it. Hiding
+        the PANE is not the fix: QSplitter hides the handle of a hidden pane, and a pane whose handle is
+        gone can never be dragged open again.
+
+        So the splitter gets this wrapper, which it never sees hidden, and only the BODY hides -- while the
+        wrapper is 0 px wide (`eventFilter`), which covers a drag, `setSizes`, and the restore at launch
+        alike. `retainSizeWhenHidden` keeps the wrapper's size hints the body's own while it is hidden, and
+        that is load-bearing twice: setGeo marks a pane collapsed only while its minimum is > 0, and
+        `_repair_central_split` reads the same minimum as its squeeze floor."""
+        pane = QWidget()
+        lay = QVBoxLayout(pane)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(body)
+        pol = body.sizePolicy()
+        pol.setRetainSizeWhenHidden(True)
+        body.setSizePolicy(pol)
+        self._pane_bodies[pane] = body
+        pane.installEventFilter(self)
+        return pane
+
     def _repair_central_split(self, sizes):
         """A SQUEEZE IS NOT A PREFERENCE. Return the saved sizes, or the default when they are the fossil
         of a too-narrow window rather than anything the user chose.
@@ -8522,6 +8552,10 @@ class Workspace(QMainWindow):
         self._inspect(cur, self._payload(cur), self._payload(fa)[1])
 
     def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.Type.Resize:
+            body = getattr(self, "_pane_bodies", {}).get(obj)
+            if body is not None:                    # a central pane dragged shut (0 px) or open again
+                body.setVisible(obj.width() > 0)    # -- see _collapsible_pane
         sc = getattr(self, "_insp_scroll", None)
         if sc is not None and obj is sc.viewport() and ev.type() == QEvent.Type.Resize:
             t = getattr(self, "_insp_refit", None)
