@@ -45,6 +45,11 @@ network test, and the dot's look is yours to judge.
 **Any save with the world map open works.** Last session's save (351, Dali, the morning after the inn rest) does: the host
 walks out of Dali onto the world map. Pair the guest on the field first, as usual.
 
+**On the guest, press nothing while it lands on the world map, and do not open the ~ menu on the guest while it is on the
+world map.** While the guest's control is off (its first moments after the landing, or the ~ menu open with "Disable
+control"), a Confirm press reaches the Southern Ring's own entrances (the kit's 6601, 6602 and 6603 cells) unchecked: if
+the guest stands on one, it walks in by itself and its screen can stay black. The fix is designed for the next round.
+
 1. **The follow-out.** The host walks out of a field onto the world map and stands still for a few seconds.
    - **Guest screen:** about a second after the host arrives, the line *"Following your partner out onto the world map..."*,
      a short fade to black, the world map loads, and the guest stands on the host's spot, frozen (its controls do nothing).
