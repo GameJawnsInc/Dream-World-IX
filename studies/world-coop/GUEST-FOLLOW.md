@@ -2,7 +2,7 @@
 
 The owner's ask (2026-11-01): the guest actually follows on the world map. Today it stands frozen where it walked out (s144)
 until the host's next field. This study lists what makes following tricky, the shapes it could take, and the decisions only
-the owner can make. Nothing is built. **The owner decided (2026-11-01): two bodies**, the airships and the boat pull the
+the owner can make. Rung 1 is built and benched as s165 (`S165-DESIGN.md`). **The owner decided (2026-11-01): two bodies**, the airships and the boat pull the
 guest aboard, Choco is one bird each, the guest's own entries are refused, and there is no leash (see Decided, below).
 
 The recon ran as one workflow: 4 read-only lanes (the world engine, the vehicles, the world scripts, netsync), a skeptic per
@@ -298,7 +298,8 @@ reloads its own save, or reload at once.
 1. **Follow OUT, the partner dot, and two fixes.** The guest follows the host out of a field onto the world map; the dot
    on the minimap and the full map, from section 0 (no wire change); the 9012 strand; the save guard at its call site.
    Key the landing on `w_blockReady`, take the host's live pose, check the same world. The guest stays frozen on the world
-   map in this rung. Benchable solo and on the duo (6603 → 9011).
+   map in this rung. Benchable solo and on the duo (6603 → 9011). **DONE as s165 (2026-11-02): deployed, benched solo, T2
+   and duo; the full-map dot moved to rung 2; the dot's look waits on the owner's two-PC check.**
 2. **Free walk on foot with ghosts both ways, on the foot-only worlds (9002, 9010, 9011).** The world ghost and its dress
    map, the world pose on type-0 both ways, the split mask and the entry refusal, the same-world rule, a world pairing rule
    (a guest that pairs on the world map stays frozen until its first field mirror), the inbound lane-gap line on both
