@@ -303,8 +303,9 @@ reloads its own save, or reload at once.
    and a guest paired while the host stood on the world map waited on its field (results in `TWO-PC-CHECKS-S165.md`).**
 2. **Free walk on foot with ghosts both ways, on the foot-only worlds (9002, 9010, 9011).** The world ghost and its dress
    map, the world pose on type-0 both ways, the split mask and the entry refusal, the same-world rule, a world pairing rule
-   (a guest that pairs on the world map stays frozen until its first field mirror; the owner expected a pull at pairing:
-   `S166-DESIGN.md` open item 13), the inbound lane-gap line on both
+   (a guest that pairs on the world map stays frozen until its first field mirror; one that pairs on a field while the host
+   stands on the world map is pulled out and mirrors from that landing: the owner's call after the s165 two-PC, folded into
+   s166 as `S166-DESIGN.md` decision 26), the inbound lane-gap line on both
    roles, and a WorldTPS mirror beside s163's FieldTPS. Re-arm the DeclineOnce world book at each world load.
 3. **Free walk on the vehicle worlds, with Choco.** The guest mounts its own Choco; the mounted ghost; the guest's parked
    airship or boat copy hidden or re-placed when the host moves its own; the Choco call (decision 6); the dismount for the host's battle (decision 7).

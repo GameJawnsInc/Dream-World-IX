@@ -127,7 +127,7 @@ The link had one outage, 203 ms at 13:24:01, which recovered inside the grace; i
    its pairing autosave at the moment it paired (13:19:10). The owner expected the guest to be pulled out. The fix is small:
    the term becomes "the pairing autosave has not resolved", and the world landing arms the mirror. `LandWorldOut` already
    applies the host's whole story; it never arms only because a guest that follows out was always mirroring already.
-   -> `S166-DESIGN.md` open item 13.
+   -> The owner folded it into s166 (2026-11-02): `S166-DESIGN.md` decision 26, round A's second piece.
 2. **The dot holds while the host rides.** s165's dot reads the host's save-anchor record (section 0, `gEventGlobal` 64-72),
    and the world scripts stop writing it while the host rides: the same freeze `S166-DESIGN.md` decision 4 names for a
    Gysahl press and the kit voyage. s166's world trailer carries the host's live walker position
