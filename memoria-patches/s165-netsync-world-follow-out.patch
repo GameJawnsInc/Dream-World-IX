@@ -385,7 +385,7 @@ index 3e6f874..e001134 100644
          // `world`'s LAST key (after `waitline`), additive under protocol 5, published in every role (a host reads it at rest):
          //   booted_world       a world-booted diorama is up (NetSyncDiorama.BootedFromWorld)
 diff --git a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
-index 231772e..0089914 100644
+index 231772e..a0a0e96 100644
 --- a/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 +++ b/Assembly-CSharp/Memoria/Netsync/NetSyncClient.cs
 @@ -198,6 +198,10 @@ namespace Memoria.Netsync
@@ -483,7 +483,15 @@ index 231772e..0089914 100644
          // [ff9mapkit netsync s156] ...THE SESSION IS ENDING: the exit ramp is armed, or its own-save Autoload is in flight (the ramp clears
          // _exitRampPending at the fire and sets OwnSaveReloadInFlight) -- either load would discard a climb begun now.
          internal static Boolean GuestSessionEndingNow
-@@ -1797,7 +1859,7 @@ namespace Memoria.Netsync
+@@ -1433,6 +1495,7 @@ namespace Memoria.Netsync
+                     Log.Message("[NetSync] " + sgNote);
+                 String ghostAs = ini.GetSetting("Netsync", "GhostAs", "").Trim();
+                 Boolean followHost = ini.GetSetting("Netsync", "FollowHost", "0").Trim() == "1";
++                _cfgFollowHostIni = followHost;   // [ff9mapkit netsync s165] the ini's own FollowHost, before any role rule: the forced selftest role keeps it
+                 Boolean autoTeleport = ini.GetSetting("Netsync", "AutoTeleport", "0").Trim() == "1";   // s55: default OFF
+                 // [Netsync] Diorama REMOVED (s42): the diorama is always-on for a follower. The knob's
+                 // only realized effect was this round's defect class (its toggle fired the full-teardown
+@@ -1797,7 +1860,7 @@ namespace Memoria.Netsync
                      // closes it no longer wedges the ramp for good: ExitRampSettleMaxMs fires it, logged. (Unreachable by design: the warm
                      // verdict boots only where tag 10 and main.level let Main_Reinit run.) Every other latch term keeps it unsafe.
                      String rampWhy = rampWorld ? WorldTransitionWhy(out rampResuming) : null;              // [ff9mapkit netsync s145]
@@ -492,7 +500,7 @@ index 231772e..0089914 100644
                                   ((e2.gMode == 1 && e2.fieldmap != null) || RampWorldSafe(rampWorld, rampWhy, rampResuming)) &&   // [ff9mapkit netsync s145]
                                   !NetSyncDiorama.Booted;
                      // s55: don't fire on the FIRST raw frame of a battle-return FIELD load -- the
-@@ -1864,6 +1926,7 @@ namespace Memoria.Netsync
+@@ -1864,6 +1927,7 @@ namespace Memoria.Netsync
              // the fade window, returning early here would strand a black screen forever (the recovery
              // is the destination field's own load, which only SetNextMap can start).
              ServiceFollowWarp();
@@ -500,7 +508,7 @@ index 231772e..0089914 100644
              if (!_enabled)
                  return;
              NetSyncSwap.Tick();               // [ff9mapkit netsync s164] the swap record's line window and stale span (one bool test when nothing is open)
-@@ -1982,6 +2045,7 @@ namespace Memoria.Netsync
+@@ -1982,6 +2046,7 @@ namespace Memoria.Netsync
                      ServiceStepOut(ee, fld, onField, new RemoteState { Valid = false }, true);   // [ff9mapkit netsync s158] every selftest tick: an episode ends off-field too
                      ServiceSpeed(ee, fld, onField, true);     // [ff9mapkit netsync s163] the speed mirror, after the step-out (its eligibility, its talk latch): every tick, off-field too
                      NetSyncSwap.GuestTick(fld, -1);           // [ff9mapkit netsync s164] C: the intent cache's clears, every selftest tick, before the scope returns (no lane: -1, V3)
@@ -508,7 +516,7 @@ index 231772e..0089914 100644
                      if (!inScope)
                      {
                          DespawnGhost();
-@@ -2190,6 +2254,17 @@ namespace Memoria.Netsync
+@@ -2190,6 +2255,17 @@ namespace Memoria.Netsync
                          });
                          Log.Message("[NetSync] field swap selftest: "
                                      + (swOk ? "OK (" + swDetail + ")" : "FAIL (" + swDetail + ")"));
@@ -526,7 +534,7 @@ index 231772e..0089914 100644
                      }
                      // selftest proves visitor-mode dressing solo: with GhostAs set, the mirror wears the
                      // dressed model and plays ITS rig's clips via the loco translation (walk beside it).
-@@ -2345,6 +2420,7 @@ namespace Memoria.Netsync
+@@ -2345,6 +2421,7 @@ namespace Memoria.Netsync
                          _dlgDirty = true;
                      UpdateHostScene(ee, fld, onField);        // [ff9mapkit netsync F3.2] S2: the STICKY scene (replaces UpdateHostEventFlag)
                      ServiceQuadPromotion(ee, fld, onField);   // [ff9mapkit netsync F3.2] relay a quad start once its window opens
@@ -534,7 +542,7 @@ index 231772e..0089914 100644
                  }
  
                  // HOST: publish my authoritative story state (~7 Hz); a FOLLOWING guest applies it at its
-@@ -2426,6 +2502,7 @@ namespace Memoria.Netsync
+@@ -2426,6 +2503,7 @@ namespace Memoria.Netsync
                  if (NetSyncAteArmed.On)                                  // [ff9mapkit netsync s161] the ATE press's life (kept while it, my warp or the host is on its field) + the episode's end
                      NetSyncAte.Tick(ee == null || ee.GetUserControl(), onField, fld, _followWarpPending, LastHostField, AtePressWaitsOn(-1));
                  FollowHostTick(rs, followFld, onField, onWorld);         // visitor mode: chase the peer's field [ff9mapkit netsync s144] + the world rejoin
@@ -542,7 +550,7 @@ index 231772e..0089914 100644
                  ServiceStepOut(ee, fld, onField, rs, false);             // [ff9mapkit netsync s158] the party-scene step-out (after the dialogue view it reads)
                  ServiceSpeed(ee, fld, onField, false);                   // [ff9mapkit netsync s163] the host's speed on my copy (after the step-out: its eligibility, its talk latch)
                  if (local != null && rs.Valid && rs.Field == fld)
-@@ -2529,6 +2606,8 @@ namespace Memoria.Netsync
+@@ -2529,6 +2607,8 @@ namespace Memoria.Netsync
                                                                                      // peer is no pairing (detail 1); a host: unchanged (0)
                      else if (_followWarpPending >= 0)
                          SetOverlay(OvlFollowing, _followWarpPending);    // following the friend to their field
@@ -551,7 +559,7 @@ index 231772e..0089914 100644
                      else if (rs.Valid && rs.Field > 0 && rs.Field != fld && _followHost &&
                               !EventEngineUtils.eventIDToFBGID.ContainsKey(rs.Field))
                          SetOverlay(OvlPeerNoField, rs.Field);            // can't follow: field not on this install
-@@ -2540,6 +2619,7 @@ namespace Memoria.Netsync
+@@ -2540,6 +2620,7 @@ namespace Memoria.Netsync
                      {                                      // KEPT like the world chain's through the keep window (a door's field 0, a battle starting)
                          Int32 tail = FieldWaitTail(WaitLineOn && _hostWorld, WaitLineOn && _hostTitle, WaitLineOn && _waitAwayDue,
                                                     WaitLineOn && _waitKeep, _ovlAsked);                          // [ff9mapkit netsync s144]
@@ -559,7 +567,7 @@ index 231772e..0089914 100644
                          if (tail != OvlKeep)
                              SetOverlay(tail);
                      }
-@@ -3502,7 +3582,7 @@ namespace Memoria.Netsync
+@@ -3502,7 +3583,7 @@ namespace Memoria.Netsync
                  Log.Message("[NetSync] diorama boot declined (nonce " + nonce + "): this session is ending (the exit ramp is armed)");
                  return;
              }
@@ -568,7 +576,7 @@ index 231772e..0089914 100644
                  return;   // s42 verify find: a warp fade is in flight (chase or the same-field kick) --
                            // onField/FieldHUD both stay true through a fade, so without this gate a Boot
                            // Replace races the warp's own Replace (two scene transitions inside ~1s).
-@@ -4296,7 +4376,7 @@ namespace Memoria.Netsync
+@@ -4296,7 +4377,7 @@ namespace Memoria.Netsync
                  Boolean uiFree = false;
                  if (watching)
                  {
@@ -577,7 +585,7 @@ index 231772e..0089914 100644
                      if (!uiFree)
                      {
                          SceneDirector sd = PersistenSingleton<SceneDirector>.Instance;
-@@ -4835,6 +4915,9 @@ namespace Memoria.Netsync
+@@ -4835,6 +4916,9 @@ namespace Memoria.Netsync
          // live world map the debounced host field arms THE WORLD REJOIN (WorldFollowFire) instead of the field warp.
          private void FollowHostTick(RemoteState rs, Int32 myField, Boolean onField, Boolean onWorld)
          {
@@ -587,7 +595,7 @@ index 231772e..0089914 100644
              if (!_followHost || _followWarpPending >= 0)
                  return;
              // [ff9mapkit netsync s144] THE STALE LATCH: a field follow's same-destination stamp that never landed (the guest's own exit script won
-@@ -4916,12 +4999,17 @@ namespace Memoria.Netsync
+@@ -4916,12 +5000,17 @@ namespace Memoria.Netsync
          // line stamp, _followStartT) and the commit delay's re-arm.
          private void StartFollowWarp(Int32 dest, Int32 via)
          {
@@ -605,7 +613,7 @@ index 231772e..0089914 100644
              _followWarpTimer = FollowFadeWait;
              _followWarpedTo = dest;
              _followIsKick = false;         // [ff9mapkit netsync s154] a follow, not the same-field kick
-@@ -5460,6 +5548,9 @@ namespace Memoria.Netsync
+@@ -5460,6 +5549,9 @@ namespace Memoria.Netsync
                  return;
              Int32 droppedFollow = _followWarpPending;
              Int32 droppedWorld = _worldFollowArmed;
@@ -615,7 +623,7 @@ index 231772e..0089914 100644
              _followWarpPending = -1;
              _followWarpedTo = -1;
              _followCandidate = -1;
-@@ -5473,12 +5564,15 @@ namespace Memoria.Netsync
+@@ -5473,12 +5565,15 @@ namespace Memoria.Netsync
              NetSyncFollowFade.Clear("title");  // [ff9mapkit netsync s164] D+E: a follow dropped in its fade ends here (a no-op when none was pending)
              BendWholeState(ref _bentSinceEntry, ref _bendInFlight);   // nothing in flight lands from here and nothing bent carries: the next load is a whole state
              Boolean consume = step == TitleConsume;
@@ -632,7 +640,7 @@ index 231772e..0089914 100644
              if (droppedWorld >= 0)
                  what = (what != null ? what + "; " : "") + "the world rejoin armed for field " + droppedWorld + " is dropped";
              Log.Message("[NetSync] at the title: " + what + " -- Continue, Load and New Game each replace the whole state"
-@@ -5852,7 +5946,8 @@ namespace Memoria.Netsync
+@@ -5852,7 +5947,8 @@ namespace Memoria.Netsync
                  why = WorldArmRefusal(ui != null && ui.State == UIManager.UIState.WorldHUD, PersistenSingleton<FF9StateSystem>.Instance.mode,
                                        PersistenSingleton<SceneDirector>.Instance.IsFading, _exitRampPending,
                                        _socket != null && _socket.GetRemoteState() != null,
@@ -642,7 +650,7 @@ index 231772e..0089914 100644
                                        ee != null && ee.GetUserControl(), ff9.w_naviMode == 2, held, WorldTransitionWhy());   // [ff9mapkit netsync s144] + the full map
              }
              catch (Exception err)
-@@ -5880,6 +5975,8 @@ namespace Memoria.Netsync
+@@ -5880,6 +5976,8 @@ namespace Memoria.Netsync
                  if (WorldArmWhy(dest) != null)
                      return false;
                  StartWorldFollowWarp(dest);
@@ -651,7 +659,7 @@ index 231772e..0089914 100644
                  Log.Message("[NetSync] " + (intent ? "intent: " : "") + "rejoining the peer at field " + dest + " from world map "
                              + FF9StateSystem.Common.FF9.wldMapNo + (intent ? " (parallel)" : "") + " -- the host's snapshot applies at the load");
                  return true;
-@@ -6093,6 +6190,7 @@ namespace Memoria.Netsync
+@@ -6093,6 +6191,7 @@ namespace Memoria.Netsync
                      NetSyncAte.OnLanding(fld);   // [ff9mapkit netsync s161] a pending ATE press never survives a load; the episode moves or ends
                  if (NetSyncSpeedArmed.Standing)
                      NetSyncSpeed.OnLanding(fld);   // [ff9mapkit netsync s163] the speed mirror ends AT the load (a same-field reload keeps the id)
@@ -659,7 +667,7 @@ index 231772e..0089914 100644
                  EventEngine ee = PersistenSingleton<EventEngine>.Instance;
                  Boolean fromWorld = ee != null && ee.gMode == 3;   // NoteWorldLanding's own read (StartEvents writes gMode next)
                  Int32 keep, rearm;
-@@ -6146,6 +6244,8 @@ namespace Memoria.Netsync
+@@ -6146,6 +6245,8 @@ namespace Memoria.Netsync
                  i._fieldHoldLogged = false;          // [ff9mapkit netsync s144] the field follow's held line, once per latched hold
                  Log.Message("[NetSync] world-map exit from field " + src + " to world map " + worldMap + " (following guest): a rejoin into field "
                              + src + " holds up to " + (WorldHoldMs / 1000) + " s, or until the host leaves it");
@@ -668,7 +676,7 @@ index 231772e..0089914 100644
                  // [ff9mapkit netsync s144] ...and a FIELD follow still in its fade (or stamped, never landed) is cancelled: it cannot land once this
                  // field leaves for the world map, and its latch would block the world rejoin into that very field (the review's route a).
                  if (i._followWarpPending >= 0 || i._followWarpedTo >= 0)
-@@ -6530,7 +6630,8 @@ namespace Memoria.Netsync
+@@ -6530,7 +6631,8 @@ namespace Memoria.Netsync
          /// <summary>[ff9mapkit netsync s144] (pure) the lines the FIELD chain's tail chose itself (b6, b7, an old host's away) -- the ones it keeps.</summary>
          internal static Boolean FieldWaitSticky(Int32 state)
          {
@@ -678,7 +686,7 @@ index 231772e..0089914 100644
          }
  
          /// <summary>[ff9mapkit netsync s144] (pure) THE FIELD CHAIN's TAIL: the shared tail, keeping its own line through the keep window (OvlKeep:
-@@ -6581,6 +6682,10 @@ namespace Memoria.Netsync
+@@ -6581,6 +6683,10 @@ namespace Memoria.Netsync
              return 0;
          }
  
@@ -689,7 +697,7 @@ index 231772e..0089914 100644
          /// <summary>[ff9mapkit netsync s144] (pure) the WORDS of the waiting line's states (SetOverlay; decision 7's sentences, verbatim);
          /// null for any other state (SetOverlay's own switch composes those).</summary>
          internal static String WaitLineText(Int32 state, Int32 detail)
-@@ -6588,6 +6693,8 @@ namespace Memoria.Netsync
+@@ -6588,6 +6694,8 @@ namespace Memoria.Netsync
              switch (state)
              {
                  case OvlHostWorld:
@@ -698,7 +706,7 @@ index 231772e..0089914 100644
                      return "FF9 co-op: Your partner is on the world map.\nYou'll rejoin them at their next stop.";
                  case OvlRejoining:
                      return "FF9 co-op: Rejoining your partner at field " + detail + "...";
-@@ -6607,7 +6714,7 @@ namespace Memoria.Netsync
+@@ -6607,7 +6715,7 @@ namespace Memoria.Netsync
          /// "host_title" | "away"; null for a state that is no waiting line.</summary>
          internal static String WaitLineName(Int32 state)
          {
@@ -707,7 +715,7 @@ index 231772e..0089914 100644
                  return "host_world";
              if (state == OvlRejoining)
                  return "rejoin";
-@@ -6659,6 +6766,8 @@ namespace Memoria.Netsync
+@@ -6659,6 +6767,8 @@ namespace Memoria.Netsync
                  return;
              if (s == OvlConnecting)
                  SetOverlay(OvlConnecting, _socket != null && _socket.IsConnected ? 1 : 0);
@@ -716,7 +724,7 @@ index 231772e..0089914 100644
              else
                  SetOverlay(s, WorldGuestDetail(s, _worldFollowArmed, host));
          }
-@@ -6720,10 +6829,11 @@ namespace Memoria.Netsync
+@@ -6720,10 +6830,11 @@ namespace Memoria.Netsync
          }
  
          // the overlay's names are all set and all distinct (states 0..13), and OvlKeep is none
@@ -729,7 +737,7 @@ index 231772e..0089914 100644
              {
                  String name = OverlayName(s);
                  if (name == null || seen.Contains(name))
-@@ -6998,6 +7108,988 @@ namespace Memoria.Netsync
+@@ -6998,6 +7109,988 @@ namespace Memoria.Netsync
              }
          }
  
@@ -1718,7 +1726,7 @@ index 231772e..0089914 100644
          // ===== F2 TRANSITION-INTENT LANE + DIALOGUE L1 (wire v11) ====================================
  
          // Session-boundary reset for every F2 static (host + guest sides). [ff9mapkit netsync F3.2] L1
-@@ -7064,6 +8156,7 @@ namespace Memoria.Netsync
+@@ -7064,6 +8157,7 @@ namespace Memoria.Netsync
              _waitAwayDue = false;            // [ff9mapkit netsync s144]
              _waitKeep = false;               // [ff9mapkit netsync s144]
              ResetWorldWatchDedup();          // [ff9mapkit netsync s145] fix1: the world watcher's decline / wait latches die with the session
@@ -1726,7 +1734,7 @@ index 231772e..0089914 100644
          }
  
          // HOST, main thread: emit a transition intent at the MAPJUMP commit point (and the debug-menu
-@@ -7591,7 +8684,7 @@ namespace Memoria.Netsync
+@@ -7591,7 +8685,7 @@ namespace Memoria.Netsync
              if (_role != "client" || _socket == null)
                  return;                          // a host never follows an intent (it emits them)
              if (!_followHost || _followWarpPending >= 0)
@@ -1735,7 +1743,7 @@ index 231772e..0089914 100644
              try
              {
                  Byte[] state = _socket.GetRemoteState();     // null if stale (>2 s) -> no intent this tick
-@@ -8362,6 +9455,7 @@ namespace Memoria.Netsync
+@@ -8362,6 +9456,7 @@ namespace Memoria.Netsync
                          ResetGuestDedupForEpoch();
                      NetSyncSpeed.NoteHostFrame(state);   // [ff9mapkit netsync s163] section 10 (the host's booster) into the speed mirror's cache (a fresh frame without it = 1; a null state = no news, stale)
                      SwapNoteHostFrame(state, now);       // [ff9mapkit netsync s164] section 4 into THE one guest reader (the seen edge; C's cache, PIN's capture)
@@ -1743,7 +1751,7 @@ index 231772e..0089914 100644
                  }
                  _dlg.StallStep(now);
              }
-@@ -8415,6 +9509,7 @@ namespace Memoria.Netsync
+@@ -8415,6 +9510,7 @@ namespace Memoria.Netsync
              _talkSceneNonce = -1;
              NetSyncBattle.GuestLineForget(); // [ff9mapkit netsync s143] ...and the guest's battle line latch (its battle nonce and seq restart)
              NetSyncSwap.ForgetHostNonce();   // [ff9mapkit netsync s164] ...and the swap record's seen nonce (the relaunched host's next one reads new)
@@ -1751,7 +1759,7 @@ index 231772e..0089914 100644
              Log.Message("[NetSync] host epoch changed -- talk/intent/event/diorama dedup reset (the host's first new start is not 'already seen')");
          }
  
-@@ -8424,9 +9519,14 @@ namespace Memoria.Netsync
+@@ -8424,9 +9520,14 @@ namespace Memoria.Netsync
          // socket. The heartbeat bumps per build (a host Update); `host freeze` stops rebuilding, so the slot "re-sends"
          // its last frame exactly as a hung host's writer thread does. Flags: b0 the simulated scene (b1 = its opposite),
          // b2 = an open non-Inh bench window, b3 on a field unless `host battle`, b4 `host menu` (or battle), b5 `host battle`.
@@ -1767,7 +1775,7 @@ index 231772e..0089914 100644
              {
                  _benchState = null;              // no bench session: no bench host on the "lane"
                  return;
-@@ -8436,7 +9536,8 @@ namespace Memoria.Netsync
+@@ -8436,7 +9537,8 @@ namespace Memoria.Netsync
              if (DebugHostFrozen && _benchState != null)
                  return;
              ServiceReplay(Environment.TickCount);   // [ff9mapkit netsync F3.3] R9: a running `netsync replay` feeds the ring (a hung host feeds nothing)
@@ -1777,7 +1785,7 @@ index 231772e..0089914 100644
              // [ff9mapkit netsync s164] B: `swap hostctl off` = the bench host stands here with its control off and no scene (b1 and b0 clear);
              // the step-out's and the speed mirror's bench inputs keep reading DebugHostEventFlag
              Byte f = DebugHostEventFlag != 0 ? NetSyncDialog.HfScene : (NetSyncSwap.BenchHostCtlOff ? (Byte)0 : NetSyncDialog.HfControl);
-@@ -8445,14 +9546,45 @@ namespace Memoria.Netsync
+@@ -8445,14 +9547,45 @@ namespace Memoria.Netsync
                      f |= NetSyncDialog.HfLine;
              if (DebugHostBattle)
                  f |= (Byte)(NetSyncDialog.HfBattle | NetSyncDialog.HfMenu);
@@ -1824,7 +1832,7 @@ index 231772e..0089914 100644
          // [ff9mapkit netsync F3.2] drain the type-7 FIFO unread; returns how many host taps were discarded.
          private Int32 DrainRemoteDialog()
          {
-@@ -9252,7 +10384,7 @@ namespace Memoria.Netsync
+@@ -9252,7 +10385,7 @@ namespace Memoria.Netsync
              Boolean fromHold = false;                    // [ff9mapkit netsync s160] the s156 climb hold fed it (its kind and first frame are the hold's)
              if (_role == "client")
              {
@@ -1833,7 +1841,28 @@ index 231772e..0089914 100644
                      return;
                  // [ff9mapkit netsync F3.3] the SAME payload ObserveHostDialog judged the host epoch on this tick (not a fresh
                  // read): a frame from a relaunched host landing between the two reads could otherwise have its talk accepted
-@@ -11449,6 +12581,10 @@ namespace Memoria.Netsync
+@@ -9949,6 +11082,11 @@ namespace Memoria.Netsync
+         // session is REFUSED (never override a real pairing), and a genuine ini edit mid-run takes
+         // precedence over the override (a human touched the config; ApplyConfigChange runs as usual).
+         private static Boolean _harnessSelfTest;         // TRUE while the harness override is in force
++        // [ff9mapkit netsync s165] the ini's raw [Netsync] FollowHost (LoadConfigIfChanged). The forced selftest role took s164's pin (false)
++        // whatever the ini said, so the s165 solo bench's own gates -- the bench host's G10 (FollowHost && SuppressEncounters, the selftest
++        // loop's encounter pause), the dot's WhoRule and a supersede's follow warp -- could never pass: S165-INI's precondition (Enabled 0 +
++        // FollowHost 1) is now what the forced role follows. An ini with FollowHost 0 (the default) forces exactly as before.
++        private static Boolean _cfgFollowHostIni;
+         private static Boolean _benchGuestSlots;         // [ff9mapkit netsync B4] TRUE while a `netsync guestslots` override holds
+ 
+         public static Boolean HarnessSelfTest(Boolean on, out String why)
+@@ -9967,7 +11105,7 @@ namespace Memoria.Netsync
+                         return false;
+                     }
+                     _enabled = true; _role = "selftest";
+-                    _followHost = false; _guestSlots = 0; _targetField = 0;
++                    _followHost = _cfgFollowHostIni; _guestSlots = 0; _targetField = 0;   // [ff9mapkit netsync s165] was _followHost = false (the ini's FollowHost)
+                     NetSyncBattle.Enabled = true;
+                     NetSyncBattle.GuestSlots = 0;
+                     NetSyncBattle.SelfTest = true;
+@@ -11449,6 +12587,10 @@ namespace Memoria.Netsync
                  case OvlWorldHold: return "world_hold";              // [ff9mapkit netsync s144]
                  case OvlHostTitle: return "host_title";              // [ff9mapkit netsync s144]
                  case OvlHostAway: return "host_away";                // [ff9mapkit netsync s144]
@@ -1844,7 +1873,7 @@ index 231772e..0089914 100644
                  default: return null;
              }
          }
-@@ -11586,7 +12722,7 @@ namespace Memoria.Netsync
+@@ -11586,7 +12728,7 @@ namespace Memoria.Netsync
              try
              {
                  EventEngine ee = PersistenSingleton<EventEngine>.Instance;
@@ -1853,7 +1882,7 @@ index 231772e..0089914 100644
                  {
                      TpDecline("a warp is already in flight");
                      return;
-@@ -11780,7 +12916,7 @@ namespace Memoria.Netsync
+@@ -11780,7 +12922,7 @@ namespace Memoria.Netsync
                  // working with it off. Manual F11/L3 TeleportToHostImpl is a separate path, unaffected.
                  Boolean scoped = benchArm ? (IsSelfTestRole && NetSyncField.BenchGates)
                                            : (IsLiveFollowedSession && _autoTeleport);
@@ -1862,7 +1891,7 @@ index 231772e..0089914 100644
                  {
                      _autoTpSeparated = false;
                      return;
-@@ -11978,6 +13114,12 @@ namespace Memoria.Netsync
+@@ -11978,6 +13120,12 @@ namespace Memoria.Netsync
                  case OvlHostAway:
                      _ovlText = WaitLineText(asked, detail);
                      break;

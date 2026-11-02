@@ -113,10 +113,10 @@ replays THE WORLD-WALK TAPE whole, holding at its end -- COOP_TAPE_WORLD_WALK=1 
 DUO (`py tools/harness/duo.py studies/test-harness/scenarios/coop_world_follow.py`; PAIR on 6603; keyed by the GUEST's stage):
   D0       the instrument: both on FieldHUD 6603, the guest mirroring
   D-FO1    the host walks out: the guest follows out -- WorldHUD 9011 within FO_S of the host's walk out, starts / commits / lands +1,
-           landed within POSE_TOL of the host's OWN world x/z (judged after block_ready + ticks) -- and the commit came after the host's
-           heartbeat RESUMED (THE LIVE DEBOUNCE: the guest's own `world.host.hb_age_ms` read a stalled heartbeat during the host's block
-           load and a moving one again before the commit -- when a stall was sampled; else the detail says so); the landing gap REPORTED
-           as noise, never judged (the s164 law: ONE-PC LOAD CONTENTION)
+           landed within POSE_TOL of the host's OWN world x/z (judged after block_ready + ticks); the heartbeat witness (did the
+           guest's own `world.host.hb_age_ms` read the host's block-load stall and its resume before the commit?) and the landing gap
+           REPORTED, never judged -- the first duos committed inside the host's load on one run of two and landed at the same pose
+           (height included) as the run that waited it out (ONE-PC LOAD CONTENTION; decision 4 as corrected)
   D-HOST   the host's own lines once each ('host: world-map exit from field 6603 to world 9011', 'host: on world map 9011 (b6) at world
            frame N, blocks ready ...') and `netsync.host.world` b6 true, wmapjumps +1 (E6: no wire byte)
   D-DOT    the guest presses Select once; at the landing and after the host teleports onto ICE_TILE the guest's dot shown with host_x /
@@ -428,7 +428,7 @@ def t2_catalog(calibrate: bool) -> dict:
 DUO_CHECKS = {
     "S165-D0": "the instrument: both on FieldHUD 6603, the guest mirroring",
     "S165-D-FO1": "the host walks out: the guest follows out to WorldHUD 9011 within FO_S, lands +1, at the host's own x/z (after "
-                  "block_ready + ticks); the commit after the host's heartbeat resumed; the landing gap reported",
+                  "block_ready + ticks); the heartbeat witness and the landing gap reported",
     "S165-D-HOST": "the host's own two lines once each and netsync.host.world b6 true, wmapjumps +1",
     "S165-D-DOT": "Select once: the guest's dot at the host's own x/z (DOT_TOL) at the landing and after the host's teleport onto "
                   "ICE_TILE; the guest's own pose unmoved",
@@ -728,7 +728,9 @@ def judge_dot_edge(d: dict, width) -> tuple:
 
 
 def judge_dot_hidden(d: dict, want: str) -> tuple:
-    """DOT-STALE / NOB6 / OTHER (PURE): why_not ``want``, hidden."""
+    """DOT-STALE / NOB6 / OTHER (PURE): why_not ``want``, hidden. The sampler waits for BOTH (the first s165 solo bench: `why_not` is
+    the live verdict, `shown` the last drawn frame, so a time-based flip -- stale -- read once on the frame it crossed showed the dot
+    still up; a dot that never hides still times out red)."""
     return d.get("why_not") == want and d.get("shown") is False, (f"why_not {d.get('why_not')!r} (want {want!r}), shown "
                                                                    f"{d.get('shown')!r}")
 
@@ -1294,12 +1296,12 @@ def _section_dot(g, led: cb.Ledger, ctx: dict) -> None:
     edge = _dot_after(g, FS_LANDING, until=lambda d: d.get("edge") is True)
     led.check("S165-DOT-EDGE", *judge_dot_edge(edge, edge_width(mark)))
     _dot_after(g, "self", until=lambda d: d.get("want") is True)
-    stale = _dot_after(g, "stale", seconds=STALE_S + DOT_S, until=lambda d: d.get("why_not") == "stale")
+    stale = _dot_after(g, "stale", seconds=STALE_S + DOT_S, until=lambda d: d.get("why_not") == "stale" and d.get("shown") is False)
     led.check("S165-DOT-STALE", *judge_dot_hidden(stale, "stale"))
     _dot_after(g, "self", until=lambda d: d.get("want") is True)
-    nob6 = _dot_after(g, "nob6", until=lambda d: d.get("why_not") == "no_b6")
+    nob6 = _dot_after(g, "nob6", until=lambda d: d.get("why_not") == "no_b6" and d.get("shown") is False)
     led.check("S165-DOT-NOB6", *judge_dot_hidden(nob6, "no_b6"))
-    other = _dot_after(g, (*DOT_MARK, OTHER_IDX), until=lambda d: d.get("why_not") == "other_world")
+    other = _dot_after(g, (*DOT_MARK, OTHER_IDX), until=lambda d: d.get("why_not") == "other_world" and d.get("shown") is False)
     led.check("S165-DOT-OTHER", *judge_dot_hidden(other, "other_world"))
     _dot_after(g, "self", until=lambda d: d.get("want") is True)
     _wf(g, "dot", "off")
@@ -1788,7 +1790,7 @@ def _duo(d, check, rest, sent: list) -> None:
     hx = world_xz(host.state)
     st = first_judged([s for s in gs if s.ui_state == "WorldHUD"])
     t_commit = next((t for t, s in taps if (odelta(gbase, s, "commits") or 0) >= 1), None)
-    resumed, rwhy = hb_resumed_before(taps, t_commit)
+    _resumed, rwhy = hb_resumed_before(taps, t_commit)   # reported only (D-FO1)
     t_land = next((t for t, s in taps if s is st), None)
     gap = f"{(t_land - t_host).total_seconds():.1f} s after the host's walk out returned" if t_land else "never"
     if st is None:
@@ -1798,10 +1800,13 @@ def _duo(d, check, rest, sent: list) -> None:
         dd = torus((x, z), hx) if x is not None and hx[0] is not None else None
         p_ok, p_why = dd is not None and dd <= POSE_TOL, f"landed at ({x}, {z}), {dd if dd is None else round(dd, 1)}u from the host's own {hx}"
     l_ok = st is not None and all(odelta(gbase, st, k) == 1 for k in ("starts", "commits", "lands")) if s165 else False
-    check("S165-D-FO1", s165 and l_ok and p_ok and resumed is not False,
+    # the heartbeat witness is REPORTED, never judged (the first s165 duos: the host's heartbeat ran ~1.2 s past b6 before its block
+    # load on one run of two, so THE LIVE DEBOUNCE ended before the load and the guest committed inside it -- landing at the same
+    # pose, height included, as the run that waited the load out: decision 4's "straddles the load" is not a property it has)
+    check("S165-D-FO1", s165 and l_ok and p_ok,
           (f"absent: no `{PROBE}` on the guest -- " if not s165 else "") + f"starts/commits/lands "
           f"+{odelta(gbase, st, 'starts') if st else None}/+{odelta(gbase, st, 'commits') if st else None}/"
-          f"+{odelta(gbase, st, 'lands') if st else None}; {p_why}; HEARTBEAT {rwhy}; the landing gap (noise, the s164 law): {gap}")
+          f"+{odelta(gbase, st, 'lands') if st else None}; {p_why}; HEARTBEAT (reported) {rwhy}; the landing gap (noise, the s164 law): {gap}")
     hlines = cb.new(host, hat)
     hw = host.state.host_world_block or {}
     n_exit = cb.count(hlines, BW.log_host_world_exit(FARSHORE, WORLD))
@@ -1859,7 +1864,12 @@ def _duo(d, check, rest, sent: list) -> None:
     after_host = early[host_on["t"]:] if host_on["t"] is not None else []
     allg = [s for s in early if s.frame not in seen] + samples
     glines = cb.new(guest, gat2)
-    shown = [cb.raw(s).get("frame") for s in after_host + samples if _d(s, "shown") is True]
+    # a frame first published BEFORE the host stood on 300 is not "after" it, however late it is re-read: the guest publishes
+    # nothing during its own synchronous load, so watch's first read can be its last pre-load frame (the first s165 duo: the dot
+    # on that one frame, 0.29 s before the host's first sample on 300, counted as shown "once the host stood on 300")
+    before = {s.frame for s in early[:host_on["t"]]} if host_on["t"] is not None else set()
+    shown = [cb.raw(s).get("frame") for s in after_host + [s for s in samples if s.frame not in before]
+             if _d(s, "shown") is True]
     # ...and hidden BEFORE the guest's own fade: no sample inside the rejoin's armed window (THE BRACKET LAW: only where one was
     # sampled) or off the world map still showing it
     armed = [s for s in allg if cw.in_armed_window(s) or s.ui_state != "WorldHUD"]

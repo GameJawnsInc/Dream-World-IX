@@ -1987,6 +1987,20 @@ def test_s165_the_call_sites_are_the_designs():
     assert {"SaveLoadUI.cs", "NetSyncWorldFollow.cs", "NetSyncWorldDot.cs"} <= files
 
 
+def test_s165_the_forced_selftest_role_keeps_the_inis_follow_host():
+    """[ff9mapkit netsync s165, the first solo bench in game] The harness's forced selftest role pinned `_followHost = false` whatever
+    the ini said, so the solo bench's own gates -- the bench host's G10 (FollowHost && SuppressEncounters), the dot's WhoRule and a
+    supersede's follow warp -- could never pass on the engine, while the stand-in modelled the ini's FollowHost: every `worldfollow
+    host` frame was refused ('needs FollowHost set ...'). The forced role now keeps the ini's raw FollowHost (S165-INI: Enabled 0 +
+    FollowHost 1); an ini with FollowHost 0 forces exactly as before."""
+    client = _s165_text("NetSyncClient.cs")
+    assert re.search(r'Boolean followHost = ini\.GetSetting\("Netsync", "FollowHost", "0"\)[^\n]*\n[ \t]*_cfgFollowHostIni = followHost;',
+                     client), "LoadConfigIfChanged does not keep the ini's raw FollowHost"
+    assert re.search(r'_enabled = true; _role = "selftest";[ \t]*\n[ \t]*_followHost = _cfgFollowHostIni;', client), \
+        "the forced selftest role does not take the ini's FollowHost"
+    assert "_followHost = false; _guestSlots = 0; _targetField = 0;" not in client
+
+
 def test_s165_the_engines_lines_carry_the_contracts_prefixes():
     kind, _root = _s165_source()
     names = ("NetSyncClient.cs", "NetSyncWorldFollow.cs", "NetSyncWorldDot.cs", "NetSyncField.cs", "EventEngine.DoEventCode.cs",

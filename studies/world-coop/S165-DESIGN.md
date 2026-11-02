@@ -65,8 +65,12 @@ re-finds each one in the live clone.
 4. **THE LIVE DEBOUNCE.** 1200 ms (a seed, the field follow's `FollowStableMs`) of host-ALIVE time: it counts only while the
    section-7 heartbeat moved within the last 400 ms, and it restarts on any b6 fall or any change of 102. b6 rises before the
    host's own synchronous all-block load (~4.4 s on this PC), which freezes the host's heartbeat while its writer thread keeps
-   re-sending the last frame. A wall-clock debounce would start the guest inside that load (ONE-PC LOAD CONTENTION on the
-   duo, and the host's walker not yet grounded). The cost: on the duo the guest lands about 6-7 s after the host.
+   re-sending the last frame, so a hung host's re-sends never count. **Corrected by the first duos (in game):** the debounce does
+   NOT reliably straddle that load -- the host's heartbeat ran 1.24 s past b6 before its load began on one run of two, so the
+   1200 ms ended first and the guest committed inside the host's load (landing 0.3 s before the host's walk out returned; the
+   other run waited the load out and landed 2.4 s after). Both landed at the same pose, height included ((17408, 819, -113664)),
+   so the early commit costs only ONE-PC LOAD CONTENTION on the duo; the bench reports the heartbeat witness and never judges it.
+   What the debounce does guarantee: a host that keeps b6 for 1200 ms of LIVE time (a bounce or a hung host never starts one).
 5. **On foot only.** While the host rides (Choco, the boat, an airship, or a dock exit that lands it aboard), the guest waits
    on its field with a line, and s144's rejoin takes it into the host's next field. If the host mounts during the guest's
    load, the guest still lands on foot at the start's pose: the host's own walker stood there, so it is lawful ground. Never
