@@ -2235,6 +2235,53 @@ def snap_console(ctx: _Ctx, state: str) -> None:
     _close(win)
 
 
+PANE_STATES = ("shut", "reopened")
+
+
+def _tab_walk(win) -> None:
+    """Print what Tab reaches on the current tab: a 0-px stop is focus landing where nobody can see it."""
+    stops, zero, guard = 0, [], set()
+    for _ in range(400):
+        if not win.focusNextChild():
+            break
+        f = win.focusWidget()
+        if f is None or id(f) in guard:
+            break
+        guard.add(id(f))
+        stops += 1
+        if f.width() <= 0 or f.height() <= 0:
+            zero.append(f"{type(f).__name__} {f.accessibleName()}".strip())
+    print(f"      tab walk: {stops} stops, {len(zero)} at 0 px {zero}")
+
+
+def snap_panes(ctx: _Ctx, state: str) -> None:
+    """The central splitter's outer panes dragged SHUT -- the owner's real [0, N, 0] layout -- and open again.
+
+    QSplitter parks a collapsed pane off-screen at 0 px without hiding it, so its widgets stayed on the Tab
+    chain until shell._collapsible_pane hid the pane's BODY instead. 'shut' must still show both handles
+    (the only way back) and walk Tab with no 0-px stop; 'reopened' is the risk that fix carries -- a body
+    that was hidden has to come back laid out, not blank."""
+    if state not in PANE_STATES:
+        raise ValueError(f"unknown panes state {state!r} (know: {', '.join(PANE_STATES)})")
+    with _pin_setup_state(game=True, templates=True):
+        win = _make_win(ctx)
+        f = REPO / "ff9mapkit/examples/SHOWCASE/showcase.field.toml"
+        if f.exists():
+            win.open_field(f)            # a populated navigator + a real Inspector card to lose and regain
+        _settle(8)
+        sp = win._central_split
+        before = sp.sizes()
+        sp.setSizes([0, sum(before), 0])
+        _settle(8)
+        if state == "reopened":
+            sp.setSizes(before)
+            _settle(8)
+        print(f"      central_split {sp.sizes()}  handles visible {[sp.handle(i).isVisible() for i in (1, 2)]}")
+        _tab_walk(win)
+        _grab(ctx, f"panes-{state}", win)
+        _close(win)
+
+
 def snap_form(ctx: _Ctx, state: str) -> None:
     """The field editor's LOGIC FORMS -- the surface that had no pinned snap at all, which is how a field
     could ship a placeholder ("a encounter name or id") that its own parser refused.
@@ -2530,6 +2577,7 @@ def all_surfaces() -> list[str]:
             + [f"map:{s}" for s in MAP_STATES] + [f"world:{s}" for s in WORLD_STATES]
             + [f"models:{s}" for s in MODEL_STATES]
             + [f"console:{s}" for s in CONSOLE_STATES]
+            + [f"panes:{s}" for s in PANE_STATES]
             + [f"drift:{s}" for s in DRIFT_STATES]
             + [f"deployed:{s}" for s in DEPLOYED_STATES]
             + [f"script:{s}" for s in SCRIPT_STATES]
@@ -2582,6 +2630,8 @@ def main() -> None:
                 snap_models(ctx, rest)
             elif kind == "console":
                 snap_console(ctx, rest)
+            elif kind == "panes":
+                snap_panes(ctx, rest)
             elif kind == "drift":
                 snap_drift(ctx, rest)
             elif kind == "deployed":

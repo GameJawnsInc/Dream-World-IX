@@ -13,6 +13,7 @@ import pytest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import QCoreApplication, QEvent                            # noqa: E402
 from PySide6.QtGui import QAccessible                                          # noqa: E402
 from PySide6.QtWidgets import (QAbstractButton, QAbstractSlider, QAbstractSpinBox,  # noqa: E402
                                QApplication, QComboBox, QLineEdit, QListWidget, QPlainTextEdit,
@@ -538,6 +539,100 @@ def test_a_recent_row_never_dictates_home_width(win, app, tmp_path):
         win._refresh_recent()
 
 
+def _tab_chain(win) -> list:
+    """Every stop Tab reaches from wherever focus is now, in order, until the walk comes round again."""
+    chain, guard = [], set()
+    for _ in range(400):
+        if not win.focusNextChild():
+            break
+        f = win.focusWidget()
+        if f is None or id(f) in guard:
+            break
+        guard.add(id(f))
+        chain.append(f)
+    return chain
+
+
+def _settle(app) -> None:
+    """Pump the queue AND let deleteLater'd widgets die, as the real event loop does at once.
+
+    `processEvents()` never runs a DeferredDelete. Home rebuilds its get-started cards, and the old cards
+    then linger -- still 'visible', squeezed to 0 px tall, still in the Tab chain. They tripped this file's
+    0-px fence once, but only in a full-file run, because which tab is current when the rebuild fires
+    decides whether the stale cards get squeezed. That is the probe lying, not the app."""
+    app.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.processEvents()
+
+
+@pytest.mark.parametrize("pane", [0, 2], ids=["navigator", "inspector"])
+def test_a_collapsed_pane_leaves_the_tab_chain(win, app, pane):
+    """A PANE DRAGGED SHUT IS GONE FROM THE KEYBOARD TOO -- and comes back when it is dragged open.
+
+    QSplitter never hide()s a collapsed pane: `QSplitterPrivate::setGeo` parks it off-screen at 0 px, so
+    `isVisible()` stays True and every widget in it stays in the Tab chain. Measured from a real prefs
+    layout (`central_split: [0, 1918, 0]`): the Inspector scroll area was a 0x675 stop on every tab, and the
+    navigator's filter and tree were stops too -- Tab went into a pane nobody can see and the ring with it.
+
+    Collapsed is a CHOICE here (`_repair_central_split` keeps a 0), so the fix cannot be "never collapse";
+    the pane's content has to leave the chain while the splitter keeps the pane and its handle.
+
+    NON-VACUOUS ON PURPOSE. A Workspace with nothing open shows the navigator's empty state, which has NO
+    Tab stop -- so the navigator case seeds one row (the app's own `_sync_nav_stack` then shows the tree
+    and its filter), and the re-open half asserts the pane's stops are back on every tab. Without that
+    half, a fix that dropped the pane from the chain FOREVER would pass.
+    """
+    from PySide6.QtWidgets import QTreeWidgetItem                            # noqa: PLC0415
+    win.activateWindow()                     # Qt moves focus only inside the ACTIVE window (see below)
+    win.raise_()
+    _settle(app)
+    sp = win._central_split
+    before, tab = sp.sizes(), win.tabs.currentIndex()
+    box = sp.widget(pane)
+    seeded = None
+    if pane == 0 and win.tree.topLevelItemCount() == 0:
+        seeded = QTreeWidgetItem(["a row, so the navigator has Tab stops to lose"])
+        win.tree.addTopLevelItem(seeded)
+        _settle(app)
+    try:
+        shut = list(before)
+        shut[1], shut[pane] = shut[1] + shut[pane], 0
+        sp.setSizes(shut)
+        _settle(app)
+        assert sp.sizes()[pane] == 0, "the pane did not collapse -- this fence is measuring nothing"
+        stuck = []
+        for i in range(win.tabs.count()):
+            win.tabs.setCurrentIndex(i)
+            _settle(app)
+            for w in _tab_chain(win):
+                if box.isAncestorOf(w) or w.width() <= 0 or w.height() <= 0:
+                    tag = f"{type(w).__name__}#{w.objectName() or '-'} {w.accessibleName() or ''}".strip()
+                    stuck.append(f"{tag} @ {w.width()}x{w.height()} in tab {win.tabs.tabText(i)!r}")
+        assert not stuck, (
+            f"with pane {pane} dragged shut, Tab still lands inside it (or on another 0-px stop) -- focus "
+            f"goes where nobody can see it: {sorted(set(stuck))}"
+        )
+
+        sp.setSizes(before)
+        _settle(app)
+        assert sp.sizes()[pane] > 0, "the pane did not re-open"
+        lost = []
+        for i in range(win.tabs.count()):
+            win.tabs.setCurrentIndex(i)
+            _settle(app)
+            if not any(box.isAncestorOf(w) for w in _tab_chain(win)):
+                lost.append(win.tabs.tabText(i))
+        assert not lost, (
+            f"pane {pane} was dragged open again but Tab never reaches it on these tabs: {lost}"
+        )
+    finally:
+        sp.setSizes(before)
+        if seeded is not None:
+            win.tree.takeTopLevelItem(win.tree.indexOfTopLevelItem(seeded))
+        win.tabs.setCurrentIndex(tab)        # leave the shared fixture exactly as it was found
+        _settle(app)
+
+
 def test_every_real_tab_stop_shows_where_the_keyboard_is(win, app):
     """WCAG 2.4.7, for the WHOLE focus chain -- not just the buttons.
 
@@ -588,16 +683,7 @@ def test_every_real_tab_stop_shows_where_the_keyboard_is(win, app):
         for i in range(win.tabs.count()):
             win.tabs.setCurrentIndex(i)
             app.processEvents()
-            chain, guard = [], set()
-            for _ in range(400):
-                if not win.focusNextChild():
-                    break
-                f = win.focusWidget()
-                if f is None or id(f) in guard:
-                    break
-                guard.add(id(f))
-                chain.append(f)
-            for w in chain:
+            for w in _tab_chain(win):
                 if not w.isVisible() or not w.isEnabled() or w.objectName().startswith("qt_"):
                     continue
                 tag = f"{type(w).__name__}#{w.objectName() or '-'} {w.accessibleName() or ''}".strip()
@@ -605,7 +691,9 @@ def test_every_real_tab_stop_shows_where_the_keyboard_is(win, app):
                 # message then blamed a missing ring. That cost a triage: the fixture's window had restored
                 # the owner's real collapsed-pane layout (central_split [0, 1918, 0]) and every Inspector
                 # scroll area was 0 px wide. isVisible() is still True for those (QSplitter parks a
-                # collapsed pane off-screen, it does not hide() it), so the guard has to be the AREA.
+                # collapsed pane off-screen, it does not hide() it), so the guard has to be the AREA. (A shut
+                # pane's body now hides -- test_a_collapsed_pane_leaves_the_tab_chain -- and the AREA guard
+                # stays for any other 0-px stop.)
                 if w.width() <= 0 or w.height() <= 0:
                     unseen.append(f"{tag} @ {w.width()}x{w.height()} in tab {win.tabs.tabText(i)!r}")
                     continue

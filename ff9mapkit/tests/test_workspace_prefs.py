@@ -413,6 +413,44 @@ def test_the_restore_path_spends_the_repair(app, monkeypatch):
     w.close()
 
 
+def test_a_restored_collapse_starts_off_the_keyboard_with_its_handles_live(app, monkeypatch):
+    """The owner's real layout, replayed at LAUNCH: both outer panes dragged shut.
+
+    The restore runs in __init__, before the window is shown, so no splitter drag and no splitterMoved
+    ever happens -- the panes' bodies have to hide from the pending resize Qt delivers at show. The
+    a11y fence drives a LIVE splitter; this is the lifecycle it cannot reproduce.
+
+    Three things must hold at once, and each has a tempting fix that breaks another:
+      * the collapse SURVIVES (a 0 is a choice -- `_repair_central_split` keeps it);
+      * the content is HIDDEN (off the Tab chain) -- see test_a_collapsed_pane_leaves_the_tab_chain;
+      * the HANDLES stay visible. Hiding the pane itself would do the first two, but QSplitter hides the
+        handle of a hidden pane, and then nothing can ever drag it open again.
+    And the floor `_repair_central_split` reads must still be the body's while it is hidden, or a later
+    repair would mistake every narrow-but-real width for a squeeze.
+    """
+    monkeypatch.setattr(shell.prefs, "layout", lambda: {"central_split": [0, 1918, 0]})
+    w = _win(app)                                        # __init__ runs _restore_layout
+    w.show()
+    app.processEvents()
+    sp = w._central_split
+    try:
+        assert sp.sizes()[0] == 0 and sp.sizes()[2] == 0, f"the chosen collapse was lost: {sp.sizes()}"
+        for i in (0, 2):
+            body = w._pane_bodies[sp.widget(i)]
+            assert not body.isVisible(), f"pane {i} is shut but its content is still on the Tab chain"
+            grip = sp.handle(1 if i == 0 else 2)         # handle(n) sits BEFORE widget n
+            assert grip.isVisible(), f"pane {i}'s handle is gone -- it can never be dragged open again"
+            assert sp.widget(i).minimumSizeHint().width() > 0, (
+                f"pane {i}'s minimum reads 0 while shut: QSplitter stops treating it as collapsed, and "
+                f"_repair_central_split loses its squeeze floor"
+            )
+        sp.setSizes(list(shell._DEFAULT_CENTRAL_SPLIT))
+        app.processEvents()
+        assert all(w._pane_bodies[sp.widget(i)].isVisible() for i in (0, 2)), "a re-opened pane stayed blank"
+    finally:
+        w.close()
+
+
 def test_the_floorplan_rail_round_trips_through_the_shells_one_layout_pref(app, monkeypatch):
     """★ THE CALL-SITE LAW, on a rail the doc owns and the shell persists.
 
