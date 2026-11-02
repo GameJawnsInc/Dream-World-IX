@@ -584,7 +584,7 @@ def test_every_real_tab_stop_shows_where_the_keyboard_is(win, app):
         app.processEvents()
     try:
         assert win.output.isVisible(), "the console did not open -- its row would be silently missing"
-        dead = []
+        dead, unseen = [], []
         for i in range(win.tabs.count()):
             win.tabs.setCurrentIndex(i)
             app.processEvents()
@@ -600,9 +600,22 @@ def test_every_real_tab_stop_shows_where_the_keyboard_is(win, app):
             for w in chain:
                 if not w.isVisible() or not w.isEnabled() or w.objectName().startswith("qt_"):
                     continue
+                tag = f"{type(w).__name__}#{w.objectName() or '-'} {w.accessibleName() or ''}".strip()
+                # A 0-px stop grabs two EMPTY images, so its delta is 0 whatever its QSS says -- and the old
+                # message then blamed a missing ring. That cost a triage: the fixture's window had restored
+                # the owner's real collapsed-pane layout (central_split [0, 1918, 0]) and every Inspector
+                # scroll area was 0 px wide. isVisible() is still True for those (QSplitter parks a
+                # collapsed pane off-screen, it does not hide() it), so the guard has to be the AREA.
+                if w.width() <= 0 or w.height() <= 0:
+                    unseen.append(f"{tag} @ {w.width()}x{w.height()} in tab {win.tabs.tabText(i)!r}")
+                    continue
                 if _state_delta(app, w, lambda b, on: (b.setFocus() if on else b.clearFocus())) == 0:
-                    dead.append(f"{type(w).__name__}"
-                                f"#{w.objectName() or '-'} {w.accessibleName() or ''}".strip())
+                    dead.append(tag)
+        assert not unseen, (
+            "these Tab stops are 0 px, so focus lands where nobody can see it and no ring can be measured. "
+            "Either the default layout collapses a pane, or the fixture restored a layout it did not set "
+            f"(a leaked prefs.json): {sorted(set(unseen))}"
+        )
         assert not dead, (
             "these are real Tab stops that show NOTHING when focused -- `* { outline: 0 }` removed "
             f"Fusion's ring and nothing replaced it here: {sorted(set(dead))}"
