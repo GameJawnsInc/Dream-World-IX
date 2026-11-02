@@ -112,6 +112,29 @@ def pytest_runtest_call(item):
         raise
 
 
+def _pin_user_config(store: Path, mp) -> None:
+    real = provision._user_dir
+    mp.setattr(provision, "_user_dir", lambda sub: store if sub == "config" else real(sub))
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _isolate_user_config_module(tmp_path_factory):
+    """The SAME pin, one scope out -- because the function-scoped one below cannot reach a MODULE fixture.
+    pytest builds higher-scoped fixtures first and tears them down last, so a module-scoped ``Workspace``
+    was constructed BEFORE the per-test pin existed: its ``_restore_layout`` read the developer's REAL
+    prefs.json. That turned the nightly gate red on 2026-11-02 with no repo change at all -- the owner had
+    collapsed both side panes in a real (maximized) session the evening before, the saved
+    ``central_split: [0, 1918, 0]`` was faithfully restored into the a11y fixture's window, and every
+    Inspector scroll area measured 0 px wide, so its focus ring "showed nothing". (``test_coop_tab``'s
+    ``coop`` fixture had already met this and pinned its own store; ``test_workspace_a11y``'s ``win`` and
+    ``themed`` and ``test_workspace_update``'s ``ws`` had not. Guarding the seam covers every one of them.)
+    A FRESH dir per module, not one per session: a module fixture's teardown can still write a layout, and
+    under xdist which module ran before yours on a worker is not a known state."""
+    with pytest.MonkeyPatch.context() as mp:
+        _pin_user_config(tmp_path_factory.mktemp("user-config"), mp)
+        yield
+
+
 @pytest.fixture(autouse=True)
 def _isolate_user_config(tmp_path, monkeypatch):
     """Every per-user CONFIG file lands in a per-test tmp dir. ``prefs._path`` (prefs.json),
@@ -122,9 +145,7 @@ def _isolate_user_config(tmp_path, monkeypatch):
     covers ``blender/tests/`` as well as ``tests/``. Every OTHER sub passes through untouched: ``data`` and
     ``cache`` are live on an installed-wheel run (``provision.data_dir`` / ``cache_dir``). A test that wants
     its own config store just monkeypatches ``prefs._path`` (or this seam) again on top."""
-    real = provision._user_dir
-    monkeypatch.setattr(provision, "_user_dir",
-                        lambda sub: tmp_path / "user-config" if sub == "config" else real(sub))
+    _pin_user_config(tmp_path / "user-config", monkeypatch)
 
 
 def pytest_configure(config):

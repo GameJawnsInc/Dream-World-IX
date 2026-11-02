@@ -117,10 +117,11 @@ lookup at an empty dir and hung the harness. Patch the narrow accessor instead.
 
 The repo's most-recurring test defect, flagged by review round after round: **a test that reads or
 writes the developer's real `prefs.json` is a report on the developer.** Same for the real install,
-the thumbs cache, and `backups/`. `tests/conftest.py` has an autouse fixture repointing
-`prefs._path` at a tmp file; keep every pin **function-scoped**, because a module-scoped pin unwinds
-before `win.close()` runs `closeEvent` → `_save_layout`, which then overwrites the real layout with
-a never-shown window's squeeze fossil. Pin the game through the **ctor seam** (`game_path_fn`), and
+the thumbs cache, and `backups/`. The ROOT `ff9mapkit/conftest.py` repoints the one seam
+`provision._user_dir("config")` at **both** scopes: per test, and per module — because pytest builds a
+module-scoped `Workspace` BEFORE any per-test pin exists and closes it AFTER the last one unwound, so a
+function-only pin let the a11y fixture restore the owner's collapsed-pane layout and turned the nightly
+red with no repo change. A session-scoped window would escape both; don't write one. Pin the game through the **ctor seam** (`game_path_fn`), and
 never fabricate a machine state silently (`gui_snap._fake_install` raises `KeyError` on an unknown
 state on purpose).
 
