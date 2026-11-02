@@ -7,7 +7,9 @@ sees the other as a second body. It is one design, built in two rounds (decision
 - **Round A, s166: the wire and the ghosts, with the guest still frozen.** Wire v15 (owner decision 14) with the world pose
   both ways; the receiver cache; the lane-gap lines on both roles; the host's lines (decision 13); the world ghost both ways.
   The frozen guest sees the host's ghost walk, and the host sees the guest's ghost. First and alone: decision 19's
-  control-off kit-cell close, which closes a live s165 hazard and changes no lawful guest behaviour.
+  control-off kit-cell close, which closes a live s165 hazard and changes no lawful guest behaviour. Second, also alone:
+  decision 26's pairing pull (the owner, 2026-11-02): a guest that pairs while the host stands on the world map follows it
+  out instead of waiting for the host's next stop.
 - **Round B, s167: the walk.** The seam that frees the walker; the entry refusal and its words (decision 4); the pairing
   rule and the stall hole; the fingerprint (decision 10); the DeclineOnce re-arm; WorldTPS; and decision 8 (the full map)
   if the owner opens it.
@@ -42,8 +44,13 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
   (Ff9mkDebugMenu.cs:821, 839-848), the same menu that holds the s144 Release row. WORLD11's kit boat (entry 15) and ferryman
   (entry 16) read bare Confirm the same way (L2245, L2543). TWO-PC-CHECKS-S165 now carries the warning (2026-11-02): press nothing on the guest while it lands,
   and never open the ~ menu on the guest while it is on the world map.
+- **A guest that pairs while the host stands on the world map waits on its field** (the s165 two-PC session, 2026-11-02).
+  WorldOutStep's term 3 refuses a guest that is not mirroring yet (`not_mirroring`, THE PAIRING-WINDOW LAW), although the
+  law protects only a pairing autosave that has not been written, and the owner's laptop wrote its autosave the moment it
+  paired. It follows the host only into the host's next location. Decision 26 pulls it out.
 - **A world-paired guest goes free in a stall.** A guest that paired or Continued on the world map is not mirroring (the
-  mirror arms only at a field load, NetSyncClient.cs:1121-1128), so SpectatorField rests on IsLiveFollowedSession, which
+  mirror arms only at a field load, NetSyncClient.cs:1121-1128; decision 26 adds a follow-out's landing, which a guest
+  already on the world map never takes), so SpectatorField rests on IsLiveFollowedSession, which
   needs a remote fresher than StaleMs 2000 (NetSyncSocket.cs:315). In a 2.3 s stall the whole s144 mask lifts:
   FilterScriptButtons returns the raw keys at `!SpectatorField` (NetSyncField.cs:928), so Confirm, Cancel and the full map
   pass; SkipWorldScriptedBattle keys on SpectatorField alone (:316), so the place-52 quicksand's Battle(0, 144) boots
@@ -61,6 +68,7 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
    DEFECT FOLLOWS THE AUTHORSHIP (round A is the larger new surface, and it changes no lawful guest behaviour); and v15 alone
    breaks every mixed pair and every recorded tape, so it should be proven on its own. The cost: walking waits one round.
    Decision 19 rides round A, first and alone, so neither the round-A deploy nor its two-PC look runs with the hazard live.
+   Decision 26 (the pairing pull) follows it, second and alone: it needs no wire change, so its OLD is the A0 build.
 
 ### Round A (s166): the wire, the cache, the lines, the ghosts
 
@@ -193,6 +201,29 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
     lane (and a host-side dot of the guest) is a later lever, not this round. Named limit: in a stall the dot blinks out at
     1 s while the ghost holds for 5 s. **Under review after the two-PC check:** section 0 froze the dot while the host rode;
     open item 14 proposes re-sourcing it from the trailer in round A.
+26. **The pairing pull (round A, second and alone; the owner, 2026-11-02, open item 13; two-PC finding 1).** A following guest
+    that pairs on a field while the host stands on the world map follows it out once its pairing autosave has resolved,
+    instead of waiting on its field for the host's next stop. Numbered 26 so that no earlier decision's number moves.
+    - **The term.** WorldOutStep's term 3 (`not_mirroring`, THE PAIRING-WINDOW LAW) narrows to the one thing the law
+      protects. It refuses only while the pairing window is open, nothing has been written in it, and its verdict is busy
+      (why `pairing_save`, words "your pairing autosave is still pending"). The follow-out starts on a written autosave, and
+      also on a durable decline (not your own place, autosave off, the stock ladder refused), because the window will never
+      write. A free-standing guest writes at once, so the start waits an Update or two at most. The build reads
+      PairingEvaluate's own state, never a copy. A mirroring guest passes as today (its window closed at the arm), and the
+      bench stays exempt. The s165 proof (`world follow selftest`) gains the rows busy, written, durable and mirroring, and a
+      mutant that keeps s165's mirroring term (it must fail the written row).
+    - **The arm.** For a live guest (never the bench, which never mirrors), `LandWorldOut` arms the mirror after its
+      ApplyStory succeeds. It goes through the field load's own arm, lifted into one `ArmMirror(host, where)` that both sites
+      call: the ARMED line; `NotePairingAtArm`, whose line names "world map W's landing" instead of `fldMapNo`;
+      `_storyMirroring = true`; the kick's budget reset; and `NetSyncSelfDress.ArmFromState`. RestorePassEntrance stays
+      field-only. The arm happens at the landing seam, before the visit's first tick, so THE WORLD PAIRING RULE's "during a
+      visit it can only fall" (decision 14) still holds.
+    - **What else it changes:** the guest's save is refused from the landing on (s165's R4 keys on IsMirroringStory); the
+      rejoin stages the host's story as it does for any mirroring guest; and a pulled guest mirrors, so the stall hole does
+      not reach it. A guest that paired or Continued while itself on the world map is unchanged: it has no field to follow
+      out from, so it stays frozen until the host's next stop and keeps W-REFUSE's PAIR case and WR-PAIR.
+    - No wire change and no host change: an s165 host pairs with it. While the autosave is pending, the guest's field keeps
+      s144's waiting line. Lever `pairpull old` restores s165's term 3 and skips the arm.
 
 ### Round B (s167): the walk
 
@@ -207,7 +238,8 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
 14. **WalkFreeRule, cheapest first, one why each:**
     1. the lever (`walk off` = s166 exactly);
     2. who: a following client with `IsMirroringStory && !_exitRampPending` (THE WORLD PAIRING RULE: the mirror arms only at
-       a field load, so during a visit it can only fall), or the selftest bench (`BenchGates && _followHost`, never
+       a field load or a follow-out's landing (decision 26), both before a visit's first tick, so during a visit it can
+       only fall), or the selftest bench (`BenchGates && _followHost`, never
        `NetSyncVisitor.FollowHost`, which the forced role still pins false at NetSyncClient.cs:11113) with a `pair
        unmirrored` lever;
     3. SuppressEncounters true (fail closed: a walker without it would roll its own battles on the host's party);
@@ -325,7 +357,7 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
 ### The harness (both rounds)
 
 25. A new sub-verb `worldwalk` (`worldfollow` refuses unknown ops). Every lever is any-role where the duo needs it (THE DUO
-    CANNOT PULL A SELFTEST-ROLE LEVER) and is released with the harness. Round A: `kitcell`, `ghost off|sticky` (sticky:
+    CANNOT PULL A SELFTEST-ROLE LEVER) and is released with the harness. Round A: `kitcell`, `pairpull`, `ghost off|sticky` (sticky:
     the ghost ignores the peer's place 2, the D-REJOIN mutant), `place render|act` (the WRAP mutant), `pose off` (tfmt 0: an
     s165-shaped v15 peer), `lanegap`, `hostlines`, `clear`; and the bench host (the selftest role with the ini's FollowHost
     and SuppressEncounters, as s165's G10): `host path <x0> <z0> <x1> <z1> [...] <ups> [loop]`, `hostseq freeze|run`,
@@ -358,8 +390,8 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
   entrance. It is false when the host's next field is not on this install (RedirPassUnregistered) or the host changes
   world without a field (item 5).
 - Guest (s167), while walking would be lawful but is refused: riding and scene reuse s165's words; pairing: "You'll walk
-  once you've followed your partner into a location." (a battle is not one: the mirror arms only at a field load,
-  NetSyncClient.cs:1121-1128); fingerprint: "Your world map differs from your partner's (<component>): you'll follow them
+  once you've followed your partner into a location." (a battle is not one: the mirror arms only at a field load or a
+  follow-out's landing, NetSyncClient.cs:1121-1128 and decision 26; this guest paired while itself on the world map); fingerprint: "Your world map differs from your partner's (<component>): you'll follow them
   as before."; checking: "Checking your world map against your partner's..."; a host without caps b1: "Your partner's
   co-op build is older: you'll follow them as before."
 - Guest (s167, only with decision 8 and no co-op close): "Close the map to join your partner."
@@ -381,6 +413,9 @@ on staleness, `NetSyncVisitor.FollowHost` read, a Map[24]-only refusal (it must 
 dedupe.
 
 **A0. The control-off close, first and alone (decision 19; `NetSyncField.cs` FilterScriptButtons' control-off branch).**
+**A0b. The pairing pull, second and alone (decision 26; `NetSyncWorldFollow.cs` WorldOutStep's term 3 and its proof rows;
+`NetSyncClient.cs` the term's facts from PairingEvaluate's state, `ArmMirror` lifted from the field-load arm, and its call in
+`LandWorldOut`).**
 **A2. Wire v15 (`NetSyncSocket.cs`, `NetSyncRelay.cs`):** the version, the caps word, the trailer through
 `INetTransport.SetLocal` and both transports, the relay sentinel's trailer, the forward parse, the arrival tick on
 RemoteState, the peer-version counter and line, the own-wire line, the TCP redial dedupe. **A3. The sender, the cache, the
@@ -412,8 +447,8 @@ ICE_TILE (1197.37, -796.7), cell (37, 24), the Ice Cavern (loc 4, Field 300, dis
 
 **K1, read-only, before the build.** The read-site census is done (this doc). Still to do: the type-0 inter-arrival times in
 both directions from the existing tapes (the gap threshold, and the real send rate: `swap.slot.sends` counts only the host's
-TypeState); the WorldMap override tree's size (c2); and the entry-0 census on all 13 deployed dispatchers (widening decisions 18
-and 19 beyond the walk worlds).
+TypeState); the WorldMap override tree's size (c2); the entry-0 census on all 13 deployed dispatchers (widening decisions 18
+and 19 beyond the walk worlds); and whether `duo.py` can start the guest's link after its host stands on 9011 (D-PAIR).
 
 **The stand-in.** A `worldwalk` rung in `tools/harness/fakegame.py` (calibrated by `caps_through('worldfollow')`) with
 battlewire twins of every A1 rule. It models the ENGINE's facts, never the design's intent: the forced selftest role
@@ -424,8 +459,9 @@ the boat's board behind its proximity branch with its 169 test after the read; t
 e0/e1/e15 orders, so an order-dependent rule cannot pass offline; the control-off pass; the ~ menu's control hold; cell
 requests not gated on control and skipped under w_naviMode 2; Map[24] reset every pass; SpectatorField dropping in a stall
 for a non-mirroring guest; the v14/v15 header rejection (relay silent, TCP disconnect); the peer's seq frozen through its
-synchronous loads (world, field and battle) while arrivals continue; a stale w_blockReady on a field after a world visit.
-Faults: ghost_unwrapped, gap_on_stamp, arrival_on_seq, hold_on_valid, ghost_stale_mint, wire_field_world, scene_menu_hold,
+synchronous loads (world, field and battle) while arrivals continue; a stale w_blockReady on a field after a world visit;
+the pairing window's verdicts (busy until free-standing, the durable declines) and its close at a commit or the arm.
+Faults: pairpull_early, pairpull_unarmed, ghost_unwrapped, gap_on_stamp, arrival_on_seq, hold_on_valid, ghost_stale_mint, wire_field_world, scene_menu_hold,
 walk_unlawful, refuse_leak, refuse_silent, refuse_overfire, kitcell_leak, pairing_free, stall_free, ownmode_free,
 decline_stale, fp_ignored.
 
@@ -451,6 +487,7 @@ PIN), 6603 -> 9011 by s165's follow-out (`worldfollow host`), and onto 9002/9010
 | A-KITOFF | first and alone: FS_LANDING, `control off`, Confirm: still WorldHUD, never 6603; the same inside the ~ menu's "Disable control" hold | FieldHUD 6603 alone (today's hazard, measured) | `kitcell old` |
 | A-FERRYOFF | within 12 u of the ferryman, `control off`, Confirm: Map[50] stays 0, no fade | the ferryman scene plays on the guest's copy | `kitcell old` |
 | A-PROOF | the proof line on a field | absent | its mutants |
+| T2-A pair | second and alone: `replay-host --from` a tape second where the host stands on 9011 past the debounce, the real guest on its own field (paired there, never mirrored): its pairing autosave line, then the follow-out's start, commit and landing at the tape's pose; `mirroring` true and the ARMED line once, naming the world landing; `savemenu` refused; the tape's rejoin into 300 stages the host's story | waits on its field (`not_mirroring`) until the tape's 300 | `pairpull old` |
 | A-WIRE | an unrestamped s165 tape: never pairs, `wire_peer.rejected` rises, one line | pairs (v14) | `--wire 15`: pairs, s165 behaviour, ghost why_not no_record |
 | A-TX | own block on 9011 from the selftest slot: place 4, world 9011, x/z within 1 u of `world.x/z`, seq advancing; place 3 in the load | key absent | `pose off`: tfmt 0 |
 | A-GHOST | `host path` across the x seam: the ghost within GHOST_TOL of the canonical pose | nothing drawn | `ghost off`: want true, shown false |
@@ -465,7 +502,7 @@ PIN), 6603 -> 9011 by s165's follow-out (`worldfollow host`), and onto 9002/9010
 | T2-A roam | the frozen guest's ghost on the ROAM tape's own trailer pose at the matched second; `--blackhole-at` a leg for 2.3 s: gap lines, hold, ease back; for 6 s: hide at 5 s, then a snap on the re-show (a first show) | no v14 tape | `ghost off`, `lanegap off` |
 | T2-A freeze | `replay-host --freeze-at` 2.3 s and 6 s against a real s166 guest: hold, `_STAND`, hide at 5 s, the HANG's wording, the "Lost contact" words | no v14 tape | `lanegap off`, `ghost off` |
 | T2-H | serve-guest's walking v15 record into a real s166 host: the host's ghost of the guest, its three lines, its gap line at `--gap-at`; a released guest's record (state b0 clear, flags b0 set): lines and ghost; `--no-follow`: no lines, no ghost | host shows nothing | `hostlines off`, `ghost off` |
-| Duo | D-G1 the host walks: the guest's ghost within tolerance of the host's `world.x/z` on the shared clock; D-G2 the host's ghost of the frozen guest within tolerance of the guest's own published `world.x/z`, the landing gap reported (ONE-PC LOAD CONTENTION confounds a landing judgment); D-LINES the host's lines through the follow-out; D-REJOIN both ghosts hidden before the guest's fade; D-BATTLE both re-mint after the warm returns, zero non-loading HANG lines across a start and a return; D-SHARED; the s144/s145 rows under an active trailer | none | `ghost off` any role; `ghost sticky` for D-REJOIN |
+| Duo | D-G1 the host walks: the guest's ghost within tolerance of the host's `world.x/z` on the shared clock; D-G2 the host's ghost of the frozen guest within tolerance of the guest's own published `world.x/z`, the landing gap reported (ONE-PC LOAD CONTENTION confounds a landing judgment); D-LINES the host's lines through the follow-out; D-REJOIN both ghosts hidden before the guest's fade; D-BATTLE both re-mint after the warm returns, zero non-loading HANG lines across a start and a return; D-SHARED; the s144/s145 rows under an active trailer; D-PAIR, if K1 finds `duo.py` can start the guest's link late (T2-A pair's judges) | none | `ghost off` any role; `ghost sticky` for D-REJOIN |
 
 **Round B rows (s167),** the same routes:
 
@@ -487,8 +524,8 @@ PIN), 6603 -> 9011 by s165's follow-out (`worldfollow host`), and onto 9002/9010
 | T2-B | ROAM tape: WR-FREE, WR-REFUSE, WR-REJOIN-FAR, WR-PAIR (paired on the world map: frozen "pairing") | frozen | `walk off` |
 | Duo | D-W1/2/3 ghosts both ways while walking; D-REFUSE; D-REJOIN-FAR; D-BATTLE (the guest boots and returns at its OWN pose); D-RIDE (`vehicle 1` on the host: judge the guest's verdict, never the dot); D-REJOIN-WAIT (the host walks back out while the rejoin waited: the ghost snaps, no follow-out); D-SHARED | frozen | `walk off` any role |
 
-**Order, one change per test by lever.** Round A: K1; A-KITOFF and A-FERRYOFF first and alone (they close a live hazard); the
-proof; A-WIRE and the restamp; A-TX; the ghost rows with `lanegap off` and `hostlines off`; the stall rows; T2; the duo; the
+**Order, one change per test by lever.** Round A: K1; A-KITOFF and A-FERRYOFF first and alone (they close a live hazard); T2-A pair
+second and alone (OLD measured on the A0 build, the tape restamped where the wire needs it); the proof; A-WIRE and the restamp; A-TX; the ghost rows with `lanegap off` and `hostlines off`; the stall rows; T2; the duo; the
 regression set; the owner's two-PC look. Round B: the walk with `refuse silent`; the refusal; pairing, stall hole, decline,
 fingerprint, TPS; decision 8 last; T2; the duo; the regression set; two-PC.
 
@@ -526,7 +563,7 @@ extracted; no bench while the owner plays, never under a running test suite.
 - **Kit reads:** on a kit cell one press is read by both entry 0 and entry 1, and at the boat plate by sid 15 or sid 1; their
   order in a frame is unsettled offline (K1 confirms in game).
 - **The stall in round A:** decision 19's close runs under WorldFreezeNow, so a world-paired guest in a stall stays outside
-  it until decision 17 (s167).
+  it until decision 17 (s167). A guest pulled out by decision 26 mirrors, so it is not world-paired in this sense.
 - **Walking:** a walker keeps walking through a host loss for up to 40 s. Its own continent title can leave its [0] 10 above
   the host's (harmless, same band). WorldTPS mismatches change relative speed (reported only). If decision 8 opens the map,
   closing it hides the minimap dot until the next Select.
@@ -561,9 +598,8 @@ extracted; no bench while the owner plays, never under a running test suite.
     while the host stands on the world map follows it out once its pairing autosave has resolved (WorldOutStep's
     not-mirroring term becomes "the pairing autosave has not resolved"), and `LandWorldOut` arms the mirror for a live guest
     (it already applies the host's whole story; `NotePairingAtArm` closes the window there). This reverses GUEST-FOLLOW's
-    rung-2 "world pairing rule" and W-REFUSE's PAIR case. Recommended: yes, as a small round of its own (s165b) before s166. It
-    changes only the guest, needs no wire change (an s165 host pairs with it), and the duo can bench it: pair while the host
-    stands on 9011.
+    rung-2 "world pairing rule" for a guest paired on a field. DECIDED (2026-11-02): folded into s166 rather than a round of
+    its own (s165b), as decision 26, round A's second piece, alone.
 14. **The dot while the host rides** (two-PC finding 2). Section 0's pose freezes while the host rides, so the dot and its
     facing stood still until the host got off. The proposal revises decision 12: the dot takes the trailer's live pose and
     rotation whenever the host's caps carry b0, and section 0 otherwise (an s165 host). On the vehicle worlds, where the
