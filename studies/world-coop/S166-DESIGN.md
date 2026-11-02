@@ -38,9 +38,12 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
   is on (ff9.cs:5323-5353; compare w_movementControl behind GetUserControl, :5185-5187). FilterScriptButtons' control-off
   branch passes the guest's own keys when no dialogue lock holds (NetSyncField.cs:992-1004). So a Confirm pressed in any
   control-off tick while standing on a kit cell takes the guest into 6601/6602/6603 alone, faded: s42's no-recovery class.
-  The bench landing FS_LANDING (68, -444) is cell (2, 13), the 6603 entrance, so every s165 solo and duo landing stands on
-  one, and the landing's first ticks before the walker's EnableMove are such a window (inference: the frame order is not
-  read). A deterministic window: the ~ menu open with "Disable control" runs SetUserControl(false) in any scene
+  **Corrected by the A0 bench (2026-11-02):** the engine requests a cell function only while the walker stands on a terrain
+  triangle carrying the entrance's event id (ff9.cs w_movementUpdate: `m_GetIDEvent(id) != 0` -> WorldEvent), and the
+  6603 entrance was written with `--trigger-at 80 -444 --trigger-radius 3.0 --no-tile-area`, so only the triangles within
+  3 u of (80, -444) carry it. FS_LANDING (68, -444) is in cell (2, 13) but 12 u off that trigger: it does NOT stand on the
+  entrance (measured on s165: a frozen guest's control-off Confirm there did nothing). A guest stands on a trigger when the
+  host stood on one at the follow-out (the guest lands on the host's spot), or after a teleport. A deterministic window: the ~ menu open with "Disable control" runs SetUserControl(false) in any scene
   (Ff9mkDebugMenu.cs:821, 839-848), the same menu that holds the s144 Release row. WORLD11's kit boat (entry 15) and ferryman
   (entry 16) read bare Confirm the same way (L2245, L2543). TWO-PC-CHECKS-S165 now carries the warning (2026-11-02): press nothing on the guest while it lands,
   and never open the ~ menu on the guest while it is on the world map.
@@ -312,8 +315,15 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
       `last_place` in [1, 90) at every sid-1 read; the reader ids as predicted.
     - The same buzz for a FROZEN guest on the walk worlds, behind its own lever (`refuse silent` = s166).
 19. **The control-off close (ships in round A, s166: its own piece, first and alone).** On gMode 3, under WorldFreezeNow on
-    the walk worlds, a control-OFF read loses HostOwnedKeys when its reader is entry 0 or an entry beyond its stock
-    dispatcher's last (stock ends at e14 on WORLD02 and WORLD11, e12 on WORLD10; the census tables). That covers the kit
+    EVERY world map, a control-OFF read loses HostOwnedKeys when its reader is entry 0 or an entry beyond its stock
+    dispatcher's last. **Widened by K1 (2026-11-02):** the six kit cells sit in entry 0 of all nine deployed free-roam
+    dispatchers (9000, 9002, 9003, 9005, 9007, 9008, 9009, 9010, 9011), and Path D's 9013 adds three more; s165 lands a
+    frozen guest on every one of them, and stock entry 0 reads no key on any of the 13 stock dispatchers in any language. So
+    the close keys on the reader, never on the walk set. The stock last entries: 9000:11, 9001:7, 9002:14, 9003:12, 9004:3,
+    9005:15, 9006:6, 9007:12, 9008:12, 9009:13, 9010:12, 9011:14, 9012:7, and 9013:14 (its donor WORLD11's); an unknown
+    world closes entry 0 only. Only 9011 has reads beyond its stock last (the boat e15, the ferryman e16). Known hole: a kit
+    function added INSIDE a stock-range entry, or in a stock-empty slot (9002's e12/e13), would escape the second term;
+    none reads a key today. That covers the kit
     cells, the boat and the ferryman. No stock read is touched (stock entry 0 has none), and every stock control-off wait
     passes as before. It closes the s165 hazard (the ~ menu's hold included) and changes no lawful guest behaviour, so it
     is benched first in s166, alone, with OLD measured on s165. A world-paired guest in a stall stays outside it until
