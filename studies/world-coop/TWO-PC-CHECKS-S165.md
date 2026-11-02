@@ -99,3 +99,44 @@ the dot's look and the words. A video of the guest's screen during step 1 and st
 
 Also open, no test needed: is the FF9Coop mod folder (it reroutes the chocobo-dive return to field `1953`, listed last in
 `[Mod] FolderNames`) still wanted?
+
+## Results: the owner's two-PC session (2026-11-02, 13:19-13:27)
+
+The desktop hosted, the laptop was the guest, both on `e364ca8d`. Sources: the laptop's `Memoria.log` (sent as
+`Memoria-laptop.log`) and the desktop's own. The guest paired on its field 250; the host then entered Dali (359), warped to
+350 with the ~ menu, walked out onto world 9011, rode Choco (called from the ~ menu), entered field 1856, warped back to 350
+and walked out again.
+
+| Step | Result |
+|---|---|
+| Field follows before the test (250 -> 359 -> 350) | Green: both follows faded and landed, the dialogue lock and step-out as before. |
+| 1 The follow-out | Green, twice. The guest landed on the host's spot (drift 0 u the first time), frozen. The host showed its two s165 lines and nothing else. |
+| 2 The dot | Green on foot. **Gap:** while the host rode Choco, the dot and its facing stood still until the host got off. The look questions (tint, size, the edge) are still open. |
+| 3 Into a location | Green: the host entered 1856 from 9011, and the guest rejoined 375 ms later. |
+| 4 Leaving while the host walks on | Green, as designed: the guest landed where the host stood when the guest's world map finished loading (857 ms after the start), 18.3 u behind the host by then, not at the exit. |
+| 5 Saving on the guest | Not run. The main menu is refused, as expected (`main menu suppressed (following guest)`); Alt+F5 was not tried. |
+| 6 Riding | Not run: Choco is not unlocked in this save. |
+
+The link had one outage, 203 ms at 13:24:01, which recovered inside the grace; it was otherwise clean for about 8 minutes.
+
+**Findings:**
+
+1. **A guest that pairs while the host is already on the world map waits on its field.** The log line is `world follow-out:
+   waits: not mirroring the host's story yet (the pairing window: the s144 wait stands)`. That is the design (S165 decision 1,
+   THE PAIRING-WINDOW LAW), but the law's reason, a pairing autosave that may still be pending, did not hold: the guest wrote
+   its pairing autosave at the moment it paired (13:19:10). The owner expected the guest to be pulled out. The fix is small:
+   the term becomes "the pairing autosave has not resolved", and the world landing arms the mirror. `LandWorldOut` already
+   applies the host's whole story; it never arms only because a guest that follows out was always mirroring already.
+   -> `S166-DESIGN.md` open item 13.
+2. **The dot holds while the host rides.** s165's dot reads the host's save-anchor record (section 0, `gEventGlobal` 64-72),
+   and the world scripts stop writing it while the host rides: the same freeze `S166-DESIGN.md` decision 4 names for a
+   Gysahl press and the kit voyage. s166's world trailer carries the host's live walker position
+   (`w_moveActorPtr.RealPosition`) instead, but decision 12 kept the dot on section 0. -> open item 14.
+3. **The laptop runs without `FF9CustomMap-world`, `-schema` and `-msgs`.** Its mods line reads `'FF9CustomMap'
+   'MoguriVideo' 'MoguriMain' 'FF9Coop'`, while the desktop's lists all seven folders. The two machines therefore do not have
+   the same world map: the desktop loads its Disc 1 terrain overrides from `-world`, and the laptop has none. This did not show
+   in s165, because the guest stands frozen wherever the host stands. It matters from s166 on, when the ghosts would stand on
+   different ground, and in s167, when the guest walks a different map. The next package must carry `FF9CustomMap-world`
+   (73 MB), or the owner copies it across.
+4. **This checklist described the dot wrongly.** It draws ABOVE the guest's own arrow at 80% opacity, not under it. The
+   minimap's depths leave no free slot under the arrow, so this is the design's fallback, and it happens every time.

@@ -191,7 +191,8 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
     the owner's word; a Mog ghost would read as the save moogle, and the guest's own walker is never self-dressed.
 12. **The dot stays exactly s165's.** Section 0 source, DotFreshMs 1000, byte-identical. Re-sourcing it from the 30 Hz
     lane (and a host-side dot of the guest) is a later lever, not this round. Named limit: in a stall the dot blinks out at
-    1 s while the ghost holds for 5 s.
+    1 s while the ghost holds for 5 s. **Under review after the two-PC check:** section 0 froze the dot while the host rode;
+    open item 14 proposes re-sourcing it from the trailer in round A.
 
 ### Round B (s167): the walk
 
@@ -553,16 +554,33 @@ extracted; no bench while the owner plays, never under a running test suite.
     full map open, or with control off. Such a guest sits the fight out on the world map and, in s167, stays frozen until the
     host is back on the world map (b6 clears during the host's battle), then walks again. Recommended: accept.
 12. The schedule: run the s165 two-PC session on s165 first (with the Confirm warning), or ship s166 to both machines and
-    run s165's checks on it; every engine build auto-deploys over the shared install.
+    run s165's checks on it; every engine build auto-deploys over the shared install. DONE (2026-11-02): the session ran on
+    s165 first; results in `TWO-PC-CHECKS-S165.md`.
+13. **Pairing on the world map** (two-PC finding 1). The owner paired the guest while the host stood on the world map and
+    expected it to be pulled out; it waited on its field, because it was not mirroring yet. The proposal: a guest that pairs
+    while the host stands on the world map follows it out once its pairing autosave has resolved (WorldOutStep's
+    not-mirroring term becomes "the pairing autosave has not resolved"), and `LandWorldOut` arms the mirror for a live guest
+    (it already applies the host's whole story; `NotePairingAtArm` closes the window there). This reverses GUEST-FOLLOW's
+    rung-2 "world pairing rule" and W-REFUSE's PAIR case. Recommended: yes, as a small round of its own (s165b) before s166. It
+    changes only the guest, needs no wire change (an s165 host pairs with it), and the duo can bench it: pair while the host
+    stands on 9011.
+14. **The dot while the host rides** (two-PC finding 2). Section 0's pose freezes while the host rides, so the dot and its
+    facing stood still until the host got off. The proposal revises decision 12: the dot takes the trailer's live pose and
+    rotation whenever the host's caps carry b0, and section 0 otherwise (an s165 host). On the vehicle worlds, where the
+    frozen guest has only the dot, it then tracks a riding host, and D-RIDE judges the dot moving. Recommended: in round A,
+    right after the trailer.
 
-## Needs the s165 two-PC check first
+## What the s165 two-PC check answered (2026-11-02; `TWO-PC-CHECKS-S165.md` "Results")
 
-- **The sequencing:** that session must run on s165 on both machines BEFORE s166 is deployed, because a v15 desktop cannot
-  pair with an s165 laptop. Otherwise its package must ship s166 to both (item 12). On s165 the kit-cell hazard is live; its
-  checklist carries the warning ("What happens today").
-- **The dot's look** (tint, size, the edge) sets the ghost's tint question (item 3) and whether the host also wants a dot.
-- **The link's stalls** (how often, how long, both directions; the guest's outage lines are today's only record) set the
-  1000 ms gap line, the 300 ms stand and the 5 s hide, and whether the ease is smooth enough without a playout buffer.
-- **The landing over a real link** (where the guest lands against where the host stands by then, and the landing gap) shows
-  whether walking needs a snap after the landing. The design assumes it does not.
-- **The host's two s165 lines and nothing else visible** are the baseline for round A's first host-visible lines.
+- **The sequencing:** the session ran on s165 on both machines, before any s166 build (item 12).
+- **The dot's look:** still open. The owner saw the dot track the host on foot, but has not answered on the tint, the size
+  or the edge. The dot draws ABOVE the arrow at 80% (no free depth slot under it), not under it as the checklist said. A
+  riding host froze it (item 14).
+- **The link's stalls:** one 203 ms outage in about 8 minutes, recovered inside the grace. That is too little to retune the
+  1000 ms gap line, the 300 ms stand or the 5 s hide, so they stand as designed.
+- **The landing over a real link:** 0 u with the host standing still, and 18.3 u behind a walking host (the guest's world
+  loaded 857 ms after the start). The ghost snaps on its first show (decision 10), so no extra snap after the landing.
+- **The host's lines:** the two s165 lines and nothing else visible, which is the baseline for round A.
+- **New: the two machines' world maps differ.** The laptop has no `FF9CustomMap-world` (nor `-schema` or `-msgs`). The s166
+  package carries `FF9CustomMap-world`, and laptop step 0 compares the mods line in both logs. In s167, the fingerprint
+  (decision 21, c2) would refuse the walk on mismatched world content.

@@ -299,10 +299,12 @@ reloads its own save, or reload at once.
    on the minimap and the full map, from section 0 (no wire change); the 9012 strand; the save guard at its call site.
    Key the landing on `w_blockReady`, take the host's live pose, check the same world. The guest stays frozen on the world
    map in this rung. Benchable solo and on the duo (6603 → 9011). **DONE as s165 (2026-11-02): deployed, benched solo, T2
-   and duo; the full-map dot moved to rung 2; the dot's look waits on the owner's two-PC check.**
+   and duo; the full-map dot moved to rung 2. TWO-PC PROVEN (2026-11-02): steps 1-4 green; the dot held while the host rode,
+   and a guest paired while the host stood on the world map waited on its field (results in `TWO-PC-CHECKS-S165.md`).**
 2. **Free walk on foot with ghosts both ways, on the foot-only worlds (9002, 9010, 9011).** The world ghost and its dress
    map, the world pose on type-0 both ways, the split mask and the entry refusal, the same-world rule, a world pairing rule
-   (a guest that pairs on the world map stays frozen until its first field mirror), the inbound lane-gap line on both
+   (a guest that pairs on the world map stays frozen until its first field mirror; the owner expected a pull at pairing:
+   `S166-DESIGN.md` open item 13), the inbound lane-gap line on both
    roles, and a WorldTPS mirror beside s163's FieldTPS. Re-arm the DeclineOnce world book at each world load.
 3. **Free walk on the vehicle worlds, with Choco.** The guest mounts its own Choco; the mounted ghost; the guest's parked
    airship or boat copy hidden or re-placed when the host moves its own; the Choco call (decision 6); the dismount for the host's battle (decision 7).
