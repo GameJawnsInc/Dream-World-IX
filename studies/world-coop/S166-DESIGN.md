@@ -197,10 +197,16 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
     loadability risk: the sender's model is the one my own world already loaded. The cost: two identical bodies (the
     field's "two Zidanes"). A dress map (moogle -> the world Mog 307, Garnet -> 309) is a pure `WorldBodyRule` ready for
     the owner's word; a Mog ghost would read as the save moogle, and the guest's own walker is never self-dressed.
-12. **The dot stays exactly s165's.** Section 0 source, DotFreshMs 1000, byte-identical. Re-sourcing it from the 30 Hz
-    lane (and a host-side dot of the guest) is a later lever, not this round. Named limit: in a stall the dot blinks out at
-    1 s while the ghost holds for 5 s. **Under review after the two-PC check:** section 0 froze the dot while the host rode;
-    open item 14 proposes re-sourcing it from the trailer in round A.
+12. **The dot takes the host's live pose (the owner, 2026-11-02, item 14; two-PC finding 2).** Section 0's anchor (64-72)
+    stops updating while the host rides, so s165's dot and its facing stood still until the host got off. From round A the
+    dot's position and facing come from the trailer (53-80: x/z and the rotation's yaw) whenever the host's caps carry b0
+    and its world block is valid (place 4); otherwise from section 0 exactly as s165 (an s165 host, a capless v15 peer, a
+    host in a diorama or a load). Everything else stays s165's: DotRule's order and terms (b6, the whole section 0, the
+    same [102], the band, freshness on the heartbeat, DotFreshMs 1000), the look and the edge. The source is reported on
+    `netsync.world.dot` (`src`: "trailer" or "section0"). Lever `dot section0` restores s165's source exactly. Inference:
+    `w_moveActorPtr` is GetControlChar's actor, whose RealPosition moves with a ride (the camera follows it);
+    A-DOTRIDE and D-DOTRIDE prove it in game. A host-side dot of the guest stays a later lever. Named limit: in a stall
+    the dot blinks out at 1 s while the ghost holds for 5 s.
 26. **The pairing pull (round A, second and alone; the owner, 2026-11-02, open item 13; two-PC finding 1).** A following guest
     that pairs on a field while the host stands on the world map follows it out once its pairing autosave has resolved,
     instead of waiting on its field for the host's next stop. Numbered 26 so that no earlier decision's number moves.
@@ -357,7 +363,7 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
 ### The harness (both rounds)
 
 25. A new sub-verb `worldwalk` (`worldfollow` refuses unknown ops). Every lever is any-role where the duo needs it (THE DUO
-    CANNOT PULL A SELFTEST-ROLE LEVER) and is released with the harness. Round A: `kitcell`, `pairpull`, `ghost off|sticky` (sticky:
+    CANNOT PULL A SELFTEST-ROLE LEVER) and is released with the harness. Round A: `kitcell`, `pairpull`, `dot section0|trailer`, `ghost off|sticky` (sticky:
     the ghost ignores the peer's place 2, the D-REJOIN mutant), `place render|act` (the WRAP mutant), `pose off` (tfmt 0: an
     s165-shaped v15 peer), `lanegap`, `hostlines`, `clear`; and the bench host (the selftest role with the ini's FollowHost
     and SuppressEncounters, as s165's G10): `host path <x0> <z0> <x1> <z1> [...] <ups> [loop]`, `hostseq freeze|run`,
@@ -367,6 +373,7 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
     `netsync.world.lane` on every role (tx/rx seq, place, state, flags, world, arrival and seq ages, peer caps and why, gaps,
     hangs, gaps_250, world_tps own and peer); `netsync.world.ghost` (want, why_not, shown, model, clip, canonical x/y/z,
     render x/z and their inverse from the same LateUpdate, ground_y, wire_y, snaps, holds, hides, mints, mint_ms, faults);
+    `netsync.world.kitcell` {lever, closed, last_sid, last_world} (decision 19's witness: a close counted at the read);
     `netsync.world.line` {text, age, asked}, set where each new world line is decided and exempt from the selftest role's
     OvlOff (SetOverlay forces OvlOff there, NetSyncClient.cs:13056-13057, and the off-field branch asks it every tick,
     :2050-2053), so the solo rows can read the lines; `netsync.wire_peer`; `netsync.host.world.guest` {place, state, line};
@@ -494,6 +501,7 @@ PIN), 6603 -> 9011 by s165's follow-out (`worldfollow host`), and onto 9002/9010
 | A-WRAP | a fixed point, my walker teleported around it over both seams: the inverse, `WMWorld.GetAbsolutePositionOf(ghostRoot.transform)` (the engine's own RealPosition path, independent of the forward map's InitialBlocks) from the same LateUpdate, equals the point within 0.01 u on every published frame; G36's SetAbsolutePositionOf oracle as a second witness | key absent | `place render`: red exactly at the wraps |
 | A-STALL | `hostseq freeze`: hold, `_STAND` by ~300 ms, hidden at 5 s with the line (read on `netsync.world.line`); `hostgap 1500`: one gap line pair, the ghost held | absent | `lanegap off`: counters only |
 | A-HANG | `hostseq freeze` after place 3: a HANG worded loading, no gap line | absent | `hostgap` in the same state: a gap line; `hostplace 4` then freeze: worded as a hang |
+| A-DOTRIDE | `host path` moving with `hostmode 1`, section 0 parked: the dot (and its facing) on the trailer's pose within 1 px of the ghost's map point, `src` "trailer"; `pose off`: back on section 0 | the dot parked on section 0 | `dot section0` |
 | A-RULE | each GhostRule refusal alone: event world, other world (`hostworld 9010` on 9011), riding (`hostmode 1`), scene, place 5 | absent | its bench op |
 | A-BODY | 309 on 9002, 310 on 9010/9011: geo, renderers, clips, mint ms; one off-diagonal instrument row (`hostmodel 310` on 9002) for the dress call; 9002's HUD state and a `game_snap` | absent | none |
 | A-MENU | the ~ menu open 1 s with "Disable control": b6 stays clear (solo, and the duo on both roles) | key absent | the proof's menu-hold mutant |
@@ -502,7 +510,7 @@ PIN), 6603 -> 9011 by s165's follow-out (`worldfollow host`), and onto 9002/9010
 | T2-A roam | the frozen guest's ghost on the ROAM tape's own trailer pose at the matched second; `--blackhole-at` a leg for 2.3 s: gap lines, hold, ease back; for 6 s: hide at 5 s, then a snap on the re-show (a first show) | no v14 tape | `ghost off`, `lanegap off` |
 | T2-A freeze | `replay-host --freeze-at` 2.3 s and 6 s against a real s166 guest: hold, `_STAND`, hide at 5 s, the HANG's wording, the "Lost contact" words | no v14 tape | `lanegap off`, `ghost off` |
 | T2-H | serve-guest's walking v15 record into a real s166 host: the host's ghost of the guest, its three lines, its gap line at `--gap-at`; a released guest's record (state b0 clear, flags b0 set): lines and ghost; `--no-follow`: no lines, no ghost | host shows nothing | `hostlines off`, `ghost off` |
-| Duo | D-G1 the host walks: the guest's ghost within tolerance of the host's `world.x/z` on the shared clock; D-G2 the host's ghost of the frozen guest within tolerance of the guest's own published `world.x/z`, the landing gap reported (ONE-PC LOAD CONTENTION confounds a landing judgment); D-LINES the host's lines through the follow-out; D-REJOIN both ghosts hidden before the guest's fade; D-BATTLE both re-mint after the warm returns, zero non-loading HANG lines across a start and a return; D-SHARED; the s144/s145 rows under an active trailer; D-PAIR, if K1 finds `duo.py` can start the guest's link late (T2-A pair's judges) | none | `ghost off` any role; `ghost sticky` for D-REJOIN |
+| Duo | D-G1 the host walks: the guest's ghost within tolerance of the host's `world.x/z` on the shared clock; D-G2 the host's ghost of the frozen guest within tolerance of the guest's own published `world.x/z`, the landing gap reported (ONE-PC LOAD CONTENTION confounds a landing judgment); D-LINES the host's lines through the follow-out; D-REJOIN both ghosts hidden before the guest's fade; D-BATTLE both re-mint after the warm returns, zero non-loading HANG lines across a start and a return; D-SHARED; the s144/s145 rows under an active trailer; D-PAIR, if K1 finds `duo.py` can start the guest's link late (T2-A pair's judges); D-DOTRIDE (`vehicle 1` on the host on 9011, then it moves: the guest's dot within 8 u of the host's own `world.x/z`) | none | `ghost off` any role; `ghost sticky` for D-REJOIN |
 
 **Round B rows (s167),** the same routes:
 
@@ -568,7 +576,10 @@ extracted; no bench while the owner plays, never under a running test suite.
   the host's (harmless, same band). WorldTPS mismatches change relative speed (reported only). If decision 8 opens the map,
   closing it hides the minimap dot until the next Select.
 
-## Open for the owner
+## The owner's calls
+
+All DECIDED (2026-11-02): the owner took every recommendation below ("Yes, use them"), with item 2, 12 and 13 as recorded
+in place; item 14 is decision 12 as revised.
 
 1. The two-round split: the wire and the ghosts first (s166, with decision 19's control-off close first and alone), walking
    one round later (s167). Recommended.
@@ -604,7 +615,7 @@ extracted; no bench while the owner plays, never under a running test suite.
     facing stood still until the host got off. The proposal revises decision 12: the dot takes the trailer's live pose and
     rotation whenever the host's caps carry b0, and section 0 otherwise (an s165 host). On the vehicle worlds, where the
     frozen guest has only the dot, it then tracks a riding host, and D-RIDE judges the dot moving. Recommended: in round A,
-    right after the trailer.
+    right after the trailer. DECIDED: decision 12 (revised).
 
 ## What the s165 two-PC check answered (2026-11-02; `TWO-PC-CHECKS-S165.md` "Results")
 
