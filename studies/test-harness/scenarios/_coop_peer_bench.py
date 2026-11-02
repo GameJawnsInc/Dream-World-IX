@@ -2027,6 +2027,175 @@ def _world_battle_rows(cp) -> list:
     return rows
 
 
+# ======================================================================================== [s165] the world-walk tape
+#: [ff9mapkit netsync s165] THE WORLD-WALK TAPE (coop_tape_record.py COOP_TAPE_WORLD_WALK=1; studies/world-coop/S165-DESIGN.md "The
+#: bench", K1): a host that walks out of 6603 onto 9011, stands at the landing, then is TELEPORTED to the Ice Cavern tile and stands
+#: there, then enters 300 -- recorded on the deployed s164 host (rung 1 changes no host byte), the follow-out's LIVE-POSE oracle: a
+#: route that leaves the host at its landing cannot tell the live pose from the exit's arrival constant (both read FS_LANDING), so
+#: every live-pose row judges against the tape's own section-0 pose at the tile. Its pointer, in its OWN dir (never latest.json,
+#: latest-world.json or latest-world-battle.json).
+WORLD_WALK_POINTER = "latest-world-walk.json"
+#: coop_world_wait.FS_LANDING / ICE_TILE (a test pins them equal): where 6603's door sets the party down on 9011, and the Ice
+#: Cavern's walk-on tile the host is teleported to -- ~1183 u apart in plain x/z, but only ~538 u the short way round the torus (the
+#: x seam: 68 + 1536 lies 407 u east of the tile)
+WK_LANDING = (68.0, -444.0)
+WK_TILE = (1197.37, -796.7)
+#: WORLD11's world index ([102]) on the walk's b6 frames (9000 + it = the world the host stands on)
+WK_WORLD_IDX = 11
+#: a section-0 pose within this TORUS distance of a route point stands there (coop_world_wait.ROUTE_TOL: the walk out lands within it)
+WK_POSE_TOL = 8.0
+#: the stand at the landing: b6 frames whose pose reads FS_LANDING at least this long before the first one at the tile (the
+#: recorder stands ~3 s after the blocks load; b6 already rides through the ~4.4 s all-block load, with the arrival constant in 64-72)
+WK_LAND_MIN_S = 2.0
+#: the stand at the tile: b6 frames whose pose reads ICE_TILE at least this long (the guest's hold / release, its follow-out, its
+#: landing and the dot rows all fit inside it)
+WK_ICE_MIN_S = 60.0
+#: the entry after the stand: the first real field after the exit is the Ice Cavern, held at least this long (the rejoin into 300)
+WK_ENTER_FIELD = 300
+WK_ENTER_NEED_S = 8.0
+
+
+def world_walk_tape_dir() -> Path:
+    """[ff9mapkit netsync s165] COOP_TAPE_DIR, else <the MAIN repo>/.harness-runs/coop-tapes/world-walk -- a world-walk tape's own
+    home, so its pointer (:data:`WORLD_WALK_POINTER`) never moves another leg's."""
+    env = os.environ.get("COOP_TAPE_DIR", "").strip()
+    return Path(env).expanduser().resolve() if env else main_repo() / ".harness-runs" / "coop-tapes" / "world-walk"
+
+
+def latest_world_walk_tape() -> Path | None:
+    """[ff9mapkit netsync s165] COOP_TAPE (absolute), else the world-walk dir's pointer, else its newest ``*-world-walk-*.f9tape``."""
+    env = os.environ.get("COOP_TAPE", "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    d = world_walk_tape_dir()
+    try:
+        p = Path(json.loads((d / WORLD_WALK_POINTER).read_text(encoding="utf-8"))["tape"])
+        if p.exists():
+            return p
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    tapes = sorted(d.glob("*-world-walk-*.f9tape"), key=lambda p: p.stat().st_mtime) if d.is_dir() else []
+    return tapes[-1] if tapes else None
+
+
+def _span(rows) -> float:
+    """The tape seconds from the first to the last of ``rows`` (0 for fewer than two)."""
+    return round(rows[-1]["t"] - rows[0]["t"], 2) if len(rows) >= 2 else 0.0
+
+
+def world_walk_tape_facts(records, cp, *, field: int = WORLD_TAPE_FIELD, marker=(MARKER_BYTE, MARKER_VALUE)) -> dict:
+    """[ff9mapkit netsync s165] THE WORLD-WALK TAPE's six facts (each ``wkN`` = {ok, why}) and its anchors, off the host frames
+    (PURE over the records; the poses through coop_peer.tape_poses, the distances its torus_distance):
+      wk1 PAIR     :func:`world_tape_facts`' w1 -- the host's first field is ``field``, held >= WORLD_PAIR_MIN_S, no battle
+      wk2 STORY    ...and its w2 -- type-5 story frames from the first seconds, the marker in them
+      wk3 WORLD    b6 rides the off-field state frames (an s144+ host), [102] WK_WORLD_IDX on every b6 frame with a pose, on foot
+                   ([190] 0 and [181] 0) on every one -- the follow-out's own gates would refuse anything else
+      wk4 LANDING  b6 frames whose pose stands at WK_LANDING (WK_POSE_TOL, torus) >= WK_LAND_MIN_S, before the first one at the tile
+      wk5 TILE     b6 frames whose pose stands at WK_TILE >= WK_ICE_MIN_S -- THE LIVE POSE the rung-1 landing must read
+      wk6 ENTER    the first real field after the exit is WK_ENTER_FIELD, entered after the tile stand, held >= WK_ENTER_NEED_S
+    and ``exit_t`` / ``land`` / ``tile`` ({first, last, s} tape seconds) / ``enter`` ({field, t, s}) / ``b6_first`` / ``apart`` (the
+    torus distance between the two stands' mean poses) / ``hb_moves`` (heartbeat changes on the b6 frames)."""
+    base = world_tape_facts(records, cp, field=field, marker=marker)
+    out = {"records": base["records"], "host_frames": base["host_frames"], "start": base["start"], "exit_t": base["exit_t"],
+           "field": base["field"], "b6": base["b6"], "land": None, "tile": None, "enter": None, "b6_first": None,
+           "apart": None, "hb_moves": 0, "wk1": base["w1"], "wk2": base["w2"]}
+    rows = cp.tape_poses(records)
+    exit_t = base["exit_t"]
+    world = [r for r in rows if exit_t is not None and r["t"] >= exit_t and r["b6"] and r["pose"] is not None]
+    off = [r for r in rows if r["field"] is not None and not 0 < r["field"] < 65535]
+    out["b6_first"] = round(world[0]["t"], 3) if world else None
+    out["hb_moves"] = sum(1 for a, b in zip(world, world[1:]) if a["hb"] != b["hb"])
+    bad_idx = [r for r in world if r["pose"]["idx"] != WK_WORLD_IDX]
+    ridden = [r for r in world if r["pose"]["mode"] != 0 or r["pose"]["choco"] != 0]
+    ok3 = bool(world) and not bad_idx and not ridden
+    out["wk3"] = {"ok": ok3, "why": ("no world exit on the tape" if exit_t is None else
+                                     f"no b6 on {len(off)} off-field state frame(s) (an s143-or-older host)" if not world else
+                                     f"[102] reads {bad_idx[0]['pose']['idx']} at tape {bad_idx[0]['t']:.2f} s, not "
+                                     f"{WK_WORLD_IDX}" if bad_idx else
+                                     f"the host RIDES at tape {ridden[0]['t']:.2f} s ([190] {ridden[0]['pose']['mode']}, [181] "
+                                     f"{ridden[0]['pose']['choco']})" if ridden else
+                                     f"b6 from tape {world[0]['t']:.2f} s on {len(world)} frame(s), world {9000 + WK_WORLD_IDX}, "
+                                     f"on foot throughout; the heartbeat moved {out['hb_moves']} time(s)")}
+    at = lambda r, pt: cp.torus_distance((r["pose"]["x"], r["pose"]["z"]), pt) <= WK_POSE_TOL     # noqa: E731
+    tile = [r for r in world if at(r, WK_TILE)]
+    first_tile = tile[0]["t"] if tile else None
+    land = [r for r in world if at(r, WK_LANDING) and (first_tile is None or r["t"] < first_tile)]
+    out["land"] = {"first": round(land[0]["t"], 3), "last": round(land[-1]["t"], 3), "s": _span(land)} if land else None
+    out["tile"] = {"first": round(tile[0]["t"], 3), "last": round(tile[-1]["t"], 3), "s": _span(tile)} if tile else None
+    if land and tile:
+        mean = lambda rs: (sum(r["pose"]["x"] for r in rs) / len(rs), sum(r["pose"]["z"] for r in rs) / len(rs))   # noqa: E731
+        out["apart"] = round(cp.torus_distance(mean(land), mean(tile)), 1)
+    ok4 = bool(land) and _span(land) >= WK_LAND_MIN_S
+    out["wk4"] = {"ok": ok4, "why": ("no b6 frame stands at the landing " + str(WK_LANDING) if not land else
+                                     f"the host stands at the landing only {_span(land):.1f} s (needs >= {WK_LAND_MIN_S:g})"
+                                     if not ok4 else
+                                     f"at the landing {WK_LANDING} from tape {land[0]['t']:.2f} s for {_span(land):.1f} s")}
+    ok5 = bool(tile) and _span(tile) >= WK_ICE_MIN_S
+    out["wk5"] = {"ok": ok5, "why": (f"no b6 frame stands at the tile {WK_TILE} (the teleport, or the anchor, never moved)"
+                                     if not tile else
+                                     f"the host stands at the tile only {_span(tile):.1f} s (needs >= {WK_ICE_MIN_S:g}: record "
+                                     "with a longer COOP_TAPE_WK_ICE_S)" if not ok5 else
+                                     f"at the tile {WK_TILE} from tape {tile[0]['t']:.2f} s for {_span(tile):.1f} s, "
+                                     f"{out['apart']} u (torus) from the landing's stand")}
+    lane = [(r.t, cp.parse_pos_payload(p)) for r, w, p in cp.host_frames(records) if w == cp.TYPE_POS]
+    lane = [(t, d["field"]) for t, d in lane if d is not None]
+    after = [(t, f) for t, f in lane if exit_t is not None and t > exit_t and 0 < f < 65535]
+    if after:
+        f_in, t_in = after[0][1], after[0][0]
+        held = [t for t, f in lane if t >= t_in and f == f_in]
+        gone = next((t for t, f in lane if t > t_in and f != f_in), None)
+        s_in = round(((gone if gone is not None else held[-1]) - t_in), 2)
+        out["enter"] = {"field": f_in, "t": round(t_in, 3), "s": s_in}
+    e = out["enter"]
+    ok6 = (e is not None and e["field"] == WK_ENTER_FIELD and e["s"] >= WK_ENTER_NEED_S
+           and first_tile is not None and e["t"] > tile[-1]["t"])
+    out["wk6"] = {"ok": ok6, "why": ("no real field after the world exit" if e is None else
+                                     f"the first field after the exit is {e['field']}, not {WK_ENTER_FIELD}"
+                                     if e["field"] != WK_ENTER_FIELD else
+                                     f"{WK_ENTER_FIELD} entered at tape {e['t']:.2f} s, before the tile stand ends"
+                                     if first_tile is None or e["t"] <= tile[-1]["t"] else
+                                     f"{WK_ENTER_FIELD} held only {e['s']:.1f} s (needs >= {WK_ENTER_NEED_S:g})"
+                                     if e["s"] < WK_ENTER_NEED_S else
+                                     f"{WK_ENTER_FIELD} from tape {e['t']:.2f} s for {e['s']:.1f} s")}
+    return out
+
+
+def synthetic_world_walk_tape(cp, *, field_s: float = 25.0, load_s: float = 4.4, land_s: float = 3.0, tile_s: float = 65.0,
+                              enter_s: float = 15.0, b6: bool = True, field: int = WORLD_TAPE_FIELD, mode: int = 0,
+                              enter_field: int = WK_ENTER_FIELD, teleport: bool = True) -> list:
+    """[ff9mapkit netsync s165] An in-memory WORLD-WALK host tape shaped like coop_tape_record.py's COOP_TAPE_WORLD_WALK one (10 Hz):
+    the host on ``field`` with the story marker (64-72 already the exit's arrival constant), off-field through the all-block load
+    (``load_s``: b6 rides, the heartbeat FROZEN -- the host's synchronous load) and the landing stand (``land_s``), then at the tile
+    (``tile_s``; ``teleport`` False = the anchor never moves), then on ``enter_field`` ``enter_s``. ``mode`` = [190] on the world
+    frames; ``b6`` False = an s143-or-older host."""
+    import harness.battlewire as BW          # noqa: E402 -- tools/ on sys.path (coop_peer_module put it there)
+    R = cp.Record
+    base = bytearray(2048)
+    base[MARKER_BYTE] = MARKER_VALUE
+    fs = cp.story_with_pose(*WK_LANDING, yaw=90.0, idx=WK_WORLD_IDX, mode=mode, base=bytes(base))
+    ice = cp.story_with_pose(*WK_TILE, yaw=180.0, idx=WK_WORLD_IDX, mode=mode, base=bytes(base))
+    hb = [0]
+
+    def state(story, flags, fld, beat=True):
+        if beat:
+            hb[0] = (hb[0] + 1) & 0xFFFF
+        sec = BW.append_section(b"", BW.SECTION_STORY, story)
+        return cp.build_frame(cp.TYPE_STATE, BW.append_section(sec, BW.SECTION_DIALOG,
+                                                               BW.dialog_section(0x0165, hb[0], flags, 0, fld)))
+
+    recs, t = [], 1.0
+    on_field = BW.HF_ON_FIELD | BW.HF_CONTROL
+    world = (BW.HF_WORLD if b6 else 0) | BW.HF_MENU | BW.HF_CONTROL
+    for fld, story, flags, span, beat in ((field, fs, on_field, field_s, True), (0, fs, world, load_s, False),
+                                          (0, fs, world, land_s, True), (0, ice if teleport else fs, world, tile_s, True),
+                                          (enter_field, ice, on_field, enter_s, True)):
+        end = t + span
+        while t < end:
+            recs += [R(t, 0, cp.build_pos_frame(fld, model=1, pos=(0.0, 0.0, 0.0))), R(t, 0, state(story, flags, fld, beat))]
+            t += 0.1
+    return recs
+
+
 # ======================================================================================== the self-check (no game)
 def synthetic_tape(cp, *, pre_s: float = 70.0, fight_s: float = 40.0, post_s: float = 30.0, field: int = BENCH_FIELD,
                    nonce: int = 3, scene: int = BENCH_SCENE, resend: int = 1, sec7: bool = False) -> list:

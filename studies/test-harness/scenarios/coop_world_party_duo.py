@@ -46,7 +46,9 @@ level-up; see WIN_EXP). THE PRE-PAIR FARM: the first PRE_WINS = 3 of those fight
 host_setup, while the guest is still on its title (15 EXP: still level 1, so the guest's 6603 field load parses level 1), so
 only ONE shared world return precedes the judged battle instead of four (THE SHARED-FILE RACE, at GUEST_RETURN_S):
   WP55-I     the instrument: the farm banked PRE_WINS wins, paired + ARMED on 6603, both frozen on 9011 (the guest), its party
-             mirror landed.
+             mirror landed; [ff9mapkit netsync s165] and THE REGRESSION RE-KEY -- a guest publishing `netsync.world.out` got
+             `worldfollow off` + `dot off` before the host's walk out (coop_world_wait.follow_off: s165's R1 would take the mirroring
+             guest out with the host), read back, so the leg runs as s164's; an older guest is sent nothing.
   WP55-1     paired battle 1 (the 4th win, which levels the party at its result): the guest's seated levels by name == the
              host's (green on both: the 6603 parse is still current).
   WP55-GATE  the host's levels changed between battle 1 and a later battle k (read off the HOST's own samples) -- else WP55-2 is
@@ -623,6 +625,11 @@ def _mirror(d, check, rest) -> None:
     FARM.update(wins=0, fights=0, results=[], why="the farm never ran (duo.pair never called host_setup)")
     # s145's shape: both New Game onto 6603, the guest ARMED there -- the host's setup banks PRE_WINS wins first (_farm)
     d.pair(field=FARSHORE, host_setup=_seed_host)
+    # [ff9mapkit netsync s165] THE REGRESSION RE-KEY (S165-DESIGN.md "Regression", the critic's G13): from s165 the mirroring guest would
+    # follow the host OUT (R1) and its own walk out below would start on the world map -- on a guest publishing `netsync.world.out` it
+    # gets `worldfollow off` + `dot off` (coop_world_wait.follow_off) so this leg runs as s164's; folded into WP55-I
+    rekey = cw.follow_off(guest)
+    d.note(rekey[1])
     ok, why, _hs = cw.walk_out(host)
     if not ok:
         rest(f"the host's walk out failed ({why[:160]})")
@@ -634,8 +641,8 @@ def _mirror(d, check, rest) -> None:
     gst = cb.poll(guest, lambda s: cb.path(s, "netsync.world.freeze.on") is True, 20.0, "the guest frozen on 9011") or guest.state
     i_ok, i_why = judge_instrument(gst, host.state, 0, mirroring_expected=True)
     f_ok, f_why = judge_farm(FARM)
-    check("WP55-I", d.paired and i_ok and f_ok, f"{f_why}; paired {d.paired}; {i_why}")
-    if not (d.paired and i_ok and f_ok):
+    check("WP55-I", d.paired and i_ok and f_ok and rekey[0], f"{f_why}; paired {d.paired}; {i_why}; {rekey[1]}")
+    if not (d.paired and i_ok and f_ok and rekey[0]):
         rest("the instrument (WP55-I) is red")
         return
     cw.teleport_settle(guest, ICE_TILE)

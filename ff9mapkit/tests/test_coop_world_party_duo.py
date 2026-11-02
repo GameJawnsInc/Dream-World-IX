@@ -431,6 +431,69 @@ def test_the_pre_pair_farm_banks_its_wins_alone_and_wp55_i_judges_it():
     ''')
 
 
+def test_the_mirror_leg_rekeys_an_s165_guest_before_the_hosts_walk_out():
+    """[ff9mapkit netsync s165] THE REGRESSION RE-KEY (S165-DESIGN.md "Regression"; the critic's G13) through the shipped _mirror:
+    from s165 the mirroring guest would follow the host OUT (R1) and its own walk out would start on the world map -- so a guest
+    publishing `netsync.world.out` gets `worldfollow off` and `worldfollow dot off` BEFORE the host's walk out, folded into WP55-I;
+    an s164 guest is sent NOTHING (it fails the sub-verb closed); an s165 guest that refuses the levers reds WP55-I and stops the leg
+    (it would not run as s164's)."""
+    _child('''
+        calls = []
+        class Host:
+            def note(self, text):
+                pass
+            @property
+            def state(self):
+                return world_st(2, party=[0, 1, 2, 3])
+        HOST = Host()
+        class Guest(MirrorGuest):
+            def __init__(self, s165=True, refuse=False):
+                super().__init__()
+                self.s165, self.refuse, self.levers = s165, refuse, {"out": "on", "dot": "on"}
+            def _st(self):
+                st = super()._st()
+                if self.s165:
+                    w = st.raw["netsync"].setdefault("world", {})
+                    w["out"], w["dot"] = {"lever": self.levers["out"]}, {"lever": self.levers["dot"]}
+                return st
+            def netsync(self, sub, *args, timeout=20.0):
+                calls.append(("guest", sub) + tuple(args))
+                if self.refuse:
+                    raise m.HarnessError(f"netsync {sub}: refused (stub)")
+                if args[:1] == ("off",):
+                    self.levers["out"] = "off"
+                if args[:2] == ("dot", "off"):
+                    self.levers["dot"] = "off"
+                return self._st()
+        def walk_out(g, **kw):
+            calls.append(("walk_out", "host" if g is HOST else "guest"))
+            return True, "world 9011 at the landing", world_st(1)
+        m.cw.walk_out = walk_out
+        m.cw.teleport_settle = lambda g, xz: None
+        m._mirror_battles = lambda d, check, rest: calls.append(("battles",))
+        m.cb.CALIBRATE = False
+        m.LEG = "mirror"
+        class Duo(LedgerDuo):
+            def pair(self, field, host_setup=None, **kw):
+                m.FARM.update(wins=m.PRE_WINS, fights=m.PRE_WINS, results=[1] * m.PRE_WINS, why=None)
+                self.paired = True
+        for s165, refuse, ok, want in ((True, False, True, "sent, read back off/off"), (False, False, True, "nothing sent"),
+                                       (True, True, False, "s165 re-key FAILED")):
+            calls.clear()
+            d = Duo(Guest(s165=s165, refuse=refuse), HOST)
+            m.run_duo(d)
+            got, why = d.rows["WP55-I"]
+            assert got is ok and want in why, (s165, refuse, why)
+            sent = [c for c in calls if c[0] == "guest"]
+            if s165:
+                assert sent[:2] == [("guest", "worldfollow", "off"), ("guest", "worldfollow", "dot", "off")][:len(sent[:2])], calls
+                assert calls.index(("walk_out", "host")) > calls.index(sent[0]), calls     # the levers BEFORE the host's walk out
+            else:
+                assert sent == [], calls                                                   # an s164 guest: nothing new sent
+            assert (("battles",) in calls) is ok, calls                                    # a red instrument stops the leg
+    ''')
+
+
 def test_a_second_battle_that_never_boots_reds_the_calibration_through_wp2_pre():
     """L10 through the SHIPPED run_duo ledger and the shipped _seat_battles loop (only the W0 walk-out / WP-I setup shimmed and the
     host's world battle stubbed): s153's truth calibrates green; a battle 2 that never boots is an UNPREDICTED red (WP2-pre), so

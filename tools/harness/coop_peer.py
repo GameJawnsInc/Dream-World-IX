@@ -46,6 +46,10 @@ benched as the host OR as the guest:
                      none = an s143-or-older host, whose tape parses exactly as before). Exit 0 / 1 / 2 as ``dress``.
                      [ff9mapkit netsync s145] ...and each host BATTLE's segment: where the host said it stood before and
                      after it (``--want world-battle``: a world-map battle, b6 on both sides -- the s145 T2 tape's).
+                     [ff9mapkit netsync s165] ``--pose`` adds WHERE THE HOST STOOD per state frame: section 0's on-foot anchor
+                     (x = s24(64)/256, y = -s16(67)/256, z = s24(69)/256, yaw = b72*360/256), [102] [190] [2..3] [181],
+                     section 7's heartbeat and b6/b1, the tape second (``--every S`` thins, every edge kept; ``--near X,Z``
+                     adds the TORUS distance) -- the world follow-out's oracle on COOP_TAPE_WORLD_WALK.
 
 THE TAPE (``.f9tape``) -- stdlib, binary, append-only, crash-tolerant (a torn tail is reported, never fatal):
   ``F9TAPE01`` | u32 LE header length | UTF-8 JSON header | records ``[t f64 LE][dir u8][len u32 LE][payload]``.
@@ -2454,6 +2458,186 @@ def tape_where_lines(path, want: str = "any") -> tuple:
     return ok, lines
 
 
+# ======================================================================================== [ff9mapkit netsync s165] the host's world pose
+#: [ff9mapkit netsync s165] THE HOST'S WORLD POSE ON SECTION 0 (studies/world-coop/S165-DESIGN.md K1; the lane-H recon F4): the on-foot
+#: anchor the host's world dispatcher rewrites every frame it walks (WORLD11's entry-14 loop: only on foot, [190] == 0, and only while
+#: no request sequence runs) -- the bytes the guest's follow-out lands on and its minimap dot reads, carried by EVERY host type-5 frame
+#: in its 2048-byte story section, so no wire byte is added. The record is in absolute, unwrapped world units x 256 (RealPosition
+#: un-wraps the torus): Int24 [64..66] = x * 256, Int16 [67..68] = -y * 256 (getvobj negates f[1]; MoveInstantXZY negates it back),
+#: Int24 [69..71] = z * 256 (always negative: 24-bit sign extension), Byte [72] = the facing, 256 steps a turn.
+POSE_X, POSE_Y, POSE_Z, POSE_YAW = 64, 67, 69, 72
+#: ...and its neighbours a follow-out reads: the story counter (UInt16 [0..1]; the minimap's map band: 5990 and up the whole torus),
+#: FieldEntrance (Int16 [2..3]: 35 = the kit's POSITION_PRESET_KEY, 0 the dispatcher default, 9995-9999 the world sentinels), the
+#: navi mode ([100]: 0 = the minimap off, a New Game's), the world index ([102]: the dispatcher's own, 9000 + it = the world id), the
+#: Choco call ([181]: Gysahl Greens, nonzero while it runs in) and the travel mode ([190]: 0 on foot)
+POSE_STORY, POSE_ENTRANCE, POSE_NAVI, POSE_IDX, POSE_CHOCO, POSE_MODE = 0, 2, 100, 102, 181, 190
+#: the bytes section 0 must hold to read every pose field (the travel mode at 190); a whole story is NetSyncState.StoryLen (2048)
+POSE_NEED = POSE_MODE + 1
+#: WMWorld.Width / Height: the torus a pose wraps on (x in [0, 1536), z in (-1280, 0]); a same-spot test is a TORUS distance
+WORLD_W, WORLD_H = 1536, 1280
+#: `where --pose`: one row a second by default (a host sends a type-5 frame every write tick: ~30 a second)
+POSE_EVERY_S = 1.0
+
+
+def s24(data, off: int) -> int:
+    """A little-endian signed 24-bit integer at ``off`` (the dispatchers' Int24 gEventGlobal reads)."""
+    v = data[off] | (data[off + 1] << 8) | (data[off + 2] << 16)
+    return v - 0x1000000 if v & 0x800000 else v
+
+
+def s16(data, off: int) -> int:
+    """A little-endian signed 16-bit integer at ``off`` (an Int16 gEventGlobal read)."""
+    v = data[off] | (data[off + 1] << 8)
+    return v - 0x10000 if v & 0x8000 else v
+
+
+def story_pose(story) -> dict | None:
+    """[ff9mapkit netsync s165] The host's world pose off its section-0 bytes (PURE): ``x`` = s24(64) / 256, ``y`` = -s16(67) / 256,
+    ``z`` = s24(69) / 256, ``yaw`` = b72 * 360 / 256 degrees, the raw record (``raw``: x24, y16 as the u16 it is stored as, z24, b72),
+    ``story`` [0..1], ``entrance`` [2..3], ``navi`` [100], ``idx`` [102], ``choco`` [181], ``mode`` [190]; ``torus`` -- the pose lies
+    inside the world (0 <= x < 1536, -1280 < z <= 0: a second guard against field flags in 64-72 while b6 lies), ``whole`` -- a
+    2048-byte story (the only one the guest applies). None when the bytes cannot hold the travel mode (shorter than POSE_NEED)."""
+    b = bytes(story or b"")
+    if len(b) < POSE_NEED:
+        return None
+    x24, y16, z24, yaw8 = s24(b, POSE_X), s16(b, POSE_Y), s24(b, POSE_Z), b[POSE_YAW]
+    x, z = x24 / 256.0, z24 / 256.0
+    return {"x": x, "y": -y16 / 256.0, "z": z, "yaw": yaw8 * 360.0 / 256.0,
+            "raw": (x24, y16 & 0xFFFF, z24, yaw8),
+            "story": b[POSE_STORY] | (b[POSE_STORY + 1] << 8), "entrance": s16(b, POSE_ENTRANCE), "navi": b[POSE_NAVI],
+            "idx": b[POSE_IDX], "choco": b[POSE_CHOCO], "mode": b[POSE_MODE],
+            "torus": 0.0 <= x < WORLD_W and -WORLD_H < z <= 0.0, "whole": len(b) == BW.STORY_LEN}
+
+
+def story_with_pose(x: float, z: float, *, y: float = 0.0, yaw: float = 0.0, idx: int = 11, mode: int = 0, entrance: int = 35,
+                    choco: int = 0, navi: int | None = None, story: int | None = None, base=None) -> bytes:
+    """[ff9mapkit netsync s165] :func:`story_pose`'s inverse (PURE): a 2048-byte section 0 (``base`` copied, else zeros) with the pose
+    written as the dispatcher writes it -- x / z * 256 rounded into Int24, -y * 256 into Int16, the facing rounded into 256 steps --
+    and ``idx`` / ``mode`` / ``entrance`` / ``choco`` (and ``navi`` / ``story`` when given) at their bytes. A bench's fabricated host."""
+    b = bytearray(bytes(base or b"")[:BW.STORY_LEN].ljust(BW.STORY_LEN, b"\0"))
+    for off, val, n in ((POSE_X, int(round(x * 256.0)), 3), (POSE_Y, int(round(-y * 256.0)), 2),
+                        (POSE_Z, int(round(z * 256.0)), 3), (POSE_ENTRANCE, int(entrance), 2)):
+        val &= (1 << (8 * n)) - 1
+        for k in range(n):
+            b[off + k] = (val >> (8 * k)) & 0xFF
+    b[POSE_YAW] = int(round(yaw * 256.0 / 360.0)) & 0xFF
+    b[POSE_IDX], b[POSE_MODE], b[POSE_CHOCO] = idx & 0xFF, mode & 0xFF, choco & 0xFF
+    if navi is not None:
+        b[POSE_NAVI] = navi & 0xFF
+    if story is not None:
+        b[POSE_STORY], b[POSE_STORY + 1] = story & 0xFF, (story >> 8) & 0xFF
+    return bytes(b)
+
+
+def torus_delta(a, b) -> tuple:
+    """[ff9mapkit netsync s165] (dx, dz) between two world points ``(x, z)`` the short way round the torus (PURE): dx = min(|dx|,
+    1536 - |dx|), dz = min(|dz|, 1280 - |dz|) -- a host at x 1530 and a guest at x 5 stand 11 units apart, not 1525."""
+    dx = abs(float(a[0]) - float(b[0])) % WORLD_W
+    dz = abs(float(a[1]) - float(b[1])) % WORLD_H
+    return min(dx, WORLD_W - dx), min(dz, WORLD_H - dz)
+
+
+def torus_distance(a, b) -> float:
+    """[ff9mapkit netsync s165] The torus distance between two world points ``(x, z)`` (PURE): the length of :func:`torus_delta`."""
+    dx, dz = torus_delta(a, b)
+    return (dx * dx + dz * dz) ** 0.5
+
+
+def frame_pose(payload) -> dict:
+    """[ff9mapkit netsync s165] One host type-5 payload's world-follow inputs (PURE), read as the guest's one reader reads them:
+    ``pose`` (:func:`story_pose` of the FIRST id-0 section -- the old walker's TryReadSection; None = absent / short), ``whole``;
+    section 7 through TryParseHostSection's twin: ``flags`` / ``hb`` (body[5] / body[3..4]; None = no readable section 7), ``b6``
+    (HfWorld) and ``b1`` (HfControl); section 4: ``intent`` (None = absent, else {field, landed} -- a 3-byte body reads landed) and
+    ``intent_unlanded`` (present and not landed: that intent belongs to the rejoin, never to a follow-out)."""
+    story = BW.old_try_read_section(payload, BW.SECTION_STORY)
+    pose = story_pose(story) if story is not None else None
+    body = BW.old_try_read_section(payload, BW.SECTION_DIALOG)
+    view = BW.parse_dialog_section(body) if body is not None else None
+    flags = view["flags"] if view is not None else None
+    sec4 = BW.old_try_read_section(payload, BW.SECTION_INTENT)
+    intent = None
+    if sec4 is not None and len(sec4) >= 2:
+        intent = {"field": sec4[0] | (sec4[1] << 8), "landed": BW.intent_landed_of(sec4)}
+    return {"pose": pose, "whole": story is not None and len(story) == BW.STORY_LEN,
+            "flags": flags, "hb": view["heartbeat"] if view is not None else None,
+            "b6": bool(flags is not None and flags & BW.HF_WORLD), "b1": bool(flags is not None and flags & BW.HF_CONTROL),
+            "intent": intent, "intent_unlanded": intent is not None and not intent["landed"]}
+
+
+def tape_poses(records) -> list:
+    """[ff9mapkit netsync s165] Every HOST type-5 frame's :func:`frame_pose` in tape order (PURE over the records), each with its
+    tape second ``t`` and the host's position-lane ``field`` off the LAST type-0 frame before it (None = none yet)."""
+    out, field = [], None
+    for r, wtype, payload in host_frames(records):
+        if wtype == TYPE_POS:
+            p = parse_pos_payload(payload)
+            if p is not None:
+                field = p["field"]
+            continue
+        if wtype != TYPE_STATE:
+            continue
+        row = frame_pose(payload)
+        row.update(t=r.t, field=field)
+        out.append(row)
+    return out
+
+
+def pose_row_text(row: dict, near=None) -> str:
+    """[ff9mapkit netsync s165] One `where --pose` row: the tape second, the lane's field, b6 / b1 and the heartbeat, the pose (x y z
+    yaw, `!torus` when outside the world), [102] [190] [2..3] [181] [0..1], an unlanded intent, and -- with ``near`` (x, z) -- the
+    torus distance to it."""
+    p = row["pose"]
+    head = (f"t {row['t']:8.2f}  field {row['field']}  b6 {int(row['b6'])} b1 {int(row['b1'])}  "
+            f"hb {row['hb'] if row['hb'] is not None else '-'}")
+    if p is None:
+        return head + "  | no section 0"
+    text = (f"{head}  | x {p['x']:8.2f} y {p['y']:7.2f} z {p['z']:8.2f} yaw {p['yaw']:6.1f}{'' if p['torus'] else ' !torus'}"
+            f"  | idx {p['idx']} mode {p['mode']} entrance {p['entrance']} choco {p['choco']} story {p['story']}"
+            + ("" if p["whole"] else " (short story)") + (" | intent UNLANDED" if row["intent_unlanded"] else ""))
+    if near is not None:
+        text += f"  | d {torus_distance((p['x'], p['z']), near):.1f}"
+    return text
+
+
+def pose_rows_thinned(rows, every: float = POSE_EVERY_S) -> list:
+    """[ff9mapkit netsync s165] ``rows`` thinned to one per ``every`` seconds (0 = every frame), keeping every EDGE: the first and
+    the last frame, and any frame whose b6, b1, [102], [190], [181] or [2..3] differs from the frame before it."""
+    out, last_t, prev = [], None, None
+    keys = lambda r: (r["b6"], r["b1"]) + ((None,) * 4 if r["pose"] is None else      # noqa: E731
+                                          (r["pose"]["idx"], r["pose"]["mode"], r["pose"]["choco"], r["pose"]["entrance"]))
+    for i, r in enumerate(rows):
+        edge = prev is None or keys(r) != keys(prev) or i == len(rows) - 1
+        if edge or every <= 0 or last_t is None or r["t"] - last_t >= every:
+            out.append(r)
+            last_t = r["t"]
+        prev = r
+    return out
+
+
+def tape_pose_lines(path, every: float = POSE_EVERY_S, near=None) -> tuple:
+    """[ff9mapkit netsync s165] (ok, the `where --pose` table's lines) for a tape file: the header, how many host state frames carry
+    a pose (and with b6), then one row per frame (:func:`pose_rows_thinned`, :func:`pose_row_text`). ``ok`` -- at least one frame
+    carries a pose."""
+    _header, records, torn = read_tape(path)
+    rows = tape_poses(records)
+    posed = [r for r in rows if r["pose"] is not None]
+    lines = [f"POSE (section 0 64-72, [102] [190] [2..3] [181]; section 7 heartbeat, b6 / b1): {len(rows)} host state frame(s), "
+             f"{len(posed)} with a pose, {sum(1 for r in posed if r['b6'])} of them with b6"
+             + (f"; TORN tail {torn} B" if torn else "")
+             + (f"; d = the torus distance to ({near[0]:g}, {near[1]:g})" if near is not None else "")]
+    lines += [pose_row_text(r, near) for r in pose_rows_thinned(rows, every)]
+    return bool(posed), lines
+
+
+def _parse_xz(text: str) -> tuple:
+    """[ff9mapkit netsync s165] `--near X,Z` -> (x, z)."""
+    try:
+        x, z = (float(t) for t in str(text).replace(" ", "").split(","))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected X,Z (e.g. 1197.37,-796.7), not {text!r}") from None
+    return x, z
+
+
 def cmd_where(args) -> int:
     found, tried = resolve_tape(args.tape)
     if found is None:
@@ -2461,6 +2645,8 @@ def cmd_where(args) -> int:
         return 2
     try:
         ok, lines = tape_where_lines(found, args.want)
+        if getattr(args, "pose", False):              # [ff9mapkit netsync s165] the pose table after the verdict (a report, no verdict)
+            lines = lines + tape_pose_lines(found, args.every, args.near)[1]
     except (OSError, TapeError, ValueError) as err:
         print(f"ERROR: {err}", file=sys.stderr)
         return 2
@@ -2846,6 +3032,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--want", choices=WHERE_WANTS, default="any",
                    help="world / title: the bit rode, never on a real field; none: an s143-or-older host (the "
                         "calibration); any: report only; [s145] world-battle: a world-map battle (b6 before and after it)")
+    # [ff9mapkit netsync s165] the host's world pose per frame (section 0's on-foot anchor): a report after the verdict
+    p.add_argument("--pose", action="store_true",
+                   help="[s165] also print the host's world pose per state frame: x/y/z/yaw off section 0 (64-72), [102] [190] "
+                        "[2..3] [181] [0..1], section 7's heartbeat and b6/b1, the tape second (the exit code stays --want's)")
+    p.add_argument("--every", type=float, default=POSE_EVERY_S, metavar="S",
+                   help=f"with --pose: one row per S tape seconds (default {POSE_EVERY_S:g}; 0 = every frame) -- every edge "
+                        "(b6, b1, [102], [190], [181], [2..3]) is kept")
+    p.add_argument("--near", type=_parse_xz, default=None, metavar="X,Z",
+                   help="with --pose: add the TORUS distance to this world point (e.g. 1197.37,-796.7, the Ice Cavern tile)")
     p.set_defaults(func=cmd_where)
     return ap
 

@@ -1313,3 +1313,151 @@ def test_dress_judges_each_frame_against_its_own_party(tmp_path, capsys):
     assert CP.main(["dress", str(cinna), "--ghost-as", "auto", "--guest-slots", "2", "--party", "0,8,-1,-1",
                     "--stage", "s139"]) == 1
     capsys.readouterr()
+
+
+# ======================================================================================== [ff9mapkit netsync s165] where --pose
+#: WORLD11's default on-foot anchor as its dispatcher writes it (studies/world-coop/S165-DESIGN.md K1; lane H F4): Int24 x * 256,
+#: the u16 the Int16 -y * 256 is stored as, Int24 z * 256, the facing byte -- decoded (1145.7, 26.8, -825.5), Path D's recorded stamp
+#: (1146, -27, -826) with the stored Y sign
+WORLD11_RECORD = (293294, 58663, -211336, 199)
+
+
+def _record_story(x24: int, y16: int, z24: int, yaw8: int, *, idx: int = 11, mode: int = 0, entrance: int = 35, choco: int = 0,
+                  story: int = 2000, n: int = BW.STORY_LEN) -> bytes:
+    """A section 0 laid out BY HAND from the raw record (an oracle independent of CP.story_with_pose): little-endian Int24 at 64 /
+    69, the u16 at 67, the byte at 72, and [0..1] / [2..3] / [102] / [181] / [190]."""
+    b = bytearray(n)
+    for off, val, k in ((64, x24 & 0xFFFFFF, 3), (67, y16 & 0xFFFF, 2), (69, z24 & 0xFFFFFF, 3), (0, story, 2),
+                        (2, entrance & 0xFFFF, 2)):
+        for i in range(k):
+            b[off + i] = (val >> (8 * i)) & 0xFF
+    b[72], b[102], b[181], b[190] = yaw8, idx, choco, mode
+    return bytes(b)
+
+
+def _world_state_frame(story, *, flags: int = BW.HF_WORLD | BW.HF_CONTROL, hb: int = 7, intent=None) -> bytes:
+    """A host type-5 frame as an s144+ BuildStateFrame composes it on the world map: section 0 (``story``; None = absent), section 4
+    (``intent`` = its body; None = none), section 7 (battlewire's codec twin: ``flags`` at body[5], the heartbeat ``hb`` at
+    body[3..4])."""
+    payload = b""
+    if story is not None:
+        payload = BW.append_section(payload, BW.SECTION_STORY, story)
+    if intent is not None:
+        payload = BW.append_section(payload, BW.SECTION_INTENT, intent)
+    payload = BW.append_section(payload, BW.SECTION_DIALOG, BW.dialog_section(0x0165, hb, flags))
+    return CP.build_frame(CP.TYPE_STATE, payload)
+
+
+def test_pose_integers_sign_extend_like_the_dispatchers_reads():
+    """[ff9mapkit netsync s165] s24 / s16: little-endian, the top bit the sign (z is always negative on the world map)."""
+    assert CP.s24(bytes((0xFF, 0xFF, 0xFF)), 0) == -1 and CP.s24(bytes((0x00, 0x00, 0x80)), 0) == -0x800000
+    assert CP.s24(bytes((0xFF, 0xFF, 0x7F)), 0) == 0x7FFFFF and CP.s24(bytes((9, 0x01, 0x02, 0x03)), 1) == 0x030201
+    assert CP.s16(bytes((0xFF, 0xFF)), 0) == -1 and CP.s16(bytes((0x00, 0x80)), 0) == -0x8000 and CP.s16(b"\x01\x02", 0) == 0x201
+    assert CP.s24((-211336 & 0xFFFFFF).to_bytes(3, "little"), 0) == -211336
+    assert CP.s16((58663).to_bytes(2, "little"), 0) == 58663 - 65536
+
+
+def test_the_world11_default_record_decodes_to_its_stamp():
+    """[ff9mapkit netsync s165] WORLD11's default (293294, 58663, -211336, 199) -> (x 1145.7, y 26.8, z -825.5), yaw 279.8 degrees,
+    inside the torus; the raw record reads back as stored, and the neighbours at their bytes."""
+    p = CP.story_pose(_record_story(*WORLD11_RECORD, idx=11, mode=0, entrance=35, choco=0, story=2000))
+    assert (round(p["x"], 1), round(p["y"], 1), round(p["z"], 1)) == (1145.7, 26.8, -825.5)
+    assert p["raw"] == WORLD11_RECORD and round(p["yaw"], 2) == 279.84 and p["torus"] and p["whole"]
+    assert (p["idx"], p["mode"], p["entrance"], p["choco"], p["story"], p["navi"]) == (11, 0, 35, 0, 2000, 0)
+    # the encoder is the decoder's inverse on the record (the bench's fabricated host)
+    back = CP.story_with_pose(p["x"], p["z"], y=p["y"], yaw=p["yaw"], idx=11, entrance=35, story=2000)
+    assert CP.story_pose(back)["raw"] == WORLD11_RECORD and back == _record_story(*WORLD11_RECORD)
+    # a short section 0 (no travel mode) reads None; one that holds 190 but is not whole reads, not whole
+    assert CP.story_pose(bytes(CP.POSE_NEED - 1)) is None and CP.story_pose(None) is None
+    assert CP.story_pose(_record_story(*WORLD11_RECORD, n=CP.POSE_NEED))["whole"] is False
+
+
+@pytest.mark.parametrize("b72,deg", [(0, 0.0), (64, 90.0), (128, 180.0), (192, 270.0), (255, 358.59375), (199, 279.84375)])
+def test_the_facing_byte_is_256_steps_a_turn(b72, deg):
+    """[ff9mapkit netsync s165] yaw = b72 * 360 / 256 (1.41 degrees a step); the encoder rounds a degree back into its step."""
+    assert CP.story_pose(_record_story(0, 0, -256, b72))["yaw"] == deg
+    assert CP.story_with_pose(0.0, -1.0, yaw=deg)[CP.POSE_YAW] == b72
+
+
+def test_the_torus_guard_refuses_a_pose_outside_the_world():
+    """[ff9mapkit netsync s165] 0 <= x < 1536 and -1280 < z <= 0, or ``torus`` is False (field flags in 64-72 while b6 lies)."""
+    for x, z, ok in ((0.0, 0.0, True), (1535.99, -1279.99, True), (1536.0, -10.0, False), (-0.5, -10.0, False),
+                     (10.0, 0.5, False), (10.0, -1280.0, False)):
+        assert CP.story_pose(CP.story_with_pose(x, z))["torus"] is ok, (x, z)
+
+
+@pytest.mark.parametrize("a,b,want", [
+    ((1530.0, -10.0), (5.0, -10.0), (11.0, 0.0)),            # across the x seam: the short way round
+    ((10.0, -5.0), (10.0, -1275.0), (0.0, 10.0)),            # across the z seam
+    ((68.0, -444.0), (1197.37, -796.7), (1536 - 1129.37, 352.7)),   # FS_LANDING -> ICE_TILE: shorter west, across the seam
+    ((100.0, -100.0), (100.0 + 1536 * 2, -100.0 - 1280), (0.0, 0.0)),  # whole turns are no distance
+    ((700.0, -640.0), (700.0, -640.0), (0.0, 0.0)),
+])
+def test_the_torus_distance_takes_the_short_way_round(a, b, want):
+    """[ff9mapkit netsync s165] dx = min(|dx|, 1536 - |dx|), dz = min(|dz|, 1280 - |dz|) -- symmetric, and the distance its length."""
+    dx, dz = CP.torus_delta(a, b)
+    assert (round(dx, 6), round(dz, 6)) == (round(want[0], 6), round(want[1], 6)) and CP.torus_delta(b, a) == (dx, dz)
+    assert CP.torus_distance(a, b) == pytest.approx((want[0] ** 2 + want[1] ** 2) ** 0.5)
+    # the check can fail: the naive distance across the x seam is 1525, not 11
+    assert CP.torus_distance((1530.0, -10.0), (5.0, -10.0)) < 12.0 < abs(1530.0 - 5.0)
+
+
+def test_frame_pose_reads_section_0_section_7_and_section_4():
+    """[ff9mapkit netsync s165] One payload: the pose off the FIRST id-0 section, section 7's heartbeat (body[3..4]) and b6 / b1
+    (body[5]), section 4's landed bit (a 3-byte body reads landed: an s163 host's)."""
+    story = _record_story(*WORLD11_RECORD)
+    row = CP.frame_pose(CP.parse_frame(_world_state_frame(story, hb=0x1234))[1])
+    assert row["pose"]["raw"] == WORLD11_RECORD and row["whole"] and row["hb"] == 0x1234 and row["b6"] and row["b1"]
+    assert row["flags"] == BW.HF_WORLD | BW.HF_CONTROL and row["intent"] is None and not row["intent_unlanded"]
+    unlanded = CP.frame_pose(CP.parse_frame(_world_state_frame(story, intent=BW.intent_section_body(300, 5, False)))[1])
+    assert unlanded["intent"] == {"field": 300, "landed": False} and unlanded["intent_unlanded"]
+    landed = CP.frame_pose(CP.parse_frame(_world_state_frame(story, intent=BW.intent_section_body(300, 5, True)))[1])
+    old = CP.frame_pose(CP.parse_frame(_world_state_frame(story, intent=BW.intent_section_body(300, 5, False)[:3]))[1])
+    assert not landed["intent_unlanded"] and old["intent"]["landed"] and not old["intent_unlanded"]
+    on_field = CP.frame_pose(CP.parse_frame(_world_state_frame(story, flags=BW.HF_ON_FIELD | BW.HF_CONTROL))[1])
+    assert not on_field["b6"] and on_field["b1"]
+    bare = CP.frame_pose(CP.parse_frame(_world_state_frame(None, flags=BW.HF_WORLD))[1])
+    assert bare["pose"] is None and not bare["whole"] and bare["b6"] and not bare["b1"]
+    # no section 7: no heartbeat, no bits
+    nos7 = CP.frame_pose(BW.append_section(b"", BW.SECTION_STORY, story))
+    assert nos7["hb"] is None and nos7["flags"] is None and not nos7["b6"] and nos7["pose"] is not None
+
+
+def test_where_pose_prints_the_hosts_pose_per_frame(tmp_path, capsys):
+    """[ff9mapkit netsync s165] `coop_peer.py where <tape> --pose`: the where report and its verdict, then one row a second per host
+    state frame -- the field, b6 / b1, the heartbeat, x y z yaw, [102] [190] [2..3] [181] [0..1] -- every edge kept (the walk out,
+    the teleport to the Ice Cavern tile), and with --near the torus distance. The exit code stays --want's."""
+    tap = CP.TapeWriter(tmp_path / "walk.f9tape", mode="test", clock=lambda: 0.0)
+    tap.write(CP.DIR_HOST, CP.build_pos_frame(6603), t=0.0)
+    fs, ice = CP.story_with_pose(68.0, -444.0, yaw=90.0, idx=11), CP.story_with_pose(1197.37, -796.7, yaw=180.0, idx=11)
+    t = 0.1
+    for i in range(10):                                            # on 6603 (b3 on field), the exit's arrival constant in 64-72
+        tap.write(CP.DIR_HOST, _world_state_frame(fs, flags=BW.HF_ON_FIELD | BW.HF_CONTROL, hb=i), t=t)
+        t += 0.15
+    tap.write(CP.DIR_HOST, CP.build_pos_frame(0), t=t)
+    for i in range(20):                                            # on the world map at the landing (b6 + b1)
+        tap.write(CP.DIR_HOST, _world_state_frame(fs, hb=10 + i), t=t)
+        t += 0.15
+    for i in range(20):                                            # teleported to the tile
+        tap.write(CP.DIR_HOST, _world_state_frame(ice, hb=30 + i), t=t)
+        t += 0.15
+    tap.close()
+    path = str(tmp_path / "walk.f9tape")
+    rows = CP.tape_poses(CP.read_tape(path)[1])
+    assert len(rows) == 50 and rows[0]["field"] == 6603 and rows[-1]["field"] == 0
+    assert [r["b6"] for r in rows].index(True) == 10 and round(rows[-1]["pose"]["x"], 2) == 1197.37
+    thin = CP.pose_rows_thinned(rows, 1.0)
+    assert thin[0] is rows[0] and thin[-1] is rows[-1] and rows[10] in thin and len(thin) < len(rows)
+    assert CP.pose_rows_thinned(rows, 0) == rows
+    assert CP.main(["where", path, "--want", "world", "--pose", "--near", "1197.37,-796.7"]) == 0
+    out = capsys.readouterr().out
+    assert "VERDICT (--want world): OK" in out and "50 host state frame(s), 50 with a pose, 40 of them with b6" in out
+    assert "field 6603  b6 0 b1 1" in out and "field 0  b6 1 b1 1" in out and "x  1197.37" in out
+    assert "idx 11 mode 0 entrance 35 choco 0 story 0" in out and out.rstrip().endswith("| d 0.0")
+    assert out.index("VERDICT") < out.index("POSE (")                # the pose table is a report after the verdict
+    assert CP.main(["where", path, "--want", "none", "--pose"]) == 1    # the verdict still judges
+    capsys.readouterr()
+    assert CP.main(["where", path]) == 0 and "POSE (" not in capsys.readouterr().out   # no --pose, no table
+    with pytest.raises(SystemExit):
+        CP.main(["where", path, "--pose", "--near", "nowhere"])
+    capsys.readouterr()

@@ -119,6 +119,23 @@ live stretch --, the stay after it), REC-INI. The tape is named `-world-battle-`
 <main repo>/.harness-runs/coop-tapes/world-battle) and moves only that dir's latest-world-battle.json -- never latest.json or
 latest-world.json. Its verdict beside the recorder's: `py tools/harness/coop_peer.py where <tape> --want world-battle`.
 
+THE WORLD-WALK VARIANT ([ff9mapkit netsync s165] COOP_TAPE_WORLD_WALK=1): the LIVE-POSE oracle for the world follow-out (studies/
+world-coop/S165-DESIGN.md "The bench", K1), RECORDED ON THE DEPLOYED s164 HOST -- rung 1 changes no host byte, so its wire is s165's
+too -- with only verbs and keys s164 has (no `world.block_ready`: THE BLOCKS are read as world.phase 2 AND world.ticks past
+WK_BLOCK_TICKS, advancing over WK_BLOCK_SAMPLES reads in a row). A route that leaves the host at its landing cannot tell the live
+pose from the exit's arrival constant (both read FS_LANDING), so this host MOVES: it stands on 6603 COOP_TAPE_PRE_S (25) s -- the
+guest pairs there --, walks out the proven way (coop_world_wait.walk_out), waits for its blocks, stands COOP_TAPE_WK_LAND_S (3) s at
+FS_LANDING (68, -444), is TELEPORTED to ICE_TILE (1197.37, -796.7) (coop_world_wait.teleport_settle, the s145 tape's recipe) and
+stands there COOP_TAPE_WK_ICE_S (75; >= 60) s -- the guest's hold / release, its follow-out, its landing and the dot rows all fit
+inside it --, then waits the prompt's frames, Confirms into the Ice Cavern (300) and stands there COOP_TAPE_WK_ENTER_S (15) s (the
+frozen guest's rejoin), then the peer is stopped. Encounters off. Its checks: REC-P0 / P1 / P2 / M as ever, REC-WX the walk out,
+REC-WKB the blocks, REC-WKL the landing stand, REC-WKT the teleport and the tile stand (WorldHUD on every read, the battle epoch
+unmoved, within WK_TILE_TOL of the tile), REC-WKE the entry, REC-T, the six facts REC-WKF1..6 (_coop_peer_bench.world_walk_tape_facts:
+the pairing, the story, b6 on foot on world 9011, the landing's pose, THE TILE'S POSE >= 60 s on section 0, the entry), REC-INI.
+The tape is named `-world-walk-`, lands in its OWN dir (COOP_TAPE_DIR; default <main repo>/.harness-runs/coop-tapes/world-walk) and
+moves only that dir's latest-world-walk.json -- never latest.json, latest-world.json or latest-world-battle.json. Its pose per frame
+beside the recorder's facts: `py tools/harness/coop_peer.py where <tape> --want world --pose --near 1197.37,-796.7`.
+
 THE HAND RECORDING (a world-map victory for coop_cut_hold's s120-world leg, which a field-250 tape cannot carry): with the
 desktop's [Netsync] set to the host values above by hand, run
     py tools/harness/coop_peer.py serve-guest --report live --tap <tape>.f9tape
@@ -159,7 +176,10 @@ WORLD_TAPE = pb.env_flag("COOP_TAPE_WORLD")
 #: [ff9mapkit netsync s145] THE WORLD-BATTLE VARIANT (see its paragraph): out on the world map, a planned dwell, a world battle
 #: won, a stay -- on the same private port as the world variant
 WORLD_BATTLE_TAPE = pb.env_flag("COOP_TAPE_WORLD_BATTLE")
-ANY_WORLD = WORLD_TAPE or WORLD_BATTLE_TAPE
+#: [ff9mapkit netsync s165] THE WORLD-WALK VARIANT (see its paragraph): out on the world map, the blocks, the landing stand, the
+#: teleport to the Ice Cavern tile and its stand, the entry into 300 -- on the same private port as the world variants
+WORLD_WALK_TAPE = pb.env_flag("COOP_TAPE_WORLD_WALK")
+ANY_WORLD = WORLD_TAPE or WORLD_BATTLE_TAPE or WORLD_WALK_TAPE
 PORT = pb.env_int("COOP_PEER_PORT", pb.WORLD_PORT if ANY_WORLD else pb.DEFAULT_PORT)
 CODE = pb.BENCH_CODE
 WORLD_FIELD = pb.WORLD_TAPE_FIELD
@@ -177,6 +197,18 @@ WB_RETURN_TOL = 4.0
 WB_ENTER = pb.env_int("COOP_TAPE_WB_ENTER", 1) != 0
 WB_ENTER_S = pb.env_float("COOP_TAPE_WB_ENTER_S", 15.0)
 ENTER_FIELD_S = 20.0                     # the Confirm on the tile -> FieldHUD 300 (coop_world_wait.FIELD_S)
+#: [ff9mapkit netsync s165] THE WORLD-WALK VARIANT's dwells (s): the stand at FS_LANDING once the blocks are in, the stand at the
+#: Ice Cavern tile (>= pb.WK_ICE_MIN_S, 60: the plan refuses a shorter one), and the stand on 300 after the Confirm
+WK_LAND_S = pb.env_float("COOP_TAPE_WK_LAND_S", 3.0)
+WK_ICE_S = pb.env_float("COOP_TAPE_WK_ICE_S", 75.0)
+WK_ENTER_S = pb.env_float("COOP_TAPE_WK_ENTER_S", 15.0)
+#: ...THE BLOCKS without `world.block_ready` (an s164 host has none): world.phase 2 and world.ticks (w_frameCounter, 0 at every
+#: world load) past WK_BLOCK_TICKS, advancing over WK_BLOCK_SAMPLES reads in a row, within WK_BLOCK_S of the walk out's settle
+WK_BLOCK_TICKS = 6
+WK_BLOCK_SAMPLES = 3
+WK_BLOCK_S = 30.0
+#: ...and the teleport lands within this TORUS distance of the tile (world units; the landing's ROUTE_TOL)
+WK_TILE_TOL = 8.0
 FIGHT_S = pb.env_float("COOP_TAPE_FIGHT_S", 40.0)
 POST_S = pb.env_float("COOP_TAPE_POST_S", 30.0)
 GUEST_SLOTS = pb.env_int("COOP_TAPE_GUEST_SLOTS", 2)
@@ -258,9 +290,38 @@ WORLD_BATTLE_CATALOG = {
 }
 
 
-def _catalog(seat: int, world: bool | None = None, world_battle: bool | None = None) -> dict:
+#: [ff9mapkit netsync s165] the WORLD-WALK variant's checks (COOP_TAPE_WORLD_WALK=1)
+WORLD_WALK_CATALOG = {
+    **{k: CATALOG[k] for k in ("REC-P0", "REC-P1", "REC-P2", "REC-M")},
+    "REC-WX": WORLD_CATALOG["REC-WX"],
+    "REC-WKB": f"THE BLOCKS (no `world.block_ready` on s164): world.phase 2 and world.ticks past {WK_BLOCK_TICKS}, advancing over "
+               f"{WK_BLOCK_SAMPLES} reads in a row, within {WK_BLOCK_S:g} s of the walk out",
+    "REC-WKL": f"the LANDING STAND: COOP_TAPE_WK_LAND_S ({WK_LAND_S:g}) s at FS_LANDING {pb.WK_LANDING} after the blocks -- WorldHUD "
+               "on every read, the battle epoch unmoved",
+    "REC-WKT": f"THE TELEPORT AND THE TILE STAND: the host at ICE_TILE {pb.WK_TILE} (within {WK_TILE_TOL:g}u, torus) and there "
+               f"COOP_TAPE_WK_ICE_S ({WK_ICE_S:g}) s -- WorldHUD on every read, the battle epoch unmoved, no field",
+    "REC-WKE": f"THE ENTRY: the prompt's frames, Confirm -> FieldHUD {pb.WK_ENTER_FIELD} within {ENTER_FIELD_S:g} s, then on it "
+               f"COOP_TAPE_WK_ENTER_S ({WK_ENTER_S:g}) s (the frozen guest's rejoin)",
+    "REC-T": CATALOG["REC-T"],
+    "REC-WKF1": "WK1 PAIR: the host on 6603 >= 10 s before its world exit, no battle there",
+    "REC-WKF2": "WK2 STORY: type-5 story frames from the first seconds, carrying the marker",
+    "REC-WKF3": f"WK3 WORLD: b6 on the off-field state frames, [102] {pb.WK_WORLD_IDX} (world {9000 + pb.WK_WORLD_IDX}) and on foot "
+                "([190] 0, [181] 0) on every one",
+    "REC-WKF4": f"WK4 LANDING: section 0's pose at FS_LANDING (within {pb.WK_POSE_TOL:g}u, torus) >= {pb.WK_LAND_MIN_S:g} s before "
+                "the tile",
+    "REC-WKF5": f"WK5 TILE: section 0's pose at ICE_TILE (within {pb.WK_POSE_TOL:g}u, torus) >= {pb.WK_ICE_MIN_S:g} s -- THE LIVE "
+                "POSE the rung-1 landing must read",
+    "REC-WKF6": f"WK6 ENTER: the first real field after the exit is {pb.WK_ENTER_FIELD}, entered after the tile stand, held >= "
+                f"{pb.WK_ENTER_NEED_S:g} s",
+    "REC-INI": CATALOG["REC-INI"],
+}
+
+
+def _catalog(seat: int, world: bool | None = None, world_battle: bool | None = None, world_walk: bool | None = None) -> dict:
     """The run's checks: CATALOG, plus REC-SEAT on a seat run; [s144] WORLD_CATALOG on a world run; [s145]
-    WORLD_BATTLE_CATALOG on a world-battle run."""
+    WORLD_BATTLE_CATALOG on a world-battle run; [s165] WORLD_WALK_CATALOG on a world-walk run."""
+    if WORLD_WALK_TAPE if world_walk is None else world_walk:            # [ff9mapkit netsync s165]
+        return dict(WORLD_WALK_CATALOG)
     if WORLD_BATTLE_TAPE if world_battle is None else world_battle:
         return dict(WORLD_BATTLE_CATALOG)
     if WORLD_TAPE if world is None else world:
@@ -392,6 +453,10 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
     if WORLD_TAPE and WORLD_BATTLE_TAPE:                     # [ff9mapkit netsync s145]
         led.close("COOP_TAPE_WORLD and COOP_TAPE_WORLD_BATTLE are separate variants -- nothing was edited")
         return
+    if WORLD_WALK_TAPE and (WORLD_TAPE or WORLD_BATTLE_TAPE):   # [ff9mapkit netsync s165]
+        led.close("COOP_TAPE_WORLD_WALK is its own variant (not with COOP_TAPE_WORLD / COOP_TAPE_WORLD_BATTLE) -- nothing was "
+                  "edited")
+        return
     if ANY_WORLD and PORT == pb.OWNER_PORT:
         led.check("REC-P0", False, f"COOP_PEER_PORT={PORT} is the owner's bridge port: the world variant never binds it")
         led.close("the bench port is the owner's -- nothing was edited")
@@ -419,6 +484,10 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
         ctx.stage = 144                     # [ff9mapkit netsync s144] a world tape is named by the host's s144 (b6) stage
     if ANY_WORLD and cb.has(st, cb.R3_PROBES[145]):
         ctx.stage = 145                     # [ff9mapkit netsync s145] ...or s145's (the host side of the wire is s144's either way)
+    if WORLD_WALK_TAPE and cb.has(st, "netsync.swap"):
+        ctx.stage = 164                     # [ff9mapkit netsync s165] a walk tape names the host it was recorded on: the deployed s164...
+    if WORLD_WALK_TAPE and cb.has(st, "netsync.world.out"):
+        ctx.stage = 165                     # ...or an s165 (rung 1 changes no host byte: the same wire)
     ctx.host_s118 = pb.has(st, "netsync.battle.host.handback.refused_report")
     g.note(f"the engine reads as s{ctx.stage or '<117'} (guest ladder){'; s118 host keys present' if ctx.host_s118 else ''}"
            f"; {cb.stage_note(st)}")
@@ -441,11 +510,13 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
         return
     # 3. the peer
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    tdir = (pb.world_battle_tape_dir() if WORLD_BATTLE_TAPE else      # [ff9mapkit netsync s145] a world-battle tape's own home
+    tdir = (pb.world_walk_tape_dir() if WORLD_WALK_TAPE else          # [ff9mapkit netsync s165] a world-walk tape's own home
+            pb.world_battle_tape_dir() if WORLD_BATTLE_TAPE else      # [ff9mapkit netsync s145] a world-battle tape's own home
             pb.world_tape_dir() if WORLD_TAPE else pb.tape_dir())        # [ff9mapkit netsync s144] a world tape's own home
     tdir.mkdir(parents=True, exist_ok=True)
     ctx.tape = tdir / (f"{stamp}-host{ctx.field}{f'-seat{SEAT}' if SEAT else ''}{'-world' if WORLD_TAPE else ''}"
-                       f"{'-world-battle' if WORLD_BATTLE_TAPE else ''}-s{ctx.stage or 0}.f9tape")
+                       f"{'-world-battle' if WORLD_BATTLE_TAPE else ''}{'-world-walk' if WORLD_WALK_TAPE else ''}"
+                       f"-s{ctx.stage or 0}.f9tape")
     rd = _run_dir(g)
     ctx.peer = pb.PeerProc("serve-guest", ["--port", PORT, "--report", "live", "--tap", ctx.tape, "--status", "5"],
                            log_path=rd / "coop_peer-serve-guest.log", out_path=rd / "coop_peer-serve-guest.out")
@@ -470,6 +541,9 @@ def _run(g, led: cb.Ledger, ctx: _Ctx) -> None:
         return
     if WORLD_BATTLE_TAPE:                   # [ff9mapkit netsync s145] the world-battle variant: out, a dwell, a world battle
         _world_battle(g, led, ctx, conn)
+        return
+    if WORLD_WALK_TAPE:                     # [ff9mapkit netsync s165] the world-walk variant: out, the landing, the tile, 300
+        _world_walk(g, led, ctx, conn)
         return
     # 4. the free roam, the battle, the post-battle roam
     _hold_until(ctx, conn[0], PRE_S)
@@ -876,3 +950,146 @@ def _world_battle_facts(g, led: cb.Ledger, ctx: _Ctx) -> None:
                f"{pb.WORLD_POINTER} untouched)")
     else:
         g.note(f"tape: {ctx.tape} -- a world-battle fact is MISSING, so {pb.WORLD_BATTLE_POINTER} was NOT moved to it")
+
+
+# ---------------------------------------------------------------------------------------- [ff9mapkit netsync s165] the world walk
+def _wait_blocks(g) -> tuple:
+    """THE BLOCKS on an s164 host (no `world.block_ready`): read the state until world.phase is 2 and world.ticks is past
+    WK_BLOCK_TICKS and has ADVANCED over WK_BLOCK_SAMPLES distinct reads in a row (w_frameCounter restarts at 0 at every world load
+    and stands still through the all-block load), within WK_BLOCK_S. (ok, why, the state that ended it)."""
+    end = time.time() + WK_BLOCK_S
+    run, last, seen, st = 0, None, None, g.state
+    while time.time() < end:
+        st = g.state
+        if st.frame == seen:
+            time.sleep(0.05)
+            continue
+        seen = st.frame
+        ticks = st.world_ticks
+        if st.ui_state == "WorldHUD" and st.world_phase == 2 and ticks is not None and ticks > WK_BLOCK_TICKS \
+                and last is not None and ticks > last:
+            run += 1
+            if run >= WK_BLOCK_SAMPLES:
+                return True, (f"world {st.world_id} phase 2, world.ticks {ticks} advancing over {run} reads (frame {st.frame}) "
+                              f"at ({st.world_x}, {st.world_z})"), st
+        else:
+            run = 0
+        last = ticks
+        time.sleep(0.05)
+    return False, (f"the blocks never read loaded within {WK_BLOCK_S:g} s: ui {st.ui_state!r}, world.phase {st.world_phase}, "
+                   f"world.ticks {st.world_ticks}"), st
+
+
+def _world_walk(g, led: cb.Ledger, ctx: _Ctx, conn) -> None:
+    """THE WORLD-WALK VARIANT's middle: PRE_S on 6603, the proven walk out, THE BLOCKS, WK_LAND_S at FS_LANDING, the TELEPORT to the
+    Ice Cavern tile and WK_ICE_S there, the prompt's frames and the Confirm into 300, WK_ENTER_S on it, the peer stopped, then the
+    six facts. Every verb is one an s164 host has (walk_to, teleport, press, the state reads)."""
+    import coop_world_wait as cw                       # beside this file (the scenario dir is on sys.path)
+    cp = pb.coop_peer_module()
+    _hold_until(ctx, conn[0], PRE_S)
+    ok, why, st = cw.walk_out(g)
+    led.check("REC-WX", ok, why)
+    rest = ("REC-WKB", "REC-WKL", "REC-WKT", "REC-WKE")
+    if not ok:
+        led.unreached(rest, f"the host never reached the world map (REC-WX): {why[:160]}")
+        g.note(f"coop_peer serve-guest: {ctx.peer.stop()}")
+        _world_walk_facts(g, led, ctx)
+        return
+    ok, why, st = _wait_blocks(g)
+    led.check("REC-WKB", ok, why)
+    if not ok:
+        led.unreached(rest[1:], "the world's blocks never read loaded (REC-WKB)")
+        g.note(f"coop_peer serve-guest: {ctx.peer.stop()}")
+        _world_walk_facts(g, led, ctx)
+        return
+    reads, off = _stay(g, ctx, WK_LAND_S, st.battle_epoch)
+    here = g.state
+    d_land = (cp.torus_distance((here.world_x, here.world_z), pb.WK_LANDING) if None not in (here.world_x, here.world_z)
+              else None)
+    led.check("REC-WKL", reads > 0 and not off and d_land is not None and d_land <= cw.ROUTE_TOL,
+              f"{reads} read(s) over {WK_LAND_S:g} s at ({here.world_x}, {here.world_z}) -- "
+              + (f"{d_land:.2f}u from FS_LANDING" if d_land is not None else "no world position")
+              + (f"; LEFT the world map {off[:3]}" if off else "; WorldHUD throughout, no battle"))
+    try:
+        st = cw.teleport_settle(g, cw.ICE_TILE)
+    except HarnessError as err:
+        led.check("REC-WKT", False, f"the teleport to the tile raised: {str(err)[:300]}")
+        led.unreached(("REC-WKE",), "no teleport")
+        g.note(f"coop_peer serve-guest: {ctx.peer.stop()}")
+        _world_walk_facts(g, led, ctx)
+        return
+    d_tile = (cp.torus_distance((st.world_x, st.world_z), pb.WK_TILE) if None not in (st.world_x, st.world_z) else None)
+    reads, off = _stay(g, ctx, WK_ICE_S, st.battle_epoch)
+    last = g.state
+    d_last = (cp.torus_distance((last.world_x, last.world_z), pb.WK_TILE) if None not in (last.world_x, last.world_z)
+              else None)
+    led.check("REC-WKT", reads > 0 and not off and d_tile is not None and d_tile <= WK_TILE_TOL
+              and d_last is not None and d_last <= WK_TILE_TOL,
+              f"teleported to ({st.world_x}, {st.world_z}) -- "
+              + (f"{d_tile:.2f}u from ICE_TILE" if d_tile is not None else "no world position")
+              + f"; {reads} read(s) over {WK_ICE_S:g} s, the last at ({last.world_x}, {last.world_z})"
+              + (f"; LEFT the world map {off[:3]}" if off else "; WorldHUD throughout, no battle"))
+    try:
+        g.wait_frames(cw.PROMPT_FRAMES)
+        g.press("confirm")
+        st = cb.poll(g, lambda s: s.ui_state == "FieldHUD" and s.field_id == pb.WK_ENTER_FIELD, ENTER_FIELD_S,
+                     f"field {pb.WK_ENTER_FIELD}")
+    except HarnessError as err:
+        led.check("REC-WKE", False, f"the entry raised: {str(err)[:300]}")
+        st = None
+    else:
+        if st is None:
+            led.check("REC-WKE", False, f"never entered {pb.WK_ENTER_FIELD} within {ENTER_FIELD_S:g} s (ui {g.state.ui_state!r}, "
+                                        f"field {g.state.field_id}, world {g.state.world_id})")
+    if st is not None:
+        end = time.time() + WK_ENTER_S
+        off = []
+        while time.time() < end and ctx.peer.alive():
+            s = g.state
+            if not (s.ui_state in ("FieldHUD", "FieldMenu") or s.fading) or s.field_id != pb.WK_ENTER_FIELD:
+                off.append((s.ui_state, s.field_id))
+            ctx.peer.lines()
+            time.sleep(0.5)
+        led.check("REC-WKE", not off, f"FieldHUD {pb.WK_ENTER_FIELD} after the Confirm; {WK_ENTER_S:g} s on it"
+                  + (f" -- LEFT it {off[:3]}" if off else ""))
+    g.note(f"coop_peer serve-guest: {ctx.peer.stop()}")
+    _world_walk_facts(g, led, ctx)
+
+
+def _world_walk_facts(g, led: cb.Ledger, ctx: _Ctx) -> None:
+    """REC-T and the six facts (REC-WKF1-6) off the closed tape; latest-world-walk.json in the world-walk dir when all six hold
+    (NEVER another variant's pointer); the stands' anchors noted (`coop_peer.py where --pose` is the per-frame view)."""
+    summary = ctx.peer.first(pb.PEER["tape_summary"])
+    keys = ("wk1", "wk2", "wk3", "wk4", "wk5", "wk6")
+    try:
+        cp = pb.coop_peer_module()
+        header, records, torn = cp.read_tape(ctx.tape)
+    except Exception as err:                 # noqa: BLE001 -- the reason goes into the checks
+        led.check("REC-T", False, f"the tape does not read back: {err}")
+        led.unreached(tuple(f"REC-WKF{k[2]}" for k in keys), "the tape does not read back")
+        return
+    size = ctx.tape.stat().st_size
+    led.check("REC-T", summary is not None and not torn and "stopped cleanly" in (ctx.peer.how_ended or ""),
+              f"{summary[1] if summary else 'no tape line (the peer did not close it itself)'}; {ctx.peer.how_ended}; "
+              f"{len(records)} record(s), {size / 1e6:.1f} MB, torn tail {torn} B")
+    facts = pb.world_walk_tape_facts(records, cp, field=ctx.field)
+    for k in keys:
+        led.check(f"REC-WKF{k[2]}", facts[k]["ok"], facts[k]["why"])
+    g.note(f"THE WORLD-WALK FACTS of {ctx.tape.name}: exit at tape {facts['exit_t']}, b6 from {facts['b6_first']}, the landing "
+           f"stand {facts['land']}, the tile stand {facts['tile']} ({facts['apart']} u apart, torus), the entry {facts['enter']}; "
+           f"the heartbeat moved {facts['hb_moves']} time(s) on the b6 frames")
+    g.note(f"  the pose per frame: py tools/harness/coop_peer.py where {ctx.tape} --want world --pose --near "
+           f"{pb.WK_TILE[0]},{pb.WK_TILE[1]}")
+    try:
+        (_run_dir(g) / "tape-info.txt").write_text("\n".join(cp.tape_info(ctx.tape)) + "\n", encoding="utf-8")
+    except Exception as err:                 # noqa: BLE001 -- a convenience copy only
+        g.note(f"tape-info.txt not written: {err}")
+    if all(facts[k]["ok"] for k in keys):
+        ptr = ctx.tape.parent / pb.WORLD_WALK_POINTER
+        ptr.write_text(json.dumps({"tape": str(ctx.tape), "stage": ctx.stage, "recorded": header.get("started"),
+                                   "field": ctx.field, "b6": facts["b6"], "exit_t": facts["exit_t"], "land": facts["land"],
+                                   "tile": facts["tile"], "enter": facts["enter"], "apart": facts["apart"],
+                                   "facts": {k: facts[k]["why"] for k in keys}}, indent=1), encoding="utf-8")
+        g.note(f"tape: {ctx.tape} ({size / 1e6:.1f} MB) -- {pb.WORLD_WALK_POINTER} points at it (every other pointer untouched)")
+    else:
+        g.note(f"tape: {ctx.tape} -- a world-walk fact is MISSING, so {pb.WORLD_WALK_POINTER} was NOT moved to it")

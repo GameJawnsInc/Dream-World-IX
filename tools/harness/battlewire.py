@@ -1927,7 +1927,10 @@ EXIT_RAMP_DEBOUNCE_S117_MS = 3000        # the link-loss ramp's debounce BEFORE 
 OVERLAY_NAMES = ("off", "elsewhere", "no_code", "connecting", "waiting", "peer_elsewhere", "following", "peer_no_field",
                  "reconnecting",
                  # [ff9mapkit netsync s144] the waiting line (decision 7): an engine before s144 never names these five
-                 "host_world", "rejoining", "world_hold", "host_title", "host_away")
+                 "host_world", "rejoining", "world_hold", "host_title", "host_away",
+                 # [ff9mapkit netsync s165] the world follow-out's four (OvlWorldOut 14 .. OvlHostWorldMissing 17): an engine before s165
+                 # never names these
+                 "world_out", "host_riding", "host_event_world", "host_world_missing")
 
 
 def session_grace_step(peer_alive_: bool, seen: bool, out_ms: int, grace_ms: int) -> int:
@@ -10925,9 +10928,15 @@ OVL_PEER_ELSEWHERE, OVL_FOLLOWING, OVL_PEER_NO_FIELD, OVL_RECONNECTING = 5, 6, 7
 OVL_HOST_WORLD, OVL_REJOINING, OVL_WORLD_HOLD, OVL_HOST_TITLE, OVL_HOST_AWAY = 9, 10, 11, 12, 13
 OVL_KEEP = -2
 OVERLAY_NAMES_S144 = ("host_world", "rejoining", "world_hold", "host_title", "host_away")
+# [ff9mapkit netsync s165] the world follow-out's field lines (NetSyncClient.OvlWorldOut ..): leaving, and b6's line worded by the start
+# gate's refusal (the host rides / is in a world-map scene / is on a world this install lacks)
+OVL_WORLD_OUT, OVL_HOST_RIDING, OVL_HOST_EVENT_WORLD, OVL_HOST_WORLD_MISSING = 14, 15, 16, 17
+OVERLAY_NAMES_S165 = ("world_out", "host_riding", "host_event_world", "host_world_missing")
 #: `netsync.world.waitline.line`'s vocabulary (NetSyncClient.WaitLineName), by state
 WAITLINE_NAMES = {OVL_HOST_WORLD: "host_world", OVL_REJOINING: "rejoin", OVL_WORLD_HOLD: "hold",
-                  OVL_HOST_TITLE: "host_title", OVL_HOST_AWAY: "away"}
+                  OVL_HOST_TITLE: "host_title", OVL_HOST_AWAY: "away",
+                  # [ff9mapkit netsync s165] b6's worded lines are b6's waiting line too (WaitLineName names them "host_world")
+                  OVL_HOST_RIDING: "host_world", OVL_HOST_EVENT_WORLD: "host_world", OVL_HOST_WORLD_MISSING: "host_world"}
 #: decision 7's sentences, verbatim inside the overlay's words (WaitLineText)
 WAIT_TEXT_HOST_WORLD = "FF9 co-op: Your partner is on the world map.\nYou'll rejoin them at their next stop."
 WAIT_TEXT_HOST_TITLE = "FF9 co-op: Your partner is at the title screen."
@@ -10981,8 +10990,9 @@ def wait_keep_window(host_valid, host_field, host_flags, battle_live) -> bool:
 
 
 def field_wait_sticky(state) -> bool:
-    """NetSyncClient.FieldWaitSticky: the lines the field chain's tail chose itself (b6, b7, an old host's away)."""
-    return state in (OVL_HOST_WORLD, OVL_HOST_TITLE, OVL_HOST_AWAY)
+    """NetSyncClient.FieldWaitSticky: the lines the field chain's tail chose itself (b6, b7, an old host's away). [ff9mapkit netsync
+    s165] ...and b6's worded lines (the host rides / an event world / a world this install lacks) keep too."""
+    return state in (OVL_HOST_WORLD, OVL_HOST_TITLE, OVL_HOST_AWAY, OVL_HOST_RIDING, OVL_HOST_EVENT_WORLD, OVL_HOST_WORLD_MISSING)
 
 
 def field_wait_tail(host_world, host_title, away_due, keep_window, current) -> int:
@@ -13922,3 +13932,323 @@ def swap_proof_text(rows: int, mutants: int, src: str, hz: int, hires: bool) -> 
 def swap_proof_fail_text(row: str | None = None, mutant: str | None = None) -> str:
     """``FAIL (row <id>)`` or ``FAIL (mutant <id> survived)``."""
     return f"{PROOF_FIELD_SWAP}FAIL ({'row ' + row if row is not None else 'mutant ' + str(mutant) + ' survived'})"
+
+
+# =========================================================================== [ff9mapkit netsync s165] THE GUEST FOLLOWS THE HOST OUT
+# studies/world-coop/S165-DESIGN.md, rung 1 of GUEST-FOLLOW.md's two-body order: R1 the follow-out (a following, mirroring guest on a
+# field follows a host whose section 7 says b6 onto that world -- 9000 + section0[102] --, lands at the host's live section-0 pose and
+# stays frozen there by s144), R2 the minimap dot (section 0, no wire change), R3 the 9012 strand (the rejoin may arm from 9012), R4
+# the save guard at SaveLoadUI's call site. Wire v14 (no host byte), harness protocol 5 (additive). What follows is THE HARNESS
+# CONTRACT both lanes build to -- the keys at their catch-line sentinels, the `worldfollow` verb's ops and role classes, the log lines'
+# exact prefixes -- and the pure twins of the design's rules the stand-in and the benches read. The reason VOCABULARY (`why`,
+# `why_not`) is the kit's reading of the design's ordered gates: the engine's own WorldOutStep / DotRule names are the truth once its
+# patch is on the stack (tests/test_world_coop_harness.py's s165 pins compare them there).
+
+# ---- the keys' sentinels (HarnessAgent: AppendWorldFollow* -- `netsync.world`'s LAST keys, after `dio`, in the order r3, out, host,
+# dot -- AppendSaveGuard after `swap`, AppendHostWorld as a NEW top-level `netsync.host` block after it; the catch literal carries the
+# same). Strings null, counters 0, ids / ages -1, flags false, the nullable records null.
+WORLD_R3_SENTINELS = {"lever": None, "arms_from_9012": 0}
+#: `out.last` once a follow-out landed (else null): the world, the frame the seam applied, the pose it landed, start -> land, the drift
+#: (the torus distance between the host's live pose at the guest's seam and the pose applied)
+WORLD_OUT_LAST_KEYS = ("world", "frame", "x", "z", "start_to_land_ms", "drift_u")
+WORLD_OUT_SENTINELS = {"lever": None, "hold": False, "state": None, "why": None, "world": -1, "from": -1, "debounce_ms": 0,
+                       "starts": 0, "commits": 0, "lands": 0, "lost": 0, "superseded": 0, "refused": 0, "substituted": 0,
+                       "entrance_fix": 0, "veg_zeroed": 0, "last": None}
+#: `host`: the one reader's cache of the host's last frame (HostWorldPoseOf) -- the pose, the bytes beside it, the heartbeat and ages
+WORLD_HOST_SENTINELS = {"valid": False, "why": None, "x": None, "y": None, "z": None, "yaw": None, "mode": -1, "idx": -1,
+                        "story": -1, "entrance": -1, "veg": -1, "hb": -1, "hb_age_ms": -1, "b6": False, "b1": False,
+                        "intent_unlanded": False, "payload_age_ms": -1}
+#: `dot.census` once the dot was minted (else null): the stock player pointer it was cloned from
+WORLD_DOT_CENSUS_KEYS = ("sprite", "atlas", "depth", "cone_depth", "image_depth", "color", "w", "h", "scale", "colliders",
+                         "panel_clip")
+WORLD_DOT_SENTINELS = {"lever": None, "want": False, "why_not": None, "shown": False, "minimap": False, "hud": None,
+                       "navi_mode": -1, "mapno": -1, "host_x": None, "host_z": None, "host_face": None, "host_idx": -1,
+                       "own_idx": -1, "own_world": -1, "host_sc": -1, "sx": None, "sy": None, "edge": False, "px": None,
+                       "py": None, "rot": None, "own_px": None, "own_py": None, "screen_x": None, "screen_y": None,
+                       "age_ms": -1, "hb_age_ms": -1, "frames": 0, "shows": 0, "hides": 0, "faults": 0, "last_fault": None,
+                       "census": None}
+#: the four blocks s165 appends to `netsync.world`, in the agent's order
+WORLD_S165_KEYS = ("r3", "out", "host", "dot")
+#: the live `netsync.world` block once the s165 patch lands (s144's three, s145's `dio`, then s165's four: the prefix law)
+WORLD_SENTINELS_S165 = {**{k: dict(v) for k, v in WORLD_SENTINELS.items()}, "r3": dict(WORLD_R3_SENTINELS),
+                        "out": dict(WORLD_OUT_SENTINELS), "host": dict(WORLD_HOST_SENTINELS), "dot": dict(WORLD_DOT_SENTINELS)}
+#: `netsync.saveguard` (after `swap`): the refusals at SaveLoadUI's two Save sites, the DRY lever's would-saves, the last reason
+SAVEGUARD_SENTINELS = {"refused": 0, "would_save": 0, "lever": None, "last_why": None}
+#: `netsync.host.world` (the host's own world-map visit, no wire byte): b6 now, the world frame b6 rose at and whether the blocks were
+#: in then, its own WMAPJUMPs counted
+HOST_WORLD_SENTINELS = {"b6": False, "rise_frame": -1, "rise_block_ready": None, "wmapjumps": 0}
+HOST_SENTINELS = {"world": dict(HOST_WORLD_SENTINELS)}
+#: the two top-level `netsync` blocks s165 appends after s164's `swap`, in the agent's order
+NETSYNC_TOP_KEYS_S165 = ("saveguard", "host")
+#: the top-level `world` block's s165 key: ff9.w_blockReady, after s145's `mapvar`, behind the same live-scene gate (false off it)
+WORLD_LIVE_KEYS_S165 = ("block_ready",)
+
+# ---- the vocabularies
+WORLD_OUT_STATES = ("idle", "waiting", "fading", "committed", "landed")
+#: the frame the world seam applies: the latest (b6 and the same [102] still), the start pin, or only the commit's own seed
+WORLD_OUT_FRAMES = ("latest", "pin", "seed")
+#: the levers' published words: R1 and the dot "on" | "off"; R3 and R4 "act" | "old" (old = s164's refusal / the DRY save guard)
+WORLD_OUT_LEVER_WORDS = ("on", "off")
+WORLD_ACT_WORDS = ("act", "old")
+#: the static ff9.eventWorldMaps set (EVENT_WORLD_MAPS, s144's: 9001 9004 9006 9012) is never followed into -- read as a SET for the
+#: host's world, never IsEventWorldMap, which reads the guest's own last world
+#: R3: the one event world that waits on the player (its Main_Init masks only the d-pad, control on): the rejoin may arm from it
+WORLD_WAITS_ON_PLAYER = 9012
+WORLD_BASE = 9000
+WORLD_IDX_MAX = 12                                   # section0[102] 0..12 (9000..9012); 13 and up are no world this install has
+POSITION_PRESET_KEY = 35                             # the kit's FieldEntrance that keeps the live pose and the parked vehicle records
+WORLD_ENTRANCE_SENTINELS = (9995, 9996, 9997, 9998, 9999)
+WORLD_OUT_DEBOUNCE_MS = 1200                         # THE LIVE DEBOUNCE's seed (the field follow's FollowStableMs)
+WORLD_OUT_ALIVE_MS = 400                             # ...it counts only while the host's heartbeat moved within this
+WORLD_DOT_FRESH_MS = 1000                            # the dot shows only while the heartbeat moved within this
+WORLD_DOT_SCALE = 1.25                               # the dot's size, the donor pointer's scale times this
+WORLD_DOT_EDGE_ALPHA = 0.6                           # a pinned-to-the-edge dot, dimmed
+WORLD_MAP_BAND = 5990                                # the story counter from which the minimap is the whole torus (mapno 1)
+#: ff9.w_naviGetPos on mapno 0 (the disc-1 Mist window): sx = (x - X0) / XW, sy = 1 - (-z - Z0) / ZH; mapno 1: x / 1536, 1 + z / 1280
+MIST_WINDOW = (645.12, 890.88, 428.8, 851.2)
+TORUS_W, TORUS_H = 1536.0, 1280.0
+
+# ---- THE START GATE's refusals (decision 3: cheapest first, one reason per refusal, logged once per host world visit and reason).
+# [ff9mapkit netsync s165 B1] THE ENGINE's tokens, which `netsync.world.out.why` publishes (NetSyncWorldFollow.WhyNames, 1..28 in
+# WorldOutStep's order: the lever; not a following guest / the exit ramp pending / not mirroring; a move in flight; the scene; my
+# control, a line, a backlog; an ATE press, a climb, a diorama; the host's frame, section 7, b6, b1, an unlanded intent, section 0;
+# WorldIdRule's three; riding, the Choco call; the hold; THE LIVE DEBOUNCE). The log's 'waits: <why>' line carries the engine's WORDS
+# (WhyText), never these: a bench greps the prefix.
+WORLD_OUT_WHYS = ("lever", "not_following", "ramp", "not_mirroring", "in_flight", "not_on_field", "not_field_hud", "field_changing",
+                  "disc_change", "no_control", "line", "backlog", "ate", "climb", "diorama", "no_frame", "no_dialog", "host_not_world",
+                  "host_no_control", "intent_unlanded", "no_story", "idx_range", "event_world", "not_installed", "riding",
+                  "choco_call", "hold", "debounce")
+#: ...and the world rule's own (decision 2: world_id_rule's twin words) with the engine's `why` token for each -- a [102] that changed
+#: across the debounce has no token of its own: THE LIVE DEBOUNCE restarts (it reads "debounce")
+WORLD_ID_WHYS = ("range", "event", "unregistered", "changed")
+WORLD_ID_WHY_TOKENS = {"range": "idx_range", "event": "event_world", "unregistered": "not_installed"}
+#: the dot's refusals, published as `why_not` -- [ff9mapkit netsync s165 B1] the ENGINE's tokens in DotRule's order (NetSyncWorldFollow.
+#: DotNames 1..16): who, the live scene, its blocks, an event world / the bee scene / a world diorama, a world transition, the walker,
+#: a frame, a FRESH host, b6, section 0, the torus, the same [102], the same map band, then the lever LAST (it hides a WANTED dot:
+#: `want` stays true under `dot off`)
+WORLD_DOT_WHY_NOTS = ("role", "scene", "loading", "event_world", "bee", "diorama", "transition", "no_walker", "no_frame", "stale",
+                      "no_b6", "no_story", "pose_range", "other_world", "band", "lever")
+
+# ---- the verb (`netsync worldfollow <op>`: a NEW sub-verb -- on s164 an unknown sub-verb fails closed, whereas an unknown `bench`
+# op turns the field-gate bench ON) and the top-level `savemenu` verb (the Alt+F5 adapter, through the gate stock uses)
+WORLDFOLLOW_OPS = ("off", "on", "hold", "release", "dot", "r3", "saveguard", "host", "clear")
+#: each op's role class: the guest-side levers on a client or the selftest role, the fabricated host on the selftest role with the
+#: bench on, `clear` on any role
+WORLDFOLLOW_GUEST_OPS = ("off", "on", "hold", "release", "dot", "r3", "saveguard")
+WORLDFOLLOW_BENCH_OPS = ("host",)
+WORLDFOLLOW_ANY_OPS = ("clear",)
+WORLDFOLLOW_WORDS = {"dot": ("off", "on"), "r3": ("old", "act"), "saveguard": ("old", "act")}
+#: `host <x> <z> [idx] [mode] [entrance] [veg]` or `host self|nob6|stale|off`
+WORLDFOLLOW_HOST_WORDS = ("self", "nob6", "stale", "off")
+WORLDFOLLOW_USAGE = ("netsync worldfollow: expected off|on|hold|release, dot off|on, r3 old|act, saveguard old|act (a client or the "
+                     "selftest role), host <x> <z> [idx] [mode] [entrance] [veg] | host self|nob6|stale|off (the selftest role, "
+                     "bench on) or clear")
+WORLDFOLLOW_ROLE_REFUSAL = "netsync worldfollow {op}: needs a client or the selftest role"
+WORLDFOLLOW_BENCH_REFUSAL = "netsync worldfollow host: needs the selftest role with the bench on (netsync selftest 1, netsync bench 1)"
+WORLDFOLLOW_HOST_REFUSAL = ("netsync worldfollow host: needs FollowHost set and SuppressEncounters true (a bench world landing must "
+                            "never autosave a fabricated pose)")
+SAVEMENU_VERB = "savemenu"
+
+# ---- the owner-visible words (proposed in the design; the owner may change them) and the log lines' exact prefixes
+WORDS_WORLD_OUT_LEAVING = "Following your partner out onto the world map..."
+WORDS_WORLD_OUT_RIDES = "Your partner is riding. You'll rejoin them at their next stop."
+WORDS_WORLD_OUT_EVENT = "Your partner is in a world-map scene. You'll rejoin them at their next stop."
+WORDS_WORLD_OUT_MISSING = "Your partner's world map isn't on this install."
+WORDS_WORLD_DOT_MINIMAP = "Your partner is on the world map: press Select for the minimap."
+LOG_WORLD_OUT = "world follow-out: "
+LOG_WORLD_OUT_START = LOG_WORLD_OUT + "start"
+LOG_WORLD_OUT_COMMIT = LOG_WORLD_OUT + "commit"
+LOG_WORLD_OUT_LANDED = LOG_WORLD_OUT + "landed on world map "
+LOG_WORLD_OUT_LOST = LOG_WORLD_OUT + "lost"
+LOG_WORLD_OUT_SUPERSEDED = LOG_WORLD_OUT + "superseded"
+LOG_WORLD_OUT_WAITS = LOG_WORLD_OUT + "waits: "
+PROOF_WORLD_FOLLOW = "world follow selftest: "
+PROOF_WORLD_DOT = "world dot selftest: "
+#: either proof line (or ONE combined line, if the engine's E1 puts every rule in one table): captures the name, N rows, M mutants
+WORLD_FOLLOW_PROOF_RE = r"world (follow|dot) selftest: OK \((\d+) rows, (\d+) mutants\)"
+LOG_SAVE_REFUSED = "save refused while following your partner"
+
+
+def log_world_out_waits(why: str) -> str:
+    """'world follow-out: waits: <why>' -- once per host b6 visit and reason."""
+    return f"{LOG_WORLD_OUT_WAITS}{why}"
+
+
+def log_host_world_exit(field: int, world: int) -> str:
+    """The host's own line at its WMAPJUMP (no wire byte)."""
+    return f"host: world-map exit from field {int(field)} to world {int(world)}"
+
+
+def log_host_on_world(world: int, frame: int, ready: bool) -> str:
+    """The host's own line, once per world load, when b6 rises."""
+    return f"host: on world map {int(world)} (b6) at world frame {int(frame)}, blocks ready {'yes' if ready else 'no'}"
+
+
+def log_save_refused(why: str) -> str:
+    """R4's line beside the stock buzz (102)."""
+    return f"{LOG_SAVE_REFUSED} ({why})"
+
+
+def worldfollow_role_refusal(op: str) -> str:
+    return WORLDFOLLOW_ROLE_REFUSAL.format(op=op)
+
+
+# the kit's renderings of R1's lines past their exact prefixes (the engine's tails are the truth once its patch lands; a bench greps
+# the prefixes) and the levers' ack / release lines
+def log_world_out_start(field: int, world: int, x: float, z: float, debounce_ms: int) -> str:
+    return (f"{LOG_WORLD_OUT_START} from field {int(field)} to world map {int(world)} (host at ({float(x):.1f}, {float(z):.1f}), "
+            f"{int(debounce_ms)} ms host-alive)")
+
+
+def log_world_out_commit(world: int, field: int) -> str:
+    return f"{LOG_WORLD_OUT_COMMIT} to world map {int(world)} from field {int(field)}"
+
+
+def log_world_out_landed(world: int, x: float, z: float, frame: str, ms: int) -> str:
+    return (f"{LOG_WORLD_OUT_LANDED}{int(world)} at ({float(x):.1f}, {float(z):.1f}) from the {frame} frame, {int(ms)} ms after the "
+            "start")
+
+
+def log_world_out_lost(world: int, field: int) -> str:
+    return f"{LOG_WORLD_OUT_LOST} -- a field landing ({int(field)}) while the commit to world map {int(world)} was set"
+
+
+def log_world_out_superseded(world: int, dest: int) -> str:
+    return f"{LOG_WORLD_OUT_SUPERSEDED} by the host's field follow to {int(dest)} (the fade to world map {int(world)} cleared)"
+
+
+def worldfollow_ack(op: str, word: str | None = None) -> str:
+    """A lever's ack line (never stamped)."""
+    return f"[NetSync] harness: worldfollow {op}" + (f" {word}" if word else "")
+
+
+LOG_WORLDFOLLOW_RELEASED = "[NetSync] harness: worldfollow levers released (with the harness)"
+
+
+def world_torus_distance(a, b) -> float:
+    """The TORUS distance between two world points (x, z): dx = min(|dx|, 1536 - |dx|), dz = min(|dz|, 1280 - |dz|) (coop_peer's
+    torus_distance, for the stand-in's `drift_u`)."""
+    dx = abs(float(a[0]) - float(b[0])) % TORUS_W
+    dz = abs(float(a[1]) - float(b[1])) % TORUS_H
+    dx, dz = min(dx, TORUS_W - dx), min(dz, TORUS_H - dz)
+    return (dx * dx + dz * dz) ** 0.5
+
+
+# ---- the pure twins of the design's rules (E1; the stand-in's model and the benches' oracle)
+def world_id_rule(idx: int, registered, event_worlds=EVENT_WORLD_MAPS, prev_idx: int | None = None) -> tuple:
+    """Decision 2: the host's world off section0[102] read from the SAME frame as b6 -- (world, None) or (-1, why): 102 outside
+    0..12 ("range"), a static event world ("event"), not registered in both EventDB and eventIDToMESID ("unregistered": ``registered``
+    is a predicate over the world id), or a [102] that changed across the debounce ("changed"; ``prev_idx`` None = no earlier frame)."""
+    i = int(idx)
+    if not 0 <= i <= WORLD_IDX_MAX:
+        return -1, "range"
+    w = WORLD_BASE + i
+    if w in event_worlds:
+        return -1, "event"
+    if not registered(w):
+        return -1, "unregistered"
+    if prev_idx is not None and int(prev_idx) != i:
+        return -1, "changed"
+    return w, None
+
+
+def entrance_rule(entrance: int) -> int:
+    """The landing's FieldEntrance: 0 (the dispatcher default) or a world sentinel 9995-9999 becomes POSITION_PRESET_KEY (35, which
+    keeps the live pose and the parked vehicle records and triggers nothing); every other value stays."""
+    e = int(entrance)
+    return POSITION_PRESET_KEY if e == 0 or e in WORLD_ENTRANCE_SENTINELS else e
+
+
+def live_debounce_step(acc_ms: int, dt_ms: int, hb_age_ms: int, b6: bool, idx_same: bool) -> int:
+    """THE LIVE DEBOUNCE (decision 4): host-ALIVE time -- it counts ``dt_ms`` only while the heartbeat moved within WORLD_OUT_ALIVE_MS
+    (``hb_age_ms`` >= 0), holds still while the host's heartbeat is frozen (its synchronous all-block load; the writer thread keeps
+    re-sending the last frame), and restarts on any b6 fall or any change of [102]."""
+    if not b6 or not idx_same:
+        return 0
+    if 0 <= int(hb_age_ms) <= WORLD_OUT_ALIVE_MS:
+        return int(acc_ms) + max(0, int(dt_ms))
+    return int(acc_ms)
+
+
+def world_out_frame_rule(latest_ok: bool, latest_b6: bool, latest_idx: int, pin_idx: int, latest_mode: int,
+                         have_pin: bool = True) -> tuple:
+    """Decision 9: (frame, substituted) -- the latest frame while it still carries b6 and the start's [102], else the start pin, else
+    only the commit's seed; ``substituted`` -- the latest frame says the host rides ([190] != 0): 64-72 come from the pin, 190 = 0
+    (the on-foot substitution; the start pin itself was on foot by the gate)."""
+    if latest_ok and latest_b6 and int(latest_idx) == int(pin_idx):
+        return "latest", int(latest_mode) != 0
+    return ("pin" if have_pin else "seed"), False
+
+
+def event_world_waits_on_player(world: int) -> bool:
+    """R3 (decision 13): 9012 alone -- its Main_Init masks only the d-pad and keeps control on, so the rejoin may arm from it; the other
+    event worlds stay refused (`r3 old` restores s164's refusal of all four)."""
+    return int(world) == WORLD_WAITS_ON_PLAYER
+
+
+def manual_save_refused(live: bool, mirroring: bool, bench: bool, diorama: bool, suppress: bool) -> bool:
+    """R4 (decision 14): a manual save is refused at both Save sites while a live followed session, the mirror, the selftest bench (L,
+    M and B are SpectatorField's terms), a booted diorama or SuppressEncounters (S: it holds through the ~2.3 s link stall while L
+    flickers false) says so. A host reads all five false."""
+    return bool(live or mirroring or bench or diorama or suppress)
+
+
+#: [ff9mapkit netsync s165] R4's verdicts (NetSyncWorldFollow.SaveGuardStep: allow / refuse / would_save) and the words of its first
+#: refusing term, L M B D S in order (SaveWhyText: `netsync.saveguard.last_why` and the line's parenthesis)
+SAVE_ALLOW, SAVE_REFUSE, SAVE_WOULD_SAVE = 0, 1, 2
+SAVE_WHY_TEXTS = ("a live co-op session", "mirroring the host's story", "the selftest bench", "a diorama is booted",
+                  "the co-op link is holding")
+
+
+def save_guard_step(live: bool, mirroring: bool, bench: bool, diorama: bool, suppress: bool, lever_old: bool) -> int:
+    """NetSyncWorldFollow.SaveGuardStep: SAVE_ALLOW unless :func:`manual_save_refused`; under `saveguard old` (DRY) a save s164's own
+    gate (M or D) would have taken reads SAVE_WOULD_SAVE -- counted in `would_save` INSTEAD of `refused`, and still refused (no slot
+    is written); every other refusal SAVE_REFUSE (`refused`)."""
+    if not manual_save_refused(live, mirroring, bench, diorama, suppress):
+        return SAVE_ALLOW
+    if lever_old and not (mirroring or diorama):
+        return SAVE_WOULD_SAVE
+    return SAVE_REFUSE
+
+
+def save_why_text(live: bool, mirroring: bool, bench: bool, diorama: bool, suppress: bool) -> str | None:
+    """NetSyncWorldFollow.SaveWhyText: the FIRST refusing term in words (None = not refused)."""
+    return next((t for t, v in zip(SAVE_WHY_TEXTS, (live, mirroring, bench, diorama, suppress)) if v), None)
+
+
+def navi_get_pos(x: float, z: float, mapno: int) -> tuple:
+    """ff9.w_naviGetPos (the mode argument unused; it branches on the GUEST's own mapno): mapno 1 the whole torus (x / 1536,
+    1 + z / 1280), mapno 0 the disc-1 Mist window -- a host outside it maps outside [0, 1]."""
+    if int(mapno) == 1:
+        return float(x) / TORUS_W, 1.0 - (-float(z)) / TORUS_H
+    x0, xw, z0, zh = MIST_WINDOW
+    return (float(x) - x0) / xw, 1.0 - (-float(z) - z0) / zh
+
+
+def _outside(v: float) -> float:
+    return -v if v < 0.0 else (v - 1.0 if v > 1.0 else 0.0)
+
+
+def dot_map_pos(x: float, z: float, mapno: int) -> tuple:
+    """The dot's place on the guest's own map image (decision 12): (sx, sy, edge). On the Mist window (mapno 0) a host outside the
+    window pins to its edge on the side where it really is -- x + 1536 when that lands nearer the window (the bench's landing at
+    x 68 is just EAST of the right edge, never at the left) -- and reads ``edge``; on the whole torus nothing pins."""
+    sx, sy = navi_get_pos(x, z, mapno)
+    if int(mapno) == 1:
+        return sx, sy, False
+    if float(x) < MIST_WINDOW[0]:
+        ux, _ = navi_get_pos(float(x) + TORUS_W, z, mapno)
+        if _outside(ux) < _outside(sx):
+            sx = ux
+    cx, cy = min(1.0, max(0.0, sx)), min(1.0, max(0.0, sy))
+    return cx, cy, (cx, cy) != (sx, sy)
+
+
+def dot_rotation(yaw_byte: int) -> float:
+    """The dot's z rotation from the host's facing byte: stock's player pointer formula with rot1 = b72 * 360 / 256."""
+    return -(int(yaw_byte) & 0xFF) * 360.0 / 256.0 - 90.0
+
+
+def map_band(story: int) -> int:
+    """The minimap's map number for a story counter: 1 (the whole torus) from WORLD_MAP_BAND, else 0 (the Mist window)."""
+    return 1 if int(story) >= WORLD_MAP_BAND else 0

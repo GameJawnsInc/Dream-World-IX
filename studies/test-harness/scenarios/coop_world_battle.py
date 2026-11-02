@@ -217,6 +217,14 @@ clause is not judged on an engine with no `netsync.swap.arrive` (any engine befo
 calibration prediction stands) or on the stand-in, which numbers no landing. coop_world_wait.py's docstring has the full
 statement. The decline leg's rejoin into 300 is not gated: its window is cut at the rejoin, and it judges no rejoin row.
 
+[ff9mapkit netsync s165] THE REGRESSION RE-KEY (S165-DESIGN.md "Regression"; the critic's G13; coop_world_wait.follow_off): from s165 a
+following, mirroring guest follows the host OUT onto the world map (R1) and the dot's minimap-off hint replaces the world-map waiting
+line (R2). The legs that test s145 from the guest's OWN exit -- T2 `battle` and `decline` (the guest waits on 6603, then walks out
+itself) and the duo (D1 / D2) -- send their GUEST `netsync worldfollow off` and `dot off` when its probe shows `netsync.world.out`, read
+back off / off, so they run byte-identical to s164 (re-keyed by stage, never weakened); the re-key folds into the leg's instrument row
+(WB-I / WD-I, D0). An engine without the key is sent NOTHING. The solo leg and the held leg need none (no host frame on the selftest
+role; the held host never leaves 6603).
+
 SWIRL-HANG (decision 11): wherever a leg starts a battle or boots a diorama from the world map, a game that goes QUIET with its
 last state on SwirlScene (no publish for QUIET_S) is an INSTRUMENT row (<PFX>-SWIRL, its detail 'SWIRL-HANG'): Memoria.log and
 output_log.txt archived into the run dir, a frame grabbed (tools/game_snap.ps1 -Id <the game's pid>), the leg stopped (the rows
@@ -771,9 +779,14 @@ def judge_probe(st, lines) -> tuple:
     world = cb.path(st, "netsync.world") or {}
     top = list(cb.raw(st))
     wkeys = list(cb.raw(st).get("world") or {})
-    keys_ok = (list(world) == list(R.WORLD_SENTINELS) and list(world.get("dio") or {}) == list(R.WORLD_DIO_SENTINELS)
+    # [ff9mapkit netsync s165] BY THE ENGINE'S STAGE: an s165 engine's `world` adds r3 / out / host / dot after `dio`, and the top-level
+    # world block `block_ready` after the six witnesses (the prefix law: s145's keys unmoved)
+    s165 = cb.has(st, "netsync.world.out")
+    want_world = R.WORLD_SENTINELS_S165 if s165 else R.WORLD_SENTINELS
+    wit = list(R.WORLD_WITNESS_SENTINELS) + (list(R.WORLD_LIVE_KEYS_S165) if s165 else [])
+    keys_ok = (list(world) == list(want_world) and list(world.get("dio") or {}) == list(R.WORLD_DIO_SENTINELS)
                and "gmode" in top and "prev_mode" in top and top.index("prev_mode") == top.index("gmode") + 1
-               and wkeys[-len(R.WORLD_WITNESS_SENTINELS):] == list(R.WORLD_WITNESS_SENTINELS))
+               and wkeys[-len(wit):] == wit)
     proofs = [(R.PROOF_WORLD_DIORAMA, R.WORLD_DIORAMA_SELFTEST_ROWS), (R.PROOF_WORLD_WATCHER, R.WORLD_WATCHER_SELFTEST_ROWS),
               (R.PROOF_WORLD_FREEZE, R.world_freeze_selftest_rows(145)), (R.PROOF_WATCH, R.watch_selftest_rows(145))]
     seen = {head.split(":")[0]: cb.count(lines, R.proof_ok(head, n)) for head, n in proofs}
@@ -2299,6 +2312,7 @@ class _T2:
         self.hung = None
         self.probs = None                                  # [fix1] the encounter-rate oracle (world_prob_oracle)
         self.probs_from = None
+        self.rekey = None                                  # [ff9mapkit netsync s165] cw.follow_off's (ok, note): battle / decline
 
 
 def _run_t2(g, leg: str) -> None:
@@ -2334,6 +2348,8 @@ def _run_t2(g, leg: str) -> None:
 
 
 def _t2_teardown(g, led: cb.Ledger, ctx: _T2, leg: str) -> None:
+    if ctx.rekey is not None and "sent" in ctx.rekey[1]:
+        _note(g, f"s165 re-key teardown: {cw.follow_clear(g)}")     # [ff9mapkit netsync s165]
     if ctx.peer is not None and ctx.peer.how_ended is None:
         _note(g, f"coop_peer replay-host: {ctx.peer.stop()}")
     if "T2-SAVE" not in led.done:
@@ -2512,6 +2528,9 @@ def _t2(g, led: cb.Ledger, ctx: _T2, leg: str) -> None:
                                     f"{pb.show(pb.hits(ctx.eng.lines(), 'config'))})")
         led.close("not reached: the guest config never applied")
         return
+    if worldtape:
+        ctx.rekey = cw.follow_off(g)       # [ff9mapkit netsync s165] THE RE-KEY: a client now, before the replay (<P>-I judges it)
+        _note(g, ctx.rekey[1])
     # E. the replay-host: the whole tape, holding at its end
     rd = _run_dir(g)
     args = [ctx.tape, "--port", str(PORT), "--code", CODE, "--at-end", "hold"]
@@ -2577,7 +2596,9 @@ def _t2_setup(g, led: cb.Ledger, ctx: _T2, leg: str, p: str) -> bool:
            + (f"the host's world exit {'at ' + gate.strftime('%H:%M:%S') if gate else 'NEVER on the peer log'}; "
               if leg != "held" else "the host stays on 6603; ")
            + f"the guest on {before[-1].ui_state if before else '?'} {before[-1].field_id if before else ''}")
-    if not (gate is not None and paired and armed and on6603):
+    rk_ok, rk_why = ctx.rekey if ctx.rekey is not None else (True, "")      # [ff9mapkit netsync s165] THE RE-KEY folds in here
+    why += f"; {rk_why}" if rk_why else ""
+    if not (gate is not None and paired and armed and on6603 and rk_ok):
         led.check(f"{p}-I", False, why)
         led.unreached(rows, f"the instrument is untrustworthy on this run ({p}-I)")
         return False
@@ -2938,6 +2959,10 @@ def run_duo(d) -> None:
         rest(f"the duo raised ({str(err)[:200]})")
     finally:
         check("S145-D-SWIRL", hung[0] is None, hung[0] or "neither game's battle start hung in the swirl")
+        try:
+            d.note(f"s165 re-key teardown: {cw.follow_clear(d.guest)}")     # [ff9mapkit netsync s165]
+        except HarnessError:
+            pass
         if calibrate:
             try:
                 stage = stage_of(d.guest.state)
@@ -2960,8 +2985,10 @@ def _duo(d, check, rest) -> None:
     d.note(f"the encounter-rate oracle (the guest's install): {probs_from}")
     both = (host.state.ui_state == "FieldHUD" and host.state.field_id == FARSHORE and gst.ui_state == "FieldHUD"
             and gst.field_id == FARSHORE and _s(gst, "mirroring") is True)
-    check("S145-D0", both, f"host {host.state.ui_state} {host.state.field_id}; guest {gst.ui_state} {gst.field_id}, "
-                           f"mirroring {_s(gst, 'mirroring')!r}")
+    rekey = cw.follow_off(guest)                           # [ff9mapkit netsync s165] THE RE-KEY, before the host's walk out
+    check("S145-D0", both and rekey[0], f"host {host.state.ui_state} {host.state.field_id}; guest {gst.ui_state} {gst.field_id}, "
+                                        f"mirroring {_s(gst, 'mirroring')!r}; {rekey[1]}")
+    both = both and rekey[0]
     if not both:
         rest("the pair is not on 6603 (D0)")
         return

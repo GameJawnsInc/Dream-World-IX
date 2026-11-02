@@ -184,8 +184,10 @@ def _solo(g, fake) -> dict:
         lines = [BW.proof_ok(BW.PROOF_WORLD_FREEZE, BW.world_freeze_selftest_rows(145)),
                  BW.proof_ok(BW.PROOF_WORLD_DIORAMA, BW.WORLD_DIORAMA_SELFTEST_ROWS),
                  BW.proof_ok(BW.PROOF_WORLD_WATCHER, BW.WORLD_WATCHER_SELFTEST_ROWS)]
+        # [ff9mapkit netsync s165] an s165 stand-in's world block ends `block_ready` after the six witnesses (the prefix law)
+        wit = list(BW.WORLD_WITNESS_SENTINELS) + (list(BW.WORLD_LIVE_KEYS_S165) if a.coop_world_follow else [])
         ok = (isinstance(nothing, dict) and list(nothing) == list(BW.WORLD_DIO_SENTINELS) and a.coop_world_dio is True
-              and world[-6:] == list(BW.WORLD_WITNESS_SENTINELS) and isinstance(a.prev_mode, int)
+              and world[-len(wit):] == wit and isinstance(a.prev_mode, int)
               and isinstance(a.world_mapvar, str) and len(a.world_mapvar) == 160 and all(ln in proof for ln in lines)
               and "selftest: FAIL" not in proof)
         return ok, f"dio {nothing}, world keys {world}, prev_mode {a.prev_mode!r}"
@@ -615,9 +617,14 @@ def test_the_stand_in_publishes_the_s145_keys_and_none_on_s144(tmp_path):
         st = g.wait_for(lambda s: s.gmode == 1, timeout=4.0, what="gMode 1")
         raw = list(st.raw)
         assert raw[raw.index("gmode") + 1] == "prev_mode"
-        assert list(st.raw["world"])[-11:] == list(BW.WORLD_LIVE_KEYS_S144) + list(BW.WORLD_WITNESS_SENTINELS)
+        # [ff9mapkit netsync s165] the s145 keys where s145 put them; an s165 stand-in appends `block_ready` after them and r3 / out /
+        # host / dot after `dio` (the prefix law)
+        tail = list(BW.WORLD_LIVE_KEYS_S165) if st.coop_world_follow else []
+        wkeys = list(st.raw["world"])
+        assert wkeys[len(wkeys) - len(tail) - 11:] == list(BW.WORLD_LIVE_KEYS_S144) + list(BW.WORLD_WITNESS_SENTINELS) + tail
         assert {k: st.raw["world"][k] for k in BW.WORLD_WITNESS_SENTINELS} == BW.WORLD_WITNESS_SENTINELS   # off the world map
-        assert list(st.netsync["world"]) == list(BW.WORLD_SENTINELS) and st.world_dio_lever == "on"
+        assert list(st.netsync["world"])[:len(BW.WORLD_SENTINELS)] == list(BW.WORLD_SENTINELS) and st.world_dio_lever == "on"
+        assert list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S165 if st.coop_world_follow else BW.WORLD_SENTINELS)
         fake.enter_world(9011, 100.0, 100.0)
         st = g.wait_for(lambda s: s.gmode == 3 and s.world_ticks is not None and s.world_ticks > 0, timeout=4.0, what="world")
         assert st.prev_mode == 1 and st.world_battle_prob == FG.FAKE_WORLD_BATTLE_PROB_INIT and st.world_ctl == 0

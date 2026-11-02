@@ -1240,3 +1240,775 @@ def test_each_twin_mutant_turns_an_engine_row_red(monkeypatch, kind, name, mutan
 
 def test_every_pure_twin_has_a_mutant():
     assert {m[1] for m in TWIN_MUTANTS} == set(_O)
+
+
+# ================================================================================================ [ff9mapkit netsync s165]
+# THE GUEST FOLLOWS THE HOST OUT, RUNG 1 (studies/world-coop/S165-DESIGN.md) -- the kit half of H. Three kinds of pin:
+#   * THE CONTRACT (never skipped): battlewire's sentinels / vocabularies ARE the harness contract both lanes build to, stated here
+#     as literals; the stand-in's `worldfollow` rung publishes them at their shapes and none on s164's stand-in.
+#   * THE STAND-IN BENCH (never skipped): the solo leg (the selftest role, bench on, FollowHost set) through the real Session -- every
+#     row green on the stand-in, each fault lever (FG.WORLD_FOLLOW_FAULTS) turns EXACTLY its WF_FAULT_REDS rows red, the s164 stand-in
+#     reads WF_OLD_PREDICTED.
+#   * THE ENGINE'S CALL SITES (SKIPPED until the s165 patch is on this branch's stack: the engine lane builds concurrently and the
+#     integration step emits the patch, which un-skips them -- or opt in with FF9_S165_CLONE=<the clone's Assembly-CSharp> to pin a
+#     clone mid-build; never read by default: the shared clone holds whatever round another session builds).
+import os                                                            # noqa: E402
+
+S165_TAG = "[ff9mapkit netsync s165]"
+S165_CLONE_ENV = "FF9_S165_CLONE"
+WF_LANDING, WF_TILE = (68.0, -444.0), (1197.37, -796.7)               # coop_world_wait.FS_LANDING / ICE_TILE
+
+#: THE CONTRACT, as the round's task states it (protocol 5, additive) -- the literal battlewire must equal, key order included
+CONTRACT_WORLD_OUT = {"lever": None, "hold": False, "state": None, "why": None, "world": -1, "from": -1, "debounce_ms": 0,
+                      "starts": 0, "commits": 0, "lands": 0, "lost": 0, "superseded": 0, "refused": 0, "substituted": 0,
+                      "entrance_fix": 0, "veg_zeroed": 0, "last": None}
+CONTRACT_WORLD_OUT_LAST = ("world", "frame", "x", "z", "start_to_land_ms", "drift_u")
+CONTRACT_WORLD_HOST = {"valid": False, "why": None, "x": None, "y": None, "z": None, "yaw": None, "mode": -1, "idx": -1, "story": -1,
+                       "entrance": -1, "veg": -1, "hb": -1, "hb_age_ms": -1, "b6": False, "b1": False, "intent_unlanded": False,
+                       "payload_age_ms": -1}
+CONTRACT_WORLD_DOT = {"lever": None, "want": False, "why_not": None, "shown": False, "minimap": False, "hud": None, "navi_mode": -1,
+                      "mapno": -1, "host_x": None, "host_z": None, "host_face": None, "host_idx": -1, "own_idx": -1, "own_world": -1,
+                      "host_sc": -1, "sx": None, "sy": None, "edge": False, "px": None, "py": None, "rot": None, "own_px": None,
+                      "own_py": None, "screen_x": None, "screen_y": None, "age_ms": -1, "hb_age_ms": -1, "frames": 0, "shows": 0,
+                      "hides": 0, "faults": 0, "last_fault": None, "census": None}
+CONTRACT_DOT_CENSUS = ("sprite", "atlas", "depth", "cone_depth", "image_depth", "color", "w", "h", "scale", "colliders", "panel_clip")
+CONTRACT_WORLD_R3 = {"lever": None, "arms_from_9012": 0}
+CONTRACT_SAVEGUARD = {"refused": 0, "would_save": 0, "lever": None, "last_why": None}
+CONTRACT_HOST = {"world": {"b6": False, "rise_frame": -1, "rise_block_ready": None, "wmapjumps": 0}}
+CONTRACT_OPS = ("off", "on", "hold", "release", "dot", "r3", "saveguard", "host", "clear")
+
+
+def test_the_s165_contract_is_battlewires_to_the_key():
+    """Each s165 block's catch-line sentinels, key ORDER included (json text): `netsync.world` gains r3, out, host, dot after `dio`;
+    `netsync` gains saveguard and host after `swap`; the top-level world block `block_ready` after `mapvar`."""
+    for got, want in ((BW.WORLD_OUT_SENTINELS, CONTRACT_WORLD_OUT), (BW.WORLD_HOST_SENTINELS, CONTRACT_WORLD_HOST),
+                      (BW.WORLD_DOT_SENTINELS, CONTRACT_WORLD_DOT), (BW.WORLD_R3_SENTINELS, CONTRACT_WORLD_R3),
+                      (BW.SAVEGUARD_SENTINELS, CONTRACT_SAVEGUARD), (BW.HOST_SENTINELS, CONTRACT_HOST)):
+        assert json.dumps(got) == json.dumps(want), (got, want)
+    assert BW.WORLD_OUT_LAST_KEYS == CONTRACT_WORLD_OUT_LAST and BW.WORLD_DOT_CENSUS_KEYS == CONTRACT_DOT_CENSUS
+    assert list(BW.WORLD_SENTINELS_S165) == ["freeze", "rejoin", "waitline", "dio", "r3", "out", "host", "dot"]
+    assert {k: v for k, v in BW.WORLD_SENTINELS_S165.items() if k not in BW.WORLD_S165_KEYS} == BW.WORLD_SENTINELS   # the prefix law
+    assert BW.NETSYNC_TOP_KEYS_S165 == ("saveguard", "host") and BW.WORLD_LIVE_KEYS_S165 == ("block_ready",)
+    assert BW.WORLDFOLLOW_OPS == CONTRACT_OPS and BW.SAVEMENU_VERB == "savemenu"
+    assert set(BW.WORLDFOLLOW_GUEST_OPS) | set(BW.WORLDFOLLOW_BENCH_OPS) | set(BW.WORLDFOLLOW_ANY_OPS) == set(CONTRACT_OPS)
+    assert BW.WORLD_OUT_STATES == ("idle", "waiting", "fading", "committed", "landed") and BW.WORLD_OUT_FRAMES == ("latest", "pin",
+                                                                                                                "seed")
+    # the log lines' exact prefixes (the bench greps) and the proof line's regex (two lines, or one combined)
+    assert (BW.LOG_WORLD_OUT_START, BW.LOG_WORLD_OUT_COMMIT, BW.LOG_WORLD_OUT_LANDED, BW.LOG_WORLD_OUT_LOST,
+            BW.LOG_WORLD_OUT_SUPERSEDED, BW.LOG_WORLD_OUT_WAITS) == (
+        "world follow-out: start", "world follow-out: commit", "world follow-out: landed on world map ", "world follow-out: lost",
+        "world follow-out: superseded", "world follow-out: waits: ")
+    assert re.fullmatch(BW.WORLD_FOLLOW_PROOF_RE, "world follow selftest: OK (64 rows, 11 mutants)")
+    assert re.fullmatch(BW.WORLD_FOLLOW_PROOF_RE, "world dot selftest: OK (24 rows, 3 mutants)")
+    assert BW.log_host_world_exit(6603, 9011) == "host: world-map exit from field 6603 to world 9011"
+    assert BW.log_host_on_world(9011, 7, False) == "host: on world map 9011 (b6) at world frame 7, blocks ready no"
+    assert BW.log_save_refused("bench") == "save refused while following your partner (bench)"
+    # the stand-in's aliases ARE battlewire's (one source)
+    assert (FG.NETSYNC_WORLD_OUT_SENTINELS, FG.NETSYNC_WORLD_HOST_SENTINELS, FG.NETSYNC_WORLD_DOT_SENTINELS,
+            FG.NETSYNC_WORLD_R3_SENTINELS, FG.NETSYNC_SAVEGUARD_SENTINELS, FG.NETSYNC_HOST_SENTINELS) == (
+        BW.WORLD_OUT_SENTINELS, BW.WORLD_HOST_SENTINELS, BW.WORLD_DOT_SENTINELS, BW.WORLD_R3_SENTINELS, BW.SAVEGUARD_SENTINELS,
+        BW.HOST_SENTINELS)
+
+
+def test_the_s165_rung_is_the_ladders_last():
+    """`worldfollow` is the ladder's newest rung (patch s165, one sub-verb), its calibration caps_through("swap"); the sub-verb is the
+    driver's and the stand-in's LAST; the keys tables carry its blocks."""
+    rungs = list(FG.NETSYNC_BATTLE_CAPS)
+    assert rungs[-1] == "worldfollow" and FG.NETSYNC_BATTLE_CAPS["worldfollow"] == ("s165", ("worldfollow",))
+    assert FG.NETSYNC_S165_CAPS == frozenset(("worldfollow",)) and "worldfollow" not in FG.caps_through("swap")
+    assert FG.NETSYNC_SUBVERBS[-1] == Session.NETSYNC_SUBVERBS[-1] == Session.NETSYNC_AUTHORITY_SUBVERBS[-1] == "worldfollow"
+    assert "worldfollow" not in FG.netsync_subverbs(FG.caps_through("swap"))
+    assert Session.NETSYNC_WORLDFOLLOW_SUBVERBS["worldfollow"][:3] == ("coop_world_follow", "netsync.world.out", "s165")
+    assert FG.NETSYNC_TOP_CAP_KEYS["worldfollow"] == ("saveguard", "host")
+    assert FG.NETSYNC_TOP_NESTED_KEYS["worldfollow"] == {"world": ("r3", "out", "host", "dot")}
+    assert FG.NETSYNC_BATTLE_CAP_KEYS["worldfollow"] == {}
+    assert FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldfollow"] == tuple(BW.WORLD_SENTINELS_S165)
+    assert FG.NETSYNC_WORLD_KEYS_BY_RUNG["worlddio"] == tuple(BW.WORLD_SENTINELS)          # s145's row unmoved
+
+
+@pytest.mark.parametrize("rule,args,want", [
+    ("world_id_rule", (11, lambda w: True), (9011, None)),
+    ("world_id_rule", (12, lambda w: True), (-1, "event")),            # 9012: an event world (the static set)
+    ("world_id_rule", (13, lambda w: True), (-1, "range")),
+    ("world_id_rule", (11, lambda w: w != 9011), (-1, "unregistered")),
+    ("world_id_rule", (11, lambda w: True, BW.EVENT_WORLD_MAPS, 2), (-1, "changed")),
+    ("entrance_rule", (0,), 35), ("entrance_rule", (9997,), 35), ("entrance_rule", (68,), 68), ("entrance_rule", (9994,), 9994),
+    ("live_debounce_step", (500, 100, 0, True, True), 600),            # host alive: counts
+    ("live_debounce_step", (500, 100, 401, True, True), 500),          # heartbeat frozen (its block load): holds
+    ("live_debounce_step", (500, 100, 0, False, True), 0),             # a b6 fall: restarts
+    ("live_debounce_step", (500, 100, 0, True, False), 0),             # a [102] change: restarts
+    ("world_out_frame_rule", (True, True, 11, 11, 0), ("latest", False)),
+    ("world_out_frame_rule", (True, True, 11, 11, 6), ("latest", True)),   # rides at the seam: the on-foot substitution
+    ("world_out_frame_rule", (True, False, 11, 11, 0), ("pin", False)),
+    ("world_out_frame_rule", (True, True, 2, 11, 0), ("pin", False)),
+    ("world_out_frame_rule", (False, False, -1, 11, 0, False), ("seed", False)),
+    ("event_world_waits_on_player", (9012,), True), ("event_world_waits_on_player", (9001,), False),
+    ("manual_save_refused", (False, False, False, False, True), True),    # S alone refuses (the link stall)
+    ("manual_save_refused", (False, False, False, False, False), False),  # a host
+    ("map_band", (5989,), 0), ("map_band", (5990,), 1),
+])
+def test_the_s165_twins_read_the_designs_rules(rule, args, want):
+    assert getattr(BW, rule)(*args) == want
+
+
+def test_the_dot_pins_the_landing_to_the_mist_windows_east_edge():
+    """Decision 12's seam-aware edge: FS_LANDING (x 68) is just EAST of the Mist window's right edge -- the raw map puts it far LEFT
+    (sx -0.648), the dot pins RIGHT (x + 1536), dimmed; the Ice Cavern tile sits inside the window; the whole torus never pins."""
+    sx, _sy = BW.navi_get_pos(*WF_LANDING, 0)
+    assert round(sx, 3) == -0.648
+    cx, cy, edge = BW.dot_map_pos(*WF_LANDING, 0)
+    assert (cx, edge) == (1.0, True) and 0.0 < cy < 1.0
+    tx, ty, tedge = BW.dot_map_pos(*WF_TILE, 0)
+    assert not tedge and (round(tx, 3), round(ty, 3)) == (0.620, 0.568)
+    assert BW.dot_map_pos(*WF_LANDING, 1)[2] is False
+    assert BW.dot_rotation(64) == -180.0 and BW.dot_rotation(0) == -90.0
+    assert round(BW.world_torus_distance((1530.0, -10.0), (5.0, -10.0)), 6) == 11.0
+    assert round(BW.world_torus_distance(WF_LANDING, WF_TILE), 1) == round(CP.torus_distance(WF_LANDING, WF_TILE), 1) == 538.3
+
+
+def test_the_s164_stand_in_has_no_s165_keys_and_fails_the_verb_closed(tmp_path):
+    """OLD: an s164 engine publishes none of the s165 keys, answers `netsync worldfollow` with its unknown-sub-verb line (the driver
+    refuses before the step), and has no `savemenu` verb."""
+    game = _game(tmp_path)
+    fake = _fake(game, caps=FG.caps_through("swap"))
+    with _session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(6603)
+        st = g.state
+        assert "saveguard" not in st.netsync and "host" not in st.netsync and list(st.netsync)[-1] == "swap"
+        assert list(st.netsync["world"]) == list(BW.WORLD_SENTINELS) and "block_ready" not in st.raw["world"]
+        assert st.coop_world_follow is False and st.world_out_block is None and st.saveguard_block is None
+        assert st.world_block_ready is None and st.host_world_block is None
+        with pytest.raises(HarnessError, match="publishes no `netsync.world.out`"):
+            g.worldfollow("off")
+        with pytest.raises(HarnessError, match="no `savemenu` verb"):
+            g.savemenu()
+    with pytest.raises(RuntimeError, match="unknown sub-verb 'worldfollow'"):
+        fake._netsync(["worldfollow", "off"])
+
+
+def test_the_stand_in_publishes_the_s165_keys_at_their_shapes(tmp_path):
+    """The default stand-in (the s165 rung): `netsync.world` ends r3, out, host, dot -- each block's keys the contract's, in order --
+    `netsync` ends swap, saveguard, host; the top-level world block's last key is `block_ready` (false on a field, true on the live
+    world map); the levers read their at-rest words."""
+    game = _game(tmp_path)
+    fake = _fake(game)
+    with _session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(6603)
+        st = g.state
+        assert list(st.netsync)[-3:] == ["swap", "saveguard", "host"] and list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S165)
+        w = st.netsync["world"]
+        for key, want in (("r3", CONTRACT_WORLD_R3), ("out", CONTRACT_WORLD_OUT), ("host", CONTRACT_WORLD_HOST),
+                          ("dot", CONTRACT_WORLD_DOT)):
+            assert list(w[key]) == list(want), key
+        assert list(st.netsync["saveguard"]) == list(CONTRACT_SAVEGUARD)
+        assert {k: list(v) for k, v in st.netsync["host"].items()} == {"world": list(CONTRACT_HOST["world"])}
+        assert (w["out"]["lever"], w["out"]["state"], w["dot"]["lever"], w["r3"]["lever"], st.saveguard_block["lever"]) == \
+            ("on", "idle", "on", "act", "act")
+        assert list(st.raw["world"])[-1] == "block_ready" and st.world_block_ready is False and st.coop_world_follow is True
+        _to_world(g, fake)
+        assert g.state.world_block_ready is True
+
+
+def test_worldfollow_refuses_in_the_contracts_order_on_the_stand_in(tmp_path):
+    """The verb's refusals: the driver refuses a malformed form before the step (the usage line); the engine's own refusals come back
+    from the step -- a guest lever off a client / the selftest role, the bench host off the selftest role with the bench on, the bench
+    host without FollowHost set; `clear` on any role; every lever is released with the harness (one line, only when one was set)."""
+    game = _game(tmp_path)
+    fake = _fake(game)
+    with _session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(6603)
+        for bad in (("bogus",), ("dot",), ("dot", "maybe"), ("off", "1"), ("host", "x", "1"), ("host", "1"), ("r3", "new")):
+            with pytest.raises(HarnessError, match="expected off\\|on\\|hold\\|release"):
+                g.worldfollow(*bad)
+        fake.netsync.update(enabled=True, role="host", instance=True)
+        with pytest.raises(HarnessError, match=re.escape(BW.worldfollow_role_refusal("hold"))):
+            g.worldfollow("hold")
+        g.worldfollow("clear")                                     # any role
+        fake.netsync.update(enabled=False, role="selftest")         # the host session gone
+        g.netsync("selftest", 1)
+        with pytest.raises(HarnessError, match=re.escape(BW.WORLDFOLLOW_BENCH_REFUSAL)):
+            g.worldfollow("host", 100, -100)
+        g.netsync("bench", 1)
+        with pytest.raises(HarnessError, match="needs FollowHost set and SuppressEncounters true"):
+            g.worldfollow("host", 100, -100)
+        before = _log(fake).count(BW.LOG_WORLDFOLLOW_RELEASED)
+        g.worldfollow("off")
+        g.worldfollow("dot", "off")
+        g.worldfollow("r3", "old")
+        g.worldfollow("saveguard", "old")
+        g.worldfollow("hold")
+        out = g.state.world_out_block
+        assert (out["lever"], out["hold"], g.state.world_dot_block["lever"], g.state.world_r3_block["lever"],
+                g.state.saveguard_block["lever"]) == ("off", True, "off", "old", "old")
+        g.netsync("selftest", 0)                                    # the harness release, every role
+        g.wait_frames(4)
+        st = g.state
+        assert (st.world_out_block["lever"], st.world_out_block["hold"], st.world_dot_block["lever"], st.world_r3_block["lever"],
+                st.saveguard_block["lever"]) == ("on", False, "on", "act", "act")
+        assert _log(fake).count(BW.LOG_WORLDFOLLOW_RELEASED) == before + 1
+        g.netsync("selftest", 0)                                    # nothing set: no second line
+        assert _log(fake).count(BW.LOG_WORLDFOLLOW_RELEASED) == before + 1
+
+
+# ------------------------------------------------------------------------------------------------ the stand-in bench (solo + R3 + host)
+WF_DEBOUNCE_FRAMES = 1000           # > the live debounce's 1200 ms at the stand-in's 600 fps
+WF_FADE_FRAMES = 300                # the bench's follow-out fade (0.5 s at 600 fps: room to act inside it)
+WF_ROWS = ("WF-PROOF", "WF-RIDES", "WF-CHOCO", "WF-EVENT", "WF-RANGE", "WF-ETB", "WF-LEVER", "WF-HOLD", "WF-DEBOUNCE",
+           "WF-SUPERSEDE", "WF-ONFOOT", "WF-LEAVE", "WF-POSE", "WF-ENTRANCE", "WF-FROZEN", "WF-BLOCK", "WF-DOT", "WF-DOT-EDGE",
+           "WF-DOT-STALE", "WF-DOT-NOB6", "WF-DOT-OTHER", "WF-DOT-LEVER", "WF-R4", "WF-R4-DRY", "WF-R4-S", "WF-RELEASE", "WF-R3",
+           "WF-HOST")
+
+
+def _wf_out(st, key):
+    return (st.world_out_block or {}).get(key)
+
+
+def _wf_dot(st, key):
+    return (st.world_dot_block or {}).get(key)
+
+
+def _wf_bench(root, faults=(), caps=None) -> dict:
+    """THE s165 STAND-IN BENCH: the solo leg (newgame, 6603, the selftest role under `bench 1`, FollowHost set), the R3 client leg and
+    the host leg -- each row judged on what the stand-in publishes and logs. -> {red, rows}."""
+    game = _game(root)
+    fake = _fake(game, caps=caps)
+    fake.world_follow_faults = set(faults)
+    fake.world_out_fade_frames = WF_FADE_FRAMES
+    led = _Rows()
+    with _session(game, fake) as g:
+        g.newgame(settle=0)
+        g.warp(6603)
+        g.netsync("selftest", 1)
+        g.netsync("bench", 1)
+        fake.wf_follow_host_cfg = True
+
+        def n(key):
+            return _wf_out(g.state, key) or 0
+
+        def back():
+            try:
+                g.worldfollow("host", "off")
+            except HarnessError:
+                pass
+            fake.texts = []
+            st = g.state
+            if not (st.on_field and st.field_id == 6603):
+                g.warp(6603)
+                g.wait_frames(10)
+
+        def proof():
+            log = _log(fake)
+            ok = bool(re.search(r"world follow selftest: OK \(\d+ rows, \d+ mutants\)", log)) and "world dot selftest: OK" in log
+            return ok, "the proof block's s165 lines " + ("read OK" if ok else "are missing or FAIL")
+        led.row("WF-PROOF", proof)
+
+        def refused(args, why, setup=None, logged=True):
+            def run():
+                s0 = n("starts")
+                if setup is not None:
+                    setup()
+                g.worldfollow("host", *args)
+                g.wait_frames(WF_DEBOUNCE_FRAMES)
+                st = g.state
+                ok = (st.on_field and st.field_id == 6603 and _wf_out(st, "why") == why and n("starts") == s0
+                      and (not logged or "[NetSync] " + BW.log_world_out_waits(why) in _log(fake)))
+                detail = f"{st.ui_state} {st.field_id}, why {_wf_out(st, 'why')!r} (want {why!r}), starts {s0}->{n('starts')}"
+                back()
+                return ok, detail
+            return run
+        # [ff9mapkit netsync s165 B1] the ENGINE's `why` tokens (NetSyncWorldFollow.WhyName: BW.WORLD_OUT_WHYS)
+        led.row("WF-RIDES", refused((*WF_TILE, 11, 6), "riding"))
+        led.row("WF-CHOCO", refused((*WF_TILE, 11, 0, 35, 3), "choco_call"))
+        led.row("WF-EVENT", refused((*WF_TILE, 12), "event_world"))
+        led.row("WF-RANGE", refused((*WF_TILE, 13), "idx_range"))
+        led.row("WF-ETB", refused(WF_TILE, "line", setup=lambda: setattr(fake, "texts", ["A line is open."])))
+
+        def lever(op_on, op_off, why):
+            def run():
+                g.worldfollow(op_off)
+                try:
+                    return refused(WF_TILE, why)()
+                finally:
+                    g.worldfollow(op_on)
+            return run
+        led.row("WF-LEVER", lever("on", "off", "lever"))
+        led.row("WF-HOLD", lever("release", "hold", "hold"))
+
+        def debounce():
+            s0 = n("starts")
+            g.worldfollow("host", *WF_TILE)
+            g.worldfollow("host", "stale")                          # the host's heartbeat frozen: its own block load
+            g.wait_frames(WF_DEBOUNCE_FRAMES)
+            st = g.state
+            ok = st.on_field and _wf_out(st, "why") == "debounce" and n("starts") == s0
+            detail = f"{st.ui_state} {st.field_id}, why {_wf_out(st, 'why')!r}, debounce {_wf_out(st, 'debounce_ms')} ms"
+            back()
+            return ok, detail
+        led.row("WF-DEBOUNCE", debounce)
+
+        def fading():
+            return g.wait_for(lambda s: _wf_out(s, "state") == "fading", timeout=8.0, what="the follow-out's fade")
+
+        def supersede():
+            s0 = n("superseded")
+            g.worldfollow("host", *WF_TILE)
+            fading()
+            fake.world_out_host_intent(250)                          # the host's MAPJUMP off the world map: its intent...
+            g.worldfollow("host", "nob6")                            # ...and its b6 falls
+            g.wait_frames(WF_FADE_FRAMES + 60)
+            st = g.state
+            ok = n("superseded") == s0 + 1 and st.on_field and st.field_id == 6603 and _wf_out(st, "state") == "idle" \
+                and BW.LOG_WORLD_OUT_SUPERSEDED in _log(fake)
+            detail = f"superseded {s0}->{n('superseded')}, {st.ui_state} {st.field_id}, state {_wf_out(st, 'state')!r}"
+            back()
+            return ok, detail
+        led.row("WF-SUPERSEDE", supersede)
+
+        def onfoot():
+            s0 = n("substituted")
+            g.worldfollow("host", *WF_TILE)
+            fading()
+            g.worldfollow("host", 500.0, -500.0, 11, 6)              # the host mounts inside the guest's fade
+            st = g.wait_for(lambda s: s.on_world, timeout=8.0, what="the landing")
+            g.wait_frames(10)
+            st = g.state
+            d = CP.torus_distance((st.world_x, st.world_z), WF_TILE)
+            ok = n("substituted") == s0 + 1 and d <= 1.0 and st.vehicle == 0
+            detail = f"substituted {s0}->{n('substituted')}, at ({st.world_x}, {st.world_z}) {d:.1f}u from the tile, vehicle {st.vehicle}"
+            back()
+            return ok, detail
+        led.row("WF-ONFOOT", onfoot)
+
+        landed = {}
+
+        def leave():
+            s0, c0, l0, e0 = n("starts"), n("commits"), n("lands"), n("entrance_fix")
+            g.worldfollow("host", *WF_TILE, 11, 0, 0)                # FieldEntrance 0: the dispatcher default would reset the walker
+            st = g.wait_for(lambda s: s.on_world, timeout=10.0, what="the follow-out's landing")
+            g.wait_frames(20)
+            st = g.state
+            landed.update(st=st, e0=e0)
+            log = _log(fake)
+            ok = (st.world_id == 9011 and _wf_out(st, "state") == "landed" and (n("starts"), n("commits"), n("lands")) ==
+                  (s0 + 1, c0 + 1, l0 + 1) and all(p in log for p in (BW.LOG_WORLD_OUT_START, BW.LOG_WORLD_OUT_COMMIT,
+                                                                       BW.LOG_WORLD_OUT_LANDED + "9011")))
+            return ok, (f"world {st.world_id}, state {_wf_out(st, 'state')!r}, starts/commits/lands {s0}/{c0}/{l0} -> "
+                        f"{n('starts')}/{n('commits')}/{n('lands')}")
+        led.row("WF-LEAVE", leave)
+
+        def pose():
+            st = landed["st"]
+            last = _wf_out(st, "last") or {}
+            d = CP.torus_distance((st.world_x, st.world_z), WF_TILE)
+            return d <= 1.0 and last.get("frame") == "latest", f"at ({st.world_x}, {st.world_z}) {d:.1f}u from the tile, last {last}"
+        led.row("WF-POSE", pose)
+
+        def entrance():
+            st = landed["st"]
+            return (n("entrance_fix") == landed["e0"] + 1 and st.field_entrance == 35,
+                    f"entrance_fix {landed['e0']}->{n('entrance_fix')}, FieldEntrance {st.field_entrance}")
+        led.row("WF-ENTRANCE", entrance)
+
+        def frozen():
+            _st, moved = _hold_up(g)
+            on = (_w(g.state, "freeze.on") is True)
+            return on and moved < 2.0, f"freeze.on {on}, a hold up moved {moved:.2f}u"
+        led.row("WF-FROZEN", frozen)
+
+        def block():
+            st = g.state
+            return st.world_block_ready is True, f"world.block_ready {st.world_block_ready!r}"
+        led.row("WF-BLOCK", block)
+
+        if g.state.on_world and g.state.raw.get("world", {}).get("id") and fake.world_hud_state != "HUD":
+            fake._world_key("select")                                # the minimap on (a New Game's world lands without it)
+
+        def dot(args, check):
+            def run():
+                if g.state.ui_state != "WorldHUD":
+                    return False, f"not on the world map ({g.state.ui_state})"
+                for a in args:
+                    g.worldfollow("host", *a)
+                g.wait_frames(800)
+                st = g.state
+                ok, why = check(st.world_dot_block or {}, st)
+                return ok, why
+            return run
+
+        def dot_self(d, st):
+            ok = (d.get("shown") is True and d.get("why_not") is None and d.get("census") is not None and d.get("edge") is False
+                  and abs((d.get("px") or 0) - (d.get("own_px") or -9)) < 0.5 and abs((d.get("py") or 0) - (d.get("own_py") or -9)) < 0.5)
+            return ok, f"shown {d.get('shown')}, why_not {d.get('why_not')!r}, px/py {d.get('px')}/{d.get('py')} own {d.get('own_px')}/{d.get('own_py')}"
+        led.row("WF-DOT", dot([("self",)], dot_self))
+
+        def dot_edge(d, st):
+            ok = d.get("shown") is True and d.get("edge") is True and d.get("px") == FG.FAKE_MINIMAP_SIZE[0] and (d.get("sx") or 0) < 0
+            return ok, f"shown {d.get('shown')}, edge {d.get('edge')}, sx {d.get('sx')}, px {d.get('px')}"
+        led.row("WF-DOT-EDGE", dot([WF_LANDING], dot_edge))
+
+        def why_not(want):
+            def check(d, st):
+                return d.get("why_not") == want and d.get("shown") is False, f"why_not {d.get('why_not')!r} (want {want!r})"
+            return check
+        led.row("WF-DOT-STALE", dot([("self",), ("stale",)], why_not("stale")))
+        led.row("WF-DOT-NOB6", dot([("self",), ("nob6",)], why_not("no_b6")))      # [ff9mapkit netsync s165 B1] the engine's token
+        led.row("WF-DOT-OTHER", dot([(*WF_TILE, 2)], why_not("other_world")))
+
+        def dot_lever():
+            if g.state.ui_state != "WorldHUD":
+                return False, "not on the world map"
+            g.worldfollow("host", "self")
+            g.worldfollow("dot", "off")
+            g.wait_frames(30)
+            off = dict(g.state.world_dot_block or {})
+            g.worldfollow("dot", "on")
+            g.wait_frames(30)
+            on = dict(g.state.world_dot_block or {})
+            ok = off.get("why_not") == "lever" and off.get("shown") is False and on.get("shown") is True
+            return ok, f"off: why_not {off.get('why_not')!r} shown {off.get('shown')}; on: shown {on.get('shown')}"
+        led.row("WF-DOT-LEVER", dot_lever)
+
+        # [ff9mapkit netsync s165] the engine's counting (BW.save_guard_step): a dry would-save counts in `would_save` INSTEAD of
+        # `refused`; `last_why` is SaveWhyText's words (BW.SAVE_WHY_TEXTS: the bench's, the S term's "the co-op link is holding")
+        def save(lever=None, bench=True, want_why=BW.SAVE_WHY_TEXTS[2], dry=False):
+            def run():
+                sg0 = dict(g.state.saveguard_block or {})
+                if lever:
+                    g.worldfollow("saveguard", lever)
+                if not bench:
+                    g.netsync("bench", 0)
+                try:
+                    g.savemenu()
+                    g.wait_frames(4)
+                finally:
+                    if lever:
+                        g.worldfollow("saveguard", "act")
+                    if not bench:
+                        g.netsync("bench", 1)
+                sg = g.state.saveguard_block or {}
+                ok = (sg.get("refused", 0) == sg0.get("refused", 0) + (0 if dry else 1) and want_why == sg.get("last_why")
+                      and (sg.get("would_save", 0) == sg0.get("would_save", 0) + (1 if dry else 0))
+                      and BW.LOG_SAVE_REFUSED in _log(fake))
+                return ok, f"saveguard {sg0} -> {sg}"
+            return run
+        led.row("WF-R4", save())
+        led.row("WF-R4-DRY", save(lever="old", dry=True))
+        led.row("WF-R4-S", save(bench=False, want_why=BW.SAVE_WHY_TEXTS[4]))
+
+        def release():
+            g.worldfollow("off")
+            g.worldfollow("dot", "off")
+            g.worldfollow("r3", "old")
+            g.worldfollow("saveguard", "old")
+            g.worldfollow("hold")
+            before = _log(fake).count(BW.LOG_WORLDFOLLOW_RELEASED)
+            g.netsync("selftest", 0)
+            g.wait_frames(4)
+            st = g.state
+            levers = (_wf_out(st, "lever"), _wf_out(st, "hold"), _wf_dot(st, "lever"), (st.world_r3_block or {}).get("lever"),
+                      (st.saveguard_block or {}).get("lever"))
+            ok = levers == ("on", False, "on", "act", "act") and _log(fake).count(BW.LOG_WORLDFOLLOW_RELEASED) == before + 1
+            return ok, f"levers after the release {levers}"
+        led.row("WF-RELEASE", release)
+
+        def r3():
+            g.warp(250)
+            fake.follow_session(250, flags=BW.HF_ON_FIELD | BW.HF_CONTROL, entrance=11)
+            g.wait_frames(4)
+            a0 = (g.state.world_r3_block or {}).get("arms_from_9012", 0)
+            fake.host_at(300)
+            _to_world(g, fake, 9012)
+            st = g.wait_for(lambda s: s.ui_state == "FieldHUD", timeout=10.0, what="the rejoin out of 9012")
+            g.wait_frames(4)
+            st = g.state
+            a1 = (st.world_r3_block or {}).get("arms_from_9012", 0)
+            return st.field_id == 300 and a1 == a0 + 1, f"left 9012 for {st.field_id}, arms_from_9012 {a0}->{a1}"
+        led.row("WF-R3", r3)
+
+        def host():
+            fake.unfollow()
+            fake.netsync.update(enabled=True, role="host", instance=True)
+            g.warp(6603)
+            g.wait_frames(10)
+            _to_world(g, fake, from_field=True)
+            g.wait_frames(10)
+            st, log = g.state, _log(fake)
+            h = st.host_world_block or {}
+            ok = (BW.log_host_world_exit(6603, 9011) in log and "host: on world map 9011 (b6) at world frame " in log
+                  and h.get("b6") is True and h.get("wmapjumps") == 1 and (h.get("rise_frame") or -1) >= 0)
+            return ok, f"host.world {h}"
+        led.row("WF-HOST", host)
+    return {"red": led.red, "rows": led.rows}
+
+
+#: the rows each fault lever turns red on the stand-in (exactly these)
+WF_FAULT_REDS = {
+    "proof_fail": ("WF-PROOF",),
+    "never_starts": ("WF-SUPERSEDE", "WF-ONFOOT", "WF-LEAVE", "WF-POSE", "WF-ENTRANCE", "WF-FROZEN", "WF-BLOCK", "WF-DOT",
+                     "WF-DOT-EDGE", "WF-DOT-STALE", "WF-DOT-NOB6", "WF-DOT-OTHER", "WF-DOT-LEVER"),
+    "wallclock_debounce": ("WF-DEBOUNCE",),
+    "pose_exit": ("WF-DOT", "WF-ONFOOT", "WF-POSE"),          # the guest off the Mist window: its own arrow unclamped, the dot pinned
+    "no_substitution": ("WF-ONFOOT",),
+    "entrance_kept": ("WF-DOT", "WF-POSE", "WF-ENTRANCE"),    # (the same: the dispatcher default lands off the window)
+    "event_followed": ("WF-EVENT",),
+    "rides_followed": ("WF-RIDES",),
+    "choco_followed": ("WF-CHOCO",),
+    "landing_free": ("WF-FROZEN",),
+    "no_supersede": ("WF-SUPERSEDE",),
+    "etb_ignored": ("WF-ETB",),
+    "block_ready_dark": ("WF-BLOCK", "WF-DOT", "WF-DOT-EDGE", "WF-DOT-STALE", "WF-DOT-NOB6", "WF-DOT-OTHER", "WF-DOT-LEVER"),
+    "dot_dark": ("WF-DOT", "WF-DOT-EDGE", "WF-DOT-LEVER"),
+    "dot_stale_shown": ("WF-DOT-STALE",),
+    "dot_nob6_shown": ("WF-DOT-NOB6",),
+    "dot_other_world": ("WF-DOT-OTHER",),
+    "dot_no_edge": ("WF-DOT-EDGE",),
+    "dot_lever_ignored": ("WF-DOT-LEVER",),
+    "r3_old": ("WF-R3",),
+    "saveguard_open": ("WF-R4", "WF-R4-DRY", "WF-R4-S"),
+    "saveguard_no_s": ("WF-R4-S",),
+    "lever_stuck_wf": ("WF-RELEASE", "WF-R3"),                # `r3 old` stays set past the release
+    "host_lines_dark": ("WF-HOST",),
+    "out_lever_ignored": ("WF-LEVER",),
+    "hold_ignored": ("WF-HOLD",),
+    "range_followed": ("WF-RANGE",),
+}
+#: the s164 stand-in (caps_through("swap")): no verb, no keys -- every row red but the R3 arm's... which s164 refuses too (9012 is an
+#: event world there), and the host leg's lines (none on s164)
+WF_OLD_PREDICTED = WF_ROWS
+
+
+@pytest.fixture(scope="module")
+def wf_clean(tmp_path_factory):
+    return _wf_bench(tmp_path_factory.mktemp("wf_clean"))
+
+
+def test_the_s165_stand_in_bench_is_green(wf_clean):
+    assert list(wf_clean["rows"]) == list(WF_ROWS)
+    assert wf_clean["red"] == [], {r: wf_clean["rows"][r][1] for r in wf_clean["red"]}
+
+
+@pytest.mark.parametrize("fault", FG.WORLD_FOLLOW_FAULTS)
+def test_each_world_follow_fault_turns_exactly_its_rows_red(tmp_path, fault):
+    r = _wf_bench(tmp_path, faults=(fault,))
+    want = sorted(WF_FAULT_REDS[fault])
+    assert r["red"] == want, (r["red"], {c: r["rows"][c][1] for c in set(r["red"]) ^ set(want)})
+
+
+def test_the_world_follow_faults_cover_every_row_and_the_table_is_the_fakes():
+    """EVERY ROW CAN FAIL: each row of the bench has a fault lever that turns it red, and the table names only real rows."""
+    assert set(WF_FAULT_REDS) == set(FG.WORLD_FOLLOW_FAULTS)
+    assert {r for rows in WF_FAULT_REDS.values() for r in rows} == set(WF_ROWS)
+    assert all(set(rows) <= set(WF_ROWS) for rows in WF_FAULT_REDS.values())
+
+
+def test_the_s164_stand_in_reads_exactly_wf_old_predicted_red(tmp_path):
+    r = _wf_bench(tmp_path, caps=FG.caps_through("swap"))
+    assert r["red"] == sorted(WF_OLD_PREDICTED), sorted(set(r["red"]) ^ set(WF_OLD_PREDICTED))
+
+
+# ------------------------------------------------------------------------------------------------ K1: the world-walk tape (pure)
+def _scen(name):
+    import importlib.util
+    scen = REPO / "studies" / "test-harness" / "scenarios"
+    if str(scen) not in sys.path:
+        sys.path.insert(0, str(scen))
+    spec = importlib.util.spec_from_file_location(f"{name}_s165", scen / f"{name}.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_the_world_walk_tapes_facts_hold_and_each_one_can_fail():
+    """_coop_peer_bench.world_walk_tape_facts on synthetic COOP_TAPE_WORLD_WALK tapes: all six facts on the recorder's shape (the
+    stands' poses off SECTION 0 through coop_peer's decoder), and each fact red on its own short tape -- no b6 (an s143 host), a short
+    tile stand, a teleport the anchor never saw, a riding host, a wrong entry, no landing stand, a short pairing."""
+    pb = _scen("_coop_peer_bench")
+    cp = pb.coop_peer_module()
+    keys = ("wk1", "wk2", "wk3", "wk4", "wk5", "wk6")
+    good = pb.world_walk_tape_facts(pb.synthetic_world_walk_tape(cp), cp)
+    assert all(good[k]["ok"] for k in keys), {k: good[k]["why"] for k in keys}
+    assert good["apart"] == 538.3 and good["tile"]["s"] >= pb.WK_ICE_MIN_S and good["enter"]["field"] == 300
+    for kw, red in (({"b6": False}, {"wk3", "wk4", "wk5", "wk6"}), ({"tile_s": 30.0}, {"wk5"}),
+                    ({"teleport": False}, {"wk5", "wk6"}), ({"mode": 6}, {"wk3"}), ({"enter_field": 250}, {"wk6"}),
+                    ({"land_s": 0.0, "load_s": 1.0}, {"wk4"}), ({"enter_s": 3.0}, {"wk6"}), ({"field_s": 5.0}, {"wk1"})):
+        f = pb.world_walk_tape_facts(pb.synthetic_world_walk_tape(cp, **kw), cp)
+        assert {k for k in keys if not f[k]["ok"]} == red, (kw, {k: f[k]["why"] for k in keys})
+    assert (pb.WK_LANDING, pb.WK_TILE) == (WF_LANDING, WF_TILE)
+    cw = _scen("coop_world_wait")
+    assert (cw.FS_LANDING, cw.ICE_TILE, cw.WORLD, cw.ICE_CAVERN) == (pb.WK_LANDING, pb.WK_TILE, 9000 + pb.WK_WORLD_IDX,
+                                                                      pb.WK_ENTER_FIELD)
+    assert pb.WORLD_WALK_POINTER not in ("latest.json", pb.WORLD_POINTER, pb.WORLD_BATTLE_POINTER)
+
+
+def test_the_world_walk_recorder_is_its_own_variant(monkeypatch, tmp_path):
+    """coop_tape_record.py COOP_TAPE_WORLD_WALK=1: the private world port, PRE_S 25 s, its own catalog (the blocks, the landing stand,
+    the teleport and the tile stand >= 60 s, the entry, the six facts), its own home and pointer, ONLY s164 verbs (no block_ready:
+    world.phase 2 and advancing world.ticks), named dwell constants -- and it refuses to run beside another world variant."""
+    for k in ("COOP_TAPE_WORLD", "COOP_TAPE_WORLD_BATTLE", "COOP_TAPE_WORLD_WALK", "COOP_TAPE_SEAT", "COOP_PEER_PORT", "COOP_TAPE_DIR"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("COOP_TAPE_WORLD_WALK", "1")
+    monkeypatch.setenv("COOP_TAPE_DIR", str(tmp_path / "tapes"))
+    rec = _scen("coop_tape_record")
+    pb = rec.pb
+    assert rec.WORLD_WALK_TAPE and rec.ANY_WORLD and not rec.WORLD_TAPE and not rec.WORLD_BATTLE_TAPE
+    assert rec.PORT == pb.WORLD_PORT != pb.OWNER_PORT and rec.PRE_S == 25.0 and rec.WORLD_FIELD == 6603
+    assert rec.WK_ICE_S >= pb.WK_ICE_MIN_S == 60.0 and rec.WK_LAND_S == 3.0 and rec.WK_ENTER_S >= pb.WK_ENTER_NEED_S
+    assert (rec.WK_BLOCK_TICKS, rec.WK_BLOCK_SAMPLES) == (6, 3)
+    cat = rec._catalog(0)
+    assert list(cat) == list(rec.WORLD_WALK_CATALOG) and list(cat)[-1] == "REC-INI"
+    assert [k for k in cat if k.startswith("REC-WKF")] == [f"REC-WKF{i}" for i in range(1, 7)]
+    assert {"REC-P0", "REC-P1", "REC-P2", "REC-M", "REC-WX", "REC-WKB", "REC-WKL", "REC-WKT", "REC-WKE", "REC-T"} <= set(cat)
+    assert pb.world_walk_tape_dir() == (tmp_path / "tapes").resolve()
+    src = (REPO / "studies" / "test-harness" / "scenarios" / "coop_tape_record.py").read_text(encoding="utf-8").replace("\r\n", "\n")
+    i = src.index("def _world_walk(")
+    body = src[i:src.index("\ndef _world_walk_facts(", i)]
+    for frag in ("cw.walk_out(g)", "_wait_blocks(g)", "cw.teleport_settle(g, cw.ICE_TILE)", "_stay(g, ctx, WK_LAND_S",
+                 "_stay(g, ctx, WK_ICE_S", "g.wait_frames(cw.PROMPT_FRAMES)", 'g.press("confirm")', "pb.WK_ENTER_FIELD"):
+        assert frag in body, frag
+    j = src.index("def _wait_blocks(")
+    blocks = src[j:src.index("\ndef ", j + 10)]
+    assert "world_phase == 2" in blocks and "world_ticks" in blocks and "block_ready" not in blocks.replace("`world.block_ready`", "")
+    assert "block_ready" not in body
+    assert "if WORLD_WALK_TAPE and (WORLD_TAPE or WORLD_BATTLE_TAPE):" in src and "pb.WORLD_WALK_POINTER" in src
+    assert "COOP_TAPE_WORLD and COOP_TAPE_WORLD_BATTLE are separate variants" in src          # s145's guard unmoved
+    for frag in ("THE WORLD-WALK VARIANT", "COOP_TAPE_WORLD_WALK=1", "latest-world-walk.json", "--pose"):
+        assert frag in (rec.__doc__ or ""), frag
+
+
+# ------------------------------------------------------------------------------------------------ the engine's call sites (skipped)
+def _s165_patch():
+    names = [nm for nm in msr.stack() if nm.startswith("s165-") and nm not in msr.DEAD]
+    return (msr.PATCHES / names[0]).read_bytes() if names else None
+
+
+def _s165_source() -> tuple:
+    """("stack", None) once the s165 patch is on this branch's stack, ("clone", root) under FF9_S165_CLONE when that tree carries
+    the s165 tag; else the pin SKIPS (the engine lane is mid-build)."""
+    if _s165_patch() is not None:
+        return "stack", None
+    raw = os.environ.get(S165_CLONE_ENV, "").strip()
+    if raw:
+        root = pathlib.Path(raw)
+        netsync = root / "Memoria" / "Netsync"
+        if netsync.is_dir() and any(S165_TAG in p.read_text(encoding="utf-8-sig", errors="replace")
+                                    for p in netsync.glob("*.cs")):
+            return "clone", root
+    pytest.skip("the s165 patch is not on this branch's stack yet (the engine lane is mid-build; the integration step emits it "
+                f"and these pins run) -- set {S165_CLONE_ENV}=<the clone's Assembly-CSharp> to pin a clone that carries the tag")
+
+
+def _s165_text(file_name: str) -> str:
+    """The s165 post-image of ``file_name``: the patch's hunks (context and added lines, `@@` between hunks) on the stack, the whole
+    file in a clone; '' when the round does not touch it."""
+    kind, root = _s165_source()
+    if kind == "clone":
+        hits = [p for p in root.rglob(file_name) if p.is_file()]
+        return hits[0].read_text(encoding="utf-8-sig", errors="replace").replace("\r\n", "\n") if hits else ""
+    out = []
+    for path, sec in msr.sections(_s165_patch()):
+        if not path or path.replace("\\", "/").rsplit("/", 1)[-1] != file_name:
+            continue
+        for ln in sec.decode("utf-8", "replace").replace("\r\n", "\n").split("\n"):
+            if ln.startswith("@@"):
+                out.append("@@")
+            elif ln.startswith(("+++", "---")):
+                continue
+            elif ln[:1] in (" ", "+"):
+                out.append(ln[1:])
+    return "\n".join(out)
+
+
+def _s165_catch() -> dict:
+    """The netsync-off catch literal's `netsync` object as the s165 engine writes it (the live stack's, or the clone's file)."""
+    kind, _root = _s165_source()
+    if kind == "stack":
+        return _agent_nothing()
+    lines = _s165_text("HarnessAgent.cs").split("\n")
+    catch = [ln for ln in lines if re.search(r'outer\.Append\("\\"netsync\\":\{\\"enabled', ln)]
+    head = [ln for ln in lines if 'NetsyncF3Retired = "' in ln]
+    tail = [ln for ln in lines if re.search(r'\+ "\\"align_win', ln)]
+    a, b = _LIT.findall(catch[0])
+    pinned = "".join(_LIT.findall(head[0]) + _LIT.findall(tail[0]))
+    return json.loads("{" + (a + pinned + b).replace('\\"', '"') + "}")["netsync"]
+
+
+def test_s165_the_catch_line_carries_the_contracts_sentinels():
+    nothing = _s165_catch()
+    assert list(nothing)[-3:] == ["swap", "saveguard", "host"], list(nothing)[-6:]
+    assert json.dumps(nothing["saveguard"]) == json.dumps(CONTRACT_SAVEGUARD)
+    assert json.dumps(nothing["host"]) == json.dumps(CONTRACT_HOST)
+    world = nothing["world"]
+    assert list(world)[-5:] == ["dio", "r3", "out", "host", "dot"], list(world)
+    for key, want in (("r3", CONTRACT_WORLD_R3), ("out", CONTRACT_WORLD_OUT), ("host", CONTRACT_WORLD_HOST),
+                      ("dot", CONTRACT_WORLD_DOT)):
+        assert json.dumps(world[key]) == json.dumps(want), key
+    assert world == BW.WORLD_SENTINELS_S165
+    # the history comment line beside the literal, as the earlier rounds wrote theirs
+    agent = _s165_text("HarnessAgent.cs")
+    assert any(S165_TAG in ln and "sentinel" in ln and ln.strip().startswith("//") for ln in agent.split("\n"))
+
+
+def test_s165_the_agent_speaks_the_contracts_verbs_and_keys():
+    agent = _s165_text("HarnessAgent.cs")
+    m = re.search(r"netsync: unknown sub-verb[^\n]*\(([a-z0-9|-]+)\)", agent)
+    assert m and m.group(1).split("|")[-2:] == ["swap", "worldfollow"], m and m.group(1)
+    assert re.search(r'case "savemenu"', agent), "no `savemenu` verb"
+    for key in ('"block_ready"', '"saveguard"', '"would_save"', '"arms_from_9012"', '"debounce_ms"', '"intent_unlanded"', '"why_not"',
+                '"rise_block_ready"', '"wmapjumps"', '"drift_u"', '"census"'):
+        assert key.replace('"', '\\"') in agent or key in agent, key
+    usage = " ".join(ln for ln in agent.split("\n") if "worldfollow" in ln and '"' in ln)
+    usage += " " + " ".join(ln for name in ("NetSyncClient.cs", "NetSyncWorldFollow.cs", "NetSyncBattle.cs")
+                            for ln in _s165_text(name).split("\n") if "worldfollow" in ln and '"' in ln)
+    for frag in ("off|on", "hold|release", "dot off|on", "r3 old|act", "saveguard old|act", "host <x> <z>", "self|nob6|stale|off",
+                 "clear"):
+        assert frag in usage, frag
+
+
+def test_s165_the_call_sites_are_the_designs():
+    ff9 = _s165_text("ff9.cs")
+    assert re.search(r"BeforeWorldEvents\(\);[^\n]*\n(?:[ \t]*//[^\n]*\n)*[^\n]*ApplyStoryBeforeWorldEvents\(", ff9), \
+        "ApplyStoryBeforeWorldEvents is not right after BeforeWorldEvents in ff9InitStateWorldMap"
+    i = ff9.index("ApplyStoryBeforeWorldEvents(")
+    assert "StartEvents" in ff9[i:] or "@@" not in ff9[i:]
+    hud = _s165_text("WorldHUD.cs")
+    assert re.search(r"void DisplayMinimap\(\)\s*\n\s*\{\s*\n(?:[ \t]*//[^\n]*\n)*[^\n]*NetSyncWorldDot\.", hud), \
+        "the dot's hook is not DisplayMinimap's FIRST statement"
+    save = _s165_text("SaveLoadUI.cs")
+    assert len(re.findall(r"ManualSaveRefused", save)) >= 2, "R4 is not at both Save sites"
+    client = _s165_text("NetSyncClient.cs")
+    assert "EventWorldWaitsOnPlayer(" in client, "R3 is not at WorldArmWhy"
+    assert "WMAPJUMP" in _s165_text("EventEngine.DoEventCode.cs") or "host: world-map exit from field" in client
+    proj = _s165_text("Assembly-CSharp.csproj")
+    assert "NetSyncWorldFollow.cs" in proj and "NetSyncWorldDot.cs" in proj
+    files = {pathlib.PurePath(f).name for f in msr.DEFAULT_FILES}
+    assert {"SaveLoadUI.cs", "NetSyncWorldFollow.cs", "NetSyncWorldDot.cs"} <= files
+
+
+def test_s165_the_engines_lines_carry_the_contracts_prefixes():
+    kind, _root = _s165_source()
+    names = ("NetSyncClient.cs", "NetSyncWorldFollow.cs", "NetSyncWorldDot.cs", "NetSyncField.cs", "EventEngine.DoEventCode.cs",
+             "SaveLoadUI.cs", "HarnessAgent.cs")
+    text = "\n".join(ln for name in names for ln in _s165_text(name).split("\n") if '"' in ln)
+    for prefix in (BW.LOG_WORLD_OUT_START, BW.LOG_WORLD_OUT_COMMIT, BW.LOG_WORLD_OUT_LANDED, BW.LOG_WORLD_OUT_LOST,
+                   BW.LOG_WORLD_OUT_SUPERSEDED, BW.LOG_WORLD_OUT_WAITS, BW.PROOF_WORLD_FOLLOW, "host: world-map exit from field ",
+                   "host: on world map ", BW.LOG_SAVE_REFUSED):
+        assert prefix in text, prefix
+    # the dot's proof is its own line, or rides the one combined table (the contract allows either: say which)
+    print("world dot selftest line:", "own line" if BW.PROOF_WORLD_DOT in text else "combined into 'world follow selftest'")
+
+
+def test_s165_the_stand_ins_blocks_are_the_engines(tmp_path):
+    """Once the engine is on the stack: the stand-in's s165 blocks' keys (order included) are the catch line's."""
+    nothing = _s165_catch()
+    game = _game(tmp_path)
+    fake = _fake(game)
+    with _session(game, fake) as g:
+        g.newgame(settle=0)
+        st = g.state
+        for key in BW.WORLD_S165_KEYS:
+            assert list(st.netsync["world"][key]) == list(nothing["world"][key]), key
+        assert list(st.netsync["saveguard"]) == list(nothing["saveguard"])
+        assert {k: list(v) for k, v in st.netsync["host"].items()} == {k: list(v) for k, v in nothing["host"].items()}

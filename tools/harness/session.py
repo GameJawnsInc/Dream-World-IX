@@ -8418,16 +8418,18 @@ class Session:
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
                         "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
                         "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench",
-                        "endbench", "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate", "speed", "swap")
+                        "endbench", "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate", "speed", "swap",
+                        "worldfollow")                       # [ff9mapkit netsync s165] + `worldfollow`, LAST
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
     #: "authority", s96) -- the F3.3 and B4/B5 ones included (they build on it). An F3 engine answers them "unknown
     #: sub-verb" only AFTER the step is spent. [ff9mapkit netsync s156] + `guestlocal`, at the END. [ff9mapkit netsync s158] +
     #: `stepout` after it. [ff9mapkit netsync s160] + `chest` after it. [ff9mapkit netsync s161] +
-    #: `ate` after that. [ff9mapkit netsync s163] + `speed` after it. [ff9mapkit netsync s164] + `swap` after that.
+    #: `ate` after that. [ff9mapkit netsync s163] + `speed` after it. [ff9mapkit netsync s164] + `swap` after that. [ff9mapkit
+    #: netsync s165] + `worldfollow` after it.
     NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
                                   "host", "tap-record", "replay", "guestslots", "bcmd", "hostgates", "containment",
                                   "bctl", "bmenu", "bbench", "endbench", "actbench", "selfdress", "guestlocal", "stepout",
-                                  "chest", "ate", "speed", "swap")
+                                  "chest", "ate", "speed", "swap", "worldfollow")
     #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
     #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
     #: engine without it, the key it reads, the patch that added it, and what the verb is.
@@ -8601,6 +8603,13 @@ class Session:
     #: the selftest role; (6) `intent` / `pinbench` without `netsync bench 1`; (7) bad arity or range, the usage line.
     NETSYNC_SWAP_SUBVERBS = {
         "swap": ("coop_field_swap", "netsync.swap", "s164", "the s164 field-swap levers"),
+    }
+    #: [ff9mapkit netsync s165] THE WORLD FOLLOW-OUT's one lever scheme (studies/world-coop/S165-DESIGN.md decision 16), told by
+    #: ``netsync.world.out``'s PRESENCE (State.coop_world_follow): the capability accessor, the key, the patch, what the verb is. Its ops,
+    #: role classes and words are battlewire's (BW.WORLDFOLLOW_*: the contract); the engine's role / bench / FollowHost refusals come
+    #: back from the step, an unknown op or a malformed one is refused before it in the usage line's words.
+    NETSYNC_WORLDFOLLOW_SUBVERBS = {
+        "worldfollow": ("coop_world_follow", "netsync.world.out", "s165", "the s165 world follow-out levers"),
     }
     NETSYNC_SWAP_OPS = ("stamps", "delay", "orphan", "own", "pin", "life", "fade", "clear", "hostctl", "intent", "cache", "pinbench",
                         "lifebench", "blackout", "arrive", "arrivebench")   # [ff9mapkit netsync s164] + THE ARRIVAL GUARD's two (appended)
@@ -9032,6 +9041,7 @@ class Session:
             ng = ng or self.NETSYNC_ATE_SUBVERBS.get(sub)       # [ff9mapkit netsync s161] ...and the ATE relay's, the same gate
             ng = ng or self.NETSYNC_SPEED_SUBVERBS.get(sub)     # [ff9mapkit netsync s163] ...and the speed mirror's
             ng = ng or self.NETSYNC_SWAP_SUBVERBS.get(sub)      # [ff9mapkit netsync s164] ...and the field-swap levers', the same gate
+            ng = ng or self.NETSYNC_WORLDFOLLOW_SUBVERBS.get(sub)   # [ff9mapkit netsync s165] ...and the world follow-out's
             if not authority:
                 if st.netsync is None:
                     have = "publishes no `netsync` block"
@@ -9208,6 +9218,12 @@ class Session:
             # a bad arity or range, is the usage line, refused before the step in its words; every role / co-op / bench refusal is the
             # ENGINE's (the step goes out and its words come back), so a calibration sent to the wrong duo game fails at the step
             why = self._swap_refusal(args, self._swap_role(st), self._swap_bench(st))
+            if why is not None:
+                raise HarnessError(why)
+        elif sub == "worldfollow":
+            # [ff9mapkit netsync s165] an unknown op or a malformed one is the usage line, refused before the step in its words; the
+            # role / bench / FollowHost refusals are the ENGINE's (the step goes out and its words come back)
+            why = self._worldfollow_refusal(args)
             if why is not None:
                 raise HarnessError(why)
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
@@ -9651,6 +9667,49 @@ class Session:
         comes back from the engine). Every lever is released with the harness on every role. Counters are never reset (read DELTAS).
         Returns a fresh state; read it back through :attr:`State.swap_block`."""
         return self.netsync("swap", op, *args, timeout=timeout)
+
+    @staticmethod
+    def _worldfollow_refusal(args) -> str | None:
+        """[ff9mapkit netsync s165] The `worldfollow` form's own check (an unknown op, a wrong arity, a word or number it does not take):
+        the usage line, else None -- the role, the bench gate and FollowHost stay the engine's."""
+        from . import battlewire as BW
+        rest = [str(a).strip() for a in args]
+        op = rest[0].lower() if rest else ""
+        if op not in BW.WORLDFOLLOW_OPS:
+            return BW.WORLDFOLLOW_USAGE
+        if op in ("off", "on", "hold", "release", "clear"):
+            return None if len(rest) == 1 else BW.WORLDFOLLOW_USAGE
+        if op in BW.WORLDFOLLOW_WORDS:
+            return None if len(rest) == 2 and rest[1].lower() in BW.WORLDFOLLOW_WORDS[op] else BW.WORLDFOLLOW_USAGE
+        if len(rest) == 2 and rest[1].lower() in BW.WORLDFOLLOW_HOST_WORDS:
+            return None
+        try:
+            [float(t) for t in rest[1:3]] + [int(t) for t in rest[3:]]
+        except ValueError:
+            return BW.WORLDFOLLOW_USAGE
+        return None if 3 <= len(rest) <= 7 else BW.WORLDFOLLOW_USAGE
+
+    def worldfollow(self, op: str, *args, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s165] ``netsync worldfollow <op> [arg ...]`` -- THE WORLD FOLLOW-OUT's one lever scheme (S165-DESIGN.md
+        decision 16): ``off|on`` (R1's lever), ``hold|release`` (holds R1's START only: the duo and T2 live-pose instrument), ``dot
+        off|on``, ``r3 old|act``, ``saveguard old|act`` (old = DRY: it reports would_save and still refuses) on a client or the
+        selftest role; the selftest role with the bench on: ``host <x> <z> [idx] [mode] [entrance] [veg]`` (a fabricated host frame
+        through the real encoders, b6 set -- refused unless FollowHost is set and SuppressEncounters reads true) and ``host
+        self|nob6|stale|off``; ``clear`` on any role. Through :meth:`netsync`'s gates (refused before the step on an engine without
+        ``netsync.world.out``: an s164 engine fails the sub-verb closed). Every lever is released with the harness on every role.
+        Counters are monotonic (read DELTAS). Returns a fresh state; read it back through :attr:`State.world_out_block`."""
+        return self.netsync("worldfollow", op, *args, timeout=timeout)
+
+    def savemenu(self) -> None:
+        """[ff9mapkit netsync s165] ``savemenu`` -- the Alt+F5 save-menu adapter, through the gate stock uses (R4: a following guest's
+        manual save is refused at SaveLoadUI's Save sites, the stock buzz and one line; read it back through
+        :attr:`State.saveguard_block`). An engine before s165 has no such verb (refused before the step)."""
+        st = self.state
+        if not st.coop_world_follow:
+            raise HarnessError("savemenu: this engine publishes no `netsync.world.out` (s165) -- it has no `savemenu` verb and "
+                               "would answer \"unknown op 'savemenu'\" only after the step. Not sent. Rebuild the DLL, or update "
+                               "the driver.")
+        self.send("savemenu")
 
     def act_trance_grace(self, on: bool, *, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s137] ``actbench trancegrace on|off``: the trance burst timing's calibration lever (off = the

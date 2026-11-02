@@ -150,6 +150,14 @@ DEFAULT_FILES = [
     "Assembly-CSharp/Memoria/Netsync/NetSyncSwap.cs",
     "Assembly-CSharp/Memoria/Netsync/NetSyncFollowFade.cs",
     "Assembly-CSharp/Assets/Scripts/Common/SceneDirector.cs",
+    # [ff9mapkit netsync s165] the world-map guest follow-out: its two new files (created from /dev/null) and its one stock hook site
+    # not yet listed -- SaveLoadUI.cs (R4, the save guard at both Save sites: the FIRST netsync patch to touch it); NetSyncClient.cs,
+    # NetSyncField.cs, NetSyncFollowFade.cs, NetSyncState.cs, NetSyncBattle.cs, HarnessAgent.cs, UIKeyTrigger.cs, ff9.cs (the world
+    # seam), WorldHUD.cs (the dot's hook), WMScriptDirector.cs (the dot's HonoAwake hide), EventEngine.DoEventCode.cs (the host's
+    # WMAPJUMP line) and the csproj are listed above
+    "Assembly-CSharp/Memoria/Netsync/NetSyncWorldFollow.cs",
+    "Assembly-CSharp/Memoria/Netsync/NetSyncWorldDot.cs",
+    "Assembly-CSharp/Global/SaveLoadUI.cs",
 ]
 
 # [ff9mapkit netsync s157] GENERATED files are only ever replaced WHOLE (the kit renders them from a JSON twin; their pins

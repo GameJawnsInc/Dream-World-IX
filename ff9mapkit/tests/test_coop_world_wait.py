@@ -186,6 +186,10 @@ class StubReplay(_Peer):
                 first = False
             else:
                 f.host_at(field, flags=flags, story=story)
+            if POSE[0] and flags >= 0 and flags & BW.HF_WORLD and "worldfollow" in f._nb_caps():
+                # [ff9mapkit netsync s165] THE ONE READER: a host on the world map carries its pose in section 0 -- the s144 world
+                # tape's host stands at its landing -- so an s165 guest WOULD follow it out (R1) unless the leg re-keys
+                f.host_world_pose(*cw.FS_LANDING, idx=cw.WORLD - 9000)
         if stop is not None:
             self._say(f"STOP-AT tape {stop:.2f} s reached: the host sends nothing more")
     def alive(self):
@@ -242,6 +246,13 @@ class StubServe(_Peer):
 def stubs(module_pb):
     module_pb.IniGuard = StubIni
     module_pb.port_free = lambda port, host="127.0.0.1": (True, "")
+
+#: [ff9mapkit netsync s165] the stubs feed the host's world pose to an s165 guest (POSE[0]); `rekey` False stands the re-key down
+POSE = [True]
+REAL_FOLLOW_OFF = cw.follow_off
+def rekey(run):
+    POSE[0] = bool(run.get("pose", True))
+    cw.follow_off = REAL_FOLLOW_OFF if run.get("rekey", True) else (lambda g: (True, "s165 re-key: STOOD DOWN (the test)"))
 
 class OwnerDial(threading.Thread):
     """[review 2] THE OWNER's TRANSPORT: the guest game launched on the owner's Memoria.ini, so a client instance was born at its
@@ -310,6 +321,7 @@ def t2(run):
     leg = run["leg"]
     t = root()
     stubs(pb)
+    rekey(run)
     if run.get("owner_up"):                                # [review 2] the owner's own bridge listening on 49201
         pb.port_free = lambda port, host="127.0.0.1": ((False, f"{host}:{port} is taken (stub: the owner's bridge)")
                                                       if int(port) == pb.OWNER_PORT else (True, ""))
@@ -376,6 +388,10 @@ class Link(threading.Thread):
         while not self.halt.is_set():
             h = self.h
             self.g.host_at(h.host_lane_field(), flags=h.host_dialog_flags(), story=bytes(h.story_bytes))
+            w = h.world
+            if POSE[0] and h.ui_state == "WorldHUD" and w.get("x") is not None and "worldfollow" in self.g._nb_caps():
+                # [ff9mapkit netsync s165] the host's own section-0 pose on the world map (the one reader's input)
+                self.g.host_world_pose(float(w["x"]), float(w["z"]), idx=int(w["id"]) - 9000, mode=int(w.get("vehicle") or 0))
             it = h.host_field_intent
             if it is not None and it != sent:
                 sent = it
@@ -409,6 +425,7 @@ class StubDuo:
         self.notes.append(msg)
 
 def duo(run):
+    rekey(run)
     th, tg = root(), root()
     fh, fgst = fake_for(th, run), fake_for(tg, run)
     # the world -> field fade, in frames: long -- 0.4 s of wall time at 600 fps (4 s of the stand-in's 60 fps game clock, inside
@@ -788,6 +805,9 @@ def test_the_wait_leg_reads_the_tapes_b6_and_calibrates_on_s143(tables):
     assert "b6: True" in b6["detail"]["T2-TAPE"] and "b6: False" in old["detail"]["T2-TAPE"]
     assert s143["red"] == sorted(tables["t2_pred"]["wait"]), s143["red"]
     assert "S144-WT-CAL" in s143["all"] and "S144-WT-I" not in s143["red"]       # the pairing is any engine's
+    # [ff9mapkit netsync s165] THE RE-KEY: the default (s165) stand-in's guest got both levers, read back; an s143 guest NOTHING
+    assert "`worldfollow off` + `worldfollow dot off` sent, read back off/off" in b6["detail"]["S144-WT-I"], b6["detail"]["S144-WT-I"]
+    assert "nothing sent" in s143["detail"]["S144-WT-I"], s143["detail"]["S144-WT-I"]
 
 
 @pytest.mark.parametrize("leg,fault", [("rejoin", f) for f in FG.WORLD_FAULTS] +
@@ -834,6 +854,25 @@ def test_the_duo_leg_is_green_on_s144_and_calibrates_on_s143(tables):
     assert new["intent"] == [1, 300] and "sample(s) inside the armed window" in new["detail"]["S144-D3"], new["detail"]
     assert "'rejoining' 300" in new["detail"]["S144-D3"] and "shown" in new["detail"]["S144-D3"]
     assert s143["red"] == sorted(tables["duo_pred"]) and "S144-D-CAL" in s143["all"], s143["red"]
+    # [ff9mapkit netsync s165] THE RE-KEY folded into D0: the s165 guest got both levers; the s143 one nothing
+    assert "sent, read back off/off" in new["detail"]["S144-D0"] and "nothing sent" in s143["detail"]["S144-D0"]
+
+
+def test_the_s165_rekey_keeps_the_wait_and_duo_legs_s144s():
+    """[ff9mapkit netsync s165] THE REGRESSION RE-KEY IS LOAD-BEARING (S165-DESIGN.md "Regression"): the stubs carry the host's
+    world pose (s165's one reader), so on the s165 stand-in a guest left on 6603 FOLLOWS the host out (R1) -- with the re-key
+    stood down the wait leg's WT-FIELD ('still on FieldHUD 6603 on every sample') goes red exactly there, and the duo goes red at
+    whichever row first sees the pull: D1 ('LEFT 6603') when a sample lands after it, else D2 (its own walk out finds the world
+    map) -- D1 can lawfully stop on a debounce sample that still shows s144's waiting line. With the re-key both legs are green
+    (above). Re-keyed by stage, never weakened: the rows themselves are unchanged."""
+    r = _child({"runs": {"wait": {"kind": "t2", "leg": "wait", "rekey": False},
+                         "duo": {"kind": "duo", "rekey": False}}})
+    w, d = r["wait"], r["duo"]
+    assert "S144-WT-FIELD" in w["red"] and "LEFT 6603" in w["detail"]["S144-WT-FIELD"], w["detail"]
+    assert "STOOD DOWN" in w["detail"]["S144-WT-I"]
+    first = next((c for c in d["all"] if c in d["red"]), None)
+    assert first in ("S144-D1", "S144-D2"), (first, d["detail"])
+    assert "LEFT 6603" in d["detail"][first] or "on the world map" in d["detail"][first], d["detail"]
 
 
 def test_d3_keeps_the_bracket_law_under_a_sampler_that_misses_the_arm():

@@ -540,6 +540,10 @@ class StubReplay(_Peer):
                 first = False
             else:
                 f.host_at(field, flags=flags, story=story)
+            if POSE[0] and flags >= 0 and flags & BW.HF_WORLD and "worldfollow" in f._nb_caps():
+                # [ff9mapkit netsync s165] THE ONE READER: a host on the world map carries its pose in section 0, so an s165 guest
+                # left on 6603 WOULD follow it out (R1) unless the leg re-keys (cw.follow_off)
+                f.host_world_pose(*cw.FS_LANDING, idx=cw.WORLD - 9000)
             # [fix5] THE REPORT LANE (lane_stale_s): the guest's report names the host's battle while ITS PeerBattleLive holds --
             # StaleMs of wall time past the host's last type-1 frame -- beyond the stand-in's own battle lane (the 0.5 tape-s that
             # drives its watcher, unchanged)
@@ -564,6 +568,13 @@ class StubReplay(_Peer):
         self.how_ended = "stopped cleanly (code 0)"
         self.lines()
         return self.how_ended
+
+#: [ff9mapkit netsync s165] the stubs feed the host's world pose to an s165 guest (POSE[0]); `rekey` False stands the re-key down
+POSE = [True]
+REAL_FOLLOW_OFF = cw.follow_off
+def rekey(run):
+    POSE[0] = bool(run.get("pose", True))
+    cw.follow_off = REAL_FOLLOW_OFF if run.get("rekey", True) else (lambda g: (True, "s165 re-key: STOOD DOWN (the test)"))
 
 def stubs(module_pb, rule="", intent_lead=0.0, lane_stale_s=0.0):
     module_pb.IniGuard = StubIni
@@ -604,6 +615,7 @@ def t2(run):
     leg = run["leg"]
     t = root()
     stubs(pb, run.get("rule", ""), run.get("intent_lead", 0.0), run.get("lane_stale_s", 0.0))
+    rekey(run)
     if run.get("owner_up"):
         pb.port_free = lambda port, host="127.0.0.1": ((False, f"{host}:{port} is taken (stub: the owner's bridge)")
                                                       if int(port) == pb.OWNER_PORT else (True, ""))
@@ -767,6 +779,10 @@ class Link(threading.Thread):
             if battle:
                 kw.update(battle_nonce=nonce, battle_scene=int(h.battle_scene or 67))
             self.g.host_at(h.host_lane_field(), flags=h.host_dialog_flags(), story=bytes(h.story_bytes), **kw)
+            w = h.world
+            if POSE[0] and h.ui_state == "WorldHUD" and w.get("x") is not None and "worldfollow" in self.g._nb_caps():
+                # [ff9mapkit netsync s165] the host's own section-0 pose on the world map (the one reader's input)
+                self.g.host_world_pose(float(w["x"]), float(w["z"]), idx=int(w["id"]) - 9000, mode=int(w.get("vehicle") or 0))
             it = h.host_field_intent
             if it is not None and it != sent:
                 sent = it
@@ -824,6 +840,7 @@ class StubDuo:
 DUO_GUEST_BOOT_FRAMES = 90
 
 def duo(run):
+    rekey(run)
     th, tg = root(), root()
     fh, fgst = fake_for(th, run), fake_for(tg, run)
     fh.world_exit_frames = fgst.world_exit_frames = int(run.get("exit_frames", 240))
@@ -1145,6 +1162,23 @@ def test_the_battle_leg_is_green_on_s145_and_calibrates_on_s144(tables):
     assert old["red"] == sorted(tables["t2_pred"]["battle"] + []), old["red"]
     assert "the peer decoded ['NONE']" in old["detail"]["S145-WB-BOOT"] and "NEVER booted" in old["detail"]["S145-WB-BOOT"]
     assert "S145-WB-CAL" in old["all"] and "S145-WB-CAL" not in old["red"]
+    # [ff9mapkit netsync s165] THE RE-KEY folded into WB-I: the s165 guest got both levers, read back; an s144 guest NOTHING
+    assert "sent, read back off/off" in d["S145-WB-I"] and "nothing sent" in old["detail"]["S145-WB-I"], d["S145-WB-I"]
+
+
+def test_the_s165_rekey_keeps_the_battle_and_duo_routes_s145s():
+    """[ff9mapkit netsync s165] THE REGRESSION RE-KEY IS LOAD-BEARING (S165-DESIGN.md "Regression"; the critic's G13): the stubs
+    carry the host's world pose (s165's one reader), so with the re-key stood down the s165 guest follows the host OUT before its
+    own walk out -- the battle leg's WB-I (its own walk out from 6603 fails on the world map) goes red there, and the duo at
+    whichever row first sees the pull: D1 ('LEFT 6603') when a sample lands after it, else D2 (its own walk out finds the world
+    map) -- D1 can lawfully stop on a debounce sample that still shows s144's waiting line."""
+    r = _child({"runs": {"battle": {"kind": "t2", "leg": "battle", "rekey": False},
+                         "duo": {"kind": "duo", "rekey": False}}})
+    b, d = r["battle"], r["duo"]
+    assert "S145-WB-I" in b["red"] and "STOOD DOWN" in b["detail"]["S145-WB-I"], b["detail"].get("S145-WB-I")
+    first = next((c for c in DUO_ALL if c in d["red"]), None)
+    assert first in ("S145-D1", "S145-D2"), (first, d["detail"])
+    assert "LEFT 6603" in d["detail"][first] or "on the world map" in d["detail"][first], d["detail"]
 
 
 @pytest.mark.parametrize("fault", FG.WORLD_DIO_FAULTS)
@@ -1267,6 +1301,8 @@ def test_the_duo_leg_is_green_on_s145_and_calibrates_on_s144(tables):
     assert "booted from the world prompts on frame" in d["S145-DB"] and abs(kept_seen(d["S145-DR"]) - FACING) < 0.001, d
     assert old["red"] == sorted(tables["duo_pred"]) and "S145-D-CAL" in old["all"], old["red"]
     assert "['none']" in old["detail"]["S145-DB"]
+    # [ff9mapkit netsync s165] THE RE-KEY folded into D0: the s165 guest got both levers, read back; an s144 guest NOTHING
+    assert "sent, read back off/off" in d["S145-D0"] and "nothing sent" in old["detail"]["S145-D0"], d["S145-D0"]
 
 
 def test_the_hosts_start_hold_reds_db_through_the_host_half_alone():
@@ -2377,6 +2413,7 @@ def test_the_decline_leg_declines_on_s145_calibrates_on_s144_and_reds_unprojecte
     new, old, unproj = r["s145"], r["s144"], r["unproj"]
     assert new["red"] == [], {c: new["detail"][c] for c in new["red"]}
     assert new["all"] == DECLINE_ALL, new["all"]
+    assert "sent, read back off/off" in new["detail"]["S145-WD-I"], new["detail"]["S145-WD-I"]   # [ff9mapkit netsync s165] the re-key
     d = new["detail"]["S145-WD-DECL"]
     assert "the peer decoded ['NONE']" in d and "aboard a vehicle (travel mode 1)" in d and "the declined line 1x" in d, d
     assert old["red"] == sorted(tables["t2_pred"]["decline"]), old["red"]

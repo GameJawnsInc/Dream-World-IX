@@ -176,10 +176,12 @@ def test_the_twins_constants_are_the_engines():
     for name, value in (("OvlHostWorld", BW.OVL_HOST_WORLD), ("OvlRejoining", BW.OVL_REJOINING), ("OvlWorldHold", BW.OVL_WORLD_HOLD),
                         ("OvlHostTitle", BW.OVL_HOST_TITLE), ("OvlHostAway", BW.OVL_HOST_AWAY), ("OvlKeep", BW.OVL_KEEP)):
         assert _cs_int("NetSyncClient.cs", name) == value, name
-    # OverlayName's vocabulary (the whole live stack) is battlewire's, s144's five names at its end
+    # OverlayName's vocabulary (the whole live stack) is battlewire's, s144's five names at its end -- [ff9mapkit netsync s165] then
+    # s165's four (the world follow-out's field lines)
     names = [m.group(1) for ln in net_lines("NetSyncClient.cs", r'case Ovl\w+: return "') for m in
              [re.match(r'case Ovl\w+: return "(\w+)";', ln)] if m]
-    assert set(names) == set(BW.OVERLAY_NAMES) and BW.OVERLAY_NAMES[-5:] == BW.OVERLAY_NAMES_S144
+    assert set(names) == set(BW.OVERLAY_NAMES) and BW.OVERLAY_NAMES[-9:-4] == BW.OVERLAY_NAMES_S144
+    assert BW.OVERLAY_NAMES[-4:] == BW.OVERLAY_NAMES_S165 and [BW.overlay_name(s) for s in range(14, 18)] == list(BW.OVERLAY_NAMES_S165)
     # WaitLineName's vocabulary, and the words (decision 7's sentences, verbatim)
     body = " ".join(_block("NetSyncClient.cs", "internal static String WaitLineName(", "return null;"))
     assert re.findall(r'if \(state == Ovl(\w+)\) return "(\w+)";', body) == [
@@ -195,7 +197,11 @@ def test_the_twins_constants_are_the_engines():
     lit = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')[0].replace('\\"', '"')
     esc = lambda d: json.dumps(d, separators=(",", ":"))                 # noqa: E731
     assert f'"ghost_held":false,"overlay_text":null,"follow":{esc(BW.SESSION_FOLLOW_SENTINELS)}}},"menu_refusal"' in lit
-    assert f'"world":{esc(BW.WORLD_SENTINELS)},"guestlocal":{{' in lit   # [ff9mapkit netsync s156] guestlocal follows world
+    assert f'"world":{esc(BW.WORLD_SENTINELS_S165)},"guestlocal":{{' in lit   # [ff9mapkit netsync s156] guestlocal follows world [ff9mapkit netsync s165] (r3 / out / host / dot after dio)
+    s164 = [(msr.PATCHES / n).read_bytes() for n in msr.stack()[:msr.stack().index("s164-netsync-field-swap-timing.patch") + 1]
+            if n not in msr.DEAD]
+    assert f'"world":{esc(BW.WORLD_SENTINELS)},"guestlocal":{{' in net_lines(
+        "HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', s164)[0].replace('\\"', '"')   # the s164 stage, frozen
     # [ff9mapkit netsync s145] the s144 patch's own line ends with ITS three blocks (frozen); the live block adds s145's `dio`
     upto = [(msr.PATCHES / n).read_bytes() for n in msr.stack()[:msr.stack().index(PATCH) + 1] if n not in msr.DEAD]
     old = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', upto)[0].replace('\\"', '"')
@@ -502,7 +508,7 @@ OVL_ROWS = {
         (lambda v, f, fl, b: v and not b and f in (0, 65535))(True, 0, E.HF_ON_FIELD, False) and not E.wait_away_condition(True, 0, E.HF_ON_FIELD, False)),
     "names: the waitline vocabulary": lambda: [E.wait_line_name(s) for s in (9, 10, 11, 12, 13)] == ["host_world", "rejoin", "hold", "host_title", "away"],
     "names: no other state is a waiting line": lambda: all(E.wait_line_name(s) is None for s in (E.OVL_WAITING, E.OVL_OFF, E.OVL_PEER_NO_FIELD, E.OVL_KEEP)),
-    "names: every overlay state named, none twice, OvlKeep none": lambda: len(set(E.OVERLAY_NAMES)) == len(E.OVERLAY_NAMES) == 14,
+    "names: every overlay state named, none twice, OvlKeep none": lambda: len(set(E.OVERLAY_NAMES)) == len(E.OVERLAY_NAMES) == 18,   # [ff9mapkit netsync s165] states 0..17 (was 0..13)
     "words: the host on the world map": lambda: "Your partner is on the world map." in E.wait_line_text(E.OVL_HOST_WORLD) and "You'll rejoin them at their next stop." in E.wait_line_text(E.OVL_HOST_WORLD),
     "words: the host at the title": lambda: "Your partner is at the title screen." in E.wait_line_text(E.OVL_HOST_TITLE),
     "words: an old host away": lambda: "Your partner is away." in E.wait_line_text(E.OVL_HOST_AWAY),
@@ -772,13 +778,17 @@ def test_every_world_key_has_an_accessor_and_reads_its_sentinel():
     nothing = _agent_nothing()
     # [ff9mapkit netsync s164] s164's `swap` is netsync's LAST key once its patch is on the live stack (after s163's `speed`)
     live164 = any(n.startswith("s164-") and n not in msr.DEAD for n in msr.stack())
-    want = ["world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed"] + (["swap"] if live164 else [])
-    assert nothing["world"] == BW.WORLD_SENTINELS and list(nothing)[-len(want):] == want   # [ff9mapkit netsync s156] [ff9mapkit netsync s157] [s158] [s160] [s161] [s163] [s164]
+    # [ff9mapkit netsync s165] ...and s165's `saveguard`, `host` after it, `world` its four after `dio`, once ITS patch is live
+    live165 = any(n.startswith("s165-") and n not in msr.DEAD for n in msr.stack())
+    want = ["world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed"] + (["swap"] if live164 else []) + \
+        (list(BW.NETSYNC_TOP_KEYS_S165) if live165 else [])
+    assert nothing["world"] == (BW.WORLD_SENTINELS_S165 if live165 else BW.WORLD_SENTINELS) and list(nothing)[-len(want):] == want   # [ff9mapkit netsync s156] [ff9mapkit netsync s157] [s158] [s160] [s161] [s163] [s164] [s165]
     if live164:
         assert nothing["swap"] == FG.NETSYNC_SWAP_SENTINELS
     assert nothing["session"]["follow"] == BW.SESSION_FOLLOW_SENTINELS and nothing["session"]["overlay_text"] is None
     assert list(nothing["session"])[-2:] == list(BW.SESSION_KEYS_S144) and tuple(nothing["session"]) == FG.NETSYNC_SESSION_KEYS
-    leaves = _leaves(nothing["world"])
+    # [ff9mapkit netsync s165] s165's four blocks have their own accessors (State.world_out_block ...), never this table's
+    leaves = _leaves({k: v for k, v in nothing["world"].items() if k not in BW.WORLD_S165_KEYS})
     table = CH.State.NETSYNC_WORLD_ACCESSORS
     assert set(table) == set(leaves), sorted(set(table) ^ set(leaves))
     st = CH.State({"frame": 1, "netsync": nothing})

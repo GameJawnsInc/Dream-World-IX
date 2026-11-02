@@ -978,6 +978,59 @@ class State:
         absent). K-CLOCK: 0 <= channel.qpc_ms() - now_ms <= the sample's age + 100 ms, with `src` "qpc"."""
         return self._ns_path("swap.clock", dict)
 
+    # ---- [ff9mapkit netsync s165] THE GUEST FOLLOWS THE HOST OUT (studies/world-coop/S165-DESIGN.md): `netsync.world`'s last four
+    # blocks (r3, out, host, dot), `netsync.saveguard` and `netsync.host` after `swap`, the top-level `world.block_ready` -- every role,
+    # additive under 5. Key PRESENCE is the capability (`world.out`). Their own accessors (never NETSYNC_WORLD_ACCESSORS, whose law pins
+    # s144-s145's `world` leaves, nor NETSYNC_TOP_ACCESSORS); counters are per PROCESS -- read DELTAS.
+    @property
+    def coop_world_follow(self) -> bool:
+        """s165: the world follow-out round (``netsync.world.out`` present). False = an engine without it (s164), which fails
+        `netsync worldfollow` closed ("unknown sub-verb") and has no `savemenu` verb."""
+        return self._ns_path("world.out", dict) is not None
+
+    @property
+    def world_out_block(self) -> dict | None:
+        """s165: ``netsync.world.out`` -- R1's lever, the hold, its state (idle | waiting | fading | committed | landed), the start
+        gate's `why`, the world, the field it left, the live debounce, the counters, the last landing -- copied (None = absent)."""
+        return self._ns_path("world.out", dict)
+
+    @property
+    def world_host_block(self) -> dict | None:
+        """s165: ``netsync.world.host`` -- the one reader's cache of the host's last frame (the section-0 pose, [190] / [102] / [0..1] /
+        [2..3] / [181], the heartbeat and its age, b6 / b1, an unlanded section 4), copied (None = absent)."""
+        return self._ns_path("world.host", dict)
+
+    @property
+    def world_dot_block(self) -> dict | None:
+        """s165: ``netsync.world.dot`` -- the minimap dot: the lever, wanted / why_not / shown, the HUD, the host's and my own map
+        points, the edge, the counters, the donor census -- copied (None = absent)."""
+        return self._ns_path("world.dot", dict)
+
+    @property
+    def world_r3_block(self) -> dict | None:
+        """s165: ``netsync.world.r3`` {lever "act"|"old", arms_from_9012}, copied (None = absent)."""
+        return self._ns_path("world.r3", dict)
+
+    @property
+    def saveguard_block(self) -> dict | None:
+        """s165: ``netsync.saveguard`` {refused, would_save, lever "act"|"old", last_why} -- R4 at SaveLoadUI's Save sites, copied
+        (None = absent)."""
+        return self._ns_path("saveguard", dict)
+
+    @property
+    def host_world_block(self) -> dict | None:
+        """s165: ``netsync.host.world`` {b6, rise_frame, rise_block_ready, wmapjumps} -- the host's own world visit, copied (None =
+        absent)."""
+        return self._ns_path("host.world", dict)
+
+    @property
+    def world_block_ready(self) -> bool | None:
+        """s165: ff9.w_blockReady (the top-level ``world.block_ready``: false off the live world map; None = an engine before s165).
+        THE PRE-INIT SAMPLE: judge a world landing only after it reads true AND world.ticks advances."""
+        node = self.raw.get("world")
+        v = node.get("block_ready") if isinstance(node, dict) else None
+        return v if isinstance(v, bool) else None
+
     guest_local_mode = _guestlocal_prop("mode", str, "s156: the gate's EFFECTIVE mode -- 'act' | 'shadow' | 'off' (the lever on "
                                                      "the selftest role only, else 'act'; '' = the catch line).")
     guest_local_lever = _guestlocal_prop("lever", str, "s156: the `guestlocal` lever AS SET -- 'act' | 'shadow' | 'off' ('' = "

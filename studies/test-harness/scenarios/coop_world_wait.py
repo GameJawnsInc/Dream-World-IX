@@ -185,6 +185,15 @@ stand-in, which publishes only the guard's harness half. On an engine the landin
 owned by coop_field_swap_timing.py's leg G (P8) and the kit's source pins. A red clause LEADS the row's detail, since the ledger's
 width cuts the tail; a green one closes it.
 
+[ff9mapkit netsync s165] THE REGRESSION RE-KEY (studies/world-coop/S165-DESIGN.md "Regression"; the critic's G13): from s165 a
+following, mirroring guest follows the host OUT onto the world map (R1), and the dot's minimap-off hint replaces the world-map
+waiting line (R2). The legs here that test s144's OWN exit -- the wait leg (WT-FIELD / WT-FROZEN / WT-WORLD) and the duo (D1 / D2 /
+D3) -- send their GUEST `netsync worldfollow off` and `netsync worldfollow dot off` (follow_off) when its probe shows
+`netsync.world.out`, read back off / off, so they run byte-identical to s164: re-keyed by stage, never weakened. The re-key folds
+into the leg's instrument row (WT-I, D0: an s165 guest that refuses it proves nothing about s144); an engine without the key is sent
+NOTHING (every calibration here runs on s143). `worldfollow clear` at the leg's end. The solo leg and the rejoin leg need none: the
+selftest role builds no host frame unless asked, and the rejoin tape's host never leaves field 250. coop_world_follow.py benches R1.
+
 CALIBRATION -- a check that cannot fail is not a check.
   * SOLO on s143 (the live DLL at writing, Assembly-CSharp be01339d49f6a87b) with COOP_CALIBRATE=1: no `netsync.world`, so
     the lever is never sent (the driver's NETSYNC_BENCH_OPS gate: an s143 agent reads `bench worldfreeze` as `bench 1`).
@@ -742,6 +751,8 @@ def judge_probe(st, lines) -> tuple:
         return False, f"absent: no `{PROBE}` -- an engine before s144"
     s145 = cb.has(st, cb.R3_PROBES[145])
     want = R.WORLD_SENTINELS if s145 else R.WORLD_SENTINELS_S144
+    if cb.has(st, "netsync.world.out"):
+        want = R.WORLD_SENTINELS_S165       # [ff9mapkit netsync s165] an s165 engine: r3 / out / host / dot after `dio` (the prefix law)
     world = cb.path(st, "netsync.world") or {}
     follow = cb.path(st, "netsync.session.follow")
     keys_ok = (list(world) == list(want)
@@ -1109,6 +1120,49 @@ def with_arrive(row: tuple, arrive: tuple) -> tuple:
     clause must stay visible."""
     (ok, why), (a_ok, a_why) = row, arrive
     return bool(ok) and bool(a_ok), (f"{why}; ARRIVE {a_why}" if a_ok else f"ARRIVE {a_why}; {why}")
+
+
+# ---- [ff9mapkit netsync s165] THE REGRESSION RE-KEY (studies/world-coop/S165-DESIGN.md "Regression"; the critic's G13): s165's R1 takes
+# a following, mirroring guest out with the host (decision 1) and R2's minimap-off hint replaces s144's world-map waiting line once the
+# dot would show (E4: the hint rides the dot's lever). A leg that tests s144/s145's OWN exit sends its GUEST both levers when the probe
+# shows `netsync.world.out`, so it runs byte-identical to s164 -- re-keyed by stage, never weakened. An engine without the key is sent
+# NOTHING (s164 fails `netsync worldfollow` closed).
+FOLLOW_PROBE = "netsync.world.out"
+FOLLOW_OFF_OPS = (("off",), ("dot", "off"))
+FOLLOW_OFF_S = 3.0
+
+
+def follow_off(g) -> tuple:
+    """[ff9mapkit netsync s165] (ok, note): on an s165 GUEST (`netsync.world.out` published) `netsync worldfollow off` and `netsync
+    worldfollow dot off`, read back (out.lever and dot.lever 'off'); on an engine without the key nothing is sent and ok is True. ok
+    False = an s165 guest that refused or never read the levers back: the leg would not be s164's (its instrument row reds)."""
+    try:
+        st = g.state
+    except HarnessError as err:
+        return False, f"s165 re-key: no state read ({str(err)[:120]})"
+    if not cb.has(st, FOLLOW_PROBE):
+        return True, f"s165 re-key: no `{FOLLOW_PROBE}` (an engine before s165) -- nothing sent"
+    refused = []
+    for ops in FOLLOW_OFF_OPS:
+        ok, why = cb.try_ns(g, "worldfollow", *ops)
+        if not ok:
+            refused.append(f"`worldfollow {' '.join(ops)}`: {why[:100]}")
+    back = _poll(g, lambda s: cb.path(s, FOLLOW_PROBE + ".lever") == "off" and cb.path(s, "netsync.world.dot.lever") == "off",
+                 FOLLOW_OFF_S, "the s165 levers read back")
+    ok = not refused and back is not None
+    return ok, ("s165 re-key: `worldfollow off` + `worldfollow dot off` sent, read back off/off -- this leg runs as s164's"
+                if ok else f"s165 re-key FAILED: refused {refused or 'none'}; read back {'yes' if back is not None else 'NO'}")
+
+
+def follow_clear(g) -> str:
+    """[ff9mapkit netsync s165] The re-key's teardown, best effort: `worldfollow clear` (any role) on an s165 guest."""
+    try:
+        if not cb.has(g.state, FOLLOW_PROBE):
+            return "no s165 levers to clear"
+    except HarnessError:
+        return "no state read"
+    ok, why = cb.try_ns(g, "worldfollow", "clear")
+    return "`worldfollow clear` sent" if ok else f"`worldfollow clear` refused: {why[:120]}"
 
 
 # ================================================================================================ the moves
@@ -1613,6 +1667,7 @@ class _T2:
         self.anchors: dict = {}
         self.base = None
         self.marker_own = None
+        self.rekey = None                # [ff9mapkit netsync s165] follow_off's (ok, note) -- the wait leg's guest, before the replay
 
 
 def _run_dir(g) -> Path:
@@ -1644,6 +1699,8 @@ def _run_t2(g, leg: str) -> None:
 
 
 def _t2_teardown(g, led: cb.Ledger, ctx: _T2, leg: str) -> None:
+    if ctx.rekey is not None and "sent" in ctx.rekey[1]:
+        g.note(f"s165 re-key teardown: {follow_clear(g)}")      # [ff9mapkit netsync s165]
     if ctx.peer is not None and ctx.peer.how_ended is None:
         g.note(f"coop_peer replay-host: {ctx.peer.stop()}")
     if "T2-SAVE" not in led.done:
@@ -1886,6 +1943,8 @@ def _t2(g, led: cb.Ledger, ctx: _T2, leg: str) -> None:
                                         f"{pb.show(pb.hits(ctx.eng.lines(), 'config'))})")
             led.close("not reached: the guest config never applied")
             return
+        ctx.rekey = follow_off(g)          # [ff9mapkit netsync s165] THE RE-KEY: a client now, before the replay (WT-I judges it)
+        g.note(ctx.rekey[1])
     # E. the replay-host
     rd = _run_dir(g)
     args = [ctx.tape, "--port", str(PORT), "--code", CODE, "--at-end", "hold"]
@@ -2017,10 +2076,11 @@ def _leg_wait(g, led: cb.Ledger, ctx: _T2, p: str) -> None:
     armed = pb.hits(lines, "armed", after=start, before=exit_at)
     before = [s for ts, s in ctx.samples if exit_at is not None and ts <= exit_at]
     on6603 = bool(before) and before[-1].ui_state == "FieldHUD" and before[-1].field_id == FARSHORE
-    i_ok = exit_at is not None and bool(paired) and bool(armed) and on6603
+    rk_ok, rk_why = ctx.rekey if ctx.rekey is not None else (True, "s165 re-key: not run")   # [ff9mapkit netsync s165]
+    i_ok = exit_at is not None and bool(paired) and bool(armed) and on6603 and rk_ok
     led.check(f"{p}-I", i_ok, f"paired {pb.show(paired, 1)}; armed {pb.show(armed, 1)}; the host's exit "
                               f"{'at ' + exit_at.strftime('%H:%M:%S') if exit_at else 'NEVER on the peer log'}; the guest "
-                              f"on {before[-1].ui_state if before else '?'} {before[-1].field_id if before else ''}")
+                              f"on {before[-1].ui_state if before else '?'} {before[-1].field_id if before else ''}; {rk_why}")
     if not i_ok:
         led.unreached([c for c in led.catalog if c.startswith(p + "-") and c not in (f"{p}-I", f"{p}-CAL")],
                       "the instrument is untrustworthy on this run (WT-I)")
@@ -2076,8 +2136,10 @@ def run_duo(d) -> None:
         d.note(f"s144 duo: the guest reads as s{stage}, the host as s{stage_of(host.state)}")
         both = (host.state.ui_state == "FieldHUD" and host.state.field_id == FARSHORE and gst.ui_state == "FieldHUD"
                 and gst.field_id == FARSHORE and _s(gst, "mirroring") is True)
-        check("S144-D0", both, f"host {host.state.ui_state} {host.state.field_id}; guest {gst.ui_state} {gst.field_id}, "
-                               f"mirroring {_s(gst, 'mirroring')!r}")
+        rekey = follow_off(guest)                          # [ff9mapkit netsync s165] THE RE-KEY, before the host's walk out
+        check("S144-D0", both and rekey[0], f"host {host.state.ui_state} {host.state.field_id}; guest {gst.ui_state} "
+                                            f"{gst.field_id}, mirroring {_s(gst, 'mirroring')!r}; {rekey[1]}")
+        both = both and rekey[0]
         if not both:
             for cid in DUO_PREDICTED:
                 check(cid, False, "not reached: the pair is not on 6603 (D0)")
@@ -2140,6 +2202,10 @@ def run_duo(d) -> None:
         check("S144-D3", *with_arrive((a_ok and n_ok and mir is True, f"ARM {a_why}; LAND {n_why}; mirroring {mir!r}"), arrive))
         d.note(f"s164 ARRIVAL GUARD on the world rejoin into {ICE_CAVERN}: {arrive[1]}")
     finally:
+        try:
+            d.note(f"s165 re-key teardown: {follow_clear(d.guest)}")        # [ff9mapkit netsync s165]
+        except HarnessError:
+            pass
         if calibrate:
             try:
                 stage = stage_of(d.guest.state)
