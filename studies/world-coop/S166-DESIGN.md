@@ -510,7 +510,11 @@ extracted; no bench while the owner plays, never under a running test suite.
   s167's fingerprint names a difference but cannot heal it.
 - **Bodies:** two identical bodies, with no dress or tint, until the owner says so. The ghost lags by the ease (~83 ms) plus
   the link, with no playout buffer. In a stall the dot blinks out at 1 s while the ghost holds 5 s.
-- **Scope:** ghosts and walking only on 9002, 9010 and 9011; on the vehicle worlds the frozen guest keeps the dot alone.
+- **Scope:** ghosts and walking only on 9002, 9010 and 9011, the three free-roam states with no vehicle object at all (all
+  disc 1, story counter below 5990). The other six free-roam states (9000, 9003, 9005, 9007, 9008, 9009) are walkable too,
+  but their dispatchers hold Choco or a ship: there the guest keeps s165's freeze and the dot until rung 3 (the event worlds
+  9001, 9004, 9006 and 9012 have no free roam). Walking those six on foot only, frozen whenever the host rides, is an
+  owner option (not designed here: their own recon first).
 - **9002 is under-benched:** no real route (only the fabricated landing), the minimap unproven in game (WORLD02 never arms it,
   yet WorldHUD.Show keys on the mirrored [100]), and both bodies Dagger.
 - **s165's own limits stay:** a 9013 host reads as 9011 to the follow-out (the walk and the ghost compare the trailer's
@@ -543,8 +547,10 @@ extracted; no bench while the owner plays, never under a running test suite.
    study's rung-2 mirror. Recommended: report.
 10. The ~ menu's Release row on the walk worlds: kept, its hint reworded to "Enter locations alone (until the next field
     load)". Recommended.
-11. A guest that declines the host's world battle stays frozen through the host's fight and walks again after it.
-    Recommended: accept.
+11. "Decline" is s145's word for the guest's game being unable to boot the host's world battle, never the player's choice:
+    the guest aboard a vehicle, standing on the quicksand cell (52), mid-fade or loading, with a window, the ~ menu or the
+    full map open, or with control off. Such a guest sits the fight out on the world map and, in s167, stays frozen until the
+    host is back on the world map (b6 clears during the host's battle), then walks again. Recommended: accept.
 12. The schedule: run the s165 two-PC session on s165 first (with the Confirm warning), or ship s166 to both machines and
     run s165's checks on it; every engine build auto-deploys over the shared install.
 
