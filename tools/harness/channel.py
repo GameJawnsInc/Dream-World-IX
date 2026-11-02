@@ -1031,6 +1031,27 @@ class State:
         v = node.get("block_ready") if isinstance(node, dict) else None
         return v if isinstance(v, bool) else None
 
+    # ---- [ff9mapkit netsync s166] WORLD WALK, ROUND A, PIECE A0 (studies/world-coop/S166-DESIGN.md decision 19): `netsync.world`'s last
+    # key `kitcell` (after s165's `dot`) -- every role, additive under 5. Key PRESENCE is the capability. Its own accessors (never
+    # NETSYNC_WORLD_ACCESSORS, whose law pins s144-s145's `world` leaves); `closed` is per PROCESS -- read DELTAS.
+    @property
+    def coop_world_walk(self) -> bool:
+        """s166: the world walk round (``netsync.world.kitcell`` present). False = an engine without it (s165), which fails `netsync
+        worldwalk` closed ("unknown sub-verb")."""
+        return self._ns_path("world.kitcell", dict) is not None
+
+    @property
+    def world_kitcell_block(self) -> dict | None:
+        """s166 A0: ``netsync.world.kitcell`` {lever "act"|"old", closed, last_sid, last_world} -- decision 19's witness: a control-off
+        world-script read of a host-owned key the close masked (entry 0 or an entry past the stock dispatcher's last, on a walk world,
+        under the world freeze), counted at the read; last_sid / last_world -1 = none yet. Copied (None = absent)."""
+        return self._ns_path("world.kitcell", dict)
+
+    @property
+    def world_kitcell_closed(self) -> int | None:
+        """s166 A0: ``netsync.world.kitcell.closed`` (monotonic: read DELTAS; None = absent)."""
+        return self._ns_path("world.kitcell.closed", int)
+
     guest_local_mode = _guestlocal_prop("mode", str, "s156: the gate's EFFECTIVE mode -- 'act' | 'shadow' | 'off' (the lever on "
                                                      "the selftest role only, else 'act'; '' = the catch line).")
     guest_local_lever = _guestlocal_prop("lever", str, "s156: the `guestlocal` lever AS SET -- 'act' | 'shadow' | 'off' ('' = "

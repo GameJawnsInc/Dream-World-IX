@@ -418,7 +418,8 @@ def test_netsync_refuses_an_unknown_sub_verb_before_spending_a_step(game):
         seq = g.state.seq
         with pytest.raises(HarnessError, match=r"unknown sub-verb 'tape' \(selftest\|bench\|l1\|hostscene.*"
                                                r"\|tap-record\|replay\|.*\|bmenu\|bbench\|endbench\|actbench"
-                                               r"\|selfdress\|guestlocal\|stepout\|chest\|ate\|speed\|swap\|worldfollow\)"):    # [ff9mapkit netsync s139] [s156] [s158] [s160] [s161] [s163] [s164] [s165]
+                                               r"\|selfdress\|guestlocal\|stepout\|chest\|ate\|speed\|swap\|worldfollow"
+                                               r"\|worldwalk\)"):    # [ff9mapkit netsync s139] [s156] [s158] [s160] [s161] [s163] [s164] [s165] [ff9mapkit netsync s166]
             g.netsync("tape", 1)
         assert g.state.seq == seq and not any(s[:1] == ["netsync"] for s in fake.executed)
 
@@ -944,10 +945,20 @@ def _unswapped(doc: dict) -> dict:
 def _unfollowed(doc: dict) -> dict:
     """[ff9mapkit netsync s165] A `netsync` document without s165's catch-line keys -- `saveguard` and `host` after `swap`
     (FG.NETSYNC_TOP_CAP_KEYS' `worldfollow` row) and `r3` / `out` / `host` / `dot` inside `world` (NETSYNC_TOP_NESTED_KEYS): the catch
-    line as s164 wrote it -- s165 adds those and nothing else."""
-    out = {k: v for k, v in doc.items() if k not in FG.NETSYNC_TOP_CAP_KEYS["worldfollow"]}
+    line as s164 wrote it -- s165 adds those and nothing else. [ff9mapkit netsync s166] (and without s166's key: :func:`_unwalked`)"""
+    out = {k: v for k, v in _unwalked(doc).items() if k not in FG.NETSYNC_TOP_CAP_KEYS["worldfollow"]}
     if isinstance(out.get("world"), dict):
         drop = FG.NETSYNC_TOP_NESTED_KEYS["worldfollow"]["world"]
+        out["world"] = {k: v for k, v in out["world"].items() if k not in drop}
+    return out
+
+
+def _unwalked(doc: dict) -> dict:
+    """[ff9mapkit netsync s166] A `netsync` document without s166 A0's catch-line key -- `kitcell` inside `world` (NETSYNC_TOP_NESTED_KEYS'
+    `worldwalk` row; no top-level key): the catch line as s165 wrote it -- A0 adds that and nothing else."""
+    out = dict(doc)
+    if isinstance(out.get("world"), dict):
+        drop = FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"]["world"]
         out["world"] = {k: v for k, v in out["world"].items() if k not in drop}
     return out
 
@@ -966,9 +977,17 @@ def _s165_live() -> bool:
     return any(n.startswith("s165-") and n not in msr.DEAD for n in msr.stack())
 
 
+def _s166_live() -> bool:
+    """[ff9mapkit netsync s166] Whether the LIVE patch stack carries the s166 patch yet (the engine lane builds concurrently: until its
+    patch lands the live agent is s165's, and every kit-vs-agent pin compares it with the stand-in AT that rung)."""
+    return any(n.startswith("s166-") and n not in msr.DEAD for n in msr.stack())
+
+
 def _live_caps() -> frozenset:
     """[ff9mapkit netsync s164] The stand-in's capability set at the LIVE stack's rung (s164's once its patch lands, else s163's).
-    [ff9mapkit netsync s165] (s165's once ITS patch lands)"""
+    [ff9mapkit netsync s165] (s165's once ITS patch lands) [ff9mapkit netsync s166] (s166's once ITS patch lands)"""
+    if _s166_live():
+        return FG.caps_through("worldwalk")
     if _s165_live():
         return FG.caps_through("worldfollow")
     return FG.caps_through("swap" if _s164_live() else "speed")
@@ -983,23 +1002,29 @@ def _sw_live_tail(*names: str) -> list:
 def _sw_live_subverbs(*names: str) -> list:
     """[ff9mapkit netsync s165] A tail of the agent's SUB-VERB list as the LIVE agent writes it: ``names``, then s164's `swap` and
     s165's `worldfollow` once each patch is live (:func:`_sw_live_tail` is netsync's KEY tail: s165 appends two keys there,
-    `saveguard` and `host`, but ONE sub-verb here)."""
-    return list(names) + (["swap"] if _s164_live() else []) + (["worldfollow"] if _s165_live() else [])
+    `saveguard` and `host`, but ONE sub-verb here). [ff9mapkit netsync s166] ...then s166's `worldwalk` once ITS patch is live."""
+    return (list(names) + (["swap"] if _s164_live() else []) + (["worldfollow"] if _s165_live() else [])
+            + (["worldwalk"] if _s166_live() else []))
 
 
 def _s165_world_tail() -> str:
     """[ff9mapkit netsync s165] What the LIVE catch line writes inside `world` after s145's `dio` block: nothing before s165, then
-    s165's r3 / out / host / dot at their sentinels (BW.WORLD_S165_KEYS, the agent's order)."""
+    s165's r3 / out / host / dot at their sentinels (BW.WORLD_S165_KEYS, the agent's order). [ff9mapkit netsync s166] ...then s166's
+    `kitcell` at its sentinel once ITS patch is live."""
     if not _s165_live():
         return ""
-    return "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S165[k], separators=(",", ":")) for k in BW.WORLD_S165_KEYS)
+    tail = "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S165[k], separators=(",", ":")) for k in BW.WORLD_S165_KEYS)
+    if _s166_live():
+        tail += "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S166[k], separators=(",", ":")) for k in BW.WORLD_S166_KEYS)
+    return tail
 
 
 def _sw_agent_index(i: int) -> int:
     """[ff9mapkit netsync s164] The LIVE agent's index for the driver's negative sub-verb index ``i``: the same once the s164 patch is
     live, else one further toward the end (an s163 agent has no trailing `swap`). [ff9mapkit netsync s165] ...and one further again
-    until the s165 patch is live (an s164 agent has no trailing `worldfollow`)."""
-    return i + (0 if _s164_live() else 1) + (0 if _s165_live() else 1)
+    until the s165 patch is live (an s164 agent has no trailing `worldfollow`). [ff9mapkit netsync s166] ...and again until the s166
+    patch is live (an s165 agent has no trailing `worldwalk`)."""
+    return i + (0 if _s164_live() else 1) + (0 if _s165_live() else 1) + (0 if _s166_live() else 1)
 
 
 def _sw_live_catch_tail() -> str:
@@ -2281,7 +2306,8 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
                     **Session.NETSYNC_GUESTLOCAL_SUBVERBS, **Session.NETSYNC_STEPOUT_SUBVERBS,
                     **Session.NETSYNC_CHEST_SUBVERBS, **Session.NETSYNC_ATE_SUBVERBS,
                     **Session.NETSYNC_SPEED_SUBVERBS, **Session.NETSYNC_SWAP_SUBVERBS,
-                    **Session.NETSYNC_WORLDFOLLOW_SUBVERBS}[verb][2] == patch, verb   # [s158] [s160] [s161] [s163] [s164] [s165]
+                    **Session.NETSYNC_WORLDFOLLOW_SUBVERBS,
+                    **Session.NETSYNC_WORLDWALK_SUBVERBS}[verb][2] == patch, verb   # [s158] [s160] [s161] [s163] [s164] [s165] [ff9mapkit netsync s166]
         # [ff9mapkit netsync R3] the keys added INSIDE an older fixed sub-object, and to / inside `netsync.diorama`
         nested = {}
         for path in [c for c in BATTLE_CONTAINERS if c in _leaves_paths(was)]:
@@ -2371,8 +2397,9 @@ def test_each_battle_patch_adds_its_own_sub_verbs_and_keys_in_order():
     assert set(Session.NETSYNC_BATTLE_SUBVERBS) | set(Session.NETSYNC_DRESS_SUBVERBS) | \
         set(Session.NETSYNC_GUESTLOCAL_SUBVERBS) | set(Session.NETSYNC_STEPOUT_SUBVERBS) | \
         set(Session.NETSYNC_CHEST_SUBVERBS) | set(Session.NETSYNC_ATE_SUBVERBS) | set(Session.NETSYNC_SPEED_SUBVERBS) | \
-        set(Session.NETSYNC_SWAP_SUBVERBS) | set(Session.NETSYNC_WORLDFOLLOW_SUBVERBS) == \
-        {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}            # [ff9mapkit netsync s139] + the dress table [s158] [s164] [s165]
+        set(Session.NETSYNC_SWAP_SUBVERBS) | set(Session.NETSYNC_WORLDFOLLOW_SUBVERBS) | \
+        set(Session.NETSYNC_WORLDWALK_SUBVERBS) == \
+        {v for _p, vs in FG.NETSYNC_BATTLE_CAPS.values() for v in vs}            # [ff9mapkit netsync s139] + the dress table [s158] [s164] [s165] [ff9mapkit netsync s166]
     assert not set(Session.NETSYNC_BATTLE_SUBVERBS) & set(Session.NETSYNC_DRESS_SUBVERBS)
     # [ff9mapkit netsync s156] + guest traversal's table, disjoint from both
     assert not set(Session.NETSYNC_GUESTLOCAL_SUBVERBS) & (set(Session.NETSYNC_BATTLE_SUBVERBS) |
@@ -3118,7 +3145,8 @@ def test_netsync_refuses_a_battle_verb_its_engine_lacks_before_spending_a_step(g
                                         **Session.NETSYNC_GUESTLOCAL_SUBVERBS, **Session.NETSYNC_STEPOUT_SUBVERBS,
                                         **Session.NETSYNC_CHEST_SUBVERBS, **Session.NETSYNC_ATE_SUBVERBS,
                                         **Session.NETSYNC_SPEED_SUBVERBS, **Session.NETSYNC_SWAP_SUBVERBS,
-                                        **Session.NETSYNC_WORLDFOLLOW_SUBVERBS}[verb]   # [s164] [s165]
+                                        **Session.NETSYNC_WORLDFOLLOW_SUBVERBS,
+                                        **Session.NETSYNC_WORLDWALK_SUBVERBS}[verb]   # [s164] [s165] [ff9mapkit netsync s166]
             with pytest.raises(HarnessError, match=rf"^netsync {verb}: (?:the deployed|this) engine publishes no "
                                                    rf"`{re.escape(key)}` .*\(memoria-patch {patch}\); it would answer "
                                                    rf"\"netsync: unknown sub-verb '{verb}'\" only after the step"):
@@ -6759,11 +6787,26 @@ def _wf_proof_texts() -> list:
 
 
 def _wf_unproved(lines: list, fake) -> list:
-    """[ff9mapkit netsync s165] The proof block as s164 closed it: on an s165 stand-in its two lines (checked) come off the end."""
+    """[ff9mapkit netsync s165] The proof block as s164 closed it: on an s165 stand-in its two lines (checked) come off the end.
+    [ff9mapkit netsync s166] (s166's line off first: :func:`_ww_unproved`)"""
+    lines = _ww_unproved(lines, fake)
     if "worldfollow" not in fake._nb_caps():
         return lines
     assert [ln.split("[NetSync] ", 1)[1] for ln in lines[-2:]] == _wf_proof_texts(), lines[-3:]
     return lines[:-2]
+
+
+def _ww_proof_text() -> str:
+    """[ff9mapkit netsync s166] The s166 stand-in's proof line, after the world dot line (the stand-in's tallies)."""
+    return f"{BW.PROOF_WORLD_WALK}OK ({FG.FAKE_WORLD_WALK_SELFTEST_ROWS} rows, {FG.FAKE_WORLD_WALK_MUTANTS} mutants)"
+
+
+def _ww_unproved(lines: list, fake) -> list:
+    """[ff9mapkit netsync s166] The proof block as s165 closed it: on an s166 stand-in its line (checked) comes off the end."""
+    if "worldwalk" not in fake._nb_caps():
+        return lines
+    assert lines and lines[-1].split("[NetSync] ", 1)[1] == _ww_proof_text(), lines[-2:]
+    return lines[:-1]
 
 
 def _sw_proof_text(fake=None) -> str:
@@ -6817,7 +6860,12 @@ _PROOF_S145 = [BW.proof_ok(BW.PROOF_CONTROL, 53), BW.proof_ok(BW.PROOF_WATCH, BW
     # [ff9mapkit netsync s163] THE LIVE STAND-IN IS s163: then the speed mirror line, the block's last (s162's tallies kept)
     # [ff9mapkit netsync s164] THE LIVE STAND-IN IS s164: then the field swap line, the block's last (its clock the seam's)
     # [ff9mapkit netsync s165] THE LIVE STAND-IN IS s165: then the world follow line and the world dot line, the block's last
+    # [ff9mapkit netsync s166] THE LIVE STAND-IN IS s166: then the world walk line, the block's last
     ("live", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
+                            _so_proof_text(), _ch_proof_text(), _ar_proof_text(), _sp_proof_text(), _sw_proof_text()]
+     + _wf_proof_texts() + [_ww_proof_text()]),
+    # [ff9mapkit netsync s166] s165 (s166's calibration red): no world walk line
+    ("s165", _PROOF_S145 + [_gl_proof_text(), BW.proof_ok(BW.PROOF_DRESS_TWIN, BW.DRESS_TWIN_SELFTEST_ROWS), _gf_proof_text(),
                             _so_proof_text(), _ch_proof_text(), _ar_proof_text(), _sp_proof_text(), _sw_proof_text()]
      + _wf_proof_texts()),
     # [ff9mapkit netsync s165] s164 (s165's calibration red): no world follow / world dot line
@@ -17019,9 +17067,10 @@ def test_the_s139_agent_prints_selfdress_last_and_the_driver_and_the_stand_in_ag
     # [ff9mapkit netsync s163] ...and s163 appended `speed` after `ate`
     # [ff9mapkit netsync s164] ...and s164 appended `swap` after `speed`
     # [ff9mapkit netsync s165] ...and s165 appended `worldfollow` after `swap`
-    assert Session.NETSYNC_SUBVERBS[-9:-7] == ("actbench", "selfdress") == FG.NETSYNC_SUBVERBS[-9:-7]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-9:-7] == ("actbench", "selfdress")
-    assert FG.NETSYNC_BATTLE_VERB_ORDER[-9:-7] == ("actbench", "selfdress")
+    # [ff9mapkit netsync s166] ...and s166 appended `worldwalk` after `worldfollow`
+    assert Session.NETSYNC_SUBVERBS[-10:-8] == ("actbench", "selfdress") == FG.NETSYNC_SUBVERBS[-10:-8]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-10:-8] == ("actbench", "selfdress")
+    assert FG.NETSYNC_BATTLE_VERB_ORDER[-10:-8] == ("actbench", "selfdress")
     assert FG.netsync_subverbs(FG.caps_through(FG.NETSYNC_S154_RUNG))[-2:] == ("actbench", "selfdress")
     assert FG.NETSYNC_BATTLE_CAPS["dresshost"] == ("s139", ("selfdress",)) and FG.NETSYNC_S139_CAPS == frozenset(("dresshost",))
     assert FG.netsync_subverbs(FG.caps_through("dressinstr"))[-1] == "actbench"
@@ -22662,7 +22711,8 @@ def test_the_dresspolish_rung_is_s141s_and_its_keys_sit_in_self_and_ghost():
                                                                                                              "ate",   # [s161]
                                                                                                              "ateland",   # [s162]
                                                                                                              "speed", "swap",   # [s163] [s164]
-                                                                                                             "worldfollow"]   # [s165]
+                                                                                                             "worldfollow",   # [s165]
+                                                                                                             "worldwalk"]   # [ff9mapkit netsync s166]
     assert FG.NETSYNC_BATTLE_CAPS["dresspolish"] == ("s141", ()) and FG.NETSYNC_S141_CAPS == frozenset(("dresspolish",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresspolish"] == {} and "dresspolish" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     assert FG.NETSYNC_DRESS_CAP_KEYS["dresspolish"] == BW.DRESS_KEYS_BY_RUNG["dresspolish"] == ()
@@ -25764,8 +25814,8 @@ def test_the_s156_agent_prints_guestlocal_last_and_the_driver_and_the_stand_in_a
     # [ff9mapkit netsync s158] ...LAST until s158 appended `stepout` after it
     # [ff9mapkit netsync s160] ...and s160 appended `chest` after that
     # [ff9mapkit netsync s161] ...and s161 appended `ate` after that
-    assert Session.NETSYNC_SUBVERBS[-7] == "guestlocal" == FG.NETSYNC_SUBVERBS[-7] == _agent_subverbs()[_sw_agent_index(-7)]   # [s161] [s163] [s164] [s165]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-7] == "guestlocal" and FG.NETSYNC_BATTLE_VERB_ORDER[-7] == "guestlocal"
+    assert Session.NETSYNC_SUBVERBS[-8] == "guestlocal" == FG.NETSYNC_SUBVERBS[-8] == _agent_subverbs()[_sw_agent_index(-8)]   # [s161] [s163] [s164] [s165] [ff9mapkit netsync s166]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-8] == "guestlocal" and FG.NETSYNC_BATTLE_VERB_ORDER[-8] == "guestlocal"   # [ff9mapkit netsync s166]
     names = list(FG.NETSYNC_BATTLE_CAPS)
     # [ff9mapkit netsync s157] ...LAST until s157's `dresstwin` rung joined after it; [ff9mapkit netsync s158] and s158's `stepout`;
     # [ff9mapkit netsync s161] and s161's `ate`
@@ -25775,15 +25825,16 @@ def test_the_s156_agent_prints_guestlocal_last_and_the_driver_and_the_stand_in_a
                                                                                                        "chest",   # [s160]
                                                                                                        "ate",   # [s161]
                                                                                                        "ateland",   # [s162]
-                                                                                                       "speed", "swap", "worldfollow"]   # [s163] [s164] [s165]
+                                                                                                       "speed", "swap", "worldfollow",   # [s163] [s164] [s165]
+                                                                                                       "worldwalk"]   # [ff9mapkit netsync s166]
     assert FG.NETSYNC_BATTLE_CAPS["guestlocal"] == ("s156", ("guestlocal",)) and FG.NETSYNC_S156_CAPS == frozenset(("guestlocal",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["guestlocal"] == {} and FG.NETSYNC_TOP_CAP_KEYS["guestlocal"] == ("guestlocal",)
     assert "guestlocal" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "guestlocal" not in FG.NETSYNC_DIORAMA_CAP_KEYS
     assert "guestlocal" not in FG.NETSYNC_TOP_NESTED_KEYS and "guestlocal" not in FG.NETSYNC_DRESS_CAP_KEYS
     cal = FG.caps_through(FG.NETSYNC_S154_RUNG)
     assert "guestlocal" not in cal and FG.netsync_subverbs(cal) + ("guestlocal", "stepout", "chest", "ate", "speed", "swap",
-                                                                                             "worldfollow") == \
-        FG.NETSYNC_SUBVERBS   # [s158] [s160] [s161] [s163] [s164] [s165]
+                                                                                             "worldfollow", "worldwalk") == \
+        FG.NETSYNC_SUBVERBS   # [s158] [s160] [s161] [s163] [s164] [s165] [ff9mapkit netsync s166]
     assert not net_lines("HarnessAgent.cs", r".", [_patch_bytes("s155")])     # s155 touched no harness line
     assert Session.NETSYNC_GUESTLOCAL_SUBVERBS == {
         "guestlocal": ("coop_guest_local", "netsync.guestlocal", "s156", "the s156 guest-traversal gate bench")}
@@ -26149,7 +26200,7 @@ def test_the_dresstwin_rung_is_s157s_and_its_keys_sit_in_self():
     the prefix through `guestlocal`; the capability accessor reads True on s157's catch line and False on s156's; the `twin`
     op's capability key is a key s157 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[names.index("dresstwin") - 1] == "guestlocal" and names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate", "ateland", "speed", "swap", "worldfollow"]   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160] [s161] [s162] [s163]
+    assert names[names.index("dresstwin") - 1] == "guestlocal" and names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate", "ateland", "speed", "swap", "worldfollow", "worldwalk"]   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160] [s161] [s162] [s163] [ff9mapkit netsync s166]
     assert FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and FG.NETSYNC_S157_CAPS == frozenset(("dresstwin",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and "dresstwin" not in FG.NETSYNC_BATTLE_NESTED_KEYS
     # [ff9mapkit netsync s157] ...the ONE rung's other half, the ghost frame, adds ONE top-level block (its own pins below)
@@ -26426,9 +26477,9 @@ def test_the_s157_ghostframe_block_closes_netsync_on_the_dresstwin_rung():
     a NetSyncClient getter at its sentinel, in EVERY role, called right after AppendGuestLocal; the `bench ghostframe` op is
     told by `netsync.ghostframe`; the protocol stays 5."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate", "ateland", "speed", "swap", "worldfollow"] and FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and "climbanim" not in names   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160]
+    assert names[names.index("dresstwin") + 1:] == ["stepout", "stepanchor", "chest", "ate", "ateland", "speed", "swap", "worldfollow", "worldwalk"] and FG.NETSYNC_BATTLE_CAPS["dresstwin"] == ("s157", ()) and "climbanim" not in names   # [ff9mapkit netsync s158] ...LAST until s158's `stepout` joined after it [s160] [ff9mapkit netsync s166]
     assert FG.NETSYNC_BATTLE_CAP_KEYS["dresstwin"] == {} and FG.NETSYNC_TOP_CAP_KEYS["dresstwin"] == ("ghostframe",)
-    assert FG.netsync_subverbs(FG.caps_through("dresstwin")) == FG.netsync_subverbs(S156_CAPS_) == FG.NETSYNC_SUBVERBS[:-6]   # [s158] less `stepout` [s160] and `chest` [s161] and `ate` [s163] and `speed` [s164] and `swap` [s165] and `worldfollow`
+    assert FG.netsync_subverbs(FG.caps_through("dresstwin")) == FG.netsync_subverbs(S156_CAPS_) == FG.NETSYNC_SUBVERBS[:-7]   # [s158] less `stepout` [s160] and `chest` [s161] and `ate` [s163] and `speed` [s164] and `swap` [s165] and `worldfollow` [ff9mapkit netsync s166] and `worldwalk`
     esc = lambda d: json.dumps(d, separators=(",", ":"))                    # noqa: E731
     assert _gl_catch_tail().endswith(',"ghostframe":' + esc(FG.NETSYNC_GHOSTFRAME_SENTINELS) + ',"stepout":'
                                      + esc(FG.NETSYNC_STEPOUT_SENTINELS)   # [ff9mapkit netsync s158] s158's block follows
@@ -26649,16 +26700,16 @@ def test_the_s158_agent_prints_stepout_last_and_the_driver_and_the_stand_in_agre
     (Session.NETSYNC_STEPOUT_SUBVERBS) through the same gate as `guestlocal`; the agent's case calls HarnessLever once."""
     assert _subverbs_in("s158") == _subverbs_in("s156") + ("stepout",)          # s157 added no sub-verb
     # [ff9mapkit netsync s160] ...LAST until s160 appended `chest` after it; [ff9mapkit netsync s161] and s161 `ate` after that
-    assert Session.NETSYNC_SUBVERBS[-6] == "stepout" == FG.NETSYNC_SUBVERBS[-6] == _agent_subverbs()[_sw_agent_index(-6)]   # [s163] [s164] [s165]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-6] == "stepout" and FG.NETSYNC_BATTLE_VERB_ORDER[-6] == "stepout"
+    assert Session.NETSYNC_SUBVERBS[-7] == "stepout" == FG.NETSYNC_SUBVERBS[-7] == _agent_subverbs()[_sw_agent_index(-7)]   # [s163] [s164] [s165] [ff9mapkit netsync s166]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-7] == "stepout" and FG.NETSYNC_BATTLE_VERB_ORDER[-7] == "stepout"   # [ff9mapkit netsync s166]
     names = list(FG.NETSYNC_BATTLE_CAPS)
     # [ff9mapkit netsync s159] ...LAST until s159's `stepanchor` rung joined after it
-    assert names[names.index("stepout") - 1] == "dresstwin" and names[names.index("stepout") + 1:] == ["stepanchor", "chest", "ate", "ateland", "speed", "swap", "worldfollow"]   # [s160] [s161] [s162] [s163] [s164] [s165]
+    assert names[names.index("stepout") - 1] == "dresstwin" and names[names.index("stepout") + 1:] == ["stepanchor", "chest", "ate", "ateland", "speed", "swap", "worldfollow", "worldwalk"]   # [s160] [s161] [s162] [s163] [s164] [s165] [ff9mapkit netsync s166]
     assert FG.NETSYNC_BATTLE_CAPS["stepout"] == ("s158", ("stepout",)) and FG.NETSYNC_S158_CAPS == frozenset(("stepout",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["stepout"] == {} and FG.NETSYNC_TOP_CAP_KEYS["stepout"] == ("stepout",)
     assert "stepout" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "stepout" not in FG.NETSYNC_DIORAMA_CAP_KEYS
     cal = FG.caps_through("dresstwin")
-    assert "stepout" not in cal and FG.netsync_subverbs(cal) + ("stepout", "chest", "ate", "speed", "swap", "worldfollow") == FG.NETSYNC_SUBVERBS   # [s160] [s161] [s163] [s164] [s165]
+    assert "stepout" not in cal and FG.netsync_subverbs(cal) + ("stepout", "chest", "ate", "speed", "swap", "worldfollow", "worldwalk") == FG.NETSYNC_SUBVERBS   # [s160] [s161] [s163] [s164] [s165] [ff9mapkit netsync s166]
     assert Session.NETSYNC_STEPOUT_SUBVERBS == {
         "stepout": ("coop_step_out", "netsync.stepout", "s158", "the s158 party-scene step-out bench")}
     attr, key, patch, _what = Session.NETSYNC_STEPOUT_SUBVERBS["stepout"]
@@ -26837,7 +26888,7 @@ def test_the_s159_rung_adds_the_anchor_inside_stepout_and_no_sub_verb():
     s159 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
     # [ff9mapkit netsync s160] ...LAST until s160's `chest` rung joined after it
-    assert names[names.index("stepanchor") - 1] == "stepout" and names[names.index("stepanchor") + 1:] == ["chest", "ate", "ateland", "speed", "swap", "worldfollow"]   # [s161] [s162] [s163] [s164] [s165]
+    assert names[names.index("stepanchor") - 1] == "stepout" and names[names.index("stepanchor") + 1:] == ["chest", "ate", "ateland", "speed", "swap", "worldfollow", "worldwalk"]   # [s161] [s162] [s163] [s164] [s165] [ff9mapkit netsync s166]
     assert FG.NETSYNC_BATTLE_CAPS["stepanchor"] == ("s159", ()) and FG.NETSYNC_S159_CAPS == frozenset(("stepanchor",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["stepanchor"] == {} and "stepanchor" not in FG.NETSYNC_TOP_CAP_KEYS
     assert FG.NETSYNC_TOP_NESTED_KEYS["stepanchor"] == {"stepout": ("anchor",)}
@@ -27011,10 +27062,10 @@ def test_the_s160_agent_prints_chest_last_and_the_driver_and_the_stand_in_agree(
     NetSyncClient.HarnessChest once."""
     assert _subverbs_in("s160") == _subverbs_in("s158") + ("chest",)
     # [ff9mapkit netsync s161] ...LAST until s161 appended `ate` after it
-    assert Session.NETSYNC_SUBVERBS[-5] == "chest" == FG.NETSYNC_SUBVERBS[-5] == _agent_subverbs()[_sw_agent_index(-5)]   # [s163] [s164] [s165]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-5] == "chest" and FG.NETSYNC_BATTLE_VERB_ORDER[-5] == "chest"
+    assert Session.NETSYNC_SUBVERBS[-6] == "chest" == FG.NETSYNC_SUBVERBS[-6] == _agent_subverbs()[_sw_agent_index(-6)]   # [s163] [s164] [s165] [ff9mapkit netsync s166]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-6] == "chest" and FG.NETSYNC_BATTLE_VERB_ORDER[-6] == "chest"   # [ff9mapkit netsync s166]
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-6] == "chest" and names[-7] == "stepanchor" and names[-5:] == ["ate", "ateland", "speed", "swap", "worldfollow"]   # [s161] [s162] [s163] [s164] [s165]
+    assert names[-7] == "chest" and names[-8] == "stepanchor" and names[-6:] == ["ate", "ateland", "speed", "swap", "worldfollow", "worldwalk"]   # [s161] [s162] [s163] [s164] [s165] [ff9mapkit netsync s166]
     assert FG.NETSYNC_BATTLE_CAPS["chest"] == ("s160", ("chest",)) and FG.NETSYNC_S160_CAPS == frozenset(("chest",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["chest"] == {} and FG.NETSYNC_TOP_CAP_KEYS["chest"] == ("chest",)
     assert "chest" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "chest" not in FG.NETSYNC_DIORAMA_CAP_KEYS
@@ -27160,16 +27211,16 @@ def test_the_s161_agent_prints_ate_last_and_the_driver_and_the_stand_in_agree():
     keys it on its own table (Session.NETSYNC_ATE_SUBVERBS) through the same gate as `guestlocal`, whose capability accessor reads
     True on s161's catch line and False on s160's; the agent's case calls HarnessLever once; the protocol stays 5."""
     assert _subverbs_in("s161") == _subverbs_in("s160") + ("ate",)
-    assert Session.NETSYNC_SUBVERBS[-4] == "ate" == FG.NETSYNC_SUBVERBS[-4] == _agent_subverbs()[_sw_agent_index(-4)]   # [ff9mapkit netsync s163] [s164] [s165]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-4] == "ate" and FG.NETSYNC_BATTLE_VERB_ORDER[-4] == "ate"
+    assert Session.NETSYNC_SUBVERBS[-5] == "ate" == FG.NETSYNC_SUBVERBS[-5] == _agent_subverbs()[_sw_agent_index(-5)]   # [ff9mapkit netsync s163] [s164] [s165] [ff9mapkit netsync s166]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-5] == "ate" and FG.NETSYNC_BATTLE_VERB_ORDER[-5] == "ate"   # [ff9mapkit netsync s166]
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-5] == "ate" and names[-6] == "chest" and names[-4:] == ["ateland", "speed", "swap", "worldfollow"]   # [ff9mapkit netsync s162] ...LAST until s162 [s163] [s164] [s165]
+    assert names[-6] == "ate" and names[-7] == "chest" and names[-5:] == ["ateland", "speed", "swap", "worldfollow", "worldwalk"]   # [ff9mapkit netsync s162] ...LAST until s162 [s163] [s164] [s165] [ff9mapkit netsync s166]
     assert FG.NETSYNC_BATTLE_CAPS["ate"] == ("s161", ("ate",)) and FG.NETSYNC_S161_CAPS == frozenset(("ate",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["ate"] == {} and FG.NETSYNC_TOP_CAP_KEYS["ate"] == ("ate",)
     assert "ate" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "ate" not in FG.NETSYNC_DIORAMA_CAP_KEYS
     assert FG.NETSYNC_TOP_NESTED_KEYS["ate"] == {"stepout.in_why": ("ate",)} and "ate" not in FG.NETSYNC_DRESS_CAP_KEYS
     cal = FG.caps_through("chest")
-    assert "ate" not in cal and FG.netsync_subverbs(cal) + ("ate", "speed", "swap", "worldfollow") == FG.NETSYNC_SUBVERBS   # [ff9mapkit netsync s163] [s164] [s165]
+    assert "ate" not in cal and FG.netsync_subverbs(cal) + ("ate", "speed", "swap", "worldfollow", "worldwalk") == FG.NETSYNC_SUBVERBS   # [ff9mapkit netsync s163] [s164] [s165] [ff9mapkit netsync s166]
     assert Session.NETSYNC_ATE_SUBVERBS == {"ate": ("coop_ate_relay", "netsync.ate", "s161", "the s161 ATE relay bench")}
     attr, key, patch, _what = Session.NETSYNC_ATE_SUBVERBS["ate"]
     assert key == "netsync." + FG.NETSYNC_TOP_CAP_KEYS["ate"][0] and patch == FG.NETSYNC_BATTLE_CAPS["ate"][0]
@@ -27470,7 +27521,7 @@ def test_the_s162_rung_adds_the_landing_keys_inside_stepout_and_no_sub_verb():
     prefix through `ate`; the
     capability accessor reads True on s162's catch line and False on s161's; the `noland` op's capability key is a key s162 added."""
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-4] == "ateland" and names[-5] == "ate" and names[-3:] == ["speed", "swap", "worldfollow"]   # [ff9mapkit netsync s163] ...LAST until s163 [s164] [s165]
+    assert names[-5] == "ateland" and names[-6] == "ate" and names[-4:] == ["speed", "swap", "worldfollow", "worldwalk"]   # [ff9mapkit netsync s163] ...LAST until s163 [s164] [s165] [ff9mapkit netsync s166]
     assert FG.NETSYNC_BATTLE_CAPS["ateland"] == ("s162", ()) and FG.NETSYNC_S162_CAPS == frozenset(("ateland",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["ateland"] == {} and "ateland" not in FG.NETSYNC_TOP_CAP_KEYS
     assert "ateland" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "ateland" not in FG.NETSYNC_DIORAMA_CAP_KEYS
@@ -27478,7 +27529,7 @@ def test_the_s162_rung_adds_the_landing_keys_inside_stepout_and_no_sub_verb():
                                                      "stepout.out_why": ("ate",), "stepout.ghost.by": ("landing",)}
     assert "ateland" not in FG.NETSYNC_DRESS_CAP_KEYS
     assert FG.netsync_subverbs(FG.caps_through("ateland")) == FG.netsync_subverbs(FG.caps_through("ate")) == \
-        FG.NETSYNC_SUBVERBS[:-3]                    # [ff9mapkit netsync s163] (less s163's `speed`) [s164] (and s164's `swap`) [s165] (and `worldfollow`)
+        FG.NETSYNC_SUBVERBS[:-4]                    # [ff9mapkit netsync s163] (less s163's `speed`) [s164] (and s164's `swap`) [s165] (and `worldfollow`) [ff9mapkit netsync s166] (and `worldwalk`)
     assert not net_lines("HarnessAgent.cs", r"netsync: unknown sub-verb", [_patch_bytes("s162")])     # no sub-verb
     was, now = _catch_doc_in("s161")["stepout"], _catch_doc_in("s162")["stepout"]
     at = list(was).index("wire_mask") + 1
@@ -27816,16 +27867,16 @@ def test_the_s163_agent_prints_speed_last_and_the_driver_and_the_stand_in_agree(
     catch line and False on s162's; the agent's case calls HarnessLever once; s163's calibration is the prefix through `ateland`;
     the protocol stays 5."""
     assert _subverbs_in("s163") == _subverbs_in("s161") + ("speed",)       # (s162 printed s161's list: no sub-verb)
-    assert Session.NETSYNC_SUBVERBS[-3] == "speed" == FG.NETSYNC_SUBVERBS[-3] == _agent_subverbs()[_sw_agent_index(-3)]   # [s164] [s165]
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-3] == "speed" and FG.NETSYNC_BATTLE_VERB_ORDER[-3] == "speed"
+    assert Session.NETSYNC_SUBVERBS[-4] == "speed" == FG.NETSYNC_SUBVERBS[-4] == _agent_subverbs()[_sw_agent_index(-4)]   # [s164] [s165] [ff9mapkit netsync s166]
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-4] == "speed" and FG.NETSYNC_BATTLE_VERB_ORDER[-4] == "speed"   # [ff9mapkit netsync s166]
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-3] == "speed" and names[-4] == "ateland" and names[-2] == "swap"   # [ff9mapkit netsync s164] ...LAST until s164 [s165]
+    assert names[-4] == "speed" and names[-5] == "ateland" and names[-3] == "swap"   # [ff9mapkit netsync s164] ...LAST until s164 [s165] [ff9mapkit netsync s166]
     assert FG.NETSYNC_BATTLE_CAPS["speed"] == ("s163", ("speed",)) and FG.NETSYNC_S163_CAPS == frozenset(("speed",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["speed"] == {} and FG.NETSYNC_TOP_CAP_KEYS["speed"] == ("speed",)
     assert "speed" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "speed" not in FG.NETSYNC_DIORAMA_CAP_KEYS
     assert "speed" not in FG.NETSYNC_TOP_NESTED_KEYS and "speed" not in FG.NETSYNC_DRESS_CAP_KEYS
     cal = FG.caps_through("ateland")
-    assert "speed" not in cal and FG.netsync_subverbs(cal) + ("speed", "swap", "worldfollow") == FG.NETSYNC_SUBVERBS   # [ff9mapkit netsync s164] [s165]
+    assert "speed" not in cal and FG.netsync_subverbs(cal) + ("speed", "swap", "worldfollow", "worldwalk") == FG.NETSYNC_SUBVERBS   # [ff9mapkit netsync s164] [s165] [ff9mapkit netsync s166]
     assert Session.NETSYNC_SPEED_SUBVERBS == {"speed": ("coop_speed_mirror", "netsync.speed", "s163",
                                                         "the s163 speed mirror's lever")}
     attr, key, patch, _what = Session.NETSYNC_SPEED_SUBVERBS["speed"]
@@ -30243,16 +30294,16 @@ def test_s164_kit2_the_swap_rung_rides_the_ladder_and_the_driver_and_the_stand_i
     `swap`. The driver keys it on its own table (Session.NETSYNC_SWAP_SUBVERBS) through the same gate as `speed`; its capability
     accessor reads True on a document with the block and False on s163's catch line; s164's calibration is the prefix through `speed`.
     The stand-in's sentinels are the design's block, key for key. The LIVE agent agrees with the stand-in at the live stack's rung."""
-    assert Session.NETSYNC_SUBVERBS[-3:-1] == ("speed", "swap") == FG.NETSYNC_SUBVERBS[-3:-1]      # [ff9mapkit netsync s165] then
-    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-2] == "swap" and FG.NETSYNC_BATTLE_VERB_ORDER[-3:-1] == ("speed", "swap")   # `worldfollow`
+    assert Session.NETSYNC_SUBVERBS[-4:-2] == ("speed", "swap") == FG.NETSYNC_SUBVERBS[-4:-2]      # [ff9mapkit netsync s165] then
+    assert Session.NETSYNC_AUTHORITY_SUBVERBS[-3] == "swap" and FG.NETSYNC_BATTLE_VERB_ORDER[-4:-2] == ("speed", "swap")   # `worldfollow` [ff9mapkit netsync s166] and `worldwalk`
     names = list(FG.NETSYNC_BATTLE_CAPS)
-    assert names[-3:] == ["speed", "swap", "worldfollow"]                     # [ff9mapkit netsync s165] ...LAST until s165
+    assert names[-4:] == ["speed", "swap", "worldfollow", "worldwalk"]        # [ff9mapkit netsync s165] ...LAST until s165 [ff9mapkit netsync s166]
     assert FG.NETSYNC_BATTLE_CAPS["swap"] == ("s164", ("swap",)) and FG.NETSYNC_S164_CAPS == frozenset(("swap",))
     assert FG.NETSYNC_BATTLE_CAP_KEYS["swap"] == {} and FG.NETSYNC_TOP_CAP_KEYS["swap"] == ("swap",)
     assert "swap" not in FG.NETSYNC_BATTLE_NESTED_KEYS and "swap" not in FG.NETSYNC_DIORAMA_CAP_KEYS
     assert "swap" not in FG.NETSYNC_TOP_NESTED_KEYS and "swap" not in FG.NETSYNC_DRESS_CAP_KEYS
     cal = FG.caps_through("speed")
-    assert "swap" not in cal and FG.netsync_subverbs(cal) + ("swap", "worldfollow") == FG.NETSYNC_SUBVERBS   # [ff9mapkit netsync s165]
+    assert "swap" not in cal and FG.netsync_subverbs(cal) + ("swap", "worldfollow", "worldwalk") == FG.NETSYNC_SUBVERBS   # [ff9mapkit netsync s165] [ff9mapkit netsync s166]
     assert Session.NETSYNC_SWAP_SUBVERBS == {"swap": ("coop_field_swap", "netsync.swap", "s164", "the s164 field-swap levers")}
     attr, key, patch, _what = Session.NETSYNC_SWAP_SUBVERBS["swap"]
     assert key == "netsync." + FG.NETSYNC_TOP_CAP_KEYS["swap"][0] and patch == FG.NETSYNC_BATTLE_CAPS["swap"][0]

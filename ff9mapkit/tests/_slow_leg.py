@@ -124,6 +124,14 @@ LEGS = {
         "test_the_duo_is_green_on_s165_and_calibrates_on_s164",
         "test_each_fault_family_turns_exactly_its_duo_rows_red",
     ),
+    # [ff9mapkit netsync s166] coop_world_walk.py's solo leg (round A; piece A0's rows): green, OLD, the lever, the faults, a CAL red
+    "test_coop_world_walk.py": (
+        "test_the_solo_leg_is_green_on_the_s166_stand_in_under_both_orders",
+        "test_the_solo_leg_calibrates_on_s165_measures_the_hazard_and_sends_nothing_new",
+        "test_the_lever_calibrates_exactly_and_measures_the_hazard",
+        "test_a_calibration_without_a_measured_hazard_is_red",
+        "test_each_world_walk_fault_turns_exactly_its_solo_rows_red",
+    ),
     # [ff9mapkit netsync s163] coop_speed_mirror.py's whole solo bench on a real-time stand-in: plain, its calibration, the s162 engine
     "test_coop_speed_mirror_bench.py": (
         "test_the_solo_bench_runs_green_on_the_s163_stand_in_calibrates_exactly_and_reds_on_s162",

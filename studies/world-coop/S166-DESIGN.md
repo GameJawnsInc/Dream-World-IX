@@ -460,7 +460,8 @@ walks exactly like s165) and a lever (LEVER_PREDICTED on the new DLL), so every 
 `world.block_ready` and advancing `world.ticks` (THE PRE-INIT SAMPLE), on frames first published after the edge it judges (A
 GAME PUBLISHES NOTHING DURING ITS OWN SYNC LOAD), dropping each harness control flip's own publish (THE ORDER SKEW). Positions:
 ICE_TILE (1197.37, -796.7), cell (37, 24), the Ice Cavern (loc 4, Field 300, discovery bit UInt16[92] & 8); FS_LANDING (68,
--444), the 6603 kit cell; BOAT_SPAWN (492, -1130), the boat's 40 u range; the ferryman at (29, -1168), 12 u range.
+-444), in cell (2, 13) but off its trigger; KIT_6603_TRIGGER (80, -444), the six event-1 triangles within 3 u (the
+only place the 6603 cell fires; A-KITOFF teleports there); BOAT_SPAWN (492, -1130), the boat's 40 u range; the ferryman at (29, -1168), 12 u range.
 
 **K1, read-only, before the build.** The read-site census is done (this doc). Still to do: the type-0 inter-arrival times in
 both directions from the existing tapes (the gap threshold, and the real send rate: `swap.slot.sends` counts only the host's
@@ -501,8 +502,8 @@ PIN), 6603 -> 9011 by s165's follow-out (`worldfollow host`), and onto 9002/9010
 
 | Row | Judge | OLD (s165) | Lever (s166) |
 |---|---|---|---|
-| A-KITOFF | first and alone: FS_LANDING, `control off`, Confirm: still WorldHUD, never 6603; the same inside the ~ menu's "Disable control" hold | FieldHUD 6603 alone (today's hazard, measured) | `kitcell old` |
-| A-FERRYOFF | within 12 u of the ferryman, `control off`, Confirm: Map[50] stays 0, no fade | the ferryman scene plays on the guest's copy | `kitcell old` |
+| A-KITOFF | first and alone: ON the 6603 trigger (80, -444), frozen, `control 0`, Confirm: still WorldHUD, never 6603; `kitcell.closed` +2 (entry 0 and the boat's eager @00174 read, entry 15, which reads every Confirm on 9011); the ~ menu's "Disable control" hold in the stand-in only (no harness verb opens the menu) | FieldHUD 6603 alone (today's hazard, measured) | `kitcell old` |
+| A-FERRYOFF | within 12 u of the ferryman, frozen, `control 0`, Confirm: Map[50] stays 0, no fade; `kitcell.closed` +2 (16 and the boat's 15) | the ferryman scene plays on the guest's copy | `kitcell old` |
 | A-PROOF | the proof line on a field | absent | its mutants |
 | T2-A pair | second and alone: `replay-host --from` a tape second where the host stands on 9011 past the debounce, the real guest on its own field (paired there, never mirrored): its pairing autosave line, then the follow-out's start, commit and landing at the tape's pose; `mirroring` true and the ARMED line once, naming the world landing; `savemenu` refused; the tape's rejoin into 300 stages the host's story | waits on its field (`not_mirroring`) until the tape's 300 | `pairpull old` |
 | A-WIRE | an unrestamped s165 tape: never pairs, `wire_peer.rejected` rises, one line | pairs (v14) | `--wire 15`: pairs, s165 behaviour, ghost why_not no_record |

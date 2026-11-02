@@ -478,7 +478,25 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # overlay's new words (the s144 chain twin is unchanged), the exit ramp inside a fade, the guest's own exit inside
                        # the fade, the world-to-world change, a real minimap prefab (the census is a fixed record). Faults:
                        # WORLD_FOLLOW_FAULTS.
-                       "worldfollow": ("s165", ("worldfollow",))}
+                       "worldfollow": ("s165", ("worldfollow",)),
+                       # [ff9mapkit netsync s166] WORLD WALK, ROUND A, PIECE A0 (studies/world-coop/S166-DESIGN.md decision 19, THE
+                       # CONTROL-OFF KIT-CELL CLOSE): ONE sub-verb, `worldwalk <op>` (a NEW sub-verb: an s165 agent fails it closed),
+                       # `netsync.world` gains `kitcell` after `dot` (NETSYNC_TOP_NESTED_KEYS), and the proof block's line after the
+                       # world follow / dot lines; its calibration is caps_through("worldfollow"). WHAT THE STAND-IN MODELS (FakeGame's
+                       # s166 section, the close through battlewire's twin): the ENGINE's facts, never the design's intent -- the
+                       # deployed kit's world-script readers as opt-in CONTENT (``world_kit``: present on s165 too, the hazard is
+                       # today's) -- entry 0's kit cells, requested every frame the walker stands on one's TRIGGER TILES (the
+                       # deployed terrain's event-id triangles, BW.KIT_TRIGGER_TILES -- never the whole 32-u cell) whatever control
+                       # says (skipped under w_naviMode 2 and the bee scene), WORLD11's boat (15) and ferryman (16) in their proximity
+                       # boxes, each a bare KEYON(Confirm) with no usercontrol term, the boat's board behind its 169 test after the
+                       # read, the ferryman's scene behind its 100 test (Map[50] 1, 2, 0; no Field()), entry 1's stock @00251 read
+                       # (evaluated and filtered whatever control says, its result zeroed control-off), Map[24] reset to 100 by entry
+                       # 0 every pass -- in a configurable ENTRY ORDER (``world_kit_order``, so an order-dependent rule cannot pass
+                       # offline); FilterScriptButtons over each read (the control-on freeze mask, the control-OFF pass, the close);
+                       # the ~ menu's "Disable control" hold (:meth:`debug_menu_hold`: SetUserControl(false) while open); the lever
+                       # and its release. WHAT IT CANNOT: the real frame order (K1), the real fade, a stock control-off wait (the
+                       # proof's table pins those). Faults: WORLD_WALK_FAULTS.
+                       "worldwalk": ("s166", ("worldwalk",))}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
 #: existed -- audit 3.1 / 4.1); it is the ladder PREFIX through the previous rung, :func:`caps_through`.
@@ -539,6 +557,8 @@ NETSYNC_S163_CAPS = frozenset(("speed",))
 NETSYNC_S164_CAPS = frozenset(("swap",))
 #: [ff9mapkit netsync s165] The world follow-out rung (its calibration, the deployed s164 engine, is ``caps_through("swap")``).
 NETSYNC_S165_CAPS = frozenset(("worldfollow",))
+#: [ff9mapkit netsync s166] The world walk rung (its calibration, the deployed s165 engine, is ``caps_through("worldfollow")``).
+NETSYNC_S166_CAPS = frozenset(("worldwalk",))
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -547,9 +567,11 @@ NETSYNC_S165_CAPS = frozenset(("worldfollow",))
 #: [ff9mapkit netsync s160] ...and `chest` after it (Session.NETSYNC_CHEST_SUBVERBS). [ff9mapkit netsync s161] ...and `ate`
 #: after that (Session.NETSYNC_ATE_SUBVERBS). [ff9mapkit netsync s163] ...and `speed` after it (Session.NETSYNC_SPEED_SUBVERBS).
 #: [ff9mapkit netsync s164] ...and `swap` after that (Session.NETSYNC_SWAP_SUBVERBS). [ff9mapkit netsync s165] ...and `worldfollow`
-#: after it (Session.NETSYNC_WORLDFOLLOW_SUBVERBS).
+#: after it (Session.NETSYNC_WORLDFOLLOW_SUBVERBS). [ff9mapkit netsync s166] ...and `worldwalk` after that
+#: (Session.NETSYNC_WORLDWALK_SUBVERBS).
 NETSYNC_BATTLE_VERB_ORDER = ("guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench", "endbench",
-                             "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate", "speed", "swap", "worldfollow")
+                             "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate", "speed", "swap", "worldfollow",
+                             "worldwalk")       # [ff9mapkit netsync s166]
 #: [ff9mapkit netsync B4] The keys each battle capability adds, by `netsync.battle` sub-object, in the agent's order
 #: (AppendNetsyncBattle / AppendBattleEnd / AppendEndLeave) -- `end_leave` and `declined` are the two keys whose values
 #: are themselves fixed sub-objects (:data:`NETSYNC_BATTLE_END_LEAVE_KEYS`, :data:`NETSYNC_BATTLE_DECLINED_KEYS`).
@@ -654,6 +676,8 @@ NETSYNC_BATTLE_CAP_KEYS = {
     # [ff9mapkit netsync s165] nothing under `netsync.battle`: `saveguard` and `host` are TOP-LEVEL netsync blocks after `swap`, and
     # `r3` / `out` / `host` / `dot` sit inside `netsync.world` (NETSYNC_TOP_NESTED_KEYS)
     "worldfollow": {},
+    # [ff9mapkit netsync s166] nothing under `netsync.battle`: `kitcell` sits inside `netsync.world` (NETSYNC_TOP_NESTED_KEYS)
+    "worldwalk": {},
 }
 #: [ff9mapkit netsync R3] The keys a capability adds INSIDE an older fixed sub-object (dotted under `netsync.battle`).
 NETSYNC_BATTLE_NESTED_KEYS = {
@@ -696,7 +720,9 @@ NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)},
                            "ateland": {"stepout.base": ("landing",), "stepout": ("landing_wire",), "stepout.out_why": ("ate",),
                                        "stepout.ghost.by": ("landing",)},
                            # [ff9mapkit netsync s165] `netsync.world`'s last four, after `dio`
-                           "worldfollow": {"world": BW.WORLD_S165_KEYS}}
+                           "worldfollow": {"world": BW.WORLD_S165_KEYS},
+                           # [ff9mapkit netsync s166] `netsync.world`'s last, after `dot`
+                           "worldwalk": {"world": BW.WORLD_S166_KEYS}}
 #: [ff9mapkit netsync s138] The keys each dress rung adds INSIDE `netsync.dress`, in AppendDress's order (s139 appends
 #: `codec` and `rig_idle_frames`, s140 `self`) -- the dress key law: every one under `netsync.dress`, never `netsync.battle`
 #: (the action-replay audit's 4.3).
@@ -765,7 +791,8 @@ NETSYNC_SESSION_KEYS = ("grace_ms", "state", "left_ms", "out_ms", "outages", "re
 NETSYNC_WORLD_KEYS = tuple(BW.WORLD_SENTINELS)
 #: [ff9mapkit netsync s145] `netsync.world`'s blocks by rung (the prefix law: s144's three, then s145's `dio`)
 NETSYNC_WORLD_KEYS_BY_RUNG = {"worldwait": tuple(BW.WORLD_SENTINELS_S144), "worlddio": tuple(BW.WORLD_SENTINELS),
-                              "worldfollow": tuple(BW.WORLD_SENTINELS_S165)}     # [ff9mapkit netsync s165] + r3, out, host, dot
+                              "worldfollow": tuple(BW.WORLD_SENTINELS_S165),     # [ff9mapkit netsync s165] + r3, out, host, dot
+                              "worldwalk": tuple(BW.WORLD_SENTINELS_S166)}       # [ff9mapkit netsync s166] + kitcell
 NETSYNC_WORLD_DIO_KEYS = tuple(BW.WORLD_DIO_SENTINELS)
 NETSYNC_WORLD_FREEZE_KEYS = tuple(BW.WORLD_FREEZE_SENTINELS)
 NETSYNC_WORLD_REJOIN_KEYS = tuple(BW.WORLD_REJOIN_SENTINELS)
@@ -1738,6 +1765,44 @@ WORLD_FOLLOW_FAULTS = ("proof_fail", "never_starts", "wallclock_debounce", "pose
                        "block_ready_dark", "dot_dark", "dot_stale_shown", "dot_nob6_shown", "dot_other_world", "dot_no_edge",
                        "dot_lever_ignored", "r3_old", "saveguard_open", "saveguard_no_s", "lever_stuck_wf", "host_lines_dark",
                        "out_lever_ignored", "hold_ignored", "range_followed")
+#: [ff9mapkit netsync s166] WORLD WALK A0 (the `worldwalk` rung; see NETSYNC_BATTLE_CAPS for what it models): the proof line's tallies,
+#: after the world follow / dot lines -- the engine's own (NetSyncWorldWalk.SelfTest: 84 rows, 13 mutants), and the row its FAILED
+#: names first (the table's first row)
+FAKE_WORLD_WALK_SELFTEST_ROWS = 84
+FAKE_WORLD_WALK_MUTANTS = 13
+FAKE_WORLD_WALK_FIRST_ROW = "kit_cell.9011_sid0_closes"
+#: ...the deployed kit's world-script content, opt-in (``FakeGame.world_kit``; CONTENT, so an s165 stand-in reads it too): battlewire's
+#: census facts -- entry 0's cells on every world whose deployed dispatcher carries them (K1: BW.KIT_CELL_WORLDS, the nine free-roam
+#: overrides), each requested only while the walker stands on its TRIGGER TILES (BW.KIT_TRIGGER_TILES: the deployed terrain's event-id
+#: triangles -- w_movementUpdate's event-id test; a cell missing from "triggers" would trigger on the whole cell), WORLD11's boat and
+#: ferryman (sid, where, the +-box)
+FAKE_WORLD_KIT = {"cells": dict(BW.KIT_CELLS), "triggers": dict(BW.KIT_TRIGGER_TILES), "cell_worlds": tuple(BW.KIT_CELL_WORLDS),
+                  "object_world": BW.KIT_OBJECT_WORLD,
+                  "boat": (BW.KIT_BOAT_SID, BW.KIT_BOAT_AT, BW.KIT_BOAT_RANGE),
+                  "ferry": (BW.KIT_FERRY_SID, BW.KIT_FERRY_AT, BW.KIT_FERRY_RANGE)}
+#: ...the readers' ENTRY ORDER in one script pass (the engine's is not settled offline: K1) -- the default, and entry 1 first: the kit-cell
+#: and boat rows run under both, so an order-dependent rule cannot pass offline
+FAKE_WORLD_KIT_ORDER = ("e0", "e1", "e15", "e16")
+FAKE_WORLD_KIT_ORDER_E1_FIRST = ("e1", "e0", "e15", "e16")
+#: ...the ferryman's scene, in frames after its press: Map[50] 1 (after its first fade), 2, then 0, and EnableMove at the end (no Field())
+FAKE_FERRY_SCENE = ((25, 1), (600, 2), (700, 0))
+FAKE_FERRY_SCENE_END = 720
+#: ...and its fault levers (``FakeGame.world_walk_faults``), each the stand-in wrong in ONE place so a bench row can be driven red:
+#:   "walk_proof_fail"       the proof block's 'world walk selftest' reads FAIL
+#:   "kitcell_leak"          the close misses every kit read (the lever still reads "act"): s165's hazard under the new key
+#:   "kitcell_sid0_only"     the close keys on entry 0 alone (the design's mutant): the boat and the ferryman leak
+#:   "kitcell_first_read"    the close keys on the pass's FIRST read of its key tick (a dedupe shared with every reader): a stock read
+#:                           earlier in the pass consumes it and the kit read leaks -- red only under an entry order with entry 1 first
+#:   "kitcell_uncounted"     the close masks but never counts (`closed`, `last_sid`, `last_world` stay)
+#:   "kitcell_last_stale"    `last_sid` / `last_world` never written (the count still rises)
+#:   "kitcell_silent"        the close's line is never written
+#:   "kitcell_stock"         the close masks a STOCK read too (any entry): a lawful control-off read is broken
+#:   "kitcell_menu_leak"     the close misses a read under the ~ menu's "Disable control" hold (it keys on the harness's control op)
+#:   "kitcell_lever_ignored" `kitcell old` does not lift the close
+#:   "kitcell_lever_stuck"   the harness release leaves the lever as set
+WORLD_WALK_FAULTS = ("walk_proof_fail", "kitcell_leak", "kitcell_sid0_only", "kitcell_first_read", "kitcell_uncounted",
+                     "kitcell_last_stale", "kitcell_silent", "kitcell_stock", "kitcell_menu_leak", "kitcell_lever_ignored",
+                     "kitcell_lever_stuck")
 #: [ff9mapkit netsync s144 review 2] Memoria.log's writers are serialised (Memoria.Prime.Log is): the stand-in's loop, a stub peer's
 #: thread and a stub transport each append a line, and two Windows append handles racing can clobber each other's line
 _MLOG_LOCK = threading.Lock()
@@ -2685,6 +2750,17 @@ class FakeGame:
         #: [ff9mapkit netsync s165] the follow-out's fade in frames (StartFollowWarp's FIELD_FOLLOW_FADE_FRAMES; a test lengthens it to act
         #: inside the fade: a supersede, a host that mounts mid-fade)
         self.world_out_fade_frames = FIELD_FOLLOW_FADE_FRAMES
+        self._wwk = self._wwk_fresh()                    # [ff9mapkit netsync s166] world walk's statics (the lever, the close's witness)
+        #: [ff9mapkit netsync s166] the `worldwalk` rung's fault levers (WORLD_WALK_FAULTS); the deployed kit's world-script content (None =
+        #: none -- a test opts in with FAKE_WORLD_KIT; it is CONTENT, so an s165 stand-in reads it the same: today's hazard); the readers'
+        #: entry order in one script pass (FAKE_WORLD_KIT_ORDER); the ~ menu's "Disable control" hold (the control it captured; None = not
+        #: held: :meth:`debug_menu_hold`) and the ferryman's scene in flight (its start frame; None = none)
+        self.world_walk_faults: set = set()
+        self.world_kit: dict | None = None
+        self.world_kit_order = FAKE_WORLD_KIT_ORDER
+        self._menu_hold = None
+        self._ferry = None
+        self._wwk_pass_read = False                      # [ff9mapkit netsync s166] a Confirm read already ran in this script pass
         #: [ff9mapkit netsync s164] THE CLOCK SEAM (F5): a callable answering the swap clock's raw (ticks, hz) -- channel.qpc_read, the
         #: same QPC the engine P/Invokes, so K-CLOCK compares like with like on Windows -- or None / one answering None (off Windows, or
         #: a test of the fallback): then the stand-in stamps int(rt * 1000) with src "stopwatch" (:func:`swap_clock_read`)
@@ -3291,6 +3367,7 @@ class FakeGame:
                 self._step_speed()          # [ff9mapkit netsync s163] the speed mirror (after the step-out: its bench latch)
                 self._step_swap()           # [ff9mapkit netsync s164] the swap record's Tick, the bench follow, every field load
                 self._step_world_follow()   # [ff9mapkit netsync s165] the world follow-out, the dot, the host's own world visit
+                self._step_world_walk()     # [ff9mapkit netsync s166] the kit's world-script readers (content), the close, the ferryman's scene
                 self._step_script_poll()    # [ff9mapkit netsync F3.3] R5: the open polled line's script button-poll
                 self._step_diorama()        # [ff9mapkit netsync F3.3] DIO-1: a booted diorama's leave and return
                 self._step_dress()          # [ff9mapkit netsync s138] the selftest mirror's ghost: one frame behind
@@ -6052,6 +6129,8 @@ class FakeGame:
             self._swap(args)                            # [ff9mapkit netsync s164] the field-swap round's one lever scheme
         elif sub == "worldfollow":
             self._worldfollow(args)                     # [ff9mapkit netsync s165] the world follow-out's levers and bench host
+        elif sub == "worldwalk":
+            self._worldwalk(args)                       # [ff9mapkit netsync s166] world walk's levers (A0: kitcell)
 
     def _release_netsync(self) -> None:
         """ReleaseNetsyncOverride, on `reset`, disarm and fault. [ff9mapkit netsync F3.3] DIO-1: a diorama THIS harness
@@ -8106,6 +8185,240 @@ class FakeGame:
         return {"world": {"b6": bool(h["b6"]), "rise_frame": int(h["rise_frame"]), "rise_block_ready": h["rise_block_ready"],
                           "wmapjumps": int(h["wmapjumps"])}}
 
+    # -- [ff9mapkit netsync s166] WORLD WALK, ROUND A, PIECE A0 (the `worldwalk` rung; see NETSYNC_BATTLE_CAPS for what it models) -------
+    # The ENGINE's facts: the deployed kit's world-script readers (CONTENT, ``world_kit``) in one script pass a frame, in ``world_kit_order``
+    # -- entry 0's cells (requested every frame the walker stands on one, control on or off), entry 1's stock location poll, WORLD11's boat
+    # and ferryman -- each a KEYON(Confirm) through FilterScriptButtons (:meth:`_wwk_filter`); decision 19's close on the rung
+    # (BW.kit_cell_close_rule), its witness and line; the ~ menu's control hold; the lever and its release. Faults: WORLD_WALK_FAULTS.
+    def _wwk_on(self) -> bool:
+        return "worldwalk" in self._nb_caps()
+
+    @staticmethod
+    def _wwk_fresh() -> dict:
+        """World walk's statics: the lever (`kitcell old`), the close's witness (per PROCESS: never reset), the line's latch (the
+        entries already named since the last world load, and the world id it belongs to: the engine re-arms on either)."""
+        return {"kit_old": False, "closed": 0, "last_sid": -1, "last_world": -1, "logged": set(), "log_world": -1}
+
+    def _wwk_proof(self) -> None:
+        """The proof block's s166 line, after the world dot line (the engine's words: "FAILED (row <name> failed (k of N))")."""
+        if "walk_proof_fail" in self.world_walk_faults:
+            self._mlog(f"[NetSync] {BW.PROOF_WORLD_WALK}FAILED (row {FAKE_WORLD_WALK_FIRST_ROW} failed (1 of "
+                       f"{FAKE_WORLD_WALK_SELFTEST_ROWS}))")
+        else:
+            self._mlog(f"[NetSync] {BW.PROOF_WORLD_WALK}OK ({FAKE_WORLD_WALK_SELFTEST_ROWS} rows, {FAKE_WORLD_WALK_MUTANTS} mutants)")
+
+    # ---- the verb
+    def _worldwalk(self, args: list) -> None:
+        """`netsync worldwalk <op>` in worldfollow's refusal order: an unknown op, the usage line (nothing changes); `clear` on any role,
+        even with co-op off; every other op refused with co-op off; then its arity and word (the usage line); then the lever and its ack."""
+        w = self._wwk
+        rest = [str(x).strip() for x in args[1:]]
+        op = rest[0].lower() if rest else ""
+        if op not in BW.WORLDWALK_OPS:
+            raise RuntimeError(BW.WORLDWALK_USAGE)
+        if op == "clear":
+            if len(rest) != 1:
+                raise RuntimeError(BW.WORLDWALK_USAGE)
+            self._wwk_release_levers()
+            self._mlog(BW.LOG_WORLDWALK_CLEAR)                 # the engine's ack, exactly
+            return
+        if not self.netsync["enabled"]:
+            raise RuntimeError(BW.WORLDWALK_OFF_REFUSAL)
+        word = rest[1].lower() if len(rest) > 1 else ""
+        if len(rest) != 2 or word not in BW.WORLDWALK_WORDS.get(op, ()):
+            raise RuntimeError(BW.WORLDWALK_USAGE)
+        w["kit_old"] = word == "old"
+        self._mlog(BW.LOG_WORLDWALK_KITCELL_OLD if w["kit_old"] else BW.LOG_WORLDWALK_KITCELL_ACT)   # the engine's acks, exactly
+
+    def _wwk_release_levers(self) -> bool:
+        """ReleaseLevers (`clear` and the release): `kitcell` act. True when anything was set."""
+        w = self._wwk
+        was = bool(w["kit_old"])
+        w["kit_old"] = False
+        return was
+
+    def _wwk_release(self) -> None:
+        """The harness release, every role: its line only when something was set (the `kitcell_lever_stuck` fault leaves the lever)."""
+        if "kitcell_lever_stuck" in self.world_walk_faults:
+            return
+        if self._wwk_release_levers():
+            self._mlog(BW.LOG_WORLDWALK_RELEASED)
+
+    def _wwk_doc(self) -> dict:
+        """`netsync.world.kitcell`, in the contract's order."""
+        w = self._wwk
+        return {"lever": "old" if w["kit_old"] else "act", "closed": int(w["closed"]), "last_sid": int(w["last_sid"]),
+                "last_world": int(w["last_world"])}
+
+    def _wwk_world_load(self) -> None:
+        """Every world load (WMScriptDirector.HonoAwake -> OnWorldLoadKitCell; s145's warm battle return is one too, so the line may
+        speak again inside one visit -- the engine's deliberate choice): the close's line re-arms per entry; no ferryman scene carried
+        over."""
+        self._wwk["logged"] = set()
+        self._wwk["log_world"] = -1
+        self._ferry = None
+
+    def debug_menu_hold(self, on: bool) -> None:
+        """[ff9mapkit netsync s166] Test seam: the ~ menu open with "Disable control" (Ff9mkDebugMenu.ApplyControlHold): SetUserControl
+        (false) while it is open, the prior control restored once at its close -- the same SetUserControl(false) the harness's `control
+        0` runs. The harness cannot open the menu in game (a raw BackQuote key read, no verb): a stand-in row only."""
+        if on and self._menu_hold is None:
+            self._menu_hold = bool(self.control)
+            self.control = False
+        elif not on and self._menu_hold is not None:
+            self.control = self._menu_hold
+            self._menu_hold = None
+
+    # ---- the reads
+    def _wwk_keyon(self) -> int:
+        """ETb's KeyOn bits this frame: every button whose DOWN EDGE is this frame (a press's, or a hold's start) -- a held key reads
+        its edge once."""
+        bits = 0
+        for name, at in self.down_at.items():
+            if at == self.frame:
+                bits |= CONTROL_BITS.get(AGENT_CONTROL.get(str(name).lower(), ""), 0)
+        return bits
+
+    def _wwk_closes(self, sid: int) -> bool:
+        """Decision 19 at the read (BW.kit_cell_close_rule over my live facts: gMode 3 on the live world map, WorldFreezeNow, control, the
+        world, the reader's entry, the lever) -- inert off the rung (s165: no close)."""
+        F, w = self.world_walk_faults, self._wwk
+        if not self._wwk_on() or "kitcell_leak" in F:
+            return False
+        if "kitcell_menu_leak" in F and self._menu_hold is not None:
+            return False
+        old = bool(w["kit_old"]) and "kitcell_lever_ignored" not in F
+        frozen = self._world_freeze_now()
+        wid = int(self.world["id"] or 0)
+        gmode = 3 if self._world_strict() else 1
+        if "kitcell_stock" in F:
+            return not old and not self.control and gmode == 3 and frozen
+        if "kitcell_sid0_only" in F and int(sid) != BW.KIT_CELL_SID:
+            return False
+        if "kitcell_first_read" in F and self._wwk_pass_read:
+            return False                               # the key tick's first read consumed the close
+        return BW.kit_cell_close_rule(gmode, frozen, bool(self.control), wid, sid, old)
+
+    def _wwk_count(self, sid: int) -> None:
+        """The close's witness at a read it CHANGED (a host-owned key the read's own mask would have taken): `closed` +1, the last entry
+        and world, the line once per world load and entry (NetSyncField.LogKitCellCloseOnce: a change of world id re-arms it too)."""
+        F, w = self.world_walk_faults, self._wwk
+        wid = int(self.world["id"] or 0)
+        if "kitcell_uncounted" not in F:
+            w["closed"] += 1
+            if "kitcell_last_stale" not in F:
+                w["last_sid"], w["last_world"] = int(sid), wid
+        if wid != w["log_world"]:
+            w["log_world"] = wid
+            w["logged"] = set()
+        if int(sid) not in w["logged"] and "kitcell_silent" not in F:
+            w["logged"].add(int(sid))
+            self._mlog("[NetSync] " + BW.log_world_kitcell(sid, wid))
+
+    def _wwk_filter(self, keys: int, sid: int) -> int:
+        """NetSyncField.FilterScriptButtons over one world-script read (``keys`` the KeyOn bits, the read mask Confirm): a host or vanilla
+        unchanged; a control-ON spectator the s144 freeze mask (a host-owned key counted in `keys`, the poll's line) -- a released guest
+        Confirm back, an unfrozen one F1's mask; a control-OFF spectator THE CLOSE on the rung, else the keys pass (the stock
+        cutscene-wait rule: no dialogue lock holds on the world map)."""
+        if not keys & BW.EV_CONFIRM or not self._spectator():
+            return keys
+        if self.control:
+            if self._ww() and self._world_freeze_now():
+                self._wf_n["keys"] += 1
+                self._world_decline(BW.WORLD_POLL_DECLINE)
+                return BW.control_on_script_keys(keys, True)
+            if self._ww() and self._wf_released:
+                return BW.released_world_script_keys(keys)
+            return BW.control_on_script_keys(keys, False)
+        if self._wwk_closes(sid):
+            if keys & BW.EV_CONFIRM & BW.HOST_OWNED_KEYS:      # the engine's `(keys & readMask & HostOwnedKeys) != 0` (readMask Confirm)
+                self._wwk_count(sid)
+            return BW.control_on_script_keys(keys, True)       # ControlOnScriptKeys(keys, true): s144's control-on world mask
+        return keys
+
+    def _wwk_read(self, keyon: int, sid: int) -> int:
+        """One B_KEYON(Confirm) by entry ``sid``: evaluated on every run of its statement (no short circuit), so the filter is called
+        whatever its expression's other terms say; 0 when nothing was pressed this key tick."""
+        if not keyon & BW.EV_CONFIRM:
+            return 0
+        k = self._wwk_filter(keyon, sid) & BW.EV_CONFIRM
+        self._wwk_pass_read = True
+        return k
+
+    def _step_world_walk(self) -> None:
+        """Once a frame (after the follow-out's): the ferryman's scene in flight, then -- the kit's content on, the walker on the live
+        world map -- ONE SCRIPT PASS of the kit's readers in ``world_kit_order``:
+          e0   a kit cell's TRIGGER under the walker (its event-id tiles, ``world_kit["triggers"]``: the engine requests the cell's
+               function only while the walker stands on an event-id triangle, never anywhere in the cell; on foot; the request skipped
+               under w_naviMode 2 and the bee scene) reads Confirm -- pressed:
+               DisableMove, the fade, Field(its field) through s144's world redirect; then entry 0's per-pass reset, Map[24] = 100;
+          e1   on a kit place (a cell, the boat plate) the place request lands (the boat plate's: Map[24] = 169) and the stock @00251
+               poll reads Confirm control-OFF (its usercontrol term zeroes the result; control-on, :meth:`_world_key` is that poll);
+          e15  on foot inside the boat's +-40 u box: reads Confirm -- pressed with Map[24] == 169: board ([190] = 7); anywhere else on
+               9011, @00174's eager KEYON reads it too, with no effect (BW.KIT_EAGER_READERS);
+          e16  on foot inside the ferryman's +-12 u box (Map[51] 0, no scene running): reads Confirm -- pressed with Map[24] == 100: its
+               scene (control off, Map[50] 1, 2, 0, EnableMove at the end; no Field())."""
+        self._wwk_ferry_tick()
+        kit = self.world_kit
+        if kit is None or not self._world_strict() or self.world["x"] is None:
+            return
+        wid = int(self.world["id"] or 0)
+        x, z = float(self.world["x"]), float(self.world["z"])
+        on_foot = int(self.world.get("vehicle") or 0) == 0
+        keyon = self._wwk_keyon()
+        cxz = BW.world_cell(x, z)
+        dest = kit["cells"].get(cxz) if wid in kit["cell_worlds"] else None
+        tris = (kit.get("triggers") or {}).get(cxz)
+        if dest is not None and tris is not None and not any(BW.on_tri(x, z, t) for t in tris):
+            dest = None                                    # in the cell, off its event tiles: nothing requests the function
+        cell = dest is not None and on_foot and self.world_navi != 2 and not self.world_bee
+        objects = wid == int(kit["object_world"])
+        bsid, bat, brng = kit["boat"]
+        fsid, fat, frng = kit["ferry"]
+        boat = objects and on_foot and BW.in_kit_box(bat, brng, x, z)
+        ferry = (objects and on_foot and BW.in_kit_box(fat, frng, x, z) and self._wmap[BW.KIT_MAP_FERRY_ARRIVAL] == 0
+                 and self._ferry is None)
+        self._wwk_pass_read = False
+        for e in self.world_kit_order:
+            if e == "e0":
+                if cell and self._wwk_read(keyon, BW.KIT_CELL_SID) and self._wt["exit"] is None:
+                    self._wmap[BW.KIT_MAP_PLACE] = BW.KIT_PLACE_IDLE
+                    self.control = False                       # DisableMove / DisableMenu, then the fade and Field()
+                    self._world_mapjump(int(dest))
+                if wid in kit["cell_worlds"]:
+                    self._wmap[BW.KIT_MAP_PLACE] = BW.KIT_PLACE_IDLE
+            elif e == "e1":
+                if boat:
+                    self._wmap[BW.KIT_MAP_PLACE] = BW.KIT_BOAT_REQUEST
+                if (cell or boat) and not self.control:
+                    self._wwk_read(keyon, 1)
+            elif e == "e15":
+                if boat:
+                    if self._wwk_read(keyon, bsid) and self._wmap[BW.KIT_MAP_PLACE] == BW.KIT_BOAT_REQUEST:
+                        self.world["vehicle"] = BW.KIT_BOARD_MODE
+                        self.story_bytes[190] = BW.KIT_BOARD_MODE
+                elif bsid in BW.KIT_EAGER_READERS.get(wid, ()):
+                    self._wwk_read(keyon, bsid)                # @00174's eager KEYON off the box (BW.KIT_EAGER_READERS): read, no effect
+            elif e == "e16":
+                if ferry and self._wwk_read(keyon, fsid) and self._wmap[BW.KIT_MAP_PLACE] == BW.KIT_PLACE_IDLE:
+                    self._ferry = self.frame
+                    self.control = False                       # DisableMove / DisableMenu, its fade
+
+    def _wwk_ferry_tick(self) -> None:
+        """The ferryman's scene in flight (FAKE_FERRY_SCENE): Map[50] by frame, EnableMove at its end; a scene change ends it."""
+        if self._ferry is None:
+            return
+        if not self._world_strict():
+            self._ferry = None
+            return
+        dt = self.frame - self._ferry
+        for at, v in FAKE_FERRY_SCENE:
+            if dt >= at:
+                self._wmap[BW.KIT_MAP_FERRY] = v
+        if dt >= FAKE_FERRY_SCENE_END:
+            self._ferry = None
+            self.control = True
+
     # -- [ff9mapkit netsync s144] WORLD-MAP CO-OP (the `worldwait` rung; see NETSYNC_BATTLE_CAPS for what it models) ----------
     # The engine's pieces, each through battlewire's twin of its pure step: THE FREEZE (NetSyncField.WorldFreezeNow / Hold /
     # Lift at the world's movement dispatcher, the key mask at the world dispatchers' polls, WorldHUD's two refusals, the
@@ -8404,6 +8717,7 @@ class FakeGame:
         itself drives (``camera`` False: a test that set ui_state WorldHUD by hand keeps the camera it set up)."""
         wt = self._wt
         wt.update(counter=0, next_mode=3, moved=False, exit=None, swirl=None)
+        self._wwk_world_load()                         # [ff9mapkit netsync s166] a new world-map visit: the close's line latch, no scene
         if self._wdio():
             self._wdio_world_load(reinit, camera)
         # [ff9mapkit netsync s144 bench] WorldHUD.Show reads its PERSISTED currentState first (an instance field of the
@@ -9608,6 +9922,8 @@ class FakeGame:
             doc["dio"] = self._wdio_doc()             # [ff9mapkit netsync s145] AppendWorldDio: `world`'s last block
         if self._wfo_on():
             doc.update(self._wfo_world_docs())        # [ff9mapkit netsync s165] r3, out, host, dot: `world`'s last four
+        if self._wwk_on():
+            doc["kitcell"] = self._wwk_doc()          # [ff9mapkit netsync s166] `world`'s last key, after `dot`
         return doc
 
     def _world_live_doc(self) -> dict:
@@ -10689,8 +11005,10 @@ class FakeGame:
             self._sp_proof()
         if "swap" in caps:                                  # [ff9mapkit netsync s164] after the speed mirror's line
             self._sw_proof()
-        if "worldfollow" in caps:                           # [ff9mapkit netsync s165] the block's last modelled lines (after the swap line)
+        if "worldfollow" in caps:                           # [ff9mapkit netsync s165] after the swap line
             self._wfo_proof()
+        if "worldwalk" in caps:                             # [ff9mapkit netsync s166] the block's last modelled line (after the world dot's)
+            self._wwk_proof()
 
     # -- [ff9mapkit netsync B4] [ff9mapkit netsync B5] the battle co-op lane (s100-s105) -------------------------------
     def _nb_caps(self) -> frozenset:
@@ -11205,6 +11523,8 @@ class FakeGame:
         # [ff9mapkit netsync s165] the world follow-out's HarnessRelease, right after it (every role): every lever back (R1 on, the hold
         # off, the dot on, R3 / R4 act), the bench host forgotten -- its line only when something was set
         self._wfo_release()
+        # [ff9mapkit netsync s166] world walk's HarnessRelease, right after it (every role): `kitcell` act -- its line only when one was set
+        self._wwk_release()
 
     def _battle_bench_verb(self, sub: str, args: list, arg, out_of_range) -> None:
         """The agent's B4/B5 `netsync` sub-verbs (HarnessAgent, s100-s105): each one's argument parse FIRST (an
