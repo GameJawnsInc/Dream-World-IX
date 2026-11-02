@@ -68,7 +68,8 @@ walks out of Dali onto the world map. Pair the guest on the field first, as usua
 4. **Leaving again while the host is far off.** Back on a field, both paired, the host walks out onto the world map and
    keeps walking. The guest lands where the host stood when the guest's world map finished loading (a second or two
    behind the host), not at the exit point: the dot then shows how far ahead the host is.
-5. **Saving on the guest (optional).** While frozen on the world map, open the guest's menu and pick Save, then a slot.
+5. **Saving on the guest (optional).** While frozen on the world map, press **Alt+F5** on the guest (Memoria's save
+   shortcut: a following guest's main menu stays closed, as before), then pick a slot.
    - **Guest:** the stock buzz, back to the file list; nothing is saved. **Guest log:** `save refused while following your
      partner (...)`. The host can save as usual.
 6. **Riding (optional, only if Choco is available in your save).** On a field, the host calls or rides Choco out onto the
