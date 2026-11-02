@@ -513,8 +513,8 @@ extracted; no bench while the owner plays, never under a running test suite.
 - **Scope:** ghosts and walking only on 9002, 9010 and 9011, the three free-roam states with no vehicle object at all (all
   disc 1, story counter below 5990). The other six free-roam states (9000, 9003, 9005, 9007, 9008, 9009) are walkable too,
   but their dispatchers hold Choco or a ship: there the guest keeps s165's freeze and the dot until rung 3 (the event worlds
-  9001, 9004, 9006 and 9012 have no free roam). Walking those six on foot only, frozen whenever the host rides, is an
-  owner option (not designed here: their own recon first).
+  9001, 9004, 9006 and 9012 have no free roam). Walking those six on foot only, frozen whenever the host rides, was
+  offered; the owner kept the three for now (2026-11-02), to revisit once the six states' purposes are familiar.
 - **9002 is under-benched:** no real route (only the fabricated landing), the minimap unproven in game (WORLD02 never arms it,
   yet WorldHUD.Show keys on the mirrored [100]), and both bodies Dagger.
 - **s165's own limits stay:** a 9013 host reads as 9011 to the follow-out (the walk and the ghost compare the trailer's
@@ -534,7 +534,8 @@ extracted; no bench while the owner plays, never under a running test suite.
 
 1. The two-round split: the wire and the ghosts first (s166, with decision 19's control-off close first and alone), walking
    one round later (s167). Recommended.
-2. The walk worlds: 9002, 9010 and kit 9011, its boat and ferryman refused with the buzz and closed control-off. Recommended.
+2. The walk worlds: 9002, 9010 and kit 9011, its boat and ferryman refused with the buzz and closed control-off.
+   DECIDED (2026-11-02): the three for now; the six vehicle states on foot are not in rung 2.
 3. The ghost body: undressed for now (two identical figures); a dress map or a tint after the two-PC look. Recommended.
 4. Decision 8: open the full map on 9010/9011 for a walking guest, with the dot and a co-op close, last in s167. Recommended.
 5. The refusal words: "Your partner leads the way. You'll join them at their next stop." with the stock buzz. They replace
