@@ -785,6 +785,8 @@ def judge_probe(st, lines) -> tuple:
     want_world = R.WORLD_SENTINELS_S165 if s165 else R.WORLD_SENTINELS
     if cb.has(st, "netsync.world.kitcell"):
         want_world = R.WORLD_SENTINELS_S166      # [ff9mapkit netsync s166] an s166 engine: `kitcell` after `dot` (the prefix law)
+    if cb.has(st, "netsync.world.pairpull"):
+        want_world = R.WORLD_SENTINELS_S166B     # [ff9mapkit netsync s166] A0b: `pairpull` after `kitcell` (the prefix law)
     wit = list(R.WORLD_WITNESS_SENTINELS) + (list(R.WORLD_LIVE_KEYS_S165) if s165 else [])
     keys_ok = (list(world) == list(want_world) and list(world.get("dio") or {}) == list(R.WORLD_DIO_SENTINELS)
                and "gmode" in top and "prev_mode" in top and top.index("prev_mode") == top.index("gmode") + 1

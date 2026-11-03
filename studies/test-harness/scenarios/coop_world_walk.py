@@ -95,26 +95,94 @@ every stock read passes); 9002 / 9010 (the same dispatcher cells; the bench land
 6602: the same entry-0 read, the close keyed on the reader, never the cell -- the stand-in and the proof pin them); a FOLLOWED real
 client's freeze ('live' / 'mirroring': the duo -- A0 changes nothing on the host, and the close keys on WorldFreezeNow whatever its term).
 
+[ff9mapkit netsync s166] PIECE A0b, DECISION 26 -- THE PAIRING PULL (second and alone; its OLD is the A0 build af1f9e02). A following guest
+that pairs ON ITS OWN FIELD while the host already stands on the world map waited there on s165 / A0 (WorldOutStep's term 3,
+`not_mirroring`, THE PAIRING-WINDOW LAW) until the host's next stop -- the s165 two-PC session's finding 1, its line 'world follow-out:
+waits: not mirroring the host's story yet (the pairing window: the s144 wait stands)' although the laptop wrote its pairing autosave the
+moment it paired. A0b: term 3 holds such a guest only while its pairing autosave is PENDING (the window open, nothing written in it, no
+durable decline: why `pairing_save`, "your pairing autosave is still pending"); a written autosave or a durable decline lets the follow-out
+start, and its landing ARMS the mirror ("[NetSync] state-mirror ARMED at world map W's landing -- ..."). Its witness
+`netsync.world.pairpull` {lever, pending, arms, last_world}, netsync.world's LAST key (after `kitcell`); its lever `netsync worldwalk
+pairpull old|act` (old = s165's term 3 and no arm). The bench PROBES `netsync.world.pairpull` and never sends `pairpull` without it.
+
+T2-A pair (COOP_WW_LEG=pair; the desktop is a REAL client, set up exactly as coop_world_follow.py's T2 `walk` leg: New Game -> 6603,
+encounters off, the marker watched, the field entry's own autosave; Memoria.ini [Netsync] through _coop_peer_bench.IniGuard -- its
+GUEST_VALUES (FollowHost 1, SessionGraceMs 30000), backed up first, restored byte-exact -- and the engine's own config line; then the
+probe and (calibration only) the lever, BEFORE the replay; then tools/harness/coop_peer.py `replay-host <tape> --from PAIR_FROM_S
+--at-end hold` on the private bench port of THE WORLD-WALK TAPE (COOP_TAPE_WORLD_WALK, recorded on s164: v14, no restamp while the
+wire is v14). PAIR_FROM_S = 45.0 s is read off that tape with coop_peer's own `where --pose` (the evidence beside the constant): the host
+on 9011 on foot at ICE_TILE from 40.99 s, live (its heartbeat moving) since 36.95 s, the stand lasting to 118.25 s, then 300 at
+118.71 s. So the guest's very first host frame already says b6: it pairs on its own 6603 (no same-field kick: the host's lane reads
+field 0), never mirrored.
+  T2-TAPE  the tape's six facts (world_walk_tape_facts) AND pair_from_facts at PAIR_FROM_S (b6 on foot on [102] 11 at ICE_TILE, live
+           >= the 1200 ms debounce, its heartbeat fresh, the stand >= PAIR_ROOM_S more, a field after it)
+  T2-PEER  as coop_world_follow's (the bench port free, THE OWNER'S BRIDGE DOWN, the config line, listening / connected / the replay
+           started) AND the replay's start line at tape PAIR_FROM_S
+  PR-I     the instrument: from the replay's start to the host-cache b6 read, the guest on FieldHUD 6603, not mirroring, no kick or
+           ARMED line; on A0b `pairpull.lever` read back
+  PR-SAVE  'pairing autosave written on field 6603 (the pairing window): ...' after the replay's start and BEFORE the follow-out's start
+           line (log order); no 'no pairing autosave this session' line
+  PR-OUT   the pull: WorldHUD 9011, starts / commits / lands +1 and their lines (judge_leave: after block_ready + ticks, THE PRE-INIT
+           SAMPLE), out.why never 'not_mirroring' on a sample published after the autosave line
+  PR-POSE  the landing within POSE_TOL of the TAPE's own pose over the seam bracket, >= FAR_U plain from FS_LANDING (judge_tape_pose)
+  PR-ARM   mirroring true on every judged world sample from the landing on; pairpull.arms +1, last_world 9011; the world-form ARMED line
+           ONCE (naming 9011) and no field-form one
+  PR-SAVEMENU on the world map, `worldfollow saveguard old` (R4's DRY lever) and the save pick: refused +1, would_save +0 -- under the
+           DRY lever a pick s164's own gate (the mirror, IsMirroringStory) would have let through counts would_save, so this row is
+           the arm's save-side witness (L and S refuse every live guest's save whatever the mirror says); the sandbox unchanged
+  PR-REJOIN the tape's host enters 300: the guest rejoins 300 from the world map (judge_rejoin_land + the arrival guard's world clause),
+           mirroring true, the host's marker 0xA5 on 300, and NO ARMED line since the landing (armed once, there)
+  T2-SAVE / T2-INI the finals.
+D-PAIR (duo.py --no-pair: duo.py CAN start the guest's link late with its own ops -- run_duo applies the HOST's role (d.apply_role),
+walks it out onto 9011 and onto ICE_TILE past the debounce, and only then applies the GUEST's role on its own 6603; no engine op): the
+same judges on the duo (D-PAIR-I, D-PAIR-SAVE, D-PAIR-OUT at the host's own world x/z, D-PAIR-ARM, D-PAIR-SAVEMENU, D-PAIR-REJOIN by
+the host's Confirm on the tile; D-PAIR-CAL).
+THE PAIRING AUTOSAVE ON THE BENCH: the window's write is the STOCK autosave (FF9StateSystem.Serializer.Autosave, the very call
+StartEvents makes at a field entry) -- and while the harness is armed HarnessAgent.RedirectSaves points SharedDataBytesStorage at its
+SANDBOX, <game>/x64/ff9harness/save/ (the container and its Memoria sidecar), published as `save_path` / `save_sandboxed` and verified
+at arm. The owner's own containers (%USERPROFILE%/AppData/LocalLow/SquareEnix/FINAL FANTASY IX/Steam/EncryptedSavedData) are never
+written: the Session backs them up to the run dir before launch and flags any change at teardown. The s165 T2 walk legs already let
+it write there (their guest paired free-standing on 6603: 'pairing autosave written on field 6603 (the pairing window)' in the
+2026-11-01 runs, the sandbox path in the same log), as does this leg; nothing here overwrites more than those legs did.
+CALIBRATION (COOP_CALIBRATE=1 COOP_WW_LEG=pair): by the GUEST's stage -- the A0 build (no netsync.world.pairpull; nothing new sent):
+exactly T2_PAIR_OLD_PREDICTED red (OUT, POSE, ARM, SAVEMENU, REJOIN; I and SAVE green -- the s154 window writes on every engine) AND
+THE OLD WAIT MEASURED (pair_old_wait: every sample from the b6 read to the tape's 300 on FieldHUD 6603, why 'not_mirroring', no start);
+on A0b `worldwalk pairpull old` sent before the replay: exactly the same (LEVER_PREDICTED). The duo's D-PAIR-CAL: the A0 build exactly
+DUO_PAIR_OLD_PREDICTED red. OFFLINE: tests/test_coop_world_walk.py drives the leg through a stub replay-host (it honours --from) on
+the stand-in with THE PAIRING WINDOW modelled (FakeGame.pairing_window), the A0 build (FakeGame.world_walk_pieces), the lever, and the
+faults pairpull_early (a BUSY guest at the pairing: the start before the write) and pairpull_unarmed, each red in exactly its
+T2_PAIR_FAULT_REDS rows; and the duo on two stand-ins joined by a stub link that starts at the guest's apply_role.
+
 PRECONDITIONS -- THE OPERATOR'S JOB: the DLL under test deployed (the bench deploys nothing); controllers OFF, nobody at the keyboard
 (THE UNATTENDED LAW), FF9 unfocused; 6603 registered; [Netsync] Enabled 0 and FollowHost 1 written BEFORE launch (solo_ini.py);
-close the game after a lab.
+close the game after a lab. [ff9mapkit netsync s166] T2-A pair: the world-walk tape, the bench port free, [SaveFile]
+AutoSaveOnlyAtMoogle 0, THE OWNER'S OWN BRIDGE DOWN (127.0.0.1:49201: the guest launches on the owner's Memoria.ini, whose RelayUrl
+dials it before the bench's edit -- the leg refuses, nothing edited); D-PAIR: duo.py's own preconditions.
 
     py <scratchpad>/solo_ini.py s166-a0 -- py tools/play.py studies/test-harness/scenarios/coop_world_walk.py --field 6603
     COOP_CALIBRATE=1 COOP_WW_LEG=kitoff   (the same command: one destructive leg per launch; on s165 = OLD, on s166 +
                                            COOP_WW_LEVER=kitcell = LEVER)
     COOP_WW_KIT_AT="x,z" / COOP_WW_FERRY_AT="x,z" move a stand (its instrument still judges it: off the trigger is "not reached")
+    COOP_WW_LEG=pair py tools/play.py studies/test-harness/scenarios/coop_world_walk.py                     (T2-A pair; NEW on A0b)
+    COOP_CALIBRATE=1 COOP_WW_LEG=pair py tools/play.py studies/test-harness/scenarios/coop_world_walk.py    (A0 build = OLD; A0b =
+                                                                                     the lever `pairpull old`)
+    py tools/harness/duo.py studies/test-harness/scenarios/coop_world_walk.py --no-pair                     (D-PAIR; COOP_CALIBRATE=1)
+    COOP_WW_PAIR_FROM=<tape s> moves the --from second (T2-TAPE re-reads its facts there)
 """
 from __future__ import annotations
 
+import datetime as _dt                                     # [ff9mapkit netsync s166] A0b's T2 leg
 import os
 import re
 import sys
+import time                                                # [ff9mapkit netsync s166] A0b's duo leg
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _coop_battle as cb                                  # noqa: E402 - the shared bench helpers beside this file
 import coop_world_wait as cw                               # noqa: E402 - the s144 route and judges (imported, never copied)
 import coop_world_follow as wf                             # noqa: E402 - the s165 route, bench host and judges (imported, never copied)
+import _coop_peer_bench as pb                              # noqa: E402 - [ff9mapkit netsync s166] A0b: the T2 two-role bench helpers
 
 HarnessError = cb.HarnessError
 BW = cw._bw()                                              # battlewire (the driver puts tools/ on sys.path)
@@ -238,6 +306,10 @@ SOLO_FAULT_REDS = {
     "kitcell_menu_leak": (),                               # the ~ menu's hold: no harness verb drives it (the stand-in's own row)
     "kitcell_lever_ignored": (),                           # the lever's own effect: the calibration's (S166-CAL) -- tests pin it
     "kitcell_lever_stuck": ("S166-R",),
+    # [ff9mapkit netsync s166] A0b's: the solo bench is exempt from term 3 and never arms (it never mirrors) -- byte-identical to A0
+    "pairpull_early": (),
+    "pairpull_unarmed": (),
+    "pairpull_lever_ignored": (),
 }
 #: ...and under the entry order with entry 1 FIRST (fakegame.FAKE_WORLD_KIT_ORDER_E1_FIRST): what changes there
 ORDER_FAULT_REDS = {"kitcell_first_read": ("S166-A-KITOFF", "S166-A-FERRYOFF"),
@@ -642,6 +714,9 @@ def _watch_press(g, seconds: float, hazard, *, settle=None) -> list:
 def run(g, field: int | None = None):
     if field is not None and field != FARSHORE:
         g.note(f"--field {field} is ignored: the bench runs on {FARSHORE} and the world map")
+    if _RAW_LEG.strip().lower() == PAIR_LEG:              # [ff9mapkit netsync s166] A0b's T2 leg: its own launch, its own rows
+        _run_pair(g)
+        return
     calibrate = cb.CALIBRATE
     legs = SOLO_LEGS or LEGS
     led = cb.Ledger(g, solo_catalog(calibrate, legs, LEVER), finals=("S166-R", "S166-CAL"), width=DETAIL_W)
@@ -816,3 +891,734 @@ def _release_solo(g, led: cb.Ledger, ctx: dict) -> None:
     st2, why = cb.reread_with_role(g)
     ok, detail = judge_release(pulled, n, st2, forced)
     led.check("S166-R", ok, detail + (f"; {why}" if why else ""))
+
+
+# ================================================================================================ [ff9mapkit netsync s166] PIECE A0b
+# DECISION 26, THE PAIRING PULL (second and alone: its OLD is the A0 build). T2-A pair (COOP_WW_LEG=pair) and D-PAIR (duo.py --no-pair):
+# the guest pairs ON ITS OWN FIELD while the host already stands on 9011, and is pulled out once its pairing autosave has resolved.
+PAIR_LEG = "pair"
+#: the capability: key PRESENCE (State.coop_world_pairpull) -- the A0 build has `kitcell` and no `pairpull`, and the bench never sends
+#: `worldwalk pairpull` there
+PAIR_PROBE = "netsync.world.pairpull"
+_RAW_PAIR_FROM = os.environ.get("COOP_WW_PAIR_FROM", "").strip()
+#: THE --from SECOND on COOP_TAPE_WORLD_WALK (20261101-230914-host6603-world-walk-s164.f9tape, recorded on s164, v14), read off the tape
+#: with coop_peer's own pose tooling (`py tools/harness/coop_peer.py where <tape> --pose --every 1`, read-only, 2026-11-02): the host left
+#: 6603 at 29.88 s (b6 from that frame, [102] 11, on foot, entrance 35), its heartbeat FROZE 30.89-35.94 s (its own all-block load), moved
+#: again from 36.95 s, the host stood at ICE_TILE (1197.37, -796.7) from 40.99 s to 118.25 s on foot, and entered 300 at 118.71 s. At
+#: 45.0 s the host has been live on the world map ~8 s (past THE LIVE DEBOUNCE's 1200 ms), stands at the tile -- 538 u (torus) from
+#: FS_LANDING, so the landing can only be a follow-out's -- and the stand lasts 73 s more (the pull, the rows) before the tape's 300 (the
+#: rejoin). COOP_WW_PAIR_FROM overrides it; T2-TAPE re-reads every one of those facts at the second used (pair_from_facts).
+PAIR_FROM_S = float(_RAW_PAIR_FROM) if _RAW_PAIR_FROM.replace(".", "", 1).isdigit() else 45.0
+PAIR_LIVE_S = BW.WORLD_OUT_DEBOUNCE_MS / 1000.0   # the host live on the world map at least this long before --from
+PAIR_HB_FRESH_S = BW.WORLD_OUT_ALIVE_MS / 1000.0  # ...its heartbeat moved within this of --from
+PAIR_ROOM_S = 40.0        # ...and the tile stand lasts at least this long after it (the dial, the autosave, the pull, the rows)
+PAIR_S = 30.0             # the replay's start -> the guest's host cache reading the host's b6 (the dial is already up)
+PAIR_OUT_S = 60.0         # the host's b6 read -> the guest's first judged world sample (the debounce, the fade, the ~4.4 s load)
+PAIR_TOWER_S = 15.0       # the 300 entry anchor's slack (OLD: the wait is measured up to it)
+#: the leg's own lever (the calibration on A0b): `worldwalk pairpull old` sent BEFORE the replay, held through the leg
+PAIR_LEVER = "pairpull"
+
+T2_PAIR_CHECKS = {
+    "S166-PR-I": "the instrument: from the replay's start until the guest's host cache reads the host's b6 -- the guest on FieldHUD 6603, "
+                 "NOT mirroring, no 'paired on the host's field' kick, no ARMED line (paired on its own field, never mirrored); on A0b "
+                 "`pairpull` read back at its lever word",
+    "S166-PR-SAVE": "THE PAIRING AUTOSAVE: 'pairing autosave written on field 6603 (the pairing window)' after the replay's start and "
+                    "BEFORE the follow-out's start line; no 'no pairing autosave this session' line",
+    "S166-PR-OUT": "the pull: WorldHUD 9011 within PAIR_OUT_S of the host's b6 read, starts / commits / lands +1 and their lines (after "
+                   "block_ready + ticks), out.why never 'not_mirroring' after the autosave",
+    "S166-PR-POSE": "the landing within POSE_TOL of the TAPE's own section-0 pose over the seam bracket, >= FAR_U (plain) from "
+                    "FS_LANDING; out.last.frame latest / pin",
+    "S166-PR-ARM": "the arm at the landing: mirroring true from the first judged world sample on, pairpull.arms +1 with last_world 9011, "
+                   "'state-mirror ARMED at world map 9011's landing' ONCE and no field-form ARMED line",
+    "S166-PR-SAVEMENU": "on the world map, `worldfollow saveguard old` (DRY) and the save pick: refused +1, would_save +0 (s164's own "
+                        "gate, the mirror, refuses it -- an unarmed guest reads would_save), a reason, the sandbox's files unchanged",
+    "S166-PR-REJOIN": "the tape's host enters 300: the guest rejoins 300 from the world map (lands +1, the landed line, the arrival "
+                      "guard's world clause), mirroring true, the host's marker 0xA5 on 300, and NO ARMED line since the landing",
+}
+T2_PAIR_ROWS = tuple(T2_PAIR_CHECKS)
+#: [calibration] the A0 build (no `netsync.world.pairpull`): the guest waits on 6603 (`not_mirroring`) until the tape's 300 -- every row
+#: after the autosave red, the wait MEASURED (pair_old_wait); LEVER_PREDICTED (`pairpull old` on A0b): exactly the same
+T2_PAIR_OLD_PREDICTED = ("S166-PR-OUT", "S166-PR-POSE", "S166-PR-ARM", "S166-PR-SAVEMENU", "S166-PR-REJOIN")
+T2_PAIR_LEVER_PREDICTED = {PAIR_LEVER: T2_PAIR_OLD_PREDICTED}
+#: the stand-in's faults -> exactly the T2 rows each turns red (tests/test_coop_world_walk.py's stub-replay smoke). pairpull_early needs
+#: a BUSY guest at the pairing (the smoke's `busy` knob: menu control off at the rise) -- a free-standing one writes before any start
+T2_PAIR_FAULT_REDS = {"pairpull_early": ("S166-PR-SAVE",),
+                      # the unarmed landing arms at 300's field load instead: REJOIN's "no re-arm since the landing" clause sees it
+                      "pairpull_unarmed": ("S166-PR-ARM", "S166-PR-SAVEMENU", "S166-PR-REJOIN"),
+                      "pairpull_lever_ignored": ()}          # the lever's own effect: the calibration's (S166-PR-CAL) -- tests pin it
+
+
+def t2_pair_catalog(calibrate: bool) -> dict:
+    cat = {"T2-TAPE": wf.T2_COMMON["T2-TAPE"] + f"; at --from {PAIR_FROM_S:g} s the host stands on 9011 on foot past the debounce "
+                                                "(pair_from_facts)",
+           "T2-PEER": wf.T2_COMMON["T2-PEER"] + f"; the replay started at tape {PAIR_FROM_S:g} s"}
+    cat.update(T2_PAIR_CHECKS)
+    if calibrate:
+        cat["S166-PR-CAL"] = ("CALIBRATION: by the GUEST's stage -- the A0 build (no netsync.world.pairpull) exactly T2_PAIR_OLD_PREDICTED "
+                              "red, on A0b under `pairpull old` exactly the same -- AND the OLD wait MEASURED: on FieldHUD 6603, "
+                              "why 'not_mirroring', no follow-out, until the tape's 300")
+    cat["T2-SAVE"] = wf.T2_COMMON["T2-SAVE"]
+    cat["T2-INI"] = wf.T2_COMMON["T2-INI"]
+    return cat
+
+
+# ------------------------------------------------------------------------------------------------ A0b's pure readers / judges
+_ENGINE_HEAD = re.compile(r"^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2} \|\w\| ")
+_RX_ARMED_FIELD = re.compile(BW.MIRROR_ARMED_FIELD_RE)
+_RX_ARMED_WORLD = re.compile(BW.MIRROR_ARMED_WORLD_RE)
+_RX_WRITTEN = re.compile(BW.PAIRING_WRITTEN_RE)
+_RX_NO_PAIRING = re.compile(BW.NO_PAIRING_RE)
+
+
+def _msg(line) -> str:
+    """An engine line's message (the `dd.MM.yyyy HH:mm:ss |L| ` head stripped; a bare message passes through)."""
+    return _ENGINE_HEAD.sub("", str(line).rstrip("\r\n"))
+
+
+def _p(x, key, default=None):
+    """A ``netsync.world.pairpull`` leaf (absent = ``default``: an engine before A0b)."""
+    return cb.path(x, PAIR_PROBE + "." + key, default)
+
+
+def pdelta(a, b, key="arms"):
+    """b's ``netsync.world.pairpull.<key>`` - a's; None when either is unread (never a zero)."""
+    va, vb = _num(_p(a, key)), _num(_p(b, key))
+    return None if va is None or vb is None else vb - va
+
+
+def pair_stage(x) -> str:
+    """'a0b' with `netsync.world.pairpull`; 'a0' with A0's `kitcell` alone (A0b's OLD); else 's165' (or older): both OLD here."""
+    return "a0b" if cb.has(x, PAIR_PROBE) else ("a0" if cb.has(x, PROBE) else "s165")
+
+
+def armed_lines(lines) -> dict:
+    """(PURE) The ARMED lines in ``lines``, in log order, by form: {"field": [index], "world": [(index, world map)]}."""
+    out = {"field": [], "world": []}
+    for i, ln in enumerate(lines):
+        m = _msg(ln)
+        if _RX_ARMED_FIELD.match(m):
+            out["field"].append(i)
+        else:
+            w = _RX_ARMED_WORLD.match(m)
+            if w:
+                out["world"].append((i, int(w.group(1))))
+    return out
+
+
+def pairing_lines(lines) -> dict:
+    """(PURE) The pairing window's lines in ``lines`` (log order): the writes [(index, kind, place, site)], the no-autosave lines
+    [(index, field, world, note)], the follow-out's start lines [index]."""
+    out = {"written": [], "none": [], "start": []}
+    for i, ln in enumerate(lines):
+        m = _msg(ln)
+        w = _RX_WRITTEN.match(m)
+        if w:
+            out["written"].append((i, w.group(1), int(w.group(2)), w.group(3)))
+            continue
+        n = _RX_NO_PAIRING.match(m)
+        if n:
+            out["none"].append((i, n.group(1), n.group(2), n.group(3)))
+            continue
+        if BW.LOG_WORLD_OUT_START in m:
+            out["start"].append(i)
+    return out
+
+
+def pair_from_facts(rows, t: float, *, tile=None, room: float = PAIR_ROOM_S) -> dict:
+    """(PURE over coop_peer.tape_poses' rows) THE --from FACTS at tape second ``t``: {ok, why, first, live_s, room_s, enter_t}. The
+    first host state frame at or after ``t`` is b6 with a whole pose on [102] WK_WORLD_IDX, on foot ([190] 0, [181] 0), within
+    WK_POSE_TOL (torus) of ``tile`` (default the tape's WK_TILE); the host has been LIVE on the world map at least PAIR_LIVE_S before
+    ``t`` (the b6 run's frames whose heartbeat moved, from the first move after the last freeze of PAIR_HB_FRESH_S or more) and its
+    heartbeat moved within PAIR_HB_FRESH_S of ``t``; the same stand lasts at least ``room`` seconds after ``t``; a real field follows it."""
+    tile = tuple(tile or pb.WK_TILE)
+    after = [r for r in rows if r["t"] >= float(t)]
+    out = {"ok": False, "why": "", "first": None, "live_s": None, "room_s": None, "enter_t": None}
+    if not after:
+        out["why"] = f"no host state frame at or after tape {t:g} s"
+        return out
+    f0 = after[0]
+    out["first"] = round(f0["t"], 3)
+    p = f0.get("pose")
+    if not f0.get("b6") or p is None:
+        out["why"] = f"the frame at tape {f0['t']:.2f} s is not on the world map (b6 {f0.get('b6')}, pose {'yes' if p else 'none'})"
+        return out
+    if p["idx"] != pb.WK_WORLD_IDX or p["mode"] != 0 or p["choco"] != 0:
+        out["why"] = f"at tape {f0['t']:.2f} s: [102] {p['idx']}, [190] {p['mode']}, [181] {p['choco']} (want 11, 0, 0: on foot on 9011)"
+        return out
+    d = BW.world_torus_distance((p["x"], p["z"]), tile)
+    if d > pb.WK_POSE_TOL:
+        out["why"] = f"at tape {f0['t']:.2f} s the host stands {d:.1f} u from {tile} (want <= {pb.WK_POSE_TOL:g})"
+        return out
+    # THE LIVE RUN before it (THE LIVE DEBOUNCE's own clock): the heartbeat's moves on the b6 frames, back from the last one while each
+    # follows the one before within PAIR_HB_FRESH_S -- the host's synchronous all-block load (a frozen heartbeat) ends the run
+    b6 = sorted((r for r in rows if r.get("b6") and r["t"] <= f0["t"]), key=lambda r: r["t"])
+    moves = [b["t"] for a, b in zip(b6, b6[1:]) if a["hb"] != b["hb"]]
+    if not moves or f0["t"] - moves[-1] > PAIR_HB_FRESH_S:
+        out["live_s"] = 0.0
+        out["why"] = f"the host's heartbeat is frozen at tape {f0['t']:.2f} s (last moved {moves[-1] if moves else None})"
+        return out
+    live_from = moves[-1]
+    for m in reversed(moves[:-1]):
+        if live_from - m > PAIR_HB_FRESH_S:
+            break
+        live_from = m
+    out["live_s"] = round(f0["t"] - live_from, 2)
+    if out["live_s"] < PAIR_LIVE_S:
+        out["why"] = f"the host has been live on the world map {out['live_s']:.2f} s before tape {f0['t']:.2f} s (want >= {PAIR_LIVE_S:g})"
+        return out
+    stand = []
+    for r in after:
+        q = r.get("pose")
+        if not (r.get("b6") and q is not None and BW.world_torus_distance((q["x"], q["z"]), tile) <= pb.WK_POSE_TOL):
+            break
+        stand.append(r)
+    out["room_s"] = round(stand[-1]["t"] - f0["t"], 2) if stand else 0.0
+    nxt = next((r for r in after[len(stand):] if r.get("field") and 0 < r["field"] < 65535), None)   # the stand's end, then a field
+    out["enter_t"] = round(nxt["t"], 3) if nxt is not None else None
+    if out["room_s"] < room:
+        out["why"] = f"the tile stand lasts {out['room_s']:.1f} s after tape {t:g} s (want >= {room:g})"
+        return out
+    if out["enter_t"] is None:
+        out["why"] = "no real field follows the tile stand (the tape's rejoin)"
+        return out
+    out["ok"] = True
+    out["why"] = (f"at tape {f0['t']:.2f} s the host stands at {tile} on foot on 9011, live {out['live_s']:.1f} s (>= {PAIR_LIVE_S:g}), "
+                  f"the stand lasting {out['room_s']:.1f} s more, a field at {out['enter_t']:.2f} s")
+    return out
+
+
+def judge_pair_instrument(samples, lines, *, lever_word=None, lever_read=None) -> tuple:
+    """S166-PR-I (PURE over the samples and engine lines from the replay's start to the host-b6 read): every sample on FieldHUD 6603,
+    none mirroring, the last one's host cache reading b6; no same-field kick ('paired on the host's field') and no ARMED line; on A0b
+    (``lever_word``) `pairpull.lever` read back as it."""
+    if not samples:
+        return False, "not reached: no sample after the replay's start"
+    off = sorted({(s.ui_state, s.field_id if s.on_field else s.world_id) for s in samples
+                  if not (s.ui_state == "FieldHUD" and s.field_id == FARSHORE)})
+    mir = sum(1 for s in samples if cb.path(s, "netsync.session.mirroring") is True)
+    b6 = wf._h(samples[-1], "b6") is True
+    kick = sum(1 for ln in lines if "paired on the host's field (" in ln)
+    arm = armed_lines(lines)
+    n_arm = len(arm["field"]) + len(arm["world"])
+    lev_ok = lever_word is None or lever_read == lever_word
+    ok = not off and not mir and b6 and not kick and not n_arm and lev_ok
+    return ok, (f"{len(samples)} sample(s): " + (f"OFF 6603: {off[:3]}" if off else "all FieldHUD 6603")
+                + f"; mirroring on {mir}; the host cache b6 {'read' if b6 else 'NOT read'}; the kick line {kick}x, ARMED {n_arm}x "
+                f"(want 0 each)" + (f"; pairpull.lever {lever_read!r} (want {lever_word!r})" if lever_word is not None else ""))
+
+
+def judge_pair_autosave(lines, *, field: int = FARSHORE) -> tuple:
+    """S166-PR-SAVE (PURE over the engine lines since the replay's start, log order): one 'pairing autosave written on field <field>
+    (the pairing window)' line, BEFORE the follow-out's first start line (if any), and no 'no pairing autosave this session' line."""
+    pl = pairing_lines(lines)
+    mine = [w for w in pl["written"] if w[1] == "field" and w[2] == int(field)]
+    first_start = pl["start"][0] if pl["start"] else None
+    before = bool(mine) and (first_start is None or mine[0][0] < first_start)
+    ok = len(mine) == 1 and before and not pl["none"]
+    return ok, (f"written on field {field} {len(mine)}x (site {mine[0][3]!r})" if mine else f"NO write on field {field}") + (
+        f"; {'before' if before else 'AFTER'} the follow-out's start line" if mine and first_start is not None else
+        "; no follow-out start line" if mine else "") + (f"; the no-autosave line {len(pl['none'])}x: {pl['none'][0][3]!r}"
+                                                          if pl["none"] else "; no no-autosave line")
+
+
+def judge_pair_out(base, samples, lines, *, after_autosave=None) -> tuple:
+    """S166-PR-OUT (PURE): coop_world_follow.judge_leave (WorldHUD 9011, starts / commits / lands +1, the three lines) and no sample
+    (``after_autosave``: those published after the autosave line) reading out.why 'not_mirroring'."""
+    ok, why = wf.judge_leave(base, samples, lines)
+    later = after_autosave if after_autosave is not None else samples
+    nm = sum(1 for s in later if wf._o(s, "why") == "not_mirroring")
+    whys = sorted({str(wf._o(s, "why")) for s in later})[:6]
+    return ok and not nm, f"{why}; out.why 'not_mirroring' on {nm} sample(s) after the autosave (want 0; seen {whys})"
+
+
+def judge_pair_arm(base, world_samples, lines, *, world: int = WORLD) -> tuple:
+    """S166-PR-ARM (PURE): mirroring true on every judged world sample from the landing's first on (wf.first_judged), pairpull.arms +1
+    and last_world ``world`` since ``base``, the world-form ARMED line exactly once naming ``world``, no field-form ARMED line
+    (``lines``: the engine's since the replay's start). The no-autosave line is S166-PR-SAVE's, never this row's."""
+    st = wf.first_judged(world_samples)
+    if st is None:
+        return False, "not judged: no world sample with the blocks in and the world ticking (THE PRE-INIT SAMPLE)"
+    later = world_samples[world_samples.index(st):]
+    unmir = sum(1 for s in later if cb.path(s, "netsync.session.mirroring") is not True)
+    da, lw = pdelta(base, later[-1]), _p(later[-1], "last_world")
+    arm = armed_lines(lines)
+    named = [w for _i, w in arm["world"]]
+    ok = unmir == 0 and da == 1 and lw == world and named == [world] and not arm["field"]
+    return ok, (f"mirroring false on {unmir} of {len(later)} judged world sample(s); pairpull.arms +{da} (want 1), last_world {lw!r} "
+                f"(want {world}); ARMED at a world landing {named or 'NEVER'} (want [{world}]), field-form ARMED {len(arm['field'])}x "
+                "(want 0)")
+
+
+def judge_pair_savemenu(sg0: dict, sg1: dict, files0, files1, hud_back: bool) -> tuple:
+    """S166-PR-SAVEMENU (PURE): under `saveguard old` (DRY) the pick refused by s164's own gate -- the mirror (M) -- so `refused` +1 and
+    `would_save` +0 (an UNARMED guest's pick counts would_save: s164 would have saved it), a reason, the sandbox unchanged, the HUD back."""
+    if not sg1:
+        return False, "absent: no `netsync.saveguard`"
+    dr = (sg1.get("refused") or 0) - (sg0.get("refused") or 0)
+    dw = (sg1.get("would_save") or 0) - (sg0.get("would_save") or 0)
+    same = files0 is not None and files0 == files1
+    ok = dr == 1 and dw == 0 and bool(sg1.get("last_why")) and same and hud_back
+    return ok, (f"refused +{dr} (want 1), would_save +{dw} (want 0: the mirror is s164's own gate), last_why {sg1.get('last_why')!r}; "
+                "the sandbox's files " + ("UNCHANGED" if same else ("UNREAD" if files0 is None else "CHANGED")) + f"; back on the HUD {hud_back}")
+
+
+def judge_pair_rejoin(samples, base, lines, *, field: int = wf.ICE_CAVERN) -> tuple:
+    """S166-PR-REJOIN (PURE): coop_world_wait.judge_rejoin_land and its arrival-guard clause, from the world map (``base`` on WorldHUD),
+    mirroring true at the end, the host's marker (0xA5) on a FieldHUD ``field`` sample, and NO ARMED line in ``lines`` (since the
+    landing: the mirror armed there; the field load stages the host's story without re-arming)."""
+    if base is None or base.ui_state != "WorldHUD":
+        return False, f"not reached: the guest never followed out (it stood on {getattr(base, 'ui_state', None)!r})"
+    land = cw.judge_rejoin_land(samples, base, lines, field=field)
+    arrive = cw.judge_arrive_world(samples, base, lines, field=field)
+    on = [s for s in samples if s.ui_state == "FieldHUD" and s.field_id == field]
+    marks = sorted({pb.marker_value(s) for s in on}, key=lambda v: -1 if v is None else v)
+    mir = cb.path(samples[-1], "netsync.session.mirroring") if samples else None
+    arm = armed_lines(lines)
+    rearm = len(arm["field"]) + len(arm["world"])
+    extra = (pb.MARKER_VALUE in marks and mir is True and not rearm,
+             f"mirroring {mir!r} at the end; the marker on {field} read {[hex(m) if isinstance(m, int) else m for m in marks]} (want "
+             f"0x{pb.MARKER_VALUE:02X}, the host's); ARMED lines since the landing {rearm} (want 0: armed once, at the landing)")
+    (lk, lw), (ek, ew) = cw.with_arrive(land, arrive), extra
+    return lk and ek, f"{lw}; {ew}"
+
+
+def pair_old_wait(samples, lines) -> tuple:
+    """THE OLD MEASUREMENT (PURE): the A0 build's (and `pairpull old`'s) wait -- every sample (from the host-b6 read to the tape's 300)
+    on FieldHUD 6603, out.why 'not_mirroring' on at least one and nothing else blocking a start (no follow-out start line, starts +0)."""
+    if not samples:
+        return False, "no sample to measure"
+    off = sorted({(s.ui_state, s.field_id if s.on_field else s.world_id) for s in samples
+                  if not (s.ui_state == "FieldHUD" and s.field_id == FARSHORE)})
+    nm = sum(1 for s in samples if wf._o(s, "why") == "not_mirroring")
+    starts = pairing_lines(lines)["start"]
+    ok = not off and nm >= 1 and not starts
+    return ok, (f"{len(samples)} sample(s) " + (f"OFF 6603 {off[:3]}" if off else "all on FieldHUD 6603") + f"; why 'not_mirroring' on "
+                f"{nm}; follow-out start lines {len(starts)}")
+
+
+# ------------------------------------------------------------------------------------------------ A0b's T2 leg (COOP_WW_LEG=pair)
+def _run_pair(g) -> None:
+    """T2-A pair: the real guest on its own 6603, the COOP_TAPE_WORLD_WALK host replayed from PAIR_FROM_S (on 9011 already)."""
+    calibrate = cb.CALIBRATE
+    led = cb.Ledger(g, t2_pair_catalog(calibrate), finals=("T2-SAVE", "T2-INI", "S166-PR-CAL"), width=DETAIL_W)
+    ctx = cw._T2()
+    ctx.field = FARSHORE
+    ctx.sent, ctx.poses, ctx.t0, ctx.lever = [], [], None, (PAIR_LEVER if calibrate else None)
+    ctx.pstage, ctx.measured, ctx.from_facts = None, None, None
+    try:
+        _pair(g, led, ctx)
+    except HarnessError as err:
+        g.note(f"the pair leg raised: {str(err)[:400]}")
+        led.close(f"not reached: the leg raised ({str(err)[:200]})")
+    finally:
+        _pair_teardown(g, led, ctx)
+        if calibrate:
+            stage = ctx.pstage
+            try:
+                stage = stage or pair_stage(g.state)
+            except HarnessError:
+                pass
+            pred = T2_PAIR_OLD_PREDICTED if stage != "a0b" else T2_PAIR_LEVER_PREDICTED[PAIR_LEVER]
+            g.note(f"S166-PR-CAL: the guest reads as {stage}; predicted reds {sorted(pred)}; the OLD wait: {ctx.measured}")
+            led.close("not reached: the leg ended before this check")
+            failed = led.failed() - {"S166-PR-CAL"}
+            missing, extra = sorted(set(pred) - failed), sorted(failed - set(pred))
+            m_ok, m_why = ctx.measured if ctx.measured else (False, "never measured")
+            led.check("S166-PR-CAL", not missing and not extra and m_ok,
+                      f"predicted reds that stayed GREEN: {missing or 'none'}; unpredicted reds: {extra or 'none'}; the OLD wait "
+                      f"{'MEASURED' if m_ok else 'NOT measured'}: {m_why}")
+        led.close(final=True)
+
+
+def _pair_teardown(g, led: cb.Ledger, ctx) -> None:
+    if ctx.sent:
+        ok, why = _ww(g, "clear")
+        g.note(f"`worldwalk clear` (the levers this leg sent: {ctx.sent}): {'ok' if ok else why[:160]}")
+    if ctx.peer is not None and ctx.peer.how_ended is None:
+        g.note(f"coop_peer replay-host: {ctx.peer.stop()}")
+    if "T2-SAVE" not in led.done:
+        fell = pb.hits(ctx.eng.lines(), "ramp_failed") if ctx.eng is not None else []
+        led.check("T2-SAVE", not fell, f"the exit ramp fell back to the TITLE: {pb.show(fell, 1)}" if fell else
+                  "no title fallback" + ("" if ctx.eng is not None else " (the guest never ran a session)"))
+    if ctx.guard is not None:
+        ok, why = ctx.guard.restore()
+        led.check("T2-INI", ok, why)
+    else:
+        led.check("T2-INI", True, "Memoria.ini was never edited (the leg stopped before the edit)")
+    g.note(f"Memoria.log archived: {cb.archive_log(g, 'world-walk-pair')}")
+
+
+def _pair(g, led: cb.Ledger, ctx) -> None:
+    rows = list(T2_PAIR_ROWS)
+    ctx.tape = pb.latest_world_walk_tape()
+    if ctx.tape is None or not Path(ctx.tape).exists():
+        led.check("T2-TAPE", False, f"no tape ({ctx.tape or pb.world_walk_tape_dir()}): record one -- COOP_TAPE_WORLD_WALK=1 "
+                                    "coop_tape_record.py on a host (s164+; v14)")
+        led.close("not reached: no tape")
+        return
+    try:
+        cp = pb.coop_peer_module()
+        _h0, records, torn = cp.read_tape(ctx.tape)
+    except Exception as err:                              # noqa: BLE001
+        led.check("T2-TAPE", False, f"{ctx.tape} does not read back: {err}")
+        led.close("not reached: the tape does not read back")
+        return
+    ctx.facts = pb.world_walk_tape_facts(records, cp)
+    ctx.poses = cp.tape_poses(records)
+    ctx.from_facts = pair_from_facts(ctx.poses, PAIR_FROM_S)
+    facts_ok = all(ctx.facts[f"wk{i}"]["ok"] for i in range(1, 7)) and ctx.from_facts["ok"]
+    bad = [f"wk{i}: {ctx.facts[f'wk{i}']['why']}" for i in range(1, 7) if not ctx.facts[f"wk{i}"]["ok"]]
+    led.check("T2-TAPE", facts_ok, f"{Path(ctx.tape).name} ({len(records)} records{f', torn {torn} B' if torn else ''}): "
+                                   + ("the six facts hold" if not bad else "CANNOT -- " + "; ".join(bad))
+                                   + f"; --from {PAIR_FROM_S:g} s: {ctx.from_facts['why']}")
+    if not facts_ok and not FORCE:
+        led.close("not reached: this tape cannot carry the pair leg at that --from second")
+        return
+    if not wf._walk_preflight(g, led):
+        return
+    # the guest's own game on 6603 -- never paired there with the host (the host is on the world map from the tape's first frame)
+    cb.provenance(g)
+    g.note(f"s166 A0b T2 pair leg: the guest on its own {FARSHORE}, the world-walk host replayed from tape {PAIR_FROM_S:g} s (on 9011)")
+    g.newgame()
+    g.warp(FARSHORE)
+    try:
+        g.no_encounters(True)
+    except HarnessError as err:
+        g.note(f"noencounter refused ({str(err)[:160]})")
+    g.watch(*(pb.MARKER_BYTE * 8 + b for b in range(8)))
+    g.wait_frames(45)                                     # the field entry's autosave: the exit ramp's own Continue
+    ctx.stage = wf.stage_of(g.state)
+    ctx.pstage = pair_stage(g.state)
+    g.note(f"the guest engine reads as {ctx.pstage} (s{ctx.stage or '<117'})")
+    ctx.eng = pb.EngineLog(g.engine_log())
+    ctx.guard = pb.IniGuard(Path(g.game_path) / "Memoria.ini", wf.GUEST_VALUES, label="coop-world-walk-pair", run_dir=cw._run_dir(g))
+    try:
+        g.note(ctx.guard.apply())
+    except (OSError, RuntimeError) as err:
+        led.check("T2-PEER", False, f"the Memoria.ini edit failed: {err}")
+        led.close("not reached: Memoria.ini could not be edited")
+        return
+    cfg = cw._wait_config(g, ctx)
+    if not cfg:
+        led.check("T2-PEER", False, f"the engine never logged the guest config (seen: {pb.show(pb.hits(ctx.eng.lines(), 'config'))})")
+        led.close("not reached: the guest config never applied")
+        return
+    # the probe, then the calibration lever -- BEFORE the replay (the pairing happens at the replay's first frame); never on an engine
+    # without `netsync.world.pairpull` (the A0 build answers the op with its usage line only after the step)
+    st = g.state
+    ctx.pstage = pair_stage(st)
+    lever_note = f"{ctx.pstage}: no `{PAIR_PROBE}` -- nothing sent (the A0 build: the OLD calibration)"
+    ctx.lever_word = None
+    if ctx.pstage == "a0b":
+        ctx.lever_word = "act"
+        if ctx.lever == PAIR_LEVER:
+            ok, why = _ww(g, PAIR_LEVER, "old")
+            if ok:
+                ctx.sent.append(PAIR_LEVER)
+                ctx.lever_word = "old"
+            lever_note = f"`worldwalk {PAIR_LEVER} old` {'sent' if ok else 'REFUSED: ' + why[:100]} (the CALIBRATION: held through the leg)"
+        else:
+            lever_note = f"a0b: `{PAIR_PROBE}` published -- the pull acts (no lever sent)"
+        cb.poll(g, lambda s: _p(s, "lever") == ctx.lever_word, 3.0, "the pairpull lever read back")
+    g.note(lever_note)
+    ctx.base = g.state
+    # the replay-host: the tape from PAIR_FROM_S, holding at its end
+    rd = cw._run_dir(g)
+    ctx.peer = pb.PeerProc("replay-host", [ctx.tape, "--port", str(wf.PORT), "--code", wf.CODE, "--from", f"{PAIR_FROM_S:g}",
+                                           "--at-end", "hold"],
+                           log_path=rd / "coop_peer-replay-world-walk-pair.log", out_path=rd / "coop_peer-replay-world-walk-pair.out")
+    g.note(f"starting: {ctx.peer.command_text()}")
+    ctx.log_at = cb.mark(g)                               # every engine line the rows judge is written after this mark (log order)
+    ctx.peer.start()
+    up = ctx.peer.wait_for(pb.PEER["listening"], 15.0, tick=lambda: cw._sample(g, ctx))
+    conn = ctx.peer.wait_for(pb.PEER["guest_connected"], wf.DIAL_S, tick=lambda: cw._sample(g, ctx)) if up else None
+    start = ctx.peer.wait_for(pb.PEER["replay_start"], 10.0, tick=lambda: cw._sample(g, ctx)) if conn else None
+    relay = pb.hits(ctx.eng.lines(), "relay_up", pred=lambda m: m.group(3) == "guest" and m.group(2) == wf.CODE)
+    m = pb.PEER["replay_start"].search(start[1]) if start else None
+    ctx.t0 = float(m.group(1)) if m else None
+    at_from = ctx.t0 is not None and abs(ctx.t0 - PAIR_FROM_S) <= 0.5
+    ok = up is not None and conn is not None and start is not None and bool(relay) and at_from
+    led.check("T2-PEER", ok, f"config: {pb.show(cfg, 1)}; peer: {up[1] if up else 'never listened'} / "
+                             f"{conn[1] if conn else 'no guest'} / {start[1] if start else 'no replay start'} (want tape "
+                             f"{PAIR_FROM_S:g} s); engine: {pb.show(relay, 1)}; {lever_note}")
+    if not ok:
+        led.unreached(rows, "the instrument never started (T2-PEER)")
+        return
+    ctx.anchors["start"] = start[0]
+    _pair_rows(g, led, ctx)
+
+
+def _tape_wall(ctx, tape_s):
+    """The wall moment the replay reaches tape second ``tape_s`` (its own anchor), None when unread."""
+    if tape_s is None or ctx.t0 is None or "start" not in ctx.anchors:
+        return None
+    return ctx.anchors["start"] + _dt.timedelta(seconds=(float(tape_s) - float(ctx.t0)) / float(wf.REPLAY_SPEED))
+
+
+def _pair_rows(g, led: cb.Ledger, ctx) -> None:
+    """The rows, on the guest's own publishes and its engine lines since the replay started (``ctx.log_at``, a log MARK: order exact)."""
+    start = ctx.anchors["start"]
+    # I: until the guest's host cache reads the host's b6 (the host on the world map from the tape's first frame)
+    cw._until(g, ctx, lambda s: wf._h(s, "b6") is True, PAIR_S)
+    b6_mark = cb.mark(g)
+    since = [(ts, s) for ts, s in ctx.samples if ts >= start]
+    b6_at = next((i for i, (_ts, s) in enumerate(since) if wf._h(s, "b6") is True), None)
+    upto = [s for _ts, s in (since[:b6_at + 1] if b6_at is not None else since)]
+    lines_i = cb.log_lines(g)[ctx.log_at:b6_mark]
+    led.check("S166-PR-I", *judge_pair_instrument(upto, lines_i, lever_word=ctx.lever_word, lever_read=_p(ctx.base, "lever")))
+    if b6_at is None:
+        led.unreached([c for c in T2_PAIR_ROWS if c != "S166-PR-I"], "the guest's host cache never read the host's b6")
+        _pair_wait_tower(g, ctx)
+        return
+    t_b6 = since[b6_at][0]
+    # SAVE + OUT: the autosave and the pull -- OLD (the A0 build, `pairpull old`): the wait, measured until the tape's 300
+    pull_on = ctx.pstage == "a0b" and ctx.lever_word == "act"
+    if pull_on:
+        cw._until(g, ctx, lambda s: wf.first_judged([x for _t, x in ctx.samples if _t >= t_b6 and x.ui_state == "WorldHUD"])
+                  is not None, PAIR_OUT_S)
+    else:
+        _pair_wait_tower(g, ctx)
+    lines = cb.new(g, ctx.log_at)
+    led.check("S166-PR-SAVE", *judge_pair_autosave(lines))
+    due300 = _tape_wall(ctx, (ctx.facts.get("enter") or {}).get("t"))
+    after = [(ts, s) for ts, s in ctx.samples if ts >= t_b6 and (pull_on or due300 is None or ts < due300)]
+    samples = [s for _ts, s in after]
+    w_idx = next((i for i, ln in enumerate(lines) if _RX_WRITTEN.match(_msg(ln))), None)
+    t_written = _wall_of(lines[w_idx]) if w_idx is not None else None
+    after_save = [s for ts, s in after if t_written is None or ts >= t_written + _dt.timedelta(seconds=1)]
+    if cb.has(ctx.base, wf.PROBE):
+        led.check("S166-PR-OUT", *judge_pair_out(ctx.base, samples, lines, after_autosave=after_save))
+    else:
+        led.check("S166-PR-OUT", False, f"absent: no `{wf.PROBE}` -- the guest stays on {FARSHORE}")
+    if not pull_on:
+        ctx.measured = pair_old_wait(samples, lines)
+        g.note(f"THE OLD WAIT ({ctx.pstage}{', pairpull old' if ctx.lever_word == 'old' else ''}): {ctx.measured[1]}")
+    world = [s for s in samples if s.ui_state == "WorldHUD"]
+    landed = wf.first_judged(world)
+    # POSE: the seam bracket on the tape clock (coop_world_follow's)
+    l0 = _num(wf._o(ctx.base, "lands"))
+    pre_l = [ts for ts, s in after if _num(wf._o(s, "lands")) == l0]
+    post_l = [ts for ts, s in after if l0 is not None and (_num(wf._o(s, "lands")) or 0) > l0]
+    bracket = None
+    if pre_l and post_l and ctx.t0 is not None:
+        bracket = (wf.tape_t(pre_l[-1], start, ctx.t0), wf.tape_t(post_l[0], start, ctx.t0))
+    led.check("S166-PR-POSE", *wf.judge_tape_pose(landed, ctx.poses, bracket))
+    if world:
+        led.check("S166-PR-ARM", *judge_pair_arm(ctx.base, world, lines))
+    else:
+        led.check("S166-PR-ARM", False, f"not reached: the guest never followed out (it stood on {g.state.ui_state!r} "
+                                        f"{g.state.field_id})")
+    if g.state.ui_state != "WorldHUD":
+        led.unreached(("S166-PR-SAVEMENU", "S166-PR-REJOIN"), f"the guest never reached the world map (ui {g.state.ui_state!r} "
+                                                              f"field {g.state.field_id})")
+        return
+    # SAVEMENU: the DRY pick on the world map
+    _pair_savemenu(g, lambda ok, why: led.check("S166-PR-SAVEMENU", ok, why))
+    # REJOIN: the tape's host enters 300
+    rbase, t_rj, r_at = g.state, _dt.datetime.now(), cb.mark(g)
+    wait_s = wf.REJOIN_S + max(0.0, (due300 - _dt.datetime.now()).total_seconds() if due300 is not None else 60.0)
+    cw._until(g, ctx, lambda s: s.ui_state == "FieldHUD" and s.field_id == wf.ICE_CAVERN, wait_s)
+    cb.hold_for(g, 1.0)
+    cw._sample(g, ctx)
+    led.check("S166-PR-REJOIN", *judge_pair_rejoin(cw._after(ctx, t_rj), rbase, cb.new(g, r_at)))
+
+
+def _pair_savemenu(g, record) -> None:
+    """The DRY save pick on the world map (`worldfollow saveguard old`, coop_world_follow's pick, then `saveguard act`): ``record(ok,
+    why)`` with judge_pair_savemenu's verdict -- never on an engine with no sandboxed save path (R4 never opens the owner's slots)."""
+    files0 = wf.save_files(g.state)
+    if files0 is None:
+        record(False, "not reached: no SANDBOXED save path published (R4 never opens a save on the owner's slots)")
+        return
+    try:
+        ok, why = wf._wf(g, "saveguard", "old")
+        if not ok:
+            record(False, f"`worldfollow saveguard old` refused: {why[:160]}")
+            return
+        st0, st1, back = wf._save_pick(g)
+        record(*judge_pair_savemenu(dict(st0.saveguard_block or {}), dict(st1.saveguard_block or {}), files0,
+                                    wf.save_files(g.state), back))
+    except HarnessError as err:
+        record(False, f"`savemenu` raised: {str(err)[:240]}")
+    finally:
+        wf._wf(g, "saveguard", "act")
+
+
+def _since_wall(lines, wall) -> list:
+    """The raw engine lines stamped at or after ``wall`` (floored to the second, as the engine stamps), in log order."""
+    lo = pb.floor_s(wall) if wall is not None else None
+    out = []
+    for ln in lines:
+        t = _wall_of(ln)
+        if lo is None or (t is not None and t >= lo):
+            out.append(ln)
+    return out
+
+
+def _wall_of(line):
+    got = pb.parse_engine_line(str(line))
+    return got[0] if got else None
+
+
+def _pair_wait_tower(g, ctx) -> None:
+    """Sample on until the tape's 300 entry (plus two seconds): the OLD wait is measured up to it, and the session is whole when the leg
+    ends (the guest's own field follow into 300 then comes after the measured window)."""
+    due = _tape_wall(ctx, (ctx.facts.get("enter") or {}).get("t"))
+    if due is None:
+        return
+    due = due + _dt.timedelta(seconds=2.0)
+    cw._until(g, ctx, lambda s: _dt.datetime.now() >= due, max(1.0, (due - _dt.datetime.now()).total_seconds() + 1.0))
+
+
+# ------------------------------------------------------------------------------------------------ A0b's duo leg (D-PAIR)
+DUO_PAIR_CHECKS = {
+    "S166-D-PAIR-I": "the instrument: the host on WorldHUD 9011 at ICE_TILE (its own walk out and teleport, past the debounce) BEFORE "
+                     "the guest's role is applied; the guest on FieldHUD 6603, not mirroring, never kicked or armed until its host "
+                     "cache reads the host's b6",
+    "S166-D-PAIR-SAVE": "the guest's pairing autosave on field 6603 (the pairing window) before its follow-out's start; no no-autosave "
+                        "line",
+    "S166-D-PAIR-OUT": "the pull: the guest on WorldHUD 9011, starts / commits / lands +1, landed within POSE_TOL of the host's OWN "
+                       "world x/z (after block_ready + ticks)",
+    "S166-D-PAIR-ARM": "mirroring true from the landing on, pairpull.arms +1 / last_world 9011, the world-form ARMED line once, no "
+                       "field-form one",
+    "S166-D-PAIR-SAVEMENU": "the DRY save pick refused by the mirror (refused +1, would_save +0), the sandbox unchanged",
+    "S166-D-PAIR-REJOIN": "the host Confirms on the tile into 300: the guest rejoins 300 from the world map, mirroring, the host's "
+                          "marker on 300, no re-arm",
+}
+DUO_PAIR_ORDER = tuple(DUO_PAIR_CHECKS)
+DUO_PAIR_OLD_PREDICTED = ("S166-D-PAIR-OUT", "S166-D-PAIR-ARM", "S166-D-PAIR-SAVEMENU", "S166-D-PAIR-REJOIN")
+DUO_PAIR_SETTLE_FRAMES = 60    # the host stands this long on the tile before the guest's role is applied (past THE LIVE DEBOUNCE)
+
+
+def run_duo(d) -> None:
+    """D-PAIR (``py tools/harness/duo.py studies/test-harness/scenarios/coop_world_walk.py --no-pair``): a STAGGERED pairing through
+    duo.py's own ops -- the host's role first (d.apply_role), its walk out onto 9011 and onto ICE_TILE, and only then the guest's role
+    (d.apply_role on its own 6603): the guest's link comes up while its host already stands on the world map. Keyed by the GUEST's
+    stage; COOP_CALIBRATE=1 judges S166-D-PAIR-CAL (the A0 build: exactly DUO_PAIR_OLD_PREDICTED red)."""
+    calibrate = cb.CALIBRATE
+    strict, d.strict = d.strict, False
+    failed, done = [], set()
+
+    def check(cid, ok, detail):
+        if cid in done:
+            return
+        done.add(cid)
+        if not ok:
+            failed.append(cid)
+        d.check(bool(ok), f"{cid}: {DUO_PAIR_CHECKS.get(cid, cid)}", str(detail)[:DETAIL_W], cid=cid)
+
+    def rest(why):
+        for cid in DUO_PAIR_ORDER:
+            if cid not in done:
+                check(cid, False, f"not reached: {why}"[:DETAIL_W])
+
+    try:
+        if getattr(d, "paired", False):
+            rest("D-PAIR needs `duo.py ... --no-pair`: the duo paired both games on one field first, so the guest's link was already up "
+                 "before its host stood on the world map")
+        else:
+            _duo_pair(d, check, rest)
+    except HarnessError as err:
+        d.note(f"the duo raised: {str(err)[:400]}")
+        rest(f"the duo raised ({str(err)[:200]})")
+    finally:
+        rest("the duo ended before this row")
+        if calibrate:
+            try:
+                stage = pair_stage(d.guest.state)
+            except HarnessError:
+                stage = "?"
+            pred = set(DUO_PAIR_OLD_PREDICTED) if stage != "a0b" else set()
+            missing, extra = sorted(pred - set(failed)), sorted(set(failed) - pred)
+            d.check(not missing and not extra, "S166-D-PAIR-CAL: CALIBRATION -- exactly the predicted rows red for the GUEST's stage",
+                    f"guest {stage}: predicted reds that stayed GREEN {missing or 'none'}; unpredicted reds {extra or 'none'}",
+                    cid="S166-D-PAIR-CAL")
+        d.strict = strict
+
+
+def _duo_pair(d, check, rest) -> None:
+    host, guest = d.host, d.guest
+    for r, g_ in (("host", host), ("guest", guest)):
+        g_.newgame()
+        g_.warp(FARSHORE)
+        try:
+            g_.no_encounters(True)
+        except HarnessError as err:
+            g_.note(f"noencounter refused ({str(err)[:120]})")
+        if r == "host":
+            g_.poke(pb.MARKER_BYTE, pb.MARKER_VALUE)
+        else:
+            g_.watch(*(pb.MARKER_BYTE * 8 + b for b in range(8)))
+            g_.wait_frames(45)                            # the guest's own field-entry autosave (its exit ramp's Continue)
+    d.apply_role("host", cid="S166-D-PAIR-C2-host")
+    okw, whyw, _hs = cw.walk_out(host)
+    if not okw:
+        rest(f"the host's walk out failed ({whyw[:160]})")
+        return
+    cw.teleport_settle(host, cw.ICE_TILE)
+    host.wait_frames(DUO_PAIR_SETTLE_FRAMES)
+    hp = wf.world_xz(host.state)
+    hs = host.state
+    gs0 = guest.state
+    stage = pair_stage(gs0)
+    d.note(f"D-PAIR: the guest reads as {stage}; the host stands on {hs.ui_state} {hs.world_id} at {hp}")
+    h_ok = hs.ui_state == "WorldHUD" and hs.world_id == WORLD and hp[0] is not None and wf.torus(hp, cw.ICE_TILE) <= wf.POSE_TOL
+    # the guest's link comes up NOW (its own 6603, before any partner frame): its base, then its role
+    base, g_at = guest.state, cb.mark(guest)
+    d.apply_role("guest", cid="S166-D-PAIR-C2-guest")
+    taps = []
+    take = cw._sampler(guest, taps)
+    cb.poll(guest, lambda s: (take() or True) and wf._h(s, "b6") is True, PAIR_S, "the guest's host cache reading b6")
+    upto = list(taps)
+    glines = cb.new(guest, g_at)
+    i_ok, i_why = judge_pair_instrument(upto, glines, lever_word="act" if stage == "a0b" else None,
+                                        lever_read=_p(base, "lever"))
+    check("S166-D-PAIR-I", h_ok and i_ok, f"host on {hs.ui_state} {hs.world_id} at {hp} (want WorldHUD {WORLD} at {cw.ICE_TILE}); "
+                                          f"{i_why}")
+    if not (h_ok and i_ok):
+        rest("the instrument is untrustworthy on this run (D-PAIR-I)")
+        return
+    deadline = time.time() + PAIR_OUT_S
+    while time.time() < deadline:
+        take()
+        if wf.first_judged([s for s in taps if s.ui_state == "WorldHUD"]) is not None:
+            break
+        time.sleep(0.1)
+    lines = cb.new(guest, g_at)
+    check("S166-D-PAIR-SAVE", *judge_pair_autosave(lines))
+    world = [s for s in taps if s.ui_state == "WorldHUD"]
+    st = wf.first_judged(world)
+    if st is None:
+        p_ok, p_why = False, "not judged: the guest never stood on a judged world sample"
+    else:
+        x, z = wf.world_xz(st)
+        dd = wf.torus((x, z), hp) if x is not None else None
+        p_ok, p_why = dd is not None and dd <= wf.POSE_TOL, f"landed at ({x}, {z}), {dd if dd is None else round(dd, 1)}u from the host's own {hp}"
+    l_ok, l_why = wf.judge_leave(base, taps, lines) if cb.has(base, wf.PROBE) else (False, f"absent: no `{wf.PROBE}`")
+    check("S166-D-PAIR-OUT", l_ok and p_ok, f"{l_why}; {p_why}")
+    check("S166-D-PAIR-ARM", *judge_pair_arm(base, world, lines))
+    if guest.state.ui_state != "WorldHUD":
+        rest(f"the guest never reached the world map (ui {guest.state.ui_state!r}, field {guest.state.field_id})")
+        return
+    _pair_savemenu(guest, lambda ok, why: check("S166-D-PAIR-SAVEMENU", ok, why))
+    # REJOIN: the host Confirms on the tile into 300
+    rbase, r_at = guest.state, cb.mark(guest)
+    early = []
+    take2 = cw._sampler(guest, early)
+    try:
+        host.wait_frames(cw.PROMPT_FRAMES)
+        host.press("confirm")
+        take2()
+        hin = cb.poll(host, lambda s: (take2() or True) and s.ui_state == "FieldHUD" and s.field_id == wf.ICE_CAVERN, cw.FIELD_S,
+                      "the host on 300")
+    except HarnessError as err:
+        hin = None
+        d.note(f"the host's entry raised: {str(err)[:200]}")
+    if hin is None:
+        check("S166-D-PAIR-REJOIN", False, f"not reached: the host never entered 300 (ui {host.state.ui_state!r})")
+        return
+    samples, _hit = cb.watch(guest, lambda s: s.ui_state == "FieldHUD" and s.field_id == wf.ICE_CAVERN, wf.REJOIN_S)
+    samples += cb.hold_for(guest, 1.0)
+    seen = {s.frame for s in samples}
+    allg = [s for s in early if s.frame not in seen] + samples
+    check("S166-D-PAIR-REJOIN", *judge_pair_rejoin(allg, rbase, cb.new(guest, r_at)))

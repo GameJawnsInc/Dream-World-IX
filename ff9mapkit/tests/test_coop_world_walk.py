@@ -195,7 +195,7 @@ def tables() -> dict:
 
 # ================================================================================================ the contract
 CONTRACT_KITCELL = {"lever": None, "closed": 0, "last_sid": -1, "last_world": -1}
-CONTRACT_OPS = ("kitcell", "clear")
+CONTRACT_OPS = ("kitcell", "pairpull", "clear")          # [ff9mapkit netsync s166] A0b grew the verb (the A0 build's: WORLDWALK_OPS_A0)
 
 
 def test_the_s166_contract_is_battlewires_to_the_key():
@@ -204,7 +204,8 @@ def test_the_s166_contract_is_battlewires_to_the_key():
     assert json.dumps(BW.WORLD_KITCELL_SENTINELS) == json.dumps(CONTRACT_KITCELL)
     assert list(BW.WORLD_SENTINELS_S166) == list(BW.WORLD_SENTINELS_S165) + ["kitcell"] and BW.WORLD_S166_KEYS == ("kitcell",)
     assert {k: v for k, v in BW.WORLD_SENTINELS_S166.items() if k != "kitcell"} == BW.WORLD_SENTINELS_S165
-    assert BW.WORLDWALK_OPS == CONTRACT_OPS and BW.WORLDWALK_WORDS == {"kitcell": ("old", "act")}
+    assert BW.WORLDWALK_OPS == CONTRACT_OPS and BW.WORLDWALK_WORDS["kitcell"] == ("old", "act")
+    assert BW.WORLDWALK_OPS_A0 == ("kitcell", "clear") and BW.WORLDWALK_WORDS_A0 == {"kitcell": ("old", "act")}   # the A0 build
     assert BW.WORLD_KITCELL_LEVER_WORDS == ("act", "old")
     assert BW.LOG_WORLD_KITCELL == "world kit-cell close: " and BW.PROOF_WORLD_WALK == "world walk selftest: "
     assert re.fullmatch(BW.WORLD_WALK_PROOF_RE, "world walk selftest: OK (84 rows, 13 mutants)")     # the engine's own tallies
@@ -295,8 +296,9 @@ def test_the_s166_rung_is_the_ladders_last():
     assert "worldwalk" not in FG.netsync_subverbs(FG.caps_through("worldfollow"))
     assert Session.NETSYNC_WORLDWALK_SUBVERBS["worldwalk"][:3] == ("coop_world_walk", "netsync.world.kitcell", "s166")
     assert "worldwalk" not in FG.NETSYNC_TOP_CAP_KEYS                     # no top-level netsync key in A0
-    assert FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"] == {"world": ("kitcell",)} and FG.NETSYNC_BATTLE_CAP_KEYS["worldwalk"] == {}
-    assert FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldwalk"] == tuple(BW.WORLD_SENTINELS_S166)
+    # [ff9mapkit netsync s166] A0b grows the SAME rung (one patch): `pairpull` after `kitcell`
+    assert FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"] == {"world": ("kitcell", "pairpull")} and FG.NETSYNC_BATTLE_CAP_KEYS["worldwalk"] == {}
+    assert FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldwalk"] == tuple(BW.WORLD_SENTINELS_S166B)
     assert FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldfollow"] == tuple(BW.WORLD_SENTINELS_S165)     # s165's row unmoved
 
 
@@ -599,7 +601,7 @@ def test_the_stand_in_publishes_kitcell_last_and_worldwalk_refuses_in_the_contra
         g.newgame(settle=0)
         g.warp(6603)
         st = g.state
-        assert list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166) and st.coop_world_walk is True
+        assert list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166B) and st.coop_world_walk is True   # [ff9mapkit netsync s166] + A0b
         assert st.world_kitcell_block == dict(CONTRACT_KITCELL, lever="act")
         seq = g.state.seq
         for bad in (("bogus",), ("kitcell",), ("kitcell", "maybe"), ("kitcell", "old", "1"), ("clear", "1"), ()):
@@ -1151,7 +1153,10 @@ def _s166_catch_world() -> dict:
 
 def test_s166_the_catch_line_carries_kitcell_at_its_sentinel_after_dot():
     world = _s166_catch_world()
-    assert list(world)[-2:] == ["dot", "kitcell"], list(world)
+    # [ff9mapkit netsync s166] the prefix law: `kitcell` right after s165's `dot`; A0b's `pairpull` (when the source carries it) after it
+    keys = list(world)
+    tail = keys[keys.index("dot"):] if "dot" in keys else keys
+    assert tail in (["dot", "kitcell"], ["dot", "kitcell", "pairpull"]), keys
     assert json.dumps(world["kitcell"]) == json.dumps(CONTRACT_KITCELL)
     agent = _s166_text("HarnessAgent.cs")
     assert any(S166_TAG in ln and "sentinel" in ln and ln.strip().startswith("//") for ln in agent.split("\n")), \
@@ -1194,3 +1199,975 @@ def test_s166_the_agent_speaks_the_contracts_verb_key_and_lines():
     assert all(i >= 0 for i in at) and at[-1] - at[0] < 1500, dict(zip(pieces, at))   # one statement, in its own order
     assert "[NetSync] " + BW.log_world_kitcell(0, 9011) == "".join(
         [pieces[0][1:-1], "0", pieces[1][1:-1], "9011 (", pieces[2][1:-1], pieces[5][1:-1]])
+
+
+# ================================================================================================ [ff9mapkit netsync s166] PIECE A0b
+# Decision 26, THE PAIRING PULL: the contract, the twins (the pairing window's verdicts and the pull's term) and their mutants, the
+# stand-in's pairing window and landing arm, the T2-A pair leg on a stub replay-host that honours --from, D-PAIR on a stub duo whose
+# link starts at the guest's apply_role, and the pure judges red on each wrong shape.
+CONTRACT_PAIRPULL = {"lever": None, "pending": False, "arms": 0, "last_world": -1}
+
+
+def test_s166b_the_contract_is_battlewires_to_the_key():
+    """The key's catch-line sentinel (json, order included) as netsync.world's LAST key after A0's `kitcell` (the prefix law); the verb
+    grown by `pairpull old|act` with the A0 build's own beside it; the why APPENDED after s165's 28 (`pairing_save`, its words); the
+    log lines the engine writes (the ARMED line's world form keeps the field form's prefix; the no-autosave line names the landing)."""
+    assert json.dumps(BW.WORLD_PAIRPULL_SENTINELS) == json.dumps(CONTRACT_PAIRPULL)
+    assert list(BW.WORLD_SENTINELS_S166B) == list(BW.WORLD_SENTINELS_S166) + ["pairpull"] and BW.WORLD_S166B_KEYS == ("pairpull",)
+    assert {k: v for k, v in BW.WORLD_SENTINELS_S166B.items() if k != "pairpull"} == BW.WORLD_SENTINELS_S166
+    assert BW.WORLD_S166_ALL_KEYS == ("kitcell", "pairpull") and BW.WORLD_PAIRPULL_LEVER_WORDS == ("act", "old")
+    assert BW.WORLDWALK_OPS == ("kitcell", "pairpull", "clear") and BW.WORLDWALK_WORDS == {"kitcell": ("old", "act"),
+                                                                                           "pairpull": ("old", "act")}
+    assert BW.WORLDWALK_OPS_A0 == ("kitcell", "clear") and BW.WORLDWALK_WORDS_A0 == {"kitcell": ("old", "act")}
+    assert BW.WORLDWALK_USAGE == "netsync worldwalk: expected kitcell old|act, pairpull old|act or clear (any role)"
+    assert BW.WORLDWALK_USAGE_A0 == "netsync worldwalk: expected kitcell old|act or clear (any role)"
+    for ln, (op, word) in ((BW.LOG_WORLDWALK_PAIRPULL_OLD, ("pairpull", "old")), (BW.LOG_WORLDWALK_PAIRPULL_ACT, ("pairpull", "act")),
+                           (BW.LOG_WORLDWALK_CLEAR, ("clear", None)), (BW.LOG_WORLDWALK_CLEAR_A0, ("clear", None))):
+        assert ln.startswith(BW.worldwalk_ack(op, word)), ln
+    # the why: appended, nothing renumbered (the benches key on the names); `not_mirroring` stays index 4 (WhyNotMirroring)
+    assert BW.WORLD_OUT_WHYS_S166 == BW.WORLD_OUT_WHYS + ("pairing_save",) and len(BW.WORLD_OUT_WHYS) == 28
+    assert BW.WORLD_OUT_WHYS_S166.index("pairing_save") + 1 == 29 and BW.WORLD_OUT_WHYS.index("not_mirroring") + 1 == 4
+    assert BW.WORDS_WORLD_OUT_PAIRING == "your pairing autosave is still pending"
+    # the ARMED lines: the field form byte-identical (s144), the world form "at world map W's landing", the prefix both share
+    assert BW.LOG_MIRROR_ARMED_FIELD == "[NetSync] state-mirror ARMED -- this guest's fields now stage the HOST's story"
+    assert BW.log_mirror_armed_world(9011) == ("[NetSync] state-mirror ARMED at world map 9011's landing -- this guest's fields now "
+                                               "stage the HOST's story")
+    for ln in (BW.LOG_MIRROR_ARMED_FIELD, BW.log_mirror_armed_world(9011)):
+        assert ln.startswith(BW.LOG_MIRROR_ARMED_PREFIX) and ln.startswith("[NetSync] state-mirror ARMED")
+    assert re.match(BW.MIRROR_ARMED_FIELD_RE, BW.LOG_MIRROR_ARMED_FIELD) and not re.match(BW.MIRROR_ARMED_FIELD_RE,
+                                                                                         BW.log_mirror_armed_world(9011))
+    m = re.match(BW.MIRROR_ARMED_WORLD_RE, BW.log_mirror_armed_world(9011))
+    assert m and m.group(1) == "9011" and not re.match(BW.MIRROR_ARMED_WORLD_RE, BW.LOG_MIRROR_ARMED_FIELD)
+    # the window's lines (s154's text): the write, the no-autosave line in both forms
+    w = re.match(BW.PAIRING_WRITTEN_RE, BW.log_pairing_written("field 6603"))
+    assert w and w.groups() == ("field", "6603", "pairing window")
+    assert BW.log_pairing_written("field 6603") == ("[NetSync] pairing autosave written on field 6603 (the pairing window): leaving "
+                                                    "co-op returns you here")
+    n = re.match(BW.NO_PAIRING_RE, BW.log_no_pairing(BW.world_landing(9011)))
+    assert n and n.group(2) == "9011" and n.group(3) == BW.NO_PAIRING_NOTE
+    n = re.match(BW.NO_PAIRING_RE, BW.log_no_pairing("field 6603's load", "declined at x"))
+    assert n and n.group(1) == "6603" and n.group(3) == "declined at x"
+    assert BW.log_no_pairing(BW.world_landing(9011)).startswith(BW.LOG_NO_PAIRING + "world map 9011's landing first (")
+
+
+# (window_open, written, verdict) -> pending: NetSyncWorldFollow.PairingSavePending's rows as the engine's proof has them
+PENDING_ROWS = [
+    ((True, False, BW.PAIR_BUSY), True),            # busy: not free-standing yet -- it waits
+    ((True, True, BW.PAIR_WRITE), False),           # written in this Update -- the start may follow
+    ((True, False, BW.PAIR_NOT_OWN_PLACE), False),  # durable declines: the window will never write here
+    ((True, False, BW.PAIR_AUTOSAVE_OFF), False),
+    ((True, False, BW.PAIR_STOCK_REFUSED), False),
+    ((True, False, -1), True),                      # nothing judged yet at this entry (fail-closed)
+    ((True, False, BW.PAIR_WRITE), True),           # a candidate not yet written
+    ((True, False, BW.PAIR_ALREADY), True),         # a write tried here that FAILED (nothing written): s165's wait
+    ((True, False, BW.PAIR_NO_WINDOW), True),
+    ((False, False, BW.PAIR_BUSY), False),          # a shut window (a commit, the arm, the fall) is never pending
+    ((False, False, -1), False),
+    ((True, True, BW.PAIR_ALREADY), False),         # written: never pending, whatever the verdict
+]
+# (mirroring, bench, pairpull_old, pending) -> term 3's token
+TERM_ROWS = [
+    ((False, False, False, True), "pairing_save"),
+    ((False, False, False, False), None),           # written / durable: the start goes on
+    ((True, False, False, True), None),             # a mirroring guest passes as today
+    ((False, True, False, True), None),             # the bench stays exempt
+    ((False, False, True, False), "not_mirroring"),  # `pairpull old`: s165's term exactly
+    ((False, False, True, True), "not_mirroring"),
+    ((True, False, True, False), None),
+]
+
+
+@pytest.mark.parametrize("args,want", PENDING_ROWS)
+def test_s166b_the_pending_twin_reads_decision_26(args, want):
+    assert BW.pairing_save_pending(*args) is want
+
+
+@pytest.mark.parametrize("args,want", TERM_ROWS)
+def test_s166b_the_term_twin_reads_decision_26(args, want):
+    assert BW.pairing_term(*args) == want
+
+
+_PENDING_MUTANTS = {
+    # the engine's own mutants (NetSyncWorldFollow's OwnRowMutants: each must fail ITS row)
+    "pending_durable_waits": (lambda o, wr, v: o and not wr, (True, False, BW.PAIR_NOT_OWN_PLACE)),
+    "pending_written_blind": (lambda o, wr, v: o and v <= BW.PAIR_BUSY, (True, True, BW.PAIR_WRITE)),
+    "pending_window_blind": (lambda o, wr, v: not wr and v <= BW.PAIR_BUSY, (False, False, BW.PAIR_BUSY)),
+    "pending_failed_free": (lambda o, wr, v: o and not wr and v == BW.PAIR_BUSY, (True, False, BW.PAIR_ALREADY)),
+}
+_TERM_MUTANTS = {
+    "start_mirror_only": (lambda m, b, old, p: None if (m or b) else "not_mirroring", (False, False, False, False)),
+    "start_pending_blind": (lambda m, b, old, p: None if (m or b) else ("not_mirroring" if old else None), (False, False, False, True)),
+    "start_pairpull_blind": (lambda m, b, old, p: None if (m or b) else ("pairing_save" if p else None), (False, False, True, False)),
+    "start_pairing_bench": (lambda m, b, old, p: None if m else ("not_mirroring" if old else ("pairing_save" if p else None)),
+                            (False, True, False, True)),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_PENDING_MUTANTS))
+def test_s166b_each_pending_mutant_fails_its_own_row(name):
+    fn, row = _PENDING_MUTANTS[name]
+    want = dict(PENDING_ROWS)[row]
+    assert fn(*row) != want, name
+    assert any(bool(fn(*a)) != w for a, w in PENDING_ROWS)
+
+
+@pytest.mark.parametrize("name", sorted(_TERM_MUTANTS))
+def test_s166b_each_term_mutant_fails_its_own_row(name):
+    fn, row = _TERM_MUTANTS[name]
+    assert fn(*row) != dict(TERM_ROWS)[row], name
+
+
+def test_s166b_the_window_twins_read_s154():
+    """PairWindowAfter's edges; PairingDurableVerdict's order (no window -> already -> busy -> not own place -> autosave off -> the
+    ladder -> a candidate); PairingLiveVerdict (a durable decline passes through, a candidate busy until free-standing); the reasons."""
+    assert BW.pair_window_after(False, BW.PAIR_EDGE_RISE, True) and not BW.pair_window_after(False, BW.PAIR_EDGE_RISE, False)
+    assert not any(BW.pair_window_after(True, e, True) for e in (BW.PAIR_EDGE_FALL, BW.PAIR_EDGE_COMMIT, BW.PAIR_EDGE_ARM))
+    assert BW.pair_window_after(True, 5, False) and not BW.pair_window_after(False, 5, True)     # the bounce: no edge
+    v = BW.pairing_durable_verdict
+    assert v(False, True, True, True, False, True, True, False, False) == BW.PAIR_NO_WINDOW
+    assert v(True, True, True, False, False, True, True, False, False) == BW.PAIR_NO_WINDOW      # mirroring: not my own story
+    assert v(True, True, True, True, True, False, False, True, True) == BW.PAIR_ALREADY
+    assert v(True, True, True, True, False, False, False, True, True) == BW.PAIR_BUSY
+    assert v(True, True, True, True, False, True, False, True, True) == BW.PAIR_NOT_OWN_PLACE
+    assert v(True, True, True, True, False, True, True, True, True) == BW.PAIR_AUTOSAVE_OFF
+    assert v(True, True, True, True, False, True, True, False, True) == BW.PAIR_STOCK_REFUSED
+    assert v(True, True, True, True, False, True, True, False, False) == BW.PAIR_WRITE
+    lv = BW.pairing_live_verdict
+    assert lv(BW.PAIR_WRITE, False, False) == BW.PAIR_BUSY and lv(BW.PAIR_WRITE, True, True) == BW.PAIR_STOCK_REFUSED
+    assert lv(BW.PAIR_WRITE, True, False) == BW.PAIR_WRITE and lv(BW.PAIR_AUTOSAVE_OFF, False, False) == BW.PAIR_AUTOSAVE_OFF
+    assert BW.PAIR_DURABLE == (4, 5, 6) and all(v > BW.PAIR_BUSY for v in BW.PAIR_DURABLE)
+    assert BW.pairing_save_reason(BW.PAIR_AUTOSAVE_OFF) == "[SaveFile] DisableAutoSave=1" and BW.pairing_save_reason(BW.PAIR_WRITE) is None
+
+
+# ------------------------------------------------------------------------------------------------ the stand-in, direct
+def _pfake(root, *, pieces=None, faults=(), window=True, caps=None) -> FakeGame:
+    f = _fake(root, caps=caps, faults=faults, kit=False)
+    if pieces is not None:
+        f.world_walk_pieces = tuple(pieces)
+    f.pairing_window = dict(FG.FAKE_PAIRING_WINDOW, **(window if isinstance(window, dict) else {})) if window else None
+    return f
+
+
+def _pair_on_6603(g, fake, *, flags=BW.HF_WORLD | BW.HF_CONTROL | BW.HF_MENU, pose=(1197.37, -796.7), busy=False):
+    """A New-Game guest on its own 6603 (no session), then the followed session rises with the host ALREADY on 9011 at ``pose``."""
+    g.newgame(settle=0)
+    g.warp(6603)
+    g.wait_frames(6)
+    if busy:
+        fake.menu_control_enable = False                    # not free-standing: the window's write waits (busy)
+    fake.follow_session(0, flags=flags, fresh=True)
+    fake.host_world_pose(*pose, idx=11)
+
+
+def _pw_lines(fake) -> list:
+    return [ln.split("|M| ", 1)[-1] for ln in _log(fake).splitlines()
+            if "pairing autosave" in ln or "state-mirror ARMED" in ln or "world follow-out: " in ln or "no pairing autosave" in ln]
+
+
+def test_s166b_a_free_standing_guest_writes_at_the_rise_and_is_pulled_out_and_armed(tmp_path):
+    """THE PULL on the stand-in, every engine fact in order: the window rises with the session, the free-standing guest's write comes
+    FIRST (the window's tick before the gate's), then the start, the commit (the window shut), the landing at the host's pose and the
+    arm -- the ARMED line naming the landing, `arms` +1, mirroring, no no-autosave line; `pending` false throughout after the write."""
+    root = _game(tmp_path)
+    fake = _pfake(root)
+    with _session(root, fake) as g:
+        _pair_on_6603(g, fake)
+        st = g.wait_for(lambda s: s.ui_state == "WorldHUD" and s.world_id == 9011, timeout=10, what="the pull")
+        g.wait_frames(6)
+        st = g.state
+        lines = _pw_lines(fake)
+        assert st.session_mirroring is True and st.world_pairpull_block == {"lever": "act", "pending": False, "arms": 1,
+                                                                            "last_world": 9011}, st.world_pairpull_block
+        idx = {k: next(i for i, ln in enumerate(lines) if k in ln) for k in ("pairing autosave written on field 6603",
+                                                                             "follow-out: start", "follow-out: commit",
+                                                                             "ARMED at world map 9011", "follow-out: landed")}
+        assert idx["pairing autosave written on field 6603"] < idx["follow-out: start"] < idx["follow-out: commit"] \
+            < idx["ARMED at world map 9011"] < idx["follow-out: landed"], lines
+        assert sum("state-mirror ARMED" in ln for ln in lines) == 1 and not any("no pairing autosave" in ln for ln in lines)
+        assert not fake._pw["open"]                                    # the commit shut it
+
+
+def test_s166b_a_busy_guest_waits_as_pairing_save_then_writes_and_starts(tmp_path):
+    """BUSY (menu control off: not free-standing) -- `pending` true, out.why 'pairing_save', no start, s144's own field line kept (the
+    state 'waiting'); free again -> the write, then the start. The `pairpull_early` fault starts at once (the start before the write):
+    the commit shuts the window with nothing written and the landing's arm says so ('no pairing autosave this session: the mirror
+    armed at world map 9011's landing first')."""
+    for fault in ((), ("pairpull_early",)):
+        root = _game(tmp_path / ("early" if fault else "ok"))
+        fake = _pfake(root, faults=fault)
+        with _session(root, fake) as g:
+            _pair_on_6603(g, fake, busy=True)
+            g.wait_frames(int(1.6 * 600))                              # past THE LIVE DEBOUNCE (1.2 s of host-alive time)
+            st = g.state
+            if not fault:
+                assert st.ui_state == "FieldHUD" and st.field_id == 6603 and st.world_pairpull_pending is True
+                assert (st.netsync["world"]["out"]["why"], st.netsync["world"]["out"]["starts"]) == ("pairing_save", 0)
+                fake.menu_control_enable = True
+            st = g.wait_for(lambda s: s.ui_state == "WorldHUD", timeout=10, what="the pull")
+            fake.menu_control_enable = True
+            g.wait_frames(6)
+            lines = _pw_lines(fake)
+            written = [i for i, ln in enumerate(lines) if "pairing autosave written on field 6603" in ln]
+            start = next(i for i, ln in enumerate(lines) if "follow-out: start" in ln)
+            none = [ln for ln in lines if "no pairing autosave this session" in ln]
+            if fault:
+                assert not written and none and "world map 9011's landing first" in none[0], lines
+            else:
+                assert written and written[0] < start and not none, lines
+            assert g.state.session_mirroring is True and g.state.world_pairpull_block["arms"] == 1
+
+
+@pytest.mark.parametrize("knob,verdict", [({"autosave_off": True}, BW.PAIR_AUTOSAVE_OFF),
+                                          ({"entry_refused": True}, BW.PAIR_STOCK_REFUSED)])
+def test_s166b_a_durable_decline_lets_the_pull_start_and_the_arm_names_it(tmp_path, knob, verdict):
+    """A DURABLE decline (the window will never write here) -- its line once, `pending` false, the pull starts; the landing's arm says
+    there was no pairing autosave, naming the landing and the decline."""
+    root = _game(tmp_path)
+    fake = _pfake(root, window=knob)
+    with _session(root, fake) as g:
+        _pair_on_6603(g, fake)
+        g.wait_for(lambda s: s.ui_state == "WorldHUD", timeout=10, what="the pull")
+        g.wait_frames(6)
+        lines = _pw_lines(fake)
+        decl = [ln for ln in lines if "pairing autosave declined at the pairing window on field 6603" in ln]
+        none = [ln for ln in lines if "no pairing autosave this session" in ln]
+        assert len(decl) == 1 and BW.pairing_save_reason(verdict) in decl[0], lines
+        assert none and "world map 9011's landing first (declined at the pairing window on field 6603" in none[0], none
+        assert not any("pairing autosave written" in ln for ln in lines) and g.state.session_mirroring is True
+
+
+def test_s166b_a_bent_place_is_a_durable_decline_and_a_failed_write_waits(tmp_path):
+    """NOT MY OWN PLACE: a committed netsync move's landing (BendColdEntry: the record bent) declines durably -- the pull starts. A
+    FAILED write (one write per place, whatever the outcome) is NOT resolved: `pending` stays true (fail-closed, s165's wait) and the
+    guest never starts."""
+    root = _game(tmp_path / "bent")
+    fake = _pfake(root)
+    with _session(root, fake) as g:
+        g.newgame(settle=0)
+        g.warp(6603)
+        fake._pw_commit()                                              # a move committed from here...
+        g.warp(6603)                                                   # ...and its load landed: a bent entry
+        fake.follow_session(0, flags=BW.HF_WORLD | BW.HF_CONTROL | BW.HF_MENU, fresh=True)
+        fake.host_world_pose(1197.37, -796.7, idx=11)
+        g.wait_for(lambda s: s.ui_state == "WorldHUD", timeout=10, what="the pull")
+        assert any(BW.pairing_save_reason(BW.PAIR_NOT_OWN_PLACE) in ln for ln in _pw_lines(fake))
+    root = _game(tmp_path / "failed")
+    fake = _pfake(root, window={"write_fails": True})
+    with _session(root, fake) as g:
+        _pair_on_6603(g, fake)
+        g.wait_frames(int(2.0 * 600))
+        st = g.state
+        assert st.ui_state == "FieldHUD" and st.world_pairpull_pending is True
+        assert st.netsync["world"]["out"]["why"] == "pairing_save" and st.netsync["world"]["out"]["starts"] == 0
+        assert any(BW.LOG_PAIRING_FAILED + "field 6603" in "[NetSync] " + ln for ln in _pw_lines(fake))
+
+
+def test_s166b_the_a0_build_and_the_lever_keep_s165s_wait_and_arm_nothing(tmp_path):
+    """OLD (the A0 build) and LEVER (`pairpull old`): the guest waits on 6603 with out.why 'not_mirroring' -- its pairing autosave
+    written all the same (s154's window is every engine's) -- and nothing arms. The A0 build publishes no `pairpull` and the driver
+    refuses the op before the step; the stand-in's own verb answers the A0 build's usage line."""
+    for case in ("a0", "lever"):
+        root = _game(tmp_path / case)
+        fake = _pfake(root, pieces=FG.FAKE_WORLD_WALK_A0_BUILD if case == "a0" else None)
+        with _session(root, fake) as g:
+            g.newgame(settle=0)
+            g.warp(6603)
+            st = g.state
+            if case == "a0":
+                assert list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166) and st.coop_world_pairpull is False
+                with pytest.raises(HarnessError, match=r"publishes no `netsync\.world\.pairpull`"):
+                    g.worldwalk("pairpull", "old")
+                with pytest.raises(RuntimeError, match=re.escape(BW.WORLDWALK_USAGE_A0)):
+                    fake._netsync(["worldwalk", "pairpull", "old"])
+            else:
+                fake.netsync.update(enabled=True, role="client", instance=True)
+                g.worldwalk("pairpull", "old")
+                assert g.state.world_pairpull_block["lever"] == "old" and BW.LOG_WORLDWALK_PAIRPULL_OLD in _log(fake)
+            fake.follow_session(0, flags=BW.HF_WORLD | BW.HF_CONTROL | BW.HF_MENU, fresh=True)
+            fake.host_world_pose(1197.37, -796.7, idx=11)
+            g.wait_frames(int(2.0 * 600))
+            st = g.state
+            assert st.ui_state == "FieldHUD" and st.field_id == 6603 and st.session_mirroring is False
+            assert st.netsync["world"]["out"]["why"] == "not_mirroring" and st.netsync["world"]["out"]["starts"] == 0
+            lines = _pw_lines(fake)
+            assert any("pairing autosave written on field 6603" in ln for ln in lines) and not any("ARMED" in ln for ln in lines)
+
+
+def test_s166b_byte_identical_for_a_mirroring_guest_the_bench_a_host_and_an_unmodelled_window(tmp_path):
+    """A MIRRORING guest: the s165 follow-out, no second ARMED line, `arms` +0. THE BENCH (the selftest role's fabricated host): exempt
+    from term 3, never armed (`arms` 0, never mirroring). A HOST: the key at rest, nothing arms. The window UNMODELLED: read as
+    resolved -- the pull starts with no write line."""
+    root = _game(tmp_path / "mirror")
+    fake = _pfake(root)
+    with _session(root, fake) as g:
+        g.newgame(settle=0)
+        g.warp(6603)
+        fake.follow_session(6603, flags=BW.HF_ON_FIELD | BW.HF_CONTROL, fresh=True, story={1121: 0xA5}, pair_kick=True)
+        g.wait_for(lambda s: s.session_mirroring is True, timeout=5, what="the kick's arm")
+        fake.host_at(0, flags=BW.HF_WORLD | BW.HF_CONTROL | BW.HF_MENU)
+        fake.host_world_pose(1197.37, -796.7, idx=11)
+        g.wait_for(lambda s: s.ui_state == "WorldHUD", timeout=10, what="the s165 follow-out")
+        g.wait_frames(6)
+        lines = _pw_lines(fake)
+        assert sum("state-mirror ARMED" in ln for ln in lines) == 1 and "ARMED --" in [ln for ln in lines if "ARMED" in ln][0]
+        assert g.state.world_pairpull_block["arms"] == 0
+    root = _game(tmp_path / "bench")
+    fake = _pfake(root)
+    with _session(root, fake) as g:
+        g.newgame(settle=0)
+        g.warp(6603)
+        g.netsync("selftest", 1)
+        g.netsync("bench", 1)
+        g.worldfollow("host", 1197.37, -796.7)
+        g.wait_for(lambda s: s.ui_state == "WorldHUD", timeout=10, what="the bench follow-out")
+        g.wait_frames(6)
+        st = g.state
+        assert st.world_pairpull_block["arms"] == 0 and st.session_mirroring is False and "ARMED" not in _log(fake)
+    root = _game(tmp_path / "host")
+    fake = _pfake(root)
+    with _session(root, fake) as g:
+        g.newgame(settle=0)
+        g.warp(6603)
+        fake.netsync.update(enabled=True, role="host", instance=True)
+        g.wait_frames(10)
+        assert g.state.world_pairpull_block == dict(CONTRACT_PAIRPULL, lever="act")
+    root = _game(tmp_path / "unmodelled")
+    fake = _pfake(root, window=False)
+    with _session(root, fake) as g:
+        _pair_on_6603(g, fake)
+        g.wait_for(lambda s: s.ui_state == "WorldHUD", timeout=10, what="the pull")
+        g.wait_frames(6)
+        lines = _pw_lines(fake)
+        assert not any("pairing autosave" in ln for ln in lines) and g.state.world_pairpull_block["arms"] == 1
+
+
+def test_s166b_the_unarmed_fault_leaves_the_mirror_off_and_s164s_gate_open(tmp_path):
+    """`pairpull_unarmed`: the landing arms nothing -- mirroring false, no ARMED line, `arms` +0 -- and under R4's DRY lever the pick is
+    a would-save (s164's own gate, the mirror, would have let it through); the shipping stand-in's same pick is refused by it."""
+    for fault in ((), ("pairpull_unarmed",)):
+        root = _game(tmp_path / ("unarmed" if fault else "armed"))
+        fake = _pfake(root, faults=fault)
+        with _session(root, fake) as g:
+            _pair_on_6603(g, fake)
+            g.wait_for(lambda s: s.ui_state == "WorldHUD", timeout=10, what="the pull")
+            g.wait_frames(6)
+            st = g.state
+            assert st.session_mirroring is (not fault) and st.world_pairpull_block["arms"] == (0 if fault else 1)
+            g.worldfollow("saveguard", "old")
+            sg0 = dict(g.state.saveguard_block)
+            g.savemenu()
+            g.wait_frames(6)
+            sg1 = dict(g.state.saveguard_block)
+            dr, dw = sg1["refused"] - sg0["refused"], sg1["would_save"] - sg0["would_save"]
+            assert (dr, dw) == ((0, 1) if fault else (1, 0)), (fault, sg0, sg1)
+
+
+def test_s166b_the_coop_off_hand_over_rule_reads_the_reviews_fix():
+    """[ff9mapkit netsync s166] A0b review R1's rule (LandWorldOut): the arm hands over the exit ramp only from inside its own arm, with co-op
+    off and no ramp pending yet -- each input flipped alone turns it off."""
+    rule = BW.coop_off_ramp_hands_over
+    assert rule(True, False, False) is True
+    assert not rule(False, False, False) and not rule(True, True, False) and not rule(True, False, True)
+    assert BW.log_world_out_coop_off(9011) == ("[NetSync] world follow-out: co-op was turned off during it -- the exit ramp reloads your own "
+                                               "autosave once you are free-standing on world map 9011")
+
+
+def test_s166b_coop_off_inside_a_pulled_follow_out_hands_the_ramp_over_at_the_landing(tmp_path):
+    """THE REVIEW'S R1 on the stand-in: co-op turned OFF inside a pulled guest's fade (an enabled=0 config, the role kept: ApplyConfigChange
+    found no mirror to ramp out of). The fade finishes; the landing arms (its ARMED line, `arms` +1) and then hands over the exit ramp --
+    its line after the ARMED line and before the landing's, `netsync.session.ramp_pending` true with cause 'config'. Co-op left on: the
+    same pull hands nothing over (no line, no ramp)."""
+    for off in (False, True):
+        root = _game(tmp_path / ("off" if off else "on"))
+        fake = _pfake(root)
+        fake.world_out_fade_frames = 1200                      # a 2 s fade at 600 fps: room to turn co-op off inside it
+        with _session(root, fake) as g:
+            _pair_on_6603(g, fake)
+            g.wait_for(lambda s: s.netsync["world"]["out"]["state"] == "fading", timeout=10, what="the pull's fade")
+            if off:
+                fake.apply_ini({"Enabled": "0", "Role": "client", "FollowHost": "1"})
+            st = g.wait_for(lambda s: s.ui_state == "WorldHUD" and s.world_id == 9011, timeout=10, what="the landing")
+            g.wait_frames(6)
+            st = g.state
+            lines = _pw_lines(fake)
+            hand = [i for i, ln in enumerate(lines) if "co-op was turned off during it" in ln]
+            armed = next(i for i, ln in enumerate(lines) if "ARMED at world map 9011's landing" in ln)
+            landed = next(i for i, ln in enumerate(lines) if "follow-out: landed" in ln)
+            assert st.session_mirroring is True and fake._wwk["pp_arms"] == 1
+            if off:
+                assert len(hand) == 1 and armed < hand[0] < landed, lines
+                assert lines[hand[0]] == BW.log_world_out_coop_off(9011), lines[hand[0]]
+                assert (st.session_ramp_pending, st.session_ramp_cause) == (True, "config")
+            else:
+                assert not hand and st.session_ramp_pending is False and st.session_ramp_cause in (None, ""), lines
+
+
+def test_s166b_the_stand_in_publishes_pairpull_last_and_the_lever_releases(tmp_path):
+    """The default stand-in: `netsync.world` = A0's nine then `pairpull` at its shape; `worldwalk pairpull old|act` on any role, the
+    clear line A0b's, the release line once when it was set; a malformed `pairpull` refused before the step in the usage line."""
+    root = _game(tmp_path)
+    fake = _pfake(root)
+    with _session(root, fake) as g:
+        g.newgame(settle=0)
+        g.warp(6603)
+        st = g.state
+        assert list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166B) and st.coop_world_pairpull is True
+        assert st.world_pairpull_block == dict(CONTRACT_PAIRPULL, lever="act")
+        seq = g.state.seq
+        for bad in (("pairpull",), ("pairpull", "maybe"), ("pairpull", "old", "1")):
+            with pytest.raises(HarnessError, match=re.escape(BW.WORLDWALK_USAGE)):
+                g.worldwalk(*bad)
+        assert g.state.seq == seq
+        fake.netsync.update(enabled=True, role="host", instance=True)
+        g.worldwalk("pairpull", "old")
+        assert g.state.world_pairpull_block["lever"] == "old" and BW.LOG_WORLDWALK_PAIRPULL_OLD in _log(fake)
+        g.worldwalk("clear")
+        assert g.state.world_pairpull_block["lever"] == "act" and BW.LOG_WORLDWALK_CLEAR in _log(fake)
+        g.worldwalk("pairpull", "old")
+        fake.netsync.update(enabled=False, role="selftest")
+        g.netsync("selftest", 1)
+        before = _log(fake).count(BW.LOG_WORLDWALK_RELEASED)
+        g.netsync("selftest", 0)
+        g.wait_frames(4)
+        assert g.state.world_pairpull_block["lever"] == "act" and _log(fake).count(BW.LOG_WORLDWALK_RELEASED) == before + 1
+
+
+# ------------------------------------------------------------------------------------------------ T2-A pair and D-PAIR on stubs
+_PAIR_CHILD = r'''
+import datetime as _dt, importlib.util, json, os, pathlib, struct, sys, tempfile, threading, time
+scen, tools, kit = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, tools)
+sys.path.insert(0, kit)
+doc = json.loads(sys.stdin.read() or "{}")
+for k in ("COOP_WW_LEG", "COOP_CALIBRATE", "COOP_TAPE", "COOP_WW_PAIR_FROM"):
+    os.environ.pop(k, None)
+from harness import Session
+from harness import fakegame as FG
+from harness import battlewire as BW
+from harness import coop_peer as CP
+def load(name):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(scen, name + ".py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+ww = load("coop_world_walk")
+wf, cw, pb, cb = ww.wf, ww.cw, ww.pb, ww.cb
+SPEED = 8.0
+FROM = 36.0                                                     # the synthetic tape: the tile stand from 33.4 s, live since 30.4 s
+for k, v in dict(REFUSE_S=1.0, START_S=4.0, LEAVE_S=12.0, FIELD_S=10.0, HOME_S=10.0, DOT_S=2.0, STALE_S=0.6, PICK_S=0.3,
+                 HOLD_SETTLE_S=0.3, TILE_SLACK_S=12.0, REJOIN_S=15.0, FO_S=12.0, DUO_HOME_S=12.0, REPLAY_SPEED=SPEED).items():
+    setattr(wf, k, v)
+for k, v in dict(FIELD_S=10.0, DIAL_S=8.0, REJOIN_S=12.0).items():
+    setattr(cw, k, v)
+for k, v in dict(PAIR_S=8.0, PAIR_OUT_S=12.0, PAIR_FROM_S=FROM).items():
+    setattr(ww, k, v)
+FAKES, SENT = [], []
+
+def root():
+    t = pathlib.Path(tempfile.mkdtemp())
+    (t / "x64").mkdir()
+    (t / "x64" / "FF9.exe").write_bytes(b"MZ")
+    (t / "Memoria.log").write_text("fake log\n", encoding="utf-8")
+    (t / "FF9CustomMap").mkdir()
+    (t / "FF9CustomMap" / "DictionaryPatch.txt").write_text("FieldScene 6603 31 FARSHORE FARSHORE 6603\n", encoding="utf-8")
+    sav = t / "x64" / "ff9harness" / "save"
+    sav.mkdir(parents=True)
+    (sav / "SavedData_ww.dat").write_bytes(bytes(64))
+    return t
+
+def fake_for(t, run):
+    f = FG.FakeGame(t, fps=600, walkmesh=(-2000.0, -3000.0, 2000.0, 2000.0))
+    if run.get("caps"):
+        f.netsync_caps = FG.caps_through(run["caps"])
+    if run.get("a0"):
+        f.world_walk_pieces = FG.FAKE_WORLD_WALK_A0_BUILD
+    f.pairing_window = dict(FG.FAKE_PAIRING_WINDOW)
+    f.regions = {6603: [{"zone": cw.FS_DOOR, "world": cw.WORLD, "world_at": list(cw.FS_LANDING)}]}
+    f.exit_frames = 900
+    f.overworld = {"speed": 2.0, "turn": 2.8125, "cam": 0.0, "lag": 1}
+    f.world_locations = {cw.ICE_CAVERN: (cw.ICE_TILE[0], cw.ICE_TILE[1], 2.0)}
+    f.world_swirl_frames, f.world_exit_frames = 40, 40
+    f.world_walk_faults = set(run.get("faults", ()))
+    f.world_out_fade_frames = 600
+    real_ns = f._netsync
+    def ns(args, _real=real_ns):
+        if args and str(args[0]).lower() in ("worldwalk", "worldfollow"):
+            SENT.append(" ".join(str(a) for a in args))
+        _real(args)
+    f._netsync = ns
+    FAKES.append(f)
+    return f
+
+def session(t, f):
+    g = Session(game_path=t, run_dir=t / "run", save_dir=t / "player-saves", pid_probe=lambda: [],
+                launcher=lambda exe, f=f: f.start(), boot_timeout=15.0, verbose=False)
+    g._booted_once = True
+    return g
+
+def rows_of(rows):
+    return {"red": sorted(c for c, ok, _d in rows if not ok), "all": [c for c, _ok, _d in rows],
+            "detail": {c: d for c, _ok, d in rows}}
+
+def write_tape(path, recs):
+    head = json.dumps({"tool": "stub", "started": _dt.datetime.now().isoformat()}).encode("utf-8")
+    body = b"".join(struct.pack("<dBI", r.t, r.dir, len(r.payload)) + r.payload for r in recs)
+    path.write_bytes(b"F9TAPE01" + struct.pack("<I", len(head)) + head + body)
+
+class StubIni:
+    def __init__(self, ini, values, *, label, run_dir=None, backup_root=None):
+        self.values = dict(values)
+    def apply(self):
+        FAKES[-1].apply_ini(self.values)
+        return "the stub ini"
+    def update(self, values):
+        self.values.update(values)
+        FAKES[-1].apply_ini(self.values)
+        return "the stub ini updated"
+    def restore(self):
+        return True, "restored (stub)"
+
+def feed_pose(f, payload):
+    fp = CP.frame_pose(payload)
+    p = fp.get("pose")
+    if fp.get("b6") and p is not None and p.get("torus"):
+        f.host_world_pose(p["x"], p["z"], idx=p["idx"], mode=p["mode"], entrance=p["entrance"], veg=p["choco"], yaw=p["yaw"],
+                          story=p["story"])
+
+class StubReplay(pb.PeerProc):
+    """coop_peer replay-host's stand-in, honouring --from: it connects once the stand-in's transport exists, then replays the tape's
+    host frames from that second (SPEED x) onto the followed client's seams. ``busy``: the guest's menu control off for that many wall
+    seconds from the first frame (not free-standing: the window's write waits)."""
+    busy = 0.0
+    def _say(self, msg):
+        n = _dt.datetime.now()
+        with open(self.log_path, "a", encoding="utf-8") as fh:
+            fh.write(f"[coop-peer {n:%H:%M:%S}.{n.microsecond // 1000:03d}] {msg}\n")
+    def _arg(self, name):
+        return self.args[self.args.index(name) + 1] if name in self.args else None
+    def start(self):
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.started = _dt.datetime.now()
+        self._halt = threading.Event()
+        self._t = threading.Thread(target=self._run, daemon=True)
+        self._t.start()
+    def _run(self):
+        f = FAKES[-1]
+        port, code = self._arg("--port"), self._arg("--code")
+        frm = float(self._arg("--from")) if self._arg("--from") else None
+        self._say(f"listening on ws://127.0.0.1:{port} -- the stub replay-host")
+        end = time.time() + 30.0
+        while not self._halt.is_set() and time.time() < end and not f.dial_socket:
+            time.sleep(0.05)
+        if self._halt.is_set() or not f.dial_socket:
+            return
+        self._say(f"GUEST game connected (session {code})")
+        f._mlog(f"[NetSync] relay connected ws://127.0.0.1:{port}/sess/{code}?role=guest")
+        _h, recs, _torn = CP.read_tape(self.args[0])
+        frames = [x for x in CP.host_frames(recs) if frm is None or x[0].t >= frm]
+        t0 = frames[0][0].t if frm is None else frm
+        self._say(f"REPLAY start: tape {t0:.2f} s -> now; {len(frames)} host frame(s) up to tape {frames[-1][0].t:.2f} s")
+        wall0, field, flags, story, first = time.time(), None, -1, None, True
+        for r, w, p in frames:
+            due = wall0 + (r.t - t0) / SPEED
+            while time.time() < due and not self._halt.is_set():
+                time.sleep(0.01)
+            if self._halt.is_set():
+                return
+            fresh_pose = None
+            if w == CP.TYPE_POS:
+                d = CP.parse_pos_payload(p)
+                if d and d["field"] != field:
+                    self._say(f"tape {r.t:.2f}: host field {field if field is not None else 'none'} -> {d['field']}")
+                    field = d["field"]
+            elif w == CP.TYPE_STATE:
+                sec = pb.state_sections(p)
+                if 0 in sec:
+                    story = bytes(sec[0])
+                if 7 in sec:
+                    v = BW.parse_dialog_section(sec[7])
+                    flags = v["flags"] if v else flags
+                fresh_pose = p
+            if field is None:
+                continue
+            if first:
+                if self.busy:
+                    f.menu_control_enable = False
+                    threading.Timer(self.busy, lambda: setattr(f, "menu_control_enable", True)).start()
+                f.follow_session(field, flags=flags, fresh=True, story=story, pair_kick=True)
+                first = False
+            else:
+                f.host_at(field, flags=flags, story=story)
+            if fresh_pose is not None:
+                feed_pose(f, fresh_pose)
+    def alive(self):
+        return getattr(self, "_t", None) is not None and self._t.is_alive()
+    def stop(self, timeout=10.0):
+        if getattr(self, "_t", None) is None:
+            self.how_ended = "never started"
+            return self.how_ended
+        self._halt.set()
+        self._t.join(5.0)
+        self.how_ended = "stopped cleanly (code 0)"
+        self.lines()
+        return self.how_ended
+
+def pair(run):
+    t = root()
+    pb.IniGuard = StubIni
+    pb.port_free = lambda port, host="127.0.0.1": (True, "")
+    StubReplay.busy = float(run.get("busy", 0.0))
+    pb.PeerProc = StubReplay
+    tape = t / "tape-host6603-world-walk-s164.f9tape"
+    write_tape(tape, pb.synthetic_world_walk_tape(CP, tile_s=float(run.get("tile_s", 120.0))))
+    os.environ["COOP_TAPE"] = str(tape)
+    if run.get("from") is not None:
+        ww.PAIR_FROM_S = float(run["from"])
+    f = fake_for(t, run)
+    cb.CALIBRATE = bool(run.get("cal"))
+    ww._RAW_LEG = "pair"
+    with session(t, f) as g:
+        ww.run(g)
+        out = rows_of([(r["what"].split(":")[0], bool(r["ok"]), r["detail"][:900]) for r in g.checks])
+    ww.PAIR_FROM_S = FROM
+    out["sent"] = list(SENT)
+    return out
+
+class Link(threading.Thread):
+    """The duo's stub TRANSPORT, born at the GUEST's apply_role: the host stand-in's place, section 7's flags, its story and its own
+    world pose onto the guest's followed-client seams; its MAPJUMP intent."""
+    def __init__(self, host, guest):
+        super().__init__(daemon=True)
+        self.h, self.g, self.halt = host, guest, threading.Event()
+    def run(self):
+        h, g, sent, first = self.h, self.g, None, True
+        while not self.halt.is_set():
+            if first:
+                g.follow_session(h.host_lane_field(), flags=h.host_dialog_flags(), fresh=True, story=bytes(h.story_bytes),
+                                 pair_kick=True)
+                first = False
+            else:
+                g.host_at(h.host_lane_field(), flags=h.host_dialog_flags(), story=bytes(h.story_bytes))
+            w = h.world
+            if h.ui_state == "WorldHUD" and w.get("x") is not None and w.get("id"):
+                g.host_world_pose(float(w["x"]), float(w["z"]), idx=int(w["id"]) - 9000, mode=int(w.get("vehicle") or 0))
+            it = h.host_field_intent
+            if it is not None and it != sent:
+                sent = it
+                g.host_intent(it[1])
+            time.sleep(0.02)
+
+class StubDuo:
+    def __init__(self, host, guest, fh, fg_, paired=False):
+        self.host, self.guest, self.strict, self.rows, self.notes, self.paired = host, guest, True, [], [], paired
+        self.fh, self.fg, self.link = fh, fg_, None
+    def check(self, ok, what, detail="", *, role=None, cid=None):
+        self.rows.append((cid, bool(ok), str(detail)[:900]))
+        return bool(ok)
+    def note(self, msg):
+        self.notes.append(msg)
+    def apply_role(self, role, *, cid=None):
+        if role == "host":
+            self.fh.netsync.update(enabled=True, role="host", instance=True)
+        else:
+            self.fg.wf_follow_host_cfg = True
+            self.link = Link(self.fh, self.fg)
+            self.link.start()
+        self.check(True, f"the {role} took its role", cid=cid)
+        return ["stub"]
+
+def duo(run):
+    th, tg = root(), root()
+    fh, fgst = fake_for(th, run), fake_for(tg, run)
+    fh.world_exit_frames = fgst.world_exit_frames = 240
+    cb.CALIBRATE = bool(run.get("cal"))
+    gh, gg = session(th, fh), session(tg, fgst)
+    with gh, gg:
+        d = StubDuo(gh, gg, fh, fgst, paired=bool(run.get("paired")))
+        try:
+            ww.run_duo(d)
+        finally:
+            if d.link is not None:
+                d.link.halt.set()
+        rows = [(c, ok, dd) for c, ok, dd in d.rows if c and not str(c).startswith("S166-D-PAIR-C2")]
+        return dict(rows_of(rows), sent=list(SENT))
+
+kinds = {"pair": pair, "duo": duo}
+def one(run):
+    SENT.clear()
+    return kinds[run["kind"]](run)
+results = {name: one(run) for name, run in doc.get("runs", {}).items()}
+print(json.dumps(results))
+'''
+
+
+def _pair_child(payload, *, timeout: float = 900.0) -> dict:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-X", "utf8", "-c", _PAIR_CHILD, str(SCENARIOS), str(REPO / "tools"), str(REPO / "ff9mapkit")],
+                         env=env, input=json.dumps(payload), capture_output=True, text=True, timeout=timeout)
+    assert out.returncode == 0, out.stderr[-4000:]
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def _pair_run(kind: str = "pair", **run) -> dict:
+    return _pair_child({"runs": {"r": dict(run, kind=kind)}})["r"]
+
+
+_PAIR_TABLES = r'''
+import importlib.util, json, os, sys
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_world_walk", os.path.join(scen, "coop_world_walk.py"))
+ww = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ww)
+print(json.dumps({"t2": list(ww.t2_pair_catalog(False)), "t2_cal": list(ww.t2_pair_catalog(True)), "rows": list(ww.T2_PAIR_ROWS),
+                  "old": list(ww.T2_PAIR_OLD_PREDICTED), "lever": {k: list(v) for k, v in ww.T2_PAIR_LEVER_PREDICTED.items()},
+                  "faults": {k: list(v) for k, v in ww.T2_PAIR_FAULT_REDS.items()}, "duo": list(ww.DUO_PAIR_CHECKS),
+                  "duo_old": list(ww.DUO_PAIR_OLD_PREDICTED), "solo_faults": {k: list(v) for k, v in ww.SOLO_FAULT_REDS.items()},
+                  "consts": {"PAIR_LEG": ww.PAIR_LEG, "PAIR_PROBE": ww.PAIR_PROBE, "PAIR_FROM_S": ww.PAIR_FROM_S,
+                             "PAIR_LEVER": ww.PAIR_LEVER, "PAIR_LIVE_S": ww.PAIR_LIVE_S, "PAIR_ROOM_S": ww.PAIR_ROOM_S},
+                  "doc": " ".join((ww.__doc__ or "").split())}))
+'''
+
+
+@pytest.fixture(scope="module")
+def pair_tables() -> dict:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-X", "utf8", "-c", _PAIR_TABLES, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-3000:]
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def test_s166b_the_pair_tables_are_the_docstring_and_each_others(pair_tables):
+    """Every T2-A pair and D-PAIR row the docstring names; the predictions and fault rows real rows; the faults the stand-in's; the
+    solo bench meets neither A0b fault; the constants (the --from second pinned at 45.0 with its evidence)."""
+    t, doc = pair_tables, pair_tables["doc"]
+    for cid in t["rows"] + t["duo"]:
+        assert cid.replace("S166-", "") in doc, cid
+    assert t["t2"][:2] == ["T2-TAPE", "T2-PEER"] and t["t2"][-2:] == ["T2-SAVE", "T2-INI"] and "S166-PR-CAL" in t["t2_cal"]
+    assert set(t["old"]) < set(t["rows"]) and t["lever"] == {"pairpull": t["old"]}
+    assert not set(t["old"]) & {"S166-PR-I", "S166-PR-SAVE"}                     # the s154 window writes on every engine
+    assert set(t["faults"]) <= set(FG.WORLD_WALK_FAULTS) and all(set(v) <= set(t["rows"]) for v in t["faults"].values())
+    assert set(t["duo_old"]) < set(t["duo"]) and t["solo_faults"]["pairpull_early"] == [] == t["solo_faults"]["pairpull_unarmed"]
+    c = t["consts"]
+    assert (c["PAIR_LEG"], c["PAIR_PROBE"], c["PAIR_FROM_S"], c["PAIR_LEVER"]) == ("pair", "netsync.world.pairpull", 45.0, "pairpull")
+    assert c["PAIR_LIVE_S"] == BW.WORLD_OUT_DEBOUNCE_MS / 1000.0
+    for word in ("45.0", "40.99", "36.95", "118.25", "118.71", "where --pose", "x64/ff9harness/save", "49201", "--no-pair"):
+        assert word in doc, word
+
+
+def test_s166b_the_pair_leg_is_green_on_a0b_and_reds_old_and_the_lever_exactly():
+    """T2-A pair on the stub replay-host (the synthetic world-walk tape from its tile stand): green on the A0b stand-in -- the pairing
+    autosave, the pull, the landing at the TAPE's pose, the arm, the DRY save refused by the mirror, the rejoin into 300 staging the
+    host's story; on the A0 build (COOP_CALIBRATE) exactly T2_PAIR_OLD_PREDICTED red, the OLD wait MEASURED and NO `pairpull` sent;
+    under `pairpull old` exactly the same."""
+    runs = _pair_child({"runs": {"new": {"kind": "pair"}, "old": {"kind": "pair", "a0": True, "cal": True},
+                                 "lever": {"kind": "pair", "cal": True}}})
+    r = runs["new"]
+    assert r["red"] == [], {c: r["detail"][c] for c in r["red"]}
+    assert not any("pairpull" in s for s in r["sent"]) and any("saveguard old" in s for s in r["sent"])
+    want = {"S166-PR-OUT", "S166-PR-POSE", "S166-PR-ARM", "S166-PR-SAVEMENU", "S166-PR-REJOIN"}
+    old = runs["old"]
+    assert set(old["red"]) == want, {c: old["detail"][c] for c in set(old["red"]) ^ want}
+    assert "MEASURED" in old["detail"]["S166-PR-CAL"] and not any("pairpull" in s for s in old["sent"])
+    lev = runs["lever"]
+    assert set(lev["red"]) == want, {c: lev["detail"][c] for c in set(lev["red"]) ^ want}
+    assert "worldwalk pairpull old" in lev["sent"] and "worldwalk clear" in lev["sent"]
+
+
+@pytest.mark.parametrize("fault", ["pairpull_early", "pairpull_unarmed"])
+def test_s166b_each_pairpull_fault_turns_exactly_its_pair_rows_red(pair_tables, fault):
+    """A BUSY guest at the pairing (menu control off for 3 wall seconds: the window's write waits): green without a fault (the start
+    waits for the write: `pairing_save`), and each fault red in exactly its T2_PAIR_FAULT_REDS rows."""
+    want = set(pair_tables["faults"][fault])
+    runs = _pair_child({"runs": {"control": {"kind": "pair", "busy": 3.0}, "fault": {"kind": "pair", "busy": 3.0, "faults": [fault]}}})
+    assert runs["control"]["red"] == [], {c: runs["control"]["detail"][c] for c in runs["control"]["red"]}
+    r = runs["fault"]
+    assert set(r["red"]) == want, {c: r["detail"][c] for c in set(r["red"]) ^ want}
+
+
+def test_s166b_the_calibration_and_the_tape_instrument_can_fail():
+    """A check that cannot fail is not a check: the calibration on A0b under a lever the stand-in IGNORES (`pairpull_lever_ignored`: the
+    guest is pulled out all the same) is red -- its predicted reds stayed green; a --from second inside the host's own load (it stands
+    at the landing, its heartbeat frozen) is T2-TAPE red and runs nothing; the duo paired before its host stood on the world map (no
+    --no-pair) reds every D-PAIR row."""
+    runs = _pair_child({"runs": {"cal": {"kind": "pair", "cal": True, "faults": ["pairpull_lever_ignored"]},
+                                 "early": {"kind": "pair", "from": 28.0},
+                                 "paired": {"kind": "duo", "paired": True}}})
+    cal = runs["cal"]
+    assert "S166-PR-CAL" in cal["red"] and "stayed GREEN" in cal["detail"]["S166-PR-CAL"], cal["detail"].get("S166-PR-CAL")
+    assert "T2-TAPE" in runs["early"]["red"] and all(c in runs["early"]["red"] for c in ("S166-PR-I", "S166-PR-OUT"))
+    assert set(runs["paired"]["red"]) == set(_PAIR_DUO_ROWS) and "--no-pair" in runs["paired"]["detail"]["S166-D-PAIR-I"]
+
+
+_PAIR_DUO_ROWS = ("S166-D-PAIR-I", "S166-D-PAIR-SAVE", "S166-D-PAIR-OUT", "S166-D-PAIR-ARM", "S166-D-PAIR-SAVEMENU", "S166-D-PAIR-REJOIN")
+
+
+def test_s166b_d_pair_is_green_on_a0b_and_calibrates_on_the_a0_build():
+    """D-PAIR on two stand-ins joined by a stub link born at the GUEST's apply_role (duo.py's own op): green on A0b; on the A0 build
+    (COOP_CALIBRATE) exactly DUO_PAIR_OLD_PREDICTED red, D-PAIR-CAL green."""
+    runs = _pair_child({"runs": {"new": {"kind": "duo"}, "old": {"kind": "duo", "a0": True, "cal": True}}})
+    r = runs["new"]
+    assert set(r["all"]) >= set(_PAIR_DUO_ROWS) and r["red"] == [], {c: r["detail"][c] for c in r["red"]}
+    old = runs["old"]
+    want = {"S166-D-PAIR-OUT", "S166-D-PAIR-ARM", "S166-D-PAIR-SAVEMENU", "S166-D-PAIR-REJOIN"}
+    assert set(old["red"]) == want, {c: old["detail"].get(c) for c in set(old["red"]) ^ want}
+    assert "S166-D-PAIR-CAL" in old["all"]
+
+
+# ------------------------------------------------------------------------------------------------ the pure judges, red on each shape
+def _load_ww():
+    import importlib.util
+    sys.path.insert(0, str(SCENARIOS))
+    spec = importlib.util.spec_from_file_location("coop_world_walk_pure", str(SCENARIOS / "coop_world_walk.py"))
+    m = importlib.util.module_from_spec(spec)
+    old = {k: os.environ.pop(k) for k in list(os.environ) if k.startswith("COOP_")}
+    try:
+        spec.loader.exec_module(m)
+    finally:
+        os.environ.update(old)
+    return m
+
+
+def test_s166b_the_pure_pair_judges_go_red_on_each_wrong_shape():
+    from harness.channel import State
+    ww = _load_ww()
+
+    def st(ui="FieldHUD", field=6603, world=0, **ns):
+        net = {"session": {"mirroring": ns.get("mirroring", False)},
+               "world": {"host": {"b6": ns.get("b6", False)}, "out": {"why": ns.get("why"), "starts": 0, "commits": 0, "lands": 0},
+                         "pairpull": dict(CONTRACT_PAIRPULL, lever=ns.get("lever", "act"), arms=ns.get("arms", 0),
+                                          last_world=ns.get("last_world", -1))},
+               "saveguard": {"refused": 0, "would_save": 0, "lever": "act", "last_why": None}}
+        return State({"ui_state": ui, "field": {"id": field}, "world": {"id": world, "block_ready": ns.get("block", ui == "WorldHUD"),
+                                                                   "ticks": ns.get("ticks", 0)},
+                      "frame": ns.get("frame", 1), "netsync": net})
+
+    def lg(msg):
+        return f"02.11.2026 12:00:00 |M| {msg}"
+    W, S = lg(BW.log_pairing_written("field 6603")), lg("[NetSync] world follow-out: start -- field 6603 follows ...")
+    # SAVE: the write before the start; red when after it, absent, on another field, or beside a no-autosave line
+    assert ww.judge_pair_autosave([W, S])[0]
+    assert not ww.judge_pair_autosave([S, W])[0] and not ww.judge_pair_autosave([S])[0]
+    assert not ww.judge_pair_autosave([lg(BW.log_pairing_written("field 250")), S])[0]
+    assert not ww.judge_pair_autosave([W, S, lg(BW.log_no_pairing(BW.world_landing(9011)))])[0]
+    # I: never mirrored, never kicked, never armed, b6 read; the lever word
+    ok = [st(), st(b6=True)]
+    assert ww.judge_pair_instrument(ok, [], lever_word="act", lever_read="act")[0]
+    assert not ww.judge_pair_instrument([st(mirroring=True), st(b6=True)], [])[0]
+    assert not ww.judge_pair_instrument([st(), st()], [])[0]                                      # b6 never read
+    assert not ww.judge_pair_instrument(ok, [lg("[NetSync] paired on the host's field (6603) -- reloading it once so ...")])[0]
+    assert not ww.judge_pair_instrument(ok, [lg(BW.LOG_MIRROR_ARMED_FIELD)])[0]
+    assert not ww.judge_pair_instrument(ok, [], lever_word="old", lever_read="act")[0]
+    assert not ww.judge_pair_instrument([st(ui="WorldHUD", field=0, world=9011, b6=True)], [])[0]
+    # ARM: mirroring on every judged world sample, arms +1 on 9011, the world ARMED line once, no field form
+    base = st(arms=0)
+    wsamp = [st(ui="WorldHUD", field=6603, world=9011, mirroring=True, arms=1, last_world=9011, ticks=k, frame=k) for k in (5, 6, 7)]
+    A = lg(BW.log_mirror_armed_world(9011))
+    assert ww.judge_pair_arm(base, wsamp, [A])[0]
+    assert not ww.judge_pair_arm(base, wsamp, [A, A])[0] and not ww.judge_pair_arm(base, wsamp, [])[0]
+    assert not ww.judge_pair_arm(base, wsamp, [A, lg(BW.LOG_MIRROR_ARMED_FIELD)])[0]
+    assert not ww.judge_pair_arm(base, wsamp, [lg(BW.log_mirror_armed_world(9010))])[0]
+    unmir = [st(ui="WorldHUD", world=9011, mirroring=k != 6, arms=1, last_world=9011, ticks=k, frame=k) for k in (5, 6, 7)]
+    assert not ww.judge_pair_arm(base, unmir, [A])[0]
+    assert not ww.judge_pair_arm(base, [st(ui="WorldHUD", world=9011, mirroring=True, arms=0, ticks=k, frame=k) for k in (5, 6)],
+                                 [A])[0]
+    assert ww.judge_pair_arm(base, wsamp, [A, lg(BW.log_no_pairing(BW.world_landing(9011)))])[0]   # the no-autosave line: SAVE's
+    assert not ww.judge_pair_arm(base, [st(ui="WorldHUD", world=9011, block=False, ticks=k) for k in (1, 2)], [A])[0]
+    # SAVEMENU: refused +1 / would_save +0 under the DRY lever; red on a would-save, no reason, a changed sandbox, the HUD lost
+    sg0, files = {"refused": 0, "would_save": 0}, {"SavedData_ww.dat": (1, 64)}
+    assert ww.judge_pair_savemenu(sg0, {"refused": 1, "would_save": 0, "last_why": "a live co-op session"}, files, files, True)[0]
+    assert not ww.judge_pair_savemenu(sg0, {"refused": 0, "would_save": 1, "last_why": "x"}, files, files, True)[0]
+    assert not ww.judge_pair_savemenu(sg0, {"refused": 1, "would_save": 0, "last_why": None}, files, files, True)[0]
+    assert not ww.judge_pair_savemenu(sg0, {"refused": 1, "would_save": 0, "last_why": "x"}, files, {"SavedData_ww.dat": (2, 64)},
+                                      True)[0]
+    assert not ww.judge_pair_savemenu(sg0, {"refused": 1, "would_save": 0, "last_why": "x"}, files, files, False)[0]
+    assert not ww.judge_pair_savemenu(sg0, {}, files, files, True)[0]
+    # the OLD wait: on 6603, why not_mirroring, no start line
+    wait = [st(why="not_mirroring"), st(why="not_mirroring")]
+    assert ww.pair_old_wait(wait, [W])[0]
+    assert not ww.pair_old_wait(wait + [st(ui="WorldHUD", world=9011)], [W])[0] and not ww.pair_old_wait(wait, [W, S])[0]
+    assert not ww.pair_old_wait([st(why="debounce")], [W])[0] and not ww.pair_old_wait([], [])[0]
+    # REJOIN: red when the guest never stood on the world map, or a re-arm
+    assert not ww.judge_pair_rejoin([st(field=300)], st(), [])[0]
+    assert "not reached" in ww.judge_pair_rejoin([st(field=300)], st(), [])[1]
+    # OUT: judge_leave's, and a 'not_mirroring' read after the autosave reds it
+    assert not ww.judge_pair_out(base, [st()], [], after_autosave=[st(why="not_mirroring")])[0]
+
+
+def test_s166b_the_from_facts_read_the_tape_and_can_fail():
+    """pair_from_facts over the synthetic world-walk tape (the shapes the bench's own tape has): green at the tile stand past the
+    debounce; red on the landing stand (the wrong pose), inside the host's load (a frozen heartbeat), on a riding host, with too little
+    room left, past the tape's end, and on a tape with no field after the stand."""
+    ww = _load_ww()
+    from harness import coop_peer as CP
+    pbm = ww.pb
+    rows = CP.tape_poses(pbm.synthetic_world_walk_tape(CP))
+    f = ww.pair_from_facts(rows, 36.0)
+    assert f["ok"], f
+    assert f["live_s"] >= ww.PAIR_LIVE_S and f["room_s"] >= ww.PAIR_ROOM_S and f["enter_t"] is not None
+    assert "stands" in ww.pair_from_facts(rows, 31.5)["why"]                                       # the landing stand
+    assert "lasts" in ww.pair_from_facts(rows, 90.0)["why"]                                        # too little room
+    assert "no host state frame" in ww.pair_from_facts(rows, 999.0)["why"]
+    ride = CP.tape_poses(pbm.synthetic_world_walk_tape(CP, mode=1))
+    assert "[190] 1" in ww.pair_from_facts(ride, 36.0)["why"]
+    # the heartbeat FROZEN through --from (the host's own load), then moving only 0.4 s before it (live too short)
+    frozen = [dict(r, hb=7) if r.get("b6") and 33.3 <= r["t"] <= 36.2 else r for r in rows]
+    assert "frozen" in ww.pair_from_facts(frozen, 36.0)["why"]
+    short = [dict(r, hb=7) if r.get("b6") and r["t"] <= 35.55 else r for r in rows]
+    s = ww.pair_from_facts(short, 36.0)
+    assert not s["ok"] and "live on the world map" in s["why"] and s["live_s"] < ww.PAIR_LIVE_S, s
+    noenter = [r for r in rows if not (r.get("field") and 0 < r["field"] < 65535 and r["t"] > 40.0)]
+    assert "no real field" in ww.pair_from_facts(noenter, 36.0)["why"]
+
+
+# ------------------------------------------------------------------------------------------------ the engine's source (skipped until it lands)
+def test_s166b_the_catch_line_carries_pairpull_at_its_sentinel_after_kitcell():
+    world = _s166_catch_world()
+    if "pairpull" not in world:
+        pytest.skip("this s166 source carries A0 alone (A0b not emitted yet)")
+    assert list(world)[-3:] == ["dot", "kitcell", "pairpull"], list(world)
+    assert json.dumps(world["pairpull"]) == json.dumps(CONTRACT_PAIRPULL)
+
+
+def test_s166b_the_engine_speaks_the_contracts_op_why_and_lines():
+    follow = _s166_text("NetSyncWorldFollow.cs")
+    if "pairing_save" not in follow:
+        pytest.skip("this s166 source carries A0 alone (A0b not emitted yet)")
+    m = re.search(r"WhyNames\s*=\s*\{(.*?)\};", follow, re.S)
+    names = re.findall(r'"([a-z_]+)"', m.group(1)) if m else []
+    assert names == list(BW.WORLD_OUT_WHYS_S166), names
+    assert f'"{BW.WORDS_WORLD_OUT_PAIRING}"' in follow
+    text = "\n".join(ln for name in ("HarnessAgent.cs", "NetSyncClient.cs") for ln in _s166_text(name).split("\n") if '"' in ln)
+    for ln in (BW.WORLDWALK_USAGE, BW.LOG_WORLDWALK_PAIRPULL_OLD, BW.LOG_WORLDWALK_PAIRPULL_ACT, BW.LOG_WORLDWALK_CLEAR):
+        assert f'"{ln}"' in text, ln
+    for piece in ('"[NetSync] state-mirror ARMED at "', '" -- this guest\'s fields now stage the HOST\'s story"', '"\'s landing"',
+                  '"[NetSync] state-mirror ARMED -- this guest\'s fields now stage the HOST\'s story"', '\\"pairpull\\"'):
+        assert piece in text or piece in _s166_text("HarnessAgent.cs"), piece
+    # [ff9mapkit netsync s166] the review's R1 hand-over line, its two literals in the order the engine joins them (the world map last)
+    client = _s166_text("NetSyncClient.cs")
+    a, b = client.find(f'"{BW.LOG_WORLD_OUT_COOP_OFF}"'), client.find('"are free-standing on world map "')
+    assert 0 <= a < b < a + 300, (a, b)
+    assert BW.log_world_out_coop_off(9011) == BW.LOG_WORLD_OUT_COOP_OFF + "are free-standing on world map " + "9011"
+
+
+def test_s166b_the_engines_pending_rule_and_verdicts_are_the_twins():
+    """[ff9mapkit netsync s166] The twin IS the engine's: PairingSavePending's one expression (window open, nothing written, the verdict at or
+    below busy), the s154 verdict and edge numbers, term 3's two branches in their order, and the call site's three facts."""
+    follow = _s166_text("NetSyncWorldFollow.cs")
+    if "PairingSavePending" not in follow:
+        pytest.skip("this s166 source carries A0 alone (A0b not emitted yet)")
+    m = re.search(r"Boolean PairingSavePending\(Boolean windowOpen, Boolean written, Int32 verdict\)\s*\{\s*return ([^;]*);", follow)
+    assert m and re.sub(r"\s+", " ", m.group(1)) == "windowOpen && !written && verdict <= NetSyncClient.PairBusy", m and m.group(1)
+    t3 = re.search(r"if \(!f\.PairPull\)\s*return WhyNotMirroring;\s*if \(f\.PairPending\)\s*return WhyPairingSave;", follow)
+    assert t3, "term 3's two branches (old -> not_mirroring, then pending -> pairing_save)"
+    client = _s166_text("NetSyncClient.cs")
+    m = re.search(r"PairWrite = (\d+), PairNoWindow = (\d+), PairAlready = (\d+), PairBusy = (\d+), PairNotOwnPlace = (\d+), "
+                  r"PairAutosaveOff = (\d+),\s*PairStockRefused = (\d+)", client)
+    assert m and tuple(int(x) for x in m.groups()) == (BW.PAIR_WRITE, BW.PAIR_NO_WINDOW, BW.PAIR_ALREADY, BW.PAIR_BUSY,
+                                                      BW.PAIR_NOT_OWN_PLACE, BW.PAIR_AUTOSAVE_OFF, BW.PAIR_STOCK_REFUSED)
+    assert "f.PairPending = NetSyncWorldFollow.PairingSavePending(_pairWindowOpen, _pairWrittenWhere != null, _pairVerdict);" in client
+    assert "f.PairPull = !_ppOld;" in client
+    assert re.search(r'else if \(!_ppOld && _role == "client" && !_storyMirroring\)\s*\{', client), "the landing arm's guard"

@@ -8618,6 +8618,8 @@ class Session:
     #: `kitcell old|act` and `clear`), told by ``netsync.world.kitcell``'s PRESENCE (State.coop_world_walk): the capability accessor, the
     #: key, the patch, what the verb is. Its ops and words are battlewire's (BW.WORLDWALK_*: the contract); any role; co-op off and the
     #: engine's own refusals come back from the step, an unknown op or a malformed one is refused before it in the usage line's words.
+    #: [ff9mapkit netsync s166] A0b adds `pairpull old|act` to the same verb (decision 26), told by ``netsync.world.pairpull``'s PRESENCE
+    #: (State.coop_world_pairpull): on the A0 build (`kitcell` but no `pairpull`) the op is refused before the step.
     NETSYNC_WORLDWALK_SUBVERBS = {
         "worldwalk": ("coop_world_walk", "netsync.world.kitcell", "s166", "the s166 world walk levers"),
     }
@@ -9020,6 +9022,8 @@ class Session:
         old|act``, ``clear``), told by ``netsync.world.kitcell`` (:attr:`State.coop_world_walk`; NETSYNC_WORLDWALK_SUBVERBS, the same
         gate) -- :meth:`worldwalk`. On an s165 (or older) engine it is refused before the step ("this engine publishes no
         `netsync.world.kitcell` (s166)"); an unknown op or a malformed one is refused before it in the usage line (BW.WORLDWALK_USAGE).
+        [ff9mapkit netsync s166] A0b's ``pairpull old|act`` is told by ``netsync.world.pairpull`` (:attr:`State.coop_world_pairpull`):
+        on the A0 build it is refused before the step.
 
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
@@ -9248,6 +9252,12 @@ class Session:
             why = self._worldwalk_refusal(args)
             if why is not None:
                 raise HarnessError(why)
+            if str(args[0]).strip().lower() == "pairpull" and not st.coop_world_pairpull:
+                # [ff9mapkit netsync s166] A0b's op on an engine without its key (the A0 build answers it with its own usage line, AFTER the
+                # step): refused before it -- a bench PROBES `netsync.world.pairpull` and never sends the op there
+                from . import battlewire as BW
+                raise HarnessError("netsync worldwalk pairpull: this engine publishes no `netsync.world.pairpull` (memoria-patch s166, "
+                                   f"piece A0b); it would answer \"{BW.WORLDWALK_USAGE_A0}\" only after the step")
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
             # [ff9mapkit netsync s145] THE WORLD DIOBOOT: a diorama boots from a live world map from s145 on (warm only: the engine's
             # pre-Arm verdict refuses anything a stock world battle could not return warm from). An s144 engine refuses it after
@@ -9744,7 +9754,10 @@ class Session:
         CANNOT PULL A SELFTEST-ROLE LEVER); co-op off refuses every op but `clear`. Through :meth:`netsync`'s gates (refused before the
         step on an engine without ``netsync.world.kitcell``: an s165 engine fails the sub-verb closed). Every lever is released with the
         harness on every role. Counters are monotonic (read DELTAS). Returns a fresh state; read it back through
-        :attr:`State.world_kitcell_block`."""
+        :attr:`State.world_kitcell_block`. [ff9mapkit netsync s166] Piece A0b adds ``pairpull old|act`` (decision 26: old = s165 exactly,
+        a guest that is not mirroring yet waits on its field and a follow-out's landing arms no mirror; act = the pairing pull, the
+        default), read back through :attr:`State.world_pairpull_block` -- refused before the step on an engine without
+        ``netsync.world.pairpull`` (the A0 build)."""
         return self.netsync("worldwalk", op, *args, timeout=timeout)
 
     def savemenu(self) -> None:

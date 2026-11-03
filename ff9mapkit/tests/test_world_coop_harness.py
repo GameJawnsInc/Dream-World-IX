@@ -1399,8 +1399,9 @@ def test_the_stand_in_publishes_the_s165_keys_at_their_shapes(tmp_path):
         g.newgame(settle=0)
         g.warp(6603)
         st = g.state
-        # [ff9mapkit netsync s166] the prefix law: s165's eight unmoved, then s166's `kitcell` (tests/test_coop_world_walk.py)
-        assert list(st.netsync)[-3:] == ["swap", "saveguard", "host"] and list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166)
+        # [ff9mapkit netsync s166] the prefix law: s165's eight unmoved, then s166's `kitcell` and A0b's `pairpull`
+        # (tests/test_coop_world_walk.py)
+        assert list(st.netsync)[-3:] == ["swap", "saveguard", "host"] and list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166B)
         w = st.netsync["world"]
         for key, want in (("r3", CONTRACT_WORLD_R3), ("out", CONTRACT_WORLD_OUT), ("host", CONTRACT_WORLD_HOST),
                           ("dot", CONTRACT_WORLD_DOT)):

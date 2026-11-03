@@ -1052,6 +1052,32 @@ class State:
         """s166 A0: ``netsync.world.kitcell.closed`` (monotonic: read DELTAS; None = absent)."""
         return self._ns_path("world.kitcell.closed", int)
 
+    # ---- [ff9mapkit netsync s166] WORLD WALK, ROUND A, PIECE A0b (S166-DESIGN.md decision 26, THE PAIRING PULL): `netsync.world`'s last
+    # key `pairpull` (after A0's `kitcell`) -- every role, additive under 5. Key PRESENCE is the capability: the A0 build has `kitcell`
+    # but no `pairpull`, and answers `worldwalk pairpull` with its usage line. `arms` is per PROCESS -- read DELTAS.
+    @property
+    def coop_world_pairpull(self) -> bool:
+        """s166 A0b: the pairing pull (``netsync.world.pairpull`` present). False = an engine without it (the A0 build, s165): `netsync
+        worldwalk pairpull` is refused before the step there."""
+        return self._ns_path("world.pairpull", dict) is not None
+
+    @property
+    def world_pairpull_block(self) -> dict | None:
+        """s166 A0b: ``netsync.world.pairpull`` {lever "act"|"old", pending (WorldOutStep term 3's new fact now: the pairing window open,
+        nothing written in it, no durable decline), arms (mirror arms at a follow-out's landing), last_world (-1 = none yet)}. Copied
+        (None = absent)."""
+        return self._ns_path("world.pairpull", dict)
+
+    @property
+    def world_pairpull_arms(self) -> int | None:
+        """s166 A0b: ``netsync.world.pairpull.arms`` (monotonic: read DELTAS; None = absent)."""
+        return self._ns_path("world.pairpull.arms", int)
+
+    @property
+    def world_pairpull_pending(self) -> bool | None:
+        """s166 A0b: ``netsync.world.pairpull.pending`` -- the pairing autosave still pending NOW (None = absent)."""
+        return self._ns_path("world.pairpull.pending", bool)
+
     guest_local_mode = _guestlocal_prop("mode", str, "s156: the gate's EFFECTIVE mode -- 'act' | 'shadow' | 'off' (the lever on "
                                                      "the selftest role only, else 'act'; '' = the catch line).")
     guest_local_lever = _guestlocal_prop("lever", str, "s156: the `guestlocal` lever AS SET -- 'act' | 'shadow' | 'off' ('' = "

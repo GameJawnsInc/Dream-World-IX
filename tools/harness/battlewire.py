@@ -14417,11 +14417,18 @@ def kit_cell_close_rule(gmode: int, frozen: bool, control: bool, world: int, sid
 # `bench` op turns the field-gate bench ON). Any role (a client, a host, the selftest role: THE DUO CANNOT PULL A SELFTEST-ROLE LEVER);
 # co-op off refuses every op but `clear` (worldfollow's convention); an unknown op or a malformed one answers the usage line and changes
 # nothing. Every worldwalk lever is released with the harness on every role (NetSyncBattle.HarnessReleaseBench, after the worldfollow
-# levers). Later round-A pieces append their ops here.
-WORLDWALK_OPS = ("kitcell", "clear")
-WORLDWALK_WORDS = {"kitcell": ("old", "act")}
-WORLDWALK_USAGE = "netsync worldwalk: expected kitcell old|act or clear (any role)"
+# levers). Later round-A pieces append their ops here. [ff9mapkit netsync s166] A0b appends `pairpull old|act` (decision 26): the verb
+# and its usage line are the newest engine's; the A0 build's own (no `pairpull`) stay beside them for the stand-in's A0 piece and the
+# A0b bench's OLD calibration.
+WORLDWALK_OPS = ("kitcell", "pairpull", "clear")             # [ff9mapkit netsync s166] A0b + `pairpull`
+WORLDWALK_WORDS = {"kitcell": ("old", "act"), "pairpull": ("old", "act")}   # [ff9mapkit netsync s166] A0b + `pairpull`
+WORLDWALK_USAGE = "netsync worldwalk: expected kitcell old|act, pairpull old|act or clear (any role)"   # [ff9mapkit netsync s166] A0b
 WORLDWALK_OFF_REFUSAL = "netsync worldwalk: co-op is off -- no role to act on"
+#: [ff9mapkit netsync s166] the A0 BUILD's verb (af1f9e02, deployed and benched before A0b): no `pairpull` -- it answers that op with
+#: this usage line
+WORLDWALK_OPS_A0 = ("kitcell", "clear")
+WORLDWALK_WORDS_A0 = {"kitcell": ("old", "act")}
+WORLDWALK_USAGE_A0 = "netsync worldwalk: expected kitcell old|act or clear (any role)"
 
 
 def worldwalk_ack(op: str, word: str | None = None) -> str:
@@ -14435,7 +14442,8 @@ LOG_WORLDWALK_KITCELL_OLD = ("[NetSync] harness: worldwalk kitcell old -- CALIBR
                              "control-off Confirm on a kit cell, the kit boat or the ferryman reaches the script again; released with "
                              "the harness)")
 LOG_WORLDWALK_KITCELL_ACT = "[NetSync] harness: worldwalk kitcell act"
-LOG_WORLDWALK_CLEAR = "[NetSync] harness: worldwalk clear -- the kit-cell close acts"
+LOG_WORLDWALK_CLEAR = "[NetSync] harness: worldwalk clear -- the kit-cell close acts, the pairing pull acts"   # [ff9mapkit netsync s166] A0b
+LOG_WORLDWALK_CLEAR_A0 = "[NetSync] harness: worldwalk clear -- the kit-cell close acts"        # [ff9mapkit netsync s166] the A0 build's
 
 # ---- the log lines' exact prefixes (a bench greps the prefix; the tails are the engine's) and the proof line
 #: once per world-map visit and reader entry: the entry (sid), the world map, and that a control-off read of a host-owned key was masked
@@ -14467,3 +14475,187 @@ def kitcell_line_names(line: str, sid: int, world: int) -> bool:
         return False
     m = _KITCELL_HEAD_RE.match(str(line).split(LOG_WORLD_KITCELL, 1)[1])
     return bool(m) and int(m.group(1)) == int(sid) and int(m.group(2)) == int(world)
+
+
+# =========================================================================== [ff9mapkit netsync s166] WORLD WALK, ROUND A, PIECE A0b
+# studies/world-coop/S166-DESIGN.md decision 26, THE PAIRING PULL (second and alone, after A0: one change per in-game test). THE GAP (the s165
+# two-PC session, TWO-PC-CHECKS-S165.md finding 1): a following guest that pairs ON A FIELD while the host already stands on the world map
+# waits there -- WorldOutStep's term 3 refused it (`not_mirroring`, THE PAIRING-WINDOW LAW) until the host's next stop, although the law
+# protects ONE thing, a pairing autosave not yet written in its window, and the owner's laptop wrote its autosave the moment it paired.
+# THE TERM: under `pairpull act` (the default) term 3 holds a not-yet-mirroring follower only while its pairing autosave is PENDING --
+# the window open, nothing written in it, and PairingEvaluate's own last verdict at this entry no DURABLE decline (why `pairing_save`);
+# a written autosave or a durable decline (not my own place, [SaveFile] DisableAutoSave, the stock ladder refused: the window will never
+# write) lets the follow-out start. THE ARM: the follow-out's landing (LandWorldOut, after its ApplyStory) arms the mirror for a real
+# guest (the client role; never the selftest bench, never under `pairpull old`) through the field load's own arm, lifted
+# (NetSyncClient.ArmMirror): its ARMED line naming "world map W's landing", the pairing window's close (NotePairingAtArm, its no-autosave
+# line naming the landing too), the mirror, the kick's budget, the self-dress. `pairpull old` = s165's term 3 and no arm. A guest that
+# paired or Continued while ITSELF on the world map is unchanged (it has no field to follow out from: term 5). Wire v14 (no byte), harness
+# protocol 5 (additive): the key below at its catch-line sentinel, the op `worldwalk pairpull old|act` (above), the why `pairing_save`.
+
+# ---- the key (HarnessAgent.AppendWorldPairPull: `netsync.world`'s LAST key, after A0's `kitcell`; the catch literal carries the same
+# sentinel). The lever's word ("act" | "old"); `pending` term 3's new fact NOW (NetSyncWorldFollow.PairingSavePending over the window's
+# own state, read live); `arms` mirror arms at a follow-out's landing (per PROCESS: read DELTAS); `last_world` the last arm's world map
+WORLD_PAIRPULL_SENTINELS = {"lever": None, "pending": False, "arms": 0, "last_world": -1}
+#: the one block A0b appends to `netsync.world`, after A0's `kitcell`
+WORLD_S166B_KEYS = ("pairpull",)
+#: the live `netsync.world` block once A0b lands (A0's nine, then `pairpull`: the prefix law -- A0's keys unmoved)
+WORLD_SENTINELS_S166B = {**{k: dict(v) for k, v in WORLD_SENTINELS_S166.items()}, "pairpull": dict(WORLD_PAIRPULL_SENTINELS)}
+#: every s166 key `netsync.world` gains, in the agent's order (the `worldwalk` rung's: A0's, then A0b's)
+WORLD_S166_ALL_KEYS = WORLD_S166_KEYS + WORLD_S166B_KEYS
+#: the lever's published words: "act" the pull (the shipping value), "old" s165 exactly (the not-mirroring wait, no arm)
+WORLD_PAIRPULL_LEVER_WORDS = ("act", "old")
+
+# ---- the start gate's new refusal: APPENDED after WhyMax 28 (NetSyncWorldFollow.WhyPairingSave = 29), nothing renumbered -- the benches
+# key on the stable names. `not_mirroring` stays the name under `pairpull old`.
+WORLD_OUT_WHY_PAIRING = "pairing_save"
+WORDS_WORLD_OUT_PAIRING = "your pairing autosave is still pending"
+#: the engine's whole token list once A0b lands (s165's 28, then `pairing_save`)
+WORLD_OUT_WHYS_S166 = WORLD_OUT_WHYS + (WORLD_OUT_WHY_PAIRING,)
+
+# ---- THE PAIRING WINDOW (s154, NetSyncClient's PairingEvaluate): the twins of its pure verdicts, as the engine has them -- the stand-in
+# models them (FakeGame.pairing_window) and the pull's term reads them. Its verdicts (>= PAIR_BUSY can speak) and edges:
+PAIR_WRITE, PAIR_NO_WINDOW, PAIR_ALREADY, PAIR_BUSY, PAIR_NOT_OWN_PLACE, PAIR_AUTOSAVE_OFF, PAIR_STOCK_REFUSED = 0, 1, 2, 3, 4, 5, 6
+PAIR_VERDICT_NAMES = ("write", "no_window", "already", "busy", "not_own_place", "autosave_off", "stock_refused")
+#: the durable declines: the window will never write on this place (PairingSaveSpeaks' split: the verdicts above busy)
+PAIR_DURABLE = (PAIR_NOT_OWN_PLACE, PAIR_AUTOSAVE_OFF, PAIR_STOCK_REFUSED)
+PAIR_EDGE_RISE, PAIR_EDGE_FALL, PAIR_EDGE_COMMIT, PAIR_EDGE_ARM, PAIR_EDGE_TITLE = 1, 2, 3, 4, 6
+
+
+def pair_window_after(open_: bool, edge: int, live_following_client: bool) -> bool:
+    """NetSyncClient.PairWindowAfter: the window opens at the peer-alive rise (and the title, while the session lives) for a following client
+    whose host is alive; a netsync move's COMMIT, the mirror's ARM and the session's FALL shut it; any other edge keeps it."""
+    if edge in (PAIR_EDGE_RISE, PAIR_EDGE_TITLE):
+        return bool(live_following_client)
+    if edge in (PAIR_EDGE_FALL, PAIR_EDGE_COMMIT, PAIR_EDGE_ARM):
+        return False
+    return bool(open_)
+
+
+def pairing_durable_verdict(window_open, following_client, peer_alive, own_story, saved_here, entry_is_here, own_place, autosave_off,
+                            entry_refused) -> int:
+    """NetSyncClient.PairingDurableVerdict, in its order: no window -> already written here -> busy (no entry record of this place yet: a
+    load in flight) -> not my own place -> [SaveFile] DisableAutoSave -> the stock ladder read at the entry -> a Write CANDIDATE."""
+    if not (window_open and following_client and peer_alive and own_story):
+        return PAIR_NO_WINDOW
+    if saved_here:
+        return PAIR_ALREADY
+    if not entry_is_here:
+        return PAIR_BUSY
+    if not own_place:
+        return PAIR_NOT_OWN_PLACE
+    if autosave_off:
+        return PAIR_AUTOSAVE_OFF
+    return PAIR_STOCK_REFUSED if entry_refused else PAIR_WRITE
+
+
+def pairing_live_verdict(durable: int, free_standing: bool, live_refused: bool) -> int:
+    """NetSyncClient.PairingLiveVerdict: a durable decline passes through; a candidate is busy until free-standing, then the live ladder."""
+    if durable != PAIR_WRITE:
+        return durable
+    if not free_standing:
+        return PAIR_BUSY
+    return PAIR_STOCK_REFUSED if live_refused else PAIR_WRITE
+
+
+def pairing_save_pending(window_open: bool, written: bool, verdict: int) -> bool:
+    """NetSyncWorldFollow.PairingSavePending (decision 26): my pairing autosave is still PENDING -- the window open, nothing written in it,
+    and PairingEvaluate's own LAST verdict at this entry (-1 = none yet) no durable decline. Pending, fail-closed: busy, a Write candidate,
+    nothing judged yet, and a write already tried here that FAILED (`already` with nothing written). A shut window is never pending."""
+    return bool(window_open) and not written and int(verdict) <= PAIR_BUSY
+
+
+def pairing_term(mirroring: bool, bench: bool, pairpull_old: bool, pending: bool) -> str | None:
+    """WorldOutStep's term 3 as A0b has it (the start gate's token, None = pass): a mirroring guest or the bench pass as in s165; else
+    `pairpull old` is s165's `not_mirroring`; else `pairing_save` only while the autosave is pending."""
+    if mirroring or bench:
+        return None
+    if pairpull_old:
+        return "not_mirroring"
+    return WORLD_OUT_WHY_PAIRING if pending else None
+
+
+def pairing_save_reason(verdict: int, moogle_only: bool = False) -> str | None:
+    """NetSyncClient.PairingSaveReason: a decline's words (None for a verdict that never speaks them)."""
+    return {PAIR_BUSY: "you were not free-standing (an event, a dialogue, a menu, a fade or a load)",
+            PAIR_NOT_OWN_PLACE: ("this place was reached or reloaded inside the session (a follow, a kick, a seeded host entrance or a "
+                                 "bounced gateway), not by your own play"),
+            PAIR_AUTOSAVE_OFF: "[SaveFile] DisableAutoSave=1",
+            PAIR_STOCK_REFUSED: ("[SaveFile] AutoSaveOnlyAtMoogle=1 and this is not a moogle field" if moogle_only
+                                 else "the stock autosave ladder refuses this place (a no-save story beat)")}.get(int(verdict))
+
+
+# ---- the log lines (the engine's text: a bench greps each prefix, a matcher anchors the whole line)
+#: the field load's ARMED line, byte-identical since s144 (ApplyStoryImpl -> ArmMirror(host, null)), and every bench's grep prefix
+LOG_MIRROR_ARMED_PREFIX = "[NetSync] state-mirror ARMED"
+LOG_MIRROR_ARMED_FIELD = "[NetSync] state-mirror ARMED -- this guest's fields now stage the HOST's story"
+
+
+def world_landing(world: int) -> str:
+    """ArmMirror's `where` at a follow-out's landing: "world map W's landing"."""
+    return f"world map {int(world)}'s landing"
+
+
+def log_mirror_armed_world(world: int) -> str:
+    """The landing's ARMED line (LandWorldOut -> ArmMirror(src, "world map W's landing")): the field line's prefix, then "at <where>"."""
+    return f"{LOG_MIRROR_ARMED_PREFIX} at {world_landing(world)} -- this guest's fields now stage the HOST's story"
+
+
+#: the anchored readings of both ARMED forms (the world form names its world map)
+MIRROR_ARMED_FIELD_RE = r"^\[NetSync\] state-mirror ARMED -- this guest's fields now stage the HOST's story$"
+MIRROR_ARMED_WORLD_RE = r"^\[NetSync\] state-mirror ARMED at world map (\d+)'s landing -- this guest's fields now stage the HOST's story$"
+LOG_PAIRING_WRITTEN = "[NetSync] pairing autosave written on "
+LOG_PAIRING_DECLINED = "[NetSync] pairing autosave declined at the "
+LOG_PAIRING_FAILED = "[NetSync] pairing autosave FAILED on "
+LOG_NO_PAIRING = "[NetSync] no pairing autosave this session: the mirror armed at "
+#: "pairing autosave written on <field N | world map W> (the <site>): leaving co-op returns you here"
+PAIRING_WRITTEN_RE = r"^\[NetSync\] pairing autosave written on (field|world map) (\d+) \(the (.+?)\): leaving co-op returns you here$"
+#: NotePairingAtArm's line: "...armed at <field N's load | world map W's landing> first (<note>) -- leaving co-op reloads ..."
+NO_PAIRING_RE = (r"^\[NetSync\] no pairing autosave this session: the mirror armed at (?:field (\d+)'s load|world map (\d+)'s landing) "
+                 r"first \((.*)\) -- leaving co-op reloads your last own autosave$")
+NO_PAIRING_NOTE = "no free-standing moment on your own place since your partner's game came alive"
+
+
+def log_pairing_written(place: str, site: str = "pairing window") -> str:
+    """The window's write line (``place`` "field N" | "world map W", ``site`` the evaluation's: the window's own tick)."""
+    return f"{LOG_PAIRING_WRITTEN}{place} (the {site}): leaving co-op returns you here"
+
+
+def log_pairing_failed(place: str, err: str = "the stand-in's write failed") -> str:
+    """The window's failed write (one write per place whatever the outcome: the next frame reads `already`)."""
+    return f"{LOG_PAIRING_FAILED}{place} ({err}) -- leaving co-op reloads your last own autosave"
+
+
+def log_pairing_declined(site: str, place: str, verdict: int, written_where: str | None = None, moogle_only: bool = False) -> str:
+    """A speaking decline (once per place and verdict; a busy one only at a departure)."""
+    return (f"{LOG_PAIRING_DECLINED}{site} on {place}: {pairing_save_reason(verdict, moogle_only)}"
+            + (f" -- leaving co-op returns you to the pairing autosave on {written_where}" if written_where
+               else " -- leaving co-op reloads your last own autosave"))
+
+
+def log_no_pairing(where: str, note: str | None = None) -> str:
+    """NotePairingAtArm's no-autosave line (``where`` "field N's load" | "world map W's landing")."""
+    return f"{LOG_NO_PAIRING}{where} first ({note or NO_PAIRING_NOTE}) -- leaving co-op reloads your last own autosave"
+
+
+#: the lever's ack lines (the engine's text; a bench greps worldwalk_ack's prefix)
+LOG_WORLDWALK_PAIRPULL_OLD = ("[NetSync] harness: worldwalk pairpull old -- CALIBRATION: s165 exactly, a guest that is not mirroring yet "
+                              "waits on its field (not_mirroring) and a follow-out's landing arms no mirror (released with the harness)")
+LOG_WORLDWALK_PAIRPULL_ACT = "[NetSync] harness: worldwalk pairpull act"
+
+# ---- [ff9mapkit netsync s166] A0b's review fix (R1): co-op turned OFF INSIDE a pulled guest's follow-out (a fade always finishes: s42).
+# ApplyConfigChange found no mirror to ramp out of then (the guest was not mirroring yet), so the landing's arm hands over the exit ramp
+# itself, on ApplyConfigChange's own contract (immediate, cause config): SessionRampArms runs only behind the enabled gate, so without it
+# the guest would stand frozen on the host's story (SpectatorField holds on the mirror), menu and save refused. Its one line, after the
+# ARMED line (and the no-autosave line), before the landing's.
+LOG_WORLD_OUT_COOP_OFF = "[NetSync] world follow-out: co-op was turned off during it -- the exit ramp reloads your own autosave once you "
+
+
+def log_world_out_coop_off(world: int) -> str:
+    """LandWorldOut's hand-over line (``world`` the landing's world map)."""
+    return f"{LOG_WORLD_OUT_COOP_OFF}are free-standing on world map {int(world)}"
+
+
+def coop_off_ramp_hands_over(armed_here: bool, enabled: bool, ramp_pending: bool) -> bool:
+    """The hand-over's rule, as LandWorldOut has it: only inside the landing's own arm (a real guest pulled out under `pairpull act`), when
+    co-op is off and no exit ramp is pending yet -- a mirroring guest's ramp was ApplyConfigChange's (s165), and a pending one stands."""
+    return bool(armed_here) and not enabled and not ramp_pending

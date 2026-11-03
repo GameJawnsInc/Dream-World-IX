@@ -530,6 +530,8 @@ def judge_probe(st, lines) -> tuple:
     hw = list(cb.path(st, "netsync.host.world") or {}) == list(BW.HOST_WORLD_SENTINELS)
     # [ff9mapkit netsync s166] BY THE ENGINE'S STAGE: an s166 engine's `world` adds `kitcell` after `dot` (the prefix law: s165's unmoved)
     want_world = BW.WORLD_SENTINELS_S166 if cb.has(st, "netsync.world.kitcell") else BW.WORLD_SENTINELS_S165
+    if cb.has(st, "netsync.world.pairpull"):
+        want_world = BW.WORLD_SENTINELS_S166B   # [ff9mapkit netsync s166] A0b: `pairpull` after `kitcell` (the prefix law)
     keys_ok = (list(world) == list(want_world) and not bad and top and sg and hw
                and wkeys[-1:] == list(BW.WORLD_LIVE_KEYS_S165))
     rx = re.compile(BW.WORLD_FOLLOW_PROOF_RE)

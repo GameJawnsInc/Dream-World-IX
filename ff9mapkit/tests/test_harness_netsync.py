@@ -1010,12 +1010,13 @@ def _sw_live_subverbs(*names: str) -> list:
 def _s165_world_tail() -> str:
     """[ff9mapkit netsync s165] What the LIVE catch line writes inside `world` after s145's `dio` block: nothing before s165, then
     s165's r3 / out / host / dot at their sentinels (BW.WORLD_S165_KEYS, the agent's order). [ff9mapkit netsync s166] ...then s166's
-    `kitcell` at its sentinel once ITS patch is live."""
+    `kitcell` at its sentinel once ITS patch is live -- and A0b's `pairpull` after it (the round's one patch carries both pieces:
+    BW.WORLD_S166_ALL_KEYS at BW.WORLD_SENTINELS_S166B)."""
     if not _s165_live():
         return ""
     tail = "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S165[k], separators=(",", ":")) for k in BW.WORLD_S165_KEYS)
     if _s166_live():
-        tail += "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S166[k], separators=(",", ":")) for k in BW.WORLD_S166_KEYS)
+        tail += "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S166B[k], separators=(",", ":")) for k in BW.WORLD_S166_ALL_KEYS)
     return tail
 
 
