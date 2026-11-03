@@ -295,13 +295,30 @@ def judge_undressed(samples, *, model: int, d_twins, d_misses, share: float = 0.
 # ================================================================================================ the wire half's sender witness
 def host_trailer_edges(lines) -> list:
     """The ``host type-0: ...`` EDGE lines in a coop_peer serve-guest --log (coop_peer.HOST_TRAILER_LINE /
-    HOST_NO_TRAILER_LINE), in order -- P0: an s157 host's first is "39 B -- the s157 frame bytes"; an s156 host logs none."""
+    HOST_NO_TRAILER_LINE), in order -- P0: an s157 host's first is "N B -- the s157 frame bytes" with N >= 39; an s156 host logs
+    none."""
     return [ln[ln.index("host type-0: "):] for ln in lines if "host type-0: " in ln]
 
 
+#: [ff9mapkit netsync s166] the s157 edge's head and tail, its byte count read between them (no regex: these judges import nothing):
+#: the record is ">= 39 B CARRYING THE s157 BYTES" -- an s157-s165 host sends exactly 39, a v15 host 94 (decision 4's world trailer
+#: rides type 0 on fields too, after the same 39 bytes)
+_S157_HEAD, _S157_TAIL = "host type-0: ", " B -- the s157 frame bytes"
+
+
+def s157_edge_bytes(edge: str):
+    """[ff9mapkit netsync s166] The byte count of a ``host type-0: N B -- the s157 frame bytes ...`` edge; None for any other line."""
+    if not edge.startswith(_S157_HEAD):
+        return None
+    n, sep, _rest = edge[len(_S157_HEAD):].partition(_S157_TAIL)
+    return int(n) if sep and n.isdigit() else None
+
+
 def judge_sender(lines) -> tuple:
-    """P0: the HOST engine sends the s157 trailer -- the peer's first type-0 edge is the 39-byte one and none says it stopped."""
+    """P0: the HOST engine sends the s157 trailer -- the peer's first type-0 edge is one of 39 bytes OR MORE carrying the s157
+    frame bytes, and none says it stopped. [ff9mapkit netsync s166] Re-keyed from "exactly 39 B": the v15 trailer follows the
+    s157 bytes on every type-0 frame, fields included."""
     edges = host_trailer_edges(lines)
-    ok = bool(edges) and edges[0].startswith("host type-0: 39 B -- the s157 frame bytes") and \
-        not any("no frame bytes" in e for e in edges)
+    n = s157_edge_bytes(edges[0]) if edges else None
+    ok = n is not None and n >= 39 and not any("no frame bytes" in e for e in edges)
     return ok, f"{len(edges)} trailer edge(s): {edges[:2]}"

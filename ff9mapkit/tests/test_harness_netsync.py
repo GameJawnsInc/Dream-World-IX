@@ -955,8 +955,9 @@ def _unfollowed(doc: dict) -> dict:
 
 def _unwalked(doc: dict) -> dict:
     """[ff9mapkit netsync s166] A `netsync` document without s166 A0's catch-line key -- `kitcell` inside `world` (NETSYNC_TOP_NESTED_KEYS'
-    `worldwalk` row; no top-level key): the catch line as s165 wrote it -- A0 adds that and nothing else."""
-    out = dict(doc)
+    `worldwalk` row; no top-level key): the catch line as s165 wrote it -- A0 adds that and nothing else. [ff9mapkit netsync s166] A0b
+    adds `pairpull` beside it, and A2 the round's one TOP-LEVEL key, `wire_peer`, netsync's LAST (NETSYNC_TOP_CAP_KEYS' `worldwalk` row)."""
+    out = {k: v for k, v in doc.items() if k not in FG.NETSYNC_TOP_CAP_KEYS.get("worldwalk", ())}
     if isinstance(out.get("world"), dict):
         drop = FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"]["world"]
         out["world"] = {k: v for k, v in out["world"].items() if k not in drop}
@@ -995,8 +996,10 @@ def _live_caps() -> frozenset:
 
 def _sw_live_tail(*names: str) -> list:
     """[ff9mapkit netsync s164] A tail of `netsync`'s keys as the LIVE agent writes it: ``names``, through s163's `speed`, then s164's
-    `swap` once its patch is live. [ff9mapkit netsync s165] ...then s165's `saveguard` and `host` once ITS patch is live."""
-    return list(names) + (["swap"] if _s164_live() else []) + (list(BW.NETSYNC_TOP_KEYS_S165) if _s165_live() else [])
+    `swap` once its patch is live. [ff9mapkit netsync s165] ...then s165's `saveguard` and `host` once ITS patch is live.
+    [ff9mapkit netsync s166] ...then A2's `wire_peer` once the s166 patch is live."""
+    return (list(names) + (["swap"] if _s164_live() else []) + (list(BW.NETSYNC_TOP_KEYS_S165) if _s165_live() else [])
+            + (list(BW.NETSYNC_TOP_KEYS_S166) if _s166_live() else []))
 
 
 def _sw_live_subverbs(*names: str) -> list:
@@ -1035,6 +1038,8 @@ def _sw_live_catch_tail() -> str:
     if _s165_live():                    # [ff9mapkit netsync s165] ...then `saveguard` and `host` at their sentinels
         tail += (',"saveguard":' + json.dumps(BW.SAVEGUARD_SENTINELS, separators=(",", ":")) + ',"host":'
                  + json.dumps(BW.HOST_SENTINELS, separators=(",", ":")))
+    if _s166_live():                    # [ff9mapkit netsync s166] ...then A2's `wire_peer` at its sentinels, netsync's LAST key
+        tail += ',"wire_peer":' + json.dumps(BW.WIRE_PEER_SENTINELS, separators=(",", ":"))
     return tail
 
 
@@ -1181,6 +1186,42 @@ def _dio_leaves(block: dict, prefix: str = "") -> dict:
     return out
 
 
+def test_the_stand_ins_wire_moves_by_stage():
+    """[ff9mapkit netsync s166] The stand-in's `netsync.wire` is its STAGE's: 14 on every rung through s165 (s98's ring onward), 15
+    from the s166 rung (`worldwalk`: the patch that carries decision 2's bump) -- so the default stand-in reads 15 and a stand-in at
+    the live rung reads what the live stack's NetSyncWire.Version says (the sentinel pin above)."""
+    assert FG.netsync_wire(frozenset()) == FG.netsync_wire(FG.caps_through("speed")) == 14
+    assert FG.netsync_wire(FG.caps_through("worldfollow")) == 14
+    assert FG.netsync_wire(FG.caps_through("worldwalk")) == 15
+    assert FG.netsync_wire(_live_caps()) == (15 if _s166_live() else 14)
+    # the deployed A0 / A0b BUILDS ride the worldwalk rung but carry no A2: they speak 14 (A2 is the bump)
+    for build in (FG.FAKE_WORLD_WALK_A0_BUILD, FG.FAKE_WORLD_WALK_A0B_BUILD):
+        assert FG.netsync_wire(FG.caps_through("worldwalk"), build) == 14
+    assert FG.netsync_wire(FG.caps_through("worldwalk"), FG.FAKE_WORLD_WALK_PIECES) == 15 and "a2" in FG.FAKE_WORLD_WALK_PIECES
+
+
+def test_s166_wire_peer_closes_netsync_at_the_catch_lines_sentinels(game):
+    """[ff9mapkit netsync s166] A2's ONE key, BY STAGE: once the s166 patch is live the catch line closes `netsync` with `wire_peer` (after
+    s165's `host`) at BW.WIRE_PEER_SENTINELS, key order and nesting included, and a fresh stand-in AT the live rung publishes it there,
+    equal; before (the deployed A0b stage) neither the agent nor the stand-in at the live rung has it -- and the A0b BUILD's stand-in never
+    does (it speaks 14)."""
+    nothing, _pinned = _agent_netsync_nothing()
+    fake = FakeGame(game)
+    fake.netsync_caps = _live_caps()
+    doc = fake._netsync_doc()
+    if _s166_live():
+        assert list(nothing)[-2:] == ["host", "wire_peer"] and list(doc)[-1] == "wire_peer", list(nothing)[-3:]
+        assert json.dumps(nothing["wire_peer"]) == json.dumps(BW.WIRE_PEER_SENTINELS) == json.dumps(doc["wire_peer"])
+        assert tuple(nothing["wire_peer"]["rx"]) == tuple(BW.WIRE_PEER_RX_SENTINELS)
+    else:
+        assert "wire_peer" not in nothing and "wire_peer" not in doc
+    assert FG.NETSYNC_TOP_CAP_KEYS["worldwalk"] == BW.NETSYNC_TOP_KEYS_S166 == ("wire_peer",)
+    old = FakeGame(game)
+    old.world_walk_pieces = FG.FAKE_WORLD_WALK_A0B_BUILD
+    assert "wire_peer" not in old._netsync_doc() and old.netsync_wire_now() == FG.NETSYNC_WIRE_V14
+    assert list(FakeGame(game)._netsync_doc())[-1] == "wire_peer" and FakeGame(game).netsync_wire_now() == FG.NETSYNC_WIRE_V15
+
+
 def test_a_fresh_stand_in_publishes_the_agents_f33_sentinels(game):
     """With no client, every F3.3 key sits at the agent's "nothing" sentinel -- except the two the agent reads off
     process STATICS that exist with no client: `wire` (NetSyncWire.Version, the live constant) and `key_tick`
@@ -1197,7 +1238,15 @@ def test_a_fresh_stand_in_publishes_the_agents_f33_sentinels(game):
         {k: v for k, v in nothing["diorama"].items() if not isinstance(v, dict)}
     wire = net_lines("NetSyncSocket.cs", r"public const Byte Version = \d+;")
     assert len(wire) == 1, wire
-    assert doc["wire"] == int(re.search(r"Version = (\d+);", wire[0]).group(1)) == 14
+    # [ff9mapkit netsync s166] THE WIRE PIN BY STAGE, never a bare constant: the live stack's own NetSyncWire.Version is 15 once the
+    # s166 patch lands (decision 2's bump rides it) and 14 before; a stand-in AT THE LIVE RUNG publishes exactly that, and the default
+    # stand-in (every rung) its own stage's (fakegame.netsync_wire) -- green on the A0b stack today and on the v15 stack after
+    stack_wire = int(re.search(r"Version = (\d+);", wire[0]).group(1))
+    assert stack_wire == (FG.NETSYNC_WIRE_V15 if _s166_live() else FG.NETSYNC_WIRE_V14)
+    live = FakeGame(game)
+    live.netsync_caps = _live_caps()
+    assert live._netsync_doc()["wire"] == stack_wire
+    assert doc["wire"] == FG.netsync_wire(FakeGame(game).netsync_caps)
     assert net_lines("NetSyncField.cs", r"public static Int32 KeyTick;") and doc["key_tick"] == 0
     assert list(doc["diorama"]) == list(nothing["diorama"])
     # [ff9mapkit netsync R3 s111/s112] ...the diorama block's nested R3 keys at the agent's sentinels, except the four the
@@ -1452,7 +1501,8 @@ def test_the_ring_baselines_at_the_session_and_delivers_each_event_once(game):
         on_bench(g)
         st = g.wait_for(lambda s: s.dialogue_last_seen is not None and s.dialogue_last_seen >= 0, timeout=4.0,
                         what="the session's baseline")
-        assert st.dialogue_ring is True and st.dialogue_wire == 14 and 1 <= st.dialogue_epoch <= 0xFFFF
+        assert st.dialogue_ring is True and st.dialogue_wire == FG.netsync_wire(fake.netsync_caps)   # [ff9mapkit netsync s166] by stage
+        assert 1 <= st.dialogue_epoch <= 0xFFFF
         assert st.dialogue_last_seen == st.dialogue_head_seq == 0
         assert st.dialogue_host_flag_set == {"scene", "on_field"}            # hostscene 1: b0, not b1 control
         hb = st.dialogue_heartbeat
@@ -16110,7 +16160,7 @@ def test_a_fresh_stand_in_publishes_the_agents_dress_block(game):
     s155 = FakeGame(game)
     s155.netsync_caps = FG.caps_through(FG.NETSYNC_S154_RUNG)
     assert list(s155._netsync_doc())[-2:] == ["dress", "world"]
-    assert list(doc)[-11:] == ["dress", "world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed", "swap", "saveguard", "host"] and list(doc["dress"]) == list(nothing["dress"])   # [ff9mapkit netsync s157] [s158] [s160] [s161] [s163] [s164]
+    assert list(doc)[-12:] == ["dress", "world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed", "swap", "saveguard", "host", "wire_peer"] and list(doc["dress"]) == list(nothing["dress"])   # [ff9mapkit netsync s157] [s158] [s160] [s161] [s163] [s164]
     assert doc["dress"]["ghost"] == nothing["dress"]["ghost"] == BW.DRESS_GHOST_SENTINELS
     # the default stand-in carries every dress rung: the union of their frozen rows, in ladder order
     assert list(doc["dress"]["ghost"]) == [k for row in BW.DRESS_GHOST_KEYS_BY_RUNG.values() for k in row]
@@ -26618,7 +26668,7 @@ def test_the_stand_in_models_the_ghostframe_block_its_lever_and_its_release(game
     back on, its line only when it was pulled; an s156 stand-in has no block and reads `bench ghostframe` as `bench 1`."""
     fake = FakeGame(game)
     doc = fake._netsync_doc()
-    assert list(doc)[-8:] == ["ghostframe", "stepout", "chest", "ate", "speed", "swap", "saveguard", "host"] and doc["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS   # [s158] [s160] [s161] [s163] [s164]
+    assert list(doc)[-9:] == ["ghostframe", "stepout", "chest", "ate", "speed", "swap", "saveguard", "host", "wire_peer"] and doc["ghostframe"] == FG.NETSYNC_GHOSTFRAME_SENTINELS   # [s158] [s160] [s161] [s163] [s164]
     with pytest.raises(RuntimeError, match=re.escape("netsync bench: needs the selftest role (netsync selftest 1)")):
         fake._netsync(["bench", "ghostframe", "off"])
     with session(game, fake) as g:
@@ -27373,7 +27423,7 @@ def test_the_stand_in_models_the_ate_lever_its_refusals_and_its_release(game):
         g.wait_frames(10)
         st = g.state
         assert st.coop_ate_relay is True and st.ate_relay == dict(FG.NETSYNC_ATE_SENTINELS, selftest="ok")
-        assert list(st.netsync)[-5:] == ["ate", "speed", "swap", "saveguard", "host"]   # [ff9mapkit netsync s163] ...LAST until s163's `speed` [s164] and `swap` [s165]
+        assert list(st.netsync)[-6:] == ["ate", "speed", "swap", "saveguard", "host", "wire_peer"]   # [ff9mapkit netsync s163] ...LAST until s163's `speed` [s164] and `swap` [s165] [s166]
         lines = _wf_unproved(_proof_lines(fake), fake)   # [ff9mapkit netsync s165] the block as s164 closed it
         assert lines[-1].split("[NetSync] ", 1)[1] == _sw_proof_text(fake)   # [ff9mapkit netsync s164] the field swap line, LAST
         lines = lines[:-1]                                               # ...and the block as s163 closed it, before that line
@@ -28432,7 +28482,7 @@ def test_the_stand_in_models_the_speed_lever_its_refusals_and_its_release(game):
         st = g.state
         assert st.coop_speed_mirror is True and st.ff == 1 and list(st.raw)[list(st.raw).index("scenario") + 1] == "ff"
         doc = st.speed_mirror
-        assert tuple(doc) == FG.NETSYNC_SPEED_KEYS and list(st.netsync)[-4:] == ["speed", "swap", "saveguard", "host"]   # [ff9mapkit netsync s164] [s165]
+        assert tuple(doc) == FG.NETSYNC_SPEED_KEYS and list(st.netsync)[-5:] == ["speed", "swap", "saveguard", "host", "wire_peer"]   # [ff9mapkit netsync s164] [s165] [s166]
         assert doc == dict(FG.NETSYNC_SPEED_SENTINELS, host_setting=1, src="none", own_factor=1, factor_now=1,
                            why_not=BW.SPEED_WHY_NOT_TICKED)
         # off the selftest role: act|off|clear are the any-role ops; host is the engine's role refusal, after the step
@@ -30488,7 +30538,7 @@ def test_s164_kit2_the_stand_in_publishes_the_swap_block_on_the_clock_seam(game)
         g.newgame(settle=0)
         g.warp(FIELD)
         st = g.state
-        assert st.coop_field_swap is True and list(st.netsync)[-4:] == ["speed", "swap", "saveguard", "host"]   # [ff9mapkit netsync s165]
+        assert st.coop_field_swap is True and list(st.netsync)[-5:] == ["speed", "swap", "saveguard", "host", "wire_peer"]   # [ff9mapkit netsync s165] [s166]
         doc = st.swap_block
         assert tuple(doc) == FG.NETSYNC_SWAP_KEYS
         for k, v in FG.NETSYNC_SWAP_SENTINELS.items():

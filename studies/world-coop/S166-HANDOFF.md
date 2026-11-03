@@ -9,7 +9,7 @@ engine clone. The design is `S166-DESIGN.md`, and the owner took every recommend
 |---|---|---|
 | A0 | decision 19, the control-off kit-cell close, on every world map | **deployed + benched**: OLD on s165 measured both hazards; NEW 8/8; the lever reproduces both; s165 solo green. Kit commit `5cbdfd08` |
 | A0b | decision 26, the pairing pull | **deployed `9e4365349fab02b1` + BENCHED**: NEW T2 pair 11/11; LEVER T2 pair exactly OLD's five red, CAL green (the wait measured, 653 samples on 6603); regression green (below). S166-PR-SAVEMENU was a mis-derived row, re-derived (below) |
-| W1 | A1 the pure core + A2 wire v15 + the kit wire lane | script written, **not launched**: `s166-handoff/s166-w1-wf.js` |
+| W1 | A1 the pure core + A2 wire v15 + the kit wire lane | **built, reviewed, NOT deployed**: A1 + A2 in the clone (5 files, every hunk tagged, `--no-deploy` clean; proof offline "247 rows, 70 mutants"); kit lane committed (W1 set: 853 passed, 1 load-noise red green alone) |
 | W2 | A3 sender/cache/lines, A4 the world ghost, the dot from the trailer, their bench rows | not written |
 | W3 | the whole-diff review, the s166 patch emit, the README row, the regression set, the laptop package | not written |
 
@@ -94,6 +94,23 @@ the owner's case.
    reconcile). Run it with the Workflow tool's `scriptPath`, after copying it back to a scratchpad or by pointing at the
    repo path. Its `SP` constant names the old scratchpad (snapshots, hn_pins); update it if that folder is gone. Never
    run it while an in-game bench runs (its agents run pytest: THE s159 LAW).
+   **W1 done** (the run's full result: `w1_result.json` in this session's scratchpad, beside `w1r`). What W2 inherits:
+   - A2's two SetLocal sites still send the 39-byte record with NO trailer; only the relay keepalive carries one (tfmt 1,
+     caps 0x0001, place 0). A3 sends the real trailer through the 10-arg SetLocal at the one site.
+   - `netsync.wire_peer` is netsync's last key; `NetSyncWirePeer.MismatchWords` is exposed, not drawn (A3 draws it).
+   - The review added lane end line 9, `LineHangCut` ("lane hang over: the partner's frames STOPPED ..."): mirror it in A3
+     and in the kit's lane twin, with the two 20-pair line budgets, the scene bit's pause semantics and GhostRule's
+     lever-last order. The kit has no lane-gap twin yet.
+   - Rotation: A1's `BenchPathPose` / `WalkerYaw` give the travel heading + 180; A3 must state what the trailer's
+     rotation is so the synthetic ROAM record and the ghost's facing agree.
+   - The stand-in's `wire_peer` stays at rest (never a refusal, `rx` at its sentinels) and its proof line still says
+     A0b's 84 / 13: A-WIRE and A-TX need that modelled.
+   - A-WIRE's unrestamped row must use `replay-host --wire tape` (`auto` restamps a v14 tape to v15). Every coop_peer
+     tape needs a v15 restamp for the regression set.
+   - Offline transport tests drive only the CLIENT role against a 127.0.0.1 listener: the host role binds
+     `IPAddress.Any` and pops the owner's firewall (it did in W1).
+   - The reconcile's stage simulator (`mksim.py`, `simstack_plugin.py`) lives in this session's scratchpad `w1r\`; it
+     runs every stage pin against the v15 clone before the patch is emitted.
 2. W2: A3 (the trailer at the one SetLocal site on both roles + the selftest slot, the receiver cache, LaneGapStep on both
    roles, the host lines, `netsync.world.line`, the bench host ops), A4 (`NetSyncWorldGhost.cs`), decision 12's dot from
    the trailer, the harness levers/keys of decision 25, the stand-in's trailer model, and the Round A bench rows (A-WIRE ..

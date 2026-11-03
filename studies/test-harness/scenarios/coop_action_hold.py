@@ -1698,9 +1698,10 @@ def _tape_leg(g, led: cb.Ledger, ctx, calibrate: bool) -> None:
     conn = ctx.peer.wait_for(pb.PEER["guest_connected"], 25.0, tick=lambda: ar._tape_sample(g, ctx)) if up else None
     start = ctx.peer.wait_for(pb.PEER["replay_start"], 10.0, tick=lambda: ar._tape_sample(g, ctx)) if conn else None
     relay = pb.hits(ctx.eng.lines(), "relay_up", pred=lambda m: m.group(3) == "guest" and m.group(2) == ar.CODE)
+    wire = pb.wire_gate(ctx.peer, pb.probe_wire(g)) if start else (False, "no replay start")   # [ff9mapkit netsync s166] THE LIVE HEADER
     knob_ok, knob_why = ar._tape_knob(cfg, calibrate, cb.has(g.state, GUEST_PROBE))
-    ok = up is not None and conn is not None and start is not None and bool(relay) and knob_ok
-    led.check("T2-PEER", ok, f"config: {pb.show(cfg, 1)}; {knob_why}; peer: {up[1] if up else 'never listened'} / "
+    ok = up is not None and conn is not None and start is not None and bool(relay) and knob_ok and wire[0]
+    led.check("T2-PEER", ok, f"wire: {wire[1]}; config: {pb.show(cfg, 1)}; {knob_why}; peer: {up[1] if up else 'never listened'} / "
                              f"{conn[1] if conn else 'no guest'} / {start[1] if start else 'no replay start'}; engine: "
                              f"{pb.show(relay, 1)}")
     if not ok:

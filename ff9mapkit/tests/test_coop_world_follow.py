@@ -174,6 +174,9 @@ class StubReplay(_Peer):
         _h, recs, _torn = CP.read_tape(self.args[0])
         frames = list(CP.host_frames(recs))
         t0 = frames[0][0].t
+        _w = f.netsync_wire_now()   # [ff9mapkit netsync s166] what replay-host logs before REPLAY start (the stand-in's own wire)
+        _send, _how = CP.replay_send_wire("auto", _w, CP.tape_wire(recs))
+        self._say(CP.GUEST_WIRE_LINE.format(guest=_w, send=_send, how=_how))
         self._say(f"REPLAY start: tape {t0:.2f} s -> now; {len(frames)} host frame(s) up to tape {frames[-1][0].t:.2f} s")
         wall0, field, flags, story, first = time.time(), None, -1, None, True
         for r, w, p in frames:
@@ -681,6 +684,11 @@ red(wf.judge_probe(P, pl[1:]), "NONE")
 red(wf.judge_probe(P, pl + ["[NetSync] world follow selftest: FAIL (row R1-01)"]))
 bad = dict(pdoc, netsync={k: nsdoc[k] for k in ("world", "saveguard", "swap", "host")})
 red(wf.judge_probe(State(bad), pl))
+# [ff9mapkit netsync s166] a v15 (A2) engine: `wire_peer` after `host`, netsync's LAST key -- green; anywhere else -- red
+v15 = dict(pdoc, netsync=dict(nsdoc, wire_peer=dict(BW.WIRE_PEER_SENTINELS)))
+green(wf.judge_probe(State(v15), pl))
+mid = dict(pdoc, netsync={**{k: nsdoc[k] for k in ("world", "swap", "saveguard")}, "wire_peer": {}, "host": nsdoc["host"]})
+red(wf.judge_probe(State(mid), pl))
 red(wf.judge_probe(State({"frame": 1, "ui_state": "FieldHUD", "netsync": {"world": {"freeze": {}}}}), pl), "absent")   # s164
 # the T2 seam bracket on the tape clock
 rows = [{"t": t, "b6": True, "pose": {"x": TILE[0], "z": TILE[1]}} for t in (40.0, 40.5, 41.0)]

@@ -511,6 +511,11 @@ NETSYNC_BATTLE_CAPS = {"gates": ("s100", ("guestslots", "bcmd", "hostgates")),
                        # rejoin's: each re-reads what the window's tick read earlier in its Update -- `already` where it wrote, else the
                        # tick's verdict -- so the pending fact is the same), the title's consume, the ramp's reload.
                        # Faults: WORLD_WALK_FAULTS (pairpull_*).
+                       # [ff9mapkit netsync s166] PIECES A1 + A2 (W1: A1's pure core is inert; A2 is WIRE v15) grow the SAME rung:
+                       # NetSyncWire.Version 15 (`netsync.wire`: :func:`netsync_wire` by rung AND pieces) and `netsync.wire_peer` as
+                       # netsync's LAST key, after s165's `host` (NETSYNC_TOP_CAP_KEYS); the deployed A0b BUILD
+                       # (``FAKE_WORLD_WALK_A0B_BUILD``) speaks 14 and has no such key. WHAT IT CANNOT: a peer of another wire, the
+                       # peer's type-0 shape (`wire_peer.rx` reads its sentinels).
                        "worldwalk": ("s166", ("worldwalk",))}
 #: [ff9mapkit netsync R3] Each round's RUNG NAMES -- what that round added to the ladder, nothing more. A calibration engine
 #: is NEVER the default stand-in minus a rung set (subtracting one rung keeps every later rung: an engine that never
@@ -574,6 +579,22 @@ NETSYNC_S164_CAPS = frozenset(("swap",))
 NETSYNC_S165_CAPS = frozenset(("worldfollow",))
 #: [ff9mapkit netsync s166] The world walk rung (its calibration, the deployed s165 engine, is ``caps_through("worldfollow")``).
 NETSYNC_S166_CAPS = frozenset(("worldwalk",))
+#: [ff9mapkit netsync s166] THE WIRE BY STAGE (S166-DESIGN.md decision 2: NetSyncWire.Version 14 -> 15, alone in round A): the version
+#: byte the stand-in's engine publishes as `netsync.wire` (AppendRing's `wire`, the live constant). The s166 PATCH carries the bump, so
+#: the `worldwalk` rung -- the s166 patch's rung -- speaks 15 and every rung before it 14 (s98's ring onward). The deployed A0 / A0b
+#: builds (worldwalk's first two pieces, v14) are intermediate DLLs with no patch: the in-game probe reads their 14, never this table.
+#: A test keys its pin on the stage it reads (the live stack's NetSyncWire.Version, or these caps), never on a bare constant.
+NETSYNC_WIRE_V14, NETSYNC_WIRE_V15 = 14, 15
+
+
+def netsync_wire(caps, pieces=None) -> int:
+    """[ff9mapkit netsync s166] The wire version an engine with these capabilities speaks: 15 from the s166 rung (``worldwalk``),
+    else 14. ``pieces`` (round A's on that rung; None = the newest, FAKE_WORLD_WALK_PIECES): the deployed A0 / A0b BUILDS, which
+    carry no A2 (``FAKE_WORLD_WALK_A0_BUILD``, ``FAKE_WORLD_WALK_A0B_BUILD``), still speak 14 -- A2 is the bump."""
+    pieces = FAKE_WORLD_WALK_PIECES if pieces is None else tuple(pieces)
+    return NETSYNC_WIRE_V15 if "worldwalk" in caps and "a2" in pieces else NETSYNC_WIRE_V14
+
+
 #: [ff9mapkit netsync B4] The battle sub-verbs in the order the agent PRINTS them: s106 inserted `bbench` before
 #: `endbench`, so the list is not the patch order (:func:`netsync_subverbs`). [ff9mapkit netsync s133] `actbench` appends.
 #: [ff9mapkit netsync s139] ...and `selfdress` after it (the agent's refusal literal; the driver keys it on its own table,
@@ -723,7 +744,8 @@ NETSYNC_TOP_CAP_KEYS = {"grace": ("session",), "menurefusal": ("menu_refusal",),
                         "ate": ("ate",),                         # [ff9mapkit netsync s161] ...and `ate` after `chest`
                         "speed": ("speed",),                     # [ff9mapkit netsync s163] ...and `speed` after `ate`
                         "swap": ("swap",),                       # [ff9mapkit netsync s164] ...and `swap` after `speed`
-                        "worldfollow": BW.NETSYNC_TOP_KEYS_S165}   # [ff9mapkit netsync s165] ...and `saveguard`, `host` after `swap`
+                        "worldfollow": BW.NETSYNC_TOP_KEYS_S165,   # [ff9mapkit netsync s165] ...and `saveguard`, `host` after `swap`
+                        "worldwalk": BW.NETSYNC_TOP_KEYS_S166}     # [ff9mapkit netsync s166] A2: ...and `wire_peer` after `host`
 #: [ff9mapkit netsync s145] The blocks a capability adds INSIDE an older TOP-LEVEL `netsync` block, by that block: s145's `dio`,
 #: `netsync.world`'s last (AppendWorldDio, after `waitline`)
 NETSYNC_TOP_NESTED_KEYS = {"worlddio": {"world": ("dio",)},
@@ -1830,9 +1852,12 @@ WORLD_WALK_FAULTS = ("walk_proof_fail", "kitcell_leak", "kitcell_sid0_only", "ki
                      "pairpull_early", "pairpull_unarmed", "pairpull_lever_ignored",   # [ff9mapkit netsync s166] A0b
                      "chord_gate_open")
 #: [ff9mapkit netsync s166] round A's pieces on the `worldwalk` rung (``FakeGame.world_walk_pieces``): the default is the newest engine;
-#: the A0 BUILD (af1f9e02: the control-off kit-cell close alone) is A0b's OLD -- no `pairpull` key or op, s165's term 3, no arm
-FAKE_WORLD_WALK_PIECES = ("a0", "a0b")
+#: the A0 BUILD (af1f9e02: the control-off kit-cell close alone) is A0b's OLD -- no `pairpull` key or op, s165's term 3, no arm.
+#: "a2" is W1's engine (A1's pure core, inert, and A2's WIRE v15: NetSyncWire.Version 15 and `netsync.wire_peer`, netsync's LAST key);
+#: the deployed A0b BUILD has neither -- it speaks wire 14
+FAKE_WORLD_WALK_PIECES = ("a0", "a0b", "a2")
 FAKE_WORLD_WALK_A0_BUILD = ("a0",)
+FAKE_WORLD_WALK_A0B_BUILD = ("a0", "a0b")
 #: [ff9mapkit netsync s166] THE PAIRING WINDOW's knobs (``FakeGame.pairing_window``, opt-in: None = unmodelled -- every earlier test reads as
 #: before, and the pull's term reads the window as RESOLVED, the common case: a free-standing guest writes at the rise): the install's
 #: [SaveFile] DisableAutoSave, the stock ladder's refusal at the entry and live (a no-save beat; AutoSaveOnlyAtMoogle off a moogle
@@ -6262,7 +6287,9 @@ class FakeGame:
                 doc["swap"] = self._swap_doc()          # [ff9mapkit netsync s164] ...and `swap`
             if "worldfollow" in caps:
                 doc["saveguard"] = self._wfo_saveguard_doc()   # [ff9mapkit netsync s165] ...and `saveguard`
-                doc["host"] = self._wfo_host_world_doc()       # ...and `host`, the LAST key
+                doc["host"] = self._wfo_host_world_doc()       # ...and `host`
+            if "worldwalk" in caps and self._wwk_a2():
+                doc["wire_peer"] = self._wire_peer_doc()       # [ff9mapkit netsync s166] A2: ...and `wire_peer`, the LAST key
             return doc
         if ns["wait_armed"]:
             ns["wait_ms"] = int((self.frame - self._wait_since_frame) * 1000 / self.fps)
@@ -6273,10 +6300,12 @@ class FakeGame:
 
     def _ring_doc(self) -> dict:
         """[ff9mapkit netsync F3.3] AppendRing: the guest's view of section 7 (-1 = absent: no section on the lane, not
-        baselined, no epoch seen) and the bench host's levers. `wire` is the engine's constant (NetSyncWire.Version)."""
+        baselined, no epoch seen) and the bench host's levers. `wire` is the engine's constant (NetSyncWire.Version) --
+        [ff9mapkit netsync s166] by STAGE (:func:`netsync_wire`: 15 from the s166 rung, else 14)."""
         g, b = self._guest, self._bench
         v = g.view if g.view_valid else None
-        return {"wire": 14, "epoch": g.epoch if g.epoch_have else -1, "head_seq": v["head"] if v else -1,
+        return {"wire": self.netsync_wire_now(),                     # [ff9mapkit netsync s166] by stage, never a constant
+                "epoch": g.epoch if g.epoch_have else -1, "head_seq": v["head"] if v else -1,
                 "last_seen": g.last_seen if g.baselined else -1, "gaps": g.gaps,
                 "heartbeat": v["hb"] if v else -1, "host_stalled": g.stalled, "host_flags": v["flags"] if v else -1,
                 "host_open": [{"win": o["win"], "text": o["text"], "cursor": -1 if o["cursor"] is None else o["cursor"],
@@ -8494,6 +8523,24 @@ class FakeGame:
     # NotePairingAtArm / NoteColdEntry, through battlewire's twins of its pure verdicts), opt-in (``pairing_window``) on every s154+ rung;
     # the start gate's term 3 over its own state (BW.pairing_save_pending: open, nothing written, no durable decline); the landing's arm;
     # the lever and its release. Faults: WORLD_WALK_FAULTS (pairpull_*).
+    # -- [ff9mapkit netsync s166] WORLD WALK, ROUND A, PIECES A1 + A2 -- WIRE v15 (decisions 2-3; A1 is inert: no key, no line) ---------
+    # The ENGINE's facts: NetSyncWire.Version 15 (`netsync.wire`, :meth:`netsync_wire_now`) and `netsync.wire_peer` as netsync's LAST key at
+    # the catch line's sentinels (BW.WIRE_PEER_SENTINELS). WHAT IT CANNOT: a peer of another wire (every peer of the stand-in speaks its own
+    # wire, so `rejected`, `lines`, `mismatch` and the ages stay at rest) and the peer's type-0 shape in `rx` (the stand-in's trailer model is
+    # the next workflow's) -- `rx` reads its sentinels.
+    def _wwk_a2(self) -> bool:
+        """Pieces A1 + A2 are on this stand-in: the `worldwalk` rung and "a2" among its pieces (the A0 / A0b builds speak wire 14)."""
+        return self._wwk_on() and "a2" in tuple(self.world_walk_pieces or ())
+
+    def netsync_wire_now(self) -> int:
+        """[ff9mapkit netsync s166] The wire this stand-in's engine speaks (`netsync.wire`): its rung's and pieces' (:func:`netsync_wire`)."""
+        return netsync_wire(self.netsync_caps, self.world_walk_pieces)
+
+    @staticmethod
+    def _wire_peer_doc() -> dict:
+        """`netsync.wire_peer` (HarnessAgent.AppendWirePeer) at rest: nothing refused, no rx shape modelled."""
+        return dict(BW.WIRE_PEER_SENTINELS, rx=dict(BW.WIRE_PEER_RX_SENTINELS))
+
     def _wwk_a0b(self) -> bool:
         """Piece A0b is on this stand-in: the `worldwalk` rung and A0b among its pieces (the A0 build has neither key nor op)."""
         return self._wwk_on() and "a0b" in tuple(self.world_walk_pieces or ())

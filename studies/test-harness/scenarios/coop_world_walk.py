@@ -1362,11 +1362,12 @@ def _pair(g, led: cb.Ledger, ctx) -> None:
     conn = ctx.peer.wait_for(pb.PEER["guest_connected"], wf.DIAL_S, tick=lambda: cw._sample(g, ctx)) if up else None
     start = ctx.peer.wait_for(pb.PEER["replay_start"], 10.0, tick=lambda: cw._sample(g, ctx)) if conn else None
     relay = pb.hits(ctx.eng.lines(), "relay_up", pred=lambda m: m.group(3) == "guest" and m.group(2) == wf.CODE)
+    wire = pb.wire_gate(ctx.peer, pb.probe_wire(g)) if start else (False, "no replay start")   # [ff9mapkit netsync s166] THE LIVE HEADER
     m = pb.PEER["replay_start"].search(start[1]) if start else None
     ctx.t0 = float(m.group(1)) if m else None
     at_from = ctx.t0 is not None and abs(ctx.t0 - PAIR_FROM_S) <= 0.5
-    ok = up is not None and conn is not None and start is not None and bool(relay) and at_from
-    led.check("T2-PEER", ok, f"config: {pb.show(cfg, 1)}; peer: {up[1] if up else 'never listened'} / "
+    ok = up is not None and conn is not None and start is not None and bool(relay) and at_from and wire[0]
+    led.check("T2-PEER", ok, f"wire: {wire[1]}; config: {pb.show(cfg, 1)}; peer: {up[1] if up else 'never listened'} / "
                              f"{conn[1] if conn else 'no guest'} / {start[1] if start else 'no replay start'} (want tape "
                              f"{PAIR_FROM_S:g} s); engine: {pb.show(relay, 1)}; {lever_note}")
     if not ok:

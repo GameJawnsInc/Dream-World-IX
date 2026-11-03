@@ -995,10 +995,11 @@ def test_the_world_battle_one_shot_drops_stale_and_on_the_worlds_own_result(tmp_
 
 
 # ------------------------------------------------------------------------------------------------ the keys, the accessors
-def _agent_nothing() -> dict:
-    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
-    head = net_lines("HarnessAgent.cs", r'NetsyncF3Retired = "')
-    tail = net_lines("HarnessAgent.cs", r'\+ "\\"align_win')
+def _agent_nothing(patches=None) -> dict:
+    """The catch line's `netsync` object as the LIVE stack leaves it -- or (``patches``, a list of patch bytes) as those patches do."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', patches)
+    head = net_lines("HarnessAgent.cs", r'NetsyncF3Retired = "', patches)
+    tail = net_lines("HarnessAgent.cs", r'\+ "\\"align_win', patches)
     a, b = _LIT.findall(catch[0])
     pinned = "".join(_LIT.findall(head[0]) + _LIT.findall(tail[0]))
     return json.loads("{" + (a + pinned + b).replace('\\"', '"') + "}")["netsync"]
@@ -1400,8 +1401,8 @@ def test_the_stand_in_publishes_the_s165_keys_at_their_shapes(tmp_path):
         g.warp(6603)
         st = g.state
         # [ff9mapkit netsync s166] the prefix law: s165's eight unmoved, then s166's `kitcell` and A0b's `pairpull`
-        # (tests/test_coop_world_walk.py)
-        assert list(st.netsync)[-3:] == ["swap", "saveguard", "host"] and list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166B)
+        # (tests/test_coop_world_walk.py) -- and A2's `wire_peer` after `host`, netsync's LAST key
+        assert list(st.netsync)[-4:] == ["swap", "saveguard", "host", "wire_peer"] and list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166B)
         w = st.netsync["world"]
         for key, want in (("r3", CONTRACT_WORLD_R3), ("out", CONTRACT_WORLD_OUT), ("host", CONTRACT_WORLD_HOST),
                           ("dot", CONTRACT_WORLD_DOT)):
@@ -1925,11 +1926,21 @@ def _s165_text(file_name: str) -> str:
     return "\n".join(out)
 
 
+def _through_s165() -> list:
+    """[ff9mapkit netsync s166] The live stack's patch bytes THROUGH the s165 patch (dead patches skipped): the s165 engine, whatever
+    later rounds sit above it on this branch's stack."""
+    names = [nm for nm in msr.stack() if nm not in msr.DEAD]
+    last = max(i for i, nm in enumerate(names) if nm.startswith("s165-"))
+    return [(msr.PATCHES / nm).read_bytes() for nm in names[:last + 1]]
+
+
 def _s165_catch() -> dict:
-    """The netsync-off catch literal's `netsync` object as the s165 engine writes it (the live stack's, or the clone's file)."""
+    """The netsync-off catch literal's `netsync` object as the s165 engine writes it (the stack THROUGH s165, or the clone's file).
+    [ff9mapkit netsync s166] Never the whole live stack: s166 appends `wire_peer` after `host` and `kitcell` / `pairpull` inside `world`,
+    and this is s165's contract."""
     kind, _root = _s165_source()
     if kind == "stack":
-        return _agent_nothing()
+        return _agent_nothing(_through_s165())
     lines = _s165_text("HarnessAgent.cs").split("\n")
     catch = [ln for ln in lines if re.search(r'outer\.Append\("\\"netsync\\":\{\\"enabled', ln)]
     head = [ln for ln in lines if 'NetsyncF3Retired = "' in ln]

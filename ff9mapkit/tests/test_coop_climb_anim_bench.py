@@ -251,6 +251,19 @@ def test_the_sender_judge_reads_coop_peers_own_edge_lines():
     assert not J.judge_sender([on, "12:00:02 " + CP.HOST_NO_TRAILER_LINE.format(n=37)])[0]
 
 
+def test_the_sender_judge_takes_39_bytes_or_more_carrying_the_s157_bytes():
+    """[ff9mapkit netsync s166] RE-KEYED from "exactly 39 B": decision 4's world trailer rides type 0 on fields too, after the same
+    39 bytes, so a v15 host's first edge reads 94 B -- still the s157 frame bytes. A count under 39 (never written by coop_peer, but
+    the judge reads a number now) and a malformed count fail; the stop edge still fails."""
+    v15 = "12:00:01 " + CP.HOST_TRAILER_LINE.format(n=CP.POS_V15_LEN, f=3, fn=12)
+    assert CP.POS_V15_LEN == 94 and J.judge_sender(["host pos: field 207 (was none)", v15])[0]
+    assert J.s157_edge_bytes(CP.HOST_TRAILER_LINE.format(n=94, f=0, fn=0)) == 94
+    assert J.s157_edge_bytes(CP.HOST_NO_TRAILER_LINE.format(n=37)) is None
+    assert not J.judge_sender(["12:00:01 host type-0: 38 B -- the s157 frame bytes (frame 0 of 0)"])[0]
+    assert not J.judge_sender(["12:00:01 host type-0: x B -- the s157 frame bytes (frame 0 of 0)"])[0]
+    assert not J.judge_sender([v15, "12:00:02 " + CP.HOST_NO_TRAILER_LINE.format(n=37)])[0]
+
+
 _REC_CHILD = r'''
 import importlib.util, json, sys, types
 tools, kit, scen = sys.argv[1:4]

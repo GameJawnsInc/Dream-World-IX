@@ -158,6 +158,9 @@ class StubReplay(_Peer):
         _h, recs, _torn = CP.read_tape(self.args[0])
         frames = [(r, w, p) for r, w, p in CP.host_frames(recs) if stop is None or r.t <= stop]
         t0 = frames[0][0].t
+        _w = f.netsync_wire_now()   # [ff9mapkit netsync s166] what replay-host logs before REPLAY start (the stand-in's own wire)
+        _send, _how = CP.replay_send_wire("auto", _w, CP.tape_wire(recs))
+        self._say(CP.GUEST_WIRE_LINE.format(guest=_w, send=_send, how=_how))
         self._say(f"REPLAY start: tape {t0:.2f} s -> now; {len(frames)} host frame(s) up to tape "
                   f"{stop if stop is not None else frames[-1][0].t:.2f} s")
         wall0, field, flags, story, first = time.time(), None, -1, None, True

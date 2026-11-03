@@ -26,7 +26,7 @@ import sys
 
 import pytest
 
-from ._patchstack import msr
+from ._patchstack import msr, stack_file
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tools"))
@@ -295,7 +295,8 @@ def test_the_s166_rung_is_the_ladders_last():
     assert FG.NETSYNC_SUBVERBS[-2] == Session.NETSYNC_SUBVERBS[-2] == "worldfollow"
     assert "worldwalk" not in FG.netsync_subverbs(FG.caps_through("worldfollow"))
     assert Session.NETSYNC_WORLDWALK_SUBVERBS["worldwalk"][:3] == ("coop_world_walk", "netsync.world.kitcell", "s166")
-    assert "worldwalk" not in FG.NETSYNC_TOP_CAP_KEYS                     # no top-level netsync key in A0
+    # no top-level netsync key in A0 or A0b; [ff9mapkit netsync s166] A2 (the same rung) appends `wire_peer`, netsync's LAST key
+    assert FG.NETSYNC_TOP_CAP_KEYS["worldwalk"] == BW.NETSYNC_TOP_KEYS_S166 == ("wire_peer",)
     # [ff9mapkit netsync s166] A0b grows the SAME rung (one patch): `pairpull` after `kitcell`
     assert FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"] == {"world": ("kitcell", "pairpull")} and FG.NETSYNC_BATTLE_CAP_KEYS["worldwalk"] == {}
     assert FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldwalk"] == tuple(BW.WORLD_SENTINELS_S166B)
@@ -1119,9 +1120,15 @@ def _s166_patch():
 
 def _s166_text(file_name: str) -> str:
     """The s166 post-image of ``file_name``: the patch's hunks (context and added lines) on the stack, the whole file in a clone named
-    by FF9_S166_CLONE that carries the s166 tag; else the pin SKIPS (the engine lane is mid-build)."""
+    by FF9_S166_CLONE that carries the s166 tag; else the pin SKIPS (the engine lane is mid-build). [ff9mapkit netsync s166] On the stack a
+    file the stack CREATES (every Memoria/Netsync/*.cs) reads WHOLE, as the stack builds it (tests/_patchstack.stack_file) -- a pin that
+    reads an earlier round's line no s166 hunk touches (s154's pairing verdicts) must find it there exactly as in the clone."""
     blob = _s166_patch()
     if blob is not None:
+        try:
+            return "\n".join(stack_file(file_name))
+        except AssertionError:
+            pass                                    # a file the stack does not create (HarnessAgent.cs's base is stock): the hunks
         out = []
         for path, sec in msr.sections(blob):
             if path and path.replace("\\", "/").rsplit("/", 1)[-1] == file_name:
@@ -1790,6 +1797,9 @@ class StubReplay(pb.PeerProc):
         _h, recs, _torn = CP.read_tape(self.args[0])
         frames = [x for x in CP.host_frames(recs) if frm is None or x[0].t >= frm]
         t0 = frames[0][0].t if frm is None else frm
+        _w = f.netsync_wire_now()   # [ff9mapkit netsync s166] what replay-host logs before REPLAY start (the stand-in's own wire)
+        _send, _how = CP.replay_send_wire("auto", _w, CP.tape_wire(recs))
+        self._say(CP.GUEST_WIRE_LINE.format(guest=_w, send=_send, how=_how))
         self._say(f"REPLAY start: tape {t0:.2f} s -> now; {len(frames)} host frame(s) up to tape {frames[-1][0].t:.2f} s")
         wall0, field, flags, story, first = time.time(), None, -1, None, True
         for r, w, p in frames:

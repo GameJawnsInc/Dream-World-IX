@@ -490,6 +490,9 @@ class StubReplay(_Peer):
         t_enter = next((r.t for r, w, p in frames if w == CP.TYPE_POS and (CP.parse_pos_payload(p) or {}).get("field") == 300),
                        None)
         intent_due = t_enter - float(self.intent_lead) if self.intent_lead and t_enter is not None else None
+        _w = f.netsync_wire_now()   # [ff9mapkit netsync s166] what replay-host logs before REPLAY start (the stand-in's own wire)
+        _send, _how = CP.replay_send_wire("auto", _w, CP.tape_wire(recs))
+        self._say(CP.GUEST_WIRE_LINE.format(guest=_w, send=_send, how=_how))
         self._say(f"REPLAY start: tape {t0:.2f} s -> now; {len(frames)} host frame(s) up to tape {frames[-1][0].t:.2f} s")
         wall0, field, flags, story, first = time.time(), None, -1, None, True
         nonce, last_bt, ready, lane, said = None, -99.0, False, False, None

@@ -14666,3 +14666,42 @@ def coop_off_ramp_hands_over(armed_here: bool, enabled: bool, ramp_pending: bool
     """The hand-over's rule, as LandWorldOut has it: only inside the landing's own arm (a real guest pulled out under `pairpull act`), when
     co-op is off and no exit ramp is pending yet -- a mirroring guest's ramp was ApplyConfigChange's (s165), and a pending one stands."""
     return bool(armed_here) and not enabled and not ramp_pending
+
+
+# ======================================================================================================================================
+# [ff9mapkit netsync s166] A2 -- WIRE v15 (studies/world-coop/S166-DESIGN.md decisions 2-3; the engine's NetSyncWire.Version 15,
+# NetSyncWirePeer, HarnessAgent.AppendWirePeer). The wire itself (the header, the type-0 record, decision 4's trailer) is coop_peer's codec;
+# these are the AGENT's key and the engine's lines about the peer's wire, as the s166 patch writes them.
+# ---- the key: `netsync.wire_peer`, netsync's LAST key (after s165's `host`), published in every role -- the catch literal's sentinels.
+# rejected / quiet_redials monotonic per PROCESS (read DELTAS); last_version -1 = none yet; the two ages -1 = never; `words` the owner line
+# while `mismatch` (WireMismatchRule: a refused frame inside 5 s and no frame of my own wire since); `rx` the peer's last type-0 shape while
+# GetRemote is Valid (len 39 = no trailer, 94 = fmt 1; kind "absent" | "tfmt0" | "short" | "fmt1"; caps 0 = capless), else these sentinels
+NETSYNC_TOP_KEYS_S166 = ("wire_peer",)
+WIRE_PEER_RX_SENTINELS = {"len": -1, "kind": None, "fmt": -1, "caps": -1, "place": -1, "arrival_age_ms": -1}
+WIRE_PEER_SENTINELS = {"rejected": 0, "last_version": -1, "lines": 0, "rejected_age_ms": -1, "mine_age_ms": -1, "mismatch": False,
+                       "words": None, "quiet_redials": 0, "rx": dict(WIRE_PEER_RX_SENTINELS)}
+#: the trailer kinds `rx.kind` spells (NetSyncWorldWalk.KindName; coop_peer.trailer_kind spells them the same)
+WIRE_PEER_KINDS = ("absent", "tfmt0", "short", "fmt1")
+#: the owner line while the peer's wire differs (NetSyncWorldWalk.LineWireMismatch; exposed in A2, drawn from A3)
+WORDS_WIRE_MISMATCH = "Your partner's co-op version doesn't match yours: update both games."
+#: the transports the own-wire line names (NetSyncClient, right after _socket.Start(): the relay URL wins, else the TCP role)
+OWN_WIRE_TRANSPORTS = ("the relay", "tcp (host)", "tcp (client)")
+
+
+def log_own_wire(transport: str, own: int, caps: int) -> str:
+    """Every transport start's line (NetSyncWorldWalk.OwnWireLine behind "[NetSync] "): the wire this engine speaks and its caps word."""
+    return (f"[NetSync] own wire: this engine speaks wire {int(own)} (caps 0x{int(caps) & 0xFFFF:04X}) on {transport} -- the partner's "
+            "engine must speak the same")
+
+
+def log_peer_wire(peer: int, own: int) -> str:
+    """NetSyncWirePeer.NoteRefused's line, once per PROCESS and peer version (never per link: TCP redials every 2 s)."""
+    return f"[NetSync] the partner's engine speaks wire {int(peer)}, this one speaks {int(own)} -- update both machines"
+
+
+#: the anchored readings of the two lines (a bench greps them in Memoria.log): own -> (wire, caps hex, transport); peer -> (peer, own)
+OWN_WIRE_RE = (r"\[NetSync\] own wire: this engine speaks wire (\d+) \(caps 0x([0-9A-F]{4})\) on (the relay|tcp \(host\)|tcp \(client\)) "
+               r"-- the partner's engine must speak the same")
+PEER_WIRE_RE = r"\[NetSync\] the partner's engine speaks wire (\d+), this one speaks (\d+) -- update both machines"
+#: TCP's redial dedupe sums its quiet cycles in one line before the next line said
+LOG_TCP_REDIAL_QUIET = "[NetSync] tcp redial: "

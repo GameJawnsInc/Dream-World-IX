@@ -667,7 +667,43 @@ PEER = {
     "tape_nonce": re.compile(r"^tape ([\d.]+): host battle nonce (\d+) \(map (\d+), pattern (\d+)\) on the wire$"),
     "tape_field": re.compile(r"^tape ([\d.]+): host field (.+?) -> (\d+)"),
     "lag": re.compile(r"^replay running ([\d.]+) s late at tape ([\d.]+)"),
+    # [ff9mapkit netsync s166] THE LIVE HEADER VERSION: replay-host's line (coop_peer.GUEST_WIRE_LINE), logged once it knows what
+    # the guest speaks, BEFORE REPLAY start -- and the fake guest's (coop_peer.HOST_WIRE_LINE) once it knows what the host speaks
+    "guest_wire": re.compile(r"^guest header: wire (\d+|none) -- the replay sends wire (\d+) \((.*)\)$"),
+    "host_wire": re.compile(r"^host header: wire (\d+) -- this fake guest sends wire (\d+) \((.*)\)$"),
 }
+
+
+def probe_wire(g):
+    """[ff9mapkit netsync s166] The game's published ``netsync.wire`` (State.dialogue_wire) off the harness's latest sample; None
+    when there is no sample yet or the engine publishes none (the gate then compares the two header versions alone)."""
+    try:
+        wire = getattr(getattr(g, "state", None), "dialogue_wire", None)
+    except Exception:                                      # noqa: BLE001 -- a probe read never ends a leg
+        return None
+    return wire if isinstance(wire, int) else None
+
+
+def wire_gate(peer, probe=None, *, side: str = "guest") -> tuple:
+    """[ff9mapkit netsync s166] EVERY T2 LEG ASSERTS THE LIVE HEADER VERSION BEFORE JUDGING (S166-DESIGN.md "Tapes"): a v15 guest
+    drops every frame of an unrestamped v14 tape and reads "never pairs" -- a red easy to misread as a regression. -> ``(ok,
+    detail)``: ``ok`` when coop_peer's own wire line is on its log (``side`` "guest": replay-host's GUEST_WIRE_LINE; "host": the
+    fake guest's HOST_WIRE_LINE), the game's header version equals the version coop_peer sends, and -- when the harness probe is
+    given (``probe``: the game's published ``netsync.wire``, State.dialogue_wire; None = not read) -- the probe equals it too.
+    A missing line is a red: the instrument never learnt what the game speaks."""
+    found = peer.first(PEER["guest_wire" if side == "guest" else "host_wire"])
+    if found is None:
+        return False, (f"no {side}-header wire line on the peer log -- the instrument never learnt what the game speaks "
+                       f"(probe netsync.wire {probe!r})")
+    m = found[2]
+    game = None if m.group(1) == "none" else int(m.group(1))
+    send = int(m.group(2))
+    ok = game is not None and game == send and (probe is None or probe == game)
+    why = (f"the game's header speaks wire {game if game is not None else 'none'}, coop_peer sends {send} ({m.group(3)})"
+           + ("" if probe is None else f", the probe's netsync.wire {probe}"))
+    if not ok:
+        why = "WIRE MISMATCH, NOT A REGRESSION: " + why + " -- this leg cannot judge (relaunch both on one build, or pass --wire)"
+    return ok, why
 
 
 # ======================================================================================== the engine log
