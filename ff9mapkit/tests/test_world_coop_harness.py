@@ -1312,11 +1312,13 @@ def test_the_s165_contract_is_battlewires_to_the_key():
 
 def test_the_s165_rung_is_the_ladders_last():
     """`worldfollow` is the ladder's newest rung (patch s165, one sub-verb), its calibration caps_through("swap"); the sub-verb is the
-    driver's and the stand-in's LAST; the keys tables carry its blocks."""
+    driver's and the stand-in's LAST; the keys tables carry its blocks. [ff9mapkit netsync s166] ...LAST until s166's `worldwalk` rung
+    joined after it (tests/test_coop_world_walk.py pins that one)."""
     rungs = list(FG.NETSYNC_BATTLE_CAPS)
-    assert rungs[-1] == "worldfollow" and FG.NETSYNC_BATTLE_CAPS["worldfollow"] == ("s165", ("worldfollow",))
+    assert rungs[rungs.index("worldfollow") + 1:] == ["worldwalk"]                     # [ff9mapkit netsync s166] then `worldwalk`
+    assert FG.NETSYNC_BATTLE_CAPS["worldfollow"] == ("s165", ("worldfollow",))
     assert FG.NETSYNC_S165_CAPS == frozenset(("worldfollow",)) and "worldfollow" not in FG.caps_through("swap")
-    assert FG.NETSYNC_SUBVERBS[-1] == Session.NETSYNC_SUBVERBS[-1] == Session.NETSYNC_AUTHORITY_SUBVERBS[-1] == "worldfollow"
+    assert FG.NETSYNC_SUBVERBS[-2] == Session.NETSYNC_SUBVERBS[-2] == Session.NETSYNC_AUTHORITY_SUBVERBS[-2] == "worldfollow"   # [ff9mapkit netsync s166]
     assert "worldfollow" not in FG.netsync_subverbs(FG.caps_through("swap"))
     assert Session.NETSYNC_WORLDFOLLOW_SUBVERBS["worldfollow"][:3] == ("coop_world_follow", "netsync.world.out", "s165")
     assert FG.NETSYNC_TOP_CAP_KEYS["worldfollow"] == ("saveguard", "host")
@@ -1397,7 +1399,9 @@ def test_the_stand_in_publishes_the_s165_keys_at_their_shapes(tmp_path):
         g.newgame(settle=0)
         g.warp(6603)
         st = g.state
-        assert list(st.netsync)[-3:] == ["swap", "saveguard", "host"] and list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S165)
+        # [ff9mapkit netsync s166] the prefix law: s165's eight unmoved, then s166's `kitcell` and A0b's `pairpull`
+        # (tests/test_coop_world_walk.py)
+        assert list(st.netsync)[-3:] == ["swap", "saveguard", "host"] and list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166B)
         w = st.netsync["world"]
         for key, want in (("r3", CONTRACT_WORLD_R3), ("out", CONTRACT_WORLD_OUT), ("host", CONTRACT_WORLD_HOST),
                           ("dot", CONTRACT_WORLD_DOT)):

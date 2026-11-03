@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import pathlib
 import sys
 import zipfile
@@ -76,11 +77,38 @@ def test_the_gate_lock_refuses_unless_its_holder_is_provably_dead(tmp_path):
 def test_a_live_pytest_refuses_and_names_itself_but_never_this_process(tmp_path):
     nolock = tmp_path / "none"
     rows = [(10, 1, PYTEST_LINES[0]), (11, 10, PYTEST_LINES[1]), (12, 1, OTHER_LINES[0]), (99, 1, PYTEST_LINES[0])]
-    ref, _ = BG.bench_blockers(lock=nolock, procs=lambda: rows, me=(99, 98))
+    ref, _ = BG.bench_blockers(lock=nolock, procs=lambda: rows, alive=lambda pid: True, me=(99, 98))
     assert len(ref) == 1 and "2 pytest process(es)" in ref[0] and "pid 10:" in ref[0] and "pid 11:" in ref[0], ref
     assert "pid 99" not in ref[0] and "ORPHANED xdist worker" in ref[0], ref
     ref, notes = BG.bench_blockers(lock=nolock, procs=lambda: None, me=(99,))
     assert ref == [] and notes == ["the process probe could not list processes: a live pytest run is unchecked"]
+
+
+def test_an_exited_pytest_still_listed_is_noted_never_refused(tmp_path):
+    """2026-11-02: an xdist worker whose launcher died had EXITED but stayed in the process table (another process held a
+    handle to it) and refused every bench. A listed pytest that is not alive is a note; a live one beside it still refuses."""
+    nolock = tmp_path / "none"
+    rows = [(10, 1, PYTEST_LINES[1]), (11, 1, PYTEST_LINES[0])]
+    ref, notes = BG.bench_blockers(lock=nolock, procs=lambda: rows, alive=lambda pid: False, me=(99,))
+    assert ref == [] and len(notes) == 2 and all("exited pytest process is still listed" in n for n in notes), notes
+    assert "pid 10" in notes[0] and "pid 11" in notes[1], notes
+    ref, notes = BG.bench_blockers(lock=nolock, procs=lambda: rows, alive=lambda pid: pid == 11, me=(99,))
+    assert len(ref) == 1 and "1 pytest process(es)" in ref[0] and "pid 11:" in ref[0] and "pid 10:" not in ref[0], ref
+    assert len(notes) == 1 and "pid 10" in notes[0], notes
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the Windows exited-but-held process entry")
+def test_pid_alive_reads_an_exited_process_held_open_as_dead():
+    """The real probe on a real case: a child that has exited while its Popen still holds the process handle (so the
+    process object -- and OpenProcess -- outlives it) is not alive; this process is."""
+    import subprocess
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    try:
+        child.wait(timeout=60)
+        assert BG.pid_alive(child.pid) is False
+    finally:
+        del child
+    assert BG.pid_alive(os.getpid()) is True
 
 
 def test_the_gate_lock_is_the_main_repos_from_any_checkout():

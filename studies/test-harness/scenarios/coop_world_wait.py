@@ -753,6 +753,10 @@ def judge_probe(st, lines) -> tuple:
     want = R.WORLD_SENTINELS if s145 else R.WORLD_SENTINELS_S144
     if cb.has(st, "netsync.world.out"):
         want = R.WORLD_SENTINELS_S165       # [ff9mapkit netsync s165] an s165 engine: r3 / out / host / dot after `dio` (the prefix law)
+    if cb.has(st, "netsync.world.kitcell"):
+        want = R.WORLD_SENTINELS_S166       # [ff9mapkit netsync s166] an s166 engine: `kitcell` after `dot` (the prefix law)
+    if cb.has(st, "netsync.world.pairpull"):
+        want = R.WORLD_SENTINELS_S166B      # [ff9mapkit netsync s166] A0b: `pairpull` after `kitcell` (the prefix law)
     world = cb.path(st, "netsync.world") or {}
     follow = cb.path(st, "netsync.session.follow")
     keys_ok = (list(world) == list(want)
