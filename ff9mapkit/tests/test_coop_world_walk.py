@@ -1543,7 +1543,8 @@ def test_s166b_byte_identical_for_a_mirroring_guest_the_bench_a_host_and_an_unmo
 
 def test_s166b_the_unarmed_fault_leaves_the_mirror_off_and_s164s_gate_open(tmp_path):
     """`pairpull_unarmed`: the landing arms nothing -- mirroring false, no ARMED line, `arms` +0 -- and under R4's DRY lever the pick is
-    a would-save (s164's own gate, the mirror, would have let it through); the shipping stand-in's same pick is refused by it."""
+    a would-save (s164's own gate, the mirror, would have let it through); on the shipping stand-in the ARMED guest's chord is refused
+    ahead of the menu (BW.save_chord_refused: menu_refusal.now 'audible'), so R4 counts nothing at all."""
     for fault in ((), ("pairpull_unarmed",)):
         root = _game(tmp_path / ("unarmed" if fault else "armed"))
         fake = _pfake(root, faults=fault)
@@ -1555,11 +1556,35 @@ def test_s166b_the_unarmed_fault_leaves_the_mirror_off_and_s164s_gate_open(tmp_p
             assert st.session_mirroring is (not fault) and st.world_pairpull_block["arms"] == (0 if fault else 1)
             g.worldfollow("saveguard", "old")
             sg0 = dict(g.state.saveguard_block)
+            assert (g.state.raw.get("netsync") or {}).get("menu_refusal", {}).get("now") == ("open" if fault else "audible")
             g.savemenu()
             g.wait_frames(6)
             sg1 = dict(g.state.saveguard_block)
             dr, dw = sg1["refused"] - sg0["refused"], sg1["would_save"] - sg0["would_save"]
-            assert (dr, dw) == ((0, 1) if fault else (1, 0)), (fault, sg0, sg1)
+            assert (dr, dw) == ((0, 1) if fault else (0, 0)), (fault, sg0, sg1)
+
+
+def test_s166b_the_armed_guests_chord_is_refused_ahead_of_r4_on_the_stack():
+    """[ff9mapkit netsync s166] S166-PR-SAVEMENU's derivation, pinned to the patch stack: `savemenu` (s165's HarnessSaveMenu) runs
+    UIKeyTrigger.OnSaveLoadSceneCommandDetected, whose s38 gate buzzes on `!IsMenuControlEnable || IsMirroringStory` before any save
+    menu opens -- so an ARMED guest's pick never reaches R4's counted Save sites. BW.save_chord_refused is that gate; if either line
+    leaves the stack, the row's +0 / +0 must be re-derived."""
+    added, removed = [], []
+    for nm in msr.stack():
+        if nm in msr.DEAD:
+            continue
+        for path, sec in msr.sections((msr.PATCHES / nm).read_bytes()):
+            if path and path.replace("\\", "/").endswith("/UIKeyTrigger.cs"):
+                body = sec.decode("utf-8", "replace").replace("\r\n", "\n").split("\n")
+                added += [ln[1:] for ln in body if ln.startswith("+") and not ln.startswith("+++")]
+                removed += [ln[1:] for ln in body if ln.startswith("-") and not ln.startswith("---")]
+    gate = "if (!uiManager.IsMenuControlEnable || Memoria.Netsync.NetSyncClient.IsMirroringStory)"
+    # s38 adds the gate TWICE -- the party chord and the save chord (OnSaveLoadSceneCommandDetected) -- and no later patch takes it out
+    assert sum(ln.strip() == gate for ln in added) >= 2, "s38's chord gate is gone from the stack (one copy is the party menu's)"
+    assert not any(ln.strip() == gate for ln in removed), "a later patch removes s38's chord gate"
+    assert any(ln.strip() == "OnSaveLoadSceneCommandDetected(uiManager.GetSceneFromState(uiManager.State), SaveLoadUI.SerializeType.Save);"
+               for ln in added), "s165's `savemenu` no longer runs the chord's own path"
+    assert [BW.save_chord_refused(c, m) for c in (True, False) for m in (False, True)] == [False, True, True, True]
 
 
 def test_s166b_the_coop_off_hand_over_rule_reads_the_reviews_fix():
@@ -1977,7 +2002,7 @@ def test_s166b_the_pair_leg_is_green_on_a0b_and_reds_old_and_the_lever_exactly()
     assert "worldwalk pairpull old" in lev["sent"] and "worldwalk clear" in lev["sent"]
 
 
-@pytest.mark.parametrize("fault", ["pairpull_early", "pairpull_unarmed"])
+@pytest.mark.parametrize("fault", ["pairpull_early", "pairpull_unarmed", "chord_gate_open"])
 def test_s166b_each_pairpull_fault_turns_exactly_its_pair_rows_red(pair_tables, fault):
     """A BUSY guest at the pairing (menu control off for 3 wall seconds: the window's write waits): green without a fault (the start
     waits for the write: `pairing_save`), and each fault red in exactly its T2_PAIR_FAULT_REDS rows."""
@@ -2076,15 +2101,25 @@ def test_s166b_the_pure_pair_judges_go_red_on_each_wrong_shape():
                                  [A])[0]
     assert ww.judge_pair_arm(base, wsamp, [A, lg(BW.log_no_pairing(BW.world_landing(9011)))])[0]   # the no-autosave line: SAVE's
     assert not ww.judge_pair_arm(base, [st(ui="WorldHUD", world=9011, block=False, ticks=k) for k in (1, 2)], [A])[0]
-    # SAVEMENU: refused +1 / would_save +0 under the DRY lever; red on a would-save, no reason, a changed sandbox, the HUD lost
-    sg0, files = {"refused": 0, "would_save": 0}, {"SavedData_ww.dat": (1, 64)}
-    assert ww.judge_pair_savemenu(sg0, {"refused": 1, "would_save": 0, "last_why": "a live co-op session"}, files, files, True)[0]
-    assert not ww.judge_pair_savemenu(sg0, {"refused": 0, "would_save": 1, "last_why": "x"}, files, files, True)[0]
-    assert not ww.judge_pair_savemenu(sg0, {"refused": 1, "would_save": 0, "last_why": None}, files, files, True)[0]
-    assert not ww.judge_pair_savemenu(sg0, {"refused": 1, "would_save": 0, "last_why": "x"}, files, {"SavedData_ww.dat": (2, 64)},
-                                      True)[0]
-    assert not ww.judge_pair_savemenu(sg0, {"refused": 1, "would_save": 0, "last_why": "x"}, files, files, False)[0]
-    assert not ww.judge_pair_savemenu(sg0, {}, files, files, True)[0]
+    # SAVEMENU: the chord refused by the mirror -- no menu, +0 / +0, 'audible' and mirroring at the press; red on any count (an unarmed
+    # guest's would-save, an R4 refusal: the pick reached SaveLoadUI), an opened menu, stock's own 'off', no mirror, a changed sandbox,
+    # the HUD lost
+    sg0, files = {"refused": 0, "would_save": 0, "last_why": None, "lever": "old"}, {"SavedData_ww.dat": (1, 64)}
+    press = {"ui": "WorldHUD", "world": 9011, "now": "audible", "mirroring": True, "lever": "old"}
+
+    def sm(sg1=sg0, f1=files, back=True, opened=False, froms=("WorldHUD",), **at):
+        return ww.judge_pair_savemenu(sg0, sg1, files, f1, back, press={**press, **at}, opened=opened, froms=list(froms))[0]
+    assert sm()
+    assert not sm({"refused": 0, "would_save": 1, "last_why": "a live co-op session"}, opened=True)
+    assert not sm({"refused": 1, "would_save": 0, "last_why": "mirroring the host's story"})      # chord_gate_open: R4 reached
+    assert not sm(opened=True)
+    assert not sm(now="off") and not sm(now="open") and not sm(now=None) and not sm(now="dialog")
+    assert not sm(mirroring=False) and not sm(mirroring=None)
+    assert not sm(ui="FieldHUD") and not sm(world=9010) and not sm(lever="act")
+    assert not sm(froms=()) and not sm(froms=("FieldHUD",)) and not sm(froms=("WorldHUD", "WorldHUD"))   # the verb ran once, there
+    assert not sm(f1={"SavedData_ww.dat": (2, 64)}) and not sm(back=False)
+    assert not ww.judge_pair_savemenu(sg0, sg0, None, None, True, press=press, opened=False, froms=["WorldHUD"])[0]
+    assert not ww.judge_pair_savemenu(sg0, {}, files, files, True, press=press, opened=False, froms=["WorldHUD"])[0]
     # the OLD wait: on 6603, why not_mirroring, no start line
     wait = [st(why="not_mirroring"), st(why="not_mirroring")]
     assert ww.pair_old_wait(wait, [W])[0]

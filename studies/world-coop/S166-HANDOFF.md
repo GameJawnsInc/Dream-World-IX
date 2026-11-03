@@ -8,7 +8,7 @@ engine clone. The design is `S166-DESIGN.md`, and the owner took every recommend
 | Piece | What | State |
 |---|---|---|
 | A0 | decision 19, the control-off kit-cell close, on every world map | **deployed + benched**: OLD on s165 measured both hazards; NEW 8/8; the lever reproduces both; s165 solo green. Kit commit `5cbdfd08` |
-| A0b | decision 26, the pairing pull | **deployed `9e4365349fab02b1`**, benches were still running at handoff (see below). Kit **uncommitted at handoff -> committed with this doc** (offline green: 696 passed) |
+| A0b | decision 26, the pairing pull | **deployed `9e4365349fab02b1` + BENCHED**: NEW T2 pair 11/11; LEVER T2 pair exactly OLD's five red, CAL green (the wait measured, 653 samples on 6603); regression green (below). S166-PR-SAVEMENU was a mis-derived row, re-derived (below) |
 | W1 | A1 the pure core + A2 wire v15 + the kit wire lane | script written, **not launched**: `s166-handoff/s166-w1-wf.js` |
 | W2 | A3 sender/cache/lines, A4 the world ghost, the dot from the trailer, their bench rows | not written |
 | W3 | the whole-diff review, the s166 patch emit, the README row, the regression set, the laptop package | not written |
@@ -39,7 +39,21 @@ replayed stack via `py tools/memoria_stack_replay.py snapshot`.
 | s165 follow T2 walk / duo | 11/11, 19/19 |
 | s144 wait T2 wait / T2 rejoin / duo | 8/8, 11/11, 16/16 |
 
-So the only open red is S166-PR-SAVEMENU. Fix it, re-run NEW and LEVER T2 pair, then A0b is benched.
+So the only open red was S166-PR-SAVEMENU. **RESOLVED (the next session): the row was mis-derived, not the engine.** An ARMED
+guest's Alt+F5 is refused AT THE CHORD by s38's spectator gate (`UIKeyTrigger.OnSaveLoadSceneCommandDetected`:
+`!IsMenuControlEnable || IsMirroringStory`), ahead of the save menu, so the pick never reaches R4's counted sites in SaveLoadUI and
+neither counter moves. The old row's "refused +1" assumed the pick reaches SaveLoadUI. Kit-side fix, not weakened:
+- The row now wants no save menu, refused +0 / would_save +0, and the press pinned to the mirror: WorldHUD 9011,
+  `menu_refusal.now` 'audible', mirroring, the DRY lever 'old', and exactly one `savemenu` event from WorldHUD.
+- The route presses Confirm only if the menu opened, and a late-opening menu still counts as opened.
+- The stand-in models the chord gate (`BW.save_chord_refused`) and emits the engine's `savemenu` event.
+- A new fault `chord_gate_open` turns the row red ALONE with every press term green: the row's own calibration.
+- A stack pin holds s38's gate (both copies) and s165's adapter call.
+- A 3-lens adversarial review held; its minor findings went into the fix.
+- Re-bench on `9e4365349fab02b1`: NEW T2 pair 11/11. LEVER T2 pair 7/12, exactly OUT, POSE, ARM, SAVEMENU and REJOIN red,
+  with CAL "no predicted red stayed green, no unpredicted red". **A0b is benched.**
+- Still owed by the kit, pre-existing from s165: the stand-in RAISES off-HUD / without control where the engine buzzes, and it
+  never enters 'Serialize'.
 
 ## First: read A0b's bench results
 

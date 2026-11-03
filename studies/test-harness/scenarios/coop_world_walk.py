@@ -127,9 +127,16 @@ field 0), never mirrored.
   PR-POSE  the landing within POSE_TOL of the TAPE's own pose over the seam bracket, >= FAR_U plain from FS_LANDING (judge_tape_pose)
   PR-ARM   mirroring true on every judged world sample from the landing on; pairpull.arms +1, last_world 9011; the world-form ARMED line
            ONCE (naming 9011) and no field-form one
-  PR-SAVEMENU on the world map, `worldfollow saveguard old` (R4's DRY lever) and the save pick: refused +1, would_save +0 -- under the
-           DRY lever a pick s164's own gate (the mirror, IsMirroringStory) would have let through counts would_save, so this row is
-           the arm's save-side witness (L and S refuse every live guest's save whatever the mirror says); the sandbox unchanged
+  PR-SAVEMENU on the world map, `worldfollow saveguard old` (R4's DRY lever) and Alt+F5 (`savemenu`): the arm's save-side witness. An
+           ARMED guest's chord is refused AHEAD of the menu by s38's mirror gate (UIKeyTrigger.OnSaveLoadSceneCommandDetected:
+           `!IsMenuControlEnable || IsMirroringStory`), so no save menu opens and R4's Save sites are never reached: refused +0 AND
+           would_save +0, pinned to the mirror at the press (WorldHUD 9011, menu_refusal.now 'audible' = menu control on, mirroring,
+           the DRY lever 'old') and the verb's own `savemenu` event (exactly one, from WorldHUD: HarnessSaveMenu always reaches the
+           chord). An UNARMED guest's chord opens the menu and its DRY pick counts would_save +1 (s165's R4-DRY): red; the stand-in's
+           `chord_gate_open` (the chord without the mirror term: R4 reached, refused +1) is red with every press term green -- the
+           row's own calibration. No Confirm is pressed unless the menu opened; a late-opening menu still counts opened. The sandbox
+           unchanged. (A0b's first in-game run read +0/+0 against a refused +1 that assumed the pick reaches SaveLoadUI: re-derived
+           from the engine, not weakened.)
   PR-REJOIN the tape's host enters 300: the guest rejoins 300 from the world map (judge_rejoin_land + the arrival guard's world clause),
            mirroring true, the host's marker 0xA5 on 300, and NO ARMED line since the landing (armed once, there)
   T2-SAVE / T2-INI the finals.
@@ -310,6 +317,7 @@ SOLO_FAULT_REDS = {
     "pairpull_early": (),
     "pairpull_unarmed": (),
     "pairpull_lever_ignored": (),
+    "chord_gate_open": (),                                 # the solo bench never mirrors and never presses the chord
 }
 #: ...and under the entry order with entry 1 FIRST (fakegame.FAKE_WORLD_KIT_ORDER_E1_FIRST): what changes there
 ORDER_FAULT_REDS = {"kitcell_first_read": ("S166-A-KITOFF", "S166-A-FERRYOFF"),
@@ -915,6 +923,7 @@ PAIR_ROOM_S = 40.0        # ...and the tile stand lasts at least this long after
 PAIR_S = 30.0             # the replay's start -> the guest's host cache reading the host's b6 (the dial is already up)
 PAIR_OUT_S = 60.0         # the host's b6 read -> the guest's first judged world sample (the debounce, the fade, the ~4.4 s load)
 PAIR_TOWER_S = 15.0       # the 300 entry anchor's slack (OLD: the wait is measured up to it)
+SAVEMENU_OPEN_S = 2.0     # `savemenu` -> a 'Serialize' sample if the chord opens the menu (s165's solo save leg: 2-32 frames)
 #: the leg's own lever (the calibration on A0b): `worldwalk pairpull old` sent BEFORE the replay, held through the leg
 PAIR_LEVER = "pairpull"
 
@@ -930,8 +939,10 @@ T2_PAIR_CHECKS = {
                     "FS_LANDING; out.last.frame latest / pin",
     "S166-PR-ARM": "the arm at the landing: mirroring true from the first judged world sample on, pairpull.arms +1 with last_world 9011, "
                    "'state-mirror ARMED at world map 9011's landing' ONCE and no field-form ARMED line",
-    "S166-PR-SAVEMENU": "on the world map, `worldfollow saveguard old` (DRY) and the save pick: refused +1, would_save +0 (s164's own "
-                        "gate, the mirror, refuses it -- an unarmed guest reads would_save), a reason, the sandbox's files unchanged",
+    "S166-PR-SAVEMENU": "on the world map, `worldfollow saveguard old` (DRY) and Alt+F5: the CHORD refuses (s38's mirror gate, ahead of "
+                        "the menu) -- no save menu, refused +0 / would_save +0; at the press WorldHUD 9011, menu_refusal.now 'audible', "
+                        "mirroring, the lever 'old', one `savemenu` event from WorldHUD (an unarmed guest opens it: would_save +1), the "
+                        "sandbox's files unchanged",
     "S166-PR-REJOIN": "the tape's host enters 300: the guest rejoins 300 from the world map (lands +1, the landed line, the arrival "
                       "guard's world clause), mirroring true, the host's marker 0xA5 on 300, and NO ARMED line since the landing",
 }
@@ -945,7 +956,10 @@ T2_PAIR_LEVER_PREDICTED = {PAIR_LEVER: T2_PAIR_OLD_PREDICTED}
 T2_PAIR_FAULT_REDS = {"pairpull_early": ("S166-PR-SAVE",),
                       # the unarmed landing arms at 300's field load instead: REJOIN's "no re-arm since the landing" clause sees it
                       "pairpull_unarmed": ("S166-PR-ARM", "S166-PR-SAVEMENU", "S166-PR-REJOIN"),
-                      "pairpull_lever_ignored": ()}          # the lever's own effect: the calibration's (S166-PR-CAL) -- tests pin it
+                      "pairpull_lever_ignored": (),          # the lever's own effect: the calibration's (S166-PR-CAL) -- tests pin it
+                      # the chord without s38's mirror term: the armed press reaches R4 (refused +1) -- SAVEMENU's after-the-press
+                      # clause red ALONE, with every press-state term green (the row's own calibration)
+                      "chord_gate_open": ("S166-PR-SAVEMENU",)}
 
 
 def t2_pair_catalog(calibrate: bool) -> dict:
@@ -1149,17 +1163,31 @@ def judge_pair_arm(base, world_samples, lines, *, world: int = WORLD) -> tuple:
                 "(want 0)")
 
 
-def judge_pair_savemenu(sg0: dict, sg1: dict, files0, files1, hud_back: bool) -> tuple:
-    """S166-PR-SAVEMENU (PURE): under `saveguard old` (DRY) the pick refused by s164's own gate -- the mirror (M) -- so `refused` +1 and
-    `would_save` +0 (an UNARMED guest's pick counts would_save: s164 would have saved it), a reason, the sandbox unchanged, the HUD back."""
+def judge_pair_savemenu(sg0: dict, sg1: dict, files0, files1, hud_back: bool, *, press: dict, opened: bool, froms: list,
+                        world: int = WORLD) -> tuple:
+    """S166-PR-SAVEMENU (PURE): the armed guest's Alt+F5 is refused AT THE CHORD by the mirror -- s38's spectator gate in
+    UIKeyTrigger.OnSaveLoadSceneCommandDetected (`!IsMenuControlEnable || IsMirroringStory`, BW.save_chord_refused), ahead of the save
+    menu -- so the menu never opens (``opened`` False: no 'Serialize' sample, nothing off the HUD to Cancel) and R4's Save sites are never
+    reached: `refused` +0 AND `would_save` +0. The chord's buzz is counted nowhere, so the press is pinned three ways. ``press`` (read just
+    before the verb): ui WorldHUD on ``world``, `menu_refusal.now` 'audible' (= menu control on and mirroring, NetSyncField.MenuKeyStep --
+    not stock's own 'off'), `mirroring` True and the DRY lever 'old'. ``froms``: the agent's `savemenu` events since the press, exactly
+    one, from 'WorldHUD' (the verb RAN: HarnessSaveMenu always reaches the chord). An UNARMED guest's chord opens the menu and its DRY pick
+    counts would_save +1 (s165's R4-DRY); a chord without the mirror term reaches R4 (refused +1): both red. The sandbox unchanged, the
+    HUD back. (Derived from the engine after A0b's NEW T2 pair read +0/+0: its refused +1 assumed the pick reaches SaveLoadUI.)"""
     if not sg1:
         return False, "absent: no `netsync.saveguard`"
     dr = (sg1.get("refused") or 0) - (sg0.get("refused") or 0)
     dw = (sg1.get("would_save") or 0) - (sg0.get("would_save") or 0)
     same = files0 is not None and files0 == files1
-    ok = dr == 1 and dw == 0 and bool(sg1.get("last_why")) and same and hud_back
-    return ok, (f"refused +{dr} (want 1), would_save +{dw} (want 0: the mirror is s164's own gate), last_why {sg1.get('last_why')!r}; "
-                "the sandbox's files " + ("UNCHANGED" if same else ("UNREAD" if files0 is None else "CHANGED")) + f"; back on the HUD {hud_back}")
+    at = (press.get("ui") == "WorldHUD" and press.get("world") == world and press.get("now") == "audible"
+          and press.get("mirroring") is True and press.get("lever") == "old")
+    ran = list(froms) == ["WorldHUD"]
+    ok = at and ran and not opened and dr == 0 and dw == 0 and same and hud_back
+    return ok, (f"at the press ui {press.get('ui')!r} world {press.get('world')} (want WorldHUD {world}), menu_refusal.now "
+                f"{press.get('now')!r} (want 'audible': menu control on, the mirror refuses), mirroring {press.get('mirroring')!r}, lever "
+                f"{press.get('lever')!r} (want 'old'); `savemenu` events {list(froms)} (want ['WorldHUD']); the save menu opened {opened} "
+                f"(want False); refused +{dr} / would_save +{dw} (want +0 / +0: R4 never reached), last_why {sg1.get('last_why')!r}; the "
+                "sandbox's files " + ("UNCHANGED" if same else ("UNREAD" if files0 is None else "CHANGED")) + f"; back on the HUD {hud_back}")
 
 
 def judge_pair_rejoin(samples, base, lines, *, field: int = wf.ICE_CAVERN) -> tuple:
@@ -1423,9 +1451,41 @@ def _pair_rows(g, led: cb.Ledger, ctx) -> None:
     led.check("S166-PR-REJOIN", *judge_pair_rejoin(cw._after(ctx, t_rj), rbase, cb.new(g, r_at)))
 
 
+def _pair_pick(g) -> tuple:
+    """`savemenu` on the paired guest, then -- only if the save menu OPENS (a 'Serialize' sample within SAVEMENU_OPEN_S: an unarmed
+    guest, the chord let through) -- coop_world_follow's Confirm pick until R4 answers, and Cancel back. On an ARMED guest the chord
+    buzzes and nothing opens, so NO Confirm is pressed (on WorldHUD it would be the world script's button); a menu that opens LATE is
+    still counted opened (the Cancel loop finds it), never closed quietly. (state at the press, state after, back on the HUD, opened,
+    the `from` of every `savemenu` event since the press)."""
+    hud = ("WorldHUD", "FieldHUD")
+    st0 = g.state
+    n0 = wf._sg_answers(st0.saveguard_block)
+    ev0 = len(g.channel.events())
+    g.savemenu()
+    hit = cb.poll(g, lambda s: s.ui_state == "Serialize" or wf._sg_answers(s.saveguard_block) > n0, SAVEMENU_OPEN_S, "the save menu")
+    opened = hit is not None and hit.ui_state == "Serialize"
+    if opened:
+        for _ in range(wf.PICK_PRESSES):
+            st = g.state
+            if wf._sg_answers(st.saveguard_block) > n0 or st.ui_state in hud:
+                break                                        # answered, or the menu shut: never a Confirm on the HUD
+            g.press("confirm")
+            g.wait_frames(int(wf.PICK_S * 30))
+    for _ in range(wf.CLOSE_PRESSES):
+        if g.state.ui_state in hud:
+            break
+        opened = True                                        # off the HUD after the press: the menu opened (late or not)
+        g.press("cancel")
+        g.wait_frames(20)
+    st1 = g.state
+    froms = [e.get("from") for e in g.channel.events()[ev0:] if e.get("kind") == "savemenu"]
+    return st0, st1, st1.ui_state in hud, opened, froms
+
+
 def _pair_savemenu(g, record) -> None:
-    """The DRY save pick on the world map (`worldfollow saveguard old`, coop_world_follow's pick, then `saveguard act`): ``record(ok,
-    why)`` with judge_pair_savemenu's verdict -- never on an engine with no sandboxed save path (R4 never opens the owner's slots)."""
+    """The DRY save pick on the world map (`worldfollow saveguard old`, _pair_pick, then `saveguard act`): ``record(ok, why)`` with
+    judge_pair_savemenu's verdict -- never on an engine with no sandboxed save path (R4 never opens the owner's slots). The lever stays
+    DRY so an unarmed guest's opened menu writes no slot."""
     files0 = wf.save_files(g.state)
     if files0 is None:
         record(False, "not reached: no SANDBOXED save path published (R4 never opens a save on the owner's slots)")
@@ -1435,9 +1495,11 @@ def _pair_savemenu(g, record) -> None:
         if not ok:
             record(False, f"`worldfollow saveguard old` refused: {why[:160]}")
             return
-        st0, st1, back = wf._save_pick(g)
+        st0, st1, back, opened, froms = _pair_pick(g)
+        press = {"ui": st0.ui_state, "world": st0.world_id, "now": cb.path(st0, "netsync.menu_refusal.now"),
+                 "mirroring": cb.path(st0, "netsync.session.mirroring"), "lever": (st0.saveguard_block or {}).get("lever")}
         record(*judge_pair_savemenu(dict(st0.saveguard_block or {}), dict(st1.saveguard_block or {}), files0,
-                                    wf.save_files(g.state), back))
+                                    wf.save_files(g.state), back, press=press, opened=opened, froms=froms))
     except HarnessError as err:
         record(False, f"`savemenu` raised: {str(err)[:240]}")
     finally:
@@ -1481,7 +1543,8 @@ DUO_PAIR_CHECKS = {
                        "world x/z (after block_ready + ticks)",
     "S166-D-PAIR-ARM": "mirroring true from the landing on, pairpull.arms +1 / last_world 9011, the world-form ARMED line once, no "
                        "field-form one",
-    "S166-D-PAIR-SAVEMENU": "the DRY save pick refused by the mirror (refused +1, would_save +0), the sandbox unchanged",
+    "S166-D-PAIR-SAVEMENU": "Alt+F5 under the DRY lever refused at the chord by the mirror (no save menu, refused +0 / would_save +0, "
+                            "menu_refusal.now 'audible' at the press), the sandbox unchanged",
     "S166-D-PAIR-REJOIN": "the host Confirms on the tile into 300: the guest rejoins 300 from the world map, mirroring, the host's "
                           "marker on 300, no re-arm",
 }

@@ -14216,6 +14216,13 @@ def save_why_text(live: bool, mirroring: bool, bench: bool, diorama: bool, suppr
     return next((t for t, v in zip(SAVE_WHY_TEXTS, (live, mirroring, bench, diorama, suppress)) if v), None)
 
 
+def save_chord_refused(menu_control_enable: bool, mirroring: bool) -> bool:
+    """[ff9mapkit netsync s166] UIKeyTrigger.OnSaveLoadSceneCommandDetected's own gate on the Alt+F5 chord (s38's spectator gate, AHEAD
+    of the save menu): `!IsMenuControlEnable || IsMirroringStory` buzzes (FF9Sfx 102) and opens nothing, so an ARMED guest's chord
+    never reaches R4's Save sites and counts in neither `refused` nor `would_save` (S166-PR-SAVEMENU's derivation)."""
+    return bool(not menu_control_enable or mirroring)
+
+
 def navi_get_pos(x: float, z: float, mapno: int) -> tuple:
     """ff9.w_naviGetPos (the mode argument unused; it branches on the GUEST's own mapno): mapno 1 the whole torus (x / 1536,
     1 + z / 1280), mapno 0 the disc-1 Mist window -- a host outside it maps outside [0, 1]."""

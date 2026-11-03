@@ -1822,10 +1822,13 @@ FAKE_FERRY_SCENE_END = 720
 #:   "pairpull_unarmed"      the landing never arms the mirror: `mirroring` stays false, no ARMED line, `arms` +0 -- and the save gate s164
 #:                           kept (IsMirroringStory) lets a save through (a DRY `saveguard old` pick counts `would_save`)
 #:   "pairpull_lever_ignored" `pairpull old` does not restore s165's term or stop the arm (the calibration's own fault)
+#:   "chord_gate_open"       the Alt+F5 chord loses s38's mirror term (UIKeyTrigger.OnSaveLoadSceneCommandDetected): an ARMED guest's
+#:                           `savemenu` reaches R4 (refused +1) -- S166-PR-SAVEMENU's after-the-press clause, red with the press state green
 WORLD_WALK_FAULTS = ("walk_proof_fail", "kitcell_leak", "kitcell_sid0_only", "kitcell_first_read", "kitcell_uncounted",
                      "kitcell_last_stale", "kitcell_silent", "kitcell_stock", "kitcell_menu_leak", "kitcell_lever_ignored",
                      "kitcell_lever_stuck",
-                     "pairpull_early", "pairpull_unarmed", "pairpull_lever_ignored")   # [ff9mapkit netsync s166] A0b
+                     "pairpull_early", "pairpull_unarmed", "pairpull_lever_ignored",   # [ff9mapkit netsync s166] A0b
+                     "chord_gate_open")
 #: [ff9mapkit netsync s166] round A's pieces on the `worldwalk` rung (``FakeGame.world_walk_pieces``): the default is the newest engine;
 #: the A0 BUILD (af1f9e02: the control-off kit-cell close alone) is A0b's OLD -- no `pairpull` key or op, s165's term 3, no arm
 FAKE_WORLD_WALK_PIECES = ("a0", "a0b")
@@ -3731,7 +3734,9 @@ class FakeGame:
             self.no_encounter = num(0, 1) != 0
         elif op == "savemenu" and "worldfollow" in self._nb_caps():
             # [ff9mapkit netsync s165] the Alt+F5 save-menu adapter, through the gate stock uses (an s164 agent answers "unknown op")
+            save_from = self.ui_state
             self._savemenu()
+            self._event("savemenu", **{"from": save_from})   # [ff9mapkit netsync s166] HarnessAgent's Event("savemenu", "from", <UIState>)
         elif op == "speedmode" and "speed" in self._nb_caps():
             # [ff9mapkit netsync s163] the F1 booster as a verb, any role (Arg(s, 0, 1): a bare or unparseable value is on); an s162
             # agent answers "unknown op 'speedmode'" (the else below)
@@ -7829,14 +7834,18 @@ class FakeGame:
         self._wfo["bench_intent"] = (seq, int(dest))
 
     def _savemenu(self) -> None:
-        """`savemenu` -- the Alt+F5 save-menu adapter through stock's own gate (the world map or a field, with control), then R4 at
-        the Save site: BW.manual_save_refused over the live terms (the stock buzz, the line, the counter) -- `saveguard old` is DRY:
+        """`savemenu` -- the Alt+F5 save-menu adapter through stock's own gate (the world map or a field, with control) and the
+        chord's (BW.save_chord_refused: menu control off or the mirror buzzes, nothing opens, nothing counts), then R4 at the Save site: BW.manual_save_refused over the live terms (the stock buzz, the line, the counter) -- `saveguard old` is DRY:
         it counts `would_save` where s164's own gate (IsMirroringStory || Booted) would have saved, and still refuses. A save the
         guard lets through opens the menu (the stand-in writes no slot). [ff9mapkit netsync s165] the engine's own counting
         (BW.save_guard_step, NetSyncField.ManualSaveRefusedNow): a dry would-save counts in `would_save` INSTEAD of `refused`, and
         `last_why` is the first refusing term in SaveWhyText's words (BW.save_why_text), the same under either lever."""
         if self.ui_state not in ("WorldHUD", "FieldHUD") or not self.control:
             raise RuntimeError("savemenu: refused (stock's gate: the world map or a field, with control)")
+        mirror_term = bool(self.story_mirroring) and "chord_gate_open" not in self.world_walk_faults
+        if BW.save_chord_refused(self.menu_control_enable, mirror_term):   # [ff9mapkit netsync s166] the chord's own gate: an
+            self.debug_status = "savemenu: the chord buzzed (menu control off or the mirror) -- no save menu"   # armed guest never
+            return                                                                                     # reaches R4 (nothing counted)
         F, w = self.world_follow_faults, self._wfo
         live, mirror = self._live_followed(), bool(self.story_mirroring)
         bench, dio = bool(self._nb_role() and self.netsync["bench"]), bool(self._dio["booted"])
