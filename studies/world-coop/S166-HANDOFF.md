@@ -28,6 +28,19 @@ The snapshots for diffs are in the old session's scratchpad, `C:\Users\skaki\App
 `s166-handoff/s166diff.py` diffs against `s165base`. Edit its `SNAP` if the scratchpad is gone; a fresh snapshot = the
 replayed stack via `py tools/memoria_stack_replay.py snapshot`.
 
+## A0b's bench results (finished after the handoff was written)
+
+| Leg | Result |
+|---|---|
+| NEW T2 pair | 10/11: the pull works; only S166-PR-SAVEMENU red (below) |
+| LEVER T2 pair (`pairpull old`) | 7/12: OUT, POSE, ARM, SAVEMENU, REJOIN red = OLD's set (the wait reproduced) -- check S166-PR-CAL's line in `a0b_lever_t2.log` |
+| A0 solo legs | 8/8 |
+| s165 follow solo out / dot / save | 22/22, 14/14, 10/10 |
+| s165 follow T2 walk / duo | 11/11, 19/19 |
+| s144 wait T2 wait / T2 rejoin / duo | 8/8, 11/11, 16/16 |
+
+So the only open red is S166-PR-SAVEMENU. Fix it, re-run NEW and LEVER T2 pair, then A0b is benched.
+
 ## First: read A0b's bench results
 
 The script `s166-handoff/a0b_new.sh` was running at handoff. It writes one log per leg into the old scratchpad, and
