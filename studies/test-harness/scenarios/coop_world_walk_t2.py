@@ -151,7 +151,9 @@ DETAIL_W = 1400
 # ---- A-WIRE
 WIRE_S = 20.0            # the unrestamped window: the replay's start -> the rows judged (the guest drops every frame)
 WIRE_REJECT_MIN = 20     # ...`wire_peer.rejected` rose at least this much (~30 frames a second)
-WIRE_CLEAR_S = 6.0       # `--wire 15` started -> the mismatch words gone (held 5 s after the last refusal) and a sample after it
+WIRE_CLEAR_S = 6.0       # `--wire 15` started -> the mismatch words gone and a sample after it. [ff9mapkit netsync s166] W3b: the words
+                         # now hold 15 s past the last refusal (WireMismatchHoldMs), longer than this window, so the clear here is the
+                         # matching engine's FIRST FRAME (NoteMine: a 2 s redial cycle + the connect), never the hold aging out
 WIRE_PAIR_S = 30.0       # ...-> paired (the paired line, or mirroring)
 WIRE_WORLD_S = 90.0      # the lever's measure: the paired guest's follow-out -> a judged world sample (its ghost why_not)
 # ---- the ghost oracle

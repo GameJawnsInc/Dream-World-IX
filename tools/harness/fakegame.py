@@ -1856,11 +1856,15 @@ FAKE_FERRY_SCENE_END = 720
 #:   "pairpull_lever_ignored" `pairpull old` does not restore s165's term or stop the arm (the calibration's own fault)
 #:   "chord_gate_open"       the Alt+F5 chord loses s38's mirror term (UIKeyTrigger.OnSaveLoadSceneCommandDetected): an ARMED guest's
 #:                           `savemenu` reaches R4 (refused +1) -- S166-PR-SAVEMENU's after-the-press clause, red with the press state green
+#:   "pairpull_role_armed"   [ff9mapkit netsync s166] W3b S166-G1: the deployed 78dedb5d5cf4e430 landing -- the arm keyed on the LIVE role
+#:                           (no start latch) and the ramp hand-over inside it on co-op off alone: a Role edit to host mid-pull lands the
+#:                           host's story UNMARKED (mirroring false, `arms` +0, no ramp)
 WORLD_WALK_FAULTS = ("walk_proof_fail", "kitcell_leak", "kitcell_sid0_only", "kitcell_first_read", "kitcell_uncounted",
                      "kitcell_last_stale", "kitcell_silent", "kitcell_stock", "kitcell_menu_leak", "kitcell_lever_ignored",
                      "kitcell_lever_stuck",
                      "pairpull_early", "pairpull_unarmed", "pairpull_lever_ignored",   # [ff9mapkit netsync s166] A0b
-                     "chord_gate_open")
+                     "chord_gate_open",
+                     "pairpull_role_armed")                                            # [ff9mapkit netsync s166] W3b S166-G1
 #: [ff9mapkit netsync s166] ...and ROUND A's (A3 + A4), each the stand-in wrong in ONE place:
 #:   "ghost_unwrapped"        the ghost eases with a NAIVE canonical lerp (no torus unwrap): across a seam it sweeps the whole map
 #:   "gap_on_stamp"           the lane's verdict keyed on the seq / stamp (LaneGapKind(seq, seq)): a hung or loading peer reads as a GAP
@@ -1875,7 +1879,7 @@ WORLD_WALK_FAULTS = ("walk_proof_fail", "kitcell_leak", "kitcell_sid0_only", "ki
 #:   "hostlines_lever_ignored" `hostlines off` still decides / logs   "ghost_lever_ignored"    `ghost off|sticky` ignored
 #:   "place_lever_ignored"    `place render` still maps through the slots   "dot_src_lever_ignored"  `dot section0` still reads the trailer
 #:   "wire_peer_dark"         a frame of another wire is never booked (`rejected`, `lines`, `mismatch` stay at rest)
-#:   "wire_words_latched"     a frame of my own wire never clears the mismatch words (they hold the full 5 s)
+#:   "wire_words_latched"     a frame of my own wire never clears the mismatch words (they hold the full hold: 15 s since s166 W3)
 #:   "tx_seq_frozen"          the sender's seq never advances
 #:   "line_dark"              the world line is never decided (`netsync.world.line` at rest)
 #:   "dot_src_section0"       the dot never takes the trailer (decision 12's OLD)
@@ -1884,11 +1888,21 @@ WORLD_WALK_FAULTS = ("walk_proof_fail", "kitcell_leak", "kitcell_sid0_only", "ki
 #:   "hang_cut_as_update"     a hang cut by a gap ends "updating again" (the A1 build's shape before the review's LineHangCut)
 #:   "tx_commit_blind"        [s166 W2b] the sender's transition term misses my follow-out's committed record (the deployed d6df5df17fe0af03
 #:                            build): place FIELD with b5 from the commit to the land, so a host's 'following' ends at the commit
+#: [ff9mapkit netsync s166] W3 (the whole-diff review's fixes), each the deployed 78dedb5d5cf4e430 build in ONE place:
+#:   "mismatch_hold_5s"       [W3A-T1] the mismatch words hold 5 s past the last refused frame, not 15 s (a v14 host's lost races flicker)
+#:   "capless_keeps_span"     [W3A-T3] a capless sample keeps the cache's sender span: a hang a capless frame cuts ends 'updating again
+#:                            after' the pre-hang span (~33 ms), never the receiver's length
+#:   "ghost_mint_cross_world" [W3A-RT-1 + RT-4] the root mints the body from the cache's last valid world sample WHATEVER its world (and the
+#:                            placement from any sender model): after a world change the kept sample's body is minted, then re-minted
+#:                            at the first show (mints +2 on the visit)
+#:   "ghost_mint_off_walk_set" [W3A-RT-2] the mint reads no world terms: a root and a body on an event world or a vehicle state (mints +1
+#:                            where the ghost can never be wanted)
 WORLD_WALK_A_FAULTS = ("ghost_unwrapped", "gap_on_stamp", "arrival_on_seq", "hold_on_valid", "ghost_stale_mint", "wire_field_world",
                        "scene_menu_hold", "pose_lever_ignored", "lanegap_lever_ignored", "hostlines_lever_ignored", "ghost_lever_ignored",
                        "place_lever_ignored", "dot_src_lever_ignored", "wire_peer_dark", "wire_words_latched", "tx_seq_frozen",
                        "line_dark", "dot_src_section0", "ghost_dress_310", "host_lines_state_b0", "hang_cut_as_update",
-                       "tx_commit_blind")
+                       "tx_commit_blind",
+                       "mismatch_hold_5s", "capless_keeps_span", "ghost_mint_cross_world", "ghost_mint_off_walk_set")   # [ff9mapkit netsync s166] W3
 #: (kept APART from WORLD_WALK_FAULTS, whose rows are A0 / A0b's solo and pair legs: ``world_walk_faults`` takes names from both; the
 #: round-A rows' own fault table is the bench's successor table -- tests/test_coop_world_walk_a.py's FAULT_ROWS models it)
 #: [ff9mapkit netsync s166] round A's pieces on the `worldwalk` rung (``FakeGame.world_walk_pieces``): the default is the newest engine;
@@ -7841,6 +7855,7 @@ class FakeGame:
                 "state": "idle", "why": None, "world": -1, "from": -1, "acc": 0, "last_rt": None, "idx_seen": None,
                 "b6_seen": False, "logged": set(), "pin": None, "due": -1, "load_due": -1, "start_rt": None,
                 "intent_seen": None, "bench_intent": None,
+                "pulled": False,                          # [ff9mapkit netsync s166] W3b S166-G1 _worldOutPulled (PullLatchRule at the start)
                 "n": {k: 0 for k in ("starts", "commits", "lands", "lost", "superseded", "refused", "substituted",
                                      "entrance_fix", "veg_zeroed")},
                 "last": None, "arms_from_9012": 0,
@@ -8150,6 +8165,9 @@ class FakeGame:
         w.update(state="fading", why=None, world=BW.WORLD_BASE + int(view["idx"]), pin=dict(view),
                  due=self.frame + int(self.world_out_fade_frames), start_rt=self.rt, intent_seen=view["_intent"])
         w["from"] = int(self.field_id)
+        # [ff9mapkit netsync s166] W3b S166-G1: THE PULL'S LATCH, here (PullLatchRule: a guest not mirroring, off the bench, `pairpull act`)
+        w["pulled"] = self._wwk_a0b() and BW.ww_pull_latch_rule(bool(self.story_mirroring),
+                                                               bool(self._nb_role() and self.netsync["bench"]), self._wwk_pp_old())
         w["n"]["starts"] += 1
         self.control = False
         self._mlog("[NetSync] " + BW.log_world_out_start(w["from"], w["world"], view["x"], view["z"], w["acc"]))
@@ -8161,7 +8179,7 @@ class FakeGame:
         if cur is None or cur == w["intent_seen"] or "no_supersede" in self.world_follow_faults:
             return False
         w["n"]["superseded"] += 1
-        w.update(state="idle", why=None, pin=None, acc=0)
+        w.update(state="idle", why=None, pin=None, acc=0, pulled=False)
         self.control = True
         self._mlog("[NetSync] " + BW.log_world_out_superseded(w["world"], cur[1]))
         return True
@@ -8176,7 +8194,7 @@ class FakeGame:
         if w["state"] != "fading":
             return
         w["n"]["superseded"] += 1
-        w.update(state="idle", why=None, pin=None, acc=0)
+        w.update(state="idle", why=None, pin=None, acc=0, pulled=False)
         self._mlog("[NetSync] " + BW.log_world_out_superseded(w["world"], int(dest)))
 
     def _wfo_commit(self) -> None:
@@ -8213,7 +8231,8 @@ class FakeGame:
         v = fixed & 0xFFFF
         self.story_bytes[2:4] = bytes((v & 0xFF, v >> 8))
         self.story_bytes[102], self.story_bytes[190] = (wid - BW.WORLD_BASE) & 0xFF, aboard & 0xFF
-        self._wwk_land_arm(wid)                     # [ff9mapkit netsync s166] A0b: after the apply, before the visit's first tick (ArmMirror)
+        pulled, w["pulled"] = bool(w["pulled"]), False   # [ff9mapkit netsync s166] W3b S166-G1: the start's latch, spent with the record
+        self._wwk_land_arm(wid, pulled)             # [ff9mapkit netsync s166] A0b: after the apply, before the visit's first tick (ArmMirror)
         self.enter_world(wid, x, z)
         self.world["vehicle"] = aboard
         self.control = True
@@ -8237,7 +8256,7 @@ class FakeGame:
             w["n"]["lost"] += 1
             self._mlog("[NetSync] " + BW.log_world_out_lost(w["world"], self.field_id))
         if w["state"] != "idle":
-            w.update(state="idle", why=None, pin=None, acc=0)
+            w.update(state="idle", why=None, pin=None, acc=0, pulled=False)
 
     def _wfo_arm_event_world(self) -> bool:
         """WorldArmWhy's event-world term: R3 (decision 13) lets 9012 arm (it waits on the player) unless `r3 old` (or the `r3_old`
@@ -8672,7 +8691,7 @@ class FakeGame:
         wp, now = self._wwa["wp"], self._wwa_now()
         refused = -1 if wp["refused_tick"] is None else max(0, now - wp["refused_tick"])
         mine = -1 if wp["mine_tick"] is None else max(0, now - wp["mine_tick"])
-        mismatch = BW.ww_wire_mismatch_rule(refused, mine)
+        mismatch = self._wwa_mismatch_rule(refused, mine)
         rx = dict(BW.WIRE_PEER_RX_SENTINELS)
         if not self._nb_role():
             rs = self._wwa_remote(now)
@@ -8704,7 +8723,7 @@ class FakeGame:
     #   THE BENCH    `worldwalk host ...` on the selftest role with the field-gate bench on: BenchPathPose, BenchDeliverRule (`hostseq
     #                freeze` re-sends the last slot byte for byte, `hostgap` stops arrivals while it keeps building), GetRemote's 2 s view
     #   THE PEER     a client / host's transport through the seam :meth:`wire_frame` (a type-0 payload of my wire, or a frame of ANOTHER
-    #                wire: booked -- `rejected` +1, one line per process and version, the mismatch words held 5 s, cleared by a frame
+    #                wire: booked -- `rejected` +1, one line per process and version, the mismatch words held 15 s, cleared by a frame
     #                of mine; TCP's break line through the redial dedupe); `wire_peer.rx` is the TRANSPORT's last type-0 (the selftest
     #                role has none: A3's HarnessWireRemote reads the socket -- the bench host's trailer shows on `world.lane.rx`)
     #   A4 (BW.A4_CONTRACT)  the ghost both ways (GhostRule over the cache's facts, the lazy mint behind the strict gate,
@@ -9024,6 +9043,13 @@ class FakeGame:
         wp, now = self._wwa["wp"], self._wwa_now()
         refused = -1 if wp["refused_tick"] is None else max(0, now - wp["refused_tick"])
         mine = -1 if wp["mine_tick"] is None else max(0, now - wp["mine_tick"])
+        return self._wwa_mismatch_rule(refused, mine)
+
+    def _wwa_mismatch_rule(self, refused: int, mine: int) -> bool:
+        """WireMismatchRule as this stand-in's engine has it ([ff9mapkit netsync s166] W3: the 15 s hold; the `mismatch_hold_5s` fault is
+        the 78dedb5d5cf4e430 build's 5 s)."""
+        if "mismatch_hold_5s" in self.world_walk_faults and refused >= 5000:
+            return False
         return BW.ww_wire_mismatch_rule(refused, mine)
 
     # ---- the bench host
@@ -9088,8 +9114,10 @@ class FakeGame:
         """WorldLaneStep: WorldCacheStep, then LaneGapStep over the arrival / seq ages and the latest place; one line per lane edge."""
         w, F = self._wwa, self.world_walk_faults
         c = w["cache"]
-        had, was = c["has"], c["arrival_tick"]
+        had, was, span = c["has"], c["arrival_tick"], c["span_ms"]
         moved = BW.ww_world_cache_step(c, rs["valid"], rs["arrival"], rs["len"], rs["kind"], rs["trailer"], now)
+        if "capless_keeps_span" in F and rs["valid"] and not rs["trailer"]["has"]:
+            c["span_ms"] = span                           # [ff9mapkit netsync s166] W3 the fault: the 78dedb5d build's capless branch
         if "arrival_on_seq" in F and rs["valid"] and not moved and had:
             c["arrival_tick"] = was                        # the fault: the arrival clock taken only on a seq move
         kind_fn = (lambda a, s, p: BW.ww_lane_gap_kind(s, s, p)) if "gap_on_stamp" in F else None
@@ -9221,8 +9249,9 @@ class FakeGame:
     # ---- A4: the ghost ([ff9mapkit netsync s166] W2 bench rows: the harness facts are A4's FINAL contract -- NetSyncWorldGhost)
     def _wwa_ghost_step(self, now: int, on_world: bool, role: str) -> None:
         """The ghost's frame (A4 -- NetSyncWorldGhost.Tick + Place): GhostRule over the cache's facts with A4's levers; the lazy mint
-        behind the strict gate AND GhostRule's who-term (a stale w_blockReady never mints: the `ghost_stale_mint` fault does), the body
-        for the peer's last valid world sample's model, else MY walker's; while WANTED (shown, or hidden by `ghost off` alone) the motion
+        behind the strict gate AND GhostRule's who-term (a stale w_blockReady never mints: the `ghost_stale_mint` fault does) AND
+        [ff9mapkit netsync s166] W3b GhostMintWorldRule (never an event world or off the walk set), the body by GhostBodyModelRule (the
+        peer's last valid world sample's walker only when it stands on MY world, on foot; else MY walker's); while WANTED (shown, or hidden by `ghost off` alone) the motion
         runs and the placement publishes -- a new sender model re-mints the body hidden (its first show snaps), the canonical ease and
         its render placement through MY block ring, the inverse (WMWorld.GetAbsolutePositionOf's model) and the forward oracle
         (SetAbsolutePositionOf's) from the same frame, the stall's stand; any other refusal hides the body and resets the motion."""
@@ -9235,11 +9264,17 @@ class FakeGame:
             g["minted"], g["mint_key"] = False, key        # the ghost root (and its body) die with every world scene
             g["model"], g["geo"] = -1, None
         gate = self._wwa_block_ready() if "ghost_stale_mint" in F else BW.ww_ghost_scene_gate(on_world, self._wwa_block_ready())
-        if gate and not g["minted"] and f["who"]:
+        wid = int(self.world["id"] or 0)
+        # [ff9mapkit netsync s166] W3b W3A-RT-2: GhostMintWorldRule behind the strict gate and who (the `ghost_mint_off_walk_set` fault: none)
+        mint_world = "ghost_mint_off_walk_set" in F or BW.ww_ghost_mint_world_rule(wid in BW.EVENT_WORLD_MAPS, wid)
+        if gate and not g["minted"] and f["who"] and mint_world:
             g["minted"] = True                             # MintRoot: the root, then the body the peer will most likely send
-            self._mlog(BW.log_ww_ghost_root(int(self.world["id"] or 0), True) + self._wwa_stamp())   # [s166] W2 reconcile: its line
+            self._mlog(BW.log_ww_ghost_root(wid, True) + self._wwa_stamp())   # [s166] W2 reconcile: its line
             c = w["cache"]
-            first = int(c["world"]["model"]) if c["world_set"] and int(c["world"]["model"]) > 0 else self._wwa_own_model()
+            if "ghost_mint_cross_world" in F:                # the 78dedb5d5cf4e430 MintRoot: the kept sample's model, any world
+                first = int(c["world"]["model"]) if c["world_set"] and int(c["world"]["model"]) > 0 else self._wwa_own_model()
+            else:                                          # [ff9mapkit netsync s166] W3b W3A-RT-1 + RT-4: GhostBodyModelRule
+                first = BW.ww_ghost_body_model_rule(c["world"] if c["world_set"] else BW.ww_trailer(), wid, self._wwa_own_model())
             self._wwa_ghost_mint_body(g, BW.WW_GEO_ZIDANE if "ghost_dress_310" in F else first)
         wanted = BW.ww_ghost_wanted(why) and g["minted"] and on_world and g["model"] > 0
         sample = BW.ww_ghost_sample(f)
@@ -9250,7 +9285,12 @@ class FakeGame:
         g.update(why=why, sample=sample, stall=stall, seq_age=int(f["seq_age_ms"]))
         shown = False
         if wanted:
-            model = BW.WW_GEO_ZIDANE if "ghost_dress_310" in F else BW.ww_world_body_rule(sample["model"])
+            if "ghost_dress_310" in F:
+                model = BW.WW_GEO_ZIDANE
+            elif "ghost_mint_cross_world" in F:
+                model = BW.ww_world_body_rule(sample["model"])   # the 78dedb5d placement: any sender model
+            else:                                          # [ff9mapkit netsync s166] W3b W3A-RT-4: a walker, else mine
+                model = BW.ww_ghost_body_model_rule(sample, int(self.world["id"] or 0), self._wwa_own_model())
             if model > 0 and model != g["model"]:
                 if g["shown"]:
                     g["hides"] += 1                        # a new body: re-minted hidden, its first show snaps
@@ -9697,29 +9737,46 @@ class FakeGame:
         """`pairpull old` as the rules read it (the `pairpull_lever_ignored` fault: never)."""
         return bool(self._wwk["pp_old"]) and "pairpull_lever_ignored" not in self.world_walk_faults
 
-    def _wwk_land_arm(self, wid: int) -> None:
+    def _wwk_land_arm(self, wid: int, pulled: bool = False) -> None:
         """LandWorldOut's arm (A0b, decision 26), right after the frame's apply and before the visit's first tick: a REAL guest (the client
         role -- never the selftest bench) not yet mirroring, under `pairpull act` -> ArmMirror(src, "world map W's landing"): the ARMED line
         naming the landing, NotePairingAtArm (the window shuts; its no-autosave line names the landing), the mirror; `arms` +1 and
         `last_world`. The `pairpull_unarmed` fault arms nothing. [ff9mapkit netsync s166] The review's fix (R1): co-op turned OFF inside
         this follow-out (an enabled=0 config with the role kept: ApplyConfigChange) and no exit ramp pending -> the arm hands over the
-        ramp itself (cause config, its line): ApplyConfigChange found no mirror to ramp out of then."""
-        if not self._wwk_a0b() or self._wwk_pp_old() or self.netsync["role"] != "client" or self.story_mirroring:
+        ramp itself (cause config, its line): ApplyConfigChange found no mirror to ramp out of then.
+        [ff9mapkit netsync s166] W3b S166-G1: the arm keys on the START's latch (``pulled``: BW.ww_pull_arm_rule -- never the role the seam
+        reads) and the hand-over (BW.ww_land_ramp_rule) sits OUTSIDE the arm: co-op off OR the role off client ramps home, with the role's
+        words while co-op is on. The stand-in models no ApplyConfigChange ramp of an already-mirroring guest (the engine's sets the ramp
+        pending first, so LandRampRule's `!rampPending` holds it), so the hand-over is read on a latched pull only -- the same lines. The
+        `pairpull_role_armed` fault is the 78dedb5d5cf4e430 landing: the arm on the live role, the hand-over inside it on co-op off alone."""
+        if not self._wwk_a0b():
             return
-        if "pairpull_unarmed" in self.world_walk_faults:
-            return
-        self._mlog(BW.log_mirror_armed_world(wid))
-        self._pw_arm(BW.world_landing(wid))
-        self.story_mirroring = True
-        self._wwk["pp_arms"] += 1
-        self._wwk["pp_last_world"] = int(wid)
+        F, ns = self.world_walk_faults, self.netsync
+        old = "pairpull_role_armed" in F
+        if old:
+            arm = not self._wwk_pp_old() and ns["role"] == "client" and not self.story_mirroring
+        else:
+            arm = BW.ww_pull_arm_rule(pulled, True, bool(self.story_mirroring))   # the stand-in's apply always succeeds
+        armed = False
+        if arm and "pairpull_unarmed" not in F:
+            self._mlog(BW.log_mirror_armed_world(wid))
+            self._pw_arm(BW.world_landing(wid))
+            self.story_mirroring = True
+            self._wwk["pp_arms"] += 1
+            self._wwk["pp_last_world"] = int(wid)
+            armed = True
         cf = self.coop_follow
         pending = bool((cf or {}).get("ramp")) or self._exit_ramp_cause is not None
-        if BW.coop_off_ramp_hands_over(True, bool(self.netsync["enabled"]), pending):
+        enabled = bool(ns["enabled"])
+        if old:
+            ramp = BW.coop_off_ramp_hands_over(armed, enabled, pending)
+        else:
+            ramp = pulled and BW.ww_land_ramp_rule(bool(self.story_mirroring), pending, enabled, ns["role"])
+        if ramp:
             if cf is not None:
                 cf["ramp"] = True                       # _exitRampPending: the readers the stand-in has (the live session, own story)
             self._exit_ramp_cause = BW.ramp_cause_name(BW.RAMP_CAUSE_CONFIG)
-            self._mlog(BW.log_world_out_coop_off(wid))
+            self._mlog(BW.log_world_out_land_ramp(wid, enabled, ns["role"]))
 
     def _wwk_pp_doc(self) -> dict:
         """`netsync.world.pairpull`, in the contract's order."""

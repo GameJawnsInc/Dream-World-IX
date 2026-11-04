@@ -366,6 +366,7 @@ SOLO_FAULT_REDS = {
     "pairpull_unarmed": (),
     "pairpull_lever_ignored": (),
     "chord_gate_open": (),                                 # the solo bench never mirrors and never presses the chord
+    "pairpull_role_armed": (),                             # [ff9mapkit netsync s166] W3b: the solo bench never latches a pull (bench)
 }
 #: ...and under the entry order with entry 1 FIRST (fakegame.FAKE_WORLD_KIT_ORDER_E1_FIRST): what changes there
 ORDER_FAULT_REDS = {"kitcell_first_read": ("S166-A-KITOFF", "S166-A-FERRYOFF"),

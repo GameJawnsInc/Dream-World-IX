@@ -14663,9 +14663,43 @@ def log_world_out_coop_off(world: int) -> str:
 
 
 def coop_off_ramp_hands_over(armed_here: bool, enabled: bool, ramp_pending: bool) -> bool:
-    """The hand-over's rule, as LandWorldOut has it: only inside the landing's own arm (a real guest pulled out under `pairpull act`), when
-    co-op is off and no exit ramp is pending yet -- a mirroring guest's ramp was ApplyConfigChange's (s165), and a pending one stands."""
+    """The hand-over's rule, as LandWorldOut had it through the deployed 78dedb5d5cf4e430 build: only inside the landing's own arm (a real
+    guest pulled out under `pairpull act`), when co-op is off and no exit ramp is pending yet -- a mirroring guest's ramp was
+    ApplyConfigChange's (s165), and a pending one stands. [ff9mapkit netsync s166] W3b SUPERSEDED by :func:`ww_land_ramp_rule` (the hand-over
+    now sits OUTSIDE the arm and also fires on a role off client); kept as the old build's twin."""
     return bool(armed_here) and not enabled and not ramp_pending
+
+
+# ---- [ff9mapkit netsync s166] W3b S166-G1 THE PULL'S LATCH (NetSyncWorldWalk.PullLatchRule / PullArmRule / LandRampRule): LandWorldOut armed
+# the mirror on the LIVE `_role == "client"`, so a Role edit inside the fade-and-load window landed the host's story unmarked (no mirror, no
+# ramp, the world entry's stock autosave writing it). The pull is latched at StartWorldOut (`_worldOutPulled`, cleared with the record),
+# the arm keys on the latch, and the ramp hand-over sits outside the arm.
+LOG_WORLD_OUT_ROLE_CHANGED = "[NetSync] world follow-out: the role changed to "
+LOG_WORLD_OUT_ROLE_CHANGED_TAIL = " during it -- the exit ramp reloads your own autosave once you "
+
+
+def ww_pull_latch_rule(mirroring: bool, bench: bool, pp_old: bool) -> bool:
+    """NetSyncWorldWalk.PullLatchRule (at StartWorldOut): this follow-out is a pairing pull -- a guest not mirroring yet, not the selftest
+    bench, under `pairpull act`."""
+    return not mirroring and not bench and not pp_old
+
+
+def ww_pull_arm_rule(pulled: bool, applied: bool, mirroring: bool) -> bool:
+    """NetSyncWorldWalk.PullArmRule (LandWorldOut): the latched pull whose apply succeeded arms the mirror when none stands -- whatever
+    role or enabled state the landing sees."""
+    return bool(pulled and applied and not mirroring)
+
+
+def ww_land_ramp_rule(mirroring: bool, ramp_pending: bool, enabled: bool, role: str) -> bool:
+    """NetSyncWorldWalk.LandRampRule (LandWorldOut, after the arm and outside it): a mirror stands, no exit ramp is pending, and the session
+    is no longer a guest's -- co-op off, or the role left client (host, selftest, anything)."""
+    return bool(mirroring and not ramp_pending and (not enabled or role != "client"))
+
+
+def log_world_out_land_ramp(world: int, enabled: bool, role: str) -> str:
+    """LandWorldOut's hand-over line (W3b): the role's words while co-op is on, else the A0b review's co-op-off words."""
+    head = f"{LOG_WORLD_OUT_ROLE_CHANGED}{role}{LOG_WORLD_OUT_ROLE_CHANGED_TAIL}" if enabled else LOG_WORLD_OUT_COOP_OFF
+    return f"{head}are free-standing on world map {int(world)}"
 
 
 # ======================================================================================================================================
@@ -14674,7 +14708,7 @@ def coop_off_ramp_hands_over(armed_here: bool, enabled: bool, ramp_pending: bool
 # these are the AGENT's key and the engine's lines about the peer's wire, as the s166 patch writes them.
 # ---- the key: `netsync.wire_peer`, netsync's LAST key (after s165's `host`), published in every role -- the catch literal's sentinels.
 # rejected / quiet_redials monotonic per PROCESS (read DELTAS); last_version -1 = none yet; the two ages -1 = never; `words` the owner line
-# while `mismatch` (WireMismatchRule: a refused frame inside 5 s and no frame of my own wire since); `rx` the peer's last type-0 shape while
+# while `mismatch` (WireMismatchRule: a refused frame inside 15 s and no frame of my own wire since); `rx` the peer's last type-0 shape while
 # GetRemote is Valid (len 39 = no trailer, 94 = fmt 1; kind "absent" | "tfmt0" | "short" | "fmt1"; caps 0 = capless), else these sentinels
 NETSYNC_TOP_KEYS_S166 = ("wire_peer",)
 WIRE_PEER_RX_SENTINELS = {"len": -1, "kind": None, "fmt": -1, "caps": -1, "place": -1, "arrival_age_ms": -1}
@@ -14895,13 +14929,14 @@ def ww_version_line_once(seen: set, version: int) -> bool:
     return True
 
 
-WW_WIRE_MISMATCH_HOLD_MS = 5000                     # NetSyncWorldWalk.WireMismatchHoldMs
+WW_WIRE_MISMATCH_HOLD_MS = 15000                    # NetSyncWorldWalk.WireMismatchHoldMs ([ff9mapkit netsync s166] W3: 5000 -> 15000, the
+                                                    # review's W3A-T1: a v14 host's close can beat its frame for several 2 s redial cycles)
 WW_REDIAL_BOOK_MAX = 16                             # NetSyncWorldWalk.RedialBookMax
 
 
 def ww_wire_mismatch_rule(refused_age_ms: int, mine_age_ms: int) -> bool:
-    """NetSyncWorldWalk.WireMismatchRule (decision 3's overlay state): a refused frame of another wire within the 5 s hold and no frame of
-    my own wire after it (ages on my clock, -1 = never)."""
+    """NetSyncWorldWalk.WireMismatchRule (decision 3's overlay state): a refused frame of another wire within the hold (15 s since the s166
+    W3 round) and no frame of my own wire after it (ages on my clock, -1 = never): a frame of mine clears it at once."""
     if refused_age_ms < 0 or refused_age_ms >= WW_WIRE_MISMATCH_HOLD_MS:
         return False
     return mine_age_ms < 0 or mine_age_ms > refused_age_ms
@@ -15516,6 +15551,26 @@ def ww_world_body_rule(sender_model: int, dress: int = WW_DRESS_NONE) -> int:
     return int(sender_model) if int(sender_model) > 0 else -1
 
 
+def ww_walker_model_rule(model: int) -> bool:
+    """[ff9mapkit netsync s166] W3b NetSyncWorldWalk.WalkerModelRule (W3A-RT-4): a world walker's GEO -- the Mog, Dagger, Zidane."""
+    return int(model) in (WW_GEO_MOG, WW_GEO_DAGGER, WW_GEO_ZIDANE)
+
+
+def ww_ghost_body_model_rule(peer: dict, my_world: int, own_model: int) -> int:
+    """[ff9mapkit netsync s166] W3b NetSyncWorldWalk.GhostBodyModelRule (W3A-RT-1 + RT-4): the peer sample's own walker only when that sample
+    is a valid world block ON MY world, on foot, its model a world walker; else MY walker's model (-1 = none). At the root's mint ``peer``
+    is the cache's last VALID world sample (it outlives a world change); at the placement, the drawn sample."""
+    if ww_block_valid(peer) and int(peer["world"]) == int(my_world) and int(peer["mode"]) == 0 and ww_walker_model_rule(peer["model"]):
+        return ww_world_body_rule(peer["model"], WW_DRESS_NONE)
+    return int(own_model) if int(own_model) > 0 else -1
+
+
+def ww_ghost_mint_world_rule(event_world: bool, world: int) -> bool:
+    """[ff9mapkit netsync s166] W3b NetSyncWorldWalk.GhostMintWorldRule (W3A-RT-2), read behind THE STRICT GATE and who: not an event world,
+    my live wldMapNo in the walk set -- no root, shadow or body on a world where the ghost can never be wanted."""
+    return not event_world and ww_walk_world_rule(world)
+
+
 def ww_world_body_ratio(model: int) -> int:
     """NetSyncWorldWalk.WorldBodyRatio: 76 for the Mog, 67 for the walkers."""
     return WW_MOG_RATIO if int(model) == WW_GEO_MOG else WW_WALKER_RATIO
@@ -15644,12 +15699,14 @@ def ww_world_cache() -> dict:
 def ww_world_cache_step(c: dict, valid: bool, arrival_tick: int, length: int, kind: int, t: dict, now: int) -> bool:
     """NetSyncWorldWalk.WorldCacheStep (decision 5): not Valid holds BOTH clocks; Valid moves the arrival clock (a same-seq re-send
     included), a capless sample clears the seq, a new seq moves the seq clock, its span on the SENDER's clock and, with a valid block, the
-    kept world sample. True on a new seq."""
+    kept world sample. True on a new seq. [ff9mapkit netsync s166] W3 (the review's W3A-T3): a capless sample also forgets the span
+    (span_ms -1), so a hang a capless frame cuts ends with the RECEIVER's length (LaneEndLenRule), never the pre-hang sender span."""
     if not valid:
         return False
     c.update(has=True, arrival_tick=int(arrival_tick), len=int(length), kind=int(kind), latest=t)
     if not t["has"]:
         c["seq_set"] = False
+        c["span_ms"] = -1
         return False
     if c["seq_set"] and t["seq"] == c["seq"]:
         return False

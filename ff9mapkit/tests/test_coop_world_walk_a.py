@@ -48,7 +48,11 @@ def _rules(**swap):
                         rot=lambda dx, dz: BW.ww_walker_rotation(BW.ww_walker_yaw(dx, dz)), record=BW.ww_record_field_rule,
                         where=BW.ww_place_rule, header=BW.ww_wire_header_rule, once=BW.ww_version_line_once, feature=BW.ww_feature_on,
                         mismatch=BW.ww_wire_mismatch_rule, redial=BW.ww_redial_say_step, gate=BW.ww_ghost_scene_gate,
-                        walk=BW.ww_walk_world_rule, render=BW.ww_render_of, tx=BW.ww_tx_transition_rule)
+                        walk=BW.ww_walk_world_rule, render=BW.ww_render_of, tx=BW.ww_tx_transition_rule,
+                        # [ff9mapkit netsync s166] W3b: the pull's latch / arm (its role only so a mutant CAN key on it) / ramp, the body
+                        # model, the mint's world terms
+                        latch=BW.ww_pull_latch_rule, arm=lambda p, a, m, role: BW.ww_pull_arm_rule(p, a, m), ramp=BW.ww_land_ramp_rule,
+                        body_model=BW.ww_ghost_body_model_rule, mint_world=BW.ww_ghost_mint_world_rule)
     for k, v in swap.items():
         assert hasattr(r, k), k
         setattr(r, k, v)
@@ -101,6 +105,26 @@ def _slots_at(x, z):
     return BW.ww_ring_slots(x, z)
 
 
+#: [ff9mapkit netsync s166] W3b's body-model fixtures (the engine's W3bRows: z / d / z2 / rd / fg): a valid world block, Zidane on 9011; the
+#: 9002 Dagger the cache keeps through the fields; A-BODY's off-diagonal (`hostmodel 310` on 9002); the same sample riding; a foreign GEO
+_W3_Z = _sample(BW.WW_PLACE_WORLD, BW.WW_ST_CONTROL | BW.WW_ST_VISIBLE)
+_W3_D = dict(_W3_Z, world=9002, model=BW.WW_GEO_DAGGER)
+_W3_Z2 = dict(_W3_Z, world=9002)
+_W3_RD = dict(_W3_Z, mode=2)
+_W3_FG = dict(_W3_Z, model=98)
+
+
+def _capless_cut(r) -> bool:
+    """cache.capless_cut_hang_ends_on_mine (W3A-T3): seq 7 then seq 8 33 ms later on the sender's clock (span 33), seq 8 frozen since 133,
+    then a capless sample at 3200 -- the span forgotten, so the hang's end names MY 3067 ms."""
+    c = BW.ww_world_cache()
+    r.cache(c, True, 100, BW.WW_POS_LEN_WORLD, BW.WW_KIND_FMT1, _sample(4, seq=7, ms=1000), 100)
+    r.cache(c, True, 133, BW.WW_POS_LEN_WORLD, BW.WW_KIND_FMT1, _sample(4, seq=8, ms=1033), 133)
+    span33 = c["span_ms"] == 33
+    r.cache(c, True, 3200, 39, BW.WW_KIND_ABSENT, BW.ww_trailer(), 3200)
+    return span33 and c["span_ms"] == -1 and r.end_len(BW.WW_LINE_HANG_END, 3067, c["span_ms"]) == 3067
+
+
 ROWS = {
     # ---- the codec helpers
     "record.world_sample_field_zero": lambda r: r.record(BW.WW_PLACE_WORLD, 6603) == 0 and r.record(BW.WW_PLACE_WORLD_LOADING, 6603) == 0
@@ -130,7 +154,11 @@ ROWS = {
     "wire.version_line_once": lambda r: (lambda s: r.once(s, 14) and not r.once(s, 14) and r.once(s, 13))(set()),
     "caps.capless_peer_feature_off": lambda r: not r.feature(BW.WW_OWN_CAPS, 0, BW.WW_CAP_WORLD_POSE)
     and r.feature(BW.WW_OWN_CAPS, BW.WW_CAP_WORLD_POSE, BW.WW_CAP_WORLD_POSE),
-    "wire.mismatch_ages_out": lambda r: r.mismatch(4999, -1) and not r.mismatch(5000, -1) and not r.mismatch(-1, -1),
+    # [ff9mapkit netsync s166] W3b (W3A-T1): the engine's two rows by the constant's NAME (15 s: a v14 host's close can win several 2 s redial
+    # cycles); the hold's last millisecond moved from ages_out (a 4999 literal) into holds, as the engine has it
+    "wire.mismatch_holds": lambda r: r.mismatch(0, -1) and r.mismatch(BW.WW_WIRE_MISMATCH_HOLD_MS - 1, -1) and r.mismatch(100, 200),
+    "wire.mismatch_ages_out": lambda r: not r.mismatch(BW.WW_WIRE_MISMATCH_HOLD_MS, -1) and not r.mismatch(60000, 70000)
+    and not r.mismatch(-1, -1),
     "wire.mismatch_mine_clears": lambda r: not r.mismatch(300, 100) and r.mismatch(300, 900),
     "redial.same_reason_quiet": lambda r: (lambda s: r.redial(s, "a", False) and not r.redial(s, "a", False))([]),
     "redial.alternating_said_once": lambda r: (lambda s: r.redial(s, "a", False) and r.redial(s, "b", False)
@@ -292,6 +320,35 @@ ROWS = {
                                                       r.cache(c, True, 200, 39, 0, BW.ww_trailer(), 200), not c["seq_set"])[2])(BW.ww_world_cache()),
     "bench.freeze_resends": lambda r: r.deliver(True, False) == (True, False),
     "bench.gap_keeps_building": lambda r: r.deliver(False, True) == (False, True),
+    # ================================ [ff9mapkit netsync s166] W3b THE LAST FIX ROUND (NetSyncWorldWalk.W3bRows, row for row)
+    # ---- S166-G1 THE PULL: latched at the start; the landing arms on the latch and hands the ramp over on the mirror and the role it sees
+    "pull.latch_a_guest_not_mirroring": lambda r: r.latch(False, False, False) and not r.latch(True, False, False)
+    and not r.latch(False, True, False) and not r.latch(False, False, True),
+    "pull.client_landing_arms": lambda r: r.arm(True, True, False, "client") and not r.arm(True, False, False, "client")
+    and not r.arm(True, True, True, "client") and not r.arm(False, True, False, "client"),
+    "pull.role_flips_mid_pull_arms": lambda r: r.arm(True, True, False, "host") and r.arm(True, True, False, "selftest")
+    and r.arm(True, True, False, ""),
+    "pull.role_flips_mid_pull_ramps": lambda r: r.ramp(True, False, True, "host") and r.ramp(True, False, True, "selftest")
+    and r.ramp(True, False, False, "client"),
+    "pull.client_mirror_keeps_its_session": lambda r: not r.ramp(True, False, True, "client") and not r.ramp(False, False, False, "host")
+    and not r.ramp(True, True, False, "host"),
+    # ---- W3A-RT-1 + RT-4 THE BODY MODEL: the peer's walker only from a sample on MY world, on foot; else my walker's
+    "mint_model.peer_walker_on_my_world": lambda r: r.body_model(_W3_Z, 9011, BW.WW_GEO_ZIDANE) == BW.WW_GEO_ZIDANE
+    and r.body_model(_W3_D, 9002, BW.WW_GEO_DAGGER) == BW.WW_GEO_DAGGER and r.body_model(_W3_Z, 9011, -1) == BW.WW_GEO_ZIDANE
+    and r.body_model(_W3_Z2, 9002, BW.WW_GEO_DAGGER) == BW.WW_GEO_ZIDANE,
+    "mint_model.other_world_sample_is_mine": lambda r: r.body_model(_W3_D, 9010, BW.WW_GEO_ZIDANE) == BW.WW_GEO_ZIDANE
+    and r.body_model(_W3_D, 9011, BW.WW_GEO_ZIDANE) == BW.WW_GEO_ZIDANE
+    and r.body_model(BW.ww_trailer(), 9011, BW.WW_GEO_ZIDANE) == BW.WW_GEO_ZIDANE and r.body_model(BW.ww_trailer(), 9011, -1) == -1,
+    "mint_model.riding_sample_is_mine": lambda r: r.body_model(_W3_RD, 9011, BW.WW_GEO_DAGGER) == BW.WW_GEO_DAGGER,
+    "mint_model.foreign_geo_is_mine": lambda r: r.body_model(_W3_FG, 9011, BW.WW_GEO_ZIDANE) == BW.WW_GEO_ZIDANE
+    and r.body_model(_W3_FG, 9011, -1) == -1 and BW.ww_walker_model_rule(BW.WW_GEO_MOG) and not BW.ww_walker_model_rule(0),
+    # ---- W3A-RT-2 THE MINT'S WORLD TERMS: the walk set mints; an event world and the vehicle states never do
+    "mint.walk_set_mints": lambda r: r.mint_world(False, 9002) and r.mint_world(False, 9010) and r.mint_world(False, 9011),
+    "mint.vehicle_world_none": lambda r: not r.mint_world(False, 9009) and not r.mint_world(False, 9000) and not r.mint_world(False, 9013)
+    and not r.mint_world(False, 9099),
+    "mint.event_world_none": lambda r: not r.mint_world(True, 9012) and not r.mint_world(True, 9001) and not r.mint_world(True, 9011),
+    # ---- W3A-T3 A HANG CUT BY A CAPLESS FRAME: the end names MY clock, never the span of the move before the hang
+    "cache.capless_cut_hang_ends_on_mine": lambda r: _capless_cut(r),
 }
 
 
@@ -400,6 +457,27 @@ MUTANTS = {
     "world_any_place": (dict(cache=lambda c, v, a, ln, k, t, now: (lambda mv: (c.update(world_set=True, world=t, world_tick=now)
                                                                                if mv else None, mv)[1])(
         BW.ww_world_cache_step(c, v, a, ln, k, t, now))), "cache.world_sample_kept_through_place3"),
+    # [ff9mapkit netsync s166] W3: the 78dedb5d5cf4e430 build's hold and capless branch
+    "mismatch_hold_5s": (dict(mismatch=lambda rf, mn: rf < 5000 and BW.ww_wire_mismatch_rule(rf, mn)), "wire.mismatch_holds"),
+    "capless_keeps_span": (dict(cache=lambda c, v, a, ln, k, t, now: (lambda sp: (lambda mv: (c.__setitem__("span_ms", sp)
+                                                                                              if v and not t["has"] else None, mv)[1])(
+        BW.ww_world_cache_step(c, v, a, ln, k, t, now)))(c["span_ms"])), "cache.capless_cut_hang_ends_on_mine"),
+    # [ff9mapkit netsync s166] W3b S166-G1: the landing's arm on the LIVE role (the 78dedb5d5cf4e430 build); the hand-over on co-op off alone;
+    # a mirroring guest latched. W3A-RT-1 / RT-4: the root's body from any valid sample (the deployed MintRoot), riding or not, any GEO.
+    # W3A-RT-2: the mint on every world / blind to the event term (the engine's names)
+    "pull_arm_live_role": (dict(arm=lambda p, a, m, role: BW.ww_pull_arm_rule(p, a, m) and role == "client"),
+                           "pull.role_flips_mid_pull_arms"),
+    "pull_ramp_coop_off_only": (dict(ramp=lambda m, rp, en, role: bool(m and not rp and not en)), "pull.role_flips_mid_pull_ramps"),
+    "pull_latch_mirroring": (dict(latch=lambda m, bench, old: not bench and not old), "pull.latch_a_guest_not_mirroring"),
+    "mint_model_world_blind": (dict(body_model=lambda pe, w, own: pe["model"] if BW.ww_block_valid(pe) and pe["mode"] == 0
+                                      and BW.ww_walker_model_rule(pe["model"]) else (own if own > 0 else -1)),
+                                 "mint_model.other_world_sample_is_mine"),
+    "mint_model_riding": (dict(body_model=lambda pe, w, own: pe["model"] if BW.ww_block_valid(pe) and pe["world"] == w
+                                 and BW.ww_walker_model_rule(pe["model"]) else (own if own > 0 else -1)), "mint_model.riding_sample_is_mine"),
+    "mint_model_any_geo": (dict(body_model=lambda pe, w, own: pe["model"] if BW.ww_block_valid(pe) and pe["world"] == w and pe["mode"] == 0
+                                  and pe["model"] > 0 else (own if own > 0 else -1)), "mint_model.foreign_geo_is_mine"),
+    "mint_any_world": (dict(mint_world=lambda ev, w: not ev), "mint.vehicle_world_none"),
+    "mint_event_blind": (dict(mint_world=lambda ev, w: BW.ww_walk_world_rule(w)), "mint.event_world_none"),
     "capless_keeps_seq": (dict(cache=lambda c, v, a, ln, k, t, now: (lambda had: (lambda mv: (c.__setitem__("seq_set", had)
                                                                                               if v and not t["has"] else None, mv)[1])(
         BW.ww_world_cache_step(c, v, a, ln, k, t, now)))(c["seq_set"])), "cache.capless_has_no_seq"),
@@ -434,6 +512,46 @@ def test_w2b_each_commit_mutant_is_caught_only_by_its_own_row(name):
     assert not t(False, False, True, False, False, False) and not t(False, False, False, False, False, False)
     for i in (0, 3, 4, 5):
         assert t(*[k == i for k in range(6)]) and t(*[k == i or k == 2 for k in range(6)]), i
+
+
+#: [ff9mapkit netsync s166] W3b's rows (NetSyncWorldWalk.W3bRows, in its order) and mutants (MutantNames, in its order)
+W3B_ROWS = ("pull.latch_a_guest_not_mirroring", "pull.client_landing_arms", "pull.role_flips_mid_pull_arms", "pull.role_flips_mid_pull_ramps",
+            "pull.client_mirror_keeps_its_session", "mint_model.peer_walker_on_my_world", "mint_model.other_world_sample_is_mine",
+            "mint_model.riding_sample_is_mine", "mint_model.foreign_geo_is_mine", "mint.walk_set_mints", "mint.vehicle_world_none",
+            "mint.event_world_none", "cache.capless_cut_hang_ends_on_mine")
+W3B_MUTANTS = ("pull_arm_live_role", "pull_ramp_coop_off_only", "pull_latch_mirroring", "mint_model_world_blind", "mint_model_riding",
+               "mint_model_any_geo", "mint_any_world", "mint_event_blind", "capless_keeps_span", "mismatch_hold_5s")
+
+
+@pytest.mark.parametrize("name", W3B_MUTANTS)
+def test_w3b_each_mutant_is_caught_only_by_its_own_row(name):
+    """[ff9mapkit netsync s166] W3b: each of the round's ten mutants fails EXACTLY its own row (a mutant another row also catches proves
+    nothing about its term) -- the engine proof's own pairing (MutantRows)."""
+    swap, row = MUTANTS[name]
+    assert [n for n, fn in ROWS.items() if not fn(_rules(**swap))] == [row]
+
+
+def test_w3b_the_pull_body_and_mint_twins_truth_tables():
+    """[ff9mapkit netsync s166] W3b, each twin over its whole input space: the latch only for a guest not mirroring, off the bench, under
+    `pairpull act`; the arm only for a latched pull whose apply succeeded with no mirror standing (any role); the ramp for a standing
+    mirror with none pending once co-op is off or the role left client; the body the peer's walker only from a valid sample on MY world on
+    foot (else mine, -1 with none); the mint only on 9002 / 9010 / 9011 and never on an event world."""
+    tf = (False, True)
+    assert [(m, bn, o) for m in tf for bn in tf for o in tf if BW.ww_pull_latch_rule(m, bn, o)] == [(False, False, False)]
+    assert [(p, a, m) for p in tf for a in tf for m in tf if BW.ww_pull_arm_rule(p, a, m)] == [(True, True, False)]
+    roles = ("client", "host", "selftest", "")
+    got = {(m, rp, en, ro) for m in tf for rp in tf for en in tf for ro in roles if BW.ww_land_ramp_rule(m, rp, en, ro)}
+    assert got == {(True, False, False, ro) for ro in roles} | {(True, False, True, ro) for ro in roles if ro != "client"}
+    for kw, my, own, want in ((dict(), 9011, 309, 310), (dict(world=9002), 9011, 310, 310), (dict(mode=1), 9011, 309, 309),
+                              (dict(model=98), 9011, 310, 310), (dict(model=307), 9011, 310, 307), (dict(place=3), 9011, 310, 310),
+                              (dict(caps=0), 9011, -1, -1), (dict(world=9002, model=309), 9002, 309, 309)):
+        assert BW.ww_ghost_body_model_rule(dict(_W3_Z, **kw), my, own) == want, (kw, my, own)
+    assert [w for w in range(9000, 9014) if BW.ww_ghost_mint_world_rule(False, w)] == [9002, 9010, 9011]
+    assert not any(BW.ww_ghost_mint_world_rule(True, w) for w in range(9000, 9014))
+    assert BW.WW_WIRE_MISMATCH_HOLD_MS == 15000
+    assert BW.log_world_out_land_ramp(9011, True, "host") == ("[NetSync] world follow-out: the role changed to host during it -- the exit "
+                                                            "ramp reloads your own autosave once you are free-standing on world map 9011")
+    assert BW.log_world_out_land_ramp(9011, False, "client") == BW.log_world_out_coop_off(9011)
 
 
 # ================================================================================================ A4's TWINS (the W2 reconcile: A4 FINAL)
@@ -907,6 +1025,52 @@ def test_s166a_w2b_the_tx_transition_rule_its_call_site_rows_and_mutants_are_the
         n: MUTANTS[n][1] for n in ("tx_commit_blind", "tx_commit_anywhere")}
 
 
+def test_s166a_w3b_the_rules_rows_mutants_and_call_sites_are_the_twins():
+    """[ff9mapkit netsync s166] W3b, read off the source (SKIPS on a source before W3b): the six new rules' bodies are the twins'; W3bRows
+    is W3B_ROWS row for row and each W3b mutant sits beside ITS row (MutantNames / MutantRows) -- A4's mutants still the tail; the capless
+    branch clears the span; LandWorldOut arms on the latch (never the live role) and hands the ramp over OUTSIDE the arm with the role's
+    words; StartWorldOut latches; the ghost's mint reads the world terms behind the strict gate and who, and both body sites take the body
+    model rule (never the cache's raw model)."""
+    text = _ww_a3()
+    if "PullLatchRule" not in text:
+        pytest.skip("this s166 source carries no W3b fix round yet")
+    for sig, piece in (("internal static Boolean PullLatchRule(", "return !mirroring && !bench && !ppOld;"),
+                       ("internal static Boolean PullArmRule(", "return pulled && applied && !mirroring;"),
+                       ("internal static Boolean LandRampRule(", 'return mirroring && !rampPending && (!enabled || role != "client");'),
+                       ("internal static Boolean WalkerModelRule(", "return model == GeoMog || model == GeoDagger || model == GeoZidane;"),
+                       ("internal static Int32 GhostBodyModelRule(",
+                        "if (peer.BlockValid && peer.World == myWorld && peer.Mode == 0 && WalkerModelRule(peer.Model))"),
+                       ("internal static Int32 GhostBodyModelRule(", "return WorldBodyRule(peer.Model, DressNone);"),
+                       ("internal static Int32 GhostBodyModelRule(", "return ownModel > 0 ? ownModel : -1;"),
+                       ("internal static Boolean GhostMintWorldRule(", "return !eventWorld && WalkWorldRule(world);")):
+        assert piece in _body(text, sig), (sig, piece)
+    cache = _body(text, "internal static Boolean WorldCacheStep(")
+    capless = cache[cache.index("if (!t.Has)"):cache.index("if (c.SeqSet && t.Seq == c.Seq)")]
+    assert "c.SeqSet = false;" in capless and "c.SpanMs = -1;" in capless
+    rows = re.findall(r'"([a-z_]+\.[a-z0-9_]+)"\);', _body(text, "private static void W3bRows("))
+    assert rows == list(W3B_ROWS) and all(r in ROWS for r in rows), rows
+    names, row_of = _qnames(text, "MutantNames"), _qnames(text, "MutantRows")
+    assert len(names) == len(row_of)
+    pairs = dict(zip(names, row_of))
+    assert {n: pairs.get(n) for n in W3B_MUTANTS} == {n: MUTANTS[n][1] for n in W3B_MUTANTS}
+    assert names[-len(A4_MUTANTS):] == list(A4_MUTANTS)
+    client = _client_a3()
+    assert "_worldOutPulled = NetSyncWorldWalk.PullLatchRule(_storyMirroring, bench, _ppOld);" in client
+    land = _body(client, "private void LandWorldOut(Int32 mapNo)")
+    assert "NetSyncWorldWalk.PullArmRule(pulled, applied, _storyMirroring)" in land and '_role == "client" && !_storyMirroring' not in land
+    arm, ramp = land.index("NetSyncWorldWalk.PullArmRule("), land.index("NetSyncWorldWalk.LandRampRule(_storyMirroring, _exitRampPending, _enabled, _role)")
+    assert arm < ramp and land.index("Boolean pulled = _worldOutPulled;") < arm
+    lits = "".join(_LIT.findall(land[ramp:ramp + 2400].replace(" + _role + ", '"\u0001"').replace(" + w);", ' + "\u0002");')))
+    assert (BW.LOG_WORLD_OUT_ROLE_CHANGED + "\u0001" + BW.LOG_WORLD_OUT_ROLE_CHANGED_TAIL) in lits
+    assert BW.LOG_WORLD_OUT_COOP_OFF in lits and "are free-standing on world map \u0002" in lits
+    ghost = _ghost_cs()
+    tick = ghost[ghost.index("if (!ff9.w_blockReady || !NetSyncClient.WorldGhostWhoNow)"):]
+    assert tick.index("NetSyncWorldWalk.GhostMintWorldRule(ff9.IsEventWorldMap, FF9StateSystem.Common.FF9.wldMapNo)") < tick.index("MintRoot();")
+    assert "NetSyncWorldWalk.GhostBodyModelRule(NetSyncClient.WorldPeerValid, FF9StateSystem.Common.FF9.wldMapNo," in ghost
+    assert "NetSyncWorldWalk.GhostBodyModelRule(s, FF9StateSystem.Common.FF9.wldMapNo, OwnWalkerModel())" in ghost
+    assert "WorldBodyRule(NetSyncClient.WorldPeerValid.Model" not in ghost and "WorldBodyRule(s.Model" not in ghost
+
+
 def test_s166a_the_clients_a3_lines_ops_and_overlay_are_the_stand_ins():
     """NetSyncClient's A3 words, as the stand-in prints them: the lane line, the reset / lost / fault lines, the verb's usage, clear and
     acks, the bench host's refusals and acks, the overlay states and their words."""
@@ -1319,7 +1483,8 @@ def test_the_bench_host_off_resets_the_cache_and_the_release_puts_every_lever_ba
 
 def test_a_wire_another_wire_is_booked_once_per_version_and_cleared_by_mine():
     """A-WIRE: a frame of another wire -- `rejected` +1 per frame, ONE line per process and version, the mismatch words (the world line
-    "mismatch", drawn on a client) for 5 s, cleared at once by a frame of my own wire; TCP's break line once per reason, the rest quiet."""
+    "mismatch", drawn on a client) for the hold ([ff9mapkit netsync s166] W3b: 15 s, past the old 5 s), cleared at once by a frame of my own
+    wire; TCP's break line once per reason, the rest quiet."""
     f = _fake()
     f.netsync.update(enabled=True, role="client", instance=True)
     _step(f, 2)
@@ -1338,7 +1503,10 @@ def test_a_wire_another_wire_is_booked_once_per_version_and_cleared_by_mine():
     f.wire_frame(13)
     _secs(f, 5.1)
     wp = _doc(f)["wire_peer"]
-    assert wp["lines"] == 2 and wp["mismatch"] is False and wp["rejected_age_ms"] >= 5000
+    assert wp["lines"] == 2 and wp["mismatch"] is True and wp["rejected_age_ms"] >= 5000       # [ff9mapkit netsync s166] W3b: still held
+    _secs(f, BW.WW_WIRE_MISMATCH_HOLD_MS / 1000.0 - 5.0)
+    wp = _doc(f)["wire_peer"]
+    assert wp["mismatch"] is False and wp["rejected_age_ms"] >= BW.WW_WIRE_MISMATCH_HOLD_MS
 
 
 def test_a_client_caches_its_hosts_trailer_from_the_transport_and_wire_peer_rx_reads_it():
@@ -1721,8 +1889,67 @@ def _scenario_commit(faults):
     return out
 
 
+def _scenario_hold(faults):
+    """[ff9mapkit netsync s166] W3 (W3A-T1) THE 15 s HOLD: one refused frame of wire 14 and nothing of mine after it -- the words still up
+    at 6 s (past the 78dedb5d build's 5 s: a v14 host's close can win two redial cycles), gone at 15 s."""
+    f = _fake(faults=faults)
+    f.netsync.update(enabled=True, role="client", instance=True)
+    _step(f, 2)
+    f.wire_frame(14)
+    _secs(f, 6.0)
+    out = {"words_held_past_5s": _doc(f)["wire_peer"]["mismatch"] is True and _doc(f)["world"]["line"]["asked"] == "mismatch"}
+    _secs(f, 9.2)
+    out["words_age_out_at_15s"] = _doc(f)["wire_peer"]["mismatch"] is False
+    return out
+
+
+def _scenario_span(faults):
+    """[ff9mapkit netsync s166] W3 (W3A-T3) A HANG CUT BY A CAPLESS FRAME: `hostseq freeze` for 1.5 s (a hang), then `pose off` and
+    `hostseq run` -- the bench host's next frame is capless (tfmt 0): the hang ends 'updating again' with the RECEIVER's length (its
+    peak, past 1000 ms), never the pre-hang sender span (~33 ms at 30 fps)."""
+    f = _fake(faults=faults)
+    _bench(f)
+    _ww(f, "hostseq", "freeze")
+    _secs(f, 1.5)
+    out = {"hang_opened": _lane(f)["open"] == "hang"}
+    _ww(f, "pose", "off")
+    _ww(f, "hostseq", "run")
+    _secs(f, 0.3)
+    lane = _lane(f)
+    out["capless_cut_ends_with_my_length"] = lane["last_line"] == "hang_end" and lane["last_len_ms"] >= 1000
+    return out
+
+
+def _scenario_mint(faults):
+    """[ff9mapkit netsync s166] W3b (W3A-RT-1 + RT-2) THE MINT: the bench host walks 9002 (its Dagger kept as the cache's last valid world
+    sample), goes to place 3 (blocks invalid: the 9002 sample stays), I cross a field onto 9011 -- the settle-time root mints MY walker
+    (Zidane 310), never the kept Dagger, and the first show re-mints nothing (one mint on the visit). On 9009 (a vehicle state) and 9012
+    (an event world) with a following bench host, nothing is minted at all."""
+    f = _fake(faults=faults)
+    _bench(f, world=9002)
+    out = {"body_9002_is_dagger": _ghost(f)["model"] == BW.WW_GEO_DAGGER and _ghost(f)["shown"]}
+    _ww(f, "hostplace", "3")
+    _secs(f, 0.3)
+    f.ui_state, f.field_id = "FieldHUD", 6603
+    _step(f, 3)
+    m0 = _ghost(f)["mints"]
+    f.enter_world(9011, 68.0, -444.0)
+    _step(f, 4)
+    g = _ghost(f)
+    out["settle_mints_my_walker"] = g["model"] == BW.WW_GEO_ZIDANE and g["mints"] - m0 == 1 and not g["shown"]
+    _ww(f, "hostplace", "4")
+    _secs(f, 0.5)
+    g = _ghost(f)
+    out["one_mint_per_visit"] = g["shown"] and g["model"] == BW.WW_GEO_ZIDANE and g["mints"] - m0 == 1
+    for wid, row, why in ((9009, "no_mint_off_the_walk_set", "walk_set"), (9012, "no_mint_on_an_event_world", "event_world")):
+        h = _fake(faults=faults)
+        _bench(h, world=wid)
+        out[row] = _ghost(h)["mints"] == 0 and _ghost(h)["why_not"] == why
+    return out
+
+
 SCENARIOS = {"stall": _scenario_stall, "tx": _scenario_tx, "ghost": _scenario_ghost, "wire": _scenario_wire, "lines": _scenario_lines,
-             "commit": _scenario_commit}
+             "commit": _scenario_commit, "hold": _scenario_hold, "span": _scenario_span, "mint": _scenario_mint}
 #: each round-A fault -> the scenario and EXACTLY the model rows it turns red there
 FAULT_ROWS = {
     "ghost_unwrapped": ("ghost", ("ghost_on_pose",)),
@@ -1747,6 +1974,10 @@ FAULT_ROWS = {
     "host_lines_state_b0": ("lines", ("host_sees_released_guest_scene",)),
     "hang_cut_as_update": ("stall", ("cut_never_loaded",)),
     "tx_commit_blind": ("commit", ("commit_load_is_transition",)),   # [ff9mapkit netsync s166] W2b: the d6df5df17fe0af03 build
+    "mismatch_hold_5s": ("hold", ("words_held_past_5s",)),          # [ff9mapkit netsync s166] W3: the 78dedb5d5cf4e430 build's hold
+    "capless_keeps_span": ("span", ("capless_cut_ends_with_my_length",)),   # ...and its capless branch
+    "ghost_mint_cross_world": ("mint", ("settle_mints_my_walker", "one_mint_per_visit")),   # ...its MintRoot (the kept 9002 Dagger)
+    "ghost_mint_off_walk_set": ("mint", ("no_mint_off_the_walk_set", "no_mint_on_an_event_world")),   # ...its mint gate
 }
 
 

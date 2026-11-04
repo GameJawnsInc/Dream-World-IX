@@ -162,7 +162,9 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
      `WMWorld.WorldMapRoot`, so it dies with every world scene. localRotation Euler(0, 0, 180); uniform scale (ratio/64)/256,
      ratio 67 for the walkers and 76 for the Mog. `_FogEnabled` set at mint. No WMActor, no Actor, no `Shadows` entry
      (SmoothFrameUpdater_World would lerp it against our writes).
-   - Minted lazily and hidden once IsOnWorldNow and w_blockReady both hold; a failed mint latches with one line. Its own
+   - Minted lazily and hidden once IsOnWorldNow and w_blockReady both hold, and (W3b) only on a walk-set world that is not an
+     event world. Its body is my own walker's model unless the peer's last valid world sample stands on my world, on foot, in
+     the walker set (307 / 309 / 310): the cache's sample outlives a world change. A failed mint latches with one line. Its own
      WMShadow prefab instance under WorldMapEffectRoot, scaled by the stock 6/36 formula with the live fogAMP.
    - **The strict gate.** w_blockReady reads stale-true on every field after a world visit (ff9.cs:9978; reset only by
      w_blockSystemConstructor, :2575-2578), and off the world map `ff9.world` (Singleton.cs:7-14) and `WorldMapRoot`
@@ -587,6 +589,32 @@ extracted; no bench while the owner plays, never under a running test suite.
 - **Walking:** a walker keeps walking through a host loss for up to 40 s. Its own continent title can leave its [0] 10 above
   the host's (harmless, same band). WorldTPS mismatches change relative speed (reported only). If decision 8 opens the map,
   closing it hides the minimap dot until the next Select.
+- **A guest who left for good, on the relay or a bridge (S166-G2, W3C-2):** the host keeps "Lost contact with your partner --
+  waiting for their game..." on every later world-map visit until the title, a config change or a new session, and each of those
+  world loads on a walk-set world mints a ghost body (a short CreateModel hitch at the fade-in) that is never shown. The game-to-relay hop stays up, so
+  nothing ends the session; direct TCP is unaffected (the socket drop does). A give-up span that resets the cache is the cure, left
+  for the two-PC look to size.
+- **The host's lines during its own load (S166-G3):** "Your partner is following you out" and "...loading" draw only once the
+  host's own world map is live, but the guest's follow-out starts after s165's 1200 ms of host-alive time, which can run ahead of
+  the host's block load. A slow host (the laptop) may show the lines late, briefly, or not at all. The round-A duo holds the guest
+  (`worldfollow hold`) until the host is live; play has no such hold. The lines are informational; the two-PC look records what
+  the laptop shows.
+- **A lost commit on a pulled guest (S166-G4):** the follow-out's commit seeds the host's world pose (the arrival key, the walker
+  pose bytes, [190], [181]) into the guest's own story before the landing. If that commit is then lost and no mirror arms after
+  it (another world loads instead, or a field loads while the link is down), those bytes stay in the guest's own, unmarked
+  story: on another world the walker spawns at the host's pose, and once the session ends (co-op off: no mirror to ramp) a save
+  can write that state. It needs a lost commit with no later arm; no in-play trigger was found offline.
+- **Caps (W3A-T4, W3C-1):** decision 2's "a feature runs only when both caps words carry its bit" is proven offline (FeatureOn),
+  but the live gates read only the peer's word, and no line names a peer's missing caps. Harmless while every s166 build sends the
+  same caps (b0); s167, the first build that can turn a bit off, wires FeatureOn and the line.
+- **The trailer's why (W3C-4):** the host's `lane.rx.why` tells the guest's world-out codes 1-14 apart; codes 15-29 all read 15
+  (0x1F), among them pairing_save, the debounce, the host not on the world map and the host without control. Diagnostic only: on
+  the two-PC look, read the guest's own `netsync.world.out.why`. s167 maps the codes to a class table.
+- **The mismatch words linger (W3A-T1):** "Your partner's co-op version doesn't match yours" holds 15 s past the last refused
+  frame, so it stays up to 15 s after a v14 partner quits; any frame of the matching wire clears it at once.
+- **W2b's residuals:** a field follow's load (`_followCommittedTo`) is still worded 'not updating' on the partner's lane rather
+  than 'loading', and both battle exits publish their last frame at place 5 / 6 (frozen about 0.82 s, under LaneGapMs, so no
+  line). Each is a one-line engine change left for a later round: one change per test.
 
 ## The owner's calls
 

@@ -11,7 +11,7 @@ engine clone. The design is `S166-DESIGN.md`, and the owner took every recommend
 | A0b | decision 26, the pairing pull | **deployed `9e4365349fab02b1` + BENCHED**: NEW T2 pair 11/11; LEVER T2 pair exactly OLD's five red, CAL green (the wait measured, 653 samples on 6603); regression green (below). S166-PR-SAVEMENU was a mis-derived row, re-derived (below) |
 | W1 | A1 the pure core + A2 wire v15 + the kit wire lane | **built, reviewed, NOT deployed**: A1 + A2 in the clone (5 files, every hunk tagged, `--no-deploy` clean; proof offline "247 rows, 70 mutants"); kit lane committed (W1 set: 853 passed, 1 load-noise red green alone) |
 | W2 | A3 sender/cache/lines, A4 the world ghost, the dot from the trailer, their bench rows | **built, reviewed, DEPLOYED + BENCHED** with the W2b engine fix (`78dedb5d5cf4e430`, proof "310 rows, 100 mutants"): OLD 12/12 CAL green on A0b; NEW every leg green (roam 8/9: only RM-GATE, the owner's tape); LEVER 18/18 CAL green; the round-A duo 21/21 on the W2c route, its 3 levers CAL green. Kit `02bf7c59`, `b8005294`, `aa37be95` |
-| W3 | the whole-diff review, the s166 patch emit, the README row, the regression set, the laptop package | not written |
+| W3 | the whole-diff review, the s166 patch emit, the README row, the regression set, the laptop package | **W3a review DONE** (3 lenses, each finding verified, a completeness critic; `w3a.txt` in this session's scratchpad): SHIP AFTER FIXES, no blocker, vanilla byte-for-byte safe. **W3b fix round DONE** (S166-G1 the pull latch, W3A-RT-1/RT-4 the mint model, T1 the 15 s mismatch hold, T3 the capless span, RT-2 the walk-set mint gate, the csproj comments; the rest in S166-DESIGN.md Known limits; reviewed, 3 nits fixed): the proof reads `world walk selftest: OK (323 rows, 110 mutants)`; `w3b.txt` in this session's scratchpad. Then the build, the re-bench, the patch emit, the regression set, the package |
 
 **Live DLL:** `9e4365349fab02b1` (A0 + A0b). The revert sets are:
 - `py tools/restore_memoria_dll.py 20261102-204556` goes back to A0 (`af1f9e0203d2e6fa`).
@@ -195,6 +195,13 @@ the owner's case.
    carry `FF9CustomMap-world`** (the laptop lacks it; s165 two-PC finding 3).
 4. The COOP_TAPE_WORLD_ROAM recording needs the recorder fix (`a1cb7269` on `refs/heads/claude/heuristic-hopper-ac13ad`,
    not merged: THE RECORDER DIALS THE OWNER), or the ini written before launch by hand, and the owner's bridge down.
+
+## The nightly gate (2026-11-04)
+
+- The 11-03 ledger was red on 2 tests at master `5e3a1eb6`: `test_coop_world_battle.py::test_the_solo_leg_is_green_on_the_s145_stand_in`
+  (the camera-follow count, "after 5 of its 7 calls") and `test_harness.py::test_o4_rehearsal_gate_reads_the_pair_on_the_fake`. Both
+  re-ran GREEN alone on clean master in the gate worktree (16 s and 267 s): load noise, nothing to revert.
+- The scheduled task "FF9 nightly test gate" is **Disabled** (no run on 11-04). Owner's call; never re-enabled from a session.
 
 ## Preconditions for any bench
 

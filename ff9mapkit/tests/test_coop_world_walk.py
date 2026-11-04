@@ -1651,6 +1651,54 @@ def test_s166b_coop_off_inside_a_pulled_follow_out_hands_the_ramp_over_at_the_la
                 assert not hand and st.session_ramp_pending is False and st.session_ramp_cause in (None, ""), lines
 
 
+@pytest.mark.parametrize("role, fault", [("host", None), ("selftest", None), ("host", "pairpull_role_armed")])
+def test_s166b_w3b_a_role_flip_inside_a_pulled_follow_out_still_arms_and_ramps_home(tmp_path, role, fault):
+    """[ff9mapkit netsync s166] W3b S166-G1 on the stand-in: the Role edited off client INSIDE a pulled guest's fade (co-op kept on: an
+    enabled=1 config with another role -- ApplyConfigChange finds no mirror to ramp). The landing arms on the START's latch (its ARMED
+    line, `arms` +1, mirroring) and hands the exit ramp over outside the arm with the role's words, after the ARMED line and before the
+    landing's -- `ramp_pending` true, cause 'config'. The `pairpull_role_armed` fault is the deployed 78dedb5d5cf4e430 landing: the arm
+    keyed on the live role -- the host's story lands UNMARKED (mirroring false, `arms` +0, no ARMED line, no ramp)."""
+    root = _game(tmp_path)
+    fake = _pfake(root, faults=(fault,) if fault else ())
+    fake.world_out_fade_frames = 1200                      # a 2 s fade at 600 fps: room to edit the role inside it
+    with _session(root, fake) as g:
+        _pair_on_6603(g, fake)
+        g.wait_for(lambda s: s.netsync["world"]["out"]["state"] == "fading", timeout=10, what="the pull's fade")
+        assert fake._wfo["pulled"] is True and fake.story_mirroring is False
+        fake.apply_ini({"Enabled": "1", "Role": role, "FollowHost": "1"})
+        st = g.wait_for(lambda s: s.ui_state == "WorldHUD" and s.world_id == 9011, timeout=10, what="the landing")
+        g.wait_frames(6)
+        st = g.state
+        lines = _pw_lines(fake)
+        hand = [i for i, ln in enumerate(lines) if "during it -- the exit ramp reloads your own autosave" in ln]
+        armed = [i for i, ln in enumerate(lines) if "ARMED at world map 9011's landing" in ln]
+        landed = next(i for i, ln in enumerate(lines) if "follow-out: landed" in ln)
+        assert fake._wfo["pulled"] is False                                    # spent with the record
+        if fault:
+            assert st.session_mirroring is False and fake._wwk["pp_arms"] == 0 and not armed and not hand, lines
+            assert st.session_ramp_pending is False, lines
+        else:
+            assert st.session_mirroring is True and fake._wwk["pp_arms"] == 1 and len(armed) == 1, lines
+            assert len(hand) == 1 and armed[0] < hand[0] < landed, lines
+            assert lines[hand[0]] == BW.log_world_out_land_ramp(9011, True, role), lines[hand[0]]
+            assert (st.session_ramp_pending, st.session_ramp_cause) == (True, "config")
+
+
+def test_s166b_w3b_the_latch_is_spent_or_cleared_with_the_record(tmp_path):
+    """[ff9mapkit netsync s166] W3b S166-G1: a latch never outlives its follow-out -- a superseded fade and a lost commit clear it, so a later
+    UNPULLED follow-out (a mirroring guest) never arms from a stale latch; a mirroring guest's or the bench's start never latches."""
+    fake = _pfake(_game(tmp_path))
+    assert fake._wfo_on()
+    w = fake._wfo
+    w.update(state="fading", pulled=True, world=9011, intent_seen=None)
+    fake._wfo_supersede_by(6604)
+    assert w["state"] == "idle" and w["pulled"] is False
+    w.update(state="committed", pulled=True, world=9011)
+    fake._wfo_field_load()
+    assert w["state"] == "idle" and w["pulled"] is False
+    assert not BW.ww_pull_latch_rule(True, False, False) and not BW.ww_pull_latch_rule(False, True, False)
+
+
 def test_s166b_the_stand_in_publishes_pairpull_last_and_the_lever_releases(tmp_path):
     """The default stand-in: `netsync.world` = A0's nine then `pairpull` at its shape; `worldwalk pairpull old|act` on any role, the
     clear line A0b's, the release line once when it was set; a malformed `pairpull` refused before the step in the usage line."""
@@ -2235,7 +2283,11 @@ def test_s166b_the_engines_pending_rule_and_verdicts_are_the_twins():
                                                       BW.PAIR_NOT_OWN_PLACE, BW.PAIR_AUTOSAVE_OFF, BW.PAIR_STOCK_REFUSED)
     assert "f.PairPending = NetSyncWorldFollow.PairingSavePending(_pairWindowOpen, _pairWrittenWhere != null, _pairVerdict);" in client
     assert "f.PairPull = !_ppOld;" in client
-    assert re.search(r'else if \(!_ppOld && _role == "client" && !_storyMirroring\)\s*\{', client), "the landing arm's guard"
+    if "NetSyncWorldWalk.PullArmRule(" in client:    # [ff9mapkit netsync s166] W3b S166-G1: the arm keys on the START's latch, never the live role
+        assert re.search(r'else if \(NetSyncWorldWalk\.PullArmRule\(pulled, applied, _storyMirroring\)\)(?:\s*//[^\n]*)?\s*\{', client), "the landing arm's guard"
+        assert not re.search(r'else if \(!_ppOld && _role == "client" && !_storyMirroring\)', client), "the 78dedb5d live-role guard is gone"
+    else:                                               # the deployed 78dedb5d5cf4e430 build and before
+        assert re.search(r'else if \(!_ppOld && _role == "client" && !_storyMirroring\)\s*\{', client), "the landing arm's guard"
 
 
 # ================================================================================================ [ff9mapkit netsync s166] ROUND A, SOLO
@@ -2251,7 +2303,7 @@ sys.path.insert(0, kit)
 doc = json.loads(sys.stdin.read() or "{}")
 from harness import Session
 from harness import fakegame as FG
-SRC_ROWS, SRC_MUTANTS = 310, 100     # [ff9mapkit netsync s166] W2b: + the commit's-load rows and mutants
+SRC_ROWS, SRC_MUTANTS = 323, 110     # [ff9mapkit netsync s166] W2b: + the commit's-load rows and mutants; W3b: + its 13 rows, 10 mutants
 
 def clone_dir():
     """A stand-in s166 clone: NetSyncWorldWalk.cs carrying the tag and a proof table of SRC_ROWS rows and SRC_MUTANTS mutants -- the one
@@ -2422,7 +2474,7 @@ def test_s166a_every_round_a_leg_is_green_on_the_newest_stand_in_in_one_launch()
     for row in ("S166-A-TX", "S166-A-FROZEN", "S166-A-GHOST", "S166-A-RULE", "S166-A-WRAP", "S166-A-DOTRIDE", "S166-A-BODY", "S166-A-STALL",
                 "S166-A-HANG", "S166-A-HANG-CTL", "S166-A-PROOF", "S166-A-P1", "S166-A-R"):
         assert row in r["all"], row
-    assert "(310, 100)" in r["detail"]["S166-A-PROOF"] and "the x seam crossed while shown: yes" in r["detail"]["S166-A-GHOST"]
+    assert "(323, 110)" in r["detail"]["S166-A-PROOF"] and "the x seam crossed while shown: yes" in r["detail"]["S166-A-GHOST"]
     assert any(s.startswith("worldwalk host path 1480") for s in r["sent"]) and "worldwalk lanegap off" in r["sent"]
 
 
@@ -2551,12 +2603,12 @@ def _smp(frame, *, ui="WorldHUD", world=9011, x=68.0, z=-444.0, lane=None, ghost
 def test_s166a_the_pure_round_a_judges_go_red_on_each_wrong_shape():
     ww = _a_ww()
     # A-PROOF
-    lines = [f"[NetSync] {BW.PROOF_WORLD_WALK}OK (310 rows, 100 mutants)"]
+    lines = [f"[NetSync] {BW.PROOF_WORLD_WALK}OK (323 rows, 110 mutants)"]
     st = _smp(1, lane={"tx": {}}, ghost={"want": False})
-    assert ww.judge_a_proof(st, lines, (310, 100))[0] and not ww.judge_a_proof(st, lines, (311, 100))[0]
+    assert ww.judge_a_proof(st, lines, (323, 110))[0] and not ww.judge_a_proof(st, lines, (324, 110))[0]
     assert not ww.judge_a_proof(st, [f"[NetSync] {BW.PROOF_WORLD_WALK}OK (84 rows, 13 mutants)"], None)[0]
-    assert not ww.judge_a_proof(st, lines + [f"[NetSync] {BW.PROOF_WORLD_WALK}FAIL x"], (310, 100))[0]
-    assert not ww.judge_a_proof(_smp(1), lines, (310, 100))[0]                       # no lane / ghost: absent
+    assert not ww.judge_a_proof(st, lines + [f"[NetSync] {BW.PROOF_WORLD_WALK}FAIL x"], (323, 110))[0]
+    assert not ww.judge_a_proof(_smp(1), lines, (323, 110))[0]                       # no lane / ghost: absent
     # A-TX
     tx = {"place": 4, "world": 9011, "x": 68.2, "z": -444.1, "field": 0, "kind": "fmt1", "len": 94}
     land = [_smp(0, lane={"tx": dict(tx, place=p)}) for p in (1, 2, 3)]
