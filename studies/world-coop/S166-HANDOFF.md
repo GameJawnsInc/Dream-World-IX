@@ -10,7 +10,7 @@ engine clone. The design is `S166-DESIGN.md`, and the owner took every recommend
 | A0 | decision 19, the control-off kit-cell close, on every world map | **deployed + benched**: OLD on s165 measured both hazards; NEW 8/8; the lever reproduces both; s165 solo green. Kit commit `5cbdfd08` |
 | A0b | decision 26, the pairing pull | **deployed `9e4365349fab02b1` + BENCHED**: NEW T2 pair 11/11; LEVER T2 pair exactly OLD's five red, CAL green (the wait measured, 653 samples on 6603); regression green (below). S166-PR-SAVEMENU was a mis-derived row, re-derived (below) |
 | W1 | A1 the pure core + A2 wire v15 + the kit wire lane | **built, reviewed, NOT deployed**: A1 + A2 in the clone (5 files, every hunk tagged, `--no-deploy` clean; proof offline "247 rows, 70 mutants"); kit lane committed (W1 set: 853 passed, 1 load-noise red green alone) |
-| W2 | A3 sender/cache/lines, A4 the world ghost, the dot from the trailer, their bench rows | **built, reviewed, NOT deployed**: A3 + A4 + the dot in the clone (8 files incl. the new `NetSyncWorldGhost.cs`, every hunk tagged, `--no-deploy` clean; proof offline "308 rows, 98 mutants"); the stand-in, Round A's rows and the runners committed (below) |
+| W2 | A3 sender/cache/lines, A4 the world ghost, the dot from the trailer, their bench rows | **built, reviewed, DEPLOYED + BENCHED** with the W2b engine fix (`78dedb5d5cf4e430`, proof "310 rows, 100 mutants"): OLD 12/12 CAL green on A0b; NEW every leg green (roam 8/9: only RM-GATE, the owner's tape); LEVER 18/18 CAL green; the round-A duo 21/21 on the W2c route, its 3 levers CAL green. Kit `02bf7c59`, `b8005294`, `aa37be95` |
 | W3 | the whole-diff review, the s166 patch emit, the README row, the regression set, the laptop package | not written |
 
 **Live DLL:** `9e4365349fab02b1` (A0 + A0b). The revert sets are:
@@ -77,6 +77,12 @@ What the reds were (a read-only diagnosis + adversarial verification, both uphel
   `worldfollow hold` until the host's own place 4, then release, and a precondition term naming the host-loading case.
 - LEVER: **all 18 legs CAL green**, the three duo levers included. `sticky` now calibrates in game: D-BATTLE red under it, its shape
   measured (the ghost drawn from the last valid pose through the host's swirl).
+- **W2c in game** (kit `aa37be95`, logs `20261104-065212-w2cduo`): the round-A duo **21/21**; the host said "the partner is following"
+  for 2187 ms, through the guest's commit and synchronous load, and it ended straight into 'loading' at the world seam ("...ended after
+  2187 ms; the partner is loading -- the guest's place world_loading, state 0x05"), with no false 'not updating' hang around the
+  follow-out: the W2b engine fix, seen. The duo's `ghost` / `sticky` / `dot` levers each CAL green on the new route.
+- **Round A's bench is DONE.** Open only: S166-RM-GATE (the owner's COOP_TAPE_WORLD_ROAM), D-PAIR (deferred), A-MENU (stand-in only),
+  the owner's two-PC look, and W3.
 
 ## A0b's bench results (finished after the handoff was written)
 
