@@ -48,7 +48,7 @@ def _rules(**swap):
                         rot=lambda dx, dz: BW.ww_walker_rotation(BW.ww_walker_yaw(dx, dz)), record=BW.ww_record_field_rule,
                         where=BW.ww_place_rule, header=BW.ww_wire_header_rule, once=BW.ww_version_line_once, feature=BW.ww_feature_on,
                         mismatch=BW.ww_wire_mismatch_rule, redial=BW.ww_redial_say_step, gate=BW.ww_ghost_scene_gate,
-                        walk=BW.ww_walk_world_rule, render=BW.ww_render_of)
+                        walk=BW.ww_walk_world_rule, render=BW.ww_render_of, tx=BW.ww_tx_transition_rule)
     for k, v in swap.items():
         assert hasattr(r, k), k
         setattr(r, k, v)
@@ -113,6 +113,16 @@ ROWS = {
     "place.field_after_world_visit_is_field": lambda r: r.where(False, False, False, False, False, True, True) == BW.WW_PLACE_FIELD,
     "place.battle_and_diorama": lambda r: r.where(False, False, False, True, False, False, False) == BW.WW_PLACE_BATTLE
     and r.where(False, False, True, True, True, True, True) == BW.WW_PLACE_DIORAMA,
+    # ---- [ff9mapkit netsync s166] W2b THE COMMIT'S LOAD: my follow-out's record is a transition while my field runs; never off it
+    "place.commit_load_is_transition": lambda r: (lambda tc: tc and r.where(False, tc, False, False, False, False, True)
+                                                  == BW.WW_PLACE_TRANSITION)(r.tx(False, True, True, False, False, False))
+    and r.tx(True, False, True, False, False, False) and r.tx(False, False, False, True, False, False)
+    and r.tx(False, False, False, False, True, False) and r.tx(False, False, False, False, False, True)
+    and not r.tx(False, False, True, False, False, False),
+    "place.commit_record_off_field_bends_nothing": lambda r: (lambda to: not to
+                                                              and r.where(False, to, False, False, True, True, False) == BW.WW_PLACE_WORLD
+                                                              and r.where(False, to, False, True, False, False, False) == BW.WW_PLACE_BATTLE)(
+        r.tx(False, True, False, False, False, False)),
     # ---- the wire
     "wire.mine": lambda r: r.header(BW.WW_MAGIC, 15, 15) == BW.WW_WIRE_MINE,
     "wire.other_version_counted": lambda r: r.header(BW.WW_MAGIC, 14, 15) == BW.WW_WIRE_OTHER,
@@ -294,6 +304,10 @@ MUTANTS = {
     "field_world": (dict(record=lambda p, f: 9011 if p in (3, 4, 6) else f), "record.world_sample_field_zero"),
     "place_stale_block_ready": (dict(where=lambda ti, tr, di, ba, on, br, fl: 4 if not (ti or tr or di or ba) and br
                                      else BW.ww_place_rule(ti, tr, di, ba, on, br, fl)), "place.field_after_world_visit_is_field"),
+    # [ff9mapkit netsync s166] W2b: the record blind (the d6df5df17fe0af03 build); the record counted off a live field
+    "tx_commit_blind": (dict(tx=lambda ff, wc, of, fd, nr, sw: bool(ff or fd or nr or sw)), "place.commit_load_is_transition"),
+    "tx_commit_anywhere": (dict(tx=lambda ff, wc, of, fd, nr, sw: bool(ff or wc or fd or nr or sw)),
+                           "place.commit_record_off_field_bends_nothing"),
     "wire_magic_blind": (dict(header=lambda mg, v, own: 0 if v == own else 2), "wire.foreign_magic_not_counted"),
     "version_line_always": (dict(once=lambda s, v: (BW.ww_version_line_once(s, v), True)[1]), "wire.version_line_once"),
     "caps_own_only": (dict(feature=lambda own, peer, bit: BW.ww_feature_on(own, own, bit)), "caps.capless_peer_feature_off"),
@@ -406,6 +420,20 @@ def test_each_twin_mutant_fails_its_own_row(name):
     assert row in ROWS, row
     r = _rules(**swap)
     assert not ROWS[row](r), f"mutant {name} passed its own row {row}"
+
+
+@pytest.mark.parametrize("name", ["tx_commit_blind", "tx_commit_anywhere"])
+def test_w2b_each_commit_mutant_is_caught_only_by_its_own_row(name):
+    """[ff9mapkit netsync s166] W2b: the two TxTransition mutants each fail EXACTLY their own row (a mutant another row also catches
+    proves nothing about its term) -- and the twin's truth table: the record counts only with on_field, each other term alone."""
+    swap, row = MUTANTS[name]
+    r = _rules(**swap)
+    assert [n for n, fn in ROWS.items() if not fn(r)] == [row]
+    t = BW.ww_tx_transition_rule
+    assert t(False, True, True, False, False, False) and not t(False, True, False, False, False, False)
+    assert not t(False, False, True, False, False, False) and not t(False, False, False, False, False, False)
+    for i in (0, 3, 4, 5):
+        assert t(*[k == i for k in range(6)]) and t(*[k == i or k == 2 for k in range(6)]), i
 
 
 # ================================================================================================ A4's TWINS (the W2 reconcile: A4 FINAL)
@@ -856,6 +884,27 @@ def test_s166a_the_a3_rules_and_their_words_are_the_engines():
                   '"host world: "', '"; "'):
         assert piece in hl, piece
     assert '"host world lines: " + HostLinePairs + " on this link -- counted only from here"' in text
+
+
+def test_s166a_w2b_the_tx_transition_rule_its_call_site_rows_and_mutants_are_the_twins():
+    """[ff9mapkit netsync s166] W2b, read off the source (SKIPS on a source before W2b): TxTransitionRule's body is the twin's;
+    WorldTxBuild builds `transition` through it with the committed record and onField (FollowFadeInFlight passed as is, never edited);
+    the proof carries both rows and both mutants, each mutant beside ITS row (MutantNames / MutantRows), the twins' pairing."""
+    text = _ww_a3()
+    if "TxTransitionRule" not in text:
+        pytest.skip("this s166 source carries no W2b TxTransitionRule yet")
+    body = _body(text, "internal static Boolean TxTransitionRule(")
+    assert "return followFade || (worldOutCommitted && onField) || sdFading || sdNotReady || swirl;" in body
+    client = _client_a3()
+    call = "NetSyncWorldWalk.TxTransitionRule(FollowFadeInFlight, _worldOutCommittedTo >= 0, onField, sd != null && sd.IsFading,"
+    assert call in client and "sd != null && !sd.IsReady, sd != null && sd.CurrentScene == \"SwirlScene\")" in client
+    for row in ("place.commit_load_is_transition", "place.commit_record_off_field_bends_nothing"):
+        assert f'"{row}");' in text and row in ROWS, row
+    names, row_of = _qnames(text, "MutantNames"), _qnames(text, "MutantRows")
+    assert len(names) == len(row_of)
+    pairs = dict(zip(names, row_of))
+    assert {n: pairs.get(n) for n in ("tx_commit_blind", "tx_commit_anywhere")} == {
+        n: MUTANTS[n][1] for n in ("tx_commit_blind", "tx_commit_anywhere")}
 
 
 def test_s166a_the_clients_a3_lines_ops_and_overlay_are_the_stand_ins():
@@ -1653,7 +1702,27 @@ def _scenario_lines(faults):
     return out
 
 
-SCENARIOS = {"stall": _scenario_stall, "tx": _scenario_tx, "ghost": _scenario_ghost, "wire": _scenario_wire, "lines": _scenario_lines}
+def _scenario_commit(faults):
+    """[ff9mapkit netsync s166] W2b THE COMMIT'S LOAD, the sender built by hand on a live field (6603, FieldHUD): my follow-out's fade and
+    its COMMIT read place 2 with b5 (the record stands through the field's shutdown and the sync load); a committed record a battle
+    outlived bends nothing (place 5); idle, place 1."""
+    f = _fake(faults=faults)
+
+    def built(state, battle=False):
+        f._wfo["state"], f.battle_active = state, battle
+        f._wwa_tx_build(f._wwa_now())
+        t = f._wwa["tx"]
+        return t["place"], bool(t["state"] & BW.WW_ST_WORLDOUT)
+    out = {"idle_is_field": built("idle") == (BW.WW_PLACE_FIELD, False),
+           "fade_is_transition": built("fading") == (BW.WW_PLACE_TRANSITION, True),
+           "commit_load_is_transition": built("committed") == (BW.WW_PLACE_TRANSITION, True),
+           "commit_off_field_bends_nothing": built("committed", battle=True)[0] == BW.WW_PLACE_BATTLE}
+    f._wfo["state"], f.battle_active = "idle", False
+    return out
+
+
+SCENARIOS = {"stall": _scenario_stall, "tx": _scenario_tx, "ghost": _scenario_ghost, "wire": _scenario_wire, "lines": _scenario_lines,
+             "commit": _scenario_commit}
 #: each round-A fault -> the scenario and EXACTLY the model rows it turns red there
 FAULT_ROWS = {
     "ghost_unwrapped": ("ghost", ("ghost_on_pose",)),
@@ -1677,6 +1746,7 @@ FAULT_ROWS = {
     "ghost_dress_310": ("ghost", ("body_9002_dagger",)),
     "host_lines_state_b0": ("lines", ("host_sees_released_guest_scene",)),
     "hang_cut_as_update": ("stall", ("cut_never_loaded",)),
+    "tx_commit_blind": ("commit", ("commit_load_is_transition",)),   # [ff9mapkit netsync s166] W2b: the d6df5df17fe0af03 build
 }
 
 

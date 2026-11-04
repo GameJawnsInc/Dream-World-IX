@@ -28,6 +28,43 @@ The snapshots for diffs are in the old session's scratchpad, `C:\Users\skaki\App
 `s166-handoff/s166diff.py` diffs against `s165base`. Edit its `SNAP` if the scratchpad is gone; a fresh snapshot = the
 replayed stack via `py tools/memoria_stack_replay.py snapshot`.
 
+## Round A in game, W1+W2 (2026-11-04, the first build `d6df5df17fe0af03`)
+
+Logs: `C:\gd\Dream-World-IX\.harness-runs\s166-round-a\` (`20261104-013129-old`, `-014313-new`, `-020156-lever`, `summary.log` in each).
+Revert to A0b: `py tools/restore_memoria_dll.py 20261104-014249`.
+
+| Run | Result |
+|---|---|
+| OLD on A0b (12 legs) | every leg's CAL green: each reds exactly its OLD prediction; T2-A old 13/13 |
+| NEW (14 legs) | 13 green: proof + A-TX 9/9, A-WIRE 7/7, T2-A old 13/13, ghost 9/9, wrap 8/8, dot 8/8, body 8/8, stall 10/10, roam 8/9 (only RM-GATE, red by construction until the owner's ROAM tape), freeze 6/6, T2-H 8/8, duo s144 16/16, duo s145 20/20. **Red: the round-A duo 19/21 (D-LINES, D-G1)** |
+| LEVER (18 legs) | every solo and T2 lever's CAL green; the three duo levers red only on items below |
+
+What the reds were (a read-only diagnosis + adversarial verification, both upheld):
+- **D-LINES, an ENGINE defect + a route defect.** From the world follow-out's commit through the guest's synchronous load the
+  trailer read place FIELD with b5 (WorldTxBuild's transition term missed the committed record), so the host's 'following' line
+  lasted 235 ms and the host's lane worded the guest's load 'not updating'. And the duo's Taps started only after `walk_out` returned,
+  when the guest already stood at place 4. A3's open issue ("the following line persists through the load") held only on the
+  stand-in, which modelled place 2 through the commit: THE DEFECT FOLLOWS THE AUTHORSHIP.
+- **D-G1, kit only:** the real on-foot speed is 0.201 u/frame, so the fixed 90-frame hold walks 18.4 u < D_MOVE_U 20. The ghost
+  tracked exactly (49 samples by seq, max 0.23 u).
+- **`ghost sticky` left D-REJOIN green** (its predicted red): the ENGINE is right and the prediction was wrong. THE ARM-FIRST ORDER:
+  the host's MAPJUMP intent leaves out of band before its SetNextMap and the guest arms on it, so the guest's own exit hides the ghost
+  (GhostRule asks the observer's transition before GhostSample) before any host place-2 frame; the host even publishes place 4 up to
+  its intent. Sticky can bite only during the host's world-battle swirl (place 2 while the guest is still live), so its prediction
+  moved to D-BATTLE's new entry-hide term. No real ring has covered the swirl yet: if the no-lever duo reports cover 0, drop `sticky`
+  from DUO_LEVERS and calibrate it by a solo A-RULE place-2 case instead.
+- **`dot` turned D-BATTLE red** (one guest 'not updating' hang): the engine worded it right (the host's first live frame after its own
+  load, then frozen by the guest's mesh load); the JUDGE's load_windows missed the host's battle-return load because ui / field /
+  world never change through a world battle. load_windows now also counts a freeze stepping out of an ANNOUNCED loading place (2 or 3,
+  LaneGapKind's own set); a step out of 5 / 6 / 4 is never a window.
+- **W2b (the fix round):** the engine's pure `TxTransitionRule` (the committed follow-out is place 2 while my field runs; proof 310 /
+  100, mutants `tx_commit_blind` = the d6df build, `tx_commit_anywhere`), its twin and the stand-in fault; the duo's Taps from before
+  the guest can leave, `noencounter` on the field before the walk; D-LINES' coverage + "no end at place field" + "following lasted the
+  guest's landing span"; the closed-loop walk (`tx_moved` / `world_moved`, cap 200 frames, deadline 6 s). Named residuals: a
+  field-follow load is still worded 'not updating' (`_followCommittedTo`), and both battle exits publish their last frame at place 5 / 6
+  (frozen ~0.82 s, under LaneGapMs): a later round, one change per test.
+- The A-BODY shot (9002) shows the ghost as a second Dagger beside my walker: upright, the walker's scale, on the ground.
+
 ## A0b's bench results (finished after the handoff was written)
 
 | Leg | Result |
@@ -120,7 +157,7 @@ the owner's case.
    - The clone's W2 delta: `NetSyncClient.cs`, `NetSyncWorldWalk.cs`, `NetSyncWorldDot.cs`, `HarnessAgent.cs`, the new
      `NetSyncWorldGhost.cs` (+ its csproj line), and one-line hooks in `Ff9mkDebugMenu.cs` (`NetSyncControlHeld`) and
      `WMScriptDirector.cs` (the ghost's world-load `HideNow`). W3's patch must carry all of them, A0 + A0b + A1 + A2 with them.
-   - A-PROOF in game should read "world walk selftest: OK (308 rows, 98 mutants)". The runners export `FF9_S166_CLONE` so the
+   - A-PROOF in game read "world walk selftest: OK (308 rows, 98 mutants)" on W2; after W2b it reads (310 rows, 100 mutants). The runners export `FF9_S166_CLONE` so the
      judge wants exactly that until the s166 patch exists.
    - The engine review fixed four small defects (W2R-1..4: `hostlines off` silences the host's stall-lost line too and logs no
      edge; every missing clip is remembered; a re-shown body re-plays its clip). The critic tightened four rows that could not

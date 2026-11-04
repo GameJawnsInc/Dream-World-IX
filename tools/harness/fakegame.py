@@ -1882,10 +1882,13 @@ WORLD_WALK_FAULTS = ("walk_proof_fail", "kitcell_leak", "kitcell_sid0_only", "ki
 #:   "ghost_dress_310"        the body defaults to 310 (the dress mutant: a Zidane on 9002)
 #:   "host_lines_state_b0"    the host's lines keyed on the guest's STATE b0 (a released guest gets none)
 #:   "hang_cut_as_update"     a hang cut by a gap ends "updating again" (the A1 build's shape before the review's LineHangCut)
+#:   "tx_commit_blind"        [s166 W2b] the sender's transition term misses my follow-out's committed record (the deployed d6df5df17fe0af03
+#:                            build): place FIELD with b5 from the commit to the land, so a host's 'following' ends at the commit
 WORLD_WALK_A_FAULTS = ("ghost_unwrapped", "gap_on_stamp", "arrival_on_seq", "hold_on_valid", "ghost_stale_mint", "wire_field_world",
                        "scene_menu_hold", "pose_lever_ignored", "lanegap_lever_ignored", "hostlines_lever_ignored", "ghost_lever_ignored",
                        "place_lever_ignored", "dot_src_lever_ignored", "wire_peer_dark", "wire_words_latched", "tx_seq_frozen",
-                       "line_dark", "dot_src_section0", "ghost_dress_310", "host_lines_state_b0", "hang_cut_as_update")
+                       "line_dark", "dot_src_section0", "ghost_dress_310", "host_lines_state_b0", "hang_cut_as_update",
+                       "tx_commit_blind")
 #: (kept APART from WORLD_WALK_FAULTS, whose rows are A0 / A0b's solo and pair legs: ``world_walk_faults`` takes names from both; the
 #: round-A rows' own fault table is the bench's successor table -- tests/test_coop_world_walk_a.py's FAULT_ROWS models it)
 #: [ff9mapkit netsync s166] round A's pieces on the `worldwalk` rung (``FakeGame.world_walk_pieces``): the default is the newest engine;
@@ -8797,11 +8800,16 @@ class FakeGame:
         return BW.WW_GEO_DAGGER if int(self.world["id"] or 0) == 9002 else BW.WW_GEO_ZIDANE
 
     def _wwa_transition(self) -> bool:
-        """PlaceRule's `transition`: a scene transition in flight in ANY scene -- a follow / follow-out fade or its commit's load, a field
-        exit's fade, the world's exit or swirl, a world boot's swirl."""
-        wt = self._wt
-        return bool(self._wfo["state"] in ("fading", "committed") or self._exit is not None or wt["exit"] is not None
-                    or wt["swirl"] is not None or self._wdio_swirl is not None)
+        """PlaceRule's `transition` THROUGH THE ENGINE'S BUILDER (battlewire.ww_tx_transition_rule, NetSyncWorldWalk.TxTransitionRule): a
+        follow-out fade, its COMMIT while my field still runs (the commit's load), a field exit's fade, the world's exit or swirl, a world
+        boot's swirl. [s166 W2b] The stand-in USED to count the commit anywhere (decision 4's words twinned, not the engine's 8419 -- THE
+        DEFECT FOLLOWS THE AUTHORSHIP); a committed record off a live field (a stand-in battle) now bends nothing, as the engine's.
+        The `tx_commit_blind` fault is the deployed d6df5df17fe0af03 build: the record missed, place FIELD with b5 from the commit on."""
+        wt, st = self._wt, self._wfo["state"]
+        committed = st == "committed" and "tx_commit_blind" not in self.world_walk_faults
+        return BW.ww_tx_transition_rule(st == "fading", committed, self._wwa_field_live(),
+                                        self._exit is not None or wt["exit"] is not None, False,
+                                        wt["swirl"] is not None or self._wdio_swirl is not None)
 
     def _wwa_field_live(self) -> bool:
         return self.field_id > 0 and self.ui_state == "FieldHUD" and not self.battle_active

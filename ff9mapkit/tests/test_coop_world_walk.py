@@ -2251,7 +2251,7 @@ sys.path.insert(0, kit)
 doc = json.loads(sys.stdin.read() or "{}")
 from harness import Session
 from harness import fakegame as FG
-SRC_ROWS, SRC_MUTANTS = 308, 98
+SRC_ROWS, SRC_MUTANTS = 310, 100     # [ff9mapkit netsync s166] W2b: + the commit's-load rows and mutants
 
 def clone_dir():
     """A stand-in s166 clone: NetSyncWorldWalk.cs carrying the tag and a proof table of SRC_ROWS rows and SRC_MUTANTS mutants -- the one
@@ -2422,7 +2422,7 @@ def test_s166a_every_round_a_leg_is_green_on_the_newest_stand_in_in_one_launch()
     for row in ("S166-A-TX", "S166-A-FROZEN", "S166-A-GHOST", "S166-A-RULE", "S166-A-WRAP", "S166-A-DOTRIDE", "S166-A-BODY", "S166-A-STALL",
                 "S166-A-HANG", "S166-A-HANG-CTL", "S166-A-PROOF", "S166-A-P1", "S166-A-R"):
         assert row in r["all"], row
-    assert "(308, 98)" in r["detail"]["S166-A-PROOF"] and "the x seam crossed while shown: yes" in r["detail"]["S166-A-GHOST"]
+    assert "(310, 100)" in r["detail"]["S166-A-PROOF"] and "the x seam crossed while shown: yes" in r["detail"]["S166-A-GHOST"]
     assert any(s.startswith("worldwalk host path 1480") for s in r["sent"]) and "worldwalk lanegap off" in r["sent"]
 
 
@@ -2551,12 +2551,12 @@ def _smp(frame, *, ui="WorldHUD", world=9011, x=68.0, z=-444.0, lane=None, ghost
 def test_s166a_the_pure_round_a_judges_go_red_on_each_wrong_shape():
     ww = _a_ww()
     # A-PROOF
-    lines = [f"[NetSync] {BW.PROOF_WORLD_WALK}OK (308 rows, 98 mutants)"]
+    lines = [f"[NetSync] {BW.PROOF_WORLD_WALK}OK (310 rows, 100 mutants)"]
     st = _smp(1, lane={"tx": {}}, ghost={"want": False})
-    assert ww.judge_a_proof(st, lines, (308, 98))[0] and not ww.judge_a_proof(st, lines, (309, 98))[0]
+    assert ww.judge_a_proof(st, lines, (310, 100))[0] and not ww.judge_a_proof(st, lines, (311, 100))[0]
     assert not ww.judge_a_proof(st, [f"[NetSync] {BW.PROOF_WORLD_WALK}OK (84 rows, 13 mutants)"], None)[0]
-    assert not ww.judge_a_proof(st, lines + [f"[NetSync] {BW.PROOF_WORLD_WALK}FAIL x"], (308, 98))[0]
-    assert not ww.judge_a_proof(_smp(1), lines, (308, 98))[0]                       # no lane / ghost: absent
+    assert not ww.judge_a_proof(st, lines + [f"[NetSync] {BW.PROOF_WORLD_WALK}FAIL x"], (310, 100))[0]
+    assert not ww.judge_a_proof(_smp(1), lines, (310, 100))[0]                       # no lane / ghost: absent
     # A-TX
     tx = {"place": 4, "world": 9011, "x": 68.2, "z": -444.1, "field": 0, "kind": "fmt1", "len": 94}
     land = [_smp(0, lane={"tx": dict(tx, place=p)}) for p in (1, 2, 3)]

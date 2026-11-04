@@ -72,6 +72,10 @@ def test_the_tables_name_rows_the_legs_carry_and_faults_the_stand_in_has(t2):
     assert set(t2.DUO_LEVER_PREDICTED) == set(t2.DUO_LEVERS)
     assert set(t2.DUO_OLD_PREDICTED) == set(t2.DUO_ORDER) - {"S166-D-SHARED"}
     assert all(set(r) <= set(t2.DUO_ORDER) for r in t2.DUO_LEVER_PREDICTED.values())
+    # [W2b] `ghost sticky` bites in the host's swirl (D-BATTLE's entry hide), INERT on REJOIN by THE ARM-FIRST ORDER; the deployed
+    # d6df5df17fe0af03 build's D-LINES defect is a stand-in fault of the duo
+    assert t2.DUO_LEVER_PREDICTED["sticky"] == ("S166-D-BATTLE",)
+    assert t2.FAULT_REDS["duo"]["tx_commit_blind"] == ("S166-D-LINES",)
     assert all(f in faults for f in t2.LEVER_IGNORED.values())
     assert set(t2.LEVERS) == set(t2.LEGS)
     # the gate row is never part of a calibration (its verdict is the tape's, not the engine's)
@@ -433,6 +437,46 @@ def test_the_duo_judges(t2):
     assert not t2.judge_d_g1([gs(i, 100 + 2 * i, off=9.0) for i in range(10)], host, (500.0, -500.0), (500.0, -500.0))[0]
     assert not t2.judge_d_g1(guest, host, (500.0, -500.0), (520.0, -500.0))[0]            # the frozen guest moved
     assert not t2.judge_d_g1(guest, host[:1], (500.0, -500.0), (500.0, -500.0))[0]        # unmatched / the host never moved
+    # [W2b] THE DISTANCE'S BOUNDARY (the round-A duo walked 18.4 u < D_MOVE_U on its fixed 90-frame hold): 19.9 u red, 20.0 u green, the
+    # ghost on the host's trailer by seq either way -- the row fails on the distance alone
+    def walk(total, mode=0, ride_from=None, n=12):
+        return [S(i, lane={"tx": {"seq": 100 + 2 * i, "x": 100.0 + total * i / (n - 1), "z": -500.0, "kind": "fmt1",
+                                  "mode": mode if ride_from is None else int(100.0 + total * i / (n - 1) >= ride_from)},
+                           "rx": {"kind": "fmt1"}, "caps": {"peer": 1}}) for i in range(n)]
+
+    def ghosts_on(hs):
+        return [S(i, x=500.0, z=-500.0, lane={"rx": {"seq": 100 + 2 * i, "kind": "fmt1"}, "tx": {"kind": "fmt1"}, "caps": {"peer": 1}},
+                  ghost=dict(zip(("tx", "tz", "x", "z"), t2.tx_pose_at(hs, 100 + 2 * i) * 2), placed=True, shown=True)) for i in range(10)]
+
+    def dots_on(hs):
+        return [S(i, lane={"rx": {"seq": 100 + 2 * i}}, dot=dict(zip(("src_x", "src_z"), t2.tx_pose_at(hs, 100 + 2 * i)), src="trailer"))
+                for i in range(10)]
+    short, line = walk(19.9), walk(20.0)
+    ok, why = t2.judge_d_g1(ghosts_on(short), short, (500.0, -500.0), (500.0, -500.0))
+    assert not ok and "moved 19.9 u (want >= 20)" in why, why
+    assert t2.judge_d_g1(ghosts_on(line), line, (500.0, -500.0), (500.0, -500.0))[0]
+    rshort, rline = walk(19.9, mode=1), walk(20.0, mode=1)
+    ok, why = t2.judge_d_dotride(dots_on(rshort), rshort)
+    assert not ok and "moved 19.9 u" in why, why
+    assert t2.judge_d_dotride(dots_on(rline), rline)[0]
+    part = walk(25.0, ride_from=120.0)                                                     # 25 u walked, ~5 of them ridden: red
+    ok, why = t2.judge_d_dotride(dots_on(part), part)
+    assert t2.tx_moved(part) == pytest.approx(25.0) and t2.tx_moved(part, riding=True) < 6.0
+    assert not ok and "rode on 3 sample(s)" in why, why
+    # tx_moved / world_moved: empty 0.0, unread poses skipped, the riding filter, the TORUS (1530 -> 6 across the x seam is 12 u, never 1524)
+    assert t2.tx_moved([]) == 0.0 and t2.world_moved([]) == 0.0
+    seam = [S(i, x=xx, lane={"tx": {"x": xx, "z": -500.0, "mode": 0}}) for i, xx in enumerate((1530.0, 1533.0, 0.0, 3.0, 6.0))]
+    assert t2.tx_moved(seam) == pytest.approx(12.0) and t2.world_moved(seam) == pytest.approx(12.0)
+    assert t2.tx_moved(seam, riding=True) == 0.0
+    assert t2.tx_moved([S(0, lane={"tx": {"x": None, "z": None}})] + seam) == pytest.approx(12.0)   # a pose-less first sample skipped
+    assert t2.tx_moved([S(0, lane={"tx": {}})]) == 0.0
+    # [W2b review] A DARK TRAILER over a host that really walks 33 u: tx_moved stays 0 (D-G1 red on its real 'moved 0.0 u'), while the
+    # samples' own world x/z reach the walk's goal -- the closed loop's second stop, so a dark trailer never walks the host on to its cap
+    dark = [S(i, x=100.0 + 3.0 * i, z=-500.0, lane={"tx": {"seq": 100 + 2 * i, "kind": "fmt1"}, "rx": {"kind": "fmt1"}, "caps": {"peer": 1}})
+            for i in range(12)]
+    assert t2.tx_moved(dark) == 0.0 and t2.world_moved(dark) >= t2.D_MOVE_U + t2.D_MOVE_MARGIN_U
+    ok, why = t2.judge_d_g1(guest, dark, (500.0, -500.0), (500.0, -500.0))
+    assert not ok and "moved 0.0 u (want >= 20)" in why, why
     assert t2.judge_d_trailer(host, guest)[0]
     assert not t2.judge_d_trailer(host, [S(1, lane={"rx": {"kind": "absent"}, "tx": {"kind": "fmt1"}, "caps": {"peer": 0}})])[0]
     hs = [S(i, ghost={"shown": True, "x": 500.5, "z": -500.0}) for i in range(10)]
@@ -454,13 +498,47 @@ def test_the_duo_judges(t2):
     bh, ah = S(0, ghost={"mints": 1}), S(1, ghost={"mints": 2, "shown": True})
     bg, ag = S(0, ghost={"mints": 1}), S(1, ghost={"mints": 2, "shown": True})
     win = [(t0 + dt.timedelta(seconds=4), t0 + dt.timedelta(seconds=6))]
-    assert t2.judge_d_battle(bh, ah, bg, ag, [], [hang, load], win, [])[0]                # inside the host's load: contention
-    assert not t2.judge_d_battle(bh, ah, bg, ag, [], [hang], [], [])[0]                    # no window: a real hang
-    assert not t2.judge_d_battle(bh, ah, bg, S(1, ghost={"mints": 1, "shown": True}), [], [], [], [])[0]   # never re-minted
-    assert not t2.judge_d_battle(bh, ah, bg, S(1, ghost={"mints": 2, "shown": False}), [], [], [], [])[0]
+    assert t2.judge_d_battle(bh, ah, bg, ag, [], [hang, load], win, [], [])[0]            # inside the host's load: contention
+    assert not t2.judge_d_battle(bh, ah, bg, ag, [], [hang], [], [], [])[0]                # no window: a real hang
+    assert not t2.judge_d_battle(bh, ah, bg, S(1, ghost={"mints": 1, "shown": True}), [], [], [], [], [])[0]   # never re-minted
+    assert not t2.judge_d_battle(bh, ah, bg, S(1, ghost={"mints": 2, "shown": False}), [], [], [], [], [])[0]
     stamped = [(t0, S(1, ui="WorldHUD")), (t0 + dt.timedelta(seconds=0.1), S(2, ui="WorldHUD")),
                (t0 + dt.timedelta(seconds=2.0), S(3, ui="BattleHUD", world=0))]
     assert t2.load_windows(stamped) == [(stamped[1][0], stamped[2][0])]
+    # [W2b] THE ENTRY HIDE (`ghost sticky`'s window): the guest live on the world while the host swirls -- its cache reads place 2
+    def gb(f, place, shown, why=None, ui="WorldHUD"):
+        return S(f, ui=ui, lane={"rx": {"place": place}}, ghost={"shown": shown, "why_not": why})
+    on4 = gb(1, 4, True)
+    stuck = [on4, gb(2, 2, True)]                                                           # the lever's shape: SHOWN on place 2
+    ok, why = t2.judge_d_battle(bh, ah, bg, ag, [], [], [], [], stuck)
+    assert not ok and "shown off the host's place 4 on [2]" in why and t2.sticky_measured(stuck), why
+    hid = [on4, gb(2, 2, False, "peer_block"), gb(3, 5, False, "not_live", ui="BattleHUD")]
+    ok, why = t2.judge_d_battle(bh, ah, bg, ag, [], [], [], [], hid)
+    assert ok and "1 sample(s), why_not ['peer_block']" in why and not t2.sticky_measured(hid), why
+    assert not t2.judge_d_battle(bh, ah, bg, ag, [], [], [], [], [on4, gb(2, 3, True)])[0]          # shown on a warm return's place 3
+    # THE ONE-FRAME PUBLISH SKEW (the cache moved in Update, `shown` is last LateUpdate's: a live refusal, hidden on the next sample)
+    skew = [on4, gb(2, 2, True, "peer_block"), gb(3, 2, False, "peer_block")]
+    assert t2.judge_d_battle(bh, ah, bg, ag, [], [], [], [], skew)[0] and not t2.sticky_measured(skew)
+    assert not t2.judge_d_battle(bh, ah, bg, ag, [], [], [], [], skew[:2])[0]                       # no next sample: never excused
+    assert not t2.judge_d_battle(bh, ah, bg, ag, [], [], [], [], [on4, gb(2, 2, True, "peer_block"), gb(3, 2, True, "peer_block")])[0]
+    # [W2b] THE BATTLE RETURN'S LOAD (lever duo 20261104-022513, the host): field 6603 / world 9011 never change through a world battle and
+    # ui flips BattleResult -> WorldHUD 0.06 s BEFORE the 4.18 s freeze -- only the host's own ANNOUNCED place (3 -> 4) sees it
+    def hp(f, ui, place):
+        return S(f, ui=ui, field=6603, world=9011, lane={"tx": {"place": place}})
+    rt = dt.datetime(2026, 11, 4, 2, 27, 2, 607000)
+    ret = [(rt, hp(5334, "BattleResult", 5)), (rt + dt.timedelta(seconds=0.818), hp(5338, "BattleResult", 3)),
+           (rt + dt.timedelta(seconds=1.380), hp(5368, "WorldHUD", 3)), (rt + dt.timedelta(seconds=5.564), hp(5370, "WorldHUD", 4)),
+           (rt + dt.timedelta(seconds=5.611), hp(5372, "WorldHUD", 4))]
+    assert t2.load_windows(ret) == [(ret[2][0], ret[3][0])]     # the old key found none; the 5 -> 3 exit is NOT one (its last frame read battle)
+    for pa, pb in ((5, 3), (6, 2), (4, 3), (4, 4)):              # a freeze out of a NON-loading place on one ui: a misnamed load stays red
+        assert t2.load_windows([(rt, hp(1, "WorldHUD", pa)), (rt + dt.timedelta(seconds=2.2), hp(2, "WorldHUD", pb))]) == [], (pa, pb)
+    assert t2.load_windows([(rt, hp(1, "WorldHUD", 2)), (rt + dt.timedelta(seconds=2.2), hp(2, "WorldHUD", 3))]) != []   # 2 -> 3: announced
+    assert t2.load_windows([(rt, hp(1, "WorldHUD", 3)), (rt + dt.timedelta(seconds=0.5), hp(2, "WorldHUD", 4))]) == []   # under LOAD_GAP_S
+    gl = "04.11.2026 02:27:08 |I| [NetSync] client " + BW.ww_lane_line_text(BW.WW_LINE_HANG_START, 2078)   # this run's guest line
+    ok, why = t2.judge_d_battle(bh, ah, bg, ag, [], [gl], t2.load_windows(ret), [], [])
+    assert ok and "inside them (ONE-PC LOAD CONTENTION, reported): host 0 guest 1" in why and "load windows host 1" in why, why
+    exit_only = t2.load_windows(ret[:2])                         # the same line against only the battle exit's freeze: red
+    assert exit_only == [] and not t2.judge_d_battle(bh, ah, bg, ag, [], [gl], exit_only, [], [])[0]
     # REJOIN
     gl = [S(1, lane={"rx": {"place": 4}}, ghost={"shown": True}), S(2, lane={"rx": {"place": 2}}, ghost={"shown": False})]
     assert t2.judge_d_rejoin(gl, [S(3, ui="FieldHUD", ghost={"shown": False})], (True, "ok"))[0]
@@ -471,14 +549,56 @@ def test_the_duo_judges(t2):
     off = [S(1, lane={"rx": {"place": 4}}, ghost={"want": True, "shown": False}), S(2, lane={"rx": {"place": 2}}, ghost={"shown": False})]
     ok, why = t2.judge_d_rejoin(off, [], (True, "ok"))
     assert not ok and "before the host left on 0 sample(s)" in why and t2.ghost_off_measured(off)
-    # LINES
+    # LINES -- [W2b] built from the round-A duo 20261104-015601's REAL lines (host Memoria.log:568-573, guest :79), the d6df5df17fe0af03
+    # build: 'following' ended at the guest's commit ("-- the guest's place field, state 0x21", 235 ms) and the load read 'not updating'
     W = BW.WORDS_WW_HOST_FOLLOWING
-    hl = [S(1, hg={"line": "following"}, line={"asked": "following", "text": W, "drawn": True}), S(2, hg={"line": None})]
-    log = [f'x |I| {BW.LOG_WW_HOST_WORLD}the partner is following ("{W}") -- the guest\'s place transition, state 0x20']
-    assert t2.judge_d_lines(hl, log, True)[0]
-    assert not t2.judge_d_lines(hl, log, False)[0]
-    assert not t2.judge_d_lines(hl[:1], log, True)[0]                                      # the line never ended
-    assert not t2.judge_d_lines(hl, [], True)[0]
+    h568 = ("04.11.2026 01:57:06 |M| [NetSync] host world: the partner is following (\"Your partner is following you out onto the world "
+            "map...\") -- the guest's place transition, state 0x21 (t 365826251 ms)")
+    h569 = ("04.11.2026 01:57:06 |M| [NetSync] host world: the partner's following state ended after 235 ms -- the guest's place field, "
+            "state 0x21 (t 365826479 ms)")
+    h570 = ("04.11.2026 01:57:08 |M| [NetSync] host lane hang: the partner's frames arrive but repeat (its game is not updating) for 1547 "
+            "ms (t 365828031 ms)")
+    h571 = ("04.11.2026 01:57:08 |M| [NetSync] host lane hang over: the partner's game is updating again after 1703 ms (t 365828180 ms)")
+    h572 = ("04.11.2026 01:57:08 |M| [NetSync] host world: the partner is loading (\"Your partner is loading the world map...\") -- the "
+            "guest's place world_loading, state 0x05 (t 365828180 ms)")
+    h573 = ("04.11.2026 01:57:11 |M| [NetSync] host world: the partner's loading state ended after 2703 ms -- the guest's place world, "
+            "state 0x85 (t 365830882 ms)")
+    g79 = ("04.11.2026 01:57:08 |M| [NetSync] world follow-out: landed on world map 9011 -- the host's latest frame at x 68, z -444, "
+           "entrance 35, 1766 ms after its start -- frozen here until the rejoin (t 365827827 ms)")
+    assert f'the partner is following ("{W}")' in h568
+    fol = {"asked": "following", "text": W, "drawn": True}
+    covered = [S(1, ui="FieldHUD", field=6603, hg={"place": 1, "line": None}), S(2, hg={"place": 1, "line": None}),
+               S(3, hg={"place": 2, "state": 0x21, "line": "following"}, line=fol)]
+    tail = [S(5, hg={"place": 3, "state": 0x05, "line": "loading"}), S(6, hg={"place": 4, "state": 0x85, "line": None})]
+    run = covered + [S(4, hg={"place": 1, "state": 0x21, "line": None})] + tail             # this run's samples (host ring 2992..3030)
+    ok, why = t2.judge_d_lines(run, [h568, h569, h570, h571, h572, h573], [g79], True)
+    assert not ok and "ENDED AT THE COMMIT" in why and "lasted 235 ms" in why and "want >= landed - 1000: NO" in why, why
+    assert "'not updating' lane lines 1" in why, why                                       # REPORTED, never the verdict
+    # the FIXED engine's likely shape: a separate end at the world's one-frame fade-in ('transition, state 0x05'), then 'loading'
+    f_end = ("04.11.2026 01:57:08 |M| [NetSync] host world: the partner's following state ended after 1610 ms -- the guest's place "
+             "transition, state 0x05 (t 365827861 ms)")
+    fixed = covered + tail
+    ok, why = t2.judge_d_lines(fixed, [h568, f_end, h572, h573], [g79], True)
+    assert ok and "covered (the guest read at place 1" in why and "lasted 1610 ms" in why, why
+    comb = f_end.replace(" -- the guest's place transition", "; the partner is loading (\"x\") -- the guest's place world_loading")
+    assert t2.judge_d_lines(fixed, [h568, comb, h573], [g79], True)[0]                     # the combined end + 'loading' start
+    lost = f_end.replace("1610 ms -- the guest's place transition, state 0x05", "5200 ms; the partner is lost (\"x\") -- the guest's "
+                         "place transition, state 0x21")
+    assert t2.judge_d_lines(fixed, [h568, lost, h572], [g79], True)[0]   # a HostLineLost end over a long load: b5 set, still green
+    # each discriminator alone: the end at 'field' however long; a short 'following' whatever place it names
+    assert not t2.judge_d_lines(fixed, [h568, f_end.replace("place transition", "place field")], [g79], True)[0]
+    ok, why = t2.judge_d_lines(fixed, [h568, h569.replace("place field", "place transition")], [g79], True)
+    assert not ok and "want never 'field': ok" in why and "NO" in why, why
+    assert not t2.judge_d_lines(fixed, [h568, f_end], [], True)[0]                         # no landing line: the duration unproven
+    assert not t2.judge_d_lines(fixed, [h568], [g79], True)[0]                             # no end line
+    # COVERAGE: this run's Taps began after walk_out returned -- the guest already at place 4
+    late = [S(1, hg={"place": 4, "state": 0x85, "line": None}), S(2, hg={"place": 4, "state": 0x85, "line": None})]
+    ok, why = t2.judge_d_lines(late, [h568, f_end], [g79], True)
+    assert not ok and "not covered: the Tap began after the follow-out (first guest place 4)" in why, why
+    assert t2.d_lines_coverage(fixed) == (True, 1) and t2.d_lines_coverage(covered[2:]) == (False, 2)
+    assert not t2.judge_d_lines(fixed, [h568, f_end], [g79], False)[0]                     # the guest never landed
+    assert not t2.judge_d_lines(fixed[:-1], [h568, f_end], [g79], True)[0]                 # the line never ended ('loading' last)
+    assert not t2.judge_d_lines(fixed, [], [g79], True)[0]
 
 
 def test_the_window_picker_and_the_seam(t2):
@@ -520,7 +640,7 @@ for k, v in dict(FIELD_S=10.0, DIAL_S=8.0, REJOIN_S=12.0).items():
     setattr(cw, k, v)
 for k, v in dict(WIRE_S=2.0, WIRE_CLEAR_S=1.0, WIRE_PAIR_S=10.0, WIRE_WORLD_S=20.0, LAND_S=30.0, EVENT_S=30.0, TH_A_S=20.0,
                  TH_B_S=8.0, TH_C_S=1.5, TH_TAIL_S=0.4, TH_DIAL_S=10.0, POLL_S=0.004, D_S=0.5, D_LAND_S=15.0, TAP_S=0.003,
-                 D_WALK_FRAMES=90, D_WALK_S=1.0).items():
+                 D_WALK_FRAMES=300, D_WALK_S=1.0, D_WALK_TAIL_S=0.1).items():
     setattr(t2, k, v)
 FAKES = []
 
@@ -543,7 +663,9 @@ def fake_for(t, run):
     f.swap_qpc = None
     f.regions = {6603: [{"zone": cw.FS_DOOR, "world": cw.WORLD, "world_at": list(cw.FS_LANDING)}]}
     f.exit_frames = 900
-    f.overworld = {"speed": 0.4, "turn": 2.8125, "cam": 0.0, "lag": 1}
+    f.overworld = {"speed": float(run.get("ow_speed", 0.4)), "turn": 2.8125, "cam": 0.0, "lag": 1}   # [W2b] the real on-foot 0.201
+    if run.get("ow_blocked"):
+        f.overworld["blocked"] = lambda x, z: True                  # [W2b] the overworld blocked everywhere: the walk cap: an honest red
     f.world_locations = {cw.ICE_CAVERN: (cw.ICE_TILE[0], cw.ICE_TILE[1], 2.0)}
     f.world_swirl_frames, f.world_exit_frames = 40, 40
     f.world_walk_faults = set(run.get("faults", ()))
@@ -823,6 +945,12 @@ def duo(run):
     fh.world_exit_frames = fgst.world_exit_frames = 240
     cb.CALIBRATE = bool(run.get("cal"))
     t2.LEVER_RAW = run.get("lever")
+    if run.get("old_walk"):                                     # [W2b] the round-A route: a fixed 90-frame hold, a fixed sleep
+        def old_walk(host, th, riding=False):
+            host.hold("up", 90)
+            time.sleep(1.0)
+            return "the OLD fixed hold"
+        t2._walk_host = old_walk
     gh, gg = session(th, fh), session(tg, fgst)
     with gh, gg:
         for g in (gh, gg):
@@ -977,19 +1105,48 @@ def test_s166t2_the_duo_is_green_on_two_s166_stand_ins_but_the_named_battle():
     assert "not run" in r["detail"]["S166-D-BATTLE"]
 
 
-#: `ghost sticky` (D-REJOIN's lever) is NOT drivable on the stand-in: its rejoin starts the guest's own exit at the host's intent, so no
-#: live guest sample ever sees the host on place 2 -- its calibration is the pure judge (judge_d_rejoin red + sticky_measured) and the game
-@pytest.mark.parametrize("lever", ["ghost", "dot"])
+#: [W2b] `ghost sticky` bites in the host's world-battle swirl (D-BATTLE's entry hide: judged by the pure test, the stand-in runs no
+#: D-BATTLE, so its prediction filters to none here) and is INERT on D-REJOIN by THE ARM-FIRST ORDER -- the stand-in arms at the intent
+#: (fakegame._world_follow_fire), so REJOIN stays green under it: the stand-in leg proves the lever reds nothing it should not
+@pytest.mark.parametrize("lever", ["ghost", "sticky", "dot"])
 def test_s166t2_each_duo_lever_calibrates_exactly(t2, lever):
     r = _run("duo", cal=True, lever=lever)
     want = set(t2.DUO_LEVER_PREDICTED[lever]) | _NOT_ON_STAND_IN
     assert set(r["red"]) - {"S166-D-CAL"} == want and "S166-D-CAL" not in r["red"], _show(r)
 
 
-@pytest.mark.parametrize("fault", ["dot_src_section0"])
+#: [W2b] `tx_commit_blind` is the deployed d6df5df17fe0af03 build: the host's 'following' ends at the guest's commit ("-- the guest's
+#: place field") -- D-LINES' discriminator is proven able to fail on the stand-in's own clock
+@pytest.mark.parametrize("fault", ["dot_src_section0", "tx_commit_blind"])
 def test_s166t2_each_duo_fault_turns_exactly_its_rows_red(t2, fault):
     r = _run("duo", faults=[fault])
     assert set(r["red"]) - _NOT_ON_STAND_IN == set(t2.FAULT_REDS["duo"][fault]), _show(r)
+    if fault == "tx_commit_blind":
+        assert "ENDED AT THE COMMIT" in r["detail"]["S166-D-LINES"], _show(r)
+
+
+def test_s166t2_the_duo_walks_on_distance_at_the_real_on_foot_speed():
+    """[W2b] D-G1's route at the REAL on-foot 0.201 u/frame (the stand-in rides at the same speed): the round-A route -- a fixed 90-frame
+    hold, a fixed sleep -- walks 18 u and reds D-G1 (the in-game failure) and D-DOTRIDE; the closed loop walks on distance and the duo
+    is green but the named battle."""
+    old = _run("duo", ow_speed=0.2, old_walk=True)
+    assert set(old["red"]) - _NOT_ON_STAND_IN == {"S166-D-G1", "S166-D-DOTRIDE"}, _show(old)
+    assert "moved 18.0 u (want >= 20)" in old["detail"]["S166-D-G1"], _show(old)
+    new = _run("duo", ow_speed=0.2)
+    assert set(new["red"]) == _NOT_ON_STAND_IN, _show(new)
+    # [W2b review] ...and it STOPS there: the release lands, so the walk never runs on to its 300-frame cap (60 u at 0.2) onto ground no
+    # run covered -- D-G1 and D-DOTRIDE each moved D_MOVE_U + D_MOVE_MARGIN_U (25 u) plus a small overshoot, never near the cap
+    for row in ("S166-D-G1", "S166-D-DOTRIDE"):
+        moved = float(re.search(r"moved ([0-9.]+) u", new["detail"][row]).group(1))
+        assert 25.0 <= moved < 35.0, (row, new["detail"][row])
+
+
+def test_s166t2_a_host_that_never_moves_fails_the_walk_rows_honestly():
+    """[W2b] The closed loop's cap: the overworld blocked everywhere -- the walk returns at its deadline (never hangs) and the walk rows
+    fail on their real distance ('moved 0.0 u'). The red set CALIBRATED by running it."""
+    r = _run("duo", ow_blocked=True)
+    assert set(r["red"]) - _NOT_ON_STAND_IN == {"S166-D-G1", "S166-D-DOTRIDE"}, _show(r)
+    assert "moved 0.0 u" in r["detail"]["S166-D-G1"] and "moved 0.0 u" in r["detail"]["S166-D-DOTRIDE"], _show(r)
 
 
 def test_s166t2_the_duo_on_two_a0b_stand_ins_draws_nothing(t2):

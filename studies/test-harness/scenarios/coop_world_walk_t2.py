@@ -51,15 +51,23 @@ it sent), and the duo against the other game's own published `lane.tx` (its trai
   record THE ROAM RECORDER (OWNER-GATED, never run by a bench script unasked: COOP_WWT_RECORD_OWNER=1 names the owner's go-ahead):
          the desktop an s166 HOST walks ROAM_PLAN while `serve-guest --no-follow --tap` records it -- ROAM-TAPE.md.
 The duo (`py tools/harness/duo.py coop_world_walk_t2.py`, both games on 6603): S166-D0, D-LINES (the host's lines through the guest's
-follow-out), D-G2 (the host's ghost of the frozen guest at the guest's own pose; the landing gap REPORTED: ONE-PC LOAD CONTENTION), D-G1
-(the host walks: the guest's ghost on the host's trailer by seq), D-TRAILER (the trailer ACTIVE both ways: the s144/s145 duo legs that
-follow in the runner run under it), D-BATTLE (both re-mint after the warm returns; zero NON-LOADING hang lines outside the other game's
-own load windows -- those inside are ONE-PC LOAD CONTENTION, reported), D-DOTRIDE (`vehicle 1` on the host, it moves: the guest's dot
-src 'trailer' within DOT_TOL of the host's own trailer pose by seq), D-REJOIN (the host Confirms into 300: both ghosts hidden before the
-guest's fade), D-SHARED. D-PAIR is DEFERRED (both duo games start on 6603: the s42 same-field kick arms the mirror before any pull --
-T2-A pair covers it). LEVERS (COOP_WWT_LEVER, COOP_CALIBRATE=1): `ghost` (`ghost off` both roles: G2, G1, BATTLE), `sticky` (`ghost
-sticky` on the guest: REJOIN), `dot` (`dot section0` on the guest: DOTRIDE). OLD (an A0b pair): every row but D-SHARED red.
-(`ghost` also reds REJOIN: its instrument is the guest's ghost shown before the host left.)
+follow-out, the Taps started BEFORE the guest can leave -- _walk_out_tapped -- so the row is COVERED (the guest read at place 1 first);
+[W2b] 'following' lasts through the guest's commit and its synchronous load: no host end line names "the guest's place field" (the
+d6df5df17fe0af03 build's signature) and it lasts >= the guest's own landed ms - D_LINES_SLACK_MS; 'loading' and the host's 'not updating'
+lane lines REPORTED), D-G2 (the host's ghost of the frozen guest at the guest's own pose; the landing gap REPORTED: ONE-PC LOAD
+CONTENTION), D-G1 (the host walks, CLOSED LOOP -- _walk_host stops on tx_moved or the Tap's own world x/z at D_MOVE_U + D_MOVE_MARGIN_U,
+a frame cap and a wall deadline: the guest's ghost on the host's trailer by seq), D-TRAILER (the trailer ACTIVE both ways: the s144/s145
+duo legs that follow in the runner run under it), D-BATTLE (both re-mint after the warm returns; THE ENTRY HIDE: the guest's ghost never
+shown off the host's place 4 through its swirl; zero NON-LOADING hang lines outside the other game's own load windows -- a scene change,
+or [W2b] a freeze out of an ANNOUNCED-load place 2 / 3; those inside are ONE-PC LOAD CONTENTION, reported), D-DOTRIDE (`vehicle 1` on
+the host, it moves the same closed loop: the guest's dot src 'trailer' within DOT_TOL of the host's own trailer pose by seq), D-REJOIN
+(the host Confirms into 300: both ghosts hidden before the guest's fade), D-SHARED. D-PAIR is DEFERRED (both duo games start on 6603:
+the s42 same-field kick arms the mirror before any pull -- T2-A pair covers it). LEVERS (COOP_WWT_LEVER, COOP_CALIBRATE=1): `ghost`
+(`ghost off` both roles: G2, G1, BATTLE), `sticky` (`ghost sticky` on the guest: BATTLE's entry hide through the host's swirl; inert on
+REJOIN by THE ARM-FIRST ORDER), `dot` (`dot section0` on the guest: DOTRIDE). OLD (an A0b pair): every row but D-SHARED red.
+(`ghost` also reds REJOIN: its instrument is the guest's ghost shown before the host left.) The host's encounters go off on 6603 BEFORE
+the walk: the no-random-encounter booster (SettingsState.IsBoosterButtonActive[4]) lives for the process and survives the world load
+(cleared only at the ending fields), so the Taps never share the host with a random battle.
 
 CALIBRATION: every leg's rows can fail -- OLD by the stage (the table's *_OLD_PREDICTED), LEVER by its lever (*_LEVER_PREDICTED, each
 red row MEASURING its lever's shape), and offline (ff9mapkit/tests/test_coop_world_walk_t2.py): the stand-in's faults turn exactly the
@@ -184,13 +192,26 @@ D_SEQ_SLACK = 6          # the host's trailer pose at a seq: bracketed by its ow
 D_TARGET_TOL = 4.0       # ...the target within this of the bracketed pose (the host's ~30 u/s over a bracket's half)
 DOT_TOL = wf.DOT_TOL     # 8 u: the guest's dot on the host's own pose (the design's)
 D_MOVE_U = 20.0          # the host moved at least this (D-G1 / D-DOTRIDE: a parked pose proves nothing)
-D_WALK_FRAMES = 90
-D_WALK_S = 2.0           # ...the hold's wall time, slept (never a second reader of the driven game: the Taps are its only readers)
+#: [W2b] THE CLOSED-LOOP WALK (_walk_host): the real on-foot speed is 0.201 u/frame (~12 u/s, the round-A duo 20261104-015601: a fixed
+#: 90-frame hold walked 18.4 u < D_MOVE_U), so the hold is a CAP and the walk stops on distance -- the judge's own tx_moved OR the Tap
+#: samples' own world x/z (a dark trailer never walks on) reaching D_MOVE_U + D_MOVE_MARGIN_U -- or on the wall deadline D_WALK_S (a host
+#: that never gets there fails the row with its real 'moved X u'). Read off the Taps' own buffers only.
+D_MOVE_MARGIN_U = 5.0
+D_WALK_FRAMES = 200      # the hold's CAP in frames: 25 u on foot at 0.201 u/frame is ~125; a runaway is bounded (~40 u on foot, ~72 riding)
+D_WALK_S = 6.0           # the walk's wall deadline (200 frames down to ~33 fps)
+D_WALK_TAIL_S = 0.5      # after the release: the last trailer arrivals and the ghost's ease, sampled
 TAP_S = 0.04             # the duo's per-game sampler period (coop_world_follow.Tap's; a test seam: the stand-in runs faster)
-D_LAND_S = 45.0          # the host's walk out returned -> the guest landed
+D_LAND_S = 45.0          # the host's first judged world sample -> the guest landed
 D_S = 3.0
 D_MIN_SAMPLES = 8
+#: [W2b] D-LINES' DURATION TERM: the host's 'following' lasts through the guest's commit AND its synchronous load, so it ends no earlier
+#: than the guest's own "world follow-out: landed ... N ms after its start" minus this (the host reads the start a relay hop late; the
+#: d6df5df17fe0af03 build ended it at the commit: 235 ms against N 1766)
+D_LINES_SLACK_MS = 1000
 LOAD_GAP_S = 0.8         # a game's OWN sync load: its published frames stop at least this long across a scene change
+#: [W2b] the trailer places a game ANNOUNCES a load from (PlaceTransition / PlaceWorldLoading: LaneGapKind's own 'loading' set,
+#: NetSyncWorldWalk.cs:547) -- load_windows' place-keyed term
+_LOAD_PLACES = (BW.WW_PLACE_TRANSITION, BW.WW_PLACE_WORLD_LOADING)
 CONTENTION_PAD_S = 1.5   # a hang line inside the OTHER game's load window +- this (the log stamps whole seconds) is contention
 D_BATTLE = os.environ.get("COOP_WWT_DUO_BATTLE", "1").strip() != "0"   # 0: the stand-in duo (no diorama model): D-BATTLE not run
 D_SCENE, D_GROUP = 67, 0
@@ -297,17 +318,21 @@ RECORD_CHECKS = {
 }
 DUO_CHECKS = {
     "S166-D0": "the instrument: both on FieldHUD 6603, the guest mirroring, both s166 (wire 15, lane + ghost published)",
-    "S166-D-LINES": "the host walks out: the HOST's 'following' line (guest.line, world.line asked + words + drawn) and ONE log line "
-                    "while the guest follows out; none once it landed ('loading' reported: A3 -- the guest's sync load freezes its sample)",
+    "S166-D-LINES": "the host walks out (the Taps from BEFORE the guest can leave: COVERED -- the guest read at place 1 first): the HOST's "
+                    "'following' line (guest.line, world.line asked + words + drawn) and ONE log line while the guest follows out, "
+                    "through its commit and load (no end line naming 'the guest's place field'; lasting >= the guest's landed ms - "
+                    "D_LINES_SLACK_MS); none once it landed ('loading' and 'not updating' lane lines REPORTED: ONE-PC LOAD CONTENTION)",
     "S166-D-G2": "the host's ghost of the FROZEN guest within D_G2_TOL of the guest's own world x/z (the landing gap REPORTED: ONE-PC "
                  "LOAD CONTENTION confounds a landing judgment)",
-    "S166-D-G1": "the host walks: the guest's ghost on the host's trailer BY SEQ (target within D_TARGET_TOL of the host's own tx, eased "
-                 "within D_G1_TOL), the host moved >= D_MOVE_U, the guest's own pose unmoved",
+    "S166-D-G1": "the host walks (closed loop: until it moved D_MOVE_U + D_MOVE_MARGIN_U, a cap and a deadline): the guest's ghost on the "
+                 "host's trailer BY SEQ (target within D_TARGET_TOL of the host's own tx, eased within D_G1_TOL), the host moved >= "
+                 "D_MOVE_U, the guest's own pose unmoved",
     "S166-D-TRAILER": "the trailer ACTIVE both ways on the world map (tx and rx kind 'fmt1', peer caps 1 on both): the s144 / s145 duo "
                       "legs the runner runs next run under it",
-    "S166-D-BATTLE": "the host's world battle and both warm returns: both ghosts RE-MINTED (mints +1) and shown again; zero NON-LOADING "
-                     "hang lines on either game outside the OTHER game's own load windows (those inside: ONE-PC LOAD CONTENTION, "
-                     "reported)",
+    "S166-D-BATTLE": "the host's world battle and both warm returns: both ghosts RE-MINTED (mints +1) and shown again; the guest's ghost "
+                     "never shown off the host's place 4 (THE ENTRY HIDE through the host's swirl); zero NON-LOADING hang lines on either "
+                     "game outside the OTHER game's own load windows (a scene change or an ANNOUNCED-load place step; those inside: "
+                     "ONE-PC LOAD CONTENTION, reported)",
     "S166-D-DOTRIDE": "`vehicle 1` on the host, it moves: the guest's dot src 'trailer' within DOT_TOL of the host's own trailer pose BY "
                       "SEQ, the host's mode 1, moved >= D_MOVE_U",
     "S166-D-REJOIN": "the host Confirms into 300: the guest's ghost hidden on every sample after the host's trailer left place 4 and "
@@ -317,7 +342,11 @@ DUO_CHECKS = {
 DUO_ORDER = tuple(DUO_CHECKS)
 DUO_OLD_PREDICTED = tuple(c for c in DUO_ORDER if c != "S166-D-SHARED")
 #: [W2 critic] `ghost off` also reds D-REJOIN: its instrument (the ghost shown before the host left) never holds under the lever
-DUO_LEVER_PREDICTED = {"ghost": ("S166-D-G2", "S166-D-G1", "S166-D-BATTLE", "S166-D-REJOIN"), "sticky": ("S166-D-REJOIN",),
+#: [W2b] `ghost sticky` bites only while the observer is live and the peer publishes place 2: the host's SwirlScene, ahead of InOwnBattle's
+#: nonce that boots the guest's diorama (D-BATTLE's ENTRY HIDE). It is INERT on D-REJOIN: the host's MAPJUMP exit publishes place 4 up
+#: to its intent, and the guest arms on that intent (GhostNotLive, asked before GhostSample)
+#: -- the round-A lever duo 20261104-022302 left it green
+DUO_LEVER_PREDICTED = {"ghost": ("S166-D-G2", "S166-D-G1", "S166-D-BATTLE", "S166-D-REJOIN"), "sticky": ("S166-D-BATTLE",),
                        "dot": ("S166-D-DOTRIDE",)}
 #: the stand-in's faults (fakegame.WORLD_WALK_A_FAULTS) -> exactly the rows each turns red, by leg (tests pin it; a fault absent from a leg
 #: turns nothing red there). The `*_lever_ignored` faults are each CAL row's own.
@@ -331,7 +360,8 @@ FAULT_REDS = {
                "line_dark": ("S166-FZ-6",)},                       # the lost-contact line never decided
     "host": {"host_lines_state_b0": ("S166-TH-LINES", "S166-TH-RELEASED")},   # keyed on state b0: the follow-out (b5) and a released
                                                                               # guest get no line
-    "duo": {"dot_src_section0": ("S166-D-DOTRIDE",)},   # (state-b0 lines: T2-H's -- the stand-in's follow-out carries b0 there)
+    "duo": {"dot_src_section0": ("S166-D-DOTRIDE",),    # (state-b0 lines: T2-H's -- the stand-in's follow-out carries b0 there)
+            "tx_commit_blind": ("S166-D-LINES",)},      # [W2b] the d6df5df17fe0af03 build: the host's 'following' ends at the commit
 }
 LEVER_IGNORED = {"ghost": "ghost_lever_ignored", "lanegap": "lanegap_lever_ignored", "hostlines": "hostlines_lever_ignored",
                  "sticky": "ghost_lever_ignored", "dot": "dot_src_lever_ignored"}
@@ -1279,17 +1309,70 @@ def tx_pose_at(host_samples, seq: int):
     return (one[1], one[2]) if one else None
 
 
-def judge_d_lines(host_samples, host_lines, landed: bool) -> tuple:
-    """S166-D-LINES (PURE over the HOST from its walk out to the guest's landing + D_S): 'following' read (guest.line and world.line, its
-    words, drawn) and logged ONCE; the guest landed and the host's line none on the last sample; 'loading' REPORTED."""
+def _furthest(xs) -> float:
+    xs = [p for p in xs if None not in p]
+    return max((torus(*xs[0], *p) for p in xs), default=0.0) if xs else 0.0
+
+
+def tx_moved(host_samples, riding: bool = False) -> float:
+    """(PURE) [W2b] The host's furthest torus distance from its FIRST published trailer pose (`lane.tx.x / z`) over ``host_samples`` --
+    over its riding samples alone (tx mode 1) when ``riding``: D-G1's and D-DOTRIDE's `moved`, and _walk_host's stop (one measure)."""
+    ss = [s for s in host_samples if _num(_tx(s).get("mode")) == 1] if riding else list(host_samples)
+    return _furthest([(_num(_tx(s).get("x")), _num(_tx(s).get("z"))) for s in ss])
+
+
+def world_moved(host_samples) -> float:
+    """(PURE) [W2b] The same over the samples' own published `world.x / z` (the host's REAL pose): _walk_host's second stop, so a dark or
+    stale trailer never walks the host on (its tx_moved stays 0 and the row fails honestly with 'moved 0.0 u')."""
+    return _furthest([tuple(_num(v) for v in wf.world_xz(s)) for s in host_samples])
+
+
+#: the guest's "world follow-out: landed on world map W -- ..., N ms after its start" (the engine; the stand-in says "after the start")
+_RX_WFO_LANDED = re.compile(r"world follow-out: landed on world map \d+\b.*?\b(\d+) ms after (?:its|the) start")
+#: the host's edge line ending 'following' (alone, or "...; the partner is <x>" after it), and the guest's raw place it names
+_RX_FOLLOW_END = re.compile(r"the partner's following state ended after (\d+) ms")
+_RX_GUEST_PLACE = re.compile(r"-- the guest's place (\w+), state (0x[0-9A-Fa-f]+)")
+
+
+def d_lines_coverage(host_samples) -> tuple:
+    """(PURE) D-LINES' COVERAGE: (covered, first guest place read) -- some host sample reads the guest at place 1 (on its field) before its
+    first sample off it (place 2, 3 or 4). A Tap that began after the follow-out never saw the window it judges."""
+    places = [_hg(s).get("place") for s in host_samples]
+    off = next((i for i, p in enumerate(places) if p in (BW.WW_PLACE_TRANSITION, BW.WW_PLACE_WORLD_LOADING, BW.WW_PLACE_WORLD)), None)
+    head = places if off is None else places[:off]
+    first = next((p for p in places if p is not None and p >= 0), None)
+    return BW.WW_PLACE_FIELD in head, first
+
+
+def judge_d_lines(host_samples, host_lines, guest_lines, landed: bool) -> tuple:
+    """S166-D-LINES (PURE over the HOST from BEFORE the guest can leave to the guest's landing + D_S): COVERED (d_lines_coverage, else
+    "not covered"); 'following' read (guest.line and world.line, its words, drawn) and logged ONCE; [W2b] THE DISCRIMINATOR -- no host
+    "following state ended" line names "-- the guest's place field" (the d6df5df17fe0af03 build: the record missed, the line ended at the
+    commit), and 'following' lasted >= the guest's own "landed ... N ms after its start" - D_LINES_SLACK_MS (through the commit and the
+    sync load; immune to the end line's wording: a HostLineLost end over a long load still passes); the guest landed and the host's line
+    none on the last sample. 'loading' and the host's 'not updating' lane lines REPORTED (ONE-PC LOAD CONTENTION thins the samples)."""
     if not any(cb.has(s, HOST_GUEST) for s in host_samples):
         return False, f"absent: no `{HOST_GUEST}` on the host"
+    covered, first = d_lines_coverage(host_samples)
+    cov = ("covered (the guest read at place 1 before it left)" if covered
+           else f"not covered: the Tap began after the follow-out (first guest place {first})")
     ok1, why1 = judge_th_lines(host_samples, host_lines, want=("following",))
+    ends = [ln for ln in host_lines if BW.LOG_WW_HOST_WORLD in ln and _RX_FOLLOW_END.search(ln)]
+    at_field = [ln for ln in ends if "-- the guest's place field" in ln]
+    named = [m.group(1) + " " + m.group(2) for m in (_RX_GUEST_PLACE.search(ln) for ln in ends) if m]
+    follow_ms = int(_RX_FOLLOW_END.search(ends[0]).group(1)) if ends else None
+    landed_ms = next((int(m.group(1)) for m in (_RX_WFO_LANDED.search(ln) for ln in guest_lines) if m), None)
+    lasted = follow_ms is not None and landed_ms is not None and follow_ms >= landed_ms - D_LINES_SLACK_MS
     loading = any(_hg(s).get("line") == "loading" for s in host_samples)
+    hangs = len(hang_lines_timed(host_lines))
     last = host_samples[-1] if host_samples else None
     ended = last is not None and _hg(last).get("line") is None
-    ok = ok1 and landed and ended
-    return ok, f"{why1}; the guest landed {landed}; the line none at the end {ended}; 'loading' read {loading} (REPORTED: A3's limit)"
+    ok = covered and ok1 and not at_field and lasted and landed and ended
+    return ok, (f"{cov}; {why1}; the end line(s) name the guest's place {named or 'NONE'} (want never 'field': "
+                f"{'ok' if not at_field else 'ENDED AT THE COMMIT'}); 'following' lasted {follow_ms} ms against the guest's landing "
+                f"{landed_ms} ms after its start (want >= landed - {D_LINES_SLACK_MS}: {'yes' if lasted else 'NO'}); the guest landed "
+                f"{landed}; the line none at the end {ended}; 'loading' read {loading}, the host's 'not updating' lane lines {hangs} "
+                "(both REPORTED: ONE-PC LOAD CONTENTION)")
 
 
 def judge_d_g2(host_samples, guest_xz, gap_text: str) -> tuple:
@@ -1327,9 +1410,7 @@ def judge_d_g1(guest_samples, host_samples, own0, own1) -> tuple:
         if g.get("shown") is not True or None in (gx, gz, tx, tz) or torus(tx, tz, *want) > D_TARGET_TOL \
                 or torus(gx, gz, tx, tz) > D_G1_TOL:
             bad.append((s.frame, g.get("shown"), tx, tz, want))
-    xs = [(_num(_tx(s).get("x")), _num(_tx(s).get("z"))) for s in host_samples]
-    xs = [p for p in xs if None not in p]
-    moved = max((torus(*xs[0], *p) for p in xs), default=0.0) if xs else 0.0
+    moved = tx_moved(host_samples)
     still = None not in (own0[0], own1[0]) and torus(*own0, *own1) < ww.HELD_U
     n = len(js) - unmatched
     ok = n >= D_MIN_SAMPLES and not bad and moved >= D_MOVE_U and still
@@ -1351,10 +1432,20 @@ def judge_d_trailer(host_samples, guest_samples) -> tuple:
 
 def load_windows(stamped) -> list:
     """(PURE over (wall, state) samples) A game's own sync loads: [(t0, t1)] where its published frames stopped >= LOAD_GAP_S across a
-    scene change (ui / field / world / battle differ before and after)."""
+    scene change: ui / field / world differ before and after, OR [W2b] the game's OWN trailer place (`lane.tx.place`) stepped out of a
+    place it had ANNOUNCED as loading (2 transition / 3 world_loading -- _LOAD_PLACES, LaneGapKind's own set). A world battle keeps field
+    6603 / world 9011 and its warm return flips ui BattleResult -> WorldHUD BEFORE the freeze, so only the announced place sees that load
+    (the round-A lever duo 20261104-022513, the host: its 4.18 s freeze 3 -> 4 had equal (ui, field, world) keys -- 0 windows). A step out
+    of a NON-loading place (5 battle -> 3, 6 diorama -> 2, 4 -> 3) is never a window: its last frame misnamed the load, so a partner line
+    there is a wording defect and stays red. No lane (an older engine): the old key exactly."""
     out = []
     for (ta, a), (tb, b) in zip(stamped, stamped[1:]):
-        if (tb - ta).total_seconds() >= LOAD_GAP_S and (a.ui_state, a.field_id, a.world_id) != (b.ui_state, b.field_id, b.world_id):
+        if (tb - ta).total_seconds() < LOAD_GAP_S:
+            continue
+        scene = (a.ui_state, a.field_id, a.world_id) != (b.ui_state, b.field_id, b.world_id)
+        pa = _tx(a).get("place")
+        announced = pa in _LOAD_PLACES and _tx(b).get("place") != pa
+        if scene or announced:
             out.append((ta, tb))
     return out
 
@@ -1379,20 +1470,46 @@ def split_contention(hangs, windows) -> tuple:
     return [h for h in hangs if h not in inside], inside
 
 
-def judge_d_battle(base_h, after_h, base_g, after_g, host_lines, guest_lines, host_windows, guest_windows) -> tuple:
-    """S166-D-BATTLE (PURE): both ghosts re-minted (mints >= +1) and shown again after the warm returns; zero non-loading hang lines on
-    each game outside the OTHER game's own load windows (inside: ONE-PC LOAD CONTENTION, reported)."""
+def _publish_skew(samples, i) -> bool:
+    """(PURE) Sample ``i`` is the ONE-FRAME PUBLISH SKEW, not a shown ghost: the harness may publish between NetSyncClient.Update (which
+    moved the cache: `rx` and the live `why_not` already read the new place) and the driver's LateUpdate (which still holds last frame's
+    `shown`) -- so it reads shown with a live refusal, and the very next sample is hidden. Under `ghost sticky` the rule itself SHOWS
+    (why_not None), so the lever's shape is never this."""
+    s = samples[i]
+    return (_ghost(s).get("why_not") is not None and i + 1 < len(samples)
+            and _ghost(samples[i + 1]).get("shown") is not True)
+
+
+def entry_hide(guest_samples) -> tuple:
+    """(PURE) [W2b] D-BATTLE's ENTRY HIDE over the battle Tap's guest samples: (off, cover, whys) -- `off` the frames whose ghost is SHOWN
+    while the cache reads the host OFF place 4 (the host's swirl publishes place 2 ahead of InOwnBattle's nonce that boots the guest's
+    diorama: the guest is live on the world through it; a warm return's place 3), the one-frame publish skew excused; `cover` the WorldHUD
+    samples reading the host on place 2 (the window `ghost sticky` bends), `whys` their why_not values."""
+    off = [s.frame for i, s in enumerate(guest_samples) if _ghost(s).get("shown") is True
+           and _rx(s).get("place") != BW.WW_PLACE_WORLD and not _publish_skew(guest_samples, i)]
+    cover = [s for s in guest_samples if s.ui_state == "WorldHUD" and _rx(s).get("place") == BW.WW_PLACE_TRANSITION]
+    return off, cover, sorted({str(_ghost(s).get("why_not")) for s in cover})
+
+
+def judge_d_battle(base_h, after_h, base_g, after_g, host_lines, guest_lines, host_windows, guest_windows, guest_samples) -> tuple:
+    """S166-D-BATTLE (PURE): both ghosts re-minted (mints >= +1) and shown again after the warm returns; [W2b] THE ENTRY HIDE (entry_hide:
+    the guest's ghost never shown off the host's place 4 on the battle Tap's ``guest_samples``; the swirl's coverage REPORTED, never
+    required -- a missed swirl cannot flake the no-lever leg); zero non-loading hang lines on each game outside the OTHER game's own load
+    windows (inside: ONE-PC LOAD CONTENTION, reported)."""
     if not (cb.has(after_h, GHOST) and cb.has(after_g, GHOST)):
         return False, f"absent: no `{GHOST}`"
     mh, mg = _d(base_h, after_h, _ghost, "mints"), _d(base_g, after_g, _ghost, "mints")
     sh, sg = _ghost(after_h).get("shown") is True, _ghost(after_g).get("shown") is True
+    off, cover, whys = entry_hide(list(guest_samples))
     h_out, h_in = split_contention(hang_lines_timed(host_lines), guest_windows)
     g_out, g_in = split_contention(hang_lines_timed(guest_lines), host_windows)
-    ok = (mh or 0) >= 1 and (mg or 0) >= 1 and sh and sg and not h_out and not g_out
-    return ok, (f"mints host +{mh} guest +{mg} (want >= 1 each), shown again host {sh} guest {sg}; non-loading hang lines OUTSIDE the "
-                f"other's load windows: host {len(h_out)} guest {len(g_out)} (want 0) {[t for _w, t in (h_out + g_out)[:2]]}; inside "
-                f"them (ONE-PC LOAD CONTENTION, reported): host {len(h_in)} guest {len(g_in)}; load windows host {len(host_windows)} "
-                f"guest {len(guest_windows)}")
+    ok = (mh or 0) >= 1 and (mg or 0) >= 1 and sh and sg and not off and not h_out and not g_out
+    return ok, (f"mints host +{mh} guest +{mg} (want >= 1 each), shown again host {sh} guest {sg}; the guest's ghost shown off the host's "
+                f"place 4 on {off[:3] or 'none'} (THE ENTRY HIDE; the guest live on the world while the host swirled: {len(cover)} "
+                f"sample(s), why_not {whys or 'none'} -- REPORTED); non-loading hang lines OUTSIDE the other's load windows: host "
+                f"{len(h_out)} guest {len(g_out)} (want 0) {[t for _w, t in (h_out + g_out)[:2]]}; inside them (ONE-PC LOAD "
+                f"CONTENTION, reported): host {len(h_in)} guest {len(g_in)}; load windows host {len(host_windows)} guest "
+                f"{len(guest_windows)}")
 
 
 def judge_d_dotride(guest_samples, host_samples) -> tuple:
@@ -1412,9 +1529,7 @@ def judge_d_dotride(guest_samples, host_samples) -> tuple:
         if d.get("src") != "trailer" or None in (sx, sz) or torus(sx, sz, *want) > DOT_TOL:
             bad.append((s.frame, d.get("src"), sx, sz, want))
     riding = [s for s in host_samples if _num(_tx(s).get("mode")) == 1]
-    xs = [(_num(_tx(s).get("x")), _num(_tx(s).get("z"))) for s in riding]
-    xs = [p for p in xs if None not in p]
-    moved = max((torus(*xs[0], *p) for p in xs), default=0.0) if xs else 0.0
+    moved = tx_moved(host_samples, riding=True)
     ok = n >= D_MIN_SAMPLES and not bad and moved >= D_MOVE_U
     return ok, (f"{n} dot sample(s) matched by seq; off {bad[:3] or 'none'} (want src 'trailer' within {DOT_TOL:g} u); the host rode "
                 f"on {len(riding)} sample(s), moved {moved:.1f} u")
@@ -1439,8 +1554,11 @@ def judge_d_rejoin(guest_samples, host_after, rejoin_row) -> tuple:
 
 
 def sticky_measured(guest_samples) -> bool:
-    """`ghost sticky`'s shape (PURE): the guest's ghost shown on a sample whose cache reads the host on place 2 (it ignored the fade)."""
-    return any(_ghost(s).get("shown") is True and _rx(s).get("place") == BW.WW_PLACE_TRANSITION for s in guest_samples)
+    """`ghost sticky`'s shape (PURE): the guest's ghost shown on a sample whose cache reads the host on place 2 (it ignored the fade), the
+    rule itself SHOWING there (why_not None -- [W2b] never the one-frame publish skew, whose live why_not is a refusal). [W2b] Measured
+    on D-BATTLE's Tap: the host's swirl is the only place-2 window a live guest sees (THE ARM-FIRST ORDER shuts REJOIN's)."""
+    return any(_ghost(s).get("shown") is True and _ghost(s).get("why_not") is None and _rx(s).get("place") == BW.WW_PLACE_TRANSITION
+               for s in guest_samples)
 
 
 def dot_lever_measured(guest_samples) -> bool:
@@ -2306,6 +2424,54 @@ def _tap_both(d):
     return th, tg
 
 
+def _walk_out_tapped(d, tries: int = 3) -> tuple:
+    """[W2b] cw.walk_out's route with D-LINES' Taps started BEFORE THE GUEST CAN LEAVE: calibrate_axes (the FS_DOOR hazard, ``tries``
+    tries, a re-warp between), the walk into the door (strict=False, halt_on_transition) -- then _tap_both, while the host is still in
+    its own exit (the guest's follow-out waits for the host live on the world). From there the Taps are the ONLY readers (never
+    walk_out's own wait_world / world_settle beside them, nor its `before_walk` hook). -> (ok, why, th, tg); the Taps None unless ok."""
+    host = d.host
+    for attempt in range(tries):
+        try:
+            host.calibrate_axes(hazards=[cw.FS_DOOR], recalibrate=attempt > 0)
+            break
+        except HarnessError as err:
+            if attempt == tries - 1:
+                return False, f"calibrate_axes on {FARSHORE} failed {tries}x: {str(err)[:200]}", None, None
+            d.note(f"calibrate_axes retry {attempt + 1}: {str(err)[:160]}")
+            try:
+                host.warp(FARSHORE)
+                host.wait_frames(90)
+            except HarnessError as err2:
+                return False, f"the re-warp to {FARSHORE} failed: {str(err2)[:200]}", None, None
+    try:
+        host.walk_to(*cw.FS_EXIT, strict=False, halt_on_transition=True)
+    except HarnessError as err:
+        return False, f"the walk out never left {FARSHORE}: {str(err)[:240]}", None, None
+    th, tg = _tap_both(d)
+    return True, "walked into the door; the Taps started", th, tg
+
+
+def _walk_host(host, th, riding: bool = False) -> str:
+    """[W2b] THE CLOSED-LOOP WALK: hold "up" up to D_WALK_FRAMES and stop as soon as EITHER the judge's own tx_moved OR the Tap samples'
+    own world x/z (world_moved: a dark trailer never walks on) reached D_MOVE_U + D_MOVE_MARGIN_U, or at the wall deadline D_WALK_S; then
+    the release and D_WALK_TAIL_S of tail. Reads ONLY the Tap's own buffer (``th.samples``) -- never a second reader of the driven game."""
+    goal = D_MOVE_U + D_MOVE_MARGIN_U
+    t0 = time.time()
+    host.hold("up", D_WALK_FRAMES)
+    deadline, why = t0 + D_WALK_S, "the deadline"
+    while time.time() < deadline:
+        ss = [s for _t, s in list(th.samples)]
+        if tx_moved(ss, riding) >= goal or world_moved(ss) >= goal:
+            why = "the distance"
+            break
+        time.sleep(0.02)
+    # sent unawaited, like the hold: Channel.send still makes ONE state read first (it confirms the hold's accept -- channel.py
+    # _await_accept), the same read the hold made; a release after the hold ran out is a no-op (it never presses)
+    host.send("release up", wait=False)
+    time.sleep(D_WALK_TAIL_S)
+    return f"the walk stopped on {why} after {time.time() - t0:.1f} s"
+
+
 def _duo(d, check, rest, lever, sent: list, measured: dict) -> None:
     host, guest = d.host, d.guest
     hs, gs = host.state, guest.state
@@ -2326,23 +2492,43 @@ def _duo(d, check, rest, lever, sent: list, measured: dict) -> None:
         op, word = LEVER_OPS[lever]
         ok, _w = _ww(guest, op, word)
         sent.append(op) if ok else None
-    # D-LINES + D-G2: the host walks out, the guest follows out
+    # D-LINES + D-G2: the host walks out, the guest follows out. [W2b] Encounters off FIRST, on the field: the booster lives for the process
+    # and survives the world load, so no random battle can take the host while only the Taps read it
+    try:
+        host.no_encounters(True)
+    except (HarnessError, AttributeError) as err:
+        d.note(f"noencounter refused on {FARSHORE} ({str(err)[:120]})")
     hat, gat = cb.mark(host), cb.mark(guest)
-    ok, why, _st = cw.walk_out(host)
-    t_host = _dt.datetime.now()
+    ok, why, th, tg = _walk_out_tapped(d)
     if not ok:
         rest(f"the host's walk out failed ({why[:160]})")
         return
-    th, tg = _tap_both(d)
+    # ...the host's landing and the guest's, read off the Taps' OWN samples (they are the only readers now)
+    deadline = time.time() + cw.WORLD_S
+    hland = None
+    while time.time() < deadline and hland is None:
+        hland = wf.first_judged([s for _t, s in list(th.samples) if s.ui_state == "WorldHUD" and s.world_id == WORLD])
+        time.sleep(0.1)
+    t_host = next((t for t, s in list(th.samples) if s is hland), None) or _dt.datetime.now()
     deadline = time.time() + D_LAND_S
-    while time.time() < deadline and wf.first_judged([s for _t, s in list(tg.samples) if s.ui_state == "WorldHUD"]) is None:
+    while hland is not None and time.time() < deadline \
+            and wf.first_judged([s for _t, s in list(tg.samples) if s.ui_state == "WorldHUD"]) is None:
         time.sleep(0.1)
     time.sleep(D_S)
     hsamp, gsamp = th.stop(), tg.stop()
+    try:
+        host.no_encounters(True)                          # (walk_out's own call, kept: no Tap reads the host now)
+    except (HarnessError, AttributeError) as err:
+        d.note(f"noencounter refused on the world map ({str(err)[:120]})")
+    r_ok, r_why = cw.judge_route(hland) if hland is not None else (False, f"no judged host sample on {WORLD} in {cw.WORLD_S:g} s")
+    if not r_ok:
+        check("S166-D-LINES", False, f"not reached: the host's walk out never landed ({r_why[:200]})")
+        rest(f"the host's walk out failed ({r_why[:160]})")
+        return
     land = wf.first_judged([s for _t, s in gsamp if s.ui_state == "WorldHUD"])
     t_land = next((t for t, s in gsamp if s is land), None)
-    gap = f"{(t_land - t_host).total_seconds():.1f} s after the host's walk out returned" if t_land else "never"
-    check("S166-D-LINES", *judge_d_lines([s for _t, s in hsamp], cb.new(host, hat), land is not None))
+    gap = f"{(t_land - t_host).total_seconds():.1f} s after the host's first judged world sample" if t_land else "never"
+    check("S166-D-LINES", *judge_d_lines([s for _t, s in hsamp], cb.new(host, hat), cb.new(guest, gat), land is not None))
     if land is None:
         rest("the guest never landed on the world map")
         return
@@ -2357,8 +2543,7 @@ def _duo(d, check, rest, lever, sent: list, measured: dict) -> None:
     # D-G1: the host walks
     own0 = wf.world_xz(guest.state)
     th, tg = _tap_both(d)
-    host.hold("up", D_WALK_FRAMES)
-    time.sleep(D_WALK_S)
+    d.note(f"D-G1: {_walk_host(host, th)}")
     hsamp, gsamp = th.stop(), tg.stop()
     own1 = wf.world_xz(guest.state)
     check("S166-D-G1", *judge_d_g1([s for _t, s in gsamp], [s for _t, s in hsamp], own0, own1))
@@ -2377,8 +2562,7 @@ def _duo(d, check, rest, lever, sent: list, measured: dict) -> None:
         host.vehicle(1)
         host.wait_frames(20)
         th, tg = _tap_both(d)
-        host.hold("up", D_WALK_FRAMES)
-        time.sleep(D_WALK_S)
+        d.note(f"D-DOTRIDE: {_walk_host(host, th, riding=True)}")
         hsamp, gsamp = th.stop(), tg.stop()
         check("S166-D-DOTRIDE", *judge_d_dotride([s for _t, s in gsamp], [s for _t, s in hsamp]))
         if lever == "dot":
@@ -2413,7 +2597,8 @@ def _duo(d, check, rest, lever, sent: list, measured: dict) -> None:
     rejoin = cw.judge_rejoin_land(gl, gbase, cb.new(guest, gat3), field=ICE_CAVERN) if hin is not None else (False, "the host never entered 300")
     check("S166-D-REJOIN", *judge_d_rejoin(gl, [s for _t, s in hsamp], rejoin))
     if lever == "sticky":
-        measured["S166-D-REJOIN"] = sticky_measured(gl)
+        # [W2b] INERT here by THE ARM-FIRST ORDER (no live guest sample reads the host on place 2): reported, never a measure
+        d.note(f"`ghost sticky` on REJOIN (REPORTED, inert by THE ARM-FIRST ORDER): its shape seen {sticky_measured(gl)}")
     elif lever == "ghost":
         measured["S166-D-REJOIN"] = ghost_off_measured(gl)
 
@@ -2434,9 +2619,12 @@ def _duo_battle(d, check, lever, measured: dict) -> None:
     hsamp, gsamp = th.stop(), tg.stop()
     ah, ag = host.state, guest.state
     check("S166-D-BATTLE", *judge_d_battle(bh, ah, bg, ag, cb.new(host, hat), cb.new(guest, gat), load_windows(hsamp),
-                                           load_windows(gsamp)))
+                                           load_windows(gsamp), [s for _t, s in gsamp]))
     if lever == "ghost":
         measured["S166-D-BATTLE"] = (_d(bh, ah, _ghost, "mints") or 0) >= 1 and ghost_off_measured([s for _t, s in gsamp[-20:]])
+    elif lever == "sticky":
+        # [W2b] the lever's shape: a SHOWN ghost on the host's place 2 (its swirl) -- a Tap that missed the swirl reads NOT measured
+        measured["S166-D-BATTLE"] = sticky_measured([s for _t, s in gsamp])
 
 
 # ================================================================================================ CLI (offline: the instrument)

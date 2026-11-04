@@ -14825,6 +14825,16 @@ def ww_place_rule(title: bool, transition: bool, diorama: bool, battle: bool, on
     return WW_PLACE_FIELD if field_live else WW_PLACE_NONE
 
 
+def ww_tx_transition_rule(follow_fade: bool, world_out_committed: bool, on_field: bool, sd_fading: bool, sd_not_ready: bool,
+                          swirl: bool) -> bool:
+    """[ff9mapkit netsync s166] W2b NetSyncWorldWalk.TxTransitionRule: PlaceRule's `transition` as WorldTxBuild builds it -- a follow /
+    follow-out fade (FollowFadeInFlight), my world follow-out's COMMIT while my field still runs (the record stands from the write through
+    the field's shutdown and the synchronous load, to the world seam that clears it), SceneDirector's fade, a scene not ready, the swirl.
+    Never the record off a live field (a record a battle outlived never bends place 5; no world frame ever reads it). The d6df5df17fe0af03
+    build missed the record: place FIELD with b5 from the commit through the load."""
+    return bool(follow_fade or (world_out_committed and on_field) or sd_fading or sd_not_ready or swirl)
+
+
 def ww_state_bits(frozen, walking, control, fullmap, mismatch, worldout, scene, visible) -> int:
     """NetSyncWorldWalk.StateBits (49)."""
     bits = (WW_ST_FROZEN, WW_ST_WALKING, WW_ST_CONTROL, WW_ST_FULLMAP, WW_ST_MISMATCH, WW_ST_WORLDOUT, WW_ST_SCENE, WW_ST_VISIBLE)

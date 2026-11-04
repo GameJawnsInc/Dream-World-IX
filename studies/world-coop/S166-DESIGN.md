@@ -374,7 +374,8 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
 
 25. A new sub-verb `worldwalk` (`worldfollow` refuses unknown ops). Every lever is any-role where the duo needs it (THE DUO
     CANNOT PULL A SELFTEST-ROLE LEVER) and is released with the harness. Round A: `kitcell`, `pairpull`, `dot section0|trailer`, `ghost off|sticky` (sticky:
-    the ghost ignores the peer's place 2, the D-REJOIN mutant), `place render|act` (the WRAP mutant), `pose off` (tfmt 0: an
+    the ghost ignores the peer's place 2 -- it bites only while the observer is live and the peer publishes place 2, i.e. the
+    host's world-battle swirl: D-BATTLE's entry hide; INERT on D-REJOIN by THE ARM-FIRST ORDER, the guest arms on the host's intent), `place render|act` (the WRAP mutant), `pose off` (tfmt 0: an
     s165-shaped v15 peer), `lanegap`, `hostlines`, `clear`; and the bench host (the selftest role with the ini's FollowHost
     and SuppressEncounters, as s165's G10): `host path <x0> <z0> <x1> <z1> [...] <ups> [loop]`, `hostseq freeze|run`,
     `hostgap <ms>`, `hostplace <n>`, `hoststate <bits>`, `hostmode <n>`, `hostworld <id>`, `hostmodel <id>`, `hosttps <n>`,
@@ -521,7 +522,7 @@ PIN), 6603 -> 9011 by s165's follow-out (`worldfollow host`), and onto 9002/9010
 | T2-A roam | the frozen guest's ghost on the ROAM tape's own trailer pose at the matched second; `--blackhole-at` a leg for 2.3 s: gap lines, hold, ease back; for 6 s: hide at 5 s, then a snap on the re-show (a first show) | no v14 tape | `ghost off`, `lanegap off` |
 | T2-A freeze | `replay-host --freeze-at` 2.3 s and 6 s against a real s166 guest: hold, `_STAND`, hide at 5 s, the HANG's wording, the "Lost contact" words | no v14 tape | `lanegap off`, `ghost off` |
 | T2-H | serve-guest's walking v15 record into a real s166 host: the host's ghost of the guest, its three lines, its gap line at `--gap-at`; a released guest's record (state b0 clear, flags b0 set): lines and ghost; `--no-follow`: no lines, no ghost | host shows nothing | `hostlines off`, `ghost off` |
-| Duo | D-G1 the host walks: the guest's ghost within tolerance of the host's `world.x/z` on the shared clock; D-G2 the host's ghost of the frozen guest within tolerance of the guest's own published `world.x/z`, the landing gap reported (ONE-PC LOAD CONTENTION confounds a landing judgment); D-LINES the host's lines through the follow-out; D-REJOIN both ghosts hidden before the guest's fade; D-BATTLE both re-mint after the warm returns, zero non-loading HANG lines across a start and a return; D-SHARED; the s144/s145 rows under an active trailer; D-PAIR, if K1 finds `duo.py` can start the guest's link late (T2-A pair's judges); D-DOTRIDE (`vehicle 1` on the host on 9011, then it moves: the guest's dot within 8 u of the host's own `world.x/z`) | none | `ghost off` any role; `ghost sticky` for D-REJOIN |
+| Duo | D-G1 the host walks: the guest's ghost within tolerance of the host's `world.x/z` on the shared clock; D-G2 the host's ghost of the frozen guest within tolerance of the guest's own published `world.x/z`, the landing gap reported (ONE-PC LOAD CONTENTION confounds a landing judgment); D-LINES the host's lines through the follow-out; D-REJOIN both ghosts hidden before the guest's fade; D-BATTLE both re-mint after the warm returns, zero non-loading HANG lines across a start and a return; D-SHARED; the s144/s145 rows under an active trailer; D-PAIR, if K1 finds `duo.py` can start the guest's link late (T2-A pair's judges); D-DOTRIDE (`vehicle 1` on the host on 9011, then it moves: the guest's dot within 8 u of the host's own `world.x/z`) | none | `ghost off` any role; `ghost sticky` for D-BATTLE (entry hide) |
 
 **Round B rows (s167),** the same routes:
 
