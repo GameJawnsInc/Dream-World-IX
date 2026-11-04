@@ -9248,8 +9248,10 @@ class Session:
                 raise HarnessError(why)
         elif sub == "worldwalk":
             # [ff9mapkit netsync s166] an unknown op or a malformed one is the usage line, refused before the step in its words (it changes
-            # nothing); co-op off and the role are the ENGINE's (the step goes out and its words come back)
-            why = self._worldwalk_refusal(args)
+            # nothing); co-op off and the role are the ENGINE's (the step goes out and its words come back). [ff9mapkit netsync s166] W2
+            # reconcile: the usage line is the one THIS engine answers (BW.worldwalk_usage_of its `netsync.world`: A4's, A3's, A0b's, A0's)
+            world_ww0 = (st.netsync or {}).get("world") if isinstance(st.netsync, dict) else None
+            why = self._worldwalk_refusal(args, world_ww0 if isinstance(world_ww0, dict) else {})
             if why is not None:
                 raise HarnessError(why)
             if str(args[0]).strip().lower() == "pairpull" and not st.coop_world_pairpull:
@@ -9258,6 +9260,19 @@ class Session:
                 from . import battlewire as BW
                 raise HarnessError("netsync worldwalk pairpull: this engine publishes no `netsync.world.pairpull` (memoria-patch s166, "
                                    f"piece A0b); it would answer \"{BW.WORLDWALK_USAGE_A0}\" only after the step")
+            from . import battlewire as BW_WW
+            op_ww = str(args[0]).strip().lower()
+            a3_ops = ("pose", "lanegap", "hostlines") + tuple(BW_WW.WORLDWALK_HOST_OPS)
+            a4_ops = tuple(BW_WW.A4_CONTRACT["ops"])
+            world_ww = (st.netsync or {}).get("world") if isinstance(st.netsync, dict) else None
+            world_ww = world_ww if isinstance(world_ww, dict) else {}
+            if (op_ww in a3_ops and "lane" not in world_ww) or (op_ww in a4_ops and "ghost" not in world_ww):
+                # [ff9mapkit netsync s166] W2: A3's ops (pose / lanegap / hostlines, the bench host's) on an engine without
+                # `netsync.world.lane`, A4's (ghost / place / dot) without `netsync.world.ghost`: an older build answers them with its own
+                # usage line AFTER the step -- refused before it (a bench PROBES the key and never sends the op there)
+                piece, key = ("A4", "netsync.world.ghost") if op_ww in a4_ops else ("A3", "netsync.world.lane")
+                raise HarnessError(f"netsync worldwalk {op_ww}: this engine publishes no `{key}` (memoria-patch s166, piece {piece}); it "
+                                   "would answer its own usage line only after the step")
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
             # [ff9mapkit netsync s145] THE WORLD DIOBOOT: a diorama boots from a live world map from s145 on (warm only: the engine's
             # pre-Arm verdict refuses anything a stock world battle could not return warm from). An s144 engine refuses it after
@@ -9733,19 +9748,33 @@ class Session:
         return self.netsync("worldfollow", op, *args, timeout=timeout)
 
     @staticmethod
-    def _worldwalk_refusal(args) -> str | None:
+    def _worldwalk_refusal(args, world=None) -> str | None:
         """[ff9mapkit netsync s166] The `worldwalk` form's own check (an unknown op, a wrong arity, a word it does not take): the usage
-        line, else None -- co-op off and the role stay the engine's."""
+        line, else None -- co-op off and the role stay the engine's. [ff9mapkit netsync s166] W2 reconcile: ``world`` is the engine's
+        `netsync.world` block; the usage line is the one THAT engine answers (BW.worldwalk_usage_of: A4's grown line, A3's, A0b's, the A0
+        build's), so the driver's refusal is word for word the step's. ``world`` None = the newest (A4's)."""
         from . import battlewire as BW
+        usage = BW.WORLDWALK_USAGE_A4 if world is None else BW.worldwalk_usage_of(world)
         rest = [str(a).strip() for a in args]
         op = rest[0].lower() if rest else ""
+        a3_words = {k: v for k, v in BW.WORLDWALK_WORDS_A3.items() if k not in BW.WORLDWALK_WORDS}
+        a4_words = dict(BW.A4_CONTRACT["words"])
+        if op in a3_words or op in a4_words:
+            # [ff9mapkit netsync s166] W2: A3's any-role levers (pose / lanegap / hostlines) and A4's (ghost / place / dot): exactly one
+            # word the engine takes, else the usage line (the engine's own words come back for anything it refuses after the step)
+            words = a3_words.get(op) or a4_words.get(op)
+            return None if len(rest) == 2 and rest[1].lower() in words else usage
+        if op in BW.WORLDWALK_HOST_OPS:
+            # [ff9mapkit netsync s166] W2: the bench host's ops (the selftest role): the op and at least one argument; their shapes, ranges,
+            # the role, the bench gate and FollowHost are the ENGINE's refusals (HarnessWorldWalkHost: the step goes out, its words return)
+            return None if len(rest) >= 2 else usage
         if op not in BW.WORLDWALK_OPS:
-            return BW.WORLDWALK_USAGE
+            return usage
         if op == "clear":
-            return None if len(rest) == 1 else BW.WORLDWALK_USAGE
+            return None if len(rest) == 1 else usage
         if op in BW.WORLDWALK_WORDS:
-            return None if len(rest) == 2 and rest[1].lower() in BW.WORLDWALK_WORDS[op] else BW.WORLDWALK_USAGE
-        return BW.WORLDWALK_USAGE
+            return None if len(rest) == 2 and rest[1].lower() in BW.WORLDWALK_WORDS[op] else usage
+        return usage
 
     def worldwalk(self, op: str, *args, timeout: float = 20.0) -> State:
         """[ff9mapkit netsync s166] ``netsync worldwalk <op> [arg ...]`` -- WORLD WALK's one lever scheme (S166-DESIGN.md decision 25):
@@ -9757,7 +9786,11 @@ class Session:
         :attr:`State.world_kitcell_block`. [ff9mapkit netsync s166] Piece A0b adds ``pairpull old|act`` (decision 26: old = s165 exactly,
         a guest that is not mirroring yet waits on its field and a follow-out's landing arms no mirror; act = the pairing pull, the
         default), read back through :attr:`State.world_pairpull_block` -- refused before the step on an engine without
-        ``netsync.world.pairpull`` (the A0 build)."""
+        ``netsync.world.pairpull`` (the A0 build). [ff9mapkit netsync s166] W2: A3's ``pose off|on``, ``lanegap off|on``, ``hostlines
+        off|on`` (any role) and the bench host's ``host path ... | host off``, ``hostseq``, ``hostgap``, ``hostplace`` .. ``hosttps`` (the
+        selftest role) -- refused before the step on an engine without ``netsync.world.lane``; A4's ``ghost off|on|sticky``, ``place
+        render|act``, ``dot section0|trailer`` -- without ``netsync.world.ghost``. A malformed A3 / A4 lever is A3's usage line; the bench
+        host's shapes and ranges are the engine's own refusals (they come back from the step)."""
         return self.netsync("worldwalk", op, *args, timeout=timeout)
 
     def savemenu(self) -> None:

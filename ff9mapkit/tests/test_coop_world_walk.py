@@ -297,9 +297,12 @@ def test_the_s166_rung_is_the_ladders_last():
     assert Session.NETSYNC_WORLDWALK_SUBVERBS["worldwalk"][:3] == ("coop_world_walk", "netsync.world.kitcell", "s166")
     # no top-level netsync key in A0 or A0b; [ff9mapkit netsync s166] A2 (the same rung) appends `wire_peer`, netsync's LAST key
     assert FG.NETSYNC_TOP_CAP_KEYS["worldwalk"] == BW.NETSYNC_TOP_KEYS_S166 == ("wire_peer",)
-    # [ff9mapkit netsync s166] A0b grows the SAME rung (one patch): `pairpull` after `kitcell`
-    assert FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"] == {"world": ("kitcell", "pairpull")} and FG.NETSYNC_BATTLE_CAP_KEYS["worldwalk"] == {}
-    assert FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldwalk"] == tuple(BW.WORLD_SENTINELS_S166B)
+    # [ff9mapkit netsync s166] A0b grows the SAME rung (one patch): `pairpull` after `kitcell`; W2: A3's `lane` / `line` after it and A4's
+    # `ghost` after `line`, and inside older blocks A3's `host.world.guest` and A4's `world.dot.src` .. `src_face`
+    assert FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"] == {"world": ("kitcell", "pairpull", "lane", "line", "ghost"),
+                                                       "world.dot": ("src", "src_lever", "src_x", "src_z", "src_face"),   # A4 final
+                                                       "host.world": ("guest",)} and FG.NETSYNC_BATTLE_CAP_KEYS["worldwalk"] == {}
+    assert FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldwalk"] == tuple(BW.WORLD_SENTINELS_S166D)
     assert FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldfollow"] == tuple(BW.WORLD_SENTINELS_S165)     # s165's row unmoved
 
 
@@ -602,11 +605,12 @@ def test_the_stand_in_publishes_kitcell_last_and_worldwalk_refuses_in_the_contra
         g.newgame(settle=0)
         g.warp(6603)
         st = g.state
-        assert list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166B) and st.coop_world_walk is True   # [ff9mapkit netsync s166] + A0b
+        assert list(st.netsync["world"]) == list(FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldwalk"]) and st.coop_world_walk is True   # [s166] + A0b, A3, A4
         assert st.world_kitcell_block == dict(CONTRACT_KITCELL, lever="act")
         seq = g.state.seq
         for bad in (("bogus",), ("kitcell",), ("kitcell", "maybe"), ("kitcell", "old", "1"), ("clear", "1"), ()):
-            with pytest.raises(HarnessError, match=re.escape(BW.WORLDWALK_USAGE)):
+            # [ff9mapkit netsync s166] W2 reconcile: the usage line THIS engine answers -- the newest stand-in's is A4's grown line
+            with pytest.raises(HarnessError, match=re.escape(BW.WORLDWALK_USAGE_A4)):
                 g.worldwalk(*bad) if bad else g.netsync("worldwalk")
         assert g.state.seq == seq and not any(s[:2] == ["netsync", "worldwalk"] for s in fake.executed)
         with pytest.raises(HarnessError, match=re.escape(BW.WORLDWALK_OFF_REFUSAL)):
@@ -1145,6 +1149,18 @@ def _s166_text(file_name: str) -> str:
                 f"{S166_CLONE_ENV}=<the clone's Assembly-CSharp> to pin a clone that carries the tag")
 
 
+def _s166_verb_words() -> tuple:
+    """[ff9mapkit netsync s166] W2 reconcile: (the usage line, the clear line) the s166 source's `worldwalk` speaks, BY ITS STAGE read off
+    its structure (never off the words themselves): A4 once NetSyncClient calls into NetSyncWorldGhost, A3 once it carries WorldLaneStep,
+    else A0b's -- each piece GROWS both lines, so an earlier piece's whole line is no longer in a later source."""
+    client = _s166_text("NetSyncClient.cs")
+    if "NetSyncWorldGhost." in client:
+        return BW.WORLDWALK_USAGE_A4, BW.LOG_WORLDWALK_CLEAR_A4
+    if "private void WorldLaneStep(" in client:
+        return BW.WORLDWALK_USAGE_A3, BW.LOG_WORLDWALK_CLEAR_A3
+    return BW.WORLDWALK_USAGE, BW.LOG_WORLDWALK_CLEAR
+
+
 def _s166_catch_world() -> dict:
     """The netsync-off catch literal's `netsync.world` object as the s166 HarnessAgent writes it."""
     lines = _s166_text("HarnessAgent.cs").split("\n")
@@ -1163,7 +1179,8 @@ def test_s166_the_catch_line_carries_kitcell_at_its_sentinel_after_dot():
     # [ff9mapkit netsync s166] the prefix law: `kitcell` right after s165's `dot`; A0b's `pairpull` (when the source carries it) after it
     keys = list(world)
     tail = keys[keys.index("dot"):] if "dot" in keys else keys
-    assert tail in (["dot", "kitcell"], ["dot", "kitcell", "pairpull"]), keys
+    # [ff9mapkit netsync s166] W2: round A's keys in their order -- A0's alone, + A0b's, + A3's two, + A4's, by the source's stage
+    assert len(tail) in (2, 3, 5, 6) and tail == ["dot"] + list(BW.WORLD_S166_ROUND_A_KEYS[:len(tail) - 1]), keys
     assert json.dumps(world["kitcell"]) == json.dumps(CONTRACT_KITCELL)
     agent = _s166_text("HarnessAgent.cs")
     assert any(S166_TAG in ln and "sentinel" in ln and ln.strip().startswith("//") for ln in agent.split("\n")), \
@@ -1191,8 +1208,8 @@ def test_s166_the_agent_speaks_the_contracts_verb_key_and_lines():
     for frag in (BW.LOG_WORLD_KITCELL, BW.PROOF_WORLD_WALK, "harness: worldwalk ", "kitcell old|act", "worldwalk levers released"):
         assert frag in text, frag
     # the stand-in's whole lines are the engine's: the verb's texts, and the close line's literal pieces in the order it joins them
-    for ln in (BW.WORLDWALK_USAGE, BW.WORLDWALK_OFF_REFUSAL, BW.LOG_WORLDWALK_RELEASED, BW.LOG_WORLDWALK_KITCELL_OLD,
-               BW.LOG_WORLDWALK_KITCELL_ACT, BW.LOG_WORLDWALK_CLEAR):
+    usage, clear = _s166_verb_words()                   # [ff9mapkit netsync s166] W2 reconcile: the usage and clear line BY THE SOURCE'S STAGE
+    for ln in (usage, BW.WORLDWALK_OFF_REFUSAL, BW.LOG_WORLDWALK_RELEASED, BW.LOG_WORLDWALK_KITCELL_OLD, BW.LOG_WORLDWALK_KITCELL_ACT, clear):
         assert f'"{ln}"' in text, ln
     pieces = ('"[NetSync] world kit-cell close: entry "', '" on world map "', '"entry 0: the kit\'s entrance cells"',
               '"beyond the stock dispatcher\'s last entry "', '": a kit object"',
@@ -1643,11 +1660,11 @@ def test_s166b_the_stand_in_publishes_pairpull_last_and_the_lever_releases(tmp_p
         g.newgame(settle=0)
         g.warp(6603)
         st = g.state
-        assert list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166B) and st.coop_world_pairpull is True
+        assert list(st.netsync["world"]) == list(FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldwalk"]) and st.coop_world_pairpull is True   # [s166] W2
         assert st.world_pairpull_block == dict(CONTRACT_PAIRPULL, lever="act")
         seq = g.state.seq
         for bad in (("pairpull",), ("pairpull", "maybe"), ("pairpull", "old", "1")):
-            with pytest.raises(HarnessError, match=re.escape(BW.WORLDWALK_USAGE)):
+            with pytest.raises(HarnessError, match=re.escape(BW.WORLDWALK_USAGE_A4)):   # [s166] W2 reconcile: the newest stand-in's line
                 g.worldwalk(*bad)
         assert g.state.seq == seq
         fake.netsync.update(enabled=True, role="host", instance=True)
@@ -2173,7 +2190,9 @@ def test_s166b_the_catch_line_carries_pairpull_at_its_sentinel_after_kitcell():
     world = _s166_catch_world()
     if "pairpull" not in world:
         pytest.skip("this s166 source carries A0 alone (A0b not emitted yet)")
-    assert list(world)[-3:] == ["dot", "kitcell", "pairpull"], list(world)
+    keys = list(world)                                                  # [ff9mapkit netsync s166] W2: A3 / A4 may follow (by stage)
+    assert keys[keys.index("dot"):keys.index("dot") + 3] == ["dot", "kitcell", "pairpull"], keys
+    assert keys[keys.index("dot") + 1:] == list(BW.WORLD_S166_ROUND_A_KEYS[:len(keys) - keys.index("dot") - 1]), keys
     assert json.dumps(world["pairpull"]) == json.dumps(CONTRACT_PAIRPULL)
 
 
@@ -2186,7 +2205,8 @@ def test_s166b_the_engine_speaks_the_contracts_op_why_and_lines():
     assert names == list(BW.WORLD_OUT_WHYS_S166), names
     assert f'"{BW.WORDS_WORLD_OUT_PAIRING}"' in follow
     text = "\n".join(ln for name in ("HarnessAgent.cs", "NetSyncClient.cs") for ln in _s166_text(name).split("\n") if '"' in ln)
-    for ln in (BW.WORLDWALK_USAGE, BW.LOG_WORLDWALK_PAIRPULL_OLD, BW.LOG_WORLDWALK_PAIRPULL_ACT, BW.LOG_WORLDWALK_CLEAR):
+    usage, clear = _s166_verb_words()                   # [ff9mapkit netsync s166] W2 reconcile: by the source's stage
+    for ln in (usage, BW.LOG_WORLDWALK_PAIRPULL_OLD, BW.LOG_WORLDWALK_PAIRPULL_ACT, clear):
         assert f'"{ln}"' in text, ln
     for piece in ('"[NetSync] state-mirror ARMED at "', '" -- this guest\'s fields now stage the HOST\'s story"', '"\'s landing"',
                   '"[NetSync] state-mirror ARMED -- this guest\'s fields now stage the HOST\'s story"', '\\"pairpull\\"'):
@@ -2216,3 +2236,493 @@ def test_s166b_the_engines_pending_rule_and_verdicts_are_the_twins():
     assert "f.PairPending = NetSyncWorldFollow.PairingSavePending(_pairWindowOpen, _pairWrittenWhere != null, _pairVerdict);" in client
     assert "f.PairPull = !_ppOld;" in client
     assert re.search(r'else if \(!_ppOld && _role == "client" && !_storyMirroring\)\s*\{', client), "the landing arm's guard"
+
+
+# ================================================================================================ [ff9mapkit netsync s166] ROUND A, SOLO
+# The round-A solo legs (coop_world_walk.py: tx, ghost, wrap, dot, body, stall) driven through the REAL Session on the stand-in (fakegame's
+# `worldwalk` rung, pieces A3 + A4): green on the newest build; OLD on the deployed A0b build, the A3 build and s165 (exactly
+# a_old_predicted red, no op of a missing piece ever sent); every lever exactly A_LEVER_PREDICTED red with its shape MEASURED; every
+# `*_lever_ignored` fault reds the calibration; every round-A fault exactly its A_FAULT_REDS rows over all six legs in one launch.
+_A_CHILD = r'''
+import importlib.util, json, os, pathlib, sys, tempfile
+scen, tools, kit = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, tools)
+sys.path.insert(0, kit)
+doc = json.loads(sys.stdin.read() or "{}")
+from harness import Session
+from harness import fakegame as FG
+SRC_ROWS, SRC_MUTANTS = 308, 98
+
+def clone_dir():
+    """A stand-in s166 clone: NetSyncWorldWalk.cs carrying the tag and a proof table of SRC_ROWS rows and SRC_MUTANTS mutants -- the one
+    source both the stand-in's proof line and the bench's A-PROOF want read (FF9_S166_CLONE)."""
+    d = pathlib.Path(tempfile.mkdtemp(prefix="s166clone_")) / "Assembly-CSharp" / "Memoria" / "Netsync"
+    d.mkdir(parents=True)
+    rows = "\n".join("            row(r, \"x\");" for _ in range(SRC_ROWS))
+    names = ", ".join(f"\"m{i}\"" for i in range(SRC_MUTANTS))
+    (d / "NetSyncWorldWalk.cs").write_text("// [ff9mapkit netsync s166] stand-in\nprivate static Int32 Rows(Rules r, List<String> fails)\n{\n"
+                                          + rows + "\n}\nprivate static Rules Mutant(String name) { }\n"
+                                          "private static readonly String[] MutantNames = { " + names + " };\n", encoding="utf-8")
+    return str(d.parents[1])
+
+def load(name):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(scen, name + ".py"))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+SENT = []
+
+def root(ini):
+    t = pathlib.Path(tempfile.mkdtemp())
+    (t / "x64").mkdir()
+    (t / "x64" / "FF9.exe").write_bytes(b"MZ")
+    (t / "Memoria.log").write_text("fake log\n", encoding="utf-8")
+    (t / "FF9CustomMap").mkdir()
+    (t / "FF9CustomMap" / "DictionaryPatch.txt").write_text("FieldScene 6603 31 FARSHORE FARSHORE 6603\n", encoding="utf-8")
+    (t / "Memoria.ini").write_text(ini, encoding="utf-8")
+    return t
+
+def fake_for(t, run, cw):
+    f = FG.FakeGame(t, fps=600, walkmesh=(-2000.0, -3000.0, 2000.0, 2000.0))
+    if run.get("caps"):
+        f.netsync_caps = FG.caps_through(run["caps"])
+    if run.get("pieces"):
+        f.world_walk_pieces = tuple(run["pieces"])
+    f.regions = {6603: [{"zone": cw.FS_DOOR, "world": cw.WORLD, "world_at": list(cw.FS_LANDING)}]}
+    f.exit_frames = 900
+    f.overworld = {"speed": 2.0, "turn": 2.8125, "cam": 0.0, "lag": 1}
+    f.world_swirl_frames, f.world_exit_frames = 40, 40
+    f.world_walk_faults = set(run.get("faults", ()))
+    f.wf_follow_host_cfg = True
+    f.world_kit = dict(FG.FAKE_WORLD_KIT)
+    f.world_block_load_frames = int(run.get("block_frames", 6))   # a world load's Updates before w_blockReady: place 3 (A-TX)
+    f.swap_qpc = None                                             # the swap clock on the virtual clock (the engine: one clock)
+    real_ns = f._netsync
+    def ns(args, _real=real_ns):
+        if args and str(args[0]).lower() in ("worldwalk", "worldfollow"):
+            SENT.append(" ".join(str(a) for a in args))
+        _real(args)
+    f._netsync = ns
+    return f
+
+def rows_of(checks):
+    rows = [(r["what"].split(":")[0], bool(r["ok"]), r["detail"][:1400]) for r in checks]
+    return {"red": sorted(c for c, ok, _d in rows if not ok), "all": [c for c, _ok, _d in rows],
+            "detail": {c: d for c, _ok, d in rows}}
+
+def solo(run):
+    for k in ("COOP_WW_LEG", "COOP_WW_LEVER", "COOP_CALIBRATE", "FF9_S166_CLONE"):
+        os.environ.pop(k, None)
+    os.environ["COOP_WW_LEG"] = run.get("legs", "tx")
+    if run.get("lever"):
+        os.environ["COOP_WW_LEVER"] = run["lever"]
+    if run.get("source", True):
+        os.environ["FF9_S166_CLONE"] = clone_dir()
+    ww = load("coop_world_walk")
+    cw, wf, cb = ww.cw, ww.wf, ww.cb
+    # the bench's own waits, shortened for a stand-in whose virtual clock runs ~10x the wall (every JUDGED threshold stays the bench's)
+    # (the caps are generous: every round-A window ends on its own condition, so a loaded machine only waits longer -- never judges less)
+    for k, v in dict(LEAVE_S=20.0, CONTROL_S=3.0, TX_S=0.6, GHOST_WALK_S=10.0, RULE_S=5.0, WRAP_S=0.5, DOTRIDE_S=8.0, DOT_BACK_S=4.0,
+                     BODY_S=8.0, STALL_S=12.0, RESHOW_S=6.0, GAP_S=6.0, HANG_S=4.0, HANG_TAIL_S=0.1).items():
+        setattr(ww, k, v)
+    for k, v in dict(HOME_S=10.0, LEAVE_S=12.0, START_S=4.0, DOT_S=2.0).items():
+        setattr(wf, k, v)
+    cw.read_oracle = lambda game: {"problems": {}, "facts": {"stand-in": True}}
+    t = root("[Netsync]\nEnabled = 0\nFollowHost = 1\n")
+    f = fake_for(t, run, cw)
+    cb.CALIBRATE = bool(run.get("cal"))
+    g = Session(game_path=t, run_dir=t / "run", save_dir=t / "player-saves", pid_probe=lambda: [],
+                launcher=lambda exe, f=f: f.start(), boot_timeout=15.0, verbose=False)
+    g._booted_once = True
+    with g:
+        ww.run(g)
+        out = rows_of(list(g.checks))
+    out["sent"] = list(SENT)
+    return out
+
+results = {name: (SENT.clear(), solo(run))[1] for name, run in doc.get("runs", {}).items()}
+print(json.dumps(results))
+'''
+
+
+def _a_child(payload, *, timeout: float = 900.0) -> dict:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_") and k != S166_CLONE_ENV}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-X", "utf8", "-c", _A_CHILD, str(SCENARIOS), str(REPO / "tools"), str(REPO / "ff9mapkit")],
+                         env=env, input=json.dumps(payload), capture_output=True, text=True, timeout=timeout)
+    assert out.returncode == 0, out.stderr[-4000:]
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def _a_run(**run) -> dict:
+    return _a_child({"runs": {"r": run}})["r"]
+
+
+_A_TABLES = r'''
+import importlib.util, json, os, sys
+scen, tools = sys.argv[1], sys.argv[2]
+sys.path.insert(0, tools)
+spec = importlib.util.spec_from_file_location("coop_world_walk", os.path.join(scen, "coop_world_walk.py"))
+ww = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(ww)
+print(json.dumps({
+    "legs": list(ww.A_LEGS), "rows": {k: list(v) for k, v in ww.A_LEG_ROWS.items()}, "needs": {k: list(v) for k, v in ww.A_ROW_NEEDS.items()},
+    "levers": {k: list(v) for k, v in ww.A_LEVERS.items()}, "ops": {k: list(v) for k, v in ww.A_LEVER_OPS.items()},
+    "predicted": [[leg, lever, list(rows)] for (leg, lever), rows in ww.A_LEVER_PREDICTED.items()], "measure": dict(ww.A_MEASURE),
+    "faults": {f: {leg: list(rows) for leg, rows in by.items()} for f, by in ww.A_FAULT_REDS.items()},
+    "quiet": list(ww.A_QUIET_LEGS), "all_rows": list(ww.A_ALL_ROWS), "catalog": list(ww.a_catalog(False)),
+    "cal": list(ww.a_catalog(True, ("stall",), "lanegap")), "setup": list(ww.A_SETUP), "final": list(ww.A_FINAL),
+    "a0_legs": list(ww.LEGS), "doc": " ".join((ww.__doc__ or "").split())}))
+'''
+
+
+@pytest.fixture(scope="module")
+def a_tables() -> dict:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    out = subprocess.run([sys.executable, "-X", "utf8", "-c", _A_TABLES, str(SCENARIOS), str(REPO / "tools")], env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr[-3000:]
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def _a_union(a_tables, fault) -> list:
+    return sorted({r for rows in a_tables["faults"].get(fault, {}).values() for r in rows})
+
+
+def test_s166a_the_round_a_tables_are_the_docstring_and_each_others(a_tables):
+    """The legs, rows, levers, predictions, measures and fault rows agree with each other, the design's Round A rows (every solo row:
+    A-PROOF .. A-FROZEN, A-MENU named stand-in-only) and the docstring; A0's legs are untouched."""
+    t = a_tables
+    assert t["a0_legs"] == ["kitoff", "ferryoff"] and t["legs"] == ["tx", "ghost", "wrap", "dot", "body", "stall"]
+    rows = [r for leg in t["legs"] for r in t["rows"][leg]]
+    assert len(rows) == len(set(rows)) and set(rows) | {"S166-A-PROOF"} == set(t["needs"])
+    assert t["catalog"] == t["setup"] + ["S166-A-P1"] + rows + t["final"] and t["cal"][-1] == "S166-A-CAL"
+    for name in ("A-PROOF", "A-TX", "A-GHOST", "A-WRAP", "A-STALL", "A-HANG", "A-DOTRIDE", "A-RULE", "A-BODY", "A-MENU", "A-FROZEN"):
+        assert name in t["doc"], name                                  # the design's solo rows, each named (A-MENU: stand-in only)
+    assert "NOT DRIVABLE in game" in t["doc"] and "not reachable solo" in t["doc"]
+    assert t["quiet"] == ["ghost", "wrap", "dot", "body"] and "lanegap off` + `hostlines off`" in t["doc"]
+    for leg, lever, pred in t["predicted"]:
+        assert lever in t["levers"][leg] and set(pred) <= set(t["rows"][leg]) and all(r in t["measure"] for r in pred), (leg, lever)
+    assert {(leg, lever) for leg, lever, _p in t["predicted"]} == {(leg, lv) for leg, lvs in t["levers"].items() for lv in lvs}
+    assert t["levers"]["body"] == [] and set(t["ops"]) == {lv for lvs in t["levers"].values() for lv in lvs} - {"worldfreeze"}
+    known = set(FG.WORLD_WALK_A_FAULTS) | set(FG.WORLD_WALK_FAULTS)
+    for fault, by in t["faults"].items():
+        assert fault in known, fault
+        for leg, rr in by.items():
+            assert leg in t["legs"] and set(rr) <= set(t["rows"][leg]) | {"S166-P0", "S166-A-PROOF"}, (fault, leg)
+    # every round-A row can be turned red offline by some fault or lever (A-FROZEN by its lever; A-RULE by `ghost off`)
+    reddened = {r for by in t["faults"].values() for rr in by.values() for r in rr} | {r for _l, _v, p in t["predicted"] for r in p}
+    assert set(rows) <= reddened, set(rows) - reddened
+
+
+def test_s166a_every_round_a_leg_is_green_on_the_newest_stand_in_in_one_launch():
+    r = _a_run(legs="a")
+    assert r["red"] == [], {c: r["detail"][c] for c in r["red"]}
+    for row in ("S166-A-TX", "S166-A-FROZEN", "S166-A-GHOST", "S166-A-RULE", "S166-A-WRAP", "S166-A-DOTRIDE", "S166-A-BODY", "S166-A-STALL",
+                "S166-A-HANG", "S166-A-HANG-CTL", "S166-A-PROOF", "S166-A-P1", "S166-A-R"):
+        assert row in r["all"], row
+    assert "(308, 98)" in r["detail"]["S166-A-PROOF"] and "the x seam crossed while shown: yes" in r["detail"]["S166-A-GHOST"]
+    assert any(s.startswith("worldwalk host path 1480") for s in r["sent"]) and "worldwalk lanegap off" in r["sent"]
+
+
+@pytest.mark.parametrize("leg", ["tx", "ghost", "wrap", "dot", "body", "stall"])
+def test_s166a_old_on_the_deployed_a0b_build_is_exactly_its_absent_rows_and_sends_nothing_new(a_tables, leg):
+    """OLD (the deployed A0b 9e4365349fab02b1: no `netsync.world.lane` / `ghost`): the leg's rows (A-FROZEN excepted), A-PROOF and A-P1
+    red, the calibration green, and no worldwalk op of A3 / A4 ever sent."""
+    r = _a_run(legs=leg, cal=True, pieces=list(FG.FAKE_WORLD_WALK_A0B_BUILD))
+    want = sorted([x for x in a_tables["rows"][leg] if x != "S166-A-FROZEN"] + ["S166-A-PROOF", "S166-A-P1"])
+    assert r["red"] == want, (r["red"], r["detail"].get("S166-A-CAL"))
+    assert not [s for s in r["sent"] if s.startswith("worldwalk") and s.split()[1] not in ("kitcell", "pairpull", "clear")], r["sent"]
+    assert all("absent" in r["detail"][x] or "not reached" in r["detail"][x] for x in want if x != "S166-A-P1"), r["detail"]
+
+
+def test_s166a_old_on_s165_reds_p0_too_and_on_the_a3_build_only_a4s_rows():
+    rs = _a_child({"runs": {"s165": dict(legs="tx", cal=True, caps="worldfollow"),
+                            "a3_stall": dict(legs="stall", cal=True, pieces=list(FG.FAKE_WORLD_WALK_A3_BUILD)),
+                            "a3_body": dict(legs="body", cal=True, pieces=list(FG.FAKE_WORLD_WALK_A3_BUILD))}})
+    assert rs["s165"]["red"] == ["S166-A-P1", "S166-A-PROOF", "S166-A-TX", "S166-P0"], rs["s165"]["detail"].get("S166-A-CAL")
+    # the A3 build: A-STALL needs the ghost (OLD), A-HANG / its controls run (no lever pulled on a partial stage: A0's law)
+    assert rs["a3_stall"]["red"] == ["S166-A-PROOF", "S166-A-STALL"], rs["a3_stall"]["detail"].get("S166-A-CAL")
+    assert rs["a3_body"]["red"] == ["S166-A-BODY", "S166-A-P1", "S166-A-PROOF"], rs["a3_body"]["detail"].get("S166-A-CAL")
+    assert not any(s.split()[1] in ("ghost", "place", "dot") for s in rs["a3_body"]["sent"] + rs["a3_stall"]["sent"]
+                   if s.startswith("worldwalk"))
+
+
+@pytest.mark.parametrize("leg, lever", [("tx", "pose"), ("tx", "worldfreeze"), ("ghost", None), ("wrap", None), ("dot", None),
+                                        ("stall", None), ("body", None)])
+def test_s166a_each_lever_calibrates_exactly_and_measures_its_shape(a_tables, leg, lever):
+    """LEVER_PREDICTED on the newest stand-in: exactly A_LEVER_PREDICTED[(leg, lever)] red (unset = the leg's first; A-BODY has none:
+    nothing red), each row's lever shape MEASURED, the calibration green."""
+    r = _a_run(legs=leg, cal=True, **({"lever": lever} if lever else {}))
+    lv = lever or (a_tables["levers"][leg] or [None])[0]
+    want = sorted(next((p for lg, v, p in a_tables["predicted"] if lg == leg and v == lv), []))
+    assert r["red"] == want, (r["red"], r["detail"].get("S166-A-CAL"))
+    assert "rows whose lever shape was NOT measured: none" in r["detail"]["S166-A-CAL"]
+
+
+@pytest.mark.parametrize("leg, fault", [("tx", "pose_lever_ignored"), ("ghost", "ghost_lever_ignored"), ("wrap", "place_lever_ignored"),
+                                        ("dot", "dot_src_lever_ignored"), ("stall", "lanegap_lever_ignored")])
+def test_s166a_a_lever_the_engine_ignores_reds_the_calibration_alone(leg, fault):
+    r = _a_run(legs=leg, cal=True, faults=[fault])
+    assert r["red"] == ["S166-A-CAL"], r["red"]
+    assert "predicted reds that stayed GREEN: ['S166-A-" in r["detail"]["S166-A-CAL"]
+
+
+def test_s166a_a_calibration_names_one_leg_and_its_own_lever_and_never_mixes_families():
+    rs = _a_child({"runs": {"two": dict(legs="tx,ghost", cal=True), "foreign": dict(legs="tx", cal=True, lever="ghost"),
+                            "mixed": dict(legs="kitoff,tx")}})
+    assert "EACH LEG NEEDS ITS OWN LAUNCH" in rs["two"]["detail"]["S166-A-CAL"] and rs["two"]["sent"] == []
+    assert "is not leg 'tx''s" in rs["foreign"]["detail"]["S166-A-CAL"] and rs["foreign"]["sent"] == []
+    assert "one family per launch" in rs["mixed"]["detail"]["S166-INI"] and rs["mixed"]["sent"] == []
+
+
+@pytest.mark.parametrize("fault", sorted(set(FG.WORLD_WALK_A_FAULTS) | {"walk_proof_fail"}))
+def test_s166a_each_round_a_fault_turns_exactly_its_rows_red_over_all_six_legs(a_tables, fault):
+    r = _a_run(legs="a", faults=[fault])
+    assert r["red"] == _a_union(a_tables, fault), {c: r["detail"].get(c, "")[:400] for c in set(r["red"]) ^ set(_a_union(a_tables, fault))}
+
+
+def test_s166a_without_an_s166_source_a_proof_wants_more_than_a0bs_and_the_a0b_tallies_are_red():
+    """A-PROOF's instrument can fail: no s166 source reachable -> the stand-in prints A0b's 84 / 13 (no tables of round A) -> red; P0
+    (any OK line) stays green."""
+    r = _a_run(legs="tx", source=False)
+    assert r["red"] == ["S166-A-PROOF"] and "above A0b's (84, 13)" in r["detail"]["S166-A-PROOF"], r["detail"]["S166-A-PROOF"]
+
+
+def test_s166a_a_tx_is_red_without_place_3_in_the_load():
+    """A-TX's load clause can fail: a world load with no Update before w_blockReady (no block window) publishes no place 3."""
+    r = _a_run(legs="tx", block_frames=0)
+    assert r["red"] == ["S166-A-TX"] and "want 3 among them: NO" in r["detail"]["S166-A-TX"]
+
+
+def _a_ww():
+    return _load_ww()
+
+
+def test_s166a_a_menu_the_hold_keeps_b6_clear_and_control_off_sets_it_on_the_stand_in(tmp_path):
+    """A-MENU (stand-in only: no harness verb opens the ~ menu in game): through a 1 s "Disable control" hold the trailer's b6 stays clear
+    while control is off; a 1 s `control 0` sets it. The `scene_menu_hold` fault (the hold counted) is red; a window without the hold
+    (control on) fails the instrument."""
+    ww = _a_ww()
+
+    def run(faults=(), hold=True):
+        root = _game(tmp_path / ("m" + "_".join(faults) + str(hold)))
+        fake = _fake(root, faults=faults)
+        with _session(root, fake) as g:
+            _on_world(g, fake, *FS_LANDING)
+            g.wait_frames(20)
+            if hold:
+                fake.debug_menu_hold(True)
+            hs = []
+            for _ in range(24):
+                g.wait_frames(3)
+                hs.append(g.state)
+            fake.debug_menu_hold(False)
+            g.wait_frames(10)
+            g.control(False)
+            cs = []
+            for _ in range(24):
+                g.wait_frames(3)
+                cs.append(g.state)
+            g.control(True)
+            return ww.judge_menu(hs, cs)
+    ok, why = run()
+    assert ok, why
+    ok, why = run(faults=("scene_menu_hold",))
+    assert not ok and "b6 set on [" in why, why
+    ok, why = run(hold=False)
+    assert not ok and "control on [" in why, why
+
+
+_S = type("S", (), {})
+
+
+def _smp(frame, *, ui="WorldHUD", world=9011, x=68.0, z=-444.0, lane=None, ghost=None, line=None, dot=None, control=True, br=True,
+         ticks=None):
+    s = _S()
+    s.frame, s.ui_state, s.world_id, s.control, s.vehicle = frame, ui, world, control, 0
+    blocks = {"kitcell": {}}
+    blocks.update({k: v for k, v in (("lane", lane), ("ghost", ghost), ("line", line), ("dot", dot)) if v is not None})
+    s.raw = {"world": {"x": x, "z": z, "block_ready": br, "ticks": frame if ticks is None else ticks}, "netsync": {"world": blocks}}
+    return s
+
+
+def test_s166a_the_pure_round_a_judges_go_red_on_each_wrong_shape():
+    ww = _a_ww()
+    # A-PROOF
+    lines = [f"[NetSync] {BW.PROOF_WORLD_WALK}OK (308 rows, 98 mutants)"]
+    st = _smp(1, lane={"tx": {}}, ghost={"want": False})
+    assert ww.judge_a_proof(st, lines, (308, 98))[0] and not ww.judge_a_proof(st, lines, (309, 98))[0]
+    assert not ww.judge_a_proof(st, [f"[NetSync] {BW.PROOF_WORLD_WALK}OK (84 rows, 13 mutants)"], None)[0]
+    assert not ww.judge_a_proof(st, lines + [f"[NetSync] {BW.PROOF_WORLD_WALK}FAIL x"], (308, 98))[0]
+    assert not ww.judge_a_proof(_smp(1), lines, (308, 98))[0]                       # no lane / ghost: absent
+    # A-TX
+    tx = {"place": 4, "world": 9011, "x": 68.2, "z": -444.1, "field": 0, "kind": "fmt1", "len": 94}
+    land = [_smp(0, lane={"tx": dict(tx, place=p)}) for p in (1, 2, 3)]
+    good = [_smp(i, lane={"tx": dict(tx, seq=100 + i)}) for i in range(1, 12)]
+    assert ww.judge_tx(land, good)[0]
+    assert not ww.judge_tx(land[:2], good)[0]                                         # no place 3 in the load
+    assert not ww.judge_tx(land, [_smp(i, lane={"tx": dict(tx, seq=100 + i, field=9011)}) for i in range(1, 12)])[0]
+    assert not ww.judge_tx(land, [_smp(i, lane={"tx": dict(tx, seq=100)}) for i in range(1, 12)])[0]      # the seq stands
+    assert not ww.judge_tx(land, [_smp(i, lane={"tx": dict(tx, seq=100 + i, x=70.5)}) for i in range(1, 12)])[0]
+    assert not ww.judge_tx(land, good[:3])[0]                                         # too few judged samples
+    # the lane's own words, read back off the engine's texts
+    for line in range(1, 10):
+        text = BW.ww_lane_line_text(line, 1234)
+        got = ww.lane_lines([f"03.11.2026 12:00:00 |M| [NetSync] selftest {text} [stamp 9 ms]"])
+        if line in (BW.WW_LINE_STALL_BUDGET, BW.WW_LINE_LOAD_BUDGET):
+            assert got == [], (line, got)
+            continue
+        assert got and got[0][1] == BW.WW_LANE_LINE_NAMES[line] and got[0][2] == 1234, (line, got)
+    # A-HANG / its controls
+    say = lambda line, n=1100: f"[NetSync] selftest {BW.ww_lane_line_text(line, n)}"                       # noqa: E731
+    open_s = [_smp(1, lane={"open": "hang_loading"})]
+    assert ww.judge_hang([say(BW.WW_LINE_LOAD_START)], open_s)[0]
+    ok, why = ww.judge_hang([say(BW.WW_LINE_HANG_START)], [_smp(1, lane={"open": "hang"})])
+    assert not ok and "worded not updating" in why
+    ok, why = ww.judge_hang([say(BW.WW_LINE_LOAD_START), say(BW.WW_LINE_GAP_START)], open_s)
+    assert not ok and "a gap line" in why
+    assert ww.judge_hang_ctl([say(BW.WW_LINE_HANG_CUT), say(BW.WW_LINE_GAP_START)], [say(BW.WW_LINE_HANG_START)],
+                             [_smp(1, lane={"open": "hang"})])[0]
+    assert not ww.judge_hang_ctl([say(BW.WW_LINE_HANG_END), say(BW.WW_LINE_GAP_START)], [say(BW.WW_LINE_HANG_START)],
+                                 [_smp(1, lane={"open": "hang"})])[0]                   # the hang_cut_as_update shape
+    # A-WRAP
+    g0 = {"placed": True, "x": 40.0, "z": -20.0, "inv_x": 40.0, "inv_z": -20.0, "rx": 808.0, "rz": -660.0, "oracle_x": 808.0,
+          "oracle_z": -660.0}
+    seg = lambda gh, f0=0: ((100.0, -100.0), f0, [_smp(f0 + i, x=100.0, z=-100.0, ghost=gh) for i in range(1, 9)])   # noqa: E731
+    assert ww.judge_wrap([seg(g0)])[0]
+    ok, _why, bad = ww.judge_wrap([seg(dict(g0, inv_x=104.0))])
+    assert not ok and ww.wrap_lever_measured(bad)                                     # off-inverse, all inside the wrap window
+    assert not ww.wrap_lever_measured([(500, 400, 64.0)])                             # an off frame far from any wrap: not the lever's
+    assert not ww.judge_wrap([seg(dict(g0, oracle_x=744.0))])[0]                      # the oracle off the render placement
+    assert ww.judge_wrap([seg(dict(g0, inv_x=1576.0 - 1536.0 + 1536.0))])[0]          # the same point the other side of the seam
+    assert not ww.judge_wrap([((100.0, -100.0), 0, [_smp(1, ghost=g0)])])[0]          # a thin stand
+    # A-RULE: a refusal that never undoes, a refusal that never reached the wire
+    ref = _smp(1, ghost={"why_not": "riding", "want": False, "shown": False}, lane={"rx": {"mode": 1}})
+    back = _smp(2, ghost={"shown": True, "why_not": None})
+    assert ww.judge_rule([("riding", ref, ("mode", 1), back)])[0]
+    assert not ww.judge_rule([("riding", ref, ("mode", 1), None)])[0]
+    assert not ww.judge_rule([("riding", ref, ("mode", 0), back)])[0]
+    # A-DOTRIDE: the dot parked on section 0 while the trailer moves (decision 12's OLD)
+    park = ww.DOT_PARK
+    ride_ok, ride_old = [], []
+    for i in range(12):
+        bx = 1150.0 + 8.0 * i
+        mp = 0
+        sx, sy = BW.navi_get_pos(bx, -760.0, mp)
+        face = BW.ww_walker_yaw(100.0, 0.0)
+        ride_ok.append(_smp(i, lane={"bench": {"x": bx, "z": -760.0, "walking": True}},
+                            dot={"want": True, "src": "trailer", "src_x": bx, "src_z": -760.0, "src_face": face, "sx": sx, "sy": sy,
+                                 "rot": BW.ww_dot_rotation_of_yaw(face), "mapno": mp, "host_x": park[0], "host_z": park[1]}))
+        px, py = BW.navi_get_pos(*park, mp)
+        ride_old.append(_smp(i, lane={"bench": {"x": bx, "z": -760.0, "walking": True}},
+                             dot={"want": True, "src": "section0", "src_x": park[0], "src_z": park[1], "src_face": 0.0, "sx": px,
+                                  "sy": py, "rot": -90.0, "mapno": mp, "host_x": park[0], "host_z": park[1]}))
+    back = [_smp(20, dot={"src": "section0", "src_x": park[0], "src_z": park[1]})]
+    assert ww.judge_dotride(ride_ok, back)[0]
+    assert not ww.judge_dotride(ride_old, back)[0] and ww.dot_lever_measured(ride_old) and not ww.dot_lever_measured(ride_ok)
+    assert not ww.judge_dotride(ride_ok, [_smp(20, dot={"src": "trailer", "src_x": 1200.0, "src_z": -760.0})])[0]   # never back
+    # A-BODY: a Zidane on 9002, a mint on the field between
+    def body(world, model, mints, geo):
+        return _smp(1, world=world, ghost={"shown": True, "model": model, "geo": geo, "renderers": 3, "clips": 24,
+                                           "stand": BW.ww_stand_clip_of(geo), "mint_ms": 12, "mints": mints})
+    fld = lambda m: _smp(0, ui="FieldHUD", ghost={"mints": m})                                  # noqa: E731
+    v_ok = [(9002, fld(0), body(9002, 309, 1, "GEO_SUB_W0_002"), body(9002, 309, 3, "GEO_SUB_W0_002")),
+            (9010, fld(3), body(9010, 310, 4, "GEO_SUB_W0_001"), body(9010, 310, 4, "GEO_SUB_W0_001"))]
+    off = {"base": body(9002, 309, 1, "GEO_SUB_W0_002"), "at": body(9002, 310, 2, "GEO_SUB_W0_001"),
+           "back": body(9002, 309, 3, "GEO_SUB_W0_002")}
+    assert ww.judge_body(v_ok, off)[0]
+    assert not ww.judge_body([(9002, fld(0), body(9002, 310, 1, "GEO_SUB_W0_001"), None)], off)[0]
+    assert not ww.judge_body([v_ok[0], (9010, fld(4), body(9010, 310, 5, "GEO_SUB_W0_001"), None)], off)[0]   # a mint on the field
+    assert not ww.judge_body(v_ok, None)[0]                                           # the off-diagonal never ran
+    # A-STALL's gap half: two gap pairs, a hide in the gap
+    gl = [say(BW.WW_LINE_GAP_START, 1000), say(BW.WW_LINE_GAP_END, 1510)]
+    gb = _smp(0, lane={"gaps": 3, "gaps_250": 5}, ghost={"hides": 1})
+    gs = [_smp(i, lane={"gaps": 4, "gaps_250": 6}, ghost={"shown": True, "hides": 1, "stall": "stand" if i > 3 else "move"})
+          for i in range(1, 9)]
+    assert ww.judge_gap(gb, gs, gl)[0]
+    assert not ww.judge_gap(gb, gs, gl + gl)[0]
+    assert not ww.judge_gap(gb, gs[:-1] + [_smp(9, lane={"gaps": 4, "gaps_250": 6}, ghost={"shown": False, "hides": 2})], gl)[0]
+    assert not ww.judge_gap(gb, gs, [say(BW.WW_LINE_GAP_START, 1000), say(BW.WW_LINE_GAP_END, 2400)])[0]   # the wrong length
+    # the calibration: a lever whose shape was never measured is red even with the predicted reds
+    assert not ww.judge_a_cal({"S166-A-TX"}, {"S166-A-TX"}, {}, ("S166-A-TX",))[0]
+    assert ww.judge_a_cal({"S166-A-TX"}, {"S166-A-TX"}, {"S166-A-TX": True}, ("S166-A-TX",))[0]
+
+
+def test_s166a_the_session_refuses_round_as_ops_before_the_step_on_an_engine_without_their_keys(tmp_path):
+    """The driver's gate (THE CATCH IS THE KEY): `pose` / `lanegap` / `hostlines` / the bench host's ops need `netsync.world.lane` (A3),
+    `ghost` / `place` / `dot` need `netsync.world.ghost` (A4) -- refused before the step on an older build; a malformed A3 / A4 op is A3's
+    usage line; on the newest stand-in each reaches the engine. [ff9mapkit netsync s166] W2 reconcile: a malformed op is refused in the
+    usage line THAT build answers (A0b's, A3's, A4's grown one)."""
+    for pieces, refused, passed, usage in ((FG.FAKE_WORLD_WALK_A0B_BUILD, ("pose", "host", "ghost"), (), BW.WORLDWALK_USAGE),
+                                           (FG.FAKE_WORLD_WALK_A3_BUILD, ("ghost", "place", "dot"), ("pose",), BW.WORLDWALK_USAGE_A3),
+                                           (FG.FAKE_WORLD_WALK_PIECES, (), ("pose", "ghost", "place", "dot"), BW.WORLDWALK_USAGE_A4)):
+        root = _game(tmp_path / "-".join(pieces))
+        fake = _fake(root)
+        fake.world_walk_pieces = tuple(pieces)
+        with _session(root, fake) as g:
+            g.newgame(settle=0)
+            g.warp(6603)
+            g.netsync("selftest", 1)
+            args = {"pose": ("pose", "off"), "host": ("host", "path", "10", "-10", "24"), "ghost": ("ghost", "off"),
+                    "place": ("place", "render"), "dot": ("dot", "section0")}
+            for op in refused:
+                n = len(fake.executed)
+                with pytest.raises(HarnessError, match="this engine publishes no `netsync.world." + ("ghost" if op in (
+                        "ghost", "place", "dot") else "lane")):
+                    g.worldwalk(*args[op])
+                assert len(fake.executed) == n, op                                     # never sent
+            for op in passed:
+                g.worldwalk(*args[op])
+            with pytest.raises(HarnessError, match=re.escape(usage)):
+                g.worldwalk("pose", "maybe")
+            with pytest.raises(HarnessError, match=re.escape(usage)):
+                g.worldwalk("ghost", "maybe")
+
+
+# ---- the engine's keys the solo rows judge, read off the s166 source by stage (skips on the deployed A0b: no patch on the stack)
+A_GHOST_KEYS = ("want", "why_not", "shown", "placed", "model", "geo", "renderers", "clips", "stand", "mints", "mint_ms", "clip", "anim",
+                "stall", "seq_age_ms", "x", "z", "rx", "rz", "inv_x", "inv_z", "oracle_x", "oracle_z", "snaps", "holds", "hides", "lever",
+                "place")
+A_LANE_KEYS = ("lever", "pose", "hostlines", "tx", "rx", "seq_age_ms", "open", "gaps", "hangs", "gaps_250", "last_line", "bench")
+A_LANE_SUB_KEYS = {"tx": ("seq", "place", "world", "x", "z", "field", "len", "kind"), "rx": ("place", "state", "world", "mode"),
+                   "bench": ("on", "walking", "x", "z", "gap_left_ms")}
+A_DOT_KEYS = ("src", "src_lever", "src_x", "src_z", "src_face", "sx", "sy", "rot", "mapno", "host_x", "host_z", "want", "hud")
+A_LINE_KEYS = ("asked", "text", "drawn")
+
+
+def _body_of(text: str, head: str) -> str:
+    """The source text of the method whose signature contains ``head`` (to the next 'private static void Append')."""
+    a = text.find(head)
+    if a < 0:
+        return ""
+    b = text.find("private static void Append", a + len(head))
+    return text[a:b if b > 0 else a + 20000]
+
+
+def test_s166a_the_engine_publishes_every_key_and_line_the_solo_rows_judge():
+    agent = _s166_text("HarnessAgent.cs")
+    ghost = _body_of(agent, "private static void AppendWorldGhost(")
+    if not ghost:
+        pytest.skip("this s166 source carries no A4 (AppendWorldGhost) yet")
+    keyed = re.compile(r'(?:Str|Num|Bool)\(sb, "([a-z_0-9]+)"')
+    got = set(keyed.findall(ghost))
+    assert set(A_GHOST_KEYS) <= got, set(A_GHOST_KEYS) - got
+    assert list(BW.A4_CONTRACT["ghost_sentinels"]) == keyed.findall(ghost), "the stand-in's ghost keys are the engine's, in order"
+    lane = _body_of(agent, "private static void AppendWorldLane(")
+    lane_keys = set(keyed.findall(lane)) | set(re.findall(r'\\"([a-z_0-9]+)\\":', lane))   # Num/Str/Bool, and the nested blocks' heads
+    for k in A_LANE_KEYS + tuple(x for v in A_LANE_SUB_KEYS.values() for x in v):
+        assert k in lane_keys, k
+    dot = _body_of(agent, "private static void AppendWorldDot(")
+    dot_keys = keyed.findall(dot)
+    assert set(A_DOT_KEYS) <= set(dot_keys) and dot_keys[-5:] == list(BW.A4_CONTRACT["dot_src_keys"]), dot_keys[-6:]
+    line = _body_of(agent, "private static void AppendWorldLine(")
+    assert set(A_LINE_KEYS) <= set(keyed.findall(line))
+    walk = _s166_text("NetSyncWorldWalk.cs")
+    for n in (1, 2, 3, 4, 5, 6, 9):                            # LaneLineText's words, as the bench's lane_lines reads them
+        head = BW.ww_lane_line_text(n, 0).split("0 ms")[0]
+        assert f'"{head}"' in walk, (n, head)
+    assert '"ANH_" + geoName.Substring(4) + "_STAND"' in walk and "return -yawDeg - 90f;" in walk
+    for name in ("other_world", "riding", "peer_scene", "peer_block", "stale", "lever"):
+        assert f'"{name}"' in walk, name

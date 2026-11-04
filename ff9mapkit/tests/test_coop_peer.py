@@ -2109,3 +2109,18 @@ def test_the_probe_wire_reads_the_states_dialogue_wire_and_never_raises():
         def state(self):
             raise RuntimeError("the channel is dead")
     assert pb.probe_wire(type("G", (), {"state": St()})()) == 15 and pb.probe_wire(Boom()) is None
+
+
+def test_s166_the_walking_record_faces_the_walkers_heading_never_the_travel_direction():
+    """[ff9mapkit netsync s166] A3's contract: the trailer's rot is the sender walker's transform.rotation -- its HEADING, travel + 180
+    (WalkerYaw) -- so serve-guest's synthetic walker sends WalkerRotation(WalkerYaw(dx, dz)); the old yaw_quat(travel) faced every ghost of
+    it backwards (W2's open issue)."""
+    plan = CP.WorldWalkPlan(route=((100.0, -500.0, 0.0), (300.0, -500.0, 50.0)), out_s=0.0, load_s=0.0)
+    tr = CP.parse_pos_payload(CP.parse_frame(CP.GuestModel(walk=plan).outgoing(0.0, 15)[0])[1])
+    m = CP.GuestModel(walk=plan)
+    m.outgoing(0.0, 15)
+    t = CP.parse_pos_payload(CP.parse_frame(m.outgoing(2.0, 15)[0])[1])["trailer"]
+    want = BW.ww_walker_rotation(BW.ww_walker_yaw(200.0, 0.0))            # travel +x: heading 270
+    assert t["rot"] == pytest.approx(want, abs=1e-6) and t["yaw"] == pytest.approx(270.0, abs=1e-4)
+    assert CP.walker_heading(90.0) == 270.0 and CP.walker_heading(270.0) == 90.0 and CP.walker_heading(0.0) == 180.0
+    assert tr["trailer"]["place"] == CP.PLACE_WORLD

@@ -1198,6 +1198,13 @@ def walk_pose(route, ups: float, s: float) -> tuple:
     return torus_wrap(pts[-1][0], pts[-1][1]) + (yaw, False)
 
 
+def walker_heading(travel_deg: float) -> float:
+    """[ff9mapkit netsync s166] (PURE) The heading a walker TRAVELLING along ``travel_deg`` (atan2(dx, dz), walk_pose's yaw) faces: its
+    transform.rotation's eulerAngles.y, travel + 180 mod 360 (NetSyncWorldWalk.WalkerYaw; battlewire.ww_walker_yaw). The trailer
+    carries THIS (A3's contract): a synthetic record that sent the travel heading would face its ghost backwards."""
+    return (float(travel_deg) + 180.0) % 360.0
+
+
 def in_windows(t: float, windows) -> bool:
     """[ff9mapkit netsync s166] (PURE) ``t`` inside any ``(at, for)`` window, ``[at, at + for)``."""
     return any(float(a) <= t < float(a) + float(n) for a, n in windows)
@@ -1247,8 +1254,10 @@ class WorldWalkPlan:
         state = self.state
         if in_windows(s, self.scenes):
             state = (state | ST_SCENE) & ~ST_CONTROL & 0xFF
-        return dict(base, place=PLACE_WORLD, state=state, world=self.world, pos=(x, self.y, z), rot=yaw_quat(yaw), mode=0,
-                    model=self.model, anim=self.anim, anim_frame=0, frame_n=0)
+        # [ff9mapkit netsync s166] the trailer's rot is the walker's transform.rotation: its HEADING, travel + 180 (NetSyncWorldWalk.
+        # WalkerYaw: a walker at theta moves along (-sin, -cos)) -- walk_pose's yaw is the TRAVEL heading, 180 degrees off (A3's contract)
+        return dict(base, place=PLACE_WORLD, state=state, world=self.world, pos=(x, self.y, z), rot=yaw_quat(walker_heading(yaw)),
+                    mode=0, model=self.model, anim=self.anim, anim_frame=0, frame_n=0)
 
     def text(self) -> str:
         return (f"walking v15 guest on {self.world} (model {self.model}): {self.out_s:g} s following out, {self.load_s:g} s loading, "

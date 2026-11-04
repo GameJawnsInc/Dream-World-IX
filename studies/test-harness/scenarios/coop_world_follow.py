@@ -523,19 +523,26 @@ def judge_probe(st, lines) -> tuple:
     world = cb.path(st, "netsync.world") or {}
     ns = list(cb.path(st, "netsync") or {})
     wkeys = list(cb.raw(st).get("world") or {})
+    # [ff9mapkit netsync s166] W2, BY THE ENGINE'S STAGE: A4 (BW.A4_CONTRACT) appends `src` .. `src_face` to `dot` -- s165's keys unmoved
+    dot_want = BW.WORLD_DOT_SENTINELS_S166 if cb.has(st, "netsync.world.dot." + BW.A4_CONTRACT["dot_src_key"]) else BW.WORLD_DOT_SENTINELS
     blocks = {"r3": BW.WORLD_R3_SENTINELS, "out": BW.WORLD_OUT_SENTINELS, "host": BW.WORLD_HOST_SENTINELS,
-              "dot": BW.WORLD_DOT_SENTINELS}
+              "dot": dot_want}
     bad = [k for k, want in blocks.items() if list(world.get(k) or {}) != list(want)]
     # [ff9mapkit netsync s166] BY THE ENGINE'S STAGE: an A2 engine (wire v15) appends `wire_peer` after `host` (the prefix law: s165's
     # keys unmoved, `wire_peer` netsync's LAST key)
     tail = list(BW.NETSYNC_TOP_KEYS_S165) + (list(BW.NETSYNC_TOP_KEYS_S166) if cb.has(st, "netsync.wire_peer") else [])
     top = ns[-len(tail):] == tail and "swap" in ns and ns.index("swap") == len(ns) - len(tail) - 1
     sg = list(cb.path(st, "netsync.saveguard") or {}) == list(BW.SAVEGUARD_SENTINELS)
-    hw = list(cb.path(st, "netsync.host.world") or {}) == list(BW.HOST_WORLD_SENTINELS)
+    hw = list(cb.path(st, "netsync.host.world") or {}) == list(BW.HOST_WORLD_KEYS_S166 if cb.has(st, "netsync.host.world.guest")
+                                                                 else BW.HOST_WORLD_SENTINELS)   # [ff9mapkit netsync s166] W2: A3's `guest`
     # [ff9mapkit netsync s166] BY THE ENGINE'S STAGE: an s166 engine's `world` adds `kitcell` after `dot` (the prefix law: s165's unmoved)
     want_world = BW.WORLD_SENTINELS_S166 if cb.has(st, "netsync.world.kitcell") else BW.WORLD_SENTINELS_S165
     if cb.has(st, "netsync.world.pairpull"):
         want_world = BW.WORLD_SENTINELS_S166B   # [ff9mapkit netsync s166] A0b: `pairpull` after `kitcell` (the prefix law)
+    if cb.has(st, "netsync.world.lane"):
+        want_world = BW.WORLD_SENTINELS_S166C   # [ff9mapkit netsync s166] W2: A3's `lane` and `line` after `pairpull` (the dot judged above)
+    if cb.has(st, "netsync.world." + BW.A4_CONTRACT["ghost_key"]):
+        want_world = BW.WORLD_SENTINELS_S166D   # [ff9mapkit netsync s166] W2: A4's ghost after `line`
     keys_ok = (list(world) == list(want_world) and not bad and top and sg and hw
                and wkeys[-1:] == list(BW.WORLD_LIVE_KEYS_S165))
     rx = re.compile(BW.WORLD_FOLLOW_PROOF_RE)

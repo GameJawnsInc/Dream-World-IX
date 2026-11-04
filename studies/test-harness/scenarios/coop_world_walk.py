@@ -160,6 +160,53 @@ the stand-in with THE PAIRING WINDOW modelled (FakeGame.pairing_window), the A0 
 faults pairpull_early (a BUSY guest at the pairing: the start before the write) and pairpull_unarmed, each red in exactly its
 T2_PAIR_FAULT_REDS rows; and the duo on two stand-ins joined by a stub link that starts at the guest's apply_role.
 
+[ff9mapkit netsync s166] ROUND A, SOLO -- A3 (the sender's trailer, the receiver cache, the lane / host / world lines, the bench host) and
+A4 (the world ghost; decision 12's dot from the trailer), the design's Round A rows on the forced selftest role, one launch per leg
+(COOP_WW_LEG=tx|ghost|wrap|dot|body|stall; `a` runs all six in one launch, never under a calibration). The setup is A0's (INI, S0, P0)
+plus S166-A-OR (s165's route oracle only), S166-A-PROOF and S166-A-P1 (`bench 1`, every round-A lever at rest); the final S166-A-R. The
+keys are the CLONE's: `netsync.world.lane` / `line` / `ghost`, `netsync.world.dot.src` / `src_lever` / `src_x` / `src_z` / `src_face`.
+Every world row is judged after `world.block_ready` and advancing `world.ticks` (THE PRE-INIT SAMPLE), on frames first published after
+the op it judges (each op's own publish dropped: THE ORDER SKEW, SKEW_FRAMES); the stall rows judge on the ENGINE's clocks (the cache's and
+the ghost's `seq_age_ms`), never the wall's. THE ORDER: the ghost legs (ghost, wrap, dot, body) run inside `lanegap off` + `hostlines off`
+(read back first: their instrument), the stall leg with the lines on.
+  A-PROOF   (every leg) 'world walk selftest: OK (N rows, M mutants)', none FAIL, N / M the s166 source's (proof_want), else above A0b's 84 / 13
+  tx        A-TX the selftest slot's trailer: place 3 among the follow-out's load samples; on 9011 place 4, world 9011, x / z within TX_TOL of
+            `world.x / z`, Field 0, fmt1 94 B, seq advancing. A-FROZEN `hold up` < HELD_U, freeze.on, edges +1 (OLD: green)
+  ghost     A-GHOST `host path` GHOST_PATH (1480 -> 110 the short way across the x seam, GHOST_UPS): shown within GHOST_TOL of the bench
+            host's canonical pose on every walk sample, the seam crossed, snaps +1. A-RULE `hostworld 9010` / `hostmode 1` / `hoststate
+            0xC4` / `hostplace 5` alone: why_not other_world / riding / peer_scene / peer_block (want AND shown false), the trailer carrying
+            it (`lane.rx`), shown again once undone. The EVENT-WORLD refusal is not reachable solo (the follow-out never lands on an event
+            world, s165 decision 6; no harness verb loads a world map): the proof's GhostRule rows and the stand-in's twin carry it
+  wrap      A-WRAP a standing bench host on WRAP_AT, my walker teleported onto WRAP_STANDS (both seams): on every placed frame the inverse
+            within WRAP_TOL of the canonical pose and the oracle within WRAP_TOL of the render placement
+  dot       A-DOTRIDE my walker on ICE_TILE, the minimap on, section 0 PARKED on DOT_PARK (`worldfollow host`), the bench host riding
+            (`hostmode 1`) along DOTRIDE_PATH: src 'trailer', the pose drawn on the trailer's (DOT_SRC_TOL), its raw map point navi_get_pos's
+            (SXSY_TOL, ~1 px), the facing the path's heading and `rot` its DotRotationOfYaw, the dot moving >= DOT_MOVE_U, section 0 parked;
+            `pose off`: back on section 0
+  body      A-BODY 9002 / 9010 / 9011 by s165's follow-out with a fabricated [102] 2 / 10 / 11: model 309 / 310 / 310, geo (_W0_), renderers,
+            clips, `stand` = StandClipOf(geo), mint_ms, mints +1 per visit and +0 on the field between; on 9002 a shot, the HUD state and
+            `hostmodel 310` (re-minted 310) then `hostmodel 0`
+  stall     A-STALL `hostseq freeze`: held (HOLD_TOL), stall 'stand' + anim 'stand' + clip == stand at a seq age STAND_MS..+STAND_SLACK_MS,
+            hidden 'stale' at HIDE_MS..+HIDE_SLACK_MS, `netsync.world.line` 'lost' (drawn false: selftest) and its log line, one hang line;
+            `hostseq run`: the hang's end naming >= HIDE_MS, the lost-over line, re-shown (snaps +1); `hostgap 1500`: one gap line pair (its
+            end GAP_MS +- GAP_LEN_TOL), gaps / gaps_250 +1, shown throughout, stood. A-HANG `hostplace 3` then freeze: one load_start, no gap
+            line, its end load_end. A-HANG-CTL (the design's lever column): `hostgap` in that frozen place-3 state -- hang_cut + gap_start,
+            never load_end (A-HANG's judge red by 'a gap line'); `hostplace 4` then freeze -- hang_start (A-HANG's judge red by its wording)
+A-MENU (the ~ menu's "Disable control" hold, b6 clear): NOT DRIVABLE in game -- the menu opens on a raw BackQuote read (UIKeyTrigger:
+UnityXInput.Input.GetKeyDown) and its hold is Ff9mkDebugMenu._controlHeld (read by NetSyncControlHeld), which no harness verb sets (`control
+0` is SetUserControl(false) ALONE: the very control-off the scene bit counts). The stand-in models the hold (FakeGame.debug_menu_hold):
+tests/test_coop_world_walk.py judges it there (judge_menu: b6 clear through a 1 s hold, set by a 1 s `control 0`) with the
+`scene_menu_hold` fault red, and the proof's menu-hold mutant is its in-game lever (A-PROOF).
+CALIBRATION (COOP_CALIBRATE=1, exactly one leg): OLD -- an engine missing a leg row's capability (the deployed A0b 9e4365349fab02b1, s165):
+never a worldwalk op of that piece, exactly a_old_predicted red (the leg's absent rows, A-PROOF, A-P1, P0 without kitcell; A-FROZEN green);
+LEVER_PREDICTED -- s166 with COOP_WW_LEVER (unset = the leg's first): tx `pose` (A-TX) / `worldfreeze` (`bench worldfreeze off` before
+the hold: A-FROZEN), ghost `ghost` (A-GHOST, A-RULE), wrap `place` (A-WRAP), dot `dot` (A-DOTRIDE), stall `lanegap` (A-STALL, A-HANG,
+A-HANG-CTL), body none (every row green) -- exactly A_LEVER_PREDICTED red, each MEASURING its lever's shape (A_MEASURE). OFFLINE:
+tests/test_coop_world_walk.py runs every leg on the stand-in (green), OLD on the A0b / A3 builds and s165, every lever, every
+`*_lever_ignored` fault (S166-A-CAL red), and every round-A fault red in exactly its A_FAULT_REDS rows over all six legs.
+    py <scratchpad>/solo_ini.py s166-a -- COOP_WW_LEG=tx py tools/play.py studies/test-harness/scenarios/coop_world_walk.py --field 6603
+    COOP_CALIBRATE=1 COOP_WW_LEG=<leg> [COOP_WW_LEVER=<lever>]   (the same command: OLD on A0b, LEVER on s166)
+
 PRECONDITIONS -- THE OPERATOR'S JOB: the DLL under test deployed (the bench deploys nothing); controllers OFF, nobody at the keyboard
 (THE UNATTENDED LAW), FF9 unfocused; 6603 registered; [Netsync] Enabled 0 and FollowHost 1 written BEFORE launch (solo_ini.py);
 close the game after a lab. [ff9mapkit netsync s166] T2-A pair: the world-walk tape, the bench port free, [SaveFile]
@@ -179,6 +226,7 @@ dials it before the bench's edit -- the leg refuses, nothing edited); D-PAIR: du
 from __future__ import annotations
 
 import datetime as _dt                                     # [ff9mapkit netsync s166] A0b's T2 leg
+import math                                                # [ff9mapkit netsync s166] round A's solo rows (the torus' axes)
 import os
 import re
 import sys
@@ -724,6 +772,9 @@ def run(g, field: int | None = None):
         g.note(f"--field {field} is ignored: the bench runs on {FARSHORE} and the world map")
     if _RAW_LEG.strip().lower() == PAIR_LEG:              # [ff9mapkit netsync s166] A0b's T2 leg: its own launch, its own rows
         _run_pair(g)
+        return
+    if A_SOLO_LEGS is not None:                           # [ff9mapkit netsync s166] round A's solo rows (A3 + A4): their own legs
+        _run_round_a(g)
         return
     calibrate = cb.CALIBRATE
     legs = SOLO_LEGS or LEGS
@@ -1686,3 +1737,1252 @@ def _duo_pair(d, check, rest) -> None:
     seen = {s.frame for s in samples}
     allg = [s for s in early if s.frame not in seen] + samples
     check("S166-D-PAIR-REJOIN", *judge_pair_rejoin(allg, rbase, cb.new(guest, r_at)))
+
+# ================================================================================================ [ff9mapkit netsync s166] ROUND A, SOLO
+# A3 (the sender, the receiver cache, the lines, the bench host) and A4 (the world ghost, the dot from the trailer) on the forced selftest
+# role -- S166-DESIGN.md "The bench", its Round A rows table and its Order. One launch per leg (COOP_WW_LEG names it; `a` runs every leg in
+# one launch, never under a calibration). The keys are the CLONE's (HarnessAgent AppendWorldLane / AppendWorldLine / AppendWorldGhost /
+# AppendWorldDot, read 2026-11-03); the levers `netsync worldwalk ...` (any role) and the bench host (`host path ...`, the selftest role).
+A_ALL = "a"
+A_LEGS = ("tx", "ghost", "wrap", "dot", "body", "stall")
+#: the capabilities, by key PRESENCE: A3's lane (the trailer, the cache, the lines, the bench host) and A4's ghost (and the dot's source)
+LANE_PROBE = "netsync.world.lane"
+LINE_PROBE = "netsync.world.line"
+GHOST_PROBE = "netsync.world.ghost"
+DOT_SRC_PROBE = "netsync.world.dot.src"
+#: THE ORDER (the design's): "the ghost rows with `lanegap off` and `hostlines off`" -- each of these legs pulls both at its start, reads
+#: them back (its instrument: a leg whose lines would not go quiet judges nothing) and puts them back at its end, so the ghost is the one
+#: new surface it judges; the stall rows run with the lines on (they judge them)
+A_QUIET_LEGS = ("ghost", "wrap", "dot", "body")
+A_LEG_ROWS = {"tx": ("S166-A-TX", "S166-A-FROZEN"), "ghost": ("S166-A-GHOST", "S166-A-RULE"), "wrap": ("S166-A-WRAP",),
+              "dot": ("S166-A-DOTRIDE",), "body": ("S166-A-BODY",), "stall": ("S166-A-STALL", "S166-A-HANG", "S166-A-HANG-CTL")}
+#: each row's capability (OLD = an engine without it: the row red "absent", no worldwalk op of that piece ever sent); A-FROZEN needs none
+A_ROW_NEEDS = {"S166-A-PROOF": (LANE_PROBE, GHOST_PROBE), "S166-A-TX": (LANE_PROBE,), "S166-A-FROZEN": (),
+               "S166-A-GHOST": (LANE_PROBE, GHOST_PROBE), "S166-A-RULE": (LANE_PROBE, GHOST_PROBE), "S166-A-WRAP": (LANE_PROBE, GHOST_PROBE),
+               "S166-A-DOTRIDE": (LANE_PROBE, GHOST_PROBE, DOT_SRC_PROBE), "S166-A-BODY": (LANE_PROBE, GHOST_PROBE),
+               "S166-A-STALL": (LANE_PROBE, GHOST_PROBE, LINE_PROBE), "S166-A-HANG": (LANE_PROBE,), "S166-A-HANG-CTL": (LANE_PROBE,)}
+#: the calibration levers per leg (COOP_WW_LEVER; unset = the leg's first). `worldfreeze` is s144's `netsync bench worldfreeze off`,
+#: pulled just before A-FROZEN's hold (held from P1 it would free the landing too); the others are `netsync worldwalk <op> <word>` at P1
+A_LEVERS = {"tx": ("pose", "worldfreeze"), "ghost": ("ghost",), "wrap": ("place",), "dot": ("dot",), "body": (), "stall": ("lanegap",)}
+A_LEVER_OPS = {"pose": ("pose", "off"), "ghost": ("ghost", "off"), "place": ("place", "render"), "dot": ("dot", "section0"),
+               "lanegap": ("lanegap", "off")}
+#: [calibration] LEVER_PREDICTED on s166, by (leg, lever): exactly these rows red, each with its lever's shape MEASURED (A_MEASURE)
+A_LEVER_PREDICTED = {("tx", "pose"): ("S166-A-TX",), ("tx", "worldfreeze"): ("S166-A-FROZEN",),
+                     ("ghost", "ghost"): ("S166-A-GHOST", "S166-A-RULE"),     # `ghost off`: want true, shown false -- A-RULE's re-show too
+                     ("wrap", "place"): ("S166-A-WRAP",), ("dot", "dot"): ("S166-A-DOTRIDE",),
+                     ("stall", "lanegap"): ("S166-A-STALL", "S166-A-HANG", "S166-A-HANG-CTL")}
+#: ...the lever's shape each predicted row must MEASURE (a row merely red is not the lever's: a landing that failed is red too)
+A_MEASURE = {"S166-A-TX": "the trailer read tfmt 0 (kind 'tfmt0', 94 B)", "S166-A-FROZEN": "the walker moved > HELD_U under the hold",
+             "S166-A-GHOST": "want true, shown false, placed, on the walk", "S166-A-RULE": "each refusal's own why_not, never a re-show",
+             "S166-A-WRAP": "every off-inverse frame inside a wrap window (WRAP_SETTLE_FRAMES after a teleport), at least one",
+             "S166-A-DOTRIDE": "src 'section0' on section 0's parked pose while the trailer moved",
+             "S166-A-STALL": "the hang and the gap counted (hangs / gaps +1) with no lane line",
+             "S166-A-HANG": "the hang counted with no lane line", "S166-A-HANG-CTL": "the controls counted with no lane line"}
+#: the stand-in's ROUND-A FAULT LEVERS (fakegame.WORLD_WALK_A_FAULTS) -> exactly the round-A SOLO rows each turns red, by leg (tests pin
+#: it; a fault absent from a leg turns nothing red there). Every fault not listed turns nothing red on any solo leg: the other levers'
+#: `*_lever_ignored` are the calibration's (S166-A-CAL; `lanegap` / `hostlines` also hold the ghost legs' quiet lines, whose read-back the
+#: fault leaves standing), scene_menu_hold is A-MENU's (no harness verb opens the ~ menu: the stand-in's own row), and wire_peer_dark /
+#: wire_words_latched / host_lines_state_b0 are A-WIRE's / T2-H's
+A_FAULT_REDS = {
+    "wire_field_world": {"tx": ("S166-A-TX",)},                  # the record's Field carries the world id on the world map
+    "tx_seq_frozen": {"tx": ("S166-A-TX",)},                     # the sender's seq never advances
+    "ghost_unwrapped": {"ghost": ("S166-A-GHOST",)},             # a naive canonical ease: the ghost sweeps the map at the seam
+    "ghost_stale_mint": {"body": ("S166-A-BODY",)},              # a mint on a field (w_blockReady stale-true)
+    "ghost_dress_310": {"body": ("S166-A-BODY",)},               # a Zidane on 9002
+    "dot_src_section0": {"dot": ("S166-A-DOTRIDE",)},            # decision 12's OLD: the dot parked on section 0
+    "hold_on_valid": {"stall": ("S166-A-STALL",)},               # the hold keyed on rs.Valid: no _STAND under a hung host's re-sends
+    "line_dark": {"stall": ("S166-A-STALL",)},                   # the lost-contact line never decided
+    "gap_on_stamp": {"stall": ("S166-A-STALL", "S166-A-HANG", "S166-A-HANG-CTL")},     # a hang read as a gap
+    "arrival_on_seq": {"stall": ("S166-A-STALL", "S166-A-HANG", "S166-A-HANG-CTL")},   # the arrival clock moved only on a seq move
+    "hang_cut_as_update": {"stall": ("S166-A-HANG-CTL",)},       # a hang cut by a gap ends "updating again" (never "frames STOPPED")
+    "walk_proof_fail": {leg: ("S166-P0", "S166-A-PROOF") for leg in A_LEGS},   # A0's: the proof line FAILs (every leg reads it)
+    "pose_lever_ignored": {"dot": ("S166-A-DOTRIDE",)},          # A-DOTRIDE's `pose off` step: the dot never goes back to section 0 (and
+                                                                 # the tx leg's `pose` calibration: S166-A-CAL)
+}
+
+# ---- the stands and the measures (positions: the bench section's; tolerances named)
+#: A-TX: the trailer's x / z against my own published world x / z (the design: within 1 u)
+TX_TOL = 1.0
+TX_S = 2.0                # the A-TX window after the landing's first judged sample
+TX_MIN_SAMPLES = 8        # ...at least this many judged samples (an instrument: a window that judged nothing is red)
+#: A-GHOST: the bench host walks EAST -> WEST the short way across the x seam (1480 -> 110 at z -470: 166 u), my walker at FS_LANDING
+GHOST_PATH = (1480.0, -470.0, 110.0, -470.0)
+GHOST_UPS = 30.0
+#: the ghost within this (torus) of the bench host's canonical pose: the ease lags ups / LerpRate (2.5 u at 30 u/s) + a frame of
+#: publish skew (1 u) -- 6 u is past both, and a seam-crossing naive lerp strays by hundreds
+GHOST_TOL = 6.0
+SEAM_BAND = 64.0          # "across the x seam": a judged sample with the host within this of x 1536, then one within this of x 0
+GHOST_WALK_S = 12.0       # the walk's watch (166 u at 30 u/s is ~5.5 s)
+GHOST_MIN_SAMPLES = 20
+#: A-RULE: each GhostRule refusal alone (the bench op that makes it, the op that undoes it, the why_not, the trailer field it changed)
+RULE_CASES = (("other_world", ("hostworld", "9010"), ("hostworld", "0"), ("world", 9010)),
+              ("riding", ("hostmode", "1"), ("hostmode", "0"), ("mode", 1)),
+              ("peer_scene", ("hoststate", "0xC4"), ("hoststate", "0x84"), ("state", 0xC4)),
+              ("peer_block", ("hostplace", "5"), ("hostplace", "4"), ("place", 5)))
+RULE_S = 4.0              # an op -> its verdict published (why_not AND shown agree: LIVE VERDICT vs LAST DRAWN)
+#: A-WRAP: a FIXED point (a standing bench host) and my walker teleported round it over both seams (the corner at x 0 / z 0)
+WRAP_AT = (40.0, -20.0)
+WRAP_STANDS = ((100.0, -100.0), (1480.0, -100.0), (1480.0, -1220.0), (100.0, -1220.0), (100.0, -100.0))
+WRAP_TOL = 0.01           # the inverse (and the oracle) within this of the canonical pose (the design's)
+WRAP_AT_TOL = 0.5         # the ghost stands on the fixed point
+WRAP_S = 2.0              # each stand's watch after its teleport settled
+WRAP_MIN_SAMPLES = 6      # ...at least this many PLACED samples per stand
+WRAP_SETTLE_FRAMES = 90   # a wrap window: this many frames from a teleport (`place render`'s render-space lag settles inside it)
+#: A-DOTRIDE: my walker on ICE_TILE (inside the disc-1 Mist window), section 0 PARKED on the Ice Cavern marker (s165's DOT-MARK), the
+#: bench host RIDING (`hostmode 1`) east along z -760 inside the window
+DOT_PARK = wf.DOT_MARK
+DOTRIDE_PATH = (1150.0, -760.0, 1250.0, -760.0)
+DOTRIDE_UPS = 24.0
+DOT_SRC_TOL = 3.0         # the pose drawn within this of the bench host's (two frames at 24 u/s, the dot placed in WorldHUD.Update)
+SXSY_TOL = wf.SXSY_TOL    # the raw map point within this of navi_get_pos (~1 minimap px: the design's "within 1 px")
+FACE_TOL = 2.0            # the facing drawn within this (degrees) of the path's walker heading
+ROT_TOL = 0.5             # the drawn rotation within this of DotRotationOfYaw(the facing)
+DOT_MOVE_U = 40.0         # the pose drawn moved at least this over the ride (a parked dot never does)
+PARK_TOL = 1.0            # section 0 parked within this of DOT_PARK on every ride sample
+DOTRIDE_S = 6.0
+DOT_BACK_S = 3.0          # `pose off` -> the dot back on section 0
+#: A-BODY: the undressed body per world (decision 11: the sender's own world model) and the off-diagonal dress call on 9002
+BODY_WANT = {9002: BW.WW_GEO_DAGGER, 9010: BW.WW_GEO_ZIDANE, WORLD: BW.WW_GEO_ZIDANE}
+BODY_ROUTE = ((2, 9002), (10, 9010), (11, WORLD))
+BODY_OFF_MODEL = 310      # `hostmodel 310` on 9002: the dress call's off-diagonal instrument
+BODY_S = 6.0              # a standing bench host -> its body shown
+BODY_NEAR = (12.0, 0.0)   # the bench host stands this far from my walker
+#: A-STALL / A-HANG: a looping bench host near FS_LANDING
+STALL_PATH = (100.0, -470.0, 300.0, -470.0)
+STALL_UPS = 24.0
+STAND_MS = BW.WW_GHOST_STAND_MS          # 300: the body stands after this long without a new seq
+STAND_SLACK_MS = 400                     # ...read by this much later (a frame, the publish)
+HIDE_MS = BW.WW_GHOST_GRACE_MS           # 5000: hidden at this seq age (GhostRule's stale)
+HIDE_SLACK_MS = 1500
+HOLD_TOL = 0.5            # the held ghost stands on the frozen host's pose (once eased in: seq age >= STAND_MS + STAND_SLACK_MS)
+GAP_MS = 1500             # `hostgap 1500` (the design's)
+GAP_LEN_TOL = 450         # the gap's end line names its length within this of GAP_MS (the 1000 ms start, a frame, the publish)
+STALL_S = HIDE_MS / 1000.0 + 3.0         # a freeze's watch: past the hide
+RESHOW_S = 4.0
+GAP_S = 4.0
+HANG_S = 3.0              # a freeze -> the lane's hang open past HANG_OPEN_MS (the 1000 ms line, with room) -- or this long
+HANG_OPEN_MS = 1400
+HANG_TAIL_S = 0.3         # ...and a little more (the line logged, a sample after it)
+LOAD_PLACE = BW.WW_PLACE_WORLD_LOADING   # 3: `hostplace 3`
+HELD_U = cw.HELD_U        # A-FROZEN: a hold moving less than this is HELD (s144's)
+_RX_LANE = re.compile(BW.LOG_WW_LANE_RE)
+_RX_LEN = re.compile(r"(\d+) ms")
+
+A_SETUP = {
+    "S166-INI": SOLO_SETUP["S166-INI"],
+    "S166-A-OR": "the offline oracle: s165's route (coop_world_wait.read_oracle: 6603's door to 9011, WORLD11's Field(300), block "
+                 "(18, 12) stock, no fork of 300)",
+    "S166-S0": SOLO_SETUP["S166-S0"],
+    "S166-P0": SOLO_SETUP["S166-P0"],
+    "S166-A-PROOF": "A-PROOF: 'world walk selftest: OK (N rows, M mutants)' on a field, none FAIL, carrying round A's tables -- N / M the "
+                    "s166 source's (memoria-patches s166, else $FF9_S166_CLONE), else above A0b's 84 / 13",
+}
+A_ROWS = {
+    "S166-A-TX": "A-TX: my own trailer on 9011 from the selftest slot -- place 4, world 9011, x / z within TX_TOL of `world.x / z`, Field "
+                 "0, fmt1 94 B, seq advancing; place 3 in the follow-out's load",
+    "S166-A-FROZEN": "A-FROZEN: `hold up` leaves x / z unmoved (< HELD_U), freeze.on, freeze.edges +1 since the follow-out -- the round "
+                     "changes no lawful guest behaviour",
+    "S166-A-GHOST": "A-GHOST: `host path` across the x seam -- the ghost shown on every judged sample within GHOST_TOL (torus) of the bench "
+                    "host's canonical pose, the seam crossed, snaps +1 (the first show only)",
+    "S166-A-RULE": "A-RULE: each GhostRule refusal alone -- other world (`hostworld 9010`), riding (`hostmode 1`), scene (`hoststate "
+                   "0xC4`), place 5 (`hostplace 5`): its why_not, want and shown false, the trailer carrying it; undone: shown again",
+    "S166-A-WRAP": "A-WRAP: a fixed point, my walker teleported round it over both seams -- on every placed frame the inverse "
+                   "(GetAbsolutePositionOf) within WRAP_TOL of the canonical pose and the oracle (SetAbsolutePositionOf) within "
+                   "WRAP_TOL of the render placement; the ghost on the point",
+    "S166-A-DOTRIDE": "A-DOTRIDE: the bench host riding (`hostmode 1`) with section 0 parked -- `src` 'trailer', the pose drawn on the "
+                      "trailer's, its map point within ~1 px (SXSY_TOL) of navi_get_pos, its facing and rotation the path's, the dot "
+                      "moving; `pose off`: back on section 0",
+    "S166-A-BODY": "A-BODY: 309 on 9002, 310 on 9010 / 9011 -- geo, renderers, clips, its _STAND, mint ms, one mint per visit and none "
+                   "on a field; `hostmodel 310` on 9002 re-mints 310; 9002's HUD state and a shot",
+    "S166-A-STALL": "A-STALL: `hostseq freeze` -- held, _STAND by ~300 ms, hidden at 5 s with the line (`netsync.world.line` 'lost'), "
+                    "one hang line pair; `hostgap 1500` -- one gap line pair, the ghost held",
+    "S166-A-HANG": "A-HANG: `hostseq freeze` after `hostplace 3` -- a HANG worded loading, no gap line; its end worded loaded",
+    "S166-A-HANG-CTL": "A-HANG's own controls (the design's lever column): `hostgap` in the same state -- a gap line (the hang cut, never "
+                       "'loaded'); `hostplace 4` then freeze -- worded a hang (A-HANG's judge red on each, for that reason)",
+}
+A_FINAL = {"S166-A-R": "`reset` (a lever pulled just before it) releases the role and every worldwalk lever ('worldwalk levers released "
+                       "(with the harness)' once); re-read WITH the role: lane / pose / hostlines / ghost / place / dot at rest, the "
+                       "bench host off"}
+A_ALL_ROWS = tuple(A_SETUP) + ("S166-A-P1",) + tuple(r for leg in A_LEGS for r in A_LEG_ROWS[leg]) + tuple(A_FINAL)
+
+
+def _a_legs(raw) -> tuple | None:
+    """COOP_WW_LEG's round-A legs: `a` = every one; else the named ones; None when it names none."""
+    names = {p.strip() for p in str(raw or "").lower().split(",")}
+    if A_ALL in names:
+        return A_LEGS
+    picked = tuple(x for x in A_LEGS if x in names)
+    return picked or None
+
+
+A_SOLO_LEGS = _a_legs(_RAW_LEG)
+#: COOP_WW_LEVER as typed (None = unset: the leg's first lever)
+A_LEVER_RAW = (os.environ.get("COOP_WW_LEVER") or "").strip().lower() or None
+
+
+def a_catalog(calibrate: bool, legs=A_LEGS, lever=None) -> dict:
+    c = dict(A_SETUP)
+    c["S166-A-P1"] = ("`netsync bench 1` accepted and round A's levers at rest (lane act, pose on, hostlines act; ghost on, place act, dot "
+                      "trailer)" + (f" -- and the CALIBRATION lever `{lever}` pulled and read back (held through the run)"
+                                    if calibrate and lever in A_LEVER_OPS else ""))
+    for leg in A_LEGS:
+        if leg in legs:
+            c.update({r: A_ROWS[r] for r in A_LEG_ROWS[leg]})
+    c.update(A_FINAL)
+    if calibrate:
+        c["S166-A-CAL"] = ("CALIBRATION (one leg per launch): by the engine's stage -- a row whose capability is absent (OLD) red, "
+                           "exactly; on s166 under the pulled lever exactly A_LEVER_PREDICTED[(leg, lever)] red, each MEASURING its "
+                           "lever's shape (A_MEASURE)")
+    return c
+
+
+def a_old_predicted(st, legs) -> tuple:
+    """[calibration] OLD (PURE): every round-A row of ``legs`` whose capability ``st`` lacks, A-PROOF and A-P1 (both read round A's keys)
+    when the lane is absent, and A0's P0 on an engine without `netsync.world.kitcell` (s165)."""
+    rows = [r for leg in legs for r in A_LEG_ROWS[leg] if not all(cb.has(st, k) for k in A_ROW_NEEDS[r])]
+    if not all(cb.has(st, k) for k in A_ROW_NEEDS["S166-A-PROOF"]):
+        rows.append("S166-A-PROOF")
+    if not cb.has(st, LANE_PROBE) or (any(leg in A_QUIET_LEGS for leg in legs) and not cb.has(st, GHOST_PROBE)):
+        rows.append("S166-A-P1")
+    if not cb.has(st, PROBE):
+        rows.append("S166-P0")
+    return tuple(rows)
+
+
+def a_lever_of(leg: str, raw):
+    """The calibration lever for ``leg``: ``raw`` when it is one of the leg's, the leg's first when ``raw`` is None; else None (refused)."""
+    levers = A_LEVERS.get(leg, ())
+    if raw is None:
+        return levers[0] if levers else None
+    return raw if raw in levers else None
+
+
+# ---- round A's pure readers
+def _lane(x) -> dict:
+    v = cb.path(x, LANE_PROBE)
+    return v if isinstance(v, dict) else {}
+
+
+def _ghost(x) -> dict:
+    v = cb.path(x, GHOST_PROBE)
+    return v if isinstance(v, dict) else {}
+
+
+def _dot(x) -> dict:
+    v = cb.path(x, "netsync.world.dot")
+    return v if isinstance(v, dict) else {}
+
+
+def _line(x) -> dict:
+    v = cb.path(x, LINE_PROBE)
+    return v if isinstance(v, dict) else {}
+
+
+def _tx(x) -> dict:
+    return _lane(x).get("tx") or {}
+
+
+def _bench(x) -> dict:
+    return _lane(x).get("bench") or {}
+
+
+def _d(a, b, block, key):
+    """b's ``block(x)[key]`` - a's; None when either is unread."""
+    va, vb = _num(block(a).get(key)) if a is not None else None, _num(block(b).get(key)) if b is not None else None
+    return None if va is None or vb is None else vb - va
+
+
+def _axis(d: float, span: float) -> float:
+    """|d| the short way round one torus axis."""
+    r = math.fmod(abs(float(d)), span)
+    return min(r, span - r)
+
+
+def lane_lines(lines) -> list:
+    """(PURE) The lane lines in ``lines``, in log order: [(role, name, length_ms or None, text)] -- name one of BW.WW_LANE_LINE_NAMES,
+    read back off the engine's own words (LaneLineText)."""
+    out = []
+    for ln in lines:
+        m = _RX_LANE.search(_msg(ln))
+        if not m:
+            continue
+        text = m.group(2)
+        name = None
+        for line in range(1, len(BW.WW_LANE_LINE_NAMES)):
+            proto = BW.ww_lane_line_text(line, 0)
+            head = proto.split("0 ms")[0] if "0 ms" in proto else proto
+            if text.startswith(head) and (line != BW.WW_LINE_HANG_END or "updating again" in text) and (
+                    line != BW.WW_LINE_LOAD_END or "loaded after" in text) and (line != BW.WW_LINE_HANG_CUT or "STOPPED" in text):
+                name = BW.WW_LANE_LINE_NAMES[line]
+                break
+        n = _RX_LEN.search(text)
+        out.append((m.group(1), name, int(n.group(1)) if n else None, text))
+    return out
+
+
+def _names(found) -> list:
+    return [n for _r, n, _l, _t in found]
+
+
+def proof_tallies(lines) -> list:
+    """(PURE) Every (rows, mutants) the 'world walk selftest: OK (N rows, M mutants)' lines in ``lines`` carry, in log order."""
+    rx = re.compile(BW.WORLD_WALK_PROOF_RE)
+    return [(int(m.group(1)), int(m.group(2))) for m in (rx.search(ln) for ln in lines) if m]
+
+
+#: A0b's tallies (the deployed 9e4365349fab02b1: no A1 -- its proof is A0 / A0b's own rows; fakegame.FAKE_WORLD_WALK_SELFTEST_ROWS / MUTANTS)
+A0B_PROOF = (84, 13)
+
+
+def proof_want():
+    """(rows, mutants) the s166 source's proof prints -- the same reader the stand-in uses (fakegame.world_walk_engine_source: $FF9_S166_CLONE
+    carrying the tag, else the s166 patch on THIS branch's memoria-patches/), counted by battlewire.world_walk_proof_counts -- and where it
+    came from; (None, why) when no source is reachable."""
+    try:
+        from harness import fakegame as FG                   # the driver puts tools/ on sys.path
+        src = FG.world_walk_engine_source()
+    except Exception as err:                                 # noqa: BLE001 - an unreadable source is a named None
+        return None, f"the s166 source unreadable ({type(err).__name__}: {str(err)[:120]})"
+    if not src:
+        return None, "no s166 source reachable (no memoria-patches/s166-*.patch, no $FF9_S166_CLONE)"
+    got = BW.world_walk_proof_counts(src)
+    return (tuple(got), "the s166 source") if got else (None, "the s166 source carries no proof table")
+
+
+def judge_a_proof(st, lines, want) -> tuple:
+    """A-PROOF (PURE): round A's keys published (lane AND ghost), a 'world walk selftest: OK (N rows, M mutants)' line, none FAIL, and its
+    tallies ``want`` (the s166 source's) -- else, with no source, above A0b's (84 / 13: round A's tables are in it)."""
+    missing = [k for k in A_ROW_NEEDS["S166-A-PROOF"] if not cb.has(st, k)]
+    got = proof_tallies(lines)
+    fails = cb.count(lines, BW.PROOF_WORLD_WALK + "FAIL")
+    if missing:
+        return False, f"absent: no {missing} -- an engine before round A's A3 / A4; proof {got[:1] or 'NONE'}"
+    if want:
+        ok = tuple(want) in got and not fails
+        return ok, f"proof {got or 'NONE'} (want {tuple(want)}: the s166 source's tallies); FAIL lines {fails}"
+    ok = any(n > A0B_PROOF[0] and m > A0B_PROOF[1] for n, m in got) and not fails
+    return ok, f"proof {got or 'NONE'} (no s166 source reachable: want above A0b's {A0B_PROOF}); FAIL lines {fails}"
+
+
+A3_REST = {"lever": "act", "pose": "on", "hostlines": "act"}
+A4_REST = {"ghost": "on", "place": "act", "dot": "trailer"}
+
+
+def a_levers(st) -> dict:
+    """(PURE) Round A's lever words as published: lane lever / pose / hostlines, ghost lever / place, dot src_lever, the bench host on."""
+    ln, gh, dt = _lane(st), _ghost(st), _dot(st)
+    return {"lever": ln.get("lever"), "pose": ln.get("pose"), "hostlines": ln.get("hostlines"), "ghost": gh.get("lever"),
+            "place": gh.get("place"), "dot": dt.get("src_lever"), "bench": (ln.get("bench") or {}).get("on")}
+
+
+def judge_a_rest(st, want: dict) -> tuple:
+    """A-P1 / A-R (PURE): `netsync bench 1` (``want['netsync_bench']`` when given) and each lever word in ``want`` read back."""
+    if not cb.has(st, LANE_PROBE):
+        return False, f"absent: no `{LANE_PROBE}` -- an engine before s166 A3"
+    got = a_levers(st)
+    bad = {k: (got.get(k), v) for k, v in want.items() if k != "netsync_bench" and got.get(k) != v}
+    bench = cb.path(st, "netsync.bench")
+    ok = not bad and (bench is True if want.get("netsync_bench") else True)
+    return ok, f"levers {got}; off their want {bad or 'none'}; netsync.bench {bench!r}"
+
+
+def judge_tx(land, samples) -> tuple:
+    """A-TX (PURE). ``land``: the samples from the follow-out's start to the landing's first judged sample -- some reads `tx.place` 3
+    (world loading). ``samples``: the judged world samples after it -- each `tx` place 4, world 9011, x / z within TX_TOL of the sample's
+    own `world.x / z`, Field 0, kind 'fmt1', 94 B; the seq advancing between consecutive samples (u16, never standing)."""
+    if not any(cb.has(s, LANE_PROBE) for s in list(land) + list(samples)):
+        return False, f"absent: no `{LANE_PROBE}` (key absent: an engine before s166 A3)"
+    places = [_tx(s).get("place") for s in land if cb.has(s, LANE_PROBE)]
+    load3 = BW.WW_PLACE_WORLD_LOADING in places
+    judged = [s for s in samples if wf.judged(s) and cb.has(s, LANE_PROBE)]
+    bad = []
+    for s in judged:
+        t = _tx(s)
+        x, z = wf.world_xz(s)
+        tx_, tz_ = _num(t.get("x")), _num(t.get("z"))
+        near = None not in (x, z, tx_, tz_) and abs(tx_ - x) <= TX_TOL and abs(tz_ - z) <= TX_TOL
+        if not (t.get("place") == BW.WW_PLACE_WORLD and t.get("world") == WORLD and near and t.get("field") == 0
+                and t.get("kind") == "fmt1" and t.get("len") == 94):
+            bad.append((s.frame, t.get("place"), t.get("world"), t.get("field"), t.get("kind"), t.get("len"), tx_, tz_, x, z))
+    seqs = [_tx(s).get("seq") for s in judged]
+    stood = [(a, b) for a, b in zip(seqs, seqs[1:]) if not (isinstance(a, int) and isinstance(b, int) and 0 < BW.ww_seq_delta(b, a) < 0x8000)]
+    kinds = sorted({str(_tx(s).get("kind")) for s in judged})
+    ok = load3 and len(judged) >= TX_MIN_SAMPLES and not bad and not stood
+    return ok, (f"the load's places {sorted(set(p for p in places if p is not None))} (want 3 among them: "
+                f"{'yes' if load3 else 'NO'}); {len(judged)} judged sample(s) (want >= {TX_MIN_SAMPLES}); off-shape {bad[:3] or 'none'}"
+                f" (want place 4, world {WORLD}, Field 0, fmt1 94 B, x / z within {TX_TOL:g} u of world.x / z); seq {seqs[:1]}..{seqs[-1:]},"
+                f" standing / back steps {stood[:3] or 'none'}; kinds {kinds}")
+
+
+def tx_lever_measured(samples) -> bool:
+    """`pose off`'s shape (PURE): the trailer read tfmt 0 (kind 'tfmt0', still 94 B) on every judged sample, at least one."""
+    judged = [s for s in samples if wf.judged(s) and cb.has(s, LANE_PROBE)]
+    return bool(judged) and all(_tx(s).get("kind") == "tfmt0" and _tx(s).get("len") == 94 for s in judged)
+
+
+def judge_ghost_walk(base, samples) -> tuple:
+    """A-GHOST (PURE over the samples first published after `host path`): from the first WANTED sample while the bench host walks, every
+    judged sample shown (want true, why_not null) and within GHOST_TOL (torus) of the bench host's canonical x / z; the seam crossed while
+    shown (a sample with the host within SEAM_BAND of x 1536, then one within SEAM_BAND of x 0); snaps +1 since ``base`` (the first show
+    only: a seam-crossing ease never snaps)."""
+    if not any(cb.has(s, GHOST_PROBE) for s in samples):
+        return False, f"absent: no `{GHOST_PROBE}` (nothing drawn: an engine before s166 A4)"
+    walk = [s for s in samples if wf.judged(s) and _bench(s).get("walking") is True]
+    start = next((i for i, s in enumerate(walk) if _ghost(s).get("want") is True), None)
+    if start is None:
+        return False, f"never wanted on the walk ({len(walk)} walking sample(s); why_not {[_ghost(s).get('why_not') for s in walk[-2:]]})"
+    walk = walk[start:]
+    bad, far, seen_e, crossed = [], 0.0, False, False
+    for s in walk:
+        g, b = _ghost(s), _bench(s)
+        gx, gz, bx, bz = (_num(v) for v in (g.get("x"), g.get("z"), b.get("x"), b.get("z")))
+        d = BW.ww_torus_distance(gx, gz, bx, bz) if None not in (gx, gz, bx, bz) else None
+        if not (g.get("shown") is True and g.get("why_not") is None and d is not None and d <= GHOST_TOL):
+            bad.append((s.frame, g.get("shown"), g.get("why_not"), None if d is None else round(d, 2)))
+        far = max(far, d or 0.0)
+        if g.get("shown") is True and bx is not None:
+            seen_e = seen_e or bx >= BW.WW_WORLD_W - SEAM_BAND
+            crossed = crossed or (seen_e and bx < SEAM_BAND)
+    ds = _d(base, walk[-1], _ghost, "snaps")
+    ok = len(walk) >= GHOST_MIN_SAMPLES and not bad and crossed and ds == 1
+    return ok, (f"{len(walk)} walk sample(s) from the first wanted (want >= {GHOST_MIN_SAMPLES}); off the pose / hidden {bad[:4] or 'none'}"
+                f" (want shown within {GHOST_TOL:g} u; the farthest {far:.2f} u); the x seam crossed while shown: "
+                f"{'yes' if crossed else 'NO'}; snaps +{ds} (want 1: the first show only)")
+
+
+def ghost_lever_measured(samples) -> bool:
+    """`ghost off`'s shape (PURE): on the walk, want true, shown false and placed on every judged sample, at least one."""
+    walk = [s for s in samples if wf.judged(s) and _bench(s).get("walking") is True and _ghost(s).get("want") is True]
+    return bool(walk) and all(_ghost(s).get("shown") is False and _ghost(s).get("placed") is True for s in walk)
+
+
+def judge_rule(cases) -> tuple:
+    """A-RULE (PURE): ``cases`` [(why, refused sample or None, the trailer (field, value), re-shown sample or None)] -- each refused
+    sample why_not ``why`` with want AND shown false (LIVE VERDICT vs LAST DRAWN agree) and the receiver cache's latest carrying the op's
+    field (`lane.rx`); each re-shown sample shown with no why_not."""
+    if not cases:
+        return False, "no case ran"
+    parts, ok = [], True
+    for why, ref, (field, value), back in cases:
+        if ref is not None and not cb.has(ref, GHOST_PROBE):
+            return False, f"absent: no `{GHOST_PROBE}`"
+        g = _ghost(ref) if ref is not None else {}
+        rx = (_lane(ref).get("rx") or {}) if ref is not None else {}
+        r_ok = ref is not None and g.get("why_not") == why and g.get("want") is False and g.get("shown") is False and rx.get(field) == value
+        b = _ghost(back) if back is not None else {}
+        b_ok = back is not None and b.get("shown") is True and b.get("why_not") is None
+        ok = ok and r_ok and b_ok
+        parts.append(f"{why}: {'ok' if r_ok else 'RED'} (why_not {g.get('why_not')!r}, want {g.get('want')!r}, shown {g.get('shown')!r}, "
+                     f"rx.{field} {rx.get(field)!r} want {value!r}) / undone {'shown' if b_ok else 'NOT re-shown'} "
+                     f"({b.get('why_not')!r})")
+    return ok, "; ".join(parts) + "; event_world: not reachable solo (named: the follow-out never lands on an event world)"
+
+
+def judge_wrap(segments) -> tuple:
+    """A-WRAP (PURE): ``segments`` [(stand, teleport frame, samples)] -- on every PLACED sample the inverse (inv_x / inv_z) within
+    WRAP_TOL of the ghost's canonical (x, z) (each axis the short way round), the oracle (oracle_x / oracle_z) within WRAP_TOL of the
+    render placement (rx / rz), the ghost within WRAP_AT_TOL of WRAP_AT; each stand judged on >= WRAP_MIN_SAMPLES placed samples with my
+    walker on it. Returns (ok, why, bad) -- ``bad`` [(frame, frames since its teleport)] for the lever's measure."""
+    if not any(cb.has(s, GHOST_PROBE) for _st, _f, ss in segments for s in ss):
+        return False, f"absent: no `{GHOST_PROBE}` (key absent: an engine before s166 A4)", []
+    bad, thin, worst = [], [], 0.0
+    for stand, t_frame, ss in segments:
+        placed = [s for s in ss if wf.judged(s) and _ghost(s).get("placed") is True]
+        x0, z0 = wf.world_xz(placed[0]) if placed else (None, None)
+        on = x0 is not None and BW.ww_torus_distance(x0, z0, *stand) <= 64.0
+        if len(placed) < WRAP_MIN_SAMPLES or not on:
+            thin.append((stand, len(placed), "on" if on else "OFF the stand"))
+        for s in placed:
+            g = _ghost(s)
+            vals = [_num(g.get(k)) for k in ("x", "z", "inv_x", "inv_z", "rx", "rz", "oracle_x", "oracle_z")]
+            if None in vals:
+                bad.append((s.frame, s.frame - t_frame, "unread"))
+                continue
+            x, z, ix, iz, rx, rz, ox, oz = vals
+            e = max(_axis(ix - x, BW.WW_WORLD_W), _axis(iz - z, BW.WW_WORLD_H), abs(ox - rx), abs(oz - rz))
+            at = BW.ww_torus_distance(x, z, *WRAP_AT)
+            worst = max(worst, e)
+            if e > WRAP_TOL or at > WRAP_AT_TOL:
+                bad.append((s.frame, s.frame - t_frame, round(e, 3)))
+    ok = not bad and not thin
+    return ok, (f"{len(segments)} stand(s); off-inverse / off-oracle / off-point frames {bad[:4] or 'none'} (want every one within "
+                f"{WRAP_TOL:g} u; the worst {worst:.4f}); thin or missed stands {thin or 'none'}"), bad
+
+
+def wrap_lever_measured(bad) -> bool:
+    """`place render`'s shape (PURE): at least one off-inverse frame and every one inside a wrap window (WRAP_SETTLE_FRAMES from its stand's
+    teleport): red exactly at the wraps."""
+    return bool(bad) and all(isinstance(since, int) and 0 <= since <= WRAP_SETTLE_FRAMES for _f, since, _e in bad)
+
+
+def _yaw_diff(a: float, b: float) -> float:
+    return _axis(float(a) - float(b), 360.0)
+
+
+def judge_dotride(ride, back, path=DOTRIDE_PATH, park=DOT_PARK) -> tuple:
+    """A-DOTRIDE (PURE). ``ride``: the judged samples while the riding bench host walks ``path`` -- each dot wanted with `src` 'trailer',
+    the pose drawn (src_x / src_z) within DOT_SRC_TOL of the bench host's, the raw map point (sx, sy) within SXSY_TOL of navi_get_pos of
+    the pose drawn (its mapno), the facing within FACE_TOL of the path's walker heading and `rot` its DotRotationOfYaw within ROT_TOL,
+    section 0 parked (host_x / host_z on ``park``); the pose drawn moving >= DOT_MOVE_U. ``back``: after `pose off`, the last sample with
+    `src` 'section0' and the pose drawn on ``park`` (the design: back on section 0)."""
+    if not any(cb.has(s, DOT_SRC_PROBE) for s in list(ride) + list(back)):
+        return False, f"absent: no `{DOT_SRC_PROBE}` (the dot parked on section 0: an engine before s166 A4)"
+    yaw = BW.ww_walker_yaw(path[2] - path[0], path[3] - path[1])
+    bad, xs = [], []
+    for s in ride:
+        d, b = _dot(s), _bench(s)
+        sx_, sz_, bx, bz = (_num(v) for v in (d.get("src_x"), d.get("src_z"), b.get("x"), b.get("z")))
+        hx, hz = _num(d.get("host_x")), _num(d.get("host_z"))
+        mp = _num(d.get("mapno"))
+        want_sxsy = BW.navi_get_pos(sx_, sz_, int(mp)) if None not in (sx_, sz_, mp) else None
+        sx, sy, face, rot = (_num(d.get(k)) for k in ("sx", "sy", "src_face", "rot"))
+        why = []
+        if d.get("src") != "trailer" or d.get("want") is not True:
+            why.append(f"src {d.get('src')!r} want {d.get('want')!r}")
+        if None in (sx_, sz_, bx, bz) or BW.ww_torus_distance(sx_, sz_, bx, bz) > DOT_SRC_TOL:
+            why.append(f"drawn ({sx_}, {sz_}) vs the host ({bx}, {bz})")
+        if want_sxsy is None or sx is None or sy is None or abs(sx - want_sxsy[0]) > SXSY_TOL or abs(sy - want_sxsy[1]) > SXSY_TOL:
+            why.append(f"sx/sy ({sx}, {sy}) vs {want_sxsy}")
+        if face is None or _yaw_diff(face, yaw) > FACE_TOL or rot is None or _yaw_diff(rot, BW.ww_dot_rotation_of_yaw(face)) > ROT_TOL:
+            why.append(f"face {face} (want {yaw:.1f}) rot {rot}")
+        if None in (hx, hz) or BW.ww_torus_distance(hx, hz, *park) > PARK_TOL:
+            why.append(f"section 0 at ({hx}, {hz}), not parked on {park}")
+        if why:
+            bad.append((s.frame, "; ".join(why)))
+        if sx_ is not None:
+            xs.append(sx_)
+    moved = (max(xs) - min(xs)) if xs else 0.0
+    last = back[-1] if back else None
+    bd = _dot(last) if last is not None else {}
+    bx_, bz_ = _num(bd.get("src_x")), _num(bd.get("src_z"))
+    back_ok = (last is not None and bd.get("src") == "section0" and None not in (bx_, bz_)
+               and BW.ww_torus_distance(bx_, bz_, *park) <= PARK_TOL)
+    ok = len(ride) >= GHOST_MIN_SAMPLES // 2 and not bad and moved >= DOT_MOVE_U and back_ok
+    return ok, (f"{len(ride)} ride sample(s); off {bad[:3] or 'none'}; the pose drawn moved {moved:.1f} u (want >= {DOT_MOVE_U:g}); "
+                f"`pose off`: src {bd.get('src')!r} at ({bx_}, {bz_}) (want 'section0' on {park})")
+
+
+def dot_lever_measured(ride, park=DOT_PARK) -> bool:
+    """`dot section0`'s shape (PURE): on every ride sample `src` 'section0' and the pose drawn parked on ``park`` while the bench host
+    moved, at least one."""
+    if not ride:
+        return False
+    xs = [_num(_bench(s).get("x")) for s in ride if _num(_bench(s).get("x")) is not None]
+    moving = bool(xs) and max(xs) - min(xs) >= DOT_MOVE_U / 2
+    return moving and all(_dot(s).get("src") == "section0" and None not in (_num(_dot(s).get("src_x")), _num(_dot(s).get("src_z")))
+                          and BW.ww_torus_distance(_dot(s)["src_x"], _dot(s)["src_z"], *park) <= PARK_TOL for s in ride)
+
+
+def judge_body(visits, off) -> tuple:
+    """A-BODY (PURE). ``visits`` [(world, the field sample just before its follow-out, the first shown sample on the world, the world's
+    last sample)]: each world's body the sender's own model (BODY_WANT), a GEO name with its world (_W0_) marker, renderers >= 1, clips
+    >= 1, `stand` its StandClipOf, mint_ms >= 0; mints +1 from the field to the first show (one mint per visit) and +0 from the previous
+    world's last sample to the field (none on a field: THE STRICT GATE -- w_blockReady reads stale-true there). ``off`` (9002's
+    off-diagonal) {base, at, back} or None: `hostmodel 310` re-mints 310 (+1, its own GEO and _STAND), `hostmodel 0` 309 again."""
+    if not visits:
+        return False, "no world visited"
+    if not any(cb.has(x, GHOST_PROBE) for v in visits for x in v[1:] if x is not None):
+        return False, f"absent: no `{GHOST_PROBE}` (key absent: an engine before s166 A4)"
+    parts, ok, prev = [], True, None
+    for world, field, shown, last in visits:
+        g = _ghost(shown) if shown is not None else {}
+        want = BODY_WANT.get(world)
+        geo = g.get("geo")
+        dm = _d(field, shown, _ghost, "mints") if shown is not None else None
+        df = _d(prev, field, _ghost, "mints") if prev is not None else 0
+        w_ok = (shown is not None and g.get("shown") is True and g.get("model") == want and isinstance(geo, str) and "_W0_" in geo
+                and (_num(g.get("renderers")) or 0) >= 1 and (_num(g.get("clips")) or 0) >= 1 and g.get("stand") == BW.ww_stand_clip_of(geo)
+                and (_num(g.get("mint_ms")) is not None and g["mint_ms"] >= 0) and dm == 1 and df == 0)
+        ok = ok and w_ok
+        parts.append(f"{world}: {'ok' if w_ok else 'RED'} (model {g.get('model')!r} want {want}, geo {geo!r}, renderers "
+                     f"{g.get('renderers')!r}, clips {g.get('clips')!r}, stand {g.get('stand')!r}, mint_ms {g.get('mint_ms')!r}; mints "
+                     f"+{dm} this visit, +{df} on the field before it)")
+        prev = last if last is not None else shown
+    if off is not None:
+        a, b, c = off.get("base"), off.get("at"), off.get("back")
+        gb, gc = _ghost(b) if b is not None else {}, _ghost(c) if c is not None else {}
+        o_ok = (b is not None and gb.get("model") == BODY_OFF_MODEL and gb.get("shown") is True and _d(a, b, _ghost, "mints") == 1
+                and gb.get("geo") != _ghost(a).get("geo") and gb.get("stand") == BW.ww_stand_clip_of(gb.get("geo"))
+                and c is not None and gc.get("model") == BODY_WANT[9002] and gc.get("shown") is True)
+        ok = ok and o_ok
+        parts.append(f"9002 `hostmodel {BODY_OFF_MODEL}`: {'ok' if o_ok else 'RED'} (model {gb.get('model')!r}, geo {gb.get('geo')!r}, "
+                     f"mints +{_d(a, b, _ghost, 'mints')}; back {gc.get('model')!r})")
+    else:
+        ok = False
+        parts.append("9002's off-diagonal not run")
+    return ok, "; ".join(parts)
+
+
+def judge_freeze(base, samples, lines) -> tuple:
+    """A-STALL's freeze half (PURE over the samples first published after `hostseq freeze`): held (from seq age STAND_MS + STAND_SLACK_MS
+    the ghost on the frozen host's pose within HOLD_TOL); the body stands by ~300 ms (the first `stall` 'stand' with `anim` 'stand' and
+    `clip` its `stand`, at a seq age <= STAND_MS + STAND_SLACK_MS, none before STAND_MS; holds +1); shown while the cache's seq age is under
+    HIDE_MS, then hidden (why_not 'stale', want false) by HIDE_MS + HIDE_SLACK_MS, hides +1; `netsync.world.line` asked 'lost' with the
+    words, never drawn (selftest); the lost-contact log line; ONE hang start line (worded not updating), no gap line."""
+    if not any(cb.has(s, GHOST_PROBE) and cb.has(s, LINE_PROBE) for s in samples):
+        return False, f"absent: no `{GHOST_PROBE}` / `{LINE_PROBE}` (an engine before s166 A3 / A4)"
+    js = [s for s in samples if wf.judged(s)]
+    why = []
+    stands = [s for s in js if _ghost(s).get("stall") == "stand"]
+    first = stands[0] if stands else None
+    fg = _ghost(first) if first is not None else {}
+    f_age = _num(fg.get("seq_age_ms"))
+    if first is None or f_age is None or not (STAND_MS <= f_age <= STAND_MS + STAND_SLACK_MS) or fg.get("anim") != "stand" \
+            or fg.get("clip") != fg.get("stand") or fg.get("stand") is None:
+        why.append(f"the stand: first at seq age {f_age} (want {STAND_MS}-{STAND_MS + STAND_SLACK_MS}), anim {fg.get('anim')!r}, clip "
+                   f"{fg.get('clip')!r} vs stand {fg.get('stand')!r}")
+    held = [s for s in js if _ghost(s).get("placed") is True and (_num(_ghost(s).get("seq_age_ms")) or 0) >= STAND_MS + STAND_SLACK_MS]
+    drift = [round(BW.ww_torus_distance(_ghost(s)["x"], _ghost(s)["z"], _bench(s)["x"], _bench(s)["z"]), 2) for s in held
+             if None not in (_num(_ghost(s).get("x")), _num(_ghost(s).get("z")), _num(_bench(s).get("x")), _num(_bench(s).get("z")))]
+    if not held or len(drift) < len(held) or max(drift) > HOLD_TOL:
+        why.append(f"the hold: {len(held)} held sample(s), drift {max(drift) if drift else None} (want <= {HOLD_TOL:g})")
+    early = [s.frame for s in js if (_num(_lane(s).get("seq_age_ms")) or 0) < HIDE_MS - 200 and _ghost(s).get("shown") is not True]
+    hid = next((s for s in js if _ghost(s).get("shown") is False and _ghost(s).get("why_not") == "stale"), None)
+    h_age = _num(_lane(hid).get("seq_age_ms")) if hid is not None else None
+    if early or hid is None or h_age is None or not (HIDE_MS <= h_age <= HIDE_MS + HIDE_SLACK_MS) or _ghost(hid).get("want") is not False:
+        why.append(f"the hide: hidden early on {early[:3]}; hidden 'stale' at seq age {h_age} (want {HIDE_MS}-{HIDE_MS + HIDE_SLACK_MS})")
+    lost = [s for s in js if _line(s).get("asked") == "lost"]
+    lt = _line(lost[0]) if lost else {}
+    if not lost or lt.get("text") != BW.WORDS_WW_LOST_CONTACT or any(_line(s).get("drawn") is not False for s in lost):
+        why.append(f"the line: asked 'lost' on {len(lost)} sample(s), text {lt.get('text')!r}, drawn {[_line(s).get('drawn') for s in lost[:1]]}")
+    n_lost = cb.count(lines, BW.LOG_WW_LINE_LOST)
+    if n_lost != 1:
+        why.append(f"the lost-contact log line {n_lost}x (want 1)")
+    names = _names(lane_lines(lines))
+    if names.count("hang_start") != 1 or "gap_start" in names or "load_start" in names:
+        why.append(f"the lane lines {names} (want one hang_start, no gap / load)")
+    dh = _d(base, js[-1] if js else None, _ghost, "hides")
+    dl = _d(base, js[-1] if js else None, _ghost, "holds")
+    if dh != 1 or dl != 1:
+        why.append(f"hides +{dh}, holds +{dl} (want 1 / 1)")
+    return not why, ("; ".join(why) or "held, stood by ~300 ms, hidden at 5 s with the line, one hang line") + \
+        f" ({len(js)} judged sample(s); lane lines {names})"
+
+
+def judge_reshow(base, samples, lines) -> tuple:
+    """A-STALL's run half (PURE over the samples after `hostseq run`): the hang's end line worded 'updating again' naming >= HIDE_MS, the
+    lost-contact-over line, `line.asked` null and the ghost shown again with snaps +1 (a first show)."""
+    names = lane_lines(lines)
+    ends = [(n, ln) for _r, n, ln, _t in names if n == "hang_end"]
+    js = [s for s in samples if wf.judged(s)]
+    back = next((s for s in js if _ghost(s).get("shown") is True), None)
+    ds = _d(base, back, _ghost, "snaps") if back is not None else None
+    ok = (len(ends) == 1 and (ends[0][1] or 0) >= HIDE_MS and cb.count(lines, BW.LOG_WW_LINE_LOST_OVER) == 1 and back is not None
+          and _line(back).get("asked") is None and ds == 1)
+    return ok, (f"hang end {ends} (want one naming >= {HIDE_MS} ms); lost-over lines {cb.count(lines, BW.LOG_WW_LINE_LOST_OVER)}; "
+                f"re-shown {'yes' if back is not None else 'NO'} (line {_line(back).get('asked') if back is not None else None!r}, "
+                f"snaps +{ds}: want 1)")
+
+
+def judge_gap(base, samples, lines, gap_ms=GAP_MS) -> tuple:
+    """A-STALL's gap half (PURE over the samples after `hostgap`): ONE gap_start and ONE gap_end line, the end naming gap_ms within
+    GAP_LEN_TOL, no hang line; gaps +1, gaps_250 +1; the ghost held -- shown on every judged sample (never hidden: hides +0)."""
+    names = lane_lines(lines)
+    starts = [x for x in names if x[1] == "gap_start"]
+    ends = [x for x in names if x[1] == "gap_end"]
+    hangs = [x for x in names if x[1] in ("hang_start", "load_start", "hang_cut")]
+    js = [s for s in samples if wf.judged(s)]
+    last = js[-1] if js else None
+    dg, d250, dh = _d(base, last, _lane, "gaps"), _d(base, last, _lane, "gaps_250"), _d(base, last, _ghost, "hides")
+    hidden = [s.frame for s in js if _ghost(s).get("shown") is not True]
+    stood = any(_ghost(s).get("stall") == "stand" for s in js)
+    length = ends[0][2] if ends else None
+    ok = (len(starts) == 1 and len(ends) == 1 and length is not None and abs(length - gap_ms) <= GAP_LEN_TOL and not hangs
+          and dg == 1 and d250 == 1 and dh == 0 and not hidden and stood and bool(js))
+    return ok, (f"gap lines {len(starts)} start / {len(ends)} end (want 1 / 1), the end naming {length} ms (want {gap_ms} +- "
+                f"{GAP_LEN_TOL}); hang lines {len(hangs)} (want 0); gaps +{dg}, gaps_250 +{d250} (want 1 / 1); hidden on "
+                f"{hidden[:3] or 'no'} sample(s), hides +{dh} (want 0); the body stood in the gap: {'yes' if stood else 'NO'}")
+
+
+def judge_hang(lines, samples, *, worded="loading") -> tuple:
+    """A-HANG (PURE over a freeze's window): ONE hang start line worded ``worded`` ('loading': load_start; 'not updating': hang_start),
+    none of the other wording, no gap line and no hang cut; `lane.open` the matching kind on a judged sample. A red names its reason:
+    'a gap line' or 'worded <x>'."""
+    names = _names(lane_lines(lines))
+    want, other = ("load_start", "hang_start") if worded == "loading" else ("hang_start", "load_start")
+    opens = {_lane(s).get("open") for s in samples if wf.judged(s)}
+    kind = "hang_loading" if worded == "loading" else "hang"
+    why = []
+    if any(n in ("gap_start", "gap_end", "hang_cut") for n in names):
+        why.append("a gap line")
+    if names.count(want) != 1 or other in names:
+        why.append(f"worded {'not updating' if other in names else 'nothing'}" if names.count(want) != 1 else "worded both")
+    if kind not in opens:
+        why.append(f"lane.open never {kind!r} ({sorted(str(o) for o in opens)})")
+    return not why, f"lane lines {names}; open {sorted(str(o) for o in opens)}" + (f" -- RED: {', '.join(why)}" if why else "")
+
+
+def judge_hang_end(lines, *, worded="loaded") -> tuple:
+    names = [x for x in lane_lines(lines) if x[1] in ("hang_end", "load_end", "hang_cut")]
+    want = "load_end" if worded == "loaded" else "hang_end"
+    ok = len(names) == 1 and names[0][1] == want
+    return ok, f"the hang's end {[(n, ln) for _r, n, ln, _t in names]} (want one {want})"
+
+
+def judge_hang_ctl(gap_lines, place4_lines, place4_samples) -> tuple:
+    """A-HANG-CTL (PURE): A-HANG's own controls -- (gap) `hostgap` while the place-3 hang is open: a hang_cut line ('frames STOPPED') and a
+    gap_start, never 'loaded after' (A-HANG's judge red by 'a gap line'); (place4) `hostplace 4` then freeze: hang_start worded 'not
+    updating', never 'loading' (A-HANG's judge red by 'worded not updating')."""
+    gn = _names(lane_lines(gap_lines))
+    g_ok = "hang_cut" in gn and "gap_start" in gn and "load_end" not in gn
+    hj_gap = judge_hang(gap_lines, [], worded="loading")
+    p_ok, p_why = judge_hang(place4_lines, place4_samples, worded="not updating")
+    hj_p4 = judge_hang(place4_lines, place4_samples, worded="loading")
+    red_gap = (not hj_gap[0]) and "a gap line" in hj_gap[1]
+    red_p4 = (not hj_p4[0]) and "worded not updating" in hj_p4[1]
+    ok = g_ok and red_gap and p_ok and red_p4
+    return ok, (f"(gap) lines {gn} (want hang_cut + gap_start, never load_end); A-HANG's judge {'RED by a gap line' if red_gap else 'NOT red for it'}"
+                f"; (place4) {p_why}; A-HANG's judge {'RED by its wording' if red_p4 else 'NOT red for it'}")
+
+
+#: A-MENU (stand-in only in round A: no harness verb opens the ~ menu): the hold and the control-off control each last this long
+MENU_HOLD_S = 1.0
+
+
+def judge_menu(hold, ctl) -> tuple:
+    """A-MENU (PURE). ``hold``: the judged world samples through a MENU_HOLD_S ~ menu "Disable control" hold -- control OFF on them (the
+    hold IS SetUserControl(false): the instrument) and the trailer's state b6 CLEAR on every one (decision 4: the hold PAUSES the scene
+    count, like the own full map and a fade). ``ctl``: the samples through a MENU_HOLD_S `control 0` -- b6 SET on the last (the scene bit
+    is live: the hold's exclusion is the only thing that kept it clear)."""
+    hs = [s for s in hold if wf.judged(s) and cb.has(s, LANE_PROBE)]
+    cs = [s for s in ctl if wf.judged(s) and cb.has(s, LANE_PROBE)]
+    if not hs and not cs:
+        return False, f"absent: no `{LANE_PROBE}` (key absent: an engine before s166 A3)"
+    scene = BW.WW_ST_SCENE
+    lit = [s.frame for s in hs if (_num(_tx(s).get("state")) or 0) & scene]
+    on = [s.frame for s in hs if s.control]
+    last = (_num(_tx(cs[-1]).get("state")) or 0) if cs else 0
+    ok = bool(hs) and not lit and not on and bool(cs) and bool(last & scene)
+    return ok, (f"the hold: {len(hs)} sample(s), control on {on[:3] or 'none'} (want none), b6 set on {lit[:3] or 'none'} (want none); "
+                f"`control 0`: b6 {'SET' if last & scene else 'clear'} on its last sample (want set)")
+
+
+def lanegap_lever_measured(base, last, lines) -> bool:
+    """`lanegap off`'s shape (PURE): the counters moved (hangs or gaps +1 since ``base``) and no lane line in ``lines``."""
+    dh, dg = _d(base, last, _lane, "hangs"), _d(base, last, _lane, "gaps")
+    return ((dh or 0) >= 1 or (dg or 0) >= 1) and not lane_lines(lines)
+
+
+def judge_a_cal(failed, predicted, measured: dict, needs: tuple) -> tuple:
+    """S166-A-CAL (PURE): every ``predicted`` row red and nothing else, and every row in ``needs`` MEASURED its lever's shape."""
+    failed, predicted = set(failed), set(predicted)
+    missing, extra = sorted(predicted - failed), sorted(failed - predicted)
+    unmeasured = sorted(r for r in needs if not measured.get(r))
+    ok = not missing and not extra and not unmeasured
+    return ok, (f"predicted reds that stayed GREEN: {missing or 'none'}; unpredicted reds: {extra or 'none'}; rows whose lever shape was "
+                f"NOT measured: {unmeasured or 'none'} (measured: {sorted(r for r, v in measured.items() if v) or 'none'})")
+
+
+# ---- round A's moves
+def _quiet(g, on: bool) -> tuple:
+    """THE ORDER's quiet lines for a ghost leg: `lanegap off` + `hostlines off` (``on``) read back, or both back to `on` (never touching a
+    calibration lever the run holds). (ok, why)."""
+    word = "off" if on else "on"
+    refused = [op for op in ("lanegap", "hostlines") if not _wwa(g, op, word)[0]]
+    want = {"lever": "off" if on else "act", "hostlines": "off" if on else "act"}
+    st = cb.poll(g, lambda s: all(a_levers(s).get(k) == v for k, v in want.items()), 3.0, "the quiet lines read back") or g.state
+    got = {k: a_levers(st).get(k) for k in want}
+    return (not refused and got == want), f"`lanegap {word}` + `hostlines {word}`: refused {refused or 'none'}, read back {got}"
+
+
+def _settle_op(g):
+    """THE ORDER SKEW: an op's own publish carries the old verdict -- the next SKEW_FRAMES frames are dropped."""
+    g.wait_frames(SKEW_FRAMES)
+
+
+def _wwa(g, *args) -> tuple:
+    """`netsync worldwalk <args>` for round A (callers PROBE the piece's key first)."""
+    ok, why = _ww(g, *[f"{a:g}" if isinstance(a, float) else str(a) for a in args])
+    _settle_op(g)
+    return ok, why
+
+
+def _a_land(g, ctx: dict, idx: int = 11, world: int = WORLD, at=FS_LANDING) -> tuple:
+    """6603 -> world ``world`` by s165's follow-out (`worldfollow host <x> <z> <idx>`), the s165 bench host off after the landing:
+    (ok, why, the samples from the start to the first judged world sample, the base before it)."""
+    if not wf._home(g, ctx):
+        return False, f"not on FieldHUD {FARSHORE} before the follow-out", [], g.state
+    base = g.state
+    ok, why = wf._frame(g, *at, idx)
+    if not ok:
+        return False, f"`worldfollow host {at[0]:g} {at[1]:g} {idx}` refused: {why}", [], base
+    samples = wf._land(g, base, LEAVE_S)
+    st = wf.first_judged([s for s in samples if s.ui_state == "WorldHUD"])
+    wf._host_off(g)
+    g.wait_frames(SETTLE_FRAMES)
+    if st is None:
+        return False, "not judged: no sample with the blocks in and the world ticking (THE PRE-INIT SAMPLE)", samples, base
+    x, z = wf.world_xz(st)
+    good = st.world_id == world and x is not None and wf.torus((x, z), at) <= POSE_TOL and st.vehicle == 0
+    return good, (f"landed on {st.world_id} at ({x}, {z}) (want {world} within {POSE_TOL:g} u of {at}), [190] {st.vehicle}"), samples, base
+
+
+def _a_world(g, ctx: dict) -> tuple:
+    """On 9011 (the route's landing when not there already): (ok, why)."""
+    if g.state.ui_state == "WorldHUD" and g.state.world_id == WORLD and wf.judged(g.state):
+        return True, "already on 9011"
+    ok, why, _ss, _b = _a_land(g, ctx)
+    return ok, why
+
+
+def _host_path(g, pts, ups, *, loop=False) -> tuple:
+    return _wwa(g, "host", "path", *[float(v) for v in pts], float(ups), *(["loop"] if loop else []))
+
+
+def _host_off(g) -> None:
+    _wwa(g, "host", "off")
+
+
+def _hang_open(s) -> bool:
+    """A freeze's window may end (PURE): the lane holds a hang or a gap open past HANG_OPEN_MS on the engine's own clocks."""
+    ln = _lane(s)
+    return ln.get("open") in ("hang", "hang_loading", "gap") and max(_num(ln.get("seq_age_ms")) or 0, _num(ln.get("arrival_age_ms")) or 0) \
+        >= HANG_OPEN_MS
+
+
+def _watch(g, seconds, until=None) -> list:
+    samples, _ = cb.watch(g, until or (lambda s: False), seconds)
+    return samples
+
+
+def _poll_ghost(g, pred, seconds, what):
+    return cb.poll(g, lambda s: wf.judged(s) and pred(_ghost(s)), seconds, what)
+
+
+def _absent(led: cb.Ledger, rows, st) -> bool:
+    """OLD: each of ``rows`` whose capability ``st`` lacks is red "absent" and nothing of its piece is sent. True when any was."""
+    hit = False
+    for r in rows:
+        miss = [k for k in A_ROW_NEEDS[r] if not cb.has(st, k)]
+        if miss:
+            led.check(r, False, f"absent: no {miss} (key absent / nothing drawn: an engine before s166 A3 / A4 -- OLD; no op of that piece sent)")
+            hit = True
+    return hit
+
+
+# ---- the run
+def _run_round_a(g) -> None:
+    calibrate = cb.CALIBRATE
+    legs = A_SOLO_LEGS or ()
+    lever = a_lever_of(legs[0], A_LEVER_RAW) if calibrate and len(legs) == 1 else None
+    led = cb.Ledger(g, a_catalog(calibrate, legs, lever), finals=("S166-A-R", "S166-A-CAL"), width=DETAIL_W)
+    ctx = {"calibrate": calibrate, "stage": None, "pulled": None, "legs": legs, "measured": {}, "lever": lever, "st0": None}
+    if SOLO_LEGS is not None and _RAW_LEG.strip().lower() not in ("", "all"):
+        led.check("S166-INI", False, f"COOP_WW_LEG={_RAW_LEG!r} mixes A0's legs {LEGS} with round A's {A_LEGS}: one family per launch")
+        led.close("not launched: one leg family per launch", final=True)
+        return
+    if calibrate and len(legs) != 1:
+        led.check("S166-A-CAL", False, f"EACH LEG NEEDS ITS OWN LAUNCH: COOP_CALIBRATE=1 needs COOP_WW_LEG naming exactly one of {A_LEGS} "
+                                       f"(got {_RAW_LEG!r}) -- nothing was launched")
+        led.close("not launched: a calibration names exactly one leg", final=True)
+        return
+    if calibrate and A_LEVER_RAW is not None and lever is None:
+        led.check("S166-A-CAL", False, f"COOP_WW_LEVER={A_LEVER_RAW!r} is not leg {legs[0]!r}'s: one of {A_LEVERS[legs[0]] or '(none)'} "
+                                       "-- nothing was launched")
+        led.close("not launched: the lever is not this leg's", final=True)
+        return
+    try:
+        _round_a(g, led, ctx)
+    except HarnessError as err:
+        g.note(f"the round-A leg raised: {str(err)[:400]}")
+        led.close(f"not reached: the leg raised ({str(err)[:200]})")
+    finally:
+        g.note(f"Memoria.log archived: {cb.archive_log(g, 'world-walk-round-a')}")
+        led.close()
+        _release_round_a(g, led, ctx)
+        if calibrate:
+            st0 = ctx.get("st0")
+            if st0 is None:
+                led.check("S166-A-CAL", False, "no engine stage was read (the run died before P0)")
+            else:
+                new = bool(ctx.get("new"))
+                pred = a_lever_predicted(legs[0], lever) if new else a_old_predicted(st0, legs)
+                needs = tuple(r for r in pred if r in A_MEASURE) if new else ()
+                pred = [c for c in pred if c in led.catalog]
+                g.note(f"S166-A-CAL: {'s166 (A3 + A4)' if new else 'OLD'}, leg {legs[0]!r}, lever {lever!r}: predicted reds {sorted(pred)}")
+                led.check("S166-A-CAL", *judge_a_cal(led.failed() - {"S166-A-CAL"}, pred, ctx["measured"], needs))
+        led.close(final=True)
+
+
+def a_lever_predicted(leg: str, lever) -> tuple:
+    """LEVER_PREDICTED for ``leg`` under ``lever`` (a leg with no lever -- A-BODY's -- predicts nothing red: every row green)."""
+    return A_LEVER_PREDICTED.get((leg, lever), ()) if lever else ()
+
+
+def _round_a(g, led: cb.Ledger, ctx: dict) -> None:
+    ok, why = wf._ini_ok(g)
+    led.check("S166-INI", ok, why)
+    if not ok:
+        led.close("the install's ini refuses the bench (S166-INI): write [Netsync] Enabled 0 + FollowHost 1 BEFORE launch "
+                  "(solo_ini.py) -- nothing was sent")
+        return
+    oracle = cw.read_oracle(Path(g.game_path))
+    led.check("S166-A-OR", not oracle["problems"], f"problems {oracle['problems'] or 'none'}")
+    ok, why = cb.setup(g, FARSHORE, label="s166 round A: world-map co-op, the wire, the cache, the lines, the ghosts -- the solo bench"
+                                          + (" -- CALIBRATION" if ctx["calibrate"] else ""))
+    led.check("S166-S0", ok and g.state.field_id == FARSHORE, why + f"; on field {g.state.field_id}")
+    if not ok:
+        led.close(f"the selftest role never came up -- {why}")
+        return
+    st = g.state
+    ctx["st0"] = st
+    ctx["stage"] = stage_of(st)
+    # NEW = every row of the run's legs has its capability; anything less is OLD for the calibration -- no lever is pulled there (A0's
+    # law: an engine without the key never receives the op), and the absent rows are the prediction
+    ctx["new"] = all(cb.has(st, k) for leg in ctx["legs"] for r in A_LEG_ROWS[leg] for k in A_ROW_NEEDS[r])
+    g.note(f"engine stage: s{ctx['stage']}; lane {cb.has(st, LANE_PROBE)}, ghost {cb.has(st, GHOST_PROBE)}, dot.src "
+           f"{cb.has(st, DOT_SRC_PROBE)} ({cb.stage_note(st)})")
+    lines = cb.log_lines(g)
+    led.check("S166-P0", *judge_probe(st, lines))
+    want, where = proof_want()
+    g.note(f"A-PROOF's tallies: {want} ({where})")
+    led.check("S166-A-PROOF", *judge_a_proof(st, lines, want))
+    _a_p1(g, led, ctx)
+    if not cb.has(g.state, ROUTE_PROBE):
+        led.close(f"not reached: no `{ROUTE_PROBE}` -- an engine before s165 has no follow-out to land this bench")
+        return
+    for leg in A_LEGS:
+        if leg in ctx["legs"]:
+            fn = {"tx": _leg_tx, "ghost": _leg_ghost, "wrap": _leg_wrap, "dot": _leg_dot, "body": _leg_body, "stall": _leg_stall}[leg]
+            if leg in A_QUIET_LEGS:
+                _quiet_leg(g, led, ctx, leg, fn)
+            else:
+                fn(g, led, ctx)
+
+
+def _quiet_leg(g, led: cb.Ledger, ctx: dict, leg: str, fn) -> None:
+    """A ghost leg inside THE ORDER's quiet lines: `lanegap off` + `hostlines off` read back first (else its rows judge nothing), the
+    leg, then both back on. An engine without the leg's keys (OLD) runs the leg bare: it marks its rows absent and sends nothing."""
+    rows = A_LEG_ROWS[leg]
+    st = g.state
+    if any(not all(cb.has(st, k) for k in A_ROW_NEEDS[r]) for r in rows):
+        fn(g, led, ctx)
+        return
+    ok, why = _quiet(g, True)
+    if not ok:
+        led.unreached(rows, f"the instrument: the ghost rows' quiet lines never read back ({why})")
+        _quiet(g, False)
+        return
+    g.note(f"{leg}: the quiet lines -- {why}")
+    try:
+        fn(g, led, ctx)
+    finally:
+        _quiet(g, False)
+
+
+def _a_p1(g, led: cb.Ledger, ctx: dict) -> None:
+    ok, why = cb.try_ns(g, "bench", 1)
+    st = cb.poll(g, lambda s: (s.netsync or {}).get("bench") is True, 3.0, "the field-gate bench") or g.state
+    if not ok:
+        led.check("S166-A-P1", False, f"`netsync bench 1` refused: {why}")
+        return
+    if not cb.has(st, LANE_PROBE):
+        led.check("S166-A-P1", *judge_a_rest(st, {}))
+        return
+    want = dict(A3_REST, netsync_bench=True)
+    if cb.has(st, GHOST_PROBE):
+        want.update(A4_REST)
+    elif any(leg in A_QUIET_LEGS for leg in ctx["legs"]):
+        led.check("S166-A-P1", False, f"absent: no `{GHOST_PROBE}` (the ghost legs' levers) -- an engine before s166 A4")
+        return
+    notes = []
+    lever = ctx.get("lever")
+    if ctx["calibrate"] and ctx.get("new") and lever in A_LEVER_OPS:
+        op = A_LEVER_OPS[lever]
+        o, w = _wwa(g, *op)
+        ctx["pulled"] = lever if o else None
+        notes.append(f"CALIBRATION `worldwalk {' '.join(op)}` {'pulled (held through the run)' if o else 'REFUSED: ' + w}")
+        key = {"pose": "pose", "ghost": "ghost", "place": "place", "dot": "dot", "lanegap": "lever"}[lever]
+        want[key] = op[1]
+    st = cb.poll(g, lambda s: judge_a_rest(s, want)[0], 3.0, "round A's levers read back") or g.state
+    ok, why = judge_a_rest(st, want)
+    led.check("S166-A-P1", ok, why + (f"; {'; '.join(notes)}" if notes else ""))
+
+
+def _leg_tx(g, led: cb.Ledger, ctx: dict) -> None:
+    """A-TX then A-FROZEN: the landing's own samples (place 3 in the load), my trailer on 9011 after it, then `hold up`."""
+    rows = A_LEG_ROWS["tx"]
+    ok, why, land, base = _a_land(g, ctx)
+    if not ok:
+        led.unreached(rows, f"the instrument: {why}")
+        return
+    if not _absent(led, ("S166-A-TX",), g.state):
+        samples = [s for s in _watch(g, TX_S) if wf.judged(s)]
+        led.check("S166-A-TX", *judge_tx(land, samples))
+        if ctx.get("pulled") == "pose":
+            ctx["measured"]["S166-A-TX"] = tx_lever_measured(samples)
+    freeze_lever = ctx["calibrate"] and ctx.get("new") and ctx.get("lever") == "worldfreeze"
+    if freeze_lever:
+        o, w = cb.try_ns(g, "bench", "worldfreeze", "off")
+        g.note(f"CALIBRATION `netsync bench worldfreeze off`: {'pulled' if o else 'REFUSED: ' + w}")
+        g.wait_frames(SETTLE_FRAMES)
+    moved, adv, st2 = cw.hold_walk(g, wf.WALK_FRAMES)
+    led.check("S166-A-FROZEN", *wf.judge_frozen_here(base, st2, moved, adv))
+    if freeze_lever:
+        ctx["pulled"] = "worldfreeze"
+        ctx["measured"]["S166-A-FROZEN"] = moved is not None and moved > HELD_U
+
+
+def _leg_ghost(g, led: cb.Ledger, ctx: dict) -> None:
+    """A-GHOST (the bench host across the x seam) then A-RULE (each refusal alone, the bench host standing beside me)."""
+    rows = A_LEG_ROWS["ghost"]
+    if _absent(led, rows, g.state):
+        return
+    ok, why = _a_world(g, ctx)
+    if not ok:
+        led.unreached(rows, f"the instrument: {why}")
+        return
+    _host_off(g)
+    base = g.state
+    ok, why = _host_path(g, GHOST_PATH, GHOST_UPS)
+    if not ok:
+        led.unreached(rows, f"`worldwalk host path` refused: {why}")
+        return
+    samples = _watch(g, GHOST_WALK_S, until=lambda s: _bench(s).get("on") is True and _bench(s).get("walking") is False
+                     and _ghost(s).get("want") is True)
+    led.check("S166-A-GHOST", *judge_ghost_walk(base, samples))
+    if ctx.get("pulled") == "ghost":
+        ctx["measured"]["S166-A-GHOST"] = ghost_lever_measured(samples)
+    x, z = wf.world_xz(g.state)
+    stand = (BW.ww_norm_x((x or FS_LANDING[0]) + BODY_NEAR[0]), min(0.0, (z or FS_LANDING[1]) + BODY_NEAR[1]))
+    _host_path(g, stand, 0.0)
+    cases, measured = [], True
+    for why_not, op, undo, field in RULE_CASES:
+        _wwa(g, *op)
+        ref = _poll_ghost(g, lambda gh: gh.get("why_not") == why_not and gh.get("shown") is False, RULE_S, f"the ghost refused {why_not}")
+        _wwa(g, *undo)
+        back = _poll_ghost(g, lambda gh: gh.get("shown") is True and gh.get("why_not") is None, RULE_S, f"the ghost back after {why_not}")
+        cases.append((why_not, ref, field, back))
+        measured = measured and ref is not None and back is None
+    led.check("S166-A-RULE", *judge_rule(cases))
+    if ctx.get("pulled") == "ghost":
+        ctx["measured"]["S166-A-RULE"] = measured
+    _host_off(g)
+
+
+def _leg_wrap(g, led: cb.Ledger, ctx: dict) -> None:
+    """A-WRAP: the bench host STANDING on WRAP_AT, my walker teleported onto each of WRAP_STANDS (control on for the teleport)."""
+    rows = A_LEG_ROWS["wrap"]
+    if _absent(led, rows, g.state):
+        return
+    ok, why = _a_world(g, ctx)
+    if not ok:
+        led.unreached(rows, f"the instrument: {why}")
+        return
+    _host_off(g)
+    ok, why = _host_path(g, WRAP_AT, 0.0)
+    if not ok:
+        led.unreached(rows, f"`worldwalk host path` refused: {why}")
+        return
+    segments = []
+    _control(g, True)
+    try:
+        for stand in WRAP_STANDS:
+            try:
+                cw.teleport_settle(g, stand)
+            except HarnessError as err:
+                g.note(f"the teleport onto {stand} raised: {str(err)[:160]}")
+            t_frame = g.state.frame
+            _poll_ghost(g, lambda gh: gh.get("placed") is True, WRAP_S, "the ghost placed")
+            segments.append((stand, t_frame, _watch(g, WRAP_S)))
+    finally:
+        try:
+            cw.teleport_settle(g, FS_LANDING)
+        except HarnessError as err:
+            g.note(f"the teleport home onto FS_LANDING raised: {str(err)[:160]}")
+        _host_off(g)
+    ok, why, bad = judge_wrap(segments)
+    led.check("S166-A-WRAP", ok, why)
+    if ctx.get("pulled") == "place":
+        ctx["measured"]["S166-A-WRAP"] = wrap_lever_measured(bad)
+
+
+def _leg_dot(g, led: cb.Ledger, ctx: dict) -> None:
+    """A-DOTRIDE: my walker on ICE_TILE, the minimap on (Select once), section 0 parked on DOT_PARK (`worldfollow host`), the bench host
+    riding along DOTRIDE_PATH (`hostmode 1`); then `pose off` (the bench host's trailer tfmt 0) and `pose on`."""
+    rows = A_LEG_ROWS["dot"]
+    if _absent(led, rows, g.state):
+        return
+    ok, why = _a_world(g, ctx)
+    if not ok:
+        led.unreached(rows, f"the instrument: {why}")
+        return
+    _control(g, True)
+    try:
+        cw.teleport_settle(g, wf.ICE_TILE)
+    except HarnessError as err:
+        g.note(f"the teleport onto ICE_TILE raised: {str(err)[:160]}")
+    if _dot(g.state).get("hud") != "HUD":
+        g.press("select")
+        g.wait_frames(30)
+    ride, back = [], []
+    try:
+        wf._frame(g, *DOT_PARK)
+        cb.poll(g, lambda s: _dot(s).get("want") is True and _dot(s).get("src") == "section0", wf.DOT_S, "the dot parked on section 0")
+        _wwa(g, "hostmode", "1")
+        ok, why = _host_path(g, DOTRIDE_PATH, DOTRIDE_UPS)
+        if not ok:
+            led.unreached(rows, f"`worldwalk host path` refused: {why}")
+            return
+        cb.poll(g, lambda s: _bench(s).get("walking") is True and _lane(s).get("rx", {}).get("mode") == 1, 3.0, "the riding host on the wire")
+        ride = [s for s in _watch(g, DOTRIDE_S, until=lambda s: _bench(s).get("walking") is False) if wf.judged(s)
+                and _bench(s).get("walking") is True and _dot(s).get("want") is True]
+        _wwa(g, "pose", "off")
+        back = _watch(g, DOT_BACK_S, until=lambda s: _dot(s).get("src") == "section0")
+        _wwa(g, "pose", "on")
+    finally:
+        _host_off(g)
+        _wwa(g, "hostmode", "0")
+        wf._host_off(g)
+    led.check("S166-A-DOTRIDE", *judge_dotride(ride, back))
+    if ctx.get("pulled") == "dot":
+        ctx["measured"]["S166-A-DOTRIDE"] = dot_lever_measured(ride)
+
+
+def _leg_body(g, led: cb.Ledger, ctx: dict) -> None:
+    """A-BODY: 9002, 9010 and 9011 in turn (each a follow-out from 6603 with a fabricated [102]), a bench host standing beside me with my
+    own walker's model; on 9002 the shot, the HUD state and the off-diagonal `hostmodel 310`."""
+    rows = A_LEG_ROWS["body"]
+    if _absent(led, rows, g.state):
+        return
+    visits, off, notes = [], None, []
+    for idx, world in BODY_ROUTE:
+        ok, why, _ss, field = _a_land(g, ctx, idx=idx, world=world)
+        if not ok:
+            notes.append(f"{world}: {why}")
+            visits.append((world, field, None, None))
+            continue
+        x, z = wf.world_xz(g.state)
+        ok, why = _host_path(g, (BW.ww_norm_x(x + BODY_NEAR[0]), min(0.0, z + BODY_NEAR[1])), 0.0)
+        shown = _poll_ghost(g, lambda gh: gh.get("shown") is True and (gh.get("model") or -1) > 0, BODY_S, f"the body on {world}")
+        if world == 9002:
+            path, why_s = cb.shot(g, "a-body-9002")
+            st = g.state
+            notes.append(f"9002: ui {st.ui_state!r}, dot.hud {_dot(st).get('hud')!r}, minimap {_dot(st).get('minimap')!r}, shot "
+                         f"{path or why_s}")
+            if shown is not None:
+                a = g.state
+                _wwa(g, "hostmodel", str(BODY_OFF_MODEL))
+                b = _poll_ghost(g, lambda gh: gh.get("model") == BODY_OFF_MODEL and gh.get("shown") is True, BODY_S, "the 310 body")
+                _wwa(g, "hostmodel", "0")
+                c = _poll_ghost(g, lambda gh: gh.get("model") == BODY_WANT[9002] and gh.get("shown") is True, BODY_S, "the 309 body")
+                off = {"base": a, "at": b, "back": c}
+        _host_off(g)
+        visits.append((world, field, shown, g.state))
+    ok, why = judge_body(visits, off)
+    led.check("S166-A-BODY", ok, why + (f"; {'; '.join(notes)}" if notes else ""))
+
+
+def _leg_stall(g, led: cb.Ledger, ctx: dict) -> None:
+    """A-STALL (`hostseq freeze` to the hide and back; `hostgap 1500`), A-HANG (freeze after `hostplace 3`) and its controls."""
+    rows = A_LEG_ROWS["stall"]
+    st = g.state
+    if _absent(led, ("S166-A-STALL",), st) and _absent(led, ("S166-A-HANG", "S166-A-HANG-CTL"), st):
+        return
+    ok, why = _a_world(g, ctx)
+    if not ok:
+        led.unreached(rows, f"the instrument: {why}")
+        return
+    _host_off(g)
+    ok, why = _host_path(g, STALL_PATH, STALL_UPS, loop=True)
+    if not ok:
+        led.unreached(rows, f"`worldwalk host path` refused: {why}")
+        return
+    lev = ctx.get("pulled") == "lanegap"
+    if "S166-A-STALL" not in led.done:
+        _poll_ghost(g, lambda gh: gh.get("shown") is True, BODY_S, "the ghost on the walk")
+        base, at = g.state, cb.mark(g)
+        _wwa(g, "hostseq", "freeze")
+        frz = _watch(g, STALL_S, until=lambda s: _ghost(s).get("why_not") == "stale" and _ghost(s).get("shown") is False
+                     and _line(s).get("asked") == "lost")
+        frz += _watch(g, 0.3)
+        f_lines = cb.new(g, at)
+        f_ok, f_why = judge_freeze(base, frz, f_lines)
+        at2 = cb.mark(g)
+        _wwa(g, "hostseq", "run")
+        rs = _watch(g, RESHOW_S, until=lambda s: _ghost(s).get("shown") is True)
+        rs += _watch(g, 0.3)
+        r_ok, r_why = judge_reshow(frz[-1] if frz else base, rs, cb.wait_log(g, at2, BW.LOG_WW_LINE_LOST_OVER, 1.0))
+        _poll_ghost(g, lambda gh: gh.get("shown") is True and gh.get("stall") == "move", RESHOW_S, "the ghost walking again")
+        gbase, at3 = g.state, cb.mark(g)
+        _wwa(g, "hostgap", str(GAP_MS))
+        gp = _watch(g, GAP_S, until=lambda s: (_lane(s).get("last_line") == "gap_end" or lev) and (_lane(s).get("bench") or {}).get(
+            "gap_left_ms", -1) in (-1, 0) and _lane(s).get("open") == "ok")
+        gp += _watch(g, 0.3)
+        g_lines = cb.new(g, at3)
+        g_ok, g_why = judge_gap(gbase, gp, g_lines)
+        led.check("S166-A-STALL", f_ok and r_ok and g_ok, f"freeze: {f_why} || run: {r_why} || gap: {g_why}")
+        if lev:
+            last = gp[-1] if gp else g.state
+            ctx["measured"]["S166-A-STALL"] = lanegap_lever_measured(base, last, cb.new(g, at))
+    if "S166-A-HANG" in led.done:
+        _host_off(g)
+        return
+    # A-HANG: place 3, then the freeze
+    _wwa(g, "hostplace", str(LOAD_PLACE))
+    cb.poll(g, lambda s: (_lane(s).get("rx") or {}).get("place") == LOAD_PLACE, 3.0, "place 3 on the wire")
+    hbase, at4 = g.state, cb.mark(g)
+    _wwa(g, "hostseq", "freeze")
+    hs = _watch(g, HANG_S, until=_hang_open)
+    hs += _watch(g, HANG_TAIL_S)
+    h_lines = cb.new(g, at4)
+    at5 = cb.mark(g)
+    _wwa(g, "hostseq", "run")
+    end_lines = cb.wait_log(g, at5, "lane hang over", 1.5)
+    h_ok, h_why = judge_hang(h_lines, hs, worded="loading")
+    e_ok, e_why = judge_hang_end(end_lines, worded="loaded")
+    led.check("S166-A-HANG", h_ok and e_ok, f"{h_why}; {e_why}")
+    # A-HANG-CTL (gap): the same state (place 3, frozen) and `hostgap` -- the hang is cut by a gap
+    g.wait_frames(SETTLE_FRAMES)
+    _wwa(g, "hostseq", "freeze")
+    cb.poll(g, lambda s: _lane(s).get("open") == "hang_loading", HANG_S, "the place-3 hang open")
+    at6 = cb.mark(g)
+    _wwa(g, "hostgap", str(GAP_MS))
+    cb.poll(g, lambda s: _lane(s).get("open") == "gap", HANG_S, "the gap open")
+    _watch(g, 0.5)
+    gap_lines = cb.new(g, at6)
+    _wwa(g, "hostseq", "run")
+    _watch(g, GAP_MS / 1000.0 + 0.5)
+    # A-HANG-CTL (place4): `hostplace 4` then the freeze -- worded a hang
+    _wwa(g, "hostplace", str(BW.WW_PLACE_WORLD))
+    cb.poll(g, lambda s: (_lane(s).get("rx") or {}).get("place") == BW.WW_PLACE_WORLD and _lane(s).get("open") == "ok", 3.0,
+            "place 4 on the wire, the lane quiet")
+    at7 = cb.mark(g)
+    _wwa(g, "hostseq", "freeze")
+    p4 = _watch(g, HANG_S, until=_hang_open)
+    p4 += _watch(g, HANG_TAIL_S)
+    p4_lines = cb.new(g, at7)
+    _wwa(g, "hostseq", "run")
+    led.check("S166-A-HANG-CTL", *judge_hang_ctl(gap_lines, p4_lines, p4))
+    if lev:
+        last = g.state
+        ctx["measured"]["S166-A-HANG"] = lanegap_lever_measured(hbase, last, h_lines)
+        ctx["measured"]["S166-A-HANG-CTL"] = lanegap_lever_measured(hbase, last, gap_lines + p4_lines)
+    _host_off(g)
+
+
+def _release_round_a(g, led: cb.Ledger, ctx: dict) -> None:
+    """A lever pulled (`lanegap off`, on an engine with the lane), then `reset` (the worldwalk release with the harness): the role released,
+    the release line once; then the re-read WITH the role: every round-A lever at rest, the bench host off. One verdict after both reads."""
+    st0 = g.state
+    lane = cb.has(st0, LANE_PROBE)
+    pulled = _ww(g, "lanegap", "off")[0] if lane else False
+    at = cb.mark(g)
+    try:
+        cb.release(g)
+    except HarnessError as err:
+        led.check("S166-A-R", False, f"`reset` failed: {str(err)[:300]}")
+        return
+    forced = (g.state.netsync or {}).get("forced")
+    if not lane:
+        led.check("S166-A-R", forced is False, f"forced={forced!r} (an engine before s166 A3: no round-A lever to release)")
+        return
+    n = cb.count(cb.wait_log(g, at, BW.LOG_WORLDWALK_RELEASED, 2.0), BW.LOG_WORLDWALK_RELEASED)
+    st2, why = cb.reread_with_role(g)
+    want = dict(A3_REST, bench=False)
+    if st2 is not None and cb.has(st2, GHOST_PROBE):
+        want.update(A4_REST)
+    r_ok, r_why = judge_a_rest(st2, want) if st2 is not None else (False, "no re-read")
+    ok = forced is False and pulled and n == 1 and r_ok
+    led.check("S166-A-R", ok, f"forced={forced!r}; a lever pulled before the reset: {pulled}; the release line {n}x (want 1); re-read "
+                              f"with the role: {r_why}" + (f"; {why}" if why else ""))

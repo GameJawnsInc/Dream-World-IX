@@ -961,6 +961,16 @@ def _unwalked(doc: dict) -> dict:
     if isinstance(out.get("world"), dict):
         drop = FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"]["world"]
         out["world"] = {k: v for k, v in out["world"].items() if k not in drop}
+    # [ff9mapkit netsync s166] W2: ...and the keys round A grows INSIDE older blocks (A3's `host.world.guest`, A4's `world.dot.src`,
+    # PROVISIONAL): every dotted path of the rung's row
+    for path, keys in FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"].items():
+        if "." not in path:
+            continue
+        head, rest = path.split(".", 1)
+        node = out.get(head)
+        if not isinstance(node, dict) or not isinstance(node.get(rest), dict):
+            continue
+        out[head] = dict(node, **{rest: {k: v for k, v in node[rest].items() if k not in keys}})
     return out
 
 
@@ -982,6 +992,19 @@ def _s166_live() -> bool:
     """[ff9mapkit netsync s166] Whether the LIVE patch stack carries the s166 patch yet (the engine lane builds concurrently: until its
     patch lands the live agent is s165's, and every kit-vs-agent pin compares it with the stand-in AT that rung)."""
     return any(n.startswith("s166-") and n not in msr.DEAD for n in msr.stack())
+
+
+def _s166_a3_live() -> bool:
+    """[ff9mapkit netsync s166] W2: the live s166 patch carries A3 (the sender, the cache, the lines: `world.lane` / `world.line` /
+    `host.world.guest`, the five overlay names) -- read off the stack's NetSyncClient, never the clone."""
+    return _s166_live() and bool(net_lines("NetSyncClient.cs", r"private void WorldLaneStep\("))
+
+
+def _s166_a4_live() -> bool:
+    """[ff9mapkit netsync s166] W2: the live s166 patch carries A4 (the world ghost: its own NetSyncWorldGhost.cs, decision 8)."""
+    return _s166_live() and any(path and path.replace("\\", "/").endswith("NetSyncWorldGhost.cs")
+                                for nm in msr.stack() if nm.startswith("s166-") and nm not in msr.DEAD
+                                for path, _sec in msr.sections((msr.PATCHES / nm).read_bytes()))
 
 
 def _live_caps() -> frozenset:
@@ -1017,9 +1040,15 @@ def _s165_world_tail() -> str:
     BW.WORLD_S166_ALL_KEYS at BW.WORLD_SENTINELS_S166B)."""
     if not _s165_live():
         return ""
-    tail = "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S165[k], separators=(",", ":")) for k in BW.WORLD_S165_KEYS)
+    # [ff9mapkit netsync s166] W2: A4 (PROVISIONAL) grows `dot` by `src` -- the dot's sentinels by the live stage
+    dot = BW.WORLD_DOT_SENTINELS_S166 if _s166_a4_live() else BW.WORLD_SENTINELS_S165["dot"]
+    tail = "".join(f',"{k}":' + json.dumps(dot if k == "dot" else BW.WORLD_SENTINELS_S165[k], separators=(",", ":"))
+                   for k in BW.WORLD_S165_KEYS)
     if _s166_live():
         tail += "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S166B[k], separators=(",", ":")) for k in BW.WORLD_S166_ALL_KEYS)
+    if _s166_a3_live():                 # [ff9mapkit netsync s166] W2: A3's `lane` and `line` after `pairpull`, then A4's `ghost` (PROVISIONAL)
+        tail += "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S166D[k], separators=(",", ":"))
+                        for k in BW.WORLD_S166C_KEYS + (BW.WORLD_S166D_KEYS if _s166_a4_live() else ()))
     return tail
 
 
@@ -1037,7 +1066,7 @@ def _sw_live_catch_tail() -> str:
     tail = (',"swap":' + json.dumps(FG.NETSYNC_SWAP_SENTINELS, separators=(",", ":"))) if _s164_live() else ""
     if _s165_live():                    # [ff9mapkit netsync s165] ...then `saveguard` and `host` at their sentinels
         tail += (',"saveguard":' + json.dumps(BW.SAVEGUARD_SENTINELS, separators=(",", ":")) + ',"host":'
-                 + json.dumps(BW.HOST_SENTINELS, separators=(",", ":")))
+                 + json.dumps(BW.HOST_SENTINELS_S166 if _s166_a3_live() else BW.HOST_SENTINELS, separators=(",", ":")))   # [s166] W2: + guest
     if _s166_live():                    # [ff9mapkit netsync s166] ...then A2's `wire_peer` at its sentinels, netsync's LAST key
         tail += ',"wire_peer":' + json.dumps(BW.WIRE_PEER_SENTINELS, separators=(",", ":"))
     return tail
@@ -6606,7 +6635,8 @@ def test_the_sitting_a_constants_and_names_are_the_stacks():
             assert any(re.match(rf'case {re.escape(consts[value])}: return "{re.escape(name)}";', ln)
                        for ln in _stack_text("NetSyncClient.cs")), (group, value, name)
     assert {re.match(r'case Ovl\w+: return "(\w+)";', ln).group(1) for ln in _stack_text("NetSyncClient.cs")
-            if re.match(r'case Ovl\w+: return "(\w+)";', ln)} == set(BW.OVERLAY_NAMES)
+            if re.match(r'case Ovl\w+: return "(\w+)";', ln)} == set(BW.OVERLAY_NAMES) | (set(BW.OVERLAY_NAMES_S166) if _s166_a3_live()
+                                                                                         else set())   # [ff9mapkit netsync s166] W2: A3's five
     field = {v: k for k, v in BW.CS_FIELD_CONSTANTS.items()}
     for value, name in BW.MENU_KEY_NAMES.items():
         assert net_lines("NetSyncField.cs", re.escape(f'case {field[value]}: return "{name}";')), name

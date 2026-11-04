@@ -48,6 +48,35 @@ def _patch() -> bytes:
     return (msr.PATCHES / PATCH).read_bytes()
 
 
+def _live(prefix: str) -> bool:
+    """[ff9mapkit netsync s166] W2 reconcile: the LIVE stack carries a patch of round ``prefix`` ("s165-", "s166-")."""
+    return any(n.startswith(prefix) and n not in msr.DEAD for n in msr.stack())
+
+
+def _s166_a3_live() -> bool:
+    """[ff9mapkit netsync s166] W2 reconcile: the live s166 patch carries A3 (the five world-line overlay states, `world.lane` / `line`)."""
+    return _live("s166-") and bool(net_lines("NetSyncClient.cs", r"private void WorldLaneStep\("))
+
+
+def _s166_a4_live() -> bool:
+    """[ff9mapkit netsync s166] W2 reconcile: the live s166 patch carries A4 (it creates NetSyncWorldGhost.cs: `world.ghost`, `dot.src`)."""
+    return _live("s166-") and any(path and path.replace("\\", "/").endswith("NetSyncWorldGhost.cs")
+                                  for nm in msr.stack() if nm.startswith("s166-") and nm not in msr.DEAD
+                                  for path, _sec in msr.sections((msr.PATCHES / nm).read_bytes()))
+
+
+def _live_world_sentinels() -> dict:
+    """[ff9mapkit netsync s166] W2 reconcile: `netsync.world` as the LIVE catch line writes it, BY THE STACK'S STAGE -- s144's, s165's
+    four after `dio`, then round A's: A0 + A0b (`kitcell`, `pairpull`), A3 (`lane`, `line`), A4 (`ghost`, and `dot` grown by `src` ..)."""
+    if _s166_a4_live():
+        return BW.WORLD_SENTINELS_S166D
+    if _s166_a3_live():
+        return BW.WORLD_SENTINELS_S166C
+    if _live("s166-"):
+        return BW.WORLD_SENTINELS_S166B
+    return BW.WORLD_SENTINELS_S165 if _live("s165-") else BW.WORLD_SENTINELS
+
+
 def _new_side(file_name: str) -> list:
     """The patch's NEW-side lines for ``file_name``: (hunk, kind, stripped text)."""
     out, hunk = [], 0
@@ -137,8 +166,11 @@ def test_every_hunk_carries_the_s144_tag_and_stays_ascii():
 
 
 def test_the_wire_stays_v14_and_the_protocol_5():
+    """s144 bumps no wire. [ff9mapkit netsync s166] W2 reconcile: BY STAGE -- s166's piece A2 is the round that bumps it to 15 (decision 2,
+    alone in its round); its patch is told by A2's own structure (HarnessAgent.AppendWirePeer), never by the number this pin reads."""
+    a2 = _live("s166-") and bool(net_lines("HarnessAgent.cs", r"private static void AppendWirePeer\("))
     versions = [ln for ln in net_lines("NetSyncSocket.cs", r".") if ln.startswith("public const Byte Version = ")]
-    assert len(versions) == 1 and versions[0].startswith("public const Byte Version = 14;"), versions
+    assert len(versions) == 1 and versions[0].startswith(f"public const Byte Version = {15 if a2 else 14};"), versions
     assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
     # no new [Netsync] ini knob: the patch reads no ini setting at all
     assert not net_lines("NetSyncClient.cs", r'GetSetting\("Netsync"', [_patch()])
@@ -180,7 +212,9 @@ def test_the_twins_constants_are_the_engines():
     # s165's four (the world follow-out's field lines)
     names = [m.group(1) for ln in net_lines("NetSyncClient.cs", r'case Ovl\w+: return "') for m in
              [re.match(r'case Ovl\w+: return "(\w+)";', ln)] if m]
-    assert set(names) == set(BW.OVERLAY_NAMES) and BW.OVERLAY_NAMES[-9:-4] == BW.OVERLAY_NAMES_S144
+    # [ff9mapkit netsync s166] W2 reconcile: ...then A3's five world-line states (wire_mismatch .. host_scene) once ITS patch is live
+    want_names = set(BW.OVERLAY_NAMES) | (set(BW.OVERLAY_NAMES_S166) if _s166_a3_live() else set())
+    assert set(names) == want_names and BW.OVERLAY_NAMES[-9:-4] == BW.OVERLAY_NAMES_S144
     assert BW.OVERLAY_NAMES[-4:] == BW.OVERLAY_NAMES_S165 and [BW.overlay_name(s) for s in range(14, 18)] == list(BW.OVERLAY_NAMES_S165)
     # WaitLineName's vocabulary, and the words (decision 7's sentences, verbatim)
     body = " ".join(_block("NetSyncClient.cs", "internal static String WaitLineName(", "return null;"))
@@ -197,7 +231,7 @@ def test_the_twins_constants_are_the_engines():
     lit = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')[0].replace('\\"', '"')
     esc = lambda d: json.dumps(d, separators=(",", ":"))                 # noqa: E731
     assert f'"ghost_held":false,"overlay_text":null,"follow":{esc(BW.SESSION_FOLLOW_SENTINELS)}}},"menu_refusal"' in lit
-    assert f'"world":{esc(BW.WORLD_SENTINELS_S165)},"guestlocal":{{' in lit   # [ff9mapkit netsync s156] guestlocal follows world [ff9mapkit netsync s165] (r3 / out / host / dot after dio)
+    assert f'"world":{esc(_live_world_sentinels())},"guestlocal":{{' in lit   # [ff9mapkit netsync s156] guestlocal follows world [ff9mapkit netsync s165] (r3 / out / host / dot after dio) [ff9mapkit netsync s166] W2 reconcile: round A's by stage
     s164 = [(msr.PATCHES / n).read_bytes() for n in msr.stack()[:msr.stack().index("s164-netsync-field-swap-timing.patch") + 1]
             if n not in msr.DEAD]
     assert f'"world":{esc(BW.WORLD_SENTINELS)},"guestlocal":{{' in net_lines(
@@ -781,14 +815,15 @@ def test_every_world_key_has_an_accessor_and_reads_its_sentinel():
     # [ff9mapkit netsync s165] ...and s165's `saveguard`, `host` after it, `world` its four after `dio`, once ITS patch is live
     live165 = any(n.startswith("s165-") and n not in msr.DEAD for n in msr.stack())
     want = ["world", "guestlocal", "ghostframe", "stepout", "chest", "ate", "speed"] + (["swap"] if live164 else []) + \
-        (list(BW.NETSYNC_TOP_KEYS_S165) if live165 else [])
-    assert nothing["world"] == (BW.WORLD_SENTINELS_S165 if live165 else BW.WORLD_SENTINELS) and list(nothing)[-len(want):] == want   # [ff9mapkit netsync s156] [ff9mapkit netsync s157] [s158] [s160] [s161] [s163] [s164] [s165]
+        (list(BW.NETSYNC_TOP_KEYS_S165) if live165 else []) + (list(BW.NETSYNC_TOP_KEYS_S166) if _live("s166-") else [])   # [s166] wire_peer
+    assert nothing["world"] == _live_world_sentinels() and list(nothing)[-len(want):] == want   # [ff9mapkit netsync s156] [ff9mapkit netsync s157] [s158] [s160] [s161] [s163] [s164] [s165] [s166] W2 reconcile: by stage
     if live164:
         assert nothing["swap"] == FG.NETSYNC_SWAP_SENTINELS
     assert nothing["session"]["follow"] == BW.SESSION_FOLLOW_SENTINELS and nothing["session"]["overlay_text"] is None
     assert list(nothing["session"])[-2:] == list(BW.SESSION_KEYS_S144) and tuple(nothing["session"]) == FG.NETSYNC_SESSION_KEYS
     # [ff9mapkit netsync s165] s165's four blocks have their own accessors (State.world_out_block ...), never this table's
-    leaves = _leaves({k: v for k, v in nothing["world"].items() if k not in BW.WORLD_S165_KEYS})
+    # [ff9mapkit netsync s166] W2 reconcile: ...and round A's (State.world_kitcell_block, world_pairpull_block, the lane / line / ghost reads)
+    leaves = _leaves({k: v for k, v in nothing["world"].items() if k not in BW.WORLD_S165_KEYS + BW.WORLD_S166_ROUND_A_KEYS})
     table = CH.State.NETSYNC_WORLD_ACCESSORS
     assert set(table) == set(leaves), sorted(set(table) ^ set(leaves))
     st = CH.State({"frame": 1, "netsync": nothing})

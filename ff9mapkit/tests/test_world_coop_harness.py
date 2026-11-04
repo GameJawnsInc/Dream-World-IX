@@ -1402,13 +1402,15 @@ def test_the_stand_in_publishes_the_s165_keys_at_their_shapes(tmp_path):
         st = g.state
         # [ff9mapkit netsync s166] the prefix law: s165's eight unmoved, then s166's `kitcell` and A0b's `pairpull`
         # (tests/test_coop_world_walk.py) -- and A2's `wire_peer` after `host`, netsync's LAST key
-        assert list(st.netsync)[-4:] == ["swap", "saveguard", "host", "wire_peer"] and list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S166B)
+        assert list(st.netsync)[-4:] == ["swap", "saveguard", "host", "wire_peer"] and list(st.netsync["world"]) == list(
+            FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldwalk"])   # [ff9mapkit netsync s166] W2: + A3's lane / line, A4's ghost
         w = st.netsync["world"]
         for key, want in (("r3", CONTRACT_WORLD_R3), ("out", CONTRACT_WORLD_OUT), ("host", CONTRACT_WORLD_HOST),
                           ("dot", CONTRACT_WORLD_DOT)):
-            assert list(w[key]) == list(want), key
+            # [ff9mapkit netsync s166] W2: the newest stand-in's `dot` gains A4's `src` .. `src_face` -- s165's keys unmoved before it
+            assert list(w[key]) == list(want) + (list(BW.A4_CONTRACT["dot_src_keys"]) if key == "dot" else []), key   # [s166] W2: A4 final
         assert list(st.netsync["saveguard"]) == list(CONTRACT_SAVEGUARD)
-        assert {k: list(v) for k, v in st.netsync["host"].items()} == {"world": list(CONTRACT_HOST["world"])}
+        assert {k: list(v) for k, v in st.netsync["host"].items()} == {"world": list(CONTRACT_HOST["world"]) + ["guest"]}   # [s166] W2: A3
         assert (w["out"]["lever"], w["out"]["state"], w["dot"]["lever"], w["r3"]["lever"], st.saveguard_block["lever"]) == \
             ("on", "idle", "on", "act", "act")
         assert list(st.raw["world"])[-1] == "block_ready" and st.world_block_ready is False and st.coop_world_follow is True
@@ -2037,7 +2039,11 @@ def test_s165_the_stand_ins_blocks_are_the_engines(tmp_path):
     with _session(game, fake) as g:
         g.newgame(settle=0)
         st = g.state
+        # [ff9mapkit netsync s166] W2: the newest stand-in grows two s165 blocks (A4's `dot.src` .. `src_face`; A3's `host.world.guest`) --
+        # s165's own keys are the prefix, unmoved
+        grown = {"dot": BW.WORLD_NESTED_S166["world.dot"]}
         for key in BW.WORLD_S165_KEYS:
-            assert list(st.netsync["world"][key]) == list(nothing["world"][key]), key
+            assert [k for k in st.netsync["world"][key] if k not in grown.get(key, ())] == list(nothing["world"][key]), key
         assert list(st.netsync["saveguard"]) == list(nothing["saveguard"])
-        assert {k: list(v) for k, v in st.netsync["host"].items()} == {k: list(v) for k, v in nothing["host"].items()}
+        assert {k: [x for x in v if x not in BW.WORLD_NESTED_S166["host.world"]] for k, v in st.netsync["host"].items()} == {
+            k: list(v) for k, v in nothing["host"].items()}

@@ -5,7 +5,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-WT = Path(r"C:\gd\Dream-World-IX\.claude\worktrees\dreamy-allen-a2375f")
+#: [ff9mapkit netsync s166] the checkout this script lives in (studies/world-coop/s166-handoff/ -> the worktree root), the bench's cwd
+#: and import path -- never another worktree's (it named dreamy-allen-a2375f: a bench there ran THAT branch's scenario). SOLO_INI_WT
+#: overrides it.
+WT = Path(os.environ.get("SOLO_INI_WT") or Path(__file__).resolve().parents[3])
 sys.path.insert(0, str(WT / "studies" / "test-harness" / "scenarios"))
 sys.path.insert(0, str(WT / "tools"))
 import _coop_peer_bench as pb  # noqa: E402

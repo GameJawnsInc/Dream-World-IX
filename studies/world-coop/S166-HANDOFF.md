@@ -10,7 +10,7 @@ engine clone. The design is `S166-DESIGN.md`, and the owner took every recommend
 | A0 | decision 19, the control-off kit-cell close, on every world map | **deployed + benched**: OLD on s165 measured both hazards; NEW 8/8; the lever reproduces both; s165 solo green. Kit commit `5cbdfd08` |
 | A0b | decision 26, the pairing pull | **deployed `9e4365349fab02b1` + BENCHED**: NEW T2 pair 11/11; LEVER T2 pair exactly OLD's five red, CAL green (the wait measured, 653 samples on 6603); regression green (below). S166-PR-SAVEMENU was a mis-derived row, re-derived (below) |
 | W1 | A1 the pure core + A2 wire v15 + the kit wire lane | **built, reviewed, NOT deployed**: A1 + A2 in the clone (5 files, every hunk tagged, `--no-deploy` clean; proof offline "247 rows, 70 mutants"); kit lane committed (W1 set: 853 passed, 1 load-noise red green alone) |
-| W2 | A3 sender/cache/lines, A4 the world ghost, the dot from the trailer, their bench rows | not written |
+| W2 | A3 sender/cache/lines, A4 the world ghost, the dot from the trailer, their bench rows | **built, reviewed, NOT deployed**: A3 + A4 + the dot in the clone (8 files incl. the new `NetSyncWorldGhost.cs`, every hunk tagged, `--no-deploy` clean; proof offline "308 rows, 98 mutants"); the stand-in, Round A's rows and the runners committed (below) |
 | W3 | the whole-diff review, the s166 patch emit, the README row, the regression set, the laptop package | not written |
 
 **Live DLL:** `9e4365349fab02b1` (A0 + A0b). The revert sets are:
@@ -116,6 +116,23 @@ the owner's case.
    the trailer, the harness levers/keys of decision 25, the stand-in's trailer model, and the Round A bench rows (A-WIRE ..
    A-DOTRIDE, T2-A old/roam/freeze, T2-H, the Duo row). Keep each workflow under 10 agents. One build for W1+W2, then the
    design's Order paragraph, with levers.
+   **W2 done** (the run's full result: `w2_result.json` in this session's scratchpad). What the bench and W3 inherit:
+   - The clone's W2 delta: `NetSyncClient.cs`, `NetSyncWorldWalk.cs`, `NetSyncWorldDot.cs`, `HarnessAgent.cs`, the new
+     `NetSyncWorldGhost.cs` (+ its csproj line), and one-line hooks in `Ff9mkDebugMenu.cs` (`NetSyncControlHeld`) and
+     `WMScriptDirector.cs` (the ghost's world-load `HideNow`). W3's patch must carry all of them, A0 + A0b + A1 + A2 with them.
+   - A-PROOF in game should read "world walk selftest: OK (308 rows, 98 mutants)". The runners export `FF9_S166_CLONE` so the
+     judge wants exactly that until the s166 patch exists.
+   - The engine review fixed four small defects (W2R-1..4: `hostlines off` silences the host's stall-lost line too and logs no
+     edge; every missing clip is remembered; a re-shown body re-plays its clip). The critic tightened four rows that could not
+     fail (D-REJOIN, OLD-DORMANT, WIRE-NOPAIR's cache clause, the T2 ghost oracle's facing) and pinned A-PROOF's tallies.
+   - Runners: `round_a_old.sh` (on A0b, BEFORE the build), `round_a_new.sh`, `round_a_lever.sh`, `round_a_regress.sh`
+     (W3's set), all sourcing `round_a_lib.sh` (benchguard, FF9 closed, the bridge down for T2, solo_ini, the DLL pinned).
+   - Known gaps, left on purpose: A-MENU is stand-in only (no harness verb holds the ~ menu's control); the host's own
+     5 s arrival-gap lost line has no T2-H row; the s144/s145 duo legs don't read the trailer themselves (D-TRAILER does);
+     the ghost's facing, the shadow prefab, the bodies' clips and the CreateModel hitch are in-game unknowns (game_snap at
+     A-GHOST); GroundTolU = 1 u is a guess (read `mismatches`).
+   - W3 also owes: re-keying the "39 B" in-game judges (`_climb_anim_judges.py`, `coop_climb_anim_peer.py`) for 94-byte
+     type-0 frames; `test_harness_netsync.py`'s comments still say A4 is PROVISIONAL.
 3. W3: a fresh whole-diff review, the patch emit (`--skip` the s166 name, every gate as in the s165 row, `NetSyncWorldWalk.cs`
    (+ `NetSyncWorldGhost.cs`) into `tools/memoria_stack_replay.py` DEFAULT_FILES), the README row, the regression set (s165's
    `regress.sh` list + every coop_peer scenario, with restamped tapes), and the laptop package. **The laptop package must
