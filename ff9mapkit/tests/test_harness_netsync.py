@@ -962,7 +962,7 @@ def _unwalked(doc: dict) -> dict:
         drop = FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"]["world"]
         out["world"] = {k: v for k, v in out["world"].items() if k not in drop}
     # [ff9mapkit netsync s166] W2: ...and the keys round A grows INSIDE older blocks (A3's `host.world.guest`, A4's `world.dot.src`,
-    # PROVISIONAL): every dotted path of the rung's row
+    # frozen in s166-netsync-world-walk.patch): every dotted path of the rung's row
     for path, keys in FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"].items():
         if "." not in path:
             continue
@@ -1040,13 +1040,14 @@ def _s165_world_tail() -> str:
     BW.WORLD_S166_ALL_KEYS at BW.WORLD_SENTINELS_S166B)."""
     if not _s165_live():
         return ""
-    # [ff9mapkit netsync s166] W2: A4 (PROVISIONAL) grows `dot` by `src` -- the dot's sentinels by the live stage
+    # [ff9mapkit netsync s166] W2: A4 (frozen in s166-netsync-world-walk.patch) grows `dot` by `src` -- the dot's sentinels by the live stage
     dot = BW.WORLD_DOT_SENTINELS_S166 if _s166_a4_live() else BW.WORLD_SENTINELS_S165["dot"]
     tail = "".join(f',"{k}":' + json.dumps(dot if k == "dot" else BW.WORLD_SENTINELS_S165[k], separators=(",", ":"))
                    for k in BW.WORLD_S165_KEYS)
     if _s166_live():
         tail += "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S166B[k], separators=(",", ":")) for k in BW.WORLD_S166_ALL_KEYS)
-    if _s166_a3_live():                 # [ff9mapkit netsync s166] W2: A3's `lane` and `line` after `pairpull`, then A4's `ghost` (PROVISIONAL)
+    # [ff9mapkit netsync s166] W2: A3's `lane` and `line` after `pairpull`, then A4's `ghost` (frozen in s166-netsync-world-walk.patch)
+    if _s166_a3_live():
         tail += "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S166D[k], separators=(",", ":"))
                         for k in BW.WORLD_S166C_KEYS + (BW.WORLD_S166D_KEYS if _s166_a4_live() else ()))
     return tail
@@ -6877,16 +6878,21 @@ def _wf_unproved(lines: list, fake) -> list:
     return lines[:-2]
 
 
-def _ww_proof_text() -> str:
-    """[ff9mapkit netsync s166] The s166 stand-in's proof line, after the world dot line (the stand-in's tallies)."""
-    return f"{BW.PROOF_WORLD_WALK}OK ({FG.FAKE_WORLD_WALK_SELFTEST_ROWS} rows, {FG.FAKE_WORLD_WALK_MUTANTS} mutants)"
+def _ww_proof_text(fake=None) -> str:
+    """[ff9mapkit netsync s166] The s166 stand-in's proof line, after the world dot line (the stand-in's tallies). [ff9mapkit netsync s166]
+    W3c (the freeze): the tallies come from the SAME source the stand-in speaks -- FG.world_walk_proof_tallies over ``fake``'s own
+    pieces and source (a default stand-in's, FAKE_WORLD_WALK_PIECES and no source, when None): the frozen
+    s166-netsync-world-walk.patch's NetSyncWorldWalk.cs from A2 on, the A0 / A0b builds' 84 / 13 before it -- never a literal."""
+    pieces = FG.FAKE_WORLD_WALK_PIECES if fake is None else fake.world_walk_pieces
+    rows, mutants = FG.world_walk_proof_tallies(pieces, None if fake is None else fake.world_walk_source)
+    return f"{BW.PROOF_WORLD_WALK}OK ({rows} rows, {mutants} mutants)"
 
 
 def _ww_unproved(lines: list, fake) -> list:
     """[ff9mapkit netsync s166] The proof block as s165 closed it: on an s166 stand-in its line (checked) comes off the end."""
     if "worldwalk" not in fake._nb_caps():
         return lines
-    assert lines and lines[-1].split("[NetSync] ", 1)[1] == _ww_proof_text(), lines[-2:]
+    assert lines and lines[-1].split("[NetSync] ", 1)[1] == _ww_proof_text(fake), lines[-2:]
     return lines[:-1]
 
 
@@ -26631,7 +26637,16 @@ def test_the_s157_ghost_frame_is_spent_where_the_spec_says():
                  "NetSyncWire.BuildPosPayload(field, anim, model, meshVis, loco, pos, rot, animFrame, frameN)));"):
         assert frag in sock, frag
     relay = " ".join(_strip_comment(t) for t in _stack_text("NetSyncRelay.cs"))
-    assert "NetSyncWire.BuildPosPayload(65535, 0, 0, 0, 0, Vector3.zero, Quaternion.identity, 0, 0)));" in relay
+    s157_sentinel = "NetSyncWire.BuildPosPayload(65535, 0, 0, 0, 0, Vector3.zero, Quaternion.identity, 0, 0)));"
+    assert s157_sentinel in [_strip_comment(t) for t in _s157_added("NetSyncRelay.cs")]     # the s157 stage, frozen
+    if _s166_live():
+        # [ff9mapkit netsync s166] W3c (the freeze), BY STAGE: A2 builds the sentinel WITH decision 4's trailer (the 10-arg build, through
+        # NetSyncWire.KeepaliveTrailer), its s157 record unchanged -- animFrame 0, frameN 0: no frame
+        lines = [_strip_comment(t) for t in _stack_text("NetSyncRelay.cs")]
+        k = lines.index("NetSyncWire.BuildPosPayload(65535, 0, 0, 0, 0, Vector3.zero, Quaternion.identity, 0, 0,")
+        assert lines[k + 1] == "NetSyncWire.KeepaliveTrailer(NetSyncWirePeer.OwnWorldTps()))));" and s157_sentinel not in relay
+    else:
+        assert s157_sentinel in relay
     assert "NetSyncWire.BuildPosPayload(field, anim, model, meshVis, loco, pos, rot, animFrame, frameN)));" in relay
     client = [_strip_comment(t) for t in _s157_added("NetSyncClient.cs")]
     joined = " ".join(client)

@@ -476,8 +476,14 @@ def test_the_keys_are_additive_with_their_sentinels_and_the_lever_is_released():
     assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
     battle = " ".join(_stack("NetSyncBattle.cs"))
     assert "BenchLeaderGuardOff = false;" in battle and "return !(benchOff && selfTestRole);" in battle
+    # [ff9mapkit netsync s166] W3c (the freeze): BY STAGE -- the s143 stage (frozen) speaks 14, and the live stack speaks 15 once s166's
+    # piece A2 (decision 2's bump) is on it, told by A2's own structure (HarnessAgent.AppendWirePeer), never by the number this pin reads
+    frozen = [ln for ln in net_lines("NetSyncSocket.cs", r".", _upto("s143")) if ln.startswith("public const Byte Version = ")]
+    assert len(frozen) == 1 and frozen[0].startswith("public const Byte Version = 14;"), frozen
+    a2 = any(n.startswith("s166-") and n not in msr.DEAD for n in msr.stack()) and bool(
+        net_lines("HarnessAgent.cs", r"private static void AppendWirePeer\("))
     versions = [ln for ln in _stack("NetSyncSocket.cs") if ln.startswith("public const Byte Version = ")]
-    assert len(versions) == 1 and versions[0].startswith("public const Byte Version = 14;"), versions
+    assert len(versions) == 1 and versions[0].startswith(f"public const Byte Version = {15 if a2 else 14};"), versions
     # s143 touches no wire file
     assert {p.rsplit("/", 1)[-1] for p, _s in msr.sections((msr.PATCHES / PATCH).read_bytes()) if p} == {
         "NetSyncBattle.cs", "NetSyncClient.cs", "NetSyncVisitor.cs", "NetSyncSelfDress.cs", "HarnessAgent.cs"}
@@ -506,7 +512,11 @@ def test_battlewires_tables_are_the_engines():
     # [ff9mapkit netsync s144] s143's line ENDS with dress's guard (frozen); the live one carries it right before s144's `world`
     assert _catch_line(_upto("s143")).endswith(f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}}}}");')
     assert f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}},"world":{esc(BW.WORLD_SENTINELS)},"guestlocal":{{' in _catch_line(_upto("s164"))   # [ff9mapkit netsync s156] the s164 stage, frozen
-    assert f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}},"world":{esc(BW.WORLD_SENTINELS_S165)},"guestlocal":{{' in lit   # [ff9mapkit netsync s165] world gains r3 / out / host / dot
+    # [ff9mapkit netsync s165] world gains r3 / out / host / dot -- [ff9mapkit netsync s166] W3c (the freeze): the s165 stage, frozen
+    assert f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}},"world":{esc(BW.WORLD_SENTINELS_S165)},"guestlocal":{{' in _catch_line(_upto("s165"))
+    # [ff9mapkit netsync s166] W3c: the live block BY STAGE (test_world_coop's reader: round A's A0 + A0b, A3, A4 once each is on the stack)
+    from . import test_world_coop as WC
+    assert f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}},"world":{esc(WC._live_world_sentinels())},"guestlocal":{{' in lit
     # [ff9mapkit netsync s145] ...an s144 engine's `world` block is the three s144 blocks (frozen); s145's live one adds `dio`
     assert _catch_line(_upto("s144")).endswith(f'"guard":{esc(BW.DRESS_GUARD_SENTINELS)}}},"world":{esc(BW.WORLD_SENTINELS_S144)}}}");')
     assert BW.DRESS_SENTINELS["guard"] == BW.DRESS_GUARD_SENTINELS and list(BW.DRESS_SENTINELS)[-1] == "guard"

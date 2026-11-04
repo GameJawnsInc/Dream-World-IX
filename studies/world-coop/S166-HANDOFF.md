@@ -11,13 +11,16 @@ engine clone. The design is `S166-DESIGN.md`, and the owner took every recommend
 | A0b | decision 26, the pairing pull | **deployed `9e4365349fab02b1` + BENCHED**: NEW T2 pair 11/11; LEVER T2 pair exactly OLD's five red, CAL green (the wait measured, 653 samples on 6603); regression green (below). S166-PR-SAVEMENU was a mis-derived row, re-derived (below) |
 | W1 | A1 the pure core + A2 wire v15 + the kit wire lane | **built, reviewed, NOT deployed**: A1 + A2 in the clone (5 files, every hunk tagged, `--no-deploy` clean; proof offline "247 rows, 70 mutants"); kit lane committed (W1 set: 853 passed, 1 load-noise red green alone) |
 | W2 | A3 sender/cache/lines, A4 the world ghost, the dot from the trailer, their bench rows | **built, reviewed, DEPLOYED + BENCHED** with the W2b engine fix (`78dedb5d5cf4e430`, proof "310 rows, 100 mutants"): OLD 12/12 CAL green on A0b; NEW every leg green (roam 8/9: only RM-GATE, the owner's tape); LEVER 18/18 CAL green; the round-A duo 21/21 on the W2c route, its 3 levers CAL green. Kit `02bf7c59`, `b8005294`, `aa37be95` |
-| W3 | the whole-diff review, the s166 patch emit, the README row, the regression set, the laptop package | **W3a review DONE** (3 lenses, each finding verified, a completeness critic; `w3a.txt` in this session's scratchpad): SHIP AFTER FIXES, no blocker, vanilla byte-for-byte safe. **W3b fix round DONE** (S166-G1 the pull latch, W3A-RT-1/RT-4 the mint model, T1 the 15 s mismatch hold, T3 the capless span, RT-2 the walk-set mint gate, the csproj comments; the rest in S166-DESIGN.md Known limits; reviewed, 3 nits fixed): the proof reads `world walk selftest: OK (323 rows, 110 mutants)`; `w3b.txt` in this session's scratchpad. Then the build, the re-bench, the patch emit, the regression set, the package |
+| W3 | the whole-diff review, the s166 patch emit, the README row, the regression set, the laptop package | **W3a review DONE** (3 lenses, each finding verified, a completeness critic; `w3a.txt` in this session's scratchpad): SHIP AFTER FIXES, no blocker, vanilla byte-for-byte safe. **W3b fix round DONE** (S166-G1 the pull latch, W3A-RT-1/RT-4 the mint model, T1 the 15 s mismatch hold, T3 the capless span, RT-2 the walk-set mint gate, the csproj comments; the rest in S166-DESIGN.md Known limits; reviewed, 3 nits fixed): the proof reads `world walk selftest: OK (323 rows, 110 mutants)`; `w3b.txt` in this session's scratchpad. **Built + deployed `b24e0123ac93960c` and RE-BENCHED** (NEW every leg green, roam 8/9 only RM-GATE; pull pair 11/11; LEVER 16 legs CAL green; duo 21/21, s144 16/16, s145 20/20, the 3 duo levers CAL green; below). **W3c FROZEN**: `memoria-patches/s166-netsync-world-walk.patch` (sha256 `64328e1c67f5c149`, 13 files, 91 hunks, every hunk tagged; diag 60/60 `==`, the `--skip` re-emit byte-equal, `apply -R --check` clean), its README row, the two new files in DEFAULT_FILES, `TWO-PC-CHECKS-S166.md` (fact-checked, 18 fixes); domain set green (load reds green alone). Then the regression set, the package |
 
-**Live DLL:** `9e4365349fab02b1` (A0 + A0b). The revert sets are:
+**Live DLL:** `b24e0123ac93960c` (A0 + A0b + W1 + W2 + W2b + W3b). The revert sets are:
+- `py tools/restore_memoria_dll.py 20261104-095724` goes back to W1+W2+W2b (`78dedb5d5cf4e430`).
+- `py tools/restore_memoria_dll.py 20261104-042506` goes back to W1+W2 (`d6df5df17fe0af03`).
+- `py tools/restore_memoria_dll.py 20261104-014249` goes back to A0b (`9e4365349fab02b1`).
 - `py tools/restore_memoria_dll.py 20261102-204556` goes back to A0 (`af1f9e0203d2e6fa`).
 - `py tools/restore_memoria_dll.py 20261102-175107` goes back to s165 (`e364ca8d732f8cda`).
 
-**The clone** `C:\gd\FFIX\Memoria` holds s158..s165 + A0 + A0b, uncommitted by design; the s166 patch is not emitted yet.
+**The clone** `C:\gd\FFIX\Memoria` holds s158..s166, uncommitted by design; s166 is frozen as `memoria-patches/s166-netsync-world-walk.patch` (it reverse-applies clean to the clone).
 The round queue says s166 holds the clone (TAKING THE CLONE + two DEPLOYED lines); keep it held.
 
 The snapshots for diffs are in the old session's scratchpad, `C:\Users\skaki\AppData\Local\Temp\claude\C--gd-Dream-World-IX--claude-worktrees-dreamy-allen-a2375f\3f9e72b5-f0f3-488a-a7a3-4b0fc4406058\scratchpad\`:
@@ -27,6 +30,17 @@ The snapshots for diffs are in the old session's scratchpad, `C:\Users\skaki\App
 
 `s166-handoff/s166diff.py` diffs against `s165base`. Edit its `SNAP` if the scratchpad is gone; a fresh snapshot = the
 replayed stack via `py tools/memoria_stack_replay.py snapshot`.
+
+## Round A in game, W3b (2026-11-04, the build `b24e0123ac93960c`, kit `b2f09290`, runners `abc46c8b`)
+
+Logs: `C:\gd\Dream-World-IX\.harness-runs\s166-round-a\` (`20261104-095832-new`, `-101308-lever`, and the duo re-runs `-103443-new`, `-104044-lever`). Revert to W1+W2+W2b: `py tools/restore_memoria_dll.py 20261104-095724`.
+
+| Run | Result |
+|---|---|
+| NEW (15 legs) | every leg green: proof + A-TX 9/9 (323, 110), A-WIRE 7/7, T2-A old 13/13, ghost 9/9, wrap 8/8, dot 8/8, body 8/8, stall 10/10, roam 8/9 (only RM-GATE, the owner's tape), freeze 6/6, T2-H 8/8, T2-A pair 11/11 (re-run: W3b moved the landing's arm onto the start's latch), the round-A duo 21/21, duo s144 16/16, duo s145 20/20 |
+| LEVER (19 legs) | every solo and T2 lever's CAL PASS (16), and the three duo levers' S166-D-CAL PASS (ghost: D-G2/D-G1/D-BATTLE/D-REJOIN; sticky: D-BATTLE; dot: D-DOTRIDE) |
+
+The six duo legs were first refused at C0: port 49211 was an OS-assigned ephemeral port of the owner's Parsec. They re-ran with `ROUND_A_DUO_PORTS=49221,49222` (round_a_lib.sh's `$DUO`, `duo.py --bridge-ports`). Use it whenever a C0 port is taken.
 
 ## Round A in game, W1+W2 (2026-11-04, the first build `d6df5df17fe0af03`)
 

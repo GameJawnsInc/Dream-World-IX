@@ -1611,6 +1611,19 @@ def test_s166b_the_armed_guests_chord_is_refused_ahead_of_r4_on_the_stack():
     assert [BW.save_chord_refused(c, m) for c in (True, False) for m in (False, True)] == [False, True, True, True]
 
 
+def test_s166_the_replays_default_set_diags_every_file_the_frozen_patch_touches():
+    """[ff9mapkit netsync s166] W3c (the freeze): `memoria_stack_replay.py diag`'s DEFAULT_FILES holds every file
+    s166-netsync-world-walk.patch touches, its two created files (NetSyncWorldWalk.cs and NetSyncWorldGhost.cs, from /dev/null) included,
+    so a stale or mixed hunk in any of them cannot pass the default diag (s165's row, test_world_coop_harness, pins its own three)."""
+    blob = _s166_patch()
+    if blob is None:
+        pytest.skip("the s166 patch is not on this branch's stack yet (the freeze emits it)")
+    touched = [p.replace("\\", "/") for p, _s in msr.sections(blob) if p]
+    assert len(touched) == 13 and set(touched) <= set(msr.DEFAULT_FILES), sorted(set(touched) - set(msr.DEFAULT_FILES))
+    created = sorted(pathlib.PurePath(p).name for p, s in msr.sections(blob) if p and b"\n--- /dev/null\n" in s[:400])
+    assert created == ["NetSyncWorldGhost.cs", "NetSyncWorldWalk.cs"], created
+
+
 def test_s166b_the_coop_off_hand_over_rule_reads_the_reviews_fix():
     """[ff9mapkit netsync s166] A0b review R1's rule (LandWorldOut): the arm hands over the exit ramp only from inside its own arm, with co-op
     off and no ramp pending yet -- each input flipped alone turns it off."""
@@ -2368,8 +2381,10 @@ def solo(run):
     os.environ["COOP_WW_LEG"] = run.get("legs", "tx")
     if run.get("lever"):
         os.environ["COOP_WW_LEVER"] = run["lever"]
-    if run.get("source", True):
+    if run.get("source", True) is True:
         os.environ["FF9_S166_CLONE"] = clone_dir()
+    elif run.get("source") == "none":      # [ff9mapkit netsync s166] W3c: NO source at all -- the frozen patch hidden from the one reader too
+        FG.world_walk_engine_source = lambda env=None: None
     ww = load("coop_world_walk")
     cw, wf, cb = ww.cw, ww.wf, ww.cb
     # the bench's own waits, shortened for a stand-in whose virtual clock runs ~10x the wall (every JUDGED threshold stays the bench's)
@@ -2537,9 +2552,18 @@ def test_s166a_each_round_a_fault_turns_exactly_its_rows_red_over_all_six_legs(a
 
 def test_s166a_without_an_s166_source_a_proof_wants_more_than_a0bs_and_the_a0b_tallies_are_red():
     """A-PROOF's instrument can fail: no s166 source reachable -> the stand-in prints A0b's 84 / 13 (no tables of round A) -> red; P0
-    (any OK line) stays green."""
-    r = _a_run(legs="tx", source=False)
+    (any OK line) stays green. [ff9mapkit netsync s166] W3c (the freeze), BY STAGE: once the s166 patch is on this branch's stack an
+    unset FF9_S166_CLONE no longer hides the source (fakegame.world_walk_engine_source falls through to the frozen patch), so the red run
+    hides every source (`source="none"`), and the clone-less run reads the frozen patch: green, on the tallies its proof table prints."""
+    r = _a_run(legs="tx", source="none")
     assert r["red"] == ["S166-A-PROOF"] and "above A0b's (84, 13)" in r["detail"]["S166-A-PROOF"], r["detail"]["S166-A-PROOF"]
+    if _s166_patch() is None:
+        return
+    src = FG.world_walk_engine_source({})                    # the stack's own source: the frozen patch's NetSyncWorldWalk.cs
+    want = BW.world_walk_proof_counts(src) if src else None
+    assert want and want[0] > 84 and want[1] > 13, want
+    r = _a_run(legs="tx", source=False)
+    assert r["red"] == [] and f"want {tuple(want)}: the s166 source's tallies" in r["detail"]["S166-A-PROOF"], r
 
 
 def test_s166a_a_tx_is_red_without_place_3_in_the_load():

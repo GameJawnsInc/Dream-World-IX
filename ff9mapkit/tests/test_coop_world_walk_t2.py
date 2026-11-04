@@ -1366,12 +1366,20 @@ def test_the_runners_launch_only_legs_and_levers_the_scenarios_accept(t2):
             assert f"t2 {leg} {v}" in lever_sh, (leg, v)
     new_sh = (_RUNNERS / "round_a_new.sh").read_text(encoding="ascii")
     order = [new_sh.find(k) for k in ("COOP_WW_LEG=tx", "COOP_WWT_LEG=wire", "COOP_WWT_LEG=old", "COOP_WW_LEG=$l", "COOP_WW_LEG=stall",
-                                      "COOP_WWT_LEG=roam", "COOP_WWT_LEG=freeze", "COOP_WWT_LEG=host", "duo.py $SC/coop_world_walk_t2.py")]
+                                      "COOP_WWT_LEG=roam", "COOP_WWT_LEG=freeze", "COOP_WWT_LEG=host", "$DUO $SC/coop_world_walk_t2.py")]
     assert -1 not in order and order == sorted(order), order        # the design's Order: proof, wire + restamp, tx, ghosts, stall, T2, duo
     solo = (_RUNNERS / "solo_ini.py").read_text(encoding="utf-8")
     assert "dreamy-allen" not in solo.split("WT = ")[1].split("\n")[0] and "Path(__file__).resolve().parents[3]" in solo
     lib = (_RUNNERS / "round_a_lib.sh").read_text(encoding="ascii")
     assert "bench_blockers" in lib and "49201" in lib and "FF9.exe" in lib and "9e4365349fab02b1" in lib
+    # [ff9mapkit netsync s166] W3c: abc46c8b's ROUND_A_DUO_PORTS -- every duo leg of every runner goes through round_a_lib's $DUO (duo.py,
+    # with --bridge-ports passed through when set: an OS-assigned ephemeral port of another program refused all six duo legs at C0 on
+    # 11-04), never a bare duo.py that would drop the override
+    assert 'DUO="py tools/harness/duo.py${ROUND_A_DUO_PORTS:+ --bridge-ports $ROUND_A_DUO_PORTS}"' in lib
+    for name in ("round_a_old.sh", "round_a_new.sh", "round_a_lever.sh", "round_a_regress.sh"):
+        text = (_RUNNERS / name).read_text(encoding="ascii")
+        duo_legs = re.findall(r'^\s*leg "[^"]*" duo .*$', text, re.M)
+        assert duo_legs and all(" $DUO $SC/" in ln for ln in duo_legs) and "tools/harness/duo.py" not in text, (name, duo_legs)
 
 
 
