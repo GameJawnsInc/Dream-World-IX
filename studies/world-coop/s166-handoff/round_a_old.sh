@@ -22,5 +22,5 @@ leg "OLD T2-A freeze" t2 old_freeze.log -- env COOP_CALIBRATE=1 COOP_WWT_LEG=fre
 # 5. T2-H: an A0b host shows nothing (every TH row 'absent')
 leg "OLD T2-H" t2 old_host.log -- env COOP_CALIBRATE=1 COOP_WWT_LEG=host py tools/play.py $SC/coop_world_walk_t2.py
 # 6. the duo: an A0b pair draws nothing (every D row but D-SHARED red)
-leg "OLD duo" duo old_duo.log -- env COOP_CALIBRATE=1 py tools/harness/duo.py $SC/coop_world_walk_t2.py
+leg "OLD duo" duo old_duo.log -- env COOP_CALIBRATE=1 $DUO $SC/coop_world_walk_t2.py
 say "== all done (OLD). Next: build + deploy W1+W2 (the owner's go), then round_a_new.sh"

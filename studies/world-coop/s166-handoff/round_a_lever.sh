@@ -40,8 +40,9 @@ t2 freeze lanegap
 t2 freeze ghost
 t2 host hostlines
 t2 host ghost
+leg "LEVER T2 pair (its own)" t2 lever_t2_pair.log -- env COOP_CALIBRATE=1 COOP_WW_LEG=pair py tools/play.py $SC/coop_world_walk.py
 # 6. the duo's levers (any role: THE DUO CANNOT PULL A SELFTEST-ROLE LEVER)
 for v in ghost sticky dot; do
-  leg "LEVER duo $v" duo "lever_duo_$v.log" -- env COOP_CALIBRATE=1 COOP_WWT_LEVER=$v py tools/harness/duo.py $SC/coop_world_walk_t2.py
+  leg "LEVER duo $v" duo "lever_duo_$v.log" -- env COOP_CALIBRATE=1 COOP_WWT_LEVER=$v $DUO $SC/coop_world_walk_t2.py
 done
 say "== all done (LEVER)"

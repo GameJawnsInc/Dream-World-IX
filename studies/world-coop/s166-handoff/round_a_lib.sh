@@ -11,11 +11,14 @@
 #   ROUND_A_NOT_AFTER=HHMM  start no leg at or after that local time (stay clear of the 03:00 nightly gate: THE s159 LAW); the
 #                           refusal names the leg to resume from
 #   ROUND_A_FROM=N          skip legs 1..N-1 (resume a stopped run; each skipped leg is said in the summary)
+#   ROUND_A_DUO_PORTS=H,G   the duo's two bridge ports (duo.py --bridge-ports; default its 49211,49212) -- an OS-assigned
+#                           ephemeral port of another program (Parsec held 49211 on 11-04) refuses every duo leg at C0
 set -u
 WT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$WT" || exit 9
 SC=studies/test-harness/scenarios
 SOLO="py studies/world-coop/s166-handoff/solo_ini.py"
+DUO="py tools/harness/duo.py${ROUND_A_DUO_PORTS:+ --bridge-ports $ROUND_A_DUO_PORTS}"
 GAME="${FF9_GAME:-/c/Program Files (x86)/Steam/steamapps/common/FINAL FANTASY IX}"
 A0B_DLL=9e4365349fab02b1
 # [W2 critic] A-PROOF's EXACT tallies: the solo legs read them off the s166 source (fakegame.world_walk_engine_source: $FF9_S166_CLONE,

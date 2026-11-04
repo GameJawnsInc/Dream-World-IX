@@ -24,8 +24,10 @@ leg "solo stall" solo new_solo_stall.log -- env COOP_WW_LEG=stall $SOLO s166-a-s
 leg "T2-A roam" t2 new_roam.log -- env COOP_WWT_LEG=roam py tools/play.py $SC/coop_world_walk_t2.py
 leg "T2-A freeze" t2 new_freeze.log -- env COOP_WWT_LEG=freeze py tools/play.py $SC/coop_world_walk_t2.py
 leg "T2-H" t2 new_host.log -- env COOP_WWT_LEG=host py tools/play.py $SC/coop_world_walk_t2.py
+# 5b. THE PULL (A0b's T2-A pair) -- W3b moved the landing's arm onto the start's latch (S166-G1): the ARMED line, the autosave refused
+leg "T2-A pair (the pull)" t2 new_pair.log -- env COOP_WW_LEG=pair py tools/play.py $SC/coop_world_walk.py
 # 6. the duo: round A's, then the s144 / s145 duo rows UNDER AN ACTIVE TRAILER (both games s166: D-TRAILER witnesses it)
-leg "duo (round A)" duo new_duo.log -- py tools/harness/duo.py $SC/coop_world_walk_t2.py
-leg "duo s144 (trailer active)" duo new_duo_s144.log -- py tools/harness/duo.py $SC/coop_world_wait.py
-leg "duo s145 (trailer active)" duo new_duo_s145.log -- py tools/harness/duo.py $SC/coop_world_battle.py
+leg "duo (round A)" duo new_duo.log -- $DUO $SC/coop_world_walk_t2.py
+leg "duo s144 (trailer active)" duo new_duo_s144.log -- $DUO $SC/coop_world_wait.py
+leg "duo s145 (trailer active)" duo new_duo_s145.log -- $DUO $SC/coop_world_battle.py
 say "== all done (NEW). Next: round_a_lever.sh (each lever alone), then round_a_regress.sh (W3), then the owner's two-PC look"
