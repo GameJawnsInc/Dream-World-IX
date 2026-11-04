@@ -65,6 +65,19 @@ What the reds were (a read-only diagnosis + adversarial verification, both uphel
   (frozen ~0.82 s, under LaneGapMs): a later round, one change per test.
 - The A-BODY shot (9002) shows the ghost as a second Dagger beside my walker: upright, the walker's scale, on the ground.
 
+**W2b in game** (deployed `78dedb5d5cf4e430`; revert to W1+W2 = `20261104-042506`; logs `20261104-042230-w2bcal`, `-042530-new`,
+`-*-lever` in the same folder):
+- The calibration first, on the old d6df build with the W2b kit: D-LINES red on the right term (its end at 'field 0x21': ENDED AT THE
+  COMMIT), D-G1 green at 26.2 u, D-BATTLE's entry hide saw the host's swirl (5 samples, all `peer_block`). The duration term passed there
+  (1750 vs 1793 ms: the host evaluated the edge late under contention), so only the end-place term discriminates in game.
+- NEW: 13/14 green as before (the proof now 310 / 100). The round-A duo 20/21: D-G1, D-BATTLE, DOTRIDE, REJOIN green; **D-LINES red
+  because the HOST was still loading its own world map** (its own place 3, 04:38:44.30-46.73) through the guest's whole following phase,
+  so HostLineRule (own live world) could not say 'following'; once live it said 'loading' 2766 ms. s165's follow-out trigger (1200 ms of
+  host-ALIVE b6) runs ahead of the host's block load on one PC: THE LIVE DEBOUNCE again. W2c (kit): hold the guest's start with
+  `worldfollow hold` until the host's own place 4, then release, and a precondition term naming the host-loading case.
+- LEVER: **all 18 legs CAL green**, the three duo levers included. `sticky` now calibrates in game: D-BATTLE red under it, its shape
+  measured (the ghost drawn from the last valid pose through the host's swirl).
+
 ## A0b's bench results (finished after the handoff was written)
 
 | Leg | Result |

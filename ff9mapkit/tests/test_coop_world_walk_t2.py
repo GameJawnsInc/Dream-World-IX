@@ -163,11 +163,11 @@ class S:
     """A sample: frame, ui, world, the raw document."""
 
     def __init__(self, frame, *, ui="WorldHUD", world=9011, field=0, x=68.0, z=-444.0, br=True, lane=None, ghost=None, line=None,
-                 dot=None, wp=None, hg=None, session=None, freeze=True, wire=15):
+                 dot=None, wp=None, hg=None, session=None, freeze=True, wire=15, out=None):
         self.frame, self.ui_state, self.world_id, self.field_id = frame, ui, world, field
         self.world_x, self.world_z, self.dialogue_wire = x, z, wire
         ns = {"world": {"freeze": {"on": freeze}}, "session": dict(session or {})}
-        for k, v in (("lane", lane), ("ghost", ghost), ("line", line), ("dot", dot)):
+        for k, v in (("lane", lane), ("ghost", ghost), ("line", line), ("dot", dot), ("out", out)):
             if v is not None:
                 ns["world"][k] = v
         if wp is not None:
@@ -549,6 +549,61 @@ def test_the_duo_judges(t2):
     off = [S(1, lane={"rx": {"place": 4}}, ghost={"want": True, "shown": False}), S(2, lane={"rx": {"place": 2}}, ghost={"shown": False})]
     ok, why = t2.judge_d_rejoin(off, [], (True, "ok"))
     assert not ok and "before the host left on 0 sample(s)" in why and t2.ghost_off_measured(off)
+    # [W2c] D-LINES' PREMISE -- built from the round-A duo 20261104-043742's REAL samples (the W2b build): the HOST itself loading the
+    # world map (its own lane.tx.place 3, WorldHUD with its blocks still out) from 43.30 to 46.73 while the guest's trailer read place 2
+    # from 44.498 (s165's 1200 ms host-ALIVE trigger ran ahead of the host's block load: ONE-PC LOAD CONTENTION)
+    t0 = dt.datetime(2026, 11, 4, 4, 38, 43, 300000)
+
+    def at(sec):
+        return t0 + dt.timedelta(seconds=sec)
+
+    def hx(f, place, ui="WorldHUD", br=True):
+        return S(f, ui=ui, br=br, lane={"tx": {"place": place}})
+
+    def gx(f, place):
+        return S(f, ui="FieldHUD", field=6603, lane={"tx": {"place": place}})
+    host_loading = [(at(0.001), hx(2892, 3, ui="FieldHUD", br=False)), (at(0.999), hx(2946, 3, br=False)), (at(3.432), hx(2948, 4))]
+    guest_out = [(at(0.021), gx(2748, 1)), (at(1.198), gx(2818, 2)), (at(3.109), gx(2842, 2)), (at(3.155), gx(2846, 3))]
+    held = S(2740, ui="FieldHUD", field=6603, out={"hold": True, "why": "hold"})
+    ok, why = t2.d_lines_premise(host_loading, guest_out, held)
+    assert not ok and why.startswith("not covered: the host was not live when the guest began following (its own place 3 "
+                                     "(world_loading)") and "04:38:44.498" in why, why
+    assert "the guest held until the release" in why, why                   # the hold term alone is fine: the live term reds it
+    assert not t2.d_lines_premise(host_loading, guest_out, t2.NO_HOLD)[0]  # the W2b route (no hold): red the same
+    # a LIVE host (its own place 4, judged) at or before the guest's first place 2: the premise holds -- equality included
+    host_live = [(at(0.001), hx(2892, 3, ui="FieldHUD", br=False)), (at(0.600), hx(2930, 4)), (at(0.640), hx(2932, 4))]
+    live = t2.d_lines_premise(host_live, guest_out, held)
+    assert live[0] and "the host live (its own place 4) 0.60 s before the guest's first place 2" in live[1], live
+    assert t2.d_lines_premise([(at(1.198), hx(1, 4))], guest_out, held)[0]
+    # each wrong shape alone: place 4 with the blocks still out (not judged); place 4 stamped AFTER the guest's first place 2; no
+    # guest place 2 at all (never vacuous); a host sample off WorldHUD on place 4
+    assert not t2.d_lines_premise([(at(0.6), hx(1, 4, br=False))], guest_out, held)[0]
+    assert not t2.d_lines_premise([(at(1.199), hx(1, 4))], guest_out, held)[0]
+    ok, why = t2.d_lines_premise(host_live, [(at(0.02), gx(1, 1)), (at(3.2), gx(2, 3))], held)
+    assert not ok and "the guest's trailer never read place 2 (its own places [1, 3])" in why, why
+    assert not t2.d_lines_premise([], guest_out, held)[0]
+    assert not t2.d_lines_premise([(at(0.6), hx(1, 4, ui="FieldHUD"))], guest_out, held)[0]
+    # ...and the hold's read back: never held (None), the lever off, a why other than 'hold' (the start already past the gate)
+    for bad in (None, S(1, ui="FieldHUD", out={"hold": False, "why": "debounce"}),
+                S(1, ui="FieldHUD", out={"hold": True, "why": "in_flight"}), S(1, ui="FieldHUD")):
+        ok, why = t2.d_lines_premise(host_live, guest_out, bad)
+        assert not ok and "not covered: the guest was not held before the release" in why and "the host live" in why, why
+    # [W2c verify] the release waits on the GUEST Tap's own LAST sample reading the hold ENGAGED: a last sample still on
+    # 'host_not_world' (the guest has not yet seen the host live over the wire -- the stand-in duo's -n 6 red) is waited out; a hold
+    # that never engages returns the last sample as it stands at the timeout (the premise reds it), never an older 'hold' sample
+    class _Tap:
+        def __init__(self, ss):
+            self.samples = ss
+    engaged = S(3, ui="FieldHUD", field=6603, out={"hold": True, "why": "hold"})
+    waiting = S(2, ui="FieldHUD", field=6603, out={"hold": True, "why": "host_not_world"})
+    assert t2._await_guest_held(_Tap([(at(0.1), waiting), (at(0.2), engaged)]), 0.0) is engaged
+    assert t2._await_guest_held(_Tap([(at(0.1), engaged), (at(0.2), waiting)]), 0.05) is waiting
+    assert t2._await_guest_held(_Tap([]), 0.05) is None
+    late = _Tap([(at(0.1), waiting)])
+    import threading
+    threading.Timer(0.1, lambda: late.samples.append((at(0.3), engaged))).start()
+    assert t2._await_guest_held(late, 2.0) is engaged
+    assert not t2.d_lines_premise(host_live, guest_out, waiting)[0]          # what the route used to release on, red by the premise
     # LINES -- [W2b] built from the round-A duo 20261104-015601's REAL lines (host Memoria.log:568-573, guest :79), the d6df5df17fe0af03
     # build: 'following' ended at the guest's commit ("-- the guest's place field, state 0x21", 235 ms) and the load read 'not updating'
     W = BW.WORDS_WW_HOST_FOLLOWING
@@ -571,34 +626,45 @@ def test_the_duo_judges(t2):
                S(3, hg={"place": 2, "state": 0x21, "line": "following"}, line=fol)]
     tail = [S(5, hg={"place": 3, "state": 0x05, "line": "loading"}), S(6, hg={"place": 4, "state": 0x85, "line": None})]
     run = covered + [S(4, hg={"place": 1, "state": 0x21, "line": None})] + tail             # this run's samples (host ring 2992..3030)
-    ok, why = t2.judge_d_lines(run, [h568, h569, h570, h571, h572, h573], [g79], True)
+    ok, why = t2.judge_d_lines(run, [h568, h569, h570, h571, h572, h573], [g79], True, live)
     assert not ok and "ENDED AT THE COMMIT" in why and "lasted 235 ms" in why and "want >= landed - 1000: NO" in why, why
     assert "'not updating' lane lines 1" in why, why                                       # REPORTED, never the verdict
     # the FIXED engine's likely shape: a separate end at the world's one-frame fade-in ('transition, state 0x05'), then 'loading'
     f_end = ("04.11.2026 01:57:08 |M| [NetSync] host world: the partner's following state ended after 1610 ms -- the guest's place "
              "transition, state 0x05 (t 365827861 ms)")
     fixed = covered + tail
-    ok, why = t2.judge_d_lines(fixed, [h568, f_end, h572, h573], [g79], True)
+    ok, why = t2.judge_d_lines(fixed, [h568, f_end, h572, h573], [g79], True, live)
     assert ok and "covered (the guest read at place 1" in why and "lasted 1610 ms" in why, why
     comb = f_end.replace(" -- the guest's place transition", "; the partner is loading (\"x\") -- the guest's place world_loading")
-    assert t2.judge_d_lines(fixed, [h568, comb, h573], [g79], True)[0]                     # the combined end + 'loading' start
+    assert t2.judge_d_lines(fixed, [h568, comb, h573], [g79], True, live)[0]               # the combined end + 'loading' start
     lost = f_end.replace("1610 ms -- the guest's place transition, state 0x05", "5200 ms; the partner is lost (\"x\") -- the guest's "
                          "place transition, state 0x21")
-    assert t2.judge_d_lines(fixed, [h568, lost, h572], [g79], True)[0]   # a HostLineLost end over a long load: b5 set, still green
+    assert t2.judge_d_lines(fixed, [h568, lost, h572], [g79], True, live)[0]   # a HostLineLost end over a long load: b5 set, still green
     # each discriminator alone: the end at 'field' however long; a short 'following' whatever place it names
-    assert not t2.judge_d_lines(fixed, [h568, f_end.replace("place transition", "place field")], [g79], True)[0]
-    ok, why = t2.judge_d_lines(fixed, [h568, h569.replace("place field", "place transition")], [g79], True)
+    assert not t2.judge_d_lines(fixed, [h568, f_end.replace("place transition", "place field")], [g79], True, live)[0]
+    ok, why = t2.judge_d_lines(fixed, [h568, h569.replace("place field", "place transition")], [g79], True, live)
     assert not ok and "want never 'field': ok" in why and "NO" in why, why
-    assert not t2.judge_d_lines(fixed, [h568, f_end], [], True)[0]                         # no landing line: the duration unproven
-    assert not t2.judge_d_lines(fixed, [h568], [g79], True)[0]                             # no end line
+    assert not t2.judge_d_lines(fixed, [h568, f_end], [], True, live)[0]                   # no landing line: the duration unproven
+    assert not t2.judge_d_lines(fixed, [h568], [g79], True, live)[0]                       # no end line
     # COVERAGE: this run's Taps began after walk_out returned -- the guest already at place 4
     late = [S(1, hg={"place": 4, "state": 0x85, "line": None}), S(2, hg={"place": 4, "state": 0x85, "line": None})]
-    ok, why = t2.judge_d_lines(late, [h568, f_end], [g79], True)
+    ok, why = t2.judge_d_lines(late, [h568, f_end], [g79], True, live)
     assert not ok and "not covered: the Tap began after the follow-out (first guest place 4)" in why, why
     assert t2.d_lines_coverage(fixed) == (True, 1) and t2.d_lines_coverage(covered[2:]) == (False, 2)
-    assert not t2.judge_d_lines(fixed, [h568, f_end], [g79], False)[0]                     # the guest never landed
-    assert not t2.judge_d_lines(fixed[:-1], [h568, f_end], [g79], True)[0]                 # the line never ended ('loading' last)
-    assert not t2.judge_d_lines(fixed, [], [g79], True)[0]
+    assert not t2.judge_d_lines(fixed, [h568, f_end], [g79], False, live)[0]               # the guest never landed
+    assert not t2.judge_d_lines(fixed[:-1], [h568, f_end], [g79], True, live)[0]           # the line never ended ('loading' last)
+    assert not t2.judge_d_lines(fixed, [], [g79], True, live)[0]
+    # [W2c] THE PREMISE decides first: the fixed engine's whole green shape, on THIS run's host-loading samples, is red "not covered"
+    loading = t2.d_lines_premise(host_loading, guest_out, held)
+    ok, why = t2.judge_d_lines(fixed, [h568, f_end, h572, h573], [g79], True, loading)
+    assert not ok and why.startswith("not covered: the host was not live when the guest began following (its own place 3"), why
+    assert "covered (the guest read at place 1" in why and "lasted 1610 ms" in why, why     # every old term green: the premise alone
+    # ...this run's own end shape (no end line at all: 'following' never said) red on the premise AND its old terms
+    ok, why = t2.judge_d_lines(covered + tail, [h572, h573], [g79], True, loading)
+    assert not ok and "not covered: the host was not live" in why and "lasted None ms" in why, why
+    # ...and on a live host the old terms decide: the commit end stays red, the fixed shape green
+    assert not t2.judge_d_lines(run, [h568, h569, h572, h573], [g79], True, live)[0]
+    assert t2.judge_d_lines(fixed, [h568, f_end, h572, h573], [g79], True, live)[0]
 
 
 def test_the_window_picker_and_the_seam(t2):
@@ -640,7 +706,7 @@ for k, v in dict(FIELD_S=10.0, DIAL_S=8.0, REJOIN_S=12.0).items():
     setattr(cw, k, v)
 for k, v in dict(WIRE_S=2.0, WIRE_CLEAR_S=1.0, WIRE_PAIR_S=10.0, WIRE_WORLD_S=20.0, LAND_S=30.0, EVENT_S=30.0, TH_A_S=20.0,
                  TH_B_S=8.0, TH_C_S=1.5, TH_TAIL_S=0.4, TH_DIAL_S=10.0, POLL_S=0.004, D_S=0.5, D_LAND_S=15.0, TAP_S=0.003,
-                 D_WALK_FRAMES=300, D_WALK_S=1.0, D_WALK_TAIL_S=0.1).items():
+                 D_WALK_FRAMES=300, D_WALK_S=1.0, D_WALK_TAIL_S=0.1, D_HOLD_SETTLE_S=0.05, D_HOLD_READ_S=2.0).items():
     setattr(t2, k, v)
 FAKES = []
 
@@ -670,6 +736,8 @@ def fake_for(t, run):
     f.world_swirl_frames, f.world_exit_frames = 40, 40
     f.world_walk_faults = set(run.get("faults", ()))
     f.world_out_fade_frames = int(run.get("fade", 120))
+    if run.get("follow_faults"):
+        f.world_follow_faults = set(run["follow_faults"])           # [W2c] s165's start faults (hold_ignored) on a duo game
     FAKES.append(f)
     return f
 
@@ -938,11 +1006,25 @@ class StubDuo:
     def note(self, msg):
         self.notes.append(msg)
 
+AWAIT_HOST_LIVE, WALK_OUT_TAPPED = t2._await_host_live, t2._walk_out_tapped
+
+def _walk_seam(kind):
+    """[W2c review] the walk out failing ('fail') or raising ('raise') AFTER the hold was sent: run_duo's backstop must release it."""
+    def seam(d, tries=3):
+        if kind == "raise":
+            raise t2.HarnessError("the seam: the walk out raised")
+        return False, "the seam: the walk out failed", None, None
+    return seam
+
 def duo(run):
     th, tg = root(), root()
     run = dict(run, fade=600)                                   # the guest's follow-out fade (1 s of wall): room for D-LINES' read
     fh, fgst = fake_for(th, run), fake_for(tg, run)
     fh.world_exit_frames = fgst.world_exit_frames = 240
+    fh.world_block_load_frames = int(run.get("host_block_frames", 0))   # [W2c] the HOST's own block load (its place 3): one-PC slow
+    # [W2c] the seam: the hold never waits for the host live -- released at once (restored per run: a payload may carry several)
+    t2._await_host_live = (lambda th, timeout: None) if run.get("early_release") else AWAIT_HOST_LIVE
+    t2._walk_out_tapped = _walk_seam(run["walk_seam"]) if run.get("walk_seam") else WALK_OUT_TAPPED
     cb.CALIBRATE = bool(run.get("cal"))
     t2.LEVER_RAW = run.get("lever")
     if run.get("old_walk"):                                     # [W2b] the round-A route: a fixed 90-frame hold, a fixed sleep
@@ -965,10 +1047,11 @@ def duo(run):
         d = StubDuo(gh, gg)
         try:
             t2.run_duo(d)
+            held_after = bool(fgst._wfo["hold"])                  # [W2c review] the guest's own hold lever, read before teardown
         finally:
             link.halt.set()
         return {"red": sorted(c for c, ok, _d in d.rows if not ok), "all": [c for c, _ok, _d in d.rows],
-                "detail": {c: dd for c, _ok, dd in d.rows}}
+                "detail": {c: dd for c, _ok, dd in d.rows}, "held_after": held_after, "notes": list(d.notes)}
 
 kinds = {"t2": t2_run, "duo": duo}
 results = {name: kinds[run["kind"]](run) for name, run in doc.get("runs", {}).items()}
@@ -1125,13 +1208,53 @@ def test_s166t2_each_duo_fault_turns_exactly_its_rows_red(t2, fault):
         assert "ENDED AT THE COMMIT" in r["detail"]["S166-D-LINES"], _show(r)
 
 
+def test_s166t2_the_hold_makes_d_lines_premise_deterministic_on_a_slow_host():
+    """[W2c] THE HOLD (s165's D-FO2 shape) on a stand-in host whose OWN block load (its place 3) outlasts the guest's 1200 ms debounce --
+    the round-A duo 20261104-043742's one-PC shape: the route holds the guest until the HOST Tap reads the host live, so the duo is green
+    but the named battle; the same slow host with the release sent at once (the hold never waits: a seam) reds D-LINES ALONE on the
+    premise. The red sets CALIBRATED by running them."""
+    new = _run("duo", host_block_frames=600)
+    assert set(new["red"]) == _NOT_ON_STAND_IN, _show(new)
+    assert "the host live (its own place 4)" in new["detail"]["S166-D-LINES"] and "the guest held until the release" in \
+        new["detail"]["S166-D-LINES"], _show(new)
+    early = _run("duo", host_block_frames=600, early_release=True)
+    assert set(early["red"]) - _NOT_ON_STAND_IN == {"S166-D-LINES"}, _show(early)
+    assert early["detail"]["S166-D-LINES"].startswith("not covered: the host was not live when the guest began following (its own "
+                                                      "place 3 (world_loading)"), _show(early)
+
+
+def test_s166t2_a_failed_or_raised_walk_out_never_leaves_the_guest_held():
+    """[W2c review] the hold is sent BEFORE the walk out: a walk out that fails (an early return) or raises (a HarnessError) must still
+    release it -- run_duo's finally backstop -- so no red leaves the guest held. The full route releases it in-line (no backstop)."""
+    rs = _child({"runs": {"fail": dict(kind="duo", walk_seam="fail"), "raise": dict(kind="duo", walk_seam="raise"),
+                          "plain": dict(kind="duo")}})
+    for name in ("fail", "raise"):
+        r = rs[name]
+        assert "S166-D-LINES" in r["red"] and r["held_after"] is False, (name, _show(r))
+        assert any(n.startswith("the backstop: `worldfollow release` on the guest: ok") for n in r["notes"]), (name, r["notes"])
+    p = rs["plain"]
+    assert set(p["red"]) == _NOT_ON_STAND_IN and p["held_after"] is False, _show(p)
+    assert not any(n.startswith("the backstop") for n in p["notes"]), p["notes"]
+
+
+def test_s166t2_a_hold_the_engine_ignores_reds_d_lines_alone():
+    """[W2c] `worldfollow hold` ignored (the s165 stand-in fault `hold_ignored`): the guest follows out on its debounce and has landed
+    by the release -- the premise's read back ('hold') is red, D-LINES alone. CALIBRATED by running it."""
+    r = _run("duo", follow_faults=["hold_ignored"])
+    assert set(r["red"]) - _NOT_ON_STAND_IN == {"S166-D-LINES"}, _show(r)
+    assert "not covered: the guest was not held before the release" in r["detail"]["S166-D-LINES"], _show(r)
+
+
 def test_s166t2_the_duo_walks_on_distance_at_the_real_on_foot_speed():
     """[W2b] D-G1's route at the REAL on-foot 0.201 u/frame (the stand-in rides at the same speed): the round-A route -- a fixed 90-frame
     hold, a fixed sleep -- walks 18 u and reds D-G1 (the in-game failure) and D-DOTRIDE; the closed loop walks on distance and the duo
     is green but the named battle."""
     old = _run("duo", ow_speed=0.2, old_walk=True)
     assert set(old["red"]) - _NOT_ON_STAND_IN == {"S166-D-G1", "S166-D-DOTRIDE"}, _show(old)
-    assert "moved 18.0 u (want >= 20)" in old["detail"]["S166-D-G1"], _show(old)
+    # the old route walks AT MOST its fixed hold (90 frames x 0.2 = 18 u) and so never reaches D_MOVE_U; under a loaded machine its fixed
+    # 1 s sleep can end before the hold does (14.0 / 14.8 / 12.4 u seen under -n 6), so the bound is the cap, never the exact 18.0
+    walked = float(re.search(r"moved ([0-9.]+) u \(want >= 20\)", old["detail"]["S166-D-G1"]).group(1))
+    assert walked <= 18.0 + 1e-6, _show(old)
     new = _run("duo", ow_speed=0.2)
     assert set(new["red"]) == _NOT_ON_STAND_IN, _show(new)
     # [W2b review] ...and it STOPS there: the release lands, so the walk never runs on to its 300-frame cap (60 u at 0.2) onto ground no

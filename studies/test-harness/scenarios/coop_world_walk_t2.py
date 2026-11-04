@@ -52,6 +52,10 @@ it sent), and the duo against the other game's own published `lane.tx` (its trai
          the desktop an s166 HOST walks ROAM_PLAN while `serve-guest --no-follow --tap` records it -- ROAM-TAPE.md.
 The duo (`py tools/harness/duo.py coop_world_walk_t2.py`, both games on 6603): S166-D0, D-LINES (the host's lines through the guest's
 follow-out, the Taps started BEFORE the guest can leave -- _walk_out_tapped -- so the row is COVERED (the guest read at place 1 first);
+[W2c] THE PREMISE, DETERMINISTIC (s165's D-FO2 shape): `worldfollow hold` on the guest BEFORE the host walks out, the release only once
+the HOST Tap reads the host LIVE on 9011 (its own lane.tx.place 4 on a judged sample) + D_HOLD_SETTLE_S and the GUEST Tap's own last
+sample reads the hold ENGAGED (out.why 'hold', up to D_HOLD_READ_S: s165's D-FO2 waits on the guest's own view too) -- and the row is red "not
+covered" unless the host was live at or before the guest's trailer first read place 2 and the guest read back held (out.hold, why 'hold');
 [W2b] 'following' lasts through the guest's commit and its synchronous load: no host end line names "the guest's place field" (the
 d6df5df17fe0af03 build's signature) and it lasts >= the guest's own landed ms - D_LINES_SLACK_MS; 'loading' and the host's 'not updating'
 lane lines REPORTED), D-G2 (the host's ghost of the frozen guest at the guest's own pose; the landing gap REPORTED: ONE-PC LOAD
@@ -208,6 +212,22 @@ D_MIN_SAMPLES = 8
 #: than the guest's own "world follow-out: landed ... N ms after its start" minus this (the host reads the start a relay hop late; the
 #: d6df5df17fe0af03 build ended it at the commit: 235 ms against N 1766)
 D_LINES_SLACK_MS = 1000
+#: [W2c] D-LINES' PREMISE, MADE DETERMINISTIC the way s165's duo does it (coop_world_follow D-FO2): `worldfollow hold` on the guest before
+#: the host walks out; the release only once the HOST Tap reads the host LIVE on WORLD (own_live: its own lane.tx.place 4 on a judged
+#: sample) and then this settle. s165's start trigger -- 1200 ms of host-ALIVE section-7 b6 frames -- runs AHEAD of the host's own block
+#: load on one PC (ONE-PC LOAD CONTENTION; s165: THE LIVE DEBOUNCE does not reliably straddle it), and the host's HostLineRule needs its
+#: OWN live world, so a guest that follows out of a host still on place 3 can never be told 'following' (the round-A duo 20261104-043742:
+#: the host on place 3 from 04:38:43.30 to 46.73, the guest's place 2 from 44.50 through its commit; the calibration duo 042230 happened
+#: to have the host live in time). The hold is the START only: THE LIVE DEBOUNCE accumulates under it, so the release starts at once.
+D_HOLD_SETTLE_S = 0.5
+#: [W2c verify] ...and then up to this long for the GUEST Tap's own LAST sample to read the hold ENGAGED (out.hold true, why 'hold': the
+#: guest's own view of the host live, its debounce gates passed, only the hold left) -- the guest learns the host is live over the wire,
+#: so under load its why still reads 'host_not_world' a 0.5 s settle after the host's own place 4 (the stand-in duo under -n 6: red
+#: "not held ... why 'host_not_world'"). s165's D-FO2 waits on the guest's own host cache the same way. At the timeout the last sample
+#: is judged as it stands (the premise reds it): a hold the engine ignores never reads 'hold'.
+D_HOLD_READ_S = 4.0
+#: judge_d_lines' ``held`` for a route that sent no hold (a test seam's W2b route): the premise is the live term alone
+NO_HOLD = "no hold"
 LOAD_GAP_S = 0.8         # a game's OWN sync load: its published frames stop at least this long across a scene change
 #: [W2b] the trailer places a game ANNOUNCES a load from (PlaceTransition / PlaceWorldLoading: LaneGapKind's own 'loading' set,
 #: NetSyncWorldWalk.cs:547) -- load_windows' place-keyed term
@@ -318,7 +338,9 @@ RECORD_CHECKS = {
 }
 DUO_CHECKS = {
     "S166-D0": "the instrument: both on FieldHUD 6603, the guest mirroring, both s166 (wire 15, lane + ghost published)",
-    "S166-D-LINES": "the host walks out (the Taps from BEFORE the guest can leave: COVERED -- the guest read at place 1 first): the HOST's "
+    "S166-D-LINES": "the host walks out (the Taps from BEFORE the guest can leave: COVERED -- the guest read at place 1 first; THE PREMISE: "
+                    "the guest held by `worldfollow hold` until the host is live, the host's own place 4 at or before the guest's "
+                    "first place 2, the hold read back): the HOST's "
                     "'following' line (guest.line, world.line asked + words + drawn) and ONE log line while the guest follows out, "
                     "through its commit and load (no end line naming 'the guest's place field'; lasting >= the guest's landed ms - "
                     "D_LINES_SLACK_MS); none once it landed ('loading' and 'not updating' lane lines REPORTED: ONE-PC LOAD CONTENTION)",
@@ -1344,15 +1366,56 @@ def d_lines_coverage(host_samples) -> tuple:
     return BW.WW_PLACE_FIELD in head, first
 
 
-def judge_d_lines(host_samples, host_lines, guest_lines, landed: bool) -> tuple:
-    """S166-D-LINES (PURE over the HOST from BEFORE the guest can leave to the guest's landing + D_S): COVERED (d_lines_coverage, else
-    "not covered"); 'following' read (guest.line and world.line, its words, drawn) and logged ONCE; [W2b] THE DISCRIMINATOR -- no host
-    "following state ended" line names "-- the guest's place field" (the d6df5df17fe0af03 build: the record missed, the line ended at the
-    commit), and 'following' lasted >= the guest's own "landed ... N ms after its start" - D_LINES_SLACK_MS (through the commit and the
-    sync load; immune to the end line's wording: a HostLineLost end over a long load still passes); the guest landed and the host's line
+def own_live(s) -> bool:
+    """(PURE) A game LIVE on the world map by its OWN trailer: `lane.tx.place` 4 (world) on a judged sample (WorldHUD, its blocks in)."""
+    return judged(s) and _tx(s).get("place") == BW.WW_PLACE_WORLD
+
+
+def _hms(t) -> str:
+    return t.strftime("%H:%M:%S.%f")[:-3] if hasattr(t, "strftime") else str(t)
+
+
+def _place_name(p) -> str:
+    return f"{p} ({BW.WW_PLACE_NAMES[p]})" if isinstance(p, int) and 0 <= p < len(BW.WW_PLACE_NAMES) else str(p)
+
+
+def d_lines_premise(host_stamped, guest_stamped, held) -> tuple:
+    """[W2c] (PURE over the two Taps' (wall, state) samples, one process's clock) D-LINES' PREMISE: the guest's following phase began on a
+    LIVE host -- some HOST sample stamped at or before the guest's trailer first read place 2 (its own `lane.tx.place`) is own_live --
+    and, when the route held the guest, the hold read back on ``held`` (the guest's last sample before the release: `out.hold` true,
+    `out.why` 'hold'; None = never held / unread). ``held`` == NO_HOLD: a route with no hold (the live term alone). -> (ok, why); never
+    vacuous: no guest place 2 at all is red."""
+    t2 = next((t for t, s in guest_stamped if _tx(s).get("place") == BW.WW_PLACE_TRANSITION), None)
+    if t2 is None:
+        seen = sorted({_tx(s).get("place") for _t, s in guest_stamped if _tx(s).get("place") is not None})
+        return False, f"not covered: the guest's trailer never read place 2 (its own places {seen})"
+    prior = [s for t, s in host_stamped if t <= t2]
+    live = next((t for t, s in host_stamped if t <= t2 and own_live(s)), None)
+    own = _tx(prior[-1]).get("place") if prior else None
+    if live is None:
+        ok, why = False, (f"not covered: the host was not live when the guest began following (its own place {_place_name(own)} on "
+                          f"its last sample at or before the guest's first place 2, {_hms(t2)})")
+    else:
+        ok, why = True, f"the host live (its own place 4) {(t2 - live).total_seconds():.2f} s before the guest's first place 2"
+    if held == NO_HOLD:
+        return ok, why + "; no hold on this route"
+    hold, hwhy = (wf._o(held, "hold"), wf._o(held, "why")) if held is not None else (None, None)
+    if hold is True and hwhy == "hold":
+        return ok, why + "; the guest held until the release (out.hold true, why 'hold')"
+    return False, why + f"; not covered: the guest was not held before the release (out.hold {hold!r}, why {hwhy!r}; want true, 'hold')"
+
+
+def judge_d_lines(host_samples, host_lines, guest_lines, landed: bool, premise: tuple) -> tuple:
+    """S166-D-LINES (PURE over the HOST from BEFORE the guest can leave to the guest's landing + D_S): [W2c] THE PREMISE (``premise`` =
+    d_lines_premise: the host live at or before the guest's first place 2, the hold read back -- else "not covered"); COVERED
+    (d_lines_coverage, else "not covered"); 'following' read (guest.line and world.line, its words, drawn) and logged ONCE; [W2b] THE
+    DISCRIMINATOR -- no host "following state ended" line names "-- the guest's place field" (the d6df5df17fe0af03 build: the record
+    missed, the line ended at the commit), and 'following' lasted >= the guest's own "landed ... N ms after its start" - D_LINES_SLACK_MS
+    (through the commit and the sync load; immune to the end line's wording: a HostLineLost end over a long load still passes); the guest landed and the host's line
     none on the last sample. 'loading' and the host's 'not updating' lane lines REPORTED (ONE-PC LOAD CONTENTION thins the samples)."""
     if not any(cb.has(s, HOST_GUEST) for s in host_samples):
         return False, f"absent: no `{HOST_GUEST}` on the host"
+    p_ok, p_why = premise
     covered, first = d_lines_coverage(host_samples)
     cov = ("covered (the guest read at place 1 before it left)" if covered
            else f"not covered: the Tap began after the follow-out (first guest place {first})")
@@ -1367,8 +1430,8 @@ def judge_d_lines(host_samples, host_lines, guest_lines, landed: bool) -> tuple:
     hangs = len(hang_lines_timed(host_lines))
     last = host_samples[-1] if host_samples else None
     ended = last is not None and _hg(last).get("line") is None
-    ok = covered and ok1 and not at_field and lasted and landed and ended
-    return ok, (f"{cov}; {why1}; the end line(s) name the guest's place {named or 'NONE'} (want never 'field': "
+    ok = bool(p_ok) and covered and ok1 and not at_field and lasted and landed and ended
+    return ok, (f"{p_why}; {cov}; {why1}; the end line(s) name the guest's place {named or 'NONE'} (want never 'field': "
                 f"{'ok' if not at_field else 'ENDED AT THE COMMIT'}); 'following' lasted {follow_ms} ms against the guest's landing "
                 f"{landed_ms} ms after its start (want >= landed - {D_LINES_SLACK_MS}: {'yes' if lasted else 'NO'}); the guest landed "
                 f"{landed}; the line none at the end {ended}; 'loading' read {loading}, the host's 'not updating' lane lines {hangs} "
@@ -2370,6 +2433,7 @@ def run_duo(d) -> None:
     strict, d.strict = d.strict, False
     failed, done, measured, sent = [], set(), {}, []
     marks = {}
+    hold = {"asked": False, "sent": False, "released": False}      # [W2c] D-LINES' `worldfollow hold` on the guest
 
     def check(cid, ok, detail):
         if cid in done:
@@ -2387,11 +2451,20 @@ def run_duo(d) -> None:
     try:
         marks["host"], marks["guest"] = cb.mark(d.host), cb.mark(d.guest)
         stage = stage_of(d.guest.state)
-        _duo(d, check, rest, lever, sent, measured)
+        _duo(d, check, rest, lever, sent, measured, hold)
     except HarnessError as err:
         d.note(f"the duo raised: {str(err)[:400]}")
         rest(f"the duo raised ({str(err)[:200]})")
     finally:
+        if (hold["asked"] or hold["sent"]) and not hold["released"]:
+            # [W2c] EVERY failure path: a red, an early return or a raise never leaves the guest held for the legs that follow (the
+            # harness release also clears it -- HarnessReleaseWorldFollow -- this is the leg's own, at once). Keyed on the ASK, not
+            # the accept: a hold whose accept was lost (a raise / a timeout after the engine took it) is released too; and never let
+            # the backstop itself skip the rows below (any exception is noted, never raised out of the finally)
+            try:
+                d.note(f"the backstop: {_release_guest(d.guest, hold)}")
+            except Exception as err:                       # noqa: BLE001 - the verdict rows below must still be written
+                d.note(f"the backstop `worldfollow release` raised: {str(err)[:160]}")
         try:
             hl, gl = cb.new(d.host, marks.get("host", 0)), cb.new(d.guest, marks.get("guest", 0))
         except HarnessError:
@@ -2451,6 +2524,55 @@ def _walk_out_tapped(d, tries: int = 3) -> tuple:
     return True, "walked into the door; the Taps started", th, tg
 
 
+def _hold_guest(guest, gs, hold: dict) -> str:
+    """[W2c] `worldfollow hold` on the guest, s165's D-FO2 way: PROBE FIRST (never sent to an engine without `netsync.world.out`), then
+    the read back (out.hold; its why reads 'hold' only once the host is live on the world -- judged at the release). Marks ``hold``."""
+    if not cb.has(gs, wf.PROBE):
+        return f"no `{wf.PROBE}` on the guest: `worldfollow hold` never sent (the probe-first rule; D-LINES' premise reads it unheld)"
+    hold["asked"] = True                       # BEFORE the send: a raise or a lost accept still gets run_duo's backstop release
+    ok, why = wf._wf(guest, "hold")
+    if not ok:
+        return f"`worldfollow hold` REFUSED on the guest ({why[:120]}): D-LINES' premise reads it unheld"
+    hold["sent"] = True
+    rb = guest.state
+    return (f"`worldfollow hold` on the guest: read back out.hold {wf._o(rb, 'hold')!r}, why {wf._o(rb, 'why')!r} (the START waits until "
+            "the host is live)")
+
+
+def _release_guest(guest, hold: dict) -> str:
+    """[W2c] `worldfollow release` on the guest (``hold["released"]`` once accepted)."""
+    ok, why = wf._wf(guest, "release")
+    hold["released"] = hold["released"] or ok
+    return f"`worldfollow release` on the guest: {'ok' if ok else 'REFUSED: ' + why[:120]}"
+
+
+def _await_host_live(th, timeout: float):
+    """[W2c] The HOST Tap's own first sample LIVE on WORLD (own_live: its own place 4, judged) -> its wall stamp, or None at ``timeout``.
+    Reads ONLY the Tap's buffer."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        t = next((t for t, s in list(th.samples) if s.world_id == WORLD and own_live(s)), None)
+        if t is not None:
+            return t
+        time.sleep(0.02)
+    return None
+
+
+def _await_guest_held(tg, timeout: float):
+    """[W2c verify] The GUEST Tap's own LAST sample once it reads the hold ENGAGED (out.hold true, why 'hold'), or at ``timeout`` its
+    last sample as it stands (None: none) -- d_lines_premise's ``held``, the guest's last sample before the release. Reads ONLY the
+    Tap's buffer."""
+    deadline = time.time() + timeout
+    while True:
+        ss = list(tg.samples)
+        last = ss[-1][1] if ss else None
+        if last is not None and wf._o(last, "hold") is True and wf._o(last, "why") == "hold":
+            return last
+        if time.time() >= deadline:
+            return last
+        time.sleep(0.02)
+
+
 def _walk_host(host, th, riding: bool = False) -> str:
     """[W2b] THE CLOSED-LOOP WALK: hold "up" up to D_WALK_FRAMES and stop as soon as EITHER the judge's own tx_moved OR the Tap samples'
     own world x/z (world_moved: a dark trailer never walks on) reached D_MOVE_U + D_MOVE_MARGIN_U, or at the wall deadline D_WALK_S; then
@@ -2472,7 +2594,7 @@ def _walk_host(host, th, riding: bool = False) -> str:
     return f"the walk stopped on {why} after {time.time() - t0:.1f} s"
 
 
-def _duo(d, check, rest, lever, sent: list, measured: dict) -> None:
+def _duo(d, check, rest, lever, sent: list, measured: dict, hold: dict) -> None:
     host, guest = d.host, d.guest
     hs, gs = host.state, guest.state
     both = (hs.ui_state == "FieldHUD" and hs.field_id == FARSHORE and gs.ui_state == "FieldHUD" and gs.field_id == FARSHORE
@@ -2499,10 +2621,23 @@ def _duo(d, check, rest, lever, sent: list, measured: dict) -> None:
     except (HarnessError, AttributeError) as err:
         d.note(f"noencounter refused on {FARSHORE} ({str(err)[:120]})")
     hat, gat = cb.mark(host), cb.mark(guest)
+    # [W2c] THE HOLD, BEFORE THE WALK OUT (a leg-level step: the same route under every lever -- ghost / sticky / dot are `worldwalk`
+    # levers, this is `worldfollow`'s START hold, orthogonal to them): the guest's follow-out waits for the host LIVE on the world
+    d.note(f"D-LINES: {_hold_guest(guest, gs, hold)}")
     ok, why, th, tg = _walk_out_tapped(d)
     if not ok:
         rest(f"the host's walk out failed ({why[:160]})")
-        return
+        return                                            # (run_duo's finally releases the hold)
+    # [W2c] ...until the HOST Tap reads the host live on WORLD (its own place 4, judged), the settle, the held read back off the GUEST
+    # Tap's own last sample -- [W2c verify] once it reads the hold ENGAGED (up to D_HOLD_READ_S) -- then the release
+    t_live = _await_host_live(th, cw.WORLD_S)
+    if t_live is not None:
+        time.sleep(D_HOLD_SETTLE_S)
+    held = None
+    if hold["sent"]:
+        held = _await_guest_held(tg, D_HOLD_READ_S)
+        d.note(f"D-LINES: the host live {'at ' + _hms(t_live) if t_live else 'NEVER'}; the guest's last sample read why "
+               f"{wf._o(held, 'why') if held is not None else None!r}; {_release_guest(guest, hold)}")
     # ...the host's landing and the guest's, read off the Taps' OWN samples (they are the only readers now)
     deadline = time.time() + cw.WORLD_S
     hland = None
@@ -2528,7 +2663,8 @@ def _duo(d, check, rest, lever, sent: list, measured: dict) -> None:
     land = wf.first_judged([s for _t, s in gsamp if s.ui_state == "WorldHUD"])
     t_land = next((t for t, s in gsamp if s is land), None)
     gap = f"{(t_land - t_host).total_seconds():.1f} s after the host's first judged world sample" if t_land else "never"
-    check("S166-D-LINES", *judge_d_lines([s for _t, s in hsamp], cb.new(host, hat), cb.new(guest, gat), land is not None))
+    check("S166-D-LINES", *judge_d_lines([s for _t, s in hsamp], cb.new(host, hat), cb.new(guest, gat), land is not None,
+                                         d_lines_premise(hsamp, gsamp, held)))
     if land is None:
         rest("the guest never landed on the world map")
         return
