@@ -38,8 +38,13 @@ leg "coop_action_hold tape" t2 reg_hold_tape.log -- env COOP_HOLD_LEG=tape py to
 leg "coop_action_replay tape" t2 reg_act_tape.log -- env COOP_ACT_LEG=tape py tools/play.py $SC/coop_action_replay.py
 leg "coop_cut_hold cal" t2 reg_cut_cal.log -- py tools/play.py $SC/coop_cut_hold.py
 leg "coop_dress_wire duo" duo reg_dress_wire.log -- $DUO $SC/coop_dress_wire.py
-leg "coop_self_dress" plain reg_self_dress.log -- py tools/play.py $SC/coop_self_dress.py --field 250
-leg "coop_climb_anim_peer" t2 reg_climb_peer.log -- py tools/play.py $SC/coop_climb_anim_peer.py --instance C:/gd/ff9-inst/host
+# the selftest role refuses a live-configured install (S138-INI: [Netsync] Enabled 1) and never writes Memoria.ini itself: solo_ini
+# flips Enabled to 0 ONLY (SOLO_INI_FOLLOW=0, the s138-s145 selftest_block.sh's one byte) and restores it byte-exact -- launched plain on
+# 11-04 it refused at S138-INI, 0/65
+leg "coop_self_dress" solo reg_self_dress.log -- env SOLO_INI_FOLLOW=0 $SOLO s166-reg-self-dress -- py tools/play.py $SC/coop_self_dress.py --field 250
+# the peer's bench port (COOP_PEER_PORT, default 49257) through ROUND_A_PEER_PORT: on 11-04 Windows had 49252-49351 in a dynamic excluded
+# port range (WinError 10013 at W0, 0/9) -- `netsh int ipv4 show excludedportrange protocol=tcp` before picking one
+leg "coop_climb_anim_peer" t2 reg_climb_peer.log -- env ${ROUND_A_PEER_PORT:+COOP_PEER_PORT=$ROUND_A_PEER_PORT} py tools/play.py $SC/coop_climb_anim_peer.py --instance C:/gd/ff9-inst/host
 leg "coop_host_code" t2 reg_host_code.log -- py tools/play.py $SC/coop_host_code.py --instance C:/gd/ff9-inst/host
 leg "coop_ramp_title p17-ownwalk" t2 reg_ramp_title.log -- env COOP_LEG=p17-ownwalk py tools/play.py $SC/coop_ramp_title.py --instance C:/gd/ff9-inst/host
 say "== all done (REGRESSION)"

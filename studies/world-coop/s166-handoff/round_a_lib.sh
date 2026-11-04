@@ -13,6 +13,8 @@
 #   ROUND_A_FROM=N          skip legs 1..N-1 (resume a stopped run; each skipped leg is said in the summary)
 #   ROUND_A_DUO_PORTS=H,G   the duo's two bridge ports (duo.py --bridge-ports; default its 49211,49212) -- an OS-assigned
 #                           ephemeral port of another program (Parsec held 49211 on 11-04) refuses every duo leg at C0
+#   ROUND_A_PEER_PORT=P     the regress runner's coop_climb_anim_peer bench port (its COOP_PEER_PORT; default 49257) -- a Windows
+#                           excluded port range (49252-49351 on 11-04) refuses W0 with WinError 10013
 set -u
 WT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$WT" || exit 9

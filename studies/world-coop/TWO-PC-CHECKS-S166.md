@@ -16,6 +16,8 @@ both machines together.
 
 **Three mod folders come with it** (s165 finding 3): `FF9CustomMap-world` (73 MB), `FF9CustomMap-schema` and `FF9CustomMap-msgs`,
 copied from the desktop's install, so both machines load the same world map. Step 0 lines the two installs up and checks them.
+`FOLDERS-MANIFEST.txt` lists every file of the three folders with its SHA256. They are the desktop's folders minus its tool
+backups (`*.bak-*`) and empty `.lock` files, which the game never reads.
 
 ## What's new (s166 round A: you see each other on the world map; the guest is still frozen)
 

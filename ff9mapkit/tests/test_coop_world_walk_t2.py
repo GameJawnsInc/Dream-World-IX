@@ -1380,6 +1380,17 @@ def test_the_runners_launch_only_legs_and_levers_the_scenarios_accept(t2):
         text = (_RUNNERS / name).read_text(encoding="ascii")
         duo_legs = re.findall(r'^\s*leg "[^"]*" duo .*$', text, re.M)
         assert duo_legs and all(" $DUO $SC/" in ln for ln in duo_legs) and "tools/harness/duo.py" not in text, (name, duo_legs)
+    # [ff9mapkit netsync s166] W3c's regression run: the selftest-role leg runs under solo_ini with ONLY Enabled flipped (launched plain it
+    # refused at S138-INI on the owner's live-configured ini, 0/65), and the peer leg takes ROUND_A_PEER_PORT through (a Windows excluded
+    # port range held its default 49257: W0 refused, 0/9)
+    regress = (_RUNNERS / "round_a_regress.sh").read_text(encoding="ascii")
+    sd = [ln for ln in regress.splitlines() if ln.startswith("leg ") and "coop_self_dress.py" in ln]
+    assert sd == ['leg "coop_self_dress" solo reg_self_dress.log -- env SOLO_INI_FOLLOW=0 $SOLO s166-reg-self-dress -- '
+                  'py tools/play.py $SC/coop_self_dress.py --field 250'], sd
+    peer = [ln for ln in regress.splitlines() if ln.startswith("leg ") and "coop_climb_anim_peer.py" in ln]
+    assert len(peer) == 1 and " env ${ROUND_A_PEER_PORT:+COOP_PEER_PORT=$ROUND_A_PEER_PORT} py tools/play.py " in peer[0], peer
+    assert "ROUND_A_PEER_PORT=P" in lib
+    assert 'values = {"Enabled": 0}' in solo and 'os.environ.get("SOLO_INI_FOLLOW", "1") == "1"' in solo
 
 
 
