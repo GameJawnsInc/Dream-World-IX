@@ -413,3 +413,68 @@ Also still open, no test needed: is the FF9Coop mod folder (it reroutes the choc
 `[Mod] FolderNames`) still wanted?
 
 ## Results
+
+## Results: the owner's two-PC session (2026-11-05, 10:14-10:23)
+
+The desktop hosted, the laptop was the guest, both on `b24e0123`, on the relay. Sources: the laptop's `Memoria.log` (sent as
+`Memoria-laptop.log`) and the desktop's own, both kept in `C:\gd\Dream-World-IX\.harness-runs\twopc-s166-20261105\`. The guest
+paired on field 250 while the host stood on 9011. The host then entered Dali (359), warped to 350 with the ~ menu, walked out,
+did the same once more, fought two battles on 9011, and cut the laptop's network once.
+
+| Step | Result |
+|---|---|
+| 0 Line-up | Both logs read wire 15. The laptop's mods line lists the same seven folders in another order: between FF9CustomMap and FF9Coop it has `-msgs`, `-schema`, `-world`, MoguriVideo, MoguriMain, where the desktop has `-world`, MoguriMain, MoguriVideo, `-schema`, `-msgs`. Harmless here: the one asset these folders share, `world_map_full_all.png` (`-world` and MoguriMain), goes to `-world` on both machines, and their DictionaryPatch keys do not overlap. The other shared files are `JournalPatch.txt` (`-world` and `-msgs`, read only by the Journal, and FF9CustomMap's own copy outranks both) and the two Moguri folders' own `ModFileList.txt` indexes. No ground-mismatch line in either log. |
+| 1 The pull | Green. The `waits` line, then the start once the host had been live for 1203 ms, the commit 418 ms later (black), ARMED at the landing, landed 2005 ms after the start, drift 0 u. The host showed its following and loading lines. |
+| 2 Ghosts both ways | Green. No ground mismatch, no mint refusal and no missing clip in either log. |
+| 3 The dot, riding | Green, and the dot follows a riding host. **One defect:** once the guest opened its minimap, Select could not close it (finding 1). |
+| 4 A host battle | Green, twice (the host's start hold released after 563 and 250 ms; both result screens replayed). The guest's battle starts about 0.8 s after the host's (finding 2). |
+| 5 The rejoin | Green, twice: `world rejoin landed on field 359 after 360 ms`, then 391 ms. |
+| 6 Out again | Green, twice from 350: landed 888 and 910 ms after the start, drift 0 u both times. |
+| 7 The link drop | Green: the first real cut. The guest held its session, and the host was back after 17.4 s (frames back after 19.4 s). The host logged its lane gap at 1 s and "the partner is lost" at about 5 s (lost for 14.5 s), and both cleared together. |
+| 8 The version check | Not run. Proven on the bench only (the mismatch legs). |
+
+Two further blips of about 2.3 s recovered inside the grace on their own. The first, at 10:20:28 by the laptop's clock, came
+with nothing else happening, and both machines lost each other's frames at the same moment once the clocks are lined up
+(the desktop runs about 1.9 s ahead): the link. The second came at the second battle's return, while both machines were
+loading the world map, so it may be a load stall rather than the link.
+
+**The look:** facing, yes; feet on the ground and the shadow, yes to all; the walk in step, yes (a slight slide when it stops,
+expected); smooth; the hitch: the laptop's first world-map load took a while, the rest were fine; two Zidanes are fine for now.
+
+**The dot:** the tint, yes; the size, yes; the edge, no preference (it stays pinned and dimmed); it follows a riding host, yes;
+going at 1 s in a link drop, fine.
+
+**The words:** not answered this session; the proposals stay as they are until the owner says otherwise.
+
+**Findings:**
+
+1. **The guest cannot close its minimap.** Stock Select cycles the world HUD: minimap -> full map -> no minimap -> minimap.
+   s144's freeze refuses the minimap -> full map step (`WorldHUD.OnKeySelect` asks `NetSyncField.RefuseWorldUi(WorldUiFullMap)`:
+   the stock buzz, and `full map suppressed (following guest) on world map 9011` at 10:16:19 in the guest's log), so a frozen
+   guest's cycle never reaches "no minimap": once open, the minimap stays open for the rest of that world-map visit, battles
+   included. Only the ~ menu's "release world freeze" lets Select close it (through the full map). The next field does not
+   reset it either: every field load and every follow-out landing copies the host's story bytes, `gEventGlobal[100]` (the
+   minimap mode) among them, so the guest's next visit opens in the HOST's minimap mode, and a host with its own minimap up
+   lands the guest with a minimap it cannot close, without the guest pressing anything. This is s144's, not s166's (s144
+   added both `RefuseWorldUi` calls; s165 and s166 never touched them); it shows now because s165's hint asks the guest to
+   press Select.
+   **The fix is small, and it is not the stock close:** stock has no step from the minimap straight to no minimap, and its full-map close is
+   mostly the control writes a frozen guest must not get. While `WorldFreezeNow` holds (asked directly: `RefuseWorldUi`
+   buzzes, counts and logs, so branching on it would sound a refusal for a close that works), Select on the minimap goes
+   straight to no minimap: the state, `MiniMapPanel` off, `w_naviMode` 0 and the chocograph marker off. That is the minimap
+   half of `SetMinimapVisible(false)` without its `SetMinimapPressable(false)`, which would kill Select. The block's shared
+   `byte_gEventGlobal_updateNaviMode` then writes `[100]` = 0, harmless on a guest: a guest never publishes its story, and the
+   next mirror overwrites it. The s165 hint ("press Select for the minimap") then comes back for the rest of the visit,
+   because it has no memory of a deliberate close: keep that, or latch the hint off for the visit after a Select close (the
+   owner's call).
+2. **The guest's battle starts about 0.8 s after the host's.** The logs agree within their 1 s resolution: the host published
+   its battle intro at 10:18:08 by its clock and the guest booted its copy at 10:18:06 by its own, and the two clocks differ by
+   about 2 s (the two machines logged the link drop's lane gap at 10:19:34 and 10:19:32). The delay is the host's own swirl
+   before its battle frame goes out, plus the link: s145's, unchanged by s166. A polish candidate, not a defect: an "encounter
+   starting" bit sent at the host's trigger would let the guest start its fade with the host's swirl.
+3. **The first world-map load of each game run is slow, on both machines, and it is not the ghost.** The laptop's first
+   follow-out landed 2005 ms after its start, but the freeze came on only 8 s later (10:14:27 to 10:14:35), and the host
+   showed "loading" for 7.5 s: in between, the laptop read the 508 world meshes of `FF9CustomMap-world`. The desktop's own
+   first load, before any pairing, read the same 508 meshes over about 6 s (10:14:08 to 10:14:14 by its clock). Every later
+   load read them in about 1 to 1.5 s, on both machines. The ghost's body took 101 ms the first time and 36 to 58 ms after.
+   It is a first-load cost of the world-mesh loader, not co-op and not the laptop's new folder.
