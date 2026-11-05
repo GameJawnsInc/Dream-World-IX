@@ -372,6 +372,28 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
     owner's call, item 10), its hint reworded to "Enter locations alone (until the next field load)", and the texts that say the guest waits are reworded (the ~ menu's co-op hint,
     GUEST_TERMS in coopdoc.py:62-68, 17-coop.md:65, coop.py:38's `--follow-host` help).
 
+27. **The minimap close (the owner, 2026-11-05: the s166 two-PC finding 1, folded into s167).** Stock Select cycles the world
+    HUD minimap -> full map -> no minimap -> minimap, and s144's `RefuseWorldUi(WorldUiFullMap)` refuses only the first step,
+    so a frozen guest could open its minimap (s165's hint asks it to) and never close it, the whole visit, battles included;
+    the mirror's copy of the host's `gEventGlobal[100]` opens the next visit in the HOST's minimap mode
+    (`TWO-PC-CHECKS-S166.md` "Results", finding 1). In `WorldHUD.OnKeySelect`, while `WorldFreezeNow` holds and the state is
+    HUD with the map button enabled, Select goes straight to HUDNoMiniMap: the state, `MiniMapPanel` off, `w_naviMode` 0 and
+    the chocograph marker off, then the block's shared `byte_gEventGlobal_updateNaviMode` writes [100] = 0 (harmless: a
+    guest never publishes its story, and the next mirror overwrites it). The traps, each a mutant: branching on
+    `RefuseWorldUi` (it buzzes, counts a refused open and logs, for a close that works); reusing `SetMinimapVisible(false)`
+    (its `SetMinimapPressable(false)` sets isSelectEnable false: Select dies and the hint points at a dead key); the
+    full-map close's branch (it hides FullMapPanel, never MiniMapPanel, and its control writes -- SetPlayerControlEnable,
+    FallbackBubbleToEvent's SetUserControl(true) -- are what a frozen guest must not get). A walking guest on 9010/9011 under
+    decision 8 keeps stock's cycle (RefuseWorldUi passes there); every still-frozen guest (a riding host, a scene, 9002, a
+    mismatch, the vehicle worlds) gets this close. Lever `minimap old` (s166's stranded cycle). Counted on
+    `netsync.world.walk` as `minimap_closes`, one log line per world visit.
+28. **The hint stays quiet after a deliberate close (the owner, 2026-11-05).** s165's `MinimapHintNow` ("Your partner is on
+    the world map: press Select for the minimap.") has no memory of a close. A Select close (decision 27, or stock's own
+    close on a walker) latches the hint off for the rest of that world-map visit; the latch clears at every world load
+    (WMScriptDirector.HonoAwake, beside the dot's backstop), so a visit that starts with the minimap off still shows it.
+    Pure `MinimapHintQuietRule(hudNoMiniMap, verdictShow, closedThisVisit)`; the s165 hint rows stay, plus a row "closed this
+    visit -> quiet" and a mutant that forgets the latch. Lever `minimap old` restores s165's hint too.
+
 ### The harness (both rounds)
 
 25. A new sub-verb `worldwalk` (`worldfollow` refuses unknown ops). Every lever is any-role where the duo needs it (THE DUO
@@ -382,7 +404,7 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
     and SuppressEncounters, as s165's G10): `host path <x0> <z0> <x1> <z1> [...] <ups> [loop]`, `hostseq freeze|run`,
     `hostgap <ms>`, `hostplace <n>`, `hoststate <bits>`, `hostmode <n>`, `hostworld <id>`, `hostmodel <id>`, `hosttps <n>`,
     `host off`, each setting its trailer field, built through the real BuildPosPayload into the reader the live branch
-    uses. Round B: `walk`, `pair`, `refuse`, `stallhold`, `decline`, `fp`, `tps`, `fullmap`. Keys, all additive:
+    uses. Round B: `walk`, `pair`, `refuse`, `stallhold`, `decline`, `fp`, `tps`, `fullmap`, `minimap` (decisions 27-28). Keys, all additive:
     `netsync.world.lane` on every role (tx/rx seq, place, state, flags, world, arrival and seq ages, peer caps and why, gaps,
     hangs, gaps_250, world_tps own and peer); `netsync.world.ghost` (want, why_not, shown, model, clip, canonical x/y/z,
     render x/z and their inverse from the same LateUpdate, ground_y, wire_y, snaps, holds, hides, mints, mint_ms, faults);
@@ -543,13 +565,14 @@ PIN), 6603 -> 9011 by s165's follow-out (`worldfollow host`), and onto 9002/9010
 | W-STALLHOLE | T2 blackhole 2.3 s on a world-paired guest: frozen, `freeze.edges` unmoved across the blackhole; a Confirm at ICE_TILE inside it: `world.freeze.keys` +1, never 300; on place 52, `world.freeze.battles` +1, no local battle | free for the stall | `stallhold old` |
 | W-TPS | `hosttps 20` against my 28: both values published, one mismatch line | none | `tps apply` (owner trial): my speed changes at the next world load |
 | W-MAP | only with decision 8: open, the full-map dot, the co-op close before an arm | refused | `fullmap old` |
+| W-MINIMAP | decisions 27-28 on a FROZEN guest (`walk off`, minimap on): Select closes it (HUDNoMiniMap, `MiniMapPanel` off, [100] 0, no buzz, `world.freeze.map` +0, `minimap_closes` +1, control unchanged); a second Select reopens it; the hint stays quiet for the visit after the close and shows again after a world reload with the minimap off | Select buzzes, the minimap stays open, `world.freeze.map` +1 | `minimap old` |
 | T2-B | ROAM tape: WR-FREE, WR-REFUSE, WR-REJOIN-FAR, WR-PAIR (paired on the world map: frozen "pairing") | frozen | `walk off` |
 | Duo | D-W1/2/3 ghosts both ways while walking; D-REFUSE; D-REJOIN-FAR; D-BATTLE (the guest boots and returns at its OWN pose); D-RIDE (`vehicle 1` on the host: judge the guest's verdict, never the dot); D-REJOIN-WAIT (the host walks back out while the rejoin waited: the ghost snaps, no follow-out); D-SHARED | frozen | `walk off` any role |
 
 **Order, one change per test by lever.** Round A: K1; A-KITOFF and A-FERRYOFF first and alone (they close a live hazard); T2-A pair
 second and alone (OLD measured on the A0 build, the tape restamped where the wire needs it); the proof; A-WIRE and the restamp; A-TX; the ghost rows with `lanegap off` and `hostlines off`; the stall rows; T2; the duo; the
 regression set; the owner's two-PC look. Round B: the walk with `refuse silent`; the refusal; pairing, stall hole, decline,
-fingerprint, TPS; decision 8 last; T2; the duo; the regression set; two-PC.
+fingerprint, TPS; the minimap close (decisions 27-28); decision 8 last; T2; the duo; the regression set; two-PC.
 
 **Regression.** Round A changes no lawful guest behaviour, so the s144/s145/s165 legs run as they are on restamped tapes,
 which exercise round A only dormant (capless): the duo owns those rows under an active trailer. Every coop_peer-based scenario
@@ -656,6 +679,9 @@ in place; item 14 is decision 12 as revised.
     rotation whenever the host's caps carry b0, and section 0 otherwise (an s165 host). On the vehicle worlds, where the
     frozen guest has only the dot, it then tracks a riding host, and D-RIDE judges the dot moving. Recommended: in round A,
     right after the trailer. DECIDED: decision 12 (revised).
+
+15. **The minimap close** (the s166 two-PC finding 1). DECIDED (2026-11-05): folded into s167 rather than a round of its own,
+    as decision 27; and the hint stays quiet after a deliberate close, decision 28 (the owner chose the recommended option).
 
 ## What the s165 two-PC check answered (2026-11-02; `TWO-PC-CHECKS-S165.md` "Results")
 
