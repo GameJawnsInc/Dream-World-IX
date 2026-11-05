@@ -467,6 +467,7 @@ going at 1 s in a link drop, fine.
    next mirror overwrites it. The s165 hint ("press Select for the minimap") then comes back for the rest of the visit,
    because it has no memory of a deliberate close: keep that, or latch the hint off for the visit after a Select close (the
    owner's call).
+   -> The owner folded the fix into s167 (2026-11-05); the hint question goes with it.
 2. **The guest's battle starts about 0.8 s after the host's.** The logs agree within their 1 s resolution: the host published
    its battle intro at 10:18:08 by its clock and the guest booted its copy at 10:18:06 by its own, and the two clocks differ by
    about 2 s (the two machines logged the link drop's lane gap at 10:19:34 and 10:19:32). The delay is the host's own swirl
