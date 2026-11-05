@@ -14,7 +14,7 @@ and its log says, once: `[NetSync] the partner's engine speaks wire 14, this one
 game has no words for it: it keeps its ordinary connecting or waiting line and never pairs. If you ever roll back, roll back
 both machines together.
 
-**Three mod folders come with it** (s165 finding 3): `FF9CustomMap-world` (73 MB), `FF9CustomMap-schema` and `FF9CustomMap-msgs`,
+**Three mod folders come with it** (s165 finding 3): `FF9CustomMap-world` (44,031,200 bytes in 2,779 files; Explorer shows about 42 MB), `FF9CustomMap-schema` and `FF9CustomMap-msgs`,
 copied from the desktop's install, so both machines load the same world map. Step 0 lines the two installs up and checks them.
 `FOLDERS-MANIFEST.txt` lists every file of the three folders with its SHA256. They are the desktop's folders minus its tool
 backups (`*.bak-*`) and empty `.lock` files, which the game never reads.
@@ -80,10 +80,11 @@ Your two-PC session is the first real network test, and every question about the
 
 ### Step 0: line the two machines up, and check them (before any test)
 
-1. **Back up the laptop.** Copy these to a folder outside the FF9 folder (for example `Desktop\FF9-backup-s165`):
-   - `x64\FF9_Data\Managed\Assembly-CSharp.dll`, `Memoria.Prime.dll` and `UnityEngine.UI.dll`;
-   - the same three from `x86\FF9_Data\Managed\`;
-   - `Memoria.ini`.
+1. **Back up the laptop.** Make a folder outside the FF9 folder (for example `Desktop\FF9-backup-s165`) with two
+   subfolders, `x64` and `x86` (the two arches' DLLs share their names), and copy:
+   - `x64\FF9_Data\Managed\Assembly-CSharp.dll`, `Memoria.Prime.dll` and `UnityEngine.UI.dll` into its `x64` subfolder;
+   - the same three from `x86\FF9_Data\Managed\` into its `x86` subfolder;
+   - `FINAL FANTASY IX\Memoria.ini` (the one beside `Memoria.log`; ignore any `x64\Memoria.ini`) into the folder itself.
 
    If the laptop already has a folder named `FF9CustomMap-world`, `FF9CustomMap-schema` or `FF9CustomMap-msgs` (it had none in
    s165), move it into the backup too.
@@ -98,7 +99,19 @@ Your two-PC session is the first real network test, and every question about the
    `FF9Coop`: they are not in this package. `FF9CustomMap-world` is the desktop's whole overworld folder: the Disc 1 terrain
    edits and the Southern Ring. It also carries the desktop's New Game start (its own copy of field 70, the game's opening):
    unless the laptop's own `FF9CustomMap` replaces that field too, a New Game on the laptop now starts where the desktop's does.
-5. **Memoria.ini `[Mod]`:** in Notepad, set the laptop's two lines to exactly the desktop's:
+
+   **Check the copy, on BOTH machines** (the desktop's world folders change with Claude's work, so check that they still match
+   this package). In PowerShell, with `<FF9 folder>` your `FINAL FANTASY IX` folder:
+
+   ```
+   foreach ($f in 'FF9CustomMap-world','FF9CustomMap-schema','FF9CustomMap-msgs') { "$f " + (Get-ChildItem -Recurse -File -Force "<FF9 folder>\$f" | Where-Object { $_.Name -notlike '*.bak-*' -and $_.Name -notlike '*.lock' }).Count }
+   ```
+
+   Both machines must print `FF9CustomMap-world 2779`, `FF9CustomMap-schema 25` and `FF9CustomMap-msgs 146`. If the laptop's
+   differ, copy the folders again; if the desktop's differ, its world changed after this package was made: ask Claude for a
+   new one. `FOLDERS-MANIFEST.txt` holds every file's SHA256 if a file-by-file check is ever needed.
+5. **Memoria.ini `[Mod]`:** in Notepad, open `FINAL FANTASY IX\Memoria.ini` (beside `Memoria.log`; ignore any
+   `x64\Memoria.ini`) and set the laptop's two lines to exactly the desktop's:
 
    ```
    FolderNames = "FF9CustomMap", "FF9CustomMap-world", "MoguriMain", "MoguriVideo", "FF9CustomMap-schema", "FF9CustomMap-msgs", "FF9Coop"
@@ -109,7 +122,7 @@ Your two-PC session is the first real network test, and every question about the
      MoguriMain and MoguriVideo were the other way round. The order matters, because an earlier folder wins.
    - The Memoria launcher rewrites both lines, and it adds a folder it has not seen before at the END of both. So edit with the
      launcher closed and keep the two lines identical. If you open the launcher, check the lines again afterwards.
-6. **The rest of Memoria.ini, as before:**
+6. **The rest of the same `Memoria.ini`, as before:**
    - the guest keeps `[Netsync] FollowHost = 1`;
    - both machines use the same `[Cheats] SpeedFactor` and `[Graphics] FieldTPS`, and now also the same `[Graphics] WorldTPS`
      (s166 sends WorldTPS to the partner but does nothing with it yet). The desktop runs `SpeedFactor = 3`, `FieldTPS = 30`
@@ -287,8 +300,9 @@ guest's screen during steps 1 to 3 helps most, and of the host's screen during s
      - "Lost contact" stays up after the link and the figure are back.
      - The guest's session ends (its own save reloads) inside 40 s.
 8. **The version check (optional, last).** On the laptop, close FF9 and copy its `Memoria.log` aside first: it holds steps 1
-   to 7, and every start of the game rewrites it. Then put back the s165 `Assembly-CSharp.dll` from your step-0 backup (into
-   `x64\FF9_Data\Managed\`), start the game and try to pair as usual.
+   to 7, and every start of the game rewrites it. Then put back the s165 `Assembly-CSharp.dll` from your step-0 backup (its `x64`
+   copy into `x64\FF9_Data\Managed\` and its `x86` copy into `x86\FF9_Data\Managed\`, so whichever one the launcher runs is
+   s165), start the game and try to pair as usual.
    - **Host (desktop) screen:** *"Your partner's co-op version doesn't match yours: update both games."* Nothing pairs.
    - **Guest (laptop, s165) screen:** its usual line, waiting for the host's game; it never pairs and says nothing about versions.
    - **Host log:**
@@ -303,7 +317,8 @@ guest's screen during steps 1 to 3 helps most, and of the host's screen during s
      `[NetSync] lost host; retrying (wire-version mismatch (update both machines' engine))` (another reason in the last
      brackets when the desktop hangs up first).
    - **Then put s166 back:** close the laptop's FF9 (copy its `Memoria.log` aside again: it holds this step), copy the
-     package's `dlls\x64\Assembly-CSharp.dll` back, check the hash again (`b24e0123`), and start the game. The desktop's words
+     package's `dlls\x64\Assembly-CSharp.dll` and `dlls\x86\Assembly-CSharp.dll` back to their folders, check both hashes
+     again (`b24e0123`), and start the game. The desktop's words
      clear as soon as the laptop's first frame arrives; if the laptop just stays closed, they clear within 15 s.
    - **Red tells:** the two pair; the desktop shows no words.
 
@@ -347,8 +362,11 @@ s165's five lines are still yours to change too.
 
 ## Known limits (s166)
 
-- **Install:** both machines must run the same DLL and the same mod folders, and a rollback rolls back both. Nothing checks the
-  world content yet (s167 will name a difference). The only hint is the ghost's ground-mismatch log line.
+- **Install:** both machines must run the same DLL and the same world-map folders (`FF9CustomMap-world`, `-schema` and `-msgs`),
+  and a rollback rolls back both. Nothing in the game checks the world content yet (s167 will name a difference); the only hint
+  is the ghost's ground-mismatch log line. Each machine keeps its own `FF9CustomMap` (first in the folder order): the desktop's
+  also changes battle and character data (its battle action, ability and character tables), which this test does not line
+  up, as in s165's session, so a battle's numbers can differ between the two machines.
 - **Where:** ghosts only on 9002, 9010 and 9011. On the other free-roam world maps (later discs, with Choco or a ship) the guest
   keeps only the dot, and on world-map scenes neither. 9002 has barely been tested: both bodies are Dagger there, and its minimap
   is unproven in game.
@@ -363,7 +381,9 @@ s165's five lines are still yours to change too.
   has the short body-building hitch. A direct LAN link is unaffected.
 - **The mismatch words linger:** they stay up to 15 s after an older partner quits.
 - **Unchanged from s165:**
-  - a host on the kit's new world (9013) reads as 9011 to the follow-out;
+  - a host on the kit's new world (9013) reads as 9011 to the follow-out; do not take an entrance on 9013 (reached only through
+    the ~ menu): its three bench fields, 30950 to 30952, are registered on neither machine, so an entrance there leads to a
+    black screen;
   - after a host Gysahl press on 9010 or 9011, later follow-outs wait (the guest's log says `the host is calling Choco`);
   - a host that changes world map without a field, or walks back out while the guest's rejoin waited, leaves the guest behind
     until its next stop.
@@ -384,7 +404,8 @@ s165's five lines are still yours to change too.
 - The videos.
 
 If you need to go back to s165, do it on both machines:
-- the laptop restores its step-0 backup;
+- the laptop puts back the six DLLs from its step-0 backup (each arch from its own subfolder), and keeps the step-5 `[Mod]`
+  lines and the three copied folders: the desktop ran s165 with them too, and they keep the two machines' mods lined up;
 - the desktop runs `py tools/restore_memoria_dll.py 20261102-175107` (s165, `e364ca8d`), with FF9 closed, in
   `C:\gd\Dream-World-IX`.
 
