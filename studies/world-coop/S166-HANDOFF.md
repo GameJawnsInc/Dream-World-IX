@@ -1,6 +1,6 @@
 # s166 round A: handoff (2026-11-02, end of session)
 
-**Status 2026-11-04: ROUND A DONE (W1, W2, W3).** Frozen as `memoria-patches/s166-netsync-world-walk.patch`, benched in game on `b24e0123ac93960c`, the regression set 25/25, merged to master `9061dfb0`, RELEASED in the round queue (the clone is free), the laptop package built. Waiting on the owner's two-PC check ("Next" below).
+**Status 2026-11-04: ROUND A DONE (W1, W2, W3).** Frozen as `memoria-patches/s166-netsync-world-walk.patch`, benched in game on `b24e0123ac93960c`, the regression set 25/25, merged to master `9061dfb0`, RELEASED in the round queue (the clone is free), the laptop package built. **TWO-PC PROVEN 2026-11-05** (`TWO-PC-CHECKS-S166.md` "Results"): steps 1-7 green, one s144 defect found ("Next" below).
 
 Paused for usage. The owner said: hold off on the next workflow and pick up after A0b's tests. Nothing is half-edited in the
 engine clone. The design is `S166-DESIGN.md`, and the owner took every recommendation in it.
@@ -33,10 +33,10 @@ The snapshots for diffs are in the old session's scratchpad, `C:\Users\skaki\App
 `s166-handoff/s166diff.py` diffs against `s165base`. Edit its `SNAP` if the scratchpad is gone; a fresh snapshot = the
 replayed stack via `py tools/memoria_stack_replay.py snapshot`.
 
-## Next (2026-11-04)
+## Next (2026-11-05)
 
-- **The owner's two-PC check** with the laptop package: `TWO-PC-CHECKS-S166.md` steps 0-8 (step 0 lines the installs up, with a file-count copy check on both machines). Record the results under its `## Results`.
-- **Owner-gated, not blocking:** the ROAM tape (`s166-handoff/ROAM-TAPE.md`; S166-RM-GATE stays red until it exists), the look and the words, whether the FF9Coop folder is still wanted, and the firewall rule the offline `tcptest2.exe` added (remove it with `Get-NetFirewallApplicationFilter | Where-Object Program -like '*scratchpad\a2r\tcptest2.exe' | Get-NetFirewallRule | Remove-NetFirewallRule`, from an elevated PowerShell).
+- **The two-PC check is done** (`TWO-PC-CHECKS-S166.md` "Results", logs in `.harness-runs\twopc-s166-20261105\`): steps 1-7 green, step 8 not run; the look and the dot are answered (keep them; two Zidanes are fine for now), the words are unchanged. **One defect: the frozen guest cannot close its minimap** (finding 1 there): s144's full-map refusal strands Select's minimap -> full map -> no minimap cycle, for the whole visit, and the next visit opens in the host's minimap mode (the mirror copies `gEventGlobal[100]`); only the ~ menu's freeze release lets it close. The fix is small (Select goes from the minimap straight to no minimap while `WorldFreezeNow` holds, without `RefuseWorldUi`'s buzz and without `SetMinimapPressable(false)`; the finding names the traps): a round of its own or folded into s167, the owner's call, with a second call on whether the s165 hint stays quiet after a deliberate close. Polish candidates, not defects: the guest's battle starts about 0.8 s after the host's (s145's), and the first world-map load of each game run reads the 508 `-world` meshes slowly on both machines (6 to 8 s; later loads 1 to 1.5 s).
+- **Owner-gated, not blocking:** the ROAM tape (`s166-handoff/ROAM-TAPE.md`; S166-RM-GATE stays red until it exists), whether the FF9Coop folder is still wanted, and the firewall rule the offline `tcptest2.exe` added (remove it with `Get-NetFirewallApplicationFilter | Where-Object Program -like '*scratchpad\a2r\tcptest2.exe' | Get-NetFirewallRule | Remove-NetFirewallRule`, from an elevated PowerShell).
 - **Then s167**, the guest's own free walk (`GUEST-FOLLOW.md` "The order"; S166-DESIGN.md's Known limits name what it inherits). Take the clone through the round queue first.
 - **Watch in the nightly gate** (it is Disabled; the owner's call): `test_coop_world_battle.py` is load-sensitive at `-n 6` (S145-CAM, pre-s166; S145-HF-REJOIN seen once on s166, green alone).
 

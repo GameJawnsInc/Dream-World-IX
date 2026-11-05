@@ -307,6 +307,9 @@ reloads its own save, or reload at once.
    stands on the world map is pulled out and mirrors from that landing: the owner's call after the s165 two-PC, folded into
    s166 as `S166-DESIGN.md` decision 26), the inbound lane-gap line on both
    roles, and a WorldTPS mirror beside s163's FieldTPS. Re-arm the DeclineOnce world book at each world load.
+   **Round A DONE as s166 (2026-11-04): the wire, the ghosts both ways, the dot from the trailer and the pull, the guest
+   still frozen. TWO-PC PROVEN (2026-11-05): steps 1-7 green, the first real link cut included; one s144 defect, the frozen
+   guest cannot close its minimap (results in `TWO-PC-CHECKS-S166.md`). The guest's own free walk is s167.**
 3. **Free walk on the vehicle worlds, with Choco.** The guest mounts its own Choco; the mounted ghost; the guest's parked
    airship or boat copy hidden or re-placed when the host moves its own; the Choco call (decision 6); the dismount for the host's battle (decision 7).
 4. **Pulled aboard: the airships, then the boat.** The claim check, the reload aboard, the carried copy, the set-down, the
