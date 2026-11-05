@@ -1,0 +1,100 @@
+export const meta = {
+  name: 's167-w2-kit-bench',
+  description: 's167 round B, W2: the kit (stand-in twins, coop_peer section 11 + digest, pins), the round-B solo/T2/duo bench legs, the regression re-keys, runners and texts, a critic, the reconcile',
+  phases: [
+    { title: 'Kit', detail: 'the harness Python against the W1 engine contract: stand-in, coop_peer, caps, pins' },
+    { title: 'Bench', detail: 'the round-B rows: solo legs, then T2 + duo legs, then the regression re-keys, runners and kit texts' },
+    { title: 'Critic', detail: 'every row can fail; completeness against the design and W1 open items; fixes' },
+    { title: 'Reconcile', detail: 'kit vs the engine clone, the offline tests once' },
+  ],
+}
+
+const WT = String.raw`C:\gd\Dream-World-IX\.claude\worktrees\s166-handoff-575aeb`
+const SP = String.raw`C:\Users\skaki\AppData\Local\Temp\claude\9e463cf4f0985362\110b1b95-e2da-4a85-ab88-e0d8756cb21a\scratchpad`
+const CLONE = String.raw`C:\gd\FFIX\Memoria`
+
+const CONTEXT = `
+You are building the KIT and BENCH side of round s167 of the ff9mapkit netsync co-op stack (world-map co-op RUNG 2, ROUND B, "the walk"): a following guest, frozen on the world map since s144, now WALKS its own copy on foot on {9002, 9010, kit 9011}, its entrances refused with a buzz and words; plus the stall hole, the DeclineOnce re-arm, the world fingerprint (caps b1, digest, section 11), WorldTPS report, decision 8's full map for a lawful walker, and decisions 27-28 (Select closes a FROZEN guest's minimap; the s165 hint stays quiet for the rest of the visit after a Select close). Round A (s166, b24e0123ac93960c) is live on this desktop and two-PC proven.
+
+THE ENGINE IS BUILT (W1) in the clone ${CLONE}\\Assembly-CSharp (s158..s166 + the s167 delta, uncommitted by design; NOT deployed: the live game still runs s166). Its full reports are in ${SP}\\w1_result.json (JSON: result.reconA, reconB, core, walk, fp, map, review; each step's \`contract\` and the review's \`contract_final\` are THE CONTRACT -- every harness key, op, reply, log line and owner-visible line, exactly) and a digest in ${SP}\\w1_digest.md (READ IT FIRST: every step's deviations and open items, several addressed to you, "the kit lane"). The delta: \`py ${WT}\\studies\\world-coop\\s167\\s167diff.py --stat\` and \`... <path relative to Assembly-CSharp>\`. Offline proof (pure statics): "world walk selftest: OK (532 rows, 196 mutants)"; the overlay text selftest has 58 rows by site count.
+
+THE DESIGN: ${WT}\\studies\\world-coop\\S166-DESIGN.md -- decisions 13-28 (round B; 25 the harness), "The owner-visible words", "The bench" (K1, the stand-in and its faults, Tapes, the ROUND B rows table incl. W-MINIMAP, the Order, the Regression paragraph's round-B sentence), "Known limits". Round A's kit/bench is your template: ${WT}\\studies\\world-coop\\S166-HANDOFF.md, the scenarios studies\\test-harness\\scenarios\\coop_world_walk.py (solo legs, COOP_WW_LEG) and coop_world_walk_t2.py (T2 + duo legs, COOP_WWT_LEG), the runners studies\\world-coop\\s166-handoff\\round_a_{lib,old,new,lever,regress}.sh, solo_ini.py, ROAM-TAPE.md, tools\\harness\\fakegame.py (the stand-in's \`worldwalk\` rung), tools\\harness\\coop_peer.py, tools\\harness\\battlewire*.py if present, and their tests under ff9mapkit\\tests (test_coop_world_walk*.py, test_coop_peer.py, test_harness_netsync.py, test_harness_world.py, test_world_coop_harness.py, test_coop_world_{follow,wait,battle,party_duo}.py).
+
+KNOWN FROM W1 (act on them): the regression legs need the FULL s166 lever set to read s166 exactly: \`worldwalk walk off\`, \`refuse silent\`, \`stallhold old\`, \`decline old\`, \`fp off\`, \`minimap old\`, \`fullmap old\` (send them only when the probe shows netsync.world.walk -- re-key by STAGE, never weaken a row); the WorldTPS mismatch line and the missing-caps line speak even under the s166 levers (never assert their absence); W-KITCELL must stand ON KIT_6603_TRIGGER (80, -444), never FS_LANDING (THE TRIGGER IS NOT THE CELL); W-MINIMAP's hint re-show needs a NEW VISIT (a field round trip such as 9011 -> 300 -> 9011), a warm battle return or the ~ menu's world reload keeps the latch; W-FREE on the selftest role needs BOTH bench hosts (\`worldfollow host self\` for section 7 + \`worldwalk host path\` for the trailer), a prior in-scope field frame for SuppressEncounters, and fp.ready; W-STALE: under \`hostseq freeze\` the bench re-sends a Valid frame, so to see held_trailer false after a world reload stop arrivals with \`hostgap\`; the close-map line appears only on a client's world chain (read session.overlay on the duo guest); the freeze-edge line is reworded under \`walk on\` (greps for "the host drives" must send \`walk off\`); netsync.world.walk then netsync.world.fp are now world's LAST keys; the own-wire line reads 'caps 0x0003'; lane.caps.own is 3; lane.tx/rx gain why_name; lane.world_tps gains keys; the ww_pack_why twin must follow WhyByteRule/WhyClassesOnRule (classes only when both caps words carry b1; \`walk off\` restores the raw code); coop_peer and the stand-in must model section 11 (id 11) and the digest bytes; the reader ids (0/1/15/16), place codes (52/100/169) and lock bytes (Map[33]/[35]) are inferred from the census: the in-game rows are what confirm them (K1).
+THE ROAM TAPE (T2-B): COOP_TAPE_WORLD_ROAM does not exist and its recording is OWNER-GATED (ROAM-TAPE.md). For round B it must be recorded on the s167 build (a walking guest needs the host's caps b1 and a matching digest; an s166-recorded tape is "an older build"). Until it exists T2-B runs an instrument and a gate row stays red, as round A's S166-RM-GATE did; keep the recorder ready for an s167 host.
+
+LAWS: THE PRE-INIT SAMPLE (world rows judge after world.block_ready and advancing world.ticks); A GAME PUBLISHES NOTHING DURING ITS OWN SYNC LOAD; THE ORDER SKEW (drop a control flip's own publish); THE DUO CANNOT PULL A SELFTEST-ROLE LEVER; THE BENCH TERM HOLDS THE FREEZE (on the forced selftest role \`netsync bench 1\`); THE FORCED-ROLE PIN (solo legs run under solo_ini.py: Enabled 0 + FollowHost 1 written BEFORE launch); THE SELFTEST ROLE REFUSES A LIVE INI; THE EXCLUDED PORT RANGE (ports come from ROUND_A_DUO_PORTS / ROUND_A_PEER_PORT knobs; Parsec holds 49211, Windows excludes 49252-49351); LIVE VERDICT vs LAST DRAWN; every row names its OLD prediction on s166 and a LEVER prediction, so every row can fail.
+
+RULES (non-negotiable): Python / shell / docs only, in ${WT}. NEVER edit the clone (report engine defects instead). Never edit memoria-patches/*. Never launch the game, the harness against a real game, a duo, or tools/play.py (the bench runs later, by the session, after a build). Never touch the install, the owner's Memoria.ini, the firewall or the owner's Workspace bridge (127.0.0.1:49201). Never construct or run anything that listens on a non-loopback address. No new ini knobs; the harness protocol stays 5. Keep each file's line endings (most kit files LF; check). Do not commit.
+TESTS: from ${WT} (templates are extracted in this worktree). ONE pytest process at a time, never while its imports are being edited; long runs \`-n 6\` in the background to a log under ${SP}\\s167w2; iterate by node id / -k; a red that goes green alone on a quiet re-run is load noise (say so). Never leave a pytest or xdist worker running. Report each command, wall time, counts.
+`
+
+const KIT_SCHEMA = {
+  type: 'object',
+  properties: {
+    summary: { type: 'string' }, files_touched: { type: 'array', items: { type: 'string' } },
+    tests_run: { type: 'string' }, tests_green: { type: 'boolean' },
+    rows_added: { type: 'array', items: { type: 'string' }, description: 'each bench row: id, leg, OLD prediction on s166, NEW judge, LEVER prediction' },
+    contract_assumptions: { type: 'array', items: { type: 'string' } },
+    engine_defects_found: { type: 'array', items: { type: 'string' } },
+    open_issues: { type: 'array', items: { type: 'string' } },
+  },
+  required: ['summary', 'files_touched', 'tests_run', 'tests_green', 'rows_added', 'contract_assumptions', 'engine_defects_found', 'open_issues'],
+}
+
+phase('Kit')
+const kit = await agent(`${CONTEXT}
+YOUR STEP: THE KIT CORE (no bench legs yet). Bring the harness Python up to the W1 engine contract:
+- tools/harness/fakegame.py's \`worldwalk\` rung: twins of every round-B rule the stand-in must model (WalkFreeRule's terms and whys, the stall hold, WorldSessionHeld, EntryRefusalRule's cases a-d with the e0/e1/e15 read orders and the KeyTick dedupe, the DeclineOnce re-arm by visit, the fingerprint state and section 11, WorldTPS report, decision 23's open/close, decisions 27-28's Select close and hint latch), the round-B levers and keys exactly as the engine's contract (netsync.world.walk, netsync.world.fp, lane.world_tps, why_name, caps 3), its proof line's counts (532/196), the caps_through stage for s167, and the design's stand-in faults: walk_unlawful, refuse_leak, refuse_silent, refuse_overfire, pairing_free, stall_free, ownmode_free, decline_stale, fp_ignored -- plus minimap_strand (s166's stranded Select) and hint_nag (the latch forgotten). It models the ENGINE's facts, never the design's intent (the forced selftest role, the off-field return, the selftest role's OvlOff, B_KEYON read twice, the kit cells/boat/ferryman bare Confirm reads, the visit witness).
+- tools/harness/coop_peer.py: caps 0x0003 when the game speaks it, the digest bytes 88-91, section 11 (id 11) on a host record, the why-class byte gated as the engine gates it; serve-guest can emit a WALKING v15 guest record (b1 set, a digest) and an s166-shaped one (\`--caps 1\` or equivalent); replay-host of a tape recorded on an s167 host passes its section 11 through; \`where --pose\` names the digest and caps.
+- The pins: every test that pins the proof count, the overlay text selftest count, the catch literal's keys, the own-wire line, lane.caps.own, the stand-in's caps -- moved BY STAGE (the clone's s167 delta / the probe), never a bare constant flip; they must stay green against the deployed s166 AND the s167 clone.
+- The shared battlewire / fakegame twin of the why byte (ww_pack_why) follows WhyByteRule / WhyClassesOnRule.
+Tests: the W2 kit set (test_coop_peer.py, test_harness_netsync.py, test_harness_world.py, test_world_coop_harness.py, test_coop_world_walk*.py's stand-in tests, and any test you touch), green. Return the KIT schema.`, { label: 'kit core', phase: 'Kit', schema: KIT_SCHEMA, model: 'opus' })
+if (!kit) throw new Error('kit core failed')
+
+phase('Bench')
+const solo = await agent(`${CONTEXT}
+THE KIT CORE is done (its report: ${JSON.stringify(kit)}).
+YOUR STEP: THE ROUND-B SOLO LEGS, in studies/test-harness/scenarios/coop_world_walk.py (new COOP_WW_LEG values; round A's legs untouched except stage re-keys that keep them reading s166 on an s167 build) and its stand-in tests. The design's Round B rows on the solo route (the forced selftest role, 6603 -> 9011 by s165's follow-out, 9002/9010 by a fabricated [102]): W-FREE, W-CAM, W-REFUSE-x (NOB6, OTHER, RIDE, SCENE, OWNMODE, PAIR, FP), W-STALE, W-ENTRY (ICE_TILE), W-KITCELL (ON KIT_6603_TRIGGER), W-KITBOAT, W-FERRY, W-OPEN, W-DECLINE, W-TPS, W-MAP (decision 8 on 9010/9011), W-MINIMAP (decisions 27-28: Select closes on a frozen guest, reopens, the hint quiet for the visit, back after a field round trip), and the proof line (A-PROOF's s167 counts). Each row: its OLD prediction on s166 (the live DLL: most rows are 'frozen' / 'silent' / 'refused' / 'stranded'), its NEW judge, its LEVER prediction (the lever restores OLD) -- so each can fail. Group rows into legs the way round A did (one leg per launch; a leg's rows share setup), name the env var values, and make every leg read the build's stage from the probe so the same leg file runs OLD (s166), NEW and LEVER. Use the W1 notes on each row's setup (both bench hosts for W-FREE; hostgap for W-STALE's reload; the field round trip for the re-show). Stand-in tests: each new leg green on the stand-in at stage s167, and red on its fault (walk_unlawful, refuse_leak, ...). Return the KIT schema (rows_added: every row with OLD / NEW / LEVER).`, { label: 'bench: solo legs', phase: 'Bench', schema: KIT_SCHEMA, model: 'opus' })
+if (!solo) throw new Error('solo legs failed')
+
+const t2 = await agent(`${CONTEXT}
+THE KIT CORE (${JSON.stringify(kit)}) and THE SOLO LEGS (${JSON.stringify(solo)}) are done.
+YOUR STEP: THE ROUND-B T2 AND DUO LEGS, in studies/test-harness/scenarios/coop_world_walk_t2.py (new COOP_WWT_LEG values and its duo mode; round A's legs untouched except stage re-keys) and its tests:
+- W-STALLHOLE (T2 blackhole 2.3 s on a world-paired guest: frozen, freeze.edges unmoved, a Confirm at ICE_TILE inside it never enters 300, place 52 never boots a local battle; lever \`stallhold old\` = free for the stall), the T2 round-B rows the design lists (T2-B: WR-FREE, WR-REFUSE, WR-REJOIN-FAR, WR-PAIR on the ROAM tape -- gated: until an s167-recorded COOP_TAPE_WORLD_ROAM exists, run an instrument and keep a gate row red, as round A did; keep the recorder's ROAM_PLAN ready for an s167 host), T2 rows that need a walking v15 guest record from serve-guest (the host's s167 lines: older build, world map differs, can't walk yet).
+- THE DUO rows: D-W1/2/3 (ghosts both ways while the guest walks), D-REFUSE, D-REJOIN-FAR (the guest far from the host when it enters: the rejoin pulls it), D-BATTLE (the guest boots and returns at its OWN pose), D-RIDE (\`vehicle 1\` on the host: judge the guest's verdict, never the dot), D-REJOIN-WAIT (the host walks back out while the rejoin waited: the ghost snaps, no follow-out), D-SHARED, plus a duo W-MAP co-op close (a lawful walker's full map open when the host enters / fights: closed first, then the rejoin / boot) and the close-map line on a released guest if the harness can release one. Levers any-role where the duo needs them (THE DUO CANNOT PULL A SELFTEST-ROLE LEVER). Ports from the ROUND_A_DUO_PORTS / ROUND_A_PEER_PORT knobs (THE EXCLUDED PORT RANGE).
+Each row with OLD (s166) / NEW / LEVER. Stand-in tests where the stand-in can model them. Return the KIT schema.`, { label: 'bench: T2 + duo legs', phase: 'Bench', schema: KIT_SCHEMA, model: 'opus' })
+if (!t2) throw new Error('t2/duo legs failed')
+
+const reg = await agent(`${CONTEXT}
+Done so far: KIT ${JSON.stringify(kit)}; SOLO ${JSON.stringify(solo)}; T2/DUO ${JSON.stringify(t2)}.
+YOUR STEP: THE REGRESSION RE-KEYS, THE RUNNERS, THE KIT TEXTS:
+1. Every scenario in round A's regression set (studies/world-coop/s166-handoff/round_a_regress.sh's legs, and the s144/s145/s165/s166 legs it names) that tests a FROZEN guest: when the probe shows netsync.world.walk, send the full s166 lever set (walk off, refuse silent, stallhold old, decline old, fp off, minimap old, fullmap old) before judging, and re-key the rows that move meaning (S165-FROZEN, S165-WK-FROZEN, D-DOT's "own pose unmoved", WT-FROZEN, D2, freeze.edges, SKIPS_MIN, any grep of "the host drives") BY STAGE, never weakened. Rows that judge the TPS / missing-caps lines' absence must not exist.
+2. Runners in studies/world-coop/s167/: round_b_lib.sh (source or copy round_a_lib.sh's guards: benchguard, FF9 closed, the bridge down for T2, solo_ini, the DLL pinned by ROUND_B_DLL, the port knobs, ROUND_B_FROM/NOT_AFTER resume knobs as round A had), round_b_old.sh (on the live s166 DLL BEFORE the s167 build: every round-B row's OLD), round_b_new.sh (the design's round-B Order: the walk with \`refuse silent\`; the refusal; pairing, stall hole, decline, fingerprint, TPS; the minimap close; decision 8 last; T2; the duo), round_b_lever.sh (each lever alone reproduces OLD), round_b_regress.sh (round A's regression set + every round-B-relevant leg, with the s166 lever set where a leg judges a frozen guest). One leg per launch; say/summary lines as round A's. LF line endings (*.sh eol=lf).
+3. The kit texts (decision 24 / B7's Python half): ff9mapkit/ff9mapkit/workspace/coopdoc.py GUEST_TERMS, ff9mapkit/docs/tutorials/17-coop.md (the guest's world-map text), ff9mapkit/ff9mapkit/coop.py's --follow-host help and the "visitor" lines -- the guest now walks its own copy on foot on the early world maps (9002, 9010, 9011) while locations, vehicles and the full map's travel stay the host's, and it rejoins at the host's next stop; elsewhere it follows as before. Plain words, the owner's register (see the existing texts). And studies/world-coop/TWO-PC-CHECKS-S165.md's red tell "the guest can walk": rewrite it so it stays true from s167 on (say what changed in s167).
+Tests: the tests of every file you touched (the coopdoc / coop.py tests, the scenario tests), green. Return the KIT schema.`, { label: 'bench: regression, runners, texts', phase: 'Bench', schema: KIT_SCHEMA, model: 'opus' })
+if (!reg) throw new Error('regression/runners failed')
+
+phase('Critic')
+const critic = await agent(`${CONTEXT}
+Done so far: KIT ${JSON.stringify(kit)}; SOLO ${JSON.stringify(solo)}; T2/DUO ${JSON.stringify(t2)}; REGRESSION/RUNNERS/TEXTS ${JSON.stringify(reg)}.
+YOUR STEP: A COMPLETENESS AND FALSIFIABILITY CRITIC of the round-B bench, then FIX what you confirm (kit side only):
+1. Every round-B row in the design's table (and W-MINIMAP, decisions 27-28) exists in a runner, with OLD (s166) / NEW / LEVER predictions that can each fail: for each row, name the concrete measurement that would go red if the engine did the wrong thing, and check the row's judge actually reads it (not a key that is always true, not a key absent on s166 that makes OLD vacuously pass).
+2. Every W1 open item addressed to the kit lane (in ${SP}\\w1_digest.md) is handled or written down as a known gap.
+3. The OLD runner really runs on s166 (it must not need s167 keys to pass setup) and its predictions are what s166 does (e.g. W-MINIMAP OLD: the buzz and world.freeze.map +1; W-FREE OLD: 0 u).
+4. THE PRE-INIT SAMPLE / THE ORDER SKEW / LIVE VERDICT vs LAST DRAWN in every new judge.
+5. The regression re-keys never weaken a row (diff each changed assert).
+6. The runners: guards (benchguard, FF9 closed, the bridge down for T2, solo_ini, the DLL pin), port knobs, resume knobs, one leg per launch.
+7. The stand-in faults each turn a row red.
+Fix confirmed gaps (kit only). Return the KIT schema (open_issues: what stays a known gap).`, { label: 'critic: the bench can fail', phase: 'Critic', schema: KIT_SCHEMA, model: 'opus' })
+
+phase('Reconcile')
+const rec = await agent(`${CONTEXT}
+Reports: KIT ${JSON.stringify(kit)}; SOLO ${JSON.stringify(solo)}; T2/DUO ${JSON.stringify(t2)}; REG ${JSON.stringify(reg)}; CRITIC ${JSON.stringify(critic)}.
+YOUR STEP: RECONCILE the kit with the engine, then the offline tests ONCE:
+1. Grep the clone for every name and shape the kit assumes (every contract_assumption above, every harness key / op / reply / log line / owner-visible line the legs judge). Fix the KIT wherever it disagrees; REPORT (never edit the clone) wherever the engine is wrong against the design.
+2. Check every stage-keyed pin decides correctly for BOTH the deployed s166 and the s167 clone.
+3. The final offline pass ONCE, nothing being edited: every test file the W2 steps touched plus the W2 kit set and the shared-harness pins, \`-n 6\` in the background to a log under ${SP}\\s167w2. Fix kit-side failures you caused; re-run only those node ids.
+Do NOT commit, deploy or launch the game. Return the KIT schema (tests_run: the commands, wall times and counts).`, { label: 'reconcile W2', phase: 'Reconcile', schema: KIT_SCHEMA, model: 'opus' })
+
+return { kit, solo, t2, reg, critic, reconcile: rec }
