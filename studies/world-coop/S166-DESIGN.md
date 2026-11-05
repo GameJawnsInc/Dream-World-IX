@@ -38,9 +38,12 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
   is on (ff9.cs:5323-5353; compare w_movementControl behind GetUserControl, :5185-5187). FilterScriptButtons' control-off
   branch passes the guest's own keys when no dialogue lock holds (NetSyncField.cs:992-1004). So a Confirm pressed in any
   control-off tick while standing on a kit cell takes the guest into 6601/6602/6603 alone, faded: s42's no-recovery class.
-  The bench landing FS_LANDING (68, -444) is cell (2, 13), the 6603 entrance, so every s165 solo and duo landing stands on
-  one, and the landing's first ticks before the walker's EnableMove are such a window (inference: the frame order is not
-  read). A deterministic window: the ~ menu open with "Disable control" runs SetUserControl(false) in any scene
+  **Corrected by the A0 bench (2026-11-02):** the engine requests a cell function only while the walker stands on a terrain
+  triangle carrying the entrance's event id (ff9.cs w_movementUpdate: `m_GetIDEvent(id) != 0` -> WorldEvent), and the
+  6603 entrance was written with `--trigger-at 80 -444 --trigger-radius 3.0 --no-tile-area`, so only the triangles within
+  3 u of (80, -444) carry it. FS_LANDING (68, -444) is in cell (2, 13) but 12 u off that trigger: it does NOT stand on the
+  entrance (measured on s165: a frozen guest's control-off Confirm there did nothing). A guest stands on a trigger when the
+  host stood on one at the follow-out (the guest lands on the host's spot), or after a teleport. A deterministic window: the ~ menu open with "Disable control" runs SetUserControl(false) in any scene
   (Ff9mkDebugMenu.cs:821, 839-848), the same menu that holds the s144 Release row. WORLD11's kit boat (entry 15) and ferryman
   (entry 16) read bare Confirm the same way (L2245, L2543). TWO-PC-CHECKS-S165 now carries the warning (2026-11-02): press nothing on the guest while it lands,
   and never open the ~ menu on the guest while it is on the world map.
@@ -159,7 +162,9 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
      `WMWorld.WorldMapRoot`, so it dies with every world scene. localRotation Euler(0, 0, 180); uniform scale (ratio/64)/256,
      ratio 67 for the walkers and 76 for the Mog. `_FogEnabled` set at mint. No WMActor, no Actor, no `Shadows` entry
      (SmoothFrameUpdater_World would lerp it against our writes).
-   - Minted lazily and hidden once IsOnWorldNow and w_blockReady both hold; a failed mint latches with one line. Its own
+   - Minted lazily and hidden once IsOnWorldNow and w_blockReady both hold, and (W3b) only on a walk-set world that is not an
+     event world. Its body is my own walker's model unless the peer's last valid world sample stands on my world, on foot, in
+     the walker set (307 / 309 / 310): the cache's sample outlives a world change. A failed mint latches with one line. Its own
      WMShadow prefab instance under WorldMapEffectRoot, scaled by the stock 6/36 formula with the live fogAMP.
    - **The strict gate.** w_blockReady reads stale-true on every field after a world visit (ff9.cs:9978; reset only by
      w_blockSystemConstructor, :2575-2578), and off the world map `ff9.world` (Singleton.cs:7-14) and `WorldMapRoot`
@@ -197,10 +202,16 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
     loadability risk: the sender's model is the one my own world already loaded. The cost: two identical bodies (the
     field's "two Zidanes"). A dress map (moogle -> the world Mog 307, Garnet -> 309) is a pure `WorldBodyRule` ready for
     the owner's word; a Mog ghost would read as the save moogle, and the guest's own walker is never self-dressed.
-12. **The dot stays exactly s165's.** Section 0 source, DotFreshMs 1000, byte-identical. Re-sourcing it from the 30 Hz
-    lane (and a host-side dot of the guest) is a later lever, not this round. Named limit: in a stall the dot blinks out at
-    1 s while the ghost holds for 5 s. **Under review after the two-PC check:** section 0 froze the dot while the host rode;
-    open item 14 proposes re-sourcing it from the trailer in round A.
+12. **The dot takes the host's live pose (the owner, 2026-11-02, item 14; two-PC finding 2).** Section 0's anchor (64-72)
+    stops updating while the host rides, so s165's dot and its facing stood still until the host got off. From round A the
+    dot's position and facing come from the trailer (53-80: x/z and the rotation's yaw) whenever the host's caps carry b0
+    and its world block is valid (place 4); otherwise from section 0 exactly as s165 (an s165 host, a capless v15 peer, a
+    host in a diorama or a load). Everything else stays s165's: DotRule's order and terms (b6, the whole section 0, the
+    same [102], the band, freshness on the heartbeat, DotFreshMs 1000), the look and the edge. The source is reported on
+    `netsync.world.dot` (`src`: "trailer" or "section0"). Lever `dot section0` restores s165's source exactly. Inference:
+    `w_moveActorPtr` is GetControlChar's actor, whose RealPosition moves with a ride (the camera follows it);
+    A-DOTRIDE and D-DOTRIDE prove it in game. A host-side dot of the guest stays a later lever. Named limit: in a stall
+    the dot blinks out at 1 s while the ghost holds for 5 s.
 26. **The pairing pull (round A, second and alone; the owner, 2026-11-02, open item 13; two-PC finding 1).** A following guest
     that pairs on a field while the host stands on the world map follows it out once its pairing autosave has resolved,
     instead of waiting on its field for the host's next stop. Numbered 26 so that no earlier decision's number moves.
@@ -306,8 +317,15 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
       `last_place` in [1, 90) at every sid-1 read; the reader ids as predicted.
     - The same buzz for a FROZEN guest on the walk worlds, behind its own lever (`refuse silent` = s166).
 19. **The control-off close (ships in round A, s166: its own piece, first and alone).** On gMode 3, under WorldFreezeNow on
-    the walk worlds, a control-OFF read loses HostOwnedKeys when its reader is entry 0 or an entry beyond its stock
-    dispatcher's last (stock ends at e14 on WORLD02 and WORLD11, e12 on WORLD10; the census tables). That covers the kit
+    EVERY world map, a control-OFF read loses HostOwnedKeys when its reader is entry 0 or an entry beyond its stock
+    dispatcher's last. **Widened by K1 (2026-11-02):** the six kit cells sit in entry 0 of all nine deployed free-roam
+    dispatchers (9000, 9002, 9003, 9005, 9007, 9008, 9009, 9010, 9011), and Path D's 9013 adds three more; s165 lands a
+    frozen guest on every one of them, and stock entry 0 reads no key on any of the 13 stock dispatchers in any language. So
+    the close keys on the reader, never on the walk set. The stock last entries: 9000:11, 9001:7, 9002:14, 9003:12, 9004:3,
+    9005:15, 9006:6, 9007:12, 9008:12, 9009:13, 9010:12, 9011:14, 9012:7, and 9013:14 (its donor WORLD11's); an unknown
+    world closes entry 0 only. Only 9011 has reads beyond its stock last (the boat e15, the ferryman e16). Known hole: a kit
+    function added INSIDE a stock-range entry, or in a stock-empty slot (9002's e12/e13), would escape the second term;
+    none reads a key today. That covers the kit
     cells, the boat and the ferryman. No stock read is touched (stock entry 0 has none), and every stock control-off wait
     passes as before. It closes the s165 hazard (the ~ menu's hold included) and changes no lawful guest behaviour, so it
     is benched first in s166, alone, with OLD measured on s165. A world-paired guest in a stall stays outside it until
@@ -357,8 +375,9 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
 ### The harness (both rounds)
 
 25. A new sub-verb `worldwalk` (`worldfollow` refuses unknown ops). Every lever is any-role where the duo needs it (THE DUO
-    CANNOT PULL A SELFTEST-ROLE LEVER) and is released with the harness. Round A: `kitcell`, `pairpull`, `ghost off|sticky` (sticky:
-    the ghost ignores the peer's place 2, the D-REJOIN mutant), `place render|act` (the WRAP mutant), `pose off` (tfmt 0: an
+    CANNOT PULL A SELFTEST-ROLE LEVER) and is released with the harness. Round A: `kitcell`, `pairpull`, `dot section0|trailer`, `ghost off|sticky` (sticky:
+    the ghost ignores the peer's place 2 -- it bites only while the observer is live and the peer publishes place 2, i.e. the
+    host's world-battle swirl: D-BATTLE's entry hide; INERT on D-REJOIN by THE ARM-FIRST ORDER, the guest arms on the host's intent), `place render|act` (the WRAP mutant), `pose off` (tfmt 0: an
     s165-shaped v15 peer), `lanegap`, `hostlines`, `clear`; and the bench host (the selftest role with the ini's FollowHost
     and SuppressEncounters, as s165's G10): `host path <x0> <z0> <x1> <z1> [...] <ups> [loop]`, `hostseq freeze|run`,
     `hostgap <ms>`, `hostplace <n>`, `hoststate <bits>`, `hostmode <n>`, `hostworld <id>`, `hostmodel <id>`, `hosttps <n>`,
@@ -367,6 +386,7 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
     `netsync.world.lane` on every role (tx/rx seq, place, state, flags, world, arrival and seq ages, peer caps and why, gaps,
     hangs, gaps_250, world_tps own and peer); `netsync.world.ghost` (want, why_not, shown, model, clip, canonical x/y/z,
     render x/z and their inverse from the same LateUpdate, ground_y, wire_y, snaps, holds, hides, mints, mint_ms, faults);
+    `netsync.world.kitcell` {lever, closed, last_sid, last_world} (decision 19's witness: a close counted at the read);
     `netsync.world.line` {text, age, asked}, set where each new world line is decided and exempt from the selftest role's
     OvlOff (SetOverlay forces OvlOff there, NetSyncClient.cs:13056-13057, and the off-field branch asks it every tick,
     :2050-2053), so the solo rows can read the lines; `netsync.wire_peer`; `netsync.host.world.guest` {place, state, line};
@@ -443,7 +463,8 @@ walks exactly like s165) and a lever (LEVER_PREDICTED on the new DLL), so every 
 `world.block_ready` and advancing `world.ticks` (THE PRE-INIT SAMPLE), on frames first published after the edge it judges (A
 GAME PUBLISHES NOTHING DURING ITS OWN SYNC LOAD), dropping each harness control flip's own publish (THE ORDER SKEW). Positions:
 ICE_TILE (1197.37, -796.7), cell (37, 24), the Ice Cavern (loc 4, Field 300, discovery bit UInt16[92] & 8); FS_LANDING (68,
--444), the 6603 kit cell; BOAT_SPAWN (492, -1130), the boat's 40 u range; the ferryman at (29, -1168), 12 u range.
+-444), in cell (2, 13) but off its trigger; KIT_6603_TRIGGER (80, -444), the six event-1 triangles within 3 u (the
+only place the 6603 cell fires; A-KITOFF teleports there); BOAT_SPAWN (492, -1130), the boat's 40 u range; the ferryman at (29, -1168), 12 u range.
 
 **K1, read-only, before the build.** The read-site census is done (this doc). Still to do: the type-0 inter-arrival times in
 both directions from the existing tapes (the gap threshold, and the real send rate: `swap.slot.sends` counts only the host's
@@ -484,16 +505,17 @@ PIN), 6603 -> 9011 by s165's follow-out (`worldfollow host`), and onto 9002/9010
 
 | Row | Judge | OLD (s165) | Lever (s166) |
 |---|---|---|---|
-| A-KITOFF | first and alone: FS_LANDING, `control off`, Confirm: still WorldHUD, never 6603; the same inside the ~ menu's "Disable control" hold | FieldHUD 6603 alone (today's hazard, measured) | `kitcell old` |
-| A-FERRYOFF | within 12 u of the ferryman, `control off`, Confirm: Map[50] stays 0, no fade | the ferryman scene plays on the guest's copy | `kitcell old` |
+| A-KITOFF | first and alone: ON the 6603 trigger (80, -444), frozen, `control 0`, Confirm: still WorldHUD, never 6603; `kitcell.closed` +2 (entry 0 and the boat's eager @00174 read, entry 15, which reads every Confirm on 9011); the ~ menu's "Disable control" hold in the stand-in only (no harness verb opens the menu) | FieldHUD 6603 alone (today's hazard, measured) | `kitcell old` |
+| A-FERRYOFF | within 12 u of the ferryman, frozen, `control 0`, Confirm: Map[50] stays 0, no fade; `kitcell.closed` +2 (16 and the boat's 15) | the ferryman scene plays on the guest's copy | `kitcell old` |
 | A-PROOF | the proof line on a field | absent | its mutants |
-| T2-A pair | second and alone: `replay-host --from` a tape second where the host stands on 9011 past the debounce, the real guest on its own field (paired there, never mirrored): its pairing autosave line, then the follow-out's start, commit and landing at the tape's pose; `mirroring` true and the ARMED line once, naming the world landing; `savemenu` refused; the tape's rejoin into 300 stages the host's story | waits on its field (`not_mirroring`) until the tape's 300 | `pairpull old` |
+| T2-A pair | second and alone: `replay-host --from` a tape second where the host stands on 9011 past the debounce, the real guest on its own field (paired there, never mirrored): its pairing autosave line, then the follow-out's start, commit and landing at the tape's pose; `mirroring` true and the ARMED line once, naming the world landing; `savemenu` refused AT THE CHORD by s38's mirror gate, ahead of the save menu (no menu, R4's `refused` / `would_save` +0 / +0; an unarmed guest opens it and counts would_save); the tape's rejoin into 300 stages the host's story | waits on its field (`not_mirroring`) until the tape's 300 | `pairpull old` |
 | A-WIRE | an unrestamped s165 tape: never pairs, `wire_peer.rejected` rises, one line | pairs (v14) | `--wire 15`: pairs, s165 behaviour, ghost why_not no_record |
 | A-TX | own block on 9011 from the selftest slot: place 4, world 9011, x/z within 1 u of `world.x/z`, seq advancing; place 3 in the load | key absent | `pose off`: tfmt 0 |
 | A-GHOST | `host path` across the x seam: the ghost within GHOST_TOL of the canonical pose | nothing drawn | `ghost off`: want true, shown false |
 | A-WRAP | a fixed point, my walker teleported around it over both seams: the inverse, `WMWorld.GetAbsolutePositionOf(ghostRoot.transform)` (the engine's own RealPosition path, independent of the forward map's InitialBlocks) from the same LateUpdate, equals the point within 0.01 u on every published frame; G36's SetAbsolutePositionOf oracle as a second witness | key absent | `place render`: red exactly at the wraps |
 | A-STALL | `hostseq freeze`: hold, `_STAND` by ~300 ms, hidden at 5 s with the line (read on `netsync.world.line`); `hostgap 1500`: one gap line pair, the ghost held | absent | `lanegap off`: counters only |
 | A-HANG | `hostseq freeze` after place 3: a HANG worded loading, no gap line | absent | `hostgap` in the same state: a gap line; `hostplace 4` then freeze: worded as a hang |
+| A-DOTRIDE | `host path` moving with `hostmode 1`, section 0 parked: the dot (and its facing) on the trailer's pose within 1 px of the ghost's map point, `src` "trailer"; `pose off`: back on section 0 | the dot parked on section 0 | `dot section0` |
 | A-RULE | each GhostRule refusal alone: event world, other world (`hostworld 9010` on 9011), riding (`hostmode 1`), scene, place 5 | absent | its bench op |
 | A-BODY | 309 on 9002, 310 on 9010/9011: geo, renderers, clips, mint ms; one off-diagonal instrument row (`hostmodel 310` on 9002) for the dress call; 9002's HUD state and a `game_snap` | absent | none |
 | A-MENU | the ~ menu open 1 s with "Disable control": b6 stays clear (solo, and the duo on both roles) | key absent | the proof's menu-hold mutant |
@@ -502,7 +524,7 @@ PIN), 6603 -> 9011 by s165's follow-out (`worldfollow host`), and onto 9002/9010
 | T2-A roam | the frozen guest's ghost on the ROAM tape's own trailer pose at the matched second; `--blackhole-at` a leg for 2.3 s: gap lines, hold, ease back; for 6 s: hide at 5 s, then a snap on the re-show (a first show) | no v14 tape | `ghost off`, `lanegap off` |
 | T2-A freeze | `replay-host --freeze-at` 2.3 s and 6 s against a real s166 guest: hold, `_STAND`, hide at 5 s, the HANG's wording, the "Lost contact" words | no v14 tape | `lanegap off`, `ghost off` |
 | T2-H | serve-guest's walking v15 record into a real s166 host: the host's ghost of the guest, its three lines, its gap line at `--gap-at`; a released guest's record (state b0 clear, flags b0 set): lines and ghost; `--no-follow`: no lines, no ghost | host shows nothing | `hostlines off`, `ghost off` |
-| Duo | D-G1 the host walks: the guest's ghost within tolerance of the host's `world.x/z` on the shared clock; D-G2 the host's ghost of the frozen guest within tolerance of the guest's own published `world.x/z`, the landing gap reported (ONE-PC LOAD CONTENTION confounds a landing judgment); D-LINES the host's lines through the follow-out; D-REJOIN both ghosts hidden before the guest's fade; D-BATTLE both re-mint after the warm returns, zero non-loading HANG lines across a start and a return; D-SHARED; the s144/s145 rows under an active trailer; D-PAIR, if K1 finds `duo.py` can start the guest's link late (T2-A pair's judges) | none | `ghost off` any role; `ghost sticky` for D-REJOIN |
+| Duo | D-G1 the host walks: the guest's ghost within tolerance of the host's `world.x/z` on the shared clock; D-G2 the host's ghost of the frozen guest within tolerance of the guest's own published `world.x/z`, the landing gap reported (ONE-PC LOAD CONTENTION confounds a landing judgment); D-LINES the host's lines through the follow-out; D-REJOIN both ghosts hidden before the guest's fade; D-BATTLE both re-mint after the warm returns, zero non-loading HANG lines across a start and a return; D-SHARED; the s144/s145 rows under an active trailer; D-PAIR, if K1 finds `duo.py` can start the guest's link late (T2-A pair's judges); D-DOTRIDE (`vehicle 1` on the host on 9011, then it moves: the guest's dot within 8 u of the host's own `world.x/z`) | none | `ghost off` any role; `ghost sticky` for D-BATTLE (entry hide) |
 
 **Round B rows (s167),** the same routes:
 
@@ -567,8 +589,37 @@ extracted; no bench while the owner plays, never under a running test suite.
 - **Walking:** a walker keeps walking through a host loss for up to 40 s. Its own continent title can leave its [0] 10 above
   the host's (harmless, same band). WorldTPS mismatches change relative speed (reported only). If decision 8 opens the map,
   closing it hides the minimap dot until the next Select.
+- **A guest who left for good, on the relay or a bridge (S166-G2, W3C-2):** the host keeps "Lost contact with your partner --
+  waiting for their game..." on every later world-map visit until the title, a config change or a new session, and each of those
+  world loads on a walk-set world mints a ghost body (a short CreateModel hitch at the fade-in) that is never shown. The game-to-relay hop stays up, so
+  nothing ends the session; direct TCP is unaffected (the socket drop does). A give-up span that resets the cache is the cure, left
+  for the two-PC look to size.
+- **The host's lines during its own load (S166-G3):** "Your partner is following you out" and "...loading" draw only once the
+  host's own world map is live, but the guest's follow-out starts after s165's 1200 ms of host-alive time, which can run ahead of
+  the host's block load. A slow host (the laptop) may show the lines late, briefly, or not at all. The round-A duo holds the guest
+  (`worldfollow hold`) until the host is live; play has no such hold. The lines are informational; the two-PC look records what
+  the laptop shows.
+- **A lost commit on a pulled guest (S166-G4):** the follow-out's commit seeds the host's world pose (the arrival key, the walker
+  pose bytes, [190], [181]) into the guest's own story before the landing. If that commit is then lost and no mirror arms after
+  it (another world loads instead, or a field loads while the link is down), those bytes stay in the guest's own, unmarked
+  story: on another world the walker spawns at the host's pose, and once the session ends (co-op off: no mirror to ramp) a save
+  can write that state. It needs a lost commit with no later arm; no in-play trigger was found offline.
+- **Caps (W3A-T4, W3C-1):** decision 2's "a feature runs only when both caps words carry its bit" is proven offline (FeatureOn),
+  but the live gates read only the peer's word, and no line names a peer's missing caps. Harmless while every s166 build sends the
+  same caps (b0); s167, the first build that can turn a bit off, wires FeatureOn and the line.
+- **The trailer's why (W3C-4):** the host's `lane.rx.why` tells the guest's world-out codes 1-14 apart; codes 15-29 all read 15
+  (0x1F), among them pairing_save, the debounce, the host not on the world map and the host without control. Diagnostic only: on
+  the two-PC look, read the guest's own `netsync.world.out.why`. s167 maps the codes to a class table.
+- **The mismatch words linger (W3A-T1):** "Your partner's co-op version doesn't match yours" holds 15 s past the last refused
+  frame, so it stays up to 15 s after a v14 partner quits; any frame of the matching wire clears it at once.
+- **W2b's residuals:** a field follow's load (`_followCommittedTo`) is still worded 'not updating' on the partner's lane rather
+  than 'loading', and both battle exits publish their last frame at place 5 / 6 (frozen about 0.82 s, under LaneGapMs, so no
+  line). Each is a one-line engine change left for a later round: one change per test.
 
-## Open for the owner
+## The owner's calls
+
+All DECIDED (2026-11-02): the owner took every recommendation below ("Yes, use them"), with item 2, 12 and 13 as recorded
+in place; item 14 is decision 12 as revised.
 
 1. The two-round split: the wire and the ghosts first (s166, with decision 19's control-off close first and alone), walking
    one round later (s167). Recommended.
@@ -604,7 +655,7 @@ extracted; no bench while the owner plays, never under a running test suite.
     facing stood still until the host got off. The proposal revises decision 12: the dot takes the trailer's live pose and
     rotation whenever the host's caps carry b0, and section 0 otherwise (an s165 host). On the vehicle worlds, where the
     frozen guest has only the dot, it then tracks a riding host, and D-RIDE judges the dot moving. Recommended: in round A,
-    right after the trailer.
+    right after the trailer. DECIDED: decision 12 (revised).
 
 ## What the s165 two-PC check answered (2026-11-02; `TWO-PC-CHECKS-S165.md` "Results")
 

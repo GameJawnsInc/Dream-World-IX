@@ -156,8 +156,15 @@ def test_every_hunk_carries_the_s145_tag_and_stays_ascii():
 
 
 def test_the_wire_stays_v14_the_protocol_5_and_no_ini_knob_is_added():
+    """s145 bumps no wire. [ff9mapkit netsync s166] W3c (the freeze): BY STAGE -- the s145 stage (frozen) speaks 14, and the live stack
+    speaks 15 once s166's piece A2 (decision 2's bump) is on it, told by A2's own structure (HarnessAgent.AppendWirePeer), never by the
+    number this pin reads."""
+    frozen = [ln for ln in net_lines("NetSyncSocket.cs", r".", _upto("s145")) if ln.startswith("public const Byte Version = ")]
+    assert len(frozen) == 1 and frozen[0].startswith("public const Byte Version = 14;"), frozen
+    a2 = any(n.startswith("s166-") and n not in msr.DEAD for n in msr.stack()) and bool(
+        net_lines("HarnessAgent.cs", r"private static void AppendWirePeer\("))
     versions = [ln for ln in net_lines("NetSyncSocket.cs", r".") if ln.startswith("public const Byte Version = ")]
-    assert len(versions) == 1 and versions[0].startswith("public const Byte Version = 14;"), versions
+    assert len(versions) == 1 and versions[0].startswith(f"public const Byte Version = {15 if a2 else 14};"), versions
     assert net_lines("HarnessAgent.cs", r"public const Int32 ProtocolVersion = ") == ["public const Int32 ProtocolVersion = 5;"]
     for f in FILES:
         assert not net_lines(f, r'GetSetting\("Netsync"', [_patch()]), f
@@ -251,7 +258,12 @@ def test_the_harness_keys_are_the_agents_and_every_accessor_reads_its_sentinel()
     assert f'"waitline":{esc(BW.WORLD_WAITLINE_SENTINELS)},"dio":{esc(BW.WORLD_DIO_SENTINELS)}}},"guestlocal":{{' in s164   # [ff9mapkit netsync s156]
     assert f'"world":{esc(BW.WORLD_SENTINELS)},"guestlocal":{{' in s164 and list(BW.WORLD_SENTINELS)[-1] == "dio"   # [ff9mapkit netsync s156]
     assert f'"waitline":{esc(BW.WORLD_WAITLINE_SENTINELS)},"dio":{esc(BW.WORLD_DIO_SENTINELS)},"r3":' in lit
-    assert f'"world":{esc(BW.WORLD_SENTINELS_S165)},"guestlocal":{{' in lit and list(BW.WORLD_SENTINELS_S165)[:4] == list(BW.WORLD_SENTINELS)
+    # [ff9mapkit netsync s166] W3c (the freeze): the s165 stage, frozen; the live block BY STAGE (test_world_coop's reader: round A's A0 +
+    # A0b, A3, A4 once each is on the stack), its first four blocks still s144's / s145's (the prefix law)
+    assert f'"world":{esc(BW.WORLD_SENTINELS_S165)},"guestlocal":{{' in _catch(_upto("s165")) and list(BW.WORLD_SENTINELS_S165)[:4] == list(BW.WORLD_SENTINELS)
+    from . import test_world_coop as WC
+    live = WC._live_world_sentinels()
+    assert f'"world":{esc(live)},"guestlocal":{{' in lit and list(live)[:4] == list(BW.WORLD_SENTINELS)
     assert _catch(_upto("s144")).endswith(f'"world":{esc(BW.WORLD_SENTINELS_S144)}}}");')       # the s144 stage, frozen
     dio = " ".join(_code(t) for t in _block("HarnessAgent.cs", "private static void AppendWorldDio(StringBuilder sb)", 'sb.Append("}");'))
     assert re.findall(r'(?:Bool|Num|Str)\(sb, "(\w+)"', dio) == list(BW.WORLD_DIO_SENTINELS), dio

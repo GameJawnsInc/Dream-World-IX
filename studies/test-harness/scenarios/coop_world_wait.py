@@ -753,6 +753,14 @@ def judge_probe(st, lines) -> tuple:
     want = R.WORLD_SENTINELS if s145 else R.WORLD_SENTINELS_S144
     if cb.has(st, "netsync.world.out"):
         want = R.WORLD_SENTINELS_S165       # [ff9mapkit netsync s165] an s165 engine: r3 / out / host / dot after `dio` (the prefix law)
+    if cb.has(st, "netsync.world.kitcell"):
+        want = R.WORLD_SENTINELS_S166       # [ff9mapkit netsync s166] an s166 engine: `kitcell` after `dot` (the prefix law)
+    if cb.has(st, "netsync.world.pairpull"):
+        want = R.WORLD_SENTINELS_S166B      # [ff9mapkit netsync s166] A0b: `pairpull` after `kitcell` (the prefix law)
+    if cb.has(st, "netsync.world.lane"):
+        want = R.WORLD_SENTINELS_S166C   # [ff9mapkit netsync s166] W2: A3's `lane` / `line` after `pairpull` (the prefix law)
+    if cb.has(st, "netsync.world." + R.A4_CONTRACT["ghost_key"]):
+        want = R.WORLD_SENTINELS_S166D   # [ff9mapkit netsync s166] W2: A4's `ghost` after `line` and `dot.src` .. `src_face`
     world = cb.path(st, "netsync.world") or {}
     follow = cb.path(st, "netsync.session.follow")
     keys_ok = (list(world) == list(want)
@@ -1968,8 +1976,9 @@ def _t2(g, led: cb.Ledger, ctx: _T2, leg: str) -> None:
         conn = ctx.peer.wait_for(pb.PEER["guest_connected"], DIAL_S, tick=lambda: _sample(g, ctx)) if up else None
         start = ctx.peer.wait_for(pb.PEER["replay_start"], 10.0, tick=lambda: _sample(g, ctx)) if conn else None
         relay = pb.hits(ctx.eng.lines(), "relay_up", pred=lambda m: m.group(3) == "guest" and m.group(2) == CODE)
-        ok = up is not None and conn is not None and start is not None and bool(relay)
-        led.check("T2-PEER", ok, f"config: {pb.show(cfg, 1)}; peer: {up[1] if up else 'never listened'} / "
+        wire = pb.wire_gate(ctx.peer, pb.probe_wire(g)) if start else (False, "no replay start")   # [ff9mapkit netsync s166] THE LIVE HEADER
+        ok = up is not None and conn is not None and start is not None and bool(relay) and wire[0]
+        led.check("T2-PEER", ok, f"wire: {wire[1]}; config: {pb.show(cfg, 1)}; peer: {up[1] if up else 'never listened'} / "
                                  f"{conn[1] if conn else 'no guest'} / {start[1] if start else 'no replay start'}; "
                                  f"engine: {pb.show(relay, 1)}")
         if not ok:
@@ -2045,7 +2054,14 @@ def _leg_rejoin(g, led: cb.Ledger, ctx: _T2, p: str) -> None:
     world_at = ctx.anchors.get("world")
     at_dial = [s for ts, s in ctx.samples if world_at is not None and ts >= world_at
                and (conn is None or ts <= conn + _dt.timedelta(seconds=0.5))]
-    led.check(f"{p}-DIAL", *judge_dial(conn, start, _config_hits(ctx, CODE), relay, at_dial, began=ctx.anchors.get("began")))
+    d_ok, d_why = judge_dial(conn, start, _config_hits(ctx, CODE), relay, at_dial, began=ctx.anchors.get("began"))
+    # [ff9mapkit netsync s166] THE LIVE HEADER before any judging: the guest dials late here, so the gate rides the dial row
+    wire = pb.wire_gate(ctx.peer, pb.probe_wire(g)) if start else (False, "no replay start")
+    led.check(f"{p}-DIAL", d_ok and wire[0], f"{d_why}; wire: {wire[1]}")
+    if start and not wire[0]:
+        led.unreached([c for c in led.catalog if c.startswith(p + "-") and c not in (f"{p}-CAL", f"{p}-DIAL")],
+                      "the wire mismatch (RJ-DIAL): not a regression")
+        return
     t0 = start or ctx.anchors.get("peer")
     _until(g, ctx, lambda s: s.ui_state == "FieldHUD" and s.field_id == F, LAND_S)
     landed = next((ts for ts, s in ctx.samples if s.ui_state == "FieldHUD" and s.field_id == F and ts >= t0), None)

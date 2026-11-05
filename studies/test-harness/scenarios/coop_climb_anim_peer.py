@@ -16,14 +16,15 @@ Never `netsync selftest` here: the host role has no lever -- the calibration is 
             noencounter; the post-init witness; the ECHO peer listening (`--frame echo --tap <run>/s157.f9tape`); the host
             values into the root's ini; a same-field re-warp; the engine's own 'config enabled=True role=host ...
             relay=ws://127.0.0.1:<port> code=ff9-S157PEER' line; the peer's 'HOST game connected' and the engine's relay line.
-  P0        THE SENDER: the peer's first type-0 EDGE line is 'host type-0: 39 B -- the s157 frame bytes (frame F of N)'
-            (coop_peer.HOST_TRAILER_LINE; J.judge_sender) and none says it stopped; netsync.session.ghost true and
+  P0        THE SENDER: the peer's first type-0 EDGE line is 'host type-0: N B -- the s157 frame bytes (frame F of N)' with
+            N >= 39 ([ff9mapkit netsync s166] 39 from an s157-s165 host, 94 from a v15 one: the world trailer rides after the
+            s157 bytes on fields too; coop_peer.HOST_TRAILER_LINE; J.judge_sender) and none says it stopped; netsync.session.ghost true and
             dress.ghost.model 98 (the host's ghost of the peer, raw).
   P-HOLD    the host's stock 207 climb up with a HANG (40 u past the mount, release, 2.5 s with no key): after 1 s the ghost
             HOLDS the echoed frame (J.judge_hold, wire_tol 1: the echo may trail the body by a tick).
   P-TRACK   that climb after the hang: the climb lands, and the ghost is driven (J.judge_track).
   P-TAPE    the echo peer's tape (read in-process -- what `py tools/harness/coop_peer.py dump <run>/s157.f9tape` prints):
-            every HOST type-0 record carries the trailer (39 B: its dump line ends ' frame f/n').
+            every HOST type-0 record carries the s157 bytes (>= 39 B: its dump line shows ' frame f/n').
   P-CAL-37  THE CALIBRATION RED, IN RUN: the peer restarted `--frame none` (a pre-s157 37-byte guest); the climb down with a
             hang: the ghost FREE-RUNS (J.frame_red_marker why "no_frame" over the hang, GREEN) and is never frozen over the
             climb (J.judge_freerun_guard why "no_frame", GREEN).
@@ -101,11 +102,11 @@ CLAIMS = {
     "W0": "the setup: an --instance root, a fresh process, the bench port free and not the owner's / world bench's, 207's "
           "post-init witness, the echo peer listening, the host values in the ROOT's ini, the engine's host config line on "
           "the bench relay + code, the peer's HOST connected and the engine's relay line",
-    "P0": "the sender: the peer's first type-0 edge is the 39-B s157 trailer and none says it stopped; session.ghost true "
+    "P0": "the sender: the peer's first type-0 edge carries the s157 bytes (>= 39 B) and none says it stopped; session.ghost true "
           "and dress.ghost.model the host's own body (98)",
     "P-HOLD": "the 207 climb's hang: after 1 s the host's ghost HOLDS the echoed frame (judge_hold, wire_tol 1)",
     "P-TRACK": "the climb after the hang: the climb lands and the ghost is driven (judge_track)",
-    "P-TAPE": "the echo peer's tape: every HOST type-0 record carries the trailer (39 B)",
+    "P-TAPE": "the echo peer's tape: every HOST type-0 record carries the s157 bytes (>= 39 B)",
     "P-CAL-37": "the peer `--frame none` (37 B): over the hang frame_red_marker(why 'no_frame') GREEN and over the climb "
                 "judge_freerun_guard(why 'no_frame') GREEN; the climb lands",
     "P-GUARD": "the host at rest, `--anim 10539 --loco 0`: frame 3/1, 3/255, 0/0 free-run with why 'frame_n'; frame 5/12 "
@@ -165,7 +166,8 @@ def pinned_args(frame: str, *, loco: int = 0, step: int = 0) -> list:
 
 # ================================================================================================ the pure judges
 def tape_frames(cp, path) -> dict:
-    """The HOST's type-0 records of a serve-guest tape: {"n", "framed" (39 B and more: the s157 trailer), "sizes", "err"}."""
+    """The HOST's type-0 records of a serve-guest tape: {"n", "framed" (39 B and more CARRYING THE s157 BYTES -- [ff9mapkit netsync
+    s166] 94 from a v15 host, its world trailer after them), "sizes", "err"}."""
     out = {"n": 0, "framed": 0, "sizes": [], "err": None}
     try:
         _hdr, records, torn = cp.read_tape(path)

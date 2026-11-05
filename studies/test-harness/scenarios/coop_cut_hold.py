@@ -623,8 +623,9 @@ def _run(g, led: cb.Ledger, ctx: _Ctx, leg: str) -> None:
     conn = ctx.peer.wait_for(pb.PEER["guest_connected"], 25.0, tick=lambda: _sample(g, ctx)) if up else None
     start = ctx.peer.wait_for(pb.PEER["replay_start"], 10.0, tick=lambda: _sample(g, ctx)) if conn else None
     relay = pb.hits(ctx.eng.lines(), "relay_up", pred=lambda m: m.group(3) == "guest" and m.group(2) == CODE)
-    ok = up is not None and conn is not None and start is not None and bool(relay)
-    led.check("T2-PEER", ok, f"config: {pb.show(cfg, 1)}; peer: {up[1] if up else 'never listened'} / "
+    wire = pb.wire_gate(ctx.peer, pb.probe_wire(g)) if start else (False, "no replay start")   # [ff9mapkit netsync s166] THE LIVE HEADER
+    ok = up is not None and conn is not None and start is not None and bool(relay) and wire[0]
+    led.check("T2-PEER", ok, f"wire: {wire[1]}; config: {pb.show(cfg, 1)}; peer: {up[1] if up else 'never listened'} / "
                              f"{conn[1] if conn else 'no guest'} / {start[1] if start else 'no replay start'}; engine: "
                              f"{pb.show(relay, 1)}; SessionGraceMs written {GRACE_MS}"
                              + (f" (COOP_GRACE_MS: {GRACE_NOTE})" if GRACE_NOTE else "") + f"; peer tail: {ctx.peer.tail(3)}")

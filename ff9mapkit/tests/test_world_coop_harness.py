@@ -995,10 +995,11 @@ def test_the_world_battle_one_shot_drops_stale_and_on_the_worlds_own_result(tmp_
 
 
 # ------------------------------------------------------------------------------------------------ the keys, the accessors
-def _agent_nothing() -> dict:
-    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled')
-    head = net_lines("HarnessAgent.cs", r'NetsyncF3Retired = "')
-    tail = net_lines("HarnessAgent.cs", r'\+ "\\"align_win')
+def _agent_nothing(patches=None) -> dict:
+    """The catch line's `netsync` object as the LIVE stack leaves it -- or (``patches``, a list of patch bytes) as those patches do."""
+    catch = net_lines("HarnessAgent.cs", r'outer\.Append\("\\"netsync\\":\{\\"enabled', patches)
+    head = net_lines("HarnessAgent.cs", r'NetsyncF3Retired = "', patches)
+    tail = net_lines("HarnessAgent.cs", r'\+ "\\"align_win', patches)
     a, b = _LIT.findall(catch[0])
     pinned = "".join(_LIT.findall(head[0]) + _LIT.findall(tail[0]))
     return json.loads("{" + (a + pinned + b).replace('\\"', '"') + "}")["netsync"]
@@ -1312,11 +1313,13 @@ def test_the_s165_contract_is_battlewires_to_the_key():
 
 def test_the_s165_rung_is_the_ladders_last():
     """`worldfollow` is the ladder's newest rung (patch s165, one sub-verb), its calibration caps_through("swap"); the sub-verb is the
-    driver's and the stand-in's LAST; the keys tables carry its blocks."""
+    driver's and the stand-in's LAST; the keys tables carry its blocks. [ff9mapkit netsync s166] ...LAST until s166's `worldwalk` rung
+    joined after it (tests/test_coop_world_walk.py pins that one)."""
     rungs = list(FG.NETSYNC_BATTLE_CAPS)
-    assert rungs[-1] == "worldfollow" and FG.NETSYNC_BATTLE_CAPS["worldfollow"] == ("s165", ("worldfollow",))
+    assert rungs[rungs.index("worldfollow") + 1:] == ["worldwalk"]                     # [ff9mapkit netsync s166] then `worldwalk`
+    assert FG.NETSYNC_BATTLE_CAPS["worldfollow"] == ("s165", ("worldfollow",))
     assert FG.NETSYNC_S165_CAPS == frozenset(("worldfollow",)) and "worldfollow" not in FG.caps_through("swap")
-    assert FG.NETSYNC_SUBVERBS[-1] == Session.NETSYNC_SUBVERBS[-1] == Session.NETSYNC_AUTHORITY_SUBVERBS[-1] == "worldfollow"
+    assert FG.NETSYNC_SUBVERBS[-2] == Session.NETSYNC_SUBVERBS[-2] == Session.NETSYNC_AUTHORITY_SUBVERBS[-2] == "worldfollow"   # [ff9mapkit netsync s166]
     assert "worldfollow" not in FG.netsync_subverbs(FG.caps_through("swap"))
     assert Session.NETSYNC_WORLDFOLLOW_SUBVERBS["worldfollow"][:3] == ("coop_world_follow", "netsync.world.out", "s165")
     assert FG.NETSYNC_TOP_CAP_KEYS["worldfollow"] == ("saveguard", "host")
@@ -1397,13 +1400,17 @@ def test_the_stand_in_publishes_the_s165_keys_at_their_shapes(tmp_path):
         g.newgame(settle=0)
         g.warp(6603)
         st = g.state
-        assert list(st.netsync)[-3:] == ["swap", "saveguard", "host"] and list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S165)
+        # [ff9mapkit netsync s166] the prefix law: s165's eight unmoved, then s166's `kitcell` and A0b's `pairpull`
+        # (tests/test_coop_world_walk.py) -- and A2's `wire_peer` after `host`, netsync's LAST key
+        assert list(st.netsync)[-4:] == ["swap", "saveguard", "host", "wire_peer"] and list(st.netsync["world"]) == list(
+            FG.NETSYNC_WORLD_KEYS_BY_RUNG["worldwalk"])   # [ff9mapkit netsync s166] W2: + A3's lane / line, A4's ghost
         w = st.netsync["world"]
         for key, want in (("r3", CONTRACT_WORLD_R3), ("out", CONTRACT_WORLD_OUT), ("host", CONTRACT_WORLD_HOST),
                           ("dot", CONTRACT_WORLD_DOT)):
-            assert list(w[key]) == list(want), key
+            # [ff9mapkit netsync s166] W2: the newest stand-in's `dot` gains A4's `src` .. `src_face` -- s165's keys unmoved before it
+            assert list(w[key]) == list(want) + (list(BW.A4_CONTRACT["dot_src_keys"]) if key == "dot" else []), key   # [s166] W2: A4 final
         assert list(st.netsync["saveguard"]) == list(CONTRACT_SAVEGUARD)
-        assert {k: list(v) for k, v in st.netsync["host"].items()} == {"world": list(CONTRACT_HOST["world"])}
+        assert {k: list(v) for k, v in st.netsync["host"].items()} == {"world": list(CONTRACT_HOST["world"]) + ["guest"]}   # [s166] W2: A3
         assert (w["out"]["lever"], w["out"]["state"], w["dot"]["lever"], w["r3"]["lever"], st.saveguard_block["lever"]) == \
             ("on", "idle", "on", "act", "act")
         assert list(st.raw["world"])[-1] == "block_ready" and st.world_block_ready is False and st.coop_world_follow is True
@@ -1921,11 +1928,21 @@ def _s165_text(file_name: str) -> str:
     return "\n".join(out)
 
 
+def _through_s165() -> list:
+    """[ff9mapkit netsync s166] The live stack's patch bytes THROUGH the s165 patch (dead patches skipped): the s165 engine, whatever
+    later rounds sit above it on this branch's stack."""
+    names = [nm for nm in msr.stack() if nm not in msr.DEAD]
+    last = max(i for i, nm in enumerate(names) if nm.startswith("s165-"))
+    return [(msr.PATCHES / nm).read_bytes() for nm in names[:last + 1]]
+
+
 def _s165_catch() -> dict:
-    """The netsync-off catch literal's `netsync` object as the s165 engine writes it (the live stack's, or the clone's file)."""
+    """The netsync-off catch literal's `netsync` object as the s165 engine writes it (the stack THROUGH s165, or the clone's file).
+    [ff9mapkit netsync s166] Never the whole live stack: s166 appends `wire_peer` after `host` and `kitcell` / `pairpull` inside `world`,
+    and this is s165's contract."""
     kind, _root = _s165_source()
     if kind == "stack":
-        return _agent_nothing()
+        return _agent_nothing(_through_s165())
     lines = _s165_text("HarnessAgent.cs").split("\n")
     catch = [ln for ln in lines if re.search(r'outer\.Append\("\\"netsync\\":\{\\"enabled', ln)]
     head = [ln for ln in lines if 'NetsyncF3Retired = "' in ln]
@@ -2022,7 +2039,11 @@ def test_s165_the_stand_ins_blocks_are_the_engines(tmp_path):
     with _session(game, fake) as g:
         g.newgame(settle=0)
         st = g.state
+        # [ff9mapkit netsync s166] W2: the newest stand-in grows two s165 blocks (A4's `dot.src` .. `src_face`; A3's `host.world.guest`) --
+        # s165's own keys are the prefix, unmoved
+        grown = {"dot": BW.WORLD_NESTED_S166["world.dot"]}
         for key in BW.WORLD_S165_KEYS:
-            assert list(st.netsync["world"][key]) == list(nothing["world"][key]), key
+            assert [k for k in st.netsync["world"][key] if k not in grown.get(key, ())] == list(nothing["world"][key]), key
         assert list(st.netsync["saveguard"]) == list(nothing["saveguard"])
-        assert {k: list(v) for k, v in st.netsync["host"].items()} == {k: list(v) for k, v in nothing["host"].items()}
+        assert {k: [x for x in v if x not in BW.WORLD_NESTED_S166["host.world"]] for k, v in st.netsync["host"].items()} == {
+            k: list(v) for k, v in nothing["host"].items()}

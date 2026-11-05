@@ -158,6 +158,12 @@ DEFAULT_FILES = [
     "Assembly-CSharp/Memoria/Netsync/NetSyncWorldFollow.cs",
     "Assembly-CSharp/Memoria/Netsync/NetSyncWorldDot.cs",
     "Assembly-CSharp/Global/SaveLoadUI.cs",
+    # [ff9mapkit netsync s166] world-map co-op round A: its two new files (created from /dev/null); every stock hook site it touches
+    # (WMScriptDirector.cs's world-load backstops: the world ghost's HideNow and the kit-cell close's re-arm; Ff9mkDebugMenu.cs,
+    # HarnessAgent.cs, NetSyncClient.cs, NetSyncSocket.cs, NetSyncRelay.cs, NetSyncField.cs, NetSyncBattle.cs, NetSyncWorldFollow.cs,
+    # NetSyncWorldDot.cs and the csproj) is listed above
+    "Assembly-CSharp/Memoria/Netsync/NetSyncWorldWalk.cs",
+    "Assembly-CSharp/Memoria/Netsync/NetSyncWorldGhost.cs",
 ]
 
 # [ff9mapkit netsync s157] GENERATED files are only ever replaced WHOLE (the kit renders them from a JSON twin; their pins

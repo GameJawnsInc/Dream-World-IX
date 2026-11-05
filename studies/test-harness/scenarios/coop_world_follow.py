@@ -273,7 +273,8 @@ SOLO_SETUP = {
     "S165-OR": "the offline oracle (coop_world_wait.read_oracle): 6603's door to the world map, its WorldMap(9011), WORLD11's "
                "Field(300), block (18,12) stock, no fork of 300",
     "S165-S0": "newgame -> (the COOPPARTY seed) -> 6603 -> encounters off -> the forced selftest role",
-    "S165-P0": "the s165 keys in the agent's order (netsync.world ends r3/out/host/dot; netsync ends swap/saveguard/host; world ends "
+    "S165-P0": "the s165 keys in the agent's order (netsync.world ends r3/out/host/dot; netsync ends swap/saveguard/host, then "
+               "s166's wire_peer on a v15 engine; world ends "
                "block_ready) and the proof line 'world follow selftest: OK (N rows, M mutants)', none FAIL",
 }
 SOLO_OUT = {
@@ -522,13 +523,27 @@ def judge_probe(st, lines) -> tuple:
     world = cb.path(st, "netsync.world") or {}
     ns = list(cb.path(st, "netsync") or {})
     wkeys = list(cb.raw(st).get("world") or {})
+    # [ff9mapkit netsync s166] W2, BY THE ENGINE'S STAGE: A4 (BW.A4_CONTRACT) appends `src` .. `src_face` to `dot` -- s165's keys unmoved
+    dot_want = BW.WORLD_DOT_SENTINELS_S166 if cb.has(st, "netsync.world.dot." + BW.A4_CONTRACT["dot_src_key"]) else BW.WORLD_DOT_SENTINELS
     blocks = {"r3": BW.WORLD_R3_SENTINELS, "out": BW.WORLD_OUT_SENTINELS, "host": BW.WORLD_HOST_SENTINELS,
-              "dot": BW.WORLD_DOT_SENTINELS}
+              "dot": dot_want}
     bad = [k for k, want in blocks.items() if list(world.get(k) or {}) != list(want)]
-    top = ns[-2:] == list(BW.NETSYNC_TOP_KEYS_S165) and "swap" in ns and ns.index("swap") == len(ns) - 3
+    # [ff9mapkit netsync s166] BY THE ENGINE'S STAGE: an A2 engine (wire v15) appends `wire_peer` after `host` (the prefix law: s165's
+    # keys unmoved, `wire_peer` netsync's LAST key)
+    tail = list(BW.NETSYNC_TOP_KEYS_S165) + (list(BW.NETSYNC_TOP_KEYS_S166) if cb.has(st, "netsync.wire_peer") else [])
+    top = ns[-len(tail):] == tail and "swap" in ns and ns.index("swap") == len(ns) - len(tail) - 1
     sg = list(cb.path(st, "netsync.saveguard") or {}) == list(BW.SAVEGUARD_SENTINELS)
-    hw = list(cb.path(st, "netsync.host.world") or {}) == list(BW.HOST_WORLD_SENTINELS)
-    keys_ok = (list(world) == list(BW.WORLD_SENTINELS_S165) and not bad and top and sg and hw
+    hw = list(cb.path(st, "netsync.host.world") or {}) == list(BW.HOST_WORLD_KEYS_S166 if cb.has(st, "netsync.host.world.guest")
+                                                                 else BW.HOST_WORLD_SENTINELS)   # [ff9mapkit netsync s166] W2: A3's `guest`
+    # [ff9mapkit netsync s166] BY THE ENGINE'S STAGE: an s166 engine's `world` adds `kitcell` after `dot` (the prefix law: s165's unmoved)
+    want_world = BW.WORLD_SENTINELS_S166 if cb.has(st, "netsync.world.kitcell") else BW.WORLD_SENTINELS_S165
+    if cb.has(st, "netsync.world.pairpull"):
+        want_world = BW.WORLD_SENTINELS_S166B   # [ff9mapkit netsync s166] A0b: `pairpull` after `kitcell` (the prefix law)
+    if cb.has(st, "netsync.world.lane"):
+        want_world = BW.WORLD_SENTINELS_S166C   # [ff9mapkit netsync s166] W2: A3's `lane` and `line` after `pairpull` (the dot judged above)
+    if cb.has(st, "netsync.world." + BW.A4_CONTRACT["ghost_key"]):
+        want_world = BW.WORLD_SENTINELS_S166D   # [ff9mapkit netsync s166] W2: A4's ghost after `line`
+    keys_ok = (list(world) == list(want_world) and not bad and top and sg and hw
                and wkeys[-1:] == list(BW.WORLD_LIVE_KEYS_S165))
     rx = re.compile(BW.WORLD_FOLLOW_PROOF_RE)
     oks = [m for m in (rx.search(ln) for ln in lines) if m]
@@ -1560,8 +1575,9 @@ def _walk(g, led: cb.Ledger, ctx) -> None:
     conn = ctx.peer.wait_for(pb.PEER["guest_connected"], DIAL_S, tick=lambda: cw._sample(g, ctx)) if up else None
     start = ctx.peer.wait_for(pb.PEER["replay_start"], 10.0, tick=lambda: cw._sample(g, ctx)) if conn else None
     relay = pb.hits(ctx.eng.lines(), "relay_up", pred=lambda m: m.group(3) == "guest" and m.group(2) == CODE)
-    ok = up is not None and conn is not None and start is not None and bool(relay)
-    led.check("T2-PEER", ok, f"config: {pb.show(cfg, 1)}; peer: {up[1] if up else 'never listened'} / "
+    wire = pb.wire_gate(ctx.peer, pb.probe_wire(g)) if start else (False, "no replay start")   # [ff9mapkit netsync s166] THE LIVE HEADER
+    ok = up is not None and conn is not None and start is not None and bool(relay) and wire[0]
+    led.check("T2-PEER", ok, f"wire: {wire[1]}; config: {pb.show(cfg, 1)}; peer: {up[1] if up else 'never listened'} / "
                              f"{conn[1] if conn else 'no guest'} / {start[1] if start else 'no replay start'}; engine: "
                              f"{pb.show(relay, 1)}")
     if not ok:

@@ -8414,22 +8414,25 @@ class Session:
     #: `bbench` before `endbench`; [ff9mapkit netsync s133] + `actbench`; [ff9mapkit netsync s139] + `selfdress`;
     #: [ff9mapkit netsync s156] + `guestlocal`, at the END; [ff9mapkit netsync s158] + `stepout` after it; [ff9mapkit netsync
     #: s160] + `chest` after it. [ff9mapkit netsync s161] + `ate` after that. [ff9mapkit netsync s163] + `speed` after it. [ff9mapkit
-    #: netsync s164] + `swap` after that). Pinned to the patch stack by test_harness_netsync.py.
+    #: netsync s164] + `swap` after that. [ff9mapkit netsync s165] + `worldfollow` after it. [ff9mapkit netsync s166] + `worldwalk`
+    #: after that). Pinned to the patch stack by test_harness_netsync.py.
     NETSYNC_SUBVERBS = ("selftest", "bench", "l1", "hostscene", "lock", "stale", "unlock", "click", "drag",
                         "advance", "choice", "unmatched", "talk", "dioboot", "dioleave", "host", "tap-record",
                         "replay", "guestslots", "bcmd", "hostgates", "containment", "bctl", "bmenu", "bbench",
                         "endbench", "actbench", "selfdress", "guestlocal", "stepout", "chest", "ate", "speed", "swap",
-                        "worldfollow")                       # [ff9mapkit netsync s165] + `worldfollow`, LAST
+                        "worldfollow",                       # [ff9mapkit netsync s165] + `worldfollow`
+                        "worldwalk")                         # [ff9mapkit netsync s166] + `worldwalk`, LAST
     #: The sub-verbs only an engine speaking the F3.2 dialogue contract has (``netsync.dialogue`` ==
     #: "authority", s96) -- the F3.3 and B4/B5 ones included (they build on it). An F3 engine answers them "unknown
     #: sub-verb" only AFTER the step is spent. [ff9mapkit netsync s156] + `guestlocal`, at the END. [ff9mapkit netsync s158] +
     #: `stepout` after it. [ff9mapkit netsync s160] + `chest` after it. [ff9mapkit netsync s161] +
     #: `ate` after that. [ff9mapkit netsync s163] + `speed` after it. [ff9mapkit netsync s164] + `swap` after that. [ff9mapkit
-    #: netsync s165] + `worldfollow` after it.
+    #: netsync s165] + `worldfollow` after it. [ff9mapkit netsync s166] + `worldwalk` after that.
     NETSYNC_AUTHORITY_SUBVERBS = ("hostscene", "lock", "stale", "unlock", "click", "drag", "dioboot", "dioleave",
                                   "host", "tap-record", "replay", "guestslots", "bcmd", "hostgates", "containment",
                                   "bctl", "bmenu", "bbench", "endbench", "actbench", "selfdress", "guestlocal", "stepout",
-                                  "chest", "ate", "speed", "swap", "worldfollow")
+                                  "chest", "ate", "speed", "swap", "worldfollow",
+                                  "worldwalk")              # [ff9mapkit netsync s166] + `worldwalk`, LAST
     #: [ff9mapkit netsync F3.3] The F3.3 sub-verbs and the capability each needs, told apart by a published KEY's presence
     #: (the contract tag stays "authority" -- protocol 5, additive): the State accessor that reads False/None on an
     #: engine without it, the key it reads, the patch that added it, and what the verb is.
@@ -8610,6 +8613,15 @@ class Session:
     #: back from the step, an unknown op or a malformed one is refused before it in the usage line's words.
     NETSYNC_WORLDFOLLOW_SUBVERBS = {
         "worldfollow": ("coop_world_follow", "netsync.world.out", "s165", "the s165 world follow-out levers"),
+    }
+    #: [ff9mapkit netsync s166] WORLD WALK's lever scheme (studies/world-coop/S166-DESIGN.md decision 25; round A's piece A0 adds
+    #: `kitcell old|act` and `clear`), told by ``netsync.world.kitcell``'s PRESENCE (State.coop_world_walk): the capability accessor, the
+    #: key, the patch, what the verb is. Its ops and words are battlewire's (BW.WORLDWALK_*: the contract); any role; co-op off and the
+    #: engine's own refusals come back from the step, an unknown op or a malformed one is refused before it in the usage line's words.
+    #: [ff9mapkit netsync s166] A0b adds `pairpull old|act` to the same verb (decision 26), told by ``netsync.world.pairpull``'s PRESENCE
+    #: (State.coop_world_pairpull): on the A0 build (`kitcell` but no `pairpull`) the op is refused before the step.
+    NETSYNC_WORLDWALK_SUBVERBS = {
+        "worldwalk": ("coop_world_walk", "netsync.world.kitcell", "s166", "the s166 world walk levers"),
     }
     NETSYNC_SWAP_OPS = ("stamps", "delay", "orphan", "own", "pin", "life", "fade", "clear", "hostctl", "intent", "cache", "pinbench",
                         "lifebench", "blackout", "arrive", "arrivebench")   # [ff9mapkit netsync s164] + THE ARRIVAL GUARD's two (appended)
@@ -9006,6 +9018,13 @@ class Session:
         engine's role, co-op and bench refusals come back from the step (a duo calibration sent to the wrong game fails there), while
         an unknown op -- or a bad arity / range on a role that would let the op through -- is refused before it in the usage line.
 
+        [ff9mapkit netsync s166] world walk adds ONE sub-verb, ``worldwalk <op> [word]`` (round A's lever scheme; A0: ``kitcell
+        old|act``, ``clear``), told by ``netsync.world.kitcell`` (:attr:`State.coop_world_walk`; NETSYNC_WORLDWALK_SUBVERBS, the same
+        gate) -- :meth:`worldwalk`. On an s165 (or older) engine it is refused before the step ("this engine publishes no
+        `netsync.world.kitcell` (s166)"); an unknown op or a malformed one is refused before it in the usage line (BW.WORLDWALK_USAGE).
+        [ff9mapkit netsync s166] A0b's ``pairpull old|act`` is told by ``netsync.world.pairpull`` (:attr:`State.coop_world_pairpull`):
+        on the A0 build it is refused before the step.
+
         Refuses BEFORE sending what the engine would only refuse after: an engine that predates the
         verbs (``unknown op``), a sub-verb the agent does not have, an F3.2 sub-verb on an engine
         without the contract (``unknown sub-verb``), an F3.3 or B4/B5 sub-verb on an engine without its
@@ -9042,6 +9061,7 @@ class Session:
             ng = ng or self.NETSYNC_SPEED_SUBVERBS.get(sub)     # [ff9mapkit netsync s163] ...and the speed mirror's
             ng = ng or self.NETSYNC_SWAP_SUBVERBS.get(sub)      # [ff9mapkit netsync s164] ...and the field-swap levers', the same gate
             ng = ng or self.NETSYNC_WORLDFOLLOW_SUBVERBS.get(sub)   # [ff9mapkit netsync s165] ...and the world follow-out's
+            ng = ng or self.NETSYNC_WORLDWALK_SUBVERBS.get(sub)     # [ff9mapkit netsync s166] ...and the world walk's, the same gate
             if not authority:
                 if st.netsync is None:
                     have = "publishes no `netsync` block"
@@ -9226,6 +9246,33 @@ class Session:
             why = self._worldfollow_refusal(args)
             if why is not None:
                 raise HarnessError(why)
+        elif sub == "worldwalk":
+            # [ff9mapkit netsync s166] an unknown op or a malformed one is the usage line, refused before the step in its words (it changes
+            # nothing); co-op off and the role are the ENGINE's (the step goes out and its words come back). [ff9mapkit netsync s166] W2
+            # reconcile: the usage line is the one THIS engine answers (BW.worldwalk_usage_of its `netsync.world`: A4's, A3's, A0b's, A0's)
+            world_ww0 = (st.netsync or {}).get("world") if isinstance(st.netsync, dict) else None
+            why = self._worldwalk_refusal(args, world_ww0 if isinstance(world_ww0, dict) else {})
+            if why is not None:
+                raise HarnessError(why)
+            if str(args[0]).strip().lower() == "pairpull" and not st.coop_world_pairpull:
+                # [ff9mapkit netsync s166] A0b's op on an engine without its key (the A0 build answers it with its own usage line, AFTER the
+                # step): refused before it -- a bench PROBES `netsync.world.pairpull` and never sends the op there
+                from . import battlewire as BW
+                raise HarnessError("netsync worldwalk pairpull: this engine publishes no `netsync.world.pairpull` (memoria-patch s166, "
+                                   f"piece A0b); it would answer \"{BW.WORLDWALK_USAGE_A0}\" only after the step")
+            from . import battlewire as BW_WW
+            op_ww = str(args[0]).strip().lower()
+            a3_ops = ("pose", "lanegap", "hostlines") + tuple(BW_WW.WORLDWALK_HOST_OPS)
+            a4_ops = tuple(BW_WW.A4_CONTRACT["ops"])
+            world_ww = (st.netsync or {}).get("world") if isinstance(st.netsync, dict) else None
+            world_ww = world_ww if isinstance(world_ww, dict) else {}
+            if (op_ww in a3_ops and "lane" not in world_ww) or (op_ww in a4_ops and "ghost" not in world_ww):
+                # [ff9mapkit netsync s166] W2: A3's ops (pose / lanegap / hostlines, the bench host's) on an engine without
+                # `netsync.world.lane`, A4's (ghost / place / dot) without `netsync.world.ghost`: an older build answers them with its own
+                # usage line AFTER the step -- refused before it (a bench PROBES the key and never sends the op there)
+                piece, key = ("A4", "netsync.world.ghost") if op_ww in a4_ops else ("A3", "netsync.world.lane")
+                raise HarnessError(f"netsync worldwalk {op_ww}: this engine publishes no `{key}` (memoria-patch s166, piece {piece}); it "
+                                   "would answer its own usage line only after the step")
         elif sub == "dioboot" and st.ui_state == "WorldHUD" and not st.coop_world_dio:
             # [ff9mapkit netsync s145] THE WORLD DIOBOOT: a diorama boots from a live world map from s145 on (warm only: the engine's
             # pre-Arm verdict refuses anything a stock world battle could not return warm from). An s144 engine refuses it after
@@ -9699,6 +9746,52 @@ class Session:
         ``netsync.world.out``: an s164 engine fails the sub-verb closed). Every lever is released with the harness on every role.
         Counters are monotonic (read DELTAS). Returns a fresh state; read it back through :attr:`State.world_out_block`."""
         return self.netsync("worldfollow", op, *args, timeout=timeout)
+
+    @staticmethod
+    def _worldwalk_refusal(args, world=None) -> str | None:
+        """[ff9mapkit netsync s166] The `worldwalk` form's own check (an unknown op, a wrong arity, a word it does not take): the usage
+        line, else None -- co-op off and the role stay the engine's. [ff9mapkit netsync s166] W2 reconcile: ``world`` is the engine's
+        `netsync.world` block; the usage line is the one THAT engine answers (BW.worldwalk_usage_of: A4's grown line, A3's, A0b's, the A0
+        build's), so the driver's refusal is word for word the step's. ``world`` None = the newest (A4's)."""
+        from . import battlewire as BW
+        usage = BW.WORLDWALK_USAGE_A4 if world is None else BW.worldwalk_usage_of(world)
+        rest = [str(a).strip() for a in args]
+        op = rest[0].lower() if rest else ""
+        a3_words = {k: v for k, v in BW.WORLDWALK_WORDS_A3.items() if k not in BW.WORLDWALK_WORDS}
+        a4_words = dict(BW.A4_CONTRACT["words"])
+        if op in a3_words or op in a4_words:
+            # [ff9mapkit netsync s166] W2: A3's any-role levers (pose / lanegap / hostlines) and A4's (ghost / place / dot): exactly one
+            # word the engine takes, else the usage line (the engine's own words come back for anything it refuses after the step)
+            words = a3_words.get(op) or a4_words.get(op)
+            return None if len(rest) == 2 and rest[1].lower() in words else usage
+        if op in BW.WORLDWALK_HOST_OPS:
+            # [ff9mapkit netsync s166] W2: the bench host's ops (the selftest role): the op and at least one argument; their shapes, ranges,
+            # the role, the bench gate and FollowHost are the ENGINE's refusals (HarnessWorldWalkHost: the step goes out, its words return)
+            return None if len(rest) >= 2 else usage
+        if op not in BW.WORLDWALK_OPS:
+            return usage
+        if op == "clear":
+            return None if len(rest) == 1 else usage
+        if op in BW.WORLDWALK_WORDS:
+            return None if len(rest) == 2 and rest[1].lower() in BW.WORLDWALK_WORDS[op] else usage
+        return usage
+
+    def worldwalk(self, op: str, *args, timeout: float = 20.0) -> State:
+        """[ff9mapkit netsync s166] ``netsync worldwalk <op> [arg ...]`` -- WORLD WALK's one lever scheme (S166-DESIGN.md decision 25):
+        round A's piece A0 adds ``kitcell old|act`` (old = s165 exactly: a control-off read of a kit cell, the boat or the ferryman keeps
+        its Confirm; act = decision 19's close, the default) and ``clear`` (every worldwalk lever back to its default). Any role (THE DUO
+        CANNOT PULL A SELFTEST-ROLE LEVER); co-op off refuses every op but `clear`. Through :meth:`netsync`'s gates (refused before the
+        step on an engine without ``netsync.world.kitcell``: an s165 engine fails the sub-verb closed). Every lever is released with the
+        harness on every role. Counters are monotonic (read DELTAS). Returns a fresh state; read it back through
+        :attr:`State.world_kitcell_block`. [ff9mapkit netsync s166] Piece A0b adds ``pairpull old|act`` (decision 26: old = s165 exactly,
+        a guest that is not mirroring yet waits on its field and a follow-out's landing arms no mirror; act = the pairing pull, the
+        default), read back through :attr:`State.world_pairpull_block` -- refused before the step on an engine without
+        ``netsync.world.pairpull`` (the A0 build). [ff9mapkit netsync s166] W2: A3's ``pose off|on``, ``lanegap off|on``, ``hostlines
+        off|on`` (any role) and the bench host's ``host path ... | host off``, ``hostseq``, ``hostgap``, ``hostplace`` .. ``hosttps`` (the
+        selftest role) -- refused before the step on an engine without ``netsync.world.lane``; A4's ``ghost off|on|sticky``, ``place
+        render|act``, ``dot section0|trailer`` -- without ``netsync.world.ghost``. A malformed A3 / A4 lever is A3's usage line; the bench
+        host's shapes and ranges are the engine's own refusals (they come back from the step)."""
+        return self.netsync("worldwalk", op, *args, timeout=timeout)
 
     def savemenu(self) -> None:
         """[ff9mapkit netsync s165] ``savemenu`` -- the Alt+F5 save-menu adapter, through the gate stock uses (R4: a following guest's

@@ -1,8 +1,9 @@
 """``tools/harness/coop_peer.py`` -- the solo two-role bench peer (battle co-op R3, sitting-A fix round, tool T2).
 
-What these pin, and what they cannot: the tool's WIRE (NetSyncWire v14 frames built and accepted exactly as the engine
-builds and accepts them -- a byte fixture laid out from NetSyncSocket.cs, and the constants read off the live patch
-stack), its WebSocket framing (round-trips, and interop with tools/netsync-bridge/test_relay_roundtrip.py's own
+What these pin, and what they cannot: the tool's WIRE (NetSyncWire frames built and accepted exactly as the engine
+builds and accepts them -- a byte fixture laid out from NetSyncSocket.cs at the LIVE STACK's version, and the constants read
+off the live patch stack; [ff9mapkit netsync s166] v14 and v15 read, the send version taken from the game, the v15 world
+trailer, the restamp, the freeze, the walking guest record), its WebSocket framing (round-trips, and interop with tools/netsync-bridge/test_relay_roundtrip.py's own
 helpers), the TAPE (write/read, a torn tail, the battle anchors), the REPLAY's timing and blackhole under a fake clock,
 the fake guest's decisions, and the local RELAY's pairing -- end to end over loopback sockets, the production bridge
 in the loop once. They say nothing about the ENGINE's reaction to any of it: that is the calibration replay's job
@@ -38,6 +39,18 @@ from harness import coop_peer as CP                                # noqa: E402
 TIMEOUT = 5.0
 
 
+def _engine_wire() -> int:
+    """[ff9mapkit netsync s166] THE ENGINE STAGE THESE VECTORS READ: the live patch stack's NetSyncWire.Version (memoria-patches/, no
+    clone) -- 14 until the s166 patch lands with decision 2's bump, 15 after. The byte vectors below are framed at it, so they move
+    to 15 with the patch, never by a bare constant flip."""
+    lines = net_lines("NetSyncSocket.cs", r"public const Byte Version = ")
+    assert len(lines) == 1, lines
+    return int(re.search(r"=\s*(\d+)", lines[0]).group(1))
+
+
+ENGINE_WIRE = _engine_wire()
+
+
 def _roundtrip_helpers():
     """tools/netsync-bridge/test_relay_roundtrip.py (a hyphenated dir, not a package): its ws_client_connect /
     send_binary / recv_frame -- the framing the existing bridge test speaks -- as an independent oracle."""
@@ -62,12 +75,13 @@ def _wait_for(pred, timeout=TIMEOUT, every=0.02):
     return pred()
 
 
-# ======================================================================================== the wire (v14)
+# ======================================================================================== the wire (the live stack's version)
 # NetSyncWire.BuildFrame(TypePos, BuildPosPayload(250, 0x0102, 0x0304, 0x0506, 3, (1.5, -2, 3), (0, 0, 0.5, 1))),
-# laid out by hand from NetSyncSocket.cs: [F9][0E][type][len lo][len hi], then BinaryWriter's LE writes in order --
-# (UInt16)field, anim, model, meshVis, loco (byte), pos.x/y/z, rot.x/y/z/w (Single).
-POS_FIXTURE = bytes.fromhex(
-    "F9 0E 00 25 00"          # magic 0xF9, version 14, type 0 (pos), len 37 LE
+# laid out by hand from NetSyncSocket.cs: [F9][version][type][len lo][len hi], then BinaryWriter's LE writes in order --
+# (UInt16)field, anim, model, meshVis, loco (byte), pos.x/y/z, rot.x/y/z/w (Single). [ff9mapkit netsync s166] The version byte is
+# the live stack's (ENGINE_WIRE: 0x0E v14 today, 0x0F v15 once the s166 patch lands) -- every vector moves BY STAGE.
+POS_FIXTURE = bytes([0xF9, ENGINE_WIRE]) + bytes.fromhex(
+    "00 25 00"                # magic 0xF9, the version, type 0 (pos), len 37 LE
     "FA 00"                   # field 250
     "02 01"                   # anim 0x0102
     "04 03"                   # model 0x0304
@@ -82,17 +96,17 @@ POS_FIXTURE = bytes.fromhex(
     "00 00 80 3F"             # rot.w  1.0
 )
 # [ff9mapkit netsync s157] the same record + the trailing [animFrame 7][frameN 12]: len 39 (0x27) -- an s157 engine's frame.
-POS_FRAME_FIXTURE = bytes.fromhex("F9 0E 00 27 00") + POS_FIXTURE[5:] + bytes([7, 12])
+POS_FRAME_FIXTURE = bytes([0xF9, ENGINE_WIRE]) + bytes.fromhex("00 27 00") + POS_FIXTURE[5:] + bytes([7, 12])
 # A type-1 head as SampleOwnBattle writes it: seq u16, mapNo u16, guestSlots, patNum, startType, flags, nonce,
 # songId u16 (v10), unitCount -- then (none here) the unit records.
-BATTLE_FIXTURE = bytes.fromhex("F9 0E 01 0C 00" "02 01" "9C 01" "02" "01" "00" "0B" "07" "FF FF" "00")
+BATTLE_FIXTURE = bytes([0xF9, ENGINE_WIRE]) + bytes.fromhex("01 0C 00" "02 01" "9C 01" "02" "01" "00" "0B" "07" "FF FF" "00")
 # The s114 control frame [0][menu 2 root][fmt 1][nonce 7][boot 2 LIVE].
-CONTROL_FIXTURE = bytes.fromhex("F9 0E 03 05 00" "00 02 01 07 02")
+CONTROL_FIXTURE = bytes([0xF9, ENGINE_WIRE]) + bytes.fromhex("03 05 00" "00 02 01 07 02")
 
 
 def test_pos_frame_matches_the_engine_byte_layout():
     built = CP.build_pos_frame(250, anim=0x0102, model=0x0304, mesh_vis=0x0506, loco=3, pos=(1.5, -2.0, 3.0),
-                               rot=(0.0, 0.0, 0.5, 1.0))
+                               rot=(0.0, 0.0, 0.5, 1.0), wire=ENGINE_WIRE)
     assert built == POS_FIXTURE
     assert len(built) == CP.HEADER_SIZE + CP.POS_LEN == 42
     wtype, payload = CP.parse_frame(built)
@@ -112,7 +126,7 @@ def test_pos_frame_s157_trailer_round_trips_and_a_v14_frame_still_parses():
     """[ff9mapkit netsync s157] The ghost frame's trailer: 39 bytes built and read as NetSyncWire does, a 37-byte pre-s157 frame
     still parsed with no frame, bytes past the 39th ignored (the forward rule), 36 refused (the v14 rule)."""
     built = CP.build_pos_frame(250, anim=0x0102, model=0x0304, mesh_vis=0x0506, loco=3, pos=(1.5, -2.0, 3.0),
-                               rot=(0.0, 0.0, 0.5, 1.0), anim_frame=7, frame_n=12)
+                               rot=(0.0, 0.0, 0.5, 1.0), anim_frame=7, frame_n=12, wire=ENGINE_WIRE)
     assert built == POS_FRAME_FIXTURE and len(built) == CP.HEADER_SIZE + CP.POS_FRAME_LEN == 44
     p = CP.parse_pos_payload(CP.parse_frame(built)[1])
     assert (p["has_frame"], p["anim_frame"], p["frame_n"], p["field"], p["anim"], p["loco"]) == (True, 7, 12, 250, 0x0102, 3)
@@ -131,8 +145,8 @@ def test_battle_head_and_control_frame_fixtures():
     assert CP.parse_battle_head(payload) == {"seq": 0x0102, "map": 412, "guest_slots": 2, "pattern": 1,
                                              "start_type": 0, "flags": 0x0B, "nonce": 7, "song": 0xFFFF, "units": 0}
     assert CP.parse_battle_head(payload[:-1]) is None
-    # the control frame is battlewire's codec (pinned to NetSyncBattle by test_harness_netsync), framed v14
-    assert CP.build_frame(CP.TYPE_CONTROL, BW.encode_control(BW.CTL_ROOT, 7, BW.BOOT_LIVE)) == CONTROL_FIXTURE
+    # the control frame is battlewire's codec (pinned to NetSyncBattle by test_harness_netsync), framed at the live stack's wire
+    assert CP.build_frame(CP.TYPE_CONTROL, BW.encode_control(BW.CTL_ROOT, 7, BW.BOOT_LIVE), wire=ENGINE_WIRE) == CONTROL_FIXTURE
     c = CP.decode_control_raw(CP.parse_frame(CONTROL_FIXTURE)[1])
     assert c == {"menu": 2, "fmt": 1, "trailer": True, "nonce": 7, "boot": BW.BOOT_LIVE}
     assert CP.control_text(c) == "menu 2 (root) | fmt-1 report: nonce 7 boot LIVE"
@@ -143,18 +157,21 @@ def test_battle_head_and_control_frame_fixtures():
 
 @pytest.mark.parametrize("message", [
     bytes([0xF9, 13, 0, 0, 0]),                        # a v13 peer: the version byte rejects it
+    bytes([0xF9, 16, 0, 0, 0]),                        # [ff9mapkit netsync s166] a v16 peer: neither 14 nor 15
     bytes([0xF8, 14, 0, 0, 0]),                        # not our magic
     CP.build_frame(0, b"\x00" * 4)[:-1],               # header length != the message's rest
     CP.build_frame(0, b"\x00" * 4) + b"\x00",          # ...either way
     bytes([0xF9, 14, 0, 0x01, 0x20]) + bytes(8193),    # len 8193 > MaxPayload
     b"\xF9\x0E\x00",                                   # shorter than the header
-], ids=["v13", "magic", "short-body", "long-body", "over-max-payload", "short-header"])
+], ids=["v13", "v16", "magic", "short-body", "long-body", "over-max-payload", "short-header"])
 def test_parse_frame_refuses_what_the_engine_drops(message):
     assert CP.parse_frame(message) is None
 
 
 def test_build_frame_holds_an_empty_and_a_maximal_payload():
-    assert CP.build_frame(CP.TYPE_STATE) == bytes([0xF9, 14, 5, 0, 0])
+    # [ff9mapkit netsync s166] the PURE codec's default is the v14 tape wire (CP.WIRE_DEFAULT: every pre-s166 tape); no send path reads it
+    assert CP.build_frame(CP.TYPE_STATE) == bytes([0xF9, 14, 5, 0, 0]) and CP.WIRE_DEFAULT == 14
+    assert CP.build_frame(CP.TYPE_STATE, wire=15) == bytes([0xF9, 15, 5, 0, 0])
     big = bytes(range(256)) * 32                        # 8192 = MaxPayload
     assert CP.parse_frame(CP.build_frame(CP.TYPE_STATE, big)) == (CP.TYPE_STATE, big)
     with pytest.raises(ValueError):
@@ -168,7 +185,12 @@ def test_wire_constants_match_the_live_patch_stack():
         assert len(lines) == 1, (pattern, lines)
         return int(re.search(r"=\s*(0x[0-9A-Fa-f]+|\d+)", lines[0]).group(1), 0)
     assert const(r"public const Byte Magic = ") == CP.WIRE_MAGIC
-    assert const(r"public const Byte Version = ") == CP.WIRE_VERSION
+    # [ff9mapkit netsync s166] BY STAGE: the live stack's version is one this peer speaks, and it is 15 exactly when the s166 patch
+    # (decision 2's bump) is on the stack -- keyed on the patch's presence, never a bare constant
+    from ._patchstack import msr
+    s166 = any(n.startswith("s166-") and n not in msr.DEAD for n in msr.stack())
+    assert const(r"public const Byte Version = ") == ENGINE_WIRE == (15 if s166 else 14)
+    assert ENGINE_WIRE in CP.WIRE_VERSIONS and CP.WIRE_VERSIONS == (14, 15)
     assert const(r"public const Int32 HeaderSize = ") == CP.HEADER_SIZE
     assert const(r"public const Int32 MaxPayload = ") == CP.MAX_PAYLOAD
     types = {}
@@ -359,6 +381,7 @@ def test_tape_write_read_round_trip(tmp_path):
     assert tap.records == 4
     header, records, torn = CP.read_tape(path)
     assert header["tool"] == "coop_peer" and header["wire"] == 14 and header["mode"] == "test"
+    assert header["wires"] == {"host": 14, "guest": 14}       # [ff9mapkit netsync s166] written FROM THE FRAMES
     assert torn == 0
     assert [(r.t, r.dir, r.payload) for r in records] == spec
     assert [r.payload for r, _, _ in CP.host_frames(records)] == [spec[1][2], spec[3][2]]
@@ -1461,3 +1484,643 @@ def test_where_pose_prints_the_hosts_pose_per_frame(tmp_path, capsys):
     with pytest.raises(SystemExit):
         CP.main(["where", path, "--pose", "--near", "nowhere"])
     capsys.readouterr()
+
+
+# ======================================================================================== [ff9mapkit netsync s166] the v15 wire lane
+# S166-DESIGN.md decision 2 (the v15 law), decision 4 (the world trailer) and "Tapes": this peer reads v14 and v15, SENDS the version
+# the game speaks (never a constant), restamps a v14 tape up to a v15 guest, freezes a host the way its writer re-sends, and plays a
+# walking v15 guest. A synthetic trailer here is laid out BY HAND from decision 4's table (an oracle independent of the codec).
+def _trailer_by_hand(*, caps=1, seq=0x0102, ms=0x0A0B0C0D, place=4, state=0x86, why=0x21, world=9011, pos=(68.0, -2.5, -444.0),
+                     rot=(0.0, 0.5, 0.0, 0.75), mode=0, model=310, anim=0x1234, af=3, fn=12, digest=0xCAFEF00D, tps=28,
+                     flags=1, tfmt=1) -> bytes:
+    """Decision 4's 55 bytes at their documented offsets (39..93 of the payload), little-endian, written field by field."""
+    b = bytearray(55)
+
+    def put(off, fmt, *v):
+        struct.pack_into(fmt, b, off - 39, *v)
+    put(39, "<B", tfmt)
+    put(40, "<H", caps)
+    put(42, "<H", seq)
+    put(44, "<I", ms)
+    put(48, "<B", place)
+    put(49, "<B", state)
+    put(50, "<B", why)
+    put(51, "<H", world)
+    put(53, "<3f", *pos)
+    put(65, "<4f", *rot)
+    put(81, "<B", mode)
+    put(82, "<H", model)
+    put(84, "<H", anim)
+    put(86, "<B", af)
+    put(87, "<B", fn)
+    put(88, "<I", digest)
+    put(92, "<B", tps)
+    put(93, "<B", flags)
+    return bytes(b)
+
+
+def _v15_world_frame(**kw) -> bytes:
+    """A v15 host's world-map type-0 frame: the 39-byte world sentinel (field 0, a zero pose, identity, frame 0/0) + the trailer."""
+    return CP.build_pos_frame(0, wire=15, rot=(0.0, 0.0, 0.0, 1.0), anim_frame=0, frame_n=0, trailer=_trailer_by_hand(**kw))
+
+
+@pytest.mark.parametrize("wire", [14, 15])
+def test_the_codec_reads_and_builds_both_wires_and_restamps_only_byte_1(wire):
+    built = CP.build_pos_frame(250, anim=0x0102, model=0x0304, mesh_vis=0x0506, loco=3, pos=(1.5, -2.0, 3.0),
+                               rot=(0.0, 0.0, 0.5, 1.0), wire=wire)
+    assert built[:2] == bytes([0xF9, wire]) and built[2:] == POS_FIXTURE[2:]          # the rest is byte-identical across wires
+    assert CP.frame_wire(built) == wire and CP.parse_frame(built) == (CP.TYPE_POS, built[5:])
+    assert CP.parse_frame(built, versions=(29 - wire,)) is None                        # an engine reads ITS OWN version only
+    other = CP.restamp(built, 29 - wire)
+    assert other[1] == 29 - wire and other[:1] + other[2:] == built[:1] + built[2:]
+    assert CP.restamp(b"not a frame", 15) == b"not a frame" and CP.frame_wire(b"\xF8\x0F\x00\x00\x00") is None
+    assert "this side reads 15: mixed engine builds never sync" in CP.frame_header_text(bytes([0xF9, 14, 0, 0, 0]), (15,))
+    assert "different wire version" not in CP.frame_header_text(built)
+
+
+def test_the_world_trailer_is_decision_4s_table_byte_for_byte():
+    by_hand = _trailer_by_hand()
+    built = CP.build_world_trailer(caps=1, seq=0x0102, ms=0x0A0B0C0D, place=4, state=0x86, why=0x21, world=9011,
+                                   pos=(68.0, -2.5, -444.0), rot=(0.0, 0.5, 0.0, 0.75), mode=0, model=310, anim=0x1234,
+                                   anim_frame=3, frame_n=12, digest=0xCAFEF00D, world_tps=28, flags=1)
+    assert built == by_hand and CP.TRAILER_LEN == 55 and CP.TRAILER_AT == 39 and CP.POS_V15_LEN == 94
+    payload = CP.parse_frame(_v15_world_frame())[1]
+    assert len(payload) == 94
+    p = CP.parse_pos_payload(payload)
+    assert (p["field"], p["has_frame"], p["anim_frame"], p["frame_n"], p["length"]) == (0, True, 0, 0, 94)   # s157 bytes unmoved
+    tr = p["trailer"]
+    assert (tr["tfmt"], tr["caps"], tr["seq"], tr["ms"], tr["place"], tr["state"], tr["why"], tr["world"]) == (
+        1, 1, 0x0102, 0x0A0B0C0D, 4, 0x86, 0x21, 9011)
+    assert tr["pos"] == (68.0, -2.5, -444.0) and tr["rot"] == (0.0, 0.5, 0.0, 0.75)
+    assert (tr["mode"], tr["model"], tr["anim"], tr["anim_frame"], tr["frame_n"], tr["digest"], tr["world_tps"], tr["flags"]) == (
+        0, 310, 0x1234, 3, 12, 0xCAFEF00D, 28, 1)
+    assert tr["block_valid"] and tr["follows"] and (tr["why_rule"], tr["why_code"]) == (2, 1)
+    assert CP.parse_world_trailer(payload + b"\xEE" * 9) == tr                          # a later fmt's bytes: read forward
+    released = CP.parse_world_trailer(CP.parse_frame(_v15_world_frame(state=0x84, flags=1))[1])
+    assert released["state"] & CP.ST_FROZEN == 0 and released["follows"]               # "follows" rides flags b0, not state b0
+    assert not CP.parse_world_trailer(CP.parse_frame(_v15_world_frame(caps=0))[1])["block_valid"]
+    assert not CP.parse_world_trailer(CP.parse_frame(_v15_world_frame(place=6))[1])["block_valid"]   # a diorama
+    assert not CP.parse_world_trailer(CP.parse_frame(_v15_world_frame(world=0))[1])["block_valid"]   # [ff9mapkit netsync s166] a zeroed block
+
+
+def test_a_capless_peer_is_absent_tfmt0_or_short_and_the_trailer_needs_the_s157_bytes():
+    rec39 = CP.build_pos_payload(0, anim_frame=0, frame_n=0)
+    assert [CP.trailer_kind(x) for x in (rec39[:37], rec39, rec39 + b"\x00" * 55, rec39 + b"\x01" * 10,
+                                         rec39 + _trailer_by_hand())] == ["absent", "absent", "tfmt0", "short", "fmt1"]
+    for capless in (rec39, rec39 + b"\x00" * 55, rec39 + b"\x01" * 10):
+        assert CP.parse_world_trailer(capless) is None and CP.parse_pos_payload(capless)["trailer"] is None
+        assert CP.trailer_text(None, capless).startswith("capless (")
+    with pytest.raises(ValueError, match="39-byte s157 record"):
+        CP.build_pos_frame(0, trailer=_trailer_by_hand())                              # 37 bytes cannot carry one
+    zeroed = CP.world_block_zeroed({"place": CP.PLACE_FIELD, "world": 9011, "pos": (1.0, 2.0, 3.0), "mode": 1, "model": 310})
+    assert (zeroed["world"], zeroed["pos"], zeroed["mode"], zeroed["model"], zeroed["rot"]) == (0, (0.0, 0.0, 0.0), 0, 0,
+                                                                                               (0.0, 0.0, 0.0, 0.0))
+    kept = CP.world_block_zeroed({"place": CP.PLACE_WORLD, "world": 9011, "pos": (1.0, 2.0, 3.0)})
+    assert kept["world"] == 9011 and kept["pos"] == (1.0, 2.0, 3.0)
+    assert "trailer place 4 (world live) world 9011 at (68.0, -444.0)" in CP.describe_frame(
+        CP.TYPE_POS, CP.parse_frame(_v15_world_frame())[1])
+
+
+def test_the_relay_keepalive_is_the_engines_byte_for_byte():
+    """[ff9mapkit netsync s166] NetSyncWire.KeepaliveTrailer on the relay constructor's 65535 sentinel (every v15 frame carries a trailer,
+    the sentinel included): the s157 record of BuildPosPayload(65535, 0, 0, 0, 0, zero, identity, 0, 0), then tfmt 1, caps b0, place 0,
+    seq / ms / state / why / flags 0, the world block and digest zero, worldTps clamped -- the writer re-sends it unchanged, so the fake
+    guest's sentinel is the same bytes every tick, in every trailer mode but "off" (a capless 39 B peer)."""
+    rec = CP.build_pos_payload(CP.FIELD_SENTINEL, rot=(0.0, 0.0, 0.0, 1.0), anim_frame=0, frame_n=0)
+    by_hand = rec + _trailer_by_hand(caps=1, seq=0, ms=0, place=0, state=0, why=0, world=0, pos=(0.0, 0.0, 0.0), rot=(0.0, 0.0, 0.0, 0.0),
+                                     mode=0, model=0, anim=0, af=0, fn=0, digest=0, tps=28, flags=0)
+    assert CP.keepalive_payload(28) == by_hand and len(by_hand) == CP.POS_V15_LEN == 94
+    tr = CP.parse_pos_payload(by_hand)["trailer"]
+    assert (tr["place"], tr["caps"], tr["seq"], tr["world_tps"]) == (CP.PLACE_NONE, CP.CAP_WORLD_POSE, 0, 28)
+    assert not tr["block_valid"] and not tr["follows"]
+    assert CP.keepalive_trailer(300)[92 - 39] == 255 and CP.keepalive_trailer(-5)[92 - 39] == 0    # OwnWorldTps clamps to 0..255
+    for mode in ("auto", "tfmt0"):
+        m = CP.GuestModel(trailer=mode)
+        sent = [CP.parse_frame(m.outgoing(t, 15)[0])[1] for t in (0.0, 0.5, 1.0)]
+        assert sent == [CP.keepalive_payload(CP.WALK_TPS)] * 3, mode                                 # no seq: the constructor's slot
+    assert CP.parse_frame(CP.GuestModel(trailer="off").outgoing(0.0, 15)[0])[1] == rec                # capless: 39 B
+    assert CP.parse_frame(CP.GuestModel().outgoing(0.0, 14)[0])[1] == CP.build_pos_payload(CP.FIELD_SENTINEL)   # v14: unchanged
+
+
+def test_block_valid_is_the_engines_and_tfmt0_is_pose_off():
+    """[ff9mapkit netsync s166] BlockValid needs place 4, caps b0 AND a nonzero world (a sender with no real walker -- the dummy, the bee
+    scene -- zeroes the block on place 4); `--trailer tfmt0` is WriteTrailer's Fmt 0 (`worldwalk pose off`): 55 zero bytes, 94 B, capless."""
+    assert CP.parse_world_trailer(CP.parse_frame(_v15_world_frame())[1])["block_valid"]
+    zeroed = CP.parse_world_trailer(CP.parse_frame(_v15_world_frame(world=0, pos=(0.0, 0.0, 0.0)))[1])
+    assert zeroed["place"] == CP.PLACE_WORLD and zeroed["caps"] & CP.CAP_WORLD_POSE and not zeroed["block_valid"]
+    assert CP.TFMT0_TRAILER == bytes(55) and CP.TRAILER_MODES == ("auto", "tfmt0", "off")
+    m = CP.GuestModel(trailer="tfmt0")
+    m.on_host_frame(CP.TYPE_POS, CP.build_pos_payload(250, anim_frame=0, frame_n=4), 0.0)
+    pay = CP.parse_frame(m.outgoing(0.0, 15)[0])[1]
+    assert len(pay) == 94 and pay[39:] == bytes(55) and CP.trailer_kind(pay) == "tfmt0" and CP.parse_world_trailer(pay) is None
+    walk = CP.GuestModel(walk=CP.WorldWalkPlan(out_s=0.0, load_s=0.0), trailer="tfmt0")
+    pay = CP.parse_frame(walk.outgoing(0.0, 15)[0])[1]
+    assert len(pay) == 94 and CP.trailer_kind(pay) == "tfmt0"
+    assert CP.build_parser().parse_args(["serve-guest", "--trailer", "tfmt0"]).trailer == "tfmt0"
+
+
+#: decision 4's table: each trailer field's ABSOLUTE payload offset (the engine's Tf* names, + 39)
+_DECISION4_OFFSETS = {"Fmt": 39, "Caps": 40, "Seq": 42, "Ms": 44, "Place": 48, "State": 49, "Why": 50, "World": 51, "X": 53, "Y": 57,
+                      "Z": 61, "RotX": 65, "RotY": 69, "RotZ": 73, "RotW": 77, "Mode": 81, "Model": 82, "Anim": 84, "AnimFrame": 86,
+                      "FrameN": 87, "Digest": 88, "Tps": 92, "Flags": 93}
+
+
+def _kit_offsets() -> dict:
+    """The kit codec's own offsets, read off its struct (one format code per field, in decision 4's order; ``3f`` / ``4f`` expanded)."""
+    codes = []
+    for n, c in re.findall(r"(\d*)([BHIf])", CP._TRAILER.format.lstrip("<")):
+        codes += [c] * int(n or 1)
+    out, at = {}, CP.TRAILER_AT
+    for name, c in zip(_DECISION4_OFFSETS, codes):
+        out[name] = at
+        at += struct.calcsize("<" + c)
+    assert at == CP.POS_V15_LEN and len(codes) == len(_DECISION4_OFFSETS)
+    return out
+
+
+def _consts(text: str, names: str) -> dict:
+    """``Name = value`` pairs (ints, hex too) of the C# names matching ``names`` (a regex) in ``text``."""
+    return {m.group(1): int(m.group(2), 0) for m in re.finditer(r"\b(" + names + r")\s*=\s*(0x[0-9A-Fa-f]+|\d+)\b", text)}
+
+
+def test_s166_the_codec_is_the_engines_trailer_and_wire_lines():
+    """[ff9mapkit netsync s166] BY STAGE, read off this branch's stack (never the clone). Once the s166 patch is live: the kit's trailer
+    codec IS the engine's -- every offset, the fmt and its length, the caps / place / state / flag bits, the kind names, BlockValid's terms,
+    the tfmt-0 build, the relay keepalive -- and the wire lines the benches grep are the engine's own text. Before it (the deployed A0b
+    stage): the stack speaks 14 and carries no trailer at all."""
+    from ._patchstack import msr
+    s166 = any(n.startswith("s166-") and n not in msr.DEAD for n in msr.stack())
+    sock = "\n".join(stack_file("NetSyncSocket.cs"))
+    version = int(re.search(r"public const Byte Version = (\d+);", sock).group(1))
+    if not s166:
+        assert version == CP.WIRE_V14 and "KeepaliveTrailer" not in sock and "TrailerKindAt" not in sock
+        return
+    assert version == CP.WIRE_V15
+    ww = "\n".join(stack_file("NetSyncWorldWalk.cs"))
+    assert re.search(r"public const Int32 PosLenFrame = 39;", sock) and CP.TRAILER_AT == CP.POS_FRAME_LEN == 39
+    assert re.search(r"TrailerAt = NetSyncWire\.PosLenFrame;", ww)
+    assert _consts(ww, r"TrailerFmt|TrailerLen") == {"TrailerFmt": CP.TRAILER_FMT, "TrailerLen": CP.TRAILER_LEN}
+    tf = {k[2:]: v + 39 for k, v in _consts(re.search(r"private const Int32 TfFmt = 0,.*?;", ww, re.S).group(0), r"Tf\w+").items()}
+    assert tf == _DECISION4_OFFSETS == _kit_offsets()
+    caps = _consts(ww, r"Cap(?:WorldPose|WorldFp|Comms|GuestMenu|CmdV2)")
+    assert caps == {"CapWorldPose": CP.CAP_WORLD_POSE, "CapWorldFp": CP.CAP_WORLD_FP, "CapComms": CP.CAP_COMMS,
+                    "CapGuestMenu": CP.CAP_GUEST_MENU, "CapCmdV2": CP.CAP_CMD_V2}
+    assert re.search(r"OwnCaps = CapWorldPose;", ww)
+    places = _consts(ww, r"Place(?:None|Field|Transition|WorldLoading|World|Battle|Diorama)")
+    assert places == {"PlaceNone": CP.PLACE_NONE, "PlaceField": CP.PLACE_FIELD, "PlaceTransition": CP.PLACE_TRANSITION,
+                      "PlaceWorldLoading": CP.PLACE_WORLD_LOADING, "PlaceWorld": CP.PLACE_WORLD, "PlaceBattle": CP.PLACE_BATTLE,
+                      "PlaceDiorama": CP.PLACE_DIORAMA}
+    bits = _consts(ww, r"St(?:Frozen|Walking|Control|FullMap|Mismatch|WorldOut|Scene|Visible)|FlagFollow")
+    assert bits == {"StFrozen": CP.ST_FROZEN, "StWalking": CP.ST_WALKING, "StControl": CP.ST_CONTROL, "StFullMap": CP.ST_FULLMAP,
+                    "StMismatch": CP.ST_MISMATCH, "StWorldOut": CP.ST_WORLDOUT, "StScene": CP.ST_SCENE, "StVisible": CP.ST_VISIBLE,
+                    "FlagFollow": CP.FLAG_FOLLOW}
+    kinds = re.search(r"KindNames = \{([^}]*)\}", ww).group(1)
+    assert tuple(re.findall(r'"(\w+)"', kinds)) == BW.WIRE_PEER_KINDS == ("absent", "tfmt0", "short", "fmt1")
+    rec = CP.build_pos_payload(0, anim_frame=0, frame_n=0)
+    assert [CP.trailer_kind(x) for x in (rec, rec + bytes(55), rec + b"\x01" * 10, rec + _trailer_by_hand())] == list(BW.WIRE_PEER_KINDS)
+    valid = re.search(r"Boolean BlockValid \{ get \{ return ([^;]*);", ww).group(1)
+    assert re.sub(r"\s+", " ", valid) == "Has && Place == PlaceWorld && (Caps & CapWorldPose) != 0 && World != 0", valid
+    write = re.search(r"internal static Int32 WriteTrailer\(.*?\n        \}", ww, re.S).group(0)
+    assert re.search(r"Array\.Clear\(dst, off, TrailerLen\);\s*if \(t\.Fmt <= 0\)\s*return TrailerLen;", write)   # tfmt 0: all zero
+    keep = re.search(r"internal static Byte\[\] KeepaliveTrailer\(Int32 worldTps\)\s*\{(.*?)\n        \}", sock, re.S).group(1)
+    assert [ln.strip() for ln in keep.strip().splitlines()] == [
+        "NetSyncWorldWalk.WorldTrailer t = new NetSyncWorldWalk.WorldTrailer();", "t.Fmt = NetSyncWorldWalk.TrailerFmt;",
+        "t.Caps = NetSyncWorldWalk.OwnCaps;", "t.Place = NetSyncWorldWalk.PlaceNone;", "t.WorldTps = worldTps;",
+        "Byte[] b = new Byte[NetSyncWorldWalk.TrailerLen];", "NetSyncWorldWalk.WriteTrailer(b, 0, t, false);", "return b;"]
+    relay = "\n".join(stack_file("NetSyncRelay.cs"))
+    assert re.search(r"BuildPosPayload\(65535, 0, 0, 0, 0, Vector3\.zero, Quaternion\.identity, 0, 0,[^\n]*\n\s*NetSyncWire\.KeepaliveTrailer\(",
+                     relay)
+    # the lines: the peer-version line, the own-wire line (its three transports at its one call site), the owner words
+    peer = re.search(r"internal static String WirePeerLine\(Int32 peer, Int32 own\)\s*\{\s*return ([^;]*);", ww).group(1)
+    assert re.sub(r"\s+", " ", peer) == ('"the partner\'s engine speaks wire " + peer + ", this one speaks " + own + " -- update both '
+                                         'machines"')
+    assert re.search(r'Log\.Message\("\[NetSync\] " \+ NetSyncWorldWalk\.WirePeerLine\(hdr\[1\], NetSyncWire\.Version\)\);', sock)
+    assert BW.log_peer_wire(14, 15) == "[NetSync] the partner's engine speaks wire 14, this one speaks 15 -- update both machines"
+    own = re.search(r"internal static String OwnWireLine\(String transport, Int32 own, Int32 caps\)\s*\{\s*return ([^;]*);", ww).group(1)
+    assert re.sub(r"\s+", " ", own) == ('"own wire: this engine speaks wire " + own + " (caps 0x" + (caps & 0xFFFF).ToString("X4") + ") on " '
+                                        '+ transport + " -- the partner\'s engine must speak the same"')
+    client = "\n".join(stack_file("NetSyncClient.cs"))
+    site = re.search(r'Log\.Message\("\[NetSync\] " \+ NetSyncWorldWalk\.OwnWireLine\(_relayUrl\.Length > 0 \? "([^"]+)" : '
+                     r'\(_role == "host" \? "([^"]+)" : "([^"]+)"\)', client)
+    assert site and site.groups() == ("the relay", "tcp (host)", "tcp (client)") == BW.OWN_WIRE_TRANSPORTS
+    for transport in BW.OWN_WIRE_TRANSPORTS:
+        m = re.fullmatch(BW.OWN_WIRE_RE, BW.log_own_wire(transport, CP.WIRE_V15, CP.CAP_WORLD_POSE))
+        assert m and m.groups() == ("15", "0001", transport)
+    assert re.fullmatch(BW.PEER_WIRE_RE, BW.log_peer_wire(14, 15)).groups() == ("14", "15")
+    assert re.search(r'LineWireMismatch = "' + re.escape(BW.WORDS_WIRE_MISMATCH) + '";', ww)
+    assert re.search(r'Log\.Message\("' + re.escape(BW.LOG_TCP_REDIAL_QUIET) + r'" \+ _redialQuiet', sock)
+
+
+@pytest.mark.parametrize("deg", [0.0, 45.0, 90.0, 179.0, 270.0, 359.0])
+def test_the_rotations_heading_round_trips(deg):
+    assert CP.quat_yaw(CP.yaw_quat(deg)) == pytest.approx(deg, abs=1e-6)
+    assert CP.quat_yaw((0.0, 0.0, 0.0, 0.0)) == 0.0
+
+
+@pytest.mark.parametrize("mode, guest, tape, send, how", [
+    ("auto", 15, 14, 15, "restamped from the tape's 14 to the guest's own"),      # THE RESTAMP: a capless v15 host
+    ("auto", 14, 14, 14, "as recorded"),
+    ("auto", 15, 15, 15, "as recorded"),
+    ("auto", 14, 15, 15, "cannot be restamped to the guest's 14"),                  # never DOWN: it never pairs
+    ("auto", 16, 14, 14, "cannot be restamped to the guest's 16"),
+    ("auto", None, 14, 14, "carried no NetSyncWire header"),
+    ("tape", 15, 14, 14, "it DROPS every frame and never pairs"),                   # A-WIRE's unrestamped calibration
+    ("15", 15, 14, 15, "pinned --wire, restamped from the tape's 14"),
+    ("15", 14, 14, 15, "the guest speaks 14: it DROPS every frame"),
+])
+def test_replay_send_wire_follows_the_guests_header_and_never_restamps_down(mode, guest, tape, send, how):
+    got_send, got_how = CP.replay_send_wire(mode, guest, tape)
+    assert got_send == send and how in got_how
+    assert ("DROPS" in got_how) == (guest is not None and guest != send)
+
+
+def test_the_replay_restamps_every_frame_to_the_send_wire_byte_identical_otherwise():
+    recs = _synthetic_host(duration=1.0, battles=((0.2, 0.8, 7),))
+    frames = CP.host_frames(recs)
+    clock, out = FakeClock(), []
+    rep = CP.Replayer(frames, start=0.0, send=lambda b: out.append(b) or True, log=lambda m: None, clock=clock,
+                      sleep=clock.sleep, wire=15)
+    assert rep.run()["sent"] == len(frames) == len(out)
+    assert all(b[1] == 15 and b[:1] + b[2:] == r.payload[:1] + r.payload[2:] for b, (r, _w, _p) in zip(out, frames))
+    out.clear()
+    CP.Replayer(frames, start=0.0, send=lambda b: out.append(b) or True, log=lambda m: None, clock=clock,
+                sleep=clock.sleep, wire=None).run()
+    assert out == [r.payload for r, _w, _p in frames]                                  # None: as recorded
+
+
+def _state_frame(i):
+    return CP.build_frame(CP.TYPE_STATE, bytes([i & 0xFF]) * 8)
+
+
+def test_the_freeze_resends_the_live_slots_byte_identical_and_resumes_on_the_timeline():
+    """`--freeze-at 1.0 --freeze-for 0.5`: the tape's own frames inside the window are held back; every tick the LAST pos and state
+    frames go out again byte-identical (CollectOutgoing's slot order: pos before state); a slot that went quiet before the freeze (the
+    battle lane, over at 0.4 s) is never re-sent; after the window the timeline resumes at the frames' own times."""
+    recs, t, i = [], 0.0, 0
+    while t <= 2.0:
+        recs.append(CP.Record(round(t, 6), CP.DIR_HOST, CP.build_pos_frame(250, anim=i)))
+        recs.append(CP.Record(round(t, 6), CP.DIR_HOST, _state_frame(i)))
+        if t <= 0.4:
+            recs.append(CP.Record(round(t, 6), CP.DIR_HOST, _battle_frame(i + 1, 5)))
+        t += 1 / 30
+        i += 1
+    frames = CP.host_frames(recs)
+    clock, sent, notes = FakeClock(), [], []
+    rep = CP.Replayer(frames, start=0.0, send=lambda b: True, log=notes.append, clock=clock, sleep=clock.sleep,
+                      on_sent=lambda rec, wtype, payload: sent.append((clock.now - 1000.0, rec.t, rec.payload)),
+                      freezes=[(1.0, 0.5)])
+    summary = rep.run()
+    inside = [x for x in sent if 1.0 <= x[0] < 1.5]
+    last_pos = max((r for r, w, _p in frames if w == CP.TYPE_POS and r.t < 1.0), key=lambda r: r.t)
+    last_state = max((r for r, w, _p in frames if w == CP.TYPE_STATE and r.t < 1.0), key=lambda r: r.t)
+    assert inside and {x[2] for x in inside} == {last_pos.payload, last_state.payload}   # only those two, byte-identical
+    assert [x[2] for x in inside[:2]] == [last_pos.payload, last_state.payload]           # pos, then state
+    assert len(inside) == 2 * len([k for k in range(100) if 1.0 + k * CP.TICK_S < 1.5])  # one pair per writer tick
+    assert summary["resent"] == len(inside) and summary["frozen"] == len([r for r, _w, _p in frames if 1.0 <= r.t < 1.5])
+    after = [x for x in sent if x[0] >= 1.5]
+    assert after and all(x[1] >= 1.5 and x[0] == pytest.approx(x[1], abs=1e-6) for x in after)   # the original timeline
+    assert any(n.startswith("FREEZE at tape 1.00 s") and "slots: pos, state" in n for n in notes)
+    assert any(n.startswith("FREEZE over at tape 1.50 s") for n in notes)
+
+
+def test_replay_host_cli_refuses_a_restamp_down_and_a_bad_freeze(tmp_path, capsys):
+    v15 = tmp_path / "v15.f9tape"
+    _write_tape(v15, [(0.0, CP.DIR_HOST, _v15_world_frame())])
+    assert CP.main(["replay-host", str(v15), "--wire", "14"]) == 2
+    assert "would restamp a wire-15 tape DOWN" in capsys.readouterr().out
+    v14 = tmp_path / "v14.f9tape"
+    _write_tape(v14, [(0.0, CP.DIR_HOST, CP.build_pos_frame(250))])
+    assert CP.main(["replay-host", str(v14), "--freeze-at", "1", "--freeze-at", "2", "--freeze-for", "1",
+                    "--freeze-for", "0"]) == 2
+    assert "--freeze-for (> 0 s)" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        CP.main(["replay-host", str(v14), "--wire", "13"])
+    capsys.readouterr()
+
+
+def test_replay_host_restamps_a_v14_tape_for_a_v15_guest_and_says_so_before_the_replay(tmp_path):
+    recs = _synthetic_host(duration=1.0, battles=())
+    frames = CP.host_frames(recs)
+    log, buf = _log()
+    tap = CP.TapeWriter(tmp_path / "replay.f9tape", mode="replay-host", extra={"source_wire": 14})
+    rh = CP.ReplayHost(frames, start=0.0, log=log, tap=tap)
+    listener = CP.Listener(0, rh.on_conn, log=log)
+    runner = threading.Thread(target=rh.run, daemon=True)
+    runner.start()
+    try:
+        guest = CP.dial_ws(_ws_url(listener.port), CP.session_path("ff9-v15", "guest"))
+        guest.send(_v15_world_frame())                    # a v15 guest's keepalive: its header names 15
+        got = _recv_frames_any(guest, 1.3)
+        runner.join(TIMEOUT)
+    finally:
+        rh.close()
+        listener.close()
+        tap.close()
+    assert got and all(b[1] == 15 for b in got)                                    # every replayed frame restamped
+    assert [b[:1] + b[2:] for b in got] == [r.payload[:1] + r.payload[2:] for r, _w, _p in frames][:len(got)]
+    text = buf.getvalue()
+    line = CP.GUEST_WIRE_LINE.format(guest=15, send=15, how="restamped from the tape's 14 to the guest's own")
+    assert line in text and text.index(line) < text.index("REPLAY start")
+    assert "guest world trailer: place 4 (world live) world 9011" in text
+    header, records, _ = CP.read_tape(tmp_path / "replay.f9tape")
+    assert header["wire"] == 15 and header["wires"] == {"host": 15, "guest": 15} and header["source_wire"] == 14
+    assert any(r.dir == CP.DIR_NOTE and r.payload.decode().startswith("guest header: wire 15") for r in records)
+
+
+def test_replay_host_wire_tape_sends_as_recorded_and_names_the_drop(tmp_path):
+    frames = CP.host_frames(_synthetic_host(duration=0.3, battles=()))
+    log, buf = _log()
+    rh = CP.ReplayHost(frames, start=0.0, log=log, wire="tape")
+    listener = CP.Listener(0, rh.on_conn, log=log)
+    runner = threading.Thread(target=rh.run, daemon=True)
+    runner.start()
+    try:
+        guest = CP.dial_ws(_ws_url(listener.port), CP.session_path("ff9-v15", "guest"))
+        guest.send(_v15_world_frame())
+        got = _recv_frames_any(guest, 0.6)
+        runner.join(TIMEOUT)
+    finally:
+        rh.close()
+        listener.close()
+    assert got and all(b[1] == 14 for b in got)
+    assert ("guest header: wire 15 -- the replay sends wire 14 (as recorded, --wire tape -- the guest speaks 15: it DROPS every "
+            "frame and never pairs)") in buf.getvalue()
+
+
+def _recv_frames_any(conn, seconds):
+    """Every WS message for ``seconds`` (raw bytes: whatever version they carry)."""
+    out = []
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        msg = conn.recv(poll=max(0.01, deadline - time.monotonic()))
+        if msg is not None:
+            out.append(msg[1])
+    return out
+
+
+@pytest.mark.parametrize("host_wire", [14, 15])
+def test_serve_guest_sends_at_the_hosts_header_and_a_v15_trailer_only_at_v15(tmp_path, host_wire):
+    log, buf = _log()
+    tap = CP.TapeWriter(tmp_path / "host.f9tape", mode="serve-guest")
+    served = CP.ServeGuest(CP.GuestModel, log=log, tap=tap, status_every=60)
+    listener = CP.Listener(0, served.on_conn, log=log)
+    try:
+        host = CP.dial_ws(_ws_url(listener.port), CP.session_path("ff9-wire", "host"))
+        early = _recv_frames_any(host, 0.25)              # nothing before the host's first header (auto)
+        host.send(CP.build_pos_frame(250, model=98, anim_frame=1, frame_n=12, wire=host_wire))
+        got = _recv_frames_any(host, 0.5)
+        host.close(1000)
+        assert _wait_for(lambda: served.ended)
+    finally:
+        listener.close()
+        served.stop("test over")
+        tap.close()
+    assert early == []
+    assert len(got) >= 6 and all(b[1] == host_wire for b in got)
+    pos = [CP.parse_pos_payload(CP.parse_frame(b)[1]) for b in got if b[2] == CP.TYPE_POS]
+    assert all(p["field"] == 250 and p["anim_frame"] == 1 for p in pos)
+    if host_wire == 15:
+        trs = [p["trailer"] for p in pos]
+        assert all(t is not None and t["place"] == CP.PLACE_FIELD and t["follows"] and t["world"] == 0 for t in trs)
+        assert [t["seq"] for t in trs] == sorted({t["seq"] for t in trs})          # +1 per built frame
+        assert all(p["length"] == 94 for p in pos)
+    else:
+        assert all(p["trailer"] is None and p["length"] == 39 for p in pos)
+    text = buf.getvalue()
+    assert CP.HOST_WIRE_LINE.format(host=host_wire, send=host_wire, how="the host's own") in text
+    assert "waiting for the host's first header to pick the send wire" in text
+    header, _records, _torn = CP.read_tape(tmp_path / "host.f9tape")
+    assert header["wire"] == host_wire and header["wires"] == {"host": host_wire, "guest": host_wire}
+
+
+def test_a_pinned_fake_guest_drops_a_host_of_another_wire_as_the_engine_does(tmp_path):
+    log, buf = _log()
+    served = CP.ServeGuest(CP.GuestModel, log=log, status_every=60, wire=15)
+    listener = CP.Listener(0, served.on_conn, log=log)
+    try:
+        host = CP.dial_ws(_ws_url(listener.port), CP.session_path("ff9-pin", "host"))
+        got = _recv_frames_any(host, 0.3)                 # pinned: it sends at once (the 65535 sentinel, v15: 39 B + place 0)
+        host.send(CP.build_pos_frame(250, model=98))      # a v14 host
+        more = _recv_frames_any(host, 0.3)
+        host.close(1000)
+        assert _wait_for(lambda: served.ended)
+    finally:
+        listener.close()
+        served.stop("test over")
+    assert got and all(b[1] == 15 for b in got + more)
+    sentinel = CP.parse_pos_payload(CP.parse_frame(got[0])[1])
+    assert sentinel["field"] == CP.FIELD_SENTINEL and sentinel["trailer"]["place"] == CP.PLACE_NONE
+    assert all(CP.parse_pos_payload(CP.parse_frame(b)[1])["field"] == CP.FIELD_SENTINEL for b in more)   # the v14 frame: dropped
+    text = buf.getvalue()
+    assert "host header: wire 14 -- this fake guest sends wire 15 (pinned by --wire -- the host DROPS every frame" in text
+    assert "host frame at wire 14 DROPPED: this fake guest speaks 15" in text
+
+
+def test_the_walking_guest_follows_out_loads_frozen_then_walks_the_roam_route():
+    plan = CP.WorldWalkPlan(out_s=1.0, load_s=2.0)
+    m = CP.GuestModel(walk=plan)
+
+    def tr_at(now):
+        return CP.parse_pos_payload(CP.parse_frame(m.outgoing(now, 15)[0])[1])
+    out = tr_at(10.0)                                     # the session's zero: 10.0
+    assert (out["field"], out["anim_frame"], out["frame_n"], out["rot"]) == (0, 0, 0, (0.0, 0.0, 0.0, 1.0))  # the world sentinel
+    assert out["trailer"]["place"] == CP.PLACE_TRANSITION and out["trailer"]["state"] == CP.ST_WORLDOUT
+    assert out["trailer"]["world"] == 0 and out["trailer"]["follows"]
+    loads = [m.outgoing(now, 15)[0] for now in (11.2, 11.5, 12.9)]
+    assert loads[0] == loads[1] == loads[2]               # ONE fresh frame, then the writer's re-send: seq and ms frozen
+    lt = CP.parse_pos_payload(CP.parse_frame(loads[0])[1])["trailer"]
+    assert lt["place"] == CP.PLACE_WORLD_LOADING and lt["seq"] == out["trailer"]["seq"] + 1
+    w = tr_at(13.5)["trailer"]                            # walking: FS_LANDING's 3 s stand
+    assert (w["place"], w["world"], w["model"], w["mode"], w["state"]) == (4, 9011, 310, 0, CP.WALK_STATE)
+    assert (w["pos"][0], w["pos"][2]) == CP.FS_LANDING and w["block_valid"] and w["seq"] == lt["seq"] + 1
+    end = tr_at(10.0 + 3.0 + 600.0)["trailer"]
+    assert (end["pos"][0], end["pos"][2]) == pytest.approx(CP.ICE_TILE, abs=1e-3)
+    assert CP.WorldWalkPlan(world=9002).model == 309 and CP.WorldWalkPlan(world=9010).model == 310   # decision 11
+
+
+def test_the_roam_walk_crosses_the_x_seam_the_short_way():
+    route = ((14.0, -512.0, 0.0), (1512.0, -548.0, 5.0))
+    xs = [CP.walk_pose(route, 24.0, s)[0] for s in (0.0, 0.25, 0.5, 1.0, 1.5)]
+    assert xs[0] == 14.0 and xs[1] < 14.0 and any(x > 1500.0 for x in xs[2:])       # west through x 0, never east across 1498 u
+    x, z, yaw, moving = CP.walk_pose(route, 24.0, 10.0)
+    assert (x, z, moving) == (1512.0, -548.0, False) and 180.0 < yaw < 360.0         # standing at the end, facing west
+    assert CP.torus_wrap(-1.0, -1281.0) == (1535.0, -1.0) and CP.torus_wrap(5.0, 0.0) == (5.0, 0.0)
+
+
+def test_the_walking_record_takes_no_follow_a_scene_a_gap_and_a_capless_trailer():
+    nf = CP.GuestModel(walk=CP.WorldWalkPlan(out_s=0.0, load_s=0.0, follow=False))
+    assert not CP.parse_pos_payload(CP.parse_frame(nf.outgoing(0.0, 15)[0])[1])["trailer"]["follows"]
+    sc = CP.GuestModel(walk=CP.WorldWalkPlan(out_s=0.0, load_s=0.0, scenes=[(1.0, 2.0)]))
+    st = [CP.parse_pos_payload(CP.parse_frame(sc.outgoing(t, 15)[0])[1])["trailer"]["state"] for t in (0.0, 1.5, 3.5)]
+    assert st[0] == CP.WALK_STATE and st[1] & CP.ST_SCENE and not st[1] & CP.ST_CONTROL and st[2] == CP.WALK_STATE
+    gap = CP.GuestModel(walk=CP.WorldWalkPlan(out_s=0.0, load_s=0.0), gaps=[(1.0, 0.5)])
+    seqs = []
+    for t in (0.0, 1.1, 1.4, 1.6):
+        fr = gap.outgoing(t, 15)
+        seqs.append(None if not fr else CP.parse_pos_payload(CP.parse_frame(fr[0])[1])["trailer"]["seq"])
+    assert seqs[1] is None and seqs[2] is None and seqs[3] == seqs[0] + 3    # nothing sent in the gap; the sender's seq ran on
+    off = CP.GuestModel(walk=CP.WorldWalkPlan(out_s=0.0, load_s=0.0), trailer="off")
+    assert len(CP.parse_frame(off.outgoing(0.0, 15)[0])[1]) == CP.POS_FRAME_LEN    # a capless v15 peer: 39 B
+    mirror = CP.GuestModel(follow=False)
+    mirror.on_host_frame(CP.TYPE_POS, CP.build_pos_payload(250, anim_frame=0, frame_n=4), 0.0)
+    assert CP.parse_pos_payload(CP.parse_frame(mirror.outgoing(0.0, 15)[0])[1])["trailer"]["flags"] == 0
+    assert CP.parse_pos_payload(CP.parse_frame(mirror.outgoing(0.0, 14)[0])[1])["trailer"] is None   # never at v14
+
+
+def test_the_guest_cli_parses_the_walk_and_refuses_a_bad_window(tmp_path, capsys):
+    assert CP._parse_route("roam") == "roam"
+    assert CP._parse_route("1,2,0;3,4,1.5") == ((1.0, 2.0, 0.0), (3.0, 4.0, 1.5))
+    for bad in ("1,2,0", "1,2;3,4", "a,b,c;1,2,3", "1,2,-1;3,4,0"):
+        with pytest.raises(argparse.ArgumentTypeError):
+            CP._parse_route(bad)
+    assert CP.main(["serve-guest", "--port", "0", "--walk", "roam", "--gap-at", "1", "--gap-at", "2", "--gap-for", "1",
+                    "--gap-for", "1", "--gap-for", "1"]) == 2
+    assert "--gap-for (> 0 s) per --gap-at" in capsys.readouterr().out
+    args = CP.build_parser().parse_args(["serve-guest", "--walk", "roam", "--no-follow", "--world", "9002", "--state", "0x85",
+                                         "--scene-at", "4", "--scene-for", "1", "--wire", "15"])
+    model = CP._model_from(args)
+    assert model.walk.world == 9002 and model.walk.model == 309 and model.walk.state == 0x85 and not model.walk.follow
+    assert model.walk.scenes == ((4.0, 1.0),) and CP._send_wire_arg(args) == 15
+
+
+def test_a_tapes_header_records_the_wire_from_its_frames(tmp_path):
+    path = tmp_path / "v15.f9tape"
+    CP.TapeWriter(path, mode="relay").close()
+    assert CP.read_tape(path)[0]["wire"] is None                                       # no frame yet: null, still readable
+    tap = CP.TapeWriter(path, mode="relay", flush_every=0.0)
+    tap.write(CP.DIR_NOTE, b"relay paired session X")
+    tap.write(CP.DIR_GUEST, CP.build_pos_frame(250, wire=14))
+    tap.write(CP.DIR_HOST, _v15_world_frame())
+    tap._f.flush()                                        # a killed run: the header was rewritten in place before any close
+    header, records, torn = CP.read_tape(path)
+    assert header["wire"] == 15 and header["wires"] == {"host": 15, "guest": 14} and len(records) == 3 and torn == 0
+    tap.close()
+    assert CP.tape_wire(records) == 15 and CP.tape_wire(records, CP.DIR_GUEST) == 14
+    assert CP.tape_wire([CP.Record(0.0, CP.DIR_NOTE, b"x")]) is None
+    assert any(line == "wire (from the frames): host 15, guest 14" for line in CP.tape_info(path))
+
+
+def test_where_pose_reads_the_type0_trailer_beside_the_s157_record(tmp_path, capsys):
+    """`where --pose` on a v15 tape: each state row carries the LAST host type-0 frame's trailer (decision 4's world block: place,
+    world, x / y / z, the heading, the mode, caps, seq, state, flags) beside section 0's pose -- the live pose while section 0's
+    anchor is parked (a ride); an s165 tape's rows are unchanged (no `tr` column)."""
+    tap = CP.TapeWriter(tmp_path / "v15.f9tape", mode="test", clock=lambda: 0.0)
+    parked = CP.story_with_pose(68.0, -444.0, yaw=90.0, idx=11, mode=1)
+    t = 0.0
+    for i in range(12):                                   # the host rides: section 0 parked, the trailer's pose moves
+        tap.write(CP.DIR_HOST, _v15_world_frame(seq=i, pos=(100.0 + 10 * i, -1.0, -500.0), mode=1, rot=CP.yaw_quat(90.0)),
+                  t=t)
+        tap.write(CP.DIR_HOST, _world_state_frame(parked, hb=i), t=t + 0.01)
+        t += 0.2
+    tap.close()
+    path = str(tmp_path / "v15.f9tape")
+    rows = CP.tape_poses(CP.read_tape(path)[1])
+    assert len(rows) == 12 and all(r["trailer"]["world"] == 9011 and r["frame"] == (0, 0) for r in rows)
+    assert rows[-1]["trailer"]["pos"][0] == 210.0 and rows[-1]["pose"]["x"] == 68.0
+    assert CP.main(["where", path, "--pose", "--every", "0", "--near", "210,-500"]) == 0
+    out = capsys.readouterr().out
+    assert "12 beside a v15 type-0 trailer (`tr`: decision 4's world block), 12 with a valid block" in out
+    assert "| tr place 4 world 9011 x   210.00 y   -1.00 z  -500.00 yaw   90.0 mode 1 d 0.0 caps 0x0001 seq 11" in out
+    assert "x    68.00" in out                                                    # section 0 still printed beside it
+    old = CP.TapeWriter(tmp_path / "s165.f9tape", mode="test", clock=lambda: 0.0)
+    old.write(CP.DIR_HOST, CP.build_pos_frame(0, anim_frame=0, frame_n=0), t=0.0)
+    old.write(CP.DIR_HOST, _world_state_frame(parked, hb=1), t=0.1)
+    old.close()
+    rows = CP.tape_poses(CP.read_tape(tmp_path / "s165.f9tape")[1])
+    assert rows[0]["trailer"] is None and "| tr " not in CP.pose_row_text(rows[0])
+
+
+def test_the_watch_and_the_model_log_each_sides_trailer_as_an_edge():
+    w = CP.GuestWatch()
+    ev = w.on_guest_message(_v15_world_frame(seq=1), 0.0) + w.on_guest_message(_v15_world_frame(seq=2), 0.1)
+    assert [e for e in ev if "world trailer" in e] == [
+        "guest world trailer: place 4 (world live) world 9011 at (68.0, -444.0) yaw 56 mode 0 caps 0x0001 seq 1 state 0x86 "
+        "flags 0x01"]                                     # a new seq is no edge
+    ev = w.on_guest_message(_v15_world_frame(place=3, world=0), 0.2)
+    assert [e for e in ev if "world trailer" in e] == ["guest world trailer: place 3 (world loading) caps 0x0001 seq 258 "
+                                                       "state 0x86 flags 0x01"]
+    assert w.guest_wire == 15
+    v14 = CP.GuestWatch()
+    assert not [e for e in v14.on_guest_message(CP.build_pos_frame(250, anim_frame=0, frame_n=0), 0.0) if "trailer" in e]
+    m = CP.GuestModel()
+    ev = m.on_host_frame(CP.TYPE_POS, CP.parse_frame(_v15_world_frame())[1], 0.0)
+    assert [e for e in ev if e.startswith("host world trailer:")] and \
+        CP.HOST_TRAILER_LINE.format(n=94, f=0, fn=0) in ev                     # the s157 edge reads 94 B now
+    ev = m.on_host_frame(CP.TYPE_POS, CP.build_pos_payload(0, anim_frame=0, frame_n=0), 0.1)
+    assert "host world trailer: capless (absent, 39 B)" in ev
+
+
+def _bench():
+    """studies/test-harness/scenarios/_coop_peer_bench (stdlib only): the T2 legs' wire gate."""
+    scen = str(REPO / "studies" / "test-harness" / "scenarios")
+    if scen not in sys.path:
+        sys.path.insert(0, scen)
+    import _coop_peer_bench as pb                                  # noqa: E402
+    return pb
+
+
+class _PeerLog:
+    """A PeerProc stand-in: ``first(pattern)`` over fixed lines, as PeerProc.first reads its --log tee."""
+
+    def __init__(self, *lines):
+        self._lines = list(lines)
+
+    def first(self, pattern, *, after=None):
+        for msg in self._lines:
+            m = pattern.search(msg)
+            if m:
+                return (None, msg, m)
+        return None
+
+
+@pytest.mark.parametrize("mode, guest, tape, probe, ok", [
+    ("auto", 15, 14, 15, True),                  # a v14 tape restamped for a v15 guest: the leg may judge
+    ("auto", 14, 14, 14, True),                  # the deployed A0b (v14) and a v14 tape: as before
+    ("auto", 15, 14, None, True),                # no probe published: the two headers alone
+    ("tape", 15, 14, 15, False),                 # A-WIRE's unrestamped calibration: the guest drops every frame
+    ("auto", 14, 15, 14, False),                 # a v15 tape never restamped down
+    ("auto", 15, 14, 14, False),                 # the probe disagrees with the header: something else is on the port
+    ("auto", None, 14, None, False),             # the guest's first message carried no header
+])
+def test_every_t2_leg_asserts_the_live_header_before_judging(mode, guest, tape, probe, ok):
+    """[ff9mapkit netsync s166] _coop_peer_bench.wire_gate over coop_peer's OWN GUEST_WIRE_LINE (the regex pinned to the format):
+    green only when the game's header, the version coop_peer sends and (when published) the probe's netsync.wire agree; a red names
+    a WIRE MISMATCH, never a regression; a log with no wire line is a red."""
+    pb = _bench()
+    send, how = CP.replay_send_wire(mode, guest, tape)
+    line = CP.GUEST_WIRE_LINE.format(guest=guest if guest is not None else "none", send=send, how=how)
+    assert pb.PEER["guest_wire"].match(line)
+    got_ok, why = pb.wire_gate(_PeerLog("GUEST game connected (session ff9-x)", line), probe)
+    assert got_ok is ok and (why.startswith("WIRE MISMATCH, NOT A REGRESSION") is not ok)
+    assert not pb.wire_gate(_PeerLog("GUEST game connected (session ff9-x)"), probe)[0]
+    host = CP.HOST_WIRE_LINE.format(host=15, send=15, how="the host's own")
+    assert pb.PEER["host_wire"].match(host) and pb.wire_gate(_PeerLog(host), 15, side="host")[0]
+    assert pb.probe_wire(type("G", (), {"state": None})()) is None
+
+
+def test_the_probe_wire_reads_the_states_dialogue_wire_and_never_raises():
+    pb = _bench()
+
+    class St:
+        dialogue_wire = 15
+
+    class Boom:
+        @property
+        def state(self):
+            raise RuntimeError("the channel is dead")
+    assert pb.probe_wire(type("G", (), {"state": St()})()) == 15 and pb.probe_wire(Boom()) is None
+
+
+def test_s166_the_walking_record_faces_the_walkers_heading_never_the_travel_direction():
+    """[ff9mapkit netsync s166] A3's contract: the trailer's rot is the sender walker's transform.rotation -- its HEADING, travel + 180
+    (WalkerYaw) -- so serve-guest's synthetic walker sends WalkerRotation(WalkerYaw(dx, dz)); the old yaw_quat(travel) faced every ghost of
+    it backwards (W2's open issue)."""
+    plan = CP.WorldWalkPlan(route=((100.0, -500.0, 0.0), (300.0, -500.0, 50.0)), out_s=0.0, load_s=0.0)
+    tr = CP.parse_pos_payload(CP.parse_frame(CP.GuestModel(walk=plan).outgoing(0.0, 15)[0])[1])
+    m = CP.GuestModel(walk=plan)
+    m.outgoing(0.0, 15)
+    t = CP.parse_pos_payload(CP.parse_frame(m.outgoing(2.0, 15)[0])[1])["trailer"]
+    want = BW.ww_walker_rotation(BW.ww_walker_yaw(200.0, 0.0))            # travel +x: heading 270
+    assert t["rot"] == pytest.approx(want, abs=1e-6) and t["yaw"] == pytest.approx(270.0, abs=1e-4)
+    assert CP.walker_heading(90.0) == 270.0 and CP.walker_heading(270.0) == 90.0 and CP.walker_heading(0.0) == 180.0
+    assert tr["trailer"]["place"] == CP.PLACE_WORLD
