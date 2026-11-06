@@ -2972,7 +2972,9 @@ DUO_B_ORDER = tuple(DUO_B_CHECKS)
 DUO_B_OLD_PREDICTED = tuple(c for c in DUO_B_ORDER if c != "S167-D-SHARED")
 _DUO_B_WALKS = ("S167-D-WFREE", "S167-D-W1", "S167-D-W2", "S167-D-W3", "S167-D-BATTLE", "S167-D-RIDE", "S167-D-REFUSE",
                 "S167-D-REJOIN-FAR", "S167-D-MAP", "S167-D-REJOIN-WAIT")
-DUO_B_LEVER_PREDICTED = {"walk": _DUO_B_WALKS, "fullmap": ("S167-D-MAP",)}
+#: `fullmap` (= `fullmap old` + `minimap old`) reds D-MAP AND D-BATTLE: both set up by opening the walker's full map, which the lever
+#: refuses exactly as s166 does, so the boot close cannot happen (the first LEVER bench run, 2026-11-06, caught the missing row).
+DUO_B_LEVER_PREDICTED = {"walk": _DUO_B_WALKS, "fullmap": ("S167-D-MAP", "S167-D-BATTLE")}
 DUO_B_MEASURE = {
     "S167-D0": "an s166 pair: no round-B key",
     "S167-D-WFREE": "the guest frozen, never walk.free",
@@ -3181,9 +3183,14 @@ def judge_stallhole(base, win, after_lines) -> tuple:
         return False, (f"absent: no `{WALK_PROBE}` -- an engine before s167 (stalled on {len(stalled)} sample(s); the freeze off on "
                        f"{lifted[:3] or 'no sample'}; edges +{de}; lift lines {n_lift})")
     held = [s for s in stalled if _walk(s).get("stall_held") is True]
-    ok = not lifted and de == 0 and n_lift == 0 and len(held) == len(stalled)
+    # THE BOUNDARY SAMPLE (the bench's first LEVER run, 2026-11-06): the lane's arrival age is copied once per Update, while the
+    # session's live term reads the socket's receive-thread tick -- the first frame back can make the LIVE term hold the freeze
+    # (why 'live', stall_held false) on the LAST stalled sample only. Anywhere else a live why means the live term never lapsed.
+    tail = [s for s in stalled[-1:] if _walk(s).get("stall_held") is not True and str(_freeze(s).get("why")) == "live"]
+    ok = not lifted and de == 0 and n_lift == 0 and bool(held) and len(held) + len(tail) == len(stalled)
     return ok, (f"stalled on {len(stalled)} of {len(ws)} sample(s) (arrival age >= {BW.STALE_MS + STALL_SEEN_MS} ms); the freeze off on "
-                f"{lifted[:3] or 'no sample'} (want none); stall_held on {len(held)} of them (want all); freeze.edges +{de} (want 0); "
+                f"{lifted[:3] or 'no sample'} (want none); stall_held on {len(held)} of them (want all, but the last may read the "
+                f"live term: {len(tail)}); freeze.edges +{de} (want 0); "
                 f"lift lines {n_lift} (want 0); freeze.why on the stall {sorted({str(_freeze(s).get('why')) for s in stalled})}")
 
 
@@ -4053,7 +4060,7 @@ def _duo_b(d, check, rest, lever, sent: list, measured: dict, hold: dict, new: b
     # D-BATTLE (the host's world battle; the guest apart with its full map open: decision 23's boot close, the review's R1)
     boot = None
     if D_BATTLE:
-        boot = _duo_b_battle(d, check, measured, new)
+        boot = _duo_b_battle(d, check, measured, new, lever)
     else:
         check("S167-D-BATTLE", False, "not run: COOP_WWT_DUO_BATTLE=0 (the stand-in duo has no diorama model)")
     # D-RIDE: the host on its chocobo -- the guest's verdict
@@ -4148,7 +4155,7 @@ def _duo_b(d, check, rest, lever, sent: list, measured: dict, hold: dict, new: b
     _duo_b_wait(d, check, measured, new)
 
 
-def _duo_b_battle(d, check, measured: dict, new: bool):
+def _duo_b_battle(d, check, measured: dict, new: bool, lever=None):
     """D-BATTLE: the guest walks apart (`hold down`, the closed loop), opens its full map, the host's world battle and both warm returns.
     -> the boot close's (ok, why) for D-MAP, or None when the map never opened."""
     host, guest = d.host, d.guest
@@ -4178,7 +4185,11 @@ def _duo_b_battle(d, check, measured: dict, new: bool):
     b["after"], b["free_after"] = after, walk_free(after)
     ok, why = judge_d_battle_b(b)
     check("S167-D-BATTLE", ok, why)
-    measured["S167-D-BATTLE"] = frozen_not_walking(after)
+    if new and lever == "fullmap":
+        # the lever's shape (s166's map): the walker's full map refused, so it never opened, no co-op close ran, the boot still ran
+        measured["S167-D-BATTLE"] = (not b["opened"]) and _d(b["pre"], after, _wmapb, "coop_closes") == 0 and bool(b["booted"])
+    else:
+        measured["S167-D-BATTLE"] = frozen_not_walking(after)
     if not b["opened"]:
         return None
     dc = _d(b["pre"], after, _wmapb, "coop_closes")

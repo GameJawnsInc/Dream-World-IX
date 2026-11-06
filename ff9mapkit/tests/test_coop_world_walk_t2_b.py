@@ -225,6 +225,13 @@ def test_the_stall_hole_judges_go_red_on_each_wrong_shape(t2):
     unheld = [S(i, freeze=dict(edge, why="live"), walk=_w(free=False, stall_held=False), lane=_lane(2200)) for i in range(2)]
     assert not t2.judge_stallhole(base, unheld, [])[0]                                 # frozen, but never by the hole
     assert not t2.judge_stallhole(base, held, ["[NetSync] world freeze lifted on world map 9011: the session's link is down"])[0]
+    # the boundary sample: the first frame back seen by the socket before the lane's copy -- 'live' on the LAST stalled sample passes,
+    # anywhere else (or with no held sample at all) it reds
+    tail = S(3, freeze=dict(edge, why="live"), walk=_w(free=False, why="pairing", stall_held=False), lane=_lane(2250))
+    assert t2.judge_stallhole(base, held[:3] + [tail, held[4]], [])[0]
+    mid = S(2, freeze=dict(edge, why="live"), walk=_w(free=False, why="pairing", stall_held=False), lane=_lane(2150))
+    assert not t2.judge_stallhole(base, held[:2] + [mid] + held[3:], [])[0]
+    assert not t2.judge_stallhole(base, held[:2] + [tail, held[4]], [])[0]                 # only the live tail: never held by the hole
     assert not t2.stall_lifted(held, [])
     # the presses
     pbase = S(0, freeze=dict(edge, keys=5), walk=_w(free=False, stall_held=True), lane=_lane(2400))
