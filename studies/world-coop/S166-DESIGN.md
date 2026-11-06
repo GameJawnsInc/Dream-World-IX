@@ -639,6 +639,51 @@ extracted; no bench while the owner plays, never under a running test suite.
   than 'loading', and both battle exits publish their last frame at place 5 / 6 (frozen about 0.82 s, under LaneGapMs, so no
   line). Each is a one-line engine change left for a later round: one change per test.
 
+Round B (s167), from W1's review (R4, R9, R10) and the whole-diff review W3a (2026-11-06; four lenses, each finding verified, a
+completeness critic: no blocker, no major, the delta frozen as built):
+
+- **A walk-on entrance (W3A-SAFE-1):** the refusal keys on a Confirm READ (EntryRefusalRule, A0's kit-cell close), and the world
+  redirect passes a guest's `Field()` while the host stands on the world map, so a keyless (auto-warp) kit cell on 9002 / 9010 /
+  9011 would take a free walker into its field ALONE. None is deployed (every kit cell on the walk worlds reads Confirm, K1's
+  census); `world-entrance --field-direct` without `--action-prompt` or `--nameplate-name` now prints a co-op warning when it
+  writes a walk world. An engine close (a walk why from a scan of entry 0's cell functions at the fingerprint seam) is a later
+  round's.
+- **The fingerprint gates on content (W3a F1, E1):** c2 hashes every byte the engine reads from the world overrides, and c3-c5
+  hash the base `Data/World` files whole (CR-blind; comments and a BOM count), so content drift between two installs with equal
+  file counts -- an overworld promote after the package was cut, a stale world file in the laptop's own `FF9CustomMap`, a Memoria
+  patcher older than v2024.11.17 -- keeps the walk frozen for the session, with words naming the component on both roles
+  (fail-safe). Every bench ran on one install; `TWO-PC-CHECKS-S167.md` step 0 SHA-compares the synced folders and the base
+  files and compares the two fingerprint lines. Hashing only the lines the engine parses is a later hardening.
+- **A close before a refused boot (W3A-SAFE-2):** before an s145 boot the co-op close runs ahead of `ValidateWireBoot`, so a host
+  scene this install registers but cannot read (missing or truncated files) closes a walker's full map for a fight that never
+  boots. Control comes back; the map opens again once the host's battle ends. Cosmetic.
+- **The ramp behind the pause screen (W3a HUD-1):** the exit ramp's co-op close cannot run while the pause screen is up, and the
+  ramp has no pause term, so a walker paused on its full map when the session ends can land its own save with the full map up.
+  Select closes it (a save on a field is closed by stock's `ForceCloseFullMap`).
+- **The close-map line behind a pause or a fade (W3a HUD-2):** a guest whose full map is open while the pause screen or a fade
+  blocks the co-op close reads "Close the map to join your partner." even when frozen; the close runs by itself once the pause
+  or fade ends.
+- **The ferry crossing (W3a E2):** on kit 9011 a host who takes the ferry voyage leaves a walking guest on the origin shore: the
+  voyage freezes the guest (the scene bit), and once the host lands the guest walks free again but cannot cross (the boat and the
+  ferryman are refused). It rejoins at the host's next location.
+- **SpectatorField in a stall (R10):** decision 17 holds exactly its three reads; the other SpectatorField gates (the script and
+  party menus, the MAPJUMP redirect, NPC talk) still lift for a world-paired guest in a stall, as in s144-s166.
+- **Lines with no lever (R4):** the WorldTPS mismatch line and the missing-caps line speak under every lever, the s166 set
+  included; the regression legs never assert their absence.
+- **The quiet hint is per visit (R9):** decision 28's latch clears at a new visit, not at every world load, so the hint stays
+  quiet after a warm battle return or the ~ menu's world reload; W-MINIMAP's re-show uses a field round trip.
+- **Lever residuals (W3a N2, N3, N4):** `walk off` set while the guest walks prints s167's "FROZEN (lever)" line once rather
+  than s166's; `tps apply`'s held value lasts to the next world load after the harness releases the lever; under `fullmap old`
+  the full-map dot still computes its verdict each frame before hiding. The bench sets its levers before the world load.
+- **The proof's reach (W3a P1, P2):** decision 27's effect-set rows and their three trap mutants test the constant
+  `SelCoopClose`, not WorldHUD's hard-coded close (that close is proven by review and the in-game minimap leg); WalkHoldDropRule's
+  rows specify the drop edges, while the live drops are two unconditional `WalkHoldDrop()` calls (WorldLaneReset,
+  OnWorldLoadWalk).
+- **Unbenched (no harness verb reaches them; on the owner's two-PC sheet):** the refusal rows' positive controls (the ~ menu
+  Release), the released guest's close-map line, the hint's display, W-STALLHOLE's place-52 clause (9003 / 9009), two installs'
+  fingerprints compared, and the round-B paths live on every world with default levers (decision 27's close for a frozen guest
+  aboard the host's airship, the stall hold, the decline re-arm, the fingerprint's cost) on a vehicle world.
+
 ## The owner's calls
 
 All DECIDED (2026-11-02): the owner took every recommendation below ("Yes, use them"), with item 2, 12 and 13 as recorded
