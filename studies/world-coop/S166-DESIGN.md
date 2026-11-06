@@ -344,7 +344,8 @@ scratchpad as `wf2/recon2.raw`, digested to `wf2/digest2_*.md`; the census is `w
     TransportControls.csv; c4 the environment patch; c5 the weather CSV.
     The combined u32 rides the trailer both ways; the host adds section 11 `[fmt][world][lang][n x (comp, crc)]` between 10
     and 7 (8 stays last), so the guest can name the component. A mismatch keeps the s144 freeze with one line per visit per
-    side naming the component; 0 means "checking". The loaded language only: a US/FR pair is refused with that reason (the
+    side naming the component; 0 means "checking". (As built in s167: only the guest's line names the component; the host
+    compares digests and its line can only say the maps differ. Each machine's per-load `world fingerprint` line lists c0-c5.) The loaded language only: a US/FR pair is refused with that reason (the
     checklist already asks for one language). s165's follow-out is not gated, only logged: gating it would regress a
     two-PC-confirmed path. Levers `fp fake <hex>`, `fp off`, `fp old` (dry: it reports "would walk" and stays frozen).
 22. **WorldTPS: report (the owner's call, item 9: the study's rung 2 named a mirror, GUEST-FOLLOW.md:306).** Both values are
@@ -651,8 +652,8 @@ completeness critic: no blocker, no major, the delta frozen as built):
 - **The fingerprint gates on content (W3a F1, E1):** c2 hashes every byte the engine reads from the world overrides, and c3-c5
   hash the base `Data/World` files whole (CR-blind; comments and a BOM count), so content drift between two installs with equal
   file counts -- an overworld promote after the package was cut, a stale world file in the laptop's own `FF9CustomMap`, a Memoria
-  patcher older than v2024.11.17 -- keeps the walk frozen for the session, with words naming the component on both roles
-  (fail-safe). Every bench ran on one install; `TWO-PC-CHECKS-S167.md` step 0 SHA-compares the synced folders and the base
+  patcher older than v2024.11.17 -- keeps the walk frozen for the session, the guest's words naming the component (the
+  host's line only says the maps differ; fail-safe). Every bench ran on one install; `TWO-PC-CHECKS-S167.md` step 0 SHA-compares the synced folders and the base
   files and compares the two fingerprint lines. Hashing only the lines the engine parses is a later hardening.
 - **A close before a refused boot (W3A-SAFE-2):** before an s145 boot the co-op close runs ahead of `ValidateWireBoot`, so a host
   scene this install registers but cannot read (missing or truncated files) closes a walker's full map for a fight that never
