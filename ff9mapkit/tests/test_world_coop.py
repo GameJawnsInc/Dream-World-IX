@@ -67,7 +67,10 @@ def _s166_a4_live() -> bool:
 
 def _live_world_sentinels() -> dict:
     """[ff9mapkit netsync s166] W2 reconcile: `netsync.world` as the LIVE catch line writes it, BY THE STACK'S STAGE -- s144's, s165's
-    four after `dio`, then round A's: A0 + A0b (`kitcell`, `pairpull`), A3 (`lane`, `line`), A4 (`ghost`, and `dot` grown by `src` ..)."""
+    four after `dio`, then round A's: A0 + A0b (`kitcell`, `pairpull`), A3 (`lane`, `line`), A4 (`ghost`, and `dot` grown by `src` ..).
+    [ff9mapkit netsync s167] ...then round B's (`lane` grown in place, `walk` and `fp` last) once ITS patch is live."""
+    if _live("s167-"):
+        return BW.WORLD_SENTINELS_S167
     if _s166_a4_live():
         return BW.WORLD_SENTINELS_S166D
     if _s166_a3_live():
@@ -214,6 +217,7 @@ def test_the_twins_constants_are_the_engines():
              [re.match(r'case Ovl\w+: return "(\w+)";', ln)] if m]
     # [ff9mapkit netsync s166] W2 reconcile: ...then A3's five world-line states (wire_mismatch .. host_scene) once ITS patch is live
     want_names = set(BW.OVERLAY_NAMES) | (set(BW.OVERLAY_NAMES_S166) if _s166_a3_live() else set())
+    want_names |= set(BW.OVERLAY_NAMES_S167) if _live("s167-") else set()   # [ff9mapkit netsync s167] round B's six (entry_refused .. close_map)
     assert set(names) == want_names and BW.OVERLAY_NAMES[-9:-4] == BW.OVERLAY_NAMES_S144
     assert BW.OVERLAY_NAMES[-4:] == BW.OVERLAY_NAMES_S165 and [BW.overlay_name(s) for s in range(14, 18)] == list(BW.OVERLAY_NAMES_S165)
     # WaitLineName's vocabulary, and the words (decision 7's sentences, verbatim)
@@ -823,7 +827,9 @@ def test_every_world_key_has_an_accessor_and_reads_its_sentinel():
     assert list(nothing["session"])[-2:] == list(BW.SESSION_KEYS_S144) and tuple(nothing["session"]) == FG.NETSYNC_SESSION_KEYS
     # [ff9mapkit netsync s165] s165's four blocks have their own accessors (State.world_out_block ...), never this table's
     # [ff9mapkit netsync s166] W2 reconcile: ...and round A's (State.world_kitcell_block, world_pairpull_block, the lane / line / ghost reads)
-    leaves = _leaves({k: v for k, v in nothing["world"].items() if k not in BW.WORLD_S165_KEYS + BW.WORLD_S166_ROUND_A_KEYS})
+    # [ff9mapkit netsync s167] ...and round B's (State.world_walk_block, world_walk_map_block, world_fp_block)
+    leaves = _leaves({k: v for k, v in nothing["world"].items()
+                      if k not in BW.WORLD_S165_KEYS + BW.WORLD_S166_ROUND_A_KEYS + BW.WORLD_S167_KEYS})
     table = CH.State.NETSYNC_WORLD_ACCESSORS
     assert set(table) == set(leaves), sorted(set(table) ^ set(leaves))
     st = CH.State({"frame": 1, "netsync": nothing})

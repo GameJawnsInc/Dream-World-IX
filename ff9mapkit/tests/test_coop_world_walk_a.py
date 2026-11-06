@@ -1053,7 +1053,7 @@ def test_s166a_w3b_the_rules_rows_mutants_and_call_sites_are_the_twins():
     assert len(names) == len(row_of)
     pairs = dict(zip(names, row_of))
     assert {n: pairs.get(n) for n in W3B_MUTANTS} == {n: MUTANTS[n][1] for n in W3B_MUTANTS}
-    assert names[-len(A4_MUTANTS):] == list(A4_MUTANTS)
+    assert _round_a_names(names)[-len(A4_MUTANTS):] == list(A4_MUTANTS)          # [ff9mapkit netsync s167] round B's follow, by stage
     client = _client_a3()
     assert "_worldOutPulled = NetSyncWorldWalk.PullLatchRule(_storyMirroring, bench, _ppOld);" in client
     land = _body(client, "private void LandWorldOut(Int32 mapNo)")
@@ -1077,7 +1077,9 @@ def test_s166a_the_clients_a3_lines_ops_and_overlay_are_the_stand_ins():
     client = _client_a3()
     lits = "\n".join(ln for ln in client.split("\n") if '"' in ln)
     a4 = "NetSyncWorldGhost." in client                 # [ff9mapkit netsync s166] W2 reconcile: A4 grows the usage and the clear line
-    assert f'"{BW.WORLDWALK_USAGE_A4 if a4 else BW.WORLDWALK_USAGE_A3}"' in lits
+    s167 = "WorldWalkWhyNow(" in client                 # [ff9mapkit netsync s167] ...and round B grows the usage again (the clear line's
+    # A4 words stay its first literal, round B's suffix a second one)
+    assert f'"{BW.WORLDWALK_USAGE_S167 if s167 else BW.WORLDWALK_USAGE_A4 if a4 else BW.WORLDWALK_USAGE_A3}"' in lits
     for whole in (BW.LOG_WORLDWALK_CLEAR_A4 if a4 else BW.LOG_WORLDWALK_CLEAR_A3, BW.LOG_WORLDWALK_POSE_OFF, BW.LOG_WORLDWALK_POSE_ON, BW.LOG_WORLDWALK_LANEGAP_OFF,
                   BW.LOG_WORLDWALK_LANEGAP_ON, BW.LOG_WORLDWALK_HOSTLINES_OFF, BW.LOG_WORLDWALK_HOSTLINES_ON, BW.WORLDWALK_HOST_REFUSAL,
                   BW.WORLDWALK_HOST_FOLLOW_REFUSAL):
@@ -1126,7 +1128,9 @@ def test_s166a_the_catch_line_carries_lane_line_and_guest_at_their_sentinels():
         pytest.skip("this s166 catch literal carries no A3 keys yet")
     keys = list(world)
     assert keys[keys.index("pairpull"):keys.index("pairpull") + 3] == ["pairpull", "lane", "line"], keys
-    assert json.dumps(world["lane"]) == json.dumps(BW.WORLD_LANE_SENTINELS)
+    s167 = any(nm.startswith("s167-") and nm not in msr.DEAD for nm in msr.stack())
+    # [ff9mapkit netsync s167] BY STAGE: round B grows the lane in place (`tx.why_name`, `rx.why_name`, world_tps' five)
+    assert json.dumps(world["lane"]) == json.dumps(BW.WORLD_SENTINELS_S167["lane"] if s167 else BW.WORLD_LANE_SENTINELS)
     assert json.dumps(world["line"]) == json.dumps(BW.WORLD_LINE_SENTINELS)
     assert json.dumps(ns["host"]) == json.dumps(BW.HOST_SENTINELS_S166)
     assert list(ns)[-1] == "wire_peer"
@@ -1151,6 +1155,17 @@ def _qnames(text: str, array: str) -> list:
     m = re.search(re.escape(array) + r"\s*=\s*\{(.*?)\};", text, re.S)
     assert m, array
     return re.findall(r'"([^"]*)"', re.sub(r"//[^\n]*", "", m.group(1)))
+
+
+def _round_a_names(names: list) -> list:
+    """[ff9mapkit netsync s167] BY STAGE: the proof's MutantNames through A4's last -- round A's whole array on s166; round B (s167) appends
+    its own after it (B-CORE turned the arrays' closing `};` into `,`), and none of those is a round-A name."""
+    last = list(A4_MUTANTS)[-1]
+    if last not in names:
+        return names
+    a = names[:names.index(last) + 1]
+    assert not set(names[len(a):]) & (set(MUTANTS) | set(A4_MUTANTS) | set(W3B_MUTANTS)), names[len(a):]
+    return a
 
 
 def test_s166a_the_a4_rules_their_rows_and_mutants_are_the_twins():
@@ -1198,6 +1213,7 @@ def test_s166a_the_a4_rules_their_rows_and_mutants_are_the_twins():
     assert len(names) == len(row_of), (len(names), len(row_of))
     pairs = dict(zip(names, row_of))
     assert {n: pairs.get(n) for n in A4_MUTANTS} == {n: row for n, (_swap, row) in A4_MUTANTS.items()}
+    names = _round_a_names(names)                       # [ff9mapkit netsync s167] round B's mutants follow A4's, by stage
     assert names[-len(A4_MUTANTS):] == list(A4_MUTANTS), names[-len(A4_MUTANTS):]
 
 
@@ -1208,7 +1224,8 @@ def test_s166a_the_a4_verb_and_the_ghosts_words_are_the_stand_ins():
     if "NetSyncWorldGhost." not in client:
         pytest.skip("this s166 NetSyncClient carries no A4 (it never calls the world ghost)")
     lits = "\n".join(ln for ln in client.split("\n") if '"' in ln)
-    for whole in (BW.WORLDWALK_USAGE_A4, BW.LOG_WORLDWALK_CLEAR_A4) + tuple(BW.WORLDWALK_A4_ACKS.values()):
+    usage = BW.WORLDWALK_USAGE_S167 if "WorldWalkWhyNow(" in client else BW.WORLDWALK_USAGE_A4   # [ff9mapkit netsync s167] by stage
+    for whole in (usage, BW.LOG_WORLDWALK_CLEAR_A4) + tuple(BW.WORLDWALK_A4_ACKS.values()):
         assert f'"{whole}"' in lits, whole
     assert BW.WORLDWALK_USAGE_A3 not in lits and BW.LOG_WORLDWALK_CLEAR_A3 + '"' not in lits    # A4 GREW both lines: A3's are gone
     for op, words in BW.A4_CONTRACT["words"].items():
@@ -1237,11 +1254,14 @@ def test_s166a_the_catch_line_carries_ghost_last_and_the_dots_source_at_their_se
     world = ns["world"]
     if BW.A4_CONTRACT["ghost_key"] not in world:
         pytest.skip("this s166 catch literal carries no A4 keys yet")
-    assert list(world)[-3:] == ["lane", "line", BW.A4_CONTRACT["ghost_key"]], list(world)
+    # [ff9mapkit netsync s167] BY STAGE: once round B's patch is on the stack its `walk` and `fp` follow `ghost` (the lane grown in place)
+    s167 = any(nm.startswith("s167-") and nm not in msr.DEAD for nm in msr.stack())
+    tail = list(BW.WORLD_S167_KEYS) if s167 else []
+    assert list(world)[-3 - len(tail):] == ["lane", "line", BW.A4_CONTRACT["ghost_key"]] + tail, list(world)
     assert json.dumps(world["ghost"]) == json.dumps(BW.A4_CONTRACT["ghost_sentinels"])
     assert json.dumps(world["dot"]) == json.dumps(BW.WORLD_DOT_SENTINELS_S166)
     assert list(world["dot"])[-5:] == list(BW.A4_CONTRACT["dot_src_keys"])
-    assert json.dumps(world) == json.dumps(BW.WORLD_SENTINELS_S166D)            # the whole round-A world block, nested order included
+    assert json.dumps(world) == json.dumps(BW.WORLD_SENTINELS_S167 if s167 else BW.WORLD_SENTINELS_S166D)   # the whole world block, nested
 
 
 # ================================================================================================ THE STAND-IN (stepped by hand)

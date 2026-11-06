@@ -14340,6 +14340,17 @@ KIT_TRIGGER_TILES = {
 #: triangle round it an event tile (the vertex all six share)
 KIT_6603_TRIGGER = (80.0, -444.0)
 KIT_6603_TRIGGER_R = 3.0
+#: [ff9mapkit netsync s167] the place a kit cell's TRIGGER requests (its nameplate case): standing on it, the cell's no-press path runs entry
+#: 1's tag 11, which sets Map[24] to the case, so @00182's `[1, 90)` gate opens and entry 1's control-on poll (@00251) reads the press
+#: beside entry 0 (RECON A on the s167 W1 build: "sid 0 and sid 1 both read" on KIT_6603_TRIGGER). 6603's case is the ledger's
+#: `--nameplate-case 62`; the other cells' cases are not in the census -- the stand-in reads them as 62 too (any place in [1, 90) reads)
+KIT_TRIGGER_PLACES = {(2, 13): 62}
+KIT_TRIGGER_PLACE_DEFAULT = 62
+
+
+def kit_trigger_place(cell) -> int:
+    """[ff9mapkit netsync s167] The Map[24] place a kit cell's trigger requests (KIT_TRIGGER_PLACES; else the stand-in's default)."""
+    return int(KIT_TRIGGER_PLACES.get(tuple(cell) if cell is not None else None, KIT_TRIGGER_PLACE_DEFAULT))
 #: THE FREEZE the close keys on (decision 19 runs only under WorldFreezeNow): s144's `netsync.world.freeze` block -- `on` is
 #: HarnessWorldFreezeOn (the WorldMap scene loaded AND WorldFreezeNow), `why` the SpectatorField term holding it. ON THE SOLO BENCH THE
 #: TERM IS "bench": SpectatorField's third, `IsSelfTestRole && BenchGates` (NetSyncField.cs SpectatorField) -- `netsync bench 1` on
@@ -16204,3 +16215,1052 @@ def log_ww_ghost_body(geo: str, model: int, renderers: int, clips: int, stand, h
     sc = f"{ww_world_body_scale(ratio):.6f}".rstrip("0").rstrip(".") or "0"
     return (f"{LOG_WW_GHOST_BODY}{geo} (model {int(model)}, ratio {ratio}, scale {sc}) -- renderers {int(renderers)}, clips {int(clips)}, "
             f"stand {stand or 'none'}, HonoBehaviours {int(hono)}, minted in {int(mint_ms)} ms (hidden until wanted)")
+
+
+# ======================================================================================================================================
+# [ff9mapkit netsync s167] WORLD WALK, ROUND B -- THE WALK (studies/world-coop/S166-DESIGN.md decisions 13-28; the engine's NetSyncWorldWalk.cs
+# "B0 ROUND B's PURE CORE" and the B1-B6 pure halves, read off the W1 clone: the proof "world walk selftest: OK (532 rows, 196 mutants)").
+# Every rule below is the ENGINE's, term for term and constant for constant -- the stand-in (fakegame's `worldwalk` rung, piece "b") spends
+# them, and tests/test_coop_world_walk_b.py pins each twin to the engine source BY STAGE (the s167 patch on the stack, or a clone named by
+# FF9_S167_CLONE carrying the s167 tag) so a drift goes red. Protocol 5, wire v15, no ini knob. NetSyncWorldWalk.OwnCaps stays 0x01 (the
+# s166 constant, WW_OWN_CAPS); the LIVE word is OwnCapsRule(`fp off`): 0x0003 (b0 + b1, the world fingerprint), 0x0001 under `fp off`.
+import zlib as _ww_zlib                                              # noqa: E402 -- FpCombine's CRC32 (zlib's: the tree's Crc32Helper)
+
+# ---- THE WALK's whys (decision 14: one per term, in its order; `netsync.world.walk.why` / `why_code`). 0 = free.
+(WW_WALK_FREE, WW_WALK_LEVER, WW_WALK_ROLE, WW_WALK_RAMP, WW_WALK_PAIRING, WW_WALK_ENCOUNTERS, WW_WALK_NOT_LIVE, WW_WALK_SET, WW_WALK_OWN_MODE,
+ WW_WALK_TRANSITION, WW_WALK_PEER_CAPS, WW_WALK_HOST_NOT_WORLD, WW_WALK_OTHER_WORLD, WW_WALK_BAND, WW_WALK_RIDING, WW_WALK_HOST_SCENE,
+ WW_WALK_FP_OFF, WW_WALK_OLD_PARTNER, WW_WALK_CHECKING, WW_WALK_FP_MISMATCH, WW_WALK_FP_DRY) = range(21)
+WW_WALK_WHY_MAX = 20
+WW_WALK_NAMES = (None, "lever", "role", "ramp", "pairing", "encounters", "not_live", "walk_set", "own_mode", "transition", "peer_caps",
+                 "host_not_world", "other_world", "band", "riding", "host_scene", "fp_off", "old_partner", "checking", "fp_mismatch", "fp_old")
+WW_WALK_WORDS = (None,
+                 "CALIBRATION: worldwalk walk off",
+                 "not a following guest (nor the field-gate bench)",
+                 "the session's exit ramp is pending",
+                 "not mirroring the host's story (paired on the world map: the walk waits for a location)",
+                 "encounters are not suppressed here (fail closed: a walker would roll its own battles on the host's party)",
+                 "the bee scene, an event world or a diorama",
+                 "not a walk world (9002, 9010, 9011)",
+                 "riding, or my walker is not on foot",
+                 "a world transition is in flight",
+                 "no host world frame with the world pose",
+                 "the host is not on the live world map",
+                 "the host is on another world map",
+                 "the host's story is in another map band",
+                 "the host is riding",
+                 "the host is in a world-map scene",
+                 "CALIBRATION: worldwalk fp off (my caps lack the world fingerprint)",
+                 "the partner's co-op build is older (no world fingerprint)",
+                 "checking my world map against the partner's",
+                 "the world maps differ",
+                 "CALIBRATION: worldwalk fp old (would walk: stays frozen)")
+#: the why byte's low nibble per walk why (NetSyncWorldWalk.WalkClasses: 15 classes at most)
+WW_WALK_CLASSES = (0, 1, 2, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 11, 12, 13, 1, 14, 14, 15, 1)
+#: W3C-4: WorldOutStep's codes 0..29 folded into 15 classes (NetSyncWorldWalk.WorldOutClasses)
+WW_WORLD_OUT_CLASSES = (0, 1, 2, 2, 3, 4, 5, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 9, 10, 10, 11, 11, 11, 12, 13, 13, 14, 15, 3)
+WW_WORLD_OUT_CLASS_NAMES = (None, "lever", "not_following", "pairing", "in_flight", "not_on_field", "control_or_line", "ate_climb_diorama",
+                            "no_host_frame", "host_not_world", "host_no_control", "story_or_world", "not_installed", "riding", "hold",
+                            "debounce")
+WW_WALK_CLASS_NAMES = (None, "calibration", "role_or_ramp", "pairing", "encounters", "not_live", "walk_set", "own_mode", "transition",
+                       "peer_caps", "host_not_world", "other_world_or_band", "riding", "host_scene", "checking_or_older", "fp_mismatch")
+
+
+def ww_walk_why_name(why: int):
+    """NetSyncWorldWalk.WalkWhyName (None for free; "unknown" off the table)."""
+    w = int(why)
+    return WW_WALK_NAMES[w] if 0 <= w <= WW_WALK_WHY_MAX else "unknown"
+
+
+def ww_walk_why_text(why: int):
+    """NetSyncWorldWalk.WalkWhyText (None for free; "unknown (N)" off the table)."""
+    w = int(why)
+    return WW_WALK_WORDS[w] if 0 <= w <= WW_WALK_WHY_MAX else f"unknown ({w})"
+
+
+def _ww_class_of(table, code: int) -> int:
+    c = int(code)
+    return table[c] if 0 < c < len(table) else 0
+
+
+def ww_walk_why_class(why: int) -> int:
+    """NetSyncWorldWalk.WalkWhyClass."""
+    return _ww_class_of(WW_WALK_CLASSES, why)
+
+
+def ww_world_out_why_class(why: int) -> int:
+    """NetSyncWorldWalk.WorldOutWhyClass (W3C-4)."""
+    return _ww_class_of(WW_WORLD_OUT_CLASSES, why)
+
+
+def ww_why_byte_rule(lever_old: bool, role: str, place: int, walk_why: int, world_out_why: int) -> int:
+    """NetSyncWorldWalk.WhyByteRule (byte 50): a host 0; ``lever_old`` s166's PackWhy(1, the raw world-out code) exactly; place 4 the walk's
+    class (rule 2; 0 = walking free); elsewhere the world-out's W3C-4 class (rule 1). The sender's ``lever_old`` is
+    ``not ww_why_classes_on_rule(walk off, own caps, peer caps)``."""
+    if role == "host":
+        return 0
+    if lever_old:
+        return ww_pack_why(WW_WHY_RULE_WORLD_OUT, world_out_why)
+    if int(place) == WW_PLACE_WORLD:
+        return ww_pack_why(WW_WHY_RULE_WALK, ww_walk_why_class(walk_why))
+    return ww_pack_why(WW_WHY_RULE_WORLD_OUT, ww_world_out_why_class(world_out_why))
+
+
+def ww_why_classes_on_rule(walk_off: bool, own_caps: int, peer_caps: int) -> bool:
+    """NetSyncWorldWalk.WhyClassesOnRule: the class tables only when BOTH caps words carry b1 and the walk is on."""
+    return not walk_off and ww_feature_on(own_caps, peer_caps, WW_CAP_WORLD_FP)
+
+
+def ww_why_byte_name(why_byte: int, classes: bool):
+    """NetSyncWorldWalk.WhyByteName (`lane.tx.why_name` / `lane.rx.why_name`): "walk:<class>" / "world_out:<class>" with ``classes``, else
+    "world_out_code:<n>" ("15+" = s166's fold); another rule "rule<r>:<n>"; 0 (or a 0 code) None."""
+    b = int(why_byte)
+    rule, code = (b >> 4) & 0x0F, b & 0x0F
+    if b <= 0 or code == 0:
+        return None
+    if rule == WW_WHY_RULE_WALK and classes:
+        return "walk:" + WW_WALK_CLASS_NAMES[code]
+    if rule == WW_WHY_RULE_WORLD_OUT:
+        return ("world_out:" + WW_WORLD_OUT_CLASS_NAMES[code]) if classes else f"world_out_code:{code}" + ("+" if code == 15 else "")
+    return f"rule{rule}:{code}"
+
+
+# ---- THE WALK (decisions 13-15)
+def ww_walk_facts(**kw) -> dict:
+    """A WalkFacts (``host`` a ww_trailer: the HOLD's trailer; default none taken = a capless host)."""
+    f = {"lever_off": False, "role": None, "follow_host": False, "visitor_follow_host": False, "mirroring": False, "ramp_pending": False,
+         "bench_gates": False, "pair_unmirrored": False, "suppress_encounters": False, "bee": False, "event_world": False,
+         "diorama": False, "own_world": 0, "own_mode": 0, "ctrl_no": 0, "walker_index": 0, "chocobo_bound": False, "plane_bound": False,
+         "veg": 0, "transition": False, "host": ww_trailer(), "host_state_set": False, "host_b6": False, "host_sc": -1, "own_sc": 0,
+         "host_arrival_age_ms": -1, "own_caps": WW_OWN_CAPS, "own_digest": 0, "fp_dry": False}
+    unknown = set(kw) - set(f)
+    if unknown:
+        raise KeyError(f"ww_walk_facts: no field {sorted(unknown)}")
+    f.update(kw)
+    return f
+
+
+def ww_walk_free_rule(f: dict) -> int:
+    """NetSyncWorldWalk.WalkFreeRule, cheapest first, one why each (WW_WALK_FREE = the walker may walk): the lever; who (a following client
+    mirroring, or the selftest bench -- BenchGates and the ini's FollowHost, never NetSyncVisitor.FollowHost -- whose `pair unmirrored` is the
+    unmirrored guest); the ramp; pairing; SuppressEncounters; not live; the walk set; my own mode / travel mode / walker index / chocobo (a
+    bound plane is lawful); a transition; the host's caps b0 (FeatureOn over BOTH words); the host on the live world (state b6 AND a valid
+    block); its world mine; the band; the host on foot; not in a scene; the fingerprint (FpStateRule); the dry run. No [181] term, no
+    freshness term (THE HOLD owns staleness)."""
+    if f["lever_off"]:
+        return WW_WALK_LEVER
+    bench = f["role"] == "selftest" and f["bench_gates"] and f["follow_host"]
+    if not bench and not (f["role"] == "client" and f["follow_host"]):
+        return WW_WALK_ROLE
+    if f["ramp_pending"]:
+        return WW_WALK_RAMP
+    if (f["pair_unmirrored"] if bench else not f["mirroring"]):
+        return WW_WALK_PAIRING
+    if not f["suppress_encounters"]:
+        return WW_WALK_ENCOUNTERS
+    if f["bee"] or f["event_world"] or f["diorama"]:
+        return WW_WALK_NOT_LIVE
+    if not ww_walk_world_rule(f["own_world"]):
+        return WW_WALK_SET
+    if f["own_mode"] != 0 or f["ctrl_no"] != 0 or f["walker_index"] not in (1, 2) or f["chocobo_bound"]:
+        return WW_WALK_OWN_MODE
+    if f["transition"]:
+        return WW_WALK_TRANSITION
+    h = f["host"]
+    if not ww_feature_on(f["own_caps"], ww_peer_caps_of(h), WW_CAP_WORLD_POSE):
+        return WW_WALK_PEER_CAPS
+    if not f["host_state_set"] or not f["host_b6"] or not ww_block_valid(h):
+        return WW_WALK_HOST_NOT_WORLD
+    if h["world"] != f["own_world"]:
+        return WW_WALK_OTHER_WORLD
+    if not ww_same_band_rule(f["host_sc"], f["own_sc"]):
+        return WW_WALK_BAND
+    if h["mode"] != 0:
+        return WW_WALK_RIDING
+    if (h["state"] & WW_ST_SCENE) != 0:
+        return WW_WALK_HOST_SCENE
+    st = ww_fp_state_rule(f["own_caps"], ww_peer_caps_of(h), f["own_digest"], h["digest"])
+    if st != WW_FP_SAME:
+        return {WW_FP_OFF: WW_WALK_FP_OFF, WW_FP_OLD: WW_WALK_OLD_PARTNER, WW_FP_CHECKING: WW_WALK_CHECKING,
+                WW_FP_DIFFERS: WW_WALK_FP_MISMATCH}[st]
+    return WW_WALK_FP_DRY if f["fp_dry"] else WW_WALK_FREE
+
+
+#: WalkFreeRule's whys in the order its terms return them (the engine pin reads `return Walk*;` off the source in this order)
+WW_WALK_RULE_ORDER = ("WalkLever", "WalkRole", "WalkRamp", "WalkPairing", "WalkEncounters", "WalkNotLive", "WalkSet", "WalkOwnMode",
+                      "WalkTransition", "WalkPeerCaps", "WalkHostNotWorld", "WalkOtherWorld", "WalkBand", "WalkRiding", "WalkHostScene")
+
+
+# ---- THE HOLD (decision 16)
+def ww_walk_hold() -> dict:
+    """A WalkHold (`new WalkHold()`); ``host_sc`` 0 like the struct's default until the first drop."""
+    return {"trailer_set": False, "host": ww_trailer(), "state_set": False, "b6": False, "host_sc": 0, "drops": 0}
+
+
+def ww_walk_hold_step(h: dict, drop: bool, trailer_valid: bool, t: dict, state_valid: bool, b6: bool, host_sc: int) -> None:
+    """NetSyncWorldWalk.WalkHoldStep: a drop empties it first (drops + 1, host_sc -1); a Valid trailer and a readable host state frame each
+    replace their part; a stale Update keeps both."""
+    if drop:
+        drops = h["drops"] + 1
+        h.clear()
+        h.update(ww_walk_hold(), drops=drops, host_sc=-1)
+    if trailer_valid:
+        h["trailer_set"], h["host"] = True, t
+    if state_valid:
+        h["state_set"], h["b6"], h["host_sc"] = True, bool(b6), int(host_sc)
+
+
+def ww_walk_hold_drop_rule(world_load: bool, landing: bool, title: bool, session_edge: bool, epoch_changed: bool) -> bool:
+    """NetSyncWorldWalk.WalkHoldDropRule: every world load, an s165 landing, the title, a session edge, the host's epoch change."""
+    return bool(world_load or landing or title or session_edge or epoch_changed)
+
+
+# ---- THE STALL HOLE (decision 17)
+WW_WORLD_GMODE = 3
+
+
+def ww_world_session_held_rule(follow_host: bool, role: str, seen_live: bool, session_live: bool, session_grace: bool,
+                               ramp_pending: bool) -> bool:
+    """NetSyncWorldWalk.WorldSessionHeldRule: a following client whose link carried a live peer, its session live or in its grace, no ramp."""
+    return bool(follow_host and role == "client" and seen_live and (session_live or session_grace) and not ramp_pending)
+
+
+def ww_world_spectator_rule(spectator: bool, gmode: int, session_held: bool, lever_old: bool) -> bool:
+    """NetSyncWorldWalk.WorldSpectatorRule: SpectatorField, OR on the world map (gMode 3) the held session (`stallhold old` = s166)."""
+    return bool(spectator or (not lever_old and int(gmode) == WW_WORLD_GMODE and session_held))
+
+
+# ---- THE ENTRY REFUSAL (decision 18)
+WW_ENTRY_NONE, WW_ENTRY_LOCATION, WW_ENTRY_KIT_CELL, WW_ENTRY_BOAT, WW_ENTRY_FERRY = 0, 1, 2, 3, 4
+WW_ENTRY_NAMES = (None, "location", "kit_cell", "boat", "ferryman")
+WW_ENTRY_PLACE_QUICKSAND, WW_ENTRY_PLACE_IDLE, WW_ENTRY_PLACE_BOAT = 52, 100, 169
+WW_ENTRY_LOCK_WORLD02, WW_ENTRY_LOCK_WORLD10 = 33, 35
+WW_ENTRY_LINE_MS = 4000
+WW_ENTRY_PLACE_VAR = 24
+#: the entry's reader ids (the deployed WORLD11's entries; K1 re-reads them in game): entry 1 the location poll, 0 a kit cell, 15 the
+#: boat, 16 the ferryman
+WW_ENTRY_READERS = {1: WW_ENTRY_LOCATION, 0: WW_ENTRY_KIT_CELL, 15: WW_ENTRY_BOAT, 16: WW_ENTRY_FERRY}
+
+
+def ww_entry_name(entry: int):
+    """NetSyncWorldWalk.EntryName."""
+    e = int(entry)
+    return WW_ENTRY_NAMES[e] if WW_ENTRY_NONE < e <= WW_ENTRY_FERRY else None
+
+
+def ww_entry_lock_var(world: int) -> int:
+    """NetSyncWorldWalk.EntryLockVar: Map[33] on 9002, Map[35] on 9010 / 9011, -1 elsewhere."""
+    w = int(world)
+    if w == 9002:
+        return WW_ENTRY_LOCK_WORLD02
+    return WW_ENTRY_LOCK_WORLD10 if w in (9010, 9011) else -1
+
+
+def ww_story_bit811(g101: int) -> bool:
+    return (int(g101) & 0x08) != 0
+
+
+def ww_story_bit812(g101: int) -> bool:
+    return (int(g101) & 0x10) != 0
+
+
+def ww_entry_read(**kw) -> dict:
+    """An EntryRead (the read as plain values; ``last_tick`` -1 = no buzz yet)."""
+    e = {"lever_silent": False, "gmode": WW_WORLD_GMODE, "frozen": True, "control": True, "held": False, "keys": 0, "read_mask": 0,
+         "key_tick": 0, "last_tick": -1, "world": 9011, "sid": -1, "place": WW_ENTRY_PLACE_IDLE, "mode": 0, "bit812": False,
+         "bit811": False, "lock": 0}
+    unknown = set(kw) - set(e)
+    if unknown:
+        raise KeyError(f"ww_entry_read: no field {sorted(unknown)}")
+    e.update(kw)
+    return e
+
+
+def ww_entry_refusal_rule(e: dict) -> int:
+    """NetSyncWorldWalk.EntryRefusalRule: the gates (the lever, gMode 3, the freeze, a control-on read, a press -- never a held B_KEY read --,
+    Confirm in the keys AND the read's mask, a NEW key tick, a walk world), then the reader: entry 1 off the quicksand with bits 811 / 812
+    and the lock clear; entry 0 a kit cell; kit 9011's boat on foot with its plate armed (169); its ferryman with Map[24] idle (100). The
+    caller stamps last_tick = key_tick on a buzz."""
+    if e["lever_silent"] or int(e["gmode"]) != WW_WORLD_GMODE or not e["frozen"] or not e["control"] or e["held"]:
+        return WW_ENTRY_NONE
+    if (int(e["keys"]) & int(e["read_mask"]) & EV_CONFIRM) == 0:
+        return WW_ENTRY_NONE
+    if int(e["key_tick"]) == int(e["last_tick"]):
+        return WW_ENTRY_NONE
+    if not ww_walk_world_rule(e["world"]):
+        return WW_ENTRY_NONE
+    sid, world, place = int(e["sid"]), int(e["world"]), int(e["place"])
+    if sid == 0:
+        return WW_ENTRY_KIT_CELL
+    if sid == 1:
+        return (WW_ENTRY_LOCATION if not e["bit812"] and not e["bit811"] and int(e["lock"]) == 0 and place != WW_ENTRY_PLACE_QUICKSAND
+                else WW_ENTRY_NONE)
+    if sid == 15:
+        return WW_ENTRY_BOAT if world == 9011 and int(e["mode"]) == 0 and place == WW_ENTRY_PLACE_BOAT else WW_ENTRY_NONE
+    if sid == 16:
+        return WW_ENTRY_FERRY if world == 9011 and place == WW_ENTRY_PLACE_IDLE else WW_ENTRY_NONE
+    return WW_ENTRY_NONE
+
+
+def ww_entry_line_live_rule(set_: bool, age_ms: int) -> bool:
+    """NetSyncWorldWalk.EntryLineLiveRule: the timed entry line lasts EntryLineMs (4000) after each buzz."""
+    return bool(set_) and 0 <= int(age_ms) < WW_ENTRY_LINE_MS
+
+
+# ---- THE VISIT (decision 20's ONE definition)
+def ww_visit_book() -> dict:
+    """A VisitBook."""
+    return {"seen": False, "any": False, "visits": 0}
+
+
+def ww_visit_step(v: dict, field_or_title: bool, world_load: bool) -> bool:
+    """NetSyncWorldWalk.VisitStep: a field or the title live stamps Seen; a world load starts a NEW visit when one was seen since the last
+    (or it is the process's first) -- a warm battle return is the same visit."""
+    if field_or_title:
+        v["seen"] = True
+    if not world_load:
+        return False
+    fresh = v["seen"] or not v["any"]
+    v["seen"], v["any"] = False, True
+    if fresh:
+        v["visits"] += 1
+    return fresh
+
+
+def ww_decline_rearm_rule(new_visit: bool, lever_old: bool) -> bool:
+    """NetSyncWorldWalk.DeclineRearmRule (`decline old` = s166: never re-armed)."""
+    return bool(new_visit and not lever_old)
+
+
+# ---- THE FINGERPRINT (decision 21)
+WW_FP_LANG, WW_FP_DISPATCHER, WW_FP_MESHES, WW_FP_TRANSPORT, WW_FP_ENVIRONMENT, WW_FP_WEATHER = range(6)
+WW_FP_COMPS = 6
+WW_FP_COMP_NAMES = ("language", "dispatcher", "meshes", "transport", "environment", "weather")
+WW_FP_COMP_WORDS = ("language", "world script", "world map meshes", "travel controls", "world environment", "weather colors")
+WW_FP_SAME, WW_FP_OFF, WW_FP_OLD, WW_FP_CHECKING, WW_FP_DIFFERS = range(5)
+WW_FP_STATE_NAMES = ("same", "off", "old_partner", "checking", "differs")
+WW_FP_NAME_NONE, WW_FP_NAME_STALE = -1, -2
+WW_FP_NO_COMPARE = -1
+WW_FP_CHECK_TIMEOUT_MS = 10000
+WW_FP_SECTION_FMT, WW_FP_SECTION_HEAD = 1, 6
+WW_FP_SECTION_LEN = WW_FP_SECTION_HEAD + WW_FP_COMPS * 5              # 36 (+3 B section header)
+#: NetSyncState.SectionFp: section 11, between 10 and 7 (8 stays last)
+SECTION_FP = 11
+#: `netsync.world.fp.state`'s words (AppendWorldFp over FpCompareRule)
+WW_FP_HARNESS_STATE = {WW_FP_SAME: "match", WW_FP_DIFFERS: "mismatch", WW_FP_CHECKING: "checking", WW_FP_OLD: "older", WW_FP_OFF: "off"}
+#: c2's read kinds (FpReadMesh .. FpReadForm)
+WW_FP_READ_MESH, WW_FP_READ_DONOR, WW_FP_READ_TEXTURE, WW_FP_READ_FORM = 1, 2, 3, 4
+
+
+def ww_fp_comp_name(comp: int):
+    c = int(comp)
+    return WW_FP_COMP_NAMES[c] if 0 <= c < WW_FP_COMPS else None
+
+
+def ww_fp_comp_word(comp: int):
+    c = int(comp)
+    return WW_FP_COMP_WORDS[c] if 0 <= c < WW_FP_COMPS else None
+
+
+def ww_fp_state_name(state: int) -> str:
+    s = int(state)
+    return WW_FP_STATE_NAMES[s] if WW_FP_SAME <= s <= WW_FP_DIFFERS else "unknown"
+
+
+def ww_fp_lang_word(symbol) -> int:
+    """NetSyncWorldWalk.FpLangWord: the loaded language's two ASCII bytes LE ("US" = 0x5355); 0 = unknown."""
+    if symbol is None or len(symbol) < 2:
+        return 0
+    return (ord(symbol[0]) & 0xFF) | ((ord(symbol[1]) & 0xFF) << 8)
+
+
+def ww_fp_combine(comps) -> int:
+    """NetSyncWorldWalk.FpCombine: zlib CRC32 over the six words as u32 LE; a real 0 reads 1; fewer than six = 0 (checking)."""
+    if comps is None or len(comps) < WW_FP_COMPS:
+        return 0
+    crc = _ww_zlib.crc32(struct.pack("<6I", *(int(c) & 0xFFFFFFFF for c in list(comps)[:WW_FP_COMPS]))) & 0xFFFFFFFF
+    return 1 if crc == 0 else crc
+
+
+def ww_fp_state_rule(own_caps: int, peer_caps: int, own: int, peer: int) -> int:
+    """NetSyncWorldWalk.FpStateRule: my caps lack b1 -> off; the peer's -> old; a digest 0 -> checking; else same / differs."""
+    if (int(own_caps) & WW_CAP_WORLD_FP) == 0:
+        return WW_FP_OFF
+    if not ww_feature_on(own_caps, peer_caps, WW_CAP_WORLD_FP):
+        return WW_FP_OLD
+    if int(own) == 0 or int(peer) == 0:
+        return WW_FP_CHECKING
+    return WW_FP_SAME if int(own) == int(peer) else WW_FP_DIFFERS
+
+
+def ww_write_fp_section(world: int, comps) -> bytes:
+    """NetSyncWorldWalk.WriteFpSection's body (36 B): [fmt 1][world u16][lang 2 B = c0's low bytes][n 6][6 x (comp u8, crc u32)] LE; b"" for
+    fewer than six components (the engine writes 0 bytes)."""
+    if comps is None or len(comps) < WW_FP_COMPS:
+        return b""
+    c = [int(v) & 0xFFFFFFFF for v in list(comps)[:WW_FP_COMPS]]
+    out = struct.pack("<BHBBB", WW_FP_SECTION_FMT, int(world) & 0xFFFF, c[WW_FP_LANG] & 0xFF, (c[WW_FP_LANG] >> 8) & 0xFF, WW_FP_COMPS)
+    return out + b"".join(struct.pack("<BI", i, c[i]) for i in range(WW_FP_COMPS))
+
+
+def ww_try_read_fp_section(body):
+    """NetSyncWorldWalk.TryReadFpSection -> (world, lang, comps (6 words, unknown 0), mask) or None (a short body, fmt 0). Unknown comp ids
+    are skipped; a later fmt reads forward."""
+    b = bytes(body or b"")
+    if len(b) < WW_FP_SECTION_HEAD or b[0] < WW_FP_SECTION_FMT:
+        return None
+    n = b[5]
+    if len(b) < WW_FP_SECTION_HEAD + n * 5:
+        return None
+    world, lang = b[1] | (b[2] << 8), b[3] | (b[4] << 8)
+    comps, mask = [0] * WW_FP_COMPS, 0
+    for k in range(n):
+        cid = b[WW_FP_SECTION_HEAD + k * 5]
+        if cid >= WW_FP_COMPS:
+            continue
+        comps[cid] = struct.unpack_from("<I", b, WW_FP_SECTION_HEAD + k * 5 + 1)[0]
+        mask |= 1 << cid
+    return world, lang, comps, mask
+
+
+def ww_fp_first_differ_rule(own_world: int, own, sec_world: int, sec_lang: int, sec, sec_mask: int) -> int:
+    """NetSyncWorldWalk.FpFirstDifferRule: another world's section -> stale; the language header; the first present differing component;
+    else none."""
+    if own is None or sec is None or len(own) < WW_FP_COMPS or len(sec) < WW_FP_COMPS:
+        return WW_FP_NAME_NONE
+    if int(sec_world) != int(own_world):
+        return WW_FP_NAME_STALE
+    if (int(sec_lang) & 0xFFFF) != (int(own[WW_FP_LANG]) & 0xFFFF):
+        return WW_FP_LANG
+    for i in range(WW_FP_COMPS):
+        if (int(sec_mask) >> i) & 1 and int(own[i]) != int(sec[i]):
+            return i
+    return WW_FP_NAME_NONE
+
+
+def ww_fp_checking_line_rule(checking_age_ms: int, said: bool) -> bool:
+    """NetSyncWorldWalk.FpCheckingLineRule: ONE timeout line per visit at 10 s of "checking"."""
+    return not said and int(checking_age_ms) >= WW_FP_CHECK_TIMEOUT_MS
+
+
+def ww_fp_own_digest_rule(digest: int, fp_world: int, own_world: int) -> int:
+    """NetSyncWorldWalk.FpOwnDigestRule: the finalized digest only on the world it was computed for, else 0 (checking)."""
+    return int(digest) if int(fp_world) != 0 and int(fp_world) == int(own_world) else 0
+
+
+def ww_fp_tx_digest_rule(own_caps: int, place: int, own_digest: int) -> int:
+    """NetSyncWorldWalk.FpTxDigestRule (trailer 88-91, both roles): mine only while my caps carry b1 and on place 4."""
+    return int(own_digest) if (int(own_caps) & WW_CAP_WORLD_FP) != 0 and int(place) == WW_PLACE_WORLD else 0
+
+
+def ww_fp_section_send_rule(host_role: bool, own_caps: int, peer_caps: int, own_live_world: bool, own_digest: int) -> bool:
+    """NetSyncWorldWalk.FpSectionSendRule: a host, both caps b1, my live world, my digest ready."""
+    return bool(host_role and ww_feature_on(own_caps, peer_caps, WW_CAP_WORLD_FP) and own_live_world and int(own_digest) != 0)
+
+
+def ww_fp_compare_rule(own_world: int, own_caps: int, own_digest: int, peer: dict) -> int:
+    """NetSyncWorldWalk.FpCompareRule: FpNoCompare unless the peer's block is valid on MY world, then FpStateRule."""
+    if not ww_block_valid(peer) or int(peer["world"]) != int(own_world):
+        return WW_FP_NO_COMPARE
+    return ww_fp_state_rule(own_caps, ww_peer_caps_of(peer), own_digest, peer["digest"])
+
+
+def ww_fp_visit_line_step(book: dict, key: str, visit: int, condition: bool) -> bool:
+    """NetSyncWorldWalk.FpVisitLineStep over ``book[key]`` (the visit it last spoke in, -1 = never): one line per visit."""
+    if not condition or book.get(key, -1) == int(visit):
+        return False
+    book[key] = int(visit)
+    return True
+
+
+def ww_fp_view_rule(real, fake_set: bool, fake: int):
+    """NetSyncWorldWalk.FpViewRule -> (view, digest): my real components with c2 replaced by `fp fake`'s word; (None, 0) without six."""
+    if real is None or len(real) < WW_FP_COMPS:
+        return None, 0
+    view = [int(v) & 0xFFFFFFFF for v in list(real)[:WW_FP_COMPS]]
+    if fake_set:
+        view[WW_FP_MESHES] = int(fake) & 0xFFFFFFFF
+    return view, ww_fp_combine(view)
+
+
+def ww_fp_crc_no_cr(crc: int, data) -> int:
+    """NetSyncWorldWalk.FpCrcNoCr over a whole buffer: zlib CRC32 chained from ``crc`` with every CR dropped."""
+    return _ww_zlib.crc32(bytes(data or b"").replace(b"\r", b""), int(crc) & 0xFFFFFFFF) & 0xFFFFFFFF
+
+
+def ww_fp_read_step(book: dict, entry: int) -> None:
+    """NetSyncWorldWalk.FpReadStep over ``book`` {count, sum, xor}: c2's order-free book."""
+    book["count"] += 1
+    book["sum"] = (book["sum"] + int(entry)) & 0xFFFFFFFF
+    book["xor"] ^= int(entry) & 0xFFFFFFFF
+
+
+def ww_fp_meshes_rule(count: int, sum_: int, xor: int) -> int:
+    """NetSyncWorldWalk.FpMeshesRule: CRC32 over [count][sum][xor] u32 LE."""
+    return _ww_zlib.crc32(struct.pack("<3I", int(count) & 0xFFFFFFFF, int(sum_) & 0xFFFFFFFF, int(xor) & 0xFFFFFFFF)) & 0xFFFFFFFF
+
+
+# ---- WORLDTPS (decision 22: report; `tps apply` the owner's trial)
+def ww_tps_mismatch_rule(own: int, peer: int) -> bool:
+    return int(own) > 0 and int(peer) > 0 and int(own) != int(peer)
+
+
+def ww_tps_line_step(book: dict, own: int, peer: int) -> bool:
+    """NetSyncWorldWalk.TpsLineStep over ``book["key"]``: once per new mismatching (own, peer) pair."""
+    if not ww_tps_mismatch_rule(own, peer):
+        return False
+    key = ((int(own) & 0xFF) << 8) | (int(peer) & 0xFF)
+    if key == book.get("key"):
+        return False
+    book["key"] = key
+    return True
+
+
+def ww_tps_line_text(own: int, peer: int) -> str:
+    return (f"world speed differs: my [Graphics] WorldTPS is {int(own)}, the partner's {int(peer)} -- each walks its own copy at its own "
+            "speed (keep WorldTPS equal on both machines)")
+
+
+def ww_tps_apply_step(held: int, world_load: bool, title: bool, lever_apply: bool, host_tps: int) -> int:
+    """NetSyncWorldWalk.TpsApplyStep -> the held value: the title clears it; a world load takes the host's (1-255) under the lever, else 0."""
+    if title:
+        held = 0
+    if world_load:
+        held = int(host_tps) if lever_apply and 0 < int(host_tps) <= 255 else 0
+    return int(held)
+
+
+def ww_tps_effective_rule(held: int, ini_tps: int) -> int:
+    return int(held) if int(held) > 0 else int(ini_tps)
+
+
+# ---- DECISION 23: THE FULL MAP, and decisions 27-28: THE MINIMAP CLOSE and THE QUIET HINT
+def ww_full_map_refuse_rule(full_map: bool, frozen: bool, walk_free: bool, world: int, lever_old: bool) -> bool:
+    """NetSyncWorldWalk.FullMapRefuseRule: nothing refused unless frozen; the location pick refused; the full map open only for a lawful
+    walker on 9010 / 9011 (`fullmap old` = s166: refused)."""
+    if not frozen:
+        return False
+    if not full_map:
+        return True
+    return bool(lever_old or not walk_free or int(world) not in (9010, 9011))
+
+
+def ww_full_map_coop_close_rule(full_map_open: bool, lever_old: bool) -> bool:
+    return bool(full_map_open and not lever_old)
+
+
+def ww_full_map_coop_close_now_rule(full_map_open: bool, closable: bool, frozen: bool, ramp: bool, lever_old: bool) -> bool:
+    """NetSyncWorldWalk.FullMapCoopCloseNowRule: an open, closable map; a FROZEN guest's before an arm or a boot, anyone's at the ramp."""
+    return ww_full_map_coop_close_rule(full_map_open, lever_old) and bool(closable) and bool(frozen or ramp)
+
+
+def ww_close_map_line_rule(rejoin_waits: bool, full_map_open: bool, coop_closes: bool, lever_old: bool) -> bool:
+    """NetSyncWorldWalk.CloseMapLineRule ("Close the map to join your partner.")."""
+    return bool(rejoin_waits and full_map_open and not coop_closes and not lever_old)
+
+
+WW_FM_DOT_HIDE, WW_FM_DOT_PLACE, WW_FM_DOT_SHOW = 0, 1, 2
+
+
+def ww_full_map_dot_rule(wanted: bool, show: bool, lever_old: bool) -> int:
+    """NetSyncWorldWalk.FullMapDotRule: the minimap dot's own verdict on the full map (`fullmap old` hides it)."""
+    if lever_old or not wanted:
+        return WW_FM_DOT_HIDE
+    return WW_FM_DOT_SHOW if show else WW_FM_DOT_PLACE
+
+
+def ww_full_map_dot_place_rule(active_map_no: int, widget_w: float, widget_h: float, sx: float, sy: float) -> tuple:
+    """NetSyncWorldWalk.FullMapDotPlaceRule -> (px, py): DisplayFullmap's own pointer formula."""
+    if int(active_map_no) == 1:
+        return (float(widget_w) - 96.0) * sx - 18.0, (float(widget_h) - 80.0) * sy + 14.0
+    return (float(widget_w) - 100.0) * sx, (float(widget_h) - 90.0) * sy + 32.0
+
+
+WW_BOOT_MAP_NONE, WW_BOOT_MAP_CLOSE, WW_BOOT_MAP_WAIT = 0, 1, 2
+
+
+def ww_boot_map_rule(full_map_open: bool, decline_pending: bool) -> int:
+    """NetSyncWorldWalk.BootMapRule (the review's R1): shut -> none; open with a durable decline pending -> s166's wait; else ask the close."""
+    if not full_map_open:
+        return WW_BOOT_MAP_NONE
+    return WW_BOOT_MAP_WAIT if decline_pending else WW_BOOT_MAP_CLOSE
+
+
+#: MinimapSelectRule's effect bits (and the forbidden ones: each a mutant in the engine's proof)
+(WW_SEL_STOCK, WW_SEL_HUD_NO_MINIMAP, WW_SEL_MINIMAP_OFF, WW_SEL_NAVI_OFF, WW_SEL_CHOCO_OFF, WW_SEL_NAVI_BYTE,
+ WW_SEL_QUIET) = 0, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20
+WW_SEL_COOP_CLOSE = 0x3F
+WW_SEL_BUZZ, WW_SEL_COUNT_MAP, WW_SEL_SELECT_OFF, WW_SEL_FULLMAP_OFF, WW_SEL_CONTROL_ON = 0x100, 0x200, 0x400, 0x800, 0x1000
+WW_SEL_FORBIDDEN = 0x1F00
+
+
+def ww_minimap_select_rule(state_hud: bool, frozen: bool, map_button: bool, encount: bool, lawful: bool, lever_old: bool) -> int:
+    """NetSyncWorldWalk.MinimapSelectRule: Select on the minimap, the map button on, no encounter, the guest FROZEN and not a lawful
+    full-map walker -> straight to HUDNoMiniMap (SelCoopClose); else stock's cycle (`minimap old` = s166's stranded cycle)."""
+    if lever_old or not state_hud or not map_button or encount or not frozen or lawful:
+        return WW_SEL_STOCK
+    return WW_SEL_COOP_CLOSE
+
+
+def ww_minimap_hint_quiet_rule(hud_no_minimap: bool, verdict_show: bool, closed_this_visit: bool) -> bool:
+    """NetSyncWorldWalk.MinimapHintQuietRule: s165's hint, quiet once the guest closed the minimap with Select this visit."""
+    return bool(hud_no_minimap and verdict_show and not closed_this_visit)
+
+
+def ww_hint_latch_step(closed: bool, world_load: bool, new_visit: bool, select_close: bool, lever_old: bool) -> bool:
+    """NetSyncWorldWalk.HintLatchStep -> the latch: `minimap old` forces it off; a NEW VISIT clears it (never a bare world load); a Select
+    close sets it."""
+    if lever_old:
+        return False
+    if new_visit:
+        closed = False
+    if select_close:
+        closed = True
+    return bool(closed)
+
+
+# ---- THE CAPS (decision 2; W3A-T4 / W3C-1)
+WW_OWN_CAPS_WALK = WW_CAP_WORLD_POSE | WW_CAP_WORLD_FP          # 0x0003: what an s167 build speaks
+WW_CAPS_BOOK_MAX = 16
+WW_CAPS_NAMES = ("world pose", "world fingerprint", "comms", "guest menu", "v2 command frame")
+
+
+def ww_own_caps_rule(fp_off: bool) -> int:
+    """NetSyncWorldWalk.OwnCapsRule: `fp off` speaks s166's OwnCaps (0x0001), else 0x0003."""
+    return WW_OWN_CAPS if fp_off else WW_OWN_CAPS_WALK
+
+
+def ww_caps_line_step(said: list, own_caps: int, peer_caps: int) -> bool:
+    """NetSyncWorldWalk.CapsLineStep over the per-PROCESS book: once per (own, peer) pair, only when the peer switches a feature off."""
+    if said is None or ww_caps_switched_off(own_caps, peer_caps) == 0:
+        return False
+    key = ((int(own_caps) & 0xFFFF) << 16) | (int(peer_caps) & 0xFFFF)
+    if key in said:
+        return False
+    if len(said) >= WW_CAPS_BOOK_MAX:
+        said.pop(0)
+    said.append(key)
+    return True
+
+
+def ww_caps_line_text(own_caps: int, peer_caps: int) -> str:
+    """NetSyncWorldWalk.CapsLineText."""
+    off = ww_caps_switched_off(own_caps, peer_caps)
+    names = ", ".join(n for i, n in enumerate(WW_CAPS_NAMES) if (off >> i) & 1) or "features"
+    return (f"the partner's co-op build lacks my {names} (its caps 0x{int(peer_caps) & 0xFFFF:04X}, mine 0x{int(own_caps) & 0xFFFF:04X}) "
+            "-- off for this pair: the older behaviour")
+
+
+# ---- THE OWNER-VISIBLE WORDS (NetSyncWorldWalk.Line*: one place each; the overlay draws them after "FF9 co-op: ")
+WORDS_WW_ENTRY_REFUSED = "Your partner leads the way. You'll join them at their next stop."
+WORDS_WW_WALK_PAIRING = "You'll walk once you've followed your partner into a location."
+WORDS_WW_WALK_CHECKING = "Checking your world map against your partner's..."
+WORDS_WW_WALK_OLDER = "Your partner's co-op build is older: you'll follow them as before."
+WORDS_WW_HOST_FP_DIFFERS = "Your partner's world map differs from yours: they'll follow you as before."
+WORDS_WW_HOST_CANT_WALK = "Your partner can't walk yet: they'll join you at your next stop."
+WORDS_WW_HOST_OLDER = "Your partner's co-op build is older: they'll follow you as before."
+WORDS_WW_CLOSE_MAP = "Close the map to join your partner."
+#: the ~ menu Release row's hint while the walk is on (B7; under `walk off` it is s145's text)
+WORDS_WW_RELEASE_HINT = ("Enter locations alone (until the next field load). While you follow, you walk beside your partner on foot where the "
+                         "world map allows it and rejoin them at their next stop (F11 / held L3 rejoins at once); entering a location stays "
+                         "theirs. This hands the world map back to you until the next field load: walk, ride and enter a location (an entry "
+                         "takes you to your partner's field when they stand on one).")
+
+
+def ww_walk_owner_line(why: int, fp_comp: int = WW_FP_NAME_NONE):
+    """NetSyncWorldWalk.WalkOwnerLine: the guest's words while walking would be lawful but is refused (None = s144's own line stands)."""
+    w = int(why)
+    if w == WW_WALK_RIDING:
+        return WORDS_WORLD_OUT_RIDES
+    if w == WW_WALK_HOST_SCENE:
+        return WORDS_WORLD_OUT_EVENT
+    if w == WW_WALK_PAIRING:
+        return WORDS_WW_WALK_PAIRING
+    if w == WW_WALK_CHECKING:
+        return WORDS_WW_WALK_CHECKING
+    if w == WW_WALK_OLD_PARTNER:
+        return WORDS_WW_WALK_OLDER
+    if w == WW_WALK_FP_MISMATCH:
+        comp = ww_fp_comp_word(fp_comp)
+        return "Your world map differs from your partner's" + (f" ({comp})" if comp is not None else "") + ": you'll follow them as before."
+    return None
+
+
+def ww_walk_has_words(why: int) -> bool:
+    """NetSyncClient.WalkHasWords: a why WalkOwnerLine words."""
+    return ww_walk_owner_line(why) is not None
+
+
+# ---- B1-B3 THE WIRING's PURE HALVES
+def ww_walk_transition_rule(sys_mode: int, sys_attr: int, next_mode: int, fading: bool, booted: bool, rejoin_armed: bool,
+                            world_out_pending: bool) -> bool:
+    """NetSyncWorldWalk.WalkTransitionRule: decision 14 term 6, the latch's cheap terms."""
+    return bool(int(sys_mode) != 3 or (int(sys_attr) & 0x3001) != 0 or int(next_mode) in (1, 2) or fading or booted or rejoin_armed
+                or world_out_pending)
+
+
+WW_WALK_EDGE_NONE, WW_WALK_EDGE_FREE, WW_WALK_EDGE_FROZEN = 0, 1, 2
+
+
+def ww_walk_edge_step(book: dict, free: bool) -> int:
+    """NetSyncWorldWalk.WalkEdgeStep over ``book["was_free"]``: FREE after a frozen dispatch (a load's first included), FROZEN after a free."""
+    was = bool(book.get("was_free", False))
+    book["was_free"] = bool(free)
+    if bool(free) == was:
+        return WW_WALK_EDGE_NONE
+    return WW_WALK_EDGE_FREE if free else WW_WALK_EDGE_FROZEN
+
+
+def ww_walk_line_why_rule(why: int, own_world: int) -> int:
+    """NetSyncWorldWalk.WalkLineWhyRule: the walk words only on a walk world."""
+    return int(why) if ww_walk_world_rule(own_world) else WW_WALK_FREE
+
+
+#: the world line's s167 codes (10 up: round A's 6-9 still read none)
+WW_WORLD_LINE_ENTRY, WW_HOST_LINE_CANT_WALK, WW_HOST_LINE_OLDER, WW_HOST_LINE_FP_DIFFERS = 10, 11, 12, 13
+WW_S167_LINE_NAMES = ("entry_refused", "cant_walk", "older", "fp_differs")
+
+
+def ww_world_line_s167_rule(line: int, session_speaks: bool, entry_live: bool, host_walk_line: int) -> int:
+    """NetSyncWorldWalk.WorldLineS167Rule: round A's line wins; nothing over the session's own line; then the guest's timed entry line; then
+    the host's walk line."""
+    if int(line) != WW_WORLD_LINE_NONE or session_speaks:
+        return int(line)
+    if entry_live:
+        return WW_WORLD_LINE_ENTRY
+    return int(host_walk_line)
+
+
+def _ww_why_cant_walk(why_byte: int) -> bool:
+    code = int(why_byte) & 0x0F
+    return ((int(why_byte) >> 4) & 0x0F) == WW_WHY_RULE_WALK and code in (WW_WALK_CLASSES[WW_WALK_PAIRING], WW_WALK_CLASSES[WW_WALK_CHECKING])
+
+
+def ww_host_walk_line_rule(lever_off: bool, host_role: bool, own_live_world: bool, linked: bool, own_world: int, own_caps: int, guest: dict,
+                           arrival_age_ms: int) -> int:
+    """NetSyncWorldWalk.HostWalkLineRule: decision 7's gates, then (my world a walk world, the guest's block valid on mine) OLDER (my caps b1,
+    the guest's not), FP DIFFERS (the guest's state b4), CAN'T WALK YET (frozen, not walking, its walk class pairing or checking)."""
+    if lever_off or not host_role or not own_live_world or not linked or not ww_follows(guest) or arrival_age_ms < 0 \
+            or arrival_age_ms >= WW_HOST_LOST_MS:
+        return WW_HOST_LINE_NONE
+    if not ww_walk_world_rule(own_world) or not ww_block_valid(guest) or int(guest["world"]) != int(own_world):
+        return WW_HOST_LINE_NONE
+    if (int(own_caps) & WW_CAP_WORLD_FP) != 0 and (ww_peer_caps_of(guest) & WW_CAP_WORLD_FP) == 0:
+        return WW_HOST_LINE_OLDER
+    if (guest["state"] & WW_ST_MISMATCH) != 0:
+        return WW_HOST_LINE_FP_DIFFERS
+    if (guest["state"] & WW_ST_FROZEN) != 0 and (guest["state"] & WW_ST_WALKING) == 0 and _ww_why_cant_walk(guest["why"]):
+        return WW_HOST_LINE_CANT_WALK
+    return WW_HOST_LINE_NONE
+
+
+def ww_world_line_s167_name(line: int):
+    n = int(line)
+    return WW_S167_LINE_NAMES[n - WW_WORLD_LINE_ENTRY] if WW_WORLD_LINE_ENTRY <= n <= WW_HOST_LINE_FP_DIFFERS else None
+
+
+def ww_world_line_s167_text(line: int):
+    return {WW_WORLD_LINE_ENTRY: WORDS_WW_ENTRY_REFUSED, WW_HOST_LINE_CANT_WALK: WORDS_WW_HOST_CANT_WALK,
+            WW_HOST_LINE_OLDER: WORDS_WW_HOST_OLDER, WW_HOST_LINE_FP_DIFFERS: WORDS_WW_HOST_FP_DIFFERS}.get(int(line))
+
+
+def ww_world_line_name_s167(line: int):
+    """`netsync.world.line.asked` over the s167 engine's vocabulary (WorldLineName, extended for codes >= 10)."""
+    return ww_world_line_s167_name(line) if int(line) >= WW_WORLD_LINE_ENTRY else ww_world_line_name(line)
+
+
+def ww_world_line_text_s167(line: int):
+    return ww_world_line_s167_text(line) if int(line) >= WW_WORLD_LINE_ENTRY else ww_world_line_text(line)
+
+
+# ---- the overlay states round B adds (NetSyncClient.Ovl* 23..28) and OverlayName's words for them; `world.waitline.line` reads
+# "host_world" for 23 / 24 and "rejoin" for 28
+OVL_ENTRY_REFUSED, OVL_WALK_REFUSED, OVL_HOST_CANT_WALK, OVL_HOST_OLDER, OVL_HOST_FP_DIFFERS, OVL_CLOSE_MAP = 23, 24, 25, 26, 27, 28
+OVERLAY_NAMES_S167 = ("entry_refused", "walk_refused", "host_cant_walk", "host_older", "host_fp_differs", "close_map")
+WAITLINE_S167 = {OVL_ENTRY_REFUSED: "host_world", OVL_WALK_REFUSED: "host_world", OVL_CLOSE_MAP: "rejoin"}
+
+
+def ww_overlay_name_s167(state):
+    """OverlayName over the s167 engine's vocabulary (s166's, then round B's six)."""
+    if isinstance(state, int) and OVL_ENTRY_REFUSED <= state <= OVL_CLOSE_MAP:
+        return OVERLAY_NAMES_S167[state - OVL_ENTRY_REFUSED]
+    return ww_overlay_name(state)
+
+
+def ww_world_line_ovl_s167(line: int) -> int:
+    """NetSyncClient.WorldLineOvl over the s167 codes."""
+    return {WW_WORLD_LINE_ENTRY: OVL_ENTRY_REFUSED, WW_HOST_LINE_CANT_WALK: OVL_HOST_CANT_WALK, WW_HOST_LINE_OLDER: OVL_HOST_OLDER,
+            WW_HOST_LINE_FP_DIFFERS: OVL_HOST_FP_DIFFERS}.get(int(line), ww_world_line_ovl(line))
+
+
+#: `netsync.world.freeze.why` gains "session" (decision 17's term alone holds it)
+WORLD_FREEZE_WHY_SESSION = "session"
+
+# ---- THE HARNESS KEYS (HarnessAgent.AppendWorldWalk / AppendWorldWalkMap / AppendWorldFp and the lane's additions), each at its
+# catch-line sentinel, in the agent's order. `walk` and `fp` are `netsync.world`'s last two keys (after A4's `ghost`); counters monotonic.
+WORLD_WALK_MAP_SENTINELS = {"lever": None, "lawful": False, "opens": 0, "coop_closes": 0, "last_close": None, "dot_shown": False,
+                            "dot_placed": False, "dot_px": None, "dot_py": None, "dot_frames": 0, "dot_shows": 0, "dot_mints": 0}
+WORLD_WALK_SENTINELS = {"lever": None, "pair": None, "refuse": None, "stallhold": None, "decline": None, "free": False, "why": None,
+                        "why_code": -1, "last_free": False, "edges": 0, "frees": 0, "held_age_ms": -1, "held_trailer": False,
+                        "held_state": False, "held_b6": False, "held_sc": -1, "held_drops": 0, "session_held": False, "stall_held": False,
+                        "entry_refused": 0, "last_reader": -1, "last_place": -1, "last_world": -1, "last_cell": [-1, -1],
+                        "last_entry": None, "entry_line_ms": -1, "line": None, "visits": 0, "rearms": 0, "plane": False,
+                        "minimap_closes": 0, "minimap": None, "hint_quiet": False, "map": dict(WORLD_WALK_MAP_SENTINELS)}
+WORLD_FP_SENTINELS = {"lever": None, "fake": None, "own": None, "real": None, "peer": None, "world": -1, "peer_world": -1, "ready": False,
+                      "recording": False, "unrecorded": False, "components": None, "reads": -1, "bytes": -1, "seam_ms": -1, "reads_ms": -1,
+                      "compute_ms": -1, "loads": 0, "state": None, "named": None, "named_code": -1,
+                      "host_section": {"set": False, "world": -1, "lang": None, "mask": 0}, "sections_tx": 0, "checking_ms": -1,
+                      "lines": {"mismatch": 0, "checking": 0, "host": 0, "caps": 0}}
+#: the lane's s167 additions, inside s166's blocks (after `tx.kind`, after `rx.samples`, after `world_tps.peer`)
+WORLD_LANE_WORLD_TPS_S167 = {"lever": None, "held": -1, "effective": -1, "mismatch": False, "lines": 0}
+WORLD_S167_KEYS = ("walk", "fp")
+WORLD_NESTED_S167 = {"world.lane.tx": ("why_name",), "world.lane.rx": ("why_name",), "world.lane.world_tps": tuple(WORLD_LANE_WORLD_TPS_S167)}
+#: the levers' published words (the first is the shipping value)
+WORLD_WALK_LEVER_WORDS = {"lever": ("on", "off"), "pair": ("act", "unmirrored"), "refuse": ("act", "silent"), "stallhold": ("act", "old"),
+                          "decline": ("act", "old"), "minimap": ("act", "old")}
+WORLD_FP_LEVER_WORDS = ("act", "off", "old", "fake")
+WORLD_TPS_LEVER_WORDS = ("report", "apply")
+WORLD_MAP_LEVER_WORDS = ("act", "old")
+WORLD_MAP_LAST_CLOSES = ("rejoin", "boot", "ramp")
+#: the overlay states `session.overlay` gains, and the world line's `asked` words
+SESSION_OVERLAY_S167 = OVERLAY_NAMES_S167
+WORLD_LINE_ASKED_S167 = WW_S167_LINE_NAMES
+
+
+def _ww_s167_lane(lane: dict) -> dict:
+    """s166's `netsync.world.lane` block grown by round B's keys, in place (the prefix law: every s166 key unmoved)."""
+    out = _ww_copy.deepcopy(lane)
+    out["tx"]["why_name"] = None
+    out["rx"]["why_name"] = None
+    out["world_tps"].update(_ww_copy.deepcopy(WORLD_LANE_WORLD_TPS_S167))
+    return out
+
+
+#: the whole `netsync.world` block on the s167 engine (s166's, the lane grown in place, then `walk` and `fp`)
+WORLD_SENTINELS_S167 = _ww_copy.deepcopy({**WORLD_SENTINELS_S166D, "lane": _ww_s167_lane(WORLD_SENTINELS_S166D["lane"]),
+                                          "walk": WORLD_WALK_SENTINELS, "fp": WORLD_FP_SENTINELS})
+
+
+# ---- THE VERB (`netsync worldwalk`, ANY role, released with the harness; co-op off refuses every op but `clear`)
+WORLDWALK_OPS_B = ("walk", "pair", "refuse", "stallhold", "decline", "fp", "tps", "minimap", "fullmap")
+WORLDWALK_WORDS_B = {"walk": ("off", "on"), "pair": ("unmirrored", "act"), "refuse": ("silent", "act"), "stallhold": ("old", "act"),
+                     "decline": ("old", "act"), "fp": ("off", "old", "act"), "tps": ("apply", "report"), "minimap": ("old", "act"),
+                     "fullmap": ("old", "act")}
+WORLDWALK_OPS_S167 = WORLDWALK_OPS_A4 + WORLDWALK_OPS_B
+WORLDWALK_USAGE_S167 = ("netsync worldwalk: expected kitcell old|act, pairpull old|act, pose off|on, lanegap off|on, hostlines off|on, "
+                        "ghost off|on|sticky, place render|act, dot section0|trailer, walk off|on, pair unmirrored|act, refuse silent|act, "
+                        "stallhold old|act, decline old|act, fp off|old|act, fp fake <hex>, tps apply|report, minimap old|act, fullmap "
+                        "old|act or clear (any role), or host path <x0> <z0> [<x1> <z1> ...] <ups> [loop] | host off, hostseq freeze|run, "
+                        "hostgap <ms>, hostplace <n>, hoststate <bits>, hostmode <n>, hostworld <id>, hostmodel <id>, hosttps <n> (the "
+                        "selftest role)")
+LOG_WORLDWALK_CLEAR_S167 = (LOG_WORLDWALK_CLEAR_A4 + ", the walk is on, the bench pairs as act, the entrance refusal, the stall hold and "
+                            "the decline re-arm act, the fingerprint acts, WorldTPS reports, the minimap close and the full map act")
+#: (op, word) -> the engine's whole ack line (NetSyncClient.HarnessWorldWalk's round-B cases)
+WORLDWALK_B_ACKS = {
+    ("walk", "off"): ("[NetSync] harness: worldwalk walk off -- CALIBRATION: s166 exactly, a following guest stays frozen on the world map "
+                      "(s166's edge line, the trailer's b1 / b4 zero and s166's why byte, no host walk line; released with the harness)"),
+    ("walk", "on"): "[NetSync] harness: worldwalk walk on",
+    ("pair", "unmirrored"): ("[NetSync] harness: worldwalk pair unmirrored -- the field-gate bench stands in for a guest that paired on the "
+                             "world map (never mirroring: the walk refuses, pairing; released with the harness)"),
+    ("pair", "act"): "[NetSync] harness: worldwalk pair act",
+    ("refuse", "silent"): ("[NetSync] harness: worldwalk refuse silent -- CALIBRATION: s166 exactly, an entrance press is masked with no "
+                           "buzz, no line and no count (released with the harness)"),
+    ("refuse", "act"): "[NetSync] harness: worldwalk refuse act",
+    ("stallhold", "old"): ("[NetSync] harness: worldwalk stallhold old -- CALIBRATION: s166 exactly, a stall lifts a world-paired guest's "
+                           "key mask, freeze and world-battle skip (released with the harness)"),
+    ("stallhold", "act"): "[NetSync] harness: worldwalk stallhold act",
+    ("decline", "old"): ("[NetSync] harness: worldwalk decline old -- CALIBRATION: s166 exactly, the decline lines never re-arm at a new "
+                         "world-map visit and the kit-cell line re-arms at every world load (released with the harness)"),
+    ("decline", "act"): "[NetSync] harness: worldwalk decline act",
+    ("fp", "off"): ("[NetSync] harness: worldwalk fp off -- CALIBRATION: s166 exactly, my caps word lacks the world fingerprint (no digest, "
+                    "no section 11, s166's why byte to every partner; the next world load is not fingerprinted; the walk refuses fp_off; "
+                    "released with the harness)"),
+    ("fp", "old"): ("[NetSync] harness: worldwalk fp old -- CALIBRATION: the fingerprint's dry run, a walk that would be free stays frozen as "
+                    "fp_old (\"would walk\"; released with the harness)"),
+    ("fp", "act"): "[NetSync] harness: worldwalk fp act",
+    ("tps", "apply"): ("[NetSync] harness: worldwalk tps apply -- the owner's trial: from the next world load the host's WorldTPS is applied "
+                       "at both SetMainLoopSpeed sites and held for that visit (SmoothFrameUpdater_World still reads the ini; released with "
+                       "the harness)"),
+    ("tps", "report"): "[NetSync] harness: worldwalk tps report",
+    ("minimap", "old"): ("[NetSync] harness: worldwalk minimap old -- CALIBRATION: s166 exactly, a frozen guest's Select on the minimap asks "
+                         "for the full map (the buzz, `world.freeze.map` +1: the minimap stays open) and s165's minimap hint never latches "
+                         "quiet (released with the harness)"),
+    ("minimap", "act"): "[NetSync] harness: worldwalk minimap act",
+    ("fullmap", "old"): ("[NetSync] harness: worldwalk fullmap old -- CALIBRATION: s166 exactly, the full map stays refused to every frozen "
+                         "guest (a walker too), with no full-map dot, no co-op close before a rejoin, a boot or the ramp, and no close-map "
+                         "line (released with the harness)"),
+    ("fullmap", "act"): "[NetSync] harness: worldwalk fullmap act",
+}
+
+
+def ww_b_ack(op: str, word: str) -> str:
+    """A round-B lever's ack: the engine's whole line."""
+    return WORLDWALK_B_ACKS[(str(op).lower(), str(word).lower())]
+
+
+def ww_fp_fake_parse(word):
+    """`fp fake <hex>`'s word: 1-8 hex digits with an optional 0x; None = refused (the usage line)."""
+    t = str(word or "").strip()
+    if t[:2] in ("0x", "0X"):
+        t = t[2:]
+    if not 1 <= len(t) <= 8 or any(ch not in "0123456789abcdefABCDEF" for ch in t):
+        return None
+    return int(t, 16)
+
+
+def log_ww_fp_fake(v: int) -> str:
+    """`fp fake`'s ack."""
+    return (f"[NetSync] harness: worldwalk fp fake 0x{int(v) & 0xFFFFFFFF:08X} -- my world map meshes component (c2) reads this word: my "
+            "digest differs from my partner's and my line names the world map meshes (the bench host keeps my real one; released with the "
+            "harness)")
+
+
+def worldwalk_usage_of_s167(world) -> str:
+    """The `worldwalk` usage line an engine answers, by its `netsync.world` block: s167's when it carries `walk` (THE CATCH IS THE KEY), else
+    round A's (worldwalk_usage_of)."""
+    world = world if isinstance(world, dict) else {}
+    return WORLDWALK_USAGE_S167 if "walk" in world else worldwalk_usage_of(world)
+
+
+# ---- THE LOG LINES (the engine's text; a bench greps each prefix, the builders give the whole line)
+LOG_WW_WALK_FREE = "[NetSync] world walk FREE on world map "
+LOG_WW_WALK_FROZEN = "[NetSync] world walk FROZEN ("
+LOG_WW_ENTRY_PRESS = "[NetSync] an entrance press ("
+LOG_WW_DECLINE_REARMED = "[NetSync] world decline lines re-armed: a new world-map visit ("
+LOG_WW_HOST_WALK = "[NetSync] host world: the partner's walk -- "
+LOG_WW_FP_COST = "[NetSync] world fingerprint: world map "
+LOG_WW_FP_MISMATCH = "[NetSync] world fingerprint: my world map "
+LOG_WW_FP_HOST = "[NetSync] host world fingerprint: the partner's world map "
+LOG_WW_FP_CHECKING = "[NetSync] world fingerprint: still checking after "
+LOG_WW_MINIMAP_CLOSED = "[NetSync] world minimap closed by Select on world map "
+LOG_WW_MAP_OPENS = "[NetSync] world map: the full map opens for the walking guest on world map "
+LOG_WW_MAP_CLOSED = "[NetSync] world map: the full map closed for "
+LOG_WW_WALK_FAULT = "[NetSync] world walk fault ("
+#: the ack the release says (round A's words, now also for round B's levers)
+LOG_WORLDWALK_RELEASED_S167 = LOG_WORLDWALK_RELEASED
+
+
+def log_ww_walk_free(world: int) -> str:
+    return (f"{LOG_WW_WALK_FREE}{int(world)}: the guest walks its own copy on foot (the host on foot on this world map; entering a location "
+            "stays the host's)")
+
+
+def log_ww_walk_frozen(why: int, world: int, autopilot: bool = False) -> str:
+    return (f"{LOG_WW_WALK_FROZEN}{ww_walk_why_name(why)}) on world map {int(world)}: {ww_walk_why_text(why)} -- travel input held"
+            + (" (the airship autopilot cancelled)" if autopilot else ""))
+
+
+def log_ww_freeze_on_walk(who, why: int, world: int, autopilot: bool = False) -> str:
+    """WorldFreezeEdge's line on the s167 engine: `walk off` (WalkLever) s166's words exactly, else "the walk waits (<why>: <words>)"."""
+    if int(why) == WW_WALK_LEVER:
+        return "[NetSync] " + log_world_freeze_on(who, world, autopilot)
+    return (f"[NetSync] world freeze ON ({who or '?'}) on world map {int(world)}: travel input held -- the walk waits "
+            f"({ww_walk_why_name(why)}: {ww_walk_why_text(why)})" + (" (the airship autopilot cancelled)" if autopilot else ""))
+
+
+def ww_entry_decline_class(entry: int) -> str:
+    """The entrance line's DeclineOnce world class ("world entrance (<class>)": once per class per visit)."""
+    return f"world entrance ({ww_entry_name(entry)})"
+
+
+def ww_entry_press_what(entry: int, sid: int, place: int) -> str:
+    """The entrance press's DeclineOnce words (its `what`: DeclineOnceHere appends " suppressed (following guest) on world map W")."""
+    return (f'an entrance press ({ww_entry_name(entry)}: reader entry {int(sid)}, place {int(place)}) -- the buzz and '
+            f'"{WORDS_WW_ENTRY_REFUSED}"')
+
+
+def log_ww_entry_press(entry: int, sid: int, place: int, world: int) -> str:
+    """The entrance press's line (DeclineOnceHere's words)."""
+    return "[NetSync] " + decline_line(ww_entry_press_what(entry, sid, place), f"world map {int(world)}")
+
+
+def log_ww_decline_rearmed(n: int) -> str:
+    return (f"{LOG_WW_DECLINE_REARMED}{int(n)} class" + ("" if int(n) == 1 else "es")
+            + " will speak once more; a warm battle return never re-arms)")
+
+
+def log_ww_minimap_closed(world: int) -> str:
+    return (f"{LOG_WW_MINIMAP_CLOSED}{int(world)} (following guest, frozen): straight to no minimap -- no buzz, control untouched, Select "
+            "opens it again; s165's minimap hint stays quiet for this world-map visit")
+
+
+def log_ww_map_opens(world: int) -> str:
+    return (f"{LOG_WW_MAP_OPENS}{int(world)} (decision 8: the partner's dot rides it, its location pick stays the host's; a rejoin, the host's "
+            "world battle or the session's end closes it first)")
+
+
+def ww_map_close_words(site: str, dest: int = -1) -> str:
+    """MapCloseWords: the rejoin to field N, the host's world battle, the session's exit ramp."""
+    return {"rejoin": f"the rejoin to field {int(dest)}", "boot": "the host's world battle", "ramp": "the session's exit ramp"}[site]
+
+
+def log_ww_map_closed(site: str, world: int, dest: int = -1) -> str:
+    return (f"{LOG_WW_MAP_CLOSED}{ww_map_close_words(site, dest)} on world map {int(world)} -- WorldHUD's own Select close replayed (control "
+            "back; no minimap until the next Select)")
+
+
+def log_ww_caps(role: str, own_caps: int, peer_caps: int) -> str:
+    """The missing-caps line past the stamp ("[NetSync] <role> " + CapsLineText)."""
+    return f"[NetSync] {role} {ww_caps_line_text(own_caps, peer_caps)}"
+
+
+def log_ww_tps(role: str, own: int, peer: int, apply: bool = False) -> str:
+    return (f"[NetSync] {role} {ww_tps_line_text(own, peer)}"
+            + (" -- `worldwalk tps apply` takes the host's at the next world load" if apply else ""))
+
+
+def log_ww_tps_held(held: int, ini: int) -> str:
+    return (f"[NetSync] world speed: `worldwalk tps apply` holds the host's WorldTPS {int(held)} for this world-map visit (my [Graphics] "
+            f"WorldTPS {int(ini)}) -- the owner's trial: both SetMainLoopSpeed sites read it; SmoothFrameUpdater_World still reads the ini")
+
+
+def log_ww_tps_unknown(ini: int) -> str:
+    return f"[NetSync] world speed: `worldwalk tps apply` knows no host WorldTPS yet -- my [Graphics] WorldTPS {int(ini)} stands this visit"
+
+
+def log_ww_tps_ends(was: int, ini: int) -> str:
+    return (f"[NetSync] world speed: the held WorldTPS {int(was)} ends at this world load (`worldwalk tps report`) -- my [Graphics] "
+            f"WorldTPS {int(ini)} stands")
+
+
+def log_ww_host_walk(line: int, state: int, why: int, caps: int) -> str:
+    """HostWalkLog's edge line past the stamp."""
+    return (f'{LOG_WW_HOST_WALK}{ww_world_line_s167_name(line)} ("{ww_world_line_s167_text(line)}") -- the guest\'s state '
+            f"0x{int(state) & 0xFF:02X}, why 0x{int(why) & 0xFF:02X}, caps 0x{int(caps) & 0xFFFF:04X}")
+
+
+def ww_fp_named_text(named: int, own=None, sec=None, own_lang: str = None, sec_lang: str = None, sec_world: int = -1,
+                     has_section: bool = True) -> str:
+    """The guest mismatch line's <named> (FpNamedText)."""
+    if not has_section:
+        return "no component named (no section 11 from the host)"
+    if named == WW_FP_NAME_STALE:
+        return f"no component named (the host's section 11 is world map {int(sec_world)}'s)"
+    if named == WW_FP_LANG:
+        return f"the language (mine {own_lang}, the host's {sec_lang}: the loaded language only)"
+    if named >= 0:
+        return (f"the {ww_fp_comp_word(named)} ({ww_fp_comp_name(named)}: mine 0x{int(own[named]) & 0xFFFFFFFF:08X}, the host's "
+                f"0x{int(sec[named]) & 0xFFFFFFFF:08X})")
+    return "no component named (the host's section 11 holds no differing component: the digests alone differ)"
+
+
+def log_ww_fp_mismatch(world: int, named_text: str, owner_line: str) -> str:
+    return (f'{LOG_WW_FP_MISMATCH}{int(world)} differs from the host\'s -- {named_text} -- the walk stays frozen ("{owner_line}"); s165\'s '
+            "follow-out is never gated by it")
+
+
+def log_ww_fp_host(world: int, own: int, guest: int) -> str:
+    return (f"{LOG_WW_FP_HOST}{int(world)} differs from mine (my digest 0x{int(own) & 0xFFFFFFFF:08X}, the guest's "
+            f'0x{int(guest) & 0xFFFFFFFF:08X}) -- "{WORDS_WW_HOST_FP_DIFFERS}" (the guest\'s own line names the component)')
+
+
+#: the proof's tallies on the s167 engine (B0 455/156 -> B1-B3 478/164 -> B4-B5 510/182 -> B6 529/194 -> the review 532/196) -- a FALLBACK
+#: only: the stand-in and the bench DERIVE them from the engine's source (world_walk_proof_counts)
+WORLD_WALK_PROOF_S166 = (323, 110)
+WORLD_WALK_PROOF_S167 = (532, 196)
+#: the overlay text selftest's rows by stage (s144-s166: 50; s167: + the s167 tail -- 7 rows at B1-B3, 1 at B6)
+OVERLAY_TEXT_SELFTEST_ROWS_S167 = 58
+
+
+def overlay_text_selftest_rows(stage: int) -> int:
+    """The overlay text selftest's row count by engine stage (``stage`` 166 or older: 50; 167: 58)."""
+    return OVERLAY_TEXT_SELFTEST_ROWS_S167 if int(stage) >= 167 else OVERLAY_TEXT_SELFTEST_ROWS

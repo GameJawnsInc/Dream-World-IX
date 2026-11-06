@@ -95,6 +95,8 @@ def fake_for(t, run):
     f = FG.FakeGame(t, fps=600, walkmesh=(-2000.0, -3000.0, 2000.0, 2000.0))
     if run.get("caps"):
         f.netsync_caps = FG.caps_through(run["caps"])
+    if run.get("s167"):                                    # [ff9mapkit netsync s167] round B's piece "b" (the default: the deployed s166)
+        f.world_walk_pieces = tuple(FG.FAKE_WORLD_WALK_S167_PIECES)
     if run.get("door", True):
         f.regions = {6603: [{"zone": cw.FS_DOOR, "world": cw.WORLD, "world_at": list(cw.FS_LANDING)}]}
     f.exit_frames = 900
@@ -578,6 +580,12 @@ REAL_FOLLOW_OFF = cw.follow_off
 def rekey(run):
     POSE[0] = bool(run.get("pose", True))
     cw.follow_off = REAL_FOLLOW_OFF if run.get("rekey", True) else (lambda g: (True, "s165 re-key: STOOD DOWN (the test)"))
+    walkset(run)
+
+#: [ff9mapkit netsync s167] `walkset` False stands round B's re-key down (cw.walk_off: P1's, follow_off's, the held leg's, the duo host's)
+REAL_WALK_OFF = cw.walk_off
+def walkset(run):
+    cw.walk_off = REAL_WALK_OFF if run.get("walkset", True) else (lambda g, **k: (True, "s167 re-key: STOOD DOWN (the test)"))
 
 def stubs(module_pb, rule="", intent_lead=0.0, lane_stale_s=0.0):
     module_pb.IniGuard = StubIni
@@ -591,6 +599,7 @@ PROBS = {"init": FG.FAKE_WORLD_BATTLE_PROB_INIT, "reinit": FG.FAKE_WORLD_BATTLE_
 wb.world_prob_oracle = lambda game: (dict(PROBS), "the stand-in's world (FakeGame's op-26 values)")
 
 def solo(run):
+    walkset(run)
     t = root(run.get("ini"))
     wb.read_oracle = (lambda game: {"problems": run["oracle_problems"], "facts": {"battle_prob": dict(PROBS)}}) \
         if run.get("oracle_problems") else (lambda game: {"problems": {}, "facts": {"stand-in": True, "battle_prob": dict(PROBS)}})
@@ -2678,3 +2687,42 @@ def test_the_world_battle_recorder_records_a_swirl_hang_as_the_instrument():
     assert "wbm._state_every(g, 1)" in head and "import coop_world_battle as wbm" in head
     assert 'wbm.hang_check(g, "the recorder\'s world battle")' in tail and "except wbm.SwirlHang as hang:" in tail
     assert "SWIRL-HANG -- the instrument" in tail and "wbm._state_every(g, 2)" in tail
+
+
+# ------------------------------------------------------------------------------------------------ [ff9mapkit netsync s167] round B's re-key
+def test_s167_the_regression_rekey_keeps_every_leg_s145s():
+    """[ff9mapkit netsync s167] THE REGRESSION RE-KEY, ROUND B (S166-DESIGN.md "Regression"; coop_world_wait.walk_off): on the s167
+    stand-in (round B's piece "b") every leg here pulls round B's whole s166 lever set -- the solo leg at P1, T2 battle / decline through
+    follow_off (WB-I / WD-I), the held leg on its own (HF-I), the duo on both games (D0; the stub-linked host stand-in is co-op off and is
+    sent nothing) -- and is green, every frozen row reading the walk frozen BY THE LEVER (A, FROZEN, WB-RET / DR's 'still frozen', HF-I,
+    D2). Stood down, exactly the stage keys go red: A (the solo instrument: the rows after it unreached), WB-I (T2's instrument), D2 and
+    DR, HF-I (the held instrument). Re-keyed by stage, never weakened."""
+    runs = _child({"runs": {"solo": {"kind": "solo", "s167": True}, "solo_off": {"kind": "solo", "s167": True, "walkset": False},
+                            "battle": {"kind": "t2", "leg": "battle", "s167": True},
+                            "battle_off": {"kind": "t2", "leg": "battle", "s167": True, "walkset": False},
+                            "decline": {"kind": "t2", "leg": "decline", "s167": True},
+                            "duo": {"kind": "duo", "s167": True}, "duo_off": {"kind": "duo", "s167": True, "walkset": False}}})
+    held = _child({"runs": {"held": {"kind": "t2", "leg": "held", "s167": True},
+                            "held_off": {"kind": "t2", "leg": "held", "s167": True, "walkset": False}}, "speed": HELD_SPEED})
+    runs.update(held)
+    for name in ("solo", "battle", "decline", "duo", "held"):
+        assert runs[name]["red"] == [], (name, {c: runs[name]["detail"][c] for c in runs[name]["red"]})
+    want = "s167 re-key: round B's s166 lever set (walk off, refuse silent, stallhold old, decline old, fp off, minimap old, fullmap old)"
+    s = runs["solo"]["detail"]
+    assert want in s["S145-P1"] and "'walk', 'fp']" in s["S145-P0"]
+    assert "why 'lever'" in s["S145-A"] and "why 'lever'" in s["S145-FROZEN"]
+    assert want in runs["battle"]["detail"]["S145-WB-I"] and "why 'lever'" in runs["battle"]["detail"]["S145-WB-RET"]
+    assert want in runs["decline"]["detail"]["S145-WD-I"]
+    assert want in runs["held"]["detail"]["S145-HF-I"] and "why 'lever'" in runs["held"]["detail"]["S145-HF-RET"]
+    d = runs["duo"]["detail"]
+    assert want in d["S145-D0"] and "the host's s167 re-key: co-op is off" in d["S145-D0"] and "why 'lever'" in d["S145-D2"]
+    assert "why 'lever'" in d["S145-DR"]
+    so = runs["solo_off"]
+    assert "S145-A" in so["red"] and so["detail"]["S145-A"].startswith("STAGE KEY"), so["detail"]["S145-A"]
+    assert all(so["detail"][c].startswith("not reached: the instrument (S145-A)") for c in so["red"] if c != "S145-A"), so["red"]
+    bo = runs["battle_off"]
+    assert "S145-WB-I" in bo["red"] and "(want frozen, why 'lever')" in bo["detail"]["S145-WB-I"], bo["detail"]["S145-WB-I"]
+    assert runs["duo_off"]["red"] == ["S145-D2", "S145-DR"], {c: runs["duo_off"]["detail"][c] for c in runs["duo_off"]["red"]}
+    assert all("STAGE KEY" in runs["duo_off"]["detail"][c] for c in ("S145-D2", "S145-DR"))
+    ho = runs["held_off"]
+    assert "S145-HF-I" in ho["red"] and "(want frozen, why 'lever')" in ho["detail"]["S145-HF-I"], ho["detail"]["S145-HF-I"]

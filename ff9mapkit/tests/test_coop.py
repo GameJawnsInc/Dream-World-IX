@@ -1029,3 +1029,52 @@ def test_split_mod_section_is_named_not_left_silent(game):
     assert any("FolderNames more than once" in line for line in said), said
     said.clear()
     assert not coop.warn_split_mod_section(INI, out=said.append) and not said
+
+
+# ------------------------------------------------- [ff9mapkit netsync s167] the guest's world-map words (decision 24, B7's Python half)
+def _guest_terms() -> str:
+    """coopdoc.GUEST_TERMS read off its source (the module imports PySide6; the words are a literal)."""
+    import ast
+    from pathlib import Path
+    src = (Path(coop.__file__).resolve().parent / "workspace" / "coopdoc.py").read_text(encoding="utf-8")
+    for node in ast.parse(src).body:
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "GUEST_TERMS" for t in node.targets):
+            return ast.literal_eval(node.value)
+    raise AssertionError("coopdoc.GUEST_TERMS is gone")
+
+
+def _follow_host_help() -> str:
+    from ff9mapkit import cli
+    parser = cli.build_parser()
+    sub = next(a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction")
+    return next(a.help for a in sub.choices["coop"]._actions if "--follow-host" in a.option_strings)
+
+
+def test_the_guests_world_map_words_say_it_walks_and_what_stays_the_hosts(game, no_clip):
+    """From s167 a following guest WALKS its own copy of the early world maps (9002, 9010, 9011) on foot, while going into places,
+    vehicles and the full map's travel stay the host's, and it rejoins the host at the next stop; elsewhere on the world map (and while
+    the host rides) it waits as before. Every surface that tells a guest what following means says so -- the Workspace's guest card
+    (GUEST_TERMS), tutorial 17, the CLI's `--follow-host` help, coop.py's own docstring and `coop join`'s visitor lines -- and none keeps
+    s144's blanket "on the world map the host drives"."""
+    from pathlib import Path
+    tutorial = (Path(coop.__file__).resolve().parents[1] / "docs" / "tutorials" / "17-coop.md").read_text(encoding="utf-8")
+    bullet = next(b for b in tutorial.split("\n- ") if "world map" in b and "on foot" in b)
+    rc, lines = _coop(game, "join", "ff9-ABCD1234", follow_host="on")
+    assert rc == 0
+    visitor = " ".join(ln for ln in lines if "visitor:" in ln)
+    doc = coop.__doc__.split("--follow-host on", 1)[1].split("(The battle diorama", 1)[0]
+    surfaces = (("GUEST_TERMS", _guest_terms()), ("tutorial 17", bullet), ("--follow-host help", _follow_host_help()),
+                ("coop.py's docstring", doc), ("the visitor lines", visitor))
+    for name, text in surfaces:
+        flat = " ".join(text.split())
+        assert "on foot" in flat and "early world maps" in flat, (name, flat)
+        assert "next stop" in flat, (name, flat)
+        assert re.search(r"\b(places|a place|locations?|an entrance)\b", flat) and re.search(r"\bvehicles?\b", flat), (name, flat)
+        assert "full map" in flat, (name, flat)
+        assert not re.search(r"on the world map the host drives", flat, re.I), (name, flat)
+    for name, text in surfaces[2:]:                              # the CLI surfaces name the three worlds
+        assert "9002, 9010, 9011" in " ".join(text.split()), name
+    # `coop show` keeps its one-line summary, now with the walk
+    rc, lines = _coop(game, "show")
+    shown = [ln for ln in lines if "follow-host:" in ln]
+    assert rc == 0 and shown and shown[0].strip().startswith("follow-host: ON") and "on foot" in shown[0], shown

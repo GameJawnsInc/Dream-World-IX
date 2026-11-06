@@ -77,7 +77,8 @@ def test_the_tables_name_rows_the_legs_carry_and_faults_the_stand_in_has(t2):
     assert t2.DUO_LEVER_PREDICTED["sticky"] == ("S166-D-BATTLE",)
     assert t2.FAULT_REDS["duo"]["tx_commit_blind"] == ("S166-D-LINES",)
     assert all(f in faults for f in t2.LEVER_IGNORED.values())
-    assert set(t2.LEVERS) == set(t2.LEGS)
+    # [ff9mapkit netsync s167] round B's T2 legs share LEGS (COOP_WWT_LEG) but keep their own tables (test_coop_world_walk_t2_b.py)
+    assert set(t2.LEVERS) == set(t2.LEGS) - set(t2.B_T2_LEGS)
     # the gate row is never part of a calibration (its verdict is the tape's, not the engine's)
     assert "S166-RM-GATE" not in t2.ROAM_OLD_PREDICTED and all("S166-RM-GATE" not in r for r in t2.ROAM_LEVER_PREDICTED.values())
     assert t2.lever_of("roam", None) == "ghost" and t2.lever_of("roam", "nope") is None and t2.lever_of("duo", "dot") == "dot"

@@ -1154,11 +1154,25 @@ def _s166_verb_words() -> tuple:
     its structure (never off the words themselves): A4 once NetSyncClient calls into NetSyncWorldGhost, A3 once it carries WorldLaneStep,
     else A0b's -- each piece GROWS both lines, so an earlier piece's whole line is no longer in a later source."""
     client = _s166_text("NetSyncClient.cs")
+    if "WorldWalkWhyNow(" in client:
+        # [ff9mapkit netsync s167] round B (on the stack once ITS patch lands): the usage grown by its nine ops; the clear line keeps A4's
+        # words as its first literal and adds round B's suffix as a second (BW.LOG_WORLDWALK_CLEAR_S167 joins them)
+        return BW.WORLDWALK_USAGE_S167, BW.LOG_WORLDWALK_CLEAR_A4
     if "NetSyncWorldGhost." in client:
         return BW.WORLDWALK_USAGE_A4, BW.LOG_WORLDWALK_CLEAR_A4
     if "private void WorldLaneStep(" in client:
         return BW.WORLDWALK_USAGE_A3, BW.LOG_WORLDWALK_CLEAR_A3
     return BW.WORLDWALK_USAGE, BW.LOG_WORLDWALK_CLEAR
+
+
+def _round_a_world_keys(world: dict) -> list:
+    """[ff9mapkit netsync s167] BY STAGE: `netsync.world`'s keys through round A's -- once round B's patch is on the stack its `walk` and
+    `fp` are world's last two (after A4's `ghost`), and they come off here (test_coop_world_walk_b pins them)."""
+    keys = list(world)
+    if any(nm.startswith("s167-") and nm not in msr.DEAD for nm in msr.stack()):
+        assert keys[-len(BW.WORLD_S167_KEYS):] == list(BW.WORLD_S167_KEYS), keys
+        return keys[:-len(BW.WORLD_S167_KEYS)]
+    return keys
 
 
 def _s166_catch_world() -> dict:
@@ -1177,7 +1191,7 @@ def _s166_catch_world() -> dict:
 def test_s166_the_catch_line_carries_kitcell_at_its_sentinel_after_dot():
     world = _s166_catch_world()
     # [ff9mapkit netsync s166] the prefix law: `kitcell` right after s165's `dot`; A0b's `pairpull` (when the source carries it) after it
-    keys = list(world)
+    keys = _round_a_world_keys(world)
     tail = keys[keys.index("dot"):] if "dot" in keys else keys
     # [ff9mapkit netsync s166] W2: round A's keys in their order -- A0's alone, + A0b's, + A3's two, + A4's, by the source's stage
     assert len(tail) in (2, 3, 5, 6) and tail == ["dot"] + list(BW.WORLD_S166_ROUND_A_KEYS[:len(tail) - 1]), keys
@@ -1791,6 +1805,8 @@ def fake_for(t, run):
         f.netsync_caps = FG.caps_through(run["caps"])
     if run.get("a0"):
         f.world_walk_pieces = FG.FAKE_WORLD_WALK_A0_BUILD
+    if run.get("s167"):                                       # [ff9mapkit netsync s167] round B's piece "b" (the default: the deployed s166)
+        f.world_walk_pieces = tuple(FG.FAKE_WORLD_WALK_S167_PIECES)
     f.pairing_window = dict(FG.FAKE_PAIRING_WINDOW)
     f.regions = {6603: [{"zone": cw.FS_DOOR, "world": cw.WORLD, "world_at": list(cw.FS_LANDING)}]}
     f.exit_frames = 900
@@ -2251,7 +2267,7 @@ def test_s166b_the_catch_line_carries_pairpull_at_its_sentinel_after_kitcell():
     world = _s166_catch_world()
     if "pairpull" not in world:
         pytest.skip("this s166 source carries A0 alone (A0b not emitted yet)")
-    keys = list(world)                                                  # [ff9mapkit netsync s166] W2: A3 / A4 may follow (by stage)
+    keys = _round_a_world_keys(world)                                   # [ff9mapkit netsync s166] W2: A3 / A4 may follow (by stage)
     assert keys[keys.index("dot"):keys.index("dot") + 3] == ["dot", "kitcell", "pairpull"], keys
     assert keys[keys.index("dot") + 1:] == list(BW.WORLD_S166_ROUND_A_KEYS[:len(keys) - keys.index("dot") - 1]), keys
     assert json.dumps(world["pairpull"]) == json.dumps(CONTRACT_PAIRPULL)
@@ -2802,3 +2818,17 @@ def test_s166a_the_engine_publishes_every_key_and_line_the_solo_rows_judge():
     assert '"ANH_" + geoName.Substring(4) + "_STAND"' in walk and "return -yawDeg - 90f;" in walk
     for name in ("other_world", "riding", "peer_scene", "peer_block", "stale", "lever"):
         assert f'"{name}"' in walk, name
+
+
+def test_s167_the_pair_leg_pulls_round_bs_set_before_the_replay_and_reads_s166():
+    """[ff9mapkit netsync s167] THE REGRESSION RE-KEY, ROUND B: the pulled guest lands FROZEN on 9011, so on the s167 stand-in A0b's T2-A
+    pair leg pulls round B's whole s166 lever set on its guest before the replay (folded into T2-PEER, the instrument) and every row is
+    green as on s166; `worldwalk clear` at its end. On the deployed-s166 stand-in nothing of round B is sent (the probe)."""
+    runs = _pair_child({"runs": {"s167": {"kind": "pair", "s167": True}, "s166": {"kind": "pair"}}})
+    r, old = runs["s167"], runs["s166"]
+    assert r["red"] == [], {c: r["detail"][c] for c in r["red"]}
+    want = ["worldwalk walk off", "worldwalk refuse silent", "worldwalk stallhold old", "worldwalk decline old", "worldwalk fp off",
+            "worldwalk minimap old", "worldwalk fullmap old"]
+    assert [s for s in r["sent"] if s in want] == want and "worldwalk clear" in r["sent"], r["sent"]
+    assert "round B's s166 lever set" in r["detail"]["T2-PEER"] and "NOT read back" not in r["detail"]["T2-PEER"]
+    assert old["red"] == [] and not any(s in want for s in old["sent"]), old["sent"]

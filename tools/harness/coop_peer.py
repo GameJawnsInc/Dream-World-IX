@@ -305,6 +305,12 @@ PLACE_NAMES = {PLACE_NONE: "none/title", PLACE_FIELD: "field live", PLACE_TRANSI
 (ST_FROZEN, ST_WALKING, ST_CONTROL, ST_FULLMAP, ST_MISMATCH, ST_WORLDOUT, ST_SCENE, ST_VISIBLE) = (1 << i for i in range(8))
 #: the flags byte (93): b0 I follow (`_followHost` on the client role)
 FLAG_FOLLOW = 0x01
+#: [ff9mapkit netsync s167] the caps words an engine speaks: s166's (b0, the world pose) and s167's (b0 + b1, the world fingerprint; an s167
+#: engine under `worldwalk fp off` speaks s166's). The digest (88-91) rides only a caps-b1 sender's place-4 trailer (FpTxDigestRule: 0 =
+#: checking); a host adds section 11 (SECTION_FP) between sections 10 and 7 only to a b1 guest.
+CAPS_S166 = CAP_WORLD_POSE
+CAPS_S167 = CAP_WORLD_POSE | CAP_WORLD_FP
+SECTION_FP = BW.SECTION_FP
 
 
 def build_world_trailer(*, caps: int = CAP_WORLD_POSE, seq: int = 0, ms: int = 0, place: int = PLACE_NONE, state: int = 0,
@@ -338,18 +344,19 @@ TFMT0_TRAILER = bytes(TRAILER_LEN)
 TRAILER_MODES = ("auto", "tfmt0", "off")
 
 
-def keepalive_trailer(world_tps: int) -> bytes:
+def keepalive_trailer(world_tps: int, caps: int = CAP_WORLD_POSE) -> bytes:
     """[ff9mapkit netsync s166] NetSyncWire.KeepaliveTrailer: the trailer on the relay constructor's 65535 sentinel (every v15 frame
     carries one, the sentinel included -- decision 2): tfmt 1, caps OwnCaps (b0), place 0, seq / ms / state / why / flags 0, the
     world block and the digest zeroed, worldTps the sender's [Graphics] WorldTPS clamped to 0..255 (NetSyncWirePeer.OwnWorldTps).
-    The writer re-sends that slot unchanged until the game's first SetLocal, so its seq never advances."""
-    return build_world_trailer(caps=CAP_WORLD_POSE, place=PLACE_NONE, world_tps=max(0, min(255, int(world_tps))))
+    The writer re-sends that slot unchanged until the game's first SetLocal, so its seq never advances. [ff9mapkit netsync s167] ``caps``:
+    the two-argument KeepaliveTrailer(worldTps, caps) an s167 relay builds with its LIVE word (0x0003; the one-argument form still 0x0001)."""
+    return build_world_trailer(caps=int(caps), place=PLACE_NONE, world_tps=max(0, min(255, int(world_tps))))
 
 
-def keepalive_payload(world_tps: int) -> bytes:
+def keepalive_payload(world_tps: int, caps: int = CAP_WORLD_POSE) -> bytes:
     """[ff9mapkit netsync s166] The relay keepalive's whole v15 type-0 payload (94 B): BuildPosPayload(65535, 0, 0, 0, 0, zero,
     identity, 0, 0) -- the s157 record byte for byte -- then :func:`keepalive_trailer`."""
-    return build_pos_payload(FIELD_SENTINEL, rot=(0.0, 0.0, 0.0, 1.0), anim_frame=0, frame_n=0) + keepalive_trailer(world_tps)
+    return build_pos_payload(FIELD_SENTINEL, rot=(0.0, 0.0, 0.0, 1.0), anim_frame=0, frame_n=0) + keepalive_trailer(world_tps, caps)
 
 
 def trailer_kind(payload) -> str:
@@ -408,7 +415,8 @@ def trailer_text(tr: dict | None, payload=None) -> str:
     if tr["place"] == PLACE_WORLD:
         x, _y, z = tr["pos"]
         text += f" world {tr['world']} at ({x:.1f}, {z:.1f}) yaw {tr['yaw']:.0f} mode {tr['mode']}"
-    return text + f" caps 0x{tr['caps']:04X} seq {tr['seq']} state 0x{tr['state']:02X} flags 0x{tr['flags']:02X}"
+    return (text + f" caps 0x{tr['caps']:04X} seq {tr['seq']} state 0x{tr['state']:02X} flags 0x{tr['flags']:02X}"
+            + (f" digest 0x{tr['digest']:08X}" if tr.get("digest") and tr["caps"] & CAP_WORLD_FP else ""))      # [ff9mapkit netsync s167] an s167 sender's fingerprint
 
 
 def build_pos_frame(field: int, wire: int = WIRE_DEFAULT, trailer: bytes = b"", **kw) -> bytes:
@@ -1220,7 +1228,7 @@ class WorldWalkPlan:
 
     def __init__(self, *, route=WORLD_ROAM_ROUTE, ups: float = WALK_UPS, world: int = WALK_WORLD, model: int | None = None,
                  anim: int = 0, out_s: float = WALK_OUT_S, load_s: float = WALK_LOAD_S, state: int = WALK_STATE, scenes=(),
-                 follow: bool = True, y: float = 0.0, tps: int = WALK_TPS, caps: int = CAP_WORLD_POSE):
+                 follow: bool = True, y: float = 0.0, tps: int = WALK_TPS, caps: int | None = None):
         self.route = tuple(route)
         self.ups = float(ups)
         self.world = int(world)
@@ -1232,7 +1240,7 @@ class WorldWalkPlan:
         self.follow = bool(follow)
         self.y = float(y)
         self.tps = int(tps)
-        self.caps = int(caps)
+        self.caps = None if caps is None else int(caps)   # [ff9mapkit netsync s167] None = the guest model decides (GuestModel.caps_now)
 
     def phase(self, s: float) -> str:
         """'out' | 'load' | 'world' at session second ``s``."""
@@ -1245,7 +1253,7 @@ class WorldWalkPlan:
         off place 4."""
         ph = self.phase(s)
         flags = FLAG_FOLLOW if self.follow else 0
-        base = {"caps": self.caps, "world_tps": self.tps, "flags": flags}
+        base = {"caps": CAP_WORLD_POSE if self.caps is None else self.caps, "world_tps": self.tps, "flags": flags}
         if ph == "out":
             return world_block_zeroed(dict(base, place=PLACE_TRANSITION, state=ST_WORLDOUT))
         if ph == "load":
@@ -1282,9 +1290,20 @@ class GuestModel:
     def __init__(self, *, field: int | None = None, offset=(0.0, 0.0, 0.0), report=None, menu: int = 0,
                  live_after: float = 0.0, anim: int | None = None, loco: int | None = None, frame="echo",
                  frame_step: int = 0, trailer: str = "auto", follow: bool = True, walk: WorldWalkPlan | None = None,
-                 gaps=()):
+                 gaps=(), caps="auto", digest="echo", walk_why: int = 0):
         self._lock = threading.Lock()
         self.field = field
+        # [ff9mapkit netsync s167] THE CAPS WORD and THE DIGEST this guest speaks: ``caps`` "auto" adopts the HOST's (its latest trailer's word:
+        # 0x0003 from an s167 host, 0x0001 from an s166 one -- a guest of the host's own build), an int pins it (``--caps 1``: an s166-shaped
+        # guest, no fingerprint); ``digest`` "echo" sends the host's own last digest (a guest of the same world content: the walk's term 10
+        # holds), an int pins it (a mismatch, or 0 = checking). The digest rides only a caps-b1 trailer on place 4 (FpTxDigestRule).
+        self.caps = caps
+        self.digest = digest
+        # ...and its walk why on place 4 (``--walk-why``: 0 = walking free / none), packed into byte 50 AS THE ENGINE GATES IT: W3C-4's
+        # class (WhyByteRule, rule 2) only when BOTH caps words carry b1 (WhyClassesOnRule), else s166's raw world-out byte (0 here)
+        self.walk_why = int(walk_why)
+        self.host_caps = None                              # the host's latest trailer caps word (None = no trailer yet)
+        self.host_digest = 0                               # ...and its last nonzero digest
         # [ff9mapkit netsync s166] THE v15 RECORD: ``trailer`` "auto" appends decision 4's world trailer to every 39-byte type-0 frame
         # sent at wire >= 15 (a v15 engine always does: place 1 on a real field, else 0, the world block zeroed), "tfmt0" the engine's
         # `pose off` trailer (55 zero bytes: a capless v15 peer at 94 B; the 65535 sentinel keeps the relay keepalive's), "off" never (a
@@ -1345,6 +1364,10 @@ class GuestModel:
                     if key != self.host_trailer_key and (self.host_trailer_key is not None or tr is not None):
                         ev.append(HOST_WORLD_TRAILER_LINE.format(text=trailer_text(tr, payload)))
                     self.host_trailer_key = key
+                    if tr is not None:                     # [ff9mapkit netsync s167] the host's caps word and fingerprint
+                        self.host_caps = int(tr["caps"])
+                        if tr["digest"]:
+                            self.host_digest = int(tr["digest"])
                     self.host_pos, self.host_pos_t = p, now
                     if not self._pos_live:
                         self._pos_live = True
@@ -1413,11 +1436,33 @@ class GuestModel:
         self._seq = (self._seq + 1) & 0xFFFF
         return build_world_trailer(seq=self._seq, ms=int(float(now) * 1000.0), **fields)
 
+    def caps_now(self) -> int:
+        """[ff9mapkit netsync s167] The caps word this guest speaks now (call with the lock held or from the sender): ``caps`` pinned, else
+        the host's (b0 always; b1 when the host carries it), else s166's 0x0001 before any host trailer."""
+        if self.caps != "auto":
+            return int(self.caps) & 0xFFFF
+        if self.host_caps is None:
+            return CAPS_S166
+        return CAP_WORLD_POSE | (int(self.host_caps) & CAP_WORLD_FP)
+
+    def digest_now(self) -> int:
+        """[ff9mapkit netsync s167] The digest this guest's place-4 trailer carries under its caps word (0 without b1: FpTxDigestRule)."""
+        if not self.caps_now() & CAP_WORLD_FP:
+            return 0
+        return int(self.host_digest) if self.digest == "echo" else int(self.digest) & 0xFFFFFFFF
+
     def _trailer_for(self, fields: dict, now: float) -> bytes:
         """[ff9mapkit netsync s166] (lock held) The trailer bytes ``trailer`` asks for: none ("off"), the engine's tfmt-0 trailer
-        ("tfmt0": `worldwalk pose off`, the seq still counted as the sender's Update runs) or a stamped fmt-1 one ("auto")."""
+        ("tfmt0": `worldwalk pose off`, the seq still counted as the sender's Update runs) or a stamped fmt-1 one ("auto").
+        [ff9mapkit netsync s167] The caps word is :meth:`caps_now`, the digest :meth:`digest_now` on place 4 (0 elsewhere)."""
         if self.trailer == "off":
             return b""
+        pinned = self.caps == "auto" and self.walk is not None and self.walk.caps is not None   # a plan that pins its own word
+        fields = dict(fields, caps=fields["caps"] if pinned else self.caps_now(),
+                      digest=self.digest_now() if fields.get("place") == PLACE_WORLD and not pinned else fields.get("digest", 0))
+        if fields.get("place") == PLACE_WORLD and self.walk_why:
+            classes = BW.ww_why_classes_on_rule(False, fields["caps"], CAPS_S166 if self.host_caps is None else self.host_caps)
+            fields["why"] = BW.ww_why_byte_rule(not classes, "client", PLACE_WORLD, self.walk_why, 0)
         stamped = self._stamp(fields, now)
         return TFMT0_TRAILER if self.trailer == "tfmt0" else stamped
 
@@ -1459,7 +1504,7 @@ class GuestModel:
             tr = b""
             if int(wire) >= WIRE_V15 and self.trailer != "off" and field == FIELD_SENTINEL:
                 # [ff9mapkit netsync s166] the relay keepalive byte for byte (the engine's constructor slot: no seq, no follow flag)
-                tr = keepalive_trailer(WALK_TPS)
+                tr = keepalive_trailer(WALK_TPS, self.caps_now())   # [ff9mapkit netsync s167] the live word
             elif int(wire) >= WIRE_V15 and self.trailer != "off" and "frame_n" in kw:
                 place = PLACE_FIELD if 0 < field < FIELD_SENTINEL else PLACE_NONE
                 tr = self._trailer_for(world_block_zeroed({"caps": CAP_WORLD_POSE, "place": place, "state": ST_CONTROL,
@@ -2341,7 +2386,9 @@ def _model_from(args) -> GuestModel:
                       live_after=args.live_after, anim=args.anim, loco=args.loco, frame=args.frame,   # [ff9mapkit netsync s157]
                       frame_step=args.frame_step,
                       trailer=args.trailer, follow=not args.no_follow, walk=_walk_from(args),         # [ff9mapkit netsync s166]
-                      gaps=_windows(args.gap_at, args.gap_for, "--gap"))
+                      gaps=_windows(args.gap_at, args.gap_for, "--gap"),
+                      caps=getattr(args, "caps", "auto"), digest=getattr(args, "digest", "echo"),   # [ff9mapkit netsync s167]
+                      walk_why=BW.WW_WALK_NAMES.index(args.walk_why) if getattr(args, "walk_why", None) else 0)
 
 
 def _record_text(args) -> str:
@@ -2352,6 +2399,20 @@ def _record_text(args) -> str:
     except ValueError as err:
         return f"REFUSED ({err})"
     return text + (f"; GAPS (nothing sent) {gaps}" if gaps else "")
+
+
+def _caps_text(caps) -> str:
+    """[ff9mapkit netsync s167] The banner's caps word."""
+    if caps == "auto":
+        return "the HOST's own (0x0003 from an s167 host, 0x0001 from an s166 one)"
+    return f"0x{int(caps):04X} (pinned" + (": an s166-shaped guest, no fingerprint)" if not int(caps) & CAP_WORLD_FP else ")")
+
+
+def _digest_text(digest) -> str:
+    """[ff9mapkit netsync s167] The banner's digest."""
+    if digest == "echo":
+        return "the host's own last digest (the same world content) while the caps carry b1"
+    return f"0x{int(digest):08X} (pinned" + (": checking)" if not int(digest) else ")")
 
 
 def _send_wire_arg(args) -> int | None:
@@ -2371,6 +2432,8 @@ def _guest_lines(args) -> list:
             # [ff9mapkit netsync s166] the send wire, the trailer, the walk, the gaps
             f"wire: {'the HOST its first header names (--wire pins it)' if args.wire == 'auto' else f'{args.wire} (pinned)'}; "
             f"v15 trailer: {args.trailer}{'' if not args.no_follow else ', flags b0 CLEAR (--no-follow)'}",
+            # [ff9mapkit netsync s167] the caps word and the digest
+            f"caps: {_caps_text(getattr(args, 'caps', 'auto'))}; digest: {_digest_text(getattr(args, 'digest', 'echo'))}",
             f"record: {_record_text(args)}",
             f"tap: {args.tap or 'off (pass --tap FILE to record the host)'}"]
 
@@ -3265,7 +3328,27 @@ def frame_pose(payload) -> dict:
     return {"pose": pose, "whole": story is not None and len(story) == BW.STORY_LEN,
             "flags": flags, "hb": view["heartbeat"] if view is not None else None,
             "b6": bool(flags is not None and flags & BW.HF_WORLD), "b1": bool(flags is not None and flags & BW.HF_CONTROL),
-            "intent": intent, "intent_unlanded": intent is not None and not intent["landed"]}
+            "intent": intent, "intent_unlanded": intent is not None and not intent["landed"],
+            "fp": fp_section_of(payload)}                                       # [ff9mapkit netsync s167] section 11 (None = absent)
+
+
+def fp_section_of(payload) -> dict | None:
+    """[ff9mapkit netsync s167] A host type-5 payload's section 11 (the world fingerprint, decision 21) as an s167 guest's
+    ObserveHostDialog reads it (battlewire.ww_try_read_fp_section over the FIRST id-11 section): ``world``, ``lang`` (two letters),
+    ``comps`` (the six words; an unknown id skipped), ``mask`` (bit i = component i present); None = absent (an s166 host, an s166 guest's
+    host, a host off its live world) or unreadable."""
+    body = BW.old_try_read_section(payload, SECTION_FP)
+    got = BW.ww_try_read_fp_section(body) if body is not None else None
+    if got is None:
+        return None
+    world, lang, comps, mask = got
+    return {"world": world, "lang": "".join(chr(v) for v in (lang & 0xFF, (lang >> 8) & 0xFF)), "comps": list(comps), "mask": mask}
+
+
+def fp_section_bytes(world: int, comps) -> bytes:
+    """[ff9mapkit netsync s167] Section 11 whole (its 3-byte header + WriteFpSection's 36-byte body) -- a synthetic s167 host frame's
+    (offline vectors)."""
+    return BW.append_section(b"", SECTION_FP, BW.ww_write_fp_section(world, comps))
 
 
 def tape_poses(records) -> list:
@@ -3304,7 +3387,9 @@ def pose_row_text(row: dict, near=None) -> str:
             + ("" if p["whole"] else " (short story)") + (" | intent UNLANDED" if row["intent_unlanded"] else ""))
     if near is not None:
         text += f"  | d {torus_distance((p['x'], p['z']), near):.1f}"
-    return text + trailer_row_text(row, near)
+    fp = row.get("fp")                                                       # [ff9mapkit netsync s167] the host's section 11
+    s11 = f"  | s11 world {fp['world']} lang {fp['lang']} mask 0x{fp['mask']:02X}" if fp else ""
+    return text + trailer_row_text(row, near) + s11
 
 
 def trailer_row_text(row: dict, near=None) -> str:
@@ -3320,7 +3405,8 @@ def trailer_row_text(row: dict, near=None) -> str:
         text += f" world {tr['world']} x {x:8.2f} y {y:7.2f} z {z:8.2f} yaw {tr['yaw']:6.1f} mode {tr['mode']}"
         if near is not None:
             text += f" d {torus_distance((x, z), near):.1f}"
-    return text + f" caps 0x{tr['caps']:04X} seq {tr['seq']} state 0x{tr['state']:02X} flags 0x{tr['flags']:02X}"
+    return (text + f" caps 0x{tr['caps']:04X} seq {tr['seq']} state 0x{tr['state']:02X} flags 0x{tr['flags']:02X}"
+            + (f" digest 0x{tr['digest']:08X}" if tr.get("digest") and tr["caps"] & CAP_WORLD_FP else ""))      # [ff9mapkit netsync s167] the host's fingerprint
 
 
 def pose_rows_thinned(rows, every: float = POSE_EVERY_S) -> list:
@@ -3353,10 +3439,16 @@ def tape_pose_lines(path, every: float = POSE_EVERY_S, near=None) -> tuple:
     rows = tape_poses(records)
     posed = [r for r in rows if r["pose"] is not None]
     trailed = [r for r in rows if r.get("trailer") is not None]              # [ff9mapkit netsync s166]
+    fped = [r for r in rows if r.get("fp") is not None]                      # [ff9mapkit netsync s167]
+    digests = sorted({r["trailer"]["digest"] for r in trailed if r["trailer"].get("digest") and r["trailer"]["caps"] & CAP_WORLD_FP})
+    capses = sorted({r["trailer"]["caps"] for r in trailed})
     lines = [f"POSE (section 0 64-72, [102] [190] [2..3] [181]; section 7 heartbeat, b6 / b1): {len(rows)} host state frame(s), "
              f"{len(posed)} with a pose, {sum(1 for r in posed if r['b6'])} of them with b6"
              + (f"; {len(trailed)} beside a v15 type-0 trailer (`tr`: decision 4's world block), "
                 f"{sum(1 for r in trailed if r['trailer']['block_valid'])} with a valid block" if trailed else "")
+             + (f"; the trailer's caps {', '.join(f'0x{c:04X}' for c in capses)}" if trailed else "")
+             + (f", digest {', '.join(f'0x{d:08X}' for d in digests)}" if digests else "")
+             + (f"; {len(fped)} with section 11 (`s11`: the host's world fingerprint)" if fped else "")
              + (f"; TORN tail {torn} B" if torn else "")
              + (f"; d = the torus distance to ({near[0]:g}, {near[1]:g})" if near is not None else "")]
     lines += [pose_row_text(r, near) for r in pose_rows_thinned(rows, every)]
@@ -3671,6 +3763,17 @@ def _add_guest_options(p) -> None:
                         "capless v15 peer at 39 B: what a restamped v14 tape is)")
     p.add_argument("--no-follow", action="store_true",
                    help="the trailer's flags b0 CLEAR: a peer that does not follow (the host draws no lines and no ghost for it)")
+    # [ff9mapkit netsync s167] THE CAPS WORD and THE DIGEST (decision 2's b1, decision 21's fingerprint)
+    p.add_argument("--caps", type=_parse_caps, default="auto", metavar="auto|N",
+                   help="the trailer's caps word: auto (default: the host's own -- 0x0003 from an s167 host, 0x0001 from an s166 one) "
+                        "or pinned (1 = an s166-shaped guest: no world fingerprint, no digest; 3 = an s167 one)")
+    p.add_argument("--digest", type=_parse_digest, default="echo", metavar="echo|HEX",
+                   help="the place-4 trailer's digest (bytes 88-91) while the caps word carries b1: echo (default: the host's own last "
+                        "digest -- a guest of the same world content) or pinned (a mismatch; 0 = checking)")
+    p.add_argument("--walk-why", choices=[n for n in BW.WW_WALK_NAMES if n], default=None, metavar="WHY",
+                   help="the place-4 trailer's walk why (byte 50: its W3C-4 class only to a b1 host -- WhyClassesOnRule -- else "
+                        "s166's raw 0): e.g. pairing or checking, the host's \"can't walk yet\" line (with --state 0x85: frozen, "
+                        "not walking)")
     p.add_argument("--walk", type=_parse_route, default=None, metavar="roam|X,Z,S;X,Z,S;...",
                    help="send a WALKING v15 guest's world record instead of mirroring the host: roam (the synthetic ROAM route on "
                         "9011: FS_LANDING, legs with stands, one across the x seam, ICE_TILE) or waypoints x,z,stand-seconds")
@@ -3697,6 +3800,31 @@ def _add_guest_options(p) -> None:
     p.add_argument("--tap", metavar="FILE", help="record every frame both ways to this tape (.f9tape)")
     p.add_argument("--status", type=float, default=5.0, metavar="S", help="a status line every S s (default 5)")
     p.add_argument("--log", metavar="FILE", help="tee every line to this file too")
+
+
+def _parse_caps(text: str):
+    """[ff9mapkit netsync s167] `--caps`: auto, or a caps word (decimal or 0x hex, 0..0xFFFF)."""
+    t = str(text).strip().lower()
+    if t == "auto":
+        return "auto"
+    try:
+        v = int(t, 0)
+    except ValueError:
+        v = -1
+    if not 0 <= v <= 0xFFFF:
+        raise argparse.ArgumentTypeError("--caps is auto or a caps word 0..0xFFFF (1 = s166's, 3 = s167's)")
+    return v
+
+
+def _parse_digest(text: str):
+    """[ff9mapkit netsync s167] `--digest`: echo, or 1-8 hex digits (an optional 0x)."""
+    t = str(text).strip()
+    if t.lower() == "echo":
+        return "echo"
+    v = BW.ww_fp_fake_parse(t)
+    if v is None:
+        raise argparse.ArgumentTypeError("--digest is echo or 1-8 hex digits (an optional 0x)")
+    return v
 
 
 def _parse_route(text: str):

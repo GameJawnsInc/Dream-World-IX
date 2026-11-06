@@ -78,6 +78,8 @@ def fake_for(t, run):
     f = FG.FakeGame(t, fps=600, walkmesh=(-2000.0, -3000.0, 2000.0, 2000.0))
     if run.get("caps"):
         f.netsync_caps = FG.caps_through(run["caps"])
+    if run.get("s167"):                                         # [ff9mapkit netsync s167] round B's piece "b" (default: the deployed s166)
+        f.world_walk_pieces = tuple(FG.FAKE_WORLD_WALK_S167_PIECES)
     f.regions = {6603: [{"zone": cw.FS_DOOR, "world": cw.WORLD, "world_at": list(cw.FS_LANDING)}]}
     f.exit_frames = 900
     f.overworld = {"speed": 2.0, "turn": 2.8125, "cam": 0.0, "lag": 1}
@@ -316,8 +318,11 @@ def duo(run):
                 "detail": {c: dd for c, _ok, dd in d.rows}, "sent": list(SENT)}
 
 kinds = {"solo": solo, "walk": walk, "duo": duo}
+REAL_WALK_OFF = cw.walk_off
 def one(run):
     SENT.clear()                                                # each run's own sends
+    # [ff9mapkit netsync s167] `walkset` False stands round B's re-key down (cw.walk_off: P1's, the walk leg's, the duo's)
+    cw.walk_off = REAL_WALK_OFF if run.get("walkset", True) else (lambda g, **k: (True, "s167 re-key: STOOD DOWN (the test)"))
     return kinds[run["kind"]](run)
 results = {name: one(run) for name, run in doc.get("runs", {}).items()}
 print(json.dumps(results))
@@ -720,3 +725,27 @@ def test_the_pure_judges_go_red_on_each_wrong_shape():
                          env={k: v for k, v in os.environ.items() if not k.startswith("COOP_")}, capture_output=True, text=True,
                          timeout=120)
     assert out.returncode == 0 and out.stdout.strip().endswith("ok"), out.stderr[-4000:]
+
+
+# ================================================================================================ [ff9mapkit netsync s167] round B's re-key
+def test_s167_the_regression_rekey_keeps_every_leg_s166s():
+    """[ff9mapkit netsync s167] THE REGRESSION RE-KEY, ROUND B (S166-DESIGN.md "Regression"; coop_world_wait.walk_off): on the s167
+    stand-in (round B's piece "b") every leg here pulls round B's whole s166 lever set -- the solo leg at P1, the T2 walk leg beside
+    `worldfollow hold` (WK-I), the duo on BOTH games (D0) -- reads it back, and is green, its frozen rows reading the walk frozen BY THE
+    LEVER (FROZEN, WK-FROZEN, D-DOT's "own pose unmoved"). Stood down, exactly those stage keys go red (a guest frozen for another why;
+    in game, an s167 pair's guest WALKS: a free walker who presses nothing is unmoved too, and a walk FREE dispatch takes no freeze edge).
+    Re-keyed by stage, never weakened."""
+    runs = _child({"runs": {"solo": {"kind": "solo", "s167": True, "sections": ["out"]},
+                            "solo_off": {"kind": "solo", "s167": True, "sections": ["out"], "walkset": False},
+                            "walk": {"kind": "walk", "s167": True},
+                            "duo": {"kind": "duo", "s167": True}, "duo_off": {"kind": "duo", "s167": True, "walkset": False}}})
+    for name in ("solo", "walk", "duo"):
+        assert runs[name]["red"] == [], (name, {c: runs[name]["detail"][c] for c in runs[name]["red"]})
+    want = "s167 re-key: round B's s166 lever set (walk off, refuse silent, stallhold old, decline old, fp off, minimap old, fullmap old)"
+    s, w, d = runs["solo"]["detail"], runs["walk"]["detail"], runs["duo"]["detail"]
+    assert want in s["S165-P1"] and "'walk', 'fp']" in s["S165-P0"] and "why 'lever'" in s["S165-FROZEN"]
+    assert want in w["S165-WK-I"] and "why 'lever'" in w["S165-WK-FROZEN"]
+    assert f"the guest's {want}" in d["S165-D0"] and f"the host's {want}" in d["S165-D0"] and "why 'lever'" in d["S165-D-DOT"]
+    for name, row in (("solo_off", "S165-FROZEN"), ("duo_off", "S165-D-DOT")):
+        r = runs[name]
+        assert r["red"] == [row] and "STAGE KEY" in r["detail"][row], (name, {c: r["detail"][c] for c in r["red"]})

@@ -8986,7 +8986,11 @@ def build_parser() -> argparse.ArgumentParser:
     co.add_argument("--follow-host", choices=["on", "off"], default=None,
                     help="guest side: 'on' auto-warps your game to whatever field the host is on, "
                          "pauses your own random encounters while paired, and boots the host's "
-                         "battles live on your screen (render-only). Only written when given")
+                         "battles live on your screen (render-only). On the early world maps "
+                         "(9002, 9010, 9011) you walk your own copy on foot beside the host, while "
+                         "places, vehicles and the full map's travel stay theirs: you rejoin them "
+                         "at their next stop; elsewhere on the world map you wait for it as before. "
+                         "Only written when given")
     co.add_argument("--no-bridge", action="store_true", help="write the config but don't run the bridge")
     co.add_argument("--no-room", action="store_true", help="skip the co-op room check/build")
     co.add_argument("--rebuild-room", action="store_true", help="rebuild the FF9Coop room even if a room "

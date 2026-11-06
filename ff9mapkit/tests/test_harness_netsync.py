@@ -959,7 +959,9 @@ def _unwalked(doc: dict) -> dict:
     adds `pairpull` beside it, and A2 the round's one TOP-LEVEL key, `wire_peer`, netsync's LAST (NETSYNC_TOP_CAP_KEYS' `worldwalk` row)."""
     out = {k: v for k, v in doc.items() if k not in FG.NETSYNC_TOP_CAP_KEYS.get("worldwalk", ())}
     if isinstance(out.get("world"), dict):
-        drop = FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"]["world"]
+        # [ff9mapkit netsync s167] ...and round B's `walk` / `fp` (the same rung: world's last two once ITS patch is live -- the lane's s167
+        # growth goes with round A's `lane`)
+        drop = FG.NETSYNC_TOP_NESTED_KEYS["worldwalk"]["world"] + BW.WORLD_S167_KEYS
         out["world"] = {k: v for k, v in out["world"].items() if k not in drop}
     # [ff9mapkit netsync s166] W2: ...and the keys round A grows INSIDE older blocks (A3's `host.world.guest`, A4's `world.dot.src`,
     # frozen in s166-netsync-world-walk.patch): every dotted path of the rung's row
@@ -992,6 +994,12 @@ def _s166_live() -> bool:
     """[ff9mapkit netsync s166] Whether the LIVE patch stack carries the s166 patch yet (the engine lane builds concurrently: until its
     patch lands the live agent is s165's, and every kit-vs-agent pin compares it with the stand-in AT that rung)."""
     return any(n.startswith("s166-") and n not in msr.DEAD for n in msr.stack())
+
+
+def _s167_live() -> bool:
+    """[ff9mapkit netsync s167] Whether the LIVE patch stack carries round B's s167 patch yet (the W1 clone builds it uncommitted: until its
+    patch lands the live agent is s166's, and every kit-vs-agent pin compares it with the s166 stand-in) -- the pins move BY STAGE."""
+    return any(n.startswith("s167-") and n not in msr.DEAD for n in msr.stack())
 
 
 def _s166_a3_live() -> bool:
@@ -1047,9 +1055,14 @@ def _s165_world_tail() -> str:
     if _s166_live():
         tail += "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S166B[k], separators=(",", ":")) for k in BW.WORLD_S166_ALL_KEYS)
     # [ff9mapkit netsync s166] W2: A3's `lane` and `line` after `pairpull`, then A4's `ghost` (frozen in s166-netsync-world-walk.patch)
+    # [ff9mapkit netsync s167] ...the lane grown in place by round B (`tx.why_name`, `rx.why_name`, world_tps' five) once ITS patch is live,
+    # then round B's `walk` and `fp`, world's last two keys
     if _s166_a3_live():
-        tail += "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S166D[k], separators=(",", ":"))
+        world = BW.WORLD_SENTINELS_S167 if _s167_live() else BW.WORLD_SENTINELS_S166D
+        tail += "".join(f',"{k}":' + json.dumps(world[k], separators=(",", ":"))
                         for k in BW.WORLD_S166C_KEYS + (BW.WORLD_S166D_KEYS if _s166_a4_live() else ()))
+    if _s167_live():
+        tail += "".join(f',"{k}":' + json.dumps(BW.WORLD_SENTINELS_S167[k], separators=(",", ":")) for k in BW.WORLD_S167_KEYS)
     return tail
 
 
@@ -6603,8 +6616,15 @@ def test_menu_key_now_reads_the_route_the_press_takes():
     assert _battle_text('Log.Message("[NetSync] " + what + " suppressed (following guest) on " + where);') or \
         net_lines("NetSyncField.cs", re.escape('Log.Message("[NetSync] " + what + " suppressed (following guest) on " + '
                                                'where);'))
-    assert net_lines("NetSyncField.cs", re.escape('DeclineOnceAt("main menu (world map)", "main menu", place, "world '
-                                                  'map " + place)'))
+    if _s167_live():
+        # [ff9mapkit netsync s167] BY STAGE: round B names RefuseMainMenu's world class once, as the const decision 20 re-arms (its
+        # value the same string, so the latch and the line are unmoved)
+        assert net_lines("NetSyncField.cs", re.escape('private const String MainMenuWorldClass = "main menu (world map)";'))
+        assert net_lines("NetSyncField.cs", re.escape('DeclineOnceAt(MainMenuWorldClass, "main menu", place, "world map " + place)'))
+        assert BW.menu_refusal_latch("WorldHUD") == "main menu (world map)"
+    else:
+        assert net_lines("NetSyncField.cs", re.escape('DeclineOnceAt("main menu (world map)", "main menu", place, "world '
+                                                      'map " + place)'))
     assert net_lines("NetSyncField.cs", re.escape('return DeclineOnceAt(what, what, fld, "field " + fld);'))
     assert {"FieldHUD", "WorldHUD", "BattleHUD", "Pause"} <= BW.UI_SCENE_STATES
     assert not {"Initial", "QuadMistBattle", "Quit", "PreEnding"} & BW.UI_SCENE_STATES
@@ -6637,7 +6657,8 @@ def test_the_sitting_a_constants_and_names_are_the_stacks():
                        for ln in _stack_text("NetSyncClient.cs")), (group, value, name)
     assert {re.match(r'case Ovl\w+: return "(\w+)";', ln).group(1) for ln in _stack_text("NetSyncClient.cs")
             if re.match(r'case Ovl\w+: return "(\w+)";', ln)} == set(BW.OVERLAY_NAMES) | (set(BW.OVERLAY_NAMES_S166) if _s166_a3_live()
-                                                                                         else set())   # [ff9mapkit netsync s166] W2: A3's five
+                                                                                         else set()) \
+        | (set(BW.OVERLAY_NAMES_S167) if _s167_live() else set())   # [ff9mapkit netsync s166] W2: A3's five; [ff9mapkit netsync s167] round B's six
     field = {v: k for k, v in BW.CS_FIELD_CONSTANTS.items()}
     for value, name in BW.MENU_KEY_NAMES.items():
         assert net_lines("NetSyncField.cs", re.escape(f'case {field[value]}: return "{name}";')), name
@@ -17552,9 +17573,12 @@ def test_the_rig_twin_is_the_engines_table_and_the_census():
     used = {int(v) for v in re.findall(r"Section\w+ = (\d+);", state + " " + party)}
     # [ff9mapkit netsync s160] + 9, the chest start (NetSyncState.SectionChest); 8 stays the dress's
     # [ff9mapkit netsync s163] + 10, the host's booster (NetSyncState.SectionSpeed)
-    assert used <= {0, 4, 5, 6, 7} | {1, 2, 3} | {9, 10} and BW.SECTION_DRESS not in used and BW.SECTION_DRESS not in (9, 10)
+    # [ff9mapkit netsync s167] + 11 BY STAGE once round B's patch is live: the world fingerprint (NetSyncState.SectionFp, between 10 and 7)
+    fp = {BW.SECTION_FP} if _s167_live() else set()
+    assert used <= {0, 4, 5, 6, 7} | {1, 2, 3} | {9, 10} | fp and BW.SECTION_DRESS not in used and BW.SECTION_DRESS not in (9, 10, BW.SECTION_FP)
     assert "public const Byte SectionChest = 9;" in state and BW.SECTION_CHEST == 9
     assert "public const Byte SectionSpeed = 10;" in state and BW.SECTION_SPEED == 10
+    assert ("public const Byte SectionFp = 11;" in state) == bool(fp) and BW.SECTION_FP == 11
     assert (BW.SECTION_STORY, BW.SECTION_INTENT, BW.SECTION_EVENT, BW.SECTION_TALK, BW.SECTION_DIALOG) == (0, 4, 5, 6, 7)
 
 
@@ -26644,7 +26668,13 @@ def test_the_s157_ghost_frame_is_spent_where_the_spec_says():
         # NetSyncWire.KeepaliveTrailer), its s157 record unchanged -- animFrame 0, frameN 0: no frame
         lines = [_strip_comment(t) for t in _stack_text("NetSyncRelay.cs")]
         k = lines.index("NetSyncWire.BuildPosPayload(65535, 0, 0, 0, 0, Vector3.zero, Quaternion.identity, 0, 0,")
-        assert lines[k + 1] == "NetSyncWire.KeepaliveTrailer(NetSyncWirePeer.OwnWorldTps()))));" and s157_sentinel not in relay
+        if _s167_live():
+            # [ff9mapkit netsync s167] BY STAGE: round B's sentinel speaks the LIVE caps word (KeepaliveTrailer's two-argument form); s166's
+            # one-argument line is gone from the relay (net of the stack, so it no longer follows the s166 build line in this list)
+            assert "NetSyncWire.KeepaliveTrailer(NetSyncWirePeer.OwnWorldTps(), NetSyncWorldFpArmed.OwnCapsNow))));" in lines
+            assert "NetSyncWire.KeepaliveTrailer(NetSyncWirePeer.OwnWorldTps()))));" not in lines and s157_sentinel not in relay
+        else:
+            assert lines[k + 1] == "NetSyncWire.KeepaliveTrailer(NetSyncWirePeer.OwnWorldTps()))));" and s157_sentinel not in relay
     else:
         assert s157_sentinel in relay
     assert "NetSyncWire.BuildPosPayload(field, anim, model, meshVis, loco, pos, rot, animFrame, frameN)));" in relay

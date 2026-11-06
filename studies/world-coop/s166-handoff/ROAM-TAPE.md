@@ -108,3 +108,21 @@ py studies/test-harness/scenarios/coop_world_walk_t2.py --make-roam-instrument <
 **What it is not:** terrain-true (y is 0: the ghost takes the wire's y), clip-true (anim 0) or camera-true (the L1 turn is a
 stand). It is a recording of no game. It exercises the guest's receiver, lane and ghost against a well-formed v15 host.
 It never stands in for the owner-gated row: `S166-RM-GATE` is red on it by construction.
+
+## Round B (s167): record it on an s167 host
+
+Round B's T2 legs (`COOP_WWT_LEG=walk` and `stallhole`, the design's T2-B and W-STALLHOLE) replay the same `ROAM_PLAN`
+host, but a walking guest needs an **s167** host. An s166-recorded tape is "an older build": its trailers carry caps
+0x0001 and no digest, so the guest's walk refuses (older partner / checking) and `S167-WR-GATE` stays red on it.
+
+- **The gates and the command are the ones above**, with the s167 build deployed. The recorder's `REC-OWNER` row reports
+  the host's stage, and the tape is named `...-world-roam-s167.f9tape` when the probe shows `netsync.world.walk`.
+- **What makes it an s167 tape** (`tape_s167`, the legs' rm8): every place-4 trailer carries caps 0x0003 and the host's
+  nonzero digest, and the host's world-phase state frames carry section 11. serve-guest's default `--caps auto` adopts the
+  host's 0x0003, so the host sends section 11 to it (FpSectionSendRule: both caps words carry b1).
+- **Same install, same digest.** The replay's guest is this desktop, so the tape's digest is the guest's own. A world deploy
+  between the recording and the bench changes the guest's digest: WR-FREE then reads `fp_mismatch`. Record again.
+- **Until it exists**, `walk` builds an s167-shaped instrument CALIBRATED to the guest: the guest first walks out of 6603
+  alone, its own `fp.real` and `fp.components` are read, and it returns to 6603 by a field round trip. The instrument then
+  carries that digest and that section 11, so the guest's walk can be judged. `stallhole` needs no calibration: the
+  pairing why comes before the fingerprint term. Both keep `S167-WR-GATE` red.
