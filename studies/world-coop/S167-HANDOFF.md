@@ -29,8 +29,9 @@ them).
   return and the ~ menu's world-to-world reload do not. Decision 28's quiet hint and the DeclineOnce re-arm both key on it,
   so the hint stays quiet after a battle and comes back after the guest's next location.
 - **The fingerprint** has six components: the language; the world script actually loaded; every world-map override file the
-  engine read (CRC over the bytes); the vehicles table; the environment patches; the weather table. A mismatch names the
-  component on both machines. Its cost is logged at every world load (CLR measured about 25 ms; Unity's runtime unmeasured).
+  engine read (CRC over the bytes); the vehicles table; the environment patches; the weather table. On a mismatch the
+  guest's line names the component; the host's only says the maps differ (it compares digests). Each machine's per-load
+  `world fingerprint` line lists all six values, so comparing the two lines finds the part. Its cost is logged at every world load (CLR measured about 25 ms; Unity's runtime unmeasured).
 - **The entrance line** lasts 4 s; **"checking"** gives up with one line after 10 s. Both are seeds.
 - **The full map's co-op close** also runs before the session's exit ramp, and only for a frozen guest before a rejoin or a
   battle; a released guest keeps its map and sees "Close the map to join your partner.".
