@@ -608,6 +608,18 @@ def test_the_vehicle_verb_refuses_in_the_menus_words(tmp_path):
 
 
 # ------------------------------------------------------------------------------------------------ the keys, the stand-in
+def _world_want(world: dict) -> dict:
+    """[ff9mapkit netsync s166/s167] The `netsync.world` key list BY THE STAND-IN'S STAGE, each stage's last key's presence naming it (the
+    prefix law: every stage appends) -- s145 `dio`, s165 r3 / out / host / dot, s166 kitcell / pairpull / lane + line / ghost, s167 walk +
+    fp. The default stand-in is the deployed s166 (round A's pieces) since s166, so an s165-only want reads the s166 tail as missing."""
+    for key, want in (("walk", BW.WORLD_SENTINELS_S167), (BW.A4_CONTRACT["ghost_key"], BW.WORLD_SENTINELS_S166D),
+                      ("lane", BW.WORLD_SENTINELS_S166C), ("pairpull", BW.WORLD_SENTINELS_S166B), ("kitcell", BW.WORLD_SENTINELS_S166),
+                      ("out", BW.WORLD_SENTINELS_S165)):
+        if key in world:
+            return want
+    return BW.WORLD_SENTINELS
+
+
 def test_the_stand_in_publishes_the_s145_keys_and_none_on_s144(tmp_path):
     game = _game(tmp_path)
     fake = _fake(game)
@@ -624,7 +636,7 @@ def test_the_stand_in_publishes_the_s145_keys_and_none_on_s144(tmp_path):
         assert wkeys[len(wkeys) - len(tail) - 11:] == list(BW.WORLD_LIVE_KEYS_S144) + list(BW.WORLD_WITNESS_SENTINELS) + tail
         assert {k: st.raw["world"][k] for k in BW.WORLD_WITNESS_SENTINELS} == BW.WORLD_WITNESS_SENTINELS   # off the world map
         assert list(st.netsync["world"])[:len(BW.WORLD_SENTINELS)] == list(BW.WORLD_SENTINELS) and st.world_dio_lever == "on"
-        assert list(st.netsync["world"]) == list(BW.WORLD_SENTINELS_S165 if st.coop_world_follow else BW.WORLD_SENTINELS)
+        assert list(st.netsync["world"]) == list(_world_want(st.netsync["world"]))
         fake.enter_world(9011, 100.0, 100.0)
         st = g.wait_for(lambda s: s.gmode == 3 and s.world_ticks is not None and s.world_ticks > 0, timeout=4.0, what="world")
         assert st.prev_mode == 1 and st.world_battle_prob == FG.FAKE_WORLD_BATTLE_PROB_INIT and st.world_ctl == 0

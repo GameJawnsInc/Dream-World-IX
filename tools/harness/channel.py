@@ -1062,6 +1062,29 @@ class State:
         return self._ns_path("world.pairpull", dict) is not None
 
     @property
+    def coop_world_walk_b(self) -> bool:
+        """s167 round B: the walk (``netsync.world.walk`` present). False = an engine without it (the deployed s166): round B's levers are
+        refused before the step there, and a frozen-guest leg reads s166's freeze with no lever to send."""
+        return self._ns_path("world.walk", dict) is not None
+
+    @property
+    def world_walk_block(self) -> dict | None:
+        """s167: ``netsync.world.walk`` (the levers, the live verdict `free` / `why` / `why_code`, the edges, THE HOLD's parts, the stall
+        hole, the entrance buzz, the walk words, the visits / re-arms, the minimap close, `map`). Copied (None = absent)."""
+        return self._ns_path("world.walk", dict)
+
+    @property
+    def world_walk_map_block(self) -> dict | None:
+        """s167 B6: ``netsync.world.walk.map`` (decision 23: the lever, lawful, opens, the co-op closes, the full-map dot). None = absent."""
+        return self._ns_path("world.walk.map", dict)
+
+    @property
+    def world_fp_block(self) -> dict | None:
+        """s167 B4: ``netsync.world.fp`` (the fingerprint: the lever, the digests, ready, the components, the state, the named component, the
+        host's section 11, the line counters). Copied (None = absent)."""
+        return self._ns_path("world.fp", dict)
+
+    @property
     def world_pairpull_block(self) -> dict | None:
         """s166 A0b: ``netsync.world.pairpull`` {lever "act"|"old", pending (WorldOutStep term 3's new fact now: the pairing window open,
         nothing written in it, no durable decline), arms (mirror arms at a follow-out's landing), last_world (-1 = none yet)}. Copied

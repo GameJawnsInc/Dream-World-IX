@@ -6308,6 +6308,11 @@ def _cmd_world_mesh_trim(args: argparse.Namespace) -> int:
     return 0
 
 
+# [ff9mapkit netsync s167] the co-op WALK worlds (S166-DESIGN.md decision 13): the world maps where a following guest walks
+# its own copy on foot -- WORLD02, WORLD10 and the kit's WORLD11. The engine's set is NetSyncWorldWalk's walk-set term.
+COOP_WALK_WORLDS = (9002, 9010, 9011)
+
+
 def _cmd_world_entrance(args: argparse.Namespace) -> int:
     """One-shot: author a whole custom OVERWORLD ENTRANCE -- the trigger function (into every world dispatcher that
     carries the destination case, all 7 langs), the event tiles, and (optionally) a modelled building -- all folded
@@ -6415,6 +6420,17 @@ def _cmd_world_entrance(args: argparse.Namespace) -> int:
           f" = {len(wrote) * len(info['langs'])} .eb file(s): {', '.join(w['name'].replace('evt_world_', '') for w in wrote) or '(none)'}")
     if info["dispatchers_skipped"]:
         print(f"  skipped (cell already has an entrance there): {', '.join(s.replace('evt_world_', '') for s in info['dispatchers_skipped'])}")
+    # [ff9mapkit netsync s167] THE WALK-ON ENTRANCE (the s167 whole-diff review, W3A-SAFE-1): on the co-op walk worlds a
+    # following guest walks its own copy free, and the engine refuses its entrances at the Confirm READ (EntryRefusalRule,
+    # A0's kit-cell close). An auto-warp body reads no key, so a free guest who steps on it enters the field ALONE while
+    # its partner stays on the world map. Every kit cell deployed when s167 shipped reads Confirm; this keeps it so.
+    walk_worlds = sorted({9000 + int(w["name"][-2:]) for w in wrote if w["name"][-2:].isdigit()} & set(COOP_WALK_WORLDS))
+    if args.field_direct is not None and not args.action_prompt and args.nameplate_name is None and walk_worlds:
+        print(f"  !! CO-OP WARNING: this is a walk-on (auto-warp) entrance on co-op walk world(s) "
+              f"{', '.join(str(w) for w in walk_worlds)}: a following co-op guest walks those world maps on its own, "
+              f"and the engine only refuses an entrance that waits for Confirm -- so a guest who steps on this one "
+              f"enters field {args.field_direct} ALONE. Re-run with --action-prompt (or --nameplate-name) to keep co-op "
+              f"guests with their partner.")
     if info.get("trigger_only"):
         print("  trigger-only: the deployed terrain / event tiles / building were left untouched")
     else:
@@ -8986,7 +9002,11 @@ def build_parser() -> argparse.ArgumentParser:
     co.add_argument("--follow-host", choices=["on", "off"], default=None,
                     help="guest side: 'on' auto-warps your game to whatever field the host is on, "
                          "pauses your own random encounters while paired, and boots the host's "
-                         "battles live on your screen (render-only). Only written when given")
+                         "battles live on your screen (render-only). On the early world maps "
+                         "(9002, 9010, 9011) you walk your own copy on foot beside the host, while "
+                         "places, vehicles and the full map's travel stay theirs: you rejoin them "
+                         "at their next stop; elsewhere on the world map you wait for it as before. "
+                         "Only written when given")
     co.add_argument("--no-bridge", action="store_true", help="write the config but don't run the bridge")
     co.add_argument("--no-room", action="store_true", help="skip the co-op room check/build")
     co.add_argument("--rebuild-room", action="store_true", help="rebuild the FF9Coop room even if a room "

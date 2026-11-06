@@ -225,6 +225,17 @@ back off / off, so they run byte-identical to s164 (re-keyed by stage, never wea
 (WB-I / WD-I, D0). An engine without the key is sent NOTHING. The solo leg and the held leg need none (no host frame on the selftest
 role; the held host never leaves 6603).
 
+[ff9mapkit netsync s167] THE REGRESSION RE-KEY, ROUND B (S166-DESIGN.md "Regression", round B's sentence; coop_world_wait.walk_off): from
+s167 a following guest WALKS its own copy on foot on 9002 / 9010 / 9011 while the host is on foot there, and `freeze.on` stays TRUE while
+it walks. Every leg here judges a FROZEN guest, so each sends round B's whole s166 lever set (`worldwalk walk off`, `refuse silent`,
+`stallhold old`, `decline old`, `fp off`, `minimap old`, `fullmap old`) when the probe shows `netsync.world.walk`, read back and folded
+into its instrument row: the solo leg at P1 (`bench 0` and A's walk off the landing are s166's under it), T2 `battle` / `decline`
+through follow_off (WB-I / WD-I), the `held` leg on its own (HF-I: its guest is frozen on the world map while the host stays on 6603),
+the duo on BOTH games (D0). An engine without the key is sent nothing. The rows whose meaning moves are re-keyed BY STAGE, never
+weakened: A, FROZEN, every 'still frozen' (judge_frozen_back: WB-RET, HF-RET, DR), HF-I's freeze.on and D2 also read the walk frozen BY
+THE LEVER (cw.judge_walk_key: walk.free false, why 'lever'), and P0 wants the s167 key list. The WorldTPS mismatch line and the
+missing-caps line still speak under the set (the W1 review's R4): no row asserts their absence.
+
 SWIRL-HANG (decision 11): wherever a leg starts a battle or boots a diorama from the world map, a game that goes QUIET with its
 last state on SwirlScene (no publish for QUIET_S) is an INSTRUMENT row (<PFX>-SWIRL, its detail 'SWIRL-HANG'): Memoria.log and
 output_log.txt archived into the run dir, a frame grabbed (tools/game_snap.ps1 -Id <the game's pid>), the leg stopped (the rows
@@ -791,6 +802,8 @@ def judge_probe(st, lines) -> tuple:
         want_world = R.WORLD_SENTINELS_S166C   # [ff9mapkit netsync s166] W2: A3's `lane` / `line` after `pairpull` (the prefix law)
     if cb.has(st, "netsync.world." + R.A4_CONTRACT["ghost_key"]):
         want_world = R.WORLD_SENTINELS_S166D   # [ff9mapkit netsync s166] W2: A4's `ghost` after `line` and `dot.src` .. `src_face`
+    if cb.has(st, cw.WALK_PROBE):
+        want_world = R.WORLD_SENTINELS_S167    # [ff9mapkit netsync s167] round B: `walk` / `fp` after `ghost` (the prefix law)
     wit = list(R.WORLD_WITNESS_SENTINELS) + (list(R.WORLD_LIVE_KEYS_S165) if s165 else [])
     keys_ok = (list(world) == list(want_world) and list(world.get("dio") or {}) == list(R.WORLD_DIO_SENTINELS)
                and "gmode" in top and "prev_mode" in top and top.index("prev_mode") == top.index("gmode") + 1
@@ -826,9 +839,11 @@ def judge_a(arr, a, away, moved, advanced) -> tuple:
         return False, f"not reached: no snapshot A ({w_why})"
     fz = _w(a, "freeze") or {}
     frz_ok = (fz.get("on") is True and fz.get("why") == "bench") if cb.has(a, cw.PROBE) else True
-    ok = away >= A_AWAY_MIN and w_ok and frz_ok
-    why = (f"A at ({world_xz(a)[0]}, {world_xz(a)[1]}), {away:.1f}u off the landing (want >= {A_AWAY_MIN:g}); FROZEN {w_why}; "
-           f"freeze on {fz.get('on')!r} why {fz.get('why')!r}")
+    k_ok, k_why = cw.judge_walk_key(a)                    # [ff9mapkit netsync s167] BY STAGE: frozen by the lever (freeze.on stays
+    ok = away >= A_AWAY_MIN and w_ok and frz_ok and k_ok  # true while a guest walks)
+    why = (("STAGE KEY" + k_why + "; " if not k_ok else "")
+           + f"A at ({world_xz(a)[0]}, {world_xz(a)[1]}), {away:.1f}u off the landing (want >= {A_AWAY_MIN:g}); FROZEN {w_why}; "
+           f"freeze on {fz.get('on')!r} why {fz.get('why')!r}" + (k_why if k_ok else ""))
     if cb.has(a, PROBE):
         r0, r1 = a.world_cam_rot, (arr.world_cam_rot if arr is not None else None)
         turned = None if r0 is None or r1 is None else abs(((r0 - r1) + 180.0) % 360.0 - 180.0)
@@ -1099,12 +1114,13 @@ def judge_silent(booted, settled, a) -> tuple:
 
 def judge_frozen_back(st, moved, advanced, a, *, whys=("bench",)) -> tuple:
     """FROZEN / the T2 legs' 'still frozen' (PURE): the walk held, freeze.on with a why in ``whys``, edges A's + 1 (the world load's
-    rising edge: re-frozen from the first world frame)."""
+    rising edge: re-frozen from the first world frame). [ff9mapkit netsync s167] BY STAGE: on s167 the walk frozen by the lever too
+    (cw.judge_walk_key: `freeze.on` stays true while a guest walks; a walk FREE dispatch takes no freeze edge)."""
     w_ok, w_why = cw.judge_walk(moved, advanced, WALK_FRAMES, held=True)
     fz = _w(st, "freeze") or {}
     de = cw._delta(a, st, "freeze.edges")
     ok = w_ok and fz.get("on") is True and fz.get("why") in whys and de == 1
-    return ok, f"{w_why}; freeze on {fz.get('on')!r} why {fz.get('why')!r}; edges +{de} since A (want 1)"
+    return cw.with_walk_key((ok, f"{w_why}; freeze on {fz.get('on')!r} why {fz.get('why')!r}; edges +{de} since A (want 1)"), st)
 
 
 def judge_reset(st, before, r0, ok_reset) -> tuple:
@@ -1377,7 +1393,8 @@ def judge_guest_return(first, settled, a, r0, d0, why, whys, moved, advanced, sa
     if keys_only:                                          # (no walk: the edge counter moves on a HELD dispatch -- a press)
         fz = _w(settled, "freeze") or {}
         f_ok = fz.get("on") is True and fz.get("why") in ("live", "mirroring")
-        f_why = f"(the claim alone: the rejoin follows) freeze on {fz.get('on')!r} why {fz.get('why')!r}"
+        f_ok, f_why = cw.with_walk_key((f_ok, f"(the claim alone: the rejoin follows) freeze on {fz.get('on')!r} why "
+                                              f"{fz.get('why')!r}"), settled)   # [ff9mapkit netsync s167] by stage: the walk frozen too
     else:
         f_ok, f_why = judge_frozen_back(settled, moved, advanced, a, whys=("live", "mirroring"))
     p_ok = bool(probs) and probs.get("reinit") is not None and settled.world_battle_prob == probs["reinit"]
@@ -2001,19 +2018,22 @@ def _p1(g, led: cb.Ledger, ctx: dict) -> None:
     if not ok:
         led.check("S145-P1", False, f"`netsync bench 0` refused: {why}")
         return
+    s_ok, s_why = cw.walk_off(g)                           # [ff9mapkit netsync s167] an s167 build reads s166 (the round-B re-key)
+    s_why = f"; {s_why}" if s_why else ""
     if ctx["calibrate"] and (ctx["stage"] or 0) >= 145:
         at = cb.mark(g)
         okl, whyl = cb.try_ns(g, "bench", "worldwarm", "off")
         lines = cb.wait_log(g, at, BW.LOG_WORLD_WARM_OFF, 2.0)
         st = cb.poll(g, lambda s: _dio(s, "lever") == "off", 3.0, "the lever") or g.state
         r_ok, r_why = judge_rest(st, pulled=True, lines=lines)
-        led.check("S145-P1", okl and r_ok, whyl or r_why)
+        led.check("S145-P1", okl and r_ok and s_ok, (whyl or r_why) + s_why)
         g.note("CALIBRATION: `bench worldwarm off` pulled -- every world boot declines; re-pulled after every release until LEVER")
         return
     if ctx["calibrate"]:
         g.note(f"CALIBRATION on s{ctx['stage']}: no `{PROBE}` -- `bench worldwarm`, `vehicle` and a world `dioboot` are NEVER "
                "sent (the driver refuses them: an s144 agent reads `bench worldwarm` as `bench 1`)")
-    led.check("S145-P1", *judge_rest(st, pulled=False))
+    r_ok, r_why = judge_rest(g.state if s_why else st, pulled=False)
+    led.check("S145-P1", r_ok and s_ok, r_why + s_why)
 
 
 def _snapshot_a(g, led: cb.Ledger, ctx: dict) -> bool:
@@ -2539,6 +2559,11 @@ def _t2(g, led: cb.Ledger, ctx: _T2, leg: str) -> None:
     if worldtape:
         ctx.rekey = cw.follow_off(g)       # [ff9mapkit netsync s165] THE RE-KEY: a client now, before the replay (<P>-I judges it)
         _note(g, ctx.rekey[1])
+    else:
+        rk = cw.walk_off(g)                # [ff9mapkit netsync s167] the held leg's guest is frozen on the world map too (HF-I judges it)
+        if rk[1]:
+            ctx.rekey = rk
+            _note(g, rk[1])
     # E. the replay-host: the whole tape, holding at its end
     rd = _run_dir(g)
     args = [ctx.tape, "--port", str(PORT), "--code", CODE, "--at-end", "hold"]
@@ -2703,6 +2728,8 @@ def _held_window(ctx: _T2, bt) -> tuple:
     in_window = (at_bt is not None and (at_bt.ui_state == "WorldHUD" or booted_world(at_bt))
                  and _f(at_bt, "hold") == HELD_FIELD)
     frozen = a is not None and _w(a, "freeze.on") is True
+    k_ok, k_why = cw.judge_walk_key(a) if a is not None else (True, "")   # [ff9mapkit netsync s167] BY STAGE: frozen by the lever
+    frozen = frozen and k_ok
     near = a is not None and world_xz(a)[0] is not None and dist(world_xz(a), FS_LANDING) <= ROUTE_TOL
     ok = a is not None and hold_ok and frozen and near and on_time and in_window
     where = f"on WorldHUD at {world_xz(a)}" if a is not None else "NEVER on the world map"
@@ -2710,7 +2737,7 @@ def _held_window(ctx: _T2, bt) -> tuple:
     missed = "" if in_window and on_time else " -- the walk MISSED the hold window: the instrument"
     return ok, (("the walk MISSED the hold window (the instrument, never the engine): " if missed else "")
                 + f"{ctx.anchors.get('held_why', '')}; walked before the battle {on_time}; A {where}; HOLD {hold_why}; freeze.on "
-                f"{_w(a, 'freeze.on') if a is not None else None!r}; the first sample after the battle reached the wire: {first} "
+                f"{_w(a, 'freeze.on') if a is not None else None!r}{k_why}; the first sample after the battle reached the wire: {first} "
                 f"(want WorldHUD -- or its world diorama already up -- and the hold {HELD_FIELD}{missed})")
 
 
@@ -2995,6 +3022,8 @@ def _duo(d, check, rest) -> None:
     both = (host.state.ui_state == "FieldHUD" and host.state.field_id == FARSHORE and gst.ui_state == "FieldHUD"
             and gst.field_id == FARSHORE and _s(gst, "mirroring") is True)
     rekey = cw.follow_off(guest)                           # [ff9mapkit netsync s165] THE RE-KEY, before the host's walk out
+    h_ok, h_why = cw.walk_off(host, host=True)             # [ff9mapkit netsync s167] the host too: an s167 pair reads s166 exactly
+    rekey = (rekey[0] and h_ok, rekey[1] + (f"; the host's {h_why}" if h_why else ""))
     check("S145-D0", both and rekey[0], f"host {host.state.ui_state} {host.state.field_id}; guest {gst.ui_state} {gst.field_id}, "
                                         f"mirroring {_s(gst, 'mirroring')!r}; {rekey[1]}")
     both = both and rekey[0]

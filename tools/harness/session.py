@@ -9266,6 +9266,16 @@ class Session:
             a4_ops = tuple(BW_WW.A4_CONTRACT["ops"])
             world_ww = (st.netsync or {}).get("world") if isinstance(st.netsync, dict) else None
             world_ww = world_ww if isinstance(world_ww, dict) else {}
+            if op_ww in BW_WW.WORLDWALK_OPS_B:
+                # [ff9mapkit netsync s167] round B's levers on an engine without their key (the deployed s166 answers them with its usage
+                # line AFTER the step): refused before it -- a bench PROBES the key first (`netsync.world.walk` for walk / pair / refuse /
+                # stallhold / decline, `netsync.world.fp` for fp / tps, `netsync.world.walk.map` for minimap / fullmap)
+                key_ww = ("fp" if op_ww in ("fp", "tps") else "walk.map" if op_ww in ("minimap", "fullmap") else "walk")
+                walk_ww = world_ww.get("walk") if isinstance(world_ww.get("walk"), dict) else {}
+                have_ww = (("fp" in world_ww) if key_ww == "fp" else ("map" in walk_ww) if key_ww == "walk.map" else bool(walk_ww))
+                if not have_ww:
+                    raise HarnessError(f"netsync worldwalk {op_ww}: this engine publishes no `netsync.world.{key_ww}` (memoria-patch s167, "
+                                       "round B); it would answer its own usage line only after the step")
             if (op_ww in a3_ops and "lane" not in world_ww) or (op_ww in a4_ops and "ghost" not in world_ww):
                 # [ff9mapkit netsync s166] W2: A3's ops (pose / lanegap / hostlines, the bench host's) on an engine without
                 # `netsync.world.lane`, A4's (ghost / place / dot) without `netsync.world.ghost`: an older build answers them with its own
@@ -9752,11 +9762,20 @@ class Session:
         """[ff9mapkit netsync s166] The `worldwalk` form's own check (an unknown op, a wrong arity, a word it does not take): the usage
         line, else None -- co-op off and the role stay the engine's. [ff9mapkit netsync s166] W2 reconcile: ``world`` is the engine's
         `netsync.world` block; the usage line is the one THAT engine answers (BW.worldwalk_usage_of: A4's grown line, A3's, A0b's, the A0
-        build's), so the driver's refusal is word for word the step's. ``world`` None = the newest (A4's)."""
+        build's), so the driver's refusal is word for word the step's. ``world`` None = the newest (A4's). [ff9mapkit netsync s167] An
+        engine whose block carries `walk` answers round B's grown line (BW.worldwalk_usage_of_s167); round B's levers take exactly one of
+        their words (BW.WORLDWALK_WORDS_B), `fp fake <hex>` 1-8 hex digits."""
         from . import battlewire as BW
-        usage = BW.WORLDWALK_USAGE_A4 if world is None else BW.worldwalk_usage_of(world)
+        usage = BW.WORLDWALK_USAGE_A4 if world is None else BW.worldwalk_usage_of_s167(world)   # [ff9mapkit netsync s167] by its block
         rest = [str(a).strip() for a in args]
         op = rest[0].lower() if rest else ""
+        if op in BW.WORLDWALK_WORDS_B:
+            # [ff9mapkit netsync s167] round B's any-role levers (walk / pair / refuse / stallhold / decline / fp / tps / minimap / fullmap):
+            # exactly one word the engine takes -- `fp fake <hex>` its 1-8 hex digits -- else the usage line; an engine without the key is
+            # refused before the step by the gate (the probe's `netsync.world.walk` / `fp` / `walk.map`)
+            if op == "fp" and len(rest) == 3 and rest[1].lower() == "fake":
+                return None if BW.ww_fp_fake_parse(rest[2]) is not None else usage
+            return None if len(rest) == 2 and rest[1].lower() in BW.WORLDWALK_WORDS_B[op] else usage
         a3_words = {k: v for k, v in BW.WORLDWALK_WORDS_A3.items() if k not in BW.WORLDWALK_WORDS}
         a4_words = dict(BW.A4_CONTRACT["words"])
         if op in a3_words or op in a4_words:
@@ -9790,7 +9809,12 @@ class Session:
         off|on`` (any role) and the bench host's ``host path ... | host off``, ``hostseq``, ``hostgap``, ``hostplace`` .. ``hosttps`` (the
         selftest role) -- refused before the step on an engine without ``netsync.world.lane``; A4's ``ghost off|on|sticky``, ``place
         render|act``, ``dot section0|trailer`` -- without ``netsync.world.ghost``. A malformed A3 / A4 lever is A3's usage line; the bench
-        host's shapes and ranges are the engine's own refusals (they come back from the step)."""
+        host's shapes and ranges are the engine's own refusals (they come back from the step). [ff9mapkit netsync s167] Round B's levers
+        (S166-DESIGN.md decisions 13-28; each released with the harness): ``walk off|on``, ``pair unmirrored|act``, ``refuse silent|act``,
+        ``stallhold old|act``, ``decline old|act`` -- refused before the step on an engine without ``netsync.world.walk``; ``fp
+        off|old|act``, ``fp fake <hex>``, ``tps apply|report`` -- without ``netsync.world.fp``; ``minimap old|act``, ``fullmap old|act`` --
+        without ``netsync.world.walk.map``. Read them back through :attr:`State.world_walk_block`, :attr:`State.world_walk_map_block` and
+        :attr:`State.world_fp_block`; a malformed one is the usage line that build answers."""
         return self.netsync("worldwalk", op, *args, timeout=timeout)
 
     def savemenu(self) -> None:

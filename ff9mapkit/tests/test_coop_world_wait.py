@@ -80,6 +80,8 @@ def fake_for(t, run):
     f = FG.FakeGame(t, fps=600, walkmesh=(-2000.0, -3000.0, 2000.0, 2000.0))
     if run.get("caps"):
         f.netsync_caps = FG.caps_through(run["caps"])
+    if run.get("s167"):                                    # [ff9mapkit netsync s167] round B's piece "b" (the default: the deployed s166)
+        f.world_walk_pieces = tuple(FG.FAKE_WORLD_WALK_S167_PIECES)
     if run.get("door", True):
         f.regions = {6603: [{"zone": cw.FS_DOOR, "world": cw.WORLD, "world_at": list(cw.FS_LANDING)}]}
     f.exit_frames = 900
@@ -256,6 +258,12 @@ REAL_FOLLOW_OFF = cw.follow_off
 def rekey(run):
     POSE[0] = bool(run.get("pose", True))
     cw.follow_off = REAL_FOLLOW_OFF if run.get("rekey", True) else (lambda g: (True, "s165 re-key: STOOD DOWN (the test)"))
+    walkset(run)
+
+#: [ff9mapkit netsync s167] `walkset` False stands round B's re-key down (cw.walk_off: follow_off's and the solo P1's)
+REAL_WALK_OFF = cw.walk_off
+def walkset(run):
+    cw.walk_off = REAL_WALK_OFF if run.get("walkset", True) else (lambda g, **k: (True, "s167 re-key: STOOD DOWN (the test)"))
 
 class OwnerDial(threading.Thread):
     """[review 2] THE OWNER's TRANSPORT: the guest game launched on the owner's Memoria.ini, so a client instance was born at its
@@ -281,6 +289,7 @@ class OwnerDial(threading.Thread):
             time.sleep(0.05)
 
 def solo(run):
+    walkset(run)
     t = root(run.get("ini"))
     cw.read_oracle = (lambda game: {"problems": run["oracle_problems"], "facts": {}}) if run.get("oracle_problems") \
         else (lambda game: {"problems": {}, "facts": {"stand-in": True}})
@@ -1500,3 +1509,157 @@ def test_the_s144_runners_name_every_step():
         assert frag in full, frag
     assert full.index('"worldwait:6603:coop_world_wait"') < full.index('"worldwait_lever:6603') < full.index(
         '"leaderguard:30602') < full.index("env COOP_TAPE_WORLD=1") < full.index("env COOP_WORLD_LEG=wait")
+
+
+
+# ------------------------------------------------------------------------------------------------ [ff9mapkit netsync s167] round B's re-key
+def test_s167_the_regression_rekey_keeps_the_solo_leg_s166s():
+    """[ff9mapkit netsync s167] THE REGRESSION RE-KEY, ROUND B (S166-DESIGN.md "Regression"): on the s167 stand-in (round B's piece
+    "b") the solo leg's P1 pulls round B's whole s166 lever set (walk_off) and reads it back, and the leg reads s166 exactly -- every row
+    green, the frozen rows reading the walk frozen BY THE LEVER (the stage key). Stood down, the s167 meaning moves and the rows that
+    judge it go red EXACTLY: F1K (`walk on` rewords its 'the host drives' ON line: 0x), F2 (the entrance press buzzes: entry_refused +1),
+    F3 (a frozen guest's Select CLOSES the minimap -- decision 27 -- so the refusal never counts), F1 / F6 (the walk frozen for another
+    why: the stage key). Re-keyed by stage, never weakened."""
+    r = _child({"runs": {"s167": {"kind": "solo", "s167": True}, "nokey": {"kind": "solo", "s167": True, "walkset": False}}})
+    new, off = r["s167"], r["nokey"]
+    assert new["red"] == [] and new["all"] == SOLO_ALL, {c: new["detail"][c] for c in new["red"]}
+    d = new["detail"]
+    assert ("s167 re-key: round B's s166 lever set (walk off, refuse silent, stallhold old, decline old, fp off, minimap old, fullmap "
+            "old) sent, read back") in d["S144-P1"], d["S144-P1"]
+    assert "'walk', 'fp']" in d["S144-P0"] and "why 'lever' lever 'off'" in d["S144-F1K"] and "the ON line 1x" in d["S144-F1K"]
+    assert "'entry_refused': 0" in d["S144-F2"] and "'minimap_closes': 0" in d["S144-F3"] and "map +1" in d["S144-F3"]
+    assert off["red"] == ["S144-F1", "S144-F1K", "S144-F2", "S144-F3", "S144-F6"], {c: off["detail"][c] for c in off["red"]}
+    o = off["detail"]
+    assert "STOOD DOWN" in o["S144-P1"] and "the ON line 0x" in o["S144-F1K"] and "STAGE KEY" in o["S144-F1"]
+    assert "'entry_refused': 1" in o["S144-F2"] and "'minimap_closes': 1" in o["S144-F3"] and "map +0" in o["S144-F3"]
+
+
+def test_s167_the_regression_rekey_keeps_the_wait_rejoin_and_duo_legs_s166s():
+    """[ff9mapkit netsync s167] The wait leg and the duo take the set through follow_off (the duo's HOST through walk_off(host=True): a
+    stub-linked host stand-in is co-op off and is sent nothing, said in D0), folded into WT-I / D0; both green on s167. The rejoin leg
+    needs none and is green as it is. Stood down, the duo's D2 reds on its stage key (the guest's walk frozen for another why)."""
+    r = _child({"runs": {"wait": {"kind": "t2", "leg": "wait", "s167": True}, "rejoin": {"kind": "t2", "leg": "rejoin", "s167": True},
+                         "duo": {"kind": "duo", "s167": True}, "duo_off": {"kind": "duo", "s167": True, "walkset": False}}})
+    for name in ("wait", "rejoin", "duo"):
+        assert r[name]["red"] == [], (name, {c: r[name]["detail"][c] for c in r[name]["red"]})
+    want = "s167 re-key: round B's s166 lever set"
+    assert want in r["wait"]["detail"]["S144-WT-I"] and "why 'lever'" in r["wait"]["detail"]["S144-WT-FROZEN"]
+    assert want in r["duo"]["detail"]["S144-D0"] and "the host's s167 re-key: co-op is off" in r["duo"]["detail"]["S144-D0"]
+    assert "why 'lever'" in r["duo"]["detail"]["S144-D2"]
+    assert not any(want in v for v in r["rejoin"]["detail"].values())       # the rejoin leg: nothing sent
+    off = r["duo_off"]
+    assert off["red"] == ["S144-D2"] and "STAGE KEY" in off["detail"]["S144-D2"], {c: off["detail"][c] for c in off["red"]}
+
+
+_S167_JUDGES = r"""
+import copy, importlib.util, json, os, sys
+scen, tools, kit = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.path.insert(0, tools)
+from harness.channel import State
+from harness import battlewire as BW
+spec = importlib.util.spec_from_file_location("coop_world_wait", os.path.join(scen, "coop_world_wait.py"))
+cw = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cw)
+SET = dict(cw.S166_LEVER_SET)
+
+def world(walk=None, fp=None, stage=167, **counts):
+    w = copy.deepcopy(BW.WORLD_SENTINELS_S167 if stage >= 167 else BW.WORLD_SENTINELS_S166D)
+    if stage >= 167:
+        w["walk"].update(walk or {})
+        w["walk"].update({k: v for k, v in counts.items() if k != "opens"})
+        if "opens" in counts:
+            w["walk"]["map"]["opens"] = counts["opens"]
+        w["fp"].update(fp or {})
+    return w
+
+def st(w=None, enabled=True, frame=1):
+    ns = {"enabled": enabled, "session": {"follow": dict(BW.SESSION_FOLLOW_SENTINELS), "overlay_text": None}}
+    if w is not None:
+        ns["world"] = w
+    return State({"frame": frame, "netsync": ns})
+
+FROZEN = {"free": False, "why": "lever", "lever": "off"}
+out = {}
+out["key"] = [cw.judge_walk_key(st(world(FROZEN)))[0],                                       # the re-key's freeze
+              cw.judge_walk_key(st(world({"free": True, "why": None, "lever": "on"})))[0],    # walking
+              cw.judge_walk_key(st(world({"free": False, "why": "role", "lever": "on"})))[0],  # frozen for another why
+              cw.judge_walk_key(st(world({"free": False, "why": "pairing"})), why=None)[0],    # any why (the unarmed duo)
+              cw.judge_walk_key(st(world({"free": True})), why=None)[0],                       # ...but never a walker
+              cw.judge_walk_key(st(world(stage=166)))[0], cw.judge_walk_key(st(world(stage=166)))[1]]   # s166: no key, no words
+red = cw.with_walk_key((True, "row"), st(world({"free": True, "why": None})))
+out["with"] = [cw.with_walk_key((True, "row"), st(world(FROZEN)))[0], red[0], red[1].startswith("STAGE KEY"),
+               cw.with_walk_key((False, "row"), st(world(FROZEN)))[0],
+               list(cw.with_walk_key((True, "row"), st(world(stage=166)))) == [True, "row"]]
+b = st(world(FROZEN))
+out["quiet"] = [cw.walk_quiet(b, st(world(FROZEN)))[0], cw.walk_quiet(b, st(world(FROZEN, entry_refused=1)))[0],
+                cw.walk_quiet(b, st(world(FROZEN, minimap_closes=1)))[0], cw.walk_quiet(b, st(world(FROZEN, rearms=1)))[0],
+                cw.walk_quiet(b, st(world(FROZEN, opens=1)))[0],
+                list(cw.walk_quiet(st(world(stage=166)), st(world(stage=166)))) == [True, ""]]
+full = world({"lever": "off", "refuse": "silent", "stallhold": "old", "decline": "old", "minimap": "old"}, fp={"lever": "off"})
+full["walk"]["map"]["lever"] = "old"
+out["levers"] = [cw.walk_levers(st(full)) == SET, cw.walk_levers(st(world())) == SET, sorted(cw.walk_levers(st(full)))]
+L = lambda *msgs: ["05.11.2026 12:00:00 |M| [NetSync] " + m for m in msgs]
+def proof(overlay):
+    return L(f"{BW.PROOF_WORLD_FREEZE}OK ({BW.world_freeze_selftest_rows(145)} rows)",
+             f"{BW.PROOF_WORLD_REJOIN}OK ({BW.WORLD_REJOIN_SELFTEST_ROWS} rows)", f"{BW.PROOF_OVERLAY_TEXT}OK ({overlay} rows)")
+s166d = world(stage=166)
+out["probe"] = [cw.judge_probe(st(world()), proof(58))[0], cw.judge_probe(st(world()), proof(50))[0],
+                cw.judge_probe(st(s166d), proof(50))[0], cw.judge_probe(st(s166d), proof(58))[0],
+                cw.judge_probe(st({k: v for k, v in world().items() if k != "fp"}), proof(58))[0]]
+
+class G:
+    # a stub game: its worldwalk ops set the published words (or are refused); its state carries the world block
+    def __init__(self, w, refuse=False, enabled=True):
+        self.w, self.refuse, self.enabled, self.sent = w, refuse, enabled, []
+    @property
+    def state(self):
+        return st(self.w, enabled=self.enabled)
+    def netsync(self, sub, *args, timeout=20.0):
+        self.sent.append(" ".join([sub, *args]))
+        if self.refuse:
+            raise cw.HarnessError("netsync worldwalk: refused (stub)")
+        op, word = args[0], args[1]
+        if op == "walk":
+            self.w["walk"]["lever"] = word
+        elif op == "fp":
+            self.w["fp"]["lever"] = word
+        elif op == "fullmap":
+            self.w["walk"]["map"]["lever"] = word
+        else:
+            self.w["walk"][op] = word
+        return self.state
+    def wait_for(self, pred, timeout=1.0, what=""):
+        if pred(self.state):
+            return self.state
+        raise cw.HarnessError("timeout (stub)")
+    def note(self, msg):
+        pass
+new, old, bad, host_off = G(world()), G(world(stage=166)), G(world(), refuse=True), G(world(), enabled=False)
+r_new, r_old, r_bad = cw.walk_off(new), cw.walk_off(old), cw.walk_off(bad)
+r_host, r_host_on = cw.walk_off(host_off, host=True), cw.walk_off(G(world()), host=True)
+out["off"] = [r_new[0], "read back" in r_new[1], new.sent, list(r_old), old.sent, r_bad[0], "FAILED" in r_bad[1],
+              r_host[0], "nothing sent" in r_host[1], host_off.sent, r_host_on[0]]
+print(json.dumps(out))
+"""
+
+
+def test_s167_the_stage_keys_go_red_on_each_wrong_shape():
+    """[ff9mapkit netsync s167] The round-B re-key's pure pieces, fed hand-built states: judge_walk_key (frozen by the lever; any why for a
+    leg that cannot take the set; never a walker; nothing on s166), with_walk_key (a red key LEADS the detail), walk_quiet (each round-B
+    counter that moves reds it), walk_levers, judge_probe BY STAGE (s167's key list wants 'overlay text selftest: OK (58 rows)', s166's
+    50), and walk_off on a stub game (s167: the set sent in order and read back; s166: nothing sent; a refusal: False; a co-op-off duo
+    host: nothing sent)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("COOP_")}
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    run = subprocess.run([sys.executable, "-X", "utf8", "-c", _S167_JUDGES, str(SCENARIOS), str(REPO / "tools"),
+                          str(REPO / "ff9mapkit")], env=env, capture_output=True, text=True, timeout=120)
+    assert run.returncode == 0, run.stderr[-3000:]
+    o = json.loads(run.stdout.strip().splitlines()[-1])
+    assert o["key"] == [True, False, False, True, False, True, ""]
+    assert o["with"] == [True, False, True, False, True]
+    assert o["quiet"] == [True, False, False, False, False, True]
+    assert o["levers"] == [True, False, ["decline", "fp", "fullmap", "minimap", "refuse", "stallhold", "walk"]]
+    assert o["probe"] == [True, False, True, False, False]
+    want = ["worldwalk " + " ".join(op) for op in (("walk", "off"), ("refuse", "silent"), ("stallhold", "old"), ("decline", "old"),
+                                                    ("fp", "off"), ("minimap", "old"), ("fullmap", "old"))]
+    assert o["off"] == [True, True, want, [True, ""], [], False, True, True, True, [], True], o["off"]

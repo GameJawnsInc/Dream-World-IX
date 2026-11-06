@@ -59,7 +59,15 @@ the guest stands on one, it walks in by itself and its screen can stay black. Th
      x X, z Z, ... -- frozen here until the rejoin`. **Host log:** `host: world-map exit from field F to world W` and
      `host: on world map W (b6) at world frame N, blocks ready yes|no`.
    - **Red tells:** the guest lands at the exit's usual arrival point while the host stood somewhere else; the guest lands
-     on a different world map; the guest can walk; the guest's screen stays black; a second load right after the first.
+     on a different world map; the guest can walk where it should be frozen (below); the guest's screen stays black; a
+     second load right after the first.
+   - **"Frozen", from s167 on:** on s165 and s166 a landed guest could never walk, so any walking was a red tell. From s167
+     the guest walks its own copy on foot on world maps 9002, 9010 and 9011 while the host is on foot there too
+     (`S166-DESIGN.md` decisions 13-16), so walking there is expected. It is still a red tell if the guest walks while the
+     host rides (Choco, the boat, an airship) or is in a world-map scene, on any other world map, with a partner on an
+     older build, or when the two games' world maps differ (the guest's line then names the difference). Going into a
+     location stays the host's on every world map: if the guest gets in by itself (without the ~ menu's Release), that is
+     red too.
 2. **Walking on: the dot.** Once the guest has landed, the host walks around for a while, then far away.
    - If the guest's minimap is off, the guest sees *"Your partner is on the world map: press Select for the minimap."*:
      press Select once on the guest.

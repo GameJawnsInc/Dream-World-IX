@@ -57,14 +57,18 @@ from . import widgets
 from ..editor import jobs
 
 # What following means, told to the guest in the order they will meet it. Facts from the engine:
-# s95 (no warp-pin), s84-s99 (dialogue in step), s133-s143 (battles), s144/s145 (world map), and the
-# session end reloading the guest's own autosave.
+# s95 (no warp-pin), s84-s99 (dialogue in step), s133-s143 (battles), s144/s145 (world map), s167 (the
+# guest walks its own copy of the early world maps 9002 / 9010 / 9011 on foot; places, vehicles and the
+# full map's travel stay the host's), and the session end reloading the guest's own autosave.
 GUEST_TERMS = (
     "When the host changes screens, you are pulled along. When they talk to someone, the scene plays on "
     "your screen and their presses turn the pages. In their battles you "
     "command the party members they hand you, from FF9's own battle menu, or watch if they hand you none. "
-    "On the world map the host drives and you rejoin at their next stop. While you are paired there is "
-    "no main menu and no saving; when the session ends your game reloads your own autosave, untouched."
+    "On the early world maps of disc 1 you walk your own copy on foot beside the host, but going into "
+    "places, vehicles and travel from the full map stay theirs: you rejoin them at their next stop. On the "
+    "other world maps, or while the host rides, the host drives and you wait for their next stop. While you "
+    "are paired there is no main menu and no saving; when the session ends your game reloads your own "
+    "autosave, untouched."
 )
 
 START_LABEL = {True: "Start hosting", False: "Join game"}

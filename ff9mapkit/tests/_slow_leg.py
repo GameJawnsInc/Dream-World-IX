@@ -68,6 +68,8 @@ LEGS = {
         "test_the_world_recorder_tapes_the_host_and_its_b6_is_the_engines",
         "test_the_rejoin_legs_old_order_dials_on_the_field_and_reads_red",
         "test_the_s165_rekey_keeps_the_wait_and_duo_legs_s144s",                            # [s165] the regression re-key
+        "test_s167_the_regression_rekey_keeps_the_solo_leg_s166s",                          # [s167] round B's re-key
+        "test_s167_the_regression_rekey_keeps_the_wait_rejoin_and_duo_legs_s166s",          # [s167] round B's re-key
     ),
     # s145: the stand-in's world-diorama bench (harness core): the solo + followed-client legs, their faults and calibrations
     "test_world_diorama_harness.py": (
@@ -110,6 +112,7 @@ LEGS = {
         "test_a_world_diorama_that_leaves_mid_fight_on_an_allowed_why_reds_its_boot_row",     # [fix-r1] the leave's bound
         "test_a_cold_return_at_the_spawn_still_reds_place",                                   # [fix-r1] PLACE can fail
         "test_the_s165_rekey_keeps_the_battle_and_duo_routes_s145s",                          # [s165] the regression re-key
+        "test_s167_the_regression_rekey_keeps_every_leg_s145s",                               # [s167] round B's re-key
     ),
     # [ff9mapkit netsync s165] coop_world_follow.py's solo (three sections) / T2 walk / duo legs, their faults and calibrations
     "test_coop_world_follow.py": (
@@ -123,6 +126,7 @@ LEGS = {
         "test_each_fault_family_turns_exactly_its_walk_rows_red",
         "test_the_duo_is_green_on_s165_and_calibrates_on_s164",
         "test_each_fault_family_turns_exactly_its_duo_rows_red",
+        "test_s167_the_regression_rekey_keeps_every_leg_s166s",                               # [s167] round B's re-key
     ),
     # [ff9mapkit netsync s166] coop_world_walk.py's solo leg (round A; piece A0's rows): green, OLD, the lever, the faults, a CAL red
     "test_coop_world_walk.py": (
@@ -131,6 +135,32 @@ LEGS = {
         "test_the_lever_calibrates_exactly_and_measures_the_hazard",
         "test_a_calibration_without_a_measured_hazard_is_red",
         "test_each_world_walk_fault_turns_exactly_its_solo_rows_red",
+        "test_s167_the_pair_leg_pulls_round_bs_set_before_the_replay_and_reads_s166",         # [s167] round B's re-key
+    ),
+    # [ff9mapkit netsync s167] coop_world_walk.py's round-B solo legs (the walk): green on s167, OLD on s166, each lever, each fault, the
+    # s167 proof's want, and round A / A0 on the s167 stand-in (the regression re-key)
+    "test_coop_world_walk_b_legs.py": (
+        "test_every_round_b_leg_is_green_on_the_s167_stand_in_in_one_launch",
+        "test_old_on_the_s166_stand_in_is_exactly_its_rows_each_measured_and_no_round_b_op_is_sent",
+        "test_each_lever_calibrates_exactly_and_measures_its_shape",
+        "test_each_round_b_fault_turns_exactly_its_rows_red",
+        "test_s167_w_proof_reads_the_s167_sources_tallies",
+        "test_round_a_and_a0_on_the_s167_stand_in_pull_the_s166_lever_set_and_read_s166",
+    ),
+    # [ff9mapkit netsync s167] coop_world_walk_t2.py's round-B T2 legs (walk / stallhole / hostb) and its round-B duo on the stand-in:
+    # green on s167, OLD on s166, each lever, each fault, the place-52 clause, and round A's legs through the regression re-key
+    "test_coop_world_walk_t2_b.py": (
+        "test_s167t2_walk_is_green_on_the_s167_stand_in_but_the_owner_gate",
+        "test_s167t2_walk_old_on_s166_and_the_lever_calibrate_exactly",
+        "test_s167t2_stallhole_is_green_on_the_s167_stand_in_but_the_owner_gate",
+        "test_s167t2_stallhole_old_and_each_lever_calibrate_exactly",
+        "test_s167t2_the_place_52_clause_holds_on_s167_and_measures_the_local_battle_on_s166",
+        "test_s167t2_hostb_is_green_on_the_s167_host_stand_in",
+        "test_s167t2_hostb_old_on_s166_and_the_lever_calibrate_exactly",
+        "test_s167t2_each_round_b_fault_turns_exactly_its_rows_red",
+        "test_s167t2_the_round_b_duo_is_green_on_two_s167_stand_ins_but_the_named_battle",
+        "test_s167t2_the_round_b_duo_old_and_each_lever_calibrate_exactly",
+        "test_s167t2_round_a_on_the_s167_stand_in_pulls_the_s166_lever_set_and_reads_s166",
     ),
     # [ff9mapkit netsync s163] coop_speed_mirror.py's whole solo bench on a real-time stand-in: plain, its calibration, the s162 engine
     "test_coop_speed_mirror_bench.py": (

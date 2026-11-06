@@ -1683,10 +1683,16 @@ def test_s166_the_codec_is_the_engines_trailer_and_wire_lines():
     write = re.search(r"internal static Int32 WriteTrailer\(.*?\n        \}", ww, re.S).group(0)
     assert re.search(r"Array\.Clear\(dst, off, TrailerLen\);\s*if \(t\.Fmt <= 0\)\s*return TrailerLen;", write)   # tfmt 0: all zero
     keep = re.search(r"internal static Byte\[\] KeepaliveTrailer\(Int32 worldTps\)\s*\{(.*?)\n        \}", sock, re.S).group(1)
-    assert [ln.strip() for ln in keep.strip().splitlines()] == [
-        "NetSyncWorldWalk.WorldTrailer t = new NetSyncWorldWalk.WorldTrailer();", "t.Fmt = NetSyncWorldWalk.TrailerFmt;",
-        "t.Caps = NetSyncWorldWalk.OwnCaps;", "t.Place = NetSyncWorldWalk.PlaceNone;", "t.WorldTps = worldTps;",
-        "Byte[] b = new Byte[NetSyncWorldWalk.TrailerLen];", "NetSyncWorldWalk.WriteTrailer(b, 0, t, false);", "return b;"]
+    body = ["NetSyncWorldWalk.WorldTrailer t = new NetSyncWorldWalk.WorldTrailer();", "t.Fmt = NetSyncWorldWalk.TrailerFmt;",
+            "t.Caps = NetSyncWorldWalk.OwnCaps;", "t.Place = NetSyncWorldWalk.PlaceNone;", "t.WorldTps = worldTps;",
+            "Byte[] b = new Byte[NetSyncWorldWalk.TrailerLen];", "NetSyncWorldWalk.WriteTrailer(b, 0, t, false);", "return b;"]
+    two = re.search(r"internal static Byte\[\] KeepaliveTrailer\(Int32 worldTps, Int32 caps\)\s*\{(.*?)\n        \}", sock, re.S)
+    if two is None:                                     # s166: the one form, OwnCaps (0x0001)
+        assert [ln.strip() for ln in keep.strip().splitlines()] == body
+    else:                                               # [ff9mapkit netsync s167] BY STAGE: the one form delegates with s166's word, the two-
+        # argument form (the relay's LIVE word: coop_peer.keepalive_trailer's ``caps``) is that body with the caller's caps
+        assert [ln.split("//", 1)[0].strip() for ln in keep.strip().splitlines()] == ["return KeepaliveTrailer(worldTps, NetSyncWorldWalk.OwnCaps);"]
+        assert [ln.strip() for ln in two.group(1).strip().splitlines()] == [ln.replace("NetSyncWorldWalk.OwnCaps", "caps") for ln in body]
     relay = "\n".join(stack_file("NetSyncRelay.cs"))
     assert re.search(r"BuildPosPayload\(65535, 0, 0, 0, 0, Vector3\.zero, Quaternion\.identity, 0, 0,[^\n]*\n\s*NetSyncWire\.KeepaliveTrailer\(",
                      relay)

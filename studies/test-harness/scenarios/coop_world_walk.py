@@ -206,6 +206,79 @@ tests/test_coop_world_walk.py runs every leg on the stand-in (green), OLD on the
 `*_lever_ignored` fault (S166-A-CAL red), and every round-A fault red in exactly its A_FAULT_REDS rows over all six legs.
     py <scratchpad>/solo_ini.py s166-a -- COOP_WW_LEG=tx py tools/play.py studies/test-harness/scenarios/coop_world_walk.py --field 6603
     COOP_CALIBRATE=1 COOP_WW_LEG=<leg> [COOP_WW_LEVER=<lever>]   (the same command: OLD on A0b, LEVER on s166)
+ROUND A ON AN s167 BUILD (the regression set, re-keyed BY STAGE, never weakened): when the probe shows `netsync.world.walk`, A0's and round
+A's P1 also pull round B's whole s166 lever set (S166_LEVER_SET: `worldwalk walk off`, `refuse silent`, `stallhold old`, `decline old`,
+`fp off`, `minimap old`, `fullmap old`) and read it back, so every round-A row reads s166 exactly; A-PROOF wants the s167 source's tallies
+there (proof_want(167)). The WorldTPS mismatch line and the missing-caps line still speak under that set (the W1 review's R4: no lever word
+silences them): no round-A judge asserts their absence. A0b's T2-A pair leg pulls the same set on its guest before the replay (the pulled
+guest lands FROZEN on 9011), folded into T2-PEER; and A-FROZEN (coop_world_follow.judge_frozen_here) reads the walk frozen BY THE LEVER
+on an s167 build (coop_world_wait.judge_walk_key: `freeze.on` stays true while a guest walks).
+
+[ff9mapkit netsync s167] ROUND B, SOLO -- THE WALK (S166-DESIGN.md decisions 13-28, its Round B rows table and its Order) on the forced
+selftest role: a following guest, frozen on the world map since s144, WALKS its own copy on foot on {9002, 9010, kit 9011}, its entrances
+refused with a buzz and words. One launch per leg (COOP_WW_LEG=free|refuse|stale|entry|decline|tps|minimap|map; `b` runs all eight in one
+launch, never under a calibration). Every leg reads the build's STAGE off the probe (`netsync.world.walk` / `netsync.world.fp` /
+`netsync.world.walk.map`, State.coop_world_walk_b): the SAME leg runs OLD on the live s166 (no round-B op is ever sent there: the session
+refuses them before the step) and NEW / LEVER on s167. THE WALK'S BENCH (W1's notes): on the selftest role a walk needs BOTH bench hosts --
+`worldfollow host self` (section 7: b6 and the story band, at my own pose) and `worldwalk host path <x> <z> 0` (the trailer: caps, place 4,
+the world, on foot) -- the field frame before the follow-out (SuppressEncounters) and fp.ready; every walking leg sets that up after s165's
+follow-out (B_WALK_SETUP, its instrument both hosts on the wire). THE PRE-INIT SAMPLE (block_ready + ticks advancing), THE ORDER SKEW (each
+op's own publish dropped), LIVE VERDICT vs LAST DRAWN (the full-map dot judged only where placed agrees). A visit is decision 20's (a world
+load after a field or the title): a fresh visit is a FIELD ROUND TRIP (`world_warp 6603` + s165's follow-out), never a warm battle return.
+  setup   S167-INI, S167-OR (s165's route; with `entry` the deployed WORLD11's kit and the 6603 trigger tiles), S167-S0, S167-P0 (`netsync.
+          world` ends `walk`, `fp`, each at its contract's keys in order, the lane's s167 keys, caps.own 3), S167-W-PROOF (A-PROOF's s167
+          counts: 'world walk selftest: OK (N rows, M mutants)' N / M the s167 source's -- $FF9_S167_CLONE or the s167 patch -- else above
+          s166's 323 / 110, none FAIL; 'overlay text selftest: OK (58 rows)'), S167-P1 (`bench 1`, round B's levers at rest), final S167-R.
+  free    W-FREE `hold up` on 9011: moved >= WALK_U, `walk.free`, `freeze.on` still true, one FREE line, the trailer's b1 and why 0.
+          W-CAM `hold l1` / `hold r1`: `world.cam_rot` turns each way (>= CAM_MIN_DEG). W-FREE-9002 the third walk world (a fresh visit
+          by A-BODY's fabricated [102] 2, both bench hosts): `hold up` moves >= WALK_U on WorldHUD 9002, `walk.free`, `freeze.on` still
+          true, a FREE line naming 9002. OLD (s166): 0.00 u and the camera unchanged. LEVER `walk off`: the same.
+  refuse  W-REFUSE-x, the walk free before each (its positive control) and again after the undo: NOB6 (`worldfollow host nob6`:
+          host_not_world), OTHER (`hostworld 9010`: other_world), RIDE (`hostmode 1`: riding), SCENE (`hoststate 0xC4`: host_scene), OWNMODE
+          (`vehicle 6` on me: own_mode), PAIR (`worldwalk pair unmirrored`: pairing), FP (`worldwalk fp fake dead`: fp_mismatch, the walk line
+          naming 'world map meshes', fp.state 'mismatch', fp.named 'meshes', one mismatch line, the trailer's b4), FPDRY (`worldwalk fp
+          old`, decision 21's dry run: fp_old with fp.state 'match' -- the walk would be free, b1 and b4 clear) -- each frozen with ITS why,
+          `hold up` < HELD_U, its owner words. OLD: frozen (no why). LEVER `walk off`: frozen, why 'lever' in every case.
+  stale   W-STALE `hostseq freeze` (re-sends: Valid) keeps walking; a fresh `nob6` freezes; `hostgap` stops arrivals: past StaleMs the walk
+          stays free on the held trailer (THE STALL HOLD); a world load (the field round trip, arrivals still stopped) drops the hold:
+          held_drops +1, held_trailer false, frozen 'peer_caps'; arrivals back: free. OLD / LEVER `walk off`: frozen under the freeze.
+  entry   (the walk on, control ON, Confirm) W-OPEN FS_LANDING (open ground: in the 6603 CELL, off its trigger, out of the boat's range):
+          `freeze.keys` +>=1 (the press read and masked), no buzz. W-ENTRY ICE_TILE, Confirm held 30 frames: WorldHUD kept, `entry_refused` +1
+          once, last_reader 1, last_place 4, the request byte (Map[29]; Map[30] on 9002) and the discovery bit (UInt16[92] & 8) unchanged.
+          W-KITCELL ON KIT_6603_TRIGGER (THE TRIGGER IS NOT THE CELL): one buzz for the sid-0 and sid-1 reads, never 6603, never A0's close.
+          W-KITBOAT on the boat plate: [190] 0 throughout, one buzz from sid 15 (169) or sid 1 (place 69). W-FERRY within 12 u of the
+          ferryman: one buzz (sid 16), Map[50] 0. OLD: silent (the press masked, no buzz, no line). LEVER `refuse silent`: the same (W-OPEN
+          green on every stage: its OLD is its NEW).
+  decline W-DECLINE (a fresh visit first) the button-poll decline line once for two presses; a warm battle return (`world_battle`, the
+          fight, the return) keeps the visit and speaks nothing; a field round trip: visits +1, rearms +1, the re-armed line, the press speaks
+          once more. OLD / LEVER `decline old`: once per process (silent after the round trip).
+  tps     W-TPS `hosttps 20` (28 when mine is 20) against my own: both published, `mismatch`, one 'world speed differs' line, lever
+          'report', effective = mine. W-TPS-APPLY (the owner's trial, decision 22) `tps apply` + a field round trip: held = effective = the
+          host's, its held line. OLD: absent (s166 publishes own / peer only). LEVER: none (R4: no lever silences the line; the apply's own
+          control is W-TPS's report state before it).
+  minimap W-MINIMAP (decisions 27-28; a fresh visit, `walk off`: a FROZEN guest) the minimap on, Select: HUDNoMiniMap, `minimap_closes` +1,
+          `freeze.map` +0, no buzz line, control kept, w_naviMode 0 ([100]'s source), `hint_quiet`; Select again reopens it, the hint still
+          quiet; a field round trip (a NEW visit: R9, a warm return or the ~ reload keeps the latch): `hint_quiet` false. OLD: Select buzzes,
+          `freeze.map` +1, the minimap stays open (stranded). LEVER `minimap old`: the same.
+  map     W-MAP (decision 8, 9011 then 9010 by a fabricated [102] 10) a lawful walker's Select from the minimap opens the full map
+          (`map.opens` +1, `freeze.map` +0, one open line), the full-map dot shown where placed, Select closes it (stock's close: the hint
+          latched). OLD: refused (`freeze.map` +1, the minimap kept). LEVER `fullmap old` + `minimap old` (s166 exactly): the same.
+WHAT NO SOLO LEG REACHES (named, not hidden): W-STALLHOLE (a T2 blackhole on a world-paired client: coop_world_walk_t2.py); decision 23's
+co-op close before a rejoin arm / an s145 boot and the close-map line (a client's world chain: the duo -- W1: the selftest role may never
+reach WorldFollowFire); the refusal rows' positive controls (the ~ menu's Release on T2 enters 300 / boards: no harness verb opens the
+menu); the buzz's sound (counted, `entry_refused`); the kit reader order (the stand-in runs both; K1 confirms in game); 9002's
+entrances, minimap and full map (only W-FREE-9002 walks there: WORLD02's request byte is Map[30], its lock Map[33] -- K1). IN-GAME UNKNOWNS each row reports rather than assumes: W-OPEN's exact `freeze.keys` count (K1's
+no-short-circuit witness: +1 = only the boat's eager read; the stand-in's s144 model also counts the dispatcher poll at the press, +2),
+BOAT_STAND on the sand (COOP_WW_BOAT_AT moves it; its instrument says 'not reached' off the box), the camera's turn rate (CAM_MIN_DEG).
+CALIBRATION (COOP_CALIBRATE=1, exactly one leg): OLD on s166 -- exactly B_OLD_PREDICTED[leg] + S167-P0 / S167-W-PROOF / S167-P1 red, each
+leg row MEASURING s166's shape (B_MEASURE: frozen 0.00 u, the camera still, silent, once per process, stranded, refused, absent); LEVER
+on s167 with COOP_WW_LEVER (unset = the leg's first: free / refuse / stale `walk`, entry `refuse`, decline `decline`, minimap `minimap`,
+map `fullmap`; tps none) pulled at P1 and held -- exactly B_LEVER_PREDICTED[(leg, lever)] red, each measuring the same shape (the lever
+restores OLD). OFFLINE: tests/test_coop_world_walk_b_legs.py runs every leg on the stand-in (fakegame's piece "b"): green at s167, OLD on the
+s166 stand-in, every lever, and every round-B fault red in exactly its B_FAULT_REDS rows.
+    py <scratchpad>/solo_ini.py s167-b -- COOP_WW_LEG=free py tools/play.py studies/test-harness/scenarios/coop_world_walk.py --field 6603
+    COOP_CALIBRATE=1 COOP_WW_LEG=<leg> [COOP_WW_LEVER=<lever>]   (the same command: OLD on s166, LEVER on s167)
+    COOP_WW_BOAT_AT="x,z" / COOP_WW_HOST_TPS=<n> move the boat stand / the bench host's WorldTPS
 
 PRECONDITIONS -- THE OPERATOR'S JOB: the DLL under test deployed (the bench deploys nothing); controllers OFF, nobody at the keyboard
 (THE UNATTENDED LAW), FF9 unfocused; 6603 registered; [Netsync] Enabled 0 and FollowHost 1 written BEFORE launch (solo_ini.py);
@@ -774,6 +847,9 @@ def run(g, field: int | None = None):
     if _RAW_LEG.strip().lower() == PAIR_LEG:              # [ff9mapkit netsync s166] A0b's T2 leg: its own launch, its own rows
         _run_pair(g)
         return
+    if B_SOLO_LEGS is not None:                           # [ff9mapkit netsync s167] round B's solo rows (the walk): their own legs
+        _run_round_b(g)
+        return
     if A_SOLO_LEGS is not None:                           # [ff9mapkit netsync s166] round A's solo rows (A3 + A4): their own legs
         _run_round_a(g)
         return
@@ -854,15 +930,18 @@ def _p1(g, led: cb.Ledger, ctx: dict) -> None:
     if not ok:
         led.check("S166-P1", False, f"`netsync bench 1` refused: {why}")
         return
+    s_ok, s_why = s166_lever_set(g, st)                     # [ff9mapkit netsync s167] an s167 build reads s166 (the regression re-key)
+    s_why = f"; {s_why}" if s_why else ""
     if ctx["stage"] >= 166 and ctx["calibrate"] and LEVER:
         okl, whyl = _ww(g, LEVER, "old")
         st = cb.poll(g, lambda s: _k(s, "lever") == "old", 3.0, f"the calibration lever {LEVER}") or g.state
         ctx["pulled"] = LEVER if okl else None
-        led.check("S166-P1", okl and _k(st, "lever") == "old", whyl or f"`worldwalk {LEVER} old` pulled: " + judge_rest(
-            st, lever_old=True)[1])
+        led.check("S166-P1", okl and _k(st, "lever") == "old" and s_ok, (whyl or f"`worldwalk {LEVER} old` pulled: " + judge_rest(
+            st, lever_old=True)[1]) + s_why)
         g.note(f"CALIBRATION: `worldwalk {LEVER} old` pulled -- held through the run")
         return
-    led.check("S166-P1", *judge_rest(st))
+    ok, why = judge_rest(g.state)
+    led.check("S166-P1", ok and s_ok, why + s_why)
 
 
 def _stand(g, led: cb.Ledger, ctx: dict, cid: str, xz, judge) -> bool:
@@ -1400,6 +1479,12 @@ def _pair(g, led: cb.Ledger, ctx) -> None:
         else:
             lever_note = f"a0b: `{PAIR_PROBE}` published -- the pull acts (no lever sent)"
         cb.poll(g, lambda s: _p(s, "lever") == ctx.lever_word, 3.0, "the pairpull lever read back")
+    # [ff9mapkit netsync s167] THE REGRESSION RE-KEY: the pulled guest lands FROZEN on 9011 -- on an s167 guest round B's whole s166 lever
+    # set before the replay (nothing on an engine without `netsync.world.walk`), read back and folded into T2-PEER (the instrument)
+    ctx.walk_set = s166_lever_set(g, g.state)
+    if ctx.walk_set[1]:
+        ctx.sent.append("s166-set")
+        lever_note += f"; {ctx.walk_set[1]}"
     g.note(lever_note)
     ctx.base = g.state
     # the replay-host: the tape from PAIR_FROM_S, holding at its end
@@ -1419,6 +1504,7 @@ def _pair(g, led: cb.Ledger, ctx) -> None:
     ctx.t0 = float(m.group(1)) if m else None
     at_from = ctx.t0 is not None and abs(ctx.t0 - PAIR_FROM_S) <= 0.5
     ok = up is not None and conn is not None and start is not None and bool(relay) and at_from and wire[0]
+    ok = ok and ctx.walk_set[0]                           # [ff9mapkit netsync s167] the round-B re-key read back
     led.check("T2-PEER", ok, f"wire: {wire[1]}; config: {pb.show(cfg, 1)}; peer: {up[1] if up else 'never listened'} / "
                              f"{conn[1] if conn else 'no guest'} / {start[1] if start else 'no replay start'} (want tape "
                              f"{PAIR_FROM_S:g} s); engine: {pb.show(relay, 1)}; {lever_note}")
@@ -2035,24 +2121,27 @@ def proof_tallies(lines) -> list:
 A0B_PROOF = (84, 13)
 
 
-def proof_want():
+def proof_want(stage: int = 166):
     """(rows, mutants) the s166 source's proof prints -- the same reader the stand-in uses (fakegame.world_walk_engine_source: $FF9_S166_CLONE
     carrying the tag, else the s166 patch on THIS branch's memoria-patches/), counted by battlewire.world_walk_proof_counts -- and where it
-    came from; (None, why) when no source is reachable."""
+    came from; (None, why) when no source is reachable. [ff9mapkit netsync s167] ``stage`` 167 (an engine publishing `netsync.world.walk`):
+    the s167 source's ($FF9_S167_CLONE carrying the s167 tag, else the s167 patch's post-image) -- never round A's numbers there."""
+    name = "s167" if int(stage) >= 167 else "s166"
     try:
         from harness import fakegame as FG                   # the driver puts tools/ on sys.path
-        src = FG.world_walk_engine_source()
+        src = FG.world_walk_engine_source(stage=int(stage)) if int(stage) >= 167 else FG.world_walk_engine_source()
     except Exception as err:                                 # noqa: BLE001 - an unreadable source is a named None
-        return None, f"the s166 source unreadable ({type(err).__name__}: {str(err)[:120]})"
+        return None, f"the {name} source unreadable ({type(err).__name__}: {str(err)[:120]})"
     if not src:
-        return None, "no s166 source reachable (no memoria-patches/s166-*.patch, no $FF9_S166_CLONE)"
+        return None, (f"no {name} source reachable (no memoria-patches/{name}-*.patch, no $FF9_{name.upper()}_CLONE)")
     got = BW.world_walk_proof_counts(src)
-    return (tuple(got), "the s166 source") if got else (None, "the s166 source carries no proof table")
+    return (tuple(got), f"the {name} source") if got else (None, f"the {name} source carries no proof table")
 
 
-def judge_a_proof(st, lines, want) -> tuple:
+def judge_a_proof(st, lines, want, source: str = "s166") -> tuple:
     """A-PROOF (PURE): round A's keys published (lane AND ghost), a 'world walk selftest: OK (N rows, M mutants)' line, none FAIL, and its
-    tallies ``want`` (the s166 source's) -- else, with no source, above A0b's (84 / 13: round A's tables are in it)."""
+    tallies ``want`` (the s166 source's; [ff9mapkit netsync s167] on an s167 build the s167 source's, ``source`` naming it) -- else, with
+    no source, above A0b's (84 / 13: round A's tables are in it)."""
     missing = [k for k in A_ROW_NEEDS["S166-A-PROOF"] if not cb.has(st, k)]
     got = proof_tallies(lines)
     fails = cb.count(lines, BW.PROOF_WORLD_WALK + "FAIL")
@@ -2060,7 +2149,7 @@ def judge_a_proof(st, lines, want) -> tuple:
         return False, f"absent: no {missing} -- an engine before round A's A3 / A4; proof {got[:1] or 'NONE'}"
     if want:
         ok = tuple(want) in got and not fails
-        return ok, f"proof {got or 'NONE'} (want {tuple(want)}: the s166 source's tallies); FAIL lines {fails}"
+        return ok, f"proof {got or 'NONE'} (want {tuple(want)}: the {source} source's tallies); FAIL lines {fails}"
     ok = any(n > A0B_PROOF[0] and m > A0B_PROOF[1] for n, m in got) and not fails
     return ok, f"proof {got or 'NONE'} (no s166 source reachable: want above A0b's {A0B_PROOF}); FAIL lines {fails}"
 
@@ -2635,9 +2724,10 @@ def _round_a(g, led: cb.Ledger, ctx: dict) -> None:
            f"{cb.has(st, DOT_SRC_PROBE)} ({cb.stage_note(st)})")
     lines = cb.log_lines(g)
     led.check("S166-P0", *judge_probe(st, lines))
-    want, where = proof_want()
+    pstage = 167 if cb.has(st, WALK_PROBE) else 166         # [ff9mapkit netsync s167] BY STAGE: an s167 build prints round B's tallies
+    want, where = proof_want(pstage)
     g.note(f"A-PROOF's tallies: {want} ({where})")
-    led.check("S166-A-PROOF", *judge_a_proof(st, lines, want))
+    led.check("S166-A-PROOF", *judge_a_proof(st, lines, want, f"s{pstage}"))
     _a_p1(g, led, ctx)
     if not cb.has(g.state, ROUTE_PROBE):
         led.close(f"not reached: no `{ROUTE_PROBE}` -- an engine before s165 has no follow-out to land this bench")
@@ -2697,7 +2787,8 @@ def _a_p1(g, led: cb.Ledger, ctx: dict) -> None:
         want[key] = op[1]
     st = cb.poll(g, lambda s: judge_a_rest(s, want)[0], 3.0, "round A's levers read back") or g.state
     ok, why = judge_a_rest(st, want)
-    led.check("S166-A-P1", ok, why + (f"; {'; '.join(notes)}" if notes else ""))
+    s_ok, s_why = s166_lever_set(g, st)                     # [ff9mapkit netsync s167] an s167 build reads s166 (the regression re-key)
+    led.check("S166-A-P1", ok and s_ok, why + (f"; {s_why}" if s_why else "") + (f"; {'; '.join(notes)}" if notes else ""))
 
 
 def _leg_tx(g, led: cb.Ledger, ctx: dict) -> None:
@@ -2987,3 +3078,1401 @@ def _release_round_a(g, led: cb.Ledger, ctx: dict) -> None:
     ok = forced is False and pulled and n == 1 and r_ok
     led.check("S166-A-R", ok, f"forced={forced!r}; a lever pulled before the reset: {pulled}; the release line {n}x (want 1); re-read "
                               f"with the role: {r_why}" + (f"; {why}" if why else ""))
+
+# ================================================================================================ [ff9mapkit netsync s167] ROUND B, SOLO
+# THE WALK (S166-DESIGN.md decisions 13-28, its Round B rows table and its Order) on the forced selftest role -- one launch per leg
+# (COOP_WW_LEG names it; `b` runs every leg in one launch, never under a calibration). The keys are the CLONE's (HarnessAgent AppendWorldWalk /
+# AppendWorldWalkMap / AppendWorldFp and the lane's s167 keys: W1's contract_final); the levers `netsync worldwalk walk|pair|refuse|stallhold|
+# decline|fp|tps|minimap|fullmap ...` (any role, released with the harness) and the bench hosts (`worldfollow host self|nob6`, `worldwalk host
+# path|hostseq|hostgap|hostworld|hostmode|hoststate|hosttps`). Every leg reads the STAGE off the probe: no round-B op is ever sent to s166.
+B_ALL = "b"
+B_LEGS = ("free", "refuse", "stale", "entry", "decline", "tps", "minimap", "map")
+#: round B's capabilities, by key PRESENCE (State.coop_world_walk_b; the session's gates refuse each lever before the step without its key)
+WALK_PROBE = "netsync.world.walk"
+FP_PROBE = "netsync.world.fp"
+MAP_PROBE = "netsync.world.walk.map"
+B_PROBES = (WALK_PROBE, FP_PROBE, MAP_PROBE)
+#: round B's whole s166 lever set (W1): an s167 build under it reads s166 exactly -- the regression re-key A0's and round A's P1 pull
+#: (one owner: coop_world_wait's, which the s144 / s145 / s165 frozen-guest legs pull through walk_off)
+S166_LEVER_SET = cw.S166_LEVER_SET
+#: round B's levers at rest, by op (each read back off its block: walk.*, walk.map.lever, fp.lever, lane.world_tps.lever)
+B_REST = {"walk": "on", "pair": "act", "refuse": "act", "stallhold": "act", "decline": "act", "fp": "act", "tps": "report",
+          "minimap": "act", "fullmap": "act"}
+B_LEG_ROWS = {"free": ("S167-W-FREE", "S167-W-CAM", "S167-W-FREE-9002"),
+              "refuse": ("S167-W-REFUSE-NOB6", "S167-W-REFUSE-OTHER", "S167-W-REFUSE-RIDE", "S167-W-REFUSE-SCENE",
+                         "S167-W-REFUSE-OWNMODE", "S167-W-REFUSE-PAIR", "S167-W-REFUSE-FP", "S167-W-REFUSE-FPDRY"),
+              "stale": ("S167-W-STALE",),
+              "entry": ("S167-W-OPEN", "S167-W-ENTRY", "S167-W-KITCELL", "S167-W-KITBOAT", "S167-W-FERRY"),
+              "decline": ("S167-W-DECLINE",),
+              "tps": ("S167-W-TPS", "S167-W-TPS-APPLY"),
+              "minimap": ("S167-W-MINIMAP",),
+              "map": ("S167-W-MAP",)}
+#: W-REFUSE-x: (row, the walk's why, the op that refuses, the op that undoes it) -- each case alone, the walk free before and after
+B_REFUSE_CASES = (
+    ("S167-W-REFUSE-NOB6", "host_not_world", ("worldfollow", "host", "nob6"), ("worldfollow", "host", "self")),
+    ("S167-W-REFUSE-OTHER", "other_world", ("worldwalk", "hostworld", "9010"), ("worldwalk", "hostworld", "0")),
+    ("S167-W-REFUSE-RIDE", "riding", ("worldwalk", "hostmode", "1"), ("worldwalk", "hostmode", "0")),
+    ("S167-W-REFUSE-SCENE", "host_scene", ("worldwalk", "hoststate", "0xC4"), ("worldwalk", "hoststate", "0x84")),
+    ("S167-W-REFUSE-OWNMODE", "own_mode", ("vehicle", "6"), ("vehicle", "0")),
+    ("S167-W-REFUSE-PAIR", "pairing", ("worldwalk", "pair", "unmirrored"), ("worldwalk", "pair", "act")),
+    ("S167-W-REFUSE-FP", "fp_mismatch", ("worldwalk", "fp", "fake", "dead"), ("worldwalk", "fp", "act")),
+    # [W2 critic] decision 21's third fingerprint lever, `fp old` (the dry run): a walk that WOULD be free (every term passed, the digests
+    # equal) stays frozen as fp_old -- the only row that exercises it
+    ("S167-W-REFUSE-FPDRY", "fp_old", ("worldwalk", "fp", "old"), ("worldwalk", "fp", "act")),
+)
+#: round B's own worldwalk ops: never sent to an engine without `netsync.world.walk` (the others -- s165's / round A's bench hosts, s145's
+#: `vehicle` -- exist on s166 and are sent there too: the OLD calibration measures the freeze under them)
+B_OWN_OPS = tuple(BW.WORLDWALK_OPS_B)
+#: the calibration levers per leg (COOP_WW_LEVER; unset = the leg's first) and their ops, pulled at P1 and held through the run. `fullmap`
+#: is s166 exactly only beside `minimap old` (under `fullmap old` alone a walker is unlawful and decision 27 closes its minimap instead)
+B_LEVERS = {"free": ("walk",), "refuse": ("walk",), "stale": ("walk",), "entry": ("refuse",), "decline": ("decline",), "tps": (),
+            "minimap": ("minimap",), "map": ("fullmap",)}
+B_LEVER_OPS = {"walk": (("walk", "off"),), "refuse": (("refuse", "silent"),), "decline": (("decline", "old"),),
+               "minimap": (("minimap", "old"),), "fullmap": (("fullmap", "old"), ("minimap", "old"))}
+#: [calibration] LEVER_PREDICTED on s167, by (leg, lever): exactly these rows red, each MEASURING the lever's shape (B_MEASURE): the lever
+#: restores OLD, so the shape is OLD's (W-OPEN's OLD is its NEW: green under every lever)
+B_LEVER_PREDICTED = {("free", "walk"): B_LEG_ROWS["free"], ("refuse", "walk"): B_LEG_ROWS["refuse"], ("stale", "walk"): B_LEG_ROWS["stale"],
+                     ("entry", "refuse"): ("S167-W-ENTRY", "S167-W-KITCELL", "S167-W-KITBOAT", "S167-W-FERRY"),
+                     ("decline", "decline"): B_LEG_ROWS["decline"], ("minimap", "minimap"): B_LEG_ROWS["minimap"],
+                     ("map", "fullmap"): B_LEG_ROWS["map"]}
+#: [calibration] OLD on s166 (the live b24e0123): each leg's rows that read red there (W-OPEN green: its OLD is its NEW), and the setup's
+B_OLD_RED = {"free": B_LEG_ROWS["free"], "refuse": B_LEG_ROWS["refuse"], "stale": B_LEG_ROWS["stale"],
+             "entry": ("S167-W-ENTRY", "S167-W-KITCELL", "S167-W-KITBOAT", "S167-W-FERRY"), "decline": B_LEG_ROWS["decline"],
+             "tps": B_LEG_ROWS["tps"], "minimap": B_LEG_ROWS["minimap"], "map": B_LEG_ROWS["map"]}
+B_OLD_SETUP_RED = ("S167-P0", "S167-W-PROOF", "S167-P1")
+#: ...the shape each predicted row must MEASURE (s166's, which every lever restores) -- a row merely red is not OLD (a failed landing is red)
+B_MEASURE = {
+    "S167-W-FREE": "the walker held under `hold up` (< HELD_U: s166's 0.00 u)",
+    "S167-W-CAM": "the camera still under L1 and R1 (< CAM_TOL each)",
+    "S167-W-FREE-9002": "the walker held under `hold up` on 9002 (< HELD_U: s166's 0.00 u)",
+    **{row: "frozen under the case's op (`hold up` < HELD_U)" for row in B_LEG_ROWS["refuse"]},
+    "S167-W-STALE": "frozen under `hostseq freeze` (`hold up` < HELD_U)",
+    **{row: "silent: the press masked (freeze.keys +>=1, WorldHUD 9011 kept, the hazard never seen), no buzz (entry_refused +0 or "
+            "absent) and no entrance line" for row in ("S167-W-ENTRY", "S167-W-KITCELL", "S167-W-KITBOAT", "S167-W-FERRY")},
+    "S167-W-DECLINE": "once per process: the visit's first press speaks the decline line once, and after the field round trip the press "
+                      "speaks none",
+    "S167-W-TPS": "s166's report: own and peer published (peer the bench host's), no `mismatch` key and no speed line",
+    "S167-W-TPS-APPLY": "s166 never applies: no `lane.world_tps.held`",
+    "S167-W-MINIMAP": "stranded: Select on the minimap refused (`freeze.map` +1), the minimap still on (HUD)",
+    "S167-W-MAP": "refused: Select on the minimap refused (`freeze.map` +1), never the full map, the minimap kept",
+}
+#: the stand-in's ROUND-B FAULT LEVERS (fakegame.WORLD_WALK_B_FAULTS, + A0's walk_proof_fail) -> exactly the round-B SOLO rows each turns
+#: red, by leg (tests pin it). stall_free is W-STALLHOLE's (a T2 blackhole on a world-paired client): no solo row reaches it
+B_FAULT_REDS = {
+    "walk_unlawful": {"refuse": B_LEG_ROWS["refuse"], "stale": B_LEG_ROWS["stale"]},   # every term past who ignored: it walks anyway
+    # the buzzed press reaches the script: 300, 6603, the ferryman's scene. W-KITBOAT stays green on the stand-in: at the boat plate the
+    # buzzing read is entry 1's place-69 poll (both of its orders run e1 before e15) and it models no place-69 request, so the leaked
+    # press boards nothing; the boat's own e15 read comes after it, deduped (in game the order is K1's)
+    "refuse_leak": {"entry": ("S167-W-ENTRY", "S167-W-KITCELL", "S167-W-FERRY")},
+    "refuse_silent": {"entry": ("S167-W-ENTRY", "S167-W-KITCELL", "S167-W-KITBOAT", "S167-W-FERRY")},  # never a buzz
+    "refuse_overfire": {"entry": ("S167-W-KITCELL", "S167-W-KITBOAT")},     # no KeyTick dedupe: a press two entries read buzzes twice
+    "pairing_free": {"refuse": ("S167-W-REFUSE-PAIR",)},
+    "stall_free": {},
+    "ownmode_free": {"refuse": ("S167-W-REFUSE-OWNMODE",)},
+    "decline_stale": {"decline": B_LEG_ROWS["decline"]},
+    "fp_ignored": {"refuse": ("S167-W-REFUSE-FP",)},
+    "minimap_strand": {"minimap": B_LEG_ROWS["minimap"]},
+    "hint_nag": {"minimap": B_LEG_ROWS["minimap"], "map": B_LEG_ROWS["map"]},    # decision 28's latch forgotten (W-MAP: stock's close)
+    "walk_proof_fail": {leg: ("S167-W-PROOF",) for leg in B_LEGS},
+}
+
+def _b_xz(raw, default) -> tuple:
+    """A stand's "x,z" override (COOP_WW_BOAT_AT), else ``default`` (A0's `_stand` parser is shadowed by its move of that name)."""
+    try:
+        x, z = (float(v) for v in str(raw).split(","))
+        return x, z
+    except (TypeError, ValueError):
+        return default
+
+
+# ---- the stands and the measures (positions: the bench section's; tolerances named)
+B_STAND = FS_LANDING      # the walking legs' stand (the landing lawn: on foot, off every kit trigger, out of the boat's range)
+B_HOST_NEAR = (-12.0, 0.0)  # the standing trailer bench host, this far from my walker (west: never onto the 6603 trigger east)
+WALK_FRAMES = wf.WALK_FRAMES  # `hold up` this long (s144's ~0.5 s)
+WALK_U = 4.0              # W-FREE: a free walk moves at least this under `hold up` WALK_FRAMES (in game ~8-15 u; a held walker < HELD_U)
+CAM_FRAMES = 20           # W-CAM: each bumper held this long
+CAM_MIN_DEG = 5.0         # ...turns the camera at least this (the bumpers are 'the directions' the walk lifts)
+CAM_TOL = 0.5             # ...and a frozen camera less than this
+WALK_READY_S = 15.0       # both bench hosts on -> walk.free (fp.ready after the world load, the hold taking the frames)
+CASE_S = 4.0              # an op -> its verdict published (THE ORDER SKEW dropped first)
+STALE_FREEZE_S = 3.0      # W-STALE: `hostseq freeze` watched past StaleMs (2 s) before the hold
+STALE_GAP_MS = 60000      # ...`hostgap`: arrivals stopped through the field round trip (the bench host's widest gap)
+STALE_ARRIVAL_MS = 3500   # ...the hold judged past this arrival age (StaleMs 2000 + 1500)
+STALE_GAP_S = 8.0
+PRESS_S = 4.0             # an entrance press -> its window (s165's fade + Field() land inside it)
+ENTRY_HOLD_FRAMES = 30    # W-ENTRY: Confirm HELD this long (one KeyOn edge: one buzz)
+ENTRY_TOL = 2.5           # ...my walker within this of the Ice Cavern tile's centre
+ENTRY_PLACE = 4           # the Ice Cavern's Map[24] place (loc 4)
+#: the location poll's request byte (Map[29]; WORLD02's Map[30]) and the Ice Cavern's discovery bit (UInt16[92] & 8 = gEventGlobal bit 1475)
+REQUEST_VAR = {9002: 30, 9010: 29, WORLD: 29}
+DISCOVERY_BIT = 92 * 16 + 3
+#: W-KITBOAT: inside the boat's +-40 u box round BOAT_SPAWN (492, -1130), on the sand north of the hull (the sand line is z -1126)
+BOAT_STAND = _b_xz(os.environ.get("COOP_WW_BOAT_AT"), (BW.KIT_BOAT_AT[0], BW.KIT_BOAT_AT[1] + 20.0))
+OPEN_STAND = B_STAND
+DECLINE_S = 1.0           # a press -> its decline line (DeclineOnce logs at the read)
+TPS_S = 4.0
+TPS_WATCH_S = 1.5         # ...and watched on: one line per pair
+_RAW_TPS = os.environ.get("COOP_WW_HOST_TPS", "").strip()
+HOST_TPS = int(_RAW_TPS) if _RAW_TPS.isdigit() else 20   # the design's `hosttps 20` (28 when mine is 20: a mismatch either way)
+HOST_TPS_ALT = 28
+SEL_S = 2.0               # a Select -> the HUD's state published
+#: W-MAP: decision 8's worlds (9011, then 9010 by a fabricated [102] 10)
+MAP_WORLDS = ((11, WORLD), (10, 9010))
+
+B_SETUP = {
+    "S167-INI": SOLO_SETUP["S166-INI"],
+    "S167-OR": "the offline oracle: s165's route (coop_world_wait.read_oracle) and, with the `entry` leg, the deployed WORLD11's kit "
+               "(entry 0's 6603 cell, the boat e15 at BOAT_SPAWN, the ferryman e16) and the 6603 trigger tiles",
+    "S167-S0": SOLO_SETUP["S166-S0"],
+    "S167-P0": "`netsync.world` ends `walk`, `fp` (s166's keys unmoved before them), each at its contract's keys in order (walk.map, "
+               "fp.host_section, fp.lines), the lane's s167 keys (tx / rx why_name, world_tps lever / held / effective / mismatch / lines) "
+               "and lane.caps.own 3",
+    "S167-W-PROOF": "A-PROOF's s167 counts: 'world walk selftest: OK (N rows, M mutants)' on a field, none FAIL, N / M the s167 source's "
+                    "($FF9_S167_CLONE, else the s167 patch) -- else above s166's 323 / 110; and 'overlay text selftest: OK (58 rows)'",
+}
+B_ROWS = {
+    "S167-W-FREE": "W-FREE: both bench hosts on 9011, `hold up` -- moved >= WALK_U, `walk.free`, `freeze.on` still true, one FREE line, "
+                   "the trailer's b1 and why 0",
+    "S167-W-CAM": "W-CAM: `hold l1` then `hold r1` -- `world.cam_rot` turns >= CAM_MIN_DEG each way (R2 / L2 are raw keys: the owner's)",
+    "S167-W-FREE-9002": "W-FREE on the third walk world: a fresh visit to 9002 (a fabricated [102] 2), both bench hosts, `hold up` -- "
+                        "moved >= WALK_U on WorldHUD 9002, `walk.free` (why null), `freeze.on` still true, a FREE line naming 9002, b1",
+    "S167-W-REFUSE-NOB6": "W-REFUSE-NOB6: `worldfollow host nob6` -- frozen, why host_not_world, `hold up` held; `host self`: free again",
+    "S167-W-REFUSE-OTHER": "W-REFUSE-OTHER: `hostworld 9010` on 9011 -- frozen, why other_world, held; undone: free",
+    "S167-W-REFUSE-RIDE": "W-REFUSE-RIDE: `hostmode 1` -- frozen, why riding, s165's riding words, held; undone: free",
+    "S167-W-REFUSE-SCENE": "W-REFUSE-SCENE: `hoststate 0xC4` -- frozen, why host_scene, s165's scene words, held; undone: free",
+    "S167-W-REFUSE-OWNMODE": "W-REFUSE-OWNMODE: `vehicle 6` on the guest -- frozen, why own_mode, held; `vehicle 0`: free",
+    "S167-W-REFUSE-PAIR": "W-REFUSE-PAIR: `worldwalk pair unmirrored` -- frozen, why pairing, its words, held; `pair act`: free",
+    "S167-W-REFUSE-FP": "W-REFUSE-FP: `worldwalk fp fake dead` -- frozen, why fp_mismatch, the line naming 'world map meshes', fp.state "
+                        "'mismatch', fp.named 'meshes', one mismatch line, the trailer's b4, held; `fp act`: free",
+    "S167-W-REFUSE-FPDRY": "W-REFUSE-FPDRY: `worldwalk fp old` (decision 21's dry run) -- frozen, why fp_old ('would walk'), fp.state "
+                           "'match' (the digests equal: the walk would be free), the trailer's b1 and b4 clear, held; `fp act`: free",
+    "S167-W-STALE": "W-STALE: `hostseq freeze` keeps walking; a fresh `nob6` freezes; `hostgap`: past StaleMs free on the held trailer; a "
+                    "world load with arrivals stopped drops it (held_drops +1, held_trailer false, frozen peer_caps); arrivals back: free",
+    "S167-W-OPEN": "W-OPEN: Confirm on 9011's open ground (FS_LANDING: the 6603 cell, off its trigger, out of the boat's range) -- "
+                   "`freeze.keys` +>=1, no buzz, no entrance line, WorldHUD kept",
+    "S167-W-ENTRY": "W-ENTRY: ICE_TILE, Confirm held 30 frames -- WorldHUD kept, `entry_refused` +1 once, last_reader 1, last_place 4, "
+                    "`line.asked` entry_refused, one location line, Map[29] and the discovery bit unchanged",
+    "S167-W-KITCELL": "W-KITCELL: ON KIT_6603_TRIGGER, control on, Confirm -- one buzz for the sid-0 and sid-1 reads (0 kit_cell or 1 "
+                      "location), never 6603, kitcell.closed +0",
+    "S167-W-KITBOAT": "W-KITBOAT: on the boat plate -- [190] 0 throughout, one buzz from sid 15 (169) or sid 1 (place 69)",
+    "S167-W-FERRY": "W-FERRY: within 12 u of the ferryman, control on, Confirm -- one buzz (sid 16, place 100, ferryman), Map[50] 0",
+    "S167-W-DECLINE": "W-DECLINE: the button-poll line once for two presses; a warm battle return keeps the visit (nothing re-speaks); a "
+                      "field round trip: visits +1, rearms +1, the re-armed line, the press speaks once more",
+    "S167-W-TPS": "W-TPS: `hosttps 20` (28 when mine is 20) -- own and peer published, `mismatch`, one 'world speed differs' line, lever "
+                  "'report', effective = mine",
+    "S167-W-TPS-APPLY": "W-TPS-APPLY (the owner's trial): `tps apply` + a field round trip -- held = effective = the host's, its held line",
+    "S167-W-MINIMAP": "W-MINIMAP: a FROZEN guest (`walk off`), the minimap on -- Select: HUDNoMiniMap, minimap_closes +1, freeze.map +0, "
+                      "no buzz line, control kept, navi 0, hint_quiet; Select reopens it (still quiet); a field round trip: hint_quiet false",
+    "S167-W-MAP": "W-MAP: a lawful walker on 9011 and 9010 -- Select opens the full map (map.opens +1, freeze.map +0, one open line), the "
+                  "full-map dot shown where placed; Select closes it (the hint latched)",
+}
+B_FINAL = {"S167-R": "`reset` (a round-B lever pulled just before it) releases the role and every worldwalk lever ('worldwalk levers "
+                     "released (with the harness)' once); re-read WITH the role: round B's levers at rest"}
+B_ALL_ROWS = tuple(B_SETUP) + ("S167-P1",) + tuple(r for leg in B_LEGS for r in B_LEG_ROWS[leg]) + tuple(B_FINAL)
+
+
+def _b_legs(raw) -> tuple | None:
+    """COOP_WW_LEG's round-B legs: `b` = every one; else the named ones; None when it names none."""
+    names = {p.strip() for p in str(raw or "").lower().split(",")}
+    if B_ALL in names:
+        return B_LEGS
+    picked = tuple(x for x in B_LEGS if x in names)
+    return picked or None
+
+
+B_SOLO_LEGS = _b_legs(_RAW_LEG)
+B_LEVER_RAW = (os.environ.get("COOP_WW_LEVER") or "").strip().lower() or None
+
+
+def b_catalog(calibrate: bool, legs=B_LEGS, lever=None) -> dict:
+    c = dict(B_SETUP)
+    c["S167-P1"] = ("`netsync bench 1` accepted and round B's levers at rest (walk on; pair, refuse, stallhold, decline, fp act; tps report; "
+                    "minimap, fullmap act)" + (f" -- and the CALIBRATION lever `{lever}` pulled and read back (held through the run)"
+                                               if calibrate and lever in B_LEVER_OPS else ""))
+    for leg in B_LEGS:
+        if leg in legs:
+            c.update({r: B_ROWS[r] for r in B_LEG_ROWS[leg]})
+    c.update(B_FINAL)
+    if calibrate:
+        c["S167-CAL"] = ("CALIBRATION (one leg per launch): by the engine's stage -- on s166 exactly B_OLD_PREDICTED red, each leg row "
+                         "MEASURING s166's shape (B_MEASURE); on s167 under the pulled lever exactly B_LEVER_PREDICTED[(leg, lever)] red, "
+                         "each measuring the same shape")
+    return c
+
+
+def b_old_predicted(legs) -> tuple:
+    """[calibration] OLD (PURE): s166 -- the setup's three (round B's keys and proof absent) and each leg's B_OLD_RED rows."""
+    return B_OLD_SETUP_RED + tuple(r for leg in B_LEGS if leg in legs for r in B_OLD_RED[leg])
+
+
+def b_lever_predicted(leg: str, lever) -> tuple:
+    """LEVER_PREDICTED for ``leg`` under ``lever`` (a leg with no lever -- W-TPS's -- predicts nothing red)."""
+    return tuple(B_LEVER_PREDICTED.get((leg, lever), ())) if lever else ()
+
+
+def b_lever_of(leg: str, raw):
+    """The calibration lever for ``leg``: ``raw`` when it is one of the leg's, the leg's first when ``raw`` is None; else None (refused)."""
+    levers = B_LEVERS.get(leg, ())
+    if raw is None:
+        return levers[0] if levers else None
+    return raw if raw in levers else None
+
+
+def b_stage(x) -> int:
+    """167 when the engine publishes `netsync.world.walk`; else A0's reading (166 with `netsync.world.kitcell`)."""
+    return 167 if cb.has(x, WALK_PROBE) else stage_of(x)
+
+
+# ---- round B's pure readers
+def _walk(x) -> dict:
+    v = cb.path(x, WALK_PROBE) if x is not None else None
+    return v if isinstance(v, dict) else {}
+
+
+def _wmapb(x) -> dict:
+    v = _walk(x).get("map")
+    return v if isinstance(v, dict) else {}
+
+
+def _fp(x) -> dict:
+    v = cb.path(x, FP_PROBE) if x is not None else None
+    return v if isinstance(v, dict) else {}
+
+
+def _freeze(x) -> dict:
+    v = cb.path(x, "netsync.world.freeze") if x is not None else None
+    return v if isinstance(v, dict) else {}
+
+
+def _tps(x) -> dict:
+    v = _lane(x).get("world_tps") if x is not None else None
+    return v if isinstance(v, dict) else {}
+
+
+def b_levers(st) -> dict:
+    """(PURE) Round B's lever words as published, by op (B_REST's keys)."""
+    w, fp = _walk(st), _fp(st)
+    return {"walk": w.get("lever"), "pair": w.get("pair"), "refuse": w.get("refuse"), "stallhold": w.get("stallhold"),
+            "decline": w.get("decline"), "fp": fp.get("lever"), "tps": _tps(st).get("lever"), "minimap": w.get("minimap"),
+            "fullmap": _wmapb(st).get("lever")}
+
+
+def judge_b_rest(st, want: dict) -> tuple:
+    """S167-P1 / S167-R (PURE): round B's keys published and each lever word in ``want`` read back (``want['netsync_bench']``: bench on)."""
+    missing = [k for k in B_PROBES if not cb.has(st, k)]
+    if missing:
+        return False, f"absent: no {missing} -- an engine before s167 (round B's levers: none sent)"
+    got = b_levers(st)
+    bad = {k: (got.get(k), v) for k, v in want.items() if k != "netsync_bench" and got.get(k) != v}
+    bench = cb.path(st, "netsync.bench")
+    ok = not bad and (bench is True if want.get("netsync_bench") else True)
+    return ok, f"round B's levers {got}; off their want {bad or 'none'}; netsync.bench {bench!r}"
+
+
+def judge_b_probe(st) -> tuple:
+    """S167-P0 (PURE): `netsync.world` = s166's blocks then `walk`, `fp` (THE PREFIX LAW), each block's keys the contract's in order, the
+    lane grown in place by its s167 keys, my caps word 0x0003."""
+    missing = [k for k in B_PROBES if not cb.has(st, k)]
+    if missing:
+        return False, f"absent: no {missing} -- an engine before s167"
+    world = cb.path(st, "netsync.world") or {}
+    got = list(world)
+    s166 = list(BW.WORLD_SENTINELS_S166D)
+    why = []
+    if got[:len(s166)] != s166 or got[len(s166):] != list(BW.WORLD_S167_KEYS):
+        why.append(f"world {got} (want s166's {s166} then {list(BW.WORLD_S167_KEYS)})")
+    w, fp, ln = world.get("walk") or {}, world.get("fp") or {}, world.get("lane") or {}
+    if list(w) != list(BW.WORLD_WALK_SENTINELS) or list(w.get("map") or {}) != list(BW.WORLD_WALK_MAP_SENTINELS):
+        why.append(f"walk {list(w)} / walk.map {list(w.get('map') or {})} (want the contract's)")
+    if list(fp) != list(BW.WORLD_FP_SENTINELS) or list(fp.get("host_section") or {}) != list(BW.WORLD_FP_SENTINELS["host_section"]) \
+            or list(fp.get("lines") or {}) != list(BW.WORLD_FP_SENTINELS["lines"]):
+        why.append(f"fp {list(fp)} (want the contract's)")
+    tx, rx, tps = ln.get("tx") or {}, ln.get("rx") or {}, ln.get("world_tps") or {}
+    if list(tx)[-1:] != ["why_name"] or list(rx)[-1:] != ["why_name"] or \
+            list(tps) != list(BW.WORLD_SENTINELS_S167["lane"]["world_tps"]):
+        why.append(f"lane tx ..{list(tx)[-1:]}, rx ..{list(rx)[-1:]}, world_tps {list(tps)} (want why_name last; the s167 tps keys)")
+    own = (ln.get("caps") or {}).get("own")
+    if own != BW.WW_OWN_CAPS_WALK:
+        why.append(f"lane.caps.own {own!r} (want {BW.WW_OWN_CAPS_WALK}: b0 + b1)")
+    return not why, ("; ".join(why) or f"world {got[-3:]}, walk / fp / walk.map at the contract's keys, the lane's s167 keys, caps own {own}")
+
+
+_RX_OVERLAY = re.compile(re.escape(BW.PROOF_OVERLAY_TEXT) + r"OK \((\d+) rows\)")
+
+
+def judge_b_proof(lines, want, where: str = "") -> tuple:
+    """S167-W-PROOF (PURE): A-PROOF's s167 counts -- a 'world walk selftest: OK (N rows, M mutants)' line with ``want`` (the s167 source's)
+    or, with no source, above s166's (323 / 110); none FAIL; and the overlay text selftest's s167 rows (58)."""
+    got = proof_tallies(lines)
+    fails = cb.count(lines, BW.PROOF_WORLD_WALK + "FAIL")
+    ov = [int(m.group(1)) for m in (_RX_OVERLAY.search(ln) for ln in lines) if m]
+    ov_want = BW.overlay_text_selftest_rows(167)
+    s166 = tuple(BW.WORLD_WALK_PROOF_S166)
+    if want:
+        p_ok = tuple(want) in got
+        p_why = f"want {tuple(want)}: {where or 'the s167 source'}'s tallies"
+    else:
+        p_ok = any(n > s166[0] and m > s166[1] for n, m in got)
+        p_why = f"{where or 'no s167 source reachable'}: want above s166's {s166}"
+    ok = p_ok and not fails and ov_want in ov
+    return ok, f"proof {got or 'NONE'} ({p_why}); FAIL lines {fails}; overlay text {ov or 'NONE'} (want {ov_want} rows)"
+
+
+def _turn(a: float, b: float) -> float:
+    """b - a the short way round (degrees, -180..180)."""
+    return (float(b) - float(a) + 180.0) % 360.0 - 180.0
+
+
+def judge_free(base, st, moved, adv, lines) -> tuple:
+    """W-FREE (PURE): `hold up` moved >= WALK_U over its frames, `walk.free` at the hold's start and end (why null), `freeze.on` STILL true
+    (the walk lifts only the dispatch's conjunct), exactly one FREE line since the setup (one edge), my trailer's b1 and why byte 0."""
+    w_ok, w_why = cw.judge_walk(moved, adv, WALK_FRAMES, held=False)
+    if st is None or not cb.has(st, WALK_PROBE):
+        return False, f"absent: no `{WALK_PROBE}` -- an engine before s167 ({w_why})"
+    wb, w, tx = _walk(base), _walk(st), _tx(st)
+    walking = bool((_num(tx.get("state")) or 0) & BW.WW_ST_WALKING)
+    n = cb.count(lines, BW.LOG_WW_WALK_FREE)
+    ok = (w_ok and moved >= WALK_U and wb.get("free") is True and w.get("free") is True and w.get("why") is None and frozen(st)
+          and n == 1 and walking and tx.get("why") == 0)
+    return ok, (f"{w_why} (want >= {WALK_U:g}u); walk.free {wb.get('free')!r} -> {w.get('free')!r} (why {w.get('why')!r}); "
+                f"{_freeze_word(st)} (want on: the freeze stays); FREE lines {n} (want 1: one edge); tx state "
+                f"0x{(_num(tx.get('state')) or 0):02X} b1 {'set' if walking else 'CLEAR'}, why {tx.get('why')!r} (want 0)")
+
+
+def fp_cost(st) -> str:
+    """(PURE) [W2 critic] REPORTED, never judged (W1's fp step: "the bench should read compute_ms on a cold first world load" -- the free
+    leg's landing is its launch's first world load): the fingerprint's per-load cost off `netsync.world.fp`."""
+    fp = _fp(st)
+    if not fp:
+        return ""
+    return (f"; the fingerprint's cost (REPORTED, the launch's first world load): compute_ms {fp.get('compute_ms')!r} = seam_ms "
+            f"{fp.get('seam_ms')!r} + reads_ms {fp.get('reads_ms')!r} over {fp.get('reads')!r} read(s) / {fp.get('bytes')!r} B, loads "
+            f"{fp.get('loads')!r}")
+
+
+#: W-FREE-9002: WORLD02 by s165's follow-out with a fabricated [102] 2 (A-BODY's route) -- decision 14 term 5's third walk world, which no
+#: other round-B row stands on (W-FREE: 9011; W-MAP's lawful walker: 9011 / 9010)
+FREE_9002 = (2, 9002)
+
+
+def judge_free_world(st, moved, adv, lines, world: int) -> tuple:
+    """W-FREE-9002 (PURE): on WorldHUD ``world`` `hold up` moved >= WALK_U, `walk.free` with no why, `freeze.on` STILL true, at least one
+    FREE line naming ``world`` since the visit's mark (the landing may take an edge before the bench hosts are re-issued), my trailer's b1."""
+    w_ok, w_why = cw.judge_walk(moved, adv, WALK_FRAMES, held=False)
+    if st is None or not cb.has(st, WALK_PROBE):
+        return False, f"absent: no `{WALK_PROBE}` -- an engine before s167 ({w_why})"
+    w, tx = _walk(st), _tx(st)
+    walking = bool((_num(tx.get("state")) or 0) & BW.WW_ST_WALKING)
+    n = cb.count(lines, BW.log_ww_walk_free(world))
+    here = st.ui_state == "WorldHUD" and st.world_id == world
+    ok = (here and w_ok and (moved or 0) >= WALK_U and w.get("free") is True and w.get("why") is None and frozen(st) and n >= 1
+          and walking)
+    return ok, (f"on {st.ui_state} {st.world_id} (want WorldHUD {world}); {w_why} (want >= {WALK_U:g}u); walk.free {w.get('free')!r} "
+                f"(why {w.get('why')!r}); {_freeze_word(st)} (want on); FREE lines naming {world}: {n} (want >= 1); tx b1 "
+                f"{'set' if walking else 'CLEAR'}")
+
+
+def judge_cam(s0, s1, s2) -> tuple:
+    """W-CAM (PURE): `world.cam_rot` turned at least CAM_MIN_DEG under L1 (``s0`` -> ``s1``) and again under R1 (``s1`` -> ``s2``), the
+    other way."""
+    c = [s.world_cam_rot if s is not None else None for s in (s0, s1, s2)]
+    if None in c:
+        return False, f"not reached: no `world.cam_rot` read ({c})"
+    dl, dr = _turn(c[0], c[1]), _turn(c[1], c[2])
+    ok = abs(dl) >= CAM_MIN_DEG and abs(dr) >= CAM_MIN_DEG and (dl > 0) != (dr > 0)
+    return ok, (f"cam_rot {c[0]:.2f} -L1-> {c[1]:.2f} ({dl:+.2f}) -R1-> {c[2]:.2f} ({dr:+.2f}) (want >= {CAM_MIN_DEG:g} each, opposite "
+                f"ways); walk.free {_walk(s1).get('free')!r}")
+
+
+def cam_still(s0, s1, s2) -> bool:
+    """W-CAM's OLD / `walk off` shape (PURE): every read, and neither bumper turned the camera CAM_TOL."""
+    c = [s.world_cam_rot if s is not None else None for s in (s0, s1, s2)]
+    return None not in c and abs(_turn(c[0], c[1])) < CAM_TOL and abs(_turn(c[1], c[2])) < CAM_TOL
+
+
+def walk_line_want(st):
+    """The walk's owner words the engine decides for ``st`` (PURE; WalkLineWhyRule + WalkOwnerLine over its why code and fp.named_code)."""
+    code = _num(_walk(st).get("why_code"))
+    if code is None or code < 0:
+        return None
+    lw = BW.ww_walk_line_why_rule(int(code), int(st.world_id or 0))
+    named = _num(_fp(st).get("named_code"))
+    named = int(named) if named is not None and named >= 0 else BW.WW_FP_NAME_NONE
+    return BW.ww_walk_owner_line(lw, named) if BW.ww_walk_has_words(lw) else None
+
+
+def judge_refuse(row: str, why_want: str, r: dict) -> tuple:
+    """W-REFUSE-x (PURE): ``r`` the case -- `pre` (the walk free before: the case's positive control), the op sent, `ref` (the first
+    sample after it reading the case's why), `post` (after `hold up` under it), `moved` / `adv` the hold, `back` (after the undo: free
+    again), `lines` the case's log. Frozen with ITS why (never another), held, its owner words; FP also names 'world map meshes'."""
+    w_ok, w_why = cw.judge_walk(r.get("moved"), r.get("adv"), WALK_FRAMES, held=True)
+    post = r.get("post")
+    if post is None or not cb.has(post, WALK_PROBE):
+        return False, f"absent: no `{WALK_PROBE}` -- an engine before s167 (op {r.get('op')}: {r.get('sent')}; {w_why})"
+    wpre, wref, wpost, wback = (_walk(r.get(k)) for k in ("pre", "ref", "post", "back"))
+    line, line_want = wpost.get("line"), walk_line_want(post)
+    parts = [f"pre free {wpre.get('free')!r}", f"op {r.get('sent')}", f"why {wref.get('why')!r} -> {wpost.get('why')!r} (want {why_want!r})",
+             f"free {wpost.get('free')!r}", w_why, f"line {line!r} (want {line_want!r})", f"undone: free {wback.get('free')!r}"]
+    ok = (r.get("sent_ok") is True and wpre.get("free") is True and r.get("ref") is not None and wref.get("why") == why_want
+          and wpost.get("why") == why_want and wpost.get("free") is False and w_ok and line == line_want and wback.get("free") is True)
+    if row == "S167-W-REFUSE-FP":
+        fp, tx = _fp(post), _tx(post)
+        n = cb.count(r.get("lines") or [], BW.LOG_WW_FP_MISMATCH)
+        b4 = bool((_num(tx.get("state")) or 0) & BW.WW_ST_MISMATCH)
+        meshes = isinstance(line, str) and "(world map meshes)" in line
+        ok = ok and meshes and fp.get("state") == "mismatch" and fp.get("named") == "meshes" and n == 1 and b4
+        parts.append(f"names the meshes {meshes}; fp.state {fp.get('state')!r}, named {fp.get('named')!r}; mismatch lines {n} (want 1); "
+                     f"tx b4 {'set' if b4 else 'CLEAR'}")
+    if row == "S167-W-REFUSE-FPDRY":
+        fp, tx = _fp(post), _tx(post)
+        st_b = _num(tx.get("state")) or 0
+        dry = fp.get("state") == "match" and not (st_b & BW.WW_ST_WALKING) and not (st_b & BW.WW_ST_MISMATCH)
+        ok = ok and dry
+        parts.append(f"fp.state {fp.get('state')!r} (want 'match': the walk would be free); tx state 0x{st_b:02X} (want b1 and b4 clear)")
+    return ok, "; ".join(parts)
+
+
+def judge_stale(p: dict) -> tuple:
+    """W-STALE (PURE): (freeze) the walk free on every judged sample under `hostseq freeze` and its hold moving >= WALK_U; (nob6) a fresh
+    `nob6` freezes host_not_world, `host self` frees; (gap) past STALE_ARRIVAL_MS with no arrival: free on the held trailer, its hold
+    moving; (reload) the field round trip's world load with arrivals still stopped: held_drops +>=1, held_trailer false, frozen
+    'peer_caps'; (resume) arrivals back: free."""
+    fr, moved, adv, st2 = p.get("freeze") or ([], None, None, None)
+    if st2 is None or not cb.has(st2, WALK_PROBE):
+        return False, f"absent: no `{WALK_PROBE}` -- an engine before s167 (`hostseq freeze`'s hold moved {moved})"
+    why = []
+    w_ok, w_why = cw.judge_walk(moved, adv, WALK_FRAMES, held=False)
+    still = [s.frame for s in fr if _walk(s).get("free") is not True]
+    if not fr or still or not w_ok or (moved or 0) < WALK_U:
+        why.append(f"(freeze) {len(fr)} judged sample(s), not free on {still[:3] or 'none'}; {w_why}")
+    if "nob6" not in p:
+        return False, "; ".join(why + ["the rest not run (frozen under the freeze: OLD / `walk off`)"])
+    ref, back = p.get("nob6") or (None, None)
+    if ref is None or _walk(ref).get("why") != "host_not_world" or _walk(back).get("free") is not True:
+        why.append(f"(nob6) why {_walk(ref).get('why')!r} (want host_not_world), back free {_walk(back).get('free')!r}")
+    gst, gmoved, gadv, _g2 = p.get("gap") or (None, None, None, None)
+    g_ok, g_why = cw.judge_walk(gmoved, gadv, WALK_FRAMES, held=False)
+    age = _num(_lane(gst).get("arrival_age_ms")) if gst is not None else None
+    wg = _walk(gst)
+    if gst is None or (age or 0) < STALE_ARRIVAL_MS or wg.get("free") is not True or wg.get("held_trailer") is not True or not g_ok:
+        why.append(f"(gap) arrival age {age} ms (want >= {STALE_ARRIVAL_MS}), free {wg.get('free')!r}, held_trailer "
+                   f"{wg.get('held_trailer')!r}, held_age {wg.get('held_age_ms')!r}; {g_why}")
+    rbase, rst, okl, whyl = p.get("reload") or (None, None, False, "not run")
+    wr = _walk(rst)
+    gap_left = _num(_bench(rst).get("gap_left_ms")) if rst is not None else None
+    dd = _d(rbase, rst, _walk, "held_drops")
+    if not okl:
+        why.append(f"(reload) not reached: {whyl}")
+    elif (gap_left or 0) <= 0:
+        why.append(f"(reload) not reached (the instrument): the gap ended before the reload was judged (gap_left {gap_left})")
+    elif (dd or 0) < 1 or wr.get("held_trailer") is not False or wr.get("free") is not False or wr.get("why") != "peer_caps":
+        why.append(f"(reload) held_drops +{dd} (want >= 1), held_trailer {wr.get('held_trailer')!r}, free {wr.get('free')!r}, why "
+                   f"{wr.get('why')!r} (want peer_caps)")
+    res = p.get("resume")
+    if res is None or _walk(res).get("free") is not True:
+        why.append(f"(resume) free {_walk(res).get('free')!r} after the arrivals came back")
+    return not why, "; ".join(why) or (f"kept walking under the freeze ({moved:.1f}u), nob6 froze, the gap held ({age} ms), the reload "
+                                       f"dropped it (+{dd}, peer_caps), free again")
+
+
+# -- the entrance rows
+def _entry_facts(base, samples, lines) -> dict:
+    last = samples[-1] if samples else None
+    return {"last": last, "w": _walk(last),
+            "off": [(s.ui_state, s.field_id if s.ui_state == "FieldHUD" else s.world_id) for s in samples
+                    if not (s.ui_state == "WorldHUD" and s.world_id == WORLD)],
+            "shut": [s.frame for s in samples if s.ui_state == "WorldHUD" and next_mode(s) == 1],
+            "dk": _d(base, last, _freeze, "keys"), "de": _d(base, last, _walk, "entry_refused"),
+            "lines": cb.count(lines, BW.LOG_WW_ENTRY_PRESS), "walk": cb.has(last, WALK_PROBE) if last is not None else False}
+
+
+def _entry_detail(f: dict) -> str:
+    w = f["w"]
+    return (f"entry_refused +{f['de']}, last reader {w.get('last_reader')!r} place {w.get('last_place')!r} entry {w.get('last_entry')!r} "
+            f"world {w.get('last_world')!r}; freeze.keys +{f['dk']}; entrance lines {f['lines']}; "
+            + (f"LEFT WorldHUD {WORLD}: {f['off'][:3]}" if f["off"] else f"WorldHUD {WORLD} throughout")
+            + (f"; next_mode 1 at {f['shut'][:2]}" if f["shut"] else ""))
+
+
+def entry_silent(base, samples, lines, hazard) -> bool:
+    """The entrance rows' OLD / `refuse silent` shape (PURE): the press masked (freeze.keys +>=1, WorldHUD 9011 kept, ``hazard`` never
+    seen), no buzz (entry_refused +0, or absent on s166) and no entrance line."""
+    f = _entry_facts(base, samples, lines)
+    unread = f["walk"] and f["de"] is None                  # an engine with the key: an unread count is never 'no buzz'
+    return bool(samples) and not f["off"] and not f["shut"] and not hazard(samples) and (f["dk"] or 0) >= 1 and (f["de"] or 0) == 0 \
+        and f["lines"] == 0 and not unread
+
+
+def judge_open(base, samples, lines) -> tuple:
+    """W-OPEN (PURE): on open ground the press is read and masked (freeze.keys +>=1: on 9011 the boat's eager @00174 read -- K1's
+    no-short-circuit witness; the exact count is reported), never buzzed (entry_refused +0; absent on s166: its OLD is its NEW), no
+    entrance line, WorldHUD 9011 kept, never next_mode 1."""
+    if not samples:
+        return False, "not reached: no sample after the press"
+    f = _entry_facts(base, samples, lines)
+    unread = f["walk"] and f["de"] is None                  # an engine with the key: an unread count is never 'no buzz'
+    ok = not f["off"] and not f["shut"] and (f["dk"] or 0) >= 1 and (f["de"] or 0) == 0 and f["lines"] == 0 and not unread
+    return ok, _entry_detail(f) + ("" if f["walk"] else " (no `netsync.world.walk`: s166 has no buzz)")
+
+
+def _cell_read(base, last, w: dict) -> tuple:
+    """(PURE) [W2 critic] decision 18's `last_cell` witness: the buzz stamps the walker's world cell (NetSyncField: floor(x / 32),
+    floor(-z / 32) off its RealPosition) -- it must be the cell the press was made in (the walker's pose before or after it: a refused
+    press moves nothing). (ok, detail)."""
+    want = set()
+    for s in (base, last):
+        if s is not None:
+            x, z = wf.world_xz(s)
+            if x is not None and z is not None:
+                want.add(tuple(BW.world_cell(x, z)))
+    got = w.get("last_cell")
+    try:
+        cell = tuple(int(v) for v in got) if isinstance(got, (list, tuple)) and len(got) == 2 else None
+    except (TypeError, ValueError):
+        cell = None
+    return cell is not None and cell in want, f"last_cell {got!r} (want the walker's cell {sorted(want) or 'unread'})"
+
+
+def _hazard_field(samples) -> bool:
+    return any(s.ui_state == "FieldHUD" for s in samples) or any(s.ui_state == "WorldHUD" and next_mode(s) == 1 for s in samples)
+
+
+def judge_entry(base, samples, lines) -> tuple:
+    """W-ENTRY (PURE): Confirm held on ICE_TILE -- WorldHUD 9011 kept (never FieldHUD 300, never next_mode 1), ONE buzz (entry_refused +1)
+    read by entry 1 at place 4 ('location', world 9011), the timed line asked on `netsync.world.line`, one location line, the request byte
+    (Map[29]) and the discovery bit unchanged on every sample."""
+    if not samples:
+        return False, "not reached: no sample after the press"
+    f = _entry_facts(base, samples, lines)
+    if not f["walk"]:
+        return False, f"absent: no `{WALK_PROBE}` -- an engine before s167: {_entry_detail(f)}"
+    w = f["w"]
+    req = REQUEST_VAR.get(WORLD, 29)
+    reqs = sorted({v for v in (map_byte(s, req) for s in [base, *samples]) if v is not None})
+    disc = [s.flag(DISCOVERY_BIT) for s in [base, *samples]]
+    asked = any(_line(s).get("asked") == "entry_refused" for s in samples)
+    n_loc = cb.count(lines, BW.ww_entry_press_what(BW.WW_ENTRY_LOCATION, 1, ENTRY_PLACE))
+    c_ok, c_why = _cell_read(base, f["last"], w)
+    ok = (not f["off"] and not f["shut"] and f["de"] == 1 and w.get("last_reader") == 1 and w.get("last_place") == ENTRY_PLACE
+          and w.get("last_entry") == "location" and w.get("last_world") == WORLD and len(reqs) == 1 and None not in disc
+          and len(set(disc)) == 1 and asked and n_loc == 1 and c_ok)
+    return ok, (_entry_detail(f) + f"; Map[{req}] {reqs} (want one value); the discovery bit {sorted(set(map(str, disc)))} (want one, "
+                                   f"watched); line.asked entry_refused: {'yes' if asked else 'NO'}; location lines {n_loc} (want 1); {c_why}")
+
+
+def judge_kitcell(base, samples, lines) -> tuple:
+    """W-KITCELL (PURE): ON the 6603 trigger, control ON -- ONE buzz (the KeyTick dedupe) whichever entry reads first: (0, kit_cell) or
+    (1, location) at a place in [1, 90) (the cell's nameplate request); never FieldHUD 6603 nor next_mode 1; kitcell.closed +0 (A0's
+    close is control-off only); at most one entrance line (the class once per visit)."""
+    if not samples:
+        return False, "not reached: no sample after the press"
+    f = _entry_facts(base, samples, lines)
+    if not f["walk"]:
+        return False, f"absent: no `{WALK_PROBE}` -- an engine before s167: {_entry_detail(f)}"
+    w = f["w"]
+    lr, lp, le = w.get("last_reader"), _num(w.get("last_place")), w.get("last_entry")
+    reader_ok = (lr, le) in ((0, "kit_cell"), (1, "location")) and (lr != 1 or (lp is not None and 1 <= lp < 90))
+    dc = kdelta(base, f["last"])
+    c_ok, c_why = _cell_read(base, f["last"], w)
+    ok = (not f["off"] and not f["shut"] and f["de"] == 1 and reader_ok and w.get("last_world") == WORLD and dc == 0 and f["lines"] <= 1
+          and c_ok)
+    return ok, _entry_detail(f) + f"; kitcell.closed +{dc} (want 0: control on); {c_why}"
+
+
+def _boarded(samples) -> list:
+    return [(s.frame, s.vehicle, s.world_ctl) for s in samples if s.ui_state == "WorldHUD" and (s.vehicle or 0) != 0]
+
+
+def judge_kitboat(base, samples, lines) -> tuple:
+    """W-KITBOAT (PURE): on the boat plate -- [190] 0 on every sample (never boarded), ONE buzz from sid 15 at Map[24] 169 ('boat') or
+    sid 1 at place 69 ('location') -- whichever reads first (inference, K1) -- WorldHUD 9011 kept, at most one entrance line."""
+    if not samples:
+        return False, "not reached: no sample after the press"
+    f = _entry_facts(base, samples, lines)
+    if not f["walk"]:
+        return False, f"absent: no `{WALK_PROBE}` -- an engine before s167: {_entry_detail(f)}"
+    w = f["w"]
+    who = (w.get("last_reader"), w.get("last_place"), w.get("last_entry"))
+    aboard = _boarded(samples)
+    # [W2 critic] + never next_mode 1 (entry 1's place-69 read leaking is a field request, not a board) and the buzz stamped on 9011
+    ok = (not f["off"] and not f["shut"] and f["de"] == 1 and who in ((15, 169, "boat"), (1, 69, "location")) and not aboard
+          and f["lines"] <= 1 and w.get("last_world") == WORLD)
+    return ok, _entry_detail(f) + f"; boarded on {aboard[:3] or 'no sample'} (want none: [190] 0)"
+
+
+def judge_ferry(base, samples, lines) -> tuple:
+    """W-FERRY (PURE): within the ferryman's 12 u -- ONE buzz from sid 16 at place 100 ('ferryman'), Map[50] 0 on every sample, no scene
+    fade, WorldHUD 9011 kept, one ferryman line."""
+    if not samples:
+        return False, "not reached: no sample after the press"
+    f = _entry_facts(base, samples, lines)
+    if not f["walk"]:
+        return False, f"absent: no `{WALK_PROBE}` -- an engine before s167: {_entry_detail(f)}"
+    w = f["w"]
+    seen, hz = ferry_hazard(samples)
+    fades = sum(1 for s in samples if s.fading)
+    n_f = cb.count(lines, BW.ww_entry_press_what(BW.WW_ENTRY_FERRY, BW.KIT_FERRY_SID, BW.KIT_PLACE_IDLE))
+    ok = (not f["off"] and not f["shut"] and f["de"] == 1 and w.get("last_reader") == BW.KIT_FERRY_SID
+          and w.get("last_place") == BW.KIT_PLACE_IDLE and w.get("last_entry") == "ferryman" and w.get("last_world") == WORLD and not seen
+          and not fades and n_f == 1)
+    return ok, _entry_detail(f) + f"; {hz}; fading on {fades} sample(s); ferryman lines {n_f} (want 1)"
+
+
+def judge_decline(d: dict) -> tuple:
+    """W-DECLINE (PURE): (n1, n2) the button-poll decline line once for two presses in a fresh visit; (warm) a warm battle return keeps
+    the visit (visits +0, rearms +0) and the press after it speaks nothing (n3 0); (trip) a field round trip -- visits +1, rearms +1, the
+    re-armed line once -- and the press after it speaks once more (n4 1)."""
+    okw, whyw, wbase, wafter = d.get("warm") or (False, "not run", None, None)
+    okt, whyt, tbase, tafter, tlines = d.get("trip") or (False, "not run", None, None, [])
+    counts = f"lines n1 {d.get('n1')}, n2 {d.get('n2')}, after the warm return n3 {d.get('n3')}, after the round trip n4 {d.get('n4')}"
+    if tafter is None or not cb.has(tafter, WALK_PROBE):
+        return False, f"absent: no `{WALK_PROBE}` -- an engine before s167 ({counts}; the warm return {whyw}; the round trip {whyt})"
+    dvw, drw = _d(wbase, wafter, _walk, "visits"), _d(wbase, wafter, _walk, "rearms")
+    dvt, drt = _d(tbase, tafter, _walk, "visits"), _d(tbase, tafter, _walk, "rearms")
+    n_re = cb.count(tlines, BW.LOG_WW_DECLINE_REARMED)
+    ok = (d.get("n1") == 1 and d.get("n2") == 0 and okw and dvw == 0 and drw == 0 and d.get("n3") == 0 and okt and dvt == 1 and drt == 1
+          and n_re == 1 and d.get("n4") == 1)
+    return ok, (f"{counts} (want 1, 0, 0, 1); the warm return: {whyw} (visits +{dvw}, rearms +{drw}: want 0 / 0); the round trip: "
+                f"{whyt} (visits +{dvt}, rearms +{drt}, re-armed lines {n_re}: want 1 / 1 / 1)")
+
+
+def decline_once_per_process(d: dict) -> bool:
+    """W-DECLINE's OLD / `decline old` shape (PURE): s144's DeclineOnce -- the first press of the visit spoke the button-poll line exactly
+    once (n1 1: the line exists and this needle reads it) and, after the field round trip landed, the press spoke none (n4 0)."""
+    okt = (d.get("trip") or (False,))[0]
+    return bool(okt) and d.get("n1") == 1 and d.get("n4") == 0
+
+
+def judge_tps(base, st, lines, own, host_tps) -> tuple:
+    """W-TPS (PURE): both values published (own > 0, peer the bench host's), `mismatch`, `lines` +1 and the 'world speed differs' line
+    once, the lever 'report', nothing held (held <= 0), effective = mine."""
+    t = _tps(st)
+    if "mismatch" not in t:
+        return False, f"absent: no `lane.world_tps.mismatch` -- an engine before s167 (own {t.get('own')!r}, peer {t.get('peer')!r})"
+    dl = _d(base, st, _tps, "lines")
+    n = cb.count(lines, f"world speed differs: my [Graphics] WorldTPS is {own}, the partner's {host_tps}")
+    ok = ((own or 0) > 0 and own != host_tps and t.get("peer") == host_tps and t.get("mismatch") is True and dl == 1 and n == 1
+          and t.get("lever") == "report" and (_num(t.get("held")) or 0) <= 0 and t.get("effective") == own)
+    return ok, (f"own {own!r}, peer {t.get('peer')!r} (want {host_tps}), mismatch {t.get('mismatch')!r}, lines +{dl} and the speed line "
+                f"{n}x (want 1 / 1), lever {t.get('lever')!r}, held {t.get('held')!r}, effective {t.get('effective')!r} (want {own})")
+
+
+def tps_absent(st, lines, host_tps) -> bool:
+    """W-TPS's OLD shape (PURE): s166's report -- the peer's value published (the bench host's), no `mismatch` key, no speed line."""
+    t = _tps(st)
+    return t.get("peer") == host_tps and "mismatch" not in t and cb.count(lines, "world speed differs") == 0
+
+
+def judge_tps_apply(st, lines, own, host_tps, sent: tuple, trip: tuple) -> tuple:
+    """W-TPS-APPLY (PURE): `tps apply` then a world load (the field round trip) -- lever 'apply', held = effective = the host's, its held
+    line once."""
+    t = _tps(st)
+    if "held" not in t:
+        return False, "absent: no `lane.world_tps.held` -- an engine before s167 (`tps apply` never sent)"
+    n = cb.count(lines, BW.log_ww_tps_held(host_tps, own))
+    ok = sent[0] and trip[0] and t.get("lever") == "apply" and t.get("held") == host_tps and t.get("effective") == host_tps and n == 1
+    return ok, (f"`tps apply` {'sent' if sent[0] else 'REFUSED: ' + str(sent[1])}; the round trip {trip[1]}; lever {t.get('lever')!r}, "
+                f"held {t.get('held')!r}, effective {t.get('effective')!r} (want {host_tps} / {host_tps}); the held line {n}x (want 1)")
+
+
+def judge_minimap(m: dict) -> tuple:
+    """W-MINIMAP (PURE): a FROZEN guest with the minimap on (`dot.hud` HUD, the hint not latched) -- Select: HUDNoMiniMap, `dot.minimap`
+    false, navi 0 (what [100] takes), minimap_closes +1, `freeze.map` +0 (never RefuseWorldUi's refusal) with no full-map decline line,
+    control kept, one closed line, hint_quiet true; Select again: HUD, still quiet; a field round trip (a NEW visit): visits +1, quiet no
+    more."""
+    base, close, reopen = m.get("base"), m.get("close"), m.get("reopen")
+    if base is None or close is None:
+        return False, f"not reached (the instrument): the minimap never on ({m.get('why')})"
+    dm = _d(base, close, _freeze, "map")
+    hud = _dot(close).get("hud")
+    if not cb.has(close, WALK_PROBE):
+        return False, f"absent: no `{WALK_PROBE}` -- an engine before s167 (Select: freeze.map +{dm}, the HUD {hud!r})"
+    lines = m.get("lines") or []
+    dc = _d(base, close, _walk, "minimap_closes")
+    n_c = cb.count(lines, BW.LOG_WW_MINIMAP_CLOSED)
+    n_r = cb.count(lines, BW.decline_line(BW.WORLD_UI_DECLINE_MAP, f"world map {WORLD}"))
+    okt, whyt, tbase, tafter = m.get("trip") or (False, "not run", None, None)
+    dv = _d(tbase, tafter, _walk, "visits")
+    why = []
+    if _dot(base).get("hud") != "HUD" or _walk(base).get("hint_quiet") is not False or not frozen(base):
+        why.append(f"(base) hud {_dot(base).get('hud')!r}, hint_quiet {_walk(base).get('hint_quiet')!r}, {_freeze_word(base)}")
+    if (hud != "HUDNoMiniMap" or _dot(close).get("minimap") is not False or _dot(close).get("navi_mode") != 0 or dc != 1 or dm != 0
+            or n_r or close.control is not True or n_c != 1 or _walk(close).get("hint_quiet") is not True):
+        why.append(f"(close) hud {hud!r}, minimap {_dot(close).get('minimap')!r}, navi {_dot(close).get('navi_mode')!r}, closes +{dc}, "
+                   f"freeze.map +{dm}, map refusal lines {n_r}, control {close.control!r}, closed lines {n_c}, hint_quiet "
+                   f"{_walk(close).get('hint_quiet')!r}")
+    if reopen is None or _dot(reopen).get("hud") != "HUD" or _walk(reopen).get("hint_quiet") is not True:
+        why.append(f"(reopen) hud {_dot(reopen).get('hud')!r}, hint_quiet {_walk(reopen).get('hint_quiet')!r}")
+    if not okt or dv != 1 or _walk(tafter).get("hint_quiet") is not False:
+        why.append(f"(trip) {whyt}: visits +{dv}, hint_quiet {_walk(tafter).get('hint_quiet')!r} (want +1, false)")
+    return not why, "; ".join(why) or (f"closed (HUDNoMiniMap, closes +{dc}, map +{dm}, one line), quiet; reopened; the new visit "
+                                       "speaks again")
+
+
+def minimap_stranded(m: dict) -> bool:
+    """W-MINIMAP's OLD / `minimap old` shape (PURE): Select on the minimap refused (`freeze.map` +1) and the minimap still on."""
+    base, close = m.get("base"), m.get("close")
+    return base is not None and close is not None and _d(base, close, _freeze, "map") == 1 and _dot(close).get("hud") == "HUD"
+
+
+def judge_map(visits) -> tuple:
+    """W-MAP (PURE): per world (9011, 9010) a lawful walker (map.lawful, walk.free) on the minimap: Select opens the full map (a sample
+    `dot.hud` FullMap, navi 2), map.opens +1, `freeze.map` +0, one open line; the full-map dot on a FullMap sample where shown AND placed
+    agree (LIVE VERDICT vs LAST DRAWN); Select closes it (HUDNoMiniMap, the dot hidden, stock's close latching the hint)."""
+    if not visits:
+        return False, "no world ran"
+    parts, ok = [], True
+    for world, m, why in visits:
+        if m is None:
+            ok = False
+            parts.append(f"{world}: not reached ({why})")
+            continue
+        base, opened, closed = m["base"], m["open"], m["close"]
+        last = opened[-1] if opened else None
+        dm = _d(base, last, _freeze, "map")
+        if not cb.has(last, WALK_PROBE):
+            ok = False
+            parts.append(f"{world}: absent: no `{WALK_PROBE}` (Select: freeze.map +{dm}, the HUD {_dot(last).get('hud')!r})")
+            continue
+        full = [s for s in opened if _dot(s).get("hud") == "FullMap" and _dot(s).get("navi_mode") == 2]
+        dot = [s for s in full if _wmapb(s).get("dot_shown") is True and _wmapb(s).get("dot_placed") is True]
+        do = _d(base, last, _wmapb, "opens")
+        n_o = cb.count(m["lines"], BW.log_ww_map_opens(world))
+        c_ok = (_dot(closed).get("hud") == "HUDNoMiniMap" and _wmapb(closed).get("dot_shown") is False
+                and _walk(closed).get("hint_quiet") is True)
+        w_ok = (_dot(base).get("hud") == "HUD" and _wmapb(base).get("lawful") is True and _walk(base).get("free") is True and bool(full)
+                and do == 1 and dm == 0 and bool(dot) and n_o == 1 and c_ok)
+        ok = ok and w_ok
+        parts.append(f"{world}: {'ok' if w_ok else 'RED'} (lawful {_wmapb(base).get('lawful')!r}, free {_walk(base).get('free')!r}; "
+                     f"FullMap on {len(full)} sample(s), opens +{do}, freeze.map +{dm}, open lines {n_o}; the dot shown+placed on "
+                     f"{len(dot)}; closed: hud {_dot(closed).get('hud')!r}, dot {_wmapb(closed).get('dot_shown')!r}, hint_quiet "
+                     f"{_walk(closed).get('hint_quiet')!r})")
+    return ok, "; ".join(parts)
+
+
+def map_refused(m) -> bool:
+    """W-MAP's OLD / `fullmap old` + `minimap old` shape (PURE): Select on the minimap refused (`freeze.map` +1), never FullMap, the minimap
+    kept."""
+    if m is None or not m.get("open"):
+        return False
+    last = m["open"][-1]
+    return (_d(m["base"], last, _freeze, "map") == 1 and not any(_dot(s).get("hud") == "FullMap" for s in m["open"])
+            and _dot(last).get("hud") == "HUD")
+
+
+# ---- round B's moves
+def _measure(ctx: dict, row: str, shape) -> None:
+    """The row's OLD / LEVER shape, measured (the calibration reads it for the predicted rows only)."""
+    ctx["measured"][row] = bool(shape)
+
+
+def s166_lever_set(g, st) -> tuple:
+    """THE REGRESSION RE-KEY: on an s167 build (the probe shows `netsync.world.walk`) round B's whole s166 lever set (S166_LEVER_SET) pulled
+    and read back -- every frozen-guest row then reads s166 exactly. (True, '') on an engine without the key (nothing sent)."""
+    if not cb.has(st, WALK_PROBE):
+        return True, ""
+    refused = [" ".join(op) for op in S166_LEVER_SET if not _wwa(g, *op)[0]]
+    want = dict(S166_LEVER_SET)
+    st2 = cb.poll(g, lambda s: all(b_levers(s).get(k) == v for k, v in want.items()), 3.0, "round B's s166 lever set read back") or g.state
+    got = {k: b_levers(st2).get(k) for k in want}
+    ok = not refused and got == want
+    return ok, f"an s167 build: round B's s166 lever set {'read back' if ok else 'NOT read back'} (refused {refused or 'none'}; read {got})"
+
+
+def _b_world(g, ctx: dict, *, fresh: bool = False, idx: int = 11, world: int = WORLD, at=FS_LANDING) -> tuple:
+    """On ``world`` -- s165's follow-out from 6603 when not there, or always (``fresh``: a FIELD ROUND TRIP, decision 20's new visit).
+    The trailer bench host is kept (`worldwalk host`): only s165's goes off after the landing. (ok, why)."""
+    st = g.state
+    if not fresh and st.ui_state == "WorldHUD" and st.world_id == world and wf.judged(st):
+        return True, f"already on {world}"
+    ok, why, _ss, _b = _a_land(g, ctx, idx=idx, world=world, at=at)
+    return ok, why
+
+
+def _b_stand(g, xz):
+    """Control on, my walker teleported onto ``xz`` (the overworld teleport sticks only with control live). The settled state."""
+    _control(g, True)
+    try:
+        return cw.teleport_settle(g, xz)
+    except HarnessError as err:
+        g.note(f"the teleport onto {xz} raised: {str(err)[:160]}")
+        return g.state
+
+
+def _b_hosts(g, ctx: dict) -> tuple:
+    """THE WALK'S BENCH (W1): both bench hosts re-issued beside my walker -- off first (the walk's FREE edge is then this setup's), then
+    `worldfollow host self` (section 7: b6 and the band, my own pose) and `worldwalk host path <near> 0` (the trailer: caps, place 4, the
+    world, on foot). The instrument: both on the wire (`lane.bench.on`, `netsync.world.host.b6`). (ok, why)."""
+    _host_off(g)
+    wf._host_off(g)
+    okf, whyf = wf._frame(g, "self")
+    x, z = wf.world_xz(g.state)
+    near = (BW.ww_norm_x((x if x is not None else B_STAND[0]) + B_HOST_NEAR[0]),
+            min(0.0, (z if z is not None else B_STAND[1]) + B_HOST_NEAR[1]))
+    okp, whyp = _host_path(g, near, 0.0)
+    st = cb.poll(g, lambda s: wf.judged(s) and _bench(s).get("on") is True and cb.path(s, "netsync.world.host.b6") is True, CASE_S,
+                 "both bench hosts on the wire") or g.state
+    on, b6 = _bench(st).get("on"), cb.path(st, "netsync.world.host.b6")
+    ok = okf and okp and on is True and b6 is True
+    return ok, (f"`worldfollow host self` {'ok' if okf else 'REFUSED: ' + whyf}; `worldwalk host path {near[0]:g} {near[1]:g} 0` "
+                f"{'ok' if okp else 'REFUSED: ' + whyp}; lane.bench.on {on!r}, host.b6 {b6!r}")
+
+
+def _b_walk_on(g, ctx: dict, *, fresh: bool = False, world: int = WORLD, idx: int = 11) -> tuple:
+    """B_WALK_SETUP: on ``world`` (``fresh``: a new visit), my walker on the stand (control on), both bench hosts; on s167 then the walk
+    free within WALK_READY_S (not waited under a held `walk off`: the rows judge it). (ok, why, the state)."""
+    ok, why = _b_world(g, ctx, fresh=fresh, idx=idx, world=world)
+    if not ok:
+        return False, f"the landing: {why}", g.state
+    _b_stand(g, B_STAND)
+    okh, whyh = _b_hosts(g, ctx)
+    if not okh:
+        return False, f"the bench hosts: {whyh}", g.state
+    st = g.state
+    if ctx.get("new") and ctx.get("pulled") != "walk":
+        st = cb.poll(g, lambda s: wf.judged(s) and _walk(s).get("free") is True, WALK_READY_S, "the walk free") or g.state
+    return True, (f"{why}; {whyh}; walk.free {_walk(st).get('free')!r} (why {_walk(st).get('why')!r}), fp.ready "
+                  f"{_fp(st).get('ready')!r}"), st
+
+
+def _b_poll_walk(g, ctx: dict, pred, what: str):
+    """On s167 the first judged sample where ``pred(walk)`` holds within CASE_S (None if never); on s166 -- or under a held `walk off`, where
+    no case's verdict can move -- None after SETTLE_FRAMES."""
+    if not ctx.get("new") or ctx.get("pulled") == "walk":
+        g.wait_frames(SETTLE_FRAMES)
+        return None
+    return cb.poll(g, lambda s: wf.judged(s) and pred(_walk(s)), CASE_S, what)
+
+
+def _b_op(g, ctx: dict, op) -> tuple:
+    """A case's op: (sent, ok, why). Round B's own worldwalk ops are never sent to an engine without `netsync.world.walk`."""
+    kind, *args = op
+    if kind == "worldwalk" and args[0] in B_OWN_OPS and not ctx.get("new"):
+        return False, False, f"`worldwalk {' '.join(args)}` not sent (an engine before s167)"
+    if kind == "worldfollow":
+        ok, why = wf._wf(g, *args)
+        g.wait_frames(SKEW_FRAMES)
+    elif kind == "worldwalk":
+        ok, why = _wwa(g, *args)
+    else:
+        try:
+            g.vehicle(int(args[0]))
+            ok, why = True, ""
+        except HarnessError as err:
+            ok, why = False, str(err)[:200]
+        g.wait_frames(SKEW_FRAMES)
+    return True, ok, why
+
+
+def _hold_cam(g, button: str, frames: int):
+    """``button`` held ``frames`` frames: the settled states before and after."""
+    st0 = g.world_settle()
+    try:
+        g.hold(button, int(frames))
+        g.wait_frames(int(frames) + 6)
+    except HarnessError as err:
+        g.note(f"hold {button} refused: {str(err)[:160]}")
+    return st0, g.world_settle()
+
+
+def _b_minimap_on(g):
+    """The minimap on (`dot.hud` HUD): a Select from HUDNoMiniMap (stock's step, never refused), from FullMap twice. The state, or None."""
+    for _ in range(3):
+        hud = _dot(g.state).get("hud")
+        if hud == "HUD":
+            return g.state
+        g.press("select")
+        cb.poll(g, lambda s, h=hud: _dot(s).get("hud") != h, SEL_S, "the HUD's next state")
+        g.wait_frames(SKEW_FRAMES)
+    return g.state if _dot(g.state).get("hud") == "HUD" else None
+
+
+def _warm_return(g) -> tuple:
+    """A warm battle return (s144's verb: `world_battle` on WorldHUD, the fight, the return to the world map): (ok, why)."""
+    st = g.state
+    if st.world_next_mode is None:
+        return False, "no world battle verb (an engine before s144)"
+    before = wf.world_xz(st)
+    try:
+        g.world_battle(cw.SCENE, group=cw.GROUP, rand=True, timeout=cw.BATTLE_S)
+    except HarnessError as err:
+        return False, f"the world battle never started: {str(err)[:200]}"
+    try:
+        g.fight(timeout=cw.FIGHT_S, finish=True)
+    except HarnessError as err:
+        g.note(f"the fight did not finish: {str(err)[:200]}")
+    back = cb.poll(g, lambda s: s.ui_state == "WorldHUD" and s.world_id == WORLD and wf.judged(s) and not s.fading, cw.RETURN_S,
+                   "the warm return")
+    if back is None:
+        return False, f"never back on WorldHUD {WORLD} after the battle (ui {g.state.ui_state!r})"
+    g.wait_frames(SETTLE_FRAMES)
+    return True, f"back on {WORLD} at {wf.world_xz(back)} (from {before})"
+
+
+# ---- the run
+def _run_round_b(g) -> None:
+    calibrate = cb.CALIBRATE
+    legs = B_SOLO_LEGS or ()
+    lever = b_lever_of(legs[0], B_LEVER_RAW) if calibrate and len(legs) == 1 else None
+    led = cb.Ledger(g, b_catalog(calibrate, legs, lever), finals=("S167-R", "S167-CAL"), width=DETAIL_W)
+    ctx = {"calibrate": calibrate, "stage": None, "pulled": None, "legs": legs, "measured": {}, "lever": lever, "st0": None, "new": False}
+    if A_SOLO_LEGS is not None or (SOLO_LEGS is not None and _RAW_LEG.strip().lower() not in ("", "all")):
+        led.check("S167-INI", False, f"COOP_WW_LEG={_RAW_LEG!r} mixes round B's legs {B_LEGS} with another family's: one family per launch")
+        led.close("not launched: one leg family per launch", final=True)
+        return
+    if calibrate and len(legs) != 1:
+        led.check("S167-CAL", False, f"EACH LEG NEEDS ITS OWN LAUNCH: COOP_CALIBRATE=1 needs COOP_WW_LEG naming exactly one of {B_LEGS} "
+                                     f"(got {_RAW_LEG!r}) -- nothing was launched")
+        led.close("not launched: a calibration names exactly one leg", final=True)
+        return
+    if calibrate and B_LEVER_RAW is not None and lever is None:
+        led.check("S167-CAL", False, f"COOP_WW_LEVER={B_LEVER_RAW!r} is not leg {legs[0]!r}'s: one of {B_LEVERS[legs[0]] or '(none)'} "
+                                     "-- nothing was launched")
+        led.close("not launched: the lever is not this leg's", final=True)
+        return
+    try:
+        _round_b(g, led, ctx)
+    except HarnessError as err:
+        g.note(f"the round-B leg raised: {str(err)[:400]}")
+        led.close(f"not reached: the leg raised ({str(err)[:200]})")
+    finally:
+        g.note(f"Memoria.log archived: {cb.archive_log(g, 'world-walk-round-b')}")
+        led.close()
+        _release_round_b(g, led, ctx)
+        if calibrate:
+            if ctx.get("st0") is None:
+                led.check("S167-CAL", False, "no engine stage was read (the run died before P0)")
+            else:
+                new = bool(ctx.get("new"))
+                pred = b_lever_predicted(legs[0], lever) if new else b_old_predicted(legs)
+                needs = tuple(r for r in pred if r in B_MEASURE)
+                pred = [c for c in pred if c in led.catalog]
+                g.note(f"S167-CAL: {'s167' if new else 'OLD (s' + str(ctx.get('stage')) + ')'}, leg {legs[0]!r}, lever {lever!r}: "
+                       f"predicted reds {sorted(pred)}")
+                led.check("S167-CAL", *judge_a_cal(led.failed() - {"S167-CAL"}, pred, ctx["measured"], needs))
+        led.close(final=True)
+
+
+def _round_b(g, led: cb.Ledger, ctx: dict) -> None:
+    ok, why = wf._ini_ok(g)
+    led.check("S167-INI", ok, why)
+    if not ok:
+        led.close("the install's ini refuses the bench (S167-INI): write [Netsync] Enabled 0 + FollowHost 1 BEFORE launch "
+                  "(solo_ini.py) -- nothing was sent")
+        return
+    oracle = cw.read_oracle(Path(g.game_path))
+    problems = dict(oracle["problems"])
+    facts = {}
+    if "entry" in ctx["legs"]:
+        kit = read_kit_oracle(Path(g.game_path))
+        problems.update(kit["problems"])
+        facts = kit["facts"]
+    led.check("S167-OR", not problems, f"problems {problems or 'none'}; read {facts or oracle.get('facts')}")
+    ok, why = cb.setup(g, FARSHORE, label="s167 round B: world-map co-op, the guest's free walk -- the solo bench"
+                                          + (" -- CALIBRATION" if ctx["calibrate"] else ""))
+    led.check("S167-S0", ok and g.state.field_id == FARSHORE, why + f"; on field {g.state.field_id}")
+    if not ok:
+        led.close(f"the selftest role never came up -- {why}")
+        return
+    st = g.state
+    ctx["st0"] = st
+    ctx["stage"] = b_stage(st)
+    # NEW = every round-B key; anything less is OLD for the calibration -- no round-B op is sent there (the session refuses it before the
+    # step anyway), and every leg MEASURES s166's shape
+    ctx["new"] = all(cb.has(st, k) for k in B_PROBES)
+    g.note(f"engine stage: s{ctx['stage']}; walk {cb.has(st, WALK_PROBE)}, fp {cb.has(st, FP_PROBE)}, walk.map {cb.has(st, MAP_PROBE)} "
+           f"({cb.stage_note(st)})")
+    led.check("S167-P0", *judge_b_probe(st))
+    want, where = proof_want(167)
+    g.note(f"S167-W-PROOF's tallies: {want} ({where})")
+    led.check("S167-W-PROOF", *judge_b_proof(cb.log_lines(g), want, where))
+    _b_p1(g, led, ctx)
+    for probe, what in ((ROUTE_PROBE, "an engine before s165 has no follow-out to land this bench"),
+                        (LANE_PROBE, "an engine before s166 A3 has no bench host to stand a walk on")):
+        if not cb.has(g.state, probe):
+            led.close(f"not reached: no `{probe}` -- {what}")
+            return
+    if not ctx["new"]:
+        g.note(f"s{ctx['stage']}: no round-B key -- no round-B op is EVER sent; each leg MEASURES s166's shape (OLD)")
+    fns = {"free": _leg_free, "refuse": _leg_refuse, "stale": _leg_stale, "entry": _leg_entry, "decline": _leg_decline, "tps": _leg_tps,
+           "minimap": _leg_minimap, "map": _leg_map}
+    for leg in B_LEGS:
+        if leg in ctx["legs"]:
+            fns[leg](g, led, ctx)
+
+
+def _b_p1(g, led: cb.Ledger, ctx: dict) -> None:
+    ok, why = cb.try_ns(g, "bench", 1)
+    st = cb.poll(g, lambda s: (s.netsync or {}).get("bench") is True, 3.0, "the field-gate bench") or g.state
+    if not ok:
+        led.check("S167-P1", False, f"`netsync bench 1` refused: {why}")
+        return
+    if not ctx["new"]:
+        led.check("S167-P1", *judge_b_rest(st, {}))
+        return
+    want = dict(B_REST, netsync_bench=True)
+    notes = []
+    lever = ctx.get("lever")
+    if ctx["calibrate"] and lever in B_LEVER_OPS:
+        okall = True
+        for op in B_LEVER_OPS[lever]:
+            o, w = _wwa(g, *op)
+            okall = okall and o
+            notes.append(f"CALIBRATION `worldwalk {' '.join(op)}` {'pulled (held through the run)' if o else 'REFUSED: ' + w}")
+            want[op[0]] = op[1]
+        ctx["pulled"] = lever if okall else None
+    st = cb.poll(g, lambda s: judge_b_rest(s, want)[0], 3.0, "round B's levers read back") or g.state
+    ok, why = judge_b_rest(st, want)
+    led.check("S167-P1", ok, why + (f"; {'; '.join(notes)}" if notes else ""))
+
+
+def _leg_free(g, led: cb.Ledger, ctx: dict) -> None:
+    """W-FREE (`hold up` under both bench hosts) then W-CAM (`hold l1`, `hold r1`)."""
+    rows = B_LEG_ROWS["free"]
+    at = cb.mark(g)
+    ok, why, _st = _b_walk_on(g, ctx)
+    if not ok:
+        led.unreached(rows, f"the instrument: {why}")
+        return
+    _b_stand(g, B_STAND)
+    base = g.state
+    moved, adv, st2 = cw.hold_walk(g, WALK_FRAMES)
+    led.check("S167-W-FREE", *judge_free(base, st2, moved, adv, cb.new(g, at)))
+    _measure(ctx, "S167-W-FREE", moved is not None and moved < HELD_U)
+    if fp_cost(st2):
+        g.note("S167-W-FREE" + fp_cost(st2).replace("; ", ": ", 1))
+    _b_stand(g, B_STAND)
+    s0, s1 = _hold_cam(g, "l1", CAM_FRAMES)
+    _s1, s2 = _hold_cam(g, "r1", CAM_FRAMES)
+    led.check("S167-W-CAM", *judge_cam(s0, s1, s2))
+    _measure(ctx, "S167-W-CAM", cam_still(s0, s1, s2))
+    # [W2 critic] W-FREE-9002: the third walk world (decision 14 term 5's {9002, 9010, 9011}) -- a fresh visit by A-BODY's route
+    idx, world = FREE_9002
+    at = cb.mark(g)
+    ok, why, _st = _b_walk_on(g, ctx, fresh=True, world=world, idx=idx)
+    if not ok:
+        led.check("S167-W-FREE-9002", False, f"not reached (the instrument): {why}")
+        return
+    _b_stand(g, B_STAND)
+    moved, adv, st3 = cw.hold_walk(g, WALK_FRAMES)
+    led.check("S167-W-FREE-9002", *judge_free_world(st3, moved, adv, cb.new(g, at), world))
+    _measure(ctx, "S167-W-FREE-9002", moved is not None and moved < HELD_U)
+
+
+def _leg_refuse(g, led: cb.Ledger, ctx: dict) -> None:
+    """W-REFUSE-x: each case alone on the stand -- the walk free (the case's control), the op, its why, `hold up`, the undo, free again."""
+    rows = B_LEG_ROWS["refuse"]
+    ok, why, _st = _b_walk_on(g, ctx)
+    if not ok:
+        led.unreached(rows, f"the instrument: {why}")
+        return
+    for row, why_want, op, undo in B_REFUSE_CASES:
+        r = {"op": " ".join(op)}
+        try:
+            _b_stand(g, B_STAND)
+            r["pre"] = _b_poll_walk(g, ctx, lambda w: w.get("free") is True, "the walk free before the case") or g.state
+            at = cb.mark(g)
+            sent, r["sent_ok"], swhy = _b_op(g, ctx, op)
+            r["sent"] = ("sent" if r["sent_ok"] else f"REFUSED ({swhy})") if sent else swhy
+            r["ref"] = _b_poll_walk(g, ctx, lambda w, ww=why_want: w.get("why") == ww, f"the walk refused ({why_want})")
+            r["moved"], r["adv"], r["post"] = cw.hold_walk(g, WALK_FRAMES)
+            r["lines"] = cb.new(g, at)
+        except HarnessError as err:
+            led.check(row, False, f"not reached: the case raised ({str(err)[:200]})")
+            continue
+        finally:
+            _b_op(g, ctx, undo)
+        r["back"] = _b_poll_walk(g, ctx, lambda w: w.get("free") is True, "the walk free again") or g.state
+        led.check(row, *judge_refuse(row, why_want, r))
+        _measure(ctx, row, r.get("moved") is not None and r["moved"] < HELD_U)
+    _b_stand(g, B_STAND)
+
+
+def _leg_stale(g, led: cb.Ledger, ctx: dict) -> None:
+    """W-STALE: `hostseq freeze` (re-sends), a fresh `nob6`, `hostgap` past StaleMs, a world load with arrivals stopped, arrivals back."""
+    row = "S167-W-STALE"
+    ok, why, _st = _b_walk_on(g, ctx)
+    if not ok:
+        led.unreached((row,), f"the instrument: {why}")
+        return
+    p = {}
+    _b_stand(g, B_STAND)
+    _wwa(g, "hostseq", "freeze")
+    try:
+        fr = [s for s in _watch(g, STALE_FREEZE_S) if wf.judged(s)]
+        p["freeze"] = (fr, *cw.hold_walk(g, WALK_FRAMES))
+    finally:
+        _wwa(g, "hostseq", "run")
+    moved = p["freeze"][1]
+    _measure(ctx, row, moved is not None and moved < HELD_U)
+    if not ctx["new"] or ctx.get("pulled") == "walk" or not cb.has(g.state, WALK_PROBE):
+        led.check(row, *judge_stale(p))           # OLD / `walk off`: frozen under the freeze -- the rest would judge nothing more
+        return
+    wf._wf(g, "host", "nob6")
+    ref = _b_poll_walk(g, ctx, lambda w: w.get("why") == "host_not_world", "the walk refused (host_not_world)")
+    wf._wf(g, "host", "self")
+    p["nob6"] = (ref, _b_poll_walk(g, ctx, lambda w: w.get("free") is True, "the walk free again") or g.state)
+    _b_stand(g, B_STAND)
+    _wwa(g, "hostgap", str(STALE_GAP_MS))
+    try:
+        gst = cb.poll(g, lambda s: wf.judged(s) and (_num(_lane(s).get("arrival_age_ms")) or 0) >= STALE_ARRIVAL_MS, STALE_GAP_S,
+                      "the arrivals stopped past StaleMs")
+        p["gap"] = (gst, *cw.hold_walk(g, WALK_FRAMES))
+        rbase = g.state
+        okl, whyl = _b_world(g, ctx, fresh=True)
+        rst = cb.poll(g, lambda s: wf.judged(s), CASE_S, "the reloaded world judged") or g.state
+        p["reload"] = (rbase, rst, okl, whyl)
+    finally:
+        _wwa(g, "hostgap", "1")
+    wf._frame(g, "self")
+    p["resume"] = cb.poll(g, lambda s: wf.judged(s) and _walk(s).get("free") is True, WALK_READY_S, "the walk free again")
+    led.check(row, *judge_stale(p))
+
+
+#: the entrance rows: (row, the stand, its instrument, the judge, the hazard, a held Confirm's frames or None for a press)
+def _inst_open(st) -> tuple:
+    if st is None or st.ui_state != "WorldHUD" or st.world_id != WORLD:
+        return False, f"not on world {WORLD}"
+    x, z = wf.world_xz(st)
+    if x is None:
+        return False, "no world position"
+    off = (BW.kit_trigger_field(WORLD, x, z) is None and not BW.in_kit_box(BW.KIT_BOAT_AT, BW.KIT_BOAT_RANGE, x, z)
+           and not BW.in_kit_box(BW.KIT_FERRY_AT, BW.KIT_FERRY_RANGE, x, z) and cw.dist((x, z), wf.ICE_TILE) > 4 * ENTRY_TOL)
+    ok = off and wf.torus((x, z), OPEN_STAND) <= POSE_TOL and st.vehicle == 0 and frozen(st) and st.control is True
+    return ok, (f"at ({x:.1f}, {z:.1f}): open ground {'yes' if off else 'NO'} (off every kit trigger, the boat's and the ferryman's "
+                f"boxes, the Ice Cavern tile); [190] {st.vehicle}; control {st.control!r}; {_freeze_word(st)}")
+
+
+def _inst_entry(st) -> tuple:
+    if st is None or st.ui_state != "WorldHUD" or st.world_id != WORLD:
+        return False, f"not on world {WORLD}"
+    x, z = wf.world_xz(st)
+    if x is None:
+        return False, "no world position"
+    d = cw.dist((x, z), wf.ICE_TILE)
+    ok = d <= ENTRY_TOL and st.vehicle == 0 and frozen(st) and st.control is True
+    return ok, (f"at ({x:.1f}, {z:.1f}): {d:.2f}u from ICE_TILE (want <= {ENTRY_TOL:g}); [190] {st.vehicle}; control {st.control!r}; "
+                f"{_freeze_word(st)}")
+
+
+def _inst_kit(st) -> tuple:
+    ok, why = judge_kit_stand(st)
+    return ok and st.control is True, f"{why}; control {st.control!r}"
+
+
+def _inst_boat(st) -> tuple:
+    if st is None or st.ui_state != "WorldHUD" or st.world_id != WORLD:
+        return False, f"not on world {WORLD}"
+    x, z = wf.world_xz(st)
+    if x is None:
+        return False, "no world position"
+    inside = BW.in_kit_box(BW.KIT_BOAT_AT, BW.KIT_BOAT_RANGE, x, z)
+    ok = inside and BW.kit_cell_field(WORLD, x, z) is None and st.vehicle == 0 and frozen(st) and st.control is True
+    return ok, (f"at ({x:.1f}, {z:.1f}): {'inside' if inside else 'OUTSIDE'} the boat's +-{BW.KIT_BOAT_RANGE:g} u box round "
+                f"{BW.KIT_BOAT_AT}; [190] {st.vehicle}; control {st.control!r}; {_freeze_word(st)}")
+
+
+def _inst_ferry(st) -> tuple:
+    ok, why = judge_ferry_stand(st)
+    return ok and st.control is True, f"{why}; control {st.control!r}"
+
+
+B_ENTRY_PLAN = (
+    ("S167-W-OPEN", OPEN_STAND, _inst_open, judge_open, _hazard_field, None),
+    ("S167-W-ENTRY", wf.ICE_TILE, _inst_entry, judge_entry, _hazard_field, ENTRY_HOLD_FRAMES),
+    ("S167-W-KITCELL", KIT_STAND, _inst_kit, judge_kitcell, lambda ss: kit_hazard(ss)[0], None),
+    ("S167-W-KITBOAT", BOAT_STAND, _inst_boat, judge_kitboat, lambda ss: bool(_boarded(ss)) or _hazard_field(ss), None),
+    ("S167-W-FERRY", FERRY_STAND, _inst_ferry, judge_ferry, lambda ss: ferry_hazard(ss)[0] or _hazard_field(ss), None),
+)
+
+
+def _leg_entry(g, led: cb.Ledger, ctx: dict) -> None:
+    """W-OPEN, W-ENTRY, W-KITCELL, W-KITBOAT, W-FERRY: a fresh visit (each class's line once per visit), the walk on, each stand by a
+    teleport (control on), its instrument, then Confirm (held 30 frames on the Ice Cavern) and PRESS_S watched."""
+    rows = B_LEG_ROWS["entry"]
+    ok, why, _st = _b_walk_on(g, ctx, fresh=True)
+    if not ok:
+        led.unreached(rows, f"the instrument: {why}")
+        return
+    try:
+        g.watch(DISCOVERY_BIT)
+    except HarnessError as err:
+        g.note(f"watch {DISCOVERY_BIT} refused: {str(err)[:120]}")
+    for row, stand, inst, judge, hazard, hold in B_ENTRY_PLAN:
+        st = g.state
+        if not (st.ui_state == "WorldHUD" and st.world_id == WORLD):   # a leak (a fault, or OLD's hazard) left the world: back on it
+            ok, why, _st = _b_walk_on(g, ctx)
+            if not ok:
+                led.check(row, False, f"not reached (the instrument): {why}")
+                continue
+        st = _b_stand(g, stand)
+        iok, iwhy = inst(st)
+        if not iok:
+            led.check(row, False, f"not reached (the instrument): {iwhy}")
+            continue
+        base, at = g.state, cb.mark(g)
+        g.press("confirm", hold or PRESS_FRAMES)       # `press <b> <n>` holds it n frames (one KeyOn edge, read per reader)
+        samples = _watch(g, PRESS_S)
+        lines = cb.new(g, at)
+        led.check(row, *judge(base, samples, lines))
+        _measure(ctx, row, entry_silent(base, samples, lines, hazard))
+    if g.state.ui_state == "WorldHUD":
+        _b_stand(g, B_STAND)
+
+
+def _decline_press(g, needle: str):
+    """A Confirm on the stand (control on): the decline lines naming ``needle`` it logged."""
+    _b_stand(g, B_STAND)
+    at = cb.mark(g)
+    g.press("confirm", PRESS_FRAMES)
+    _watch(g, DECLINE_S)
+    return cb.count(cb.new(g, at), needle)
+
+
+def _leg_decline(g, led: cb.Ledger, ctx: dict) -> None:
+    """W-DECLINE: a fresh visit, two presses, a warm battle return and a press, a field round trip and a press."""
+    row = "S167-W-DECLINE"
+    ok, why, _st = _b_walk_on(g, ctx, fresh=True)
+    if not ok:
+        led.unreached((row,), f"the instrument: {why}")
+        return
+    needle = BW.decline_line(BW.WORLD_POLL_DECLINE, f"world map {WORLD}")
+    d = {"n1": _decline_press(g, needle), "n2": _decline_press(g, needle)}
+    wbase = g.state
+    okw, whyw = _warm_return(g)
+    d["warm"] = (okw, whyw, wbase, g.state)
+    d["n3"] = _decline_press(g, needle) if okw else None
+    tbase, at = g.state, cb.mark(g)
+    okt, whyt = _b_world(g, ctx, fresh=True)
+    tafter = cb.poll(g, lambda s: wf.judged(s), CASE_S, "the new visit judged") or g.state
+    d["trip"] = (okt, whyt, tbase, tafter, cb.new(g, at))
+    d["n4"] = _decline_press(g, needle) if okt else None
+    led.check(row, *judge_decline(d))
+    # [W2 critic] the shape needs its POSITIVE half: the first press spoke the line once (n1 1) -- a needle that matches nothing reads
+    # n4 0 too, and 'once per process' would then be measured on a line never seen
+    _measure(ctx, row, decline_once_per_process(d))
+
+
+def _leg_tps(g, led: cb.Ledger, ctx: dict) -> None:
+    """W-TPS (`hosttps` against mine: report) then W-TPS-APPLY (`tps apply` + a field round trip)."""
+    rows = B_LEG_ROWS["tps"]
+    ok, why, _st = _b_walk_on(g, ctx)
+    if not ok:
+        led.unreached(rows, f"the instrument: {why}")
+        return
+    own = _num(_tps(g.state).get("own"))
+    host_tps = HOST_TPS if own != HOST_TPS else HOST_TPS_ALT
+    base, at = g.state, cb.mark(g)
+    _wwa(g, "hosttps", str(host_tps))
+    cb.poll(g, lambda s: _tps(s).get("peer") == host_tps, TPS_S, "the host's WorldTPS on the wire")
+    st = (_watch(g, TPS_WATCH_S) or [g.state])[-1]
+    lines = cb.new(g, at)
+    led.check("S167-W-TPS", *judge_tps(base, st, lines, own, host_tps))
+    _measure(ctx, "S167-W-TPS", tps_absent(st, lines, host_tps))
+    if not cb.has(g.state, FP_PROBE):
+        st = g.state
+        led.check("S167-W-TPS-APPLY", *judge_tps_apply(st, [], own, host_tps, (False, "not sent"), (False, "not run")))
+        _measure(ctx, "S167-W-TPS-APPLY", "held" not in _tps(st))
+        _wwa(g, "hosttps", "-1")
+        return
+    at = cb.mark(g)
+    sent = _wwa(g, "tps", "apply")
+    try:
+        trip = _b_world(g, ctx, fresh=True)
+        st = cb.poll(g, lambda s: wf.judged(s) and (_num(_tps(s).get("held")) or 0) > 0, TPS_S, "the held WorldTPS") or g.state
+        led.check("S167-W-TPS-APPLY", *judge_tps_apply(st, cb.new(g, at), own, host_tps, sent, trip))
+    finally:
+        _wwa(g, "tps", "report")
+        _wwa(g, "hosttps", "-1")
+
+
+def _leg_minimap(g, led: cb.Ledger, ctx: dict) -> None:
+    """W-MINIMAP: a fresh visit, a FROZEN guest (`walk off` on s167), the minimap on, Select (the close), Select (the reopen), a field
+    round trip (the latch cleared)."""
+    row = "S167-W-MINIMAP"
+    okw, whyw = _b_world(g, ctx, fresh=True)
+    if not okw:
+        led.unreached((row,), f"the instrument: the landing: {whyw}")
+        return
+    walk = cb.has(g.state, WALK_PROBE)
+    if walk:
+        _wwa(g, "walk", "off")                    # the design's FROZEN guest (decision 27 is a frozen guest's close)
+    m = {}
+    try:
+        _b_stand(g, B_STAND)
+        m["base"] = _b_minimap_on(g)
+        m["why"] = f"the HUD {_dot(g.state).get('hud')!r}"
+        if m["base"] is not None:
+            at = cb.mark(g)
+            g.press("select")
+            g.wait_frames(SKEW_FRAMES)
+            m["close"] = (_watch(g, SEL_S) or [g.state])[-1]
+            m["lines"] = cb.new(g, at)
+            g.press("select")
+            m["reopen"] = cb.poll(g, lambda s: _dot(s).get("hud") == "HUD", SEL_S, "the minimap reopened") or g.state
+            tbase = g.state
+            okt, whyt = _b_world(g, ctx, fresh=True)
+            tafter = cb.poll(g, lambda s: wf.judged(s), CASE_S, "the new visit judged") or g.state
+            m["trip"] = (okt, whyt, tbase, tafter)
+    finally:
+        if walk:
+            _wwa(g, "walk", "on")
+    led.check(row, *judge_minimap(m))
+    _measure(ctx, row, minimap_stranded(m))
+
+
+def _leg_map(g, led: cb.Ledger, ctx: dict) -> None:
+    """W-MAP: per world (9011, 9010), a fresh visit with the walk on, the minimap on, Select (the full map opens), Select (closes)."""
+    row = "S167-W-MAP"
+    visits, measured = [], []
+    for idx, world in MAP_WORLDS:
+        ok, why, _st = _b_walk_on(g, ctx, fresh=True, world=world, idx=idx)
+        if not ok:
+            visits.append((world, None, why))
+            measured.append(False)
+            continue
+        _b_stand(g, B_STAND)
+        base = _b_minimap_on(g)
+        if base is None:
+            visits.append((world, None, f"the minimap never on (the HUD {_dot(g.state).get('hud')!r})"))
+            measured.append(False)
+            continue
+        at = cb.mark(g)
+        g.press("select")
+        opened = _watch(g, SEL_S, until=lambda s: _dot(s).get("hud") == "FullMap" and _wmapb(s).get("dot_placed") is True)
+        opened += _watch(g, 0.3)
+        lines = cb.new(g, at)
+        if _dot(g.state).get("hud") == "FullMap":
+            g.press("select")
+        closed = cb.poll(g, lambda s: _dot(s).get("hud") != "FullMap", SEL_S, "the full map closed") or g.state
+        g.wait_frames(SKEW_FRAMES)
+        closed = g.state
+        m = {"base": base, "open": opened, "lines": lines, "close": closed}
+        visits.append((world, m, why))
+        measured.append(map_refused(m))
+    led.check(row, *judge_map(visits))
+    _measure(ctx, row, bool(measured) and all(measured))
+
+
+def _release_round_b(g, led: cb.Ledger, ctx: dict) -> None:
+    """A round-B lever pulled (`walk off`, on an engine with the keys), then `reset` (the worldwalk release with the harness): the role
+    released, the release line once; then the re-read WITH the role: round B's levers at rest. One verdict after both reads."""
+    st0 = g.state
+    new = all(cb.has(st0, k) for k in B_PROBES)
+    pulled = _ww(g, "walk", "off")[0] if new else False
+    at = cb.mark(g)
+    try:
+        cb.release(g)
+    except HarnessError as err:
+        led.check("S167-R", False, f"`reset` failed: {str(err)[:300]}")
+        return
+    forced = (g.state.netsync or {}).get("forced")
+    if not new:
+        led.check("S167-R", forced is False, f"forced={forced!r} (an engine before s167: no round-B lever to release)")
+        return
+    n = cb.count(cb.wait_log(g, at, BW.LOG_WORLDWALK_RELEASED, 2.0), BW.LOG_WORLDWALK_RELEASED)
+    st2, why = cb.reread_with_role(g)
+    r_ok, r_why = judge_b_rest(st2, B_REST) if st2 is not None else (False, "no re-read")
+    ok = forced is False and pulled and n == 1 and r_ok
+    led.check("S167-R", ok, f"forced={forced!r}; a lever pulled before the reset: {pulled}; the release line {n}x (want 1); re-read "
+                            f"with the role: {r_why}" + (f"; {why}" if why else ""))

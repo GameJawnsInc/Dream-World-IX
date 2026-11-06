@@ -164,6 +164,13 @@ DEFAULT_FILES = [
     # NetSyncWorldDot.cs and the csproj) is listed above
     "Assembly-CSharp/Memoria/Netsync/NetSyncWorldWalk.cs",
     "Assembly-CSharp/Memoria/Netsync/NetSyncWorldGhost.cs",
+    # [ff9mapkit netsync s167] world-map co-op round B (the guest's free walk): no new file; the two stock world-mesh readers its
+    # fingerprint's c2 hooks (the CRC over the bytes the engine itself read: s34 + s74's WorldMeshOverride.cs, s92's
+    # CustomFormCells.cs) were never in this set; every other site it touches (WorldHUD.cs, ff9.cs, WMScriptDirector.cs,
+    # SceneDirector.cs, Ff9mkDebugMenu.cs, HarnessAgent.cs, NetSyncClient.cs, NetSyncField.cs, NetSyncSocket.cs, NetSyncRelay.cs,
+    # NetSyncState.cs, NetSyncWorldDot.cs, NetSyncWorldWalk.cs) is listed above
+    "Assembly-CSharp/Memoria/World/WorldMeshOverride.cs",
+    "Assembly-CSharp/Memoria/World/CustomFormCells.cs",
 ]
 
 # [ff9mapkit netsync s157] GENERATED files are only ever replaced WHOLE (the kit renders them from a JSON twin; their pins

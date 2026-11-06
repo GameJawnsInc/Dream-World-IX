@@ -62,7 +62,15 @@ While you're paired:
   presses turn the pages and pick the choices.
 - In the host's battles you command the party members they handed you, or watch if they handed you
   none.
-- On the world map the host drives; you wait and rejoin at their next stop.
+- On the early world maps of disc 1 you walk your own copy on foot beside the host, and each of you
+  sees the other. Going into places, boarding vehicles and travelling from the full map stay the
+  host's: if you press an entrance you hear a buzz and see "Your partner leads the way. You'll join
+  them at their next stop." When the host walks into a place, you rejoin them there from wherever you
+  are. While the host rides or is in a world-map scene, and on the later world maps, the host drives:
+  you wait where you are and rejoin them at their next stop.
+- To walk on the world map, both games need the same world map: the same mod folders and the same
+  language. If they differ, you follow the host as before, and a line on your screen names what
+  differs. Keep `[Graphics] WorldTPS` the same on both PCs too, or one of you walks faster.
 - You can climb the room's own ladders and take its jumps yourself, the ones that only move you, so you
   aren't stuck at the bottom while the host climbs. Doors, chests, people and anything else that moves
   the story stay the host's: pressing them does nothing on your screen. Ladders that could take you

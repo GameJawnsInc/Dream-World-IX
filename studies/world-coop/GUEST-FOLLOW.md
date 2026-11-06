@@ -310,7 +310,11 @@ reloads its own save, or reload at once.
    **Round A DONE as s166 (2026-11-04): the wire, the ghosts both ways, the dot from the trailer and the pull, the guest
    still frozen. TWO-PC PROVEN (2026-11-05): steps 1-7 green, the first real link cut included; one s144 defect, the frozen
    guest cannot close its minimap (results in `TWO-PC-CHECKS-S166.md`). The guest's own free walk is s167, and it carries
-   the minimap close (the owner, 2026-11-05).**
+   the minimap close (the owner, 2026-11-05).** **Round B DONE as s167 (2026-11-06): the guest walks its own copy on foot,
+   its entrances refused with a buzz and words, the stall hole closed, the world fingerprint, WorldTPS reported, the full map
+   for a walker on 9010/9011, the frozen guest's minimap close with the hint quiet after; deployed (`12be3220`), benched
+   green on one PC (NEW, LEVER 14/14, a 38-launch regression), reviewed, frozen as `s167-netsync-world-free-walk.patch`
+   (status `S167-HANDOFF.md`). The two-PC look is next (`TWO-PC-CHECKS-S167.md`).**
 3. **Free walk on the vehicle worlds, with Choco.** The guest mounts its own Choco; the mounted ghost; the guest's parked
    airship or boat copy hidden or re-placed when the host moves its own; the Choco call (decision 6); the dismount for the host's battle (decision 7).
 4. **Pulled aboard: the airships, then the boat.** The claim check, the reload aboard, the carried copy, the set-down, the

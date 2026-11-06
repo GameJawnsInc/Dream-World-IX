@@ -634,3 +634,121 @@ def test_the_instrument_reds_an_armed_or_unborn_guest_before_anything_is_judged(
         assert m.judge_instrument(world_st(1, mirroring=True, mirror_party=[0, 1, 2, 3]), host, 3, mirroring_expected=True)[0]
         assert not m.judge_instrument(world_st(1), host, 0, mirroring_expected=True)[0]
     ''')
+
+
+def test_s167_frozen_reads_the_walk_frozen_by_stage():
+    """[ff9mapkit netsync s167] BY STAGE: on an engine publishing `netsync.world.walk`, `freeze.on` stays true while a guest walks
+    (decision 13), so WP-I's and WP1d's "frozen" also read the walk frozen (coop_world_wait.judge_walk_key) -- any why for the unarmed
+    guest (co-op off until its world load: it cannot take round B's set; it reads 'pairing'), the LEVER for the mirror leg's guest (the
+    set through follow_off). A walking guest, or a mirror guest frozen for another why, is red; an s166 guest (no key) reads as before."""
+    _child('''
+        def walked(st, **walk):
+            st.raw["netsync"]["world"]["walk"] = dict(walk)
+            return st
+        host = world_st(1, party=[0, 1, 2, 3])
+        assert m.judge_instrument(walked(world_st(1), free=False, why="pairing"), host, 0)[0]
+        ok, why = m.judge_instrument(walked(world_st(1), free=True, why=None), host, 0)
+        assert not ok and "FAILED ['frozen']" in why and "s167: walk free True" in why, why
+        mirror = lambda **w: walked(world_st(1, mirroring=True, mirror_party=[0, 1, 2, 3]), **w)
+        assert m.judge_instrument(mirror(free=False, why="lever"), host, 3, mirroring_expected=True)[0]
+        assert not m.judge_instrument(mirror(free=False, why="encounters"), host, 3, mirroring_expected=True)[0]
+        assert m.judge_instrument(world_st(1), host, 0)[0]                                     # s166: no key, as before
+        run = [world_st(1, returns=0), *[battle_st(i, HOST_UNITS, party=[0, 1, 2, 3]) for i in range(2, 9)], world_st(9)]
+        assert m.judge_containment(run, walked(world_st(10, returns=1), free=False, why="pairing"), 0)[0]
+        ok, why = m.judge_containment(run, walked(world_st(10, returns=1), free=True, why=None), 0)
+        assert not ok and "s167: walk free True" in why, why
+    ''')
+
+
+def test_s167_the_mirror_leg_pulls_round_bs_set_on_both_games_before_the_hosts_walk_out():
+    """[ff9mapkit netsync s167] THE REGRESSION RE-KEY, ROUND B, through the shipped _mirror: an s167 pair (`netsync.world.walk`) gets round
+    B's whole s166 lever set on the GUEST (follow_off's walk_off) and on the HOST (walk_off(host=True)) BEFORE the host's walk out, read
+    back and folded into WP55-I, whose "frozen" then reads the walk frozen by the lever; a guest that refuses the set reds WP55-I and stops
+    the leg."""
+    _child('''
+        calls = []
+        SET = [("walk", "off"), ("refuse", "silent"), ("stallhold", "old"), ("decline", "old"), ("fp", "off"), ("minimap", "old"),
+               ("fullmap", "old")]
+        def walk_block(lv, free):
+            w = {"lever": lv["walk"], "refuse": lv["refuse"], "stallhold": lv["stallhold"], "decline": lv["decline"],
+                 "minimap": lv["minimap"], "free": free, "why": "lever" if lv["walk"] == "off" else "pairing",
+                 "map": {"lever": lv["fullmap"]}}
+            return w, {"lever": lv["fp"]}
+        def rest():
+            return {"walk": "on", "refuse": "act", "stallhold": "act", "decline": "act", "fp": "act", "minimap": "act",
+                    "fullmap": "act"}
+        def apply(who, levers, refuse, sub, args):
+            calls.append((who, sub) + tuple(args))
+            if refuse and sub == "worldwalk":
+                raise m.HarnessError(f"netsync {sub}: refused (stub)")
+            if sub == "worldwalk":
+                levers[args[0]] = args[1]
+        class Host:
+            def __init__(self):
+                self.levers = rest()
+            def note(self, text):
+                pass
+            @property
+            def state(self):
+                st = world_st(2, party=[0, 1, 2, 3])
+                st.raw["netsync"]["enabled"] = True
+                st.raw["netsync"]["world"]["walk"], st.raw["netsync"]["world"]["fp"] = walk_block(self.levers, False)
+                return st
+            def netsync(self, sub, *args, timeout=20.0):
+                apply("host", self.levers, False, sub, args)
+                return self.state
+            def wait_for(self, predicate, timeout=20.0, what=""):
+                if predicate(self.state):
+                    return self.state
+                raise m.HarnessError("timeout (stub)")
+        class Guest(MirrorGuest):
+            def __init__(self, refuse=False):
+                super().__init__()
+                self.refuse, self.levers, self.follow = refuse, rest(), {"out": "on", "dot": "on"}
+            def _st(self):
+                st = super()._st()
+                w = st.raw["netsync"].setdefault("world", {})
+                w["out"], w["dot"] = {"lever": self.follow["out"]}, {"lever": self.follow["dot"]}
+                w["walk"], w["fp"] = walk_block(self.levers, False)
+                return st
+            def netsync(self, sub, *args, timeout=20.0):
+                apply("guest", self.levers, self.refuse, sub, args)
+                if sub == "worldfollow" and args[:1] == ("off",):
+                    self.follow["out"] = "off"
+                if sub == "worldfollow" and args[:2] == ("dot", "off"):
+                    self.follow["dot"] = "off"
+                return self._st()
+            def wait_for(self, predicate, timeout=20.0, what=""):
+                if predicate(self._st()):
+                    return self._st()
+                raise m.HarnessError("timeout (stub)")
+        def walk_out(g, **kw):
+            calls.append(("walk_out", "host" if isinstance(g, Host) else "guest"))
+            return True, "world 9011 at the landing", world_st(1)
+        m.cw.walk_out = walk_out
+        m.cw.teleport_settle = lambda g, xz: None
+        m._mirror_battles = lambda d, check, rest: calls.append(("battles",))
+        m.cb.CALIBRATE = False
+        m.LEG = "mirror"
+        class Duo(LedgerDuo):
+            def pair(self, field, host_setup=None, **kw):
+                m.FARM.update(wins=m.PRE_WINS, fights=m.PRE_WINS, results=[1] * m.PRE_WINS, why=None)
+                self.paired = True
+        for refuse, ok in ((False, True), (True, False)):
+            calls.clear()
+            host = Host()
+            d = Duo(Guest(refuse=refuse), host)
+            m.run_duo(d)
+            got, why = d.rows["WP55-I"]
+            assert got is ok, (refuse, why)
+            g_ww = [c[2:] for c in calls if c[:2] == ("guest", "worldwalk")]
+            h_ww = [c[2:] for c in calls if c[:2] == ("host", "worldwalk")]
+            assert h_ww == SET, calls                                                    # the host's whole set
+            first_ww = next(i for i, c in enumerate(calls) if c[1:2] == ("worldwalk",))
+            assert first_ww < calls.index(("walk_out", "host")), calls                    # BEFORE the host's walk out
+            if ok:
+                assert g_ww == SET and "s167 re-key: round B's s166 lever set" in why and "why 'lever'" in why, why
+                assert ("battles",) in calls
+            else:
+                assert "s167 re-key FAILED" in why and ("battles",) not in calls, why
+    ''')

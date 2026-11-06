@@ -35,10 +35,15 @@ each is only written when its flag is given, so re-runs never clobber hand tunin
                            the guest two of that character        -> GhostAs
     --follow-host on       guest side: auto-warp to the host's field; your own
                            random encounters pause while paired   -> FollowHost
-                           -- on the world map the host drives: you wait there
-                           and rejoin their next field (engine s144); their
-                           battles there boot on your screen too and return
-                           you where you stood (engine s145)
+                           -- on the early world maps (9002, 9010, 9011) you
+                           walk your own copy on foot beside the host, while
+                           places, vehicles and the full map's travel stay
+                           theirs: you rejoin them at their next stop (engine
+                           s167); on the other world maps, or while the host
+                           rides, the host drives and you wait there for their
+                           next stop (engine s144); their battles there boot
+                           on your screen too and return you where you stood
+                           (engine s145)
 
 (The battle diorama -- a following guest's screen boots the host's battles
 live -- is always on since the s42 engine; the old ``--diorama`` knob is gone.
@@ -707,7 +712,8 @@ def show_config(game: Path, *, out=print) -> int:
         out("  self-dress:  OFF ([Netsync] SelfDress=0 -- as a guest my own body stays Zidane on my screen; the "
             "host's ghost of me still follows ITS GhostAs)")
     out(f"  follow-host: " + ("ON (auto-warp + encounter pause; their battles boot live on my "
-                              "screen)" if key("FollowHost") == "1" else "off"))
+                              "screen; on the early world maps I walk my own copy on foot and "
+                              "rejoin them at their next stop)" if key("FollowHost") == "1" else "off"))
     return 0
 
 
@@ -911,6 +917,12 @@ def _setup(args, role: str, code: str | None, *, out=print) -> int:
                                          "encounters pause while paired, and their battles boot "
                                          "live on your screen"
                                          if style["FollowHost"] == "1" else "off"))
+        if style["FollowHost"] == "1":
+            # [ff9mapkit netsync s167] the world map: the guest walks its own copy of the early world maps
+            out("  visitor: on the early world maps (9002, 9010, 9011) you walk your own copy on foot beside "
+                "the host; going into places, vehicles and travel from the full map stay theirs, and you "
+                "rejoin them at their next stop. Elsewhere on the world map, or while the host rides, you "
+                "wait for their next stop as before.")
 
     out("")
     if role == "host":

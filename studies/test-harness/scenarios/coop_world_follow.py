@@ -147,6 +147,17 @@ CALIBRATION -- a check that cannot fail is not a check.
 THE REGRESSION RE-KEY (design "Regression"): every s144 / s145 leg that tests the guest's OWN exit sends `netsync worldfollow off` and
 `dot off` to its guest when the probe shows `netsync.world.out` (coop_world_wait.follow_off), so it runs byte-identical to s164.
 
+[ff9mapkit netsync s167] THE REGRESSION RE-KEY, ROUND B (S166-DESIGN.md "Regression", round B's sentence): from s167 a following guest
+WALKS its own copy on foot on 9002 / 9010 / 9011 while the host is on foot there, and `freeze.on` stays TRUE while it walks. Every leg
+here lands a FROZEN guest, so each sends round B's whole s166 lever set (coop_world_wait.walk_off: `worldwalk walk off`, `refuse
+silent`, `stallhold old`, `decline old`, `fp off`, `minimap old`, `fullmap old`) when the probe shows `netsync.world.walk`, read back and
+folded into its instrument row -- the solo leg at P1, the T2 walk leg beside `worldfollow hold` before the replay (WK-I), the duo on BOTH
+games at D0; an engine without the key is sent nothing. The rows whose meaning moves are re-keyed BY STAGE, never weakened: FROZEN,
+WK-FROZEN and D-DOT's "own pose unmoved" also read the walk frozen BY THE LEVER (coop_world_wait.judge_walk_key: walk.free false, why
+'lever' -- a free walker who presses nothing is unmoved too, and a walk FREE dispatch takes no freeze edge), and P0 wants the s167 key
+list (`walk` / `fp` after `ghost`). The WorldTPS mismatch line and the missing-caps line still speak under the set (the W1 review's R4):
+no row asserts their absence. coop_world_walk.py / coop_world_walk_t2.py bench round B's walk itself.
+
 WHAT NO LEG HERE REACHES (named, not hidden): THE SESSION-END EXIT RAMP INSIDE THE FOLLOW-OUT's FADE -- the selftest role has no
 session to end (SessionRampArms needs a mirroring client), and a real client's grace (>= 2 s plus the stale span) outlasts the 0.9 s
 fade even with `swap delay` 2000: the ramp's `safeToLoad` reading FollowFadeInFlight is pinned at its call site by the kit's s165
@@ -543,6 +554,8 @@ def judge_probe(st, lines) -> tuple:
         want_world = BW.WORLD_SENTINELS_S166C   # [ff9mapkit netsync s166] W2: A3's `lane` and `line` after `pairpull` (the dot judged above)
     if cb.has(st, "netsync.world." + BW.A4_CONTRACT["ghost_key"]):
         want_world = BW.WORLD_SENTINELS_S166D   # [ff9mapkit netsync s166] W2: A4's ghost after `line`
+    if cb.has(st, cw.WALK_PROBE):
+        want_world = BW.WORLD_SENTINELS_S167    # [ff9mapkit netsync s167] round B: `walk` / `fp` after `ghost` (the prefix law)
     keys_ok = (list(world) == list(want_world) and not bad and top and sg and hw
                and wkeys[-1:] == list(BW.WORLD_LIVE_KEYS_S165))
     rx = re.compile(BW.WORLD_FOLLOW_PROOF_RE)
@@ -680,11 +693,13 @@ def judge_foot(st) -> tuple:
 
 
 def judge_frozen_here(base, st, moved, advanced) -> tuple:
-    """FROZEN (PURE): the hold held, freeze.on, freeze.edges +1 since ``base``."""
+    """FROZEN (PURE): the hold held, freeze.on, freeze.edges +1 since ``base``. [ff9mapkit netsync s167] BY STAGE: on an engine
+    publishing `netsync.world.walk` the walk frozen by the lever too (coop_world_wait.judge_walk_key: `freeze.on` stays true while a guest
+    walks, and a walk FREE dispatch takes no freeze edge)."""
     w_ok, w_why = cw.judge_walk(moved, advanced, WALK_FRAMES, held=True)
     on = cb.path(st, "netsync.world.freeze.on") if st is not None else None
     de = _delta(base, st, "netsync.world.freeze.edges")
-    return w_ok and on is True and de == 1, f"{w_why}; freeze.on {on!r}, edges +{de} (want 1)"
+    return cw.with_walk_key((w_ok and on is True and de == 1, f"{w_why}; freeze.on {on!r}, edges +{de} (want 1)"), st)
 
 
 def judge_onfoot(base, st, want) -> tuple:
@@ -1069,15 +1084,19 @@ def _p1(g, led: cb.Ledger, ctx: dict) -> None:
     if ctx["stage"] < 165:
         led.check("S165-P1", *judge_rest(st))
         return
+    s_ok, s_why = cw.walk_off(g)                           # [ff9mapkit netsync s167] an s167 build reads s166 (the round-B re-key)
+    s_why = f"; {s_why}" if s_why else ""
     if ctx["calibrate"] and LEVER:
         pull, _rel, read = LEVER_OPS[LEVER]
         okl, whyl = _wf(g, *pull)
         st = cb.poll(g, read, 3.0, f"the calibration lever {LEVER}") or g.state
         ctx["pulled"] = LEVER if okl else None
-        led.check("S165-P1", okl and read(st), whyl or f"`worldfollow {' '.join(pull)}` pulled: levers {rest_levers(st)}")
+        led.check("S165-P1", okl and read(st) and s_ok,
+                  (whyl or f"`worldfollow {' '.join(pull)}` pulled: levers {rest_levers(st)}") + s_why)
         g.note(f"CALIBRATION: `worldfollow {' '.join(pull)}` pulled -- held through the run")
         return
-    led.check("S165-P1", *judge_rest(st))
+    r_ok, r_why = judge_rest(g.state if s_why else st)
+    led.check("S165-P1", r_ok and s_ok, r_why + s_why)
 
 
 # ---- OUT
@@ -1460,6 +1479,8 @@ def _walk_teardown(g, led: cb.Ledger, ctx) -> None:
     if ctx.sent:
         ok, why = _wf(g, "clear")
         g.note(f"`worldfollow clear` (the levers this leg sent: {ctx.sent}): {'ok' if ok else why[:160]}")
+    if getattr(ctx, "walk_set", (True, ""))[1]:
+        g.note(f"the round-B re-key's teardown: {cw.walk_clear(g)}")   # [ff9mapkit netsync s167]
     if ctx.peer is not None and ctx.peer.how_ended is None:
         g.note(f"coop_peer replay-host: {ctx.peer.stop()}")
     if "T2-SAVE" not in led.done:
@@ -1564,6 +1585,9 @@ def _walk(g, led: cb.Ledger, ctx) -> None:
         sent.append(("hold", _wf(g, "hold")))
         ctx.sent = [op for op, (ok, _w) in sent if ok]
         lever_note = "; ".join(f"`worldfollow {op}` {'sent' if ok else 'REFUSED: ' + w[:80]}" for op, (ok, w) in sent)
+        ctx.walk_set = cw.walk_off(g)                      # [ff9mapkit netsync s167] an s167 guest reads s166 (the round-B re-key)
+        if ctx.walk_set[1]:
+            lever_note += f"; {ctx.walk_set[1]}"
     g.note(lever_note)
     # F. the replay-host: the whole tape, holding at its end
     rd = cw._run_dir(g)
@@ -1600,6 +1624,7 @@ def _walk_rows(g, led: cb.Ledger, ctx, s165: bool, lever_note: str) -> None:
     before = [s for ts, s in ctx.samples if exit_at is not None and ts <= exit_at]
     on6603 = bool(before) and before[-1].ui_state == "FieldHUD" and before[-1].field_id == FARSHORE
     hold_ok = (not s165) or ("hold" in ctx.sent)
+    hold_ok = hold_ok and getattr(ctx, "walk_set", (True, ""))[0]   # [ff9mapkit netsync s167] the round-B re-key read back
     i_ok = exit_at is not None and bool(paired) and bool(armed) and on6603 and hold_ok
     led.check("S165-WK-I", i_ok, f"paired {pb.show(paired, 1)}; armed {pb.show(armed, 1)}; the host's exit "
                                  f"{'at ' + exit_at.strftime('%H:%M:%S') if exit_at else 'NEVER on the peer log'}; the guest on "
@@ -1752,6 +1777,9 @@ def run_duo(d) -> None:
         if sent:
             ok, why = _wf(d.guest, "clear")
             d.note(f"`worldfollow clear` on the guest: {'ok' if ok else why[:160]}")
+        if "walk-set" in sent:                             # [ff9mapkit netsync s167] the round-B re-key's teardown
+            for g in (d.guest, d.host):
+                d.note(f"the round-B re-key's teardown: {cw.walk_clear(g)}")
         if calibrate:
             try:
                 stage = stage_of(d.guest.state)
@@ -1778,6 +1806,12 @@ def _duo(d, check, rest, sent: list) -> None:
     stage = stage_of(gst)
     d.note(f"s165 duo: the guest reads as s{stage}, the host as s{stage_of(host.state)}")
     ok, why = _both_home(host, guest)
+    if ok:                                                 # [ff9mapkit netsync s167] THE ROUND-B RE-KEY: an s167 pair reads s166
+        for who, g in (("guest", guest), ("host", host)):
+            w_ok, w_why = cw.walk_off(g, host=who == "host")
+            if w_why:
+                sent.append("walk-set")
+                ok, why = ok and w_ok, f"{why}; the {who}'s {w_why}"
     check("S165-D0", ok, why)
     if not ok:
         rest("the pair is not on 6603 (D0)")
@@ -1847,9 +1881,11 @@ def _duo(d, check, rest, sent: list) -> None:
         reads.append(judge_dot_track(dict(cb.path(hit or guest.state, "netsync.world.dot") or {}), [hp], None))
     own1 = world_xz(guest.state)
     still = own0[0] is not None and own1[0] is not None and plain(own0, own1) < HELD_U
-    check("S165-D-DOT", all(r[0] for r in reads) and still,
+    # [ff9mapkit netsync s167] BY STAGE: "the guest's own pose unmoved (frozen)" -- on s167 frozen by the lever (a free walker who presses
+    # nothing is unmoved too)
+    check("S165-D-DOT", *cw.with_walk_key((all(r[0] for r in reads) and still,
           " | ".join(f"{'landing' if i == 0 else 'ICE_TILE'}: {r[1]}" for i, r in enumerate(reads))
-          + f"; the guest's own pose {'unmoved' if still else 'MOVED'} ({own0} -> {own1})")
+          + f"; the guest's own pose {'unmoved' if still else 'MOVED'} ({own0} -> {own1})"), guest.state))
     # D-REJOIN: the host Confirms on the tile into 300
     gbase2, gat2 = guest.state, cb.mark(guest)
     early = []

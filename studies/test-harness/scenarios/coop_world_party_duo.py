@@ -48,7 +48,12 @@ only ONE shared world return precedes the judged battle instead of four (THE SHA
   WP55-I     the instrument: the farm banked PRE_WINS wins, paired + ARMED on 6603, both frozen on 9011 (the guest), its party
              mirror landed; [ff9mapkit netsync s165] and THE REGRESSION RE-KEY -- a guest publishing `netsync.world.out` got
              `worldfollow off` + `dot off` before the host's walk out (coop_world_wait.follow_off: s165's R1 would take the mirroring
-             guest out with the host), read back, so the leg runs as s164's; an older guest is sent nothing.
+             guest out with the host), read back, so the leg runs as s164's; an older guest is sent nothing. [ff9mapkit netsync s167]
+             ...and, on an s167 pair (`netsync.world.walk`), round B's whole s166 lever set on BOTH games (follow_off's walk_off for
+             the guest, walk_off for the host: `worldwalk walk off`, `refuse silent`, `stallhold old`, `decline old`, `fp off`,
+             `minimap old`, `fullmap old`), read back, so it runs as s166's: "frozen" there also reads the walk frozen BY THE LEVER
+             (`freeze.on` stays true while a guest walks). WP-I / WP1d's unarmed guest cannot take the set (co-op off until its world
+             load) and reads the walk frozen for any why ('pairing'). No row asserts the WorldTPS / missing-caps lines' absence.
   WP55-1     paired battle 1 (the 4th win, which levels the party at its result): the guest's seated levels by name == the
              host's (green on both: the 6603 parse is still current).
   WP55-GATE  the host's levels changed between battle 1 and a later battle k (read off the HOST's own samples) -- else WP55-2 is
@@ -213,12 +218,16 @@ def host_players(hsamples) -> dict:
 
 def judge_instrument(gst, hst, armed_lines: int, *, mirroring_expected: bool = False) -> tuple:
     """(PURE) WP-I: the guest on WorldHUD 9011, peer alive, frozen, mirroring as expected (the unarmed leg: NOT), no ARMED line,
-    its own party; the host on WorldHUD 9011 with its seeded party; the two parties differ (the two-marker law)."""
+    its own party; the host on WorldHUD 9011 with its seeded party; the two parties differ (the two-marker law). [ff9mapkit netsync s167]
+    BY STAGE: `freeze.on` stays true while a guest walks (decision 13), so on an engine publishing `netsync.world.walk` "frozen" also
+    reads the walk frozen (cw.judge_walk_key) -- by the lever where the leg sent round B's s166 set (the mirror leg, through follow_off),
+    by any why where it cannot (the unarmed guest is co-op OFF until its world load: an op is refused there; it reads 'pairing')."""
     g_party, h_party = party(gst), party(hst)
+    k_ok, k_why = cw.judge_walk_key(gst, why="lever" if mirroring_expected else None) if gst is not None else (True, "")
     terms = {
         "guest WorldHUD 9011": gst is not None and gst.ui_state == "WorldHUD" and world_id(gst) == WORLD,
         "peer alive": cb.path(gst, "netsync.session.peer_alive") is True,
-        "frozen": cb.path(gst, "netsync.world.freeze.on") is True,
+        "frozen": cb.path(gst, "netsync.world.freeze.on") is True and k_ok,
         "mirroring": cb.path(gst, "netsync.session.mirroring") is mirroring_expected,
         "mirror_party": (cb.path(gst, "netsync.dress.mirror_party") is None) != mirroring_expected,
         "no ARMED line": armed_lines == 0 if not mirroring_expected else True,
@@ -232,7 +241,7 @@ def judge_instrument(gst, hst, armed_lines: int, *, mirroring_expected: bool = F
                      f"{cb.path(gst, 'netsync.session.peer_alive')!r} freeze {cb.path(gst, 'netsync.world.freeze.on')!r} mirroring "
                      f"{cb.path(gst, 'netsync.session.mirroring')!r} mirror_party {cb.path(gst, 'netsync.dress.mirror_party')!r} "
                      f"ARMED lines {armed_lines} party {g_party}; host ui {getattr(hst, 'ui_state', None)!r} world {world_id(hst)!r} "
-                     f"party {h_party}" + (f"; FAILED {bad}" if bad else ""))
+                     f"party {h_party}{k_why}" + (f"; FAILED {bad}" if bad else ""))
 
 
 def judge_seat_party(gsamples, want) -> tuple:
@@ -299,11 +308,12 @@ def judge_containment(gsamples, after, returns0) -> tuple:
     counted = isinstance(r1, int) and isinstance(returns0, int) and r1 == returns0 + 1
     back = after is not None and after.ui_state == "WorldHUD" and world_id(after) == WORLD
     own = party(after) == GUEST_PARTY
-    frozen = cb.path(after, "netsync.world.freeze.on") is True
+    k_ok, k_why = cw.judge_walk_key(after, why=None) if after is not None else (True, "")   # [ff9mapkit netsync s167] by stage
+    frozen = cb.path(after, "netsync.world.freeze.on") is True and k_ok
     ok = bool(gsamples) and not armed and not mirroring and counted and back and own and frozen
     return ok, (f"{len(gsamples)} sample(s): mirror_party set on {len(armed)}, mirroring on {len(mirroring)}; after: ui "
                 f"{getattr(after, 'ui_state', None)!r} world {world_id(after)!r}, world returns {returns0}->{r1} (want +1), party "
-                f"{party(after)} (want {GUEST_PARTY}), frozen {cb.path(after, 'netsync.world.freeze.on')!r}")
+                f"{party(after)} (want {GUEST_PARTY}), frozen {cb.path(after, 'netsync.world.freeze.on')!r}{k_why}")
 
 
 def calibration(stage_s154: bool, leg: str) -> tuple:
@@ -629,6 +639,9 @@ def _mirror(d, check, rest) -> None:
     # follow the host OUT (R1) and its own walk out below would start on the world map -- on a guest publishing `netsync.world.out` it
     # gets `worldfollow off` + `dot off` (coop_world_wait.follow_off) so this leg runs as s164's; folded into WP55-I
     rekey = cw.follow_off(guest)
+    # [ff9mapkit netsync s167] ...and round B's s166 lever set on both games (follow_off sends the guest's; walk_off the host's)
+    h_ok, h_why = cw.walk_off(host, host=True)
+    rekey = (rekey[0] and h_ok, rekey[1] + (f"; the host's {h_why}" if h_why else ""))
     d.note(rekey[1])
     ok, why, _hs = cw.walk_out(host)
     if not ok:
