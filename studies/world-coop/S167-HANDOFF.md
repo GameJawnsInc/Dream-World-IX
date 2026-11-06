@@ -1,6 +1,6 @@
 # s167 round B (the guest's free walk): handoff
 
-**Status 2026-11-05: W1 (the engine) BUILT, not deployed; W2 (the kit and the bench) running.** The design is round B of
+**Status 2026-11-06: s167 DEPLOYED as `12be3220520813a6` (revert to s166 = `20261106-031939`) and BENCHED: OLD on s166 12/12 calibrated, NEW every leg green (only S167-WR-GATE, the owner's s167 ROAM tape), LEVER 14/14 calibrated after two kit fixes; the REGRESSION set green, 38 launches (only S166-RM-GATE, the owner's s166 ROAM tape, red on the instrument as in s166's own round).** The design is round B of
 `S166-DESIGN.md` (decisions 13-25) plus decisions 27-28 (the owner, 2026-11-05: Select closes a frozen guest's minimap;
 the s165 hint stays quiet for the rest of the visit after a Select close). The live DLL is still s166 `b24e0123ac93960c`.
 
@@ -10,8 +10,8 @@ the s165 hint stays quiet for the rest of the visit after a Select close). The l
 |---|---|---|
 | Clone | `C:\gd\FFIX\Memoria` | TAKEN for s167 in the round queue (2026-11-05), verified s158..s166 (diag 60/60) before any edit |
 | W1 | recon, B-core, the walk wiring (B1-B3, the re-arm), the fingerprint / TPS / caps (B4, B5, W3A-T4, W3C-1, W3C-4), decisions 27-28 + decision 23 (B6) + B7's engine half, an adversarial review | **built, reviewed, NOT deployed**: 96 hunks over 15 files, every hunk tagged `[ff9mapkit netsync s167]`; `--no-deploy` clean; offline proof `world walk selftest: OK (532 rows, 196 mutants)` (s166: 323 / 110); the review fixed R1 (major: the full-map close before an s145 boot never ran) and R2 (minor: `walk off` still gathered the facts) |
-| W2 | the kit core (stand-in twins, coop_peer section 11 + digest, the stage pins), the round-B solo / T2 / duo legs, the regression re-keys, runners `s167/round_b_*.sh`, the kit texts (B7), a critic, the reconcile | running (`s167/s167-w2-wf.js`) |
-| Bench | OLD on s166 (before the build), the build, NEW in the design's Order, LEVER, the regression set | pending |
+| W2 | the kit core (stand-in twins, coop_peer section 11 + digest, the stage pins), the round-B solo / T2 / duo legs, the regression re-keys, runners `s167/round_b_*.sh`, the kit texts (B7), a critic, the reconcile | **done, green offline** (`675244b2`; `s167/s167-w2-wf.js`): the stand-in models every round-B rule with its faults; coop_peer carries caps 3, the digest and section 11; the legs (solo free/refuse/stale/entry/decline/tps/minimap/map, T2 walk/stallhole/hostb, the 13-row duo b) each with OLD / NEW / LEVER; every frozen-guest regression leg pulls the s166 lever set (`walk off`, `refuse silent`, `stallhold old`, `decline old`, `fp off`, `minimap old`, `fullmap old`) on an s167 build; runners `s167/round_b_*.sh`; the kit texts; final offline pass 4396 passed, 6 timing reds green alone. W2's reports: `w2_result.json` + `w2_digest.md` in the scratchpad |
+| Bench | OLD on s166 (before the build), the build, NEW in the design's Order, LEVER, the regression set | **OLD 12/12** calibrated on s166 (`20261106-030431-old`); **built + deployed `12be3220520813a6`** (backup `20261106-031939`); **NEW every leg green** (`-032012-new`: the walk 6.1 u on 9011 and 9002, the duo 25/25 -- the guest walked 26 u, its ghost on the host matched by seq 64/64, the rejoin pulled it from 538 u, a host battle booted it and returned it at its own pose; the refusal's readers confirmed in game: the location 1 / place 4, the kit cell 0, the boat 15 / 169, the ferryman 16 / 100; the minimap close and the quiet hint; the full map for a walker on 9010/9011; the fingerprint 2.4 ms + 30.7 ms per world load over 626 reads / 13.1 MB; only S167-WR-GATE red, the owner's tape); **LEVER 14/14** (`-033511-lever` 12/14, the two misses the kit's, fixed in `204455d6` and re-run green in `-040258-rerun`); **REGRESSION green** (`-040938-regress`, 38 launches, every frozen-guest leg under the s166 lever set: round A's 14 legs, s165 follow 5, s144 wait 4, s145 battle 5 + the party duo, the s131-s143 tapes 4, dress 2, climb peer, host code, ramp title; only S166-RM-GATE red, the owner-gated s166 tape on the synthetic instrument -- the same red s166's own round carried) |
 | W3 | the whole-diff review, the s167 patch emit, the README row, the laptop package, `TWO-PC-CHECKS-S167.md` | pending |
 
 **Files the s167 delta touches** (all CRLF but HarnessAgent.cs, LF; no new file): NetSyncWorldWalk.cs (+2352), NetSyncClient.cs
@@ -41,7 +41,7 @@ them).
 
 ## Next
 
-1. W2's result: read its rows table and open items.
+1. W2's open items (in `w2_digest.md`): K1's census inferences (reader ids 0/1/15/16, place codes 52/62/69/100/169, the lock bytes Map[33]/[35], the kit/boat reader order) are confirmed only by the in-game rows; unreachable by any harness verb: the refusal rows' positive controls (the ~ Release), the released guest's close-map line, the hint's display; D-BATTLE runs only in game; W-STALLHOLE's place-52 clause needs a quicksand world (9003/9009).
 2. **OLD on s166** (the live DLL, before any s167 build): `bash studies/world-coop/s167/round_b_old.sh`.
 3. Build s167 (`py tools/build_memoria.py`, FF9 closed; it backs up s166 first), then `round_b_new.sh`, `round_b_lever.sh`,
    `round_b_regress.sh`.
