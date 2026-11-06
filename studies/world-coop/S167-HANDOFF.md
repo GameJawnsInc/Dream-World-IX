@@ -43,3 +43,13 @@ them).
 2. **The ROAM tape** (S167-WR-GATE): record COOP_TAPE_WORLD_ROAM on this build (`s166-handoff/ROAM-TAPE.md`), owner-gated: the owner's bridge down and the owner's go.
 3. Unbenched until then (the design's Known limits, "Unbenched"): the ~ menu Release positive controls, the released guest's close-map line, the hint's display, place 52 on 9003/9009, two installs' fingerprints compared, the default-lever paths on a vehicle world.
 4. Polish for a later round (one change per test): HUD-1's ramp wait behind the pause screen, HUD-2's close-map predicate, N2's lever line order, P1/P2's proof binding, W3A-SAFE-1's engine close for a walk-on entrance; finding 2 of the s166 session (the ~0.8 s battle start) and finding 3 (the slow first world load).
+
+## The merge gate (2026-11-06)
+
+- Domain set before the merge (the stack-reading and co-op files, `-n 6`): 3177 passed, 3 red, 47 skipped. The three reds were
+  load timing on offline stand-ins s167 does not touch (`test_coop_world_battle.py`'s solo leg, "after 5 of its 7 calls";
+  its music `[held]` row, HF-REJOIN never on FieldHUD; `test_coop_world_walk_t2.py`'s on-distance walk, 21.6 u of a 25 u
+  floor). All six of their rows passed alone (508 s).
+- The ledger was still the 11-03 red (master `5e3a1eb6`); the 11-06 nightly was stopped during collection and left no
+  verdict. Its two reds (the same solo leg, and `test_harness.py::test_o4_rehearsal_gate_reads_the_pair_on_the_fake`)
+  pass alone on the s167 tree (= master `b84e9f74` + s167): load noise, nothing to revert.
