@@ -8,6 +8,12 @@ the options and the considerations, and ends with the owner's decisions.
 **Owner decisions answered 2026-10-31** (§15). **Build held until s164's two-PC test:** rung 0 shares
 s164's follow code and needs a wire bump, so building it now would put two changes into one in-game test.
 
+**2026-11-06: the build design is [`S168-DESIGN.md`](S168-DESIGN.md)** (rung 0 = s168, rung 1 = s169), grounded on the
+s158-s167 engine. It supersedes this study's engine anchors and three of its claims: no wire bump (the feature is wire
+v15's capability bit b3), rung 0 needs new host data (presets, AP, EXP, gil: section 12), and the line on a refused
+press is a log line today, not on screen. The owner's four further answers (refuse an unmirrored guest, close on a host
+scene, all three guest words, deploy after the s167 two-PC look) are in its "The owner's calls".
+
 Engine paths are relative to `Assembly-CSharp/` in the shared Memoria clone. **Line numbers come from that
 clone's working tree on 2026-10-30, which carries the patch stack through s163 and may carry s164 edits
 that were being built at the time.** Re-read before building.

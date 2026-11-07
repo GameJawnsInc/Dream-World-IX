@@ -299,6 +299,7 @@ direction · [[project-ff9-overworld-coast-mosaic]]'s LAW INDEX (its first ~165 
 - Battle co-op (menu, start sync, Wait, flee/defeat, cut hold, replay, guest model, leader guard) — ★★ s133-s143 built, s133-s135 owner-confirmed; next s142 → `studies/battle-coop/R3-GROUP2-BUILD.md`
 - World-map co-op (host drives; the guest follows out, walks its copy; ghosts, a dot) — ★★ s144-s145 + s165-s166 two-PC proven; s167 walk benched, two-PC next → `studies/world-coop/GUEST-FOLLOW.md`
 - Guest traversal (the guest climbs/jumps on its own copy) — ★★ R0-R3 + s157-s164 two-PC proven; queued: 14 door relay, 15 quit word → `studies/field-coop/GUEST-TRAVERSAL-TWO-PC.md`
+- Guest main menu (s168 view-only, s169 support abilities) — DESIGNED on wire v15 cap b3; s168 builds no-deploy now, deploys after the s167 two-PC look → `studies/field-coop/S168-DESIGN.md`
 - Fort Condor fit (rung 5) — data-table substrate proven on bench 30415; awaiting owner ratification
   → `studies/fort-condor/PLAN.md`
 - Tetra Master — feasibility done, near-fully data-moddable → [[project-ff9-tetra-master]] (the study dir
