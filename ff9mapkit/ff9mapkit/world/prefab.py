@@ -40,12 +40,26 @@ from pathlib import Path
 #: The catalog shipped with the kit.
 CATALOG = Path(__file__).resolve().parent / "data" / "prefabs.toml"
 #: The tables a prefab may hold: the mint and the carries measured under a shift (PREFABS.md).
-PREFAB_TABLES = ("island", "mountain", "forest", "hill")
+PREFAB_TABLES = ("island", "transplant", "mountain", "forest", "hill")
+#: The BASE a prefab stands on (exactly one, the first row): a minted island, or a walked stock carry unit placed by
+#: ``cell`` (its rect's anchor block, as an offset from the prefab's anchor). A transplant carries its stock sea WITH
+#: its stock navigation classes (nothing re-stamps them), so its fingerprint keeps them and no nav check runs.
+BASE_TABLES = ("island", "transplant")
 #: The tables whose rows take the prefab frame (P0); the forest and the hill measured identical without it.
 FRAMED_TABLES = ("island", "mountain")
 STATUSES = ("candidate", "qualified")
 BLOCK = 64.0
 _DEFAULT_REACH = 96.0
+#: THE NAV MARGIN (measured 2026-11-08): the coast-nav stamp classes a sea triangle by the ground within
+#: ``coastnav.FRINGE_R`` (16u) of its CENTROID, and every centroid of the prefab's sea lies inside the footprint, so
+#: STOCK ground within 16u outside the footprint changes the prefab's own sea bytes (anchored at (0,12), 9 Sea4 tris
+#: in the footprint's corner became near-shore 53 beside the stock land of (22,13)/(22,14); the fingerprint caught
+#: it). The stamp samples an 18u margin, but only ground within 16u of a centroid decides a class. Placement refuses
+#: such a site.
+NAV_MARGIN = 16.0
+#: The staging compose is the EXACT oracle for it (the stamp reads stock neighbours there too); a centroid sits a little
+#: inside the footprint, so ground near the margin's edge may change nothing (the (21,1) placement measured identical
+#: beside stock ground 15u out). :func:`stock_land_near` is therefore the DIAGNOSIS of a staged mismatch, not a gate.
 _FILE = re.compile(r"^Block\[(\d+)\]\[(\d+)\] (\w+)\.(ff9mesh|txt)$")
 
 
@@ -73,17 +87,21 @@ def load_catalog(path=None) -> list:
         if p.get("status") not in STATUSES:
             raise ValueError(f"{where}: status must be one of {STATUSES}")
         rows = p.get("rows") or []
-        if not rows or rows[0].get("table") != "island":
-            raise ValueError(f"{where}: the first row is the [[island]] mint the relief stands on")
-        if sum(1 for r in rows if r.get("table") == "island") != 1:
-            raise ValueError(f"{where}: one island per prefab")
-        if "seed" not in rows[0]:
+        if not rows or rows[0].get("table") not in BASE_TABLES:
+            raise ValueError(f"{where}: the first row is the base the relief stands on: one of {BASE_TABLES}")
+        if sum(1 for r in rows if r.get("table") in BASE_TABLES) != 1:
+            raise ValueError(f"{where}: one base (island or transplant) per prefab")
+        if rows[0]["table"] == "island" and "seed" not in rows[0]:
             raise ValueError(f"{where}: the island row needs its seed (the prefab frame refuses a centre-derived one)")
         for r in rows:
             if r.get("table") not in PREFAB_TABLES:
                 raise ValueError(f"{where}: table {r.get('table')!r} has not been measured under a shift; "
                                  f"a prefab holds {PREFAB_TABLES}")
-            if "center" not in r or len(r["center"]) != 2:
+            if r["table"] == "transplant":
+                if "cell" not in r or len(r["cell"]) != 2 or "donor" not in r:
+                    raise ValueError(f"{where}: a transplant row names cell = [dx, dy] (blocks from the anchor) and "
+                                     f"its donor")
+            elif "center" not in r or len(r["center"]) != 2:
                 raise ValueError(f"{where}: every row is an exact placement: center = [dx, dz] from the frame origin")
             if "near" in r or "prefab_frame" in r or "step" in r:
                 raise ValueError(f"{where}: near / prefab_frame / step are set by placement, not the catalog")
@@ -115,8 +133,11 @@ def expand(prefab: dict, cell) -> list:
     out = []
     for n, r in enumerate(prefab["rows"], start=1):
         row = {k: v for k, v in r.items()}
-        dx, dz = (float(v) for v in r["center"])
-        row["center"] = [ox + dx, oz + dz]
+        if r["table"] == "transplant":
+            row["cell"] = list(label_of(r["cell"], cell))
+        else:
+            dx, dz = (float(v) for v in r["center"])
+            row["center"] = [ox + dx, oz + dz]
         row["step"] = n
         if row["table"] in FRAMED_TABLES:
             row["prefab_frame"] = True
@@ -150,7 +171,7 @@ def read_windows(rows) -> set:
     from .mesh import GRID_ROWS, wrap_block_col
     out = set()
     for r in rows:
-        if r["table"] == "island":
+        if r["table"] in BASE_TABLES:
             continue
         cx, cz = (float(v) for v in r["center"])
         if r["table"] == "hill":
@@ -170,14 +191,30 @@ def _f32(v) -> float:
     return struct.unpack("<f", struct.pack("<f", float(v)))[0]
 
 
-def mesh_digest(path) -> str:
-    """The triangles of one ``.ff9mesh``, order-free and winding-kept (see the module docstring)."""
+#: The parts the coast-nav stamp classes (``coastnav.SEA_PARTS``) and the classes it writes (``coastnav.WATER``).
+_NAV_PARTS = ("Sea1", "Sea2", "Sea3", "Sea4", "Sea5")
+_NAV_WATER = {53, 54, 55, 56, 57}
+
+
+def mesh_digest(path, *, mask_nav: bool = False) -> str:
+    """The triangles of one ``.ff9mesh``, order-free and winding-kept (see the module docstring). ``mask_nav`` blanks
+    the navigation class of every water vertex (tangent.x bits 2-7 when they hold a water topograph): THE NAV MARGIN
+    makes those classes a function of the SITE (stock land within 16u), so the catalog names the land without them and
+    :func:`nav_settled` checks them against the stamp at each site instead."""
     from .mesh import read_ff9mesh
     m = read_ff9mesh(path)
     V, U, T, N, I = m["verts"], m["uvs"], m["tangents"], m["normals"], m["indices"]
 
+    def tan(i):
+        t = [_f32(c) for c in T[i]]
+        if mask_nav:
+            ix = int(round(t[0]))
+            if ((ix & 0xFC) >> 2) in _NAV_WATER:
+                t[0] = float(ix & ~0xFC)
+        return tuple(t)
+
     def corner(i):
-        return (tuple(_f32(c) for c in V[i]) + tuple(_f32(c) for c in U[i]) + tuple(_f32(c) for c in T[i])
+        return (tuple(_f32(c) for c in V[i]) + tuple(_f32(c) for c in U[i]) + tan(i)
                 + tuple(round(_f32(c), 6) + 0.0 for c in N[i]))
     tris = []
     for k in range(0, len(I) - len(I) % 3, 3):
@@ -208,36 +245,105 @@ def written_blocks(mod_root, disc: int = 1) -> set:
     return out
 
 
-def fingerprint(mod_root, cell, blocks) -> str:
-    """One hash over every disc-1 override file at ``blocks`` (wrapped labels), keyed by the block's offset from
-    ``cell`` and the part: meshes by :func:`mesh_digest`, sidecars (``Donor.txt``) by their bytes."""
+def fingerprint(mod_root, cell, blocks, *, disc: int = 1, mask_nav: bool = True) -> str:
+    """One hash over every override file of disc ``disc`` at ``blocks`` (wrapped labels), keyed by the block's offset
+    from ``cell`` and the part: meshes by :func:`mesh_digest` (the sea parts with their navigation classes masked),
+    sidecars (``Donor.txt``) by their bytes. The catalog names disc 1's; a placement's disc-4 copy must hash the same
+    (the mirror copies open-ocean cells verbatim)."""
     rows = []
     for label in sorted(blocks):
         rel = rel_block(label, cell)
-        for p in _block_files(mod_root, label):
-            part = _FILE.match(p.name)[3] + "." + _FILE.match(p.name)[4]
-            dig = mesh_digest(p) if p.suffix == ".ff9mesh" else hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in _block_files(mod_root, label, disc):
+            name = _FILE.match(p.name)[3]
+            part = name + "." + _FILE.match(p.name)[4]
+            dig = (mesh_digest(p, mask_nav=mask_nav and name in _NAV_PARTS) if p.suffix == ".ff9mesh"
+                   else hashlib.sha256(p.read_bytes()).hexdigest())
             rows.append(f"{rel[0]},{rel[1]}|{part}|{dig}")
     return hashlib.sha256("\n".join(sorted(rows)).encode()).hexdigest()
+
+
+def nav_settled(mod_folder, blocks, *, disc: int = 1, policy: str = "land-anywhere", game=None) -> dict:
+    """The coast-nav stamp's own verdict on ``blocks``' sea, read-only: ``{}`` when every water vertex already holds
+    the class the stamp would write AT THIS SITE (its stock neighbours included), else ``{class: vertex count}``
+    still to change. The fingerprint masks these classes; this is what keeps them honest."""
+    from . import coastnav as CN
+    out = CN.stamp(str(mod_folder), disc=disc, cells=sorted(blocks), policy=policy, deploy=False, game=game)
+    return dict(out.get("totals") or {})
 
 
 # ---------------------------------------------------------------- the clear window
 def window_blockers(prefab: dict, cell, mod_root, *, stack=None) -> dict:
     """Why the target cannot stand for the staging folder: ``{"target": {label, ...}, "stack": {folder: {label}}}``,
     empty sets when the window is clear. ``stack`` = the install's FolderNames roots (other folders are judged on
-    the footprint only: the relief verbs read the target folder alone)."""
+    the footprint only: the relief verbs read the target folder alone). Both disc trees count: a placement writes
+    disc 4 too (the auto-mirror), so land already there is as much in the way as disc 1's."""
     rows = expand(prefab, cell)
     foot = {label_of(r, cell) for r in prefab.get("footprint") or ()}
-    want = foot | read_windows(rows)
-    have = written_blocks(mod_root)
+    want = foot | _ring(foot) | read_windows(rows)          # the ring: the nav stamp reads 34u past the footprint
+    have = written_blocks(mod_root, 1) | written_blocks(mod_root, 4)
     out = {"target": want & have, "stack": {}}
     for root in stack or ():
         if Path(root).resolve() == Path(mod_root).resolve():
             continue
-        hit = foot & written_blocks(root)
+        hit = foot & (written_blocks(root, 1) | written_blocks(root, 4))
         if hit:
             out["stack"][Path(root).name] = hit
     return out
+
+
+def _ring(labels) -> set:
+    """The blocks touching ``labels`` (8-neighbourhood, x wrapped, rows kept on the map), minus ``labels``."""
+    from .mesh import GRID_ROWS, wrap_block_col
+    out = set()
+    for bx, by in labels:
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if 0 <= by + dy < GRID_ROWS:
+                    out.add((wrap_block_col(bx + dx), by + dy))
+    return out - set(labels)
+
+
+def _dist_to_blocks(x: float, z: float, labels) -> float:
+    """Plan distance from world ``(x, z)`` to the nearest block square of ``labels`` (x on the torus)."""
+    best = math.inf
+    for bx, by in labels:
+        x0, z1 = BLOCK * bx, -BLOCK * by                      # the square is x0..x0+64, z1-64..z1
+        dx = abs((x - (x0 + BLOCK / 2) + 768.0) % 1536.0 - 768.0) - BLOCK / 2
+        dz = abs(z - (z1 - BLOCK / 2)) - BLOCK / 2
+        best = min(best, math.hypot(max(dx, 0.0), max(dz, 0.0)))
+    return best
+
+
+def stock_land_near(prefab: dict, cell, *, game=None, discs=(1, 4)) -> set:
+    """The ring blocks (wrapped labels) holding STOCK ground within :data:`NAV_MARGIN` of the footprint, on any of
+    ``discs`` (disc 4 receives disc 1's stamped sea as a copy, so its own nearby land must not differ either).
+
+    It asks the coast-nav stamp's OWN ground query (``coastnav._query_top`` over a stock-only loader: the engine's
+    up-facing filter and IDALL skip set) at the stamp's own 2u sample grid, so it sees exactly the ground the stamp
+    would. A first version counted every non-water triangle and refused sites whose identity measured clean."""
+    from . import coastnav as CN
+    foot = {label_of(r, cell) for r in prefab.get("footprint") or ()}
+    hit = set()
+    for disc in discs:
+        loader = CN._Loader("__ff9mapkit_stock_only__", disc, game)
+        for label in sorted(_ring(foot) - hit):
+            x0, z1 = BLOCK * label[0], -BLOCK * label[1]
+            found = False
+            for i in range(int(BLOCK / CN.STEP_G) + 1):
+                x = x0 + i * CN.STEP_G
+                for j in range(int(BLOCK / CN.STEP_G) + 1):
+                    z = z1 - j * CN.STEP_G
+                    if _dist_to_blocks(x, z, foot) > NAV_MARGIN:
+                        continue
+                    g = CN._query_top(loader, x, z)
+                    if g is not None and g[1] not in CN.WATER:
+                        found = True
+                        break
+                if found:
+                    break
+            if found:
+                hit.add(label)
+    return hit
 
 
 def check_rows_on_map(prefab: dict, cell) -> None:
@@ -261,6 +367,17 @@ def _compose(mod_folder, rows, *, game, skip_mirror: bool, dry_run: bool = False
     return out
 
 
+def stamped_nav(prefab: dict) -> bool:
+    """Whether the prefab's sea navigation is STAMPED at placement (a minted island: site-dependent, masked in the
+    fingerprint and checked by :func:`nav_settled`) rather than carried (a transplant: stock bytes, fingerprinted)."""
+    return prefab["rows"][0]["table"] == "island" and prefab["rows"][0].get("coastnav", True) is not False
+
+
+def nav_policy(prefab: dict) -> str:
+    """The landability policy the prefab's island row stamps its sea with."""
+    return str(prefab["rows"][0].get("coastnav_policy", "land-anywhere"))
+
+
 def stage(prefab: dict, cell, *, game=None) -> dict:
     """Compose the prefab on ``cell`` in a fresh staging folder (outside the install, nothing mirrored) and return
     ``{"fingerprint", "footprint" (relative, sorted), "blocks" (labels)}``. The folder is removed afterwards."""
@@ -268,8 +385,10 @@ def stage(prefab: dict, cell, *, game=None) -> dict:
     try:
         _compose(tmp, expand(prefab, cell), game=game, skip_mirror=True)
         labels = written_blocks(tmp)
-        return {"fingerprint": fingerprint(tmp, cell, labels),
-                "footprint": sorted(rel_block(b, cell) for b in labels), "blocks": sorted(labels)}
+        stamped = stamped_nav(prefab)
+        return {"fingerprint": fingerprint(tmp, cell, labels, mask_nav=stamped),
+                "footprint": sorted(rel_block(b, cell) for b in labels), "blocks": sorted(labels),
+                "nav": nav_settled(tmp, labels, policy=nav_policy(prefab), game=game) if stamped else {}}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -309,18 +428,42 @@ def place(name: str, cell, mod_folder, *, game=None, dry_run: bool = False, skip
         raise PrefabRefused(f"prefab {name!r} staged on {cell} covers {staged['footprint']}, the catalog says "
                             f"{sorted(tuple(b) for b in prefab['footprint'])}: IDENTITY BROKEN, nothing written")
     if staged["fingerprint"] != prefab["fingerprint"]:
+        near = stock_land_near(prefab, cell, game=game)
+        why = (f"stock land within {NAV_MARGIN:g}u of the footprint at {sorted(near)} -- THE NAV MARGIN: the coast-nav "
+               f"stamp classes the prefab's own sea against it, so this site cannot carry the walked bytes; pick a "
+               f"site in open water" if near else
+               "a verb it rides changed its bytes (no stock land is near, so this is a regression to find)")
         raise PrefabRefused(f"prefab {name!r} staged on {cell} is NOT the land its catalog entry names "
-                            f"(fingerprint {staged['fingerprint'][:12]} vs {prefab['fingerprint'][:12]}): IDENTITY "
-                            f"BROKEN -- a verb it rides changed its bytes; nothing written")
-    log(f"staged on {cell}: identical to the catalog ({len(staged['blocks'])} blocks)")
+                            f"(fingerprint {staged['fingerprint'][:12]} vs {prefab['fingerprint'][:12]}): {why}; "
+                            f"nothing written", near)
+    if staged["nav"]:
+        raise PrefabRefused(f"prefab {name!r} staged on {cell} leaves sea the coast-nav stamp would still re-class "
+                            f"({staged['nav']}): its navigation is not settled for this site; nothing written")
+    log(f"staged on {cell}: identical to the catalog ({len(staged['blocks'])} blocks), navigation settled")
     if dry_run:
         return report
     rows = expand(prefab, cell)
     _compose(mod_root, rows, game=game, skip_mirror=skip_mirror)
-    report["written"] = fingerprint(mod_root, cell, staged["blocks"])
+    stamped = stamped_nav(prefab)
+    report["written"] = fingerprint(mod_root, cell, staged["blocks"], mask_nav=stamped)
     if report["written"] != prefab["fingerprint"]:
         raise PrefabRefused(f"prefab {name!r} was WRITTEN into {mod_folder} but its bytes there are not the staged "
                             f"ones (fingerprint {report['written'][:12]}): IDENTITY BROKEN after the write -- undo it "
                             f"through the draft (World tab) or the files' ledger, never by hand copy")
-    log(f"placed {name!r} on block {cell}: {len(staged['blocks'])} blocks, identical to the catalog")
+    left = nav_settled(mod_root, staged["blocks"], policy=nav_policy(prefab), game=game) if stamped else {}
+    if left:
+        raise PrefabRefused(f"prefab {name!r} was WRITTEN into {mod_folder} but the coast-nav stamp would still re-class "
+                            f"its sea there ({left}) -- undo it through the draft or the ledger, never by hand copy")
+    if not skip_mirror:
+        # THE DISC-4 HALF (deep dive C14): the player sees disc 4's copy from scenario 11090 on. The mirror copies an
+        # open-ocean cell verbatim, so the copy must name the same land; a held-back or replayed cell does not.
+        report["written_disc4"] = fingerprint(mod_root, cell, staged["blocks"], disc=4, mask_nav=stamped)
+        if report["written_disc4"] != prefab["fingerprint"]:
+            raise PrefabRefused(f"prefab {name!r} was written on disc 1 as the catalog names it, but its DISC-4 copy "
+                                f"in {mod_folder} is other land (fingerprint {report['written_disc4'][:12]}): the "
+                                f"mirror held a cell back or replayed it on disc 4's own ground. Disc 4 (scenario "
+                                f"11090+) would show a different or missing island -- undo through the draft or the "
+                                f"ledger, never by hand copy")
+    log(f"placed {name!r} on block {cell}: {len(staged['blocks'])} blocks, identical to the catalog"
+        + ("" if skip_mirror else " on disc 1 and disc 4"))
     return report

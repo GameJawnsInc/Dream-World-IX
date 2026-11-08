@@ -41,16 +41,17 @@ def test_the_shipped_catalog_is_well_formed_and_fingerprinted():
         assert p["status"] in PF.STATUSES
         assert len(p["fingerprint"]) == 64 and p["footprint"], p["name"]
         assert all(r["table"] in PF.PREFAB_TABLES for r in p["rows"])
+        assert p["rows"][0]["table"] in PF.BASE_TABLES
 
 
 @pytest.mark.parametrize("rows, why", [
     ('[[prefab.rows]]\ntable = "island"\ncenter = [32.0, 32.0]\n', "needs its seed"),
     ('[[prefab.rows]]\ntable = "forest"\ncenter = [1.0, 1.0]\n', "first row is the"),
-    (_ISL + '[[prefab.rows]]\ntable = "transplant"\ncenter = [1.0, 1.0]\n', "not been measured"),
+    (_ISL + '[[prefab.rows]]\ntable = "river"\ncenter = [1.0, 1.0]\n', "not been measured"),
     (_ISL + '[[prefab.rows]]\ntable = "forest"\ncenter = [1.0, 1.0]\nprefab_frame = true\n', "set by placement"),
     (_ISL + '[[prefab.rows]]\ntable = "forest"\nnear = [1.0, 1.0]\ncenter = [1.0, 1.0]\n', "set by placement"),
     (_ISL + '[[prefab.rows]]\ntable = "hill"\n', "exact placement"),
-    (_ISL + _ISL, "one island"),
+    (_ISL + _ISL, "one base"),
 ])
 def test_the_catalog_refuses_what_a_prefab_cannot_hold(tmp_path, rows, why):
     with pytest.raises(ValueError, match=why):
@@ -79,6 +80,23 @@ def test_expand_shifts_by_whole_blocks_and_frames_only_the_tables_that_take_it()
     assert set(doc) == {"island", "mountain", "forest"} and "table" not in doc["island"][0]
 
 
+_TP = '[[prefab.rows]]\ntable = "transplant"\ncell = [1, 0]\ndonor = [9, 5]\nsize = [2, 3]\nrot = 90\n'
+_FOREST = '[[prefab.rows]]\ntable = "forest"\ncenter = [52.0, 20.0]\n'
+
+
+def test_a_transplant_base_is_placed_by_cell_and_carries_its_navigation(tmp_path):
+    p = PF.load_catalog(_catalog(tmp_path, _entry(_TP + _FOREST)))[0]
+    rows = PF.expand(p, (23, 4))
+    assert rows[0]["cell"] == [0, 4] and "prefab_frame" not in rows[0]          # the anchor's +1 column wraps
+    assert rows[1]["center"] == [64.0 * 23 + 52.0, -64.0 * 5 + 20.0]
+    assert not PF.stamped_nav(p) and PF.stamped_nav({"rows": [dict(ISLAND)]})
+    assert not PF.stamped_nav({"rows": [dict(ISLAND, coastnav=False)]})
+    with pytest.raises(ValueError, match="names cell"):
+        PF.load_catalog(_catalog(tmp_path, _entry('[[prefab.rows]]\ntable = "transplant"\ndonor = [9, 5]\n')))
+    with pytest.raises(ValueError, match="one base"):
+        PF.load_catalog(_catalog(tmp_path, _entry(_TP + _ISL)))
+
+
 def test_block_offsets_fold_across_the_x_seam():
     assert PF.rel_block((0, 5), (23, 4)) == (1, 1)
     assert PF.rel_block((23, 5), (0, 4)) == (-1, 1)
@@ -98,7 +116,7 @@ def test_read_windows_follow_each_verb_s_reach():
 
 
 # ---------------------------------------------------------------- the fingerprint
-def _mesh(path, tris, *, nrm=(0.0, 1.0, 0.0), uv=(0.25, 0.5)):
+def _mesh(path, tris, *, nrm=(0.0, 1.0, 0.0), uv=(0.25, 0.5), tan_x=12.0, mask_nav=False):
     pos, nr, uvs, tan, flat, t_out = [], [], [], [], [], []
     for tri in tris:
         base = len(pos)
@@ -106,7 +124,7 @@ def _mesh(path, tris, *, nrm=(0.0, 1.0, 0.0), uv=(0.25, 0.5)):
             pos.append(list(c))
             nr.append(list(nrm))
             uvs.append([uv[0] + c[0] / 64.0, uv[1]])
-            tan.append([12.0, 0.0, 0.0, 1.0])
+            tan.append([float(tan_x), 0.0, 0.0, 1.0])
             flat.append(len(pos) - 1)
         t_out.append([base, base + 1, base + 2])
     bm = BlockMesh(name="Block[0][0] Terrain", disc=1, x=0, y=0, lod="0_1", vcount=len(pos), stride=48,
@@ -114,7 +132,7 @@ def _mesh(path, tris, *, nrm=(0.0, 1.0, 0.0), uv=(0.25, 0.5)):
                    chan_arrays={CH_POS: pos, CH_NRM: nr, CH_UV: uvs, CH_TAN: tan},
                    flat_index=flat, tris=t_out, raw_vbuf=b"", raw_ibuf=b"", use32=True, submeshes=[])
     M.write_ff9mesh(bm, path)
-    return PF.mesh_digest(path)
+    return PF.mesh_digest(path, mask_nav=mask_nav)
 
 
 T1 = [(0.0, 3.0, 0.0), (8.0, 3.0, 0.0), (0.0, 3.0, -8.0)]
@@ -129,6 +147,17 @@ def test_the_digest_ignores_vertex_order_and_normal_noise_but_keeps_winding_and_
     assert _mesh(tmp_path / "e.ff9mesh", [T1[::-1], T2]) != base                    # flipped winding = other land
     assert _mesh(tmp_path / "f.ff9mesh", [T1, T2], uv=(0.25, 0.75)) != base          # other tiles
     assert _mesh(tmp_path / "g.ff9mesh", [T1, [(8.0, 3.5, 0.0)] + T2[1:]]) != base   # a moved vertex
+
+
+def test_the_nav_mask_blanks_only_the_water_class(tmp_path):
+    """THE NAV MARGIN: a water vertex's class (topograph 53-57 in tangent.x bits 2-7) depends on the site, so the
+    masked digest ignores it -- and nothing else: the unmasked digest sees it, and a non-water class still counts."""
+    def sea(n, t, **kw):
+        return _mesh(tmp_path / f"{n}.ff9mesh", [T1, T2], tan_x=t, **kw)
+    assert sea("a", 57 << 2, mask_nav=True) == sea("b", 53 << 2, mask_nav=True)
+    assert sea("c", 57 << 2) != sea("d", 53 << 2)
+    assert sea("e", (57 << 2) | 1, mask_nav=True) != sea("f", (57 << 2) | 2, mask_nav=True)   # other bits kept
+    assert sea("g", 17 << 2, mask_nav=True) != sea("h", 16 << 2, mask_nav=True)               # ground classes kept
 
 
 def _put(root, label, part="Terrain.ff9mesh", data=b"x"):
@@ -168,7 +197,9 @@ def fake(tmp_path, monkeypatch):
     monkeypatch.setattr(PF, "_compose", lambda folder, rows, **kw: composed.append((str(folder), rows)))
     monkeypatch.setattr(PF, "stage", lambda prefab, cell, game=None: {
         "fingerprint": "f" * 64, "footprint": sorted(tuple(b) for b in FOOT),
-        "blocks": sorted(PF.label_of(b, cell) for b in FOOT)})
+        "blocks": sorted(PF.label_of(b, cell) for b in FOOT), "nav": {}})
+    monkeypatch.setattr(PF, "nav_settled", lambda *a, **k: {})
+    monkeypatch.setattr(PF, "stock_land_near", lambda *a, **k: set())
     return {"game": game, "cat": cat, "composed": composed}
 
 
@@ -178,7 +209,7 @@ def _place(fake, cell=(10, 9), **kw):
 
 
 def test_a_clear_window_places_and_fingerprints_what_it_wrote(fake, monkeypatch):
-    monkeypatch.setattr(PF, "fingerprint", lambda root, cell, blocks: "f" * 64)
+    monkeypatch.setattr(PF, "fingerprint", lambda root, cell, blocks, **kw: "f" * 64)
     rep = _place(fake)
     assert rep["written"] == "f" * 64 and len(fake["composed"]) == 1
     assert fake["composed"][0][1][0]["center"] == [64.0 * 10 + 32.0, -64.0 * 10 + 32.0]
@@ -207,14 +238,64 @@ def test_another_folder_in_the_stack_refuses_only_on_the_footprint(fake):
 
 def test_a_broken_identity_refuses_before_the_write(fake, monkeypatch):
     monkeypatch.setattr(PF, "stage", lambda prefab, cell, game=None: {
-        "fingerprint": "0" * 64, "footprint": sorted(tuple(b) for b in FOOT), "blocks": []})
-    with pytest.raises(PF.PrefabRefused, match="IDENTITY BROKEN"):
+        "fingerprint": "0" * 64, "footprint": sorted(tuple(b) for b in FOOT), "blocks": [], "nav": {}})
+    with pytest.raises(PF.PrefabRefused, match="regression to find"):
         _place(fake)
     assert not fake["composed"]
 
 
+def test_a_staged_mismatch_beside_stock_land_names_the_nav_margin(fake, monkeypatch):
+    monkeypatch.setattr(PF, "stage", lambda prefab, cell, game=None: {
+        "fingerprint": "0" * 64, "footprint": sorted(tuple(b) for b in FOOT), "blocks": [], "nav": {}})
+    monkeypatch.setattr(PF, "stock_land_near", lambda *a, **k: {(8, 10)})
+    with pytest.raises(PF.PrefabRefused, match="NAV MARGIN") as e:
+        _place(fake)
+    assert e.value.where == [(8, 10)] and not fake["composed"]
+
+
+def test_unsettled_navigation_refuses_before_and_after_the_write(fake, monkeypatch):
+    monkeypatch.setattr(PF, "stage", lambda prefab, cell, game=None: {
+        "fingerprint": "f" * 64, "footprint": sorted(tuple(b) for b in FOOT),
+        "blocks": sorted(PF.label_of(b, cell) for b in FOOT), "nav": {53: 27}})
+    with pytest.raises(PF.PrefabRefused, match="not settled"):
+        _place(fake)
+    assert not fake["composed"]
+    monkeypatch.setattr(PF, "stage", lambda prefab, cell, game=None: {
+        "fingerprint": "f" * 64, "footprint": sorted(tuple(b) for b in FOOT),
+        "blocks": sorted(PF.label_of(b, cell) for b in FOOT), "nav": {}})
+    monkeypatch.setattr(PF, "fingerprint", lambda root, cell, blocks, **kw: "f" * 64)
+    monkeypatch.setattr(PF, "nav_settled", lambda *a, **k: {53: 3})
+    with pytest.raises(PF.PrefabRefused, match="re-class its sea there"):
+        _place(fake)
+
+
+def test_the_disc_4_copy_must_name_the_same_land(fake, monkeypatch):
+    """Deep dive C14: placement writes disc 4 too (the auto-mirror), so its copy is fingerprinted as well."""
+    seen = []
+
+    def fp(root, cell, blocks, *, disc=1, **kw):
+        seen.append(disc)
+        return "f" * 64 if disc == 1 else "4" * 64
+    monkeypatch.setattr(PF, "fingerprint", fp)
+    with pytest.raises(PF.PrefabRefused, match="DISC-4 copy"):
+        _place(fake)
+    assert seen == [1, 4]
+    seen.clear()
+    assert _place(fake, skip_mirror=True)["written"] == "f" * 64 and seen == [1]   # no mirror, nothing to check
+
+
+def test_kit_land_in_the_footprint_ring_refuses(fake, tmp_path):
+    """The nav stamp classes the prefab's sea against ground 16u past its footprint, so the target's own land in the
+    ring blocks is in the way even when no relief row reads there (an island-only prefab)."""
+    bare = _catalog(tmp_path, _entry(_ISL, name="isle", fingerprint="f" * 64, footprint=FOOT))
+    _put(fake["game"] / "Target", (12, 11))
+    with pytest.raises(PF.PrefabRefused, match="already holds land") as e:
+        PF.place("isle", (10, 9), "Target", catalog=bare, stack=(), log=lambda *a: None)
+    assert e.value.where == [(12, 11)]
+
+
 def test_a_broken_identity_after_the_write_is_reported_loudly(fake, monkeypatch):
-    monkeypatch.setattr(PF, "fingerprint", lambda root, cell, blocks: "0" * 64)
+    monkeypatch.setattr(PF, "fingerprint", lambda root, cell, blocks, **kw: "0" * 64)
     with pytest.raises(PF.PrefabRefused, match="after the write"):
         _place(fake)
 
@@ -243,11 +324,28 @@ def _install():
     pytest.skip(why)
 
 
+def test_the_nav_margin_diagnosis_sees_the_stock_land_that_changed_the_sea():
+    """Measured 2026-11-08: anchored at (0,12) the desert-peak isle's corner sea re-classed beside (22,13)/(22,14);
+    at the seam anchor (23,5) nothing is near and the staged land matched the catalog."""
+    _install()
+    p = PF.get("desert-peak-isle")
+    assert PF.stock_land_near(p, (0, 12)) == {(22, 13), (22, 14)}
+    assert PF.stock_land_near(p, (23, 5)) == set()
+
+
+def test_a_carry_unit_prefab_stages_to_its_catalog_fingerprint():
+    _install()
+    p = PF.get("terminus-pair")
+    st = PF.stage(p, (1, 2))
+    assert st["fingerprint"] == p["fingerprint"] and st["nav"] == {}
+
+
 def test_the_meadow_prefab_stages_to_its_catalog_fingerprint():
     _install()
     p = PF.get("meadow-grove-isle")
-    st = PF.stage(p, (2, 17))
+    st = PF.stage(p, (0, 16))                     # across the x seam AND beside stock land (the nav margin)
     assert st["fingerprint"] == p["fingerprint"] and st["footprint"] == sorted(tuple(b) for b in p["footprint"])
+    assert st["nav"] == {}
 
 
 def test_the_desert_peak_prefab_places_for_real_far_from_where_it_was_fingerprinted(tmp_path):

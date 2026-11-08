@@ -5799,6 +5799,11 @@ def _cmd_world_prefab(args: argparse.Namespace) -> int:
             st = PF.stage(prefab, cell, game=args.game)
             print(f"fingerprint = \"{st['fingerprint']}\"")
             print("footprint = [" + ", ".join(f"[{a}, {b}]" for a, b in st["footprint"]) + "]")
+            print("navigation: " + ("carried with the stock sea (fingerprinted)" if not PF.stamped_nav(prefab)
+                                    else "settled (the coast-nav stamp would change nothing)" if not st["nav"]
+                                    else f"NOT settled -- the stamp would still re-class {st['nav']}"))
+            if st["nav"]:
+                return 1
             if prefab.get("fingerprint"):
                 same = st["fingerprint"] == prefab["fingerprint"]
                 print("the catalog entry: " + ("IDENTICAL" if same else "DIFFERENT -- the catalog names other land"))
